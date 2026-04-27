@@ -3,14 +3,17 @@
  *
  * The engine extracts each character cell from the displayed screen bank and
  * compares it against a prioritised font list. Cell layout is configurable
- * (8×8 standard, 5×8 for CP/M Plus 51-column, 4×8 for Tasword 64-column…)
- * and the engine reads from the bank the ULA actually displays — not the
- * paged Z80 view — so it stays correct under +3 special paging.
+ * (8×8 standard, 5×8 CP/M Plus 51-column, 4×8 Tasword 64-column…) and the
+ * engine reads from the bank the ULA actually displays — not the paged Z80
+ * view — so it stays correct under +3 special paging.
  *
  * Font sources, in order of preference:
- *   1. CHARS sysvar font (only meaningful for the standard 8-wide grid)
- *   2. 48K ROM font (only meaningful for the standard 8-wide grid)
- *   3. Heuristic font detection scanning all RAM banks (non-8-wide grids)
+ *   1. CHARS sysvar font (8-wide only — pointer at BASIC sysvar 0x5C36)
+ *   2. 48K ROM font (8-wide only — checked against the screen first)
+ *   3. Heuristic scan across all RAM banks AND ROM pages, locating a 768-byte
+ *      window whose glyphs explain the screen. Cached per grid (positive and
+ *      negative). Falls back here for the 8-wide path too — covers the +3
+ *      boot menu's editor font, which lives in ROM.
  *   4. Extra fonts from the fonts pane
  */
 
@@ -39,12 +42,19 @@ export const OCR_GRIDS: Record<OcrGridName, OcrConfig> = {
 
 /** A font source for OCR matching.
  *  `data` is always 768 bytes (96 chars × 8 bytes). For non-8-wide cells only
- *  the upper `cellWidth` bits of each byte are significant. */
+ *  `cellWidth` bits of each byte are significant.
+ *
+ *  `bitOffset` is the number of zero bits to the LEFT of the glyph in each
+ *  font byte: 0 means glyph is MSB-aligned (top of byte); a value of N means
+ *  the font byte must be left-shifted by N before comparing with a screen
+ *  glyph (e.g. Tasword 64 stores 4-pixel glyphs in bits 3-0, so bitOffset=4). */
 export interface FontSource {
   label: string;
   data: Uint8Array;
   /** Cell width the font was authored for (defaults to 8). */
   cellWidth?: number;
+  /** Glyph left-shift inside each font byte (defaults to 0 = MSB-aligned). */
+  bitOffset?: number;
 }
 
 /** OCR result. */
@@ -88,6 +98,27 @@ function escapeHtml(ch: string): string {
 /** Bitmap mask covering the upper `cellWidth` bits of an 8-bit byte. */
 function bitMaskFor(cellWidth: number): number {
   return cellWidth >= 8 ? 0xFF : (0xFF << (8 - cellWidth)) & 0xFF;
+}
+
+/** Cached `Object.keys(OCR_GRIDS)` — used in tight per-frame loops. */
+const OCR_GRID_KEYS: readonly OcrGridName[] = Object.keys(OCR_GRIDS) as OcrGridName[];
+
+/** Shared scratch buffer for a single 8-byte glyph. Reused across all OCR
+ *  helpers — calls aren't concurrent (single-threaded JS, synchronous calls). */
+const scratchGlyph = new Uint8Array(8);
+
+/** 32-bit FNV-1a hash over `len` bytes of `g`. Used as a fast Set/Map key in
+ *  hot paths instead of stringifying the bytes. Collisions just mean two
+ *  unequal glyphs share a bucket — for OCR's tile-uniqueness counting that
+ *  rounds the unique count down by ≤1 per collision, which doesn't change
+ *  grid selection. */
+function hashGlyph(g: Uint8Array, len: number): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < len; i++) {
+    h ^= g[i];
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
 }
 
 /** Compare two 768-byte fonts. */
@@ -140,9 +171,12 @@ export function extractCellGlyph(
 /**
  * Try to match an extracted glyph against all printable codes in a font.
  * Tries the normal glyph first, then inverted (paper-on-ink).
+ * `bitOffset` left-shifts each font byte before masking — used when the font
+ * stores its glyphs right-aligned in the byte (e.g. Tasword 4-pixel chars in
+ * bits 3-0 need bitOffset=4 to bring them up to bits 7-4).
  */
 function matchGlyph(
-  glyph: Uint8Array, font: Uint8Array, cellH: number, mask: number,
+  glyph: Uint8Array, font: Uint8Array, cellH: number, mask: number, bitOffset = 0,
 ): string {
   for (let invertPass = 0; invertPass < 2; invertPass++) {
     const invert = invertPass === 1;
@@ -151,7 +185,8 @@ function matchGlyph(
       const fb = (c - 32) << 3;
       let match = true;
       for (let p = 0; p < cellH; p++) {
-        const expect = invert ? ((font[fb + p] ^ 0xFF) & mask) : (font[fb + p] & mask);
+        const shifted = (font[fb + p] << bitOffset) & 0xFF;
+        const expect = invert ? (shifted ^ mask) & mask : shifted & mask;
         if (glyph[p] !== expect) { match = false; break; }
       }
       if (match) return charForCode(c);
@@ -173,16 +208,16 @@ function isBlankGlyph(glyph: Uint8Array, cellH: number): boolean {
  */
 function validateFontAgainstScreen(
   screenBank: Uint8Array, fontData: Uint8Array, config: OcrConfig, threshold: number,
+  bitOffset = 0,
 ): boolean {
-  const glyph = new Uint8Array(8);
   const cellH = config.cellHeight;
   const mask = bitMaskFor(config.cellWidth);
   let matchCount = 0;
   for (let r = 0; r < config.rows; r++) {
     for (let c = 0; c < config.cols; c++) {
-      extractCellGlyph(screenBank, c, r, config, glyph);
-      if (isBlankGlyph(glyph, cellH)) continue;
-      if (matchGlyph(glyph, fontData, cellH, mask)) {
+      extractCellGlyph(screenBank, c, r, config, scratchGlyph);
+      if (isBlankGlyph(scratchGlyph, cellH)) continue;
+      if (matchGlyph(scratchGlyph, fontData, cellH, mask, bitOffset)) {
         if (++matchCount >= threshold) return true;
       }
     }
@@ -190,160 +225,144 @@ function validateFontAgainstScreen(
   return false;
 }
 
-/**
- * Heuristic: pick the cell grid that produces the highest tile-repetition rate.
- *
- * For each candidate grid, slice the screen into tiles, count unique non-blank
- * tiles, and compute `unique / nonBlank`. The grid whose tiles align with the
- * actual text rendering will reuse the same glyph for every occurrence of a
- * character (e.g. one bitmap for every 'e' on screen) → low ratio. Misaligned
- * grids slice character bitmaps into mishmash chunks that mostly differ from
- * cell to cell → high ratio.
- *
- * Lowest ratio wins. Ties prefer the wider grid (stricter alignment is more
- * informative). Returns '32x24' if all grids have too few non-blank cells.
- */
-/** Module-level debounce key — only emits a `[OCR] grid` log line when the
- *  picked grid or score class changes, so per-frame calls don't spam. */
+/** Debounce key — only emits a `[OCR] grid` log when the picked grid changes. */
 let lastGridLogKey = '';
 /** Force the next detectGrid call to emit its log line. Reset on activate(). */
 let forceGridLog = false;
 function resetGridLog(): void { lastGridLogKey = ''; forceGridLog = true; }
 
+/**
+ * Pick the cell grid that explains the screen with the fewest distinct tiles.
+ *
+ * For each candidate grid, slice the screen and count unique non-blank tiles.
+ * The grid whose cells align with how the program rendered text reuses the
+ * same glyph bitmap for every occurrence of each character → low unique
+ * count. Misaligned grids slice characters into mishmash chunks that mostly
+ * differ → high unique count. Ratios were considered first but biased toward
+ * narrow grids (4-pixel halves of unrelated 8-pixel chars often coincide);
+ * absolute counts dodge that bias.
+ *
+ * Tie-break (within ±1 unique tile) prefers the wider cellWidth — stricter
+ * alignment is more informative. Returns '32x24' if all grids have <4
+ * non-blank cells (effectively blank screen).
+ */
 export function detectGrid(screenBank: Uint8Array, bankLabel = ''): OcrGridName {
   const tag = bankLabel ? ` [${bankLabel}]` : '';
-  const grids = Object.keys(OCR_GRIDS) as OcrGridName[];
 
-  type GridStat = { unique: number; nonBlank: number };
-  const stats = new Map<OcrGridName, GridStat>();
+  const uniques: number[] = new Array(OCR_GRID_KEYS.length);
+  const nonBlanks: number[] = new Array(OCR_GRID_KEYS.length);
+  let maxNonBlank = 0;
 
-  const tmp = new Uint8Array(8);
-  for (const key of grids) {
-    const config = OCR_GRIDS[key];
+  for (let gi = 0; gi < OCR_GRID_KEYS.length; gi++) {
+    const config = OCR_GRIDS[OCR_GRID_KEYS[gi]];
     const cellH = config.cellHeight;
-    const seen = new Set<string>();
+    const seen = new Set<number>();
     let nonBlank = 0;
     for (let r = 0; r < config.rows; r++) {
       for (let c = 0; c < config.cols; c++) {
-        extractCellGlyph(screenBank, c, r, config, tmp);
-        if (isBlankGlyph(tmp, cellH)) continue;
+        extractCellGlyph(screenBank, c, r, config, scratchGlyph);
+        if (isBlankGlyph(scratchGlyph, cellH)) continue;
         nonBlank++;
-        seen.add(tmp.subarray(0, cellH).join(','));
+        seen.add(hashGlyph(scratchGlyph, cellH));
       }
     }
-    stats.set(key, { unique: seen.size, nonBlank });
+    uniques[gi] = seen.size;
+    nonBlanks[gi] = nonBlank;
+    if (nonBlank > maxNonBlank) maxNonBlank = nonBlank;
   }
 
-  // Need at least a handful of non-blank cells in some grid to make a call.
-  let maxNonBlank = 0;
-  for (const s of stats.values()) maxNonBlank = Math.max(maxNonBlank, s.nonBlank);
   if (maxNonBlank < 4) {
     if (forceGridLog) {
-      console.log(
-        `[OCR] detect grid${tag} → 32x24 (default; only ${maxNonBlank} non-blank cells across all grids — screen blank)`,
-      );
+      console.log(`[OCR] detect grid${tag} → 32x24 (screen blank — ${maxNonBlank} non-blank cells)`);
       forceGridLog = false;
       lastGridLogKey = '32x24:sparse';
     }
     return '32x24';
   }
 
-  // Lowest unique/nonBlank ratio = highest tile repetition = best alignment.
-  // Tie-break: prefer wider cellWidth (stricter alignment).
-  let best: OcrGridName = '32x24';
-  let bestRatio = Infinity;
-  for (const key of grids) {
-    const s = stats.get(key)!;
-    if (s.nonBlank < 4) continue;
-    const ratio = s.unique / s.nonBlank;
-    const wider = OCR_GRIDS[key].cellWidth > OCR_GRIDS[best].cellWidth;
-    if (ratio < bestRatio - 0.005 || (Math.abs(ratio - bestRatio) <= 0.005 && wider)) {
-      bestRatio = ratio;
-      best = key;
+  let bestIdx = 0;
+  let bestUnique = Infinity;
+  for (let gi = 0; gi < OCR_GRID_KEYS.length; gi++) {
+    if (nonBlanks[gi] < 4) continue;
+    const u = uniques[gi];
+    const wider = OCR_GRIDS[OCR_GRID_KEYS[gi]].cellWidth
+                > OCR_GRIDS[OCR_GRID_KEYS[bestIdx]].cellWidth;
+    if (u < bestUnique - 1 || (Math.abs(u - bestUnique) <= 1 && wider)) {
+      bestUnique = u;
+      bestIdx = gi;
     }
   }
+  const best = OCR_GRID_KEYS[bestIdx];
 
-  const logKey = `${best}:${bestRatio.toFixed(3)}`;
+  const logKey = `${best}:${bestUnique}`;
   if (forceGridLog || logKey !== lastGridLogKey) {
     forceGridLog = false;
     lastGridLogKey = logKey;
-    const breakdown = grids.map(g => {
-      const s = stats.get(g)!;
-      const pct = s.nonBlank > 0 ? Math.round((s.unique / s.nonBlank) * 100) : 0;
-      return `${g}: ${s.unique}/${s.nonBlank}=${pct}%`;
-    }).join('  ');
-    console.log(`[OCR] detect grid${tag} → ${best} (lower% wins) — ${breakdown}`);
+    const breakdown = OCR_GRID_KEYS.map((g, gi) =>
+      `${g}: ${uniques[gi]} unique / ${nonBlanks[gi]} nonblank`,
+    ).join('  ·  ');
+    console.log(`[OCR] detect grid${tag} → ${best} (fewest unique tiles wins) — ${breakdown}`);
   }
   return best;
 }
 
 /**
- * Search all RAM banks for a 768-byte font that explains the on-screen glyphs.
+ * Search every RAM bank and ROM page for a 768-byte font that explains the
+ * on-screen glyphs.
  *
  * Strategy:
- * 1. Build a set of unique non-blank glyphs visible on the screen (capped at 128).
- * 2. Walk every byte-aligned 768-byte window across all RAM banks, prefiltered by
- *    "first 8 bytes are zero" (space at code 0x20) plus "at least one capital
- *    letter slot is non-zero".
- * 3. Score each window by the fraction of unique on-screen glyphs that match
- *    any character entry (normal or inverted). Abort early at score ≥ 0.95.
- * 4. Return the best-scoring window if score ≥ 0.5, else null.
+ *   1. Build a set of unique non-blank on-screen glyphs (capped at 128).
+ *   2. For each candidate bitOffset (0..8-cellWidth — the font may store
+ *      glyphs MSB-aligned or right-shifted in the byte; Tasword 64 uses 4),
+ *      walk every byte-aligned 768-byte window across all banks. Prefilter:
+ *      first 8 bytes zero (space at code 0x20) AND at least one capital-letter
+ *      slot non-zero.
+ *   3. Score each window by the fraction of unique on-screen glyphs that
+ *      match any printable code (normal or inverted) at that bitOffset.
+ *      Abort early at score ≥ 0.95.
+ *   4. Return the best-scoring window if score ≥ 0.3, else null.
  *
- * Cost is bounded by `banks × bankSize × uniqueGlyphs × 96` worst-case, but the
- * prefilter eliminates the vast majority of windows immediately.
+ * Cost is dominated by the prefilter sweep; only a tiny fraction of windows
+ * pass and need scoring.
  */
-export function detectFontFromRam(
-  ramBanks: readonly Uint8Array[], screenBank: Uint8Array, config: OcrConfig,
-): FontSource | null {
-  const cellH = config.cellHeight;
-  const mask = bitMaskFor(config.cellWidth);
-  const cellW = config.cellWidth;
+/** One pass of the bank scan at a fixed `bitOffset`. */
+interface ScanResult {
+  bestScore: number;
+  bestBankIndex: number;
+  bestOffset: number;
+  windowsScanned: number;
+  windowsScored: number;
+  earlyExit: boolean;
+}
 
-  // Build histogram of unique on-screen glyphs (as comma-joined strings).
-  const glyphMap = new Map<string, Uint8Array>();
-  let totalCells = 0;
-  let blankCells = 0;
-  const tmp = new Uint8Array(8);
-  outer: for (let r = 0; r < config.rows; r++) {
-    for (let c = 0; c < config.cols; c++) {
-      totalCells++;
-      extractCellGlyph(screenBank, c, r, config, tmp);
-      if (isBlankGlyph(tmp, cellH)) { blankCells++; continue; }
-      const key = tmp.subarray(0, cellH).join(',');
-      if (!glyphMap.has(key)) glyphMap.set(key, tmp.slice(0, cellH));
-      if (glyphMap.size >= 128) break outer;
-    }
-  }
-  console.log(
-    `[OCR] font scan ${cellW}×${cellH}: ${blankCells}/${totalCells} blank cells `
-    + `(space anchor), ${glyphMap.size} unique non-blank glyphs to anchor on`,
-  );
-  if (glyphMap.size < 4) {
-    console.log(`[OCR] font scan: aborting — need ≥4 unique glyphs, got ${glyphMap.size}`);
-    return null;
-  }
-
-  const uniqueGlyphs = Array.from(glyphMap.values());
-
+function scanBanksAtOffset(
+  banks: readonly Uint8Array[],
+  uniqueGlyphs: Uint8Array[],
+  cellH: number,
+  mask: number,
+  bitOffset: number,
+): ScanResult {
   let bestScore = 0;
-  let bestData: Uint8Array | null = null;
-  let bestLabel = '';
+  let bestBankIndex = -1;
+  let bestOffset = -1;
   let windowsScanned = 0;
   let windowsScored = 0;
+  let earlyExit = false;
 
-  const aOff = (0x41 - 0x20) * 8;
-  const zOff = (0x5A - 0x20) * 8 + 8;
+  const aSlot = (0x41 - 0x20) * 8;        // 'A' offset within a 768-byte font
+  const zSlotEnd = (0x5A - 0x20) * 8 + 8; // end of 'Z'
 
-  outerScan: for (let bi = 0; bi < ramBanks.length; bi++) {
-    const bank = ramBanks[bi];
+  outerScan: for (let bi = 0; bi < banks.length; bi++) {
+    const bank = banks[bi];
     const limit = bank.length - 768;
     for (let off = 0; off <= limit; off++) {
       windowsScanned++;
+      // Prefilter: 8 zero bytes for the space glyph at code 0x20.
       if (bank[off] | bank[off + 1] | bank[off + 2] | bank[off + 3]
         | bank[off + 4] | bank[off + 5] | bank[off + 6] | bank[off + 7]) continue;
-
+      // Prefilter: any non-zero byte in the capital-letter slots A..Z.
       let hasLetter = false;
-      for (let i = aOff; i < zOff; i++) {
+      for (let i = aSlot; i < zSlotEnd; i++) {
         if (bank[off + i]) { hasLetter = true; break; }
       }
       if (!hasLetter) continue;
@@ -355,14 +374,18 @@ export function detectFontFromRam(
         for (let c = 33; c < 128 && !found; c++) {
           if (c === 0x5F) continue;
           const fb = off + ((c - 32) << 3);
+          // Try normal then inverted within the same character slot — early
+          // out as soon as one orientation matches.
           let m = true;
           for (let p = 0; p < cellH; p++) {
-            if ((bank[fb + p] & mask) !== g[p]) { m = false; break; }
+            const shifted = (bank[fb + p] << bitOffset) & 0xFF;
+            if ((shifted & mask) !== g[p]) { m = false; break; }
           }
           if (m) { found = true; break; }
           m = true;
           for (let p = 0; p < cellH; p++) {
-            if (((bank[fb + p] ^ 0xFF) & mask) !== g[p]) { m = false; break; }
+            const shifted = (bank[fb + p] << bitOffset) & 0xFF;
+            if (((shifted ^ mask) & mask) !== g[p]) { m = false; break; }
           }
           if (m) found = true;
         }
@@ -371,32 +394,93 @@ export function detectFontFromRam(
       const score = matches / uniqueGlyphs.length;
       if (score > bestScore) {
         bestScore = score;
-        bestData = bank.slice(off, off + 768);
-        bestLabel = `RAM bank ${bi} @${off.toString(16).padStart(4, '0')}`;
-        if (score >= 0.95) {
-          console.log(
-            `[OCR] font scan: early exit at ${bestLabel} — ${matches}/${uniqueGlyphs.length} glyphs `
-            + `(${(score * 100).toFixed(0)}%); ${windowsScored}/${windowsScanned} windows scored`,
-          );
-          break outerScan;
-        }
+        bestBankIndex = bi;
+        bestOffset = off;
+        if (score >= 0.95) { earlyExit = true; break outerScan; }
       }
     }
   }
+  return { bestScore, bestBankIndex, bestOffset, windowsScanned, windowsScored, earlyExit };
+}
 
+export function detectFontFromRam(
+  banks: readonly Uint8Array[], screenBank: Uint8Array, config: OcrConfig,
+): FontSource | null {
+  const cellH = config.cellHeight;
+  const cellW = config.cellWidth;
+  const mask = bitMaskFor(cellW);
+
+  // Build a histogram of unique non-blank on-screen glyphs.
+  const glyphMap = new Map<string, Uint8Array>();
+  let totalCells = 0;
+  let blankCells = 0;
+  outer: for (let r = 0; r < config.rows; r++) {
+    for (let c = 0; c < config.cols; c++) {
+      totalCells++;
+      extractCellGlyph(screenBank, c, r, config, scratchGlyph);
+      if (isBlankGlyph(scratchGlyph, cellH)) { blankCells++; continue; }
+      const key = scratchGlyph.subarray(0, cellH).join(',');
+      if (!glyphMap.has(key)) glyphMap.set(key, scratchGlyph.slice(0, cellH));
+      if (glyphMap.size >= 128) break outer;
+    }
+  }
   console.log(
-    `[OCR] font scan: ${windowsScanned} windows total, ${windowsScored} passed prefilter (space + letters), `
-    + `best: ${bestLabel || '(none)'} ${(bestScore * 100).toFixed(0)}%`,
+    `[OCR] font scan ${cellW}×${cellH}: ${blankCells}/${totalCells} blank cells (space anchor), `
+    + `${glyphMap.size} unique non-blank glyphs to anchor on`,
+  );
+  if (glyphMap.size < 4) {
+    console.log(`[OCR] font scan: aborting — need ≥4 unique glyphs, got ${glyphMap.size}`);
+    return null;
+  }
+  const uniqueGlyphs = Array.from(glyphMap.values());
+
+  // Try bit offsets 0..(8-cellWidth). The font may pack glyphs left-aligned
+  // (offset 0) or right-aligned (e.g. Tasword 64's 4-pixel glyphs in bits
+  // 3-0 → offset 4). 8-wide grids have only one alignment to try.
+  const maxOffset = Math.max(0, 8 - cellW);
+  let bestScore = 0;
+  let bestBankIndex = -1;
+  let bestOffset = -1;
+  let bestBitOffset = 0;
+  let totalScanned = 0;
+  let totalScored = 0;
+
+  for (let bitOffset = 0; bitOffset <= maxOffset; bitOffset++) {
+    const r = scanBanksAtOffset(banks, uniqueGlyphs, cellH, mask, bitOffset);
+    totalScanned += r.windowsScanned;
+    totalScored += r.windowsScored;
+    const lbl = r.bestBankIndex < 0 ? '(none)'
+      : `bank ${r.bestBankIndex} @${r.bestOffset.toString(16).padStart(4, '0')}`;
+    console.log(
+      `[OCR] font scan: bitOffset=${bitOffset} ⇒ best ${lbl} `
+      + `${(r.bestScore * 100).toFixed(0)}% (${r.windowsScored} windows scored)`,
+    );
+    if (r.bestScore > bestScore) {
+      bestScore = r.bestScore;
+      bestBankIndex = r.bestBankIndex;
+      bestOffset = r.bestOffset;
+      bestBitOffset = bitOffset;
+    }
+    if (r.earlyExit) break;
+  }
+
+  const bestLabel = bestBankIndex < 0 ? '(none)'
+    : `bank ${bestBankIndex} @${bestOffset.toString(16).padStart(4, '0')}`;
+  console.log(
+    `[OCR] font scan summary: ${totalScanned} windows total, ${totalScored} passed prefilter, `
+    + `best ${bestLabel} bitOffset=${bestBitOffset} ${(bestScore * 100).toFixed(0)}%`,
   );
 
-  if (bestScore >= 0.5 && bestData) {
+  if (bestScore >= 0.3 && bestBankIndex >= 0) {
+    const data = banks[bestBankIndex].slice(bestOffset, bestOffset + 768);
     return {
-      label: `${bestLabel} (${(bestScore * 100).toFixed(0)}%)`,
-      data: bestData,
-      cellWidth: config.cellWidth,
+      label: `${bestLabel} bitOffset=${bestBitOffset} (${(bestScore * 100).toFixed(0)}%)`,
+      data,
+      cellWidth: cellW,
+      bitOffset: bestBitOffset,
     };
   }
-  console.log(`[OCR] font scan: rejected — best score ${(bestScore * 100).toFixed(0)}% < 50% threshold`);
+  console.log(`[OCR] font scan: rejected — best score ${(bestScore * 100).toFixed(0)}% < 30% threshold`);
   return null;
 }
 
@@ -410,15 +494,21 @@ export class ScreenText {
   active = false;
   private lastLogKey = '';
 
-  /** Cached RAM-detected font, keyed by grid cellWidth. Invalidated when a call
-   *  with the cached font yields zero matches against the current screen. */
-  private cachedRamFont: Map<number, FontSource> = new Map();
+  /** Cached scanned font per grid cellWidth. A `null` entry is a NEGATIVE
+   *  cache: "we already scanned and found nothing", so don't re-scan. Cleared
+   *  on activate() / grid change / explicit invalidate. */
+  private cachedRamFont: Map<number, FontSource | null> = new Map();
+
+  /** Cached grid choice. Re-validated cheaply each call against the current
+   *  screen; full 3-grid detection only runs when validation fails. */
+  private cachedGrid: OcrGridName | null = null;
 
   activate(): void {
     if (this.active) return;
     this.active = true;
     this.lastLogKey = '';
     this.cachedRamFont.clear();
+    this.cachedGrid = null;
     resetGridLog();
     console.log('[OCR] activated');
   }
@@ -428,26 +518,43 @@ export class ScreenText {
     this.active = false;
     this.lastLogKey = '';
     this.cachedRamFont.clear();
+    this.cachedGrid = null;
     console.log('[OCR] deactivated');
   }
 
-  /** Drop the cached RAM-detected font for the given grid (or all grids). */
+  /** Drop the cached scanned font for the given grid (or all grids). */
   invalidateFontCache(cellWidth?: number): void {
     if (cellWidth === undefined) this.cachedRamFont.clear();
     else this.cachedRamFont.delete(cellWidth);
   }
 
   /**
+   * Pick the cell grid for `screenBank`. `detectGrid` is cheap enough (~3500
+   * cell extracts) to run per call; we cache the choice mainly so we know
+   * when the grid changes and can drop the per-grid font cache.
+   */
+  detectAndCacheGrid(screenBank: Uint8Array, bankLabel = ''): OcrGridName {
+    const grid = detectGrid(screenBank, bankLabel);
+    if (grid !== this.cachedGrid) {
+      this.cachedRamFont.clear();
+      this.cachedGrid = grid;
+    }
+    return grid;
+  }
+
+  /**
    * Build the prioritised font list for a given grid configuration.
    *
-   * For 8-wide cells the legacy CHARS-sysvar + ROM-font path is used (matches
-   * standard ZX BASIC programs). For narrower cells a RAM scan locates the
-   * active font heuristically (CP/M Plus, Tasword, …) — cached per grid.
+   * Strategy:
+   *  1. CHARS sysvar (8-wide only — pointer at 0x5C36 in BASIC sysvars)
+   *  2. 48K ROM font (8-wide only — always available)
+   *  3. Heuristic scan across ALL banks (RAM + ROM pages), cached per grid.
+   *     Negative result is also cached so repeated calls don't re-scan.
    */
   private buildFonts(
     screenBank: Uint8Array,
     cpuMem: Uint8Array | null,
-    ramBanks: readonly Uint8Array[] | null,
+    memBanks: readonly Uint8Array[] | null,
     romFont: Uint8Array,
     config: OcrConfig,
     extraFonts?: FontSource[],
@@ -455,7 +562,7 @@ export class ScreenText {
     const fonts: FontSource[] = [];
 
     if (config.cellWidth === 8) {
-      // 1. CHARS sysvar (only when CPU memory is available)
+      // 1. CHARS sysvar
       if (cpuMem) {
         const charsAddr = cpuMem[0x5C36] | (cpuMem[0x5C37] << 8);
         const charsFontStart = charsAddr + 256;
@@ -468,27 +575,38 @@ export class ScreenText {
           }
         }
       }
-      // 2. 48K ROM font
-      if (fonts.length === 0 || !fontsEqual(fonts[0].data, romFont)) {
-        fonts.push({ label: 'ROM font', data: romFont });
-      }
-    } else if (ramBanks) {
-      // Non-8-wide: heuristic scan, cached per grid until it fails.
-      let ramFont = this.cachedRamFont.get(config.cellWidth);
-      if (ramFont && !validateFontAgainstScreen(screenBank, ramFont.data, config, 4)) {
-        console.log(`[OCR] cached font for ${config.cellWidth}×${config.cellHeight} no longer matches — re-scanning`);
-        this.cachedRamFont.delete(config.cellWidth);
-        ramFont = undefined;
-      }
-      if (!ramFont) {
-        const detected = detectFontFromRam(ramBanks, screenBank, config);
-        if (detected) {
-          ramFont = detected;
-          this.cachedRamFont.set(config.cellWidth, detected);
-          console.log(`[OCR] using font: ${detected.label}`);
+      // 2. 48K ROM font (only if it actually has matches on screen)
+      if (validateFontAgainstScreen(screenBank, romFont, config, 10)) {
+        if (fonts.length === 0 || !fontsEqual(fonts[0].data, romFont)) {
+          fonts.push({ label: 'ROM font', data: romFont });
         }
       }
-      if (ramFont) fonts.push(ramFont);
+    }
+
+    // 3. Heuristic memory scan as fallback (or primary for non-8 grids).
+    //    Cached per cellWidth — both positive (FontSource) and negative
+    //    (null = "already scanned, found nothing") so we don't churn.
+    if (memBanks && fonts.length === 0) {
+      const cellW = config.cellWidth;
+      let entry = this.cachedRamFont.get(cellW);
+
+      // Drop a stale positive cache if it no longer matches the screen.
+      if (entry && !validateFontAgainstScreen(
+        screenBank, entry.data, config, 4, entry.bitOffset ?? 0,
+      )) {
+        console.log(`[OCR] cached font for ${cellW}×${config.cellHeight} no longer matches — re-scanning`);
+        this.cachedRamFont.delete(cellW);
+        entry = undefined;
+      }
+
+      // No cache entry at all → run a scan; cache the result (positive or null).
+      if (!this.cachedRamFont.has(cellW)) {
+        entry = detectFontFromRam(memBanks, screenBank, config);
+        this.cachedRamFont.set(cellW, entry);
+        if (entry) console.log(`[OCR] using font: ${entry.label}`);
+      }
+
+      if (entry) fonts.push(entry);
     }
 
     if (extraFonts) for (const ef of extraFonts) fonts.push(ef);
@@ -505,7 +623,7 @@ export class ScreenText {
   ): string | null {
     if (isBlankGlyph(glyph, cellH)) return ' ';
     for (let fi = 0; fi < fonts.length; fi++) {
-      const ch = matchGlyph(glyph, fonts[fi].data, cellH, mask);
+      const ch = matchGlyph(glyph, fonts[fi].data, cellH, mask, fonts[fi].bitOffset ?? 0);
       if (ch) { hits[fi]++; return ch; }
     }
     return null;
@@ -529,8 +647,8 @@ export class ScreenText {
    * `active` flag).
    *
    * @param screenBank 16KB displayed bank (bitmap @0x0000, attrs @0x1800)
-   * @param cpuMem     Paged 64K view, used only for CHARS-sysvar font detection
-   * @param ramBanks   All RAM banks, used only for non-8-wide font detection
+   * @param cpuMem     Paged 64K view — only used for CHARS-sysvar font detection
+   * @param memBanks   All RAM banks + ROM pages — used by the heuristic font scan
    * @param romFont    768-byte font from the 48K BASIC ROM
    * @param config     Cell-grid configuration
    * @param extraFonts Additional fonts from the fonts pane
@@ -538,23 +656,22 @@ export class ScreenText {
   ocr(
     screenBank: Uint8Array,
     cpuMem: Uint8Array | null,
-    ramBanks: readonly Uint8Array[] | null,
+    memBanks: readonly Uint8Array[] | null,
     romFont: Uint8Array,
     config: OcrConfig,
     extraFonts?: FontSource[],
   ): string {
-    const fonts = this.buildFonts(screenBank, cpuMem, ramBanks, romFont, config, extraFonts);
+    const fonts = this.buildFonts(screenBank, cpuMem, memBanks, romFont, config, extraFonts);
     if (fonts.length === 0) return '';
     const hits = new Uint32Array(fonts.length);
     const cellH = config.cellHeight;
     const mask = bitMaskFor(config.cellWidth);
-    const glyph = new Uint8Array(8);
     let text = '';
 
     for (let row = 0; row < config.rows; row++) {
       for (let col = 0; col < config.cols; col++) {
-        extractCellGlyph(screenBank, col, row, config, glyph);
-        text += this.matchCellFromFonts(glyph, fonts, cellH, mask, hits) ?? ' ';
+        extractCellGlyph(screenBank, col, row, config, scratchGlyph);
+        text += this.matchCellFromFonts(scratchGlyph, fonts, cellH, mask, hits) ?? ' ';
       }
       if (row < config.rows - 1) text += '\n';
     }
@@ -574,7 +691,7 @@ export class ScreenText {
   ocrStyled(
     screenBank: Uint8Array,
     cpuMem: Uint8Array | null,
-    ramBanks: readonly Uint8Array[] | null,
+    memBanks: readonly Uint8Array[] | null,
     romFont: Uint8Array,
     palette: Uint32Array,
     flash: boolean,
@@ -582,40 +699,39 @@ export class ScreenText {
     extraFonts?: FontSource[],
   ): OcrResult {
     const config = OCR_GRIDS[grid];
-    const empty: OcrResult = {
-      text: '', html: '', mask: [],
-      grid,
-      cellWidth: config.cellWidth, cellHeight: config.cellHeight,
-      cols: config.cols, rows: config.rows,
-    };
-    const fonts = this.buildFonts(screenBank, cpuMem, ramBanks, romFont, config, extraFonts);
-    if (fonts.length === 0) return empty;
-
-    const hits = new Uint32Array(fonts.length);
-    const css: string[] = [];
-    for (let i = 0; i < 16; i++) css.push(abgrToHex(palette[i]));
-
     const cellW = config.cellWidth;
     const cellH = config.cellHeight;
+    const fonts = this.buildFonts(screenBank, cpuMem, memBanks, romFont, config, extraFonts);
+    if (fonts.length === 0) {
+      return {
+        text: '', html: '', mask: [],
+        grid, cellWidth: cellW, cellHeight: cellH,
+        cols: config.cols, rows: config.rows,
+      };
+    }
+
+    const hits = new Uint32Array(fonts.length);
+    const css: string[] = new Array(16);
+    for (let i = 0; i < 16; i++) css[i] = abgrToHex(palette[i]);
+
     const mask = bitMaskFor(cellW);
     const xOffset = config.xOffset ?? 0;
-    const glyph = new Uint8Array(8);
+    const yOffset = config.yOffset ?? 0;
+    const cellMask: boolean[] = new Array(config.cols * config.rows);
     let text = '';
     let html = '';
-    const cellMask: boolean[] = new Array(config.cols * config.rows);
     let spanOpen = false;
     let curInk = -1;
 
     for (let row = 0; row < config.rows; row++) {
-      // Map this OCR row to the closest 8-pixel attribute row.
-      const pixelY = row * cellH + (config.yOffset ?? 0);
-      const attrRow = Math.min(23, Math.max(0, pixelY >> 3));
+      // Attributes are byte-aligned (8x8); for non-8 grids several cells share one.
+      const attrRow = Math.min(23, Math.max(0, (row * cellH + yOffset) >> 3));
       const attrBase = 0x1800 + attrRow * 32;
 
       for (let col = 0; col < config.cols; col++) {
         const idx = row * config.cols + col;
-        extractCellGlyph(screenBank, col, row, config, glyph);
-        const ch = this.matchCellFromFonts(glyph, fonts, cellH, mask, hits);
+        extractCellGlyph(screenBank, col, row, config, scratchGlyph);
+        const ch = this.matchCellFromFonts(scratchGlyph, fonts, cellH, mask, hits);
         text += ch ?? ' ';
         cellMask[idx] = ch !== null;
 
@@ -640,22 +756,13 @@ export class ScreenText {
         }
       }
       if (spanOpen) { html += '</span>'; spanOpen = false; curInk = -1; }
-      text += row < config.rows - 1 ? '\n' : '';
-      html += row < config.rows - 1 ? '\n' : '';
-    }
-
-    // Auto-invalidate cache: if non-8-wide grid produced zero matches, drop the cache.
-    if (config.cellWidth !== 8) {
-      let totalHits = 0;
-      for (let i = 0; i < hits.length; i++) totalHits += hits[i];
-      if (totalHits === 0) this.cachedRamFont.delete(config.cellWidth);
+      if (row < config.rows - 1) { text += '\n'; html += '\n'; }
     }
 
     this.logHits(fonts, hits);
     return {
       text, html, mask: cellMask,
-      grid,
-      cellWidth: cellW, cellHeight: cellH,
+      grid, cellWidth: cellW, cellHeight: cellH,
       cols: config.cols, rows: config.rows,
     };
   }

@@ -879,7 +879,7 @@ export class Spectrum {
 
   ocrScreen(extraFonts?: FontSource[], grid: OcrGridName = '32x24'): string {
     return this.screenText.ocr(
-      this.memory.screenBank, this.memory.snapshot(), this.allRamBanks(),
+      this.memory.screenBank, this.memory.snapshot(), this.allMemBanks(),
       this.romFont, OCR_GRIDS[grid], extraFonts,
     );
   }
@@ -890,18 +890,21 @@ export class Spectrum {
   ): OcrResult {
     const screenBankIdx = (this.memory.port7FFD & 0x08) ? 7 : 5;
     const resolved: OcrGridName = grid === 'auto'
-      ? detectGrid(this.memory.screenBank, `bank ${screenBankIdx}`) : grid;
+      ? this.screenText.detectAndCacheGrid(this.memory.screenBank, `bank ${screenBankIdx}`)
+      : grid;
     return this.screenText.ocrStyled(
-      this.memory.screenBank, this.memory.snapshot(), this.allRamBanks(),
+      this.memory.screenBank, this.memory.snapshot(), this.allMemBanks(),
       this.romFont, this.ula.palette, this.ula.flashState,
       resolved, extraFonts,
     );
   }
 
-  /** All 8 RAM banks — handed to OCR for heuristic font detection. */
-  private allRamBanks(): readonly Uint8Array[] {
+  /** All RAM banks + ROM pages — handed to OCR's heuristic font scan so it
+   *  can find fonts that live in ROM (e.g. the +3 boot menu's editor font). */
+  private allMemBanks(): readonly Uint8Array[] {
     const banks: Uint8Array[] = [];
     for (let i = 0; i < 8; i++) banks.push(this.memory.getRamBank(i));
+    for (const rom of this.memory.romPages) banks.push(rom);
     return banks;
   }
 
