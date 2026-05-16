@@ -335,8 +335,8 @@ function compressBlock(src: Uint8Array): { data: Uint8Array; compressed: boolean
     if (byte === 0xED) {
       // Look ahead to see if next byte is also ED
       if (i + 1 < src.length && src[i + 1] === 0xED) {
-        // Literal ED ED sequence - encode as ED ED 01 ED
-        out.push(0xED, 0xED, 0x01, 0xED);
+        // Literal ED ED sequence - encode as ED ED 02 ED
+        out.push(0xED, 0xED, 0x02, 0xED);
         i += 2;
         continue;
       }
