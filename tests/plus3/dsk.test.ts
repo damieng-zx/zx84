@@ -635,6 +635,417 @@ describe('parseDSK — diskFormat detection on standard images', () => {
 
 // ── Protection detection on standard images ────────────────────────────────
 
+// ── Extended DSK (EXTENDED CPC DSK File) — original EDSK only ──────────────
+//
+// Original EDSK by John Elliott / CPCEMU. Differences from standard:
+//   1. DIB magic is "EXTENDED CPC DSK File\\r\\nDisk-Info\\r\\n"
+//   2. DIB 0x32-0x33 is unused; per-track size table at 0x34 (one byte per
+//      track, multiplied by 256 = track size in bytes; zero = unformatted)
+//   3. SIB bytes 6-7 (little-endian word) hold the ACTUAL sector data length,
+//      authoritative when non-zero — this enables mixed sector sizes per
+//      track and "short sectors" used by copy protection.
+//
+// This block does NOT cover Simon Owen's v5 weak-sector / multiple-copy
+// extension (sibDataLen > 128<<N). That's handled separately.
+
+interface ExtendedSectorSpec {
+  c?: number;
+  h?: number;
+  r: number;
+  n: number;           // size code (authoritative for SIB byte 3)
+  dataLen?: number;    // actual stored length (bytes 6-7); 0 → fallback to 128<<N
+  st1?: number;
+  st2?: number;
+  data?: Uint8Array;
+}
+
+interface ExtendedTrackSpec {
+  cyl: number;
+  side: number;
+  sectors: ExtendedSectorSpec[];
+  gap3?: number;
+  filler?: number;
+  /** Optional override: total track size in bytes (must be multiple of 256). */
+  trackSizeBytes?: number;
+  unformatted?: boolean;
+}
+
+function buildExtendedDSK(opts: {
+  numTracks: number;
+  numSides: number;
+  tracks: ExtendedTrackSpec[];
+  creator?: string;
+}): Uint8Array {
+  const writeAscii = (buf: Uint8Array, off: number, s: string) => {
+    for (let i = 0; i < s.length; i++) buf[off + i] = s.charCodeAt(i);
+  };
+
+  // Compute per-track size in bytes (rounded up to a 256-byte multiple).
+  const totalTracks = opts.numTracks * opts.numSides;
+  const trackSizes: number[] = new Array(totalTracks).fill(0);
+  for (const tr of opts.tracks) {
+    if (tr.unformatted) continue;
+    const idx = tr.cyl * opts.numSides + tr.side;
+    if (tr.trackSizeBytes !== undefined) {
+      trackSizes[idx] = tr.trackSizeBytes;
+    } else {
+      let dataBytes = 0;
+      for (const s of tr.sectors) {
+        const actual = s.dataLen ?? (128 << s.n);
+        dataBytes += actual;
+      }
+      trackSizes[idx] = Math.ceil((256 + dataBytes) / 256) * 256;
+    }
+  }
+
+  const fileSize = 256 + trackSizes.reduce((a, b) => a + b, 0);
+  const buf = new Uint8Array(fileSize);
+
+  // Disk Information Block.
+  writeAscii(buf, 0, 'EXTENDED CPC DSK File\r\nDisk-Info\r\n');
+  if (opts.creator) writeAscii(buf, 0x22, opts.creator.slice(0, 14));
+  buf[0x30] = opts.numTracks;
+  buf[0x31] = opts.numSides;
+  // 0x32-0x33 unused in extended format.
+  for (let i = 0; i < totalTracks; i++) {
+    buf[0x34 + i] = trackSizes[i] / 256;
+  }
+
+  // Tracks.
+  let offset = 256;
+  for (let t = 0; t < opts.numTracks; t++) {
+    for (let s = 0; s < opts.numSides; s++) {
+      const idx = t * opts.numSides + s;
+      const size = trackSizes[idx];
+      if (size === 0) continue;
+
+      const spec = opts.tracks.find((tr) => tr.cyl === t && tr.side === s);
+      if (!spec || spec.unformatted) { offset += size; continue; }
+
+      writeAscii(buf, offset, 'Track-Info\r\n');
+      buf[offset + 0x10] = spec.cyl;
+      buf[offset + 0x11] = spec.side;
+      buf[offset + 0x14] = spec.sectors[0]?.n ?? 2;
+      buf[offset + 0x15] = spec.sectors.length;
+      buf[offset + 0x16] = spec.gap3 ?? 0x4E;
+      buf[offset + 0x17] = spec.filler ?? 0xE5;
+
+      const filler = spec.filler ?? 0xE5;
+      let dataOff = offset + 0x100;
+      for (let i = 0; i < spec.sectors.length; i++) {
+        const sec = spec.sectors[i];
+        const sib = offset + 0x18 + i * 8;
+        const actualLen = sec.dataLen ?? (128 << sec.n);
+        buf[sib + 0] = sec.c ?? spec.cyl;
+        buf[sib + 1] = sec.h ?? spec.side;
+        buf[sib + 2] = sec.r;
+        buf[sib + 3] = sec.n;
+        buf[sib + 4] = sec.st1 ?? 0;
+        buf[sib + 5] = sec.st2 ?? 0;
+        buf[sib + 6] = actualLen & 0xFF;
+        buf[sib + 7] = (actualLen >> 8) & 0xFF;
+
+        if (sec.data) {
+          buf.set(sec.data.subarray(0, actualLen), dataOff);
+          if (sec.data.length < actualLen) buf.fill(filler, dataOff + sec.data.length, dataOff + actualLen);
+        } else {
+          buf.fill(filler, dataOff, dataOff + actualLen);
+        }
+        dataOff += actualLen;
+      }
+      offset += size;
+    }
+  }
+
+  return buf;
+}
+
+describe('parseDSK — extended DIB header', () => {
+  it('reports format="extended" for "EXTENDED CPC DSK File" magic', () => {
+    const data = buildExtendedDSK({
+      numTracks: 1, numSides: 1,
+      tracks: [{ cyl: 0, side: 0, sectors: [{ r: 0xC1, n: 2 }] }],
+    });
+    const img = parseDSK(data);
+    expect(img.format).toBe('extended');
+  });
+
+  it('reads numTracks and numSides from DIB 0x30/0x31', () => {
+    const data = buildExtendedDSK({
+      numTracks: 3, numSides: 2,
+      tracks: Array.from({ length: 6 }, (_, i) => ({
+        cyl: i >> 1, side: i & 1,
+        sectors: Array.from({ length: 9 }, (_, j) => ({ r: 0xC1 + j, n: 2 })),
+      })),
+    });
+    const img = parseDSK(data);
+    expect(img.numTracks).toBe(3);
+    expect(img.numSides).toBe(2);
+  });
+
+  it('ignores DIB 0x32-0x33 (unused in extended format)', () => {
+    const data = buildExtendedDSK({
+      numTracks: 1, numSides: 1,
+      tracks: [{ cyl: 0, side: 0, sectors: [{ r: 0xC1, n: 2 }] }],
+    });
+    // Poison the unused bytes; the parser must rely on the 0x34 table.
+    data[0x32] = 0xFF;
+    data[0x33] = 0xFF;
+    const img = parseDSK(data);
+    expect(img.tracks[0][0]?.sectors[0].data.length).toBe(512);
+  });
+});
+
+describe('parseDSK — extended per-track size table at 0x34', () => {
+  it('reads each track size as (byte at 0x34+i) × 256', () => {
+    // Track 0 sized for 9 × 512 = 4864 = 0x1300 (size byte 0x13)
+    // Track 1 sized for 5 × 1024 = 5376 = 0x1500 (size byte 0x15)
+    const data = buildExtendedDSK({
+      numTracks: 2, numSides: 1,
+      tracks: [
+        { cyl: 0, side: 0, sectors: Array.from({ length: 9 }, (_, i) => ({ r: 0xC1 + i, n: 2 })) },
+        { cyl: 1, side: 0, sectors: Array.from({ length: 5 }, (_, i) => ({ r: 0xD0 + i, n: 3 })) },
+      ],
+    });
+    expect(data[0x34]).toBe(0x13);
+    expect(data[0x35]).toBe(0x15);
+    const img = parseDSK(data);
+    expect(img.tracks[0][0]?.sectors.length).toBe(9);
+    expect(img.tracks[1][0]?.sectors.length).toBe(5);
+    expect(img.tracks[0][0]?.sectors[0].data.length).toBe(512);
+    expect(img.tracks[1][0]?.sectors[0].data.length).toBe(1024);
+  });
+
+  it('treats a track-size byte of 0 as an unformatted track', () => {
+    const data = buildExtendedDSK({
+      numTracks: 3, numSides: 1,
+      tracks: [
+        { cyl: 0, side: 0, sectors: Array.from({ length: 9 }, (_, i) => ({ r: 0xC1 + i, n: 2 })) },
+        { cyl: 1, side: 0, sectors: [], unformatted: true },
+        { cyl: 2, side: 0, sectors: Array.from({ length: 9 }, (_, i) => ({ r: 0xC1 + i, n: 2 })) },
+      ],
+    });
+    expect(data[0x35]).toBe(0); // track 1's size byte
+    const img = parseDSK(data);
+    expect(img.tracks[0][0]).not.toBeNull();
+    expect(img.tracks[1][0]).toBeNull();
+    expect(img.tracks[2][0]).not.toBeNull();
+  });
+
+  it('per-side ordering: (cyl0,side0), (cyl0,side1), (cyl1,side0), ... in table', () => {
+    const data = buildExtendedDSK({
+      numTracks: 2, numSides: 2,
+      tracks: [
+        // Different sector counts per track/side so each has a distinct size.
+        { cyl: 0, side: 0, sectors: Array.from({ length: 9 }, (_, i) => ({ r: 0xC1 + i, n: 2 })) }, // 0x1300
+        { cyl: 0, side: 1, sectors: Array.from({ length: 5 }, (_, i) => ({ r: 0xC1 + i, n: 2 })) }, // 0x0B00
+        { cyl: 1, side: 0, sectors: Array.from({ length: 7 }, (_, i) => ({ r: 0xC1 + i, n: 2 })) }, // 0x0F00
+        { cyl: 1, side: 1, sectors: Array.from({ length: 3 }, (_, i) => ({ r: 0xC1 + i, n: 2 })) }, // 0x0700
+      ],
+    });
+    expect(data[0x34]).toBe(0x13);
+    expect(data[0x35]).toBe(0x0B);
+    expect(data[0x36]).toBe(0x0F);
+    expect(data[0x37]).toBe(0x07);
+    const img = parseDSK(data);
+    expect(img.tracks[0][0]?.sectors.length).toBe(9);
+    expect(img.tracks[0][1]?.sectors.length).toBe(5);
+    expect(img.tracks[1][0]?.sectors.length).toBe(7);
+    expect(img.tracks[1][1]?.sectors.length).toBe(3);
+  });
+});
+
+describe('parseDSK — extended actual sector data length (SIB bytes 6-7)', () => {
+  it('uses sibDataLen as authoritative when non-zero (mixed sizes within a track)', () => {
+    const data = buildExtendedDSK({
+      numTracks: 1, numSides: 1,
+      tracks: [{
+        cyl: 0, side: 0,
+        sectors: [
+          { r: 0xC1, n: 2, dataLen: 512 },   // standard
+          { r: 0xC2, n: 3, dataLen: 1024 },  // larger
+          { r: 0xC3, n: 1, dataLen: 256 },   // smaller
+        ],
+      }],
+    });
+    const img = parseDSK(data);
+    const s = img.tracks[0][0]!.sectors;
+    expect(s[0].data.length).toBe(512);
+    expect(s[1].data.length).toBe(1024);
+    expect(s[2].data.length).toBe(256);
+  });
+
+  it('reads a "short sector" where sibDataLen < (128 << N) — copy-protection pattern', () => {
+    // A common protection pattern: declare N=2 (512 bytes) but only store
+    // 128 bytes — the FDC reports a CRC error after 128 bytes.
+    const data = buildExtendedDSK({
+      numTracks: 1, numSides: 1,
+      tracks: [{
+        cyl: 0, side: 0,
+        sectors: [
+          { r: 0xC1, n: 2, dataLen: 128, st1: 0x20 }, // CRC error after 128
+          { r: 0xC2, n: 2, dataLen: 512 },
+        ],
+      }],
+    });
+    const img = parseDSK(data);
+    const s = img.tracks[0][0]!.sectors;
+    expect(s[0].n).toBe(2);            // N still says "512"
+    expect(s[0].data.length).toBe(128); // but only 128 bytes are stored
+    expect(s[0].st1).toBe(0x20);       // CRC error preserved
+    expect(s[1].data.length).toBe(512);
+  });
+
+  it('falls back to 128 << N when sibDataLen=0 (defensive against zeroed-out images)', () => {
+    // Build a normal extended DSK then wipe the dataLen bytes of sector 0.
+    const data = buildExtendedDSK({
+      numTracks: 1, numSides: 1,
+      tracks: [{
+        cyl: 0, side: 0,
+        sectors: [{ r: 0xC1, n: 2 }, { r: 0xC2, n: 2 }],
+      }],
+    });
+    const sib0 = 256 + 0x18; // first track, first sector's SIB
+    data[sib0 + 6] = 0;
+    data[sib0 + 7] = 0;
+    const img = parseDSK(data);
+    // With sibDataLen=0, parser uses 128 << N = 512.
+    expect(img.tracks[0][0]?.sectors[0].data.length).toBe(512);
+  });
+
+  it('packs sectors back-to-back in storage (sector 1 starts immediately after sector 0)', () => {
+    // Verify the storage layout: sector data is concatenated in SIL order
+    // with no padding between entries of different sizes.
+    const dataA = new Uint8Array(128).fill(0xAA);
+    const dataB = new Uint8Array(512).fill(0xBB);
+    const dataC = new Uint8Array(256).fill(0xCC);
+    const data = buildExtendedDSK({
+      numTracks: 1, numSides: 1,
+      tracks: [{
+        cyl: 0, side: 0,
+        sectors: [
+          { r: 0xC1, n: 0, dataLen: 128, data: dataA },
+          { r: 0xC2, n: 2, dataLen: 512, data: dataB },
+          { r: 0xC3, n: 1, dataLen: 256, data: dataC },
+        ],
+      }],
+    });
+    const img = parseDSK(data);
+    const s = img.tracks[0][0]!.sectors;
+    expect(Array.from(s[0].data.slice(0, 4))).toEqual([0xAA, 0xAA, 0xAA, 0xAA]);
+    expect(Array.from(s[1].data.slice(0, 4))).toEqual([0xBB, 0xBB, 0xBB, 0xBB]);
+    expect(Array.from(s[2].data.slice(0, 4))).toEqual([0xCC, 0xCC, 0xCC, 0xCC]);
+    // Verify last byte of each, confirming no overlap.
+    expect(s[0].data[127]).toBe(0xAA);
+    expect(s[1].data[511]).toBe(0xBB);
+    expect(s[2].data[255]).toBe(0xCC);
+  });
+});
+
+describe('parseDSK — extended mixed-size variation', () => {
+  it('handles per-track size variation across many tracks', () => {
+    // 5 tracks, each with a different sector count and size.
+    const data = buildExtendedDSK({
+      numTracks: 5, numSides: 1,
+      tracks: [
+        { cyl: 0, side: 0, sectors: Array.from({ length: 9 }, (_, i) => ({ r: 0xC1 + i, n: 2 })) },
+        { cyl: 1, side: 0, sectors: Array.from({ length: 5 }, (_, i) => ({ r: 0x01 + i, n: 3 })) },
+        { cyl: 2, side: 0, sectors: [{ r: 0xC1, n: 6, dataLen: 6144 }] },
+        { cyl: 3, side: 0, sectors: Array.from({ length: 16 }, (_, i) => ({ r: i + 1, n: 1 })) },
+        { cyl: 4, side: 0, sectors: Array.from({ length: 18 }, (_, i) => ({ r: i + 1, n: 0 })) },
+      ],
+    });
+    const img = parseDSK(data);
+    expect(img.tracks[0][0]?.sectors.length).toBe(9);
+    expect(img.tracks[1][0]?.sectors.length).toBe(5);
+    expect(img.tracks[2][0]?.sectors.length).toBe(1);
+    expect(img.tracks[3][0]?.sectors.length).toBe(16);
+    expect(img.tracks[4][0]?.sectors.length).toBe(18);
+    expect(img.tracks[0][0]?.sectors[0].data.length).toBe(512);
+    expect(img.tracks[1][0]?.sectors[0].data.length).toBe(1024);
+    expect(img.tracks[2][0]?.sectors[0].data.length).toBe(6144);
+    expect(img.tracks[3][0]?.sectors[0].data.length).toBe(256);
+    expect(img.tracks[4][0]?.sectors[0].data.length).toBe(128);
+  });
+});
+
+describe('parseDSK — extended TIB fields and FDC error preservation', () => {
+  it('preserves track/side/gap3/filler/CHRN/ST1/ST2 the same as standard format', () => {
+    const data = buildExtendedDSK({
+      numTracks: 1, numSides: 1,
+      tracks: [{
+        cyl: 0, side: 0, gap3: 0x52, filler: 0xAB,
+        sectors: [
+          { c: 0, h: 0, r: 0xC1, n: 2, st1: 0x20, st2: 0x40 },
+          { c: 0, h: 0, r: 0xC2, n: 2, st1: 0x80, st2: 0x80 },
+        ],
+      }],
+    });
+    const img = parseDSK(data);
+    const t = img.tracks[0][0]!;
+    expect(t.gap3).toBe(0x52);
+    expect(t.filler).toBe(0xAB);
+    expect(t.sectors[0].st1).toBe(0x20);
+    expect(t.sectors[0].st2).toBe(0x40);
+    expect(t.sectors[1].st1).toBe(0x80);
+    expect(t.sectors[1].st2).toBe(0x80);
+  });
+});
+
+describe('parseDSK — extended round-trip via serializeDSK', () => {
+  it('a mixed-size extended image round-trips through serializeDSK', () => {
+    const original = buildExtendedDSK({
+      numTracks: 2, numSides: 1,
+      tracks: [
+        { cyl: 0, side: 0, sectors: [
+          { r: 0xC1, n: 2, dataLen: 512, data: new Uint8Array(512).fill(0x11) },
+          { r: 0xC2, n: 1, dataLen: 256, data: new Uint8Array(256).fill(0x22) },
+          { r: 0xC3, n: 2, dataLen: 512, data: new Uint8Array(512).fill(0x33) },
+        ]},
+        { cyl: 1, side: 0, sectors: [
+          { r: 0xD1, n: 3, dataLen: 1024, data: new Uint8Array(1024).fill(0x44) },
+        ]},
+      ],
+    });
+    const parsedOriginal = parseDSK(original);
+    const reSerialised = serializeDSK(parsedOriginal);
+    const parsedAgain = parseDSK(reSerialised);
+
+    expect(parsedAgain.format).toBe('extended');
+    expect(parsedAgain.numTracks).toBe(2);
+    expect(parsedAgain.numSides).toBe(1);
+
+    const a = parsedAgain.tracks[0][0]!;
+    expect(a.sectors[0].data.length).toBe(512);
+    expect(a.sectors[1].data.length).toBe(256);
+    expect(a.sectors[2].data.length).toBe(512);
+    expect(a.sectors[0].data[0]).toBe(0x11);
+    expect(a.sectors[1].data[0]).toBe(0x22);
+    expect(a.sectors[2].data[0]).toBe(0x33);
+
+    expect(parsedAgain.tracks[1][0]?.sectors[0].data.length).toBe(1024);
+    expect(parsedAgain.tracks[1][0]?.sectors[0].data[0]).toBe(0x44);
+  });
+
+  it('preserves FDC ST1/ST2 across a serialize/parse round-trip', () => {
+    const original = buildExtendedDSK({
+      numTracks: 1, numSides: 1,
+      tracks: [{
+        cyl: 0, side: 0,
+        sectors: [
+          { r: 0xC1, n: 2, dataLen: 128, st1: 0x20, st2: 0x40 }, // short + CRC
+          { r: 0xC2, n: 2, dataLen: 512, st1: 0x00, st2: 0x00 },
+        ],
+      }],
+    });
+    const parsed = parseDSK(original);
+    const round = parseDSK(serializeDSK(parsed));
+    expect(round.tracks[0][0]?.sectors[0].data.length).toBe(128);
+    expect(round.tracks[0][0]?.sectors[0].st1).toBe(0x20);
+    expect(round.tracks[0][0]?.sectors[0].st2).toBe(0x40);
+  });
+});
+
 describe('parseDSK — protection detection on clean standard images', () => {
   it('reports "None" for a clean uniform disk with no FDC errors', () => {
     const data = buildStandardDSK({
