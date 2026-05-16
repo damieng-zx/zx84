@@ -998,12 +998,257 @@ describe('SZX — 128K full round-trip', () => {
   it('preserves port7FFD across round-trip', async () => {
     const cpu = makeCpu();
     const mem = makeMemory128k();
-    mem.port7FFD = 0x0B;
-    mem.currentBank = 0x0B;
+    mem.port7FFD = 0x0B; // bank 3, ROM 0, paging unlocked
+    mem.currentBank = 0x0B & 0x07; // bank index is bits 0-2 of port7FFD
     mem.applyBanking();
 
     const saved = await saveSZX(cpu, mem, 0, '128k', 0);
     const result = await loadSZX(saved, new Z80(), makeMemory128k());
     expect(result.port7FFD).toBe(0x0B);
+  });
+});
+
+// ── Extended machine IDs (per ZXSTMID_* enum) ──────────────────────────────
+
+describe('SZX — extended machine ID detection', () => {
+  it.each([
+    [7,  '128K-class', true],   // Pentagon 128
+    [8,  '48K-class',  false],  // Timex TC2048
+    [9,  '48K-class',  false],  // Timex TC2068
+    [10, '128K-class', true],   // Scorpion ZS-256
+    [11, '128K-class', true],   // Spectrum SE
+    [12, '48K-class',  false],  // Timex TS2068
+    [13, '128K-class', true],   // Pentagon 512
+    [14, '128K-class', true],   // Pentagon 1024
+    [15, '48K-class',  false],  // 48K NTSC
+    [16, '128K-class', true],   // Spectrum 128Ke
+  ])('machineId %i (%s) → is128K=%s', async (id, _label, expected) => {
+    const cpu = makeCpu();
+    const data = buildSZX(id, [{ id: 'Z80R', payload: buildZ80R(cpu) }]);
+    const memory = expected ? makeMemory128k() : makeMemory48k();
+    const result = await loadSZX(data, new Z80(), memory);
+    expect(result.is128K).toBe(expected);
+  });
+});
+
+// ── Header flags byte tolerance ────────────────────────────────────────────
+
+describe('SZX — header flags byte', () => {
+  it('tolerates ZXSTMF_ALTERNATETIMINGS (flags bit 0) without affecting load', async () => {
+    const cpu = makeCpu();
+    const data = buildSZX(1, [{ id: 'Z80R', payload: buildZ80R(cpu) }]);
+    data[7] = 0x01; // ZXSTMF_ALTERNATETIMINGS
+
+    const cpu2 = new Z80();
+    const result = await loadSZX(data, cpu2, makeMemory48k());
+    expect(result.is128K).toBe(false);
+    expect(cpu2.pc).toBe(cpu.pc);
+  });
+});
+
+// ── SPCR chFe byte semantics ───────────────────────────────────────────────
+
+describe('SZX — SPCR chFe (port FE) byte', () => {
+  it('does not let chFe override border colour from chBorder', async () => {
+    // Per spec: chBorder is authoritative for the border colour; chFe is
+    // the last value written to port $FE, with only bits 3-4 (MIC/EAR)
+    // guaranteed valid. The loader must read border from byte 0, not 3.
+    const cpu = makeCpu();
+    const spcr = buildSPCR(/* border */ 2, 0, 0);
+    spcr[3] = 0xFF; // chFe: all bits set (border bits 0-2 = 7)
+    const data = buildSZX(1, [
+      { id: 'Z80R', payload: buildZ80R(cpu) },
+      { id: 'SPCR', payload: spcr },
+    ]);
+    const result = await loadSZX(data, new Z80(), makeMemory48k());
+    expect(result.borderColor).toBe(2); // not 7
+  });
+});
+
+// ── Extended Z80R blocks (forward compatibility) ───────────────────────────
+
+describe('SZX — extended Z80R block tolerance', () => {
+  it('accepts a Z80R block larger than 37 bytes (future extensions)', async () => {
+    const cpu = makeCpu();
+    cpu.pc = 0xC0DE;
+    // Build a 64-byte Z80R block: 37 bytes of standard fields plus 27
+    // trailing bytes that the loader must skip without misreading.
+    const standard = buildZ80R(cpu);
+    const extended = new Uint8Array(64);
+    extended.set(standard, 0);
+    extended.fill(0xAB, 37);
+
+    const data = buildSZX(1, [{ id: 'Z80R', payload: extended }]);
+    const cpu2 = new Z80();
+    await loadSZX(data, cpu2, makeMemory48k());
+    expect(cpu2.pc).toBe(0xC0DE);
+    expect(cpu2.a).toBe(cpu.a);
+  });
+});
+
+// ── RAMP wFlags bit semantics ──────────────────────────────────────────────
+
+describe('SZX — RAMP wFlags bit 0 = ZXSTRF_COMPRESSED only', () => {
+  it('treats wFlags=0x0000 as uncompressed', async () => {
+    const cpu = makeCpu();
+    const bankData = new Uint8Array(16384).fill(0x77);
+    const ramp = new Uint8Array(3 + 16384);
+    w16(ramp, 0, 0x0000); // wFlags
+    ramp[2] = 5;
+    ramp.set(bankData, 3);
+    const data = buildSZX(1, [
+      { id: 'Z80R', payload: buildZ80R(cpu) },
+      { id: 'RAMP', payload: ramp },
+    ]);
+    const mem = makeMemory48k();
+    await loadSZX(data, new Z80(), mem);
+    expect(mem.getRamBank(5)[0]).toBe(0x77);
+  });
+
+  it('treats wFlags=0xFFFE (bit 0 clear, other bits set) as uncompressed', async () => {
+    const cpu = makeCpu();
+    const bankData = new Uint8Array(16384).fill(0x55);
+    const ramp = new Uint8Array(3 + 16384);
+    w16(ramp, 0, 0xFFFE);
+    ramp[2] = 5;
+    ramp.set(bankData, 3);
+    const data = buildSZX(1, [
+      { id: 'Z80R', payload: buildZ80R(cpu) },
+      { id: 'RAMP', payload: ramp },
+    ]);
+    const mem = makeMemory48k();
+    await loadSZX(data, new Z80(), mem);
+    expect(mem.getRamBank(5)[0]).toBe(0x55);
+  });
+});
+
+// ── 16K full round-trip ────────────────────────────────────────────────────
+
+describe('SZX — 16K full round-trip', () => {
+  it('saves and loads only bank 5 for 16K machines', async () => {
+    const cpu = makeCpu();
+    const mem = new SpectrumMemory('16k');
+    mem.loadROM(new Uint8Array(16384));
+    const bank5 = mem.getRamBank(5);
+    for (let i = 0; i < 16384; i++) bank5[i] = (i * 13 + 7) & 0xFF;
+
+    const saved = await saveSZX(cpu, mem, 1, '16k', 0);
+    expect(saved[6]).toBe(0); // machine ID = 16K
+
+    // Exactly one RAMP block, for page 5.
+    let rampCount = 0;
+    let rampPage = -1;
+    let offset = 8;
+    while (offset + 8 <= saved.length) {
+      const id = String.fromCharCode(saved[offset], saved[offset + 1], saved[offset + 2], saved[offset + 3]);
+      const size = saved[offset + 4] | (saved[offset + 5] << 8) | (saved[offset + 6] << 16) | (saved[offset + 7] << 24);
+      if (id === 'RAMP') {
+        rampCount++;
+        rampPage = saved[offset + 8 + 2];
+      }
+      offset += 8 + size;
+    }
+    expect(rampCount).toBe(1);
+    expect(rampPage).toBe(5);
+
+    const cpu2 = new Z80();
+    const mem2 = new SpectrumMemory('16k');
+    mem2.loadROM(new Uint8Array(16384));
+    const result = await loadSZX(saved, cpu2, mem2);
+    expect(result.is128K).toBe(false);
+    expect(result.borderColor).toBe(1);
+    for (let i = 0; i < 16384; i++) {
+      expect(mem2.getRamBank(5)[i]).toBe((i * 13 + 7) & 0xFF);
+    }
+  });
+});
+
+// ── Byte-identity round-trip ───────────────────────────────────────────────
+
+describe('SZX — byte-identity round-trip', () => {
+  it('48K save → load → save produces byte-identical output', async () => {
+    // Use frameStart=0 so dwCyclesStart is the absolute tStates value;
+    // the loader stores dwCyclesStart back into cpu.tStates verbatim, so
+    // only a zero offset preserves byte-identity on the second save.
+    const cpu = makeCpu();
+    const mem = makeMemory48k();
+    for (let i = 0; i < 16384; i++) {
+      mem.getRamBank(5)[i] = (i * 3 + 1) & 0xFF;
+      mem.getRamBank(2)[i] = (i * 5 + 2) & 0xFF;
+      mem.getRamBank(0)[i] = (i * 7 + 3) & 0xFF;
+    }
+
+    const saved1 = await saveSZX(cpu, mem, 4, '48k', 0);
+    const cpu2 = new Z80();
+    const mem2 = makeMemory48k();
+    await loadSZX(saved1, cpu2, mem2);
+    const saved2 = await saveSZX(cpu2, mem2, 4, '48k', 0);
+
+    expect(saved2.length).toBe(saved1.length);
+    for (let i = 0; i < saved1.length; i++) {
+      expect(saved2[i]).toBe(saved1[i]);
+    }
+  });
+
+  it('128K save → load → save produces byte-identical output', async () => {
+    const cpu = makeCpu();
+    const mem = makeMemory128k();
+    for (let b = 0; b < 8; b++) {
+      const bank = mem.getRamBank(b);
+      for (let i = 0; i < 16384; i++) {
+        bank[i] = ((b * 16384 + i) * 11 + 17) & 0xFF;
+      }
+    }
+    mem.port7FFD = 0x13; // bank 3, ROM 1, unlocked
+    mem.currentBank = 3;
+    mem.applyBanking();
+
+    const saved1 = await saveSZX(cpu, mem, 2, '128k', 0);
+    const cpu2 = new Z80();
+    const mem2 = makeMemory128k();
+    // Unlike the .z80 and .sna loaders, loadSZX returns port7FFD/port1FFD
+    // in the result object rather than applying them to memory. The caller
+    // is responsible for syncing — replicate that here so the second save
+    // emits the same SPCR bytes.
+    const r = await loadSZX(saved1, cpu2, mem2);
+    mem2.port7FFD = r.port7FFD;
+    mem2.port1FFD = r.port1FFD;
+    mem2.currentBank = r.port7FFD & 0x07;
+    mem2.applyBanking();
+    const saved2 = await saveSZX(cpu2, mem2, 2, '128k', 0);
+
+    expect(saved2.length).toBe(saved1.length);
+    for (let i = 0; i < saved1.length; i++) {
+      expect(saved2[i]).toBe(saved1[i]);
+    }
+  });
+});
+
+// ── Block size endianness ──────────────────────────────────────────────────
+
+describe('SZX — dwSize is little-endian and payload-only', () => {
+  it('reads dwSize as LE (a payload larger than 256 bytes parses correctly)', async () => {
+    const cpu = makeCpu();
+    // Z80R is exactly 37 bytes; the high byte of size remains 0. To
+    // exercise multi-byte sizes, put an uncompressed 16384-byte RAMP block
+    // (size = 16387 = 0x4003, which has a non-zero high byte).
+    const bank = new Uint8Array(16384).fill(0x66);
+    const data = buildSZX(1, [
+      { id: 'Z80R', payload: buildZ80R(cpu) },
+      { id: 'RAMP', payload: buildRAMP(5, bank, false) },
+    ]);
+    // Sanity-check that the size bytes really encode 0x4003 little-endian.
+    const rampSizeOffset = 8 + 8 + 37 + 4; // header + Z80R header+body + RAMP id
+    const dwSize = data[rampSizeOffset]
+      | (data[rampSizeOffset + 1] << 8)
+      | (data[rampSizeOffset + 2] << 16)
+      | (data[rampSizeOffset + 3] << 24);
+    expect(dwSize).toBe(16387); // 3 + 16384
+    expect(data[rampSizeOffset]).toBe(0x03);
+    expect(data[rampSizeOffset + 1]).toBe(0x40);
+
+    const mem = makeMemory48k();
+    await loadSZX(data, new Z80(), mem);
+    expect(mem.getRamBank(5)[0]).toBe(0x66);
   });
 });

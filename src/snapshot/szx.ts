@@ -110,7 +110,13 @@ const MODEL_TO_MACHINE_ID: Record<SpectrumModel, number> = {
 };
 
 function machineIs128K(machineId: number): boolean {
-  return machineId >= 2;
+  // 128K-class machines have 8+ RAM banks. Per the ZXSTMID_* enum,
+  // IDs 2-7 (128K..Pentagon128), 10-11 (Scorpion256, SE), and 13-16
+  // (Pentagon 512/1024, 128Ke) are 128K+. The Timex variants (TC2048=8,
+  // TC2068=9, TS2068=12) and the NTSC 48K (15) are 48K-class.
+  if (machineId < 2) return false;
+  if (machineId === 8 || machineId === 9 || machineId === 12 || machineId === 15) return false;
+  return true;
 }
 
 // ── Main loader ─────────────────────────────────────────────────────────
