@@ -14,7 +14,17 @@ export interface DskSector {
   n: number;           // Size code from CHRN
   st1: number;         // FDC status register 1
   st2: number;         // FDC status register 2
-  data: Uint8Array;    // Sector data
+  data: Uint8Array;    // Primary sector data (copies[0] when multi-copy)
+  /**
+   * Simon Owen v5 EDSK extension: multiple stored copies of a weak
+   * sector. When sibDataLen is K × (128<<N) for K ≥ 2, the SAMdisk
+   * convention is that the on-disk storage contains K real reads of
+   * the same sector with weak bits manifesting as byte differences.
+   * On read the FDC picks one copy at random.
+   *
+   * Undefined for ordinary single-copy sectors.
+   */
+  copies?: Uint8Array[];
 }
 
 export interface DskTrack {
@@ -97,7 +107,23 @@ function parseTrack(data: Uint8Array, trackOffset: number, trackSize: number, is
       sectorData.fill(filler);
     }
 
-    sectors.push({ c, h, r, n, st1, st2, data: sectorData });
+    // Simon Owen v5 multi-copy detection: when the stored data is an
+    // exact multiple ≥ 2 of the N-coded physical size, split it into
+    // copies. Anything else (short sectors, oversized non-multiple
+    // protection sectors) stays as a single buffer.
+    const physSize = n <= 5 ? (128 << n) : n === 6 ? 6144 : 128 << n;
+    const sector: DskSector = { c, h, r, n, st1, st2, data: sectorData };
+    if (isExtended && physSize > 0 && actualSize >= 2 * physSize && actualSize % physSize === 0) {
+      const copyCount = actualSize / physSize;
+      const copies: Uint8Array[] = [];
+      for (let k = 0; k < copyCount; k++) {
+        copies.push(sectorData.subarray(k * physSize, (k + 1) * physSize));
+      }
+      sector.copies = copies;
+      // data points at the first copy so single-copy consumers stay sane.
+      sector.data = copies[0];
+    }
+    sectors.push(sector);
     sectorMap.set(r, i);
     dataOffset += actualSize;
   }
@@ -193,6 +219,18 @@ export function serializeDSK(image: DskImage): Uint8Array {
   const { numTracks, numSides, tracks } = image;
   const totalTracks = numTracks * numSides;
 
+  // Per-sector stored length: total bytes the SIB will advertise. For
+  // single-copy sectors this is data.length; for v5 multi-copy weak
+  // sectors it's the sum of all copies.
+  const sectorStoredLen = (s: DskSector): number => {
+    if (s.copies && s.copies.length > 1) {
+      let total = 0;
+      for (const c of s.copies) total += c.length;
+      return total;
+    }
+    return s.data.length;
+  };
+
   // First pass: compute per-track sizes (256-byte header + actual sector data)
   const trackSizes: number[] = [];
   for (let cyl = 0; cyl < numTracks; cyl++) {
@@ -202,7 +240,7 @@ export function serializeDSK(image: DskImage): Uint8Array {
         trackSizes.push(0);
       } else {
         let dataBytes = 0;
-        for (const s of track.sectors) dataBytes += s.data.length;
+        for (const s of track.sectors) dataBytes += sectorStoredLen(s);
         trackSizes.push(256 + dataBytes);
       }
     }
@@ -250,14 +288,21 @@ export function serializeDSK(image: DskImage): Uint8Array {
         buf[sib + 3] = s.n;
         buf[sib + 4] = s.st1;
         buf[sib + 5] = s.st2;
-        writeU16LE(buf, sib + 6, s.data.length);
+        writeU16LE(buf, sib + 6, sectorStoredLen(s));
       }
 
-      // Sector data
+      // Sector data — multi-copy weak sectors emit each copy in turn.
       let dataOff = offset + 256;
       for (const s of track!.sectors) {
-        buf.set(s.data, dataOff);
-        dataOff += s.data.length;
+        if (s.copies && s.copies.length > 1) {
+          for (const c of s.copies) {
+            buf.set(c, dataOff);
+            dataOff += c.length;
+          }
+        } else {
+          buf.set(s.data, dataOff);
+          dataOff += s.data.length;
+        }
       }
 
       offset += trackSizes[trackIdx];

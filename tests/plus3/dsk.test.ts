@@ -635,7 +635,344 @@ describe('parseDSK — diskFormat detection on standard images', () => {
 
 // ── Protection detection on standard images ────────────────────────────────
 
-// ── Extended DSK (EXTENDED CPC DSK File) — original EDSK only ──────────────
+// ── Simon Owen v5 EDSK extensions (multi-copy weak sectors) ────────────────
+//
+// SAMdisk's v5 extension to EDSK records weak sectors as N consecutive
+// real reads of the same sector, with sibDataLen = N × (128<<N). The
+// parser splits these into the `copies` array; the FDC picks one at
+// random on each read.
+
+interface V5SectorSpec {
+  c?: number;
+  h?: number;
+  r: number;
+  n: number;
+  st1?: number;
+  st2?: number;
+  /** Pre-built copies for v5 multi-copy weak sectors. */
+  copies: Uint8Array[];
+}
+
+function buildEDSKWithCopies(opts: {
+  numTracks: number;
+  numSides: number;
+  tracks: { cyl: number; side: number; gap3?: number; filler?: number; sectors: V5SectorSpec[] }[];
+}): Uint8Array {
+  const writeAscii = (buf: Uint8Array, off: number, s: string) => {
+    for (let i = 0; i < s.length; i++) buf[off + i] = s.charCodeAt(i);
+  };
+
+  const totalTracks = opts.numTracks * opts.numSides;
+  const trackSizes: number[] = new Array(totalTracks).fill(0);
+  for (const tr of opts.tracks) {
+    const idx = tr.cyl * opts.numSides + tr.side;
+    let dataBytes = 0;
+    for (const s of tr.sectors) {
+      for (const c of s.copies) dataBytes += c.length;
+    }
+    trackSizes[idx] = Math.ceil((256 + dataBytes) / 256) * 256;
+  }
+
+  const fileSize = 256 + trackSizes.reduce((a, b) => a + b, 0);
+  const buf = new Uint8Array(fileSize);
+  writeAscii(buf, 0, 'EXTENDED CPC DSK File\r\nDisk-Info\r\n');
+  buf[0x30] = opts.numTracks;
+  buf[0x31] = opts.numSides;
+  for (let i = 0; i < totalTracks; i++) buf[0x34 + i] = trackSizes[i] / 256;
+
+  let offset = 256;
+  for (let t = 0; t < opts.numTracks; t++) {
+    for (let s = 0; s < opts.numSides; s++) {
+      const idx = t * opts.numSides + s;
+      const size = trackSizes[idx];
+      if (size === 0) continue;
+      const spec = opts.tracks.find((tr) => tr.cyl === t && tr.side === s);
+      if (!spec) { offset += size; continue; }
+
+      writeAscii(buf, offset, 'Track-Info\r\n');
+      buf[offset + 0x10] = spec.cyl;
+      buf[offset + 0x11] = spec.side;
+      buf[offset + 0x14] = spec.sectors[0]?.n ?? 2;
+      buf[offset + 0x15] = spec.sectors.length;
+      buf[offset + 0x16] = spec.gap3 ?? 0x4E;
+      buf[offset + 0x17] = spec.filler ?? 0xE5;
+
+      let dataOff = offset + 0x100;
+      for (let i = 0; i < spec.sectors.length; i++) {
+        const sec = spec.sectors[i];
+        const sib = offset + 0x18 + i * 8;
+        const totalLen = sec.copies.reduce((a, c) => a + c.length, 0);
+        buf[sib + 0] = sec.c ?? spec.cyl;
+        buf[sib + 1] = sec.h ?? spec.side;
+        buf[sib + 2] = sec.r;
+        buf[sib + 3] = sec.n;
+        buf[sib + 4] = sec.st1 ?? 0;
+        buf[sib + 5] = sec.st2 ?? 0;
+        buf[sib + 6] = totalLen & 0xFF;
+        buf[sib + 7] = (totalLen >> 8) & 0xFF;
+        for (const c of sec.copies) {
+          buf.set(c, dataOff);
+          dataOff += c.length;
+        }
+      }
+      offset += size;
+    }
+  }
+  return buf;
+}
+
+describe('parseDSK — Simon Owen v5 multi-copy weak sectors', () => {
+  it('splits sibDataLen = 2 × (128<<N) into 2 copies', () => {
+    const copy0 = new Uint8Array(512).fill(0xAA);
+    const copy1 = new Uint8Array(512).fill(0xBB);
+    const data = buildEDSKWithCopies({
+      numTracks: 1, numSides: 1,
+      tracks: [{ cyl: 0, side: 0, sectors: [{ r: 0xC1, n: 2, copies: [copy0, copy1] }] }],
+    });
+    const img = parseDSK(data);
+    const s = img.tracks[0][0]!.sectors[0];
+    expect(s.copies).toBeDefined();
+    expect(s.copies!.length).toBe(2);
+    expect(s.copies![0].length).toBe(512);
+    expect(s.copies![1].length).toBe(512);
+    expect(s.copies![0][0]).toBe(0xAA);
+    expect(s.copies![1][0]).toBe(0xBB);
+    // `data` aliases the first copy so single-copy consumers stay sane.
+    expect(s.data).toBe(s.copies![0]);
+  });
+
+  it('splits sibDataLen = 3 × (128<<N) into 3 copies', () => {
+    const cps = [0xA1, 0xA2, 0xA3].map((v) => new Uint8Array(256).fill(v));
+    const data = buildEDSKWithCopies({
+      numTracks: 1, numSides: 1,
+      tracks: [{ cyl: 0, side: 0, sectors: [{ r: 0xD1, n: 1, copies: cps }] }],
+    });
+    const img = parseDSK(data);
+    const s = img.tracks[0][0]!.sectors[0];
+    expect(s.copies!.length).toBe(3);
+    expect(s.copies![0][0]).toBe(0xA1);
+    expect(s.copies![1][0]).toBe(0xA2);
+    expect(s.copies![2][0]).toBe(0xA3);
+  });
+
+  it('mixes v5 multi-copy and single-copy sectors on the same track', () => {
+    const weak = [new Uint8Array(512).fill(0x11), new Uint8Array(512).fill(0x22)];
+    const data = buildEDSKWithCopies({
+      numTracks: 1, numSides: 1,
+      tracks: [{
+        cyl: 0, side: 0,
+        sectors: [
+          { r: 0xC1, n: 2, copies: [new Uint8Array(512).fill(0x99)] }, // single copy
+          { r: 0xC2, n: 2, copies: weak },                              // multi-copy
+          { r: 0xC3, n: 2, copies: [new Uint8Array(512).fill(0x77)] }, // single copy
+        ],
+      }],
+    });
+    const img = parseDSK(data);
+    const s = img.tracks[0][0]!.sectors;
+    expect(s[0].copies).toBeUndefined(); // single copy → no copies array
+    expect(s[1].copies?.length).toBe(2);
+    expect(s[2].copies).toBeUndefined();
+    expect(s[0].data[0]).toBe(0x99);
+    expect(s[1].data[0]).toBe(0x11);
+    expect(s[2].data[0]).toBe(0x77);
+  });
+
+  it('does NOT mark single-copy sectors as multi-copy (no copies array)', () => {
+    const data = buildEDSKWithCopies({
+      numTracks: 1, numSides: 1,
+      tracks: [{ cyl: 0, side: 0, sectors: [{ r: 0xC1, n: 2, copies: [new Uint8Array(512)] }] }],
+    });
+    const img = parseDSK(data);
+    expect(img.tracks[0][0]!.sectors[0].copies).toBeUndefined();
+  });
+
+  it('does NOT misidentify a short sector or non-multiple-length sector as multi-copy', () => {
+    // sibDataLen = 768 with N=2 (physSize=512) is NOT a clean multiple,
+    // so it's an oversized protection sector, not v5 multi-copy.
+    const big = new Uint8Array(768).fill(0xEE);
+    const data = buildEDSKWithCopies({
+      numTracks: 1, numSides: 1,
+      tracks: [{ cyl: 0, side: 0, sectors: [{ r: 0xC1, n: 2, copies: [big] }] }],
+    });
+    const img = parseDSK(data);
+    expect(img.tracks[0][0]!.sectors[0].copies).toBeUndefined();
+    expect(img.tracks[0][0]!.sectors[0].data.length).toBe(768);
+  });
+
+  it('preserves byte-distinct copies through parse', () => {
+    // Construct copies that differ in specific bytes — typical of weak bits.
+    const c0 = new Uint8Array(512).fill(0xFF);
+    const c1 = new Uint8Array(512).fill(0xFF);
+    c0[100] = 0x00; c0[200] = 0x55; c0[300] = 0xAA;
+    c1[100] = 0xFF; c1[200] = 0x00; c1[300] = 0xFF;
+    const data = buildEDSKWithCopies({
+      numTracks: 1, numSides: 1,
+      tracks: [{ cyl: 0, side: 0, sectors: [{ r: 0xC1, n: 2, copies: [c0, c1] }] }],
+    });
+    const img = parseDSK(data);
+    const s = img.tracks[0][0]!.sectors[0];
+    expect(s.copies![0][100]).toBe(0x00);
+    expect(s.copies![1][100]).toBe(0xFF);
+    expect(s.copies![0][200]).toBe(0x55);
+    expect(s.copies![1][200]).toBe(0x00);
+  });
+
+  it('preserves ST1/ST2 weak-data flags alongside the copies', () => {
+    const data = buildEDSKWithCopies({
+      numTracks: 1, numSides: 1,
+      tracks: [{
+        cyl: 0, side: 0,
+        sectors: [{
+          r: 0xC1, n: 2,
+          st1: 0x20, st2: 0x60, // CRC error + control mark (canonical weak flags)
+          copies: [new Uint8Array(512).fill(0x11), new Uint8Array(512).fill(0x22)],
+        }],
+      }],
+    });
+    const img = parseDSK(data);
+    const s = img.tracks[0][0]!.sectors[0];
+    expect(s.st1).toBe(0x20);
+    expect(s.st2).toBe(0x60);
+    expect(s.copies!.length).toBe(2);
+  });
+});
+
+describe('serializeDSK — Simon Owen v5 round-trip', () => {
+  it('writes back every copy with the correct cumulative sibDataLen', () => {
+    const original = buildEDSKWithCopies({
+      numTracks: 1, numSides: 1,
+      tracks: [{
+        cyl: 0, side: 0,
+        sectors: [
+          { r: 0xC1, n: 2, copies: [new Uint8Array(512).fill(0xA1), new Uint8Array(512).fill(0xA2)] },
+          { r: 0xC2, n: 2, copies: [new Uint8Array(512).fill(0xB0)] }, // single copy
+        ],
+      }],
+    });
+    const parsed = parseDSK(original);
+    const reSerialised = serializeDSK(parsed);
+    const round = parseDSK(reSerialised);
+
+    const s0 = round.tracks[0][0]!.sectors[0];
+    const s1 = round.tracks[0][0]!.sectors[1];
+    expect(s0.copies?.length).toBe(2);
+    expect(s0.copies![0][0]).toBe(0xA1);
+    expect(s0.copies![1][0]).toBe(0xA2);
+    expect(s1.copies).toBeUndefined();
+    expect(s1.data[0]).toBe(0xB0);
+  });
+
+  it('a 3-copy weak sector round-trips with all 3 copies intact', () => {
+    const cps = [0x11, 0x22, 0x33].map((v) => new Uint8Array(256).fill(v));
+    const original = buildEDSKWithCopies({
+      numTracks: 1, numSides: 1,
+      tracks: [{ cyl: 0, side: 0, sectors: [{ r: 0xC1, n: 1, copies: cps }] }],
+    });
+    const round = parseDSK(serializeDSK(parseDSK(original)));
+    const s = round.tracks[0][0]!.sectors[0];
+    expect(s.copies?.length).toBe(3);
+    expect(s.copies![0][0]).toBe(0x11);
+    expect(s.copies![1][0]).toBe(0x22);
+    expect(s.copies![2][0]).toBe(0x33);
+  });
+
+  it('serialized sibDataLen equals the sum of all copy lengths', () => {
+    const original = buildEDSKWithCopies({
+      numTracks: 1, numSides: 1,
+      tracks: [{
+        cyl: 0, side: 0,
+        sectors: [{ r: 0xC1, n: 2, copies: [new Uint8Array(512), new Uint8Array(512), new Uint8Array(512)] }],
+      }],
+    });
+    const parsed = parseDSK(original);
+    const reSerialised = serializeDSK(parsed);
+    // Inspect the SIB bytes 6-7 in the serialised output.
+    const sibOff = 256 + 0x18; // first track, first SIB
+    const sibDataLen = reSerialised[sibOff + 6] | (reSerialised[sibOff + 7] << 8);
+    expect(sibDataLen).toBe(3 * 512);
+  });
+});
+
+// ── FDC integration with v5 weak sectors ──────────────────────────────────
+
+import { UPD765A } from '@/cores/upd765a.ts';
+
+describe('FDC + DSK — Simon Owen v5 weak sectors at read time', () => {
+  /** Drive the FDC through a READ_DATA command and return the sector bytes. */
+  function readSectorViaFdc(fdc: UPD765A, c: number, h: number, r: number, n: number): Uint8Array {
+    // CMD_READ_DATA = 0x46 (with MT/MF/SK bits cleared) — actual opcode is
+    // 0x06 with optional MT/MF/SK in the top 3 bits. Parameter sequence:
+    // unit/head, C, H, R, N, EOT, GPL, DTL.
+    const cmd = [0x46, h << 2, c, h, r, n, r, 0x2A, 0xFF];
+    for (const b of cmd) fdc.writeData(b);
+
+    const out: number[] = [];
+    let safety = 65536;
+    while (safety-- > 0) {
+      const msr = fdc.readStatus();
+      if ((msr & 0x20) === 0) break; // EXM cleared → execution done
+      if ((msr & 0x80) === 0) continue; // RQM clear → wait
+      if ((msr & 0x40) === 0) break; // DIO=0 means write; not for read
+      out.push(fdc.readData());
+    }
+    // Drain the 7 result-phase bytes.
+    let resultBudget = 16;
+    while (resultBudget-- > 0) {
+      const msr = fdc.readStatus();
+      if ((msr & 0x10) === 0) break; // CB cleared → back to idle
+      if ((msr & 0xC0) !== 0xC0) break;
+      fdc.readData();
+    }
+    return new Uint8Array(out);
+  }
+
+  it('returns one of the stored copies on each read (eventually sees both)', () => {
+    const c0 = new Uint8Array(512).fill(0xAA);
+    const c1 = new Uint8Array(512).fill(0xBB);
+    const dsk = buildEDSKWithCopies({
+      numTracks: 1, numSides: 1,
+      tracks: [{ cyl: 0, side: 0, sectors: [{ r: 0xC1, n: 2, copies: [c0, c1] }] }],
+    });
+    const image = parseDSK(dsk);
+
+    const fdc = new UPD765A();
+    fdc.insertDisk(image, 0);
+
+    let sawA = false, sawB = false;
+    for (let attempt = 0; attempt < 50 && !(sawA && sawB); attempt++) {
+      const buf = readSectorViaFdc(fdc, 0, 0, 0xC1, 2);
+      if (buf.length === 0) continue;
+      if (buf[0] === 0xAA) sawA = true;
+      if (buf[0] === 0xBB) sawB = true;
+    }
+    // With 50 reads of a 2-copy sector at uniform random, P(missing one) ≈ 2^-49.
+    expect(sawA).toBe(true);
+    expect(sawB).toBe(true);
+  });
+
+  it('does not exhibit weak behaviour for single-copy sectors', () => {
+    const dsk = buildEDSKWithCopies({
+      numTracks: 1, numSides: 1,
+      tracks: [{
+        cyl: 0, side: 0,
+        sectors: [{ r: 0xC1, n: 2, copies: [new Uint8Array(512).fill(0x42)] }],
+      }],
+    });
+    const image = parseDSK(dsk);
+    expect(image.tracks[0][0]!.sectors[0].copies).toBeUndefined();
+
+    const fdc = new UPD765A();
+    fdc.insertDisk(image, 0);
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const buf = readSectorViaFdc(fdc, 0, 0, 0xC1, 2);
+      expect(buf.length).toBeGreaterThan(0);
+      // Single-copy non-weak sector must read back identically every time.
+      for (let i = 0; i < buf.length; i++) expect(buf[i]).toBe(0x42);
+    }
+  });
+});
 //
 // Original EDSK by John Elliott / CPCEMU. Differences from standard:
 //   1. DIB magic is "EXTENDED CPC DSK File\\r\\nDisk-Info\\r\\n"

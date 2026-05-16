@@ -432,6 +432,20 @@ export class UPD765A {
     // cmdReadWrite — the number of bytes transferred here is always physSize.
     const physSize = 128 << sector.n;
 
+    // Simon Owen v5 multi-copy weak sector: the DSK parser populated
+    // `copies` with K real reads of the same sector. Pick one at random
+    // so successive reads expose the actual weak-bit variations.
+    if (sector.copies && sector.copies.length > 1) {
+      const pick = sector.copies[Math.floor(Math.random() * sector.copies.length)];
+      // Each copy is exactly physSize bytes by construction in the
+      // parser, but defend against externally-mutated DskSectors.
+      if (pick.length >= physSize) return pick.subarray(0, physSize);
+      const buf = new Uint8Array(physSize);
+      buf.set(pick);
+      for (let i = pick.length; i < physSize; i++) buf[i] = Math.floor(Math.random() * 256);
+      return buf;
+    }
+
     // Short sector: fewer bytes stored than the N field claims.
     // Deliver real bytes then pad the remainder with random data.
     if (sector.data.length < physSize) {
@@ -475,6 +489,9 @@ export class UPD765A {
     // larger, or leave stale tail bytes when smaller.  Replacing the array
     // ensures read-back via prepareReadBuffer() sees exactly what was written.
     track.sectors[idx].data = new Uint8Array(this.exBuf);
+    // Writing destroys the v5 weak-bit state: subsequent reads must
+    // return the freshly-written data, not random older copies.
+    track.sectors[idx].copies = undefined;
   }
 
   /** End execution phase with result. Sets EN + abnormal termination if EOT was reached. */
