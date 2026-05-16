@@ -340,8 +340,8 @@ function compressBlock(src: Uint8Array): { data: Uint8Array; compressed: boolean
         i += 2;
         continue;
       }
-      // Single ED - just output it
-      out.push(byte);
+      // Single ED - encode as ED ED 01 ED to avoid false RLE marker
+      out.push(0xED, 0xED, 0x01, 0xED);
       i++;
       continue;
     }
