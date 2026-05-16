@@ -263,43 +263,6 @@ export class ULA {
   }
 
   /**
-   * Render one display line (y=0..191) with the given border color.
-   * vramOffset: 0 when memory is full 64K, 0x4000 when memory is a 6912-byte
-   * shadow buffer starting at the equivalent of address 0x4000.
-   */
-  renderScanline(y: number, memory: Uint8Array, borderColor: number, vramOffset = 0): void {
-    const screenY = y + this.borderTop;
-    const borderRGBA = this.palette[borderColor];
-    const w = this.screenWidth;
-    const rowStart = screenY * w;
-
-    // Left border
-    for (let x = 0; x < this.borderLeft; x++) {
-      this.pixels32[rowStart + x] = borderRGBA;
-    }
-    // Right border
-    for (let x = this.borderLeft + 256; x < w; x++) {
-      this.pixels32[rowStart + x] = borderRGBA;
-    }
-
-    const bitmapAddr = vramBitmapAddr(y) - vramOffset;
-    const attrBase = vramAttrAddr(y, 0) - vramOffset;
-
-    for (let col = 0; col < 32; col++) {
-      const byteVal = memory[bitmapAddr + col];
-      const [inkRGBA, paperRGBA] = this.decodeAttr(memory[attrBase + col]);
-
-      const px = this.borderLeft + (col << 3);
-      const baseIdx = rowStart + px;
-
-      for (let bit = 7; bit >= 0; bit--) {
-        this.pixels32[baseIdx + (7 - bit)] =
-          (byteVal & (1 << bit)) ? inkRGBA : paperRGBA;
-      }
-    }
-  }
-
-  /**
    * Render a single 8-pixel character cell on a display scanline.
    * y: display line 0..191, col: character column 0..31.
    */
@@ -314,27 +277,6 @@ export class ULA {
     for (let bit = 7; bit >= 0; bit--) {
       this.pixels32[baseIdx + (7 - bit)] =
         (byteVal & (1 << bit)) ? inkRGBA : paperRGBA;
-    }
-  }
-
-  /**
-   * Render only the 256-pixel display data for one scanline (no borders).
-   * Used by the inline scanline renderer which handles borders separately
-   * with sub-scanline precision.
-   */
-  renderDisplayData(y: number, memory: Uint8Array, vramOffset = 0): void {
-    for (let col = 0; col < 32; col++) {
-      this.renderDisplayCell(y, col, memory, vramOffset);
-    }
-  }
-
-  /** Render a full-width border-only row (top/bottom border). */
-  renderBorderLine(screenY: number, borderColor: number): void {
-    if (screenY < 0 || screenY >= this.screenHeight) return;
-    const borderRGBA = this.palette[borderColor];
-    const rowStart = screenY * this.screenWidth;
-    for (let x = 0; x < this.screenWidth; x++) {
-      this.pixels32[rowStart + x] = borderRGBA;
     }
   }
 

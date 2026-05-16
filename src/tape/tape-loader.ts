@@ -47,7 +47,7 @@ export function trapTapeLoad(cpu: Z80, tape: TapeDeck): boolean {
 
   // Pop return address (simulating RET from LD-BYTES)
   cpu.pc = cpu.pop16();
-  // Re-enable interrupts (LD-BYTES runs with DI)
+  // Re-enable interrupts (LD-BYTES starts with DI but executes EI before RET)
   cpu.iff1 = true;
   cpu.iff2 = true;
 

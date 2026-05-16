@@ -198,10 +198,10 @@ export class Spectrum {
   private _tapeTurboCooldown = 0;
 
 
-  /** Per-cell render threshold: +1 on Ferranti ULA models (48K/128K/+2) to
-   *  render when the beam enters each cell for tightest accuracy.  +0 on
-   *  Amstrad gate array models (+2A/+3) where deterministic timing makes the
-   *  slightly later capture safe.  Set once in constructor from the variant. */
+  /** Per-cell render threshold: +1 on 48K/16K (Issue 2 ULA) to render when the
+   *  beam enters each cell for tightest accuracy.  +0 on 128K/+2 (Ferranti) and
+   *  +2A/+3 (Amstrad gate array) where deterministic timing makes the slightly
+   *  later capture safe.  Set once in constructor from the variant. */
   private _cellRenderOffset: 0 | 1 = 1;
 
   /** Breakpoints (checked every instruction in runFrame) */
@@ -253,13 +253,13 @@ export class Spectrum {
     this.tape.is48K = this.variant.is48K;
     this.tape.cpuClock = this.variant.timing.cpuClock;
     this.fdc = new UPD765A();
-    // Ferranti ULA (48K/128K/+2): render as the beam enters each cell (+1)
-    // for tightest accuracy.  The beam flush (vramFlushEnd=0x5B00) ensures
-    // cells are captured with the correct attribute before multicolor engines
+    // 48K/16K (Issue 2 ULA): render as the beam enters each cell (+1) for
+    // tightest accuracy.  The beam flush (vramFlushEnd=0x5B00) ensures cells
+    // are captured with the correct attribute before multicolor engines
     // overwrite them for the next scanline.
-    // Amstrad gate array (+2A/+3): render after the beam fully passes (+0).
-    // No beam flush on attr writes — deterministic timing (no IO contention)
-    // keeps the renderer in sync without it.
+    // 128K/+2 (Ferranti) and +2A/+3 (Amstrad): render after the beam fully
+    // passes (+0).  No beam flush on attr writes — deterministic timing (no IO
+    // contention) keeps the renderer in sync without it.
     this._cellRenderOffset = this.variant.cellRenderOffset;
     installMemoryHooks(this);
     wirePortIO(this);
