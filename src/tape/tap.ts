@@ -160,7 +160,11 @@ export class TapeDeck {
         syncPulse2: SYNC_2,
         bit0Pulse: BIT_0,
         bit1Pulse: BIT_1,
-        pilotCount: flag === 0x00 ? PILOT_HEADER : PILOT_DATA,
+        // Per ZX Spectrum ROM SAVE-BYTES: pilot length is selected by the
+        // high bit of the flag byte — flag < 0x80 emits the long header
+        // pilot (8063 pulses), flag >= 0x80 emits the short data pilot
+        // (3223 pulses). Only the high bit matters, not equality with 0x00.
+        pilotCount: flag < 0x80 ? PILOT_HEADER : PILOT_DATA,
         usedBits: 8,
         source: 'tap',
       });
