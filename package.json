@@ -10,11 +10,15 @@
     "mcp": "tsx src/mcp-server.ts",
     "hmr-freeze": "echo freeze > .hmr-freeze",
     "hmr-unfreeze": "rm .hmr-freeze",
-    "deploy": "npm run build && wrangler deploy"
+    "deploy": "npm run build && wrangler deploy",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.26.0",
     "@types/node": "^22.0.0",
+    "@vitest/coverage-v8": "^4.1.6",
     "solid-icons": "^1.1.0",
     "solid-js": "^1.9.0",
     "tsx": "^4.0.0",
@@ -22,7 +26,7 @@
     "vite": "^6.1.0",
     "vite-plugin-compression": "^0.5.1",
     "vite-plugin-solid": "^2.11.0",
+    "vitest": "^4.1.6",
     "wrangler": "^4.67.0"
-  },
-  "dependencies": {}
+  }
 }

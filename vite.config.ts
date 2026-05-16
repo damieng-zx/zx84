@@ -58,6 +58,8 @@ function hmrFreezePlugin(): Plugin {
 
 const pkg = JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 'utf-8'));
 
+/// <reference types="vitest/config" />
+
 export default defineConfig(({ mode }) => ({
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
@@ -80,6 +82,17 @@ export default defineConfig(({ mode }) => ({
       // Required for SharedArrayBuffer (AudioWorklet ring buffer)
       'Cross-Origin-Opener-Policy': 'same-origin',
       'Cross-Origin-Embedder-Policy': 'require-corp',
+    },
+  },
+  test: {
+    include: ['tests/**/*.test.ts'],
+    pool: 'forks',
+    environment: 'node',
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'html'],
+      include: ['src/**/*.ts'],
+      exclude: ['src/**/*.d.ts', 'src/mcp-server.ts'],
     },
   },
   build: {
