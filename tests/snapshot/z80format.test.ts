@@ -209,6 +209,65 @@ function buildV3_128K(
   return result;
 }
 
+/**
+ * Build a v2 .z80 file (extended header length = 23). Layout matches v3
+ * but with the shorter extended header; paged-block format is identical.
+ */
+function buildV2(
+  cpu: Z80,
+  banks: { pageId: number; data: Uint8Array }[],
+  hwMode: number,
+  port7FFD: number,
+  borderColor: number
+): Uint8Array {
+  const header = new Uint8Array(30);
+  header[0] = cpu.a; header[1] = cpu.f;
+  header[2] = cpu.c; header[3] = cpu.b;
+  header[4] = cpu.l; header[5] = cpu.h;
+  w16(header, 6, 0);
+  w16(header, 8, cpu.sp);
+  header[10] = cpu.i;
+  header[11] = cpu.r & 0x7F;
+  const rBit7 = (cpu.r & 0x80) >> 7;
+  header[12] = rBit7 | ((borderColor & 0x07) << 1);
+  header[13] = cpu.e; header[14] = cpu.d;
+  header[15] = cpu.c_; header[16] = cpu.b_;
+  header[17] = cpu.e_; header[18] = cpu.d_;
+  header[19] = cpu.l_; header[20] = cpu.h_;
+  header[21] = cpu.a_; header[22] = cpu.f_;
+  w16(header, 23, cpu.iy);
+  w16(header, 25, cpu.ix);
+  header[27] = cpu.iff1 ? 1 : 0;
+  header[28] = cpu.iff2 ? 1 : 0;
+  header[29] = cpu.im & 0x03;
+
+  const extHeaderLen = 23;
+  const extHeader = new Uint8Array(2 + extHeaderLen);
+  w16(extHeader, 0, extHeaderLen);
+  w16(extHeader, 2, cpu.pc);
+  extHeader[4] = hwMode;
+  extHeader[5] = port7FFD;
+
+  const blockArrays: Uint8Array[] = [];
+  for (const { pageId, data } of banks) {
+    const bh = new Uint8Array(3);
+    w16(bh, 0, 0xFFFF);
+    bh[2] = pageId;
+    blockArrays.push(bh);
+    blockArrays.push(data);
+  }
+
+  const totalLen = 30 + 2 + extHeaderLen + blockArrays.reduce((s, b) => s + b.length, 0);
+  const result = new Uint8Array(totalLen);
+  let off = 0;
+  result.set(header, off); off += 30;
+  result.set(extHeader, off); off += 2 + extHeaderLen;
+  for (const block of blockArrays) {
+    result.set(block, off); off += block.length;
+  }
+  return result;
+}
+
 /** Build a compressed v2/v3 data block: ED ED <count> <byte> entries. */
 function buildCompressedBlock(entries: { count: number; value: number }[]): Uint8Array {
   const out: number[] = [];
@@ -1078,5 +1137,272 @@ describe('Z80 format — decompression edge cases via v3 load', () => {
     loadZ80(result, new Z80(), mem);
     expect(mem.readByte(0x4000)).toBe(0x42);
     expect(mem.readByte(0x4001)).toBe(0xED);
+  });
+});
+
+// ── V2 paged-block loading (real data) ─────────────────────────────────────
+
+describe('Z80 format — v2 paged-block loading', () => {
+  it('loads 48K paged blocks via v2 (extLen=23) into the right slots', () => {
+    const cpu = makeCpu();
+    cpu.pc = 0x9000;
+    const page8 = new Uint8Array(16384).fill(0xA8); // → bank 5 / $4000
+    const page4 = new Uint8Array(16384).fill(0xB4); // → bank 2 / $8000
+    const page5 = new Uint8Array(16384).fill(0xC5); // → bank 0 / $C000
+
+    const file = buildV2(cpu, [
+      { pageId: 8, data: page8 },
+      { pageId: 4, data: page4 },
+      { pageId: 5, data: page5 },
+    ], /* hwMode 0 = 48K */ 0, 0, 0);
+
+    const cpu2 = new Z80();
+    const mem = makeMemory48k();
+    const result = loadZ80(file, cpu2, mem);
+
+    expect(result.is128K).toBe(false);
+    expect(cpu2.pc).toBe(0x9000);
+    expect(mem.readByte(0x4000)).toBe(0xA8);
+    expect(mem.readByte(0x8000)).toBe(0xB4);
+    expect(mem.readByte(0xC000)).toBe(0xC5);
+  });
+
+  it('loads 128K paged blocks via v2 (extLen=23) for all 8 RAM banks', () => {
+    const cpu = makeCpu();
+    cpu.pc = 0xC123;
+    const banks: { pageId: number; data: Uint8Array }[] = [];
+    for (let bank = 0; bank < 8; bank++) {
+      const data = new Uint8Array(16384);
+      data[0] = 0x80 | bank;
+      data[16383] = 0xF0 | bank;
+      banks.push({ pageId: bank + 3, data });
+    }
+    const file = buildV2(cpu, banks, /* v2 hwMode 3 = 128K */ 3, 0x06, 0);
+
+    const cpu2 = new Z80();
+    const mem = makeMemory128k();
+    const result = loadZ80(file, cpu2, mem);
+
+    expect(result.is128K).toBe(true);
+    expect(result.port7FFD).toBe(0x06);
+    expect(cpu2.pc).toBe(0xC123);
+    for (let bank = 0; bank < 8; bank++) {
+      expect(mem.getRamBank(bank)[0]).toBe(0x80 | bank);
+      expect(mem.getRamBank(bank)[16383]).toBe(0xF0 | bank);
+    }
+  });
+
+  it('decompresses compressed blocks in v2 paged format', () => {
+    const cpu = makeCpu();
+    cpu.pc = 0x4000;
+    // RLE block for page 8: a run of 50 0x77 bytes, rest zero (decompressed).
+    const compressed = buildCompressedBlock([{ count: 50, value: 0x77 }]);
+    const bh = new Uint8Array(3);
+    w16(bh, 0, compressed.length);
+    bh[2] = 8;
+
+    // Build a v2 file with a single placeholder block, then splice in our
+    // compressed block in its place.
+    const placeholder = new Uint8Array(16384);
+    const file = buildV2(cpu, [{ pageId: 8, data: placeholder }], 0, 0, 0);
+    const extLen = r16(file, 30);
+    const dataStart = 32 + extLen;
+    const result = new Uint8Array(dataStart + 3 + compressed.length);
+    result.set(file.subarray(0, dataStart));
+    result.set(bh, dataStart);
+    result.set(compressed, dataStart + 3);
+
+    const mem = makeMemory48k();
+    loadZ80(result, new Z80(), mem);
+    for (let i = 0; i < 50; i++) expect(mem.readByte(0x4000 + i)).toBe(0x77);
+    expect(mem.readByte(0x4032)).toBe(0x00);
+  });
+});
+
+// ── V3 hardware modes — extended coverage ──────────────────────────────────
+
+describe('Z80 format — extended v3 hardware modes', () => {
+  it.each([
+    [9,  '128K (Pentagon)'],
+    [12, '+2'],
+    [13, '+2A'],
+  ])('v3 mode %i (%s) is treated as 128K-class', (mode) => {
+    const cpu = makeCpu();
+    const banks: { pageId: number; data: Uint8Array }[] = [];
+    for (let bank = 0; bank < 8; bank++) {
+      banks.push({ pageId: bank + 3, data: new Uint8Array(16384) });
+    }
+    const file = buildV3_128K(cpu, banks, 0, 0);
+    file[34] = mode;
+    const result = loadZ80(file, new Z80(), makeMemory128k());
+    expect(result.is128K).toBe(true);
+  });
+});
+
+// ── V3 extended header length 55 ───────────────────────────────────────────
+
+describe('Z80 format — v3 extHeaderLen=55 variant', () => {
+  it('loads correctly when the extended header is 55 bytes', () => {
+    const cpu = makeCpu();
+    cpu.pc = 0xABCD;
+    const banks: { pageId: number; data: Uint8Array }[] = [];
+    for (let bank = 0; bank < 8; bank++) {
+      const data = new Uint8Array(16384);
+      data[0] = bank + 0xA0;
+      banks.push({ pageId: bank + 3, data });
+    }
+    const file = buildV3_128K(cpu, banks, 0x07, 0);
+
+    // Convert from extHeaderLen=54 to 55 by inserting one extra byte for
+    // the "last OUT to port 0x1FFD" field. We rebuild the file rather than
+    // mutating offsets piecewise.
+    const oldExt = 54;
+    const newExt = 55;
+    const blocksStart = 32 + oldExt;
+    const expanded = new Uint8Array(file.length + 1);
+    expanded.set(file.subarray(0, 30), 0);
+    w16(expanded, 30, newExt);
+    expanded.set(file.subarray(32, 32 + oldExt), 32);
+    expanded[32 + oldExt] = 0x00; // port 0x1FFD value
+    expanded.set(file.subarray(blocksStart), 32 + newExt);
+
+    const cpu2 = new Z80();
+    const mem = makeMemory128k();
+    const result = loadZ80(expanded, cpu2, mem);
+
+    expect(result.is128K).toBe(true);
+    expect(cpu2.pc).toBe(0xABCD);
+    for (let bank = 0; bank < 8; bank++) {
+      expect(mem.getRamBank(bank)[0]).toBe(bank + 0xA0);
+    }
+  });
+});
+
+// ── Canonical single-ED encoding (byte-level inspection) ───────────────────
+
+describe('Z80 compression — canonical encoding shape', () => {
+  /** Locate the page-8 (48K) compressed block in a saved file and return its bytes. */
+  function extractPage8Block(saved: Uint8Array): Uint8Array {
+    const extLen = r16(saved, 30);
+    let off = 32 + extLen;
+    while (off + 3 <= saved.length) {
+      const len = r16(saved, off);
+      const pageId = saved[off + 2];
+      const payloadLen = (len === 0xFFFF) ? 16384 : len;
+      if (pageId === 8) return saved.subarray(off + 3, off + 3 + payloadLen);
+      off += 3 + payloadLen;
+    }
+    throw new Error('page 8 block not found');
+  }
+
+  it('encodes a lone ED as a literal pair (ED, next-byte) — not as a run of count 1', () => {
+    const cpu = new Z80();
+    const mem = makeMemory48k();
+    const bank5 = mem.getRamBank(5);
+    bank5.fill(0); // mostly zeros so the run-of-zeros section is compact
+    bank5[0] = 0xED;
+    bank5[1] = 0x42;
+
+    const saved = saveZ80(cpu, mem, 0, false);
+    const block = extractPage8Block(saved);
+
+    // Canonical: ED 42 ... (literal ED, forced literal of next byte).
+    // Forbidden by spec: ED ED 01 ED ... (a 1-count run of EDs).
+    expect(block[0]).toBe(0xED);
+    expect(block[1]).toBe(0x42);
+    expect(block[2]).not.toBe(0x01);
+  });
+
+  it('encodes ED followed by a run of zeros per the spec example (ED 00 ED ED 05 00)', () => {
+    const cpu = new Z80();
+    const mem = makeMemory48k();
+    const bank5 = mem.getRamBank(5);
+    // Bank starts with ED then 6 zeros then a sentinel byte; the rest is
+    // a uniform run far away. Per spec: ED 6×00 → ED 00 (forced literal),
+    // then 5 zeros form an RLE block: ED ED 05 00.
+    bank5[0] = 0xED;
+    // bank5[1..6] = 0 (already zero-initialised by SpectrumMemory)
+    bank5[7] = 0x33;
+    bank5.fill(0x99, 8, 16384);
+
+    const saved = saveZ80(cpu, mem, 0, false);
+    const block = extractPage8Block(saved);
+
+    expect(block[0]).toBe(0xED);
+    expect(block[1]).toBe(0x00);
+    expect(block[2]).toBe(0xED);
+    expect(block[3]).toBe(0xED);
+    expect(block[4]).toBe(0x05);
+    expect(block[5]).toBe(0x00);
+    expect(block[6]).toBe(0x33);
+  });
+
+  it('encodes two consecutive EDs as ED ED 02 ED', () => {
+    const cpu = new Z80();
+    const mem = makeMemory48k();
+    const bank5 = mem.getRamBank(5);
+    bank5.fill(0);
+    bank5[0] = 0xED;
+    bank5[1] = 0xED;
+    bank5[2] = 0x33;
+
+    const saved = saveZ80(cpu, mem, 0, false);
+    const block = extractPage8Block(saved);
+
+    expect(block[0]).toBe(0xED);
+    expect(block[1]).toBe(0xED);
+    expect(block[2]).toBe(0x02);
+    expect(block[3]).toBe(0xED);
+    expect(block[4]).toBe(0x33);
+  });
+});
+
+// ── 128K save round-trip — extra coverage ──────────────────────────────────
+
+describe('Z80 format — 128K round-trip extras', () => {
+  it('preserves pagingLocked (port7FFD bit 5) and currentROM across save/load', () => {
+    const cpu = new Z80();
+    const mem = makeMemory128k();
+    // 0x35 = 0011_0101: bank 5, ROM 1 (bit 4), paging locked (bit 5).
+    mem.port7FFD = 0x35;
+    mem.applyBanking();
+
+    const saved = saveZ80(cpu, mem, 0, true);
+    const cpu2 = new Z80();
+    const mem2 = makeMemory128k();
+    const result = loadZ80(saved, cpu2, mem2);
+
+    expect(result.port7FFD).toBe(0x35);
+    expect(mem2.pagingLocked).toBe(true);
+    expect(mem2.currentROM).toBe(1);
+    expect(mem2.currentBank).toBe(5);
+  });
+
+  it('preserves every CPU register including the full alternate set in 128K mode', () => {
+    const cpu = makeCpu();
+    const mem = makeMemory128k();
+    const saved = saveZ80(cpu, mem, 3, true);
+
+    const cpu2 = new Z80();
+    const mem2 = makeMemory128k();
+    loadZ80(saved, cpu2, mem2);
+
+    // Main set
+    expect(cpu2.a).toBe(cpu.a);   expect(cpu2.f).toBe(cpu.f);
+    expect(cpu2.b).toBe(cpu.b);   expect(cpu2.c).toBe(cpu.c);
+    expect(cpu2.d).toBe(cpu.d);   expect(cpu2.e).toBe(cpu.e);
+    expect(cpu2.h).toBe(cpu.h);   expect(cpu2.l).toBe(cpu.l);
+    // Alternate set
+    expect(cpu2.a_).toBe(cpu.a_); expect(cpu2.f_).toBe(cpu.f_);
+    expect(cpu2.b_).toBe(cpu.b_); expect(cpu2.c_).toBe(cpu.c_);
+    expect(cpu2.d_).toBe(cpu.d_); expect(cpu2.e_).toBe(cpu.e_);
+    expect(cpu2.h_).toBe(cpu.h_); expect(cpu2.l_).toBe(cpu.l_);
+    // Index, stack, control
+    expect(cpu2.ix).toBe(cpu.ix); expect(cpu2.iy).toBe(cpu.iy);
+    expect(cpu2.sp).toBe(cpu.sp); expect(cpu2.pc).toBe(cpu.pc);
+    expect(cpu2.i).toBe(cpu.i);   expect(cpu2.r).toBe(cpu.r);
+    expect(cpu2.iff1).toBe(cpu.iff1);
+    expect(cpu2.iff2).toBe(cpu.iff2);
+    expect(cpu2.im).toBe(cpu.im);
   });
 });

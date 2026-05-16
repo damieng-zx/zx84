@@ -901,4 +901,143 @@ describe('SNA — 48K SP edge cases', () => {
     expect(saved[pcLoOffset]).toBe(0xCD);
     expect(saved[pcHiOffset]).toBe(0xAB);
   });
+
+  it('handles SP = 0x4001 (PC push straddles ROM/RAM boundary)', () => {
+    // sp - 2 = 0x3FFF (ROM, writes are no-ops); sp - 1 = 0x4000 (RAM).
+    // The saver should not crash and should still record SP = 0x3FFF in
+    // the header. The PC-low byte is effectively lost (written to ROM);
+    // the PC-high byte ends up at 0x4000 (RAM offset 0).
+    const cpu = makeCpu();
+    cpu.sp = 0x4001;
+    cpu.pc = 0xABCD;
+    const mem = makeMemory48k();
+
+    expect(() => saveSNA(cpu, mem, 0)).not.toThrow();
+    const saved = saveSNA(cpu, mem, 0);
+    const savedSP = saved[23] | (saved[24] << 8);
+    expect(savedSP).toBe(0x3FFF);
+    // RAM at 0x4000 (saved offset 27) holds the high byte of PC.
+    expect(saved[27]).toBe(0xAB);
+  });
+});
+
+// ── TR-DOS flag handling ───────────────────────────────────────────────────
+
+describe('SNA — TR-DOS flag', () => {
+  it('does not crash when byte 49182 = 1 (TR-DOS paged) and still loads state', () => {
+    const cpu = makeCpu();
+    cpu.pc = 0xBEEF;
+    const banks = make8Banks((b) => b + 1);
+    const data = buildSNA128K(cpu, banks, 0x07, 0);
+    data[49182] = 1; // TR-DOS paged
+
+    const cpu2 = new Z80();
+    const mem = makeMemory128k();
+    expect(() => loadSNA(data, cpu2, mem)).not.toThrow();
+    expect(cpu2.pc).toBe(0xBEEF);
+    for (let b = 0; b < 8; b++) {
+      expect(mem.getRamBank(b)[0]).toBe(b + 1);
+    }
+  });
+});
+
+// ── IFF1/IFF2 lossy round-trip ─────────────────────────────────────────────
+
+describe('SNA — IFF1/IFF2 asymmetry (lossy by spec)', () => {
+  it('collapses asymmetric IFF1/IFF2 to a single value (only IFF2 is stored)', () => {
+    // SNA stores only IFF2 in bit 2 of byte 19; IFF1 is reconstructed by
+    // mirroring IFF2. This is a documented lossy round-trip — IFF1=true
+    // with IFF2=false cannot be preserved.
+    const cpu = makeCpu();
+    cpu.iff1 = true;
+    cpu.iff2 = false;
+    const mem = makeMemory48k();
+
+    const saved = saveSNA(cpu, mem, 0);
+    // Saver writes only IFF2; IFF1's true value is discarded.
+    expect(saved[19] & 0x04).toBe(0x00);
+
+    const cpu2 = new Z80();
+    loadSNA(saved, cpu2, makeMemory48k());
+    expect(cpu2.iff2).toBe(false);
+    expect(cpu2.iff1).toBe(false); // mirrored from IFF2 on load
+  });
+});
+
+// ── Byte-identity round-trip ───────────────────────────────────────────────
+
+describe('SNA — byte-identity round-trip', () => {
+  it('48K save → load → save produces byte-identical output', () => {
+    const cpu = makeCpu();
+    cpu.sp = 0xFF00;
+    cpu.pc = 0x8000;
+    const mem = makeMemory48k();
+    // Fill RAM with a deterministic pattern.
+    const bank5 = mem.getRamBank(5);
+    const bank2 = mem.getRamBank(2);
+    const bank0 = mem.getRamBank(0);
+    for (let i = 0; i < 16384; i++) {
+      bank5[i] = (i * 3 + 1) & 0xFF;
+      bank2[i] = (i * 5 + 2) & 0xFF;
+      bank0[i] = (i * 7 + 3) & 0xFF;
+    }
+
+    const saved1 = saveSNA(cpu, mem, 4);
+    const cpu2 = new Z80();
+    const mem2 = makeMemory48k();
+    loadSNA(saved1, cpu2, mem2);
+    const saved2 = saveSNA(cpu2, mem2, 4);
+
+    expect(saved2.length).toBe(saved1.length);
+    for (let i = 0; i < saved1.length; i++) {
+      expect(saved2[i]).toBe(saved1[i]);
+    }
+  });
+
+  it('128K save → load → save produces byte-identical output (cb=7)', () => {
+    const cpu = makeCpu();
+    const mem = makeMemory128k();
+    for (let b = 0; b < 8; b++) {
+      const bank = mem.getRamBank(b);
+      for (let i = 0; i < 16384; i++) {
+        bank[i] = ((b * 16384 + i) * 11 + 17) & 0xFF;
+      }
+    }
+    mem.port7FFD = 0x07;
+    mem.applyBanking();
+
+    const saved1 = saveSNA(cpu, mem, 2);
+    const cpu2 = new Z80();
+    const mem2 = makeMemory128k();
+    loadSNA(saved1, cpu2, mem2);
+    const saved2 = saveSNA(cpu2, mem2, 2);
+
+    expect(saved2.length).toBe(saved1.length);
+    for (let i = 0; i < saved1.length; i++) {
+      expect(saved2[i]).toBe(saved1[i]);
+    }
+  });
+
+  it('128K save → load → save produces byte-identical output for cb=2 (147487-byte variant)', () => {
+    const cpu = makeCpu();
+    const mem = makeMemory128k();
+    for (let b = 0; b < 8; b++) {
+      mem.getRamBank(b).fill((b * 0x13 + 0x07) & 0xFF);
+    }
+    mem.port7FFD = 0x02;
+    mem.applyBanking();
+
+    const saved1 = saveSNA(cpu, mem, 1);
+    expect(saved1.length).toBe(147487);
+
+    const cpu2 = new Z80();
+    const mem2 = makeMemory128k();
+    loadSNA(saved1, cpu2, mem2);
+    const saved2 = saveSNA(cpu2, mem2, 1);
+
+    expect(saved2.length).toBe(saved1.length);
+    for (let i = 0; i < saved1.length; i++) {
+      expect(saved2[i]).toBe(saved1[i]);
+    }
+  });
 });
