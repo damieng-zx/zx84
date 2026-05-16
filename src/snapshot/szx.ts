@@ -105,7 +105,7 @@ const MODEL_TO_MACHINE_ID: Record<SpectrumModel, number> = {
   '48k': 1,
   '128k': 2,
   '+2': 3,
-  '+2a': 4,
+  '+2A': 4,
   '+3': 5,
 };
 

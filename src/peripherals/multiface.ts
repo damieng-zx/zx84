@@ -15,7 +15,7 @@ export type MultifaceVariant = 'MF1' | 'MF128' | 'MF3';
 
 export function variantForModel(model: SpectrumModel): MultifaceVariant {
   if (model === '16k' || model === '48k') return 'MF1';
-  if (model === '+2a' || model === '+3') return 'MF3';
+  if (model === '+2A' || model === '+3') return 'MF3';
   return 'MF128';
 }
 

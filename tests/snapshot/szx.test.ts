@@ -688,7 +688,7 @@ describe('SZX — save header', () => {
   });
 
   it('writes correct machine ID for each model', async () => {
-    const models: SpectrumModel[] = ['16k', '48k', '128k', '+2', '+2a', '+3'];
+    const models: SpectrumModel[] = ['16k', '48k', '128k', '+2', '+2A', '+3'];
     const expected = [0, 1, 2, 3, 4, 5];
 
     for (let i = 0; i < models.length; i++) {

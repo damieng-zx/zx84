@@ -30,7 +30,7 @@ const ROM_URLS: Record<SpectrumModel, string> = {
   '48k':  'https://raw.githubusercontent.com/spectrumforeveryone/zx-roms/main/spectrum16-48/spec48.rom',
   '128k': 'https://raw.githubusercontent.com/spectrumforeveryone/zx-roms/main/spectrum128-plus2/128/spec128uk.rom',
   '+2':   'https://raw.githubusercontent.com/spectrumforeveryone/zx-roms/main/spectrum128-plus2/plus2/plus2uk.rom',
-  '+2a':  'https://raw.githubusercontent.com/spectrumforeveryone/zx-roms/main/spectrum-plus3/plus2a/plus2a.rom',
+  '+2A':  'https://raw.githubusercontent.com/spectrumforeveryone/zx-roms/main/spectrum-plus3/plus2a/plus2a.rom',
   '+3':   'https://raw.githubusercontent.com/spectrumforeveryone/zx-roms/main/spectrum-plus3/plus3/plus3.rom',
 };
 
@@ -218,7 +218,7 @@ async function loadFileInto(spec: Spectrum, filepath: string, diskUnit: number =
     // Auto-detect model from SZX header byte 6 (machine ID).
     // Must switch before loading so memory.is128K is set correctly and ROM pages are right.
     const SZX_ID_MODEL: Record<number, SpectrumModel> = {
-      0: '16k', 1: '48k', 2: '128k', 3: '+2', 4: '+2a', 5: '+3', 6: '+3',
+      0: '16k', 1: '48k', 2: '128k', 3: '+2', 4: '+2A', 5: '+3', 6: '+3',
     };
     const szxModel: SpectrumModel = (data.length >= 7 ? SZX_ID_MODEL[data[6]] : undefined) ?? '48k';
     if (szxModel !== model) await initMachine(szxModel);
@@ -233,7 +233,7 @@ async function loadFileInto(spec: Spectrum, filepath: string, diskUnit: number =
       spec.memory.pagingLocked  = (result.port7FFD & 0x20) !== 0;
       spec.memory.specialPaging = (result.port1FFD & 1) !== 0;
       // +2A/+3 ROM index uses bits from both ports; others use only 7FFD bit 4
-      spec.memory.currentROM = (szxModel === '+2a' || szxModel === '+3')
+      spec.memory.currentROM = (szxModel === '+2A' || szxModel === '+3')
         ? (((result.port1FFD >> 2) & 1) << 1) | ((result.port7FFD >> 4) & 1)
         : (result.port7FFD >> 4) & 1;
       spec.memory.applyBanking();
@@ -1374,7 +1374,7 @@ server.tool(
 server.tool(
   'model',
   'Show or switch the Spectrum model. Creates a fresh machine when switching.',
-  { target: z.enum(['16k', '48k', '128k', '+2', '+2a', '+3']).optional().describe('Model to switch to (omit to show current)') },
+  { target: z.enum(['16k', '48k', '128k', '+2', '+2A', '+3']).optional().describe('Model to switch to (omit to show current)') },
   async ({ target }) => {
     if (!target) return text(`Current model: ${model}`);
     const msg = await initMachine(target);
@@ -1687,7 +1687,7 @@ async function main(): Promise<void> {
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--model' && i + 1 < args.length) {
       const m = args[++i];
-      if (['16k', '48k', '128k', '+2', '+2a', '+3'].includes(m)) {
+      if (['16k', '48k', '128k', '+2', '+2A', '+3'].includes(m)) {
         startModel = m as SpectrumModel;
       }
     }

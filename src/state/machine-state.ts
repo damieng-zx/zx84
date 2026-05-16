@@ -13,9 +13,14 @@ import type { SpectrumModel } from '@/spectrum.ts';
 
 function loadSavedModel(): SpectrumModel | null {
   try {
-    const val = localStorage.getItem('zx84-model');
-    if (val === '16k' || val === '48k' || val === '128k' || val === '+2' || val === '+2a' || val === '+3') {
-      return val as SpectrumModel;
+    const raw = localStorage.getItem('zx84-model');
+    // Legacy: pre-2026-05 builds stored '+2a' lower-case. Migrate transparently.
+    const val = raw === '+2a' ? '+2A' : raw;
+    if (val === '16k' || val === '48k' || val === '128k' || val === '+2' || val === '+2A' || val === '+3') {
+      if (val !== raw) {
+        try { localStorage.setItem('zx84-model', val); } catch { /* */ }
+      }
+      return val;
     }
   } catch { /* */ }
   return null;

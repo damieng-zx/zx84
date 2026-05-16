@@ -9,7 +9,7 @@ import type { MachineVariant } from './machine-variant.ts';
 /** Amstrad gate array contention pattern: 1,0,7,6,5,4,3,2 */
 const CONTENTION_AMSTRAD = new Uint8Array([1, 0, 7, 6, 5, 4, 3, 2]);
 
-export function createAmstrad(model: '+2a' | '+3'): MachineVariant {
+export function createAmstrad(model: '+2A' | '+3'): MachineVariant {
   const hasFDC = model === '+3';
 
   return Object.freeze({

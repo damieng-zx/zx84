@@ -452,7 +452,7 @@ export function stopTrace(): void {
  * When "+3 V4.1 ROMs" is enabled the +3 machine uses the +2A ROM set.
  */
 function effectiveROMModel(model: SpectrumModel): SpectrumModel {
-  return model === '+3' && settings.plus3V41Roms() ? '+2a' : model;
+  return model === '+3' && settings.plus3V41Roms() ? '+2A' : model;
 }
 
 export async function switchModel(model: SpectrumModel): Promise<void> {
@@ -481,7 +481,7 @@ export async function applyROM(data: Uint8Array, fileLabel: string): Promise<voi
 
   let detectedModel: SpectrumModel;
   if (data.length >= 65536) {
-    detectedModel = isPlus2AClass(currentModel()) ? currentModel() : '+2a';
+    detectedModel = isPlus2AClass(currentModel()) ? currentModel() : '+2A';
   } else if (data.length >= 32768) {
     detectedModel = is128kClass(currentModel()) ? currentModel() : '128k';
   } else if (data.length >= 16384) {
@@ -532,7 +532,7 @@ export async function loadRomFiles(files: Array<{ name: string; data: Uint8Array
 
 /** Try to switch to a 128K-class ROM, returning false if none available. */
 async function ensure128kROM(): Promise<boolean> {
-  const models: SpectrumModel[] = ['128k', '+2', '+2a', '+3'];
+  const models: SpectrumModel[] = ['128k', '+2', '+2A', '+3'];
   for (const model of models) {
     const entry = await restoreROM(model);
     if (entry) {

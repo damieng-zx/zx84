@@ -17,7 +17,7 @@ export function createVariant(model: SpectrumModel): MachineVariant {
     case '48k':  return spectrum48K;
     case '128k': return createFerranti128K('128k');
     case '+2':   return createFerranti128K('+2');
-    case '+2a':  return createAmstrad('+2a');
+    case '+2A':  return createAmstrad('+2A');
     case '+3':   return createAmstrad('+3');
   }
 }
