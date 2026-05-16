@@ -434,26 +434,36 @@ describe('SNA — 128K bank loading', () => {
     expect(mem.getRamBank(5)[0]).toBe(0xA0);
   });
 
-  it('handles currentBank = 2 (bank 2 appears in both main and extras)', () => {
+  it('handles currentBank = 2 (bank 2 occupies $8000 AND $C000, skipped from extras)', () => {
+    // Per WoS spec: the third RAM bank saved is always the currently paged
+    // one, even if it is 5 or 2. So when currentBank=2, bank 2 is written
+    // both at $8000 and $C000 in the main 48K region; it is NOT repeated
+    // in the trailing extras (which then number 6 instead of 5 — banks
+    // 0, 1, 3, 4, 6, 7 — pushing the file size to 147487).
     const cpu = makeCpu();
     const banks = make8Banks((b) => b * 0x10);
     const data = buildSNA128K(cpu, banks, 0x02, 0);
+    expect(data.length).toBe(49183 + 6 * 16384); // 147487
     const mem = makeMemory128k();
     loadSNA(data, new Z80(), mem);
 
-    expect(mem.getRamBank(2)[0]).toBe(0x20);
-    expect(mem.getRamBank(5)[0]).toBe(0x50);
+    // All 8 banks must be correctly populated.
+    for (let b = 0; b < 8; b++) {
+      expect(mem.getRamBank(b)[0]).toBe(b * 0x10);
+    }
   });
 
-  it('handles currentBank = 5 (bank 5 appears in both main and extras)', () => {
+  it('handles currentBank = 5 (bank 5 occupies $4000 AND $C000, skipped from extras)', () => {
     const cpu = makeCpu();
     const banks = make8Banks((b) => b * 0x10);
     const data = buildSNA128K(cpu, banks, 0x05, 0);
+    expect(data.length).toBe(49183 + 6 * 16384); // 147487
     const mem = makeMemory128k();
     loadSNA(data, new Z80(), mem);
 
-    expect(mem.getRamBank(5)[0]).toBe(0x50);
-    expect(mem.getRamBank(2)[0]).toBe(0x20);
+    for (let b = 0; b < 8; b++) {
+      expect(mem.getRamBank(b)[0]).toBe(b * 0x10);
+    }
   });
 
   it('applies paging state correctly', () => {
@@ -628,13 +638,31 @@ describe('SNA — 128K save', () => {
     expect(order).toEqual([0, 1, 3, 4, 6]);
   });
 
-  it('produces correct file size (49183 + 5 * 16384 = 131103)', () => {
+  it('produces 131103-byte file when currentBank is not 2 or 5', () => {
     const cpu = makeCpu();
     const mem = makeMemory128k();
     mem.port7FFD = 0x07;
     mem.applyBanking();
     const saved = saveSNA(cpu, mem, 0);
-    expect(saved.length).toBe(131103);
+    expect(saved.length).toBe(131103); // 49183 + 5 * 16384
+  });
+
+  it('produces 147487-byte file when currentBank is 2 (one fewer skipped bank in extras)', () => {
+    const cpu = makeCpu();
+    const mem = makeMemory128k();
+    mem.port7FFD = 0x02;
+    mem.applyBanking();
+    const saved = saveSNA(cpu, mem, 0);
+    expect(saved.length).toBe(147487); // 49183 + 6 * 16384
+  });
+
+  it('produces 147487-byte file when currentBank is 5', () => {
+    const cpu = makeCpu();
+    const mem = makeMemory128k();
+    mem.port7FFD = 0x05;
+    mem.applyBanking();
+    const saved = saveSNA(cpu, mem, 0);
+    expect(saved.length).toBe(147487);
   });
 
   it('writes TR-DOS flag as 0', () => {
@@ -814,8 +842,12 @@ describe('SNA — 128K full round-trip', () => {
     expect(mem2.pagingLocked).toBe(true);
   });
 
-  it('round-trips with different currentBank values', () => {
-    for (const cb of [0, 1, 3, 4, 6, 7]) {
+  it('round-trips with different currentBank values (including 2 and 5)', () => {
+    // Banks 2 and 5 are special: they also occupy the fixed main-region
+    // slots, so when currentBank ∈ {2,5} the file size grows to 147487 and
+    // the bank is written twice in the main 48K region but never in the
+    // extras. Verify round-trip correctness for every possible value.
+    for (const cb of [0, 1, 2, 3, 4, 5, 6, 7]) {
       const cpu = makeCpu();
       const mem = makeMemory128k();
       for (let b = 0; b < 8; b++) mem.getRamBank(b).fill(b * 0x10);

@@ -121,7 +121,11 @@ export function saveSNA(
   const banks = memory.flushBanks();
 
   if (memory.is128K) {
-    const cb = memory.currentBank;
+    // The single source of truth for which RAM bank is paged at $C000 is
+    // bits 0-2 of port 0x7FFD. memory.currentBank is a cache that callers
+    // are responsible for syncing; deriving cb from port7FFD keeps the
+    // saved file internally consistent regardless of cache state.
+    const cb = memory.port7FFD & 0x07;
     let extraBanks = 0;
     for (let bank = 0; bank < 8; bank++) {
       if (bank === 5 || bank === 2 || bank === cb) continue;
