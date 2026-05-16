@@ -11,9 +11,17 @@ import { Show } from 'solid-js';
 import { variantForModel, variantLabel } from '@/peripherals/multiface.ts';
 import * as settings from '@/store/settings.ts';
 import { resetSettingsGroup } from '@/store/settings.ts';
+import { openFile } from '@/ui/file-picker.ts';
 
 export function HardwarePane() {
-  let romInputRef!: HTMLInputElement;
+  async function handleLoadRom() {
+    const results = await openFile({
+      id: 'zx84-rom',
+      extensions: ['.rom', '.bin'],
+      multiple: true,
+    });
+    if (results) loadRomFiles(results);
+  }
 
   return (
     <Pane id="hardware-panel" label="Hardware" onResetSettings={() => {
@@ -29,6 +37,7 @@ export function HardwarePane() {
             (e.target as HTMLSelectElement).blur();
           }}
         >
+          <option value="16k">ZX Spectrum 16K</option>
           <option value="48k">ZX Spectrum 48K</option>
           <option value="128k">ZX Spectrum 128K</option>
           <option value="+2">ZX Spectrum +2 (Grey)</option>
@@ -36,21 +45,9 @@ export function HardwarePane() {
           <option value="+3">ZX Spectrum +3</option>
         </select>
         <button id="cpu-reset" title="Reset machine" onClick={resetMachine}><HiOutlinePower /></button>
-        <input
-          type="file"
-          ref={romInputRef}
-          accept=".rom,.bin"
-          multiple
-          style="display:none"
-          onChange={(e) => {
-            const files = (e.target as HTMLInputElement).files;
-            if (files) loadRomFiles(files);
-            (e.target as HTMLInputElement).value = '';
-          }}
-        />
       </div>
       <div id="cpu-controls">
-        <button class="btn btn-md" id="rom-btn" title="Load ROM" onClick={() => romInputRef?.click()}>ROM Select</button>
+        <button class="btn btn-md" id="rom-btn" title="Load ROM" onClick={handleLoadRom}>ROM Select</button>
         <button
           id="cpu-mhz"
           title={turboMode() ? 'Switch to normal speed' : 'Toggle turbo speed'}

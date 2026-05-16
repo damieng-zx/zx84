@@ -239,6 +239,7 @@ export class Spectrum {
     this.memory = new SpectrumMemory(model, {
       hasBanking: this.variant.hasBanking,
       romPageCount: this.variant.romPageCount,
+      is16K: model === '16k',
     });
     this.cpu = new Z80();
     this.ay = new AY3891x(AY_CLOCK, 44100, 'ABC');

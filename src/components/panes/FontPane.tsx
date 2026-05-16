@@ -4,6 +4,7 @@ import { HiOutlineArrowDownTray, HiOutlineXMark } from 'solid-icons/hi';
 import { fontName, setFontName, persistSetting, resetSettingsGroup } from '@/store/settings.ts';
 import { setStatus, loadFontStore, saveFontStore, spectrum } from '@/emulator.ts';
 import type { FontEntry } from '@/emulator.ts';
+import { openFile } from '@/ui/file-picker.ts';
 
 const COPYRIGHT_SIG = [0x3C, 0x42, 0x99, 0xA1, 0xA1, 0x99, 0x42, 0x3C];
 
@@ -94,12 +95,32 @@ function saveCh8(entry: FontEntry): void {
 }
 
 export function FontPane() {
-  let fontInputRef!: HTMLInputElement;
   const [rev, setRev] = createSignal(0);
 
   const entries = () => { void rev(); return loadFontStore(); };
 
   function bump() { setRev(v => v + 1); }
+
+  async function handleLoadFont() {
+    const results = await openFile({
+      id: 'zx84-font',
+      extensions: ['.ch8', '.bin'],
+    });
+    if (!results) return;
+    const { name, data } = results[0];
+    if (data.length !== 768) {
+      setStatus(`Font must be 768 bytes (got ${data.length})`);
+      return;
+    }
+    const label = name.replace(/\.[^.]+$/, '');
+    const id = `file:${label}:${Date.now()}`;
+    const store = loadFontStore();
+    store.push({ id, label, address: null, technique: 'file', data: bytesToB64(data) });
+    saveFontStore(store);
+    setFontName(id); persistSetting('font', id);
+    setStatus(`Font "${label}" loaded`);
+    bump();
+  }
 
   function removeEntry(id: string) {
     const store = loadFontStore();
@@ -221,7 +242,7 @@ export function FontPane() {
   return (
     <Pane id="font-panel" label="Fonts" onResetSettings={() => { resetSettingsGroup('font'); bump(); }}>
       <div id="font-row">
-        <button class="btn btn-md" id="font-add-btn" title="Load font (.ch8, 768 bytes)" onClick={() => fontInputRef?.click()}>Load</button>
+        <button class="btn btn-md" id="font-add-btn" title="Load font (.ch8, 768 bytes)" onClick={handleLoadFont}>Load</button>
         <button class="btn btn-md" id="font-search-btn" title="Hunt fonts in RAM" onClick={huntFonts}>Hunt</button>
         <button class="btn btn-md" id="font-clear-btn" title="Clear all fonts" onClick={() => {
           saveFontStore([]); setFontName(''); persistSetting('font', ''); bump();
@@ -249,31 +270,6 @@ export function FontPane() {
           </div>
         ))}
       </div>
-      <input
-        type="file"
-        ref={fontInputRef}
-        accept=".ch8,.bin"
-        style="display:none"
-        onChange={(e) => {
-          const file = (e.target as HTMLInputElement).files?.[0];
-          if (!file) return;
-          const reader = new FileReader();
-          reader.onload = () => {
-            const data = new Uint8Array(reader.result as ArrayBuffer);
-            if (data.length !== 768) { setStatus(`Font must be 768 bytes (got ${data.length})`); (e.target as HTMLInputElement).value = ''; return; }
-            const label = file.name.replace(/\.[^.]+$/, '');
-            const id = `file:${label}:${Date.now()}`;
-            const store = loadFontStore();
-            store.push({ id, label, address: null, technique: 'file', data: bytesToB64(data) });
-            saveFontStore(store);
-            setFontName(id); persistSetting('font', id);
-            setStatus(`Font "${label}" loaded`);
-            (e.target as HTMLInputElement).value = '';
-            bump();
-          };
-          reader.readAsArrayBuffer(file);
-        }}
-      />
     </Pane>
   );
 }

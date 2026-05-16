@@ -58,6 +58,9 @@ export function installMemoryHooks(s: Spectrum): void {
         return; // Normal ROM — discard
       }
     }
+    // 16K Spectrum: upper 32KB is unpopulated. Drop writes so the shared
+    // open-bus buffer stays all-0xFF for reads.
+    if (memory.is16K && addr >= 0x8000) return;
     if (addr >= 0x4000 && addr < vramFlushEnd) {
       s.flushBeam();
     }

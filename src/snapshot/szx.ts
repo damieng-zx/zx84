@@ -101,6 +101,7 @@ async function inflate(compressed: Uint8Array): Promise<Uint8Array> {
 
 /** SZX machine ID: 0=16K, 1=48K, 2=128K, 3=+2, 4=+2A/+2B, 5=+3, 6=+3e */
 const MODEL_TO_MACHINE_ID: Record<SpectrumModel, number> = {
+  '16k': 0,
   '48k': 1,
   '128k': 2,
   '+2': 3,
@@ -320,10 +321,12 @@ function writeBlockHeader(data: Uint8Array, offset: number, id: string, size: nu
 }
 
 export async function saveSZX(cpu: Z80, memory: SpectrumMemory, borderColor: number, model: SpectrumModel, frameStartTStates: number, ayRegs?: Uint8Array, ayCurrentReg?: number): Promise<Uint8Array> {
-  // For 48K, only pages 0, 2, 5 are used. For 128K, all 8.
+  // For 48K, pages 0, 2, 5 are used. For 16K, only page 5. For 128K, all 8.
   const pages = memory.is128K
     ? [0, 1, 2, 3, 4, 5, 6, 7]
-    : [0, 2, 5];
+    : memory.is16K
+      ? [5]
+      : [0, 2, 5];
 
   // Flush live flat[] to banks (built into flushBanks — cannot be forgotten).
   const banks = memory.flushBanks();

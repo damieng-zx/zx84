@@ -10,6 +10,7 @@ import {
 import { tapeAutoRewind, tapeCollapseBlocks, setTapeCollapseBlocks, tapeInstantLoad, setTapeInstantLoad, tapeTurbo, setTapeTurbo, tapeSoundEnabled, setTapeSoundEnabled } from '@/store/settings.ts';
 import { persistSetting, resetSettingsGroup } from '@/store/settings.ts';
 import type { TapeBlock, DataBlock } from '@/tape/tap.ts';
+import { openFile } from '@/ui/file-picker.ts';
 
 const HEADER_TYPES: Record<number, string> = { 0: 'Program', 1: 'Number array', 2: 'Character array', 3: 'Bytes' };
 
@@ -83,7 +84,15 @@ function parseTapeBlockMeta(block: TapeBlock, index: number, blocks: TapeBlock[]
 
 export function TapePane() {
   let containerRef!: HTMLDivElement;
-  let fileInputRef!: HTMLInputElement;
+
+  async function handleLoadTape() {
+    const results = await openFile({
+      id: 'zx84-tape',
+      extensions: ['.tap', '.tzx', '.zip'],
+    });
+    if (!results) return;
+    await loadFile(results[0].data, results[0].name);
+  }
 
   // Auto-scroll current block into view
   createEffect(() => {
@@ -139,24 +148,11 @@ export function TapePane() {
             }
           }}
         />
-        <input
-          type="file"
-          ref={fileInputRef}
-          accept=".tap,.tzx,.zip"
-          style="display:none"
-          onChange={async (e) => {
-            const file = (e.target as HTMLInputElement).files?.[0];
-            if (!file) return;
-            const data = new Uint8Array(await file.arrayBuffer());
-            await loadFile(data, file.name);
-            (e.target as HTMLInputElement).value = '';
-          }}
-        />
       </div>
-      <div 
+      <div
         id="tape-name" 
         classList={{ 'tape-name-clickable': !tapeLoaded() }}
-        onClick={() => !tapeLoaded() && fileInputRef?.click()}
+        onClick={() => !tapeLoaded() && handleLoadTape()}
       >
         <span class="tape-name-text" title={tapeLoaded() ? tapeName() : ''}>
           {tapeLoaded() ? tapeName() : 'No tape inserted'}

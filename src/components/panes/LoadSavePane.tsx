@@ -2,9 +2,9 @@ import { onMount, onCleanup } from 'solid-js';
 import { Pane } from '@/components/Pane.tsx';
 import { HiOutlineFolderOpen, HiOutlineArrowDownTray } from 'solid-icons/hi';
 import { loadFile, saveSnapshot, saveScreenshot, saveRAM } from '@/emulator.ts';
+import { openFile } from '@/ui/file-picker.ts';
 
 export function LoadSavePane() {
-  let snapInputRef!: HTMLInputElement;
   let menuRef!: HTMLDivElement;
   let saveButtonRef!: HTMLButtonElement;
 
@@ -45,10 +45,19 @@ export function LoadSavePane() {
     };
   }
 
+  async function handleLoad() {
+    const results = await openFile({
+      id: 'zx84-snapshot',
+      extensions: ['.sna', '.z80', '.szx', '.sp', '.tap', '.tzx', '.dsk', '.zip'],
+    });
+    if (!results) return;
+    await loadFile(results[0].data, results[0].name);
+  }
+
   return (
     <Pane id="snapshot-panel" label="Load / Save">
       <div id="snap-row">
-        <button class="btn btn-md" id="snap-load-btn" title="Load file" onClick={() => snapInputRef?.click()}>
+        <button class="btn btn-md" id="snap-load-btn" title="Load file" onClick={handleLoad}>
           <HiOutlineFolderOpen /> Load
         </button>
         <button
@@ -67,19 +76,6 @@ export function LoadSavePane() {
           <div class="save-menu-item" onClick={handleSave(() => saveScreenshot('scr'))}>Screen (.scr)</div>
           <div class="save-menu-item" onClick={handleSave(saveRAM)}>RAM (.bin)</div>
         </div>
-        <input
-          type="file"
-          ref={snapInputRef}
-          accept=".sna,.z80,.szx,.sp,.tap,.tzx,.dsk,.zip"
-          style="display:none"
-          onChange={async (e) => {
-            const file = (e.target as HTMLInputElement).files?.[0];
-            if (!file) return;
-            const data = new Uint8Array(await file.arrayBuffer());
-            await loadFile(data, file.name);
-            (e.target as HTMLInputElement).value = '';
-          }}
-        />
       </div>
     </Pane>
   );

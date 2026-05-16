@@ -17,6 +17,7 @@ import {
 import { isPlus3 } from '@/spectrum.ts';
 import { DISK_FORMATS, formatLabel, createBlankDisk, type DskImage } from '@/plus3/dsk.ts';
 import type { DriveStatus } from '@/state/disk-state.ts';
+import { openFile } from '@/ui/file-picker.ts';
 
 const LED_COLORS: Record<DriveStatus['led'], string> = {
   off:   '#111',
@@ -134,8 +135,14 @@ function syncForceReady(unit: number, value: boolean): void {
 }
 
 export function DrivePane() {
-  let fileInputRefA!: HTMLInputElement;
-  let fileInputRefB!: HTMLInputElement;
+  async function handleInsertDisk(unit: number) {
+    const results = await openFile({
+      id: 'zx84-disk',
+      extensions: ['.dsk', '.zip'],
+    });
+    if (!results) return;
+    await loadFile(results[0].data, results[0].name, unit);
+  }
 
   return (
     <Pane id="drive-panel" label="Drives" mono visible={isPlus3(currentModel())} onResetSettings={() => {
@@ -145,32 +152,6 @@ export function DrivePane() {
         spectrum.fdc.forceReady[1] = false;
       }
     }}>
-      <input
-        type="file"
-        ref={fileInputRefA}
-        accept=".dsk,.zip"
-        style="display:none"
-        onChange={async (e) => {
-          const file = (e.target as HTMLInputElement).files?.[0];
-          if (!file) return;
-          const data = new Uint8Array(await file.arrayBuffer());
-          await loadFile(data, file.name, 0);
-          (e.target as HTMLInputElement).value = '';
-        }}
-      />
-      <input
-        type="file"
-        ref={fileInputRefB}
-        accept=".dsk,.zip"
-        style="display:none"
-        onChange={async (e) => {
-          const file = (e.target as HTMLInputElement).files?.[0];
-          if (!file) return;
-          const data = new Uint8Array(await file.arrayBuffer());
-          await loadFile(data, file.name, 1);
-          (e.target as HTMLInputElement).value = '';
-        }}
-      />
       <DiskInfo
         unit={0}
         name={currentDiskName()}
@@ -178,7 +159,7 @@ export function DrivePane() {
         status={driveAStatus()}
         soundEnabled={diskSoundA()}
         writeProtected={writeProtectA()}
-        onInsert={() => fileInputRefA?.click()}
+        onInsert={() => handleInsertDisk(0)}
         onToggleSound={() => {
           setDiskSoundA(!diskSoundA());
           persistSetting('disk-sound-a', diskSoundA() ? 'on' : 'off');
@@ -197,7 +178,7 @@ export function DrivePane() {
         soundEnabled={diskSoundB()}
         writeProtected={writeProtectB()}
         forceReady={driveBForceReady()}
-        onInsert={() => fileInputRefB?.click()}
+        onInsert={() => handleInsertDisk(1)}
         onToggleSound={() => {
           setDiskSoundB(!diskSoundB());
           persistSetting('disk-sound-b', diskSoundB() ? 'on' : 'off');

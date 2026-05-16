@@ -20,6 +20,7 @@ const ROM_BASE = 'https://zx84files.bitsparse.com/roms/';
 
 // Each model lists its ROM pages in order; they are fetched and concatenated.
 const DEFAULT_ROM_URLS: Record<SpectrumModel, string[]> = {
+  '16k':  [`${ROM_BASE}48.rom`],
   '48k':  [`${ROM_BASE}48.rom`],
   '128k': [`${ROM_BASE}128-0.rom`, `${ROM_BASE}128-1.rom`],
   '+2':   [`${ROM_BASE}plus2-0.rom`, `${ROM_BASE}plus2-1.rom`],

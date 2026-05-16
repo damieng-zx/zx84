@@ -60,6 +60,15 @@ export class SpectrumMemory implements ByteReader {
   /** True = 128K-class mode, false = 48K mode */
   is128K: boolean;
 
+  /** True for the 16K Spectrum: slots 2/3 (0x8000-0xFFFF) are unpopulated.
+   *  Reads return 0xFF (open bus) and writes are discarded. */
+  is16K: boolean;
+
+  /** Shared open-bus buffer used for unpopulated slots on the 16K Spectrum.
+   *  Reads return 0xFF; the io-ports write8 hook drops writes before they
+   *  ever land here, so the buffer remains all-0xFF. */
+  private _openBus: Uint8Array;
+
   /** True when +2A special all-RAM paging is active */
   specialPaging = false;
 
@@ -67,8 +76,10 @@ export class SpectrumMemory implements ByteReader {
    *  Suppresses ROM updates to slot 0 during bank switches. */
   externalRomPaged = false;
 
-  constructor(model: SpectrumModel, opts?: { hasBanking?: boolean; romPageCount?: number }) {
-    this.is128K = opts?.hasBanking ?? (model !== '48k');
+  constructor(model: SpectrumModel, opts?: { hasBanking?: boolean; romPageCount?: number; is16K?: boolean }) {
+    this.is128K = opts?.hasBanking ?? (model !== '48k' && model !== '16k');
+    this.is16K = opts?.is16K ?? (model === '16k');
+    this._openBus = new Uint8Array(16384).fill(0xFF);
 
     // Create 8 RAM banks
     this._ramBanks = [];
@@ -162,8 +173,8 @@ export class SpectrumMemory implements ByteReader {
         this._slots[0] = this.is128K ? this.romPages[this.currentROM] : this.romPages[1];
       }
       this._slots[1] = this._ramBanks[5];
-      this._slots[2] = this._ramBanks[2];
-      this._slots[3] = this._ramBanks[this.currentBank];
+      this._slots[2] = this.is16K ? this._openBus : this._ramBanks[2];
+      this._slots[3] = this.is16K ? this._openBus : this._ramBanks[this.currentBank];
     }
   }
 

@@ -14,7 +14,7 @@ import type { SpectrumModel } from '@/spectrum.ts';
 function loadSavedModel(): SpectrumModel | null {
   try {
     const val = localStorage.getItem('zx84-model');
-    if (val === '48k' || val === '128k' || val === '+2' || val === '+2a' || val === '+3') {
+    if (val === '16k' || val === '48k' || val === '128k' || val === '+2' || val === '+2a' || val === '+3') {
       return val as SpectrumModel;
     }
   } catch { /* */ }

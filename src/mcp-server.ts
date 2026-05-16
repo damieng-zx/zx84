@@ -26,6 +26,7 @@ import { variantForModel, variantLabel, romFilename } from './peripherals/multif
 // ── ROM URLs ─────────────────────────────────────────────────────────────
 
 const ROM_URLS: Record<SpectrumModel, string> = {
+  '16k':  'https://raw.githubusercontent.com/spectrumforeveryone/zx-roms/main/spectrum16-48/spec48.rom',
   '48k':  'https://raw.githubusercontent.com/spectrumforeveryone/zx-roms/main/spectrum16-48/spec48.rom',
   '128k': 'https://raw.githubusercontent.com/spectrumforeveryone/zx-roms/main/spectrum128-plus2/128/spec128uk.rom',
   '+2':   'https://raw.githubusercontent.com/spectrumforeveryone/zx-roms/main/spectrum128-plus2/plus2/plus2uk.rom',
@@ -217,7 +218,7 @@ async function loadFileInto(spec: Spectrum, filepath: string, diskUnit: number =
     // Auto-detect model from SZX header byte 6 (machine ID).
     // Must switch before loading so memory.is128K is set correctly and ROM pages are right.
     const SZX_ID_MODEL: Record<number, SpectrumModel> = {
-      0: '48k', 1: '48k', 2: '128k', 3: '+2', 4: '+2a', 5: '+3', 6: '+3',
+      0: '16k', 1: '48k', 2: '128k', 3: '+2', 4: '+2a', 5: '+3', 6: '+3',
     };
     const szxModel: SpectrumModel = (data.length >= 7 ? SZX_ID_MODEL[data[6]] : undefined) ?? '48k';
     if (szxModel !== model) await initMachine(szxModel);
@@ -1373,7 +1374,7 @@ server.tool(
 server.tool(
   'model',
   'Show or switch the Spectrum model. Creates a fresh machine when switching.',
-  { target: z.enum(['48k', '128k', '+2', '+2a', '+3']).optional().describe('Model to switch to (omit to show current)') },
+  { target: z.enum(['16k', '48k', '128k', '+2', '+2a', '+3']).optional().describe('Model to switch to (omit to show current)') },
   async ({ target }) => {
     if (!target) return text(`Current model: ${model}`);
     const msg = await initMachine(target);
@@ -1686,7 +1687,7 @@ async function main(): Promise<void> {
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--model' && i + 1 < args.length) {
       const m = args[++i];
-      if (['48k', '128k', '+2', '+2a', '+3'].includes(m)) {
+      if (['16k', '48k', '128k', '+2', '+2a', '+3'].includes(m)) {
         startModel = m as SpectrumModel;
       }
     }

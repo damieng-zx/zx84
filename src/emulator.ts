@@ -489,35 +489,29 @@ export async function applyROM(data: Uint8Array, fileLabel: string): Promise<voi
   await createMachine();
 }
 
-export async function loadRomFiles(files: FileList): Promise<void> {
+export async function loadRomFiles(files: Array<{ name: string; data: Uint8Array }>): Promise<void> {
   if (files.length === 0) return;
 
-  const sorted = Array.from(files).sort((a, b) => a.name.localeCompare(b.name));
-  const sizes = sorted.map(f => f.size);
+  const sorted = [...files].sort((a, b) => a.name.localeCompare(b.name));
+  const sizes = sorted.map(f => f.data.length);
 
   if (sorted.length === 1 && sizes[0] === 16384) {
-    // Single 16KB ROM
   } else if (sorted.length === 1 && sizes[0] === 32768) {
-    // Single 32KB ROM
   } else if (sorted.length === 1 && sizes[0] === 65536) {
-    // Single 64KB ROM
   } else if (sorted.length === 2 && sizes[0] === 16384 && sizes[1] === 16384) {
-    // Two 16KB ROMs
   } else if (sorted.length === 4 && sizes.every(s => s === 16384)) {
-    // Four 16KB ROMs
   } else {
     const sizeList = sizes.map(s => `${s}b`).join(', ');
     setStatus(`Invalid ROM: expected 1×16KB, 1×32KB, 1×64KB, 2×16KB, or 4×16KB — got ${sorted.length} file(s) (${sizeList})`);
     return;
   }
 
-  const buffers = await Promise.all(sorted.map(f => f.arrayBuffer()));
-  const totalLen = buffers.reduce((sum, b) => sum + b.byteLength, 0);
+  const totalLen = sizes.reduce((s, n) => s + n, 0);
   const data = new Uint8Array(totalLen);
   let offset = 0;
-  for (const buf of buffers) {
-    data.set(new Uint8Array(buf), offset);
-    offset += buf.byteLength;
+  for (const f of sorted) {
+    data.set(f.data, offset);
+    offset += f.data.length;
   }
   const label = sorted.map(f => f.name).join(' + ');
   await applyROM(data, label);
