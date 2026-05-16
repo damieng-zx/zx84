@@ -76,8 +76,13 @@ export function loadSP(data: Uint8Array, cpu: Z80, memory: SpectrumMemory): SPRe
     cpu.im = (statusWord & 0x02) ? 2 : 1;
   }
 
-  // Determine 48K or 128K based on file size
-  const is128K = data.length > 49227;
+  // Determine 48K or 128K from the file layout. A 48K snapshot has
+  // exactly progLen RAM bytes following the 38-byte header; anything
+  // beyond that is the 128K extension (port 0x7FFD byte plus extra
+  // RAM banks). This is more robust than a fixed byte-count threshold
+  // because progLen can legitimately be less than 49152 for partial
+  // 48K dumps.
+  const is128K = data.length > 38 + progLen;
 
   if (is128K) {
     // 128K: First 49152 bytes are banks 5, 2, and current bank at 0xC000
