@@ -1,0 +1,751 @@
+import { describe, it, expect, beforeEach } from 'vitest';
+import { UPD765A } from '@/cores/upd765a.ts';
+import type { DskImage, DskTrack, DskSector } from '@/plus3/dsk.ts';
+
+// ── MSR bit constants (mirrors the comments in upd765a.ts) ───────────────
+const RQM = 0x80;
+const DIO = 0x40;
+const EXM = 0x20;
+const CB  = 0x10;
+
+const ST0_INVALID   = 0x80;
+const ST0_ABNORMAL  = 0x40;
+const ST0_SEEK_END  = 0x20;
+const ST0_NOT_READY = 0x08;
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+
+function makeSector(c: number, h: number, r: number, n: number, fill: number, st1 = 0, st2 = 0): DskSector {
+  const size = 128 << n;
+  const data = new Uint8Array(size);
+  data.fill(fill);
+  return { c, h, r, n, st1, st2, data };
+}
+
+function makeTrack(sectors: DskSector[], gap3 = 0x4E, filler = 0xE5): DskTrack {
+  const sectorMap = new Map<number, number>();
+  sectors.forEach((s, i) => sectorMap.set(s.r, i));
+  return { sectors, sectorMap, gap3, filler };
+}
+
+function makeImage(opts: {
+  numTracks?: number;
+  numSides?: number;
+  tracks?: (DskTrack | null)[][];
+} = {}): DskImage {
+  const numTracks = opts.numTracks ?? 1;
+  const numSides = opts.numSides ?? 1;
+  const tracks = opts.tracks ?? Array.from({ length: numTracks }, () =>
+    Array.from({ length: numSides }, () => null as DskTrack | null)
+  );
+  return { format: 'extended', numTracks, numSides, tracks, diskFormat: '+3DOS', protection: 'None' };
+}
+
+/** Build a standard 9-sector double-density track of 512-byte sectors. */
+function makePlus3Track(cyl: number, head: number, fillBase = 0x10): DskTrack {
+  const sectors: DskSector[] = [];
+  for (let i = 0; i < 9; i++) {
+    sectors.push(makeSector(cyl, head, 0xC1 + i, 2, (fillBase + i) & 0xFF));
+  }
+  return makeTrack(sectors, 0x4E, 0xE5);
+}
+
+function makeStdImage(): DskImage {
+  const img = makeImage({ numTracks: 2, numSides: 1 });
+  img.tracks[0][0] = makePlus3Track(0, 0);
+  img.tracks[1][0] = makePlus3Track(1, 0);
+  return img;
+}
+
+class Driver {
+  fdc: UPD765A;
+  constructor() {
+    this.fdc = new UPD765A();
+    this.fdc.logFn = null; // silence
+  }
+
+  /** Send a full command (cmd byte + params) and block-drain the result phase. */
+  command(...bytes: number[]): number[] {
+    for (const b of bytes) this.fdc.writeData(b);
+    return this.drainResult();
+  }
+
+  /** Read all result bytes until idle. */
+  drainResult(): number[] {
+    const out: number[] = [];
+    let guard = 0;
+    while ((this.fdc.readStatus() & (CB | DIO | EXM)) === (CB | DIO) && ++guard < 64) {
+      out.push(this.fdc.readData());
+    }
+    return out;
+  }
+
+  /** Drain entire execution-phase read into bytes, then drain the result phase. */
+  drainReadExecution(): { data: number[]; result: number[] } {
+    const data: number[] = [];
+    let guard = 0;
+    // In execution-read: MSR = RQM | DIO | EXM | CB = 0xF0
+    while ((this.fdc.readStatus() & EXM) !== 0 && ++guard < 100000) {
+      data.push(this.fdc.readData());
+    }
+    return { data, result: this.drainResult() };
+  }
+
+  /** Feed bytes during a write execution phase, then drain the result. */
+  drainWriteExecution(bytes: ArrayLike<number>): number[] {
+    for (let i = 0; i < bytes.length; i++) this.fdc.writeData(bytes[i]);
+    return this.drainResult();
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Tests
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('uPD765A — Main Status Register', () => {
+  let d: Driver;
+  beforeEach(() => { d = new Driver(); });
+
+  it('returns RQM only when idle', () => {
+    expect(d.fdc.readStatus()).toBe(RQM);
+  });
+
+  it('returns RQM + CB while awaiting command parameters', () => {
+    d.fdc.writeData(0x07); // RECALIBRATE → 1 param expected
+    expect(d.fdc.readStatus()).toBe(RQM | CB);
+  });
+
+  it('returns RQM + DIO + CB during result phase', () => {
+    d.fdc.writeData(0x08); // SENSE_INT, no params → executes immediately
+    expect(d.fdc.readStatus()).toBe(RQM | DIO | CB);
+  });
+
+  it('returns RQM + DIO + EXM + CB during read execution', () => {
+    const img = makeStdImage();
+    d.fdc.insertDisk(img, 0);
+    // READ_DATA unit=0 head=0 C=0 H=0 R=0xC1 N=2 EOT=0xC1 GPL=0x2A DTL=0xFF
+    [0x06, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    expect(d.fdc.readStatus()).toBe(RQM | DIO | EXM | CB);
+  });
+
+  it('returns RQM + EXM + CB during write execution (no DIO)', () => {
+    const img = makeStdImage();
+    d.fdc.insertDisk(img, 0);
+    [0x05, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    expect(d.fdc.readStatus()).toBe(RQM | EXM | CB);
+  });
+});
+
+describe('uPD765A — SPECIFY', () => {
+  it('accepts two params, no result phase', () => {
+    const d = new Driver();
+    const res = d.command(0x03, 0xDF, 0x02); // SRT/HUT, HLT/ND
+    expect(res).toEqual([]);
+    expect(d.fdc.readStatus()).toBe(RQM); // idle
+  });
+});
+
+describe('uPD765A — SENSE_INTERRUPT_STATUS', () => {
+  let d: Driver;
+  beforeEach(() => { d = new Driver(); });
+
+  it('returns ST0_INVALID when no interrupt is pending', () => {
+    const res = d.command(0x08);
+    expect(res).toEqual([ST0_INVALID]);
+  });
+
+  it('returns latched ST0 + PCN after a SEEK', () => {
+    d.command(0x0F, 0x00, 42); // SEEK unit=0 to cyl 42
+    const res = d.command(0x08);
+    expect(res).toEqual([ST0_SEEK_END | 0, 42]);
+  });
+
+  it('after SEEK on unit 1, ST0 includes US0=1', () => {
+    d.command(0x0F, 0x01, 7);
+    const res = d.command(0x08);
+    expect(res).toEqual([ST0_SEEK_END | 1, 7]);
+  });
+
+  it('SENSE_INT clears the latch — a second call reports ST0_INVALID', () => {
+    d.command(0x0F, 0x00, 5);
+    d.command(0x08);
+    const res = d.command(0x08);
+    expect(res).toEqual([ST0_INVALID]);
+  });
+});
+
+describe('uPD765A — RECALIBRATE / SEEK', () => {
+  it('RECALIBRATE drives PCN to 0 and latches interrupt', () => {
+    const d = new Driver();
+    d.command(0x0F, 0x00, 10);            // SEEK to 10
+    expect(d.fdc.getUnitTrack(0)).toBe(10);
+    d.command(0x07, 0x00);                 // RECALIBRATE unit 0
+    expect(d.fdc.getUnitTrack(0)).toBe(0);
+    const r = d.command(0x08);
+    expect(r).toEqual([ST0_SEEK_END | 0, 0]);
+  });
+
+  it('SEEK on unit 3 aliases to physical drive 1 (+3 hardware behaviour)', () => {
+    const d = new Driver();
+    d.command(0x0F, 0x03, 25);
+    // unit 3 maps to physical 1 (FUSE specplus3 drive aliasing)
+    expect(d.fdc.getUnitTrack(3)).toBe(25);
+    expect(d.fdc.getUnitTrack(1)).toBe(25);
+    expect(d.fdc.getUnitTrack(0)).toBe(0); // untouched
+  });
+});
+
+describe('uPD765A — SENSE_DRIVE_STATUS (ST3)', () => {
+  let d: Driver;
+  beforeEach(() => { d = new Driver(); });
+
+  it('reports two-side (bit 3) + Track 0 (bit 4) for empty drive at cyl 0', () => {
+    const res = d.command(0x04, 0x00);
+    expect(res.length).toBe(1);
+    expect(res[0] & 0x08).toBe(0x08); // two-side
+    expect(res[0] & 0x10).toBe(0x10); // Track 0
+    expect(res[0] & 0x20).toBe(0x00); // not ready (no disk, no forceReady)
+    expect(res[0] & 0x40).toBe(0x00); // not WP
+  });
+
+  it('clears Track 0 after a SEEK away from cyl 0', () => {
+    d.command(0x0F, 0x00, 3);
+    const res = d.command(0x04, 0x00);
+    expect(res[0] & 0x10).toBe(0x00);
+  });
+
+  it('sets Ready (bit 5) when a disk is inserted', () => {
+    d.fdc.insertDisk(makeStdImage(), 0);
+    const res = d.command(0x04, 0x00);
+    expect(res[0] & 0x20).toBe(0x20);
+  });
+
+  it('Ready also responds to the forceReady tab (no disk needed)', () => {
+    d.fdc.forceReady[0] = true;
+    const res = d.command(0x04, 0x00);
+    expect(res[0] & 0x20).toBe(0x20);
+  });
+
+  it('reports Write Protect (bit 6) when writeProtect is set', () => {
+    d.fdc.insertDisk(makeStdImage(), 0);
+    d.fdc.writeProtect[0] = true;
+    const res = d.command(0x04, 0x00);
+    expect(res[0] & 0x40).toBe(0x40);
+  });
+
+  it('encodes the HDS+US bits from the parameter byte', () => {
+    // HDS=1, US=1 → param byte = (1<<2)|1 = 5
+    const res = d.command(0x04, 0x05);
+    expect(res[0] & 0x07).toBe(0x05); // US0..1 + HDS preserved in low 3 bits
+  });
+});
+
+describe('uPD765A — VERSION and invalid commands', () => {
+  it('VERSION returns 0x80 (enhanced controller)', () => {
+    const d = new Driver();
+    expect(d.command(0x10)).toEqual([0x80]);
+  });
+
+  it('Invalid command returns ST0 = ST0_INVALID', () => {
+    const d = new Driver();
+    expect(d.command(0x00)).toEqual([ST0_INVALID]);
+    expect(d.command(0x01)).toEqual([ST0_INVALID]);
+    expect(d.command(0x1F)).toEqual([ST0_INVALID]);
+  });
+});
+
+describe('uPD765A — READ_DATA', () => {
+  let d: Driver;
+  let img: DskImage;
+  beforeEach(() => {
+    d = new Driver();
+    img = makeStdImage();
+    d.fdc.insertDisk(img, 0);
+  });
+
+  it('returns NOT_READY with no disk', () => {
+    const empty = new Driver();
+    const r = empty.command(0x06, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF);
+    expect(r[0] & ST0_NOT_READY).toBe(ST0_NOT_READY);
+    expect(r[0] & ST0_ABNORMAL).toBe(ST0_ABNORMAL);
+    expect(r[1]).toBe(0x00); // ST1=0 because FDC never tried to read (NR before exec)
+    expect(r[2]).toBe(0x00);
+    expect(r.length).toBe(7);
+  });
+
+  it('returns ND (ST1 bit 2) for a missing sector', () => {
+    [0x06, 0x00, 0, 0, 0x99 /* nonexistent */, 2, 0x99, 0x2A, 0xFF]
+      .forEach(b => d.fdc.writeData(b));
+    const r = d.drainResult();
+    expect(r[0] & ST0_ABNORMAL).toBe(ST0_ABNORMAL);
+    expect(r[1] & 0x04).toBe(0x04);
+  });
+
+  it('reads exactly 512 bytes for a single N=2 sector and reports EOT/EN', () => {
+    [0x06, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    const { data, result } = d.drainReadExecution();
+    expect(data.length).toBe(512);
+    expect(data.every(b => b === 0x10)).toBe(true);
+    // ST0: abnormal + EOT (no error in sector itself). ST1 EN bit 7.
+    expect(result[0] & ST0_ABNORMAL).toBe(ST0_ABNORMAL);
+    expect(result[1] & 0x80).toBe(0x80);
+    // Result CHRN reflects last sector read
+    expect(result[3]).toBe(0); // C
+    expect(result[4]).toBe(0); // H
+    expect(result[5]).toBe(0xC1); // R
+    expect(result[6]).toBe(2);    // N
+  });
+
+  it('advances through multiple sectors up to EOT', () => {
+    // R=0xC1..0xC3 (3 sectors)
+    [0x06, 0x00, 0, 0, 0xC1, 2, 0xC3, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    const { data, result } = d.drainReadExecution();
+    expect(data.length).toBe(512 * 3);
+    expect(data.slice(0, 512).every(b => b === 0x10)).toBe(true);
+    expect(data.slice(512, 1024).every(b => b === 0x11)).toBe(true);
+    expect(data.slice(1024, 1536).every(b => b === 0x12)).toBe(true);
+    expect(result[5]).toBe(0xC3); // final R
+    expect(result[1] & 0x80).toBe(0x80); // EN
+  });
+
+  it('preserves intentional CRC errors in result (Speedlock contract)', () => {
+    const tr = makeTrack([
+      makeSector(0, 0, 0xC1, 2, 0xAA, 0x20 /* DE */, 0x20 /* DD */),
+    ]);
+    const im = makeImage();
+    im.tracks[0][0] = tr;
+    d.fdc.ejectDisk(0);
+    d.fdc.insertDisk(im, 0);
+    [0x06, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    const { result } = d.drainReadExecution();
+    expect(result[1] & 0x20).toBe(0x20); // ST1 Data Error preserved
+    expect(result[2] & 0x20).toBe(0x20); // ST2 Data CRC preserved
+  });
+
+  it('single-sector protection mode: sector.c mismatch stops after one sector', () => {
+    // Physical cyl 0, but sector ID claims c=0x42 — Alkatraz / Speedlock style
+    const tr = makeTrack([
+      makeSector(0x42, 0, 0xC1, 2, 0xAB),
+      makeSector(0x42, 0, 0xC2, 2, 0xCD),
+    ]);
+    const im = makeImage();
+    im.tracks[0][0] = tr;
+    d.fdc.ejectDisk(0);
+    d.fdc.insertDisk(im, 0);
+    [0x06, 0x00, 0x42, 0, 0xC1, 2, 0xC2, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    const { data, result } = d.drainReadExecution();
+    // Only the first sector should come back
+    expect(data.length).toBe(512);
+    expect(result[5]).toBe(0xC1);
+    expect(result[1] & 0x80).toBe(0x80); // EN
+  });
+
+  it('reports DDAM mismatch via CM (ST2 bit 6) on READ_DATA of a deleted sector', () => {
+    const tr = makeTrack([makeSector(0, 0, 0xC1, 2, 0x77, 0, 0x40 /* DDAM */)]);
+    const im = makeImage();
+    im.tracks[0][0] = tr;
+    d.fdc.ejectDisk(0);
+    d.fdc.insertDisk(im, 0);
+    [0x06, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    const { result } = d.drainReadExecution();
+    expect(result[2] & 0x40).toBe(0x40);
+  });
+
+  it('READ_DELETED on a deleted-mark sector clears CM (match)', () => {
+    const tr = makeTrack([makeSector(0, 0, 0xC1, 2, 0x77, 0, 0x40)]);
+    const im = makeImage();
+    im.tracks[0][0] = tr;
+    d.fdc.ejectDisk(0);
+    d.fdc.insertDisk(im, 0);
+    [0x0C, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    const { result } = d.drainReadExecution();
+    expect(result[2] & 0x40).toBe(0x00);
+  });
+
+  it('READ_DELETED on a normal-DAM sector sets CM (mismatch)', () => {
+    const tr = makeTrack([makeSector(0, 0, 0xC1, 2, 0x77)]); // no DDAM
+    const im = makeImage();
+    im.tracks[0][0] = tr;
+    d.fdc.ejectDisk(0);
+    d.fdc.insertDisk(im, 0);
+    [0x0C, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    const { result } = d.drainReadExecution();
+    expect(result[2] & 0x40).toBe(0x40);
+  });
+
+  it('undersized protection sector (sector.n < cmdN) suppresses spurious DE/DD bits', () => {
+    // sector.n = 1 (256 bytes) but command N = 2 (512). Stored st1/st2 dirty.
+    const tr = makeTrack([
+      { c: 0, h: 0, r: 0xC1, n: 1, st1: 0x20, st2: 0x60, data: new Uint8Array(256).fill(0x5A) },
+    ]);
+    const im = makeImage();
+    im.tracks[0][0] = tr;
+    d.fdc.ejectDisk(0);
+    d.fdc.insertDisk(im, 0);
+    [0x06, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    const { data, result } = d.drainReadExecution();
+    // Physical transfer size = 128 << sector.n = 256, not 512
+    expect(data.length).toBe(256);
+    // DE/DD/CM cleared for undersized sectors (see code comment)
+    expect(result[1] & 0x20).toBe(0x00);
+    expect(result[2] & 0x20).toBe(0x00);
+    expect(result[2] & 0x40).toBe(0x00);
+  });
+});
+
+describe('uPD765A — WRITE_DATA', () => {
+  let d: Driver;
+  let img: DskImage;
+  beforeEach(() => {
+    d = new Driver();
+    img = makeStdImage();
+    d.fdc.insertDisk(img, 0);
+  });
+
+  it('rejects with NW (ST1 bit 1) when write-protected', () => {
+    d.fdc.writeProtect[0] = true;
+    [0x05, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    const r = d.drainResult();
+    expect(r[0] & ST0_ABNORMAL).toBe(ST0_ABNORMAL);
+    expect(r[1] & 0x02).toBe(0x02);
+  });
+
+  it('returns NOT_READY when no disk is inserted', () => {
+    const empty = new Driver();
+    const r = empty.command(0x05, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF);
+    expect(r[0] & ST0_NOT_READY).toBe(ST0_NOT_READY);
+  });
+
+  it('writes data into the sector buffer and a subsequent READ returns it', () => {
+    // Enter write phase
+    [0x05, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    const payload = new Uint8Array(512);
+    for (let i = 0; i < 512; i++) payload[i] = (i * 7) & 0xFF;
+    const r = d.drainWriteExecution(payload);
+    expect(r[0] & ST0_ABNORMAL).toBe(ST0_ABNORMAL); // EOT abnormal
+    // Sector data updated
+    const stored = img.tracks[0][0]!.sectors[0].data;
+    expect(stored.length).toBe(512);
+    expect(Array.from(stored)).toEqual(Array.from(payload));
+    // Read it back
+    [0x06, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    const rr = d.drainReadExecution();
+    expect(rr.data).toEqual(Array.from(payload));
+  });
+
+  it('write resets v5 weak-bit copies on the affected sector', () => {
+    const copies = [new Uint8Array(512).fill(1), new Uint8Array(512).fill(2)];
+    const sect: DskSector = {
+      c: 0, h: 0, r: 0xC1, n: 2, st1: 0, st2: 0, data: copies[0], copies,
+    };
+    const tr = makeTrack([sect]);
+    const im = makeImage();
+    im.tracks[0][0] = tr;
+    d.fdc.ejectDisk(0);
+    d.fdc.insertDisk(im, 0);
+
+    [0x05, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    const buf = new Uint8Array(512).fill(0x99);
+    d.drainWriteExecution(buf);
+    expect(sect.copies).toBeUndefined();
+  });
+});
+
+describe('uPD765A — READ_ID', () => {
+  let d: Driver;
+  beforeEach(() => {
+    d = new Driver();
+    d.fdc.insertDisk(makeStdImage(), 0);
+  });
+
+  it('NOT_READY when no disk', () => {
+    const empty = new Driver();
+    const r = empty.command(0x0A, 0x00);
+    expect(r[0] & ST0_NOT_READY).toBe(ST0_NOT_READY);
+  });
+
+  it('cycles through every sector ID across successive calls', () => {
+    const ids = new Set<number>();
+    for (let i = 0; i < 9; i++) {
+      const r = d.command(0x0A, 0x00);
+      // result = [ST0, ST1, ST2, C, H, R, N]
+      ids.add(r[5]);
+    }
+    expect(ids.size).toBe(9);
+  });
+
+  it('returns CHRN that matches the sector entry', () => {
+    const r = d.command(0x0A, 0x00);
+    expect(r[3]).toBe(0); // C
+    expect(r[4]).toBe(0); // H
+    expect(r[6]).toBe(2); // N
+    expect(r[0] & ST0_ABNORMAL).toBe(0); // normal termination
+  });
+});
+
+describe('uPD765A — FORMAT_TRACK', () => {
+  let d: Driver;
+  let img: DskImage;
+  beforeEach(() => {
+    d = new Driver();
+    img = makeImage({ numTracks: 5, numSides: 2 });
+    img.tracks[0][0] = makePlus3Track(0, 0);
+    d.fdc.insertDisk(img, 0);
+  });
+
+  it('NOT_READY without a disk', () => {
+    const empty = new Driver();
+    const r = empty.command(0x0D, 0x00, 2, 9, 0x2A, 0xE5);
+    expect(r[0] & ST0_NOT_READY).toBe(ST0_NOT_READY);
+  });
+
+  it('rejects when write-protected', () => {
+    d.fdc.writeProtect[0] = true;
+    const r = d.command(0x0D, 0x00, 2, 9, 0x2A, 0xE5);
+    expect(r[1] & 0x02).toBe(0x02);
+  });
+
+  it('rebuilds a track from CPU-supplied CHRN tuples', () => {
+    // Seek to a fresh cylinder
+    d.command(0x0F, 0x00, 3);
+    d.command(0x08); // clear seek interrupt latch
+    // FORMAT_TRACK unit=0 head=0 N=2 SC=4 GPL=0x2A Fill=0x77
+    [0x0D, 0x00, 2, 4, 0x2A, 0x77].forEach(b => d.fdc.writeData(b));
+    const ids = new Uint8Array([
+      3, 0, 0xC1, 2,
+      3, 0, 0xC2, 2,
+      3, 0, 0xC3, 2,
+      3, 0, 0xC4, 2,
+    ]);
+    const r = d.drainWriteExecution(ids);
+    expect(r[5]).toBe(0xC4); // last R
+    expect(d.fdc.formattedUnit).toBe(0);
+
+    const tr = img.tracks[3][0]!;
+    expect(tr.sectors.length).toBe(4);
+    expect(tr.sectors[0]).toMatchObject({ c: 3, h: 0, r: 0xC1, n: 2 });
+    expect(tr.sectors[3].r).toBe(0xC4);
+    expect(tr.sectors[0].data.length).toBe(512);
+    expect(tr.sectors[0].data.every(b => b === 0x77)).toBe(true);
+    expect(tr.gap3).toBe(0x2A);
+    expect(tr.filler).toBe(0x77);
+    expect(tr.sectorMap.get(0xC3)).toBe(2);
+  });
+});
+
+describe('uPD765A — READ_TRACK (raw track build)', () => {
+  it('builds a fixed-size raw track for an empty drive → NOT_READY instead', () => {
+    const d = new Driver();
+    const r = d.command(0x02, 0x00, 0, 0, 1, 2, 9, 0x2A, 0xFF);
+    expect(r[0] & ST0_NOT_READY).toBe(ST0_NOT_READY);
+  });
+
+  it('returns at least the canonical 6250-byte raw-track payload', () => {
+    const d = new Driver();
+    d.fdc.insertDisk(makeStdImage(), 0);
+    [0x02, 0x00, 0, 0, 0xC1, 2, 0xC9, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    const { data, result } = d.drainReadExecution();
+    expect(data.length).toBeGreaterThanOrEqual(6250);
+    // Raw track starts with Gap 4a — 80 bytes of 0x4E
+    expect(data.slice(0, 80).every(b => b === 0x4E)).toBe(true);
+    // Then 12 bytes of 0x00 sync
+    expect(data.slice(80, 92).every(b => b === 0)).toBe(true);
+    // Then 0xC2 0xC2 0xC2 0xFC index AM
+    expect(data.slice(92, 96)).toEqual([0xC2, 0xC2, 0xC2, 0xFC]);
+    expect(result.length).toBe(7);
+  });
+});
+
+describe('uPD765A — Overrun detection', () => {
+  it('aborts execution with ST1.OR when MSR is polled without reading data', () => {
+    const d = new Driver();
+    d.fdc.insertDisk(makeStdImage(), 0);
+    [0x06, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    // We're in execution-read. Poll MSR 32 times without ever reading data.
+    let final = 0;
+    for (let i = 0; i < 32; i++) final = d.fdc.readStatus();
+    expect(final).toBe(RQM | DIO | CB); // result phase
+    const r = d.drainResult();
+    expect(r[1] & 0x10).toBe(0x10); // OR
+  });
+
+  it('reading data resets the overrun counter', () => {
+    const d = new Driver();
+    d.fdc.insertDisk(makeStdImage(), 0);
+    [0x06, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    // Alternate: 20 polls, one read, 20 polls — should NOT trigger overrun
+    for (let i = 0; i < 20; i++) d.fdc.readStatus();
+    d.fdc.readData();
+    for (let i = 0; i < 20; i++) d.fdc.readStatus();
+    expect(d.fdc.readStatus() & EXM).toBe(EXM); // still in execution
+  });
+});
+
+describe('uPD765A — Drive aliasing (+3 hardware quirk)', () => {
+  it('READ_DATA on logical unit 2 actually reads physical drive 0', () => {
+    const d = new Driver();
+    d.fdc.insertDisk(makeStdImage(), 0);
+    [0x06, 0x02, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    const { data } = d.drainReadExecution();
+    expect(data.length).toBe(512);
+    expect(data.every(b => b === 0x10)).toBe(true);
+  });
+
+  it('SENSE_DRIVE on unit 2 sees the disk in physical drive 0', () => {
+    const d = new Driver();
+    d.fdc.insertDisk(makeStdImage(), 0);
+    const r = d.command(0x04, 0x02);
+    expect(r[0] & 0x20).toBe(0x20); // Ready
+    // But the original logical unit must be preserved in ST3 low bits
+    expect(r[0] & 0x03).toBe(0x02);
+  });
+});
+
+describe('uPD765A — insertDisk / ejectDisk / reset', () => {
+  it('insert exposes the image via diskImage getter (drive 0 only)', () => {
+    const d = new Driver();
+    expect(d.fdc.diskImage).toBeNull();
+    const img = makeStdImage();
+    d.fdc.insertDisk(img, 0);
+    expect(d.fdc.diskImage).toBe(img);
+  });
+
+  it('getDiskImage(unit) does NOT apply drive aliasing — by design', () => {
+    // Intentional documentation: getDiskImage uses logical units.
+    // Physical alias (units 2/3 → 0/1) is only inside FDC operations.
+    const d = new Driver();
+    const img = makeStdImage();
+    d.fdc.insertDisk(img, 0);
+    expect(d.fdc.getDiskImage(0)).toBe(img);
+    expect(d.fdc.getDiskImage(2)).toBeNull(); // alias not applied here
+  });
+
+  it('eject clears the slot', () => {
+    const d = new Driver();
+    d.fdc.insertDisk(makeStdImage(), 0);
+    d.fdc.ejectDisk(0);
+    expect(d.fdc.diskImage).toBeNull();
+  });
+
+  it('reset returns the controller to idle but preserves disk image', () => {
+    const d = new Driver();
+    d.fdc.insertDisk(makeStdImage(), 0);
+    d.fdc.writeData(0x07); // start RECALIBRATE — awaiting param
+    expect(d.fdc.readStatus()).toBe(RQM | CB);
+    d.fdc.reset();
+    expect(d.fdc.readStatus()).toBe(RQM);
+    expect(d.fdc.diskImage).not.toBeNull(); // preserved by reset()
+    expect(d.fdc.getUnitTrack(0)).toBe(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Behaviour we don't yet model — tests document current (loose) behaviour
+// so a future implementation will deliberately break and update them.
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('uPD765A — UNSUPPORTED: command flag bits (MF/MT/SK)', () => {
+  let d: Driver;
+  beforeEach(() => {
+    d = new Driver();
+    d.fdc.insertDisk(makeStdImage(), 0);
+  });
+
+  it('MF (bit 6) bit is currently stripped — FM and MFM behave identically', () => {
+    // Standard MFM READ_DATA = 0x46; "FM-mode" READ_DATA = 0x06.
+    // A real chip would attempt FM-encoded sectors (128 bytes/sector, different
+    // address marks). We strip via `cmd & 0x1F`, so both end up as READ_DATA.
+    [0x46, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    const a = d.drainReadExecution();
+    [0x06, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    const b = d.drainReadExecution();
+    expect(a.data.length).toBe(b.data.length);
+    expect(a.result[0]).toBe(b.result[0]);
+    // FUTURE: if/when we model FM, FM reads on an MFM-only disk should
+    // probably surface ST1.MA (Missing Address Mark) on the first sector.
+  });
+
+  it('MT (bit 7) multi-track READ_DATA does not switch to head 1 after EOT', () => {
+    // Real behaviour with MT=1: after the last sector on head 0, the FDC
+    // continues on head 1 starting at R=1 (or the lowest R). We don't model
+    // that yet — the command terminates at EOT on the original head.
+    const img = makeImage({ numTracks: 1, numSides: 2 });
+    img.tracks[0][0] = makePlus3Track(0, 0, 0x10);
+    img.tracks[0][1] = makePlus3Track(0, 1, 0x80);
+    d.fdc.ejectDisk(0);
+    d.fdc.insertDisk(img, 0);
+
+    // 0x86 = READ_DATA | MT, HDS=0 (start on head 0), EOT=0xC1
+    [0x86, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    const { data, result } = d.drainReadExecution();
+    // Currently: only one sector from head 0 (0x10 fill)
+    expect(data.length).toBe(512);
+    expect(data[0]).toBe(0x10);
+    // FUTURE: with MT properly modelled, data.length should be 1024 and the
+    // second half should start with 0x80, plus result H should advance to 1.
+    expect(result[4]).toBe(0); // H not advanced
+  });
+
+  it('SK (bit 5) skip-deleted-data does not skip DDAM sectors', () => {
+    // Real behaviour: with SK=1, READ_DATA skips sectors whose DAM is deleted,
+    // moves on to the next non-deleted one, and reports no error. We don't model
+    // it — the deleted sector is read normally and CM flag is set.
+    const tr = makeTrack([
+      makeSector(0, 0, 0xC1, 2, 0xAA, 0, 0x40), // DDAM
+      makeSector(0, 0, 0xC2, 2, 0xBB, 0, 0),
+    ]);
+    const im = makeImage();
+    im.tracks[0][0] = tr;
+    d.fdc.ejectDisk(0);
+    d.fdc.insertDisk(im, 0);
+
+    // 0x26 = READ_DATA | SK
+    [0x26, 0x00, 0, 0, 0xC1, 2, 0xC2, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    const { data, result } = d.drainReadExecution();
+    // Currently the FDC ignores SK, reads both sectors, then reports EOT.
+    expect(data.length).toBe(1024);
+    expect(data[0]).toBe(0xAA);   // deleted sector contents still returned (SK ignored)
+    expect(data[512]).toBe(0xBB); // and the following non-deleted sector
+    // (Result ST2 reflects the last sector read — non-DDAM here, so CM=0.)
+    expect(result[5]).toBe(0xC2);
+    // FUTURE: with SK honoured, data.length should be 512 (only the second
+    // sector), and the command should terminate at EOT normally.
+  });
+
+  it('SCAN_EQUAL (0x11) is currently dispatched through cmdReadWrite — partial behaviour', () => {
+    // Real SCAN compares sector contents byte-by-byte against CPU-supplied data
+    // and reports an SH (Scan Hit) / SN (Scan Not satisfied) bit in ST2.
+    // We accept the command and produce a normal READ result; ST2 SH/SN bits
+    // are not set. Documenting current behaviour so the future implementation
+    // breaks this test deliberately.
+    [0x11, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    const { result } = d.drainReadExecution();
+    expect(result[2] & 0x0C).toBe(0); // SH (bit 3) and SN (bit 2) not asserted
+    // FUTURE: SCAN_EQUAL with matching CPU data should set ST2.SH; with mismatch
+    // it should set ST2.SN. Neither is currently modelled.
+  });
+});
+
+describe('uPD765A — UNSUPPORTED: FM-only edge cases', () => {
+  it('FM-mode READ_ID (0x0A without MF bit) is indistinguishable from MFM today', () => {
+    const d = new Driver();
+    d.fdc.insertDisk(makeStdImage(), 0);
+    const mfm = d.command(0x4A, 0x00); // READ_ID | MF
+    const fm  = d.command(0x0A, 0x00); // READ_ID, no MF
+    // Different sector IDs only because idIndex cycles — but the status word
+    // and CHRN-shape should look the same.
+    expect(mfm.length).toBe(fm.length);
+    expect(mfm[0]).toBe(fm[0]); // ST0
+    // FUTURE: an FM read of an MFM-only disk should plausibly produce ST1.MA.
+    expect(mfm[1]).toBe(0x00);
+    expect(fm[1]).toBe(0x00);
+  });
+
+  it('Specify-driven NDM/non-DMA mode is accepted and ignored', () => {
+    const d = new Driver();
+    // SPECIFY with ND bit set in HLT param (low bit) — would mean non-DMA mode.
+    // We don't model DMA at all; the parameter is silently discarded.
+    expect(d.command(0x03, 0xDF, 0x03)).toEqual([]);
+    // FUTURE: in non-DMA mode the FDC raises INT for each byte instead of DRQ.
+  });
+});
