@@ -7,7 +7,7 @@ import {
   maskType, setMaskType, dotPitch, setDotPitch, curvatureMode, setCurvatureMode,
   noise, setNoise, scalingMode, setScalingMode,
   monitor, setMonitor, borderSize, setBorderSize,
-  renderer, colorMap, setColorMap, scanlineAccuracy, setScanlineAccuracy,
+  renderer, webglAvailable, colorMap, setColorMap, scanlineAccuracy, setScanlineAccuracy,
   persistSetting, resetSettingsGroup,
 } from '@/store/settings.ts';
 import { spectrum, switchRenderer, applyDisplaySettings } from '@/emulator.ts';
@@ -161,7 +161,9 @@ export function DisplayPane() {
           const v = (e.target as HTMLSelectElement).value as 'webgl' | 'canvas';
           switchRenderer(v);
         }}>
-          <option value="webgl">WebGL</option>
+          <option value="webgl" disabled={!webglAvailable()}>
+            WebGL{webglAvailable() ? '' : ' (unavailable)'}
+          </option>
           <option value="canvas">Canvas</option>
         </select>
       </div>

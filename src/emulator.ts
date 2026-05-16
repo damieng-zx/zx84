@@ -157,15 +157,28 @@ export function setRomStatus(msg: string): void {
   setRomStatusText(msg);
 }
 
+function createDisplay(el: HTMLCanvasElement, w: number, h: number) {
+  if (settings.renderer() === 'webgl' && settings.webglAvailable()) {
+    try {
+      return new WebGLRenderer(el, w, h);
+    } catch (err) {
+      console.warn('WebGL unavailable, falling back to Canvas:', err);
+      settings.setWebglAvailable(false);
+      settings.setRenderer('canvas');
+      settings.persistSetting('renderer', 'canvas');
+      setStatus('WebGL unavailable — using Canvas renderer');
+    }
+  }
+  return new CanvasRenderer(el, w, h);
+}
+
 export function setCanvas(el: HTMLCanvasElement): void {
   canvasEl = el;
   if (spectrum) {
     // Swap display without rebuilding machine (e.g. renderer switch)
     const w = spectrum.ula.screenWidth;
     const h = spectrum.ula.screenHeight;
-    spectrum.display = settings.renderer() === 'canvas'
-      ? new CanvasRenderer(el, w, h)
-      : new WebGLRenderer(el, w, h);
+    spectrum.display = createDisplay(el, w, h);
     applyDisplaySettings();
   }
 }
@@ -212,9 +225,7 @@ export async function createMachine(): Promise<boolean> {
 
   const model = currentModel();
   const display = canvasEl
-    ? (settings.renderer() === 'canvas'
-      ? new CanvasRenderer(canvasEl, SCREEN_WIDTH, SCREEN_HEIGHT)
-      : new WebGLRenderer(canvasEl, SCREEN_WIDTH, SCREEN_HEIGHT))
+    ? createDisplay(canvasEl, SCREEN_WIDTH, SCREEN_HEIGHT)
     : null;
   spectrum = new Spectrum(model, display);
   spectrum.onStatus = (msg: string) => setStatus(msg);

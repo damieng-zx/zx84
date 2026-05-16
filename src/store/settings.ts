@@ -67,6 +67,12 @@ const _renderer = /*@once*/ createRoot(() => createSignal(getSaved('renderer', '
 export const renderer = _renderer[0];
 export const setRenderer = _renderer[1];
 
+// Runtime-only: cleared when WebGL context creation fails so the UI can
+// hide the option and emulator.ts can avoid retrying.
+const _webglAvailable = /*@once*/ createRoot(() => createSignal(true));
+export const webglAvailable = _webglAvailable[0];
+export const setWebglAvailable = _webglAvailable[1];
+
 const _colorMap = /*@once*/ createRoot(() => createSignal(getSaved('color-map', 'measured') as 'basic' | 'measured' | 'vivid'));
 export const colorMap = _colorMap[0];
 export const setColorMap = _colorMap[1];
