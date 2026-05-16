@@ -72,9 +72,10 @@ export function parseTZX(fileData: Uint8Array): TapeBlock[] {
   const blocks: TapeBlock[] = [];
   let o = 10; // skip 8-byte magic + major + minor version
 
-  // Loop expansion state
-  let loopStart = -1;
-  let loopCount = 0;
+  // Loop expansion state. A stack is needed because TZX permits nested
+  // loops; a single pair would let an inner Loop End clobber the outer
+  // bookkeeping, silently dropping the outer expansion.
+  const loopStack: { start: number; count: number }[] = [];
 
   while (o < fileData.length) {
     const id = fileData[o++];
@@ -84,7 +85,10 @@ export function parseTZX(fileData: Uint8Array): TapeBlock[] {
         const pause = read16(fileData, o);
         const len = read16(fileData, o + 2);
         const raw = fileData.slice(o + 4, o + 4 + len);
-        const pilotCount = raw.length > 0 && raw[0] === 0x00 ? 8063 : 3223;
+        // Pilot length follows the high bit of the flag: < 0x80 → long
+        // header pilot (8063), >= 0x80 → short data pilot (3223). Matches
+        // the ZX Spectrum ROM SAVE-BYTES behaviour.
+        const pilotCount = raw.length > 0 && raw[0] < 0x80 ? 8063 : 3223;
         const blk = extractDataBlock(raw, pause, 2168, 667, 735, 855, 1710, pilotCount, 8, 'standard');
         if (blk) blocks.push(blk);
         o += 4 + len;
@@ -186,19 +190,17 @@ export function parseTZX(fileData: Uint8Array): TapeBlock[] {
         o += 2;
         break;
       case 0x24: // Loop Start
-        loopCount = read16(fileData, o);
-        loopStart = blocks.length;
+        loopStack.push({ start: blocks.length, count: read16(fileData, o) });
         o += 2;
         break;
       case 0x25: { // Loop End
-        if (loopStart >= 0 && loopCount > 1) {
-          const loopBody = blocks.slice(loopStart);
-          for (let i = 1; i < loopCount; i++) {
+        const frame = loopStack.pop();
+        if (frame && frame.count > 1) {
+          const loopBody = blocks.slice(frame.start);
+          for (let i = 1; i < frame.count; i++) {
             for (const blk of loopBody) blocks.push(blk);
           }
         }
-        loopStart = -1;
-        loopCount = 0;
         break;
       }
       case 0x26: // Call Sequence
