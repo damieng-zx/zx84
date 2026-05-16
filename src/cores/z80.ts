@@ -292,6 +292,11 @@ export class Z80 {
    *  so RETN can restore IFF1 from IFF2. Takes 11 T-states. */
   nmi(): void {
     this.halted = false;
+    // Documented Zilog NMI sequence: IFF2 ← IFF1; IFF1 ← 0.
+    // IFF2 preserves the pre-NMI maskable-interrupt state so RETN can restore
+    // it via `IFF1 ← IFF2`. Without this, RETN after an NMI silently masks
+    // all subsequent maskable interrupts.
+    this.iff2 = this.iff1;
     this.iff1 = false;
     this.tStates += 5;       // NMI acknowledge: 5T
     this.push16(this.pc);    // push PC: 2×3T (inside push16's write16)
