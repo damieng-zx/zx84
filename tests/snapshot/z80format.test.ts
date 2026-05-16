@@ -232,12 +232,42 @@ describe('Z80 format — version detection', () => {
 
   it('detects v3 when PC=0 and extended header length is 54', () => {
     const cpu = makeCpu();
-    cpu.pc = 0;
-    const data = buildV1(cpu, new Uint8Array(49152), false, 0);
+    cpu.pc = 0x1234;
+    const data = buildV3_48K(cpu, [
+      { pageId: 8, data: new Uint8Array(16384) },
+      { pageId: 4, data: new Uint8Array(16384) },
+      { pageId: 5, data: new Uint8Array(16384) },
+    ], 0);
+    // Verify constructed file has the v3 markers
+    expect(r16(data, 6)).toBe(0);
+    expect(r16(data, 30)).toBe(54);
+
     const cpu2 = new Z80();
-    const mem = makeMemory48k();
-    loadZ80(data, cpu2, mem);
-    expect(cpu2.pc).toBe(0);
+    loadZ80(data, cpu2, makeMemory48k());
+    // PC must come from the extended header (offset 32-33), not bytes 6-7
+    expect(cpu2.pc).toBe(0x1234);
+  });
+
+  it('detects v2 when extended header length is 23', () => {
+    const cpu = makeCpu();
+    cpu.pc = 0x5678;
+    // Build a v3 file then truncate the extended header to 23 bytes.
+    const v3 = buildV3_48K(cpu, [
+      { pageId: 8, data: new Uint8Array(16384) },
+    ], 0);
+    const extLen = 23;
+    const dataBlocksStart = 32 + 54;
+    const blocksLen = v3.length - dataBlocksStart;
+    const data = new Uint8Array(30 + 2 + extLen + blocksLen);
+    data.set(v3.subarray(0, 30), 0);
+    w16(data, 30, extLen);
+    // copy PC (extBase..extBase+1) and the rest of the first 23 ext bytes
+    data.set(v3.subarray(32, 32 + extLen), 32);
+    data.set(v3.subarray(dataBlocksStart), 32 + extLen);
+
+    const cpu2 = new Z80();
+    loadZ80(data, cpu2, makeMemory48k());
+    expect(cpu2.pc).toBe(0x5678);
   });
 
   it('rejects files smaller than 30 bytes', () => {
@@ -410,15 +440,20 @@ describe('Z80 format — v1 loading', () => {
     expect(mem.readByte(0xFFFF)).toBe(0xFF);
   });
 
-  it('loads compressed v1 48K RAM', () => {
+  it('loads compressed v1 48K RAM using RLE runs', () => {
     const cpu = makeCpu();
-    const ram = new Uint8Array(49152);
-    ram[0] = 0x11;
-    ram[1] = 0x22;
 
-    const compressed: number[] = [0x11, 0x22];
-    for (let i = 2; i < 49152; i++) compressed.push(0x00);
-    compressed.push(0x00, 0xED, 0xED, 0x00);
+    // Compressed stream:
+    //   literal 0x11, literal 0x22, RLE(100 x 0xAA), then v1 sentinel
+    //   00 ED ED 00 followed by garbage that must NOT be decoded.
+    const compressed: number[] = [
+      0x11, 0x22,
+      0xED, 0xED, 100, 0xAA,
+      // sentinel (count==0 in v1 terminates the stream)
+      0x00, 0xED, 0xED, 0x00, 0x00,
+      // garbage that must be ignored
+      0xFF, 0xFF, 0xFF, 0xFF,
+    ];
 
     const data = new Uint8Array(30 + compressed.length);
     data.set(buildV1(cpu, new Uint8Array(0), true, 0).subarray(0, 30));
@@ -432,6 +467,13 @@ describe('Z80 format — v1 loading', () => {
     expect(result.port7FFD).toBe(0);
     expect(mem.readByte(0x4000)).toBe(0x11);
     expect(mem.readByte(0x4001)).toBe(0x22);
+    for (let i = 0; i < 100; i++) {
+      expect(mem.readByte(0x4002 + i)).toBe(0xAA);
+    }
+    // Sentinel's leading literal 0x00 is decoded; rest of RAM stays zero
+    // because the sentinel terminates the stream before the trailing 0xFFs.
+    expect(mem.readByte(0x4000 + 102)).toBe(0x00);
+    expect(mem.readByte(0xFFFF)).toBe(0x00);
   });
 
   it('reports is128K=false for v1', () => {
@@ -988,9 +1030,13 @@ describe('Z80 format — decompression edge cases via v3 load', () => {
     expect(() => loadZ80(result, new Z80(), mem)).not.toThrow();
   });
 
-  it('handles ED ED 00 as zero-count (decompressor breaks)', () => {
+  it('treats ED ED 00 as zero-length run (no sentinel in v2/v3 blocks)', () => {
+    // Per WoS spec: paged blocks have no end-marker. A count==0 run is not
+    // a terminator — the decoder must produce zero bytes and continue.
     const cpu = makeCpu();
-    const compressed = new Uint8Array([0xED, 0xED, 0x00, 0x00]);
+    // ED ED 00 XX (zero-count, value irrelevant) followed by literal 0x42.
+    // After the zero-count run the decoder must keep going and emit 0x42.
+    const compressed = new Uint8Array([0xED, 0xED, 0x00, 0xAA, 0x42]);
     const bh = new Uint8Array(3);
     w16(bh, 0, compressed.length);
     bh[2] = 8;
@@ -1003,9 +1049,14 @@ describe('Z80 format — decompression edge cases via v3 load', () => {
     result.set(bh, 32 + extHeaderLen);
     result.set(compressed, 32 + extHeaderLen + 3);
 
+    // Pre-fill bank 5 so we can detect whether the decoder wrote into it.
     const mem = makeMemory48k();
+    mem.getRamBank(5).fill(0xCC);
     loadZ80(result, new Z80(), mem);
-    expect(mem.readByte(0x4000)).toBe(0x00);
+    // First byte is the trailing 0x42 (zero-count run emitted nothing).
+    expect(mem.readByte(0x4000)).toBe(0x42);
+    // The rest of the bank was overwritten by the decoder's zero-init.
+    expect(mem.readByte(0x4001)).toBe(0x00);
   });
 
   it('handles a literal 0xED at the end of compressed stream', () => {

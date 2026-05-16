@@ -331,18 +331,28 @@ function compressBlock(src: Uint8Array): { data: Uint8Array; compressed: boolean
   while (i < src.length) {
     const byte = src[i];
 
-    // Check for ED byte - needs special handling
+    // ED needs special handling: 2+ consecutive EDs must be RLE-encoded
+    // (even count=2), while a single ED must be emitted literally with the
+    // following byte also forced literal so the decoder cannot mistake it
+    // for a run marker. See WoS .z80 spec §"Compression".
     if (byte === 0xED) {
-      // Look ahead to see if next byte is also ED
       if (i + 1 < src.length && src[i + 1] === 0xED) {
-        // Literal ED ED sequence - encode as ED ED 02 ED
-        out.push(0xED, 0xED, 0x02, 0xED);
-        i += 2;
+        let edCount = 2;
+        while (i + edCount < src.length && src[i + edCount] === 0xED && edCount < 255) {
+          edCount++;
+        }
+        out.push(0xED, 0xED, edCount, 0xED);
+        i += edCount;
         continue;
       }
-      // Single ED - encode as ED ED 01 ED to avoid false RLE marker
-      out.push(0xED, 0xED, 0x01, 0xED);
+      // Single ED: emit literally, then emit the next byte as a forced
+      // literal (it is non-ED, otherwise we would be in the branch above).
+      out.push(0xED);
       i++;
+      if (i < src.length) {
+        out.push(src[i]);
+        i++;
+      }
       continue;
     }
 
