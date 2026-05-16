@@ -237,7 +237,10 @@ export class Z80 {
 
   // --- Interrupt handling ---
   interrupt(): number {
-    if (!this.iff1 || this.eiDelay) return 0;
+    if (!this.iff1 || this.eiDelay) {
+      this._pendingVector = 0xFF;
+      return 0;
+    }
 
     this.halted = false;
     this.iff1 = false;
