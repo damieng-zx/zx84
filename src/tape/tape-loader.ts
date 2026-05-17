@@ -27,22 +27,38 @@ export function trapTapeLoad(cpu: Z80, tape: TapeDeck): boolean {
   if (!block || block.flag !== expectedFlag) {
     // No block or flag mismatch — signal failure
     cpu.setFlag(Z80.FLAG_C, false);
-  } else if (!isLoad) {
-    // VERIFY mode — just set success without copying
-    cpu.setFlag(Z80.FLAG_C, true);
-    success = true;
   } else {
-    // LOAD mode — copy block data into memory
-    const len = Math.min(count, block.data.length);
-    for (let i = 0; i < len; i++) {
-      cpu.write8(dest, block.data[i]);
-      dest = (dest + 1) & 0xFFFF;
+    // Consume up to min(count, block.data.length) bytes for both LOAD and
+    // VERIFY. Real LD-BYTES fails at checksum time if the block runs out
+    // before DE counts down to 0 — we mirror that by clearing carry and
+    // leaving DE at the unsatisfied remainder. Excess block bytes (long
+    // block) are dropped, matching real ROM behaviour: the ROM stops
+    // reading once DE hits 0 and treats byte N+1 as the parity byte.
+    // VERIFY is treated as instant-success when the lengths align; we do
+    // not compare bytes (consistent with JSpeccy / ZEsarUX fast-load
+    // paths — only Fuse implements a real instant verify).
+    const available = block.data.length;
+    const len = Math.min(count, available);
+
+    if (isLoad) {
+      for (let i = 0; i < len; i++) {
+        cpu.write8(dest, block.data[i]);
+        dest = (dest + 1) & 0xFFFF;
+      }
+    } else {
+      dest = (dest + len) & 0xFFFF;
     }
-    count = 0;
+
     cpu.ix = dest;
-    cpu.de = count;
-    cpu.setFlag(Z80.FLAG_C, true);
-    success = true;
+    cpu.de = (count - len) & 0xFFFF;
+
+    if (available < count) {
+      // Short block — real ROM would error at the missing checksum byte
+      cpu.setFlag(Z80.FLAG_C, false);
+    } else {
+      cpu.setFlag(Z80.FLAG_C, true);
+      success = true;
+    }
   }
 
   // Pop return address (simulating RET from LD-BYTES)
