@@ -690,3 +690,124 @@ describe('SpectrumMemory — paging lock', () => {
     expect(mem.currentBank).toBe(0);
   });
 });
+
+describe('SpectrumMemory — applyBanking in special paging mode', () => {
+  it('applyBanking while specialPaging remaps all four slots from SPECIAL_MODES', () => {
+    // updateSlots() has a specialPaging branch only reachable via applyBanking/loadROM
+    // (bankSwitch1FFD sets slots directly; reset() clears specialPaging first)
+    const mem = new SpectrumMemory('+3', { hasBanking: true, romPageCount: 4 });
+    mem.loadROM(new Uint8Array(65536));
+    for (let i = 0; i < 8; i++) mem.getRamBank(i).fill(i);
+    mem.bankSwitch1FFD(0x01); // mode 0: [0,1,2,3]
+    // Directly corrupt a bank to confirm applyBanking re-wires slots
+    mem.getRamBank(1).fill(0xAB);
+    mem.applyBanking();
+    expect(mem.readByte(0x4000)).toBe(0xAB); // slot 1 → bank 1
+    expect(mem.readByte(0x0000)).toBe(0);    // slot 0 → bank 0
+    expect(mem.readByte(0x8000)).toBe(2);    // slot 2 → bank 2
+    expect(mem.readByte(0xC000)).toBe(3);    // slot 3 → bank 3
+  });
+
+  it('applyBanking while specialPaging and externalRomPaged leaves slot 0 unchanged', () => {
+    // Covers the !externalRomPaged guard inside the specialPaging branch of updateSlots
+    const mem = new SpectrumMemory('+3', { hasBanking: true, romPageCount: 4 });
+    mem.loadROM(new Uint8Array(65536));
+    for (let i = 0; i < 8; i++) mem.getRamBank(i).fill(i);
+    mem.bankSwitch1FFD(0x01); // mode 0: [0,1,2,3]
+    const overlay = new Uint8Array(16384).fill(0xEE);
+    mem.setSlot0(overlay);
+    mem.externalRomPaged = true;
+    mem.applyBanking(); // should not overwrite slot 0
+    expect(mem.readByte(0x0000)).toBe(0xEE); // overlay intact
+    expect(mem.readByte(0x4000)).toBe(1);    // other slots still updated
+  });
+
+  it('applyBanking with externalRomPaged in non-special mode leaves slot 0 unchanged', () => {
+    // Covers the !externalRomPaged guard in the else branch of updateSlots
+    const mem = new SpectrumMemory('128k');
+    const rom = new Uint8Array(32768);
+    rom[0] = 0x01;
+    mem.loadROM(rom);
+    const overlay = new Uint8Array(16384).fill(0xBB);
+    mem.setSlot0(overlay);
+    mem.externalRomPaged = true;
+    mem.applyBanking(); // slot 0 must not be overwritten
+    expect(mem.readByte(0x0000)).toBe(0xBB);
+    expect(mem.readByte(0x4000)).toBe(0x00); // slot 1 still updated normally
+  });
+});
+
+describe('SpectrumMemory — loadROM edge cases', () => {
+  it('loadROM with 16KB data on 128K machine stores to page 1 only', () => {
+    // The else-if(>= 16384) branch with is128K=true skips setting romPages[0].
+    // Default slot 0 → romPages[0] (currentROM=0), so the data ends up only in page 1.
+    const mem = new SpectrumMemory('128k');
+    const rom = new Uint8Array(16384);
+    rom[0] = 0x42;
+    mem.loadROM(rom);
+    // Default ROM page 0 was not written — reads zero
+    expect(mem.readByte(0x0000)).toBe(0x00);
+    // Switch to page 1 (bit 4 of port 7FFD) — data is accessible here
+    mem.bankSwitch(0x10);
+    expect(mem.readByte(0x0000)).toBe(0x42);
+  });
+
+  it('loadROM with data shorter than 16KB is a no-op', () => {
+    // All three else-if conditions fail when data < 16KB — nothing is written
+    const mem = new SpectrumMemory('48k');
+    mem.loadROM(new Uint8Array(16384).fill(0xAA)); // establish known ROM state
+    mem.loadROM(new Uint8Array(100));               // too short — must not change pages
+    expect(mem.readByte(0x0000)).toBe(0xAA);        // page 1 unchanged
+  });
+});
+
+describe('SpectrumMemory — bankSwitch locking while in special paging', () => {
+  it('bankSwitch with bit 5 set while in special paging locks paging', () => {
+    // Line 260: pagingLocked path inside the specialPaging branch of bankSwitch
+    const mem = new SpectrumMemory('+3', { hasBanking: true, romPageCount: 4 });
+    mem.loadROM(new Uint8Array(65536));
+    mem.bankSwitch1FFD(0x01); // enter special paging
+    expect(mem.specialPaging).toBe(true);
+    mem.bankSwitch(0x27); // bit 5 set → should lock paging
+    expect(mem.pagingLocked).toBe(true);
+    expect(mem.currentBank).toBe(7); // latched
+    // Further writes must be ignored
+    mem.bankSwitch1FFD(0x00);
+    expect(mem.specialPaging).toBe(true); // still locked
+  });
+});
+
+describe('SpectrumMemory — bankSwitch1FFD on non-+3 machine', () => {
+  it('bankSwitch1FFD on 128K machine (2 ROM pages) does not update currentROM', () => {
+    // Line 283: romPages.length !== 4 branch — currentROM update is gated on 4-page machines
+    const mem = new SpectrumMemory('128k');
+    mem.loadROM(new Uint8Array(32768));
+    const romBefore = mem.currentROM;
+    mem.bankSwitch1FFD(0x04); // bit 2 set — only relevant on +3
+    expect(mem.currentROM).toBe(romBefore); // unchanged on 2-page machine
+  });
+
+  it('bankSwitch1FFD non-special exit restores slot 0 to ROM', () => {
+    // Line 296: !skipSlot0 && !externalRomPaged path in normal-paging exit of bankSwitch1FFD
+    const mem = new SpectrumMemory('+3', { hasBanking: true, romPageCount: 4 });
+    const rom = new Uint8Array(65536);
+    rom[0] = 0x99;
+    mem.loadROM(rom);
+    mem.bankSwitch1FFD(0x00); // explicit non-special write re-latches slot 0 to ROM
+    expect(mem.readByte(0x0000)).toBe(0x99);
+  });
+
+  it('bankSwitch1FFD with skipSlot0=true in non-special exit does not change slot 0', () => {
+    // Covers the false branch of !skipSlot0 at line 296 (else clause of bankSwitch1FFD)
+    const mem = new SpectrumMemory('+3', { hasBanking: true, romPageCount: 4 });
+    const rom = new Uint8Array(65536);
+    rom[0] = 0x55;
+    mem.loadROM(rom);
+    mem.bankSwitch1FFD(0x01); // enter special paging
+    const overlay = new Uint8Array(16384).fill(0xCC);
+    mem.setSlot0(overlay);
+    mem.bankSwitch1FFD(0x00, /* skipSlot0= */ true); // exit special paging but keep overlay
+    expect(mem.readByte(0x0000)).toBe(0xCC); // overlay intact despite exiting special paging
+    expect(mem.specialPaging).toBe(false);
+  });
+});
