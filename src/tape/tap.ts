@@ -337,82 +337,86 @@ export class TapeDeck {
   // ── Internal playback mechanics ───────────────────────────────────────
 
   private beginBlock(idx: number): void {
-    if (idx >= this.blocks.length) {
-      this.phase = TapePhase.IDLE;
-      this.playing = false;
-      this.rawData = null;
-      this.directData = null;
-      return;
-    }
+    while (idx < this.blocks.length) {
+      this.playbackIdx = idx;
+      this.tInPulse = 0;
+      const block = this.blocks[idx];
 
-    this.playbackIdx = idx;
-    const block = this.blocks[idx];
-    this.tInPulse = 0;
-
-    switch (block.kind) {
-      case 'data':
-        this.beginDataBlock(block);
-        break;
-
-      case 'tone':
-        this.phase = TapePhase.TONE;
-        this.toneRemaining = block.count;
-        this.pulseLen = block.pulseLen;
-        break;
-
-      case 'pulses':
-        if (block.lengths.length === 0) {
-          this.beginBlock(idx + 1);
+      switch (block.kind) {
+        case 'data':
+          this.beginDataBlock(block);
           return;
-        }
-        this.phase = TapePhase.PULSES;
-        this.pulsesLengths = block.lengths;
-        this.pulsesIdx = 0;
-        this.pulseLen = block.lengths[0];
-        break;
 
-      case 'pause':
-        if (block.duration === 0) {
-          this.paused = true;
+        case 'tone':
+          this.phase = TapePhase.TONE;
+          this.toneRemaining = block.count;
+          this.pulseLen = block.pulseLen;
+          return;
+
+        case 'pulses':
+          if (block.lengths.length === 0) {
+            this.position = idx + 1;
+            idx++;
+            continue;
+          }
+          this.phase = TapePhase.PULSES;
+          this.pulsesLengths = block.lengths;
+          this.pulsesIdx = 0;
+          this.pulseLen = block.lengths[0];
+          return;
+
+        case 'pause':
+          if (block.duration === 0) {
+            this.paused = true;
+            this.position = idx + 1;
+            this.phase = TapePhase.IDLE;
+            return;
+          }
           this.position = idx + 1;
-          this.phase = TapePhase.IDLE;
+          this.phase = TapePhase.PAUSE;
+          this.earBit = 0;
+          this.pauseRemaining = Math.round(block.duration * this.cpuClock / 1000);
           return;
-        }
-        this.position = idx + 1;
-        this.phase = TapePhase.PAUSE;
-        this.earBit = 0;
-        this.pauseRemaining = Math.round(block.duration * this.cpuClock / 1000);
-        break;
 
-      case 'direct':
-        this.beginDirectBlock(block);
-        break;
-
-      case 'set-level':
-        this.earBit = block.level;
-        this.position = idx + 1;
-        this.beginBlock(idx + 1);
-        return;
-
-      case 'stop-if-48k':
-        this.position = idx + 1;
-        if (this.is48K) {
-          this.paused = true;
-          this.phase = TapePhase.IDLE;
+        case 'direct':
+          if (block.data.length === 0) {
+            this.position = idx + 1;
+            idx++;
+            continue;
+          }
+          this.beginDirectBlock(block);
           return;
-        }
-        this.beginBlock(idx + 1);
-        return;
 
-      // Cosmetic blocks — skip immediately
-      case 'group-start':
-      case 'group-end':
-      case 'text':
-      case 'archive-info':
-        this.position = idx + 1;
-        this.beginBlock(idx + 1);
-        return;
+        case 'set-level':
+          this.earBit = block.level;
+          this.position = idx + 1;
+          idx++;
+          continue;
+
+        case 'stop-if-48k':
+          this.position = idx + 1;
+          if (this.is48K) {
+            this.paused = true;
+            this.phase = TapePhase.IDLE;
+            return;
+          }
+          idx++;
+          continue;
+
+        case 'group-start':
+        case 'group-end':
+        case 'text':
+        case 'archive-info':
+          this.position = idx + 1;
+          idx++;
+          continue;
+      }
     }
+
+    this.phase = TapePhase.IDLE;
+    this.playing = false;
+    this.rawData = null;
+    this.directData = null;
   }
 
   private beginDataBlock(block: DataBlock): void {
@@ -424,7 +428,7 @@ export class TapeDeck {
     this.bSync2 = block.syncPulse2;
     this.bBit0 = block.bit0Pulse;
     this.bBit1 = block.bit1Pulse;
-    this.usedBitsLast = block.usedBits;
+    this.usedBitsLast = Math.max(1, block.usedBits);
     this.pauseRemaining = Math.round(block.pause * this.cpuClock / 1000);
 
     if (block.pilotCount === 0) {
@@ -448,7 +452,7 @@ export class TapeDeck {
     this.directTStatesPerSample = block.tStatesPerSample;
     this.directByteIdx = 0;
     this.directBitIdx = 7;
-    this.directUsedBitsLast = block.usedBits;
+    this.directUsedBitsLast = Math.max(1, block.usedBits);
     this.directPauseMs = block.pause;
     this.tInPulse = 0;
     // Set initial EAR from first bit

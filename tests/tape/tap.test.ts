@@ -363,3 +363,23 @@ describe('TAP — raw on-tape data reconstruction', () => {
     expect(Array.from(b.data)).toEqual([0xDE, 0xAD, 0xBE, 0xEF]);
   });
 });
+
+// ── parseTAP statelessness ──────────────────────────────────────────────────
+
+describe('TAP — parseTAP does not modify deck state', () => {
+  it('parseTAP returns blocks without changing deck.blocks, position, or flags', () => {
+    const tap = buildBlock(0xFF, [1, 2, 3]);
+    const deck = new TapeDeck();
+    deck.load(tap);
+    expect(deck.blocks.length).toBe(1);
+    deck.position = 1;
+
+    const blocks = deck.parseTAP(buildBlock(0x00, [4, 5]));
+    expect(blocks.length).toBe(1);
+
+    // deck state should be untouched by the pure parse call.
+    expect(deck.blocks.length).toBe(1);
+    expect(deck.position).toBe(1);
+    expect((deck.blocks[0] as DataBlock).flag).toBe(0xFF);
+  });
+});

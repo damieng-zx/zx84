@@ -605,3 +605,258 @@ describe('TapeDeck.advance() guard conditions', () => {
     expect(deck.earBit).toBe(before);
   });
 });
+
+// ── Bug: empty direct data block ────────────────────────────────────────────
+
+describe('TapeDeck — bug: empty direct data block', () => {
+  it('should skip cleanly instead of reading garbage from an empty array', () => {
+    const tone: ToneBlock = { kind: 'tone', pulseLen: 100, count: 1 };
+    const empty: DirectBlock = {
+      kind: 'direct',
+      tStatesPerSample: 10,
+      pause: 0,
+      usedBits: 8,
+      data: new Uint8Array(0),
+    };
+    const deck = deckWith(empty, tone);
+    deck.startPlayback();
+
+    // With the bug, the deck would emit 8 garbage samples from the empty
+    // array before detecting the out-of-range byte index. After the fix it
+    // should skip straight to the tone block.
+    expect(deck.playing).toBe(true);
+    expect((deck as any).playbackIdx).toBe(1);
+
+    // Verify the tone block is playing normally.
+    const edges = countEdges(deck, 100, 1);
+    expect(edges).toBe(1);
+    expect(deck.playing).toBe(false);
+  });
+});
+
+// ── Bug: usedBits=0 skips the entire last byte ──────────────────────────────
+
+describe('TapeDeck — bug: usedBits=0 on last byte', () => {
+  it('standard data block: usedBits=0 should not skip the last byte', () => {
+    // Two bytes: 0xFF (all 1s) and 0xAA (usedBits=0). The second byte should
+    // still emit pulses; with the bug, bitIdx < (8-0)=8 triggers immediately
+    // and the second byte is completely skipped.
+    const block = makeData(0xFF, [0x00, 0xAA], {
+      pilotCount: 1,
+      pilotPulse: 10,
+      syncPulse1: 10,
+      syncPulse2: 10,
+      bit0Pulse: 100,
+      bit1Pulse: 200,
+      pause: 0,
+      usedBits: 0,
+    });
+    const deck = deckWith(block);
+    deck.startPlayback();
+
+    // Skip pilot (1 edge, 10T) + sync (2 edges, 20T).
+    deck.advance(30);
+
+    // rawData = [flag=0xFF, 0x00, checksum=0xFF^0x00^0xAA=0x55] = 3 bytes = 24 bits.
+    // Each bit is 2 half-cycles. With the bug, the last byte (checksum 0x55)
+    // produces 0 edges because usedBits=0 causes immediate enterPause.
+    // After fix, it should produce 16 edges for the full last byte.
+    //
+    // Count total data T-states for the full 24 bits.
+    const raw = [0xFF, 0x00, 0x55];
+    let dataT = 0;
+    let expectedEdges = 0;
+    for (const byte of raw) {
+      for (let b = 7; b >= 0; b--) {
+        const bit = (byte >> b) & 1;
+        dataT += 2 * (bit ? 200 : 100);
+        expectedEdges += 2;
+      }
+    }
+
+    const edges = countEdges(deck, dataT, 1);
+    expect(edges).toBe(expectedEdges);
+  });
+
+  it('direct block: usedBits=0 should not skip the last byte', () => {
+    // Two bytes; usedBits=0 on the second (last) byte.
+    const block: DirectBlock = {
+      kind: 'direct',
+      tStatesPerSample: 10,
+      pause: 0,
+      usedBits: 0,
+      data: new Uint8Array([0xFF, 0xAA]),
+    };
+    const deck = deckWith(block);
+    deck.startPlayback();
+
+    // With the bug, after the first byte (8 samples), directBitIdx decrements
+    // to 7 for the second byte, but isLastByte && 7 < (8-0=8) is true, so the
+    // block ends immediately. After the fix, all 8 bits of the second byte
+    // should play.
+    //
+    // Total expected: 16 samples × 10T = 160T. After that, block ends.
+    // With the bug, only 8 samples × 10T = 80T before the block ends.
+    deck.advance(80);
+    expect(deck.playing).toBe(true); // With bug this would be false (block ended)
+    deck.advance(80);
+    expect(deck.playing).toBe(false); // Now the block should have ended
+  });
+});
+
+// ── Missing coverage: standard data block with valid usedBits < 8 ────────────
+
+describe('TapeDeck — standard data block with usedBits < 8', () => {
+  it('only plays the top N bits of the last byte', () => {
+    // rawData = [flag=0x00, checksum=0x00] = 2 bytes, usedBits=3 on last byte.
+    // The last byte is the checksum (0x00). Only the top 3 bits should play.
+    const block = makeData(0x00, [], {
+      pilotCount: 1,
+      pilotPulse: 10,
+      syncPulse1: 10,
+      syncPulse2: 10,
+      bit0Pulse: 100,
+      bit1Pulse: 100,
+      pause: 0,
+      usedBits: 3,
+    });
+    const deck = deckWith(block);
+    deck.startPlayback();
+
+    // Skip pilot + sync (3 edges, 30T).
+    deck.advance(30);
+
+    // rawData = [0x00, 0x00] = 2 bytes = 16 bits, but last byte only uses 3.
+    // So: first byte = 8 bits (16 edges), last byte = 3 bits (6 edges).
+    // Total: 22 edges, all at 100T (bit0Pulse=bit1Pulse=100).
+    const totalDataT = (8 + 3) * 2 * 100;
+    const edges = countEdges(deck, totalDataT, 1);
+    expect(edges).toBe(22);
+  });
+});
+
+// ── Missing coverage: data block pause > 0 transitions to next block ────────
+
+describe('TapeDeck — data block pause elapses into next block', () => {
+  it('after data, pause elapses and the next block starts playing', () => {
+    const block1 = makeData(0xFF, [0x00], {
+      pilotCount: 1,
+      pilotPulse: 10,
+      syncPulse1: 10,
+      syncPulse2: 10,
+      bit0Pulse: 10,
+      bit1Pulse: 10,
+      pause: 1, // 1ms = 3500 T at 3.5MHz
+    });
+    const tone: ToneBlock = { kind: 'tone', pulseLen: 100, count: 1 };
+    const deck = deckWith(block1, tone);
+    deck.cpuClock = 3_500_000;
+    deck.startPlayback();
+
+    // Pilot(1×10T) + sync(10+10T) + data(3 bytes × 8 bits × 2 × 10T) = 20+480 = 500T
+    // (rawData = [0xFF, 0x00, 0xFF] = 3 bytes = 24 bits × 2 edges × 10T = 480T)
+    const pilotSyncT = 10 + 10 + 10;
+    const dataT = 3 * 8 * 2 * 10;
+    deck.advance(pilotSyncT + dataT);
+
+    // Now in PAUSE phase (1ms = 3500T).
+    expect((deck as any).phase).toBe(5); // TapePhase.PAUSE = 5
+    expect(deck.position).toBe(1);
+
+    // Elapse the pause.
+    deck.advance(3500);
+    // Should have transitioned to the tone block.
+    expect((deck as any).playbackIdx).toBe(1);
+    expect((deck as any).phase).toBe(6); // TapePhase.TONE = 6
+  });
+});
+
+// ── Missing coverage: advance() spanning multiple phases in one call ────────
+
+describe('TapeDeck — large advance() spanning phases', () => {
+  it('processes pilot+sync+data+pause in a single advance() call', () => {
+    const block = makeData(0xFF, [0x00], {
+      pilotCount: 2,
+      pilotPulse: 10,
+      syncPulse1: 10,
+      syncPulse2: 10,
+      bit0Pulse: 10,
+      bit1Pulse: 10,
+      pause: 0,
+    });
+    const deck = deckWith(block);
+    deck.startPlayback();
+
+    // Advance by more than the entire block (pilot+sync+data).
+    const totalT = 10 * 2 + 10 + 10 + 3 * 8 * 2 * 10;
+    deck.advance(totalT);
+    // Now in PAUSE phase (pause=0); needs one more advance to process it.
+    expect((deck as any).phase).toBe(5); // TapePhase.PAUSE
+    deck.advance(1);
+    // Block finished, no next block → playing=false.
+    expect(deck.playing).toBe(false);
+  });
+});
+
+// ── Missing coverage: multi-byte direct block ───────────────────────────────
+
+describe('TapeDeck — multi-byte direct block', () => {
+  it('plays all bits of all bytes sequentially', () => {
+    const block: DirectBlock = {
+      kind: 'direct',
+      tStatesPerSample: 10,
+      pause: 0,
+      usedBits: 8,
+      data: new Uint8Array([0b11001100, 0b10101010]),
+    };
+    const deck = deckWith(block);
+    deck.startPlayback();
+
+    // First byte: 1,1,0,0,1,1,0,0 → 8 samples × 10T = 80T
+    // Second byte: 1,0,1,0,1,0,1,0 → 8 samples × 10T = 80T
+    // Total: 160T
+    const observed: number[] = [];
+    for (let i = 0; i < 16; i++) {
+      observed.push(deck.earBit);
+      deck.advance(10);
+    }
+    // First 8 bits from byte 0, next 8 from byte 1.
+    expect(observed.slice(0, 8)).toEqual([1, 1, 0, 0, 1, 1, 0, 0]);
+    expect(observed.slice(8, 16)).toEqual([1, 0, 1, 0, 1, 0, 1, 0]);
+  });
+
+  it('usedBits=3 on last byte of multi-byte direct block', () => {
+    const block: DirectBlock = {
+      kind: 'direct',
+      tStatesPerSample: 10,
+      pause: 0,
+      usedBits: 3,
+      data: new Uint8Array([0xFF, 0b101_00000]),
+    };
+    const deck = deckWith(block);
+    deck.startPlayback();
+
+    // 8 samples for first byte + 3 samples for second = 11 total × 10T = 110T.
+    // 11th sample ends the block. After that, playing=false.
+    deck.advance(110);
+    expect(deck.playing).toBe(false);
+  });
+});
+
+// ── Bug: recursive beginBlock for consecutive cosmetic blocks ───────────────
+
+describe('TapeDeck — robustness: many consecutive cosmetic blocks', () => {
+  it('handles 500 consecutive cosmetic blocks without stack overflow', () => {
+    const cosmetic: TapeBlock[] = [];
+    for (let i = 0; i < 500; i++) {
+      cosmetic.push({ kind: 'group-start', name: `g${i}` } as GroupStartBlock);
+    }
+    const tone: ToneBlock = { kind: 'tone', pulseLen: 100, count: 1 };
+    const deck = deckWith(...cosmetic, tone);
+    deck.startPlayback();
+    // If beginBlock recurses for each cosmetic block, 500 will likely stack
+    // overflow. After fix (iterative), this should reach the tone block.
+    expect(deck.playing).toBe(true);
+    expect((deck as any).playbackIdx).toBe(500); // tone block
+  });
+});
