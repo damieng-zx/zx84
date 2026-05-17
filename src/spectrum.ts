@@ -665,9 +665,13 @@ export class Spectrum {
       }
     }
 
-    // Tape turbo + auto-pause.
+    // Tape turbo cooldown.
     // earReads only counts ULA reads with high byte 0xFF (no keyboard row
     // selected), so it genuinely reflects tape loading, not keyboard polling.
+    // Tape auto-pause is handled by LoaderDetector on a microsecond timescale
+    // (src/io-ports.ts); this per-frame cooldown only disengages turbo and
+    // serves as a fallback pause for the case where port activity stops
+    // entirely (the detector needs at least one more read to fire).
     const tapeLoading = this.activity.earReads > 0 || this.activity.tapeLoads > 0;
 
     if (this.tape.loaded && !this.tape.finished) {
@@ -679,6 +683,8 @@ export class Spectrum {
       } else if (this._tapeTurboCooldown > 0) {
         if (--this._tapeTurboCooldown <= 0) {
           this._tapeTurboActive = false;
+          // Fallback: if the loader stopped polling entirely (no port reads
+          // at all), the detector can't trip — pause here as belt-and-braces.
           this.tape.paused = true;
           this.mixer.reset();
         }

@@ -163,12 +163,13 @@ export function wirePortIO(s: Spectrum): void {
       s.advanceTapeTo();
       if (s.ula.tapeActive && (port >> 8) === 0xFF) s.activity.earReads++;
       if (s.tape.loaded && !s.tape.finished) {
-        if (!s.tape.playing || s.tape.paused) {
-          if (s.loaderDetector.onPortRead(s.cpu.tStates, s.cpu.b)) {
-            s.tape.paused = false;
-            s.tape.startPlayback();
-            s.loaderDetector.reset();
-          }
+        const playing = s.tape.playing && !s.tape.paused;
+        const event = s.loaderDetector.onPortRead(s.cpu.tStates, s.cpu.b, playing);
+        if (event === 'start') {
+          s.tape.paused = false;
+          s.tape.startPlayback();
+        } else if (event === 'stop') {
+          s.tape.paused = true;
         }
       }
       return s.ula.readPort((port >> 8) & 0xFF);
