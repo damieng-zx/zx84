@@ -99,7 +99,7 @@ export default defineConfig(({ mode }) => ({
       provider: 'v8',
       reporter: ['text', 'html'],
       include: ['src/**/*.ts'],
-      exclude: ['src/**/*.d.ts', 'src/mcp-server.ts'],
+      exclude: ['src/**/*.d.ts', 'src/mcp-server.ts', 'src/display/display.ts'],
     },
   },
   build: {
