@@ -334,8 +334,12 @@ describe('Floating bus — 48K (Ferranti)', () => {
   it('returns 0xFF after the 192 display lines complete', () => {
     const { c, bank } = newContention('48k');
     bank(5).fill(0xAA);
-    const t = 14335 + 192 * 224;
+    // With 48K floatingBusAdjust = -1, the first T at which (offset/224)|0 >= 192
+    // is contentionStart + 1 + 192*224 = 57345.
+    const t = 14335 + 1 + 192 * 224;
     expect(c.floatingBusRead(t, bank(5))).toBe(0xFF);
+    // Also covers the post-display path at the start of line 192 col 0.
+    expect(c.floatingBusRead(t + 4, bank(5))).toBe(0xFF);
   });
 
   it('returns the pixel byte during the first half of each 4-T cell', () => {

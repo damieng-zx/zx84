@@ -20,7 +20,7 @@ export interface MachineTiming {
   /** Frame-relative T-state at which contention begins (first ULA fetch). */
   contentionStart: number;
   /** Frame-relative T-state of the first display pixel output.
-   *  = VBlank lines × tStatesPerLine + top border lines × tStatesPerLine.
+   *  For 48K: 16 vertical-retrace + 48 top-border lines = 64 × 224 = 14336.
    *  May differ from contentionStart because the ULA fetch starts before
    *  pixel output on some models. */
   displayOrigin: number;
