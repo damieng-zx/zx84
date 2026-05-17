@@ -109,8 +109,9 @@ const TOKENS: Record<number, string> = {
  * Detokenize a single BASIC line.
  * Returns the line as a string.
  *
- * Number format: ASCII digits + marker (0x0E=integral, 0x7E=floating) + 5 bytes binary
- * We display the ASCII and skip the marker + binary data.
+ * Number format: ASCII digits + 0x0E marker + 5 bytes binary form.
+ * Only 0x0E is a marker (covers both integer and FP — the body distinguishes).
+ * 0x7E is the printable tilde character '~' and must NOT be treated as a marker.
  */
 function detokenizeLine(mem: Uint8Array, offset: number, lineEnd: number): string {
   let result = '';
@@ -122,19 +123,18 @@ function detokenizeLine(mem: Uint8Array, offset: number, lineEnd: number): strin
     if (byte === 0x0D) {
       // Line terminator (NEWLINE)
       break;
-    } else if (byte === 0x0E || byte === 0x7E) {
-      // Number marker: 0x0E = integral, 0x7E = floating-point
-      // The ASCII representation is already in the output
-      // Skip this marker byte + following 5 bytes of binary number
+    } else if (byte === 0x0E) {
+      // Number marker — skip the marker + the following 5 bytes of binary form.
       i++;
       if (i + 5 <= lineEnd) {
         i += 5;
       }
     } else if (byte >= 0xA3 && byte <= 0xFF) {
-      // BASIC token
+      // BASIC token. The strings in TOKENS already carry the surrounding
+      // spaces they need (e.g. ' PRINT ', 'LET '), so don't tack on another.
       const token = TOKENS[byte];
       if (token) {
-        result += token + ' ';
+        result += token;
       } else {
         result += `[${byte.toString(16).toUpperCase()}]`;
       }
@@ -166,7 +166,7 @@ export function parseBasicProgram(mem: Uint8Array): string {
   const progAddr = mem[0x5C53] | (mem[0x5C54] << 8);
   const varsAddr = mem[0x5C4B] | (mem[0x5C4C] << 8);
 
-  if (progAddr === 0 || varsAddr === 0 || progAddr >= varsAddr || progAddr >= 0x10000) {
+  if (progAddr === 0 || varsAddr === 0 || progAddr >= varsAddr) {
     return '<span style="color:#666">(no BASIC program)</span>';
   }
 
@@ -211,6 +211,25 @@ export function parseBasicProgram(mem: Uint8Array): string {
   return lines.join('\n');
 }
 
+/**
+ * Read the dimension sizes recorded in an array variable's data area.
+ * Layout from `dataStart`: 1 byte dimCount, then `dimCount` × 16-bit (LE)
+ * dimension sizes. Returns [] for arrays with no header (e.g. malformed or
+ * test fixtures where dataLen is 0).
+ */
+function readArrayDims(mem: Uint8Array, dataStart: number, dataLen: number, end: number): number[] {
+  if (dataLen < 1 || dataStart >= end) return [];
+  const dimCount = mem[dataStart];
+  if (dataLen < 1 + 2 * dimCount) return [];
+  const dims: number[] = [];
+  for (let d = 0; d < dimCount; d++) {
+    const lo = dataStart + 1 + d * 2;
+    if (lo + 1 >= end) break;
+    dims.push(mem[lo] | (mem[lo + 1] << 8));
+  }
+  return dims;
+}
+
 function escapeHtml(text: string): string {
   return text
     .replace(/&/g, '&amp;')
@@ -220,7 +239,12 @@ function escapeHtml(text: string): string {
 
 /**
  * Parse ZX Spectrum 5-byte number to a displayable value.
- * Format: 1 byte exponent, 4 bytes mantissa (or special integral format)
+ *
+ * Two on-disk forms (both 5 bytes):
+ *   Integer: [exp=0, sign(0|0xFF), lo, hi, 0] — signed 16-bit value.
+ *   Float:   [exp(biased+0x80), m1, m2, m3, m4] — 32-bit mantissa with the
+ *            top bit replaced by the sign bit; the implicit leading 1
+ *            is restored before computation.
  */
 function parse5ByteNumber(mem: Uint8Array, offset: number): string {
   const exp = mem[offset];
@@ -229,17 +253,22 @@ function parse5ByteNumber(mem: Uint8Array, offset: number): string {
   const b3 = mem[offset + 3];
   const b4 = mem[offset + 4];
 
-  // Integral format: exp=0, b1=0 or 0xFF (sign), b2-b3=value, b4=0
-  if (exp === 0 && b4 === 0) {
+  // Integer format: exp must be 0, b4 must be 0, b1 must be 0 or 0xFF.
+  // A non-canonical b1 means we're looking at a corrupted record or an FP
+  // value that happened to clear b4 — don't silently re-interpret it as an int.
+  if (exp === 0 && b4 === 0 && (b1 === 0x00 || b1 === 0xFF)) {
     const isNeg = b1 === 0xFF;
     let value = b2 | (b3 << 8);
     if (isNeg) value = value - 65536;
     return value.toString();
   }
 
-  // Floating point format (simplified display)
-  // For now, just show it as a hex representation
-  return `[${exp.toString(16).padStart(2, '0')} ${b1.toString(16).padStart(2, '0')} ${b2.toString(16).padStart(2, '0')} ${b3.toString(16).padStart(2, '0')} ${b4.toString(16).padStart(2, '0')}]`;
+  // Floating-point. Reconstruct the implicit-1 mantissa, apply the stored
+  // sign, then scale by 2^(exp - 0x80 - 32).
+  const sign = (b1 & 0x80) ? -1 : 1;
+  const mantissa = (b1 | 0x80) * 0x1000000 + b2 * 0x10000 + b3 * 0x100 + b4;
+  const value = sign * mantissa * Math.pow(2, exp - 128 - 32);
+  return value.toString();
 }
 
 /**
@@ -251,7 +280,7 @@ export function parseBasicVariables(mem: Uint8Array): string {
   const varsAddr = mem[0x5C4B] | (mem[0x5C4C] << 8);
   const eLineAddr = mem[0x5C59] | (mem[0x5C5A] << 8);
 
-  if (varsAddr === 0 || eLineAddr === 0 || varsAddr >= eLineAddr || varsAddr >= 0x10000) {
+  if (varsAddr === 0 || eLineAddr === 0 || varsAddr >= eLineAddr) {
     return '<span style="color:#666">(no variables)</span>';
   }
 
@@ -286,17 +315,25 @@ export function parseBasicVariables(mem: Uint8Array): string {
     }
     // Numeric array (0x80-0x9A)
     else if (typeFlags === 0x80) {
-      const name = String.fromCharCode(firstByte - 0x20) + '()';
+      const baseName = String.fromCharCode(firstByte - 0x20);
       const dataLen = mem[offset + 1] | (mem[offset + 2] << 8);
-      lines.push(`<span class="var-name">${name}</span> <span style="color:#888">[array]</span>`);
+      const dims = readArrayDims(mem, offset + 3, dataLen, eLineAddr);
+      const display = dims.length > 0
+        ? `${baseName}(${dims.join(',')})`
+        : `${baseName}()`;
+      lines.push(`<span class="var-name">${display}</span> <span style="color:#888">[array]</span>`);
       offset += 3 + dataLen;
       varCount++;
     }
     // String array (0xC0-0xDA)
     else if (typeFlags === 0xC0) {
-      const name = String.fromCharCode(firstByte - 0x80) + '$()';
+      const baseName = String.fromCharCode(firstByte - 0x80);
       const dataLen = mem[offset + 1] | (mem[offset + 2] << 8);
-      lines.push(`<span class="var-name">${name}</span> <span style="color:#888">[array]</span>`);
+      const dims = readArrayDims(mem, offset + 3, dataLen, eLineAddr);
+      const display = dims.length > 0
+        ? `${baseName}$(${dims.join(',')})`
+        : `${baseName}$()`;
+      lines.push(`<span class="var-name">${display}</span> <span style="color:#888">[array]</span>`);
       offset += 3 + dataLen;
       varCount++;
     }
