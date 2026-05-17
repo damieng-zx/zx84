@@ -95,8 +95,7 @@ function renderBanks(): string {
 // Disk info now rendered directly in DrivePane component
 
 function renderDriveStatus(unit: number, activeUnit: number): import('@/state/disk-state.ts').DriveStatus {
-  if (!spectrum) return { led: 'off', track: '00', sector: '--' };
-  const fdc = spectrum.fdc;
+  const fdc = spectrum!.fdc;
 
   const isActive = unit === activeUnit;
   const track = fdc.getUnitTrack(unit).toString().padStart(2, '0');

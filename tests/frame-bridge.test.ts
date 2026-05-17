@@ -26,7 +26,7 @@
  *  - cachedExtraFonts is captured when transcribe mode toggles on and never
  *    invalidated when the user edits the font store mid-session.
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 // ── Mock @/emulator.ts (must be defined BEFORE importing frame-bridge) ────
 
@@ -46,7 +46,7 @@ type MockSpectrum = {
   screenText: { active: boolean; activate: () => void; deactivate: () => void };
 } | null;
 
-const { emu, settingsMock } = vi.hoisted(() => ({
+const { emu, settingsMock, panesMock } = vi.hoisted(() => ({
   emu: {
     spectrum: null as any,
     floppySound: null as any,
@@ -98,13 +98,16 @@ const { emu, settingsMock } = vi.hoisted(() => ({
     diskSoundA: vi.fn(() => false),
     diskSoundB: vi.fn(() => false),
   },
+  panesMock: {
+    isCollapsed: vi.fn(() => true),
+  },
 }));
 
 vi.mock('@/emulator.ts', () => emu);
 vi.mock('@/store/settings.ts', () => settingsMock);
 
 // Mock @/ui/panes.ts so isCollapsed is deterministic.
-vi.mock('@/ui/panes.ts', () => ({ isCollapsed: vi.fn(() => true) }));
+vi.mock('@/ui/panes.ts', () => panesMock);
 
 // Mock dsk.ts since refreshDiskMetadata is called only when an FDC format
 // completes — we don't exercise that path here.
@@ -155,6 +158,7 @@ import {
   loadFontStore,
   saveFontStore,
   updateFontPreview,
+  capturedFontData as _capturedFontData,
   resetSpeedTracking,
   forceSpeedUpdate,
   updateRegsOnce,
@@ -482,5 +486,463 @@ describe('onFrame — LED thresholds', () => {
     emu.spectrum = specWithActivity({ earReads: 1 });
     onFrame();
     expect(emu.setLedText).toHaveBeenCalledWith(true);
+  });
+});
+
+// ── FDC mock helpers ─────────────────────────────────────────────────────
+
+function makeFdcMock(opts: {
+  motorOn?: boolean; isExecuting?: boolean; isWriting?: boolean;
+  currentUnit?: number; currentTrack?: number; currentSector?: number;
+  formattedUnit?: number;
+} = {}) {
+  const { motorOn = false, isExecuting = false, isWriting = false,
+    currentUnit = 0, currentTrack = 0, currentSector = 1, formattedUnit = -1 } = opts;
+  return {
+    motorOn, isExecuting, isWriting, currentUnit, currentTrack, currentSector, formattedUnit,
+    tickFrame: vi.fn(),
+    getUnitTrack: vi.fn((_u: number) => currentTrack),
+    getDiskImage: vi.fn((_u: number) => null as any),
+  };
+}
+
+function makeSpectrumWithFDC(fdcOpts?: Parameters<typeof makeFdcMock>[0]): ReturnType<typeof makeSpectrumWithSnap> {
+  const snap = new Uint8Array(0x10000);
+  const s = makeSpectrumWithSnap(snap) as any;
+  s.variant = { hasBanking: false, hasFDC: true, hasAY: false };
+  s.fdc = makeFdcMock(fdcOpts);
+  s.memory = {
+    ...s.memory, port7FFD: 0, port1FFD: 0, pagingLocked: false,
+    specialPaging: false, currentROM: 0, currentBank: 0,
+  };
+  return s;
+}
+
+// ── renderBanks content ───────────────────────────────────────────────────
+
+describe('renderBanks (via updateRegsOnce)', () => {
+  function make128K(memOverrides: Record<string, unknown> = {}, model: string = '128k') {
+    emu.currentModel.mockReturnValue(model as any);
+    const snap = new Uint8Array(0x10000);
+    const s = makeSpectrumWithSnap(snap)!;
+    s.variant = { hasBanking: true, hasFDC: false, hasAY: false };
+    (s as any).memory = {
+      ...s.memory, port7FFD: 0, port1FFD: 0, pagingLocked: false,
+      specialPaging: false, currentROM: 0, currentBank: 0,
+      ...memOverrides,
+    };
+    return s;
+  }
+
+  afterEach(() => { emu.currentModel.mockReturnValue('48k' as any); });
+
+  it('48K: setBanksHtml is not called when hasBanking is false', () => {
+    const snap = new Uint8Array(0x10000);
+    const s = makeSpectrumWithSnap(snap)!;
+    s.variant = { hasBanking: false, hasFDC: false, hasAY: false };
+    (s as any).memory = { ...s.memory, port7FFD: 0, port1FFD: 0, pagingLocked: false, specialPaging: false, currentROM: 0, currentBank: 0 };
+    emu.spectrum = s;
+    updateRegsOnce();
+    expect(emu.setBanksHtml).not.toHaveBeenCalled();
+  });
+
+  it('128K ROM 0 → "128K Editor ROM"', () => {
+    emu.spectrum = make128K({ currentROM: 0 });
+    updateRegsOnce();
+    expect(emu.setBanksHtml).toHaveBeenCalledWith(expect.stringContaining('128K Editor ROM'));
+  });
+
+  it('128K ROM 1 → "48K BASIC ROM"', () => {
+    emu.spectrum = make128K({ currentROM: 1 });
+    updateRegsOnce();
+    expect(emu.setBanksHtml).toHaveBeenCalledWith(expect.stringContaining('48K BASIC ROM'));
+  });
+
+  it('bank 5 marked (Screen) when port7FFD bit 3 is clear (default screen)', () => {
+    emu.spectrum = make128K({ port7FFD: 0x00, currentBank: 0 });
+    updateRegsOnce();
+    expect(emu.setBanksHtml).toHaveBeenCalledWith(expect.stringContaining('RAM Bank 5 (Screen)'));
+  });
+
+  it('bank 7 marked (Screen) and bank 5 not marked when port7FFD bit 3 is set', () => {
+    emu.spectrum = make128K({ port7FFD: 0x08, currentBank: 7 });
+    updateRegsOnce();
+    const html: string = emu.setBanksHtml.mock.calls[0]![0];
+    expect(html).toContain('RAM Bank 7 (Screen)');
+    expect(html).not.toContain('RAM Bank 5 (Screen)');
+  });
+
+  it('current RAM bank shown at C000-FFFF', () => {
+    emu.spectrum = make128K({ currentBank: 3 });
+    updateRegsOnce();
+    const html: string = emu.setBanksHtml.mock.calls[0]![0];
+    expect(html).toMatch(/C000-FFFF.*RAM Bank 3/);
+  });
+
+  it('pagingLocked=true shows "Lock" and "Y"', () => {
+    emu.spectrum = make128K({ pagingLocked: true });
+    updateRegsOnce();
+    const html: string = emu.setBanksHtml.mock.calls[0]![0];
+    expect(html).toContain('Lock');
+    expect(html).toContain('Y');
+  });
+
+  it('+2A normal paging shows "ROM Page N"', () => {
+    emu.spectrum = make128K({ currentROM: 2, specialPaging: false }, '+2A');
+    updateRegsOnce();
+    expect(emu.setBanksHtml).toHaveBeenCalledWith(expect.stringContaining('ROM Page 2'));
+  });
+
+  it('+2A port line includes 1FFD column', () => {
+    emu.spectrum = make128K({ port7FFD: 0x10, port1FFD: 0x04, specialPaging: false }, '+2A');
+    updateRegsOnce();
+    const html: string = emu.setBanksHtml.mock.calls[0]![0];
+    expect(html).toContain('7FFD');
+    expect(html).toContain('1FFD');
+  });
+
+  it('+2A special paging mode 0 → banks 0,1,2,3 from bottom to top', () => {
+    // mode = (port1FFD >> 1) & 3 = 0 → configs[0] = ['0','1','2','3']
+    emu.spectrum = make128K({ specialPaging: true, port1FFD: 0x00 }, '+2A');
+    updateRegsOnce();
+    const html: string = emu.setBanksHtml.mock.calls[0]![0];
+    expect(html).toContain('RAM Bank 0');
+    expect(html).toContain('RAM Bank 1');
+    expect(html).toContain('RAM Bank 2');
+    expect(html).toContain('RAM Bank 3');
+  });
+
+  it('+2A special paging mode 1 → banks 4,5,6,7', () => {
+    // mode = (0x02 >> 1) & 3 = 1 → configs[1] = ['4','5','6','7']
+    emu.spectrum = make128K({ specialPaging: true, port1FFD: 0x02 }, '+2A');
+    updateRegsOnce();
+    const html: string = emu.setBanksHtml.mock.calls[0]![0];
+    expect(html).toContain('RAM Bank 4');
+    expect(html).toContain('RAM Bank 5');
+    expect(html).toContain('RAM Bank 6');
+    expect(html).toContain('RAM Bank 7');
+  });
+
+  it('+2A special paging mode 2 → banks 4,5,6,3', () => {
+    // mode = (0x04 >> 1) & 3 = 2 → configs[2] = ['4','5','6','3']
+    emu.spectrum = make128K({ specialPaging: true, port1FFD: 0x04 }, '+2A');
+    updateRegsOnce();
+    const html: string = emu.setBanksHtml.mock.calls[0]![0];
+    // All four banks appear; spot-check the top (C000) and bottom (0000)
+    expect(html).toContain('RAM Bank 3');  // C000-FFFF
+    expect(html).toContain('RAM Bank 4');  // 0000-3FFF
+  });
+
+  it('+2A special paging mode 3 → banks 4,7,6,3', () => {
+    // mode = (0x06 >> 1) & 3 = 3 → configs[3] = ['4','7','6','3']
+    emu.spectrum = make128K({ specialPaging: true, port1FFD: 0x06 }, '+2A');
+    updateRegsOnce();
+    const html: string = emu.setBanksHtml.mock.calls[0]![0];
+    expect(html).toContain('RAM Bank 3');
+    expect(html).toContain('RAM Bank 7');
+    expect(html).toContain('RAM Bank 4');
+  });
+});
+
+// ── renderDriveStatus LED states ──────────────────────────────────────────
+
+describe('renderDriveStatus LED states (via onFrame)', () => {
+  it('LED is "off" when motor is off', () => {
+    emu.spectrum = makeSpectrumWithFDC({ motorOn: false, currentUnit: 0 });
+    onFrame();
+    expect(emu.setDriveAStatus).toHaveBeenCalledWith(expect.objectContaining({ led: 'off' }));
+  });
+
+  it('inactive drive B is "off" even when motor is on and executing', () => {
+    // activeUnit = fdc.currentUnit = 0 (drive A active), so drive B is inactive
+    emu.spectrum = makeSpectrumWithFDC({ motorOn: true, isExecuting: true, currentUnit: 0 });
+    onFrame();
+    expect(emu.setDriveBStatus).toHaveBeenCalledWith(expect.objectContaining({ led: 'off' }));
+  });
+
+  it('LED is "motor" when motor on but not executing on active drive', () => {
+    emu.spectrum = makeSpectrumWithFDC({ motorOn: true, isExecuting: false, currentUnit: 0 });
+    onFrame();
+    expect(emu.setDriveAStatus).toHaveBeenCalledWith(expect.objectContaining({ led: 'motor' }));
+  });
+
+  it('LED is "read" when motor on and executing a read on active drive', () => {
+    emu.spectrum = makeSpectrumWithFDC({ motorOn: true, isExecuting: true, isWriting: false, currentUnit: 0 });
+    onFrame();
+    expect(emu.setDriveAStatus).toHaveBeenCalledWith(expect.objectContaining({ led: 'read' }));
+  });
+
+  it('LED is "write" when motor on and executing a write on active drive', () => {
+    emu.spectrum = makeSpectrumWithFDC({ motorOn: true, isExecuting: true, isWriting: true, currentUnit: 0 });
+    onFrame();
+    expect(emu.setDriveAStatus).toHaveBeenCalledWith(expect.objectContaining({ led: 'write' }));
+  });
+
+  it('track is zero-padded to 2 digits', () => {
+    emu.spectrum = makeSpectrumWithFDC({ currentTrack: 5, currentUnit: 0 });
+    onFrame();
+    expect(emu.setDriveAStatus).toHaveBeenCalledWith(expect.objectContaining({ track: '05' }));
+  });
+
+  it('sector shown as zero-padded 2 digits when executing on active drive', () => {
+    emu.spectrum = makeSpectrumWithFDC({ motorOn: true, isExecuting: true, currentSector: 7, currentUnit: 0 });
+    onFrame();
+    expect(emu.setDriveAStatus).toHaveBeenCalledWith(expect.objectContaining({ sector: '07' }));
+  });
+
+  it('sector is "--" when not executing', () => {
+    emu.spectrum = makeSpectrumWithFDC({ motorOn: true, isExecuting: false, currentUnit: 0 });
+    onFrame();
+    expect(emu.setDriveAStatus).toHaveBeenCalledWith(expect.objectContaining({ sector: '--' }));
+  });
+
+  it('sector is "--" for inactive drive even when executing', () => {
+    // Drive B (unit=1) is inactive; its sector should be '--'
+    emu.spectrum = makeSpectrumWithFDC({ motorOn: true, isExecuting: true, currentSector: 9, currentUnit: 0 });
+    onFrame();
+    expect(emu.setDriveBStatus).toHaveBeenCalledWith(expect.objectContaining({ sector: '--' }));
+  });
+});
+
+// ── FDC format completion ─────────────────────────────────────────────────
+
+describe('updateHardwareSignals — FDC format completion', () => {
+  it('setCurrentDiskInfo called (not B) when formattedUnit is 0', () => {
+    const s = makeSpectrumWithFDC({ formattedUnit: 0 }) as any;
+    const fakeImage = { numSides: 1, numTracks: 40, tracks: [], protection: [] };
+    s.fdc.getDiskImage.mockReturnValue(fakeImage);
+    emu.spectrum = s;
+    onFrame();
+    expect(emu.setCurrentDiskInfo).toHaveBeenCalledWith(expect.objectContaining({ numSides: 1 }));
+    expect(emu.setCurrentDiskInfoB).not.toHaveBeenCalled();
+    // formattedUnit is reset so format completion does not re-fire next frame
+    expect(s.fdc.formattedUnit).toBe(-1);
+  });
+
+  it('setCurrentDiskInfoB called (not A) when formattedUnit is 1', () => {
+    const s = makeSpectrumWithFDC({ formattedUnit: 1 }) as any;
+    s.fdc.getDiskImage.mockReturnValue({ numSides: 2, numTracks: 80, tracks: [], protection: [] });
+    emu.spectrum = s;
+    onFrame();
+    expect(emu.setCurrentDiskInfoB).toHaveBeenCalled();
+    expect(emu.setCurrentDiskInfo).not.toHaveBeenCalled();
+  });
+
+  it('neither disk signal set when getDiskImage returns null', () => {
+    const s = makeSpectrumWithFDC({ formattedUnit: 0 }) as any;
+    s.fdc.getDiskImage.mockReturnValue(null);
+    emu.spectrum = s;
+    onFrame();
+    expect(emu.setCurrentDiskInfo).not.toHaveBeenCalled();
+    expect(emu.setCurrentDiskInfoB).not.toHaveBeenCalled();
+  });
+});
+
+// ── onFrame — trace auto-stop ─────────────────────────────────────────────
+
+describe('onFrame — trace auto-stop', () => {
+  beforeEach(() => {
+    Object.defineProperty(globalThis, 'navigator', {
+      value: { clipboard: { writeText: vi.fn(() => Promise.resolve()) } },
+      writable: true,
+      configurable: true,
+    });
+  });
+
+  afterEach(() => {
+    emu.tracing.mockReturnValue(false);
+  });
+
+  it('stops tracing, clears signal, and copies text when spectrum.tracing flips false', () => {
+    const snap = new Uint8Array(0x10000);
+    const spec = makeSpectrumWithSnap(snap)!;
+    spec.tracing = false;
+    spec.stopTrace = vi.fn(() => 'a\nb\nc');
+    (spec as any).memory = { ...spec.memory, port7FFD: 0, port1FFD: 0, pagingLocked: false, specialPaging: false, currentROM: 0, currentBank: 0 };
+    emu.spectrum = spec;
+    emu.tracing.mockReturnValue(true);
+    onFrame();
+    expect(spec.stopTrace).toHaveBeenCalled();
+    expect(emu.setTracing).toHaveBeenCalledWith(false);
+    expect((navigator.clipboard as any).writeText).toHaveBeenCalledWith('a\nb\nc');
+    expect(emu.setStatus).toHaveBeenCalledWith(expect.stringMatching(/auto-stopped.*3/i));
+  });
+
+  it('does not call stopTrace when tracing() is already false', () => {
+    const snap = new Uint8Array(0x10000);
+    const spec = makeSpectrumWithSnap(snap)!;
+    spec.tracing = false;
+    spec.stopTrace = vi.fn(() => '');
+    (spec as any).memory = { ...spec.memory, port7FFD: 0, port1FFD: 0, pagingLocked: false, specialPaging: false, currentROM: 0, currentBank: 0 };
+    emu.spectrum = spec;
+    emu.tracing.mockReturnValue(false);
+    onFrame();
+    expect(spec.stopTrace).not.toHaveBeenCalled();
+  });
+});
+
+// ── onFrame — tape handling ───────────────────────────────────────────────
+
+describe('onFrame — tape handling', () => {
+  type TapeState = NonNullable<MockSpectrum>['tape'];
+  function makeSpectrumWithTape(tapeOpts: Partial<TapeState> = {}) {
+    const snap = new Uint8Array(0x10000);
+    const s = makeSpectrumWithSnap(snap)!;
+    s.tape = { loaded: false, position: 0, playing: false, paused: false, finished: false, startPlayback: vi.fn(), ...tapeOpts };
+    (s as any).memory = { ...s.memory, port7FFD: 0, port1FFD: 0, pagingLocked: false, specialPaging: false, currentROM: 0, currentBank: 0 };
+    return s;
+  }
+
+  it('sets tape position when tape is loaded', () => {
+    emu.spectrum = makeSpectrumWithTape({ loaded: true, position: 42 });
+    onFrame();
+    expect(emu.setTapePosition).toHaveBeenCalledWith(42);
+  });
+
+  it('does not set tape position when tape is not loaded', () => {
+    emu.spectrum = makeSpectrumWithTape({ loaded: false });
+    onFrame();
+    expect(emu.setTapePosition).not.toHaveBeenCalled();
+  });
+
+  it('calls setTapePlaying(true) when spectrum tape starts playing', () => {
+    emu.tapePlaying.mockReturnValue(false);
+    emu.spectrum = makeSpectrumWithTape({ loaded: true, playing: true });
+    onFrame();
+    expect(emu.setTapePlaying).toHaveBeenCalledWith(true);
+  });
+
+  it('does not call setTapePlaying when signal already matches', () => {
+    emu.tapePlaying.mockReturnValue(true);
+    emu.spectrum = makeSpectrumWithTape({ loaded: true, playing: true });
+    onFrame();
+    expect(emu.setTapePlaying).not.toHaveBeenCalled();
+  });
+
+  it('calls setTapePaused(true) when spectrum tape becomes paused', () => {
+    emu.tapePaused.mockReturnValue(false);
+    emu.spectrum = makeSpectrumWithTape({ loaded: true, paused: true });
+    onFrame();
+    expect(emu.setTapePaused).toHaveBeenCalledWith(true);
+  });
+
+  it('does not call setTapePaused when signal already matches', () => {
+    emu.tapePaused.mockReturnValue(true);
+    emu.spectrum = makeSpectrumWithTape({ loaded: true, paused: true });
+    onFrame();
+    expect(emu.setTapePaused).not.toHaveBeenCalled();
+  });
+
+  it('auto-rewinds when tape finishes and tapeAutoRewind is on', () => {
+    settingsMock.tapeAutoRewind.mockReturnValue(true);
+    const startPlayback = vi.fn();
+    const s = makeSpectrumWithTape({ loaded: true, playing: false, finished: true, startPlayback });
+    emu.spectrum = s;
+    onFrame();
+    expect(s.tape.position).toBe(0);
+    expect(startPlayback).toHaveBeenCalled();
+    expect(emu.setTapePosition).toHaveBeenCalledWith(0);
+  });
+
+  it('does not auto-rewind when tapeAutoRewind is off', () => {
+    settingsMock.tapeAutoRewind.mockReturnValue(false);
+    const startPlayback = vi.fn();
+    emu.spectrum = makeSpectrumWithTape({ loaded: true, playing: false, finished: true, startPlayback });
+    onFrame();
+    expect(startPlayback).not.toHaveBeenCalled();
+  });
+
+  it('does not auto-rewind when tape is still playing', () => {
+    settingsMock.tapeAutoRewind.mockReturnValue(true);
+    const startPlayback = vi.fn();
+    emu.spectrum = makeSpectrumWithTape({ loaded: true, playing: true, finished: false, startPlayback });
+    onFrame();
+    expect(startPlayback).not.toHaveBeenCalled();
+  });
+});
+
+// ── updateClockSpeed — 50-frame accumulation ─────────────────────────────
+
+describe('updateClockSpeed', () => {
+  function makeBasicSpectrum(tStates = 0) {
+    const snap = new Uint8Array(0x10000);
+    const s = makeSpectrumWithSnap(snap)!;
+    s.cpu = { tStates, pc: 0 };
+    (s as any).memory = { ...s.memory, port7FFD: 0, port1FFD: 0, pagingLocked: false, specialPaging: false, currentROM: 0, currentBank: 0 };
+    return s;
+  }
+
+  it('does not emit a MHz reading before 50 frames', () => {
+    emu.spectrum = makeBasicSpectrum();
+    resetSpeedTracking();
+    emu.setClockSpeedText.mockClear();
+    for (let i = 0; i < 49; i++) onFrame();
+    expect(emu.setClockSpeedText).not.toHaveBeenCalled();
+  });
+
+  it('emits a "N.NN MHz" string on the 50th frame', () => {
+    const nowSpy = vi.spyOn(performance, 'now').mockReturnValue(1000);
+    const s = makeBasicSpectrum(0);
+    emu.spectrum = s;
+    resetSpeedTracking();
+    emu.setClockSpeedText.mockClear();
+
+    // Advance simulated time and tStates to produce a measurable reading
+    nowSpy.mockReturnValue(2000);   // 1 second elapsed
+    s.cpu.tStates = 3_500_000;     // 3.5M T-states in 1s ≈ 3.50 MHz
+
+    for (let i = 0; i < 50; i++) onFrame();
+    expect(emu.setClockSpeedText).toHaveBeenCalledWith(expect.stringMatching(/\d+\.\d{2} MHz/));
+    nowSpy.mockRestore();
+  });
+});
+
+// ── onFrame — disasm pane open ────────────────────────────────────────────
+
+describe('onFrame — disasm pane open', () => {
+  afterEach(() => {
+    panesMock.isCollapsed.mockReturnValue(true);
+  });
+
+  it('bumps setRegsRev when disasm-panel is open', () => {
+    panesMock.isCollapsed.mockImplementation((id: string) => id !== 'disasm-panel');
+    const snap = new Uint8Array(0x10000);
+    const s = makeSpectrumWithSnap(snap)!;
+    (s as any).memory = { ...s.memory, port7FFD: 0, port1FFD: 0, pagingLocked: false, specialPaging: false, currentROM: 0, currentBank: 0 };
+    emu.spectrum = s;
+    onFrame();
+    expect(emu.setRegsRev).toHaveBeenCalled();
+  });
+
+  it('does not bump setRegsRev when disasm-panel is collapsed', () => {
+    panesMock.isCollapsed.mockReturnValue(true);
+    const snap = new Uint8Array(0x10000);
+    const s = makeSpectrumWithSnap(snap)!;
+    (s as any).memory = { ...s.memory, port7FFD: 0, port1FFD: 0, pagingLocked: false, specialPaging: false, currentROM: 0, currentBank: 0 };
+    emu.spectrum = s;
+    onFrame();
+    expect(emu.setRegsRev).not.toHaveBeenCalled();
+  });
+});
+
+// ── capturedFontData ──────────────────────────────────────────────────────
+// capturedFontData is the last captured ROM font slice; it's the same object
+// returned as result.data, so verify via the return value (live-binding
+// behaviour through esbuild transforms is not guaranteed).
+
+describe('capturedFontData', () => {
+  it('return value data is a 768-byte slice of the snapshot at the font address', () => {
+    const snap = new Uint8Array(0x10000);
+    snap[0x5C36] = 0; snap[0x5C37] = 0;
+    for (let i = 8; i < 768; i++) snap[0x3D00 + i] = (i * 7) & 0xFF;
+    emu.spectrum = makeSpectrumWithSnap(snap);
+    snap[0x3D00 + 500] ^= 0x01; // invalidate hash so capture runs
+    const result = updateFontPreview();
+    expect(result?.type).toBe('rom');
+    expect(result!.data.length).toBe(768);
+    // First 8 bytes are the blank space glyph
+    for (let i = 0; i < 8; i++) expect(result!.data[i]).toBe(0);
+    // Remaining bytes match our pattern (adjusted for the XOR'd byte)
+    expect(result!.data[8]).toBe((8 * 7) & 0xFF);
   });
 });
