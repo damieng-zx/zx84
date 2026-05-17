@@ -52,6 +52,10 @@ export class CanvasRenderer implements IScreenRenderer {
   }
 
   updateTexture(pixels: Uint8Array): void {
+    const expected = this.width * this.height * 4;
+    if (pixels.length !== expected) {
+      throw new Error(`CanvasRenderer.updateTexture: expected ${expected} bytes (${this.width}×${this.height} RGBA), got ${pixels.length}`);
+    }
     this.imageData.data.set(pixels);
     this.offCtx.putImageData(this.imageData, 0, 0);
     this.ctx.imageSmoothingEnabled = false;
@@ -72,7 +76,7 @@ export class CanvasRenderer implements IScreenRenderer {
   }
 
   setScale(scale: number): void {
-    this.scale = scale;
+    this.scale = Math.max(1, Math.round(scale));
     this.applyScale();
   }
 

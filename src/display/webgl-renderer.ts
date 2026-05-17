@@ -479,7 +479,7 @@ export class WebGLRenderer implements IScreenRenderer {
   }
 
   setScale(scale: number): void {
-    this.scale = scale;
+    this.scale = Math.max(1, Math.round(scale));
     this.applyScale();
   }
 
@@ -499,7 +499,7 @@ export class WebGLRenderer implements IScreenRenderer {
   }
 
   setMaskType(v: number): void {
-    this.maskType = v;
+    this.maskType = Math.max(0, Math.min(5, v | 0));
     this.glDirty = true;
   }
 
@@ -509,7 +509,7 @@ export class WebGLRenderer implements IScreenRenderer {
   }
 
   setCurvatureMode(v: number): void {
-    this.curvatureMode = v;
+    this.curvatureMode = Math.max(0, Math.min(1, v | 0));
     this.glDirty = true;
   }
 
@@ -604,13 +604,13 @@ export class WebGLRenderer implements IScreenRenderer {
     }
     // u_noise and u_frame must stay in sync every frame when noise is active:
     // u_frame drives per-frame variation; u_noise must be current when it changes.
+    this.frameCount = (this.frameCount + 1) & 0x7FFFFFFF;
     if (this.noise > 0) {
       gl.uniform1f(this.u2Noise, this.noise);
       gl.uniform1f(this.u2Frame, this.frameCount);
     } else if (dirty) {
       gl.uniform1f(this.u2Noise, 0.0);
     }
-    this.frameCount = (this.frameCount + 1) & 0x7FFFFFFF;
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
     this.glDirty = false;
