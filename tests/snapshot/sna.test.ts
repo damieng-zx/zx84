@@ -488,6 +488,38 @@ describe('SNA — 128K bank loading', () => {
     loadSNA(data, new Z80(), mem);
     expect(mem.pagingLocked).toBe(true);
   });
+
+  it('stops loading extra banks when the file ends before all 5 are present', () => {
+    // A spec-compliant 128K SNA carries 5 extra banks after byte 49183.
+    // Build a truncated one with only 2 extras and verify the loader's
+    // `offset + 16384 <= data.length` guard prevents an over-read.
+    const cpu = makeCpu();
+    const port7FFD = 0x07;            // current bank = 7 → extras: 0,1,3,4,6
+    const present = 2;                // include banks 0 and 1 only
+    const data = new Uint8Array(49183 + present * 16384);
+    writeHeader(data, cpu, 0);
+    data[27] = 0x50;                  // bank 5 sentinel
+    data[27 + 16384] = 0x20;          // bank 2 sentinel
+    data[27 + 32768] = 0x70;          // current bank (7) sentinel
+    data[49179] = cpu.pc & 0xFF; data[49180] = (cpu.pc >> 8) & 0xFF;
+    data[49181] = port7FFD;
+    data[49183] = 0xA0;               // first extra (bank 0) sentinel
+    data[49183 + 16384] = 0xA1;       // second extra (bank 1) sentinel
+
+    const mem = makeMemory128k();
+    const result = loadSNA(data, new Z80(), mem);
+
+    expect(result.is128K).toBe(true);
+    expect(mem.getRamBank(5)[0]).toBe(0x50);
+    expect(mem.getRamBank(2)[0]).toBe(0x20);
+    expect(mem.getRamBank(7)[0]).toBe(0x70);
+    expect(mem.getRamBank(0)[0]).toBe(0xA0);
+    expect(mem.getRamBank(1)[0]).toBe(0xA1);
+    // Missing extras must be left untouched, not read off the end of the buffer.
+    expect(mem.getRamBank(3)[0]).toBe(0);
+    expect(mem.getRamBank(4)[0]).toBe(0);
+    expect(mem.getRamBank(6)[0]).toBe(0);
+  });
 });
 
 // ── 48K save ───────────────────────────────────────────────────────────────

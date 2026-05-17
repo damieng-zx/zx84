@@ -57,8 +57,6 @@ async function deflate(raw: Uint8Array): Promise<Uint8Array> {
     totalLen += value.byteLength;
   }
 
-  if (chunks.length === 1) return chunks[0];
-
   const result = new Uint8Array(totalLen);
   let off = 0;
   for (const chunk of chunks) {
@@ -317,9 +315,9 @@ function w32(data: Uint8Array, offset: number, value: number): void {
 }
 
 function writeBlockHeader(data: Uint8Array, offset: number, id: string, size: number): number {
-  // 4-byte ID
+  // 4-byte ID — all callers pass a 4-char literal (Z80R, SPCR, RAMP, AY\0\0).
   for (let i = 0; i < 4; i++) {
-    data[offset + i] = i < id.length ? id.charCodeAt(i) : 0;
+    data[offset + i] = id.charCodeAt(i);
   }
   // 4-byte size (LE)
   w32(data, offset + 4, size);

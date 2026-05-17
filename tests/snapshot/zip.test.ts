@@ -2,6 +2,78 @@ import { describe, it, expect } from 'vitest';
 import { deflateRawSync } from 'node:zlib';
 import { unzip } from '@/snapshot/zip.ts';
 
+// ── Low-level ZIP helpers (used by both buildZip and hand-rolled tests) ────
+
+const LFH_SIG = 0x04034b50;
+const CD_SIG  = 0x02014b50;
+const EOCD_SIG = 0x06054b50;
+
+function makeLocalFileHeader(opts: {
+  name: Uint8Array;
+  method: number;
+  compressedSize: number;
+  uncompressedSize: number;
+  crc?: number;
+  gpFlag?: number;
+}): Uint8Array {
+  const lh = new Uint8Array(30 + opts.name.length);
+  const v = new DataView(lh.buffer);
+  v.setUint32(0, LFH_SIG, true);
+  v.setUint16(4, 20, true);
+  v.setUint16(6, opts.gpFlag ?? 0, true);
+  v.setUint16(8, opts.method, true);
+  v.setUint32(14, opts.crc ?? 0, true);
+  v.setUint32(18, opts.compressedSize, true);
+  v.setUint32(22, opts.uncompressedSize, true);
+  v.setUint16(26, opts.name.length, true);
+  lh.set(opts.name, 30);
+  return lh;
+}
+
+function makeCentralDirEntry(opts: {
+  name: Uint8Array;
+  method: number;
+  compressedSize: number;
+  uncompressedSize: number;
+  localHeaderOffset: number;
+  crc?: number;
+  gpFlag?: number;
+}): Uint8Array {
+  const cd = new Uint8Array(46 + opts.name.length);
+  const v = new DataView(cd.buffer);
+  v.setUint32(0, CD_SIG, true);
+  v.setUint16(4, 20, true);
+  v.setUint16(6, 20, true);
+  v.setUint16(8, opts.gpFlag ?? 0, true);
+  v.setUint16(10, opts.method, true);
+  v.setUint32(16, opts.crc ?? 0, true);
+  v.setUint32(20, opts.compressedSize, true);
+  v.setUint32(24, opts.uncompressedSize, true);
+  v.setUint16(28, opts.name.length, true);
+  v.setUint32(42, opts.localHeaderOffset, true);
+  cd.set(opts.name, 46);
+  return cd;
+}
+
+function makeEocd(opts: { totalEntries: number; cdSize: number; cdOffset: number }): Uint8Array {
+  const eocd = new Uint8Array(22);
+  const v = new DataView(eocd.buffer);
+  v.setUint32(0, EOCD_SIG, true);
+  v.setUint16(8, opts.totalEntries, true);
+  v.setUint16(10, opts.totalEntries, true);
+  v.setUint32(12, opts.cdSize, true);
+  v.setUint32(16, opts.cdOffset, true);
+  return eocd;
+}
+
+function concat(...parts: Uint8Array[]): Uint8Array {
+  const total = parts.reduce((n, p) => n + p.length, 0);
+  const out = new Uint8Array(total);
+  let p = 0;
+  for (const part of parts) { out.set(part, p); p += part.length; }
+  return out;
+}
+
 // ── ZIP builder ─────────────────────────────────────────────────────────────
 //
 // Hand-rolled minimal ZIP writer. Supports store (method 0) and deflate
@@ -260,5 +332,109 @@ describe('unzip — empty archive', () => {
     const zip = buildZip([]);
     const out = await unzip(zip);
     expect(out).toEqual([]);
+  });
+});
+
+// ── Central-directory walk: halt on corrupt entry ───────────────────────────
+
+describe('unzip — central-directory walk halts on bad signature', () => {
+  it('stops iterating CD entries when a later entry has an invalid signature', async () => {
+    // EOCD claims 2 entries, but the second CD entry has a zeroed signature.
+    // The loader must keep entry 1 and break before entry 2 without throwing.
+    const name = new TextEncoder().encode('a.sna');
+    const payload = new Uint8Array([0xAA, 0xBB, 0xCC]);
+
+    const lh = makeLocalFileHeader({
+      name, method: 0,
+      compressedSize: payload.length,
+      uncompressedSize: payload.length,
+    });
+    const cd1 = makeCentralDirEntry({
+      name, method: 0,
+      compressedSize: payload.length,
+      uncompressedSize: payload.length,
+      localHeaderOffset: 0,
+    });
+    const cd2 = new Uint8Array(46); // sig = 0 → invalid
+
+    const cdOffset = lh.length + payload.length;
+    const cdSize = cd1.length + cd2.length;
+    const eocd = makeEocd({ totalEntries: 2, cdSize, cdOffset });
+    const zip = concat(lh, payload, cd1, cd2, eocd);
+
+    const out = await unzip(zip);
+    expect(out).toHaveLength(1);
+    expect(out[0].name).toBe('a.sna');
+    expect(Array.from(out[0].data)).toEqual([0xAA, 0xBB, 0xCC]);
+  });
+});
+
+// ── inflate: multi-chunk concatenation ──────────────────────────────────────
+
+describe('unzip — multi-chunk inflate concatenation', () => {
+  // Node's DecompressionStream emits inflated output in ~16 KiB chunks once
+  // the total exceeds 16 KiB, so 1 MiB reliably triggers the multi-chunk path.
+
+  it('concatenates chunks for large deflated payloads', async () => {
+    const SIZE = 1024 * 1024;
+    const raw = new Uint8Array(SIZE);
+    const deflated = new Uint8Array(deflateRawSync(raw));
+    const name = new TextEncoder().encode('big.dsk');
+
+    const lh = makeLocalFileHeader({
+      name, method: 8,
+      compressedSize: deflated.length,
+      uncompressedSize: raw.length,
+    });
+    const cd = makeCentralDirEntry({
+      name, method: 8,
+      compressedSize: deflated.length,
+      uncompressedSize: raw.length,
+      localHeaderOffset: 0,
+    });
+    const eocd = makeEocd({
+      totalEntries: 1,
+      cdSize: cd.length,
+      cdOffset: lh.length + deflated.length,
+    });
+
+    const out = await unzip(concat(lh, deflated, cd, eocd));
+    expect(out).toHaveLength(1);
+    expect(out[0].data.length).toBe(SIZE);
+    expect(out[0].data[0]).toBe(0);
+    expect(out[0].data[SIZE / 2]).toBe(0);
+    expect(out[0].data[SIZE - 1]).toBe(0);
+  });
+
+  it('uses summed chunk length when CD uncompressedSize is zero', async () => {
+    // Trip the `expectedSize > 0 ? expectedSize : totalLen` ternary's else
+    // branch: declare uncompressedSize=0 in the CD but ship a payload that
+    // actually inflates to >16 KiB (multi-chunk).
+    const SIZE = 1024 * 1024;
+    const raw = new Uint8Array(SIZE);
+    const deflated = new Uint8Array(deflateRawSync(raw));
+    const name = new TextEncoder().encode('big.dsk');
+
+    const lh = makeLocalFileHeader({
+      name, method: 8,
+      compressedSize: deflated.length,
+      uncompressedSize: raw.length,
+    });
+    const cd = makeCentralDirEntry({
+      name, method: 8,
+      compressedSize: deflated.length,
+      uncompressedSize: 0,           // ← lie: tell loader we don't know the size
+      localHeaderOffset: 0,
+    });
+    const eocd = makeEocd({
+      totalEntries: 1,
+      cdSize: cd.length,
+      cdOffset: lh.length + deflated.length,
+    });
+
+    const out = await unzip(concat(lh, deflated, cd, eocd));
+    expect(out).toHaveLength(1);
+    expect(out[0].data.length).toBe(SIZE);
+    expect(out[0].data[SIZE - 1]).toBe(0);
   });
 });

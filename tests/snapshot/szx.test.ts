@@ -1224,6 +1224,162 @@ describe('SZX — byte-identity round-trip', () => {
   });
 });
 
+// ── Save: uncompressed fallback for incompressible banks ───────────────────
+
+describe('SZX — save uncompressed fallback when deflate does not shrink', () => {
+  it('stores a high-entropy bank uncompressed when deflate produces a larger payload', async () => {
+    const cpu = new Z80();
+    const mem = makeMemory48k();
+    // Fill page 5 with deterministic pseudo-random bytes that deflate cannot
+    // meaningfully shrink, forcing the `zipped.length < raw.length` branch
+    // to take its else arm.
+    const bank5 = mem.getRamBank(5);
+    let s = 0xC0FFEEn;
+    for (let i = 0; i < bank5.length; i++) {
+      s = (s * 6364136223846793005n + 1442695040888963407n) & 0xFFFFFFFFFFFFFFFFn;
+      bank5[i] = Number((s >> 33n) & 0xFFn);
+    }
+
+    const saved = await saveSZX(cpu, mem, 0, '48k', 0);
+
+    // Walk SZX blocks until we find the RAMP block for page 5.
+    let off = 8;
+    let inspected = false;
+    while (off + 8 <= saved.length) {
+      const id = String.fromCharCode(saved[off], saved[off + 1], saved[off + 2], saved[off + 3]);
+      const size = saved[off + 4] | (saved[off + 5] << 8) | (saved[off + 6] << 16) | (saved[off + 7] << 24);
+      const payload = saved.subarray(off + 8, off + 8 + size);
+      if (id === 'RAMP' && payload[2] === 5) {
+        // ZXSTRF_COMPRESSED = bit 0. Saver picked the uncompressed branch.
+        const wFlags = payload[0] | (payload[1] << 8);
+        expect(wFlags & 1).toBe(0);
+        const stored = payload.subarray(3);
+        expect(stored.length).toBe(16384);
+        expect(stored).toEqual(bank5);
+        inspected = true;
+        break;
+      }
+      off += 8 + size;
+    }
+    expect(inspected).toBe(true);
+  });
+});
+
+// ── Save: optional fields on the Z80R/AY blocks ────────────────────────────
+
+describe('SZX — Z80R block iff1/iff2 byte encoding', () => {
+  it.each([
+    [false, false],
+    [true,  false],
+    [false, true],
+    [true,  true],
+  ])('writes iff1=%s iff2=%s as the matching 0/1 bytes', async (iff1, iff2) => {
+    const cpu = new Z80();
+    cpu.iff1 = iff1;
+    cpu.iff2 = iff2;
+    const saved = await saveSZX(cpu, makeMemory48k(), 0, '48k', 0);
+
+    // Z80R block sits immediately after the 8-byte SZX header + 8-byte block
+    // header. Fields 26 and 27 inside the payload are chIff1 and chIff2.
+    const z80rPayload = 8 + 8;
+    expect(saved[z80rPayload + 26]).toBe(iff1 ? 1 : 0);
+    expect(saved[z80rPayload + 27]).toBe(iff2 ? 1 : 0);
+
+    const cpu2 = new Z80();
+    await loadSZX(saved, cpu2, makeMemory48k());
+    expect(cpu2.iff1).toBe(iff1);
+    expect(cpu2.iff2).toBe(iff2);
+  });
+});
+
+describe('SZX — save AY block without an explicit current register', () => {
+  it('defaults chCurrentRegister to 0 when ayCurrentReg is omitted', async () => {
+    const cpu = new Z80();
+    const ayRegs = new Uint8Array(16);
+    for (let i = 0; i < 16; i++) ayRegs[i] = i + 0x10;
+
+    // Pass ayRegs but no ayCurrentReg — exercises the `?? 0` branch.
+    const saved = await saveSZX(cpu, makeMemory48k(), 0, '48k', 0, ayRegs);
+
+    // Locate the AY block and inspect chCurrentRegister.
+    let off = 8;
+    let found = false;
+    while (off + 8 <= saved.length) {
+      const id0 = saved[off], id1 = saved[off + 1];
+      const size = saved[off + 4] | (saved[off + 5] << 8) | (saved[off + 6] << 16) | (saved[off + 7] << 24);
+      if (id0 === 0x41 /* 'A' */ && id1 === 0x59 /* 'Y' */) {
+        const payload = saved.subarray(off + 8, off + 8 + size);
+        expect(payload[0]).toBe(0);     // chFlags
+        expect(payload[1]).toBe(0);     // chCurrentRegister — defaulted
+        expect(Array.from(payload.subarray(2, 18))).toEqual(Array.from(ayRegs));
+        found = true;
+        break;
+      }
+      off += 8 + size;
+    }
+    expect(found).toBe(true);
+  });
+});
+
+// ── Load: short Z80R block (no chFlags byte) ───────────────────────────────
+
+describe('SZX — Z80R block without chFlags byte', () => {
+  it('skips reading halted when the block ends before offset 34', async () => {
+    // Standard Z80R payload is 37 bytes. Truncate it to 33 (just past
+    // dwCyclesStart's last byte) so the parser's `o + 34 < data.length`
+    // guard takes its else arm.
+    const cpu = makeCpu();
+    const fullPayload = buildZ80R(cpu);
+    const shortPayload = fullPayload.subarray(0, 33);
+
+    const data = buildSZX(1, [{ id: 'Z80R', payload: shortPayload }]);
+
+    const cpu2 = new Z80();
+    cpu2.halted = true; // pre-set to a known value so we can tell it stayed put
+    await loadSZX(data, cpu2, makeMemory48k());
+    // Registers up through dwCyclesStart must still have loaded correctly.
+    expect(cpu2.a).toBe(cpu.a);
+    expect(cpu2.pc).toBe(cpu.pc);
+    // halted must not have been touched — the field was absent from the block.
+    expect(cpu2.halted).toBe(true);
+  });
+});
+
+// ── Load: multi-chunk inflate concatenation ────────────────────────────────
+
+describe('SZX — multi-chunk inflate concatenation', () => {
+  it('concatenates inflated chunks when a RAMP payload expands beyond 16 KiB', async () => {
+    // Node's DecompressionStream emits inflated bytes in ~16 KiB chunks. A
+    // legitimate RAMP block is 16 KiB so the multi-chunk branch never fires
+    // on real files. We instead craft a RAMP whose deflate inflates to
+    // 32 KiB — szx.ts hands the result straight to setBankFromSnapshot,
+    // which clamps to 16 KiB, but the inflate helper still has to assemble
+    // both chunks first.
+    const bankBytes = new Uint8Array(16384);
+    for (let i = 0; i < bankBytes.length; i++) bankBytes[i] = (i * 5) & 0xFF;
+    const filler = new Uint8Array(16385);  // tips the inflated size over 16 KiB
+    const raw = new Uint8Array(bankBytes.length + filler.length);
+    raw.set(bankBytes, 0);
+    raw.set(filler, bankBytes.length);
+
+    const { deflateSync } = await import('node:zlib');
+    const deflated = new Uint8Array(deflateSync(raw)); // zlib (SZX uses 'deflate', not raw)
+
+    const cpu = new Z80();
+    const data = buildSZX(1, [
+      { id: 'Z80R', payload: buildZ80R(cpu) },
+      { id: 'RAMP', payload: buildRAMP(5, deflated, true) },
+    ]);
+
+    const mem = makeMemory48k();
+    await loadSZX(data, new Z80(), mem);
+    const bank5 = mem.getRamBank(5);
+    for (let i = 0; i < bankBytes.length; i++) {
+      expect(bank5[i]).toBe(bankBytes[i]);
+    }
+  });
+});
+
 // ── Block size endianness ──────────────────────────────────────────────────
 
 describe('SZX — dwSize is little-endian and payload-only', () => {
