@@ -5,6 +5,81 @@
 import { createSignal, createMemo, createRoot } from 'solid-js';
 import { getSaved, setSaved } from '@/store/persistence.ts';
 
+// ── Defaults — single source of truth ──────────────────────────────────
+//
+// Each persisted setting's default lives here exactly once. Both the
+// createSignal initialisers (via getSaved/getSavedNumber fallbacks) and the
+// PANE_SETTINGS table used by resetSettingsGroup reference these constants,
+// so "fresh boot" and "press Reset" always produce the same values.
+//
+// All values are stored as strings — getSavedNumber coerces numerics, and
+// the on/off bool values are compared as strings.
+
+const DEFAULTS = {
+  // Display
+  'scale':             '2',
+  'brightness':        '0',
+  'contrast':          '50',
+  'smoothing':         '0',
+  'curvature':         '0',
+  'scanlines':         '0',
+  'mask-type':         '0',
+  'dot-pitch':         '10',
+  'curvature-mode':    '0',
+  'noise':             '0',
+  'scaling-mode':      '0',
+  'monitor':           'raw',
+  'border-size':       '2',
+  'renderer':          'webgl',
+  'color-map':         'measured',
+  'scanline-accuracy': 'high',
+
+  // Sound
+  'volume':    '70',
+  'ay-mix':    '50',
+  'ay-stereo': 'ABC',
+
+  // Joystick
+  'joy-p1':     'kempston',
+  'joy-p2':     'sinclair2',
+  'joy-map-p1': 'none',
+  'joy-map-p2': 'none',
+
+  // Font / text overlay (these are the tuned values; the previous PANE_SETTINGS
+  // defaults were stale placeholders from when the overlay was first scaffolded)
+  'font':            '',
+  'ocr-font':        'JetBrains Mono',
+  'ocr-font-size':   '4',
+  'ocr-line-height': '122',
+  'ocr-tracking':    '4',
+  'ocr-offset-x':    '-2',
+  'ocr-offset-y':    '8',
+  'ocr-scale-x':     '101.9',
+  'ocr-scale-y':     '100.9',
+
+  // Drive
+  'disk-sound-a':        'on',
+  'disk-sound-b':        'on',
+  'write-protect-a':     'off',
+  'write-protect-b':     'off',
+  'drive-b-force-ready': 'off',
+
+  // Tape
+  'tape-auto-rewind':     'on',
+  'tape-collapse-blocks': 'on',
+  'tape-instant-load':    'on',
+  'tape-turbo':           'on',
+  'tape-sound':           'on',
+
+  // Hardware
+  'multiface':      'off',
+  'plus3-v41-roms': 'off',
+  'vtx5000':        'off',
+} as const;
+
+type SettingKey = keyof typeof DEFAULTS;
+const D = (k: SettingKey): string => DEFAULTS[k];
+
 // ── Display settings ────────────────────────────────────────────────────
 
 function getSavedNumber(key: string, fallback: string): number {
@@ -15,59 +90,59 @@ function getSavedNumber(key: string, fallback: string): number {
   return Number.isFinite(n) ? n : Number(fallback);
 }
 
-const _scale = /*@once*/ createRoot(() => createSignal(getSavedNumber('scale', '2')));
+const _scale = /*@once*/ createRoot(() => createSignal(getSavedNumber('scale', D('scale'))));
 export const scale = _scale[0];
 export const setScale = _scale[1];
 
-const _brightness = /*@once*/ createRoot(() => createSignal(getSavedNumber('brightness', '0')));
+const _brightness = /*@once*/ createRoot(() => createSignal(getSavedNumber('brightness', D('brightness'))));
 export const brightness = _brightness[0];
 export const setBrightness = _brightness[1];
 
-const _contrast = /*@once*/ createRoot(() => createSignal(getSavedNumber('contrast', '50')));
+const _contrast = /*@once*/ createRoot(() => createSignal(getSavedNumber('contrast', D('contrast'))));
 export const contrast = _contrast[0];
 export const setContrast = _contrast[1];
 
-const _smoothing = /*@once*/ createRoot(() => createSignal(getSavedNumber('smoothing', '0')));
+const _smoothing = /*@once*/ createRoot(() => createSignal(getSavedNumber('smoothing', D('smoothing'))));
 export const smoothing = _smoothing[0];
 export const setSmoothing = _smoothing[1];
 
-const _curvature = /*@once*/ createRoot(() => createSignal(getSavedNumber('curvature', '0')));
+const _curvature = /*@once*/ createRoot(() => createSignal(getSavedNumber('curvature', D('curvature'))));
 export const curvature = _curvature[0];
 export const setCurvature = _curvature[1];
 
-const _scanlines = /*@once*/ createRoot(() => createSignal(getSavedNumber('scanlines', '0')));
+const _scanlines = /*@once*/ createRoot(() => createSignal(getSavedNumber('scanlines', D('scanlines'))));
 export const scanlines = _scanlines[0];
 export const setScanlines = _scanlines[1];
 
-const _maskType = /*@once*/ createRoot(() => createSignal(getSavedNumber('mask-type', '0')));
+const _maskType = /*@once*/ createRoot(() => createSignal(getSavedNumber('mask-type', D('mask-type'))));
 export const maskType = _maskType[0];
 export const setMaskType = _maskType[1];
 
-const _dotPitch = /*@once*/ createRoot(() => createSignal(getSavedNumber('dot-pitch', '10')));
+const _dotPitch = /*@once*/ createRoot(() => createSignal(getSavedNumber('dot-pitch', D('dot-pitch'))));
 export const dotPitch = _dotPitch[0];
 export const setDotPitch = _dotPitch[1];
 
-const _curvatureMode = /*@once*/ createRoot(() => createSignal(getSavedNumber('curvature-mode', '0')));
+const _curvatureMode = /*@once*/ createRoot(() => createSignal(getSavedNumber('curvature-mode', D('curvature-mode'))));
 export const curvatureMode = _curvatureMode[0];
 export const setCurvatureMode = _curvatureMode[1];
 
-const _noise = /*@once*/ createRoot(() => createSignal(getSavedNumber('noise', '0')));
+const _noise = /*@once*/ createRoot(() => createSignal(getSavedNumber('noise', D('noise'))));
 export const noise = _noise[0];
 export const setNoise = _noise[1];
 
-const _scalingMode = /*@once*/ createRoot(() => createSignal(getSavedNumber('scaling-mode', '0')));
+const _scalingMode = /*@once*/ createRoot(() => createSignal(getSavedNumber('scaling-mode', D('scaling-mode'))));
 export const scalingMode = _scalingMode[0];
 export const setScalingMode = _scalingMode[1];
 
-const _monitor = /*@once*/ createRoot(() => createSignal(getSaved('monitor', 'raw')));
+const _monitor = /*@once*/ createRoot(() => createSignal(getSaved('monitor', D('monitor'))));
 export const monitor = _monitor[0];
 export const setMonitor = _monitor[1];
 
-const _borderSize = /*@once*/ createRoot(() => createSignal(getSavedNumber('border-size', '2')));
+const _borderSize = /*@once*/ createRoot(() => createSignal(getSavedNumber('border-size', D('border-size'))));
 export const borderSize = _borderSize[0];
 export const setBorderSize = _borderSize[1];
 
-const _renderer = /*@once*/ createRoot(() => createSignal(getSaved('renderer', 'webgl') as 'webgl' | 'canvas'));
+const _renderer = /*@once*/ createRoot(() => createSignal(getSaved('renderer', D('renderer')) as 'webgl' | 'canvas'));
 export const renderer = _renderer[0];
 export const setRenderer = _renderer[1];
 
@@ -77,43 +152,43 @@ const _webglAvailable = /*@once*/ createRoot(() => createSignal(true));
 export const webglAvailable = _webglAvailable[0];
 export const setWebglAvailable = _webglAvailable[1];
 
-const _colorMap = /*@once*/ createRoot(() => createSignal(getSaved('color-map', 'measured') as 'basic' | 'measured' | 'vivid'));
+const _colorMap = /*@once*/ createRoot(() => createSignal(getSaved('color-map', D('color-map')) as 'basic' | 'measured' | 'vivid'));
 export const colorMap = _colorMap[0];
 export const setColorMap = _colorMap[1];
 
-const _scanlineAccuracy = /*@once*/ createRoot(() => createSignal(getSaved('scanline-accuracy', 'high') as 'high' | 'mid' | 'low'));
+const _scanlineAccuracy = /*@once*/ createRoot(() => createSignal(getSaved('scanline-accuracy', D('scanline-accuracy')) as 'high' | 'mid' | 'low'));
 export const scanlineAccuracy = _scanlineAccuracy[0];
 export const setScanlineAccuracy = _scanlineAccuracy[1];
 
 // ── Sound settings ──────────────────────────────────────────────────────
 
-const _volume = /*@once*/ createRoot(() => createSignal(getSavedNumber('volume', '70')));
+const _volume = /*@once*/ createRoot(() => createSignal(getSavedNumber('volume', D('volume'))));
 export const volume = _volume[0];
 export const setVolume = _volume[1];
 
-const _ayMix = /*@once*/ createRoot(() => createSignal(getSavedNumber('ay-mix', '50')));
+const _ayMix = /*@once*/ createRoot(() => createSignal(getSavedNumber('ay-mix', D('ay-mix'))));
 export const ayMix = _ayMix[0];
 export const setAyMix = _ayMix[1];
 
-const _ayStereo = /*@once*/ createRoot(() => createSignal(getSaved('ay-stereo', 'ABC')));
+const _ayStereo = /*@once*/ createRoot(() => createSignal(getSaved('ay-stereo', D('ay-stereo'))));
 export const ayStereo = _ayStereo[0];
 export const setAyStereo = _ayStereo[1];
 
 // ── Joystick settings ───────────────────────────────────────────────────
 
-const _joyP1 = /*@once*/ createRoot(() => createSignal(getSaved('joy-p1', 'kempston')));
+const _joyP1 = /*@once*/ createRoot(() => createSignal(getSaved('joy-p1', D('joy-p1'))));
 export const joyP1 = _joyP1[0];
 export const setJoyP1 = _joyP1[1];
 
-const _joyP2 = /*@once*/ createRoot(() => createSignal(getSaved('joy-p2', 'sinclair2')));
+const _joyP2 = /*@once*/ createRoot(() => createSignal(getSaved('joy-p2', D('joy-p2'))));
 export const joyP2 = _joyP2[0];
 export const setJoyP2 = _joyP2[1];
 
-const _joyMapP1 = /*@once*/ createRoot(() => createSignal(getSaved('joy-map-p1', 'none')));
+const _joyMapP1 = /*@once*/ createRoot(() => createSignal(getSaved('joy-map-p1', D('joy-map-p1'))));
 export const joyMapP1 = _joyMapP1[0];
 export const setJoyMapP1 = _joyMapP1[1];
 
-const _joyMapP2 = /*@once*/ createRoot(() => createSignal(getSaved('joy-map-p2', 'none')));
+const _joyMapP2 = /*@once*/ createRoot(() => createSignal(getSaved('joy-map-p2', D('joy-map-p2'))));
 export const joyMapP2 = _joyMapP2[0];
 export const setJoyMapP2 = _joyMapP2[1];
 
@@ -160,99 +235,99 @@ export function saveGamepadConfig(player: 1 | 2, config: GamepadConfig): void {
 
 // ── Font settings ───────────────────────────────────────────────────────
 
-const _fontName = /*@once*/ createRoot(() => createSignal(getSaved('font', '')));
+const _fontName = /*@once*/ createRoot(() => createSignal(getSaved('font', D('font'))));
 export const fontName = _fontName[0];
 export const setFontName = _fontName[1];
 
 // ── Text/OCR overlay settings ──────────────────────────────────────────
 
-const _ocrFont = /*@once*/ createRoot(() => createSignal(getSaved('ocr-font', 'JetBrains Mono')));
+const _ocrFont = /*@once*/ createRoot(() => createSignal(getSaved('ocr-font', D('ocr-font'))));
 export const ocrFont = _ocrFont[0];
 export const setOcrFont = _ocrFont[1];
 
-const _ocrFontSize = /*@once*/ createRoot(() => createSignal(getSavedNumber('ocr-font-size', '4')));
+const _ocrFontSize = /*@once*/ createRoot(() => createSignal(getSavedNumber('ocr-font-size', D('ocr-font-size'))));
 export const ocrFontSize = _ocrFontSize[0];
 export const setOcrFontSize = _ocrFontSize[1];
 
-const _ocrLineHeight = /*@once*/ createRoot(() => createSignal(getSavedNumber('ocr-line-height', '122')));
+const _ocrLineHeight = /*@once*/ createRoot(() => createSignal(getSavedNumber('ocr-line-height', D('ocr-line-height'))));
 export const ocrLineHeight = _ocrLineHeight[0];
 export const setOcrLineHeight = _ocrLineHeight[1];
 
-const _ocrTracking = /*@once*/ createRoot(() => createSignal(getSavedNumber('ocr-tracking', '4')));
+const _ocrTracking = /*@once*/ createRoot(() => createSignal(getSavedNumber('ocr-tracking', D('ocr-tracking'))));
 export const ocrTracking = _ocrTracking[0];
 export const setOcrTracking = _ocrTracking[1];
 
-const _ocrOffsetX = /*@once*/ createRoot(() => createSignal(getSavedNumber('ocr-offset-x', '-2')));
+const _ocrOffsetX = /*@once*/ createRoot(() => createSignal(getSavedNumber('ocr-offset-x', D('ocr-offset-x'))));
 export const ocrOffsetX = _ocrOffsetX[0];
 export const setOcrOffsetX = _ocrOffsetX[1];
 
-const _ocrOffsetY = /*@once*/ createRoot(() => createSignal(getSavedNumber('ocr-offset-y', '8')));
+const _ocrOffsetY = /*@once*/ createRoot(() => createSignal(getSavedNumber('ocr-offset-y', D('ocr-offset-y'))));
 export const ocrOffsetY = _ocrOffsetY[0];
 export const setOcrOffsetY = _ocrOffsetY[1];
 
-const _ocrScaleX = /*@once*/ createRoot(() => createSignal(getSavedNumber('ocr-scale-x', '101.9')));
+const _ocrScaleX = /*@once*/ createRoot(() => createSignal(getSavedNumber('ocr-scale-x', D('ocr-scale-x'))));
 export const ocrScaleX = _ocrScaleX[0];
 export const setOcrScaleX = _ocrScaleX[1];
 
-const _ocrScaleY = /*@once*/ createRoot(() => createSignal(getSavedNumber('ocr-scale-y', '100.9')));
+const _ocrScaleY = /*@once*/ createRoot(() => createSignal(getSavedNumber('ocr-scale-y', D('ocr-scale-y'))));
 export const ocrScaleY = _ocrScaleY[0];
 export const setOcrScaleY = _ocrScaleY[1];
 
 // ── Disk mode ───────────────────────────────────────────────────────────
 
-const _diskSoundA = /*@once*/ createRoot(() => createSignal(getSaved('disk-sound-a', 'on') === 'on'));
+const _diskSoundA = /*@once*/ createRoot(() => createSignal(getSaved('disk-sound-a', D('disk-sound-a')) === 'on'));
 export const diskSoundA = _diskSoundA[0];
 export const setDiskSoundA = _diskSoundA[1];
 
-const _diskSoundB = /*@once*/ createRoot(() => createSignal(getSaved('disk-sound-b', 'on') === 'on'));
+const _diskSoundB = /*@once*/ createRoot(() => createSignal(getSaved('disk-sound-b', D('disk-sound-b')) === 'on'));
 export const diskSoundB = _diskSoundB[0];
 export const setDiskSoundB = _diskSoundB[1];
 
-const _writeProtectA = /*@once*/ createRoot(() => createSignal(getSaved('write-protect-a', 'off') === 'on'));
+const _writeProtectA = /*@once*/ createRoot(() => createSignal(getSaved('write-protect-a', D('write-protect-a')) === 'on'));
 export const writeProtectA = _writeProtectA[0];
 export const setWriteProtectA = _writeProtectA[1];
 
-const _writeProtectB = /*@once*/ createRoot(() => createSignal(getSaved('write-protect-b', 'off') === 'on'));
+const _writeProtectB = /*@once*/ createRoot(() => createSignal(getSaved('write-protect-b', D('write-protect-b')) === 'on'));
 export const writeProtectB = _writeProtectB[0];
 export const setWriteProtectB = _writeProtectB[1];
 
-const _driveBForceReady = /*@once*/ createRoot(() => createSignal(getSaved('drive-b-force-ready', 'off') === 'on'));
+const _driveBForceReady = /*@once*/ createRoot(() => createSignal(getSaved('drive-b-force-ready', D('drive-b-force-ready')) === 'on'));
 export const driveBForceReady = _driveBForceReady[0];
 export const setDriveBForceReady = _driveBForceReady[1];
 
 // ── Tape settings ───────────────────────────────────────────────────────
 
-const _tapeAutoRewind = /*@once*/ createRoot(() => createSignal(getSaved('tape-auto-rewind', 'on') === 'on'));
+const _tapeAutoRewind = /*@once*/ createRoot(() => createSignal(getSaved('tape-auto-rewind', D('tape-auto-rewind')) === 'on'));
 export const tapeAutoRewind = _tapeAutoRewind[0];
 export const setTapeAutoRewind = _tapeAutoRewind[1];
 
-const _tapeCollapseBlocks = /*@once*/ createRoot(() => createSignal(getSaved('tape-collapse-blocks', 'on') === 'on'));
+const _tapeCollapseBlocks = /*@once*/ createRoot(() => createSignal(getSaved('tape-collapse-blocks', D('tape-collapse-blocks')) === 'on'));
 export const tapeCollapseBlocks = _tapeCollapseBlocks[0];
 export const setTapeCollapseBlocks = _tapeCollapseBlocks[1];
 
-const _tapeInstantLoad = /*@once*/ createRoot(() => createSignal(getSaved('tape-instant-load', 'on') === 'on'));
+const _tapeInstantLoad = /*@once*/ createRoot(() => createSignal(getSaved('tape-instant-load', D('tape-instant-load')) === 'on'));
 export const tapeInstantLoad = _tapeInstantLoad[0];
 export const setTapeInstantLoad = _tapeInstantLoad[1];
 
-const _tapeTurbo = /*@once*/ createRoot(() => createSignal(getSaved('tape-turbo', 'on') === 'on'));
+const _tapeTurbo = /*@once*/ createRoot(() => createSignal(getSaved('tape-turbo', D('tape-turbo')) === 'on'));
 export const tapeTurbo = _tapeTurbo[0];
 export const setTapeTurbo = _tapeTurbo[1];
 
-const _tapeSoundEnabled = /*@once*/ createRoot(() => createSignal(getSaved('tape-sound', 'on') === 'on'));
+const _tapeSoundEnabled = /*@once*/ createRoot(() => createSignal(getSaved('tape-sound', D('tape-sound')) === 'on'));
 export const tapeSoundEnabled = _tapeSoundEnabled[0];
 export const setTapeSoundEnabled = _tapeSoundEnabled[1];
 
 // ── Multiface ────────────────────────────────────────────────────────
 
-const _multifaceEnabled = /*@once*/ createRoot(() => createSignal(getSaved('multiface', 'off') === 'on'));
+const _multifaceEnabled = /*@once*/ createRoot(() => createSignal(getSaved('multiface', D('multiface')) === 'on'));
 export const multifaceEnabled = _multifaceEnabled[0];
 export const setMultifaceEnabled = _multifaceEnabled[1];
 
-const _plus3V41Roms = /*@once*/ createRoot(() => createSignal(getSaved('plus3-v41-roms', 'off') === 'on'));
+const _plus3V41Roms = /*@once*/ createRoot(() => createSignal(getSaved('plus3-v41-roms', D('plus3-v41-roms')) === 'on'));
 export const plus3V41Roms = _plus3V41Roms[0];
 export const setPlus3V41Roms = _plus3V41Roms[1];
 
-const _vtx5000Enabled = /*@once*/ createRoot(() => createSignal(getSaved('vtx5000', 'off') === 'on'));
+const _vtx5000Enabled = /*@once*/ createRoot(() => createSignal(getSaved('vtx5000', D('vtx5000')) === 'on'));
 export const vtx5000Enabled = _vtx5000Enabled[0];
 export const setVtx5000Enabled = _vtx5000Enabled[1];
 
@@ -270,68 +345,71 @@ export function persistSetting(key: string, value: string | number): void {
 
 // ── Per-pane defaults and reset ─────────────────────────────────────────
 
-type SettingDef = { key: string; default: string; set: (v: any) => void; type: 'number' | 'string' | 'bool' };
+type SettingDef = { key: SettingKey; set: (v: any) => void; type: 'number' | 'string' | 'bool' };
 
+// The `default` for each setting comes from DEFAULTS above — never inline a
+// literal here. If a setting needs a different default, change it in DEFAULTS
+// so signal init and reset stay in sync.
 const PANE_SETTINGS: Record<string, SettingDef[]> = {
   display: [
-    { key: 'scale',          default: '2',        set: setScale,         type: 'number' },
-    { key: 'brightness',     default: '0',        set: setBrightness,    type: 'number' },
-    { key: 'contrast',       default: '50',       set: setContrast,      type: 'number' },
-    { key: 'smoothing',      default: '0',        set: setSmoothing,     type: 'number' },
-    { key: 'curvature',      default: '0',        set: setCurvature,     type: 'number' },
-    { key: 'scanlines',      default: '0',        set: setScanlines,     type: 'number' },
-    { key: 'mask-type',      default: '0',        set: setMaskType,      type: 'number' },
-    { key: 'dot-pitch',      default: '10',       set: setDotPitch,      type: 'number' },
-    { key: 'curvature-mode', default: '0',        set: setCurvatureMode, type: 'number' },
-    { key: 'noise',          default: '0',        set: setNoise,         type: 'number' },
-    { key: 'scaling-mode',   default: '0',        set: setScalingMode,   type: 'number' },
-    { key: 'monitor',        default: 'raw',      set: setMonitor,       type: 'string' },
-    { key: 'border-size',    default: '2',        set: setBorderSize,    type: 'number' },
-    { key: 'color-map',      default: 'measured', set: setColorMap,      type: 'string' },
-    { key: 'scanline-accuracy', default: 'high',  set: setScanlineAccuracy, type: 'string' },
+    { key: 'scale',             set: setScale,            type: 'number' },
+    { key: 'brightness',        set: setBrightness,       type: 'number' },
+    { key: 'contrast',          set: setContrast,         type: 'number' },
+    { key: 'smoothing',         set: setSmoothing,        type: 'number' },
+    { key: 'curvature',         set: setCurvature,        type: 'number' },
+    { key: 'scanlines',         set: setScanlines,        type: 'number' },
+    { key: 'mask-type',         set: setMaskType,         type: 'number' },
+    { key: 'dot-pitch',         set: setDotPitch,         type: 'number' },
+    { key: 'curvature-mode',    set: setCurvatureMode,    type: 'number' },
+    { key: 'noise',             set: setNoise,            type: 'number' },
+    { key: 'scaling-mode',      set: setScalingMode,      type: 'number' },
+    { key: 'monitor',           set: setMonitor,          type: 'string' },
+    { key: 'border-size',       set: setBorderSize,       type: 'number' },
+    { key: 'color-map',         set: setColorMap,         type: 'string' },
+    { key: 'scanline-accuracy', set: setScanlineAccuracy, type: 'string' },
   ],
   sound: [
-    { key: 'volume',    default: '70',  set: setVolume,   type: 'number' },
-    { key: 'ay-mix',    default: '50',  set: setAyMix,    type: 'number' },
-    { key: 'ay-stereo', default: 'ABC', set: setAyStereo, type: 'string' },
+    { key: 'volume',    set: setVolume,   type: 'number' },
+    { key: 'ay-mix',    set: setAyMix,    type: 'number' },
+    { key: 'ay-stereo', set: setAyStereo, type: 'string' },
   ],
   joystick: [
-    { key: 'joy-p1',     default: 'kempston', set: setJoyP1,    type: 'string' },
-    { key: 'joy-p2',     default: 'sinclair2', set: setJoyP2,   type: 'string' },
-    { key: 'joy-map-p1', default: 'none',     set: setJoyMapP1, type: 'string' },
-    { key: 'joy-map-p2', default: 'none',     set: setJoyMapP2, type: 'string' },
+    { key: 'joy-p1',     set: setJoyP1,    type: 'string' },
+    { key: 'joy-p2',     set: setJoyP2,    type: 'string' },
+    { key: 'joy-map-p1', set: setJoyMapP1, type: 'string' },
+    { key: 'joy-map-p2', set: setJoyMapP2, type: 'string' },
   ],
   text: [
-    { key: 'ocr-font',        default: 'JetBrains Mono', set: setOcrFont,       type: 'string' },
-    { key: 'ocr-font-size',   default: '8',     set: setOcrFontSize,   type: 'number' },
-    { key: 'ocr-line-height', default: '100',   set: setOcrLineHeight, type: 'number' },
-    { key: 'ocr-tracking',    default: '0',     set: setOcrTracking,   type: 'number' },
-    { key: 'ocr-offset-x',   default: '0',     set: setOcrOffsetX,    type: 'number' },
-    { key: 'ocr-offset-y',   default: '0',     set: setOcrOffsetY,    type: 'number' },
-    { key: 'ocr-scale-x',    default: '100',   set: setOcrScaleX,     type: 'number' },
-    { key: 'ocr-scale-y',    default: '100',   set: setOcrScaleY,     type: 'number' },
+    { key: 'ocr-font',        set: setOcrFont,       type: 'string' },
+    { key: 'ocr-font-size',   set: setOcrFontSize,   type: 'number' },
+    { key: 'ocr-line-height', set: setOcrLineHeight, type: 'number' },
+    { key: 'ocr-tracking',    set: setOcrTracking,   type: 'number' },
+    { key: 'ocr-offset-x',    set: setOcrOffsetX,    type: 'number' },
+    { key: 'ocr-offset-y',    set: setOcrOffsetY,    type: 'number' },
+    { key: 'ocr-scale-x',     set: setOcrScaleX,     type: 'number' },
+    { key: 'ocr-scale-y',     set: setOcrScaleY,     type: 'number' },
   ],
   drive: [
-    { key: 'disk-sound-a',    default: 'on',  set: setDiskSoundA,    type: 'bool' },
-    { key: 'disk-sound-b',    default: 'on',  set: setDiskSoundB,    type: 'bool' },
-    { key: 'write-protect-a',    default: 'off', set: setWriteProtectA,    type: 'bool' },
-    { key: 'write-protect-b',    default: 'off', set: setWriteProtectB,    type: 'bool' },
-    { key: 'drive-b-force-ready', default: 'off', set: setDriveBForceReady, type: 'bool' },
+    { key: 'disk-sound-a',        set: setDiskSoundA,       type: 'bool' },
+    { key: 'disk-sound-b',        set: setDiskSoundB,       type: 'bool' },
+    { key: 'write-protect-a',     set: setWriteProtectA,    type: 'bool' },
+    { key: 'write-protect-b',     set: setWriteProtectB,    type: 'bool' },
+    { key: 'drive-b-force-ready', set: setDriveBForceReady, type: 'bool' },
   ],
   tape: [
-    { key: 'tape-auto-rewind',    default: 'on', set: setTapeAutoRewind,    type: 'bool' },
-    { key: 'tape-collapse-blocks', default: 'on', set: setTapeCollapseBlocks, type: 'bool' },
-    { key: 'tape-instant-load',   default: 'on', set: setTapeInstantLoad,   type: 'bool' },
-    { key: 'tape-turbo',          default: 'on', set: setTapeTurbo,         type: 'bool' },
-    { key: 'tape-sound',          default: 'on', set: setTapeSoundEnabled,  type: 'bool' },
+    { key: 'tape-auto-rewind',     set: setTapeAutoRewind,     type: 'bool' },
+    { key: 'tape-collapse-blocks', set: setTapeCollapseBlocks, type: 'bool' },
+    { key: 'tape-instant-load',    set: setTapeInstantLoad,    type: 'bool' },
+    { key: 'tape-turbo',           set: setTapeTurbo,          type: 'bool' },
+    { key: 'tape-sound',           set: setTapeSoundEnabled,   type: 'bool' },
   ],
   hardware: [
-    { key: 'multiface',      default: 'off', set: setMultifaceEnabled, type: 'bool' },
-    { key: 'plus3-v41-roms', default: 'off', set: setPlus3V41Roms,     type: 'bool' },
-    { key: 'vtx5000',        default: 'off', set: setVtx5000Enabled,   type: 'bool' },
+    { key: 'multiface',      set: setMultifaceEnabled, type: 'bool' },
+    { key: 'plus3-v41-roms', set: setPlus3V41Roms,     type: 'bool' },
+    { key: 'vtx5000',        set: setVtx5000Enabled,   type: 'bool' },
   ],
   font: [
-    { key: 'font', default: '', set: setFontName, type: 'string' },
+    { key: 'font', set: setFontName, type: 'string' },
   ],
 };
 
@@ -340,9 +418,10 @@ export function resetSettingsGroup(group: string): void {
   const defs = PANE_SETTINGS[group];
   if (!defs) return;
   for (const d of defs) {
-    setSaved(d.key, d.default);
-    if (d.type === 'number') d.set(Number(d.default));
-    else if (d.type === 'bool') d.set(d.default === 'on');
-    else d.set(d.default);
+    const def = D(d.key);
+    setSaved(d.key, def);
+    if (d.type === 'number') d.set(Number(def));
+    else if (d.type === 'bool') d.set(def === 'on');
+    else d.set(def);
   }
 }

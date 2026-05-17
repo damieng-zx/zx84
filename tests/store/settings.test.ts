@@ -246,13 +246,7 @@ describe('settings — reset defaults vs initial defaults consistency', () => {
     expect(s.fontName()).toBe(before);
   });
 
-  // KNOWN BUG (surfaced by audit): for the 'text' pane, every OCR setting's
-  // createSignal default disagrees with its PANE_SETTINGS default. Pressing
-  // "Reset" on the OCR overlay gives different values than the user sees on
-  // first boot. This violates CLAUDE.md's "single source of truth" rule and
-  // should be fixed by collapsing the duplicated defaults into one constant
-  // per setting.
-  it.fails('text pane: reset gives the same values as fresh boot (currently mismatched for OCR)', async () => {
+  it('text pane: reset gives the same values as fresh boot', async () => {
     const s = await load();
     const before = {
       ocrFont: s.ocrFont(), ocrFontSize: s.ocrFontSize(), ocrLineHeight: s.ocrLineHeight(),
