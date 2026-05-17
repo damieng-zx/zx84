@@ -12,10 +12,7 @@
  *    '' .split('\n') artefact).
  *
  * Outstanding smells documented (not asserted as correct):
- *  - SP-wrap edge case: stepOver/stepOut compare `cpu.sp < targetSP`
- *    numerically. If SP wraps near 0x0000, a deeper PUSH lands above
- *    targetSP and the loop exits early.
- *  - Divergent taken JR cc spins to the 5M-tState safety limit.
+ *  - Divergent taken JR cc / JP cc spins to the 5M-tState safety limit.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { DebugManager } from '@/managers/debug-manager.ts';
@@ -66,6 +63,19 @@ describe('DebugManager.stepInto', () => {
     dm.stepInto(s, onUpdate);
     expect(s.cpu.pc).toBe(1);
     expect(onUpdate).toHaveBeenCalledOnce();
+  });
+
+  it('halted CPU: stepInto advances tStates by 4 but does not move PC', () => {
+    const dm = new DebugManager();
+    const s = makeStub();
+    s.mem[0] = 0x76; // HALT
+    dm.stepInto(s, vi.fn()); // executes HALT: pc stays 0, halted=true
+    expect(s.cpu.halted).toBe(true);
+    const pcAfterHalt = s.cpu.pc;
+    const tAfterHalt = s.cpu.tStates;
+    dm.stepInto(s, vi.fn()); // re-runs the HALT NOP cycle
+    expect(s.cpu.pc).toBe(pcAfterHalt); // PC does not advance while halted
+    expect(s.cpu.tStates).toBe(tAfterHalt + 4); // costs 4 T-states per cycle
   });
 });
 
@@ -225,9 +235,10 @@ describe('DebugManager.stepOver', () => {
     expect(s.cpu.pc).not.toBe(3);
   });
 
-  it('BUG (SP wrap): stepOver CALL with SP=0 exits after first step without running subroutine', () => {
-    // targetSP = 0. CALL pushes 2 bytes → SP becomes 0xFFFE (= 65534 in JS).
-    // Guard: `65534 < 0` → false. Loop body never runs; subroutine never executes.
+  it('stepOver CALL with SP=0 wraps correctly — subroutine runs to completion', () => {
+    // targetSP = 0. CALL pushes 2 bytes → SP becomes 0xFFFE. Circular comparison
+    // ((0 - 0xFFFE) & 0xFFFF = 0x0002) > 0 correctly keeps the loop running
+    // until RET restores SP to 0x0000.
     const dm = new DebugManager();
     const s = makeStub();
     s.mem.set([0xCD, 0x10, 0x00], 0);       // CALL 0x0010
@@ -235,11 +246,9 @@ describe('DebugManager.stepOver', () => {
     s.cpu.sp = 0x0000;
     s.cpu.pc = 0;
     dm.stepOver(s, vi.fn());
-    // Correct: PC=0x0003, A=0x42, SP=0x0000.
-    // Actual (bug): stepped into CALL but loop exited immediately.
-    expect(s.cpu.sp).toBe(0xFFFE); // CALL pushed but RET never ran
-    expect(s.cpu.a).toBe(0);       // subroutine body never executed
-    expect(s.cpu.pc).toBe(0x0010); // stranded inside the subroutine
+    expect(s.cpu.pc).toBe(0x0003); // past the CALL
+    expect(s.cpu.a).toBe(0x42);    // subroutine ran
+    expect(s.cpu.sp).toBe(0x0000); // SP balanced
   });
 
   it('steps over DJNZ (taken) — loops until B=0 and falls through', () => {
@@ -353,6 +362,38 @@ describe('DebugManager.stepOut', () => {
     // PC still in the loop; SP never moved.
     expect(s.cpu.sp).toBe(0xFEFE);
   });
+
+  it('works with RETI (ED 4D) — same SP-based detection as RET', () => {
+    const dm = new DebugManager();
+    const s = makeStub();
+    // 0x0010: RETI (ED 4D), returns to the address on the stack.
+    s.mem.set([0xED, 0x4D], 0x10);
+    s.cpu.sp = 0xFEFE;
+    s.mem[0xFEFE] = 0x30; s.mem[0xFEFF] = 0x00; // return to 0x0030
+    s.mem[0x0030] = 0x00; // NOP at return site
+    s.cpu.pc = 0x0010;
+    dm.stepOut(s, vi.fn());
+    expect(s.cpu.pc).toBe(0x0030);
+    expect(s.cpu.sp).toBe(0xFF00); // 0xFEFE + 2
+  });
+
+  it('stepOut with SP=0xFFFE wraps correctly — stops after RET', () => {
+    // targetSP = (0xFFFE + 2) & 0xFFFF = 0x0000. Circular comparison
+    // ((0 - 0xFFFE) & 0xFFFF = 0x0002) > 0 keeps the loop running; after RET
+    // SP becomes 0x0000 and ((0 - 0) & 0xFFFF = 0) exits immediately.
+    const dm = new DebugManager();
+    const s = makeStub();
+    s.mem.set([0x3E, 0xAB, 0xC9], 0x10); // LD A,0xAB ; RET
+    s.cpu.sp = 0xFFFE;
+    s.mem[0xFFFE] = 0x30; s.mem[0xFFFF] = 0x00; // return to 0x0030
+    s.mem[0x0030] = 0x00; // NOP at return site
+    s.cpu.pc = 0x0010;
+    dm.stepOut(s, vi.fn());
+    expect(s.cpu.a).toBe(0xAB);    // subroutine ran
+    expect(s.cpu.sp).toBe(0x0000); // SP popped from 0xFFFE to 0x0000
+    expect(s.cpu.pc).toBe(0x0030); // returned to caller
+    expect(s.cpu.tStates).toBeLessThan(10_000_000); // no longer spins to limit
+  });
 });
 
 // ── stepFrame ────────────────────────────────────────────────────────────
@@ -433,6 +474,14 @@ describe('DebugManager.runTo', () => {
     expect(s.start).not.toHaveBeenCalled();
   });
 
+  it('still sets the breakpoint and pendingRunTo even when not paused', () => {
+    const dm = new DebugManager();
+    const s = makeStub();
+    dm.runTo(s, 0x5000, /* paused */ false, vi.fn());
+    expect(s.breakpoints.has(0x5000)).toBe(true);
+    expect(dm.getPendingRunTo()).toBe(0x5000);
+  });
+
   it('clearPendingRunTo resets the sentinel', () => {
     const dm = new DebugManager();
     const s = makeStub();
@@ -459,6 +508,13 @@ describe('DebugManager.startTrace / stopTrace', () => {
     const s = makeStub();
     dm.startTrace(s, undefined as any, vi.fn());
     expect(s.startTrace).toHaveBeenCalledWith('full');
+  });
+
+  it('forwards the "zxtl" trace mode', () => {
+    const dm = new DebugManager();
+    const s = makeStub();
+    dm.startTrace(s, 'zxtl', vi.fn());
+    expect(s.startTrace).toHaveBeenCalledWith('zxtl');
   });
 
   it('reports trace text and line count', () => {
@@ -535,6 +591,69 @@ describe('DebugManager.copyCpuState', () => {
     // Should contain addresses 0000 through 000F inclusive.
     expect(written!).toContain(' 0000  ');
     expect(written!).toContain(' 000F  ');
+  });
+
+  it('includes shadow registers (AF\' BC\' DE\' HL\') in the output', async () => {
+    const dm = new DebugManager();
+    const s = makeStub();
+    s.cpu.a_ = 0xDE; s.cpu.f_ = 0xAD;
+    s.cpu.b_ = 0x11; s.cpu.c_ = 0x22;
+    s.cpu.d_ = 0x33; s.cpu.e_ = 0x44;
+    s.cpu.h_ = 0x55; s.cpu.l_ = 0x66;
+    await dm.copyCpuState(s, vi.fn());
+    expect(written!).toContain("AF' DEAD");
+    expect(written!).toContain("BC' 1122");
+    expect(written!).toContain("DE' 3344");
+    expect(written!).toContain("HL' 5566");
+  });
+
+  it('shows IX and IY registers', async () => {
+    const dm = new DebugManager();
+    const s = makeStub();
+    s.cpu.ix = 0xABCD;
+    s.cpu.iy = 0x1234;
+    await dm.copyCpuState(s, vi.fn());
+    expect(written!).toContain('IX  ABCD');
+    expect(written!).toContain('IY  1234');
+  });
+
+  it('shows EI when interrupts are enabled and DI when disabled', async () => {
+    const dm = new DebugManager();
+    const s = makeStub();
+    s.cpu.iff1 = true;
+    await dm.copyCpuState(s, vi.fn());
+    expect(written!).toContain('EI');
+
+    written = null;
+    s.cpu.iff1 = false;
+    await dm.copyCpuState(s, vi.fn());
+    expect(written!).toContain('DI');
+    expect(written!).not.toContain('EI');
+  });
+
+  it('shows HALT when the CPU is halted', async () => {
+    const dm = new DebugManager();
+    const s = makeStub();
+    s.cpu.halted = true;
+    await dm.copyCpuState(s, vi.fn());
+    expect(written!).toContain('HALT');
+
+    written = null;
+    s.cpu.halted = false;
+    await dm.copyCpuState(s, vi.fn());
+    expect(written!).not.toContain('HALT');
+  });
+
+  it('wraps disassembly around 0xFFFF without crashing', async () => {
+    const dm = new DebugManager();
+    const s = makeStub();
+    // Place NOPs near the top of the address space; disassembly should wrap.
+    s.cpu.pc = 0xFFF8;
+    for (let i = 0; i < 16; i++) s.mem[(0xFFF8 + i) & 0xFFFF] = 0x00;
+    await dm.copyCpuState(s, vi.fn());
+    // The 16-instruction window crosses 0xFFFF; make sure we see addresses on both sides.
+    expect(written!).toContain(' FFF8  ');
+    expect(written!).toContain(' 0000  '); // wrapped around
   });
 
   it('reports clipboard failures via onStatus instead of silently swallowing', async () => {

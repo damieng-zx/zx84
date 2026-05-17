@@ -88,7 +88,7 @@ export class DebugManager {
       const targetSP = cpu.sp;
       const limit = cpu.tStates + 5_000_000; // safety: max ~1.4 seconds
       cpu.step(); // execute the CALL/RST
-      while (cpu.sp < targetSP && cpu.tStates < limit) {
+      while (((targetSP - cpu.sp) & 0xFFFF) > 0 && cpu.tStates < limit) {
         cpu.step();
       }
     }
@@ -101,11 +101,12 @@ export class DebugManager {
    */
   stepOut(spectrum: Spectrum, onUpdate: () => void): void {
     const cpu = spectrum.cpu;
-    const targetSP = cpu.sp + 2; // SP after RET pops return address
+    const targetSP = (cpu.sp + 2) & 0xFFFF; // SP after RET pops return address
     const limit = cpu.tStates + 10_000_000; // safety: max ~2.8 seconds
 
-    // Run until we execute a RET that brings SP back to or above target
-    while (cpu.sp < targetSP && cpu.tStates < limit) {
+    // Run until SP reaches targetSP. Use 16-bit circular arithmetic so wrap-around
+    // cases (e.g. initial SP=0xFFFE → targetSP=0x0000) are handled correctly.
+    while (((targetSP - cpu.sp) & 0xFFFF) > 0 && cpu.tStates < limit) {
       cpu.step();
     }
 
