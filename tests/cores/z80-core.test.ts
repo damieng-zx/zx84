@@ -185,6 +185,30 @@ describe('Z80 — 16-bit loads, PUSH, POP', () => {
     expect(h.cpu.a).toBe(0x5A);
     expect(h.cpu.f).toBe(0xFF);
   });
+
+  it('LD (BC),A stores A at address in BC', () => {
+    const h = newCpu();
+    h.cpu.a = 0x42; h.cpu.bc = 0xC000;
+    load(h.mem, 0, 0x02); // LD (BC),A
+    step(h);
+    expect(h.mem[0xC000]).toBe(0x42);
+  });
+
+  it('LD (DE),A stores A at address in DE', () => {
+    const h = newCpu();
+    h.cpu.a = 0x77; h.cpu.de = 0xD000;
+    load(h.mem, 0, 0x12); // LD (DE),A
+    step(h);
+    expect(h.mem[0xD000]).toBe(0x77);
+  });
+
+  it('LD (nn),A stores A at absolute address', () => {
+    const h = newCpu();
+    h.cpu.a = 0x55;
+    load(h.mem, 0, 0x32, 0x00, 0x80); // LD ($8000),A
+    step(h);
+    expect(h.mem[0x8000]).toBe(0x55);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────
