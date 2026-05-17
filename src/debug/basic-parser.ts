@@ -132,12 +132,7 @@ function detokenizeLine(mem: Uint8Array, offset: number, lineEnd: number): strin
     } else if (byte >= 0xA3 && byte <= 0xFF) {
       // BASIC token. The strings in TOKENS already carry the surrounding
       // spaces they need (e.g. ' PRINT ', 'LET '), so don't tack on another.
-      const token = TOKENS[byte];
-      if (token) {
-        result += token;
-      } else {
-        result += `[${byte.toString(16).toUpperCase()}]`;
-      }
+      result += TOKENS[byte];
       i++;
     } else if (byte >= 0x20 && byte < 0x7F) {
       // Printable ASCII (including digits, letters, punctuation)
@@ -363,7 +358,7 @@ export function parseBasicVariables(mem: Uint8Array): string {
       const limit = parse5ByteNumber(mem, offset + 6);
       const step = parse5ByteNumber(mem, offset + 11);
       lines.push(`<span class="var-name">${name}</span> = ${escapeHtml(current)} <span style="color:#888">TO ${escapeHtml(limit)} STEP ${escapeHtml(step)}</span>`);
-      offset += 18;
+      offset += 19;
       varCount++;
     }
     else {

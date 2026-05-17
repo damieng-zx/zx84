@@ -195,6 +195,20 @@ describe('parseBasicProgram — HTML escaping', () => {
   });
 });
 
+describe('parseBasicProgram — truncated number marker', () => {
+  it('does not hang when 0x0E has fewer than 5 bytes remaining in the line', () => {
+    // 0x0E at position lineEnd-2 means only 1 byte follows — not the 5 required.
+    // The marker is consumed but the i += 5 path is skipped; remaining bytes
+    // are processed as regular bytes. Must not loop forever or crash.
+    const mem = buildBasicMemory([
+      { num: 10, text: [0xEA, 0x41, 0x0E, 0x00] }, // REM A 0x0E <only 1 trailing byte>
+    ]);
+    const result = parseBasicProgram(mem);
+    expect(typeof result).toBe('string');
+    expect(result).toContain('A');
+  });
+});
+
 describe('parseBasicProgram — embedded characters', () => {
   it('renders 0x0A as the newline glyph', () => {
     const mem = buildBasicMemory([
@@ -480,6 +494,24 @@ describe('parseBasicVariables — array dimensions', () => {
     expect(result).toMatch(/[Bb]\(2,3\)/);
   });
 
+  it('returns no dims when dataLen is too small for the claimed dimCount', () => {
+    // dataLen=5 but dimCount=5 requires 1 + 2*5 = 11 bytes → early return of []
+    // → array shown as A() with no dimension sizes
+    const mem = buildVarsMemory([0x81, 5, 0, 5, 0x01, 0x00, 0x02, 0x00]);
+    const result = parseBasicVariables(mem);
+    expect(result).toMatch(/[Aa]\(\)/);
+  });
+
+  it('stops reading dims when they would overrun E_LINE', () => {
+    // 4-byte var area: type=0x81, dataLen=3 LE, dimCount=1.
+    // The first dim's second byte falls exactly at eLineAddr → break fires.
+    // eLineAddr = varsAddr + 4 + 1 = varsAddr + 5; lo+1 = varsAddr+5 = end.
+    const mem = buildVarsMemory([0x81, 3, 0, 1]);
+    const result = parseBasicVariables(mem);
+    // dims are empty (break before reading any dim) → shows as A()
+    expect(result).toMatch(/[Aa]\(\)/);
+  });
+
   it('shows a string array as S$(M,N)', () => {
     // S$(2,10): type=0xD3 (0xC0 | 0x13 — letter offset 19 = 's'),
     // dataLen = 1 + 4 + 2*10 = 25
@@ -505,5 +537,59 @@ describe('parseBasicVariables — robustness', () => {
     const result = parseBasicVariables(mem);
     // The parser breaks → no lines were appended → fallback message.
     expect(result).toContain('no variables defined');
+  });
+});
+
+describe('parseBasicVariables — multi-char numeric variable', () => {
+  // Multi-char numeric: typeFlags 0xA0. First byte encodes the first letter
+  // as (letter - 'a') in the low 5 bits; subsequent chars are stored
+  // verbatim; the final char has bit 7 set. Then 5 bytes of number.
+  it('parses a two-letter variable ab = 5', () => {
+    // first byte = 0xA0 | ('a'-0x60) = 0xA1; 'b' | 0x80 = 0xE2
+    const mem = buildVarsMemory([0xA1, 0xE2, ...intNumber(5)]);
+    const result = parseBasicVariables(mem);
+    expect(result).toContain('ab');
+    expect(result).toContain('= 5');
+  });
+
+  it('parses a three-letter variable xyz = 99', () => {
+    // first byte = 0xA0 | ('x'-0x60) = 0xA0|0x18 = 0xB8
+    // middle char 'y' = 0x79 (bit 7 clear); last 'z' | 0x80 = 0xFA
+    const mem = buildVarsMemory([0xB8, 0x79, 0xFA, ...intNumber(99)]);
+    const result = parseBasicVariables(mem);
+    expect(result).toContain('xyz');
+    expect(result).toContain('= 99');
+  });
+
+  it('two multi-char variables parse consecutively', () => {
+    const mem = buildVarsMemory([
+      0xA1, 0xE2, ...intNumber(1),  // ab = 1
+      0xA3, 0xE4, ...intNumber(2),  // cd = 2
+    ]);
+    const result = parseBasicVariables(mem);
+    expect(result).toContain('ab');
+    expect(result).toContain('cd');
+  });
+});
+
+describe('parseBasicVariables — FOR-NEXT occupies exactly 19 bytes', () => {
+  // A FOR-NEXT record is: 1 (type) + 5 (current) + 5 (limit) + 5 (step)
+  // + 2 (line number LE) + 1 (statement number) = 19 bytes.
+  // Bug: offset += 18 consumed only 18, leaving the statement byte to be
+  // misread as the type byte of the next variable.
+  it('reads a variable that follows a FOR-NEXT record', () => {
+    const mem = buildVarsMemory([
+      0xE9,               // FOR-NEXT 'i'
+      ...intNumber(1),    // current
+      ...intNumber(10),   // limit
+      ...intNumber(1),    // step
+      0x0A, 0x00,         // looping line number (LE)
+      0x00,               // statement number within that line
+      0x61, ...intNumber(42), // a = 42, immediately following
+    ]);
+    const result = parseBasicVariables(mem);
+    expect(result).toContain('TO 10');
+    // 'a = 42' must appear — only possible when FOR-NEXT advances 19 bytes.
+    expect(result).toContain('= 42');
   });
 });
