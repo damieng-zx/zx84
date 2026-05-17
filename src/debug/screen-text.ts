@@ -349,6 +349,7 @@ function scanBanksAtOffset(
   let windowsScored = 0;
   let earlyExit = false;
 
+  const bangSlot = (0x21 - 0x20) * 8;     // '!' offset (8)
   const aSlot = (0x41 - 0x20) * 8;        // 'A' offset within a 768-byte font
   const zSlotEnd = (0x5A - 0x20) * 8 + 8; // end of 'Z'
 
@@ -360,6 +361,20 @@ function scanBanksAtOffset(
       // Prefilter: 8 zero bytes for the space glyph at code 0x20.
       if (bank[off] | bank[off + 1] | bank[off + 2] | bank[off + 3]
         | bank[off + 4] | bank[off + 5] | bank[off + 6] | bank[off + 7]) continue;
+      // Prefilter: slot '!' (code 0x21, window bytes 8..15) must be non-empty.
+      // Real fonts (ROM, CHARS, +3 editor) all populate '!' as a real glyph.
+      // Without this check the scan happily picks any window aligned k×8 bytes
+      // BEFORE the real font when there's zero padding ahead of it — that window
+      // inherits the zero space-slot from padding, its capital-letter range
+      // overlaps the real font's content, and it scores 100% against every
+      // screen glyph with every glyph landing on the wrong character slot
+      // (screen 'A' → window slot 'B', etc.). The early-exit at 0.95 then
+      // returns that shifted twin and downstream OCR produces silently-wrong
+      // text. Requiring slot '!' non-empty rejects every shifted-down twin
+      // (it pushes the real font's space — or pre-font padding — into '!').
+      if (!(bank[off + bangSlot] | bank[off + bangSlot + 1] | bank[off + bangSlot + 2]
+          | bank[off + bangSlot + 3] | bank[off + bangSlot + 4] | bank[off + bangSlot + 5]
+          | bank[off + bangSlot + 6] | bank[off + bangSlot + 7])) continue;
       // Prefilter: any non-zero byte in the capital-letter slots A..Z.
       let hasLetter = false;
       for (let i = aSlot; i < zSlotEnd; i++) {

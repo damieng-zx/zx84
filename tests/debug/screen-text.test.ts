@@ -8,6 +8,9 @@
  * intended behaviour.
  */
 
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   ScreenText,
@@ -33,6 +36,22 @@ function writeCell8(screen: Uint8Array, row: number, col: number, glyph8: Uint8A
   for (let p = 0; p < 8; p++) {
     screen[screenOffset(row * 8 + p, col)] = glyph8[p];
   }
+}
+
+/** Load the Nicety 8×8 font fixture (768 bytes, slot layout (c−0x20)·8).
+ *  A real font — every printable slot populated — so the font-scanner's
+ *  structural prefilters (space-slot zero, slot '!' non-empty) can disambiguate
+ *  the genuine location from shifted-coincidence twins. */
+const FONT_FIXTURE: Uint8Array = (() => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  return new Uint8Array(readFileSync(join(here, 'fixtures', 'Nicety.ch8')));
+})();
+
+/** Extract the 8-byte glyph for `ch` from a 768-byte font. */
+function fontGlyph(font: Uint8Array, ch: string): Uint8Array {
+  const code = ch.charCodeAt(0);
+  if (code < 0x20 || code > 0x7F) throw new Error(`bad char: ${ch}`);
+  return font.slice((code - 0x20) * 8, (code - 0x20) * 8 + 8);
 }
 
 /** A minimal 768-byte ROM-style font with only the glyphs we need for tests.
@@ -217,54 +236,58 @@ describe('detectFontFromRam', () => {
   });
 
   it('finds a non-null candidate when on-screen text is rich enough', () => {
+    const font = FONT_FIXTURE;
     const screen = new Uint8Array(6912);
     const word = 'HALLOELIO'.split('');
     for (let i = 0; i < word.length; i++) {
-      writeCell8(screen, 5, i, new Uint8Array((GLYPHS as any)[word[i]]));
+      writeCell8(screen, 5, i, fontGlyph(font, word[i]));
     }
-    for (let c = 0; c < 4; c++) writeCell8(screen, 7, c, new Uint8Array(GLYPHS.E));
-    const font = buildTestFont(GLYPHS);
+    for (let c = 0; c < 4; c++) writeCell8(screen, 7, c, fontGlyph(font, 'E'));
     const bank = new Uint8Array(16384);
     bank.set(font, 4321);
     const result = detectFontFromRam([bank], screen, OCR_GRIDS['32x24']);
     expect(result).not.toBeNull();
-    // Note: the assertion here is weak on purpose. A stricter "data equals
-    // the planted font" check is exercised by the it.fails below — it
-    // surfaces a real heuristic bug where shifted-coincidence windows can
-    // score 100% just like the real font and win on early-exit.
   });
 
-  // BUG surfaced by the audit: scanBanksAtOffset asks "does any character
-  // slot in this 768-byte window match each screen glyph?" — so a window
-  // that overlaps the real font but starts at the wrong offset can match
-  // every screen glyph against the *wrong* character slot (e.g. screen 'A'
-  // matches window slot 'Z' because that slot happens to land on the real
-  // font's 'A' bytes). Both windows score 100%, and the early-exit at 0.95
-  // makes the *earlier* shifted-coincidence window win. Downstream OCR
-  // then maps screen 'A' to character 'Z' — silently wrong text.
-  it.fails('returns the actual planted font, not a shifted-coincidence window', () => {
+  // Previously buggy: scanBanksAtOffset asked "does any character slot in
+  // this 768-byte window match each screen glyph?" — and the byte-by-byte
+  // sweep happily picked the earliest window that scored ≥95%. A window
+  // starting `8·k` bytes BEFORE the real font passed both prefilters (its
+  // space slot is zero padding; its capital-letter range overlaps the real
+  // font's content) and scored 100% by matching every screen glyph against
+  // the WRONG character slot — silently producing shifted/garbage OCR
+  // output. The fix is a structural prefilter: require slot '!' (window
+  // bytes 8..15) to be non-empty, which every real font (ROM, CHARS, +3
+  // editor, this Nicety fixture) satisfies and every shifted-down twin
+  // fails (it ends up with the real font's empty space slot, or pre-font
+  // padding, in '!').
+  //
+  // These two cases plant a real 768-byte font (Nicety — public-domain 8×8)
+  // surrounded by zero padding and draw the screen straight from its bytes,
+  // which is the exact setup that surfaced the shifted-twin behaviour.
+  it('returns the actual planted font, not a shifted-coincidence window', () => {
+    const font = FONT_FIXTURE;
     const screen = new Uint8Array(6912);
     const word = 'HALLOELIO'.split('');
     for (let i = 0; i < word.length; i++) {
-      writeCell8(screen, 5, i, new Uint8Array((GLYPHS as any)[word[i]]));
+      writeCell8(screen, 5, i, fontGlyph(font, word[i]));
     }
-    for (let c = 0; c < 4; c++) writeCell8(screen, 7, c, new Uint8Array(GLYPHS.E));
-    const font = buildTestFont(GLYPHS);
+    for (let c = 0; c < 4; c++) writeCell8(screen, 7, c, fontGlyph(font, 'E'));
     const bank = new Uint8Array(16384);
-    bank.set(font, 4321); // 0x10E1
+    bank.set(font, 4321); // 0x10E1 — zero padding both sides surfaces the bug
     const result = detectFontFromRam([bank], screen, OCR_GRIDS['32x24']);
     expect(result).not.toBeNull();
     expect(Array.from(result!.data)).toEqual(Array.from(font));
   });
 
-  it.fails('OCR using the scan result returns the original on-screen text, not shifted characters', () => {
+  it('OCR using the scan result returns the original on-screen text, not shifted characters', () => {
+    const font = FONT_FIXTURE;
     const screen = new Uint8Array(6912);
     const word = 'HALLOELIO'.split('');
     for (let i = 0; i < word.length; i++) {
-      writeCell8(screen, 5, i, new Uint8Array((GLYPHS as any)[word[i]]));
+      writeCell8(screen, 5, i, fontGlyph(font, word[i]));
     }
-    for (let c = 0; c < 4; c++) writeCell8(screen, 7, c, new Uint8Array(GLYPHS.E));
-    const font = buildTestFont(GLYPHS);
+    for (let c = 0; c < 4; c++) writeCell8(screen, 7, c, fontGlyph(font, 'E'));
     const bank = new Uint8Array(16384);
     bank.set(font, 4321);
 
