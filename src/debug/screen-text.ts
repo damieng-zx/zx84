@@ -176,7 +176,7 @@ export function extractCellGlyph(
  * bits 3-0 need bitOffset=4 to bring them up to bits 7-4).
  */
 function matchGlyph(
-  glyph: Uint8Array, font: Uint8Array, cellH: number, mask: number, bitOffset = 0,
+  glyph: Uint8Array, font: Uint8Array, cellH: number, mask: number, bitOffset: number,
 ): string {
   for (let invertPass = 0; invertPass < 2; invertPass++) {
     const invert = invertPass === 1;

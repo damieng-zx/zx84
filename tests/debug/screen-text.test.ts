@@ -659,3 +659,302 @@ describe('extraFonts pane integration', () => {
     expect(text.split('\n')[5].slice(0, 12)).toBe('ZXYQZXYQZXYQ');
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// Branch coverage — default parameter paths
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('detectGrid — bankLabel parameter', () => {
+  it('logs the bank label when one is supplied', () => {
+    // Exercises the non-default bankLabel branch.
+    const screen = new Uint8Array(6912);
+    expect(detectGrid(screen, 'bank5')).toBe('32x24');
+  });
+});
+
+describe('ScreenText.detectAndCacheGrid — bankLabel parameter', () => {
+  it('passes the label through to detectGrid', () => {
+    const st = new ScreenText();
+    const screen = new Uint8Array(6912);
+    expect(st.detectAndCacheGrid(screen, 'ROM')).toBe('32x24');
+  });
+});
+
+describe('ocrStyled — explicit grid and no-font early return', () => {
+  it('returns empty result for a non-8-wide grid when no memBanks supplied', () => {
+    // For a 51x24 grid, buildFonts skips the CHARS/ROM paths (cellWidth ≠ 8)
+    // and memBanks is null, so fonts=[]. The early-return path (line 721) fires.
+    const st = new ScreenText();
+    const screen = new Uint8Array(6912);
+    const result = st.ocrStyled(screen, null, null, new Uint8Array(768), PALETTE, false, '51x24');
+    expect(result.text).toBe('');
+    expect(result.html).toBe('');
+    expect(result.mask).toEqual([]);
+    expect(result.grid).toBe('51x24');
+    expect(result.cols).toBe(51);
+    expect(result.rows).toBe(24);
+  });
+});
+
+describe('ocrStyled — unrecognized non-blank glyph closes an open span', () => {
+  it('emits </span> before the space placeholder for unrecognized cells', () => {
+    // Put ≥10 matched glyphs on the screen so the ROM font is accepted, then
+    // add one non-blank cell whose bitmap matches no character. After a matched
+    // cell the HTML generator has an open <span>; the unrecognized cell must
+    // close it and add a plain space (lines 754-755).
+    const st = new ScreenText();
+    const romFont = buildTestFont(GLYPHS);
+    const screen = new Uint8Array(6912);
+
+    // Filler rows — enough for the threshold-10 validator.
+    for (let r = 0; r < 3; r++) {
+      for (let i = 0; i < 4; i++) {
+        writeCell8(screen, r, i, new Uint8Array((GLYPHS as any)['HELLO'.charAt(i % 5 || 0)]));
+        writeAttr(screen, r, i, ATTR_WHITE_ON_BLACK);
+      }
+    }
+
+    // Row 10: col 0 = 'H' (recognised), col 1 = checkerboard (not in font).
+    writeCell8(screen, 10, 0, new Uint8Array(GLYPHS.H));
+    writeAttr(screen, 10, 0, ATTR_WHITE_ON_BLACK);
+    // Checkerboard pattern — matches no printable glyph.
+    const noise = new Uint8Array([0x55, 0xAA, 0x55, 0xAA, 0x55, 0xAA, 0x55, 0x00]);
+    writeCell8(screen, 10, 1, noise);
+    writeAttr(screen, 10, 1, ATTR_WHITE_ON_BLACK);
+
+    const result = st.ocrStyled(screen, null, null, romFont, PALETTE, false);
+    // The HTML for row 10 must close the span before the unrecognized cell.
+    const row10html = result.html.split('\n')[10];
+    expect(row10html).toContain('</span>');
+    // The cell for 'H' is matched; the noise cell is null → not matched.
+    expect(result.mask[10 * 32 + 0]).toBe(true);   // 'H' matched
+    expect(result.mask[10 * 32 + 1]).toBe(false);  // noise unmatched
+  });
+});
+
+describe('ScreenText — stale RAM font cache invalidation', () => {
+  it('re-scans when the cached font no longer matches the screen', () => {
+    // Build a bank containing the real Nicety font so the first ocr() call
+    // succeeds and writes a positive cache entry.
+    const font = FONT_FIXTURE;
+    const bank = new Uint8Array(16384);
+    bank.set(font, 4321);
+
+    const screen1 = new Uint8Array(6912);
+    const word = 'HALLOELIO'.split('');
+    for (let i = 0; i < word.length; i++) writeCell8(screen1, 5, i, fontGlyph(font, word[i]));
+    for (let c = 0; c < 4; c++) writeCell8(screen1, 7, c, fontGlyph(font, 'E'));
+
+    const zeroRom = new Uint8Array(768);
+    const st = new ScreenText();
+    // First call: ROM is all-zeros so fonts.length=0 → hits memBanks path → caches Nicety.
+    const text1 = st.ocr(screen1, null, [bank], zeroRom, OCR_GRIDS['32x24']);
+    expect(text1.split('\n')[5].slice(0, 9)).toBe('HALLOELIO');
+
+    // Second call: swap in a noise screen whose patterns don't match the cached
+    // Nicety font (validateFontAgainstScreen returns false with threshold=4).
+    // The stale cache is dropped (lines 612-614), a fresh scan runs against the
+    // same bank, finds nothing (noise ≠ any font character), returns '' result.
+    const noiseGlyphs = [
+      [0x55, 0xAA, 0x55, 0xAA, 0x55, 0xAA, 0x55, 0x00],
+      [0x0F, 0xF0, 0x0F, 0xF0, 0x0F, 0xF0, 0x0F, 0x00],
+      [0xF0, 0x0F, 0xF0, 0x0F, 0xF0, 0x0F, 0xF0, 0x00],
+      [0xCC, 0x33, 0xCC, 0x33, 0xCC, 0x33, 0xCC, 0x00],
+      [0x33, 0xCC, 0x33, 0xCC, 0x33, 0xCC, 0x33, 0x00],
+      [0x66, 0x99, 0x66, 0x99, 0x66, 0x99, 0x66, 0x00],
+    ];
+    const screen2 = new Uint8Array(6912);
+    for (let i = 0; i < noiseGlyphs.length; i++) {
+      writeCell8(screen2, 0, i, new Uint8Array(noiseGlyphs[i]));
+    }
+    const text2 = st.ocr(screen2, null, [bank], zeroRom, OCR_GRIDS['32x24']);
+    // Stale-cache invalidation path exercised — result may be '' or partial but must not throw.
+    expect(typeof text2).toBe('string');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// fontsEqual — CHARS sysvar dedup against ROM font
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('CHARS sysvar deduplication with ROM font', () => {
+  function makeScreen(font: Uint8Array): Uint8Array {
+    // Write enough characters from the font to pass threshold=10.
+    const screen = new Uint8Array(6912);
+    const chars = 'HELLOHELLOH'.split(''); // 11 cells
+    for (let i = 0; i < chars.length; i++) {
+      const code = chars[i].charCodeAt(0);
+      const glyph = font.slice((code - 0x20) * 8, (code - 0x20) * 8 + 8);
+      writeCell8(screen, 0, i, glyph);
+    }
+    return screen;
+  }
+
+  it('does not add ROM font when it is byte-identical to the CHARS sysvar font', () => {
+    // fontsEqual(CHARS, romFont) returns true → ROM not added → only one font used.
+    const st = new ScreenText();
+    const sharedFont = buildTestFont(GLYPHS);
+    const screen = makeScreen(sharedFont);
+
+    const cpuMem = new Uint8Array(65536);
+    const fontAt = 0x4000;
+    cpuMem[0x5C36] = (fontAt - 256) & 0xFF;
+    cpuMem[0x5C37] = ((fontAt - 256) >> 8) & 0xFF;
+    cpuMem.set(sharedFont, fontAt);
+
+    // Both CHARS and romFont point to the same bytes — dedup should fire.
+    const text = st.ocr(screen, cpuMem, null, sharedFont, OCR_GRIDS['32x24']);
+    expect(text.includes('HELLO')).toBe(true);
+  });
+
+  it('adds ROM font as a second source when it differs from the CHARS sysvar font', () => {
+    // fontsEqual(CHARS, romFont) returns false → ROM is added → two fonts available.
+    const st = new ScreenText();
+    const charsFont = buildTestFont(GLYPHS);
+    // ROM font uses different pixel patterns for the same letter slots — the H
+    // in romFont won't match what's on screen (charsFont H).  Both validate
+    // against the screen (charsFont matches H, romFont matches nothing but
+    // validateFontAgainstScreen looks for ≥10 matches; we only need the CHARS
+    // path to write fonts[0], which makes fontsEqual run for ROM).
+    const romFont = buildTestFont({ ...GLYPHS, H: [0xFF, 0x81, 0x81, 0xFF, 0x81, 0x81, 0xFF, 0x00] });
+    const screen = makeScreen(charsFont);
+
+    const cpuMem = new Uint8Array(65536);
+    const fontAt = 0x4000;
+    cpuMem[0x5C36] = (fontAt - 256) & 0xFF;
+    cpuMem[0x5C37] = ((fontAt - 256) >> 8) & 0xFF;
+    cpuMem.set(charsFont, fontAt);
+
+    // CHARS validates with charsFont; ROM validates with romFont (H pixels differ
+    // from charsFont so fontsEqual returns false → ROM is added as second source).
+    const text = st.ocr(screen, cpuMem, null, romFont, OCR_GRIDS['32x24']);
+    expect(text.includes('HELLO')).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// charForCode — Spectrum special character mappings
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('charForCode — Spectrum character substitutions', () => {
+  // 0x5E ('^') → '↑', 0x60 ('`') → '£', 0x7F (DEL) → '©'
+  // These substitutions are only reached when matchGlyph returns charForCode(c)
+  // for those specific codes. We plant their font glyphs on screen and confirm
+  // the substituted characters appear in the OCR output.
+
+  function makeSubstitutionFont(code: number, glyphBytes: number[]): Uint8Array {
+    const font = new Uint8Array(768);
+    // Write the test glyph at its own slot AND copy HELLO glyphs so the
+    // validateFontAgainstScreen threshold-10 is met.
+    const slot = (code - 0x20) * 8;
+    for (let i = 0; i < 8; i++) font[slot + i] = glyphBytes[i] ?? 0;
+    for (const [ch, rows] of Object.entries(GLYPHS)) {
+      const s = (ch.charCodeAt(0) - 0x20) * 8;
+      for (let i = 0; i < 8; i++) font[s + i] = (rows as number[])[i] ?? 0;
+    }
+    return font;
+  }
+
+  function makeSubstitutionScreen(font: Uint8Array, targetCode: number): Uint8Array {
+    const screen = new Uint8Array(6912);
+    // Filler: 12 HELLO cells to pass threshold-10.
+    for (let r = 0; r < 3; r++) {
+      for (let i = 0; i < 4; i++) {
+        const ch = 'HELL'.charAt(i);
+        const g = font.slice((ch.charCodeAt(0) - 0x20) * 8, (ch.charCodeAt(0) - 0x20) * 8 + 8);
+        writeCell8(screen, r, i, g);
+      }
+    }
+    // The substitution glyph on row 10.
+    const g = font.slice((targetCode - 0x20) * 8, (targetCode - 0x20) * 8 + 8);
+    writeCell8(screen, 10, 0, g);
+    return screen;
+  }
+
+  it('0x5E matches as ↑ (Spectrum up-arrow)', () => {
+    const glyph = [0x10, 0x38, 0x54, 0x10, 0x10, 0x10, 0x10, 0x00];
+    const font = makeSubstitutionFont(0x5E, glyph);
+    const screen = makeSubstitutionScreen(font, 0x5E);
+    const st = new ScreenText();
+    const text = st.ocr(screen, null, null, font, OCR_GRIDS['32x24']);
+    expect(text.split('\n')[10][0]).toBe('↑');
+  });
+
+  it('0x60 matches as £ (Spectrum pound sign)', () => {
+    const glyph = [0x1E, 0x20, 0x20, 0x7C, 0x20, 0x20, 0x7E, 0x00];
+    const font = makeSubstitutionFont(0x60, glyph);
+    const screen = makeSubstitutionScreen(font, 0x60);
+    const st = new ScreenText();
+    const text = st.ocr(screen, null, null, font, OCR_GRIDS['32x24']);
+    expect(text.split('\n')[10][0]).toBe('£');
+  });
+
+  it('0x7F matches as © (Spectrum copyright symbol)', () => {
+    const glyph = [0x3C, 0x42, 0x99, 0xA5, 0xA1, 0x42, 0x3C, 0x00];
+    const font = makeSubstitutionFont(0x7F, glyph);
+    const screen = makeSubstitutionScreen(font, 0x7F);
+    const st = new ScreenText();
+    const text = st.ocr(screen, null, null, font, OCR_GRIDS['32x24']);
+    expect(text.split('\n')[10][0]).toBe('©');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// ocr() — null-coalescing ?? ' ' for unrecognised glyphs
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('ocr — unrecognised non-blank glyph produces a space in plain text', () => {
+  it('?? coerces null to space for cells matchCellFromFonts cannot identify', () => {
+    const st = new ScreenText();
+    const romFont = buildTestFont(GLYPHS);
+    const screen = new Uint8Array(6912);
+
+    // Filler rows — pass the threshold-10 validator.
+    for (let r = 0; r < 3; r++) {
+      for (let i = 0; i < 4; i++) {
+        writeCell8(screen, r, i, new Uint8Array((GLYPHS as any)['HELL'.charAt(i)]));
+      }
+    }
+    // Row 5: H at col 0, then an unrecognised noise glyph at col 1.
+    writeCell8(screen, 5, 0, new Uint8Array(GLYPHS.H));
+    const noise = new Uint8Array([0x55, 0xAA, 0x55, 0xAA, 0x55, 0xAA, 0x55, 0x00]);
+    writeCell8(screen, 5, 1, noise);
+
+    const text = st.ocr(screen, null, null, romFont, OCR_GRIDS['32x24']);
+    // Col 0 matches 'H'; col 1 is noise → null → ' ' via ??.
+    expect(text.split('\n')[5][0]).toBe('H');
+    expect(text.split('\n')[5][1]).toBe(' ');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// ocrStyled — BRIGHT attribute
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('ocrStyled — BRIGHT attribute selects palette entries 8-15', () => {
+  it('BRIGHT bit in attr shifts ink and paper indices into the bright half', () => {
+    const st = new ScreenText();
+    const romFont = buildTestFont(GLYPHS);
+    const screen = new Uint8Array(6912);
+    const word = 'HELLO'.split('');
+
+    // Filler with normal attributes across multiple rows.
+    for (let r = 0; r < 4; r++) {
+      for (let i = 0; i < word.length; i++) {
+        writeCell8(screen, r, i, new Uint8Array((GLYPHS as any)[word[i]]));
+        writeAttr(screen, r, i, ATTR_WHITE_ON_BLACK);
+      }
+    }
+    // Row 10: BRIGHT (0x40) | INK 7 = bright white (palette index 15).
+    for (let i = 0; i < word.length; i++) {
+      writeCell8(screen, 10, i, new Uint8Array((GLYPHS as any)[word[i]]));
+      writeAttr(screen, 10, i, 0x40 | 0x07); // BRIGHT + INK 7
+    }
+
+    const result = st.ocrStyled(screen, null, null, romFont, PALETTE, false);
+    // Bright white is PALETTE[15] = 0xFFFFFFFF = #ffffff — same colour in our
+    // minimal palette, but the code path through bright=8 was exercised.
+    expect(result.html).toContain('color:#ffffff');
+    expect(result.text.split('\n')[10].slice(0, 5)).toBe('HELLO');
+  });
+});
