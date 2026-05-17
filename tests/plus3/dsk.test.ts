@@ -177,19 +177,11 @@ describe('refreshDiskMetadata', () => {
   });
 });
 
-describe('detectDiskFormat', () => {
-  it('detects PCW/+3 Single for standard +3 format', () => {
-    const fmt = DISK_FORMATS[0];
-    const img = createBlankDisk(fmt);
-    expect(img.diskFormat).toContain('PCW');
-  });
-
-  it('detects PCW Double for double-sided format', () => {
-    const fmt = DISK_FORMATS[1];
-    const img = createBlankDisk(fmt);
-    expect(img.diskFormat).toContain('PCW Double');
-  });
-});
+// Note: detectDiskFormat / detectProtection / per-detector tests live in
+// tests/plus3/disk-detect.test.ts. The few cases that remain here go through
+// parseDSK end-to-end to verify the parser correctly populates diskFormat /
+// protection on the returned DskImage (i.e. integration), not the detection
+// logic itself.
 
 // ── Standard DSK (MV - CPC) — comprehensive coverage ───────────────────────
 
@@ -560,80 +552,6 @@ describe('parseDSK — standard edge cases', () => {
   });
 });
 
-// ── Format detection ───────────────────────────────────────────────────────
-
-describe('parseDSK — diskFormat detection on standard images', () => {
-  it('detects "PCW/+3 Single" (1 side, 9 sectors, N=2, R starts at 0x01)', () => {
-    const data = buildStandardDSK({
-      numTracks: 40, numSides: 1, trackSize: 0x100 + 9 * 512,
-      tracks: Array.from({ length: 40 }, (_, t) => ({
-        cyl: t, side: 0,
-        sectors: Array.from({ length: 9 }, (_, i) => ({ r: i + 1 })),
-      })),
-    });
-    const img = parseDSK(data);
-    expect(img.diskFormat).toBe('PCW/+3 Single');
-  });
-
-  it('detects "PCW Double" (2 sides, 9 sectors, N=2, R starts at 0x01)', () => {
-    const data = buildStandardDSK({
-      numTracks: 80, numSides: 2, trackSize: 0x100 + 9 * 512,
-      tracks: Array.from({ length: 160 }, (_, idx) => ({
-        cyl: idx >> 1, side: idx & 1,
-        sectors: Array.from({ length: 9 }, (_, i) => ({ r: i + 1 })),
-      })),
-    });
-    const img = parseDSK(data);
-    expect(img.diskFormat).toBe('PCW Double');
-  });
-
-  it('detects "CPC Data" (9 sectors, N=2, R starts at 0xC1)', () => {
-    const data = buildStandardDSK({
-      numTracks: 40, numSides: 1, trackSize: 0x100 + 9 * 512,
-      tracks: Array.from({ length: 40 }, (_, t) => ({
-        cyl: t, side: 0,
-        sectors: Array.from({ length: 9 }, (_, i) => ({ r: 0xC1 + i })),
-      })),
-    });
-    const img = parseDSK(data);
-    expect(img.diskFormat).toBe('CPC Data');
-  });
-
-  it('detects "CPC System" (9 sectors, N=2, R starts at 0x41)', () => {
-    const data = buildStandardDSK({
-      numTracks: 40, numSides: 1, trackSize: 0x100 + 9 * 512,
-      tracks: Array.from({ length: 40 }, (_, t) => ({
-        cyl: t, side: 0,
-        sectors: Array.from({ length: 9 }, (_, i) => ({ r: 0x41 + i })),
-      })),
-    });
-    const img = parseDSK(data);
-    expect(img.diskFormat).toBe('CPC System');
-  });
-
-  it('falls back to a generic "count×bytes" label for unknown layouts', () => {
-    const data = buildStandardDSK({
-      numTracks: 1, numSides: 1, trackSize: 0x100 + 5 * 1024,
-      tracks: [{
-        cyl: 0, side: 0,
-        sectors: Array.from({ length: 5 }, (_, i) => ({ r: 0xE0 + i, n: 3 })),
-      }],
-    });
-    const img = parseDSK(data);
-    expect(img.diskFormat).toBe('5×1024b');
-  });
-
-  it('reports "Empty" when track 0 side 0 has no sectors', () => {
-    const data = buildStandardDSK({
-      numTracks: 1, numSides: 1, trackSize: 0x100 + 9 * 512,
-      tracks: [{ cyl: 0, side: 0, sectors: [] }],
-    });
-    const img = parseDSK(data);
-    expect(img.diskFormat).toBe('Empty');
-  });
-});
-
-// ── Protection detection on standard images ────────────────────────────────
 
 // ── Simon Owen v5 EDSK extensions (multi-copy weak sectors) ────────────────
 //
@@ -1383,30 +1301,132 @@ describe('parseDSK — extended round-trip via serializeDSK', () => {
   });
 });
 
-describe('parseDSK — protection detection on clean standard images', () => {
-  it('reports "None" for a clean uniform disk with no FDC errors', () => {
-    const data = buildStandardDSK({
-      numTracks: 40, numSides: 1, trackSize: 0x100 + 9 * 512,
-      tracks: Array.from({ length: 40 }, (_, t) => ({
-        cyl: t, side: 0,
-        sectors: Array.from({ length: 9 }, (_, i) => ({ r: 0xC1 + i })),
-      })),
+// ── serializeDSK alignment regression ──────────────────────────────────────
+//
+// EDSK stores per-track size as (byte at 0x34+i) × 256, so every track's
+// file allocation must be a 256-byte multiple. Before the fix in this
+// commit, serializeDSK pushed `256 + dataBytes` (unaligned when sectors
+// included short / protection sizes) and then wrote `Math.ceil(size/256)`
+// into the table — so for any track whose data total wasn't a clean 256
+// multiple, the reader's idea of "next track offset" diverged from the
+// writer's, corrupting every subsequent track.
+
+describe('serializeDSK — track size alignment regression', () => {
+  it('round-trips a short-sector track followed by a normal track', () => {
+    // T0 has a single 128-byte sector → 256 (TIB) + 128 = 384 bytes raw.
+    // Without alignment that's table byte 2 (= 512) but writer advances by
+    // 384, so reader's T1 TIB read lands inside T0's data.
+    const original = buildExtendedDSK({
+      numTracks: 2, numSides: 1,
+      tracks: [
+        { cyl: 0, side: 0, sectors: [
+          { r: 0xC1, n: 2, dataLen: 128, data: new Uint8Array(128).fill(0x11) },
+        ]},
+        { cyl: 1, side: 0, sectors: [
+          { r: 0xC1, n: 2, dataLen: 512, data: new Uint8Array(512).fill(0x22) },
+        ]},
+      ],
     });
-    const img = parseDSK(data);
-    expect(img.protection).toBe('None');
+    const parsed = parseDSK(original);
+    const reSerialised = serializeDSK(parsed);
+    const round = parseDSK(reSerialised);
+
+    expect(round.tracks[0][0]?.sectors[0].data.length).toBe(128);
+    expect(round.tracks[0][0]?.sectors[0].data[0]).toBe(0x11);
+    expect(round.tracks[1][0]).not.toBeNull();
+    expect(round.tracks[1][0]?.sectors[0].data.length).toBe(512);
+    expect(round.tracks[1][0]?.sectors[0].data[0]).toBe(0x22);
   });
 
-  it('reports "Unknown" for a non-uniform disk with FDC errors but no signature match', () => {
-    const data = buildStandardDSK({
-      numTracks: 40, numSides: 1, trackSize: 0x100 + 9 * 512,
-      tracks: Array.from({ length: 40 }, (_, t) => ({
-        cyl: t, side: 0,
-        sectors: Array.from({ length: t === 0 ? 9 : 8 }, (_, i) => ({
-          r: 0xC1 + i, st1: t === 0 ? 0x20 : 0, // CRC error on T0
-        })),
-      })),
-    });
-    const img = parseDSK(data);
-    expect(img.protection).toBe('Unknown');
+  it('every table byte at 0x34 matches the actual track allocation exactly', () => {
+    // Mix of misaligned and aligned tracks. Each table byte × 256 must
+    // equal exactly the bytes consumed before the next "Track-Info" magic.
+    const img = parseDSK(buildExtendedDSK({
+      numTracks: 4, numSides: 1,
+      tracks: [
+        { cyl: 0, side: 0, sectors: [
+          { r: 0xC1, n: 2, dataLen: 128 },
+          { r: 0xC2, n: 2, dataLen: 384 },
+        ]}, // raw 256+512=768 (aligned)
+        { cyl: 1, side: 0, sectors: [
+          { r: 0xC1, n: 1, dataLen: 100 },
+        ]}, // raw 256+100=356 (NOT aligned)
+        { cyl: 2, side: 0, sectors: Array.from({ length: 9 }, (_, i) => ({ r: 0xC1 + i, n: 2 })) },
+        { cyl: 3, side: 0, sectors: [
+          { r: 0xC1, n: 3, dataLen: 700 },
+        ]}, // raw 256+700=956 (NOT aligned)
+      ],
+    }));
+    const out = serializeDSK(img);
+    // Walk the table and confirm each entry locates a real Track-Info.
+    let off = 256;
+    for (let i = 0; i < 4; i++) {
+      const size = out[0x34 + i] * 256;
+      expect(size).toBeGreaterThan(0);
+      // The TIB must start at `off` exactly.
+      expect(String.fromCharCode(...out.subarray(off, off + 10))).toBe('Track-Info');
+      off += size;
+    }
+    expect(off).toBe(out.length);
+  });
+
+  it('pads short-sector trailing bytes with zero (deterministic file output)', () => {
+    const img = parseDSK(buildExtendedDSK({
+      numTracks: 1, numSides: 1,
+      tracks: [{ cyl: 0, side: 0, sectors: [
+        { r: 0xC1, n: 2, dataLen: 100, data: new Uint8Array(100).fill(0xFF) },
+      ]}],
+    }));
+    const out = serializeDSK(img);
+    const tableSize = out[0x34] * 256;
+    // Sector data lives at [offset+0x100, offset+0x100+100). The bytes
+    // between the data end and the next 256-aligned boundary are pad and
+    // should remain at the Uint8Array's default zero.
+    const dataEnd = 256 + 0x100 + 100;
+    for (let i = dataEnd; i < 256 + tableSize; i++) {
+      expect(out[i]).toBe(0);
+    }
   });
 });
+
+// ── formatLabel ───────────────────────────────────────────────────────────
+
+describe('formatLabel', () => {
+  it('includes both the label and the capacity in KB', async () => {
+    const { formatLabel } = await import('@/plus3/dsk.ts');
+    expect(formatLabel(DISK_FORMATS[0])).toBe('PCW/+3 Single (180K)');
+    expect(formatLabel(DISK_FORMATS[1])).toBe('PCW Double (720K)');
+  });
+});
+
+// ── createBlankDisk boot sector ──────────────────────────────────────────
+
+describe('createBlankDisk — +3DOS specification block', () => {
+  it('writes the +3DOS disk-spec block into T0/S0/sector 0 (per CPCWiki spec)', () => {
+    const fmt = DISK_FORMATS[0]; // PCW/+3 Single, diskType=0
+    const img = createBlankDisk(fmt);
+    const boot = img.tracks[0][0]!.sectors[0].data;
+    expect(boot[0]).toBe(0);              // disk type (0 = +3 PCW SS)
+    expect(boot[1]).toBe(0);              // sidedness: single-sided
+    expect(boot[2]).toBe(40);             // tracks per side
+    expect(boot[3]).toBe(9);              // sectors per track
+    expect(boot[4]).toBe(2);              // log2(512/128) = 2
+    expect(boot[5]).toBe(1);              // reserved tracks
+    expect(boot[6]).toBe(3);              // BSH
+    expect(boot[7]).toBe(2);              // directory blocks
+    expect(boot[8]).toBe(42);             // R/W gap
+    expect(boot[9]).toBe(82);             // format gap
+  });
+
+  it('writes sidedness=1 for double-sided disks', () => {
+    const img = createBlankDisk(DISK_FORMATS[1]);
+    expect(img.tracks[0][0]!.sectors[0].data[1]).toBe(1);
+  });
+
+  it('byte 10..511 of boot sector are filler — boot block is only 10 bytes', () => {
+    const img = createBlankDisk(DISK_FORMATS[0]);
+    const boot = img.tracks[0][0]!.sectors[0].data;
+    for (let i = 10; i < 512; i++) expect(boot[i]).toBe(0xE5);
+  });
+});
+
