@@ -135,6 +135,22 @@ describe('AmxMouse — PIO control state machine', () => {
     expect(m.pioVectorA).toBe(0x80);
   });
 
+  it('mode-3 select for port B consumes next write as I/O direction mask', () => {
+    m.pioControlWrite('B', 0xCF); // mode 3 select for B
+    m.pioControlWrite('B', 0xAA); // I/O mask — must NOT be a vector
+    expect(m.pioVectorB).toBe(0);
+    m.pioControlWrite('B', 0x10);
+    expect(m.pioVectorB).toBe(0x10);
+  });
+
+  it('other control word (odd bit-0, not mode/int-ctrl nibble) is silently ignored', () => {
+    m.pioControlWrite('A', 0x03); // bits 3:0 = 0011 — neither 0x0F nor 0x07
+    expect(m.pioVectorA).toBe(0);
+    // State remains normal — a vector write lands immediately after.
+    m.pioControlWrite('A', 0x20);
+    expect(m.pioVectorA).toBe(0x20);
+  });
+
   it('interrupt-control word with bit 4 set consumes next byte as int-mask', () => {
     // 0x17 = ...10111 → int-ctrl + bit 4 set → expect mask byte to follow
     m.pioControlWrite('B', 0x17);
@@ -143,6 +159,14 @@ describe('AmxMouse — PIO control state machine', () => {
     // State returns to normal — vector write lands again.
     m.pioControlWrite('B', 0x22);
     expect(m.pioVectorB).toBe(0x22);
+  });
+
+  it('interrupt-control word with bit 4 set for port A consumes next byte as int-mask', () => {
+    m.pioControlWrite('A', 0x17); // int-ctrl + bit 4 → expect mask byte on A
+    m.pioControlWrite('A', 0xFF); // mask byte — must be absorbed
+    expect(m.pioVectorA).toBe(0);
+    m.pioControlWrite('A', 0x22);
+    expect(m.pioVectorA).toBe(0x22);
   });
 
   it('interrupt-control word without bit 4 set does NOT consume the next byte', () => {
@@ -238,10 +262,17 @@ describe('AmxMouse — drainMovement', () => {
     m.queueMovement(5000, 0);
     const spy = vi.spyOn(cpu, 'interruptWithVector');
     m.drainMovement(cpu, FRAME_LEN, activity);
-    // The implementation clamps |pendingX| to 200 before computing steps,
-    // so we should see at most 200 interrupts on that axis.
     expect(spy.mock.calls.length).toBeLessThanOrEqual(200);
     expect(spy.mock.calls.length).toBeGreaterThan(100);
+  });
+
+  it('caps Y axis at 200 steps per frame', () => {
+    m.queueMovement(0, -5000);
+    const spy = vi.spyOn(cpu, 'interruptWithVector');
+    m.drainMovement(cpu, FRAME_LEN, activity);
+    expect(spy.mock.calls.length).toBeLessThanOrEqual(200);
+    expect(spy.mock.calls.length).toBeGreaterThan(100);
+    expect(m.dirY).toBe(0); // negative Y → up
   });
 
   it('interleaves X and Y so both axes drain within one frame', () => {

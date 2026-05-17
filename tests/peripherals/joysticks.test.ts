@@ -146,6 +146,23 @@ describe('joyPressForType — mode dispatch', () => {
     expect(isPressed(s.keyboard, 0, 0)).toBe(false);
   });
 
+  it('unknown direction with keyboard mode is a no-op (key not in map)', () => {
+    const s = mockSpectrum();
+    joyPressForType(s as any, 'diagonal', true, 'sinclair1');
+    expect(s.keyboard.rows.every(r => r === 0xFF)).toBe(true);
+  });
+
+  it('cursor: release with no prior press does not underflow the shift counter', () => {
+    const s = mockSpectrum();
+    joyPressForType(s as any, 'up', false, 'cursor'); // release without press
+    expect(isPressed(s.keyboard, 0, 0)).toBe(false);
+    // A subsequent press/release cycle must still work cleanly.
+    joyPressForType(s as any, 'up', true, 'cursor');
+    expect(isPressed(s.keyboard, 0, 0)).toBe(true);
+    joyPressForType(s as any, 'up', false, 'cursor');
+    expect(isPressed(s.keyboard, 0, 0)).toBe(false);
+  });
+
   it('cursor: window-blur recovery — keyboard.reset + resetJoystickKeyState settles cleanly', () => {
     // Mirrors src/input-controller.ts onBlur: both calls happen together.
     const s = mockSpectrum();

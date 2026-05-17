@@ -100,7 +100,7 @@ export class AmxMouse {
         cpu.interruptWithVector(this.pioVectorA);
         xRemain--;
         activity.mouseReads++;
-      } else if (yRemain > 0) {
+      } else {
         this.dirY = yDir;
         cpu.interruptWithVector(this.pioVectorB);
         yRemain--;
@@ -109,12 +109,7 @@ export class AmxMouse {
       // Run CPU until next interrupt slot
       const target = cpu.tStates + spacing;
       while (cpu.tStates < target && cpu.tStates < frameEnd - 100) {
-        if (cpu.halted) {
-          cpu.tStates += 4;
-          cpu.r = (cpu.r & 0x80) | ((cpu.r + 1) & 0x7F);
-        } else {
-          cpu.step();
-        }
+        cpu.step();
       }
     }
     this.pendingX = 0;
