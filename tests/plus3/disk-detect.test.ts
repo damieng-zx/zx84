@@ -440,6 +440,17 @@ describe('detectProtection — Paul Owens', () => {
     // numTracks = 3 → guard "> 10" fails.
     expect(detectProtection(img)).not.toContain('Paul Owens');
   });
+
+  it('passes all guards but matches neither signature nor T2 layout (null fall-through)', () => {
+    // Guards pass: T0=9 sectors, numTracks>10, T1 unformatted.
+    // No signature on T0[2]; T2 has 5 sectors (not 6) so unsigned layout rejected.
+    // Detector returns null and the result falls through to "Unknown".
+    const img = paulOwensBase();
+    img.tracks[2][0] = track(Array.from({ length: 5 }, (_, i) => sector({
+      c: 2, r: 0xC1 + i, n: 1,
+    })));
+    expect(detectProtection(img)).not.toContain('Paul Owens');
+  });
 });
 
 // ── Three Inch ────────────────────────────────────────────────────────────
