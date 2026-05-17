@@ -6,10 +6,53 @@
  * with zero copying. Requires Cross-Origin-Isolation headers.
  *
  * Fallback: ScriptProcessorNode (deprecated but universally supported).
+ *
+ * Both paths share a single AudioRing implementation. The only difference
+ * is the backing buffer (SharedArrayBuffer vs ArrayBuffer); Atomics works
+ * on both so the writer code is identical.
  */
 
 const RING_SIZE = 8192;
 const RING_MASK = RING_SIZE - 1;
+
+interface AudioRing {
+  l: Float32Array;
+  r: Float32Array;
+  pos: Int32Array;            // [0] = writePos, [1] = readPos
+  buffer: ArrayBuffer | SharedArrayBuffer;
+}
+
+function makeRing(shared: boolean): AudioRing {
+  const Ctor: any = shared ? SharedArrayBuffer : ArrayBuffer;
+  const buffer = new Ctor(RING_SIZE * 8 + 8);
+  return {
+    buffer,
+    l: new Float32Array(buffer, 0, RING_SIZE),
+    r: new Float32Array(buffer, RING_SIZE * 4, RING_SIZE),
+    pos: new Int32Array(buffer, RING_SIZE * 8, 2),
+  };
+}
+
+function ringWrite(ring: AudioRing, l: number, r: number): boolean {
+  const wp = Atomics.load(ring.pos, 0);
+  const next = (wp + 1) & RING_MASK;
+  if (next === Atomics.load(ring.pos, 1)) return false; // full
+  ring.l[wp] = l;
+  ring.r[wp] = r;
+  Atomics.store(ring.pos, 0, next);
+  return true;
+}
+
+function ringBuffered(ring: AudioRing): number {
+  return (Atomics.load(ring.pos, 0) - Atomics.load(ring.pos, 1) + RING_SIZE) & RING_MASK;
+}
+
+function ringReset(ring: AudioRing): void {
+  Atomics.store(ring.pos, 0, 0);
+  Atomics.store(ring.pos, 1, 0);
+  ring.l.fill(0);
+  ring.r.fill(0);
+}
 
 /** Inlined AudioWorklet processor (avoids a separate JS file). */
 const WORKLET_SOURCE = `
@@ -50,20 +93,12 @@ export class Audio {
   ctx: AudioContext | null = null;
   private gainNode: GainNode | null = null;
 
-  // ── AudioWorklet path ──────────────────────────────────────────────
   private workletNode: AudioWorkletNode | null = null;
-  private sharedBuf: SharedArrayBuffer | null = null;
-  private sharedL: Float32Array | null = null;
-  private sharedR: Float32Array | null = null;
-  private sharedPos: Int32Array | null = null;
-  private useWorklet = false;
-
-  // ── ScriptProcessorNode fallback ───────────────────────────────────
   private processor: ScriptProcessorNode | null = null;
-  private ringL = new Float32Array(RING_SIZE);
-  private ringR = new Float32Array(RING_SIZE);
-  private writePos = 0;
-  private readPos = 0;
+  private ring: AudioRing | null = null;
+
+  /** Volume set before init() — applied at the end of init(). */
+  private pendingVolume = 0.7;
 
   sampleRate = 44100;
   running = false;
@@ -75,7 +110,7 @@ export class Audio {
    */
   async init(): Promise<void> {
     if (this.ctx) {
-      if (this.ctx.state === 'suspended') this.ctx.resume();
+      if (this.ctx.state === 'suspended') await this.ctx.resume();
       return;
     }
 
@@ -83,7 +118,7 @@ export class Audio {
     this.sampleRate = this.ctx.sampleRate;
 
     this.gainNode = this.ctx.createGain();
-    this.gainNode.gain.value = 0.7;
+    this.gainNode.gain.value = this.pendingVolume;
 
     if (typeof SharedArrayBuffer !== 'undefined' && this.ctx.audioWorklet) {
       try {
@@ -92,21 +127,17 @@ export class Audio {
         await this.ctx.audioWorklet.addModule(url);
         URL.revokeObjectURL(url);
 
-        // Layout: [ringL float32][ringR float32][writePos int32, readPos int32]
-        this.sharedBuf = new SharedArrayBuffer(RING_SIZE * 8 + 8);
-        this.sharedL = new Float32Array(this.sharedBuf, 0, RING_SIZE);
-        this.sharedR = new Float32Array(this.sharedBuf, RING_SIZE * 4, RING_SIZE);
-        this.sharedPos = new Int32Array(this.sharedBuf, RING_SIZE * 8, 2);
-
+        this.ring = makeRing(true);
         this.workletNode = new AudioWorkletNode(this.ctx, 'spectrum-audio', {
           numberOfInputs: 0,
           numberOfOutputs: 1,
           outputChannelCount: [2],
-          processorOptions: { buf: this.sharedBuf, size: RING_SIZE },
+          processorOptions: { buf: this.ring.buffer, size: RING_SIZE },
         });
         this.workletNode.connect(this.gainNode);
-        this.useWorklet = true;
       } catch {
+        // Drop any SAB we may have allocated so the fallback path doesn't leak it.
+        this.ring = null;
         this.initScriptProcessor();
       }
     } else {
@@ -119,72 +150,55 @@ export class Audio {
 
   private initScriptProcessor(): void {
     if (!this.ctx || !this.gainNode) return;
+    this.ring = makeRing(false);
     this.processor = this.ctx.createScriptProcessor(4096, 0, 2);
     this.processor.onaudioprocess = (e) => this.audioCallback(e);
     this.processor.connect(this.gainNode);
-    this.useWorklet = false;
   }
 
   private audioCallback(e: AudioProcessingEvent): void {
     const outL = e.outputBuffer.getChannelData(0);
     const outR = e.outputBuffer.getChannelData(1);
+    const ring = this.ring;
+    if (!ring) {
+      outL.fill(0);
+      outR.fill(0);
+      return;
+    }
+    let rp = Atomics.load(ring.pos, 1);
+    const wp = Atomics.load(ring.pos, 0);
     for (let i = 0; i < outL.length; i++) {
-      if (this.readPos !== this.writePos) {
-        outL[i] = this.ringL[this.readPos];
-        outR[i] = this.ringR[this.readPos];
-        this.readPos = (this.readPos + 1) & RING_MASK;
+      if (rp !== wp) {
+        outL[i] = ring.l[rp];
+        outR[i] = ring.r[rp];
+        rp = (rp + 1) & RING_MASK;
       } else {
         outL[i] = 0;
         outR[i] = 0;
       }
     }
+    Atomics.store(ring.pos, 1, rp);
   }
 
   pushSample(left: number, right: number): void {
-    if (this.useWorklet) {
-      const pos = this.sharedPos!;
-      const wp = Atomics.load(pos, 0);
-      const next = (wp + 1) & RING_MASK;
-      if (next === Atomics.load(pos, 1)) return;
-      this.sharedL![wp] = left;
-      this.sharedR![wp] = right;
-      Atomics.store(pos, 0, next);
-    } else {
-      const next = (this.writePos + 1) & RING_MASK;
-      if (next === this.readPos) return;
-      this.ringL[this.writePos] = left;
-      this.ringR[this.writePos] = right;
-      this.writePos = next;
-    }
+    if (!this.ring) return;
+    ringWrite(this.ring, left, right);
   }
 
   bufferedSamples(): number {
-    if (this.useWorklet) {
-      const pos = this.sharedPos!;
-      return (Atomics.load(pos, 0) - Atomics.load(pos, 1) + RING_SIZE) & RING_MASK;
-    }
-    return (this.writePos - this.readPos + RING_SIZE) & RING_MASK;
+    if (!this.ring) return 0;
+    return ringBuffered(this.ring);
   }
 
   setVolume(v: number): void {
+    if (!Number.isFinite(v)) return;       // ignore NaN / ±Infinity
     const clamped = Math.max(0, Math.min(1, v));
-    if (this.gainNode) {
-      this.gainNode.gain.value = clamped;
-    }
+    this.pendingVolume = clamped;
+    if (this.gainNode) this.gainNode.gain.value = clamped;
   }
 
   reset(): void {
-    if (this.useWorklet && this.sharedPos) {
-      Atomics.store(this.sharedPos, 0, 0);
-      Atomics.store(this.sharedPos, 1, 0);
-      this.sharedL!.fill(0);
-      this.sharedR!.fill(0);
-    } else {
-      this.writePos = 0;
-      this.readPos = 0;
-      this.ringL.fill(0);
-      this.ringR.fill(0);
-    }
+    if (this.ring) ringReset(this.ring);
   }
 
   destroy(): void {
@@ -201,14 +215,12 @@ export class Audio {
       this.gainNode = null;
     }
     if (this.ctx) {
-      this.ctx.close();
+      // close() returns a promise; fire-and-forget but swallow rejection so
+      // we don't leak an unhandled-rejection. The context is already detached.
+      this.ctx.close().catch(() => {});
       this.ctx = null;
     }
-    this.useWorklet = false;
-    this.sharedBuf = null;
-    this.sharedL = null;
-    this.sharedR = null;
-    this.sharedPos = null;
+    this.ring = null;
     this.running = false;
   }
 }
