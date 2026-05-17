@@ -5,8 +5,8 @@
  *
  *   1. Label:   `<line> <addr> [<bytes>] name:` — value is the address column.
  *   2. EQU:     `<line> <addr> name equ <value>` — value is the equ expression.
- *               Only literal numeric values are evaluated (hex/decimal); any
- *               expression we can't resolve is silently skipped.
+ *               Literal numeric values (hex/decimal, optionally signed) are
+ *               evaluated; expressions we can't resolve are silently skipped.
  *
  * The address shown for a label is the assembled address. When code is paged
  * to a different runtime slot (e.g. bank 4 assembled at 0000 but executed
@@ -22,21 +22,28 @@ export interface SymbolEntry {
 }
 
 // Regex anchors:
-//   ^\s*\d+\+*           leading line number (sjasmplus marks include/macro lines with `+`)
-//   \s+([0-9A-Fa-f]{4})  4-hex address column (captured)
-//   (?:\s+[0-9A-Fa-f]{2})*   any number of byte columns (each is 2 hex chars)
-//   \s+\.?(\w+):         optional dot-prefix scope, identifier, colon
-const RE_LABEL = /^\s*\d+\+*\s+([0-9A-Fa-f]{4})(?:\s+[0-9A-Fa-f]{2})*\s+\.?([A-Za-z_]\w*):/;
-const RE_EQU   = /^\s*\d+\+*\s+[0-9A-Fa-f]{4}\s+\.?([A-Za-z_]\w*)\s+equ\s+([^;]+?)\s*(?:;.*)?$/i;
+//   ^\s*\d+\+*                  leading line number (sjasmplus marks include/macro lines with `+`)
+//   \s+([0-9A-Fa-f]{4})         4-hex address column (captured)
+//   (?:\s+[0-9A-Fa-f]{2})*      any number of byte columns (each is 2 hex chars)
+//   \s+\.?(<ident>(?:\.<ident>)*):  optional dot-prefix scope, dotted identifier, colon
+//                               The leading dot (local label) is consumed but not captured;
+//                               module-qualified names like `foo.label` are captured whole.
+const IDENT = String.raw`[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*`;
+const RE_LABEL = new RegExp(String.raw`^\s*\d+\+*\s+([0-9A-Fa-f]{4})(?:\s+[0-9A-Fa-f]{2})*\s+\.?(${IDENT}):`);
+const RE_EQU   = new RegExp(String.raw`^\s*\d+\+*\s+[0-9A-Fa-f]{4}\s+\.?(${IDENT})\s+equ\s+([^;]+?)\s*(?:;.*)?$`, 'i');
 
 /** Parse a literal numeric value as written in an sjasmplus equ. Returns null for expressions we can't evaluate. */
 function parseLiteral(s: string): number | null {
   s = s.trim();
-  if (/^0x[0-9A-Fa-f]+$/.test(s))    return parseInt(s.slice(2), 16);
-  if (/^\$[0-9A-Fa-f]+$/.test(s))    return parseInt(s.slice(1), 16);
-  if (/^[0-9A-Fa-f]+h$/i.test(s))    return parseInt(s.slice(0, -1), 16);
-  if (/^[0-9]+$/.test(s))            return parseInt(s, 10);
-  return null;
+  const neg = s.startsWith('-');
+  const u = neg ? s.slice(1).trimStart() : s;
+  let result: number | null = null;
+  if (/^0x[0-9A-Fa-f]+$/.test(u))    result = parseInt(u.slice(2), 16);
+  else if (/^\$[0-9A-Fa-f]+$/.test(u))    result = parseInt(u.slice(1), 16);
+  else if (/^[0-9A-Fa-f]+h$/i.test(u))    result = parseInt(u.slice(0, -1), 16);
+  else if (/^[0-9]+$/.test(u))            result = parseInt(u, 10);
+  if (result === null) return null;
+  return neg ? -result : result;
 }
 
 export class SymbolTable {
