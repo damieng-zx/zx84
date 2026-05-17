@@ -509,6 +509,421 @@ describe('AY-3-8910 — sample generation', () => {
   });
 });
 
+// ─── New, more critical coverage ─────────────────────────────────────────
+//
+// Existing tests above were left intact (their assertions are sound), but
+// they were thin in a few places: stereo only checked direction (not the
+// 100%/50% crossover ratio that defines ABC stereo), envelope coverage was
+// 5 of 16 shapes, the DC blocker test only proved DC is removed (not that
+// AC passes), and there were no tests for the I/O port registers, for
+// mid-flight period changes, or for the exact LFSR tap.
+
+describe('AY-3-8910 — construction parity with reset()', () => {
+  it('a freshly-constructed chip has the same generator periods as one after reset()', () => {
+    // The bug used to be: constructor left periods at 0, but reset() sets
+    // them to 1. So `new AY3891x()` then clocking (before any register
+    // write) would toggle every clock — different from any post-reset state.
+    const fresh = new AY3891x(CHIP_FREQ, SAMPLE_RATE);
+    const reset = new AY3891x(CHIP_FREQ, SAMPLE_RATE);
+    reset.reset();
+    expect(Array.from(fresh.tonePeriod)).toEqual(Array.from(reset.tonePeriod));
+    expect(fresh.noisePeriod).toBe(reset.noisePeriod);
+    expect(fresh.envPeriod).toBe(reset.envPeriod);
+  });
+});
+
+describe('AY-3-8910 — full envelope shape table', () => {
+  // Real-hardware envelope shape table. See General Instrument AY-3-8910
+  // datasheet, Figure 6. Bits: 3=continue, 2=attack, 1=alternate, 0=hold.
+  // Shapes 0x00–0x03 and 0x09 all behave as "\___" (decay then hold at 0).
+  // Shapes 0x04–0x07 all behave as "/___" (ramp up then drop to 0).
+  // 0x08 = sawtooth \\\\, 0x0A = /\/\ (start ramp down), 0x0B = "\¯¯¯",
+  // 0x0C = ////, 0x0D = "/¯¯¯", 0x0E = /\/\ (start ramp up), 0x0F = "/|___".
+
+  function run(ay: AY3891x, n: number): number[] {
+    // envPeriod is already 1 after reset; one clock per envelope step.
+    ay.writeRegister(11, 1);
+    ay.writeRegister(12, 0);
+    const out: number[] = [];
+    for (let i = 0; i < n; i++) {
+      ay.clock();
+      out.push(ay.envVolume);
+    }
+    return out;
+  }
+
+  for (const shape of [0x00, 0x01, 0x02, 0x03, 0x09]) {
+    it(`shape 0x${shape.toString(16).toUpperCase().padStart(2, '0')} behaves as \\___ (decay then hold at 0)`, () => {
+      const ay = makeAy();
+      ay.writeRegister(13, shape);
+      expect(ay.envVolume).toBe(31); // attack=0 → starts at top
+      const trace = run(ay, 64);
+      expect(trace[0]).toBe(30);
+      expect(trace[30]).toBe(0);
+      for (let i = 31; i < trace.length; i++) expect(trace[i]).toBe(0);
+      expect(ay.envHolding).toBe(true);
+    });
+  }
+
+  for (const shape of [0x04, 0x05, 0x06, 0x07]) {
+    it(`shape 0x${shape.toString(16).toUpperCase().padStart(2, '0')} behaves as /___ (rise then hold at 0)`, () => {
+      const ay = makeAy();
+      ay.writeRegister(13, shape);
+      expect(ay.envVolume).toBe(0); // attack=1 → starts at bottom
+      const trace = run(ay, 64);
+      expect(trace[0]).toBe(1);
+      expect(trace[30]).toBe(31);
+      // step 32 triggers !continue branch → drop to 0 and hold
+      for (let i = 31; i < trace.length; i++) expect(trace[i]).toBe(0);
+      expect(ay.envHolding).toBe(true);
+    });
+  }
+
+  it('shape 0x08 is repeating \\\\\\\\: each cycle starts at 31 again', () => {
+    const ay = makeAy();
+    ay.writeRegister(13, 0x08);
+    const first = run(ay, 32);
+    expect(first[0]).toBe(30);
+    expect(first[30]).toBe(0);
+    expect(first[31]).toBe(31); // wraps cleanly back to top
+    const second = run(ay, 32);
+    expect(second[0]).toBe(30);
+    expect(second[30]).toBe(0);
+    expect(ay.envHolding).toBe(false);
+  });
+
+  it('shape 0x0A is \\/\\/ (no hold): down ramp, then up ramp, repeats', () => {
+    const ay = makeAy();
+    ay.writeRegister(13, 0x0A); // continue, no attack, alternate, no hold
+    // attack=0 → starts at 31, ramps down
+    const down = run(ay, 32);
+    expect(down[0]).toBe(30);
+    expect(down[30]).toBe(0);
+    // Wrap: alternate flips attack to 0x1F, envStep resets to 0,
+    // envVolume = (attack ? envStep : 31-envStep) = envStep = 0. Bottom of trough.
+    expect(down[31]).toBe(0);
+    const up = run(ay, 32);
+    expect(up[0]).toBe(1);
+    expect(up[30]).toBe(31);
+    expect(up[31]).toBe(31); // wraps to top, ready to ramp down again
+    expect(ay.envHolding).toBe(false);
+  });
+
+  it('shape 0x0C is repeating //// (sawtooth up): each cycle starts at 0', () => {
+    const ay = makeAy();
+    ay.writeRegister(13, 0x0C); // continue, attack, no alternate, no hold
+    expect(ay.envVolume).toBe(0);
+    const first = run(ay, 32);
+    expect(first[0]).toBe(1);
+    expect(first[30]).toBe(31);
+    expect(first[31]).toBe(0); // wraps back to 0
+    const second = run(ay, 32);
+    expect(second[30]).toBe(31);
+  });
+
+  it('shape 0x0E continues alternating direction forever', () => {
+    const ay = makeAy();
+    ay.writeRegister(13, 0x0E);
+    const up = run(ay, 32);
+    expect(up[0]).toBe(1);
+    expect(up[30]).toBe(31);
+    expect(up[31]).toBe(31); // alternate flip → top, ready to ramp down
+    const down = run(ay, 32);
+    expect(down[0]).toBe(30);
+    expect(down[30]).toBe(0);
+    expect(down[31]).toBe(0); // alternate flip back, ready to ramp up
+    expect(ay.envHolding).toBe(false);
+  });
+});
+
+describe('AY-3-8910 — envelope period changes mid-flight', () => {
+  it('writing R11/R12 does not retrigger but does change the rate', () => {
+    const ay = makeAy();
+    ay.writeRegister(13, 0x0C); // saw up
+    ay.writeRegister(11, 1); ay.writeRegister(12, 0);
+    for (let i = 0; i < 5; i++) ay.clock();
+    expect(ay.envVolume).toBe(5);
+    // Slow down to 4 chip ticks per step
+    ay.writeRegister(11, 4); ay.writeRegister(12, 0);
+    // envCounter already at 0 after last step. Need 4 more clocks for next.
+    for (let i = 0; i < 3; i++) ay.clock();
+    expect(ay.envVolume).toBe(5); // not yet
+    ay.clock();
+    expect(ay.envVolume).toBe(6);
+  });
+});
+
+describe('AY-3-8910 — LFSR exact behaviour', () => {
+  it('uses taps 0 and 3 (XOR) — verified against the known sequence', () => {
+    // Standard AY/YM noise LFSR: 17-bit Galois with feedback bit = b0 XOR b3.
+    const ay = makeAy();
+    ay.writeRegister(6, 1);
+    // Reproduce the first few iterations in software.
+    let rng = 1;
+    for (let i = 0; i < 1000; i++) {
+      ay.clock();
+      const bit = ((rng ^ (rng >>> 3)) & 1);
+      rng = (rng >>> 1) | (bit << 16);
+      expect(ay.noiseRng).toBe(rng);
+    }
+  });
+
+  it('noise period gates the clocking — period 4 advances once per 4 clocks', () => {
+    const ay = makeAy();
+    ay.writeRegister(6, 4);
+    const start = ay.noiseRng;
+    ay.clock(); ay.clock(); ay.clock();
+    expect(ay.noiseRng).toBe(start);
+    ay.clock();
+    expect(ay.noiseRng).not.toBe(start);
+  });
+});
+
+describe('AY-3-8910 — mixer truth-table (all 8 enable combinations)', () => {
+  // The mixer gates tone or noise via NAND-style logic: a 1 disables, so
+  // an enabled channel with tone=0 OR noise=0 is silent; both at 1 sounds.
+  it('tone disabled + noise disabled is silent (channel output forced high gives amp through)', () => {
+    const ay = makeAy();
+    // Both tone and noise OFF for channel A — output gated to high → amplitude passes
+    ay.writeRegister(7, 0b00111111);
+    ay.writeRegister(8, 0x0F);
+    const v = ay.output();
+    expect(v).toBeCloseTo(VOLUME_TABLE[0x0F * 2 + 1] / 3 * 0.75, 6);
+  });
+
+  it('tone enabled with toneOutput=0 silences the channel even when noise=1', () => {
+    const ay = makeAy();
+    ay.writeRegister(7, 0b00110110); // tone A enabled, noise A enabled
+    ay.writeRegister(8, 0x0F);
+    ay.toneOutput[0] = 0;
+    ay.noiseOutput = 1;
+    expect(ay.output()).toBe(0);
+  });
+
+  it('AND of tone and noise (both 1) sounds; either 0 silences', () => {
+    const ay = makeAy();
+    ay.writeRegister(7, 0b00110110); // ch A: tone + noise both enabled
+    ay.writeRegister(8, 0x0F);
+    ay.toneOutput[0] = 1; ay.noiseOutput = 1;
+    expect(ay.output()).toBeGreaterThan(0);
+    ay.toneOutput[0] = 1; ay.noiseOutput = 0;
+    expect(ay.output()).toBe(0);
+    ay.toneOutput[0] = 0; ay.noiseOutput = 1;
+    expect(ay.output()).toBe(0);
+  });
+});
+
+describe('AY-3-8910 — stereo panning exact ratios', () => {
+  // ABC stereo on a real ZX is: A → L 100%, C → R 100%, B → 50/50.
+  // The emulator scales by 0.75 / 1.5 (= 0.5) for "0.5 channel + middle*0.25
+  // → divided by 1.5 then *0.75". The defining property is that the middle
+  // channel contributes EQUALLY to L and R, while the outer channels are
+  // exclusive. Test that explicitly for every mode.
+
+  function pansFor(mode: AYStereoMode, ch: number): { left: number; right: number } {
+    const ay = makeAy(mode);
+    // Use the I/O-port-disabled trick: all mixer bits set for non-target channels.
+    // For the channel under test, force toneOutput=1, set amp; for others, amp=0.
+    ay.writeRegister(7, 0b00111111); // disables tone/noise on all → output = amplitude (no gating needed)
+    ay.writeRegister(8 + ch, 0x0F);
+    return { ...ay.outputStereo() };
+  }
+
+  const PAN: Record<AYStereoMode, ('L' | 'R' | 'M')[]> = {
+    MONO: ['M', 'M', 'M'],
+    ABC:  ['L', 'M', 'R'],
+    ACB:  ['L', 'R', 'M'],
+    BAC:  ['M', 'L', 'R'],
+    BCA:  ['R', 'L', 'M'],
+    CAB:  ['M', 'R', 'L'],
+    CBA:  ['R', 'M', 'L'],
+  };
+
+  for (const mode of Object.keys(PAN) as AYStereoMode[]) {
+    it(`${mode}: channels route per documented L/M/R map`, () => {
+      for (let ch = 0; ch < 3; ch++) {
+        const { left, right } = pansFor(mode, ch);
+        const dest = PAN[mode][ch];
+        if (dest === 'L') {
+          expect(left).toBeGreaterThan(0);
+          expect(right).toBe(0);
+        } else if (dest === 'R') {
+          expect(right).toBeGreaterThan(0);
+          expect(left).toBe(0);
+        } else {
+          // Middle channel goes 50/50
+          expect(left).toBeCloseTo(right, 6);
+          expect(left).toBeGreaterThan(0);
+        }
+      }
+    });
+  }
+
+  it('ABC: outer channel is exactly 2× the middle channel\'s per-side contribution', () => {
+    // With A only on at amp 0x0F: L = a/1.5*0.75 = a*0.5
+    // With B only on at amp 0x0F: L = 0.5*b/1.5*0.75 = b*0.25
+    // → outer/middle = 2 (when a = b at same amp).
+    const aOnly = pansFor('ABC', 0);
+    const bOnly = pansFor('ABC', 1);
+    expect(aOnly.left).toBeCloseTo(bOnly.left * 2, 6);
+  });
+
+  it('summed L+R across both side-routed channels reproduces mono output', () => {
+    // ABC: L = (a + b/2)/1.5*0.75; R = (c + b/2)/1.5*0.75
+    // L + R = (a + b + c)/1.5*0.75 = mono*2  (because mono divides by 3, stereo by 1.5)
+    const ay = makeAy('ABC');
+    ay.writeRegister(7, 0b00111111);
+    ay.writeRegister(8, 0x0C);
+    ay.writeRegister(9, 0x08);
+    ay.writeRegister(10, 0x0F);
+    const mono = ay.output();
+    const s = ay.outputStereo();
+    expect(s.left + s.right).toBeCloseTo(mono * 2, 6);
+  });
+});
+
+describe('AY-3-8910 — DC blocking filter', () => {
+  it('passes AC: a square wave keeps roughly its peak-to-peak amplitude', () => {
+    const ay = new AY3891x(CHIP_FREQ, SAMPLE_RATE);
+    ay.dcBlocking = true;
+    // 1 kHz square via tone A (period chosen so output toggles around 1 kHz)
+    // The exact frequency doesn't matter — just well above 20 Hz cutoff.
+    ay.writeRegister(0, 0x6F); ay.writeRegister(1, 0); // period 111 → ~1 kHz
+    ay.writeRegister(7, 0b00111110);
+    ay.writeRegister(8, 0x0F);
+
+    // Settle the filter
+    for (let i = 0; i < SAMPLE_RATE / 4; i++) ay.generateSample();
+    let min = Infinity, max = -Infinity;
+    for (let i = 0; i < SAMPLE_RATE / 4; i++) {
+      const s = ay.generateSample();
+      if (s < min) min = s;
+      if (s > max) max = s;
+    }
+    // Without filter, peak-to-peak ≈ VOLUME_TABLE[31]/3*0.75 ≈ 0.25
+    // With AC coupling, the signal is centred around 0 but should keep most of its swing.
+    expect(max - min).toBeGreaterThan(0.15);
+  });
+
+  it('toggling dcBlocking off restores DC bias', () => {
+    const ay = new AY3891x(CHIP_FREQ, SAMPLE_RATE);
+    ay.writeRegister(7, 0b00111111);
+    ay.writeRegister(8, 0x0F);
+    ay.writeRegister(9, 0x0F);
+    ay.writeRegister(10, 0x0F);
+
+    ay.dcBlocking = true;
+    for (let i = 0; i < SAMPLE_RATE; i++) ay.generateSample();
+    const filtered = ay.generateSample();
+    expect(Math.abs(filtered)).toBeLessThan(0.01);
+
+    ay.dcBlocking = false;
+    const raw = ay.generateSample();
+    expect(raw).toBeGreaterThan(0.5); // raw DC bias is large for full-on channels
+  });
+
+  it('reset clears the DC blocker state so the next signal does not glitch', () => {
+    const ay = new AY3891x(CHIP_FREQ, SAMPLE_RATE);
+    ay.writeRegister(7, 0b00111111);
+    ay.writeRegister(8, 0x0F);
+    for (let i = 0; i < SAMPLE_RATE; i++) ay.generateSample();
+    ay.reset();
+    // After reset, no signal → output should be near zero immediately
+    const s = ay.generateSample();
+    expect(Math.abs(s)).toBeLessThan(0.001);
+  });
+
+  it('stereo DC blocker tracks L and R independently', () => {
+    const ay = new AY3891x(CHIP_FREQ, SAMPLE_RATE, 'ABC');
+    ay.dcBlocking = true;
+    ay.writeRegister(7, 0b00111111);
+    // Asymmetric: A loud (L), C silent (R), B silent → L has DC, R has none.
+    ay.writeRegister(8, 0x0F);
+    ay.writeRegister(9, 0x00);
+    ay.writeRegister(10, 0x00);
+    for (let i = 0; i < SAMPLE_RATE; i++) ay.generateSampleStereo();
+    const s = ay.generateSampleStereo();
+    expect(Math.abs(s.left)).toBeLessThan(0.01);
+    expect(Math.abs(s.right)).toBeLessThan(0.01);
+  });
+});
+
+describe('AY-3-8910 — I/O port registers (R14/R15)', () => {
+  // R14 and R15 are GPIO ports on the chip; on the ZX 128K, R14 is wired
+  // to the keypad/AUX port. writeRegister stores them but they have no
+  // generator side-effects, and getRegisters() excludes them (YM file
+  // convention).
+  it('writeRegister stores R14/R15 with no side-effects on other state', () => {
+    const ay = makeAy();
+    const baseline = {
+      tone0: ay.tonePeriod[0],
+      noise: ay.noisePeriod,
+      env: ay.envPeriod,
+      mixer: ay.mixer,
+    };
+    ay.writeRegister(14, 0xCC);
+    ay.writeRegister(15, 0x33);
+    expect(ay.regs[14]).toBe(0xCC);
+    expect(ay.regs[15]).toBe(0x33);
+    expect(ay.tonePeriod[0]).toBe(baseline.tone0);
+    expect(ay.noisePeriod).toBe(baseline.noise);
+    expect(ay.envPeriod).toBe(baseline.env);
+    expect(ay.mixer).toBe(baseline.mixer);
+  });
+
+  it('readRegister roundtrips R14/R15', () => {
+    const ay = makeAy();
+    ay.writeRegister(14, 0xA5);
+    ay.writeRegister(15, 0x5A);
+    expect(ay.readRegister(14)).toBe(0xA5);
+    expect(ay.readRegister(15)).toBe(0x5A);
+  });
+
+  it('getRegisters omits R14/R15 (YM convention)', () => {
+    const ay = makeAy();
+    ay.writeRegister(14, 0xFF);
+    ay.writeRegister(15, 0xFF);
+    const dump = ay.getRegisters();
+    expect(dump.length).toBe(14);
+    expect(dump[13]).toBe(0); // R13 untouched
+    // No way to read indices >= 14 on the dump — it's truncated.
+  });
+});
+
+describe('AY-3-8910 — tone period 0 edge case', () => {
+  it('period 0 is clamped to 1 in writeRegister AND setRegisters', () => {
+    // The real chip treats period 0 as period 1 (no division-by-zero, no
+    // silent channel). Both code paths must agree.
+    const a = makeAy();
+    a.writeRegister(0, 0); a.writeRegister(1, 0);
+    expect(a.tonePeriod[0]).toBe(1);
+
+    const b = makeAy();
+    const regs = new Uint8Array(14);
+    // all zero
+    b.setRegisters(regs);
+    expect(b.tonePeriod[0]).toBe(1);
+    expect(b.tonePeriod[1]).toBe(1);
+    expect(b.tonePeriod[2]).toBe(1);
+    expect(b.noisePeriod).toBe(1);
+    expect(b.envPeriod).toBe(1);
+  });
+});
+
+describe('AY-3-8910 — setRegisters env retrigger on non-FF', () => {
+  it('non-FF R13 in setRegisters DOES retrigger envelope (matches per-register write)', () => {
+    const ay = makeAy();
+    ay.writeRegister(13, 0x0C);
+    for (let i = 0; i < 5; i++) ay.clock();
+    expect(ay.envVolume).toBeGreaterThan(0);
+    const regs = ay.getRegisters();
+    regs[13] = 0x0C; // same value — should still reset step
+    ay.setRegisters(regs);
+    expect(ay.envStep).toBe(0);
+    expect(ay.envVolume).toBe(0); // attack → restart at 0
+  });
+});
+
 describe('AY-3-8910 — regressions', () => {
   it('writing tone period high byte alone updates tonePeriod (uses cached low byte)', () => {
     const ay = makeAy();

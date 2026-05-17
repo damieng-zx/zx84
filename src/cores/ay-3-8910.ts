@@ -81,15 +81,15 @@ export class AY3891x {
 
     this.toneCounter = new Float64Array(3);
     this.toneOutput = new Uint8Array(3);
-    this.tonePeriod = new Uint16Array(3);
+    this.tonePeriod = new Uint16Array([1, 1, 1]);
 
     this.noiseCounter = 0;
-    this.noisePeriod = 0;
+    this.noisePeriod = 1;
     this.noiseOutput = 0;
     this.noiseRng = 1;
 
     this.envCounter = 0;
-    this.envPeriod = 0;
+    this.envPeriod = 1;
     this.envShape = 0;
     this.envStep = 0;
     this.envHolding = false;
@@ -338,9 +338,6 @@ export class AY3891x {
         out.left = (c + b * 0.5) / 1.5 * 0.75;
         out.right = (a + b * 0.5) / 1.5 * 0.75;
         break;
-      default:
-        out.left = (a + b * 0.5) / 1.5 * 0.75;
-        out.right = (c + b * 0.5) / 1.5 * 0.75;
     }
 
     return out;

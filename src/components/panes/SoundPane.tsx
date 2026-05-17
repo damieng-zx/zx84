@@ -1,6 +1,23 @@
 import { Pane } from '@/components/Pane.tsx';
-import { volume, setVolume, ayMix, setAyMix, ayStereo, setAyStereo, persistSetting, resetSettingsGroup } from '@/store/settings.ts';
+import {
+  volume, setVolume,
+  ayMix, setAyMix,
+  ayStereo, setAyStereo,
+  ayDcBlock, setAyDcBlock,
+  persistSetting, resetSettingsGroup,
+} from '@/store/settings.ts';
 import { spectrum, applyDisplaySettings } from '@/emulator.ts';
+import type { AYStereoMode } from '@/cores/ay-3-8910.ts';
+
+const STEREO_MODES: { value: AYStereoMode; label: string }[] = [
+  { value: 'MONO', label: 'Mono' },
+  { value: 'ABC',  label: 'Stereo ABC' },
+  { value: 'ACB',  label: 'Stereo ACB' },
+  { value: 'BAC',  label: 'Stereo BAC' },
+  { value: 'BCA',  label: 'Stereo BCA' },
+  { value: 'CAB',  label: 'Stereo CAB' },
+  { value: 'CBA',  label: 'Stereo CBA' },
+];
 
 export function SoundPane() {
   return (
@@ -9,6 +26,7 @@ export function SoundPane() {
       if (spectrum) {
         spectrum['audio'].setVolume(70 / 100);
         spectrum.ay.setStereoMode('ABC');
+        spectrum.ay.dcBlocking = true;
       }
       applyDisplaySettings();
     }}>
@@ -47,17 +65,30 @@ export function SoundPane() {
           id="ay-stereo-select"
           value={ayStereo()}
           onChange={(e) => {
-            const mode = (e.target as HTMLSelectElement).value as 'MONO' | 'ABC' | 'BCA' | 'CBA';
+            const mode = (e.target as HTMLSelectElement).value as AYStereoMode;
             setAyStereo(mode);
             if (spectrum) spectrum.ay.setStereoMode(mode);
             persistSetting('ay-stereo', mode);
           }}
         >
-          <option value="MONO">Mono</option>
-          <option value="ABC">Stereo ABC</option>
-          <option value="BCA">Stereo BCA</option>
-          <option value="CBA">Stereo CBA</option>
+          {STEREO_MODES.map(m => <option value={m.value}>{m.label}</option>)}
         </select>
+      </div>
+      <div class="slider-row">
+        <span class="slider-label">DC Blocking</span>
+        <label class="toggle">
+          <input
+            type="checkbox"
+            id="ay-dc-block"
+            checked={ayDcBlock()}
+            onChange={(e) => {
+              const on = (e.target as HTMLInputElement).checked;
+              setAyDcBlock(on);
+              if (spectrum) spectrum.ay.dcBlocking = on;
+              persistSetting('ay-dc-block', on ? 'on' : 'off');
+            }}
+          />
+        </label>
       </div>
     </Pane>
   );
