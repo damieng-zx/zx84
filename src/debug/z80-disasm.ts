@@ -66,7 +66,7 @@ export function disasmOne(mem: Uint8Array, addr: number): DisasmLine {
       const d = rd();
       const cb = rd();
       text = decodeDDFDCB(ix, d, cb);
-      return { addr: start, length: addr - start, text, isTerminal: false };
+      return { addr: start, length: (addr - start) & 0xFFFF, text, isTerminal: false };
     }
   }
 
@@ -74,7 +74,7 @@ export function disasmOne(mem: Uint8Array, addr: number): DisasmLine {
   if (op === 0xCB) {
     const cb = rd();
     text = decodeCB(cb);
-    return { addr: start, length: addr - start, text, isTerminal: false };
+    return { addr: start, length: (addr - start) & 0xFFFF, text, isTerminal: false };
   }
 
   // ── ED prefix ───────────────────────────────────────────────────────
@@ -83,7 +83,7 @@ export function disasmOne(mem: Uint8Array, addr: number): DisasmLine {
     const result = decodeED(ed, rd16);
     text = result.text;
     terminal = result.terminal;
-    return { addr: start, length: addr - start, text, isTerminal: terminal };
+    return { addr: start, length: (addr - start) & 0xFFFF, text, isTerminal: terminal };
   }
 
   // ── Main opcodes ────────────────────────────────────────────────────
@@ -236,7 +236,7 @@ export function disasmOne(mem: Uint8Array, addr: number): DisasmLine {
 
   if (!text) text = `DB ${v8(op)}`;
 
-  return { addr: start, length: addr - start, text, isTerminal: terminal };
+  return { addr: start, length: (addr - start) & 0xFFFF, text, isTerminal: terminal };
 }
 
 function decodeCB(op: number): string {
