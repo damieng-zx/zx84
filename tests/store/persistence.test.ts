@@ -198,6 +198,15 @@ describe('getSaved / setSaved', () => {
 // ─────────────────────────────────────────────────────────────────────────
 
 describe('dbSave / dbLoad', () => {
+  it('openDB failure causes dbSave to reject (IDB unavailable)', async () => {
+    const p = await load();
+    failOpen = true;
+    // persistLastFile swallows the error — the important thing is it doesn't throw.
+    await expect(p.persistLastFile(new Uint8Array([1]), 'x.sna')).resolves.toBeUndefined();
+    // dbSave itself should reject when openDB fails.
+    await expect(p.dbSave('key', new Uint8Array([1]))).rejects.toBeDefined();
+  });
+
   it('round-trips a Uint8Array under a string key', async () => {
     const p = await load();
     const data = new Uint8Array([0xDE, 0xAD, 0xBE, 0xEF]);
@@ -265,6 +274,13 @@ describe('persistLastFile / restoreLastFile / clearLastFile', () => {
     expect(storage.store.get('zx84-last-file')).toBeUndefined();
   });
 
+  it('restoreLastFile returns null when dbLoad throws (IDB error)', async () => {
+    const p = await load();
+    storage.store.set('zx84-last-file', 'game.sna');
+    memDB.failGetKey = 'last-file';
+    expect(await p.restoreLastFile()).toBeNull();
+  });
+
   // SMELL: clearLastFile only removes the LS entry; the IDB blob is leaked.
   // Compare with clearTape/clearDisk which at least attempt to wipe IDB.
   // Pinned as a regression test for any future cleanup that decides to be
@@ -307,6 +323,23 @@ describe('persistTape / restoreTape / clearTape', () => {
     await new Promise(r => queueMicrotask(() => r(null)));
     expect(await p.restoreTape()).toBeNull();
   });
+
+  it('restoreTape returns null when dbLoad throws (IDB error)', async () => {
+    const p = await load();
+    storage.store.set('zx84-tape-file', 'game.tap');
+    memDB.failGetKey = 'tape-file';
+    expect(await p.restoreTape()).toBeNull();
+  });
+
+  it('clearTape swallows a dbSave failure without crashing', async () => {
+    const p = await load();
+    await p.persistTape(new Uint8Array([1]), 'g.tap');
+    memDB.failPutKey = 'tape-file';
+    p.clearTape();
+    // Let the rejected dbSave microtask settle — the .catch(() => {}) must not throw.
+    await new Promise(r => queueMicrotask(() => r(null)));
+    expect(storage.store.has('zx84-tape-file')).toBe(false); // LS still cleared
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -324,6 +357,27 @@ describe('persistDisk / restoreDisk / clearDisk', () => {
     expect(memDB.store.get('disk-b-file')).toBeDefined();
   });
 
+  it('returns null when the disk filename is missing (skips the IDB roundtrip)', async () => {
+    const p = await load();
+    // IDB has data but no LS entry — restore must not see the orphaned blob.
+    await p.dbSave('disk-a-file', new Uint8Array([1, 2]));
+    expect(await p.restoreDisk(0)).toBeNull();
+  });
+
+  it('round-trips disk images for both drive units', async () => {
+    const p = await load();
+    await p.persistDisk(0, new Uint8Array([0xAA, 0xBB]), 'A.dsk');
+    await p.persistDisk(1, new Uint8Array([0xCC, 0xDD]), 'B.dsk');
+    const a = await p.restoreDisk(0);
+    const b = await p.restoreDisk(1);
+    expect(a).not.toBeNull();
+    expect(a!.name).toBe('A.dsk');
+    expect(Array.from(a!.data)).toEqual([0xAA, 0xBB]);
+    expect(b).not.toBeNull();
+    expect(b!.name).toBe('B.dsk');
+    expect(Array.from(b!.data)).toEqual([0xCC, 0xDD]);
+  });
+
   it('restoreDisk returns null when the stored blob is empty (post-clear sentinel)', async () => {
     // clearDisk writes an empty Uint8Array to IDB as a soft-delete. restoreDisk
     // must treat that as "no disk", not as "a zero-byte disk".
@@ -336,6 +390,29 @@ describe('persistDisk / restoreDisk / clearDisk', () => {
     storage.store.set('zx84-disk-a-file', 'A.dsk');
     await new Promise(r => queueMicrotask(() => r(null)));
     expect(await p.restoreDisk(0)).toBeNull();
+  });
+
+  it('clearDisk unit 1 removes the B-drive LS filename', async () => {
+    const p = await load();
+    await p.persistDisk(1, new Uint8Array([1]), 'B.dsk');
+    p.clearDisk(1);
+    expect(storage.store.has('zx84-disk-b-file')).toBe(false);
+  });
+
+  it('restoreDisk returns null when dbLoad throws (IDB error)', async () => {
+    const p = await load();
+    storage.store.set('zx84-disk-a-file', 'A.dsk');
+    memDB.failGetKey = 'disk-a-file';
+    expect(await p.restoreDisk(0)).toBeNull();
+  });
+
+  it('clearDisk swallows a dbSave failure without crashing', async () => {
+    const p = await load();
+    await p.persistDisk(0, new Uint8Array([1]), 'A.dsk');
+    memDB.failPutKey = 'disk-a-file';
+    p.clearDisk(0);
+    await new Promise(r => queueMicrotask(() => r(null)));
+    expect(storage.store.has('zx84-disk-a-file')).toBe(false);
   });
 
   it('restoreTape returns null when the stored blob is empty (matches restoreDisk)', async () => {
