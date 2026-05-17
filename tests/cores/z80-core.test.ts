@@ -559,6 +559,30 @@ describe('Z80 — JP / JR / DJNZ', () => {
     expect(h.cpu.pc).toBe(0x1234);
   });
 
+  it('JP cc taken: JP M,$1234 when S set jumps', () => {
+    const h = newCpu();
+    h.cpu.f = F_S;
+    load(h.mem, 0, 0xFA, 0x34, 0x12); // JP M,$1234 (y=7: sign set)
+    step(h);
+    expect(h.cpu.pc).toBe(0x1234);
+  });
+
+  it('JP cc not-taken: JP M,$1234 when S clear falls through', () => {
+    const h = newCpu();
+    h.cpu.f = 0;
+    load(h.mem, 0, 0xFA, 0x34, 0x12); // JP M,$1234
+    step(h);
+    expect(h.cpu.pc).toBe(3); // consumed the 3-byte opcode
+  });
+
+  it('JP PE taken: JP PE,$2000 when PV set jumps', () => {
+    const h = newCpu();
+    h.cpu.f = F_PV;
+    load(h.mem, 0, 0xEA, 0x00, 0x20); // JP PE,$2000 (y=5: PV set)
+    step(h);
+    expect(h.cpu.pc).toBe(0x2000);
+  });
+
   it('JR e: forward and backward relative', () => {
     const h = newCpu();
     load(h.mem, 0x100, 0x18, 0x05); // JR +5
@@ -619,6 +643,45 @@ describe('Z80 — CALL / RET', () => {
     step(h);
     expect(h.cpu.pc).toBe(3);
     expect(h.cpu.sp).toBe(0xC010);
+  });
+
+  it('CALL M: taken when S set — pushes return address, jumps', () => {
+    const h = newCpu();
+    h.cpu.sp = 0xC010;
+    h.cpu.f = F_S;
+    load(h.mem, 0, 0xFC, 0x00, 0x20); // CALL M,$2000 (y=7)
+    step(h);
+    expect(h.cpu.pc).toBe(0x2000);
+    expect(h.cpu.sp).toBe(0xC00E);
+    expect(h.mem[0xC00E]).toBe(0x03); // return at 0x0003
+  });
+
+  it('CALL PO: taken when PV clear', () => {
+    const h = newCpu();
+    h.cpu.sp = 0xC010;
+    h.cpu.f = 0; // PV clear → parity odd
+    load(h.mem, 0, 0xE4, 0x00, 0x30); // CALL PO,$3000 (y=4)
+    step(h);
+    expect(h.cpu.pc).toBe(0x3000);
+  });
+
+  it('RST: pushes next PC and jumps to restart address (y*8)', () => {
+    const h = newCpu();
+    h.cpu.sp = 0xC010;
+    load(h.mem, 0, 0xEF); // RST $28 (y=5, 5*8=0x28)
+    step(h);
+    expect(h.cpu.pc).toBe(0x0028);
+    expect(h.cpu.sp).toBe(0xC00E);
+    expect(h.mem[0xC00E]).toBe(0x01); // return at 0x0001
+  });
+
+  it('DI clears both IFF1 and IFF2', () => {
+    const h = newCpu();
+    h.cpu.iff1 = true; h.cpu.iff2 = true;
+    load(h.mem, 0, 0xF3); // DI
+    step(h);
+    expect(h.cpu.iff1).toBe(false);
+    expect(h.cpu.iff2).toBe(false);
   });
 });
 
