@@ -6,7 +6,8 @@
  * fire its handlers, and clean itself up.
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { showFilePicker } from '@/ui/zip-picker.ts';
 
 // ── Minimal DOM stub ──────────────────────────────────────────────────────
 
@@ -78,16 +79,11 @@ let doc: StubDocument;
 beforeEach(() => {
   doc = new StubDocument();
   (globalThis as any).document = doc;
-  vi.resetModules();
 });
 
 afterEach(() => {
   delete (globalThis as any).document;
 });
-
-async function freshImport() {
-  return await import('@/ui/zip-picker.ts');
-}
 
 // Helpers to dig into the overlay/panel structure.
 function overlay(): StubElement {
@@ -108,8 +104,7 @@ function cancelButton(): StubElement {
 
 describe('zip-picker — selection', () => {
   it('resolves with the clicked filename', async () => {
-    const m = await freshImport();
-    const promise = m.showFilePicker(['game.tap', 'readme.txt', 'loader.bas']);
+    const promise = showFilePicker(['game.tap', 'readme.txt', 'loader.bas']);
 
     const items = listItems();
     expect(items.map(i => i.textContent)).toEqual(['game.tap', 'readme.txt', 'loader.bas']);
@@ -118,8 +113,7 @@ describe('zip-picker — selection', () => {
   });
 
   it('handles an empty filename list (renders no items, still cancellable)', async () => {
-    const m = await freshImport();
-    const promise = m.showFilePicker([]);
+    const promise = showFilePicker([]);
     expect(listItems()).toHaveLength(0);
     cancelButton().dispatch('click', {});
     expect(await promise).toBeNull();
@@ -128,15 +122,13 @@ describe('zip-picker — selection', () => {
 
 describe('zip-picker — cancellation', () => {
   it('returns null on cancel button click', async () => {
-    const m = await freshImport();
-    const promise = m.showFilePicker(['a', 'b']);
+    const promise = showFilePicker(['a', 'b']);
     cancelButton().dispatch('click', {});
     expect(await promise).toBeNull();
   });
 
   it('returns null on Escape', async () => {
-    const m = await freshImport();
-    const promise = m.showFilePicker(['a']);
+    const promise = showFilePicker(['a']);
     const ev = doc.dispatchKey('Escape');
     expect(await promise).toBeNull();
     // Escape should be consumed so it doesn't trigger app-level shortcuts.
@@ -144,8 +136,7 @@ describe('zip-picker — cancellation', () => {
   });
 
   it('ignores other keys (no spurious resolution)', async () => {
-    const m = await freshImport();
-    const promise = m.showFilePicker(['a']);
+    const promise = showFilePicker(['a']);
     let settled = false;
     promise.then(() => { settled = true; });
     doc.dispatchKey('Enter');
@@ -158,16 +149,14 @@ describe('zip-picker — cancellation', () => {
   });
 
   it('returns null when the overlay backdrop is clicked', async () => {
-    const m = await freshImport();
-    const promise = m.showFilePicker(['a']);
+    const promise = showFilePicker(['a']);
     const ov = overlay();
     ov.dispatch('click', { target: ov });
     expect(await promise).toBeNull();
   });
 
   it('does NOT resolve when an inner element is clicked (event bubbles up with target=child)', async () => {
-    const m = await freshImport();
-    const promise = m.showFilePicker(['a']);
+    const promise = showFilePicker(['a']);
     const ov = overlay();
     // Simulate a click that bubbled from the panel — target !== overlay.
     ov.dispatch('click', { target: panel() });
@@ -181,9 +170,8 @@ describe('zip-picker — cancellation', () => {
 });
 
 describe('zip-picker — hover styles', () => {
-  it('highlights a list item on mouseenter and restores on mouseleave', async () => {
-    const m = await freshImport();
-    m.showFilePicker(['a', 'b']);
+  it('highlights a list item on mouseenter and restores on mouseleave', () => {
+    showFilePicker(['a', 'b']);
     const item = listItems()[0];
     item.dispatch('mouseenter', {});
     expect(item.style.background).toBe('#3a3a5e');
@@ -192,9 +180,8 @@ describe('zip-picker — hover styles', () => {
     cancelButton().dispatch('click', {});
   });
 
-  it('highlights the cancel button on mouseenter and restores on mouseleave', async () => {
-    const m = await freshImport();
-    m.showFilePicker(['a']);
+  it('highlights the cancel button on mouseenter and restores on mouseleave', () => {
+    showFilePicker(['a']);
     const btn = cancelButton();
     btn.dispatch('mouseenter', {});
     expect(btn.style.background).toBe('#3a3a5e');
@@ -206,8 +193,7 @@ describe('zip-picker — hover styles', () => {
 
 describe('zip-picker — cleanup', () => {
   it('removes the overlay and keydown listener after resolution', async () => {
-    const m = await freshImport();
-    const promise = m.showFilePicker(['a']);
+    const promise = showFilePicker(['a']);
     expect(doc.body.children.length).toBe(1);
     expect(doc.keydownListenerCount).toBe(1);
     listItems()[0].dispatch('click', {});
@@ -217,8 +203,7 @@ describe('zip-picker — cleanup', () => {
   });
 
   it('only resolves once even if multiple cancel paths fire', async () => {
-    const m = await freshImport();
-    const promise = m.showFilePicker(['a', 'b']);
+    const promise = showFilePicker(['a', 'b']);
     // Save a reference before cleanup detaches everything.
     const cancel = cancelButton();
     listItems()[0].dispatch('click', {});
