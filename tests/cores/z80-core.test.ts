@@ -720,6 +720,60 @@ describe('Z80 — Block ops (ED-prefix)', () => {
     expect(h.cpu.bc).toBe(0x0002);
     expect(h.cpu.a).toBe(0x42); // A unchanged
   });
+
+  it('LDD copies byte and decrements HL, DE, BC (reverse direction from LDI)', () => {
+    const h = newCpu();
+    h.cpu.hl = 0xC002; h.cpu.de = 0xC102; h.cpu.bc = 0x0003;
+    h.mem[0xC002] = 0x55;
+    load(h.mem, 0, 0xED, 0xA8); // LDD
+    step(h);
+    expect(h.mem[0xC102]).toBe(0x55);
+    expect(h.cpu.hl).toBe(0xC001); // decremented
+    expect(h.cpu.de).toBe(0xC101); // decremented
+    expect(h.cpu.bc).toBe(0x0002);
+    expect(h.cpu.f & F_PV).toBe(F_PV); // BC != 0
+    expect(h.cpu.f & F_N).toBe(0);
+    expect(h.cpu.f & F_H).toBe(0);
+  });
+
+  it('LDDR repeats copying backwards until BC = 0', () => {
+    const h = newCpu();
+    h.cpu.hl = 0xC003; h.cpu.de = 0xC103; h.cpu.bc = 0x0004;
+    for (let i = 0; i < 4; i++) h.mem[0xC000 + i] = 0x20 + i;
+    load(h.mem, 0, 0xED, 0xB8); // LDDR
+    for (let i = 0; i < 16 && h.cpu.bc !== 0; i++) h.cpu.step();
+    expect(h.cpu.bc).toBe(0);
+    expect(h.cpu.pc).toBe(2);
+    for (let i = 0; i < 4; i++) expect(h.mem[0xC100 + i]).toBe(0x20 + i);
+    expect(h.cpu.f & F_PV).toBe(0); // BC = 0 → PV clear
+  });
+
+  it('CPD compares A with (HL) and decrements HL (reverse from CPI)', () => {
+    const h = newCpu();
+    h.cpu.a = 0x42; h.cpu.hl = 0xC002; h.cpu.bc = 0x0003;
+    h.mem[0xC002] = 0x42;
+    load(h.mem, 0, 0xED, 0xA9); // CPD
+    step(h);
+    expect(h.cpu.f & F_Z).toBe(F_Z);
+    expect(h.cpu.f & F_N).toBe(F_N);
+    expect(h.cpu.hl).toBe(0xC001); // decremented
+    expect(h.cpu.bc).toBe(0x0002);
+    expect(h.cpu.a).toBe(0x42);
+  });
+
+  it('CPDR searches backwards; stops when match found', () => {
+    const h = newCpu();
+    // Place the target at 0xC001, search backwards from 0xC002
+    h.cpu.a = 0x77; h.cpu.hl = 0xC002; h.cpu.bc = 0x0003;
+    h.mem[0xC002] = 0x00; // no match
+    h.mem[0xC001] = 0x77; // match here
+    h.mem[0xC000] = 0x00;
+    load(h.mem, 0, 0xED, 0xB9); // CPDR
+    for (let i = 0; i < 16 && (h.cpu.f & F_Z) === 0; i++) h.cpu.step();
+    expect(h.cpu.f & F_Z).toBe(F_Z); // match found
+    expect(h.cpu.hl).toBe(0xC000);   // stopped after decrement past match addr
+    expect(h.cpu.bc).toBe(0x0001);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────
