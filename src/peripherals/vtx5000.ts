@@ -1,13 +1,15 @@
 /**
  * VTX-5000 peripheral — Prism Microelectronics Viewdata/Prestel modem for 48K Spectrum.
  *
- * The VTX-5000 replaces the bottom of the Spectrum ROM with its own viewdata
- * terminal ROM.  ROM images may be 8KB (0x0000-0x1FFF) or 16KB (full slot 0);
- * applyROM() copies only as many bytes as the loaded image contains, leaving
- * the remainder of slot 0 unchanged (i.e. the Spectrum ROM second half stays
- * visible at 0x2000-0x3FFF for an 8KB VTX ROM).
+ * The cartridge carries an 8K EPROM and an Intel 8251 USART. There is no
+ * on-board RAM — all runtime state lives in the host Spectrum's RAM
+ * (trampolines are copied to the top of $4000-$7FFF or $C000-$FFFF at init).
  *
- * The modem hardware uses an Intel 8251 USART for serial communication.
+ * The cartridge asserts ROMCS only for accesses to $0000-$1FFF, so the
+ * Spectrum ROM's upper half remains visible at $2000-$3FFF when the VTX ROM
+ * is paged in. We emulate this with a 16K slot-0 overlay whose upper half
+ * is loaded with the current Spectrum ROM bytes at apply-time.
+ *
  * The 8251's RTS output controls ROMCS:
  *   RTS=0 (command bit5 clear): VTX-5000 ROM paged in
  *   RTS=1 (command bit5 set):   Spectrum ROM paged in
@@ -49,10 +51,8 @@ export class VTX5000 {
   /** Number of valid bytes in vtxRom */
   romSize = 0;
 
-  /** VTX-5000 on-board RAM at 0x2000-0x3FFF (preserved across ROM switches) */
-  vtxRam = new Uint8Array(8192);
-
-  /** 16KB overlay placed in slot 0 when VTX ROM is paged in: [vtxRom | vtxRam]. */
+  /** 16KB overlay placed in slot 0 when VTX ROM is paged in:
+   *  $0000-$1FFF = VTX ROM, $2000-$3FFF = Spectrum ROM upper half. */
   private vtxOverlay = new Uint8Array(16384);
 
   /** Whether VTX ROM is currently paged in (RTS=0) vs Spectrum ROM (RTS=1) */
@@ -86,7 +86,6 @@ export class VTX5000 {
     this.rxFifo.length = 0;
     this.dsr = false;
     this.vtxRomPaged = true;
-    this.vtxRam.fill(0);
   }
 
   loadROM(data: Uint8Array): void {
@@ -99,19 +98,20 @@ export class VTX5000 {
   }
 
   /**
-   * Place VTX-5000 ROM and RAM into slot 0 via an overlay buffer.
-   * Call after SpectrumMemory.applyBanking() so paging state is settled.
+   * Place the VTX-5000 ROM into slot 0 via an overlay buffer, preserving
+   * the Spectrum ROM's upper half at $2000-$3FFF (the cartridge's ROMCS line
+   * only asserts for $0000-$1FFF).
+   *
+   * Call after SpectrumMemory.applyBanking() so the Spectrum ROM page is
+   * settled. Snapshots the current ROM at apply-time — if the host paging
+   * changes while the VTX ROM is mapped, applyROM() must be called again.
    */
   applyROM(memory: SpectrumMemory): void {
+    const spectrumRom = memory.romPages[memory.currentROM];
+    this.vtxOverlay.set(spectrumRom.subarray(0x2000, 0x4000), 0x2000);
     this.vtxOverlay.set(this.vtxRom.subarray(0, this.romSize), 0);
-    this.vtxOverlay.set(this.vtxRam, 0x2000);
     memory.setSlot0(this.vtxOverlay);
     this.vtxRomPaged = true;
-  }
-
-  /** Save VTX RAM from the overlay (call before restoring slot 0). */
-  saveRAMFromOverlay(): void {
-    this.vtxRam.set(this.vtxOverlay.subarray(0x2000, 0x4000));
   }
 
   // ── 8251 port handlers ──────────────────────────────────────────────

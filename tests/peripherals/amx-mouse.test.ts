@@ -12,8 +12,38 @@
  * Spectrum frame loop; here we cover state and pure logic.
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { AmxMouse } from '@/peripherals/amx-mouse.ts';
+import { Z80 } from '@/cores/z80.ts';
+import { IOActivity } from '@/spectrum.ts';
+
+/**
+ * Build a minimal Z80 ready to service IM 2 interrupts:
+ *   • IM 2, IFF1 enabled
+ *   • I=0x40 so the vector table lives at 0x4000-0x40FF
+ *   • SP=0xFF00 so push16 has room
+ *   • Backing 64K RAM with a vector-table entry pointing every vector at 0x8000
+ *   • halted=true so drainMovement's CPU loop never tries to decode instructions
+ */
+function makeCpu(): { cpu: Z80; mem: Uint8Array } {
+  const cpu = new Z80();
+  const mem = new Uint8Array(0x10000);
+  cpu.read8 = (a: number) => mem[a & 0xFFFF];
+  cpu.write8 = (a: number, v: number) => { mem[a & 0xFFFF] = v & 0xFF; };
+  cpu.iff1 = true;
+  cpu.im = 2;
+  cpu.i = 0x40;
+  cpu.sp = 0xFF00;
+  cpu.pc = 0x8000;
+  // Vector table entry at 0x4000-0x40FF all points to 0x8000 — interrupt() will
+  // read 2 bytes from i:vector regardless of which vector AMX picks.
+  for (let v = 0; v < 256; v += 2) {
+    mem[0x4000 + v] = 0x00;
+    mem[0x4001 + v] = 0x80;
+  }
+  cpu.halted = true; // critical: drainMovement won't call step() while halted
+  return { cpu, mem };
+}
 
 describe('AmxMouse — initial state', () => {
   it('defaults: disabled, buttons released, no pending movement, no vectors', () => {
@@ -119,6 +149,109 @@ describe('AmxMouse — PIO control state machine', () => {
     m.pioControlWrite('A', 0x07);   // int-ctrl, no mask follow
     m.pioControlWrite('A', 0x80);   // treated as vector
     expect(m.pioVectorA).toBe(0x80);
+  });
+});
+
+describe('AmxMouse — drainMovement', () => {
+  let m: AmxMouse;
+  let cpu: Z80;
+  let activity: IOActivity;
+  const FRAME_LEN = 69888;
+
+  beforeEach(() => {
+    m = new AmxMouse();
+    cpu = makeCpu().cpu;
+    activity = new IOActivity();
+    m.pioVectorA = 0x40;
+    m.pioVectorB = 0x42;
+    // iff1 must be re-armed between interrupts — drainMovement relies on the
+    // guest's ISR to EI before RETI. In test we just keep it true.
+    const realInterrupt = cpu.interruptWithVector.bind(cpu);
+    cpu.interruptWithVector = (v: number) => {
+      const r = realInterrupt(v);
+      cpu.iff1 = true;
+      return r;
+    };
+  });
+
+  it('returns immediately when nothing is queued (no interrupts, no activity)', () => {
+    const spy = vi.spyOn(cpu, 'interruptWithVector');
+    m.drainMovement(cpu, FRAME_LEN, activity);
+    expect(spy).not.toHaveBeenCalled();
+    expect(activity.mouseReads).toBe(0);
+  });
+
+  it('fires one interrupt per queued X step using the port-A vector', () => {
+    m.queueMovement(5, 0);
+    const spy = vi.spyOn(cpu, 'interruptWithVector');
+    m.drainMovement(cpu, FRAME_LEN, activity);
+    expect(spy).toHaveBeenCalledTimes(5);
+    for (const call of spy.mock.calls) expect(call[0]).toBe(0x40);
+    expect(activity.mouseReads).toBe(5);
+  });
+
+  it('fires one interrupt per queued Y step using the port-B vector', () => {
+    m.queueMovement(0, -4);
+    const spy = vi.spyOn(cpu, 'interruptWithVector');
+    m.drainMovement(cpu, FRAME_LEN, activity);
+    expect(spy).toHaveBeenCalledTimes(4);
+    for (const call of spy.mock.calls) expect(call[0]).toBe(0x42);
+    expect(activity.mouseReads).toBe(4);
+  });
+
+  it('sets dirX = 0 for positive X (right) and dirX = 1 for negative X (left)', () => {
+    m.queueMovement(3, 0);
+    m.drainMovement(cpu, FRAME_LEN, activity);
+    expect(m.dirX).toBe(0);
+
+    const cpu2 = makeCpu().cpu;
+    cpu2.interruptWithVector = (v: number) => { const r = Z80.prototype.interruptWithVector.call(cpu2, v); cpu2.iff1 = true; return r; };
+    const m2 = new AmxMouse();
+    m2.pioVectorA = 0x40;
+    m2.queueMovement(-3, 0);
+    m2.drainMovement(cpu2, FRAME_LEN, new IOActivity());
+    expect(m2.dirX).toBe(1);
+  });
+
+  it('sets dirY = 1 for positive Y (down) and dirY = 0 for negative Y (up)', () => {
+    m.queueMovement(0, 3);
+    m.drainMovement(cpu, FRAME_LEN, activity);
+    expect(m.dirY).toBe(1);
+
+    const cpu2 = makeCpu().cpu;
+    cpu2.interruptWithVector = (v: number) => { const r = Z80.prototype.interruptWithVector.call(cpu2, v); cpu2.iff1 = true; return r; };
+    const m2 = new AmxMouse();
+    m2.pioVectorB = 0x42;
+    m2.queueMovement(0, -3);
+    m2.drainMovement(cpu2, FRAME_LEN, new IOActivity());
+    expect(m2.dirY).toBe(0);
+  });
+
+  it('clears pending counters after draining', () => {
+    m.queueMovement(7, 3);
+    m.drainMovement(cpu, FRAME_LEN, activity);
+    expect(m.pendingX).toBe(0);
+    expect(m.pendingY).toBe(0);
+  });
+
+  it('caps each axis at 200 steps per frame (real mouse upper bound)', () => {
+    m.queueMovement(5000, 0);
+    const spy = vi.spyOn(cpu, 'interruptWithVector');
+    m.drainMovement(cpu, FRAME_LEN, activity);
+    // The implementation clamps |pendingX| to 200 before computing steps,
+    // so we should see at most 200 interrupts on that axis.
+    expect(spy.mock.calls.length).toBeLessThanOrEqual(200);
+    expect(spy.mock.calls.length).toBeGreaterThan(100);
+  });
+
+  it('interleaves X and Y so both axes drain within one frame', () => {
+    m.queueMovement(4, 4);
+    const spy = vi.spyOn(cpu, 'interruptWithVector');
+    m.drainMovement(cpu, FRAME_LEN, activity);
+    const aCount = spy.mock.calls.filter(c => c[0] === 0x40).length;
+    const bCount = spy.mock.calls.filter(c => c[0] === 0x42).length;
+    expect(aCount).toBe(4);
+    expect(bCount).toBe(4);
   });
 });
 

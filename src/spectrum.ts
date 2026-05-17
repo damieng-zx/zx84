@@ -269,13 +269,13 @@ export class Spectrum {
     this.vtx5000.onRomPage = (rts: boolean) => {
       if (!this.vtx5000.enabled || !this.vtx5000.romLoaded) return;
       if (rts && this.vtx5000.vtxRomPaged) {
-        // RTS=1 → page in Spectrum ROM.  Save VTX RAM from overlay first.
-        this.vtx5000.saveRAMFromOverlay();
+        // RTS=1 → page in Spectrum ROM. No state to save: VTX cartridge has
+        // no RAM of its own; runtime state lives in Spectrum RAM ($4000+).
         this.vtx5000.vtxRomPaged = false;
         this.memory.externalRomPaged = false;
         this.memory.restoreSlot0();
       } else if (!rts && !this.vtx5000.vtxRomPaged) {
-        // RTS=0 → page in VTX ROM + RAM
+        // RTS=0 → page in VTX ROM (Spectrum ROM upper half stays at $2000-$3FFF)
         this.vtx5000.applyROM(this.memory);
         this.memory.externalRomPaged = true;
       }
