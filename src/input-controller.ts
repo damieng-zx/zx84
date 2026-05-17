@@ -146,7 +146,23 @@ export class InputController {
     if (!spectrum) return;
     spectrum.keyboard.reset();
     resetJoystickKeyState();
-    for (const prev of this.gamepadPrevState) for (const k of Object.keys(prev)) prev[k] = false;
+    // Release any gamepad-driven joystick directions still tracked as held.
+    // Zeroing prev state alone is not enough: the press was forwarded to the
+    // Spectrum's joystick/keyboard, and only a matching release will clear
+    // those bits — otherwise a button held at blur time becomes a stuck press.
+    const joySelectors = [joyP1, joyP2];
+    const dirs = ['up', 'down', 'left', 'right', 'fire'] as const;
+    for (let p = 0; p < 2; p++) {
+      const prev = this.gamepadPrevState[p];
+      const mode = joySelectors[p]();
+      for (const dir of dirs) {
+        if (prev[dir]) {
+          joyPressForType(dir, false, mode);
+          setDpadHighlight(p, dir, false);
+          prev[dir] = false;
+        }
+      }
+    }
   };
 
   // ── Gamepad configuration ─────────────────────────────────────────────
@@ -187,16 +203,30 @@ export class InputController {
 
   // ── Gamepad polling ───────────────────────────────────────────────────
 
+  private prevConfiguringPlayer = -1;
+
   pollGamepads(): void {
     if (!spectrum) return;
     const joySelectors = [joyP1, joyP2];
     const joyMapSelectors = [joyMapP1, joyMapP2];
     const gamepads = navigator.getGamepads();
 
+    // Detect configuration exit (cancel OR completion via external state
+    // change) and clear any partial state. Without this, configPending
+    // retains the bindings from the last attempt and isBindingAlreadyUsed
+    // rejects them on the next run, blocking the user from re-using a
+    // button they previously bound.
+    const cp = configuringPlayer();
+    if (this.prevConfiguringPlayer >= 0 && cp < 0) this.configReset();
+    this.prevConfiguringPlayer = cp;
+
     // Configuration mode
-    if (configuringPlayer() >= 0 && configuringStep()) {
-      const p = configuringPlayer();
-      const gp = gamepads[p] ?? gamepads[0] ?? null;
+    if (cp >= 0 && configuringStep()) {
+      const p = cp;
+      // Read this player's own gamepad slot — no silent fallback to slot 0.
+      // Configuring P2 with only one pad attached should be a no-op until
+      // the user connects a second pad, not a re-binding of P1's device.
+      const gp = gamepads[p] ?? null;
       if (!gp) return;
 
       const step = configuringStep();
