@@ -385,6 +385,52 @@ describe('Z80 — INC/DEC 8-bit flag semantics', () => {
     expect(h.cpu.b).toBe(0x7F);
     expect(h.cpu.f & F_PV).toBe(F_PV);
   });
+
+  it('INC (HL): increments memory at HL, same flag semantics as INC r', () => {
+    const h = newCpu();
+    h.cpu.hl = 0x4000;
+    h.mem[0x4000] = 0x7F;
+    load(h.mem, 0, 0x34); // INC (HL)
+    step(h);
+    expect(h.mem[0x4000]).toBe(0x80);
+    expect(h.cpu.f & F_PV).toBe(F_PV); // 0x7F→0x80: signed overflow
+    expect(h.cpu.f & F_S).toBe(F_S);
+    expect(h.cpu.f & F_H).toBe(F_H);
+    expect(h.cpu.f & F_N).toBe(0);
+  });
+
+  it('INC (HL): wrap 0xFF → 0x00, Z set, H set', () => {
+    const h = newCpu();
+    h.cpu.hl = 0x5000;
+    h.mem[0x5000] = 0xFF;
+    load(h.mem, 0, 0x34);
+    step(h);
+    expect(h.mem[0x5000]).toBe(0x00);
+    expect(h.cpu.f & F_Z).toBe(F_Z);
+    expect(h.cpu.f & F_H).toBe(F_H);
+  });
+
+  it('DEC (HL): decrements memory at HL, sets N', () => {
+    const h = newCpu();
+    h.cpu.hl = 0x4000;
+    h.mem[0x4000] = 0x01;
+    load(h.mem, 0, 0x35); // DEC (HL)
+    step(h);
+    expect(h.mem[0x4000]).toBe(0x00);
+    expect(h.cpu.f & F_Z).toBe(F_Z);
+    expect(h.cpu.f & F_N).toBe(F_N);
+  });
+
+  it('DEC (HL): 0x80 → 0x7F: PV set (signed overflow)', () => {
+    const h = newCpu();
+    h.cpu.hl = 0x4000;
+    h.mem[0x4000] = 0x80;
+    load(h.mem, 0, 0x35);
+    step(h);
+    expect(h.mem[0x4000]).toBe(0x7F);
+    expect(h.cpu.f & F_PV).toBe(F_PV);
+    expect(h.cpu.f & F_N).toBe(F_N);
+  });
 });
 
 describe('Z80 — INC/DEC 16-bit do not affect flags', () => {
