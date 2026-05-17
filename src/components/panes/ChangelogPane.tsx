@@ -2,6 +2,34 @@ import { createSignal, Show } from 'solid-js';
 
 const CHANGELOG: { version: string; items: string[] }[] = [
   {
+    version: '0.3.0',
+    items: [
+      'Tape auto-stops almost instantly when a loader gives up — was ~500ms, now a few hundred microseconds',
+      'Tape pane shows which loader is actively reading (e.g. "ROM loader")',
+      'TAP/TZX pilot-tone selection fixed so flag-byte loaders now load correctly',
+      'TZX nested-loop blocks now expand properly',
+      'Step-over correctly runs LDIR/LDDR/CPIR/CPDR and all block-repeat instructions to completion (was single-stepping one iteration)',
+      'Step-over and step-out no longer hang when the stack pointer wraps around 0xFFFF',
+      'Disassembly view always shows the current PC instruction',
+      'Gamepad buttons no longer stick when switching windows while a direction is held',
+      'Cancelling gamepad configuration no longer corrupts bindings for the next session',
+      'Configuring P2\'s gamepad with one controller connected no longer accidentally remaps P1',
+      'Caps Shift no longer leaks into keyboard state when using cursor-joystick mode',
+      'Beeper audio glitch fixed — snapshot restore and frame-step no longer produce wrong-duty bursts',
+      '+3 floppy drive sounds no longer overlap or cut off early',
+      'Simon Owen v5 multi-copy weak-sector disk images now load correctly',
+      'SNA saves now correctly record the active 128K RAM bank',
+      '.z80 snapshot encoding fixed to match the World of Spectrum spec',
+      'SZX 128K detection fixed for Timex and NTSC machine IDs',
+      'Falls back to Canvas renderer when WebGL is unavailable',
+      'VTX-5000 Prestel modem correctly preserves upper ROM half when its overlay is active',
+    ]
+  }, {
+    version: '0.2.11',
+    items: [
+      'File open dialogs remember their last-used folder independently per file type (snapshot, tape, disk, ROM, font)',
+    ]
+  }, {
     version: '0.2.10',
     items: [
       'OCR text mode now reads the bank the ULA actually displays — fixes garbled output under +3 all-RAM paging modes (CP/M Plus, custom loaders)',
