@@ -180,6 +180,30 @@ describe('zip-picker — cancellation', () => {
   });
 });
 
+describe('zip-picker — hover styles', () => {
+  it('highlights a list item on mouseenter and restores on mouseleave', async () => {
+    const m = await freshImport();
+    m.showFilePicker(['a', 'b']);
+    const item = listItems()[0];
+    item.dispatch('mouseenter', {});
+    expect(item.style.background).toBe('#3a3a5e');
+    item.dispatch('mouseleave', {});
+    expect(item.style.background).toBe('#2a2a3e');
+    cancelButton().dispatch('click', {});
+  });
+
+  it('highlights the cancel button on mouseenter and restores on mouseleave', async () => {
+    const m = await freshImport();
+    m.showFilePicker(['a']);
+    const btn = cancelButton();
+    btn.dispatch('mouseenter', {});
+    expect(btn.style.background).toBe('#3a3a5e');
+    btn.dispatch('mouseleave', {});
+    expect(btn.style.background).toBe('#2a2a3e');
+    btn.dispatch('click', {});
+  });
+});
+
 describe('zip-picker — cleanup', () => {
   it('removes the overlay and keydown listener after resolution', async () => {
     const m = await freshImport();
@@ -195,13 +219,13 @@ describe('zip-picker — cleanup', () => {
   it('only resolves once even if multiple cancel paths fire', async () => {
     const m = await freshImport();
     const promise = m.showFilePicker(['a', 'b']);
+    // Save a reference before cleanup detaches everything.
+    const cancel = cancelButton();
     listItems()[0].dispatch('click', {});
-    // Subsequent events shouldn't crash, shouldn't change the result, shouldn't
-    // re-trigger cleanup (which would try to remove an already-detached node).
-    expect(() => {
-      listItems(); // overlay still in DOM at this point? No — already removed
-    }).toThrow(); // body has no children
-    // Promise still resolves to the original selection.
+    // Overlay is detached; keydown listener is gone. But the cancel button still
+    // has its listener — dispatching on the saved ref exercises finish() with
+    // resolved=true and hits the early-return guard.
+    cancel.dispatch('click', {});
     expect(await promise).toBe('a');
   });
 });
