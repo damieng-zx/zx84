@@ -140,6 +140,9 @@ export class SpectrumMemory implements ByteReader {
    */
   isBasicRomActive(): boolean {
     if (this.specialPaging || this.externalRomPaged) return false;
+    // 48K has one ROM page; allocated array is always length 2 (Math.max),
+    // but currentROM is never updated for 48K, so check is128K explicitly.
+    if (!this.is128K) return true;
     return this.currentROM === this.romPages.length - 1;
   }
 
@@ -287,7 +290,8 @@ export class SpectrumMemory implements ByteReader {
       this._slots[1] = this._ramBanks[banks[1]];
       this._slots[2] = this._ramBanks[banks[2]];
       this._slots[3] = this._ramBanks[banks[3]];
-      this.currentBank = banks[3];
+      // Do NOT update currentBank here — it must remain the latched 7FFD value
+      // so that slot 3 restores correctly when special paging is later disabled.
     } else {
       if (!skipSlot0 && !this.externalRomPaged) {
         this._slots[0] = this.romPages[this.currentROM];
