@@ -95,6 +95,10 @@ export function wirePortIO(s: Spectrum): void {
   const v = s.variant;
 
   s.cpu.portOutHandler = (port: number, val: number) => {
+    if (s.portWatchpoints.size > 0 && s.portWatchpoints.has(port & 0xFFFF) && s.portWatchHit === null) {
+      s.portWatchHit = { port: port & 0xFFFF, value: val, dir: 'out' };
+    }
+
     // ULA port: any port with bit 0 = 0
     if ((port & 0x01) === 0) {
       const newBeeperBit = (val >> 4) & 1;
@@ -151,13 +155,17 @@ export function wirePortIO(s: Spectrum): void {
         s.activity.ayWrites++;
       }
     }
-
-    if (s.portWatchpoints.size > 0 && s.portWatchpoints.has(port & 0xFFFF) && s.portWatchHit === null) {
-      s.portWatchHit = { port: port & 0xFFFF, value: val, dir: 'out' };
-    }
   };
 
   s.cpu.portInHandler = (port: number): number => {
+    const val = dispatch(port);
+    if (s.portWatchpoints.size > 0 && s.portWatchpoints.has(port & 0xFFFF) && s.portWatchHit === null) {
+      s.portWatchHit = { port: port & 0xFFFF, value: val, dir: 'in' };
+    }
+    return val;
+  };
+
+  function dispatch(port: number): number {
     // ULA port: any port with bit 0 = 0
     if ((port & 0x01) === 0) {
       s.activity.ulaReads++;
@@ -194,11 +202,7 @@ export function wirePortIO(s: Spectrum): void {
       if (v.decodesFDCData(port)) {
         if (!v.hasFDC) return 0xFF;
         s.activity.fdcAccesses++;
-        const fdcByte = s.fdc.readData();
-        if (s.portWatchpoints.size > 0 && s.portWatchpoints.has(port & 0xFFFF) && s.portWatchHit === null) {
-          s.portWatchHit = { port: port & 0xFFFF, value: fdcByte, dir: 'in' };
-        }
-        return fdcByte;
+        return s.fdc.readData();
       }
     }
 
@@ -259,10 +263,6 @@ export function wirePortIO(s: Spectrum): void {
     }
 
     // Unattached port — return floating bus value
-    const floatVal = s.contention.floatingBusRead(s.cpu.tStates, s.memory.screenBank);
-    if (s.portWatchpoints.size > 0 && s.portWatchpoints.has(port & 0xFFFF) && s.portWatchHit === null) {
-      s.portWatchHit = { port: port & 0xFFFF, value: floatVal, dir: 'in' };
-    }
-    return floatVal;
-  };
+    return s.contention.floatingBusRead(s.cpu.tStates, s.memory.screenBank);
+  }
 }

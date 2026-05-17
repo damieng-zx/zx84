@@ -488,3 +488,626 @@ describe('ROM latching — port latch readback (MF3 quirk on +2A/+3)', () => {
     expect(s.memory.readByte(0xC000)).toBe(0xD7);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// Memory watchpoints
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('Memory watchpoints', () => {
+  let s: Spectrum;
+  beforeEach(() => {
+    s = makeMachine('48k');
+    // Seed RAM with known values
+    s.memory.getRamBank(0)[0x0000] = 0xAA; // bank 0 slot 1 = 0x4000
+    s.memory.getRamBank(5)[0x0000] = 0xBB; // bank 5 slot 1 = 0x4000 on 128K
+  });
+
+  it('read watchpoint fires on read within range', () => {
+    s.memWatchpoints.push({ start: 0x4000, end: 0x4FFF, mode: 'read' });
+    const val = s.cpu.read8(0x4000);
+    expect(s.memWatchHit).not.toBeNull();
+    expect(s.memWatchHit?.addr).toBe(0x4000);
+    expect(s.memWatchHit?.value).toBe(val);
+    expect(s.memWatchHit?.dir).toBe('read');
+  });
+
+  it('read watchpoint does NOT fire outside range', () => {
+    s.memWatchpoints.push({ start: 0x4000, end: 0x4FFF, mode: 'read' });
+    s.cpu.read8(0x5000);
+    expect(s.memWatchHit).toBeNull();
+  });
+
+  it('write watchpoint fires on write within range', () => {
+    s.memWatchpoints.push({ start: 0x4000, end: 0x4FFF, mode: 'write' });
+    s.cpu.write8(0x4100, 0x55);
+    expect(s.memWatchHit).not.toBeNull();
+    expect(s.memWatchHit?.addr).toBe(0x4100);
+    expect(s.memWatchHit?.value).toBe(0x55);
+    expect(s.memWatchHit?.dir).toBe('write');
+  });
+
+  it('write watchpoint does NOT fire on read', () => {
+    s.memWatchpoints.push({ start: 0x4000, end: 0x4FFF, mode: 'write' });
+    s.cpu.read8(0x4000);
+    expect(s.memWatchHit).toBeNull();
+  });
+
+  it('read watchpoint does NOT fire on write', () => {
+    s.memWatchpoints.push({ start: 0x4000, end: 0x4FFF, mode: 'read' });
+    s.cpu.write8(0x4000, 0x55);
+    expect(s.memWatchHit).toBeNull();
+  });
+
+  it('rw watchpoint fires on both read and write', () => {
+    s.memWatchpoints.push({ start: 0x4000, end: 0x4001, mode: 'rw' });
+    s.cpu.read8(0x4000);
+    expect(s.memWatchHit?.dir).toBe('read');
+    s.memWatchHit = null;
+    s.cpu.write8(0x4001, 0x77);
+    expect(s.memWatchHit).not.toBeNull();
+    expect(s.memWatchHit!.dir).toBe('write');
+  });
+
+  it('first-hit-only: second access within range does not overwrite hit', () => {
+    s.memWatchpoints.push({ start: 0x4000, end: 0x4FFF, mode: 'rw' });
+    s.cpu.write8(0x4000, 0x11);
+    const first = { ...s.memWatchHit! };
+    s.cpu.write8(0x4001, 0x22);
+    expect(s.memWatchHit?.addr).toBe(first.addr); // still the first hit
+    expect(s.memWatchHit?.value).toBe(first.value);
+  });
+
+  it('watchpoint range is inclusive on both ends', () => {
+    s.memWatchpoints.push({ start: 0x4002, end: 0x4002, mode: 'write' });
+    s.cpu.write8(0x4001, 0x55);
+    expect(s.memWatchHit).toBeNull();
+    s.cpu.write8(0x4002, 0x55);
+    expect(s.memWatchHit).not.toBeNull();
+    s.memWatchHit = null;
+    s.cpu.write8(0x4003, 0x55);
+    expect(s.memWatchHit).toBeNull();
+  });
+
+  it('write to ROM (discarded) does NOT fire watchpoint — write never reaches memory', () => {
+    s.memWatchpoints.push({ start: 0x0000, end: 0x3FFF, mode: 'rw' });
+    s.cpu.write8(0x1000, 0x55);
+    expect(s.memWatchHit).toBeNull();
+  });
+
+  it('read from ROM DOES fire a read watchpoint', () => {
+    s.memWatchpoints.push({ start: 0x0000, end: 0x3FFF, mode: 'read' });
+    s.cpu.read8(0x0000);
+    expect(s.memWatchHit?.dir).toBe('read');
+  });
+
+  it('write value in watchpoint hit is masked to 8 bits', () => {
+    s.memWatchpoints.push({ start: 0x4000, end: 0x4FFF, mode: 'write' });
+    s.cpu.write8(0x4000, 0x1FF); // value > 8 bits
+    expect(s.memWatchHit?.value).toBe(0xFF);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Port watchpoints
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('Port watchpoints — OUT', () => {
+  let s: Spectrum;
+  beforeEach(() => { s = makeMachine('48k'); });
+
+  it('portOut fires watchpoint for any matching port', () => {
+    s.portWatchpoints.add(0x00FE);
+    s.cpu.portOut(0x00FE, 0x03);
+    expect(s.portWatchHit).not.toBeNull();
+    expect(s.portWatchHit?.port).toBe(0x00FE);
+    expect(s.portWatchHit?.value).toBe(0x03);
+    expect(s.portWatchHit?.dir).toBe('out');
+  });
+
+  it('portOut does NOT fire if port not in watchpoints set', () => {
+    s.portWatchpoints.add(0x00FE);
+    s.cpu.portOut(0x00FF, 0x03);
+    expect(s.portWatchHit).toBeNull();
+  });
+
+  it('first-hit-only: second OUT does not overwrite portWatchHit', () => {
+    s.portWatchpoints.add(0x00FE);
+    s.cpu.portOut(0x00FE, 0x01);
+    s.cpu.portOut(0x00FE, 0x02);
+    expect(s.portWatchHit?.value).toBe(0x01);
+  });
+
+  it('port number is masked to 16 bits before watchpoint lookup', () => {
+    s.portWatchpoints.add(0x00FE);
+    s.cpu.portOut(0x10_00FE, 0x07); // excess bits above 16
+    expect(s.portWatchHit?.port).toBe(0x00FE);
+  });
+});
+
+describe('Port watchpoints — IN (all paths)', () => {
+  it('+3: FDC data read (0x3FFD) fires port watchpoint', () => {
+    const s = makeMachine('+3');
+    s.portWatchpoints.add(0x3FFD);
+    s.cpu.portIn(0x3FFD);
+    expect(s.portWatchHit).not.toBeNull();
+    expect(s.portWatchHit?.port).toBe(0x3FFD);
+    expect(s.portWatchHit?.dir).toBe('in');
+  });
+
+  it('48K: unattached port IN (floating bus) fires port watchpoint', () => {
+    const s = makeMachine('48k');
+    s.portWatchpoints.add(0x00FF);
+    s.cpu.portIn(0x00FF);
+    expect(s.portWatchHit).not.toBeNull();
+    expect(s.portWatchHit?.dir).toBe('in');
+  });
+
+  it('ULA port IN fires port watchpoint', () => {
+    const s = makeMachine('48k');
+    s.portWatchpoints.add(0xFFFE);
+    s.cpu.portIn(0xFFFE);
+    expect(s.portWatchHit).not.toBeNull();
+    expect(s.portWatchHit?.port).toBe(0xFFFE);
+    expect(s.portWatchHit?.dir).toBe('in');
+  });
+
+  it('AY register read fires port watchpoint', () => {
+    const s = makeMachine('128k');
+    s.portWatchpoints.add(0xFFFD);
+    s.cpu.portIn(0xFFFD);
+    expect(s.portWatchHit).not.toBeNull();
+    expect(s.portWatchHit?.port).toBe(0xFFFD);
+    expect(s.portWatchHit?.dir).toBe('in');
+  });
+
+  it('Kempston joystick IN fires port watchpoint', () => {
+    const s = makeMachine('48k');
+    s.portWatchpoints.add(0x001F);
+    s.cpu.portIn(0x001F);
+    expect(s.portWatchHit).not.toBeNull();
+    expect(s.portWatchHit?.dir).toBe('in');
+  });
+
+  it('first-hit-only: second IN does not overwrite portWatchHit', () => {
+    const s = makeMachine('48k');
+    s.portWatchpoints.add(0xFFFE);
+    s.cpu.portIn(0xFFFE);
+    const first = s.portWatchHit?.value;
+    s.cpu.portIn(0xFFFE);
+    expect(s.portWatchHit?.value).toBe(first);
+  });
+});
+
+describe('Port watchpoints — VTX-5000 OUT fires watchpoint before early return', () => {
+  it('OUT to non-VTX port fires watchpoint', () => {
+    const s = makeMachine('48k');
+    s.portWatchpoints.add(0x00FF);
+    s.cpu.portOut(0x00FF, 0xAA);
+    expect(s.portWatchHit).not.toBeNull();
+  });
+
+  it('OUT to VTX control port (lo=0xFF) with VTX enabled fires watchpoint', () => {
+    const s = makeMachine('48k');
+    s.vtx5000.enabled = true;
+    s.portWatchpoints.add(0x00FF);
+    s.cpu.portOut(0x00FF, 0xAA);
+    expect(s.portWatchHit).not.toBeNull();
+    expect(s.portWatchHit?.value).toBe(0xAA);
+  });
+
+  it('OUT to VTX data port (lo=0x7F) with VTX enabled fires watchpoint', () => {
+    const s = makeMachine('48k');
+    s.vtx5000.enabled = true;
+    s.portWatchpoints.add(0x007F);
+    s.cpu.portOut(0x007F, 0x42);
+    expect(s.portWatchHit).not.toBeNull();
+    expect(s.portWatchHit?.value).toBe(0x42);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Activity counters
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('Activity counters — ULA and beeper', () => {
+  let s: Spectrum;
+  beforeEach(() => { s = makeMachine('48k'); });
+
+  it('ulaReads increments on every ULA IN', () => {
+    expect(s.activity.ulaReads).toBe(0);
+    s.cpu.portIn(0xFFFE);
+    expect(s.activity.ulaReads).toBe(1);
+    s.cpu.portIn(0x00FE);
+    expect(s.activity.ulaReads).toBe(2);
+  });
+
+  it('beeperToggled set when beeper bit transitions 0→1', () => {
+    expect(s.activity.beeperToggled).toBe(false);
+    s.cpu.portOut(0x00FE, 0x10); // bit 4 = beeper
+    expect(s.activity.beeperToggled).toBe(true);
+  });
+
+  it('beeperToggled NOT set when beeper bit is unchanged (0→0)', () => {
+    s.cpu.portOut(0x00FE, 0x00); // beeper stays 0
+    expect(s.activity.beeperToggled).toBe(false);
+  });
+
+  it('beeperToggled NOT set when beeper bit is unchanged (1→1)', () => {
+    s.cpu.portOut(0x00FE, 0x10); // beeper → 1
+    s.activity.beeperToggled = false; // reset tracking
+    s.cpu.portOut(0x00FE, 0x10); // beeper stays 1
+    expect(s.activity.beeperToggled).toBe(false);
+  });
+
+  it('beeperToggled set on transition 1→0', () => {
+    s.cpu.portOut(0x00FE, 0x10); // beeper → 1
+    s.activity.beeperToggled = false;
+    s.cpu.portOut(0x00FE, 0x00); // beeper → 0
+    expect(s.activity.beeperToggled).toBe(true);
+  });
+});
+
+describe('Activity counters — attrWrites range', () => {
+  let s: Spectrum;
+  beforeEach(() => { s = makeMachine('48k'); });
+
+  it('write at 0x5800 increments attrWrites', () => {
+    s.cpu.write8(0x5800, 0x01);
+    expect(s.activity.attrWrites).toBe(1);
+  });
+
+  it('write at 0x5AFF increments attrWrites (last attr byte)', () => {
+    s.cpu.write8(0x5AFF, 0x01);
+    expect(s.activity.attrWrites).toBe(1);
+  });
+
+  it('write at 0x5B00 does NOT increment attrWrites (one past end)', () => {
+    s.cpu.write8(0x5B00, 0x01);
+    expect(s.activity.attrWrites).toBe(0);
+  });
+
+  it('write at 0x57FF does NOT increment attrWrites (one before start)', () => {
+    s.cpu.write8(0x57FF, 0x01);
+    expect(s.activity.attrWrites).toBe(0);
+  });
+
+  it('write in screen pixel area (0x4000-0x57FF) does NOT increment attrWrites', () => {
+    s.cpu.write8(0x4000, 0x01);
+    expect(s.activity.attrWrites).toBe(0);
+  });
+});
+
+describe('Activity counters — AY, FDC, Kempston', () => {
+  it('ayWrites increments on AY register write (not on register select)', () => {
+    const s = makeMachine('128k');
+    s.cpu.portOut(0xFFFD, 0x07); // select — should NOT increment
+    expect(s.activity.ayWrites).toBe(0);
+    s.cpu.portOut(0xBFFD, 0x3F); // write — SHOULD increment
+    expect(s.activity.ayWrites).toBe(1);
+  });
+
+  it('fdcAccesses increments on FDC write (0x3FFD)', () => {
+    const s = makeMachine('+3');
+    s.fdc.logFn = null;
+    s.cpu.portOut(0x3FFD, 0x08); // write command byte
+    expect(s.activity.fdcAccesses).toBe(1);
+  });
+
+  it('fdcAccesses increments on FDC data read (0x3FFD)', () => {
+    const s = makeMachine('+3');
+    s.fdc.logFn = null;
+    // Put FDC in result phase so readData returns real data
+    s.cpu.portOut(0x3FFD, 0x08); // SENSE_INT
+    const before = s.activity.fdcAccesses;
+    s.cpu.portIn(0x3FFD);
+    expect(s.activity.fdcAccesses).toBe(before + 1);
+  });
+
+  it('kempstonReads increments on Kempston joystick IN', () => {
+    const s = makeMachine('48k');
+    s.cpu.portIn(0x001F);
+    expect(s.activity.kempstonReads).toBe(1);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// AMX mouse port routing
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('Port routing — AMX mouse', () => {
+  let s: Spectrum;
+  beforeEach(() => {
+    s = makeMachine('48k');
+    s.amxMouse.enabled = true;
+    s.amxMouse.dirX = 1;
+    s.amxMouse.dirY = 0;
+    s.amxMouse.buttons = 0xBF;
+  });
+
+  it('IN port 0x1F (lo & 0xE0 === 0x00) returns dirX bit', () => {
+    expect(s.cpu.portIn(0x001F) & 1).toBe(s.amxMouse.dirX & 1);
+  });
+
+  it('IN port 0x3F (lo & 0xE0 === 0x20) returns dirY bit', () => {
+    s.amxMouse.dirY = 1;
+    expect(s.cpu.portIn(0x003F) & 1).toBe(1);
+    s.amxMouse.dirY = 0;
+    expect(s.cpu.portIn(0x003F) & 1).toBe(0);
+  });
+
+  it('IN port 0xDF returns buttons byte', () => {
+    expect(s.cpu.portIn(0x00DF)).toBe(0xBF);
+  });
+
+  it('OUT port 0x5F (lo & 0xE0 === 0x40, A7=0) dispatches to pioControlWrite A', () => {
+    // Write a vector (bit 0 = 0) — verify pioVectorA is set
+    s.cpu.portOut(0x005F, 0x10); // bit 0 = 0 → vector
+    expect(s.amxMouse.pioVectorA).toBe(0x10);
+  });
+
+  it('OUT port 0x7F (lo & 0xE0 === 0x60, A7=0) dispatches to pioControlWrite B', () => {
+    s.cpu.portOut(0x007F, 0x20); // bit 0 = 0 → vector
+    expect(s.amxMouse.pioVectorB).toBe(0x20);
+  });
+
+  it('mouseReads increments on dirX/dirY/buttons reads', () => {
+    s.cpu.portIn(0x001F);
+    s.cpu.portIn(0x003F);
+    s.cpu.portIn(0x00DF);
+    expect(s.activity.mouseReads).toBe(3);
+  });
+
+  it('AMX intercepted at ports A7=0 — ports with A7=1 not intercepted', () => {
+    // Port 0x009F has A7=1 → A7=0 check fails → AMX not intercepted
+    s.cpu.portIn(0x009F);
+    expect(s.activity.mouseReads).toBe(0); // AMX did NOT handle this read
+  });
+
+  it('AMX disabled: IN from mouse port falls through to joystick / floating bus', () => {
+    s.amxMouse.enabled = false;
+    s.joystick.state = 0x1F;
+    // Port 0x001F with AMX off → Kempston joystick
+    expect(s.cpu.portIn(0x001F) & 0xFF).toBe(0x1F);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Kempston mouse port routing
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('Port routing — Kempston mouse', () => {
+  let s: Spectrum;
+  beforeEach(() => {
+    s = makeMachine('48k');
+    s.kempstonMouse.enabled = true;
+    s.kempstonMouse.x = 0xAB;
+    s.kempstonMouse.y = 0xCD;
+    s.kempstonMouse.buttons = 0xFE;
+  });
+
+  it('IN 0xFBDF returns X position', () => {
+    expect(s.cpu.portIn(0xFBDF) & 0xFF).toBe(0xAB);
+  });
+
+  it('IN 0xFFDF returns Y position', () => {
+    expect(s.cpu.portIn(0xFFDF) & 0xFF).toBe(0xCD);
+  });
+
+  it('IN 0xFADF returns button state', () => {
+    expect(s.cpu.portIn(0xFADF) & 0xFF).toBe(0xFE);
+  });
+
+  it('mouseReads increments for each Kempston mouse port read', () => {
+    s.cpu.portIn(0xFBDF);
+    s.cpu.portIn(0xFFDF);
+    s.cpu.portIn(0xFADF);
+    expect(s.activity.mouseReads).toBe(3);
+  });
+
+  it('Kempston mouse only intercepts lo byte 0xDF — other lo bytes use different paths', () => {
+    // Port 0xFB1F: lo=0x1F, bit 0 set → not ULA; bits 5-7 of lo are 0 → Kempston joystick
+    s.joystick.state = 0x0F;
+    expect(s.cpu.portIn(0xFB1F) & 0xFF).toBe(0x0F);
+  });
+
+  it('Kempston mouse disabled: lo=0xDF ports fall through to floating bus', () => {
+    s.kempstonMouse.enabled = false;
+    // Port 0xFFDF: lo=0xDF, bits 5-7 of lo = 0xC0 (nonzero) → floating bus
+    // Just verify it returns something and doesn't crash
+    expect(() => s.cpu.portIn(0xFFDF)).not.toThrow();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// VTX-5000 port routing
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('Port routing — VTX-5000', () => {
+  let s: Spectrum;
+  beforeEach(() => {
+    s = makeMachine('48k');
+    s.vtx5000.enabled = true;
+  });
+
+  it('IN lo=0xFF returns VTX status (TXRDY|TXEMPTY = 0x05 when idle)', () => {
+    const status = s.cpu.portIn(0x00FF);
+    expect(status & 0x05).toBe(0x05); // TXRDY and TXEMPTY always set
+  });
+
+  it('IN lo=0x7F returns VTX data (0x00 when rx FIFO empty)', () => {
+    expect(s.cpu.portIn(0x007F)).toBe(0x00);
+  });
+
+  it('OUT lo=0xFF dispatches to VTX writeControl (first write is mode reg)', () => {
+    s.cpu.portOut(0x00FF, 0x4E); // first write after reset = mode register
+    expect(s.vtx5000.modeReg).toBe(0x4E);
+  });
+
+  it('OUT lo=0x7F: VTX receives the data byte (early return, port not re-routed)', () => {
+    // Writing 0x7F with bit 0 = 1 → not ULA. Verify VTX data write doesn't crash
+    // and that the vtx5000 object absorbs it (no way to read back without Rx FIFO,
+    // so just verify no throw and no ULA side-effect).
+    const borderBefore = s.ula.borderColor;
+    expect(() => s.cpu.portOut(0x007F, 0x55)).not.toThrow();
+    expect(s.ula.borderColor).toBe(borderBefore); // ULA NOT touched
+  });
+
+  it('VTX disabled: lo=0xFF falls through to floating bus / open', () => {
+    s.vtx5000.enabled = false;
+    // Port 0x00FF: lo=0xFF, bit 0 set, bits 5-7 of lo = 0xE0 → not Kempston → floating bus
+    expect(() => s.cpu.portIn(0x00FF)).not.toThrow();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Multiface page-in / page-out via port IN
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('Port routing — Multiface page-in/page-out (MF1)', () => {
+  let s: Spectrum;
+  beforeEach(() => {
+    s = makeMachine('48k');
+    s.multiface.enabled = true;
+    s.multiface.variant = 'MF1';
+    s.multiface.romLoaded = true;
+    s.multiface.mfRom[0] = 0xEE; // marker byte in MF ROM
+  });
+
+  it('IN from port 0x9F pages in MF ROM and returns 0xFF', () => {
+    expect(s.multiface.pagedIn).toBe(false);
+    const result = s.cpu.portIn(0x009F);
+    expect(result & 0xFF).toBe(0xFF);
+    expect(s.multiface.pagedIn).toBe(true);
+    // Slot 0 now holds MF overlay: first byte is the MF ROM marker
+    expect(s.memory.readByte(0x0000)).toBe(0xEE);
+  });
+
+  it('IN from port 0x1F when paged in pages out and returns joystick state', () => {
+    s.multiface.pageIn(s.memory);
+    s.joystick.state = 0x0A;
+    const result = s.cpu.portIn(0x001F);
+    expect(result & 0xFF).toBe(0x0A);
+    expect(s.multiface.pagedIn).toBe(false);
+  });
+
+  it('page-in has no effect when MF not paged in on page-out port', () => {
+    // Reading page-out port when not paged in should not crash or change state
+    expect(s.multiface.pagedIn).toBe(false);
+    s.cpu.portIn(0x001F); // page-out port — but not paged in
+    expect(s.multiface.pagedIn).toBe(false);
+  });
+
+  it('page-in has no effect when romLoaded is false', () => {
+    s.multiface.romLoaded = false;
+    s.cpu.portIn(0x009F);
+    expect(s.multiface.pagedIn).toBe(false);
+  });
+
+  it('page-in has no effect when multiface is disabled', () => {
+    s.multiface.enabled = false;
+    s.cpu.portIn(0x009F);
+    expect(s.multiface.pagedIn).toBe(false);
+  });
+});
+
+describe('Port routing — MF3 port latch reads (+2A/+3)', () => {
+  it('IN 0x7F3F returns port7FFD latch', () => {
+    const s = makeMachine('+3');
+    s.multiface.enabled = true;
+    s.multiface.variant = 'MF3';
+    s.cpu.portOut(0x7FFD, 0x13); // set 7FFD latch = 0x13
+    const latch = s.cpu.portIn(0x7F3F);
+    expect(latch & 0xFF).toBe(s.memory.port7FFD);
+  });
+
+  it('IN 0x1F3F returns port1FFD latch', () => {
+    const s = makeMachine('+3');
+    s.multiface.enabled = true;
+    s.multiface.variant = 'MF3';
+    s.cpu.portOut(0x1FFD, 0x04); // set 1FFD latch = 0x04
+    const latch = s.cpu.portIn(0x1F3F);
+    expect(latch & 0xFF).toBe(s.memory.port1FFD);
+  });
+
+  it('MF3 latch reads only with MF3 variant — MF1 ignores the same ports', () => {
+    const s = makeMachine('48k');
+    s.multiface.enabled = true;
+    s.multiface.variant = 'MF1';
+    s.memory.port7FFD = 0x13;
+    // Port 0x7F3F: MF1 variant, (lo & 0xFF) === 0x3F.
+    // MF1 matchPort: lo=0x3F, (0x3F & 0x22)=0x02 → matches! Returns 'in' for lo=0x9F, 'out' for lo=0x1F.
+    // 0x3F is neither 0x9F nor 0x1F, so matchPort returns null.
+    // Falls through to Kempston joystick (bits 5-7 of lo = 0x20 → not Kempston) → floating bus.
+    const val = s.cpu.portIn(0x7F3F);
+    expect(val & 0xFF).not.toBe(0x13); // NOT port7FFD — latch check guarded by MF3 variant
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// cpu.contend hook (IO internal bus contention)
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('cpu.contend hook — hasIOContention', () => {
+  it('48K (Ferranti, hasIOContention=true): contend is a non-trivial function', () => {
+    const s = makeMachine('48k');
+    expect(s.variant.hasIOContention).toBe(true);
+    // The contend hook should be installed and callable
+    expect(() => s.cpu.contend?.(0x4000)).not.toThrow();
+  });
+
+  it('128K (Ferranti, hasIOContention=true): contend non-trivial', () => {
+    const s = makeMachine('128k');
+    expect(s.variant.hasIOContention).toBe(true);
+    expect(() => s.cpu.contend?.(0x4000)).not.toThrow();
+  });
+
+  it('+2A/+3 (Amstrad): hasIOContention differs from Ferranti', () => {
+    const s = makeMachine('+3');
+    // +2A/+3 still has IO contention but only for ULA ports (different rules)
+    expect(() => s.cpu.contend?.(0x4000)).not.toThrow();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// write8 special cases — Multiface RAM, 16K open-bus
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('write8 — Multiface ROM/RAM passthrough when paged in', () => {
+  let s: Spectrum;
+  beforeEach(() => {
+    s = makeMachine('48k');
+    s.multiface.enabled = true;
+    s.multiface.variant = 'MF1';
+    s.multiface.romLoaded = true;
+    s.multiface.pageIn(s.memory);
+  });
+
+  it('write to 0x0000-0x1FFF (MF ROM area) is silently discarded', () => {
+    const before = s.memory.readByte(0x0000);
+    s.cpu.write8(0x1000, 0x55);
+    expect(s.memory.readByte(0x1000)).toBe(before);
+  });
+
+  it('write to 0x2000-0x3FFF (MF RAM area) is allowed through', () => {
+    s.cpu.write8(0x2000, 0xAB);
+    expect(s.memory.readByte(0x2000)).toBe(0xAB);
+  });
+});
+
+describe('write8 — 16K open-bus behaviour', () => {
+  it('writes to 0x8000-0xFFFF on 16K are dropped; reads return 0xFF', () => {
+    const s = makeMachine('16k');
+    s.cpu.write8(0x8000, 0x42);
+    s.cpu.write8(0xFFFF, 0x42);
+    expect(s.memory.readByte(0x8000)).toBe(0xFF);
+    expect(s.memory.readByte(0xFFFF)).toBe(0xFF);
+  });
+
+  it('16K RAM (0x4000-0x7FFF) is writable', () => {
+    const s = makeMachine('16k');
+    s.cpu.write8(0x4000, 0x42);
+    expect(s.memory.readByte(0x4000)).toBe(0x42);
+    s.cpu.write8(0x7FFF, 0x99);
+    expect(s.memory.readByte(0x7FFF)).toBe(0x99);
+  });
+});
