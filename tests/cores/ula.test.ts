@@ -327,7 +327,7 @@ describe('FLASH attribute toggle', () => {
     mem[vramBitmapAddr(0)] = 0x80;
     mem[vramAttrAddr(0, 0)] = 0x86;
     ula.renderFrame(mem);
-    const noFlash = displayPixel(ula, 0, 0); // expect ink colour (yellow)
+    displayPixel(ula, 0, 0); // sanity render (yellow ink) — result not compared
 
     // Now with flash bit set: attr = 0x86 | 0x80 = 0x06? wait — ink=6, paper=0 ALREADY
     // We need to set bit 7 (flash). 0x86 = paper 0 ink 6, no flash. 0x06 = paper 0 ink 6.

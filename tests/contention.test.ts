@@ -18,7 +18,6 @@
 import { describe, it, expect } from 'vitest';
 import { Contention, TIMING_48K, TIMING_128K, TIMING_PLUS2A } from '@/contention.ts';
 import { SpectrumMemory } from '@/memory.ts';
-import { createVariant } from '@/variants/index.ts';
 import { spectrum48K } from '@/variants/spectrum-48k.ts';
 import { spectrum16K } from '@/variants/spectrum-16k.ts';
 import { createFerranti128K } from '@/variants/spectrum-ferranti.ts';

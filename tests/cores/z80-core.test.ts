@@ -15,7 +15,7 @@
  *   7 6  5 4  3  2 1 0
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { Z80 } from '@/cores/z80.ts';
 
 const F_S  = 0x80;

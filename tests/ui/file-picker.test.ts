@@ -91,7 +91,7 @@ describe('file-picker — native showOpenFilePicker', () => {
     expect(Array.from(result![0].data)).toEqual([1, 2, 3, 4]);
 
     // Picker was invoked with the requested id + extensions wired through.
-    const args = picker.mock.calls[0][0];
+    const args = (picker.mock.calls[0] as any[])[0];
     expect(args.id).toBe('snapshots');
     expect(args.multiple).toBe(false);
     expect(args.types[0].accept['*/*']).toEqual(['.sna']);
@@ -110,12 +110,16 @@ describe('file-picker — native showOpenFilePicker', () => {
     const result = await m.openFile({ id: 'tapes', extensions: ['.tap', '.tzx'], multiple: true });
 
     expect(result!.map(r => r.name)).toEqual(['A.TAP', 'B.TAP']);
-    expect(picker.mock.calls[0][0].multiple).toBe(true);
+    expect((picker.mock.calls[0] as any[])[0].multiple).toBe(true);
   });
 
   it('returns null when the user dismisses the native picker (AbortError thrown)', async () => {
     (globalThis as any).window = {
-      showOpenFilePicker: async () => { throw new DOMException?.('aborted', 'AbortError') ?? new Error('abort'); },
+      showOpenFilePicker: async () => {
+        throw typeof DOMException !== 'undefined'
+          ? new DOMException('aborted', 'AbortError')
+          : new Error('abort');
+      },
     };
     const m = await freshImport();
     expect(await m.openFile({ id: 'x', extensions: ['.tap'] })).toBeNull();

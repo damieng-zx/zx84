@@ -9,7 +9,7 @@
     "noFallthroughCasesInSwitch": true,
     "isolatedModules": true,
     "esModuleInterop": true,
-    "types": ["vite/client"],
+    "types": ["vite/client", "node"],
     "jsx": "preserve",
     "jsxImportSource": "solid-js",
     "skipLibCheck": true,
