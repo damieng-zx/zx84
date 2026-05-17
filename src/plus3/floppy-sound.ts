@@ -118,7 +118,11 @@ export class FloppySound {
   }
 
   destroy(): void {
-    this.stopMotor();
+    // Funnel through reset() so edge state is always cleared. Without this,
+    // a destroy() followed by a fresh attach() would inherit stale
+    // prevMotor/prevTrack and the first update() could skip the motor-on
+    // edge or fire a spurious track delta.
+    this.reset();
     this.masterGain?.disconnect();
     this.masterGain = null;
     this.ctx = null;
@@ -185,17 +189,25 @@ export class FloppySound {
       this.motorGain.gain.linearRampToValueAtTime(0, now + this.P.motorRampDown);
     }
 
-    const cleanup = () => {
-      this.motorOsc?.stop();
-      this.motorOsc?.disconnect();
-      this.motorOsc = null;
-      this.motorNoise?.stop();
-      this.motorNoise?.disconnect();
-      this.motorNoise = null;
-      this.motorGain?.disconnect();
-      this.motorGain = null;
-    };
-    setTimeout(cleanup, 200);
+    // Capture the nodes being shut down in the closure and null out the
+    // instance fields immediately. If a new motor starts inside the 200ms
+    // cleanup window, startMotor() builds a fresh graph and *this* cleanup
+    // tears down only the old one — without the capture, the deferred
+    // cleanup would read this.motorOsc at fire-time and stop the new motor.
+    const osc = this.motorOsc;
+    const noise = this.motorNoise;
+    const gain = this.motorGain;
+    this.motorOsc = null;
+    this.motorNoise = null;
+    this.motorGain = null;
+
+    setTimeout(() => {
+      osc?.stop();
+      osc?.disconnect();
+      noise?.stop();
+      noise?.disconnect();
+      gain?.disconnect();
+    }, 200);
   }
 
   // ── Motor start click ─────────────────────────────────────────────
@@ -285,24 +297,27 @@ export class FloppySound {
     src.stop(t + P.stepDur);
   }
 
-  // ── Seek-to-zero rattle ──────────────────────────────────────────────
+  // ── Bounded multi-step click scheduler ──────────────────────────────
+  //
+  // A real Spectrum +3 drive tops out at ~80 tracks. Any count above that is
+  // either a future caller bug or corrupted FDC state — clamp so we never
+  // queue thousands of buffer sources. seekToZero and scheduledClicks both
+  // funnel through here so the clamp can't drift.
 
-  private seekToZero(fromTrack: number): void {
+  private scheduleSteps(count: number, interval: number): void {
     if (!this.ctx) return;
-    const count = Math.min(fromTrack, 80);
+    const clamped = Math.min(Math.max(count, 0), 80);
     const now = this.ctx.currentTime;
-    for (let i = 0; i < count; i++) {
-      this.stepClick(now + i * this.P.seekToZeroInterval);
+    for (let i = 0; i < clamped; i++) {
+      this.stepClick(now + i * interval);
     }
   }
 
-  // ── Scheduled clicks (multi-step seek) ───────────────────────────────
+  private seekToZero(fromTrack: number): void {
+    this.scheduleSteps(fromTrack, this.P.seekToZeroInterval);
+  }
 
   private scheduledClicks(steps: number): void {
-    if (!this.ctx) return;
-    const now = this.ctx.currentTime;
-    for (let i = 0; i < steps; i++) {
-      this.stepClick(now + i * this.P.seekInterval);
-    }
+    this.scheduleSteps(steps, this.P.seekInterval);
   }
 }
