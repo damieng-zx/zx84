@@ -56,6 +56,10 @@ describe('multiface — matchPort decode', () => {
       expect(mf.matchPort(0xBF)).toBeNull(); // MF128's port
       expect(mf.matchPort(0x3F)).toBeNull();
     });
+    it('returns null for ports that pass the gate but are neither 0x9F nor 0x1F', () => {
+      // 0x03: bit1=1, bit5=0 — passes gate, unrecognised port.
+      expect(mf.matchPort(0x03)).toBeNull();
+    });
     it('uses only the low byte (high byte irrelevant)', () => {
       expect(mf.matchPort(0xFF9F)).toBe('in');
       expect(mf.matchPort(0x121F)).toBe('out');
@@ -68,9 +72,10 @@ describe('multiface — matchPort decode', () => {
       expect(mf.matchPort(0xBF)).toBe('in');
       expect(mf.matchPort(0x3F)).toBe('out');
     });
-    it('rejects MF1 / MF3 ports', () => {
+    it('rejects MF1 / MF3 ports and unrelated ports', () => {
       expect(mf.matchPort(0x9F)).toBeNull();
       expect(mf.matchPort(0x1F)).toBeNull();
+      expect(mf.matchPort(0x00)).toBeNull();
     });
   });
 
@@ -80,9 +85,10 @@ describe('multiface — matchPort decode', () => {
       expect(mf.matchPort(0x3F)).toBe('in');
       expect(mf.matchPort(0xBF)).toBe('out');
     });
-    it('the MF128 mapping is NOT recognised here', () => {
-      // 0x3F means page-IN on MF3, not page-OUT.
-      expect(mf.matchPort(0x3F)).not.toBe('out');
+    it('rejects MF1 ports and unrelated ports', () => {
+      expect(mf.matchPort(0x9F)).toBeNull();
+      expect(mf.matchPort(0x1F)).toBeNull();
+      expect(mf.matchPort(0x00)).toBeNull();
     });
   });
 });
@@ -183,6 +189,15 @@ describe('multiface — pageIn / pageOut overlay', () => {
     expect(mf.mfRam.every(b => b === 0)).toBe(true);
     expect(mf.pagedIn).toBe(false);
     expect(mf.savedSlot0Bank).toBe(-1);
+  });
+
+  it('reset does not clear enabled or romLoaded (hardware reset preserves ROM and device state)', () => {
+    const mf = new Multiface();
+    mf.enabled = true;
+    mf.romLoaded = true;
+    mf.reset();
+    expect(mf.enabled).toBe(true);
+    expect(mf.romLoaded).toBe(true);
   });
 });
 
