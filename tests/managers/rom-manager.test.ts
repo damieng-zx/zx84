@@ -1,0 +1,377 @@
+/**
+ * Tests for ROMManager.
+ *
+ * Lock-ins for previously-fragile behaviour:
+ *  - Default ROM label is the model name, not the first page's filename
+ *    (multi-page ROMs aren't misrepresented as one of their halves).
+ *  - restoreROM() swallows IDB errors so loadROM() can fall back to
+ *    fetching the default instead of permanently bricking.
+ *  - persistROM() only populates the cache after the IDB write succeeds;
+ *    a failed save leaves cache and disk consistent.
+ *  - loadROM() deduplicates concurrent calls for the same model via an
+ *    in-flight promise map (one fetch, not N).
+ */
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+// ── Mock persistence layer (in-memory IDB, no real indexedDB needed) ──────
+
+const idb = new Map<string, Uint8Array>();
+const dbSave = vi.fn(async (key: string, data: Uint8Array) => {
+  idb.set(key, data);
+});
+const dbLoad = vi.fn(async (key: string) => idb.get(key) ?? null);
+
+vi.mock('@/store/persistence.ts', () => ({
+  dbSave: (key: string, data: Uint8Array) => dbSave(key, data),
+  dbLoad: (key: string) => dbLoad(key),
+}));
+
+// ── localStorage shim (node environment has no DOM) ───────────────────────
+
+class FakeLocalStorage {
+  private store = new Map<string, string>();
+  /** When true, every setItem throws (simulates private-mode / quota). */
+  throwOnSet = false;
+  getItem(k: string) { return this.store.has(k) ? this.store.get(k)! : null; }
+  setItem(k: string, v: string) {
+    if (this.throwOnSet) throw new DOMException('quota', 'QuotaExceededError');
+    this.store.set(k, v);
+  }
+  removeItem(k: string) { this.store.delete(k); }
+  clear() { this.store.clear(); }
+}
+
+let fakeLS: FakeLocalStorage;
+beforeEach(() => {
+  idb.clear();
+  dbSave.mockClear();
+  dbLoad.mockClear();
+  fakeLS = new FakeLocalStorage();
+  (globalThis as any).localStorage = fakeLS;
+});
+
+// ── Fetch fake ────────────────────────────────────────────────────────────
+
+interface FetchSpec {
+  status?: number;
+  body?: Uint8Array;
+  fail?: boolean;        // network error
+  delayMs?: number;      // staggering for concurrent tests
+}
+function installFetch(routes: Record<string, FetchSpec | FetchSpec[]>): { calls: string[] } {
+  const calls: string[] = [];
+  const nextIdx: Record<string, number> = {};
+  (globalThis as any).fetch = async (url: string) => {
+    calls.push(url);
+    let spec: FetchSpec | undefined;
+    const r = routes[url];
+    if (Array.isArray(r)) {
+      const i = nextIdx[url] ?? 0;
+      spec = r[i];
+      nextIdx[url] = i + 1;
+    } else {
+      spec = r;
+    }
+    if (!spec) throw new Error(`Unexpected fetch: ${url}`);
+    if (spec.delayMs) await new Promise(r => setTimeout(r, spec!.delayMs));
+    if (spec.fail) throw new Error('network down');
+    const status = spec.status ?? 200;
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      arrayBuffer: async () => spec!.body?.buffer ?? new ArrayBuffer(0),
+    } as Response;
+  };
+  return { calls };
+}
+
+// ── Import under test (after mocks are in place) ──────────────────────────
+
+import { ROMManager } from '@/managers/rom-manager.ts';
+
+const ROM_BASE = 'https://zx84files.bitsparse.com/roms/';
+
+// ── persistROM / restoreROM ───────────────────────────────────────────────
+
+describe('ROMManager.persistROM / restoreROM', () => {
+  it('round-trips a ROM through cache + IndexedDB', async () => {
+    const m = new ROMManager();
+    const rom = new Uint8Array([1, 2, 3, 4]);
+    await m.persistROM('48k', rom, 'my-rom.rom');
+
+    expect(m.getCached('48k')?.label).toBe('my-rom.rom');
+    expect(Array.from(m.getCached('48k')!.data)).toEqual([1, 2, 3, 4]);
+    expect(idb.get('rom-48k')).toBe(rom);
+    expect(fakeLS.getItem('zx84-rom-label-48k')).toBe('my-rom.rom');
+  });
+
+  it('restoreROM returns the cached entry without touching IDB', async () => {
+    const m = new ROMManager();
+    await m.persistROM('48k', new Uint8Array([0xAA]), 'cached');
+    dbLoad.mockClear();
+    const got = await m.restoreROM('48k');
+    expect(got?.label).toBe('cached');
+    expect(dbLoad).not.toHaveBeenCalled();
+  });
+
+  it('restoreROM loads from IDB and re-populates the cache on a cold start', async () => {
+    // First instance writes; a second instance (simulating page reload) reads.
+    const a = new ROMManager();
+    await a.persistROM('128k', new Uint8Array([1, 2]), 'fresh-128.rom');
+
+    const b = new ROMManager();
+    const got = await b.restoreROM('128k');
+    expect(got).not.toBeNull();
+    expect(got!.label).toBe('fresh-128.rom');
+    expect(Array.from(got!.data)).toEqual([1, 2]);
+    // Subsequent calls now hit the cache.
+    dbLoad.mockClear();
+    await b.restoreROM('128k');
+    expect(dbLoad).not.toHaveBeenCalled();
+  });
+
+  it('restoreROM returns null when no ROM is stored', async () => {
+    const m = new ROMManager();
+    expect(await m.restoreROM('+3')).toBeNull();
+  });
+
+  it('restoreROM falls back to "saved ROM" when the label is missing', async () => {
+    // Simulate: IDB has the ROM but localStorage label was lost (e.g. private
+    // tab, separate domain). Pre-seed IDB without ever writing the label.
+    idb.set('rom-48k', new Uint8Array([0xFF]));
+    const m = new ROMManager();
+    const got = await m.restoreROM('48k');
+    expect(got?.label).toBe('saved ROM');
+  });
+
+  it('persistROM survives localStorage throwing (private-mode quota error)', async () => {
+    fakeLS.throwOnSet = true;
+    const m = new ROMManager();
+    await expect(
+      m.persistROM('48k', new Uint8Array([1]), 'x.rom'),
+    ).resolves.toBeUndefined();
+    // Cache + IDB both still populated.
+    expect(m.getCached('48k')?.label).toBe('x.rom');
+    expect(idb.get('rom-48k')).toBeDefined();
+  });
+
+  it('cache is not populated when the IDB write fails (no RAM/disk skew)', async () => {
+    dbSave.mockImplementationOnce(async () => { throw new Error('IDB down'); });
+    const m = new ROMManager();
+    await expect(
+      m.persistROM('48k', new Uint8Array([1]), 'x.rom'),
+    ).rejects.toThrow('IDB down');
+    expect(m.getCached('48k')).toBeNull();
+    expect(idb.get('rom-48k')).toBeUndefined();
+  });
+});
+
+// ── fetchDefaultROM ───────────────────────────────────────────────────────
+
+describe('ROMManager.fetchDefaultROM', () => {
+  it('downloads a single-page ROM and persists it', async () => {
+    const body = new Uint8Array([1, 2, 3, 4]);
+    installFetch({ [`${ROM_BASE}48.rom`]: { body } });
+
+    const m = new ROMManager();
+    const got = await m.fetchDefaultROM('48k');
+    expect(got).not.toBeNull();
+    expect(Array.from(got!.data)).toEqual([1, 2, 3, 4]);
+    expect(got!.label).toBe('48K (default)');
+    expect(idb.get('rom-48k')).toEqual(body);
+  });
+
+  it('concatenates multi-page ROMs in URL order', async () => {
+    installFetch({
+      [`${ROM_BASE}128-0.rom`]: { body: new Uint8Array([0xAA, 0xBB]) },
+      [`${ROM_BASE}128-1.rom`]: { body: new Uint8Array([0xCC, 0xDD, 0xEE]) },
+    });
+    const m = new ROMManager();
+    const got = await m.fetchDefaultROM('128k');
+    expect(got).not.toBeNull();
+    expect(Array.from(got!.data)).toEqual([0xAA, 0xBB, 0xCC, 0xDD, 0xEE]);
+  });
+
+  it('concatenates 4-page +3 ROM in correct order even if pages return out-of-order', async () => {
+    // page 1 takes longer than page 3 — concat order must follow URL order.
+    installFetch({
+      [`${ROM_BASE}plus3-0.rom`]: { body: new Uint8Array([0]), delayMs: 5 },
+      [`${ROM_BASE}plus3-1.rom`]: { body: new Uint8Array([1]), delayMs: 30 },
+      [`${ROM_BASE}plus3-2.rom`]: { body: new Uint8Array([2]), delayMs: 0 },
+      [`${ROM_BASE}plus3-3.rom`]: { body: new Uint8Array([3]), delayMs: 15 },
+    });
+    const m = new ROMManager();
+    const got = await m.fetchDefaultROM('+3');
+    expect(Array.from(got!.data)).toEqual([0, 1, 2, 3]);
+  });
+
+  it('returns null and surfaces status if a single page returns HTTP error', async () => {
+    installFetch({
+      [`${ROM_BASE}128-0.rom`]: { body: new Uint8Array([0xAA]) },
+      [`${ROM_BASE}128-1.rom`]: { status: 404 },
+    });
+    const status = vi.fn();
+    const m = new ROMManager();
+    const got = await m.fetchDefaultROM('128k', status);
+    expect(got).toBeNull();
+    // Nothing persisted on partial failure.
+    expect(idb.get('rom-128k')).toBeUndefined();
+    expect(m.getCached('128k')).toBeNull();
+    // Failure message reported via callback.
+    expect(status.mock.calls.map(c => c[0])).toEqual(
+      expect.arrayContaining([expect.stringContaining('Failed to download')]),
+    );
+  });
+
+  it('returns null on network failure', async () => {
+    installFetch({ [`${ROM_BASE}48.rom`]: { fail: true } });
+    const status = vi.fn();
+    const m = new ROMManager();
+    expect(await m.fetchDefaultROM('48k', status)).toBeNull();
+    expect(status.mock.calls.some(c => /Failed/.test(c[0] as string))).toBe(true);
+  });
+
+  it('calls onStatus before download and after success', async () => {
+    installFetch({ [`${ROM_BASE}48.rom`]: { body: new Uint8Array([1]) } });
+    const status = vi.fn();
+    const m = new ROMManager();
+    await m.fetchDefaultROM('48k', status);
+    const msgs = status.mock.calls.map(c => c[0] as string);
+    expect(msgs[0]).toMatch(/Downloading/i);
+    expect(msgs[msgs.length - 1]).toMatch(/loaded/i);
+  });
+
+  it('labels default ROMs by model, not by first-page filename', async () => {
+    installFetch({
+      [`${ROM_BASE}128-0.rom`]: { body: new Uint8Array([1]) },
+      [`${ROM_BASE}128-1.rom`]: { body: new Uint8Array([2]) },
+    });
+    const m = new ROMManager();
+    const got = await m.fetchDefaultROM('128k');
+    expect(got!.label).toBe('128K (default)');
+  });
+
+  it('single-page default ROMs use the same model-named label', async () => {
+    installFetch({ [`${ROM_BASE}48.rom`]: { body: new Uint8Array([1]) } });
+    const m = new ROMManager();
+    const got = await m.fetchDefaultROM('48k');
+    expect(got!.label).toBe('48K (default)');
+  });
+});
+
+// ── loadROM (cache → IDB → fetch) ─────────────────────────────────────────
+
+describe('ROMManager.loadROM', () => {
+  it('returns the in-memory cached entry without fetching', async () => {
+    const { calls } = installFetch({});
+    const m = new ROMManager();
+    await m.persistROM('48k', new Uint8Array([9]), 'cached');
+    const got = await m.loadROM('48k');
+    expect(got?.label).toBe('cached');
+    expect(calls).toEqual([]);
+  });
+
+  it('returns the IDB-stored entry without fetching', async () => {
+    const { calls } = installFetch({});
+    // Seed IDB only.
+    idb.set('rom-+2', new Uint8Array([0xEE]));
+    fakeLS.setItem('zx84-rom-label-+2', 'restored');
+    const m = new ROMManager();
+    const got = await m.loadROM('+2');
+    expect(got?.label).toBe('restored');
+    expect(calls).toEqual([]);
+  });
+
+  it('falls back to fetchDefaultROM when nothing is cached', async () => {
+    const { calls } = installFetch({
+      [`${ROM_BASE}48.rom`]: { body: new Uint8Array([1, 2]) },
+    });
+    const m = new ROMManager();
+    const got = await m.loadROM('48k');
+    expect(got).not.toBeNull();
+    expect(calls).toEqual([`${ROM_BASE}48.rom`]);
+  });
+
+  it('returns null when neither cache nor fetch succeeds', async () => {
+    installFetch({ [`${ROM_BASE}48.rom`]: { status: 500 } });
+    const m = new ROMManager();
+    expect(await m.loadROM('48k')).toBeNull();
+  });
+
+  it('falls back to fetching when IndexedDB throws (corrupt-DB recovery)', async () => {
+    dbLoad.mockImplementationOnce(async () => { throw new Error('IDB corrupt'); });
+    const { calls } = installFetch({
+      [`${ROM_BASE}48.rom`]: { body: new Uint8Array([0xAB]) },
+    });
+    const m = new ROMManager();
+    const got = await m.loadROM('48k');
+    expect(got).not.toBeNull();
+    expect(Array.from(got!.data)).toEqual([0xAB]);
+    expect(calls).toEqual([`${ROM_BASE}48.rom`]);
+  });
+
+  it('deduplicates concurrent calls for the same model into one fetch', async () => {
+    const { calls } = installFetch({
+      [`${ROM_BASE}48.rom`]: { body: new Uint8Array([1]), delayMs: 20 },
+    });
+    const m = new ROMManager();
+    const [a, b, c] = await Promise.all([
+      m.loadROM('48k'),
+      m.loadROM('48k'),
+      m.loadROM('48k'),
+    ]);
+    // All three resolve to the same entry; only one network round-trip.
+    expect(a).toBe(b);
+    expect(b).toBe(c);
+    expect(calls.length).toBe(1);
+  });
+
+  it('clears the in-flight entry after settle so retries work', async () => {
+    // First call: 500 → null. Second call: 200 → success.
+    installFetch({
+      [`${ROM_BASE}48.rom`]: [{ status: 500 }, { body: new Uint8Array([0x42]) }],
+    });
+    const m = new ROMManager();
+    expect(await m.loadROM('48k')).toBeNull();
+    const got = await m.loadROM('48k');
+    expect(got).not.toBeNull();
+    expect(Array.from(got!.data)).toEqual([0x42]);
+  });
+
+  it('does not dedupe across different models', async () => {
+    const { calls } = installFetch({
+      [`${ROM_BASE}48.rom`]:    { body: new Uint8Array([1]), delayMs: 10 },
+      [`${ROM_BASE}plus2-0.rom`]: { body: new Uint8Array([2]), delayMs: 10 },
+      [`${ROM_BASE}plus2-1.rom`]: { body: new Uint8Array([3]), delayMs: 10 },
+    });
+    const m = new ROMManager();
+    await Promise.all([m.loadROM('48k'), m.loadROM('+2')]);
+    expect(calls.length).toBe(3); // 1 page for 48k + 2 pages for +2
+  });
+});
+
+// ── getCached ─────────────────────────────────────────────────────────────
+
+describe('ROMManager.getCached', () => {
+  it('returns null when nothing is cached', () => {
+    expect(new ROMManager().getCached('48k')).toBeNull();
+  });
+
+  it('returns the same object reference as the cached entry (no defensive copy)', async () => {
+    const m = new ROMManager();
+    const data = new Uint8Array([1, 2, 3]);
+    await m.persistROM('48k', data, 'r');
+    const got = m.getCached('48k')!;
+    expect(got.data).toBe(data); // same reference
+    // Caller mutating data would mutate the cache; documented, not asserted as "correct".
+  });
+
+  it('does not trigger any IDB or network access', async () => {
+    const { calls } = installFetch({});
+    dbLoad.mockClear();
+    const m = new ROMManager();
+    m.getCached('48k');
+    expect(dbLoad).not.toHaveBeenCalled();
+    expect(calls).toEqual([]);
+  });
+});

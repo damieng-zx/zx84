@@ -30,26 +30,38 @@ const DEFAULT_ROM_URLS: Record<SpectrumModel, string[]> = {
 
 export class ROMManager {
   private cache: Record<string, ROMEntry> = {};
+  /** In-flight loadROM promises, deduplicated per model. */
+  private inFlight: Partial<Record<SpectrumModel, Promise<ROMEntry | null>>> = {};
 
   /**
    * Persist a ROM image to cache and IndexedDB.
+   * Cache is only populated if the IDB write succeeds, so cache and disk
+   * never disagree on a failed save.
    */
   async persistROM(model: SpectrumModel, data: Uint8Array, label: string): Promise<void> {
-    this.cache[model] = { data, label };
     await dbSave(`rom-${model}`, data);
+    this.cache[model] = { data, label };
     try {
       localStorage.setItem(`zx84-rom-label-${model}`, label);
-    } catch { /* */ }
+    } catch { /* private mode / quota — label will fall back on next restore */ }
   }
 
   /**
    * Restore a ROM from cache or IndexedDB.
-   * Returns null if no ROM is stored for this model.
+   * Returns null if no ROM is stored OR if IDB throws (caller can fall back
+   * to fetching the default).
    */
   async restoreROM(model: SpectrumModel): Promise<ROMEntry | null> {
     if (this.cache[model]) return this.cache[model];
 
-    const data = await dbLoad(`rom-${model}`);
+    let data: Uint8Array | null;
+    try {
+      data = await dbLoad(`rom-${model}`);
+    } catch {
+      // Corrupt DB / quota / etc. — treat as "not stored" so loadROM can fall
+      // back to the default fetch path rather than permanently bricking.
+      return null;
+    }
     if (!data) return null;
 
     const label = localStorage.getItem(`zx84-rom-label-${model}`) || 'saved ROM';
@@ -83,7 +95,7 @@ export class ROMManager {
       let offset = 0;
       for (const page of pages) { data.set(page, offset); offset += page.length; }
 
-      const label = urls[0].split('/').pop()!;
+      const label = `${model.toUpperCase()} (default)`;
       await this.persistROM(model, data, label);
       onStatus?.(`${model.toUpperCase()} ROM loaded`);
 
@@ -96,14 +108,23 @@ export class ROMManager {
 
   /**
    * Load a ROM and return it, trying cache first, then fetching if needed.
+   * Concurrent calls for the same model share a single in-flight promise.
    */
-  async loadROM(
+  loadROM(
     model: SpectrumModel,
     onStatus?: (msg: string) => void
   ): Promise<ROMEntry | null> {
-    let entry = await this.restoreROM(model);
-    if (!entry) entry = await this.fetchDefaultROM(model, onStatus);
-    return entry;
+    const existing = this.inFlight[model];
+    if (existing) return existing;
+
+    const p = (async () => {
+      let entry = await this.restoreROM(model);
+      if (!entry) entry = await this.fetchDefaultROM(model, onStatus);
+      return entry;
+    })().finally(() => { delete this.inFlight[model]; });
+
+    this.inFlight[model] = p;
+    return p;
   }
 
   /**
