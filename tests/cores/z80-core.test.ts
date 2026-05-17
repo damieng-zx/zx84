@@ -860,6 +860,52 @@ describe('Z80 — DAA', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────
+// CPL — complement accumulator
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('Z80 — CPL', () => {
+  it('inverts all bits of A', () => {
+    const h = newCpu();
+    h.cpu.a = 0xA5;
+    load(h.mem, 0, 0x2F); // CPL
+    step(h);
+    expect(h.cpu.a).toBe(0x5A);
+  });
+
+  it('always sets H=1 and N=1', () => {
+    const h = newCpu();
+    h.cpu.a = 0x00;
+    h.cpu.f = 0x00;
+    load(h.mem, 0, 0x2F);
+    step(h);
+    expect(h.cpu.f & F_H).toBe(F_H);
+    expect(h.cpu.f & F_N).toBe(F_N);
+  });
+
+  it('preserves S, Z, PV, C', () => {
+    const h = newCpu();
+    h.cpu.a = 0x00;
+    h.cpu.f = F_S | F_Z | F_PV | F_C;
+    load(h.mem, 0, 0x2F);
+    step(h);
+    expect(h.cpu.f & F_S).toBe(F_S);
+    expect(h.cpu.f & F_Z).toBe(F_Z);
+    expect(h.cpu.f & F_PV).toBe(F_PV);
+    expect(h.cpu.f & F_C).toBe(F_C);
+  });
+
+  it('F3/F5 come from result bits 3 and 5', () => {
+    const h = newCpu();
+    h.cpu.a = 0xD7; // 11010111 → CPL → 00101000 = 0x28
+    load(h.mem, 0, 0x2F);
+    step(h);
+    expect(h.cpu.a).toBe(0x28);
+    expect(h.cpu.f & F_F3).toBe(F_F3);
+    expect(h.cpu.f & F_F5).toBe(F_F5);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
 // SCF / CCF — Q register undocumented behaviour (Patrik Rak)
 // ─────────────────────────────────────────────────────────────────────────
 
