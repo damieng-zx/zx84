@@ -646,18 +646,28 @@ describe('disassembleAroundPC', () => {
     }
   });
 
-  it('falls back to "start at PC" when totalLines < before + 1', () => {
-    // Degenerate config: caller asked for only 4 total lines but 6 before PC.
-    // The function should still return SOMETHING usable rather than crashing,
-    // and the result should contain at most `totalLines` lines.
+  it('keeps PC in the window when totalLines is smaller than `before`', () => {
+    // Degenerate config: 4 total lines, 6 before. PC must still be in the
+    // result — the function should squeeze `before` to fit.
     const mem = new Uint8Array(65536);
     const lines = disassembleAroundPC(mem, 0x100, 4, 6);
     expect(lines.length).toBeLessThanOrEqual(4);
-    // Document the current shortcoming explicitly: with this nonsensical
-    // sizing the returned window may not actually contain PC. If we ever
-    // tighten the function to guarantee PC inclusion, flip this expect.
-    // For now we only assert no-crash + length cap.
-    expect(Array.isArray(lines)).toBe(true);
+    expect(lines.some(l => l.addr === 0x100)).toBe(true);
+  });
+
+  it('PC lands at the last slot when totalLines fits exactly', () => {
+    // totalLines=4, before=6: target = min(6, bestBefore, 3) = 3. PC at idx 3.
+    const mem = new Uint8Array(65536); // NOPs everywhere
+    const lines = disassembleAroundPC(mem, 0x100, 4, 6);
+    const idx = lines.findIndex(l => l.addr === 0x100);
+    expect(idx).toBe(3);
+  });
+
+  it('keeps PC in the window when totalLines equals 1', () => {
+    const mem = new Uint8Array(65536);
+    const lines = disassembleAroundPC(mem, 0x100, 1, 6);
+    expect(lines.length).toBe(1);
+    expect(lines[0].addr).toBe(0x100);
   });
 });
 

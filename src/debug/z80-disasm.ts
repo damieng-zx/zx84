@@ -361,8 +361,12 @@ export function disassembleAroundPC(
     }
   }
   if (bestLines && bestBefore >= 0) {
-    // Trim to: bestBefore lines before PC, then fill up to totalLines
-    const startIdx = Math.max(0, bestBefore - before);
+    // Decide where PC should land in the returned window first, then slide
+    // the slice so PC ends up there. Clamping by (totalLines - 1) keeps PC
+    // inside the slice even when the caller asks for fewer lines than the
+    // requested `before` context.
+    const targetIdx = Math.min(before, bestBefore, Math.max(0, totalLines - 1));
+    const startIdx = bestBefore - targetIdx;
     return bestLines.slice(startIdx, startIdx + totalLines);
   }
   // Fallback: just start at PC
