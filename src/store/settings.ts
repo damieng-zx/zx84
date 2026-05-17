@@ -35,9 +35,10 @@ const DEFAULTS = {
   'scanline-accuracy': 'high',
 
   // Sound
-  'volume':    '70',
-  'ay-mix':    '50',
-  'ay-stereo': 'ABC',
+  'volume':       '70',
+  'ay-mix':       '50',
+  'ay-stereo':    'ABC',
+  'ay-dc-block':  'on',
 
   // Joystick
   'joy-p1':     'kempston',
@@ -173,6 +174,10 @@ export const setAyMix = _ayMix[1];
 const _ayStereo = /*@once*/ createRoot(() => createSignal(getSaved('ay-stereo', D('ay-stereo'))));
 export const ayStereo = _ayStereo[0];
 export const setAyStereo = _ayStereo[1];
+
+const _ayDcBlock = /*@once*/ createRoot(() => createSignal(getSaved('ay-dc-block', D('ay-dc-block')) === 'on'));
+export const ayDcBlock = _ayDcBlock[0];
+export const setAyDcBlock = _ayDcBlock[1];
 
 // ── Joystick settings ───────────────────────────────────────────────────
 
@@ -369,9 +374,10 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'scanline-accuracy', set: setScanlineAccuracy, type: 'string' },
   ],
   sound: [
-    { key: 'volume',    set: setVolume,   type: 'number' },
-    { key: 'ay-mix',    set: setAyMix,    type: 'number' },
-    { key: 'ay-stereo', set: setAyStereo, type: 'string' },
+    { key: 'volume',      set: setVolume,     type: 'number' },
+    { key: 'ay-mix',      set: setAyMix,      type: 'number' },
+    { key: 'ay-stereo',   set: setAyStereo,   type: 'string' },
+    { key: 'ay-dc-block', set: setAyDcBlock,  type: 'bool' },
   ],
   joystick: [
     { key: 'joy-p1',     set: setJoyP1,    type: 'string' },
