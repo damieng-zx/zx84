@@ -916,6 +916,75 @@ describe('Z80 — INI / IND / INIR / INDR block I/O', () => {
   });
 });
 
+describe('Z80 — OUTI / OUTD / OTIR / OTDR block output', () => {
+  it('OUTI increments HL first, then writes (HL-original) to port BC-after-decrement', () => {
+    const h = newCpu();
+    h.cpu.bc = 0x0234; // B=2, C=0x34
+    h.cpu.hl = 0xC000;
+    h.mem[0xC000] = 0x42;
+    load(h.mem, 0, 0xED, 0xA3); // OUTI
+    step(h);
+    // HL incremented before port write; B decremented before port address formed
+    expect(h.cpu.hl).toBe(0xC001);
+    expect(h.cpu.b).toBe(0x01);
+    expect(h.cpu.c).toBe(0x34);
+    // port address = BC after B decrement = 0x0134
+    expect(h.portWrites[0]).toEqual({ port: 0x0134, val: 0x42 });
+    expect(h.cpu.f & F_Z).toBe(0); // B != 0
+  });
+
+  it('OUTI: Z set when B decrements to zero', () => {
+    const h = newCpu();
+    h.cpu.bc = 0x0134; // B=1
+    h.cpu.hl = 0xC000;
+    h.mem[0xC000] = 0x00;
+    load(h.mem, 0, 0xED, 0xA3);
+    step(h);
+    expect(h.cpu.b).toBe(0x00);
+    expect(h.cpu.f & F_Z).toBe(F_Z);
+  });
+
+  it('OUTD decrements HL before write, decrements B, writes to port', () => {
+    const h = newCpu();
+    h.cpu.bc = 0x0234;
+    h.cpu.hl = 0xC002;
+    h.mem[0xC002] = 0x77;
+    load(h.mem, 0, 0xED, 0xAB); // OUTD
+    step(h);
+    expect(h.cpu.hl).toBe(0xC001); // decremented
+    expect(h.cpu.b).toBe(0x01);
+    expect(h.portWrites[0]).toEqual({ port: 0x0134, val: 0x77 });
+  });
+
+  it('OTIR loops until B = 0, outputting each byte from sequential addresses', () => {
+    const h = newCpu();
+    h.cpu.bc = 0x0220; // B=2, C=0x20
+    h.cpu.hl = 0xC000;
+    h.mem[0xC000] = 0x11;
+    h.mem[0xC001] = 0x22;
+    load(h.mem, 0, 0xED, 0xB3); // OTIR
+    for (let i = 0; i < 16 && h.cpu.b !== 0; i++) h.cpu.step();
+    expect(h.cpu.b).toBe(0);
+    expect(h.cpu.hl).toBe(0xC002); // incremented 2×
+    expect(h.cpu.pc).toBe(2);
+    expect(h.portWrites[0].val).toBe(0x11);
+    expect(h.portWrites[1].val).toBe(0x22);
+  });
+
+  it('OTDR loops until B = 0, outputting bytes in reverse', () => {
+    const h = newCpu();
+    h.cpu.bc = 0x0220;
+    h.cpu.hl = 0xC001;
+    h.mem[0xC001] = 0xAA;
+    h.mem[0xC000] = 0xBB;
+    load(h.mem, 0, 0xED, 0xBB); // OTDR
+    for (let i = 0; i < 16 && h.cpu.b !== 0; i++) h.cpu.step();
+    expect(h.cpu.b).toBe(0);
+    expect(h.cpu.hl).toBe(0xBFFF); // decremented 2×
+    expect(h.cpu.pc).toBe(2);
+  });
+});
+
 // ─────────────────────────────────────────────────────────────────────────
 // IN / OUT
 // ─────────────────────────────────────────────────────────────────────────
