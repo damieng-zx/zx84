@@ -7,6 +7,7 @@
  */
 
 import type { Spectrum } from '@/spectrum.ts';
+import { detectLoaderSignature } from '@/tape/loader-signature.ts';
 
 /**
  * Override Z80 read8/write8 to apply per-access ULA contention and
@@ -166,6 +167,10 @@ export function wirePortIO(s: Spectrum): void {
         const playing = s.tape.playing && !s.tape.paused;
         const event = s.loaderDetector.onPortRead(s.cpu.tStates, s.cpu.b, playing);
         if (event === 'start') {
+          s.loaderDetector.signature = detectLoaderSignature(
+            (a) => s.memory.readByte(a),
+            s.cpu.pc,
+          );
           s.tape.paused = false;
           s.tape.startPlayback();
         } else if (event === 'stop') {

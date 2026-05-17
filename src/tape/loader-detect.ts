@@ -55,6 +55,8 @@ const NO_PREVIOUS = -100000;
 
 export type LoaderEvent = 'start' | 'stop' | null;
 
+import type { LoaderSignature } from '@/tape/loader-signature.ts';
+
 export class LoaderDetector {
   /** T-states of last port 0xFE read */
   private lastT = NO_PREVIOUS;
@@ -62,6 +64,13 @@ export class LoaderDetector {
   private lastB = 0;
   /** Count of consecutive reads matching whichever direction we're tracking */
   private successive = 0;
+
+  /**
+   * Loader recognised at the most recent auto-start (or 'unknown' if no
+   * known pattern matched / no start has fired since reset). Populated by
+   * the caller after a 'start' event — see src/io-ports.ts.
+   */
+  signature: LoaderSignature = 'unknown';
 
   /**
    * Called on each IN from port 0xFE.
@@ -133,5 +142,6 @@ export class LoaderDetector {
     this.lastT = NO_PREVIOUS;
     this.lastB = 0;
     this.successive = 0;
+    this.signature = 'unknown';
   }
 }
