@@ -988,13 +988,21 @@ export class Z80 {
                 break;
               }
               case 3: {
-                // IN A,(n): 11T. Auto: 4T M1 + 3T operand = 7T
+                // IN A,(n): 11T. Auto: 4T M1 + 3T operand = 7T.
+                // The Z80 places the port address on the bus at T+7 and
+                // samples the data at T+10 (end of the IORQ + wait cycles).
+                // We tick 3T BEFORE portIn so the tape engine and ULA see
+                // the correct sample point — without this, tight tape
+                // loaders mis-classify the occasional bit when an edge
+                // falls inside the IORQ window. The remaining 1T closes
+                // the instruction. Total still 11T.
                 const aBeforeOp = this.a;
                 const portLow = this.fetch8();
                 const port = (this.a << 8) | portLow;
+                this.tStates += 3;
                 this.a = this.portIn(port);
                 this.memptr = ((aBeforeOp << 8) + portLow + 1) & 0xFFFF;  // IN A,(port): MEMPTR = (A_before << 8) + port_low + 1
-                this.tStates += 4;
+                this.tStates += 1;
                 break;
               }
               case 4: {
