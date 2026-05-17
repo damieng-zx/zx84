@@ -259,9 +259,10 @@ export async function createMachine(): Promise<boolean> {
     }
   }
 
-  // Apply saved AY stereo mode
-  const savedAyStereo = settings.ayStereo() as 'MONO' | 'ABC' | 'BCA' | 'CBA';
+  // Apply saved AY stereo mode + DC blocking
+  const savedAyStereo = settings.ayStereo() as import('@/cores/ay-3-8910.ts').AYStereoMode;
   spectrum.ay.setStereoMode(savedAyStereo);
+  spectrum.ay.dcBlocking = settings.ayDcBlock();
 
   // Apply saved disk mode for +3
   if (spectrum.variant.hasFDC) {
@@ -380,16 +381,8 @@ export function resetMachine(): void {
   if (spectrum) {
     spectrum.turbo = false;
     setTurboMode(false);
-    spectrum.tape.rewind();
-    spectrum.tape.paused = true;
-    setTapePaused(true);
     spectrum.reset();
     if (romData) spectrum.start();
-    batch(() => {
-      setTapeLoaded(spectrum!.tape.loaded);
-      setTapeBlocks([...spectrum!.tape.blocks]);
-      setTapePosition(0);
-    });
     unpause();
   }
   if (transcribeMode() !== 'off') {
