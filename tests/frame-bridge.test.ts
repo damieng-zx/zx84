@@ -99,7 +99,7 @@ const { emu, settingsMock, panesMock } = vi.hoisted(() => ({
     diskSoundB: vi.fn(() => false),
   },
   panesMock: {
-    isCollapsed: vi.fn(() => true),
+    isCollapsed: vi.fn((_id: string) => true),
   },
 }));
 
