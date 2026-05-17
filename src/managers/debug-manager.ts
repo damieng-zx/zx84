@@ -42,26 +42,39 @@ export class DebugManager {
   }
 
   /**
-   * Step over CALL/RST instructions and block repeats.
-   * Executes until the next instruction at the same stack level.
+   * Step over CALL/RST/conditional-jump/block-repeat instructions.
+   *
+   * Two completion strategies:
+   *   - CALL/RST: step until SP returns to its pre-call level.
+   *   - Conditional jumps + block repeats: step until PC reaches the next
+   *     sequential instruction. (Block repeats are PC-based, not SP-based,
+   *     because they don't touch SP; they just rewind PC by 2 each iteration.)
    */
   stepOver(spectrum: Spectrum, onUpdate: () => void): void {
     const cpu = spectrum.cpu;
     const op = spectrum.memory.readByte(cpu.pc);
 
-    // CALL nn / CALL cc,nn / RST: step until SP returns to current level
-    const isCall = op === 0xCD ||                                           // CALL nn
-      (op & 0xC7) === 0xC4 ||                                              // CALL cc,nn
-      (op & 0xC7) === 0xC7 ||                                              // RST
-      (op === 0xED && ((spectrum.memory.readByte((cpu.pc + 1) & 0xFFFF) & 0xC7) === 0xB0)); // block repeat (LDIR etc)
+    // Block repeats: ED B0..B3 (LDIR/CPIR/INIR/OTIR) and ED B8..BB (…DR).
+    // Both share the pattern `1011 0xxx` ignoring bit 3; mask 0xF4 keeps
+    // bits 7,6,5,4,2 so only 0xB0 and 0xB8 (each in 4 variants by bits 0-1)
+    // can match. `0xB0 & 0xF4 == 0xB8 & 0xF4 == 0xB0`.
+    const isBlockRepeat = op === 0xED &&
+      ((spectrum.memory.readByte((cpu.pc + 1) & 0xFFFF) & 0xF4) === 0xB0);
 
-    // Conditional jumps: run to the next instruction (skip if taken)
-    const isCondJump =
-      op === 0x10 ||                  // DJNZ e        (2 bytes)
-      (op & 0xE7) === 0x20 ||        // JR cc,e        (2 bytes: 20/28/30/38)
-      (op & 0xC7) === 0xC2;          // JP cc,nn       (3 bytes: C2/CA/D2/DA/E2/EA/F2/FA)
+    // CALL nn / CALL cc,nn / RST n — SP-based completion.
+    const isCall =
+      op === 0xCD ||                  // CALL nn
+      (op & 0xC7) === 0xC4 ||         // CALL cc,nn
+      (op & 0xC7) === 0xC7;           // RST n
 
-    if (isCondJump) {
+    // Conditional jumps + block repeats: PC-based completion.
+    const isPcOver =
+      isBlockRepeat ||
+      op === 0x10 ||                  // DJNZ e         (2 bytes)
+      (op & 0xE7) === 0x20 ||         // JR cc,e        (2 bytes)
+      (op & 0xC7) === 0xC2;           // JP cc,nn       (3 bytes)
+
+    if (isPcOver) {
       const instrLen = (op & 0xC7) === 0xC2 ? 3 : 2;
       const nextPC = (cpu.pc + instrLen) & 0xFFFF;
       const limit = cpu.tStates + 5_000_000;
@@ -162,14 +175,16 @@ export class DebugManager {
    */
   stopTrace(spectrum: Spectrum, onStop: (text: string, lineCount: number) => void): void {
     const text = spectrum.stopTrace();
-    const lines = text.split('\n').length;
+    const lines = text === '' ? 0 : text.split('\n').length;
     onStop(text, lines);
   }
 
   /**
-   * Copy CPU state and disassembly to clipboard.
+   * Copy CPU state and disassembly to clipboard. Awaits the clipboard
+   * write so a permission denial or transient failure is reported via
+   * `onStatus` rather than silently swallowed.
    */
-  copyCpuState(spectrum: Spectrum, onStatus: (msg: string) => void): void {
+  async copyCpuState(spectrum: Spectrum, onStatus: (msg: string) => void): Promise<void> {
     const cpu = spectrum.cpu;
     const f = cpu.f;
     const flags = [
@@ -210,8 +225,12 @@ export class DebugManager {
       addr = (addr + dl.length) & 0xFFFF;
     }
 
-    navigator.clipboard.writeText(lines.join('\n'));
-    onStatus('CPU state + disassembly copied to clipboard');
+    try {
+      await navigator.clipboard.writeText(lines.join('\n'));
+      onStatus('CPU state + disassembly copied to clipboard');
+    } catch (err) {
+      onStatus(`Clipboard copy failed: ${(err as Error).message}`);
+    }
   }
 
 }

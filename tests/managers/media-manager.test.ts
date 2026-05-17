@@ -255,12 +255,14 @@ describe('eject operations', () => {
     expect(onEjected).toHaveBeenCalled();
   });
 
-  it('ejectDisk B label is "B"', () => {
+  it('ejectDisk labels units 0..3 as A/B/C/D', () => {
     const mm = new MediaManager();
-    const sp = makeSpectrum();
-    const onStatus = vi.fn();
-    mm.ejectDisk(sp as any, 1, vi.fn(), onStatus);
-    expect(onStatus).toHaveBeenCalledWith('Disk B: ejected');
+    for (const [unit, letter] of [[0, 'A'], [1, 'B'], [2, 'C'], [3, 'D']] as const) {
+      const sp = makeSpectrum();
+      const onStatus = vi.fn();
+      mm.ejectDisk(sp as any, unit, vi.fn(), onStatus);
+      expect(onStatus).toHaveBeenCalledWith(`Disk ${letter}: ejected`);
+    }
   });
 });
 
@@ -307,29 +309,35 @@ describe('loadDisk', () => {
     expect(persistDisk).not.toHaveBeenCalled();
   });
 
-  // Suspect behaviour worth flagging: loadDisk does NOT call spectrum.stop()
-  // before swapping the image — unlike applyTape/applySnapshot. If the FDC is
-  // mid-operation, the swap could land in a weird state.
-  it('does NOT stop the machine before loading (inconsistent with tape/snapshot paths)', () => {
+  it('stops the frame loop before swapping the image and restarts after', () => {
     const mm = new MediaManager();
     const sp = makeSpectrum();
     const cb = makeCallbacks();
     parseDSK.mockReturnValue({ tracks: [] });
     mm.loadDisk(sp as any, new Uint8Array(), 'g.dsk', 0, cb);
-    expect(sp.stop).not.toHaveBeenCalled();
-    expect(sp.start).not.toHaveBeenCalled();
+    expect(sp.stop).toHaveBeenCalledTimes(1);
+    expect(sp.start).toHaveBeenCalledTimes(1);
   });
 
-  it('uses "B" label when unit aliases 2/3 — flagged as wrong by spec', () => {
-    // On the +3, units 2/3 alias to physical A/B. The label-deriving code
-    // (`unit === 0 ? 'A' : 'B'`) silently calls everything not-0 "B", which
-    // mislabels unit 2 (should be A). Test pinned to current behaviour.
+  it('still restarts the machine when the DSK parser throws', () => {
     const mm = new MediaManager();
     const sp = makeSpectrum();
     const cb = makeCallbacks();
+    parseDSK.mockImplementation(() => { throw new Error('corrupt'); });
+    mm.loadDisk(sp as any, new Uint8Array(), 'g.dsk', 0, cb);
+    expect(sp.stop).toHaveBeenCalled();
+    expect(sp.start).toHaveBeenCalled();
+  });
+
+  it('labels units 0..3 as A/B/C/D', () => {
+    const mm = new MediaManager();
     parseDSK.mockReturnValue({});
-    mm.loadDisk(sp as any, new Uint8Array(), 'x.dsk', 2, cb);
-    expect(cb.onStatus).toHaveBeenCalledWith('Disk B: loaded: x.dsk');
+    for (const [unit, letter] of [[0, 'A'], [1, 'B'], [2, 'C'], [3, 'D']] as const) {
+      const sp = makeSpectrum();
+      const cb = makeCallbacks();
+      mm.loadDisk(sp as any, new Uint8Array(), 'x.dsk', unit, cb);
+      expect(cb.onStatus).toHaveBeenCalledWith(`Disk ${letter}: loaded: x.dsk`);
+    }
   });
 });
 

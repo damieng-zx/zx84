@@ -30,6 +30,11 @@ export interface MediaLoadCallbacks {
   ensure128kROM: () => Promise<boolean>;
 }
 
+/** Render a drive-unit number as a letter: 0→A, 1→B, 2→C, 3→D, … */
+function driveLetter(unit: number): string {
+  return String.fromCharCode(0x41 + unit);
+}
+
 export class MediaManager {
   /**
    * Load tape (TAP or TZX) into the spectrum instance.
@@ -106,17 +111,23 @@ export class MediaManager {
     unit: number,
     callbacks: Pick<MediaLoadCallbacks, 'onStatus' | 'onDiskLoaded'>
   ): void {
+    // Stop the frame loop before swapping the image so the FDC can't be
+    // mid-operation when its disk is replaced — same pattern applyTape /
+    // applySnapshot already use.
+    spectrum.stop();
     try {
       const image = parseDSK(data);
       callbacks.onDiskLoaded(image, filename, unit);
 
       spectrum.loadDisk(image, unit);
-      callbacks.onStatus(`Disk ${unit === 0 ? 'A' : 'B'}: loaded: ${filename}`);
+      callbacks.onStatus(`Disk ${driveLetter(unit)}: loaded: ${filename}`);
 
       if (unit === 0) persistLastFile(data, filename);
       persistDisk(unit, data, filename);
     } catch (e) {
       callbacks.onStatus(`DSK error: ${(e as Error).message}`);
+    } finally {
+      spectrum.start();
     }
   }
 
@@ -132,7 +143,7 @@ export class MediaManager {
     if (spectrum.fdc) spectrum.fdc.ejectDisk(unit);
     clearDisk(unit);
     onDiskEjected(unit);
-    onStatus(`Disk ${unit === 0 ? 'A' : 'B'}: ejected`);
+    onStatus(`Disk ${driveLetter(unit)}: ejected`);
   }
 
   /**
