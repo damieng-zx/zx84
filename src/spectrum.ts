@@ -564,23 +564,37 @@ export class Spectrum {
     while (this.cpu.tStates < frameEnd) {
       const tBefore = this.cpu.tStates;
 
-      // ROM routine activity detection
+      // ROM routine activity detection (LD-BYTES entry)
       if (this.cpu.pc === 0x0556) this.activity.tapeLoads++;
-      // ROM trap: intercept LD-BYTES for instant tape loading.
-      // Only trap when a ROM-loadable block is ahead; if only custom loader
-      // blocks remain (tone/pulses/pure-data), let the ROM execute its real
-      // LD-BYTES code so custom loaders can read EAR naturally.
-      // Auto-unpause: the tape starts paused on mount so the playback engine
-      // doesn't race ahead; we unpause here when the ROM actually tries to LOAD.
-      if (this.tapeInstantLoad && this.tape.loaded && this.cpu.pc === 0x0556 &&
-          this.memory.readByte(0x0556) === 0x14 && this.tape.hasRomBlock()) {
+      // ROM trap: intercept LD-BYTES partway through, at LD-START (0x056C),
+      // after the routine has done EX AF,AF' and the BREAK check. This is
+      // FUSE's trap point — it also catches loaders that CALL 0x056C directly
+      // (a few protected loaders do this to reuse part of LD-BYTES).
+      //
+      // The trap is gated on the 48K BASIC ROM actually being in slot 0
+      // (via memory.isBasicRomActive) — a byte-signature check at 0x056C
+      // would mis-fire on +2A/+3 when a custom RAM bank happens to have the
+      // same opcode there. Custom-speed / non-standard blocks fail the
+      // trap's internal length check and fall through to real ROM execution.
+      let trapHandled = false;
+      if (this.tapeInstantLoad && this.tape.loaded && this.cpu.pc === 0x056C &&
+          this.memory.isBasicRomActive() && this.tape.hasRomBlock()) {
+        // Unpause so either path (trap success or real ROM fallback) sees
+        // the tape playing. Tape starts paused on mount so the playback
+        // engine doesn't race ahead.
         if (this.tape.paused) {
           this.tape.paused = false;
           this.tape.startPlayback();
         }
-        trapTapeLoad(this.cpu, this.tape);
-        this.tape.skipBlock(); // advance player past the consumed block
-        this.cpu.tStates += 2168; // nominal T-states for trapped load
+        if (trapTapeLoad(this.cpu, this.tape)) {
+          this.tape.skipBlock(); // advance player past the consumed block
+          trapHandled = true;
+        }
+        // Trap declined → fall through to normal CPU step so the real ROM
+        // edge loop runs (custom-speed blocks, length mismatches, etc.).
+      }
+      if (trapHandled) {
+        // no-op — already handled above
       } else if (this.cpu.halted) {
         // HALT repeats NOP-like M1 fetches from PC.  If PC or IR is in
         // contended memory each cycle gets a ULA delay; otherwise we can
@@ -688,15 +702,19 @@ export class Spectrum {
     // every 25 frames, creating a restart loop on pure-tone blocks).
     // "Loading" signal — used to engage tape turbo and refresh its cooldown.
     // earReads alone is unreliable: custom loaders like Speedlock poll with
-    // A=$7F (so port high byte is $7F, not $FF), and the strict $FF check on
-    // earReads misses them. The authoritative signal is the tape player
-    // itself — if it's playing and not paused, the loader is reading edges.
-    // LoaderDetector handles pausing within microseconds of the loader
-    // quitting, so this stays accurate.
-    const tapeLoading = (this.tape.playing && !this.tape.paused)
-                        || this.activity.earReads > 0
-                        || this.activity.tapeLoads > 0
-                        || this.activity.loaderDetected;
+    // A=$7F (port high byte $7F, not $FF), so the strict $FF check on earReads
+    // misses them. The authoritative signal is the LoaderDetector itself —
+    // `loaderActive` stays true between its 'start' and 'stop' events, so the
+    // cooldown refreshes every frame for as long as the loader is running.
+    // userOverride wins: when the user has manually paused or stopped the
+    // tape, turbo must release even if the detector still thinks a loader is
+    // running — otherwise the visible MHz readout stays pinned at ~50 and
+    // the user's pause feels broken.
+    const tapeLoading = !this.loaderDetector.userOverride
+                     && (this.loaderDetector.loaderActive
+                         || this.activity.earReads > 0
+                         || this.activity.tapeLoads > 0
+                         || this.activity.loaderDetected);
 
     if (this.tape.loaded && !this.tape.finished) {
       if (tapeLoading) {

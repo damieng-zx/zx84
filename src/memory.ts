@@ -124,6 +124,25 @@ export class SpectrumMemory implements ByteReader {
     return this._slots[slot];
   }
 
+  /**
+   * True when slot 0 currently maps the 48K BASIC ROM (the one that contains
+   * LD-BYTES / SA-BYTES). Used by tape ROM traps to verify we're really
+   * about to execute the Spectrum's standard tape routine, not a custom
+   * routine running from a RAM bank that happens to live at the same address.
+   *
+   * Page layout: the 48K BASIC ROM is always the LAST entry in romPages.
+   *  - 16K/48K (1 page):       page 0
+   *  - Ferranti 128/+2 (2):    page 1
+   *  - Amstrad +2A/+3 (4):     page 3
+   *
+   * Returns false when special all-RAM paging is active (+2A/+3) or when an
+   * external ROM (Multiface, VTX-5000) has been paged into slot 0.
+   */
+  isBasicRomActive(): boolean {
+    if (this.specialPaging || this.externalRomPaged) return false;
+    return this.currentROM === this.romPages.length - 1;
+  }
+
   // ── Screen bank ───────────────────────────────────────────────────────
 
   /**

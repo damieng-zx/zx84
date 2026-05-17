@@ -1,71 +1,67 @@
 /**
  * ROM trap for instant tape loading.
  *
- * Intercepts the standard LD-BYTES routine at 0x0556 and transfers block data
- * directly into memory, bypassing the real tape-timing loop.
+ * Intercepts the 48K BASIC ROM's LD-BYTES routine partway through
+ * (PC = 0x056C, just after the BREAK check at LD-BREAK) and transfers
+ * block data straight into memory, bypassing the real edge-sampling
+ * loop. The trap is modelled on FUSE's tape.c — at 0x056C the routine
+ * has already done EX AF,AF' so the entry A/F live in the shadow regs.
  *
- * Returns true if a block was successfully loaded, false if loading failed
- * (no block available, flag mismatch, or verify mode). The caller uses this
- * to decide whether to advance the tape player past the loaded block.
+ * Contract:
+ *   - Return false WITHOUT modifying CPU or tape state when the block
+ *     doesn't match (no block, flag mismatch, length mismatch). The
+ *     caller then lets the real ROM execute LD-BYTES at full fidelity,
+ *     so custom-speed turbos and protected tapes load correctly.
+ *   - Return true after copying bytes to memory and pointing PC at the
+ *     ROM's `POP AF; RET` cleanup at 0x05E2. The POP AF will pop the
+ *     0x053F that LD-BYTES pushed at 0x0561 (its parity-error return
+ *     address) and load F=0x3F — carry set, signalling success to the
+ *     caller. RET then returns to the caller's saved address.
+ *
+ * Length check matches FUSE's `block_length != DE+2` (their length
+ * includes flag+payload+checksum; our `block.data` is the payload
+ * only, so the equivalent check is `block.data.length === cpu.de`).
  */
 
 import { Z80 } from '@/cores/z80.ts';
 import type { TapeDeck } from '@/tape/tap.ts';
 
+/** PC that LD-BYTES returns through after a successful load. POP AF; RET
+ *  — POP AF pops the 0x053F pushed at 0x0561 (F=0x3F → carry set), RET
+ *  pops the caller's return address. */
+const LD_BYTES_RETURN = 0x05E2;
+
 export function trapTapeLoad(cpu: Z80, tape: TapeDeck): boolean {
-  // Expected flag byte is in A register
-  const expectedFlag = cpu.a;
-  // Carry flag: 1 = LOAD, 0 = VERIFY
-  const isLoad = cpu.getFlag(Z80.FLAG_C);
-  // IX = destination address, DE = byte count
-  let dest = cpu.ix;
-  let count = cpu.de;
+  // EX AF,AF' at 0x0557 swapped the entry A/F into the shadow regs.
+  // A' holds the expected flag byte; F' bit 0 (carry) selects LOAD vs VERIFY.
+  const expectedFlag = cpu.a_;
+  const isLoad = (cpu.f_ & Z80.FLAG_C) !== 0;
+  const dest = cpu.ix;
+  const count = cpu.de;
 
-  const block = tape.nextDataBlock();
-  let success = false;
+  const block = tape.peekDataBlock();
+  if (!block) return false;                          // no block — let ROM run
+  if (block.flag !== expectedFlag) return false;     // flag mismatch — let ROM run
+  if (block.data.length !== count) return false;    // length mismatch — let ROM run (turbo / non-standard sizes)
 
-  if (!block || block.flag !== expectedFlag) {
-    // No block or flag mismatch — signal failure
-    cpu.setFlag(Z80.FLAG_C, false);
-  } else {
-    // Consume up to min(count, block.data.length) bytes for both LOAD and
-    // VERIFY. Real LD-BYTES fails at checksum time if the block runs out
-    // before DE counts down to 0 — we mirror that by clearing carry and
-    // leaving DE at the unsatisfied remainder. Excess block bytes (long
-    // block) are dropped, matching real ROM behaviour: the ROM stops
-    // reading once DE hits 0 and treats byte N+1 as the parity byte.
-    // VERIFY is treated as instant-success when the lengths align; we do
-    // not compare bytes (consistent with JSpeccy / ZEsarUX fast-load
-    // paths — only Fuse implements a real instant verify).
-    const available = block.data.length;
-    const len = Math.min(count, available);
+  // Commit: consume the block.
+  tape.nextDataBlock();
 
-    if (isLoad) {
-      for (let i = 0; i < len; i++) {
-        cpu.write8(dest, block.data[i]);
-        dest = (dest + 1) & 0xFFFF;
-      }
-    } else {
-      dest = (dest + len) & 0xFFFF;
-    }
-
-    cpu.ix = dest;
-    cpu.de = (count - len) & 0xFFFF;
-
-    if (available < count) {
-      // Short block — real ROM would error at the missing checksum byte
-      cpu.setFlag(Z80.FLAG_C, false);
-    } else {
-      cpu.setFlag(Z80.FLAG_C, true);
-      success = true;
+  if (isLoad) {
+    for (let i = 0; i < count; i++) {
+      cpu.write8((dest + i) & 0xFFFF, block.data[i]);
     }
   }
+  // VERIFY shortcut: don't compare bytes (JSpeccy and ZEsarUX do the same).
+  // FUSE is the only emulator that runs a real instant-verify; the cost in
+  // false-passes for corrupted blocks is bounded by the fact that VERIFY is
+  // rarely used in modern tape workflows.
 
-  // Pop return address (simulating RET from LD-BYTES)
-  cpu.pc = cpu.pop16();
-  // Re-enable interrupts (LD-BYTES starts with DI but executes EI before RET)
-  cpu.iff1 = true;
-  cpu.iff2 = true;
+  cpu.ix = (dest + count) & 0xFFFF;
+  cpu.de = 0;
 
-  return success;
+  // Hand control back to the ROM at POP AF; RET. POP AF makes carry=1
+  // (from F=0x3F on the stack), which is the ROM's "load succeeded" signal.
+  cpu.pc = LD_BYTES_RETURN;
+  return true;
 }

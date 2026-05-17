@@ -182,13 +182,18 @@ export class TapeDeck {
   }
 
   /**
-   * Return the next ROM-loadable data block and advance past it, or null.
+   * Look at the next ROM-loadable data block WITHOUT consuming it.
    * Only returns standard/turbo/tap DataBlocks — never pure-data, tone,
    * pulses, or direct blocks (those are for EAR-reading custom loaders).
-   * Skips cosmetic and pause blocks. Stops scanning at custom loader blocks
-   * so the playback engine can feed them through EAR.
+   *
+   * Side-effects are limited to advancing past cosmetic blocks (text,
+   * archive-info, group markers, non-zero pause) and triggering a
+   * tape-stop on duration=0 pause or 48K-stop blocks. The data block
+   * itself is left in place so a caller that decides not to commit
+   * (e.g. ROM trap rejecting on length mismatch) can fall through to
+   * real-time tape playback without the block disappearing.
    */
-  nextDataBlock(): DataBlock | null {
+  peekDataBlock(): DataBlock | null {
     while (this.position < this.blocks.length) {
       const block = this.blocks[this.position];
 
@@ -197,7 +202,6 @@ export class TapeDeck {
           // Pure data is for custom loaders reading EAR, not the ROM trap
           return null;
         }
-        this.position++;
         return block;
       }
 
@@ -233,6 +237,18 @@ export class TapeDeck {
       this.position++;
     }
     return null;
+  }
+
+  /**
+   * Return the next ROM-loadable data block AND advance past it.
+   * Equivalent to peek + commit. Used after a ROM trap successfully
+   * loads the block; the caller should follow with skipBlock() to
+   * restart playback at the new position.
+   */
+  nextDataBlock(): DataBlock | null {
+    const block = this.peekDataBlock();
+    if (block) this.position++;
+    return block;
   }
 
   /**
