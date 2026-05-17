@@ -966,6 +966,146 @@ describe('Z80 — IX/IY prefix (DD/FD)', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────
+// Accumulator rotations — RLCA / RRCA / RLA / RRA
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('Z80 — RLCA / RRCA / RLA / RRA', () => {
+  it('RLCA: rotates A left, bit 7 wraps to bit 0 and to C', () => {
+    const h = newCpu();
+    h.cpu.a = 0x85; // 10000101
+    load(h.mem, 0, 0x07); // RLCA
+    step(h);
+    expect(h.cpu.a).toBe(0x0B); // 00001011: bit7=1 wrapped to bit0
+    expect(h.cpu.f & F_C).toBe(F_C);
+  });
+
+  it('RLCA: C clear when bit 7 was 0', () => {
+    const h = newCpu();
+    h.cpu.a = 0x42; // 01000010
+    load(h.mem, 0, 0x07);
+    step(h);
+    expect(h.cpu.a).toBe(0x84);
+    expect(h.cpu.f & F_C).toBe(0);
+  });
+
+  it('RLCA: clears H and N; preserves S, Z, PV from before', () => {
+    const h = newCpu();
+    h.cpu.a = 0x01;
+    h.cpu.f = F_S | F_Z | F_PV | F_H | F_N; // all set before
+    load(h.mem, 0, 0x07);
+    step(h);
+    expect(h.cpu.f & F_H).toBe(0);
+    expect(h.cpu.f & F_N).toBe(0);
+    expect(h.cpu.f & F_S).toBe(F_S); // preserved
+    expect(h.cpu.f & F_Z).toBe(F_Z);
+    expect(h.cpu.f & F_PV).toBe(F_PV);
+  });
+
+  it('RLCA: F3/F5 come from result bits 3 and 5', () => {
+    const h = newCpu();
+    h.cpu.a = 0x14; // 00010100 → rotated → 00101000 = 0x28
+    load(h.mem, 0, 0x07);
+    step(h);
+    expect(h.cpu.a).toBe(0x28);
+    expect(h.cpu.f & F_F3).toBe(F_F3);
+    expect(h.cpu.f & F_F5).toBe(F_F5);
+  });
+
+  it('RRCA: rotates A right, bit 0 wraps to bit 7 and to C', () => {
+    const h = newCpu();
+    h.cpu.a = 0x85; // 10000101
+    load(h.mem, 0, 0x0F); // RRCA
+    step(h);
+    expect(h.cpu.a).toBe(0xC2); // 11000010: bit0=1 wrapped to bit7
+    expect(h.cpu.f & F_C).toBe(F_C);
+  });
+
+  it('RRCA: C clear when bit 0 was 0', () => {
+    const h = newCpu();
+    h.cpu.a = 0x84; // 10000100
+    load(h.mem, 0, 0x0F);
+    step(h);
+    expect(h.cpu.a).toBe(0x42);
+    expect(h.cpu.f & F_C).toBe(0);
+  });
+
+  it('RRCA: clears H and N', () => {
+    const h = newCpu();
+    h.cpu.a = 0x02;
+    h.cpu.f = F_H | F_N;
+    load(h.mem, 0, 0x0F);
+    step(h);
+    expect(h.cpu.f & F_H).toBe(0);
+    expect(h.cpu.f & F_N).toBe(0);
+  });
+
+  it('RLA: rotates A left through carry (old C into bit 0, bit 7 to new C)', () => {
+    const h = newCpu();
+    h.cpu.a = 0x85; // 10000101
+    h.cpu.f = F_C;  // incoming carry = 1
+    load(h.mem, 0, 0x17); // RLA
+    step(h);
+    // bit7 (1) → new C; bit0 ← old C (1); A = 00001011
+    expect(h.cpu.a).toBe(0x0B);
+    expect(h.cpu.f & F_C).toBe(F_C);
+  });
+
+  it('RLA: incoming C=0 feeds into bit 0', () => {
+    const h = newCpu();
+    h.cpu.a = 0x80; // 10000000
+    h.cpu.f = 0;    // carry clear
+    load(h.mem, 0, 0x17);
+    step(h);
+    expect(h.cpu.a).toBe(0x00); // bit7 shifted out, bit0=0 from old C
+    expect(h.cpu.f & F_C).toBe(F_C); // bit7 went to C
+  });
+
+  it('RLA: clears H and N; preserves S/Z/PV', () => {
+    const h = newCpu();
+    h.cpu.a = 0x01;
+    h.cpu.f = F_S | F_Z | F_PV | F_H | F_N;
+    load(h.mem, 0, 0x17);
+    step(h);
+    expect(h.cpu.f & F_H).toBe(0);
+    expect(h.cpu.f & F_N).toBe(0);
+    expect(h.cpu.f & F_S).toBe(F_S);
+    expect(h.cpu.f & F_Z).toBe(F_Z);
+    expect(h.cpu.f & F_PV).toBe(F_PV);
+  });
+
+  it('RRA: rotates A right through carry (old C into bit 7, bit 0 to new C)', () => {
+    const h = newCpu();
+    h.cpu.a = 0x85; // 10000101
+    h.cpu.f = 0;    // incoming carry = 0
+    load(h.mem, 0, 0x1F); // RRA
+    step(h);
+    // bit0 (1) → new C; bit7 ← old C (0); A = 01000010
+    expect(h.cpu.a).toBe(0x42);
+    expect(h.cpu.f & F_C).toBe(F_C);
+  });
+
+  it('RRA: incoming C=1 feeds into bit 7', () => {
+    const h = newCpu();
+    h.cpu.a = 0x84; // 10000100
+    h.cpu.f = F_C;  // carry set
+    load(h.mem, 0, 0x1F);
+    step(h);
+    expect(h.cpu.a).toBe(0xC2); // bit7 ← 1 from old C; 11000010
+    expect(h.cpu.f & F_C).toBe(0); // bit0 was 0
+  });
+
+  it('RRA: clears H and N', () => {
+    const h = newCpu();
+    h.cpu.a = 0x02;
+    h.cpu.f = F_H | F_N;
+    load(h.mem, 0, 0x1F);
+    step(h);
+    expect(h.cpu.f & F_H).toBe(0);
+    expect(h.cpu.f & F_N).toBe(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
 // Stack-based interrupt vector handling — regression area
 // ─────────────────────────────────────────────────────────────────────────
 
