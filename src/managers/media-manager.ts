@@ -181,6 +181,7 @@ export class MediaManager {
 
         if (result.is128K && !is128kClass(currentModel)) {
           if (!await callbacks.ensure128kROM()) {
+            spectrum.start();
             callbacks.onStatus('128K .z80 snapshot requires a 128K ROM — load one first');
             return false;
           }
@@ -200,6 +201,7 @@ export class MediaManager {
 
         if (result.is128K && !is128kClass(currentModel)) {
           if (!await callbacks.ensure128kROM()) {
+            spectrum.start();
             callbacks.onStatus('128K .szx snapshot requires a 128K ROM — load one first');
             return false;
           }
@@ -245,6 +247,7 @@ export class MediaManager {
 
         if (result.is128K && !is128kClass(currentModel)) {
           if (!await callbacks.ensure128kROM()) {
+            spectrum.start();
             callbacks.onStatus('128K .sp snapshot requires a 128K ROM — load one first');
             return false;
           }

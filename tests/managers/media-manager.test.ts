@@ -128,6 +128,15 @@ describe('loadFile — extension dispatch', () => {
     expect(sp.loadDisk).toHaveBeenCalledWith({ tracks: [] }, 1);
   });
 
+  it('.dsk with no unit argument defaults to unit 0', async () => {
+    const mm = new MediaManager();
+    const sp = makeSpectrum();
+    const cb = makeCallbacks();
+    parseDSK.mockReturnValue({ tracks: [] });
+    await mm.loadFile(sp as any, new Uint8Array(), 'game.dsk', '+3', cb); // unit omitted
+    expect(sp.loadDisk).toHaveBeenCalledWith({ tracks: [] }, 0);
+  });
+
   it('routes snapshot extensions to the right loader', async () => {
     const mm = new MediaManager();
     const sp = makeSpectrum();
@@ -433,7 +442,7 @@ describe('applySnapshot — Z80', () => {
     expect(sp.reset).toHaveBeenCalledTimes(2);
   });
 
-  it('128K Z80 on 48K with declined ROM: aborts without second load', async () => {
+  it('128K Z80 on 48K with declined ROM: aborts without second load, restarts machine', async () => {
     const mm = new MediaManager();
     const sp = makeSpectrum();
     const cb = makeCallbacks();
@@ -445,6 +454,7 @@ describe('applySnapshot — Z80', () => {
     expect(ok).toBe(false);
     expect(loadZ80).toHaveBeenCalledTimes(1);
     expect(cb.unpause).not.toHaveBeenCalled();
+    expect(sp.start).toHaveBeenCalledTimes(1); // machine must be running again after decline
   });
 });
 
@@ -514,6 +524,61 @@ describe('applySnapshot — SZX paging restoration', () => {
     expect(sp.ay.setRegisters).not.toHaveBeenCalled();
     expect(sp.memory.applyBanking).not.toHaveBeenCalled();
   });
+
+  it('restores AY registers but leaves selectedReg alone when ayCurrentReg is absent', async () => {
+    const mm = new MediaManager();
+    const sp = makeSpectrum();
+    const cb = makeCallbacks();
+    const regs = new Uint8Array(16);
+    sp.ay.selectedReg = 3;
+    loadSZX.mockResolvedValue({
+      is128K: true, borderColor: 0, port7FFD: 0, port1FFD: 0,
+      ayRegs: regs,
+      // ayCurrentReg deliberately omitted
+    });
+
+    await mm.applySnapshot(sp as any, new Uint8Array(), 'a.szx', '128k', cb);
+
+    expect(sp.ay.setRegisters).toHaveBeenCalledWith(regs);
+    expect(sp.ay.selectedReg).toBe(3); // unchanged — no ayCurrentReg in snapshot
+  });
+});
+
+describe('applySnapshot — SZX 128K upgrade gating', () => {
+  it('128K SZX on 48K with declined ROM: aborts, reports status, no second load, restarts machine', async () => {
+    const mm = new MediaManager();
+    const sp = makeSpectrum();
+    const cb = makeCallbacks();
+    cb.ensure128kROM = vi.fn(async () => false);
+    loadSZX.mockResolvedValue({ is128K: true, borderColor: 0, port7FFD: 0, port1FFD: 0 });
+
+    const ok = await mm.applySnapshot(sp as any, new Uint8Array(), 'a.szx', '48k', cb);
+
+    expect(ok).toBe(false);
+    expect(cb.ensure128kROM).toHaveBeenCalled();
+    expect(loadSZX).toHaveBeenCalledTimes(1);
+    expect(cb.onStatus).toHaveBeenCalledWith('128K .szx snapshot requires a 128K ROM — load one first');
+    expect(cb.unpause).not.toHaveBeenCalled();
+    expect(sp.start).toHaveBeenCalledTimes(1); // machine must be running again after decline
+  });
+
+  it('128K SZX on 48K: double-load after ROM upgrade accepted', async () => {
+    const mm = new MediaManager();
+    const sp = makeSpectrum();
+    const cb = makeCallbacks();
+    loadSZX.mockResolvedValue({ is128K: true, borderColor: 0, port7FFD: 0x10, port1FFD: 0 });
+
+    const ok = await mm.applySnapshot(sp as any, new Uint8Array(), 'a.szx', '48k', cb);
+
+    expect(ok).toBe(true);
+    expect(cb.ensure128kROM).toHaveBeenCalled();
+    // stop/reset called twice: once before the first load, once for the re-load
+    expect(sp.stop).toHaveBeenCalledTimes(2);
+    expect(sp.reset).toHaveBeenCalledTimes(2);
+    expect(loadSZX).toHaveBeenCalledTimes(2);
+    expect(sp.start).toHaveBeenCalledTimes(1);
+    expect(cb.unpause).toHaveBeenCalled();
+  });
 });
 
 describe('applySnapshot — SP paging', () => {
@@ -531,6 +596,40 @@ describe('applySnapshot — SP paging', () => {
     expect(sp.memory.currentBank).toBe(3);
     expect(sp.memory.currentROM).toBe(0);
     expect(sp.ula.flashState).toBe(true);
+  });
+
+  it('128K SP on 48K with declined ROM: aborts, reports status, no second load, restarts machine', async () => {
+    const mm = new MediaManager();
+    const sp = makeSpectrum();
+    const cb = makeCallbacks();
+    cb.ensure128kROM = vi.fn(async () => false);
+    loadSP.mockReturnValue({ is128K: true, borderColor: 0, flashState: false, port7FFD: 0 });
+
+    const ok = await mm.applySnapshot(sp as any, new Uint8Array(), 'a.sp', '48k', cb);
+
+    expect(ok).toBe(false);
+    expect(cb.ensure128kROM).toHaveBeenCalled();
+    expect(loadSP).toHaveBeenCalledTimes(1);
+    expect(cb.onStatus).toHaveBeenCalledWith('128K .sp snapshot requires a 128K ROM — load one first');
+    expect(cb.unpause).not.toHaveBeenCalled();
+    expect(sp.start).toHaveBeenCalledTimes(1); // machine must be running again after decline
+  });
+
+  it('128K SP on 48K: double-load after ROM upgrade accepted', async () => {
+    const mm = new MediaManager();
+    const sp = makeSpectrum();
+    const cb = makeCallbacks();
+    loadSP.mockReturnValue({ is128K: true, borderColor: 0, flashState: false, port7FFD: 0x10 });
+
+    const ok = await mm.applySnapshot(sp as any, new Uint8Array(), 'a.sp', '48k', cb);
+
+    expect(ok).toBe(true);
+    expect(cb.ensure128kROM).toHaveBeenCalled();
+    expect(sp.stop).toHaveBeenCalledTimes(2);
+    expect(sp.reset).toHaveBeenCalledTimes(2);
+    expect(loadSP).toHaveBeenCalledTimes(2);
+    expect(sp.start).toHaveBeenCalledTimes(1);
+    expect(cb.unpause).toHaveBeenCalled();
   });
 });
 
