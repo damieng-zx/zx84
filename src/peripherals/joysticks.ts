@@ -83,11 +83,19 @@ export function joyPressForType(spectrum: Spectrum, dir: string, pressed: boolea
     const key = map[dir];
     if (key) {
       spectrum.keyboard.setKey(key.row, key.bit, pressed);
-      // Cursor joystick requires Caps Shift held with the number keys
+      // Cursor joystick requires Caps Shift held with the number keys.
+      // setKey is reference-counted, so we must only emit CS press/release on
+      // 0↔1 transitions of the held-direction count — otherwise repeated
+      // presses leak CS into the press counter and it stays stuck.
       if (mode === 'cursor') {
+        const prev = cursorShiftCount;
         cursorShiftCount += pressed ? 1 : -1;
         if (cursorShiftCount < 0) cursorShiftCount = 0;
-        spectrum.keyboard.setKey(0, 0, cursorShiftCount > 0);
+        if (prev === 0 && cursorShiftCount > 0) {
+          spectrum.keyboard.setKey(0, 0, true);
+        } else if (prev > 0 && cursorShiftCount === 0) {
+          spectrum.keyboard.setKey(0, 0, false);
+        }
       }
     }
   }
