@@ -78,8 +78,6 @@ export class ROMManager {
     onStatus?: (msg: string) => void
   ): Promise<ROMEntry | null> {
     const urls = DEFAULT_ROM_URLS[model];
-    if (!urls?.length) return null;
-
     onStatus?.(`Downloading ${model.toUpperCase()} ROM…`);
 
     try {
