@@ -759,3 +759,188 @@ describe('disasmOne — displacement formatting', () => {
     expect(disasm([0xDD, 0x86, 0x7F])).toBe('ADD A,(IX+7F)');
   });
 });
+
+// ── FD prefix NOP* (secondary-prefix collision) ──────────────────────────
+// DD prefix tests already cover DD DD / DD ED; verify the FD-first variants
+// hit the same reset path (addr = start+1, length = 1).
+
+describe('disasmOne — FD secondary-prefix NOP*', () => {
+  it('FD FD → NOP* length 1', () => {
+    const line = disasmAt([0xFD, 0xFD], 0);
+    expect(stripMarkers(line.text)).toBe('NOP*');
+    expect(line.length).toBe(1);
+  });
+  it('FD ED → NOP* length 1', () => {
+    const line = disasmAt([0xFD, 0xED], 0);
+    expect(stripMarkers(line.text)).toBe('NOP*');
+    expect(line.length).toBe(1);
+  });
+  it('FD DD → NOP* length 1', () => {
+    const line = disasmAt([0xFD, 0xDD], 0);
+    expect(stripMarkers(line.text)).toBe('NOP*');
+    expect(line.length).toBe(1);
+  });
+});
+
+// ── DD/FD: ix substitution in load/store with (nn) ──────────────────────
+// The `ix || 'HL'` substitution in x=0,z=2,p=2 paths was only tested
+// without a prefix. With DD/FD the register name in the mnemonic changes.
+
+describe('disasmOne — IX/IY load/store (nn)', () => {
+  it('LD (nn),IX  (DD 22)', () => {
+    expect(disasm([0xDD, 0x22, 0x00, 0x40])).toBe('LD (4000),IX');
+  });
+  it('LD IX,(nn)  (DD 2A)', () => {
+    expect(disasm([0xDD, 0x2A, 0x00, 0x60])).toBe('LD IX,(6000)');
+  });
+  it('LD (nn),IY  (FD 22)', () => {
+    expect(disasm([0xFD, 0x22, 0x00, 0x80])).toBe('LD (8000),IY');
+  });
+  it('LD IY,(nn)  (FD 2A)', () => {
+    expect(disasm([0xFD, 0x2A, 0x34, 0x12])).toBe('LD IY,(1234)');
+  });
+});
+
+// ── DD/FD: INC/DEC 16-bit (rpn substitution) ────────────────────────────
+// rpn(2) returns the ix register name rather than 'HL'. Untested in INC/DEC.
+
+describe('disasmOne — INC/DEC IX/IY (16-bit)', () => {
+  it('INC IX  (DD 23)', () => { expect(disasm([0xDD, 0x23])).toBe('INC IX'); });
+  it('DEC IX  (DD 2B)', () => { expect(disasm([0xDD, 0x2B])).toBe('DEC IX'); });
+  it('INC IY  (FD 23)', () => { expect(disasm([0xFD, 0x23])).toBe('INC IY'); });
+  it('DEC IY  (FD 2B)', () => { expect(disasm([0xFD, 0x2B])).toBe('DEC IY'); });
+});
+
+// ── DD/FD: ADD IX/IY,rp covers rpn(2)=ix in the ADD path ────────────────
+
+describe('disasmOne — ADD IY,rp', () => {
+  it('ADD IY,BC  (FD 09)', () => { expect(disasm([0xFD, 0x09])).toBe('ADD IY,BC'); });
+  it('ADD IY,IY  (FD 29) — both operands use ix name', () => {
+    expect(disasm([0xFD, 0x29])).toBe('ADD IY,IY');
+  });
+  it('ADD IY,SP  (FD 39)', () => { expect(disasm([0xFD, 0x39])).toBe('ADD IY,SP'); });
+});
+
+// ── DD/FD: ixhl() as destination in INC/DEC (x=0, z=4/5, y=6) ──────────
+// ixhl() was only verified in LD and ALU paths; INC/DEC go through it too.
+
+describe('disasmOne — INC/DEC (IX+d) / (IY+d)', () => {
+  it('INC (IX+02)  (DD 34 02)', () => {
+    expect(disasm([0xDD, 0x34, 0x02])).toBe('INC (IX+02)');
+  });
+  it('DEC (IX-01)  (DD 35 FF)', () => {
+    expect(disasm([0xDD, 0x35, 0xFF])).toBe('DEC (IX-01)');
+  });
+  it('INC (IY+10)  (FD 34 10)', () => {
+    expect(disasm([0xFD, 0x34, 0x10])).toBe('INC (IY+10)');
+  });
+  it('DEC (IY+00)  (FD 35 00)', () => {
+    expect(disasm([0xFD, 0x35, 0x00])).toBe('DEC (IY+00)');
+  });
+});
+
+// ── DD/FD: LD half-register,n (x=0, z=6, rn(y,false) with ix) ───────────
+// rn() replaces y=4/5 with IXH/IXL (or IYH/IYL) when ix is set and the
+// destination is not a memory operand (y≠6).
+
+describe('disasmOne — LD IXH/IXL/IYH/IYL,n', () => {
+  it('LD IXH,n  (DD 26 n)', () => {
+    expect(disasm([0xDD, 0x26, 0xAB])).toBe('LD IXH,AB');
+  });
+  it('LD IXL,n  (DD 2E n)', () => {
+    expect(disasm([0xDD, 0x2E, 0x55])).toBe('LD IXL,55');
+  });
+  it('LD IYH,n  (FD 26 n)', () => {
+    expect(disasm([0xFD, 0x26, 0x01])).toBe('LD IYH,01');
+  });
+  it('LD IYL,n  (FD 2E n)', () => {
+    expect(disasm([0xFD, 0x2E, 0xFF])).toBe('LD IYL,FF');
+  });
+});
+
+// ── DD/FD: ixhl() as source in LD r,(IX+d) (x=1, y≠6, z=6) ─────────────
+// The source operand comes from ixhl() when z=6 and an ix prefix is active.
+// Previously only tested with y=6 (destination = memory). This checks z=6.
+
+describe('disasmOne — LD r,(IX+d) / LD r,(IY+d)', () => {
+  it('LD B,(IX+05)  (DD 46 05)', () => {
+    expect(disasm([0xDD, 0x46, 0x05])).toBe('LD B,(IX+05)');
+  });
+  it('LD C,(IY+01)  (FD 4E 01)', () => {
+    expect(disasm([0xFD, 0x4E, 0x01])).toBe('LD C,(IY+01)');
+  });
+  it('LD A,(IY-01)  (FD 7E FF)', () => {
+    expect(disasm([0xFD, 0x7E, 0xFF])).toBe('LD A,(IY-01)');
+  });
+});
+
+// ── DD/FD: JP (IY) / EX (SP),IY ─────────────────────────────────────────
+// These are tested for DD (IX); the FD (IY) path is a separate ix='IY' run.
+
+describe('disasmOne — JP (IY) / EX (SP),IY', () => {
+  it('JP (IY) is terminal  (FD E9)', () => {
+    const line = disasmAt([0xFD, 0xE9], 0);
+    expect(stripMarkers(line.text)).toBe('JP (IY)');
+    expect(line.isTerminal).toBe(true);
+  });
+  it('EX (SP),IY  (FD E3)', () => {
+    expect(disasm([0xFD, 0xE3])).toBe('EX (SP),IY');
+  });
+});
+
+// ── ED IN/OUT register coverage ──────────────────────────────────────────
+// Prior tests hit y=7 (A) and undocumented y=6. Verify y=0..5 use R[y].
+
+describe('disasmOne — ED IN r,(C) / OUT (C),r remaining registers', () => {
+  // IN r,(C): opcode ED (y<<3), z=0. y=0→B, y=1→C, y=2→D, y=3→E, y=4→H, y=5→L.
+  const inCases: [number, string][] = [
+    [0x40, 'IN B,(C)'], [0x48, 'IN C,(C)'], [0x50, 'IN D,(C)'],
+    [0x58, 'IN E,(C)'], [0x60, 'IN H,(C)'], [0x68, 'IN L,(C)'],
+  ];
+  for (const [op, mnem] of inCases) {
+    it(mnem, () => { expect(disasm([0xED, op])).toBe(mnem); });
+  }
+
+  // OUT (C),r: opcode ED (y<<3)|1. y=0→B, y=1→C, y=2→D, y=3→E, y=4→H, y=5→L.
+  const outCases: [number, string][] = [
+    [0x41, 'OUT (C),B'], [0x49, 'OUT (C),C'], [0x51, 'OUT (C),D'],
+    [0x59, 'OUT (C),E'], [0x61, 'OUT (C),H'], [0x69, 'OUT (C),L'],
+  ];
+  for (const [op, mnem] of outCases) {
+    it(mnem, () => { expect(disasm([0xED, op])).toBe(mnem); });
+  }
+});
+
+// ── ED SBC/ADC/LD all register pairs ─────────────────────────────────────
+// p comes from bits 5-4 of the ED opcode; only one value per instruction was
+// previously verified. Spot-check the remaining pairs.
+
+describe('disasmOne — ED SBC/ADC HL,rp / LD (nn),rp / LD rp,(nn) all pairs', () => {
+  it('SBC HL,DE  (ED 52)', () => { expect(disasm([0xED, 0x52])).toBe('SBC HL,DE'); });
+  it('SBC HL,HL  (ED 62)', () => { expect(disasm([0xED, 0x62])).toBe('SBC HL,HL'); });
+  it('SBC HL,SP  (ED 72)', () => { expect(disasm([0xED, 0x72])).toBe('SBC HL,SP'); });
+
+  it('ADC HL,BC  (ED 4A)', () => { expect(disasm([0xED, 0x4A])).toBe('ADC HL,BC'); });
+  it('ADC HL,DE  (ED 5A)', () => { expect(disasm([0xED, 0x5A])).toBe('ADC HL,DE'); });
+  it('ADC HL,HL  (ED 6A)', () => { expect(disasm([0xED, 0x6A])).toBe('ADC HL,HL'); });
+
+  it('LD (nn),DE  (ED 53)', () => {
+    expect(disasm([0xED, 0x53, 0x00, 0x40])).toBe('LD (4000),DE');
+  });
+  it('LD (nn),HL  (ED 63)', () => {
+    expect(disasm([0xED, 0x63, 0x00, 0x40])).toBe('LD (4000),HL');
+  });
+  it('LD (nn),SP  (ED 73)', () => {
+    expect(disasm([0xED, 0x73, 0x00, 0x40])).toBe('LD (4000),SP');
+  });
+
+  it('LD BC,(nn)  (ED 4B)', () => {
+    expect(disasm([0xED, 0x4B, 0x00, 0x40])).toBe('LD BC,(4000)');
+  });
+  it('LD HL,(nn)  (ED 6B)', () => {
+    expect(disasm([0xED, 0x6B, 0x00, 0x40])).toBe('LD HL,(4000)');
+  });
+  it('LD SP,(nn)  (ED 7B)', () => {
+    expect(disasm([0xED, 0x7B, 0x00, 0x40])).toBe('LD SP,(4000)');
+  });
+});

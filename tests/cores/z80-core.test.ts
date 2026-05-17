@@ -1540,3 +1540,424 @@ describe('Z80 — interruptWithVector(vector)', () => {
     expect(h.cpu._pendingVector).toBe(0xFF);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// ADC A,n and SBC A,n — carry-input arithmetic (adc8 / sbc8)
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('Z80 — ADC A,n flag semantics', () => {
+  function adc(a: number, n: number, carry: number): { res: number; f: number } {
+    const h = newCpu();
+    h.cpu.a = a;
+    h.cpu.f = carry ? F_C : 0;
+    load(h.mem, 0, 0xCE, n); // ADC A,n
+    step(h);
+    return { res: h.cpu.a, f: h.cpu.f };
+  }
+
+  it('0x10 + 0x20 + C=0 behaves like ADD', () => {
+    const { res } = adc(0x10, 0x20, 0);
+    expect(res).toBe(0x30);
+  });
+
+  it('0x10 + 0x20 + C=1 = 0x31', () => {
+    const { res, f } = adc(0x10, 0x20, 1);
+    expect(res).toBe(0x31);
+    expect(f & F_C).toBe(0);
+    expect(f & F_N).toBe(0);
+  });
+
+  it('0xFF + 0x00 + C=1 → 0, carry out, zero', () => {
+    const { res, f } = adc(0xFF, 0x00, 1);
+    expect(res).toBe(0);
+    expect(f & F_C).toBe(F_C);
+    expect(f & F_Z).toBe(F_Z);
+  });
+
+  it('0x7F + 0x00 + C=1 → 0x80: signed overflow, S set', () => {
+    const { res, f } = adc(0x7F, 0x00, 1);
+    expect(res).toBe(0x80);
+    expect(f & F_PV).toBe(F_PV);
+    expect(f & F_S).toBe(F_S);
+    expect(f & F_C).toBe(0);
+  });
+});
+
+describe('Z80 — SBC A,n flag semantics', () => {
+  function sbc(a: number, n: number, carry: number): { res: number; f: number } {
+    const h = newCpu();
+    h.cpu.a = a;
+    h.cpu.f = carry ? F_C : 0;
+    load(h.mem, 0, 0xDE, n); // SBC A,n
+    step(h);
+    return { res: h.cpu.a, f: h.cpu.f };
+  }
+
+  it('always sets N flag', () => {
+    const { f } = sbc(0x10, 0x05, 0);
+    expect(f & F_N).toBe(F_N);
+  });
+
+  it('0x10 - 0x10 - C=0 → 0, Z set', () => {
+    const { res, f } = sbc(0x10, 0x10, 0);
+    expect(res).toBe(0);
+    expect(f & F_Z).toBe(F_Z);
+  });
+
+  it('0x10 - 0x0F - C=1 → 0, Z set (borrow consumes the difference)', () => {
+    const { res, f } = sbc(0x10, 0x0F, 1);
+    expect(res).toBe(0);
+    expect(f & F_Z).toBe(F_Z);
+  });
+
+  it('0x00 - 0x00 - C=1 → 0xFF, borrow, half-borrow, sign', () => {
+    const { res, f } = sbc(0x00, 0x00, 1);
+    expect(res).toBe(0xFF);
+    expect(f & F_C).toBe(F_C);
+    expect(f & F_S).toBe(F_S);
+  });
+
+  it('0x80 - 0x00 - C=1 → 0x7F: signed overflow', () => {
+    const { res, f } = sbc(0x80, 0x00, 1);
+    expect(res).toBe(0x7F);
+    expect(f & F_PV).toBe(F_PV);
+    expect(f & F_C).toBe(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// LD r,(HL) / LD (HL),r — memory-indexed register loads (x=1, z=6 / y=6)
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('Z80 — LD r,(HL) and LD (HL),r', () => {
+  it('LD B,(HL) reads from the address in HL into B', () => {
+    const h = newCpu();
+    h.cpu.hl = 0xC000;
+    h.mem[0xC000] = 0x55;
+    load(h.mem, 0, 0x46); // LD B,(HL)
+    step(h);
+    expect(h.cpu.b).toBe(0x55);
+    expect(h.cpu.hl).toBe(0xC000); // HL unchanged
+  });
+
+  it('LD C,(HL) / LD D,(HL) / LD E,(HL) / LD H,(HL) / LD L,(HL) all work', () => {
+    const regs = [
+      { op: 0x4E, get: (h: Harness) => h.cpu.c },
+      { op: 0x56, get: (h: Harness) => h.cpu.d },
+      { op: 0x5E, get: (h: Harness) => h.cpu.e },
+      { op: 0x66, get: (h: Harness) => h.cpu.h },
+      { op: 0x6E, get: (h: Harness) => h.cpu.l },
+    ];
+    for (const { op, get } of regs) {
+      const h = newCpu();
+      h.cpu.hl = 0xD000;
+      h.mem[0xD000] = 0xAB;
+      load(h.mem, 0, op);
+      step(h);
+      expect(get(h)).toBe(0xAB);
+    }
+  });
+
+  it('LD (HL),B writes B into memory at HL', () => {
+    const h = newCpu();
+    h.cpu.hl = 0xC100;
+    h.cpu.b = 0x77;
+    load(h.mem, 0, 0x70); // LD (HL),B
+    step(h);
+    expect(h.mem[0xC100]).toBe(0x77);
+  });
+
+  it('LD (HL),A writes A into memory at HL', () => {
+    const h = newCpu();
+    h.cpu.hl = 0xC200;
+    h.cpu.a = 0x42;
+    load(h.mem, 0, 0x77); // LD (HL),A
+    step(h);
+    expect(h.mem[0xC200]).toBe(0x42);
+  });
+
+  it('LD (HL),B does not modify flags', () => {
+    const h = newCpu();
+    h.cpu.hl = 0xC000; h.cpu.b = 0x01; h.cpu.f = 0xFF;
+    load(h.mem, 0, 0x70);
+    step(h);
+    expect(h.cpu.f).toBe(0xFF);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// LD A,(nn) / LD (nn),A — absolute memory address
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('Z80 — LD A,(nn)', () => {
+  it('reads from the absolute address into A', () => {
+    const h = newCpu();
+    h.mem[0x8000] = 0xC3;
+    load(h.mem, 0, 0x3A, 0x00, 0x80); // LD A,($8000)
+    step(h);
+    expect(h.cpu.a).toBe(0xC3);
+    expect(h.cpu.pc).toBe(3);
+  });
+
+  it('does not affect flags', () => {
+    const h = newCpu();
+    h.mem[0x4000] = 0xFF; h.cpu.f = 0xAA;
+    load(h.mem, 0, 0x3A, 0x00, 0x40);
+    step(h);
+    expect(h.cpu.f).toBe(0xAA);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// LD SP,HL — transfer HL into SP
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('Z80 — LD SP,HL', () => {
+  it('copies HL into SP without affecting flags', () => {
+    const h = newCpu();
+    h.cpu.hl = 0xBEEF; h.cpu.f = F_C | F_Z;
+    load(h.mem, 0, 0xF9); // LD SP,HL
+    step(h);
+    expect(h.cpu.sp).toBe(0xBEEF);
+    expect(h.cpu.f & F_C).toBe(F_C);
+    expect(h.cpu.f & F_Z).toBe(F_Z);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// NEG — negate accumulator (ED 44)
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('Z80 — NEG', () => {
+  it('NEG: A = 0 - A; sets N, sets C when A≠0', () => {
+    const h = newCpu();
+    h.cpu.a = 0x42;
+    load(h.mem, 0, 0xED, 0x44); // NEG
+    step(h);
+    expect(h.cpu.a).toBe(0xBE); // -0x42 & 0xFF = 0xBE
+    expect(h.cpu.f & F_N).toBe(F_N);
+    expect(h.cpu.f & F_C).toBe(F_C); // borrow when A≠0
+  });
+
+  it('NEG 0 → 0: Z set, C clear', () => {
+    const h = newCpu();
+    h.cpu.a = 0x00;
+    load(h.mem, 0, 0xED, 0x44);
+    step(h);
+    expect(h.cpu.a).toBe(0x00);
+    expect(h.cpu.f & F_Z).toBe(F_Z);
+    expect(h.cpu.f & F_C).toBe(0);
+  });
+
+  it('NEG 0x80 → 0x80: overflow (minimum signed is its own negation), C set', () => {
+    const h = newCpu();
+    h.cpu.a = 0x80;
+    load(h.mem, 0, 0xED, 0x44);
+    step(h);
+    expect(h.cpu.a).toBe(0x80);
+    expect(h.cpu.f & F_PV).toBe(F_PV);
+    expect(h.cpu.f & F_C).toBe(F_C);
+  });
+
+  it('NEG 0x01 → 0xFF: S set, H set, C set', () => {
+    const h = newCpu();
+    h.cpu.a = 0x01;
+    load(h.mem, 0, 0xED, 0x44);
+    step(h);
+    expect(h.cpu.a).toBe(0xFF);
+    expect(h.cpu.f & F_S).toBe(F_S);
+    expect(h.cpu.f & F_H).toBe(F_H);
+    expect(h.cpu.f & F_C).toBe(F_C);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// RETN — return from NMI, restoring IFF1 from IFF2
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('Z80 — RETN', () => {
+  it('pops PC from stack and restores IFF1 from IFF2', () => {
+    const h = newCpu();
+    h.cpu.sp = 0xC000;
+    h.mem[0xC000] = 0x34; h.mem[0xC001] = 0x12; // return to $1234
+    h.cpu.iff1 = false; h.cpu.iff2 = true;
+    load(h.mem, 0, 0xED, 0x45); // RETN
+    step(h);
+    expect(h.cpu.pc).toBe(0x1234);
+    expect(h.cpu.sp).toBe(0xC002);
+    expect(h.cpu.iff1).toBe(true);  // restored from IFF2
+    expect(h.cpu.iff2).toBe(true);  // IFF2 unchanged
+  });
+
+  it('RETN with IFF2=false leaves interrupts disabled after return', () => {
+    const h = newCpu();
+    h.cpu.sp = 0xC000;
+    h.mem[0xC000] = 0x00; h.mem[0xC001] = 0x00;
+    h.cpu.iff1 = false; h.cpu.iff2 = false;
+    load(h.mem, 0, 0xED, 0x45);
+    step(h);
+    expect(h.cpu.iff1).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// IM 0 interrupt — fires RST 38h (same as IM 1 for Spectrum)
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('Z80 — IM 0 interrupt', () => {
+  it('fires RST 38h, pushes PC, clears IFF1/IFF2, returns 13T', () => {
+    const h = newCpu();
+    h.cpu.iff1 = true; h.cpu.iff2 = true; h.cpu.im = 0;
+    h.cpu.sp = 0xC010; h.cpu.pc = 0xABCD;
+    const t = h.cpu.interrupt();
+    expect(t).toBe(13);
+    expect(h.cpu.pc).toBe(0x0038);
+    expect(h.cpu.iff1).toBe(false);
+    expect(h.cpu.iff2).toBe(false);
+    expect(h.mem[0xC00E]).toBe(0xCD);
+    expect(h.mem[0xC00F]).toBe(0xAB);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// OUT (C),r and IN r,(C) — ED-prefix I/O instructions
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('Z80 — OUT (C),r (ED prefix)', () => {
+  it('OUT (C),B writes B to port BC', () => {
+    const h = newCpu();
+    h.cpu.bc = 0x1234; h.cpu.b = 0x12; h.cpu.c = 0x34;
+    // Override b: just set b directly since bc setter updates both
+    h.cpu.bc = 0x1234;
+    h.cpu.b = 0xAB; // change after setting bc
+    load(h.mem, 0, 0xED, 0x41); // OUT (C),B
+    step(h);
+    // port = BC (with current B after B was changed), but bc setter updates both.
+    // Let's use a cleaner setup:
+    // OUT (C),B: port = BC, val = B.  BC before step: we set bc=0x1234 then b=0xAB → bc=0xAB34.
+    expect(h.portWrites[0]).toEqual({ port: 0xAB34, val: 0xAB });
+  });
+
+  it('OUT (C),A writes A to port BC', () => {
+    const h = newCpu();
+    h.cpu.bc = 0x1234; h.cpu.a = 0x77;
+    load(h.mem, 0, 0xED, 0x79); // OUT (C),A
+    step(h);
+    expect(h.portWrites[0]).toEqual({ port: 0x1234, val: 0x77 });
+  });
+
+  it('OUT (C),0 (undocumented y=6) writes 0 to port BC regardless of registers', () => {
+    const h = newCpu();
+    h.cpu.bc = 0x5678; h.cpu.a = 0xFF;
+    load(h.mem, 0, 0xED, 0x71); // OUT (C),0
+    step(h);
+    expect(h.portWrites[0]).toEqual({ port: 0x5678, val: 0x00 });
+  });
+});
+
+describe('Z80 — IN r,(C) — all target registers and flag behaviour', () => {
+  it('IN C,(C) loads port value into C, using BC as port', () => {
+    const h = newCpu();
+    h.cpu.bc = 0x1234;
+    h.ports.set(0x1234, 0x55);
+    load(h.mem, 0, 0xED, 0x48); // IN C,(C)
+    step(h);
+    expect(h.cpu.c).toBe(0x55);
+  });
+
+  it('IN D,(C) and IN E,(C) write to the correct register', () => {
+    for (const { op, get } of [
+      { op: 0xED50, get: (h: Harness) => h.cpu.d },
+      { op: 0xED58, get: (h: Harness) => h.cpu.e },
+    ]) {
+      const h = newCpu();
+      h.cpu.bc = 0x4000;
+      h.ports.set(0x4000, 0xCC);
+      const hi = (op >> 8) & 0xFF;
+      const lo = op & 0xFF;
+      load(h.mem, 0, hi, lo);
+      step(h);
+      expect(get(h)).toBe(0xCC);
+    }
+  });
+
+  it('IN F,(C) (y=6) updates flags but no GPR is written', () => {
+    const h = newCpu();
+    h.cpu.bc = 0x8000;
+    h.ports.set(0x8000, 0x40); // 0x40 = bit 6 set → Z clear, PV from parity
+    h.cpu.d = 0xDD; // sentinel — must not change
+    load(h.mem, 0, 0xED, 0x70); // IN F,(C)
+    step(h);
+    expect(h.cpu.d).toBe(0xDD); // no GPR written
+    // 0x40 → S=0, Z=0, P/V=parity(0x40)=0 (one bit)
+    expect(h.cpu.f & F_Z).toBe(0);
+    expect(h.cpu.f & F_N).toBe(0);
+    expect(h.cpu.f & F_H).toBe(0);
+  });
+
+  it('IN A,(C) sets Z when port value is zero', () => {
+    const h = newCpu();
+    h.cpu.bc = 0x0200;
+    h.ports.set(0x0200, 0x00);
+    load(h.mem, 0, 0xED, 0x78); // IN A,(C)
+    step(h);
+    expect(h.cpu.a).toBe(0x00);
+    expect(h.cpu.f & F_Z).toBe(F_Z);
+    expect(h.cpu.f & F_N).toBe(0);
+    expect(h.cpu.f & F_H).toBe(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// CB RES/SET on (HL) — memory-write path in CB prefix
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('Z80 — CB BIT/SET/RES on (HL)', () => {
+  it('SET 3,(HL): sets bit 3 in memory at HL, writes back', () => {
+    const h = newCpu();
+    h.cpu.hl = 0xC000;
+    h.mem[0xC000] = 0x00;
+    load(h.mem, 0, 0xCB, 0xDE); // SET 3,(HL): x=3, y=3, z=6
+    step(h);
+    expect(h.mem[0xC000]).toBe(0x08);
+  });
+
+  it('RES 3,(HL): clears bit 3 in memory at HL, writes back', () => {
+    const h = newCpu();
+    h.cpu.hl = 0xC000;
+    h.mem[0xC000] = 0xFF;
+    load(h.mem, 0, 0xCB, 0x9E); // RES 3,(HL): x=2, y=3, z=6
+    step(h);
+    expect(h.mem[0xC000]).toBe(0xF7);
+  });
+
+  it('BIT 7,(HL): tests bit 7, sets Z when clear, H always set', () => {
+    const h = newCpu();
+    h.cpu.hl = 0xC000;
+    h.mem[0xC000] = 0x0F; // bit 7 clear
+    load(h.mem, 0, 0xCB, 0x7E); // BIT 7,(HL)
+    step(h);
+    expect(h.cpu.f & F_Z).toBe(F_Z);
+    expect(h.cpu.f & F_H).toBe(F_H);
+    expect(h.mem[0xC000]).toBe(0x0F); // unchanged
+  });
+
+  it('BIT 3,(HL): Z clear when bit 3 is set', () => {
+    const h = newCpu();
+    h.cpu.hl = 0xC000;
+    h.mem[0xC000] = 0xFF; // all bits set
+    load(h.mem, 0, 0xCB, 0x5E); // BIT 3,(HL)
+    step(h);
+    expect(h.cpu.f & F_Z).toBe(0);
+  });
+
+  it('RLC (HL): rotates memory byte left, C from bit 7, writes back', () => {
+    const h = newCpu();
+    h.cpu.hl = 0xC000;
+    h.mem[0xC000] = 0x81; // 10000001
+    load(h.mem, 0, 0xCB, 0x06); // RLC (HL)
+    step(h);
+    expect(h.mem[0xC000]).toBe(0x03); // 00000011: bit7 wrapped to bit0
+    expect(h.cpu.f & F_C).toBe(F_C);
+  });
+});
