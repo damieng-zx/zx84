@@ -1038,6 +1038,49 @@ describe('Z80 — ED SBC HL,rr', () => {
   });
 });
 
+describe('Z80 — ED ADC HL,rr', () => {
+  it('ADC HL,BC adds HL, BC, and carry', () => {
+    const h = newCpu();
+    h.cpu.hl = 0x0001; h.cpu.bc = 0x0001; h.cpu.f = F_C;
+    load(h.mem, 0, 0xED, 0x4A); // ADC HL,BC
+    step(h);
+    expect(h.cpu.hl).toBe(0x0003);
+    expect(h.cpu.f & F_C).toBe(0);
+    expect(h.cpu.f & F_N).toBe(0); // ADC clears N (unlike SBC)
+  });
+
+  it('carry out of bit 15 sets C', () => {
+    const h = newCpu();
+    h.cpu.hl = 0xFFFF; h.cpu.bc = 0x0000; h.cpu.f = F_C;
+    load(h.mem, 0, 0xED, 0x4A);
+    step(h);
+    expect(h.cpu.hl).toBe(0x0000);
+    expect(h.cpu.f & F_C).toBe(F_C);
+    expect(h.cpu.f & F_Z).toBe(F_Z);
+  });
+
+  it('signed overflow sets V: 0x7FFF + 0 + C=1 → 0x8000', () => {
+    const h = newCpu();
+    h.cpu.hl = 0x7FFF; h.cpu.bc = 0x0000; h.cpu.f = F_C;
+    load(h.mem, 0, 0xED, 0x4A);
+    step(h);
+    expect(h.cpu.hl).toBe(0x8000);
+    expect(h.cpu.f & F_PV).toBe(F_PV);
+    expect(h.cpu.f & F_S).toBe(F_S);
+    expect(h.cpu.f & F_C).toBe(0);
+  });
+
+  it('result zero with no carry sets Z', () => {
+    const h = newCpu();
+    h.cpu.hl = 0x0000; h.cpu.bc = 0x0000; h.cpu.f = 0;
+    load(h.mem, 0, 0xED, 0x4A);
+    step(h);
+    expect(h.cpu.hl).toBe(0x0000);
+    expect(h.cpu.f & F_Z).toBe(F_Z);
+    expect(h.cpu.f & F_S).toBe(0);
+  });
+});
+
 // ─────────────────────────────────────────────────────────────────────────
 // IX / IY (DD / FD prefix)
 // ─────────────────────────────────────────────────────────────────────────
