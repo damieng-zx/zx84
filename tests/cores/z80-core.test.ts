@@ -839,6 +839,83 @@ describe('Z80 — Block ops (ED-prefix)', () => {
   });
 });
 
+describe('Z80 — INI / IND / INIR / INDR block I/O', () => {
+  it('INI reads from port BC, writes to (HL), increments HL, decrements B', () => {
+    const h = newCpu();
+    h.cpu.bc = 0x0234; // port 0x0234, B=0x02
+    h.cpu.hl = 0xC000;
+    h.ports.set(0x0234, 0x42);
+    load(h.mem, 0, 0xED, 0xA2); // INI
+    step(h);
+    expect(h.mem[0xC000]).toBe(0x42);
+    expect(h.cpu.hl).toBe(0xC001);    // incremented
+    expect(h.cpu.b).toBe(0x01);       // B decremented
+    expect(h.cpu.c).toBe(0x34);       // C unchanged
+    expect(h.cpu.f & F_Z).toBe(0);    // B != 0
+  });
+
+  it('INI: Z set when B decrements to zero', () => {
+    const h = newCpu();
+    h.cpu.bc = 0x0134; // B=1 → becomes 0 after INI
+    h.cpu.hl = 0xC000;
+    h.ports.set(0x0134, 0x00);
+    load(h.mem, 0, 0xED, 0xA2);
+    step(h);
+    expect(h.cpu.b).toBe(0x00);
+    expect(h.cpu.f & F_Z).toBe(F_Z);
+  });
+
+  it('INI: N flag is bit 7 of the value read from port', () => {
+    const h = newCpu();
+    h.cpu.bc = 0x0134;
+    h.cpu.hl = 0xC000;
+    h.ports.set(0x0134, 0x80); // bit 7 set → N=1
+    load(h.mem, 0, 0xED, 0xA2);
+    step(h);
+    expect(h.cpu.f & F_N).toBe(F_N);
+  });
+
+  it('IND reads from port BC, writes to (HL), decrements HL and B', () => {
+    const h = newCpu();
+    h.cpu.bc = 0x0234;
+    h.cpu.hl = 0xC002;
+    h.ports.set(0x0234, 0x77);
+    load(h.mem, 0, 0xED, 0xAA); // IND
+    step(h);
+    expect(h.mem[0xC002]).toBe(0x77);
+    expect(h.cpu.hl).toBe(0xC001); // decremented
+    expect(h.cpu.b).toBe(0x01);
+  });
+
+  it('INIR loops until B = 0, incrementing HL each iteration', () => {
+    const h = newCpu();
+    h.cpu.bc = 0x0320; // B=3, C=0x20 (port lo byte)
+    h.cpu.hl = 0xC000;
+    // Port BC changes as B decrements; set all port addresses
+    h.ports.set(0x0320, 0x10);
+    h.ports.set(0x0220, 0x20);
+    h.ports.set(0x0120, 0x30);
+    load(h.mem, 0, 0xED, 0xB2); // INIR
+    for (let i = 0; i < 16 && h.cpu.b !== 0; i++) h.cpu.step();
+    expect(h.cpu.b).toBe(0);
+    expect(h.cpu.hl).toBe(0xC003); // 3 iterations → incremented 3×
+    expect(h.cpu.pc).toBe(2);
+  });
+
+  it('INDR loops until B = 0, decrementing HL each iteration', () => {
+    const h = newCpu();
+    h.cpu.bc = 0x0220;
+    h.cpu.hl = 0xC002;
+    h.ports.set(0x0220, 0xAA);
+    h.ports.set(0x0120, 0xBB);
+    load(h.mem, 0, 0xED, 0xBA); // INDR
+    for (let i = 0; i < 16 && h.cpu.b !== 0; i++) h.cpu.step();
+    expect(h.cpu.b).toBe(0);
+    expect(h.cpu.hl).toBe(0xC000); // 2 iterations → decremented 2×
+    expect(h.cpu.pc).toBe(2);
+  });
+});
+
 // ─────────────────────────────────────────────────────────────────────────
 // IN / OUT
 // ─────────────────────────────────────────────────────────────────────────
