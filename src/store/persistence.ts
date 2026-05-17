@@ -82,7 +82,9 @@ export async function restoreTape(): Promise<{ data: Uint8Array; name: string } 
     const name = localStorage.getItem('zx84-tape-file');
     if (!name) return null;
     const data = await dbLoad('tape-file');
-    if (!data) return null;
+    // Empty-array sentinel is how clearTape soft-deletes the blob — treat it
+    // the same as a missing entry, matching restoreDisk's contract.
+    if (!data || data.length === 0) return null;
     return { data, name };
   } catch { return null; }
 }

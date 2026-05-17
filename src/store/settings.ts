@@ -8,7 +8,11 @@ import { getSaved, setSaved } from '@/store/persistence.ts';
 // ── Display settings ────────────────────────────────────────────────────
 
 function getSavedNumber(key: string, fallback: string): number {
-  return Number(getSaved(key, fallback));
+  const n = Number(getSaved(key, fallback));
+  // A corrupted localStorage entry (older build, manual edit, future bug)
+  // would otherwise leak NaN into renderers, audio mixing, etc. Treat any
+  // non-finite parse as if the key were absent.
+  return Number.isFinite(n) ? n : Number(fallback);
 }
 
 const _scale = /*@once*/ createRoot(() => createSignal(getSavedNumber('scale', '2')));
