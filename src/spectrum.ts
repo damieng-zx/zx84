@@ -70,6 +70,8 @@ export class IOActivity {
   fdcAccesses = 0;
   /** Number of ULA reads while tape is active (EAR sampling) */
   earReads = 0;
+  /** Set when LoaderDetector fires 'start' this frame — used to engage tape turbo */
+  loaderDetected = false;
   /** Number of attribute-area (5800-5AFF) writes this frame */
   attrWrites = 0;
   /** Number of Kempston mouse port reads this frame */
@@ -83,6 +85,7 @@ export class IOActivity {
     this.tapeLoads = 0;
     this.fdcAccesses = 0;
     this.earReads = 0;
+    this.loaderDetected = false;
     this.attrWrites = 0;
     this.mouseReads = 0;
   }
@@ -242,11 +245,13 @@ export class Spectrum {
       is16K: model === '16k',
     });
     this.cpu = new Z80();
-    this.ay = new AY3891x(AY_CLOCK, 44100, 'ABC');
     this.keyboard = new SpectrumKeyboard();
     this.ula = new ULA(this.keyboard);
     this.display = display ?? null;
     this.audio = new Audio();
+    // Initial AY rate tracks the Audio default; start() updates it once the
+    // AudioContext reports its real platform rate.
+    this.ay = new AY3891x(AY_CLOCK, this.audio.sampleRate, 'ABC');
     this.contention = new Contention(this.variant, this.memory);
     this.mixer = new AudioMixer(this.contention.timing.cpuClock);
     this.tape = new TapeDeck();
@@ -395,6 +400,7 @@ export class Spectrum {
     this.starting = false;
 
     this.mixer.init(this.audio.sampleRate);
+    this.ay.setSampleRate(this.audio.sampleRate);
 
     this.running = true;
     this.lastFrameTime = performance.now();
@@ -524,7 +530,10 @@ export class Spectrum {
     // If IFF1 is false (DI), the interrupt stays pending until EI re-enables it,
     // but only within the INT window — after that, it's lost until the next frame.
     let intT = this.cpu.interrupt();
-    let intPending = intT === 0 && !this.cpu.iff1;  // blocked by DI
+    // intT === 0 means the ack didn't take this attempt — could be DI (iff1=false)
+    // OR EI delay (eiDelay=true at the frame edge). Either way the INT line is still
+    // held LOW for the model's int window; retry until it fires or the window closes.
+    let intPending = intT === 0;
 
     // AMX mouse: drain queued movement steps as PIO interrupts spread across frame
     if (this.amxMouse.enabled && (this.amxMouse.pendingX !== 0 || this.amxMouse.pendingY !== 0)) {
@@ -668,24 +677,36 @@ export class Spectrum {
     // Tape turbo cooldown.
     // earReads only counts ULA reads with high byte 0xFF (no keyboard row
     // selected), so it genuinely reflects tape loading, not keyboard polling.
+    // Turbo is also engaged directly when the LoaderDetector fires 'start',
+    // ensuring custom loaders get acceleration even before earReads accumulates.
     // Tape auto-pause is handled by LoaderDetector on a microsecond timescale
-    // (src/io-ports.ts); this per-frame cooldown only disengages turbo and
-    // serves as a fallback pause for the case where port activity stops
-    // entirely (the detector needs at least one more read to fire).
-    const tapeLoading = this.activity.earReads > 0 || this.activity.tapeLoads > 0;
+    // (src/io-ports.ts). This per-frame cooldown ONLY disengages turbo — it
+    // does NOT pause the tape. Previous versions auto-paused here as a fallback
+    // for the case where port activity stops entirely, but this caused custom
+    // loaders to be paused mid-load (their EAR reads used non-0xFF port values,
+    // keeping earReads at 0, so the cooldown expired and auto-paused the tape
+    // every 25 frames, creating a restart loop on pure-tone blocks).
+    // "Loading" signal — used to engage tape turbo and refresh its cooldown.
+    // earReads alone is unreliable: custom loaders like Speedlock poll with
+    // A=$7F (so port high byte is $7F, not $FF), and the strict $FF check on
+    // earReads misses them. The authoritative signal is the tape player
+    // itself — if it's playing and not paused, the loader is reading edges.
+    // LoaderDetector handles pausing within microseconds of the loader
+    // quitting, so this stays accurate.
+    const tapeLoading = (this.tape.playing && !this.tape.paused)
+                        || this.activity.earReads > 0
+                        || this.activity.tapeLoads > 0
+                        || this.activity.loaderDetected;
 
     if (this.tape.loaded && !this.tape.finished) {
       if (tapeLoading) {
         if (this.tapeTurbo && !this._tapeTurboActive) {
           this._tapeTurboActive = true;
         }
-        this._tapeTurboCooldown = 25; // ~0.5s at 50Hz
+        this._tapeTurboCooldown = 25;
       } else if (this._tapeTurboCooldown > 0) {
         if (--this._tapeTurboCooldown <= 0) {
           this._tapeTurboActive = false;
-          // Fallback: if the loader stopped polling entirely (no port reads
-          // at all), the detector can't trip — pause here as belt-and-braces.
-          this.tape.paused = true;
           this.mixer.reset();
         }
       }

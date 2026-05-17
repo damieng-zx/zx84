@@ -114,6 +114,17 @@ export class AY3891x {
     this._dcOutR = 0;
   }
 
+  /** Update the sample rate after construction (e.g. once the AudioContext
+   * reports its real platform rate). Recomputes derived constants so tones
+   * stay tuned at the new rate.
+   */
+  setSampleRate(sampleRate: number): void {
+    if (!Number.isFinite(sampleRate) || sampleRate <= 0) return;
+    this.sampleRate = sampleRate;
+    this.cyclesPerSample = this.chipFreq / (sampleRate * 8);
+    this._dcAlpha = 1 - (2 * Math.PI * 20 / sampleRate);
+  }
+
   reset(): void {
     this.cycleFrac = 0;
     this.toneCounter.fill(0);

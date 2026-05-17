@@ -100,7 +100,11 @@ export class Audio {
   /** Volume set before init() — applied at the end of init(). */
   private pendingVolume = 0.7;
 
-  sampleRate = 44100;
+  // Default to 48 kHz — the platform default on Windows and most modern
+  // DACs. Overwritten by init() with the AudioContext's actual rate.
+  // (Avoid 44.1 kHz: AY tones come out subtly mistuned if we lie to consumers
+  // about the rate before the context exists.)
+  sampleRate = 48000;
   running = false;
 
   /**
@@ -114,7 +118,10 @@ export class Audio {
       return;
     }
 
-    this.ctx = new AudioContext({ sampleRate: 44100 });
+    // Let the platform pick the sample rate (don't force 44.1 kHz — the
+    // platform default is usually 48 kHz on Windows / many DACs and forcing
+    // a non-native rate adds a hidden resampler stage).
+    this.ctx = new AudioContext();
     this.sampleRate = this.ctx.sampleRate;
 
     this.gainNode = this.ctx.createGain();

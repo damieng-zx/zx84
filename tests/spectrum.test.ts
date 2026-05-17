@@ -116,15 +116,19 @@ describe('Spectrum — construction', () => {
     }
   });
 
-  // Pinned: AY constructor hard-codes sample rate 44100 and ABC stereo, ignoring
-  // both the variant and the eventual audio context rate. A 48 kHz audio context
-  // (common on Windows / many DACs) will produce slightly mistuned AY tones until
-  // some other code path fixes this.
-  it.fails('AY sample rate should match the audio context sample rate, not be hard-coded to 44100', () => {
+  // AY sample rate is driven by Audio.sampleRate (the platform-reported rate
+  // once the AudioContext is up; the Audio default otherwise). It must NOT be
+  // hard-coded to 44.1 kHz — a 48 kHz context (Windows / most modern DACs)
+  // would otherwise produce slightly mistuned AY tones.
+  it('AY sample rate tracks the audio sample rate, not a hard-coded 44100', () => {
     const s = makeMachine('128k');
-    // We can't compare to the audio context (never started), but we can pin the
-    // contract: the AY's sample rate is observable via .sampleRate.
-    expect((s.ay as any).sampleRate).not.toBe(44100); // ← fails today
+    expect(s.ay.sampleRate).toBe(s.audio.sampleRate);
+    expect(s.ay.sampleRate).not.toBe(44100);
+    // Derived constants must follow the rate, not be frozen at the old one.
+    expect(s.ay.cyclesPerSample).toBeCloseTo(
+      (s.ay.chipFreq) / (s.audio.sampleRate * 8),
+      10,
+    );
   });
 });
 
@@ -466,12 +470,9 @@ describe('Spectrum — tape turbo engagement', () => {
     expect(s.tapeTurboActive).toBe(true);
   });
 
-  // Surfaced behaviour: even with tapeTurbo=false, the cooldown still ticks and
-  // sets tape.paused = true when it hits zero. The original "loader stopped"
-  // belt-and-braces pause fires regardless of whether turbo was actually used.
-  // Pinning as it.fails — this is probably worth gating on tapeTurbo OR on
-  // _tapeTurboActive having actually been true. Pin so a fix flips it green.
-  it.fails('with tapeTurbo=false the cooldown auto-pause should NOT fire (currently does)', () => {
+  // The cooldown no longer auto-pauses the tape at all — it only disengages
+  // turbo. Tape pausing is handled exclusively by the LoaderDetector.
+  it('cooldown expiration does NOT auto-pause the tape', () => {
     const s = makeMachine('48k');
     (s.tape as any).blocks = [{ kind: 'pause', duration: 1000 }];
     s.tape.position = 0;
@@ -636,22 +637,20 @@ describe('Spectrum — EI / interrupt timing', () => {
     expect(s.cpu.iff1).toBe(false);
   });
 
-  // Pin: when the interrupt is delayed (intT === 0) the spectrum.runFrame logic
-  // only retries while `!iff1`, treating IFF1 as the sole blocker. If eiDelay
-  // was the blocker (and iff1 was true), the interrupt is silently dropped.
-  it.fails('an interrupt blocked by eiDelay at frame boundary should still fire after one instruction', () => {
+  // When the frame-boundary INT ack is blocked by eiDelay (not by DI), the
+  // INT line is still held LOW for the model's window. runFrame must retry
+  // until either the ack succeeds or the window closes — exactly the same
+  // way it retries when iff1 is the blocker.
+  it('an interrupt blocked by eiDelay at frame boundary still fires after one instruction', () => {
     const s = makeMachine('48k');
-    // Construct the state: iff1=true, eiDelay=true, tight loop.
     s.cpu.iff1 = true;
     s.cpu.eiDelay = true;
     s.cpu.im = 1;
     s.cpu.sp = 0xFF00;
     loadProgram(s, 0x00, 0x00, 0x00, 0x18, 0xFB); // NOP NOP NOP JR -5
     s.tick();
-    // Real Z80: eiDelay clears after the first instruction in the frame;
-    // the deferred INT should fire within the INT window. Today we never
-    // re-arm intPending in that path, so the interrupt is lost: iff1
-    // remains true and PC never jumped to $0038.
+    // eiDelay clears after the first instruction; the deferred INT then acks
+    // within the window, which disables IFF1.
     expect(s.cpu.iff1).toBe(false);
   });
 });
