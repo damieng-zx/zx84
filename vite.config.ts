@@ -86,7 +86,7 @@ export default defineConfig(({ mode }) => ({
   },
   test: {
     include: ['tests/**/*.test.ts'],
-    pool: 'forks',
+    pool: 'threads',
     environment: 'node',
     coverage: {
       provider: 'v8',
