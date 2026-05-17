@@ -51,16 +51,20 @@ export async function openFile(opts: PickerOptions): Promise<OpenFileResult[] | 
     }
 
     input.addEventListener('change', async () => {
-      const files = input.files;
-      if (!files || files.length === 0) { done(null); return; }
-      const results: OpenFileResult[] = [];
-      for (let i = 0; i < files.length; i++) {
-        results.push({
-          name: files[i].name,
-          data: new Uint8Array(await files[i].arrayBuffer()),
-        });
+      try {
+        const files = input.files;
+        if (!files || files.length === 0) { done(null); return; }
+        const results: OpenFileResult[] = [];
+        for (let i = 0; i < files.length; i++) {
+          results.push({
+            name: files[i].name,
+            data: new Uint8Array(await files[i].arrayBuffer()),
+          });
+        }
+        done(results);
+      } catch {
+        done(null);
       }
-      done(results);
     });
 
     input.addEventListener('cancel', () => done(null));
