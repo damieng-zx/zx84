@@ -197,13 +197,13 @@ describe('SP — border colour', () => {
 });
 
 describe('SP — status word interrupt flags', () => {
-  // Status word bit layout (per WoS FAQ):
+  // Status word bit layout (per WoS / komkon FAQ):
   //   bit 0 = IFF1
   //   bit 1 = IM2 selector (when bit 3 reset: 0=IM1, 1=IM2)
   //   bit 2 = IFF2
   //   bit 3 = IM0 selector (overrides bit 1 when set)
-  //   bit 4 = interrupt pending (impl ignores)
-  //   bit 5 = flash mode (impl ignores)
+  //   bit 4 = interrupt pending at snapshot time
+  //   bit 5 = ULA flash phase at snapshot time
 
   it.each([
     [0b0000_0001, true,  false, 1],  // IFF1 only, IM1
@@ -237,11 +237,24 @@ describe('SP — status word interrupt flags', () => {
     expect(cpu2.im).toBe(0);
   });
 
-  it('ignores reserved status bits 4 (int-pending) and 5 (flash) without crashing', () => {
+  it('bit 5 (flash phase) round-trips into the loader result', () => {
+    // Flash is the ULA's 16-frame phase counter; the SP format captures the
+    // current phase so visuals resume in sync with the saved frame.
     const cpu = makeCpu();
-    // 0b0011_1100: bit 0 clear (IFF1 false), bit 2 set (IFF2 true),
-    // bit 3 set (IM0), bits 4 and 5 set (reserved — must be ignored).
-    const data = buildSP48K(cpu, new Uint8Array(49152), { statusWord: 0b0011_1100 });
+    const onData  = buildSP48K(cpu, new Uint8Array(49152), { statusWord: 0b0010_0001 });
+    const offData = buildSP48K(cpu, new Uint8Array(49152), { statusWord: 0b0000_0001 });
+    expect(loadSP(onData,  new Z80(), makeMemory48k()).flashState).toBe(true);
+    expect(loadSP(offData, new Z80(), makeMemory48k()).flashState).toBe(false);
+  });
+
+  it('bit 4 (interrupt pending) does not corrupt parsing of other status bits', () => {
+    // The Spectrum frame loop reasserts INT every frame and tracks its pending
+    // state across the int window, so the loader does not need to re-latch a
+    // pending interrupt. The test verifies bit 4 is genuinely a no-op rather
+    // than something that leaks into IFF/IM parsing.
+    const cpu = makeCpu();
+    // 0b0001_1100: bit 0 clear, bit 2 set (IFF2), bit 3 set (IM0), bit 4 set.
+    const data = buildSP48K(cpu, new Uint8Array(49152), { statusWord: 0b0001_1100 });
     const cpu2 = new Z80();
     loadSP(data, cpu2, makeMemory48k());
     expect(cpu2.iff1).toBe(false);

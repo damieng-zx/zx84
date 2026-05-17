@@ -16,6 +16,8 @@ export interface SPResult {
   is128K: boolean;
   port7FFD: number;
   borderColor: number;
+  /** ULA flash phase at snapshot time (status word bit 5). */
+  flashState: boolean;
 }
 
 function r16(data: Uint8Array, offset: number): number {
@@ -65,7 +67,13 @@ export function loadSP(data: Uint8Array, cpu: Z80, memory: SpectrumMemory): SPRe
   const borderColor = data[34] & 0x07;
   const statusWord = r16(data, 36);
 
-  // Parse status word
+  // Status word layout (per WoS / komkon FAQ):
+  //   bit 0 = IFF1
+  //   bit 1 = IM2 selector (only when bit 3 clear)
+  //   bit 2 = IFF2
+  //   bit 3 = IM0 selector (overrides bit 1 when set)
+  //   bit 4 = interrupt pending at snapshot time
+  //   bit 5 = ULA flash phase at snapshot time
   cpu.iff1 = (statusWord & 0x01) !== 0;
   cpu.iff2 = (statusWord & 0x04) !== 0;
 
@@ -75,6 +83,12 @@ export function loadSP(data: Uint8Array, cpu: Z80, memory: SpectrumMemory): SPRe
   } else {
     cpu.im = (statusWord & 0x02) ? 2 : 1;
   }
+
+  // Bit 4 (interrupt pending) is not separately latched: the Spectrum frame
+  // loop already asserts INT at every frame start and tracks pending state
+  // for the rest of the frame, so resume naturally reconstructs it without
+  // any per-snapshot wiring.
+  const flashState = (statusWord & 0x20) !== 0;
 
   // Determine 48K or 128K from the file layout. A 48K snapshot has
   // exactly progLen RAM bytes following the 38-byte header; anything
@@ -115,6 +129,7 @@ export function loadSP(data: Uint8Array, cpu: Z80, memory: SpectrumMemory): SPRe
       is128K: true,
       port7FFD,
       borderColor,
+      flashState,
     };
   } else {
     // 48K: 49152 bytes starting at progLoc (usually 0x4000)
@@ -138,6 +153,7 @@ export function loadSP(data: Uint8Array, cpu: Z80, memory: SpectrumMemory): SPRe
       is128K: false,
       port7FFD: 0,
       borderColor,
+      flashState,
     };
   }
 }

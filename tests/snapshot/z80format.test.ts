@@ -1070,12 +1070,15 @@ describe('Z80 format — decompression edge cases via v3 load', () => {
     expect(mem.readByte(0x4001)).toBe(0x42);
   });
 
-  it('handles truncated compressed data gracefully', () => {
+  it('handles a truncated ED-ED run by zero-filling the rest of the page', () => {
+    // Decoder contract for malformed compression: emit what we can decode,
+    // leave the rest of the destination bank zero. The loader must not throw,
+    // and must not leak stale bytes from elsewhere in memory into the bank.
     const cpu = makeCpu();
-    const compressed = new Uint8Array([0xED, 0xED]);
+    const compressed = new Uint8Array([0xED, 0xED]); // dangling RLE marker
     const bh = new Uint8Array(3);
     w16(bh, 0, compressed.length);
-    bh[2] = 8;
+    bh[2] = 8; // pageId 8 = bank 5 at 0x4000
     const file = buildV3_48K(cpu, [{ pageId: 8, data: new Uint8Array(16384) }], 0);
 
     const extHeaderLen = r16(file, 30);
@@ -1086,7 +1089,18 @@ describe('Z80 format — decompression edge cases via v3 load', () => {
     result.set(compressed, 32 + extHeaderLen + 3);
 
     const mem = makeMemory48k();
-    expect(() => loadZ80(result, new Z80(), mem)).not.toThrow();
+    // Pre-poison the destination bank so the test would fail if the loader
+    // silently skipped the page rather than overwriting it with zeros.
+    mem.getRamBank(5).fill(0xA5);
+
+    loadZ80(result, new Z80(), mem);
+
+    // Truncated ED ED with no count/value: decoder emits nothing for the run
+    // and the destination is the fresh-allocated zero buffer that replaced
+    // the poisoned bytes.
+    expect(mem.readByte(0x4000)).toBe(0);
+    expect(mem.readByte(0x4001)).toBe(0);
+    expect(mem.readByte(0x7FFF)).toBe(0);
   });
 
   it('treats ED ED 00 as zero-length run (no sentinel in v2/v3 blocks)', () => {
@@ -1404,5 +1418,149 @@ describe('Z80 format — 128K round-trip extras', () => {
     expect(cpu2.iff1).toBe(cpu.iff1);
     expect(cpu2.iff2).toBe(cpu.iff2);
     expect(cpu2.im).toBe(cpu.im);
+  });
+});
+
+// ── V1 decompression edge cases (decompressV1 branches) ────────────────────
+
+/**
+ * Build a v1 .z80 header with the "compressed" flag set, then concatenate
+ * an arbitrary compressed payload. Used to feed targeted byte sequences to
+ * the decompressV1 routine.
+ */
+function buildV1Raw(cpu: Z80, stream: Uint8Array, borderColor = 0): Uint8Array {
+  const header = buildV1(cpu, new Uint8Array(0), true, borderColor).subarray(0, 30);
+  const data = new Uint8Array(30 + stream.length);
+  data.set(header, 0);
+  data.set(stream, 30);
+  return data;
+}
+
+describe('Z80 v1 decompression — edge cases', () => {
+  it('treats ED followed by a non-ED byte as two literals', () => {
+    const cpu = makeCpu();
+    const stream = new Uint8Array([
+      0xED, 0x42,                // literal pair
+      0x00, 0xED, 0xED, 0x00,    // v1 sentinel
+    ]);
+    const cpu2 = new Z80();
+    const mem = makeMemory48k();
+    loadZ80(buildV1Raw(cpu, stream), cpu2, mem);
+    expect(mem.readByte(0x4000)).toBe(0xED);
+    expect(mem.readByte(0x4001)).toBe(0x42);
+  });
+
+  it('emits a trailing lone 0xED as a literal when the stream ends after it', () => {
+    const cpu = makeCpu();
+    // No sentinel — the lone-ED-at-EOF branch must fire and emit ED.
+    const stream = new Uint8Array([0x11, 0xED]);
+    const cpu2 = new Z80();
+    const mem = makeMemory48k();
+    loadZ80(buildV1Raw(cpu, stream), cpu2, mem);
+    expect(mem.readByte(0x4000)).toBe(0x11);
+    expect(mem.readByte(0x4001)).toBe(0xED);
+  });
+
+  it('writes the ED literal but suppresses its partner when op hits 49152', () => {
+    // Fill RAM with 49151 0x77s (so the next write lands at op=49151), then
+    // an ED-non-ED literal pair: the ED fills the final RAM byte, the 0x42
+    // must be discarded by the `if (op < 49152)` guard rather than overrun.
+    const cpu = makeCpu();
+    const parts: number[] = [];
+    let remaining = 49151;
+    while (remaining >= 255) {
+      parts.push(0xED, 0xED, 0xFF, 0x77);
+      remaining -= 255;
+    }
+    if (remaining > 0) {
+      parts.push(0xED, 0xED, remaining, 0x77);
+    }
+    parts.push(0xED, 0x42);                        // boundary pair
+    parts.push(0x00, 0xED, 0xED, 0x00);            // sentinel (ignored — RAM is full)
+
+    const mem = makeMemory48k();
+    loadZ80(buildV1Raw(cpu, new Uint8Array(parts)), new Z80(), mem);
+    expect(mem.readByte(0xFFFE)).toBe(0x77);       // last filler byte
+    expect(mem.readByte(0xFFFF)).toBe(0xED);       // ED took the final slot
+  });
+});
+
+// ── V3 decompression edge cases (decompressBlock + paged-block loop) ───────
+
+describe('Z80 v3 decompression — edge cases', () => {
+  it('writes the ED literal but suppresses its partner when op hits 16384', () => {
+    // Same boundary-overflow shape as the v1 test, but for a single 16K
+    // RAMP block decoded by decompressBlock.
+    const cpu = makeCpu();
+    const parts: number[] = [];
+    let remaining = 16383;
+    while (remaining >= 255) {
+      parts.push(0xED, 0xED, 0xFF, 0x33);
+      remaining -= 255;
+    }
+    if (remaining > 0) {
+      parts.push(0xED, 0xED, remaining, 0x33);
+    }
+    parts.push(0xED, 0x42);                        // boundary pair
+    const compressed = new Uint8Array(parts);
+
+    const bh = new Uint8Array(3);
+    w16(bh, 0, compressed.length);
+    bh[2] = 8;                                     // page 8 → bank 5 / $4000
+
+    // Splice the crafted block into a placeholder v3 file.
+    const placeholder = buildV3_48K(cpu, [{ pageId: 8, data: new Uint8Array(16384) }], 0);
+    const extLen = r16(placeholder, 30);
+    const dataStart = 32 + extLen;
+    const result = new Uint8Array(dataStart + 3 + compressed.length);
+    result.set(placeholder.subarray(0, dataStart));
+    result.set(bh, dataStart);
+    result.set(compressed, dataStart + 3);
+
+    const mem = makeMemory48k();
+    loadZ80(result, new Z80(), mem);
+    expect(mem.readByte(0x7FFE)).toBe(0x33);
+    expect(mem.readByte(0x7FFF)).toBe(0xED);
+  });
+
+  it('breaks out of the 128K paged-block loop when a final block is truncated', () => {
+    // Build a 128K v3 file by hand: one valid block (page 3 → bank 0) then
+    // a trailing 3-byte header that claims an uncompressed 16 KiB payload
+    // but provides zero payload bytes. The `offset + 16384 > data.length`
+    // guard must abort the loop without throwing or over-reading.
+    const cpu = makeCpu();
+    cpu.pc = 0x9000;
+
+    const header = new Uint8Array(30);
+    header[6] = 0; header[7] = 0;                  // PC=0 → v2/v3
+    header[29] = 1;
+    const extHeader = new Uint8Array(2 + 54);
+    w16(extHeader, 0, 54);
+    w16(extHeader, 2, cpu.pc);
+    extHeader[4] = 4;                              // hwMode 4 = 128K
+
+    const block1Header = new Uint8Array(3);
+    w16(block1Header, 0, 0xFFFF);
+    block1Header[2] = 3;                           // page 3 → bank 0
+    const block1Data = new Uint8Array(16384);
+    block1Data[0] = 0x77;
+
+    const block2Header = new Uint8Array(3);
+    w16(block2Header, 0, 0xFFFF);                  // claims 16K, no payload
+    block2Header[2] = 4;
+
+    const total = 30 + extHeader.length + 3 + 16384 + 3;
+    const data = new Uint8Array(total);
+    let p = 0;
+    data.set(header, p);       p += 30;
+    data.set(extHeader, p);    p += extHeader.length;
+    data.set(block1Header, p); p += 3;
+    data.set(block1Data, p);   p += 16384;
+    data.set(block2Header, p);
+
+    const mem = makeMemory128k();
+    loadZ80(data, new Z80(), mem);
+    expect(mem.getRamBank(0)[0]).toBe(0x77);       // block 1 loaded
+    expect(mem.getRamBank(1)[0]).toBe(0);          // truncated block 2 skipped
   });
 });

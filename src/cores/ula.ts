@@ -123,7 +123,10 @@ export class ULA {
   }
 
   reset(): void {
-    this.borderColor = 7; // White border on reset
+    // Real hardware powers up with the border latch at 0 (black); the 48K ROM
+    // writes 7 (white) during its early init. Don't pre-load 7 here — that
+    // hides the genuine boot flash and masks bugs where ROM init is bypassed.
+    this.borderColor = 0;
     this.beeperBit = 0;
     this.tapeEarBit = 0;
     this.tapeActive = false;

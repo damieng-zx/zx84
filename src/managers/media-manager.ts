@@ -252,6 +252,7 @@ export class MediaManager {
         }
 
         spectrum.ula.borderColor = result.borderColor;
+        spectrum.ula.flashState = result.flashState;
         spectrum.start();
         callbacks.onStatus(`Loaded ${result.is128K ? '128K' : '48K'} .sp: ${filename}`);
 

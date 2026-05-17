@@ -14,6 +14,7 @@ import type { SpectrumModel } from '@/spectrum.ts';
 function loadSavedModel(): SpectrumModel | null {
   try {
     const raw = localStorage.getItem('zx84-model');
+    if (raw === null) return null;
     // Legacy: pre-2026-05 builds stored '+2a' lower-case. Migrate transparently.
     const val = raw === '+2a' ? '+2A' : raw;
     if (val === '16k' || val === '48k' || val === '128k' || val === '+2' || val === '+2A' || val === '+3') {
@@ -22,6 +23,9 @@ function loadSavedModel(): SpectrumModel | null {
       }
       return val;
     }
+    // Unknown value — drop it so the next boot starts clean instead of carrying
+    // a corrupted entry forever.
+    try { localStorage.removeItem('zx84-model'); } catch { /* */ }
   } catch { /* */ }
   return null;
 }

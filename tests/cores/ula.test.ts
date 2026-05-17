@@ -268,13 +268,15 @@ describe.skip('Port 0xFE — Issue 2 input stage (unmodelled)', () => {
 // ─────────────────────────────────────────────────────────────────────────
 
 describe('reset()', () => {
-  it('48K BASIC convention: border initialises to 7 (white)', () => {
-    // The 48K ROM sets BORDER 7 during boot; ULA reset uses the same value
-    // so a freshly-constructed machine matches what the ROM would produce.
+  it('border latches power-on value 0 (black) on reset', () => {
+    // Real hardware powers up with the border register at 0; the 48K ROM
+    // writes 7 (white) during early init. Resetting to 0 keeps emulation
+    // honest — the brief black flash before ROM init is genuine behaviour
+    // and bugs where ROM init is bypassed should be visible.
     const { ula } = makeUla();
     ula.writePort(0x02); // dirty the latch
     ula.reset();
-    expect(ula.borderColor).toBe(7);
+    expect(ula.borderColor).toBe(0);
   });
 
   it('clears beeper, tape, and flash state', () => {
