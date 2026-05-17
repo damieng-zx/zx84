@@ -10,6 +10,7 @@
  */
 
 import { createSignal } from 'solid-js';
+import type { OcrGridName } from '@/debug/screen-text.ts';
 
 // Input devices
 const _ledKbd = createSignal(false);
@@ -72,7 +73,7 @@ const _transcribeHtml = createSignal('');
 export const transcribeHtml = _transcribeHtml[0];
 export const setTranscribeHtml = _transcribeHtml[1];
 
-/** Cell grid currently driving the transcribe overlay (e.g. '32x24', '51x24'). */
-const _transcribeGrid = createSignal('32x24');
+/** Cell grid currently driving the transcribe overlay. */
+const _transcribeGrid = createSignal<OcrGridName>('32x24');
 export const transcribeGrid = _transcribeGrid[0];
 export const setTranscribeGrid = _transcribeGrid[1];
