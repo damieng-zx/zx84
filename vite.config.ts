@@ -88,6 +88,13 @@ export default defineConfig(({ mode }) => ({
     include: ['tests/**/*.test.ts'],
     pool: 'threads',
     environment: 'node',
+    // Vite leaks file handles on shutdown (~3 per source file imported, no
+    // stack traces — internal to Vite's transform pipeline, not our code).
+    // forceExit kills the process after teardownTimeout; 500 ms is long
+    // enough for clean shutdowns to win, short enough that the leaked-handle
+    // case doesn't stall the run by 10 s.
+    forceExit: true,
+    teardownTimeout: 500,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html'],
