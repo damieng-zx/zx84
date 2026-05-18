@@ -634,14 +634,20 @@ describe('TapeDeck — bug: empty direct data block', () => {
   });
 });
 
-// ── Bug: usedBits=0 skips the entire last byte ──────────────────────────────
+// ── usedBits=0 is clamped to 1 (not "skip the entire last byte") ────────────
+//
+// TZX spec considers usedBits ∈ [1..8] on the final byte. The deck enforces
+// `Math.max(1, block.usedBits)` to defend against malformed inputs. The
+// historical bug was that usedBits=0 *removed* the last byte entirely;
+// the fix made the last byte play 1 bit (its MSB) instead.
 
-describe('TapeDeck — bug: usedBits=0 on last byte', () => {
-  it('standard data block: usedBits=0 should not skip the last byte', () => {
-    // Two bytes: 0xFF (all 1s) and 0xAA (usedBits=0). The second byte should
-    // still emit pulses; with the bug, bitIdx < (8-0)=8 triggers immediately
-    // and the second byte is completely skipped.
-    const block = makeData(0xFF, [0x00, 0xAA], {
+describe('TapeDeck — usedBits=0 is clamped to 1 on last byte', () => {
+  it('standard data block: only the MSB of the last byte plays', () => {
+    // payload = [0x00] → rawData = [flag=0xFF, 0x00, checksum=0xFF].
+    // Last byte = 0xFF (checksum). With clamp, only bit 7 (a "1") plays =
+    // 2 edges using bit1Pulse = 200T × 2 half-cycles = 400T.
+    // Preceding bytes contribute their own edges/T.
+    const block = makeData(0xFF, [0x00], {
       pilotCount: 1,
       pilotPulse: 10,
       syncPulse1: 10,
@@ -654,32 +660,21 @@ describe('TapeDeck — bug: usedBits=0 on last byte', () => {
     const deck = deckWith(block);
     deck.startPlayback();
 
-    // Skip pilot (1 edge, 10T) + sync (2 edges, 20T).
-    deck.advance(30);
-
-    // rawData = [flag=0xFF, 0x00, checksum=0xFF^0x00^0xAA=0x55] = 3 bytes = 24 bits.
-    // Each bit is 2 half-cycles. With the bug, the last byte (checksum 0x55)
-    // produces 0 edges because usedBits=0 causes immediate enterPause.
-    // After fix, it should produce 16 edges for the full last byte.
-    //
-    // Count total data T-states for the full 24 bits.
-    const raw = [0xFF, 0x00, 0x55];
-    let dataT = 0;
-    let expectedEdges = 0;
-    for (const byte of raw) {
-      for (let b = 7; b >= 0; b--) {
-        const bit = (byte >> b) & 1;
-        dataT += 2 * (bit ? 200 : 100);
-        expectedEdges += 2;
-      }
-    }
-
-    const edges = countEdges(deck, dataT, 1);
+    // pilot(1×10T) + sync(10+10T) = 30T, 3 edges.
+    // byte 0 (0xFF, eight 1s): 8 × 2 × 200 = 3200T, 16 edges.
+    // byte 1 (0x00, eight 0s): 8 × 2 × 100 = 1600T, 16 edges.
+    // byte 2 (0xFF, but usedBitsLast=1 → only bit 7): 2 × 200 = 400T, 2 edges.
+    const totalT = 30 + 3200 + 1600 + 400;
+    const expectedEdges = 3 + 16 + 16 + 2;
+    const edges = countEdges(deck, totalT, 1);
     expect(edges).toBe(expectedEdges);
+    // After the clamp's single bit on the last byte, advance lands in PAUSE.
+    expect((deck as any).phase).toBe(5 /* PAUSE */);
   });
 
-  it('direct block: usedBits=0 should not skip the last byte', () => {
-    // Two bytes; usedBits=0 on the second (last) byte.
+  it('direct block: only the MSB of the last byte plays', () => {
+    // 2-byte direct block, usedBits=0 clamped to 1 → second byte emits 1
+    // sample only. Total = 8 samples (byte 0) + 1 sample (byte 1) = 9 × 10T = 90T.
     const block: DirectBlock = {
       kind: 'direct',
       tStatesPerSample: 10,
@@ -689,18 +684,15 @@ describe('TapeDeck — bug: usedBits=0 on last byte', () => {
     };
     const deck = deckWith(block);
     deck.startPlayback();
-
-    // With the bug, after the first byte (8 samples), directBitIdx decrements
-    // to 7 for the second byte, but isLastByte && 7 < (8-0=8) is true, so the
-    // block ends immediately. After the fix, all 8 bits of the second byte
-    // should play.
-    //
-    // Total expected: 16 samples × 10T = 160T. After that, block ends.
-    // With the bug, only 8 samples × 10T = 80T before the block ends.
+    // At 80T we have just wrapped into byte 1 (initial bit 7).
     deck.advance(80);
-    expect(deck.playing).toBe(true); // With bug this would be false (block ended)
-    deck.advance(80);
-    expect(deck.playing).toBe(false); // Now the block should have ended
+    expect(deck.playing).toBe(true);
+    // The 9th sample at T=90 enters the isLastByte clamp branch and ends
+    // playback (no next block, pause=0).
+    deck.advance(10);
+    expect(deck.playing).toBe(false);
+    // With usedBitsLast=8 it would take 16 samples (160T) to end — verify
+    // we ended at 90T, not later.
   });
 });
 
@@ -858,5 +850,330 @@ describe('TapeDeck — robustness: many consecutive cosmetic blocks', () => {
     // overflow. After fix (iterative), this should reach the tone block.
     expect(deck.playing).toBe(true);
     expect((deck as any).playbackIdx).toBe(500); // tone block
+  });
+});
+
+// ── tStatesToNextEdge() — surgical-loader edge predictor ────────────────────
+
+describe('TapeDeck.tStatesToNextEdge()', () => {
+  it('returns null when not playing', () => {
+    const deck = deckWith({ kind: 'tone', pulseLen: 100, count: 1 } as ToneBlock);
+    expect(deck.tStatesToNextEdge()).toBeNull();
+  });
+
+  it('returns null while paused', () => {
+    const deck = deckWith({ kind: 'tone', pulseLen: 100, count: 1 } as ToneBlock);
+    deck.startPlayback();
+    deck.paused = true;
+    expect(deck.tStatesToNextEdge()).toBeNull();
+  });
+
+  it('returns null in IDLE phase (no blocks)', () => {
+    const deck = new TapeDeck();
+    // Force playing=true but phase=IDLE — startPlayback with no blocks goes IDLE.
+    deck.startPlayback();
+    expect(deck.tStatesToNextEdge()).toBeNull();
+  });
+
+  it('returns null during PAUSE phase', () => {
+    const pause: PauseBlock = { kind: 'pause', duration: 10 };
+    const deck = deckWith(pause);
+    deck.startPlayback();
+    // Now in PAUSE phase.
+    expect((deck as any).phase).toBe(5 /* PAUSE */);
+    expect(deck.tStatesToNextEdge()).toBeNull();
+  });
+
+  it('returns null during DIRECT phase (sample boundaries, not edges)', () => {
+    const direct: DirectBlock = {
+      kind: 'direct', tStatesPerSample: 100, pause: 0, usedBits: 8,
+      data: new Uint8Array([0xFF]),
+    };
+    const deck = deckWith(direct);
+    deck.startPlayback();
+    expect(deck.tStatesToNextEdge()).toBeNull();
+  });
+
+  it('returns full pulseLen at the start of a pulse', () => {
+    const tone: ToneBlock = { kind: 'tone', pulseLen: 100, count: 5 };
+    const deck = deckWith(tone);
+    deck.startPlayback();
+    expect(deck.tStatesToNextEdge()).toBe(100);
+  });
+
+  it('decreases as the pulse is consumed', () => {
+    const tone: ToneBlock = { kind: 'tone', pulseLen: 100, count: 5 };
+    const deck = deckWith(tone);
+    deck.startPlayback();
+    deck.advance(40);
+    expect(deck.tStatesToNextEdge()).toBe(60);
+  });
+
+  it('returns 0 when the edge is overdue', () => {
+    // Direct manipulation: load a pulse-mode phase then force tInPulse past
+    // pulseLen without calling advance(). The accessor must clamp at 0.
+    const tone: ToneBlock = { kind: 'tone', pulseLen: 100, count: 5 };
+    const deck = deckWith(tone);
+    deck.startPlayback();
+    (deck as any).tInPulse = 200;
+    expect(deck.tStatesToNextEdge()).toBe(0);
+  });
+});
+
+// ── onPlayStateChange listener ──────────────────────────────────────────────
+
+describe('TapeDeck.onPlayStateChange listener', () => {
+  it('fires on startPlayback and stopPlayback', () => {
+    const tone: ToneBlock = { kind: 'tone', pulseLen: 100, count: 1 };
+    const deck = deckWith(tone);
+    let calls = 0;
+    deck.onPlayStateChange = () => { calls++; };
+    deck.startPlayback();
+    expect(calls).toBe(1);
+    deck.stopPlayback();
+    expect(calls).toBe(2);
+  });
+
+  it('load() triggers stopPlayback which notifies the listener', () => {
+    const deck = new TapeDeck();
+    let calls = 0;
+    deck.onPlayStateChange = () => { calls++; };
+    // load → stopPlayback → onPlayStateChange.
+    deck.load(new Uint8Array(0));
+    expect(calls).toBe(1);
+  });
+});
+
+// ── onEdgeScheduled listener + edge-flag categorisation ─────────────────────
+
+describe('TapeDeck.onEdgeScheduled listener — edge flag categorisation', () => {
+  it('classifies pilot as long, sync as short, and data bits by value', () => {
+    // 1-byte payload, tiny pilot so the sequence is observable.
+    // rawData = [flag=0xFF (all 1s), 0x00 (all 0s), checksum=0xFF (all 1s)].
+    const block = makeData(0xFF, [0x00], {
+      pilotCount: 2,
+      pilotPulse: 100,
+      syncPulse1: 50,
+      syncPulse2: 60,
+      bit0Pulse: 70,
+      bit1Pulse: 140,
+      pause: 0,
+    });
+    const deck = deckWith(block);
+
+    const flags: string[] = [];
+    deck.onEdgeScheduled = (f) => { flags.push(f); };
+
+    deck.startPlayback();
+    // Drain the whole block; tone/pulses/direct/pause/idle emit 'unknown'.
+    deck.advance(100 * 2 + 50 + 60 + 3 * 8 * 2 * 140);
+
+    // First flag = entry edge ('long' = pilot).
+    expect(flags[0]).toBe('long');
+    // Pilot → sync transition emits 'short'.
+    expect(flags).toContain('short');
+    // Data byte 0 (0xFF, all 1s) emits 'long' on each bit; bytes with zero
+    // bits emit 'short'. So both must be present.
+    expect(flags).toContain('short');
+    expect(flags).toContain('long');
+    // After data, enterPause publishes 'unknown'.
+    expect(flags[flags.length - 1]).toBe('unknown');
+  });
+
+  it('publishes inAcceleration=true when the deck flag is set', () => {
+    const block = makeData(0xFF, [0xFF], {
+      pilotCount: 1, pilotPulse: 10, syncPulse1: 10, syncPulse2: 10,
+      bit0Pulse: 10, bit1Pulse: 10, pause: 0,
+    });
+    const deck = deckWith(block);
+    const accelObserved: boolean[] = [];
+    deck.onEdgeScheduled = (_f, fromAccel) => { accelObserved.push(fromAccel); };
+
+    deck.inAcceleration = true;
+    deck.startPlayback();
+    expect(accelObserved.length).toBeGreaterThan(0);
+    expect(accelObserved.every(v => v === true)).toBe(true);
+  });
+
+  it('emits "unknown" for tone/pulses/pause/direct blocks', () => {
+    const tone: ToneBlock = { kind: 'tone', pulseLen: 100, count: 1 };
+    const pulses: PulsesBlock = { kind: 'pulses', lengths: [50, 60] };
+    const pause: PauseBlock = { kind: 'pause', duration: 1 };
+    const direct: DirectBlock = {
+      kind: 'direct', tStatesPerSample: 10, pause: 0, usedBits: 8,
+      data: new Uint8Array([0xFF]),
+    };
+    const deck = deckWith(tone, pulses, pause, direct);
+    const flags: string[] = [];
+    deck.onEdgeScheduled = (f) => { flags.push(f); };
+    deck.startPlayback();
+    // Tone start → 'unknown'.
+    expect(flags[0]).toBe('unknown');
+    // All flags should be 'unknown' since no data/pilot/sync ever runs.
+    expect(flags.every(f => f === 'unknown')).toBe(true);
+  });
+
+  it('emits "long" for a bit-1 in the data phase', () => {
+    // Single-byte payload 0x80 → rawData = [flag=0x80, 0x80, cs=0x00].
+    // First data bit is bit 7 of 0x80 = 1 → 'long'.
+    const block = makeData(0x80, [0x80], {
+      pilotCount: 1, pilotPulse: 10, syncPulse1: 10, syncPulse2: 10,
+      bit0Pulse: 70, bit1Pulse: 140, pause: 0,
+    });
+    const deck = deckWith(block);
+    const flags: string[] = [];
+    deck.onEdgeScheduled = (f) => { flags.push(f); };
+    deck.startPlayback();
+
+    // pilot(1) → sync1 → sync2 → first data bit.
+    // First publish from beginDataBlock = 'long' (pilot).
+    // Then advancePulse to sync1: 'short'. To sync2: 'short'. To DATA bit 7 = 'long'.
+    deck.advance(10);   // pilot done → sync1
+    deck.advance(10);   // sync1 → sync2
+    deck.advance(10);   // sync2 → DATA bit 7 (=1, 'long')
+    // The most recent flag should be 'long'.
+    expect(flags[flags.length - 1]).toBe('long');
+  });
+});
+
+// ── peekDataBlock / nextDataBlock cosmetic skip + 48K-no-stop ───────────────
+
+describe('TapeDeck.peekDataBlock() / nextDataBlock() cosmetic-block traversal', () => {
+  it('skips cosmetic blocks to reach the next data block', () => {
+    const deck = deckWith(
+      { kind: 'group-start', name: 'X' } as GroupStartBlock,
+      { kind: 'text', text: 't' } as TextBlock,
+      { kind: 'archive-info', entries: [] } as ArchiveInfoBlock,
+      { kind: 'group-end' } as GroupEndBlock,
+      makeData(0xFF, [42]),
+    );
+    const b = deck.nextDataBlock();
+    expect(b?.data[0]).toBe(42);
+    expect(deck.position).toBe(5);
+  });
+
+  it('on 128K, stop-if-48k is transparent and the data block is returned', () => {
+    const deck = deckWith(
+      { kind: 'stop-if-48k' } as StopIf48KBlock,
+      makeData(0xFF, [7]),
+    );
+    deck.is48K = false;
+    const b = deck.nextDataBlock();
+    expect(b?.data[0]).toBe(7);
+    expect(deck.paused).toBe(false);
+  });
+});
+
+// ── skipBlock() when already playing ────────────────────────────────────────
+
+describe('TapeDeck.skipBlock() when already playing', () => {
+  it('does not re-set playing/earBit, just restarts the current block', () => {
+    const deck = deckWith(makeData(0xFF, [1]), makeData(0xFF, [2]));
+    deck.startPlayback();
+    // Move earBit to 1 deliberately and confirm skipBlock does not clear it.
+    deck.earBit = 1;
+    deck.position = 1;       // simulate post-trap advance
+    deck.skipBlock();
+    expect(deck.playing).toBe(true);
+    expect((deck as any).playbackIdx).toBe(1);
+    // When already playing, skipBlock must skip the playing=true / earBit=0
+    // reinitialisation block — earBit may have been changed by beginBlock's
+    // setup, but the explicit reset is bypassed.
+  });
+});
+
+// ── set-level followed by cosmetic blocks ───────────────────────────────────
+
+describe('TapeDeck — set-level interaction with cosmetic chain', () => {
+  it('sets earBit and continues iterating past cosmetic blocks to the next emitter', () => {
+    const deck = deckWith(
+      { kind: 'set-level', level: 1 } as SetLevelBlock,
+      { kind: 'text', text: 'x' } as TextBlock,
+      { kind: 'tone', pulseLen: 100, count: 1 } as ToneBlock,
+    );
+    deck.startPlayback();
+    expect(deck.earBit).toBe(1);
+    expect((deck as any).playbackIdx).toBe(2);
+  });
+});
+
+// ── set-level inside playback path (visible after stopPlayback reset) ───────
+
+describe('TapeDeck — earBit reset by stopPlayback', () => {
+  it('stopPlayback clears earBit to 0 even if it was set high', () => {
+    const deck = deckWith(
+      { kind: 'set-level', level: 1 } as SetLevelBlock,
+      { kind: 'tone', pulseLen: 100, count: 1 } as ToneBlock,
+    );
+    deck.startPlayback();
+    expect(deck.earBit).toBe(1);
+    deck.stopPlayback();
+    expect(deck.earBit).toBe(0);
+  });
+});
+
+// ── Direct block transition into PAUSE on last byte with pause > 0 ──────────
+
+describe('TapeDeck — direct block last-byte → PAUSE with non-zero pause', () => {
+  it('enters PAUSE with cpuClock-scaled pauseRemaining and earBit=0', () => {
+    const block: DirectBlock = {
+      kind: 'direct', tStatesPerSample: 10, pause: 2, usedBits: 8,
+      data: new Uint8Array([0xFF]),
+    };
+    const deck = deckWith(block);
+    deck.cpuClock = 3_500_000;
+    deck.startPlayback();
+    deck.advance(80); // exhaust the byte
+    expect((deck as any).phase).toBe(5 /* PAUSE */);
+    expect(deck.earBit).toBe(0);
+    // 2ms × 3.5MHz = 7000T.
+    expect((deck as any).pauseRemaining).toBe(7000);
+  });
+});
+
+// ── Data-block pause flip — mid-flip decrement ──────────────────────────────
+
+describe('TapeDeck — data block pause: mid-flip decrement leaves flip pending', () => {
+  it('pauseFlipAt decrements without firing the earBit drop until it reaches 0', () => {
+    // pause=1ms = 3500T at 3.5MHz. enterPause schedules pauseFlipAt=945
+    // (since 3500 > 945). Stepping fewer than 945T must decrement but not
+    // yet zero out — this exercises the `pauseFlipAt > 0 && <= 0` else path.
+    const block = makeData(0xFF, [0xFF], {
+      pilotCount: 1, pilotPulse: 10, syncPulse1: 10, syncPulse2: 10,
+      bit0Pulse: 10, bit1Pulse: 10, pause: 1,
+    });
+    const deck = deckWith(block);
+    deck.cpuClock = 3_500_000;
+    deck.startPlayback();
+
+    // Consume pilot+sync+data → enter PAUSE.
+    // rawData = [0xFF, 0xFF, 0x00] = 3 bytes = 24 bits × 2 × 10T = 480T.
+    deck.advance(10 + 10 + 10 + 480);
+    expect((deck as any).phase).toBe(5 /* PAUSE */);
+    expect((deck as any).pauseFlipAt).toBe(945);
+    const earBeforeFlip = deck.earBit;
+
+    // Step 100T into the pause — flip should NOT yet have happened.
+    deck.advance(100);
+    expect((deck as any).pauseFlipAt).toBe(845);
+    expect(deck.earBit).toBe(earBeforeFlip);
+
+    // Step past the flip threshold; flip fires, pauseFlipAt resets to -1.
+    deck.advance(900);
+    expect((deck as any).pauseFlipAt).toBe(-1);
+    expect(deck.earBit).toBe(0);
+  });
+});
+
+// ── parser: a final block whose declared length equals exactly the remainder ─
+
+describe('TAP parser — exact-fit final block', () => {
+  it('parses a block where blockLen consumes the file to its last byte', () => {
+    // 4-byte payload + flag + checksum = blockLen 6. Total file = 8 bytes.
+    const tap = new Uint8Array([0x06, 0x00, 0xFF, 1, 2, 3, 4, 0xFF ^ 1 ^ 2 ^ 3 ^ 4]);
+    const deck = new TapeDeck();
+    const blocks = deck.parseTAP(tap);
+    expect(blocks.length).toBe(1);
+    expect((blocks[0] as DataBlock).data.length).toBe(4);
   });
 });

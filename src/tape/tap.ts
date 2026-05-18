@@ -574,10 +574,7 @@ export class TapeDeck {
     this.directUsedBitsLast = Math.max(1, block.usedBits);
     this.directPauseMs = block.pause;
     this.tInPulse = 0;
-    // Set initial EAR from first bit
-    if (block.data.length > 0) {
-      this.earBit = (block.data[0] >> 7) & 1;
-    }
+    this.earBit = (block.data[0] >> 7) & 1;
   }
 
   private advanceDirect(tStates: number): void {
@@ -604,20 +601,12 @@ export class TapeDeck {
       }
 
       if (this.directBitIdx < 0) {
+        // Wrap to next byte. The "byteIdx >= length" guard is unreachable:
+        // when bitIdx reaches -1 on the last byte, the isLastByte branch
+        // above always fires first (since usedBitsLast ∈ [1,8] makes
+        // 8 - usedBitsLast ∈ [0,7] and -1 < x always holds).
         this.directByteIdx++;
         this.directBitIdx = 7;
-        if (this.directByteIdx >= this.directData!.length) {
-          this.position = this.playbackIdx + 1;
-          if (this.directPauseMs > 0) {
-            this.phase = TapePhase.PAUSE;
-            this.earBit = 0;
-            this.pauseRemaining = Math.round(this.directPauseMs * this.cpuClock / 1000);
-          } else {
-            this.beginBlock(this.playbackIdx + 1);
-          }
-          this.directData = null;
-          return;
-        }
       }
 
       // Set EAR absolutely (not toggle)
@@ -663,12 +652,10 @@ export class TapeDeck {
           }
 
           if (this.bitIdx < 0) {
+            // Wrap to next byte. The "byteIdx >= length" guard is unreachable:
+            // see advanceDirect for the same dead-code analysis.
             this.byteIdx++;
             this.bitIdx = 7;
-            if (this.byteIdx >= this.rawData!.length) {
-              this.enterPause();
-              return;
-            }
           }
 
           this.setDataPulseLen();
