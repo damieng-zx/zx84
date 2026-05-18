@@ -41,6 +41,16 @@ npx vite build            # production build
 
 The dev server (`npx vite`) uses HMR — every file save triggers a hot reload. **Minimise edit churn**: plan all changes to a file upfront and apply them in one pass. Multiple sequential edits to the same file cause cascading reloads.
 
+## Writing tests
+
+Tests must be written critically against a known-correct specification, not as a mirror of the current implementation.
+
+- **Don't blindly assert existing behaviour.** Before writing an assertion, verify the expected value is correct — check the hardware spec, reference docs, or a trusted external source. If the code under test is wrong, the test should catch it, not encode the bug.
+- **Derive expectations independently.** Work out the correct result yourself (or from spec) and hard-code that value. Never call the function under test to generate the expected value.
+- **Prefer edge cases over happy paths.** The interesting bugs live at boundaries: overflow, underflow, wrap-around, flag interactions, off-by-one errors. Cover those first.
+- **One clear failure message.** Each test should have a single, obvious reason to fail so the diagnostic points directly to the broken behaviour.
+- **Tests that can never fail are useless.** If an assertion can only fail when you've already broken the test itself, delete it.
+
 ## Workflow rules
 
 - **No `cd` in commands.** Don't prefix commands with `cd /path &&`. It breaks the permission model. Qualify file paths on the command itself (e.g. `npx tsc --noEmit` run from the project root).
