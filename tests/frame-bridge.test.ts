@@ -45,6 +45,7 @@ type MockSpectrum = {
   activity: Record<string, number | boolean>;
   screenText: { active: boolean; activate: () => void; deactivate: () => void };
   loaderDetector: { signature: string };
+  ocrScreenStyled: ReturnType<typeof vi.fn>;
 } | null;
 
 const { emu, settingsMock, panesMock } = vi.hoisted(() => ({
@@ -258,6 +259,7 @@ function makeSpectrumWithSnap(snap: Uint8Array): MockSpectrum {
     activity: {},
     screenText: { active: false, activate: vi.fn(), deactivate: vi.fn() },
     loaderDetector: { signature: 'unknown' },
+    ocrScreenStyled: vi.fn(() => ({ text: '', html: '', grid: [], mask: [] as number[] })),
   };
 }
 
@@ -897,6 +899,18 @@ describe('updateClockSpeed', () => {
     expect(emu.setClockSpeedText).toHaveBeenCalledWith(expect.stringMatching(/\d+\.\d{2} MHz/));
     nowSpy.mockRestore();
   });
+
+  it('does not emit a MHz reading when elapsed time is 0 (guard against divide-by-zero)', () => {
+    const nowSpy = vi.spyOn(performance, 'now').mockReturnValue(99999);
+    const s = makeBasicSpectrum(5_000_000);
+    emu.spectrum = s;
+    resetSpeedTracking();          // sets speedLastTime = 99999
+    emu.setClockSpeedText.mockClear();
+    // time stays at 99999 → elapsed = 0 on the 50th frame
+    for (let i = 0; i < 50; i++) onFrame();
+    expect(emu.setClockSpeedText).not.toHaveBeenCalled();
+    nowSpy.mockRestore();
+  });
 });
 
 // ── onFrame — disasm pane open ────────────────────────────────────────────
@@ -904,26 +918,44 @@ describe('updateClockSpeed', () => {
 describe('onFrame — disasm pane open', () => {
   afterEach(() => {
     panesMock.isCollapsed.mockReturnValue(true);
+    emu.emulationPaused.mockReturnValue(false);
   });
 
-  it('bumps setRegsRev when disasm-panel is open', () => {
-    panesMock.isCollapsed.mockImplementation((id: string) => id !== 'disasm-panel');
+  function makeDisasmSpectrum() {
     const snap = new Uint8Array(0x10000);
     const s = makeSpectrumWithSnap(snap)!;
     (s as any).memory = { ...s.memory, port7FFD: 0, port1FFD: 0, pagingLocked: false, specialPaging: false, currentROM: 0, currentBank: 0 };
-    emu.spectrum = s;
+    return s;
+  }
+
+  it('bumps setRegsRev when disasm-panel is open', () => {
+    panesMock.isCollapsed.mockImplementation((id: string) => id !== 'disasm-panel');
+    emu.spectrum = makeDisasmSpectrum();
     onFrame();
     expect(emu.setRegsRev).toHaveBeenCalled();
   });
 
   it('does not bump setRegsRev when disasm-panel is collapsed', () => {
     panesMock.isCollapsed.mockReturnValue(true);
-    const snap = new Uint8Array(0x10000);
-    const s = makeSpectrumWithSnap(snap)!;
-    (s as any).memory = { ...s.memory, port7FFD: 0, port1FFD: 0, pagingLocked: false, specialPaging: false, currentROM: 0, currentBank: 0 };
-    emu.spectrum = s;
+    emu.spectrum = makeDisasmSpectrum();
     onFrame();
     expect(emu.setRegsRev).not.toHaveBeenCalled();
+  });
+
+  it('calls setDisasmText when disasm-panel is open and emulation is paused', () => {
+    panesMock.isCollapsed.mockImplementation((id: string) => id !== 'disasm-panel');
+    emu.emulationPaused.mockReturnValue(true);
+    emu.spectrum = makeDisasmSpectrum();
+    onFrame();
+    expect(emu.setDisasmText).toHaveBeenCalled();
+  });
+
+  it('does not call setDisasmText when disasm-panel is open but emulation is running', () => {
+    panesMock.isCollapsed.mockImplementation((id: string) => id !== 'disasm-panel');
+    emu.emulationPaused.mockReturnValue(false);
+    emu.spectrum = makeDisasmSpectrum();
+    onFrame();
+    expect(emu.setDisasmText).not.toHaveBeenCalled();
   });
 });
 
@@ -946,5 +978,300 @@ describe('capturedFontData', () => {
     for (let i = 0; i < 8; i++) expect(result!.data[i]).toBe(0);
     // Remaining bytes match our pattern (adjusted for the XOR'd byte)
     expect(result!.data[8]).toBe((8 * 7) & 0xFF);
+  });
+});
+
+// ── onFrame — loader signature transitions ────────────────────────────────
+
+// lastAnnouncedSignature is module-level. Reset it to 'unknown' before each test
+// by running one frame with signature='unknown'. If it was already 'unknown' the
+// transition check is a no-op; if it was something else, it resets to 'unknown'.
+function makeSpectrumWithSig(sig: string) {
+  const snap = new Uint8Array(0x10000);
+  const s = makeSpectrumWithSnap(snap)!;
+  (s as any).loaderDetector = { signature: sig };
+  (s as any).memory = { ...s.memory, port7FFD: 0, port1FFD: 0, pagingLocked: false, specialPaging: false, currentROM: 0, currentBank: 0 };
+  return s;
+}
+
+describe('onFrame — loader signature transitions', () => {
+  beforeEach(() => {
+    emu.spectrum = makeSpectrumWithSig('unknown');
+    onFrame();
+    emu.setStatus.mockClear();
+  });
+
+  it('unknown → known: calls setStatus with the loader label', () => {
+    emu.spectrum = makeSpectrumWithSig('rom');
+    onFrame();
+    expect(emu.setStatus).toHaveBeenCalledWith(expect.stringContaining('ROM loader'));
+  });
+
+  it('unknown → known: message contains "accelerated"', () => {
+    emu.spectrum = makeSpectrumWithSig('speedlock');
+    onFrame();
+    expect(emu.setStatus).toHaveBeenCalledWith(expect.stringContaining('accelerated'));
+  });
+
+  it('known → same known: no setStatus call on subsequent frames', () => {
+    emu.spectrum = makeSpectrumWithSig('rom');
+    onFrame();              // unknown → 'rom', fires setStatus
+    emu.setStatus.mockClear();
+    onFrame();              // 'rom' → 'rom', no transition
+    expect(emu.setStatus).not.toHaveBeenCalled();
+  });
+
+  it('known → unknown: no setStatus call (silent reset)', () => {
+    emu.spectrum = makeSpectrumWithSig('rom');
+    onFrame();              // unknown → 'rom'
+    emu.setStatus.mockClear();
+    emu.spectrum = makeSpectrumWithSig('unknown');
+    onFrame();              // 'rom' → 'unknown' — no announcement
+    expect(emu.setStatus).not.toHaveBeenCalled();
+  });
+
+  it('known → different known: fires setStatus with new label', () => {
+    emu.spectrum = makeSpectrumWithSig('rom');
+    onFrame();              // unknown → 'rom'
+    emu.setStatus.mockClear();
+    emu.spectrum = makeSpectrumWithSig('speedlock');
+    onFrame();              // 'rom' → 'speedlock'
+    expect(emu.setStatus).toHaveBeenCalledWith(expect.stringContaining('Speedlock'));
+  });
+});
+
+// ── onFrame — throttled slow panel updates (_lastSlowUpdate) ─────────────
+
+// _lastSlowUpdate is module-level state. Each "fires" test advances it by ~1001ms beyond
+// the priming base. By jumping THROTTLE_STEP (100_000ms) per test we always overshoot,
+// so the priming frame reliably fires the throttle regardless of prior test order.
+let throttleBase = 10_000_000;
+
+describe('onFrame — throttled slow panel updates (_lastSlowUpdate)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let nowSpy: any;
+
+  function makeThrottleSpectrum() {
+    const snap = new Uint8Array(0x10000);
+    const s = makeSpectrumWithSnap(snap)!;
+    (s as any).memory = { ...s.memory, port7FFD: 0, port1FFD: 0, pagingLocked: false, specialPaging: false, currentROM: 0, currentBank: 0 };
+    return s;
+  }
+
+  beforeEach(() => {
+    // Advance throttleBase by 100_000ms — always > any accumulated _lastSlowUpdate + 1000.
+    // isCollapsed returns true so the priming frame sets _lastSlowUpdate but fires no signals.
+    throttleBase += 100_000;
+    nowSpy = vi.spyOn(performance, 'now').mockReturnValue(throttleBase);
+    panesMock.isCollapsed.mockReturnValue(true);
+    emu.spectrum = makeThrottleSpectrum();
+    onFrame();
+    emu.setSysvarRev.mockClear();
+    emu.setBasicHtml.mockClear();
+    emu.setBasicVarsHtml.mockClear();
+  });
+
+  afterEach(() => {
+    nowSpy.mockRestore();
+    panesMock.isCollapsed.mockReturnValue(true);
+  });
+
+  it('does not call sysvar/basic signals within 1 second even if all panes open', () => {
+    nowSpy.mockReturnValue(throttleBase + 500); // 500ms — under threshold
+    panesMock.isCollapsed.mockReturnValue(false);
+    onFrame();
+    expect(emu.setSysvarRev).not.toHaveBeenCalled();
+    expect(emu.setBasicHtml).not.toHaveBeenCalled();
+    expect(emu.setBasicVarsHtml).not.toHaveBeenCalled();
+  });
+
+  it('calls setSysvarRev when sysvar-panel is open and > 1s elapsed', () => {
+    nowSpy.mockReturnValue(throttleBase + 1001);
+    panesMock.isCollapsed.mockImplementation((id: string) => id !== 'sysvar-panel');
+    onFrame();
+    expect(emu.setSysvarRev).toHaveBeenCalled();
+  });
+
+  it('does not call setSysvarRev when sysvar-panel is collapsed even after > 1s', () => {
+    nowSpy.mockReturnValue(throttleBase + 1001);
+    panesMock.isCollapsed.mockReturnValue(true);
+    onFrame();
+    expect(emu.setSysvarRev).not.toHaveBeenCalled();
+  });
+
+  it('calls setBasicHtml when basic-panel is open and > 1s elapsed', () => {
+    nowSpy.mockReturnValue(throttleBase + 1001);
+    panesMock.isCollapsed.mockImplementation((id: string) => id !== 'basic-panel');
+    onFrame();
+    expect(emu.setBasicHtml).toHaveBeenCalled();
+  });
+
+  it('does not call setBasicHtml when basic-panel is collapsed even after > 1s', () => {
+    nowSpy.mockReturnValue(throttleBase + 1001);
+    panesMock.isCollapsed.mockReturnValue(true);
+    onFrame();
+    expect(emu.setBasicHtml).not.toHaveBeenCalled();
+  });
+
+  it('calls setBasicVarsHtml when basic-vars-panel is open and > 1s elapsed', () => {
+    nowSpy.mockReturnValue(throttleBase + 1001);
+    panesMock.isCollapsed.mockImplementation((id: string) => id !== 'basic-vars-panel');
+    onFrame();
+    expect(emu.setBasicVarsHtml).toHaveBeenCalled();
+  });
+
+  it('updates only the open pane — basic open but vars closed: no setBasicVarsHtml', () => {
+    nowSpy.mockReturnValue(throttleBase + 1001);
+    panesMock.isCollapsed.mockImplementation((id: string) => id !== 'basic-panel');
+    onFrame();
+    expect(emu.setBasicHtml).toHaveBeenCalled();
+    expect(emu.setBasicVarsHtml).not.toHaveBeenCalled();
+  });
+});
+
+// ── onFrame — transcribe mode ─────────────────────────────────────────────
+
+describe('onFrame — transcribe mode', () => {
+  function makeTranscribeSpectrum(screenActive: boolean) {
+    const snap = new Uint8Array(0x10000);
+    const s = makeSpectrumWithSnap(snap)!;
+    (s as any).memory = { ...s.memory, port7FFD: 0, port1FFD: 0, pagingLocked: false, specialPaging: false, currentROM: 0, currentBank: 0 };
+    s.screenText = { active: screenActive, activate: vi.fn(), deactivate: vi.fn() };
+    return s;
+  }
+
+  afterEach(() => {
+    emu.transcribeMode.mockReturnValue('off');
+  });
+
+  it('calls screenText.activate() when transcribeMode first turns on', () => {
+    emu.transcribeMode.mockReturnValue('text' as any);
+    const s = makeTranscribeSpectrum(false);
+    emu.spectrum = s;
+    onFrame();
+    expect(s.screenText.activate).toHaveBeenCalledOnce();
+  });
+
+  it('does not re-activate when screenText is already active', () => {
+    emu.transcribeMode.mockReturnValue('text' as any);
+    const s = makeTranscribeSpectrum(true);
+    emu.spectrum = s;
+    onFrame();
+    expect(s.screenText.activate).not.toHaveBeenCalled();
+  });
+
+  it('calls screenText.deactivate() when transcribeMode turns off and screenText is active', () => {
+    emu.transcribeMode.mockReturnValue('off');
+    const s = makeTranscribeSpectrum(true);
+    emu.spectrum = s;
+    onFrame();
+    expect(s.screenText.deactivate).toHaveBeenCalledOnce();
+  });
+
+  it('does not call deactivate when transcribeMode is off and screenText is already inactive', () => {
+    emu.transcribeMode.mockReturnValue('off');
+    const s = makeTranscribeSpectrum(false);
+    emu.spectrum = s;
+    onFrame();
+    expect(s.screenText.deactivate).not.toHaveBeenCalled();
+  });
+
+  it('setLedText is true when transcribeMode is "text" (regardless of earReads)', () => {
+    emu.transcribeMode.mockReturnValue('text' as any);
+    const s = makeTranscribeSpectrum(false);
+    s.activity = {
+      ulaReads: 0, kempstonReads: 0, earReads: 0, tapeLoads: 0,
+      beeperToggled: false, ayWrites: 0, fdcAccesses: 0, attrWrites: 0, mouseReads: 0,
+    };
+    emu.spectrum = s;
+    onFrame();
+    expect(emu.setLedText).toHaveBeenCalledWith(true);
+  });
+});
+
+// ── onFrame — floppy sound reset path ────────────────────────────────────
+
+describe('onFrame — floppy sound reset', () => {
+  afterEach(() => {
+    emu.floppySound = null;
+    settingsMock.diskSoundA.mockReturnValue(false);
+  });
+
+  it('calls floppySound.reset() when floppySound is set but variant has no FDC', () => {
+    const snap = new Uint8Array(0x10000);
+    const s = makeSpectrumWithSnap(snap)!; // hasFDC = false by default
+    (s as any).memory = { ...s.memory, port7FFD: 0, port1FFD: 0, pagingLocked: false, specialPaging: false, currentROM: 0, currentBank: 0 };
+    emu.spectrum = s;
+    const reset = vi.fn();
+    emu.floppySound = { reset } as any;
+    onFrame();
+    expect(reset).toHaveBeenCalled();
+  });
+
+  it('calls floppySound.reset() when drive sound is disabled for the active drive', () => {
+    const s = makeSpectrumWithFDC({ currentUnit: 0 }) as any;
+    emu.spectrum = s;
+    settingsMock.diskSoundA.mockReturnValue(false);
+    const reset = vi.fn();
+    emu.floppySound = { reset } as any;
+    onFrame();
+    expect(reset).toHaveBeenCalled();
+  });
+
+  it('does not call floppySound.reset() when floppySound is null', () => {
+    // Baseline: no floppySound, no crash
+    const snap = new Uint8Array(0x10000);
+    const s = makeSpectrumWithSnap(snap)!;
+    (s as any).memory = { ...s.memory, port7FFD: 0, port1FFD: 0, pagingLocked: false, specialPaging: false, currentROM: 0, currentBank: 0 };
+    emu.spectrum = s;
+    emu.floppySound = null;
+    expect(() => onFrame()).not.toThrow();
+  });
+
+  it('calls floppySound.update() when hasFDC is true and drive sound is enabled', () => {
+    const s = makeSpectrumWithFDC({ currentUnit: 0, motorOn: true, currentTrack: 5 }) as any;
+    s.audio = { ctx: null };  // no audio context — attach() should not be called
+    settingsMock.diskSoundA.mockReturnValue(true);
+    emu.spectrum = s;
+    const update = vi.fn();
+    emu.floppySound = { update, reset: vi.fn(), driveType: '' } as any;
+    onFrame();
+    expect(update).toHaveBeenCalledWith(true, 5);
+  });
+
+  it('selects "3inch" driveType for disk capacity ≤ 500 KB', () => {
+    const s = makeSpectrumWithFDC({ currentUnit: 0, motorOn: false, currentTrack: 0 }) as any;
+    s.audio = { ctx: null };
+    settingsMock.diskSoundA.mockReturnValue(true);
+    // 1 side × 40 tracks × 9 sectors × 512 bytes = 180 KB < 500 KB
+    const sector = { n: 2, data: new Uint8Array(512) }; // n=2 → 128<<2 = 512
+    const track = { sectors: Array(9).fill(sector) };
+    s.fdc.getDiskImage = vi.fn(() => ({
+      numSides: 1, numTracks: 40,
+      tracks: [[track], ...Array(39).fill([track])],
+    }));
+    emu.spectrum = s;
+    const sound = { update: vi.fn(), reset: vi.fn(), driveType: '' as string };
+    emu.floppySound = sound as any;
+    onFrame();
+    expect(sound.driveType).toBe('3inch');
+  });
+
+  it('selects "3.5inch" driveType for disk capacity > 500 KB', () => {
+    const s = makeSpectrumWithFDC({ currentUnit: 0, motorOn: false, currentTrack: 0 }) as any;
+    s.audio = { ctx: null };
+    settingsMock.diskSoundA.mockReturnValue(true);
+    // 2 sides × 80 tracks × 9 sectors × 512 bytes = 720 KB > 500 KB
+    const sector = { n: 2, data: new Uint8Array(512) };
+    const track = { sectors: Array(9).fill(sector) };
+    s.fdc.getDiskImage = vi.fn(() => ({
+      numSides: 2, numTracks: 80,
+      tracks: [[track], ...Array(79).fill([track])],
+    }));
+    emu.spectrum = s;
+    const sound = { update: vi.fn(), reset: vi.fn(), driveType: '' as string };
+    emu.floppySound = sound as any;
+    onFrame();
+    expect(sound.driveType).toBe('3.5inch');
   });
 });

@@ -37,8 +37,7 @@ let lastAnnouncedSignature: LoaderSignature = 'unknown';
 // ── Hardware panel rendering ────────────────────────────────────────────
 
 function renderBanks(): string {
-  if (!spectrum) return '';
-  const mem = spectrum.memory;
+  const mem = spectrum!.memory;
   const model = currentModel();
   const n = '<span class="reg-name">';
   const e = '</span>';
@@ -122,22 +121,21 @@ function renderDriveStatus(unit: number, activeUnit: number): import('@/state/di
 
 /** Update banks, disk info, drive status, and trap log signals. */
 function updateHardwareSignals(activeUnit: number): void {
-  if (!spectrum) return;
-  const v = spectrum.variant;
+  const v = spectrum!.variant;
   if (v.hasBanking) {
     setBanksHtml(renderBanks());
   }
   if (v.hasFDC) {
-    spectrum.fdc.tickFrame();
+    spectrum!.fdc.tickFrame();
     setDriveAStatus(renderDriveStatus(0, activeUnit));
     setDriveBStatus(renderDriveStatus(1, activeUnit));
     setShowTrapLog(false);
 
     // If a format just completed, re-detect disk metadata and refresh the signal
-    const fu = spectrum.fdc.formattedUnit;
+    const fu = spectrum!.fdc.formattedUnit;
     if (fu >= 0) {
-      spectrum.fdc.formattedUnit = -1;
-      const image = spectrum.fdc.getDiskImage(fu);
+      spectrum!.fdc.formattedUnit = -1;
+      const image = spectrum!.fdc.getDiskImage(fu);
       if (image) {
         refreshDiskMetadata(image);
         // Spread to new reference so Solid.js reactive graph sees the change
@@ -191,15 +189,14 @@ export function resetSpeedTracking(): void {
 }
 
 function updateClockSpeed(): void {
-  if (!spectrum) return;
   speedFrameCount++;
   if (speedFrameCount < 50) return;   // update every ~1 second
   speedFrameCount = 0;
   const now = performance.now();
   const elapsed = (now - speedLastTime) / 1000;
-  const tStates = spectrum.cpu.tStates - speedLastTStates;
+  const tStates = spectrum!.cpu.tStates - speedLastTStates;
   speedLastTime = now;
-  speedLastTStates = spectrum.cpu.tStates;
+  speedLastTStates = spectrum!.cpu.tStates;
   if (elapsed > 0) {
     const rawMhz = (tStates / elapsed) / 1_000_000;
     // Exponential moving average for a stable readout
