@@ -6,10 +6,9 @@ import { formatStep, formatRegs, parseAddr, text } from '../format.ts';
 import { traps } from '../traps.ts';
 
 export function register(server: McpServer): void {
-  server.tool(
+  server.registerTool(
     'run',
-    'Run the emulator for N frames (default 1). Returns breakpoint info if hit.',
-    { frames: z.number().int().positive().default(1).describe('Number of frames to run') },
+    { description: 'Run the emulator for N frames (default 1). Returns breakpoint info if hit.', inputSchema: { frames: z.number().int().positive().default(1).describe('Number of frames to run') } },
     async ({ frames }) => {
       const spec = state.spec;
       const ran = spec.runUntil(frames);
@@ -28,10 +27,9 @@ export function register(server: McpServer): void {
     },
   );
 
-  server.tool(
+  server.registerTool(
     'step_frame',
-    'Run exactly one frame (to the next frame boundary). Equivalent to run with frames=1.',
-    {},
+    { description: 'Run exactly one frame (to the next frame boundary). Equivalent to run with frames=1.' },
     async () => {
       const spec = state.spec;
       spec.tick();
@@ -50,10 +48,9 @@ export function register(server: McpServer): void {
     },
   );
 
-  server.tool(
+  server.registerTool(
     'step',
-    'Single-step N Z80 instructions (default 1), showing disassembly and registers for each.',
-    { count: z.number().int().positive().default(1).describe('Number of instructions to step') },
+    { description: 'Single-step N Z80 instructions (default 1), showing disassembly and registers for each.', inputSchema: { count: z.number().int().positive().default(1).describe('Number of instructions to step') } },
     async ({ count }) => {
       const spec = state.spec;
       const lines: string[] = [];
@@ -65,10 +62,9 @@ export function register(server: McpServer): void {
     },
   );
 
-  server.tool(
+  server.registerTool(
     'continue',
-    'Continue execution until a breakpoint is hit (max N frames, default 5000).',
-    { max_frames: z.number().int().positive().default(5000).describe('Maximum frames before giving up') },
+    { description: 'Continue execution until a breakpoint is hit (max N frames, default 5000).', inputSchema: { max_frames: z.number().int().positive().default(5000).describe('Maximum frames before giving up') } },
     async ({ max_frames }) => {
       const spec = state.spec;
       if (spec.breakpoints.size === 0 && spec.portWatchpoints.size === 0 && spec.memWatchpoints.length === 0 && traps.size === 0)
@@ -89,20 +85,18 @@ export function register(server: McpServer): void {
     },
   );
 
-  server.tool(
+  server.registerTool(
     'registers',
-    'Display all CPU registers, flags, interrupt state, and banking info.',
-    {},
+    { description: 'Display all CPU registers, flags, interrupt state, and banking info.' },
     async () => text(formatRegs(state.spec)),
   );
 
-  server.tool(
+  server.registerTool(
     'set_register',
-    'Set a CPU register. Supported: A F AF B C BC D E DE H L HL SP PC IX IY.',
-    {
+    { description: 'Set a CPU register. Supported: A F AF B C BC D E DE H L HL SP PC IX IY.', inputSchema: {
       register: z.string().describe('Register name (e.g. A, BC, HL, SP, PC, IX, IY)'),
       value: z.string().describe('Value (hex or decimal, e.g. "FF", "0x1234", "512")'),
-    },
+    } },
     async ({ register, value }) => {
       const reg = register.toUpperCase();
       const val = parseAddr(value);
@@ -130,10 +124,9 @@ export function register(server: McpServer): void {
     },
   );
 
-  server.tool(
+  server.registerTool(
     'model',
-    'Show or switch the Spectrum model. Creates a fresh machine when switching.',
-    { target: z.enum(['16k', '48k', '128k', '+2', '+2A', '+3']).optional().describe('Model to switch to (omit to show current)') },
+    { description: 'Show or switch the Spectrum model. Creates a fresh machine when switching.', inputSchema: { target: z.enum(['16k', '48k', '128k', '+2', '+2A', '+3']).optional().describe('Model to switch to (omit to show current)') } },
     async ({ target }) => {
       if (!target) return text(`Current model: ${state.model}`);
       const msg = await initMachine(target);

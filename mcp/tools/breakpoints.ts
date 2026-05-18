@@ -5,10 +5,9 @@ import { state } from '../state.ts';
 import { parseAddr, text } from '../format.ts';
 
 export function register(server: McpServer): void {
-  server.tool(
+  server.registerTool(
     'breakpoint',
-    'Set breakpoints at one or more addresses, or list all breakpoints if none given. Accepts a single address or comma/space-separated list.',
-    { address: z.string().optional().describe('Address(es) to set breakpoints at, e.g. "FE10" or "FE10,FE20,FE30" (omit to list all)') },
+    { description: 'Set breakpoints at one or more addresses, or list all breakpoints if none given. Accepts a single address or comma/space-separated list.', inputSchema: { address: z.string().optional().describe('Address(es) to set breakpoints at, e.g. "FE10" or "FE10,FE20,FE30" (omit to list all)') } },
     async ({ address }) => {
       const spec = state.spec;
       if (!address) {
@@ -21,10 +20,9 @@ export function register(server: McpServer): void {
     },
   );
 
-  server.tool(
+  server.registerTool(
     'delete_breakpoint',
-    'Delete breakpoints at one or more addresses, or clear all if none given. Accepts a single address or comma/space-separated list.',
-    { address: z.string().optional().describe('Address(es) to remove, e.g. "FE10" or "FE10,FE20" (omit to clear all)') },
+    { description: 'Delete breakpoints at one or more addresses, or clear all if none given. Accepts a single address or comma/space-separated list.', inputSchema: { address: z.string().optional().describe('Address(es) to remove, e.g. "FE10" or "FE10,FE20" (omit to clear all)') } },
     async ({ address }) => {
       const spec = state.spec;
       if (!address) {
@@ -37,10 +35,9 @@ export function register(server: McpServer): void {
     },
   );
 
-  server.tool(
+  server.registerTool(
     'port_watchpoint',
-    'Set port watchpoints (breaks on IN or OUT). Accepts a single port or comma/space-separated list. Omit to list all.',
-    { port: z.string().optional().describe('Port address(es) to watch, e.g. "3FFD" or "3FFD,2FFD" (omit to list all)') },
+    { description: 'Set port watchpoints (breaks on IN or OUT). Accepts a single port or comma/space-separated list. Omit to list all.', inputSchema: { port: z.string().optional().describe('Port address(es) to watch, e.g. "3FFD" or "3FFD,2FFD" (omit to list all)') } },
     async ({ port }) => {
       const spec = state.spec;
       if (!port) {
@@ -53,10 +50,9 @@ export function register(server: McpServer): void {
     },
   );
 
-  server.tool(
+  server.registerTool(
     'delete_port_watchpoint',
-    'Delete port watchpoints. Accepts a single port or comma/space-separated list. Omit to clear all.',
-    { port: z.string().optional().describe('Port address(es) to remove, e.g. "3FFD" or "3FFD,2FFD" (omit to clear all)') },
+    { description: 'Delete port watchpoints. Accepts a single port or comma/space-separated list. Omit to clear all.', inputSchema: { port: z.string().optional().describe('Port address(es) to remove, e.g. "3FFD" or "3FFD,2FFD" (omit to clear all)') } },
     async ({ port }) => {
       const spec = state.spec;
       if (!port) {
@@ -69,14 +65,13 @@ export function register(server: McpServer): void {
     },
   );
 
-  server.tool(
+  server.registerTool(
     'memory_watchpoint',
-    'Set a memory watchpoint that breaks on read, write, or either. Omit address to list all.',
-    {
+    { description: 'Set a memory watchpoint that breaks on read, write, or either. Omit address to list all.', inputSchema: {
       address: z.string().optional().describe('Start address (hex, e.g. "4000"). Omit to list all watchpoints.'),
       length:  z.number().int().positive().default(1).describe('Number of bytes to watch (default 1)'),
       mode:    z.enum(['read', 'write', 'rw']).default('rw').describe('Access type to watch: read, write, or rw (default rw)'),
-    },
+    } },
     async ({ address, length, mode }) => {
       const spec = state.spec;
       if (!address) {
@@ -94,10 +89,9 @@ export function register(server: McpServer): void {
     },
   );
 
-  server.tool(
+  server.registerTool(
     'delete_memory_watchpoint',
-    'Delete a memory watchpoint by start address, or omit to clear all.',
-    { address: z.string().optional().describe('Start address of watchpoint to remove (omit to clear all)') },
+    { description: 'Delete a memory watchpoint by start address, or omit to clear all.', inputSchema: { address: z.string().optional().describe('Start address of watchpoint to remove (omit to clear all)') } },
     async ({ address }) => {
       const spec = state.spec;
       if (!address) {

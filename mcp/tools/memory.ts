@@ -6,14 +6,13 @@ import { state } from '../state.ts';
 import { parseAddr, formatHexDump, doFindBytes, text } from '../format.ts';
 
 export function register(server: McpServer): void {
-  server.tool(
+  server.registerTool(
     'read_memory',
-    'Hex dump of memory. Without bank: reads from the 64KB address space. With bank (0-7): reads from that 16KB RAM bank directly, address is offset within the bank.',
-    {
+    { description: 'Hex dump of memory. Without bank: reads from the 64KB address space. With bank (0-7): reads from that 16KB RAM bank directly, address is offset within the bank.', inputSchema: {
       address: z.string().describe('Start address (hex, or offset within bank)'),
       length: z.number().int().positive().default(64).describe('Number of bytes to dump'),
       bank: z.number().int().min(0).max(7).optional().describe('RAM bank 0-7 (omit for flat 64KB address space)'),
-    },
+    } },
     async ({ address, length, bank }) => {
       const spec = state.spec;
       if (bank !== undefined) {
@@ -27,14 +26,13 @@ export function register(server: McpServer): void {
     },
   );
 
-  server.tool(
+  server.registerTool(
     'write_memory',
-    'Write a hex byte sequence to memory. Without bank: writes to the 64KB address space. With bank (0-7): writes to that 16KB RAM bank directly, address is offset within the bank.',
-    {
+    { description: 'Write a hex byte sequence to memory. Without bank: writes to the 64KB address space. With bank (0-7): writes to that 16KB RAM bank directly, address is offset within the bank.', inputSchema: {
       address: z.string().describe('Start address (hex, or offset within bank)'),
       hex_bytes: z.string().describe('Hex byte string to write, e.g. "CD0050FF"'),
       bank: z.number().int().min(0).max(7).optional().describe('RAM bank 0-7 (omit for flat 64KB address space)'),
-    },
+    } },
     async ({ address, hex_bytes, bank }) => {
       const spec = state.spec;
       const hex = hex_bytes.replace(/\s/g, '');
@@ -61,10 +59,9 @@ export function register(server: McpServer): void {
     },
   );
 
-  server.tool(
+  server.registerTool(
     'find',
-    'Search all 64KB of memory for a byte sequence. Returns up to 64 matches.',
-    { hex_bytes: z.string().describe('Hex byte string to search for, e.g. "CD0050"') },
+    { description: 'Search all 64KB of memory for a byte sequence. Returns up to 64 matches.', inputSchema: { hex_bytes: z.string().describe('Hex byte string to search for, e.g. "CD0050"') } },
     async ({ hex_bytes }) => {
       const spec = state.spec;
       const hex = hex_bytes.replace(/\s/g, '');
@@ -75,13 +72,12 @@ export function register(server: McpServer): void {
     },
   );
 
-  server.tool(
+  server.registerTool(
     'disassemble',
-    'Disassemble Z80 code at a given address (default: PC). Shows N lines (default 16).',
-    {
+    { description: 'Disassemble Z80 code at a given address (default: PC). Shows N lines (default 16).', inputSchema: {
       address: z.string().optional().describe('Start address (hex/decimal). Defaults to current PC.'),
       lines: z.number().int().positive().default(16).describe('Number of lines to disassemble'),
-    },
+    } },
     async ({ address, lines: n }) => {
       const spec = state.spec;
       const addr = address ? parseAddr(address) : spec.cpu.pc;

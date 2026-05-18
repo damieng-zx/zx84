@@ -10,23 +10,21 @@ import { loadFileInto } from '../loader.ts';
 import { fdcLog } from '../fdc-log.ts';
 
 export function register(server: McpServer): void {
-  server.tool(
+  server.registerTool(
     'load',
-    'Load a file into the emulator. Supports TAP, TZX, SNA, Z80, DSK formats. For DSK, optional drive unit (0/A or 1/B).',
-    {
+    { description: 'Load a file into the emulator. Supports TAP, TZX, SNA, Z80, DSK formats. For DSK, optional drive unit (0/A or 1/B).', inputSchema: {
       file: z.string().describe('Path to file (TAP/TZX/SNA/Z80/DSK)'),
       drive: z.enum(['0', '1', 'A', 'B']).default('0').describe('Drive unit for DSK files'),
-    },
+    } },
     async ({ file, drive }) => {
       const diskUnit = (drive === '1' || drive === 'B') ? 1 : 0;
       return text(await loadFileInto(state.spec, file, diskUnit));
     },
   );
 
-  server.tool(
+  server.registerTool(
     'save',
-    'Save current emulator state to a SZX snapshot file.',
-    { file: z.string().describe('Output path for .szx file') },
+    { description: 'Save current emulator state to a SZX snapshot file.', inputSchema: { file: z.string().describe('Output path for .szx file') } },
     async ({ file }) => {
       const spec = state.spec;
       if (!file.toLowerCase().endsWith('.szx')) file = file + '.szx';
@@ -47,10 +45,9 @@ export function register(server: McpServer): void {
     },
   );
 
-  server.tool(
+  server.registerTool(
     'disk_boot',
-    'Boot from disk in drive A: on a +3. Runs 500 frames to reach the menu, then presses Enter on "Loader". If a file path is given, switches to +3, mounts the DSK, and boots it.',
-    { file: z.string().optional().describe('Path to DSK file to load into drive A: (optional — omit if disk already mounted)') },
+    { description: 'Boot from disk in drive A: on a +3. Runs 500 frames to reach the menu, then presses Enter on "Loader". If a file path is given, switches to +3, mounts the DSK, and boots it.', inputSchema: { file: z.string().optional().describe('Path to DSK file to load into drive A: (optional — omit if disk already mounted)') } },
     async ({ file }) => {
       const lines: string[] = [];
       if (file) {
@@ -82,10 +79,9 @@ export function register(server: McpServer): void {
     },
   );
 
-  server.tool(
+  server.registerTool(
     'disk_trace',
-    'Copy-protection trace helper: switch to +3, mount a DSK, boot to Loader, then arm a FE10h PC breakpoint and a 3FFDh FDC data port watchpoint so every FDC command byte breaks execution.',
-    { file: z.string().describe('Path to DSK file to load into drive A:') },
+    { description: 'Copy-protection trace helper: switch to +3, mount a DSK, boot to Loader, then arm a FE10h PC breakpoint and a 3FFDh FDC data port watchpoint so every FDC command byte breaks execution.', inputSchema: { file: z.string().describe('Path to DSK file to load into drive A:') } },
     async ({ file }) => {
       const lines: string[] = [];
       if (state.model !== '+3') {
@@ -120,13 +116,12 @@ export function register(server: McpServer): void {
     },
   );
 
-  server.tool(
+  server.registerTool(
     'eject',
-    'Eject a disk or tape.',
-    {
+    { description: 'Eject a disk or tape.', inputSchema: {
       target: z.enum(['tape', 'disk']).describe('What to eject'),
       drive: z.enum(['0', '1', 'A', 'B']).default('0').describe('Drive unit (for disk only)'),
-    },
+    } },
     async ({ target, drive }) => {
       const spec = state.spec;
       if (target === 'tape') {
@@ -139,13 +134,12 @@ export function register(server: McpServer): void {
     },
   );
 
-  server.tool(
+  server.registerTool(
     'weak',
-    'Mark disk sector(s) as weak (randomised on each read). If sector omitted, marks all sectors on the track.',
-    {
+    { description: 'Mark disk sector(s) as weak (randomised on each read). If sector omitted, marks all sectors on the track.', inputSchema: {
       track: z.number().int().min(0).describe('Track number'),
       sector: z.number().int().min(0).optional().describe('Sector R value (omit for all sectors on track)'),
-    },
+    } },
     async ({ track: wTrack, sector: wSector }) => {
       const dsk = state.spec.fdc.getDiskImage(0);
       if (!dsk) return text('No disk in drive A:');
@@ -162,10 +156,9 @@ export function register(server: McpServer): void {
     },
   );
 
-  server.tool(
+  server.registerTool(
     'disk_geometry',
-    'Show geometry of the mounted disk image: format, tracks, sides, protection, and a per-track sector summary.',
-    { drive: z.number().int().min(0).max(1).default(0).describe('Drive number (0=A, 1=B)') },
+    { description: 'Show geometry of the mounted disk image: format, tracks, sides, protection, and a per-track sector summary.', inputSchema: { drive: z.number().int().min(0).max(1).default(0).describe('Drive number (0=A, 1=B)') } },
     async ({ drive }) => {
       const dsk = state.spec.fdc.getDiskImage(drive);
       if (!dsk) return text(`No disk in drive ${drive === 0 ? 'A' : 'B'}:`);
@@ -187,14 +180,13 @@ export function register(server: McpServer): void {
     },
   );
 
-  server.tool(
+  server.registerTool(
     'track_geometry',
-    'Show detailed geometry of a single track: gap3, filler, and full CHRN + status + size for each sector.',
-    {
+    { description: 'Show detailed geometry of a single track: gap3, filler, and full CHRN + status + size for each sector.', inputSchema: {
       track: z.number().int().min(0).describe('Track (cylinder) number'),
       side: z.number().int().min(0).max(1).default(0).describe('Side/head (0 or 1)'),
       drive: z.number().int().min(0).max(1).default(0).describe('Drive number (0=A, 1=B)'),
-    },
+    } },
     async ({ track: tNum, side, drive }) => {
       const dsk = state.spec.fdc.getDiskImage(drive);
       if (!dsk) return text(`No disk in drive ${drive === 0 ? 'A' : 'B'}:`);
@@ -212,17 +204,16 @@ export function register(server: McpServer): void {
     },
   );
 
-  server.tool(
+  server.registerTool(
     'sector_read',
-    'Read raw sector data from a mounted disk image. Returns a hex dump of the sector contents.',
-    {
+    { description: 'Read raw sector data from a mounted disk image. Returns a hex dump of the sector contents.', inputSchema: {
       track: z.number().int().min(0).describe('Track (cylinder) number'),
       sector: z.number().int().min(0).describe('Sector R value'),
       side: z.number().int().min(0).max(1).default(0).describe('Side/head (0 or 1)'),
       drive: z.number().int().min(0).max(1).default(0).describe('Drive number (0=A, 1=B)'),
       offset: z.number().int().min(0).default(0).describe('Byte offset within sector to start from'),
       length: z.number().int().positive().optional().describe('Number of bytes to dump (default: entire sector)'),
-    },
+    } },
     async ({ track: tNum, sector: sR, side, drive, offset, length }) => {
       const dsk = state.spec.fdc.getDiskImage(drive);
       if (!dsk) return text(`No disk in drive ${drive === 0 ? 'A' : 'B'}:`);
@@ -241,10 +232,9 @@ export function register(server: McpServer): void {
     },
   );
 
-  server.tool(
+  server.registerTool(
     'fdc_log',
-    'Read (and optionally clear) the FDC log ring buffer. Returns up to the last 2000 FDC log lines.',
-    { clear: z.boolean().default(false).describe('Clear the buffer after reading') },
+    { description: 'Read (and optionally clear) the FDC log ring buffer. Returns up to the last 2000 FDC log lines.', inputSchema: { clear: z.boolean().default(false).describe('Clear the buffer after reading') } },
     async ({ clear }) => {
       const lines = [...fdcLog];
       if (clear) fdcLog.length = 0;

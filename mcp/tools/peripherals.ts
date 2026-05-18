@@ -7,10 +7,9 @@ import { text } from '../format.ts';
 import { fetchMFRom, fetchVTXRom } from '../rom-fetch.ts';
 
 export function register(server: McpServer): void {
-  server.tool(
+  server.registerTool(
     'multiface',
-    'Enable/disable Multiface peripheral, load its ROM, or press the NMI button. Actions: "on", "off", "nmi", "status".',
-    { action: z.enum(['on', 'off', 'nmi', 'status']).describe('Action to perform') },
+    { description: 'Enable/disable Multiface peripheral, load its ROM, or press the NMI button. Actions: "on", "off", "nmi", "status".', inputSchema: { action: z.enum(['on', 'off', 'nmi', 'status']).describe('Action to perform') } },
     async ({ action }) => {
       const spec = state.spec;
       const mf = spec.multiface;
@@ -63,10 +62,9 @@ export function register(server: McpServer): void {
     },
   );
 
-  server.tool(
+  server.registerTool(
     'vtx5000',
-    'Enable/disable the VTX-5000 Viewdata/Prestel modem (48K only). Loads the ROM overlay and resets the machine.',
-    { action: z.enum(['on', 'off', 'status']).describe('Action to perform') },
+    { description: 'Enable/disable the VTX-5000 Viewdata/Prestel modem (48K only). Loads the ROM overlay and resets the machine.', inputSchema: { action: z.enum(['on', 'off', 'status']).describe('Action to perform') } },
     async ({ action }) => {
       const spec = state.spec;
       const vtx = spec.vtx5000;
@@ -109,10 +107,9 @@ export function register(server: McpServer): void {
     },
   );
 
-  server.tool(
+  server.registerTool(
     'ocr',
-    'OCR the screen bitmap. mode: auto (default) | 32x24 | 51x24 (CP/M Plus) | 64x24 (Tasword).',
-    { mode: z.enum(['auto', '32x24', '51x24', '64x24']).optional().describe('Cell grid (default: auto-detect).') },
+    { description: 'OCR the screen bitmap. mode: auto (default) | 32x24 | 51x24 (CP/M Plus) | 64x24 (Tasword).', inputSchema: { mode: z.enum(['auto', '32x24', '51x24', '64x24']).optional().describe('Cell grid (default: auto-detect).') } },
     async ({ mode }) => text(state.spec.ocrScreenForMcp(mode ?? 'auto')),
   );
 }

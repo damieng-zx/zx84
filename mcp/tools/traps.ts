@@ -5,16 +5,15 @@ import { parseAddr, text } from '../format.ts';
 import { traps, trapLog, type Trap } from '../traps.ts';
 
 export function register(server: McpServer): void {
-  server.tool(
+  server.registerTool(
     'trap',
-    'Set a trap at an address. Actions: "log" (record and continue), "break" (halt execution), "respond" (stuff registers and RET). Omit address to list all traps.',
-    {
+    { description: 'Set a trap at an address. Actions: "log" (record and continue), "break" (halt execution), "respond" (stuff registers and RET). Omit address to list all traps.', inputSchema: {
       address: z.string().optional().describe('Address to trap (omit to list all)'),
       action: z.enum(['log', 'break', 'respond']).default('log').describe('What to do when the trap fires'),
       cond_c: z.number().int().min(0).max(255).optional().describe('Only fire when C register equals this value (e.g. BDOS function number)'),
       label: z.string().default('').describe('Label for log output (e.g. "BDOS", "BIOS_CONOUT")'),
       responses: z.array(z.record(z.string(), z.number())).optional().describe('For respond mode: array of {reg: value} objects consumed in FIFO order'),
-    },
+    } },
     async ({ address, action, cond_c, label, responses }) => {
       if (!address) {
         if (traps.size === 0) return text('No traps set');
@@ -47,13 +46,12 @@ export function register(server: McpServer): void {
     },
   );
 
-  server.tool(
+  server.registerTool(
     'trap_delete',
-    'Delete traps. If address given, removes all traps at that address. If cond_c also given, only removes matching traps. Omit address to clear all.',
-    {
+    { description: 'Delete traps. If address given, removes all traps at that address. If cond_c also given, only removes matching traps. Omit address to clear all.', inputSchema: {
       address: z.string().optional().describe('Address to remove traps from (omit to clear all)'),
       cond_c: z.number().int().min(0).max(255).optional().describe('Only remove traps with this C condition'),
-    },
+    } },
     async ({ address, cond_c }) => {
       if (!address) {
         const count = [...traps.values()].reduce((s, l) => s + l.length, 0);
@@ -75,14 +73,13 @@ export function register(server: McpServer): void {
     },
   );
 
-  server.tool(
+  server.registerTool(
     'trap_log',
-    'Read the trap log buffer. Returns total line count and requested range.',
-    {
+    { description: 'Read the trap log buffer. Returns total line count and requested range.', inputSchema: {
       from: z.number().int().min(0).default(0).describe('Start line (0-based, inclusive)'),
       to: z.number().int().min(0).optional().describe('End line (exclusive, default: from+100)'),
       clear: z.boolean().default(false).describe('Clear the log after reading'),
-    },
+    } },
     async ({ from, to, clear }) => {
       if (trapLog.length === 0) return text('Trap log is empty');
       const end = Math.min(to ?? from + 100, trapLog.length);
@@ -94,14 +91,13 @@ export function register(server: McpServer): void {
     },
   );
 
-  server.tool(
+  server.registerTool(
     'trap_respond',
-    'Queue additional responses for an existing respond-mode trap.',
-    {
+    { description: 'Queue additional responses for an existing respond-mode trap.', inputSchema: {
       address: z.string().describe('Trap address'),
       cond_c: z.number().int().min(0).max(255).optional().describe('Match trap with this C condition'),
       responses: z.array(z.record(z.string(), z.number())).describe('Array of {reg: value} response objects to append to the queue'),
-    },
+    } },
     async ({ address, cond_c, responses }) => {
       const addr = parseAddr(address) & 0xFFFF;
       const list = traps.get(addr);

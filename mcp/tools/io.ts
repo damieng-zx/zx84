@@ -6,13 +6,12 @@ import { state } from '../state.ts';
 import { parseAddr, text, checkWatchHit, KEY_NAME_MAP, CHAR_KEYS } from '../format.ts';
 
 export function register(server: McpServer): void {
-  server.tool(
+  server.registerTool(
     'port_out',
-    'Write a byte to an I/O port (triggers port handler for banking etc.).',
-    {
+    { description: 'Write a byte to an I/O port (triggers port handler for banking etc.).', inputSchema: {
       port: z.string().describe('Port address (hex/decimal)'),
       value: z.string().describe('Byte value'),
-    },
+    } },
     async ({ port, value }) => {
       const spec = state.spec;
       const p = parseAddr(port) & 0xFFFF;
@@ -27,10 +26,9 @@ export function register(server: McpServer): void {
     },
   );
 
-  server.tool(
+  server.registerTool(
     'port_in',
-    'Read a byte from an I/O port.',
-    { port: z.string().describe('Port address (hex/decimal)') },
+    { description: 'Read a byte from an I/O port.', inputSchema: { port: z.string().describe('Port address (hex/decimal)') } },
     async ({ port }) => {
       const spec = state.spec;
       const p = parseAddr(port) & 0xFFFF;
@@ -39,13 +37,12 @@ export function register(server: McpServer): void {
     },
   );
 
-  server.tool(
+  server.registerTool(
     'key',
-    'Press a key for N frames (default 5). Keys: a-z, 0-9, enter, space, shift, sym, backspace, arrows, capslock, escape.',
-    {
+    { description: 'Press a key for N frames (default 5). Keys: a-z, 0-9, enter, space, shift, sym, backspace, arrows, capslock, escape.', inputSchema: {
       name: z.string().describe('Key name (e.g. "enter", "a", "shift")'),
       frames: z.number().int().positive().default(5).describe('How many frames to hold the key'),
-    },
+    } },
     async ({ name, frames }) => {
       const spec = state.spec;
       // Support combos like "sym+p", "shift+2"
@@ -64,10 +61,9 @@ export function register(server: McpServer): void {
     },
   );
 
-  server.tool(
+  server.registerTool(
     'type',
-    'Type a string of characters, pressing each key for a few frames. Handles letters, digits, symbols. Use backtick-delimited names for control keys: `enter`, `backspace`, `left`, `right`, `up`, `down`, `escape`, `space`, `shift`, `sym`, `capslock`.',
-    { text: z.string().describe('Text to type, e.g. "LOAD \\"\\"`enter`" or "10 PRINT `shift`2`enter`"') },
+    { description: 'Type a string of characters, pressing each key for a few frames. Handles letters, digits, symbols. Use backtick-delimited names for control keys: `enter`, `backspace`, `left`, `right`, `up`, `down`, `escape`, `space`, `shift`, `sym`, `capslock`.', inputSchema: { text: z.string().describe('Text to type, e.g. "LOAD \\"\\"`enter`" or "10 PRINT `shift`2`enter`"') } },
     async ({ text: str }) => {
       const spec = state.spec;
       // Parse the string, extracting `name` escape sequences for control keys

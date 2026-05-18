@@ -11,10 +11,9 @@ import { text } from '../format.ts';
 let zxtlBuffer: string[] = [];
 
 export function register(server: McpServer): void {
-  server.tool(
+  server.registerTool(
     'trace',
-    'Start a trace. Modes: "full" (all instructions), "portio" (port I/O), "zxtl" (ZXTL V0001 standardised format with full register dumps, stored in-memory — use stop_trace then trace_read to retrieve chunks).',
-    { mode: z.enum(['full', 'portio', 'zxtl']).default('full') },
+    { description: 'Start a trace. Modes: "full" (all instructions), "portio" (port I/O), "zxtl" (ZXTL V0001 standardised format with full register dumps, stored in-memory — use stop_trace then trace_read to retrieve chunks).', inputSchema: { mode: z.enum(['full', 'portio', 'zxtl']).default('full') } },
     async ({ mode }) => {
       if (mode === 'zxtl') zxtlBuffer = [];
       state.spec.startTrace(mode);
@@ -22,10 +21,9 @@ export function register(server: McpServer): void {
     },
   );
 
-  server.tool(
+  server.registerTool(
     'stop_trace',
-    'Stop the current trace and return the results. Full/portio: large traces written to file. ZXTL: stored in-memory — returns line count, use trace_read to fetch chunks.',
-    {},
+    { description: 'Stop the current trace and return the results. Full/portio: large traces written to file. ZXTL: stored in-memory — returns line count, use trace_read to fetch chunks.' },
     async () => {
       const spec = state.spec;
       if (!spec.tracing) return text('Not tracing');
@@ -45,13 +43,12 @@ export function register(server: McpServer): void {
     },
   );
 
-  server.tool(
+  server.registerTool(
     'trace_read',
-    'Read lines from the stored ZXTL trace buffer. Returns total line count plus the requested range.',
-    {
+    { description: 'Read lines from the stored ZXTL trace buffer. Returns total line count plus the requested range.', inputSchema: {
       from: z.number().int().min(0).default(0).describe('Start line (0-based, inclusive)'),
       to: z.number().int().min(0).optional().describe('End line (exclusive, default: from+100)'),
-    },
+    } },
     async ({ from, to }) => {
       if (zxtlBuffer.length === 0) return text('No ZXTL trace in memory. Run a trace with mode "zxtl", then stop_trace.');
       const end = Math.min(to ?? from + 100, zxtlBuffer.length);
@@ -61,10 +58,9 @@ export function register(server: McpServer): void {
     },
   );
 
-  server.tool(
+  server.registerTool(
     'frame_trace',
-    'Run one frame, logging per-instruction: T-state, beam line/col, contention delays, border changes, and VRAM writes. Writes to file.',
-    {},
+    { description: 'Run one frame, logging per-instruction: T-state, beam line/col, contention delays, border changes, and VRAM writes. Writes to file.' },
     async () => {
       const spec = state.spec;
       const timing = spec.contention.timing;
