@@ -576,8 +576,8 @@ export class Spectrum {
     // High and mid modes advance flash here (they render scanlines individually).
     // Low mode skips this — renderFrame() handles flash internally.
     if (this._scanAcc > 0) this.ula.advanceFlash();
-    const borderTop = this.ula['borderTop'] as number;
-    const borderLeft = this.ula['borderLeft'] as number;
+    const borderTop = this.ula.borderTop;
+    const borderLeft = this.ula.borderLeft;
     this.totalRenderLines = borderTop * 2 + 192;
     this.nextRenderLine = 0;
     this.nextPixelX = 0;
@@ -772,40 +772,12 @@ export class Spectrum {
 
     // Flush any remaining scanlines (bottom border / frame-end edge).
     // Low (0): bulk renderFrame() — one border color, fastest.
-    // Mid (1): flush remaining complete lines (no partial-line state to worry about).
-    // High (2): flush with partial-line awareness (nextPixelX, nextDisplayCol).
+    // Mid/High: flushRemainingLines() — picks up any per-line / partial-line
+    // state left by renderCompletedScanlines / renderPendingScanlines.
     if (this._scanAcc === 0) {
       this.ula.renderFrame(this.memory.screenBank, 0x4000);
-    } else if (this._scanAcc === 1) {
-      this.flushRemainingLines(borderTop);
     } else {
-      const borderLeft2 = this.ula['borderLeft'] as number;
-      const dispEnd = borderLeft2 + 256;
-      const w = this.ula.screenWidth;
-      while (this.nextRenderLine < this.totalRenderLines) {
-        const i = this.nextRenderLine;
-        const isDisplay = i >= borderTop && i < borderTop + 192;
-        if (isDisplay) {
-          if (this.nextPixelX < borderLeft2) {
-            this.ula.fillBorder(i, this.nextPixelX, borderLeft2, this.ula.borderColor);
-          }
-          // Render any remaining display cells not yet drawn
-          if (this.nextDisplayCol < 32) {
-            const dy = i - borderTop;
-            for (let col = this.nextDisplayCol; col < 32; col++) {
-              this.ula.renderDisplayCell(dy, col, this.memory.screenBank, 0x4000);
-            }
-          }
-          if (this.nextPixelX < w) {
-            this.ula.fillBorder(i, Math.max(this.nextPixelX, dispEnd), w, this.ula.borderColor);
-          }
-        } else {
-          this.ula.fillBorder(i, this.nextPixelX, w, this.ula.borderColor);
-        }
-        this.nextRenderLine++;
-        this.nextPixelX = 0;
-        this.nextDisplayCol = 0;
-      }
+      this.flushRemainingLines();
     }
 
     // Mark that we have a new frame to display
@@ -813,15 +785,49 @@ export class Spectrum {
   }
 
   /**
-   * Render pixels up to the current beam position.
-   * All lines (border and display) are rendered at sub-scanline granularity
-   * for border regions.  Display data (256 pixels) is rendered once when the
-   * beam first enters the display area on each line.
+   * Render one scanline segment from xStart..xEnd pixels, drawing display
+   * cells colStart..colEnd on display lines.  Border pixels outside the
+   * display window are filled with the current border colour.
+   *
+   * Shared by all three scanline-render paths (pending / completed / flush).
+   * Callers handle their own gating, T-state advance, and partial-line state.
+   */
+  private renderLineSegment(
+    i: number, xStart: number, xEnd: number, colStart: number, colEnd: number,
+  ): void {
+    const ula = this.ula;
+    const borderTop = ula.borderTop;
+    const borderLeft = ula.borderLeft;
+    const dispEnd = borderLeft + 256;
+    const w = ula.screenWidth;
+    const border = ula.borderColor;
+
+    if (i < borderTop || i >= borderTop + 192) {
+      ula.fillBorder(i, xStart, xEnd, border);
+      return;
+    }
+    if (xStart < borderLeft) {
+      ula.fillBorder(i, xStart, Math.min(xEnd, borderLeft), border);
+    }
+    if (xEnd > borderLeft && colStart < colEnd) {
+      const dy = i - borderTop;
+      for (let col = colStart; col < colEnd; col++) {
+        ula.renderDisplayCell(dy, col, this.memory.screenBank, 0x4000);
+      }
+    }
+    if (xEnd > dispEnd && xStart < w) {
+      ula.fillBorder(i, Math.max(xStart, dispEnd), Math.min(xEnd, w), border);
+    }
+  }
+
+  /**
+   * High-accuracy renderer: render pixels up to the current beam position.
+   * Border regions are rendered at sub-scanline granularity; display cells
+   * are emitted one at a time as the beam passes each 8-pixel column.
    */
   private renderPendingScanlines(): void {
     const ula = this.ula;
-    const borderTop = ula['borderTop'] as number;
-    const borderLeft = ula['borderLeft'] as number;
+    const borderLeft = ula.borderLeft;
     const dispEnd = borderLeft + 256;
     const w = ula.screenWidth;
     const tpl = this.contention.timing.tStatesPerLine;
@@ -831,38 +837,22 @@ export class Spectrum {
       const lineRelT = t - this.nextRenderT;
       if (lineRelT < 0) break;
 
-      const i = this.nextRenderLine;
       const beamX = Math.min(w, lineRelT << 1); // 2 pixels per T-state
       if (beamX <= this.nextPixelX) break;
 
-      const isDisplay = i >= borderTop && i < borderTop + 192;
-
-      if (isDisplay) {
-        // Left border portion
-        if (this.nextPixelX < borderLeft) {
-          ula.fillBorder(i, this.nextPixelX, Math.min(beamX, borderLeft), ula.borderColor);
-        }
-        // Display data — render individual cells as the beam passes them.
-        // Ferranti ULA (48K/128K/+2): +1 renders as beam enters cell; the
-        // write8 attr flush ensures correct per-scanline multicolor.
-        // Amstrad gate array (+2A/+3): +0 renders after beam fully passes;
-        // deterministic timing makes this safe without attr flushes.
-        if (beamX > borderLeft && this.nextDisplayCol < 32) {
-          const endCol = Math.min(32, ((Math.min(beamX, dispEnd) - borderLeft) >> 3) + this._cellRenderOffset);
-          const dy = i - borderTop;
-          for (let col = this.nextDisplayCol; col < endCol; col++) {
-            ula.renderDisplayCell(dy, col, this.memory.screenBank, 0x4000);
-          }
-          this.nextDisplayCol = endCol;
-        }
-        // Right border portion
-        if (beamX > dispEnd && this.nextPixelX < w) {
-          ula.fillBorder(i, Math.max(this.nextPixelX, dispEnd), beamX, ula.borderColor);
-        }
-      } else {
-        // Pure border line
-        ula.fillBorder(i, this.nextPixelX, beamX, ula.borderColor);
-      }
+      // Display cell range visible up to the beam.
+      // Ferranti ULA (48K/128K/+2): +1 renders as beam enters cell; the
+      // write8 attr flush ensures correct per-scanline multicolor.
+      // Amstrad gate array (+2A/+3): +0 renders after beam fully passes;
+      // deterministic timing makes this safe without attr flushes.
+      const endCol = Math.min(
+        32, ((Math.min(beamX, dispEnd) - borderLeft) >> 3) + this._cellRenderOffset,
+      );
+      this.renderLineSegment(
+        this.nextRenderLine, this.nextPixelX, beamX,
+        this.nextDisplayCol, Math.max(this.nextDisplayCol, endCol),
+      );
+      if (endCol > this.nextDisplayCol) this.nextDisplayCol = endCol;
 
       this.nextPixelX = beamX;
       if (this.nextPixelX >= w) {
@@ -884,61 +874,34 @@ export class Spectrum {
    * color, giving per-scanline border effects without mid-line tracking.
    */
   private renderCompletedScanlines(): void {
-    const ula = this.ula;
-    const borderTop = ula['borderTop'] as number;
-    const borderLeft = ula['borderLeft'] as number;
-    const w = ula.screenWidth;
+    const w = this.ula.screenWidth;
     const tpl = this.contention.timing.tStatesPerLine;
     const t = this.cpu.tStates;
 
     while (this.nextRenderLine < this.totalRenderLines) {
       // Only render once the beam has fully passed this line
       if (t - this.nextRenderT < tpl) break;
-
-      const i = this.nextRenderLine;
-      const isDisplay = i >= borderTop && i < borderTop + 192;
-
-      if (isDisplay) {
-        ula.fillBorder(i, 0, borderLeft, ula.borderColor);
-        const dy = i - borderTop;
-        for (let col = 0; col < 32; col++) {
-          ula.renderDisplayCell(dy, col, this.memory.screenBank, 0x4000);
-        }
-        ula.fillBorder(i, borderLeft + 256, w, ula.borderColor);
-      } else {
-        ula.fillBorder(i, 0, w, ula.borderColor);
-      }
-
+      this.renderLineSegment(this.nextRenderLine, 0, w, 0, 32);
       this.nextRenderLine++;
       this.nextRenderT += tpl;
     }
   }
 
   /**
-   * Flush all remaining unrendered lines at frame end (mid-accuracy mode).
-   * No partial-line state to worry about — lines are always complete or untouched.
+   * Flush all remaining unrendered lines at frame end (mid + high modes).
+   * Picks up wherever the per-instruction renderer left off — partial-line
+   * state (nextPixelX, nextDisplayCol) is zero in mid mode and non-zero in
+   * high mode only when the beam stopped inside the last line.
    */
-  private flushRemainingLines(borderTop: number): void {
-    const ula = this.ula;
-    const borderLeft = ula['borderLeft'] as number;
-    const w = ula.screenWidth;
-
+  private flushRemainingLines(): void {
+    const w = this.ula.screenWidth;
     while (this.nextRenderLine < this.totalRenderLines) {
-      const i = this.nextRenderLine;
-      const isDisplay = i >= borderTop && i < borderTop + 192;
-
-      if (isDisplay) {
-        ula.fillBorder(i, 0, borderLeft, ula.borderColor);
-        const dy = i - borderTop;
-        for (let col = 0; col < 32; col++) {
-          ula.renderDisplayCell(dy, col, this.memory.screenBank, 0x4000);
-        }
-        ula.fillBorder(i, borderLeft + 256, w, ula.borderColor);
-      } else {
-        ula.fillBorder(i, 0, w, ula.borderColor);
-      }
-
+      this.renderLineSegment(
+        this.nextRenderLine, this.nextPixelX, w, this.nextDisplayCol, 32,
+      );
       this.nextRenderLine++;
+      this.nextPixelX = 0;
+      this.nextDisplayCol = 0;
     }
   }
 
