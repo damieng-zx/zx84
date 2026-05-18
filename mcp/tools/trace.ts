@@ -6,16 +6,14 @@ import { disasmOne, stripMarkers } from '../../src/debug/z80-disasm.ts';
 import { h8, h16 } from '../hex.ts';
 import { state } from '../state.ts';
 import { text } from '../format.ts';
-
-/** Stored ZXTL trace lines, kept in memory for chunked reading via trace_read. */
-let zxtlBuffer: string[] = [];
+import { clearZxtlBuffer, setZxtlBuffer, zxtlBufferSize, readZxtlChunk } from '../zxtl-store.ts';
 
 export function register(server: McpServer): void {
   server.registerTool(
     'trace',
     { description: 'Start a trace. Modes: "full" (all instructions), "portio" (port I/O), "zxtl" (ZXTL V0001 standardised format with full register dumps, stored in-memory — use stop_trace then trace_read to retrieve chunks).', inputSchema: { mode: z.enum(['full', 'portio', 'zxtl']).default('full') } },
     async ({ mode }) => {
-      if (mode === 'zxtl') zxtlBuffer = [];
+      if (mode === 'zxtl') clearZxtlBuffer();
       state.spec.startTrace(mode);
       return text(`Trace started (${mode} mode)`);
     },
@@ -30,9 +28,9 @@ export function register(server: McpServer): void {
       const mode = spec.traceMode;
       if (mode === 'zxtl') {
         // Snapshot the buffer before stopTrace clears internal state
-        zxtlBuffer = [...spec.traceBuffer];
+        setZxtlBuffer(spec.traceBuffer);
         spec.stopTrace();
-        return text(`ZXTL trace stopped: ${zxtlBuffer.length} lines stored in memory.\nUse trace_read to retrieve chunks by line range.`);
+        return text(`ZXTL trace stopped: ${zxtlBufferSize()} lines stored in memory.\nUse trace_read to retrieve chunks by line range.`);
       }
       const traceText = spec.stopTrace();
       const lines = traceText.split('\n');
@@ -50,11 +48,9 @@ export function register(server: McpServer): void {
       to: z.number().int().min(0).optional().describe('End line (exclusive, default: from+100)'),
     } },
     async ({ from, to }) => {
-      if (zxtlBuffer.length === 0) return text('No ZXTL trace in memory. Run a trace with mode "zxtl", then stop_trace.');
-      const end = Math.min(to ?? from + 100, zxtlBuffer.length);
-      const start = Math.min(from, zxtlBuffer.length);
-      const chunk = zxtlBuffer.slice(start, end);
-      return text(`ZXTL trace: ${zxtlBuffer.length} total lines. Showing ${start}..${end - 1}:\n\n${chunk.join('\n')}`);
+      const chunk = readZxtlChunk(from, to);
+      if (chunk.total === 0) return text('No ZXTL trace in memory. Run a trace with mode "zxtl", then stop_trace.');
+      return text(`ZXTL trace: ${chunk.total} total lines. Showing ${chunk.start}..${chunk.end - 1}:\n\n${chunk.lines.join('\n')}`);
     },
   );
 
