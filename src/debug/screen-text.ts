@@ -231,6 +231,15 @@ let lastGridLogKey = '';
 let forceGridLog = false;
 function resetGridLog(): void { lastGridLogKey = ''; forceGridLog = true; }
 
+/** Inject a log sink. Default null = silent. Set to console.log (or a buffer
+ *  sink) to enable OCR diagnostics. Shared module-wide so module-level
+ *  functions (detectGrid, detectFontFromRam) and ScreenText methods share it. */
+let ocrLogFn: ((...args: any[]) => void) | null = null;
+export function setOcrLogger(fn: ((...args: any[]) => void) | null): void {
+  ocrLogFn = fn;
+}
+function log(...args: any[]): void { ocrLogFn?.('[OCR]', ...args); }
+
 /**
  * Pick the cell grid that explains the screen with the fewest distinct tiles.
  *
@@ -273,7 +282,7 @@ export function detectGrid(screenBank: Uint8Array, bankLabel = ''): OcrGridName 
 
   if (maxNonBlank < 4) {
     if (forceGridLog) {
-      console.log(`[OCR] detect grid${tag} → 32x24 (screen blank — ${maxNonBlank} non-blank cells)`);
+      log(`detect grid${tag} → 32x24 (screen blank — ${maxNonBlank} non-blank cells)`);
       forceGridLog = false;
       lastGridLogKey = '32x24:sparse';
     }
@@ -301,7 +310,7 @@ export function detectGrid(screenBank: Uint8Array, bankLabel = ''): OcrGridName 
     const breakdown = OCR_GRID_KEYS.map((g, gi) =>
       `${g}: ${uniques[gi]} unique / ${nonBlanks[gi]} nonblank`,
     ).join('  ·  ');
-    console.log(`[OCR] detect grid${tag} → ${best} (fewest unique tiles wins) — ${breakdown}`);
+    log(`detect grid${tag} → ${best} (fewest unique tiles wins) — ${breakdown}`);
   }
   return best;
 }
@@ -439,12 +448,12 @@ export function detectFontFromRam(
       if (glyphMap.size >= 128) break outer;
     }
   }
-  console.log(
-    `[OCR] font scan ${cellW}×${cellH}: ${blankCells}/${totalCells} blank cells (space anchor), `
+  log(
+    `font scan ${cellW}×${cellH}: ${blankCells}/${totalCells} blank cells (space anchor), `
     + `${glyphMap.size} unique non-blank glyphs to anchor on`,
   );
   if (glyphMap.size < 4) {
-    console.log(`[OCR] font scan: aborting — need ≥4 unique glyphs, got ${glyphMap.size}`);
+    log(`font scan: aborting — need ≥4 unique glyphs, got ${glyphMap.size}`);
     return null;
   }
   const uniqueGlyphs = Array.from(glyphMap.values());
@@ -466,8 +475,8 @@ export function detectFontFromRam(
     totalScored += r.windowsScored;
     const lbl = r.bestBankIndex < 0 ? '(none)'
       : `bank ${r.bestBankIndex} @${r.bestOffset.toString(16).padStart(4, '0')}`;
-    console.log(
-      `[OCR] font scan: bitOffset=${bitOffset} ⇒ best ${lbl} `
+    log(
+      `font scan: bitOffset=${bitOffset} ⇒ best ${lbl} `
       + `${(r.bestScore * 100).toFixed(0)}% (${r.windowsScored} windows scored)`,
     );
     if (r.bestScore > bestScore) {
@@ -481,8 +490,8 @@ export function detectFontFromRam(
 
   const bestLabel = bestBankIndex < 0 ? '(none)'
     : `bank ${bestBankIndex} @${bestOffset.toString(16).padStart(4, '0')}`;
-  console.log(
-    `[OCR] font scan summary: ${totalScanned} windows total, ${totalScored} passed prefilter, `
+  log(
+    `font scan summary: ${totalScanned} windows total, ${totalScored} passed prefilter, `
     + `best ${bestLabel} bitOffset=${bestBitOffset} ${(bestScore * 100).toFixed(0)}%`,
   );
 
@@ -495,7 +504,7 @@ export function detectFontFromRam(
       bitOffset: bestBitOffset,
     };
   }
-  console.log(`[OCR] font scan: rejected — best score ${(bestScore * 100).toFixed(0)}% < 30% threshold`);
+  log(`font scan: rejected — best score ${(bestScore * 100).toFixed(0)}% < 30% threshold`);
   return null;
 }
 
@@ -525,7 +534,7 @@ export class ScreenText {
     this.cachedRamFont.clear();
     this.cachedGrid = null;
     resetGridLog();
-    console.log('[OCR] activated');
+    log('activated');
   }
 
   deactivate(): void {
@@ -534,7 +543,7 @@ export class ScreenText {
     this.lastLogKey = '';
     this.cachedRamFont.clear();
     this.cachedGrid = null;
-    console.log('[OCR] deactivated');
+    log('deactivated');
   }
 
   /** Drop the cached scanned font for the given grid (or all grids). */
@@ -609,7 +618,7 @@ export class ScreenText {
       if (entry && !validateFontAgainstScreen(
         screenBank, entry.data, config, 4, entry.bitOffset ?? 0,
       )) {
-        console.log(`[OCR] cached font for ${cellW}×${config.cellHeight} no longer matches — re-scanning`);
+        log(`cached font for ${cellW}×${config.cellHeight} no longer matches — re-scanning`);
         this.cachedRamFont.delete(cellW);
         entry = undefined;
       }
@@ -618,7 +627,7 @@ export class ScreenText {
       if (!this.cachedRamFont.has(cellW)) {
         entry = detectFontFromRam(memBanks, screenBank, config);
         this.cachedRamFont.set(cellW, entry);
-        if (entry) console.log(`[OCR] using font: ${entry.label}`);
+        if (entry) log(`using font: ${entry.label}`);
       }
 
       if (entry) fonts.push(entry);
@@ -653,7 +662,7 @@ export class ScreenText {
     const logKey = parts.join(', ');
     if (logKey !== this.lastLogKey) {
       this.lastLogKey = logKey;
-      if (logKey) console.log(`[OCR] ${logKey}`);
+      if (logKey) log(logKey);
     }
   }
 

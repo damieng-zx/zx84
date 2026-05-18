@@ -869,8 +869,6 @@ export async function loadMultifaceROM(s: Spectrum): Promise<boolean> {
     }
   }
   s.multiface.loadROM(data);
-  console.log('[MF] ROM loaded: variant=%s size=%d byte66=%s',
-    variant, data.length, data[0x66]?.toString(16) ?? 'undef');
   setStatus(`${variantLabel(variant)} ROM loaded (${data.length} bytes)`);
   setMultifaceRomFailed('');
   return true;
@@ -911,17 +909,10 @@ export async function loadVTX5000ROM(s: Spectrum): Promise<boolean> {
 export function triggerNMI(): void {
   if (!spectrum) return;
   const mf = spectrum.multiface;
-  console.log('[MF] triggerNMI: enabled=%s romLoaded=%s variant=%s romByte66=%s',
-    mf.enabled, mf.romLoaded, mf.variant,
-    mf.romLoaded ? mf.mfRom[0x66].toString(16) : 'N/A');
   if (!mf.enabled) { setStatus('Multiface not enabled'); return; }
   if (!mf.romLoaded) { setStatus('Multiface ROM not loaded'); return; }
 
-  console.log('[MF] Before pageIn: flat[0x66]=%s pagedIn=%s',
-    spectrum.memory.readByte(0x66).toString(16), mf.pagedIn);
   mf.pressButton(spectrum.memory, spectrum.cpu, spectrum.memory.slot0Bank);
-  console.log('[MF] After pressButton: flat[0x66]=%s PC=%s pagedIn=%s',
-    spectrum.memory.readByte(0x66).toString(16), spectrum.cpu.pc.toString(16), mf.pagedIn);
   setStatus('Multiface NMI triggered');
 }
 

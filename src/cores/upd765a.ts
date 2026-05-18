@@ -70,8 +70,8 @@ function paramCount(cmdByte: number): number {
 export class UPD765A {
   // ── Debug logging ───────────────────────────────────────────────────
 
-  /** Inject a log sink. Defaults to console.log; set to null to silence; override in MCP. */
-  logFn: ((...args: any[]) => void) | null = console.log;
+  /** Inject a log sink. Defaults to null (silent); set a function (e.g. console.log) to enable. */
+  logFn: ((...args: any[]) => void) | null = null;
 
   private log(...args: any[]): void {
     this.logFn?.('[FDC]', ...args);
