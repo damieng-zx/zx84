@@ -2,7 +2,7 @@
  * Root layout: sidebars, main screen, tooltip.
  */
 
-import { onMount, onCleanup, createEffect, type JSX } from 'solid-js';
+import { onMount, onCleanup, createEffect, createSignal, Show, type JSX } from 'solid-js';
 import { Sidebar } from '@/components/Sidebar.tsx';
 import { Screen } from '@/components/Screen.tsx';
 import { StatusBar } from '@/components/StatusBar.tsx';
@@ -76,6 +76,7 @@ const inputController = new InputController();
 export function App() {
   const leftPanes = renderPanes('left');
   const rightPanes = renderPanes('right');
+  const [isDragging, setIsDragging] = createSignal(false);
 
   // Register global keyboard/audio/drag-drop handlers
   onMount(() => {
@@ -84,16 +85,34 @@ export function App() {
     window.addEventListener('blur', inputController.onBlur);
     document.addEventListener('click', initAudio, { once: true });
 
+    // Depth counter avoids flicker when pointer moves between child elements
+    let dragDepth = 0;
+
+    function onDragEnter(e: DragEvent) {
+      if (!e.dataTransfer?.types.includes('Files')) return;
+      dragDepth++;
+      setIsDragging(true);
+    }
+    function onDragLeave() {
+      if (--dragDepth <= 0) {
+        dragDepth = 0;
+        setIsDragging(false);
+      }
+    }
     function onDragOver(e: DragEvent) {
       e.preventDefault();
       if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
     }
     function onDrop(e: DragEvent) {
       e.preventDefault();
+      dragDepth = 0;
+      setIsDragging(false);
       const file = e.dataTransfer?.files[0];
       if (!file) return;
       file.arrayBuffer().then(buf => loadFile(new Uint8Array(buf), file.name));
     }
+    document.addEventListener('dragenter', onDragEnter);
+    document.addEventListener('dragleave', onDragLeave);
     document.addEventListener('dragover', onDragOver);
     document.addEventListener('drop', onDrop);
 
@@ -102,6 +121,8 @@ export function App() {
       document.removeEventListener('keyup', inputController.onKeyUp);
       window.removeEventListener('blur', inputController.onBlur);
       document.removeEventListener('click', initAudio);
+      document.removeEventListener('dragenter', onDragEnter);
+      document.removeEventListener('dragleave', onDragLeave);
       document.removeEventListener('dragover', onDragOver);
       document.removeEventListener('drop', onDrop);
     });
@@ -151,6 +172,16 @@ export function App() {
       </Sidebar>
 
       <Tooltip />
+
+      <Show when={isDragging()}>
+        <div class="drag-overlay">
+          <div class="drag-overlay-box">
+            <span class="drag-overlay-icon">⬇</span>
+            <span class="drag-overlay-label">Drop to load</span>
+            <span class="drag-overlay-hint">SNA · Z80 · SZX · TAP · TZX · DSK · ZIP</span>
+          </div>
+        </div>
+      </Show>
     </>
   );
 }

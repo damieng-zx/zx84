@@ -94,6 +94,49 @@ body {
   border-radius: 1px;
 }
 
+/* ── Drag-drop overlay ──────────────────────────────────────────────── */
+
+.drag-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9000;
+  pointer-events: none;
+}
+
+.drag-overlay-box {
+  border: 3px dashed #c0c0ff;
+  border-radius: 12px;
+  padding: 32px 48px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  background: rgba(26, 26, 46, 0.9);
+  color: #c0c0ff;
+  font-family: var(--font-ui);
+}
+
+.drag-overlay-icon {
+  font-size: 2.5rem;
+  line-height: 1;
+}
+
+.drag-overlay-label {
+  font-size: 1.2rem;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+.drag-overlay-hint {
+  font-size: 0.8rem;
+  color: #8888bb;
+  letter-spacing: 0.3px;
+}
+
 .hmr-spinner {
   display: flex;
   align-items: center;
