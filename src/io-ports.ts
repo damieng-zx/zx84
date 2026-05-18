@@ -17,23 +17,19 @@ export function installMemoryHooks(s: Spectrum): void {
   const contention = s.contention;
   const v = s.variant;
   const cpu = s.cpu;
-  // Capture stable references once so the hot path is an array indexing
-  // expression rather than a chain of property loads + method calls. Both
-  // arrays' outer references are stable (the contents update on paging /
-  // never, respectively), so capturing the reference is safe.
-  const slots = memory.slots;
+  // Capture stable references once so the hot path is a single array
+  // index rather than property-chain dereferencing every read. `flat` is
+  // the live 64KB view (its identity never changes — only its contents
+  // do, mutated by bankSwitch). slotContended is also stable.
+  const flat = memory.flat;
   const slotContended = contention.slotContended;
 
   cpu.read8 = (addr: number): number => {
     addr &= 0xFFFF;
-    // Skip ULA contention when accurateTiming is off (UI turbo) — this is
-    // the dominant per-instruction cost and the user has opted out of
-    // cycle-exact behaviour by entering turbo. MCP and tests never set
-    // turbo so they keep accurate timing.
     if (cpu.accurateTiming && slotContended[addr >>> 14] !== 0) {
       cpu.tStates += contention.contentionDelay(cpu.tStates);
     }
-    const val = slots[addr >>> 14][addr & 0x3FFF];
+    const val = flat[addr];
     if (s.memWatchpoints.length > 0 && s.memWatchHit === null) {
       for (const wp of s.memWatchpoints) {
         if ((wp.mode === 'read' || wp.mode === 'rw') && addr >= wp.start && addr <= wp.end) {
@@ -46,11 +42,17 @@ export function installMemoryHooks(s: Spectrum): void {
   };
 
   // Internal bus contention (no MREQ).
-  cpu.contend = v.hasIOContention ? (addr: number): void => {
-    if (cpu.accurateTiming && slotContended[addr >>> 14] !== 0) {
+  // Build the cycle-exact impl once and stash on cpu so turbo can swap
+  // `cpu.contend` between this and a true no-op (see frameLoop turbo enter/exit).
+  // No accurateTiming check inside — the swap means we never call the accurate
+  // impl when turbo is on, and Firefox can then inline the no-op away at every
+  // bare `this.contend(addr)` site across exec-main/ed/index/cb.
+  cpu._contendAccurate = v.hasIOContention ? (addr: number): void => {
+    if (slotContended[addr >>> 14] !== 0) {
       cpu.tStates += contention.contentionDelay(cpu.tStates);
     }
   } : () => {};
+  cpu.contend = cpu._contendAccurate;
 
   const vramFlushEnd = v.vramFlushEnd;
 
@@ -76,7 +78,7 @@ export function installMemoryHooks(s: Spectrum): void {
       s.flushBeam();
     }
     if (addr >= 0x5800 && addr < 0x5B00) s.activity.attrWrites++;
-    slots[addr >>> 14][addr & 0x3FFF] = val & 0xFF;
+    flat[addr] = val & 0xFF;
     if (s.memWatchpoints.length > 0 && s.memWatchHit === null) {
       for (const wp of s.memWatchpoints) {
         if ((wp.mode === 'write' || wp.mode === 'rw') && addr >= wp.start && addr <= wp.end) {

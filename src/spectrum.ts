@@ -55,6 +55,11 @@ const TARGET_BUFFER_FRAMES = 3;
 /** Wall-clock frame period: 50 Hz = 20ms */
 const FRAME_PERIOD = 1000 / 50;
 
+/** No-op contend installed on cpu while UI turbo is engaged. Module-scope so
+ *  every Spectrum instance shares the same identity (helps SpiderMonkey's
+ *  inline-cache stability across instances). */
+const NOOP_CONTEND = (_addr: number): void => {};
+
 import type { SpectrumModel } from '@/models.ts';
 
 export class IOActivity {
@@ -535,6 +540,11 @@ export class Spectrum {
           // UI turbo opts out of cycle-exact contention for throughput.
           // MCP/tests never set this.turbo, so their accuracy is unaffected.
           this.cpu.accurateTiming = false;
+          // Swap cpu.contend to a no-op closure so the hundreds of bare
+          // `this.contend(addr); this.tStates += 1` sites in exec-* call an
+          // empty function Firefox can inline away, instead of dispatching
+          // through the assigned closure on every internal cycle.
+          this.cpu.contend = NOOP_CONTEND;
           this._turboActive = true;
           this._turboLastRaf = now;
           this._turboBudgetMs = 4;
@@ -572,6 +582,7 @@ export class Spectrum {
           if (this._savedScanAcc !== null) this._scanlineAccuracy = this._savedScanAcc;
           this._savedScanAcc = null;
           this.cpu.accurateTiming = true;
+          this.cpu.contend = this.cpu._contendAccurate;
         }
         this.frameTimeAccum = Math.min(
           this.frameTimeAccum + (now - this.lastFrameTime),

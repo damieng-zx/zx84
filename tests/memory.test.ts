@@ -181,19 +181,17 @@ describe('SpectrumMemory — special paging (+2A/+3)', () => {
 });
 
 describe('SpectrumMemory — slot 0 overlay', () => {
-  it('setSlot0 replaces slot 0 and returns previous', () => {
+  it('setSlot0 overlays slot 0 with the supplied buffer', () => {
     const mem = new SpectrumMemory('48k');
     const rom = new Uint8Array(16384);
     rom[0] = 0xAA;
     mem.loadROM(rom);
+    expect(mem.readByte(0x0000)).toBe(0xAA);
 
-    const prev = mem.getSlot(0);
     const overlay = new Uint8Array(16384);
     overlay[0] = 0xBB;
     mem.setSlot0(overlay);
-
     expect(mem.readByte(0x0000)).toBe(0xBB);
-    expect(prev[0]).toBe(0xAA);
   });
 
   it('restoreSlot0 reverts to ROM', () => {
@@ -350,15 +348,16 @@ describe('SpectrumMemory — screenBank', () => {
   it('returns bank 5 by default (port7FFD bit 3 = 0)', () => {
     const mem = new SpectrumMemory('128k');
     mem.loadROM(new Uint8Array(32768));
-    const bank = mem.screenBank;
-    expect(bank).toBe(mem.getRamBank(5));
+    mem.getRamBank(5)[42] = 0x77;
+    expect(mem.screenBank[42]).toBe(0x77);
   });
 
   it('returns bank 7 when port7FFD bit 3 is set', () => {
     const mem = new SpectrumMemory('128k');
     mem.loadROM(new Uint8Array(32768));
+    mem.getRamBank(7)[42] = 0x88;
     mem.bankSwitch(0x08); // bit 3 = shadow screen in bank 7
-    expect(mem.screenBank).toBe(mem.getRamBank(7));
+    expect(mem.screenBank[42]).toBe(0x88);
   });
 
   it('screenBank reflects live RAM bank data', () => {
@@ -623,10 +622,11 @@ describe('SpectrumMemory — setBankFromSnapshot and flushBanks', () => {
 
   it('flushBanks returns all 8 banks', () => {
     const mem = new SpectrumMemory('128k');
+    for (let i = 0; i < 8; i++) mem.setBankFromSnapshot(i, new Uint8Array(16384).fill(i + 1));
     const banks = mem.flushBanks();
     expect(banks.length).toBe(8);
     for (let i = 0; i < 8; i++) {
-      expect(banks[i]).toBe(mem.getRamBank(i));
+      expect(banks[i][0]).toBe(i + 1);
     }
   });
 
@@ -659,18 +659,6 @@ describe('SpectrumMemory — writeByte value masking', () => {
   });
 });
 
-describe('SpectrumMemory — 16K open-bus aliasing', () => {
-  it('write at 0x8000 is also visible at 0xC000 (shared open-bus buffer)', () => {
-    // On the 16K model, slots 2 and 3 share the same _openBus Uint8Array.
-    // A write at slot2+offset aliases to slot3+offset.
-    // Hardware: io-ports drops writes before they reach memory, so this is
-    // only observable in unit tests; documenting the implementation detail.
-    const mem = new SpectrumMemory('16k');
-    mem.loadROM(new Uint8Array(16384));
-    mem.writeByte(0x8000, 0x42); // slot 2, offset 0
-    expect(mem.readByte(0xC000)).toBe(0x42); // slot 3, offset 0 — same buffer
-  });
-});
 
 describe('SpectrumMemory — paging lock', () => {
   it('bankSwitch1FFD also respects pagingLocked', () => {

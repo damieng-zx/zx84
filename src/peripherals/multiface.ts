@@ -78,8 +78,10 @@ export class Multiface {
    */
   pageOut(memory: SpectrumMemory): void {
     if (!this.pagedIn) return;
-    // Save any writes to MF RAM back (software may have modified 0x2000-0x3FFF)
-    this.mfRam.set(this.mfOverlay.subarray(0x2000, 0x4000));
+    // CPU writes during overlay went into the live flat memory (slot 0).
+    // Read the RAM half (0x2000-0x3FFF) directly from the live slot before
+    // restoring, so any software modifications persist.
+    this.mfRam.set(memory.getSlot(0).subarray(0x2000, 0x4000));
     memory.restoreSlot0();
     this.pagedIn = false;
   }

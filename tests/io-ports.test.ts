@@ -285,9 +285,9 @@ describe('Memory paging — port 0x7FFD (128K)', () => {
 
   it('bit 3 selects the screen bank: 0 = bank 5, 1 = bank 7', () => {
     s.cpu.portOut(0x7FFD, 0x00);
-    expect(s.memory.screenBank).toBe(s.memory.getRamBank(5));
+    expect(s.memory.screenBank[0]).toBe(0xB5); // marker for bank 5
     s.cpu.portOut(0x7FFD, 0x08);
-    expect(s.memory.screenBank).toBe(s.memory.getRamBank(7));
+    expect(s.memory.screenBank[0]).toBe(0xB7); // marker for bank 7
   });
 
   it('bit 5 locks paging permanently (until reset)', () => {

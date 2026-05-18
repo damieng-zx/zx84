@@ -74,8 +74,15 @@ export class Z80 {
    *  timing without opting in. */
   accurateTiming = true;
 
-  /** Internal bus contention (no MREQ). Overridden by io-ports for Spectrum models. */
+  /** Internal bus contention (no MREQ). Overridden by io-ports for Spectrum models.
+   *  Swapped between `_contendAccurate` and a no-op when turbo toggles, so the
+   *  hundreds of bare `this.contend(addr); this.tStates += 1` sites in exec-*
+   *  collapse to an inlinable empty function in Firefox (which can't inline
+   *  through an internal `accurateTiming` branch on an assigned closure). */
   contend: (addr: number) => void = () => {};
+  /** Cycle-exact contend installed by io-ports. Held here so turbo can swap
+   *  `contend` to a no-op and back without losing the accurate impl. */
+  _contendAccurate: (addr: number) => void = () => {};
 
   /** I/R register pair (address placed on bus during internal processing cycles). */
   get ir(): number { return (this.i << 8) | this.r; }
