@@ -1,7 +1,6 @@
 node_modules/
 dist/
-*.local
-coverage/**
+coverage/
 .claude/settings.local.json
 
 # Editor & OS
@@ -25,9 +24,8 @@ npm-debug.log*
 *.rom
 *.bin
 
-test/
-
-# wrangler files
+# Vite / Wrangler local config
+*.local
 .wrangler
 .dev.vars*
 !.dev.vars.example
