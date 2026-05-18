@@ -44,6 +44,7 @@ type MockSpectrum = {
   tape: { loaded: boolean; position: number; playing: boolean; paused: boolean; finished: boolean; startPlayback: () => void };
   activity: Record<string, number | boolean>;
   screenText: { active: boolean; activate: () => void; deactivate: () => void };
+  loaderDetector: { signature: string };
 } | null;
 
 const { emu, settingsMock, panesMock } = vi.hoisted(() => ({
@@ -256,6 +257,7 @@ function makeSpectrumWithSnap(snap: Uint8Array): MockSpectrum {
     tape: { loaded: false, position: 0, playing: false, paused: false, finished: false, startPlayback: vi.fn() },
     activity: {},
     screenText: { active: false, activate: vi.fn(), deactivate: vi.fn() },
+    loaderDetector: { signature: 'unknown' },
   };
 }
 
