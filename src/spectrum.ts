@@ -320,6 +320,13 @@ export class Spectrum {
   get traceMode(): 'full' | 'portio' | 'zxtl' { return this._traceMode; }
   get traceBuffer(): readonly string[] { return this._traceBuffer; }
 
+  /** True when slot 0 is overlaid by an external ROM (Multiface or VTX-5000).
+   *  Bank-switching paths use this to skip writing slot 0 so the overlay
+   *  stays mapped. */
+  get hasSlot0Overlay(): boolean {
+    return this.multiface.pagedIn || (this.vtx5000.enabled && this.vtx5000.vtxRomPaged);
+  }
+
   /** Flush pending pixels up to the current beam position.
    *  Called from the port handler BEFORE updating borderColor so that
    *  pixels between the last render and the port write keep the old color,
@@ -644,11 +651,6 @@ export class Spectrum {
           this.cpu.tStates += nops * 4;
           this.cpu.r = (this.cpu.r & 0x80) | ((this.cpu.r + nops) & 0x7F);
         }
-
-        // if (!this.cpu.iff1) {
-        //   this.cpu.iff1 = true;
-        //   this.cpu.iff2 = true;
-        // }
       } else {
         // Breakpoint check (skipped when set is empty for zero overhead)
         if (this.breakpoints.size > 0 && this.breakpoints.has(this.cpu.pc)) {

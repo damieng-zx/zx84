@@ -112,14 +112,12 @@ export function wirePortIO(s: Spectrum): void {
     // 128K bank switching: port 0x7FFD
     if (v.hasBanking) {
       if (v.decodes7FFD(port)) {
-        const skipSlot0 = s.multiface.pagedIn || (s.vtx5000.enabled && s.vtx5000.vtxRomPaged);
-        s.memory.bankSwitch(val, skipSlot0);
+        s.memory.bankSwitch(val, s.hasSlot0Overlay);
       }
 
       // +2A: port 0x1FFD
       if (v.decodes1FFD(port)) {
-        const skipSlot0 = s.multiface.pagedIn || (s.vtx5000.enabled && s.vtx5000.vtxRomPaged);
-        s.memory.bankSwitch1FFD(val, skipSlot0);
+        s.memory.bankSwitch1FFD(val, s.hasSlot0Overlay);
         if (v.hasFDC) s.fdc.motorOn = (val & 0x08) !== 0;
       }
 
