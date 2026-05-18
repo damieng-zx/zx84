@@ -16,17 +16,24 @@ export function installMemoryHooks(s: Spectrum): void {
   const memory = s.memory;
   const contention = s.contention;
   const v = s.variant;
+  const cpu = s.cpu;
+  // Capture stable references once so the hot path is an array indexing
+  // expression rather than a chain of property loads + method calls. Both
+  // arrays' outer references are stable (the contents update on paging /
+  // never, respectively), so capturing the reference is safe.
+  const slots = memory.slots;
+  const slotContended = contention.slotContended;
 
-  s.cpu.read8 = (addr: number): number => {
+  cpu.read8 = (addr: number): number => {
     addr &= 0xFFFF;
     // Skip ULA contention when accurateTiming is off (UI turbo) — this is
     // the dominant per-instruction cost and the user has opted out of
     // cycle-exact behaviour by entering turbo. MCP and tests never set
     // turbo so they keep accurate timing.
-    if (s.cpu.accurateTiming && contention.isContended(addr)) {
-      s.cpu.tStates += contention.contentionDelay(s.cpu.tStates);
+    if (cpu.accurateTiming && slotContended[addr >>> 14] !== 0) {
+      cpu.tStates += contention.contentionDelay(cpu.tStates);
     }
-    const val = memory.readByte(addr);
+    const val = slots[addr >>> 14][addr & 0x3FFF];
     if (s.memWatchpoints.length > 0 && s.memWatchHit === null) {
       for (const wp of s.memWatchpoints) {
         if ((wp.mode === 'read' || wp.mode === 'rw') && addr >= wp.start && addr <= wp.end) {
@@ -39,18 +46,18 @@ export function installMemoryHooks(s: Spectrum): void {
   };
 
   // Internal bus contention (no MREQ).
-  s.cpu.contend = v.hasIOContention ? (addr: number): void => {
-    if (s.cpu.accurateTiming && contention.isContended(addr)) {
-      s.cpu.tStates += contention.contentionDelay(s.cpu.tStates);
+  cpu.contend = v.hasIOContention ? (addr: number): void => {
+    if (cpu.accurateTiming && slotContended[addr >>> 14] !== 0) {
+      cpu.tStates += contention.contentionDelay(cpu.tStates);
     }
   } : () => {};
 
   const vramFlushEnd = v.vramFlushEnd;
 
-  s.cpu.write8 = (addr: number, val: number): void => {
+  cpu.write8 = (addr: number, val: number): void => {
     addr &= 0xFFFF;
-    if (s.cpu.accurateTiming && contention.isContended(addr)) {
-      s.cpu.tStates += contention.contentionDelay(s.cpu.tStates);
+    if (cpu.accurateTiming && slotContended[addr >>> 14] !== 0) {
+      cpu.tStates += contention.contentionDelay(cpu.tStates);
     }
     if (addr < 0x4000) {
       if (s.multiface.pagedIn) {
@@ -69,7 +76,7 @@ export function installMemoryHooks(s: Spectrum): void {
       s.flushBeam();
     }
     if (addr >= 0x5800 && addr < 0x5B00) s.activity.attrWrites++;
-    memory.writeByte(addr, val);
+    slots[addr >>> 14][addr & 0x3FFF] = val & 0xFF;
     if (s.memWatchpoints.length > 0 && s.memWatchHit === null) {
       for (const wp of s.memWatchpoints) {
         if ((wp.mode === 'write' || wp.mode === 'rw') && addr >= wp.start && addr <= wp.end) {
@@ -80,17 +87,17 @@ export function installMemoryHooks(s: Spectrum): void {
     }
   };
 
-  s.cpu.portIn = (port: number): number => {
-    if (s.cpu.accurateTiming) contention.applyIOContention(port, s.cpu);
-    const val = s.cpu.portInHandler ? s.cpu.portInHandler(port) : 0xFF;
+  cpu.portIn = (port: number): number => {
+    if (cpu.accurateTiming) contention.applyIOContention(port, cpu);
+    const val = cpu.portInHandler ? cpu.portInHandler(port) : 0xFF;
     if (s.tracing && s.traceMode !== 'full') s.logPortAccess('IN', port, val);
     return val;
   };
 
-  s.cpu.portOut = (port: number, val: number): void => {
-    if (s.cpu.accurateTiming) contention.applyIOContention(port, s.cpu);
+  cpu.portOut = (port: number, val: number): void => {
+    if (cpu.accurateTiming) contention.applyIOContention(port, cpu);
     if (s.tracing && s.traceMode !== 'full') s.logPortAccess('OUT', port, val);
-    if (s.cpu.portOutHandler) s.cpu.portOutHandler(port, val);
+    if (cpu.portOutHandler) cpu.portOutHandler(port, val);
   };
 }
 

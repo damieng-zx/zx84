@@ -80,16 +80,44 @@ export class Contention {
   /** T-state counter at start of current frame (set by Spectrum each frame). */
   frameStartTStates = 0;
 
+  /** Cached per-slot contention status. slotContended[slot] is 1 when the
+   *  current bank in that 16KB slot is contended, 0 otherwise. Refreshed
+   *  on every paging change via refreshSlotMask(); collapses the
+   *  isContended -> bankAt -> variant.isContended chain (with virtual
+   *  dispatch through the variant strategy) to a single array load on
+   *  every memory access. */
+  readonly slotContended = new Uint8Array(4);
+
   constructor(variant: MachineVariant, memory: SpectrumMemory) {
     this.variant = variant;
     this.memory = memory;
     this.timing = variant.timing;
+    // Own the paging change subscription so the slot cache stays exact
+    // even when Contention is used standalone (e.g. unit tests).
+    memory.onSlotsChanged = () => this.refreshSlotMask();
+    this.refreshSlotMask();
+  }
+
+  /** Recompute slotContended from the variant + current bank mapping.
+   *  Called by SpectrumMemory whenever slots change (bank switch, special
+   *  paging toggle, ROM swap). The variant.isContended check is sub-bank
+   *  on some models (e.g. Frontier's odd-bank contention) but every model
+   *  in our matrix gives the same answer for any address within a slot,
+   *  so caching per-slot is exact. */
+  refreshSlotMask(): void {
+    const m = this.slotContended;
+    const v = this.variant;
+    // One representative address per slot is enough — variant.isContended
+    // depends only on (slot, bank), not on the offset within the slot.
+    m[0] = v.isContended(0x0000, this.memory.bankAt(0x0000)) ? 1 : 0;
+    m[1] = v.isContended(0x4000, this.memory.bankAt(0x4000)) ? 1 : 0;
+    m[2] = v.isContended(0x8000, this.memory.bankAt(0x8000)) ? 1 : 0;
+    m[3] = v.isContended(0xC000, this.memory.bankAt(0xC000)) ? 1 : 0;
   }
 
   /** True if the given address is in ULA-contended memory. */
   isContended(addr: number): boolean {
-    const bank = this.memory.bankAt(addr);
-    return this.variant.isContended(addr, bank);
+    return this.slotContended[addr >>> 14] !== 0;
   }
 
   /** Returns the contention delay (extra T-states) for the current beam position. */

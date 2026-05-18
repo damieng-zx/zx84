@@ -79,6 +79,10 @@ export class SpectrumMemory implements ByteReader {
    *  Suppresses ROM updates to slot 0 during bank switches. */
   externalRomPaged = false;
 
+  /** Fires after every slot mapping change so external caches (notably the
+   *  Contention slot mask) can refresh. Null when no listener is wired. */
+  onSlotsChanged: (() => void) | null = null;
+
   constructor(model: SpectrumModel, opts?: { hasBanking?: boolean; romPageCount?: number; is16K?: boolean }) {
     this.is128K = opts?.hasBanking ?? (model !== '48k' && model !== '16k');
     this.is16K = opts?.is16K ?? (model === '16k');
@@ -104,6 +108,13 @@ export class SpectrumMemory implements ByteReader {
   }
 
   // ── Paged memory access ───────────────────────────────────────────────
+
+  /** Stable reference to the 4-element slot pointer array, for hot-path
+   *  callers that want to inline the bank lookup. The outer array reference
+   *  never changes after construction; individual entries are mutated by
+   *  updateSlots()/bankSwitch on paging events. Callers should capture this
+   *  once (e.g. in installMemoryHooks) and index directly. */
+  get slots(): readonly Uint8Array[] { return this._slots; }
 
   /** Read one byte from the Z80 address space. */
   readByte(addr: number): number {
@@ -201,6 +212,7 @@ export class SpectrumMemory implements ByteReader {
       this._slots[2] = this.is16K ? this._openBus : this._ramBanks[2];
       this._slots[3] = this.is16K ? this._openBus : this._ramBanks[this.currentBank];
     }
+    if (this.onSlotsChanged !== null) this.onSlotsChanged();
   }
 
   // ── Lifecycle ─────────────────────────────────────────────────────────
@@ -272,6 +284,7 @@ export class SpectrumMemory implements ByteReader {
     this.currentBank = newBank;
     this.currentROM = newROM;
     if (val & 0x20) this.pagingLocked = true;
+    if (this.onSlotsChanged !== null) this.onSlotsChanged();
   }
 
   /**
@@ -303,6 +316,7 @@ export class SpectrumMemory implements ByteReader {
       this._slots[2] = this._ramBanks[2];
       this._slots[3] = this._ramBanks[this.currentBank];
     }
+    if (this.onSlotsChanged !== null) this.onSlotsChanged();
   }
 
   // ── Bulk operations (snapshots, reset, ROM load) ──────────────────────
