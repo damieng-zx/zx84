@@ -2,6 +2,7 @@ node_modules/
 dist/
 *.local
 coverage/**
+.claude/settings.local.json
 
 # Editor & OS
 .vscode/
