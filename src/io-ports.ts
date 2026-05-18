@@ -19,7 +19,11 @@ export function installMemoryHooks(s: Spectrum): void {
 
   s.cpu.read8 = (addr: number): number => {
     addr &= 0xFFFF;
-    if (contention.isContended(addr)) {
+    // Skip ULA contention when accurateTiming is off (UI turbo) — this is
+    // the dominant per-instruction cost and the user has opted out of
+    // cycle-exact behaviour by entering turbo. MCP and tests never set
+    // turbo so they keep accurate timing.
+    if (s.cpu.accurateTiming && contention.isContended(addr)) {
       s.cpu.tStates += contention.contentionDelay(s.cpu.tStates);
     }
     const val = memory.readByte(addr);
@@ -36,7 +40,7 @@ export function installMemoryHooks(s: Spectrum): void {
 
   // Internal bus contention (no MREQ).
   s.cpu.contend = v.hasIOContention ? (addr: number): void => {
-    if (contention.isContended(addr)) {
+    if (s.cpu.accurateTiming && contention.isContended(addr)) {
       s.cpu.tStates += contention.contentionDelay(s.cpu.tStates);
     }
   } : () => {};
@@ -45,7 +49,7 @@ export function installMemoryHooks(s: Spectrum): void {
 
   s.cpu.write8 = (addr: number, val: number): void => {
     addr &= 0xFFFF;
-    if (contention.isContended(addr)) {
+    if (s.cpu.accurateTiming && contention.isContended(addr)) {
       s.cpu.tStates += contention.contentionDelay(s.cpu.tStates);
     }
     if (addr < 0x4000) {
@@ -77,14 +81,14 @@ export function installMemoryHooks(s: Spectrum): void {
   };
 
   s.cpu.portIn = (port: number): number => {
-    contention.applyIOContention(port, s.cpu);
+    if (s.cpu.accurateTiming) contention.applyIOContention(port, s.cpu);
     const val = s.cpu.portInHandler ? s.cpu.portInHandler(port) : 0xFF;
     if (s.tracing && s.traceMode !== 'full') s.logPortAccess('IN', port, val);
     return val;
   };
 
   s.cpu.portOut = (port: number, val: number): void => {
-    contention.applyIOContention(port, s.cpu);
+    if (s.cpu.accurateTiming) contention.applyIOContention(port, s.cpu);
     if (s.tracing && s.traceMode !== 'full') s.logPortAccess('OUT', port, val);
     if (s.cpu.portOutHandler) s.cpu.portOutHandler(port, val);
   };

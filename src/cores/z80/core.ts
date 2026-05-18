@@ -66,6 +66,14 @@ export class Z80 {
   // T-state counter
   tStates = 0;
 
+  /** When false, memory/IO hooks short-circuit ULA contention work entirely.
+   *  The Z80 still advances tStates from base instruction timing, but no
+   *  per-access contention checks or contentionDelay() math runs. Used by
+   *  the UI turbo button to remove the dominant non-CPU per-instruction cost.
+   *  Default true so MCP and tests (which never set turbo) keep cycle-exact
+   *  timing without opting in. */
+  accurateTiming = true;
+
   /** Internal bus contention (no MREQ). Overridden by io-ports for Spectrum models. */
   contend: (addr: number) => void = () => {};
 

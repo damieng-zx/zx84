@@ -532,6 +532,9 @@ export class Spectrum {
           // the setter would otherwise route 'low' into _savedScanAcc.
           this._savedScanAcc = this._scanlineAccuracy;
           this._scanlineAccuracy = 'low';
+          // UI turbo opts out of cycle-exact contention for throughput.
+          // MCP/tests never set this.turbo, so their accuracy is unaffected.
+          this.cpu.accurateTiming = false;
           this._turboActive = true;
           this._turboLastRaf = now;
           this._turboBudgetMs = 4;
@@ -568,6 +571,7 @@ export class Spectrum {
           this._turboActive = false;
           if (this._savedScanAcc !== null) this._scanlineAccuracy = this._savedScanAcc;
           this._savedScanAcc = null;
+          this.cpu.accurateTiming = true;
         }
         this.frameTimeAccum = Math.min(
           this.frameTimeAccum + (now - this.lastFrameTime),
