@@ -241,6 +241,24 @@ describe('Z80 — FD prefix: (IY+d) memory operations', () => {
     expect(h.cpu.f & F_N).toBe(F_N);
   });
 
+  it('FD 2E nn → LD IYL,n (low byte set, high preserved)', () => {
+    const h = newCpu();
+    h.cpu.iy = 0xAB00;
+    load(h.mem, 0, 0xFD, 0x2E, 0x34); // LD IYL,$34
+    step(h);
+    expect(h.cpu.iy).toBe(0xAB34);
+  });
+
+  it('FD 06 nn → LD B,n passes through unchanged (FD on x=0,z=6,y=0 else path)', () => {
+    // op=0x06: x=0, z=6, y=0 — enters x===0&&z===6&&y!==6, not 0x26/0x2E → executeMain
+    const h = newCpu();
+    h.cpu.iy = 0xABCD;
+    load(h.mem, 0, 0xFD, 0x06, 0x99); // LD B,$99
+    step(h);
+    expect(h.cpu.b).toBe(0x99);
+    expect(h.cpu.iy).toBe(0xABCD); // IY untouched
+  });
+
   it('MEMPTR ← IY+d (observable via subsequent BIT n,(HL))', () => {
     const h = newCpu();
     h.cpu.iy = 0x4810;          // (IY-0x10) = 0x4800 → MEMPTR.H = 0x48 (F3=1, F5=0)

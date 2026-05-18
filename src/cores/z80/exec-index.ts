@@ -56,17 +56,7 @@ Z80.prototype.executeDD = function (this: Z80): void {
     this.aluOp(y, this.read8(addr));
     this.tStates += 3;
   } else if (x === 0 && z === 6 && y !== 6) {
-    if (op === 0x36) {
-      // LD (IX+d),n: 19T, write@T+15. Auto: 8T + 3T(d) + 3T(n) = 14T
-      const d = this.fetch8();
-      const n = this.fetch8();
-      const addr = (this.ix + signed8(d)) & 0xFFFF;
-      this.memptr = addr;  // Any instruction with (INDEX+d): MEMPTR = INDEX+d
-      this.h = savedH; this.l = savedL;
-      this.tStates += 1;
-      this.write8(addr, n);
-      this.tStates += 4;
-    } else if (op === 0x26 || op === 0x2E) {
+    if (op === 0x26 || op === 0x2E) {
       // Undocumented: LD IXH/IXL, nn: 11T. Auto: 8T + 3T(n) = 11T
       const n = this.fetch8();
       if (op === 0x26) {
@@ -170,17 +160,7 @@ Z80.prototype.executeFD = function (this: Z80): void {
     this.aluOp(y, this.read8(addr));
     this.tStates += 3;
   } else if (x === 0 && z === 6 && y !== 6) {
-    if (op === 0x36) {
-      // LD (IY+d),n: 19T, write@T+15. Auto: 8T + 3T(d) + 3T(n) = 14T
-      const d = this.fetch8();
-      const n = this.fetch8();
-      const addr = (this.iy + signed8(d)) & 0xFFFF;
-      this.memptr = addr;  // Any instruction with (INDEX+d): MEMPTR = INDEX+d
-      this.h = savedH; this.l = savedL;
-      this.tStates += 1;
-      this.write8(addr, n);
-      this.tStates += 4;
-    } else if (op === 0x26 || op === 0x2E) {
+    if (op === 0x26 || op === 0x2E) {
       // Undocumented: LD IYH/IYL, nn: 11T. Auto: 8T + 3T(n) = 11T
       const n = this.fetch8();
       if (op === 0x26) {

@@ -247,6 +247,16 @@ describe('Z80 — DD prefix: (IX+d) memory operations', () => {
     expect(h.cpu.f & F_F3).toBe(F_F3);
     expect(h.cpu.f & F_F5).toBe(0);
   });
+
+  it('DD 06 nn → LD B,n passes through unchanged (DD on x=0,z=6,y=0 else path)', () => {
+    // op=0x06: x=0, z=6, y=0 — enters x===0&&z===6&&y!==6, not 0x26/0x2E → executeMain
+    const h = newCpu();
+    h.cpu.ix = 0xABCD;
+    load(h.mem, 0, 0xDD, 0x06, 0x55); // LD B,$55
+    step(h);
+    expect(h.cpu.b).toBe(0x55);
+    expect(h.cpu.ix).toBe(0xABCD); // IX untouched
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -355,6 +365,28 @@ describe('Z80 — DDCB rotate/shift with simultaneous register store', () => {
     step(h);
     expect(h.mem[0xC000]).toBe(0xFE);
     expect(h.cpu.a).toBe(0xFE);
+  });
+
+  it('DDCB d 86 → RES 0,(IX+d) z=6: standard form, no register copy', () => {
+    const h = newCpu();
+    h.cpu.ix = 0xC000;
+    h.cpu.b = 0xAA;
+    h.mem[0xC000] = 0xFF;
+    load(h.mem, 0, 0xDD, 0xCB, 0x00, 0x86); // RES 0,(IX+0)
+    step(h);
+    expect(h.mem[0xC000]).toBe(0xFE);
+    expect(h.cpu.b).toBe(0xAA); // unchanged
+  });
+
+  it('DDCB d C6 → SET 0,(IX+d) z=6: standard form, no register copy', () => {
+    const h = newCpu();
+    h.cpu.ix = 0xC000;
+    h.cpu.b = 0xAA;
+    h.mem[0xC000] = 0x00;
+    load(h.mem, 0, 0xDD, 0xCB, 0x00, 0xC6); // SET 0,(IX+0)
+    step(h);
+    expect(h.mem[0xC000]).toBe(0x01);
+    expect(h.cpu.b).toBe(0xAA); // unchanged
   });
 });
 
