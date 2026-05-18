@@ -355,7 +355,10 @@ export function persistSetting(key: string, value: string | number): void {
 
 // ── Per-pane defaults and reset ─────────────────────────────────────────
 
-type SettingDef = { key: SettingKey; set: (v: any) => void; type: 'number' | 'string' | 'bool' };
+type SettingDef =
+  | { key: SettingKey; set: (v: number) => void; type: 'number' }
+  | { key: SettingKey; set: (v: string) => void; type: 'string' }
+  | { key: SettingKey; set: (v: boolean) => void; type: 'bool' };
 
 // The `default` for each setting comes from DEFAULTS above — never inline a
 // literal here. If a setting needs a different default, change it in DEFAULTS

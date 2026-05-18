@@ -38,6 +38,8 @@ const KEY_MAP_FOR_MODE: Record<string, Record<string, string>> = {
 
 const GAMEPAD_DEADZONE = 0.4;
 const CONFIG_STEPS = ['deadzone', 'up', 'down', 'left', 'right', 'fire'] as const;
+type ConfigStep = typeof CONFIG_STEPS[number];
+type BindingStep = Exclude<ConfigStep, 'deadzone'>;
 const DEADZONE_DURATION = 2000;
 const BIND_HOLD_DURATION = 500;
 
@@ -177,7 +179,7 @@ export class InputController {
   private advanceConfig(): void {
     const p = configuringPlayer();
     const currentStep = configuringStep();
-    const idx = CONFIG_STEPS.indexOf(currentStep as any);
+    const idx = (CONFIG_STEPS as readonly string[]).indexOf(currentStep);
 
     this.configStartTime = 0;
     this.configCandidate = null;
@@ -259,7 +261,7 @@ export class InputController {
           setConfiguringProgress(Math.min(1, elapsed / BIND_HOLD_DURATION));
 
           if (elapsed >= BIND_HOLD_DURATION) {
-            (this.configPending as any)[step] = input;
+            this.configPending[step as BindingStep] = input;
             this.advanceConfig();
           }
         } else {

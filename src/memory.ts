@@ -9,6 +9,9 @@
 
 import type { SpectrumModel } from '@/models.ts';
 
+/** Size of a single RAM bank or ROM page (16 KB). */
+export const BANK_SIZE = 16_384;
+
 /** Special paging all-RAM bank configurations (indexed by mode 0-3). */
 const SPECIAL_MODES: ReadonlyArray<readonly [number, number, number, number]> = [
   [0, 1, 2, 3],
@@ -79,12 +82,12 @@ export class SpectrumMemory implements ByteReader {
   constructor(model: SpectrumModel, opts?: { hasBanking?: boolean; romPageCount?: number; is16K?: boolean }) {
     this.is128K = opts?.hasBanking ?? (model !== '48k' && model !== '16k');
     this.is16K = opts?.is16K ?? (model === '16k');
-    this._openBus = new Uint8Array(16384).fill(0xFF);
+    this._openBus = new Uint8Array(BANK_SIZE).fill(0xFF);
 
     // Create 8 RAM banks
     this._ramBanks = [];
     for (let i = 0; i < 8; i++) {
-      this._ramBanks.push(new Uint8Array(16384));
+      this._ramBanks.push(new Uint8Array(BANK_SIZE));
     }
 
     // Create ROM pages
@@ -92,11 +95,11 @@ export class SpectrumMemory implements ByteReader {
     const allocCount = Math.max(2, romCount);
     this.romPages = [];
     for (let i = 0; i < allocCount; i++) {
-      this.romPages.push(new Uint8Array(16384));
+      this.romPages.push(new Uint8Array(BANK_SIZE));
     }
 
     // Initialise slots to safe empty arrays (updateSlots() will assign real ones)
-    const empty = new Uint8Array(16384);
+    const empty = new Uint8Array(BANK_SIZE);
     this._slots = [empty, empty, empty, empty];
   }
 
@@ -220,15 +223,15 @@ export class SpectrumMemory implements ByteReader {
   loadROM(data: Uint8Array): void {
     if (data.length >= 65536 && this.romPages.length === 4) {
       for (let i = 0; i < 4; i++) {
-        this.romPages[i].set(data.subarray(i * 16384, (i + 1) * 16384));
+        this.romPages[i].set(data.subarray(i * BANK_SIZE, (i + 1) * BANK_SIZE));
       }
-    } else if (data.length >= 32768 && this.is128K) {
-      this.romPages[0].set(data.subarray(0, 16384));
-      this.romPages[1].set(data.subarray(16384, 32768));
-    } else if (data.length >= 16384) {
-      this.romPages[1].set(data.subarray(0, 16384));
+    } else if (data.length >= 2 * BANK_SIZE && this.is128K) {
+      this.romPages[0].set(data.subarray(0, BANK_SIZE));
+      this.romPages[1].set(data.subarray(BANK_SIZE, 2 * BANK_SIZE));
+    } else if (data.length >= BANK_SIZE) {
+      this.romPages[1].set(data.subarray(0, BANK_SIZE));
       if (!this.is128K) {
-        this.romPages[0].set(data.subarray(0, 16384));
+        this.romPages[0].set(data.subarray(0, BANK_SIZE));
       }
     }
     this.updateSlots();
@@ -337,7 +340,7 @@ export class SpectrumMemory implements ByteReader {
    * Use in snapshot loaders; call applyBanking() once all banks are populated.
    */
   setBankFromSnapshot(n: number, data: Uint8Array): void {
-    this._ramBanks[n].set(data.subarray(0, 16384));
+    this._ramBanks[n].set(data.subarray(0, BANK_SIZE));
   }
 
   /**
@@ -352,9 +355,9 @@ export class SpectrumMemory implements ByteReader {
    * Used by snapshot loaders.
    */
   load48KRAM(data: Uint8Array): void {
-    this._ramBanks[5].set(data.subarray(0, 16384));       // 0x4000-0x7FFF
-    this._ramBanks[2].set(data.subarray(16384, 32768));   // 0x8000-0xBFFF
-    this._ramBanks[0].set(data.subarray(32768, 49152));   // 0xC000-0xFFFF
+    this._ramBanks[5].set(data.subarray(0, BANK_SIZE));               // 0x4000-0x7FFF
+    this._ramBanks[2].set(data.subarray(BANK_SIZE, 2 * BANK_SIZE));   // 0x8000-0xBFFF
+    this._ramBanks[0].set(data.subarray(2 * BANK_SIZE, 3 * BANK_SIZE)); // 0xC000-0xFFFF
     this.currentBank = 0;
     this.updateSlots();
   }

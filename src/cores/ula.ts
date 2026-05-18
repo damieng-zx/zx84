@@ -10,6 +10,16 @@
 
 import { SpectrumKeyboard } from '@/keyboard.ts';
 
+// ── Display geometry ────────────────────────────────────────────────────
+/** Active display width in pixels. */
+export const DISPLAY_WIDTH = 256;
+/** Active display height in pixels. */
+export const DISPLAY_HEIGHT = 192;
+/** Character cells across the display (DISPLAY_WIDTH / 8). */
+export const DISPLAY_COLS = 32;
+/** Character cell rows down the display (DISPLAY_HEIGHT / 8). */
+export const DISPLAY_ROWS = 24;
+
 /**
  * ZX Spectrum peculiar bitmap row address for display line y (0–191).
  * The address encodes the character row in bits 11–8, the pixel row within
@@ -63,8 +73,8 @@ export const PALETTES: Record<ColorMap, Uint32Array> = {
 export type BorderMode = 0 | 1 | 2; // 0=none, 1=small, 2=normal
 
 /** Default screen dimensions including border */
-export const SCREEN_WIDTH = 352;   // 256 + 48*2
-export const SCREEN_HEIGHT = 288;  // 192 + 48*2
+export const SCREEN_WIDTH = DISPLAY_WIDTH + 48 * 2;    // 352
+export const SCREEN_HEIGHT = DISPLAY_HEIGHT + 48 * 2;  // 288
 
 /** Border pixel sizes for each mode.
  *  The real Spectrum has ~48px visible border on all sides (24T horizontal,
@@ -116,8 +126,8 @@ export class ULA {
     if (b === this.borderLeft) return;
     this.borderLeft = b;
     this.borderTop = b;
-    this.screenWidth = 256 + b * 2;
-    this.screenHeight = 192 + b * 2;
+    this.screenWidth = DISPLAY_WIDTH + b * 2;
+    this.screenHeight = DISPLAY_HEIGHT + b * 2;
     this.pixels = new Uint8Array(this.screenWidth * this.screenHeight * 4);
     this.pixels32 = new Uint32Array(this.pixels.buffer);
   }
@@ -197,13 +207,13 @@ export class ULA {
     // Fill entire buffer with border
     this.pixels32.fill(borderRGBA);
 
-    // Render 256x192 display area
-    for (let y = 0; y < 192; y++) {
+    // Render display area
+    for (let y = 0; y < DISPLAY_HEIGHT; y++) {
       const screenY = y + this.borderTop;
       const bitmapAddr = vramBitmapAddr(y) - vramOffset;
       const attrBase = vramAttrAddr(y, 0) - vramOffset;
 
-      for (let col = 0; col < 32; col++) {
+      for (let col = 0; col < DISPLAY_COLS; col++) {
         const byteVal = memory[bitmapAddr + col];
         const [inkRGBA, paperRGBA] = this.decodeAttr(memory[attrBase + col]);
 
@@ -226,7 +236,7 @@ export class ULA {
    */
   blankCells(
     memory: Uint8Array, mask: boolean[], vramOffset = 0,
-    cellWidth = 8, cellHeight = 8, cols = 32, rows = 24,
+    cellWidth = 8, cellHeight = 8, cols = DISPLAY_COLS, rows = DISPLAY_ROWS,
     xOffset = 0, yOffset = 0,
   ): void {
     const screenW = this.screenWidth;
@@ -243,12 +253,12 @@ export class ULA {
 
         for (let py = 0; py < cellHeight; py++) {
           const y = pixelY + py;
-          if (y < 0 || y >= 192) continue;
+          if (y < 0 || y >= DISPLAY_HEIGHT) continue;
           const screenY = y + this.borderTop;
           const px = this.borderLeft + startPx;
           const baseIdx = screenY * screenW + px;
           for (let x = 0; x < cellWidth; x++) {
-            if (startPx + x >= 256) break;
+            if (startPx + x >= DISPLAY_WIDTH) break;
             this.pixels32[baseIdx + x] = paperRGBA;
           }
         }

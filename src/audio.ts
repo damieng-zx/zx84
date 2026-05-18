@@ -23,8 +23,10 @@ interface AudioRing {
 }
 
 function makeRing(shared: boolean): AudioRing {
-  const Ctor: any = shared ? SharedArrayBuffer : ArrayBuffer;
-  const buffer = new Ctor(RING_SIZE * 8 + 8);
+  const byteLength = RING_SIZE * 8 + 8;
+  const buffer: ArrayBuffer | SharedArrayBuffer = shared
+    ? new SharedArrayBuffer(byteLength)
+    : new ArrayBuffer(byteLength);
   return {
     buffer,
     l: new Float32Array(buffer, 0, RING_SIZE),

@@ -34,6 +34,7 @@ import { Multiface } from '@/peripherals/multiface.ts';
 import { VTX5000 } from '@/peripherals/vtx5000.ts';
 import { hex8, hex16 } from '@/utils/hex.ts';
 import { signed8 } from '@/utils/signed.ts';
+import { DISPLAY_WIDTH, DISPLAY_HEIGHT } from '@/cores/ula.ts';
 import { createVariant, type MachineVariant } from '@/variants/index.ts';
 
 // Re-export model type and helpers from their canonical home (models.ts)
@@ -585,7 +586,7 @@ export class Spectrum {
     if (this._scanAcc > 0) this.ula.advanceFlash();
     const borderTop = this.ula.borderTop;
     const borderLeft = this.ula.borderLeft;
-    this.totalRenderLines = borderTop * 2 + 192;
+    this.totalRenderLines = borderTop * 2 + DISPLAY_HEIGHT;
     this.nextRenderLine = 0;
     this.nextPixelX = 0;
     this.nextDisplayCol = 0;
@@ -800,11 +801,11 @@ export class Spectrum {
     const ula = this.ula;
     const borderTop = ula.borderTop;
     const borderLeft = ula.borderLeft;
-    const dispEnd = borderLeft + 256;
+    const dispEnd = borderLeft + DISPLAY_WIDTH;
     const w = ula.screenWidth;
     const border = ula.borderColor;
 
-    if (i < borderTop || i >= borderTop + 192) {
+    if (i < borderTop || i >= borderTop + DISPLAY_HEIGHT) {
       ula.fillBorder(i, xStart, xEnd, border);
       return;
     }
@@ -830,7 +831,7 @@ export class Spectrum {
   private renderPendingScanlines(): void {
     const ula = this.ula;
     const borderLeft = ula.borderLeft;
-    const dispEnd = borderLeft + 256;
+    const dispEnd = borderLeft + DISPLAY_WIDTH;
     const w = ula.screenWidth;
     const tpl = this.contention.timing.tStatesPerLine;
     const t = this.cpu.tStates;

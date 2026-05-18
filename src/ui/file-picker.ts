@@ -9,10 +9,21 @@ interface PickerOptions {
   multiple?: boolean;
 }
 
+interface ShowOpenFilePickerOptions {
+  id?: string;
+  multiple?: boolean;
+  types?: { description: string; accept: Record<string, string[]> }[];
+}
+interface FilePickerHandle {
+  getFile(): Promise<File>;
+}
+type ShowOpenFilePicker = (opts: ShowOpenFilePickerOptions) => Promise<FilePickerHandle[]>;
+
 export async function openFile(opts: PickerOptions): Promise<OpenFileResult[] | null> {
-  if ('showOpenFilePicker' in window) {
+  const picker = (window as Window & { showOpenFilePicker?: ShowOpenFilePicker }).showOpenFilePicker;
+  if (picker) {
     try {
-      const handles: FileSystemFileHandle[] = await (window as any).showOpenFilePicker({
+      const handles = await picker({
         id: opts.id,
         multiple: opts.multiple ?? false,
         types: [{
@@ -22,7 +33,7 @@ export async function openFile(opts: PickerOptions): Promise<OpenFileResult[] | 
       });
       const results: OpenFileResult[] = [];
       for (const handle of handles) {
-        const file: File = await (handle as any).getFile();
+        const file: File = await handle.getFile();
         results.push({
           name: file.name,
           data: new Uint8Array(await file.arrayBuffer()),

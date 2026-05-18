@@ -17,7 +17,7 @@ function cancelConfiguration(): void {
 
 function DpadButton(props: { dir: string; playerIdx: number }) {
   const selectors = [joyP1, joyP2];
-  const icons: Record<string, any> = {
+  const icons: Record<string, typeof HiOutlineChevronUp> = {
     up: HiOutlineChevronUp, down: HiOutlineChevronDown, left: HiOutlineChevronLeft, right: HiOutlineChevronRight,
   };
   const Icon = icons[props.dir];

@@ -10,7 +10,19 @@
 
 import type { MachineVariant } from '@/variants/machine-variant.ts';
 import type { SpectrumMemory } from '@/memory.ts';
-import { vramBitmapAddr, vramAttrAddr } from '@/cores/ula.ts';
+import { vramBitmapAddr, vramAttrAddr, DISPLAY_HEIGHT } from '@/cores/ula.ts';
+
+// ── CPU clock (Hz) ──────────────────────────────────────────────────────
+/** 48K Z80 clock: 3.5 MHz. */
+export const Z80_CLOCK_48K = 3_500_000;
+/** 128K / +2 / +2A / +3 Z80 clock: ~3.5469 MHz (derived from 17.7345 MHz / 5). */
+export const Z80_CLOCK_128K = 3_546_900;
+
+// ── Frame timing (T-states per frame) ───────────────────────────────────
+/** 48K: 224 T-states/line × 312 lines. */
+export const TSTATES_PER_FRAME_48K = 69_888;
+/** 128K/+2/+2A/+3: 228 T-states/line × 311 lines. */
+export const TSTATES_PER_FRAME_128K = 70_908;
 
 /** Model-dependent ULA timing parameters. */
 export interface MachineTiming {
@@ -31,8 +43,8 @@ export interface MachineTiming {
 }
 
 export const TIMING_48K: MachineTiming = {
-  cpuClock: 3500000,
-  tStatesPerFrame: 69888,   // 224 × 312
+  cpuClock: Z80_CLOCK_48K,
+  tStatesPerFrame: TSTATES_PER_FRAME_48K,   // 224 × 312
   tStatesPerLine: 224,
   contentionStart: 14335,
   displayOrigin: 14336,     // 64 lines × 224 (8 VBlank + 56 border)
@@ -41,8 +53,8 @@ export const TIMING_48K: MachineTiming = {
 };
 
 export const TIMING_128K: MachineTiming = {
-  cpuClock: 3546900,
-  tStatesPerFrame: 70908,   // 228 × 311
+  cpuClock: Z80_CLOCK_128K,
+  tStatesPerFrame: TSTATES_PER_FRAME_128K,  // 228 × 311
   tStatesPerLine: 228,
   contentionStart: 14361,
   displayOrigin: 14362,     // contentionStart + 1T Ferranti pipeline delay
@@ -51,8 +63,8 @@ export const TIMING_128K: MachineTiming = {
 };
 
 export const TIMING_PLUS2A: MachineTiming = {
-  cpuClock: 3546900,
-  tStatesPerFrame: 70908,   // 228 × 311
+  cpuClock: Z80_CLOCK_128K,
+  tStatesPerFrame: TSTATES_PER_FRAME_128K,  // 228 × 311
   tStatesPerLine: 228,
   contentionStart: 14361,   // Amstrad ASIC ULA fetch starts here
   displayOrigin: 14364,     // first pixel output (contentionStart + 3T pipeline)
@@ -87,7 +99,7 @@ export class Contention {
     const offset = frameTStates - t.contentionStart;
     if (offset < 0) return 0;
     const line = (offset / t.tStatesPerLine) | 0;
-    if (line >= 192) return 0;
+    if (line >= DISPLAY_HEIGHT) return 0;
     const col = offset - line * t.tStatesPerLine;
     if (col >= 128) return 0;
     return this.variant.contentionPattern[col & 7];
@@ -155,7 +167,7 @@ export class Contention {
     const offset = frameTStates - t.contentionStart + t.floatingBusAdjust;
     if (offset < 0) return 0xFF;
     const line = (offset / t.tStatesPerLine) | 0;
-    if (line >= 192) return 0xFF;
+    if (line >= DISPLAY_HEIGHT) return 0xFF;
     const col = offset - line * t.tStatesPerLine;
     if (col >= 128) return 0xFF;
 

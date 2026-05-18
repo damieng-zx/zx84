@@ -8,6 +8,7 @@
 import { createEffect, onMount, onCleanup } from 'solid-js';
 import type { Accessor } from 'solid-js';
 import { Dynamic } from 'solid-js/web';
+import type { ValidComponent } from 'solid-js';
 
 interface RawHtmlProps {
   tag?: string;
@@ -41,7 +42,7 @@ export function RawHtml(props: RawHtmlProps) {
 
   return (
     <Dynamic
-      component={(props.tag || 'pre') as any}
+      component={(props.tag || 'pre') as ValidComponent}
       ref={(el: HTMLElement) => { ref = el; }}
       id={props.id}
       class={props.class}

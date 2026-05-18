@@ -261,7 +261,7 @@ const FDC_LOG_MAX = 2000;
 const fdcLog: string[] = [];
 
 function wireFdcLog(): void {
-  spec.fdc.logFn = (...args: any[]) => {
+  spec.fdc.logFn = (...args: unknown[]) => {
     const line = args.map(a => String(a)).join(' ');
     fdcLog.push(line);
     if (fdcLog.length > FDC_LOG_MAX) fdcLog.shift();

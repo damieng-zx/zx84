@@ -5,6 +5,7 @@
 
 import type { Audio } from '@/audio.ts';
 import type { AY3891x } from '@/cores/ay-3-8910.ts';
+import { Z80_CLOCK_48K } from '@/contention.ts';
 
 function clamp01(v: number): number {
   return v < 0 ? 0 : v > 1 ? 1 : v;
@@ -39,7 +40,7 @@ export class AudioMixer {
   get ayGain(): number { return this._ayGain; }
   set ayGain(v: number) { this._ayGain = clamp01(v); }
 
-  constructor(cpuClock = 3500000) {
+  constructor(cpuClock = Z80_CLOCK_48K) {
     this.cpuClock = cpuClock;
     // Default to 44100 Hz so the mixer is usable without an explicit init().
     // Audio drivers should still call init(audio.sampleRate) but a missing
