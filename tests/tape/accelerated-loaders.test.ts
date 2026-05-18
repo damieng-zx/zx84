@@ -488,7 +488,7 @@ describe('Accel-safe signature gating', () => {
   // gating decision from CPU/ULA noise and lets us assert exactly which
   // register modifications happen for a given (signature, pulse-flag) pair.
   function makeHarness() {
-    const tape = new TapeDeck();
+    const tape = new TapeDeck(3_500_000);
     // Always claim there's an edge 600T away so accel actually has a
     // non-zero dt to consume — otherwise the rotate-only path runs.
     (tape as any).playing = true;
@@ -582,7 +582,7 @@ describe('Accel-safe signature gating', () => {
 
 describe('EdgeLoader §2 auto-stop: requires tDiff AND bDiff together', () => {
   function freshLoader() {
-    const tape = new TapeDeck();
+    const tape = new TapeDeck(3_500_000);
     (tape as any).playing = true;
     const cpu = { tStates: 0, b: 0, pc: 0, sp: 0, c: 0, f: 0,
                   a: 0, d: 0, e: 0, h: 0, l: 0 } as any;
@@ -672,7 +672,7 @@ describe('EdgeLoader §2 auto-stop: requires tDiff AND bDiff together', () => {
     // actively polling. spectrum.ts's per-frame tapeLoading check gates
     // turbo on loaderActive (among others), so without this, turbo
     // wouldn't engage for the post-trap custom-loader stage of a tape.
-    const tape = new TapeDeck();
+    const tape = new TapeDeck(3_500_000);
     (tape as any).playing = true;  // already playing — §2 'start' won't fire
     const cpu = { tStates: 0, b: 0, pc: 0, sp: 0, c: 0, f: 0,
                   a: 0, d: 0, e: 0, h: 0, l: 0 } as any;

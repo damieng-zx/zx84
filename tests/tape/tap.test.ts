@@ -64,7 +64,7 @@ function concat(...parts: Uint8Array[]): Uint8Array {
 
 describe('TAP — basic parsing', () => {
   it('returns an empty block list for an empty file', () => {
-    const deck = new TapeDeck();
+    const deck = new TapeDeck(3_500_000);
     const blocks = deck.parseTAP(new Uint8Array(0));
     expect(blocks).toEqual([]);
   });
@@ -72,7 +72,7 @@ describe('TAP — basic parsing', () => {
   it('parses a single header block (flag=0x00, 17-byte payload)', () => {
     const payload = buildHeaderPayload(0, 'PROGRAM', 100, 10, 0x8000);
     const tap = buildBlock(0x00, payload);
-    const deck = new TapeDeck();
+    const deck = new TapeDeck(3_500_000);
     const blocks = deck.parseTAP(tap);
 
     expect(blocks.length).toBe(1);
@@ -91,7 +91,7 @@ describe('TAP — basic parsing', () => {
   it('parses a single data block (flag=0xFF, arbitrary payload)', () => {
     const payload = new Uint8Array([0x11, 0x22, 0x33, 0x44, 0x55]);
     const tap = buildBlock(0xFF, payload);
-    const deck = new TapeDeck();
+    const deck = new TapeDeck(3_500_000);
     const blocks = deck.parseTAP(tap);
 
     expect(blocks.length).toBe(1);
@@ -104,7 +104,7 @@ describe('TAP — basic parsing', () => {
     const hdr = buildBlock(0x00, buildHeaderPayload(3, 'CODE', 8, 0x8000, 0x8000));
     const data = buildBlock(0xFF, new Uint8Array([0, 1, 2, 3, 4, 5, 6, 7]));
     const tap = concat(hdr, data);
-    const deck = new TapeDeck();
+    const deck = new TapeDeck(3_500_000);
     const blocks = deck.parseTAP(tap);
 
     expect(blocks.length).toBe(2);
@@ -118,7 +118,7 @@ describe('TAP — basic parsing', () => {
     for (let i = 0; i < 10; i++) {
       parts.push(buildBlock(0xFF, [i, i + 1, i + 2]));
     }
-    const deck = new TapeDeck();
+    const deck = new TapeDeck(3_500_000);
     const blocks = deck.parseTAP(concat(...parts));
     expect(blocks.length).toBe(10);
     for (let i = 0; i < 10; i++) {
@@ -139,7 +139,7 @@ describe('TAP — block length field', () => {
     expect(tap[0]).toBe(0xEA);
     expect(tap[1]).toBe(0x03);
 
-    const deck = new TapeDeck();
+    const deck = new TapeDeck(3_500_000);
     const blocks = deck.parseTAP(tap);
     expect(blocks.length).toBe(1);
     expect((blocks[0] as DataBlock).data.length).toBe(1000);
@@ -151,7 +151,7 @@ describe('TAP — block length field', () => {
   it('accepts the minimum valid blockLen of 2 (flag + checksum, empty payload)', () => {
     // 1-byte flag + 0-byte payload + 1-byte checksum = blockLen 2.
     const tap = new Uint8Array([0x02, 0x00, 0x42, 0x42]); // checksum of flag=0x42 alone is 0x42
-    const deck = new TapeDeck();
+    const deck = new TapeDeck(3_500_000);
     const blocks = deck.parseTAP(tap);
     expect(blocks.length).toBe(1);
     expect((blocks[0] as DataBlock).flag).toBe(0x42);
@@ -160,20 +160,20 @@ describe('TAP — block length field', () => {
 
   it('rejects blockLen=0 (no flag, no checksum)', () => {
     const tap = new Uint8Array([0x00, 0x00]);
-    const deck = new TapeDeck();
+    const deck = new TapeDeck(3_500_000);
     expect(deck.parseTAP(tap)).toEqual([]);
   });
 
   it('rejects blockLen=1 (cannot have flag and checksum in 1 byte)', () => {
     const tap = new Uint8Array([0x01, 0x00, 0x55]);
-    const deck = new TapeDeck();
+    const deck = new TapeDeck(3_500_000);
     expect(deck.parseTAP(tap)).toEqual([]);
   });
 
   it('stops at a truncated length field (1 byte remaining)', () => {
     const valid = buildBlock(0xFF, [0xAA, 0xBB]);
     const tap = concat(valid, new Uint8Array([0x10])); // one stray byte
-    const deck = new TapeDeck();
+    const deck = new TapeDeck(3_500_000);
     const blocks = deck.parseTAP(tap);
     expect(blocks.length).toBe(1);
     expect((blocks[0] as DataBlock).data.length).toBe(2);
@@ -184,7 +184,7 @@ describe('TAP — block length field', () => {
     // Declared length 100 but only 5 bytes follow.
     const truncated = new Uint8Array([0x64, 0x00, 0xFF, 0x01, 0x02, 0x03, 0x04]);
     const tap = concat(valid, truncated);
-    const deck = new TapeDeck();
+    const deck = new TapeDeck(3_500_000);
     const blocks = deck.parseTAP(tap);
     // Only the first (valid) block survives.
     expect(blocks.length).toBe(1);
@@ -208,7 +208,7 @@ describe('TAP — pilot count selection by flag bit 7', () => {
     [0xFF, 3223, 'standard data'],
   ])('flag 0x%s → pilotCount=%i (%s)', (flag, expectedPilot) => {
     const tap = buildBlock(flag, new Uint8Array(4));
-    const deck = new TapeDeck();
+    const deck = new TapeDeck(3_500_000);
     const blocks = deck.parseTAP(tap);
     expect((blocks[0] as DataBlock).pilotCount).toBe(expectedPilot);
   });
@@ -219,7 +219,7 @@ describe('TAP — pilot count selection by flag bit 7', () => {
 describe('TAP — default DataBlock parameters', () => {
   it('uses standard Spectrum pulse timings and a 1000ms pause', () => {
     const tap = buildBlock(0xFF, new Uint8Array(8));
-    const deck = new TapeDeck();
+    const deck = new TapeDeck(3_500_000);
     const b = deck.parseTAP(tap)[0] as DataBlock;
 
     expect(b.pause).toBe(1000);
@@ -240,7 +240,7 @@ describe('TAP — checksum handling', () => {
     // Build a valid block, then deliberately corrupt its checksum byte.
     const tap = buildBlock(0xFF, [0x11, 0x22, 0x33]);
     tap[tap.length - 1] ^= 0xFF; // flip every bit of the checksum
-    const deck = new TapeDeck();
+    const deck = new TapeDeck(3_500_000);
     const blocks = deck.parseTAP(tap);
     expect(blocks.length).toBe(1);
     expect(Array.from((blocks[0] as DataBlock).data)).toEqual([0x11, 0x22, 0x33]);
@@ -268,7 +268,7 @@ describe('TAP — deck state after load()', () => {
       buildBlock(0x00, buildHeaderPayload(3, 'X', 4, 0, 0)),
       buildBlock(0xFF, [1, 2, 3, 4]),
     );
-    const deck = new TapeDeck();
+    const deck = new TapeDeck(3_500_000);
     deck.load(tap);
     expect(deck.blocks.length).toBe(2);
     expect(deck.position).toBe(0);
@@ -279,7 +279,7 @@ describe('TAP — deck state after load()', () => {
   });
 
   it('reports loaded=false for an empty TAP', () => {
-    const deck = new TapeDeck();
+    const deck = new TapeDeck(3_500_000);
     deck.load(new Uint8Array(0));
     expect(deck.loaded).toBe(false);
     expect(deck.finished).toBe(true);
@@ -290,7 +290,7 @@ describe('TAP — deck state after load()', () => {
       buildBlock(0xFF, [1]),
       buildBlock(0xFF, [2]),
     );
-    const deck = new TapeDeck();
+    const deck = new TapeDeck(3_500_000);
     deck.load(tap);
     deck.nextDataBlock();
     expect(deck.position).toBe(1);
@@ -308,7 +308,7 @@ describe('TAP — nextDataBlock() iteration', () => {
       buildBlock(0xFF, [1, 2, 3]),
       buildBlock(0xFF, [4, 5, 6]),
     );
-    const deck = new TapeDeck();
+    const deck = new TapeDeck(3_500_000);
     deck.load(tap);
 
     const b1 = deck.nextDataBlock();
@@ -324,7 +324,7 @@ describe('TAP — nextDataBlock() iteration', () => {
 
   it('hasRomBlock() agrees with nextDataBlock() availability', () => {
     const tap = buildBlock(0xFF, [1, 2, 3]);
-    const deck = new TapeDeck();
+    const deck = new TapeDeck(3_500_000);
     deck.load(tap);
     expect(deck.hasRomBlock()).toBe(true);
     deck.nextDataBlock();
@@ -344,7 +344,7 @@ describe('TAP — raw on-tape data reconstruction', () => {
 
   it('round-trips flag + payload + checksum byte-identically', () => {
     const original = buildBlock(0xAB, [0x10, 0x20, 0x30, 0x40, 0x50]);
-    const deck = new TapeDeck();
+    const deck = new TapeDeck(3_500_000);
     const blocks = deck.parseTAP(original);
     const reserialised = serialiseFromBlock(blocks[0] as DataBlock);
     expect(reserialised.length).toBe(original.length);
@@ -357,7 +357,7 @@ describe('TAP — raw on-tape data reconstruction', () => {
     // Corrupt checksum should not affect the parsed flag/payload.
     const tap = buildBlock(0x42, [0xDE, 0xAD, 0xBE, 0xEF]);
     tap[tap.length - 1] = 0x00; // wipe checksum
-    const deck = new TapeDeck();
+    const deck = new TapeDeck(3_500_000);
     const b = deck.parseTAP(tap)[0] as DataBlock;
     expect(b.flag).toBe(0x42);
     expect(Array.from(b.data)).toEqual([0xDE, 0xAD, 0xBE, 0xEF]);
@@ -369,7 +369,7 @@ describe('TAP — raw on-tape data reconstruction', () => {
 describe('TAP — parseTAP does not modify deck state', () => {
   it('parseTAP returns blocks without changing deck.blocks, position, or flags', () => {
     const tap = buildBlock(0xFF, [1, 2, 3]);
-    const deck = new TapeDeck();
+    const deck = new TapeDeck(3_500_000);
     deck.load(tap);
     expect(deck.blocks.length).toBe(1);
     deck.position = 1;

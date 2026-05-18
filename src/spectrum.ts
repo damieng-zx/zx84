@@ -263,9 +263,8 @@ export class Spectrum {
     this.ay = new AY3891x(AY_CLOCK, this.audio.sampleRate, 'ABC');
     this.contention = new Contention(this.variant, this.memory);
     this.mixer = new AudioMixer(this.contention.timing.cpuClock);
-    this.tape = new TapeDeck();
+    this.tape = new TapeDeck(this.variant.timing.cpuClock);
     this.tape.is48K = this.variant.is48K;
-    this.tape.cpuClock = this.variant.timing.cpuClock;
     this.fdc = new UPD765A();
     // 48K/16K (Issue 2 ULA): render as the beam enters each cell (+1) for
     // tightest accuracy.  The beam flush (vramFlushEnd=0x5B00) ensures cells

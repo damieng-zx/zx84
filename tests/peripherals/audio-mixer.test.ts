@@ -44,12 +44,12 @@ function fakeAY(left: number, right: number): AY3891x {
 // ── Construction ───────────────────────────────────────────────────────────
 
 describe('AudioMixer — construction & init', () => {
-  it('default constructor assumes 3.5MHz CPU and 44100 Hz output', () => {
-    const m = new AudioMixer();
+  it('constructor pre-populates tStatesPerSample for 44100 Hz output (no init() yet)', () => {
+    const m = new AudioMixer(3_500_000);
     expect(m.tStatesPerSample).toBeCloseTo(3_500_000 / 44100, 6);
   });
 
-  it('custom CPU clock scales tStatesPerSample linearly', () => {
+  it('cpuClock scales tStatesPerSample linearly', () => {
     const m = new AudioMixer(7_000_000);
     expect(m.tStatesPerSample).toBeCloseTo(7_000_000 / 44100, 6);
   });
@@ -91,7 +91,7 @@ describe('AudioMixer — construction & init', () => {
 
 describe('AudioMixer — accumulate', () => {
   it('separately tracks weighted bit accumulator and T-state counter', () => {
-    const m = new AudioMixer();
+    const m = new AudioMixer(3_500_000);
     m.init(44_100);
     m.accumulate(1, 10);
     m.accumulate(0, 30);
@@ -101,7 +101,7 @@ describe('AudioMixer — accumulate', () => {
   });
 
   it('elapsed=0 is a no-op', () => {
-    const m = new AudioMixer();
+    const m = new AudioMixer(3_500_000);
     m.init(44_100);
     m.accumulate(1, 0);
     expect(m.beeperTStatesAccum).toBe(0);
@@ -109,7 +109,7 @@ describe('AudioMixer — accumulate', () => {
   });
 
   it('coerces beeperBit to its low bit (defends against misuse)', () => {
-    const m = new AudioMixer();
+    const m = new AudioMixer(3_500_000);
     m.init(44_100);
     m.accumulate(2, 10);   // even → bit 0
     m.accumulate(3, 10);   // odd  → bit 1

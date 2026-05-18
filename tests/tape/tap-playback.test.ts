@@ -39,7 +39,7 @@ function makeData(
 }
 
 function deckWith(...blocks: TapeBlock[]): TapeDeck {
-  const d = new TapeDeck();
+  const d = new TapeDeck(3_500_000);
   d.blocks = blocks;
   d.position = 0;
   return d;
@@ -203,7 +203,6 @@ describe('TapeDeck — pause block playback', () => {
     const pause: PauseBlock = { kind: 'pause', duration: 10 }; // 10ms
     const tone: ToneBlock = { kind: 'tone', pulseLen: 100, count: 1 };
     const deck = deckWith(pause, tone);
-    deck.cpuClock = 3_500_000;
     deck.startPlayback();
     // 10ms × 3.5MHz = 35_000 T.
     deck.advance(34_999);
@@ -742,7 +741,6 @@ describe('TapeDeck — data block pause elapses into next block', () => {
     });
     const tone: ToneBlock = { kind: 'tone', pulseLen: 100, count: 1 };
     const deck = deckWith(block1, tone);
-    deck.cpuClock = 3_500_000;
     deck.startPlayback();
 
     // Pilot(1×10T) + sync(10+10T) + data(3 bytes × 8 bits × 2 × 10T) = 20+480 = 500T
@@ -869,7 +867,7 @@ describe('TapeDeck.tStatesToNextEdge()', () => {
   });
 
   it('returns null in IDLE phase (no blocks)', () => {
-    const deck = new TapeDeck();
+    const deck = new TapeDeck(3_500_000);
     // Force playing=true but phase=IDLE — startPlayback with no blocks goes IDLE.
     deck.startPlayback();
     expect(deck.tStatesToNextEdge()).toBeNull();
@@ -935,7 +933,7 @@ describe('TapeDeck.onPlayStateChange listener', () => {
   });
 
   it('load() triggers stopPlayback which notifies the listener', () => {
-    const deck = new TapeDeck();
+    const deck = new TapeDeck(3_500_000);
     let calls = 0;
     deck.onPlayStateChange = () => { calls++; };
     // load → stopPlayback → onPlayStateChange.
@@ -1121,7 +1119,6 @@ describe('TapeDeck — direct block last-byte → PAUSE with non-zero pause', ()
       data: new Uint8Array([0xFF]),
     };
     const deck = deckWith(block);
-    deck.cpuClock = 3_500_000;
     deck.startPlayback();
     deck.advance(80); // exhaust the byte
     expect((deck as any).phase).toBe(5 /* PAUSE */);
@@ -1143,7 +1140,6 @@ describe('TapeDeck — data block pause: mid-flip decrement leaves flip pending'
       bit0Pulse: 10, bit1Pulse: 10, pause: 1,
     });
     const deck = deckWith(block);
-    deck.cpuClock = 3_500_000;
     deck.startPlayback();
 
     // Consume pilot+sync+data → enter PAUSE.
@@ -1171,7 +1167,7 @@ describe('TAP parser — exact-fit final block', () => {
   it('parses a block where blockLen consumes the file to its last byte', () => {
     // 4-byte payload + flag + checksum = blockLen 6. Total file = 8 bytes.
     const tap = new Uint8Array([0x06, 0x00, 0xFF, 1, 2, 3, 4, 0xFF ^ 1 ^ 2 ^ 3 ^ 4]);
-    const deck = new TapeDeck();
+    const deck = new TapeDeck(3_500_000);
     const blocks = deck.parseTAP(tap);
     expect(blocks.length).toBe(1);
     expect((blocks[0] as DataBlock).data.length).toBe(4);

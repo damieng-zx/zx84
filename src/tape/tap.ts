@@ -11,8 +11,6 @@
  * directly.
  */
 
-import { Z80_CLOCK_48K } from '@/contention.ts';
-
 // ── Edge-length flags for surgical loader acceleration ───────────────────
 //
 // Published to a registered listener whenever the playback engine schedules
@@ -87,7 +85,11 @@ export class TapeDeck {
   is48K = false;
 
   /** CPU clock speed in Hz (affects pause/timing calculations) */
-  cpuClock = Z80_CLOCK_48K;
+  cpuClock: number;
+
+  constructor(cpuClock: number) {
+    this.cpuClock = cpuClock;
+  }
 
   // ── Playback engine state ──────────────────────────────────────────────
 
