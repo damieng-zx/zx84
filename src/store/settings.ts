@@ -50,13 +50,13 @@ const DEFAULTS = {
   // defaults were stale placeholders from when the overlay was first scaffolded)
   'font':            '',
   'ocr-font':        'JetBrains Mono',
-  'ocr-font-size':   '4',
-  'ocr-line-height': '122',
-  'ocr-tracking':    '4',
-  'ocr-offset-x':    '-2',
-  'ocr-offset-y':    '8',
-  'ocr-scale-x':     '101.9',
-  'ocr-scale-y':     '100.9',
+  'ocr-font-size':   '8',
+  'ocr-line-height': '100',
+  'ocr-tracking':    '0',
+  'ocr-offset-x':    '3',
+  'ocr-offset-y':    '3',
+  'ocr-scale-x':     '100',
+  'ocr-scale-y':     '100',
 
   // Drive
   'disk-sound-a':        'on',
