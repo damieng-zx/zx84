@@ -21,7 +21,7 @@
 - `src/store/` — Settings and IndexedDB persistence.
 - `src/managers/` — debug-manager, media-manager, rom-manager. Higher-level orchestration over the emulator.
 - `src/snapshot/` — SNA, Z80, SZX, SP snapshot loaders/savers, ZIP extraction.
-- `src/mcp-server.ts` — MCP server for Claude Code integration (persistent emulator process).
+- `mcp/` — MCP server for Claude Code integration (persistent Node process; `mcp/server.ts` is the entry point, tool handlers live under `mcp/tools/`).
 
 ### Memory architecture
 

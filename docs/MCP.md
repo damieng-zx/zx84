@@ -11,7 +11,7 @@ Add to `.mcp.json` in the project root (already present):
   "mcpServers": {
     "zx84": {
       "command": "cmd",
-      "args": ["/c", "npx", "tsx", "src/mcp-server.ts"]
+      "args": ["/c", "npx", "tsx", "mcp/server.ts"]
     }
   }
 }
@@ -23,7 +23,7 @@ Or run standalone:
 npm run mcp -- [--model 48k|128k|+2|+2a|+3]
 ```
 
-Defaults to `48k`. ROMs are fetched from GitHub and cached in `test/.cache/`.
+Defaults to `48k`. ROMs are fetched from GitHub and cached in `mcp/.cache/`.
 
 ## Tool Reference
 
@@ -281,6 +281,6 @@ All address/value string parameters are parsed as **hex by default**:
 
 ## Architecture
 
-The server (`src/mcp-server.ts`) creates a single `Spectrum` instance that persists across all tool calls. State (breakpoints, loaded files, memory modifications) accumulates naturally. Switching models with the `model` tool creates a fresh machine.
+The server (`mcp/server.ts`) creates a single `Spectrum` instance that persists across all tool calls. State (breakpoints, loaded files, memory modifications) accumulates naturally. Switching models with the `model` tool creates a fresh machine. Tool handlers are grouped by topic under `mcp/tools/` (machine, memory, breakpoints, traps, io, media, trace, peripherals, symbols); shared helpers (`format.ts`, `state.ts`, `loader.ts`, `traps.ts`, `fdc-log.ts`, `rom-fetch.ts`, `hex.ts`) sit at the `mcp/` root.
 
 The server communicates over stdio using the MCP SDK (`@modelcontextprotocol/sdk`). Claude Code spawns it automatically based on `.mcp.json`.

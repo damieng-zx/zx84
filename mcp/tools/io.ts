@@ -1,0 +1,123 @@
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { z } from 'zod';
+import { is128kClass } from '../../src/spectrum.ts';
+import { h8, h16 } from '../hex.ts';
+import { state } from '../state.ts';
+import { parseAddr, text, checkWatchHit, KEY_NAME_MAP, CHAR_KEYS } from '../format.ts';
+
+export function register(server: McpServer): void {
+  server.tool(
+    'port_out',
+    'Write a byte to an I/O port (triggers port handler for banking etc.).',
+    {
+      port: z.string().describe('Port address (hex/decimal)'),
+      value: z.string().describe('Byte value'),
+    },
+    async ({ port, value }) => {
+      const spec = state.spec;
+      const p = parseAddr(port) & 0xFFFF;
+      const v = parseAddr(value) & 0xFF;
+      spec.cpu.portOutHandler!(p, v);
+      let result = `OUT ${h16(p)}, ${h8(v)}`;
+      if (is128kClass(spec.model)) {
+        const mem = spec.memory;
+        result += `\nBank: ${mem.currentBank}  ROM: ${mem.currentROM}  7FFD: ${h8(mem.port7FFD)}  Locked: ${mem.pagingLocked ? 'Y' : 'N'}`;
+      }
+      return text(result);
+    },
+  );
+
+  server.tool(
+    'port_in',
+    'Read a byte from an I/O port.',
+    { port: z.string().describe('Port address (hex/decimal)') },
+    async ({ port }) => {
+      const spec = state.spec;
+      const p = parseAddr(port) & 0xFFFF;
+      const val = spec.cpu.portInHandler!(p);
+      return text(`IN ${h16(p)} = ${h8(val)} (${val})`);
+    },
+  );
+
+  server.tool(
+    'key',
+    'Press a key for N frames (default 5). Keys: a-z, 0-9, enter, space, shift, sym, backspace, arrows, capslock, escape.',
+    {
+      name: z.string().describe('Key name (e.g. "enter", "a", "shift")'),
+      frames: z.number().int().positive().default(5).describe('How many frames to hold the key'),
+    },
+    async ({ name, frames }) => {
+      const spec = state.spec;
+      // Support combos like "sym+p", "shift+2"
+      const parts = name.toLowerCase().split('+');
+      const codes: string[] = [];
+      for (const p of parts) {
+        const code = KEY_NAME_MAP[p.trim()];
+        if (!code) return text(`Unknown key: ${p.trim()}. Available: ${Object.keys(KEY_NAME_MAP).join(', ')}`);
+        codes.push(code);
+      }
+      for (const c of codes) spec.keyboard.handleKeyEvent(c, true);
+      for (let i = 0; i < frames; i++) spec.tick();
+      for (const c of codes) spec.keyboard.handleKeyEvent(c, false);
+      spec.tick();
+      return text(`Key '${name}' held for ${frames} frames`);
+    },
+  );
+
+  server.tool(
+    'type',
+    'Type a string of characters, pressing each key for a few frames. Handles letters, digits, symbols. Use backtick-delimited names for control keys: `enter`, `backspace`, `left`, `right`, `up`, `down`, `escape`, `space`, `shift`, `sym`, `capslock`.',
+    { text: z.string().describe('Text to type, e.g. "LOAD \\"\\"`enter`" or "10 PRINT `shift`2`enter`"') },
+    async ({ text: str }) => {
+      const spec = state.spec;
+      // Parse the string, extracting `name` escape sequences for control keys
+      const tokens: string[][] = [];
+      let i = 0;
+      while (i < str.length) {
+        if (str[i] === '`') {
+          const end = str.indexOf('`', i + 1);
+          if (end === -1) { i++; continue; } // unmatched backtick — skip
+          const name = str.slice(i + 1, end).toLowerCase();
+          if (KEY_NAME_MAP[name]) {
+            tokens.push([name]);
+          } // else skip unknown name silently
+          i = end + 1;
+        } else {
+          const ch = str[i];
+          const lower = ch.toLowerCase();
+          if (CHAR_KEYS[ch]) {
+            tokens.push(CHAR_KEYS[ch]);
+          } else if (KEY_NAME_MAP[lower]) {
+            tokens.push(ch >= 'A' && ch <= 'Z' ? ['shift', lower] : [lower]);
+          } else if (ch === ' ') {
+            tokens.push(['space']);
+          }
+          // else skip unknown chars
+          i++;
+        }
+      }
+      let hit: string | null = null;
+      typeLoop: for (const keys of tokens) {
+        const codes = keys.map(k => KEY_NAME_MAP[k]);
+        for (const c of codes) spec.keyboard.handleKeyEvent(c, true);
+        for (let f = 0; f < 5; f++) {
+          spec.tick();
+          hit = checkWatchHit(spec);
+          if (hit) { for (const c of codes) spec.keyboard.handleKeyEvent(c, false); break typeLoop; }
+        }
+        for (const c of codes) spec.keyboard.handleKeyEvent(c, false);
+        spec.tick();
+        hit = checkWatchHit(spec);
+        if (hit) break;
+        // small gap between keypresses
+        for (let f = 0; f < 3; f++) {
+          spec.tick();
+          hit = checkWatchHit(spec);
+          if (hit) break typeLoop;
+        }
+      }
+      if (hit) return text(`Typed ${tokens.length} keystrokes, then hit:\n${hit}`);
+      return text(`Typed ${tokens.length} keystrokes`);
+    },
+  );
+}

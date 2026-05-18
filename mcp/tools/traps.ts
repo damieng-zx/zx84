@@ -1,0 +1,115 @@
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { z } from 'zod';
+import { h8, h16 } from '../hex.ts';
+import { parseAddr, text } from '../format.ts';
+import { traps, trapLog, type Trap } from '../traps.ts';
+
+export function register(server: McpServer): void {
+  server.tool(
+    'trap',
+    'Set a trap at an address. Actions: "log" (record and continue), "break" (halt execution), "respond" (stuff registers and RET). Omit address to list all traps.',
+    {
+      address: z.string().optional().describe('Address to trap (omit to list all)'),
+      action: z.enum(['log', 'break', 'respond']).default('log').describe('What to do when the trap fires'),
+      cond_c: z.number().int().min(0).max(255).optional().describe('Only fire when C register equals this value (e.g. BDOS function number)'),
+      label: z.string().default('').describe('Label for log output (e.g. "BDOS", "BIOS_CONOUT")'),
+      responses: z.array(z.record(z.string(), z.number())).optional().describe('For respond mode: array of {reg: value} objects consumed in FIFO order'),
+    },
+    async ({ address, action, cond_c, label, responses }) => {
+      if (!address) {
+        if (traps.size === 0) return text('No traps set');
+        const lines: string[] = [];
+        for (const [addr, list] of traps) {
+          for (const t of list) {
+            let desc = `${h16(addr)}  ${t.action}`;
+            if (t.condC !== undefined) desc += `  C==${h8(t.condC)}`;
+            if (t.label) desc += `  "${t.label}"`;
+            if (t.action === 'respond') desc += `  queue=${t.responses.length}`;
+            lines.push(desc);
+          }
+        }
+        return text(lines.join('\n'));
+      }
+      const addr = parseAddr(address) & 0xFFFF;
+      const trap: Trap = {
+        address: addr,
+        action,
+        condC: cond_c,
+        label: label || `trap@${h16(addr)}`,
+        responses: (responses ?? []).map(r => ({ regs: r })),
+      };
+      if (!traps.has(addr)) traps.set(addr, []);
+      traps.get(addr)!.push(trap);
+      let msg = `Trap set at ${h16(addr)}: ${action}`;
+      if (cond_c !== undefined) msg += ` when C==${h8(cond_c)}`;
+      if (trap.responses.length > 0) msg += `, ${trap.responses.length} response(s) queued`;
+      return text(msg);
+    },
+  );
+
+  server.tool(
+    'trap_delete',
+    'Delete traps. If address given, removes all traps at that address. If cond_c also given, only removes matching traps. Omit address to clear all.',
+    {
+      address: z.string().optional().describe('Address to remove traps from (omit to clear all)'),
+      cond_c: z.number().int().min(0).max(255).optional().describe('Only remove traps with this C condition'),
+    },
+    async ({ address, cond_c }) => {
+      if (!address) {
+        const count = [...traps.values()].reduce((s, l) => s + l.length, 0);
+        traps.clear();
+        return text(`Cleared all ${count} trap(s)`);
+      }
+      const addr = parseAddr(address) & 0xFFFF;
+      const list = traps.get(addr);
+      if (!list || list.length === 0) return text(`No traps at ${h16(addr)}`);
+      if (cond_c !== undefined) {
+        const before = list.length;
+        const filtered = list.filter(t => t.condC !== cond_c);
+        traps.set(addr, filtered);
+        if (filtered.length === 0) traps.delete(addr);
+        return text(`Removed ${before - filtered.length} trap(s) at ${h16(addr)} with C==${h8(cond_c)}`);
+      }
+      traps.delete(addr);
+      return text(`Removed ${list.length} trap(s) at ${h16(addr)}`);
+    },
+  );
+
+  server.tool(
+    'trap_log',
+    'Read the trap log buffer. Returns total line count and requested range.',
+    {
+      from: z.number().int().min(0).default(0).describe('Start line (0-based, inclusive)'),
+      to: z.number().int().min(0).optional().describe('End line (exclusive, default: from+100)'),
+      clear: z.boolean().default(false).describe('Clear the log after reading'),
+    },
+    async ({ from, to, clear }) => {
+      if (trapLog.length === 0) return text('Trap log is empty');
+      const end = Math.min(to ?? from + 100, trapLog.length);
+      const start = Math.min(from, trapLog.length);
+      const chunk = trapLog.slice(start, end);
+      const result = `Trap log: ${trapLog.length} total lines. Showing ${start}..${end - 1}:\n\n${chunk.join('\n')}`;
+      if (clear) trapLog.length = 0;
+      return text(result);
+    },
+  );
+
+  server.tool(
+    'trap_respond',
+    'Queue additional responses for an existing respond-mode trap.',
+    {
+      address: z.string().describe('Trap address'),
+      cond_c: z.number().int().min(0).max(255).optional().describe('Match trap with this C condition'),
+      responses: z.array(z.record(z.string(), z.number())).describe('Array of {reg: value} response objects to append to the queue'),
+    },
+    async ({ address, cond_c, responses }) => {
+      const addr = parseAddr(address) & 0xFFFF;
+      const list = traps.get(addr);
+      if (!list) return text(`No traps at ${h16(addr)}`);
+      const match = list.find(t => t.action === 'respond' && (cond_c === undefined || t.condC === cond_c));
+      if (!match) return text(`No respond-mode trap at ${h16(addr)}${cond_c !== undefined ? ` with C==${h8(cond_c)}` : ''}`);
+      for (const r of responses) match.responses.push({ regs: r });
+      return text(`Queued ${responses.length} response(s) at ${h16(addr)}. Total queue: ${match.responses.length}`);
+    },
+  );
+}

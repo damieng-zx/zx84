@@ -21,6 +21,5 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src", "tests"],
-  "exclude": ["src/mcp-server.ts"]
+  "include": ["src", "tests", "mcp"]
 }
