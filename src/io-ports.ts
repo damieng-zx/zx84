@@ -20,9 +20,10 @@ export function installMemoryHooks(s: Spectrum): void {
   // Capture stable references once so the hot path is a single array
   // index rather than property-chain dereferencing every read. `flat` is
   // the live 64KB view (its identity never changes — only its contents
-  // do, mutated by bankSwitch). slotContended is also stable.
+  // do, mutated by bankSwitch). slotContended and slotAlias are also stable.
   const flat = memory.flat;
   const slotContended = contention.slotContended;
+  const slotAlias = memory.slotAlias;
 
   cpu.read8 = (addr: number): number => {
     addr &= 0xFFFF;
@@ -78,7 +79,15 @@ export function installMemoryHooks(s: Spectrum): void {
       s.flushBeam();
     }
     if (addr >= 0x5800 && addr < 0x5B00) s.activity.attrWrites++;
-    flat[addr] = val & 0xFF;
+    const v = val & 0xFF;
+    flat[addr] = v;
+    // Bank aliasing write-through: when two slots map the same RAM bank
+    // (e.g. currentBank=5 maps bank 5 to slot 1 and slot 3), real hardware
+    // sees both windows as the same physical chip — writes through one
+    // must appear at the other. slotAlias[slot] is the mirror slot index,
+    // or -1 in the common case (no aliasing — branch predicts cheaply).
+    const alias = slotAlias[addr >>> 14];
+    if (alias >= 0) flat[(alias << 14) | (addr & 0x3FFF)] = v;
     if (s.memWatchpoints.length > 0 && s.memWatchHit === null) {
       for (const wp of s.memWatchpoints) {
         if ((wp.mode === 'write' || wp.mode === 'rw') && addr >= wp.start && addr <= wp.end) {

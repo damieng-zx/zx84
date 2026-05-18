@@ -660,6 +660,48 @@ describe('SpectrumMemory — writeByte value masking', () => {
 });
 
 
+describe('SpectrumMemory — bank aliasing (currentBank matches a static slot)', () => {
+  it('currentBank=5 aliases bank 5 into slot 1 and slot 3: a write at one slot is visible at the other', () => {
+    // Real hardware: bank 5 is one physical RAM chip; both 0x4000 and 0xC000
+    // windows access it. A write to 0xC000 must appear at 0x4000.
+    const mem = new SpectrumMemory('128k');
+    mem.loadROM(new Uint8Array(32768));
+    mem.bankSwitch(0x05); // currentBank = 5 → slot 3 mirrors slot 1
+    mem.writeByte(0xC100, 0x42);
+    expect(mem.readByte(0x4100)).toBe(0x42);
+    mem.writeByte(0x4200, 0x99);
+    expect(mem.readByte(0xC200)).toBe(0x99);
+  });
+
+  it('currentBank=2 aliases bank 2 into slot 2 and slot 3', () => {
+    const mem = new SpectrumMemory('128k');
+    mem.loadROM(new Uint8Array(32768));
+    mem.bankSwitch(0x02);
+    mem.writeByte(0xC300, 0x55);
+    expect(mem.readByte(0x8300)).toBe(0x55);
+    mem.writeByte(0x8400, 0xAA);
+    expect(mem.readByte(0xC400)).toBe(0xAA);
+  });
+
+  it('breaking the alias (switching to a different bank) leaves the previously-aliased slot intact', () => {
+    const mem = new SpectrumMemory('128k');
+    mem.loadROM(new Uint8Array(32768));
+    mem.bankSwitch(0x05);          // alias: slots 1+3 → bank 5
+    mem.writeByte(0xC000, 0x77);    // write-through: 0x4000 also = 0x77
+    mem.bankSwitch(0x01);          // slot 3 now bank 1; slot 1 still bank 5
+    expect(mem.readByte(0x4000)).toBe(0x77); // bank 5 retained the write
+  });
+
+  it('snapshot save sees the same data via either aliased slot', () => {
+    const mem = new SpectrumMemory('128k');
+    mem.loadROM(new Uint8Array(32768));
+    mem.bankSwitch(0x05);
+    mem.writeByte(0x4500, 0xCD); // via slot 1
+    const banks = mem.flushBanks();
+    expect(banks[5][0x500]).toBe(0xCD);
+  });
+});
+
 describe('SpectrumMemory — paging lock', () => {
   it('bankSwitch1FFD also respects pagingLocked', () => {
     const mem = new SpectrumMemory('+3', { hasBanking: true, romPageCount: 4 });

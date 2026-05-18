@@ -57,6 +57,14 @@ export class SpectrumMemory implements ByteReader {
    *  external overlay (not flushed back on switch). */
   private _slotBank = new Int8Array(4).fill(-1);
 
+  /** Per-slot alias index for write-through. When two slots map the same RAM
+   *  bank (e.g. currentBank=5 puts bank 5 into both slot 1 and slot 3),
+   *  writes through one slot must reflect in the other — real hardware sees
+   *  both windows as the same physical chip. slotAlias[s] holds the slot
+   *  index of the mirror, or -1 if no alias. Captured by io-ports.ts so the
+   *  write hot path can mirror with a single branch + one extra store. */
+  readonly slotAlias = new Int8Array(4).fill(-1);
+
   /** External overlay buffer set by setSlot0 (Multiface / VTX). Retained so
    *  restoreSlot0 can sync flat[0..0x4000] back to it before reloading. */
   private _overlayBuffer: Uint8Array | null = null;
@@ -127,9 +135,14 @@ export class SpectrumMemory implements ByteReader {
   }
 
   /** Write one byte into the Z80 address space (no ROM protection — callers
-   *  handle that; io-ports.ts gates writes before calling). */
+   *  handle that; io-ports.ts gates writes before calling).
+   *  Mirrors aliased writes so two slots mapping the same bank stay coherent. */
   writeByte(addr: number, val: number): void {
-    this.flat[addr & 0xFFFF] = val & 0xFF;
+    addr &= 0xFFFF;
+    const v = val & 0xFF;
+    this.flat[addr] = v;
+    const alias = this.slotAlias[addr >>> 14];
+    if (alias >= 0) this.flat[(alias << 14) | (addr & 0x3FFF)] = v;
   }
 
   /** Read a block of bytes from the Z80 address space into a new Uint8Array. */
@@ -190,6 +203,7 @@ export class SpectrumMemory implements ByteReader {
     this.flat.set(overlay.subarray(0, BANK_SIZE), 0);
     this._overlayBuffer = overlay;
     this._slotBank[0] = -1;
+    this._refreshAliases();
     if (this.onSlotsChanged !== null) this.onSlotsChanged();
   }
 
@@ -225,6 +239,28 @@ export class SpectrumMemory implements ByteReader {
   private _loadSlot(slot: number, src: Uint8Array, bank: number): void {
     this.flat.set(src.subarray(0, BANK_SIZE), slot << 14);
     this._slotBank[slot] = bank;
+    this._refreshAliases();
+  }
+
+  /** Recompute slotAlias from current _slotBank. For each RAM-mapped slot,
+   *  find any other slot mapping the same bank — that's its write-through
+   *  mirror. The Spectrum's paging matrix never produces 3-way aliases
+   *  (special-paging mode tables are all-unique; normal paging only aliases
+   *  slot 3 with whichever of slots 1 or 2 matches currentBank), so a
+   *  simple pairwise scan is exact. */
+  private _refreshAliases(): void {
+    this.slotAlias.fill(-1);
+    for (let i = 0; i < 4; i++) {
+      const bank = this._slotBank[i];
+      if (bank < 0) continue;
+      for (let j = i + 1; j < 4; j++) {
+        if (this._slotBank[j] === bank) {
+          this.slotAlias[i] = j;
+          this.slotAlias[j] = i;
+          break;
+        }
+      }
+    }
   }
 
   /** Swap the bank mapped in `slot` to a new RAM bank, flushing old to cold
@@ -275,6 +311,7 @@ export class SpectrumMemory implements ByteReader {
         this.flat.fill(0xFF, 0x8000, 0x10000);
         this._slotBank[2] = -1;
         this._slotBank[3] = -1;
+        this._refreshAliases();
       } else {
         this._switchRam(2, 2);
         this._switchRam(3, this.currentBank);
@@ -361,6 +398,7 @@ export class SpectrumMemory implements ByteReader {
       // overwrite with new ROM image without flushing (ROM isn't dirtied).
       this.flat.set(this.romPages[newROM].subarray(0, BANK_SIZE), 0);
       this._slotBank[0] = -1;
+      this._refreshAliases();
     }
 
     this.port7FFD = val;
@@ -397,6 +435,7 @@ export class SpectrumMemory implements ByteReader {
         if (wasSpecial) this._flushSlot(0);  // slot 0 held a RAM bank
         this.flat.set(this.romPages[this.currentROM].subarray(0, BANK_SIZE), 0);
         this._slotBank[0] = -1;
+        this._refreshAliases();
       }
       this._switchRam(1, 5);
       this._switchRam(2, 2);
@@ -457,6 +496,9 @@ export class SpectrumMemory implements ByteReader {
   setBankFromSnapshot(n: number, data: Uint8Array): void {
     const slice = data.subarray(0, BANK_SIZE);
     this._ramBanks[n].set(slice);
+    // Write to every slot that maps this bank — handles aliasing correctly
+    // (e.g. currentBank=5 puts bank 5 in slot 1 and slot 3, both regions
+    // need to reflect the new data).
     for (let s = 0; s < 4; s++) {
       if (this._slotBank[s] === n) {
         this.flat.set(slice, s << 14);
