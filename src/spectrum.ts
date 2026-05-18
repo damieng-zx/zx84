@@ -143,14 +143,47 @@ export class Spectrum {
 
   get tStatesPerFrame(): number { return this.contention.timing.tStatesPerFrame; }
 
-  /** Turbo mode: run ~14x frames per rAF for ~50MHz effective speed */
+  /** Turbo mode: run as many frames as fit in TURBO_BUDGET_MS per rAF. */
   turbo = false;
+
+  /** Turbo batch budget is adaptive — a fixed budget is wrong for high-Hz
+   *  displays (a 12ms batch on a 240Hz rAF (~4.2ms cadence) makes the browser
+   *  throttle rAF down, halving effective throughput). We measure the actual
+   *  rAF interval and spend a fraction of it. */
+  private static readonly TURBO_BUDGET_FRACTION = 0.7;
+  private static readonly TURBO_BUDGET_MIN_MS = 1.5;
+  private static readonly TURBO_BUDGET_MAX_MS = 14;
+  private _turboLastRaf = 0;
+  private _turboBudgetMs = 4; // initial guess; replaced after 2 ticks
+
+  /** Tracks turbo-state transitions so we can save/restore the user's
+   *  scanlineAccuracy choice (turbo forces 'low' for throughput). */
+  private _turboActive = false;
+  private _savedScanAcc: 'high' | 'mid' | 'low' | null = null;
+
+  /** When true, runFrame() skips its bulk renderFrame() call. Used to
+   *  short-circuit pixel work for intermediate frames in a turbo batch —
+   *  only the final frame in the batch actually produces displayed pixels. */
+  private _skipRender = false;
 
   /** Scanline accuracy:
    *  'high' = per-instruction partial-scanline render (multicolor/rainbow)
    *  'mid'  = per-instruction but only completed lines (per-scanline border, no mid-line)
-   *  'low'  = single bulk render at frame end (one border color, fastest) */
-  scanlineAccuracy: 'high' | 'mid' | 'low' = 'high';
+   *  'low'  = single bulk render at frame end (one border color, fastest)
+   *
+   *  Writes are intercepted while turbo is active so the user's choice is
+   *  remembered (and restored on turbo-off) without overriding the forced
+   *  'low' value. This matters when settings are reapplied mid-turbo —
+   *  e.g. after a renderer swap calls applyDisplaySettings(). */
+  private _scanlineAccuracy: 'high' | 'mid' | 'low' = 'high';
+  get scanlineAccuracy(): 'high' | 'mid' | 'low' { return this._scanlineAccuracy; }
+  set scanlineAccuracy(v: 'high' | 'mid' | 'low') {
+    if (this._turboActive) {
+      this._savedScanAcc = v;
+    } else {
+      this._scanlineAccuracy = v;
+    }
+  }
 
   /** Numeric cache of scanlineAccuracy for zero-cost hot-path checks.
    *  2 = high, 1 = mid, 0 = low.  Updated at frame start. */
@@ -490,16 +523,52 @@ export class Spectrum {
       this.breakpointHit = -1;
       const now = performance.now();
       if (this.turbo || this._tapeTurboActive) {
-        // Turbo: run as many frames as possible (target ~50MHz ≈ 14x)
-        this.frameTimeAccum = FRAME_PERIOD * 14;
-        let framesRun = 0;
-        while (framesRun < 14) {
-          this.runFrame();
-          framesRun++;
-          if (this.breakpointHit >= 0) break;
+        // Turbo: spend a fraction of the actual rAF interval running frames.
+        // Adapting to the rAF cadence (60Hz / 144Hz / 240Hz / throttled) is
+        // critical — overshooting the interval makes the browser throttle
+        // rAF down, halving throughput. Undershooting leaves CPU idle.
+        if (!this._turboActive) {
+          // Bypass the setter so we write the internal field directly —
+          // the setter would otherwise route 'low' into _savedScanAcc.
+          this._savedScanAcc = this._scanlineAccuracy;
+          this._scanlineAccuracy = 'low';
+          this._turboActive = true;
+          this._turboLastRaf = now;
+          this._turboBudgetMs = 4;
+        } else if (this._turboLastRaf > 0) {
+          const rafInterval = now - this._turboLastRaf;
+          // EWMA smooths spikes (GC, browser hiccups) but reacts within
+          // a few ticks when the user moves between monitors.
+          const target = rafInterval * Spectrum.TURBO_BUDGET_FRACTION;
+          this._turboBudgetMs = this._turboBudgetMs * 0.6 + target * 0.4;
+          if (this._turboBudgetMs < Spectrum.TURBO_BUDGET_MIN_MS) {
+            this._turboBudgetMs = Spectrum.TURBO_BUDGET_MIN_MS;
+          } else if (this._turboBudgetMs > Spectrum.TURBO_BUDGET_MAX_MS) {
+            this._turboBudgetMs = Spectrum.TURBO_BUDGET_MAX_MS;
+          }
         }
+        this._turboLastRaf = now;
+        const budgetEnd = now + this._turboBudgetMs;
+        this._skipRender = true;
+        do {
+          this.runFrame();
+          if (this.breakpointHit >= 0) break;
+        } while (performance.now() < budgetEnd);
+        this._skipRender = false;
+        // Produce a fresh frame of pixels for the display. Intermediate
+        // frames skipped renderFrame to save work; this final call gives
+        // the user the latest visible state.
+        this.ula.renderFrame(this.memory.screenBank, 0x4000);
+        this.needsDisplay = true;
+        this.frameTimeAccum = 0;
         this.lastFrameTime = now;
       } else {
+        if (this._turboActive) {
+          // Clear _turboActive first so the setter writes the internal field.
+          this._turboActive = false;
+          if (this._savedScanAcc !== null) this._scanlineAccuracy = this._savedScanAcc;
+          this._savedScanAcc = null;
+        }
         this.frameTimeAccum = Math.min(
           this.frameTimeAccum + (now - this.lastFrameTime),
           FRAME_PERIOD * 3 // cap catch-up to 3 frames (e.g. after tab hidden)
@@ -576,8 +645,11 @@ export class Spectrum {
     }
 
     // Cache accuracy level as integer for zero-cost hot-path checks
-    const sa = this.scanlineAccuracy;
+    const sa = this._scanlineAccuracy;
     this._scanAcc = sa === 'high' ? 2 : sa === 'mid' ? 1 : 0;
+    // Cache the audio-skip decision once per frame so the per-instruction
+    // loop doesn't re-read two properties on every iteration.
+    const skipAudio = this.turbo || this._tapeTurboActive;
 
     // Init scanline rendering state for this frame
     // High and mid modes advance flash here (they render scanlines individually).
@@ -707,14 +779,16 @@ export class Spectrum {
       this.advanceTapeTo();
 
       // Accumulate beeper duty and generate audio samples.
-      // During tape turbo, skip audio generation entirely — the loading
-      // noise is unwanted and audio pacing would throttle our speed.
-      this.mixer.accumulate(this.ula.getAudioEarBit(this.tapeSoundEnabled), elapsed);
-      if (!this._tapeTurboActive) {
-        this.mixer.generateSamples(this.audio, this.ay, this.variant.hasAY);
-      } else {
-        // Drain the accumulator without producing samples so it stays in sync
+      // In any turbo mode (manual turbo or tape turbo) skip audio entirely:
+      // at hundreds of MHz the buffer fills faster than realtime, the sound
+      // is unrecognisable, and the per-instruction mixer work is the
+      // dominant non-CPU cost. Zero the accumulator so it stays in sync
+      // when turbo releases.
+      if (skipAudio) {
         this.mixer.beeperTStatesAccum = 0;
+      } else {
+        this.mixer.accumulate(this.ula.getAudioEarBit(this.tapeSoundEnabled), elapsed);
+        this.mixer.generateSamples(this.audio, this.ay, this.variant.hasAY);
       }
     }
 
@@ -776,7 +850,10 @@ export class Spectrum {
     // Low (0): bulk renderFrame() — one border color, fastest.
     // Mid/High: flushRemainingLines() — picks up any per-line / partial-line
     // state left by renderCompletedScanlines / renderPendingScanlines.
-    if (this._scanAcc === 0) {
+    if (this._skipRender) {
+      // Intermediate frame in a turbo batch — skip pixel work. The frameLoop
+      // will produce a single fresh frame at the end of the batch.
+    } else if (this._scanAcc === 0) {
       this.ula.renderFrame(this.memory.screenBank, 0x4000);
     } else {
       this.flushRemainingLines();

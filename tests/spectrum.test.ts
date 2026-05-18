@@ -671,14 +671,45 @@ describe('Spectrum.frameLoop (audio + rAF mocked)', () => {
     expect(s.cpu.tStates - t0).toBeGreaterThanOrEqual(s.tStatesPerFrame);
   });
 
-  it('turbo mode runs up to 14 frames per tick', () => {
+  it('turbo mode runs frames until the time budget is exhausted', () => {
+    // Turbo's contract: a single rAF tick runs runFrame() repeatedly until
+    // TURBO_BUDGET_MS of wall-clock has passed (or a breakpoint hits).
+    // We stub performance.now to control the budget deterministically.
     const s = makeMachine('48k');
     bootHeadless(s);
     s.turbo = true;
     loadProgram(s, 0x18, 0xFE);
-    const t0 = s.cpu.tStates;
-    (s as any).frameLoop();
-    expect(s.cpu.tStates - t0).toBeGreaterThanOrEqual(s.tStatesPerFrame * 14);
+
+    // Pin the adaptive budget to a known value so the test is deterministic.
+    (s as any)._turboActive = true;
+    (s as any)._turboBudgetMs = 12;
+    (s as any)._turboLastRaf = 0; // suppress adaptive recalculation
+
+    const realNow = performance.now.bind(performance);
+    let fakeNow = realNow();
+    const start = fakeNow;
+    // Advance fake time by 5ms per call — pinned budget is 12ms so the
+    // do/while sees: t=start (entry), t=+5, t=+10 (still under), t=+15 (exit).
+    // Frame loop reads once for `now`, then once per loop iteration.
+    (performance as any).now = () => { const v = fakeNow; fakeNow += 5; return v; };
+
+    let frameCount = 0;
+    const realRunFrame = (s as any).runFrame.bind(s);
+    (s as any).runFrame = () => { frameCount++; realRunFrame(); };
+
+    try {
+      (s as any).frameLoop();
+    } finally {
+      (performance as any).now = realNow;
+    }
+
+    // With a 12ms budget and the 5ms-per-call stub above, we expect 3 runs:
+    // the budgetEnd is start+12; the while-condition fires at +5 (run #2)
+    // and +10 (run #3), then +15 exits. The test is intentionally precise
+    // so a regression in the budget logic shows up here.
+    expect(frameCount).toBe(3);
+    expect(s.cpu.tStates - 0).toBeGreaterThanOrEqual(s.tStatesPerFrame * frameCount);
+    expect(start).toBeLessThan(fakeNow); // sanity: time stub did advance
   });
 
   it('paused (running=false) still updates the display when present', () => {

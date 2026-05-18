@@ -172,6 +172,7 @@ export function updateRegsOnce(): void {
 // ── Throttle for expensive per-frame work ───────────────────────────────
 
 let _lastSlowUpdate = 0;
+let _lastTurboUiUpdate = 0;
 
 // ── Clock speed tracking ────────────────────────────────────────────────
 
@@ -324,7 +325,20 @@ export function onFrame(): void {
     setStatus(`Trace auto-stopped and copied (${text.split('\n').length.toLocaleString()} lines)`);
   }
 
-  batch(() => {
+  // In turbo, throttle the reactive UI batch to ~10Hz — Solid.js signal
+  // updates here drive LED/register/sysvar panes, which the user can't
+  // perceive at hundreds of MHz of emulated speed. Speed readout and
+  // breakpoint check (above) still run every rAF; floppy sound update
+  // (below) does too.
+  const turboActive = spectrum.turbo || spectrum.tapeTurboActive;
+  let skipUiBatch = false;
+  if (turboActive) {
+    const nowMs = performance.now();
+    if (nowMs - _lastTurboUiUpdate < 100) skipUiBatch = true;
+    else _lastTurboUiUpdate = nowMs;
+  }
+
+  if (!skipUiBatch) batch(() => {
     setLedKbd(a.ulaReads > 0);
     setLedKemp(a.kempstonReads > 0);
     setLedEar(a.earReads > 0);
