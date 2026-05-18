@@ -1007,9 +1007,21 @@ export class Spectrum {
     const cpu = this.cpu;
     const pc = cpu.pc;
 
-    // Loop detection: hash key registers and compare against cache
+    // Loop detection: mix the full architectural register state (not just
+    // A/F/BC/DE/HL — IX/IY/SP progress must invalidate dedup too) through a
+    // proper combining hash. R is excluded because it ticks every M1 fetch
+    // and would defeat dedup entirely; memptr likewise changes on too many
+    // instructions to be useful.
     const slot = pc & 0x3FF;
-    const hash = ((cpu.a << 24) | (cpu.f << 16) | cpu.bc) ^ ((cpu.de << 16) | cpu.hl);
+    let hash = cpu.a;
+    hash = Math.imul(hash, 31) + cpu.f | 0;
+    hash = Math.imul(hash, 31) + cpu.bc | 0;
+    hash = Math.imul(hash, 31) + cpu.de | 0;
+    hash = Math.imul(hash, 31) + cpu.hl | 0;
+    hash = Math.imul(hash, 31) + cpu.ix | 0;
+    hash = Math.imul(hash, 31) + cpu.iy | 0;
+    hash = Math.imul(hash, 31) + cpu.sp | 0;
+    hash = Math.imul(hash, 31) + cpu.i | 0;
 
     if (this._traceLoopPC[slot] === pc && this._traceLoopHash[slot] === hash) {
       // Same PC, same register state — suppress duplicate iteration
@@ -1185,10 +1197,16 @@ export class Spectrum {
     };
 
     const parts = ['=== Port IO Summary ===', ''];
-    const inSection = formatSection('IN', this._portTallyIn!);
-    const outSection = formatSection('OUT', this._portTallyOut!);
-    if (inSection) parts.push(inSection, '');
-    if (outSection) parts.push(outSection, '');
+    // Idempotent: a second stopTrace() in portio mode must not crash on the
+    // nulled-out tallies from the first call.
+    if (this._portTallyIn) {
+      const inSection = formatSection('IN', this._portTallyIn);
+      if (inSection) parts.push(inSection, '');
+    }
+    if (this._portTallyOut) {
+      const outSection = formatSection('OUT', this._portTallyOut);
+      if (outSection) parts.push(outSection, '');
+    }
     this._portTallyIn = null;
     this._portTallyOut = null;
     return parts.join('\n');

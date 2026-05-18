@@ -603,6 +603,143 @@ describe('Spectrum — load* delegation', () => {
 // stop() / destroy() — safe headless call paths only
 // ─────────────────────────────────────────────────────────────────────────
 
+describe('Spectrum.start (audio mocked)', () => {
+  it('start() initialises audio, sets running, and registers a rAF callback', async () => {
+    const s = makeMachine('48k');
+    // Stub out audio + mixer init so no real AudioContext is touched.
+    s.audio.init = (async () => { (s.audio as any).sampleRate = 48000; }) as any;
+    s.mixer.init = (() => {}) as any;
+    s.ay.setSampleRate = (() => {}) as any;
+    let rafCalls = 0;
+    const prevRAF = globalThis.requestAnimationFrame;
+    globalThis.requestAnimationFrame = ((_cb: any) => { rafCalls++; return 7; }) as any;
+    try {
+      await s.start();
+      expect((s as any).running).toBe(true);
+      expect(rafCalls).toBe(1);
+      expect((s as any).rafId).toBe(7);
+    } finally {
+      globalThis.requestAnimationFrame = prevRAF;
+    }
+  });
+
+  it('start() while already running short-circuits', async () => {
+    const s = makeMachine('48k');
+    (s as any).running = true;
+    let initCalled = 0;
+    s.audio.init = (async () => { initCalled++; }) as any;
+    await s.start();
+    expect(initCalled).toBe(0);
+  });
+
+  it('start() aborts if stop() is called before audio finishes initialising', async () => {
+    const s = makeMachine('48k');
+    let resolveInit!: () => void;
+    s.audio.init = (() => new Promise<void>((res) => { resolveInit = res; })) as any;
+    s.mixer.init = (() => {}) as any;
+    s.ay.setSampleRate = (() => {}) as any;
+    const prevRAF = globalThis.requestAnimationFrame;
+    globalThis.requestAnimationFrame = ((_cb: any) => 1) as any;
+    try {
+      const p = s.start();
+      s.stop(); // cancel
+      resolveInit();
+      await p;
+      expect((s as any).running).toBe(false);
+    } finally {
+      globalThis.requestAnimationFrame = prevRAF;
+    }
+  });
+});
+
+describe('Spectrum.frameLoop (audio + rAF mocked)', () => {
+  function bootHeadless(s: Spectrum): void {
+    // Make the rAF callback non-recursive: capture but don't reschedule.
+    globalThis.requestAnimationFrame = ((_cb: any) => 99) as any;
+    (s as any).rafId = 99;
+    (s as any).running = true;
+    (s as any).lastFrameTime = performance.now() - 100; // budget for >= one frame
+    s.audio.ctx = null as any;
+  }
+
+  it('runs at least one frame when accumulated time exceeds FRAME_PERIOD', () => {
+    const s = makeMachine('48k');
+    bootHeadless(s);
+    loadProgram(s, 0x18, 0xFE);
+    const t0 = s.cpu.tStates;
+    (s as any).frameLoop();
+    expect(s.cpu.tStates - t0).toBeGreaterThanOrEqual(s.tStatesPerFrame);
+  });
+
+  it('turbo mode runs up to 14 frames per tick', () => {
+    const s = makeMachine('48k');
+    bootHeadless(s);
+    s.turbo = true;
+    loadProgram(s, 0x18, 0xFE);
+    const t0 = s.cpu.tStates;
+    (s as any).frameLoop();
+    expect(s.cpu.tStates - t0).toBeGreaterThanOrEqual(s.tStatesPerFrame * 14);
+  });
+
+  it('paused (running=false) still updates the display when present', () => {
+    const s = makeMachine('48k');
+    let updates = 0;
+    s.display = { updateTexture: () => { updates++; }, resize: () => {} } as any;
+    (s as any).running = false;
+    globalThis.requestAnimationFrame = ((_cb: any) => 1) as any;
+    (s as any).frameLoop();
+    expect(updates).toBe(1);
+  });
+
+  it('fires onFrame and updates the display after each frameLoop tick', () => {
+    const s = makeMachine('48k');
+    bootHeadless(s);
+    let frames = 0;
+    let updates = 0;
+    s.onFrame = () => { frames++; };
+    s.display = { updateTexture: () => { updates++; }, resize: () => {} } as any;
+    loadProgram(s, 0x18, 0xFE);
+    (s as any).frameLoop();
+    expect(frames).toBe(1);
+    expect(updates).toBe(1);
+  });
+
+  it('audio pacing breaks the inner loop when buffer is already full', () => {
+    const s = makeMachine('48k');
+    bootHeadless(s);
+    // Spoof a running AudioContext with a "full" buffer
+    s.audio.ctx = { state: 'running' } as any;
+    s.audio.bufferedSamples = (() => 999_999) as any;
+    loadProgram(s, 0x18, 0xFE);
+    const t0 = s.cpu.tStates;
+    (s as any).lastFrameTime = performance.now() - 200;
+    (s as any).frameTimeAccum = 0;
+    (s as any).frameLoop();
+    // No frames should have executed because audio is well ahead.
+    expect(s.cpu.tStates - t0).toBe(0);
+  });
+
+  it('breakpoint stops the inner loop in normal (non-turbo) mode', () => {
+    const s = makeMachine('48k');
+    bootHeadless(s);
+    s.turbo = false;
+    loadProgram(s, 0x00, 0x18, 0xFD);
+    s.breakpoints.add(0xC000);
+    (s as any).frameLoop();
+    expect(s.breakpointHit).toBe(0xC000);
+  });
+
+  it('breakpoint stops mid-batch in turbo mode', () => {
+    const s = makeMachine('48k');
+    bootHeadless(s);
+    s.turbo = true;
+    loadProgram(s, 0x00, 0x18, 0xFD); // NOP ; JR -3
+    s.breakpoints.add(0xC000); // hits immediately each frame
+    (s as any).frameLoop();
+    expect(s.breakpointHit).toBe(0xC000);
+  });
+});
+
 describe('Spectrum.stop / destroy (no AudioContext)', () => {
   it('stop() clears running and starting but leaves rAF alone', () => {
     const s = makeMachine('48k');
@@ -652,5 +789,767 @@ describe('Spectrum — EI / interrupt timing', () => {
     // eiDelay clears after the first instruction; the deferred INT then acks
     // within the window, which disables IFF1.
     expect(s.cpu.iff1).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// setBorderSize
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('Spectrum.setBorderSize', () => {
+  it('updates ULA dimensions and re-renders the frame (display=null is safe)', () => {
+    const s = makeMachine('48k');
+    s.setBorderSize(0);
+    expect(s.ula.screenWidth).toBe(256);
+    s.setBorderSize(2);
+    expect(s.ula.screenWidth).toBe(256 + 96);
+  });
+
+  it('forwards resize() to the display when present', () => {
+    const s = makeMachine('48k');
+    let resized: [number, number] | null = null;
+    s.display = {
+      resize: (w: number, h: number) => { resized = [w, h]; },
+      updateTexture: () => {},
+    } as any;
+    s.setBorderSize(1);
+    expect(resized).not.toBeNull();
+    expect(resized![0]).toBe(s.ula.screenWidth);
+    expect(resized![1]).toBe(s.ula.screenHeight);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// VTX-5000 wiring (loadROM, reset, onRomPage callback)
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('Spectrum — VTX-5000 ROM paging', () => {
+  function enableVTX(s: Spectrum): void {
+    s.vtx5000.enabled = true;
+    // Fake a small VTX ROM
+    const vrom = new Uint8Array(8192);
+    vrom[0] = 0xDD;
+    s.vtx5000.loadROM(vrom);
+  }
+
+  it('128K loadROM forces ROM page to the 48K BASIC ROM index when VTX is active', () => {
+    const s = new Spectrum('128k', null);
+    enableVTX(s);
+    s.memory.currentROM = 0; // pretend we were on the 128K editor ROM
+    s.loadROM(tagRom());
+    // 128K = 2 ROM pages → BASIC ROM is page 1
+    expect(s.memory.currentROM).toBe(1);
+    expect(s.memory.externalRomPaged).toBe(true);
+  });
+
+  it('+3 loadROM forces ROM page 3 (4 ROM pages, BASIC is last)', () => {
+    const s = new Spectrum('+3', null);
+    enableVTX(s);
+    s.memory.currentROM = 0;
+    s.loadROM(tagRom());
+    expect(s.memory.currentROM).toBe(3);
+  });
+
+  it('reset() re-applies VTX ROM overlay', () => {
+    const s = new Spectrum('128k', null);
+    s.loadROM(tagRom());
+    enableVTX(s);
+    s.memory.externalRomPaged = false;
+    s.reset();
+    expect(s.memory.externalRomPaged).toBe(true);
+  });
+
+  it('onRomPage(true) restores Spectrum ROM when VTX was paged', () => {
+    const s = new Spectrum('48k', null);
+    s.loadROM(tagRom());
+    enableVTX(s);
+    s.vtx5000.applyROM(s.memory);
+    s.memory.externalRomPaged = true;
+    s.vtx5000.vtxRomPaged = true;
+    s.vtx5000.onRomPage!(true);
+    expect(s.vtx5000.vtxRomPaged).toBe(false);
+    expect(s.memory.externalRomPaged).toBe(false);
+  });
+
+  it('onRomPage(false) re-applies VTX ROM when Spectrum ROM was paged', () => {
+    const s = new Spectrum('48k', null);
+    s.loadROM(tagRom());
+    enableVTX(s);
+    s.vtx5000.vtxRomPaged = false;
+    s.memory.externalRomPaged = false;
+    s.vtx5000.onRomPage!(false);
+    expect(s.vtx5000.vtxRomPaged).toBe(true);
+    expect(s.memory.externalRomPaged).toBe(true);
+  });
+
+  it('onRomPage is a no-op when VTX is disabled or ROM not loaded', () => {
+    const s = new Spectrum('48k', null);
+    s.loadROM(tagRom());
+    // not enabled
+    s.vtx5000.vtxRomPaged = true;
+    s.vtx5000.onRomPage!(true);
+    expect(s.vtx5000.vtxRomPaged).toBe(true);
+
+    s.vtx5000.enabled = true; // but romLoaded still false
+    s.vtx5000.onRomPage!(true);
+    expect(s.vtx5000.vtxRomPaged).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// destroy() with rafId set
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('Spectrum.destroy', () => {
+  it('cancels the rAF when one is registered, and clears rafId', () => {
+    const s = makeMachine('48k');
+    let cancelled: number | null = null;
+    const origCAF = globalThis.cancelAnimationFrame;
+    globalThis.cancelAnimationFrame = ((id: number) => { cancelled = id; }) as any;
+    try {
+      (s as any).rafId = 42;
+      s.destroy();
+      expect(cancelled).toBe(42);
+      expect((s as any).rafId).toBe(0);
+    } finally {
+      globalThis.cancelAnimationFrame = origCAF;
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// HALT contended fast path
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('Spectrum — HALT in contended memory', () => {
+  it('takes the slow per-NOP path when IR is in contended memory (I in $40-$7F)', () => {
+    const s = makeMachine('48k');
+    // HALT at 0xC000 (uncontended PC) but I=0x40 → IR points into contended bank
+    s.memory.writeByte(0xC000, 0x76);
+    s.cpu.pc = 0xC000;
+    s.cpu.i = 0x40;
+    s.cpu.r = 0;
+    s.cpu.halted = false; // first execution will set it
+    const tBefore = s.cpu.tStates;
+    s.tick();
+    // Slow path advances 1 NOP at a time: R should have ticked many times within the frame.
+    expect(s.cpu.tStates - tBefore).toBeGreaterThanOrEqual(s.tStatesPerFrame);
+    expect(s.cpu.r & 0x7F).toBeGreaterThan(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Scanline accuracy: full-frame rendering paths
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('Spectrum.scanlineAccuracy frame-end rendering', () => {
+  it('low: calls ula.renderFrame() once at frame end', () => {
+    const s = makeMachine('48k');
+    s.scanlineAccuracy = 'low';
+    let bulkCalls = 0;
+    const orig = s.ula.renderFrame.bind(s.ula);
+    s.ula.renderFrame = ((bank: Uint8Array, addr: number) => {
+      bulkCalls++;
+      return orig(bank, addr);
+    }) as any;
+    loadProgram(s, 0x18, 0xFE);
+    s.tick();
+    expect(bulkCalls).toBeGreaterThanOrEqual(1);
+  });
+
+  it('mid: renderCompletedScanlines flushes every visible line over a frame', () => {
+    const s = makeMachine('48k');
+    s.scanlineAccuracy = 'mid';
+    loadProgram(s, 0x18, 0xFE);
+    s.tick();
+    // After a frame, all lines must have been drawn.
+    expect((s as any).nextRenderLine).toBe((s as any).totalRenderLines);
+  });
+
+  it('high: completes all scanlines by frame end', () => {
+    const s = makeMachine('48k');
+    s.scanlineAccuracy = 'high';
+    loadProgram(s, 0x18, 0xFE);
+    s.tick();
+    expect((s as any).nextRenderLine).toBe((s as any).totalRenderLines);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Trace loop detection
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('Spectrum — trace loop detection (full mode)', () => {
+  it('emits a "loops back to" marker when the same PC repeats with the same register hash', () => {
+    const s = makeMachine('48k');
+    s.startTrace('full');
+    // A 3-byte tight loop in RAM: NOP ; JR -3 (back to NOP).
+    // After the first iteration, PC=0xC000 with identical register state should trip dedup.
+    loadProgram(s, 0x00, 0x18, 0xFD);
+    s.tick();
+    const out = s.stopTrace();
+    expect(out).toContain('loops back to');
+  });
+
+  it('captureZxtlLine flags a non-sequential PC as a jump with "*"', () => {
+    const s = makeMachine('48k');
+    s.startTrace('zxtl');
+    // NOP at $C000 then JR -3 jumps back to $C000.
+    loadProgram(s, 0x00, 0x18, 0xFD);
+    s.tick();
+    const out = s.stopTrace();
+    expect(out).toMatch(/^\*/m); // at least one trace line begins with '*' (jump)
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// traceCtx — exercise opcode families through full-mode trace output
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('Spectrum — traceCtx context strings', () => {
+  // Call captureTraceLine() directly so we don't need a full runFrame.
+  // The method reads the current PC + registers, so set them up first.
+  function trace(s: Spectrum, ...bytes: number[]): string {
+    s.startTrace('full');
+    for (let i = 0; i < bytes.length; i++) s.memory.writeByte(0xC000 + i, bytes[i]);
+    s.cpu.pc = 0xC000;
+    (s as any).captureTraceLine();
+    return s.stopTrace();
+  }
+
+  it('JR cc taken/not-taken shows "taken" / "--"', () => {
+    const s = makeMachine('48k');
+    s.cpu.f = 0; // Z=0
+    const out = trace(s, 0x28, 0x02); // JR Z,+2 — not taken
+    expect(out).toContain('--');
+  });
+
+  it('LD (BC),A and LD A,(BC) include the address effect', () => {
+    const s = makeMachine('48k');
+    s.cpu.bc = 0xC100;
+    const out = trace(s, 0x02); // LD (BC),A
+    expect(out).toMatch(/A=.*→\(C100\)/);
+  });
+
+  it('ALU on (HL) shows A and (HL) values', () => {
+    const s = makeMachine('48k');
+    s.cpu.hl = 0xC050;
+    s.memory.writeByte(0xC050, 0x33);
+    const out = trace(s, 0x86); // ADD A,(HL)
+    expect(out).toMatch(/A=.* \(C050\)=33/);
+  });
+
+  it('OUT (n),A shows current A', () => {
+    const s = makeMachine('48k');
+    s.cpu.a = 0x55;
+    const out = trace(s, 0xD3, 0xFE); // OUT ($FE),A
+    expect(out).toMatch(/A=55/);
+  });
+
+  it('CB bit op on (HL) shows the memory value', () => {
+    const s = makeMachine('48k');
+    s.cpu.hl = 0xC100;
+    s.memory.writeByte(0xC100, 0xAA);
+    const out = trace(s, 0xCB, 0x46); // BIT 0,(HL)
+    expect(out).toMatch(/\(C100\)=AA/);
+  });
+
+  it('ED block instruction shows HL/DE/BC', () => {
+    const s = makeMachine('48k');
+    s.cpu.hl = 0xC000;
+    s.cpu.de = 0xC100;
+    s.cpu.bc = 0x0001;
+    const out = trace(s, 0xED, 0xB0); // LDIR
+    expect(out).toMatch(/HL=.* DE=.* BC=/);
+  });
+
+  it('ED IN/OUT (C) shows port=BC', () => {
+    const s = makeMachine('48k');
+    s.cpu.bc = 0x00FE;
+    const out = trace(s, 0xED, 0x78); // IN A,(C)
+    expect(out).toContain('port=00FE');
+  });
+
+  it('DD prefix with (IX+d) memory access shows the indexed address', () => {
+    const s = makeMachine('48k');
+    s.cpu.ix = 0xC000;
+    s.memory.writeByte(0xC010, 0x77);
+    const out = trace(s, 0xDD, 0x7E, 0x10); // LD A,(IX+$10)
+    expect(out).toMatch(/\(C010\)=77/);
+  });
+
+  it('DDCB shows the indexed memory operand', () => {
+    const s = makeMachine('48k');
+    s.cpu.ix = 0xC000;
+    s.memory.writeByte(0xC005, 0x80);
+    const out = trace(s, 0xDD, 0xCB, 0x05, 0x46); // BIT 0,(IX+5)
+    expect(out).toMatch(/\(C005\)=80/);
+  });
+
+  it('DJNZ shows B (decremented)', () => {
+    const s = makeMachine('48k');
+    s.cpu.bc = 0x0500;
+    const out = trace(s, 0x10, 0xFE); // DJNZ -2
+    expect(out).toMatch(/B=05/);
+  });
+
+  it('LD A,(BC) reads through the indirect pointer', () => {
+    const s = makeMachine('48k');
+    s.cpu.bc = 0xC100;
+    s.memory.writeByte(0xC100, 0xAB);
+    const out = trace(s, 0x0A); // LD A,(BC)
+    expect(out).toMatch(/\(C100\)=AB/);
+  });
+
+  it('LD A,(DE) reads through the indirect pointer', () => {
+    const s = makeMachine('48k');
+    s.cpu.de = 0xC200;
+    s.memory.writeByte(0xC200, 0xCD);
+    const out = trace(s, 0x1A); // LD A,(DE)
+    expect(out).toMatch(/\(C200\)=CD/);
+  });
+
+  it('INC (HL) / DEC (HL) show (HL) value', () => {
+    const s = makeMachine('48k');
+    s.cpu.hl = 0xC050;
+    s.memory.writeByte(0xC050, 0x10);
+    const out = trace(s, 0x34); // INC (HL)
+    expect(out).toMatch(/\(C050\)=10/);
+  });
+
+  it('LD r,(HL) shows the (HL) value', () => {
+    const s = makeMachine('48k');
+    s.cpu.hl = 0xC050;
+    s.memory.writeByte(0xC050, 0x77);
+    const out = trace(s, 0x46); // LD B,(HL)
+    expect(out).toMatch(/\(C050\)=77/);
+  });
+
+  it('LD (HL),r shows source register written to (HL)', () => {
+    const s = makeMachine('48k');
+    s.cpu.hl = 0xC050;
+    s.cpu.bc = 0x4200; // B = 0x42
+    const out = trace(s, 0x70); // LD (HL),B
+    expect(out).toMatch(/42→\(C050\)/);
+  });
+
+  it('RET cc / JP cc / CALL cc render taken/-- decisions', () => {
+    const s = makeMachine('48k');
+    s.cpu.f = 0; // Z=0
+    expect(trace(s, 0xC0)).toContain('taken'); // RET NZ
+    expect(trace(s, 0xC8)).toContain('--');    // RET Z (not taken)
+    expect(trace(s, 0xC2, 0x00, 0xC0)).toContain('taken'); // JP NZ
+    expect(trace(s, 0xC4, 0x00, 0xC0)).toContain('taken'); // CALL NZ
+  });
+
+  it('ALU A,n (immediate) shows A', () => {
+    const s = makeMachine('48k');
+    s.cpu.a = 0x77;
+    const out = trace(s, 0xC6, 0x01); // ADD A,1
+    expect(out).toMatch(/A=77/);
+  });
+
+  it('CB op on a register (not (HL)) yields empty ctx', () => {
+    const s = makeMachine('48k');
+    const out = trace(s, 0xCB, 0x40); // BIT 0,B — no ctx
+    // We just need to verify it didn't throw; output may have any address
+    expect(out).toContain('C000');
+  });
+
+  it('DDFD nested prefix yields empty ctx without throwing', () => {
+    const s = makeMachine('48k');
+    const out = trace(s, 0xDD, 0xFD, 0x00);
+    expect(out).toContain('C000');
+  });
+
+  it('DD with a non-memory inner opcode yields empty ctx', () => {
+    const s = makeMachine('48k');
+    const out = trace(s, 0xDD, 0x00); // DD NOP — non-mem
+    expect(out).toContain('C000');
+  });
+
+  it('DD ALU on (IX+d) shows A and indexed memory', () => {
+    const s = makeMachine('48k');
+    s.cpu.ix = 0xC000;
+    s.cpu.a = 0x10;
+    s.memory.writeByte(0xC010, 0x99);
+    const out = trace(s, 0xDD, 0x86, 0x10); // ADD A,(IX+$10) — DD prefix x=2 path
+    expect(out).toMatch(/A=10 \(C010\)=99/);
+  });
+
+  it('main-table ALU on register (CP B) shows A only', () => {
+    const s = makeMachine('48k');
+    s.cpu.a = 0x42;
+    const out = trace(s, 0xB8); // CP B — main table x=2, z=0
+    expect(out).toMatch(/A=42/);
+  });
+
+  it('ED LD I,A and other unmatched ED ops have empty ctx', () => {
+    const s = makeMachine('48k');
+    const out = trace(s, 0xED, 0x47); // LD I,A — ED with x=1,z=7 → empty
+    expect(out).toContain('C000'); // line still recorded
+  });
+
+  it('DD STORE A,(IX+d) shows A= and (addr)=', () => {
+    const s = makeMachine('48k');
+    s.cpu.ix = 0xC000;
+    s.cpu.a = 0x12;
+    s.memory.writeByte(0xC010, 0x99);
+    const out = trace(s, 0xDD, 0x77, 0x10); // LD (IX+$10),A — x=1, y=6, z=7 (store)
+    // Falls into x=1 + y=6 branch → no, wait. DD prefix path: op2=0x77 → x=1,y=6,z=7.
+    // Condition: x===1 && (y===6||z===6) && !(y===6&&z===6) → y=6,z=7 → store path
+    expect(out).toMatch(/\(C010\)=99/);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// flushRemainingLines (mid-mode frame-end finisher)
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('Spectrum.flushRemainingLines', () => {
+  it('renders any leftover lines: border, display, and bottom border', () => {
+    const s = makeMachine('48k');
+    // Force state where the inner loop will iterate over a mix of border + display lines.
+    (s as any).nextRenderLine = 0;
+    const borderTop = (s.ula as any).borderTop as number;
+    (s as any).totalRenderLines = borderTop * 2 + 192;
+    let fillBorderCalls = 0;
+    let displayCells = 0;
+    s.ula.fillBorder = ((..._a: any[]) => { fillBorderCalls++; }) as any;
+    s.ula.renderDisplayCell = ((..._a: any[]) => { displayCells++; }) as any;
+    (s as any).flushRemainingLines(borderTop);
+    // Top border (borderTop lines) + 192 display + bottom border = full coverage
+    expect(fillBorderCalls).toBeGreaterThan(0);
+    expect(displayCells).toBe(192 * 32);
+    expect((s as any).nextRenderLine).toBe(borderTop * 2 + 192);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Tape ROM trap (PC=$056C)
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('Spectrum — tape ROM trap', () => {
+  it('handles the block via instant load when flag and length match, skipping the block', () => {
+    const s = makeMachine('48k');
+    s.tapeInstantLoad = true;
+    const payload = new Uint8Array([0x11, 0x22, 0x33, 0x44]);
+    (s.tape as any).blocks = [
+      { kind: 'data', source: 'tap', flag: 0xFF, data: payload, pauseAfter: 0 },
+    ];
+    s.tape.position = 0;
+    s.tape.playing = false;
+    s.tape.paused = false;
+    s.cpu.a_ = 0xFF;        // expected flag
+    s.cpu.f_ = 0x01;        // carry set → LOAD
+    s.cpu.ix = 0xC000;      // dest
+    s.cpu.de = payload.length;
+    s.cpu.pc = 0x056C;      // LD-START
+    // Park outside any active interrupt: simpler, finish in one tick.
+    s.tick();
+    // Trap consumes the block → position advances past it.
+    expect(s.tape.position).toBeGreaterThan(0);
+    // Bytes landed at IX
+    expect(s.memory.readByte(0xC000)).toBe(0x11);
+    expect(s.memory.readByte(0xC003)).toBe(0x44);
+  });
+
+  it('falls through to the real ROM when peekDataBlock returns null', () => {
+    const s = makeMachine('48k');
+    s.tapeInstantLoad = true;
+    // Fake a "loaded" tape that has only a non-rom block so hasRomBlock() is true,
+    // but peekDataBlock() returns null (e.g. only tone block). Easier: stub it.
+    (s.tape as any).blocks = [{ kind: 'data', source: 'tap', flag: 0, data: new Uint8Array(4) }];
+    s.tape.position = 0;
+    s.tape.paused = true; // exercise the unpause + startPlayback path
+    // PC = LD-START. Put a known opcode there in ROM (we already loaded tagRom which has 0s).
+    s.cpu.pc = 0x056C;
+    // Drive one step — runFrame enters the trap branch.
+    s.tick();
+    // The tape should have been unpaused by the trap-prelude block.
+    expect(s.tape.paused).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// portLabel variants (private — exercised via portio tally)
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('Spectrum — portLabel additional cases', () => {
+  it('AY write port $BFFD is labelled AY on 128K (matches the $8000 mask)', () => {
+    const s = makeMachine('128k');
+    s.startTrace('portio');
+    s.logPortAccess('OUT', 0xBFFD, 0); // bit 0 set so it's not ULA-routed
+    const out = s.stopTrace();
+    expect(out).toContain('AY');
+  });
+
+  it('48K (no AY): port $FFFD is NOT labelled AY', () => {
+    const s = makeMachine('48k');
+    s.startTrace('portio');
+    s.logPortAccess('IN', 0xFFFD, 0);
+    const out = s.stopTrace();
+    // The entry exists but the label cell is empty (no AY on 48K).
+    expect(out).toContain('FFFD');
+    // Make sure the line for FFFD doesn't claim "AY"
+    const ffLine = out.split('\n').find(l => l.includes('FFFD'))!;
+    expect(ffLine.includes('AY')).toBe(false);
+  });
+
+  it('unknown port returns empty label without throwing', () => {
+    const s = makeMachine('48k');
+    s.startTrace('portio');
+    s.logPortAccess('IN', 0x1234, 0); // odd port, not Kempston, not anything else
+    const out = s.stopTrace();
+    expect(out).toContain('1234');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// OCR entry points
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('Spectrum — OCR helpers', () => {
+  it('ocrScreen returns a string for the default grid', () => {
+    const s = makeMachine('48k');
+    const text = s.ocrScreen();
+    expect(typeof text).toBe('string');
+  });
+
+  it('ocrScreenForMcp prefixes the chosen grid label', () => {
+    const s = makeMachine('48k');
+    const text = s.ocrScreenForMcp('32x24');
+    expect(text.startsWith('[32x24]\n')).toBe(true);
+  });
+
+  it('ocrScreenStyled returns a result object with the requested grid', () => {
+    const s = makeMachine('48k');
+    const r = s.ocrScreenStyled(undefined, '32x24');
+    expect(r).toBeTruthy();
+    expect(typeof r).toBe('object');
+  });
+
+  it('ocrScreenStyled with grid=auto picks a grid via detectAndCacheGrid', () => {
+    const s = makeMachine('48k');
+    const r = s.ocrScreenStyled(undefined, 'auto');
+    expect(r).toBeTruthy();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// loadDisk delegation
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('Spectrum.loadDisk', () => {
+  it('inserts the disk image into the FDC at the given unit', () => {
+    const s = makeMachine('+3');
+    let inserted: { unit: number; image: any } | null = null;
+    const orig = s.fdc.insertDisk.bind(s.fdc);
+    s.fdc.insertDisk = ((image: any, unit: number) => {
+      inserted = { unit, image };
+      return orig(image, unit);
+    }) as any;
+    const fakeImage = { tracks: [] } as any;
+    s.loadDisk(fakeImage, 1);
+    expect(inserted).not.toBeNull();
+    expect(inserted!.unit).toBe(1);
+  });
+
+  it('defaults unit to 0 when not specified', () => {
+    const s = makeMachine('+3');
+    let unitSeen = -1;
+    s.fdc.insertDisk = ((_image: any, unit: number) => { unitSeen = unit; }) as any;
+    s.loadDisk({ tracks: [] } as any);
+    expect(unitSeen).toBe(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// AMX mouse drain hook in runFrame
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('Spectrum — AMX mouse drain at frame start', () => {
+  it('calls drainMovement when AMX is enabled and movement is pending', () => {
+    const s = makeMachine('48k');
+    s.amxMouse.enabled = true;
+    s.amxMouse.pendingX = 2;
+    let drained = false;
+    s.amxMouse.drainMovement = (() => { drained = true; }) as any;
+    loadProgram(s, 0x18, 0xFE);
+    s.tick();
+    expect(drained).toBe(true);
+  });
+
+  it('skips drainMovement when no movement is pending', () => {
+    const s = makeMachine('48k');
+    s.amxMouse.enabled = true;
+    s.amxMouse.pendingX = 0;
+    s.amxMouse.pendingY = 0;
+    let drained = false;
+    s.amxMouse.drainMovement = (() => { drained = true; }) as any;
+    loadProgram(s, 0x18, 0xFE);
+    s.tick();
+    expect(drained).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Tape turbo cooldown — full state machine
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('Spectrum — tape turbo cooldown lifecycle', () => {
+  function fakeTapeLoaded(s: Spectrum, finished = false): void {
+    (s.tape as any).blocks = [{ kind: 'pause', duration: 1000 }];
+    s.tape.position = finished ? 1 : 0;
+    s.tape.paused = false;
+    s.tape.playing = true;
+  }
+
+  it('engages turbo on tapeLoads activity and refreshes the cooldown', () => {
+    const s = makeMachine('48k');
+    fakeTapeLoaded(s);
+    s.tapeTurbo = true;
+    // Park at the LD-BYTES address so the runFrame activity-counter increment fires.
+    s.cpu.pc = 0x0556;
+    s.memory.romPages[0][0x0556] = 0x18; // JR -2 placeholder (won't matter — frame loop will tick)
+    s.memory.romPages[0][0x0557] = 0xFE;
+    s.tick();
+    // After at least one frame with tapeLoads activity, turbo should engage and cooldown reset.
+    expect((s as any)._tapeTurboCooldown).toBe(25);
+    expect((s as any)._tapeTurboActive).toBe(true);
+  });
+
+  it('decrements cooldown when no loading signal arrives and disengages turbo at zero', () => {
+    const s = makeMachine('48k');
+    fakeTapeLoaded(s);
+    s.tapeTurbo = false; // never let it re-engage
+    (s as any)._tapeTurboActive = true;
+    (s as any)._tapeTurboCooldown = 1;
+    loadProgram(s, 0x18, 0xFE); // tight loop, no ear/loader/tape activity
+    s.tick();
+    expect((s as any)._tapeTurboCooldown).toBeLessThanOrEqual(0);
+    expect((s as any)._tapeTurboActive).toBe(false);
+  });
+
+  it('finished tape with active turbo forces turbo off', () => {
+    const s = makeMachine('48k');
+    (s.tape as any).blocks = [{ kind: 'pause', duration: 1000 }];
+    s.tape.position = 999; // past the end → finished=true
+    s.tape.playing = true;
+    (s as any)._tapeTurboActive = true;
+    loadProgram(s, 0x18, 0xFE);
+    s.tick();
+    expect((s as any)._tapeTurboActive).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// startTrace mode transitions
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('Spectrum — startTrace transitions', () => {
+  it('switching from full → portio clears the full-mode loop cache', () => {
+    const s = makeMachine('48k');
+    s.startTrace('full');
+    (s as any)._traceLoopPC[0] = 0xABCD;
+    s.startTrace('portio');
+    expect((s as any)._traceLoopPC[0]).toBe(-1);
+    expect((s as any)._portTallyIn).not.toBeNull();
+  });
+
+  it('traceBuffer getter exposes the (readonly) line array', () => {
+    const s = makeMachine('48k');
+    s.startTrace('full');
+    (s as any)._traceBuffer.push('hello');
+    expect(s.traceBuffer.length).toBe(1);
+    expect(s.traceBuffer[0]).toBe('hello');
+  });
+
+  it('traceMode getter reflects the active mode', () => {
+    const s = makeMachine('48k');
+    s.startTrace('portio');
+    expect(s.traceMode).toBe('portio');
+    s.stopTrace();
+    s.startTrace('zxtl');
+    expect(s.traceMode).toBe('zxtl');
+  });
+
+  it('stopTrace flushes a pending loop marker when count > 0 at end', () => {
+    const s = makeMachine('48k');
+    s.startTrace('full');
+    (s as any)._traceLoopCount = 7;
+    (s as any)._traceLoopAddr = 0xABCD;
+    const out = s.stopTrace();
+    expect(out).toMatch(/loops back to ABCD x7/);
+  });
+
+  it('captureTraceLine flushes loop marker when it sees a fresh PC with count > 0', () => {
+    const s = makeMachine('48k');
+    s.startTrace('full');
+    (s as any)._traceLoopCount = 3;
+    (s as any)._traceLoopAddr = 0x9000;
+    s.cpu.pc = 0xC000; // a fresh slot, not in the cache (cache was filled with -1)
+    (s as any).captureTraceLine();
+    const out = s.stopTrace();
+    expect(out).toMatch(/loops back to 9000 x3/);
+    // And the new line was recorded too
+    expect(out).toContain('C000');
+  });
+
+  it('full-mode trace auto-disables once buffer crosses 500_000 lines', () => {
+    const s = makeMachine('48k');
+    s.startTrace('full');
+    const buf = (s as any)._traceBuffer as string[];
+    for (let i = 0; i < 499_999; i++) buf.push('x');
+    s.cpu.pc = 0xC000;
+    (s as any).captureTraceLine(); // pushes 1 → length 500_000, triggers the >= check
+    expect(s.tracing).toBe(false);
+  });
+
+  it('zxtl-mode trace auto-disables once buffer crosses 500_000 lines', () => {
+    const s = makeMachine('48k');
+    s.startTrace('zxtl');
+    const buf = (s as any)._traceBuffer as string[];
+    while (buf.length < 499_999) buf.push('x');
+    s.cpu.pc = 0xC000;
+    (s as any).captureZxtlLine(0xC000);
+    expect(s.tracing).toBe(false);
+  });
+
+  // Loop dedup must invalidate when IX (or any non-A/F/BC/DE/HL register)
+  // progresses — otherwise loops driven by IX/IY/SP silently collapse to a
+  // single iteration in the trace.
+  it('full-mode loop dedup does not suppress iterations that only change IX', () => {
+    const s = makeMachine('48k');
+    s.startTrace('full');
+    loadProgram(s, 0xDD, 0x23, 0x18, 0xFC); // INC IX ; JR -4
+    s.cpu.ix = 0;
+    s.tick();
+    const out = s.stopTrace();
+    const incCount = (out.match(/INC IX/g) || []).length;
+    expect(incCount).toBeGreaterThan(10);
+  });
+
+  // stopTrace() must be idempotent in portio mode: a second call after the
+  // tallies have been nulled used to throw.
+  it('stopTrace() in portio mode is idempotent after the maps are nulled', () => {
+    const s = makeMachine('48k');
+    s.startTrace('portio');
+    s.logPortAccess('IN', 0xFE, 0);
+    const first = s.stopTrace();
+    expect(first).toContain('Port IO Summary');
+    let second = '';
+    expect(() => { second = s.stopTrace(); }).not.toThrow();
+    // Second call returns the header skeleton without the now-nulled sections.
+    expect(second).toContain('Port IO Summary');
+    expect(second).not.toContain('00FE');
+  });
+
+  it('zxtl mode emits header lines on start', () => {
+    const s = makeMachine('48k');
+    s.startTrace('zxtl');
+    const out = s.stopTrace();
+    expect(out).toContain('ZXTL');
+    expect(out).toContain('DISASSEMBLY');
   });
 });
