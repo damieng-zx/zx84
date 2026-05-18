@@ -138,10 +138,6 @@ export function register(server: McpServer): void {
         instrPortOps.push(`OUT(${h16(port)},${h8(val)})`);
       };
 
-      // Hook into step to capture per-instruction data
-      const origPostStep = spec.cpu.postStepHook;
-      spec.cpu.postStepHook = null; // we'll call it ourselves
-
       // Header
       lines.push('fT      line col  PC   instr                    Ts  cont  notes');
       lines.push('------  ---- ---  ----  ----------------------  --  ----  -----');
@@ -213,7 +209,6 @@ export function register(server: McpServer): void {
       spec.cpu.contend = origContend;
       spec.cpu.portIn = origPortIn;
       spec.cpu.portOut = origPortOut;
-      spec.cpu.postStepHook = origPostStep;
 
       lines.push(`\n--- ${instrCount} instructions, frame ${fStart}-${frameEnd} ---`);
 

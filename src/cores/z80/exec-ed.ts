@@ -3,7 +3,10 @@ import { SZ, SZP } from './tables.ts';
 import { contendN } from './contention.ts';
 
 Z80.prototype.executeED = function (this: Z80): void {
-  const op = this.fetch8();      // +3T (M1 read)
+  // Inlined fetch8 (ED M1 read, +3T)
+  const op = this.read8(this.pc);
+  this.pc = (this.pc + 1) & 0xFFFF;
+  this.tStates += 3;
   this.contend(this.ir);         // IR contention during refresh (T3-T4)
   this.tStates += 1;             // +1T (M1 refresh)
   this.r = (this.r & 0x80) | ((this.r + 1) & 0x7F);
@@ -49,7 +52,14 @@ Z80.prototype.executeED = function (this: Z80): void {
 
       case 3: {
         // ED LD (nn),rr / LD rr,(nn): 20T. Auto: 8T + 6T fetch16 = 14T
-        const addr = this.fetch16();
+        // Inlined fetch16 (two +3T reads)
+        const addrLo = this.read8(this.pc);
+        this.pc = (this.pc + 1) & 0xFFFF;
+        this.tStates += 3;
+        const addrHi = this.read8(this.pc);
+        this.pc = (this.pc + 1) & 0xFFFF;
+        this.tStates += 3;
+        const addr = (addrHi << 8) | addrLo;
         this.memptr = (addr + 1) & 0xFFFF;  // LD rp,(addr) / LD (addr),rp: MEMPTR = addr + 1
         if (q === 0) {
           // ED LD (nn),rr: writes@T+14,T+17

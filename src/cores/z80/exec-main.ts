@@ -30,7 +30,7 @@ Z80.prototype.executeMain = function (this: Z80, opcode: number): void {
               this.contend(this.ir); this.tStates += 1;  // internal cycle at IR
               this.b = (this.b - 1) & 0xFF;
               const offsetAddr2 = this.pc;
-              const offset = this.fetch8();  // 3T
+              const offset = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
               if (this.b !== 0) {
                 contendN(this, offsetAddr2, 5);
                 this.pc = (this.pc + signed8(offset)) & 0xFFFF;
@@ -41,7 +41,7 @@ Z80.prototype.executeMain = function (this: Z80, opcode: number): void {
             case 3: {
               // JR: 12T. Auto: 4T M1
               const offsetAddr3 = this.pc;
-              const offset = this.fetch8();  // 3T
+              const offset = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
               contendN(this, offsetAddr3, 5);
               this.pc = (this.pc + signed8(offset)) & 0xFFFF;
               this.memptr = this.pc;  // JR: MEMPTR = jump target
@@ -50,7 +50,7 @@ Z80.prototype.executeMain = function (this: Z80, opcode: number): void {
             default: {
               // JR cc: 12T/7T. Auto: 4T M1
               const offsetAddrCC = this.pc;
-              const offset = this.fetch8();  // 3T
+              const offset = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
               if (this.checkCondition(y - 4)) {
                 contendN(this, offsetAddrCC, 5);
                 this.pc = (this.pc + signed8(offset)) & 0xFFFF;
@@ -64,7 +64,10 @@ Z80.prototype.executeMain = function (this: Z80, opcode: number): void {
         case 1:
           if (q === 0) {
             // LD rr,nn: 10T. Auto: 4T M1 + 6T fetch16 = 10T
-            this.setReg16(p, this.fetch16());
+            // Inlined fetch16 (two +3T reads)
+            const __lo = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
+            const __hi = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
+            this.setReg16(p, (__hi << 8) | __lo);
           } else {
             // ADD HL,rr: 11T. Auto: 4T M1
             contendN(this, this.ir, 7);
@@ -78,16 +81,44 @@ Z80.prototype.executeMain = function (this: Z80, opcode: number): void {
             switch (p) {
               case 0: this.write8(this.bc, this.a); this.memptr = ((this.bc + 1) & 0xFF) | (this.a << 8); this.tStates += 3; break;  // LD (BC),A: 7T, write@T+4
               case 1: this.write8(this.de, this.a); this.memptr = ((this.de + 1) & 0xFF) | (this.a << 8); this.tStates += 3; break;  // LD (DE),A: 7T, write@T+4
-              case 2: { const addr = this.fetch16(); this.write16(addr, this.hl); this.memptr = (addr + 1) & 0xFFFF; this.tStates += 3; break; }  // LD (nn),HL: 16T, writes@T+10,T+13
-              case 3: { const addr = this.fetch16(); this.write8(addr, this.a); this.memptr = ((addr + 1) & 0xFF) | (this.a << 8); this.tStates += 3; break; }    // LD (nn),A: 13T, write@T+10
+              case 2: {
+                // LD (nn),HL: 16T, writes@T+10,T+13. Inlined fetch16.
+                const lo = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
+                const hi = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
+                const addr = (hi << 8) | lo;
+                this.write16(addr, this.hl); this.memptr = (addr + 1) & 0xFFFF; this.tStates += 3;
+                break;
+              }
+              case 3: {
+                // LD (nn),A: 13T, write@T+10. Inlined fetch16.
+                const lo = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
+                const hi = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
+                const addr = (hi << 8) | lo;
+                this.write8(addr, this.a); this.memptr = ((addr + 1) & 0xFF) | (this.a << 8); this.tStates += 3;
+                break;
+              }
             }
           } else {
             // Read instructions — M1 auto-counted (4T), contention at correct sub-cycle
             switch (p) {
               case 0: this.a = this.read8(this.bc); this.memptr = (this.bc + 1) & 0xFFFF; this.tStates += 3; break;  // LD A,(BC): 7T, read@T+4
               case 1: this.a = this.read8(this.de); this.memptr = (this.de + 1) & 0xFFFF; this.tStates += 3; break;  // LD A,(DE): 7T, read@T+4
-              case 2: { const addr = this.fetch16(); this.hl = this.read16(addr); this.memptr = (addr + 1) & 0xFFFF; this.tStates += 3; break; }  // LD HL,(nn): 16T, reads@T+10,T+13
-              case 3: { const addr = this.fetch16(); this.a = this.read8(addr); this.memptr = (addr + 1) & 0xFFFF; this.tStates += 3; break; }    // LD A,(nn): 13T, read@T+10
+              case 2: {
+                // LD HL,(nn): 16T, reads@T+10,T+13. Inlined fetch16.
+                const lo = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
+                const hi = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
+                const addr = (hi << 8) | lo;
+                this.hl = this.read16(addr); this.memptr = (addr + 1) & 0xFFFF; this.tStates += 3;
+                break;
+              }
+              case 3: {
+                // LD A,(nn): 13T, read@T+10. Inlined fetch16.
+                const lo = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
+                const hi = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
+                const addr = (hi << 8) | lo;
+                this.a = this.read8(addr); this.memptr = (addr + 1) & 0xFFFF; this.tStates += 3;
+                break;
+              }
             }
           }
           break;
@@ -135,12 +166,13 @@ Z80.prototype.executeMain = function (this: Z80, opcode: number): void {
         case 6:
           if (y === 6) {
             // LD (HL),n: 10T, write@T+7. Auto: 4T M1 + 3T operand = 7T
-            const n = this.fetch8();
+            const n = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
             this.write8(this.hl, n);
             this.tStates += 3;
           } else {
             // LD r,n: 7T. Auto: 4T M1 + 3T operand = 7T
-            this.setReg8(y, this.fetch8());
+            const n = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
+            this.setReg8(y, n);
           }
           break;
 
@@ -313,8 +345,10 @@ Z80.prototype.executeMain = function (this: Z80, opcode: number): void {
           break;
 
         case 2: {
-          // JP cc,nn: 10T. Auto: 4T M1 + 6T fetch16 = 10T
-          const addr = this.fetch16();
+          // JP cc,nn: 10T. Auto: 4T M1 + 6T fetch16 = 10T. Inlined fetch16.
+          const lo = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
+          const hi = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
+          const addr = (hi << 8) | lo;
           this.memptr = addr;  // Always set MEMPTR, even if jump not taken
           if (this.checkCondition(y)) {
             this.pc = addr;
@@ -324,16 +358,20 @@ Z80.prototype.executeMain = function (this: Z80, opcode: number): void {
 
         case 3:
           switch (y) {
-            case 0:
-              // JP nn: 10T. Auto: 4T M1 + 6T fetch16 = 10T
-              this.memptr = this.pc = this.fetch16();
+            case 0: {
+              // JP nn: 10T. Auto: 4T M1 + 6T fetch16 = 10T. Inlined fetch16.
+              const lo = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
+              const hi = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
+              this.memptr = this.pc = (hi << 8) | lo;
               break;
+            }
             case 1:
               this.executeCB();
               break;
             case 2: {
               // OUT (n),A: 11T. Auto: 4T M1 + 3T operand = 7T
-              const port = (this.a << 8) | this.fetch8();
+              const n = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
+              const port = (this.a << 8) | n;
               this.portOut(port, this.a);
               this.memptr = ((port + 1) & 0xFF) | (this.a << 8);  // OUT (port),A: MEMPTR_low = (port+1) & 0xFF, MEMPTR_hi = A
               this.tStates += 4;
@@ -349,7 +387,7 @@ Z80.prototype.executeMain = function (this: Z80, opcode: number): void {
               // falls inside the IORQ window. The remaining 1T closes
               // the instruction. Total still 11T.
               const aBeforeOp = this.a;
-              const portLow = this.fetch8();
+              const portLow = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
               const port = (this.a << 8) | portLow;
               this.tStates += 3;
               this.a = this.portIn(port);
@@ -399,8 +437,10 @@ Z80.prototype.executeMain = function (this: Z80, opcode: number): void {
           break;
 
         case 4: {
-          // CALL cc,nn: 17T/10T. Auto: 4T M1 + 6T fetch16 = 10T
-          const addr = this.fetch16();
+          // CALL cc,nn: 17T/10T. Auto: 4T M1 + 6T fetch16 = 10T. Inlined fetch16.
+          const lo = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
+          const hi = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
+          const addr = (hi << 8) | lo;
           this.memptr = addr;  // Always set MEMPTR, even if call not made
           if (this.checkCondition(y)) {
             // CALL cc,nn (true): 17T, writes@T+11,T+14
@@ -421,8 +461,10 @@ Z80.prototype.executeMain = function (this: Z80, opcode: number): void {
           } else {
             switch (p) {
               case 0: {
-                // CALL nn: 17T, writes@T+11,T+14. Auto: 4T M1 + 6T fetch16 = 10T
-                const addr = this.fetch16();
+                // CALL nn: 17T, writes@T+11,T+14. Auto: 4T M1 + 6T fetch16 = 10T. Inlined fetch16.
+                const lo = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
+                const hi = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
+                const addr = (hi << 8) | lo;
                 this.contend((this.pc - 1) & 0xFFFF); this.tStates += 1;  // internal at high-byte addr
                 this.push16(this.pc);
                 this.memptr = this.pc = addr;  // CALL: MEMPTR = PC = target
@@ -444,7 +486,7 @@ Z80.prototype.executeMain = function (this: Z80, opcode: number): void {
 
         case 6: {
           // ALU A,n: 7T. Auto: 4T M1 + 3T operand = 7T
-          const val = this.fetch8();
+          const val = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
           this.aluOp(y, val);
           break;
         }

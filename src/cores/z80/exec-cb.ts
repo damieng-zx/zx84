@@ -1,7 +1,10 @@
 import { Z80 } from './core.ts';
 
 Z80.prototype.executeCB = function (this: Z80): void {
-  const op = this.fetch8();      // +3T (M1 read)
+  // Inlined fetch8 (CB M1 read, +3T)
+  const op = this.read8(this.pc);
+  this.pc = (this.pc + 1) & 0xFFFF;
+  this.tStates += 3;
   this.contend(this.ir);         // IR contention during refresh (T3-T4)
   this.tStates += 1;             // +1T (M1 refresh)
   this.r = (this.r & 0x80) | ((this.r + 1) & 0x7F);

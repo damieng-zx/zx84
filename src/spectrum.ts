@@ -333,6 +333,11 @@ export class Spectrum {
     };
     this.tape.onPlayStateChange = () => {
       this.loaderDetector.onTapePlayStateChange();
+      // runFrame's hot loop only calls advanceTapeTo (which would clear
+      // ula.tapeActive on stop) when tape.playing && !tape.paused, so we
+      // synchronously clear here on any stop/pause transition to avoid a
+      // stale tapeEarBit being mixed into the ULA EAR read.
+      if (!this.tape.playing || this.tape.paused) this.ula.tapeActive = false;
     };
 
     // VTX-5000: wire ROM paging callback driven by the 8251's RTS output.
@@ -665,6 +670,11 @@ export class Spectrum {
     // Cache the audio-skip decision once per frame so the per-instruction
     // loop doesn't re-read two properties on every iteration.
     const skipAudio = this.turbo || this._tapeTurboActive;
+    // Cache watchpoint activity: when no watchpoints are configured the
+    // post-step null-compare on portWatchHit/memWatchHit is dead weight.
+    // Watchpoints are added/removed from the UI between rAFs, so caching
+    // at frame start is exact for the duration of one frame.
+    const watchActive = this.portWatchpoints.size > 0 || this.memWatchpoints.length > 0;
 
     // Init scanline rendering state for this frame
     // High and mid modes advance flash here (they render scanlines individually).
@@ -754,7 +764,7 @@ export class Spectrum {
         this.cpu.step();
         if (zxtlPC >= 0) this.captureZxtlLine(zxtlPC);
         // Break mid-frame if a port or memory watchpoint fired during this instruction
-        if (this.portWatchHit !== null || this.memWatchHit !== null) break;
+        if (watchActive && (this.portWatchHit !== null || this.memWatchHit !== null)) break;
       }
 
       // Clear EI delay after each instruction (see timings.md § EI Delay).
@@ -790,8 +800,10 @@ export class Spectrum {
       const elapsed = this.cpu.tStates - tBefore;
 
       // Advance tape playback and update ULA EAR bit (catches up any
-      // T-states not already advanced by the port-in handler mid-instruction)
-      this.advanceTapeTo();
+      // T-states not already advanced by the port-in handler mid-instruction).
+      // Hoist the playing/paused check inline — saves the method-call frame
+      // on every instruction in the common no-tape case.
+      if (this.tape.playing && !this.tape.paused) this.advanceTapeTo();
 
       // Accumulate beeper duty and generate audio samples.
       // In any turbo mode (manual turbo or tape turbo) skip audio entirely:

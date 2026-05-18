@@ -3,7 +3,10 @@ import { ddfdUsesHL } from './tables.ts';
 import { signed8 } from '@/utils/signed.ts';
 
 Z80.prototype.executeDD = function (this: Z80): void {
-  const op = this.fetch8();      // +3T (M1 read)
+  // Inlined fetch8 (+3T M1 read)
+  const op = this.read8(this.pc);
+  this.pc = (this.pc + 1) & 0xFFFF;
+  this.tStates += 3;
   this.contend(this.ir);         // IR contention during refresh (T3-T4)
   this.tStates += 1;             // +1T (M1 refresh)
   this.r = (this.r & 0x80) | ((this.r + 1) & 0x7F);
@@ -29,7 +32,7 @@ Z80.prototype.executeDD = function (this: Z80): void {
   const z = op & 7;
 
   if (x === 1 && (y === 6 || z === 6) && !(y === 6 && z === 6)) {
-    const d = this.fetch8();
+    const d = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
     const addr = (this.ix + signed8(d)) & 0xFFFF;
     this.memptr = addr;  // Any instruction with (INDEX+d): MEMPTR = INDEX+d
     this.h = savedH; this.l = savedL;
@@ -48,7 +51,7 @@ Z80.prototype.executeDD = function (this: Z80): void {
     }
   } else if (x === 2 && z === 6) {
     // ALU A,(IX+d): 19T, read@T+16. Auto: 8T + 3T(d) = 11T
-    const d = this.fetch8();
+    const d = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
     const addr = (this.ix + signed8(d)) & 0xFFFF;
     this.memptr = addr;  // Any instruction with (INDEX+d): MEMPTR = INDEX+d
     this.h = savedH; this.l = savedL;
@@ -58,7 +61,7 @@ Z80.prototype.executeDD = function (this: Z80): void {
   } else if (x === 0 && z === 6 && y !== 6) {
     if (op === 0x26 || op === 0x2E) {
       // Undocumented: LD IXH/IXL, nn: 11T. Auto: 8T + 3T(n) = 11T
-      const n = this.fetch8();
+      const n = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
       if (op === 0x26) {
         this.ix = (n << 8) | (this.ix & 0xFF);
       } else {
@@ -72,7 +75,7 @@ Z80.prototype.executeDD = function (this: Z80): void {
     }
   } else if (x === 0 && (z === 4 || z === 5) && y === 6) {
     // INC/DEC (IX+d): 23T, read@T+16, write@T+20. Auto: 8T + 3T(d) = 11T
-    const d = this.fetch8();
+    const d = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
     const addr = (this.ix + signed8(d)) & 0xFFFF;
     this.memptr = addr;  // Any instruction with (INDEX+d): MEMPTR = INDEX+d
     this.h = savedH; this.l = savedL;
@@ -83,8 +86,8 @@ Z80.prototype.executeDD = function (this: Z80): void {
     this.tStates += 3;
   } else if (op === 0x36) {
     // LD (IX+d),n: 19T, write@T+15 (duplicate guard). Auto: 8T + 3T(d) + 3T(n) = 14T
-    const d = this.fetch8();
-    const n = this.fetch8();
+    const d = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
+    const n = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
     const addr = (this.ix + signed8(d)) & 0xFFFF;
     this.memptr = addr;  // Any instruction with (INDEX+d): MEMPTR = INDEX+d
     this.h = savedH; this.l = savedL;
@@ -108,7 +111,10 @@ Z80.prototype.executeDD = function (this: Z80): void {
 };
 
 Z80.prototype.executeFD = function (this: Z80): void {
-  const op = this.fetch8();      // +3T (M1 read)
+  // Inlined fetch8 (+3T M1 read)
+  const op = this.read8(this.pc);
+  this.pc = (this.pc + 1) & 0xFFFF;
+  this.tStates += 3;
   this.contend(this.ir);         // IR contention during refresh (T3-T4)
   this.tStates += 1;             // +1T (M1 refresh)
   this.r = (this.r & 0x80) | ((this.r + 1) & 0x7F);
@@ -134,7 +140,7 @@ Z80.prototype.executeFD = function (this: Z80): void {
   const z = op & 7;
 
   if (x === 1 && (y === 6 || z === 6) && !(y === 6 && z === 6)) {
-    const d = this.fetch8();
+    const d = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
     const addr = (this.iy + signed8(d)) & 0xFFFF;
     this.memptr = addr;  // Any instruction with (INDEX+d): MEMPTR = INDEX+d
     this.h = savedH; this.l = savedL;
@@ -152,7 +158,7 @@ Z80.prototype.executeFD = function (this: Z80): void {
     }
   } else if (x === 2 && z === 6) {
     // ALU A,(IY+d): 19T, read@T+16. Auto: 8T + 3T(d) = 11T
-    const d = this.fetch8();
+    const d = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
     const addr = (this.iy + signed8(d)) & 0xFFFF;
     this.memptr = addr;  // Any instruction with (INDEX+d): MEMPTR = INDEX+d
     this.h = savedH; this.l = savedL;
@@ -162,7 +168,7 @@ Z80.prototype.executeFD = function (this: Z80): void {
   } else if (x === 0 && z === 6 && y !== 6) {
     if (op === 0x26 || op === 0x2E) {
       // Undocumented: LD IYH/IYL, nn: 11T. Auto: 8T + 3T(n) = 11T
-      const n = this.fetch8();
+      const n = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
       if (op === 0x26) {
         this.iy = (n << 8) | (this.iy & 0xFF);
       } else {
@@ -176,7 +182,7 @@ Z80.prototype.executeFD = function (this: Z80): void {
     }
   } else if (x === 0 && (z === 4 || z === 5) && y === 6) {
     // INC/DEC (IY+d): 23T, read@T+16, write@T+20. Auto: 8T + 3T(d) = 11T
-    const d = this.fetch8();
+    const d = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
     const addr = (this.iy + signed8(d)) & 0xFFFF;
     this.memptr = addr;  // Any instruction with (INDEX+d): MEMPTR = INDEX+d
     this.h = savedH; this.l = savedL;
@@ -187,8 +193,8 @@ Z80.prototype.executeFD = function (this: Z80): void {
     this.tStates += 3;
   } else if (op === 0x36) {
     // LD (IY+d),n: 19T, write@T+15 (duplicate guard). Auto: 8T + 3T(d) + 3T(n) = 14T
-    const d = this.fetch8();
-    const n = this.fetch8();
+    const d = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
+    const n = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
     const addr = (this.iy + signed8(d)) & 0xFFFF;
     this.memptr = addr;  // Any instruction with (INDEX+d): MEMPTR = INDEX+d
     this.h = savedH; this.l = savedL;
@@ -212,16 +218,16 @@ Z80.prototype.executeFD = function (this: Z80): void {
 };
 
 Z80.prototype.executeDDCB = function (this: Z80): void {
-  const d = this.fetch8();
+  const d = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
   const addr = (this.ix + signed8(d)) & 0xFFFF;
-  const op = this.fetch8();
+  const op = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
   this._executeIndexCB(addr, op);
 };
 
 Z80.prototype.executeFDCB = function (this: Z80): void {
-  const d = this.fetch8();
+  const d = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
   const addr = (this.iy + signed8(d)) & 0xFFFF;
-  const op = this.fetch8();
+  const op = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
   this._executeIndexCB(addr, op);
 };
 

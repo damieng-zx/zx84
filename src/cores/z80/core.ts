@@ -20,7 +20,6 @@
 export class Z80 {
   portOutHandler: ((port: number, val: number) => void) | null;
   portInHandler: ((port: number) => number) | null;
-  postStepHook: ((cpu: Z80) => void) | null;
   trapHandler: ((pc: number) => void) | null;
 
   // Main registers
@@ -101,7 +100,6 @@ export class Z80 {
   constructor() {
     this.portOutHandler = null;
     this.portInHandler = null;
-    this.postStepHook = null;
     this.trapHandler = null;
     this.reset();
   }
@@ -162,19 +160,6 @@ export class Z80 {
     this.write8(addr, val & 0xFF);
     this.tStates += 3;  // 3T between consecutive memory writes
     this.write8(addr + 1, (val >> 8) & 0xFF);
-  }
-
-  fetch8(): number {
-    const v = this.read8(this.pc);
-    this.pc = (this.pc + 1) & 0xFFFF;
-    this.tStates += 3;  // Memory read cycle = 3T (contention checked at correct beam position)
-    return v;
-  }
-
-  fetch16(): number {
-    const lo = this.fetch8();
-    const hi = this.fetch8();
-    return (hi << 8) | lo;
   }
 
   push16(val: number): void {
@@ -365,7 +350,7 @@ export class Z80 {
   }
 
   // --- Execute one instruction ---
-  step(): number {
+  step(): void {
     if (this.halted) {
       // HALT repeats a NOP-like M1 fetch from PC — apply contention
       this.read8(this.pc);
@@ -373,26 +358,19 @@ export class Z80 {
       this.contend(this.ir);          // IR contention during refresh (T3-T4)
       this.tStates += 1;              // M1 refresh cycle
       this.r = (this.r & 0x80) | ((this.r + 1) & 0x7F);
-      return 4;
+      return;
     }
 
-    const startT = this.tStates;
     this._prevQ = this._qReg;
     this._qReg = 0;
-    const opcode = this.fetch8();      // +3T (M1 read)
+    // Inlined fetch8 (M1 opcode read, +3T)
+    const opcode = this.read8(this.pc);
+    this.pc = (this.pc + 1) & 0xFFFF;
+    this.tStates += 3;
     this.contend(this.ir);             // IR contention during refresh (T3-T4)
     this.tStates += 1;                 // +1T (M1 refresh cycle)
     this.r = (this.r & 0x80) | ((this.r + 1) & 0x7F);
 
     this.executeMain(opcode);
-
-    if (this.postStepHook) this.postStepHook(this);
-
-    const elapsed = this.tStates - startT;
-    if (elapsed <= 0) {
-      this.tStates += 4;
-      return 4;
-    }
-    return elapsed;
   }
 }
