@@ -49,7 +49,8 @@
       "mcp__zx84__fdc_log",
       "mcp__zx84__vtx5000",
       "Bash(git:*)",
-      "Bash(npx vitest *)"
+      "Bash(npx vitest *)",
+      "Skill(commit-commands:commit)"
     ]
   },
   "enabledMcpjsonServers": [
