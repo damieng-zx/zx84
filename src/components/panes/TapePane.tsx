@@ -7,7 +7,7 @@ import {
   tapeRewind, tapeTogglePlay, tapeTogglePause, tapeSetPosition, toggleAutoRewind,
   ejectTape, loadFile, tapePrev, tapeNext, applyDisplaySettings,
 } from '@/emulator.ts';
-import { tapeAutoRewind, tapeCollapseBlocks, setTapeCollapseBlocks, tapeInstantLoad, setTapeInstantLoad, tapeTurbo, setTapeTurbo, tapeSoundEnabled, setTapeSoundEnabled } from '@/store/settings.ts';
+import { tapeAutoRewind, tapeCollapseBlocks, setTapeCollapseBlocks, tapeInstantRom, setTapeInstantRom, tapeEdgeLoading, setTapeEdgeLoading, tapeTurboLoad, setTapeTurboLoad, tapeSoundEnabled, setTapeSoundEnabled } from '@/store/settings.ts';
 import { persistSetting, resetSettingsGroup } from '@/store/settings.ts';
 import type { TapeBlock, DataBlock } from '@/tape/tap.ts';
 import { openFile } from '@/ui/file-picker.ts';
@@ -122,20 +122,25 @@ export function TapePane() {
           icon={<HiOutlineEllipsisVertical />}
           title="Tape options"
           items={[
-            { value: 'instant-load', label: 'Instant ROM loaders', checked: tapeInstantLoad() },
-            { value: 'tape-turbo', label: 'Accelerate custom loaders', checked: tapeTurbo() },
             { value: 'tape-sound', label: 'Loading sounds', checked: tapeSoundEnabled() },
             { value: 'auto-rewind', label: 'Auto-rewind', checked: tapeAutoRewind() },
             { value: 'collapse-blocks', label: 'Collapse matching blocks', checked: tapeCollapseBlocks() },
+            { value: '__sep1', label: '', separator: true },
+            { value: 'instant-rom', label: 'Instant ROM loaders', checked: tapeInstantRom() },
+            { value: 'turbo-load', label: 'Turbo during load', checked: tapeTurboLoad() },
           ]}
           onSelect={(value) => {
-            if (value === 'instant-load') {
-              setTapeInstantLoad(!tapeInstantLoad());
-              persistSetting('tape-instant-load', tapeInstantLoad() ? 'on' : 'off');
+            if (value === 'instant-rom') {
+              setTapeInstantRom(!tapeInstantRom());
+              persistSetting('tape-instant-rom', tapeInstantRom() ? 'on' : 'off');
               applyDisplaySettings();
-            } else if (value === 'tape-turbo') {
-              setTapeTurbo(!tapeTurbo());
-              persistSetting('tape-turbo', tapeTurbo() ? 'on' : 'off');
+            } else if (value === 'turbo-load') {
+              setTapeTurboLoad(!tapeTurboLoad());
+              persistSetting('tape-turbo-load', tapeTurboLoad() ? 'on' : 'off');
+              applyDisplaySettings();
+            } else if (value === 'edge-loading') {
+              setTapeEdgeLoading(!tapeEdgeLoading());
+              persistSetting('tape-edge-loading', tapeEdgeLoading() ? 'on' : 'off');
               applyDisplaySettings();
             } else if (value === 'tape-sound') {
               setTapeSoundEnabled(!tapeSoundEnabled());

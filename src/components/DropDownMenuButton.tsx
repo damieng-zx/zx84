@@ -8,6 +8,8 @@ export interface MenuItem {
   checked?: boolean;
   /** Sub-menu items — renders as a flyout on hover. */
   children?: MenuItem[];
+  /** Renders a horizontal separator instead of a clickable item. */
+  separator?: boolean;
 }
 
 interface Props {
@@ -63,6 +65,9 @@ export function DropDownMenuButton(props: Props) {
   }
 
   function renderItem(item: MenuItem) {
+    if (item.separator) {
+      return <div class="ddmenu-separator" />;
+    }
     if (item.children) {
       return (
         <div class="ddmenu-item ddmenu-parent">

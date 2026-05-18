@@ -204,9 +204,10 @@ export function applyDisplaySettings(): void {
   const mix = settings.ayMix() / 100;
   spectrum.mixer.beeperGain = Math.min(1, 2 * (1 - mix));
   spectrum.mixer.ayGain = Math.min(1, 2 * mix);
-  spectrum.tapeInstantLoad = settings.tapeInstantLoad();
-  spectrum.tapeTurbo = settings.tapeTurbo();
+  spectrum.tapeInstantLoad = settings.tapeInstantRom();
+  spectrum.tapeTurbo = settings.tapeTurboLoad();
   spectrum.tapeSoundEnabled = settings.tapeSoundEnabled();
+  spectrum.loaderDetector.accelerateLoader = settings.tapeEdgeLoading();
   spectrum.scanlineAccuracy = settings.scanlineAccuracy();
 }
 
@@ -695,9 +696,13 @@ export function tapePrev(): void {
 export function tapeTogglePlay(): void {
   if (!spectrum) return;
   if (spectrum.tape.playing) {
+    // User-initiated stop — block the LoaderDetector from auto-restarting
+    // on post-load keyboard polling. Cleared on the next manual play.
+    spectrum.loaderDetector.userOverride = true;
     spectrum.tape.stopPlayback();
     setTapePlaying(false);
   } else {
+    spectrum.loaderDetector.userOverride = false;
     spectrum.tape.paused = false;
     spectrum.tape.startPlayback();
     setTapePaused(false);
@@ -708,6 +713,10 @@ export function tapeTogglePlay(): void {
 export function tapeTogglePause(): void {
   if (!spectrum) return;
   spectrum.tape.paused = !spectrum.tape.paused;
+  // Pausing is a user action — prevent the LoaderDetector from auto-
+  // resuming the tape via its 'start' event on post-load polling. Cleared
+  // when the user unpauses.
+  spectrum.loaderDetector.userOverride = spectrum.tape.paused;
   setTapePaused(spectrum.tape.paused);
 }
 

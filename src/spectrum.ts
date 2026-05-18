@@ -24,7 +24,7 @@ import { Contention } from '@/contention.ts';
 import { ScreenText, OCR_GRIDS, detectGrid } from '@/debug/screen-text.ts';
 import type { FontSource, OcrResult, OcrGridName } from '@/debug/screen-text.ts';
 import { trapTapeLoad } from '@/tape/tape-loader.ts';
-import { LoaderDetector } from '@/tape/loader-detect.ts';
+import { EdgeLoader, type EdgeLoaderHost } from '@/tape/edge-loader.ts';
 import { installMemoryHooks, wirePortIO } from '@/io-ports.ts';
 import { KempstonJoystick } from '@/peripherals/joysticks.ts';
 import { KempstonMouse } from '@/peripherals/kempston-mouse.ts';
@@ -177,8 +177,15 @@ export class Spectrum {
   private _zxtlPrevPC = -1;
   private _zxtlPrevLen = 0;
 
-  /** Loader detection: auto-start tape based on edge-detection loop patterns */
-  loaderDetector = new LoaderDetector();
+  /** Edge-loading subsystem: auto play/stop, structural loader fingerprint,
+   *  and surgical edge acceleration. See docs/edge-loading.md. The property
+   *  is named `loaderDetector` for compatibility with the UI/emulator layer
+   *  that already references it. */
+  loaderDetector = new EdgeLoader();
+
+  /** Bridge handed to EdgeLoader so it can read CPU/tape state and the
+   *  live (paging-aware) memory map without circularly importing Spectrum. */
+  edgeLoaderHost!: EdgeLoaderHost;
 
   /** T-state at which the tape was last advanced (for sub-instruction accuracy) */
   tapeLastAdvanceT = 0;
@@ -268,6 +275,26 @@ export class Spectrum {
     this._cellRenderOffset = this.variant.cellRenderOffset;
     installMemoryHooks(this);
     wirePortIO(this);
+
+    // Bridge between EdgeLoader and the live machine state. Read through
+    // memory.readByte so paging is respected (§3.2 in docs/edge-loading.md).
+    this.edgeLoaderHost = {
+      cpu: this.cpu,
+      tape: this.tape,
+      readMem: (addr) => this.memory.readByte(addr & 0xFFFF),
+      // Bit 5 of port 0xFE on read carries EAR — the loader stores the
+      // current EAR level there for its next iteration's XOR comparison.
+      earBit: () => this.tape.earBit,
+    };
+
+    // Tape engine → EdgeLoader: publish the next edge's length category
+    // every time a new pulse is scheduled. §5 of docs/edge-loading.md.
+    this.tape.onEdgeScheduled = (flags, fromAcceleration) => {
+      this.loaderDetector.setAccelerationFlags(flags, fromAcceleration);
+    };
+    this.tape.onPlayStateChange = () => {
+      this.loaderDetector.onTapePlayStateChange();
+    };
 
     // VTX-5000: wire ROM paging callback driven by the 8251's RTS output.
     // When RTS changes, swap slot 0 between VTX ROM+RAM and Spectrum ROM.
@@ -710,7 +737,13 @@ export class Spectrum {
     // tape, turbo must release even if the detector still thinks a loader is
     // running — otherwise the visible MHz readout stays pinned at ~50 and
     // the user's pause feels broken.
+    // A paused tape — whether paused by the user, by a TZX "stop tape"
+    // block (duration=0), or by auto-rewind hitting end-of-tape — must
+    // release tape turbo. `loaderActive` is sticky between §2 start/stop
+    // events, so without the `!tape.paused` gate it would hold turbo on
+    // long after the tape stopped advancing.
     const tapeLoading = !this.loaderDetector.userOverride
+                     && !this.tape.paused
                      && (this.loaderDetector.loaderActive
                          || this.activity.earReads > 0
                          || this.activity.tapeLoads > 0

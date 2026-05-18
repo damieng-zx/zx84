@@ -11,14 +11,16 @@
  *     and pure-data / custom-loader blocks. The caller then runs real
  *     LD-BYTES so custom-speed and protected tapes load correctly.
  *   - Trap SUCCEEDS by copying `cpu.de` bytes to `cpu.ix`, advancing
- *     IX by DE, zeroing DE, consuming the block from the tape, and
- *     setting PC=0x05E2 (POP AF; RET) which the ROM will execute to
- *     pop its 0x053F push and return to the caller with carry=1.
+ *     IX by DE, zeroing DE, consuming the block from the tape, then
+ *     popping TWO words from the stack (the 0x053F parity-error
+ *     return that LD-BYTES pushed at $0561, and the caller's actual
+ *     return address). PC is set to the caller's return; main-F's
+ *     carry bit is set to 1 to signal success.
  *   - SAVE-half of LD-BYTES is "VERIFY" semantics: cleared carry.
  *     Verify advances IX/DE the same way but writes nothing. We do
  *     NOT compare bytes (JSpeccy/ZEsarUX shortcut).
- *   - The trap never pops SP or touches IFF1/IFF2 — the real ROM RET
- *     handles return, and the caller's EI handles interrupt re-enable.
+ *   - The trap never touches IFF1/IFF2 — the caller's EI handles
+ *     interrupt re-enable.
  *
  * Behaviour deliberately pinned because it differs from earlier
  * versions:
@@ -80,16 +82,19 @@ function makeDataBlock(flag: number, data: Uint8Array | number[]): DataBlock {
  *   - expected flag byte in A' (entry A was saved by EX AF,AF')
  *   - carry in F' (entry carry: 1=LOAD, 0=VERIFY)
  *   - IX = destination, DE = byte count
- *   - SP set up so the trap could theoretically pop (we don't expect it to)
+ *   - Stack: 0x053F on top (the PUSH HL at $0561), caller's return below.
  */
 function primeForTrap(cpu: TestCPU, opts: {
   a: number;          // expected flag byte
   carry: boolean;     // true = LOAD, false = VERIFY
   ix: number;
   de: number;
+  retAddr?: number;   // caller's return address
   sp?: number;
 }): void {
   cpu.sp = opts.sp ?? 0xFF00;
+  cpu.push16(opts.retAddr ?? 0x1234);  // caller's return address (pushed by original CALL)
+  cpu.push16(0x053F);                  // ROM's PUSH HL at $0561
   cpu.pc = 0x056C;
   // Entry A/F → shadow regs (EX AF,AF' at 0x0557)
   cpu.a_ = opts.a;
@@ -164,15 +169,18 @@ describe('trapTapeLoad — declines without side-effects', () => {
 // ── Success paths ────────────────────────────────────────────────────────
 
 describe('trapTapeLoad — LOAD success', () => {
-  it('exact-length block: copies bytes, advances IX, zeroes DE, sets PC=0x05E2', () => {
+  it('exact-length block: copies bytes, advances IX, zeroes DE, returns to caller with carry=1', () => {
     const payload = [0x11, 0x22, 0x33, 0x44];
     const tape = new TapeStub([makeDataBlock(0xFF, payload)]);
-    primeForTrap(cpu, { a: 0xFF, carry: true, ix: 0x8000, de: 4 });
+    primeForTrap(cpu, { a: 0xFF, carry: true, ix: 0x8000, de: 4, retAddr: 0xBEEF });
+    const spBefore = cpu.sp;
     expect(trapTapeLoad(cpu, tape as any)).toBe(true);
     expect(Array.from(cpu.mem.slice(0x8000, 0x8004))).toEqual(payload);
     expect(cpu.ix).toBe(0x8004);
     expect(cpu.de).toBe(0);
-    expect(cpu.pc).toBe(0x05E2);
+    expect(cpu.pc).toBe(0xBEEF);
+    expect(cpu.sp).toBe((spBefore + 4) & 0xFFFF); // popped both 0x053F and caller return
+    expect(cpu.getFlag(Z80.FLAG_C)).toBe(true);
     expect(tape.consumed).toBe(1);
   });
 
@@ -204,9 +212,6 @@ describe('trapTapeLoad — LOAD success', () => {
   });
 
   it('reads expected flag from A_ and carry from F_ (not main regs)', () => {
-    // If the trap accidentally read main A/F it would see junk that the
-    // LD-BYTES preamble left there. Set main A to something different and
-    // confirm the shadow regs win.
     const tape = new TapeStub([makeDataBlock(0xFF, [0x99])]);
     primeForTrap(cpu, { a: 0xFF, carry: true, ix: 0x4000, de: 1 });
     cpu.a = 0x02;
@@ -219,12 +224,13 @@ describe('trapTapeLoad — LOAD success', () => {
 describe('trapTapeLoad — VERIFY success (carry=0 in F_)', () => {
   it('succeeds without writing to memory', () => {
     const tape = new TapeStub([makeDataBlock(0xFF, [0xAA, 0xBB, 0xCC])]);
-    primeForTrap(cpu, { a: 0xFF, carry: false, ix: 0x8000, de: 3 });
+    primeForTrap(cpu, { a: 0xFF, carry: false, ix: 0x8000, de: 3, retAddr: 0xABCD });
     expect(trapTapeLoad(cpu, tape as any)).toBe(true);
     expect(Array.from(cpu.mem.slice(0x8000, 0x8003))).toEqual([0, 0, 0]);
     expect(cpu.ix).toBe(0x8003);
     expect(cpu.de).toBe(0);
-    expect(cpu.pc).toBe(0x05E2);
+    expect(cpu.pc).toBe(0xABCD);
+    expect(cpu.getFlag(Z80.FLAG_C)).toBe(true);
   });
 
   it('verify with no block declines (same as LOAD)', () => {
@@ -246,18 +252,19 @@ describe('trapTapeLoad — VERIFY success (carry=0 in F_)', () => {
   });
 });
 
-// ── Stack and IFF are never touched ───────────────────────────────────────
+// ── Stack and IFF behaviour ───────────────────────────────────────────────
 
-describe('trapTapeLoad — never touches SP or IFFs', () => {
-  it('does NOT pop SP on success (POP AF at 0x05E2 will do it via real CPU)', () => {
+describe('trapTapeLoad — stack and IFF behaviour', () => {
+  it('pops the 0x053F push and the caller return on success', () => {
     const tape = new TapeStub([makeDataBlock(0xFF, [1])]);
-    primeForTrap(cpu, { a: 0xFF, carry: true, ix: 0, de: 1, sp: 0xF000 });
+    primeForTrap(cpu, { a: 0xFF, carry: true, ix: 0, de: 1, retAddr: 0x1357, sp: 0xF000 });
     const spBefore = cpu.sp;
     trapTapeLoad(cpu, tape as any);
-    expect(cpu.sp).toBe(spBefore);
+    expect(cpu.pc).toBe(0x1357);
+    expect(cpu.sp).toBe((spBefore + 4) & 0xFFFF);
   });
 
-  it('does NOT modify IFF1/IFF2 on success', () => {
+  it('does NOT touch IFF1/IFF2 on success (caller does its own EI)', () => {
     const tape = new TapeStub([makeDataBlock(0xFF, [1])]);
     primeForTrap(cpu, { a: 0xFF, carry: true, ix: 0, de: 1 });
     cpu.iff1 = false;
@@ -267,7 +274,7 @@ describe('trapTapeLoad — never touches SP or IFFs', () => {
     expect(cpu.iff2).toBe(false);
   });
 
-  it('does NOT modify IFF1/IFF2 on decline', () => {
+  it('does NOT touch IFF1/IFF2 on decline', () => {
     const tape = new TapeStub([]);
     primeForTrap(cpu, { a: 0xFF, carry: true, ix: 0, de: 0 });
     cpu.iff1 = false;
@@ -275,6 +282,14 @@ describe('trapTapeLoad — never touches SP or IFFs', () => {
     trapTapeLoad(cpu, tape as any);
     expect(cpu.iff1).toBe(false);
     expect(cpu.iff2).toBe(false);
+  });
+
+  it('does NOT touch SP on decline', () => {
+    const tape = new TapeStub([]);
+    primeForTrap(cpu, { a: 0xFF, carry: true, ix: 0, de: 100, sp: 0xF000 });
+    const spBefore = cpu.sp;
+    trapTapeLoad(cpu, tape as any);
+    expect(cpu.sp).toBe(spBefore);
   });
 });
 
@@ -312,7 +327,7 @@ describe('trapTapeLoad — sequential loads consume blocks in order', () => {
 // ── Type narrowing safety ────────────────────────────────────────────────
 
 describe('trapTapeLoad — non-DataBlock inputs', () => {
-  it('null peek (deck returns null for tone/pulses/direct/etc.) declines cleanly', () => {
+  it('null peek declines cleanly without throwing', () => {
     const tape = new TapeStub([]);
     primeForTrap(cpu, { a: 0xFF, carry: true, ix: 0, de: 0 });
     expect(() => trapTapeLoad(cpu, tape as any)).not.toThrow();

@@ -12,11 +12,14 @@
  *     doesn't match (no block, flag mismatch, length mismatch). The
  *     caller then lets the real ROM execute LD-BYTES at full fidelity,
  *     so custom-speed turbos and protected tapes load correctly.
- *   - Return true after copying bytes to memory and pointing PC at the
- *     ROM's `POP AF; RET` cleanup at 0x05E2. The POP AF will pop the
- *     0x053F that LD-BYTES pushed at 0x0561 (its parity-error return
- *     address) and load F=0x3F — carry set, signalling success to the
- *     caller. RET then returns to the caller's saved address.
+ *   - Return true after copying bytes to memory and rewinding the
+ *     stack: the PUSH HL at $0561 left $053F (parity-error return)
+ *     on top of the caller's return address, so we POP it ourselves
+ *     and then POP the caller's address into PC. Carry is set on
+ *     main F to signal success — the natural LD-BYTES exit at
+ *     $05DF..$05E2 leaves main F's carry as the success indicator
+ *     and does NOT do an EX AF,AF' before RET (verified against the
+ *     48K ROM: LD A,H / CP $01 / RET — the C9 at $05E2 is bare RET).
  *
  * Length check matches FUSE's `block_length != DE+2` (their length
  * includes flag+payload+checksum; our `block.data` is the payload
@@ -25,11 +28,6 @@
 
 import { Z80 } from '@/cores/z80.ts';
 import type { TapeDeck } from '@/tape/tap.ts';
-
-/** PC that LD-BYTES returns through after a successful load. POP AF; RET
- *  — POP AF pops the 0x053F pushed at 0x0561 (F=0x3F → carry set), RET
- *  pops the caller's return address. */
-const LD_BYTES_RETURN = 0x05E2;
 
 export function trapTapeLoad(cpu: Z80, tape: TapeDeck): boolean {
   // EX AF,AF' at 0x0557 swapped the entry A/F into the shadow regs.
@@ -60,8 +58,11 @@ export function trapTapeLoad(cpu: Z80, tape: TapeDeck): boolean {
   cpu.ix = (dest + count) & 0xFFFF;
   cpu.de = 0;
 
-  // Hand control back to the ROM at POP AF; RET. POP AF makes carry=1
-  // (from F=0x3F on the stack), which is the ROM's "load succeeded" signal.
-  cpu.pc = LD_BYTES_RETURN;
+  // Discard the 0x053F parity-error return that LD-BYTES pushed at $0561,
+  // then pop the caller's return address into PC.
+  cpu.pop16();
+  cpu.pc = cpu.pop16();
+  // Carry on main F = success (matches the ROM's natural exit at $05E0/$05E2).
+  cpu.setFlag(Z80.FLAG_C, true);
   return true;
 }

@@ -28,6 +28,11 @@ import {
 } from '@/emulator.ts';
 
 import { hex8, hex16 } from '@/utils/hex.ts';
+import { loaderSignatureLabel, type LoaderSignature } from '@/tape/edge-loader.ts';
+
+// Tracks the last loader signature we surfaced in the status bar so we only
+// announce a transition (unknown → known, or one loader → a different one).
+let lastAnnouncedSignature: LoaderSignature = 'unknown';
 
 // ── Hardware panel rendering ────────────────────────────────────────────
 
@@ -333,6 +338,17 @@ export function onFrame(): void {
     setLedRainbow(a.attrWrites > 768);
     setLedMouse(a.mouseReads > 0);
     setLedTapeTurbo(spectrum!.tapeTurboActive);
+
+    // Announce a freshly-detected loader on the status line. The detector
+    // sets signature on auto-start; we only fire setStatus on the transition
+    // so the message doesn't flood every frame.
+    const sig = spectrum!.loaderDetector.signature;
+    if (sig !== lastAnnouncedSignature) {
+      if (sig !== 'unknown') {
+        setStatus(`Running accelerated tape loading for ${loaderSignatureLabel(sig)}`);
+      }
+      lastAnnouncedSignature = sig;
+    }
 
     // Transcribe mode LEDs
     setLedText(transcribeMode() === 'text' || a.earReads > 0);

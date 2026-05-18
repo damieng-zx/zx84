@@ -11,6 +11,16 @@
  * directly.
  */
 
+// ── Edge-length flags for surgical loader acceleration ───────────────────
+//
+// Published to a registered listener whenever the playback engine schedules
+// a new pulse. The loader uses these to know whether the upcoming edge is
+// a "short" or "long" pulse so it can set the loader's B counter to a
+// plausible exit value before popping the CALL return address.
+// See docs/edge-loading.md §5.
+
+export type EdgeLengthFlags = 'short' | 'long' | 'unknown';
+
 // ── TapeBlock discriminated union ─────────────────────────────────────────
 
 export interface DataBlock {
@@ -85,6 +95,24 @@ export class TapeDeck {
   /** Whether the tape player is actively running */
   playing = false;
 
+  /**
+   * Optional listener for edge-length flags. Called every time the playback
+   * engine schedules a new pulse — i.e. whenever pulseLen changes. Used by
+   * EdgeLoader to know the category (short/long/unknown) of the upcoming
+   * edge for surgical loader acceleration. See docs/edge-loading.md §5.
+   */
+  onEdgeScheduled: ((flags: EdgeLengthFlags, fromAcceleration: boolean) => void) | null = null;
+
+  /** Set to true by EdgeLoader before calling advance() during an acceleration
+   *  step, so onEdgeScheduled callbacks can flag the resulting edge as
+   *  "manufactured" rather than naturally scheduled. */
+  inAcceleration = false;
+
+  /** Optional listener for tape play-state transitions (start/stop). Used
+   *  by EdgeLoader to reset its successive-reads counter and acceleration
+   *  mode on any play boundary. §6 of docs/edge-loading.md. */
+  onPlayStateChange: (() => void) | null = null;
+
   private phase: TapePhase = TapePhase.IDLE;
   private playbackIdx = -1;
 
@@ -110,6 +138,13 @@ export class TapeDeck {
 
   /** Pause remaining in T-states */
   private pauseRemaining = 0;
+
+  /** T-states until the mid-pause EAR flip. Per TZX spec, when a data block
+   *  ends with a pause, the tape holds the last edge level for ~1ms then
+   *  flips to the OPPOSITE level for the remainder of the pause. Loaders
+   *  like Speedlock 7 rely on this flip as the "end of block" signal. -1
+   *  means no pending flip. */
+  private pauseFlipAt = -1;
 
   /** Per-block timing (from DataBlock) */
   private bPilot = PILOT_PULSE;
@@ -291,6 +326,7 @@ export class TapeDeck {
     this.playing = true;
     this.earBit = 0;
     this.beginBlock(this.position);
+    if (this.onPlayStateChange) this.onPlayStateChange();
   }
 
   /** Stop playback */
@@ -300,6 +336,7 @@ export class TapeDeck {
     this.earBit = 0;
     this.rawData = null;
     this.directData = null;
+    if (this.onPlayStateChange) this.onPlayStateChange();
   }
 
   /**
@@ -316,6 +353,28 @@ export class TapeDeck {
   }
 
   /**
+   * Return the number of T-states until the next EAR transition, given how
+   * many T-states have already been accumulated within the current pulse,
+   * or null if the tape is idle/paused/in a phase without scheduled edges.
+   *
+   * Used by surgical loader acceleration: when a custom loader is spinning
+   * on IN A,($FE) waiting for an edge, we can compute the exact moment
+   * the next edge arrives and jump CPU state forward instead of running
+   * thousands of polling iterations.
+   *
+   * Returns 0 if an edge is overdue (advance() should fire it immediately).
+   * Pulse/data phases only — DIRECT and PAUSE phases return null because
+   * their semantics are different (DIRECT toggles on sample boundaries
+   * absolutely, PAUSE has no edges).
+   */
+  tStatesToNextEdge(): number | null {
+    if (!this.playing || this.paused || this.phase === TapePhase.IDLE) return null;
+    if (this.phase === TapePhase.PAUSE || this.phase === TapePhase.DIRECT) return null;
+    const remaining = this.pulseLen - this.tInPulse;
+    return remaining > 0 ? remaining : 0;
+  }
+
+  /**
    * Advance playback by the given number of T-states.
    * Toggles earBit at pulse boundaries.
    */
@@ -323,11 +382,21 @@ export class TapeDeck {
     if (!this.playing || this.paused || this.phase === TapePhase.IDLE) return;
 
     if (this.phase === TapePhase.PAUSE) {
-      // Don't reset earBit here — the last data pulse may have toggled it
-      // between port reads (via main-loop advanceTapeTo), and the ROM needs
-      // to see that toggle on its next IN A,($FE). earBit will naturally
-      // reset when the next block starts or playback stops.
+      // Per TZX 1.20 §3.5: when a data block ends with a pause, the tape
+      // holds the last edge level briefly, then drops to low (level 0)
+      // for the remainder. Loaders like Speedlock 7 rely on this drop as
+      // the "block done" signal — without it the loader times out into
+      // an error path or mis-syncs against the next block. pauseFlipAt
+      // is the T-states until the drop; -1 means no drop pending (e.g.
+      // for standalone PauseBlock entries from TZX 0x20).
       this.pauseRemaining -= tStates;
+      if (this.pauseFlipAt > 0) {
+        this.pauseFlipAt -= tStates;
+        if (this.pauseFlipAt <= 0) {
+          this.earBit = 0;
+          this.pauseFlipAt = -1;
+        }
+      }
       if (this.pauseRemaining <= 0) {
         this.beginBlock(this.playbackIdx + 1);
       }
@@ -352,6 +421,34 @@ export class TapeDeck {
 
   // ── Internal playback mechanics ───────────────────────────────────────
 
+  /**
+   * Categorise the currently-pending pulse (i.e. the one defined by phase
+   * + pulseLen + rawData) for the surgical loader accelerator. Pilot is
+   * 'long' (≈2168T half-cycle, well above the 855T data-short threshold);
+   * sync pulses are 'short'; data bits are short or long depending on the
+   * bit being emitted. Tone/pulses/direct/pause/idle are 'unknown'.
+   */
+  private currentEdgeFlags(): EdgeLengthFlags {
+    switch (this.phase) {
+      case TapePhase.PILOT: return 'long';
+      case TapePhase.SYNC1:
+      case TapePhase.SYNC2: return 'short';
+      case TapePhase.DATA: {
+        const byte = this.rawData![this.byteIdx];
+        const bit = (byte >> this.bitIdx) & 1;
+        return bit ? 'long' : 'short';
+      }
+      default: return 'unknown';
+    }
+  }
+
+  /** Publish the current edge flags to a registered listener (if any). */
+  private publishEdgeFlags(): void {
+    if (this.onEdgeScheduled) {
+      this.onEdgeScheduled(this.currentEdgeFlags(), this.inAcceleration);
+    }
+  }
+
   private beginBlock(idx: number): void {
     while (idx < this.blocks.length) {
       this.playbackIdx = idx;
@@ -367,6 +464,7 @@ export class TapeDeck {
           this.phase = TapePhase.TONE;
           this.toneRemaining = block.count;
           this.pulseLen = block.pulseLen;
+          this.publishEdgeFlags();
           return;
 
         case 'pulses':
@@ -379,6 +477,7 @@ export class TapeDeck {
           this.pulsesLengths = block.lengths;
           this.pulsesIdx = 0;
           this.pulseLen = block.lengths[0];
+          this.publishEdgeFlags();
           return;
 
         case 'pause':
@@ -386,12 +485,14 @@ export class TapeDeck {
             this.paused = true;
             this.position = idx + 1;
             this.phase = TapePhase.IDLE;
+            this.publishEdgeFlags();
             return;
           }
           this.position = idx + 1;
           this.phase = TapePhase.PAUSE;
           this.earBit = 0;
           this.pauseRemaining = Math.round(block.duration * this.cpuClock / 1000);
+          this.publishEdgeFlags();
           return;
 
         case 'direct':
@@ -401,6 +502,7 @@ export class TapeDeck {
             continue;
           }
           this.beginDirectBlock(block);
+          this.publishEdgeFlags();
           return;
 
         case 'set-level':
@@ -460,6 +562,7 @@ export class TapeDeck {
       this.pilotRemaining = block.pilotCount;
       this.pulseLen = this.bPilot;
     }
+    this.publishEdgeFlags();
   }
 
   private beginDirectBlock(block: DirectBlock): void {
@@ -578,6 +681,7 @@ export class TapeDeck {
         if (this.toneRemaining <= 0) {
           this.position = this.playbackIdx + 1;
           this.beginBlock(this.playbackIdx + 1);
+          return; // beginBlock publishes its own flags
         }
         break;
 
@@ -586,11 +690,13 @@ export class TapeDeck {
         if (this.pulsesIdx >= this.pulsesLengths.length) {
           this.position = this.playbackIdx + 1;
           this.beginBlock(this.playbackIdx + 1);
+          return; // beginBlock publishes its own flags
         } else {
           this.pulseLen = this.pulsesLengths[this.pulsesIdx];
         }
         break;
     }
+    this.publishEdgeFlags();
   }
 
   private setDataPulseLen(): void {
@@ -601,10 +707,17 @@ export class TapeDeck {
 
   private enterPause(): void {
     this.phase = TapePhase.PAUSE;
-    // Don't reset earBit here — the last data pulse just toggled it,
-    // and the ROM needs to see that final edge before we go low.
-    // earBit will be reset on the next advance() call in PAUSE phase.
     this.position = this.playbackIdx + 1;
+    // pauseRemaining was set by beginDataBlock from block.pause (ms→T).
+    // Schedule the mid-pause EAR flip per TZX §3.5: hold for ~1ms then
+    // flip to opposite level. The 945T figure matches FUSE — about a
+    // quarter of a frame, long enough that real loaders see the last
+    // edge before the level changes, short enough that the flip arrives
+    // well within any reasonable pause. We only schedule a flip if there
+    // actually is a pause (pauseRemaining > 945T) — for zero-pause block
+    // transitions the flip would land after the next block has begun.
+    this.pauseFlipAt = this.pauseRemaining > 945 ? 945 : -1;
+    this.publishEdgeFlags(); // 'unknown' — next edge length not known
   }
 
   /** Reconstruct raw block bytes: flag + payload + XOR checksum */

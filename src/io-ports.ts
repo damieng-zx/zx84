@@ -7,7 +7,6 @@
  */
 
 import type { Spectrum } from '@/spectrum.ts';
-import { detectLoaderSignature } from '@/tape/loader-signature.ts';
 
 /**
  * Override Z80 read8/write8 to apply per-access ULA contention and
@@ -173,14 +172,16 @@ export function wirePortIO(s: Spectrum): void {
       if (s.ula.tapeActive && (port >> 8) === 0xFF) s.activity.earReads++;
       if (s.tape.loaded && !s.tape.finished) {
         const playing = s.tape.playing && !s.tape.paused;
-        const event = s.loaderDetector.onPortRead(s.cpu.tStates, s.cpu.b, playing);
+        // EdgeLoader runs §2 auto play/stop then, if accel is on and the
+        // tape is playing, §3 structural fingerprint + §4 acceleration.
+        // Accel pops the loader's CALL return into PC, sets B/C/F to
+        // plausible exit values, and advances the tape to the next edge
+        // boundary in one step. See docs/edge-loading.md.
+        const event = s.loaderDetector.onULARead(s.edgeLoaderHost, playing);
         if (event === 'start') {
-          s.loaderDetector.signature = detectLoaderSignature(
-            (a) => s.memory.readByte(a),
-            s.cpu.pc,
-          );
           s.tape.paused = false;
-          s.tape.startPlayback();
+          if (!s.tape.playing) s.tape.startPlayback();
+          s.activity.loaderDetected = true;
         } else if (event === 'stop') {
           s.tape.paused = true;
         }

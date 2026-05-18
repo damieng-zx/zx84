@@ -1265,6 +1265,12 @@ input[type="range"]::-moz-range-thumb {
 
 .ddmenu-item:hover { background: #eef; }
 
+.ddmenu-separator {
+  height: 1px;
+  background: #ccc;
+  margin: 4px 0;
+}
+
 .ddmenu-check {
   width: 20px;
   text-align: center;
