@@ -26,6 +26,7 @@ const ALU = ['ADD A,', 'ADC A,', 'SUB ', 'SBC A,', 'AND ', 'XOR ', 'OR ', 'CP ']
 const ROT = ['RLC', 'RRC', 'RL', 'RR', 'SLA', 'SRA', 'SLL', 'SRL'];
 
 import { hex8 as h8, hex16 as h16 } from '@/utils/hex.ts';
+import { signed8 } from '@/utils/signed.ts';
 
 // Tagged formatters — marker bytes delimit operand type for colorization
 function val(s: string): string { return `\x01${s}\x01`; }
@@ -38,7 +39,7 @@ function a16(v: number): string { return adr(h16(v)); }       // jump/memory add
 function p8(v: number): string { return prt(h8(v)); }         // I/O port
 
 function disp(d: number): string {
-  const s = d < 128 ? d : d - 256;
+  const s = signed8(d);
   return val(s >= 0 ? '+' + h8(s) : '-' + h8(-s));
 }
 
@@ -47,7 +48,7 @@ export function disasmOne(mem: Uint8Array, addr: number): DisasmLine {
   let terminal = false;
   const rd = () => { const v = mem[addr & 0xFFFF]; addr = (addr + 1) & 0xFFFF; return v; };
   const rd16 = () => { const lo = rd(); return lo | (rd() << 8); };
-  const rel = () => { const d = rd(); return (addr + (d < 128 ? d : d - 256)) & 0xFFFF; };
+  const rel = () => { const d = rd(); return (addr + signed8(d)) & 0xFFFF; };
 
   let op = rd();
   let text = '';

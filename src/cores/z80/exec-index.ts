@@ -1,5 +1,6 @@
 import { Z80 } from './core.ts';
 import { ddfdUsesHL } from './tables.ts';
+import { signed8 } from '@/utils/signed.ts';
 
 Z80.prototype.executeDD = function (this: Z80): void {
   const op = this.fetch8();      // +3T (M1 read)
@@ -29,7 +30,7 @@ Z80.prototype.executeDD = function (this: Z80): void {
 
   if (x === 1 && (y === 6 || z === 6) && !(y === 6 && z === 6)) {
     const d = this.fetch8();
-    const addr = (this.ix + (d < 128 ? d : d - 256)) & 0xFFFF;
+    const addr = (this.ix + signed8(d)) & 0xFFFF;
     this.memptr = addr;  // Any instruction with (INDEX+d): MEMPTR = INDEX+d
     this.h = savedH; this.l = savedL;
 
@@ -48,7 +49,7 @@ Z80.prototype.executeDD = function (this: Z80): void {
   } else if (x === 2 && z === 6) {
     // ALU A,(IX+d): 19T, read@T+16. Auto: 8T + 3T(d) = 11T
     const d = this.fetch8();
-    const addr = (this.ix + (d < 128 ? d : d - 256)) & 0xFFFF;
+    const addr = (this.ix + signed8(d)) & 0xFFFF;
     this.memptr = addr;  // Any instruction with (INDEX+d): MEMPTR = INDEX+d
     this.h = savedH; this.l = savedL;
     this.tStates += 5;
@@ -59,7 +60,7 @@ Z80.prototype.executeDD = function (this: Z80): void {
       // LD (IX+d),n: 19T, write@T+15. Auto: 8T + 3T(d) + 3T(n) = 14T
       const d = this.fetch8();
       const n = this.fetch8();
-      const addr = (this.ix + (d < 128 ? d : d - 256)) & 0xFFFF;
+      const addr = (this.ix + signed8(d)) & 0xFFFF;
       this.memptr = addr;  // Any instruction with (INDEX+d): MEMPTR = INDEX+d
       this.h = savedH; this.l = savedL;
       this.tStates += 1;
@@ -82,7 +83,7 @@ Z80.prototype.executeDD = function (this: Z80): void {
   } else if (x === 0 && (z === 4 || z === 5) && y === 6) {
     // INC/DEC (IX+d): 23T, read@T+16, write@T+20. Auto: 8T + 3T(d) = 11T
     const d = this.fetch8();
-    const addr = (this.ix + (d < 128 ? d : d - 256)) & 0xFFFF;
+    const addr = (this.ix + signed8(d)) & 0xFFFF;
     this.memptr = addr;  // Any instruction with (INDEX+d): MEMPTR = INDEX+d
     this.h = savedH; this.l = savedL;
     this.tStates += 5;
@@ -94,7 +95,7 @@ Z80.prototype.executeDD = function (this: Z80): void {
     // LD (IX+d),n: 19T, write@T+15 (duplicate guard). Auto: 8T + 3T(d) + 3T(n) = 14T
     const d = this.fetch8();
     const n = this.fetch8();
-    const addr = (this.ix + (d < 128 ? d : d - 256)) & 0xFFFF;
+    const addr = (this.ix + signed8(d)) & 0xFFFF;
     this.memptr = addr;  // Any instruction with (INDEX+d): MEMPTR = INDEX+d
     this.h = savedH; this.l = savedL;
     this.tStates += 1;
@@ -144,7 +145,7 @@ Z80.prototype.executeFD = function (this: Z80): void {
 
   if (x === 1 && (y === 6 || z === 6) && !(y === 6 && z === 6)) {
     const d = this.fetch8();
-    const addr = (this.iy + (d < 128 ? d : d - 256)) & 0xFFFF;
+    const addr = (this.iy + signed8(d)) & 0xFFFF;
     this.memptr = addr;  // Any instruction with (INDEX+d): MEMPTR = INDEX+d
     this.h = savedH; this.l = savedL;
     if (y === 6) {
@@ -162,7 +163,7 @@ Z80.prototype.executeFD = function (this: Z80): void {
   } else if (x === 2 && z === 6) {
     // ALU A,(IY+d): 19T, read@T+16. Auto: 8T + 3T(d) = 11T
     const d = this.fetch8();
-    const addr = (this.iy + (d < 128 ? d : d - 256)) & 0xFFFF;
+    const addr = (this.iy + signed8(d)) & 0xFFFF;
     this.memptr = addr;  // Any instruction with (INDEX+d): MEMPTR = INDEX+d
     this.h = savedH; this.l = savedL;
     this.tStates += 5;
@@ -173,7 +174,7 @@ Z80.prototype.executeFD = function (this: Z80): void {
       // LD (IY+d),n: 19T, write@T+15. Auto: 8T + 3T(d) + 3T(n) = 14T
       const d = this.fetch8();
       const n = this.fetch8();
-      const addr = (this.iy + (d < 128 ? d : d - 256)) & 0xFFFF;
+      const addr = (this.iy + signed8(d)) & 0xFFFF;
       this.memptr = addr;  // Any instruction with (INDEX+d): MEMPTR = INDEX+d
       this.h = savedH; this.l = savedL;
       this.tStates += 1;
@@ -196,7 +197,7 @@ Z80.prototype.executeFD = function (this: Z80): void {
   } else if (x === 0 && (z === 4 || z === 5) && y === 6) {
     // INC/DEC (IY+d): 23T, read@T+16, write@T+20. Auto: 8T + 3T(d) = 11T
     const d = this.fetch8();
-    const addr = (this.iy + (d < 128 ? d : d - 256)) & 0xFFFF;
+    const addr = (this.iy + signed8(d)) & 0xFFFF;
     this.memptr = addr;  // Any instruction with (INDEX+d): MEMPTR = INDEX+d
     this.h = savedH; this.l = savedL;
     this.tStates += 5;
@@ -208,7 +209,7 @@ Z80.prototype.executeFD = function (this: Z80): void {
     // LD (IY+d),n: 19T, write@T+15 (duplicate guard). Auto: 8T + 3T(d) + 3T(n) = 14T
     const d = this.fetch8();
     const n = this.fetch8();
-    const addr = (this.iy + (d < 128 ? d : d - 256)) & 0xFFFF;
+    const addr = (this.iy + signed8(d)) & 0xFFFF;
     this.memptr = addr;  // Any instruction with (INDEX+d): MEMPTR = INDEX+d
     this.h = savedH; this.l = savedL;
     this.tStates += 1;
@@ -232,14 +233,14 @@ Z80.prototype.executeFD = function (this: Z80): void {
 
 Z80.prototype.executeDDCB = function (this: Z80): void {
   const d = this.fetch8();
-  const addr = (this.ix + (d < 128 ? d : d - 256)) & 0xFFFF;
+  const addr = (this.ix + signed8(d)) & 0xFFFF;
   const op = this.fetch8();
   this._executeIndexCB(addr, op);
 };
 
 Z80.prototype.executeFDCB = function (this: Z80): void {
   const d = this.fetch8();
-  const addr = (this.iy + (d < 128 ? d : d - 256)) & 0xFFFF;
+  const addr = (this.iy + signed8(d)) & 0xFFFF;
   const op = this.fetch8();
   this._executeIndexCB(addr, op);
 };

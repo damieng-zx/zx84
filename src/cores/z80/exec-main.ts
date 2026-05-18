@@ -1,6 +1,7 @@
 import { Z80 } from './core.ts';
 import { SZP } from './tables.ts';
 import { contendN } from './contention.ts';
+import { signed8 } from '@/utils/signed.ts';
 
 Z80.prototype.executeMain = function (this: Z80, opcode: number): void {
   const x = (opcode >> 6) & 3;
@@ -32,7 +33,7 @@ Z80.prototype.executeMain = function (this: Z80, opcode: number): void {
               const offset = this.fetch8();  // 3T
               if (this.b !== 0) {
                 contendN(this, offsetAddr2, 5);
-                this.pc = (this.pc + (offset < 128 ? offset : offset - 256)) & 0xFFFF;
+                this.pc = (this.pc + signed8(offset)) & 0xFFFF;
                 this.memptr = this.pc;  // DJNZ (taken): MEMPTR = jump target
               }
               break;
@@ -42,7 +43,7 @@ Z80.prototype.executeMain = function (this: Z80, opcode: number): void {
               const offsetAddr3 = this.pc;
               const offset = this.fetch8();  // 3T
               contendN(this, offsetAddr3, 5);
-              this.pc = (this.pc + (offset < 128 ? offset : offset - 256)) & 0xFFFF;
+              this.pc = (this.pc + signed8(offset)) & 0xFFFF;
               this.memptr = this.pc;  // JR: MEMPTR = jump target
               break;
             }
@@ -52,7 +53,7 @@ Z80.prototype.executeMain = function (this: Z80, opcode: number): void {
               const offset = this.fetch8();  // 3T
               if (this.checkCondition(y - 4)) {
                 contendN(this, offsetAddrCC, 5);
-                this.pc = (this.pc + (offset < 128 ? offset : offset - 256)) & 0xFFFF;
+                this.pc = (this.pc + signed8(offset)) & 0xFFFF;
                 this.memptr = this.pc;  // JR cc (taken): MEMPTR = jump target
               }
               break;

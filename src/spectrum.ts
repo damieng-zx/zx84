@@ -33,6 +33,7 @@ import { AudioMixer } from '@/peripherals/audio-mixer.ts';
 import { Multiface } from '@/peripherals/multiface.ts';
 import { VTX5000 } from '@/peripherals/vtx5000.ts';
 import { hex8, hex16 } from '@/utils/hex.ts';
+import { signed8 } from '@/utils/signed.ts';
 import { createVariant, type MachineVariant } from '@/variants/index.ts';
 
 // Re-export model type and helpers from their canonical home (models.ts)
@@ -1132,7 +1133,7 @@ export class Spectrum {
       const op2 = mem.readByte((pc + 1) & 0xFFFF);
       if (op2 === 0xCB) {
         const d = mem.readByte((pc + 2) & 0xFFFF);
-        const addr = (ixr + (d < 128 ? d : d - 256)) & 0xFFFF;
+        const addr = (ixr + signed8(d)) & 0xFFFF;
         return `(${hex16(addr)})=${hex8(mem.readByte(addr))}`;
       }
       if (op2 === 0xED || op2 === 0xDD || op2 === 0xFD) return '';
@@ -1142,7 +1143,7 @@ export class Spectrum {
           (x === 0 && (z === 4 || z === 5) && y === 6) ||
           op2 === 0x36) {
         const d = mem.readByte((pc + 2) & 0xFFFF);
-        const addr = (ixr + (d < 128 ? d : d - 256)) & 0xFFFF;
+        const addr = (ixr + signed8(d)) & 0xFFFF;
         if (x === 2) return `A=${hex8(cpu.a)} (${hex16(addr)})=${hex8(mem.readByte(addr))}`;
         return `(${hex16(addr)})=${hex8(mem.readByte(addr))}`;
       }
