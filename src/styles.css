@@ -15,6 +15,7 @@ body {
   font-family: var(--font-ui);
   font-size: 1em;
   min-height: 100vh;
+  font-variant-ligatures: none;
 }
 
 #app {

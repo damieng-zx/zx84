@@ -2,6 +2,20 @@ import { createSignal, Show } from 'solid-js';
 
 const CHANGELOG: { version: string; items: string[] }[] = [
   {
+    version: '0.4.0',
+    items: [
+      'Drag-and-drop files onto the emulator window to load snapshots, tapes and disks',
+      'Edge-loader: faster tape loading with surgical acceleration, fixed auto-stop, split UI toggles',
+      'Turbo mode: adaptive frame budget, skips audio and throttles UI for maximum speed',
+      'Turbo mode contention skipped and memory hot-path inlined — big Firefox speedup',
+      'AY DC blocking filter and stereo mode options added to Sound pane',
+      'Audio fixes: NaN/pre-init volume, crashes after destroy, ring-buffer unification',
+      'Write-through now correct for aliased RAM bank slots',
+      'Port watchpoints now fire for all IN/OUT paths',
+      'Tape no longer rewinds or pauses on machine reset',
+      'Disable font ligatures',
+    ]
+  }, {
     version: '0.3.0',
     items: [
       'Tape pauses instantly when a loader gives up (was ~500ms)',
