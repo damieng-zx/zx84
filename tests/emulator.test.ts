@@ -1462,6 +1462,27 @@ describe('init / restoreMedia', () => {
     vi.mocked(dskMod.parseDSK).mockImplementationOnce(() => { throw new Error('corrupt'); });
     await expect(emulator.init()).resolves.toBeUndefined();
   });
+
+  it('restores media even when an HMR snapshot was restored (media is not in the snapshot)', async () => {
+    // A fresh HMR snapshot makes createMachine() restore RAM and report
+    // hmrRestored=true. The mounted disk/tape are persisted separately, so
+    // restoreMedia() must still run — otherwise a hard reload drops the media.
+    getRomManager().restoreROM.mockResolvedValueOnce({ data: new Uint8Array(16384), label: '48k' });
+    (globalThis as any).localStorage = {
+      getItem: vi.fn((k: string) => k === 'zx84-hmr-state'
+        ? JSON.stringify({ snapshot: btoa('xx'), model: '48k', timestamp: Date.now() })
+        : null),
+      setItem: vi.fn(), removeItem: vi.fn(),
+    };
+    vi.mocked(szx.loadSZX).mockResolvedValueOnce({
+      is128K: false, borderColor: 0, port7FFD: 0, port1FFD: 0,
+    } as any);
+    vi.mocked(persistence.restoreDisk)
+      .mockResolvedValueOnce({ name: 'persisted.dsk', data: new Uint8Array(10) })
+      .mockResolvedValueOnce(null);
+    await emulator.init();
+    expect(emulator.currentDiskName()).toBe('persisted.dsk');
+  });
 });
 
 // ── HMR save/restore ──────────────────────────────────────────────────────

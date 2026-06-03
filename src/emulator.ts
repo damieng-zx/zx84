@@ -977,12 +977,15 @@ export async function init(): Promise<void> {
   if (entry) {
     romData = entry.data;
     setRomStatus('');
-    const hmrRestored = await createMachine();
+    await createMachine();
 
-    // Only restore persisted media if HMR state wasn't just restored
-    if (!hmrRestored) {
-      await restoreMedia();
-    }
+    // Always re-mount persisted media. The HMR/SZX snapshot restored by
+    // createMachine() captures RAM/CPU/AY state but NOT the mounted disk and
+    // tape *images* — those are persisted separately (one blob per drive/tape
+    // in IndexedDB). restoreMedia() loads the FDC image and tape blocks plus
+    // the UI state without touching restored RAM, so a hard reload keeps both
+    // the machine state and the inserted media.
+    await restoreMedia();
   }
 }
 

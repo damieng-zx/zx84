@@ -7,6 +7,7 @@ const CHANGELOG: { version: string; items: string[] }[] = [
       'Fix 765FDC to report abnormal termination on data CRC errors',
       'Fix 765FDC to keep bad-CRC deleted-data sectors stable instead of randomising them',
       'Fix 765FDC read_track command to just read data',
+      'Fix mounted disks and tapes not surviving a page reload',
     ]
   }, {
     version: '0.4.0',
