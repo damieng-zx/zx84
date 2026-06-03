@@ -6,6 +6,7 @@ const CHANGELOG: { version: string; items: string[] }[] = [
     items: [
       'Fix 765FDC to report abnormal termination on data CRC errors',
       'Fix 765FDC to keep bad-CRC deleted-data sectors stable instead of randomising them',
+      'Fix 765FDC to fail reads of unreadable bad-CRC weak protection sectors (Ocean disc protection)',
       'Fix 765FDC read_track command to just read data',
       'Fix mounted disks and tapes not surviving a page reload',
     ]

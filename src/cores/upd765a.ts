@@ -747,8 +747,28 @@ export class UPD765A {
     // what a genuine DDAM read-without-error would produce.
     // This does NOT affect Speedlock (sector.n == cmdN there) or Alkatraz.
     const sectorIsUndersized = sector.n < n;
-    this.exST1 = sectorIsUndersized ? 0 : sector.st1;
-    this.exST2 = sectorIsUndersized ? 0 : sector.st2;
+
+    // SUB-EXCEPTION — undersized *bad-CRC weak* sector (NOT DDAM):
+    // An undersized sector that also carries a genuine data-CRC error (DE/DD)
+    // and has a normal address mark is a deliberately *unreadable* protection
+    // sector — e.g. Ocean's "good sector / bad sector" pairing (a perfect
+    // filler sector beside a short bad-CRC weak sector that the loader requires
+    // to FAIL; see disk-protection/"Ocean unknown.md"). A real uPD765A cannot
+    // complete the oversized read of such a sector: it reports No Data /
+    // abnormal termination. Model the failure instead of a clean success, and
+    // keep the sector's own error bits rather than stripping them.
+    const isUnreadableWeak = sectorIsUndersized
+      && ((sector.st1 & 0x20) || (sector.st2 & 0x20))
+      && !(sector.st2 & 0x40);
+
+    if (isUnreadableWeak) {
+      this.exST1 = sector.st1 | 0x04; // ND (No Data) — the read fails
+      this.exST2 = sector.st2;
+      this.exAbnormal = true;
+    } else {
+      this.exST1 = sectorIsUndersized ? 0 : sector.st1;
+      this.exST2 = sectorIsUndersized ? 0 : sector.st2;
+    }
 
     // COPY-PROTECTION SINGLE-SECTOR MODE:
     // If the sector's C field doesn't match the physical cylinder, this is a
@@ -769,9 +789,10 @@ export class UPD765A {
     // mismatch, so CM should be set.
     //
     // EXCEPTION — undersized protection sectors (sector.n < command N):
-    // These are intentionally non-standard and written with DDAM on the original
-    // disk. exST1/exST2 were already cleared above for these sectors, so there
-    // is no CM to calculate (exST2 is already 0). Skip CM calculation entirely.
+    // These are intentionally non-standard. exST1/exST2 were already finalised
+    // above (cleared for a DDAM payload sector, or set to ND + the sector's own
+    // error bits for an unreadable bad-CRC weak sector). Either way there is no
+    // CM to recompute here — skip CM calculation entirely.
     if (!sectorIsUndersized) {
       const sectorHasDDAM = !!(sector.st2 & 0x40);
       const cmdExpectsDDAM = (cmd === CMD_READ_DELETED || cmd === CMD_WRITE_DELETED);
