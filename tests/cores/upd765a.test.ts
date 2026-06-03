@@ -547,26 +547,47 @@ describe('uPD765A — FORMAT_TRACK', () => {
   });
 });
 
-describe('uPD765A — READ_TRACK (raw track build)', () => {
-  it('builds a fixed-size raw track for an empty drive → NOT_READY instead', () => {
+describe('uPD765A — READ_TRACK (Read Diagnostic — sector data fields)', () => {
+  it('empty drive → NOT_READY', () => {
     const d = new Driver();
     const r = d.command(0x02, 0x00, 0, 0, 1, 2, 9, 0x2A, 0xFF);
     expect(r[0] & ST0_NOT_READY).toBe(ST0_NOT_READY);
   });
 
-  it('returns at least the canonical 6250-byte raw-track payload', () => {
+  it('transfers concatenated sector DATA fields (no gap/ID bytes), physical order', () => {
     const d = new Driver();
-    d.fdc.insertDisk(makeStdImage(), 0);
+    d.fdc.insertDisk(makeStdImage(), 0); // 9 sectors R0xC1..0xC9, fill 0x10..0x18
+    // EOT=0xC9 ≫ 9 → read the whole track
     [0x02, 0x00, 0, 0, 0xC1, 2, 0xC9, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
     const { data, result } = d.drainReadExecution();
-    expect(data.length).toBeGreaterThanOrEqual(6250);
-    // Raw track starts with Gap 4a — 80 bytes of 0x4E
-    expect(data.slice(0, 80).every(b => b === 0x4E)).toBe(true);
-    // Then 12 bytes of 0x00 sync
-    expect(data.slice(80, 92).every(b => b === 0)).toBe(true);
-    // Then 0xC2 0xC2 0xC2 0xFC index AM
-    expect(data.slice(92, 96)).toEqual([0xC2, 0xC2, 0xC2, 0xFC]);
-    expect(result.length).toBe(7);
+    // 9 sectors × 512 = 4608 data bytes — NOT a 6250-byte raw track
+    expect(data.length).toBe(9 * 512);
+    // First bytes are real sector data (0x10), not 0x4E gap filler
+    expect(data[0]).toBe(0x10);
+    expect(data.slice(0, 512).every(b => b === 0x10)).toBe(true);
+    expect(data.slice(512, 1024).every(b => b === 0x11)).toBe(true);
+    // Result reports the LAST sector's actual CHRN
+    expect(result.slice(3)).toEqual([0, 0, 0xC9, 2]);
+  });
+
+  it('honours EOT as a sector count and reports the true R of an offset sector', () => {
+    // Alkatraz-style offset-sector track: physical sectors start at R=177.
+    const d = new Driver();
+    const tr = makeTrack([
+      makeSector(7, 0, 177, 2, 0xA0),
+      makeSector(7, 0, 178, 2, 0xA1),
+      makeSector(7, 0, 179, 2, 0xA2),
+    ]);
+    const im = makeImage();
+    im.tracks[0][0] = tr;
+    d.fdc.insertDisk(im, 0);
+    // READ_TRACK with EOT=1 → exactly one sector (the first physical one)
+    [0x02, 0x00, 7, 0, 1, 2, 1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    const { data, result } = d.drainReadExecution();
+    expect(data.length).toBe(512);
+    expect(data.every(b => b === 0xA0)).toBe(true); // first physical sector's data
+    // Loader learns the offset from the result: real R=177, not the command R=1
+    expect(result.slice(3)).toEqual([7, 0, 177, 2]);
   });
 });
 

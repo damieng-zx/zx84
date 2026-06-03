@@ -4,8 +4,9 @@ const CHANGELOG: { version: string; items: string[] }[] = [
   {
     version: '0.4.1',
     items: [
-      'FDC: a sector with a data CRC error now reports abnormal termination (ST0 IC=01), matching the uPD765A and Fuse — fixes Hexagon-protected +3 disks that rebooted or hung (e.g. the unreleased Ultimate compilation)',
-      'FDC: bad-CRC deleted-data sectors (control mark + data error) read back stable data instead of being randomised, so loaders that use the sector as a decryption key work; genuine weak sectors (CRC error alone) still vary per read',
+      'Fix 765FDC to report abnormal termination on data CRC errors',
+      'Fix 765FDC to keep bad-CRC deleted-data sectors stable instead of randomising them',
+      'Fix 765FDC read_track command to just read data',
     ]
   }, {
     version: '0.4.0',

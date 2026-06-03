@@ -798,7 +798,7 @@ export class UPD765A {
     const r = this.cmdBuf[4], n = this.cmdBuf[5];
     const eot = this.cmdBuf[6];
 
-    this.log(`  → Unit=${unit} Head=${head} C=${c} H=${h} - Reading entire raw track`);
+    this.log(`  → Unit=${unit} Head=${head} C=${c} H=${h} R=${r} N=${n} EOT=${eot} — Read Track`);
 
     const track = this.getTrack(unit, head);
 
@@ -810,177 +810,53 @@ export class UPD765A {
       return;
     }
 
-    this.log(`  ✓ Track has ${track.sectors.length} sectors, Gap3=${track.gap3}, Filler=0x${(track.filler || 0x4E).toString(16).padStart(2, '0')}`);
+    // READ TRACK (Read Diagnostic) transfers the sectors' DATA FIELDS to the
+    // host, in physical order starting from the index hole — NOT the
+    // gap/sync/ID/CRC bytes. It reads up to EOT sectors (the sector counter,
+    // capped to the track) and the result reports the last sector's actual
+    // CHRN. Loaders that read offset-sector tracks this way (Alkatraz tracks
+    // 7–31, sectors R177+) rely on getting real sector data and the true R in
+    // the result; returning the raw track (gap filler first) feeds them 0x4E
+    // where they expect data and they fail with a disk error.
+    const count = Math.max(1, Math.min(eot, track.sectors.length));
+    const sectors = track.sectors.slice(0, count);
+    let totalLen = 0;
+    for (const s of sectors) totalLen += 128 << s.n;
+    const buf = new Uint8Array(totalLen);
+    let dst = 0;
+    for (const s of sectors) {
+      const sz = 128 << s.n;
+      buf.set(s.data.subarray(0, sz), dst); // short sectors leave a zero tail
+      dst += sz;
+    }
+    const last = sectors[sectors.length - 1];
+    this.log(`  ✓ Read Track: ${sectors.length} sector(s), ${totalLen} data bytes (R${sectors[0].r}..R${last.r})`);
 
-    // Build raw track data with proper gaps and formatting
-    const trackData = this.buildRawTrack(track);
-    this.log(`  → Built raw track data: ${trackData.length} bytes`);
-
-    // Save execution state
+    // Save execution state — result reports the last sector's real ID field
     this.exUnit = unit;
     this.exHead = head;
-    this.exC = c;
-    this.exH = h;
-    this.exN = n;
-    this.exR = r;
+    this.exC = last.c;
+    this.exH = last.h;
+    this.exN = last.n;
+    this.exR = last.r;
     this.exEOT = eot;
     this.exHitEOT = false;
     this.exAbnormal = false;
     this.exTrack = track;
     this.exWriting = false;
-    this.exReadTrack = true; // Flag: reading entire raw track
-
-    // Read Track returns raw data, ST1/ST2 typically 0 (no errors at track level)
+    this.exReadTrack = true; // Flag: reading a whole track, don't advance per-sector
     this.exST1 = 0;
     this.exST2 = 0;
 
     // Latch for UI display
-    this.latchR = r;
+    this.latchR = last.r;
     this.latchHead = head;
     this.latchWriting = false;
     this.latchFrames = 25;
 
-    this.exBuf = trackData;
+    this.exBuf = buf;
     this.exPos = 0;
     this.phase = Phase.Execution;
-  }
-
-  /**
-   * Build raw track data including gaps, sync, address marks, and CRCs.
-   * This is what Speedlock reads to verify genuine disk timing/structure.
-   */
-  private buildRawTrack(track: DskTrack): Uint8Array {
-    const parts: Uint8Array[] = [];
-
-    // Gap 4a (post-index gap) — 80 bytes of 0x4E
-    parts.push(new Uint8Array(80).fill(0x4E));
-
-    // Sync — 12 bytes of 0x00
-    parts.push(new Uint8Array(12).fill(0x00));
-
-    // Index Address Mark — 3×0xC2 (with missing clock) + 0xFC
-    // Simplified: just use 0xC2 bytes (real hardware needs special encoding)
-    parts.push(new Uint8Array([0xC2, 0xC2, 0xC2, 0xFC]));
-
-    // Gap 1 — 50 bytes of 0x4E
-    parts.push(new Uint8Array(50).fill(0x4E));
-
-    // For each sector in the track
-    for (const sector of track.sectors) {
-      // Sync — 12 bytes of 0x00
-      parts.push(new Uint8Array(12).fill(0x00));
-
-      // ID Address Mark — 3×0xA1 (with missing clock) + 0xFE
-      parts.push(new Uint8Array([0xA1, 0xA1, 0xA1, 0xFE]));
-
-      // ID Field — C, H, R, N
-      const idField = new Uint8Array([sector.c, sector.h, sector.r, sector.n]);
-      parts.push(idField);
-
-      // CRC for ID field (simplified — calculate proper CRC)
-      const idCrc = this.calcCrc([0xA1, 0xA1, 0xA1, 0xFE, sector.c, sector.h, sector.r, sector.n]);
-      parts.push(idCrc);
-
-      // Gap 2 — 22 bytes of 0x4E
-      parts.push(new Uint8Array(22).fill(0x4E));
-
-      // Sync — 12 bytes of 0x00
-      parts.push(new Uint8Array(12).fill(0x00));
-
-      // Data Address Mark — 3×0xA1 + 0xFB (or 0xF8 for deleted data)
-      // ST2 bit 6 (0x40) = Control Mark = Deleted Data Mark
-      const dam = (sector.st2 & 0x40) ? 0xF8 : 0xFB;
-      parts.push(new Uint8Array([0xA1, 0xA1, 0xA1, dam]));
-
-      // Data Field — the actual sector data
-      // CRITICAL: We output sector.data.length bytes, which may NOT match
-      // the size claimed by sector.n in the ID field. This is intentional!
-      // Speedlock uses "overlapping sectors" where N=2 (512 bytes) but the
-      // physical data is only 256 bytes, causing the next sector ID to
-      // appear "early". Extended DSK format preserves this; standard DSK
-      // enforces 128<<N and will break these protections.
-      parts.push(sector.data);
-
-      // CRC for data field
-      const dataCrc = this.calcCrcData([0xA1, 0xA1, 0xA1, dam], sector.data);
-      parts.push(dataCrc);
-
-      // Gap 3 — from track metadata (critical for Speedlock!)
-      const gap3Size = track.gap3 > 0 ? track.gap3 : 24; // default 24 if not specified
-      parts.push(new Uint8Array(gap3Size).fill(track.filler || 0x4E));
-    }
-
-    // Gap 4b — fill remainder to standard track size (~6250 bytes for DD)
-    // This ensures consistent track length
-    const currentSize = parts.reduce((sum, p) => sum + p.length, 0);
-    const targetSize = 6250; // Standard double-density track
-    if (currentSize < targetSize) {
-      parts.push(new Uint8Array(targetSize - currentSize).fill(track.filler || 0x4E));
-    }
-
-    // Concatenate all parts
-    const total = new Uint8Array(parts.reduce((sum, p) => sum + p.length, 0));
-    let offset = 0;
-    for (const part of parts) {
-      total.set(part, offset);
-      offset += part.length;
-    }
-
-    return total;
-  }
-
-  /**
-   * Calculate CRC-16-CCITT for ID field.
-   * Polynomial: 0x1021, initial: 0xFFFF
-   */
-  private calcCrc(data: number[]): Uint8Array {
-    let crc = 0xFFFF;
-    for (const byte of data) {
-      crc ^= (byte << 8);
-      for (let i = 0; i < 8; i++) {
-        if (crc & 0x8000) {
-          crc = (crc << 1) ^ 0x1021;
-        } else {
-          crc = crc << 1;
-        }
-      }
-    }
-    crc &= 0xFFFF;
-    return new Uint8Array([crc >> 8, crc & 0xFF]);
-  }
-
-  /**
-   * Calculate CRC for data field (address mark + data).
-   */
-  private calcCrcData(header: number[], data: Uint8Array): Uint8Array {
-    let crc = 0xFFFF;
-
-    // Process header bytes
-    for (const byte of header) {
-      crc ^= (byte << 8);
-      for (let i = 0; i < 8; i++) {
-        if (crc & 0x8000) {
-          crc = (crc << 1) ^ 0x1021;
-        } else {
-          crc = crc << 1;
-        }
-      }
-    }
-
-    // Process data bytes
-    for (const byte of data) {
-      crc ^= (byte << 8);
-      for (let i = 0; i < 8; i++) {
-        if (crc & 0x8000) {
-          crc = (crc << 1) ^ 0x1021;
-        } else {
-          crc = crc << 1;
-        }
-      }
-    }
-
-    crc &= 0xFFFF;
-    return new Uint8Array([crc >> 8, crc & 0xFF]);
   }
 
   /** Read ID — return CHRN of current sector under the head. */
