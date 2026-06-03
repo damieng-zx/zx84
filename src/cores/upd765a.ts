@@ -455,9 +455,17 @@ export class UPD765A {
       return buf;
     }
 
-    // Explicit weak flag (ST2 bit 5 = Data CRC error). Used by Speedlock disks.
-    // Note: ST2 bit 6 (0x40) is Control Mark (deleted data), NOT a weak sector!
-    if (sector.st2 & 0x20) {
+    // Data-CRC-error flag (ST2 bit 5 = DD). A *weak* sector (Speedlock) carries
+    // DD alone and must read differently each pass → randomise it so the
+    // loader's double-read-and-compare sees variation.
+    //
+    // DD together with CM (ST2 bit 6, deleted-data address mark) is NOT weak:
+    // it is a deliberately bad-CRC sector whose data is *stable and meaningful*.
+    // Hexagon (unsigned) reads such a sector and uses its bytes as a decryption
+    // key — randomising it corrupts the key and the loader decrypts to garbage
+    // and reboots. Return the real bytes; the CRC error is still reported via
+    // ST1/ST2 (and forces abnormal termination in finishExecution).
+    if ((sector.st2 & 0x20) && !(sector.st2 & 0x40)) {
       return this.randomizeSector(sector.data.subarray(0, physSize));
     }
 
@@ -507,6 +515,17 @@ export class UPD765A {
       st1 |= 0x80;  // EN (End of Cylinder)
     }
     if (this.exAbnormal) {
+      st0 |= ST0_ABNORMAL;
+    }
+    // Data/ID CRC error (ST1.DE 0x20 or ST2.DD 0x20) is an abnormal
+    // termination on the real uPD765A: the interrupt code IC=01 sets ST0
+    // bit 6. Fuse's upd_fdc.c does exactly this for READ_DATA:
+    //   status_register[1] |= CRC_ERROR; status_register[2] |= DATA_ERROR;
+    //   status_register[0] |= ST0_INT_ABNORM;
+    // Without it the loader sees ST0=0x00 (clean read) on a sector that is
+    // *supposed* to error, and the protection check fails. Hexagon (unsigned)
+    // reads its N6 CRC-flagged sector and requires this; writes never set it.
+    if (!this.exWriting && ((st1 & 0x20) || (this.exST2 & 0x20))) {
       st0 |= ST0_ABNORMAL;
     }
     // Return actual ST1 and ST2 from the sector (preserves CRC errors!)

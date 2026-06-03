@@ -96,6 +96,20 @@ class Driver {
     for (let i = 0; i < bytes.length; i++) this.fdc.writeData(bytes[i]);
     return this.drainResult();
   }
+
+  /**
+   * Read a few bytes then stop and poll status, mimicking a protection loader
+   * that breaks its read loop mid-sector. The uPD765A terminates the execution
+   * phase with ST1.OR after OVERRUN_THRESHOLD (32) status polls without a data
+   * read. Returns the result-phase bytes.
+   */
+  overrunRead(...cmd: number[]): number[] {
+    for (const b of cmd) this.fdc.writeData(b);
+    this.fdc.readData();           // read one execution byte
+    this.fdc.readData();           // and another, so we're genuinely mid-sector
+    for (let i = 0; i < 40; i++) this.fdc.readStatus(); // > threshold → overrun
+    return this.drainResult();
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -747,5 +761,83 @@ describe('uPD765A — UNSUPPORTED: FM-only edge cases', () => {
     // We don't model DMA at all; the parameter is silently discarded.
     expect(d.command(0x03, 0xDF, 0x03)).toEqual([]);
     // FUTURE: in non-DMA mode the FDC raises INT for each byte instead of DRQ.
+  });
+});
+
+describe('uPD765A — CRC-error sector is an abnormal termination (Fuse parity)', () => {
+  // Hexagon (unsigned) and similar protections read a sector flagged with a
+  // data CRC error (ST1.DE 0x20 / ST2.DD 0x20), break the read loop early, and
+  // require the result to report abnormal termination (ST0 bit 6). Fuse sets
+  // ST0_INT_ABNORM whenever a data CRC error is seen during READ_DATA.
+
+  function imageWith(st1: number, st2: number): DskImage {
+    const im = makeImage();
+    // Two sectors so an early-broken read does NOT hit EOT — isolating the
+    // abnormal-termination contribution to the CRC error alone, not End-of-Cyl.
+    im.tracks[0][0] = makeTrack([
+      makeSector(0, 0, 0xC1, 2, 0xAB, st1, st2),
+      makeSector(0, 0, 0xC2, 2, 0xCD, 0, 0),
+    ]);
+    return im;
+  }
+
+  it('overrun read of a clean sector reports normal termination (ST0=0x00)', () => {
+    const d = new Driver();
+    d.fdc.insertDisk(imageWith(0, 0), 0);
+    // READ_DATA C=0 H=0 R=0xC1 N=2 EOT=0xC2 (won't reach EOT — we break early)
+    const res = d.overrunRead(0x06, 0x00, 0, 0, 0xC1, 2, 0xC2, 0x2A, 0xFF);
+    expect(res[1] & 0x10).toBe(0x10); // ST1.OR set (overrun happened)
+    expect(res[0] & 0x40).toBe(0x00); // ST0 not abnormal — proves overrun alone doesn't set it
+  });
+
+  it('overrun read of a CRC-error sector reports abnormal termination (ST0 bit 6)', () => {
+    const d = new Driver();
+    d.fdc.insertDisk(imageWith(0x20, 0x60), 0); // DE + (CM|DD) — the Hexagon flags
+    const res = d.overrunRead(0x06, 0x00, 0, 0, 0xC1, 2, 0xC2, 0x2A, 0xFF);
+    expect(res[0] & 0x40).toBe(0x40); // ST0 abnormal termination — the missing behaviour
+    expect(res[1] & 0x20).toBe(0x20); // ST1.DE still reported
+    expect(res[2] & 0x20).toBe(0x20); // ST2.DD still reported
+  });
+
+  it('does not flag abnormal termination on a write to a CRC-error sector', () => {
+    const d = new Driver();
+    d.fdc.insertDisk(imageWith(0x20, 0x60), 0);
+    // Partial (overrun) WRITE_DATA C=0 H=0 R=0xC1 N=2 EOT=0xC2 — breaks early so
+    // no EOT, isolating whether the CRC-error rule wrongly fires on writes.
+    d.fdc.writeData(0x05); // WRITE_DATA
+    [0x00, 0, 0, 0xC1, 2, 0xC2, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    d.fdc.writeData(0x00); d.fdc.writeData(0x00); // feed two data bytes
+    for (let i = 0; i < 40; i++) d.fdc.readStatus(); // overrun-terminate the write
+    const res = d.drainResult();
+    expect(res[1] & 0x10).toBe(0x10); // ST1.OR — overrun did terminate it
+    expect(res[0] & 0x40).toBe(0x00); // ST0 NOT abnormal — CRC rule is read-only
+  });
+});
+
+describe('uPD765A — weak (DD) vs stable deleted-data (CM+DD) reads', () => {
+  // A weak sector (Speedlock) is DD alone and must vary between reads. A
+  // bad-CRC *deleted-data* sector (CM+DD, e.g. Hexagon) holds stable, meaningful
+  // data (used as a decryption key) and must read back byte-for-byte identical.
+  function readFull(d: Driver): number[] {
+    [0x06, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    return d.drainReadExecution().data;
+  }
+
+  it('DD-only sector (weak) varies between reads', () => {
+    const d = new Driver();
+    const im = makeImage();
+    im.tracks[0][0] = makeTrack([makeSector(0, 0, 0xC1, 2, 0xAB, 0x00, 0x20)]);
+    d.fdc.insertDisk(im, 0);
+    expect(readFull(d)).not.toEqual(readFull(d));
+  });
+
+  it('CM+DD sector (deleted data, bad CRC) reads back stable, unrandomised data', () => {
+    const d = new Driver();
+    const im = makeImage();
+    im.tracks[0][0] = makeTrack([makeSector(0, 0, 0xC1, 2, 0xAB, 0x20, 0x60)]);
+    d.fdc.insertDisk(im, 0);
+    const first = readFull(d);
+    expect(first).toEqual(readFull(d));         // identical across reads
+    expect(first.every(b => b === 0xAB)).toBe(true); // exactly the stored bytes
   });
 });

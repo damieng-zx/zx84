@@ -2,6 +2,12 @@ import { createSignal, Show } from 'solid-js';
 
 const CHANGELOG: { version: string; items: string[] }[] = [
   {
+    version: '0.4.1',
+    items: [
+      'FDC: a sector with a data CRC error now reports abnormal termination (ST0 IC=01), matching the uPD765A and Fuse — fixes Hexagon-protected +3 disks that rebooted or hung (e.g. the unreleased Ultimate compilation)',
+      'FDC: bad-CRC deleted-data sectors (control mark + data error) read back stable data instead of being randomised, so loaders that use the sector as a decryption key work; genuine weak sectors (CRC error alone) still vary per read',
+    ]
+  }, {
     version: '0.4.0',
     items: [
       'Drag-and-drop files onto the emulator window to load snapshots, tapes and disks',
