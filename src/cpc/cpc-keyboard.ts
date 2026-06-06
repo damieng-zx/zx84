@@ -79,12 +79,15 @@ export class CpcKeyboard {
   }
 
   /**
-   * Joystick 0 maps to line 9: bit0 up, bit1 down, bit2 left, bit3 right,
-   * bit4 fire2, bit5 fire1.
+   * Joystick directions share matrix bits: bit0 up, bit1 down, bit2 left,
+   * bit3 right, bit4 fire2, bit5 fire1. Joystick 0 lives on line 9; joystick 1
+   * is multiplexed onto line 6 (the hardware reads the second joystick — wired
+   * through the splitter on the single port — in parallel with the 6/5/R/T/G/F
+   * keys), which is how CPC games poll player 2.
    */
-  setJoystick(dir: 'up' | 'down' | 'left' | 'right' | 'fire1' | 'fire2', pressed: boolean): void {
+  setJoystick(dir: 'up' | 'down' | 'left' | 'right' | 'fire1' | 'fire2', pressed: boolean, player = 0): void {
     const bit = { up: 0, down: 1, left: 2, right: 3, fire2: 4, fire1: 5 }[dir];
-    this.setKey(9, bit, pressed);
+    this.setKey(player === 1 ? 6 : 9, bit, pressed);
   }
 
   reset(): void {

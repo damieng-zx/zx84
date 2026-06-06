@@ -114,7 +114,7 @@ export class InputController {
       if (!keyMap || joySelectors[p]() === 'none') continue;
       const joyDir = keyMap[e.code];
       if (joyDir) {
-        joyPressForType(joyDir, pressed, joySelectors[p]());
+        joyPressForType(joyDir, pressed, joySelectors[p](), p);
         setDpadHighlight(p, joyDir, pressed);
         handled = true;
       }
@@ -171,7 +171,7 @@ export class InputController {
       const mode = joySelectors[p]();
       for (const dir of dirs) {
         if (prev[dir]) {
-          joyPressForType(dir, false, mode);
+          joyPressForType(dir, false, mode, p);
           setDpadHighlight(p, dir, false);
           prev[dir] = false;
         }
@@ -315,7 +315,7 @@ export class InputController {
       if (mode === 'none') {
         for (const dir of ['up', 'down', 'left', 'right', 'fire']) {
           if (prev[dir]) {
-            joyPressForType(dir, false, mode);
+            joyPressForType(dir, false, mode, p);
             setDpadHighlight(p, dir, false);
             prev[dir] = false;
           }
@@ -333,7 +333,7 @@ export class InputController {
 
       for (const dir of ['up', 'down', 'left', 'right', 'fire'] as const) {
         if (dirs[dir] !== (prev[dir] ?? false)) {
-          joyPressForType(dir, dirs[dir], mode);
+          joyPressForType(dir, dirs[dir], mode, p);
           setDpadHighlight(p, dir, dirs[dir]);
           prev[dir] = dirs[dir];
         }

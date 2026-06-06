@@ -866,14 +866,15 @@ export function loadDiskToUnit(data: Uint8Array, filename: string, unit: number)
 export { KEMPSTON_BITS, CURSOR_KEYS, SINCLAIR1_KEYS, SINCLAIR2_KEYS, resetJoystickKeyState } from '@/peripherals/joysticks.ts';
 import { joyPressForType as _joyPress } from '@/peripherals/joysticks.ts';
 
-export function joyPressForType(dir: string, pressed: boolean, mode: string): void {
+export function joyPressForType(dir: string, pressed: boolean, mode: string, player = 0): void {
   const cpc = asCpc(machine);
   if (cpc) {
-    // The CPC has one joystick on keyboard line 9; the Spectrum joystick
-    // "mode" (Kempston/Sinclair/…) is irrelevant here.
+    // The CPC joystick is fixed to the Amstrad standard: joystick 0 (P1) on
+    // matrix line 9, joystick 1 (P2) on line 6. The Spectrum joystick "mode"
+    // (Kempston/Sinclair/…) is irrelevant here — the player index selects it.
     const d = dir === 'fire' ? 'fire1' : dir;
     if (d === 'up' || d === 'down' || d === 'left' || d === 'right' || d === 'fire1' || d === 'fire2') {
-      cpc.keyboard.setJoystick(d, pressed);
+      cpc.keyboard.setJoystick(d, pressed, player);
     }
     return;
   }

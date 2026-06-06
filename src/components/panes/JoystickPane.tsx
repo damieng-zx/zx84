@@ -31,16 +31,16 @@ function DpadButton(props: { dir: string; playerIdx: number }) {
   const onPress = (e: Event) => {
     e.preventDefault();
     (e.target as HTMLElement).classList.add('pressed');
-    joyPressForType(props.dir, true, selectors[props.playerIdx]());
+    joyPressForType(props.dir, true, selectors[props.playerIdx](), props.playerIdx);
   };
   const onRelease = (e: Event) => {
     e.preventDefault();
     (e.target as HTMLElement).classList.remove('pressed');
-    joyPressForType(props.dir, false, selectors[props.playerIdx]());
+    joyPressForType(props.dir, false, selectors[props.playerIdx](), props.playerIdx);
   };
   const onLeave = (e: Event) => {
     (e.target as HTMLElement).classList.remove('pressed');
-    joyPressForType(props.dir, false, selectors[props.playerIdx]());
+    joyPressForType(props.dir, false, selectors[props.playerIdx](), props.playerIdx);
   };
 
   const isActive = () => configuringPlayer() === props.playerIdx && configuringStep() === props.dir;
