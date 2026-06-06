@@ -177,6 +177,17 @@ export class CpcMemory implements IMachineMemory {
     return this.ram[n] ?? this.ram[0];
   }
 
+  /** Lower (OS) ROM image — live 16KB view, for the debug/memory viewer. */
+  getLowerRom(): Uint8Array {
+    return this.lowerRom;
+  }
+
+  /** Upper ROM image by select index (0 = BASIC, 7 = AMSDOS), or undefined if
+   *  no ROM occupies that slot. Live 16KB view, for the debug/memory viewer. */
+  getUpperRom(n: number): Uint8Array | undefined {
+    return this.upperRoms[n];
+  }
+
   /** RAM bank currently backing a Z80 slot (0–3), as the Gate Array's video
    *  DMA sees it — RAM only, ignoring ROM overlays. */
   videoBank(slot: number): Uint8Array {

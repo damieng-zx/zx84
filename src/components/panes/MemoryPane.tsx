@@ -1,22 +1,26 @@
 /**
  * Memory inspector pane.
  *
- * Shows the contents of any region of ZX Spectrum memory: the live 64KB
- * mapped address space, individual ROM pages, or individual RAM banks.
+ * Shows the contents of any region of the active machine's memory: the live
+ * 64KB mapped address space, individual ROM images, or individual RAM banks.
+ * Works for both the Spectrum and the Amstrad CPC (their memory exposes the
+ * shared IMachineMemory surface; only the ROM regions and ASCII glyph table
+ * differ per machine).
  *
  * Three display modes: Hex, Hex+ASCII, and ASCII.  ASCII mode maps the
- * ZX Spectrum character set to Unicode (£, ©, ↑, ←, block graphics, UDGs).
+ * machine's character set to Unicode — the Spectrum's (£, ©, ↑, ←, block
+ * graphics, UDGs) or the CPC's (plain ASCII for its printable range).
  *
  * Uses virtual scrolling so that even the full 64KB view (4096 × 15px rows)
  * remains fast to render and update.
  */
 
-import { createSignal, createMemo, For, Show, onMount, onCleanup } from 'solid-js';
+import { createSignal, createMemo, createEffect, For, Show, onMount, onCleanup } from 'solid-js';
 import { Pane } from '@/components/Pane.tsx';
-import { spectrum, currentModel, emulationPaused } from '@/emulator.ts';
+import { machine, currentModel, emulationPaused } from '@/emulator.ts';
+import { asSpectrum, asCpc } from '@/machine.ts';
 import { isCollapsed } from '@/ui/panes.ts';
-import { is128kClass, isPlus2AClass } from '@/models.ts';
-import type { SpectrumMemory } from '@/memory.ts';
+import { is128kClass, isPlus2AClass, isCpcModel } from '@/models.ts';
 
 // ── Virtual-scroll geometry ──────────────────────────────────────────────
 
@@ -74,6 +78,18 @@ const SPECTRUM_CHARS: string[] = (() => {
   return t;
 })();
 
+// ── Amstrad CPC → Unicode character table ────────────────────────────────
+//
+// The CPC's printable range (0x20–0x7E) is plain ASCII. Control codes and the
+// high range (0x80–0xFF, the CPC's own graphic/special glyphs) aren't mapped
+// and show as a placeholder — enough for inspecting strings in a hex dump.
+
+const CPC_CHARS: string[] = (() => {
+  const t = new Array<string>(256).fill('·');
+  for (let i = 0x20; i <= 0x7E; i++) t[i] = String.fromCharCode(i);
+  return t;
+})();
+
 // ── Hex formatting helpers ───────────────────────────────────────────────
 
 const HEX = '0123456789ABCDEF';
@@ -94,18 +110,6 @@ function saveSetting(key: string, val: string): void {
   try { localStorage.setItem(key, val); } catch { /* */ }
 }
 
-// ── Memory source helpers ────────────────────────────────────────────────
-
-/**
- * Return the correct Uint8Array for a given RAM bank, reading from flat[]
- * when the bank is currently mapped there (live data) and from ramBanks[]
- * otherwise (last-saved snapshot from the most recent bank switch).
- */
-function getBankData(mem: SpectrumMemory, bank: number): Uint8Array {
-  // Banks are always authoritative — return the bank array directly.
-  return mem.getRamBank(bank);
-}
-
 // ── Row renderer ─────────────────────────────────────────────────────────
 
 /**
@@ -124,6 +128,7 @@ function renderRows(
   rowCount: number,
   mode: DisplayMode,
   bpr: number,
+  chars: string[],
 ): string {
   const mid = bpr <= 16 ? (bpr >> 1) : -1; // gap after half-way byte, if any
   const parts: string[] = [];
@@ -137,7 +142,7 @@ function renderRows(
     if (mode === 'ascii') {
       for (let b = 0; b < bpr; b++) {
         const o = off + b;
-        line += o < data.length ? SPECTRUM_CHARS[data[o]] : ' ';
+        line += o < data.length ? chars[data[o]] : ' ';
       }
     } else {
       // Hex columns
@@ -151,7 +156,7 @@ function renderRows(
         line += ' ';
         for (let b = 0; b < bpr; b++) {
           const o = off + b;
-          line += o < data.length ? SPECTRUM_CHARS[data[o]] : ' ';
+          line += o < data.length ? chars[data[o]] : ' ';
         }
       }
     }
@@ -176,31 +181,54 @@ export function MemoryPane() {
   let preEl!:    HTMLPreElement;
   let goInputEl!: HTMLInputElement;
 
-  // Number of ROM pages depends on the current machine model.
+  const isCpc = () => isCpcModel(currentModel());
+
+  // Number of Spectrum ROM pages depends on the model (CPC handled separately).
   const romCount = createMemo(() => {
     const m = currentModel();
     return isPlus2AClass(m) ? 4 : is128kClass(m) ? 2 : 1;
   });
 
+  /** ASCII glyph table for the active machine. */
+  const chars = (): string[] => isCpc() ? CPC_CHARS : SPECTRUM_CHARS;
+
   function bpr(): number { return mode() === 'ascii' ? BYTES_ASCII : BYTES_HEX; }
+
+  /** Whether a saved region key is valid for the active machine. */
+  function regionValid(r: string): boolean {
+    if (r === 'mapped' || r.startsWith('bank')) return true;
+    if (isCpc()) return r.startsWith('cpcRom');
+    return r.startsWith('rom');
+  }
 
   /** Resolve the currently selected region to a data buffer and base address. */
   function source(): { data: Uint8Array; baseAddr: number } | null {
-    const spec = spectrum;
-    if (!spec) return null;
-    const mem = spec.memory;
+    const m = machine;
+    if (!m) return null;
+    const mem = m.memory;
     const r   = region();
 
     if (r === 'mapped') return { data: mem.readBlock(0, 0x10000), baseAddr: 0 };
 
-    if (r.startsWith('rom')) {
-      const idx = parseInt(r.slice(3), 10);
-      return idx < mem.romPages.length ? { data: mem.romPages[idx], baseAddr: 0 } : null;
-    }
-
     if (r.startsWith('bank')) {
       const bank = parseInt(r.slice(4), 10);
-      return { data: getBankData(mem, bank), baseAddr: 0 };
+      return { data: mem.getRamBank(bank), baseAddr: 0 };
+    }
+
+    // ── ROM regions (machine-specific) ──
+    const cpc = asCpc(m);
+    if (cpc) {
+      // CPC ROMs sit where they overlay: lower (OS) at 0x0000, upper at 0xC000.
+      if (r === 'cpcRomLower')  return { data: cpc.memory.getLowerRom(), baseAddr: 0x0000 };
+      if (r === 'cpcRomBasic')  { const d = cpc.memory.getUpperRom(0); return d ? { data: d, baseAddr: 0xC000 } : null; }
+      if (r === 'cpcRomAmsdos') { const d = cpc.memory.getUpperRom(7); return d ? { data: d, baseAddr: 0xC000 } : null; }
+      return null;
+    }
+
+    const spec = asSpectrum(m);
+    if (spec && r.startsWith('rom')) {
+      const idx = parseInt(r.slice(3), 10);
+      return idx < spec.memory.romPages.length ? { data: spec.memory.romPages[idx], baseAddr: 0 } : null;
     }
 
     return null;
@@ -249,7 +277,7 @@ export function MemoryPane() {
 
     const topPx = `${startRow * ROW_H}px`;
     if (preEl.style.top !== topPx) preEl.style.top = topPx;
-    const next = renderRows(data, baseAddr, startRow, endRow - startRow, mode(), bytesPerRow);
+    const next = renderRows(data, baseAddr, startRow, endRow - startRow, mode(), bytesPerRow, chars());
     if (preEl.textContent !== next) preEl.textContent = next;
   }
 
@@ -297,6 +325,13 @@ export function MemoryPane() {
     }
   }
 
+  // If the machine changes (e.g. Spectrum ⇄ CPC) and the persisted region no
+  // longer exists on the new machine, fall back to the always-valid mapped view.
+  createEffect(() => {
+    currentModel();
+    if (!regionValid(region())) changeRegion('mapped');
+  });
+
   onMount(() => {
     updateView();
     const id = setInterval(() => {
@@ -312,9 +347,15 @@ export function MemoryPane() {
       <div class="mem-controls">
         <select onChange={e => changeRegion(e.currentTarget.value)}>
           <option value="mapped"   selected={region() === 'mapped'}>Mapped (64K)</option>
-          <For each={Array.from({ length: romCount() }, (_, i) => i)}>
-            {(i) => <option value={`rom${i}`} selected={region() === `rom${i}`}>ROM {i}</option>}
-          </For>
+          <Show when={isCpc()} fallback={
+            <For each={Array.from({ length: romCount() }, (_, i) => i)}>
+              {(i) => <option value={`rom${i}`} selected={region() === `rom${i}`}>ROM {i}</option>}
+            </For>
+          }>
+            <option value="cpcRomLower"  selected={region() === 'cpcRomLower'} >ROM Lower (OS)</option>
+            <option value="cpcRomBasic"  selected={region() === 'cpcRomBasic'} >ROM BASIC</option>
+            <option value="cpcRomAmsdos" selected={region() === 'cpcRomAmsdos'}>ROM AMSDOS</option>
+          </Show>
           <For each={banks}>
             {(i) => <option value={`bank${i}`} selected={region() === `bank${i}`}>Bank {i}</option>}
           </For>
