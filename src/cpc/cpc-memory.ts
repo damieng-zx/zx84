@@ -197,6 +197,31 @@ export class CpcMemory implements IMachineMemory {
     return this.upperRoms[n];
   }
 
+  /**
+   * Current paging configuration, for the memory-layout debug pane. Exposed as a
+   * single snapshot (rather than per-field getters) to avoid clashing with the
+   * like-named private fields. `slotBanks[s]` is the physical RAM bank that backs
+   * Z80 slot `s` — the CPU *write* target and the video-DMA source — regardless
+   * of any ROM overlay reading on top of it.
+   */
+  pagingState(): {
+    ramConfig: number;
+    ram64kBlock: number;
+    lowerRomEnabled: boolean;
+    upperRomEnabled: boolean;
+    selectedUpperRom: number;
+    slotBanks: [number, number, number, number];
+  } {
+    return {
+      ramConfig: this.ramConfig,
+      ram64kBlock: this.ram64kBlock,
+      lowerRomEnabled: this.lowerRomEnabled,
+      upperRomEnabled: this.upperRomEnabled,
+      selectedUpperRom: this.selectedUpperRom,
+      slotBanks: [this.slotBank[0], this.slotBank[1], this.slotBank[2], this.slotBank[3]],
+    };
+  }
+
   /** RAM bank currently backing a Z80 slot (0–3), as the Gate Array's video
    *  DMA sees it — RAM only, ignoring ROM overlays. */
   videoBank(slot: number): Uint8Array {

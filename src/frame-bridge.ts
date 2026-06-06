@@ -98,6 +98,64 @@ function renderBanks(): string {
   return lines.join('\n');
 }
 
+/**
+ * Render the CPC memory-layout pane. Unlike the Spectrum (a flat 64KB view), the
+ * CPC overlays ROM on RAM with write fall-through, so each Z80 slot is shown as a
+ * CPU-*read* source (ROM or RAM) and the RAM bank the CPU *writes* beneath it.
+ * The footer decodes the RAM configuration, the selected/enabled ROMs, the video
+ * DMA the CRTC sees, and the Gate-Array screen mode.
+ */
+function renderCpcBanks(cpc: import('@/cpc/cpc-machine.ts').CpcMachine): string {
+  const mem = cpc.memory;
+  const p = mem.pagingState();
+  const n = '<span class="reg-name">';
+  const e = '</span>';
+
+  // Name the upper ROM at &C000: 0 = BASIC, 7 = AMSDOS, others = expansion ROM.
+  const upperName = (idx: number): string => {
+    if (idx === 0) return 'BASIC';
+    if (idx === 7) return 'AMSDOS';
+    return `ROM ${idx}`;
+  };
+
+  // Which RAM bank the CRTC fetches from: the screen's CPU base is derived from
+  // the 14-bit MA (R12/R13); its top two bits select one of the base-64K banks.
+  const dispStart = cpc.crtc.displayStart;
+  const screenBase = (dispStart & 0x3000) << 2;     // CPU address (0/4/8/C × 0x4000)
+  const screenSlot = (screenBase >>> 14) & 3;
+  const screenBank = screenSlot;                    // video DMA = base 64K, banks 0–3
+
+  // One row per 16KB slot, high to low.
+  const ranges = ['C000-FFFF', '8000-BFFF', '4000-7FFF', '0000-3FFF'];
+  const lines: string[] = [`${n}           CPU read  CPU write${e}`];
+
+  for (let row = 0; row < 4; row++) {
+    const slot = 3 - row;
+    let read: string;
+    if (slot === 0 && p.lowerRomEnabled) {
+      read = 'OS ROM';
+    } else if (slot === 3 && p.upperRomEnabled) {
+      const absent = mem.getUpperRom(p.selectedUpperRom) === undefined;
+      read = absent ? `${upperName(p.selectedUpperRom)}!` : upperName(p.selectedUpperRom);
+    } else {
+      read = `RAM ${p.slotBanks[slot]}`;
+    }
+    const mark = slot === screenSlot ? '  ◀screen' : '';
+    lines.push(`${n}${ranges[row]}${e}  ${read.padEnd(9)}→ RAM ${p.slotBanks[slot]}${mark}`);
+  }
+
+  lines.push('');
+  lines.push(`${n}RAM config${e} ${p.ramConfig} → [${p.slotBanks.join(' ')}]  ${n}64K blk${e} ${p.ram64kBlock}`);
+  lines.push(
+    `${n}Upper ROM${e} ${p.selectedUpperRom} ${upperName(p.selectedUpperRom)}` +
+    `  ${n}Low${e} ${p.lowerRomEnabled ? 'on' : 'off'}  ${n}High${e} ${p.upperRomEnabled ? 'on' : 'off'}`,
+  );
+  lines.push(`${n}Video DMA${e} bank ${screenBank}  ${n}base${e} &${hex16(screenBase)}`);
+  lines.push(`${n}Gate Array${e} mode ${cpc.gateArray.mode}`);
+
+  return lines.join('\n');
+}
+
 // Disk info now rendered directly in DrivePane component
 
 function renderDriveStatus(unit: number, activeUnit: number): import('@/state/disk-state.ts').DriveStatus {
@@ -185,7 +243,10 @@ export function updateRegsOnce(): void {
       updateHardwareSignals(activeUnit);
     } else {
       const cpc = asCpc(machine);
-      if (cpc) updateCpcBasic(cpc);
+      if (cpc) {
+        updateCpcBasic(cpc);
+        setBanksHtml(renderCpcBanks(cpc));
+      }
     }
   });
 }
@@ -346,6 +407,8 @@ function updateDebugFrame(): void {
       updateCpcBasic(cpc);
     }
   }
+  // Memory layout — cheap; refresh live so paging shows as games bank-switch.
+  if (cpc && !isCollapsed('banks-panel')) setBanksHtml(renderCpcBanks(cpc));
 }
 
 export function onFrame(): void {

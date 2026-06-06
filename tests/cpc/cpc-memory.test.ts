@@ -65,3 +65,41 @@ describe('CpcMemory ROM accessors', () => {
     expect(mem.getLowerRom()[0]).toBe(mem.readByte(0x0000));
   });
 });
+
+describe('CpcMemory pagingState (memory-layout pane)', () => {
+  it('reports the reset configuration', () => {
+    const mem = new CpcMemory(createCpcConfig('cpc6128'));
+    const p = mem.pagingState();
+    // At reset: standard config 0, both ROMs enabled, BASIC (0) selected upper.
+    expect(p.ramConfig).toBe(0);
+    expect(p.ram64kBlock).toBe(0);
+    expect(p.slotBanks).toEqual([0, 1, 2, 3]);
+    expect(p.lowerRomEnabled).toBe(true);
+    expect(p.upperRomEnabled).toBe(true);
+    expect(p.selectedUpperRom).toBe(0);
+  });
+
+  it('resolves RAM config 2 to the all-expansion bank set', () => {
+    const mem = new CpcMemory(createCpcConfig('cpc6128'));
+    // Gate-Array %11xxx010 — config 2 maps the four expansion banks (Dk'tronics).
+    mem.setRamConfig(2);
+    expect(mem.pagingState().slotBanks).toEqual([4, 5, 6, 7]);
+  });
+
+  it('resolves RAM config 3 (mixed base/expansion banks)', () => {
+    const mem = new CpcMemory(createCpcConfig('cpc6128'));
+    mem.setRamConfig(3);
+    expect(mem.pagingState().slotBanks).toEqual([0, 3, 2, 7]);
+  });
+
+  it('tracks ROM enable bits and the selected upper ROM', () => {
+    const mem = new CpcMemory(createCpcConfig('cpc6128'));
+    mem.setLowerRomEnabled(false);
+    mem.setUpperRomEnabled(false);
+    mem.selectUpperRom(7);
+    const p = mem.pagingState();
+    expect(p.lowerRomEnabled).toBe(false);
+    expect(p.upperRomEnabled).toBe(false);
+    expect(p.selectedUpperRom).toBe(7);
+  });
+});
