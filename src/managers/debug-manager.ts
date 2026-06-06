@@ -8,7 +8,7 @@
  * - CPU state inspection and disassembly
  */
 
-import type { Spectrum } from '@/spectrum.ts';
+import type { Machine } from '@/machine.ts';
 import { Z80 } from '@/cores/z80.ts';
 import { disasmOne } from '@/debug/z80-disasm.ts';
 import { hex8, hex16 } from '@/utils/hex.ts';
@@ -36,8 +36,8 @@ export class DebugManager {
   /**
    * Execute a single instruction.
    */
-  stepInto(spectrum: Spectrum, onUpdate: () => void): void {
-    spectrum.cpu.step();
+  stepInto(machine: Machine, onUpdate: () => void): void {
+    machine.cpu.step();
     onUpdate();
   }
 
@@ -50,16 +50,16 @@ export class DebugManager {
    *     sequential instruction. (Block repeats are PC-based, not SP-based,
    *     because they don't touch SP; they just rewind PC by 2 each iteration.)
    */
-  stepOver(spectrum: Spectrum, onUpdate: () => void): void {
-    const cpu = spectrum.cpu;
-    const op = spectrum.memory.readByte(cpu.pc);
+  stepOver(machine: Machine, onUpdate: () => void): void {
+    const cpu = machine.cpu;
+    const op = machine.memory.readByte(cpu.pc);
 
     // Block repeats: ED B0..B3 (LDIR/CPIR/INIR/OTIR) and ED B8..BB (…DR).
     // Both share the pattern `1011 0xxx` ignoring bit 3; mask 0xF4 keeps
     // bits 7,6,5,4,2 so only 0xB0 and 0xB8 (each in 4 variants by bits 0-1)
     // can match. `0xB0 & 0xF4 == 0xB8 & 0xF4 == 0xB0`.
     const isBlockRepeat = op === 0xED &&
-      ((spectrum.memory.readByte((cpu.pc + 1) & 0xFFFF) & 0xF4) === 0xB0);
+      ((machine.memory.readByte((cpu.pc + 1) & 0xFFFF) & 0xF4) === 0xB0);
 
     // CALL nn / CALL cc,nn / RST n — SP-based completion.
     const isCall =
@@ -99,8 +99,8 @@ export class DebugManager {
   /**
    * Step out of current function (run until RET brings SP back).
    */
-  stepOut(spectrum: Spectrum, onUpdate: () => void): void {
-    const cpu = spectrum.cpu;
+  stepOut(machine: Machine, onUpdate: () => void): void {
+    const cpu = machine.cpu;
     const targetSP = (cpu.sp + 2) & 0xFFFF; // SP after RET pops return address
     const limit = cpu.tStates + 10_000_000; // safety: max ~2.8 seconds
 
@@ -116,9 +116,9 @@ export class DebugManager {
   /**
    * Run exactly one frame (to the next frame boundary) and update the display.
    */
-  stepFrame(spectrum: Spectrum, onUpdate: () => void): void {
-    spectrum.tick();
-    if (spectrum.display) spectrum.display.updateTexture(spectrum.ula.pixels);
+  stepFrame(machine: Machine, onUpdate: () => void): void {
+    machine.tick();
+    if (machine.display) machine.display.updateTexture(machine.pixels);
     onUpdate();
   }
 
@@ -126,16 +126,16 @@ export class DebugManager {
    * Toggle breakpoint at address.
    */
   toggleBreakpoint(
-    spectrum: Spectrum,
+    machine: Machine,
     addr: number,
     onStatus: (msg: string) => void,
     onUpdate: () => void
   ): void {
-    if (spectrum.breakpoints.has(addr)) {
-      spectrum.breakpoints.delete(addr);
+    if (machine.breakpoints.has(addr)) {
+      machine.breakpoints.delete(addr);
       onStatus(`Breakpoint removed at ${hex16(addr)}`);
     } else {
-      spectrum.breakpoints.add(addr);
+      machine.breakpoints.add(addr);
       onStatus(`Breakpoint set at ${hex16(addr)}`);
     }
     onUpdate();
@@ -145,20 +145,20 @@ export class DebugManager {
    * Run to address (set temporary breakpoint).
    */
   runTo(
-    spectrum: Spectrum,
+    machine: Machine,
     addr: number,
     emulationPaused: boolean,
     onResume: () => void
   ): void {
-    const wasSet = spectrum.breakpoints.has(addr);
-    spectrum.breakpoints.add(addr);
+    const wasSet = machine.breakpoints.has(addr);
+    machine.breakpoints.add(addr);
 
     if (!wasSet) {
       this.pendingRunTo = addr;
     }
 
     if (emulationPaused) {
-      spectrum.start();
+      machine.start();
       onResume();
     }
   }
@@ -166,16 +166,16 @@ export class DebugManager {
   /**
    * Start execution tracing.
    */
-  startTrace(spectrum: Spectrum, mode: TraceMode = 'full', onStart: () => void): void {
-    spectrum.startTrace(mode);
+  startTrace(machine: Machine, mode: TraceMode = 'full', onStart: () => void): void {
+    machine.startTrace(mode);
     onStart();
   }
 
   /**
    * Stop execution tracing and return trace text.
    */
-  stopTrace(spectrum: Spectrum, onStop: (text: string, lineCount: number) => void): void {
-    const text = spectrum.stopTrace();
+  stopTrace(machine: Machine, onStop: (text: string, lineCount: number) => void): void {
+    const text = machine.stopTrace();
     const lines = text === '' ? 0 : text.split('\n').length;
     onStop(text, lines);
   }
@@ -185,8 +185,8 @@ export class DebugManager {
    * write so a permission denial or transient failure is reported via
    * `onStatus` rather than silently swallowed.
    */
-  async copyCpuState(spectrum: Spectrum, onStatus: (msg: string) => void): Promise<void> {
-    const cpu = spectrum.cpu;
+  async copyCpuState(machine: Machine, onStatus: (msg: string) => void): Promise<void> {
+    const cpu = machine.cpu;
     const f = cpu.f;
     const flags = [
       `Sign=${(f & Z80.FLAG_S) ? 1 : 0}`,
@@ -214,7 +214,7 @@ export class DebugManager {
     ];
 
     // Disassemble 16 instructions around PC
-    const snap = spectrum.memory.snapshot();
+    const snap = machine.memory.snapshot();
     let addr = cpu.pc;
     for (let i = 0; i < 16; i++) {
       const dl = disasmOne(snap, addr);

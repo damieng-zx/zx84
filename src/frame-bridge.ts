@@ -148,24 +148,33 @@ function updateHardwareSignals(activeUnit: number): void {
 
 // ── Debug panel updates ─────────────────────────────────────────────────
 
-/** Update disassembly, system variables, BASIC listing, and variables signals. */
-function updateDebugSignals(): void {
+/** Refresh the disassembly around PC for the active machine (machine-agnostic). */
+function updateDisasm(): void {
+  const snap = machine!.memory.snapshot();
+  const cpu = machine!.cpu;
+  const dLines = disassembleAroundPC(snap, cpu.pc, 24);
+  setDisasmText(formatDisasmHtml(dLines, snap, cpu.pc, machine!.breakpoints));
+}
+
+/** Spectrum-only panes: system variables + BASIC listing/variables. */
+function updateSpectrumDebugSignals(): void {
   setSysvarRev(v => v + 1);
   const snap = spectrum!.memory.snapshot();
   setBasicHtml(parseBasicProgram(snap));
   setBasicVarsHtml(parseBasicVariables(snap));
-  const cpu = spectrum!.cpu;
-  const dLines = disassembleAroundPC(snap, cpu.pc, 24);
-  setDisasmText(formatDisasmHtml(dLines, snap, cpu.pc, spectrum!.breakpoints));
 }
 
 export function updateRegsOnce(): void {
-  if (!spectrum) return;
+  if (!machine) return;
   batch(() => {
     setRegsRev(v => v + 1);
-    updateDebugSignals();
-    const activeUnit = spectrum!.variant.hasFDC ? spectrum!.fdc.currentUnit : 0;
-    updateHardwareSignals(activeUnit);
+    updateDisasm();
+    // The remaining debug panes are Spectrum-specific (sysvars, BASIC, banks).
+    if (spectrum) {
+      updateSpectrumDebugSignals();
+      const activeUnit = spectrum.variant.hasFDC ? spectrum.fdc.currentUnit : 0;
+      updateHardwareSignals(activeUnit);
+    }
   });
 }
 
@@ -295,14 +304,37 @@ export function saveFontStore(store: FontEntry[]): void {
 
 // ── onFrame callback ────────────────────────────────────────────────────
 
+/** Per-frame debugger upkeep for any machine: pause on a breakpoint hit and
+ *  keep the registers/disassembly live while the Debugger pane is open. The
+ *  Spectrum path below has its own equivalent inline; this serves the CPC. */
+function updateDebugFrame(): void {
+  const m = machine!;
+  if (m.breakpointHit >= 0) {
+    m.stop();
+    setEmulationPaused(true);
+    const addr = m.breakpointHit;
+    if (getPendingRunTo() === addr) {
+      m.breakpoints.delete(addr);
+      clearPendingRunTo();
+      setStatus(`Run-to reached ${hex16(addr)}`);
+    } else {
+      setStatus(`Breakpoint hit at ${hex16(addr)}`);
+    }
+  }
+  if (!isCollapsed('disasm-panel')) {
+    setRegsRev(v => v + 1);
+    if (emulationPaused()) updateDisasm();
+  }
+}
+
 export function onFrame(): void {
   if (!machine) return;
   // Clock-speed readout applies to every machine (Spectrum and CPC).
   updateClockSpeed();
 
-  // The remaining per-frame UI (LEDs, registers, disk, tape, transcribe) is
-  // still Spectrum-specific; the CPC drives those panes elsewhere.
-  if (!spectrum) return;
+  // The rest of the per-frame UI (LEDs, tape, transcribe, BASIC) is still
+  // Spectrum-specific; the CPC only needs the machine-agnostic debugger upkeep.
+  if (!spectrum) { updateDebugFrame(); return; }
 
   const a = spectrum.activity;
   const v = spectrum.variant;

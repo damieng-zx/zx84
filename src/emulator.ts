@@ -365,39 +365,39 @@ export function togglePause(): void {
 }
 
 export function stepInto(): void {
-  if (!spectrum) return;
+  if (!machine) return;
   if (!emulationPaused()) {
-    spectrum.stop();
+    machine.stop();
     setEmulationPaused(true);
   }
-  debugManager.stepInto(spectrum, updateRegsOnce);
+  debugManager.stepInto(machine, updateRegsOnce);
 }
 
 export function stepOver(): void {
-  if (!spectrum) return;
+  if (!machine) return;
   if (!emulationPaused()) {
-    spectrum.stop();
+    machine.stop();
     setEmulationPaused(true);
   }
-  debugManager.stepOver(spectrum, updateRegsOnce);
+  debugManager.stepOver(machine, updateRegsOnce);
 }
 
 export function stepOut(): void {
-  if (!spectrum) return;
+  if (!machine) return;
   if (!emulationPaused()) {
-    spectrum.stop();
+    machine.stop();
     setEmulationPaused(true);
   }
-  debugManager.stepOut(spectrum, updateRegsOnce);
+  debugManager.stepOut(machine, updateRegsOnce);
 }
 
 export function stepFrame(): void {
-  if (!spectrum) return;
+  if (!machine) return;
   if (!emulationPaused()) {
-    spectrum.stop();
+    machine.stop();
     setEmulationPaused(true);
   }
-  debugManager.stepFrame(spectrum, updateRegsOnce);
+  debugManager.stepFrame(machine, updateRegsOnce);
 }
 
 export function resetMachine(): void {
@@ -423,13 +423,13 @@ export function toggleTurbo(): void {
 }
 
 export function toggleBreakpoint(addr: number): void {
-  if (!spectrum) return;
-  debugManager.toggleBreakpoint(spectrum, addr, setStatus, updateRegsOnce);
+  if (!machine) return;
+  debugManager.toggleBreakpoint(machine, addr, setStatus, updateRegsOnce);
 }
 
 export function runTo(addr: number): void {
-  if (!spectrum) return;
-  debugManager.runTo(spectrum, addr, emulationPaused(), () => {
+  if (!machine) return;
+  debugManager.runTo(machine, addr, emulationPaused(), () => {
     clearDebugPanels();
     setEmulationPaused(false);
   });
@@ -444,18 +444,18 @@ export function clearPendingRunTo(): void {
 }
 
 export function copyCpuState(): void {
-  if (!spectrum) return;
-  debugManager.copyCpuState(spectrum, setStatus);
+  if (!machine) return;
+  debugManager.copyCpuState(machine, setStatus);
 }
 
 export function startTrace(mode: TraceMode = 'full'): void {
-  if (!spectrum) return;
-  debugManager.startTrace(spectrum, mode, () => setTracing(true));
+  if (!machine) return;
+  debugManager.startTrace(machine, mode, () => setTracing(true));
 }
 
 export function stopTrace(): void {
-  if (!spectrum) return;
-  debugManager.stopTrace(spectrum, (text, lineCount) => {
+  if (!machine) return;
+  debugManager.stopTrace(machine, (text, lineCount) => {
     setTracing(false);
     navigator.clipboard.writeText(text);
     setStatus(`Trace copied to clipboard (${lineCount.toLocaleString()} lines)`);

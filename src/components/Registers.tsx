@@ -5,7 +5,7 @@
  */
 
 import { createEffect, onMount, onCleanup } from 'solid-js';
-import { spectrum, regsRev } from '@/emulator.ts';
+import { machine, regsRev } from '@/emulator.ts';
 import { Z80 } from '@/cores/z80.ts';
 import { HEX8, HEX16 } from '@/utils/hex.ts';
 
@@ -123,7 +123,7 @@ export function Registers() {
 
     createEffect(() => {
       regsRev(); // track the signal
-      const cpu = spectrum?.cpu;
+      const cpu = machine?.cpu;
       if (!cpu) return;
       pAF = set16(s.af, cpu.af, pAF);
       pAF_ = set16(s.af_, (cpu.a_ << 8) | cpu.f_, pAF_);
@@ -138,7 +138,7 @@ export function Registers() {
       pSP = set16(s.sp, cpu.sp, pSP);
       pPC = set16(s.pc, cpu.pc, pPC);
       pIR = set8x2(s.ir, cpu.i, cpu.r, pIR);
-      const tpf = spectrum!.tStatesPerFrame.toLocaleString();
+      const tpf = machine!.tStatesPerFrame.toLocaleString();
       pTPF = setStr(s.tpf, tpf, pTPF);
       pIFF = setStr(s.iff, cpu.iff1 ? 'EI' : 'DI', pIFF);
       pIM = setStr(s.im, String(cpu.im), pIM);

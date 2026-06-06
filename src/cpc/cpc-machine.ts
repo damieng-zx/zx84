@@ -62,6 +62,12 @@ export class CpcMachine implements Machine {
   private readonly _pixels32 = new Uint32Array(this._pixels.buffer);
   get pixels(): Uint8Array { return this._pixels; }
 
+  /** T-states in the current CRTC-programmed frame (debugger readout). Falls
+   *  back to the nominal frame length before the firmware programs the CRTC. */
+  get tStatesPerFrame(): number {
+    return this.crtc.linesPerFrame() * this.crtc.charsPerLine() * CPC_T_PER_CHAR;
+  }
+
   /** Scanlines remaining until the post-VSYNC interrupt re-sync fires. */
   private vsyncResyncCountdown = 0;
 

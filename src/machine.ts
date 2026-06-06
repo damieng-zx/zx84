@@ -63,6 +63,9 @@ export interface Machine {
   /** RGBA frame buffer the machine renders into. */
   readonly pixels: Uint8Array;
 
+  /** Nominal T-states per video frame (for the debugger's register readout). */
+  readonly tStatesPerFrame: number;
+
   // ── Lifecycle / driver ───────────────────────────────────────────────
   start(): Promise<void>;
   stop(): void;

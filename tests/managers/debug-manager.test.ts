@@ -46,7 +46,8 @@ function makeStub(): StubSpectrum {
     startTrace: vi.fn(),
     stopTrace: vi.fn(() => 'a\nb\nc'),
     display: null,
-    ula: { pixels: new Uint8Array(8) },
+    // The Machine frame buffer surface used by stepFrame's display refresh.
+    pixels: new Uint8Array(8),
   };
   return stub as unknown as StubSpectrum;
 }
@@ -415,7 +416,7 @@ describe('DebugManager.stepFrame', () => {
     (s as any).display = { updateTexture };
     dm.stepFrame(s, vi.fn());
     expect(updateTexture).toHaveBeenCalledOnce();
-    expect(updateTexture).toHaveBeenCalledWith(s.ula.pixels);
+    expect(updateTexture).toHaveBeenCalledWith((s as any).pixels);
   });
 });
 

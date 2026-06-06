@@ -14,6 +14,12 @@ import {
   startTrace, stopTrace, copyCpuState,
   togglePause, toggleBreakpoint, runTo,
 } from '@/emulator.ts';
+import { currentModel } from '@/state/machine-state.ts';
+import { isCpcModel } from '@/models.ts';
+
+// Execution tracing isn't implemented for the CPC (CpcMachine.startTrace is a
+// no-op), so the trace control is hidden there; the rest of the debugger works.
+const tracingSupported = () => !isCpcModel(currentModel());
 
 function addrFromEvent(e: MouseEvent): number | null {
   const line = (e.target as HTMLElement).closest('.d-line');
@@ -79,23 +85,25 @@ export function DisassemblyPane() {
         <button class="btn btn-md" title="Step Over (execute, stepping over CALLs)" onClick={stepOver} disabled={!emulationPaused()}><HiOutlineArrowTrendingDown /></button>
         <button class="btn btn-md" title="Step Out (run until RET)" onClick={stepOut} disabled={!emulationPaused()}><HiOutlineArrowUpRight /></button>
         <button class="btn btn-md" title="Step Frame (run to end of frame)" onClick={stepFrame} disabled={!emulationPaused()}><HiOutlineForward /></button>
-        <Show when={tracing()} fallback={
-          <DropDownMenuButton
-            icon={<HiOutlinePencilSquare />}
-            title="Start tracing (copies to clipboard on stop)"
-            items={[
-              { value: 'full', label: 'Full' },
-              { value: 'portio', label: 'Port IO' },
-              { value: 'zxtl', label: 'ZXTrace' },
-              { value: 'loopanalysis', label: 'Loop' },
-            ]}
-            onSelect={(mode) => {
-              if (mode === 'loopanalysis') copyCpuState();
-              else startTrace(mode as 'full' | 'portio' | 'zxtl');
-            }}
-          />
-        }>
-          <button class="btn btn-md active" title="Stop tracing and copy to clipboard" onClick={stopTrace}>Stop</button>
+        <Show when={tracingSupported()}>
+          <Show when={tracing()} fallback={
+            <DropDownMenuButton
+              icon={<HiOutlinePencilSquare />}
+              title="Start tracing (copies to clipboard on stop)"
+              items={[
+                { value: 'full', label: 'Full' },
+                { value: 'portio', label: 'Port IO' },
+                { value: 'zxtl', label: 'ZXTrace' },
+                { value: 'loopanalysis', label: 'Loop' },
+              ]}
+              onSelect={(mode) => {
+                if (mode === 'loopanalysis') copyCpuState();
+                else startTrace(mode as 'full' | 'portio' | 'zxtl');
+              }}
+            />
+          }>
+            <button class="btn btn-md active" title="Stop tracing and copy to clipboard" onClick={stopTrace}>Stop</button>
+          </Show>
         </Show>
       </div>
       <Show when={emulationPaused()}>
