@@ -139,8 +139,8 @@ function JoyColumn(props: { playerIdx: number; label: string }) {
           </select>
         </label>
       </Show>
-      <label>Map
-        <select id={`joy-map-${props.label.toLowerCase()}`} value={joyMapSel()()} onChange={handleMapChange}>
+      <label>
+        <select id={mapKey()} value={joyMapSel()()} onChange={handleMapChange}>
           <option value="none">No mapping</option>
           <option value="keys">Cursor keys</option>
           <option value="wasd">WASD + Space</option>
@@ -176,8 +176,8 @@ export function JoystickPane() {
       setGamepadConfigP2(null);
     }}>
       <div id="joy-columns">
-        <JoyColumn playerIdx={0} label="P1" />
-        <JoyColumn playerIdx={1} label="P2" />
+        <JoyColumn playerIdx={0} label="Player 1" />
+        <JoyColumn playerIdx={1} label="Player 2" />
       </div>
     </Pane>
   );
