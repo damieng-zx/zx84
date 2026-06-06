@@ -2,10 +2,15 @@
  * Status text + activity LEDs.
  */
 
+import { Show } from 'solid-js';
 import {
   statusText, ledKbd, ledKemp, ledEar, ledLoad, ledTapeTurbo, ledText,
   ledBeep, ledAy, ledDsk, ledRainbow, ledMouse, toggleTranscribeMode, spectrum,
+  currentModel,
 } from '@/emulator.ts';
+import { isCpcModel } from '@/models.ts';
+
+const isCpc = () => isCpcModel(currentModel());
 
 function Led(props: {
   id: string; kind: string; label: string; tip: string; on: boolean;
@@ -32,16 +37,20 @@ export function StatusBar() {
         <div class="led-group">
           {/* Group 1: Input devices */}
           <Led id="led-kbd" kind="kbd" label="KEYBOARD" on={ledKbd()}
-            tip="Reading the keyboard via the ULA port" />
-          <Led id="led-kemp" kind="kemp" label="KEMPSTON" on={ledKemp()}
-            tip="Reading the Kempston joystick port" />
+            tip={isCpc() ? 'Scanning the keyboard matrix (PPI → AY port A)' : 'Reading the keyboard via the ULA port'} />
+          <Show when={!isCpc()}>
+            <Led id="led-kemp" kind="kemp" label="KEMPSTON" on={ledKemp()}
+              tip="Reading the Kempston joystick port" />
+          </Show>
           <Led id="led-mouse" kind="mouse" label="MOUSE" on={ledMouse()}
             tip="Reading the Kempston mouse ports" />
         </div>
         <div class="led-group">
           {/* Group 2: Tape and disk */}
-          <Led id="led-ear" kind="ear" label="EAR" on={ledEar()}
-            tip="Sampling the EAR port (tape playback)" />
+          <Show when={!isCpc()}>
+            <Led id="led-ear" kind="ear" label="EAR" on={ledEar()}
+              tip="Sampling the EAR port (tape playback)" />
+          </Show>
           <Led id="led-load" kind="load" label="TAPE" on={ledLoad()}
             tip="ROM tape-load routine is active (LD-BYTES at 0556h)" />
           <Led id="led-accel" kind="accel" label="TURBO" on={ledTapeTurbo()}
@@ -54,13 +63,17 @@ export function StatusBar() {
           <Led id="led-text" kind="text" label="TEXT" on={ledText()}
             tip="Pixel-based screen OCR — click to toggle overlay"
             onClick={() => spectrum && toggleTranscribeMode('text')} />
-          <Led id="led-rainbow" kind="rainbow" label="RAINBOW" on={ledRainbow()}
-            tip="Attribute area is being rewritten mid-frame (rainbow/colour-cycling effect)" />
+          <Show when={!isCpc()}>
+            <Led id="led-rainbow" kind="rainbow" label="RAINBOW" on={ledRainbow()}
+              tip="Attribute area is being rewritten mid-frame (rainbow/colour-cycling effect)" />
+          </Show>
         </div>
         <div class="led-group">
           {/* Group 4: Sound */}
-          <Led id="led-beep" kind="beep" label="BEEPER" on={ledBeep()}
-            tip="Beeper bit is toggling (producing sound)" />
+          <Show when={!isCpc()}>
+            <Led id="led-beep" kind="beep" label="BEEPER" on={ledBeep()}
+              tip="Beeper bit is toggling (producing sound)" />
+          </Show>
           <Led id="led-ay" kind="ay" label="AY-3-8912" on={ledAy()}
             tip="Writing to the AY sound chip registers" />
         </div>

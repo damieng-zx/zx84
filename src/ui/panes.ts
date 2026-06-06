@@ -39,7 +39,7 @@ const DEFAULT_ORDER: PanePosition[] = [
  * CPC is active (they read Spectrum memory layouts, paging, or peripherals).
  */
 export const SPECTRUM_ONLY_PANES = new Set<string>([
-  'sysvar-panel', 'basic-panel', 'basic-vars-panel',
+  'sysvar-panel', 'basic-vars-panel',
   'banks-panel', 'tape-panel', 'font-panel', 'text-panel', 'mouse-panel',
 ]);
 

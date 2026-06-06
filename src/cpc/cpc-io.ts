@@ -35,6 +35,8 @@ export class Ppi8255 {
     private readonly ay: AY3891x,
     private readonly keyboard: CpcKeyboard,
     private readonly vsyncActive: () => boolean,
+    /** Called whenever the firmware scans a keyboard line — drives the LED. */
+    private readonly onKeyboardScan: () => void = () => {},
   ) {}
 
   /** Port A is an input when control bit 4 is set. */
@@ -103,7 +105,7 @@ export class Ppi8255 {
     if (this.ayFunction !== 1) return 0xFF;
     if (this.ay.selectedReg === 14) {
       const ioaInput = (this.ay.readRegister(7) & 0x40) === 0;
-      if (ioaInput) return this.keyboard.read();
+      if (ioaInput) { this.onKeyboardScan(); return this.keyboard.read(); }
     }
     return this.ay.readRegister(this.ay.selectedReg);
   }
@@ -194,6 +196,7 @@ export function wireCpcPortIO(m: CpcMachine): void {
     if ((port & 0x0400) === 0) {
       if ((port & 0x0100) !== 0) {       // A8=1 → &FB7F data
         fdc.writeData(val);
+        m.activity.fdcAccesses++;
       } else {                           // A8=0 → motor control (&FA7E)
         fdc.motorOn = (val & 0x01) !== 0;
       }
@@ -229,7 +232,8 @@ export function wireCpcPortIO(m: CpcMachine): void {
 
     // FDC: A10=0, A8=1 → &FB7E status / &FB7F data
     if ((port & 0x0500) === 0x0100) {
-      return (port & 1) ? fdc.readData() : fdc.readStatus();
+      if (port & 1) { m.activity.fdcAccesses++; return fdc.readData(); }
+      return fdc.readStatus();
     }
 
     return 0xFF; // unmapped — the CPC bus floats high

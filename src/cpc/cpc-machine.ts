@@ -62,6 +62,13 @@ export class CpcMachine implements Machine {
   private readonly _pixels32 = new Uint32Array(this._pixels.buffer);
   get pixels(): Uint8Array { return this._pixels; }
 
+  /** Per-frame I/O activity feeding the status-bar LEDs, reset at the start of
+   *  each frame. `kbdReads` counts keyboard-matrix scans (the firmware reads the
+   *  AY's port A through the PPI ~once per frame); `fdcAccesses` counts FDC
+   *  data-port transfers. Mirrors the Spectrum's IOActivity so KEYBOARD/DISK
+   *  light up the same way. */
+  readonly activity = { kbdReads: 0, fdcAccesses: 0 };
+
   /** T-states in the current CRTC-programmed frame (debugger readout). Falls
    *  back to the nominal frame length before the firmware programs the CRTC. */
   get tStatesPerFrame(): number {
@@ -108,7 +115,8 @@ export class CpcMachine implements Machine {
     // The CPC has no beeper; the mixer carries the AY only.
     this.mixer.beeperGain = 0;
     this.mixer.ayGain = 1;
-    this.ppi = new Ppi8255(this.ay, this.keyboard, () => this.crtc.vsyncActive);
+    this.ppi = new Ppi8255(this.ay, this.keyboard, () => this.crtc.vsyncActive,
+                           () => { this.activity.kbdReads++; });
     this.display = display ?? null;
 
     // Gate Array drives ROM enable + RAM banking through the memory.
@@ -259,6 +267,9 @@ export class CpcMachine implements Machine {
     const crtc = this.crtc;
     const ga = this.gateArray;
     const skipAudio = this.turbo;
+
+    this.activity.kbdReads = 0;
+    this.activity.fdcAccesses = 0;
 
     crtc.beginFrame();
     ga.beginFrame(this._pixels32);

@@ -10,6 +10,7 @@ import { isPlus2AClass } from '@/models.ts';
 import { disassembleAroundPC, formatDisasmHtml } from '@/debug/z80-disasm.ts';
 import type { FontSource } from '@/debug/screen-text.ts';
 import { parseBasicProgram, parseBasicVariables } from '@/debug/basic-parser.ts';
+import { parseLocomotiveBasic } from '@/debug/cpc-basic-parser.ts';
 import { isCollapsed } from '@/ui/panes.ts';
 import * as settings from '@/store/settings.ts';
 import { refreshDiskMetadata } from '@/plus3/dsk.ts';
@@ -27,6 +28,7 @@ import {
   getPendingRunTo, clearPendingRunTo,
 } from '@/emulator.ts';
 
+import { asCpc } from '@/machine.ts';
 import { hex8, hex16 } from '@/utils/hex.ts';
 import { loaderSignatureLabel, type LoaderSignature } from '@/tape/edge-loader.ts';
 
@@ -164,16 +166,26 @@ function updateSpectrumDebugSignals(): void {
   setBasicVarsHtml(parseBasicVariables(snap));
 }
 
+/** Render the CPC's Locomotive BASIC program into the BASIC pane. Reads the
+ *  underlying RAM (the program lives at &0170 under the OS ROM overlay). */
+function updateCpcBasic(cpc: import('@/cpc/cpc-machine.ts').CpcMachine): void {
+  setBasicHtml(parseLocomotiveBasic(cpc.memory.ramSnapshot()));
+}
+
 export function updateRegsOnce(): void {
   if (!machine) return;
   batch(() => {
     setRegsRev(v => v + 1);
     updateDisasm();
-    // The remaining debug panes are Spectrum-specific (sysvars, BASIC, banks).
+    // The remaining debug panes are Spectrum-specific (sysvars, banks); BASIC is
+    // shown for both, with a machine-specific detokenizer.
     if (spectrum) {
       updateSpectrumDebugSignals();
       const activeUnit = spectrum.variant.hasFDC ? spectrum.fdc.currentUnit : 0;
       updateHardwareSignals(activeUnit);
+    } else {
+      const cpc = asCpc(machine);
+      if (cpc) updateCpcBasic(cpc);
     }
   });
 }
@@ -325,6 +337,15 @@ function updateDebugFrame(): void {
     setRegsRev(v => v + 1);
     if (emulationPaused()) updateDisasm();
   }
+  // BASIC listing — throttled to ~1Hz, only when the pane is open.
+  const cpc = asCpc(m);
+  if (cpc && !isCollapsed('basic-panel')) {
+    const now = performance.now();
+    if (now - _lastSlowUpdate > 1000) {
+      _lastSlowUpdate = now;
+      updateCpcBasic(cpc);
+    }
+  }
 }
 
 export function onFrame(): void {
@@ -332,9 +353,20 @@ export function onFrame(): void {
   // Clock-speed readout applies to every machine (Spectrum and CPC).
   updateClockSpeed();
 
-  // The rest of the per-frame UI (LEDs, tape, transcribe, BASIC) is still
-  // Spectrum-specific; the CPC only needs the machine-agnostic debugger upkeep.
-  if (!spectrum) { updateDebugFrame(); return; }
+  // The rest of the per-frame UI (tape, transcribe, BASIC) is Spectrum-specific;
+  // the CPC drives just the KEYBOARD/DISK LEDs and the debugger upkeep.
+  if (!spectrum) {
+    const cpc = asCpc(machine);
+    if (cpc) {
+      const ca = cpc.activity;
+      batch(() => {
+        setLedKbd(ca.kbdReads > 0);
+        setLedDsk(ca.fdcAccesses > 0);
+      });
+    }
+    updateDebugFrame();
+    return;
+  }
 
   const a = spectrum.activity;
   const v = spectrum.variant;

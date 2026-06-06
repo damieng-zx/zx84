@@ -173,6 +173,15 @@ export class CpcMemory implements IMachineMemory {
     return out;
   }
 
+  /** Fresh 64KB copy of the underlying RAM (the four mapped RAM banks), ignoring
+   *  the ROM overlays — this is where BASIC keeps its program text/variables, so
+   *  the BASIC viewer reads from here rather than the ROM-shadowed snapshot(). */
+  ramSnapshot(): Uint8Array {
+    const out = new Uint8Array(0x10000);
+    for (let slot = 0; slot < 4; slot++) out.set(this.writePtr[slot], slot * SLOT_SIZE);
+    return out;
+  }
+
   getRamBank(n: number): Uint8Array {
     return this.ram[n] ?? this.ram[0];
   }
