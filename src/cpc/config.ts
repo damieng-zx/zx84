@@ -37,14 +37,32 @@ const CPC6128: CpcConfig = {
   romLabel: 'CPC 6128 (OS + BASIC 1.1 + AMSDOS)',
 };
 
-/** Build the config for a CPC model. Throws on the not-yet-supported models so
- *  a premature dropdown entry fails loudly rather than silently mis-booting. */
+const CPC464: CpcConfig = {
+  model: 'cpc464',
+  ramKB: 64,
+  ramBanks: 4,
+  hasFDC: false, // cassette only — no uPD765A / AMSDOS
+  crtcType: 0,
+  romLabel: 'CPC 464 (OS + BASIC 1.0, cassette only)',
+};
+
+const CPC664: CpcConfig = {
+  model: 'cpc664',
+  ramKB: 64,
+  ramBanks: 4,
+  hasFDC: true, // 3" drive + AMSDOS, like the 6128 but 64KB
+  crtcType: 0,
+  romLabel: 'CPC 664 (OS + BASIC 1.1 + AMSDOS)',
+};
+
+/** Build the config for a CPC model. */
 export function createCpcConfig(model: CpcModel): CpcConfig {
   switch (model) {
     case 'cpc6128':
       return CPC6128;
     case 'cpc464':
+      return CPC464;
     case 'cpc664':
-      throw new Error(`CPC model ${model} not yet supported`);
+      return CPC664;
   }
 }

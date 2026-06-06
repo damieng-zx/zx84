@@ -44,6 +44,8 @@ export function HardwarePane() {
           <option value="+2">ZX Spectrum +2 (Grey)</option>
           <option value="+2A">ZX Spectrum +2A (Black)</option>
           <option value="+3">ZX Spectrum +3</option>
+          <option value="cpc464">Amstrad CPC 464</option>
+          <option value="cpc664">Amstrad CPC 664</option>
           <option value="cpc6128">Amstrad CPC 6128</option>
         </select>
         <button id="cpu-reset" title="Reset machine" onClick={resetMachine}><HiOutlinePower /></button>

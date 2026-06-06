@@ -42,3 +42,9 @@ export type MachineModel = SpectrumModel | CpcModel;
 export function isCpcModel(m: MachineModel): m is CpcModel {
   return m === 'cpc6128' || m === 'cpc464' || m === 'cpc664';
 }
+
+/** True for a CPC model with a built-in disk drive (664/6128 have a uPD765A;
+ *  the 464 is cassette only). Used to gate disk UI / hardware. */
+export function cpcHasDisk(m: MachineModel): boolean {
+  return m === 'cpc6128' || m === 'cpc664';
+}

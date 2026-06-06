@@ -15,7 +15,7 @@ import {
   persistSetting, resetSettingsGroup,
 } from '@/store/settings.ts';
 import { isPlus3 } from '@/spectrum.ts';
-import { isCpcModel } from '@/models.ts';
+import { cpcHasDisk } from '@/models.ts';
 import { DISK_FORMATS, formatLabel, createBlankDisk, type DskImage } from '@/plus3/dsk.ts';
 import type { DriveStatus } from '@/state/disk-state.ts';
 import { openFile } from '@/ui/file-picker.ts';
@@ -146,7 +146,7 @@ export function DrivePane() {
   }
 
   return (
-    <Pane id="drive-panel" label="Drives" mono visible={isPlus3(currentModel()) || isCpcModel(currentModel())} onResetSettings={() => {
+    <Pane id="drive-panel" label="Drives" mono visible={isPlus3(currentModel()) || cpcHasDisk(currentModel())} onResetSettings={() => {
       resetSettingsGroup('drive');
       if (machine) {
         machine.fdc.writeProtect[0] = false; machine.fdc.writeProtect[1] = false;

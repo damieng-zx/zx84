@@ -29,8 +29,8 @@ const DEFAULT_ROM_URLS: Record<MachineModel, string[]> = {
   '+2A':  [`${ROM_BASE}plus3-41-0.rom`, `${ROM_BASE}plus3-41-1.rom`, `${ROM_BASE}plus3-41-2.rom`, `${ROM_BASE}plus3-41-3.rom`],
   '+3':   [`${ROM_BASE}plus3-0.rom`, `${ROM_BASE}plus3-1.rom`, `${ROM_BASE}plus3-2.rom`, `${ROM_BASE}plus3-3.rom`],
   'cpc6128': [`${ROM_BASE}os6128.rom`, `${ROM_BASE}basic1-1.rom`, `${ROM_BASE}amsdos.rom`],
-  'cpc464':  [`${ROM_BASE}cpc464.rom`],
-  'cpc664':  [`${ROM_BASE}cpc664.rom`, `${ROM_BASE}amsdos.rom`],
+  'cpc464':  [`${ROM_BASE}os464.rom`, `${ROM_BASE}basic1-0.rom`],
+  'cpc664':  [`${ROM_BASE}os664.rom`, `${ROM_BASE}basic664.rom`, `${ROM_BASE}amsdos.rom`],
 };
 
 export class ROMManager {
