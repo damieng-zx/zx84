@@ -1,4 +1,5 @@
 import { Pane } from '@/components/Pane.tsx';
+import { Show } from 'solid-js';
 import {
   volume, setVolume,
   ayMix, setAyMix,
@@ -6,7 +7,8 @@ import {
   ayDcBlock, setAyDcBlock,
   persistSetting, resetSettingsGroup,
 } from '@/store/settings.ts';
-import { spectrum, applyDisplaySettings } from '@/emulator.ts';
+import { machine, currentModel, applyDisplaySettings } from '@/emulator.ts';
+import { isCpcModel } from '@/models.ts';
 import type { AYStereoMode } from '@/cores/ay-3-8910.ts';
 
 const STEREO_MODES: { value: AYStereoMode; label: string }[] = [
@@ -23,10 +25,9 @@ export function SoundPane() {
   return (
     <Pane id="sound-panel" label="Sound" onResetSettings={() => {
       resetSettingsGroup('sound');
-      if (spectrum) {
-        spectrum['audio'].setVolume(70 / 100);
-        spectrum.ay.setStereoMode('ABC');
-        spectrum.ay.dcBlocking = true;
+      if (machine) {
+        machine.ay.setStereoMode('ABC');
+        machine.ay.dcBlocking = true;
       }
       applyDisplaySettings();
     }}>
@@ -38,27 +39,30 @@ export function SoundPane() {
           onInput={(e) => {
             const v = Number((e.target as HTMLInputElement).value);
             setVolume(v);
-            if (spectrum) spectrum['audio'].setVolume(v / 100);
             persistSetting('volume', v);
+            applyDisplaySettings();
           }}
         />
         <span class="slider-value" id="volume-value">{volume()}</span>
       </div>
-      <div class="slider-row">
-        <span class="slider-label">Mixer</span>
-        <span class="slider-end-label">Beep</span>
-        <input
-          type="range" id="ay-mix-slider" min="0" max="100"
-          value={ayMix()}
-          onInput={(e) => {
-            const v = Number((e.target as HTMLInputElement).value);
-            setAyMix(v);
-            persistSetting('ay-mix', v);
-            applyDisplaySettings();
-          }}
-        />
-        <span class="slider-end-label">AY</span>
-      </div>
+      {/* Beeper↔AY balance — Spectrum only; the CPC has no beeper. */}
+      <Show when={!isCpcModel(currentModel())}>
+        <div class="slider-row">
+          <span class="slider-label">Mixer</span>
+          <span class="slider-end-label">Beep</span>
+          <input
+            type="range" id="ay-mix-slider" min="0" max="100"
+            value={ayMix()}
+            onInput={(e) => {
+              const v = Number((e.target as HTMLInputElement).value);
+              setAyMix(v);
+              persistSetting('ay-mix', v);
+              applyDisplaySettings();
+            }}
+          />
+          <span class="slider-end-label">AY</span>
+        </div>
+      </Show>
       <div class="slider-row">
         <span class="slider-label">AY Channels</span>
         <select
@@ -67,7 +71,7 @@ export function SoundPane() {
           onChange={(e) => {
             const mode = (e.target as HTMLSelectElement).value as AYStereoMode;
             setAyStereo(mode);
-            if (spectrum) spectrum.ay.setStereoMode(mode);
+            if (machine) machine.ay.setStereoMode(mode);
             persistSetting('ay-stereo', mode);
           }}
         >
@@ -84,7 +88,7 @@ export function SoundPane() {
             onChange={(e) => {
               const on = (e.target as HTMLInputElement).checked;
               setAyDcBlock(on);
-              if (spectrum) spectrum.ay.dcBlocking = on;
+              if (machine) machine.ay.dcBlocking = on;
               persistSetting('ay-dc-block', on ? 'on' : 'off');
             }}
           />

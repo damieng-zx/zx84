@@ -63,6 +63,7 @@ function makeSpectrumStub() {
     kempstonMouse: { enabled: false, updatePosition: vi.fn(), setButton: vi.fn() },
     amxMouse: { enabled: false, queueMovement: vi.fn(), setButton: vi.fn() },
     variant: { hasFDC: false, hasBanking: false, hasSpecialPaging: false },
+    kind: 'spectrum' as const,
     model: '128k' as any,
     loadROM: vi.fn(), reset: vi.fn(), start: vi.fn(), stop: vi.fn(), destroy: vi.fn(),
     tick: vi.fn(), startTrace: vi.fn(), stopTrace: vi.fn(() => ''),

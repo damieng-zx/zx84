@@ -35,6 +35,15 @@ const DEFAULT_ORDER: PanePosition[] = [
   { id: 'dev-panel', sidebar: 'right' },
 ];
 
+/**
+ * Panes that depend on Spectrum ROM/hardware specifics and are hidden when a
+ * CPC is active (they read Spectrum memory layouts, paging, or peripherals).
+ */
+export const SPECTRUM_ONLY_PANES = new Set<string>([
+  'sysvar-panel', 'basic-panel', 'basic-vars-panel',
+  'banks-panel', 'tape-panel', 'font-panel', 'text-panel', 'mouse-panel',
+]);
+
 function loadPaneOrder(): PanePosition[] {
   try {
     const raw = localStorage.getItem(ORDER_KEY);

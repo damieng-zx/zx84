@@ -6,7 +6,7 @@ import { HiOutlineEllipsisVertical, HiOutlineDocumentPlus, HiOutlineArrowDownTra
 import {
   driveAStatus, driveBStatus, trapLogHtml, showTrapLog, currentModel,
   currentDiskName, currentDiskNameB, currentDiskInfo, currentDiskInfoB,
-  ejectDisk, loadFile, insertBlankDisk, saveDisk, spectrum,
+  ejectDisk, loadFile, insertBlankDisk, saveDisk, machine,
 } from '@/emulator.ts';
 import {
   diskSoundA, setDiskSoundA, diskSoundB, setDiskSoundB,
@@ -15,6 +15,7 @@ import {
   persistSetting, resetSettingsGroup,
 } from '@/store/settings.ts';
 import { isPlus3 } from '@/spectrum.ts';
+import { isCpcModel } from '@/models.ts';
 import { DISK_FORMATS, formatLabel, createBlankDisk, type DskImage } from '@/plus3/dsk.ts';
 import type { DriveStatus } from '@/state/disk-state.ts';
 import { openFile } from '@/ui/file-picker.ts';
@@ -127,11 +128,11 @@ function DiskInfo(props: {
 }
 
 function syncWriteProtect(unit: number, value: boolean): void {
-  if (spectrum) spectrum.fdc.writeProtect[unit] = value;
+  if (machine) machine.fdc.writeProtect[unit] = value;
 }
 
 function syncForceReady(unit: number, value: boolean): void {
-  if (spectrum) spectrum.fdc.forceReady[unit] = value;
+  if (machine) machine.fdc.forceReady[unit] = value;
 }
 
 export function DrivePane() {
@@ -145,11 +146,11 @@ export function DrivePane() {
   }
 
   return (
-    <Pane id="drive-panel" label="Drives" mono visible={isPlus3(currentModel())} onResetSettings={() => {
+    <Pane id="drive-panel" label="Drives" mono visible={isPlus3(currentModel()) || isCpcModel(currentModel())} onResetSettings={() => {
       resetSettingsGroup('drive');
-      if (spectrum) {
-        spectrum.fdc.writeProtect[0] = false; spectrum.fdc.writeProtect[1] = false;
-        spectrum.fdc.forceReady[1] = false;
+      if (machine) {
+        machine.fdc.writeProtect[0] = false; machine.fdc.writeProtect[1] = false;
+        machine.fdc.forceReady[1] = false;
       }
     }}>
       <DiskInfo

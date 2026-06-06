@@ -4,7 +4,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { disasmOne, stripMarkers } from '../../src/debug/z80-disasm.ts';
 import { h8, h16 } from '../hex.ts';
-import { state } from '../state.ts';
+import { state, activeSpectrum } from '../state.ts';
 import { text } from '../format.ts';
 import { clearZxtlBuffer, setZxtlBuffer, zxtlBufferSize, readZxtlChunk } from '../zxtl-store.ts';
 
@@ -23,7 +23,8 @@ export function register(server: McpServer): void {
     'stop_trace',
     { description: 'Stop the current trace and return the results. Full/portio: large traces written to file. ZXTL: stored in-memory — returns line count, use trace_read to fetch chunks.' },
     async () => {
-      const spec = state.spec;
+      const spec = activeSpectrum();
+      if (!spec) return text('Execution tracing is not supported on the CPC yet.');
       if (!spec.tracing) return text('Not tracing');
       const mode = spec.traceMode;
       if (mode === 'zxtl') {
@@ -58,7 +59,8 @@ export function register(server: McpServer): void {
     'frame_trace',
     { description: 'Run one frame, logging per-instruction: T-state, beam line/col, contention delays, border changes, and VRAM writes. Writes to file.' },
     async () => {
-      const spec = state.spec;
+      const spec = activeSpectrum();
+      if (!spec) return text('Frame trace is not supported on the CPC yet.');
       const timing = spec.contention.timing;
       const tpl = timing.tStatesPerLine;
       const contentionStart = timing.contentionStart;

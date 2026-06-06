@@ -3,7 +3,8 @@
  * No global state mutation here; reads `symbols` from state.ts.
  */
 
-import { Spectrum, is128kClass } from '../src/spectrum.ts';
+import { is128kClass } from '../src/models.ts';
+import { type Machine, asSpectrum } from '../src/machine.ts';
 import { disasmOne, stripMarkers } from '../src/debug/z80-disasm.ts';
 import { h8, h16 } from './hex.ts';
 import { symbols } from './state.ts';
@@ -58,7 +59,7 @@ export const CHAR_KEYS: Record<string, string[]> = {
   '\n': ['enter'],
 };
 
-export function formatStep(spec: Spectrum): string {
+export function formatStep(spec: Machine): string {
   const cpu = spec.cpu;
   const snap = spec.memory.snapshot();
   const line = disasmOne(snap, cpu.pc);
@@ -71,7 +72,7 @@ export function formatStep(spec: Spectrum): string {
   );
 }
 
-export function formatRegs(spec: Spectrum): string {
+export function formatRegs(spec: Machine): string {
   const cpu = spec.cpu;
   const f = cpu.f;
   const flags = [
@@ -90,15 +91,16 @@ export function formatRegs(spec: Spectrum): string {
     `SP  ${h16(cpu.sp)}  PC  ${h16(cpu.pc)}   IR  ${h8(cpu.i)}${h8(cpu.r)}`,
     `T-states: ${cpu.tStates}`,
   ];
-  if (is128kClass(spec.model)) {
-    const mem = spec.memory;
+  const s = asSpectrum(spec);
+  if (s && is128kClass(s.model)) {
+    const mem = s.memory;
     lines.push(`Bank: ${mem.currentBank}  ROM: ${mem.currentROM}  7FFD: ${h8(mem.port7FFD)}  Locked: ${mem.pagingLocked ? 'Y' : 'N'}`);
   }
   return lines.join('\n');
 }
 
 /** Returns a one-line watchpoint/breakpoint hit message, or null if none. */
-export function checkWatchHit(spec: Spectrum): string | null {
+export function checkWatchHit(spec: Machine): string | null {
   if (spec.portWatchHit !== null) {
     const { port, value, dir } = spec.portWatchHit;
     return `Port watchpoint: ${dir === 'out' ? 'OUT' : 'IN '} (${h16(port)}) = ${h8(value)}  PC=${h16(spec.cpu.pc)}\n${formatStep(spec)}`;

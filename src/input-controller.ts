@@ -9,8 +9,9 @@ import {
   type GamepadConfig, type GamepadBinding
 } from '@/store/settings.ts';
 import {
-  spectrum, joyPressForType, resetJoystickKeyState,
+  spectrum, machine, joyPressForType, resetJoystickKeyState,
 } from '@/emulator.ts';
+import type { CpcMachine } from '@/cpc/cpc-machine.ts';
 import {
   configuringPlayer, setConfiguringPlayer,
   configuringStep, setConfiguringStep,
@@ -122,11 +123,16 @@ export class InputController {
   }
 
   onKeyDown = (e: KeyboardEvent): void => {
-    if (!spectrum) return;
     // Drop OS-generated auto-repeat keydowns. Each one would re-enter setKey()
     // and push pressCount / physicalShiftCount / cursorShiftCount past what
     // the single keyup can undo, leaving the key stuck pressed.
     if (e.repeat) { e.preventDefault(); return; }
+    if (machine?.kind === 'cpc') {
+      if (this.handleJoyKey(e, true)) { e.preventDefault(); return; }
+      if ((machine as CpcMachine).keyboard.handleKeyEvent(e.code, true)) e.preventDefault();
+      return;
+    }
+    if (!spectrum) return;
     if (this.handleJoyKey(e, true)) { e.preventDefault(); return; }
     if (spectrum.keyboard.handleKeyEvent(e.code, true, e.key)) {
       e.preventDefault();
@@ -134,6 +140,11 @@ export class InputController {
   };
 
   onKeyUp = (e: KeyboardEvent): void => {
+    if (machine?.kind === 'cpc') {
+      if (this.handleJoyKey(e, false)) { e.preventDefault(); return; }
+      if ((machine as CpcMachine).keyboard.handleKeyEvent(e.code, false)) e.preventDefault();
+      return;
+    }
     if (!spectrum) return;
     if (this.handleJoyKey(e, false)) { e.preventDefault(); return; }
     if (spectrum.keyboard.handleKeyEvent(e.code, false, e.key)) {
@@ -145,6 +156,7 @@ export class InputController {
    *  event is delivered to whatever window the user tabbed to, leaving the
    *  Spectrum matrix bit (and any modifier reference counts) asserted. */
   onBlur = (): void => {
+    if (machine?.kind === 'cpc') { (machine as CpcMachine).keyboard.reset(); return; }
     if (!spectrum) return;
     spectrum.keyboard.reset();
     resetJoystickKeyState();
@@ -208,7 +220,7 @@ export class InputController {
   private prevConfiguringPlayer = -1;
 
   pollGamepads(): void {
-    if (!spectrum) return;
+    if (!machine) return;
     const joySelectors = [joyP1, joyP2];
     const joyMapSelectors = [joyMapP1, joyMapP2];
     const gamepads = navigator.getGamepads();

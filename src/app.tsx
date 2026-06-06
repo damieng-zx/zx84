@@ -28,9 +28,10 @@ import { TextPane } from '@/components/panes/TextPane.tsx';
 import { ChangelogOverlay, toggleChangelog } from '@/components/panes/ChangelogPane.tsx';
 import { MemoryPane } from '@/components/panes/MemoryPane.tsx';
 
-import { paneOrder } from '@/ui/panes.ts';
+import { paneOrder, SPECTRUM_ONLY_PANES } from '@/ui/panes.ts';
 import { needsGamepadPolling } from '@/store/settings.ts';
-import { initAudio, init, loadFile } from '@/emulator.ts';
+import { initAudio, init, loadFile, currentModel } from '@/emulator.ts';
+import { isCpcModel } from '@/models.ts';
 import { configuringPlayer } from '@/components/panes/JoystickPane.tsx';
 import { InputController } from '@/input-controller.ts';
 
@@ -60,8 +61,10 @@ const PANE_COMPONENTS: Record<string, () => JSX.Element> = {
 function renderPanes(side: 'left' | 'right') {
   return () => {
     const order = paneOrder();
+    const cpc = isCpcModel(currentModel());
     return order
       .filter(p => p.sidebar === side)
+      .filter(p => !(cpc && SPECTRUM_ONLY_PANES.has(p.id)))
       .map(p => {
         const Component = PANE_COMPONENTS[p.id];
         return Component ? <Component /> : null;

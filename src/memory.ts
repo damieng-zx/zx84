@@ -18,6 +18,7 @@
  */
 
 import type { SpectrumModel } from '@/models.ts';
+import type { IMachineMemory } from '@/machine.ts';
 
 /** Size of a single RAM bank or ROM page (16 KB). */
 export const BANK_SIZE = 16_384;
@@ -39,7 +40,7 @@ export interface ByteReader {
   readBlock(addr: number, len: number): Uint8Array;
 }
 
-export class SpectrumMemory implements ByteReader {
+export class SpectrumMemory implements ByteReader, IMachineMemory {
   /** The Z80's flat 64KB view. Source of truth for all CPU memory access.
    *  Hot-path callers (io-ports.ts) capture this once and index directly. */
   readonly flat = new Uint8Array(0x10000);

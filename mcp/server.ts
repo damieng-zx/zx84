@@ -10,7 +10,7 @@
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import type { SpectrumModel } from '../src/spectrum.ts';
+import type { MachineModel } from '../src/models.ts';
 import { initMachine } from './state.ts';
 
 import { register as registerMachine } from './tools/machine.ts';
@@ -40,12 +40,12 @@ registerSymbols(server);
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
-  let startModel: SpectrumModel = '48k';
+  let startModel: MachineModel = '48k';
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--model' && i + 1 < args.length) {
       const m = args[++i];
-      if (['16k', '48k', '128k', '+2', '+2A', '+3'].includes(m)) {
-        startModel = m as SpectrumModel;
+      if (['16k', '48k', '128k', '+2', '+2A', '+3', 'cpc6128', 'cpc464', 'cpc664'].includes(m)) {
+        startModel = m as MachineModel;
       }
     }
   }

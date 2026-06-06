@@ -84,6 +84,11 @@ vi.mock('@/emulator.ts', () => ({
       },
     } : null;
   },
+  // The input controller checks machine.kind to route CPC keys; these tests
+  // exercise the Spectrum path, so report a spectrum-kind machine when present.
+  get machine() {
+    return mockState.spectrumPresent ? { kind: 'spectrum' } : null;
+  },
   joyPressForType: (dir: string, pressed: boolean, type: string) => {
     mockState.joyPressCalls.push({ dir, pressed, type });
   },

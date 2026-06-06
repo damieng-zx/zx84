@@ -10,7 +10,7 @@ import {
   renderer, webglAvailable, colorMap, setColorMap, scanlineAccuracy, setScanlineAccuracy,
   persistSetting, resetSettingsGroup,
 } from '@/store/settings.ts';
-import { spectrum, switchRenderer, applyDisplaySettings } from '@/emulator.ts';
+import { spectrum, machine, switchRenderer, applyDisplaySettings } from '@/emulator.ts';
 
 interface MonitorPreset {
   maskType: number;
@@ -37,15 +37,15 @@ const MONITOR_PRESETS: Record<string, MonitorPreset> = {
 };
 
 function applyPreset(preset: MonitorPreset) {
-  setMaskType(preset.maskType); if (spectrum) spectrum.display!.setMaskType(preset.maskType); persistSetting('mask-type', preset.maskType);
-  setDotPitch(preset.dotPitch); if (spectrum) spectrum.display!.setDotPitch(preset.dotPitch / 10); persistSetting('dot-pitch', preset.dotPitch);
-  setCurvature(preset.curvature); if (spectrum) spectrum.display!.setCurvature(preset.curvature / 100 * 0.15); persistSetting('curvature', preset.curvature);
-  setCurvatureMode(preset.curvatureMode); if (spectrum) spectrum.display!.setCurvatureMode(preset.curvatureMode); persistSetting('curvature-mode', preset.curvatureMode);
-  setScanlines(preset.scanlines); if (spectrum) spectrum.display!.setScanlines(preset.scanlines / 100); persistSetting('scanlines', preset.scanlines);
-  setSmoothing(preset.smoothing); if (spectrum) spectrum.display!.setSmoothing(preset.smoothing / 100); persistSetting('smoothing', preset.smoothing);
-  setNoise(preset.noise); if (spectrum) spectrum.display!.setNoise(preset.noise / 100); persistSetting('noise', preset.noise);
-  if (preset.brightness != null) { setBrightness(preset.brightness); if (spectrum) spectrum.display!.setBrightness(preset.brightness / 50); persistSetting('brightness', preset.brightness); }
-  if (preset.contrast != null) { setContrast(preset.contrast); if (spectrum) spectrum.display!.setContrast(preset.contrast / 50); persistSetting('contrast', preset.contrast); }
+  setMaskType(preset.maskType); if (machine) machine.display!.setMaskType(preset.maskType); persistSetting('mask-type', preset.maskType);
+  setDotPitch(preset.dotPitch); if (machine) machine.display!.setDotPitch(preset.dotPitch / 10); persistSetting('dot-pitch', preset.dotPitch);
+  setCurvature(preset.curvature); if (machine) machine.display!.setCurvature(preset.curvature / 100 * 0.15); persistSetting('curvature', preset.curvature);
+  setCurvatureMode(preset.curvatureMode); if (machine) machine.display!.setCurvatureMode(preset.curvatureMode); persistSetting('curvature-mode', preset.curvatureMode);
+  setScanlines(preset.scanlines); if (machine) machine.display!.setScanlines(preset.scanlines / 100); persistSetting('scanlines', preset.scanlines);
+  setSmoothing(preset.smoothing); if (machine) machine.display!.setSmoothing(preset.smoothing / 100); persistSetting('smoothing', preset.smoothing);
+  setNoise(preset.noise); if (machine) machine.display!.setNoise(preset.noise / 100); persistSetting('noise', preset.noise);
+  if (preset.brightness != null) { setBrightness(preset.brightness); if (machine) machine.display!.setBrightness(preset.brightness / 50); persistSetting('brightness', preset.brightness); }
+  if (preset.contrast != null) { setContrast(preset.contrast); if (machine) machine.display!.setContrast(preset.contrast / 50); persistSetting('contrast', preset.contrast); }
 }
 
 function SliderRow(props: {
@@ -97,14 +97,14 @@ export function DisplayPane() {
           <select id="scale" value={scale()} onChange={(e) => {
             const v = Number((e.target as HTMLSelectElement).value);
             setScale(v);
-            if (spectrum) spectrum.display!.setScale(v);
+            if (machine) machine.display!.setScale(v);
             persistSetting('scale', v);
             // Reset scaling algorithm if it doesn't match the new scale
             const cur = scalingMode();
             const algo = SCALING_ALGOS.find(a => a.mode === cur);
             if (algo && algo.nativeScale !== 0 && algo.nativeScale !== v) {
               setScalingMode(0);
-              if (spectrum) spectrum.display!.setScalingMode(0);
+              if (machine) machine.display!.setScalingMode(0);
               persistSetting('scaling-mode', 0);
             }
           }}>
@@ -119,7 +119,7 @@ export function DisplayPane() {
           <select id="border-size" value={borderSize()} onChange={(e) => {
             const v = Number((e.target as HTMLSelectElement).value) as 0 | 1 | 2;
             setBorderSize(v);
-            if (spectrum) spectrum.setBorderSize(v);
+            if (machine) machine.setBorderSize(v);
             persistSetting('border-size', v);
             (e.target as HTMLSelectElement).blur();
           }}>
@@ -193,7 +193,7 @@ export function DisplayPane() {
         <select id="scaling-mode-select" value={scalingMode()} onChange={(e) => {
           const v = Number((e.target as HTMLSelectElement).value);
           setScalingMode(v);
-          if (spectrum) spectrum.display!.setScalingMode(v);
+          if (machine) machine.display!.setScalingMode(v);
           persistSetting('scaling-mode', v);
         }}>
           <For each={availableAlgos()}>
@@ -202,25 +202,25 @@ export function DisplayPane() {
         </select>
       </div>
       <SliderRow label="Brightness" id="brightness" min={-50} max={50} sig={brightness} setSig={setBrightness}
-        apply={(v) => spectrum?.display?.setBrightness(v / 50)} settingKey="brightness" />
+        apply={(v) => machine?.display?.setBrightness(v / 50)} settingKey="brightness" />
       <SliderRow label="Contrast" id="contrast" min={0} max={100} sig={contrast} setSig={setContrast}
-        apply={(v) => spectrum?.display?.setContrast(v / 50)} settingKey="contrast" />
+        apply={(v) => machine?.display?.setContrast(v / 50)} settingKey="contrast" />
       <SliderRow label="Scanlines" id="scanlines" min={0} max={100} sig={scanlines} setSig={setScanlines}
-        apply={(v) => spectrum?.display?.setScanlines(v / 100)} settingKey="scanlines" />
+        apply={(v) => machine?.display?.setScanlines(v / 100)} settingKey="scanlines" />
       <Show when={scalingMode() === 0}>
       <SliderRow label="Smoothing" id="smoothing" min={0} max={100} sig={smoothing} setSig={setSmoothing}
-        apply={(v) => spectrum?.display?.setSmoothing(v / 100)} settingKey="smoothing" />
+        apply={(v) => machine?.display?.setSmoothing(v / 100)} settingKey="smoothing" />
       </Show>
       <SliderRow label="Noise" id="noise" min={0} max={100} sig={noise} setSig={setNoise}
-        apply={(v) => spectrum?.display?.setNoise(v / 100)} settingKey="noise" />
+        apply={(v) => machine?.display?.setNoise(v / 100)} settingKey="noise" />
       <SliderRow label="Curvature" id="curvature" min={0} max={100} sig={curvature} setSig={setCurvature}
-        apply={(v) => spectrum?.display?.setCurvature(v / 100 * 0.15)} settingKey="curvature" />
+        apply={(v) => machine?.display?.setCurvature(v / 100 * 0.15)} settingKey="curvature" />
       <div class="slider-row">
         <span class="slider-label">Curv. mode</span>
         <select id="curvature-mode-select" value={curvatureMode()} onChange={(e) => {
           const v = Number((e.target as HTMLSelectElement).value);
           setCurvatureMode(v);
-          if (spectrum) spectrum.display!.setCurvatureMode(v);
+          if (machine) machine.display!.setCurvatureMode(v);
           persistSetting('curvature-mode', v);
         }}>
           <option value="0">Spherical</option>
@@ -232,7 +232,7 @@ export function DisplayPane() {
         <select id="mask-type-select" value={maskType()} onChange={(e) => {
           const v = Number((e.target as HTMLSelectElement).value);
           setMaskType(v);
-          if (spectrum) spectrum.display!.setMaskType(v);
+          if (machine) machine.display!.setMaskType(v);
           persistSetting('mask-type', v);
         }}>
           <option value="0">None</option>
@@ -245,7 +245,7 @@ export function DisplayPane() {
       </div>
       <Show when={maskType() !== 4 && maskType() !== 5 && maskType() !== 0}>
       <SliderRow label="Dot pitch" id="dot-pitch" min={10} max={40} sig={dotPitch} setSig={setDotPitch}
-        apply={(v) => spectrum?.display?.setDotPitch(v / 10)} settingKey="dot-pitch" />
+        apply={(v) => machine?.display?.setDotPitch(v / 10)} settingKey="dot-pitch" />
       </Show>
       </Show>
     </Pane>

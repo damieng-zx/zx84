@@ -7,6 +7,7 @@ import {
   multifaceRomFailed, vtx5000RomFailed,
 } from '@/emulator.ts';
 import type { SpectrumModel } from '@/spectrum.ts';
+import { type MachineModel, isCpcModel } from '@/models.ts';
 import { Show } from 'solid-js';
 import { variantForModel, variantLabel } from '@/peripherals/multiface.ts';
 import * as settings from '@/store/settings.ts';
@@ -33,7 +34,7 @@ export function HardwarePane() {
           id="model"
           value={currentModel()}
           onChange={(e) => {
-            switchModel((e.target as HTMLSelectElement).value as SpectrumModel);
+            switchModel((e.target as HTMLSelectElement).value as MachineModel);
             (e.target as HTMLSelectElement).blur();
           }}
         >
@@ -43,6 +44,7 @@ export function HardwarePane() {
           <option value="+2">ZX Spectrum +2 (Grey)</option>
           <option value="+2A">ZX Spectrum +2A (Black)</option>
           <option value="+3">ZX Spectrum +3</option>
+          <option value="cpc6128">Amstrad CPC 6128</option>
         </select>
         <button id="cpu-reset" title="Reset machine" onClick={resetMachine}><HiOutlinePower /></button>
       </div>
@@ -55,60 +57,63 @@ export function HardwarePane() {
           onClick={toggleTurbo}
         >{clockSpeedText()}</button>
       </div>
-      <div class="multiface-row">
-        <label
-          class={`mf-check${multifaceRomFailed() ? ' rom-failed' : ''}`}
-          title={multifaceRomFailed() || undefined}
-        >
-          <input
-            type="checkbox"
-            checked={settings.multifaceEnabled()}
-            disabled={!!multifaceRomFailed()}
-            onChange={(e) => {
-              const on = (e.target as HTMLInputElement).checked;
-              settings.setMultifaceEnabled(on);
-              settings.persistSetting('multiface', on ? 'on' : 'off');
-              if (spectrum) {
-                spectrum.multiface.enabled = on;
-                if (on && !spectrum.multiface.romLoaded) {
-                  loadMultifaceROM(spectrum);
+      {/* Multiface and VTX-5000 are Spectrum-only peripherals. */}
+      <Show when={!isCpcModel(currentModel())}>
+        <div class="multiface-row">
+          <label
+            class={`mf-check${multifaceRomFailed() ? ' rom-failed' : ''}`}
+            title={multifaceRomFailed() || undefined}
+          >
+            <input
+              type="checkbox"
+              checked={settings.multifaceEnabled()}
+              disabled={!!multifaceRomFailed()}
+              onChange={(e) => {
+                const on = (e.target as HTMLInputElement).checked;
+                settings.setMultifaceEnabled(on);
+                settings.persistSetting('multiface', on ? 'on' : 'off');
+                if (spectrum) {
+                  spectrum.multiface.enabled = on;
+                  if (on && !spectrum.multiface.romLoaded) {
+                    loadMultifaceROM(spectrum);
+                  }
                 }
-              }
-            }}
-          />
-          {variantLabel(variantForModel(currentModel()))}
-        </label>
-        <button
-          class="mf-nmi-btn"
-          title="Trigger NMI (Multiface button)"
-          disabled={!settings.multifaceEnabled()}
-          onClick={triggerNMI}
-        >NMI</button>
-      </div>
-      <div class="multiface-row">
-        <label
-          class={`mf-check${vtx5000RomFailed() ? ' rom-failed' : ''}`}
-          title={vtx5000RomFailed() || undefined}
-        >
-          <input
-            type="checkbox"
-            checked={settings.vtx5000Enabled()}
-            disabled={!!vtx5000RomFailed()}
-            onChange={(e) => {
-              const on = (e.target as HTMLInputElement).checked;
-              settings.setVtx5000Enabled(on);
-              settings.persistSetting('vtx5000', on ? 'on' : 'off');
-              if (spectrum) {
-                spectrum.vtx5000.enabled = on;
-                if (on && !spectrum.vtx5000.romLoaded) {
-                  loadVTX5000ROM(spectrum);
+              }}
+            />
+            {variantLabel(variantForModel(currentModel() as SpectrumModel))}
+          </label>
+          <button
+            class="mf-nmi-btn"
+            title="Trigger NMI (Multiface button)"
+            disabled={!settings.multifaceEnabled()}
+            onClick={triggerNMI}
+          >NMI</button>
+        </div>
+        <div class="multiface-row">
+          <label
+            class={`mf-check${vtx5000RomFailed() ? ' rom-failed' : ''}`}
+            title={vtx5000RomFailed() || undefined}
+          >
+            <input
+              type="checkbox"
+              checked={settings.vtx5000Enabled()}
+              disabled={!!vtx5000RomFailed()}
+              onChange={(e) => {
+                const on = (e.target as HTMLInputElement).checked;
+                settings.setVtx5000Enabled(on);
+                settings.persistSetting('vtx5000', on ? 'on' : 'off');
+                if (spectrum) {
+                  spectrum.vtx5000.enabled = on;
+                  if (on && !spectrum.vtx5000.romLoaded) {
+                    loadVTX5000ROM(spectrum);
+                  }
                 }
-              }
-            }}
-          />
-          VTX-5000
-        </label>
-      </div>
+              }}
+            />
+            VTX-5000
+          </label>
+        </div>
+      </Show>
       <Show when={currentModel() === '+3'}>
         <div class="multiface-row">
           <label class="mf-check">

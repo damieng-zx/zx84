@@ -9,19 +9,24 @@
  */
 
 import { createSignal } from 'solid-js';
-import type { SpectrumModel } from '@/spectrum.ts';
+import type { MachineModel } from '@/models.ts';
 
-function loadSavedModel(): SpectrumModel | null {
+const KNOWN_MODELS: readonly MachineModel[] = [
+  '16k', '48k', '128k', '+2', '+2A', '+3',
+  'cpc6128', 'cpc464', 'cpc664',
+];
+
+function loadSavedModel(): MachineModel | null {
   try {
     const raw = localStorage.getItem('zx84-model');
     if (raw === null) return null;
     // Legacy: pre-2026-05 builds stored '+2a' lower-case. Migrate transparently.
     const val = raw === '+2a' ? '+2A' : raw;
-    if (val === '16k' || val === '48k' || val === '128k' || val === '+2' || val === '+2A' || val === '+3') {
+    if ((KNOWN_MODELS as readonly string[]).includes(val)) {
       if (val !== raw) {
         try { localStorage.setItem('zx84-model', val); } catch { /* */ }
       }
-      return val;
+      return val as MachineModel;
     }
     // Unknown value — drop it so the next boot starts clean instead of carrying
     // a corrupted entry forever.
@@ -30,7 +35,7 @@ function loadSavedModel(): SpectrumModel | null {
   return null;
 }
 
-export function saveModel(model: SpectrumModel): void {
+export function saveModel(model: MachineModel): void {
   try {
     localStorage.setItem('zx84-model', model);
   } catch { /* */ }
@@ -46,7 +51,7 @@ export const romStatusText = _romStatusText[0];
 export const setRomStatusText = _romStatusText[1];
 
 // Model selection
-const _currentModel = createSignal<SpectrumModel>(loadSavedModel() ?? '128k');
+const _currentModel = createSignal<MachineModel>(loadSavedModel() ?? '128k');
 export const currentModel = _currentModel[0];
 export const setCurrentModel = _currentModel[1];
 

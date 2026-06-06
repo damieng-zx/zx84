@@ -7,7 +7,7 @@ import { loadSZX } from '../src/snapshot/szx.ts';
 import { parseDSK } from '../src/plus3/dsk.ts';
 import { parseTZX } from '../src/tape/tzx.ts';
 import { h16 } from './hex.ts';
-import { state, initMachine } from './state.ts';
+import { state, initMachine, activeSpectrum } from './state.ts';
 
 export async function loadFileInto(spec: Spectrum, filepath: string, diskUnit: number = 0): Promise<string> {
   if (!fs.existsSync(filepath)) return `File not found: ${filepath}`;
@@ -54,7 +54,7 @@ export async function loadFileInto(spec: Spectrum, filepath: string, diskUnit: n
     const szxModel: SpectrumModel = (data.length >= 7 ? SZX_ID_MODEL[data[6]] : undefined) ?? '48k';
     if (szxModel !== state.model) {
       await initMachine(szxModel);
-      spec = state.spec;
+      spec = activeSpectrum()!; // szxModel is always a Spectrum model
     } else {
       spec.reset();
     }

@@ -2,7 +2,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { variantForModel, variantLabel } from '../../src/peripherals/multiface.ts';
 import { h8, h16 } from '../hex.ts';
-import { state } from '../state.ts';
+import { state, activeSpectrum } from '../state.ts';
 import { text } from '../format.ts';
 import { fetchMFRom, fetchVTXRom } from '../rom-fetch.ts';
 
@@ -11,7 +11,8 @@ export function register(server: McpServer): void {
     'multiface',
     { description: 'Enable/disable Multiface peripheral, load its ROM, or press the NMI button. Actions: "on", "off", "nmi", "status".', inputSchema: { action: z.enum(['on', 'off', 'nmi', 'status']).describe('Action to perform') } },
     async ({ action }) => {
-      const spec = state.spec;
+      const spec = activeSpectrum();
+      if (!spec) return text('Multiface is a Spectrum peripheral — not available on the CPC.');
       const mf = spec.multiface;
 
       if (action === 'status') {
@@ -66,7 +67,8 @@ export function register(server: McpServer): void {
     'vtx5000',
     { description: 'Enable/disable the VTX-5000 Viewdata/Prestel modem (48K only). Loads the ROM overlay and resets the machine.', inputSchema: { action: z.enum(['on', 'off', 'status']).describe('Action to perform') } },
     async ({ action }) => {
-      const spec = state.spec;
+      const spec = activeSpectrum();
+      if (!spec) return text('The VTX-5000 is a Spectrum peripheral — not available on the CPC.');
       const vtx = spec.vtx5000;
 
       if (action === 'status') {

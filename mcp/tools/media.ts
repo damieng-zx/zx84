@@ -4,10 +4,11 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { saveSZX } from '../../src/snapshot/szx.ts';
 import { h8, h16 } from '../hex.ts';
-import { state, initMachine } from '../state.ts';
+import { state, initMachine, activeSpectrum, activeCpc } from '../state.ts';
 import { text, formatHexDump } from '../format.ts';
 import { loadFileInto } from '../loader.ts';
 import { fdcLog } from '../fdc-log.ts';
+import { parseDSK } from '../../src/plus3/dsk.ts';
 
 export function register(server: McpServer): void {
   server.registerTool(
@@ -18,7 +19,15 @@ export function register(server: McpServer): void {
     } },
     async ({ file, drive }) => {
       const diskUnit = (drive === '1' || drive === 'B') ? 1 : 0;
-      return text(await loadFileInto(state.spec, file, diskUnit));
+      const cpc = activeCpc();
+      if (cpc) {
+        if (!fs.existsSync(file)) return text(`File not found: ${file}`);
+        if (!/\.dsk$/i.test(file)) return text('On the CPC, load accepts .dsk disk images only.');
+        const image = parseDSK(new Uint8Array(fs.readFileSync(file)));
+        cpc.loadDisk(image, diskUnit);
+        return text(`DSK mounted in drive ${diskUnit === 0 ? 'A' : 'B'}: ${path.basename(file)}`);
+      }
+      return text(await loadFileInto(activeSpectrum()!, file, diskUnit));
     },
   );
 
@@ -26,7 +35,8 @@ export function register(server: McpServer): void {
     'save',
     { description: 'Save current emulator state to a SZX snapshot file.', inputSchema: { file: z.string().describe('Output path for .szx file') } },
     async ({ file }) => {
-      const spec = state.spec;
+      const spec = activeSpectrum();
+      if (!spec) return text('SZX snapshot save is Spectrum-only.');
       if (!file.toLowerCase().endsWith('.szx')) file = file + '.szx';
       const ayRegs = spec.ay ? new Uint8Array(16).map((_, i) => spec.ay.readRegister(i)) : undefined;
       const ayCurrentReg = spec.ay?.selectedReg;
@@ -34,7 +44,7 @@ export function register(server: McpServer): void {
         spec.cpu,
         spec.memory,
         spec.ula.borderColor,
-        state.model,
+        spec.model,
         spec.contention.frameStartTStates,
         ayRegs,
         ayCurrentReg,
@@ -49,6 +59,7 @@ export function register(server: McpServer): void {
     'disk_boot',
     { description: 'Boot from disk in drive A: on a +3. Runs 500 frames to reach the menu, then presses Enter on "Loader". If a file path is given, switches to +3, mounts the DSK, and boots it.', inputSchema: { file: z.string().optional().describe('Path to DSK file to load into drive A: (optional — omit if disk already mounted)') } },
     async ({ file }) => {
+      if (activeCpc()) return text('disk_boot is +3-specific. On the CPC, use load to mount a .dsk, then type RUN"DISC or |CPM.');
       const lines: string[] = [];
       if (file) {
         if (state.model !== '+3') {
@@ -57,16 +68,16 @@ export function register(server: McpServer): void {
           state.spec.reset();
           lines.push('Machine reset (+3)');
         }
-        const loadResult = await loadFileInto(state.spec, file, 0);
+        const loadResult = await loadFileInto(activeSpectrum()!, file, 0);
         lines.push(loadResult);
         if (loadResult.startsWith('File not found') || loadResult.startsWith('Unsupported')) {
           return text(lines.join('\n'));
         }
       } else {
-        if (state.spec.model !== '+3') return text('disk_boot requires +3 model. Use model tool to switch, or pass a file path.');
+        if (state.model !== '+3') return text('disk_boot requires +3 model. Use model tool to switch, or pass a file path.');
         if (!state.spec.fdc.getDiskImage(0)) return text('No disk in drive A:. Use load tool first, or pass a file path.');
       }
-      const spec = state.spec;
+      const spec = activeSpectrum()!;
       spec.runUntil(500);
       spec.keyboard.handleKeyEvent('Enter', true);
       for (let i = 0; i < 5; i++) spec.tick();
@@ -83,6 +94,7 @@ export function register(server: McpServer): void {
     'disk_trace',
     { description: 'Copy-protection trace helper: switch to +3, mount a DSK, boot to Loader, then arm a FE10h PC breakpoint and a 3FFDh FDC data port watchpoint so every FDC command byte breaks execution.', inputSchema: { file: z.string().describe('Path to DSK file to load into drive A:') } },
     async ({ file }) => {
+      if (activeCpc()) return text('disk_trace is a +3 copy-protection helper, not applicable to the CPC.');
       const lines: string[] = [];
       if (state.model !== '+3') {
         lines.push(await initMachine('+3'));
@@ -90,12 +102,12 @@ export function register(server: McpServer): void {
         state.spec.reset();
         lines.push('Machine reset (+3)');
       }
-      const loadResult = await loadFileInto(state.spec, file, 0);
+      const loadResult = await loadFileInto(activeSpectrum()!, file, 0);
       lines.push(loadResult);
       if (loadResult.startsWith('File not found') || loadResult.startsWith('Unsupported')) {
         return text(lines.join('\n'));
       }
-      const spec = state.spec;
+      const spec = activeSpectrum()!;
       spec.runUntil(500);
       spec.keyboard.handleKeyEvent('Enter', true);
       for (let i = 0; i < 5; i++) spec.tick();
@@ -123,13 +135,14 @@ export function register(server: McpServer): void {
       drive: z.enum(['0', '1', 'A', 'B']).default('0').describe('Drive unit (for disk only)'),
     } },
     async ({ target, drive }) => {
-      const spec = state.spec;
       if (target === 'tape') {
-        spec.tape.load(new Uint8Array(0));
+        const s = activeSpectrum();
+        if (!s) return text('No tape on the CPC.');
+        s.tape.load(new Uint8Array(0));
         return text('Tape ejected');
       }
       const unit = (drive === '1' || drive === 'B') ? 1 : 0;
-      spec.fdc.ejectDisk(unit);
+      state.spec.fdc.ejectDisk(unit);
       return text(`Drive ${unit === 0 ? 'A' : 'B'}: ejected`);
     },
   );

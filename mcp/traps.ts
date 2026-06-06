@@ -7,7 +7,7 @@
  *             is empty the trap reverts to "break".
  */
 
-import type { Spectrum } from '../src/spectrum.ts';
+import type { Machine } from '../src/machine.ts';
 import { h8, h16 } from './hex.ts';
 
 export interface TrapResponse {
@@ -30,7 +30,7 @@ export const traps = new Map<number, Trap[]>();
 export const trapLog: string[] = [];
 
 /** Read a '$'-terminated CP/M string from memory starting at addr. */
-function readCpmString(spec: Spectrum, addr: number, maxLen = 256): string {
+function readCpmString(spec: Machine, addr: number, maxLen = 256): string {
   let s = '';
   for (let i = 0; i < maxLen; i++) {
     const ch = spec.memory.readByte((addr + i) & 0xFFFF);
@@ -41,7 +41,7 @@ function readCpmString(spec: Spectrum, addr: number, maxLen = 256): string {
 }
 
 /** Format a trap log entry with registers and optional CP/M decoding. */
-export function formatTrapLog(trap: Trap, spec: Spectrum): string {
+export function formatTrapLog(trap: Trap, spec: Machine): string {
   const cpu = spec.cpu;
   let line = `[${h16(cpu.pc)}] ${trap.label}  C=${h8(cpu.c)} DE=${h16(cpu.de)} A=${h8(cpu.a)} T=${cpu.tStates}`;
   // Auto-decode common BDOS calls
@@ -70,7 +70,7 @@ export function formatTrapLog(trap: Trap, spec: Spectrum): string {
 }
 
 /** Execute a synthetic RET: pop PC from stack. */
-function execRET(spec: Spectrum): void {
+function execRET(spec: Machine): void {
   const cpu = spec.cpu;
   const lo = spec.memory.readByte(cpu.sp & 0xFFFF);
   const hi = spec.memory.readByte((cpu.sp + 1) & 0xFFFF);
@@ -79,7 +79,7 @@ function execRET(spec: Spectrum): void {
 }
 
 /** Install the onTrap callback on the given spec. Called from initMachine. */
-export function installTrapHook(spec: Spectrum): void {
+export function installTrapHook(spec: Machine): void {
   spec.onTrap = (pc: number): boolean => {
     const list = traps.get(pc);
     if (!list) return false;

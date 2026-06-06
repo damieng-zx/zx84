@@ -4,7 +4,13 @@
 
 import { batch } from 'solid-js';
 import { Spectrum } from '@/spectrum.ts';
-import { type SpectrumModel, is128kClass, isPlus2AClass } from '@/models.ts';
+import { CpcMachine } from '@/cpc/cpc-machine.ts';
+import { type Machine, asSpectrum, asCpc } from '@/machine.ts';
+import {
+  type SpectrumModel, type MachineModel, type CpcModel,
+  is128kClass, isPlus2AClass, isCpcModel,
+} from '@/models.ts';
+import { CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT } from '@/cpc/constants.ts';
 import { WebGLRenderer } from '@/display/webgl-renderer.ts';
 import { CanvasRenderer } from '@/display/canvas-renderer.ts';
 import { FloppySound } from '@/plus3/floppy-sound.ts';
@@ -120,6 +126,10 @@ export { setLedKbd, setLedKemp, setLedMouse, setLedEar, setLedLoad, setLedTapeTu
 
 // ── Non-signal state (plain variables) ──────────────────────────────────
 
+/** The active machine (Spectrum or CPC). Canonical handle for lifecycle/driver. */
+export let machine: Machine | null = null;
+/** Narrowed view of `machine` when it is a Spectrum, else null. Spectrum-only
+ *  code paths (tape, Multiface, VTX, ULA, snapshots) use this and no-op on CPC. */
 export let spectrum: Spectrum | null = null;
 export let romData: Uint8Array | null = null;
 export let floppySound: FloppySound | null = null;
@@ -133,17 +143,17 @@ export let canvasEl: HTMLCanvasElement | null = null;
 export type { ROMEntry } from '@/managers/rom-manager.ts';
 
 /** Persist a ROM to cache and storage (delegates to ROMManager) */
-export async function persistROM(model: SpectrumModel, data: Uint8Array, label: string): Promise<void> {
+export async function persistROM(model: MachineModel, data: Uint8Array, label: string): Promise<void> {
   await romManager.persistROM(model, data, label);
 }
 
 /** Restore a ROM from cache (delegates to ROMManager) */
-export async function restoreROM(model: SpectrumModel) {
+export async function restoreROM(model: MachineModel) {
   return await romManager.restoreROM(model);
 }
 
 /** Fetch default ROM from CDN (delegates to ROMManager) */
-export async function fetchDefaultROM(model: SpectrumModel) {
+export async function fetchDefaultROM(model: MachineModel) {
   return await romManager.fetchDefaultROM(model, setStatus);
 }
 
@@ -174,110 +184,119 @@ function createDisplay(el: HTMLCanvasElement, w: number, h: number) {
 
 export function setCanvas(el: HTMLCanvasElement): void {
   canvasEl = el;
-  if (spectrum) {
+  if (machine) {
     // Swap display without rebuilding machine (e.g. renderer switch)
-    const w = spectrum.ula.screenWidth;
-    const h = spectrum.ula.screenHeight;
-    spectrum.display = createDisplay(el, w, h);
+    const s = asSpectrum(machine);
+    const w = s ? s.ula.screenWidth : CPC_SCREEN_WIDTH;
+    const h = s ? s.ula.screenHeight : CPC_SCREEN_HEIGHT;
+    machine.display = createDisplay(el, w, h);
     applyDisplaySettings();
   }
 }
 
 export function applyDisplaySettings(): void {
-  if (!spectrum) return;
-  spectrum.setBorderSize(settings.borderSize() as 0 | 1 | 2);
-  spectrum.ula.palette = PALETTES[settings.colorMap()];
-  if (spectrum.display) {
-    spectrum.display.setScale(settings.scale());
-    spectrum.display.setBrightness(settings.brightness() / 50);
-    spectrum.display.setContrast(settings.contrast() / 50);
-    spectrum.display.setSmoothing(settings.smoothing() / 100);
-    spectrum.display.setCurvature(settings.curvature() / 100 * 0.15);
-    spectrum.display.setScanlines(settings.scanlines() / 100);
-    spectrum.display.setMaskType(settings.maskType());
-    spectrum.display.setDotPitch(settings.dotPitch() / 10);
-    spectrum.display.setCurvatureMode(settings.curvatureMode());
-    spectrum.display.setNoise(settings.noise() / 100);
-    spectrum.display.setScalingMode(settings.scalingMode());
+  if (!machine) return;
+  machine.setBorderSize(settings.borderSize() as 0 | 1 | 2);
+  const d = machine.display;
+  if (d) {
+    d.setScale(settings.scale());
+    d.setBrightness(settings.brightness() / 50);
+    d.setContrast(settings.contrast() / 50);
+    d.setSmoothing(settings.smoothing() / 100);
+    d.setCurvature(settings.curvature() / 100 * 0.15);
+    d.setScanlines(settings.scanlines() / 100);
+    d.setMaskType(settings.maskType());
+    d.setDotPitch(settings.dotPitch() / 10);
+    d.setCurvatureMode(settings.curvatureMode());
+    d.setNoise(settings.noise() / 100);
+    d.setScalingMode(settings.scalingMode());
   }
-  spectrum['audio'].setVolume(settings.volume() / 100);
-  const mix = settings.ayMix() / 100;
-  spectrum.mixer.beeperGain = Math.min(1, 2 * (1 - mix));
-  spectrum.mixer.ayGain = Math.min(1, 2 * mix);
-  spectrum.tapeInstantLoad = settings.tapeInstantRom();
-  spectrum.tapeTurbo = settings.tapeTurboLoad();
-  spectrum.tapeSoundEnabled = settings.tapeSoundEnabled();
-  spectrum.loaderDetector.accelerateLoader = settings.tapeEdgeLoading();
-  spectrum.scanlineAccuracy = settings.scanlineAccuracy();
+  const s = asSpectrum(machine);
+  if (s) {
+    s.ula.palette = PALETTES[settings.colorMap()];
+    s['audio'].setVolume(settings.volume() / 100);
+    const mix = settings.ayMix() / 100;
+    s.mixer.beeperGain = Math.min(1, 2 * (1 - mix));
+    s.mixer.ayGain = Math.min(1, 2 * mix);
+    s.tapeInstantLoad = settings.tapeInstantRom();
+    s.tapeTurbo = settings.tapeTurboLoad();
+    s.tapeSoundEnabled = settings.tapeSoundEnabled();
+    s.loaderDetector.accelerateLoader = settings.tapeEdgeLoading();
+    s.scanlineAccuracy = settings.scanlineAccuracy();
+  } else {
+    // CPC: AY-only, no beeper mixer or tape. Volume only.
+    (machine as CpcMachine).audio.setVolume(settings.volume() / 100);
+  }
 }
 
 export async function createMachine(): Promise<boolean> {
   if (!canvasEl) return false;
 
-  // Preserve tape state across machine rebuild
-  const savedTapeBlocks = spectrum ? [...spectrum.tape.blocks] : null;
-  const savedTapePos = spectrum ? spectrum.tape.position : 0;
-  const savedTapePaused = spectrum ? spectrum.tape.paused : true;
+  // Preserve tape state across machine rebuild (Spectrum only)
+  const prevSpec = asSpectrum(machine);
+  const savedTapeBlocks = prevSpec ? [...prevSpec.tape.blocks] : null;
+  const savedTapePos = prevSpec ? prevSpec.tape.position : 0;
+  const savedTapePaused = prevSpec ? prevSpec.tape.paused : true;
   const savedTapeName = tapeName();
 
-  if (spectrum) {
-    spectrum.destroy();
+  if (machine) {
+    machine.destroy();
   }
 
   const model = currentModel();
-  const display = canvasEl
-    ? createDisplay(canvasEl, SCREEN_WIDTH, SCREEN_HEIGHT)
-    : null;
-  spectrum = new Spectrum(model, display);
-  spectrum.onStatus = (msg: string) => setStatus(msg);
-  spectrum.onFrame = onFrame;
+  const cpc = isCpcModel(model);
+  const [w, h] = cpc ? [CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT] : [SCREEN_WIDTH, SCREEN_HEIGHT];
+  const display = canvasEl ? createDisplay(canvasEl, w, h) : null;
+  machine = cpc
+    ? new CpcMachine(model as CpcModel, display)
+    : new Spectrum(model as SpectrumModel, display);
+  spectrum = asSpectrum(machine);
+  machine.onStatus = (msg: string) => setStatus(msg);
+  machine.onFrame = onFrame;
   applyDisplaySettings();
   resetSpeedTracking();
 
-  // Apply VTX-5000 settings BEFORE loadROM/reset so vtx5000.romLoaded is true
-  // when applyROM is called inside loadROM() and reset().
-  spectrum.vtx5000.enabled = settings.vtx5000Enabled();
-  if (spectrum.vtx5000.enabled) {
-    await loadVTX5000ROM(spectrum);
-  }
-
-  // Apply Multiface settings
-  spectrum.multiface.variant = variantForModel(model);
-  spectrum.multiface.enabled = settings.multifaceEnabled();
-  if (spectrum.multiface.enabled) {
-    loadMultifaceROM(spectrum).catch(err => console.warn('MF ROM load failed:', err));
+  // Spectrum-only peripherals (VTX-5000, Multiface) BEFORE loadROM/reset so
+  // their ROMs are paged when loadROM/reset run.
+  if (spectrum) {
+    spectrum.vtx5000.enabled = settings.vtx5000Enabled();
+    if (spectrum.vtx5000.enabled) {
+      await loadVTX5000ROM(spectrum);
+    }
+    spectrum.multiface.variant = variantForModel(model as SpectrumModel);
+    spectrum.multiface.enabled = settings.multifaceEnabled();
+    if (spectrum.multiface.enabled) {
+      loadMultifaceROM(spectrum).catch(err => console.warn('MF ROM load failed:', err));
+    }
   }
 
   let hmrRestored = false;
   if (romData) {
-    spectrum.loadROM(romData);
-    spectrum.reset();
+    machine.loadROM(romData);
+    machine.reset();
 
-    // Try to restore HMR state before starting
-    hmrRestored = await restoreHMRState();
+    // HMR state restore is Spectrum-only (snapshot formats); CPC starts fresh.
+    if (spectrum) hmrRestored = await restoreHMRState();
     if (!hmrRestored) {
-      spectrum.start();
+      machine.start();
     }
   }
 
-  // Apply saved AY stereo mode + DC blocking
+  // Apply saved AY stereo mode + DC blocking (both machines have an AY)
   const savedAyStereo = settings.ayStereo() as import('@/cores/ay-3-8910.ts').AYStereoMode;
-  spectrum.ay.setStereoMode(savedAyStereo);
-  spectrum.ay.dcBlocking = settings.ayDcBlock();
+  machine.ay.setStereoMode(savedAyStereo);
+  machine.ay.dcBlocking = settings.ayDcBlock();
 
-  // Apply saved disk mode for +3
-  if (spectrum.variant.hasFDC) {
-    spectrum.fdc.writeProtect[0] = settings.writeProtectA();
-    spectrum.fdc.writeProtect[1] = settings.writeProtectB();
-    spectrum.fdc.forceReady[1] = settings.driveBForceReady();
-  }
-
-  // Floppy sound
+  // Disk write-protect + floppy sound (Spectrum +3 or any CPC with a controller)
   setCurrentDiskInfo(null);
   setCurrentDiskName('');
   setCurrentDiskInfoB(null);
   setCurrentDiskNameB('');
-  if (spectrum.variant.hasFDC) {
+  const hasFDC = spectrum ? spectrum.variant.hasFDC : (machine as CpcMachine).config.hasFDC;
+  if (hasFDC) {
+    machine.fdc.writeProtect[0] = settings.writeProtectA();
+    machine.fdc.writeProtect[1] = settings.writeProtectB();
+    machine.fdc.forceReady[1] = settings.driveBForceReady();
     if (!floppySound) floppySound = new FloppySound();
     floppySound.reset();
   } else {
@@ -285,8 +304,8 @@ export async function createMachine(): Promise<boolean> {
     floppySound = null;
   }
 
-  // Restore tape if one was loaded
-  if (savedTapeBlocks && savedTapeBlocks.length > 0) {
+  // Restore tape if one was loaded (Spectrum only)
+  if (spectrum && savedTapeBlocks && savedTapeBlocks.length > 0) {
     spectrum.tape.blocks = savedTapeBlocks;
     spectrum.tape.position = savedTapePos;
     spectrum.tape.paused = savedTapePaused;
@@ -330,12 +349,12 @@ function clearDebugPanels(): void {
 }
 
 export function togglePause(): void {
-  if (!spectrum) return;
+  if (!machine) return;
   if (emulationPaused()) {
     clearDebugPanels();
-    spectrum.start();
+    machine.start();
   } else {
-    spectrum.stop();
+    machine.stop();
     updateRegsOnce();
   }
   setEmulationPaused(!emulationPaused());
@@ -379,11 +398,11 @@ export function stepFrame(): void {
 
 export function resetMachine(): void {
   floppySound?.reset();
-  if (spectrum) {
-    spectrum.turbo = false;
+  if (machine) {
+    machine.turbo = false;
     setTurboMode(false);
-    spectrum.reset();
-    if (romData) spectrum.start();
+    machine.reset();
+    if (romData) machine.start();
     unpause();
   }
   if (transcribeMode() !== 'off') {
@@ -393,9 +412,9 @@ export function resetMachine(): void {
 }
 
 export function toggleTurbo(): void {
-  if (!spectrum) return;
-  spectrum.turbo = !spectrum.turbo;
-  setTurboMode(spectrum.turbo);
+  if (!machine) return;
+  machine.turbo = !machine.turbo;
+  setTurboMode(machine.turbo);
   forceSpeedUpdate();
 }
 
@@ -445,11 +464,11 @@ export function stopTrace(): void {
  * Returns the ROM model key to use when loading ROMs for a given machine model.
  * When "+3 V4.1 ROMs" is enabled the +3 machine uses the +2A ROM set.
  */
-function effectiveROMModel(model: SpectrumModel): SpectrumModel {
+function effectiveROMModel(model: MachineModel): MachineModel {
   return model === '+3' && settings.plus3V41Roms() ? '+2A' : model;
 }
 
-export async function switchModel(model: SpectrumModel): Promise<void> {
+export async function switchModel(model: MachineModel): Promise<void> {
   setCurrentModel(model);
   saveModel(model);
 
@@ -473,11 +492,13 @@ export async function switchModel(model: SpectrumModel): Promise<void> {
 export async function applyROM(data: Uint8Array, fileLabel: string): Promise<void> {
   romData = data;
 
+  // Spectrum ROM-image drop. A CPC active here falls back to a 128K default.
+  const cur: SpectrumModel = isCpcModel(currentModel()) ? '128k' : currentModel() as SpectrumModel;
   let detectedModel: SpectrumModel;
   if (data.length >= 65536) {
-    detectedModel = isPlus2AClass(currentModel()) ? currentModel() : '+2A';
+    detectedModel = isPlus2AClass(cur) ? cur : '+2A';
   } else if (data.length >= 32768) {
-    detectedModel = is128kClass(currentModel()) ? currentModel() : '128k';
+    detectedModel = is128kClass(cur) ? cur : '128k';
   } else if (data.length >= 16384) {
     detectedModel = '48k';
   } else {
@@ -596,7 +617,27 @@ export function applyTape(data: Uint8Array, filename: string): void {
 // ── File routing ────────────────────────────────────────────────────────
 
 export async function loadFile(data: Uint8Array, filename: string, unit?: number): Promise<void> {
-  await mediaManager.loadFile(spectrum, data, filename, currentModel(), buildMediaCallbacks(), unit);
+  // CPC is disk-only: route .dsk images straight into the shared uPD765A.
+  const cpc = asCpc(machine);
+  if (cpc) {
+    if (!/\.dsk$/i.test(filename)) { setStatus('CPC accepts .dsk disk images only'); return; }
+    cpc.stop();
+    try {
+      const image = parseDSK(data);
+      const u = unit ?? 0;
+      cpc.loadDisk(image, u);
+      if (u === 0) { setCurrentDiskInfo(image); setCurrentDiskName(filename); }
+      else { setCurrentDiskInfoB(image); setCurrentDiskNameB(filename); }
+      setStatus(`Disk ${u === 0 ? 'A' : 'B'}: loaded: ${filename}`);
+    } catch (e) {
+      setStatus(`DSK error: ${(e as Error).message}`);
+    } finally {
+      cpc.start();
+    }
+    return;
+  }
+  if (!spectrum) { setStatus('Load a ROM first'); return; }
+  await mediaManager.loadFile(spectrum, data, filename, currentModel() as SpectrumModel, buildMediaCallbacks(), unit);
 }
 
 // ── Save snapshot ───────────────────────────────────────────────────────
@@ -617,7 +658,8 @@ export async function saveSnapshot(format: 'z80' | 'szx' = 'szx'): Promise<void>
   const wasPaused = emulationPaused();
   if (!wasPaused) spectrum.stop();
 
-  const model = currentModel();
+  // spectrum non-null ⇒ a Spectrum model is active (snapshots are Spectrum-only).
+  const model = currentModel() as SpectrumModel;
   let data: Uint8Array;
 
   if (format === 'szx') {
@@ -752,8 +794,8 @@ export function ejectTape(): void {
 }
 
 export function ejectDisk(unit: number = 0): void {
-  if (!spectrum) return;
-  mediaManager.ejectDisk(spectrum, unit, (u) => {
+  if (!machine) return;
+  const onEjected = (u: number) => {
     if (u === 0) {
       setCurrentDiskInfo(null);
       setCurrentDiskName('');
@@ -762,12 +804,19 @@ export function ejectDisk(unit: number = 0): void {
       setCurrentDiskInfoB(null);
       setCurrentDiskNameB('');
     }
-  }, setStatus);
+  };
+  if (spectrum) {
+    mediaManager.ejectDisk(spectrum, unit, onEjected, setStatus);
+  } else {
+    machine.fdc.ejectDisk(unit);
+    onEjected(unit);
+    setStatus(`Disk ${unit === 0 ? 'A' : 'B'}: ejected`);
+  }
 }
 
 export function insertBlankDisk(image: DskImage, name: string, unit: number): void {
-  if (!spectrum) return;
-  spectrum.fdc.insertDisk(image, unit);
+  if (!machine) return;
+  machine.fdc.insertDisk(image, unit);
   if (unit === 0) {
     setCurrentDiskInfo(image);
     setCurrentDiskName(name);
@@ -778,8 +827,8 @@ export function insertBlankDisk(image: DskImage, name: string, unit: number): vo
 }
 
 export function saveDisk(unit: number): void {
-  if (!spectrum) return;
-  const image = spectrum.fdc.getDiskImage(unit);
+  if (!machine) return;
+  const image = machine.fdc.getDiskImage(unit);
   if (!image) { setStatus(`No disk in drive ${unit === 0 ? 'A' : 'B'}:`); return; }
   const name = unit === 0 ? currentDiskName() : currentDiskNameB();
   const filename = name.replace(/\.[^.]+$/, '') + '.dsk';
@@ -787,19 +836,24 @@ export function saveDisk(unit: number): void {
 }
 
 export function loadDiskToUnit(data: Uint8Array, filename: string, unit: number): void {
-  if (!spectrum) { setStatus('Load a ROM first'); return; }
-  mediaManager.loadDisk(spectrum, data, filename, unit, {
-    onStatus: setStatus,
-    onDiskLoaded: (image, filename, unit) => {
-      if (unit === 0) {
-        setCurrentDiskInfo(image);
-        setCurrentDiskName(filename);
-      } else {
-        setCurrentDiskInfoB(image);
-        setCurrentDiskNameB(filename);
-      }
-    },
-  });
+  if (!machine) { setStatus('Load a ROM first'); return; }
+  const onDiskLoaded = (image: DskImage, fname: string, u: number) => {
+    if (u === 0) { setCurrentDiskInfo(image); setCurrentDiskName(fname); }
+    else { setCurrentDiskInfoB(image); setCurrentDiskNameB(fname); }
+  };
+  const cpc = asCpc(machine);
+  if (cpc) {
+    try {
+      const image = parseDSK(data);
+      cpc.loadDisk(image, unit);
+      onDiskLoaded(image, filename, unit);
+      setStatus(`Disk ${unit === 0 ? 'A' : 'B'}: loaded: ${filename}`);
+    } catch (e) {
+      setStatus(`DSK error: ${(e as Error).message}`);
+    }
+    return;
+  }
+  mediaManager.loadDisk(spectrum!, data, filename, unit, { onStatus: setStatus, onDiskLoaded });
 }
 
 
@@ -809,6 +863,16 @@ export { KEMPSTON_BITS, CURSOR_KEYS, SINCLAIR1_KEYS, SINCLAIR2_KEYS, resetJoysti
 import { joyPressForType as _joyPress } from '@/peripherals/joysticks.ts';
 
 export function joyPressForType(dir: string, pressed: boolean, mode: string): void {
+  const cpc = asCpc(machine);
+  if (cpc) {
+    // The CPC has one joystick on keyboard line 9; the Spectrum joystick
+    // "mode" (Kempston/Sinclair/…) is irrelevant here.
+    const d = dir === 'fire' ? 'fire1' : dir;
+    if (d === 'up' || d === 'down' || d === 'left' || d === 'right' || d === 'fire1' || d === 'fire2') {
+      cpc.keyboard.setJoystick(d, pressed);
+    }
+    return;
+  }
   if (!spectrum) return;
   _joyPress(spectrum, dir, pressed, mode);
 }
@@ -1034,7 +1098,7 @@ export async function saveHMRState(): Promise<void> {
       spectrum.cpu,
       spectrum.memory,
       spectrum.ula.borderColor,
-      currentModel(),
+      currentModel() as SpectrumModel,
       spectrum.contention.frameStartTStates,
       ayRegs,
       spectrum.ay.selectedReg
@@ -1127,8 +1191,9 @@ export async function restoreHMRState(): Promise<boolean> {
 export function destroy(): void {
   floppySound?.destroy();
   floppySound = null;
-  if (spectrum) {
-    spectrum.destroy();
+  if (machine) {
+    machine.destroy();
+    machine = null;
     spectrum = null;
   }
 }

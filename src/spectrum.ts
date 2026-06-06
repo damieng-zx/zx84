@@ -36,6 +36,7 @@ import { hex8, hex16 } from '@/utils/hex.ts';
 import { signed8 } from '@/utils/signed.ts';
 import { DISPLAY_WIDTH, DISPLAY_HEIGHT } from '@/cores/ula.ts';
 import { createVariant, type MachineVariant } from '@/variants/index.ts';
+import type { Machine, MachineKind } from '@/machine.ts';
 
 // Re-export model type and helpers from their canonical home (models.ts)
 // so existing imports from '@/spectrum.ts' continue to work.
@@ -98,7 +99,8 @@ export class IOActivity {
   }
 }
 
-export class Spectrum {
+export class Spectrum implements Machine {
+  readonly kind: MachineKind = 'spectrum';
   model: SpectrumModel;
   variant: MachineVariant;
   memory: SpectrumMemory;
@@ -431,6 +433,9 @@ export class Spectrum {
     }
     this.setStatus('ROM loaded');
   }
+
+  /** RGBA frame buffer (the ULA's pixel output). */
+  get pixels(): Uint8Array { return this.ula.pixels; }
 
   setBorderSize(mode: BorderMode): void {
     this.ula.setBorderMode(mode);
@@ -1070,7 +1075,7 @@ export class Spectrum {
   }
 
   /** Disassemble a single instruction at `pc` without a full memory snapshot. */
-  private disasmAt(pc: number): DisasmLine {
+  disasmAt(pc: number): DisasmLine {
     const buf = new Uint8Array(8);
     for (let i = 0; i < 8; i++) buf[i] = this.memory.readByte((pc + i) & 0xFFFF);
     const result = disasmOne(buf, 0);

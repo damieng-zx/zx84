@@ -8,7 +8,7 @@
  * - Manage ROM labels and metadata
  */
 
-import type { SpectrumModel } from '@/spectrum.ts';
+import type { MachineModel } from '@/models.ts';
 import { dbSave, dbLoad } from '@/store/persistence.ts';
 
 export interface ROMEntry {
@@ -19,26 +19,31 @@ export interface ROMEntry {
 const ROM_BASE = 'https://zx84files.bitsparse.com/roms/';
 
 // Each model lists its ROM pages in order; they are fetched and concatenated.
-const DEFAULT_ROM_URLS: Record<SpectrumModel, string[]> = {
+// CPC models concatenate to OS(16KB) + BASIC(16KB) [+ AMSDOS(16KB)], the layout
+// CpcMemory.loadROM() splits on.
+const DEFAULT_ROM_URLS: Record<MachineModel, string[]> = {
   '16k':  [`${ROM_BASE}48.rom`],
   '48k':  [`${ROM_BASE}48.rom`],
   '128k': [`${ROM_BASE}128-0.rom`, `${ROM_BASE}128-1.rom`],
   '+2':   [`${ROM_BASE}plus2-0.rom`, `${ROM_BASE}plus2-1.rom`],
   '+2A':  [`${ROM_BASE}plus3-41-0.rom`, `${ROM_BASE}plus3-41-1.rom`, `${ROM_BASE}plus3-41-2.rom`, `${ROM_BASE}plus3-41-3.rom`],
   '+3':   [`${ROM_BASE}plus3-0.rom`, `${ROM_BASE}plus3-1.rom`, `${ROM_BASE}plus3-2.rom`, `${ROM_BASE}plus3-3.rom`],
+  'cpc6128': [`${ROM_BASE}os6128.rom`, `${ROM_BASE}basic1-1.rom`, `${ROM_BASE}amsdos.rom`],
+  'cpc464':  [`${ROM_BASE}cpc464.rom`],
+  'cpc664':  [`${ROM_BASE}cpc664.rom`, `${ROM_BASE}amsdos.rom`],
 };
 
 export class ROMManager {
   private cache: Record<string, ROMEntry> = {};
   /** In-flight loadROM promises, deduplicated per model. */
-  private inFlight: Partial<Record<SpectrumModel, Promise<ROMEntry | null>>> = {};
+  private inFlight: Partial<Record<MachineModel, Promise<ROMEntry | null>>> = {};
 
   /**
    * Persist a ROM image to cache and IndexedDB.
    * Cache is only populated if the IDB write succeeds, so cache and disk
    * never disagree on a failed save.
    */
-  async persistROM(model: SpectrumModel, data: Uint8Array, label: string): Promise<void> {
+  async persistROM(model: MachineModel, data: Uint8Array, label: string): Promise<void> {
     await dbSave(`rom-${model}`, data);
     this.cache[model] = { data, label };
     try {
@@ -51,7 +56,7 @@ export class ROMManager {
    * Returns null if no ROM is stored OR if IDB throws (caller can fall back
    * to fetching the default).
    */
-  async restoreROM(model: SpectrumModel): Promise<ROMEntry | null> {
+  async restoreROM(model: MachineModel): Promise<ROMEntry | null> {
     if (this.cache[model]) return this.cache[model];
 
     let data: Uint8Array | null;
@@ -74,7 +79,7 @@ export class ROMManager {
    * Returns null if fetch fails.
    */
   async fetchDefaultROM(
-    model: SpectrumModel,
+    model: MachineModel,
     onStatus?: (msg: string) => void
   ): Promise<ROMEntry | null> {
     const urls = DEFAULT_ROM_URLS[model];
@@ -109,7 +114,7 @@ export class ROMManager {
    * Concurrent calls for the same model share a single in-flight promise.
    */
   loadROM(
-    model: SpectrumModel,
+    model: MachineModel,
     onStatus?: (msg: string) => void
   ): Promise<ROMEntry | null> {
     const existing = this.inFlight[model];
@@ -128,7 +133,7 @@ export class ROMManager {
   /**
    * Get cached ROM without triggering a fetch.
    */
-  getCached(model: SpectrumModel): ROMEntry | null {
+  getCached(model: MachineModel): ROMEntry | null {
     return this.cache[model] || null;
   }
 }
