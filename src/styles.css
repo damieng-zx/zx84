@@ -642,31 +642,6 @@ input[type="range"]::-moz-range-thumb {
 .pane .font-entry-actions button { color: #999; }
 .pane .font-entry-actions button:hover { color: #333; background: rgba(0,0,0,0.1); }
 
-/* Developer pane */
-.dev-row {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  font-family: var(--font-mono);
-  font-size: 0.7rem;
-  color: #ccc;
-}
-.dev-label {
-  color: #999;
-  width: 36px;
-  flex-shrink: 0;
-}
-.dev-value {
-  font-family: var(--font-mono);
-  font-size: 0.7rem;
-}
-.dev-errors-active { color: #e44; }
-.dev-errors-active .dev-label { color: #e44; }
-.pane .dev-row { color: #555; }
-.pane .dev-label { color: #888; }
-.pane .dev-errors-active { color: #c22; }
-.pane .dev-errors-active .dev-label { color: #c22; }
-
 /* Sound pane */
 
 /* Joystick pane */

@@ -32,7 +32,6 @@ const DEFAULT_ORDER: PanePosition[] = [
   { id: 'tape-panel', sidebar: 'right' },
   { id: 'disasm-panel', sidebar: 'right' },
   { id: 'memory-panel', sidebar: 'right' },
-  { id: 'dev-panel', sidebar: 'right' },
 ];
 
 /**

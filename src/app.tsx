@@ -23,7 +23,6 @@ import { DiskInfoPane } from '@/components/panes/DiskInfoPane.tsx';
 import { DrivePane } from '@/components/panes/DrivePane.tsx';
 import { TapePane } from '@/components/panes/TapePane.tsx';
 import { DisassemblyPane } from '@/components/panes/DisassemblyPane.tsx';
-import { DevPane } from '@/components/panes/DevPane.tsx';
 import { TextPane } from '@/components/panes/TextPane.tsx';
 import { ChangelogOverlay, toggleChangelog } from '@/components/panes/ChangelogPane.tsx';
 import { MemoryPane } from '@/components/panes/MemoryPane.tsx';
@@ -54,7 +53,6 @@ const PANE_COMPONENTS: Record<string, () => JSX.Element> = {
   'tape-panel': TapePane,
   'text-panel': TextPane,
   'disasm-panel': DisassemblyPane,
-  'dev-panel': DevPane,
   'memory-panel': MemoryPane,
 };
 
