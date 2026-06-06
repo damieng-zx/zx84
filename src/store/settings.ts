@@ -50,7 +50,6 @@ const DEFAULTS = {
   // defaults were stale placeholders from when the overlay was first scaffolded)
   'font':            '',
   'ocr-font':        'JetBrains Mono',
-  'ocr-font-size':   '8',
   'ocr-line-height': '100',
   'ocr-tracking':    '0',
   'ocr-offset-x':    '3',
@@ -251,10 +250,6 @@ const _ocrFont = /*@once*/ createRoot(() => createSignal(getSaved('ocr-font', D(
 export const ocrFont = _ocrFont[0];
 export const setOcrFont = _ocrFont[1];
 
-const _ocrFontSize = /*@once*/ createRoot(() => createSignal(getSavedNumber('ocr-font-size', D('ocr-font-size'))));
-export const ocrFontSize = _ocrFontSize[0];
-export const setOcrFontSize = _ocrFontSize[1];
-
 const _ocrLineHeight = /*@once*/ createRoot(() => createSignal(getSavedNumber('ocr-line-height', D('ocr-line-height'))));
 export const ocrLineHeight = _ocrLineHeight[0];
 export const setOcrLineHeight = _ocrLineHeight[1];
@@ -395,7 +390,6 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
   ],
   text: [
     { key: 'ocr-font',        set: setOcrFont,       type: 'string' },
-    { key: 'ocr-font-size',   set: setOcrFontSize,   type: 'number' },
     { key: 'ocr-line-height', set: setOcrLineHeight, type: 'number' },
     { key: 'ocr-tracking',    set: setOcrTracking,   type: 'number' },
     { key: 'ocr-offset-x',    set: setOcrOffsetX,    type: 'number' },

@@ -29,7 +29,7 @@ import { MemoryPane } from '@/components/panes/MemoryPane.tsx';
 
 import { paneOrder, SPECTRUM_ONLY_PANES } from '@/ui/panes.ts';
 import { needsGamepadPolling } from '@/store/settings.ts';
-import { initAudio, init, loadFile, currentModel } from '@/emulator.ts';
+import { initAudio, init, loadFile, currentModel, transcribeMode } from '@/emulator.ts';
 import { isCpcModel } from '@/models.ts';
 import { configuringPlayer } from '@/components/panes/JoystickPane.tsx';
 import { InputController } from '@/input-controller.ts';
@@ -60,9 +60,11 @@ function renderPanes(side: 'left' | 'right') {
   return () => {
     const order = paneOrder();
     const cpc = isCpcModel(currentModel());
+    const textMode = transcribeMode() !== 'off';
     return order
       .filter(p => p.sidebar === side)
       .filter(p => !(cpc && SPECTRUM_ONLY_PANES.has(p.id)))
+      .filter(p => p.id !== 'text-panel' || textMode)
       .map(p => {
         const Component = PANE_COMPONENTS[p.id];
         return Component ? <Component /> : null;

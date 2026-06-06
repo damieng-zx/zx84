@@ -6,7 +6,12 @@ import { createEffect, createSignal, onMount, onCleanup } from 'solid-js';
 import { setCanvas, machine, spectrum, transcribeMode, transcribeHtml, transcribeGrid, currentModel } from '@/emulator.ts';
 import { isCpcModel } from '@/models.ts';
 import { CPC_BORDER_LEFT, CPC_BORDER_TOP } from '@/cpc/constants.ts';
-import { renderer, scale, borderSize, ocrFont, ocrFontSize, ocrLineHeight, ocrTracking, ocrOffsetX, ocrOffsetY, ocrScaleX, ocrScaleY } from '@/store/settings.ts';
+import { renderer, scale, borderSize, ocrFont, ocrLineHeight, ocrTracking, ocrOffsetX, ocrOffsetY, ocrScaleX, ocrScaleY } from '@/store/settings.ts';
+
+// Base font size for the overlay before auto-scaling. The overlay is always
+// scaled to fit the active display area, so this absolute value only affects
+// measurement precision, not the final rendered size.
+const OCR_BASE_FONT_PX = 16;
 
 export function Screen() {
   let canvasRef!: HTMLCanvasElement;
@@ -51,7 +56,7 @@ export function Screen() {
   // When font settings or the transcribe grid change, force re-measure
   // (the grid changes the natural width — e.g. 32 vs 51 chars wide).
   createEffect(() => {
-    ocrFont(); ocrFontSize(); ocrLineHeight(); ocrTracking(); ocrScaleX(); ocrScaleY();
+    ocrFont(); ocrLineHeight(); ocrTracking(); ocrScaleX(); ocrScaleY();
     transcribeGrid();
     document.fonts.ready.then(() => {
       natSize = { w: 0, h: 0 };
@@ -104,7 +109,7 @@ export function Screen() {
 
     // Apply font settings
     ov.style.fontFamily = ocrFont();
-    ov.style.fontSize = ocrFontSize() + 'px';
+    ov.style.fontSize = OCR_BASE_FONT_PX + 'px';
     ov.style.lineHeight = (ocrLineHeight() / 100).toFixed(2);
     ov.style.letterSpacing = (ocrTracking() / 10).toFixed(1) + 'px';
 

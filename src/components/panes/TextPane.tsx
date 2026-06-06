@@ -2,7 +2,7 @@ import type { Accessor, Setter } from 'solid-js';
 import { Pane } from '@/components/Pane.tsx';
 import '@/fonts/monospace-fonts.css';
 import {
-  ocrFont, setOcrFont, ocrFontSize, setOcrFontSize,
+  ocrFont, setOcrFont,
   ocrLineHeight, setOcrLineHeight, ocrTracking, setOcrTracking,
   ocrOffsetX, setOcrOffsetX, ocrOffsetY, setOcrOffsetY,
   ocrScaleX, setOcrScaleX, ocrScaleY, setOcrScaleY,
@@ -65,11 +65,6 @@ export function TextPane() {
           {MONO_FONTS.map(f => <option value={f}>{f}</option>)}
         </select>
       </div>
-
-      <SliderRow label="Size" id="ocr-size" min={4} max={24}
-        sig={ocrFontSize} setSig={setOcrFontSize} settingKey="ocr-font-size"
-        format={v => `${v}px`}
-      />
 
       <SliderRow label="Line height" id="ocr-lh" min={80} max={160}
         sig={ocrLineHeight} setSig={setOcrLineHeight} settingKey="ocr-line-height"

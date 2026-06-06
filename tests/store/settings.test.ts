@@ -249,14 +249,14 @@ describe('settings — reset defaults vs initial defaults consistency', () => {
   it('text pane: reset gives the same values as fresh boot', async () => {
     const s = await load();
     const before = {
-      ocrFont: s.ocrFont(), ocrFontSize: s.ocrFontSize(), ocrLineHeight: s.ocrLineHeight(),
+      ocrFont: s.ocrFont(), ocrLineHeight: s.ocrLineHeight(),
       ocrTracking: s.ocrTracking(), ocrOffsetX: s.ocrOffsetX(), ocrOffsetY: s.ocrOffsetY(),
       ocrScaleX: s.ocrScaleX(), ocrScaleY: s.ocrScaleY(),
     };
-    s.setOcrFontSize(99);
+    s.setOcrTracking(99);
     s.resetSettingsGroup('text');
     expect({
-      ocrFont: s.ocrFont(), ocrFontSize: s.ocrFontSize(), ocrLineHeight: s.ocrLineHeight(),
+      ocrFont: s.ocrFont(), ocrLineHeight: s.ocrLineHeight(),
       ocrTracking: s.ocrTracking(), ocrOffsetX: s.ocrOffsetX(), ocrOffsetY: s.ocrOffsetY(),
       ocrScaleX: s.ocrScaleX(), ocrScaleY: s.ocrScaleY(),
     }).toEqual(before);
