@@ -151,17 +151,17 @@ function JoyColumn(props: { playerIdx: number; label: string }) {
       <div class="joy-dpad" data-player={props.playerIdx + 1}>
         <DpadButton dir="fire" playerIdx={props.playerIdx} />
         <DpadButton dir="up" playerIdx={props.playerIdx} />
-        <div class="joy-spacer" />
-        <DpadButton dir="left" playerIdx={props.playerIdx} />
-        <DeadZoneIndicator playerIdx={props.playerIdx} />
-        <DpadButton dir="right" playerIdx={props.playerIdx} />
-        <div class="joy-spacer" />
-        <DpadButton dir="down" playerIdx={props.playerIdx} />
         {/* The CPC joystick has a real second fire button (matrix bit 4);
             the Spectrum's joysticks are single-fire, so F2 is CPC-only. */}
         <Show when={isCpc()} fallback={<div class="joy-spacer" />}>
           <DpadButton dir="fire2" playerIdx={props.playerIdx} />
         </Show>
+        <DpadButton dir="left" playerIdx={props.playerIdx} />
+        <DeadZoneIndicator playerIdx={props.playerIdx} />
+        <DpadButton dir="right" playerIdx={props.playerIdx} />
+        <div class="joy-spacer" />
+        <DpadButton dir="down" playerIdx={props.playerIdx} />
+        <div class="joy-spacer" />
       </div>
     </div>
   );
