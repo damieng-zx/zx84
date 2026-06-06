@@ -362,6 +362,24 @@ export function onFrame(): void {
       batch(() => {
         setLedKbd(ca.kbdReads > 0);
         setLedDsk(ca.fdcAccesses > 0);
+        setLedText(transcribeMode() === 'text');
+
+        // TEXT overlay: OCR the screen, push text/HTML to the overlay, and
+        // blank the matched cells so the crisp overlay glyphs replace the
+        // bitmap underneath.
+        if (transcribeMode() !== 'off') {
+          if (!cpc.screenText.active) cpc.screenText.activate();
+          const result = cpc.ocrScreenStyled();
+          setTranscribeText(result.text);
+          setTranscribeHtml(result.html);
+          setTranscribeGrid(result.grid);
+          if (result.mask.length > 0) {
+            cpc.blankCells(result.mask, result.cols, result.rows);
+            if (cpc.display) cpc.display.updateTexture(cpc.pixels);
+          }
+        } else if (cpc.screenText.active) {
+          cpc.screenText.deactivate();
+        }
       });
     }
     updateDebugFrame();

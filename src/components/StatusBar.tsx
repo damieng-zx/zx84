@@ -5,7 +5,7 @@
 import { Show } from 'solid-js';
 import {
   statusText, ledKbd, ledKemp, ledEar, ledLoad, ledTapeTurbo, ledText,
-  ledBeep, ledAy, ledDsk, ledRainbow, ledMouse, toggleTranscribeMode, spectrum,
+  ledBeep, ledAy, ledDsk, ledRainbow, ledMouse, toggleTranscribeMode, machine,
   currentModel,
 } from '@/emulator.ts';
 import { isCpcModel } from '@/models.ts';
@@ -62,7 +62,7 @@ export function StatusBar() {
           {/* Group 3: Screen effects and transcription */}
           <Led id="led-text" kind="text" label="TEXT" on={ledText()}
             tip="Pixel-based screen OCR — click to toggle overlay"
-            onClick={() => spectrum && toggleTranscribeMode('text')} />
+            onClick={() => machine && toggleTranscribeMode('text')} />
           <Show when={!isCpc()}>
             <Led id="led-rainbow" kind="rainbow" label="RAINBOW" on={ledRainbow()}
               tip="Attribute area is being rewritten mid-frame (rainbow/colour-cycling effect)" />

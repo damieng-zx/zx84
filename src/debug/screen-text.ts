@@ -31,10 +31,18 @@ export interface OcrConfig {
   yOffset?: number;
 }
 
-/** Built-in cell-grid presets. */
-export type OcrGridName = '32x24' | '51x24' | '64x24';
+/** Spectrum cell-grid presets (the heuristic detector chooses among these). */
+export type SpectrumOcrGrid = '32x24' | '51x24' | '64x24';
 
-export const OCR_GRIDS: Record<OcrGridName, OcrConfig> = {
+/** CPC text grids — one per screen mode (mode 0/1/2 → 20/40/80 columns), all
+ *  8×8. The CPC OCR engine (cpc-screen-text.ts) picks by mode, not by heuristic,
+ *  so these deliberately live outside OCR_GRIDS. */
+export type CpcOcrGrid = '20x25' | '40x25' | '80x25';
+
+/** Any grid label an OCR producer can stamp onto an OcrResult. */
+export type OcrGridName = SpectrumOcrGrid | CpcOcrGrid;
+
+export const OCR_GRIDS: Record<SpectrumOcrGrid, OcrConfig> = {
   '32x24': { cellWidth: 8, cellHeight: 8, cols: 32, rows: 24 },
   '51x24': { cellWidth: 5, cellHeight: 8, cols: 51, rows: 24 },
   '64x24': { cellWidth: 4, cellHeight: 8, cols: 64, rows: 24 },
@@ -101,7 +109,7 @@ function bitMaskFor(cellWidth: number): number {
 }
 
 /** Cached `Object.keys(OCR_GRIDS)` — used in tight per-frame loops. */
-const OCR_GRID_KEYS: readonly OcrGridName[] = Object.keys(OCR_GRIDS) as OcrGridName[];
+const OCR_GRID_KEYS: readonly SpectrumOcrGrid[] = Object.keys(OCR_GRIDS) as SpectrumOcrGrid[];
 
 /** Shared scratch buffer for a single 8-byte glyph. Reused across all OCR
  *  helpers — calls aren't concurrent (single-threaded JS, synchronous calls). */
@@ -255,7 +263,7 @@ function log(...args: any[]): void { ocrLogFn?.('[OCR]', ...args); }
  * alignment is more informative. Returns '32x24' if all grids have <4
  * non-blank cells (effectively blank screen).
  */
-export function detectGrid(screenBank: Uint8Array, bankLabel = ''): OcrGridName {
+export function detectGrid(screenBank: Uint8Array, bankLabel = ''): SpectrumOcrGrid {
   const tag = bankLabel ? ` [${bankLabel}]` : '';
 
   const uniques: number[] = new Array(OCR_GRID_KEYS.length);
@@ -525,7 +533,7 @@ export class ScreenText {
 
   /** Cached grid choice. Re-validated cheaply each call against the current
    *  screen; full 3-grid detection only runs when validation fails. */
-  private cachedGrid: OcrGridName | null = null;
+  private cachedGrid: SpectrumOcrGrid | null = null;
 
   activate(): void {
     if (this.active) return;
@@ -557,7 +565,7 @@ export class ScreenText {
    * cell extracts) to run per call; we cache the choice mainly so we know
    * when the grid changes and can drop the per-grid font cache.
    */
-  detectAndCacheGrid(screenBank: Uint8Array, bankLabel = ''): OcrGridName {
+  detectAndCacheGrid(screenBank: Uint8Array, bankLabel = ''): SpectrumOcrGrid {
     const grid = detectGrid(screenBank, bankLabel);
     if (grid !== this.cachedGrid) {
       this.cachedRamFont.clear();
@@ -719,7 +727,7 @@ export class ScreenText {
     romFont: Uint8Array,
     palette: Uint32Array,
     flash: boolean,
-    grid: OcrGridName = '32x24',
+    grid: SpectrumOcrGrid = '32x24',
     extraFonts?: FontSource[],
   ): OcrResult {
     const config = OCR_GRIDS[grid];

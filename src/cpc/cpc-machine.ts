@@ -23,16 +23,18 @@ import { disasmOne, type DisasmLine } from '@/debug/z80-disasm.ts';
 import type { IScreenRenderer } from '@/display/display.ts';
 import type { Machine, MachineKind, BorderMode, MachineTraceMode } from '@/machine.ts';
 import type { CpcModel } from '@/models.ts';
-import type { OcrGridName } from '@/debug/screen-text.ts';
+import type { OcrGridName, OcrResult } from '@/debug/screen-text.ts';
+import { CpcScreenText, cpcGrid, CPC_FONT_OFFSET, type CpcOcrInput } from '@/debug/cpc-screen-text.ts';
 import { CpcMemory } from '@/cpc/cpc-memory.ts';
 import { CpcKeyboard } from '@/cpc/cpc-keyboard.ts';
-import { Crtc6845 } from '@/cores/crtc-6845.ts';
+import { Crtc6845, R_HORIZ_DISPLAYED, R_VERT_DISPLAYED } from '@/cores/crtc-6845.ts';
 import { GateArray } from '@/cores/gate-array.ts';
 import { Ppi8255, installCpcMemoryHooks, wireCpcPortIO } from '@/cpc/cpc-io.ts';
 import { createCpcConfig, type CpcConfig } from '@/cpc/config.ts';
 import {
   CPC_AY_CLOCK, CPC_CPU_CLOCK, CPC_T_PER_CHAR,
   CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT, CPC_BORDER_TOP, CPC_BORDER_LEFT,
+  CPC_PALETTE,
 } from '@/cpc/constants.ts';
 
 /** Wall-clock frame period (50 Hz). */
@@ -68,6 +70,9 @@ export class CpcMachine implements Machine {
    *  data-port transfers. Mirrors the Spectrum's IOActivity so KEYBOARD/DISK
    *  light up the same way. */
   readonly activity = { kbdReads: 0, fdcAccesses: 0 };
+
+  /** Screen OCR engine for the TEXT overlay + MCP `ocr` tool. */
+  readonly screenText = new CpcScreenText();
 
   /** T-states in the current CRTC-programmed frame (debugger readout). Falls
    *  back to the nominal frame length before the firmware programs the CRTC. */
@@ -343,7 +348,59 @@ export class CpcMachine implements Machine {
 
   stopTrace(): string { return ''; }
 
+  // ── Screen OCR / TEXT overlay ────────────────────────────────────────
+
+  /** Snapshot the display parameters OCR needs from the current machine state.
+   *  R1/R6 are clamped to sane defaults while the firmware is still booting. */
+  private ocrInput(): CpcOcrInput {
+    const hReg = this.crtc.regs[R_HORIZ_DISPLAYED];
+    const rReg = this.crtc.regs[R_VERT_DISPLAYED];
+    return {
+      readVideo: (addr: number) => this.memory.readVideo(addr),
+      mode: this.gateArray.mode,
+      dispStart: this.crtc.displayStart,
+      hDisplayed: hReg >= 1 && hReg <= 64 ? hReg : 40,
+      rows: rReg >= 1 && rReg <= 50 ? rReg : 25,
+      font: this.memory.getLowerRom().subarray(CPC_FONT_OFFSET, CPC_FONT_OFFSET + 2048),
+    };
+  }
+
+  /** Styled OCR (text + coloured HTML + match mask) for the TEXT overlay. */
+  ocrScreenStyled(): OcrResult {
+    return this.screenText.ocrStyled(this.ocrInput(), this.gateArray.pens, CPC_PALETTE);
+  }
+
+  /**
+   * Blank the matched character cells in the framebuffer so the crisp overlay
+   * glyphs replace the underlying bitmap. `mask` is row-major `cols×rows`. The
+   * active area is 640 buffer pixels wide (16 per CRTC char) at CPC_BORDER_LEFT
+   * / CPC_BORDER_TOP; each text column is `8 × bytesPerCol` buffer pixels and
+   * each character row is 8 buffer rows (vertical is 1:1).
+   */
+  blankCells(mask: boolean[], cols: number, rows: number): void {
+    if (cols <= 0 || rows <= 0) return;
+    const mode = this.gateArray.mode;
+    const cellW = 8 * (mode === 0 ? 4 : mode === 1 ? 2 : 1);
+    const cellH = 8;
+    const paper = CPC_PALETTE[this.gateArray.pens[0] & 0x1F];
+    for (let row = 0; row < rows; row++) {
+      const y0 = CPC_BORDER_TOP + row * cellH;
+      if (y0 + cellH > CPC_SCREEN_HEIGHT) break;
+      for (let col = 0; col < cols; col++) {
+        if (!mask[row * cols + col]) continue;
+        const x0 = CPC_BORDER_LEFT + col * cellW;
+        if (x0 + cellW > CPC_SCREEN_WIDTH) continue;
+        for (let y = 0; y < cellH; y++) {
+          const base = (y0 + y) * CPC_SCREEN_WIDTH + x0;
+          this._pixels32.fill(paper, base, base + cellW);
+        }
+      }
+    }
+  }
+
   ocrScreenForMcp(_mode: OcrGridName | 'auto' = 'auto'): string {
-    return 'CPC screen OCR not yet implemented';
+    // The grid is fixed by screen mode on the CPC, so `mode` is advisory only.
+    const input = this.ocrInput();
+    return `[${cpcGrid(input.mode)}]\n${this.screenText.ocr(input)}`;
   }
 }

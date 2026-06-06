@@ -22,7 +22,7 @@ import { UPD765A } from '@/cores/upd765a.ts';
 import type { DskImage } from '@/plus3/dsk.ts';
 import { Contention } from '@/contention.ts';
 import { ScreenText, OCR_GRIDS, detectGrid } from '@/debug/screen-text.ts';
-import type { FontSource, OcrResult, OcrGridName } from '@/debug/screen-text.ts';
+import type { FontSource, OcrResult, OcrGridName, SpectrumOcrGrid } from '@/debug/screen-text.ts';
 import { trapTapeLoad } from '@/tape/tape-loader.ts';
 import { EdgeLoader, type EdgeLoaderHost } from '@/tape/edge-loader.ts';
 import { installMemoryHooks, wirePortIO } from '@/io-ports.ts';
@@ -1031,7 +1031,7 @@ export class Spectrum implements Machine {
     return basicRom.subarray(0x3D00, 0x3D00 + 768);
   }
 
-  ocrScreen(extraFonts?: FontSource[], grid: OcrGridName = '32x24'): string {
+  ocrScreen(extraFonts?: FontSource[], grid: SpectrumOcrGrid = '32x24'): string {
     return this.screenText.ocr(
       this.memory.screenBank, this.memory.snapshot(), this.allMemBanks(),
       this.romFont, OCR_GRIDS[grid], extraFonts,
@@ -1040,10 +1040,10 @@ export class Spectrum implements Machine {
 
   ocrScreenStyled(
     extraFonts?: FontSource[],
-    grid: OcrGridName | 'auto' = 'auto',
+    grid: SpectrumOcrGrid | 'auto' = 'auto',
   ): OcrResult {
     const screenBankIdx = (this.memory.port7FFD & 0x08) ? 7 : 5;
-    const resolved: OcrGridName = grid === 'auto'
+    const resolved: SpectrumOcrGrid = grid === 'auto'
       ? this.screenText.detectAndCacheGrid(this.memory.screenBank, `bank ${screenBankIdx}`)
       : grid;
     return this.screenText.ocrStyled(
@@ -1068,8 +1068,11 @@ export class Spectrum implements Machine {
    *  can see which grid was used. */
   ocrScreenForMcp(mode: OcrGridName | 'auto' = 'auto'): string {
     const screenBankIdx = (this.memory.port7FFD & 0x08) ? 7 : 5;
-    const grid: OcrGridName = mode === 'auto'
-      ? detectGrid(this.memory.screenBank, `bank ${screenBankIdx}`) : mode;
+    // Spectrum callers only ever pass a Spectrum grid (or 'auto'); the wider
+    // OcrGridName on the Machine interface also admits the CPC grids.
+    const grid: SpectrumOcrGrid = mode === 'auto'
+      ? detectGrid(this.memory.screenBank, `bank ${screenBankIdx}`)
+      : (mode as SpectrumOcrGrid);
     const text = this.ocrScreen(undefined, grid);
     return `[${grid}]\n${text}`;
   }

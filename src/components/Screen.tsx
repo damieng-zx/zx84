@@ -3,7 +3,9 @@
  */
 
 import { createEffect, createSignal, onMount, onCleanup } from 'solid-js';
-import { setCanvas, spectrum, transcribeMode, transcribeHtml, transcribeGrid } from '@/emulator.ts';
+import { setCanvas, machine, spectrum, transcribeMode, transcribeHtml, transcribeGrid, currentModel } from '@/emulator.ts';
+import { isCpcModel } from '@/models.ts';
+import { CPC_BORDER_LEFT, CPC_BORDER_TOP } from '@/cpc/constants.ts';
 import { renderer, scale, borderSize, ocrFont, ocrFontSize, ocrLineHeight, ocrTracking, ocrOffsetX, ocrOffsetY, ocrScaleX, ocrScaleY } from '@/store/settings.ts';
 
 export function Screen() {
@@ -30,7 +32,7 @@ export function Screen() {
   // Re-apply scale when DPR changes
   createEffect(() => {
     dpr(); // track
-    if (spectrum?.display) spectrum.display.setScale(scale());
+    if (machine?.display) machine.display.setScale(scale());
   });
 
   // When renderer changes, create a fresh canvas element.
@@ -56,7 +58,8 @@ export function Screen() {
     });
   });
 
-  // Position the overlay and scale it to cover the 256×192 display area
+  // Position the overlay and scale it to cover the active display area (256×192
+  // on the Spectrum, 640×200 on the CPC).
   createEffect(() => {
     const mode = transcribeMode();
     ocrFont(); // Track font changes to trigger re-measure
@@ -64,18 +67,40 @@ export function Screen() {
       natSize = { w: 0, h: 0 };
       return;
     }
-    if (!spectrum || !overlayRef || !canvasRef) return;
+    if (!machine || !overlayRef || !canvasRef) return;
 
     const html = transcribeHtml();
     const scl = scale();
     const curDpr = dpr(); // track DPR changes
-    borderSize(); // track border changes
+    const bs = borderSize(); // track border changes
     const ov = overlayRef;
-    const borderPx = (spectrum.ula.screenWidth - 256) / 2;
     // Use effective scale that accounts for DPR integer rounding
     const effectiveScale = Math.round(scl * curDpr) / curDpr;
-    const targetW = 256 * effectiveScale;
-    const targetH = 192 * effectiveScale;
+
+    let originX: number, originY: number, targetW: number, targetH: number;
+    if (isCpcModel(currentModel())) {
+      // The CPC buffer is 2× oversampled horizontally (pixelAspectX 0.5); the
+      // 640×200 active area sits at (CPC_BORDER_LEFT, CPC_BORDER_TOP). The border
+      // setting crops the displayed viewport (None=0, Small=½, Normal=full
+      // border), so map active-area buffer coords through the same crop. A buffer
+      // point (bx,by) lands at ((bx-viewX)·scale·pax, (by-viewY)·scale) in CSS.
+      const frac = bs === 2 ? 1 : bs === 1 ? 0.5 : 0;
+      const viewX = Math.round(CPC_BORDER_LEFT * (1 - frac));
+      const viewY = Math.round(CPC_BORDER_TOP * (1 - frac));
+      const pax = 0.5;
+      originX = (CPC_BORDER_LEFT - viewX) * effectiveScale * pax;
+      originY = (CPC_BORDER_TOP - viewY) * effectiveScale;
+      targetW = 640 * effectiveScale * pax;
+      targetH = 200 * effectiveScale;
+    } else if (spectrum) {
+      const borderPx = (spectrum.ula.screenWidth - 256) / 2;
+      originX = borderPx * effectiveScale;
+      originY = borderPx * effectiveScale;
+      targetW = 256 * effectiveScale;
+      targetH = 192 * effectiveScale;
+    } else {
+      return;
+    }
 
     // Apply font settings
     ov.style.fontFamily = ocrFont();
@@ -84,8 +109,8 @@ export function Screen() {
     ov.style.letterSpacing = (ocrTracking() / 10).toFixed(1) + 'px';
 
     // Position with user-adjustable offset
-    ov.style.left = (borderPx * effectiveScale + ocrOffsetX()) + 'px';
-    ov.style.top = (borderPx * effectiveScale + ocrOffsetY()) + 'px';
+    ov.style.left = (originX + ocrOffsetX()) + 'px';
+    ov.style.top = (originY + ocrOffsetY()) + 'px';
     ov.innerHTML = html;
 
     // When font changes, force re-measure
