@@ -336,6 +336,12 @@ export interface DiskFormat {
   blockShift: number;   // BSH — block size = 128 << BSH
   dirBlocks: number;    // directory blocks
   diskType: number;     // +3DOS disk type byte
+  /**
+   * AMSDOS/CP/M disk (Amstrad CPC). Unlike +3DOS/PCW disks, these carry no
+   * disk-specification block in track 0 — the format is identified solely by
+   * the track-0 sector IDs. createBlankDisk skips the spec block for these.
+   */
+  cpc?: boolean;
 }
 
 function formatCapacityKB(fmt: DiskFormat): number {
@@ -356,6 +362,31 @@ export const DISK_FORMATS: DiskFormat[] = [
     sides: 2, tracks: 80, sectors: 9, sectorSize: 512,
     gapRW: 42, gap3: 82, filler: 0xE5, firstSector: 1,
     resTracks: 1, blockShift: 4, dirBlocks: 4,
+  },
+  // Amstrad CPC AMSDOS formats. Distinguished from PCW/+3 by their track-0
+  // sector-ID ranges (&41.. / &C1.. / &01..). System reserves 2 tracks for a
+  // bootable CP/M; Data reserves none; IBM is the CP/M 2.2-compatible 8-sector
+  // layout. No +3DOS spec block is written (cpc: true).
+  {
+    label: 'CPC System',
+    diskType: 0, cpc: true,
+    sides: 1, tracks: 40, sectors: 9, sectorSize: 512,
+    gapRW: 42, gap3: 82, filler: 0xE5, firstSector: 0x41,
+    resTracks: 2, blockShift: 3, dirBlocks: 2,
+  },
+  {
+    label: 'CPC Data',
+    diskType: 0, cpc: true,
+    sides: 1, tracks: 40, sectors: 9, sectorSize: 512,
+    gapRW: 42, gap3: 82, filler: 0xE5, firstSector: 0xC1,
+    resTracks: 0, blockShift: 3, dirBlocks: 2,
+  },
+  {
+    label: 'CPC IBM',
+    diskType: 0, cpc: true,
+    sides: 1, tracks: 40, sectors: 8, sectorSize: 512,
+    gapRW: 42, gap3: 82, filler: 0xE5, firstSector: 0x01,
+    resTracks: 1, blockShift: 3, dirBlocks: 2,
   },
 ];
 
@@ -385,18 +416,23 @@ export function createBlankDisk(fmt: DiskFormat): DskImage {
     tracks.push(sides);
   }
 
-  // Write +3DOS disk specification block into first sector of track 0
-  const bootSector = tracks[0][0]!.sectors[0].data;
-  bootSector[0] = fmt.diskType;           // disk type
-  bootSector[1] = fmt.sides === 1 ? 0 : 1; // sidedness: 0=SS, 1=DS alternating
-  bootSector[2] = fmt.tracks;             // tracks per side
-  bootSector[3] = fmt.sectors;            // sectors per track
-  bootSector[4] = sizeCode;              // sector size log (2 = 512)
-  bootSector[5] = fmt.resTracks;          // reserved tracks
-  bootSector[6] = fmt.blockShift;         // BSH
-  bootSector[7] = fmt.dirBlocks;          // directory blocks
-  bootSector[8] = fmt.gapRW;             // gap length (R/W)
-  bootSector[9] = fmt.gap3;              // gap length (format)
+  // Write +3DOS disk specification block into first sector of track 0.
+  // CPC AMSDOS disks have no such block — the format is identified by the
+  // track-0 sector IDs alone, and sector 0 is part of the directory/data area,
+  // so writing a spec block there would corrupt it.
+  if (!fmt.cpc) {
+    const bootSector = tracks[0][0]!.sectors[0].data;
+    bootSector[0] = fmt.diskType;           // disk type
+    bootSector[1] = fmt.sides === 1 ? 0 : 1; // sidedness: 0=SS, 1=DS alternating
+    bootSector[2] = fmt.tracks;             // tracks per side
+    bootSector[3] = fmt.sectors;            // sectors per track
+    bootSector[4] = sizeCode;              // sector size log (2 = 512)
+    bootSector[5] = fmt.resTracks;          // reserved tracks
+    bootSector[6] = fmt.blockShift;         // BSH
+    bootSector[7] = fmt.dirBlocks;          // directory blocks
+    bootSector[8] = fmt.gapRW;             // gap length (R/W)
+    bootSector[9] = fmt.gap3;              // gap length (format)
+  }
 
   const image: DskImage = {
     format: 'standard',

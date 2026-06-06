@@ -115,8 +115,20 @@ describe('detectDiskFormat', () => {
     expect(detectDiskFormat(img)).toBe('CPC Data');
   });
 
-  it('rejects PCW/CPC label when sector count is not 9 (falls to generic)', () => {
-    const img = image([track(Array.from({ length: 8 }, (_, i) => sector({ r: i + 1, n: 2 })))]);
+  it('CPC IBM (SS): 8 sectors, N=2, minR=0x01 → CPC IBM', () => {
+    const img = image([track(Array.from({ length: 8 }, (_, i) => sector({ r: 0x01 + i, n: 2 })))]);
+    expect(detectDiskFormat(img)).toBe('CPC IBM');
+  });
+
+  it('CPC IBM DS: same layout, 2 sides → " DS" suffix', () => {
+    const img = image([track(Array.from({ length: 8 }, (_, i) => sector({ r: 0x01 + i, n: 2 })))], 2);
+    expect(detectDiskFormat(img)).toBe('CPC IBM DS');
+  });
+
+  it('rejects PCW/CPC label when sector count is not 9 and not IBM (falls to generic)', () => {
+    // 8 × 512b but starting at &10 — neither the 9-sector PCW/CPC shapes nor
+    // the IBM &01.. signature, so it must drop to the generic label.
+    const img = image([track(Array.from({ length: 8 }, (_, i) => sector({ r: 0x10 + i, n: 2 })))]);
     expect(detectDiskFormat(img)).toBe('8×512b');
   });
 

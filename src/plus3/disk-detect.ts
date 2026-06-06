@@ -26,6 +26,9 @@ export function detectDiskFormat(image: DskImage): string {
     if (minR === 0x41) return 'CPC System' + ds;
   }
 
+  // CPC IBM (CP/M 2.2 compatible): 8 sectors of 512b, IDs &01..&08.
+  if (count === 8 && n === 2 && minR === 0x01) return 'CPC IBM' + ds;
+
   const bytes = n <= 8 ? 128 << n : 0;
   return `${count}×${bytes}b` + ds;
 }

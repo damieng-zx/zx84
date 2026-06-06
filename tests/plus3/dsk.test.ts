@@ -140,6 +140,34 @@ describe('createBlankDisk', () => {
     expect(img.tracks[0][0]!.sectors).toHaveLength(9);
     expect(img.tracks[0][1]!.sectors).toHaveLength(9);
   });
+
+  // CPC AMSDOS formats. byName looks them up by label so the assertions don't
+  // hinge on their position in DISK_FORMATS.
+  const byName = (label: string) => DISK_FORMATS.find((f) => f.label === label)!;
+
+  it.each([
+    ['CPC System', 0x41, 9, 'CPC System'],
+    ['CPC Data', 0xC1, 9, 'CPC Data'],
+    ['CPC IBM', 0x01, 8, 'CPC IBM'],
+  ])('creates a %s disk with the right sector IDs and detected format', (label, firstR, count, detected) => {
+    const img = createBlankDisk(byName(label));
+    expect(img.numSides).toBe(1);
+    expect(img.numTracks).toBe(40);
+    const t0 = img.tracks[0][0]!;
+    expect(t0.sectors).toHaveLength(count);
+    expect(t0.sectors.map((s) => s.r)).toEqual(
+      Array.from({ length: count }, (_, i) => firstR + i),
+    );
+    expect(img.diskFormat).toBe(detected);
+  });
+
+  it('writes NO +3DOS spec block for CPC formats — sector 0 is all filler', () => {
+    for (const label of ['CPC System', 'CPC Data', 'CPC IBM']) {
+      const img = createBlankDisk(byName(label));
+      const boot = img.tracks[0][0]!.sectors[0].data;
+      expect(boot.every((b) => b === 0xE5)).toBe(true);
+    }
+  });
 });
 
 describe('serializeDSK', () => {
@@ -1396,6 +1424,10 @@ describe('formatLabel', () => {
     const { formatLabel } = await import('@/plus3/dsk.ts');
     expect(formatLabel(DISK_FORMATS[0])).toBe('PCW/+3 Single (180K)');
     expect(formatLabel(DISK_FORMATS[1])).toBe('PCW Double (720K)');
+    const byName = (l: string) => DISK_FORMATS.find((f) => f.label === l)!;
+    expect(formatLabel(byName('CPC System'))).toBe('CPC System (180K)');
+    expect(formatLabel(byName('CPC Data'))).toBe('CPC Data (180K)');
+    expect(formatLabel(byName('CPC IBM'))).toBe('CPC IBM (160K)');
   });
 });
 
