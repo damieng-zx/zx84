@@ -108,12 +108,76 @@ function extractCell(
   return inkPen;
 }
 
-/** Match an 8-byte glyph against the CPC font; printable ASCII 0x20–0x7E, both
- *  normal and inverse video. Returns the character code, or -1 if unrecognised.
- *  A blank glyph matches space (0x20). */
+/**
+ * The full Amstrad CPC character set as Unicode, indexed by font code.
+ * Codes 0x20–0x7E are standard ASCII except 0x5E (↑ on the CPC; the caret lives
+ * at 0xA0). The control-code region (0x00–0x1F) and high range (0x80–0xFF) hold
+ * the firmware's symbols, box/block graphics, Greek letters and arrows. A few
+ * codes have no Unicode equivalent (e.g. the blank mosaic 0x80, DEL checker
+ * 0x7F) and are left empty so they don't match.
+ * Source: https://en.wikipedia.org/wiki/Amstrad_CPC_character_set
+ */
+const CPC_CHARS: readonly string[] = (() => {
+  const t = new Array<string>(256).fill('');
+  for (let c = 0x20; c <= 0x7E; c++) t[c] = String.fromCharCode(c);
+  const map: Record<number, string> = {
+    // 0x00–0x1F — control-code glyphs
+    0x00: '◻', 0x01: '⎾', 0x02: '⏊', 0x03: '⏌', 0x04: '⚡', 0x05: '⊠', 0x06: '✓', 0x07: '⍾',
+    0x08: '←', 0x09: '→', 0x0A: '↓', 0x0B: '↑', 0x0C: '↡', 0x0D: '↲', 0x0E: '⊗', 0x0F: '⊙',
+    0x10: '⊟', 0x11: '◷', 0x12: '◶', 0x13: '◵', 0x14: '◴', 0x15: '⍻', 0x16: '⎍', 0x17: '⊣',
+    0x18: '⧖', 0x19: '⍿', 0x1A: '␦', 0x1B: '⊖', 0x1C: '◰', 0x1D: '◱', 0x1E: '◲', 0x1F: '◳',
+    // ASCII deviation
+    0x5E: '↑',
+    // 0x81–0x8F — quadrant/half block mosaics (0x80 is blank → left empty)
+    0x81: '▘', 0x82: '▝', 0x83: '▀', 0x84: '▖', 0x85: '▌', 0x86: '▞', 0x87: '▛',
+    0x88: '▗', 0x89: '▚', 0x8A: '▐', 0x8B: '▜', 0x8C: '▄', 0x8D: '▙', 0x8E: '▟', 0x8F: '█',
+    // 0x90–0x9F — box drawing
+    0x90: '·', 0x91: '╵', 0x92: '╶', 0x93: '└', 0x94: '╷', 0x95: '│', 0x96: '┌', 0x97: '├',
+    0x98: '╴', 0x99: '┘', 0x9A: '─', 0x9B: '┴', 0x9C: '┐', 0x9D: '┤', 0x9E: '┬', 0x9F: '┼',
+    // 0xA0–0xAF — accents, symbols
+    0xA0: '^', 0xA1: '´', 0xA2: '¨', 0xA3: '£', 0xA4: '©', 0xA5: '¶', 0xA6: '§', 0xA7: '‘',
+    0xA8: '¼', 0xA9: '½', 0xAA: '¾', 0xAB: '±', 0xAC: '÷', 0xAD: '¬', 0xAE: '¿', 0xAF: '¡',
+    // 0xB0–0xBF — Greek
+    0xB0: 'α', 0xB1: 'β', 0xB2: 'γ', 0xB3: 'δ', 0xB4: 'ε', 0xB5: 'θ', 0xB6: 'λ', 0xB7: 'μ',
+    0xB8: 'π', 0xB9: 'σ', 0xBA: 'φ', 0xBB: 'ψ', 0xBC: 'χ', 0xBD: 'ω', 0xBE: 'Σ', 0xBF: 'Ω',
+    // 0xC0–0xCF — diagonal/shading
+    0xC0: '🮠', 0xC1: '🮡', 0xC2: '🮣', 0xC3: '🮢', 0xC4: '🮧', 0xC5: '🮥', 0xC6: '🮦', 0xC7: '🮤',
+    0xC8: '🮨', 0xC9: '🮩', 0xCA: '🮮', 0xCB: '╳', 0xCC: '╱', 0xCD: '╲', 0xCE: '🮕', 0xCF: '▒',
+    // 0xD0–0xDF — edges/triangles
+    0xD0: '▔', 0xD1: '▕', 0xD2: '▁', 0xD3: '▏', 0xD4: '◤', 0xD5: '◥', 0xD6: '◢', 0xD7: '◣',
+    0xD8: '🮎', 0xD9: '🮍', 0xDA: '🮏', 0xDB: '🮌', 0xDC: '🮜', 0xDD: '🮝', 0xDE: '🮞', 0xDF: '🮟',
+    // 0xE0–0xEF — pictographs (0xEF has no Unicode → left empty)
+    0xE0: '☺', 0xE1: '☹', 0xE2: '♣', 0xE3: '♦', 0xE4: '♥', 0xE5: '♠', 0xE6: '○', 0xE7: '●',
+    0xE8: '□', 0xE9: '■', 0xEA: '♂', 0xEB: '♀', 0xEC: '♩', 0xED: '♪', 0xEE: '☼',
+    // 0xF0–0xFF — arrows/triangles (0xFC, 0xFD have no Unicode → left empty)
+    0xF0: '⭡', 0xF1: '⭣', 0xF2: '⭠', 0xF3: '⭢', 0xF4: '▲', 0xF5: '▼', 0xF6: '▶', 0xF7: '◀',
+    0xF8: '🯆', 0xF9: '🯅', 0xFA: '🯇', 0xFB: '🯈', 0xFE: '⭥', 0xFF: '⭤',
+  };
+  for (const k in map) t[+k] = map[+k];
+  return t;
+})();
+
+/** Codes matchGlyph attempts: printable ASCII 0x20–0x7E first (so a blank glyph
+ *  matches space, and letters/digits always win any glyph collision), then every
+ *  other code that has a Unicode mapping, in ascending order. */
+const CPC_MATCH_CODES: readonly number[] = (() => {
+  const codes: number[] = [];
+  for (let c = 0x20; c <= 0x7E; c++) codes.push(c);
+  for (let c = 0; c < 256; c++) if ((c < 0x20 || c > 0x7E) && CPC_CHARS[c]) codes.push(c);
+  return codes;
+})();
+
+/** Map a matched CPC font code to its output character (see CPC_CHARS). */
+function cpcCharForCode(c: number): string {
+  return CPC_CHARS[c];
+}
+
+/** Match an 8-byte glyph against the CPC font, both normal and inverse video.
+ *  Returns the matched font code, or -1 if unrecognised. A blank glyph matches
+ *  space (0x20). Map the code through cpcCharForCode for the output character. */
 function matchGlyph(glyph: Uint8Array, font: Uint8Array): number {
   for (let inv = 0; inv < 2; inv++) {
-    for (let c = 0x20; c <= 0x7E; c++) {
+    for (const c of CPC_MATCH_CODES) {
       const fb = c << 3;
       let ok = true;
       for (let p = 0; p < 8; p++) {
@@ -171,7 +235,7 @@ export class CpcScreenText {
       for (let col = 0; col < cols; col++) {
         extractCell(readVideo, mode, dispStart, hDisplayed, col, row, glyph);
         const c = matchGlyph(glyph, font);
-        text += c < 0 ? ' ' : String.fromCharCode(c);
+        text += c < 0 ? ' ' : cpcCharForCode(c);
       }
       if (row < rows - 1) text += '\n';
     }
@@ -199,7 +263,7 @@ export class CpcScreenText {
         const idx = row * cols + col;
         const inkPen = extractCell(readVideo, mode, dispStart, hDisplayed, col, row, glyph);
         const c = matchGlyph(glyph, font);
-        const ch = c < 0 ? null : String.fromCharCode(c);
+        const ch = c < 0 ? null : cpcCharForCode(c);
         text += ch ?? ' ';
         const matched = ch !== null && ch !== ' ';
         mask[idx] = matched;
