@@ -52,9 +52,11 @@ function DpadButton(props: { dir: string; playerIdx: number }) {
       : undefined,
   } : undefined;
 
+  const isFire = () => props.dir === 'fire' || props.dir === 'fire2';
+
   const className = () => [
     'joy-btn',
-    props.dir === 'fire' ? 'joy-fire' : '',
+    isFire() ? 'joy-fire' : '',
     isActive() ? (progress() > 0 ? 'joy-config-holding' : 'joy-config-waiting') : '',
   ].filter(Boolean).join(' ');
 
@@ -69,7 +71,7 @@ function DpadButton(props: { dir: string; playerIdx: number }) {
       onTouchEnd={onRelease}
       onTouchCancel={onLeave}
       style={configStyle()}
-    >{props.dir === 'fire' ? 'F1' : <Icon />}</div>
+    >{props.dir === 'fire' ? 'F1' : props.dir === 'fire2' ? 'F2' : <Icon />}</div>
   );
 }
 
@@ -155,7 +157,11 @@ function JoyColumn(props: { playerIdx: number; label: string }) {
         <DpadButton dir="right" playerIdx={props.playerIdx} />
         <div class="joy-spacer" />
         <DpadButton dir="down" playerIdx={props.playerIdx} />
-        <div class="joy-spacer" />
+        {/* The CPC joystick has a real second fire button (matrix bit 4);
+            the Spectrum's joysticks are single-fire, so F2 is CPC-only. */}
+        <Show when={isCpc()} fallback={<div class="joy-spacer" />}>
+          <DpadButton dir="fire2" playerIdx={props.playerIdx} />
+        </Show>
       </div>
     </div>
   );
