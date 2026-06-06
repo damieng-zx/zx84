@@ -32,7 +32,7 @@ import { Ppi8255, installCpcMemoryHooks, wireCpcPortIO } from '@/cpc/cpc-io.ts';
 import { createCpcConfig, type CpcConfig } from '@/cpc/config.ts';
 import {
   CPC_AY_CLOCK, CPC_CPU_CLOCK, CPC_T_PER_CHAR,
-  CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT, CPC_BORDER_TOP,
+  CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT, CPC_BORDER_TOP, CPC_BORDER_LEFT,
 } from '@/cpc/constants.ts';
 
 /** Wall-clock frame period (50 Hz). */
@@ -128,10 +128,21 @@ export class CpcMachine implements Machine {
     this.fdc.insertDisk(image, unit);
   }
 
-  setBorderSize(_mode: BorderMode): void {
-    // Border cropping is applied by the Gate-Array renderer (video phase);
-    // for now the full CRT window is always emitted.
-    if (this.display) this.display.resize(CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT);
+  setBorderSize(mode: BorderMode): void {
+    // The Gate Array always renders the full 768×272 buffer (active 640×200
+    // centred, CPC_BORDER_LEFT/TOP border on each side). Cropping is purely a
+    // display concern: show a centred sub-rect. Normal = whole buffer, Small =
+    // half the border, None = just the active area.
+    const frac = mode === 2 ? 1 : mode === 1 ? 0.5 : 0;
+    const cropX = Math.round(CPC_BORDER_LEFT * (1 - frac));
+    const cropY = Math.round(CPC_BORDER_TOP * (1 - frac));
+    if (this.display) {
+      this.display.setViewport(
+        cropX, cropY,
+        CPC_SCREEN_WIDTH - cropX * 2,
+        CPC_SCREEN_HEIGHT - cropY * 2,
+      );
+    }
   }
 
   reset(): void {

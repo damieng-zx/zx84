@@ -51,6 +51,9 @@ type MockSpectrum = {
 const { emu, settingsMock, panesMock } = vi.hoisted(() => ({
   emu: {
     spectrum: null as any,
+    // On a Spectrum the active machine IS the spectrum; the bridge now reads
+    // `machine` for the (machine-agnostic) clock-speed readout, so mirror it.
+    get machine() { return this.spectrum; },
     floppySound: null as any,
     currentModel: vi.fn(() => '48k' as const),
     emulationPaused: vi.fn(() => false),

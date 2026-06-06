@@ -261,6 +261,69 @@ describe('CanvasRenderer resize / setScale', () => {
   });
 });
 
+describe('CanvasRenderer pixelAspectX (horizontal squeeze)', () => {
+  it('halves only the CSS width while keeping the backing store at full resolution', () => {
+    // CPC case: 768×272 buffer, displayed at half width to undo the 2×
+    // horizontal oversampling. dpr=1, default scale=2 → deviceScale=2.
+    const canvas = new StubCanvas() as unknown as HTMLCanvasElement;
+    new CanvasRenderer(canvas, 768, 272, 0.5);
+    // Backing store is unchanged (full crispness): 768·2 × 272·2.
+    expect(canvas.width).toBe(1536);
+    expect(canvas.height).toBe(544);
+    // CSS width is halved (1536 / dpr × 0.5); CSS height untouched.
+    expect(canvas.style.width).toBe('768px');
+    expect(canvas.style.height).toBe('544px');
+  });
+
+  it('defaults to 1 (no squeeze) when omitted', () => {
+    const canvas = new StubCanvas() as unknown as HTMLCanvasElement;
+    new CanvasRenderer(canvas, 100, 50);
+    // deviceScale=2 → backing 200×100, CSS 200×100 (square mapping).
+    expect(canvas.style.width).toBe('200px');
+    expect(canvas.style.height).toBe('100px');
+  });
+});
+
+describe('CanvasRenderer setViewport (border crop)', () => {
+  it('sizes the canvas to the viewport, not the full buffer', () => {
+    const canvas = new StubCanvas() as unknown as HTMLCanvasElement;
+    const r = new CanvasRenderer(canvas, 768, 272);
+    // None-border crop: just the 640×200 active area at offset (64,36).
+    r.setViewport(64, 36, 640, 200);
+    // deviceScale=2 → backing 640·2 × 200·2.
+    expect(canvas.width).toBe(1280);
+    expect(canvas.height).toBe(400);
+    expect(canvas.style.width).toBe('1280px');
+  });
+
+  it('blits only the viewport sub-rect of the source buffer', () => {
+    const main = new StubCtx2D();
+    const off = new StubCtx2D();
+    const offscreen = new StubCanvas(off);
+    dom.restore();
+    dom = installDom(1, () => offscreen);
+    const canvas = new StubCanvas(main);
+    const r = new CanvasRenderer(canvas as unknown as HTMLCanvasElement, 768, 272);
+    r.setViewport(64, 36, 640, 200);
+    // Full buffer is always uploaded (768×272×4 bytes)…
+    r.updateTexture(new Uint8Array(768 * 272 * 4));
+    // …but drawn from the cropped source rect into the (cropped) canvas.
+    expect(main.draws[0]).toMatchObject({
+      sx: 64, sy: 36, sw: 640, sh: 200,
+      dx: 0, dy: 0, dw: 1280, dh: 400,
+    });
+  });
+
+  it('composes the horizontal squeeze with the crop', () => {
+    const canvas = new StubCanvas() as unknown as HTMLCanvasElement;
+    const r = new CanvasRenderer(canvas, 768, 272, 0.5);
+    r.setViewport(64, 36, 640, 200);
+    // backing 1280 wide; CSS = 1280 / dpr × 0.5 = 640.
+    expect(canvas.width).toBe(1280);
+    expect(canvas.style.width).toBe('640px');
+  });
+});
+
 describe('CanvasRenderer CRT setters', () => {
   it('are all no-ops (canvas backend has no CRT pipeline)', () => {
     const canvas = new StubCanvas() as unknown as HTMLCanvasElement;

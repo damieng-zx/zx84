@@ -14,7 +14,7 @@ import { isCollapsed } from '@/ui/panes.ts';
 import * as settings from '@/store/settings.ts';
 import { refreshDiskMetadata } from '@/plus3/dsk.ts';
 import {
-  spectrum, floppySound,
+  machine, spectrum, floppySound,
   currentModel, emulationPaused, tracing,
   setRegsRev, setSysvarRev, setBasicHtml, setBasicVarsHtml,
   setBanksHtml, setDriveAStatus, setDriveBStatus, setShowTrapLog, setDisasmText,
@@ -183,7 +183,7 @@ let smoothedMhz = 0;
 
 export function resetSpeedTracking(): void {
   speedLastTime = performance.now();
-  speedLastTStates = spectrum ? spectrum.cpu.tStates : 0;
+  speedLastTStates = machine ? machine.cpu.tStates : 0;
   speedFrameCount = 0;
   smoothedMhz = 0;
   setClockSpeedText('MHz');
@@ -195,9 +195,9 @@ function updateClockSpeed(): void {
   speedFrameCount = 0;
   const now = performance.now();
   const elapsed = (now - speedLastTime) / 1000;
-  const tStates = spectrum!.cpu.tStates - speedLastTStates;
+  const tStates = machine!.cpu.tStates - speedLastTStates;
   speedLastTime = now;
-  speedLastTStates = spectrum!.cpu.tStates;
+  speedLastTStates = machine!.cpu.tStates;
   if (elapsed > 0) {
     const rawMhz = (tStates / elapsed) / 1_000_000;
     // Exponential moving average for a stable readout
@@ -210,7 +210,7 @@ function updateClockSpeed(): void {
 export function forceSpeedUpdate(): void {
   // Reset the baseline so the next sample measures only post-toggle speed
   speedLastTime = performance.now();
-  speedLastTStates = spectrum ? spectrum.cpu.tStates : 0;
+  speedLastTStates = machine ? machine.cpu.tStates : 0;
   speedFrameCount = 0;
   smoothedMhz = 0;
 }
@@ -296,8 +296,13 @@ export function saveFontStore(store: FontEntry[]): void {
 // ── onFrame callback ────────────────────────────────────────────────────
 
 export function onFrame(): void {
-  if (!spectrum) return;
+  if (!machine) return;
+  // Clock-speed readout applies to every machine (Spectrum and CPC).
   updateClockSpeed();
+
+  // The remaining per-frame UI (LEDs, registers, disk, tape, transcribe) is
+  // still Spectrum-specific; the CPC drives those panes elsewhere.
+  if (!spectrum) return;
 
   const a = spectrum.activity;
   const v = spectrum.variant;

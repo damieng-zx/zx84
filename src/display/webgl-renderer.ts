@@ -255,6 +255,18 @@ export class WebGLRenderer implements IScreenRenderer {
   width: number;
   height: number;
 
+  // Displayed sub-rectangle of the source buffer (border crop). Defaults to the
+  // whole buffer; the CPC uses it to trim its fixed-size frame buffer.
+  private viewX = 0;
+  private viewY = 0;
+  private viewW: number;
+  private viewH: number;
+
+  // Horizontal squeeze applied to CSS width only (backing store stays full
+  // resolution). The CPC frame buffer is 2× oversampled horizontally, so it is
+  // displayed at half width to restore a ~4:3 pixel aspect.
+  private pixelAspectX: number;
+
   // Pass 1 (upscale) — one program per scaling algorithm
   private upscalePrograms: WebGLProgram[] = [];
   private upscaleUniforms: { texSize: WebGLUniformLocation | null; smoothing: WebGLUniformLocation | null; lut: WebGLUniformLocation | null }[] = [];
@@ -298,26 +310,22 @@ export class WebGLRenderer implements IScreenRenderer {
   private u2Scale: WebGLUniformLocation | null = null;
   private deviceScale = 2;
 
-  constructor(canvas: HTMLCanvasElement, width: number, height: number) {
+  constructor(canvas: HTMLCanvasElement, width: number, height: number, pixelAspectX = 1) {
     this.canvas = canvas;
     this.width = width;
     this.height = height;
+    this.viewW = width;
+    this.viewH = height;
+    this.pixelAspectX = pixelAspectX;
 
     const gl = canvas.getContext('webgl', { alpha: false, antialias: false, preserveDrawingBuffer: true });
     if (!gl) throw new Error('WebGL not supported');
     this.gl = gl;
 
-    // Quad with flipped UVs for pass 1 (source texture is top-down pixel data)
-    const verts = new Float32Array([
-      // pos       uv
-      -1, -1,     0, 1,
-       1, -1,     1, 1,
-      -1,  1,     0, 0,
-       1,  1,     1, 0,
-    ]);
+    // Quad with flipped UVs for pass 1 (source texture is top-down pixel data).
+    // UVs cover the current viewport sub-rectangle; rebuilt when it changes.
     this.buffer = gl.createBuffer()!;
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
-    gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STATIC_DRAW);
+    this.rebuildSourceQuad();
 
     // Quad with standard UVs for pass 2 (FBO is already in GL orientation)
     const vertsFBO = new Float32Array([
@@ -458,16 +466,44 @@ export class WebGLRenderer implements IScreenRenderer {
     gl.vertexAttribPointer(aUV, 2, gl.FLOAT, false, 16, 8);
   }
 
+  /** Rebuild the pass-1 quad so its UVs sample only the viewport sub-rect of
+   *  the source texture (vertically flipped, top-down). */
+  private rebuildSourceQuad(): void {
+    const gl = this.gl;
+    const uMin = this.viewX / this.width;
+    const uMax = (this.viewX + this.viewW) / this.width;
+    const vTop = this.viewY / this.height;
+    const vBot = (this.viewY + this.viewH) / this.height;
+    const verts = new Float32Array([
+      // pos       uv
+      -1, -1,     uMin, vBot,
+       1, -1,     uMax, vBot,
+      -1,  1,     uMin, vTop,
+       1,  1,     uMax, vTop,
+    ]);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STATIC_DRAW);
+  }
+
+  setViewport(x: number, y: number, w: number, h: number): void {
+    this.viewX = x;
+    this.viewY = y;
+    this.viewW = w;
+    this.viewH = h;
+    this.rebuildSourceQuad();
+    this.applyScale();
+  }
+
   private applyScale(): void {
     const gl = this.gl;
     const dpr = window.devicePixelRatio || 1;
     this.deviceScale = Math.round(this.scale * dpr);
-    const w = this.width * this.deviceScale;
-    const h = this.height * this.deviceScale;
+    const w = this.viewW * this.deviceScale;
+    const h = this.viewH * this.deviceScale;
 
     this.canvas.width = w;
     this.canvas.height = h;
-    this.canvas.style.width = (w / dpr) + 'px';
+    this.canvas.style.width = (w / dpr * this.pixelAspectX) + 'px';
     this.canvas.style.height = (h / dpr) + 'px';
 
     // Resize FBO texture to match display resolution
@@ -539,9 +575,16 @@ export class WebGLRenderer implements IScreenRenderer {
   resize(width: number, height: number): void {
     this.width = width;
     this.height = height;
+    // A buffer-size change resets the viewport to the whole buffer; callers that
+    // want a crop re-apply it via setViewport afterwards.
+    this.viewX = 0;
+    this.viewY = 0;
+    this.viewW = width;
+    this.viewH = height;
     const gl = this.gl;
     gl.bindTexture(gl.TEXTURE_2D, this.texture);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    this.rebuildSourceQuad();
     this.applyScale();
   }
 
@@ -592,7 +635,9 @@ export class WebGLRenderer implements IScreenRenderer {
     gl.bindTexture(gl.TEXTURE_2D, this.fboTex);
     if (dirty) {
       gl.uniform2f(this.u2Resolution, w, h);
-      gl.uniform2f(this.u2TexSize, this.width, this.height);
+      // Pass 2 effects (scanlines/mask) are spaced by the displayed source
+      // resolution — the cropped viewport, not the full buffer.
+      gl.uniform2f(this.u2TexSize, this.viewW, this.viewH);
       gl.uniform1f(this.u2Curvature, this.curvature);
       gl.uniform1f(this.u2Scanlines, this.scanlines);
       gl.uniform1i(this.u2MaskType, this.maskType);

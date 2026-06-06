@@ -3,6 +3,12 @@ import { Pane } from '@/components/Pane.tsx';
 import { HiOutlineChevronUp, HiOutlineChevronDown, HiOutlineChevronLeft, HiOutlineChevronRight } from 'solid-icons/hi';
 import { joyP1, joyP2, joyMapP1, joyMapP2, setJoyP1, setJoyP2, setJoyMapP1, setJoyMapP2, persistSetting, gamepadConfigP1, gamepadConfigP2, setGamepadConfigP1, setGamepadConfigP2, resetSettingsGroup } from '@/store/settings.ts';
 import { joyPressForType } from '@/emulator.ts';
+import { currentModel } from '@/state/machine-state.ts';
+import { isCpcModel } from '@/models.ts';
+
+// The CPC joystick is fixed to the Amstrad standard (read straight off the
+// keyboard matrix), so the Spectrum interface-type selector is hidden for it.
+const isCpc = () => isCpcModel(currentModel());
 
 // Configuration mode state
 export const [configuringPlayer, setConfiguringPlayer] = createSignal<number>(-1);
@@ -117,18 +123,20 @@ function JoyColumn(props: { playerIdx: number; label: string }) {
 
   return (
     <div class="joy-column">
-      <label>{props.label}
-        <select id={joyKey()} value={joySel()()} onChange={(e) => {
-          setJoySel()((e.target as HTMLSelectElement).value);
-          persistSetting(joyKey(), joySel()());
-        }}>
-          <option value="kempston">Kempston</option>
-          <option value="cursor">Cursor</option>
-          <option value="sinclair1">Sinclair Port 1</option>
-          <option value="sinclair2">Sinclair Port 2</option>
-          <option value="none">None</option>
-        </select>
-      </label>
+      <Show when={!isCpc()} fallback={<label>{props.label}</label>}>
+        <label>{props.label}
+          <select id={joyKey()} value={joySel()()} onChange={(e) => {
+            setJoySel()((e.target as HTMLSelectElement).value);
+            persistSetting(joyKey(), joySel()());
+          }}>
+            <option value="kempston">Kempston</option>
+            <option value="cursor">Cursor</option>
+            <option value="sinclair1">Sinclair Port 1</option>
+            <option value="sinclair2">Sinclair Port 2</option>
+            <option value="none">None</option>
+          </select>
+        </label>
+      </Show>
       <label>Map
         <select id={`joy-map-${props.label.toLowerCase()}`} value={joyMapSel()()} onChange={handleMapChange}>
           <option value="none">No mapping</option>

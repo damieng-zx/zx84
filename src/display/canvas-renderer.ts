@@ -13,15 +13,26 @@ export class CanvasRenderer implements IScreenRenderer {
 
   private width: number;
   private height: number;
+  // Displayed sub-rectangle of the source buffer (border crop). Defaults to the
+  // whole buffer; the CPC uses it to trim its fixed-size frame buffer.
+  private viewX = 0;
+  private viewY = 0;
+  private viewW: number;
+  private viewH: number;
+  // Horizontal squeeze applied to CSS width only — see WebGLRenderer.
+  private pixelAspectX: number;
   private ctx: CanvasRenderingContext2D;
   private offscreen: HTMLCanvasElement;
   private offCtx: CanvasRenderingContext2D;
   private imageData: ImageData;
 
-  constructor(canvas: HTMLCanvasElement, width: number, height: number) {
+  constructor(canvas: HTMLCanvasElement, width: number, height: number, pixelAspectX = 1) {
     this.canvas = canvas;
     this.width = width;
     this.height = height;
+    this.viewW = width;
+    this.viewH = height;
+    this.pixelAspectX = pixelAspectX;
 
     const ctx = canvas.getContext('2d', { alpha: false });
     if (!ctx) throw new Error('Canvas 2D not supported');
@@ -42,11 +53,11 @@ export class CanvasRenderer implements IScreenRenderer {
   private applyScale(): void {
     const dpr = window.devicePixelRatio || 1;
     const deviceScale = Math.round(this.scale * dpr);
-    const w = this.width * deviceScale;
-    const h = this.height * deviceScale;
+    const w = this.viewW * deviceScale;
+    const h = this.viewH * deviceScale;
     this.canvas.width = w;
     this.canvas.height = h;
-    this.canvas.style.width = (w / dpr) + 'px';
+    this.canvas.style.width = (w / dpr * this.pixelAspectX) + 'px';
     this.canvas.style.height = (h / dpr) + 'px';
     this.ctx.imageSmoothingEnabled = false;
   }
@@ -61,7 +72,7 @@ export class CanvasRenderer implements IScreenRenderer {
     this.ctx.imageSmoothingEnabled = false;
     this.ctx.drawImage(
       this.offscreen,
-      0, 0, this.width, this.height,
+      this.viewX, this.viewY, this.viewW, this.viewH,
       0, 0, this.canvas.width, this.canvas.height,
     );
   }
@@ -69,9 +80,23 @@ export class CanvasRenderer implements IScreenRenderer {
   resize(width: number, height: number): void {
     this.width = width;
     this.height = height;
+    // A buffer-size change resets the viewport to the whole buffer; callers that
+    // want a crop re-apply it via setViewport afterwards.
+    this.viewX = 0;
+    this.viewY = 0;
+    this.viewW = width;
+    this.viewH = height;
     this.offscreen.width = width;
     this.offscreen.height = height;
     this.imageData = this.offCtx.createImageData(width, height);
+    this.applyScale();
+  }
+
+  setViewport(x: number, y: number, w: number, h: number): void {
+    this.viewX = x;
+    this.viewY = y;
+    this.viewW = w;
+    this.viewH = h;
     this.applyScale();
   }
 

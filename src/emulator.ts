@@ -168,9 +168,13 @@ export function setRomStatus(msg: string): void {
 }
 
 function createDisplay(el: HTMLCanvasElement, w: number, h: number) {
+  // The CPC frame buffer is 2× oversampled horizontally (16 Gate-Array pixel
+  // clocks per character); display it at half width to restore a ~4:3 pixel
+  // aspect and keep the Scale steps consistent with the Spectrum.
+  const pixelAspectX = isCpcModel(currentModel()) ? 0.5 : 1;
   if (settings.renderer() === 'webgl' && settings.webglAvailable()) {
     try {
-      return new WebGLRenderer(el, w, h);
+      return new WebGLRenderer(el, w, h, pixelAspectX);
     } catch (err) {
       console.warn('WebGL unavailable, falling back to Canvas:', err);
       settings.setWebglAvailable(false);
@@ -179,7 +183,7 @@ function createDisplay(el: HTMLCanvasElement, w: number, h: number) {
       setStatus('WebGL unavailable — using Canvas renderer');
     }
   }
-  return new CanvasRenderer(el, w, h);
+  return new CanvasRenderer(el, w, h, pixelAspectX);
 }
 
 export function setCanvas(el: HTMLCanvasElement): void {
