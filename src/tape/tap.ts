@@ -36,6 +36,12 @@ export interface DataBlock {
   pilotCount: number;         // 0 = skip pilot/sync (pure-data)
   usedBits: number;           // last byte
   source: 'tap' | 'standard' | 'turbo' | 'pure-data';
+  /** The exact on-tape byte stream (flag/sync byte first, no checksum split or
+   *  recomputation), when faithful bytes are required. Set for CDT/CPC tapes,
+   *  whose data carries its own CRCs — the Spectrum flag+XOR-checksum model
+   *  (see buildRawData) would corrupt them. When present the playback engine and
+   *  the CAS READ trap use it verbatim instead of reconstructing. */
+  rawBytes?: Uint8Array;
 }
 
 export interface ToneBlock     { kind: 'tone'; pulseLen: number; count: number; }
@@ -63,6 +69,12 @@ const BIT_0 = 855;
 const BIT_1 = 1710;
 const PAUSE_DEFAULT_MS = 1000;
 
+/** TZX/CDT pulse timings are authored in T-states at a 3.5MHz reference clock,
+ *  regardless of the target machine. A 4MHz machine (the Amstrad CPC) must scale
+ *  every pulse length by cpuClock / 3.5MHz to recover the correct real duration.
+ *  See `TapeDeck.pulseScale`. */
+export const TAPE_REF_HZ = 3_500_000;
+
 
 const enum TapePhase {
   IDLE,
@@ -86,6 +98,20 @@ export class TapeDeck {
 
   /** CPU clock speed in Hz (affects pause/timing calculations) */
   cpuClock: number;
+
+  /** Scale applied to every (3.5MHz-referenced) pulse length to convert it to
+   *  this machine's CPU T-states. Defaults to 1 — correct for the Spectrum,
+   *  whose CPU clock IS the 3.5MHz reference, so playback there is byte-identical
+   *  to before. The CPC sets this to 4MHz/3.5MHz so CDT pulses play at the right
+   *  speed. Pauses are NOT scaled by this (they are real-time ms converted via
+   *  cpuClock); only pulse lengths carry the 3.5MHz reference unit. */
+  pulseScale = 1;
+
+  /** Scale a 3.5MHz-referenced pulse length to CPU T-states. Exact pass-through
+   *  when pulseScale is 1 (Spectrum), so existing timings are unchanged. */
+  private scale(t: number): number {
+    return this.pulseScale === 1 ? t : Math.round(t * this.pulseScale);
+  }
 
   constructor(cpuClock: number) {
     this.cpuClock = cpuClock;
@@ -467,7 +493,7 @@ export class TapeDeck {
         case 'tone':
           this.phase = TapePhase.TONE;
           this.toneRemaining = block.count;
-          this.pulseLen = block.pulseLen;
+          this.pulseLen = this.scale(block.pulseLen);
           this.publishEdgeFlags();
           return;
 
@@ -480,7 +506,7 @@ export class TapeDeck {
           this.phase = TapePhase.PULSES;
           this.pulsesLengths = block.lengths;
           this.pulsesIdx = 0;
-          this.pulseLen = block.lengths[0];
+          this.pulseLen = this.scale(block.lengths[0]);
           this.publishEdgeFlags();
           return;
 
@@ -542,14 +568,16 @@ export class TapeDeck {
   }
 
   private beginDataBlock(block: DataBlock): void {
-    // Pure data blocks store raw bytes directly (not TAP flag+payload+checksum format)
-    this.rawData = block.source === 'pure-data' ? block.data : this.buildRawData(block);
+    // Faithful CDT bytes (CPC) play verbatim; pure-data plays its raw payload;
+    // everything else reconstructs the Spectrum flag+payload+XOR-checksum frame.
+    this.rawData = block.rawBytes
+      ?? (block.source === 'pure-data' ? block.data : this.buildRawData(block));
 
-    this.bPilot = block.pilotPulse;
-    this.bSync1 = block.syncPulse1;
-    this.bSync2 = block.syncPulse2;
-    this.bBit0 = block.bit0Pulse;
-    this.bBit1 = block.bit1Pulse;
+    this.bPilot = this.scale(block.pilotPulse);
+    this.bSync1 = this.scale(block.syncPulse1);
+    this.bSync2 = this.scale(block.syncPulse2);
+    this.bBit0 = this.scale(block.bit0Pulse);
+    this.bBit1 = this.scale(block.bit1Pulse);
     this.usedBitsLast = Math.max(1, block.usedBits);
     this.pauseRemaining = Math.round(block.pause * this.cpuClock / 1000);
 
@@ -572,7 +600,7 @@ export class TapeDeck {
   private beginDirectBlock(block: DirectBlock): void {
     this.phase = TapePhase.DIRECT;
     this.directData = block.data;
-    this.directTStatesPerSample = block.tStatesPerSample;
+    this.directTStatesPerSample = this.scale(block.tStatesPerSample);
     this.directByteIdx = 0;
     this.directBitIdx = 7;
     this.directUsedBitsLast = Math.max(1, block.usedBits);
@@ -683,7 +711,7 @@ export class TapeDeck {
           this.beginBlock(this.playbackIdx + 1);
           return; // beginBlock publishes its own flags
         } else {
-          this.pulseLen = this.pulsesLengths[this.pulsesIdx];
+          this.pulseLen = this.scale(this.pulsesLengths[this.pulsesIdx]);
         }
         break;
     }
@@ -706,8 +734,10 @@ export class TapeDeck {
     // edge before the level changes, short enough that the flip arrives
     // well within any reasonable pause. We only schedule a flip if there
     // actually is a pause (pauseRemaining > 945T) — for zero-pause block
-    // transitions the flip would land after the next block has begun.
-    this.pauseFlipAt = this.pauseRemaining > 945 ? 945 : -1;
+    // transitions the flip would land after the next block has begun. The
+    // 945T figure is 3.5MHz-referenced, so scale it like any pulse length.
+    const flipAt = this.scale(945);
+    this.pauseFlipAt = this.pauseRemaining > flipAt ? flipAt : -1;
     this.publishEdgeFlags(); // 'unknown' — next edge length not known
   }
 

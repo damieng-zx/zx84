@@ -699,3 +699,26 @@ describe('TZX — realistic multi-block sequence', () => {
     expect(data_block.pilotCount).toBe(3223);
   });
 });
+
+describe('TZX — rawDataBlocks option (CPC/CDT faithful bytes)', () => {
+  it('attaches verbatim rawBytes to 0x10 and 0x11 data blocks when requested', () => {
+    const data = tzx(
+      header(),
+      block10(1000, 0x16, [0xAA, 0xBB, 0xCC]),
+      block11({ flag: 0x2C, payload: [0x01, 0x02, 0x03] }),
+    );
+    const blocks = parseTZX(data, { rawDataBlocks: true });
+    const b10 = blocks[0] as DataBlock;
+    const b11 = blocks[1] as DataBlock;
+    // rawBytes is the full on-tape frame (flag/sync first, checksum last) — not
+    // the flag/payload split the Spectrum model stores in .flag/.data.
+    expect(Array.from(b10.rawBytes!)).toEqual([0x16, 0xAA, 0xBB, 0xCC, 0x16 ^ 0xAA ^ 0xBB ^ 0xCC]);
+    expect(Array.from(b11.rawBytes!)).toEqual([0x2C, 0x01, 0x02, 0x03, 0x2C ^ 0x01 ^ 0x02 ^ 0x03]);
+  });
+
+  it('leaves rawBytes undefined by default (Spectrum parsing unchanged)', () => {
+    const data = tzx(header(), block11({ flag: 0xFF, payload: [1, 2, 3] }));
+    const blk = parseTZX(data)[0] as DataBlock;
+    expect(blk.rawBytes).toBeUndefined();
+  });
+});

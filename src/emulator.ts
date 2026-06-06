@@ -20,7 +20,7 @@ import { saveZ80 } from '@/snapshot/z80format.ts';
 import { parseTZX } from '@/tape/tzx.ts';
 import { parseDSK, serializeDSK, type DskImage } from '@/plus3/dsk.ts';
 import { loadSZX } from '@/snapshot/szx.ts';
-import { clearLastFile, restoreTape, restoreDisk, dbSave, dbLoad } from '@/store/persistence.ts';
+import { clearLastFile, clearDisk, restoreTape, restoreDisk, dbSave, dbLoad } from '@/store/persistence.ts';
 import * as settings from '@/store/settings.ts';
 import { variantForModel, variantLabel, romFilename } from '@/peripherals/multiface.ts';
 import { onFrame, updateRegsOnce, resetSpeedTracking, forceSpeedUpdate } from '@/frame-bridge.ts';
@@ -228,19 +228,20 @@ export function applyDisplaySettings(): void {
     s.loaderDetector.accelerateLoader = settings.tapeEdgeLoading();
     s.scanlineAccuracy = settings.scanlineAccuracy();
   } else {
-    // CPC: AY-only, no beeper mixer or tape. Volume only.
-    (machine as CpcMachine).audio.setVolume(settings.volume() / 100);
+    // CPC: AY-only, no beeper mixer. Volume + cassette instant-load.
+    const c = machine as CpcMachine;
+    c.audio.setVolume(settings.volume() / 100);
+    c.tapeInstantLoad = settings.tapeInstantRom();
   }
 }
 
 export async function createMachine(): Promise<boolean> {
   if (!canvasEl) return false;
 
-  // Preserve tape state across machine rebuild (Spectrum only)
-  const prevSpec = asSpectrum(machine);
-  const savedTapeBlocks = prevSpec ? [...prevSpec.tape.blocks] : null;
-  const savedTapePos = prevSpec ? prevSpec.tape.position : 0;
-  const savedTapePaused = prevSpec ? prevSpec.tape.paused : true;
+  // Preserve tape state across machine rebuild (both machines have a deck)
+  const savedTapeBlocks = machine ? [...machine.tape.blocks] : null;
+  const savedTapePos = machine ? machine.tape.position : 0;
+  const savedTapePaused = machine ? machine.tape.paused : true;
   const savedTapeName = tapeName();
 
   if (machine) {
@@ -308,11 +309,11 @@ export async function createMachine(): Promise<boolean> {
     floppySound = null;
   }
 
-  // Restore tape if one was loaded (Spectrum only)
-  if (spectrum && savedTapeBlocks && savedTapeBlocks.length > 0) {
-    spectrum.tape.blocks = savedTapeBlocks;
-    spectrum.tape.position = savedTapePos;
-    spectrum.tape.paused = savedTapePaused;
+  // Restore tape if one was loaded (both machines have a deck)
+  if (machine && savedTapeBlocks && savedTapeBlocks.length > 0) {
+    machine.tape.blocks = savedTapeBlocks;
+    machine.tape.position = savedTapePos;
+    machine.tape.paused = savedTapePaused;
     batch(() => {
       setTapeLoaded(true);
       setTapeName(savedTapeName);
@@ -600,9 +601,9 @@ function buildMediaCallbacks(): MediaLoadCallbacks {
 // ── Tape/Disk loading (via MediaManager) ───────────────────────────────
 
 export function applyTape(data: Uint8Array, filename: string): void {
-  if (!spectrum) { setStatus('Load a ROM first'); return; }
+  if (!machine) { setStatus('Load a ROM first'); return; }
 
-  mediaManager.applyTape(spectrum, data, filename, {
+  mediaManager.applyTape(machine, data, filename, {
     onStatus: setStatus,
     onTapeLoaded: (blocks, filename) => {
       batch(() => {
@@ -621,10 +622,14 @@ export function applyTape(data: Uint8Array, filename: string): void {
 // ── File routing ────────────────────────────────────────────────────────
 
 export async function loadFile(data: Uint8Array, filename: string, unit?: number): Promise<void> {
-  // CPC is disk-only: route .dsk images straight into the shared uPD765A.
+  // CPC: .dsk disk images into the shared uPD765A, or .cdt/.tzx/.tap cassettes.
   const cpc = asCpc(machine);
   if (cpc) {
-    if (!/\.dsk$/i.test(filename)) { setStatus('CPC accepts .dsk disk images only'); return; }
+    if (/\.(cdt|tzx|tap)$/i.test(filename)) {
+      applyTape(data, filename);
+      return;
+    }
+    if (!/\.dsk$/i.test(filename)) { setStatus('CPC accepts .dsk, .cdt, .tzx and .tap files'); return; }
     cpc.stop();
     try {
       const image = parseDSK(data);
@@ -728,53 +733,55 @@ export function saveRAM(): void {
 // ── Tape transport ──────────────────────────────────────────────────────
 
 export function tapeRewind(): void {
-  if (!spectrum) return;
-  spectrum.tape.rewind();
+  if (!machine) return;
+  machine.tape.rewind();
   setTapePosition(0);
 }
 
 export function tapePrev(): void {
-  if (!spectrum) return;
-  if (spectrum.tape.position > 0) spectrum.tape.position--;
-  setTapePosition(spectrum.tape.position);
+  if (!machine) return;
+  if (machine.tape.position > 0) machine.tape.position--;
+  setTapePosition(machine.tape.position);
 }
 
 export function tapeTogglePlay(): void {
-  if (!spectrum) return;
-  if (spectrum.tape.playing) {
-    // User-initiated stop — block the LoaderDetector from auto-restarting
-    // on post-load keyboard polling. Cleared on the next manual play.
-    spectrum.loaderDetector.userOverride = true;
-    spectrum.tape.stopPlayback();
+  if (!machine) return;
+  const spec = asSpectrum(machine);
+  if (machine.tape.playing) {
+    // User-initiated stop — block the Spectrum LoaderDetector from auto-
+    // restarting on post-load keyboard polling. Cleared on the next manual play.
+    if (spec) spec.loaderDetector.userOverride = true;
+    machine.tape.stopPlayback();
     setTapePlaying(false);
   } else {
-    spectrum.loaderDetector.userOverride = false;
-    spectrum.tape.paused = false;
-    spectrum.tape.startPlayback();
+    if (spec) spec.loaderDetector.userOverride = false;
+    machine.tape.paused = false;
+    machine.tape.startPlayback();
     setTapePaused(false);
     setTapePlaying(true);
   }
 }
 
 export function tapeTogglePause(): void {
-  if (!spectrum) return;
-  spectrum.tape.paused = !spectrum.tape.paused;
-  // Pausing is a user action — prevent the LoaderDetector from auto-
+  if (!machine) return;
+  machine.tape.paused = !machine.tape.paused;
+  // Pausing is a user action — prevent the Spectrum LoaderDetector from auto-
   // resuming the tape via its 'start' event on post-load polling. Cleared
   // when the user unpauses.
-  spectrum.loaderDetector.userOverride = spectrum.tape.paused;
-  setTapePaused(spectrum.tape.paused);
+  const spec = asSpectrum(machine);
+  if (spec) spec.loaderDetector.userOverride = machine.tape.paused;
+  setTapePaused(machine.tape.paused);
 }
 
 export function tapeNext(): void {
-  if (!spectrum) return;
-  if (spectrum.tape.position < spectrum.tape.blocks.length) spectrum.tape.position++;
-  setTapePosition(spectrum.tape.position);
+  if (!machine) return;
+  if (machine.tape.position < machine.tape.blocks.length) machine.tape.position++;
+  setTapePosition(machine.tape.position);
 }
 
 export function tapeSetPosition(pos: number): void {
-  if (!spectrum) return;
-  spectrum.tape.position = pos;
+  if (!machine) return;
+  machine.tape.position = pos;
   setTapePosition(pos);
 }
 
@@ -784,8 +791,8 @@ export function toggleAutoRewind(): void {
 }
 
 export function ejectTape(): void {
-  if (!spectrum) return;
-  mediaManager.ejectTape(spectrum, () => {
+  if (!machine) return;
+  mediaManager.ejectTape(machine, () => {
     batch(() => {
       setTapeLoaded(false);
       setTapeName('');
@@ -813,6 +820,7 @@ export function ejectDisk(unit: number = 0): void {
     mediaManager.ejectDisk(spectrum, unit, onEjected, setStatus);
   } else {
     machine.fdc.ejectDisk(unit);
+    clearDisk(unit);   // drop the persisted image so a hard refresh won't remount it
     onEjected(unit);
     setStatus(`Disk ${unit === 0 ? 'A' : 'B'}: ejected`);
   }
@@ -988,17 +996,19 @@ export function triggerNMI(): void {
 // ── Restore persisted media (tape + disks) without resetting ─────────
 
 async function restoreMedia(): Promise<void> {
-  if (!spectrum) return;
+  if (!machine) return;
 
-  // Restore tape
+  // Restore tape (both machines have a deck; CDT parses as TZX)
   const tape = await restoreTape();
   if (tape) {
     try {
       const ext = tape.name.toLowerCase().split('.').pop();
-      const blocks = ext === 'tzx' ? parseTZX(tape.data) : spectrum.tape.parseTAP(tape.data);
-      spectrum.tape.blocks = blocks;
-      spectrum.tape.position = 0;
-      spectrum.tape.paused = true;
+      const blocks = ext === 'tzx' || ext === 'cdt'
+        ? parseTZX(tape.data, { rawDataBlocks: machine.kind === 'cpc' })
+        : machine.tape.parseTAP(tape.data);
+      machine.tape.blocks = blocks;
+      machine.tape.position = 0;
+      machine.tape.paused = true;
       batch(() => {
         setTapeLoaded(true);
         setTapeName(tape.name);
@@ -1011,23 +1021,22 @@ async function restoreMedia(): Promise<void> {
     } catch { /* ignore corrupt data */ }
   }
 
-  // Restore disk A
+  // Restore disks (CPC and Spectrum +3 both drive the shared uPD765A)
   const diskA = await restoreDisk(0);
   if (diskA) {
     try {
       const image = parseDSK(diskA.data);
-      spectrum.loadDisk(image, 0);
+      machine.loadDisk(image, 0);
       setCurrentDiskInfo(image);
       setCurrentDiskName(diskA.name);
     } catch { /* ignore corrupt data */ }
   }
 
-  // Restore disk B
   const diskB = await restoreDisk(1);
   if (diskB) {
     try {
       const image = parseDSK(diskB.data);
-      spectrum.loadDisk(image, 1);
+      machine.loadDisk(image, 1);
       setCurrentDiskInfoB(image);
       setCurrentDiskNameB(diskB.name);
     } catch { /* ignore corrupt data */ }

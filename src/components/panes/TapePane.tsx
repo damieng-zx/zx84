@@ -5,12 +5,15 @@ import { HiOutlineBackward, HiOutlinePlay, HiOutlinePause, HiOutlineStop, HiOutl
 import {
   tapeLoaded, tapeName, tapeBlocks, tapePosition, tapePlaying, tapePaused,
   tapeRewind, tapeTogglePlay, tapeTogglePause, tapeSetPosition, toggleAutoRewind,
-  ejectTape, loadFile, tapePrev, tapeNext, applyDisplaySettings,
+  ejectTape, loadFile, tapePrev, tapeNext, applyDisplaySettings, currentModel,
 } from '@/emulator.ts';
+import { isCpcModel } from '@/models.ts';
 import { tapeAutoRewind, tapeCollapseBlocks, setTapeCollapseBlocks, tapeInstantRom, setTapeInstantRom, tapeEdgeLoading, setTapeEdgeLoading, tapeTurboLoad, setTapeTurboLoad, tapeSoundEnabled, setTapeSoundEnabled } from '@/store/settings.ts';
 import { persistSetting, resetSettingsGroup } from '@/store/settings.ts';
 import type { TapeBlock, DataBlock } from '@/tape/tap.ts';
 import { openFile } from '@/ui/file-picker.ts';
+
+const isCpc = () => isCpcModel(currentModel());
 
 const HEADER_TYPES: Record<number, string> = { 0: 'Program', 1: 'Number array', 2: 'Character array', 3: 'Bytes' };
 
@@ -88,7 +91,7 @@ export function TapePane() {
   async function handleLoadTape() {
     const results = await openFile({
       id: 'zx84-tape',
-      extensions: ['.tap', '.tzx', '.zip'],
+      extensions: isCpc() ? ['.cdt', '.tzx', '.tap', '.zip'] : ['.tap', '.tzx', '.zip'],
     });
     if (!results) return;
     await loadFile(results[0].data, results[0].name);
@@ -122,12 +125,14 @@ export function TapePane() {
           icon={<HiOutlineEllipsisVertical />}
           title="Tape options"
           items={[
-            { value: 'tape-sound', label: 'Loading sounds', checked: tapeSoundEnabled() },
+            // Loading sounds + Spectrum loader-detector turbo aren't wired for
+            // the CPC yet (its cassette is AY-silent and loads via pulse/CAS-READ).
+            ...(isCpc() ? [] : [{ value: 'tape-sound', label: 'Loading sounds', checked: tapeSoundEnabled() }]),
             { value: 'auto-rewind', label: 'Auto-rewind', checked: tapeAutoRewind() },
             { value: 'collapse-blocks', label: 'Collapse matching blocks', checked: tapeCollapseBlocks() },
             { value: '__sep1', label: '', separator: true },
-            { value: 'instant-rom', label: 'Instant ROM loaders', checked: tapeInstantRom() },
-            { value: 'turbo-load', label: 'Turbo during load', checked: tapeTurboLoad() },
+            { value: 'instant-rom', label: isCpc() ? 'Instant tape loading' : 'Instant ROM loaders', checked: tapeInstantRom() },
+            ...(isCpc() ? [] : [{ value: 'turbo-load', label: 'Turbo during load', checked: tapeTurboLoad() }]),
           ]}
           onSelect={(value) => {
             if (value === 'instant-rom') {

@@ -16,6 +16,7 @@
 import { Z80 } from '@/cores/z80.ts';
 import { AY3891x } from '@/cores/ay-3-8910.ts';
 import { UPD765A } from '@/cores/upd765a.ts';
+import { TapeDeck, TAPE_REF_HZ } from '@/tape/tap.ts';
 import type { DskImage } from '@/plus3/dsk.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/peripherals/audio-mixer.ts';
@@ -30,15 +31,23 @@ import { CpcKeyboard } from '@/cpc/cpc-keyboard.ts';
 import { Crtc6845, R_HORIZ_DISPLAYED, R_VERT_DISPLAYED } from '@/cores/crtc-6845.ts';
 import { GateArray } from '@/cores/gate-array.ts';
 import { Ppi8255, installCpcMemoryHooks, wireCpcPortIO } from '@/cpc/cpc-io.ts';
+import { trapCpcCasRead } from '@/cpc/cpc-tape-loader.ts';
 import { createCpcConfig, type CpcConfig } from '@/cpc/config.ts';
 import {
   CPC_AY_CLOCK, CPC_CPU_CLOCK, CPC_T_PER_CHAR,
   CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT, CPC_BORDER_TOP, CPC_BORDER_LEFT,
-  CPC_PALETTE,
+  CPC_PALETTE, CPC_CAS_READ_JUMP,
 } from '@/cpc/constants.ts';
 
 /** Wall-clock frame period (50 Hz). */
 const FRAME_PERIOD = 1000 / 50;
+
+/** Cassette read-cadence thresholds (CPU T-states between consecutive Port B
+ *  reads). A gap below ENTER means the firmware is in its tight tape-edge timing
+ *  loop (measured ~tens of T-states); above EXIT means idle (measured ~9000+ for
+ *  VSYNC polls). Inter-byte gaps fall between and keep the tape advancing. */
+const TAPE_LOAD_ENTER_GAP = 500;
+const TAPE_LOAD_EXIT_GAP = 5000;
 const TARGET_BUFFER_FRAMES = 3;
 function samplesPerFrame(sampleRate: number): number { return Math.round(sampleRate / 50); }
 
@@ -51,6 +60,7 @@ export class CpcMachine implements Machine {
   readonly memory: CpcMemory;
   readonly ay: AY3891x;
   readonly fdc: UPD765A;
+  readonly tape: TapeDeck;
   readonly keyboard: CpcKeyboard;
   readonly crtc: Crtc6845;
   readonly gateArray: GateArray;
@@ -83,6 +93,22 @@ export class CpcMachine implements Machine {
   /** Scanlines remaining until the post-VSYNC interrupt re-sync fires. */
   private vsyncResyncCountdown = 0;
 
+  // ── Cassette ─────────────────────────────────────────────────────────
+  /** Cassette motor state, driven by PPI Port C bit 5. Tracked for the UI only.
+   *  NOTE: the 6128 firmware reads tape edges directly and does NOT toggle the
+   *  motor relay, so tape advance is gated on read *cadence*, not the motor. */
+  tapeMotorOn = false;
+  /** T-state of the last cassette (Port B) read, for cadence-based advance. */
+  tapeLastAdvanceT = 0;
+  /** True while the firmware is actively reading the cassette (detected by a
+   *  tight Port-B read cadence). Drives tape advance. */
+  tapeLoadingActive = false;
+  /** Whether the CAS READ instant-load trap is armed (Stage B). */
+  tapeInstantLoad = true;
+  /** Auto-accelerate while the cassette is being read (the CPC reads at real
+   *  tape speed, so without this a game takes minutes to load). */
+  tapeTurbo = true;
+
   turbo = false;
 
   // ── Debug surface ────────────────────────────────────────────────────
@@ -112,6 +138,9 @@ export class CpcMachine implements Machine {
     this.memory = new CpcMemory(this.config);
     this.ay = new AY3891x(CPC_AY_CLOCK, 48000, 'ABC');
     this.fdc = new UPD765A();
+    // CDT timings are 3.5MHz-referenced; scale them to the CPC's 4MHz Z80.
+    this.tape = new TapeDeck(CPC_CPU_CLOCK);
+    this.tape.pulseScale = CPC_CPU_CLOCK / TAPE_REF_HZ;
     this.keyboard = new CpcKeyboard();
     this.crtc = new Crtc6845(this.config.crtcType);
     this.gateArray = new GateArray();
@@ -121,7 +150,9 @@ export class CpcMachine implements Machine {
     this.mixer.beeperGain = 0;
     this.mixer.ayGain = 1;
     this.ppi = new Ppi8255(this.ay, this.keyboard, () => this.crtc.vsyncActive,
-                           () => { this.activity.kbdReads++; });
+                           () => { this.activity.kbdReads++; },
+                           () => { this.advanceTapeTo(); return this.tape.earBit; },
+                           (on) => this.setTapeMotor(on));
     this.display = display ?? null;
 
     // Gate Array drives ROM enable + RAM banking through the memory.
@@ -145,6 +176,40 @@ export class CpcMachine implements Machine {
   /** Insert a parsed DSK image into a drive (uPD765A is shared with the +3). */
   loadDisk(image: DskImage, unit = 0): void {
     this.fdc.insertDisk(image, unit);
+  }
+
+  /**
+   * Advance the tape, called on every cassette read (PPI Port B). The 6128
+   * firmware reads tape edges in a tight timing loop (consecutive reads tens of
+   * T-states apart) but never spins the motor relay, while idle VSYNC polls of
+   * the same port are thousands of T-states apart. So we gate on read *cadence*:
+   * a tight burst means active loading → advance the tape in step; a long gap
+   * means idle/done → stop. This is the CPC analogue of the Spectrum's loader
+   * detector. Once loading, advance by the full delta so edge timing never lags.
+   */
+  advanceTapeTo(): void {
+    const now = this.cpu.tStates;
+    const gap = now - this.tapeLastAdvanceT;
+    this.tapeLastAdvanceT = now;
+    if (!this.tape.playing) { this.tapeLoadingActive = false; return; }
+
+    if (gap > 0 && gap < TAPE_LOAD_ENTER_GAP) {
+      // Tight read cadence — the firmware is reading the cassette. Auto-play
+      // (a mounted tape sits paused until the firmware starts pulling on it).
+      if (!this.tapeLoadingActive) {
+        this.tapeLoadingActive = true;
+        if (this.tape.paused) this.tape.paused = false;
+      }
+    } else if (gap >= TAPE_LOAD_EXIT_GAP) {
+      this.tapeLoadingActive = false;
+    }
+    if (this.tapeLoadingActive && !this.tape.paused && gap > 0) this.tape.advance(gap);
+  }
+
+  /** Track the cassette motor state (PPI Port C bit 5) for the UI. It does not
+   *  gate playback — see advanceTapeTo for why the 6128 needs cadence gating. */
+  setTapeMotor(on: boolean): void {
+    this.tapeMotorOn = on;
   }
 
   setBorderSize(mode: BorderMode): void {
@@ -176,6 +241,9 @@ export class CpcMachine implements Machine {
     this.keyboard.reset();
     this.audio.reset();
     this.mixer.reset();
+    this.tapeMotorOn = false;
+    this.tapeLoadingActive = false;
+    this.tapeLastAdvanceT = this.cpu.tStates;
     this.needsDisplay = true;
     this.setStatus('Reset');
   }
@@ -232,7 +300,7 @@ export class CpcMachine implements Machine {
     if (this.running) {
       this.breakpointHit = -1;
       const now = performance.now();
-      if (this.turbo) {
+      if (this.turbo || (this.tapeTurbo && this.tapeLoadingActive)) {
         const budgetEnd = now + 8;
         do { this.runFrame(); if (this.breakpointHit >= 0) break; } while (performance.now() < budgetEnd);
         this.lastFrameTime = now;
@@ -271,7 +339,7 @@ export class CpcMachine implements Machine {
   private runFrame(): void {
     const crtc = this.crtc;
     const ga = this.gateArray;
-    const skipAudio = this.turbo;
+    const skipAudio = this.turbo || (this.tapeTurbo && this.tapeLoadingActive);
 
     this.activity.kbdReads = 0;
     this.activity.fdcAccesses = 0;
@@ -292,6 +360,17 @@ export class CpcMachine implements Machine {
       while (this.cpu.tStates < lineEnd) {
         if (this.breakpoints.has(this.cpu.pc)) { this.breakpointHit = this.cpu.pc; broke = true; break; }
         if (this.onTrap !== null && this.onTrap(this.cpu.pc)) { broke = true; break; }
+
+        // CAS READ instant-load: the firmware cassette read is invoked through
+        // the &BCA1 jumpblock (software CALLs and the firmware's own reads after
+        // |TAPE both route through it, which is how |TAPE/|DISC redirection
+        // works). Try to satisfy it straight from the CDT; on any mismatch the
+        // trap declines and the real routine runs (pulse-level loading).
+        if (this.tapeInstantLoad && this.cpu.pc === CPC_CAS_READ_JUMP &&
+            this.tape.loaded && this.tape.hasRomBlock()) {
+          if (this.tape.paused) { this.tape.paused = false; this.tape.startPlayback(); }
+          trapCpcCasRead(this);
+        }
 
         // EI suppresses interrupts for one instruction. eiDelay is set by EI
         // during step(); clear it one instruction later so the interrupt fires
@@ -328,6 +407,12 @@ export class CpcMachine implements Machine {
       } else if (this.vsyncResyncCountdown > 0 && --this.vsyncResyncCountdown === 0) {
         ga.onVSyncResync();
       }
+    }
+
+    // Safety: once the tape is fully read, drop out of load-turbo even if the
+    // program never polls Port B again (the cadence exit relies on such polls).
+    if (this.tapeLoadingActive && (this.tape.finished || !this.tape.playing)) {
+      this.tapeLoadingActive = false;
     }
 
     this.needsDisplay = true;
@@ -377,22 +462,25 @@ export class CpcMachine implements Machine {
    * / CPC_BORDER_TOP; each text column is `8 × bytesPerCol` buffer pixels and
    * each character row is 8 buffer rows (vertical is 1:1).
    */
-  blankCells(mask: boolean[], cols: number, rows: number): void {
+  blankCells(mask: boolean[], cols: number, rows: number, paper?: number[]): void {
     if (cols <= 0 || rows <= 0) return;
     const mode = this.gateArray.mode;
     const cellW = 8 * (mode === 0 ? 4 : mode === 1 ? 2 : 1);
     const cellH = 8;
-    const paper = CPC_PALETTE[this.gateArray.pens[0] & 0x1F];
+    const pens = this.gateArray.pens;
     for (let row = 0; row < rows; row++) {
       const y0 = CPC_BORDER_TOP + row * cellH;
       if (y0 + cellH > CPC_SCREEN_HEIGHT) break;
       for (let col = 0; col < cols; col++) {
-        if (!mask[row * cols + col]) continue;
+        const idx = row * cols + col;
+        if (!mask[idx]) continue;
         const x0 = CPC_BORDER_LEFT + col * cellW;
         if (x0 + cellW > CPC_SCREEN_WIDTH) continue;
+        // Fill each cell with its own paper colour (PAPER is rarely pen 0).
+        const fill = CPC_PALETTE[pens[(paper ? paper[idx] : 0) & 0x0F] & 0x1F];
         for (let y = 0; y < cellH; y++) {
           const base = (y0 + y) * CPC_SCREEN_WIDTH + x0;
-          this._pixels32.fill(paper, base, base + cellW);
+          this._pixels32.fill(fill, base, base + cellW);
         }
       }
     }

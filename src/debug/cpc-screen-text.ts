@@ -67,10 +67,27 @@ function decodePens(b: number, mode: number, out: number[]): number {
 /** Scratch pen buffer for decodePens (single-threaded, synchronous use). */
 const penScratch: number[] = new Array(8);
 
+/** Scratch 8×8 pen grid for extractCell ([row*8 + x], single-threaded use). */
+const cellPenScratch = new Uint8Array(64);
+
+/** Paper pen of the cell most recently passed to extractCell. Single-threaded;
+ *  read immediately after the call (mirrors the scratch buffers above). Used by
+ *  ocrStyled to record each cell's background colour for the overlay. */
+let extractedPaperPen = 0;
+
 /**
- * Extract one 8×8 character cell into `out` (8 bytes, MSB-first), setting each
- * bit where the pixel uses a non-background (non-zero) pen. Returns the most
- * common non-zero pen in the cell (its ink colour), or -1 if the cell is blank.
+ * Extract one 8×8 character cell into `out` (8 bytes, MSB-first). Returns the
+ * cell's ink pen (its colour), or -1 if the cell is blank; the cell's paper pen
+ * is left in `extractedPaperPen`.
+ *
+ * A CPC text cell is two-toned: glyph pixels are drawn in the current PEN (ink)
+ * and the rest in the current PAPER (background). PAPER is *not* necessarily pen
+ * 0 — `PAPER n` is common — so the background can't be hard-coded. We take the
+ * paper to be the most common pen among the cell's four corners: corners are
+ * background in any ordinary text glyph, so the majority corner pen reads the
+ * paper without being fooled by an ink-heavy centre. A glyph bit is then set
+ * wherever a pixel differs from that paper. (Picking the wrong pen merely
+ * inverts the cell, which matchGlyph's inverse-video pass already recovers.)
  */
 function extractCell(
   readVideo: (addr: number) => number,
@@ -82,9 +99,9 @@ function extractCell(
   const startByte = col * bpc;
   const penCount = new Uint16Array(16);
 
+  // First pass: decode every pixel's pen into the cell grid and tally counts.
   for (let p = 0; p < 8; p++) {
-    let glyph = 0;
-    let bit = 7;
+    let x = 0;
     for (let k = 0; k < bpc; k++) {
       const byteIndex = startByte + k;
       const ch = byteIndex >> 1;          // CRTC character (2 bytes wide)
@@ -93,17 +110,41 @@ function extractCell(
       const b = readVideo(videoAddr(ma, p) + half) & 0xFF;
       const n = decodePens(b, mode, penScratch);
       for (let i = 0; i < n; i++) {
-        const pen = penScratch[i];
-        if (pen !== 0) { glyph |= (1 << bit); penCount[pen & 0x0F]++; }
-        bit--;
+        const pen = penScratch[i] & 0x0F;
+        cellPenScratch[p * 8 + x] = pen;
+        penCount[pen]++;
+        x++;
       }
+    }
+  }
+
+  // Paper = the pen that occurs most often across the four corners (grid indices
+  // 0, 7, 56, 63 — top-left/right, bottom-left/right). Ties resolve to the lower
+  // pen index.
+  const cornerCount = new Uint8Array(16);
+  cornerCount[cellPenScratch[0]]++;
+  cornerCount[cellPenScratch[7]]++;
+  cornerCount[cellPenScratch[56]]++;
+  cornerCount[cellPenScratch[63]]++;
+  let paperPen = 0, paperBest = -1;
+  for (let pen = 0; pen < 16; pen++) {
+    if (cornerCount[pen] > paperBest) { paperBest = cornerCount[pen]; paperPen = pen; }
+  }
+  extractedPaperPen = paperPen;
+
+  // Second pass: a glyph bit is set where the pixel differs from the paper.
+  for (let p = 0; p < 8; p++) {
+    let glyph = 0;
+    for (let x = 0; x < 8; x++) {
+      if (cellPenScratch[p * 8 + x] !== paperPen) glyph |= (1 << (7 - x));
     }
     out[p] = glyph;
   }
 
-  let inkPen = -1, best = 0;
-  for (let pen = 1; pen < 16; pen++) {
-    if (penCount[pen] > best) { best = penCount[pen]; inkPen = pen; }
+  // Ink = the most common non-paper pen (the cell's foreground colour).
+  let inkPen = -1, inkBest = 0;
+  for (let pen = 0; pen < 16; pen++) {
+    if (pen !== paperPen && penCount[pen] > inkBest) { inkBest = penCount[pen]; inkPen = pen; }
   }
   return inkPen;
 }
@@ -253,6 +294,7 @@ export class CpcScreenText {
     const cols = cpcCols(mode, hDisplayed);
     const glyph = new Uint8Array(8);
     const mask: boolean[] = new Array(cols * rows);
+    const paper: number[] = new Array(cols * rows);
     let text = '';
     let html = '';
     let spanOpen = false;
@@ -262,6 +304,7 @@ export class CpcScreenText {
       for (let col = 0; col < cols; col++) {
         const idx = row * cols + col;
         const inkPen = extractCell(readVideo, mode, dispStart, hDisplayed, col, row, glyph);
+        paper[idx] = extractedPaperPen;
         const c = matchGlyph(glyph, font);
         const ch = c < 0 ? null : cpcCharForCode(c);
         text += ch ?? ' ';
@@ -287,7 +330,7 @@ export class CpcScreenText {
     }
 
     return {
-      text, html, mask,
+      text, html, mask, paper,
       grid: cpcGrid(mode), cellWidth: 8, cellHeight: 8, cols, rows,
     };
   }

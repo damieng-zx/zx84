@@ -364,6 +364,22 @@ export function onFrame(): void {
         setLedDsk(ca.fdcAccesses > 0);
         setLedText(transcribeMode() === 'text');
 
+        // Cassette: keep the tape pane's position/play state in sync. No
+        // loader-detector or tape-turbo machinery here — the CPC loads via
+        // pulse playback (under global turbo) and the CAS READ trap.
+        if (cpc.tape.loaded) {
+          setTapePosition(cpc.tape.position);
+          // Auto-rewind: if the tape just ran out and auto-rewind is on, rewind.
+          if (!cpc.tape.playing && cpc.tape.finished && settings.tapeAutoRewind()) {
+            cpc.tape.position = 0;
+            cpc.tape.paused = true;
+            cpc.tape.startPlayback();
+            setTapePosition(0);
+          }
+          if (tapePlaying() !== cpc.tape.playing) setTapePlaying(cpc.tape.playing);
+          if (tapePaused() !== cpc.tape.paused) setTapePaused(cpc.tape.paused);
+        }
+
         // TEXT overlay: OCR the screen, push text/HTML to the overlay, and
         // blank the matched cells so the crisp overlay glyphs replace the
         // bitmap underneath.
@@ -374,7 +390,7 @@ export function onFrame(): void {
           setTranscribeHtml(result.html);
           setTranscribeGrid(result.grid);
           if (result.mask.length > 0) {
-            cpc.blankCells(result.mask, result.cols, result.rows);
+            cpc.blankCells(result.mask, result.cols, result.rows, result.paper);
             if (cpc.display) cpc.display.updateTexture(cpc.pixels);
           }
         } else if (cpc.screenText.active) {

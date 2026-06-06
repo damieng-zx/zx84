@@ -9,6 +9,7 @@
  */
 
 import type { Spectrum } from '@/spectrum.ts';
+import type { Machine } from '@/machine.ts';
 import { type SpectrumModel, is128kClass, isPlus2AClass } from '@/models.ts';
 import type { TapeBlock } from '@/tape/tap.ts';
 import { parseTZX } from '@/tape/tzx.ts';
@@ -37,41 +38,43 @@ function driveLetter(unit: number): string {
 
 export class MediaManager {
   /**
-   * Load tape (TAP or TZX) into the spectrum instance.
+   * Load tape (TAP, TZX, or CPC CDT) into the machine. CDT is byte-for-byte the
+   * same container as TZX, so both parse through parseTZX.
    */
   applyTape(
-    spectrum: Spectrum,
+    machine: Machine,
     data: Uint8Array,
     filename: string,
     callbacks: Pick<MediaLoadCallbacks, 'onStatus' | 'onTapeLoaded' | 'unpause'>
   ): void {
     // Stop the machine first to prevent the frame loop from interfering
-    spectrum.stop();
+    machine.stop();
 
     const ext = filename.toLowerCase().split('.').pop();
     let blocks: TapeBlock[];
 
     try {
-      if (ext === 'tzx') {
-        blocks = parseTZX(data);
+      if (ext === 'tzx' || ext === 'cdt') {
+        // CPC data blocks carry their own CRCs — keep the bytes verbatim.
+        blocks = parseTZX(data, { rawDataBlocks: machine.kind === 'cpc' });
       } else {
-        blocks = spectrum.tape.parseTAP(data);
+        blocks = machine.tape.parseTAP(data);
       }
     } catch (e) {
-      spectrum.start();
+      machine.start();
       callbacks.onStatus(`Error: ${(e as Error).message}`);
       return;
     }
 
     // Set tape state on the deck in play mode but paused —
     // like pressing PLAY on a real cassette deck but with the pause button held.
-    spectrum.tape.blocks = blocks;
-    spectrum.tape.position = 0;
-    spectrum.tape.paused = true;
-    spectrum.tape.startPlayback();
+    machine.tape.blocks = blocks;
+    machine.tape.position = 0;
+    machine.tape.paused = true;
+    machine.tape.startPlayback();
 
     // Resume without resetting — just swap the tape on the deck
-    spectrum.start();
+    machine.start();
 
     // Update UI via callback
     callbacks.onTapeLoaded(blocks, filename);
@@ -87,14 +90,14 @@ export class MediaManager {
    * Eject tape from the spectrum instance.
    */
   ejectTape(
-    spectrum: Spectrum,
+    machine: Machine,
     onTapeEjected: () => void,
     onStatus: (msg: string) => void
   ): void {
-    spectrum.tape.stopPlayback();
-    spectrum.tape.blocks = [];
-    spectrum.tape.position = 0;
-    spectrum.tape.paused = true;
+    machine.tape.stopPlayback();
+    machine.tape.blocks = [];
+    machine.tape.position = 0;
+    machine.tape.paused = true;
 
     onTapeEjected();
     clearTape();
@@ -306,7 +309,7 @@ export class MediaManager {
       return;
     }
 
-    if (ext === 'tap' || ext === 'tzx') {
+    if (ext === 'tap' || ext === 'tzx' || ext === 'cdt') {
       this.applyTape(spectrum, data, filename, callbacks);
       return;
     }

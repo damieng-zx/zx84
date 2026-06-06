@@ -37,6 +37,12 @@ export class Ppi8255 {
     private readonly vsyncActive: () => boolean,
     /** Called whenever the firmware scans a keyboard line — drives the LED. */
     private readonly onKeyboardScan: () => void = () => {},
+    /** Returns the current cassette read level (0/1) for Port B bit 7. The
+     *  machine advances the tape to "now" inside this callback so each firmware
+     *  read sees an up-to-date edge. */
+    private readonly readTapeBit: () => number = () => 0,
+    /** Called with the cassette motor state (Port C bit 5) whenever it changes. */
+    private readonly setMotor: (on: boolean) => void = () => {},
   ) {}
 
   /** Port A is an input when control bit 4 is set. */
@@ -55,6 +61,7 @@ export class Ppi8255 {
   writeC(val: number): void {
     this.pC = val & 0xFF;
     this.keyboard.selectLine(this.pC & 0x0F);
+    this.setMotor((this.pC & 0x20) !== 0);   // bit 5: cassette motor
     this.strobeAy();
   }
 
@@ -64,12 +71,14 @@ export class Ppi8255 {
       this.control = val & 0xFF;
       this.pA = 0;
       this.pC = 0;
+      this.setMotor(false);                  // cleared latch → motor off
     } else {
       // Bit set/reset on a single Port C bit.
       const bit = (val >> 1) & 7;
       if (val & 1) this.pC |= (1 << bit);
       else this.pC &= ~(1 << bit) & 0xFF;
       this.keyboard.selectLine(this.pC & 0x0F);
+      this.setMotor((this.pC & 0x20) !== 0); // bit 5: cassette motor
       this.strobeAy();
     }
   }
@@ -84,7 +93,8 @@ export class Ppi8255 {
     if (this.vsyncActive()) v |= 0x01;        // bit 0: CRTC VSYNC
     v |= (MANUFACTURER_AMSTRAD & 7) << 1;      // bits 1–3: manufacturer
     v |= 0x10;                                 // bit 4: 1 = 50 Hz (PAL)
-    return v;                                   // bits 5–7: printer/expansion/tape = 0
+    if (this.readTapeBit()) v |= 0x80;         // bit 7: cassette read data
+    return v;                                   // bits 5–6: printer/expansion = 0
   }
 
   readC(): number { return this.pC; }

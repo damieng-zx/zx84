@@ -16,7 +16,9 @@
 import type { Z80 } from '@/cores/z80.ts';
 import type { AY3891x } from '@/cores/ay-3-8910.ts';
 import type { UPD765A } from '@/cores/upd765a.ts';
+import type { DskImage } from '@/plus3/dsk.ts';
 import type { AudioMixer } from '@/peripherals/audio-mixer.ts';
+import type { TapeDeck } from '@/tape/tap.ts';
 import type { IScreenRenderer } from '@/display/display.ts';
 import type { DisasmLine } from '@/debug/z80-disasm.ts';
 import type { ByteReader } from '@/memory.ts';
@@ -57,6 +59,10 @@ export interface Machine {
   memory: IMachineMemory;
   ay: AY3891x;
   fdc: UPD765A;
+  /** Cassette deck. Both machines load TZX/CDT/TAP through the same pulse-level
+   *  engine; machine-specific loader extras (the Spectrum's edge loader, tape
+   *  turbo) stay off this interface and are reached via `asSpectrum()`. */
+  tape: TapeDeck;
   mixer: AudioMixer;
   display: IScreenRenderer | null;
 
@@ -72,6 +78,8 @@ export interface Machine {
   destroy(): void;
   reset(): void;
   loadROM(data: Uint8Array): void;
+  /** Insert a parsed disk image into a drive of the shared uPD765A FDC. */
+  loadDisk(image: DskImage, unit?: number): void;
   setBorderSize(mode: BorderMode): void;
   /** Run one frame (headless / test harness). */
   tick(): void;

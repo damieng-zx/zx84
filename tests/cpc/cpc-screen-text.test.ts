@@ -133,6 +133,76 @@ describe('CpcScreenText.ocr — mode awareness', () => {
   });
 });
 
+/** Paint a glyph into a mode-1 cell with explicit paper/ink pens (0–3). Mode 1
+ *  packs 4 px/byte: pixel j of a byte takes bit0 from bit(7−j), bit1 from
+ *  bit(3−j) — the inverse of cpc-screen-text's decodePens. */
+function paintCellMode1Colored(
+  vram: Uint8Array, dispStart: number, hDisplayed: number,
+  trow: number, col: number, glyph: number[], paperPen: number, inkPen: number,
+): void {
+  const maRow = (dispStart + trow * hDisplayed) & 0x3FFF;
+  const start = col * 2;
+  for (let r = 0; r < 8; r++) {
+    for (let k = 0; k < 2; k++) {
+      const byteIndex = start + k;
+      const addr = cpcAddr(maRow, byteIndex >> 1, r) + (byteIndex & 1);
+      let b = 0;
+      for (let j = 0; j < 4; j++) {
+        const px = k * 4 + j;                              // pixel x within cell
+        const v = ((glyph[r] >> (7 - px)) & 1) ? inkPen : paperPen;
+        if (v & 1) b |= 0x80 >> j;                          // pen bit0 → bit(7−j)
+        if (v & 2) b |= 0x08 >> j;                          // pen bit1 → bit(3−j)
+      }
+      vram[addr] = b;
+    }
+  }
+}
+
+describe('CpcScreenText — non-default paper colour', () => {
+  it('recovers text drawn on a non-zero PAPER pen (PAPER 2, PEN 1)', () => {
+    const font = makeFont();
+    const vram = new Uint8Array(0x10000);
+    // Background pen 2, ink pen 1 — i.e. PAPER 2 / PEN 1. The old engine treated
+    // pen 0 as the sole background, so the pen-2 paper read as solid ink and the
+    // glyph matched nothing. Paper must be inferred from the cell itself.
+    paintCellMode1Colored(vram, DISP_START, H_DISPLAYED, 0, 0, GLYPH_A, 2, 1);
+    paintCellMode1Colored(vram, DISP_START, H_DISPLAYED, 0, 1, GLYPH_B, 2, 1);
+    const line0 = new CpcScreenText().ocr(input(vram, 1, font)).split('\n')[0];
+    expect(line0.replace(/\s+$/, '')).toBe('AB');
+  });
+
+  it('reports the ink pen (not the paper pen) as the cell colour', () => {
+    const font = makeFont();
+    const vram = new Uint8Array(0x10000);
+    paintCellMode1Colored(vram, DISP_START, H_DISPLAYED, 0, 0, GLYPH_A, 2, 1);
+
+    const pens = new Uint8Array(17);
+    pens[1] = 26; pens[2] = 6;                  // ink pen 1 → green, paper pen 2 → red
+    const palette = new Uint32Array(32);
+    palette[26] = 0xFF00FF00;                    // ABGR green
+    palette[6] = 0xFF0000FF;                     // ABGR red
+
+    const r = new CpcScreenText().ocrStyled(input(vram, 1, font), pens, palette);
+    expect(r.text.split('\n')[0].replace(/\s+$/, '')).toBe('A');
+    expect(r.html).toContain('color:#00ff00');   // ink green, not paper red
+    expect(r.html).not.toContain('color:#ff0000');
+    // The cell's paper pen (2) is reported so blankCells fills it with the right
+    // colour instead of a hard-coded pen 0.
+    expect(r.paper![0]).toBe(2);
+  });
+
+  it('still reads a blank PAPER-2 screen as all spaces', () => {
+    const font = makeFont();
+    const vram = new Uint8Array(0x10000);
+    // Fill a row entirely with paper pen 2 (no ink): every cell must be a space.
+    for (let col = 0; col < 40; col++) {
+      paintCellMode1Colored(vram, DISP_START, H_DISPLAYED, 0, col, [0, 0, 0, 0, 0, 0, 0, 0], 2, 1);
+    }
+    const line0 = new CpcScreenText().ocr(input(vram, 1, font, 1)).split('\n')[0];
+    expect(line0).toBe(' '.repeat(40));
+  });
+});
+
 describe('CpcScreenText.ocrStyled', () => {
   it('marks matched non-space cells, labels the grid, and colours the HTML', () => {
     const font = makeFont();

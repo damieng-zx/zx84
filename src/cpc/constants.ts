@@ -23,6 +23,13 @@ export const CPC_PIXELS_PER_CHAR = 16;
 /** AY-3-8912 clock on the CPC (Hz). */
 export const CPC_AY_CLOCK = 1_000_000;
 
+/** Firmware cassette-manager jumpblock entry for CAS READ ("read one block",
+ *  HL=dest, DE=len, A=sync). The instant-load trap watches for execution
+ *  reaching this address: every CAS READ — software CALLs and the firmware's own
+ *  reads after |TAPE — routes through here (that indirection is how |TAPE/|DISC
+ *  redirection works), so trapping it catches BASIC loads too. */
+export const CPC_CAS_READ_JUMP = 0xBCA1;
+
 /**
  * Nominal frame length in T-states for the default CRTC programming
  * (64 chars/line × 312 lines × 4 T = 79 872 T → 50.08 Hz). The real frame

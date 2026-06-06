@@ -73,6 +73,10 @@ export interface OcrResult {
   html: string;
   /** `cols×rows` bitmask: true = cell was matched (used to blank the framebuffer). */
   mask: boolean[];
+  /** `cols×rows` per-cell paper (background) pen index, for blanking matched
+   *  cells to their own paper colour. Set by the CPC engine; the Spectrum
+   *  engine derives paper from the attribute file instead and leaves this unset. */
+  paper?: number[];
   /** Grid the result was produced with. */
   grid: OcrGridName;
   cellWidth: number;
