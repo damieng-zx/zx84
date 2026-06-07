@@ -36,14 +36,12 @@ import { KempstonMouse } from '@/peripherals/kempston-mouse.ts';
 import { CpcAmxMouse } from '@/peripherals/cpc-amx-mouse.ts';
 import { trapCpcCasRead } from '@/cpc/cpc-tape-loader.ts';
 import { createCpcConfig, type CpcConfig } from '@/cpc/config.ts';
+import { BaseMachine } from '@/base-machine.ts';
 import {
   CPC_AY_CLOCK, CPC_CPU_CLOCK, CPC_T_PER_CHAR,
   CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT, CPC_BORDER_TOP, CPC_BORDER_LEFT,
   CPC_PALETTE, CPC_CAS_READ_JUMP,
 } from '@/cpc/constants.ts';
-
-/** Wall-clock frame period (50 Hz). */
-const FRAME_PERIOD = 1000 / 50;
 
 /** Cassette read-cadence thresholds (CPU T-states between consecutive Port B
  *  reads). A gap below ENTER means the firmware is in its tight tape-edge timing
@@ -51,10 +49,8 @@ const FRAME_PERIOD = 1000 / 50;
  *  VSYNC polls). Inter-byte gaps fall between and keep the tape advancing. */
 const TAPE_LOAD_ENTER_GAP = 500;
 const TAPE_LOAD_EXIT_GAP = 5000;
-const TARGET_BUFFER_FRAMES = 3;
-function samplesPerFrame(sampleRate: number): number { return Math.round(sampleRate / 50); }
 
-export class CpcMachine implements Machine {
+export class CpcMachine extends BaseMachine implements Machine {
   readonly kind: MachineKind = 'cpc';
   readonly model: CpcModel;
   readonly config: CpcConfig;
@@ -118,29 +114,12 @@ export class CpcMachine implements Machine {
    *  tape speed, so without this a game takes minutes to load). */
   tapeTurbo = true;
 
-  turbo = false;
-
-  // ── Debug surface ────────────────────────────────────────────────────
-  breakpoints = new Set<number>();
-  breakpointHit = -1;
-  portWatchpoints = new Set<number>();
-  portWatchHit: { port: number; value: number; dir: 'in' | 'out' } | null = null;
-  memWatchpoints: { start: number; end: number; mode: 'read' | 'write' | 'rw' }[] = [];
-  memWatchHit: { addr: number; value: number; dir: 'read' | 'write' } | null = null;
-  onTrap: ((pc: number) => boolean) | null = null;
-  onStatus: ((msg: string) => void) | null = null;
-  onFrame: (() => void) | null = null;
-
-  // ── Frame loop state ─────────────────────────────────────────────────
-  private running = false;
-  private starting = false;
-  private startGen = 0;
-  private rafId = 0;
-  private lastFrameTime = 0;
-  private frameTimeAccum = 0;
-  private needsDisplay = true;
+  // The `turbo` flag, the debug surface (breakpoints / watchpoints / onTrap /
+  // onStatus / onFrame), and the frame-loop + lifecycle state all live on
+  // BaseMachine, shared with the Spectrum.
 
   constructor(model: CpcModel, display?: IScreenRenderer | null) {
+    super();
     this.model = model;
     this.config = createCpcConfig(model);
     this.cpu = new Z80();
@@ -175,8 +154,6 @@ export class CpcMachine implements Machine {
     installCpcMemoryHooks(this);
     wireCpcPortIO(this);
   }
-
-  private setStatus(msg: string): void { if (this.onStatus) this.onStatus(msg); }
 
   // ── Machine: lifecycle ───────────────────────────────────────────────
 
@@ -263,87 +240,15 @@ export class CpcMachine implements Machine {
     this.setStatus('Reset');
   }
 
-  async start(): Promise<void> {
-    if (this.running || this.starting) return;
-    this.starting = true;
-    const gen = ++this.startGen;
-    await this.audio.init();
-    if (!this.starting || gen !== this.startGen) return;
-    this.starting = false;
-    this.mixer.init(this.audio.sampleRate);
-    this.ay.setSampleRate(this.audio.sampleRate);
-    this.running = true;
-    this.lastFrameTime = performance.now();
-    this.frameTimeAccum = 0;
-    if (!this.rafId) this.rafId = requestAnimationFrame(this.frameLoop);
-    this.setStatus('Running');
-  }
+  // start / stop / destroy / tick / runUntil and the rAF frame loop live on
+  // BaseMachine. The CPC supplies only these hooks; its turbo path uses the
+  // base default (a fixed per-rAF budget).
 
-  stop(): void {
-    this.starting = false;
-    this.running = false;
-  }
+  /** The RGBA frame buffer the rAF driver uploads to the display. */
+  protected framePixels(): Uint8Array { return this._pixels; }
 
-  destroy(): void {
-    this.stop();
-    if (this.rafId) { cancelAnimationFrame(this.rafId); this.rafId = 0; }
-    this.audio.destroy();
-  }
-
-  /** Run one frame (headless / tests). */
-  tick(): void {
-    this.breakpointHit = -1;
-    this.portWatchHit = null;
-    this.memWatchHit = null;
-    this.runFrame();
-  }
-
-  runUntil(maxFrames: number): number {
-    this.breakpointHit = -1;
-    this.portWatchHit = null;
-    this.memWatchHit = null;
-    for (let i = 0; i < maxFrames; i++) {
-      this.runFrame();
-      if (this.breakpointHit >= 0 || this.portWatchHit !== null || this.memWatchHit !== null) return i + 1;
-    }
-    return maxFrames;
-  }
-
-  // ── rAF driver ───────────────────────────────────────────────────────
-
-  private frameLoop = (): void => {
-    if (this.running) {
-      this.breakpointHit = -1;
-      const now = performance.now();
-      if (this.turbo || (this.tapeTurbo && this.tapeLoadingActive)) {
-        const budgetEnd = now + 8;
-        do { this.runFrame(); if (this.breakpointHit >= 0) break; } while (performance.now() < budgetEnd);
-        this.lastFrameTime = now;
-        this.frameTimeAccum = 0;
-      } else {
-        this.frameTimeAccum = Math.min(this.frameTimeAccum + (now - this.lastFrameTime), FRAME_PERIOD * 3);
-        this.lastFrameTime = now;
-        const audioPacing = this.audio.ctx !== null && this.audio.ctx.state === 'running';
-        const targetSamples = samplesPerFrame(this.audio.sampleRate) * TARGET_BUFFER_FRAMES;
-        let framesRun = 0;
-        while (this.frameTimeAccum >= FRAME_PERIOD && framesRun < 2) {
-          if (audioPacing && this.audio.bufferedSamples() >= targetSamples) break;
-          this.runFrame();
-          this.frameTimeAccum -= FRAME_PERIOD;
-          framesRun++;
-          if (this.breakpointHit >= 0) break;
-        }
-      }
-      if (this.needsDisplay && this.display) {
-        this.display.updateTexture(this._pixels);
-        this.needsDisplay = false;
-      }
-      if (this.onFrame) this.onFrame();
-    } else if (this.display) {
-      this.display.updateTexture(this._pixels);
-    }
-    this.rafId = requestAnimationFrame(this.frameLoop);
-  };
+  /** Turbo engaged for UI fast-forward, or while a cassette is actively loading. */
+  protected inTurbo(): boolean { return this.turbo || (this.tapeTurbo && this.tapeLoadingActive); }
 
   /**
    * Execute one frame, rendering scanline by scanline. For each CRTC scanline:
@@ -351,7 +256,7 @@ export class CpcMachine implements Machine {
    * raster interrupt), then draw the line from the current CRTC/Gate-Array
    * state — so mid-frame mode/palette/scroll changes take effect per line.
    */
-  private runFrame(): void {
+  protected runFrame(): void {
     const crtc = this.crtc;
     const ga = this.gateArray;
     const skipAudio = this.turbo || (this.tapeTurbo && this.tapeLoadingActive);

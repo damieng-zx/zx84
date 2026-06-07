@@ -983,37 +983,36 @@ export function joyPressForType(dir: string, pressed: boolean, mode: string, pla
 
 export type MouseMode = 'kempston' | 'amx' | null;
 
+/** The active machine's two mice (both machines expose the same pair), or null
+ *  when no machine is running. Lets the mouse helpers below stay machine-agnostic
+ *  instead of repeating the asSpectrum/asCpc branch three times. */
+function activeMice() {
+  const s = asSpectrum(machine);
+  if (s) return { kempston: s.kempstonMouse, amx: s.amxMouse };
+  const c = asCpc(machine);
+  if (c) return { kempston: c.kempstonMouse, amx: c.amxMouse };
+  return null;
+}
+
 export function setMouseMode(mode: MouseMode): void {
-  const s = asSpectrum(machine), c = asCpc(machine);
-  if (s) {
-    s.kempstonMouse.enabled = mode === 'kempston';
-    s.amxMouse.enabled = mode === 'amx';
-  } else if (c) {
-    c.kempstonMouse.enabled = mode === 'kempston';
-    c.amxMouse.enabled = mode === 'amx';
-  }
+  const m = activeMice();
+  if (!m) return;
+  m.kempston.enabled = mode === 'kempston';
+  m.amx.enabled = mode === 'amx';
 }
 
 export function updateMousePosition(dx: number, dy: number, mode: MouseMode): void {
-  const s = asSpectrum(machine), c = asCpc(machine);
-  if (mode === 'kempston') {
-    if (s) s.kempstonMouse.updatePosition(dx, dy);
-    else if (c) c.kempstonMouse.updatePosition(dx, dy);
-  } else if (mode === 'amx') {
-    if (s) s.amxMouse.queueMovement(dx, dy);
-    else if (c) c.amxMouse.queueMovement(dx, dy);
-  }
+  const m = activeMice();
+  if (!m) return;
+  if (mode === 'kempston') m.kempston.updatePosition(dx, dy);
+  else if (mode === 'amx') m.amx.queueMovement(dx, dy);
 }
 
 export function setMouseButton(button: number, pressed: boolean, mode: MouseMode): void {
-  const s = asSpectrum(machine), c = asCpc(machine);
-  if (mode === 'kempston') {
-    if (s) s.kempstonMouse.setButton(button, pressed);
-    else if (c) c.kempstonMouse.setButton(button, pressed);
-  } else if (mode === 'amx') {
-    if (s) s.amxMouse.setButton(button, pressed);
-    else if (c) c.amxMouse.setButton(button, pressed);
-  }
+  const m = activeMice();
+  if (!m) return;
+  if (mode === 'kempston') m.kempston.setButton(button, pressed);
+  else if (mode === 'amx') m.amx.setButton(button, pressed);
 }
 
 // ── Multiface ────────────────────────────────────────────────────────

@@ -29,6 +29,7 @@ import { installMemoryHooks, wirePortIO } from '@/io-ports.ts';
 import { KempstonJoystick } from '@/peripherals/joysticks.ts';
 import { KempstonMouse } from '@/peripherals/kempston-mouse.ts';
 import { AmxMouse } from '@/peripherals/amx-mouse.ts';
+import { BaseMachine } from '@/base-machine.ts';
 import { AudioMixer } from '@/peripherals/audio-mixer.ts';
 import { Multiface } from '@/peripherals/multiface.ts';
 import { VTX5000 } from '@/peripherals/vtx5000.ts';
@@ -44,17 +45,6 @@ export { type SpectrumModel, is128kClass, isPlus2AClass, isPlus3 } from '@/model
 export type { MachineVariant } from '@/variants/index.ts';
 
 const AY_CLOCK = 1773400;        // ~1.77 MHz
-
-/** Samples produced per Spectrum frame at a given sample rate */
-function samplesPerFrame(sampleRate: number): number {
-  return Math.round(sampleRate / 50);
-}
-
-/** Target buffer fill: ~3 frames of audio (~60ms). Below this we run a frame. */
-const TARGET_BUFFER_FRAMES = 3;
-
-/** Wall-clock frame period: 50 Hz = 20ms */
-const FRAME_PERIOD = 1000 / 50;
 
 /** No-op contend installed on cpu while UI turbo is engaged. Module-scope so
  *  every Spectrum instance shares the same identity (helps SpiderMonkey's
@@ -99,7 +89,7 @@ export class IOActivity {
   }
 }
 
-export class Spectrum implements Machine {
+export class Spectrum extends BaseMachine implements Machine {
   readonly kind: MachineKind = 'spectrum';
   model: SpectrumModel;
   variant: MachineVariant;
@@ -136,22 +126,11 @@ export class Spectrum implements Machine {
   /** VTX-5000 viewdata modem peripheral (48K only) */
   vtx5000 = new VTX5000();
 
-  private running = false;
-  private starting = false;
-  private startGen = 0;
-  private rafId = 0;
-
-  /** Whether at least one frame has rendered (for display) */
-  private needsDisplay = true;
-
-  /** Wall-clock frame pacing (governs speed regardless of rAF rate) */
-  private lastFrameTime = 0;
-  private frameTimeAccum = 0;
-
   get tStatesPerFrame(): number { return this.contention.timing.tStatesPerFrame; }
 
-  /** Turbo mode: run as many frames as fit in TURBO_BUDGET_MS per rAF. */
-  turbo = false;
+  // The `turbo` flag plus running/starting/rafId/needsDisplay and the wall-clock
+  // frame-pacing state are inherited from BaseMachine. The Spectrum-specific
+  // turbo-budget fields below tune its adaptive batch pacing (see runTurboBurst).
 
   /** Turbo batch budget is adaptive — a fixed budget is wrong for high-Hz
    *  displays (a 12ms batch on a 240Hz rAF (~4.2ms cadence) makes the browser
@@ -256,35 +235,11 @@ export class Spectrum implements Machine {
    *  later capture safe.  Set once in constructor from the variant. */
   private _cellRenderOffset: 0 | 1 = 1;
 
-  /** Breakpoints (checked every instruction in runFrame) */
-  breakpoints = new Set<number>();
-  /** Set to the hit address when a breakpoint fires mid-frame */
-  breakpointHit = -1;
-
-  /** Port watchpoints: break when any watched port is accessed by IN or OUT */
-  portWatchpoints = new Set<number>();
-  /** Set when a port watchpoint fires; null means no hit this frame */
-  portWatchHit: { port: number; value: number; dir: 'in' | 'out' } | null = null;
-
-  /** Memory watchpoints: break on read/write access within a watched range */
-  memWatchpoints: { start: number; end: number; mode: 'read' | 'write' | 'rw' }[] = [];
-  /** Set when a memory watchpoint fires; null means no hit this frame */
-  memWatchHit: { addr: number; value: number; dir: 'read' | 'write' } | null = null;
-
-  /**
-   * Pre-instruction trap hook.  Called with the current PC before each
-   * instruction executes.  Return true to break execution (like a breakpoint).
-   * The MCP server uses this for trap logic (log / respond / break).
-   */
-  onTrap: ((pc: number) => boolean) | null = null;
-
-  /** Status callback */
-  onStatus: ((msg: string) => void) | null = null;
-
-  /** Frame callback (fires each rAF after rendering) */
-  onFrame: (() => void) | null = null;
+  // The debug surface (breakpoints / port + memory watchpoints / onTrap /
+  // onStatus / onFrame) is inherited from BaseMachine, shared with the CPC.
 
   constructor(model: SpectrumModel, display?: IScreenRenderer | null) {
+    super();
     this.model = model;
     this.variant = createVariant(model);
 
@@ -471,165 +426,85 @@ export class Spectrum implements Machine {
     this.setStatus('Reset');
   }
 
-  async start(): Promise<void> {
-    if (this.running || this.starting) return;
-    this.starting = true;
-    const gen = ++this.startGen;
-
-    await this.audio.init();
-
-    // Check if stop() was called or a newer start() was issued while we were awaiting
-    if (!this.starting || gen !== this.startGen) return;
-    this.starting = false;
-
-    this.mixer.init(this.audio.sampleRate);
-    this.ay.setSampleRate(this.audio.sampleRate);
-
-    this.running = true;
-    this.lastFrameTime = performance.now();
-    this.frameTimeAccum = 0;
-    // Only start rAF if not already looping (it stays alive across pause/resume)
-    if (!this.rafId) {
-      this.rafId = requestAnimationFrame(this.frameLoop);
-    }
-    this.setStatus('Running');
-  }
-
-  stop(): void {
-    this.starting = false; // cancel pending async start
-    this.running = false;
-    // rAF loop keeps running so the display stays alive (noise, settings changes).
-    // Only destroy() cancels the rAF loop entirely.
-  }
-
-  destroy(): void {
-    this.stop();
-    if (this.rafId) {
-      cancelAnimationFrame(this.rafId);
-      this.rafId = 0;
-    }
-    this.audio.destroy();
-  }
-
-  /** Run one frame (for headless / test harness use). */
-  tick(): void { this.breakpointHit = -1; this.portWatchHit = null; this.memWatchHit = null; this.runFrame(); }
-
-  /**
-   * Run up to `maxFrames` frames, stopping early if a breakpoint or port
-   * watchpoint is hit.  Returns the number of frames actually executed.
-   */
-  runUntil(maxFrames: number): number {
-    this.breakpointHit = -1;
-    this.portWatchHit = null;
-    this.memWatchHit = null;
-    for (let i = 0; i < maxFrames; i++) {
-      this.runFrame();
-      if (this.breakpointHit >= 0 || this.portWatchHit !== null || this.memWatchHit !== null) return i + 1;
-    }
-    return maxFrames;
-  }
+  // start / stop / destroy / tick / runUntil and the rAF frame loop live on
+  // BaseMachine. The Spectrum supplies the hooks below; its turbo path overrides
+  // the base default with an adaptive, rAF-cadence-aware batch budget.
 
   /** Whether tape turbo is currently engaged (read by UI for status) */
   get tapeTurboActive(): boolean { return this._tapeTurboActive; }
 
-  private frameLoop = (): void => {
-    if (this.running) {
-      // Wall-clock pacing: accumulate elapsed time, run frames at 50Hz
-      this.breakpointHit = -1;
-      const now = performance.now();
-      if (this.turbo || this._tapeTurboActive) {
-        // Turbo: spend a fraction of the actual rAF interval running frames.
-        // Adapting to the rAF cadence (60Hz / 144Hz / 240Hz / throttled) is
-        // critical — overshooting the interval makes the browser throttle
-        // rAF down, halving throughput. Undershooting leaves CPU idle.
-        if (!this._turboActive) {
-          // Bypass the setter so we write the internal field directly —
-          // the setter would otherwise route 'low' into _savedScanAcc.
-          this._savedScanAcc = this._scanlineAccuracy;
-          this._scanlineAccuracy = 'low';
-          // UI turbo opts out of cycle-exact contention for throughput.
-          // MCP/tests never set this.turbo, so their accuracy is unaffected.
-          this.cpu.accurateTiming = false;
-          // Swap cpu.contend to a no-op closure so the hundreds of bare
-          // `this.contend(addr); this.tStates += 1` sites in exec-* call an
-          // empty function Firefox can inline away, instead of dispatching
-          // through the assigned closure on every internal cycle.
-          this.cpu.contend = NOOP_CONTEND;
-          this._turboActive = true;
-          this._turboLastRaf = now;
-          this._turboBudgetMs = 4;
-        } else if (this._turboLastRaf > 0) {
-          const rafInterval = now - this._turboLastRaf;
-          // EWMA smooths spikes (GC, browser hiccups) but reacts within
-          // a few ticks when the user moves between monitors.
-          const target = rafInterval * Spectrum.TURBO_BUDGET_FRACTION;
-          this._turboBudgetMs = this._turboBudgetMs * 0.6 + target * 0.4;
-          if (this._turboBudgetMs < Spectrum.TURBO_BUDGET_MIN_MS) {
-            this._turboBudgetMs = Spectrum.TURBO_BUDGET_MIN_MS;
-          } else if (this._turboBudgetMs > Spectrum.TURBO_BUDGET_MAX_MS) {
-            this._turboBudgetMs = Spectrum.TURBO_BUDGET_MAX_MS;
-          }
-        }
-        this._turboLastRaf = now;
-        const budgetEnd = now + this._turboBudgetMs;
-        this._skipRender = true;
-        do {
-          this.runFrame();
-          if (this.breakpointHit >= 0) break;
-        } while (performance.now() < budgetEnd);
-        this._skipRender = false;
-        // Produce a fresh frame of pixels for the display. Intermediate
-        // frames skipped renderFrame to save work; this final call gives
-        // the user the latest visible state.
-        this.ula.renderFrame(this.memory.screenBank, 0x4000);
-        this.needsDisplay = true;
-        this.frameTimeAccum = 0;
-        this.lastFrameTime = now;
-      } else {
-        if (this._turboActive) {
-          // Clear _turboActive first so the setter writes the internal field.
-          this._turboActive = false;
-          if (this._savedScanAcc !== null) this._scanlineAccuracy = this._savedScanAcc;
-          this._savedScanAcc = null;
-          this.cpu.accurateTiming = true;
-          this.cpu.contend = this.cpu._contendAccurate;
-        }
-        this.frameTimeAccum = Math.min(
-          this.frameTimeAccum + (now - this.lastFrameTime),
-          FRAME_PERIOD * 3 // cap catch-up to 3 frames (e.g. after tab hidden)
-        );
-        this.lastFrameTime = now;
+  /** The RGBA frame buffer the rAF driver uploads to the display. */
+  protected framePixels(): Uint8Array { return this.ula.pixels; }
 
-        const audioPacing = this.audio.ctx !== null && this.audio.ctx.state === 'running';
-        const targetSamples = samplesPerFrame(this.audio.sampleRate) * TARGET_BUFFER_FRAMES;
+  /** Turbo engaged for UI fast-forward, or while a tape is fast-loading. */
+  protected inTurbo(): boolean { return this.turbo || this._tapeTurboActive; }
 
-        let framesRun = 0;
-        while (this.frameTimeAccum >= FRAME_PERIOD && framesRun < 2) {
-          if (audioPacing && this.audio.bufferedSamples() >= targetSamples) break;
-          this.runFrame();
-          this.frameTimeAccum -= FRAME_PERIOD;
-          framesRun++;
-          if (this.breakpointHit >= 0) break;
-        }
+  /**
+   * Turbo batch pacing (overrides the base default). Spend a fraction of the
+   * *actual* rAF interval running frames — adapting to the rAF cadence
+   * (60/144/240 Hz / throttled) is critical: overshooting the interval makes the
+   * browser throttle rAF down, halving throughput; undershooting leaves the CPU
+   * idle. Intermediate frames skip rendering (`_skipRender`); one renderFrame at
+   * the end produces the latest visible state.
+   */
+  protected override runTurboBurst(now: number): void {
+    if (!this._turboActive) {
+      // Bypass the setter so we write the internal field directly —
+      // the setter would otherwise route 'low' into _savedScanAcc.
+      this._savedScanAcc = this._scanlineAccuracy;
+      this._scanlineAccuracy = 'low';
+      // UI turbo opts out of cycle-exact contention for throughput.
+      // MCP/tests never set this.turbo, so their accuracy is unaffected.
+      this.cpu.accurateTiming = false;
+      // Swap cpu.contend to a no-op closure so the hundreds of bare
+      // `this.contend(addr); this.tStates += 1` sites in exec-* call an
+      // empty function Firefox can inline away, instead of dispatching
+      // through the assigned closure on every internal cycle.
+      this.cpu.contend = NOOP_CONTEND;
+      this._turboActive = true;
+      this._turboLastRaf = now;
+      this._turboBudgetMs = 4;
+    } else if (this._turboLastRaf > 0) {
+      const rafInterval = now - this._turboLastRaf;
+      // EWMA smooths spikes (GC, browser hiccups) but reacts within
+      // a few ticks when the user moves between monitors.
+      const target = rafInterval * Spectrum.TURBO_BUDGET_FRACTION;
+      this._turboBudgetMs = this._turboBudgetMs * 0.6 + target * 0.4;
+      if (this._turboBudgetMs < Spectrum.TURBO_BUDGET_MIN_MS) {
+        this._turboBudgetMs = Spectrum.TURBO_BUDGET_MIN_MS;
+      } else if (this._turboBudgetMs > Spectrum.TURBO_BUDGET_MAX_MS) {
+        this._turboBudgetMs = Spectrum.TURBO_BUDGET_MAX_MS;
       }
-
-      // Push rendered pixels to the display
-      if (this.needsDisplay) {
-        if (this.display) this.display.updateTexture(this.ula.pixels);
-        this.needsDisplay = false;
-      }
-
-      if (this.onFrame) this.onFrame();
-    } else {
-      // Paused: keep rendering so display stays alive (noise animates,
-      // settings changes take effect immediately).
-      if (this.display) this.display.updateTexture(this.ula.pixels);
     }
+    this._turboLastRaf = now;
+    const budgetEnd = now + this._turboBudgetMs;
+    this._skipRender = true;
+    do {
+      this.runFrame();
+      if (this.breakpointHit >= 0) break;
+    } while (performance.now() < budgetEnd);
+    this._skipRender = false;
+    // Produce a fresh frame of pixels for the display (intermediate frames
+    // skipped renderFrame to save work).
+    this.ula.renderFrame(this.memory.screenBank, 0x4000);
+    this.needsDisplay = true;
+    this.frameTimeAccum = 0;
+    this.lastFrameTime = now;
+  }
 
-    this.rafId = requestAnimationFrame(this.frameLoop);
-  };
+  /** Leaving turbo: restore cycle-exact timing and contention. */
+  protected override exitTurbo(): void {
+    if (this._turboActive) {
+      // Clear _turboActive first so the setter writes the internal field.
+      this._turboActive = false;
+      if (this._savedScanAcc !== null) this._scanlineAccuracy = this._savedScanAcc;
+      this._savedScanAcc = null;
+      this.cpu.accurateTiming = true;
+      this.cpu.contend = this.cpu._contendAccurate;
+    }
+  }
 
-  private runFrame(): void {
+  protected runFrame(): void {
     // Apply any deferred combo keys (modifier was pressed last frame).
     this.keyboard.processPending();
     // Reset activity counters for this frame
@@ -1321,9 +1196,5 @@ export class Spectrum implements Machine {
     this._portTallyIn = null;
     this._portTallyOut = null;
     return parts.join('\n');
-  }
-
-  private setStatus(msg: string): void {
-    if (this.onStatus) this.onStatus(msg);
   }
 }
