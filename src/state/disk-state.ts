@@ -44,6 +44,32 @@ const _driveBStatus = createSignal<DriveStatus>({ led: 'off', track: '00', secto
 export const driveBStatus = _driveBStatus[0];
 export const setDriveBStatus = _driveBStatus[1];
 
+// MGT +D drives C and D (WD1772). Separate from the +3's A/B so a +D session
+// and a +3 session never share signals.
+const _currentDiskInfoC = createSignal<DskImage | null>(null);
+export const currentDiskInfoC = _currentDiskInfoC[0];
+export const setCurrentDiskInfoC = _currentDiskInfoC[1];
+
+const _currentDiskNameC = createSignal('');
+export const currentDiskNameC = _currentDiskNameC[0];
+export const setCurrentDiskNameC = _currentDiskNameC[1];
+
+const _driveCStatus = createSignal<DriveStatus>({ led: 'off', track: '00', sector: '--' });
+export const driveCStatus = _driveCStatus[0];
+export const setDriveCStatus = _driveCStatus[1];
+
+const _currentDiskInfoD = createSignal<DskImage | null>(null);
+export const currentDiskInfoD = _currentDiskInfoD[0];
+export const setCurrentDiskInfoD = _currentDiskInfoD[1];
+
+const _currentDiskNameD = createSignal('');
+export const currentDiskNameD = _currentDiskNameD[0];
+export const setCurrentDiskNameD = _currentDiskNameD[1];
+
+const _driveDStatus = createSignal<DriveStatus>({ led: 'off', track: '00', sector: '--' });
+export const driveDStatus = _driveDStatus[0];
+export const setDriveDStatus = _driveDStatus[1];
+
 // Disk info HTML (for UI display)
 const _diskInfoHtml = createSignal('');
 export const diskInfoHtml = _diskInfoHtml[0];

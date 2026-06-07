@@ -24,6 +24,15 @@ export function isPlus2AClass(m: MachineModel): boolean { return m === '+2A' || 
 /** Returns true for +3 (has uPD765A FDC). */
 export function isPlus3(m: MachineModel): boolean { return m === '+3'; }
 
+/**
+ * Returns true for models the MGT +D interface can attach to: the plain
+ * 48K/128K/+2. Excluded: the 16K (too little RAM for G+DOS) and the +2A/+3
+ * (Amstrad special paging conflicts, and they already have a built-in FDC).
+ */
+export function isPlusDCapable(m: MachineModel): boolean {
+  return m === '48k' || m === '128k' || m === '+2';
+}
+
 // ── Amstrad CPC family ──────────────────────────────────────────────────
 //
 // The CPC is a different machine, not a Spectrum variant — it gets its own

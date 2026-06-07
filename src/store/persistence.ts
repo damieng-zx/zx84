@@ -96,17 +96,20 @@ export function clearTape(): void {
   } catch { /* */ }
 }
 
-export async function persistDisk(unit: number, data: Uint8Array, filename: string): Promise<void> {
+// Disks are keyed by a single-letter suffix so each drive gets its own LS
+// filename + IDB blob: the main uPD765A drives are 'a'/'b' (+3 / CPC A:/B:),
+// the MGT +D's WD1772 drives are 'c'/'d' (C:/D:). Both FDCs number their units
+// 0/1, so the +D helpers map onto a distinct suffix pair.
+
+async function persistDiskSuffix(suffix: string, data: Uint8Array, filename: string): Promise<void> {
   try {
-    const suffix = unit === 0 ? 'a' : 'b';
     await dbSave(`disk-${suffix}-file`, data);
     localStorage.setItem(`zx84-disk-${suffix}-file`, filename);
   } catch { /* quota or write error */ }
 }
 
-export async function restoreDisk(unit: number): Promise<{ data: Uint8Array; name: string } | null> {
+async function restoreDiskSuffix(suffix: string): Promise<{ data: Uint8Array; name: string } | null> {
   try {
-    const suffix = unit === 0 ? 'a' : 'b';
     const name = localStorage.getItem(`zx84-disk-${suffix}-file`);
     if (!name) return null;
     const data = await dbLoad(`disk-${suffix}-file`);
@@ -115,10 +118,35 @@ export async function restoreDisk(unit: number): Promise<{ data: Uint8Array; nam
   } catch { return null; }
 }
 
-export function clearDisk(unit: number): void {
+function clearDiskSuffix(suffix: string): void {
   try {
-    const suffix = unit === 0 ? 'a' : 'b';
     localStorage.removeItem(`zx84-disk-${suffix}-file`);
     dbSave(`disk-${suffix}-file`, new Uint8Array(0)).catch(() => {});
   } catch { /* */ }
+}
+
+export async function persistDisk(unit: number, data: Uint8Array, filename: string): Promise<void> {
+  return persistDiskSuffix(unit === 0 ? 'a' : 'b', data, filename);
+}
+
+export async function restoreDisk(unit: number): Promise<{ data: Uint8Array; name: string } | null> {
+  return restoreDiskSuffix(unit === 0 ? 'a' : 'b');
+}
+
+export function clearDisk(unit: number): void {
+  clearDiskSuffix(unit === 0 ? 'a' : 'b');
+}
+
+// MGT +D drives C:/D: (WD1772 units 0/1) — separate keys from the main FDC.
+
+export async function persistPlusDDisk(unit: number, data: Uint8Array, filename: string): Promise<void> {
+  return persistDiskSuffix(unit === 0 ? 'c' : 'd', data, filename);
+}
+
+export async function restorePlusDDisk(unit: number): Promise<{ data: Uint8Array; name: string } | null> {
+  return restoreDiskSuffix(unit === 0 ? 'c' : 'd');
+}
+
+export function clearPlusDDisk(unit: number): void {
+  clearDiskSuffix(unit === 0 ? 'c' : 'd');
 }

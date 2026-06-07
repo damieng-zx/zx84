@@ -421,3 +421,47 @@ describe('persistDisk / restoreDisk / clearDisk', () => {
     expect(await p.restoreTape()).toBeNull();
   });
 });
+
+describe('persistPlusDDisk / restorePlusDDisk / clearPlusDDisk (MGT +D C:/D:)', () => {
+  it('uses suffix c/d, distinct from the main FDC a/b keys', async () => {
+    const p = await load();
+    await p.persistPlusDDisk(0, new Uint8Array([1]), 'C.mgt');
+    await p.persistPlusDDisk(1, new Uint8Array([2]), 'D.mgt');
+    expect(storage.store.get('zx84-disk-c-file')).toBe('C.mgt');
+    expect(storage.store.get('zx84-disk-d-file')).toBe('D.mgt');
+    expect(memDB.store.get('disk-c-file')).toBeDefined();
+    expect(memDB.store.get('disk-d-file')).toBeDefined();
+  });
+
+  it('does not collide with main-FDC unit 0/1 (a +D C: and a main A: coexist)', async () => {
+    const p = await load();
+    await p.persistDisk(0, new Uint8Array([0xAA]), 'A.dsk');
+    await p.persistPlusDDisk(0, new Uint8Array([0xCC]), 'C.mgt');
+    const a = await p.restoreDisk(0);
+    const c = await p.restorePlusDDisk(0);
+    expect(a!.name).toBe('A.dsk');
+    expect(Array.from(a!.data)).toEqual([0xAA]);
+    expect(c!.name).toBe('C.mgt');
+    expect(Array.from(c!.data)).toEqual([0xCC]);
+  });
+
+  it('round-trips both +D units', async () => {
+    const p = await load();
+    await p.persistPlusDDisk(0, new Uint8Array([0x11, 0x22]), 'C.mgt');
+    await p.persistPlusDDisk(1, new Uint8Array([0x33, 0x44]), 'D.img');
+    const c = await p.restorePlusDDisk(0);
+    const d = await p.restorePlusDDisk(1);
+    expect(c!.name).toBe('C.mgt');
+    expect(Array.from(c!.data)).toEqual([0x11, 0x22]);
+    expect(d!.name).toBe('D.img');
+    expect(Array.from(d!.data)).toEqual([0x33, 0x44]);
+  });
+
+  it('clearPlusDDisk removes the LS filename so the next restore skips it', async () => {
+    const p = await load();
+    await p.persistPlusDDisk(1, new Uint8Array([1]), 'D.mgt');
+    p.clearPlusDDisk(1);
+    expect(storage.store.has('zx84-disk-d-file')).toBe(false);
+    expect(await p.restorePlusDDisk(1)).toBeNull();
+  });
+});

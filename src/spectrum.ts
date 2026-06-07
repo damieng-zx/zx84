@@ -33,6 +33,7 @@ import { BaseMachine } from '@/base-machine.ts';
 import { AudioMixer } from '@/peripherals/audio-mixer.ts';
 import { Multiface } from '@/peripherals/multiface.ts';
 import { VTX5000 } from '@/peripherals/vtx5000.ts';
+import { MgtPlusD } from '@/peripherals/mgt-plusd.ts';
 import { hex8, hex16 } from '@/utils/hex.ts';
 import { signed8 } from '@/utils/signed.ts';
 import { DISPLAY_WIDTH, DISPLAY_HEIGHT } from '@/cores/ula.ts';
@@ -125,6 +126,9 @@ export class Spectrum extends BaseMachine implements Machine {
 
   /** VTX-5000 viewdata modem peripheral (48K only) */
   vtx5000 = new VTX5000();
+
+  /** MGT +D disk interface (48K/128K/+2) — WD1772 FDC + shadow ROM/RAM. */
+  mgtPlusD = new MgtPlusD();
 
   get tStatesPerFrame(): number { return this.contention.timing.tStatesPerFrame; }
 
@@ -324,7 +328,8 @@ export class Spectrum extends BaseMachine implements Machine {
    *  Bank-switching paths use this to skip writing slot 0 so the overlay
    *  stays mapped. */
   get hasSlot0Overlay(): boolean {
-    return this.multiface.pagedIn || (this.vtx5000.enabled && this.vtx5000.vtxRomPaged);
+    return this.multiface.pagedIn || this.mgtPlusD.pagedIn
+      || (this.vtx5000.enabled && this.vtx5000.vtxRomPaged);
   }
 
   /** Flush pending pixels up to the current beam position.
@@ -420,6 +425,11 @@ export class Spectrum extends BaseMachine implements Machine {
     this.amxMouse.reset();
     this.mixer.reset();
     this.multiface.reset();
+    // +D shadow ROM boots at 0x0000: page it in at reset so its init runs.
+    this.mgtPlusD.reset();
+    if (this.mgtPlusD.enabled && this.mgtPlusD.romLoaded) {
+      this.mgtPlusD.pageIn(this.memory);
+    }
     this.loaderDetector.reset();
     this.contention.frameStartTStates = 0;
     this.needsDisplay = true;
@@ -575,6 +585,11 @@ export class Spectrum extends BaseMachine implements Machine {
 
     while (this.cpu.tStates < frameEnd) {
       const tBefore = this.cpu.tStates;
+
+      // MGT +D shadow-ROM paging: M1 opcode-fetch trap. Must run every
+      // instruction (before any branch) so the +D maps itself in at its RST/
+      // entry-point traps and can intercept G+DOS commands. See mgt-plusd.ts.
+      if (this.mgtPlusD.enabled) this.mgtPlusD.checkM1Page(this.cpu.pc, this.memory);
 
       // ROM routine activity detection (LD-BYTES entry)
       if (this.cpu.pc === 0x0556) this.activity.tapeLoads++;
@@ -897,6 +912,11 @@ export class Spectrum extends BaseMachine implements Machine {
 
   loadDisk(image: DskImage, unit: number = 0): void {
     this.fdc.insertDisk(image, unit);
+  }
+
+  /** Insert a +D disk image (.mgt/.img) into the WD1772 (unit 0/1 = drive C/D). */
+  loadPlusDDisk(image: DskImage, unit: number = 0): void {
+    this.mgtPlusD.fdc.insertDisk(image, unit);
   }
 
   /** Get the 48K ROM font (768 bytes) regardless of current paging. */

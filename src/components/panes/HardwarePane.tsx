@@ -3,11 +3,11 @@ import { HiOutlinePower } from 'solid-icons/hi';
 import {
   currentModel, romStatusText, switchModel,
   turboMode, clockSpeedText, resetMachine, toggleTurbo,
-  spectrum, triggerNMI, loadMultifaceROM, loadVTX5000ROM, setCpcMultiface,
-  multifaceRomFailed, vtx5000RomFailed, paradosRomFailed,
+  spectrum, triggerNMI, loadMultifaceROM, loadVTX5000ROM, loadPlusDROM, setCpcMultiface,
+  multifaceRomFailed, vtx5000RomFailed, paradosRomFailed, plusDRomFailed,
 } from '@/emulator.ts';
 import type { SpectrumModel } from '@/spectrum.ts';
-import { type MachineModel, isCpcModel, cpcHasDisk } from '@/models.ts';
+import { type MachineModel, isCpcModel, cpcHasDisk, isPlusDCapable } from '@/models.ts';
 import { Show } from 'solid-js';
 import { variantForModel, variantLabel } from '@/peripherals/multiface.ts';
 import * as settings from '@/store/settings.ts';
@@ -106,6 +106,36 @@ export function HardwarePane() {
             VTX-5000
           </label>
         </div>
+        <Show when={isPlusDCapable(currentModel())}>
+          <div class="multiface-row">
+            <label
+              class={`mf-check${plusDRomFailed() ? ' rom-failed' : ''}`}
+              title={plusDRomFailed() || 'MGT +D disk interface (G+DOS, drives C:/D:)'}
+            >
+              <input
+                type="checkbox"
+                checked={settings.plusDEnabled()}
+                disabled={!!plusDRomFailed()}
+                onChange={(e) => {
+                  const on = (e.target as HTMLInputElement).checked;
+                  settings.setPlusDEnabled(on);
+                  settings.persistSetting('plusd', on ? 'on' : 'off');
+                  if (spectrum) {
+                    spectrum.mgtPlusD.enabled = on;
+                    // The +D boots at reset (shadow ROM pages in at 0x0000), so
+                    // a reset is needed for the toggle to take effect.
+                    if (on && !spectrum.mgtPlusD.romLoaded) {
+                      loadPlusDROM(spectrum).then(() => resetMachine());
+                    } else {
+                      resetMachine();
+                    }
+                  }
+                }}
+              />
+              MGT +D
+            </label>
+          </div>
+        </Show>
       </Show>
       {/* Multiface Two — CPC freeze/toolkit cartridge with red STOP (NMI). */}
       <Show when={isCpcModel(currentModel())}>

@@ -63,6 +63,11 @@ const DEFAULTS = {
   'write-protect-a':     'off',
   'write-protect-b':     'off',
   'drive-b-force-ready': 'off',
+  // +D drives C/D
+  'disk-sound-c':        'on',
+  'disk-sound-d':        'on',
+  'write-protect-c':     'off',
+  'write-protect-d':     'off',
 
   // Tape
   'tape-auto-rewind':     'on',
@@ -77,6 +82,7 @@ const DEFAULTS = {
   'plus3-v41-roms': 'off',
   'vtx5000':        'off',
   'cpc-parados':    'off',
+  'plusd':          'off',
 } as const;
 
 type SettingKey = keyof typeof DEFAULTS;
@@ -297,6 +303,22 @@ const _driveBForceReady = /*@once*/ createRoot(() => createSignal(getSaved('driv
 export const driveBForceReady = _driveBForceReady[0];
 export const setDriveBForceReady = _driveBForceReady[1];
 
+const _diskSoundC = /*@once*/ createRoot(() => createSignal(getSaved('disk-sound-c', D('disk-sound-c')) === 'on'));
+export const diskSoundC = _diskSoundC[0];
+export const setDiskSoundC = _diskSoundC[1];
+
+const _diskSoundD = /*@once*/ createRoot(() => createSignal(getSaved('disk-sound-d', D('disk-sound-d')) === 'on'));
+export const diskSoundD = _diskSoundD[0];
+export const setDiskSoundD = _diskSoundD[1];
+
+const _writeProtectC = /*@once*/ createRoot(() => createSignal(getSaved('write-protect-c', D('write-protect-c')) === 'on'));
+export const writeProtectC = _writeProtectC[0];
+export const setWriteProtectC = _writeProtectC[1];
+
+const _writeProtectD = /*@once*/ createRoot(() => createSignal(getSaved('write-protect-d', D('write-protect-d')) === 'on'));
+export const writeProtectD = _writeProtectD[0];
+export const setWriteProtectD = _writeProtectD[1];
+
 // ── Tape settings ───────────────────────────────────────────────────────
 
 const _tapeAutoRewind = /*@once*/ createRoot(() => createSignal(getSaved('tape-auto-rewind', D('tape-auto-rewind')) === 'on'));
@@ -340,6 +362,10 @@ export const setCpcParados = _cpcParados[1];
 const _vtx5000Enabled = /*@once*/ createRoot(() => createSignal(getSaved('vtx5000', D('vtx5000')) === 'on'));
 export const vtx5000Enabled = _vtx5000Enabled[0];
 export const setVtx5000Enabled = _vtx5000Enabled[1];
+
+const _plusDEnabled = /*@once*/ createRoot(() => createSignal(getSaved('plusd', D('plusd')) === 'on'));
+export const plusDEnabled = _plusDEnabled[0];
+export const setPlusDEnabled = _plusDEnabled[1];
 
 // ── Derived ─────────────────────────────────────────────────────────────
 
@@ -408,6 +434,10 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'write-protect-a',     set: setWriteProtectA,    type: 'bool' },
     { key: 'write-protect-b',     set: setWriteProtectB,    type: 'bool' },
     { key: 'drive-b-force-ready', set: setDriveBForceReady, type: 'bool' },
+    { key: 'disk-sound-c',        set: setDiskSoundC,       type: 'bool' },
+    { key: 'disk-sound-d',        set: setDiskSoundD,       type: 'bool' },
+    { key: 'write-protect-c',     set: setWriteProtectC,    type: 'bool' },
+    { key: 'write-protect-d',     set: setWriteProtectD,    type: 'bool' },
   ],
   tape: [
     { key: 'tape-auto-rewind',     set: setTapeAutoRewind,     type: 'bool' },
@@ -422,6 +452,7 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'plus3-v41-roms', set: setPlus3V41Roms,     type: 'bool' },
     { key: 'vtx5000',        set: setVtx5000Enabled,   type: 'bool' },
     { key: 'cpc-parados',    set: setCpcParados,        type: 'bool' },
+    { key: 'plusd',          set: setPlusDEnabled,     type: 'bool' },
   ],
   font: [
     { key: 'font', set: setFontName, type: 'string' },

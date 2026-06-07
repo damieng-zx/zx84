@@ -35,6 +35,7 @@ type MockSpectrum = {
   cpu: { tStates: number; pc: number };
   variant: { hasBanking: boolean; hasFDC: boolean; hasAY: boolean };
   fdc: { currentUnit: number };
+  mgtPlusD: { enabled: boolean };
   breakpointHit: number;
   breakpoints: Set<number>;
   stop: ReturnType<typeof vi.fn>;
@@ -75,6 +76,10 @@ const { emu, settingsMock, panesMock } = vi.hoisted(() => ({
     setDisasmText: vi.fn(),
     setCurrentDiskInfo: vi.fn(),
     setCurrentDiskInfoB: vi.fn(),
+    setDriveCStatus: vi.fn(),
+    setDriveDStatus: vi.fn(),
+    setCurrentDiskInfoC: vi.fn(),
+    setCurrentDiskInfoD: vi.fn(),
     setClockSpeedText: vi.fn(),
     setTapePosition: vi.fn(),
     setTapePaused: vi.fn(),
@@ -102,6 +107,8 @@ const { emu, settingsMock, panesMock } = vi.hoisted(() => ({
     tapeAutoRewind: vi.fn(() => false),
     diskSoundA: vi.fn(() => false),
     diskSoundB: vi.fn(() => false),
+    diskSoundC: vi.fn(() => false),
+    diskSoundD: vi.fn(() => false),
   },
   panesMock: {
     isCollapsed: vi.fn((_id: string) => true),
@@ -252,6 +259,7 @@ function makeSpectrumWithSnap(snap: Uint8Array): MockSpectrum {
     cpu: { tStates: 0, pc: 0 },
     variant: { hasBanking: false, hasFDC: false, hasAY: false },
     fdc: { currentUnit: 0 },
+    mgtPlusD: { enabled: false },
     breakpointHit: -1,
     breakpoints: new Set(),
     stop: vi.fn(),

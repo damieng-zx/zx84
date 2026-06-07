@@ -5,8 +5,10 @@ import { loadSNA } from '../src/snapshot/sna.ts';
 import { loadZ80 } from '../src/snapshot/z80format.ts';
 import { loadSZX } from '../src/snapshot/szx.ts';
 import { parseDSK } from '../src/plus3/dsk.ts';
+import { parseMgt, mgtExtFromName } from '../src/plus3/mgt-image.ts';
 import { parseTZX } from '../src/tape/tzx.ts';
 import { h16 } from './hex.ts';
+import { fetchPlusDRom } from './rom-fetch.ts';
 import { state, initMachine, activeSpectrum } from './state.ts';
 
 export async function loadFileInto(spec: Spectrum, filepath: string, diskUnit: number = 0): Promise<string> {
@@ -35,6 +37,19 @@ export async function loadFileInto(spec: Spectrum, filepath: string, diskUnit: n
     spec.loadDisk(image, diskUnit);
     const driveLetter = diskUnit === 0 ? 'A' : 'B';
     return `DSK loaded: ${filename} → Drive ${driveLetter}: (${image.numTracks} tracks, ${image.numSides} side${image.numSides > 1 ? 's' : ''})`;
+  } else if (ext === '.mgt' || ext === '.img') {
+    // Auto-enable the +D (load G+DOS ROM + reset to boot it) then insert.
+    if (!spec.mgtPlusD.enabled || !spec.mgtPlusD.romLoaded) {
+      const rom = await fetchPlusDRom();
+      spec.mgtPlusD.loadROM(rom);
+      spec.mgtPlusD.enabled = true;
+      spec.reset();
+    }
+    const image = parseMgt(data, mgtExtFromName(filename));
+    if (!image) return `Not a recognised +D image: ${filename} (${data.length} bytes)`;
+    spec.loadPlusDDisk(image, diskUnit);
+    const dl = diskUnit === 0 ? 'C' : 'D';
+    return `+D image loaded: ${filename} → Drive ${dl}: (${image.numTracks} tracks, ${image.numSides} side${image.numSides > 1 ? 's' : ''})`;
   } else if (ext === '.sna') {
     spec.reset();
     const result = loadSNA(data, spec.cpu, spec.memory);

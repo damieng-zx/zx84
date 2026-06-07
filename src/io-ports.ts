@@ -66,6 +66,9 @@ export function installMemoryHooks(s: Spectrum): void {
       if (s.multiface.pagedIn) {
         if (addr < 0x2000) return; // MF ROM — discard
         // 0x2000-0x3FFF: MF RAM — allow through
+      } else if (s.mgtPlusD.pagedIn) {
+        if (addr < 0x2000) return; // +D shadow ROM — discard
+        // 0x2000-0x3FFF: +D RAM — allow through
       } else if (s.vtx5000.enabled && s.vtx5000.vtxRomPaged && addr >= 0x2000) {
         // VTX-5000: 0x2000-0x3FFF is RAM — allow through
       } else if (!memory.specialPaging) {
@@ -118,6 +121,13 @@ export function wirePortIO(s: Spectrum): void {
   s.cpu.portOutHandler = (port: number, val: number) => {
     if (s.portWatchpoints.size > 0 && s.portWatchpoints.has(port & 0xFFFF) && s.portWatchHit === null) {
       s.portWatchHit = { port: port & 0xFFFF, value: val, dir: 'out' };
+    }
+
+    // MGT +D ports (page out, WD1772 registers, control register). Handled
+    // first and returned so a +D OUT can't also trip banking/AY decoding.
+    if (s.mgtPlusD.enabled && s.mgtPlusD.matchPort(port)) {
+      s.mgtPlusD.writePort(port, val, s.memory);
+      return;
     }
 
     // ULA port: any port with bit 0 = 0
@@ -185,6 +195,11 @@ export function wirePortIO(s: Spectrum): void {
   };
 
   function dispatch(port: number): number {
+    // MGT +D ports (page in, WD1772 registers) take priority.
+    if (s.mgtPlusD.enabled && s.mgtPlusD.matchPort(port)) {
+      return s.mgtPlusD.readPort(port, s.memory);
+    }
+
     // ULA port: any port with bit 0 = 0
     if ((port & 0x01) === 0) {
       s.activity.ulaReads++;

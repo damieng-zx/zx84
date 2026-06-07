@@ -20,6 +20,7 @@ import {
   setRegsRev, setSysvarRev, setBasicHtml, setBasicVarsHtml,
   setBanksHtml, setDriveAStatus, setDriveBStatus, setShowTrapLog, setDisasmText,
   setCurrentDiskInfo, setCurrentDiskInfoB,
+  setDriveCStatus, setDriveDStatus, setCurrentDiskInfoC, setCurrentDiskInfoD,
   setClockSpeedText,
   setTapePosition, tapePaused, setTapePaused, tapePlaying, setTapePlaying, transcribeMode, setTranscribeText, setTranscribeHtml, setTranscribeGrid,
   setLedKbd, setLedKemp, setLedEar, setLedLoad, setLedText,
@@ -158,9 +159,17 @@ function renderCpcBanks(cpc: import('@/cpc/cpc-machine.ts').CpcMachine): string 
 
 // Disk info now rendered directly in DrivePane component
 
-function renderDriveStatus(unit: number, activeUnit: number): import('@/state/disk-state.ts').DriveStatus {
-  const fdc = spectrum!.fdc;
+/** Minimal FDC surface the drive readout needs — satisfied by both the
+ *  uPD765A (+3) and the WD1772 (+D). */
+interface DriveStatusSource {
+  motorOn: boolean;
+  isExecuting: boolean;
+  isWriting: boolean;
+  currentSector: number;
+  getUnitTrack(unit: number): number;
+}
 
+function renderDriveStatus(unit: number, activeUnit: number, fdc: DriveStatusSource): import('@/state/disk-state.ts').DriveStatus {
   const isActive = unit === activeUnit;
   const track = fdc.getUnitTrack(unit).toString().padStart(2, '0');
   const sector = fdc.isExecuting && isActive ? fdc.currentSector.toString().padStart(2, '0') : '--';
@@ -187,8 +196,8 @@ function updateHardwareSignals(activeUnit: number): void {
   }
   if (v.hasFDC) {
     spectrum!.fdc.tickFrame();
-    setDriveAStatus(renderDriveStatus(0, activeUnit));
-    setDriveBStatus(renderDriveStatus(1, activeUnit));
+    setDriveAStatus(renderDriveStatus(0, activeUnit, spectrum!.fdc));
+    setDriveBStatus(renderDriveStatus(1, activeUnit, spectrum!.fdc));
     setShowTrapLog(false);
 
     // If a format just completed, re-detect disk metadata and refresh the signal
@@ -201,6 +210,26 @@ function updateHardwareSignals(activeUnit: number): void {
         // Spread to new reference so Solid.js reactive graph sees the change
         if (fu === 0) setCurrentDiskInfo({ ...image });
         else          setCurrentDiskInfoB({ ...image });
+      }
+    }
+  }
+
+  // MGT +D drives C/D (WD1772). Independent of the +3 FDC above.
+  if (spectrum!.mgtPlusD.enabled) {
+    const wd = spectrum!.mgtPlusD.fdc;
+    wd.tickFrame();
+    const wdActive = wd.currentUnit;
+    setDriveCStatus(renderDriveStatus(0, wdActive, wd));
+    setDriveDStatus(renderDriveStatus(1, wdActive, wd));
+
+    const fu = wd.formattedUnit;
+    if (fu >= 0) {
+      wd.formattedUnit = -1;
+      const image = wd.getDiskImage(fu);
+      if (image) {
+        refreshDiskMetadata(image);
+        if (fu === 0) setCurrentDiskInfoC({ ...image });
+        else          setCurrentDiskInfoD({ ...image });
       }
     }
   }
@@ -512,7 +541,7 @@ export function onFrame(): void {
     setLedLoad(a.tapeLoads > 0);
     setLedBeep(a.beeperToggled);
     setLedAy(a.ayWrites > 5);
-    setLedDsk(a.fdcAccesses > 0);
+    setLedDsk(a.fdcAccesses > 0 || (spectrum!.mgtPlusD.enabled && spectrum!.mgtPlusD.fdc.motorOn));
     setLedRainbow(a.attrWrites > 768);
     setLedMouse(a.mouseReads > 0);
     setLedTapeTurbo(spectrum!.tapeTurboActive);
@@ -613,24 +642,39 @@ export function onFrame(): void {
     }
   });
 
-  // Floppy sound (non-signal, side effect) — check active drive's sound setting
-  const driveSoundOn = activeUnit === 0 ? settings.diskSoundA() : settings.diskSoundB();
-  if (floppySound && v.hasFDC && driveSoundOn) {
+  // Floppy sound (non-signal, side effect) — drive the +3 uPD765A or +D WD1772.
+  let soundFdc: typeof spectrum.fdc | typeof spectrum.mgtPlusD.fdc | null = null;
+  let driveSoundOn = false;
+  let isPlusD = false;
+  if (v.hasFDC) {
+    soundFdc = spectrum!.fdc;
+    driveSoundOn = activeUnit === 0 ? settings.diskSoundA() : settings.diskSoundB();
+  } else if (spectrum!.mgtPlusD.enabled) {
+    soundFdc = spectrum!.mgtPlusD.fdc;
+    isPlusD = true;
+    driveSoundOn = soundFdc.currentUnit === 0 ? settings.diskSoundC() : settings.diskSoundD();
+  }
+  if (floppySound && soundFdc && driveSoundOn) {
     // Attach to audio context if not already attached
     if (!floppySound['ctx'] && spectrum!['audio'].ctx) {
       floppySound.attach(spectrum!['audio'].ctx);
     }
-    // Select sound profile based on disk capacity
-    const disk = spectrum!.fdc.getDiskImage(activeUnit);
-    if (disk) {
-      const t0 = disk.tracks[0]?.[0];
-      const spt = t0 ? t0.sectors.length : 0;
-      const secSize = t0?.sectors[0] ? (128 << t0.sectors[0].n) : 512;
-      const capacityKB = (disk.numSides * disk.numTracks * spt * secSize) / 1024;
-      floppySound.driveType = capacityKB > 500 ? '3.5inch' : '3inch';
+    // The +D always used 3.5" drives. For the +3 path, pick the profile from the
+    // disk capacity (3" CF2 vs 3.5").
+    if (isPlusD) {
+      floppySound.driveType = '3.5inch';
+    } else {
+      const disk = soundFdc.getDiskImage(soundFdc.currentUnit);
+      if (disk) {
+        const t0 = disk.tracks[0]?.[0];
+        const spt = t0 ? t0.sectors.length : 0;
+        const secSize = t0?.sectors[0] ? (128 << t0.sectors[0].n) : 512;
+        const capacityKB = (disk.numSides * disk.numTracks * spt * secSize) / 1024;
+        floppySound.driveType = capacityKB > 500 ? '3.5inch' : '3inch';
+      }
     }
     // Update motor state (this generates the sounds)
-    floppySound.update(spectrum!.fdc.motorOn, spectrum!.fdc.currentTrack);
+    floppySound.update(soundFdc.motorOn, soundFdc.currentTrack);
   } else if (floppySound) {
     // Stop any running motor sound when disabled
     floppySound.reset();

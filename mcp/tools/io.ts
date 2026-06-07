@@ -46,8 +46,8 @@ export function register(server: McpServer): void {
 
   server.registerTool(
     'key',
-    { description: 'Press a key for N frames (default 5). Keys: a-z, 0-9, enter, space, shift, sym, backspace, arrows, capslock, escape.', inputSchema: {
-      name: z.string().describe('Key name (e.g. "enter", "a", "shift")'),
+    { description: 'Press a key for N frames (default 5). Keys: a-z, 0-9, enter, space, shift (CAPS SHIFT), sym (SYMBOL SHIFT), backspace, arrows, capslock, escape. Combine keys with "+" to hold them together, e.g. "shift+2" or "sym+p". Pure-modifier combos work too: "shift+sym" enters extended mode (E cursor) — follow it with a letter for the extended keyword (e.g. "shift+sym" then "m" gives PI).', inputSchema: {
+      name: z.string().describe('Key name, or "+"-joined combo (e.g. "enter", "a", "shift+sym")'),
       frames: z.number().int().positive().default(5).describe('How many frames to hold the key'),
     } },
     async ({ name, frames }) => {
@@ -71,7 +71,7 @@ export function register(server: McpServer): void {
 
   server.registerTool(
     'type',
-    { description: 'Type a string of characters, pressing each key for a few frames. Handles letters, digits, symbols. Use backtick-delimited names for control keys: `enter`, `backspace`, `left`, `right`, `up`, `down`, `escape`, `space`, `shift`, `sym`, `capslock`.', inputSchema: { text: z.string().describe('Text to type, e.g. "LOAD \\"\\"`enter`" or "10 PRINT `shift`2`enter`"') } },
+    { description: 'Type a string of characters, pressing each key for a few frames. Handles letters, digits, symbols. Use backtick-delimited names for control keys: `enter`, `backspace`, `left`, `right`, `up`, `down`, `escape`, `space`, `shift`, `sym`, `capslock`. Each backtick token is pressed and released on its own, so combos cannot be held here — to enter extended mode (CAPS SHIFT + SYMBOL SHIFT held together) use the `key` tool with "shift+sym".', inputSchema: { text: z.string().describe('Text to type, e.g. "LOAD \\"\\"`enter`" or "10 PRINT `shift`2`enter`"') } },
     async ({ text: str }) => {
       const spec = state.spec;
       const kb = activeKeyboard();

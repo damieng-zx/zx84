@@ -1,10 +1,11 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { variantForModel, variantLabel } from '../../src/peripherals/multiface.ts';
+import { isPlusDCapable } from '../../src/models.ts';
 import { h8, h16 } from '../hex.ts';
 import { state, activeSpectrum } from '../state.ts';
 import { text } from '../format.ts';
-import { fetchMFRom, fetchVTXRom } from '../rom-fetch.ts';
+import { fetchMFRom, fetchVTXRom, fetchPlusDRom } from '../rom-fetch.ts';
 
 export function register(server: McpServer): void {
   server.registerTool(
@@ -105,6 +106,50 @@ export function register(server: McpServer): void {
         `VTX-5000 enabled (ROM: ${vtx.romSize} bytes). Machine reset.\n` +
         `[0x0000]=${h8(spec.memory.readByte(0x0000))}  [0x1FFF]=${h8(spec.memory.readByte(0x1FFF))}  [0x2000]=${h8(spec.memory.readByte(0x2000))}\n` +
         `PC=${h16(spec.cpu.pc)}`
+      );
+    },
+  );
+
+  server.registerTool(
+    'plusd',
+    { description: 'Enable/disable the MGT +D disk interface (48K/128K/+2). Loads the G+DOS ROM and resets so the +D boots. Actions: "on", "off", "status".', inputSchema: { action: z.enum(['on', 'off', 'status']).describe('Action to perform') } },
+    async ({ action }) => {
+      const spec = activeSpectrum();
+      if (!spec) return text('The +D is a Spectrum peripheral — not available on the CPC.');
+      const pd = spec.mgtPlusD;
+
+      if (action === 'status') {
+        return text(
+          `MGT +D: ${pd.enabled ? 'ON' : 'OFF'}  romLoaded=${pd.romLoaded}  pagedIn=${pd.pagedIn}\n` +
+          `WD1772: track=${pd.fdc.currentTrack} drive=${pd.fdc.currentUnit} side=${pd.fdc.side} status=${h8(pd.fdc.readStatus())}\n` +
+          `Model: ${spec.model}\n` +
+          `[0x0000]=${h8(spec.memory.readByte(0x0000))} [0x1FFF]=${h8(spec.memory.readByte(0x1FFF))} [0x2000]=${h8(spec.memory.readByte(0x2000))}  PC=${h16(spec.cpu.pc)}`
+        );
+      }
+
+      if (action === 'off') {
+        if (pd.pagedIn) pd.pageOut(spec.memory);
+        pd.enabled = false;
+        spec.reset();
+        return text('MGT +D disabled. Machine reset.');
+      }
+
+      // action === 'on'
+      if (!isPlusDCapable(spec.model)) return text(`+D supported on 48k/128k/+2 only (current: ${spec.model}). Use the model tool to switch.`);
+      pd.enabled = true;
+      if (!pd.romLoaded) {
+        try {
+          const data = await fetchPlusDRom();
+          pd.loadROM(data);
+        } catch (err) {
+          pd.enabled = false;
+          return text(`Failed to load +D ROM: ${err}`);
+        }
+      }
+      spec.reset(); // pages the +D shadow ROM in so G+DOS boots
+      return text(
+        `MGT +D enabled (ROM ${pd.rom.length} bytes). Machine reset.\n` +
+        `pagedIn=${pd.pagedIn}  [0x0000]=${h8(spec.memory.readByte(0x0000))} [0x1FFF]=${h8(spec.memory.readByte(0x1FFF))}  PC=${h16(spec.cpu.pc)}`
       );
     },
   );

@@ -8,7 +8,7 @@ import { CpcMachine } from '@/cpc/cpc-machine.ts';
 import { type Machine, asSpectrum, asCpc } from '@/machine.ts';
 import {
   type SpectrumModel, type MachineModel, type CpcModel,
-  is128kClass, isPlus2AClass, isCpcModel,
+  is128kClass, isPlus2AClass, isCpcModel, isPlusDCapable,
 } from '@/models.ts';
 import { CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT } from '@/cpc/constants.ts';
 import { WebGLRenderer } from '@/display/webgl-renderer.ts';
@@ -19,9 +19,13 @@ import { saveSZX } from '@/snapshot/szx.ts';
 import { saveZ80 } from '@/snapshot/z80format.ts';
 import { parseTZX } from '@/tape/tzx.ts';
 import { parseDSK, serializeDSK, type DskImage } from '@/plus3/dsk.ts';
+import { parseMgt, serializeMgt, blankMgtDisk, mgtExtFromName } from '@/plus3/mgt-image.ts';
 import { loadSZX } from '@/snapshot/szx.ts';
 import { readCpcSnaModel, applyCpcSna, saveCpcSna } from '@/snapshot/cpc-sna.ts';
-import { clearLastFile, clearDisk, restoreTape, restoreDisk, dbSave, dbLoad } from '@/store/persistence.ts';
+import {
+  clearLastFile, clearDisk, restoreTape, restoreDisk, dbSave, dbLoad,
+  persistPlusDDisk, restorePlusDDisk, clearPlusDDisk,
+} from '@/store/persistence.ts';
 import * as settings from '@/store/settings.ts';
 import { variantForModel, variantLabel, romFilename } from '@/peripherals/multiface.ts';
 import { onFrame, updateRegsOnce, resetSpeedTracking, forceSpeedUpdate } from '@/frame-bridge.ts';
@@ -61,9 +65,11 @@ import {
   multifaceRomFailed,
   vtx5000RomFailed,
   paradosRomFailed,
+  plusDRomFailed,
   setMultifaceRomFailed,
   setVtx5000RomFailed,
   setParadosRomFailed,
+  setPlusDRomFailed,
 } from '@/state/machine-state.ts';
 
 import {
@@ -86,6 +92,10 @@ import {
   driveAStatus, driveBStatus, diskInfoHtml, driveHtml,
   setCurrentDiskInfo, setCurrentDiskName, setCurrentDiskInfoB, setCurrentDiskNameB,
   setDriveAStatus, setDriveBStatus, setDiskInfoHtml, setDriveHtml,
+  currentDiskInfoC, currentDiskNameC, currentDiskInfoD, currentDiskNameD,
+  driveCStatus, driveDStatus,
+  setCurrentDiskInfoC, setCurrentDiskNameC, setCurrentDiskInfoD, setCurrentDiskNameD,
+  setDriveCStatus, setDriveDStatus,
 } from '@/state/disk-state.ts';
 
 import {
@@ -109,7 +119,7 @@ import {
 // Re-export machine state
 export { statusText, romStatusText, currentModel, emulationPaused, turboMode, clockSpeedText, saveModel };
 export { setStatusText, setRomStatusText, setCurrentModel, setEmulationPaused, setTurboMode, setClockSpeedText };
-export { multifaceRomFailed, vtx5000RomFailed, paradosRomFailed };
+export { multifaceRomFailed, vtx5000RomFailed, paradosRomFailed, plusDRomFailed };
 
 // Re-export tape state
 export { tapeLoaded, tapeBlocks, tapePosition, tapePaused, tapePlaying, tapeName };
@@ -117,7 +127,9 @@ export { setTapeLoaded, setTapeName, setTapeBlocks, setTapePosition, setTapePaus
 
 // Re-export disk state
 export { currentDiskInfo, currentDiskName, currentDiskInfoB, currentDiskNameB, driveAStatus, driveBStatus, diskInfoHtml, driveHtml };
+export { currentDiskInfoC, currentDiskNameC, currentDiskInfoD, currentDiskNameD, driveCStatus, driveDStatus };
 export { setCurrentDiskInfo, setCurrentDiskName, setCurrentDiskInfoB, setCurrentDiskNameB, setDriveAStatus, setDriveBStatus, setDiskInfoHtml, setDriveHtml };
+export { setCurrentDiskInfoC, setCurrentDiskNameC, setCurrentDiskInfoD, setCurrentDiskNameD, setDriveCStatus, setDriveDStatus };
 
 // Re-export debug state
 export { regsHtml, regsRev, sysvarHtml, sysvarRev, basicHtml, basicVarsHtml, banksHtml, disasmText, tracing, trapLogHtml, showTrapLog };
@@ -275,6 +287,14 @@ export async function createMachine(): Promise<boolean> {
     spectrum.multiface.enabled = settings.multifaceEnabled();
     if (spectrum.multiface.enabled) {
       loadMultifaceROM(spectrum).catch(err => console.warn('MF ROM load failed:', err));
+    }
+    // MGT +D (48K/128K/+2). Load the ROM before reset so the shadow ROM is
+    // present when reset() pages it in to boot G+DOS.
+    spectrum.mgtPlusD.enabled = settings.plusDEnabled() && isPlusDCapable(model);
+    if (spectrum.mgtPlusD.enabled) {
+      await loadPlusDROM(spectrum);
+      spectrum.mgtPlusD.fdc.writeProtect[0] = settings.writeProtectC();
+      spectrum.mgtPlusD.fdc.writeProtect[1] = settings.writeProtectD();
     }
   }
 
@@ -495,6 +515,14 @@ export async function switchModel(model: MachineModel): Promise<void> {
   setCurrentModel(model);
   saveModel(model);
 
+  // The +D is a model-independent peripheral: preserve any mounted +D disks
+  // across the rebuild so a model switch doesn't leave the new WD1772 empty
+  // (which G+DOS reports as "CHECK DISC"). createMachine() builds a fresh
+  // machine, so capture the images first and re-insert them after.
+  const carriedPlusD = spectrum?.mgtPlusD.enabled
+    ? [spectrum.mgtPlusD.fdc.getDiskImage(0), spectrum.mgtPlusD.fdc.getDiskImage(1)]
+    : null;
+
   const romModel = effectiveROMModel(model);
   let entry = await restoreROM(romModel);
   if (!entry) entry = await fetchDefaultROM(romModel);
@@ -508,6 +536,11 @@ export async function switchModel(model: MachineModel): Promise<void> {
   }
 
   await createMachine();
+
+  if (carriedPlusD && spectrum?.mgtPlusD.enabled) {
+    if (carriedPlusD[0]) spectrum.loadPlusDDisk(carriedPlusD[0], 0);
+    if (carriedPlusD[1]) spectrum.loadPlusDDisk(carriedPlusD[1], 1);
+  }
 }
 
 // ── ROM loading ─────────────────────────────────────────────────────────
@@ -688,6 +721,11 @@ export async function loadFile(data: Uint8Array, filename: string, unit?: number
     return;
   }
   if (!spectrum) { setStatus('Load a ROM first'); return; }
+  // MGT +D images route to the WD1772, not the media manager's +3 DSK path.
+  if (/\.(mgt|img)$/i.test(filename)) {
+    loadPlusDDisk(data, filename, unit ?? 0);
+    return;
+  }
   await mediaManager.loadFile(spectrum, data, filename, currentModel() as SpectrumModel, buildMediaCallbacks(), unit);
 }
 
@@ -957,6 +995,55 @@ export function loadDiskToUnit(data: Uint8Array, filename: string, unit: number)
   mediaManager.loadDisk(spectrum!, data, filename, unit, { onStatus: setStatus, onDiskLoaded });
 }
 
+// ── MGT +D disk helpers (drives C/D = WD1772 units 0/1) ──────────────────
+
+function setPlusDDiskState(unit: number, image: DskImage | null, name: string): void {
+  if (unit === 0) { setCurrentDiskInfoC(image); setCurrentDiskNameC(name); }
+  else { setCurrentDiskInfoD(image); setCurrentDiskNameD(name); }
+}
+
+/** Load a .mgt/.img image into a +D drive (unit 0/1 → C:/D:). */
+export function loadPlusDDisk(data: Uint8Array, filename: string, unit: number): void {
+  if (!spectrum) { setStatus('Load a ROM first'); return; }
+  if (!spectrum.mgtPlusD.enabled) { setStatus('Enable the MGT +D in Hardware first'); return; }
+  const image = parseMgt(data, mgtExtFromName(filename));
+  if (!image) { setStatus(`Not a recognised +D image: ${filename}`); return; }
+  spectrum.stop();
+  try {
+    spectrum.loadPlusDDisk(image, unit);
+    setPlusDDiskState(unit, image, filename);
+    persistPlusDDisk(unit, data, filename);   // survive a reload (see restoreMedia)
+    setStatus(`+D disk ${unit === 0 ? 'C' : 'D'}: loaded: ${filename}`);
+  } finally {
+    spectrum.start();
+  }
+}
+
+export function ejectPlusDDisk(unit: number): void {
+  if (!spectrum) return;
+  spectrum.mgtPlusD.fdc.ejectDisk(unit);
+  clearPlusDDisk(unit);   // drop the persisted image so a hard refresh won't remount it
+  setPlusDDiskState(unit, null, '');
+  setStatus(`+D disk ${unit === 0 ? 'C' : 'D'}: ejected`);
+}
+
+export function insertBlankPlusDDisk(unit: number): void {
+  if (!spectrum) return;
+  const image = blankMgtDisk();
+  spectrum.loadPlusDDisk(image, unit);
+  setPlusDDiskState(unit, image, 'BLANK.mgt');
+  persistPlusDDisk(unit, serializeMgt(image, 'mgt'), 'BLANK.mgt');   // survive a reload
+}
+
+export function savePlusDDisk(unit: number): void {
+  if (!spectrum) return;
+  const image = spectrum.mgtPlusD.fdc.getDiskImage(unit);
+  if (!image) { setStatus(`No disk in +D drive ${unit === 0 ? 'C' : 'D'}:`); return; }
+  const name = unit === 0 ? currentDiskNameC() : currentDiskNameD();
+  const base = name.replace(/\.[^.]+$/, '') || 'plusd';
+  downloadFile(serializeMgt(image, 'mgt'), `${base}.mgt`);
+}
+
 
 // ── Joystick helpers ────────────────────────────────────────────────────
 
@@ -1077,6 +1164,38 @@ export async function loadVTX5000ROM(s: Spectrum): Promise<boolean> {
   s.vtx5000.loadROM(data);
   setStatus(`VTX-5000 ROM loaded (${data.length} bytes)`);
   setVtx5000RomFailed('');
+  return true;
+}
+
+// ── MGT +D ───────────────────────────────────────────────────────────────
+
+const PLUSD_ROM_KEY = 'plusd-rom';
+const PLUSD_ROM_URL = 'https://zx84files.bitsparse.com/roms/plusd.rom';
+
+/**
+ * Load the +D G+DOS ROM (8KB) into a Spectrum, fetching from the CDN if not
+ * already cached in IndexedDB. Mirrors loadMultifaceROM / loadVTX5000ROM.
+ */
+export async function loadPlusDROM(s: Spectrum): Promise<boolean> {
+  let data = await dbLoad(PLUSD_ROM_KEY);
+  if (!data) {
+    try {
+      setStatus('Fetching MGT +D ROM…');
+      const resp = await fetch(PLUSD_ROM_URL);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      data = new Uint8Array(await resp.arrayBuffer());
+      await dbSave(PLUSD_ROM_KEY, data);
+    } catch (err) {
+      console.warn('Failed to fetch MGT +D ROM:', err);
+      const msg = 'Failed to load MGT +D ROM';
+      setStatus(msg);
+      setPlusDRomFailed(msg);
+      return false;
+    }
+  }
+  s.mgtPlusD.loadROM(data);
+  setStatus(`MGT +D ROM loaded (${data.length} bytes)`);
+  setPlusDRomFailed('');
   return true;
 }
 
@@ -1233,6 +1352,21 @@ async function restoreMedia(): Promise<void> {
       setCurrentDiskInfoB(image);
       setCurrentDiskNameB(diskB.name);
     } catch { /* ignore corrupt data */ }
+  }
+
+  // MGT +D drives C:/D: — only when the +D is fitted (its shadow ROM + WD1772
+  // exist only then); enablement is restored from settings in createMachine().
+  if (spectrum?.mgtPlusD.enabled) {
+    for (const unit of [0, 1]) {
+      const disk = await restorePlusDDisk(unit);
+      if (!disk) continue;
+      try {
+        const image = parseMgt(disk.data, mgtExtFromName(disk.name));
+        if (!image) continue;
+        spectrum.loadPlusDDisk(image, unit);
+        setPlusDDiskState(unit, image, disk.name);
+      } catch { /* ignore corrupt data */ }
+    }
   }
 }
 
