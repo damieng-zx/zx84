@@ -71,7 +71,7 @@ export function StatusBar() {
         <div class="led-group">
           {/* Group 4: Sound */}
           <Show when={!isCpc()}>
-            <Led id="led-beep" kind="beep" label="BEEPER" on={ledBeep()}
+            <Led id="led-beep" kind="beep" label="BEEP" on={ledBeep()}
               tip="Beeper bit is toggling (producing sound)" />
           </Show>
           <Led id="led-ay" kind="ay" label="AY-3-8912" on={ledAy()}
