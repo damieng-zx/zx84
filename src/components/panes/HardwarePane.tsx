@@ -4,10 +4,10 @@ import {
   currentModel, romStatusText, switchModel, loadRomFiles,
   turboMode, clockSpeedText, resetMachine, toggleTurbo,
   spectrum, triggerNMI, loadMultifaceROM, loadVTX5000ROM,
-  multifaceRomFailed, vtx5000RomFailed,
+  multifaceRomFailed, vtx5000RomFailed, paradosRomFailed,
 } from '@/emulator.ts';
 import type { SpectrumModel } from '@/spectrum.ts';
-import { type MachineModel, isCpcModel } from '@/models.ts';
+import { type MachineModel, isCpcModel, cpcHasDisk } from '@/models.ts';
 import { Show } from 'solid-js';
 import { variantForModel, variantLabel } from '@/peripherals/multiface.ts';
 import * as settings from '@/store/settings.ts';
@@ -113,6 +113,28 @@ export function HardwarePane() {
               }}
             />
             VTX-5000
+          </label>
+        </div>
+      </Show>
+      {/* ParaDOS — AMSDOS replacement, disk-capable CPCs (664/6128) only. */}
+      <Show when={cpcHasDisk(currentModel())}>
+        <div class="multiface-row">
+          <label
+            class={`mf-check${paradosRomFailed() ? ' rom-failed' : ''}`}
+            title={paradosRomFailed() || 'Use ParaDOS instead of AMSDOS in ROM 7'}
+          >
+            <input
+              type="checkbox"
+              checked={settings.cpcParados()}
+              disabled={!!paradosRomFailed()}
+              onChange={(e) => {
+                const on = (e.target as HTMLInputElement).checked;
+                settings.setCpcParados(on);
+                settings.persistSetting('cpc-parados', on ? 'on' : 'off');
+                switchModel(currentModel());   // rebuild with/without the ParaDOS overlay
+              }}
+            />
+            ParaDOS
           </label>
         </div>
       </Show>

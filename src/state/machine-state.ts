@@ -77,3 +77,7 @@ export const setMultifaceRomFailed = _multifaceRomFailed[1];
 const _vtx5000RomFailed = createSignal('');
 export const vtx5000RomFailed = _vtx5000RomFailed[0];
 export const setVtx5000RomFailed = _vtx5000RomFailed[1];
+
+const _paradosRomFailed = createSignal('');
+export const paradosRomFailed = _paradosRomFailed[0];
+export const setParadosRomFailed = _paradosRomFailed[1];

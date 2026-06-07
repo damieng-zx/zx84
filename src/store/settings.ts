@@ -76,6 +76,7 @@ const DEFAULTS = {
   'multiface':      'off',
   'plus3-v41-roms': 'off',
   'vtx5000':        'off',
+  'cpc-parados':    'off',
 } as const;
 
 type SettingKey = keyof typeof DEFAULTS;
@@ -332,6 +333,10 @@ const _plus3V41Roms = /*@once*/ createRoot(() => createSignal(getSaved('plus3-v4
 export const plus3V41Roms = _plus3V41Roms[0];
 export const setPlus3V41Roms = _plus3V41Roms[1];
 
+const _cpcParados = /*@once*/ createRoot(() => createSignal(getSaved('cpc-parados', D('cpc-parados')) === 'on'));
+export const cpcParados = _cpcParados[0];
+export const setCpcParados = _cpcParados[1];
+
 const _vtx5000Enabled = /*@once*/ createRoot(() => createSignal(getSaved('vtx5000', D('vtx5000')) === 'on'));
 export const vtx5000Enabled = _vtx5000Enabled[0];
 export const setVtx5000Enabled = _vtx5000Enabled[1];
@@ -416,6 +421,7 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'multiface',      set: setMultifaceEnabled, type: 'bool' },
     { key: 'plus3-v41-roms', set: setPlus3V41Roms,     type: 'bool' },
     { key: 'vtx5000',        set: setVtx5000Enabled,   type: 'bool' },
+    { key: 'cpc-parados',    set: setCpcParados,        type: 'bool' },
   ],
   font: [
     { key: 'font', set: setFontName, type: 'string' },

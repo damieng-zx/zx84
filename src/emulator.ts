@@ -60,8 +60,10 @@ import {
   setClockSpeedText,
   multifaceRomFailed,
   vtx5000RomFailed,
+  paradosRomFailed,
   setMultifaceRomFailed,
   setVtx5000RomFailed,
+  setParadosRomFailed,
 } from '@/state/machine-state.ts';
 
 import {
@@ -107,7 +109,7 @@ import {
 // Re-export machine state
 export { statusText, romStatusText, currentModel, emulationPaused, turboMode, clockSpeedText, saveModel };
 export { setStatusText, setRomStatusText, setCurrentModel, setEmulationPaused, setTurboMode, setClockSpeedText };
-export { multifaceRomFailed, vtx5000RomFailed };
+export { multifaceRomFailed, vtx5000RomFailed, paradosRomFailed };
 
 // Re-export tape state
 export { tapeLoaded, tapeBlocks, tapePosition, tapePaused, tapePlaying, tapeName };
@@ -280,6 +282,12 @@ export async function createMachine(): Promise<boolean> {
   if (romData) {
     machine.loadROM(romData);
     machine.reset();
+
+    // ParaDOS overlay: swap AMSDOS (upper ROM 7) for ParaDOS on a disk-capable
+    // CPC, before boot so the firmware's ROM scan initialises it.
+    if (cpc && (machine as CpcMachine).config.hasFDC && settings.cpcParados()) {
+      await loadParadosROM(machine as CpcMachine);
+    }
 
     // HMR state restore is Spectrum-only (snapshot formats); CPC starts fresh.
     if (spectrum) hmrRestored = await restoreHMRState();
@@ -1052,6 +1060,40 @@ export async function loadVTX5000ROM(s: Spectrum): Promise<boolean> {
   s.vtx5000.loadROM(data);
   setStatus(`VTX-5000 ROM loaded (${data.length} bytes)`);
   setVtx5000RomFailed('');
+  return true;
+}
+
+// ── ParaDOS (CPC) ────────────────────────────────────────────────────────
+
+const PARADOS_ROM_KEY = 'cpc-parados-rom';
+const PARADOS_ROM_URL = 'https://zx84files.bitsparse.com/roms/parados.rom';
+
+/**
+ * Overlay ParaDOS into upper-ROM slot 7 (replacing AMSDOS) on a disk-capable
+ * CPC, fetching from CDN if not already cached in IndexedDB. Mirrors the
+ * loadVTX5000ROM() pattern. The base ROM set (OS + BASIC + AMSDOS) is untouched;
+ * this just swaps the ROM the firmware sees at slot 7.
+ */
+export async function loadParadosROM(cpc: CpcMachine): Promise<boolean> {
+  let data = await dbLoad(PARADOS_ROM_KEY);
+  if (!data) {
+    try {
+      setStatus('Fetching ParaDOS ROM…');
+      const resp = await fetch(PARADOS_ROM_URL);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      data = new Uint8Array(await resp.arrayBuffer());
+      await dbSave(PARADOS_ROM_KEY, data);
+    } catch (err) {
+      console.warn('Failed to fetch ParaDOS ROM:', err);
+      const msg = 'Failed to load ParaDOS ROM';
+      setStatus(msg);
+      setParadosRomFailed(msg);
+      return false;
+    }
+  }
+  cpc.memory.setUpperRom(7, data);
+  setStatus(`ParaDOS ROM loaded (${data.length} bytes)`);
+  setParadosRomFailed('');
   return true;
 }
 

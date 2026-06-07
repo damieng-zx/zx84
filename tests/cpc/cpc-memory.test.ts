@@ -64,6 +64,34 @@ describe('CpcMemory ROM accessors', () => {
     expect(mem.readByte(0x0000)).toBe(0xAB);
     expect(mem.getLowerRom()[0]).toBe(mem.readByte(0x0000));
   });
+
+  it('setUpperRom(7) overlays ParaDOS over AMSDOS without touching BASIC', () => {
+    const mem = new CpcMemory(createCpcConfig('cpc6128'));
+    mem.loadROM(makeImage(0x11, 0x22, 0x33)); // lower=0x11, BASIC=0x22, AMSDOS=0x33
+
+    // Swap AMSDOS (ROM 7) for a ParaDOS image filled with 0x99.
+    const parados = new Uint8Array(SLOT).fill(0x99);
+    mem.setUpperRom(7, parados);
+
+    // Selecting + enabling ROM 7 makes the CPU see ParaDOS at 0xC000.
+    mem.selectUpperRom(7);
+    expect(mem.readByte(0xC000)).toBe(0x99);
+    expect(mem.getUpperRom(7)?.[0]).toBe(0x99);
+
+    // BASIC (upper ROM 0) is unchanged.
+    expect(mem.getUpperRom(0)?.[0]).toBe(0x22);
+    mem.selectUpperRom(0);
+    expect(mem.readByte(0xC000)).toBe(0x22);
+  });
+
+  it('setUpperRom pads a short ParaDOS image to a full 16KB bank', () => {
+    const mem = new CpcMemory(createCpcConfig('cpc6128'));
+    mem.loadROM(makeImage(0x11, 0x22, 0x33));
+    mem.setUpperRom(7, new Uint8Array(100).fill(0x5A)); // undersized
+    expect(mem.getUpperRom(7)?.length).toBe(SLOT);
+    expect(mem.getUpperRom(7)?.[0]).toBe(0x5A);
+    expect(mem.getUpperRom(7)?.[SLOT - 1]).toBe(0x00); // padded tail
+  });
 });
 
 describe('CpcMemory pagingState (memory-layout pane)', () => {

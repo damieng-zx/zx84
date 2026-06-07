@@ -85,6 +85,13 @@ export class CpcMemory implements IMachineMemory {
     this.applyMapping();
   }
 
+  /** Install or replace a single upper ROM image at slot `n` (0 = BASIC,
+   *  7 = AMSDOS). Used to overlay ParaDOS over AMSDOS at slot 7. */
+  setUpperRom(n: number, data: Uint8Array): void {
+    this.upperRoms[n] = padTo16K(data);
+    this.applyMapping();
+  }
+
   /**
    * Machine-interface ROM load. Splits a combined image:
    *   32KB → OS (lower) + BASIC (upper 0)
