@@ -1,4 +1,4 @@
-import { createSignal, onCleanup } from 'solid-js';
+import { createSignal, onCleanup, Show } from 'solid-js';
 import { Pane } from '@/components/Pane.tsx';
 import { setMouseMode, updateMousePosition, setMouseButton, type MouseMode } from '@/emulator.ts';
 
@@ -66,17 +66,27 @@ export function MousePane() {
   return (
     <Pane id="mouse-panel" label="Mouse">
       <div class="mouse-pane">
-        <div class="mouse-controls">
-          <button class="mouse-capture-btn" disabled={!!captured()} onClick={() => capture('kempston')}>
-            Kempston
-          </button>
-          <button class="mouse-capture-btn" disabled={!!captured()} onClick={() => capture('amx')}>
-            AMX
-          </button>
-        </div>
-        <div class="mouse-hint">
-          {captured() ? `${captured() === 'kempston' ? 'Kempston' : 'AMX'} mouse captured — press ESC to release` : hint() || 'Captures pointer for mouse emulation'}
-        </div>
+        <Show
+          when={captured()}
+          fallback={<>
+            <div class="mouse-controls">
+              <button class="mouse-capture-btn" onClick={() => capture('kempston')}>
+                Kempston
+              </button>
+              <button class="mouse-capture-btn" onClick={() => capture('amx')}>
+                AMX
+              </button>
+            </div>
+            <Show when={hint()}>
+              <div class="mouse-hint">{hint()}</div>
+            </Show>
+          </>}
+        >
+          <div class="mouse-captured">
+            {captured() === 'kempston' ? 'Kempston' : 'AMX'} mouse captured<br />
+            press <b>ESC</b> to release
+          </div>
+        </Show>
       </div>
     </Pane>
   );

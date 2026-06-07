@@ -481,6 +481,8 @@ canvas {
 }
 .mouse-capture-btn:hover { background: #444; }
 .mouse-hint { font-size: 10px; color: #888; }
+.mouse-captured { font-size: 15px; line-height: 1.4; color: #444; text-align: center; padding: 4px 0; }
+.mouse-captured b { color: #000; }
 
 /* Display pane */
 
