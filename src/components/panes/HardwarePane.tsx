@@ -3,7 +3,7 @@ import { HiOutlinePower } from 'solid-icons/hi';
 import {
   currentModel, romStatusText, switchModel, loadRomFiles,
   turboMode, clockSpeedText, resetMachine, toggleTurbo,
-  spectrum, triggerNMI, loadMultifaceROM, loadVTX5000ROM,
+  spectrum, triggerNMI, loadMultifaceROM, loadVTX5000ROM, setCpcMultiface,
   multifaceRomFailed, vtx5000RomFailed, paradosRomFailed,
 } from '@/emulator.ts';
 import type { SpectrumModel } from '@/spectrum.ts';
@@ -28,6 +28,7 @@ export function HardwarePane() {
     <Pane id="hardware-panel" label="Hardware" onResetSettings={() => {
       resetSettingsGroup('hardware');
       if (spectrum) spectrum.multiface.enabled = false;
+      setCpcMultiface(false);
     }}>
       <div id="model-row">
         <select
@@ -114,6 +115,34 @@ export function HardwarePane() {
             />
             VTX-5000
           </label>
+        </div>
+      </Show>
+      {/* Multiface Two — CPC freeze/toolkit cartridge with red STOP (NMI). */}
+      <Show when={isCpcModel(currentModel())}>
+        <div class="multiface-row">
+          <label
+            class={`mf-check${multifaceRomFailed() ? ' rom-failed' : ''}`}
+            title={multifaceRomFailed() || undefined}
+          >
+            <input
+              type="checkbox"
+              checked={settings.multifaceEnabled()}
+              disabled={!!multifaceRomFailed()}
+              onChange={(e) => {
+                const on = (e.target as HTMLInputElement).checked;
+                settings.setMultifaceEnabled(on);
+                settings.persistSetting('multiface', on ? 'on' : 'off');
+                setCpcMultiface(on);
+              }}
+            />
+            Multiface Two
+          </label>
+          <button
+            class="mf-nmi-btn"
+            title="Press the red STOP button (NMI)"
+            disabled={!settings.multifaceEnabled()}
+            onClick={triggerNMI}
+          >NMI</button>
         </div>
       </Show>
       {/* ParaDOS — AMSDOS replacement, disk-capable CPCs (664/6128) only. */}

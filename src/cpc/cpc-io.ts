@@ -198,6 +198,18 @@ export function wireCpcPortIO(m: CpcMachine): void {
       m.portWatchHit = { port, value: val, dir: 'out' };
     }
 
+    // Multiface Two: snoop every OUT into its RAM shadow (so the toolkit can
+    // restore write-only chip state on Return), and handle its paging ports
+    // (OUT &FEE8 page in / &FEEA page out, write-decoded).
+    if (m.multiface.enabled) {
+      m.multiface.recordOut(port, val);
+      if (m.multiface.romLoaded) {
+        const mf = m.multiface.matchPortOut(port);
+        if (mf === 'in') m.multiface.pageIn(memory);
+        else if (mf === 'out') m.multiface.pageOut(memory);
+      }
+    }
+
     // Gate Array + RAM banking: A15=0, A14=1
     if ((port & 0xC000) === 0x4000) ga.write(val);
 

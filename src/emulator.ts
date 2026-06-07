@@ -278,6 +278,15 @@ export async function createMachine(): Promise<boolean> {
     }
   }
 
+  // CPC Multiface Two — shares the 'multiface' enable setting.
+  const cpcForMf = asCpc(machine);
+  if (cpcForMf) {
+    cpcForMf.multiface.enabled = settings.multifaceEnabled();
+    if (cpcForMf.multiface.enabled) {
+      await loadCpcMultifaceROM(cpcForMf);
+    }
+  }
+
   let hmrRestored = false;
   if (romData) {
     machine.loadROM(romData);
@@ -1097,7 +1106,62 @@ export async function loadParadosROM(cpc: CpcMachine): Promise<boolean> {
   return true;
 }
 
+// ── Multiface Two (CPC) ──────────────────────────────────────────────────
+
+const CPC_MF2_ROM_KEY = 'cpc-mf2-rom';
+const CPC_MF2_ROM_URL = 'https://zx84files.bitsparse.com/roms/cpc-multiface2.rom';
+
+/**
+ * Load the CPC Multiface Two ROM into the machine, fetching from CDN if not
+ * already cached. Mirrors loadVTX5000ROM(); shares the multifaceRomFailed signal
+ * (only one machine is ever active).
+ */
+export async function loadCpcMultifaceROM(cpc: CpcMachine): Promise<boolean> {
+  let data = await dbLoad(CPC_MF2_ROM_KEY);
+  if (!data) {
+    try {
+      setStatus('Fetching Multiface Two ROM…');
+      const resp = await fetch(CPC_MF2_ROM_URL);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      data = new Uint8Array(await resp.arrayBuffer());
+      await dbSave(CPC_MF2_ROM_KEY, data);
+    } catch (err) {
+      console.warn('Failed to fetch Multiface Two ROM:', err);
+      const msg = 'Failed to load Multiface Two ROM';
+      setStatus(msg);
+      setMultifaceRomFailed(msg);
+      return false;
+    }
+  }
+  cpc.multiface.loadROM(data);
+  setStatus(`Multiface Two ROM loaded (${data.length} bytes)`);
+  setMultifaceRomFailed('');
+  return true;
+}
+
+/** Enable/disable the CPC Multiface live (no machine rebuild). */
+export function setCpcMultiface(on: boolean): void {
+  const cpc = asCpc(machine);
+  if (!cpc) return;
+  cpc.multiface.enabled = on;
+  if (on && !cpc.multiface.romLoaded) {
+    loadCpcMultifaceROM(cpc).catch(err => console.warn('MF2 ROM load failed:', err));
+  }
+  if (!on) cpc.multiface.pageOut(cpc.memory);
+}
+
 export function triggerNMI(): void {
+  // CPC Multiface Two — press the red STOP button.
+  const cpc = asCpc(machine);
+  if (cpc) {
+    const mf = cpc.multiface;
+    if (!mf.enabled) { setStatus('Multiface not enabled'); return; }
+    if (!mf.romLoaded) { setStatus('Multiface ROM not loaded'); return; }
+    mf.pressButton(cpc.memory, cpc.cpu);
+    setStatus('Multiface NMI triggered');
+    return;
+  }
+
   if (!spectrum) return;
   const mf = spectrum.multiface;
   if (!mf.enabled) { setStatus('Multiface not enabled'); return; }

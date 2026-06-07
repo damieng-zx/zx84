@@ -31,6 +31,7 @@ import { CpcKeyboard } from '@/cpc/cpc-keyboard.ts';
 import { Crtc6845, R_HORIZ_DISPLAYED, R_VERT_DISPLAYED } from '@/cores/crtc-6845.ts';
 import { GateArray } from '@/cores/gate-array.ts';
 import { Ppi8255, installCpcMemoryHooks, wireCpcPortIO } from '@/cpc/cpc-io.ts';
+import { CpcMultiface } from '@/peripherals/cpc-multiface.ts';
 import { trapCpcCasRead } from '@/cpc/cpc-tape-loader.ts';
 import { createCpcConfig, type CpcConfig } from '@/cpc/config.ts';
 import {
@@ -65,6 +66,7 @@ export class CpcMachine implements Machine {
   readonly crtc: Crtc6845;
   readonly gateArray: GateArray;
   readonly ppi: Ppi8255;
+  readonly multiface = new CpcMultiface();
   readonly mixer: AudioMixer;
   readonly audio: Audio;
   display: IScreenRenderer | null;
@@ -238,6 +240,7 @@ export class CpcMachine implements Machine {
     this.crtc.reset();
     this.gateArray.reset();
     this.ppi.reset();
+    this.multiface.reset();
     this.keyboard.reset();
     this.audio.reset();
     this.mixer.reset();

@@ -66,6 +66,10 @@ export class CpcMemory implements IMachineMemory {
   private upperRomEnabled = true;
   private selectedUpperRom = 0;
 
+  /** Multiface Two slot-0 overlay (16KB) when paged in; null otherwise. Takes
+   *  precedence over the normal slot-0 read/write source. */
+  private mfOverlay: Uint8Array | null = null;
+
   private readonly ramBanks: number;
 
   constructor(cfg: CpcConfig) {
@@ -154,6 +158,23 @@ export class CpcMemory implements IMachineMemory {
     if (this.upperRomEnabled) {
       this.readPtr[3] = this.upperRoms[this.selectedUpperRom] ?? this.absentRom;
     }
+    // Multiface Two overlay wins slot 0 outright (ROM+RAM, read and write).
+    if (this.mfOverlay) {
+      this.readPtr[0] = this.mfOverlay;
+      this.writePtr[0] = this.mfOverlay;
+    }
+  }
+
+  // ── Multiface Two slot-0 overlay ──────────────────────────────────────────
+
+  setSlot0Overlay(buf: Uint8Array): void {
+    this.mfOverlay = buf;
+    this.applyMapping();
+  }
+
+  clearSlot0Overlay(): void {
+    this.mfOverlay = null;
+    this.applyMapping();
   }
 
   // ── IMachineMemory ───────────────────────────────────────────────────────
@@ -267,6 +288,7 @@ export class CpcMemory implements IMachineMemory {
     this.lowerRomEnabled = true;
     this.upperRomEnabled = true;
     this.selectedUpperRom = 0;
+    this.mfOverlay = null;
     this.applyMapping();
   }
 }
