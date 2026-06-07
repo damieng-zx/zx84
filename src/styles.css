@@ -758,6 +758,13 @@ input[type="range"]::-moz-range-thumb {
 
 /* Register pane */
 
+/* Hardware option checkboxes laid out in two columns. */
+.hw-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 8px;
+}
+
 /* Multiface row */
 .multiface-row {
   display: flex;
@@ -766,7 +773,7 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .mf-check {
-  flex: 1;
+  flex: 0 1 auto;
   display: flex !important;
   flex-direction: row !important;
   align-items: center;
@@ -789,25 +796,25 @@ input[type="range"]::-moz-range-thumb {
   cursor: not-allowed;
 }
 
-.mf-nmi-btn {
+/* Small round red button that fires the Multiface NMI (the physical red
+   STOP/Magic button on the cartridge). Sits just after the label text as a
+   trigger affordance — specificity beats the generic `.pane button` rule. */
+.multiface-row .mf-trigger {
   flex: 0 0 auto;
-  width: auto !important;
-  padding: 4px 10px !important;
-  font-size: 0.75rem !important;
-  font-weight: 600;
-  background: #fee !important;
-  border-color: #c99 !important;
-  color: #a22 !important;
+  width: 13px;
+  height: 13px;
+  padding: 0;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: #d22;
+  border: 1px solid #911;
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.35);
+  cursor: pointer;
 }
 
-.mf-nmi-btn:hover:not(:disabled) {
-  background: #fdd !important;
-  border-color: #a66 !important;
-}
-
-.mf-nmi-btn:disabled {
-  opacity: 0.4;
-  cursor: default;
+.multiface-row .mf-trigger:hover {
+  background: #f33;
+  border-color: #b11;
 }
 
 #model-row #cpu-mhz {

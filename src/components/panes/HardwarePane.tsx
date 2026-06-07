@@ -47,6 +47,7 @@ export function HardwarePane() {
         >{clockSpeedText()}</button>
         <button id="cpu-reset" title="Reset machine" onClick={resetMachine}><HiOutlinePower /></button>
       </div>
+      <div class="hw-options">
       {/* Multiface and VTX-5000 are Spectrum-only peripherals. */}
       <Show when={!isCpcModel(currentModel())}>
         <div class="multiface-row">
@@ -72,12 +73,14 @@ export function HardwarePane() {
             />
             {variantLabel(variantForModel(currentModel() as SpectrumModel))}
           </label>
-          <button
-            class="mf-nmi-btn"
-            title="Trigger NMI (Multiface button)"
-            disabled={!settings.multifaceEnabled()}
-            onClick={triggerNMI}
-          >NMI</button>
+          <Show when={settings.multifaceEnabled()}>
+            <button
+              class="mf-trigger"
+              title="Trigger NMI (Multiface button)"
+              aria-label="Trigger Multiface NMI"
+              onClick={triggerNMI}
+            />
+          </Show>
         </div>
         <div class="multiface-row">
           <label
@@ -124,12 +127,14 @@ export function HardwarePane() {
             />
             Multiface Two
           </label>
-          <button
-            class="mf-nmi-btn"
-            title="Press the red STOP button (NMI)"
-            disabled={!settings.multifaceEnabled()}
-            onClick={triggerNMI}
-          >NMI</button>
+          <Show when={settings.multifaceEnabled()}>
+            <button
+              class="mf-trigger"
+              title="Press the red STOP button (NMI)"
+              aria-label="Press the Multiface STOP button"
+              onClick={triggerNMI}
+            />
+          </Show>
         </div>
       </Show>
       {/* ParaDOS — AMSDOS replacement, disk-capable CPCs (664/6128) only. */}
@@ -171,6 +176,7 @@ export function HardwarePane() {
           </label>
         </div>
       </Show>
+      </div>
       <Show when={romStatusText()}>
         <span class="rom-status" id="rom-status">{romStatusText()}</span>
       </Show>
