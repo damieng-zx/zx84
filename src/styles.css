@@ -243,9 +243,9 @@ body.cpc-mode .section-label::after {
   /* Amstrad 1980s logo: a single burgundy band leaning ~27° off vertical. */
   background: linear-gradient(
     117deg,
-    transparent 50px,
-    #9c2249 50px, #9c2249 68px,
-    transparent 68px
+    transparent 68px,
+    #9c2249 68px, #9c2249 86px,
+    transparent 86px
   );
 }
 
