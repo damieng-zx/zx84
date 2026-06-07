@@ -91,6 +91,20 @@ export class GateArray {
     this.interruptRequested = false;
   }
 
+  // ── Snapshot state (.SNA) ─────────────────────────────────────────────
+
+  /** Currently selected pen (0–15, or 16 for the border) — for snapshot save. */
+  get selectedPenIndex(): number { return this.selectedPen; }
+
+  /** Restore pen selection, screen mode and the 17 pen colours from a snapshot.
+   *  `pendingMode` is set to `mode` so no stale mid-frame mode change lingers. */
+  restoreState(selectedPen: number, mode: number, pens: ArrayLike<number>): void {
+    this.selectedPen = selectedPen & 0x1F;
+    this.mode = mode & 0x03;
+    this.pendingMode = this.mode;
+    for (let i = 0; i < 17; i++) this.pens[i] = (pens[i] ?? 0) & 0x1F;
+  }
+
   // ── Rendering ─────────────────────────────────────────────────────────
 
   /** Fill the whole frame buffer with the current border colour (top/bottom

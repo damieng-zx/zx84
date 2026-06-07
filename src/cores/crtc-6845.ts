@@ -56,6 +56,9 @@ export class Crtc6845 {
 
   selectRegister(val: number): void { this.selected = val & 0x1F; }
 
+  /** Currently selected register index — for snapshot save. */
+  get selectedRegister(): number { return this.selected; }
+
   writeRegister(val: number): void {
     if (this.selected < 18) this.regs[this.selected] = val & 0xFF;
   }

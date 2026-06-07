@@ -125,6 +125,25 @@ export class Ppi8255 {
     this.pC = 0;
     this.control = 0x9B;
   }
+
+  // ── Snapshot state (.SNA) ─────────────────────────────────────────────
+
+  /** Port A/C output latches + control register, for snapshot save. Port B is
+   *  input-only (computed in readB) so it is not part of the saved state. */
+  getState(): { portA: number; portC: number; control: number } {
+    return { portA: this.pA, portC: this.pC, control: this.control };
+  }
+
+  /** Restore the latches directly — no AY strobe (the AY is restored
+   *  separately), but the keyboard line + motor are re-derived from Port C so
+   *  the live state matches the restored latch. */
+  setState(s: { portA: number; portC: number; control: number }): void {
+    this.pA = s.portA & 0xFF;
+    this.pC = s.portC & 0xFF;
+    this.control = s.control & 0xFF;
+    this.keyboard.selectLine(this.pC & 0x0F);
+    this.setMotor((this.pC & 0x20) !== 0);
+  }
 }
 
 /** Install CPU memory read/write hooks (no contention in Phase 1). */

@@ -222,6 +222,23 @@ export class CpcMemory implements IMachineMemory {
     };
   }
 
+  /** Restore the full paging configuration from a snapshot in one shot, then
+   *  remap. Counterpart to pagingState(); used by the .SNA loader. */
+  restorePaging(state: {
+    ramConfig: number;
+    ram64kBlock: number;
+    lowerRomEnabled: boolean;
+    upperRomEnabled: boolean;
+    selectedUpperRom: number;
+  }): void {
+    this.ramConfig = state.ramConfig & 0x07;
+    this.ram64kBlock = state.ram64kBlock & 0x07;
+    this.lowerRomEnabled = state.lowerRomEnabled;
+    this.upperRomEnabled = state.upperRomEnabled;
+    this.selectedUpperRom = state.selectedUpperRom;
+    this.applyMapping();
+  }
+
   /** RAM bank currently backing a Z80 slot (0–3), as the Gate Array's video
    *  DMA sees it — RAM only, ignoring ROM overlays. */
   videoBank(slot: number): Uint8Array {

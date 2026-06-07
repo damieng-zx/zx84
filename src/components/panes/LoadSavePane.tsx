@@ -1,8 +1,13 @@
-import { onMount, onCleanup } from 'solid-js';
+import { onMount, onCleanup, Show } from 'solid-js';
 import { Pane } from '@/components/Pane.tsx';
 import { HiOutlineFolderOpen, HiOutlineArrowDownTray } from 'solid-icons/hi';
-import { loadFile, saveSnapshot, saveScreenshot, saveRAM } from '@/emulator.ts';
+import {
+  loadFile, saveSnapshot, saveCpcSnapshot, saveScreenshot, saveRAM, currentModel,
+} from '@/emulator.ts';
+import { isCpcModel } from '@/models.ts';
 import { openFile } from '@/ui/file-picker.ts';
+
+const isCpc = () => isCpcModel(currentModel());
 
 export function LoadSavePane() {
   let menuRef!: HTMLDivElement;
@@ -70,11 +75,20 @@ export function LoadSavePane() {
           <HiOutlineArrowDownTray /> Save
         </button>
         <div ref={menuRef} class="save-menu" style="display:none">
-          <div class="save-menu-item" onClick={handleSave(() => saveSnapshot('szx'))}>Snapshot (.szx)</div>
-          <div class="save-menu-item" onClick={handleSave(() => saveSnapshot('z80'))}>Snapshot (.z80)</div>
-          <div class="save-menu-item" onClick={handleSave(() => saveScreenshot('png'))}>Screenshot (.png)</div>
-          <div class="save-menu-item" onClick={handleSave(() => saveScreenshot('scr'))}>Screen (.scr)</div>
-          <div class="save-menu-item" onClick={handleSave(saveRAM)}>RAM (.bin)</div>
+          <Show
+            when={isCpc()}
+            fallback={<>
+              <div class="save-menu-item" onClick={handleSave(() => saveSnapshot('szx'))}>Snapshot (.szx)</div>
+              <div class="save-menu-item" onClick={handleSave(() => saveSnapshot('z80'))}>Snapshot (.z80)</div>
+              <div class="save-menu-item" onClick={handleSave(() => saveScreenshot('png'))}>Screenshot (.png)</div>
+              <div class="save-menu-item" onClick={handleSave(() => saveScreenshot('scr'))}>Screen (.scr)</div>
+              <div class="save-menu-item" onClick={handleSave(saveRAM)}>RAM (.bin)</div>
+            </>}
+          >
+            <div class="save-menu-item" onClick={handleSave(() => saveCpcSnapshot(2))}>Snapshot v2 (.sna)</div>
+            <div class="save-menu-item" onClick={handleSave(() => saveCpcSnapshot(3))}>Snapshot v3 (.sna)</div>
+            <div class="save-menu-item" onClick={handleSave(() => saveScreenshot('png'))}>Screenshot (.png)</div>
+          </Show>
         </div>
       </div>
     </Pane>

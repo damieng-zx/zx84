@@ -20,6 +20,7 @@ import { saveZ80 } from '@/snapshot/z80format.ts';
 import { parseTZX } from '@/tape/tzx.ts';
 import { parseDSK, serializeDSK, type DskImage } from '@/plus3/dsk.ts';
 import { loadSZX } from '@/snapshot/szx.ts';
+import { readCpcSnaModel, applyCpcSna, saveCpcSna } from '@/snapshot/cpc-sna.ts';
 import { clearLastFile, clearDisk, restoreTape, restoreDisk, dbSave, dbLoad } from '@/store/persistence.ts';
 import * as settings from '@/store/settings.ts';
 import { variantForModel, variantLabel, romFilename } from '@/peripherals/multiface.ts';
@@ -629,7 +630,11 @@ export async function loadFile(data: Uint8Array, filename: string, unit?: number
       applyTape(data, filename);
       return;
     }
-    if (!/\.dsk$/i.test(filename)) { setStatus('CPC accepts .dsk, .cdt, .tzx and .tap files'); return; }
+    if (/\.sna$/i.test(filename)) {
+      await loadCpcSnapshot(data, filename);
+      return;
+    }
+    if (!/\.dsk$/i.test(filename)) { setStatus('CPC accepts .sna, .dsk, .cdt, .tzx and .tap files'); return; }
     cpc.stop();
     try {
       const image = parseDSK(data);
@@ -661,6 +666,52 @@ function downloadFile(data: Uint8Array, filename: string): void {
   URL.revokeObjectURL(url);
 }
 
+/**
+ * Load a CPC `.SNA`. Auto-switches the running machine to the snapshot's model
+ * (464/664/6128 differ in RAM size and ROM set) before applying state.
+ */
+async function loadCpcSnapshot(data: Uint8Array, filename: string): Promise<void> {
+  let info;
+  try {
+    info = readCpcSnaModel(data);
+  } catch (e) {
+    setStatus(`SNA error: ${(e as Error).message}`);
+    return;
+  }
+
+  if (info.model !== currentModel()) {
+    await switchModel(info.model);   // rebuilds + starts the machine with the right ROM
+  }
+
+  const cpc = asCpc(machine);
+  if (!cpc) { setStatus('SNA load needs a CPC machine'); return; }
+
+  cpc.stop();
+  try {
+    applyCpcSna(data, cpc);
+    setStatus(`Loaded ${info.model} SNA v${info.version}: ${filename}`);
+  } catch (e) {
+    setStatus(`SNA error: ${(e as Error).message}`);
+  } finally {
+    cpc.start();
+  }
+}
+
+/** Save the running CPC as a `.SNA` (v2 = flat, v3 = RLE-compressed). */
+export function saveCpcSnapshot(version: 2 | 3): void {
+  const cpc = asCpc(machine);
+  if (!cpc) { setStatus('No CPC running'); return; }
+
+  const wasPaused = emulationPaused();
+  if (!wasPaused) cpc.stop();
+
+  const data = saveCpcSna(cpc, version);
+  downloadFile(data, `zx84-${cpc.model}.sna`);
+
+  if (!wasPaused) cpc.start();
+  setStatus(`Saved zx84-${cpc.model}.sna (v${version})`);
+}
+
 export async function saveSnapshot(format: 'z80' | 'szx' = 'szx'): Promise<void> {
   if (!spectrum) { setStatus('No machine running'); return; }
 
@@ -688,17 +739,18 @@ export async function saveSnapshot(format: 'z80' | 'szx' = 'szx'): Promise<void>
 }
 
 export function saveScreenshot(format: 'png' | 'scr'): void {
-  if (!spectrum) { setStatus('No machine running'); return; }
+  if (!machine) { setStatus('No machine running'); return; }
 
   if (format === 'scr') {
-    // .scr = raw 6912 bytes from 0x4000 (6144 pixels + 768 attrs)
+    // .scr = raw 6912 bytes from 0x4000 (6144 pixels + 768 attrs) — Spectrum-only.
+    if (!spectrum) { setStatus('.scr is a Spectrum format'); return; }
     const screenData = spectrum.memory.getRamBank(5).slice(0, 6912);
     downloadFile(screenData, 'screen.scr');
     setStatus('Saved screen.scr');
   } else {
-    // PNG export via canvas
-    if (!spectrum.display) { setStatus('No display available'); return; }
-    const canvas = spectrum.display['canvas'] as HTMLCanvasElement;
+    // PNG export via canvas (works for any machine with a display).
+    if (!machine.display) { setStatus('No display available'); return; }
+    const canvas = machine.display['canvas'] as HTMLCanvasElement;
     canvas.toBlob((blob) => {
       if (!blob) return;
       const url = URL.createObjectURL(blob);
