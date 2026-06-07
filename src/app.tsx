@@ -146,6 +146,12 @@ export function App() {
     });
   });
 
+  // Mark the document in Amstrad mode so CPC-specific styling (e.g. hiding the
+  // Spectrum rainbow stripe on pane title bars) can key off it.
+  createEffect(() => {
+    document.body.classList.toggle('cpc-mode', isCpcModel(currentModel()));
+  });
+
   // Init emulator on mount
   onMount(() => { init(); });
 
