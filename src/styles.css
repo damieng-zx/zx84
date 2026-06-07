@@ -354,7 +354,7 @@ body.cpc-mode .section-label::after {
 
 #model-row select { flex: 1; min-width: 0; }
 
-#model-row button {
+#model-row #cpu-reset {
   width: 28px;
   height: 28px;
   padding: 0;
@@ -758,15 +758,6 @@ input[type="range"]::-moz-range-thumb {
 
 /* Register pane */
 
-#cpu-controls {
-  display: flex;
-  gap: 2px;
-}
-
-#cpu-controls button {
-  flex: 1;
-}
-
 /* Multiface row */
 .multiface-row {
   display: flex;
@@ -819,10 +810,12 @@ input[type="range"]::-moz-range-thumb {
   cursor: default;
 }
 
-#cpu-mhz {
-  flex: 2;
+#model-row #cpu-mhz {
+  flex: 0 0 auto;
+  width: auto;
+  height: 28px;
+  font-size: 0.7rem;
   font-variant-numeric: tabular-nums;
-  min-width: 0;
 }
 
 #regs-output {

@@ -1,7 +1,7 @@
 import { Pane } from '@/components/Pane.tsx';
 import { HiOutlinePower } from 'solid-icons/hi';
 import {
-  currentModel, romStatusText, switchModel, loadRomFiles,
+  currentModel, romStatusText, switchModel,
   turboMode, clockSpeedText, resetMachine, toggleTurbo,
   spectrum, triggerNMI, loadMultifaceROM, loadVTX5000ROM, setCpcMultiface,
   multifaceRomFailed, vtx5000RomFailed, paradosRomFailed,
@@ -12,18 +12,8 @@ import { Show } from 'solid-js';
 import { variantForModel, variantLabel } from '@/peripherals/multiface.ts';
 import * as settings from '@/store/settings.ts';
 import { resetSettingsGroup } from '@/store/settings.ts';
-import { openFile } from '@/ui/file-picker.ts';
 
 export function HardwarePane() {
-  async function handleLoadRom() {
-    const results = await openFile({
-      id: 'zx84-rom',
-      extensions: ['.rom', '.bin'],
-      multiple: true,
-    });
-    if (results) loadRomFiles(results);
-  }
-
   return (
     <Pane id="hardware-panel" label="Hardware" onResetSettings={() => {
       resetSettingsGroup('hardware');
@@ -42,23 +32,20 @@ export function HardwarePane() {
           <option value="16k">ZX Spectrum 16K</option>
           <option value="48k">ZX Spectrum 48K</option>
           <option value="128k">ZX Spectrum 128K</option>
-          <option value="+2">ZX Spectrum +2 (Grey)</option>
-          <option value="+2A">ZX Spectrum +2A (Black)</option>
+          <option value="+2">ZX Spectrum +2</option>
+          <option value="+2A">ZX Spectrum +2A</option>
           <option value="+3">ZX Spectrum +3</option>
           <option value="cpc464">Amstrad CPC 464</option>
           <option value="cpc664">Amstrad CPC 664</option>
           <option value="cpc6128">Amstrad CPC 6128</option>
         </select>
-        <button id="cpu-reset" title="Reset machine" onClick={resetMachine}><HiOutlinePower /></button>
-      </div>
-      <div id="cpu-controls">
-        <button class="btn btn-md" id="rom-btn" title="Load ROM" onClick={handleLoadRom}>ROM Select</button>
         <button
           id="cpu-mhz"
           title={turboMode() ? 'Switch to normal speed' : 'Toggle turbo speed'}
           class={`btn btn-md${turboMode() ? ' active' : ''}`}
           onClick={toggleTurbo}
         >{clockSpeedText()}</button>
+        <button id="cpu-reset" title="Reset machine" onClick={resetMachine}><HiOutlinePower /></button>
       </div>
       {/* Multiface and VTX-5000 are Spectrum-only peripherals. */}
       <Show when={!isCpcModel(currentModel())}>
