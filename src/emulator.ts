@@ -622,6 +622,26 @@ export function applyTape(data: Uint8Array, filename: string): void {
 
 // ── File routing ────────────────────────────────────────────────────────
 
+/**
+ * File extensions the current machine can load, for the Load picker filter.
+ * CPC uses .sna snapshots and .cdt cassettes; the Spectrum uses its own snapshot
+ * + tape formats and .zip archives. `.dsk` is offered only when the active
+ * machine actually has a floppy controller (+3, or a CPC 664/6128).
+ */
+export function loadableExtensions(): string[] {
+  const cpc = asCpc(machine);
+  if (cpc) {
+    const exts = ['.sna', '.cdt'];
+    if (cpc.config.hasFDC) exts.push('.dsk');
+    return exts;
+  }
+  // Spectrum (and the no-machine default).
+  const exts = ['.sna', '.z80', '.szx', '.sp', '.tap', '.tzx'];
+  if (spectrum?.variant.hasFDC) exts.push('.dsk');
+  exts.push('.zip');
+  return exts;
+}
+
 export async function loadFile(data: Uint8Array, filename: string, unit?: number): Promise<void> {
   // CPC: .dsk disk images into the shared uPD765A, or .cdt/.tzx/.tap cassettes.
   const cpc = asCpc(machine);

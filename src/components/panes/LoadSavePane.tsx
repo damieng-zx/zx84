@@ -2,7 +2,8 @@ import { onMount, onCleanup, Show } from 'solid-js';
 import { Pane } from '@/components/Pane.tsx';
 import { HiOutlineFolderOpen, HiOutlineArrowDownTray } from 'solid-icons/hi';
 import {
-  loadFile, saveSnapshot, saveCpcSnapshot, saveScreenshot, saveRAM, currentModel,
+  loadFile, loadableExtensions, saveSnapshot, saveCpcSnapshot, saveScreenshot,
+  saveRAM, currentModel,
 } from '@/emulator.ts';
 import { isCpcModel } from '@/models.ts';
 import { openFile } from '@/ui/file-picker.ts';
@@ -53,7 +54,7 @@ export function LoadSavePane() {
   async function handleLoad() {
     const results = await openFile({
       id: 'zx84-snapshot',
-      extensions: ['.sna', '.z80', '.szx', '.sp', '.tap', '.tzx', '.dsk', '.zip'],
+      extensions: loadableExtensions(),
     });
     if (!results) return;
     await loadFile(results[0].data, results[0].name);
