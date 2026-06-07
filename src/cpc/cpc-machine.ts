@@ -201,6 +201,29 @@ export class CpcMachine extends BaseMachine implements Machine {
     this.tapeMotorOn = on;
   }
 
+  /**
+   * Seed the Multiface Two I/O shadow from the live chip state, so the freeze
+   * cartridge can be enabled mid-session and STOP→Return still restores the
+   * running program rather than crashing on a blank shadow. Called when the MF2
+   * is toggled on (see CpcMultiface.seedShadow).
+   */
+  seedMultifaceShadow(): void {
+    const p = this.memory.pagingState();
+    this.multiface.seedShadow({
+      pens: this.gateArray.pens,
+      selectedPen: this.gateArray.selectedPenIndex,
+      mode: this.gateArray.mode,
+      lowerRomEnabled: p.lowerRomEnabled,
+      upperRomEnabled: p.upperRomEnabled,
+      ramConfig: p.ramConfig,
+      ram64kBlock: p.ram64kBlock,
+      selectedUpperRom: p.selectedUpperRom,
+      crtcRegs: this.crtc.regs,
+      crtcSelected: this.crtc.selectedRegister,
+      ppiControl: this.ppi.getState().control,
+    });
+  }
+
   setBorderSize(mode: BorderMode): void {
     // The Gate Array always renders the full 768×272 buffer (active 640×200
     // centred, CPC_BORDER_LEFT/TOP border on each side). Cropping is purely a

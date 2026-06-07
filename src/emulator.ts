@@ -1152,10 +1152,17 @@ export function setCpcMultiface(on: boolean): void {
   const cpc = asCpc(machine);
   if (!cpc) return;
   cpc.multiface.enabled = on;
-  if (on && !cpc.multiface.romLoaded) {
-    loadCpcMultifaceROM(cpc).catch(err => console.warn('MF2 ROM load failed:', err));
+  if (on) {
+    // Capture the current chip state into the shadow so STOP→Return works even
+    // when the cartridge is switched on after the machine has already booted
+    // (the PAL never saw the boot-time OUTs that configured it).
+    cpc.seedMultifaceShadow();
+    if (!cpc.multiface.romLoaded) {
+      loadCpcMultifaceROM(cpc).catch(err => console.warn('MF2 ROM load failed:', err));
+    }
+  } else {
+    cpc.multiface.pageOut(cpc.memory);
   }
-  if (!on) cpc.multiface.pageOut(cpc.memory);
 }
 
 export function triggerNMI(): void {

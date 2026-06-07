@@ -28,6 +28,31 @@ import type { CpcMemory } from '@/cpc/cpc-memory.ts';
 
 const ROM_SIZE = 8192;
 
+/** Live chip state used to seed the I/O shadow when the cartridge is enabled
+ *  mid-session (see {@link CpcMultiface.seedShadow}). */
+export interface CpcShadowState {
+  /** Gate-Array colours: 16 pens (0–15) + border (16), hardware colour 0–31. */
+  pens: ArrayLike<number>;
+  /** Currently selected pen (0–15, or 16 for the border). */
+  selectedPen: number;
+  /** Screen mode 0–3. */
+  mode: number;
+  lowerRomEnabled: boolean;
+  upperRomEnabled: boolean;
+  /** RAM configuration: low 3 bits of the %11xxxxxx command. */
+  ramConfig: number;
+  /** 64KB expansion block (bits 5–3 of the RAM command). */
+  ram64kBlock: number;
+  /** OUT &DFxx upper-ROM number. */
+  selectedUpperRom: number;
+  /** The 18 CRTC registers. */
+  crtcRegs: ArrayLike<number>;
+  /** Currently selected CRTC register. */
+  crtcSelected: number;
+  /** 8255 PPI control register. */
+  ppiControl: number;
+}
+
 export class CpcMultiface {
   enabled = false;
   pagedIn = false;
@@ -87,10 +112,18 @@ export class CpcMultiface {
 
   /**
    * Snoop an OUT, recording write-only chip registers into the RAM shadow so the
-   * toolkit's "Return" can reconstruct the machine state. Called for every OUT
-   * while the cartridge is present (independent of paged-in state).
+   * toolkit's "Return" can reconstruct the machine state.
+   *
+   * Recording is frozen while the cartridge is paged in: the captured shadow is
+   * the *interrupted program's* chip state, taken at the moment of STOP. Once the
+   * toolkit is active it programs the chips itself (its own video mode, colours,
+   * ROM paging); if those OUTs were recorded they would clobber the shadow and
+   * Return would restore the toolkit's state instead of the program's — wrong
+   * mode / RAM config, and the CPC crashes. The real MF2 PAL gates capture the
+   * same way (cf. Caprice32, which records only while the MF2 is inactive).
    */
   recordOut(port: number, val: number): void {
+    if (this.pagedIn) return;
     port &= 0xFFFF;
     val &= 0xFF;
     const buf = this.buf;
@@ -126,5 +159,44 @@ export class CpcMultiface {
 
     // PPI control: A11=0, function 3 (&F7xx).
     if ((port & 0x0800) === 0 && ((port >> 8) & 3) === 3) buf[0x37ff] = val;
+  }
+
+  /**
+   * Seed the I/O shadow from the live chip state.
+   *
+   * The PAL only captures OUTs while the cartridge is fitted, so enabling the
+   * MF2 mid-session leaves the shadow blank — it never saw the boot-time writes
+   * that set the current mode, palette, RAM config, CRTC and ROM paging, so
+   * Return would restore garbage and crash. This reconstructs those captures by
+   * replaying the equivalent OUTs through {@link recordOut}, so the shadow ends
+   * up holding exactly the bytes a from-boot capture would, letting STOP→Return
+   * restore the running program without a reboot. No effect while paged in.
+   */
+  seedShadow(s: CpcShadowState): void {
+    if (this.pagedIn) return;
+    // Gate-Array palette: select each pen, then write its colour (FN_PEN=00,
+    // FN_COLOUR=01 in val bits 7-6; both on the &7Fxx port).
+    for (let pen = 0; pen < 16; pen++) {
+      this.recordOut(0x7F00, pen);
+      this.recordOut(0x7F00, 0x40 | (s.pens[pen] & 0x1F));
+    }
+    this.recordOut(0x7F00, 0x10);                       // border pen
+    this.recordOut(0x7F00, 0x40 | (s.pens[16] & 0x1F));
+    // Leave the firmware's selected pen current (its FN_PEN byte).
+    this.recordOut(0x7F00, s.selectedPen >= 16 ? 0x10 : (s.selectedPen & 0x0F));
+    // RMR: screen mode + ROM enables (a set bit = that ROM disabled).
+    this.recordOut(0x7F00,
+      0x80 | (s.mode & 0x03) | (s.lowerRomEnabled ? 0 : 0x04) | (s.upperRomEnabled ? 0 : 0x08));
+    // RAM configuration (FN_RAM=11).
+    this.recordOut(0x7FC0, 0xC0 | ((s.ram64kBlock & 0x07) << 3) | (s.ramConfig & 0x07));
+    // CRTC: each register's value, then restore the selected register.
+    for (let reg = 0; reg < 18; reg++) {
+      this.recordOut(0xBC00, reg);
+      this.recordOut(0xBD00, s.crtcRegs[reg] & 0xFF);
+    }
+    this.recordOut(0xBC00, s.crtcSelected & 0xFF);
+    // Upper-ROM select + PPI control.
+    this.recordOut(0xDF00, s.selectedUpperRom & 0xFF);
+    this.recordOut(0xF700, s.ppiControl & 0xFF);
   }
 }

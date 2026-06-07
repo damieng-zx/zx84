@@ -120,6 +120,96 @@ describe('CpcMultiface I/O shadow recording', () => {
     expect(mem.readByte(0x3aac)).toBe(7);    // upper-ROM select
     expect(mem.readByte(0x37ff)).toBe(0x82); // PPI control
   });
+
+  it('freezes recording while paged in so Return restores the program, not the toolkit', () => {
+    const { mem, mf } = setup();
+    // Program's pre-STOP state: screen mode 1, RAM config 0, ROM select 0.
+    mf.recordOut(0x7F00, 0x8C); // GA RMR (bits 7-6 = 10): mode 0 + ROMs
+    mf.recordOut(0x7FC0, 0xC0); // GA RAM config 0
+    mf.recordOut(0xDF00, 0x00); // upper-ROM select 0
+
+    // STOP: page the toolkit in. From here the toolkit reprograms the chips for
+    // its own UI — those OUTs must NOT overwrite the captured shadow.
+    mf.pageIn(mem);
+    mf.recordOut(0x7F00, 0x8E); // toolkit picks a different mode + ROM state
+    mf.recordOut(0x7FC0, 0xC3); // toolkit remaps RAM
+    mf.recordOut(0xDF00, 0x07); // toolkit pages in AMSDOS
+
+    // The shadow the toolkit's Return reads back is still the program's state.
+    expect(mem.readByte(0x3fef)).toBe(0x8C); // RMR — program's, not 0x8E
+    expect(mem.readByte(0x3fff)).toBe(0xC0); // RAM config — program's, not 0xC3
+    expect(mem.readByte(0x3aac)).toBe(0x00); // upper-ROM — program's, not 0x07
+  });
+
+  it('resumes recording after the toolkit pages out', () => {
+    const { mem, mf } = setup();
+    mf.pageIn(mem);
+    mf.recordOut(0x7F00, 0x8E); // ignored while paged in
+    mf.pageOut(mem);
+    mf.recordOut(0x7F00, 0x8D); // program runs again → recorded
+    mf.pageIn(mem);
+    expect(mem.readByte(0x3fef)).toBe(0x8D);
+  });
+});
+
+describe('CpcMultiface shadow seeding (enabled mid-session)', () => {
+  /** A representative live chip state to seed from. */
+  function liveState() {
+    const pens = Array.from({ length: 17 }, (_, i) => i); // pen n → colour n
+    pens[16] = 0x0B;                                       // border colour 11
+    const crtcRegs = new Array(18).fill(0);
+    crtcRegs[3] = 0x8E;                                    // sync widths
+    crtcRegs[6] = 25;                                      // vertical displayed
+    return {
+      pens, selectedPen: 2, mode: 1,
+      lowerRomEnabled: false,   // RMR bit 2 set
+      upperRomEnabled: true,
+      ramConfig: 3, ram64kBlock: 0,
+      selectedUpperRom: 7,
+      crtcRegs, crtcSelected: 6,
+      ppiControl: 0x82,
+    };
+  }
+
+  it('reconstructs the shadow from live chip state so Return works without a reboot', () => {
+    const { mem, mf } = setup();
+    mf.seedShadow(liveState());
+    mf.pageIn(mem);
+
+    // RMR = 0x80 | mode 1 | lower-ROM-off (0x04) = 0x85.
+    expect(mem.readByte(0x3fef)).toBe(0x85);
+    // RAM config = 0xC0 | 3.
+    expect(mem.readByte(0x3fff)).toBe(0xC3);
+    // Pen colours land at 0x3f90|pen as the colour OUT byte (0x40 | colour).
+    expect(mem.readByte(0x3f90)).toBe(0x40);       // pen 0 → colour 0
+    expect(mem.readByte(0x3f95)).toBe(0x45);       // pen 5 → colour 5
+    expect(mem.readByte(0x3fd0)).toBe(0x4B);       // border → colour 11
+    // The firmware's selected pen (2) is left current, not pen 15 / border.
+    expect(mem.readByte(0x3fcf)).toBe(2);
+    // CRTC register data + restored select.
+    expect(mem.readByte(0x3db3)).toBe(0x8E);       // reg 3 data
+    expect(mem.readByte(0x3db6)).toBe(25);         // reg 6 data
+    expect(mem.readByte(0x3cff)).toBe(6);          // selected register
+    // Upper-ROM select + PPI control.
+    expect(mem.readByte(0x3aac)).toBe(7);
+    expect(mem.readByte(0x37ff)).toBe(0x82);
+  });
+
+  it('encodes upper-ROM disable in the RMR bit when the upper ROM is off', () => {
+    const { mem, mf } = setup();
+    mf.seedShadow({ ...liveState(), mode: 2, lowerRomEnabled: true, upperRomEnabled: false });
+    mf.pageIn(mem);
+    // 0x80 | mode 2 | upper-ROM-off (0x08) = 0x8A.
+    expect(mem.readByte(0x3fef)).toBe(0x8A);
+  });
+
+  it('does not seed while the cartridge is paged in', () => {
+    const { mem, mf } = setup();
+    mf.pageIn(mem);                 // toolkit active — shadow must stay frozen
+    mf.seedShadow(liveState());
+    expect(mem.readByte(0x3fef)).toBe(0x00); // nothing written
+    expect(mem.readByte(0x37ff)).toBe(0x00);
+  });
 });
 
 describe('CpcMultiface STOP button', () => {
