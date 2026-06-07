@@ -40,7 +40,7 @@ const DEFAULT_ORDER: PanePosition[] = [
  */
 export const SPECTRUM_ONLY_PANES = new Set<string>([
   'sysvar-panel', 'basic-vars-panel',
-  'font-panel', 'mouse-panel',
+  'font-panel',
 ]);
 
 function loadPaneOrder(): PanePosition[] {

@@ -254,6 +254,19 @@ export function wireCpcPortIO(m: CpcMachine): void {
   };
 
   function dispatchIn(port: number): number {
+    // Kempston mouse (when fitted). Decoded on lines A10, A8, A4, A0 (the rest
+    // are don't-care); the interface answers before the FDC, which it fully
+    // decodes clear of (the FDC ports have A4=1, the mouse X/Y need A4=0):
+    //   X  0xFBEE  A10=0 A8=1 A4=0 A0=0   (left -ve, right +ve)
+    //   Y  0xFBEF  A10=0 A8=1 A4=0 A0=1   (up   +ve, down  -ve)
+    //   B  0xFAEF  A10=0 A8=0 A4=0        (bit0=right, bit1=left, active-low)
+    if (m.kempstonMouse.enabled) {
+      const km = m.kempstonMouse;
+      if ((port & 0x0511) === 0x0100) { m.activity.mouseReads++; return km.x & 0xFF; }
+      if ((port & 0x0511) === 0x0101) { m.activity.mouseReads++; return km.y & 0xFF; }
+      if ((port & 0x0510) === 0x0000) { m.activity.mouseReads++; return km.buttons; }
+    }
+
     // CRTC read: A14=0, A13=1, fn 2/3
     if ((port & 0x6000) === 0x2000) {
       const fn = (port >> 8) & 3;

@@ -1,11 +1,19 @@
 /**
- * Kempston mouse peripheral.
+ * Kempston mouse peripheral — shared by the Spectrum and the CPC. The class is
+ * just the two 8-bit wrapping position counters plus an active-low button byte;
+ * the port decoding (and which interface ports map to X/Y/buttons) lives in the
+ * per-machine I/O layer, because the two machines decode different addresses:
  *
- * Ports (active when enabled, low byte = 0xDF):
- *   0xFBDF → X position (8-bit wrapping counter)
- *   0xFFDF → Y position (8-bit wrapping counter)
- *   0xFADF → Buttons (active-low)
+ *   Spectrum: 0xFBDF → X, 0xFFDF → Y, 0xFADF → buttons
+ *   CPC:      0xFBEE → X, 0xFBEF → Y, 0xFAEF → buttons
+ *
+ * The button *bit* layout also differs (the CPC swaps left/right and has no
+ * middle button), so the active-low mapping is supplied per machine via the
+ * constructor.
  */
+
+/** DOM button index → active-low byte bit. Spectrum: left=0, middle=2, right=1. */
+const SPECTRUM_BUTTON_BITS: Record<number, number> = { 0: 0, 1: 2, 2: 1 };
 
 export class KempstonMouse {
   x = 0;
@@ -14,16 +22,20 @@ export class KempstonMouse {
   buttons = 0xFF;
   enabled = false;
 
+  /** DOM-button-index → byte-bit map (active-low). Defaults to the Spectrum. */
+  private readonly buttonBits: Record<number, number>;
+
+  constructor(buttonBits: Record<number, number> = SPECTRUM_BUTTON_BITS) {
+    this.buttonBits = buttonBits;
+  }
+
   updatePosition(dx: number, dy: number): void {
     this.x = (this.x + dx) & 0xFF;
     this.y = (this.y + dy) & 0xFF;
   }
 
-  /** Active-low button mapping: 0=left(bit0), 1=middle(bit2), 2=right(bit1) */
-  private static BUTTON_BITS: Record<number, number> = { 0: 0, 1: 2, 2: 1 };
-
   setButton(button: number, pressed: boolean): void {
-    const bit = KempstonMouse.BUTTON_BITS[button];
+    const bit = this.buttonBits[button];
     if (bit === undefined) return;
     if (pressed) {
       this.buttons &= ~(1 << bit);

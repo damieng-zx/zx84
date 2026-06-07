@@ -984,26 +984,35 @@ export function joyPressForType(dir: string, pressed: boolean, mode: string, pla
 export type MouseMode = 'kempston' | 'amx' | null;
 
 export function setMouseMode(mode: MouseMode): void {
-  if (!spectrum) return;
-  spectrum.kempstonMouse.enabled = mode === 'kempston';
-  spectrum.amxMouse.enabled = mode === 'amx';
+  const s = asSpectrum(machine), c = asCpc(machine);
+  if (s) {
+    s.kempstonMouse.enabled = mode === 'kempston';
+    s.amxMouse.enabled = mode === 'amx';
+  } else if (c) {
+    c.kempstonMouse.enabled = mode === 'kempston';
+    c.amxMouse.enabled = mode === 'amx';
+  }
 }
 
 export function updateMousePosition(dx: number, dy: number, mode: MouseMode): void {
-  if (!spectrum) return;
+  const s = asSpectrum(machine), c = asCpc(machine);
   if (mode === 'kempston') {
-    spectrum.kempstonMouse.updatePosition(dx, dy);
+    if (s) s.kempstonMouse.updatePosition(dx, dy);
+    else if (c) c.kempstonMouse.updatePosition(dx, dy);
   } else if (mode === 'amx') {
-    spectrum.amxMouse.queueMovement(dx, dy);
+    if (s) s.amxMouse.queueMovement(dx, dy);
+    else if (c) c.amxMouse.queueMovement(dx, dy);
   }
 }
 
 export function setMouseButton(button: number, pressed: boolean, mode: MouseMode): void {
-  if (!spectrum) return;
+  const s = asSpectrum(machine), c = asCpc(machine);
   if (mode === 'kempston') {
-    spectrum.kempstonMouse.setButton(button, pressed);
+    if (s) s.kempstonMouse.setButton(button, pressed);
+    else if (c) c.kempstonMouse.setButton(button, pressed);
   } else if (mode === 'amx') {
-    spectrum.amxMouse.setButton(button, pressed);
+    if (s) s.amxMouse.setButton(button, pressed);
+    else if (c) c.amxMouse.setButton(button, pressed);
   }
 }
 

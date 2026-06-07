@@ -425,6 +425,7 @@ export function onFrame(): void {
       batch(() => {
         setLedKbd(ca.kbdReads > 0);
         setLedDsk(ca.fdcAccesses > 0);
+        setLedMouse(ca.mouseReads > 0 || (cpc.amxMouse.enabled && cpc.amxMouse.active));
         setLedText(transcribeMode() === 'text');
 
         // Cassette: keep the tape pane's position/play state in sync. No

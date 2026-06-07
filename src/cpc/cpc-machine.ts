@@ -32,6 +32,8 @@ import { Crtc6845, R_HORIZ_DISPLAYED, R_VERT_DISPLAYED } from '@/cores/crtc-6845
 import { GateArray } from '@/cores/gate-array.ts';
 import { Ppi8255, installCpcMemoryHooks, wireCpcPortIO } from '@/cpc/cpc-io.ts';
 import { CpcMultiface } from '@/peripherals/cpc-multiface.ts';
+import { KempstonMouse } from '@/peripherals/kempston-mouse.ts';
+import { CpcAmxMouse } from '@/peripherals/cpc-amx-mouse.ts';
 import { trapCpcCasRead } from '@/cpc/cpc-tape-loader.ts';
 import { createCpcConfig, type CpcConfig } from '@/cpc/config.ts';
 import {
@@ -67,6 +69,11 @@ export class CpcMachine implements Machine {
   readonly gateArray: GateArray;
   readonly ppi: Ppi8255;
   readonly multiface = new CpcMultiface();
+  /** Kempston mouse (ports 0xFBEE/0xFBEF/0xFAEF). The CPC swaps the button bits
+   *  vs the Spectrum: bit0 = right, bit1 = left, no middle button. */
+  readonly kempstonMouse = new KempstonMouse({ 0: 1, 2: 0 });
+  /** AMX mouse — presents on keyboard line 9 (joystick 0). */
+  readonly amxMouse = new CpcAmxMouse();
   readonly mixer: AudioMixer;
   readonly audio: Audio;
   display: IScreenRenderer | null;
@@ -81,7 +88,7 @@ export class CpcMachine implements Machine {
    *  AY's port A through the PPI ~once per frame); `fdcAccesses` counts FDC
    *  data-port transfers. Mirrors the Spectrum's IOActivity so KEYBOARD/DISK
    *  light up the same way. */
-  readonly activity = { kbdReads: 0, fdcAccesses: 0 };
+  readonly activity = { kbdReads: 0, fdcAccesses: 0, mouseReads: 0 };
 
   /** Screen OCR engine for the TEXT overlay + MCP `ocr` tool. */
   readonly screenText = new CpcScreenText();
@@ -162,6 +169,9 @@ export class CpcMachine implements Machine {
     this.gateArray.onUpperRom = (on) => this.memory.setUpperRomEnabled(on);
     this.gateArray.onRamConfig = (val) => this.memory.setRamConfig(val);
 
+    // The AMX mouse rides keyboard line 9 (joystick 0).
+    this.keyboard.amx = this.amxMouse;
+
     installCpcMemoryHooks(this);
     wireCpcPortIO(this);
   }
@@ -241,6 +251,8 @@ export class CpcMachine implements Machine {
     this.gateArray.reset();
     this.ppi.reset();
     this.multiface.reset();
+    this.kempstonMouse.reset();
+    this.amxMouse.reset();
     this.keyboard.reset();
     this.audio.reset();
     this.mixer.reset();
@@ -346,6 +358,7 @@ export class CpcMachine implements Machine {
 
     this.activity.kbdReads = 0;
     this.activity.fdcAccesses = 0;
+    this.activity.mouseReads = 0;
 
     crtc.beginFrame();
     ga.beginFrame(this._pixels32);

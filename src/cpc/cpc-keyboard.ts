@@ -11,7 +11,12 @@
  * each host key to its base matrix cell.
  */
 
+import type { CpcAmxMouse } from '@/peripherals/cpc-amx-mouse.ts';
+
 const LINES = 10;
+
+/** Matrix line carrying joystick 0 — and the AMX mouse, which is wired here. */
+const JOY0_LINE = 9;
 
 /** [line, bit] for each matrix key. */
 type Cell = readonly [number, number];
@@ -55,12 +60,23 @@ export class CpcKeyboard {
   /** Currently selected line (PPI port C bits 0–3). */
   private selectedLine = 0;
 
+  /** AMX mouse, when fitted — it presents on line 9 (the joystick-0 lines) and
+   *  retires a movement mickey each time the firmware deselects that line. */
+  amx: CpcAmxMouse | null = null;
+
   selectLine(line: number): void {
-    this.selectedLine = line & 0x0F;
+    const next = line & 0x0F;
+    // The AMX mouse updates (consumes a mickey) when line 9 is deselected.
+    if (this.amx?.enabled && this.selectedLine === JOY0_LINE && next !== JOY0_LINE) {
+      this.amx.consumeStep();
+    }
+    this.selectedLine = next;
   }
 
   read(): number {
-    return this.selectedLine < LINES ? this.matrix[this.selectedLine] : 0xFF;
+    const v = this.selectedLine < LINES ? this.matrix[this.selectedLine] : 0xFF;
+    if (this.amx?.enabled && this.selectedLine === JOY0_LINE) return this.amx.applyToLine9(v);
+    return v;
   }
 
   setKey(line: number, bit: number, pressed: boolean): void {
