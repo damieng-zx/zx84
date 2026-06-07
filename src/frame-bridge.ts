@@ -147,10 +147,10 @@ function renderCpcBanks(cpc: import('@/cpc/cpc-machine.ts').CpcMachine): string 
   lines.push('');
   lines.push(`${n}RAM config${e} ${p.ramConfig} → [${p.slotBanks.join(' ')}]  ${n}64K blk${e} ${p.ram64kBlock}`);
   lines.push(
-    `${n}Upper ROM${e} ${p.selectedUpperRom} ${upperName(p.selectedUpperRom)}` +
+    `${n}Upper ROM${e}  ${p.selectedUpperRom} ${upperName(p.selectedUpperRom)}` +
     `  ${n}Low${e} ${p.lowerRomEnabled ? 'on' : 'off'}  ${n}High${e} ${p.upperRomEnabled ? 'on' : 'off'}`,
   );
-  lines.push(`${n}Video DMA${e} bank ${screenBank}  ${n}base${e} &${hex16(screenBase)}`);
+  lines.push(`${n}Video DMA${e}  bank ${screenBank}  ${n}base${e} &${hex16(screenBase)}`);
   lines.push(`${n}Gate Array${e} mode ${cpc.gateArray.mode}`);
 
   return lines.join('\n');
