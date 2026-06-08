@@ -215,9 +215,9 @@ export class Spectrum extends BaseMachine implements Machine {
   /** T-state at which the tape was last advanced (for sub-instruction accuracy) */
   tapeLastAdvanceT = 0;
 
-  /** ROM trap instant load: intercept LD-BYTES at 0x0556 and copy block
+  /** Fast ROM loading: intercept LD-BYTES at 0x0556 and copy block
    *  data directly into memory.  Works for standard TAP/TZX data blocks. */
-  tapeInstantLoad = true;
+  tapeFastRom = true;
 
   /** Tape turbo: auto-engage maximum emulation speed while a custom
    *  loader is actively reading the EAR port.  Disengages after a cooldown
@@ -604,7 +604,7 @@ export class Spectrum extends BaseMachine implements Machine {
       // same opcode there. Custom-speed / non-standard blocks fail the
       // trap's internal length check and fall through to real ROM execution.
       let trapHandled = false;
-      if (this.tapeInstantLoad && this.tape.loaded && this.cpu.pc === 0x056C &&
+      if (this.tapeFastRom && this.tape.loaded && this.cpu.pc === 0x056C &&
           this.memory.isBasicRomActive() && this.tape.hasRomBlock()) {
         // Unpause so either path (trap success or real ROM fallback) sees
         // the tape playing. Tape starts paused on mount so the playback

@@ -40,7 +40,6 @@ import { BaseMachine } from '@/base-machine.ts';
 import {
   CPC_AY_CLOCK, CPC_CPU_CLOCK, CPC_T_PER_CHAR,
   CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT, CPC_BORDER_TOP, CPC_BORDER_LEFT,
-  CPC_CAS_READ_JUMP,
 } from '@/cpc/constants.ts';
 
 /** Cassette read-cadence thresholds (CPU T-states between consecutive Port B
@@ -108,8 +107,13 @@ export class CpcMachine extends BaseMachine implements Machine {
   /** True while the firmware is actively reading the cassette (detected by a
    *  tight Port-B read cadence). Drives tape advance. */
   tapeLoadingActive = false;
-  /** Whether the CAS READ instant-load trap is armed (Stage B). */
-  tapeInstantLoad = true;
+  /** Fast ROM loading: whether the CAS READ instant-load trap is armed (Stage B). */
+  tapeFastRom = true;
+  /** Address of the firmware's internal cassette block-read routine, located by
+   *  signature scan of the lower OS ROM. -2 = not yet scanned, -1 = not found
+   *  (instant load disabled, pulse loading only). Set lazily and re-scanned when
+   *  ROMs change. See scanCasReadRoutine. */
+  private casReadAddr = -2;
   /** Auto-accelerate while the cassette is being read (the CPC reads at real
    *  tape speed, so without this a game takes minutes to load). */
   tapeTurbo = true;
@@ -159,7 +163,30 @@ export class CpcMachine extends BaseMachine implements Machine {
 
   loadROM(data: Uint8Array): void {
     this.memory.loadROM(data);
+    this.casReadAddr = -2;   // force a re-scan against the new lower ROM
     this.setStatus('ROM loaded');
+  }
+
+  /**
+   * Locate the firmware's internal cassette block-read routine in the lower OS
+   * ROM — the routine `CAS IN CHAR` refills its buffer through, which a normal
+   * `RUN"` reaches without ever touching the &BCA1 jumpblock. Matched by a
+   * version-independent opcode anchor at the routine head:
+   *   LD (nn),A ; DEC DE ; INC E ; PUSH HL ; PUSH DE ; CALL nn
+   *   32 .. ..   1b        1c      e5        d5        cd .. ..
+   * This is unique in the os464 (entry 0x2873), os664 and os6128 (0x29e3) ROMs.
+   * Returns the entry address (== ROM offset; the lower ROM maps at 0x0000), or
+   * -1 if not found (e.g. a non-standard ROM) — leaving pulse loading in charge.
+   */
+  private scanCasReadRoutine(): number {
+    const rom = this.memory.getLowerRom();
+    for (let i = 0; i + 8 < rom.length; i++) {
+      if (rom[i] === 0x32 && rom[i + 3] === 0x1b && rom[i + 4] === 0x1c &&
+          rom[i + 5] === 0xe5 && rom[i + 6] === 0xd5 && rom[i + 7] === 0xcd) {
+        return i;
+      }
+    }
+    return -1;
   }
 
   /** Insert a parsed DSK image into a drive (uPD765A is shared with the +3). */
@@ -305,15 +332,20 @@ export class CpcMachine extends BaseMachine implements Machine {
         if (this.breakpoints.has(this.cpu.pc)) { this.breakpointHit = this.cpu.pc; broke = true; break; }
         if (this.onTrap !== null && this.onTrap(this.cpu.pc)) { broke = true; break; }
 
-        // CAS READ instant-load: the firmware cassette read is invoked through
-        // the &BCA1 jumpblock (software CALLs and the firmware's own reads after
-        // |TAPE both route through it, which is how |TAPE/|DISC redirection
-        // works). Try to satisfy it straight from the CDT; on any mismatch the
-        // trap declines and the real routine runs (pulse-level loading).
-        if (this.tapeInstantLoad && this.cpu.pc === CPC_CAS_READ_JUMP &&
-            this.tape.loaded && this.tape.hasRomBlock()) {
-          if (this.tape.paused) { this.tape.paused = false; this.tape.startPlayback(); }
-          trapCpcCasRead(this);
+        // CAS READ instant-load. A normal BASIC `RUN"` reaches the firmware's
+        // cassette block-read routine INTERNALLY (CAS IN CHAR refilling its 2K
+        // buffer); it never goes through the &BCA1 RAM jumpblock, which is only
+        // hit by an explicit `CALL &BCA1`. So we trap the internal routine
+        // itself, located by signature scan (entry contract A=sync, HL=dest,
+        // DE=len). On any CRC mismatch the trap declines and the real routine
+        // pulse-loads the block.
+        if (this.tapeFastRom) {
+          if (this.casReadAddr === -2) this.casReadAddr = this.scanCasReadRoutine();
+          if (this.casReadAddr >= 0 && this.cpu.pc === this.casReadAddr &&
+              this.tape.loaded && this.tape.hasRomBlock()) {
+            if (this.tape.paused) { this.tape.paused = false; this.tape.startPlayback(); }
+            trapCpcCasRead(this, this.casReadAddr);
+          }
         }
 
         // EI suppresses interrupts for one instruction. eiDelay is set by EI

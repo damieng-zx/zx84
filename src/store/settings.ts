@@ -334,17 +334,20 @@ const _tapeCollapseBlocks = /*@once*/ createRoot(() => createSignal(getSaved('ta
 export const tapeCollapseBlocks = _tapeCollapseBlocks[0];
 export const setTapeCollapseBlocks = _tapeCollapseBlocks[1];
 
-const _tapeInstantRom = /*@once*/ createRoot(() => createSignal(getSaved('tape-instant-rom', D('tape-instant-rom')) === 'on'));
-export const tapeInstantRom = _tapeInstantRom[0];
-export const setTapeInstantRom = _tapeInstantRom[1];
+// Persisted key strings are kept stable ('tape-instant-rom', 'tape-edge-loading',
+// 'tape-turbo-load') so existing saved prefs survive; only the signal names follow
+// the UI wording: Fast ROM loading / Fast edge loading / Turbo while loading.
+const _tapeFastRom = /*@once*/ createRoot(() => createSignal(getSaved('tape-instant-rom', D('tape-instant-rom')) === 'on'));
+export const tapeFastRom = _tapeFastRom[0];
+export const setTapeFastRom = _tapeFastRom[1];
 
-const _tapeEdgeLoading = /*@once*/ createRoot(() => createSignal(getSaved('tape-edge-loading', D('tape-edge-loading')) === 'on'));
-export const tapeEdgeLoading = _tapeEdgeLoading[0];
-export const setTapeEdgeLoading = _tapeEdgeLoading[1];
+const _tapeFastEdge = /*@once*/ createRoot(() => createSignal(getSaved('tape-edge-loading', D('tape-edge-loading')) === 'on'));
+export const tapeFastEdge = _tapeFastEdge[0];
+export const setTapeFastEdge = _tapeFastEdge[1];
 
-const _tapeTurboLoad = /*@once*/ createRoot(() => createSignal(getSaved('tape-turbo-load', D('tape-turbo-load')) === 'on'));
-export const tapeTurboLoad = _tapeTurboLoad[0];
-export const setTapeTurboLoad = _tapeTurboLoad[1];
+const _tapeTurbo = /*@once*/ createRoot(() => createSignal(getSaved('tape-turbo-load', D('tape-turbo-load')) === 'on'));
+export const tapeTurbo = _tapeTurbo[0];
+export const setTapeTurbo = _tapeTurbo[1];
 
 const _tapeSoundEnabled = /*@once*/ createRoot(() => createSignal(getSaved('tape-sound', D('tape-sound')) === 'on'));
 export const tapeSoundEnabled = _tapeSoundEnabled[0];
@@ -448,9 +451,9 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
   tape: [
     { key: 'tape-auto-rewind',     set: setTapeAutoRewind,     type: 'bool' },
     { key: 'tape-collapse-blocks', set: setTapeCollapseBlocks, type: 'bool' },
-    { key: 'tape-instant-rom',     set: setTapeInstantRom,     type: 'bool' },
-    { key: 'tape-edge-loading',    set: setTapeEdgeLoading,    type: 'bool' },
-    { key: 'tape-turbo-load',      set: setTapeTurboLoad,      type: 'bool' },
+    { key: 'tape-instant-rom',     set: setTapeFastRom,        type: 'bool' },
+    { key: 'tape-edge-loading',    set: setTapeFastEdge,       type: 'bool' },
+    { key: 'tape-turbo-load',      set: setTapeTurbo,          type: 'bool' },
     { key: 'tape-sound',           set: setTapeSoundEnabled,   type: 'bool' },
   ],
   hardware: [

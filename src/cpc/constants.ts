@@ -24,10 +24,12 @@ export const CPC_PIXELS_PER_CHAR = 16;
 export const CPC_AY_CLOCK = 1_000_000;
 
 /** Firmware cassette-manager jumpblock entry for CAS READ ("read one block",
- *  HL=dest, DE=len, A=sync). The instant-load trap watches for execution
- *  reaching this address: every CAS READ — software CALLs and the firmware's own
- *  reads after |TAPE — routes through here (that indirection is how |TAPE/|DISC
- *  redirection works), so trapping it catches BASIC loads too. */
+ *  HL=dest, DE=len, A=sync). NOTE: a normal BASIC `RUN"` does NOT route through
+ *  here — the firmware reaches its block-read routine internally (CAS IN CHAR
+ *  refilling its buffer), and this RAM jumpblock entry is only executed by an
+ *  explicit `CALL &BCA1`. The instant-load trap therefore targets the internal
+ *  routine, located by signature scan (see CpcMachine.scanCasReadRoutine), not
+ *  this address. Kept for reference/documentation. */
 export const CPC_CAS_READ_JUMP = 0xBCA1;
 
 /**

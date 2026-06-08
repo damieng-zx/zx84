@@ -96,11 +96,36 @@ function extractBlock(b: Uint8Array, sync: number, len: number): Uint8Array | nu
 }
 
 /**
- * Attempt an instant CAS READ. Returns true if it committed (bytes copied,
- * tape advanced, CPU returned with carry set), false to fall through to the
- * real firmware routine.
+ * Offset from the read-block routine's entry to its hardware-teardown tail.
+ * The routine is, in every CPC OS ROM (os464/os664/os6128):
+ *   +0  LD (nn),A      ; stash sync
+ *   +3  DEC DE / INC E ; page-adjust the count
+ *   +5  PUSH HL / PUSH DE
+ *   +7  CALL <reader>  ; the slow bit-level read we skip
+ *   +A  POP DE / POP IX
+ *   +D  CALL <teardown>; motor off + PPI/PSG restore   ← we resume here
+ *   ... OUTs ... RET
+ * Resuming at +D (after the POPs, with SP already back at the caller's return)
+ * lets the firmware run its own teardown and RET, so the cassette hardware is
+ * left in the state the caller expects. Skipping it (RETting straight to the
+ * caller) leaves the PPI mis-configured and the next firmware op fails.
  */
-export function trapCpcCasRead(m: CpcMachine): boolean {
+const TEARDOWN_OFFSET = 0x0D;
+
+/** Replicate the routine's `DEC DE ; INC E` so the value its `POP DE` restores
+ *  (the count register the caller sees on return) matches the real firmware. */
+function countAfterRead(de: number): number {
+  const dec = (de - 1) & 0xFFFF;
+  return (dec & 0xFF00) | ((dec + 1) & 0xFF);   // INC E affects E only
+}
+
+/**
+ * Attempt an instant CAS READ at the firmware block-read routine `entryAddr`
+ * (located by signature scan). Returns true if it committed (bytes copied, tape
+ * advanced, control handed to the routine's teardown tail), false to fall
+ * through to the real routine (pulse-level loading).
+ */
+export function trapCpcCasRead(m: CpcMachine, entryAddr: number): boolean {
   const cpu = m.cpu;
   const dest = cpu.hl;
   const len = cpu.de;
@@ -114,14 +139,20 @@ export function trapCpcCasRead(m: CpcMachine): boolean {
   const out = extractBlock(block.rawBytes, sync, len);
   if (!out) return false;                          // unrecognised/failed CRC → pulse fallback
 
-  // Commit: copy to RAM, consume the block, RET with carry = success.
+  // Commit: copy to RAM, consume the block.
   for (let i = 0; i < len; i++) m.memory.writeByte((dest + i) & 0xFFFF, out[i]);
   m.tape.nextDataBlock();
   m.tape.skipBlock();
 
-  cpu.pc = cpu.pop16();
-  cpu.a = 0;
+  // Resume in the routine's teardown tail with the post-read register state the
+  // firmware would have (IX = buffer, DE = the page-adjusted count its POP DE
+  // restores, carry = success). SP is untouched: at the entry it already points
+  // at the caller's return, and the routine balances its own pushes before the
+  // teardown, so the firmware's closing RET returns to the caller.
+  cpu.ix = dest;
+  cpu.de = countAfterRead(len);
   cpu.setFlag(Z80.FLAG_C, true);   // success
   cpu.setFlag(Z80.FLAG_Z, false);  // not ESC-aborted
+  cpu.pc = (entryAddr + TEARDOWN_OFFSET) & 0xFFFF;
   return true;
 }

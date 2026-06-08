@@ -237,17 +237,19 @@ export function applyDisplaySettings(): void {
     const mix = settings.ayMix() / 100;
     s.mixer.beeperGain = Math.min(1, 2 * (1 - mix));
     s.mixer.ayGain = Math.min(1, 2 * mix);
-    s.tapeInstantLoad = settings.tapeInstantRom();
-    s.tapeTurbo = settings.tapeTurboLoad();
+    s.tapeFastRom = settings.tapeFastRom();
+    s.tapeTurbo = settings.tapeTurbo();
     s.tapeSoundEnabled = settings.tapeSoundEnabled();
-    s.loaderDetector.accelerateLoader = settings.tapeEdgeLoading();
+    s.loaderDetector.accelerateLoader = settings.tapeFastEdge();
     s.scanlineAccuracy = settings.scanlineAccuracy();
   } else {
-    // CPC: AY-only, no beeper mixer. Volume + cassette instant-load.
+    // CPC: AY-only, no beeper mixer. Volume + Fast ROM + Turbo while loading
+    // (no Fast edge — the CPC has no Spectrum-style loader detector).
     const c = machine as CpcMachine;
     c.gateArray.palette = CPC_PALETTES[settings.cpcColorMap()];
     c.audio.setVolume(settings.volume() / 100);
-    c.tapeInstantLoad = settings.tapeInstantRom();
+    c.tapeFastRom = settings.tapeFastRom();
+    c.tapeTurbo = settings.tapeTurbo();
   }
 }
 

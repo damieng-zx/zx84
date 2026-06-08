@@ -7,6 +7,7 @@ const CHANGELOG: { version: string; items: string[] }[] = [
       'Experimental Amstrad CPC support — CPC 6128, 664 and 464',
       'Experimental MGT +D disc support — G+DOS with .mgt/.img discs on drives C: and D:',
       'Improved ZX accelerated ROM tape loading',
+      'Fast ROM loading for Amstrad CPC firmware tapes (CAS READ trap)',
     ]
   }, {
     version: '0.4.1',

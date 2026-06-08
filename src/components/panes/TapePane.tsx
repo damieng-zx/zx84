@@ -8,7 +8,7 @@ import {
   ejectTape, loadFile, tapePrev, tapeNext, applyDisplaySettings, currentModel,
 } from '@/emulator.ts';
 import { isCpcModel } from '@/models.ts';
-import { tapeAutoRewind, tapeCollapseBlocks, setTapeCollapseBlocks, tapeInstantRom, setTapeInstantRom, tapeEdgeLoading, setTapeEdgeLoading, tapeTurboLoad, setTapeTurboLoad, tapeSoundEnabled, setTapeSoundEnabled } from '@/store/settings.ts';
+import { tapeAutoRewind, tapeCollapseBlocks, setTapeCollapseBlocks, tapeFastRom, setTapeFastRom, tapeFastEdge, setTapeFastEdge, tapeTurbo, setTapeTurbo, tapeSoundEnabled, setTapeSoundEnabled } from '@/store/settings.ts';
 import { persistSetting, resetSettingsGroup } from '@/store/settings.ts';
 import type { TapeBlock, DataBlock } from '@/tape/tap.ts';
 import { openFile } from '@/ui/file-picker.ts';
@@ -127,27 +127,28 @@ export function TapePane() {
           icon={<HiOutlineEllipsisVertical />}
           title="Tape options"
           items={[
-            // Loading sounds + Spectrum loader-detector turbo aren't wired for
-            // the CPC yet (its cassette is AY-silent and loads via pulse/CAS-READ).
+            // Loading sounds + Fast edge loading aren't wired for the CPC (its
+            // cassette is AY-silent and has no Spectrum-style loader detector).
             ...(isCpc() ? [] : [{ value: 'tape-sound', label: 'Loading sounds', checked: tapeSoundEnabled() }]),
             { value: 'auto-rewind', label: 'Auto-rewind', checked: tapeAutoRewind() },
             { value: 'collapse-blocks', label: 'Collapse matching blocks', checked: tapeCollapseBlocks() },
             { value: '__sep1', label: '', separator: true },
-            { value: 'instant-rom', label: isCpc() ? 'Instant tape loading' : 'Instant ROM loaders', checked: tapeInstantRom() },
-            ...(isCpc() ? [] : [{ value: 'turbo-load', label: 'Turbo during load', checked: tapeTurboLoad() }]),
+            { value: 'fast-rom', label: 'Fast ROM loading', checked: tapeFastRom() },
+            ...(isCpc() ? [] : [{ value: 'fast-edge', label: 'Fast edge loading', checked: tapeFastEdge() }]),
+            { value: 'turbo', label: 'Turbo while loading', checked: tapeTurbo() },
           ]}
           onSelect={(value) => {
-            if (value === 'instant-rom') {
-              setTapeInstantRom(!tapeInstantRom());
-              persistSetting('tape-instant-rom', tapeInstantRom() ? 'on' : 'off');
+            if (value === 'fast-rom') {
+              setTapeFastRom(!tapeFastRom());
+              persistSetting('tape-instant-rom', tapeFastRom() ? 'on' : 'off');
               applyDisplaySettings();
-            } else if (value === 'turbo-load') {
-              setTapeTurboLoad(!tapeTurboLoad());
-              persistSetting('tape-turbo-load', tapeTurboLoad() ? 'on' : 'off');
+            } else if (value === 'turbo') {
+              setTapeTurbo(!tapeTurbo());
+              persistSetting('tape-turbo-load', tapeTurbo() ? 'on' : 'off');
               applyDisplaySettings();
-            } else if (value === 'edge-loading') {
-              setTapeEdgeLoading(!tapeEdgeLoading());
-              persistSetting('tape-edge-loading', tapeEdgeLoading() ? 'on' : 'off');
+            } else if (value === 'fast-edge') {
+              setTapeFastEdge(!tapeFastEdge());
+              persistSetting('tape-edge-loading', tapeFastEdge() ? 'on' : 'off');
               applyDisplaySettings();
             } else if (value === 'tape-sound') {
               setTapeSoundEnabled(!tapeSoundEnabled());

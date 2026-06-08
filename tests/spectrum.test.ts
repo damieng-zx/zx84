@@ -1263,7 +1263,7 @@ describe('Spectrum.flushRemainingLines', () => {
 describe('Spectrum — tape ROM trap', () => {
   it('handles the block via instant load when flag and length match, skipping the block', () => {
     const s = makeMachine('48k');
-    s.tapeInstantLoad = true;
+    s.tapeFastRom = true;
     const payload = new Uint8Array([0x11, 0x22, 0x33, 0x44]);
     (s.tape as any).blocks = [
       { kind: 'data', source: 'tap', flag: 0xFF, data: payload, pauseAfter: 0 },
@@ -1287,7 +1287,7 @@ describe('Spectrum — tape ROM trap', () => {
 
   it('falls through to the real ROM when peekDataBlock returns null', () => {
     const s = makeMachine('48k');
-    s.tapeInstantLoad = true;
+    s.tapeFastRom = true;
     // Fake a "loaded" tape that has only a non-rom block so hasRomBlock() is true,
     // but peekDataBlock() returns null (e.g. only tone block). Easier: stub it.
     (s.tape as any).blocks = [{ kind: 'data', source: 'tap', flag: 0, data: new Uint8Array(4) }];

@@ -210,15 +210,15 @@ describe('settings — reset defaults vs initial defaults consistency', () => {
     const s = await load();
     const before = {
       tapeAutoRewind: s.tapeAutoRewind(), tapeCollapseBlocks: s.tapeCollapseBlocks(),
-      tapeInstantRom: s.tapeInstantRom(), tapeTurboLoad: s.tapeTurboLoad(),
-      tapeEdgeLoading: s.tapeEdgeLoading(), tapeSoundEnabled: s.tapeSoundEnabled(),
+      tapeFastRom: s.tapeFastRom(), tapeTurbo: s.tapeTurbo(),
+      tapeFastEdge: s.tapeFastEdge(), tapeSoundEnabled: s.tapeSoundEnabled(),
     };
     s.setTapeAutoRewind(false);
     s.resetSettingsGroup('tape');
     expect({
       tapeAutoRewind: s.tapeAutoRewind(), tapeCollapseBlocks: s.tapeCollapseBlocks(),
-      tapeInstantRom: s.tapeInstantRom(), tapeTurboLoad: s.tapeTurboLoad(),
-      tapeEdgeLoading: s.tapeEdgeLoading(), tapeSoundEnabled: s.tapeSoundEnabled(),
+      tapeFastRom: s.tapeFastRom(), tapeTurbo: s.tapeTurbo(),
+      tapeFastEdge: s.tapeFastEdge(), tapeSoundEnabled: s.tapeSoundEnabled(),
     }).toEqual(before);
   });
 
