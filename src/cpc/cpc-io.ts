@@ -41,7 +41,7 @@ export class Ppi8255 {
      *  machine advances the tape to "now" inside this callback so each firmware
      *  read sees an up-to-date edge. */
     private readonly readTapeBit: () => number = () => 0,
-    /** Called with the cassette motor state (Port C bit 5) whenever it changes. */
+    /** Called with the cassette motor state (Port C bit 4) whenever it changes. */
     private readonly setMotor: (on: boolean) => void = () => {},
   ) {}
 
@@ -61,7 +61,7 @@ export class Ppi8255 {
   writeC(val: number): void {
     this.pC = val & 0xFF;
     this.keyboard.selectLine(this.pC & 0x0F);
-    this.setMotor((this.pC & 0x20) !== 0);   // bit 5: cassette motor
+    this.setMotor((this.pC & 0x10) !== 0);   // bit 4: cassette motor
     this.strobeAy();
   }
 
@@ -78,7 +78,7 @@ export class Ppi8255 {
       if (val & 1) this.pC |= (1 << bit);
       else this.pC &= ~(1 << bit) & 0xFF;
       this.keyboard.selectLine(this.pC & 0x0F);
-      this.setMotor((this.pC & 0x20) !== 0); // bit 5: cassette motor
+      this.setMotor((this.pC & 0x10) !== 0); // bit 4: cassette motor
       this.strobeAy();
     }
   }
@@ -142,7 +142,7 @@ export class Ppi8255 {
     this.pC = s.portC & 0xFF;
     this.control = s.control & 0xFF;
     this.keyboard.selectLine(this.pC & 0x0F);
-    this.setMotor((this.pC & 0x20) !== 0);
+    this.setMotor((this.pC & 0x10) !== 0);
   }
 }
 

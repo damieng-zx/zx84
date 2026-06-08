@@ -1,9 +1,10 @@
 /**
- * CPC cassette I/O: PPI Port B bit 7 (read) and Port C bit 5 (motor).
+ * CPC cassette I/O: PPI Port B bit 7 (read) and Port C bit 4 (motor).
  *
  * The firmware reads the cassette level on Port B bit 7 and switches the motor
- * via Port C bit 5. The tape only advances while the motor is on, matching real
- * hardware (the firmware spins it up to load and stops it otherwise).
+ * via Port C bit 4 (bit 5 is cassette write data). The tape only advances while
+ * the motor is on, matching real hardware (the firmware spins it up to load and
+ * stops it otherwise).
  */
 
 import { describe, it, expect } from 'vitest';
@@ -33,25 +34,25 @@ describe('CPC PPI cassette bits', () => {
     expect(ppi.readB() & 0x7F).toBe((7 << 1) | 0x10);
   });
 
-  it('drives the motor from Port C bit 5 via writeC', () => {
+  it('drives the motor from Port C bit 4 via writeC', () => {
     const { ppi, motor } = setup();
-    ppi.writeC(0x20);            // bit 5 set
+    ppi.writeC(0x10);            // bit 4 set
     expect(motor()).toBe(true);
-    ppi.writeC(0x00);            // bit 5 clear
+    ppi.writeC(0x00);            // bit 4 clear
     expect(motor()).toBe(false);
   });
 
   it('drives the motor from a Port C bit set/reset control word', () => {
     const { ppi, motor } = setup();
-    ppi.writeControl((5 << 1) | 1); // set bit 5
+    ppi.writeControl((4 << 1) | 1); // set bit 4
     expect(motor()).toBe(true);
-    ppi.writeControl((5 << 1) | 0); // reset bit 5
+    ppi.writeControl((4 << 1) | 0); // reset bit 4
     expect(motor()).toBe(false);
   });
 
   it('turns the motor off on a PPI mode-set (latches cleared)', () => {
     const { ppi, motor } = setup();
-    ppi.writeC(0x20);
+    ppi.writeC(0x10);
     expect(motor()).toBe(true);
     ppi.writeControl(0x9B);      // mode-set clears the output latches
     expect(motor()).toBe(false);

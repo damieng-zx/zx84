@@ -81,9 +81,10 @@ export class CpcMachine extends BaseMachine implements Machine {
   /** Per-frame I/O activity feeding the status-bar LEDs, reset at the start of
    *  each frame. `kbdReads` counts keyboard-matrix scans (the firmware reads the
    *  AY's port A through the PPI ~once per frame); `fdcAccesses` counts FDC
-   *  data-port transfers. Mirrors the Spectrum's IOActivity so KEYBOARD/DISK
-   *  light up the same way. */
-  readonly activity = { kbdReads: 0, fdcAccesses: 0, mouseReads: 0 };
+   *  data-port transfers; `tapeReads` counts cassette reads (pulse-load edges or
+   *  instant CAS READ traps) so the TAPE LED lights. Mirrors the Spectrum's
+   *  IOActivity so KEYBOARD/DISK/TAPE light up the same way. */
+  readonly activity = { kbdReads: 0, fdcAccesses: 0, mouseReads: 0, tapeReads: 0 };
 
   /** Screen OCR engine for the TEXT overlay + MCP `ocr` tool. */
   readonly screenText = new CpcScreenText();
@@ -98,7 +99,7 @@ export class CpcMachine extends BaseMachine implements Machine {
   private vsyncResyncCountdown = 0;
 
   // ── Cassette ─────────────────────────────────────────────────────────
-  /** Cassette motor state, driven by PPI Port C bit 5. Tracked for the UI only.
+  /** Cassette motor state, driven by PPI Port C bit 4. Tracked for the UI only.
    *  NOTE: the 6128 firmware reads tape edges directly and does NOT toggle the
    *  motor relay, so tape advance is gated on read *cadence*, not the motor. */
   tapeMotorOn = false;
@@ -219,10 +220,13 @@ export class CpcMachine extends BaseMachine implements Machine {
     } else if (gap >= TAPE_LOAD_EXIT_GAP) {
       this.tapeLoadingActive = false;
     }
-    if (this.tapeLoadingActive && !this.tape.paused && gap > 0) this.tape.advance(gap);
+    if (this.tapeLoadingActive && !this.tape.paused && gap > 0) {
+      this.tape.advance(gap);
+      this.activity.tapeReads++;   // pulse-load edge → TAPE LED
+    }
   }
 
-  /** Track the cassette motor state (PPI Port C bit 5) for the UI. It does not
+  /** Track the cassette motor state (PPI Port C bit 4) for the UI. It does not
    *  gate playback — see advanceTapeTo for why the 6128 needs cadence gating. */
   setTapeMotor(on: boolean): void {
     this.tapeMotorOn = on;
@@ -314,6 +318,7 @@ export class CpcMachine extends BaseMachine implements Machine {
     this.activity.kbdReads = 0;
     this.activity.fdcAccesses = 0;
     this.activity.mouseReads = 0;
+    this.activity.tapeReads = 0;
 
     crtc.beginFrame();
     ga.beginFrame(this._pixels32);
@@ -344,7 +349,7 @@ export class CpcMachine extends BaseMachine implements Machine {
           if (this.casReadAddr >= 0 && this.cpu.pc === this.casReadAddr &&
               this.tape.loaded && this.tape.hasRomBlock()) {
             if (this.tape.paused) { this.tape.paused = false; this.tape.startPlayback(); }
-            trapCpcCasRead(this, this.casReadAddr);
+            if (trapCpcCasRead(this, this.casReadAddr)) this.activity.tapeReads++;  // instant load → TAPE LED
           }
         }
 
