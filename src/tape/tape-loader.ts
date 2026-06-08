@@ -13,9 +13,13 @@
  *     caller then lets the real ROM execute LD-BYTES at full fidelity,
  *     so custom-speed turbos and protected tapes load correctly.
  *   - Return true after copying bytes to memory and rewinding the
- *     stack: the PUSH HL at $0561 left $053F (parity-error return)
- *     on top of the caller's return address, so we POP it ourselves
- *     and then POP the caller's address into PC. Carry is set on
+ *     stack: a normal entry via $0556 pushes $053F (parity-error
+ *     return) at $0561, on top of the caller's return address, so we
+ *     pop it only when it is actually there, then pop the caller's
+ *     address into PC. Loaders that CALL into LD-BYTES *after* the
+ *     $0561 PUSH (e.g. $0562 or $056C) leave just the caller's
+ *     address on the stack — a single pop returns to them. Carry is
+ *     set on
  *     main F to signal success — the natural LD-BYTES exit at
  *     $05DF..$05E2 leaves main F's carry as the success indicator
  *     and does NOT do an EX AF,AF' before RET (verified against the
@@ -58,9 +62,22 @@ export function trapTapeLoad(cpu: Z80, tape: TapeDeck): boolean {
   cpu.ix = (dest + count) & 0xFFFF;
   cpu.de = 0;
 
-  // Discard the 0x053F parity-error return that LD-BYTES pushed at $0561,
-  // then pop the caller's return address into PC.
-  cpu.pop16();
+  // Return to whoever called LD-BYTES. A normal entry at $0556 pushes
+  // $053F (SA/LD-RET) at $0561, so the stack reads [$053F][caller]. But
+  // loaders that CALL straight into the routine *after* that PUSH never
+  // stack the $053F — e.g. Solseed enters at $0562, some protected
+  // loaders at $056C — so the top word is already the caller's return
+  // address. Pop the $053F only when it's actually present, then pop the
+  // caller's address into PC.
+  //
+  // FUSE sets PC=$05E2 and lets the ROM's bare RET pop exactly once;
+  // ZEsarUX traps at $0562 and does a single pop_valor(). Both return
+  // exactly once. Our earlier *unconditional* double-pop corrupted the
+  // stack for these partial-entry loaders — it discarded the real return
+  // address and jumped to garbage, unwinding back to the BASIC main loop
+  // which then HALTed with interrupts disabled (a permanent hang).
+  const stackTop = cpu.read8(cpu.sp) | (cpu.read8((cpu.sp + 1) & 0xFFFF) << 8);
+  if (stackTop === 0x053F) cpu.pop16();
   cpu.pc = cpu.pop16();
   // Carry on main F = success (matches the ROM's natural exit at $05E0/$05E2).
   cpu.setFlag(Z80.FLAG_C, true);

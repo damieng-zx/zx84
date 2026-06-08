@@ -12,10 +12,13 @@
  *     LD-BYTES so custom-speed and protected tapes load correctly.
  *   - Trap SUCCEEDS by copying `cpu.de` bytes to `cpu.ix`, advancing
  *     IX by DE, zeroing DE, consuming the block from the tape, then
- *     popping TWO words from the stack (the 0x053F parity-error
- *     return that LD-BYTES pushed at $0561, and the caller's actual
- *     return address). PC is set to the caller's return; main-F's
- *     carry bit is set to 1 to signal success.
+ *     returning to the caller. A normal entry via $0556 leaves the
+ *     0x053F parity-error return (pushed at $0561) on top of the
+ *     caller's address, so the trap pops it only when present and then
+ *     pops the caller's address into PC. Partial-entry loaders that
+ *     CALL into LD-BYTES after $0561 (e.g. $0562/$056C) have no 0x053F,
+ *     so a single pop returns to them. main-F's carry is set to 1 to
+ *     signal success.
  *   - SAVE-half of LD-BYTES is "VERIFY" semantics: cleared carry.
  *     Verify advances IX/DE the same way but writes nothing. We do
  *     NOT compare bytes (JSpeccy/ZEsarUX shortcut).
@@ -262,6 +265,28 @@ describe('trapTapeLoad — stack and IFF behaviour', () => {
     trapTapeLoad(cpu, tape as any);
     expect(cpu.pc).toBe(0x1357);
     expect(cpu.sp).toBe((spBefore + 4) & 0xFFFF);
+  });
+
+  it('partial entry (no 0x053F on stack) pops ONCE and returns to the direct caller', () => {
+    // Loaders such as Solseed CALL straight into LD-BYTES at $0562, *after*
+    // the PUSH HL at $0561, so the $053F filler is never stacked — the top
+    // word is already the caller's return address. The trap must pop exactly
+    // once. An unconditional double-pop here discards the real return and
+    // jumps to garbage (the original bug: machine ends up hung in BASIC).
+    const tape = new TapeStub([makeDataBlock(0xFF, [0x42])]);
+    cpu.sp = 0xF000;
+    cpu.push16(0xAEC3);            // ONLY the direct caller's return address
+    cpu.pc = 0x056C;
+    cpu.a_ = 0xFF;
+    cpu.f_ |= Z80.FLAG_C;
+    cpu.ix = 0x8000;
+    cpu.de = 1;
+    const spBefore = cpu.sp;
+    expect(trapTapeLoad(cpu, tape as any)).toBe(true);
+    expect(cpu.mem[0x8000]).toBe(0x42);
+    expect(cpu.pc).toBe(0xAEC3);                  // returned to the real caller
+    expect(cpu.sp).toBe((spBefore + 2) & 0xFFFF); // single pop only
+    expect(cpu.getFlag(Z80.FLAG_C)).toBe(true);
   });
 
   it('does NOT touch IFF1/IFF2 on success (caller does its own EI)', () => {
