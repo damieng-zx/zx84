@@ -33,7 +33,7 @@ function dataTimingDetail(block: DataBlock): string {
   return parts.join(' ');
 }
 
-function parseTapeBlockMeta(block: TapeBlock, index: number, blocks: TapeBlock[], collapseBlocks: boolean): { line: string; detail: string; hidden: boolean; control: boolean } {
+function parseTapeBlockMeta(block: TapeBlock, index: number, blocks: TapeBlock[], collapseBlocks: boolean): { line: string; detail: string; hidden: boolean; control: boolean; absorbsNext: boolean } {
   switch (block.kind) {
     case 'data': {
       const tag = sourceTag(block);
@@ -59,29 +59,31 @@ function parseTapeBlockMeta(block: TapeBlock, index: number, blocks: TapeBlock[]
         if (typeId === 0 && param1 < 10000) detail += ` LINE ${param1}`;
         else if (typeId === 3) detail += ` @ ${param1}`;
         if (timing) detail += `\n${timing}`;
-        return { line, detail, hidden: false, control: false };
+        // When collapsed, the header row absorbs the hidden data child that follows it,
+        // so it must also reflect that child's loading/played state.
+        return { line, detail, hidden: false, control: false, absorbsNext: !!(hasMatchingData && collapseBlocks) };
       }
       if (collapseBlocks) {
         const prevBlock = blocks[index - 1];
         if (prevBlock && prevBlock.kind === 'data' && prevBlock.flag === 0x00 && prevBlock.data.length >= 15) {
           const headerDataLen = prevBlock.data[11] | (prevBlock.data[12] << 8);
-          if (block.data.length === headerDataLen) return { line: '', detail: '', hidden: true, control: false };
+          if (block.data.length === headerDataLen) return { line: '', detail: '', hidden: true, control: false, absorbsNext: false };
         }
       }
       const size = block.data.length;
       let detail = ''; if (timing) detail = timing;
-      return { line: `${index}: Data ${size} bytes${tag}`, detail, hidden: false, control: false };
+      return { line: `${index}: Data ${size} bytes${tag}`, detail, hidden: false, control: false, absorbsNext: false };
     }
-    case 'tone': return { line: `${index}: Pure Tone`, detail: `${block.pulseLen}T × ${block.count} pulses`, hidden: false, control: true };
-    case 'pulses': return { line: `${index}: Pulse Sequence`, detail: `${block.lengths.length} pulses`, hidden: false, control: true };
-    case 'direct': return { line: `${index}: Direct Recording`, detail: `${block.tStatesPerSample}T/sample, ${block.data.length} bytes, pause=${block.pause}ms`, hidden: false, control: true };
-    case 'pause': return { line: block.duration === 0 ? `${index}: Stop the tape` : `${index}: Pause ${block.duration}ms`, detail: '', hidden: false, control: true };
-    case 'set-level': return { line: `${index}: Set Level ${block.level}`, detail: '', hidden: false, control: true };
-    case 'stop-if-48k': return { line: `${index}: Stop if 48K`, detail: '', hidden: false, control: true };
-    case 'group-start': return { line: `${index}: ▸ ${block.name}`, detail: '', hidden: false, control: true };
-    case 'group-end': return { line: '', detail: '', hidden: true, control: true };
-    case 'text': return { line: `${index}: ${block.text}`, detail: '', hidden: false, control: true };
-    case 'archive-info': return { line: `${index}: Archive Info`, detail: block.entries.map(e => e.text).join(', '), hidden: false, control: true };
+    case 'tone': return { line: `${index}: Pure Tone`, detail: `${block.pulseLen}T × ${block.count} pulses`, hidden: false, control: true, absorbsNext: false };
+    case 'pulses': return { line: `${index}: Pulse Sequence`, detail: `${block.lengths.length} pulses`, hidden: false, control: true, absorbsNext: false };
+    case 'direct': return { line: `${index}: Direct Recording`, detail: `${block.tStatesPerSample}T/sample, ${block.data.length} bytes, pause=${block.pause}ms`, hidden: false, control: true, absorbsNext: false };
+    case 'pause': return { line: block.duration === 0 ? `${index}: Stop the tape` : `${index}: Pause ${block.duration}ms`, detail: '', hidden: false, control: true, absorbsNext: false };
+    case 'set-level': return { line: `${index}: Set Level ${block.level}`, detail: '', hidden: false, control: true, absorbsNext: false };
+    case 'stop-if-48k': return { line: `${index}: Stop if 48K`, detail: '', hidden: false, control: true, absorbsNext: false };
+    case 'group-start': return { line: `${index}: ▸ ${block.name}`, detail: '', hidden: false, control: true, absorbsNext: false };
+    case 'group-end': return { line: '', detail: '', hidden: true, control: true, absorbsNext: false };
+    case 'text': return { line: `${index}: ${block.text}`, detail: '', hidden: false, control: true, absorbsNext: false };
+    case 'archive-info': return { line: `${index}: Archive Info`, detail: block.entries.map(e => e.text).join(', '), hidden: false, control: true, absorbsNext: false };
   }
 }
 
@@ -180,7 +182,12 @@ export function TapePane() {
           {tapeBlocks().map((block, i) => {
             const meta = parseTapeBlockMeta(block, i, tapeBlocks(), tapeCollapseBlocks());
             if (meta.hidden) return null;
-            const className = `tape-block${i < tapePosition() ? ' played' : ''}${i === tapePosition() ? ' current' : ''}${meta.control ? ' control' : ''}`;
+            // A collapsed header absorbs the hidden data child at i+1, so it spans
+            // [i, i+1] for the purpose of the played/current (loading) indicators.
+            const lastIndex = meta.absorbsNext ? i + 1 : i;
+            const isCurrent = tapePosition() >= i && tapePosition() <= lastIndex;
+            const isPlayed = lastIndex < tapePosition();
+            const className = `tape-block${isPlayed ? ' played' : ''}${isCurrent ? ' current' : ''}${meta.control ? ' control' : ''}`;
             const displayLine = (tapeCollapseBlocks() && meta.line.startsWith(`${i}: `))
               ? meta.line.slice(`${i}: `.length)
               : meta.line;
