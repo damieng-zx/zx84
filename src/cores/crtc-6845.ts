@@ -120,7 +120,9 @@ export class Crtc6845 {
       this.vsyncStart = true;
       this.vsyncLeft = width;
     }
-    if (this.vsyncActive) {
+    else if (this.vsyncActive) {
+      // Count down only on lines *after* onset, so a width of N holds VSYNC for
+      // exactly N scanlines (the onset line is the first of the N).
       this.vsyncLeft--;
       if (this.vsyncLeft <= 0) this.vsyncActive = false;
     }
