@@ -8,9 +8,11 @@ import {
   noise, setNoise, scalingMode, setScalingMode,
   monitor, setMonitor, borderSize, setBorderSize,
   renderer, webglAvailable, colorMap, setColorMap, scanlineAccuracy, setScanlineAccuracy,
+  cpcColorMap, setCpcColorMap,
   persistSetting, resetSettingsGroup,
 } from '@/store/settings.ts';
-import { spectrum, machine, switchRenderer, applyDisplaySettings } from '@/emulator.ts';
+import { spectrum, machine, currentModel, switchRenderer, applyDisplaySettings } from '@/emulator.ts';
+import { isCpcModel } from '@/models.ts';
 
 interface MonitorPreset {
   maskType: number;
@@ -84,6 +86,7 @@ const SCALING_ALGOS: { mode: number; label: string; nativeScale: number }[] = [
 ];
 
 export function DisplayPane() {
+  const isCpc = () => isCpcModel(currentModel());
   // Filter algorithms to those compatible with the current display scale
   const availableAlgos = () => SCALING_ALGOS.filter(
     a => a.nativeScale === 0 || a.nativeScale === scale()
@@ -131,16 +134,32 @@ export function DisplayPane() {
       </div>
       <div class="slider-row">
         <span class="slider-label">Color map</span>
-        <select value={colorMap()} onChange={(e) => {
-          const v = (e.target as HTMLSelectElement).value as 'basic' | 'measured' | 'vivid';
-          setColorMap(v);
-          persistSetting('color-map', v);
-          applyDisplaySettings();
-        }}>
-          <option value="basic">Basic</option>
-          <option value="measured">Measured</option>
-          <option value="vivid">Vivid</option>
-        </select>
+        <Show
+          when={isCpc()}
+          fallback={
+            <select value={colorMap()} onChange={(e) => {
+              const v = (e.target as HTMLSelectElement).value as 'basic' | 'measured' | 'vivid';
+              setColorMap(v);
+              persistSetting('color-map', v);
+              applyDisplaySettings();
+            }}>
+              <option value="basic">Basic</option>
+              <option value="measured">Measured</option>
+              <option value="vivid">Vivid</option>
+            </select>
+          }
+        >
+          <select value={cpcColorMap()} onChange={(e) => {
+            const v = (e.target as HTMLSelectElement).value as 'basic' | 'gate-array' | 'asic';
+            setCpcColorMap(v);
+            persistSetting('cpc-color-map', v);
+            applyDisplaySettings();
+          }}>
+            <option value="basic">Basic</option>
+            <option value="gate-array">Gate Array</option>
+            <option value="asic">ASIC</option>
+          </select>
+        </Show>
       </div>
       <div class="slider-row">
         <span class="slider-label">Accuracy</span>

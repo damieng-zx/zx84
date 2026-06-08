@@ -32,6 +32,7 @@ const DEFAULTS = {
   'border-size':       '2',
   'renderer':          'webgl',
   'color-map':         'measured',
+  'cpc-color-map':     'gate-array',
   'scanline-accuracy': 'high',
 
   // Sound
@@ -163,6 +164,10 @@ export const setWebglAvailable = _webglAvailable[1];
 const _colorMap = /*@once*/ createRoot(() => createSignal(getSaved('color-map', D('color-map')) as 'basic' | 'measured' | 'vivid'));
 export const colorMap = _colorMap[0];
 export const setColorMap = _colorMap[1];
+
+const _cpcColorMap = /*@once*/ createRoot(() => createSignal(getSaved('cpc-color-map', D('cpc-color-map')) as 'basic' | 'gate-array' | 'asic'));
+export const cpcColorMap = _cpcColorMap[0];
+export const setCpcColorMap = _cpcColorMap[1];
 
 const _scanlineAccuracy = /*@once*/ createRoot(() => createSignal(getSaved('scanline-accuracy', D('scanline-accuracy')) as 'high' | 'mid' | 'low'));
 export const scanlineAccuracy = _scanlineAccuracy[0];
@@ -405,6 +410,7 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'monitor',           set: setMonitor,          type: 'string' },
     { key: 'border-size',       set: setBorderSize,       type: 'number' },
     { key: 'color-map',         set: setColorMap,         type: 'string' },
+    { key: 'cpc-color-map',     set: setCpcColorMap,      type: 'string' },
     { key: 'scanline-accuracy', set: setScanlineAccuracy, type: 'string' },
   ],
   sound: [

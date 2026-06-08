@@ -10,7 +10,7 @@ import {
   type SpectrumModel, type MachineModel, type CpcModel,
   is128kClass, isPlus2AClass, isCpcModel, isPlusDCapable,
 } from '@/models.ts';
-import { CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT } from '@/cpc/constants.ts';
+import { CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT, CPC_PALETTES } from '@/cpc/constants.ts';
 import { WebGLRenderer } from '@/display/webgl-renderer.ts';
 import { CanvasRenderer } from '@/display/canvas-renderer.ts';
 import { FloppySound } from '@/plus3/floppy-sound.ts';
@@ -245,6 +245,7 @@ export function applyDisplaySettings(): void {
   } else {
     // CPC: AY-only, no beeper mixer. Volume + cassette instant-load.
     const c = machine as CpcMachine;
+    c.gateArray.palette = CPC_PALETTES[settings.cpcColorMap()];
     c.audio.setVolume(settings.volume() / 100);
     c.tapeInstantLoad = settings.tapeInstantRom();
   }

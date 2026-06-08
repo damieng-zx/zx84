@@ -40,7 +40,7 @@ import { BaseMachine } from '@/base-machine.ts';
 import {
   CPC_AY_CLOCK, CPC_CPU_CLOCK, CPC_T_PER_CHAR,
   CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT, CPC_BORDER_TOP, CPC_BORDER_LEFT,
-  CPC_PALETTE, CPC_CAS_READ_JUMP,
+  CPC_CAS_READ_JUMP,
 } from '@/cpc/constants.ts';
 
 /** Cassette read-cadence thresholds (CPU T-states between consecutive Port B
@@ -396,7 +396,7 @@ export class CpcMachine extends BaseMachine implements Machine {
 
   /** Styled OCR (text + coloured HTML + match mask) for the TEXT overlay. */
   ocrScreenStyled(): OcrResult {
-    return this.screenText.ocrStyled(this.ocrInput(), this.gateArray.pens, CPC_PALETTE);
+    return this.screenText.ocrStyled(this.ocrInput(), this.gateArray.pens, this.gateArray.palette);
   }
 
   /**
@@ -421,7 +421,7 @@ export class CpcMachine extends BaseMachine implements Machine {
         const x0 = CPC_BORDER_LEFT + col * cellW;
         if (x0 + cellW > CPC_SCREEN_WIDTH) continue;
         // Fill each cell with its own paper colour (PAPER is rarely pen 0).
-        const fill = CPC_PALETTE[pens[(paper ? paper[idx] : 0) & 0x0F] & 0x1F];
+        const fill = this.gateArray.palette[pens[(paper ? paper[idx] : 0) & 0x0F] & 0x1F];
         for (let y = 0; y < cellH; y++) {
           const base = (y0 + y) * CPC_SCREEN_WIDTH + x0;
           this._pixels32.fill(fill, base, base + cellW);

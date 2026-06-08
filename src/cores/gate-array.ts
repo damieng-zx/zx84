@@ -32,6 +32,10 @@ export class GateArray {
   mode = 1;
   private pendingMode = 1;
 
+  /** Active colour map (ABGR, indexed by hardware value 0–31). Swapped by the
+   *  display settings; defaults to the measured Gate Array palette. */
+  palette: Uint32Array = CPC_PALETTE;
+
   onLowerRom: (enabled: boolean) => void = () => {};
   onUpperRom: (enabled: boolean) => void = () => {};
   onRamConfig: (val: number) => void = () => {};
@@ -110,7 +114,7 @@ export class GateArray {
   /** Fill the whole frame buffer with the current border colour (top/bottom
    *  border and any rows a short frame never reaches). */
   beginFrame(px: Uint32Array): void {
-    px.fill(CPC_PALETTE[this.pens[BORDER_PEN] & 0x1F]);
+    px.fill(this.palette[this.pens[BORDER_PEN] & 0x1F]);
   }
 
   /**
@@ -121,7 +125,7 @@ export class GateArray {
                  readVideo: (addr: number) => number): void {
     if (bufferY < 0 || bufferY >= CPC_SCREEN_HEIGHT) return;
     const rowStart = bufferY * CPC_SCREEN_WIDTH;
-    const border = CPC_PALETTE[this.pens[BORDER_PEN] & 0x1F];
+    const border = this.palette[this.pens[BORDER_PEN] & 0x1F];
     px.fill(border, rowStart, rowStart + CPC_SCREEN_WIDTH);
     if (!line.vDisplay) return;
 
@@ -141,7 +145,7 @@ export class GateArray {
    *  next x. Mode determines how the 16 clocks split into logical pixels. */
   private plotChar(px: Uint32Array, rowStart: number, x: number,
                    b0: number, b1: number, mode: number): number {
-    const pal = CPC_PALETTE;
+    const pal = this.palette;
     const pens = this.pens;
     const put = (n: number, pen: number): void => {
       const px0 = x;
