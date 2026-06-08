@@ -2,6 +2,13 @@ import { createSignal, Show } from 'solid-js';
 
 const CHANGELOG: { version: string; items: string[] }[] = [
   {
+    version: '0.5.0',
+    items: [
+      'Experimental Amstrad CPC support — CPC 6128, 664 and 464',
+      'Experimental MGT +D disc support — G+DOS with .mgt/.img discs on drives C: and D:',
+      'Improved ZX accelerated ROM tape loading',
+    ]
+  }, {
     version: '0.4.1',
     items: [
       'Fix 765FDC to report abnormal termination on data CRC errors',
