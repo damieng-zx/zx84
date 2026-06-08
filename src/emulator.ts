@@ -18,6 +18,7 @@ import { PALETTES, SCREEN_WIDTH, SCREEN_HEIGHT } from '@/cores/ula.ts';
 import { saveSZX } from '@/snapshot/szx.ts';
 import { saveZ80 } from '@/snapshot/z80format.ts';
 import { parseTZX } from '@/tape/tzx.ts';
+import type { TapeBlock } from '@/tape/tap.ts';
 import { parseDSK, serializeDSK, type DskImage } from '@/plus3/dsk.ts';
 import { parseMgt, serializeMgt, blankMgtDisk, mgtExtFromName } from '@/plus3/mgt-image.ts';
 import { loadSZX } from '@/snapshot/szx.ts';
@@ -150,6 +151,20 @@ export let romData: Uint8Array | null = null;
 export let floppySound: FloppySound | null = null;
 export let canvasEl: HTMLCanvasElement | null = null;
 
+/** A loaded tape parked while another machine family is active. The Spectrum and
+ *  CPC decks are kept independent: switching ZX↔CPC stashes the outgoing tape
+ *  under its family and restores the incoming family's own tape (if any), so one
+ *  system's tape never turns up on the other. Same-family switches (e.g.
+ *  48K→128K) round-trip through the same stash and so keep the tape as before. */
+interface TapeStash {
+  blocks: TapeBlock[];
+  position: number;
+  paused: boolean;
+  name: string;
+}
+let spectrumTapeStash: TapeStash | null = null;
+let cpcTapeStash: TapeStash | null = null;
+
 
 
 // ── ROM management (via ROMManager) ─────────────────────────────────────
@@ -256,11 +271,19 @@ export function applyDisplaySettings(): void {
 export async function createMachine(): Promise<boolean> {
   if (!canvasEl) return false;
 
-  // Preserve tape state across machine rebuild (both machines have a deck)
-  const savedTapeBlocks = machine ? [...machine.tape.blocks] : null;
-  const savedTapePos = machine ? machine.tape.position : 0;
-  const savedTapePaused = machine ? machine.tape.paused : true;
-  const savedTapeName = tapeName();
+  // Stash the outgoing machine's tape under its own family so a CPC tape and a
+  // Spectrum tape stay independent (see TapeStash). The deck is read off the
+  // live machine; the name comes from the UI signal that mirrors it.
+  if (machine) {
+    const stash: TapeStash = {
+      blocks: [...machine.tape.blocks],
+      position: machine.tape.position,
+      paused: machine.tape.paused,
+      name: tapeName(),
+    };
+    if (asCpc(machine)) cpcTapeStash = stash;
+    else spectrumTapeStash = stash;
+  }
 
   if (machine) {
     machine.destroy();
@@ -350,17 +373,20 @@ export async function createMachine(): Promise<boolean> {
     floppySound = null;
   }
 
-  // Restore tape if one was loaded (both machines have a deck)
-  if (machine && savedTapeBlocks && savedTapeBlocks.length > 0) {
-    machine.tape.blocks = savedTapeBlocks;
-    machine.tape.position = savedTapePos;
-    machine.tape.paused = savedTapePaused;
+  // Restore the tape stashed for the NEW machine's family (if any). Switching
+  // across families therefore surfaces that family's own tape, not the one the
+  // other system had loaded.
+  const stash = cpc ? cpcTapeStash : spectrumTapeStash;
+  if (machine && stash && stash.blocks.length > 0) {
+    machine.tape.blocks = stash.blocks;
+    machine.tape.position = stash.position;
+    machine.tape.paused = stash.paused;
     batch(() => {
       setTapeLoaded(true);
-      setTapeName(savedTapeName);
-      setTapeBlocks([...savedTapeBlocks]);
-      setTapePosition(savedTapePos);
-      setTapePaused(savedTapePaused);
+      setTapeName(stash.name);
+      setTapeBlocks([...stash.blocks]);
+      setTapePosition(stash.position);
+      setTapePaused(stash.paused);
       setTapePlaying(false);
       setTurboMode(false);
     });

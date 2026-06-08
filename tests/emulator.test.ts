@@ -20,13 +20,16 @@
  *  - State signal round-trips → state/*.test.ts
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 // ── Spectrum stub ────────────────────────────────────────────────────────
 // Function declarations are hoisted and safe to reference in vi.mock factories.
 
 type SpectrumStub = ReturnType<typeof makeSpectrumStub>;
 let lastSpectrumStub: SpectrumStub | null = null;
+
+type CpcStub = ReturnType<typeof makeCpcStub>;
+let lastCpcStub: CpcStub | null = null;
 
 function makeSpectrumStub() {
   const s = {
@@ -81,6 +84,41 @@ function makeSpectrumStub() {
   return s;
 }
 
+// ── CPC stub ───────────────────────────────────────────────────────────────
+// Minimal CpcMachine surface for the createMachine() lifecycle so cross-family
+// (Spectrum↔CPC) model switches can be exercised. Disk-less (hasFDC:false) to
+// skip the FDC/floppy-sound branch; no Multiface/ParaDOS (settings off).
+
+function makeCpcStub() {
+  const c = {
+    kind: 'cpc' as const,
+    cpu: { pc: 0, sp: 0, tStates: 0 },
+    memory: { snapshot: vi.fn(() => new Uint8Array(0x10000)) },
+    tape: {
+      blocks: [] as unknown[], position: 0, paused: true, playing: false, loaded: false,
+      rewind: vi.fn(), startPlayback: vi.fn(), stopPlayback: vi.fn(),
+      parseTAP: vi.fn(() => []),
+    },
+    ay: { setStereoMode: vi.fn(), dcBlocking: false },
+    audio: { setVolume: vi.fn() },
+    gateArray: { palette: null as any, mode: 1 },
+    crtc: { displayStart: 0 },
+    multiface: { enabled: false },
+    config: { hasFDC: false },
+    amxMouse: { enabled: false, active: false },
+    kempstonMouse: { enabled: false },
+    breakpoints: new Set<number>(),
+    model: 'cpc6128' as any,
+    tapeFastRom: false, tapeTurbo: false, turbo: false,
+    loadROM: vi.fn(), reset: vi.fn(), start: vi.fn(), stop: vi.fn(), destroy: vi.fn(),
+    tick: vi.fn(), loadDisk: vi.fn(), setBorderSize: vi.fn(),
+    onStatus: null as any, onFrame: null as any,
+    display: null as any,
+  };
+  lastCpcStub = c;
+  return c;
+}
+
 // ── Module mocks ─────────────────────────────────────────────────────────
 // All factories are self-contained — no vi.hoisted() needed, which avoids
 // the "runner not found" bug in Vitest's forks pool with vi.hoisted.
@@ -88,6 +126,10 @@ function makeSpectrumStub() {
 
 vi.mock('@/spectrum.ts', () => ({
   Spectrum: function() { return makeSpectrumStub(); },
+}));
+
+vi.mock('@/cpc/cpc-machine.ts', () => ({
+  CpcMachine: function() { return makeCpcStub(); },
 }));
 
 vi.mock('@/display/canvas-renderer.ts', () => ({
@@ -209,6 +251,8 @@ vi.mock('@/store/settings.ts', () => ({
   diskSoundD:         vi.fn(() => true),
   tapeAutoRewind:     vi.fn(() => true),
   setTapeAutoRewind:  vi.fn(),
+  cpcColorMap:        vi.fn(() => 'ga'),
+  cpcParados:         vi.fn(() => false),
 }));
 
 vi.mock('@/store/persistence.ts', () => ({
@@ -629,6 +673,66 @@ describe('tape transport — boundary conditions', () => {
     expect(s.tape.paused).toBe(true);
     emulator.tapeTogglePause();
     expect(s.tape.paused).toBe(false);
+  });
+});
+
+// ── Cross-family tape independence (Spectrum ↔ CPC) ─────────────────────────
+// A tape loaded on one machine family must NOT appear on the other when the
+// model is switched; each family keeps its own deck. Within a family the tape
+// still carries across model switches.
+
+describe('tape independence across Spectrum/CPC model switch', () => {
+  // These tests switch the (module-level) current model to a CPC and back.
+  // Reset it to a Spectrum afterwards so later describes' setupSpectrum() —
+  // which calls createMachine() against the live model — still builds a Spectrum.
+  afterEach(() => { setCurrentModel('128k'); });
+
+  it('keeps each family\'s tape separate and never leaks one onto the other', async () => {
+    // Distinct array identities let us prove which deck holds which tape.
+    const zxBlocks = [{ tag: 'zx' }] as any[];
+    const cpcBlocks = [{ tag: 'cpc' }] as any[];
+
+    // Start on a Spectrum and load a Spectrum tape.
+    const zx = await setupSpectrum();
+    zx.tape.blocks = zxBlocks;
+    zx.tape.position = 1;
+    emulator.setTapeName('zxgame.tap');
+
+    // Switch to the CPC: the Spectrum tape must not follow.
+    await emulator.switchModel('cpc6128');
+    expect(lastCpcStub!.tape.blocks).not.toBe(zxBlocks);
+    expect(lastCpcStub!.tape.blocks.length).toBe(0);
+
+    // Load a CPC tape, then switch back to a Spectrum.
+    lastCpcStub!.tape.blocks = cpcBlocks;
+    lastCpcStub!.tape.position = 2;
+    emulator.setTapeName('cpcgame.cdt');
+
+    await emulator.switchModel('128k');
+    // The Spectrum's own tape is restored — not the CPC one. (The deck is
+    // restored from a copied block list, so compare by value, not identity.)
+    expect(lastSpectrumStub!.tape.blocks).toStrictEqual(zxBlocks);
+    expect(lastSpectrumStub!.tape.position).toBe(1);
+    expect(emulator.tapeName()).toBe('zxgame.tap');
+
+    // Switch back to the CPC: its own tape is restored, not the Spectrum's.
+    await emulator.switchModel('cpc6128');
+    expect(lastCpcStub!.tape.blocks).toStrictEqual(cpcBlocks);
+    expect(lastCpcStub!.tape.position).toBe(2);
+    expect(emulator.tapeName()).toBe('cpcgame.cdt');
+  });
+
+  it('carries the tape across a same-family model switch (48K→128K)', async () => {
+    const blocks = [{ tag: 'same-family' }] as any[];
+    const s = await setupSpectrum();
+    s.tape.blocks = blocks;
+    s.tape.position = 3;
+    emulator.setTapeName('keep.tap');
+
+    await emulator.switchModel('48k');
+    expect(lastSpectrumStub!.tape.blocks).toStrictEqual(blocks);
+    expect(lastSpectrumStub!.tape.position).toBe(3);
+    expect(emulator.tapeName()).toBe('keep.tap');
   });
 });
 
