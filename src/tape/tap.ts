@@ -435,18 +435,16 @@ export class TapeDeck {
   /**
    * Advance playback by the given number of T-states.
    * Toggles earBit at pulse boundaries.
+   *
+   * When `singleEdge` is true, processes at most one edge boundary and
+   * returns. Used by surgical loader acceleration (§4 edge-loader) so
+   * a single acceleration step cannot skip multiple edges and desync
+   * the two-slot length pipeline.
    */
-  advance(tStates: number): void {
+  advance(tStates: number, singleEdge = false): void {
     if (!this.playing || this.paused || this.phase === TapePhase.IDLE) return;
 
     if (this.phase === TapePhase.PAUSE) {
-      // Per TZX 1.20 §3.5: when a data block ends with a pause, the tape
-      // holds the last edge level briefly, then drops to low (level 0)
-      // for the remainder. Loaders like Speedlock 7 rely on this drop as
-      // the "block done" signal — without it the loader times out into
-      // an error path or mis-syncs against the next block. pauseFlipAt
-      // is the T-states until the drop; -1 means no drop pending (e.g.
-      // for standalone PauseBlock entries from TZX 0x20).
       this.pauseRemaining -= tStates;
       if (this.pauseFlipAt > 0) {
         this.pauseFlipAt -= tStates;
@@ -474,6 +472,7 @@ export class TapeDeck {
       this.tInPulse -= this.pulseLen;
       this.earBit ^= 1;
       this.advancePulse();
+      if (singleEdge) break;
     }
   }
 
