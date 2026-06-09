@@ -7,7 +7,7 @@
  *   - The entry A/F have been swapped into the shadow regs by the
  *     EX AF,AF' at 0x0557; the trap reads `a_` and `f_`.
  *   - Trap DECLINES (returns false, leaves all CPU/tape state
- *     untouched) on: no block, flag mismatch, block-length mismatch,
+ *     untouched) on: no block, flag mismatch, block shorter than DE,
  *     and pure-data / custom-loader blocks. The caller then runs real
  *     LD-BYTES so custom-speed and protected tapes load correctly.
  *   - Trap SUCCEEDS by copying `cpu.de` bytes to `cpu.ix`, advancing
@@ -32,8 +32,11 @@
  *    a partial copy with carry=0). The real ROM runs instead — which
  *    matches what would happen on hardware when the block runs short.
  *
- *  - **Long block (block longer than DE)** now DECLINES too. The real
- *    ROM is faithful to the actual tape contents.
+ *  - **Long block (block longer than DE)** SUCCEEDS: it copies only the
+ *    first DE bytes and consumes the whole block. The real ROM reads DE
+ *    bytes + a parity byte and ignores the rest, so oversize blocks (e.g.
+ *    Paperboy (MCM)'s 18-byte header read with DE=17) still load. Earlier
+ *    versions declined these, which left such tapes loading in real time.
  *
  *  - **Flag mismatch** declines without consuming the block. Previous
  *    versions consumed the block even on mismatch; now we leave it
@@ -150,15 +153,6 @@ describe('trapTapeLoad — declines without side-effects', () => {
     expect(cpu.mem[0x8000]).toBe(0);
   });
 
-  it('long block (length > DE) → declines, block left for real ROM', () => {
-    const tape = new TapeStub([makeDataBlock(0xFF, [1, 2, 3, 4, 5, 6, 7, 8])]);
-    primeForTrap(cpu, { a: 0xFF, carry: true, ix: 0x8000, de: 3 });
-    expect(trapTapeLoad(cpu, tape as any)).toBe(false);
-    expect(cpu.de).toBe(3);
-    expect(cpu.ix).toBe(0x8000);
-    expect(tape.consumed).toBe(0);
-  });
-
   it('empty block against non-zero DE declines', () => {
     const tape = new TapeStub([makeDataBlock(0xFF, [])]);
     primeForTrap(cpu, { a: 0xFF, carry: true, ix: 0x8000, de: 10 });
@@ -184,6 +178,25 @@ describe('trapTapeLoad — LOAD success', () => {
     expect(cpu.pc).toBe(0xBEEF);
     expect(cpu.sp).toBe((spBefore + 4) & 0xFFFF); // popped both 0x053F and caller return
     expect(cpu.getFlag(Z80.FLAG_C)).toBe(true);
+    expect(tape.consumed).toBe(1);
+  });
+
+  it('oversize block (length > DE): copies only DE bytes, ignores the rest, consumes the whole block', () => {
+    // The real ROM reads DE bytes + one parity byte and ignores any trailing
+    // bytes, so a block longer than requested still loads on hardware. This is
+    // exactly the Paperboy (MCM) case: an 18-byte header read with DE=17.
+    const tape = new TapeStub([makeDataBlock(0xFF, [0x11, 0x22, 0x33, 0x44, 0x55])]);
+    primeForTrap(cpu, { a: 0xFF, carry: true, ix: 0x8000, de: 3, retAddr: 0xBEEF });
+    expect(trapTapeLoad(cpu, tape as any)).toBe(true);
+    // Only the first DE (=3) bytes are written...
+    expect(Array.from(cpu.mem.slice(0x8000, 0x8003))).toEqual([0x11, 0x22, 0x33]);
+    // ...the 4th byte is left untouched (trailing bytes discarded).
+    expect(cpu.mem[0x8003]).toBe(0);
+    expect(cpu.ix).toBe(0x8003);   // advanced by DE, not by block length
+    expect(cpu.de).toBe(0);
+    expect(cpu.pc).toBe(0xBEEF);
+    expect(cpu.getFlag(Z80.FLAG_C)).toBe(true);
+    // Whole block consumed — the ROM cannot resume mid-block.
     expect(tape.consumed).toBe(1);
   });
 
@@ -248,7 +261,7 @@ describe('trapTapeLoad — VERIFY success (carry=0 in F_)', () => {
     expect(trapTapeLoad(cpu, tape as any)).toBe(false);
   });
 
-  it('verify with length mismatch declines', () => {
+  it('verify with a block shorter than DE declines', () => {
     const tape = new TapeStub([makeDataBlock(0xFF, [1, 2])]);
     primeForTrap(cpu, { a: 0xFF, carry: false, ix: 0, de: 5 });
     expect(trapTapeLoad(cpu, tape as any)).toBe(false);

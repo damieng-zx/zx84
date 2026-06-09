@@ -25,9 +25,16 @@
  *     and does NOT do an EX AF,AF' before RET (verified against the
  *     48K ROM: LD A,H / CP $01 / RET — the C9 at $05E2 is bare RET).
  *
- * Length check matches FUSE's `block_length != DE+2` (their length
- * includes flag+payload+checksum; our `block.data` is the payload
- * only, so the equivalent check is `block.data.length === cpu.de`).
+ * Length check: the real ROM's LD-BYTES reads exactly DE bytes plus one
+ * parity byte and ignores any trailing bytes, so a block that is LONGER
+ * than requested still loads on hardware (e.g. re-releases like Paperboy
+ * (MCM) carry an 18-byte "header" and data blocks one byte over the
+ * length their header declares). We therefore accept any block with at
+ * least `cpu.de` payload bytes and copy only `cpu.de` of them — declining
+ * only when the block is shorter than requested (the ROM would then read
+ * past the block and fail). This is looser than FUSE's exact
+ * `block_length == DE+2`, which rejects such tapes; we don't verify
+ * parity here regardless, so the extra leniency doesn't change fidelity.
  */
 
 import { Z80 } from '@/cores/z80.ts';
@@ -44,7 +51,7 @@ export function trapTapeLoad(cpu: Z80, tape: TapeDeck): boolean {
   const block = tape.peekDataBlock();
   if (!block) return false;                          // no block — let ROM run
   if (block.flag !== expectedFlag) return false;     // flag mismatch — let ROM run
-  if (block.data.length !== count) return false;    // length mismatch — let ROM run (turbo / non-standard sizes)
+  if (block.data.length < count) return false;       // block too short — let ROM run (the ROM would read past it / fail)
 
   // Commit: consume the block.
   tape.nextDataBlock();
