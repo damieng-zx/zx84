@@ -7,6 +7,7 @@ const CHANGELOG: { version: string; items: string[] }[] = [
       'Fast ROM loading for Amstrad CPC firmware tapes (CAS READ trap)',
       'Pixel-perfect scaling on high-DPI displays',
       'UI polish: an app menu to show/hide developer panes and reset settings or layout, and tidier default panes and border',
+      'Fixed 128K timing issues',
     ]
   }, {
     version: '0.5.0',

@@ -1,5 +1,6 @@
 import { Z80 } from './core.ts';
 import { ddfdUsesHL } from './tables.ts';
+import { contendN } from './contention.ts';
 import { signed8 } from '@/utils/signed.ts';
 
 Z80.prototype.executeDD = function (this: Z80): void {
@@ -32,29 +33,31 @@ Z80.prototype.executeDD = function (this: Z80): void {
 
   if (x === 1 && (y === 6 || z === 6) && !(y === 6 && z === 6)) {
     const d = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
+    const dAddr = (this.pc - 1) & 0xFFFF;  // d-byte address (5 internal cycles contend here)
     const addr = (this.ix + signed8(d)) & 0xFFFF;
     this.memptr = addr;  // Any instruction with (INDEX+d): MEMPTR = INDEX+d
     this.h = savedH; this.l = savedL;
 
     if (y === 6) {
-      // LD (IX+d),r: 19T, write@T+15. Auto: 8T(DD+op M1) + 3T(d) = 11T
+      // LD (IX+d),r: 19T. d(3) + 5 internal @ d-byte + write(3). write@T+16.
       const val = this.getReg8(z);
-      this.tStates += 4;
+      contendN(this, dAddr, 5);
       this.write8(addr, val);
-      this.tStates += 4;
+      this.tStates += 3;
     } else {
-      // LD r,(IX+d): 19T, read@T+16. Auto: 8T + 3T(d) = 11T
-      this.tStates += 5;
+      // LD r,(IX+d): 19T, read@T+16. d(3) + 5 internal @ d-byte + read(3).
+      contendN(this, dAddr, 5);
       this.setReg8(y, this.read8(addr));
       this.tStates += 3;
     }
   } else if (x === 2 && z === 6) {
-    // ALU A,(IX+d): 19T, read@T+16. Auto: 8T + 3T(d) = 11T
+    // ALU A,(IX+d): 19T, read@T+16. d(3) + 5 internal @ d-byte + read(3).
     const d = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
+    const dAddr = (this.pc - 1) & 0xFFFF;
     const addr = (this.ix + signed8(d)) & 0xFFFF;
     this.memptr = addr;  // Any instruction with (INDEX+d): MEMPTR = INDEX+d
     this.h = savedH; this.l = savedL;
-    this.tStates += 5;
+    contendN(this, dAddr, 5);
     this.aluOp(y, this.read8(addr));
     this.tStates += 3;
   } else if (x === 0 && z === 6 && y !== 6) {
@@ -73,26 +76,28 @@ Z80.prototype.executeDD = function (this: Z80): void {
       this.executeMain(op);
     }
   } else if (x === 0 && (z === 4 || z === 5) && y === 6) {
-    // INC/DEC (IX+d): 23T, read@T+16, write@T+20. Auto: 8T + 3T(d) = 11T
+    // INC/DEC (IX+d): 23T. d(3) + 5 internal @ d-byte + read(3) + 1 internal @ addr + write(3).
     const d = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
+    const dAddr = (this.pc - 1) & 0xFFFF;
     const addr = (this.ix + signed8(d)) & 0xFFFF;
     this.memptr = addr;  // Any instruction with (INDEX+d): MEMPTR = INDEX+d
     this.h = savedH; this.l = savedL;
-    this.tStates += 5;
+    contendN(this, dAddr, 5);
     const val = this.read8(addr);
-    this.tStates += 4;
+    this.tStates += 3;
+    this.contend(addr); this.tStates += 1;
     this.write8(addr, z === 4 ? this.inc8(val) : this.dec8(val));
     this.tStates += 3;
   } else if (op === 0x36) {
-    // LD (IX+d),n: 19T, write@T+15 (duplicate guard). Auto: 8T + 3T(d) + 3T(n) = 14T
+    // LD (IX+d),n: 19T. d(3) + n(3) + 2 internal @ n-byte + write(3). write@T+16.
     const d = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
     const n = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
     const addr = (this.ix + signed8(d)) & 0xFFFF;
     this.memptr = addr;  // Any instruction with (INDEX+d): MEMPTR = INDEX+d
     this.h = savedH; this.l = savedL;
-    this.tStates += 1;
+    contendN(this, (this.pc - 1) & 0xFFFF, 2);  // 2 internal cycles @ n-byte address
     this.write8(addr, n);
-    this.tStates += 4;
+    this.tStates += 3;
   } else if (ddfdUsesHL(op)) {
     // DD prefix M1 already auto-counted
     this.executeMain(op);
@@ -139,28 +144,30 @@ Z80.prototype.executeFD = function (this: Z80): void {
 
   if (x === 1 && (y === 6 || z === 6) && !(y === 6 && z === 6)) {
     const d = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
+    const dAddr = (this.pc - 1) & 0xFFFF;  // d-byte address (5 internal cycles contend here)
     const addr = (this.iy + signed8(d)) & 0xFFFF;
     this.memptr = addr;  // Any instruction with (INDEX+d): MEMPTR = INDEX+d
     this.h = savedH; this.l = savedL;
     if (y === 6) {
-      // LD (IY+d),r: 19T, write@T+15. Auto: 8T + 3T(d) = 11T
+      // LD (IY+d),r: 19T. d(3) + 5 internal @ d-byte + write(3). write@T+16.
       const val = this.getReg8(z);
-      this.tStates += 4;
+      contendN(this, dAddr, 5);
       this.write8(addr, val);
-      this.tStates += 4;
+      this.tStates += 3;
     } else {
-      // LD r,(IY+d): 19T, read@T+16. Auto: 8T + 3T(d) = 11T
-      this.tStates += 5;
+      // LD r,(IY+d): 19T, read@T+16. d(3) + 5 internal @ d-byte + read(3).
+      contendN(this, dAddr, 5);
       this.setReg8(y, this.read8(addr));
       this.tStates += 3;
     }
   } else if (x === 2 && z === 6) {
-    // ALU A,(IY+d): 19T, read@T+16. Auto: 8T + 3T(d) = 11T
+    // ALU A,(IY+d): 19T, read@T+16. d(3) + 5 internal @ d-byte + read(3).
     const d = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
+    const dAddr = (this.pc - 1) & 0xFFFF;
     const addr = (this.iy + signed8(d)) & 0xFFFF;
     this.memptr = addr;  // Any instruction with (INDEX+d): MEMPTR = INDEX+d
     this.h = savedH; this.l = savedL;
-    this.tStates += 5;
+    contendN(this, dAddr, 5);
     this.aluOp(y, this.read8(addr));
     this.tStates += 3;
   } else if (x === 0 && z === 6 && y !== 6) {
@@ -179,26 +186,28 @@ Z80.prototype.executeFD = function (this: Z80): void {
       this.executeMain(op);
     }
   } else if (x === 0 && (z === 4 || z === 5) && y === 6) {
-    // INC/DEC (IY+d): 23T, read@T+16, write@T+20. Auto: 8T + 3T(d) = 11T
+    // INC/DEC (IY+d): 23T. d(3) + 5 internal @ d-byte + read(3) + 1 internal @ addr + write(3).
     const d = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
+    const dAddr = (this.pc - 1) & 0xFFFF;
     const addr = (this.iy + signed8(d)) & 0xFFFF;
     this.memptr = addr;  // Any instruction with (INDEX+d): MEMPTR = INDEX+d
     this.h = savedH; this.l = savedL;
-    this.tStates += 5;
+    contendN(this, dAddr, 5);
     const val = this.read8(addr);
-    this.tStates += 4;
+    this.tStates += 3;
+    this.contend(addr); this.tStates += 1;
     this.write8(addr, z === 4 ? this.inc8(val) : this.dec8(val));
     this.tStates += 3;
   } else if (op === 0x36) {
-    // LD (IY+d),n: 19T, write@T+15 (duplicate guard). Auto: 8T + 3T(d) + 3T(n) = 14T
+    // LD (IY+d),n: 19T. d(3) + n(3) + 2 internal @ n-byte + write(3). write@T+16.
     const d = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
     const n = this.read8(this.pc); this.pc = (this.pc + 1) & 0xFFFF; this.tStates += 3;
     const addr = (this.iy + signed8(d)) & 0xFFFF;
     this.memptr = addr;  // Any instruction with (INDEX+d): MEMPTR = INDEX+d
     this.h = savedH; this.l = savedL;
-    this.tStates += 1;
+    contendN(this, (this.pc - 1) & 0xFFFF, 2);  // 2 internal cycles @ n-byte address
     this.write8(addr, n);
-    this.tStates += 4;
+    this.tStates += 3;
   } else if (ddfdUsesHL(op)) {
     // FD prefix M1 already auto-counted
     this.executeMain(op);

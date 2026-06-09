@@ -248,6 +248,7 @@ Z80.prototype.executeED = function (this: Z80): void {
         const val = this.portIn(this.bc);
         this.tStates += 1;
         this.write8(this.hl, val);
+        this.tStates += 3;   // write completion (T+13..15) — must precede the 5 internal cycles
         this.b = (this.b - 1) & 0xFF;
 
         // INI/IND: MEMPTR = BC_before_decrementing_B ± 1
@@ -300,9 +301,8 @@ Z80.prototype.executeED = function (this: Z80): void {
           }
           this.f = f;
           this.memptr = (this.pc + 1) & 0xFFFF;  // During repeat: MEMPTR = PC + 1
-          // 5 internal cycles at HL (already incremented)
+          // 5 internal cycles at HL (already incremented): T+16..20, INIR/INDR 21T total
           contendN(this, this.hl, 5);
-          this.tStates += 3;   // INIR/INDR: 21T total
         } else {
           // INI/IND or INIR/INDR final (B==0): Y,X from B; standard PF
           let par = p;
@@ -312,7 +312,6 @@ Z80.prototype.executeED = function (this: Z80): void {
                    (hcf ? 0x11 : 0) |             // H, C
                    ((par & 1) ? 0 : 0x04) |       // P/V
                    nf;                             // N
-          this.tStates += 3;   // INI/IND: 16T total
         }
         this._qReg = this.f;
         break;
