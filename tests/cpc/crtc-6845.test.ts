@@ -142,3 +142,68 @@ describe('CRTC 6845 — raster sequencing', () => {
     expect(active).toBe(8);                // exactly 8 scanlines of VSYNC
   });
 });
+
+describe('CRTC 6845 — frame restart & rupture', () => {
+  /** Count scanlines until the frame restarts (MA reloaded to base at a row top). */
+  function linesUntilRestart(c: Crtc6845, base: number): number {
+    let lines = 0;
+    do {
+      c.advanceLine();
+      lines++;
+    } while (!(c.currentLine().maRow === base && c.currentLine().ra === 0) && lines < 1000);
+    return lines;
+  }
+
+  it('restarts the frame after (R4+1)·(R9+1) scanlines, reloading MA from R12/R13', () => {
+    const c = new Crtc6845(0);
+    programStandard(c);                    // R4=38, R9=7, R5=0
+    setReg(c, R_DISPLAY_START_H, 0x30);
+    setReg(c, R_DISPLAY_START_L, 0x00);
+    c.beginFrame();
+    expect(c.currentLine().maRow).toBe(0x3000);
+    expect(linesUntilRestart(c, 0x3000)).toBe(39 * 8);   // 312
+    expect(c.currentLine().maRow).toBe(0x3000);          // reloaded from R12/R13
+  });
+
+  it('runs R5 vertical-adjust scanlines before the restart', () => {
+    const c = new Crtc6845(0);
+    programStandard(c);
+    setReg(c, R_VERT_ADJUST, 6);           // R5 = 6 extra scanlines
+    setReg(c, R_DISPLAY_START_H, 0x30);
+    setReg(c, R_DISPLAY_START_L, 0x00);
+    c.beginFrame();
+    expect(linesUntilRestart(c, 0x3000)).toBe(39 * 8 + 6);   // 318
+  });
+
+  it('restarts early when R4 is reduced mid-frame (rupture), reloading the new R12/R13', () => {
+    const c = new Crtc6845(0);
+    programStandard(c);                    // R4=38
+    setReg(c, R_DISPLAY_START_H, 0x30);
+    setReg(c, R_DISPLAY_START_L, 0x00);
+    c.beginFrame();
+    for (let i = 0; i < 80; i++) c.advanceLine();   // 10 character rows
+    expect(c.currentLine().maRow).toBe(0x3000 + 10 * 40);   // row-10 base
+
+    // Mid-frame: shorten the frame and point the screen at a new base.
+    setReg(c, R_VERT_TOTAL, 10);           // R4 now equals the current row
+    setReg(c, R_DISPLAY_START_H, 0x00);    // new base 0x0000
+    setReg(c, R_DISPLAY_START_L, 0x00);
+
+    for (let i = 0; i < 8; i++) c.advanceLine();    // finish row 10 → restart
+    expect(c.currentLine().maRow).toBe(0x0000);     // lines below use the new base
+    expect(c.currentLine().ra).toBe(0);
+  });
+
+  it('latches R12/R13 at the restart, not per scanline (static base is unchanged)', () => {
+    const c = new Crtc6845(0);
+    programStandard(c);
+    setReg(c, R_DISPLAY_START_H, 0x30);
+    setReg(c, R_DISPLAY_START_L, 0x00);
+    c.beginFrame();
+    // Within a frame, MA advances by R1 each row and is NOT re-seeded from R12/R13
+    // (writing R13 mid-row must not shift the current row's address).
+    for (let i = 0; i < 8; i++) c.advanceLine();
+    setReg(c, R_DISPLAY_START_L, 0x40);    // change base mid-frame
+    expect(c.currentLine().maRow).toBe(0x3000 + 40);   // current row unaffected
+  });
+});

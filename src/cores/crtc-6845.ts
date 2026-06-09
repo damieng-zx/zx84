@@ -53,6 +53,7 @@ export class Crtc6845 {
   private ra = 0;           // raster within row (0–R9)
   private maRow = 0;        // memory address at start of current row
   private vsyncLeft = 0;    // remaining VSYNC scanlines
+  private vtaLeft = 0;      // remaining vertical-total-adjust (R5) scanlines
 
   selectRegister(val: number): void { this.selected = val & 0x1F; }
 
@@ -94,8 +95,22 @@ export class Crtc6845 {
   beginFrame(): void {
     this.vcc = 0;
     this.ra = 0;
+    this.vtaLeft = 0;
     this.maRow = this.displayStart;
     // Leave vsync state to carry naturally across the boundary.
+  }
+
+  /** Restart the CRTC's internal frame: reset the row/raster counters and reload
+   *  the memory address from R12:R13 *live*. Reached when the vertical total
+   *  (R4, re-read each row) is hit, so a mid-frame R4/R12/R13 change restarts the
+   *  frame early with the new screen base — this is how hardware rupture /
+   *  split-screen works. Independent of the host frame loop's line count, so a
+   *  restart mid-frame simply re-bases the address for the lines below it. */
+  private restartFrame(): void {
+    this.vcc = 0;
+    this.ra = 0;
+    this.vtaLeft = 0;
+    this.maRow = this.displayStart;
   }
 
   /** State of the scanline about to be drawn. */
@@ -127,11 +142,26 @@ export class Crtc6845 {
       if (this.vsyncLeft <= 0) this.vsyncActive = false;
     }
 
+    // Vertical-total-adjust: R5 extra scanlines follow the last character row,
+    // then the frame restarts.
+    if (this.vtaLeft > 0) {
+      if (--this.vtaLeft === 0) this.restartFrame();
+      return;
+    }
+
     // Advance raster / character row.
     if (this.ra >= this.regs[R_MAX_RASTER]) {
-      this.ra = 0;
-      this.vcc++;
-      this.maRow = (this.maRow + this.regs[R_HORIZ_DISPLAYED]) & 0x3FFF;
+      // End of a character row. R4 (vertical total) is re-read here, so reducing
+      // it mid-frame restarts the frame early — the basis of rupture.
+      if (this.vcc >= this.regs[R_VERT_TOTAL]) {
+        const adjust = this.regs[R_VERT_ADJUST];
+        if (adjust > 0) this.vtaLeft = adjust;   // run R5 adjust lines, then restart
+        else this.restartFrame();
+      } else {
+        this.ra = 0;
+        this.vcc++;
+        this.maRow = (this.maRow + this.regs[R_HORIZ_DISPLAYED]) & 0x3FFF;
+      }
     } else {
       this.ra++;
     }
@@ -146,5 +176,6 @@ export class Crtc6845 {
     this.ra = 0;
     this.maRow = 0;
     this.vsyncLeft = 0;
+    this.vtaLeft = 0;
   }
 }
