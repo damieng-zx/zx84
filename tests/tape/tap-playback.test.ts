@@ -569,6 +569,43 @@ describe('TapeDeck.skipBlock()', () => {
     deck.skipBlock();
     expect(deck.playing).toBe(false);
   });
+
+  it('holds the line high, then drops it to 0 at the TZX §3.5 end-of-block edge', () => {
+    // The replayed pause must reproduce the edge a loader keys off: hold the
+    // last level high, then drop to 0 after 945 T (Speedlock 7's "block done"
+    // signal). The test deck runs at pulseScale 1, so scale(945) === 945.
+    const deck = deckWith(makeData(0xFF, [1], { pause: 1000 }), makeData(0xFF, [2]));
+    deck.nextDataBlock();
+    deck.skipBlock();
+    // Held high on entry to the pause.
+    expect(deck.earBit).toBe(1);
+    // One T-state short of the flip point — still high.
+    deck.advance(944);
+    expect(deck.earBit).toBe(1);
+    // Crossing 945 T drops the line to 0, while the long pause is still
+    // running out (not yet advanced off the consumed block).
+    deck.advance(2);
+    expect(deck.earBit).toBe(0);
+    expect((deck as any).playbackIdx).toBe(0);
+  });
+
+  it('schedules no edge drop when the pause is shorter than the 945 T hold', () => {
+    // A pause shorter than the §3.5 hold-high window has no room for the drop:
+    // pauseFlipAt stays -1 and the line holds high for the whole gap.
+    // 0.2ms × 3.5MHz = 700 T < 945 T.
+    const deck = deckWith(makeData(0xFF, [1], { pause: 0.2 }), makeData(0xFF, [2]));
+    deck.nextDataBlock();
+    deck.skipBlock();
+    expect(deck.earBit).toBe(1);
+    expect((deck as any).pauseFlipAt).toBe(-1);
+    // Still inside the short pause — line never dropped.
+    deck.advance(699);
+    expect(deck.earBit).toBe(1);
+    expect((deck as any).playbackIdx).toBe(0);
+    // Pause elapses → playback advances to the next block.
+    deck.advance(2);
+    expect((deck as any).playbackIdx).toBe(1);
+  });
 });
 
 // ── stopPlayback / rewind ──────────────────────────────────────────────────
