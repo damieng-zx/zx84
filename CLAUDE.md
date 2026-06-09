@@ -55,6 +55,7 @@ Tests must be written critically against a known-correct specification, not as a
 
 - **No `cd` in commands.** Don't prefix commands with `cd /path &&`. It breaks the permission model. Qualify file paths on the command itself (e.g. `npx tsc --noEmit` run from the project root).
 - **Never commit.** Do not run `git add`, `git commit`, or `git push` unless the user explicitly asks. The user manages their own commits.
+- **Run the full test suite before any commit, and only commit when it's green.** Before running `git commit`, run `npx vitest run` and confirm `0 failed`. If anything fails — even a test unrelated to your change — stop and surface it; do not commit over red tests. `npx tsc --noEmit` should also be clean.
 - **When asked to commit, use `git commit --only -- <files>`.** Multiple Claude instances may share this working tree, so the index can already contain files staged by another instance. `git add` followed by `git commit` sweeps those in. `git commit --only -- path1 path2 …` commits *only* the listed paths, leaving everything else in the index untouched. Always run `git diff --cached --name-only` first as a sanity check.
 - **Present options for non-trivial features.** If there are multiple reasonable approaches, describe them and let the user choose — don't silently pick the smallest diff.
 

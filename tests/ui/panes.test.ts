@@ -117,9 +117,12 @@ describe('panes — load order', () => {
 // ── Collapsed state ───────────────────────────────────────────────────────
 
 describe('panes — collapsed state', () => {
-  it('starts with no collapsed panes', async () => {
+  it('starts with the default-collapsed panes (sound + mouse)', async () => {
     const m = await freshImport();
-    expect(m.collapsedPanes().size).toBe(0);
+    // DEFAULT_COLLAPSED collapses the niche sound and mouse panes out of the box.
+    expect(m.isCollapsed('sound-panel')).toBe(true);
+    expect(m.isCollapsed('mouse-panel')).toBe(true);
+    expect(m.collapsedPanes().size).toBe(2);
   });
 
   it('loads the persisted collapsed set', async () => {

@@ -276,13 +276,14 @@ describe('WebGLRenderer construction', () => {
     expect(() => new WebGLRenderer(canvas, 16, 16)).toThrow(/Shader link failed/);
   });
 
-  it('multiplies scale by devicePixelRatio for backing buffer size', () => {
+  it('sizes the backing buffer by scale only (dpr-independent), CSS box by 1/dpr', () => {
+    // DPR is kept out of the integer pixel multiple (folding it in broke
+    // pixel-perfect scaling at 125%); backing = view×scale, CSS = backing/dpr.
     env.restore(); env = installEnv(2);
-    const { canvas } = makeRenderer(100, 50);
-    // deviceScale = round(2 * 2) = 4
-    expect(canvas.width).toBe(400);
-    expect(canvas.height).toBe(200);
-    expect(canvas.style.width).toBe('200px'); // CSS = device / dpr
+    const { canvas } = makeRenderer(100, 50);     // scale defaults to 2
+    expect(canvas.width).toBe(200);               // 100 × scale(2), NOT × dpr
+    expect(canvas.height).toBe(100);              // 50 × scale(2)
+    expect(canvas.style.width).toBe('100px');     // backing / dpr = 200 / 2
   });
 });
 

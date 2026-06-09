@@ -103,24 +103,27 @@ describe('CanvasRenderer constructor', () => {
     expect(r.scale).toBe(2);
   });
 
-  it('multiplies by devicePixelRatio and emits matching CSS pixels', () => {
+  it('sizes the backing buffer by scale only (dpr-independent), CSS box by 1/dpr', () => {
+    // DPR must NOT be folded into the integer pixel multiple — backing pixels
+    // stay view×scale so scaling is always pixel-perfect; only the CSS box is
+    // divided by dpr so those backing pixels map 1:1 onto physical pixels.
     dom.restore(); dom = installDom(2);
     const canvas = new StubCanvas() as unknown as HTMLCanvasElement;
-    new CanvasRenderer(canvas, 100, 50);
-    // deviceScale = round(2 * 2) = 4 → backing 400×200, CSS 200×100
-    expect(canvas.width).toBe(400);
-    expect(canvas.height).toBe(200);
-    expect(canvas.style.width).toBe('200px');
-    expect(canvas.style.height).toBe('100px');
+    new CanvasRenderer(canvas, 100, 50);          // scale defaults to 2
+    expect(canvas.width).toBe(200);               // 100 × scale(2), NOT × dpr
+    expect(canvas.height).toBe(100);              // 50 × scale(2)
+    expect(canvas.style.width).toBe('100px');     // backing / dpr = 200 / 2
+    expect(canvas.style.height).toBe('50px');     // 100 / 2
   });
 
-  it('rounds fractional dpr-scale combinations (challenges sub-pixel scale)', () => {
-    // dpr=1.5, scale=2 → 3.0 exact, no rounding
+  it('keeps the backing buffer integer-scaled at fractional dpr (no blur)', () => {
+    // dpr=1.5: backing stays view×scale=20 (integer, pixel-perfect); the CSS
+    // box absorbs the fractional dpr instead.
     dom.restore(); dom = installDom(1.5);
     const canvas = new StubCanvas() as unknown as HTMLCanvasElement;
     new CanvasRenderer(canvas, 10, 10);
-    expect(canvas.width).toBe(30);
-    expect(canvas.style.width).toBe('20px');
+    expect(canvas.width).toBe(20);                // 10 × scale(2), dpr ignored
+    expect(canvas.style.width).toBe(20 / 1.5 + 'px');
   });
 
   it('disables image smoothing so nearest-neighbor scaling is preserved', () => {

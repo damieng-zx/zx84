@@ -44,7 +44,7 @@ export function HardwarePane() {
           title={turboMode() ? 'Switch to normal speed' : 'Toggle turbo speed'}
           class={`btn btn-md${turboMode() ? ' active' : ''}`}
           onClick={toggleTurbo}
-        >{clockSpeedText()}<span class="cpu-mhz-unit">MHz</span></button>
+        >{clockSpeedText()}<Show when={clockSpeedText() !== 'Turbo'}><span class="cpu-mhz-unit">MHz</span></Show></button>
         <button id="cpu-reset" title="Reset machine" onClick={resetMachine}><HiOutlinePower /></button>
       </div>
       <div class="hw-options">

@@ -285,56 +285,44 @@ export function updateRegsOnce(): void {
 let _lastSlowUpdate = 0;
 let _lastTurboUiUpdate = 0;
 
-// ── Clock speed tracking ────────────────────────────────────────────────
+// ── Clock-speed readout ─────────────────────────────────────────────────
+//
+// We show the machine's *nominal* CPU clock — or "Turbo" when it's running
+// flat-out — NOT a measured rate. The old measured-MHz EMA drifted and could
+// even read negative when tStates was sampled across a reset/step/frame-wrap
+// boundary. The intended speed is fixed and unambiguous: 3.54 MHz (128K family),
+// 3.50 MHz (48K), 4.00 MHz (CPC). The "MHz" unit is rendered by the UI, which
+// drops it when the value reads "Turbo".
 
-let speedLastTime = 0;
-let speedLastTStates = 0;
-let smoothedMhz = 0;
-let shownMhz = -1;
+let shownClockLabel = '';
 
-// Don't sample more often than this (real seconds). Gating on wall-clock rather
-// than frame count keeps the cadence at one update/second even in turbo, where
-// many emulated frames elapse per real second.
-const SPEED_SAMPLE_INTERVAL = 1;
-// Heavier EMA → steadier reading; the hysteresis below stops last-digit jitter.
-const SPEED_EMA = 0.85;
-// Only repaint when the figure really moves, so it holds a solid value.
-const SPEED_HYSTERESIS = 0.02;
+/** The label the CPU-speed button should show: "Turbo" while the machine runs
+ *  flat-out (manual turbo or auto tape-turbo), otherwise the nominal clock as
+ *  "N.NN" — truncated, not rounded, so the 128K's 3.5469 MHz reads as the
+ *  conventional 3.54 (48K → 3.50, CPC → 4.00). */
+function clockLabel(): string {
+  if (!machine) return '';
+  if (machine.turbo || (spectrum?.tapeTurboActive ?? false)) return 'Turbo';
+  return (Math.trunc(machine.tape.cpuClock / 10_000) / 100).toFixed(2);
+}
 
 export function resetSpeedTracking(): void {
-  speedLastTime = performance.now();
-  speedLastTStates = machine ? machine.cpu.tStates : 0;
-  smoothedMhz = 0;
-  shownMhz = -1;
-  setClockSpeedText('');
+  shownClockLabel = clockLabel();
+  setClockSpeedText(shownClockLabel);
 }
 
 function updateClockSpeed(): void {
-  const now = performance.now();
-  const elapsed = (now - speedLastTime) / 1000;
-  if (elapsed < SPEED_SAMPLE_INTERVAL) return;   // at most once per real second
-  const tStates = machine!.cpu.tStates - speedLastTStates;
-  speedLastTime = now;
-  speedLastTStates = machine!.cpu.tStates;
-
-  const rawMhz = (tStates / elapsed) / 1_000_000;
-  smoothedMhz = smoothedMhz === 0 ? rawMhz : smoothedMhz * SPEED_EMA + rawMhz * (1 - SPEED_EMA);
-
-  // Repaint only on a meaningful change, so the readout sits steady (e.g. 3.54)
-  // instead of flickering in the second decimal.
-  if (shownMhz < 0 || Math.abs(smoothedMhz - shownMhz) >= SPEED_HYSTERESIS) {
-    shownMhz = smoothedMhz;
-    setClockSpeedText(smoothedMhz.toFixed(2));
+  const label = clockLabel();
+  if (label !== shownClockLabel) {
+    shownClockLabel = label;
+    setClockSpeedText(label);
   }
 }
 
-/** Force immediate MHz update on next sample (e.g. after turbo toggle). */
+/** Force the readout to repaint next frame (e.g. after a turbo toggle, so the
+ *  "Turbo" ⇄ "3.54" flip lands immediately rather than on the next change). */
 export function forceSpeedUpdate(): void {
-  // Reset the baseline so the next sample measures only post-toggle speed
-  speedLastTime = performance.now();
-  speedLastTStates = machine ? machine.cpu.tStates : 0;
-  smoothedMhz = 0;
-  shownMhz = -1;
+  shownClockLabel = '\0';   // sentinel that never equals a real label
 }
 
 // ── Font preview ────────────────────────────────────────────────────────
@@ -550,7 +538,13 @@ export function onFrame(): void {
     setLedKbd(a.ulaReads > 0);
     setLedKemp(a.kempstonReads > 0);
     setLedEar(a.earReads > 0);
-    setLedLoad(a.tapeLoads > 0);
+    // TAPE LED = the tape is actively rolling. `tapeLoads` (ROM LD-BYTES hits)
+    // alone misses custom/turbo loaders — Speedlock & co. poll IN A,(0x7FFE)
+    // from their own code at 0xB000+, never touching 0x0556, so the LED stayed
+    // dark for the whole turbo load. Driving it off live playback state lights
+    // it for every loader; it clears when playback stops or the loader-detector
+    // pauses the tape at end-of-load.
+    setLedLoad((spectrum!.tape.playing && !spectrum!.tape.paused) || a.tapeLoads > 0);
     setLedBeep(a.beeperToggled);
     setLedAy(a.ayWrites > 5);
     setLedDsk(a.fdcAccesses > 0 || (spectrum!.mgtPlusD.enabled && spectrum!.mgtPlusD.fdc.motorOn));

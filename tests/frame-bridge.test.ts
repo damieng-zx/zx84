@@ -41,8 +41,9 @@ type MockSpectrum = {
   stop: ReturnType<typeof vi.fn>;
   stopTrace: ReturnType<typeof vi.fn>;
   tracing: boolean;
+  turbo: boolean;
   tapeTurboActive: boolean;
-  tape: { loaded: boolean; position: number; playing: boolean; paused: boolean; finished: boolean; startPlayback: () => void };
+  tape: { loaded: boolean; position: number; playing: boolean; paused: boolean; finished: boolean; startPlayback: () => void; cpuClock: number };
   activity: Record<string, number | boolean>;
   screenText: { active: boolean; activate: () => void; deactivate: () => void };
   loaderDetector: { signature: string };
@@ -265,8 +266,9 @@ function makeSpectrumWithSnap(snap: Uint8Array): MockSpectrum {
     stop: vi.fn(),
     stopTrace: vi.fn(() => ''),
     tracing: false,
+    turbo: false,
     tapeTurboActive: false,
-    tape: { loaded: false, position: 0, playing: false, paused: false, finished: false, startPlayback: vi.fn() },
+    tape: { loaded: false, position: 0, playing: false, paused: false, finished: false, startPlayback: vi.fn(), cpuClock: 3_546_900 },
     activity: {},
     screenText: { active: false, activate: vi.fn(), deactivate: vi.fn() },
     loaderDetector: { signature: 'unknown' },
@@ -372,16 +374,18 @@ describe('updateFontPreview', () => {
 // ── resetSpeedTracking / forceSpeedUpdate ────────────────────────────────
 
 describe('resetSpeedTracking / forceSpeedUpdate', () => {
-  it('resetSpeedTracking writes "MHz" placeholder to the clock-speed signal', () => {
+  it('resetSpeedTracking paints the nominal clock immediately', () => {
+    const snap = new Uint8Array(0x10000);
+    const s = makeSpectrumWithSnap(snap)!;
+    s.tape.cpuClock = 3_546_900;   // 128K
+    emu.spectrum = s;
     resetSpeedTracking();
-    expect(emu.setClockSpeedText).toHaveBeenCalledWith('MHz');
+    // 3.5469 MHz truncated to 2dp → "3.54" (the UI appends the "MHz" unit).
+    expect(emu.setClockSpeedText).toHaveBeenCalledWith('3.54');
   });
 
   it('forceSpeedUpdate does NOT immediately set the clock-speed signal', () => {
-    // Documented as "force immediate MHz update on next frame" — but the
-    // implementation just re-baselines and sets frameCount=0, so the next
-    // actual update is still 50 frames away. Lock that in to flag if/when
-    // the implementation is changed.
+    // It only arms a repaint for the next frame; nothing is emitted yet.
     forceSpeedUpdate();
     expect(emu.setClockSpeedText).not.toHaveBeenCalled();
   });
@@ -501,6 +505,33 @@ describe('onFrame — LED thresholds', () => {
     emu.spectrum = specWithActivity({ earReads: 1 });
     onFrame();
     expect(emu.setLedText).toHaveBeenCalledWith(true);
+  });
+
+  it('LedLoad (TAPE) lights while the tape is playing, even with no ROM LD-BYTES hits', () => {
+    // Custom/turbo loaders (Speedlock et al.) poll the ULA from their own code
+    // and never execute 0x0556, so tapeLoads stays 0. The TAPE LED must follow
+    // live playback or it would sit dark for the entire turbo load.
+    const s = specWithActivity({ tapeLoads: 0 })!;
+    s.tape = { ...s.tape, loaded: true, playing: true, paused: false };
+    emu.spectrum = s;
+    onFrame();
+    expect(emu.setLedLoad).toHaveBeenCalledWith(true);
+  });
+
+  it('LedLoad (TAPE) is off when the tape is stopped and no ROM load occurred', () => {
+    const s = specWithActivity({ tapeLoads: 0 })!;
+    s.tape = { ...s.tape, loaded: true, playing: false, paused: false };
+    emu.spectrum = s;
+    onFrame();
+    expect(emu.setLedLoad).toHaveBeenCalledWith(false);
+  });
+
+  it('LedLoad (TAPE) is off while the tape is paused', () => {
+    const s = specWithActivity({ tapeLoads: 0 })!;
+    s.tape = { ...s.tape, loaded: true, playing: true, paused: true };
+    emu.spectrum = s;
+    onFrame();
+    expect(emu.setLedLoad).toHaveBeenCalledWith(false);
   });
 });
 
@@ -803,7 +834,7 @@ describe('onFrame — tape handling', () => {
   function makeSpectrumWithTape(tapeOpts: Partial<TapeState> = {}) {
     const snap = new Uint8Array(0x10000);
     const s = makeSpectrumWithSnap(snap)!;
-    s.tape = { loaded: false, position: 0, playing: false, paused: false, finished: false, startPlayback: vi.fn(), ...tapeOpts };
+    s.tape = { loaded: false, position: 0, playing: false, paused: false, finished: false, startPlayback: vi.fn(), cpuClock: 3_546_900, ...tapeOpts };
     (s as any).memory = { ...s.memory, port7FFD: 0, port1FFD: 0, pagingLocked: false, specialPaging: false, currentROM: 0, currentBank: 0 };
     return s;
   }
@@ -876,51 +907,64 @@ describe('onFrame — tape handling', () => {
   });
 });
 
-// ── updateClockSpeed — 50-frame accumulation ─────────────────────────────
+// ── updateClockSpeed — nominal clock / Turbo readout ─────────────────────
 
 describe('updateClockSpeed', () => {
-  function makeBasicSpectrum(tStates = 0) {
+  function makeBasicSpectrum(cpuClock = 3_546_900) {
     const snap = new Uint8Array(0x10000);
     const s = makeSpectrumWithSnap(snap)!;
-    s.cpu = { tStates, pc: 0 };
+    s.cpu = { tStates: 0, pc: 0 };
+    s.tape.cpuClock = cpuClock;
     (s as any).memory = { ...s.memory, port7FFD: 0, port1FFD: 0, pagingLocked: false, specialPaging: false, currentROM: 0, currentBank: 0 };
     return s;
   }
 
-  it('does not emit a MHz reading before 50 frames', () => {
-    emu.spectrum = makeBasicSpectrum();
+  it('shows the nominal clock, truncated to 2dp (128K → 3.54)', () => {
+    emu.spectrum = makeBasicSpectrum(3_546_900);
+    resetSpeedTracking();
+    expect(emu.setClockSpeedText).toHaveBeenLastCalledWith('3.54');
+  });
+
+  it('shows 3.50 for the 48K clock', () => {
+    emu.spectrum = makeBasicSpectrum(3_500_000);
+    resetSpeedTracking();
+    expect(emu.setClockSpeedText).toHaveBeenLastCalledWith('3.50');
+  });
+
+  it('shows "Turbo" while the machine runs flat-out', () => {
+    const s = makeBasicSpectrum(3_546_900);
+    s.turbo = true;
+    emu.spectrum = s;
+    resetSpeedTracking();
+    expect(emu.setClockSpeedText).toHaveBeenLastCalledWith('Turbo');
+  });
+
+  it('shows "Turbo" during auto tape-turbo even when manual turbo is off', () => {
+    const s = makeBasicSpectrum(3_546_900);
+    s.turbo = false;
+    s.tapeTurboActive = true;
+    emu.spectrum = s;
+    resetSpeedTracking();
+    expect(emu.setClockSpeedText).toHaveBeenLastCalledWith('Turbo');
+  });
+
+  it('repaints only when the label changes (steady readout)', () => {
+    emu.spectrum = makeBasicSpectrum(3_546_900);
     resetSpeedTracking();
     emu.setClockSpeedText.mockClear();
-    for (let i = 0; i < 49; i++) onFrame();
+    for (let i = 0; i < 10; i++) onFrame();
+    // Label unchanged across frames → no repaint churn.
     expect(emu.setClockSpeedText).not.toHaveBeenCalled();
   });
 
-  it('emits a "N.NN MHz" string on the 50th frame', () => {
-    const nowSpy = vi.spyOn(performance, 'now').mockReturnValue(1000);
-    const s = makeBasicSpectrum(0);
+  it('flips from a clock reading to "Turbo" when turbo engages mid-run', () => {
+    const s = makeBasicSpectrum(3_546_900);
     emu.spectrum = s;
     resetSpeedTracking();
     emu.setClockSpeedText.mockClear();
-
-    // Advance simulated time and tStates to produce a measurable reading
-    nowSpy.mockReturnValue(2000);   // 1 second elapsed
-    s.cpu.tStates = 3_500_000;     // 3.5M T-states in 1s ≈ 3.50 MHz
-
-    for (let i = 0; i < 50; i++) onFrame();
-    expect(emu.setClockSpeedText).toHaveBeenCalledWith(expect.stringMatching(/\d+\.\d{2} MHz/));
-    nowSpy.mockRestore();
-  });
-
-  it('does not emit a MHz reading when elapsed time is 0 (guard against divide-by-zero)', () => {
-    const nowSpy = vi.spyOn(performance, 'now').mockReturnValue(99999);
-    const s = makeBasicSpectrum(5_000_000);
-    emu.spectrum = s;
-    resetSpeedTracking();          // sets speedLastTime = 99999
-    emu.setClockSpeedText.mockClear();
-    // time stays at 99999 → elapsed = 0 on the 50th frame
-    for (let i = 0; i < 50; i++) onFrame();
-    expect(emu.setClockSpeedText).not.toHaveBeenCalled();
-    nowSpy.mockRestore();
+    s.turbo = true;
+    onFrame();
+    expect(emu.setClockSpeedText).toHaveBeenCalledWith('Turbo');
   });
 });
 
