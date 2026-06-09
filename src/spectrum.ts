@@ -609,7 +609,7 @@ export class Spectrum extends BaseMachine implements Machine {
         // Unpause so either path (trap success or real ROM fallback) sees
         // the tape playing. Tape starts paused on mount so the playback
         // engine doesn't race ahead.
-        if (this.tape.paused) {
+        if (!this.tape.playing) {
           this.tape.paused = false;
           this.tape.startPlayback();
         }
