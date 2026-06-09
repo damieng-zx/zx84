@@ -848,6 +848,12 @@ input[type="range"]::-moz-range-thumb {
   font-variant-numeric: tabular-nums;
 }
 
+#cpu-mhz .cpu-mhz-unit {
+  font-size: 0.75em;
+  margin-left: 3px;
+  opacity: 0.75;
+}
+
 #regs-output {
   margin: 0;
   padding: 6px;

@@ -64,8 +64,9 @@ const _turboMode = createSignal(false);
 export const turboMode = _turboMode[0];
 export const setTurboMode = _turboMode[1];
 
-// Speed display
-const _clockSpeedText = createSignal('MHz');
+// Speed display — holds just the numeric value; the "MHz" unit is rendered
+// separately (smaller) in the UI. Empty until the first sample arrives.
+const _clockSpeedText = createSignal('');
 export const clockSpeedText = _clockSpeedText[0];
 export const setClockSpeedText = _clockSpeedText[1];
 

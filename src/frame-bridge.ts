@@ -289,41 +289,52 @@ let _lastTurboUiUpdate = 0;
 
 let speedLastTime = 0;
 let speedLastTStates = 0;
-let speedFrameCount = 0;
 let smoothedMhz = 0;
+let shownMhz = -1;
+
+// Don't sample more often than this (real seconds). Gating on wall-clock rather
+// than frame count keeps the cadence at one update/second even in turbo, where
+// many emulated frames elapse per real second.
+const SPEED_SAMPLE_INTERVAL = 1;
+// Heavier EMA → steadier reading; the hysteresis below stops last-digit jitter.
+const SPEED_EMA = 0.85;
+// Only repaint when the figure really moves, so it holds a solid value.
+const SPEED_HYSTERESIS = 0.02;
 
 export function resetSpeedTracking(): void {
   speedLastTime = performance.now();
   speedLastTStates = machine ? machine.cpu.tStates : 0;
-  speedFrameCount = 0;
   smoothedMhz = 0;
-  setClockSpeedText('MHz');
+  shownMhz = -1;
+  setClockSpeedText('');
 }
 
 function updateClockSpeed(): void {
-  speedFrameCount++;
-  if (speedFrameCount < 50) return;   // update every ~1 second
-  speedFrameCount = 0;
   const now = performance.now();
   const elapsed = (now - speedLastTime) / 1000;
+  if (elapsed < SPEED_SAMPLE_INTERVAL) return;   // at most once per real second
   const tStates = machine!.cpu.tStates - speedLastTStates;
   speedLastTime = now;
   speedLastTStates = machine!.cpu.tStates;
-  if (elapsed > 0) {
-    const rawMhz = (tStates / elapsed) / 1_000_000;
-    // Exponential moving average for a stable readout
-    smoothedMhz = smoothedMhz === 0 ? rawMhz : smoothedMhz * 0.7 + rawMhz * 0.3;
-    setClockSpeedText(`${smoothedMhz.toFixed(2)} MHz`);
+
+  const rawMhz = (tStates / elapsed) / 1_000_000;
+  smoothedMhz = smoothedMhz === 0 ? rawMhz : smoothedMhz * SPEED_EMA + rawMhz * (1 - SPEED_EMA);
+
+  // Repaint only on a meaningful change, so the readout sits steady (e.g. 3.54)
+  // instead of flickering in the second decimal.
+  if (shownMhz < 0 || Math.abs(smoothedMhz - shownMhz) >= SPEED_HYSTERESIS) {
+    shownMhz = smoothedMhz;
+    setClockSpeedText(smoothedMhz.toFixed(2));
   }
 }
 
-/** Force immediate MHz update on next frame (e.g. after turbo toggle). */
+/** Force immediate MHz update on next sample (e.g. after turbo toggle). */
 export function forceSpeedUpdate(): void {
   // Reset the baseline so the next sample measures only post-toggle speed
   speedLastTime = performance.now();
   speedLastTStates = machine ? machine.cpu.tStates : 0;
-  speedFrameCount = 0;
   smoothedMhz = 0;
+  shownMhz = -1;
 }
 
 // ── Font preview ────────────────────────────────────────────────────────
@@ -455,6 +466,7 @@ export function onFrame(): void {
         setLedKbd(ca.kbdReads > 0);
         setLedDsk(ca.fdcAccesses > 0);
         setLedMouse(ca.mouseReads > 0 || (cpc.amxMouse.enabled && cpc.amxMouse.active));
+        setLedLoad(ca.tapeReads > 0);
         setLedText(transcribeMode() === 'text');
 
         // Cassette: keep the tape pane's position/play state in sync. No
