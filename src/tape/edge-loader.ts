@@ -30,6 +30,30 @@ const STOP_GAP_T  = 1000;         // gap > this is "loader has moved on"
 const START_THRESHOLD = 10;       // consecutive in-shape reads to auto-start
 const STOP_THRESHOLD  = 2;        // consecutive out-of-shape reads to auto-stop
 
+/** Per-signature auto-stop gap override. Loaders that do heavy per-byte
+ *  computation between IN reads (checksums, decryption) need a wider gap
+ *  tolerance to avoid false-positive auto-stop mid-block. */
+function getStopGapT(sig: LoaderSignature): number {
+  switch (sig) {
+    case 'speedlock':           return 2000;
+    case 'alkatraz':            return 1500;
+    case 'alkatraz-variant':    return 1500;
+    case 'dinaload':            return 1500;
+    default:                    return STOP_GAP_T;
+  }
+}
+
+/** Per-signature auto-stop threshold: how many consecutive out-of-shape reads
+ *  before we decide the loader has genuinely stopped polling. */
+function getStopThreshold(sig: LoaderSignature): number {
+  switch (sig) {
+    case 'speedlock':           return 4;
+    case 'alkatraz':            return 3;
+    case 'alkatraz-variant':    return 3;
+    default:                    return STOP_THRESHOLD;
+  }
+}
+
 const NO_PREV = -1_000_000;       // sentinel: lastTStatesRead "minus infinity"
 
 // ── Length pipeline ───────────────────────────────────────────────────────
@@ -300,10 +324,11 @@ export class EdgeLoader {
       // `OR` test, two close bit boundaries would stop the tape mid-block.
       // Real "loader has moved on" code hits both criteria together
       // (game code runs >1000T between port reads AND mutates B freely).
-      const outOfShape = tDiff > STOP_GAP_T
+      const stopGap = getStopGapT(this.signature);
+      const outOfShape = tDiff > stopGap
         && (bDiff !== 0 && bDiff !== 1 && bDiff !== 0xFF);
       if (outOfShape) {
-        if (++this.successiveReads >= STOP_THRESHOLD) {
+        if (++this.successiveReads >= getStopThreshold(this.signature)) {
           this.successiveReads = 0;
           this.loaderActive = false;
           this.accelMode = 'none';
@@ -425,10 +450,11 @@ export class EdgeLoader {
     // length pipeline's slot 1 — we just consumed it and slot 2's value
     // is about to promote in (via rotateLengthPipeline below).
     const dt = tape.tStatesToNextEdge();
-    if (dt !== null && dt > 0) {
-      cpu.tStates += dt;
+    if (dt !== null) {
+      const adv = dt > 0 ? dt : 1;
+      cpu.tStates += adv;
       tape.inAcceleration = true;
-      tape.advance(dt);
+      tape.advance(adv, true);
       tape.inAcceleration = false;
     }
 
@@ -439,7 +465,14 @@ export class EdgeLoader {
     // {0,1,0xFF}, which auto-stop reads as outOfShape and pauses the
     // tape — producing visible leader-bar flapping while a loader runs.
     this.lastTStatesRead = cpu.tStates;
-    this.lastBRead = cpu.b;
+    // B was just forced to 0xFE or 0x00 above. The loader will INC B (increasing)
+    // or DEC B (decreasing) before its next IN, so predict the expected B-delta
+    // for auto-stop. Using the raw synthetic B would produce a wild bDiff on the
+    // next real IN and fire auto-stop after just 2 reads if the byte-processing
+    // gap is >1000T.
+    this.lastBRead = this.accelMode === 'decreasing'
+      ? ((cpu.b - 1) & 0xFF)
+      : ((cpu.b + 1) & 0xFF);
     this.successiveReads = 0;
     this.rotateLengthPipeline();
   }
@@ -484,6 +517,10 @@ export class EdgeLoader {
   onTapePlayStateChange(): void {
     this.successiveReads = 0;
     this.accelMode = 'none';
+    this.lengthKnown1 = false;
+    this.lengthLong1 = false;
+    this.lengthKnown2 = false;
+    this.lengthLong2 = false;
   }
 
   /** Full reset — machine reset, tape eject, etc. */
