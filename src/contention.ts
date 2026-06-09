@@ -144,10 +144,14 @@ export class Contention {
    *   Non-contended + ULA:    N:1, C:3  —  1 check
    *   Non-contended + non-ULA: N:4  —  no contention
    *
-   * The intermediate +1/-1 advances position tStates correctly for each check
-   * without adding extra time (sub-cycle T-states are in the base instruction timing).
+   * The probe positions walk forward from the START of the IORQ cycle.
+   * `offsetIntoCycle` is how far into the cycle the caller's tStates already
+   * is: OUTs invoke the port handler at cycle start (0), INs invoke it 3T in
+   * (the late sample point tape edge loaders need), so the probes must be
+   * anchored back at tStates - 3. Only the contention extras are added to
+   * cpu.tStates — the base 4T of the IO cycle stay in the instruction timing.
    */
-  applyIOContention(port: number, cpu: { tStates: number }): void {
+  applyIOContention(port: number, cpu: { tStates: number }, offsetIntoCycle = 0): void {
     if (!this.variant.hasIOContention) {
       // Amstrad gate array (+2A/+3): no I/O contention.
       // The gate array only applies contention when MREQ is active,
@@ -158,29 +162,32 @@ export class Contention {
     // 48K / 128K / +2 (Ferranti ULA): four-case I/O contention
     const isULA = (port & 1) === 0;
     const highContended = this.isContended(port);
+    const start = cpu.tStates - offsetIntoCycle;
+    let pos = start;
 
     if (highContended && isULA) {
       // C:1, C:3
-      cpu.tStates += this.contentionDelay(cpu.tStates);
-      cpu.tStates += 1;
-      cpu.tStates += this.contentionDelay(cpu.tStates);
-      cpu.tStates -= 1;
+      pos += this.contentionDelay(pos);
+      pos += 1;
+      pos += this.contentionDelay(pos);
+      pos -= 1;
     } else if (highContended) {
       // C:1, C:1, C:1, C:1
-      cpu.tStates += this.contentionDelay(cpu.tStates);
-      cpu.tStates += 1;
-      cpu.tStates += this.contentionDelay(cpu.tStates);
-      cpu.tStates += 1;
-      cpu.tStates += this.contentionDelay(cpu.tStates);
-      cpu.tStates += 1;
-      cpu.tStates += this.contentionDelay(cpu.tStates);
-      cpu.tStates -= 3;
+      pos += this.contentionDelay(pos);
+      pos += 1;
+      pos += this.contentionDelay(pos);
+      pos += 1;
+      pos += this.contentionDelay(pos);
+      pos += 1;
+      pos += this.contentionDelay(pos);
+      pos -= 3;
     } else if (isULA) {
       // N:1, C:3
-      cpu.tStates += 1;
-      cpu.tStates += this.contentionDelay(cpu.tStates);
-      cpu.tStates -= 1;
+      pos += 1;
+      pos += this.contentionDelay(pos);
+      pos -= 1;
     }
+    cpu.tStates += pos - start;
   }
 
   /**

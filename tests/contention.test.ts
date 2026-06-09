@@ -296,6 +296,19 @@ describe('I/O contention — Ferranti 4-case rule at beam where pattern[col0]=6'
     expect(ioDelta(c, 0x0001, 14335)).toBe(0);
   });
 
+  it('offsetIntoCycle anchors the probes at the IORQ cycle start', () => {
+    // INs invoke the port handler 3T into the IORQ cycle (late sample point),
+    // but the contention probes are defined from the cycle START. An IN whose
+    // cycle began at 14335, calling at 14338 with offset 3, must add exactly
+    // what an OUT calling at 14335 adds: δ(14335)=6. Without the anchor the
+    // probe would land on pattern[3]=3 — so this fails if the offset is lost.
+    const { c } = newContention('48k');
+    expect(ioDelta(c, 0x4000, 14335)).toBe(6);
+    const fake = { tStates: 14338 };
+    c.applyIOContention(0x4000, fake, 3);
+    expect(fake.tStates - 14338).toBe(6);
+  });
+
   it('all four cases add 0 outside contention window (before frame T=14335)', () => {
     const { c } = newContention('48k');
     expect(ioDelta(c, 0x4000, 0)).toBe(0);

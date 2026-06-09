@@ -102,7 +102,9 @@ export function installMemoryHooks(s: Spectrum): void {
   };
 
   cpu.portIn = (port: number): number => {
-    if (cpu.accurateTiming) contention.applyIOContention(port, cpu);
+    // The core invokes portIn 3T into the IORQ cycle (the late sample point);
+    // contention probes must anchor at the cycle START, hence offset 3.
+    if (cpu.accurateTiming) contention.applyIOContention(port, cpu, 3);
     const val = cpu.portInHandler ? cpu.portInHandler(port) : 0xFF;
     if (s.tracing && s.traceMode !== 'full') s.logPortAccess('IN', port, val);
     return val;
