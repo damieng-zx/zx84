@@ -52,9 +52,14 @@ export class CanvasRenderer implements IScreenRenderer {
 
   private applyScale(): void {
     const dpr = window.devicePixelRatio || 1;
-    const deviceScale = Math.round(this.scale * dpr);
-    const w = this.viewW * deviceScale;
-    const h = this.viewH * deviceScale;
+    // "scale" is an integer device-pixel multiple: each emulator pixel maps to
+    // exactly `scale` physical pixels, so the image is always pixel-perfect and
+    // the steps are even (1,2,3,4). DPR is used ONLY to size the CSS box so that
+    // backing device pixels map 1:1 onto physical pixels. Folding DPR into the
+    // multiple (the old `round(scale·dpr)`) broke this — at 125% it made the
+    // steps jump 1,3,4,5 and any non-integer result blurred the pixels.
+    const w = this.viewW * this.scale;
+    const h = this.viewH * this.scale;
     this.canvas.width = w;
     this.canvas.height = h;
     this.canvas.style.width = (w / dpr * this.pixelAspectX) + 'px';

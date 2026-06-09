@@ -497,7 +497,14 @@ export class WebGLRenderer implements IScreenRenderer {
   private applyScale(): void {
     const gl = this.gl;
     const dpr = window.devicePixelRatio || 1;
-    this.deviceScale = Math.round(this.scale * dpr);
+    // "scale" is an integer device-pixel multiple: each emulator pixel maps to
+    // exactly `scale` physical pixels, so the image is always pixel-perfect and
+    // the steps are even (1,2,3,4). DPR is used ONLY to size the CSS box so that
+    // backing device pixels map 1:1 onto physical pixels. Folding DPR into the
+    // multiple (the old `round(scale·dpr)`) broke this — at 125% it made the
+    // steps jump 1,3,4,5 and any non-integer result blurred the pixels. The CRT
+    // scanline/mask shader's period (u_scale) is exactly this integer multiple.
+    this.deviceScale = this.scale;
     const w = this.viewW * this.deviceScale;
     const h = this.viewH * this.deviceScale;
 

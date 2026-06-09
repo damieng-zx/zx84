@@ -79,8 +79,12 @@ export function Screen() {
     const curDpr = dpr(); // track DPR changes
     const bs = borderSize(); // track border changes
     const ov = overlayRef;
-    // Use effective scale that accounts for DPR integer rounding
-    const effectiveScale = Math.round(scl * curDpr) / curDpr;
+    // The canvas backing buffer is `scale` device pixels per source pixel and
+    // its CSS box is that ÷ DPR (see canvas/webgl renderer applyScale), so the
+    // active area measures `scale / dpr` CSS pixels per source pixel. The overlay
+    // is positioned in CSS pixels, so it must use that same factor to stay
+    // aligned with the canvas at fractional DPRs.
+    const effectiveScale = scl / curDpr;
 
     let originX: number, originY: number, targetW: number, targetH: number;
     if (isCpcModel(currentModel())) {
