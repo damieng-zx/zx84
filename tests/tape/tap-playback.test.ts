@@ -1245,3 +1245,45 @@ describe('TAP parser — exact-fit final block', () => {
     expect((blocks[0] as DataBlock).data.length).toBe(4);
   });
 });
+
+// ── singleEdge advance ───────────────────────────────────────────────────
+
+describe('TapeDeck.advance — singleEdge mode', () => {
+  it('singleEdge=true crosses exactly one edge boundary and stops', () => {
+    const block = makeData(0xFF, [0xFF, 0xFF], {
+      pilotCount: 1, pilotPulse: 10, syncPulse1: 10, syncPulse2: 10,
+      bit0Pulse: 10, bit1Pulse: 10, pause: 0,
+    });
+    const deck = deckWith(block);
+    deck.startPlayback();
+
+    // Drive past pilot and sync1 so we're at sync2.
+    deck.advance(10); // pilot → sync1
+    deck.advance(10); // sync1 → sync2
+    // Now on sync2 pulse (10T). Call singleEdge with 100T.
+    // Regular advance would pump through sync2 and all 16 data pulses (8 bits × 2 halves).
+    // Single-edge should stop after exactly one edge (sync2 → DATA first half).
+    const earBefore = deck.earBit;
+    const phaseBefore = (deck as any).phase;
+    deck.advance(100, true);
+    // After one edge: earBit toggled, phase changed.
+    expect(deck.earBit).not.toBe(earBefore);
+    expect((deck as any).phase).not.toBe(phaseBefore);
+    // Phase advanced from SYNC2 (3) to DATA (4).
+    expect((deck as any).phase).toBe(4); // DATA
+  });
+
+  it('singleEdge=false (default) crosses all edges within the advance', () => {
+    const block = makeData(0xFF, [0x00], {
+      pilotCount: 0, pilotPulse: 0, syncPulse1: 0, syncPulse2: 0,
+      bit0Pulse: 5, bit1Pulse: 5, pause: 0,
+    });
+    const deck = deckWith(block);
+    deck.startPlayback();
+    // pilotCount=0 means straight to DATA.
+    // rawData = [flag=0xFF, data=0x00, checksum=0xFF] = 3 bytes.
+    // 3 bytes × 8 bits × 2 half-cycles × 5T = 240T total.
+    deck.advance(240, false);
+    expect((deck as any).phase).toBe(5); // PAUSE
+  });
+});

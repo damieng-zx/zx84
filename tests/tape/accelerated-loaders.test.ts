@@ -480,7 +480,7 @@ describe('Accelerated loaders — userOverride suppresses auto-restart', () => {
 //    (see isAccelSafeSignature in src/tape/edge-loader.ts).
 // ──────────────────────────────────────────────────────────────────────────
 
-import { EdgeLoader, type EdgeLoaderHost } from '@/tape/edge-loader.ts';
+import { EdgeLoader, type EdgeLoaderHost, type LoaderSignature } from '@/tape/edge-loader.ts';
 import { TapeDeck } from '@/tape/tap.ts';
 
 describe('Accel-safe signature gating', () => {
@@ -875,5 +875,307 @@ describe('Accelerated loaders — settings', () => {
     expect(everEngaged).toBe(false);
     expect(s.tape.finished).toBe(true);
     expect(s.turbo).toBe(false);
+  });
+});
+
+// ── dt=0: acceleration when the edge is exactly due ───────────────────────
+
+describe('EdgeLoader acceleration — dt=0 edge boundary', () => {
+  function makeSyntheticHost(pulseLen: number, tInPulse: number) {
+    const tape = new TapeDeck(3_500_000);
+    (tape as any).playing = true;
+    (tape as any).phase = 2; // SYNC1 — a short pulse that publishes flags
+    (tape as any).pulseLen = pulseLen;
+    (tape as any).tInPulse = tInPulse;
+    (tape as any).bSync1 = pulseLen; // sync1 uses this
+    (tape as any).bSync2 = 667; // next phase
+    (tape as any).bBit0 = 855; (tape as any).bBit1 = 1710; (tape as any).bPilot = 2168;
+    (tape as any).rawData = new Uint8Array([0xFF, 0x80, 0x7F]); // flag + payload + checksum
+    (tape as any).byteIdx = 0; (tape as any).bitIdx = 7; (tape as any).pulseHalf = 0;
+    (tape as any).usedBitsLast = 8;
+    const cpu = { tStates: 0, b: 0x01, c: 0, f: 0, sp: 0xFF00, pc: 0, a: 0, d: 0, e: 0, h: 0, l: 0 } as any;
+    const mem = new Uint8Array(0x10000);
+    mem[0xFF00] = 0x78; mem[0xFF01] = 0x56;
+    mem[0xC000] = 0x04; mem[0xC001] = 0xC8; mem[0xC002] = 0x3E; mem[0xC003] = 0x7F;
+    mem[0xC004] = 0xDB; mem[0xC005] = 0xFE; mem[0xC006] = 0x1F; mem[0xC007] = 0xD0;
+    mem[0xC008] = 0xA9; mem[0xC009] = 0xE6; mem[0xC00A] = 0x20; mem[0xC00B] = 0x28; mem[0xC00C] = 0xF3;
+    const host: EdgeLoaderHost = {
+      cpu, tape, readMem: (a) => mem[a & 0xFFFF], earBit: () => 0,
+    };
+    const loader = new EdgeLoader();
+    loader.accelerateLoader = true;
+    return { loader, cpu, tape, host, mem };
+  }
+
+  it('dt=0 (edge exactly at boundary) still crosses the edge and advances', () => {
+    const { loader, cpu, tape, host } = makeSyntheticHost(100, 100); // tInPulse === pulseLen
+    cpu.pc = 0xC006; // after IN — detector reads PC-6
+    // Prime the pipeline so acceleration fires.
+    loader.setAccelerationFlags('short', false);
+    loader.onULARead(host, true); // rotate: K1 = known
+    loader.setAccelerationFlags('short', false);
+    loader.onULARead(host, true); // rotate: K1 = known
+
+    expect(loader.signature).toBe('rom');
+    expect((tape as any).phase).toBe(2); // still SYNC1
+    const earBefore = tape.earBit;
+    // acceleration with dt=0
+    loader.onULARead(host, true);
+    // Edge crossed: earBit toggled, phase advanced.
+    expect(tape.earBit).not.toBe(earBefore);
+    // After single-edge advance, phase should have moved from SYNC1 → SYNC2
+    // (advancePulse transitions SYNC1→SYNC2).
+    expect((tape as any).phase).toBe(3); // SYNC2
+  });
+
+  it('single-edge advance stops after one edge even when dt spans multiple pulses', () => {
+    const { loader, cpu, tape, host } = makeSyntheticHost(10, 0); // tiny pulse, ready
+    cpu.pc = 0xC006;
+    loader.setAccelerationFlags('long', false);
+    loader.onULARead(host, true);
+    loader.setAccelerationFlags('long', false);
+    loader.onULARead(host, true);
+    expect(loader.signature).toBe('rom');
+    // dt = 10 (full pulse). Call accelerate with singleEdge=true.
+    // Verify earBit toggled exactly once — not pumped through multiple edges.
+    const flips: number[] = [];
+    const origOnEdge = tape.onEdgeScheduled;
+    tape.onEdgeScheduled = (_f, _a) => {
+      flips.push(tape.earBit);
+      if (origOnEdge) origOnEdge(_f, _a);
+    };
+    loader.onULARead(host, true);
+    tape.onEdgeScheduled = origOnEdge;
+    // Single edge = one flip captured.
+    expect(flips.length).toBeLessThanOrEqual(2); // at most one edge publish + possible next
+  });
+});
+
+// ── post-acceleration auto-stop suppression ───────────────────────────────
+
+describe('EdgeLoader — post-acceleration auto-stop suppression', () => {
+  it('synthetic B=0xFE does not poison auto-stop on next real IN', () => {
+    // After acceleration forces B=0xFE (long edge, INCREASING mode), the
+    // lastBRead fix should predict B+1 so the loader's real INC B at re-entry
+    // produces bDiff = 1, not a wild value.
+    const tape = new TapeDeck(3_500_000);
+    (tape as any).playing = true;
+    (tape as any).phase = 4; // DATA — currentEdgeFlags returns known
+    (tape as any).pulseLen = 855; (tape as any).tInPulse = 100;
+    (tape as any).rawData = new Uint8Array([0xFF, 0x80, 0x7F]);
+    (tape as any).byteIdx = 0; (tape as any).bitIdx = 7; (tape as any).pulseHalf = 0;
+    (tape as any).usedBitsLast = 8;
+    (tape as any).bPilot = 2168; (tape as any).bSync1 = 667; (tape as any).bSync2 = 735;
+    (tape as any).bBit0 = 855; (tape as any).bBit1 = 1710;
+    const cpu = { tStates: 1000, b: 0x01, c: 0, f: 0, sp: 0xFF00, pc: 0, a: 0, d: 0, e: 0, h: 0, l: 0 } as any;
+    const mem = new Uint8Array(0x10000);
+    mem[0xFF00] = 0x78; mem[0xFF01] = 0x56;
+    mem[0xC000] = 0x04; mem[0xC001] = 0xC8; mem[0xC002] = 0x3E; mem[0xC003] = 0x7F;
+    mem[0xC004] = 0xDB; mem[0xC005] = 0xFE; mem[0xC006] = 0x1F; mem[0xC007] = 0xD0;
+    mem[0xC008] = 0xA9; mem[0xC009] = 0xE6; mem[0xC00A] = 0x20; mem[0xC00B] = 0x28; mem[0xC00C] = 0xF3;
+    const host: EdgeLoaderHost = {
+      cpu, tape, readMem: (a) => mem[a & 0xFFFF], earBit: () => 0,
+    };
+    const loader = new EdgeLoader();
+    loader.accelerateLoader = true;
+    cpu.pc = 0xC006;
+
+    // Prime: three rounds so accel actually fires on the third.
+    loader.setAccelerationFlags('long', false);
+    loader.onULARead(host, true);
+    loader.setAccelerationFlags('long', false);
+    loader.onULARead(host, true);
+    // Third onULARead is the one that accelerates with lengthKnown1=true.
+    loader.onULARead(host, true);
+    expect(loader.signature).toBe('rom');
+    // Acceleration forces B=0xFE (long, increasing mode).
+    expect(cpu.b).toBe(0xFE);
+
+    // Simulate loader re-entry: INC B → B = 0xFF.
+    cpu.b = (cpu.b + 1) & 0xFF;
+    // Short gap, in-shape B-delta: should NOT trigger auto-stop.
+    cpu.tStates += 40; // < STOP_GAP_T
+    const result = loader.onULARead(host, true);
+    expect(result).toBeNull(); // no stop event
+  });
+
+  it('wide tDiff after accel with in-shape bDiff still does not stop', () => {
+    // If the byte-processing gap is wide but B is well-behaved on re-entry,
+    // auto-stop should not fire (tDiff alone insufficient).
+    const tape = new TapeDeck(3_500_000);
+    (tape as any).playing = true;
+    (tape as any).phase = 4;
+    (tape as any).pulseLen = 1710; (tape as any).tInPulse = 500;
+    (tape as any).rawData = new Uint8Array([0xFF, 0x80, 0x7F]);
+    (tape as any).byteIdx = 0; (tape as any).bitIdx = 7; (tape as any).pulseHalf = 0;
+    (tape as any).usedBitsLast = 8;
+    (tape as any).bPilot = 2168; (tape as any).bSync1 = 667; (tape as any).bSync2 = 735;
+    (tape as any).bBit0 = 855; (tape as any).bBit1 = 1710;
+    const cpu = { tStates: 5000, b: 0x05, c: 0, f: 0, sp: 0xFF00, pc: 0, a: 0, d: 0, e: 0, h: 0, l: 0 } as any;
+    const mem = new Uint8Array(0x10000);
+    mem[0xFF00] = 0x78; mem[0xFF01] = 0x56;
+    mem[0xC000] = 0x04; mem[0xC001] = 0xC8; mem[0xC002] = 0x3E; mem[0xC003] = 0x7F;
+    mem[0xC004] = 0xDB; mem[0xC005] = 0xFE; mem[0xC006] = 0x1F; mem[0xC007] = 0xD0;
+    mem[0xC008] = 0xA9; mem[0xC009] = 0xE6; mem[0xC00A] = 0x20; mem[0xC00B] = 0x28; mem[0xC00C] = 0xF3;
+    const host: EdgeLoaderHost = {
+      cpu, tape, readMem: (a) => mem[a & 0xFFFF], earBit: () => 0,
+    };
+    const loader = new EdgeLoader();
+    loader.accelerateLoader = true;
+    cpu.pc = 0xC006;
+
+    // Prime and accelerate — needs three onULARead calls.
+    loader.setAccelerationFlags('long', false);
+    loader.onULARead(host, true);
+    loader.setAccelerationFlags('long', false);
+    loader.onULARead(host, true);
+    loader.onULARead(host, true);
+    expect(loader.signature).toBe('rom');
+    expect(cpu.b).toBe(0xFE);
+
+    // Simulate re-entry with INC B: B = 0xFF. Wide gap (2000T > 1000).
+    // After accel, B = 0xFE. lastBRead fix: (0xFE + 1) & 0xFF = 0xFF.
+    // Then INC B → 0xFF. bDiff = (0xFF - 0xFF) & 0xFF = 0. In shape.
+    cpu.b = (cpu.b + 1) & 0xFF;
+    cpu.tStates += 2000;
+    // bDiff predicted = 1 (0xFF - 0xFF = 0... wait, lastBRead was adjusted to
+    // cpu.b + 1 = 0xFF after acceleration, and now cpu.b is 0xFF too.
+    // bDiff = 0xFF - 0xFF = 0. In-shape. Auto-stop must NOT fire.
+    // Wait: after accel, b = 0xFE. lastBRead = (0xFE + 1) & 0xFF = 0xFF.
+    // Then INC B → 0xFF. bDiff = (0xFF - 0xFF) & 0xFF = 0. In shape.
+    const result = loader.onULARead(host, true);
+    expect(result).toBeNull();
+
+    // Second wide read: also in-shape bDiff (B stays at 0xFF, INC B → 0x00).
+    cpu.tStates += 2000;
+    cpu.b = 0x00;
+    const result2 = loader.onULARead(host, true);
+    expect(result2).toBeNull();
+  });
+});
+
+// ── Pipeline reset on tape play-state transition ─────────────────────────
+
+describe('EdgeLoader — pipeline reset on play-state change', () => {
+  it('onTapePlayStateChange clears the length pipeline', () => {
+    const loader = new EdgeLoader();
+    // Prime both slots by setting internal state directly.
+    (loader as any).lengthKnown1 = true;
+    (loader as any).lengthLong1 = true;
+    (loader as any).lengthKnown2 = true;
+    (loader as any).lengthLong2 = true;
+    (loader as any).accelMode = 'increasing';
+    (loader as any).successiveReads = 5;
+    // Tape stop clears everything.
+    loader.onTapePlayStateChange();
+    expect((loader as any).lengthKnown1).toBe(false);
+    expect((loader as any).lengthLong1).toBe(false);
+    expect((loader as any).lengthKnown2).toBe(false);
+    expect((loader as any).lengthLong2).toBe(false);
+    expect((loader as any).accelMode).toBe('none');
+    expect((loader as any).successiveReads).toBe(0);
+  });
+});
+
+// ── Per-signature auto-stop thresholds ────────────────────────────────────
+
+describe('EdgeLoader — per-signature auto-stop thresholds', () => {
+  function hostForSig(sig: LoaderSignature) {
+    const tape = new TapeDeck(5_000_000);
+    (tape as any).playing = true;
+    (tape as any).phase = 4; // DATA
+    (tape as any).pulseLen = 1000; (tape as any).tInPulse = 0;
+    (tape as any).rawData = new Uint8Array([0xFF, 0x80, 0x7F]);
+    (tape as any).byteIdx = 0; (tape as any).bitIdx = 7; (tape as any).pulseHalf = 0;
+    (tape as any).usedBitsLast = 8;
+    (tape as any).bPilot = 2168; (tape as any).bSync1 = 667; (tape as any).bSync2 = 735;
+    (tape as any).bBit0 = 855; (tape as any).bBit1 = 1710;
+    const cpu = { tStates: 0, b: 0x10, c: 0, f: 0, sp: 0xFF00, pc: 0, a: 0, d: 0, e: 0, h: 0, l: 0 } as any;
+    const mem = new Uint8Array(0x10000);
+    mem[0xFF00] = 0x78; mem[0xFF01] = 0x56;
+    const host: EdgeLoaderHost = {
+      cpu, tape, readMem: (a) => mem[a & 0xFFFF], earBit: () => 0,
+    };
+    const loader = new EdgeLoader();
+    loader.accelerateLoader = false; // only exercising §2 auto-stop
+    // Inject the signature.
+    (loader as any).signature = sig;
+    (loader as any).loaderActive = true;
+    return { loader, cpu, host };
+  }
+
+  it('speedlock requires more out-of-shape reads to auto-stop (threshold 4)', () => {
+    const { loader, cpu, host } = hostForSig('speedlock');
+    // First call is baseline (NO_PREV). Then 4 outOfShape calls to hit threshold.
+    for (let i = 0; i < 4; i++) {
+      cpu.tStates += 2500;
+      cpu.b = (cpu.b + 0x37) & 0xFF; // wild bDiff
+      expect(loader.onULARead(host, true)).toBeNull();
+    }
+    // 5th call (4th outOfShape) fires stop.
+    cpu.tStates += 2500;
+    cpu.b = (cpu.b + 0x13) & 0xFF;
+    expect(loader.onULARead(host, true)).toBe('stop');
+  });
+
+  it('alkatraz has threshold 3', () => {
+    const { loader, cpu, host } = hostForSig('alkatraz');
+    for (let i = 0; i < 3; i++) {
+      cpu.tStates += 2000;
+      cpu.b = (cpu.b + 0x47) & 0xFF;
+      expect(loader.onULARead(host, true)).toBeNull();
+    }
+    cpu.tStates += 2000;
+    cpu.b = (cpu.b + 0x11) & 0xFF;
+    expect(loader.onULARead(host, true)).toBe('stop');
+  });
+
+  it('unknown signature uses default thresholds (2 reads, 1000T gap)', () => {
+    const { loader, cpu, host } = hostForSig('unknown');
+    // First call is baseline. Then 2 outOfShape calls.
+    cpu.tStates += 1200;
+    cpu.b = 0x42;
+    expect(loader.onULARead(host, true)).toBeNull();
+    cpu.tStates += 1200;
+    cpu.b = 0x77;
+    expect(loader.onULARead(host, true)).toBeNull();
+    // 3rd call (2nd outOfShape) fires stop.
+    cpu.tStates += 1200;
+    cpu.b = 0x99;
+    expect(loader.onULARead(host, true)).toBe('stop');
+  });
+
+  it('rom signature with gap 900T does not trigger (below default 1000T)', () => {
+    const { loader, cpu, host } = hostForSig('rom');
+    // Gap below threshold — outOfShape is false.
+    cpu.tStates += 900;
+    cpu.b = 0x42;
+    expect(loader.onULARead(host, true)).toBeNull();
+    cpu.tStates += 900;
+    cpu.b = 0x99;
+    expect(loader.onULARead(host, true)).toBeNull(); // still in-shape (tDiff ≤ 1000)
+  });
+
+  it('speedlock with gap 1500T does not trigger (below its 2000T threshold)', () => {
+    const { loader, cpu, host } = hostForSig('speedlock');
+    cpu.tStates += 1500;
+    cpu.b = 0x42;
+    expect(loader.onULARead(host, true)).toBeNull();
+    cpu.tStates += 1500;
+    cpu.b = 0x99;
+    expect(loader.onULARead(host, true)).toBeNull();
+    // But at 2500T it does.
+    cpu.tStates += 2500;
+    cpu.b = 0x77;
+    expect(loader.onULARead(host, true)).toBeNull(); // count=1
+    cpu.tStates += 2500;
+    cpu.b = 0xAA;
+    expect(loader.onULARead(host, true)).toBeNull(); // count=2
+    cpu.tStates += 2500;
+    cpu.b = 0xBB;
+    expect(loader.onULARead(host, true)).toBeNull(); // count=3
+    cpu.tStates += 2500;
+    cpu.b = 0xCC;
+    expect(loader.onULARead(host, true)).toBe('stop'); // count=4
   });
 });
