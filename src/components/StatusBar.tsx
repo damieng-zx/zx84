@@ -4,7 +4,7 @@
 
 import { Show } from 'solid-js';
 import {
-  statusText, ledKbd, ledKemp, ledEar, ledLoad, ledTapeTurbo, ledText,
+  statusText, ledKbd, ledKemp, ledEar, ledLoad, ledText,
   ledBeep, ledAy, ledDsk, ledRainbow, ledMouse, toggleTranscribeMode, machine,
   currentModel,
 } from '@/emulator.ts';
@@ -36,7 +36,7 @@ export function StatusBar() {
       <div id="activity">
         <div class="led-group">
           {/* Group 1: Input devices */}
-          <Led id="led-kbd" kind="kbd" label="KEYBOARD" on={ledKbd()}
+          <Led id="led-kbd" kind="kbd" label="KEY" on={ledKbd()}
             tip={isCpc() ? 'Scanning the keyboard matrix (PPI → AY port A)' : 'Reading the keyboard via the ULA port'} />
           <Show when={!isCpc()}>
             <Led id="led-kemp" kind="kemp" label="KEMPSTON" on={ledKemp()}
@@ -53,8 +53,6 @@ export function StatusBar() {
           </Show>
           <Led id="led-load" kind="load" label="TAPE" on={ledLoad()}
             tip="ROM tape-load routine is active (LD-BYTES at 0556h)" />
-          <Led id="led-accel" kind="accel" label="TURBO" on={ledTapeTurbo()}
-            tip="Tape turbo loading active (max speed while EAR port is read)" />
           <Led id="led-dsk" kind="dsk" label="DISK" on={ledDsk()}
             tip="Floppy disk controller is being accessed" />
         </div>
