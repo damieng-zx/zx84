@@ -57,7 +57,12 @@ export const TIMING_128K: MachineTiming = {
   tStatesPerFrame: TSTATES_PER_FRAME_128K,  // 228 × 311
   tStatesPerLine: 228,
   contentionStart: 14361,
-  displayOrigin: 14364,     // 63 lines × 228 (first pixel; contentionStart + 3T)
+  // First pixel: contentionStart + 1T, same lead as the 48K's 14335→14336.
+  // The Sinclair wiki claims 14364 (63 lines × 228), but azesmbog's
+  // real-hardware ULA128 timing test is calibrated to 14361/14362 — emulators
+  // tuned to pass it (ESPectrum TS_SCREEN_128=14361 vs TS_SCREEN_48=14335,
+  // a +26 model delta) confirm the +1 relationship, not +3.
+  displayOrigin: 14362,
   intLength: 36,
   floatingBusAdjust: 1,
 };
