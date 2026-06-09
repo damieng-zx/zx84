@@ -296,6 +296,20 @@ describe('I/O contention — Ferranti 4-case rule at beam where pattern[col0]=6'
     expect(ioDelta(c, 0x0001, 14335)).toBe(0);
   });
 
+  it('128K: contended IO applies to 0xC0xx ports only while a contended bank is paged at 0xC000', () => {
+    // Sinclair Wiki, "Contended I/O": "Contended IO does apply to ports in
+    // the range 0xc000 to 0xffff if a contended memory page is currently
+    // paged in." At beam 14361 (col 0, δ=6) a contended non-ULA port adds
+    // 6+0+6+0 = 12; with an uncontended bank paged it must add 0.
+    const { c, mem } = newContention('128k');
+    mem.bankSwitch(1); // odd bank 1 → 0xC000 contended
+    expect(ioDelta(c, 0xC001, 14361)).toBe(12); // non-ULA: C:1 ×4
+    expect(ioDelta(c, 0xC0FE, 14361)).toBe(6);  // ULA (A0=0): C:1, C:3
+    mem.bankSwitch(0); // even bank 0 → uncontended
+    expect(ioDelta(c, 0xC001, 14361)).toBe(0);
+    expect(ioDelta(c, 0xC0FE, 14361)).toBe(5);  // N:1, C:3 — δ(14362)=5
+  });
+
   it('offsetIntoCycle anchors the probes at the IORQ cycle start', () => {
     // INs invoke the port handler 3T into the IORQ cycle (late sample point),
     // but the contention probes are defined from the cycle START. An IN whose
