@@ -355,29 +355,25 @@ describe('Floating bus — 48K (Ferranti)', () => {
     expect(c.floatingBusRead(t + 4, bank(5))).toBe(0xFF);
   });
 
-  it('returns the pixel byte during the first half of each 4-T cell', () => {
-    // 48K floatingBusAdjust = -1, so the bus shows the LAST fetched byte:
-    // at beam T = contentionStart, offset = -1, would underflow → returns 0xFF.
-    // The first valid floating-bus T-state is therefore contentionStart + 1.
+  it('follows the measured 8T sequence: pixel n, attr n, pixel n+1, attr n+1, then idle', () => {
+    // Documented fetch order (FUSE spectrum_unattached_port, Sinclair Wiki
+    // "Floating bus"): in each 8T block the ULA fetches two character
+    // columns in the first 4 T-states, then releases the bus for 4 T-states.
+    // 48K floatingBusAdjust = -1, so offset 0 lands at T = 14336.
     const { c, bank } = newContention('48k');
     const screen = bank(5);
-    // Mark the first pixel byte uniquely
-    const pixelAddr = vramBitmapAddr(0) - 0x4000;
-    screen[pixelAddr] = 0x42;
-    // At T = 14336, offset = 0, col=0, phase=0 → pixel byte of line 0 col 0
-    expect(c.floatingBusRead(14336, screen)).toBe(0x42);
-    // T = 14337, offset = 1, col=1, phase=1 → still pixel (phase < 2)
-    expect(c.floatingBusRead(14337, screen)).toBe(0x42);
-  });
-
-  it('returns the attribute byte during the second half of each 4-T cell', () => {
-    const { c, bank } = newContention('48k');
-    const screen = bank(5);
-    const attrAddr = vramAttrAddr(0, 0) - 0x4000;
-    screen[attrAddr] = 0x47; // bright white ink
-    // T = 14338, offset = 2, col=2, phase=2 → attribute byte of line 0 col 0
-    expect(c.floatingBusRead(14338, screen)).toBe(0x47);
-    expect(c.floatingBusRead(14339, screen)).toBe(0x47); // phase 3 also attr
+    screen[vramBitmapAddr(0) - 0x4000 + 0] = 0x42; // pixel col 0
+    screen[vramAttrAddr(0, 0) - 0x4000] = 0x47;    // attr col 0
+    screen[vramBitmapAddr(0) - 0x4000 + 1] = 0x43; // pixel col 1
+    screen[vramAttrAddr(0, 1) - 0x4000] = 0x48;    // attr col 1
+    expect(c.floatingBusRead(14336, screen)).toBe(0x42); // phase 0: pixel n
+    expect(c.floatingBusRead(14337, screen)).toBe(0x47); // phase 1: attr n
+    expect(c.floatingBusRead(14338, screen)).toBe(0x43); // phase 2: pixel n+1
+    expect(c.floatingBusRead(14339, screen)).toBe(0x48); // phase 3: attr n+1
+    expect(c.floatingBusRead(14340, screen)).toBe(0xFF); // phases 4-7: idle
+    expect(c.floatingBusRead(14341, screen)).toBe(0xFF);
+    expect(c.floatingBusRead(14342, screen)).toBe(0xFF);
+    expect(c.floatingBusRead(14343, screen)).toBe(0xFF);
   });
 
   it('reads progress across columns through one scanline', () => {
@@ -387,8 +383,10 @@ describe('Floating bus — 48K (Ferranti)', () => {
     for (let col = 0; col < 32; col++) {
       screen[vramBitmapAddr(0) - 0x4000 + col] = 0x80 | col;
     }
+    // Column c's pixel byte appears in block c>>1 at phase (c&1)*2:
+    // offset = (c>>1)*8 + (c&1)*2.
     for (let col = 0; col < 32; col++) {
-      const t = 14336 + col * 4;
+      const t = 14336 + (col >> 1) * 8 + (col & 1) * 2;
       expect(c.floatingBusRead(t, screen)).toBe(0x80 | col);
     }
   });

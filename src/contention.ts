@@ -57,7 +57,7 @@ export const TIMING_128K: MachineTiming = {
   tStatesPerFrame: TSTATES_PER_FRAME_128K,  // 228 × 311
   tStatesPerLine: 228,
   contentionStart: 14361,
-  displayOrigin: 14362,     // contentionStart + 1T Ferranti pipeline delay
+  displayOrigin: 14364,     // 63 lines × 228 (first pixel; contentionStart + 3T)
   intLength: 36,
   floatingBusAdjust: 1,
 };
@@ -206,16 +206,20 @@ export class Contention {
     const col = offset - line * t.tStatesPerLine;
     if (col >= 128) return 0xFF;
 
-    // Each character cell takes 4 T-states: pixel fetch, attr fetch.
+    // Measured ULA fetch sequence per 8T block (FUSE / Sinclair Wiki): the
+    // ULA fetches two character columns in the first 4 T-states —
+    //   pixel n, attr n, pixel n+1, attr n+1 —
+    // then releases the bus for the remaining 4 T-states (reads as 0xFF).
     // Addresses from vramBitmapAddr/vramAttrAddr are 64K-space; subtract 0x4000
     // because screenBank is indexed from 0 within the 16KB bank.
-    const charCol = (col >> 2) & 0x1F;
-    const phase = col & 3;
+    const phase = col & 7;
+    if (phase >= 4) return 0xFF;  // bus idle half of the block
+    const charCol = ((col >> 3) << 1) | (phase >> 1);
 
-    if (phase < 2) {
-      return screenBank[vramBitmapAddr(line) - 0x4000 + charCol];  // Pixel byte
-    } else {
+    if (phase & 1) {
       return screenBank[vramAttrAddr(line, charCol) - 0x4000];     // Attribute byte
+    } else {
+      return screenBank[vramBitmapAddr(line) - 0x4000 + charCol];  // Pixel byte
     }
   }
 }
