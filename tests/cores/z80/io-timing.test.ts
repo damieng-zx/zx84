@@ -70,6 +70,46 @@ describe('Z80 — IN sample point (late in the IORQ cycle)', () => {
   });
 });
 
+describe('Z80 — M1 refresh cycle is never contended at IR', () => {
+  // The ULA stalls the CPU only on MREQ cycles. The T3-T4 refresh of an M1
+  // (IR on the address bus) is not one, so no contention probe may happen
+  // there. azesmbog's ULA128 test runs with I=0xFE while contended bank 7
+  // is paged at 0xC000 — a refresh probe at IR wrecks its calibration.
+  // Internal processing cycles AT IR (PUSH, DJNZ, LD A,I...) are different:
+  // those are genuine no-MREQ cycles and DO probe.
+  it('NOP performs no contend() probe even with I in contended range', () => {
+    const h = newCpu();
+    h.cpu.i = 0xFE;
+    const probes: number[] = [];
+    h.cpu.contend = (addr) => { probes.push(addr); };
+    load(h.mem, 0, 0x00); // NOP — M1 only
+    step(h);
+    expect(probes).toEqual([]);
+  });
+
+  it('prefixed opcodes (CB/ED/DD) add no probes for their extra M1s', () => {
+    const h = newCpu();
+    h.cpu.i = 0xFE;
+    const probes: number[] = [];
+    h.cpu.contend = (addr) => { probes.push(addr); };
+    load(h.mem, 0, 0xCB, 0x00); // RLC B — two M1 cycles
+    step(h);
+    expect(probes).toEqual([]);
+  });
+
+  it('PUSH BC still probes its single internal cycle at IR', () => {
+    const h = newCpu();
+    h.cpu.i = 0xFE;
+    h.cpu.r = 0x00;
+    h.cpu.sp = 0xC010;
+    const probes: number[] = [];
+    h.cpu.contend = (addr) => { probes.push(addr); };
+    load(h.mem, 0, 0xC5); // PUSH BC: 11T = M1(4+1 internal at IR) + 2 writes
+    step(h);
+    expect(probes).toEqual([(0xFE << 8) | 0x01]); // IR after the M1 R increment
+  });
+});
+
 describe('Z80 — OUT placement (start of the IORQ cycle)', () => {
   it('OUT (n),A hits the port at T+7 of 11', () => {
     const h = newCpu();

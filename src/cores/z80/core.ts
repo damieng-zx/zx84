@@ -356,10 +356,13 @@ export class Z80 {
   // --- Execute one instruction ---
   step(): void {
     if (this.halted) {
-      // HALT repeats a NOP-like M1 fetch from PC — apply contention
+      // HALT repeats a NOP-like M1 fetch from PC — apply contention.
+      // No contention probe during the T3-T4 refresh: the ULA only stalls
+      // the CPU on MREQ cycles, and refresh (with IR on the bus) is not one.
+      // azesmbog's ULA128 test runs with I=0xFE and contended bank 7 paged
+      // at 0xC000 — probing IR here breaks its hardware-calibrated timing.
       this.read8(this.pc);
       this.tStates += 3;              // M1 fetch cycle
-      this.contend(this.ir);          // IR contention during refresh (T3-T4)
       this.tStates += 1;              // M1 refresh cycle
       this.r = (this.r & 0x80) | ((this.r + 1) & 0x7F);
       return;
@@ -371,8 +374,7 @@ export class Z80 {
     const opcode = this.read8(this.pc);
     this.pc = (this.pc + 1) & 0xFFFF;
     this.tStates += 3;
-    this.contend(this.ir);             // IR contention during refresh (T3-T4)
-    this.tStates += 1;                 // +1T (M1 refresh cycle)
+    this.tStates += 1;                 // +1T (M1 refresh cycle — never contended)
     this.r = (this.r & 0x80) | ((this.r + 1) & 0x7F);
 
     this.executeMain(opcode);
