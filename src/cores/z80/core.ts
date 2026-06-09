@@ -201,6 +201,8 @@ export class Z80 {
     this.halted = false;
     this.iff1 = false;
     this.iff2 = false;
+    // INT acknowledge is an M1 cycle — R increments like any opcode fetch.
+    this.r = (this.r & 0x80) | ((this.r + 1) & 0x7F);
 
     switch (this.im) {
       case 0:
@@ -254,6 +256,8 @@ export class Z80 {
     // all subsequent maskable interrupts.
     this.iff2 = this.iff1;
     this.iff1 = false;
+    // NMI acknowledge is an M1 cycle — R increments like any opcode fetch.
+    this.r = (this.r & 0x80) | ((this.r + 1) & 0x7F);
     this.tStates += 5;       // NMI acknowledge: 5T
     this.push16(this.pc);    // push PC: 2×3T (inside push16's write16)
     this.memptr = this.pc = 0x0066;

@@ -3,7 +3,7 @@
  * OUTI/OUTD/OTIR/OTDR, IN/OUT, OUT (C),r, IN r,(C).
  */
 import { describe, it, expect } from 'vitest';
-import { newCpu, load, step, type Harness, F_S, F_Z, F_H, F_PV, F_N } from './_harness.ts';
+import { newCpu, load, step, type Harness, F_S, F_Z, F_F5, F_H, F_F3, F_PV, F_N } from './_harness.ts';
 
 describe('Z80 — Block ops (ED-prefix)', () => {
   it('LDI copies a byte, increments HL/DE, decrements BC', () => {
@@ -84,6 +84,48 @@ describe('Z80 — Block ops (ED-prefix)', () => {
     expect(h.cpu.hl).toBe(0xC001); // decremented
     expect(h.cpu.bc).toBe(0x0002);
     expect(h.cpu.a).toBe(0x42);
+  });
+
+  it('CPIR repeating iteration takes F5/F3 from the high byte of PC', () => {
+    // Banks/hoglet block-flags research (2018): when a block instruction
+    // repeats (PC rewound), YF/XF come from PC bits 13/11 — i.e. bits 5/3 of
+    // PCH — not from the usual (A - (HL) - H) value.
+    // Program at 0x2800 → PCH = 0x28 → both F5 and F3 set on repeat.
+    // Operands chosen so the n-derived bits would be 0 (A=5, val=0 → n=5,
+    // bits 3/5 clear), so this fails if the PCH override is missing.
+    const h = newCpu();
+    h.cpu.pc = 0x2800;
+    h.cpu.a = 0x05; h.cpu.hl = 0xC000; h.cpu.bc = 0x0003;
+    h.mem[0xC000] = 0x00; // no match → repeats
+    load(h.mem, 0x2800, 0xED, 0xB1); // CPIR
+    step(h); // one iteration, rewinds PC
+    expect(h.cpu.pc).toBe(0x2800);
+    expect(h.cpu.f & (F_F5 | F_F3)).toBe(F_F5 | F_F3);
+  });
+
+  it('CPDR repeating iteration takes F5/F3 from PCH, overriding n-derived bits', () => {
+    // Inverse case: program at 0x0000 → PCH = 0 → F5/F3 must both be CLEAR
+    // on repeat, even though the n-derived value (A=0x0A, val=0 → n=0x0A)
+    // would set both.
+    const h = newCpu();
+    h.cpu.a = 0x0A; h.cpu.hl = 0xC002; h.cpu.bc = 0x0003;
+    h.mem[0xC002] = 0x00; // no match → repeats
+    load(h.mem, 0, 0xED, 0xB9); // CPDR
+    step(h);
+    expect(h.cpu.pc).toBe(0x0000);
+    expect(h.cpu.f & (F_F5 | F_F3)).toBe(0);
+  });
+
+  it('CPI (non-repeating) keeps F5/F3 from n = A - (HL) - H', () => {
+    // The PCH override applies ONLY to the repeat path: plain CPI takes
+    // bits 3/5 from n. A=0x0A, val=0, H=0 → n=0x0A → F3 set (bit 3),
+    // F5 set (bit 1 of n maps to flag bit 5).
+    const h = newCpu();
+    h.cpu.a = 0x0A; h.cpu.hl = 0xC000; h.cpu.bc = 0x0002;
+    h.mem[0xC000] = 0x00;
+    load(h.mem, 0, 0xED, 0xA1); // CPI
+    step(h);
+    expect(h.cpu.f & (F_F5 | F_F3)).toBe(F_F5 | F_F3);
   });
 
   it('CPDR searches backwards; stops when match found', () => {

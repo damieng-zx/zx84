@@ -20,7 +20,10 @@ Z80.prototype.executeED = function (this: Z80): void {
   if (x === 1) {
     switch (z) {
       case 0: {
-        // IN r,(C): 12T. Auto: 8T
+        // IN r,(C): 12T. Auto: 8T. The IORQ cycle spans T+8..T+11; tick 3T
+        // before portIn so the sample lands late in the cycle, matching the
+        // IN A,(n) convention that tape edge loaders rely on.
+        this.tStates += 3;
         const val = this.portIn(this.bc);
         this.memptr = (this.bc + 1) & 0xFFFF;  // IN r,(C): MEMPTR = BC + 1
         if (y !== 6) {
@@ -28,7 +31,7 @@ Z80.prototype.executeED = function (this: Z80): void {
         }
         this.f = (this.f & 0x01) | SZP[val];
         this._qReg = this.f;
-        this.tStates += 4;
+        this.tStates += 1;
         break;
       }
 
@@ -228,6 +231,9 @@ Z80.prototype.executeED = function (this: Z80): void {
           // CPIR/CPDR: 5 more internal cycles at HL (already incremented)
           contendN(this, this.hl, 5);
           this.pc = (this.pc - 2) & 0xFFFF;
+          // Repeating: Y,X from PCH (same rule as the LDIR/INIR/OTIR repeat paths)
+          this.f = (this.f & ~0x28) | ((this.pc >> 8) & 0x28);
+          this._qReg = this.f;
           this.memptr = (this.pc + 1) & 0xFFFF;  // CPIR/CPDR repeating: MEMPTR = PC + 1
         }
         break;
@@ -237,8 +243,11 @@ Z80.prototype.executeED = function (this: Z80): void {
         // INI/IND/INIR/INDR: I/O@T+9, write@T+13. Auto: 8T
         this.contend(this.ir); this.tStates += 1;  // internal at IR
         const bcBeforeDec = this.bc;
+        // IORQ cycle T+9..T+12: tick 3T before portIn so the sample lands
+        // late in the cycle (IN A,(n) convention).
+        this.tStates += 3;
         const val = this.portIn(this.bc);
-        this.tStates += 4;  // I/O base cycle
+        this.tStates += 1;
         this.write8(this.hl, val);
         this.b = (this.b - 1) & 0xFF;
 
@@ -311,9 +320,10 @@ Z80.prototype.executeED = function (this: Z80): void {
       }
 
       case 3: {
-        // OUTI/OUTD/OTIR/OTDR: read@T+9. Auto: 8T
+        // OUTI/OUTD/OTIR/OTDR: read@T+9, I/O@T+12. Auto: 8T
         this.contend(this.ir); this.tStates += 1;  // internal at IR
         const val = this.read8(this.hl);
+        this.tStates += 3;  // read cycle
 
         // Modify HL first (C code uses HL++ or HL-- in the READ itself)
         if (y === 4 || y === 6) {
@@ -324,6 +334,7 @@ Z80.prototype.executeED = function (this: Z80): void {
 
         this.b = (this.b - 1) & 0xFF;
         this.portOut(this.bc, val);
+        this.tStates += 4;  // I/O cycle
 
         // OUTI/OUTD: MEMPTR = BC_after_decrementing_B ± 1
         if (y === 4 || y === 6) {
@@ -365,11 +376,10 @@ Z80.prototype.executeED = function (this: Z80): void {
           }
           this.f = fO;
           this.memptr = (this.pc + 1) & 0xFFFF;  // During repeat: MEMPTR = PC + 1
-          // 5 internal cycles at BC (after B decrement)
+          // 5 internal cycles at BC (after B decrement): OTIR/OTDR 21T total
           contendN(this, this.bc, 5);
-          this.tStates += 7;   // OTIR/OTDR: 21T total
         } else {
-          // OUTI/OUTD or final: Y,X from B; standard PF
+          // OUTI/OUTD or final: Y,X from B; standard PF. 16T total (9+3+4)
           let parO = pO;
           parO ^= parO >> 4; parO ^= parO >> 2; parO ^= parO >> 1;
           this.f = (this.b & 0xA8) |              // S, Y, X from B
@@ -377,7 +387,6 @@ Z80.prototype.executeED = function (this: Z80): void {
                    (hcfO ? 0x11 : 0) |            // H, C
                    ((parO & 1) ? 0 : 0x04) |      // P/V
                    nfO;                            // N
-          this.tStates += 7;   // OUTI/OUTD: 16T total (9+7)
         }
         this._qReg = this.f;
         break;

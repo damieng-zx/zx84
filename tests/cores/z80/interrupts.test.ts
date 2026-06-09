@@ -69,6 +69,43 @@ describe('Z80 — Interrupt modes', () => {
   });
 });
 
+describe('Z80 — R register on interrupt acknowledge', () => {
+  // The INT/NMI acknowledge is an M1 cycle, so R increments exactly as it
+  // does for an opcode fetch: low 7 bits advance, bit 7 is preserved.
+  it('accepted maskable interrupt increments R by 1', () => {
+    const h = newCpu();
+    h.cpu.iff1 = true; h.cpu.im = 1; h.cpu.r = 0x10;
+    expect(h.cpu.interrupt()).toBe(13);
+    expect(h.cpu.r).toBe(0x11);
+  });
+
+  it('R bit 7 is preserved across the wrap at 0x7F', () => {
+    const h = newCpu();
+    h.cpu.iff1 = true; h.cpu.im = 1;
+    h.cpu.r = 0x7F; // bit 7 clear: wraps to 0x00
+    h.cpu.interrupt();
+    expect(h.cpu.r).toBe(0x00);
+    h.cpu.iff1 = true;
+    h.cpu.r = 0xFF; // bit 7 set: wraps to 0x80
+    h.cpu.interrupt();
+    expect(h.cpu.r).toBe(0x80);
+  });
+
+  it('blocked interrupt (IFF1=0) does not touch R', () => {
+    const h = newCpu();
+    h.cpu.iff1 = false; h.cpu.r = 0x10;
+    expect(h.cpu.interrupt()).toBe(0);
+    expect(h.cpu.r).toBe(0x10);
+  });
+
+  it('NMI increments R by 1', () => {
+    const h = newCpu();
+    h.cpu.r = 0x10;
+    h.cpu.nmi();
+    expect(h.cpu.r).toBe(0x11);
+  });
+});
+
 describe('Z80 — interruptWithVector(vector)', () => {
   it('returns 0 and clears pending vector when blocked by IFF1', () => {
     const h = newCpu();
