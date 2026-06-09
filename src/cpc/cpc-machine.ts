@@ -343,7 +343,10 @@ export class CpcMachine extends BaseMachine implements Machine {
         // hit by an explicit `CALL &BCA1`. So we trap the internal routine
         // itself, located by signature scan (entry contract A=sync, HL=dest,
         // DE=len). On any CRC mismatch the trap declines and the real routine
-        // pulse-loads the block.
+        // pulse-loads the block. In practice only the file HEADER instant-loads;
+        // the following data block drifts past on pulse before its CAS READ and
+        // the trap declines, so bulk data is pulse-loaded via tapeTurbo — see the
+        // SCOPE note in cpc-tape-loader.ts.
         if (this.tapeFastRom) {
           if (this.casReadAddr === -2) this.casReadAddr = this.scanCasReadRoutine();
           if (this.casReadAddr >= 0 && this.cpu.pc === this.casReadAddr &&

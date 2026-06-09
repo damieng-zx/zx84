@@ -17,10 +17,19 @@
  * always-correct path). Custom loaders never call CAS READ, so they too fall
  * through to pulse playback untouched.
  *
- * NOTE: the exact on-tape record layout (256-byte records vs a single trailing
- * CRC) and the CRC convention are handled adaptively and validated by CRC, but
- * have not yet been confirmed against a real CDT + real firmware. If a tape's
- * layout isn't recognised the trap simply declines and pulse loading takes over.
+ * VERIFIED (real 2048.cdt + real os6128 firmware, 2026-06-09): the on-tape record
+ * layout and CRC convention are correct — the trap extracts real header/data
+ * records cleanly (pulled the real "2048" filename + full 2K data records).
+ *
+ * SCOPE — headers only, in practice: only the 64-byte file HEADER is instant-
+ * loaded. Making the header instant shifts the firmware's cassette timing, so the
+ * following data block pulse-plays out during the firmware's between-read
+ * housekeeping; by the time its own CAS READ is reached the tape has drifted a
+ * block and the trap declines on the sync mismatch. Bulk file DATA therefore
+ * still loads at pulse level, accelerated by `tapeTurbo` (whole-machine speed-up
+ * while loading). A true data instant-load needs the pulse engine and the trap to
+ * share tape position without starving the firmware's inter-block edge sync — a
+ * deeper rework, not yet done. See the cpc-tape-firmware-read project note.
  */
 
 import { Z80 } from '@/cores/z80.ts';
