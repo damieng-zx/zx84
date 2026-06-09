@@ -522,19 +522,49 @@ describe('TapeDeck — pure-data block playback', () => {
 // ── skipBlock() ────────────────────────────────────────────────────────────
 
 describe('TapeDeck.skipBlock()', () => {
-  it('starts playback at the current position after a ROM trap', () => {
-    const deck = deckWith(makeData(0xFF, [1]), makeData(0xFF, [2]));
-    // Simulate ROM trap consuming the first block:
-    deck.nextDataBlock();
+  // 1000ms at the 3.5MHz reference clock the test deck runs at.
+  const PAUSE_1000MS_T = Math.round(1000 * 3_500_000 / 1000);
+
+  it('replays the consumed block\'s trailing pause before the next block', () => {
+    // After a ROM-trap instant-load, the tape must run out the loaded block's
+    // trailing gap in real time before the next block's tone — loaders chained
+    // after a ROM block (e.g. Speedlock's BASIC bootstrap) rely on that gap to
+    // install their turbo loader before custom data arrives.
+    const deck = deckWith(makeData(0xFF, [1], { pause: 1000 }), makeData(0xFF, [2]));
+    deck.nextDataBlock();            // ROM trap consumes block 0
     expect(deck.position).toBe(1);
     expect(deck.playing).toBe(false);
+    deck.skipBlock();
+    expect(deck.playing).toBe(true);
+    // Still on the consumed block, running out its trailing pause — NOT yet
+    // on block 1.
+    expect((deck as any).playbackIdx).toBe(0);
+    // Once the pause elapses, playback advances to the next block.
+    deck.advance(PAUSE_1000MS_T + 1);
+    expect((deck as any).playbackIdx).toBe(1);
+  });
+
+  it('begins the next block immediately when the consumed block has no pause', () => {
+    const deck = deckWith(makeData(0xFF, [1], { pause: 0 }), makeData(0xFF, [2]));
+    deck.nextDataBlock();
     deck.skipBlock();
     expect(deck.playing).toBe(true);
     expect((deck as any).playbackIdx).toBe(1);
   });
 
-  it('past the end of the tape leaves the player stopped', () => {
-    const deck = deckWith(makeData(0xFF, [1]));
+  it('plays the final block\'s trailing pause, then stops at end of tape', () => {
+    const deck = deckWith(makeData(0xFF, [1], { pause: 1000 }));
+    deck.nextDataBlock();
+    deck.skipBlock();
+    // Still playing — running out the last block's trailing pause.
+    expect(deck.playing).toBe(true);
+    deck.advance(PAUSE_1000MS_T + 1);
+    // Pause elapsed, no more blocks → player stops.
+    expect(deck.playing).toBe(false);
+  });
+
+  it('stops immediately at end of tape when the final block has no pause', () => {
+    const deck = deckWith(makeData(0xFF, [1], { pause: 0 }));
     deck.nextDataBlock();
     deck.skipBlock();
     expect(deck.playing).toBe(false);
@@ -1065,18 +1095,23 @@ describe('TapeDeck.peekDataBlock() / nextDataBlock() cosmetic-block traversal', 
 // ── skipBlock() when already playing ────────────────────────────────────────
 
 describe('TapeDeck.skipBlock() when already playing', () => {
-  it('does not re-set playing/earBit, just restarts the current block', () => {
+  it('does not run the playing=true / earBit=0 reinit when already playing', () => {
     const deck = deckWith(makeData(0xFF, [1]), makeData(0xFF, [2]));
     deck.startPlayback();
-    // Move earBit to 1 deliberately and confirm skipBlock does not clear it.
+    // Move earBit to 1 deliberately and confirm skipBlock does not force it to
+    // 0 via the not-yet-playing reinit branch.
     deck.earBit = 1;
     deck.position = 1;       // simulate post-trap advance
     deck.skipBlock();
     expect(deck.playing).toBe(true);
+    // earBit was not cleared to 0 by the reinit branch (the pause branch sets
+    // it high to drive the end-of-block drop).
+    expect(deck.earBit).toBe(1);
+    // The consumed block (index 0) has a 1000ms pause, so skipBlock runs that
+    // out before advancing — still on the consumed block here.
+    expect((deck as any).playbackIdx).toBe(0);
+    deck.advance(Math.round(1000 * 3_500_000 / 1000) + 1);
     expect((deck as any).playbackIdx).toBe(1);
-    // When already playing, skipBlock must skip the playing=true / earBit=0
-    // reinitialisation block — earBit may have been changed by beginBlock's
-    // setup, but the explicit reset is bypassed.
   });
 });
 

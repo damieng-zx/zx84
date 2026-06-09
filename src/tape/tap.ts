@@ -378,8 +378,36 @@ export class TapeDeck {
       this.playing = true;
       this.earBit = 0;
     }
-    // position was already advanced by nextDataBlock()
-    this.beginBlock(this.position);
+    // The block we just instant-loaded (blocks[position-1]) carries a trailing
+    // pause. On real hardware — and in the real ROM edge loop — the tape keeps
+    // running through that gap before the next block's leader tone. Loaders
+    // chained directly after a ROM block depend on it: Speedlock, for one,
+    // ROM-loads a short BASIC bootstrap that autostarts and installs the turbo
+    // loader DURING the gap, so the turbo loader is already polling when the
+    // next block's tone arrives. Skip straight to that tone and the loader
+    // isn't ready — it desyncs on the first custom block and the corruption
+    // surfaces as a crash several blocks later. So replay the pause in real
+    // time. For pure-ROM multi-block tapes this costs nothing: the next
+    // LD-BYTES trap fires (peekDataBlock still sees the next block via
+    // `position`) and instant-loads it long before the pause elapses.
+    const consumed = this.blocks[this.position - 1];
+    const pauseMs = consumed && consumed.kind === 'data' ? consumed.pause : 0;
+    if (pauseMs > 0) {
+      // Mirror enterPause: hold the line high, then drop to 0 partway in (the
+      // TZX §3.5 end-of-block edge some loaders watch for). playbackIdx points
+      // at the consumed block so the pause's expiry advances to position.
+      this.playbackIdx = this.position - 1;
+      this.phase = TapePhase.PAUSE;
+      this.tInPulse = 0;
+      this.earBit = 1;
+      this.pauseRemaining = Math.round(pauseMs * this.cpuClock / 1000);
+      const flipAt = this.scale(945);
+      this.pauseFlipAt = this.pauseRemaining > flipAt ? flipAt : -1;
+      this.publishEdgeFlags();
+    } else {
+      // position was already advanced by nextDataBlock()
+      this.beginBlock(this.position);
+    }
   }
 
   /**
