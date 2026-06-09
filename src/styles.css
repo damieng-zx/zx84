@@ -73,19 +73,33 @@ body {
 }
 
 .logo-version {
-  position: absolute;
-  right: 4px;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 0.45em;
+  /* Superscript tucked against the "84"; click still opens the changelog. */
+  font-size: 0.4em;
   font-weight: 400;
   color: #aaa;
   letter-spacing: 0;
   cursor: pointer;
+  vertical-align: super;
+  margin-left: 2px;
   transition: color 0.15s;
 }
 .logo-version:hover {
   color: #fff;
+}
+
+/* "⋮" app-menu button, pinned to the right of the logo bar (old version slot).
+   Uses the shared .btn style; this positions it and stops it inheriting the
+   bold, letter-spaced typography of the .logo heading it sits inside. */
+.logo-menu {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  margin: 0;
+  padding: 1px 5px;
+  font-weight: 400;
+  letter-spacing: normal;
+  line-height: 1;
 }
 
 .logo-stripe {
@@ -1255,6 +1269,10 @@ input[type="range"]::-moz-range-thumb {
   z-index: 10000;
   font-family: var(--font-ui);
   font-size: 0.8rem;
+  /* Define typography explicitly — the menu is anchored under headings (e.g.
+     the bold, letter-spaced .logo) and must not inherit their weight/spacing. */
+  font-weight: 400;
+  letter-spacing: normal;
   color: #000;
   padding: 4px 0;
 }
@@ -1286,8 +1304,9 @@ input[type="range"]::-moz-range-thumb {
 }
 .ddmenu-arrow {
   margin-left: auto;
-  padding-left: 8px;
-  font-size: 0.65em;
+  padding-left: 12px;
+  font-size: 1em;
+  line-height: 1;
   color: #888;
 }
 .ddmenu-sub {
@@ -1449,16 +1468,6 @@ input[type="range"]::-moz-range-thumb {
   position: relative;
   z-index: 1;
 }
-
-/* "⋮" pane-options dot in title bar */
-.pane-dots {
-  margin-left: auto;
-  z-index: 2;
-  color: rgba(255,255,255,0.45);
-  font-size: 0.65rem;
-  cursor: pointer;
-}
-.pane-dots:hover { color: #fff; }
 
 /* Changelog overlay */
 .changelog-backdrop {

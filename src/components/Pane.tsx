@@ -3,8 +3,10 @@
  */
 
 import type { JSX } from 'solid-js';
-import { createSignal, Show, onCleanup, createEffect } from 'solid-js';
-import { collapsedPanes, toggleCollapsed } from '@/ui/panes.ts';
+import { Show, onMount, onCleanup } from 'solid-js';
+import {
+  collapsedPanes, toggleCollapsed, registerResetter, unregisterResetter,
+} from '@/ui/panes.ts';
 
 interface PaneProps {
   id: string;
@@ -12,17 +14,12 @@ interface PaneProps {
   mono?: boolean;
   visible?: boolean;
   labelExtra?: JSX.Element;
-  /** If provided, enables the "..." menu button on the title bar. */
+  /** If provided, the pane appears in the toolbar Reset menu. */
   onResetSettings?: () => void;
   children?: JSX.Element;
 }
 
 export function Pane(props: PaneProps) {
-  const [menuOpen, setMenuOpen] = createSignal(false);
-  const [menuPos, setMenuPos] = createSignal({ top: 0, left: 0 });
-  let menuRef!: HTMLDivElement;
-  let dotBtnRef!: HTMLSpanElement;
-
   function onLabelClick(e: MouseEvent) {
     if ((e.target as HTMLElement).closest('select, button')) return;
     toggleCollapsed(props.id);
@@ -37,37 +34,11 @@ export function Pane(props: PaneProps) {
     }
   }
 
-  function toggleMenu() {
-    if (menuOpen()) { setMenuOpen(false); return; }
-    if (!dotBtnRef) return;
-    const rect = dotBtnRef.getBoundingClientRect();
-    setMenuPos({ top: rect.bottom + 2, left: rect.right });
-    setMenuOpen(true);
-  }
-
-  function closeMenu() { setMenuOpen(false); }
-
-  function handleReset() {
-    props.onResetSettings?.();
-    closeMenu();
-  }
-
-  // Close on click outside or Escape
-  createEffect(() => {
-    if (!menuOpen()) return;
-    function onMouseDown(e: MouseEvent) {
-      if (menuRef && !menuRef.contains(e.target as Node) &&
-          dotBtnRef && !dotBtnRef.contains(e.target as Node)) closeMenu();
-    }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') closeMenu();
-    }
-    document.addEventListener('mousedown', onMouseDown);
-    document.addEventListener('keydown', onKey);
-    onCleanup(() => {
-      document.removeEventListener('mousedown', onMouseDown);
-      document.removeEventListener('keydown', onKey);
-    });
+  // Expose this pane's reset handler to the toolbar Reset menu while mounted.
+  onMount(() => {
+    if (!props.onResetSettings) return;
+    registerResetter({ id: props.id, label: props.label, reset: () => props.onResetSettings!() });
+    onCleanup(() => unregisterResetter(props.id));
   });
 
   return (
@@ -79,11 +50,6 @@ export function Pane(props: PaneProps) {
           </svg>
           {props.label}
           {props.labelExtra}
-          <Show when={props.onResetSettings}>
-            <span ref={dotBtnRef} class="pane-dots" title="Pane options" onClick={(e) => { e.stopPropagation(); toggleMenu(); }}>
-              ⋮
-            </span>
-          </Show>
         </div>
         <div class="pane-content">
           <div class="pane-content-inner">
@@ -91,17 +57,6 @@ export function Pane(props: PaneProps) {
           </div>
         </div>
       </div>
-      <Show when={menuOpen()}>
-        <div
-          ref={menuRef}
-          class="ddmenu"
-          style={{ top: `${menuPos().top}px`, left: `${menuPos().left}px`, transform: 'translateX(-100%)' }}
-        >
-          <div class="ddmenu-item" onClick={handleReset}>
-            Reset settings
-          </div>
-        </div>
-      </Show>
     </Show>
   );
 }

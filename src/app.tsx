@@ -7,6 +7,7 @@ import { Sidebar } from '@/components/Sidebar.tsx';
 import { Screen } from '@/components/Screen.tsx';
 import { StatusBar } from '@/components/StatusBar.tsx';
 import { Tooltip } from '@/components/Tooltip.tsx';
+import { AppMenu } from '@/components/AppMenu.tsx';
 
 import { HardwarePane } from '@/components/panes/HardwarePane.tsx';
 import { LoadSavePane } from '@/components/panes/LoadSavePane.tsx';
@@ -27,7 +28,7 @@ import { TextPane } from '@/components/panes/TextPane.tsx';
 import { ChangelogOverlay, toggleChangelog } from '@/components/panes/ChangelogPane.tsx';
 import { MemoryPane } from '@/components/panes/MemoryPane.tsx';
 
-import { paneOrder, SPECTRUM_ONLY_PANES } from '@/ui/panes.ts';
+import { paneOrder, SPECTRUM_ONLY_PANES, isDevPaneHidden } from '@/ui/panes.ts';
 import { needsGamepadPolling } from '@/store/settings.ts';
 import { initAudio, init, loadFile, currentModel, transcribeMode } from '@/emulator.ts';
 import { isCpcModel } from '@/models.ts';
@@ -63,6 +64,7 @@ function renderPanes(side: 'left' | 'right') {
     const textMode = transcribeMode() !== 'off';
     return order
       .filter(p => p.sidebar === side)
+      .filter(p => !isDevPaneHidden(p.id))
       .filter(p => !(cpc && SPECTRUM_ONLY_PANES.has(p.id)))
       .filter(p => p.id !== 'text-panel' || textMode)
       .map(p => {
@@ -161,7 +163,7 @@ export function App() {
         <div id="toolbar">
           <h1>
             <span class="logo-stripe" />
-            <span class="logo">ZX<span class="logo-num">84</span><span class="logo-version" onClick={(e) => { e.stopPropagation(); toggleChangelog(); }}>v{__APP_VERSION__}</span></span>
+            <span class="logo">ZX<span class="logo-num">84</span><sup class="logo-version" onClick={(e) => { e.stopPropagation(); toggleChangelog(); }}>v{__APP_VERSION__}</sup><AppMenu /></span>
             <span class="logo-stripe" />
           </h1>
           <ChangelogOverlay />

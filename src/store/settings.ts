@@ -29,7 +29,7 @@ const DEFAULTS = {
   'noise':             '0',
   'scaling-mode':      '0',
   'monitor':           'raw',
-  'border-size':       '2',
+  'border-size':       '1',
   'renderer':          'webgl',
   'color-map':         'measured',
   'cpc-color-map':     'gate-array',

@@ -188,6 +188,23 @@ export function DisplayPane() {
       </div>
       <Show when={renderer() === 'webgl'}>
       <div class="slider-row">
+        <span class="slider-label">Upscaler</span>
+        <select id="scaling-mode-select" value={scalingMode()} onChange={(e) => {
+          const v = Number((e.target as HTMLSelectElement).value);
+          setScalingMode(v);
+          if (machine) machine.display!.setScalingMode(v);
+          persistSetting('scaling-mode', v);
+        }}>
+          <For each={availableAlgos()}>
+            {(a) => <option value={a.mode}>{a.label}</option>}
+          </For>
+        </select>
+      </div>
+      <SliderRow label="Brightness" id="brightness" min={-50} max={50} sig={brightness} setSig={setBrightness}
+        apply={(v) => machine?.display?.setBrightness(v / 50)} settingKey="brightness" />
+      <SliderRow label="Contrast" id="contrast" min={0} max={100} sig={contrast} setSig={setContrast}
+        apply={(v) => machine?.display?.setContrast(v / 50)} settingKey="contrast" />
+      <div class="slider-row">
         <span class="slider-label">Monitor</span>
         <select id="monitor-select" value={monitor()} onChange={(e) => {
           const v = (e.target as HTMLSelectElement).value;
@@ -207,23 +224,6 @@ export function DisplayPane() {
           <option value="cheap-tv">Cheap TV</option>
         </select>
       </div>
-      <div class="slider-row">
-        <span class="slider-label">Upscaler</span>
-        <select id="scaling-mode-select" value={scalingMode()} onChange={(e) => {
-          const v = Number((e.target as HTMLSelectElement).value);
-          setScalingMode(v);
-          if (machine) machine.display!.setScalingMode(v);
-          persistSetting('scaling-mode', v);
-        }}>
-          <For each={availableAlgos()}>
-            {(a) => <option value={a.mode}>{a.label}</option>}
-          </For>
-        </select>
-      </div>
-      <SliderRow label="Brightness" id="brightness" min={-50} max={50} sig={brightness} setSig={setBrightness}
-        apply={(v) => machine?.display?.setBrightness(v / 50)} settingKey="brightness" />
-      <SliderRow label="Contrast" id="contrast" min={0} max={100} sig={contrast} setSig={setContrast}
-        apply={(v) => machine?.display?.setContrast(v / 50)} settingKey="contrast" />
       <SliderRow label="Scanlines" id="scanlines" min={0} max={100} sig={scanlines} setSig={setScanlines}
         apply={(v) => machine?.display?.setScanlines(v / 100)} settingKey="scanlines" />
       <Show when={scalingMode() === 0}>
