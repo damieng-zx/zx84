@@ -31,6 +31,7 @@ const DEFAULT_ORDER: PanePosition[] = [
   { id: 'snapshot-panel', sidebar: 'left' },
   { id: 'drive-panel', sidebar: 'left' },
   { id: 'tape-panel', sidebar: 'left' },
+  { id: 'game-library-panel', sidebar: 'left' },
   // Right: peripherals/output, then the dev panes (hidden by default).
   { id: 'sound-panel', sidebar: 'right' },
   { id: 'display-pane', sidebar: 'right' },
@@ -54,6 +55,8 @@ const DEFAULT_ORDER: PanePosition[] = [
 export const SPECTRUM_ONLY_PANES = new Set<string>([
   'sysvar-panel', 'basic-vars-panel',
   'font-panel',
+  // The library catalogues ZX Spectrum software; hide it on a CPC.
+  'game-library-panel',
 ]);
 
 function loadPaneOrder(): PanePosition[] {

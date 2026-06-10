@@ -1167,6 +1167,76 @@ input[type="range"]::-moz-range-thumb {
   font-style: italic;
 }
 
+/* Game Library pane */
+.library-search { padding: 2px 0 4px; }
+
+.library-search-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 3px 6px;
+  font: inherit;
+  font-size: 0.75rem;
+  border: 1px solid #aab;
+  border-radius: 3px;
+  background: #fff;
+}
+
+.library-status {
+  padding: 6px;
+  color: #888;
+  font-size: 0.75rem;
+}
+
+.library-error { color: #c22; }
+
+.library-list {
+  max-height: 320px;
+  overflow-y: auto;
+  font-size: 0.72rem;
+}
+
+.library-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 6px;
+  cursor: pointer;
+  border-left: 3px solid transparent;
+  color: #000;
+}
+
+.library-row:hover { background: #eef; }
+.library-row.loading {
+  background: #f0f0fe;
+  border-left-color: #44e;
+  color: #22c;
+}
+/* Currently-mounted title stays highlighted (green) until ejected/replaced. */
+.library-row.mounted {
+  background: #eaf6ea;
+  border-left-color: #2a2;
+  color: #161;
+}
+.library-row.mounted .library-pub { color: #6a6; }
+
+/* Title (Year) on the left, truncating; publisher muted on the right. */
+.library-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.library-pub {
+  flex: 0 1 auto;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #999;
+}
+
 /* Diag pane — below screen */
 #diag {
   align-self: stretch;

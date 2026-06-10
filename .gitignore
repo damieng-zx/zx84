@@ -24,6 +24,11 @@ npm-debug.log*
 *.rom
 *.bin
 
+# Catalog build tool artifacts (regenerated from ZXDB; not shipped in repo)
+tools/ZXDB_mysql.sql.zip
+tools/zxdb.sqlite
+tools/out/
+
 # Vite / Wrangler local config
 *.local
 .wrangler
