@@ -91,24 +91,20 @@ function overlay(): StubElement {
   return doc.body.children[0];
 }
 function panel(): StubElement { return overlay().children[0]; }
-function listItems(): StubElement[] {
-  // panel children: [title, list, cancelBtn]; list children are the file items.
-  return panel().children[1].children;
-}
-function cancelButton(): StubElement {
-  const ps = panel().children;
-  return ps[ps.length - 1];
-}
+// panel children: [title, content]; content children: [list, actions].
+function content(): StubElement { return panel().children[1]; }
+function listItems(): StubElement[] { return content().children[0].children; }
+function cancelButton(): StubElement { return content().children[1].children[0]; }
 
 // ── Tests ─────────────────────────────────────────────────────────────────
 
 describe('zip-picker — selection', () => {
-  it('resolves with the clicked filename', async () => {
+  it('resolves with the clicked filename, listing items sorted', async () => {
     const promise = showFilePicker(['game.tap', 'readme.txt', 'loader.bas']);
 
     const items = listItems();
-    expect(items.map(i => i.textContent)).toEqual(['game.tap', 'readme.txt', 'loader.bas']);
-    items[1].dispatch('click', {});
+    expect(items.map(i => i.textContent)).toEqual(['game.tap', 'loader.bas', 'readme.txt']);
+    items[2].dispatch('click', {});
     expect(await promise).toBe('readme.txt');
   });
 
@@ -166,28 +162,6 @@ describe('zip-picker — cancellation', () => {
     expect(settled).toBe(false);
     cancelButton().dispatch('click', {});
     await promise;
-  });
-});
-
-describe('zip-picker — hover styles', () => {
-  it('highlights a list item on mouseenter and restores on mouseleave', () => {
-    showFilePicker(['a', 'b']);
-    const item = listItems()[0];
-    item.dispatch('mouseenter', {});
-    expect(item.style.background).toBe('#3a3a5e');
-    item.dispatch('mouseleave', {});
-    expect(item.style.background).toBe('#2a2a3e');
-    cancelButton().dispatch('click', {});
-  });
-
-  it('highlights the cancel button on mouseenter and restores on mouseleave', () => {
-    showFilePicker(['a']);
-    const btn = cancelButton();
-    btn.dispatch('mouseenter', {});
-    expect(btn.style.background).toBe('#3a3a5e');
-    btn.dispatch('mouseleave', {});
-    expect(btn.style.background).toBe('#2a2a3e');
-    btn.dispatch('click', {});
   });
 });
 

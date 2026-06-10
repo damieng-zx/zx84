@@ -1,7 +1,7 @@
 /**
  * Game Library state — the loaded catalog plus the search box value and
  * load status. Derivations (resolved + filtered game lists) live in
- * GameLibraryPane, which has a reactive root to own the memos.
+ * LibraryBrowser, which has a reactive root to own the memos.
  */
 
 import { createSignal } from 'solid-js';

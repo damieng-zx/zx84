@@ -1,11 +1,13 @@
 import { onMount, onCleanup, Show } from 'solid-js';
 import { Pane } from '@/components/Pane.tsx';
-import { HiOutlineFolderOpen, HiOutlineArrowDownTray } from 'solid-icons/hi';
+import { HiOutlineFolderOpen, HiOutlineArrowDownTray, HiOutlineRectangleStack } from 'solid-icons/hi';
 import {
   loadFile, loadableExtensions, saveSnapshot, saveCpcSnapshot, saveScreenshot,
   saveRAM, currentModel,
 } from '@/emulator.ts';
 import { isCpcModel } from '@/models.ts';
+import { toggleLibrary, libraryVisible } from '@/ui/panes.ts';
+import { LibraryBrowser } from '@/components/LibraryBrowser.tsx';
 import { openFile } from '@/ui/file-picker.ts';
 
 const isCpc = () => isCpcModel(currentModel());
@@ -66,6 +68,17 @@ export function LoadSavePane() {
         <button class="btn btn-md" id="snap-load-btn" title="Load file" onClick={handleLoad}>
           <HiOutlineFolderOpen /> Load
         </button>
+        <Show when={!isCpc()}>
+          <button
+            class="btn btn-md"
+            id="snap-library-btn"
+            classList={{ active: libraryVisible() }}
+            title="Show/hide the software library"
+            onClick={toggleLibrary}
+          >
+            <HiOutlineRectangleStack /> Library
+          </button>
+        </Show>
         <button
           ref={saveButtonRef}
           class="btn btn-md"
@@ -92,6 +105,9 @@ export function LoadSavePane() {
           </Show>
         </div>
       </div>
+      <Show when={libraryVisible() && !isCpc()}>
+        <LibraryBrowser />
+      </Show>
     </Pane>
   );
 }

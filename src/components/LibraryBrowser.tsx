@@ -1,6 +1,5 @@
 import { createMemo, createSignal, createEffect, onMount, Show, For } from 'solid-js';
 import { HiOutlineEllipsisVertical, HiOutlinePlay } from 'solid-icons/hi';
-import { Pane } from '@/components/Pane.tsx';
 import { DropDownMenuButton, type MenuItem } from '@/components/DropDownMenuButton.tsx';
 import { loadFile } from '@/emulator.ts';
 import { tapeName } from '@/state/tape-state.ts';
@@ -13,7 +12,7 @@ import {
   catalog, setCatalog, query, setQuery,
   libraryLoading, setLibraryLoading, libraryError, setLibraryError,
   loadingGame, setLoadingGame, mounted, setMounted,
-  genreFilter, toggleGenreFilter, toggleGenreGroup, clearGenreFilter,
+  genreFilter, toggleGenreFilter, toggleGenreGroup,
 } from '@/state/library-state.ts';
 
 /** Fetch the first URL that returns 2xx; falls through to the next on error. */
@@ -61,14 +60,22 @@ function GameDetail(props: { game: Game }) {
           <div class="library-shot-empty">{shot() === 'loading' ? 'Loading…' : 'No screenshot'}</div>
         </Show>
       </div>
-      <Show when={props.game.publisher}>
-        <div class="library-detail-pub">{props.game.publisher}</div>
+      <Show when={props.game.publisher || props.game.year}>
+        <div class="library-detail-pub">
+          <span class="library-detail-pubname">{props.game.publisher}</span>
+          <Show when={props.game.year}>
+            <span class="library-detail-year">{props.game.year}</span>
+          </Show>
+        </div>
       </Show>
     </div>
   );
 }
 
-export function GameLibraryPane() {
+/** The software library browser — search box, genre filter, results list and
+ *  expandable detail. Embedded in the Load/Save pane, toggled by its Library
+ *  button (it has no Pane chrome of its own). */
+export function LibraryBrowser() {
   const [selected, setSelected] = createSignal<Game | null>(null);
 
   // Resolve the compact entries once, when the catalog arrives.
@@ -78,7 +85,7 @@ export function GameLibraryPane() {
   });
 
   // Active when any constraint is set: free text, year:/publisher: tokens, or a
-  // genre filter. Inactive → the list shows the "type to search" hint instead.
+  // genre filter. Inactive → the list shows nothing (just the search box).
   const isActive = createMemo(() => {
     const { text, year, publisher } = parseLibraryQuery(query());
     return text !== '' || year !== null || publisher !== '' || genreFilter().size > 0;
@@ -105,16 +112,11 @@ export function GameLibraryPane() {
   // "Arcade Game: Action"); we group them so the part before ": " is a
   // top-level category and the parts after live in its flyout. Clicking a
   // category toggles the whole group; hovering it picks individual sub-types.
-  // Flat genres (no ": ") are plain top-level items. A Clear item leads when
-  // anything is selected.
+  // Flat genres (no ": ") are plain top-level items.
   const filterItems = createMemo<MenuItem[]>(() => {
     const cat = catalog();
     const sel = genreFilter();
     const items: MenuItem[] = [];
-    if (sel.size > 0) {
-      items.push({ value: '__clear', label: `Clear filter (${sel.size})` });
-      items.push({ value: '__sep', label: '', separator: true });
-    }
     if (!cat) return items;
 
     // Group by the text before ": ". `bare` is a genre equal to the prefix with
@@ -159,7 +161,6 @@ export function GameLibraryPane() {
   });
 
   function onFilterSelect(value: string) {
-    if (value === '__clear') { clearGenreFilter(); return; }
     if (value.startsWith('g:')) { toggleGenreFilter(value.slice(2)); return; }
     if (value.startsWith('grp:')) {
       const prefix = value.slice(4);
@@ -183,7 +184,7 @@ export function GameLibraryPane() {
     }
   }
 
-  // Lazy-load the catalog the first time the pane mounts.
+  // Lazy-load the catalog the first time the browser mounts (i.e. is shown).
   onMount(ensureCatalog);
 
   async function play(game: Game) {
@@ -216,7 +217,7 @@ export function GameLibraryPane() {
   });
 
   return (
-    <Pane id="game-library-panel" label="Software Library">
+    <div class="library-browser">
       <div class="library-search">
         <input
           type="text"
@@ -244,37 +245,35 @@ export function GameLibraryPane() {
         <div class="library-status">Loading catalog…</div>
       </Show>
 
-      <Show when={catalog() && !libraryLoading()}>
-        <Show when={isActive()}>
-          <div class="library-list">
-            <For each={filtered()} fallback={<div class="library-status">No matches.</div>}>
-              {(game) => (
-                <div class="library-entry">
-                  <div
-                    class={`library-row${loadingGame() === game ? ' loading' : ''}${mounted()?.game === game ? ' mounted' : ''}${selected() === game ? ' selected' : ''}`}
-                    onClick={() => setSelected(selected() === game ? null : game)}
-                    title={`${game.title}${game.publisher ? ` — ${game.publisher}` : ''}${game.isDisk ? ' (disk)' : ''}`}
+      <Show when={catalog() && !libraryLoading() && isActive()}>
+        <div class="library-list">
+          <For each={filtered()} fallback={<div class="library-status">No matches.</div>}>
+            {(game) => (
+              <div class="library-entry">
+                <div
+                  class={`library-row${loadingGame() === game ? ' loading' : ''}${mounted()?.game === game ? ' mounted' : ''}${selected() === game ? ' selected' : ''}`}
+                  onClick={() => setSelected(selected() === game ? null : game)}
+                  title={`${game.title}${game.publisher ? ` — ${game.publisher}` : ''}${game.isDisk ? ' (disk)' : ''}`}
+                >
+                  <span class="library-title">
+                    {game.title}{game.isDisk ? ' 💾' : ''}
+                  </span>
+                  <span
+                    class="library-play"
+                    title="Load"
+                    onClick={(e) => { e.stopPropagation(); play(game); }}
                   >
-                    <span class="library-title">
-                      {game.title}{game.isDisk ? ' 💾' : ''}
-                    </span>
-                    <span
-                      class="library-play"
-                      title="Load"
-                      onClick={(e) => { e.stopPropagation(); play(game); }}
-                    >
-                      <HiOutlinePlay />
-                    </span>
-                  </div>
-                  <Show when={selected() === game}>
-                    <GameDetail game={game} />
-                  </Show>
+                    <HiOutlinePlay />
+                  </span>
                 </div>
-              )}
-            </For>
-          </div>
-        </Show>
+                <Show when={selected() === game}>
+                  <GameDetail game={game} />
+                </Show>
+              </div>
+            )}
+          </For>
+        </div>
       </Show>
-    </Pane>
+    </div>
   );
 }

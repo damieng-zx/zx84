@@ -340,6 +340,59 @@ body.cpc-mode .section-label::after {
 .pane button:hover,
 .pane select:hover { background: #ddd; }
 
+/* ── Modal dialogs — reuse .pane chrome, but not collapsible/draggable ── */
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+}
+
+.dialog {
+  min-width: 280px;
+  max-width: 420px;
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.section-label.dialog-title { cursor: default; }
+
+.dialog-content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 8px 8px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.dialog-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.dialog-item {
+  padding: 5px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  color: #000;
+  font-size: 0.8rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dialog-item:hover { background: #eef; }
+
+.dialog-actions { display: flex; justify-content: flex-end; }
+.dialog-actions .btn { width: auto; }
+
 .pane label {
   display: flex;
   flex-direction: column;
@@ -1167,7 +1220,13 @@ input[type="range"]::-moz-range-thumb {
   font-style: italic;
 }
 
-/* Game Library pane */
+/* Software library — embedded in the Load/Save pane below the button row. */
+.library-browser {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid #ddd;
+}
+
 .library-search { position: relative; padding: 2px 3px 6px; }
 
 .library-search-input {
@@ -1299,7 +1358,21 @@ input[type="range"]::-moz-range-thumb {
   font-size: 0.65rem;
 }
 
-.library-detail-pub { font-weight: 600; font-size: 0.72rem; }
+.library-detail-pub {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 0.72rem;
+}
+.library-detail-pubname {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.library-detail-year { flex: 0 0 auto; color: #888; }
 
 /* Diag pane — below screen */
 #diag {

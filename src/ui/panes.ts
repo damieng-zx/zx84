@@ -12,6 +12,7 @@ export interface PanePosition {
 const ORDER_KEY = 'zx84-pane-order';
 const COLLAPSE_KEY = 'zx84-collapsed';
 const DEVTOOLS_KEY = 'zx84-devtools-hidden';
+const LIBRARY_KEY = 'zx84-library-visible';
 
 /**
  * The developer-tools panes, shown/hidden as a single group via the toolbar
@@ -31,7 +32,6 @@ const DEFAULT_ORDER: PanePosition[] = [
   { id: 'snapshot-panel', sidebar: 'left' },
   { id: 'drive-panel', sidebar: 'left' },
   { id: 'tape-panel', sidebar: 'left' },
-  { id: 'game-library-panel', sidebar: 'left' },
   // Right: peripherals/output, then the dev panes (hidden by default).
   { id: 'sound-panel', sidebar: 'right' },
   { id: 'display-pane', sidebar: 'right' },
@@ -55,8 +55,6 @@ const DEFAULT_ORDER: PanePosition[] = [
 export const SPECTRUM_ONLY_PANES = new Set<string>([
   'sysvar-panel', 'basic-vars-panel',
   'font-panel',
-  // The library catalogues ZX Spectrum software; hide it on a CPC.
-  'game-library-panel',
 ]);
 
 function loadPaneOrder(): PanePosition[] {
@@ -99,6 +97,16 @@ function loadDevToolsHidden(): boolean {
   return DEFAULT_DEVTOOLS_HIDDEN;
 }
 
+// The Software Library pane is hidden by default; summon it via the Library
+// button in the Load/Save pane.
+function loadLibraryVisible(): boolean {
+  try {
+    const raw = localStorage.getItem(LIBRARY_KEY);
+    if (raw !== null) return raw === '1';
+  } catch { /* */ }
+  return false;
+}
+
 // ── Signals ─────────────────────────────────────────────────────────────
 
 const _paneOrder = createSignal<PanePosition[]>(loadPaneOrder());
@@ -112,6 +120,10 @@ const _setCollapsedPanes = _collapsedPanes[1];
 const _devToolsHidden = createSignal<boolean>(loadDevToolsHidden());
 export const devToolsHidden = _devToolsHidden[0];
 const _setDevToolsHidden = _devToolsHidden[1];
+
+const _libraryVisible = createSignal<boolean>(loadLibraryVisible());
+export const libraryVisible = _libraryVisible[0];
+const _setLibraryVisible = _libraryVisible[1];
 
 // ── Actions ─────────────────────────────────────────────────────────────
 
@@ -144,6 +156,13 @@ export function toggleDevTools(): void {
   const next = !devToolsHidden();
   _setDevToolsHidden(next);
   try { localStorage.setItem(DEVTOOLS_KEY, next ? '1' : '0'); } catch { /* */ }
+}
+
+/** Show/hide the Software Library pane (toggled from the Load/Save pane). */
+export function toggleLibrary(): void {
+  const next = !libraryVisible();
+  _setLibraryVisible(next);
+  try { localStorage.setItem(LIBRARY_KEY, next ? '1' : '0'); } catch { /* */ }
 }
 
 /** True when a pane should be hidden because it's a dev pane and dev tools are off. */

@@ -1,6 +1,8 @@
 /**
  * Modal file-selection dialog for ZIP archives containing multiple loadable files.
- * Creates its own DOM overlay — nothing in index.html needed.
+ * Creates its own DOM overlay — nothing in index.html needed. Styled with the
+ * app's pane classes (.pane / .section-label / .btn) so it matches the UI; it's
+ * a dialog, so it has no collapse twisty or drag.
  */
 
 /** Show a modal picker for the given filenames. Resolves with the chosen name, or null if cancelled. */
@@ -17,64 +19,44 @@ export function showFilePicker(filenames: string[]): Promise<string | null> {
 
     // ── Overlay ──────────────────────────────────────────────────────
     const overlay = document.createElement('div');
-    Object.assign(overlay.style, {
-      position: 'fixed', inset: '0',
-      background: 'rgba(0,0,0,0.7)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      zIndex: '10000',
-    } as CSSStyleDeclaration);
+    overlay.className = 'dialog-overlay';
 
-    // ── Panel ────────────────────────────────────────────────────────
+    // ── Panel (reuses .pane chrome) ──────────────────────────────────
     const panel = document.createElement('div');
-    Object.assign(panel.style, {
-      background: '#1a1a2e', border: '1px solid #555', borderRadius: '8px',
-      padding: '16px', minWidth: '280px', maxWidth: '420px',
-      maxHeight: '70vh', display: 'flex', flexDirection: 'column', gap: '10px',
-    } as CSSStyleDeclaration);
+    panel.className = 'pane dialog';
 
     const title = document.createElement('div');
+    title.className = 'section-label dialog-title';
     title.textContent = 'Select a file to load';
-    Object.assign(title.style, {
-      color: '#c0c0ff', fontSize: '1rem', fontWeight: 'bold',
-      fontFamily: "'Segoe UI', system-ui, sans-serif",
-    } as CSSStyleDeclaration);
     panel.appendChild(title);
+
+    const content = document.createElement('div');
+    content.className = 'dialog-content';
 
     // ── File list ────────────────────────────────────────────────────
     const list = document.createElement('div');
-    Object.assign(list.style, {
-      overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px',
-    } as CSSStyleDeclaration);
-
-    for (const name of filenames) {
+    list.className = 'dialog-list';
+    const sorted = [...filenames].sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+    for (const name of sorted) {
       const item = document.createElement('div');
+      item.className = 'dialog-item';
       item.textContent = name;
-      Object.assign(item.style, {
-        background: '#2a2a3e', color: '#e0e0e0', padding: '8px 12px',
-        borderRadius: '4px', cursor: 'pointer',
-        fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: '0.85rem',
-      } as CSSStyleDeclaration);
-      item.addEventListener('mouseenter', () => { item.style.background = '#3a3a5e'; });
-      item.addEventListener('mouseleave', () => { item.style.background = '#2a2a3e'; });
       item.addEventListener('click', () => finish(name));
       list.appendChild(item);
     }
-    panel.appendChild(list);
+    content.appendChild(list);
 
     // ── Cancel button ────────────────────────────────────────────────
+    const actions = document.createElement('div');
+    actions.className = 'dialog-actions';
     const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn btn-md';
     cancelBtn.textContent = 'Cancel';
-    Object.assign(cancelBtn.style, {
-      padding: '6px 14px', border: '1px solid #555', borderRadius: '4px',
-      background: '#2a2a3e', color: '#e0e0e0', fontSize: '0.85rem',
-      cursor: 'pointer', alignSelf: 'flex-end',
-      fontFamily: "'Segoe UI', system-ui, sans-serif",
-    } as CSSStyleDeclaration);
-    cancelBtn.addEventListener('mouseenter', () => { cancelBtn.style.background = '#3a3a5e'; });
-    cancelBtn.addEventListener('mouseleave', () => { cancelBtn.style.background = '#2a2a3e'; });
     cancelBtn.addEventListener('click', () => finish(null));
-    panel.appendChild(cancelBtn);
+    actions.appendChild(cancelBtn);
+    content.appendChild(actions);
 
+    panel.appendChild(content);
     overlay.appendChild(panel);
 
     // ── Dismiss via overlay click / Escape ────────────────────────────
