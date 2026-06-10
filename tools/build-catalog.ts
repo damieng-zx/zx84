@@ -25,7 +25,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { gzipSync } from 'node:zlib';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { dirname, resolve } from 'node:path';
+import { dirname, resolve, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // ── CLI config ────────────────────────────────────────────────────────────
@@ -45,11 +45,68 @@ const OUT_DIR = resolve(HERE, 'out');
 // ── Row shapes ────────────────────────────────────────────────────────────
 
 interface MetaRow { id: number; title: string; year: number | null; genre: string | null; publisher: string | null; }
-interface DownRow { id: number; link: string; ft: number; }
+interface DownRow { id: number; link: string; ft: number; mt: number | null; }
 
-// Compact output schema — keep in sync with src/library/catalog.ts.
-interface RawGame { t: string; y?: number; g?: number; p?: number; f?: string; d?: string; s?: string; }
+// Compact output schema — keep in sync with src/library/catalog.ts. Model is
+// implicit in which slot a file lands in: f ⇒ 48K, k ⇒ 128K, d/ds ⇒ +3 (disk).
+interface RawGame {
+  i: number;                  // ZXDB entry id
+  t: string;
+  y?: number; g?: number; p?: number; s?: string;
+  f?: string;                 // 48K tape (.tzx preferred)
+  k?: string;                 // 128K tape
+  d?: string;                 // disk (side A / disk 1 when multi-side)
+  ds?: [string, string][];    // extra disk sides: [file_link, label]
+}
 interface RawCatalog { genres: string[]; publishers: string[]; games: RawGame[]; }
+
+/**
+ * 48K vs 128K bucket for a tape, from its machinetype_id. The "48K/128K" dual
+ * (4), 128K (5), +2 (7) and the rarer +2A/+3 tapes (8–10) plus Next (27) all go
+ * in the 128 bucket — they want, or at least tolerate, a 128K-class machine.
+ * 16K/48K/untagged stay 48.
+ */
+function tapeBucket(mt: number | null | undefined): '48' | '128' {
+  switch (mt) {
+    case 4: case 5: case 7: case 8: case 9: case 10: case 27: return '128';
+    default: return '48';
+  }
+}
+
+// A disk filename denoting a distinct side/part to KEEP (e.g. "(SideA)",
+// "(Disk1SideB)") — as opposed to a fix/alt re-dump to drop.
+const DISK_PART = /\([^)]*(side\s*[ab12]|disk\s*[ab12]|disc\s*[ab12]|part\s*[12])[^)]*\)/i;
+// Re-dump / variant markers: drop these when collapsing to one logical disk.
+const DISK_ALT = /\((fixed|alt|crack|lightgun|trainer)|_\d+\.dsk\.zip$/i;
+
+/** Human label for a side/part disk, derived from its filename parenthetical:
+ *  "(SideA)" → "Side A", "(Disk1SideB)" → "Disk 1 Side B". */
+function partLabel(base: string): string {
+  const m = base.match(/\(([^)]*(?:side|disk|disc|part)[^)]*)\)/i);
+  if (!m) return 'Disk';
+  return m[1]
+    .replace(/(side|disk|disc|part)/gi, w => ` ${w[0].toUpperCase()}${w.slice(1).toLowerCase()} `)
+    .replace(/([a-z])(\d)/gi, '$1 $2').replace(/(\d)([a-z])/gi, '$1 $2')
+    .replace(/\s+/g, ' ').trim();
+}
+
+/** Collapse an entry's disk links into a primary `d` plus any extra `ds` sides.
+ *  ≥2 side/part files ⇒ a multi-side set (keep all, labelled); otherwise one
+ *  logical disk — prefer the cleanest dump over (fixed)/_2/(alt) re-dumps. */
+function resolveDisks(disks: string[]): { d?: string; ds?: [string, string][] } {
+  if (disks.length === 0) return {};
+  const parts = disks.filter(l => DISK_PART.test(basename(l)));
+  if (parts.length >= 2) {
+    const labelled = parts
+      .map(l => [l, partLabel(basename(l))] as [string, string])
+      .sort((a, b) => a[1].localeCompare(b[1]));
+    const [first, ...rest] = labelled;
+    return { d: first[0], ds: rest.length ? rest : undefined };
+  }
+  const clean = disks.filter(l => !DISK_ALT.test(basename(l)));
+  const pick = (clean.length ? clean : disks).sort((a, b) => basename(a).length - basename(b).length)[0];
+  return { d: pick };
+}
 
 function main(): void {
   const db = new DatabaseSync(DB_FILE, { readOnly: true });
@@ -78,7 +135,7 @@ function main(): void {
   // SQLite has no built-in REGEXP, so match by suffix with LOWER()+LIKE. One
   // entry may have several — we dedupe in JS below.
   const downs = db.prepare(
-    `SELECT d.entry_id AS id, d.file_link AS link, d.filetype_id AS ft
+    `SELECT d.entry_id AS id, d.file_link AS link, d.filetype_id AS ft, d.machinetype_id AS mt
        FROM downloads d
        JOIN entries e        ON e.id = d.entry_id
        JOIN machinetypes m   ON m.id = e.machinetype_id AND m.text LIKE ?
@@ -90,21 +147,26 @@ function main(): void {
 
   db.close();
 
-  // Pick one tape (prefer .tzx over .tap), one disk, and one SCR screen
+  // Per entry: best 48K tape, best 128K tape (each prefers .tzx over .tap), all
+  // disk links (resolved to a primary + sides later), and one SCR screen
   // (prefer a loading screen, filetype 1, over a running screen, filetype 2).
-  const files = new Map<number, { tape?: string; disk?: string; screen?: string; screenFt?: number }>();
+  const files = new Map<number, { tape48?: string; tape128?: string; disks: string[]; screen?: string; screenFt?: number }>();
   for (const d of downs) {
-    const slot = files.get(d.id) ?? {};
+    let slot = files.get(d.id);
+    if (!slot) { slot = { disks: [] }; files.set(d.id, slot); }
     if (d.ft === 11) {
-      if (!slot.disk) slot.disk = d.link;
+      slot.disks.push(d.link);
     } else if (d.ft === 1 || d.ft === 2) {
       if (!slot.screen || (d.ft === 1 && slot.screenFt !== 1)) { slot.screen = d.link; slot.screenFt = d.ft; }
     } else {
       const isTzx = /\.tzx\.zip$/i.test(d.link);
-      // Prefer a .tzx; otherwise take the first tape seen.
-      if (!slot.tape || (isTzx && !/\.tzx\.zip$/i.test(slot.tape))) slot.tape = d.link;
+      const b = tapeBucket(d.mt);
+      const cur = b === '128' ? slot.tape128 : slot.tape48;
+      // Prefer a .tzx; otherwise keep the first tape seen in this bucket.
+      if (!cur || (isTzx && !/\.tzx\.zip$/i.test(cur))) {
+        if (b === '128') slot.tape128 = d.link; else slot.tape48 = d.link;
+      }
     }
-    files.set(d.id, slot);
   }
 
   // Dictionaries for genre/publisher → small integer indices.
@@ -122,15 +184,19 @@ function main(): void {
   const games: RawGame[] = [];
   for (const row of meta) {
     const f = files.get(row.id);
-    if (!f || (!f.tape && !f.disk)) continue;   // no playable file → skip
-    const g: RawGame = { t: row.title };
+    if (!f) continue;
+    const { d, ds } = resolveDisks(f.disks);
+    if (!f.tape48 && !f.tape128 && !d) continue;   // no playable file → skip
+    const g: RawGame = { i: row.id, t: row.title };
     if (row.year) g.y = row.year;
     const gi = intern(row.genre, genres, genreIdx);
     if (gi !== undefined) g.g = gi;
     const pi = intern(row.publisher, publishers, pubIdx);
     if (pi !== undefined) g.p = pi;
-    if (f.tape) g.f = f.tape;
-    if (f.disk) g.d = f.disk;
+    if (f.tape48) g.f = f.tape48;
+    if (f.tape128) g.k = f.tape128;
+    if (d) g.d = d;
+    if (ds) g.ds = ds;
     if (f.screen) g.s = f.screen;
     games.push(g);
   }
@@ -154,6 +220,7 @@ function main(): void {
   const mb = (n: number) => (n / 1024 / 1024).toFixed(2);
   console.log(`games:      ${games.length}`);
   console.log(`with screen:${games.filter(g => g.s).length}`);
+  console.log(`tapes 48/128: ${games.filter(g => g.f).length} / ${games.filter(g => g.k).length}   disks: ${games.filter(g => g.d).length}   multi-side: ${games.filter(g => g.ds).length}`);
   console.log(`genres:     ${genres.length}   publishers: ${publishers.length}`);
   console.log(`raw JSON:   ${mb(json.length)} MB`);
   console.log(`gzipped:    ${mb(gz.length)} MB`);
