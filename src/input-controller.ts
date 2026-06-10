@@ -46,6 +46,15 @@ const BIND_HOLD_DURATION = 500;
 
 // ── Helper functions ────────────────────────────────────────────────────
 
+/** True when a keystroke is destined for a focused form field (search box,
+ *  address input, …) and must NOT be hijacked by the emulator keyboard. */
+function isEditableTarget(e: KeyboardEvent): boolean {
+  const el = e.target as HTMLElement | null;
+  if (!el) return false;
+  const tag = el.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
+}
+
 function setDpadHighlight(player: number, dir: string, pressed: boolean): void {
   const dpad = document.querySelector(`.joy-dpad[data-player="${player + 1}"]`);
   const btn = dpad?.querySelector(`[data-dir="${dir}"]`);
@@ -123,6 +132,9 @@ export class InputController {
   }
 
   onKeyDown = (e: KeyboardEvent): void => {
+    // Let keystrokes reach focused text fields (library search, address box, …)
+    // instead of forwarding them to the Spectrum keyboard.
+    if (isEditableTarget(e)) return;
     // Drop OS-generated auto-repeat keydowns. Each one would re-enter setKey()
     // and push pressCount / physicalShiftCount / cursorShiftCount past what
     // the single keyup can undo, leaving the key stuck pressed.
@@ -140,6 +152,7 @@ export class InputController {
   };
 
   onKeyUp = (e: KeyboardEvent): void => {
+    if (isEditableTarget(e)) return;
     if (machine?.kind === 'cpc') {
       if (this.handleJoyKey(e, false)) { e.preventDefault(); return; }
       if ((machine as CpcMachine).keyboard.handleKeyEvent(e.code, false)) e.preventDefault();
