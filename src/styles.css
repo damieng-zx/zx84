@@ -1168,18 +1168,44 @@ input[type="range"]::-moz-range-thumb {
 }
 
 /* Game Library pane */
-.library-search { padding: 2px 0 4px; }
+.library-search { position: relative; padding: 2px 3px 6px; }
 
 .library-search-input {
   width: 100%;
   box-sizing: border-box;
-  padding: 3px 6px;
+  padding: 3px 24px 3px 6px;   /* right room for the filter button */
   font: inherit;
   font-size: 0.75rem;
   border: 1px solid #aab;
   border-radius: 3px;
   background: #fff;
 }
+
+/* Filter button sits inside the search box, vertically centred and flush right.
+   top/bottom match the .library-search padding so the flex box spans exactly
+   the input's height; align-items then centres the (vertical-dots) button. */
+.library-search-menu {
+  position: absolute;
+  top: 2px;
+  bottom: 6px;
+  right: 4px;
+  display: flex;
+  align-items: center;
+}
+.library-search-menu .ddmenu-btn {
+  height: 100%;
+  padding: 0 4px;
+  border: none;
+  background: transparent;
+  color: #667;
+}
+.library-search-menu .ddmenu-btn:hover:not(:disabled) {
+  background: transparent;
+  color: #000;
+}
+
+/* The genre filter submenu can be long — let it scroll. */
+.ddmenu-sub { max-height: 60vh; overflow-y: auto; }
 
 .library-status {
   padding: 6px;
@@ -1196,16 +1222,17 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .library-row {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
   padding: 3px 6px;
   cursor: pointer;
   border-left: 3px solid transparent;
   color: #000;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .library-row:hover { background: #eef; }
+.library-row.selected { background: #e9e9f2; }
 .library-row.loading {
   background: #f0f0fe;
   border-left-color: #44e;
@@ -1217,25 +1244,55 @@ input[type="range"]::-moz-range-thumb {
   border-left-color: #2a2;
   color: #161;
 }
-.library-row.mounted .library-pub { color: #6a6; }
 
-/* Title (Year) on the left, truncating; publisher muted on the right. */
-.library-title {
-  flex: 1 1 auto;
+.library-title { display: inline; }
+
+/* Expanded detail — screenshot + publisher/genre + Load button. */
+.library-detail {
+  display: flex;
+  gap: 8px;
+  padding: 6px 8px 8px;
+  background: #f6f6fb;
+  border-left: 3px solid #ccd;
+}
+
+.library-shot {
+  position: relative;
+  flex: 0 0 auto;
+  width: 160px;
+  height: 120px;
+  background: #000;
+  border: 1px solid #bbb;
+}
+
+.library-shot-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  image-rendering: pixelated;
+}
+.library-shot-canvas.hidden { display: none; }
+
+.library-shot-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #888;
+  font-size: 0.65rem;
+}
+
+.library-detail-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 0.72rem;
 }
 
-.library-pub {
-  flex: 0 1 auto;
-  max-width: 45%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: #999;
-}
+.library-detail-pub { font-weight: 600; }
+.library-load-btn { margin-top: auto; align-self: flex-start; }
 
 /* Diag pane — below screen */
 #diag {

@@ -4,8 +4,12 @@ import { createSignal, createEffect, Show, onCleanup } from 'solid-js';
 export interface MenuItem {
   value: string;
   label: string;
-  /** If defined (true or false), renders as a checkable toggle item. */
+  /** If defined (true or false), renders as a checkable toggle item. A parent
+   *  (with `children`) that also sets `checked` is clickable to toggle the
+   *  whole group, and still opens its flyout on hover. */
   checked?: boolean;
+  /** Tri-state: some-but-not-all of a group selected → shows a dash. */
+  indeterminate?: boolean;
   /** Sub-menu items — renders as a flyout on hover. */
   children?: MenuItem[];
   /** Renders a horizontal separator instead of a clickable item. */
@@ -56,12 +60,20 @@ export function DropDownMenuButton(props: Props) {
   });
 
   function handleClick(item: MenuItem) {
-    if (item.children) return; // parent items don't fire
+    // A pure submenu parent (no toggle) doesn't fire \u2014 only its flyout matters.
+    if (item.children && item.checked === undefined) return;
     props.onSelect(item.value);
-    // Checkable items stay open (they're toggles); action items close
-    if (item.checked === undefined) {
-      close();
-    }
+    // Toggles (checkable items, incl. checkable parents) stay open; actions close.
+    if (item.checked === undefined) close();
+  }
+
+  function check(item: MenuItem) {
+    if (item.checked === undefined) return null;
+    return (
+      <span class="ddmenu-check">
+        {item.indeterminate ? '\u2013' : item.checked ? '\u2713' : ''}
+      </span>
+    );
   }
 
   function renderItem(item: MenuItem) {
@@ -69,10 +81,19 @@ export function DropDownMenuButton(props: Props) {
       return <div class="ddmenu-separator" />;
     }
     if (item.children) {
+      // Parent: the row is clickable to toggle the whole group when checkable;
+      // hovering anywhere on it reveals the flyout of sub-parts.
+      const toggleable = item.checked !== undefined;
       return (
-        <div class="ddmenu-item ddmenu-parent">
-          <span>{item.label}</span>
-          <span class="ddmenu-arrow">{'\u25B8'}</span>
+        <div class="ddmenu-parent">
+          <div
+            class="ddmenu-item ddmenu-parent-row"
+            onClick={toggleable ? () => handleClick(item) : undefined}
+          >
+            {check(item)}
+            <span>{item.label}</span>
+            <span class="ddmenu-arrow">{'\u25B8'}</span>
+          </div>
           <div class="ddmenu ddmenu-sub">
             {item.children.map((child) => renderItem(child))}
           </div>
@@ -80,13 +101,8 @@ export function DropDownMenuButton(props: Props) {
       );
     }
     return (
-      <div
-        class="ddmenu-item"
-        onClick={() => handleClick(item)}
-      >
-        {item.checked !== undefined && (
-          <span class="ddmenu-check">{item.checked ? '\u2713' : ''}</span>
-        )}
+      <div class="ddmenu-item" onClick={() => handleClick(item)}>
+        {check(item)}
         <span>{item.label}</span>
       </div>
     );

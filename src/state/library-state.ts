@@ -35,3 +35,51 @@ export const setLoadingGame = _loadingGame[1];
 const _mounted = createSignal<{ game: Game; name: string; kind: 'tape' | 'disk' } | null>(null);
 export const mounted = _mounted[0];
 export const setMounted = _mounted[1];
+
+// ── Genre filter (persisted) ───────────────────────────────────────────────
+// Set of genre names to include; empty = no genre filtering (show all).
+
+const GENRE_FILTER_KEY = 'zx84-library-genres';
+
+function loadGenreFilter(): Set<string> {
+  try {
+    const raw = localStorage.getItem(GENRE_FILTER_KEY);
+    if (raw) return new Set<string>(JSON.parse(raw));
+  } catch { /* */ }
+  return new Set();
+}
+
+const _genreFilter = createSignal<Set<string>>(loadGenreFilter());
+export const genreFilter = _genreFilter[0];
+const setGenreFilter = _genreFilter[1];
+
+function persistGenreFilter(s: Set<string>): void {
+  try {
+    if (s.size === 0) localStorage.removeItem(GENRE_FILTER_KEY);
+    else localStorage.setItem(GENRE_FILTER_KEY, JSON.stringify([...s]));
+  } catch { /* */ }
+}
+
+export function toggleGenreFilter(genre: string): void {
+  const s = new Set(genreFilter());
+  if (s.has(genre)) s.delete(genre); else s.add(genre);
+  setGenreFilter(s);
+  persistGenreFilter(s);
+}
+
+/** Toggle a whole group at once: if every member is already selected, clear
+ *  them all; otherwise select the lot. Used by the parent "include everything"
+ *  click on a genre category. */
+export function toggleGenreGroup(members: string[]): void {
+  const s = new Set(genreFilter());
+  const allOn = members.length > 0 && members.every(m => s.has(m));
+  for (const m of members) { if (allOn) s.delete(m); else s.add(m); }
+  setGenreFilter(s);
+  persistGenreFilter(s);
+}
+
+export function clearGenreFilter(): void {
+  const empty = new Set<string>();
+  setGenreFilter(empty);
+  persistGenreFilter(empty);
+}
