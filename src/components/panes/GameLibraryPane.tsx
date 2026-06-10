@@ -1,5 +1,5 @@
 import { createMemo, createSignal, createEffect, onMount, Show, For } from 'solid-js';
-import { HiOutlineEllipsisVertical } from 'solid-icons/hi';
+import { HiOutlineEllipsisVertical, HiOutlinePlay } from 'solid-icons/hi';
 import { Pane } from '@/components/Pane.tsx';
 import { DropDownMenuButton, type MenuItem } from '@/components/DropDownMenuButton.tsx';
 import { loadFile } from '@/emulator.ts';
@@ -35,9 +35,9 @@ async function fetchFirst(urls: string[]): Promise<Uint8Array> {
 // than is useful (or performant) to render at once. Users narrow via search.
 const RESULT_LIMIT = 500;
 
-/** Expanded detail row: screenshot (rendered from the SCR), publisher, genre,
- *  and a Load button. */
-function GameDetail(props: { game: Game; onLoad: (g: Game) => void }) {
+/** Expanded detail row: screenshot (rendered from the SCR) with the publisher
+ *  name below it. */
+function GameDetail(props: { game: Game }) {
   let canvasRef: HTMLCanvasElement | undefined;
   const [shot, setShot] = createSignal<'none' | 'loading' | 'ok' | 'error'>(
     props.game.screen ? 'loading' : 'none',
@@ -61,12 +61,9 @@ function GameDetail(props: { game: Game; onLoad: (g: Game) => void }) {
           <div class="library-shot-empty">{shot() === 'loading' ? 'Loading…' : 'No screenshot'}</div>
         </Show>
       </div>
-      <div class="library-detail-meta">
-        <Show when={props.game.publisher}>
-          <div class="library-detail-pub">{props.game.publisher}</div>
-        </Show>
-        <button class="btn btn-sm library-load-btn" onClick={() => props.onLoad(props.game)}>Load</button>
-      </div>
+      <Show when={props.game.publisher}>
+        <div class="library-detail-pub">{props.game.publisher}</div>
+      </Show>
     </div>
   );
 }
@@ -259,11 +256,18 @@ export function GameLibraryPane() {
                     title={`${game.title}${game.publisher ? ` — ${game.publisher}` : ''}${game.isDisk ? ' (disk)' : ''}`}
                   >
                     <span class="library-title">
-                      {game.title}{game.year ? ` (${game.year})` : ''}{game.isDisk ? ' 💾' : ''}
+                      {game.title}{game.isDisk ? ' 💾' : ''}
+                    </span>
+                    <span
+                      class="library-play"
+                      title="Load"
+                      onClick={(e) => { e.stopPropagation(); play(game); }}
+                    >
+                      <HiOutlinePlay />
                     </span>
                   </div>
                   <Show when={selected() === game}>
-                    <GameDetail game={game} onLoad={play} />
+                    <GameDetail game={game} />
                   </Show>
                 </div>
               )}

@@ -1222,13 +1222,13 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .library-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   padding: 3px 6px;
   cursor: pointer;
   border-left: 3px solid transparent;
   color: #000;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .library-row:hover { background: #eef; }
@@ -1245,12 +1245,29 @@ input[type="range"]::-moz-range-thumb {
   color: #161;
 }
 
-.library-title { display: inline; }
+.library-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
-/* Expanded detail — screenshot + publisher/genre + Load button. */
+/* Right-aligned ">" play button on each row. */
+.library-play {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  color: #3a3;
+  font-size: 0.9rem;
+}
+.library-play:hover { color: #1a1; }
+
+/* Expanded detail — screenshot (1:1, fills the pane width) with publisher below. */
 .library-detail {
   display: flex;
-  gap: 8px;
+  flex-direction: column;
+  gap: 6px;
   padding: 6px 8px 8px;
   background: #f6f6fb;
   border-left: 3px solid #ccd;
@@ -1258,9 +1275,8 @@ input[type="range"]::-moz-range-thumb {
 
 .library-shot {
   position: relative;
-  flex: 0 0 auto;
-  width: 160px;
-  height: 120px;
+  width: 100%;
+  aspect-ratio: 256 / 192;   /* native Spectrum screen — 1 device px per screen px at pane width */
   background: #000;
   border: 1px solid #bbb;
 }
@@ -1283,16 +1299,7 @@ input[type="range"]::-moz-range-thumb {
   font-size: 0.65rem;
 }
 
-.library-detail-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-  font-size: 0.72rem;
-}
-
-.library-detail-pub { font-weight: 600; }
-.library-load-btn { margin-top: auto; align-self: flex-start; }
+.library-detail-pub { font-weight: 600; font-size: 0.72rem; }
 
 /* Diag pane — below screen */
 #diag {

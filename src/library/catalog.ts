@@ -19,6 +19,7 @@ export interface RawGame {
   p?: number;   // publisher — index into RawCatalog.publishers
   f?: string;   // tape file_link (preferred: .tzx.zip, else .tap.zip)
   d?: string;   // disk file_link (.dsk.zip), when present
+  s?: string;   // running-screen image file_link (.gif preferred, else .png)
 }
 
 export interface RawCatalog {
@@ -37,6 +38,8 @@ export interface Game {
   fileLink: string;
   /** True when the chosen file is a disk image rather than a tape. */
   isDisk: boolean;
+  /** ZXDB file_link for a running-screen image ('' when none). */
+  screen: string;
 }
 
 // Game files are tried CDN-first, Worker-second:
@@ -77,6 +80,29 @@ export function basename(fileLink: string): string {
 // Entertainment|Productions?|Studios?|Systems? here for a tighter "Strategy B".
 const PUBLISHER_SUFFIX = /[,\s]+(Ltd\.?|Limited|Inc\.?|PLC|S\.?A\.?|S\.?L\.?|GmbH|B\.?V\.?|Co\.?|Corp\.?|Corporation|Pty\.?)$/i;
 
+/** Parsed search box: free `text` (title match) plus `year:NNNN` / `publisher:X`
+ *  tokens pulled out for structured filtering. All lower-cased. */
+export interface LibraryQuery { text: string; year: number | null; publisher: string; }
+
+export function parseLibraryQuery(q: string): LibraryQuery {
+  let year: number | null = null;
+  let publisher = '';
+  const text: string[] = [];
+  for (const tok of q.trim().split(/\s+/)) {
+    if (!tok) continue;
+    const lower = tok.toLowerCase();
+    if (lower.startsWith('year:')) {
+      const n = parseInt(lower.slice(5), 10);
+      if (Number.isFinite(n)) year = n;
+    } else if (lower.startsWith('publisher:')) {
+      publisher = lower.slice('publisher:'.length);
+    } else {
+      text.push(lower);
+    }
+  }
+  return { text: text.join(' '), year, publisher };
+}
+
 /** Short publisher label: "Ocean Software Ltd" → "Ocean Software", "Domark Ltd"
  *  → "Domark". Never returns empty (falls back to the original name). */
 export function shortPublisher(name: string): string {
@@ -96,6 +122,7 @@ export function resolveGame(raw: RawGame, cat: RawCatalog): Game {
     // Prefer the tape; fall back to the disk image when no tape exists.
     fileLink: raw.f ?? raw.d ?? '',
     isDisk: raw.f == null && raw.d != null,
+    screen: raw.s ?? '',
   };
 }
 

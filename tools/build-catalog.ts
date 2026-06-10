@@ -48,7 +48,7 @@ interface MetaRow { id: number; title: string; year: number | null; genre: strin
 interface DownRow { id: number; link: string; ft: number; }
 
 // Compact output schema — keep in sync with src/library/catalog.ts.
-interface RawGame { t: string; y?: number; g?: number; p?: number; f?: string; d?: string; }
+interface RawGame { t: string; y?: number; g?: number; p?: number; f?: string; d?: string; s?: string; }
 interface RawCatalog { genres: string[]; publishers: string[]; games: RawGame[]; }
 
 function main(): void {
@@ -73,9 +73,10 @@ function main(): void {
         AND e.is_xrated = 0`,
   ).all(MACHINE_LIKE) as unknown as MetaRow[];
 
-  // Candidate downloads: tape images (filetype 8: .tzx/.tap) and disk images
-  // (filetype 11: .dsk). SQLite has no built-in REGEXP, so match by suffix with
-  // LOWER()+LIKE. One entry may have several — we dedupe in JS below.
+  // Candidate downloads: tape images (filetype 8: .tzx/.tap), disk images
+  // (filetype 11: .dsk), and SCR screens (filetype 1 = loading, 2 = running).
+  // SQLite has no built-in REGEXP, so match by suffix with LOWER()+LIKE. One
+  // entry may have several — we dedupe in JS below.
   const downs = db.prepare(
     `SELECT d.entry_id AS id, d.file_link AS link, d.filetype_id AS ft
        FROM downloads d
@@ -83,17 +84,21 @@ function main(): void {
        JOIN machinetypes m   ON m.id = e.machinetype_id AND m.text LIKE ?
       WHERE e.availabletype_id = 'A'
         AND ( (d.filetype_id = 8  AND (LOWER(d.file_link) LIKE '%.tzx.zip' OR LOWER(d.file_link) LIKE '%.tap.zip'))
-           OR (d.filetype_id = 11 AND LOWER(d.file_link) LIKE '%.dsk.zip') )`,
+           OR (d.filetype_id = 11 AND LOWER(d.file_link) LIKE '%.dsk.zip')
+           OR (d.filetype_id IN (1, 2) AND LOWER(d.file_link) LIKE '%.scr') )`,
   ).all(MACHINE_LIKE) as unknown as DownRow[];
 
   db.close();
 
-  // Pick one tape (prefer .tzx over .tap) and one disk per entry.
-  const files = new Map<number, { tape?: string; disk?: string }>();
+  // Pick one tape (prefer .tzx over .tap), one disk, and one SCR screen
+  // (prefer a loading screen, filetype 1, over a running screen, filetype 2).
+  const files = new Map<number, { tape?: string; disk?: string; screen?: string; screenFt?: number }>();
   for (const d of downs) {
     const slot = files.get(d.id) ?? {};
     if (d.ft === 11) {
       if (!slot.disk) slot.disk = d.link;
+    } else if (d.ft === 1 || d.ft === 2) {
+      if (!slot.screen || (d.ft === 1 && slot.screenFt !== 1)) { slot.screen = d.link; slot.screenFt = d.ft; }
     } else {
       const isTzx = /\.tzx\.zip$/i.test(d.link);
       // Prefer a .tzx; otherwise take the first tape seen.
@@ -126,6 +131,7 @@ function main(): void {
     if (pi !== undefined) g.p = pi;
     if (f.tape) g.f = f.tape;
     if (f.disk) g.d = f.disk;
+    if (f.screen) g.s = f.screen;
     games.push(g);
   }
 
@@ -147,6 +153,7 @@ function main(): void {
 
   const mb = (n: number) => (n / 1024 / 1024).toFixed(2);
   console.log(`games:      ${games.length}`);
+  console.log(`with screen:${games.filter(g => g.s).length}`);
   console.log(`genres:     ${genres.length}   publishers: ${publishers.length}`);
   console.log(`raw JSON:   ${mb(json.length)} MB`);
   console.log(`gzipped:    ${mb(gz.length)} MB`);

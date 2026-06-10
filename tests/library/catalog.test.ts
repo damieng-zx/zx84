@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { fileUrls, basename, shortPublisher, resolveGame, type RawCatalog } from '@/library/catalog.ts';
+import { fileUrls, basename, shortPublisher, resolveGame, parseLibraryQuery, type RawCatalog } from '@/library/catalog.ts';
 
 const CDN = 'https://zx84files.bitsparse.com/library';
 const PROXY = 'https://zxfileserver.envytech.workers.dev';
@@ -40,6 +40,27 @@ describe('fileUrls', () => {
 
   it('handles a link without a leading slash without doubling it', () => {
     expect(fileUrls('other/x.zip')).toEqual([`${CDN}/other/x.zip`, `${PROXY}/other/x.zip`]);
+  });
+});
+
+describe('parseLibraryQuery', () => {
+  it('separates free title text from year: and publisher: tokens', () => {
+    expect(parseLibraryQuery('manic year:1983 publisher:ocean'))
+      .toEqual({ text: 'manic', year: 1983, publisher: 'ocean' });
+  });
+
+  it('joins multiple free words and lower-cases everything', () => {
+    expect(parseLibraryQuery('Jet Set Willy'))
+      .toEqual({ text: 'jet set willy', year: null, publisher: '' });
+  });
+
+  it('returns empty for a blank query', () => {
+    expect(parseLibraryQuery('   ')).toEqual({ text: '', year: null, publisher: '' });
+  });
+
+  it('ignores a non-numeric year token', () => {
+    expect(parseLibraryQuery('year:abc thing').year).toBeNull();
+    expect(parseLibraryQuery('year:abc thing').text).toBe('thing');
   });
 });
 
@@ -82,11 +103,15 @@ describe('resolveGame', () => {
   };
 
   it('expands genre/publisher indices and prefers the tape over the disk', () => {
-    const g = resolveGame({ t: 'Jetpac', y: 1983, g: 0, p: 0, f: '/pub/a.tzx.zip', d: '/pub/a.dsk.zip' }, cat);
+    const g = resolveGame({ t: 'Jetpac', y: 1983, g: 0, p: 0, f: '/pub/a.tzx.zip', d: '/pub/a.dsk.zip', s: '/pub/a.scr' }, cat);
     expect(g).toEqual({
       title: 'Jetpac', year: 1983, genre: 'Arcade: Action', publisher: 'Ultimate',
-      fileLink: '/pub/a.tzx.zip', isDisk: false,
+      fileLink: '/pub/a.tzx.zip', isDisk: false, screen: '/pub/a.scr',
     });
+  });
+
+  it('defaults screen to empty when absent', () => {
+    expect(resolveGame({ t: 'Homebrew', f: '/pub/h.tzx.zip' }, cat).screen).toBe('');
   });
 
   it('falls back to the disk image and flags it when there is no tape', () => {
