@@ -825,8 +825,11 @@ export class Spectrum extends BaseMachine implements Machine {
       this.mixer.reset();
     }
 
-    // Adjust loader detector T-state tracking across frame boundary
-    this.loaderDetector.onFrameEnd(this.tStatesPerFrame);
+    // Adjust loader detector T-state tracking across frame boundary, and let
+    // it decay loaderActive when polling stops. AY music this frame (same
+    // threshold as the AY LED) means the game has taken over from the loader,
+    // so turbo should release fast.
+    this.loaderDetector.onFrameEnd(this.tStatesPerFrame, this.activity.ayWrites > 5);
 
     // Flush any remaining scanlines (bottom border / frame-end edge).
     // Low (0): bulk renderFrame() — one border color, fastest.

@@ -1054,6 +1054,95 @@ describe('EdgeLoader — post-acceleration auto-stop suppression', () => {
   });
 });
 
+// ── loaderActive idle decay (turbo release after the loader stops) ───────
+//
+// §2 auto-stop only fires while the program keeps doing out-of-shape IN reads;
+// a program that simply stops touching the ULA port never trips it, so
+// loaderActive stayed sticky and tape turbo lingered until the tape physically
+// ended. onFrameEnd now decays loaderActive after IDLE_FRAMES_TO_STOP idle
+// frames — or AY_IDLE_FRAMES once AY music is playing (a running game, since
+// edge loaders never drive the sound chip). Driven directly so the assertions
+// don't depend on a full machine.
+
+describe('EdgeLoader — loaderActive idle decay', () => {
+  const FRAME_T = 69888;
+
+  function makeHost() {
+    const tape = new TapeDeck(3_500_000);
+    (tape as any).playing = true;
+    const cpu = { tStates: 0, b: 0, pc: 0, sp: 0, c: 0, f: 0, a: 0, d: 0, e: 0, h: 0, l: 0 } as any;
+    const host: EdgeLoaderHost = { cpu, tape, readMem: () => 0, earBit: () => 0 };
+    const loader = new EdgeLoader();
+    loader.accelerateLoader = false; // exercise §2 + idle decay only
+    return { loader, cpu, host };
+  }
+
+  // One tight, B-incrementing IN read while playing — the loader-shaped poll
+  // that sets loaderActive AND marks the frame non-idle.
+  function poll(loader: EdgeLoader, cpu: any, host: EdgeLoaderHost): void {
+    cpu.tStates += 60;            // tight gap (< START_GAP_T)
+    cpu.b = (cpu.b + 1) & 0xFF;   // bDiff = +1 (in-shape)
+    loader.onULARead(host, true);
+  }
+
+  // Advance one frame with no reads. Mirror the per-frame T-state wrap the real
+  // machine applies (onFrameEnd slides lastTStatesRead by the same amount), so a
+  // later poll still computes a small in-shape gap.
+  function idleFrame(loader: EdgeLoader, cpu: any, ay = false): void {
+    loader.onFrameEnd(FRAME_T, ay);
+    cpu.tStates -= FRAME_T;
+  }
+
+  it('clears loaderActive after 25 idle frames', () => {
+    const { loader, cpu, host } = makeHost();
+    poll(loader, cpu, host); // primes lastTStatesRead/lastBRead
+    poll(loader, cpu, host); // in-shape → loaderActive
+    expect(loader.loaderActive).toBe(true);
+    // First onFrameEnd closes the (non-idle) poll frame; the 25 idle frames
+    // that decay loaderActive are the ones after it.
+    for (let i = 0; i < 25; i++) idleFrame(loader, cpu);
+    expect(loader.loaderActive).toBe(true);   // 25 idle frames: still active
+    idleFrame(loader, cpu);
+    expect(loader.loaderActive).toBe(false);  // the 25th genuine-idle frame trips it
+  });
+
+  it('a loader-shaped poll resets the idle counter', () => {
+    const { loader, cpu, host } = makeHost();
+    poll(loader, cpu, host);
+    poll(loader, cpu, host);
+    expect(loader.loaderActive).toBe(true);
+    for (let i = 0; i < 24; i++) idleFrame(loader, cpu);
+    poll(loader, cpu, host);                  // resets the counter
+    for (let i = 0; i < 24; i++) idleFrame(loader, cpu);
+    expect(loader.loaderActive).toBe(true);   // never reached 25 consecutive
+  });
+
+  it('AY music collapses the idle window to 3 frames', () => {
+    const { loader, cpu, host } = makeHost();
+    poll(loader, cpu, host);
+    poll(loader, cpu, host);
+    expect(loader.loaderActive).toBe(true);
+    idleFrame(loader, cpu, true);             // closes the poll frame
+    idleFrame(loader, cpu, true);
+    idleFrame(loader, cpu, true);
+    expect(loader.loaderActive).toBe(true);   // 3 AY-idle frames: grace
+    idleFrame(loader, cpu, true);
+    expect(loader.loaderActive).toBe(false);  // 3rd genuine-idle AY frame trips it
+  });
+
+  it('AY music does not release turbo while the loader is still polling', () => {
+    const { loader, cpu, host } = makeHost();
+    poll(loader, cpu, host);
+    poll(loader, cpu, host);
+    // A musical loader: AY active every frame, but it also polls every frame.
+    for (let i = 0; i < 10; i++) {
+      poll(loader, cpu, host);
+      idleFrame(loader, cpu, true);
+    }
+    expect(loader.loaderActive).toBe(true);   // polling keeps it engaged
+  });
+});
+
 // ── Pipeline reset on tape play-state transition ─────────────────────────
 
 describe('EdgeLoader — pipeline reset on play-state change', () => {

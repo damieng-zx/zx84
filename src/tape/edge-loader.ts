@@ -56,6 +56,20 @@ function getStopThreshold(sig: LoaderSignature): number {
 
 const NO_PREV = -1_000_000;       // sentinel: lastTStatesRead "minus infinity"
 
+/** Frames of no loader-shaped polling after which `loaderActive` decays. §2
+ *  auto-stop only fires while the program keeps doing out-of-shape IN A,($FE)
+ *  reads; a program that simply stops touching the ULA port never trips it, so
+ *  `loaderActive` stayed sticky-true and tape turbo lingered until the tape
+ *  physically reached its end. Counted in emulated frames — under turbo those
+ *  fly past, so the real-world release is near-instant. */
+const IDLE_FRAMES_TO_STOP = 25;
+/** Tighter idle threshold once AY music is playing. Edge loaders don't drive
+ *  the sound chip, so AY writes appearing while the loader has gone quiet mean
+ *  the game has taken over — release turbo almost immediately. The small grace
+ *  (vs. 1) rides over a musical loader's brief between-block decompression gaps
+ *  where the interrupt-driven tune keeps writing AY but no block is loading. */
+const AY_IDLE_FRAMES = 3;
+
 // ── Length pipeline ───────────────────────────────────────────────────────
 
 export type EdgeLengthFlags = 'short' | 'long' | 'unknown';
@@ -269,6 +283,13 @@ export class EdgeLoader {
   private lastBRead = 0;
   private successiveReads = 0;
 
+  // ── Frame-level idle decay of loaderActive ───────────────────────────
+  /** Set when a loader-shaped poll is seen during the current frame; consumed
+   *  and cleared by onFrameEnd to decay loaderActive once polling stops. */
+  private sawLoaderPollThisFrame = false;
+  /** Consecutive frames with no loader-shaped poll while loaderActive. */
+  private idleFrames = 0;
+
   // ── Acceleration state (§3) ──────────────────────────────────────────
   private accelMode: AccelMode = 'none';
   private accelPC = 0;
@@ -349,6 +370,7 @@ export class EdgeLoader {
         // while playing so turbo engages for these paths too.
         if (tDiff <= START_GAP_T && (bDiff === 1 || bDiff === 0xFF)) {
           this.loaderActive = true;
+          this.sawLoaderPollThisFrame = true;
         }
       }
     } else {
@@ -358,6 +380,7 @@ export class EdgeLoader {
       } else {
         const inShape = tDiff <= START_GAP_T && (bDiff === 1 || bDiff === 0xFF);
         if (inShape) {
+          this.sawLoaderPollThisFrame = true;
           if (++this.successiveReads >= START_THRESHOLD) {
             this.successiveReads = 0;
             this.loaderActive = true;
@@ -525,17 +548,39 @@ export class EdgeLoader {
   // ── Lifecycle ────────────────────────────────────────────────────────
 
   /** Slide lastTStatesRead so the next frame's first read still computes
-   *  a sensible gap. §1. */
-  onFrameEnd(frameTstates: number): void {
+   *  a sensible gap (§1), and decay `loaderActive` once the loader stops
+   *  polling. `ayActive` is true when the AY chip is being driven this frame —
+   *  edge loaders never touch the sound chip, so that means the game has taken
+   *  over and turbo should release fast. */
+  onFrameEnd(frameTstates: number, ayActive = false): void {
     if (this.lastTStatesRead !== NO_PREV) {
       this.lastTStatesRead -= frameTstates;
     }
+    // loaderActive is otherwise only cleared by §2 auto-stop, which needs the
+    // program to keep doing out-of-shape IN A,($FE) reads. A program that just
+    // stops touching the ULA port never trips it, so turbo lingered until the
+    // tape physically ended. Treat a frame with no loader-shaped poll as idle;
+    // after IDLE_FRAMES_TO_STOP (or AY_IDLE_FRAMES once music is playing) drop
+    // loaderActive so the spectrum.ts turbo cooldown can release.
+    if (this.loaderActive) {
+      if (this.sawLoaderPollThisFrame) {
+        this.idleFrames = 0;
+      } else if (++this.idleFrames >= (ayActive ? AY_IDLE_FRAMES : IDLE_FRAMES_TO_STOP)) {
+        this.loaderActive = false;
+        this.accelMode = 'none';
+        this.idleFrames = 0;
+      }
+    } else {
+      this.idleFrames = 0;
+    }
+    this.sawLoaderPollThisFrame = false;
   }
 
   /** Called when the tape transitions between play and stop. §6. */
   onTapePlayStateChange(): void {
     this.successiveReads = 0;
     this.accelMode = 'none';
+    this.idleFrames = 0;
     this.lengthKnown1 = false;
     this.lengthLong1 = false;
     this.lengthKnown2 = false;
@@ -547,6 +592,8 @@ export class EdgeLoader {
     this.lastTStatesRead = NO_PREV;
     this.lastBRead = 0;
     this.successiveReads = 0;
+    this.sawLoaderPollThisFrame = false;
+    this.idleFrames = 0;
     this.accelMode = 'none';
     this.accelPC = 0;
     this.lengthKnown1 = false;
