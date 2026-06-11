@@ -287,31 +287,68 @@ let _lastTurboUiUpdate = 0;
 
 // ── Clock-speed readout ─────────────────────────────────────────────────
 //
-// We show the machine's *nominal* CPU clock — or "Turbo" when it's running
-// flat-out — NOT a measured rate. The old measured-MHz EMA drifted and could
-// even read negative when tStates was sampled across a reset/step/frame-wrap
-// boundary. The intended speed is fixed and unambiguous: 3.54 MHz (128K family),
-// 3.50 MHz (48K), 4.00 MHz (CPC). The "MHz" unit is rendered by the UI, which
-// drops it when the value reads "Turbo".
+// At nominal speed we show the machine's fixed CPU clock — 3.54 MHz (128K
+// family), 3.50 MHz (48K), 4.00 MHz (CPC). In turbo we show a *measured*
+// realtime multiplier (e.g. "23×"): emulated T-states advanced per wall-clock
+// second, divided by the nominal clock. (The old always-on measured-MHz EMA was
+// removed for drifting/reading negative across reset/wrap boundaries; this
+// sampler is guarded against those and only drives the turbo readout.)
 
 let shownClockLabel = '';
 
-/** The label the CPU-speed button should show: "Turbo" while the machine runs
- *  flat-out (manual turbo or auto tape-turbo), otherwise the nominal clock as
- *  "N.NN" — truncated, not rounded, so the 128K's 3.5469 MHz reads as the
- *  conventional 3.54 (48K → 3.50, CPC → 4.00). */
+// Measured-speed sampler: emulated tStates vs wall-clock, refreshed ~3×/sec.
+let _spdSampleT = 0;        // machine.cpu.tStates at the last accepted sample
+let _spdSampleWall = 0;     // performance.now() at the last accepted sample
+let _spdMultiplier = 0;     // last measured ×realtime (0 = no valid sample yet)
+
+/** Sample emulated T-states against wall-clock to derive a realtime multiplier.
+ *  Called once per rAF; only commits a new figure every ~350 ms so the reading
+ *  is responsive but stable. Skips windows spanning a reset, snapshot load or
+ *  pause (negative or implausibly long deltas) rather than printing garbage. */
+function sampleSpeed(now: number): void {
+  if (!machine) return;
+  const t = machine.cpu.tStates;
+  if (_spdSampleWall === 0) { _spdSampleWall = now; _spdSampleT = t; return; }
+  const dWall = now - _spdSampleWall;
+  if (dWall < 350) return;                    // ~3 Hz update cadence
+  const dT = t - _spdSampleT;
+  _spdSampleWall = now;
+  _spdSampleT = t;
+  // Reset/snapshot/wrap → dT<=0; pause/tab-hidden → dWall huge. Drop the figure.
+  if (dT <= 0 || dWall > 2000) { _spdMultiplier = 0; return; }
+  const clock = machine.tape.cpuClock || 3_500_000;
+  _spdMultiplier = (dT / (dWall / 1000)) / clock;
+}
+
+/** Format a realtime multiplier compactly: one decimal below 10× ("8.4×"),
+ *  whole numbers at/above ("23×", "140×"). */
+function formatMultiplier(m: number): string {
+  return m >= 10 ? `${Math.round(m)}×` : `${m.toFixed(1)}×`;
+}
+
+/** The label the CPU-speed button should show: a measured "N×" while the
+ *  machine runs flat-out (manual turbo or auto tape-turbo) — "Turbo" until the
+ *  first sample lands — otherwise the nominal clock as "N.NN" (truncated, so the
+ *  128K's 3.5469 MHz reads as the conventional 3.54; 48K → 3.50, CPC → 4.00). */
 function clockLabel(): string {
   if (!machine) return '';
-  if (machine.turbo || (spectrum?.tapeTurboActive ?? false)) return 'Turbo';
+  if (machine.turbo || (spectrum?.tapeTurboActive ?? false)) {
+    return _spdMultiplier > 0 ? formatMultiplier(_spdMultiplier) : 'Turbo';
+  }
   return (Math.trunc(machine.tape.cpuClock / 10_000) / 100).toFixed(2);
 }
 
 export function resetSpeedTracking(): void {
+  // Drop any in-flight speed sample so a reset/model-switch doesn't measure
+  // across the discontinuity (stale baseline → garbage multiplier).
+  _spdSampleWall = 0;
+  _spdMultiplier = 0;
   shownClockLabel = clockLabel();
   setClockSpeedText(shownClockLabel);
 }
 
 function updateClockSpeed(): void {
+  sampleSpeed(performance.now());
   const label = clockLabel();
   if (label !== shownClockLabel) {
     shownClockLabel = label;
