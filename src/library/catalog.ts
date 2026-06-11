@@ -103,13 +103,14 @@ export function basename(fileLink: string): string {
 // Entertainment|Productions?|Studios?|Systems? here for a tighter "Strategy B".
 const PUBLISHER_SUFFIX = /[,\s]+(Ltd\.?|Limited|Inc\.?|PLC|S\.?A\.?|S\.?L\.?|GmbH|B\.?V\.?|Co\.?|Corp\.?|Corporation|Pty\.?)$/i;
 
-/** Parsed search box: free `text` (title match) plus `year:` / `publisher:`
- *  tokens pulled out for structured filtering. All lower-cased. The year filter
- *  is an inclusive range — `year:1987` sets both bounds to 1987; `year:1983-1989`
- *  spans the range; an open end (`year:1983-` or `year:-1989`) leaves the other
- *  bound null. A null bound means "unbounded on that side". */
+/** Parsed search box: positive `text` (title substring) plus `negTerms` (title
+ *  substrings to EXCLUDE — any word prefixed with `-`, e.g. `-demo`), and the
+ *  `year:` / `publisher:` tokens pulled out for structured filtering. All
+ *  lower-cased. The year filter is inclusive — `year:1987` sets both bounds to
+ *  1987; `year:1983-1989` spans the range (both bounds required). */
 export interface LibraryQuery {
   text: string;
+  negTerms: string[];
   yearMin: number | null;
   yearMax: number | null;
   publisher: string;
@@ -120,16 +121,20 @@ export function parseLibraryQuery(q: string): LibraryQuery {
   let yearMax: number | null = null;
   let publisher = '';
   const text: string[] = [];
+  const negTerms: string[] = [];
   for (const tok of q.trim().split(/\s+/)) {
     if (!tok) continue;
     const lower = tok.toLowerCase();
-    if (lower.startsWith('year:')) {
+    if (lower.length > 1 && lower.startsWith('-')) {
+      // -word → exclude titles containing "word".
+      negTerms.push(lower.slice(1));
+    } else if (lower.startsWith('year:')) {
       const v = lower.slice(5);
-      const range = v.match(/^(\d{1,4})?-(\d{1,4})?$/);
-      if (range && (range[1] || range[2])) {
-        let lo = range[1] ? parseInt(range[1], 10) : null;
-        let hi = range[2] ? parseInt(range[2], 10) : null;
-        if (lo !== null && hi !== null && lo > hi) [lo, hi] = [hi, lo];
+      const range = v.match(/^(\d{1,4})-(\d{1,4})$/);
+      if (range) {
+        let lo = parseInt(range[1], 10);
+        let hi = parseInt(range[2], 10);
+        if (lo > hi) [lo, hi] = [hi, lo];
         yearMin = lo;
         yearMax = hi;
       } else if (/^\d{1,4}$/.test(v)) {
@@ -141,7 +146,7 @@ export function parseLibraryQuery(q: string): LibraryQuery {
       text.push(lower);
     }
   }
-  return { text: text.join(' '), yearMin, yearMax, publisher };
+  return { text: text.join(' '), negTerms, yearMin, yearMax, publisher };
 }
 
 /** Short publisher label: "Ocean Software Ltd" → "Ocean Software", "Domark Ltd"

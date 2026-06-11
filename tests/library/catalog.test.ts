@@ -46,16 +46,16 @@ describe('fileUrls', () => {
 describe('parseLibraryQuery', () => {
   it('separates free title text from year: and publisher: tokens', () => {
     expect(parseLibraryQuery('manic year:1983 publisher:ocean'))
-      .toEqual({ text: 'manic', yearMin: 1983, yearMax: 1983, publisher: 'ocean' });
+      .toEqual({ text: 'manic', negTerms: [], yearMin: 1983, yearMax: 1983, publisher: 'ocean' });
   });
 
   it('joins multiple free words and lower-cases everything', () => {
     expect(parseLibraryQuery('Jet Set Willy'))
-      .toEqual({ text: 'jet set willy', yearMin: null, yearMax: null, publisher: '' });
+      .toEqual({ text: 'jet set willy', negTerms: [], yearMin: null, yearMax: null, publisher: '' });
   });
 
   it('returns empty for a blank query', () => {
-    expect(parseLibraryQuery('   ')).toEqual({ text: '', yearMin: null, yearMax: null, publisher: '' });
+    expect(parseLibraryQuery('   ')).toEqual({ text: '', negTerms: [], yearMin: null, yearMax: null, publisher: '' });
   });
 
   it('ignores a non-numeric year token', () => {
@@ -64,18 +64,28 @@ describe('parseLibraryQuery', () => {
     expect(parseLibraryQuery('year:abc thing').text).toBe('thing');
   });
 
-  it('parses a year range and normalises a reversed one', () => {
-    expect(parseLibraryQuery('year:1983-1989'))
-      .toEqual({ text: '', yearMin: 1983, yearMax: 1989, publisher: '' });
-    expect(parseLibraryQuery('year:1989-1983'))
-      .toEqual({ text: '', yearMin: 1983, yearMax: 1989, publisher: '' });
+  it('collects -word tokens as negative terms, keeping positive words', () => {
+    expect(parseLibraryQuery('manic -demo -editor'))
+      .toEqual({ text: 'manic', negTerms: ['demo', 'editor'], yearMin: null, yearMax: null, publisher: '' });
   });
 
-  it('parses open-ended year ranges', () => {
+  it('a bare "-" is not a negative term', () => {
+    expect(parseLibraryQuery('- thing'))
+      .toEqual({ text: '- thing', negTerms: [], yearMin: null, yearMax: null, publisher: '' });
+  });
+
+  it('parses a year range and normalises a reversed one', () => {
+    expect(parseLibraryQuery('year:1983-1989'))
+      .toEqual({ text: '', negTerms: [], yearMin: 1983, yearMax: 1989, publisher: '' });
+    expect(parseLibraryQuery('year:1989-1983'))
+      .toEqual({ text: '', negTerms: [], yearMin: 1983, yearMax: 1989, publisher: '' });
+  });
+
+  it('ignores open-ended year ranges (both bounds required)', () => {
     expect(parseLibraryQuery('year:1985-'))
-      .toEqual({ text: '', yearMin: 1985, yearMax: null, publisher: '' });
+      .toEqual({ text: '', negTerms: [], yearMin: null, yearMax: null, publisher: '' });
     expect(parseLibraryQuery('year:-1985'))
-      .toEqual({ text: '', yearMin: null, yearMax: 1985, publisher: '' });
+      .toEqual({ text: '', negTerms: [], yearMin: null, yearMax: null, publisher: '' });
   });
 });
 

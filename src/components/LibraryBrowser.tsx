@@ -113,21 +113,23 @@ export function LibraryBrowser() {
   // Active when any constraint is set: free text, year:/publisher: tokens, or a
   // genre filter. Inactive → the list shows nothing (just the search box).
   const isActive = createMemo(() => {
-    const { text, yearMin, yearMax, publisher } = parseLibraryQuery(query());
-    return text !== '' || yearMin !== null || yearMax !== null || publisher !== '' || genreFilter().size > 0 || formatFilter().size > 0;
+    const { text, negTerms, yearMin, yearMax, publisher } = parseLibraryQuery(query());
+    return text !== '' || negTerms.length > 0 || yearMin !== null || yearMax !== null || publisher !== '' || genreFilter().size > 0 || formatFilter().size > 0;
   });
 
-  // Title text + year:/publisher: tokens + genre + "Requires" filters, capped
-  // for render perf.
+  // Positive title text + `-word` exclusions + year:/publisher: tokens + genre +
+  // "Requires" filters, capped for render perf.
   const filtered = createMemo<Game[]>(() => {
-    const { text, yearMin, yearMax, publisher } = parseLibraryQuery(query());
+    const { text, negTerms, yearMin, yearMax, publisher } = parseLibraryQuery(query());
     const genres = genreFilter();
     const formats = formatFilter();
     const hasYear = yearMin !== null || yearMax !== null;
-    if (!text && !hasYear && !publisher && genres.size === 0 && formats.size === 0) return [];
+    if (!text && negTerms.length === 0 && !hasYear && !publisher && genres.size === 0 && formats.size === 0) return [];
     const out: Game[] = [];
     for (const g of games()) {
-      if (text && !g.title.toLowerCase().includes(text)) continue;
+      const title = g.title.toLowerCase();
+      if (text && !title.includes(text)) continue;
+      if (negTerms.length > 0 && negTerms.some(n => title.includes(n))) continue;
       if (hasYear && (g.year === null || (yearMin !== null && g.year < yearMin) || (yearMax !== null && g.year > yearMax))) continue;
       if (publisher && !g.publisher.toLowerCase().includes(publisher)) continue;
       if (genres.size > 0 && !genres.has(g.genre)) continue;
@@ -346,7 +348,7 @@ export function LibraryBrowser() {
           type="text"
           class="library-search-input"
           placeholder="Search software…"
-          title="Search by title. Also: year:1987, year:1983-1989, publisher:ocean"
+          title="Search by title. Also: -word (exclude), year:1987, year:1983-1989, publisher:ocean"
           value={query()}
           onInput={(e) => setQuery(e.currentTarget.value)}
         />
