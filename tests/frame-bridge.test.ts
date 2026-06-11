@@ -157,6 +157,7 @@ let fakeLS: FakeLS;
 beforeEach(() => {
   fakeLS = new FakeLS();
   (globalThis as any).localStorage = fakeLS;
+  resetLedActivity();   // clear the 500ms LED hold between tests (module state)
   emu.spectrum = null;
   emu.floppySound = null;
   settingsMock.fontName.mockReturnValue('');
@@ -173,6 +174,7 @@ import {
   updateFontPreview,
   capturedFontData as _capturedFontData,
   resetSpeedTracking,
+  resetLedActivity,
   forceSpeedUpdate,
   updateRegsOnce,
   onFrame,

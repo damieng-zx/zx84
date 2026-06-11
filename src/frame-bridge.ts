@@ -285,6 +285,32 @@ export function updateRegsOnce(): void {
 let _lastSlowUpdate = 0;
 let _lastTurboUiUpdate = 0;
 
+// ── Status-LED activity hold ─────────────────────────────────────────────
+//
+// The activity LEDs are fed by bursty per-frame counters (AY register writes,
+// attribute rewrites, EAR samples, port reads …), so painting them straight
+// from a single frame's tally makes the indicators strobe on and off. Instead
+// latch each LED on for LED_HOLD_MS after its most recent activity: "anything
+// touched it in the last 500ms → lit". The signal setters are still called
+// every frame, but Solid dedupes equal values, so an LED only actually
+// transitions on an activity edge or 500ms after activity ceases — no flicker.
+const LED_HOLD_MS = 500;
+const _ledLastActive: Record<string, number> = Object.create(null);
+
+/** Stamp `key` active when `active` is true, and report whether it is still
+ *  within the 500ms hold window. `now` is a single performance.now() per frame
+ *  so every LED in the same batch shares one clock reading. */
+function ledLatched(key: string, active: boolean, now: number): boolean {
+  if (active) _ledLastActive[key] = now;
+  const last = _ledLastActive[key];
+  return last !== undefined && now - last < LED_HOLD_MS;
+}
+
+/** Clear all LED hold state (machine reset / model switch / tests). */
+export function resetLedActivity(): void {
+  for (const k in _ledLastActive) delete _ledLastActive[k];
+}
+
 // ── Clock-speed readout ─────────────────────────────────────────────────
 //
 // At nominal speed we show the machine's fixed CPU clock — 3.54 MHz (128K
@@ -488,10 +514,13 @@ export function onFrame(): void {
     if (cpc) {
       const ca = cpc.activity;
       batch(() => {
-        setLedKbd(ca.kbdReads > 0);
-        setLedDsk(ca.fdcAccesses > 0);
-        setLedMouse(ca.mouseReads > 0 || (cpc.amxMouse.enabled && cpc.amxMouse.active));
-        setLedLoad(ca.tapeReads > 0);
+        // Activity LEDs latch on for 500ms past last activity (see ledLatched)
+        // so bursty per-frame counters don't strobe the indicators.
+        const ledNow = performance.now();
+        setLedKbd(ledLatched('kbd', ca.kbdReads > 0, ledNow));
+        setLedDsk(ledLatched('dsk', ca.fdcAccesses > 0, ledNow));
+        setLedMouse(ledLatched('mouse', ca.mouseReads > 0 || (cpc.amxMouse.enabled && cpc.amxMouse.active), ledNow));
+        setLedLoad(ledLatched('load', ca.tapeReads > 0, ledNow));
         setLedText(transcribeMode() === 'text');
 
         // Cassette: keep the tape pane's position/play state in sync. No
@@ -572,21 +601,26 @@ export function onFrame(): void {
   }
 
   if (!skipUiBatch) batch(() => {
-    setLedKbd(a.ulaReads > 0);
-    setLedKemp(a.kempstonReads > 0);
-    setLedEar(a.earReads > 0);
+    // Activity LEDs are latched on for 500ms past their last activity (see
+    // ledLatched) so bursty per-frame counters don't strobe the indicators.
+    const ledNow = performance.now();
+    setLedKbd(ledLatched('kbd', a.ulaReads > 0, ledNow));
+    setLedKemp(ledLatched('kemp', a.kempstonReads > 0, ledNow));
+    const earOn = ledLatched('ear', a.earReads > 0, ledNow);
+    setLedEar(earOn);
     // TAPE LED = the tape is actively rolling. `tapeLoads` (ROM LD-BYTES hits)
     // alone misses custom/turbo loaders — Speedlock & co. poll IN A,(0x7FFE)
     // from their own code at 0xB000+, never touching 0x0556, so the LED stayed
     // dark for the whole turbo load. Driving it off live playback state lights
     // it for every loader; it clears when playback stops or the loader-detector
     // pauses the tape at end-of-load.
-    setLedLoad((spectrum!.tape.playing && !spectrum!.tape.paused) || a.tapeLoads > 0);
-    setLedBeep(a.beeperToggled);
-    setLedAy(a.ayWrites > 5);
-    setLedDsk(a.fdcAccesses > 0 || (spectrum!.mgtPlusD.enabled && spectrum!.mgtPlusD.fdc.motorOn));
-    setLedRainbow(a.attrWrites > 768);
-    setLedMouse(a.mouseReads > 0);
+    setLedLoad(ledLatched('load', (spectrum!.tape.playing && !spectrum!.tape.paused) || a.tapeLoads > 0, ledNow));
+    setLedBeep(ledLatched('beep', a.beeperToggled, ledNow));
+    setLedAy(ledLatched('ay', a.ayWrites > 5, ledNow));
+    setLedDsk(ledLatched('dsk', a.fdcAccesses > 0 || (spectrum!.mgtPlusD.enabled && spectrum!.mgtPlusD.fdc.motorOn), ledNow));
+    setLedRainbow(ledLatched('rainbow', a.attrWrites > 768, ledNow));
+    setLedMouse(ledLatched('mouse', a.mouseReads > 0, ledNow));
+    // tapeTurbo is sustained engine state, not a burst — reflect it immediately.
     setLedTapeTurbo(spectrum!.tapeTurboActive);
 
     // Announce a freshly-detected loader on the status line. The detector
@@ -600,8 +634,9 @@ export function onFrame(): void {
       lastAnnouncedSignature = sig;
     }
 
-    // Transcribe mode LEDs
-    setLedText(transcribeMode() === 'text' || a.earReads > 0);
+    // Transcribe mode LEDs. The transcribe-mode half is sustained user state
+    // (immediate); the EAR half shares the latched 500ms hold used by the EAR LED.
+    setLedText(transcribeMode() === 'text' || earOn);
 
     // Tape position + play/pause state (may change via ROM trap or loader detector)
     if (spectrum!.tape.loaded) {

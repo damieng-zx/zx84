@@ -29,7 +29,7 @@ import {
 } from '@/store/persistence.ts';
 import * as settings from '@/store/settings.ts';
 import { variantForModel, variantLabel, romFilename } from '@/peripherals/multiface.ts';
-import { onFrame, updateRegsOnce, resetSpeedTracking, forceSpeedUpdate } from '@/frame-bridge.ts';
+import { onFrame, updateRegsOnce, resetSpeedTracking, resetLedActivity, forceSpeedUpdate } from '@/frame-bridge.ts';
 export { fontDataHash, updateFontPreview, loadFontStore, saveFontStore, capturedFontData } from '@/frame-bridge.ts';
 export type { FontEntry } from '@/frame-bridge.ts';
 
@@ -301,6 +301,7 @@ export async function createMachine(): Promise<boolean> {
   machine.onFrame = onFrame;
   applyDisplaySettings();
   resetSpeedTracking();
+  resetLedActivity();   // drop any LED hold state carried over from a prior machine
 
   // Spectrum-only peripherals (VTX-5000, Multiface) BEFORE loadROM/reset so
   // their ROMs are paged when loadROM/reset run.

@@ -161,6 +161,7 @@ vi.mock('@/frame-bridge.ts', () => ({
   onFrame: vi.fn(),
   updateRegsOnce: vi.fn(),
   resetSpeedTracking: vi.fn(),
+  resetLedActivity: vi.fn(),
   forceSpeedUpdate: vi.fn(),
   fontDataHash: vi.fn(),
   updateFontPreview: vi.fn(),
