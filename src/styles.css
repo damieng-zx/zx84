@@ -161,27 +161,6 @@ body {
   letter-spacing: 0.3px;
 }
 
-.hmr-spinner {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-}
-
-.hmr-spinner::after {
-  content: '';
-  display: block;
-  width: 10px;
-  height: 10px;
-  border: 1.5px solid rgba(192, 192, 255, 0.25);
-  border-top-color: #c0c0ff;
-  border-radius: 50%;
-  animation: hmr-spin 0.6s linear infinite;
-}
-
-@keyframes hmr-spin { to { transform: rotate(360deg); } }
-
 .section-label {
   background: #000;
   color: #fff;

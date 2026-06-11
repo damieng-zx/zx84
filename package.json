@@ -11,8 +11,6 @@
     "catalog:db": "tsx tools/fetch-zxdb.ts",
     "catalog:json": "tsx tools/build-catalog.ts",
     "deploy:catalog": "wrangler r2 object put zx84/library/catalog.json.gz --file tools/out/catalog.json.gz --content-type application/gzip --cache-control public,max-age=31536000,immutable --remote && wrangler r2 object put zx84/library/catalog-version.json --file tools/out/catalog-version.json --content-type application/json --cache-control no-cache --remote",
-    "hmr-freeze": "echo freeze > .hmr-freeze",
-    "hmr-unfreeze": "rm .hmr-freeze",
     "deploy": "npm run build && wrangler deploy",
     "test": "vitest run",
     "test:watch": "vitest",
