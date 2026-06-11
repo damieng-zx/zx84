@@ -167,17 +167,9 @@ export class Spectrum extends BaseMachine implements Machine {
 
   // The `turbo` flag plus running/starting/rafId/needsDisplay and the wall-clock
   // frame-pacing state are inherited from BaseMachine. The Spectrum-specific
-  // turbo-budget fields below tune its adaptive batch pacing (see runTurboBurst).
-
-  /** Turbo batch budget is adaptive — a fixed budget is wrong for high-Hz
-   *  displays (a 12ms batch on a 240Hz rAF (~4.2ms cadence) makes the browser
-   *  throttle rAF down, halving effective throughput). We measure the actual
-   *  rAF interval and spend a fraction of it. */
-  private static readonly TURBO_BUDGET_FRACTION = 0.7;
-  private static readonly TURBO_BUDGET_MIN_MS = 1.5;
-  private static readonly TURBO_BUDGET_MAX_MS = 14;
-  private _turboLastRaf = 0;
-  private _turboBudgetMs = 4; // initial guess; replaced after 2 ticks
+  // turbo fields below handle its one-time fast-timing setup (see runTurboBurst).
+  // Turbo cadence is controlled by BaseMachine's MessageChannel pump, which
+  // passes a fixed per-burst budget — no rAF-interval adaptation here.
 
   /** Tracks turbo-state transitions so we can save/restore the user's
    *  scanlineAccuracy choice (turbo forces 'low' for throughput). */
@@ -513,14 +505,15 @@ export class Spectrum extends BaseMachine implements Machine {
   protected inTurbo(): boolean { return this.turbo || this._tapeTurboActive; }
 
   /**
-   * Turbo batch pacing (overrides the base default). Spend a fraction of the
-   * *actual* rAF interval running frames — adapting to the rAF cadence
-   * (60/144/240 Hz / throttled) is critical: overshooting the interval makes the
-   * browser throttle rAF down, halving throughput; undershooting leaves the CPU
-   * idle. Intermediate frames skip rendering (`_skipRender`); one renderFrame at
-   * the end produces the latest visible state.
+   * Turbo batch (overrides the base default). On first entry, swap in fast
+   * timing — force scanline accuracy 'low' and replace cycle-exact contention
+   * with a no-op closure (the hundreds of bare `this.contend(addr)` sites in
+   * exec-* then call an empty function the JIT inlines away). Then run frames
+   * for `budgetMs` of wall-clock; intermediate frames skip rendering
+   * (`_skipRender`) and one renderFrame at the end produces the visible state.
+   * Cadence is set by BaseMachine's pump, which calls this back-to-back.
    */
-  protected override runTurboBurst(now: number): void {
+  protected override runTurboBurst(budgetMs: number): void {
     if (!this._turboActive) {
       // Bypass the setter so we write the internal field directly —
       // the setter would otherwise route 'low' into _savedScanAcc.
@@ -529,28 +522,10 @@ export class Spectrum extends BaseMachine implements Machine {
       // UI turbo opts out of cycle-exact contention for throughput.
       // MCP/tests never set this.turbo, so their accuracy is unaffected.
       this.cpu.accurateTiming = false;
-      // Swap cpu.contend to a no-op closure so the hundreds of bare
-      // `this.contend(addr); this.tStates += 1` sites in exec-* call an
-      // empty function Firefox can inline away, instead of dispatching
-      // through the assigned closure on every internal cycle.
       this.cpu.contend = NOOP_CONTEND;
       this._turboActive = true;
-      this._turboLastRaf = now;
-      this._turboBudgetMs = 4;
-    } else if (this._turboLastRaf > 0) {
-      const rafInterval = now - this._turboLastRaf;
-      // EWMA smooths spikes (GC, browser hiccups) but reacts within
-      // a few ticks when the user moves between monitors.
-      const target = rafInterval * Spectrum.TURBO_BUDGET_FRACTION;
-      this._turboBudgetMs = this._turboBudgetMs * 0.6 + target * 0.4;
-      if (this._turboBudgetMs < Spectrum.TURBO_BUDGET_MIN_MS) {
-        this._turboBudgetMs = Spectrum.TURBO_BUDGET_MIN_MS;
-      } else if (this._turboBudgetMs > Spectrum.TURBO_BUDGET_MAX_MS) {
-        this._turboBudgetMs = Spectrum.TURBO_BUDGET_MAX_MS;
-      }
     }
-    this._turboLastRaf = now;
-    const budgetEnd = now + this._turboBudgetMs;
+    const budgetEnd = performance.now() + budgetMs;
     this._skipRender = true;
     do {
       this.runFrame();
@@ -562,7 +537,7 @@ export class Spectrum extends BaseMachine implements Machine {
     this.ula.renderFrame(this.memory.screenBank, 0x4000);
     this.needsDisplay = true;
     this.frameTimeAccum = 0;
-    this.lastFrameTime = now;
+    this.lastFrameTime = performance.now();
   }
 
   /** Leaving turbo: restore cycle-exact timing and contention. */

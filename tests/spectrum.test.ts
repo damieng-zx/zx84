@@ -671,26 +671,22 @@ describe('Spectrum.frameLoop (audio + rAF mocked)', () => {
     expect(s.cpu.tStates - t0).toBeGreaterThanOrEqual(s.tStatesPerFrame);
   });
 
-  it('turbo mode runs frames until the time budget is exhausted', () => {
-    // Turbo's contract: a single rAF tick runs runFrame() repeatedly until
-    // TURBO_BUDGET_MS of wall-clock has passed (or a breakpoint hits).
-    // We stub performance.now to control the budget deterministically.
+  it('runTurboBurst runs frames until the wall-clock budget is exhausted', () => {
+    // Turbo's execution unit: runTurboBurst(budgetMs) runs runFrame() repeatedly
+    // until budgetMs of wall-clock has passed (or a breakpoint hits). The pump
+    // calls this back-to-back; here we call it directly and stub performance.now
+    // to control the budget deterministically.
     const s = makeMachine('48k');
     bootHeadless(s);
     s.turbo = true;
     loadProgram(s, 0x18, 0xFE);
 
-    // Pin the adaptive budget to a known value so the test is deterministic.
-    (s as any)._turboActive = true;
-    (s as any)._turboBudgetMs = 12;
-    (s as any)._turboLastRaf = 0; // suppress adaptive recalculation
-
     const realNow = performance.now.bind(performance);
     let fakeNow = realNow();
     const start = fakeNow;
-    // Advance fake time by 5ms per call — pinned budget is 12ms so the
-    // do/while sees: t=start (entry), t=+5, t=+10 (still under), t=+15 (exit).
-    // Frame loop reads once for `now`, then once per loop iteration.
+    // Advance fake time by 5ms per call. runTurboBurst reads now once for
+    // budgetEnd (=start+12), then once per while-check: +5 and +10 are under
+    // budget (runs #2, #3), +15 exits. So 3 runFrame() calls.
     (performance as any).now = () => { const v = fakeNow; fakeNow += 5; return v; };
 
     let frameCount = 0;
@@ -698,18 +694,37 @@ describe('Spectrum.frameLoop (audio + rAF mocked)', () => {
     (s as any).runFrame = () => { frameCount++; realRunFrame(); };
 
     try {
-      (s as any).frameLoop();
+      (s as any).runTurboBurst(12);
     } finally {
       (performance as any).now = realNow;
     }
 
-    // With a 12ms budget and the 5ms-per-call stub above, we expect 3 runs:
-    // the budgetEnd is start+12; the while-condition fires at +5 (run #2)
-    // and +10 (run #3), then +15 exits. The test is intentionally precise
-    // so a regression in the budget logic shows up here.
+    // The test is intentionally precise so a regression in the budget loop
+    // (e.g. an off-by-one in the do/while) shows up here.
     expect(frameCount).toBe(3);
     expect(s.cpu.tStates - 0).toBeGreaterThanOrEqual(s.tStatesPerFrame * frameCount);
     expect(start).toBeLessThan(fakeNow); // sanity: time stub did advance
+  });
+
+  it('turbo frameLoop schedules the pump instead of running frames inline', () => {
+    // The rAF tick no longer executes turbo frames — it hands off to the async
+    // MessageChannel pump (decoupled from vsync). So a single frameLoop() tick
+    // in turbo advances no emulated time itself.
+    const s = makeMachine('48k');
+    bootHeadless(s);
+    s.turbo = true;
+    loadProgram(s, 0x18, 0xFE);
+    const t0 = s.cpu.tStates;
+    try {
+      (s as any).frameLoop();
+      expect(s.cpu.tStates).toBe(t0);
+    } finally {
+      // Stop the machine before the queued pump message can fire, then close
+      // the channel so no burst runs in the background during other tests.
+      (s as any).running = false;
+      const ch = (s as any).turboChannel;
+      if (ch) { ch.port1.onmessage = null; ch.port1.close(); ch.port2.close(); }
+    }
   });
 
   it('paused (running=false) still updates the display when present', () => {
@@ -760,13 +775,13 @@ describe('Spectrum.frameLoop (audio + rAF mocked)', () => {
     expect(s.breakpointHit).toBe(0xC000);
   });
 
-  it('breakpoint stops mid-batch in turbo mode', () => {
+  it('breakpoint stops a turbo burst mid-batch', () => {
     const s = makeMachine('48k');
     bootHeadless(s);
     s.turbo = true;
     loadProgram(s, 0x00, 0x18, 0xFD); // NOP ; JR -3
     s.breakpoints.add(0xC000); // hits immediately each frame
-    (s as any).frameLoop();
+    (s as any).runTurboBurst(12);
     expect(s.breakpointHit).toBe(0xC000);
   });
 });

@@ -13,9 +13,11 @@
  *                        CPC's per-scanline CRTC engine)
  *   - framePixels()    — the RGBA buffer to upload to the display
  *   - inTurbo()        — whether the turbo / fast-load batch path is engaged
- *   - runTurboBurst()  — how a turbo batch is paced. The default is the CPC's
- *                        fixed budget; the Spectrum overrides it with its
- *                        adaptive, rAF-cadence-aware budget.
+ *   - runTurboBurst()  — execute one turbo batch within a wall-clock budget.
+ *                        The default runs frames for the budget; the Spectrum
+ *                        overrides it to swap in fast timing and skip renders.
+ *                        Turbo is driven by a MessageChannel pump (not rAF) so
+ *                        it isn't capped at the vsync rate.
  *   - exitTurbo()      — restore per-frame state when leaving turbo. No-op by
  *                        default; the Spectrum restores timing accuracy.
  */
@@ -27,6 +29,12 @@ import type { IScreenRenderer } from '@/display/display.ts';
 
 /** rAF-independent frame period: 50 Hz. */
 const FRAME_PERIOD = 1000 / 50;
+/** Per-burst budget for the turbo pump (ms). Each burst runs frames for this
+ *  long, then yields (via postMessage) so input and the rAF render get
+ *  serviced before the next burst re-arms. Larger = more throughput, but
+ *  coarser input latency. The pump re-fires near-instantly, so the duty cycle
+ *  is ~budget/(budget+yield) — close to 100%, vs the old rAF path's ~70%. */
+const TURBO_PUMP_BUDGET_MS = 8;
 /** Audio back-pressure target, in frames of buffered samples. */
 const TARGET_BUFFER_FRAMES = 3;
 function samplesPerFrame(sampleRate: number): number { return Math.round(sampleRate / 50); }
@@ -56,6 +64,11 @@ export abstract class BaseMachine {
   protected starting = false;
   protected startGen = 0;
   protected rafId = 0;
+  /** Turbo pump: drives turbo execution off a MessageChannel postMessage loop
+   *  instead of rAF, so it isn't capped at the vsync rate nor penalised for
+   *  overrunning a frame deadline. Created lazily on first turbo entry. */
+  private turboChannel: MessageChannel | null = null;
+  private turboPumpQueued = false;
   /** Wall-clock frame pacing (governs speed regardless of rAF rate). */
   protected lastFrameTime = 0;
   protected frameTimeAccum = 0;
@@ -106,6 +119,13 @@ export abstract class BaseMachine {
   destroy(): void {
     this.stop();
     if (this.rafId) { cancelAnimationFrame(this.rafId); this.rafId = 0; }
+    if (this.turboChannel) {
+      this.turboChannel.port1.onmessage = null;
+      this.turboChannel.port1.close();
+      this.turboChannel.port2.close();
+      this.turboChannel = null;
+      this.turboPumpQueued = false;
+    }
     this.audio.destroy();
   }
 
@@ -133,11 +153,16 @@ export abstract class BaseMachine {
 
   private frameLoop = (): void => {
     if (this.running) {
-      this.breakpointHit = -1;
       const now = performance.now();
       if (this.inTurbo()) {
-        this.runTurboBurst(now);
+        // Turbo execution is driven by the MessageChannel pump (decoupled from
+        // vsync — see ensureTurboPump). The rAF loop only renders the latest
+        // frame and runs the per-frame UI upkeep at the display's refresh rate.
+        // Do NOT clear breakpointHit here: a hit raised inside the pump must
+        // survive until onFrame() below pauses the machine.
+        this.ensureTurboPump();
       } else {
+        this.breakpointHit = -1;
         this.exitTurbo();
         this.runPacedFrames(now);
       }
@@ -179,20 +204,50 @@ export abstract class BaseMachine {
   }
 
   /**
-   * Pace one turbo batch. Default: spend a fixed 8 ms budget running frames (the
-   * CPC's model). The Spectrum overrides this with an adaptive, rAF-cadence-aware
-   * budget. The chosen render path must leave `needsDisplay` set so the final
-   * frame is uploaded by the loop above.
+   * Run one turbo batch: execute frames for `budgetMs` of wall-clock (or until a
+   * breakpoint hits). Called repeatedly by the turbo pump, which controls the
+   * cadence — so this no longer sizes itself to the rAF interval. The chosen
+   * render path must leave `needsDisplay` set so the final frame is uploaded by
+   * the rAF loop. The Spectrum overrides this to swap in fast (no-contention)
+   * timing and skip intermediate renders.
    */
-  protected runTurboBurst(now: number): void {
-    const budgetEnd = now + 8;
+  protected runTurboBurst(budgetMs: number): void {
+    const budgetEnd = performance.now() + budgetMs;
     do {
       this.runFrame();
       if (this.breakpointHit >= 0) break;
     } while (performance.now() < budgetEnd);
-    this.lastFrameTime = now;
+    this.lastFrameTime = performance.now();
     this.frameTimeAccum = 0;
   }
+
+  /** Ensure the turbo pump is scheduled. Idempotent — safe to call every rAF
+   *  tick. Creates the MessageChannel lazily on first turbo entry. */
+  private ensureTurboPump(): void {
+    if (!this.turboChannel) {
+      this.turboChannel = new MessageChannel();
+      this.turboChannel.port1.onmessage = this.turboPump;
+    }
+    if (!this.turboPumpQueued) {
+      this.turboPumpQueued = true;
+      this.turboChannel.port2.postMessage(0);
+    }
+  }
+
+  /** One turbo burst, then re-arm immediately. postMessage re-fires in well
+   *  under a millisecond and isn't vsync-locked, so successive bursts use the
+   *  main thread near-continuously (each burst still yields between runs, so
+   *  input and the rAF render get serviced). Stops re-arming when turbo is
+   *  released, the machine pauses, or a breakpoint hits — in the last case the
+   *  hit is left set so the next rAF's onFrame() pauses the machine. */
+  private turboPump = (): void => {
+    this.turboPumpQueued = false;
+    if (!this.running || !this.inTurbo()) return;
+    this.breakpointHit = -1;
+    this.runTurboBurst(TURBO_PUMP_BUDGET_MS);
+    if (this.breakpointHit >= 0) return;
+    this.ensureTurboPump();
+  };
 
   /** Restore per-frame state when leaving turbo. No-op by default. */
   protected exitTurbo(): void {}
