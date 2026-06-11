@@ -7,6 +7,7 @@ const CHANGELOG: { version: string; items: string[] }[] = [
       'Built-in software library',
       'Optimized turbo mode',
       'Improved fast loaders',
+      'Removed edge loading (was so broken)',
     ]
   }, {
     version: '0.5.1',

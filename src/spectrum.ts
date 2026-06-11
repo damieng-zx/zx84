@@ -789,26 +789,32 @@ export class Spectrum extends BaseMachine implements Machine {
     // being consumed, not only when the loader's shape is fingerprinted. A
     // program that has taken over and stopped touching the ULA reads zero, so
     // this doesn't hold turbo on past the load (and a paused tape gates it out).
-    const tapeLoading = !this.loaderDetector.userOverride
+    const tapeLoading = this.tape.loaded && !this.tape.finished
+                     && !this.loaderDetector.userOverride
                      && !this.tape.paused
                      && (this.loaderDetector.loaderActive
                          || this.activity.tapePolls > 0
                          || this.activity.tapeLoads > 0
                          || this.activity.loaderDetected);
+    // +3 disk loading: FDC data-port reads mean the drive is being read (a
+    // game/level loading off disk). The same "Turbo while loading" setting
+    // accelerates it. Status polls/seeks don't read the data port, so an idle
+    // game on disk reads zero here and turbo releases.
+    const diskLoading = this.activity.fdcAccesses > 0;
 
-    if (this.tape.loaded && !this.tape.finished) {
-      if (tapeLoading) {
-        if (this.tapeTurbo && !this._tapeTurboActive) {
-          this._tapeTurboActive = true;
-        }
-        this._tapeTurboCooldown = 25;
-      } else if (this._tapeTurboCooldown > 0) {
-        if (--this._tapeTurboCooldown <= 0) {
-          this._tapeTurboActive = false;
-          this.mixer.reset();
-        }
+    if (tapeLoading || diskLoading) {
+      if (this.tapeTurbo && !this._tapeTurboActive) {
+        this._tapeTurboActive = true;
+      }
+      this._tapeTurboCooldown = 25;
+    } else if (this._tapeTurboCooldown > 0) {
+      if (--this._tapeTurboCooldown <= 0) {
+        this._tapeTurboActive = false;
+        this.mixer.reset();
       }
     } else if (this._tapeTurboActive) {
+      // Not loading and the cooldown is already spent, yet turbo is still on
+      // (e.g. the tape finished or was ejected mid-load) — release immediately.
       this._tapeTurboActive = false;
       this.mixer.reset();
     }

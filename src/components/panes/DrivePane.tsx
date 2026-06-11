@@ -9,6 +9,7 @@ import {
   ejectDisk, loadFile, insertBlankDisk, saveDisk, machine, spectrum,
   currentDiskNameC, currentDiskNameD, currentDiskInfoC, currentDiskInfoD,
   driveCStatus, driveDStatus, ejectPlusDDisk, insertBlankPlusDDisk, savePlusDDisk,
+  applyDisplaySettings,
 } from '@/emulator.ts';
 import {
   diskSoundA, setDiskSoundA, diskSoundB, setDiskSoundB,
@@ -16,7 +17,7 @@ import {
   driveBForceReady, setDriveBForceReady,
   diskSoundC, setDiskSoundC, diskSoundD, setDiskSoundD,
   writeProtectC, setWriteProtectC, writeProtectD, setWriteProtectD,
-  plusDEnabled,
+  plusDEnabled, tapeTurbo, setTapeTurbo,
   persistSetting, resetSettingsGroup,
 } from '@/store/settings.ts';
 import { isPlus3 } from '@/spectrum.ts';
@@ -67,6 +68,9 @@ function DiskInfo(props: {
   onToggleWriteProtect: () => void;
   onToggleForceReady?: () => void;
   showProtection?: boolean;
+  /** Show the global "Turbo while loading" toggle in this drive's menu (+3 /
+   *  CPC drives, whose FDC reads engage disk turbo). */
+  showTurbo?: boolean;
 }) {
   return (
     <div class="disk-section">
@@ -102,11 +106,20 @@ function DiskInfo(props: {
             ...(props.onToggleForceReady
               ? [{ value: 'force-ready', label: 'Present when empty', checked: props.forceReady }]
               : []),
+            ...(props.showTurbo
+              ? [{ value: '__sep', label: '', separator: true },
+                 { value: 'turbo', label: 'Turbo while loading', checked: tapeTurbo() }]
+              : []),
           ]}
           onSelect={(value) => {
             if (value === 'sound') props.onToggleSound();
             else if (value === 'wp') props.onToggleWriteProtect();
             else if (value === 'force-ready') props.onToggleForceReady?.();
+            else if (value === 'turbo') {
+              setTapeTurbo(!tapeTurbo());
+              persistSetting('tape-turbo-load', tapeTurbo() ? 'on' : 'off');
+              applyDisplaySettings();
+            }
           }}
         />
       </div>
@@ -192,6 +205,7 @@ export function DrivePane() {
           status={driveAStatus()}
           soundEnabled={diskSoundA()}
           writeProtected={writeProtectA()}
+          showTurbo
           newItems={PLUS3_NEW_ITEMS}
           onNewDisk={(value) => {
             const fmt = DISK_FORMATS[parseInt(value.slice(4))];
@@ -218,6 +232,7 @@ export function DrivePane() {
           soundEnabled={diskSoundB()}
           writeProtected={writeProtectB()}
           forceReady={driveBForceReady()}
+          showTurbo
           newItems={PLUS3_NEW_ITEMS}
           onNewDisk={(value) => {
             const fmt = DISK_FORMATS[parseInt(value.slice(4))];
