@@ -323,7 +323,8 @@ export function LibraryBrowser() {
       // "Loading" (not "loaded"): the file is mounted and the loader kicked, but
       // the program itself is only now starting to load. Overrides the media
       // manager's "…loaded" message and shows the clean title, not the filename.
-      setStatus(`Loading ${game.title}…`);
+      const source = plan.isDisk ? 'disk' : isSnapshot ? 'snapshot' : 'tape';
+      setStatus(`Loading ${game.title} from ${source}`);
       if (!remountOnly && plan.boot !== 'snapshot') autoBootLoad(plan.boot);
     } catch (err) {
       console.warn(`Failed to load "${game.title}":`, err);

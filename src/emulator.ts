@@ -1384,7 +1384,6 @@ async function restoreMedia(): Promise<void> {
         setTapePaused(true);
         setTapePlaying(false);
       });
-      setStatus(`Tape restored: ${tape.name}`);
     } catch { /* ignore corrupt data */ }
   }
 
