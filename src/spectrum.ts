@@ -325,6 +325,10 @@ export class Spectrum extends BaseMachine implements Machine {
       // Bit 5 of port 0xFE on read carries EAR — the loader stores the
       // current EAR level there for its next iteration's XOR comparison.
       earBit: () => this.tape.earBit,
+      // After the accelerator hand-advances the tape across an edge (without
+      // moving cpu.tStates), level the tape clock with the CPU so the
+      // per-instruction advanceTapeTo() below treats it as already caught up.
+      syncTapeClock: () => { this.tapeLastAdvanceT = this.cpu.tStates; },
     };
 
     // Tape engine → EdgeLoader: publish the next edge's length category

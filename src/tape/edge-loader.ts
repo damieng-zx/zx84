@@ -108,6 +108,11 @@ export interface EdgeLoaderHost {
   readMem(addr: number): number;
   /** Current EAR input (0 or 1) at the tape's mic — used to set C bit 5. */
   earBit(): number;
+  /** Re-anchor the host's tape playback clock to the current cpu.tStates after
+   *  the accelerator hand-advances the tape across an edge, so the host's
+   *  per-instruction catch-up (advanceTapeTo) doesn't advance it a second time.
+   *  Optional so direct-unit-test hosts (which never run the catch-up) can omit it. */
+  syncTapeClock?(): void;
 }
 
 /**
@@ -445,25 +450,39 @@ export class EdgeLoader {
     const hi = host.readMem(cpu.sp); cpu.sp = (cpu.sp + 1) & 0xFFFF;
     cpu.pc = lo | (hi << 8);
 
-    // §4.5: advance tape to the next edge boundary in one step. The
-    // inAcceleration flag tells the tape engine NOT to invalidate the
-    // length pipeline's slot 1 — we just consumed it and slot 2's value
-    // is about to promote in (via rotateLengthPipeline below).
+    // §4.5: bring the next edge to "now". Advance the tape across exactly one
+    // edge boundary, but DON'T push cpu.tStates forward by the pulse length —
+    // that is the actual time-skip (docs/edge-loading.md §4.5: "as if now were
+    // exactly the moment that next edge should fire"). The old code did
+    // `cpu.tStates += adv`, inserting the full real pulse (~2168T pilot) into
+    // the clock. At the realtime frame cap only ~32 pilot edges fit per frame,
+    // so edge acceleration gave ZERO standalone speed-up — it merely cut the
+    // host work per emulated edge, which helps only when the turbo frame
+    // multiplier is also running. Skipping the clock advance lets the loader
+    // chew through many edges per frame, so "Fast edge loading" accelerates on
+    // its own (turbo then stacks on top for near-instant loads).
+    //
+    // The inAcceleration flag tells the tape engine NOT to invalidate the
+    // length pipeline's slot 1 — we just consumed it and slot 2's value is
+    // about to promote in (via rotateLengthPipeline below).
     const dt = tape.tStatesToNextEdge();
     if (dt !== null) {
-      const adv = dt > 0 ? dt : 1;
-      cpu.tStates += adv;
       tape.inAcceleration = true;
-      tape.advance(adv, true);
+      tape.advance(dt > 0 ? dt : 1, true);
       tape.inAcceleration = false;
+      // The tape was just hand-advanced across one edge while cpu.tStates stood
+      // still. Re-anchor the host's tape clock to cpu.tStates so the
+      // per-instruction advanceTapeTo() catch-up doesn't advance the tape a
+      // SECOND time — that double-advance raced the tape ahead of the loader
+      // and (via the fromAcceleration=false edge callback) invalidated the
+      // length pipeline every other IN, desyncing the forged-bit decode.
+      host.syncTapeClock?.();
     }
 
-    // We just rewrote cpu.b and pushed cpu.tStates forward by a whole
-    // pulse (2168T for pilot — well past STOP_GAP_T=1000). If we leave
-    // lastTStatesRead/lastBRead pointing at pre-accel values, the next
-    // IN A,($FE) computes a huge tDiff and a synthetic bDiff outside
-    // {0,1,0xFF}, which auto-stop reads as outOfShape and pauses the
-    // tape — producing visible leader-bar flapping while a loader runs.
+    // B was just rewritten and the loader popped out of its busy loop. Anchor
+    // auto-stop tracking to the current (un-bumped) cycle count so the next
+    // real IN A,($FE) computes a small in-shape tDiff rather than a huge gap
+    // that auto-stop would read as outOfShape (visible leader-bar flapping).
     this.lastTStatesRead = cpu.tStates;
     // B was just forced to 0xFE or 0x00 above. The loader will INC B (increasing)
     // or DEC B (decreasing) before its next IN, so predict the expected B-delta
