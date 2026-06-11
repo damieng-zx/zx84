@@ -379,7 +379,7 @@ export function LibraryBrowser() {
                   title={`${game.title}${game.publisher ? ` — ${game.publisher}` : ''}${game.isDiskOnly ? ' (disk)' : ''}${gameNeeds(game) !== '48' ? ` · needs ${gameNeeds(game) === '+3' ? '+3' : '128K'}` : ''}`}
                 >
                   <span class="library-title">
-                    {game.title}{game.isDiskOnly ? ' 💾' : ''}
+                    {game.title}
                   </span>
                   <Show when={gameNeeds(game) !== '48'}>
                     <span class="library-model">{gameNeeds(game) === '+3' ? '+3' : '128'}</span>
