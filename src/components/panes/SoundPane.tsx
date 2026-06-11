@@ -24,7 +24,7 @@ const STEREO_MODES: { value: AYStereoMode; label: string }[] = [
 
 // Anti-alias strategy for ultrasonic AY tones (see AYAntialiasMode).
 const ANTIALIAS_MODES: { value: AYAntialiasMode; label: string }[] = [
-  { value: 'mute',    label: 'Filter' },
+  { value: 'mute',    label: 'Mute ultrasonic' },
   { value: 'box',     label: 'Box filter' },
   { value: 'lowpass', label: 'Low-pass' },
   { value: 'none',    label: 'None (raw)' },
@@ -89,7 +89,7 @@ export function SoundPane() {
         </select>
       </div>
       <div class="slider-row">
-        <span class="slider-label">Anti-alias</span>
+        <span class="slider-label">Filter</span>
         <select
           id="ay-antialias-select"
           value={ayAntialias()}

@@ -4,7 +4,7 @@ const CHANGELOG: { version: string; items: string[] }[] = [
   {
     version: '0.6.0',
     items: [
-      'Fixed high-pitched AY whine on some title screens (Sound → Anti-alias)',
+      'Add filter option for AY-3-8912',
       'Built-in software library',
       'Optimized turbo mode',
       'Improved fast loaders',
