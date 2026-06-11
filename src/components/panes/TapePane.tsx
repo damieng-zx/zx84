@@ -116,7 +116,7 @@ export function TapePane() {
   });
 
   return (
-    <Pane id="tape-panel" label="Tape" mono onResetSettings={() => { resetSettingsGroup('tape'); applyDisplaySettings(); }}>
+    <Pane id="tape-panel" label="Tape" mono onResetSettings={() => { if (tapeLoaded()) ejectTape(); resetSettingsGroup('tape'); applyDisplaySettings(); }}>
       <div id="tape-controls">
         <button class="btn btn-md" title="Rewind" onClick={tapeRewind}><HiOutlineBackward /></button>
         <button class="btn btn-md" title="Previous block" onClick={tapePrev}><HiOutlineChevronLeft /></button>

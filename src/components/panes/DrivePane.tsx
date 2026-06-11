@@ -190,6 +190,12 @@ export function DrivePane() {
 
   return (
     <Pane id="drive-panel" label="Drives" mono visible={isPlus3(currentModel()) || cpcHasDisk(currentModel()) || plusDActive()} onResetSettings={() => {
+      // Eject any loaded disk in each drive — +3/CPC A:/B: and the +D's C:/D:.
+      // Guarded so empty drives don't fire a misleading "ejected" toast.
+      if (currentDiskName()) ejectDisk(0);
+      if (currentDiskNameB()) ejectDisk(1);
+      if (currentDiskNameC()) ejectPlusDDisk(0);
+      if (currentDiskNameD()) ejectPlusDDisk(1);
       resetSettingsGroup('drive');
       if (machine) {
         machine.fdc.writeProtect[0] = false; machine.fdc.writeProtect[1] = false;
