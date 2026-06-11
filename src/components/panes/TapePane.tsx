@@ -99,12 +99,20 @@ export function TapePane() {
     await loadFile(results[0].data, results[0].name);
   }
 
-  // Auto-scroll current block into view
+  // Auto-scroll the current block into view *within the tape pane only*. Using
+  // element.scrollIntoView() would also scroll every scrollable ancestor — incl.
+  // the page itself — to bring the block on-screen, yanking the whole layout
+  // down. Adjust just the container's own scrollTop instead ('nearest' style:
+  // move only when the block sits outside the visible band).
   createEffect(() => {
     tapePosition(); // track
     if (!containerRef) return;
     const current = containerRef.querySelector('.tape-block.current') as HTMLElement;
-    if (current) current.scrollIntoView({ block: 'nearest' });
+    if (!current) return;
+    const c = containerRef.getBoundingClientRect();
+    const e = current.getBoundingClientRect();
+    if (e.top < c.top) containerRef.scrollTop -= c.top - e.top;
+    else if (e.bottom > c.bottom) containerRef.scrollTop += e.bottom - c.bottom;
   });
 
   return (
