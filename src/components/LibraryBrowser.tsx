@@ -1,7 +1,7 @@
 import { createMemo, createSignal, createEffect, onMount, Show, For } from 'solid-js';
 import { HiOutlineEllipsisVertical, HiOutlinePlay } from 'solid-icons/hi';
 import { DropDownMenuButton, type MenuItem } from '@/components/DropDownMenuButton.tsx';
-import { loadFile, currentModel, switchModel, autoBootLoad, ejectDisk } from '@/emulator.ts';
+import { loadFile, currentModel, switchModel, autoBootLoad, ejectDisk, setStatus } from '@/emulator.ts';
 import { tapeName } from '@/state/tape-state.ts';
 import { currentDiskName } from '@/state/disk-state.ts';
 import {
@@ -317,6 +317,10 @@ export function LibraryBrowser() {
       // highlighted until it's ejected or replaced.
       const kind = plan.isDisk ? 'disk' : 'tape';
       setMounted({ game, name: kind === 'disk' ? currentDiskName() : tapeName(), kind });
+      // "Loading" (not "loaded"): the file is mounted and the loader kicked, but
+      // the program itself is only now starting to load. Overrides the media
+      // manager's "…loaded" message and shows the clean title, not the filename.
+      setStatus(`Loading ${game.title}…`);
       if (!remountOnly && plan.boot !== 'snapshot') autoBootLoad(plan.boot);
     } catch (err) {
       console.warn(`Failed to load "${game.title}":`, err);
@@ -381,10 +385,12 @@ export function LibraryBrowser() {
                   </Show>
                   <span
                     class="library-play"
-                    title="Load"
+                    title={loadingGame() === game ? 'Requesting file…' : 'Load'}
                     onClick={(e) => { e.stopPropagation(); play(game); }}
                   >
-                    <HiOutlinePlay />
+                    <Show when={loadingGame() === game} fallback={<HiOutlinePlay />}>
+                      <span class="library-spinner" />
+                    </Show>
                   </span>
                 </div>
                 <Show when={selected() === game}>
