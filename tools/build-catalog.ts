@@ -45,7 +45,7 @@ const OUT_DIR = resolve(HERE, 'out');
 // ── Row shapes ────────────────────────────────────────────────────────────
 
 interface MetaRow { id: number; title: string; year: number | null; genre: string | null; publisher: string | null; }
-interface DownRow { id: number; link: string; ft: number; mt: number | null; }
+interface DownRow { id: number; link: string; ft: number; mt: number | null; rel: number | null; }
 
 // Compact output schema — keep in sync with src/library/catalog.ts. Model is
 // implicit in which slot a file lands in: f ⇒ 48K, k ⇒ 128K, d/ds ⇒ +3 (disk),
@@ -104,10 +104,13 @@ function partLabel(base: string): string {
 }
 
 /** Collapse an entry's disk links into a primary `d` plus any extra `ds` sides.
- *  ≥2 side/part files ⇒ a multi-side set (keep all, labelled); otherwise one
- *  logical disk — prefer the cleanest dump over (fixed)/_2/(alt) re-dumps. */
-function resolveDisks(disks: string[]): { d?: string; ds?: [string, string][] } {
-  if (disks.length === 0) return {};
+ *  Use only the original release (lowest release_seq) so budget re-issues don't
+ *  win; then ≥2 side/part files ⇒ a multi-side set (keep all, labelled),
+ *  otherwise one logical disk — prefer the cleanest dump over (fixed)/_2/(alt). */
+function resolveDisks(all: { link: string; rel: number }[]): { d?: string; ds?: [string, string][] } {
+  if (all.length === 0) return {};
+  const minRel = Math.min(...all.map(x => x.rel));
+  const disks = all.filter(x => x.rel === minRel).map(x => x.link);
   const parts = disks.filter(l => DISK_PART.test(basename(l)));
   if (parts.length >= 2) {
     const labelled = parts
@@ -148,7 +151,7 @@ function main(): void {
   // SQLite has no built-in REGEXP, so match by suffix with LOWER()+LIKE. One
   // entry may have several — we dedupe in JS below.
   const downs = db.prepare(
-    `SELECT d.entry_id AS id, d.file_link AS link, d.filetype_id AS ft, d.machinetype_id AS mt
+    `SELECT d.entry_id AS id, d.file_link AS link, d.filetype_id AS ft, d.machinetype_id AS mt, d.release_seq AS rel
        FROM downloads d
        JOIN entries e        ON e.id = d.entry_id
        JOIN machinetypes m   ON m.id = e.machinetype_id AND m.text LIKE ?
@@ -167,31 +170,45 @@ function main(): void {
   // (resolved to a primary + sides later), best 48K/128K snapshot (.szx>.z80>
   // .sna), and one SCR screen (prefer a loading screen, ft 1, over running, 2).
   // Classify by file extension — snapshots share no single filetype_id.
+  // We always prefer the ORIGINAL release (lowest release_seq) over budget
+  // re-issues (Erbe, Mastertronic, …); within a release, .tzx>.tap for tapes and
+  // .szx>.z80>.sna for snapshots. Untagged release_seq sorts last.
+  interface Tape { link: string; rel: number; tzx: boolean; }
+  interface Snap { link: string; rel: number; rank: number; }
   interface Slot {
-    tape48?: string; tape128?: string; disks: string[];
-    snap48?: { link: string; rank: number }; snap128?: { link: string; rank: number };
+    tape48?: Tape; tape128?: Tape; disks: { link: string; rel: number }[];
+    snap48?: Snap; snap128?: Snap;
     screen?: string; screenFt?: number;
   }
+  // A lower rel always wins; ties broken by the per-media format rank (higher).
+  const better = (rel: number, rank: number, cur?: { rel: number; rank?: number; tzx?: boolean }) => {
+    if (!cur) return true;
+    if (rel !== cur.rel) return rel < cur.rel;
+    return rank > (cur.rank ?? (cur.tzx ? 1 : 0));
+  };
+
   const files = new Map<number, Slot>();
   for (const d of downs) {
     let slot = files.get(d.id);
     if (!slot) { slot = { disks: [] }; files.set(d.id, slot); }
     const l = d.link.toLowerCase();
+    const rel = d.rel ?? 999;
     const snap = snapRank(l);
     const b = tapeBucket(d.mt);
     if (l.endsWith('.dsk.zip')) {
-      slot.disks.push(d.link);
+      slot.disks.push({ link: d.link, rel });
     } else if (l.endsWith('.tzx.zip') || l.endsWith('.tap.zip')) {
-      const isTzx = l.endsWith('.tzx.zip');
+      const tzx = l.endsWith('.tzx.zip');
       const cur = b === '128' ? slot.tape128 : slot.tape48;
-      // Prefer a .tzx; otherwise keep the first tape seen in this bucket.
-      if (!cur || (isTzx && !/\.tzx\.zip$/i.test(cur))) {
-        if (b === '128') slot.tape128 = d.link; else slot.tape48 = d.link;
+      if (better(rel, tzx ? 1 : 0, cur)) {
+        const t = { link: d.link, rel, tzx };
+        if (b === '128') slot.tape128 = t; else slot.tape48 = t;
       }
     } else if (snap > 0) {
       const cur = b === '128' ? slot.snap128 : slot.snap48;
-      if (!cur || snap > cur.rank) {
-        if (b === '128') slot.snap128 = { link: d.link, rank: snap }; else slot.snap48 = { link: d.link, rank: snap };
+      if (better(rel, snap, cur)) {
+        const s = { link: d.link, rel, rank: snap };
+        if (b === '128') slot.snap128 = s; else slot.snap48 = s;
       }
     } else if (d.ft === 1 || d.ft === 2) {
       if (!slot.screen || (d.ft === 1 && slot.screenFt !== 1)) { slot.screen = d.link; slot.screenFt = d.ft; }
@@ -225,8 +242,8 @@ function main(): void {
     if (gi !== undefined) g.g = gi;
     const pi = intern(row.publisher, publishers, pubIdx);
     if (pi !== undefined) g.p = pi;
-    if (f.tape48) g.f = f.tape48;
-    if (f.tape128) g.k = f.tape128;
+    if (f.tape48) g.f = f.tape48.link;
+    if (f.tape128) g.k = f.tape128.link;
     if (d) g.d = d;
     if (ds) g.ds = ds;
     if (!hasTapeOrDisk) {
