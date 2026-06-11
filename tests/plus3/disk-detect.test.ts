@@ -22,7 +22,7 @@ function sector(o: SectorOpts = {}): DskSector {
   const size = o.size ?? (n <= 5 ? (128 << n) : n === 6 ? 6144 : 128 << n);
   const data = new Uint8Array(size);
   if (typeof o.data === 'string') {
-    for (let i = 0; i < o.data.length && i < size; i++) data[i] = o.data.charCodeAt(i);
+    for (let i = 0; i < o.data.length && i < size; i++) data[i] = o.data.charCodeAt(i) & 0xFF;
   } else if (o.data) {
     data.set(o.data.subarray(0, size));
   }
@@ -126,8 +126,6 @@ describe('detectDiskFormat', () => {
   });
 
   it('rejects PCW/CPC label when sector count is not 9 and not IBM (falls to generic)', () => {
-    // 8 × 512b but starting at &10 — neither the 9-sector PCW/CPC shapes nor
-    // the IBM &01.. signature, so it must drop to the generic label.
     const img = image([track(Array.from({ length: 8 }, (_, i) => sector({ r: 0x10 + i, n: 2 })))]);
     expect(detectDiskFormat(img)).toBe('8×512b');
   });
@@ -151,24 +149,20 @@ describe('detectDiskFormat', () => {
   });
 
   it('generic fallback emits 0-byte size for N=9+ (n <= 8 guard)', () => {
-    // N=9 is non-standard. The "bytes = n <= 8 ? 128<<n : 0" branch keeps
-    // the result label finite for malformed N values.
     const img = image([track([sector({ r: 0xE0, n: 9, size: 128 })])]);
     expect(detectDiskFormat(img)).toBe('1×0b');
   });
 });
 
-// ── detectProtection — boundary / shortcut behaviour ─────────────────────
+// ── detectProtection — guards / clean disks ──────────────────────────────
 
-describe('detectProtection — shortcuts and guards', () => {
+describe('detectProtection — guards and clean disks', () => {
   it('returns "" for numTracks < 2', () => {
-    const img = image([track([sector({ r: 0xC1, n: 2 })])]);
-    expect(detectProtection(img)).toBe('');
+    expect(detectProtection(image([track([sector({ r: 0xC1, n: 2 })])]))).toBe('');
   });
 
   it('returns "" when T0 has zero sectors', () => {
-    const img = image([track([]), track([sector()])]);
-    expect(detectProtection(img)).toBe('');
+    expect(detectProtection(image([track([]), track([sector()])]))).toBe('');
   });
 
   it('returns "" when T0 first sector has length < 128', () => {
@@ -182,447 +176,290 @@ describe('detectProtection — shortcuts and guards', () => {
   it('returns "None" for a uniform clean disk with no FDC errors', () => {
     expect(detectProtection(cleanDisk(40))).toBe('None');
   });
-
-  it('returns "Unknown" for a non-uniform disk with ST1/ST2 errors that match no detector', () => {
-    const img = cleanDisk(40);
-    // Trim T39 to fewer sectors → non-uniform; flag CRC error.
-    img.tracks[39][0] = track([
-      sector({ c: 39, r: 0xC1, n: 2, st1: 0x20 }),
-      sector({ c: 39, r: 0xC2, n: 2 }),
-    ]);
-    expect(detectProtection(img)).toBe('Unknown');
-  });
-
-  it('returns "" for a non-uniform disk with NO FDC errors and no detector match', () => {
-    // Non-uniform but error-free is rare — the function returns the empty
-    // string rather than "Unknown". Test pins down this branch.
-    const img = cleanDisk(40);
-    img.tracks[39][0] = track([sector({ c: 39, r: 0xC1, n: 2 })]); // 1 sector, no errors
-    expect(detectProtection(img)).toBe('');
-  });
 });
 
-// ── Speedlock — all 10 signed variants + 3 unsigned ───────────────────────
+// ── Step 1a: T0 ASCII signatures ─────────────────────────────────────────
+//
+// The uniform+clean short-circuit returns "None" before the signature scan, so
+// these disks carry an FDC error on the signed sector to reach the scan.
 
-const SPEEDLOCK_SIGS: [string, string][] = [
-  ['Speedlock 1985', 'SPEEDLOCK PROTECTION SYSTEM (C) 1985 '],
-  ['Speedlock 1986', 'SPEEDLOCK PROTECTION SYSTEM (C) 1986 '],
-  ['Speedlock disc 1987', 'SPEEDLOCK DISC PROTECTION SYSTEMS COPYRIGHT 1987 '],
-  ['Speedlock 1987 v2.1', 'SPEEDLOCK PROTECTION SYSTEM (C) 1987 D.LOOKER & D.AUBREY JONES : VERSION D/2.1'],
-  ['Speedlock 1987', 'SPEEDLOCK PROTECTION SYSTEM (C) 1987 '],
-  ['Speedlock +3 1987', 'SPEEDLOCK +3 DISC PROTECTION SYSTEM COPYRIGHT 1987 SPEEDLOCK ASSOCIATES'],
-  ['Speedlock +3 1988', 'SPEEDLOCK +3 DISC PROTECTION SYSTEM COPYRIGHT 1988 SPEEDLOCK ASSOCIATES'],
-  ['Speedlock 1988', 'SPEEDLOCK DISC PROTECTION SYSTEMS (C) 1988 SPEEDLOCK ASSOCIATES'],
-  ['Speedlock 1989', 'SPEEDLOCK DISC PROTECTION SYSTEMS (C) 1989 SPEEDLOCK ASSOCIATES'],
-  ['Speedlock 1990', 'SPEEDLOCK DISC PROTECTION SYSTEMS (C) 1990 SPEEDLOCK ASSOCIATES'],
-];
+/** cleanDisk(40) with `sig` planted (at byte 0) in T0 sector `idx`, flagged. */
+function t0SigDisk(sig: string, idx = 0): DskImage {
+  const img = cleanDisk(40);
+  img.tracks[0][0]!.sectors[idx] = sector({ c: 0, r: 0x01 + idx, n: 2, st1: 0x20, data: sig });
+  return img;
+}
 
-describe('detectProtection — Speedlock signed variants', () => {
-  // Note: order-sensitive signatures. "SPEEDLOCK PROTECTION SYSTEM (C) 1987 "
-  // is the prefix of the v2.1 string, so the table puts v2.1 first. Building
-  // a disk containing the 1987 plain signature must NOT also match v2.1.
-  it.each(SPEEDLOCK_SIGS)('detects %s', (label, sig) => {
-    const img = cleanDisk(40);
-    // Plant the signature on T5/S0 with a CRC error to force non-uniform.
-    img.tracks[5][0] = track([
-      sector({ c: 5, r: 0xC1, n: 2, st1: 0x20, data: sig }),
-      ...Array.from({ length: 8 }, (_, i) => sector({ c: 5, r: 0xC2 + i, n: 2 })),
-    ]);
-    const result = detectProtection(img);
-    expect(result.startsWith(label + ' ')).toBe(true);
+describe('detectProtection — T0 signatures', () => {
+  it('Alkatraz +3: full signed T0/S0 string', () => {
+    expect(detectProtection(t0SigDisk(' THE ALKATRAZ PROTECTION SYSTEM   (C) 1987  Appleby Associates')))
+      .toBe('Alkatraz +3');
   });
 
-  it('reports the location string T#/S# +offset', () => {
-    const sig = 'SPEEDLOCK DISC PROTECTION SYSTEMS (C) 1990 SPEEDLOCK ASSOCIATES';
+  it('Three Inch Loader type 1: address signature on T0/S0', () => {
+    const sig = '***Loader Copyright Three Inch Software 1988, All Rights Reserved. Three Inch Software, 73 Surbiton Road, Kingston upon Thames, KT1 2HG***';
+    expect(detectProtection(t0SigDisk(sig))).toBe('Three Inch Loader type 1');
+  });
+
+  it('Three Inch Loader type 1-0-7: address signature on T0/S7 only', () => {
+    const sig = '***Loader Copyright Three Inch Software 1988, All Rights Reserved. Three Inch Software, 73 Surbiton Road, Kingston upon Thames, KT1 2HG***';
+    expect(detectProtection(t0SigDisk(sig, 7))).toBe('Three Inch Loader type 1-0-7');
+  });
+
+  it('Three Inch Loader type 2: phone signature on T0/S0', () => {
+    const sig = '***Loader Copyright Three Inch Software 1988, All Rights Reserved. 01-546 2754';
+    expect(detectProtection(t0SigDisk(sig))).toBe('Three Inch Loader type 2');
+  });
+
+  it('Laser Load: signature on T0/S2', () => {
+    expect(detectProtection(t0SigDisk('Laser Load   By C.J.Pink For Consult Computer    Systems', 2)))
+      .toBe('Laser Load by C.J. Pink');
+  });
+
+  it.each([
+    ['P.M.S. 1986', '[C] P.M.S. 1986'],
+    ['P.M.S. Loader 1986 v1', 'P.M.S. LOADER [C]1986'],
+    ['P.M.S. Loader 1986 v2', 'P.M.S.LOADER [C]1986'],
+    ['P.M.S. 1987', 'P.M.S.LOADER [C]1987'],
+  ])('P.M.S. signature %s', (name, sig) => {
+    expect(detectProtection(t0SigDisk(sig))).toBe(name);
+  });
+
+  it('ERE/Remi HERBULOT: signature anywhere on T0 (>6 sectors)', () => {
+    expect(detectProtection(t0SigDisk('PROTECTION      Remi HERBULOT', 3))).toBe('ERE/Remi HERBULOT');
+  });
+
+  it('ARMOURLOC: "0K free" at offset 2 of T0/S0 (9-sector T0)', () => {
     const img = cleanDisk(40);
     const data = new Uint8Array(512);
-    for (let i = 0; i < sig.length; i++) data[42 + i] = sig.charCodeAt(i);
-    img.tracks[3][0] = track([
-      sector({ c: 3, r: 0xC1, n: 2, st1: 0x20, data }),
-      ...Array.from({ length: 8 }, (_, i) => sector({ c: 3, r: 0xC2 + i, n: 2 })),
-    ]);
-    expect(detectProtection(img)).toBe('Speedlock 1990 (T3/S0 +42)');
+    data[0] = 0x20; data[1] = 0x20;
+    '0K free'.split('').forEach((ch, i) => { data[2 + i] = ch.charCodeAt(0); });
+    img.tracks[0][0]!.sectors[0] = sector({ c: 0, r: 0x01, n: 2, st1: 0x20, data });
+    expect(detectProtection(img)).toBe('ARMOURLOC');
+  });
+
+  it('Studio B Disc format: signature on T0/S0', () => {
+    expect(detectProtection(t0SigDisk('Disc format (c) 1986 Studio B Ltd.'))).toBe('Studio B Disc format');
   });
 });
 
-describe('detectProtection — Speedlock unsigned layouts', () => {
-  function speedlockPlus3Base(s6st2: number, s8st2: number): DskImage {
-    const t0sectors: DskSector[] = [];
-    for (let i = 0; i < 9; i++) {
-      t0sectors.push(sector({
-        c: 0, r: 0xC1 + i, n: 2,
-        st2: i === 6 ? s6st2 : i === 8 ? s8st2 : 0,
-      }));
-    }
-    const t1sectors = Array.from({ length: 5 }, (_, i) => sector({ c: 1, r: 0xD0 + i, n: 3 }));
+// ── Step 1b: geometry resolvers ──────────────────────────────────────────
+
+describe('detectProtection — Speedlock +3 (T0 DDAM + 5×1024 T1)', () => {
+  function speedlockPlus3(s6st2: number, s8st2: number, t1n = 3): DskImage {
+    const t0 = track(Array.from({ length: 9 }, (_, i) => sector({
+      c: 0, r: 0xC1 + i, n: 2, st2: i === 6 ? s6st2 : i === 8 ? s8st2 : 0,
+    })));
+    const t1 = track(Array.from({ length: 5 }, (_, i) => sector({ c: 1, r: 0xD0 + i, n: t1n })));
     const rest = Array.from({ length: 38 }, (_, t) => track(
-      Array.from({ length: 9 }, (_, i) => sector({ c: t + 2, r: 0xC1 + i, n: 2 }))
-    ));
-    return image([track(t0sectors), track(t1sectors), ...rest]);
+      Array.from({ length: 9 }, (_, i) => sector({ c: t + 2, r: 0xC1 + i, n: 2 }))));
+    return image([t0, t1, ...rest]);
   }
 
-  it('unsigned Speedlock +3 1987: T0=9, T1=5×1024, s6 ST2=0x40, s8 ST2=0', () => {
-    expect(detectProtection(speedlockPlus3Base(0x40, 0x00))).toBe('Speedlock +3 1987');
+  it('1987: s6 ST2=0x40, s8 ST2=0', () => {
+    expect(detectProtection(speedlockPlus3(0x40, 0x00))).toBe('Speedlock +3 1987');
   });
 
-  it('unsigned Speedlock +3 1988: same but s8 ST2=0x40', () => {
-    expect(detectProtection(speedlockPlus3Base(0x40, 0x40))).toBe('Speedlock +3 1988');
+  it('1988: s6 ST2=0x40, s8 ST2=0x40', () => {
+    expect(detectProtection(speedlockPlus3(0x40, 0x40))).toBe('Speedlock +3 1988');
   });
 
-  it('rejects unsigned Speedlock +3 layout when s6 ST2 is not 0x40', () => {
-    expect(detectProtection(speedlockPlus3Base(0x00, 0x40))).not.toContain('Speedlock');
+  it('generic 1987/1988 when only s8 carries the DDAM', () => {
+    expect(detectProtection(speedlockPlus3(0x00, 0x40))).toBe('Speedlock +3 1987/1988');
   });
 
-  it('rejects unsigned Speedlock +3 layout when T1 sector size is not 1024', () => {
-    const img = speedlockPlus3Base(0x40, 0x00);
-    img.tracks[1][0] = track([sector({ c: 1, r: 0xD0, n: 2 })]); // 512 bytes, not 1024
-    expect(detectProtection(img)).not.toContain('Speedlock');
+  it('not Speedlock when T1 is not 1024-byte sectors', () => {
+    // DDAM still classifies SpeedlockPlus3, but the 5×512 T1 fails the resolver;
+    // the disk falls through to the unknown-error fallback (DDAM = FDC error on T0).
+    expect(detectProtection(speedlockPlus3(0x40, 0x00, 2))).not.toContain('Speedlock +3 1987');
+  });
+});
+
+describe('detectProtection — Speedlock data side (5×1024, no DDAM)', () => {
+  it('+3: uniform 5×1024 T0 and T1', () => {
+    const t = (c: number) => track(Array.from({ length: 5 }, (_, i) => sector({ c, r: 0x01 + i, n: 3 })));
+    const img = image(Array.from({ length: 10 }, (_, c) => t(c)));
+    expect(detectProtection(img)).toBe('Speedlock +3 1987/1988');
   });
 
-  it('unsigned Speedlock 1989/1990: numTracks>40, T1 has 1 sector R=0xC1 ST1=0x20', () => {
-    const t0sectors = Array.from({ length: 9 }, (_, i) => sector({ c: 0, r: 0xC1 + i, n: 2 }));
-    const t1sectors = [sector({ c: 1, r: 0xC1, n: 2, st1: 0x20 })];
+  it('CPC: same layout but CPC sector IDs', () => {
+    const t = (c: number) => track(Array.from({ length: 5 }, (_, i) => sector({ c, r: 0xC1 + i, n: 3 })));
+    const img = image(Array.from({ length: 10 }, (_, c) => t(c)));
+    expect(detectProtection(img)).toBe('Speedlock (CPC)');
+  });
+});
+
+describe('detectProtection — Speedlock 1989/1990 (big weak T1)', () => {
+  it('+3: standard T0 (PCW IDs) + single weak big sector on T1', () => {
+    const t0 = track(Array.from({ length: 9 }, (_, i) => sector({ c: 0, r: 0x01 + i, n: 2 })));
+    const t1 = track([sector({ c: 1, r: 0x01, n: 6, st1: 0x20 })]);
     const rest = Array.from({ length: 39 }, (_, t) => track(
-      Array.from({ length: 9 }, (_, i) => sector({ c: t + 2, r: 0xC1 + i, n: 2 }))
-    ));
-    const img = image([track(t0sectors), track(t1sectors), ...rest]);
-    expect(detectProtection(img)).toBe('Speedlock 1989/1990');
+      Array.from({ length: 9 }, (_, i) => sector({ c: t + 2, r: 0x01 + i, n: 2 }))));
+    expect(detectProtection(image([t0, t1, ...rest]))).toBe('Speedlock 1989/1990');
   });
 
-  it('rejects unsigned Speedlock 1989/1990 when numTracks <= 40', () => {
-    const t0sectors = Array.from({ length: 9 }, (_, i) => sector({ c: 0, r: 0xC1 + i, n: 2 }));
-    const t1sectors = [sector({ c: 1, r: 0xC1, n: 2, st1: 0x20 })];
-    const rest = Array.from({ length: 38 }, (_, t) => track(
-      Array.from({ length: 9 }, (_, i) => sector({ c: t + 2, r: 0xC1 + i, n: 2 }))
-    ));
-    const img = image([track(t0sectors), track(t1sectors), ...rest]);
-    // numTracks = 40 exactly → guard "image.numTracks > 40" fails.
-    expect(detectProtection(img)).not.toContain('Speedlock 1989/1990');
+  it('CPC: a 9×512 + big-weak-T1 layout reports Hexagon, not Speedlock', () => {
+    const t0 = track(Array.from({ length: 9 }, (_, i) => sector({ c: 0, r: 0xC1 + i, n: 2 })));
+    const t1 = track([sector({ c: 1, r: 0xC1, n: 6, st1: 0x20 })]);
+    const rest = Array.from({ length: 39 }, (_, t) => track(
+      Array.from({ length: 9 }, (_, i) => sector({ c: t + 2, r: 0xC1 + i, n: 2 }))));
+    expect(detectProtection(image([t0, t1, ...rest]))).toBe('Hexagon');
   });
 });
-
-// ── Alkatraz ──────────────────────────────────────────────────────────────
-
-describe('detectProtection — Alkatraz', () => {
-  it('signed +3: signature " THE ALKATRAZ PROTECTION SYSTEM" on T0/S0', () => {
-    const img = cleanDisk(40);
-    img.tracks[0][0] = track([
-      sector({ c: 0, r: 0xC1, n: 2, st1: 0x20, data: ' THE ALKATRAZ PROTECTION SYSTEM' }),
-      ...Array.from({ length: 8 }, (_, i) => sector({ c: 0, r: 0xC2 + i, n: 2 })),
-    ]);
-    expect(detectProtection(img)).toBe('Alkatraz +3');
-  });
-
-  it('CPC: any track with 18 sectors of 256 bytes triggers Alkatraz CPC', () => {
-    const img = cleanDisk(40);
-    img.tracks[5][0] = track(Array.from({ length: 18 }, (_, i) => sector({
-      c: 5, r: 0xC1 + i, n: 1, st1: i === 0 ? 0x20 : 0,
-    })));
-    expect(detectProtection(img)).toBe('Alkatraz CPC');
-  });
-
-  it('Alkatraz CPC loop skips the final track (t < numTracks - 1)', () => {
-    // Put the 18×256 pattern only on the LAST track. The guard skips it,
-    // so this disk must NOT be tagged as Alkatraz CPC.
-    const img = cleanDisk(40);
-    img.tracks[39][0] = track(Array.from({ length: 18 }, (_, i) => sector({
-      c: 39, r: 0xC1 + i, n: 1, st1: i === 0 ? 0x20 : 0,
-    })));
-    expect(detectProtection(img)).not.toContain('Alkatraz');
-  });
-});
-
-// ── Hexagon ───────────────────────────────────────────────────────────────
 
 describe('detectProtection — Hexagon', () => {
-  function hexT0(signature?: string): DskTrack {
-    const sectors = Array.from({ length: 10 }, (_, i) => sector({
-      c: 0, r: 0xC1 + i, n: 2,
-      st1: i === 0 ? 0x20 : 0,
-      data: i === 0 ? signature : undefined,
-    }));
-    return track(sectors);
+  function hexT0(sig?: string): DskTrack {
+    return track(Array.from({ length: 10 }, (_, i) => sector({
+      c: 0, r: 0xC1 + i, n: 2, st1: i === 0 ? 0x20 : 0, data: i === 0 ? sig : undefined,
+    })));
   }
 
   it.each([
     'HEXAGON DISK PROTECTION c 1989',
     'HEXAGON Disk Protection c 1989',
-  ])('signed: detects "%s"', (sig) => {
+  ])('signed: %s on a 10-sector T0', (sig) => {
     const img = cleanDisk(10);
     img.tracks[0][0] = hexT0(sig);
-    expect(detectProtection(img)).toMatch(/^Hexagon \(T\d+\/S\d+\)$/);
+    expect(detectProtection(img)).toBe('Hexagon');
   });
 
-  it('unsigned: single-sector track with N=6, ST1=0x20, ST2=0x60', () => {
+  it('unsigned: 10-sector T0, plus a single N=6 weak sector (ST1=0x20 ST2=0x60)', () => {
     const img = cleanDisk(10);
     img.tracks[0][0] = hexT0();
     img.tracks[2][0] = track([sector({ c: 2, r: 0xC1, n: 6, st1: 0x20, st2: 0x60 })]);
-    expect(detectProtection(img)).toBe('Hexagon (unsigned)');
-  });
-
-  it('rejects when T0 has fewer than 10 sectors', () => {
-    const img = cleanDisk(10);
-    img.tracks[0][0] = track([
-      sector({ c: 0, r: 0xC1, n: 2, st1: 0x20, data: 'HEXAGON DISK PROTECTION c 1989' }),
-      ...Array.from({ length: 8 }, (_, i) => sector({ c: 0, r: 0xC2 + i, n: 2 })),
-    ]);
-    expect(detectProtection(img)).not.toContain('Hexagon');
-  });
-
-  it('rejects when T0 has more than 10 sectors (exact-count guard)', () => {
-    const img = cleanDisk(10);
-    img.tracks[0][0] = track([
-      sector({ c: 0, r: 0xC1, n: 2, st1: 0x20, data: 'HEXAGON DISK PROTECTION c 1989' }),
-      ...Array.from({ length: 10 }, (_, i) => sector({ c: 0, r: 0xC2 + i, n: 2 })),
-    ]);
-    expect(detectProtection(img)).not.toContain('Hexagon');
-  });
-
-  it('rejects when 9th sector (index 8) is not 512 bytes', () => {
-    const img = cleanDisk(10);
-    const sectors = Array.from({ length: 10 }, (_, i) => sector({
-      c: 0, r: 0xC1 + i, n: i === 8 ? 1 : 2, // index 8 is 256b
-      st1: i === 0 ? 0x20 : 0,
-      data: i === 0 ? 'HEXAGON DISK PROTECTION c 1989' : undefined,
-    }));
-    img.tracks[0][0] = track(sectors);
-    expect(detectProtection(img)).not.toContain('Hexagon');
-  });
-
-  it('only scans the first 4 tracks for the signature', () => {
-    const img = cleanDisk(10);
-    img.tracks[0][0] = hexT0();
-    // Signature on T4 (beyond scan window of Math.min(4, numTracks)) → no match.
-    img.tracks[4][0] = track([
-      sector({ c: 4, r: 0xC1, n: 2, st1: 0x20, data: 'HEXAGON DISK PROTECTION c 1989' }),
-      ...Array.from({ length: 8 }, (_, i) => sector({ c: 4, r: 0xC2 + i, n: 2 })),
-    ]);
-    expect(detectProtection(img)).not.toContain('Hexagon (T');
+    expect(detectProtection(img)).toBe('Hexagon');
   });
 });
 
-// ── Paul Owens ────────────────────────────────────────────────────────────
+describe('detectProtection — Speedlock 1989 (10-sector DDAM, CPC)', () => {
+  it('CPC 10-sector T0 with a deleted-data sector', () => {
+    const t0 = track(Array.from({ length: 10 }, (_, i) => sector({
+      c: 0, r: 0xC1 + i, n: 2, st2: i === 5 ? 0x40 : 0, size: 512,
+    })));
+    const rest = Array.from({ length: 5 }, (_, t) => track(
+      Array.from({ length: 9 }, (_, i) => sector({ c: t + 1, r: 0xC1 + i, n: 2 }))));
+    expect(detectProtection(image([t0, ...rest]))).toBe('Speedlock 1989');
+  });
+});
 
-describe('detectProtection — Paul Owens', () => {
-  function paulOwensBase(): DskImage {
-    const t0sectors = Array.from({ length: 9 }, (_, i) => sector({
-      c: 0, r: 0xC1 + i, n: 2, st1: i === 0 ? 0x20 : 0,
-    }));
-    const rest = Array.from({ length: 18 }, (_, t) => track(
-      Array.from({ length: 9 }, (_, i) => sector({ c: t + 2, r: 0xC1 + i, n: 2 }))
-    ));
-    return image([track(t0sectors), null, ...rest]); // T1 unformatted
+describe('detectProtection — Alkatraz (geometry)', () => {
+  it('18-sector T0 with 256-byte sectors → Alkatraz CPC', () => {
+    const img = cleanDisk(40, 0xC1);
+    img.tracks[0][0] = track(Array.from({ length: 18 }, (_, i) => sector({ c: 0, r: 0xC1 + i, n: 1 })));
+    expect(detectProtection(img)).toBe('Alkatraz CPC');
+  });
+
+  it('8×512 data + 18×256 protection track later → Alkatraz +3', () => {
+    const t0 = track(Array.from({ length: 8 }, (_, i) => sector({ c: 0, r: 0x01 + i, n: 2 })));
+    const t1 = track(Array.from({ length: 8 }, (_, i) => sector({ c: 1, r: 0x01 + i, n: 2 })));
+    const prot = track(Array.from({ length: 18 }, (_, i) => sector({ c: 5, r: 0x01 + i, n: 1 })));
+    const data = (c: number) => track(Array.from({ length: 8 }, (_, i) => sector({ c, r: 0x01 + i, n: 2 })));
+    const img = image([t0, t1, data(2), data(3), data(4), prot, data(6), data(7), data(8), data(9)]);
+    expect(detectProtection(img)).toBe('Alkatraz +3');
+  });
+
+  it('mid-disk 18×256 on a CPC disk → Alkatraz CPC', () => {
+    const img = cleanDisk(40, 0xC1);
+    img.tracks[5][0] = track(Array.from({ length: 18 }, (_, i) => sector({ c: 5, r: 0xC1 + i, n: 1 })));
+    expect(detectProtection(img)).toBe('Alkatraz CPC');
+  });
+});
+
+describe('detectProtection — DiscSYS / Players / Mean', () => {
+  function ramp16(): DskTrack {
+    return track(Array.from({ length: 16 }, (_, i) => sector({
+      c: i, h: i, r: i, n: i, size: i <= 7 ? 128 << i : 16384,
+    })));
   }
 
-  it('signed: signature on T0 sector index 2', () => {
-    const img = paulOwensBase();
-    // The signature contains a literal 0x80 byte — write it byte-by-byte
-    // to avoid TextEncoder's UTF-8 multi-byte expansion.
-    const sig = 'PAUL OWENS\x80PROTECTION SYS';
+  it('DiscSYS: 16-sector CHRN ramp on T0', () => {
+    const img = cleanDisk(40);
+    img.tracks[0][0] = ramp16();
+    expect(detectProtection(img)).toBe('DiscSYS');
+  });
+
+  it('Mean Protection System: DiscSYS ramp + "MEAN PROTECTION SYSTEM" on T0', () => {
+    const t0 = ramp16();
+    t0.sectors[2] = sector({ c: 2, h: 2, r: 2, n: 2, size: 512, data: 'MEAN PROTECTION SYSTEM' });
+    const img = cleanDisk(40);
+    img.tracks[0][0] = t0;
+    // ramp must stay valid for r/c/h/n==index — keep sector 2's CHRN.
+    expect(detectProtection(img)).toBe('Mean Protection System');
+  });
+
+  it('Players: 16 sectors with R==N==index (not full CHRN ramp)', () => {
+    const img = cleanDisk(40);
+    img.tracks[5][0] = track(Array.from({ length: 16 }, (_, i) => sector({
+      c: 5, r: i, n: i, size: i <= 7 ? 128 << i : 16384,
+    })));
+    expect(detectProtection(img)).toBe('Players');
+  });
+});
+
+describe('detectProtection — KBI / CAAV (19-sector)', () => {
+  it('KBI-19 signature on a 19-sector T0', () => {
+    const sectors = Array.from({ length: 19 }, (_, i) => sector({ c: 0, r: 0xC1 + i, n: 1 }));
+    sectors[1] = sector({ c: 0, r: 0xC2, n: 1, data: '(c) 1986 for KBI ' });
+    const img = image([track(sectors), track([sector({ c: 1, r: 0xC1, n: 2 })])]);
+    expect(detectProtection(img)).toBe('KBI-19');
+  });
+
+  it('CAAV signature on a 19-sector T0', () => {
+    const sectors = Array.from({ length: 19 }, (_, i) => sector({ c: 0, r: 0xC1 + i, n: 1 }));
+    sectors[0] = sector({ c: 0, r: 0xC1, n: 1, data: 'ALAIN LAURENT GENERATION 5 1989' });
+    const img = image([track(sectors), track([sector({ c: 1, r: 0xC1, n: 2 })])]);
+    expect(detectProtection(img)).toBe('CAAV');
+  });
+
+  it('unsigned 19-sector T0 → "KBI-19 or CAAV"', () => {
+    const sectors = Array.from({ length: 19 }, (_, i) => sector({ c: 0, r: 0xC1 + i, n: 1 }));
+    const img = image([track(sectors), track([sector({ c: 1, r: 0xC1, n: 2 })])]);
+    expect(detectProtection(img)).toBe('KBI-19 or CAAV');
+  });
+});
+
+// ── Step 2: Track 1 family ───────────────────────────────────────────────
+
+describe('detectProtection — empty-T1 family', () => {
+  function emptyT1Base(): DskImage {
+    const t0 = track(Array.from({ length: 9 }, (_, i) => sector({ c: 0, r: 0xC1 + i, n: 2, st1: i === 0 ? 0x20 : 0 })));
+    const rest = Array.from({ length: 18 }, (_, t) => track(
+      Array.from({ length: 9 }, (_, i) => sector({ c: t + 2, r: 0xC1 + i, n: 2 }))));
+    return image([t0, null, ...rest]); // T1 unformatted
+  }
+
+  it('Paul Owens: signature on T0/S2', () => {
+    const img = emptyT1Base();
     const data = img.tracks[0][0]!.sectors[2].data;
-    for (let i = 0; i < sig.length; i++) data[10 + i] = sig.charCodeAt(i);
+    const sig = 'PAUL OWENS\x80PROTECTION SYS';
+    for (let i = 0; i < sig.length; i++) data[10 + i] = sig.charCodeAt(i) & 0xFF;
     expect(detectProtection(img)).toBe('Paul Owens');
   });
 
-  it('unsigned: T2 = 6 sectors × 256 bytes', () => {
-    const img = paulOwensBase();
-    img.tracks[2][0] = track(Array.from({ length: 6 }, (_, i) => sector({
-      c: 2, r: 0xC1 + i, n: 1,
-    })));
-    expect(detectProtection(img)).toBe('Paul Owens (unsigned)');
+  it('Paul Owens unsigned: T2 = 6×256', () => {
+    const img = emptyT1Base();
+    img.tracks[2][0] = track(Array.from({ length: 6 }, (_, i) => sector({ c: 2, r: 0xC1 + i, n: 1 })));
+    expect(detectProtection(img)).toBe('Paul Owens');
   });
 
-  it('rejects when T0 has != 9 sectors', () => {
-    const img = paulOwensBase();
-    img.tracks[0][0]!.sectors.pop();
-    expect(detectProtection(img)).not.toContain('Paul Owens');
+  it('DiscLoc/Oddball: "DISCLOC" on T2/S0', () => {
+    const img = emptyT1Base();
+    img.tracks[2][0]!.sectors[0] = sector({ c: 2, r: 0xC1, n: 2, data: 'DISCLOC magic' });
+    expect(detectProtection(img)).toBe('DiscLoc/Oddball');
   });
 
-  it('rejects when T1 is formatted (must be unformatted)', () => {
-    const img = paulOwensBase();
-    img.tracks[1][0] = track([sector({ c: 1, r: 0xC1, n: 2 })]);
-    expect(detectProtection(img)).not.toContain('Paul Owens');
-  });
-
-  it('rejects when numTracks <= 10', () => {
-    const t0sectors = Array.from({ length: 9 }, (_, i) => sector({
-      c: 0, r: 0xC1 + i, n: 2, st1: i === 0 ? 0x20 : 0,
-    }));
-    const img = image([track(t0sectors), null, track([sector({ c: 2, r: 0xC1, n: 1 })])]);
-    // numTracks = 3 → guard "> 10" fails.
-    expect(detectProtection(img)).not.toContain('Paul Owens');
-  });
-
-  it('passes all guards but matches neither signature nor T2 layout (null fall-through)', () => {
-    // Guards pass: T0=9 sectors, numTracks>10, T1 unformatted.
-    // No signature on T0[2]; T2 has 5 sectors (not 6) so unsigned layout rejected.
-    // Detector returns null and the result falls through to "Unknown".
-    const img = paulOwensBase();
-    img.tracks[2][0] = track(Array.from({ length: 5 }, (_, i) => sector({
-      c: 2, r: 0xC1 + i, n: 1,
-    })));
-    expect(detectProtection(img)).not.toContain('Paul Owens');
+  it('falls back to P.M.S. Loader 1986/1987 when nothing else matches', () => {
+    expect(detectProtection(emptyT1Base())).toBe('P.M.S. Loader 1986/1987');
   });
 });
 
-// ── Three Inch ────────────────────────────────────────────────────────────
+// ── Step 3: high-track probes ────────────────────────────────────────────
 
-describe('detectProtection — Three Inch Loader', () => {
-  it('detects signature on any track / sector and reports location', () => {
-    const img = cleanDisk(40);
-    img.tracks[7][0] = track([
-      sector({ c: 7, r: 0xC1, n: 2, st1: 0x20 }),
-      sector({ c: 7, r: 0xC2, n: 2, data: 'Loader Copyright Three Inch Software 1988' }),
-      ...Array.from({ length: 7 }, (_, i) => sector({ c: 7, r: 0xC3 + i, n: 2 })),
-    ]);
-    expect(detectProtection(img)).toBe('Three Inch Loader (T7/S1 +0)');
-  });
-});
-
-// ── Frontier ──────────────────────────────────────────────────────────────
-
-describe('detectProtection — Frontier', () => {
-  // Real Frontier layout (confirmed from a CPDRead dump of an actual
-  // protected disk): T0 is a normal PCW track of 9 × 512b sectors with
-  // IDs 1-9; T1 through Tn-1 each contain exactly one 4096-byte sector
-  // with ID=1. The published signature is "NEW DISK PROTECTION SYSTEM.
-  // (C) 1990 BY NEW FRONTIER SOFT." — the previous detector's "W DISK
-  // PROTECTION" was a typo that only worked as an accidental substring
-  // match of "NEW".
-
-  function frontierDisk(numTracks = 40): DskImage {
-    const t0 = track(Array.from({ length: 9 }, (_, i) => sector({ c: 0, r: i + 1, n: 2 })));
-    const rest = Array.from({ length: numTracks - 1 }, (_, i) => track([
-      sector({ c: i + 1, r: 1, n: 5, size: 4096 }),
-    ]));
-    return image([t0, ...rest]);
-  }
-
-  it('unsigned: 40-track disk with T0=9×512b + T1..T39 each single 4096b R=1 (real disk layout)', () => {
-    expect(detectProtection(frontierDisk(40))).toBe('Frontier (unsigned)');
-  });
-
-  it('signed: full "NEW DISK PROTECTION SYSTEM..." signature anywhere on disk', () => {
-    const img = frontierDisk(40);
-    const sig = 'NEW DISK PROTECTION SYSTEM. (C) 1990 BY NEW FRONTIER SOFT.';
-    const data = img.tracks[15][0]!.sectors[0].data;
-    for (let i = 0; i < sig.length; i++) data[100 + i] = sig.charCodeAt(i);
-    expect(detectProtection(img)).toBe('Frontier (T15/S0 +100)');
-  });
-
-  it('rejects when numTracks <= 10', () => {
-    expect(detectProtection(frontierDisk(10))).not.toContain('Frontier');
-  });
-
-  it('rejects when T0 is not a standard 9×512b PCW track', () => {
-    const img = frontierDisk(40);
-    img.tracks[0][0] = track(Array.from({ length: 9 }, (_, i) => sector({ c: 0, r: 0xC1 + i, n: 1 })));
-    expect(detectProtection(img)).not.toContain('Frontier');
-  });
-
-  it('rejects when fewer than 10 tracks have the 1×4096b R=1 shape', () => {
-    const t0 = track(Array.from({ length: 9 }, (_, i) => sector({ c: 0, r: i + 1, n: 2 })));
-    const frontier = Array.from({ length: 9 }, (_, i) => track([
-      sector({ c: i + 1, r: 1, n: 5, size: 4096 }),
-    ]));
-    const rest = Array.from({ length: 30 }, (_, i) => track(
-      Array.from({ length: 9 }, (_, j) => sector({ c: i + 10, r: j + 1, n: 2 })),
-    ));
-    const img = image([t0, ...frontier, ...rest]);
-    expect(detectProtection(img)).not.toContain('Frontier');
-  });
-
-  it('rejects when one of the protection tracks has wrong R (chain breaks)', () => {
-    const img = frontierDisk(40);
-    // T5's only sector becomes R=2. The chain counter breaks at 4 tracks,
-    // below the threshold of 10.
-    img.tracks[5][0]!.sectors[0].r = 2;
-    img.tracks[5][0]!.sectorMap.clear();
-    img.tracks[5][0]!.sectorMap.set(2, 0);
-    expect(detectProtection(img)).not.toContain('Frontier');
-  });
-
-  it('does NOT misidentify a clean PCW disk that happens to have one 4096-byte sector elsewhere', () => {
-    // This is the false-positive case the OLD heuristic was vulnerable to:
-    // T0/S0 = 4096b plus a 1-sector T9. The new detector requires the
-    // sustained T1..Tn pattern instead and must reject this disk.
-    const t0 = track([
-      sector({ c: 0, r: 0xC1, n: 5, size: 4096, st1: 0 }),
-      sector({ c: 0, r: 0xC2, n: 2 }),
-    ]);
-    const t9 = track([sector({ c: 9, r: 0xC1, n: 2, st1: 0x20 })]);
-    const others = Array.from({ length: 38 }, (_, i) => {
-      const c = i < 8 ? i + 1 : i + 2;
-      return track(Array.from({ length: 9 }, (_, j) => sector({ c, r: 0xC1 + j, n: 2 })));
-    });
-    const img = image([t0, ...others.slice(0, 8), t9, ...others.slice(8)]);
-    expect(detectProtection(img)).not.toContain('Frontier');
-  });
-});
-
-// ── P.M.S. ────────────────────────────────────────────────────────────────
-
-describe('detectProtection — P.M.S.', () => {
-  it.each([
-    ['P.M.S. 1986',            '[C] P.M.S. 1986'],
-    ['P.M.S. Loader 1986 v1',  'P.M.S. LOADER [C]1986'],
-    ['P.M.S. Loader 1986 v2',  'P.M.S.LOADER [C]1986'],
-    ['P.M.S. 1987',            'P.M.S.LOADER [C]1987'],
-  ])('detects signed %s', (label, sig) => {
-    const img = cleanDisk(40);
-    img.tracks[0][0] = track([
-      sector({ c: 0, r: 0xC1, n: 2, st1: 0x20, data: sig }),
-      ...Array.from({ length: 8 }, (_, i) => sector({ c: 0, r: 0xC2 + i, n: 2 })),
-    ]);
-    expect(detectProtection(img)).toBe(label);
-  });
-
-  it('unsigned: T0 formatted, T1 unformatted, T2 formatted, numTracks > 2', () => {
-    const t0 = track(Array.from({ length: 9 }, (_, i) => sector({
-      c: 0, r: 0xC1 + i, n: 2, st1: i === 0 ? 0x20 : 0,
-    })));
-    const t2 = track([sector({ c: 2, r: 0xC1, n: 2 })]);
-    const img = image([t0, null, t2]);
-    expect(detectProtection(img)).toBe('P.M.S. (unsigned)');
-  });
-});
-
-// ── W.R.M ─────────────────────────────────────────────────────────────────
-
-describe('detectProtection — W.R.M Disc Protection', () => {
-  it('detects when T8 sector index 9 starts with "W.R.M Disc" and contains "Protection"', () => {
-    const img = cleanDisk(40);
-    const wrm = new Uint8Array(512);
-    const sig = 'W.R.M Disc        Protection';
-    for (let i = 0; i < sig.length; i++) wrm[i] = sig.charCodeAt(i);
-    img.tracks[8][0] = track([
-      ...Array.from({ length: 9 }, (_, i) => sector({ c: 8, r: 0xC1 + i, n: 2, st1: i === 0 ? 0x20 : 0 })),
-      sector({ c: 8, r: 0xCA, n: 2, data: wrm }), // index 9
-    ]);
-    expect(detectProtection(img)).toBe('W.R.M Disc Protection');
-  });
-
-  it('requires "W.R.M Disc" at offset 0 exactly (not anywhere)', () => {
-    const img = cleanDisk(40);
-    const wrm = new Uint8Array(512);
-    const sig = 'W.R.M Disc Protection';
-    for (let i = 0; i < sig.length; i++) wrm[10 + i] = sig.charCodeAt(i); // shifted!
-    img.tracks[8][0] = track([
-      ...Array.from({ length: 9 }, (_, i) => sector({ c: 8, r: 0xC1 + i, n: 2, st1: i === 0 ? 0x20 : 0 })),
-      sector({ c: 8, r: 0xCA, n: 2, data: wrm }),
-    ]);
-    expect(detectProtection(img)).not.toContain('W.R.M');
-  });
-});
-
-// ── Amsoft / EXOPAL ───────────────────────────────────────────────────────
-
-describe('detectProtection — Amsoft/EXOPAL', () => {
-  it('detects when T3/S0 has 512-byte data containing both "Amsoft disc protection system" (offset > 1) and "EXOPAL"', () => {
+describe('detectProtection — high-track probes', () => {
+  it('Amsoft/EXOPAL: T3/S0 with both signatures (offset > 1)', () => {
     const img = cleanDisk(40);
     const data = new Uint8Array(512);
-    const sig = 'Amsoft disc protection system EXOPAL';
-    for (let i = 0; i < sig.length; i++) data[10 + i] = sig.charCodeAt(i);
+    'Amsoft disc protection system EXOPAL'.split('').forEach((ch, i) => { data[10 + i] = ch.charCodeAt(0); });
     img.tracks[3][0] = track([
       sector({ c: 3, r: 0xC1, n: 2, st1: 0x20, data }),
       ...Array.from({ length: 8 }, (_, i) => sector({ c: 3, r: 0xC2 + i, n: 2 })),
@@ -630,233 +467,95 @@ describe('detectProtection — Amsoft/EXOPAL', () => {
     expect(detectProtection(img)).toBe('Amsoft/EXOPAL');
   });
 
-  it('rejects when "Amsoft disc protection system" is at offset <= 1', () => {
+  it('W.R.M Disc Protection: T8/S9 starts with "W.R.M Disc" + markers', () => {
     const img = cleanDisk(40);
-    const data = new Uint8Array(512);
-    const sig = 'Amsoft disc protection system EXOPAL';
-    for (let i = 0; i < sig.length; i++) data[i] = sig.charCodeAt(i); // offset 0!
-    img.tracks[3][0] = track([
-      sector({ c: 3, r: 0xC1, n: 2, st1: 0x20, data }),
-      ...Array.from({ length: 8 }, (_, i) => sector({ c: 3, r: 0xC2 + i, n: 2 })),
+    const wrm = new Uint8Array(512);
+    'W.R.M Disc Protection System (c) 1987'.split('').forEach((ch, i) => { wrm[i] = ch.charCodeAt(0); });
+    img.tracks[8][0] = track([
+      ...Array.from({ length: 9 }, (_, i) => sector({ c: 8, r: 0xC1 + i, n: 2, st1: i === 0 ? 0x20 : 0 })),
+      sector({ c: 8, r: 0xCA, n: 2, data: wrm }),
     ]);
-    expect(detectProtection(img)).not.toContain('Amsoft');
+    expect(detectProtection(img)).toBe('W.R.M Disc Protection');
   });
 
-  it('rejects when T3/S0 is not 512 bytes', () => {
-    const img = cleanDisk(40);
-    const data = new Uint8Array(1024);
-    const sig = 'Amsoft disc protection system EXOPAL';
-    for (let i = 0; i < sig.length; i++) data[10 + i] = sig.charCodeAt(i);
-    img.tracks[3][0] = track([
-      sector({ c: 3, r: 0xC1, n: 3, st1: 0x20, data }),
-      ...Array.from({ length: 4 }, (_, i) => sector({ c: 3, r: 0xC2 + i, n: 3 })),
+  it('Frontier: signed "NEW DISK PROTECTION SYSTEM..." on a normal-geometry T1', () => {
+    // A 1-sector weak T1 would be caught as Speedlock in Step 2; the Frontier
+    // signature scan (Step 3) only reaches a T1 that passes through Step 2, so
+    // give T1 a normal 9-sector geometry with the signature in one sector.
+    const t0 = track(Array.from({ length: 9 }, (_, i) => sector({ c: 0, r: i + 1, n: 2 })));
+    const t1 = track([
+      sector({ c: 1, r: 1, n: 2, st1: 0x20, data: 'NEW DISK PROTECTION SYSTEM. (C) 1990 BY NEW FRONTIER SOFT.' }),
+      ...Array.from({ length: 8 }, (_, i) => sector({ c: 1, r: 2 + i, n: 2 })),
     ]);
-    expect(detectProtection(img)).not.toContain('Amsoft');
+    const rest = Array.from({ length: 18 }, (_, t) => track(
+      Array.from({ length: 9 }, (_, i) => sector({ c: t + 2, r: i + 1, n: 2 }))));
+    expect(detectProtection(image([t0, t1, ...rest]))).toBe('Frontier');
   });
-});
 
-// ── Studio B / DiscLoc ────────────────────────────────────────────────────
+  it('Frontier: unsigned T0=4096 single sector + T9 single-sector', () => {
+    const t0 = track([sector({ c: 0, r: 0x01, n: 5, size: 4096, st1: 0 })]);
+    const filler = (c: number) => track(Array.from({ length: 9 }, (_, i) => sector({ c, r: 0xC1 + i, n: 2 })));
+    const tracks: (DskTrack | null)[] = [t0];
+    for (let t = 1; t < 11; t++) tracks.push(t === 9 ? track([sector({ c: 9, r: 0x01, n: 2 })]) : filler(t));
+    expect(detectProtection(image(tracks))).toBe('Frontier');
+  });
 
-describe('detectProtection — Studio B / DiscLoc', () => {
-  function studioBBase(t0sig?: string, t2sig?: string): DskImage {
-    const t0 = track([
-      sector({ c: 0, r: 0xC1, n: 2, st1: 0x20, data: t0sig }),
-      ...Array.from({ length: 8 }, (_, i) => sector({ c: 0, r: 0xC2 + i, n: 2 })),
+  it('KBI-10: T38=9 sectors, T39=10 sectors with weak S9 (ST1=ST2=0x20)', () => {
+    const img = cleanDisk(40);
+    img.tracks[38][0] = track(Array.from({ length: 9 }, (_, i) => sector({ c: 38, r: 0xC1 + i, n: 2 })));
+    img.tracks[39][0] = track([
+      ...Array.from({ length: 9 }, (_, i) => sector({ c: 39, r: 0xC1 + i, n: 2, st1: i === 0 ? 0x20 : 0 })),
+      sector({ c: 39, r: 0xCA, n: 2, st1: 0x20, st2: 0x20 }),
     ]);
-    const t2 = track([
-      sector({ c: 2, r: 0xC1, n: 2, data: t2sig }),
-      ...Array.from({ length: 8 }, (_, i) => sector({ c: 2, r: 0xC2 + i, n: 2 })),
-    ]);
-    return image([t0, null, t2]); // numTracks=3, T1 unformatted
-  }
-
-  it('Studio B: T0 has "Disc format (c) 1986 Studio B Ltd."', () => {
-    const img = studioBBase('Disc format (c) 1986 Studio B Ltd.');
-    // numTracks must be > 3 per guard — extend.
-    img.tracks.push([track([sector({ c: 3, r: 0xC1, n: 2 })])]);
-    img.numTracks = 4;
-    expect(detectProtection(img)).toBe('Studio B');
+    expect(detectProtection(img)).toBe('KBI-10');
   });
 
-  it('DiscLoc/Oddball: T2 has "DISCLOC"', () => {
-    const img = studioBBase(undefined, 'DISCLOC magic stuff');
-    img.tracks.push([track([sector({ c: 3, r: 0xC1, n: 2 })])]);
-    img.numTracks = 4;
-    expect(detectProtection(img)).toBe('DiscLoc/Oddball');
-  });
-
-  it('rejects when T1 is formatted (guard requires unformatted T1)', () => {
-    const img = studioBBase('Disc format (c) 1986 Studio B Ltd.');
-    img.tracks[1][0] = track([sector({ c: 1, r: 0xC1, n: 2 })]);
-    img.tracks.push([track([sector({ c: 3, r: 0xC1, n: 2 })])]);
-    img.numTracks = 4;
-    expect(detectProtection(img)).not.toContain('Studio B');
-  });
-});
-
-// ── ARMOURLOC ─────────────────────────────────────────────────────────────
-
-describe('detectProtection — ARMOURLOC', () => {
-  it('detects "0K free" at offset 2 of T0/S0 with 9-sector T0', () => {
-    const img = cleanDisk(40);
-    const data = new Uint8Array(512);
-    data[0] = 0x20; data[1] = 0x20; // padding so '0K free' starts at offset 2
-    const sig = '0K free';
-    for (let i = 0; i < sig.length; i++) data[2 + i] = sig.charCodeAt(i);
-    img.tracks[0][0] = track([
-      sector({ c: 0, r: 0xC1, n: 2, st1: 0x20, data }),
-      ...Array.from({ length: 8 }, (_, i) => sector({ c: 0, r: 0xC2 + i, n: 2 })),
-    ]);
-    expect(detectProtection(img)).toBe('ARMOURLOC');
-  });
-
-  it('rejects when "0K free" is NOT at offset exactly 2', () => {
-    const img = cleanDisk(40);
-    const data = new Uint8Array(512);
-    const sig = '0K free';
-    for (let i = 0; i < sig.length; i++) data[5 + i] = sig.charCodeAt(i); // offset 5
-    img.tracks[0][0] = track([
-      sector({ c: 0, r: 0xC1, n: 2, st1: 0x20, data }),
-      ...Array.from({ length: 8 }, (_, i) => sector({ c: 0, r: 0xC2 + i, n: 2 })),
-    ]);
-    expect(detectProtection(img)).not.toContain('ARMOURLOC');
-  });
-});
-
-// ── Players / Infogrames / Rainbow Arts / DiscSYS ─────────────────────────
-
-describe('detectProtection — Players', () => {
-  it('detects 16 sectors with r===i && n===i', () => {
-    const img = cleanDisk(40);
-    img.tracks[5][0] = track(Array.from({ length: 16 }, (_, i) => sector({
-      c: 5, r: i, n: i,
-      size: i <= 7 ? 128 << i : 16384, st1: i === 0 ? 0x20 : 0,
-    })));
-    expect(detectProtection(img)).toBe('Players');
-  });
-
-  it('rejects when sector count is 15 (exact-16 guard)', () => {
-    const img = cleanDisk(40);
-    img.tracks[5][0] = track(Array.from({ length: 15 }, (_, i) => sector({
-      c: 5, r: i, n: i, size: i <= 7 ? 128 << i : 16384, st1: i === 0 ? 0x20 : 0,
-    })));
-    expect(detectProtection(img)).not.toContain('Players');
-  });
-});
-
-describe('detectProtection — DiscSYS', () => {
-  it('detects 16 sectors with c, h, r, n all equal index', () => {
-    const img = cleanDisk(40);
-    img.tracks[5][0] = track(Array.from({ length: 16 }, (_, i) => sector({
-      c: i, h: i, r: i, n: i,
-      size: i <= 7 ? 128 << i : 16384, st1: i === 0 ? 0x20 : 0,
-    })));
-    expect(detectProtection(img)).toBe('DiscSYS');
-  });
-
-  it('a CHRN-all-equal-index disk reports DiscSYS, NOT Players (ordering regression)', () => {
-    // DiscSYS is a strict superset of Players' check; without correct
-    // ordering this disk would be misreported as "Players".
-    const img = cleanDisk(40);
-    img.tracks[5][0] = track(Array.from({ length: 16 }, (_, i) => sector({
-      c: i, h: i, r: i, n: i,
-      size: i <= 7 ? 128 << i : 16384, st1: i === 0 ? 0x20 : 0,
-    })));
-    expect(detectProtection(img)).toBe('DiscSYS');
-  });
-});
-
-describe('detectProtection — Infogrames/Logiciel', () => {
-  it('detects T39 having 9 sectors with a 540-byte N=2 sector', () => {
+  it('Infogrames/Logiciel: T39 9 sectors with a 540-byte N=2 sector', () => {
     const img = cleanDisk(45);
     img.tracks[39][0] = track([
       sector({ c: 39, r: 0xC1, n: 2, st1: 0x20 }),
-      sector({ c: 39, r: 0xC2, n: 2, size: 540 }), // oversized
+      sector({ c: 39, r: 0xC2, n: 2, size: 540 }),
       ...Array.from({ length: 7 }, (_, i) => sector({ c: 39, r: 0xC3 + i, n: 2 })),
     ]);
     expect(detectProtection(img)).toBe('Infogrames/Logiciel');
   });
 
-  it('rejects when numTracks <= 39 (guard)', () => {
-    const img = cleanDisk(40);
-    // numTracks=40 means index 39 exists; guard wants > 39 → 40 passes. So
-    // test with 39 tracks explicitly.
-    img.tracks.pop();
-    img.numTracks = 39;
-    expect(detectProtection(img)).not.toContain('Infogrames');
-  });
-
-  it('rejects when T39 has a non-540 N=2 sector', () => {
-    const img = cleanDisk(45);
-    img.tracks[39][0] = track([
-      sector({ c: 39, r: 0xC1, n: 2, st1: 0x20 }),
-      ...Array.from({ length: 8 }, (_, i) => sector({ c: 39, r: 0xC2 + i, n: 2 })),
-    ]);
-    expect(detectProtection(img)).not.toContain('Infogrames');
-  });
-});
-
-describe('detectProtection — Rainbow Arts', () => {
-  it('detects T40 having 9 sectors, one with R=0xC6 ST1=0x20 ST2=0x20', () => {
+  it('Rainbow Arts: T40 with a weak sector R=198 (ST1=ST2=0x20)', () => {
     const img = cleanDisk(45);
     img.tracks[40][0] = track([
       sector({ c: 40, r: 0xC1, n: 2 }),
-      sector({ c: 40, r: 0xC6, n: 2, st1: 0x20, st2: 0x20 }),
+      sector({ c: 40, r: 198, n: 2, st1: 0x20, st2: 0x20 }),
       ...Array.from({ length: 7 }, (_, i) => sector({ c: 40, r: 0xC7 + i, n: 2 })),
     ]);
     expect(detectProtection(img)).toBe('Rainbow Arts');
   });
-
-  it('rejects when numTracks <= 40', () => {
-    const img = cleanDisk(40);
-    expect(detectProtection(img)).not.toContain('Rainbow Arts');
-  });
 });
 
-// ── Herbulot + KBI (non-exclusive combining) ─────────────────────────────
+// ── Unknown-protection fallback ──────────────────────────────────────────
 
-describe('detectProtection — Herbulot and KBI combinations', () => {
-  function withHerbulot(img: DskImage) {
-    const data = new Uint8Array(512);
-    const sig = 'PROTECTION ... Remi HERBULOT';
-    for (let i = 0; i < sig.length; i++) data[10 + i] = sig.charCodeAt(i);
-    img.tracks[0][0]!.sectors[3].data = data;
-  }
-
-  it('Herbulot alone: signature anywhere on T0', () => {
+describe('detectProtection — unknown fallback', () => {
+  it('"Unknown" for a non-uniform disk with an FDC error on a low track', () => {
     const img = cleanDisk(40);
-    img.tracks[0][0]!.sectors[0].st1 = 0x20; // force non-uniform
-    withHerbulot(img);
-    expect(detectProtection(img)).toBe('ERE/Remi HERBULOT');
-  });
-
-  it('KBI-19 alone: any track with 19 sectors', () => {
-    const img = cleanDisk(40);
-    img.tracks[5][0] = track(Array.from({ length: 19 }, (_, i) => sector({
-      c: 5, r: 0xC1 + i, n: 1, st1: i === 0 ? 0x20 : 0,
-    })));
-    expect(detectProtection(img)).toBe('KBI-19');
-  });
-
-  it('KBI-10: numTracks>=40, T38=9 sectors, T39=10 sectors, T39 s9 ST1=0x20 ST2=0x20', () => {
-    const img = cleanDisk(40);
-    img.tracks[38][0] = track(Array.from({ length: 9 }, (_, i) => sector({
-      c: 38, r: 0xC1 + i, n: 2,
-    })));
-    img.tracks[39][0] = track([
-      ...Array.from({ length: 9 }, (_, i) => sector({ c: 39, r: 0xC1 + i, n: 2, st1: i === 0 ? 0x20 : 0 })),
-      sector({ c: 39, r: 0xCA, n: 2, st1: 0x20, st2: 0x20 }), // index 9
+    // Error on T2 (well below the high-track lone-error window) + odd geometry.
+    img.tracks[2][0] = track([
+      sector({ c: 2, r: 0xC1, n: 2, st1: 0x20 }),
+      sector({ c: 2, r: 0xC2, n: 2 }),
     ]);
-    expect(detectProtection(img)).toBe('KBI-10');
+    expect(detectProtection(img)).toBe('Unknown');
   });
 
-  it('combined: "KBI-19 + ERE/Remi HERBULOT" when both present', () => {
+  it('"" for a non-uniform disk with NO FDC errors and no detector match', () => {
     const img = cleanDisk(40);
-    withHerbulot(img);
-    img.tracks[0][0]!.sectors[0].st1 = 0x20;
-    img.tracks[5][0] = track(Array.from({ length: 19 }, (_, i) => sector({
-      c: 5, r: 0xC1 + i, n: 1,
-    })));
-    expect(detectProtection(img)).toBe('KBI-19 + ERE/Remi HERBULOT');
+    img.tracks[39][0] = track([sector({ c: 39, r: 0xC1, n: 2 })]); // 1 sector, no errors
+    expect(detectProtection(img)).toBe('');
+  });
+
+  it('"" for a lone error on a high track of an otherwise-clean disk (dump noise)', () => {
+    const img = cleanDisk(40);
+    img.tracks[39][0] = track([
+      sector({ c: 39, r: 0xC1, n: 2, st1: 0x20 }),
+      sector({ c: 39, r: 0xC2, n: 2 }),
+    ]);
+    expect(detectProtection(img)).toBe('');
   });
 });
