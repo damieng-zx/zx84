@@ -28,6 +28,6 @@
     "vite-plugin-compression": "^0.5.1",
     "vite-plugin-solid": "^2.11.0",
     "vitest": "^4.1.6",
-    "wrangler": "^4.67.0"
+    "wrangler": "^4.100.0"
   }
 }

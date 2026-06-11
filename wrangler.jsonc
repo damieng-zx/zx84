@@ -5,6 +5,9 @@
   "observability": {
     "enabled": true
   },
+  "build": {
+    "command": "npm run build"
+  },
   "assets": {
     "directory": "dist"
   }
