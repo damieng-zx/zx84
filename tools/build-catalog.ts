@@ -45,7 +45,7 @@ const OUT_DIR = resolve(HERE, 'out');
 // ── Row shapes ────────────────────────────────────────────────────────────
 
 interface MetaRow { id: number; title: string; year: number | null; genre: string | null; publisher: string | null; }
-interface DownRow { id: number; link: string; ft: number; mt: number | null; rel: number | null; }
+interface DownRow { id: number; link: string; ft: number; mt: number | null; rel: number | null; lang: string | null; }
 
 // Compact output schema — keep in sync with src/library/catalog.ts. Model is
 // implicit in which slot a file lands in: f ⇒ 48K, k ⇒ 128K, d/ds ⇒ +3 (disk),
@@ -104,13 +104,15 @@ function partLabel(base: string): string {
 }
 
 /** Collapse an entry's disk links into a primary `d` plus any extra `ds` sides.
- *  Use only the original release (lowest release_seq) so budget re-issues don't
- *  win; then ≥2 side/part files ⇒ a multi-side set (keep all, labelled),
- *  otherwise one logical disk — prefer the cleanest dump over (fixed)/_2/(alt). */
-function resolveDisks(all: { link: string; rel: number }[]): { d?: string; ds?: [string, string][] } {
+ *  Prefer English disks, then the original release (lowest release_seq) so budget
+ *  re-issues don't win; then ≥2 side/part files ⇒ a multi-side set (keep all,
+ *  labelled), otherwise one logical disk — prefer the cleanest dump over
+ *  (fixed)/_2/(alt) re-dumps. */
+function resolveDisks(all: { link: string; rel: number; en: boolean }[]): { d?: string; ds?: [string, string][] } {
   if (all.length === 0) return {};
-  const minRel = Math.min(...all.map(x => x.rel));
-  const disks = all.filter(x => x.rel === minRel).map(x => x.link);
+  const pool = all.some(x => x.en) ? all.filter(x => x.en) : all;
+  const minRel = Math.min(...pool.map(x => x.rel));
+  const disks = pool.filter(x => x.rel === minRel).map(x => x.link);
   const parts = disks.filter(l => DISK_PART.test(basename(l)));
   if (parts.length >= 2) {
     const labelled = parts
@@ -151,7 +153,7 @@ function main(): void {
   // SQLite has no built-in REGEXP, so match by suffix with LOWER()+LIKE. One
   // entry may have several — we dedupe in JS below.
   const downs = db.prepare(
-    `SELECT d.entry_id AS id, d.file_link AS link, d.filetype_id AS ft, d.machinetype_id AS mt, d.release_seq AS rel
+    `SELECT d.entry_id AS id, d.file_link AS link, d.filetype_id AS ft, d.machinetype_id AS mt, d.release_seq AS rel, d.language_id AS lang
        FROM downloads d
        JOIN entries e        ON e.id = d.entry_id
        JOIN machinetypes m   ON m.id = e.machinetype_id AND m.text LIKE ?
@@ -170,21 +172,21 @@ function main(): void {
   // (resolved to a primary + sides later), best 48K/128K snapshot (.szx>.z80>
   // .sna), and one SCR screen (prefer a loading screen, ft 1, over running, 2).
   // Classify by file extension — snapshots share no single filetype_id.
-  // We always prefer the ORIGINAL release (lowest release_seq) over budget
-  // re-issues (Erbe, Mastertronic, …); within a release, .tzx>.tap for tapes and
-  // .szx>.z80>.sna for snapshots. Untagged release_seq sorts last.
-  interface Tape { link: string; rel: number; tzx: boolean; }
-  interface Snap { link: string; rel: number; rank: number; }
+  // Selection priority for each slot: English first, then the ORIGINAL release
+  // (lowest release_seq) over budget re-issues (Erbe, Mastertronic, …), then the
+  // per-media format rank (.tzx>.tap for tapes, .szx>.z80>.sna for snapshots).
+  // Untagged release_seq sorts last; only language_id 'en' counts as English.
+  interface Pick { link: string; en: boolean; rel: number; rank: number; }
   interface Slot {
-    tape48?: Tape; tape128?: Tape; disks: { link: string; rel: number }[];
-    snap48?: Snap; snap128?: Snap;
+    tape48?: Pick; tape128?: Pick; disks: { link: string; rel: number; en: boolean }[];
+    snap48?: Pick; snap128?: Pick;
     screen?: string; screenFt?: number;
   }
-  // A lower rel always wins; ties broken by the per-media format rank (higher).
-  const better = (rel: number, rank: number, cur?: { rel: number; rank?: number; tzx?: boolean }) => {
+  const better = (en: boolean, rel: number, rank: number, cur?: Pick) => {
     if (!cur) return true;
-    if (rel !== cur.rel) return rel < cur.rel;
-    return rank > (cur.rank ?? (cur.tzx ? 1 : 0));
+    if (en !== cur.en) return en;          // English beats non-English
+    if (rel !== cur.rel) return rel < cur.rel;  // then the original release
+    return rank > cur.rank;                // then the better format
   };
 
   const files = new Map<number, Slot>();
@@ -193,21 +195,22 @@ function main(): void {
     if (!slot) { slot = { disks: [] }; files.set(d.id, slot); }
     const l = d.link.toLowerCase();
     const rel = d.rel ?? 999;
+    const en = d.lang === 'en';
     const snap = snapRank(l);
     const b = tapeBucket(d.mt);
     if (l.endsWith('.dsk.zip')) {
-      slot.disks.push({ link: d.link, rel });
+      slot.disks.push({ link: d.link, rel, en });
     } else if (l.endsWith('.tzx.zip') || l.endsWith('.tap.zip')) {
-      const tzx = l.endsWith('.tzx.zip');
+      const rank = l.endsWith('.tzx.zip') ? 1 : 0;
       const cur = b === '128' ? slot.tape128 : slot.tape48;
-      if (better(rel, tzx ? 1 : 0, cur)) {
-        const t = { link: d.link, rel, tzx };
+      if (better(en, rel, rank, cur)) {
+        const t = { link: d.link, en, rel, rank };
         if (b === '128') slot.tape128 = t; else slot.tape48 = t;
       }
     } else if (snap > 0) {
       const cur = b === '128' ? slot.snap128 : slot.snap48;
-      if (better(rel, snap, cur)) {
-        const s = { link: d.link, rel, rank: snap };
+      if (better(en, rel, snap, cur)) {
+        const s = { link: d.link, en, rel, rank: snap };
         if (b === '128') slot.snap128 = s; else slot.snap48 = s;
       }
     } else if (d.ft === 1 || d.ft === 2) {
