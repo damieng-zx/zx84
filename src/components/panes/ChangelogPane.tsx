@@ -2,6 +2,13 @@ import { createSignal, Show } from 'solid-js';
 
 const CHANGELOG: { version: string; items: string[] }[] = [
   {
+    version: '0.6.0',
+    items: [
+      'Built-in software library',
+      'Optimized turbo mode',
+      'Improved fast loaders',
+    ]
+  }, {
     version: '0.5.1',
     items: [
       'Fast ROM loading for Amstrad CPC firmware tapes (CAS READ trap)',
@@ -115,44 +122,6 @@ const CHANGELOG: { version: string; items: string[] }[] = [
       'Turn off minification',
       'CORS improvements for Cloudflare'
     ]
-  }, {
-    version: '0.2.2',
-    items: [
-      '128K/+3 memory bank paging fixed',
-      'Memory viewer pane added',
-      'Drive pane UX improvements including LED',
-      'CPC disk format detection fix',
-      '+3 B: force-presence when empty option',
-      '+3 FORMAT command support',
-      'Keyboard shift/ctrl keys stuck/failing fixed',
-      '48K timings fixed for Shock, Bifrost and Nirvana+'
-    ],
-  },
-  {
-    version: '0.2.1',
-    items: [
-      'Fractional scaling prevention',
-      'Scanline accuracy option',
-      'HQx and XBR upscalers added',
-      'Keyboard mapping improvements',
-      'Hardware Pane reworked',
-      'Noise display pattern for that retro vibe',
-      'Reset per pane option'
-    ]
-  },
-  {
-    version: '0.2.0',
-    items: [
-      'Multiface 1 / 128 / 3 support',
-      'Border effects improved',
-      'ULA contention accuracy improvements',
-      'SZX saving implemented/fixed',
-      'Frame stepping in debugger added',
-      'Text overlay with native fonts rewritten',
-      'Tape auto-start/pause improvements',
-      'Per-drive menus with New disk, save',
-      '3.5" drive sounds & write-protect',
-    ],
   },
 ];
 
