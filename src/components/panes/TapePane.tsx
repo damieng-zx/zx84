@@ -139,7 +139,7 @@ export function TapePane() {
             // cassette is AY-silent and has no Spectrum-style loader detector).
             ...(isCpc() ? [] : [{ value: 'tape-sound', label: 'Loading sounds', checked: tapeSoundEnabled() }]),
             { value: 'auto-rewind', label: 'Auto-rewind', checked: tapeAutoRewind() },
-            { value: 'collapse-blocks', label: 'Collapse matching blocks', checked: tapeCollapseBlocks() },
+            { value: 'collapse-blocks', label: 'Combine paired blocks', checked: tapeCollapseBlocks() },
             { value: '__sep1', label: '', separator: true },
             { value: 'fast-rom', label: 'Fast ROM loading', checked: tapeFastRom() },
             ...(isCpc() ? [] : [{ value: 'fast-edge', label: 'Fast edge loading', checked: tapeFastEdge() }]),
