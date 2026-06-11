@@ -65,11 +65,11 @@ export function AppMenu() {
           style={{ top: `${pos().top}px`, left: `${pos().left}px`, transform: 'translateX(-100%)' }}
         >
           <div class="ddmenu-item" onClick={() => toggleDevTools()}>
-            <span class="ddmenu-check">{devToolsHidden() ? '' : '✓'}</span>Developer Tools
+            <span class="ddmenu-check">{devToolsHidden() ? '' : '✓'}</span>Developer panes
           </div>
           <div class="ddmenu-separator" />
           <div class="ddmenu-item ddmenu-parent">
-            <span class="ddmenu-check" />Reset
+            <span class="ddmenu-check" />Reset settings
             <span class="ddmenu-arrow">{'▸'}</span>
             <div class="ddmenu ddmenu-sub">
               <For each={orderedResetEntries()}>{(e) => (
