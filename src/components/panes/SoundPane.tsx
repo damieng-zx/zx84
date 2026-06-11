@@ -5,11 +5,12 @@ import {
   ayMix, setAyMix,
   ayStereo, setAyStereo,
   ayDcBlock, setAyDcBlock,
+  ayAntialias, setAyAntialias,
   persistSetting, resetSettingsGroup,
 } from '@/store/settings.ts';
 import { machine, currentModel, applyDisplaySettings } from '@/emulator.ts';
 import { isCpcModel } from '@/models.ts';
-import type { AYStereoMode } from '@/cores/ay-3-8910.ts';
+import type { AYStereoMode, AYAntialiasMode } from '@/cores/ay-3-8910.ts';
 
 const STEREO_MODES: { value: AYStereoMode; label: string }[] = [
   { value: 'MONO', label: 'Mono' },
@@ -21,6 +22,14 @@ const STEREO_MODES: { value: AYStereoMode; label: string }[] = [
   { value: 'CBA',  label: 'Stereo CBA' },
 ];
 
+// Anti-alias strategy for ultrasonic AY tones (see AYAntialiasMode).
+const ANTIALIAS_MODES: { value: AYAntialiasMode; label: string }[] = [
+  { value: 'mute',    label: 'Filter' },
+  { value: 'box',     label: 'Box filter' },
+  { value: 'lowpass', label: 'Low-pass' },
+  { value: 'none',    label: 'None (raw)' },
+];
+
 export function SoundPane() {
   return (
     <Pane id="sound-panel" label="Sound" onResetSettings={() => {
@@ -28,6 +37,7 @@ export function SoundPane() {
       if (machine) {
         machine.ay.setStereoMode('ABC');
         machine.ay.dcBlocking = true;
+        machine.ay.antialias = 'mute';
       }
       applyDisplaySettings();
     }}>
@@ -76,6 +86,21 @@ export function SoundPane() {
           }}
         >
           {STEREO_MODES.map(m => <option value={m.value}>{m.label}</option>)}
+        </select>
+      </div>
+      <div class="slider-row">
+        <span class="slider-label">Anti-alias</span>
+        <select
+          id="ay-antialias-select"
+          value={ayAntialias()}
+          onChange={(e) => {
+            const mode = (e.target as HTMLSelectElement).value as AYAntialiasMode;
+            setAyAntialias(mode);
+            if (machine) machine.ay.antialias = mode;
+            persistSetting('ay-antialias', mode);
+          }}
+        >
+          {ANTIALIAS_MODES.map(m => <option value={m.value}>{m.label}</option>)}
         </select>
       </div>
       <div class="slider-row">

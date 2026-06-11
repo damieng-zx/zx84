@@ -19,6 +19,19 @@ export const VOLUME_TABLE: number[] = [
 
 export type AYStereoMode = 'MONO' | 'ABC' | 'ACB' | 'BAC' | 'BCA' | 'CAB' | 'CBA';
 
+// Resampler anti-aliasing strategy for the AY output stage. The chip can emit
+// ultrasonic tones (e.g. a channel parked at period 0/1 ≈ 110 kHz) that are
+// inaudible on real hardware but alias down into the audible band as a whine
+// when the output is naively point-sampled.
+//   none    — legacy point-sampling (no anti-aliasing; aliases)
+//   box     — average the chip output across the clocks in each output sample
+//   mute    — treat an ultrasonic tone (period ≤ 1) as silent
+//   lowpass — low-pass the mixed output, modelling the Spectrum's audio bandwidth
+export type AYAntialiasMode = 'none' | 'box' | 'mute' | 'lowpass';
+
+// Cutoff for the 'lowpass' anti-alias mode (one-pole), ~ Spectrum audio bandwidth.
+const LP_CUTOFF_HZ = 14000;
+
 export class AY3891x {
   chipFreq: number;
   sampleRate: number;
@@ -63,6 +76,16 @@ export class AY3891x {
 
   // DC-blocking filter — toggle for conformance testing (disable to match raw VGMPlay output)
   dcBlocking = true;
+
+  // Resampler anti-aliasing mode. Core default is 'none' (deterministic
+  // point-sampling for conformance tests); the app sets it from the user's
+  // Sound-panel choice via emulator.ts.
+  antialias: AYAntialiasMode = 'none';
+
+  // One-pole low-pass state for the 'lowpass' anti-alias mode.
+  private _lpAlpha: number;
+  private _lpOutL = 0;
+  private _lpOutR = 0;
 
   // DC-blocking filter state (AC coupling, like real hardware's coupling capacitor)
   // y[n] = α * (y[n-1] + x[n] - x[n-1]), α ≈ 0.997 for ~20 Hz cutoff at 44.1 kHz
@@ -112,6 +135,9 @@ export class AY3891x {
     this._dcPrevR = 0;
     this._dcOutL = 0;
     this._dcOutR = 0;
+
+    // Low-pass coefficient for 'lowpass' anti-alias mode
+    this._lpAlpha = 1 - Math.exp(-2 * Math.PI * LP_CUTOFF_HZ / sampleRate);
   }
 
   /** Update the sample rate after construction (e.g. once the AudioContext
@@ -123,6 +149,7 @@ export class AY3891x {
     this.sampleRate = sampleRate;
     this.cyclesPerSample = this.chipFreq / (sampleRate * 8);
     this._dcAlpha = 1 - (2 * Math.PI * 20 / sampleRate);
+    this._lpAlpha = 1 - Math.exp(-2 * Math.PI * LP_CUTOFF_HZ / sampleRate);
   }
 
   reset(): void {
@@ -152,6 +179,8 @@ export class AY3891x {
     this._dcPrevR = 0;
     this._dcOutL = 0;
     this._dcOutR = 0;
+    this._lpOutL = 0;
+    this._lpOutR = 0;
   }
 
   writeRegister(reg: number, value: number): void {
@@ -287,7 +316,12 @@ export class AY3891x {
     const toneEnable = !((this.mixer >> ch) & 1);
     const noiseEnable = !((this.mixer >> (ch + 3)) & 1);
 
-    const toneOut = toneEnable ? this.toneOutput[ch] : 1;
+    // 'mute' anti-alias: a tone period of 0/1 is ultrasonic (~110 kHz) and
+    // inaudible on real hardware. Force the tone gate high so the channel
+    // emits a steady level (DC, removed by AC coupling) instead of a tone
+    // that would alias into an audible whine.
+    const ultrasonic = this.antialias === 'mute' && toneEnable && this.tonePeriod[ch] <= 1;
+    const toneOut = (toneEnable && !ultrasonic) ? this.toneOutput[ch] : 1;
     const noiseOut = noiseEnable ? this.noiseOutput : 1;
 
     if (toneOut & noiseOut) {
@@ -355,40 +389,94 @@ export class AY3891x {
   }
 
   generateSample(): number {
-    this.cycleFrac += this.cyclesPerSample;
-    while (this.cycleFrac >= 1) {
-      this.cycleFrac--;
-      this.clock();
+    let raw: number;
+    if (this.antialias === 'box') {
+      // Average the chip output across every clock in this output sample
+      // (box-filter decimation) — anti-aliases content near the sample rate,
+      // so ultrasonic tones collapse to ~DC instead of aliasing to a whine.
+      let acc = 0, n = 0;
+      this.cycleFrac += this.cyclesPerSample;
+      while (this.cycleFrac >= 1) {
+        this.cycleFrac--;
+        this.clock();
+        acc += this.output();
+        n++;
+      }
+      raw = n > 0 ? acc / n : this.output();
+    } else {
+      this.cycleFrac += this.cyclesPerSample;
+      while (this.cycleFrac >= 1) {
+        this.cycleFrac--;
+        this.clock();
+      }
+      raw = this.output();
     }
-    const raw = this.output();
     if (this.dcBlocking) {
       // DC-blocking filter (AC coupling) — removes DC bias dynamically
       this._dcOutL = this._dcAlpha * (this._dcOutL + raw - this._dcPrevL);
       this._dcPrevL = raw;
-      return this._dcOutL;
+      raw = this._dcOutL;
+    }
+    if (this.antialias === 'lowpass') {
+      this._lpOutL += this._lpAlpha * (raw - this._lpOutL);
+      raw = this._lpOutL;
     }
     return raw;
   }
 
   generateSampleStereo(): { left: number; right: number } {
-    this.cycleFrac += this.cyclesPerSample;
-    while (this.cycleFrac >= 1) {
-      this.cycleFrac--;
-      this.clock();
+    let l: number, r: number;
+    if (this.antialias === 'box') {
+      // Box-filter decimation per channel (see generateSample)
+      let accL = 0, accR = 0, n = 0;
+      this.cycleFrac += this.cyclesPerSample;
+      while (this.cycleFrac >= 1) {
+        this.cycleFrac--;
+        this.clock();
+        const o = this.outputStereo();
+        accL += o.left;
+        accR += o.right;
+        n++;
+      }
+      if (n > 0) {
+        l = accL / n;
+        r = accR / n;
+      } else {
+        const o = this.outputStereo();
+        l = o.left;
+        r = o.right;
+      }
+    } else {
+      this.cycleFrac += this.cyclesPerSample;
+      while (this.cycleFrac >= 1) {
+        this.cycleFrac--;
+        this.clock();
+      }
+      const o = this.outputStereo();
+      l = o.left;
+      r = o.right;
     }
-    const raw = this.outputStereo();
     if (this.dcBlocking) {
       // DC-blocking filter (AC coupling) — removes DC bias dynamically
-      const outL = this._dcAlpha * (this._dcOutL + raw.left - this._dcPrevL);
-      const outR = this._dcAlpha * (this._dcOutR + raw.right - this._dcPrevR);
-      this._dcPrevL = raw.left;
-      this._dcPrevR = raw.right;
+      const outL = this._dcAlpha * (this._dcOutL + l - this._dcPrevL);
+      const outR = this._dcAlpha * (this._dcOutR + r - this._dcPrevR);
+      this._dcPrevL = l;
+      this._dcPrevR = r;
       this._dcOutL = outL;
       this._dcOutR = outR;
-      raw.left = outL;
-      raw.right = outR;
+      l = outL;
+      r = outR;
     }
-    return raw;
+    if (this.antialias === 'lowpass') {
+      this._lpOutL += this._lpAlpha * (l - this._lpOutL);
+      this._lpOutR += this._lpAlpha * (r - this._lpOutR);
+      l = this._lpOutL;
+      r = this._lpOutR;
+    }
+    const out = this._stereoOut;
+    out.left = l;
+    out.right = r;
+    return out;
   }
 
   setStereoMode(mode: AYStereoMode): void {

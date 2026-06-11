@@ -40,6 +40,7 @@ const DEFAULTS = {
   'ay-mix':       '50',
   'ay-stereo':    'ABC',
   'ay-dc-block':  'on',
+  'ay-antialias': 'mute',
 
   // Joystick
   'joy-p1':     'kempston',
@@ -189,6 +190,10 @@ export const setAyStereo = _ayStereo[1];
 const _ayDcBlock = /*@once*/ createRoot(() => createSignal(getSaved('ay-dc-block', D('ay-dc-block')) === 'on'));
 export const ayDcBlock = _ayDcBlock[0];
 export const setAyDcBlock = _ayDcBlock[1];
+
+const _ayAntialias = /*@once*/ createRoot(() => createSignal(getSaved('ay-antialias', D('ay-antialias'))));
+export const ayAntialias = _ayAntialias[0];
+export const setAyAntialias = _ayAntialias[1];
 
 // ── Joystick settings ───────────────────────────────────────────────────
 
@@ -416,6 +421,7 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'ay-mix',      set: setAyMix,      type: 'number' },
     { key: 'ay-stereo',   set: setAyStereo,   type: 'string' },
     { key: 'ay-dc-block', set: setAyDcBlock,  type: 'bool' },
+    { key: 'ay-antialias', set: setAyAntialias, type: 'string' },
   ],
   joystick: [
     { key: 'joy-p1',     set: setJoyP1,    type: 'string' },

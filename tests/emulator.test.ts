@@ -238,6 +238,7 @@ vi.mock('@/store/settings.ts', () => ({
   scanlineAccuracy:   vi.fn(() => 'high'),
   ayStereo:           vi.fn(() => 'ABC'),
   ayDcBlock:          vi.fn(() => true),
+  ayAntialias:        vi.fn(() => 'mute'),
   writeProtectA:      vi.fn(() => false),
   writeProtectB:      vi.fn(() => false),
   driveBForceReady:   vi.fn(() => false),
@@ -351,6 +352,7 @@ beforeEach(() => {
   vi.mocked(settings.scanlineAccuracy).mockReturnValue('high');
   vi.mocked(settings.ayStereo).mockReturnValue('ABC');
   vi.mocked(settings.ayDcBlock).mockReturnValue(true);
+  vi.mocked(settings.ayAntialias).mockReturnValue('mute');
   vi.mocked(settings.writeProtectA).mockReturnValue(false);
   vi.mocked(settings.writeProtectB).mockReturnValue(false);
   vi.mocked(settings.driveBForceReady).mockReturnValue(false);

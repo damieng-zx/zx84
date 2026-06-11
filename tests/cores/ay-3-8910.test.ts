@@ -848,6 +848,66 @@ describe('AY-3-8910 — DC blocking filter', () => {
   });
 });
 
+describe('AY-3-8910 — ultrasonic anti-aliasing (the Chase HQ II whine)', () => {
+  // Collect N raw mono samples (DC blocking left off so the test sees the bare
+  // resampled signal, not the high-pass tail).
+  function collect(ay: AY3891x, n: number): number[] {
+    const out: number[] = [];
+    for (let i = 0; i < n; i++) out.push(ay.generateSample());
+    return out;
+  }
+  const range = (a: number[]) => Math.max(...a) - Math.min(...a);
+
+  // Channel C parked at tone period `period`, full volume, tone-enabled, with
+  // A/B and all noise disabled in the mixer. period 0 → clamped to 1 ≈ 110 kHz.
+  function oneChannel(mode: 'none' | 'box' | 'mute' | 'lowpass', period: number): AY3891x {
+    const ay = new AY3891x(CHIP_FREQ, SAMPLE_RATE);
+    ay.dcBlocking = false;
+    ay.antialias = mode;
+    ay.writeRegister(4, period & 0xFF);
+    ay.writeRegister(5, (period >> 8) & 0x0F);
+    ay.writeRegister(10, 0x0F);          // channel C volume = max
+    ay.writeRegister(7, 0b11111011);     // enable tone C only
+    return ay;
+  }
+
+  it("'none' point-sampling aliases a period-0 tone into a large varying ripple", () => {
+    // A ~110 kHz square point-sampled at 44.1 kHz folds down to a loud audible
+    // tone: consecutive samples swing between 0 and the channel's full level.
+    const s = collect(oneChannel('none', 0), 256);
+    expect(range(s)).toBeGreaterThan(0.2);
+  });
+
+  it("'mute' turns an ultrasonic (period ≤ 1) channel into a constant level — no whine", () => {
+    // Forcing the tone gate high makes the channel pure DC: every sample equal,
+    // so there is nothing to alias. (DC itself is removed by AC coupling.)
+    const s = collect(oneChannel('mute', 0), 256);
+    expect(range(s)).toBe(0);
+  });
+
+  it("'box' filter cuts the aliasing ripple to a fraction of point-sampling", () => {
+    const none = range(collect(oneChannel('none', 0), 256));
+    const box = range(collect(oneChannel('box', 0), 256));
+    expect(box).toBeLessThan(none / 3);
+  });
+
+  it("'mute' does NOT silence a normal audible channel", () => {
+    // period 178 ≈ 620 Hz is well within the audio band; mute must leave it alone.
+    const s = collect(oneChannel('mute', 178), 1024);
+    expect(range(s)).toBeGreaterThan(0.2);
+  });
+
+  it('all four modes produce finite, bounded output', () => {
+    for (const mode of ['none', 'box', 'mute', 'lowpass'] as const) {
+      const s = collect(oneChannel(mode, 0), 128);
+      for (const v of s) {
+        expect(Number.isFinite(v)).toBe(true);
+        expect(Math.abs(v)).toBeLessThanOrEqual(1);
+      }
+    }
+  });
+});
+
 describe('AY-3-8910 — I/O port registers (R14/R15)', () => {
   // R14 and R15 are GPIO ports on the chip; on the ZX 128K, R14 is wired
   // to the keypad/AUX port. writeRegister stores them but they have no

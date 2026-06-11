@@ -355,6 +355,7 @@ export async function createMachine(): Promise<boolean> {
   const savedAyStereo = settings.ayStereo() as import('@/cores/ay-3-8910.ts').AYStereoMode;
   machine.ay.setStereoMode(savedAyStereo);
   machine.ay.dcBlocking = settings.ayDcBlock();
+  machine.ay.antialias = settings.ayAntialias() as import('@/cores/ay-3-8910.ts').AYAntialiasMode;
 
   // Disk write-protect + floppy sound (Spectrum +3 or any CPC with a controller)
   setCurrentDiskInfo(null);
