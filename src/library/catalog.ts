@@ -10,16 +10,22 @@
  */
 
 import { dbLoad, dbSave, getSaved, setSaved } from '@/store/persistence.ts';
+import { is128kClass, isPlus3, type SpectrumModel, type MachineModel } from '@/models.ts';
 
-/** One game in the compact on-wire schema. Short keys keep the JSON small. */
+/** One game in the compact on-wire schema. Short keys keep the JSON small. The
+ *  required model is implicit in which slot a file lands in: f ⇒ 48K tape,
+ *  k ⇒ 128K tape, d/ds ⇒ +3 disk. */
 export interface RawGame {
+  i: number;    // ZXDB entry id
   t: string;    // title
   y?: number;   // release year
   g?: number;   // genre — index into RawCatalog.genres
   p?: number;   // publisher — index into RawCatalog.publishers
-  f?: string;   // tape file_link (preferred: .tzx.zip, else .tap.zip)
-  d?: string;   // disk file_link (.dsk.zip), when present
-  s?: string;   // running-screen image file_link (.gif preferred, else .png)
+  s?: string;   // running-screen image file_link (.scr)
+  f?: string;   // 48K tape file_link (.tzx preferred, else .tap)
+  k?: string;   // 128K tape file_link
+  d?: string;   // disk file_link (.dsk) — side A / disk 1
+  ds?: [string, string][]; // extra disk sides: [file_link, label]
 }
 
 export interface RawCatalog {
@@ -30,14 +36,22 @@ export interface RawCatalog {
 
 /** A catalog entry resolved for the UI (dictionary indices expanded). */
 export interface Game {
+  /** ZXDB entry id — stable key. */
+  id: number;
   title: string;
   year: number | null;
   genre: string;
   publisher: string;
-  /** ZXDB file_link for the file we'll load (tape preferred over disk). */
-  fileLink: string;
-  /** True when the chosen file is a disk image rather than a tape. */
-  isDisk: boolean;
+  /** ZXDB file_link for the 48K tape, '' when none. */
+  tape48: string;
+  /** ZXDB file_link for the 128K tape, '' when none. */
+  tape128: string;
+  /** ZXDB file_link for the primary disk side, '' when none. */
+  disk: string;
+  /** Extra disk sides: [file_link, label]. */
+  diskSides: [string, string][];
+  /** True when the game has only a disk (no tape) — forces a +3. */
+  isDiskOnly: boolean;
   /** ZXDB file_link for a running-screen image ('' when none). */
   screen: string;
 }
@@ -115,15 +129,65 @@ export function shortPublisher(name: string): string {
 /** Resolve a compact RawGame against the catalog dictionaries for display. */
 export function resolveGame(raw: RawGame, cat: RawCatalog): Game {
   return {
+    id: raw.i,
     title: raw.t,
     year: raw.y ?? null,
     genre: raw.g != null ? cat.genres[raw.g] ?? '' : '',
     publisher: raw.p != null ? cat.publishers[raw.p] ?? '' : '',
-    // Prefer the tape; fall back to the disk image when no tape exists.
-    fileLink: raw.f ?? raw.d ?? '',
-    isDisk: raw.f == null && raw.d != null,
+    tape48: raw.f ?? '',
+    tape128: raw.k ?? '',
+    disk: raw.d ?? '',
+    diskSides: raw.ds ?? [],
+    isDiskOnly: raw.f == null && raw.k == null && raw.d != null,
     screen: raw.s ?? '',
   };
+}
+
+/** What to do when the user plays `game` from the current machine: which model
+ *  to be on, which file to mount, and how to kick off the loader. */
+export interface LoadPlan {
+  target: SpectrumModel;     // model to load it on (may equal the current one)
+  link: string;             // ZXDB file_link to fetch + mount
+  isDisk: boolean;          // disk image vs tape
+  boot: 'menu' | 'rom48k';  // press Enter on the 128K/+3 loader menu, or jump 48K ROM
+}
+
+/**
+ * Pick the best load for `game` from the current machine, preferring to stay put
+ * and only upgrading when needed:
+ *   - +3: a disk loads from A: (menu); otherwise a tape (prefer 128K) via menu.
+ *   - 128/+2/+2A: a tape (prefer 128K) via menu; a disk-only game upgrades to +3.
+ *   - 48K (or 16K/other): a 48K tape jumps the ROM loader; a 128K-only tape
+ *     upgrades to 128K; a disk-only game upgrades to +3.
+ * Returns null only when the game has neither a tape nor a disk.
+ */
+export function planLoad(game: Game, current: MachineModel): LoadPlan | null {
+  const { tape48, tape128, disk } = game;
+  const anyTape = tape128 || tape48;   // prefer the 128K tape where a machine runs it
+
+  if (isPlus3(current)) {
+    if (disk) return { target: '+3', link: disk, isDisk: true, boot: 'menu' };
+    if (anyTape) return { target: '+3', link: anyTape, isDisk: false, boot: 'menu' };
+    return null;
+  }
+  if (is128kClass(current)) {   // 128 / +2 / +2A (not +3, handled above)
+    if (anyTape) return { target: current as SpectrumModel, link: anyTape, isDisk: false, boot: 'menu' };
+    if (disk) return { target: '+3', link: disk, isDisk: true, boot: 'menu' };
+    return null;
+  }
+  // 48K, 16K, or a non-Spectrum machine: load on the minimal Spectrum that fits.
+  if (tape48)  return { target: '48k', link: tape48, isDisk: false, boot: 'rom48k' };
+  if (tape128) return { target: '128k', link: tape128, isDisk: false, boot: 'menu' };
+  if (disk)    return { target: '+3', link: disk, isDisk: true, boot: 'menu' };
+  return null;
+}
+
+/** Minimum machine a game needs: '48' (has a 48K tape), else '128' (128K-only
+ *  tape), else '+3' (disk-only). For the row's "needs 128/+3" badge. */
+export function gameNeeds(game: Game): '48' | '128' | '+3' {
+  if (game.tape48) return '48';
+  if (game.tape128) return '128';
+  return '+3';
 }
 
 // ── Catalog fetch / cache ─────────────────────────────────────────────────

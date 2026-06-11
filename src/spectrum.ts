@@ -89,6 +89,39 @@ export class IOActivity {
     this.mouseReads = 0;
   }
 }
+/** Auto-boot keystroke step: hold this set of (row, bit) matrix keys for
+ *  `frames` frames. An empty key set is a release gap between presses. */
+type BootKeyStep = { keys: ReadonlyArray<readonly [number, number]>; frames: number };
+
+// ZX keyboard matrix positions used by the auto-boot loader (see keyboard.ts).
+const K_ENTER: readonly [number, number] = [6, 0];
+const K_J: readonly [number, number] = [6, 3];     // LOAD keyword in K-mode
+const K_SYM: readonly [number, number] = [7, 1];   // SYMBOL SHIFT
+const K_P: readonly [number, number] = [5, 0];     // P (with SYM = ")
+
+/** 128K/+2/+2A/+3 boot menu: hold ENTER on the default "Loader" option. The
+ *  menu ignores input for ~100 frames while it draws, so the hold must be long. */
+function menuEnterSequence(): BootKeyStep[] {
+  return [{ keys: [K_ENTER], frames: 175 }];
+}
+
+/** 48K editor: type `LOAD ""` then ENTER. `"` is SYMBOL SHIFT + P. Each key is
+ *  held, then released for a gap so the ROM's key-scan registers it as distinct.
+ *  Repeating the SAME key (`"` twice) needs a longer release gap: the ROM only
+ *  accepts the second press after KSTATE has cleared and re-debounced, so a short
+ *  gap drops it. REPGAP gives that margin before the repeat. */
+function load48kSequence(): BootKeyStep[] {
+  const HOLD = 5, GAP = 5, REPGAP = 12;
+  return [
+    { keys: [K_J], frames: HOLD },          // LOAD
+    { keys: [], frames: GAP },
+    { keys: [K_SYM, K_P], frames: HOLD },   // "
+    { keys: [], frames: REPGAP },           // longer gap before the repeated key
+    { keys: [K_SYM, K_P], frames: HOLD },   // "
+    { keys: [], frames: GAP },
+    { keys: [K_ENTER], frames: HOLD },      // ENTER → run LOAD
+  ];
+}
 
 export class Spectrum extends BaseMachine implements Machine {
   readonly kind: MachineKind = 'spectrum';
@@ -238,6 +271,21 @@ export class Spectrum extends BaseMachine implements Machine {
    *  +2A/+3 (Amstrad gate array) where deterministic timing makes the slightly
    *  later capture safe.  Set once in constructor from the variant. */
   private _cellRenderOffset: 0 | 1 = 1;
+
+  /** One-shot auto-boot trap for the software library's one-click play: when PC
+   *  reaches `bootTrapPc`, inject the loader keystrokes and disarm. 'menu' holds
+   *  Enter (the 128K/+2/+2A/+3 boot menu's default Loader option); 'rom48k' types
+   *  `LOAD ""` + Enter on the 48K editor. Armed after a reset, fires once the ROM
+   *  reaches its menu/editor key-wait loop — deterministic, not a wall-clock race.
+   *  (A cold jump to LD-BYTES doesn't work: it loads one block to undefined
+   *  IX/DE/A' and never runs the BASIC loader, so we drive the real keyboard.) */
+  bootTrapPc = -1;
+  bootTrapKind: 'menu' | 'rom48k' = 'menu';
+  /** Remaining auto-boot keystroke steps; each holds a key set for `frames`
+   *  frames (an empty key set is a release gap so the ROM sees distinct keys). */
+  private bootKeySteps: BootKeyStep[] = [];
+  private bootStepKeys: ReadonlyArray<readonly [number, number]> = [];
+  private bootStepFrames = 0;
 
   // The debug surface (breakpoints / port + memory watchpoints / onTrap /
   // onStatus / onFrame) is inherited from BaseMachine, shared with the CPC.
@@ -405,6 +453,11 @@ export class Spectrum extends BaseMachine implements Machine {
 
   reset(): void {
     this.stop();
+    this.bootTrapPc = -1;
+    this.bootTrapKind = 'menu';
+    this.bootKeySteps = [];
+    this.bootStepKeys = [];
+    this.bootStepFrames = 0;
     this.cpu.reset();
     this.ay.reset();
     this.ula.reset();
@@ -434,6 +487,16 @@ export class Spectrum extends BaseMachine implements Machine {
     this.contention.frameStartTStates = 0;
     this.needsDisplay = true;
     this.setStatus('Reset');
+  }
+
+  /** Pop the next auto-boot keystroke step and press its keys (held until its
+   *  frame counter expires in runFrame). No-op when the sequence is exhausted. */
+  private advanceBootStep(): void {
+    const step = this.bootKeySteps.shift();
+    if (!step) { this.bootStepKeys = []; this.bootStepFrames = 0; return; }
+    for (const [row, bit] of step.keys) this.keyboard.setKey(row, bit, true);
+    this.bootStepKeys = step.keys;
+    this.bootStepFrames = step.frames;
   }
 
   // start / stop / destroy / tick / runUntil and the rAF frame loop live on
@@ -591,6 +654,15 @@ export class Spectrum extends BaseMachine implements Machine {
       // entry-point traps and can intercept G+DOS commands. See mgt-plusd.ts.
       if (this.mgtPlusD.enabled) this.mgtPlusD.checkM1Page(this.cpu.pc, this.memory);
 
+      // One-shot auto-boot trap (software-library play): the ROM has reached its
+      // menu / 48K editor key-wait loop, so queue the loader keystrokes and
+      // disarm. setKey is the same matrix path the joystick uses.
+      if (this.bootTrapPc >= 0 && this.cpu.pc === this.bootTrapPc) {
+        this.bootTrapPc = -1;          // one-shot
+        this.bootKeySteps = this.bootTrapKind === 'rom48k' ? load48kSequence() : menuEnterSequence();
+        this.advanceBootStep();        // press the first step now
+      }
+
       // ROM routine activity detection (LD-BYTES entry)
       if (this.cpu.pc === 0x0556) this.activity.tapeLoads++;
       // ROM trap: intercept LD-BYTES partway through, at LD-START (0x056C),
@@ -712,6 +784,15 @@ export class Spectrum extends BaseMachine implements Machine {
         this.mixer.accumulate(this.ula.getAudioEarBit(this.tapeSoundEnabled), elapsed);
         this.mixer.generateSamples(this.audio, this.ay, this.variant.hasAY);
       }
+    }
+
+    // Drive the auto-boot keystroke sequence: when the current step's hold
+    // window expires, release its keys and press the next step (an empty key
+    // set is a release gap so the ROM registers each press separately).
+    if (this.bootStepFrames > 0 && --this.bootStepFrames === 0) {
+      for (const [row, bit] of this.bootStepKeys) this.keyboard.setKey(row, bit, false);
+      this.bootStepKeys = [];
+      this.advanceBootStep();
     }
 
     // Tape turbo cooldown.

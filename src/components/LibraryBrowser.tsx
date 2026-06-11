@@ -1,11 +1,11 @@
 import { createMemo, createSignal, createEffect, onMount, Show, For } from 'solid-js';
 import { HiOutlineEllipsisVertical, HiOutlinePlay } from 'solid-icons/hi';
 import { DropDownMenuButton, type MenuItem } from '@/components/DropDownMenuButton.tsx';
-import { loadFile } from '@/emulator.ts';
+import { loadFile, currentModel, switchModel, autoBootLoad, ejectDisk } from '@/emulator.ts';
 import { tapeName } from '@/state/tape-state.ts';
 import { currentDiskName } from '@/state/disk-state.ts';
 import {
-  fetchCatalog, fileUrls, basename, resolveGame, parseLibraryQuery, type Game,
+  fetchCatalog, fileUrls, basename, resolveGame, parseLibraryQuery, planLoad, gameNeeds, type Game,
 } from '@/library/catalog.ts';
 import { renderScrToCanvas } from '@/library/scr-render.ts';
 import {
@@ -255,18 +255,27 @@ export function LibraryBrowser() {
   onMount(ensureCatalog);
 
   async function play(game: Game) {
-    const urls = fileUrls(game.fileLink);
-    if (!urls.length || loadingGame()) return;
+    const plan = planLoad(game, currentModel());
+    if (!plan || loadingGame()) return;
+    const urls = fileUrls(plan.link);
+    if (!urls.length) return;
     setLoadingGame(game);
     setLibraryError('');
     try {
       const data = await fetchFirst(urls);
-      await loadFile(data, basename(game.fileLink));
-      // Remember what got mounted so the row stays highlighted until it's
-      // ejected or replaced (captured from the resulting media name, which
-      // differs from the .zip filename after unzip).
-      const kind = game.isDisk ? 'disk' : 'tape';
+      // Switch to the model this load needs (if any), mount the media, then
+      // reset + kick the loader (Enter on the 128K/+3 menu, or 48K ROM jump).
+      if (plan.target !== currentModel()) await switchModel(plan.target);
+      await loadFile(data, basename(plan.link));
+      // A tape-only game on a +3/+2A must not find a disk in A: — the boot
+      // menu's Loader boots the disk in preference to the tape. Eject any
+      // mounted disk so the Loader falls through to the cassette loader.
+      if (!plan.isDisk && currentDiskName()) ejectDisk(0);
+      // Capture the mounted media name before the boot reset so the row stays
+      // highlighted until it's ejected or replaced.
+      const kind = plan.isDisk ? 'disk' : 'tape';
       setMounted({ game, name: kind === 'disk' ? currentDiskName() : tapeName(), kind });
+      autoBootLoad(plan.boot);
     } catch (err) {
       console.warn(`Failed to load "${game.title}":`, err);
       setLibraryError(`Could not download "${game.title}".`);
@@ -320,11 +329,14 @@ export function LibraryBrowser() {
                 <div
                   class={`library-row${loadingGame() === game ? ' loading' : ''}${mounted()?.game === game ? ' mounted' : ''}${selected() === game ? ' selected' : ''}`}
                   onClick={() => setSelected(selected() === game ? null : game)}
-                  title={`${game.title}${game.publisher ? ` — ${game.publisher}` : ''}${game.isDisk ? ' (disk)' : ''}`}
+                  title={`${game.title}${game.publisher ? ` — ${game.publisher}` : ''}${game.isDiskOnly ? ' (disk)' : ''}${gameNeeds(game) !== '48' ? ` · needs ${gameNeeds(game) === '+3' ? '+3' : '128K'}` : ''}`}
                 >
                   <span class="library-title">
-                    {game.title}{game.isDisk ? ' 💾' : ''}
+                    {game.title}{game.isDiskOnly ? ' 💾' : ''}
                   </span>
+                  <Show when={gameNeeds(game) !== '48'}>
+                    <span class="library-model">{gameNeeds(game) === '+3' ? '+3' : '128'}</span>
+                  </Show>
                   <span
                     class="library-play"
                     title="Load"

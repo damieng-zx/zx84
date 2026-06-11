@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { fileUrls, basename, shortPublisher, resolveGame, parseLibraryQuery, type RawCatalog } from '@/library/catalog.ts';
+import { fileUrls, basename, shortPublisher, resolveGame, planLoad, gameNeeds, parseLibraryQuery, type RawCatalog } from '@/library/catalog.ts';
 
 const CDN = 'https://zx84files.bitsparse.com/library';
 const PROXY = 'https://zxfileserver.envytech.workers.dev';
@@ -102,28 +102,76 @@ describe('resolveGame', () => {
     games: [],
   };
 
-  it('expands genre/publisher indices and prefers the tape over the disk', () => {
-    const g = resolveGame({ t: 'Jetpac', y: 1983, g: 0, p: 0, f: '/pub/a.tzx.zip', d: '/pub/a.dsk.zip', s: '/pub/a.scr' }, cat);
+  it('expands genre/publisher indices and exposes the tape/disk slots', () => {
+    const g = resolveGame({ i: 7, t: 'Jetpac', y: 1983, g: 0, p: 0, f: '/pub/a.tzx.zip', k: '/pub/a128.tzx.zip', d: '/pub/a.dsk.zip', s: '/pub/a.scr' }, cat);
     expect(g).toEqual({
-      title: 'Jetpac', year: 1983, genre: 'Arcade: Action', publisher: 'Ultimate',
-      fileLink: '/pub/a.tzx.zip', isDisk: false, screen: '/pub/a.scr',
+      id: 7, title: 'Jetpac', year: 1983, genre: 'Arcade: Action', publisher: 'Ultimate',
+      tape48: '/pub/a.tzx.zip', tape128: '/pub/a128.tzx.zip', disk: '/pub/a.dsk.zip',
+      diskSides: [], isDiskOnly: false, screen: '/pub/a.scr',
     });
   });
 
-  it('defaults screen to empty when absent', () => {
-    expect(resolveGame({ t: 'Homebrew', f: '/pub/h.tzx.zip' }, cat).screen).toBe('');
+  it('flags a disk-only game', () => {
+    expect(resolveGame({ i: 1, t: 'D', d: '/pub/d.dsk.zip' }, cat).isDiskOnly).toBe(true);
+    expect(resolveGame({ i: 2, t: 'T', f: '/pub/t.tzx.zip', d: '/pub/t.dsk.zip' }, cat).isDiskOnly).toBe(false);
   });
 
-  it('falls back to the disk image and flags it when there is no tape', () => {
-    const g = resolveGame({ t: 'CP/M Thing', g: 1, p: 1, d: '/pub/b.dsk.zip' }, cat);
-    expect(g.fileLink).toBe('/pub/b.dsk.zip');
-    expect(g.isDisk).toBe(true);
-  });
-
-  it('tolerates missing year/genre/publisher', () => {
-    const g = resolveGame({ t: 'Homebrew', f: '/pub/h.tzx.zip' }, cat);
+  it('defaults empty slots and tolerates missing year/genre/publisher', () => {
+    const g = resolveGame({ i: 3, t: 'Homebrew', f: '/pub/h.tzx.zip' }, cat);
+    expect(g.tape128).toBe('');
+    expect(g.disk).toBe('');
+    expect(g.screen).toBe('');
     expect(g.year).toBeNull();
     expect(g.genre).toBe('');
     expect(g.publisher).toBe('');
+  });
+});
+
+describe('planLoad / gameNeeds', () => {
+  const cat: RawCatalog = { genres: [], publishers: [], games: [] };
+  const mk = (raw: Omit<RawCatalog['games'][number], 'i'>) => resolveGame({ i: 1, ...raw }, cat);
+  const tape48 = mk({ t: 'T48', f: '/pub/48.tzx.zip' });
+  const tape128 = mk({ t: 'T128', k: '/pub/128.tzx.zip' });
+  const bothTapes = mk({ t: 'BT', f: '/pub/48.tzx.zip', k: '/pub/128.tzx.zip' });
+  const diskOnly = mk({ t: 'D', d: '/pub/x.dsk.zip' });
+  const tapeAndDisk = mk({ t: 'TD', f: '/pub/48.tzx.zip', d: '/pub/x.dsk.zip' });
+
+  it('48K: a 48 tape jumps the ROM loader, staying on 48K', () => {
+    expect(planLoad(tape48, '48k')).toEqual({ target: '48k', link: '/pub/48.tzx.zip', isDisk: false, boot: 'rom48k' });
+  });
+
+  it('48K: a 128-only tape upgrades to 128K and uses the menu', () => {
+    expect(planLoad(tape128, '48k')).toEqual({ target: '128k', link: '/pub/128.tzx.zip', isDisk: false, boot: 'menu' });
+  });
+
+  it('48K: a disk-only game upgrades to +3', () => {
+    expect(planLoad(diskOnly, '48k')).toEqual({ target: '+3', link: '/pub/x.dsk.zip', isDisk: true, boot: 'menu' });
+  });
+
+  it('128K: a tape stays on the current machine, preferring the 128K tape', () => {
+    expect(planLoad(bothTapes, '+2A')).toEqual({ target: '+2A', link: '/pub/128.tzx.zip', isDisk: false, boot: 'menu' });
+  });
+
+  it('128K: a disk-only game upgrades to +3', () => {
+    expect(planLoad(diskOnly, '128k')).toEqual({ target: '+3', link: '/pub/x.dsk.zip', isDisk: true, boot: 'menu' });
+  });
+
+  it('+3: prefers the disk over the tape', () => {
+    expect(planLoad(tapeAndDisk, '+3')).toEqual({ target: '+3', link: '/pub/x.dsk.zip', isDisk: true, boot: 'menu' });
+  });
+
+  it('+3: a tape-only game still loads via the menu', () => {
+    expect(planLoad(tape48, '+3')).toEqual({ target: '+3', link: '/pub/48.tzx.zip', isDisk: false, boot: 'menu' });
+  });
+
+  it('returns null when the game has neither tape nor disk', () => {
+    expect(planLoad(mk({ t: 'None' }), '48k')).toBeNull();
+  });
+
+  it('gameNeeds reports the minimum machine', () => {
+    expect(gameNeeds(tape48)).toBe('48');
+    expect(gameNeeds(tape128)).toBe('128');
+    expect(gameNeeds(diskOnly)).toBe('+3');
+    expect(gameNeeds(bothTapes)).toBe('48');
   });
 });

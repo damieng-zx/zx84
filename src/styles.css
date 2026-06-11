@@ -1324,6 +1324,19 @@ input[type="range"]::-moz-range-thumb {
 }
 .library-play:hover { color: #1a1; }
 
+/* Required-model badge ("128"/"+3"); only shown for non-48K titles. */
+.library-model {
+  flex: 0 0 auto;
+  font-size: 0.6rem;
+  font-weight: 600;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 3px;
+  background: #e6e6f2;
+  color: #556;
+  letter-spacing: 0.3px;
+}
+
 /* Expanded detail — screenshot (1:1, fills the pane width) with publisher below. */
 .library-detail {
   display: flex;

@@ -483,6 +483,32 @@ export function resetMachine(): void {
   clearLastFile();
 }
 
+/** ROM address where each model idles waiting for a key — the deterministic
+ *  point to fire the auto-boot loader (found by tracing each ROM's key-wait). */
+function bootWaitPc(model: MachineModel): number {
+  if (model === '+2A' || model === '+3') return 0x1875;   // +2A/+3 menu wait loop (BIT 5,(HL) / JR Z,1875)
+  if (model === '128k' || model === '+2') return 0x0E65;  // 128K/+2 menu wait loop
+  return 0x15DE;                                           // 48K editor WAIT-KEY
+}
+
+/**
+ * Reset the machine and arm a one-shot trap to kick off its loader once the ROM
+ * reaches its menu/editor key-wait loop — deterministic, frame-exact (no
+ * wall-clock race). Used by the software library's one-click play:
+ *  - 'menu'   → press Enter on the 128K/+2/+2A/+3 boot menu (default = Loader),
+ *               loading the tape (128K) or disk in A: (+3).
+ *  - 'rom48k' → jump the 48K ROM to LD-BYTES (0x0556); the mounted tape loads
+ *               via the fast-ROM trap at 0x056C.
+ *
+ * The media must already be mounted.
+ */
+export function autoBootLoad(method: 'menu' | 'rom48k'): void {
+  resetMachine();
+  if (!spectrum) return;
+  spectrum.bootTrapKind = method;
+  spectrum.bootTrapPc = bootWaitPc(currentModel());
+}
+
 export function toggleTurbo(): void {
   if (!machine) return;
   machine.turbo = !machine.turbo;
