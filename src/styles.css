@@ -89,17 +89,27 @@ body {
 /* "⋮" app-menu button, pinned to the right of the logo bar (old version slot).
    Uses the shared .btn style; this positions it and stops it inheriting the
    bold, letter-spaced typography of the .logo heading it sits inside. */
+/* Ghost button — white ellipsis on the black toolbar, no chrome (matches the
+   library search "..." button). */
 .logo-menu {
   position: absolute;
   right: 6px;
   top: 50%;
   transform: translateY(-50%);
   margin: 0;
-  padding: 1px 5px;
-  font-weight: 400;
-  letter-spacing: normal;
+  padding: 2px 4px;
+  border: none;
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
   line-height: 1;
+  opacity: 0.85;
 }
+.logo-menu:hover { opacity: 1; }
 
 .logo-stripe {
   height: 2px;

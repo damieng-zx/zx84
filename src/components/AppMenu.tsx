@@ -4,6 +4,7 @@
  */
 
 import { createSignal, createEffect, onCleanup, Show, For } from 'solid-js';
+import { HiOutlineEllipsisVertical } from 'solid-icons/hi';
 import {
   devToolsHidden, toggleDevTools, orderedResetEntries, resetLayout, type ResetEntry,
 } from '@/ui/panes.ts';
@@ -54,9 +55,9 @@ export function AppMenu() {
 
   return (
     <>
-      <button ref={btnRef} class="btn btn-sm logo-menu" title="App menu"
+      <button ref={btnRef} class="logo-menu" title="App menu"
         onClick={(e) => { e.stopPropagation(); toggle(); }}>
-        ⋮
+        <HiOutlineEllipsisVertical />
       </button>
       <Show when={open()}>
         <div
