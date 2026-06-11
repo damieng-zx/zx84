@@ -1256,12 +1256,13 @@ input[type="range"]::-moz-range-thumb {
   border-top: 1px solid #ddd;
 }
 
-.library-search { position: relative; padding: 2px 3px 6px; }
+.library-search { display: flex; align-items: center; gap: 2px; padding: 2px 3px 6px; }
 
 .library-search-input {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   box-sizing: border-box;
-  padding: 3px 24px 3px 6px;   /* right room for the filter button */
+  padding: 3px 6px;
   font: inherit;
   font-size: 0.75rem;
   border: 1px solid #aab;
@@ -1269,27 +1270,13 @@ input[type="range"]::-moz-range-thumb {
   background: #fff;
 }
 
-/* Filter button sits inside the search box, vertically centred and flush right.
-   top/bottom match the .library-search padding so the flex box spans exactly
-   the input's height; align-items then centres the (vertical-dots) button. */
+/* The filter "⋮" is a flex sibling after the input (not an overlay) so the
+   native type=search clear "×" has room at the input's right edge. The button
+   keeps the standard bordered .btn look, matching the tape pane. */
 .library-search-menu {
-  position: absolute;
-  top: 2px;
-  bottom: 6px;
-  right: 4px;
   display: flex;
   align-items: center;
-}
-.library-search-menu .ddmenu-btn {
-  height: 100%;
-  padding: 0 4px;
-  border: none;
-  background: transparent;
-  color: #667;
-}
-.library-search-menu .ddmenu-btn:hover:not(:disabled) {
-  background: transparent;
-  color: #000;
+  flex: none;
 }
 
 /* A long genre submenu can scroll — but ONLY a leaf one (no further flyouts).

@@ -346,7 +346,7 @@ export function LibraryBrowser() {
     <div class="library-browser">
       <div class="library-search">
         <input
-          type="text"
+          type="search"
           class="library-search-input"
           placeholder="Search software…"
           title="Search by title. Also: -word (exclude), year:1987, year:1983-1989, publisher:ocean"
