@@ -34,6 +34,23 @@ async function fetchFirst(urls: string[]): Promise<Uint8Array> {
 // than is useful (or performant) to render at once. Users narrow via search.
 const RESULT_LIMIT = 500;
 
+// Third (top) level of the genre filter. ZXDB top-level prefixes ("Arcade
+// Game", "Utility", "Demoscene", …) are bucketed into a handful of broad
+// super-categories, in this display order. Any prefix not listed here falls
+// into a trailing "Other" bucket so new catalog genres never silently vanish.
+const SUPER_CATEGORIES: { name: string; prefixes: string[] }[] = [
+  { name: 'Games', prefixes: ['Adventure Game', 'Arcade Game', 'Casual Game', 'Game', 'Puzzle Game', 'Sport Game', 'Strategy Game'] },
+  { name: 'Serious', prefixes: ['Emulator', 'General', 'Programming', 'Utility'] },
+  { name: 'Fan', prefixes: ['Advertising', 'Animation', 'Demoscene', 'E-Book', 'Electronic Magazine', 'Tech Demo'] },
+  { name: 'Compilations', prefixes: ['Box Set', 'Compilation', 'Covertape'] },
+];
+
+/** The ": "-prefix of a genre string ("Arcade Game: Action" → "Arcade Game"). */
+function genrePrefix(g: string): string {
+  const i = g.indexOf(': ');
+  return i >= 0 ? g.slice(0, i) : g;
+}
+
 /** Expanded detail row: screenshot (rendered from the SCR) with the publisher
  *  name below it. */
 function GameDetail(props: { game: Game }) {
@@ -108,19 +125,20 @@ export function LibraryBrowser() {
     return out;
   });
 
-  // Genre filter menu. ZXDB genres are "Category: Sub-type" strings (e.g.
-  // "Arcade Game: Action"); we group them so the part before ": " is a
-  // top-level category and the parts after live in its flyout. Clicking a
-  // category toggles the whole group; hovering it picks individual sub-types.
-  // Flat genres (no ": ") are plain top-level items.
+  // Genre filter menu — three levels. ZXDB genres are "Category: Sub-type"
+  // strings (e.g. "Arcade Game: Action"). The part after ": " is the innermost
+  // flyout (sub-type), the part before is the middle category, and categories
+  // are bucketed into SUPER_CATEGORIES at the top. Clicking any level toggles
+  // the whole subtree under it; hovering drills in. Counts roll up so a partly
+  // selected branch shows a dash.
   const filterItems = createMemo<MenuItem[]>(() => {
     const cat = catalog();
     const sel = genreFilter();
-    const items: MenuItem[] = [];
-    if (!cat) return items;
+    if (!cat) return [];
 
-    // Group by the text before ": ". `bare` is a genre equal to the prefix with
-    // no sub-type (e.g. "Compilation" alongside "Compilation: Games").
+    // Second level: group genres by their ": " prefix. `bare` is a genre equal
+    // to the prefix with no sub-type (e.g. "Compilation" alongside
+    // "Compilation: Games").
     const groups = new Map<string, { bare?: string; subs: { sub: string; value: string }[] }>();
     for (const g of cat.genres) {
       const i = g.indexOf(': ');
@@ -131,12 +149,16 @@ export function LibraryBrowser() {
       else grp.bare = g;
     }
 
-    for (const prefix of [...groups.keys()].sort((a, b) => a.localeCompare(b))) {
+    // Build the middle-level menu item for one prefix, plus the flat list of
+    // genre strings it covers (used to roll counts up to the super-category).
+    function buildGroup(prefix: string): { item: MenuItem; members: string[] } {
       const grp = groups.get(prefix)!;
       // No sub-types → a plain checkable genre.
       if (grp.subs.length === 0) {
-        items.push({ value: `g:${grp.bare}`, label: prefix, checked: sel.has(grp.bare!) });
-        continue;
+        return {
+          item: { value: `g:${grp.bare}`, label: prefix, checked: sel.has(grp.bare!) },
+          members: [grp.bare!],
+        };
       }
       const children: MenuItem[] = [];
       const members: string[] = [];
@@ -149,9 +171,43 @@ export function LibraryBrowser() {
         children.push({ value: `g:${value}`, label: sub, checked: sel.has(value) });
       }
       const on = members.filter(m => sel.has(m)).length;
+      return {
+        item: {
+          value: `grp:${prefix}`,
+          label: prefix,
+          checked: on === members.length,
+          indeterminate: on > 0 && on < members.length,
+          children,
+        },
+        members,
+      };
+    }
+
+    // Assign each present prefix to its super-category bucket, in the declared
+    // order; unknown prefixes collect into a trailing "Other" bucket.
+    const buckets = SUPER_CATEGORIES.map(s => ({ name: s.name, prefixes: [] as string[] }));
+    const other: string[] = [];
+    for (const prefix of groups.keys()) {
+      const idx = SUPER_CATEGORIES.findIndex(s => s.prefixes.includes(prefix));
+      if (idx >= 0) buckets[idx].prefixes.push(prefix); else other.push(prefix);
+    }
+    if (other.length) buckets.push({ name: 'Other', prefixes: other });
+
+    const items: MenuItem[] = [];
+    for (const bucket of buckets) {
+      const prefixes = bucket.prefixes.sort((a, b) => a.localeCompare(b));
+      if (prefixes.length === 0) continue;
+      const children: MenuItem[] = [];
+      const members: string[] = [];
+      for (const prefix of prefixes) {
+        const built = buildGroup(prefix);
+        children.push(built.item);
+        members.push(...built.members);
+      }
+      const on = members.filter(m => sel.has(m)).length;
       items.push({
-        value: `grp:${prefix}`,
-        label: prefix,
+        value: `sup:${bucket.name}`,
+        label: bucket.name,
         checked: on === members.length,
         indeterminate: on > 0 && on < members.length,
         children,
@@ -162,11 +218,22 @@ export function LibraryBrowser() {
 
   function onFilterSelect(value: string) {
     if (value.startsWith('g:')) { toggleGenreFilter(value.slice(2)); return; }
+    const cat = catalog();
+    if (!cat) return;
     if (value.startsWith('grp:')) {
       const prefix = value.slice(4);
-      const cat = catalog();
-      if (!cat) return;
-      toggleGenreGroup(cat.genres.filter(g => g === prefix || g.startsWith(`${prefix}: `)));
+      toggleGenreGroup(cat.genres.filter(g => genrePrefix(g) === prefix));
+      return;
+    }
+    if (value.startsWith('sup:')) {
+      const name = value.slice(4);
+      const sup = SUPER_CATEGORIES.find(s => s.name === name);
+      // Named super → its declared prefixes; "Other" → every prefix that isn't
+      // claimed by a named super.
+      const inBucket = sup
+        ? (g: string) => sup.prefixes.includes(genrePrefix(g))
+        : (g: string) => !SUPER_CATEGORIES.some(s => s.prefixes.includes(genrePrefix(g)));
+      toggleGenreGroup(cat.genres.filter(inBucket));
     }
   }
 

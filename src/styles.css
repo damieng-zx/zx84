@@ -45,7 +45,6 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
   line-height: 1;
   width: 100%;
 }
@@ -1263,8 +1262,11 @@ input[type="range"]::-moz-range-thumb {
   color: #000;
 }
 
-/* The genre filter submenu can be long — let it scroll. */
-.ddmenu-sub { max-height: 60vh; overflow-y: auto; }
+/* A long genre submenu can scroll — but ONLY a leaf one (no further flyouts).
+   A submenu that itself contains sub-flyouts must not clip: overflow-y would
+   hide the nested third-level flyout, which sits outside the box at left:100%,
+   and spawn stray scrollbars. */
+.ddmenu-sub:not(:has(.ddmenu-parent)) { max-height: 60vh; overflow-y: auto; }
 
 .library-status {
   padding: 6px;
