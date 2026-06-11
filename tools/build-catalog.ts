@@ -48,7 +48,9 @@ interface MetaRow { id: number; title: string; year: number | null; genre: strin
 interface DownRow { id: number; link: string; ft: number; mt: number | null; }
 
 // Compact output schema — keep in sync with src/library/catalog.ts. Model is
-// implicit in which slot a file lands in: f ⇒ 48K, k ⇒ 128K, d/ds ⇒ +3 (disk).
+// implicit in which slot a file lands in: f ⇒ 48K, k ⇒ 128K, d/ds ⇒ +3 (disk),
+// n ⇒ 48K snapshot, nk ⇒ 128K snapshot. Snapshots are a fallback, emitted only
+// for entries with no tape and no disk; they mount directly (no loader).
 interface RawGame {
   i: number;                  // ZXDB entry id
   t: string;
@@ -57,6 +59,8 @@ interface RawGame {
   k?: string;                 // 128K tape
   d?: string;                 // disk (side A / disk 1 when multi-side)
   ds?: [string, string][];    // extra disk sides: [file_link, label]
+  n?: string;                 // 48K snapshot (.szx > .z80 > .sna)
+  nk?: string;                // 128K snapshot
 }
 interface RawCatalog { genres: string[]; publishers: string[]; games: RawGame[]; }
 
@@ -71,6 +75,15 @@ function tapeBucket(mt: number | null | undefined): '48' | '128' {
     case 4: case 5: case 7: case 8: case 9: case 10: case 27: return '128';
     default: return '48';
   }
+}
+
+// Snapshot format preference: .szx (3) > .z80 (2) > .sna (1); 0 = not a snapshot.
+function snapRank(link: string): number {
+  const l = link.toLowerCase();
+  if (/\.szx(\.zip)?$/.test(l)) return 3;
+  if (/\.z80(\.zip)?$/.test(l)) return 2;
+  if (/\.sna(\.zip)?$/.test(l)) return 1;
+  return 0;
 }
 
 // A disk filename denoting a distinct side/part to KEEP (e.g. "(SideA)",
@@ -142,30 +155,46 @@ function main(): void {
       WHERE e.availabletype_id = 'A'
         AND ( (d.filetype_id = 8  AND (LOWER(d.file_link) LIKE '%.tzx.zip' OR LOWER(d.file_link) LIKE '%.tap.zip'))
            OR (d.filetype_id = 11 AND LOWER(d.file_link) LIKE '%.dsk.zip')
-           OR (d.filetype_id IN (1, 2) AND LOWER(d.file_link) LIKE '%.scr') )`,
+           OR (d.filetype_id IN (1, 2) AND LOWER(d.file_link) LIKE '%.scr')
+           OR LOWER(d.file_link) LIKE '%.szx' OR LOWER(d.file_link) LIKE '%.szx.zip'
+           OR LOWER(d.file_link) LIKE '%.z80' OR LOWER(d.file_link) LIKE '%.z80.zip'
+           OR LOWER(d.file_link) LIKE '%.sna' OR LOWER(d.file_link) LIKE '%.sna.zip' )`,
   ).all(MACHINE_LIKE) as unknown as DownRow[];
 
   db.close();
 
-  // Per entry: best 48K tape, best 128K tape (each prefers .tzx over .tap), all
-  // disk links (resolved to a primary + sides later), and one SCR screen
-  // (prefer a loading screen, filetype 1, over a running screen, filetype 2).
-  const files = new Map<number, { tape48?: string; tape128?: string; disks: string[]; screen?: string; screenFt?: number }>();
+  // Per entry: best 48K/128K tape (each prefers .tzx over .tap), all disk links
+  // (resolved to a primary + sides later), best 48K/128K snapshot (.szx>.z80>
+  // .sna), and one SCR screen (prefer a loading screen, ft 1, over running, 2).
+  // Classify by file extension — snapshots share no single filetype_id.
+  interface Slot {
+    tape48?: string; tape128?: string; disks: string[];
+    snap48?: { link: string; rank: number }; snap128?: { link: string; rank: number };
+    screen?: string; screenFt?: number;
+  }
+  const files = new Map<number, Slot>();
   for (const d of downs) {
     let slot = files.get(d.id);
     if (!slot) { slot = { disks: [] }; files.set(d.id, slot); }
-    if (d.ft === 11) {
+    const l = d.link.toLowerCase();
+    const snap = snapRank(l);
+    const b = tapeBucket(d.mt);
+    if (l.endsWith('.dsk.zip')) {
       slot.disks.push(d.link);
-    } else if (d.ft === 1 || d.ft === 2) {
-      if (!slot.screen || (d.ft === 1 && slot.screenFt !== 1)) { slot.screen = d.link; slot.screenFt = d.ft; }
-    } else {
-      const isTzx = /\.tzx\.zip$/i.test(d.link);
-      const b = tapeBucket(d.mt);
+    } else if (l.endsWith('.tzx.zip') || l.endsWith('.tap.zip')) {
+      const isTzx = l.endsWith('.tzx.zip');
       const cur = b === '128' ? slot.tape128 : slot.tape48;
       // Prefer a .tzx; otherwise keep the first tape seen in this bucket.
       if (!cur || (isTzx && !/\.tzx\.zip$/i.test(cur))) {
         if (b === '128') slot.tape128 = d.link; else slot.tape48 = d.link;
       }
+    } else if (snap > 0) {
+      const cur = b === '128' ? slot.snap128 : slot.snap48;
+      if (!cur || snap > cur.rank) {
+        if (b === '128') slot.snap128 = { link: d.link, rank: snap }; else slot.snap48 = { link: d.link, rank: snap };
+      }
+    } else if (d.ft === 1 || d.ft === 2) {
+      if (!slot.screen || (d.ft === 1 && slot.screenFt !== 1)) { slot.screen = d.link; slot.screenFt = d.ft; }
     }
   }
 
@@ -186,7 +215,10 @@ function main(): void {
     const f = files.get(row.id);
     if (!f) continue;
     const { d, ds } = resolveDisks(f.disks);
-    if (!f.tape48 && !f.tape128 && !d) continue;   // no playable file → skip
+    const hasTapeOrDisk = !!(f.tape48 || f.tape128 || d);
+    // Snapshots are a fallback only — skipped entirely when a tape/disk exists.
+    const hasSnap = !!(f.snap48 || f.snap128);
+    if (!hasTapeOrDisk && !hasSnap) continue;      // no playable file → skip
     const g: RawGame = { i: row.id, t: row.title };
     if (row.year) g.y = row.year;
     const gi = intern(row.genre, genres, genreIdx);
@@ -197,6 +229,10 @@ function main(): void {
     if (f.tape128) g.k = f.tape128;
     if (d) g.d = d;
     if (ds) g.ds = ds;
+    if (!hasTapeOrDisk) {
+      if (f.snap48) g.n = f.snap48.link;
+      if (f.snap128) g.nk = f.snap128.link;
+    }
     if (f.screen) g.s = f.screen;
     games.push(g);
   }
@@ -221,6 +257,7 @@ function main(): void {
   console.log(`games:      ${games.length}`);
   console.log(`with screen:${games.filter(g => g.s).length}`);
   console.log(`tapes 48/128: ${games.filter(g => g.f).length} / ${games.filter(g => g.k).length}   disks: ${games.filter(g => g.d).length}   multi-side: ${games.filter(g => g.ds).length}`);
+  console.log(`snapshot-only 48/128: ${games.filter(g => g.n).length} / ${games.filter(g => g.nk).length}`);
   console.log(`genres:     ${genres.length}   publishers: ${publishers.length}`);
   console.log(`raw JSON:   ${mb(json.length)} MB`);
   console.log(`gzipped:    ${mb(gz.length)} MB`);
