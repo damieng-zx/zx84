@@ -3,6 +3,7 @@
  */
 
 import { createEffect, createSignal, onMount, onCleanup } from 'solid-js';
+import { Toast } from '@/components/Toast.tsx';
 import { setCanvas, machine, spectrum, transcribeMode, transcribeHtml, transcribeGrid, currentModel } from '@/emulator.ts';
 import { isCpcModel } from '@/models.ts';
 import { CPC_BORDER_LEFT, CPC_BORDER_TOP } from '@/cpc/constants.ts';
@@ -149,6 +150,7 @@ export function Screen() {
         ref={overlayRef}
         class={transcribeMode() !== 'off' ? 'active' : ''}
       />
+      <Toast />
     </div>
   );
 }
