@@ -1038,65 +1038,6 @@ describe('capturedFontData', () => {
   });
 });
 
-// ── onFrame — loader signature transitions ────────────────────────────────
-
-// lastAnnouncedSignature is module-level. Reset it to 'unknown' before each test
-// by running one frame with signature='unknown'. If it was already 'unknown' the
-// transition check is a no-op; if it was something else, it resets to 'unknown'.
-function makeSpectrumWithSig(sig: string) {
-  const snap = new Uint8Array(0x10000);
-  const s = makeSpectrumWithSnap(snap)!;
-  (s as any).loaderDetector = { signature: sig };
-  (s as any).memory = { ...s.memory, port7FFD: 0, port1FFD: 0, pagingLocked: false, specialPaging: false, currentROM: 0, currentBank: 0 };
-  return s;
-}
-
-describe('onFrame — loader signature transitions', () => {
-  beforeEach(() => {
-    emu.spectrum = makeSpectrumWithSig('unknown');
-    onFrame();
-    emu.setStatus.mockClear();
-  });
-
-  it('unknown → known: calls setStatus with the loader label', () => {
-    emu.spectrum = makeSpectrumWithSig('rom');
-    onFrame();
-    expect(emu.setStatus).toHaveBeenCalledWith(expect.stringContaining('ROM loader'));
-  });
-
-  it('unknown → known: message contains "accelerated"', () => {
-    emu.spectrum = makeSpectrumWithSig('speedlock');
-    onFrame();
-    expect(emu.setStatus).toHaveBeenCalledWith(expect.stringContaining('accelerated'));
-  });
-
-  it('known → same known: no setStatus call on subsequent frames', () => {
-    emu.spectrum = makeSpectrumWithSig('rom');
-    onFrame();              // unknown → 'rom', fires setStatus
-    emu.setStatus.mockClear();
-    onFrame();              // 'rom' → 'rom', no transition
-    expect(emu.setStatus).not.toHaveBeenCalled();
-  });
-
-  it('known → unknown: no setStatus call (silent reset)', () => {
-    emu.spectrum = makeSpectrumWithSig('rom');
-    onFrame();              // unknown → 'rom'
-    emu.setStatus.mockClear();
-    emu.spectrum = makeSpectrumWithSig('unknown');
-    onFrame();              // 'rom' → 'unknown' — no announcement
-    expect(emu.setStatus).not.toHaveBeenCalled();
-  });
-
-  it('known → different known: fires setStatus with new label', () => {
-    emu.spectrum = makeSpectrumWithSig('rom');
-    onFrame();              // unknown → 'rom'
-    emu.setStatus.mockClear();
-    emu.spectrum = makeSpectrumWithSig('speedlock');
-    onFrame();              // 'rom' → 'speedlock'
-    expect(emu.setStatus).toHaveBeenCalledWith(expect.stringContaining('Speedlock'));
-  });
-});
-
 // ── onFrame — throttled slow panel updates (_lastSlowUpdate) ─────────────
 
 // _lastSlowUpdate is module-level state. Each "fires" test advances it by ~1001ms beyond

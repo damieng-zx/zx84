@@ -24,7 +24,7 @@ import { Contention } from '@/contention.ts';
 import { ScreenText, OCR_GRIDS, detectGrid } from '@/debug/screen-text.ts';
 import type { FontSource, OcrResult, OcrGridName, SpectrumOcrGrid } from '@/debug/screen-text.ts';
 import { trapTapeLoad } from '@/tape/tape-loader.ts';
-import { EdgeLoader, type EdgeLoaderHost } from '@/tape/edge-loader.ts';
+import { LoaderDetector } from '@/tape/loader-detector.ts';
 import { installMemoryHooks, wirePortIO } from '@/io-ports.ts';
 import { KempstonJoystick } from '@/peripherals/joysticks.ts';
 import { KempstonMouse } from '@/peripherals/kempston-mouse.ts';
@@ -67,8 +67,15 @@ export class IOActivity {
   tapeLoads = 0;
   /** Number of FDC data port accesses this frame */
   fdcAccesses = 0;
-  /** Number of ULA reads while tape is active (EAR sampling) */
+  /** Number of ULA reads while tape is active (EAR sampling) with port high
+   *  byte 0xFF — the standard ROM loader's `IN A,(0xFE)` (A=0xFF). Drives the
+   *  EAR LED. */
   earReads = 0;
+  /** Number of ULA reads while the tape is playing, for ANY port high byte.
+   *  Superset of earReads: custom loaders poll with A=0x7F/0xBF/etc., which
+   *  earReads misses. Used to engage tape turbo for custom/musical loaders
+   *  independent of loader-shape recognition. */
+  tapePolls = 0;
   /** Set when LoaderDetector fires 'start' this frame — used to engage tape turbo */
   loaderDetected = false;
   /** Number of attribute-area (5800-5AFF) writes this frame */
@@ -84,6 +91,7 @@ export class IOActivity {
     this.tapeLoads = 0;
     this.fdcAccesses = 0;
     this.earReads = 0;
+    this.tapePolls = 0;
     this.loaderDetected = false;
     this.attrWrites = 0;
     this.mouseReads = 0;
@@ -227,15 +235,9 @@ export class Spectrum extends BaseMachine implements Machine {
   private _zxtlPrevPC = -1;
   private _zxtlPrevLen = 0;
 
-  /** Edge-loading subsystem: auto play/stop, structural loader fingerprint,
-   *  and surgical edge acceleration. See docs/edge-loading.md. The property
-   *  is named `loaderDetector` for compatibility with the UI/emulator layer
-   *  that already references it. */
-  loaderDetector = new EdgeLoader();
-
-  /** Bridge handed to EdgeLoader so it can read CPU/tape state and the
-   *  live (paging-aware) memory map without circularly importing Spectrum. */
-  edgeLoaderHost!: EdgeLoaderHost;
+  /** Tape auto play/stop detector — decides when the tape runs and exposes
+   *  `loaderActive` to engage tape turbo. Never touches CPU/tape data. */
+  loaderDetector = new LoaderDetector();
 
   /** T-state at which the tape was last advanced (for sub-instruction accuracy) */
   tapeLastAdvanceT = 0;
@@ -316,26 +318,6 @@ export class Spectrum extends BaseMachine implements Machine {
     installMemoryHooks(this);
     wirePortIO(this);
 
-    // Bridge between EdgeLoader and the live machine state. Read through
-    // memory.readByte so paging is respected (§3.2 in docs/edge-loading.md).
-    this.edgeLoaderHost = {
-      cpu: this.cpu,
-      tape: this.tape,
-      readMem: (addr) => this.memory.readByte(addr & 0xFFFF),
-      // Bit 5 of port 0xFE on read carries EAR — the loader stores the
-      // current EAR level there for its next iteration's XOR comparison.
-      earBit: () => this.tape.earBit,
-      // After the accelerator hand-advances the tape across an edge (without
-      // moving cpu.tStates), level the tape clock with the CPU so the
-      // per-instruction advanceTapeTo() below treats it as already caught up.
-      syncTapeClock: () => { this.tapeLastAdvanceT = this.cpu.tStates; },
-    };
-
-    // Tape engine → EdgeLoader: publish the next edge's length category
-    // every time a new pulse is scheduled. §5 of docs/edge-loading.md.
-    this.tape.onEdgeScheduled = (flags, fromAcceleration) => {
-      this.loaderDetector.setAccelerationFlags(flags, fromAcceleration);
-    };
     this.tape.onPlayStateChange = () => {
       this.loaderDetector.onTapePlayStateChange();
       // runFrame's hot loop only calls advanceTapeTo (which would clear
@@ -801,10 +783,16 @@ export class Spectrum extends BaseMachine implements Machine {
     // release tape turbo. `loaderActive` is sticky between §2 start/stop
     // events, so without the `!tape.paused` gate it would hold turbo on
     // long after the tape stopped advancing.
+    // tapePolls catches any loader actively reading the tape (custom loaders
+    // poll non-0xFF ports that earReads misses, and unrecognised loaders never
+    // set loaderActive) — so tape turbo engages whenever the tape is genuinely
+    // being consumed, not only when the loader's shape is fingerprinted. A
+    // program that has taken over and stopped touching the ULA reads zero, so
+    // this doesn't hold turbo on past the load (and a paused tape gates it out).
     const tapeLoading = !this.loaderDetector.userOverride
                      && !this.tape.paused
                      && (this.loaderDetector.loaderActive
-                         || this.activity.earReads > 0
+                         || this.activity.tapePolls > 0
                          || this.activity.tapeLoads > 0
                          || this.activity.loaderDetected);
 

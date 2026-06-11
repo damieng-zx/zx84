@@ -211,14 +211,14 @@ describe('settings — reset defaults vs initial defaults consistency', () => {
     const before = {
       tapeAutoRewind: s.tapeAutoRewind(), tapeCollapseBlocks: s.tapeCollapseBlocks(),
       tapeFastRom: s.tapeFastRom(), tapeTurbo: s.tapeTurbo(),
-      tapeFastEdge: s.tapeFastEdge(), tapeSoundEnabled: s.tapeSoundEnabled(),
+      tapeSoundEnabled: s.tapeSoundEnabled(),
     };
     s.setTapeAutoRewind(false);
     s.resetSettingsGroup('tape');
     expect({
       tapeAutoRewind: s.tapeAutoRewind(), tapeCollapseBlocks: s.tapeCollapseBlocks(),
       tapeFastRom: s.tapeFastRom(), tapeTurbo: s.tapeTurbo(),
-      tapeFastEdge: s.tapeFastEdge(), tapeSoundEnabled: s.tapeSoundEnabled(),
+      tapeSoundEnabled: s.tapeSoundEnabled(),
     }).toEqual(before);
   });
 

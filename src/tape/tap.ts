@@ -11,16 +11,6 @@
  * directly.
  */
 
-// ── Edge-length flags for surgical loader acceleration ───────────────────
-//
-// Published to a registered listener whenever the playback engine schedules
-// a new pulse. The loader uses these to know whether the upcoming edge is
-// a "short" or "long" pulse so it can set the loader's B counter to a
-// plausible exit value before popping the CALL return address.
-// See docs/edge-loading.md §5.
-
-export type EdgeLengthFlags = 'short' | 'long' | 'unknown';
-
 // ── TapeBlock discriminated union ─────────────────────────────────────────
 
 export interface DataBlock {
@@ -125,22 +115,8 @@ export class TapeDeck {
   /** Whether the tape player is actively running */
   playing = false;
 
-  /**
-   * Optional listener for edge-length flags. Called every time the playback
-   * engine schedules a new pulse — i.e. whenever pulseLen changes. Used by
-   * EdgeLoader to know the category (short/long/unknown) of the upcoming
-   * edge for surgical loader acceleration. See docs/edge-loading.md §5.
-   */
-  onEdgeScheduled: ((flags: EdgeLengthFlags, fromAcceleration: boolean) => void) | null = null;
-
-  /** Set to true by EdgeLoader before calling advance() during an acceleration
-   *  step, so onEdgeScheduled callbacks can flag the resulting edge as
-   *  "manufactured" rather than naturally scheduled. */
-  inAcceleration = false;
-
-  /** Optional listener for tape play-state transitions (start/stop). Used
-   *  by EdgeLoader to reset its successive-reads counter and acceleration
-   *  mode on any play boundary. §6 of docs/edge-loading.md. */
+  /** Optional listener for tape play-state transitions (start/stop). Used by
+   *  the loader detector to reset its read counters on any play boundary. */
   onPlayStateChange: (() => void) | null = null;
 
   private phase: TapePhase = TapePhase.IDLE;
@@ -403,7 +379,6 @@ export class TapeDeck {
       this.pauseRemaining = Math.round(pauseMs * this.cpuClock / 1000);
       const flipAt = this.scale(945);
       this.pauseFlipAt = this.pauseRemaining > flipAt ? flipAt : -1;
-      this.publishEdgeFlags();
     } else {
       // position was already advanced by nextDataBlock()
       this.beginBlock(this.position);
@@ -411,19 +386,11 @@ export class TapeDeck {
   }
 
   /**
-   * Return the number of T-states until the next EAR transition, given how
-   * many T-states have already been accumulated within the current pulse,
-   * or null if the tape is idle/paused/in a phase without scheduled edges.
-   *
-   * Used by surgical loader acceleration: when a custom loader is spinning
-   * on IN A,($FE) waiting for an edge, we can compute the exact moment
-   * the next edge arrives and jump CPU state forward instead of running
-   * thousands of polling iterations.
-   *
-   * Returns 0 if an edge is overdue (advance() should fire it immediately).
-   * Pulse/data phases only — DIRECT and PAUSE phases return null because
-   * their semantics are different (DIRECT toggles on sample boundaries
-   * absolutely, PAUSE has no edges).
+   * Number of T-states until the next EAR transition (given the T-states
+   * already accumulated within the current pulse), or null when the tape is
+   * idle/paused or in a phase without scheduled edges (DIRECT toggles on sample
+   * boundaries; PAUSE has no edges). Returns 0 if an edge is overdue. A pure
+   * query into the playback clock — used by the tape-timing tests.
    */
   tStatesToNextEdge(): number | null {
     if (!this.playing || this.paused || this.phase === TapePhase.IDLE) return null;
@@ -435,13 +402,8 @@ export class TapeDeck {
   /**
    * Advance playback by the given number of T-states.
    * Toggles earBit at pulse boundaries.
-   *
-   * When `singleEdge` is true, processes at most one edge boundary and
-   * returns. Used by surgical loader acceleration (§4 edge-loader) so
-   * a single acceleration step cannot skip multiple edges and desync
-   * the two-slot length pipeline.
    */
-  advance(tStates: number, singleEdge = false): void {
+  advance(tStates: number): void {
     if (!this.playing || this.paused || this.phase === TapePhase.IDLE) return;
 
     if (this.phase === TapePhase.PAUSE) {
@@ -472,39 +434,10 @@ export class TapeDeck {
       this.tInPulse -= this.pulseLen;
       this.earBit ^= 1;
       this.advancePulse();
-      if (singleEdge) break;
     }
   }
 
   // ── Internal playback mechanics ───────────────────────────────────────
-
-  /**
-   * Categorise the currently-pending pulse (i.e. the one defined by phase
-   * + pulseLen + rawData) for the surgical loader accelerator. Pilot is
-   * 'long' (≈2168T half-cycle, well above the 855T data-short threshold);
-   * sync pulses are 'short'; data bits are short or long depending on the
-   * bit being emitted. Tone/pulses/direct/pause/idle are 'unknown'.
-   */
-  private currentEdgeFlags(): EdgeLengthFlags {
-    switch (this.phase) {
-      case TapePhase.PILOT: return 'long';
-      case TapePhase.SYNC1:
-      case TapePhase.SYNC2: return 'short';
-      case TapePhase.DATA: {
-        const byte = this.rawData![this.byteIdx];
-        const bit = (byte >> this.bitIdx) & 1;
-        return bit ? 'long' : 'short';
-      }
-      default: return 'unknown';
-    }
-  }
-
-  /** Publish the current edge flags to a registered listener (if any). */
-  private publishEdgeFlags(): void {
-    if (this.onEdgeScheduled) {
-      this.onEdgeScheduled(this.currentEdgeFlags(), this.inAcceleration);
-    }
-  }
 
   private beginBlock(idx: number): void {
     while (idx < this.blocks.length) {
@@ -521,7 +454,6 @@ export class TapeDeck {
           this.phase = TapePhase.TONE;
           this.toneRemaining = block.count;
           this.pulseLen = this.scale(block.pulseLen);
-          this.publishEdgeFlags();
           return;
 
         case 'pulses':
@@ -534,7 +466,6 @@ export class TapeDeck {
           this.pulsesLengths = block.lengths;
           this.pulsesIdx = 0;
           this.pulseLen = this.scale(block.lengths[0]);
-          this.publishEdgeFlags();
           return;
 
         case 'pause':
@@ -542,14 +473,12 @@ export class TapeDeck {
             this.paused = true;
             this.position = idx + 1;
             this.phase = TapePhase.IDLE;
-            this.publishEdgeFlags();
             return;
           }
           this.position = idx + 1;
           this.phase = TapePhase.PAUSE;
           this.earBit = 0;
           this.pauseRemaining = Math.round(block.duration * this.cpuClock / 1000);
-          this.publishEdgeFlags();
           return;
 
         case 'direct':
@@ -559,7 +488,6 @@ export class TapeDeck {
             continue;
           }
           this.beginDirectBlock(block);
-          this.publishEdgeFlags();
           return;
 
         case 'set-level':
@@ -621,7 +549,6 @@ export class TapeDeck {
       this.pilotRemaining = block.pilotCount;
       this.pulseLen = this.bPilot;
     }
-    this.publishEdgeFlags();
   }
 
   private beginDirectBlock(block: DirectBlock): void {
@@ -727,7 +654,7 @@ export class TapeDeck {
         if (this.toneRemaining <= 0) {
           this.position = this.playbackIdx + 1;
           this.beginBlock(this.playbackIdx + 1);
-          return; // beginBlock publishes its own flags
+          return;
         }
         break;
 
@@ -736,13 +663,12 @@ export class TapeDeck {
         if (this.pulsesIdx >= this.pulsesLengths.length) {
           this.position = this.playbackIdx + 1;
           this.beginBlock(this.playbackIdx + 1);
-          return; // beginBlock publishes its own flags
+          return;
         } else {
           this.pulseLen = this.scale(this.pulsesLengths[this.pulsesIdx]);
         }
         break;
     }
-    this.publishEdgeFlags();
   }
 
   private setDataPulseLen(): void {
@@ -765,7 +691,6 @@ export class TapeDeck {
     // 945T figure is 3.5MHz-referenced, so scale it like any pulse length.
     const flipAt = this.scale(945);
     this.pauseFlipAt = this.pauseRemaining > flipAt ? flipAt : -1;
-    this.publishEdgeFlags(); // 'unknown' — next edge length not known
   }
 
   /** Reconstruct raw block bytes: flag + payload + XOR checksum */

@@ -233,7 +233,6 @@ vi.mock('@/store/settings.ts', () => ({
   volume:             vi.fn(() => 70),
   ayMix:              vi.fn(() => 50),
   tapeFastRom:        vi.fn(() => true),
-  tapeFastEdge:       vi.fn(() => false),
   tapeTurbo:          vi.fn(() => true),
   tapeSoundEnabled:   vi.fn(() => true),
   scanlineAccuracy:   vi.fn(() => 'high'),
@@ -348,7 +347,6 @@ beforeEach(() => {
   vi.mocked(settings.ayMix).mockReturnValue(50);
   vi.mocked(settings.tapeFastRom).mockReturnValue(true);
   vi.mocked(settings.tapeTurbo).mockReturnValue(true);
-  vi.mocked(settings.tapeFastEdge).mockReturnValue(true);
   vi.mocked(settings.tapeSoundEnabled).mockReturnValue(true);
   vi.mocked(settings.scanlineAccuracy).mockReturnValue('high');
   vi.mocked(settings.ayStereo).mockReturnValue('ABC');

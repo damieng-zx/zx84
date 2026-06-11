@@ -255,7 +255,6 @@ export function applyDisplaySettings(): void {
     s.tapeFastRom = settings.tapeFastRom();
     s.tapeTurbo = settings.tapeTurbo();
     s.tapeSoundEnabled = settings.tapeSoundEnabled();
-    s.loaderDetector.accelerateLoader = settings.tapeFastEdge();
     s.scanlineAccuracy = settings.scanlineAccuracy();
   } else {
     // CPC: AY-only, no beeper mixer. Volume + Fast ROM + Turbo while loading

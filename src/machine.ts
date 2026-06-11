@@ -60,8 +60,8 @@ export interface Machine {
   ay: AY3891x;
   fdc: UPD765A;
   /** Cassette deck. Both machines load TZX/CDT/TAP through the same pulse-level
-   *  engine; machine-specific loader extras (the Spectrum's edge loader, tape
-   *  turbo) stay off this interface and are reached via `asSpectrum()`. */
+   *  engine; machine-specific loader extras (the Spectrum's loader detector,
+   *  tape turbo) stay off this interface and are reached via `asSpectrum()`. */
   tape: TapeDeck;
   mixer: AudioMixer;
   display: IScreenRenderer | null;

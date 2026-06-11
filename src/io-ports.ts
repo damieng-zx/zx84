@@ -206,15 +206,17 @@ export function wirePortIO(s: Spectrum): void {
     if ((port & 0x01) === 0) {
       s.activity.ulaReads++;
       s.advanceTapeTo();
-      if (s.ula.tapeActive && (port >> 8) === 0xFF) s.activity.earReads++;
+      if (s.ula.tapeActive) {
+        // tapePolls counts every ULA read while the tape plays (any port);
+        // earReads is the 0xFF subset (standard ROM loader). Custom loaders
+        // poll non-0xFF ports, so tapePolls is what engages turbo for them.
+        s.activity.tapePolls++;
+        if ((port >> 8) === 0xFF) s.activity.earReads++;
+      }
       if (s.tape.loaded && !s.tape.finished) {
         const playing = s.tape.playing && !s.tape.paused;
-        // EdgeLoader runs §2 auto play/stop then, if accel is on and the
-        // tape is playing, §3 structural fingerprint + §4 acceleration.
-        // Accel pops the loader's CALL return into PC, sets B/C/F to
-        // plausible exit values, and advances the tape to the next edge
-        // boundary in one step. See docs/edge-loading.md.
-        const event = s.loaderDetector.onULARead(s.edgeLoaderHost, playing);
+        // Auto play/stop: sniff the IN A,(0xFE) cadence to start/stop the tape.
+        const event = s.loaderDetector.onULARead(s.cpu, playing);
         if (event === 'start') {
           s.tape.paused = false;
           if (!s.tape.playing) s.tape.startPlayback();

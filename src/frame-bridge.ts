@@ -31,11 +31,10 @@ import {
 
 import { asCpc } from '@/machine.ts';
 import { hex8, hex16 } from '@/utils/hex.ts';
-import { loaderSignatureLabel, type LoaderSignature } from '@/tape/edge-loader.ts';
 
-// Tracks the last loader signature we surfaced in the status bar so we only
-// announce a transition (unknown → known, or one loader → a different one).
-let lastAnnouncedSignature: LoaderSignature = 'unknown';
+// Tracks the fast-load message last shown so we announce only on a transition
+// (and re-announce for a fresh load), not every frame.
+let lastLoadAnnounce = '';
 
 // ── Hardware panel rendering ────────────────────────────────────────────
 
@@ -623,15 +622,17 @@ export function onFrame(): void {
     // tapeTurbo is sustained engine state, not a burst — reflect it immediately.
     setLedTapeTurbo(spectrum!.tapeTurboActive);
 
-    // Announce a freshly-detected loader on the status line. The detector
-    // sets signature on auto-start; we only fire setStatus on the transition
-    // so the message doesn't flood every frame.
-    const sig = spectrum!.loaderDetector.signature;
-    if (sig !== lastAnnouncedSignature) {
-      if (sig !== 'unknown') {
-        setStatus(`Running accelerated tape loading for ${loaderSignatureLabel(sig)}`);
-      }
-      lastAnnouncedSignature = sig;
+    // Announce the active fast-load mechanism once per load (on transition, not
+    // every frame). The ROM fast-load trap is the only named one now; custom
+    // loaders are accelerated by turbo, whose speed shows in the CPU readout.
+    const tp = spectrum!.tape;
+    const loadingNow = tp.loaded && tp.playing && !tp.paused && !tp.finished;
+    const loadMsg = loadingNow && spectrum!.tapeFastRom && a.tapeLoads > 0 ? 'Fast ROM loading' : '';
+    if (!loadingNow) {
+      lastLoadAnnounce = '';
+    } else if (loadMsg && loadMsg !== lastLoadAnnounce) {
+      setStatus(loadMsg);
+      lastLoadAnnounce = loadMsg;
     }
 
     // Transcribe mode LEDs. The transcribe-mode half is sustained user state
