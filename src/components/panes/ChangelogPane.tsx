@@ -9,6 +9,7 @@ const CHANGELOG: { version: string; items: string[] }[] = [
       'Optimized turbo mode',
       'Improved fast loaders',
       'Removed edge loading (was so broken)',
+      'Rewrote disk copy protection detection',
     ]
   }, {
     version: '0.5.1',
