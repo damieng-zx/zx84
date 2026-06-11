@@ -6,6 +6,7 @@ import { onMount, onCleanup, createEffect, createSignal, Show, type JSX } from '
 import { Sidebar } from '@/components/Sidebar.tsx';
 import { Screen } from '@/components/Screen.tsx';
 import { StatusBar } from '@/components/StatusBar.tsx';
+import { Toast } from '@/components/Toast.tsx';
 import { Tooltip } from '@/components/Tooltip.tsx';
 import { AppMenu } from '@/components/AppMenu.tsx';
 
@@ -176,6 +177,7 @@ export function App() {
         <Screen />
         <StatusBar />
         <div id="diag"><div id="diag-header" /></div>
+        <Toast />
       </div>
 
       <Sidebar id="right-sidebar" side="right">

@@ -13,7 +13,16 @@ import {
   libraryLoading, setLibraryLoading, libraryError, setLibraryError,
   loadingGame, setLoadingGame, mounted, setMounted,
   genreFilter, toggleGenreFilter, toggleGenreGroup,
+  formatFilter, toggleFormatFilter, toggleFormatGroup, type FormatReq,
 } from '@/state/library-state.ts';
+
+// "Requires" filter options, in display order — maps a gameNeeds() tag to its
+// label. The tag is the minimum machine a title needs to run.
+const FORMAT_OPTIONS: { req: FormatReq; label: string }[] = [
+  { req: '48', label: '48K' },
+  { req: '128', label: '128K' },
+  { req: '+3', label: '+3' },
+];
 
 /** Fetch the first URL that returns 2xx; falls through to the next on error. */
 async function fetchFirst(urls: string[]): Promise<Uint8Array> {
@@ -105,20 +114,23 @@ export function LibraryBrowser() {
   // genre filter. Inactive → the list shows nothing (just the search box).
   const isActive = createMemo(() => {
     const { text, year, publisher } = parseLibraryQuery(query());
-    return text !== '' || year !== null || publisher !== '' || genreFilter().size > 0;
+    return text !== '' || year !== null || publisher !== '' || genreFilter().size > 0 || formatFilter().size > 0;
   });
 
-  // Title text + year:/publisher: tokens + genre filter, capped for render perf.
+  // Title text + year:/publisher: tokens + genre + "Requires" filters, capped
+  // for render perf.
   const filtered = createMemo<Game[]>(() => {
     const { text, year, publisher } = parseLibraryQuery(query());
     const genres = genreFilter();
-    if (!text && year === null && !publisher && genres.size === 0) return [];
+    const formats = formatFilter();
+    if (!text && year === null && !publisher && genres.size === 0 && formats.size === 0) return [];
     const out: Game[] = [];
     for (const g of games()) {
       if (text && !g.title.toLowerCase().includes(text)) continue;
       if (year !== null && g.year !== year) continue;
       if (publisher && !g.publisher.toLowerCase().includes(publisher)) continue;
       if (genres.size > 0 && !genres.has(g.genre)) continue;
+      if (formats.size > 0 && !formats.has(gameNeeds(g))) continue;
       out.push(g);
       if (out.length >= RESULT_LIMIT) break;
     }
@@ -132,9 +144,26 @@ export function LibraryBrowser() {
   // the whole subtree under it; hovering drills in. Counts roll up so a partly
   // selected branch shows a dash.
   const filterItems = createMemo<MenuItem[]>(() => {
+    // "Requires" (format) filter — always available, independent of the catalog.
+    const fmt = formatFilter();
+    const reqChildren: MenuItem[] = FORMAT_OPTIONS.map(o => ({
+      value: `req:${o.req}`, label: o.label, checked: fmt.has(o.req),
+    }));
+    const reqOn = FORMAT_OPTIONS.filter(o => fmt.has(o.req)).length;
+    const head: MenuItem[] = [
+      {
+        value: 'reqgrp', label: 'Requires',
+        checked: reqOn === FORMAT_OPTIONS.length,
+        indeterminate: reqOn > 0 && reqOn < FORMAT_OPTIONS.length,
+        children: reqChildren,
+      },
+      { value: '_sep', label: '', separator: true },
+      { value: '_genre', label: 'Genre', heading: true },
+    ];
+
     const cat = catalog();
     const sel = genreFilter();
-    if (!cat) return [];
+    if (!cat) return head;
 
     // Second level: group genres by their ": " prefix. `bare` is a genre equal
     // to the prefix with no sub-type (e.g. "Compilation" alongside
@@ -213,10 +242,12 @@ export function LibraryBrowser() {
         children,
       });
     }
-    return items;
+    return [...head, ...items];
   });
 
   function onFilterSelect(value: string) {
+    if (value === 'reqgrp') { toggleFormatGroup(); return; }
+    if (value.startsWith('req:')) { toggleFormatFilter(value.slice(4) as FormatReq); return; }
     if (value.startsWith('g:')) { toggleGenreFilter(value.slice(2)); return; }
     const cat = catalog();
     if (!cat) return;
@@ -318,7 +349,7 @@ export function LibraryBrowser() {
           <DropDownMenuButton
             size="sm"
             icon={<HiOutlineEllipsisVertical />}
-            title="Filter by genre"
+            title="Filter by required machine or genre"
             items={filterItems()}
             onSelect={onFilterSelect}
           />

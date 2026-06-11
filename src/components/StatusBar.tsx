@@ -4,7 +4,7 @@
 
 import { Show } from 'solid-js';
 import {
-  statusText, ledKbd, ledKemp, ledEar, ledLoad, ledText,
+  ledKbd, ledKemp, ledEar, ledLoad, ledText,
   ledBeep, ledAy, ledDsk, ledRainbow, ledMouse, toggleTranscribeMode, machine,
   currentModel,
 } from '@/emulator.ts';
@@ -76,7 +76,6 @@ export function StatusBar() {
             tip="Writing to the AY sound chip registers" />
         </div>
       </div>
-      <div id="status">{statusText()}</div>
     </div>
   );
 }

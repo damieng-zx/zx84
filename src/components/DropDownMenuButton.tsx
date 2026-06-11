@@ -14,6 +14,8 @@ export interface MenuItem {
   children?: MenuItem[];
   /** Renders a horizontal separator instead of a clickable item. */
   separator?: boolean;
+  /** Renders a non-clickable section sub-heading instead of an item. */
+  heading?: boolean;
 }
 
 interface Props {
@@ -79,6 +81,9 @@ export function DropDownMenuButton(props: Props) {
   function renderItem(item: MenuItem) {
     if (item.separator) {
       return <div class="ddmenu-separator" />;
+    }
+    if (item.heading) {
+      return <div class="ddmenu-heading">{item.label}</div>;
     }
     if (item.children) {
       // Parent: the row is clickable to toggle the whole group when checkable;

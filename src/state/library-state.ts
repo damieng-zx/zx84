@@ -83,3 +83,48 @@ export function clearGenreFilter(): void {
   setGenreFilter(empty);
   persistGenreFilter(empty);
 }
+
+// ── Format / "Requires" filter (persisted) ─────────────────────────────────
+// Set of minimum-machine tags to include ('48' | '128' | '+3', matching
+// gameNeeds); empty = no format filtering (show all).
+
+export type FormatReq = '48' | '128' | '+3';
+const ALL_FORMATS: FormatReq[] = ['48', '128', '+3'];
+
+const FORMAT_FILTER_KEY = 'zx84-library-formats';
+
+function loadFormatFilter(): Set<FormatReq> {
+  try {
+    const raw = localStorage.getItem(FORMAT_FILTER_KEY);
+    if (raw) return new Set<FormatReq>(JSON.parse(raw));
+  } catch { /* */ }
+  return new Set();
+}
+
+const _formatFilter = createSignal<Set<FormatReq>>(loadFormatFilter());
+export const formatFilter = _formatFilter[0];
+const setFormatFilter = _formatFilter[1];
+
+function persistFormatFilter(s: Set<FormatReq>): void {
+  try {
+    if (s.size === 0) localStorage.removeItem(FORMAT_FILTER_KEY);
+    else localStorage.setItem(FORMAT_FILTER_KEY, JSON.stringify([...s]));
+  } catch { /* */ }
+}
+
+export function toggleFormatFilter(fmt: FormatReq): void {
+  const s = new Set(formatFilter());
+  if (s.has(fmt)) s.delete(fmt); else s.add(fmt);
+  setFormatFilter(s);
+  persistFormatFilter(s);
+}
+
+/** Parent "Requires" click: clear all formats if every one is already on,
+ *  otherwise select all three. */
+export function toggleFormatGroup(): void {
+  const s = new Set(formatFilter());
+  const allOn = ALL_FORMATS.every(m => s.has(m));
+  for (const m of ALL_FORMATS) { if (allOn) s.delete(m); else s.add(m); }
+  setFormatFilter(s);
+  persistFormatFilter(s);
+}
