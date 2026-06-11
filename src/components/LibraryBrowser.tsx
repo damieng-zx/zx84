@@ -259,23 +259,34 @@ export function LibraryBrowser() {
     if (!plan || loadingGame()) return;
     const urls = fileUrls(plan.link);
     if (!urls.length) return;
+    // Re-playing the game that is already mounted/active is a Side B /
+    // next-part multi-load: the multi-file picker opens as usual (inside
+    // loadFile), but we mount the chosen file IN PLACE without resetting —
+    // so the running program keeps going and reads the freshly-swapped media.
+    const remountOnly = mounted()?.game === game;
     setLoadingGame(game);
     setLibraryError('');
     try {
       const data = await fetchFirst(urls);
       // Switch to the model this load needs (if any), mount the media, then
-      // reset + kick the loader (Enter on the 128K/+3 menu, or 48K ROM jump).
+      // reset + kick the loader (Enter on the 128K/+3 menu, or 48K ROM jump) —
+      // unless this is an in-place remount, where we mount and leave the
+      // machine running. (An active game already runs on the right model, so
+      // the model-switch guard below never trips in the remount case.)
       if (plan.target !== currentModel()) await switchModel(plan.target);
       await loadFile(data, basename(plan.link));
+      // A snapshot restores running state itself — no loader kick, and no disk
+      // eject (it doesn't boot from the drive).
+      const isSnapshot = plan.boot === 'snapshot';
       // A tape-only game on a +3/+2A must not find a disk in A: — the boot
       // menu's Loader boots the disk in preference to the tape. Eject any
       // mounted disk so the Loader falls through to the cassette loader.
-      if (!plan.isDisk && currentDiskName()) ejectDisk(0);
+      if (!remountOnly && !isSnapshot && !plan.isDisk && currentDiskName()) ejectDisk(0);
       // Capture the mounted media name before the boot reset so the row stays
       // highlighted until it's ejected or replaced.
       const kind = plan.isDisk ? 'disk' : 'tape';
       setMounted({ game, name: kind === 'disk' ? currentDiskName() : tapeName(), kind });
-      autoBootLoad(plan.boot);
+      if (!remountOnly && plan.boot !== 'snapshot') autoBootLoad(plan.boot);
     } catch (err) {
       console.warn(`Failed to load "${game.title}":`, err);
       setLibraryError(`Could not download "${game.title}".`);

@@ -107,8 +107,15 @@ describe('resolveGame', () => {
     expect(g).toEqual({
       id: 7, title: 'Jetpac', year: 1983, genre: 'Arcade: Action', publisher: 'Ultimate',
       tape48: '/pub/a.tzx.zip', tape128: '/pub/a128.tzx.zip', disk: '/pub/a.dsk.zip',
-      diskSides: [], isDiskOnly: false, screen: '/pub/a.scr',
+      diskSides: [], isDiskOnly: false, snap48: '', snap128: '', screen: '/pub/a.scr',
     });
+  });
+
+  it('exposes snapshot slots', () => {
+    const g = resolveGame({ i: 9, t: 'Snap', n: '/pub/s.z80.zip', nk: '/pub/s128.szx.zip' }, cat);
+    expect(g.snap48).toBe('/pub/s.z80.zip');
+    expect(g.snap128).toBe('/pub/s128.szx.zip');
+    expect(g.isDiskOnly).toBe(false);
   });
 
   it('flags a disk-only game', () => {
@@ -135,6 +142,8 @@ describe('planLoad / gameNeeds', () => {
   const bothTapes = mk({ t: 'BT', f: '/pub/48.tzx.zip', k: '/pub/128.tzx.zip' });
   const diskOnly = mk({ t: 'D', d: '/pub/x.dsk.zip' });
   const tapeAndDisk = mk({ t: 'TD', f: '/pub/48.tzx.zip', d: '/pub/x.dsk.zip' });
+  const snap48Only = mk({ t: 'S48', n: '/pub/s.z80.zip' });
+  const snap128Only = mk({ t: 'S128', nk: '/pub/s128.szx.zip' });
 
   it('48K: a 48 tape jumps the ROM loader, staying on 48K', () => {
     expect(planLoad(tape48, '48k')).toEqual({ target: '48k', link: '/pub/48.tzx.zip', isDisk: false, boot: 'rom48k' });
@@ -164,8 +173,15 @@ describe('planLoad / gameNeeds', () => {
     expect(planLoad(tape48, '+3')).toEqual({ target: '+3', link: '/pub/48.tzx.zip', isDisk: false, boot: 'menu' });
   });
 
-  it('returns null when the game has neither tape nor disk', () => {
+  it('returns null when the game has no playable file at all', () => {
     expect(planLoad(mk({ t: 'None' }), '48k')).toBeNull();
+  });
+
+  it('snapshot-only: falls back to the snapshot on its native model, boot snapshot', () => {
+    expect(planLoad(snap48Only, '48k')).toEqual({ target: '48k', link: '/pub/s.z80.zip', isDisk: false, boot: 'snapshot' });
+    expect(planLoad(snap128Only, '48k')).toEqual({ target: '128k', link: '/pub/s128.szx.zip', isDisk: false, boot: 'snapshot' });
+    // Even on a +3, a snapshot-only game loads its snapshot directly.
+    expect(planLoad(snap48Only, '+3')).toEqual({ target: '48k', link: '/pub/s.z80.zip', isDisk: false, boot: 'snapshot' });
   });
 
   it('gameNeeds reports the minimum machine', () => {
@@ -173,5 +189,7 @@ describe('planLoad / gameNeeds', () => {
     expect(gameNeeds(tape128)).toBe('128');
     expect(gameNeeds(diskOnly)).toBe('+3');
     expect(gameNeeds(bothTapes)).toBe('48');
+    expect(gameNeeds(snap48Only)).toBe('48');
+    expect(gameNeeds(snap128Only)).toBe('128');
   });
 });

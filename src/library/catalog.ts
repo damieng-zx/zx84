@@ -14,7 +14,9 @@ import { is128kClass, isPlus3, type SpectrumModel, type MachineModel } from '@/m
 
 /** One game in the compact on-wire schema. Short keys keep the JSON small. The
  *  required model is implicit in which slot a file lands in: f ⇒ 48K tape,
- *  k ⇒ 128K tape, d/ds ⇒ +3 disk. */
+ *  k ⇒ 128K tape, d/ds ⇒ +3 disk, n ⇒ 48K snapshot, nk ⇒ 128K snapshot.
+ *  Snapshots are a fallback emitted only when the game has no tape and no disk;
+ *  they mount directly (no loader). */
 export interface RawGame {
   i: number;    // ZXDB entry id
   t: string;    // title
@@ -26,6 +28,8 @@ export interface RawGame {
   k?: string;   // 128K tape file_link
   d?: string;   // disk file_link (.dsk) — side A / disk 1
   ds?: [string, string][]; // extra disk sides: [file_link, label]
+  n?: string;   // 48K snapshot file_link (.szx/.z80/.sna), fallback only
+  nk?: string;  // 128K snapshot file_link, fallback only
 }
 
 export interface RawCatalog {
@@ -52,6 +56,11 @@ export interface Game {
   diskSides: [string, string][];
   /** True when the game has only a disk (no tape) — forces a +3. */
   isDiskOnly: boolean;
+  /** ZXDB file_link for a 48K snapshot, '' when none. Fallback when there's no
+   *  tape/disk; mounts directly. */
+  snap48: string;
+  /** ZXDB file_link for a 128K snapshot, '' when none. */
+  snap128: string;
   /** ZXDB file_link for a running-screen image ('' when none). */
   screen: string;
 }
@@ -139,6 +148,8 @@ export function resolveGame(raw: RawGame, cat: RawCatalog): Game {
     disk: raw.d ?? '',
     diskSides: raw.ds ?? [],
     isDiskOnly: raw.f == null && raw.k == null && raw.d != null,
+    snap48: raw.n ?? '',
+    snap128: raw.nk ?? '',
     screen: raw.s ?? '',
   };
 }
@@ -149,7 +160,9 @@ export interface LoadPlan {
   target: SpectrumModel;     // model to load it on (may equal the current one)
   link: string;             // ZXDB file_link to fetch + mount
   isDisk: boolean;          // disk image vs tape
-  boot: 'menu' | 'rom48k';  // press Enter on the 128K/+3 loader menu, or jump 48K ROM
+  // How to start it: press Enter on the 128K/+3 loader menu, jump the 48K ROM
+  // loader, or — for a snapshot — nothing (it restores running state itself).
+  boot: 'menu' | 'rom48k' | 'snapshot';
 }
 
 /**
@@ -159,35 +172,40 @@ export interface LoadPlan {
  *   - 128/+2/+2A: a tape (prefer 128K) via menu; a disk-only game upgrades to +3.
  *   - 48K (or 16K/other): a 48K tape jumps the ROM loader; a 128K-only tape
  *     upgrades to 128K; a disk-only game upgrades to +3.
- * Returns null only when the game has neither a tape nor a disk.
+ * A snapshot-only game (no tape/disk) falls back to its snapshot, loaded on the
+ * snapshot's native model and mounted directly (boot 'snapshot', no loader kick).
+ * Returns null only when the game has no playable file at all.
  */
 export function planLoad(game: Game, current: MachineModel): LoadPlan | null {
-  const { tape48, tape128, disk } = game;
+  const { tape48, tape128, disk, snap48, snap128 } = game;
   const anyTape = tape128 || tape48;   // prefer the 128K tape where a machine runs it
 
   if (isPlus3(current)) {
     if (disk) return { target: '+3', link: disk, isDisk: true, boot: 'menu' };
     if (anyTape) return { target: '+3', link: anyTape, isDisk: false, boot: 'menu' };
-    return null;
-  }
-  if (is128kClass(current)) {   // 128 / +2 / +2A (not +3, handled above)
+  } else if (is128kClass(current)) {   // 128 / +2 / +2A (not +3, handled above)
     if (anyTape) return { target: current as SpectrumModel, link: anyTape, isDisk: false, boot: 'menu' };
     if (disk) return { target: '+3', link: disk, isDisk: true, boot: 'menu' };
-    return null;
+  } else {
+    // 48K, 16K, or a non-Spectrum machine: load on the minimal Spectrum that fits.
+    if (tape48)  return { target: '48k', link: tape48, isDisk: false, boot: 'rom48k' };
+    if (tape128) return { target: '128k', link: tape128, isDisk: false, boot: 'menu' };
+    if (disk)    return { target: '+3', link: disk, isDisk: true, boot: 'menu' };
   }
-  // 48K, 16K, or a non-Spectrum machine: load on the minimal Spectrum that fits.
-  if (tape48)  return { target: '48k', link: tape48, isDisk: false, boot: 'rom48k' };
-  if (tape128) return { target: '128k', link: tape128, isDisk: false, boot: 'menu' };
-  if (disk)    return { target: '+3', link: disk, isDisk: true, boot: 'menu' };
+  // Snapshot fallback (present only when there's no tape/disk).
+  if (snap128) return { target: '128k', link: snap128, isDisk: false, boot: 'snapshot' };
+  if (snap48)  return { target: '48k', link: snap48, isDisk: false, boot: 'snapshot' };
   return null;
 }
 
-/** Minimum machine a game needs: '48' (has a 48K tape), else '128' (128K-only
- *  tape), else '+3' (disk-only). For the row's "needs 128/+3" badge. */
+/** Minimum machine a game needs, for the row's "needs 128/+3" badge: '48' (48K
+ *  tape or snapshot), '128' (128K-only tape or snapshot), or '+3' (disk-only). */
 export function gameNeeds(game: Game): '48' | '128' | '+3' {
   if (game.tape48) return '48';
   if (game.tape128) return '128';
-  return '+3';
+  if (game.disk) return '+3';
+  if (game.snap128) return '128';
+  return '48';   // 48K snapshot (or, defensively, nothing)
 }
 
 // ── Catalog fetch / cache ─────────────────────────────────────────────────
