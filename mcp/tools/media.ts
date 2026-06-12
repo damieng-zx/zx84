@@ -6,9 +6,12 @@ import { saveSZX } from '../../src/snapshot/szx.ts';
 import { h8, h16 } from '../hex.ts';
 import { state, initMachine, activeSpectrum, activeCpc } from '../state.ts';
 import { text, formatHexDump } from '../format.ts';
-import { loadFileInto } from '../loader.ts';
+import { loadFileInto, mountAndArm, runLoadVerdict } from '../loader.ts';
 import { fdcLog } from '../fdc-log.ts';
 import { parseDSK } from '../../src/plus3/dsk.ts';
+import { unzip } from '../../src/snapshot/zip.ts';
+import { CACHE_DIR } from '../rom-fetch.ts';
+import { findGames, suggestTitles, fileUrls, planLoad, gameNeeds, basename } from '../catalog.ts';
 
 export function register(server: McpServer): void {
   server.registerTool(
@@ -28,6 +31,134 @@ export function register(server: McpServer): void {
         return text(`DSK mounted in drive ${diskUnit === 0 ? 'A' : 'B'}: ${path.basename(file)}`);
       }
       return text(await loadFileInto(activeSpectrum()!, file, diskUnit));
+    },
+  );
+
+  server.registerTool(
+    'library',
+    {
+      description:
+        'Load a title from the ZX84 game library by EXACT title (case-insensitive), reproducing the app\'s one-click Library play: pick the model + file via planLoad, download from the CDN/Worker, unzip, mount, and arm the auto-boot trap. ' +
+        'For an archive with multiple loadable files, pass `file`. For duplicate titles, pass `id`. With frames=0 (default) it only arms the loader — call `run` afterwards. With frames=N it runs the loader and returns a pass/fail verdict: a load FAILS when the tape reaches its end while the CPU is still polling the EAR port (loader stranded), and LOADS when EAR polling stops. Use a generous budget (e.g. 8000) for slow multiloads.',
+      inputSchema: {
+        title: z.string().describe('Exact game title from the catalog (case-insensitive)'),
+        file: z.string().optional().describe('Inner file to load when the archive holds several (name or basename)'),
+        id: z.number().int().optional().describe('ZXDB entry id, to disambiguate duplicate titles'),
+        frames: z.number().int().min(0).default(0).describe('Frames to run after arming (0 = just arm; use run afterwards)'),
+        refresh: z.boolean().default(false).describe('Force re-download of the catalog before resolving'),
+      },
+    },
+    async ({ title, file, id, frames, refresh }) => {
+      if (activeCpc()) return text('library is Spectrum-only — switch to a Spectrum model first (CPC titles are not in this catalog).');
+
+      // 1. Resolve the exact title against the catalog.
+      let games;
+      try {
+        games = await findGames(title, refresh);
+      } catch (e) {
+        return text(`Catalog error: ${(e as Error).message}`);
+      }
+      if (games.length === 0) {
+        const near = await suggestTitles(title);
+        return text(`No exact title match for "${title}".` +
+          (near.length ? `\nTitles containing it:\n${near.map(t => `  • ${t}`).join('\n')}` : ''));
+      }
+      let game = games[0];
+      if (games.length > 1) {
+        const picked = id != null ? games.find(g => g.id === id) : undefined;
+        if (!picked) {
+          const list = games.map(g => `  id=${g.id}  ${g.title} (${g.year ?? '?'})  ${g.publisher || '—'}  [needs ${gameNeeds(g)}]`).join('\n');
+          return text(`${games.length} titles match "${title}" exactly — re-run with id=:\n${list}`);
+        }
+        game = picked;
+      }
+
+      // 2. Plan the load from the current model (same decision the UI makes).
+      const plan = planLoad(game, state.model);
+      if (!plan) return text(`"${game.title}" has no playable tape/disk/snapshot in the catalog.`);
+
+      // 3. Download the file: CDN first, then the file-proxy Worker.
+      const urls = fileUrls(plan.link);
+      let data: Uint8Array | null = null;
+      let fetchedFrom = '';
+      let lastErr = 'no candidate URL';
+      for (const url of urls) {
+        try {
+          const resp = await fetch(url);
+          if (resp.ok) { data = new Uint8Array(await resp.arrayBuffer()); fetchedFrom = url; break; }
+          lastErr = `HTTP ${resp.status} (${url})`;
+        } catch (e) {
+          lastErr = `${(e as Error).message} (${url})`;
+        }
+      }
+      if (!data) return text(`Download failed for "${game.title}" → ${plan.link}\n  ${lastErr}`);
+
+      // 4. Unzip if the file_link is an archive, and pick the inner file.
+      let innerName = basename(plan.link);
+      if (/\.zip$/i.test(innerName)) {
+        let entries;
+        try {
+          entries = await unzip(data);
+        } catch (e) {
+          return text(`ZIP error for "${game.title}": ${(e as Error).message}`);
+        }
+        if (entries.length === 0) return text(`Archive for "${game.title}" contains no loadable files.`);
+        let entry = entries[0];
+        if (entries.length > 1) {
+          const want = file?.toLowerCase();
+          const found = want
+            ? entries.find(e => e.name.toLowerCase() === want || basename(e.name).toLowerCase() === want)
+            : undefined;
+          if (!found) {
+            const list = entries.map(e => `  • ${e.name}`).join('\n');
+            return text(`Archive holds ${entries.length} loadable files — re-run with file=<name>:\n${list}`);
+          }
+          entry = found;
+        }
+        data = entry.data;
+        innerName = entry.name;
+      }
+
+      const lines: string[] = [];
+      lines.push(`Match: ${game.title}${game.year ? ` (${game.year})` : ''}  id=${game.id}`);
+      lines.push(`Link:  ${plan.link}`);
+      lines.push(`From:  ${fetchedFrom}`);
+      lines.push(`Plan:  model=${plan.target}  boot=${plan.boot}  inner=${innerName}`);
+
+      // 5. Switch model if the plan needs a different one.
+      if (plan.target !== state.model) {
+        lines.push(await initMachine(plan.target));
+      }
+
+      // 6. Mount + boot. Snapshots restore running state and self-select their
+      //    model, so route them through the path-based loader (SZX banking etc.);
+      //    tapes/disks mount + arm the auto-boot trap like the UI's one-click play.
+      if (plan.boot === 'snapshot') {
+        fs.mkdirSync(CACHE_DIR, { recursive: true });
+        const tmp = path.join(CACHE_DIR, `library-${path.basename(innerName)}`);
+        fs.writeFileSync(tmp, data);
+        lines.push(await loadFileInto(activeSpectrum()!, tmp, 0));
+      } else {
+        lines.push(mountAndArm(activeSpectrum()!, data, innerName, plan.boot, plan.target));
+      }
+
+      // 7. With a frame budget, run the loader to a pass/fail verdict (tape/disk)
+      //    using the end-of-tape oracle; a snapshot just runs the frames.
+      if (frames > 0) {
+        const spec = activeSpectrum()!;
+        if (plan.boot === 'snapshot') {
+          const ran = spec.runUntil(frames);
+          lines.push(`Ran ${ran}/${frames} frame(s). PC=${h16(spec.cpu.pc)} T=${spec.cpu.tStates}`);
+        } else {
+          const v = runLoadVerdict(spec, frames);
+          const tag = v.result === 'loaded' ? '✅ LOADED' : v.result === 'failed' ? '❌ FAILED' : '⏳ LOADING';
+          lines.push(`Verdict: ${tag} after ${v.frames} frame(s)`);
+          lines.push(`  ${v.detail}`);
+        }
+      } else if (plan.boot !== 'snapshot') {
+        lines.push(`Boot trap armed (not yet fired). Pass frames=N to run to a verdict, or use 'run' + 'ocr' to debug.`);
+      }
+      return text(lines.join('\n'));
     },
   );
 

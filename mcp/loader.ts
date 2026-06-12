@@ -93,3 +93,125 @@ export async function loadFileInto(spec: Spectrum, filepath: string, diskUnit: n
   }
   return `Unsupported file type: ${ext}`;
 }
+
+/**
+ * PC of the ROM key-wait loop where the app's one-shot auto-boot trap injects
+ * the loader keystrokes. Mirrors emulator.ts `bootWaitPc`.
+ */
+export function bootWaitPc(model: SpectrumModel): number {
+  if (model === '+2A' || model === '+3') return 0x1875;   // +2A/+3 menu wait loop
+  if (model === '128k' || model === '+2') return 0x0E65;  // 128K/+2 menu wait loop
+  return 0x15DE;                                           // 48K editor WAIT-KEY
+}
+
+/**
+ * Mount a library tape/disk's inner bytes and arm the app's one-shot auto-boot
+ * trap, reproducing the exact sequence of emulator.ts `autoBootLoad` +
+ * media-manager mounts: put the media on the deck/drive, reset, then trap the
+ * ROM's key-wait loop so it injects the loader keystrokes (menu Enter, or a 48K
+ * LOAD"" jump). Snapshots are NOT handled here — they restore running state and
+ * route through `loadFileInto`. Returns a status line.
+ */
+export function mountAndArm(
+  spec: Spectrum, data: Uint8Array, innerName: string,
+  boot: 'menu' | 'rom48k', model: SpectrumModel,
+): string {
+  const ext = path.extname(innerName).toLowerCase();
+  let mounted: string;
+
+  if (ext === '.tzx' || ext === '.tap') {
+    // Mount the tape paused — deck in play with the pause button held, exactly
+    // as media-manager.applyTape does. The ROM trap at 0x056C unpauses it.
+    const blocks = ext === '.tzx' ? parseTZX(data) : spec.tape.parseTAP(data);
+    spec.tape.blocks = blocks;
+    spec.tape.position = 0;
+    spec.tape.paused = true;
+    spec.tape.startPlayback();
+    mounted = `tape ${innerName} (${blocks.length} blocks)`;
+    // A tape on a +2A/+3 must not find a disk in A: — the boot menu's Loader
+    // boots the disk in preference to the cassette. Eject so it falls through
+    // (mirrors play() in LibraryBrowser).
+    if (spec.fdc?.getDiskImage(0)) spec.fdc.ejectDisk(0);
+  } else if (ext === '.dsk') {
+    spec.loadDisk(parseDSK(data), 0);
+    mounted = `disk ${innerName} → A:`;
+  } else {
+    return `Unsupported library media type: ${ext}`;
+  }
+
+  // autoBootLoad: reset, then arm the one-shot trap at the ROM key-wait loop.
+  // (reset() preserves the mounted tape/disk and clears bootTrap*, so the trap
+  // must be armed *after* it.)
+  spec.reset();
+  spec.bootTrapKind = boot;
+  spec.bootTrapPc = bootWaitPc(model);
+  return `Mounted ${mounted}; armed '${boot}' boot trap at PC=${h16(spec.bootTrapPc)}`;
+}
+
+export interface LoadVerdict {
+  result: 'loaded' | 'failed' | 'loading';
+  detail: string;
+  frames: number;
+}
+
+/**
+ * Run the just-armed tape loader and judge the outcome with the end-of-tape
+ * oracle: once the tape has played to its end (`tape.finished`), the CPU must
+ * stop hammering the ULA/EAR port. If it keeps polling port 0xFE in a tight
+ * loop after the tape has run out, the loader is stranded waiting for edges that
+ * will never come — the load has FAILED. If the polling stops (the loader
+ * handed control to the game), it LOADED.
+ *
+ * `activity.ulaReads` counts every `IN (even port)` and — unlike tapePolls —
+ * survives the tape going inactive, so it's the read that exposes a stuck
+ * loader. The frame counter resets each frame, so we sample it per frame.
+ */
+export function runLoadVerdict(spec: Spectrum, budgetFrames: number): LoadVerdict {
+  const POLL_BUSY = 150;  // ULA reads/frame above this ⇒ loader actively hunting edges
+  const STUCK = 40;       // busy frames after end-of-tape ⇒ stranded (~0.8s)
+  const QUIET = 30;       // quiet frames after end-of-tape ⇒ control handed to the game
+
+  let stuckFrames = 0;
+  let quietFrames = 0;
+  let everFinished = false;
+  let total = 0;
+
+  while (total < budgetFrames) {
+    spec.runUntil(1);
+    total++;
+    if (spec.breakpointHit >= 0 || spec.portWatchHit || spec.memWatchHit) {
+      return { result: 'loading', detail: `stopped at a watch/breakpoint after ${total} frame(s)`, frames: total };
+    }
+    const reads = spec.activity.ulaReads;
+    if (spec.tape.finished) everFinished = true;
+
+    if (everFinished && reads > POLL_BUSY) {
+      quietFrames = 0;
+      if (++stuckFrames >= STUCK) {
+        return {
+          result: 'failed',
+          detail: `end of tape reached but the CPU is still polling the EAR port (${reads} ULA reads/frame, PC=${h16(spec.cpu.pc)}) — loader stranded`,
+          frames: total,
+        };
+      }
+    } else {
+      stuckFrames = 0;
+      if (everFinished) {
+        if (++quietFrames >= QUIET) {
+          return {
+            result: 'loaded',
+            detail: `tape consumed and EAR polling stopped (PC=${h16(spec.cpu.pc)})`,
+            frames: total,
+          };
+        }
+      } else {
+        quietFrames = 0;
+      }
+    }
+  }
+  return {
+    result: 'loading',
+    detail: `still loading after ${total} frame(s) (tape ${everFinished ? 'finished' : 'still playing'}, PC=${h16(spec.cpu.pc)}) — give it more frames`,
+    frames: total,
+  };
+}
