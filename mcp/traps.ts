@@ -8,6 +8,9 @@
  */
 
 import type { Machine } from '../src/machine.ts';
+import { asSpectrum } from '../src/machine.ts';
+import { is128kClass } from '../src/models.ts';
+import { disasmOne, stripMarkers } from '../src/debug/z80-disasm.ts';
 import { h8, h16 } from './hex.ts';
 
 export interface TrapResponse {
@@ -28,6 +31,62 @@ export interface Trap {
 
 export const traps = new Map<number, Trap[]>();
 export const trapLog: string[] = [];
+
+/**
+ * Reset trap: catches the whole class of "machine reboots" — loaders RET/JP/RST 0
+ * to 0x0000 as their tape-read-error handler (and crashes run off into it too).
+ * When armed, execution breaks the moment PC reaches 0x0000 via control flow, and
+ * we snapshot the culprit instruction, the stack (the RET-chain it unwound), and
+ * the paging state so the reboot can be diagnosed without hand-tracing.
+ *
+ *   lastPc — PC of the instruction executed immediately before this one. onTrap
+ *            runs once per instruction with the about-to-execute PC, so when PC
+ *            lands on 0x0000 the previous call's PC is the branch that did it.
+ */
+export interface ResetHit { text: string; culpritPc: number; }
+export const resetTrap = { armed: false, lastPc: -1, hit: null as ResetHit | null };
+
+/** Arm or disarm the reset trap, clearing any prior capture. */
+export function setResetTrap(on: boolean): void {
+  resetTrap.armed = on;
+  resetTrap.lastPc = -1;
+  resetTrap.hit = null;
+}
+
+/** Pull and clear the most recent reset capture (consumed by run/step tools). */
+export function consumeResetHit(): ResetHit | null {
+  const hit = resetTrap.hit;
+  resetTrap.hit = null;
+  return hit;
+}
+
+/** Snapshot the reboot: culprit instruction + return-address chain + paging. */
+function captureReset(spec: Machine, culpritPc: number): ResetHit {
+  const cpu = spec.cpu;
+  const snap = spec.memory.snapshot();
+  const culprit = stripMarkers(disasmOne(snap, culpritPc).text);
+
+  // The unwound return-address chain — what RET'd through to 0x0000.
+  const sp = cpu.sp;
+  const stack: string[] = [];
+  for (let i = 0; i < 8; i++) {
+    const a = (sp + i * 2) & 0xFFFF;
+    stack.push(h16((snap[(a + 1) & 0xFFFF] << 8) | snap[a]));
+  }
+
+  const lines = [
+    '*** RESET TRAP: PC reached 0x0000 (reboot) ***',
+    `Culprit: ${h16(culpritPc)}  ${culprit}`,
+    `SP=${h16(sp)}  stack: ${stack.join(' ')}`,
+    `T=${cpu.tStates}`,
+  ];
+  const s = asSpectrum(spec);
+  if (s && is128kClass(s.model)) {
+    const mem = s.memory;
+    lines.push(`Paging: bank ${mem.currentBank}  ROM ${mem.currentROM}  7FFD=${h8(mem.port7FFD)}  locked=${mem.pagingLocked ? 'Y' : 'N'}`);
+  }
+  return { text: lines.join('\n'), culpritPc };
+}
 
 /** Read a '$'-terminated CP/M string from memory starting at addr. */
 function readCpmString(spec: Machine, addr: number, maxLen = 256): string {
@@ -81,6 +140,17 @@ function execRET(spec: Machine): void {
 /** Install the onTrap callback on the given spec. Called from initMachine. */
 export function installTrapHook(spec: Machine): void {
   spec.onTrap = (pc: number): boolean => {
+    if (resetTrap.armed) {
+      // Fire on the transition *into* 0x0000 (lastPc must be a real prior
+      // instruction, so arming while already at boot PC=0 can't false-fire).
+      if (pc === 0x0000 && resetTrap.lastPc > 0) {
+        resetTrap.hit = captureReset(spec, resetTrap.lastPc);
+        trapLog.push(resetTrap.hit.text);
+        resetTrap.lastPc = pc;
+        return true;
+      }
+      resetTrap.lastPc = pc;
+    }
     const list = traps.get(pc);
     if (!list) return false;
     for (const trap of list) {

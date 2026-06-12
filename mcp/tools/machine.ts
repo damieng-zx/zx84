@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { h8, h16 } from '../hex.ts';
 import { state, initMachine } from '../state.ts';
 import { formatStep, formatRegs, parseAddr, text } from '../format.ts';
-import { traps } from '../traps.ts';
+import { traps, resetTrap, consumeResetHit } from '../traps.ts';
 
 export function register(server: McpServer): void {
   server.registerTool(
@@ -21,6 +21,8 @@ export function register(server: McpServer): void {
         return text(`Memory watchpoint: ${dir === 'write' ? 'WR' : 'RD'} (${h16(addr)}) = ${h8(value)}  PC=${h16(spec.cpu.pc)}\n${formatStep(spec)}`);
       }
       if (spec.breakpointHit >= 0) {
+        const reset = consumeResetHit();
+        if (reset) return text(`${reset.text}\nafter ${ran}/${frames} frame(s)\n${formatStep(spec)}`);
         return text(`Breakpoint hit at ${h16(spec.breakpointHit)} after ${ran}/${frames} frame(s). T=${spec.cpu.tStates}\n${formatStep(spec)}`);
       }
       return text(`Ran ${frames} frame(s). T=${spec.cpu.tStates}`);
@@ -42,6 +44,8 @@ export function register(server: McpServer): void {
         return text(`Memory watchpoint: ${dir === 'write' ? 'WR' : 'RD'} (${h16(addr)}) = ${h8(value)}  PC=${h16(spec.cpu.pc)}\n${formatStep(spec)}`);
       }
       if (spec.breakpointHit >= 0) {
+        const reset = consumeResetHit();
+        if (reset) return text(`${reset.text}\n${formatStep(spec)}`);
         return text(`Breakpoint at ${h16(spec.breakpointHit)}. T=${spec.cpu.tStates}\n${formatStep(spec)}`);
       }
       return text(`Frame complete. T=${spec.cpu.tStates}`);
@@ -67,8 +71,8 @@ export function register(server: McpServer): void {
     { description: 'Continue execution until a breakpoint is hit (max N frames, default 5000).', inputSchema: { max_frames: z.number().int().positive().default(5000).describe('Maximum frames before giving up') } },
     async ({ max_frames }) => {
       const spec = state.spec;
-      if (spec.breakpoints.size === 0 && spec.portWatchpoints.size === 0 && spec.memWatchpoints.length === 0 && traps.size === 0)
-        return text('No breakpoints or traps set. Use "breakpoint", "port_watchpoint", "memory_watchpoint", or "trap" first.');
+      if (spec.breakpoints.size === 0 && spec.portWatchpoints.size === 0 && spec.memWatchpoints.length === 0 && traps.size === 0 && !resetTrap.armed)
+        return text('No breakpoints or traps set. Use "breakpoint", "port_watchpoint", "memory_watchpoint", "trap", or "reset_trap" first.');
       const ran = spec.runUntil(max_frames);
       if (spec.portWatchHit !== null) {
         const { port, value, dir } = spec.portWatchHit;
@@ -79,6 +83,8 @@ export function register(server: McpServer): void {
         return text(`Memory watchpoint: ${dir === 'write' ? 'WR' : 'RD'} (${h16(addr)}) = ${h8(value)}  after ${ran} frame(s)  PC=${h16(spec.cpu.pc)}\n${formatStep(spec)}`);
       }
       if (spec.breakpointHit >= 0) {
+        const reset = consumeResetHit();
+        if (reset) return text(`${reset.text}\nafter ${ran} frame(s)\n${formatStep(spec)}`);
         return text(`Breakpoint hit at ${h16(spec.breakpointHit)} after ${ran} frame(s). T=${spec.cpu.tStates}\n${formatStep(spec)}`);
       }
       return text(`No breakpoint hit after ${max_frames} frames (T=${spec.cpu.tStates})`);

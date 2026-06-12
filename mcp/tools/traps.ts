@@ -2,9 +2,25 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { h8, h16 } from '../hex.ts';
 import { parseAddr, text } from '../format.ts';
-import { traps, trapLog, type Trap } from '../traps.ts';
+import { traps, trapLog, resetTrap, setResetTrap, type Trap } from '../traps.ts';
 
 export function register(server: McpServer): void {
+  server.registerTool(
+    'reset_trap',
+    { description: 'Arm/disarm the reset trap. When armed, execution breaks the instant the CPU reaches 0x0000 (a reboot) via control flow, capturing the culprit instruction, the stack (RET-chain it unwound through), and the paging state. Loader self-reboots — e.g. a tape-read-error handler that RET/JP/RST 0s to 0x0000 — and runaway crashes all land here, so this catches the whole class generically. Omit `enabled` to show status.', inputSchema: {
+      enabled: z.boolean().optional().describe('true to arm, false to disarm (omit to show status)'),
+    } },
+    async ({ enabled }) => {
+      if (enabled === undefined) {
+        return text(resetTrap.armed ? 'Reset trap: ARMED (breaks on PC→0x0000)' : 'Reset trap: off');
+      }
+      setResetTrap(enabled);
+      return text(enabled
+        ? 'Reset trap armed — will break on reboot to 0x0000 with culprit + stack + paging'
+        : 'Reset trap disarmed');
+    },
+  );
+
   server.registerTool(
     'trap',
     { description: 'Set a trap at an address. Actions: "log" (record and continue), "break" (halt execution), "respond" (stuff registers and RET). Omit address to list all traps.', inputSchema: {
