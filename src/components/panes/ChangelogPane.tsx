@@ -2,6 +2,12 @@ import { createSignal, Show } from 'solid-js';
 
 const CHANGELOG: { version: string; items: string[] }[] = [
   {
+    version: '0.6.1',
+    items: [
+      'MCP screenshot tool',
+      'MCP load catalog tool',
+    ]
+  }, {
     version: '0.6.0',
     items: [
       'Add filter option for AY-3-8912',
