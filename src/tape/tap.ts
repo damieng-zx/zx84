@@ -685,12 +685,31 @@ export class TapeDeck {
     // flip to opposite level. The 945T figure matches FUSE — about a
     // quarter of a frame, long enough that real loaders see the last
     // edge before the level changes, short enough that the flip arrives
-    // well within any reasonable pause. We only schedule a flip if there
-    // actually is a pause (pauseRemaining > 945T) — for zero-pause block
-    // transitions the flip would land after the next block has begun. The
-    // 945T figure is 3.5MHz-referenced, so scale it like any pulse length.
+    // well within any reasonable pause. The 945T figure is 3.5MHz-referenced,
+    // so scale it like any pulse length.
     const flipAt = this.scale(945);
-    this.pauseFlipAt = this.pauseRemaining > flipAt ? flipAt : -1;
+
+    // A custom loader reading the FINAL bit of a block needs one more edge
+    // after the last data pulse to terminate its pulse-timing loop. Mid-tape
+    // that edge is supplied by the next block's pilot (or, for a real pause,
+    // by this flip). But the last edge-producing block on the tape with a
+    // zero/short pause supplies none — the level just freezes — so the loader
+    // hunts for an edge that never comes and times out. Many turbo loaders
+    // treat that timeout as a fatal read error and reboot (e.g. Thundercats
+    // 128K RET-chains to 0x0000). Guarantee a terminating flip in that case by
+    // extending the pause to flipAt. FUSE/libspectrum end the tape equivalently
+    // cleanly. Mid-tape zero pauses (continuous multi-block loaders) are left
+    // untouched: their next block begins immediately and provides the edge.
+    if (this.pauseRemaining < flipAt && !this.hasFollowingBlock()) {
+      this.pauseRemaining = flipAt;
+    }
+    this.pauseFlipAt = this.pauseRemaining >= flipAt ? flipAt : -1;
+  }
+
+  /** True if any block follows the one currently playing (so the loader will
+   *  get its next edge from that block rather than dead end-of-tape silence). */
+  private hasFollowingBlock(): boolean {
+    return this.playbackIdx + 1 < this.blocks.length;
   }
 
   /** Reconstruct raw block bytes: flag + payload + XOR checksum */

@@ -847,11 +847,64 @@ describe('TapeDeck — large advance() spanning phases', () => {
     // Advance by more than the entire block (pilot+sync+data).
     const totalT = 10 * 2 + 10 + 10 + 3 * 8 * 2 * 10;
     deck.advance(totalT);
-    // Now in PAUSE phase (pause=0); needs one more advance to process it.
+    // Now in PAUSE phase. Even though block.pause=0, this is the last block on
+    // the tape, so enterPause holds a ~945T terminating pause to emit a final
+    // edge for the loader (see the terminating-edge regression test below). It
+    // is therefore NOT finished after a single tiny advance.
     expect((deck as any).phase).toBe(5); // TapePhase.PAUSE
     deck.advance(1);
-    // Block finished, no next block → playing=false.
+    expect(deck.playing).toBe(true);
+    // Elapsing the terminating pause finishes the tape.
+    deck.advance(945);
     expect(deck.playing).toBe(false);
+  });
+});
+
+// ── Regression: terminating edge at end of tape (Thundercats 128K reboot) ────
+//
+// A custom loader reading the final bit of the last block needs one more edge
+// after the last data pulse to terminate its pulse-timing loop. If the last
+// block has a zero/short pause, the tape used to freeze the level instantly —
+// the loader hunted for an edge that never came, timed out, and (for turbo
+// loaders like Thundercats 128K) RET-chained to 0x0000, rebooting the machine.
+// enterPause now guarantees a terminating low-flip when no block follows.
+
+describe('TapeDeck — terminating edge at end of tape', () => {
+  it('holds a terminating pause and flips the level after the LAST block (pause=0)', () => {
+    // Pure-data block (pilotCount 0 → straight to DATA), single 0xFF byte.
+    const block = makeData(0xFF, [0xFF], {
+      pilotCount: 0, bit0Pulse: 10, bit1Pulse: 10, pause: 0, source: 'pure-data',
+    });
+    const deck = deckWith(block);
+    deck.startPlayback();
+
+    // Play out all the data pulses: 8 bits × 2 half-pulses × 10T.
+    deck.advance(8 * 2 * 10);
+    expect((deck as any).phase).toBe(5); // PAUSE — NOT finished despite pause=0
+
+    // The terminating pause is ~945T and ends with a low-flip edge. Mid-way the
+    // tape is still playing; only after the flip does it finish at level low.
+    deck.advance(1);
+    expect(deck.playing).toBe(true);
+    deck.advance(945);
+    expect(deck.playing).toBe(false);
+    expect(deck.earBit).toBe(0); // terminating edge drove the level low
+  });
+
+  it('does NOT delay a zero-pause block when another block follows (continuous loaders)', () => {
+    // First block pause=0 with a following tone block: the loader gets its next
+    // edge from the tone, so no terminating pause must be inserted.
+    const data = makeData(0xFF, [0xFF], {
+      pilotCount: 0, bit0Pulse: 10, bit1Pulse: 10, pause: 0, source: 'pure-data',
+    });
+    const tone: ToneBlock = { kind: 'tone', pulseLen: 50, count: 100 };
+    const deck = deckWith(data, tone);
+    deck.startPlayback();
+
+    deck.advance(8 * 2 * 10); // finish the data block
+    deck.advance(1);          // one tick must cross straight into the tone
+    expect((deck as any).playbackIdx).toBe(1);
+    expect((deck as any).phase).toBe(6); // TapePhase.TONE — no 945T stall
   });
 });
 
