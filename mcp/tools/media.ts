@@ -12,6 +12,8 @@ import { parseDSK } from '../../src/plus3/dsk.ts';
 import { unzip } from '../../src/snapshot/zip.ts';
 import { CACHE_DIR } from '../rom-fetch.ts';
 import { findGames, suggestTitles, fileUrls, planLoad, gameNeeds, basename } from '../catalog.ts';
+import { encodePNG } from '../png.ts';
+import { CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT } from '../../src/cpc/constants.ts';
 
 export function register(server: McpServer): void {
   server.registerTool(
@@ -159,6 +161,45 @@ export function register(server: McpServer): void {
         lines.push(`Boot trap armed (not yet fired). Pass frames=N to run to a verdict, or use 'run' + 'ocr' to debug.`);
       }
       return text(lines.join('\n'));
+    },
+  );
+
+  server.registerTool(
+    'screenshot',
+    {
+      description: 'Capture the current display as a PNG file. Renders the active screen (Spectrum: shadow-screen aware; CPC: live framebuffer) and writes it to disk. Returns the file path.',
+      inputSchema: {
+        file: z.string().optional().describe('Output PNG path (default: <mcp cache>/screenshot.png)'),
+      },
+    },
+    async ({ file }) => {
+      let rgba: Uint8Array;
+      let width: number;
+      let height: number;
+
+      const cpc = activeCpc();
+      if (cpc) {
+        rgba = cpc.pixels;
+        width = CPC_SCREEN_WIDTH;
+        height = CPC_SCREEN_HEIGHT;
+      } else {
+        const spec = activeSpectrum()!;
+        // Re-render from the active screen bank: the headless run may have skipped
+        // the bulk frame render, so the pixel buffer can be stale.
+        spec.ula.renderFrame(spec.memory.screenBank, 0x4000);
+        rgba = spec.ula.pixels;
+        width = spec.ula.screenWidth;
+        height = spec.ula.screenHeight;
+      }
+
+      let out = file ?? path.join(CACHE_DIR, 'screenshot.png');
+      if (!/\.png$/i.test(out)) out += '.png';
+      out = path.resolve(out);
+
+      const png = encodePNG(rgba, width, height);
+      fs.mkdirSync(path.dirname(out), { recursive: true });
+      fs.writeFileSync(out, png);
+      return text(`Screenshot saved: ${out} (${width}×${height}, ${png.length} bytes)`);
     },
   );
 
