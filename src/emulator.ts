@@ -1030,6 +1030,17 @@ export function saveDisk(unit: number): void {
   downloadFile(serializeDSK(image), filename);
 }
 
+/**
+ * Download the currently loaded tape, byte-for-byte as it was loaded. The
+ * verbatim original (TAP/TZX/CDT) is the same blob we persist for session
+ * restore, so we read it back from storage rather than re-serialising blocks.
+ */
+export async function saveTape(): Promise<void> {
+  const tape = await restoreTape();
+  if (!tape) { setStatus('No tape to save'); return; }
+  downloadFile(tape.data, tape.name);
+}
+
 export function loadDiskToUnit(data: Uint8Array, filename: string, unit: number): void {
   if (!machine) { setStatus('Load a ROM first'); return; }
   const onDiskLoaded = (image: DskImage, fname: string, u: number) => {

@@ -1,11 +1,11 @@
 import { createEffect, Show } from 'solid-js';
 import { Pane } from '@/components/Pane.tsx';
 import { DropDownMenuButton } from '@/components/DropDownMenuButton.tsx';
-import { HiOutlineBackward, HiOutlinePlay, HiOutlinePause, HiOutlineStop, HiOutlineEllipsisVertical, HiOutlineChevronLeft, HiOutlineChevronRight } from 'solid-icons/hi';
+import { HiOutlineBackward, HiOutlinePlay, HiOutlinePause, HiOutlineStop, HiOutlineEllipsisVertical, HiOutlineChevronLeft, HiOutlineChevronRight, HiOutlineArrowDownTray } from 'solid-icons/hi';
 import {
   tapeLoaded, tapeName, tapeBlocks, tapePosition, tapePlaying, tapePaused,
   tapeRewind, tapeTogglePlay, tapeTogglePause, tapeSetPosition, toggleAutoRewind,
-  ejectTape, loadFile, tapePrev, tapeNext, applyDisplaySettings, currentModel,
+  ejectTape, loadFile, tapePrev, tapeNext, applyDisplaySettings, currentModel, saveTape,
 } from '@/emulator.ts';
 import { isCpcModel } from '@/models.ts';
 import { tapeAutoRewind, tapeCollapseBlocks, setTapeCollapseBlocks, tapeFastRom, setTapeFastRom, tapeTurbo, setTapeTurbo, tapeSoundEnabled, setTapeSoundEnabled } from '@/store/settings.ts';
@@ -131,6 +131,7 @@ export function TapePane() {
           onClick={tapeTogglePause}
         ><HiOutlinePause /></button>
         <button class="btn btn-md" title="Next block" onClick={tapeNext}><HiOutlineChevronRight /></button>
+        <button class="btn btn-md" title="Download tape" disabled={!tapeLoaded()} onClick={() => saveTape()}><HiOutlineArrowDownTray /></button>
         <DropDownMenuButton
           icon={<HiOutlineEllipsisVertical />}
           title="Tape options"
