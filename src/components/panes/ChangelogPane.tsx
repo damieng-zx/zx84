@@ -2,6 +2,13 @@ import { createSignal, Show } from 'solid-js';
 
 const CHANGELOG: { version: string; items: string[] }[] = [
   {
+    version: '0.6.2',
+    items: [
+      'Fixed some TZX loading crashes',
+      'MCP trap tool',
+      'Download tape feature',
+    ]
+  }, {
     version: '0.6.1',
     items: [
       'MCP screenshot tool',

@@ -33,3 +33,4 @@ tools/out/
 !.dev.vars.example
 .env*
 !.env.example
+mcp/.cache/
