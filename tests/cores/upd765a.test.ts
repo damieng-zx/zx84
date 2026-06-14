@@ -756,10 +756,12 @@ describe('uPD765A — command flag bits (MT modelled; MF/SK unmodelled)', () => 
     expect(result[1] & 0x80).toBe(0x80); // EN at side-0 EOT
   });
 
-  it('SK (bit 5) skip-deleted-data does not skip DDAM sectors', () => {
-    // Real behaviour: with SK=1, READ_DATA skips sectors whose DAM is deleted,
-    // moves on to the next non-deleted one, and reports no error. We don't model
-    // it — the deleted sector is read normally and CM flag is set.
+  it('SK (bit 5) is unmodelled — a DDAM sector terminates the read (SK=0 semantics)', () => {
+    // SK is masked off, so READ_DATA always behaves as SK=0: on encountering a
+    // Deleted Data Address Mark it reads that sector, sets CM, and TERMINATES —
+    // it does not skip ahead, nor (post-fix) read on past it. With SK=1 honoured
+    // real hardware would instead skip the deleted sector and read 0xC2; that's
+    // still not modelled, which is what this test pins.
     const tr = makeTrack([
       makeSector(0, 0, 0xC1, 2, 0xAA, 0, 0x40), // DDAM
       makeSector(0, 0, 0xC2, 2, 0xBB, 0, 0),
@@ -769,17 +771,17 @@ describe('uPD765A — command flag bits (MT modelled; MF/SK unmodelled)', () => 
     d.fdc.ejectDisk(0);
     d.fdc.insertDisk(im, 0);
 
-    // 0x26 = READ_DATA | SK
+    // 0x26 = READ_DATA | SK, EOT=0xC2 (two sectors available)
     [0x26, 0x00, 0, 0, 0xC1, 2, 0xC2, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
     const { data, result } = d.drainReadExecution();
-    // Currently the FDC ignores SK, reads both sectors, then reports EOT.
-    expect(data.length).toBe(1024);
-    expect(data[0]).toBe(0xAA);   // deleted sector contents still returned (SK ignored)
-    expect(data[512]).toBe(0xBB); // and the following non-deleted sector
-    // (Result ST2 reflects the last sector read — non-DDAM here, so CM=0.)
-    expect(result[5]).toBe(0xC2);
-    // FUTURE: with SK honoured, data.length should be 512 (only the second
-    // sector), and the command should terminate at EOT normally.
+    // Stops at the DDAM sector — only its data is transferred, 0xC2 is not read.
+    expect(data.length).toBe(512);
+    expect(data[0]).toBe(0xAA);
+    expect(result[2] & 0x40).toBe(0x40); // ST2.CM — deleted mark seen
+    expect(result[5]).toBe(0xC1);        // stopped at the DDAM sector
+    expect(result[0] & 0x40).toBe(0x00); // normal termination (CM is not abnormal)
+    expect(result[1] & 0x80).toBe(0x00); // no End-of-Cylinder
+    // FUTURE: with SK honoured, this would instead skip 0xC1 and read 0xC2.
   });
 
   // SCAN_EQUAL/LOW_EQ/HIGH_EQ are intentionally NOT implemented. Real SCAN is a
@@ -880,6 +882,97 @@ describe('uPD765A — CRC-error sector is an abnormal termination (Fuse parity)'
     const res = d.drainResult();
     expect(res[1] & 0x10).toBe(0x10); // ST1.OR — overrun did terminate it
     expect(res[0] & 0x40).toBe(0x00); // ST0 NOT abnormal — CRC rule is read-only
+  });
+});
+
+describe('uPD765A — mid-stream termination (error/control mark on a non-final sector)', () => {
+  // A real uPD765A multi-sector read stops AT the sector that carries a data CRC
+  // error or a control-mark (DDAM) mismatch — it does not read on to R+1. These
+  // pin that the error/CHRN survive into the result and later sectors are not
+  // transferred. (The single-/final-sector cases keep the existing EOT path.)
+  let d: Driver;
+  beforeEach(() => { d = new Driver(); });
+
+  function imageOf(sectors: DskSector[]): DskImage {
+    const im = makeImage();
+    im.tracks[0][0] = makeTrack(sectors);
+    return im;
+  }
+
+  it('a data-CRC error on a non-final sector terminates the read at that sector', () => {
+    d.fdc.insertDisk(imageOf([
+      makeSector(0, 0, 0xC1, 2, 0xAA, 0x20, 0x20), // DE + DD
+      makeSector(0, 0, 0xC2, 2, 0xBB, 0, 0),
+    ]), 0);
+    // READ_DATA R=0xC1 EOT=0xC2 — a full multi-sector drain (no overrun).
+    [0x06, 0x00, 0, 0, 0xC1, 2, 0xC2, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    const { data, result } = d.drainReadExecution();
+    expect(data.length).toBe(512);       // only sector 0xC1 transferred
+    expect(data[0]).toBe(0xAA);
+    expect(result[0] & 0x40).toBe(0x40); // ST0 abnormal termination
+    expect(result[1] & 0x20).toBe(0x20); // ST1.DE preserved
+    expect(result[2] & 0x20).toBe(0x20); // ST2.DD preserved
+    expect(result[1] & 0x80).toBe(0x00); // NOT End-of-Cylinder (EOT not reached)
+    expect(result[5]).toBe(0xC1);        // CHRN R = the errored sector
+  });
+
+  it('reads through clean sectors and stops only at the errored one', () => {
+    d.fdc.insertDisk(imageOf([
+      makeSector(0, 0, 0xC1, 2, 0x11, 0, 0),
+      makeSector(0, 0, 0xC2, 2, 0x22, 0x20, 0x20), // bad CRC
+      makeSector(0, 0, 0xC3, 2, 0x33, 0, 0),
+    ]), 0);
+    [0x06, 0x00, 0, 0, 0xC1, 2, 0xC3, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    const { data, result } = d.drainReadExecution();
+    expect(data.length).toBe(1024);      // 0xC1 + 0xC2, never reaches 0xC3
+    expect([data[0], data[512]]).toEqual([0x11, 0x22]);
+    expect(result[0] & 0x40).toBe(0x40); // abnormal at 0xC2
+    expect(result[5]).toBe(0xC2);
+  });
+
+  it('a DDAM sector mid-stream terminates a READ_DATA with CM (normal termination)', () => {
+    d.fdc.insertDisk(imageOf([
+      makeSector(0, 0, 0xC1, 2, 0xAA, 0, 0x40), // DDAM
+      makeSector(0, 0, 0xC2, 2, 0xBB, 0, 0),
+    ]), 0);
+    [0x06, 0x00, 0, 0, 0xC1, 2, 0xC2, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    const { data, result } = d.drainReadExecution();
+    expect(data.length).toBe(512);       // stops at the deleted sector
+    expect(result[2] & 0x40).toBe(0x40); // ST2.CM
+    expect(result[0] & 0x40).toBe(0x00); // normal termination (CM not abnormal)
+    expect(result[1] & 0x80).toBe(0x00); // no End-of-Cylinder
+    expect(result[5]).toBe(0xC1);
+  });
+
+  it('READ_DELETED accepts a DDAM sector and stops at a normal-mark sector', () => {
+    // For READ_DELETED the mark sense is inverted: a DDAM sector is the expected
+    // type (CM clear, continue); a normal-AM sector is the mismatch that stops it.
+    d.fdc.insertDisk(imageOf([
+      makeSector(0, 0, 0xC1, 2, 0xAA, 0, 0x40), // DDAM — expected, continue
+      makeSector(0, 0, 0xC2, 2, 0xBB, 0, 0),     // normal — mismatch, stop here
+      makeSector(0, 0, 0xC3, 2, 0xCC, 0, 0x40),  // never reached
+    ]), 0);
+    // 0x0C = READ_DELETED, R=0xC1 EOT=0xC3
+    [0x0C, 0x00, 0, 0, 0xC1, 2, 0xC3, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    const { data, result } = d.drainReadExecution();
+    expect(data.length).toBe(1024);      // 0xC1 (deleted, ok) + 0xC2 (normal, stop)
+    expect([data[0], data[512]]).toEqual([0xAA, 0xBB]);
+    expect(result[2] & 0x40).toBe(0x40); // CM set at the mismatching normal sector
+    expect(result[5]).toBe(0xC2);
+  });
+
+  it('a CRC error on the FINAL sector still reports End-of-Cylinder (unchanged)', () => {
+    // The errored sector is also the last, so the existing EOT path runs:
+    // abnormal + EN, exactly as before this change.
+    d.fdc.insertDisk(imageOf([
+      makeSector(0, 0, 0xC1, 2, 0xAA, 0x20, 0x20),
+    ]), 0);
+    [0x06, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    const { data, result } = d.drainReadExecution();
+    expect(data.length).toBe(512);
+    expect(result[0] & 0x40).toBe(0x40); // abnormal
+    expect(result[1] & 0x80).toBe(0x80); // EN (End of Cylinder) — last sector
+    expect(result[2] & 0x20).toBe(0x20); // DD preserved
   });
 });
 

@@ -168,6 +168,7 @@ export class UPD765A {
   private exH = 0;
   private exN = 0;
   private exCmdN = 0;    // N from the command (may differ from sector ID's N)
+  private exCmd = 0;     // Masked command (READ_DATA vs READ_DELETED) — for command-relative CM
   /** Reference to current track for write-back */
   private exTrack: DskTrack | null = null;
   /** Status registers from sector (for CRC error reporting) */
@@ -394,6 +395,26 @@ export class UPD765A {
       return false;
     }
 
+    // The sector just read may itself terminate a multi-sector read BEFORE EOT —
+    // the real uPD765A stops AT that sector and does not read on to R+1. Only
+    // applies to reads (writes stream through; mirrors finishExecution's CRC
+    // rule) and only before EOT (the last sector falls through to the
+    // End-of-Cylinder path below, which is the pre-existing behaviour).
+    //   • Data CRC error (ST1.DE / ST2.DD) → abnormal termination (ST0 IC=01).
+    //   • Control Mark — DDAM mark mismatched the command (ST2.CM, SK=0) →
+    //     normal termination with CM reported, NO End-of-Cylinder.
+    // exST1/exST2 here are this sector's command-relative flags (set by
+    // cmdReadWrite for the first sector, by sectorReadFlags below for the rest).
+    if (!this.exWriting && this.exR < this.exEOT) {
+      if ((this.exST1 & 0x20) || (this.exST2 & 0x20)) {
+        this.exAbnormal = true;
+        return false;
+      }
+      if (this.exST2 & 0x40) {
+        return false;
+      }
+    }
+
     this.exR++;
     if (this.exR > this.exEOT) {
       // MT (Multi-Track): on reaching EOT on the starting head, continue the
@@ -416,8 +437,10 @@ export class UPD765A {
           this.exC = s.c;
           this.exH = s.h;
           this.exN = s.n;
-          this.exST1 = s.st1;
-          this.exST2 = s.st2;
+          const f = this.sectorReadFlags(s, this.exCmd, this.exCmdN);
+          this.exST1 = f.st1;
+          this.exST2 = f.st2;
+          if (f.abnormal) this.exAbnormal = true;
           return true;
         }
       }
@@ -446,12 +469,15 @@ export class UPD765A {
       this.exPos = 0;
     }
 
-    // Update CHRN and status registers from the new sector's ID field
+    // Update CHRN and status registers from the new sector's ID field, applying
+    // the same command-relative flag rules as the first sector.
     this.exC = sector.c;
     this.exH = sector.h;
     this.exN = sector.n;
-    this.exST1 = sector.st1;
-    this.exST2 = sector.st2;
+    const flags = this.sectorReadFlags(sector, this.exCmd, this.exCmdN);
+    this.exST1 = flags.st1;
+    this.exST2 = flags.st2;
+    if (flags.abnormal) this.exAbnormal = true;
 
     return true;
   }
@@ -696,6 +722,51 @@ export class UPD765A {
   }
 
   /**
+   * Compute the ST1/ST2 a sector contributes to a read result, and whether it
+   * is an abnormal (unreadable) termination. Shared by cmdReadWrite (the first
+   * sector) and advanceSector (every subsequent sector) so a multi-sector read
+   * handles all its sectors' error/mark flags identically — otherwise only the
+   * first sector got the careful treatment and the rest were taken raw.
+   *
+   * CRC ERROR SUPPORT (critical for Speedlock): sectors with intentional CRC
+   * errors must return their proper error status — never "fixed" to 0.
+   *
+   * EXCEPTION — undersized protection sectors (sector.n < command N): written
+   * with DDAM on the original disk; standard DSK copiers capture CRC status
+   * unreliably and may store spurious DE/DD bits, so clear them to match a
+   * genuine DDAM read-without-error. (Doesn't affect Speedlock/Alkatraz, where
+   * sector.n == cmdN.)
+   *
+   * SUB-EXCEPTION — undersized *bad-CRC weak* sector (NOT DDAM): undersized +
+   * genuine data-CRC error + normal address mark = a deliberately unreadable
+   * protection sector (e.g. Ocean's good/bad pairing). A real uPD765A cannot
+   * complete the oversized read: it reports No Data / abnormal termination. Keep
+   * the sector's own error bits rather than stripping them.
+   *
+   * Control Mark (CM, ST2 bit 6) is reported *relative to the command*: set when
+   * the sector's address-mark type mismatches what the command expects
+   * (READ_DATA over a DDAM sector, or READ_DELETED over a normal-AM sector).
+   */
+  private sectorReadFlags(sector: DskSector, cmd: number, cmdN: number): { st1: number; st2: number; abnormal: boolean } {
+    const undersized = sector.n < cmdN;
+    const unreadableWeak = undersized
+      && ((sector.st1 & 0x20) || (sector.st2 & 0x20))
+      && !(sector.st2 & 0x40);
+    if (unreadableWeak) {
+      return { st1: sector.st1 | 0x04, st2: sector.st2, abnormal: true }; // ND — read fails
+    }
+    let st1 = undersized ? 0 : sector.st1;
+    let st2 = undersized ? 0 : sector.st2;
+    if (!undersized) {
+      const sectorHasDDAM = !!(sector.st2 & 0x40);
+      const cmdExpectsDDAM = (cmd === CMD_READ_DELETED || cmd === CMD_WRITE_DELETED);
+      if (sectorHasDDAM === cmdExpectsDDAM) st2 &= ~0x40; // mark matches — clear CM
+      else st2 |= 0x40;                                    // mismatch — set CM
+    }
+    return { st1, st2, abnormal: false };
+  }
+
+  /**
    * Read Data / Write Data / Read Deleted / Write Deleted / Scan.
    * No disk → abnormal termination + not ready.
    * With disk → enter execution phase for data transfer.
@@ -771,6 +842,7 @@ export class UPD765A {
     this.latchFrames = 25; // ~0.5s at 50fps
 
     this.exCmdN = n;  // Command N — controls transfer size (may differ from sector ID N)
+    this.exCmd = cmd; // for command-relative CM in advanceSector
 
     if (isWrite) {
       this.exBuf = new Uint8Array(128 << n);
@@ -780,40 +852,14 @@ export class UPD765A {
       this.exPos = 0;
     }
 
-    // CRC ERROR SUPPORT: Capture sector error flags (critical for Speedlock!)
-    // Speedlock checks that sectors with intentional CRC errors return the
-    // proper error status. If we "fix" errors or return ST1/ST2=0, it fails.
-    //
-    // EXCEPTION — undersized protection sectors (sector.n < command N):
-    // These sectors have a smaller N in their ID than the command requests.
-    // They were written with DDAM on the original disk (deleted data AM).
-    // Standard DSK copiers capture data CRC status unreliably for such sectors
-    // and may store spurious DE/DD error bits. Clear them so the result matches
-    // what a genuine DDAM read-without-error would produce.
-    // This does NOT affect Speedlock (sector.n == cmdN there) or Alkatraz.
-    const sectorIsUndersized = sector.n < n;
-
-    // SUB-EXCEPTION — undersized *bad-CRC weak* sector (NOT DDAM):
-    // An undersized sector that also carries a genuine data-CRC error (DE/DD)
-    // and has a normal address mark is a deliberately *unreadable* protection
-    // sector — e.g. Ocean's "good sector / bad sector" pairing (a perfect
-    // filler sector beside a short bad-CRC weak sector that the loader requires
-    // to FAIL; see disk-protection/"Ocean unknown.md"). A real uPD765A cannot
-    // complete the oversized read of such a sector: it reports No Data /
-    // abnormal termination. Model the failure instead of a clean success, and
-    // keep the sector's own error bits rather than stripping them.
-    const isUnreadableWeak = sectorIsUndersized
-      && ((sector.st1 & 0x20) || (sector.st2 & 0x20))
-      && !(sector.st2 & 0x40);
-
-    if (isUnreadableWeak) {
-      this.exST1 = sector.st1 | 0x04; // ND (No Data) — the read fails
-      this.exST2 = sector.st2;
-      this.exAbnormal = true;
-    } else {
-      this.exST1 = sectorIsUndersized ? 0 : sector.st1;
-      this.exST2 = sectorIsUndersized ? 0 : sector.st2;
-    }
+    // Capture this sector's error/mark flags for the result. The undersized /
+    // unreadable-weak / command-relative-CM rules (and their Speedlock/Ocean/
+    // Alkatraz rationale) live on sectorReadFlags(), shared with advanceSector
+    // so every sector of a multi-sector read is handled identically.
+    const flags = this.sectorReadFlags(sector, cmd, n);
+    this.exST1 = flags.st1;
+    this.exST2 = flags.st2;
+    if (flags.abnormal) this.exAbnormal = true;
 
     // COPY-PROTECTION SINGLE-SECTOR MODE:
     // If the sector's C field doesn't match the physical cylinder, this is a
@@ -823,32 +869,6 @@ export class UPD765A {
     // sector, matching the single-sector-per-command behaviour real hardware gives.
     const physCyl = this.pcn[this.physUnit(unit)];
     this.exSingleSector = (sector.c !== physCyl);
-
-    // DELETED DATA ADDRESS MARK (DDAM) SUPPORT:
-    // ST2 bit 6 (CM) in the DSK means the sector has a Deleted Data Address Mark.
-    // - READ_DATA: CM is set in result if sector has DDAM (mismatch)
-    // - READ_DELETED_DATA: CM is set if sector has normal DAM (mismatch)
-    // The DSK stores the absolute flag, but the FDC result is relative to
-    // the command type. For READ_DELETED_DATA, a sector WITH DDAM is the
-    // expected type, so CM should be clear. A sector WITHOUT DDAM is a
-    // mismatch, so CM should be set.
-    //
-    // EXCEPTION — undersized protection sectors (sector.n < command N):
-    // These are intentionally non-standard. exST1/exST2 were already finalised
-    // above (cleared for a DDAM payload sector, or set to ND + the sector's own
-    // error bits for an unreadable bad-CRC weak sector). Either way there is no
-    // CM to recompute here — skip CM calculation entirely.
-    if (!sectorIsUndersized) {
-      const sectorHasDDAM = !!(sector.st2 & 0x40);
-      const cmdExpectsDDAM = (cmd === CMD_READ_DELETED || cmd === CMD_WRITE_DELETED);
-      if (sectorHasDDAM === cmdExpectsDDAM) {
-        // Address mark matches command type — clear CM
-        this.exST2 &= ~0x40;
-      } else {
-        // Address mark mismatch — set CM
-        this.exST2 |= 0x40;
-      }
-    }
 
     this.phase = Phase.Execution;
   }
