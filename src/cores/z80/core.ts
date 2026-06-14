@@ -118,7 +118,10 @@ export class Z80 {
     this.ix = 0;
     this.iy = 0;
 
-    this.sp = 0;
+    // RESET leaves SP undefined on real silicon, but the universal power-on
+    // convention (and FUSE) is 0xFFFF — some test ROMs assume it. (AF/AF' are
+    // 0xFFFF on real power-on too; left at 0 here for now.)
+    this.sp = 0xFFFF;
     this.pc = 0;
     this.i = 0;
     this.r = 0;

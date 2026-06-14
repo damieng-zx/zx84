@@ -202,7 +202,7 @@ describe('DebugManager.stepOver', () => {
     s.cpu.pc = 0;
     dm.stepOver(s, vi.fn());
     expect(s.cpu.pc).toBe(3);
-    expect(s.cpu.sp).toBe(0); // SP never touched
+    expect(s.cpu.sp).toBe(0xFFFF); // SP never touched (reset default)
   });
 
   it('JP cc,nn TAKEN that loops back to nextSeqPC stops correctly', () => {

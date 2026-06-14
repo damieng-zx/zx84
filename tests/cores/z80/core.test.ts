@@ -6,15 +6,17 @@ import { describe, it, expect } from 'vitest';
 import { newCpu, load, step, F_S, F_Z, F_F5, F_H, F_F3, F_PV, F_N, F_C } from './_harness.ts';
 
 describe('Z80 — reset state', () => {
-  it('zeros main and shadow registers, IM=1, halted=false', () => {
+  it('zeros main and shadow registers, SP=0xFFFF, IM=1, halted=false', () => {
     const { cpu } = newCpu();
     cpu.a = 0xAA; cpu.f = 0x55; cpu.bc = 0x1234;
+    cpu.sp = 0x1234;
     cpu.iff1 = true; cpu.halted = true;
     cpu.reset();
     expect(cpu.a).toBe(0); expect(cpu.f).toBe(0);
     expect(cpu.bc).toBe(0); expect(cpu.de).toBe(0); expect(cpu.hl).toBe(0);
     expect(cpu.ix).toBe(0); expect(cpu.iy).toBe(0);
-    expect(cpu.pc).toBe(0); expect(cpu.sp).toBe(0);
+    // SP resets to 0xFFFF (power-on convention), not 0.
+    expect(cpu.pc).toBe(0); expect(cpu.sp).toBe(0xFFFF);
     expect(cpu.i).toBe(0); expect(cpu.r).toBe(0);
     expect(cpu.im).toBe(1);
     expect(cpu.iff1).toBe(false); expect(cpu.iff2).toBe(false);
