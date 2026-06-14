@@ -704,6 +704,10 @@ export class UPD765A {
     this.log(`  → Unit=${unit} recalibrating to track 0`);
     this.pcn[this.physUnit(unit)] = 0;
     this.intPending = true;
+    // HD (ST0 bit 2) is intentionally 0 here — the seek-complete ST0 reports
+    // head 0 regardless of the command's HDS bit (matches +3 hardware; SEEK and
+    // RECALIBRATE both behave this way). The HDS is not latched into the seek
+    // interrupt status.
     this.intST0 = ST0_SEEK_END | unit;
     this.intPCN = 0;
     this.phase = Phase.Idle;
@@ -716,6 +720,9 @@ export class UPD765A {
     this.log(`  → Unit=${unit} seeking to cylinder ${ncn}`);
     this.pcn[this.physUnit(unit)] = ncn;
     this.intPending = true;
+    // HD (ST0 bit 2) stays 0 even when the command's HDS bit selects side 1 —
+    // the seek-complete ST0 reports head 0 regardless (matches +3 hardware; see
+    // cmdRecalibrate). Software polls SE + unit after a seek, never HD.
     this.intST0 = ST0_SEEK_END | unit;
     this.intPCN = ncn;
     this.phase = Phase.Idle;
