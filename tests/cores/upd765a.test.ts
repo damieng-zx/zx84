@@ -679,7 +679,7 @@ describe('uPD765A — insertDisk / ejectDisk / reset', () => {
 // so a future implementation will deliberately break and update them.
 // ─────────────────────────────────────────────────────────────────────────
 
-describe('uPD765A — UNSUPPORTED: command flag bits (MF/MT/SK)', () => {
+describe('uPD765A — command flag bits (MT modelled; MF/SK unmodelled)', () => {
   let d: Driver;
   beforeEach(() => {
     d = new Driver();
@@ -700,25 +700,60 @@ describe('uPD765A — UNSUPPORTED: command flag bits (MF/MT/SK)', () => {
     // probably surface ST1.MA (Missing Address Mark) on the first sector.
   });
 
-  it('MT (bit 7) multi-track READ_DATA does not switch to head 1 after EOT', () => {
-    // Real behaviour with MT=1: after the last sector on head 0, the FDC
-    // continues on head 1 starting at R=1 (or the lowest R). We don't model
-    // that yet — the command terminates at EOT on the original head.
+  it('MT (bit 7) multi-track READ_DATA continues onto head 1 after EOT', () => {
+    // With MT=1, after the last sector on head 0 the FDC continues on head 1 of
+    // the same cylinder, restarting the sector count, and only reports End of
+    // Cylinder once head 1 also reaches EOT.
     const img = makeImage({ numTracks: 1, numSides: 2 });
     img.tracks[0][0] = makePlus3Track(0, 0, 0x10);
     img.tracks[0][1] = makePlus3Track(0, 1, 0x80);
     d.fdc.ejectDisk(0);
     d.fdc.insertDisk(img, 0);
 
-    // 0x86 = READ_DATA | MT, HDS=0 (start on head 0), EOT=0xC1
+    // 0x86 = READ_DATA | MT, HDS=0 (start on head 0), R=EOT=0xC1 (one sector/head)
     [0x86, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
     const { data, result } = d.drainReadExecution();
-    // Currently: only one sector from head 0 (0x10 fill)
-    expect(data.length).toBe(512);
+    // Both sides transferred: side 0 (0x10 fill) then side 1 (0x80 fill).
+    expect(data.length).toBe(1024);
     expect(data[0]).toBe(0x10);
-    // FUTURE: with MT properly modelled, data.length should be 1024 and the
-    // second half should start with 0x80, plus result H should advance to 1.
-    expect(result[4]).toBe(0); // H not advanced
+    expect(data[512]).toBe(0x80);
+    // Result reflects the last sector read — head advanced to 1, EN asserted.
+    expect(result[4]).toBe(1);          // H result byte advanced to side 1
+    expect(result[0] & 0x04).toBe(0x04); // ST0 head bit (HD) = 1
+    expect(result[1] & 0x80).toBe(0x80); // ST1.EN — End of Cylinder at side-1 EOT
+  });
+
+  it('MT multi-track spans multiple sectors per head before switching', () => {
+    // Two sectors per head: head 0 reads 0xC1,0xC2 then head 1 reads 0xC1,0xC2,
+    // restarting the sector count at the command R. Verifies the switch happens
+    // at EOT, not after a single sector.
+    const side0 = makeTrack([makeSector(0, 0, 0xC1, 2, 0x10), makeSector(0, 0, 0xC2, 2, 0x11)]);
+    const side1 = makeTrack([makeSector(0, 1, 0xC1, 2, 0x80), makeSector(0, 1, 0xC2, 2, 0x81)]);
+    const img = makeImage({ numTracks: 1, numSides: 2 });
+    img.tracks[0][0] = side0;
+    img.tracks[0][1] = side1;
+    d.fdc.ejectDisk(0);
+    d.fdc.insertDisk(img, 0);
+
+    [0x86, 0x00, 0, 0, 0xC1, 2, 0xC2, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    const { data } = d.drainReadExecution();
+    expect(data.length).toBe(2048); // 4 sectors × 512
+    expect([data[0], data[512], data[1024], data[1536]]).toEqual([0x10, 0x11, 0x80, 0x81]);
+  });
+
+  it('MT on a single-sided disk terminates at EOT (no side-1 track)', () => {
+    // No head-1 track exists, so MT must fall back to normal End-of-Cylinder
+    // termination rather than hanging or erroring.
+    const img = makeImage({ numTracks: 1, numSides: 1 });
+    img.tracks[0][0] = makePlus3Track(0, 0, 0x10);
+    d.fdc.ejectDisk(0);
+    d.fdc.insertDisk(img, 0);
+
+    [0x86, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    const { data, result } = d.drainReadExecution();
+    expect(data.length).toBe(512);       // side 0 only
+    expect(result[4]).toBe(0);           // H stays 0
+    expect(result[1] & 0x80).toBe(0x80); // EN at side-0 EOT
   });
 
   it('SK (bit 5) skip-deleted-data does not skip DDAM sectors', () => {

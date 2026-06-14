@@ -151,6 +151,15 @@ export class UPD765A {
   /** End-of-track R value */
   private exEOT = 0;
   private exHitEOT = false;
+  /**
+   * MT (Multi-Track) bit from the command. When set, reaching EOT on the
+   * starting head continues the same command on the other side of the cylinder
+   * instead of terminating — End of Cylinder is only reported after the second
+   * head also reaches EOT.
+   */
+  private exMT = false;
+  /** R the command started at — restart point for the sector count after an MT head switch. */
+  private exStartR = 0;
   private exAbnormal = false;
   /** Command parameters preserved for multi-sector and result phase */
   private exUnit = 0;
@@ -387,6 +396,31 @@ export class UPD765A {
 
     this.exR++;
     if (this.exR > this.exEOT) {
+      // MT (Multi-Track): on reaching EOT on the starting head, continue the
+      // same command on the other side of the cylinder, restarting the sector
+      // count at the command's first R. Only head 0→1 is valid (there is no
+      // head 2); a single-sided disk has no side-1 track, so getTrack() returns
+      // null and we fall through to the normal End-of-Cylinder termination.
+      if (this.exMT && this.exHead === 0) {
+        const side1 = this.getTrack(this.exUnit, 1);
+        const idx1 = side1?.sectorMap.get(this.exStartR);
+        if (side1 && idx1 !== undefined) {
+          this.exHead = 1;
+          this.exTrack = side1;
+          this.exR = this.exStartR;
+          const s = side1.sectors[idx1];
+          this.exBuf = this.exWriting
+            ? new Uint8Array(128 << this.exCmdN)
+            : this.prepareReadBuffer(s);
+          this.exPos = 0;
+          this.exC = s.c;
+          this.exH = s.h;
+          this.exN = s.n;
+          this.exST1 = s.st1;
+          this.exST2 = s.st2;
+          return true;
+        }
+      }
       this.exR--;
       this.exHitEOT = true;
       return false;
@@ -668,6 +702,7 @@ export class UPD765A {
    */
   private cmdReadWrite(): void {
     const cmd = this.cmdBuf[0] & 0x1F;
+    const mt = (this.cmdBuf[0] & 0x80) !== 0; // Multi-Track (bit 7, unmasked)
     const unit = this.cmdBuf[1] & 0x03;
     const head = (this.cmdBuf[1] >> 2) & 1;
     const c = this.cmdBuf[2], h = this.cmdBuf[3];
@@ -721,6 +756,8 @@ export class UPD765A {
     this.exR = r;
     this.exEOT = eot;
     this.exHitEOT = false;
+    this.exMT = mt;
+    this.exStartR = r;
     this.exAbnormal = false;
     this.exTrack = track;
     this.exWriting = isWrite;
