@@ -656,17 +656,18 @@ export class Spectrum extends BaseMachine implements Machine {
       if (trapHandled) {
         // no-op — already handled above
       } else if (this.cpu.halted) {
-        // HALT repeats NOP-like M1 fetches from PC.  If PC or IR is in
-        // contended memory each cycle gets a ULA delay; otherwise we can
-        // fast-skip.  IR contention applies during the M1 refresh cycle
-        // (T3-T4 put IR on the address bus).
-        const irContended = this.contention.isContended(this.cpu.ir);
-        if (this.contention.isContended(this.cpu.pc) || irContended) {
-          // Step one NOP at a time so contention is applied correctly
-          this.cpu.read8(this.cpu.pc);
+        // HALT repeats NOP-like M1 fetches from PC. When PC is in contended
+        // memory each fetch gets a ULA delay; otherwise we fast-skip. The
+        // T3-T4 refresh (IR on the bus) is NOT contended — exactly like a
+        // normal M1 (see core.ts step() and io-timing.test.ts "M1 refresh
+        // cycle is never contended at IR"; azesmbog's ULA128 test depends on
+        // it). This path previously also probed contend(ir), over-contending
+        // HALT when I:R landed in contended RAM; dropped for parity with the core.
+        if (this.contention.isContended(this.cpu.pc)) {
+          // Step one NOP at a time so PC contention is applied per cycle.
+          this.cpu.read8(this.cpu.pc);  // applies PC (fetch) contention
           this.cpu.tStates += 3;  // M1 fetch cycle
-          this.cpu.contend(this.cpu.ir);  // IR contention during refresh
-          this.cpu.tStates += 1;  // M1 refresh cycle
+          this.cpu.tStates += 1;  // M1 refresh cycle (refresh never contended)
           this.cpu.r = (this.cpu.r & 0x80) | ((this.cpu.r + 1) & 0x7F);
         } else {
           const toFrameEnd = frameEnd - this.cpu.tStates;
