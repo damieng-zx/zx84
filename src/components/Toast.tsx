@@ -15,7 +15,7 @@ import { statusText } from '@/emulator.ts';
 const SUPPRESS = new Set(['Running', 'Reset', 'ROM loaded']);
 
 // Error-ish messages linger longer and tint red.
-const ERROR_RE = /error|invalid|failed|unknown|unavailable|too small|requires|not enabled|not loaded|no machine|no cpc|accepts|is empty|not a recognised|needs a|load a rom/i;
+const ERROR_RE = /error|invalid|failed|unknown|unsupported|unavailable|too small|requires|not enabled|not loaded|no machine|no cpc|accepts|is empty|not a recognised|needs a|load a rom/i;
 
 const NORMAL_MS = 3000;
 const ERROR_MS = 6000;

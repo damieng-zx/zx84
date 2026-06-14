@@ -747,17 +747,30 @@ describe('uPD765A — UNSUPPORTED: command flag bits (MF/MT/SK)', () => {
     // sector), and the command should terminate at EOT normally.
   });
 
-  it('SCAN_EQUAL (0x11) is currently dispatched through cmdReadWrite — partial behaviour', () => {
-    // Real SCAN compares sector contents byte-by-byte against CPU-supplied data
-    // and reports an SH (Scan Hit) / SN (Scan Not satisfied) bit in ST2.
-    // We accept the command and produce a normal READ result; ST2 SH/SN bits
-    // are not set. Documenting current behaviour so the future implementation
-    // breaks this test deliberately.
-    [0x11, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
-    const { result } = d.drainReadExecution();
-    expect(result[2] & 0x0C).toBe(0); // SH (bit 3) and SN (bit 2) not asserted
-    // FUTURE: SCAN_EQUAL with matching CPU data should set ST2.SH; with mismatch
-    // it should set ST2.SN. Neither is currently modelled.
+  // SCAN_EQUAL/LOW_EQ/HIGH_EQ are intentionally NOT implemented. Real SCAN is a
+  // host-writes-comparison-bytes operation that sets ST2.SH/SN — modelling it as
+  // a plain read would invert the data direction and never set those bits. No
+  // known +3 software issues SCAN, so we reject it as an invalid command and
+  // latch a flag the UI surfaces. These tests pin that contract.
+  for (const [name, opcode] of [
+    ['SCAN_EQUAL', 0x11],
+    ['SCAN_LOW_EQ', 0x19],
+    ['SCAN_HIGH_EQ', 0x1D],
+  ] as const) {
+    it(`${name} (0x${opcode.toString(16)}) is rejected as an invalid command`, () => {
+      // Full 8-param command, exactly as a real SCAN would be issued.
+      const res = d.command(opcode, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0x00);
+      // Single result byte = ST0 with the invalid-command code, no execution phase.
+      expect(res).toEqual([ST0_INVALID]);
+      // The MSR returns to idle (no lingering CB/EXM execution state).
+      expect(d.fdc.readStatus()).toBe(RQM);
+      // And the one-off UI latch carries the masked opcode for the frame bridge.
+      expect(d.fdc.unsupportedScan).toBe(opcode);
+    });
+  }
+
+  it('the unsupportedScan latch starts clear', () => {
+    expect(d.fdc.unsupportedScan).toBe(-1);
   });
 });
 

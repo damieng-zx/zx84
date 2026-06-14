@@ -199,6 +199,13 @@ function updateHardwareSignals(activeUnit: number): void {
     setDriveBStatus(renderDriveStatus(1, activeUnit, spectrum!.fdc));
     setShowTrapLog(false);
 
+    // Surface unimplemented SCAN commands (see upd765a.cmdUnsupportedScan)
+    const scan = spectrum!.fdc.unsupportedScan;
+    if (scan >= 0) {
+      spectrum!.fdc.unsupportedScan = -1;
+      setStatus(`Unsupported 765A FDC SCAN command (0x${scan.toString(16).toUpperCase().padStart(2, '0')}) — rejected`);
+    }
+
     // If a format just completed, re-detect disk metadata and refresh the signal
     const fu = spectrum!.fdc.formattedUnit;
     if (fu >= 0) {

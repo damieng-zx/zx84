@@ -131,6 +131,14 @@ export class UPD765A {
   /** Counts down each frame — shows last op briefly after execution ends */
   private latchFrames = 0;
 
+  /**
+   * One-off latch: set to the masked SCAN opcode (0x11/0x19/0x1D) when an
+   * unimplemented SCAN command is issued, so the UI can raise a visible notice.
+   * The frame bridge reads it and clears it back to -1 after displaying.
+   * -1 = nothing pending.
+   */
+  unsupportedScan = -1;
+
   // ── Execution phase state ──────────────────────────────────────────
 
   private exBuf: Uint8Array = new Uint8Array(0);
@@ -560,7 +568,7 @@ export class UPD765A {
       case CMD_FORMAT_TRACK:  this.cmdFormat(); break;
       case CMD_SCAN_EQUAL:    // fall through
       case CMD_SCAN_LOW_EQ:   // fall through
-      case CMD_SCAN_HIGH_EQ:  this.cmdReadWrite(); break;
+      case CMD_SCAN_HIGH_EQ:  this.cmdUnsupportedScan(); break;
       case CMD_VERSION:       this.cmdVersion(); break;
       default:                this.cmdInvalid(); break;
     }
@@ -1016,6 +1024,27 @@ export class UPD765A {
   /** Version — 0x80 = enhanced controller (uPD765A compatible). */
   private cmdVersion(): void {
     this.result([0x80]);
+  }
+
+  /**
+   * SCAN_EQUAL/LOW_EQ/HIGH_EQ — deliberately unimplemented.
+   *
+   * SCAN is a host-writes-comparison-bytes operation (the CPU streams bytes for
+   * the FDC to compare against disk data, setting ST2.SH/SN on the outcome). No
+   * known +3 software issues it — the command was buggy on early NEC 765 / Intel
+   * 8272 parts and the industry routed around it, so +3DOS and CP/M Plus never
+   * adopted it. Rather than silently mis-execute it as a plain read (wrong data
+   * direction, scan-result bits never set), we reject it as an invalid command
+   * and raise a visible UI notice. If real software ever trips this, we'll know
+   * — and can implement it properly then.
+   */
+  private cmdUnsupportedScan(): void {
+    const cmd = this.cmdBuf[0] & 0x1F;
+    const unit = this.cmdBuf[1] & 0x03;
+    this.log(`  ✗ UNSUPPORTED SCAN ${this.getCommandName(cmd)} (0x${cmd.toString(16).padStart(2, '0').toUpperCase()})`,
+             `unit=${unit} C=${this.cmdBuf[2]} H=${this.cmdBuf[3]} R=${this.cmdBuf[4]} N=${this.cmdBuf[5]} — rejected as invalid command`);
+    this.unsupportedScan = cmd; // UI picks this up next frame
+    this.result([ST0_INVALID]);
   }
 
   /** Invalid/unrecognised command — return ST0 with invalid-command code. */
