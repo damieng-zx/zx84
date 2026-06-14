@@ -404,7 +404,18 @@ export class UPD765A {
     //   • Control Mark — DDAM mark mismatched the command (ST2.CM, SK=0) →
     //     normal termination with CM reported, NO End-of-Cylinder.
     // exST1/exST2 here are this sector's command-relative flags (set by
-    // cmdReadWrite for the first sector, by sectorReadFlags below for the rest).
+    // cmdReadWrite for the first sector, by sectorReadFlags below for the rest —
+    // so a matching-DDAM multi-sector read clears CM uniformly: the Speedlock
+    // probe READ_DELETED over all-DDAM sectors reports ST2=0x00, as on hardware).
+    //
+    // NOTE: a *non-final* control mark is reported here as a NORMAL termination.
+    // This is a deliberate choice. One behavioural reference (FUSE) flags it
+    // abnormal when EOT > R; we don't mirror its implementation, and here we
+    // diverge knowingly — no documented +3 protection exercises a non-final mark
+    // mismatch in a multi-sector read (every protection mark-mismatch check is
+    // single-sector and terminates via the EOT path below, and every
+    // multi-sector read is over *matching* marks). Absent a hardware-verified
+    // case, keep the simpler normal termination rather than chase an edge flag.
     if (!this.exWriting && this.exR < this.exEOT) {
       if ((this.exST1 & 0x20) || (this.exST2 & 0x20)) {
         this.exAbnormal = true;

@@ -974,6 +974,29 @@ describe('uPD765A — mid-stream termination (error/control mark on a non-final 
     expect(result[1] & 0x80).toBe(0x80); // EN (End of Cylinder) — last sector
     expect(result[2] & 0x20).toBe(0x20); // DD preserved
   });
+
+  it('multi-sector READ_DELETED over all-matching DDAM reports CM clear (ST2=0x00)', () => {
+    // The Speedlock 1987/1988 protection probe: READ_DELETED R=2 EOT=8 over
+    // sectors that are ALL deleted-data (matching the command). The mark matches
+    // on every sector, so CM must be CLEAR (0x00) in the result — consistent with
+    // the single-sector DDAM checks. (An earlier build leaked the last sector's
+    // raw DSK ST2=0x40 here because subsequent sectors weren't run through the
+    // command-relative flag logic; verified against Platoon + Barbarian II, which
+    // boot with ST2=0x00.) The read still ends with End-of-Cylinder at EOT.
+    d.fdc.insertDisk(imageOf([
+      makeSector(0, 0, 0xC1, 2, 0x10, 0, 0x40), // DDAM
+      makeSector(0, 0, 0xC2, 2, 0x11, 0, 0x40), // DDAM
+      makeSector(0, 0, 0xC3, 2, 0x12, 0, 0x40), // DDAM
+    ]), 0);
+    // 0x0C = READ_DELETED, R=0xC1 EOT=0xC3 (all three sectors, marks all match)
+    [0x0C, 0x00, 0, 0, 0xC1, 2, 0xC3, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    const { data, result } = d.drainReadExecution();
+    expect(data.length).toBe(1536);      // all three sectors read — no early stop
+    expect([data[0], data[512], data[1024]]).toEqual([0x10, 0x11, 0x12]);
+    expect(result[2] & 0x40).toBe(0x00); // CM clear — marks matched on every sector
+    expect(result[1] & 0x80).toBe(0x80); // EN at EOT
+    expect(result[5]).toBe(0xC3);        // CHRN advanced to the last sector
+  });
 });
 
 describe('uPD765A — weak (DD) vs stable deleted-data (CM+DD) reads', () => {
