@@ -2,6 +2,13 @@ import { createSignal, Show } from 'solid-js';
 
 const CHANGELOG: { version: string; items: string[] }[] = [
   {
+    version: '0.6.3',
+    items: [
+      'Flipping dual-sided 180K disks support',
+      '765A multi-track and CRC behavior tweaks',
+      'Z80 power-on tweaks',
+    ]
+  }, {
     version: '0.6.2',
     items: [
       'Fixed some TZX loading crashes',

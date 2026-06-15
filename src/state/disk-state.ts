@@ -31,6 +31,11 @@ const _driveAStatus = createSignal<DriveStatus>({ led: 'off', track: '00', secto
 export const driveAStatus = _driveAStatus[0];
 export const setDriveAStatus = _driveAStatus[1];
 
+// Active side of a flippy disk in drive A: 0 = Side A, 1 = Side B.
+const _diskSideA = createSignal(0);
+export const diskSideA = _diskSideA[0];
+export const setDiskSideA = _diskSideA[1];
+
 // Drive B
 const _currentDiskInfoB = createSignal<DskImage | null>(null);
 export const currentDiskInfoB = _currentDiskInfoB[0];
@@ -43,6 +48,11 @@ export const setCurrentDiskNameB = _currentDiskNameB[1];
 const _driveBStatus = createSignal<DriveStatus>({ led: 'off', track: '00', sector: '--' });
 export const driveBStatus = _driveBStatus[0];
 export const setDriveBStatus = _driveBStatus[1];
+
+// Active side of a flippy disk in drive B: 0 = Side A, 1 = Side B.
+const _diskSideB = createSignal(0);
+export const diskSideB = _diskSideB[0];
+export const setDiskSideB = _diskSideB[1];
 
 // MGT +D drives C and D (WD1772). Separate from the +3's A/B so a +D session
 // and a +3 session never share signals.

@@ -2,14 +2,14 @@ import { Show } from 'solid-js';
 import { Pane } from '@/components/Pane.tsx';
 import { RawHtml } from '@/components/RawHtml.tsx';
 import { DropDownMenuButton } from '@/components/DropDownMenuButton.tsx';
-import { HiOutlineEllipsisVertical, HiOutlineDocumentPlus, HiOutlineArrowDownTray } from 'solid-icons/hi';
+import { HiOutlineEllipsisVertical, HiOutlineDocumentPlus, HiOutlineArrowDownTray, HiOutlineArrowPath } from 'solid-icons/hi';
 import {
   driveAStatus, driveBStatus, trapLogHtml, showTrapLog, currentModel,
   currentDiskName, currentDiskNameB, currentDiskInfo, currentDiskInfoB,
   ejectDisk, loadFile, insertBlankDisk, saveDisk, machine, spectrum,
   currentDiskNameC, currentDiskNameD, currentDiskInfoC, currentDiskInfoD,
   driveCStatus, driveDStatus, ejectPlusDDisk, insertBlankPlusDDisk, savePlusDDisk,
-  applyDisplaySettings,
+  applyDisplaySettings, flipDisk, diskSideA, diskSideB,
 } from '@/emulator.ts';
 import {
   diskSoundA, setDiskSoundA, diskSoundB, setDiskSoundB,
@@ -40,7 +40,10 @@ function renderDiskInfoStr(img: DskImage, showProtection = true): string {
   const t0 = img.tracks[0]?.[0];
   const spt = t0 ? t0.sectors.length : 0;
   const sectorSize = t0?.sectors[0] ? (128 << t0.sectors[0].n) : 0;
-  const capacityKB = (img.numSides * img.numTracks * spt * sectorSize) / 1024;
+  // A flippy disk's two sides are independent 180K filesystems, so report a
+  // single side's capacity rather than the combined 360K of the whole DSK.
+  const effectiveSides = img.flippy ? 1 : img.numSides;
+  const capacityKB = (effectiveSides * img.numTracks * spt * sectorSize) / 1024;
   const tooltip = `${img.numSides} side${img.numSides > 1 ? 's' : ''}, ${img.numTracks} tracks, ${spt} sectors/track`;
   const lines = [
     `${n}Format${e}   <span title="${tooltip}">${img.diskFormat} (${capacityKB} KB)</span>`,
@@ -67,6 +70,9 @@ function DiskInfo(props: {
   onToggleSound: () => void;
   onToggleWriteProtect: () => void;
   onToggleForceReady?: () => void;
+  /** Active side of a flippy disk (0 = A, 1 = B); flip handler to turn it over. */
+  side?: number;
+  onFlip?: () => void;
   showProtection?: boolean;
   /** Show the global "Turbo while loading" toggle in this drive's menu (+3 /
    *  CPC drives, whose FDC reads engage disk turbo). */
@@ -130,8 +136,19 @@ function DiskInfo(props: {
           onClick={() => !props.name && props.onInsert()}
         >
           <span class="disk-name-text" title={props.name || ''}>
-            {props.name || 'No disk inserted'}
+            {props.name
+              ? (props.diskInfo?.flippy ? `${props.name} — Side ${props.side ? 'B' : 'A'}` : props.name)
+              : 'No disk inserted'}
           </span>
+          <Show when={props.name && props.diskInfo?.flippy && props.onFlip}>
+            <button
+              class="tape-eject"
+              title={`Flip disk ${props.label} (turn over to Side ${props.side ? 'A' : 'B'})`}
+              onClick={(e) => { e.stopPropagation(); props.onFlip!(); }}
+            >
+              <HiOutlineArrowPath size={14} />
+            </button>
+          </Show>
           <Show when={props.name}>
             <button class="tape-eject" title={`Eject disk ${props.label}`} onClick={(e) => { e.stopPropagation(); props.onEject(); }}>
               <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor">
@@ -211,6 +228,8 @@ export function DrivePane() {
           status={driveAStatus()}
           soundEnabled={diskSoundA()}
           writeProtected={writeProtectA()}
+          side={diskSideA()}
+          onFlip={() => flipDisk(0)}
           showTurbo
           newItems={PLUS3_NEW_ITEMS}
           onNewDisk={(value) => {
@@ -238,6 +257,8 @@ export function DrivePane() {
           soundEnabled={diskSoundB()}
           writeProtected={writeProtectB()}
           forceReady={driveBForceReady()}
+          side={diskSideB()}
+          onFlip={() => flipDisk(1)}
           showTurbo
           newItems={PLUS3_NEW_ITEMS}
           onNewDisk={(value) => {

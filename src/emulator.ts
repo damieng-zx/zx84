@@ -97,6 +97,7 @@ import {
   driveCStatus, driveDStatus,
   setCurrentDiskInfoC, setCurrentDiskNameC, setCurrentDiskInfoD, setCurrentDiskNameD,
   setDriveCStatus, setDriveDStatus,
+  diskSideA, setDiskSideA, diskSideB, setDiskSideB,
 } from '@/state/disk-state.ts';
 
 import {
@@ -129,6 +130,7 @@ export { setTapeLoaded, setTapeName, setTapeBlocks, setTapePosition, setTapePaus
 // Re-export disk state
 export { currentDiskInfo, currentDiskName, currentDiskInfoB, currentDiskNameB, driveAStatus, driveBStatus, diskInfoHtml, driveHtml };
 export { currentDiskInfoC, currentDiskNameC, currentDiskInfoD, currentDiskNameD, driveCStatus, driveDStatus };
+export { diskSideA, diskSideB };
 export { setCurrentDiskInfo, setCurrentDiskName, setCurrentDiskInfoB, setCurrentDiskNameB, setDriveAStatus, setDriveBStatus, setDiskInfoHtml, setDriveHtml };
 export { setCurrentDiskInfoC, setCurrentDiskNameC, setCurrentDiskInfoD, setCurrentDiskNameD, setDriveCStatus, setDriveDStatus };
 
@@ -994,9 +996,11 @@ export function ejectDisk(unit: number = 0): void {
       setCurrentDiskInfo(null);
       setCurrentDiskName('');
       setDiskInfoHtml('');
+      setDiskSideA(0);
     } else {
       setCurrentDiskInfoB(null);
       setCurrentDiskNameB('');
+      setDiskSideB(0);
     }
   };
   if (spectrum) {
@@ -1019,6 +1023,24 @@ export function insertBlankDisk(image: DskImage, name: string, unit: number): vo
     setCurrentDiskInfoB(image);
     setCurrentDiskNameB(name);
   }
+}
+
+/**
+ * Flip a combined "flippy" disk in drive `unit` (0 = A:, 1 = B:) to its other
+ * side. A 3" disk held two independent single-sided 180K filesystems; turning it
+ * over presents the second side to the (single-sided) drive head. We model that
+ * by toggling the FDC's per-drive flipSide offset — the full two-sided image
+ * stays mounted, so saving still writes both sides.
+ */
+export function flipDisk(unit: number): void {
+  if (!machine) return;
+  const phys = unit & 1;
+  const image = machine.fdc.getDiskImage(phys);
+  if (!image?.flippy) return;
+  const newSide = machine.fdc.flipSide[phys] ^ 1;
+  machine.fdc.flipSide[phys] = newSide;
+  if (unit === 0) setDiskSideA(newSide); else setDiskSideB(newSide);
+  setStatus(`Disk ${unit === 0 ? 'A' : 'B'}: flipped to Side ${newSide ? 'B' : 'A'}`);
 }
 
 export function saveDisk(unit: number): void {

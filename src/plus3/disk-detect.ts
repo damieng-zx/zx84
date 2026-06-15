@@ -29,6 +29,21 @@ export function detectDiskFormat(image: DskImage): string {
   const minR = Math.min(...t0.sectors.map(s => s.r));
   const ds = image.numSides === 2 ? ' DS' : '';
 
+  // A flippy is two independent single-sided volumes merged into one image, so
+  // classify it by a single side and tag it "two sides" rather than using the
+  // double-sided " DS" suffix. Works for any per-side format (PCW/+3, CPC, …).
+  if (isFlippyDisk(image)) {
+    const sides = ' two sides';
+    if (count === 9 && n === 2) {
+      if (minR === 0x01) return 'PCW/+3' + sides;
+      if (minR === 0xC1) return 'CPC Data' + sides;
+      if (minR === 0x41) return 'CPC System' + sides;
+    }
+    if (count === 8 && n === 2 && minR === 0x01) return 'CPC IBM' + sides;
+    const bytes = n <= 8 ? 128 << n : 0;
+    return `${count}×${bytes}b` + sides;
+  }
+
   if (count === 9 && n === 2) {
     if (minR === 0x01) return image.numSides === 2 ? 'PCW Double' : 'PCW/+3 Single';
     if (minR === 0xC1) return 'CPC Data' + ds;
@@ -40,6 +55,25 @@ export function detectDiskFormat(image: DskImage): string {
 
   const bytes = n <= 8 ? 128 << n : 0;
   return `${count}×${bytes}b` + ds;
+}
+
+/**
+ * A combined "flippy" disk: two independent single-sided volumes stored as
+ * side 0 ("Side A") and side 1 ("Side B") of one DSK — a 3" disk you physically
+ * turn over. Each side was formatted on its own as a head-0 disk, so EVERY
+ * side-1 sector carries CHRN head byte 0. A genuine double-sided disk (one
+ * filesystem interleaved across both heads, e.g. a 720K PCW or a +3DOS DS game)
+ * instead formats side 1 with head byte 1. That per-sector head byte — not the
+ * geometry or the +3DOS spec block — is the reliable signal, and it holds for
+ * any per-side format (PCW/+3, CPC, 10×512, …).
+ */
+export function isFlippyDisk(image: DskImage): boolean {
+  if (image.numSides !== 2) return false;
+  const side0 = image.tracks[0]?.[0];
+  const side1 = image.tracks[0]?.[1];
+  if (!side0 || side0.sectors.length === 0) return false;
+  if (!side1 || side1.sectors.length === 0) return false;
+  return side1.sectors.every(sec => sec.h === 0);
 }
 
 // ── Sector / track helpers ──────────────────────────────────────────────────

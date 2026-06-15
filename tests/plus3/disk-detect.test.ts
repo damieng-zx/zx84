@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { detectDiskFormat, detectProtection } from '@/plus3/disk-detect.ts';
+import { detectDiskFormat, detectProtection, isFlippyDisk } from '@/plus3/disk-detect.ts';
 import type { DskImage, DskTrack, DskSector } from '@/plus3/dsk.ts';
 
 // ── Synthetic DskImage builders ───────────────────────────────────────────
@@ -39,10 +39,21 @@ function track(sectors: DskSector[], gap3 = 0x4E, filler = 0xE5): DskTrack {
   return { sectors, sectorMap, gap3, filler };
 }
 
+/** Clone a track with every sector's CHRN head byte set to `h`. */
+function withHead(t: DskTrack | null, h: number): DskTrack | null {
+  if (!t) return null;
+  const sectors = t.sectors.map((s) => ({ ...s, h }));
+  const sectorMap = new Map<number, number>();
+  sectors.forEach((s, i) => sectorMap.set(s.r, i));
+  return { ...t, sectors, sectorMap };
+}
+
+// A realistic multi-sided image: side s is formatted with CHRN head byte s, as a
+// genuine double-sided disk records it. (Flippy disks differ — see flippyImage.)
 function image(tracksBySide0: (DskTrack | null)[], numSides = 1): DskImage {
   const tracks = tracksBySide0.map((t) => {
     const sides: (DskTrack | null)[] = [t];
-    for (let s = 1; s < numSides; s++) sides.push(t);
+    for (let s = 1; s < numSides; s++) sides.push(withHead(t, s));
     return sides;
   });
   return {
@@ -50,6 +61,19 @@ function image(tracksBySide0: (DskTrack | null)[], numSides = 1): DskImage {
     numTracks: tracksBySide0.length,
     numSides,
     tracks,
+    diskFormat: '',
+    protection: '',
+  };
+}
+
+// A flippy image: two independent single-sided volumes, so BOTH sides keep
+// CHRN head 0 (each side was formatted on its own as a head-0 disk).
+function flippyImage(tracksBySide0: (DskTrack | null)[]): DskImage {
+  return {
+    format: 'extended',
+    numTracks: tracksBySide0.length,
+    numSides: 2,
+    tracks: tracksBySide0.map((t) => [t, withHead(t, 0)]),
     diskFormat: '',
     protection: '',
   };
@@ -84,9 +108,32 @@ describe('detectDiskFormat', () => {
     expect(detectDiskFormat(img)).toBe('PCW/+3 Single');
   });
 
-  it('PCW Double: 9 sectors, N=2, minR=0x01, 2 sides', () => {
-    const img = image([track(Array.from({ length: 9 }, (_, i) => sector({ r: i + 1, n: 2 })))], 2);
+  it('PCW Double: genuine double-sided disk (side 1 uses head 1)', () => {
+    // A real double-sided PCW disk is one interleaved filesystem, NOT a flippy.
+    // The side-1 CHRN head byte (1, set by image()) is what separates them.
+    const cyl = () => track(Array.from({ length: 9 }, (_, i) => sector({ r: i + 1, n: 2 })));
+    const img = image(Array.from({ length: 80 }, cyl), 2);
     expect(detectDiskFormat(img)).toBe('PCW Double');
+  });
+
+  it('PCW/+3 two sides: 2-sided flippy disk (side 1 uses head 0)', () => {
+    // Two independent single-sided sides packed into one DSK (a 3" disk turned
+    // over). Both sides 9×512 from sector 1, side 1 formatted as head 0.
+    const cyl = () => track(Array.from({ length: 9 }, (_, i) => sector({ r: i + 1, n: 2 })));
+    const img = flippyImage(Array.from({ length: 40 }, cyl));
+    expect(detectDiskFormat(img)).toBe('PCW/+3 two sides');
+  });
+
+  it('CPC Data two sides: flippy is not PCW-only — CPC per-side format too', () => {
+    const cyl = () => track(Array.from({ length: 9 }, (_, i) => sector({ r: 0xC1 + i, n: 2 })));
+    const img = flippyImage(Array.from({ length: 42 }, cyl));
+    expect(detectDiskFormat(img)).toBe('CPC Data two sides');
+  });
+
+  it('10×512b two sides: flippy with a non-standard 10-sector per-side format', () => {
+    const cyl = () => track(Array.from({ length: 10 }, (_, i) => sector({ r: i + 1, n: 2 })));
+    const img = flippyImage(Array.from({ length: 42 }, cyl));
+    expect(detectDiskFormat(img)).toBe('10×512b two sides');
   });
 
   it('CPC Data (SS): 9 sectors, N=2, minR=0xC1, 1 side', () => {
@@ -151,6 +198,46 @@ describe('detectDiskFormat', () => {
   it('generic fallback emits 0-byte size for N=9+ (n <= 8 guard)', () => {
     const img = image([track([sector({ r: 0xE0, n: 9, size: 128 })])]);
     expect(detectDiskFormat(img)).toBe('1×0b');
+  });
+});
+
+// ── isFlippyDisk ──────────────────────────────────────────────────────────
+
+describe('isFlippyDisk', () => {
+  // The discriminator is the side-1 CHRN head byte: a flippy's second side was
+  // formatted on its own as a head-0 disk (head 0); a genuine double-sided disk
+  // records side 1 as head 1.
+  const pcwCyl = () => track(Array.from({ length: 9 }, (_, i) => sector({ r: i + 1, n: 2 })));
+
+  it('true when side 1 uses head 0 (two independent volumes)', () => {
+    expect(isFlippyDisk(flippyImage(Array.from({ length: 40 }, pcwCyl)))).toBe(true);
+  });
+
+  it('true regardless of per-side format — CPC sides with head 0 are flippy', () => {
+    const cpcCyl = () => track(Array.from({ length: 9 }, (_, i) => sector({ r: 0xC1 + i, n: 2 })));
+    expect(isFlippyDisk(flippyImage(Array.from({ length: 42 }, cpcCyl)))).toBe(true);
+  });
+
+  it('false for a single-sided disk (only one side to read)', () => {
+    expect(isFlippyDisk(image(Array.from({ length: 40 }, pcwCyl), 1))).toBe(false);
+  });
+
+  it('false for a genuine double-sided disk (side 1 uses head 1)', () => {
+    expect(isFlippyDisk(image(Array.from({ length: 80 }, pcwCyl), 2))).toBe(false);
+  });
+
+  it('false when any side-1 sector still carries head 1', () => {
+    // One stray head-1 sector on side 1 means it is not an independent head-0
+    // volume — treat the whole disk as genuine double-sided.
+    const img = flippyImage(Array.from({ length: 40 }, pcwCyl));
+    img.tracks[0][1]!.sectors[3].h = 1;
+    expect(isFlippyDisk(img)).toBe(false);
+  });
+
+  it('false when the second side is missing', () => {
+    const img = flippyImage(Array.from({ length: 40 }, pcwCyl));
+    for (const cyl of img.tracks) cyl[1] = null;
+    expect(isFlippyDisk(img)).toBe(false);
   });
 });
 

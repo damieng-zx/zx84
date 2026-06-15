@@ -123,6 +123,16 @@ export class UPD765A {
   /** Per-drive Read ID cycling index */
   private idIndex = [0, 0, 0, 0];
 
+  /**
+   * Per-drive "flipped side" offset for combined flippy disks (a single DSK
+   * holding two independent single-sided 180K sides — a 3" disk you turn over).
+   * 0 = Side A (head 0 → image side 0), 1 = Side B (head 0 → image side 1).
+   * The +3's drive is single-sided hardware, so it only ever selects head 0;
+   * this offset re-points that head at the other stored side, exactly as
+   * physically turning the disk over would. Always 0 for ordinary disks.
+   */
+  flipSide = [0, 0, 0, 0];
+
   // ── Latched state for UI display (execution completes within one frame) ──
 
   private latchR = 0;
@@ -225,6 +235,7 @@ export class UPD765A {
   insertDisk(image: DskImage, unit: number = 0): void {
     this.disks[unit & 3] = image;
     this.idIndex[unit & 3] = 0;
+    this.flipSide[unit & 3] = 0;   // a freshly inserted disk always starts Side A
     this.log(`🎮 Disk inserted in unit ${unit}: ${image.numTracks} tracks, ${image.numSides} sides, ${image.format} format`);
     if (image.protection && image.protection !== 'None') {
       this.log(`   🔒 Copy protection detected: ${image.protection}`);
@@ -237,6 +248,7 @@ export class UPD765A {
   ejectDisk(unit: number = 0): void {
     this.log(`📤 Disk ejected from unit ${unit}`);
     this.disks[unit & 3] = null;
+    this.flipSide[unit & 3] = 0;
   }
 
   // ── State getters (for UI) ──────────────────────────────────────────
@@ -735,8 +747,9 @@ export class UPD765A {
     if (!disk) return null;
     const cyl = this.pcn[phys];
     if (cyl >= disk.numTracks) return null;
-    if (head >= disk.numSides) return null;
-    return disk.tracks[cyl][head];
+    const side = head + this.flipSide[phys];
+    if (side >= disk.numSides) return null;
+    return disk.tracks[cyl][side];
   }
 
   /**
@@ -766,14 +779,21 @@ export class UPD765A {
    * (READ_DATA over a DDAM sector, or READ_DELETED over a normal-AM sector).
    */
   private sectorReadFlags(sector: DskSector, cmd: number, cmdN: number): { st1: number; st2: number; abnormal: boolean } {
+    // EN (ST1 bit 7, End of Cylinder) is a controller-generated termination
+    // flag — finishExecution() raises it dynamically when a read passes EOT. It
+    // is never an intrinsic property of a recorded sector, but some dumpers
+    // capture it into the SIB anyway (e.g. the first/last sector of a flippy
+    // disk's second side). Mask it off so a stored EN can't masquerade as a
+    // read error and make +3DOS reject an otherwise valid disk.
+    const storedSt1 = sector.st1 & ~0x80;
     const undersized = sector.n < cmdN;
     const unreadableWeak = undersized
-      && ((sector.st1 & 0x20) || (sector.st2 & 0x20))
+      && ((storedSt1 & 0x20) || (sector.st2 & 0x20))
       && !(sector.st2 & 0x40);
     if (unreadableWeak) {
-      return { st1: sector.st1 | 0x04, st2: sector.st2, abnormal: true }; // ND — read fails
+      return { st1: storedSt1 | 0x04, st2: sector.st2, abnormal: true }; // ND — read fails
     }
-    let st1 = undersized ? 0 : sector.st1;
+    let st1 = undersized ? 0 : storedSt1;
     let st2 = undersized ? 0 : sector.st2;
     if (!undersized) {
       const sectorHasDDAM = !!(sector.st2 & 0x40);
@@ -1078,7 +1098,10 @@ export class UPD765A {
     while (disk.tracks.length <= cyl) {
       disk.tracks.push(Array.from({ length: disk.numSides }, () => null));
     }
-    disk.tracks[cyl][head] = { sectors, sectorMap, gap3: gpl, filler };
+    // Honour the flippy side offset so a format while "Side B" is loaded writes
+    // to the image's second side, matching what getTrack() reads back.
+    const side = Math.min(head + this.flipSide[physU], disk.numSides - 1);
+    disk.tracks[cyl][side] = { sectors, sectorMap, gap3: gpl, filler };
 
     this.log(`  ✓ Formatted cyl=${cyl} head=${head}: ${sc} sectors, last R=${lastR}`);
 

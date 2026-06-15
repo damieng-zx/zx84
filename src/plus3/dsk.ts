@@ -5,7 +5,7 @@
  * as used by the Amstrad CPC / ZX Spectrum +3.
  */
 
-import { detectDiskFormat, detectProtection } from './disk-detect.ts';
+import { detectDiskFormat, detectProtection, isFlippyDisk } from './disk-detect.ts';
 
 // ── Data structures ─────────────────────────────────────────────────────────
 
@@ -47,6 +47,13 @@ export interface DskImage {
   diskFormat: string;
   /** Detected copy protection scheme, or empty string */
   protection: string;
+  /**
+   * True for a combined "flippy" disk: two independent single-sided 180K
+   * +3/PCW sides packed into one DSK (Side A = image side 0, Side B = side 1).
+   * The UI offers a "flip" control; the FDC presents one side at a time via
+   * its per-drive flipSide offset. See {@link isFlippyDisk}.
+   */
+  flippy?: boolean;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -202,6 +209,7 @@ export function parseDSK(data: Uint8Array): DskImage {
 
   image.diskFormat = detectDiskFormat(image);
   image.protection = detectProtection(image);
+  image.flippy = isFlippyDisk(image);
   return image;
 }
 
@@ -450,4 +458,5 @@ export function createBlankDisk(fmt: DiskFormat): DskImage {
 export function refreshDiskMetadata(image: DskImage): void {
   image.diskFormat = detectDiskFormat(image);
   image.protection = detectProtection(image);
+  image.flippy = isFlippyDisk(image);
 }

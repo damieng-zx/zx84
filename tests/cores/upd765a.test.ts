@@ -268,6 +268,47 @@ describe('uPD765A — VERSION and invalid commands', () => {
   });
 });
 
+describe('uPD765A — flippy disk side select', () => {
+  // A combined flippy disk: side 0 ("Side A") and side 1 ("Side B") hold
+  // distinct data. The drive head is single-sided (command head always 0); the
+  // flipSide offset is what re-points it at side 1.
+  function makeTwoSidedImage(): DskImage {
+    const im = makeImage({ numTracks: 1, numSides: 2 });
+    // A real flippy formats each side independently as a head-0 disk, so both
+    // sides carry CHRN head 0; only the data distinguishes them.
+    im.tracks[0][0] = makePlus3Track(0, 0, 0x10); // Side A: sector 0xC1 filled 0x10
+    im.tracks[0][1] = makePlus3Track(0, 0, 0x80); // Side B: sector 0xC1 filled 0x80
+    return im;
+  }
+
+  function firstByteOfSectorC1(d: Driver): number {
+    [0x06, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    return d.drainReadExecution().data[0];
+  }
+
+  it('reads Side A (image side 0) when flipSide is 0', () => {
+    const d = new Driver();
+    d.fdc.insertDisk(makeTwoSidedImage(), 0);
+    expect(d.fdc.flipSide[0]).toBe(0); // insert always starts Side A
+    expect(firstByteOfSectorC1(d)).toBe(0x10);
+  });
+
+  it('reads Side B (image side 1) at head 0 when flipSide is 1', () => {
+    const d = new Driver();
+    d.fdc.insertDisk(makeTwoSidedImage(), 0);
+    d.fdc.flipSide[0] = 1;
+    expect(firstByteOfSectorC1(d)).toBe(0x80);
+  });
+
+  it('eject resets the flipSide offset back to Side A', () => {
+    const d = new Driver();
+    d.fdc.insertDisk(makeTwoSidedImage(), 0);
+    d.fdc.flipSide[0] = 1;
+    d.fdc.ejectDisk(0);
+    expect(d.fdc.flipSide[0]).toBe(0);
+  });
+});
+
 describe('uPD765A — READ_DATA', () => {
   let d: Driver;
   let img: DskImage;
@@ -908,7 +949,9 @@ describe('uPD765A — mid-stream termination (error/control mark on a non-final 
     [0x06, 0x00, 0, 0, 0xC1, 2, 0xC2, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
     const { data, result } = d.drainReadExecution();
     expect(data.length).toBe(512);       // only sector 0xC1 transferred
-    expect(data[0]).toBe(0xAA);
+    // 0xC1 is a weak (DD) sector — prepareReadBuffer randomises ~10% of its
+    // bytes each read, so assert the dominant fill rather than an exact byte.
+    expect(data.filter(b => b === 0xAA).length).toBeGreaterThan(400);
     expect(result[0] & 0x40).toBe(0x40); // ST0 abnormal termination
     expect(result[1] & 0x20).toBe(0x20); // ST1.DE preserved
     expect(result[2] & 0x20).toBe(0x20); // ST2.DD preserved
@@ -925,7 +968,9 @@ describe('uPD765A — mid-stream termination (error/control mark on a non-final 
     [0x06, 0x00, 0, 0, 0xC1, 2, 0xC3, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
     const { data, result } = d.drainReadExecution();
     expect(data.length).toBe(1024);      // 0xC1 + 0xC2, never reaches 0xC3
-    expect([data[0], data[512]]).toEqual([0x11, 0x22]);
+    expect(data[0]).toBe(0x11);          // 0xC1 is clean → exact byte
+    // 0xC2 is a weak (DD) sector (randomised ~10%) — check its dominant fill.
+    expect(data.slice(512, 1024).filter(b => b === 0x22).length).toBeGreaterThan(400);
     expect(result[0] & 0x40).toBe(0x40); // abnormal at 0xC2
     expect(result[5]).toBe(0xC2);
   });
