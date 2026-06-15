@@ -34,10 +34,37 @@ export class DebugManager {
   }
 
   /**
-   * Execute a single instruction.
+   * When the CPU is halted, advance by firing the frame interrupt rather than
+   * spinning on the HALT.
+   *
+   * The maskable interrupt is only generated at the frame boundary in
+   * Spectrum.runFrame(); instruction-stepping bypasses that, so a plain
+   * cpu.step() on a HALT just refetches the NOP forever (only R ticks) and the
+   * interrupt service routine is never reached. If interrupts are enabled,
+   * synthesise the interrupt here: it clears HALT and lands PC on the first
+   * instruction of the handler, so the user can step *into* it.
+   *
+   * Returns true if it fired. When interrupts are disabled (the CPU is parked
+   * in a DI HALT waiting for an NMI), there's nothing to wake it — the caller
+   * falls back to a normal step.
+   */
+  private wakeHaltedIntoInterrupt(cpu: Z80): boolean {
+    if (cpu.halted && cpu.iff1 && !cpu.eiDelay) {
+      cpu.interrupt();
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Execute a single instruction. On a halted CPU, step into the frame
+   * interrupt handler instead of spinning on the HALT (see
+   * wakeHaltedIntoInterrupt).
    */
   stepInto(machine: Machine, onUpdate: () => void): void {
-    machine.cpu.step();
+    if (!this.wakeHaltedIntoInterrupt(machine.cpu)) {
+      machine.cpu.step();
+    }
     onUpdate();
   }
 
@@ -52,6 +79,9 @@ export class DebugManager {
    */
   stepOver(machine: Machine, onUpdate: () => void): void {
     const cpu = machine.cpu;
+    // A halted CPU has PC parked just past the HALT; reading an "opcode" there
+    // is meaningless. Step into the interrupt instead, same as stepInto.
+    if (this.wakeHaltedIntoInterrupt(cpu)) { onUpdate(); return; }
     const op = machine.memory.readByte(cpu.pc);
 
     // Block repeats: ED B0..B3 (LDIR/CPIR/INIR/OTIR) and ED B8..BB (…DR).

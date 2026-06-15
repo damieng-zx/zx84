@@ -66,17 +66,66 @@ describe('DebugManager.stepInto', () => {
     expect(onUpdate).toHaveBeenCalledOnce();
   });
 
-  it('halted CPU: stepInto advances tStates by 4 but does not move PC', () => {
+  it('halted CPU with interrupts DISABLED: stepInto spins the HALT (no INT to wake it)', () => {
     const dm = new DebugManager();
     const s = makeStub();
-    s.mem[0] = 0x76; // HALT
-    dm.stepInto(s, vi.fn()); // executes HALT: pc stays 0, halted=true
+    s.mem[0] = 0x76; // HALT — iff1 defaults to false (DI)
+    dm.stepInto(s, vi.fn()); // executes HALT: halted=true
     expect(s.cpu.halted).toBe(true);
     const pcAfterHalt = s.cpu.pc;
     const tAfterHalt = s.cpu.tStates;
-    dm.stepInto(s, vi.fn()); // re-runs the HALT NOP cycle
+    dm.stepInto(s, vi.fn()); // re-runs the HALT NOP cycle (can't fire INT)
+    expect(s.cpu.halted).toBe(true);
     expect(s.cpu.pc).toBe(pcAfterHalt); // PC does not advance while halted
     expect(s.cpu.tStates).toBe(tAfterHalt + 4); // costs 4 T-states per cycle
+  });
+
+  it('halted CPU with interrupts ENABLED: stepInto enters the IM1 handler', () => {
+    const dm = new DebugManager();
+    const s = makeStub();
+    s.cpu.sp = 0x8000;
+    s.cpu.iff1 = true;
+    s.cpu.im = 1;
+    s.mem[0] = 0x76; // HALT
+    dm.stepInto(s, vi.fn());            // execute HALT → halted, PC parked past it
+    expect(s.cpu.halted).toBe(true);
+    const ret = s.cpu.pc;              // return address pushed by the interrupt
+    dm.stepInto(s, vi.fn());            // should fire the frame interrupt
+    expect(s.cpu.halted).toBe(false);
+    expect(s.cpu.pc).toBe(0x0038);     // IM1 vector
+    expect(s.cpu.iff1).toBe(false);    // INT acknowledge disables further INTs
+    expect(s.cpu.sp).toBe(0x7FFE);     // return address pushed
+    expect(s.mem[0x7FFE]).toBe(ret & 0xFF);
+    expect(s.mem[0x7FFF]).toBe((ret >> 8) & 0xFF);
+  });
+
+  it('halted CPU in IM2: stepInto vectors through the table to the handler', () => {
+    const dm = new DebugManager();
+    const s = makeStub();
+    s.cpu.sp = 0x8000;
+    s.cpu.iff1 = true;
+    s.cpu.im = 2;
+    s.cpu.i = 0xFE;                    // vector table page; bus vector defaults to 0xFF
+    s.mem[0xFEFF] = 0x27;             // handler 0x9227, low byte at (I<<8)|0xFF
+    s.mem[0xFF00] = 0x92;             // high byte at the next address
+    s.mem[0] = 0x76;                  // HALT
+    dm.stepInto(s, vi.fn());           // execute HALT → halted
+    dm.stepInto(s, vi.fn());           // fire IM2 interrupt
+    expect(s.cpu.halted).toBe(false);
+    expect(s.cpu.pc).toBe(0x9227);
+  });
+
+  it('halted CPU with interrupts ENABLED: stepOver also enters the handler', () => {
+    const dm = new DebugManager();
+    const s = makeStub();
+    s.cpu.sp = 0x8000;
+    s.cpu.iff1 = true;
+    s.cpu.im = 1;
+    s.mem[0] = 0x76; // HALT
+    dm.stepInto(s, vi.fn());            // halt
+    dm.stepOver(s, vi.fn());            // stepOver on a HALT → into the interrupt
+    expect(s.cpu.halted).toBe(false);
+    expect(s.cpu.pc).toBe(0x0038);
   });
 });
 
