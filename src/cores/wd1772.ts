@@ -130,10 +130,23 @@ export class WD1772 {
     this.motorFrames = 0;
   }
 
+  /**
+   * Per-drive "written since insert" flag (drives C/D). Set when a sector
+   * write or format mutates the image, cleared on insert/eject and on save.
+   * Drives the Save button's "unsaved changes" indicator in the UI.
+   */
+  dirty = [false, false];
+
   // ── Disk management ───────────────────────────────────────────────────
-  insertDisk(image: DskImage, unit = 0): void { this.disks[unit & 1] = image; }
-  ejectDisk(unit = 0): void { this.disks[unit & 1] = null; }
+  insertDisk(image: DskImage, unit = 0): void { this.disks[unit & 1] = image; this.dirty[unit & 1] = false; }
+  ejectDisk(unit = 0): void { this.disks[unit & 1] = null; this.dirty[unit & 1] = false; }
   getDiskImage(unit: number): DskImage | null { return this.disks[unit & 1]; }
+
+  /** True if the disk in `unit` has unsaved writes since insert/save. */
+  isDirty(unit: number): boolean { return this.dirty[unit & 1]; }
+
+  /** Clear the dirty flag — called once the modified image has been saved. */
+  clearDirty(unit: number): void { this.dirty[unit & 1] = false; }
 
   selectDrive(unit: number): void { this.currentDrive = unit & 1; }
   setSide(side: number): void { this.side = side & 1; }
@@ -295,6 +308,7 @@ export class WD1772 {
     this.writing = true;
     this.multi = multi;
     this.curTrack = track;
+    this.dirty[this.currentDrive] = true;
     this.statusReg = this.base() | ST_BUSY | ST_DRQ;
     this.latch(true);
   }
@@ -424,6 +438,7 @@ export class WD1772 {
       sides[this.side] = track;
       disk.numTracks = Math.max(disk.numTracks, cyl + 1);
       disk.numSides = Math.max(disk.numSides, this.side + 1);
+      this.dirty[this.currentDrive] = true;
       this.formattedUnit = this.currentDrive;
     }
     this.buffer = null;

@@ -133,6 +133,15 @@ export class UPD765A {
    */
   flipSide = [0, 0, 0, 0];
 
+  /**
+   * Per-drive "written since insert" flag, indexed by physical unit (0/1).
+   * Set when a sector write or format mutates the image, cleared on
+   * insert/eject and when the modified image is saved. The UI lights the
+   * drive's Save button when this is set, so the user knows there are changes
+   * worth downloading (we don't persist in-session writes back to the file).
+   */
+  dirty = [false, false];
+
   // ── Latched state for UI display (execution completes within one frame) ──
 
   private latchR = 0;
@@ -244,6 +253,7 @@ export class UPD765A {
     this.disks[unit & 3] = image;
     this.idIndex[unit & 3] = 0;
     this.flipSide[unit & 3] = 0;   // a freshly inserted disk always starts Side A
+    this.dirty[unit & 1] = false;  // a freshly inserted image has no unsaved writes
     this.log(`🎮 Disk inserted in unit ${unit}: ${image.numTracks} tracks, ${image.numSides} sides, ${image.format} format`);
     if (image.protection && image.protection !== 'None') {
       this.log(`   🔒 Copy protection detected: ${image.protection}`);
@@ -257,7 +267,14 @@ export class UPD765A {
     this.log(`📤 Disk ejected from unit ${unit}`);
     this.disks[unit & 3] = null;
     this.flipSide[unit & 3] = 0;
+    this.dirty[unit & 1] = false;
   }
+
+  /** True if the disk in `unit` has been written to since it was inserted/saved. */
+  isDirty(unit: number): boolean { return this.dirty[this.physUnit(unit)]; }
+
+  /** Clear the dirty flag — called once the modified image has been saved. */
+  clearDirty(unit: number): void { this.dirty[this.physUnit(unit)] = false; }
 
   // ── State getters (for UI) ──────────────────────────────────────────
 
@@ -606,6 +623,7 @@ export class UPD765A {
     // Writing destroys the v5 weak-bit state: subsequent reads must
     // return the freshly-written data, not random older copies.
     track.sectors[idx].copies = undefined;
+    this.dirty[this.physUnit(this.exUnit)] = true;
   }
 
   /** End execution phase with result. Sets EN + abnormal termination if EOT was reached. */
@@ -1157,6 +1175,7 @@ export class UPD765A {
     // to the image's second side, matching what getTrack() reads back.
     const side = Math.min(head + this.flipSide[physU], disk.numSides - 1);
     disk.tracks[cyl][side] = { sectors, sectorMap, gap3: gpl, filler };
+    this.dirty[physU] = true;
 
     this.log(`  ✓ Formatted cyl=${cyl} head=${head}: ${sc} sectors, last R=${lastR}`);
 

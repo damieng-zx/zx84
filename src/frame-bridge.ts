@@ -167,6 +167,7 @@ interface DriveStatusSource {
   isWriting: boolean;
   currentSector: number;
   getUnitTrack(unit: number): number;
+  isDirty(unit: number): boolean;
 }
 
 function renderDriveStatus(unit: number, activeUnit: number, fdc: DriveStatusSource): import('@/state/disk-state.ts').DriveStatus {
@@ -185,7 +186,7 @@ function renderDriveStatus(unit: number, activeUnit: number, fdc: DriveStatusSou
     led = 'read';
   }
 
-  return { led, track, sector };
+  return { led, track, sector, dirty: fdc.isDirty(unit) };
 }
 
 /** Update banks, disk info, drive status, and trap log signals. */

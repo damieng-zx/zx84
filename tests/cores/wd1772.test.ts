@@ -127,6 +127,31 @@ describe('WD1772 WRITE SECTOR', () => {
     // Original fill untouched.
     expect(img.tracks[0]![0]!.sectors[0].data.every(b => b === 0xAB)).toBe(true);
   });
+
+  it('a freshly inserted disk is not dirty; a write marks it dirty', () => {
+    expect(wd.isDirty(0)).toBe(false);
+    wd.writeSectorReg(1);
+    wd.writeCommand(CMD_WRITE);
+    expect(wd.isDirty(0)).toBe(true);
+  });
+
+  it('a write-protected (rejected) write leaves the drive clean', () => {
+    wd.writeProtect[0] = true;
+    wd.writeSectorReg(1);
+    wd.writeCommand(CMD_WRITE);
+    expect(wd.isDirty(0)).toBe(false);
+  });
+
+  it('clearDirty and eject both reset the flag', () => {
+    wd.writeSectorReg(1);
+    wd.writeCommand(CMD_WRITE);
+    wd.clearDirty(0);
+    expect(wd.isDirty(0)).toBe(false);
+    wd.writeSectorReg(1);
+    wd.writeCommand(CMD_WRITE);
+    wd.ejectDisk(0);
+    expect(wd.isDirty(0)).toBe(false);
+  });
 });
 
 describe('WD1772 INDEX pulse (Type I status bit 1)', () => {

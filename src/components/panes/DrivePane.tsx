@@ -96,7 +96,8 @@ function DiskInfo(props: {
         />
         <button
           class="btn btn-sm ddmenu-btn"
-          title={`Save drive ${props.label}`}
+          classList={{ 'btn-dirty': props.status.dirty }}
+          title={props.status.dirty ? `Save drive ${props.label} (unsaved changes)` : `Save drive ${props.label}`}
           disabled={!props.diskInfo}
           onClick={() => props.onSave()}
         >

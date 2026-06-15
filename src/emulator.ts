@@ -1102,6 +1102,7 @@ export function saveDisk(unit: number): void {
   const name = unit === 0 ? currentDiskName() : currentDiskNameB();
   const filename = name.replace(/\.[^.]+$/, '') + '.dsk';
   downloadFile(serializeDSK(image), filename);
+  machine.fdc.clearDirty(unit);   // the on-disk file now matches the image
 }
 
 /**
@@ -1183,6 +1184,7 @@ export function savePlusDDisk(unit: number): void {
   const name = unit === 0 ? currentDiskNameC() : currentDiskNameD();
   const base = name.replace(/\.[^.]+$/, '') || 'plusd';
   downloadFile(serializeMgt(image, 'mgt'), `${base}.mgt`);
+  spectrum.mgtPlusD.fdc.clearDirty(unit);   // the on-disk file now matches the image
 }
 
 

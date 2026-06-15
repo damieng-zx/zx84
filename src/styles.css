@@ -1783,6 +1783,11 @@ input[type="range"]::-moz-range-thumb {
   opacity: 0.35;
   cursor: default;
 }
+/* Save button turns red when the disk has unsaved writes (see DriveStatus.dirty). */
+.drive-header > button.btn-dirty {
+  color: #dd2222;
+  border-color: #dd2222;
+}
 
 /* Filename slot + LED indicator */
 .disk-slot {

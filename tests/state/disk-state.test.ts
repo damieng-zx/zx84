@@ -18,7 +18,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import * as disk from '@/state/disk-state.ts';
 import type { DriveLed, DriveStatus } from '@/state/disk-state.ts';
 
-const DEFAULT_STATUS: DriveStatus = { led: 'off', track: '00', sector: '--' };
+const DEFAULT_STATUS: DriveStatus = { led: 'off', track: '00', sector: '--', dirty: false };
 
 afterEach(() => {
   disk.setCurrentDiskInfo(null);
@@ -62,7 +62,7 @@ describe('disk-state — DriveLed union', () => {
   it('round-trips all five documented LED values', () => {
     const all: DriveLed[] = ['off', 'motor', 'seek', 'read', 'write'];
     for (const led of all) {
-      disk.setDriveAStatus({ led, track: '03', sector: '07' });
+      disk.setDriveAStatus({ led, track: '03', sector: '07', dirty: false });
       expect(disk.driveAStatus().led).toBe(led);
     }
   });
@@ -71,14 +71,14 @@ describe('disk-state — DriveLed union', () => {
 describe('disk-state — getter/setter pairing', () => {
   it('writes to drive A do not bleed into drive B', () => {
     disk.setCurrentDiskName('GAME.DSK');
-    disk.setDriveAStatus({ led: 'read', track: '12', sector: '05' });
+    disk.setDriveAStatus({ led: 'read', track: '12', sector: '05', dirty: false });
     expect(disk.currentDiskNameB()).toBe('');
     expect(disk.driveBStatus()).toEqual(DEFAULT_STATUS);
   });
 
   it('writes to drive B do not bleed into drive A', () => {
     disk.setCurrentDiskNameB('BOOT.DSK');
-    disk.setDriveBStatus({ led: 'write', track: '00', sector: '01' });
+    disk.setDriveBStatus({ led: 'write', track: '00', sector: '01', dirty: false });
     expect(disk.currentDiskName()).toBe('');
     expect(disk.driveAStatus()).toEqual(DEFAULT_STATUS);
   });

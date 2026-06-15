@@ -488,6 +488,37 @@ describe('uPD765A — WRITE_DATA', () => {
     expect(rr.data).toEqual(Array.from(payload));
   });
 
+  it('a freshly inserted disk is not dirty', () => {
+    expect(d.fdc.isDirty(0)).toBe(false);
+  });
+
+  it('a completed sector write marks the drive dirty', () => {
+    [0x05, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    d.drainWriteExecution(new Uint8Array(512).fill(0x42));
+    expect(d.fdc.isDirty(0)).toBe(true);
+  });
+
+  it('a write-protected (rejected) write leaves the drive clean', () => {
+    d.fdc.writeProtect[0] = true;
+    [0x05, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    d.drainResult();
+    expect(d.fdc.isDirty(0)).toBe(false);
+  });
+
+  it('clearDirty resets the flag after a save', () => {
+    [0x05, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    d.drainWriteExecution(new Uint8Array(512).fill(0x42));
+    d.fdc.clearDirty(0);
+    expect(d.fdc.isDirty(0)).toBe(false);
+  });
+
+  it('ejecting a dirty disk clears the flag (the writes leave with it)', () => {
+    [0x05, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    d.drainWriteExecution(new Uint8Array(512).fill(0x42));
+    d.fdc.ejectDisk(0);
+    expect(d.fdc.isDirty(0)).toBe(false);
+  });
+
   it('write resets v5 weak-bit copies on the affected sector', () => {
     const copies = [new Uint8Array(512).fill(1), new Uint8Array(512).fill(2)];
     const sect: DskSector = {

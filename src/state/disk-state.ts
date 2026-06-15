@@ -16,6 +16,8 @@ export interface DriveStatus {
   led: DriveLed;
   track: string;
   sector: string;
+  /** Disk has unsaved writes since it was inserted/saved (lights the Save button). */
+  dirty: boolean;
 }
 
 // Drive A
@@ -27,7 +29,7 @@ const _currentDiskName = createSignal('');
 export const currentDiskName = _currentDiskName[0];
 export const setCurrentDiskName = _currentDiskName[1];
 
-const _driveAStatus = createSignal<DriveStatus>({ led: 'off', track: '00', sector: '--' });
+const _driveAStatus = createSignal<DriveStatus>({ led: 'off', track: '00', sector: '--', dirty: false });
 export const driveAStatus = _driveAStatus[0];
 export const setDriveAStatus = _driveAStatus[1];
 
@@ -45,7 +47,7 @@ const _currentDiskNameB = createSignal('');
 export const currentDiskNameB = _currentDiskNameB[0];
 export const setCurrentDiskNameB = _currentDiskNameB[1];
 
-const _driveBStatus = createSignal<DriveStatus>({ led: 'off', track: '00', sector: '--' });
+const _driveBStatus = createSignal<DriveStatus>({ led: 'off', track: '00', sector: '--', dirty: false });
 export const driveBStatus = _driveBStatus[0];
 export const setDriveBStatus = _driveBStatus[1];
 
@@ -64,7 +66,7 @@ const _currentDiskNameC = createSignal('');
 export const currentDiskNameC = _currentDiskNameC[0];
 export const setCurrentDiskNameC = _currentDiskNameC[1];
 
-const _driveCStatus = createSignal<DriveStatus>({ led: 'off', track: '00', sector: '--' });
+const _driveCStatus = createSignal<DriveStatus>({ led: 'off', track: '00', sector: '--', dirty: false });
 export const driveCStatus = _driveCStatus[0];
 export const setDriveCStatus = _driveCStatus[1];
 
@@ -76,7 +78,7 @@ const _currentDiskNameD = createSignal('');
 export const currentDiskNameD = _currentDiskNameD[0];
 export const setCurrentDiskNameD = _currentDiskNameD[1];
 
-const _driveDStatus = createSignal<DriveStatus>({ led: 'off', track: '00', sector: '--' });
+const _driveDStatus = createSignal<DriveStatus>({ led: 'off', track: '00', sector: '--', dirty: false });
 export const driveDStatus = _driveDStatus[0];
 export const setDriveDStatus = _driveDStatus[1];
 

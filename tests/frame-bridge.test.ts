@@ -544,15 +544,17 @@ describe('onFrame — LED thresholds', () => {
 function makeFdcMock(opts: {
   motorOn?: boolean; isExecuting?: boolean; isWriting?: boolean;
   currentUnit?: number; currentTrack?: number; currentSector?: number;
-  formattedUnit?: number;
+  formattedUnit?: number; dirty?: boolean;
 } = {}) {
   const { motorOn = false, isExecuting = false, isWriting = false,
-    currentUnit = 0, currentTrack = 0, currentSector = 1, formattedUnit = -1 } = opts;
+    currentUnit = 0, currentTrack = 0, currentSector = 1, formattedUnit = -1,
+    dirty = false } = opts;
   return {
     motorOn, isExecuting, isWriting, currentUnit, currentTrack, currentSector, formattedUnit,
     tickFrame: vi.fn(),
     getUnitTrack: vi.fn((_u: number) => currentTrack),
     getDiskImage: vi.fn((_u: number) => null as any),
+    isDirty: vi.fn((_u: number) => dirty),
   };
 }
 
@@ -726,6 +728,18 @@ describe('renderDriveStatus LED states (via onFrame)', () => {
     emu.spectrum = makeSpectrumWithFDC({ motorOn: true, isExecuting: true, isWriting: true, currentUnit: 0 });
     onFrame();
     expect(emu.setDriveAStatus).toHaveBeenCalledWith(expect.objectContaining({ led: 'write' }));
+  });
+
+  it('dirty flag is surfaced from the FDC into the drive status', () => {
+    emu.spectrum = makeSpectrumWithFDC({ dirty: true });
+    onFrame();
+    expect(emu.setDriveAStatus).toHaveBeenCalledWith(expect.objectContaining({ dirty: true }));
+  });
+
+  it('a clean disk reports dirty: false', () => {
+    emu.spectrum = makeSpectrumWithFDC({ dirty: false });
+    onFrame();
+    expect(emu.setDriveAStatus).toHaveBeenCalledWith(expect.objectContaining({ dirty: false }));
   });
 
   it('track is zero-padded to 2 digits', () => {
