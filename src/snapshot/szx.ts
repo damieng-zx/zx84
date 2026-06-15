@@ -187,6 +187,32 @@ export async function loadSZX(
   return result;
 }
 
+/**
+ * Apply the paging state from a parsed SZX result to memory. Shared by every
+ * SZX consumer (file load + the refresh/HMR resume) so the bank/ROM selection
+ * can't drift between them.
+ *
+ * `hasSpecialPaging` must be true for +2A/+3-class machines: there the ROM page
+ * is a 2-bit value — 1FFD bit 2 (high) | 7FFD bit 4 (low) — and 1FFD bit 0
+ * enables all-RAM special paging. On plain 128K/+2 the ROM is just 7FFD bit 4.
+ * Getting this wrong pages in the wrong ROM, which silently breaks any game
+ * whose interrupt routine calls into ROM (frozen music / colour effects).
+ */
+export function applySZXPaging(memory: SpectrumMemory, hasSpecialPaging: boolean, result: SZXResult): void {
+  if (!result.is128K) return;
+  memory.port7FFD = result.port7FFD;
+  memory.currentBank = result.port7FFD & 0x07;
+  memory.pagingLocked = (result.port7FFD & 0x20) !== 0;
+  if (hasSpecialPaging) {
+    memory.port1FFD = result.port1FFD;
+    memory.specialPaging = (result.port1FFD & 1) !== 0;
+    memory.currentROM = (((result.port1FFD >> 2) & 1) << 1) | ((result.port7FFD >> 4) & 1);
+  } else {
+    memory.currentROM = (result.port7FFD >> 4) & 1;
+  }
+  memory.applyBanking();
+}
+
 // ── Block parsers ───────────────────────────────────────────────────────
 
 function parseZ80R(data: Uint8Array, o: number, cpu: Z80): void {
@@ -324,20 +350,26 @@ function writeBlockHeader(data: Uint8Array, offset: number, id: string, size: nu
   return offset + 8;
 }
 
-export async function saveSZX(cpu: Z80, memory: SpectrumMemory, borderColor: number, model: SpectrumModel, frameStartTStates: number, ayRegs?: Uint8Array, ayCurrentReg?: number): Promise<Uint8Array> {
+/** One RAM page ready for the RAMP block — already compressed or raw. */
+interface SZXPage { page: number; data: Uint8Array; compressed: boolean; }
+
+/** RAM bank numbers a snapshot of this memory must include. */
+function snapshotPages(memory: SpectrumMemory): number[] {
   // For 48K, pages 0, 2, 5 are used. For 16K, only page 5. For 128K, all 8.
-  const pages = memory.is128K
+  return memory.is128K
     ? [0, 1, 2, 3, 4, 5, 6, 7]
     : memory.is16K
       ? [5]
       : [0, 2, 5];
+}
 
+export async function saveSZX(cpu: Z80, memory: SpectrumMemory, borderColor: number, model: SpectrumModel, frameStartTStates: number, ayRegs?: Uint8Array, ayCurrentReg?: number): Promise<Uint8Array> {
   // Flush live flat[] to banks (built into flushBanks — cannot be forgotten).
   const banks = memory.flushBanks();
 
   // Compress each page
-  const compressedPages: { page: number; data: Uint8Array; compressed: boolean }[] = [];
-  for (const page of pages) {
+  const compressedPages: SZXPage[] = [];
+  for (const page of snapshotPages(memory)) {
     const raw = banks[page];
     const zipped = await deflate(raw);
     // Only use compressed version if it's actually smaller
@@ -348,6 +380,29 @@ export async function saveSZX(cpu: Z80, memory: SpectrumMemory, borderColor: num
     }
   }
 
+  return assembleSZX(cpu, memory, borderColor, model, frameStartTStates, compressedPages, ayRegs, ayCurrentReg);
+}
+
+/**
+ * Synchronous SZX writer with no compression. Identical output to saveSZX
+ * except RAMP blocks are stored raw, so it needs no async CompressionStream.
+ *
+ * This is the only safe way to snapshot during `beforeunload`: that handler
+ * can't await, so an async deflate never finishes before the page tears down
+ * and the snapshot is silently lost. Raw pages cost ~128KB for a 128K machine
+ * (well within localStorage quota); the loader reads compressed and raw RAMP
+ * blocks identically, so restore is unchanged.
+ */
+export function saveSZXSync(cpu: Z80, memory: SpectrumMemory, borderColor: number, model: SpectrumModel, frameStartTStates: number, ayRegs?: Uint8Array, ayCurrentReg?: number): Uint8Array {
+  const banks = memory.flushBanks();
+  const rawPages: SZXPage[] = snapshotPages(memory).map(page => ({
+    page, data: banks[page], compressed: false,
+  }));
+  return assembleSZX(cpu, memory, borderColor, model, frameStartTStates, rawPages, ayRegs, ayCurrentReg);
+}
+
+/** Assemble the SZX byte stream from already-prepared (compressed or raw) pages. */
+function assembleSZX(cpu: Z80, memory: SpectrumMemory, borderColor: number, model: SpectrumModel, frameStartTStates: number, compressedPages: SZXPage[], ayRegs?: Uint8Array, ayCurrentReg?: number): Uint8Array {
   // Calculate total size
   const headerSize = 8;
   const z80rSize = 8 + 37;

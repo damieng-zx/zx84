@@ -32,7 +32,11 @@ vi.mock('@/snapshot/zip.ts', () => ({ unzip: (...a: any[]) => unzip(...a) }));
 vi.mock('@/ui/zip-picker.ts', () => ({ showFilePicker: (...a: any[]) => showFilePicker(...a) }));
 vi.mock('@/snapshot/sna.ts', () => ({ loadSNA: (...a: any[]) => loadSNA(...a) }));
 vi.mock('@/snapshot/z80format.ts', () => ({ loadZ80: (...a: any[]) => loadZ80(...a) }));
-vi.mock('@/snapshot/szx.ts', () => ({ loadSZX: (...a: any[]) => loadSZX(...a) }));
+vi.mock('@/snapshot/szx.ts', async (importOriginal) => ({
+  // Keep the real applySZXPaging (the paging-restore logic under test); stub loadSZX.
+  ...(await importOriginal<typeof import('@/snapshot/szx.ts')>()),
+  loadSZX: (...a: any[]) => loadSZX(...a),
+}));
 vi.mock('@/snapshot/sp.ts', () => ({ loadSP: (...a: any[]) => loadSP(...a) }));
 vi.mock('@/store/persistence.ts', () => ({
   persistLastFile: (...a: any[]) => persistLastFile(...a),

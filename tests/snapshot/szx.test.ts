@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { saveSZX, loadSZX } from '@/snapshot/szx.ts';
+import { saveSZX, saveSZXSync, loadSZX, applySZXPaging } from '@/snapshot/szx.ts';
 import { Z80 } from '@/cores/z80.ts';
 import { SpectrumMemory } from '@/memory.ts';
 import type { SpectrumModel } from '@/spectrum.ts';
@@ -50,6 +50,12 @@ function makeMemory48k(): SpectrumMemory {
 function makeMemory128k(): SpectrumMemory {
   const mem = new SpectrumMemory('128k');
   mem.loadROM(new Uint8Array(16384));
+  return mem;
+}
+
+function makeMemoryPlus3(): SpectrumMemory {
+  const mem = new SpectrumMemory('+3', { hasBanking: true, romPageCount: 4 });
+  mem.loadROM(new Uint8Array(65536)); // +3 has 4 × 16KB ROM pages
   return mem;
 }
 
@@ -1005,6 +1011,129 @@ describe('SZX — 128K full round-trip', () => {
     const saved = await saveSZX(cpu, mem, 0, '128k', 0);
     const result = await loadSZX(saved, new Z80(), makeMemory128k());
     expect(result.port7FFD).toBe(0x0B);
+  });
+});
+
+// ── applySZXPaging — shared paging restore (resume + file-load) ─────────────
+
+describe('SZX — applySZXPaging', () => {
+  const result128 = (port7FFD: number, port1FFD = 0) => ({
+    is128K: true, borderColor: 0, port7FFD, port1FFD,
+  });
+
+  it('+2A/+3: ROM page combines 1FFD bit 2 (high) and 7FFD bit 4 (low)', () => {
+    // 7FFD bit4=1 (low ROM bit), 1FFD bit2=1 (high ROM bit) → ROM 3 (48K BASIC).
+    // Regression: the resume path used to ignore 1FFD bit 2 and select ROM 1,
+    // paging in the wrong ROM and freezing ROM-dependent interrupt effects.
+    const mem = makeMemoryPlus3();
+    applySZXPaging(mem, true, result128(0x10, 0x04));
+    expect(mem.currentROM).toBe(3);
+    expect(mem.specialPaging).toBe(false);
+    expect(mem.port1FFD).toBe(0x04);
+  });
+
+  it('+2A/+3: each ROM-bit combination maps to the right page', () => {
+    const cases: [number, number, number][] = [
+      // [7FFD, 1FFD, expectedROM]
+      [0x00, 0x00, 0],
+      [0x10, 0x00, 1],
+      [0x00, 0x04, 2],
+      [0x10, 0x04, 3],
+    ];
+    for (const [p7, p1, rom] of cases) {
+      const mem = makeMemoryPlus3();
+      applySZXPaging(mem, true, result128(p7, p1));
+      expect(mem.currentROM).toBe(rom);
+    }
+  });
+
+  it('+2A/+3: 1FFD bit 0 enables all-RAM special paging', () => {
+    const mem = makeMemoryPlus3();
+    applySZXPaging(mem, true, result128(0x00, 0x01));
+    expect(mem.specialPaging).toBe(true);
+  });
+
+  it('plain 128K/+2: ROM is only 7FFD bit 4 (no special-paging high bit)', () => {
+    const mem = makeMemory128k();
+    applySZXPaging(mem, false, result128(0x10, 0x04));
+    expect(mem.currentROM).toBe(1); // 1FFD bit 2 must NOT contribute here
+  });
+
+  it('restores the RAM bank and paging-lock bit from 7FFD', () => {
+    const mem = makeMemory128k();
+    applySZXPaging(mem, false, result128(0x23)); // bank 3, lock bit (0x20) set
+    expect(mem.currentBank).toBe(3);
+    expect(mem.pagingLocked).toBe(true);
+  });
+
+  it('is a no-op for a 48K (non-128K) result', () => {
+    const mem = makeMemory48k();
+    const before = mem.currentROM;
+    applySZXPaging(mem, false, { is128K: false, borderColor: 0, port7FFD: 0xFF, port1FFD: 0xFF });
+    expect(mem.currentROM).toBe(before);
+  });
+});
+
+// ── Synchronous (uncompressed) writer — the beforeunload resume path ────────
+
+describe('SZX — saveSZXSync (uncompressed, no CompressionStream)', () => {
+  it('round-trips all 8 RAM banks of a 128K machine', async () => {
+    const cpu = makeCpu();
+    const mem = makeMemory128k();
+    for (let b = 0; b < 8; b++) {
+      const data = mem.getRamBank(b);
+      for (let i = 0; i < 16384; i++) {
+        data[i] = ((b * 16384 + i) * 5 + 11) & 0xFF;
+      }
+    }
+
+    const saved = saveSZXSync(cpu, mem, 2, '128k', 0); // synchronous — no await
+    const mem2 = makeMemory128k();
+    const result = await loadSZX(saved, new Z80(), mem2);
+    expect(result.is128K).toBe(true);
+
+    for (let b = 0; b < 8; b++) {
+      const data = mem2.getRamBank(b);
+      for (let i = 0; i < 16384; i++) {
+        expect(data[i]).toBe(((b * 16384 + i) * 5 + 11) & 0xFF);
+      }
+    }
+  });
+
+  it('writes RAMP blocks uncompressed (wFlags bit 0 clear, full 16KB payload)', () => {
+    const saved = saveSZXSync(makeCpu(), makeMemory128k(), 0, '128k', 0);
+    // Walk the block list and confirm every RAMP is raw and full-sized.
+    let offset = 8; // past header
+    let ramps = 0;
+    while (offset + 8 <= saved.length) {
+      const id = String.fromCharCode(saved[offset], saved[offset + 1], saved[offset + 2], saved[offset + 3]);
+      const size = saved[offset + 4] | (saved[offset + 5] << 8) | (saved[offset + 6] << 16) | (saved[offset + 7] << 24);
+      if (id === 'RAMP') {
+        const wFlags = saved[offset + 8] | (saved[offset + 9] << 8);
+        expect(wFlags & 1).toBe(0);        // not compressed
+        expect(size).toBe(3 + 16384);      // wFlags(2) + page(1) + raw 16KB
+        ramps++;
+      }
+      offset += 8 + size;
+    }
+    expect(ramps).toBe(8); // all 8 banks for a 128K snapshot
+  });
+
+  it('preserves CPU interrupt state (IM2 / EI / I) — what a halted game needs to resume', async () => {
+    const cpu = makeCpu();
+    cpu.im = 2;
+    cpu.iff1 = true;
+    cpu.iff2 = true;
+    cpu.i = 0xFE;
+    cpu.halted = true;
+    const saved = saveSZXSync(cpu, makeMemory128k(), 0, '128k', 0);
+
+    const cpu2 = new Z80();
+    await loadSZX(saved, cpu2, makeMemory128k());
+    expect(cpu2.im).toBe(2);
+    expect(cpu2.iff1).toBe(true);
+    expect(cpu2.i).toBe(0xFE);
+    expect(cpu2.halted).toBe(true);
   });
 });
 

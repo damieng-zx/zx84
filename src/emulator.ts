@@ -15,13 +15,13 @@ import { WebGLRenderer } from '@/display/webgl-renderer.ts';
 import { CanvasRenderer } from '@/display/canvas-renderer.ts';
 import { FloppySound } from '@/plus3/floppy-sound.ts';
 import { PALETTES, SCREEN_WIDTH, SCREEN_HEIGHT } from '@/cores/ula.ts';
-import { saveSZX } from '@/snapshot/szx.ts';
+import { saveSZX, saveSZXSync } from '@/snapshot/szx.ts';
 import { saveZ80 } from '@/snapshot/z80format.ts';
 import { parseTZX } from '@/tape/tzx.ts';
 import type { TapeBlock } from '@/tape/tap.ts';
 import { parseDSK, serializeDSK, type DskImage } from '@/plus3/dsk.ts';
 import { parseMgt, serializeMgt, blankMgtDisk, mgtExtFromName } from '@/plus3/mgt-image.ts';
-import { loadSZX } from '@/snapshot/szx.ts';
+import { loadSZX, applySZXPaging } from '@/snapshot/szx.ts';
 import { readCpcSnaModel, applyCpcSna, saveCpcSna } from '@/snapshot/cpc-sna.ts';
 import {
   clearLastFile, clearDisk, restoreTape, restoreDisk, dbSave, dbLoad,
@@ -1667,17 +1667,33 @@ export function initAudio(): void {
 
 const HMR_STATE_KEY = 'zx84-hmr-state';
 
-export async function saveHMRState(): Promise<void> {
+/** Base64-encode bytes in chunks — String.fromCharCode(...all) overflows the
+ *  call stack for the ~128KB uncompressed snapshot, so feed it 32KB at a time. */
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
+}
+
+/**
+ * Snapshot machine state to localStorage so a page refresh resumes where it
+ * left off. MUST be fully synchronous: this runs from a `beforeunload` handler
+ * that can't await, so it uses the uncompressed (no CompressionStream) SZX
+ * writer — an async deflate here would never finish before the page unloads,
+ * leaving a stale snapshot that resumes the game into a corrupted state.
+ */
+export function saveHMRState(): void {
   if (!spectrum || !romData) return;
 
   try {
-    // Stop emulation temporarily
-    const wasPaused = emulationPaused();
-    if (!wasPaused) spectrum.stop();
+    // Stop emulation so flushBanks() sees a settled frame (no torn RAM).
+    if (!emulationPaused()) spectrum.stop();
 
-    // Save snapshot data as SZX
     const ayRegs = spectrum.ay.getRegisters();
-    const szxData = await saveSZX(
+    const szxData = saveSZXSync(
       spectrum.cpu,
       spectrum.memory,
       spectrum.ula.borderColor,
@@ -1687,12 +1703,8 @@ export async function saveHMRState(): Promise<void> {
       spectrum.ay.selectedReg
     );
 
-    // Convert to base64 for localStorage
-    const b64 = btoa(String.fromCharCode(...szxData));
-
-    // Save state bundle
     const state = {
-      snapshot: b64,
+      snapshot: bytesToBase64(szxData),
       model: currentModel(),
       timestamp: Date.now(),
     };
@@ -1733,18 +1745,10 @@ export async function restoreHMRState(): Promise<boolean> {
     spectrum.reset();
     const result = await loadSZX(data, spectrum.cpu, spectrum.memory);
 
-    // Apply paging state for 128K
-    if (result.is128K) {
-      spectrum.memory.port7FFD = result.port7FFD;
-      spectrum.memory.currentBank = result.port7FFD & 0x07;
-      spectrum.memory.currentROM = (result.port7FFD >> 4) & 1;
-      spectrum.memory.pagingLocked = (result.port7FFD & 0x20) !== 0;
-      if (spectrum.variant.hasSpecialPaging) {
-        spectrum.memory.port1FFD = result.port1FFD;
-        spectrum.memory.specialPaging = (result.port1FFD & 1) !== 0;
-      }
-      spectrum.memory.applyBanking();
-    }
+    // Apply paging state for 128K. Shared with the file-load path so the +2A/+3
+    // ROM-bit handling can't drift (a stale copy here paged in the wrong ROM and
+    // froze ROM-dependent interrupt effects after a refresh).
+    applySZXPaging(spectrum.memory, spectrum.variant.hasSpecialPaging, result);
 
     spectrum.ula.borderColor = result.borderColor;
     // Restore AY state if present

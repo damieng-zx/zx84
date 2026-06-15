@@ -18,7 +18,7 @@ import { unzip } from '@/snapshot/zip.ts';
 import { showFilePicker } from '@/ui/zip-picker.ts';
 import { loadSNA } from '@/snapshot/sna.ts';
 import { loadZ80 } from '@/snapshot/z80format.ts';
-import { loadSZX } from '@/snapshot/szx.ts';
+import { loadSZX, applySZXPaging } from '@/snapshot/szx.ts';
 import { loadSP } from '@/snapshot/sp.ts';
 import { persistLastFile, persistTape, clearTape, persistDisk, clearDisk } from '@/store/persistence.ts';
 
@@ -241,22 +241,8 @@ export class MediaManager {
           await loadSZX(data, spectrum.cpu, spectrum.memory);
         }
 
-        // Apply paging state for 128K
-        if (result.is128K) {
-          spectrum.memory.port7FFD = result.port7FFD;
-          spectrum.memory.currentBank = result.port7FFD & 0x07;
-          spectrum.memory.pagingLocked = (result.port7FFD & 0x20) !== 0;
-          if (isPlus2AClass(currentModel)) {
-            spectrum.memory.port1FFD = result.port1FFD;
-            spectrum.memory.specialPaging = (result.port1FFD & 1) !== 0;
-            // +2A/+3: ROM = bit 2 of 1FFD (high) | bit 4 of 7FFD (low)
-            spectrum.memory.currentROM =
-              (((result.port1FFD >> 2) & 1) << 1) | ((result.port7FFD >> 4) & 1);
-          } else {
-            spectrum.memory.currentROM = (result.port7FFD >> 4) & 1;
-          }
-          spectrum.memory.applyBanking();
-        }
+        // Apply paging state for 128K (shared with the refresh/HMR resume path).
+        applySZXPaging(spectrum.memory, isPlus2AClass(currentModel), result);
 
         spectrum.ula.borderColor = result.borderColor;
 

@@ -293,8 +293,12 @@ vi.mock('@/peripherals/joysticks.ts', () => ({
   joyPressForType:       vi.fn(),
 }));
 
-vi.mock('@/snapshot/szx.ts', () => ({
+vi.mock('@/snapshot/szx.ts', async (importOriginal) => ({
+  // Keep the real applySZXPaging so the resume path exercises the actual
+  // bank/ROM restore logic; only the file read/write helpers are stubbed.
+  ...(await importOriginal<typeof import('@/snapshot/szx.ts')>()),
   saveSZX: vi.fn(async () => new Uint8Array()),
+  saveSZXSync: vi.fn(() => new Uint8Array()),
   loadSZX: vi.fn(async () => ({ is128K: false, borderColor: 0, port7FFD: 0, port1FFD: 0 })),
 }));
 
@@ -1622,26 +1626,26 @@ describe('saveHMRState / restoreHMRState — happy paths', () => {
     await emulator.switchModel('48k');
     const setItem = vi.fn();
     (globalThis as any).localStorage = { getItem: vi.fn(() => null), setItem, removeItem: vi.fn() };
-    vi.mocked(szx.saveSZX).mockResolvedValueOnce(new Uint8Array([1, 2, 3]));
-    await emulator.saveHMRState();
+    vi.mocked(szx.saveSZXSync).mockReturnValueOnce(new Uint8Array([1, 2, 3]));
+    emulator.saveHMRState();
     expect(setItem).toHaveBeenCalledWith('zx84-hmr-state', expect.any(String));
   });
 
-  it('saveHMRState is a no-op when spectrum is null', async () => {
+  it('saveHMRState is a no-op when spectrum is null', () => {
     emulator.destroy();
     const setItem = vi.fn();
     (globalThis as any).localStorage = { getItem: vi.fn(() => null), setItem, removeItem: vi.fn() };
-    await emulator.saveHMRState();
+    emulator.saveHMRState();
     expect(setItem).not.toHaveBeenCalled();
   });
 
-  it('saveHMRState catches errors from saveSZX', async () => {
+  it('saveHMRState catches errors from saveSZXSync (no throw on unload)', async () => {
     await setupSpectrum();
     getRomManager().restoreROM.mockResolvedValueOnce({ data: new Uint8Array(16384), label: 'x' });
     await emulator.switchModel('48k');
     (globalThis as any).localStorage = { getItem: vi.fn(() => null), setItem: vi.fn(), removeItem: vi.fn() };
-    vi.mocked(szx.saveSZX).mockRejectedValueOnce(new Error('fail'));
-    await expect(emulator.saveHMRState()).resolves.toBeUndefined();
+    vi.mocked(szx.saveSZXSync).mockImplementationOnce(() => { throw new Error('fail'); });
+    expect(() => emulator.saveHMRState()).not.toThrow();
   });
 
   it('restoreHMRState happy: loads SZX, restarts spectrum, returns true', async () => {
