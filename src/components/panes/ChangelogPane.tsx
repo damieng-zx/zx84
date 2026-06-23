@@ -5,6 +5,7 @@ const CHANGELOG: { version: string; items: string[] }[] = [
     version: '0.6.4',
     items: [
       'Interface 1/Microdrive support',
+      'Per-pane show/hide via the "Panes" menu',
     ]
   }, {
     version: '0.6.3',

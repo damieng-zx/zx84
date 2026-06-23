@@ -11,18 +11,41 @@ export interface PanePosition {
 
 const ORDER_KEY = 'zx84-pane-order';
 const COLLAPSE_KEY = 'zx84-collapsed';
-const DEVTOOLS_KEY = 'zx84-devtools-hidden';
+const HIDDEN_KEY = 'zx84-panes-hidden';
 const LIBRARY_KEY = 'zx84-library-visible';
 
 /**
- * The developer-tools panes, shown/hidden as a single group via the toolbar
- * menu. (BASIC Listing, BASIC Variables, System Variables, Memory Layout,
- * Debugger, Memory.)
+ * Panes hidden from the sidebar by default — the developer/debugging panes.
+ * Each can be re-shown individually via the toolbar "Panes" menu.
  */
 export const DEV_PANES = new Set<string>([
   'sysvar-panel', 'basic-panel', 'basic-vars-panel',
   'banks-panel', 'disasm-panel', 'memory-panel', 'font-panel',
 ]);
+
+/**
+ * Human-readable pane labels for the toolbar "Panes" menu. Keep in sync with
+ * the `label` prop passed to each `<Pane>` in its component.
+ */
+export const PANE_LABELS: Record<string, string> = {
+  'hardware-panel': 'Hardware',
+  'snapshot-panel': 'Load / Save',
+  'drive-panel': 'Drives',
+  'microdrive-panel': 'Microdrives',
+  'tape-panel': 'Tape',
+  'sound-panel': 'Sound',
+  'display-pane': 'Display',
+  'joystick-panel': 'Joysticks',
+  'mouse-panel': 'Mouse',
+  'font-panel': 'Fonts',
+  'sysvar-panel': 'System Variables',
+  'basic-panel': 'BASIC Listing',
+  'basic-vars-panel': 'BASIC Variables',
+  'banks-panel': 'Memory Layout',
+  'disasm-panel': 'Debugger',
+  'memory-panel': 'Memory',
+  'text-panel': 'Text',
+};
 
 // ── Default pane layout ─────────────────────────────────────────────────
 
@@ -38,7 +61,6 @@ const DEFAULT_ORDER: PanePosition[] = [
   { id: 'display-pane', sidebar: 'right' },
   { id: 'joystick-panel', sidebar: 'right' },
   { id: 'mouse-panel', sidebar: 'right' },
-  { id: 'disk-info-panel', sidebar: 'right' },
   { id: 'font-panel', sidebar: 'right' },
   { id: 'sysvar-panel', sidebar: 'right' },
   { id: 'basic-panel', sidebar: 'right' },
@@ -79,9 +101,6 @@ function loadPaneOrder(): PanePosition[] {
 
 const DEFAULT_COLLAPSED = new Set<string>(['sound-panel', 'mouse-panel']);
 
-// Developer tools start hidden; the user opts in via the toolbar menu.
-const DEFAULT_DEVTOOLS_HIDDEN = true;
-
 function loadCollapsed(): Set<string> {
   try {
     const raw = localStorage.getItem(COLLAPSE_KEY);
@@ -90,12 +109,19 @@ function loadCollapsed(): Set<string> {
   return new Set(DEFAULT_COLLAPSED);
 }
 
-function loadDevToolsHidden(): boolean {
+/**
+ * Per-pane visibility chosen by the user via the toolbar "Panes" menu. Defaults
+ * to the dev/debug panes being hidden. Migrates the legacy single dev-tools
+ * toggle (`zx84-devtools-hidden`) on first read.
+ */
+function loadUserHidden(): Set<string> {
   try {
-    const raw = localStorage.getItem(DEVTOOLS_KEY);
-    if (raw !== null) return raw === '1';
+    const raw = localStorage.getItem(HIDDEN_KEY);
+    if (raw) return new Set(JSON.parse(raw));
+    const legacy = localStorage.getItem('zx84-devtools-hidden');
+    if (legacy !== null) return legacy === '1' ? new Set(DEV_PANES) : new Set();
   } catch { /* */ }
-  return DEFAULT_DEVTOOLS_HIDDEN;
+  return new Set(DEV_PANES);
 }
 
 // The Software Library pane is hidden by default; summon it via the Library
@@ -118,9 +144,9 @@ const _collapsedPanes = createSignal<Set<string>>(loadCollapsed());
 export const collapsedPanes = _collapsedPanes[0];
 const _setCollapsedPanes = _collapsedPanes[1];
 
-const _devToolsHidden = createSignal<boolean>(loadDevToolsHidden());
-export const devToolsHidden = _devToolsHidden[0];
-const _setDevToolsHidden = _devToolsHidden[1];
+const _userHiddenPanes = createSignal<Set<string>>(loadUserHidden());
+export const userHiddenPanes = _userHiddenPanes[0];
+const _setUserHiddenPanes = _userHiddenPanes[1];
 
 const _libraryVisible = createSignal<boolean>(loadLibraryVisible());
 export const libraryVisible = _libraryVisible[0];
@@ -152,11 +178,12 @@ export function isCollapsed(id: string): boolean {
   return collapsedPanes().has(id);
 }
 
-/** Show/hide the whole developer-tools pane group together. */
-export function toggleDevTools(): void {
-  const next = !devToolsHidden();
-  _setDevToolsHidden(next);
-  try { localStorage.setItem(DEVTOOLS_KEY, next ? '1' : '0'); } catch { /* */ }
+/** Show/hide a single pane (toggled from the toolbar "Panes" menu). */
+export function togglePaneVisibility(id: string): void {
+  const set = new Set(userHiddenPanes());
+  if (set.has(id)) set.delete(id); else set.add(id);
+  _setUserHiddenPanes(set);
+  try { localStorage.setItem(HIDDEN_KEY, JSON.stringify([...set])); } catch { /* */ }
 }
 
 /** Show/hide the Software Library pane (toggled from the Load/Save pane). */
@@ -166,14 +193,14 @@ export function toggleLibrary(): void {
   try { localStorage.setItem(LIBRARY_KEY, next ? '1' : '0'); } catch { /* */ }
 }
 
-/** True when a pane should be hidden because it's a dev pane and dev tools are off. */
-export function isDevPaneHidden(id: string): boolean {
-  return devToolsHidden() && DEV_PANES.has(id);
+/** True when the user has hidden a pane via the toolbar "Panes" menu. */
+export function isPaneUserHidden(id: string): boolean {
+  return userHiddenPanes().has(id);
 }
 
 /**
  * Restore the pane layout to defaults: order + sidebars, collapse/expand state,
- * and developer-tools visibility. (Pane *settings* are reset separately via the
+ * and per-pane visibility. (Pane *settings* are reset separately via the
  * per-pane reset handlers.)
  */
 export function resetLayout(): void {
@@ -183,8 +210,9 @@ export function resetLayout(): void {
   _setCollapsedPanes(collapsed);
   try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify([...collapsed])); } catch { /* */ }
 
-  _setDevToolsHidden(DEFAULT_DEVTOOLS_HIDDEN);
-  try { localStorage.setItem(DEVTOOLS_KEY, DEFAULT_DEVTOOLS_HIDDEN ? '1' : '0'); } catch { /* */ }
+  const hidden = new Set(DEV_PANES);
+  _setUserHiddenPanes(hidden);
+  try { localStorage.setItem(HIDDEN_KEY, JSON.stringify([...hidden])); } catch { /* */ }
 }
 
 // ── Reset registry ──────────────────────────────────────────────────────

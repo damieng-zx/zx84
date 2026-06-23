@@ -20,7 +20,6 @@ import { SysVarPane } from '@/components/panes/SysVarPane.tsx';
 import { BasicPane } from '@/components/panes/BasicPane.tsx';
 import { BasicVarsPane } from '@/components/panes/BasicVarsPane.tsx';
 import { BanksPane } from '@/components/panes/BanksPane.tsx';
-import { DiskInfoPane } from '@/components/panes/DiskInfoPane.tsx';
 import { DrivePane } from '@/components/panes/DrivePane.tsx';
 import { MicrodrivePane } from '@/components/panes/MicrodrivePane.tsx';
 import { TapePane } from '@/components/panes/TapePane.tsx';
@@ -29,7 +28,7 @@ import { TextPane } from '@/components/panes/TextPane.tsx';
 import { ChangelogOverlay, toggleChangelog } from '@/components/panes/ChangelogPane.tsx';
 import { MemoryPane } from '@/components/panes/MemoryPane.tsx';
 
-import { paneOrder, SPECTRUM_ONLY_PANES, isDevPaneHidden } from '@/ui/panes.ts';
+import { paneOrder, SPECTRUM_ONLY_PANES, isPaneUserHidden } from '@/ui/panes.ts';
 import { needsGamepadPolling } from '@/store/settings.ts';
 import { initAudio, init, loadFile, currentModel, transcribeMode } from '@/emulator.ts';
 import { isCpcModel } from '@/models.ts';
@@ -50,7 +49,6 @@ const PANE_COMPONENTS: Record<string, () => JSX.Element> = {
   'basic-panel': BasicPane,
   'basic-vars-panel': BasicVarsPane,
   'banks-panel': BanksPane,
-  'disk-info-panel': DiskInfoPane,
   'drive-panel': DrivePane,
   'microdrive-panel': MicrodrivePane,
   'tape-panel': TapePane,
@@ -66,7 +64,7 @@ function renderPanes(side: 'left' | 'right') {
     const textMode = transcribeMode() !== 'off';
     return order
       .filter(p => p.sidebar === side)
-      .filter(p => !isDevPaneHidden(p.id))
+      .filter(p => !isPaneUserHidden(p.id))
       .filter(p => !(cpc && SPECTRUM_ONLY_PANES.has(p.id)))
       .filter(p => p.id !== 'text-panel' || textMode)
       .map(p => {

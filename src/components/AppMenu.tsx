@@ -1,12 +1,13 @@
 /**
- * Toolbar "⋮" menu: toggle the developer-tools panes, reset individual pane
+ * Toolbar "⋮" menu: toggle individual panes on/off, reset individual pane
  * settings (or all of them), and reset local storage.
  */
 
 import { createSignal, createEffect, onCleanup, Show, For } from 'solid-js';
 import { HiOutlineEllipsisVertical } from 'solid-icons/hi';
 import {
-  devToolsHidden, toggleDevTools, orderedResetEntries, resetLayout, type ResetEntry,
+  isPaneUserHidden, togglePaneVisibility, paneOrder, PANE_LABELS,
+  orderedResetEntries, resetLayout, type ResetEntry,
 } from '@/ui/panes.ts';
 
 export function AppMenu() {
@@ -35,7 +36,7 @@ export function AppMenu() {
     close();
   }
 
-  // Close on outside click or Escape (toggling dev tools keeps the menu open).
+  // Close on outside click or Escape (toggling panes keeps the menu open).
   createEffect(() => {
     if (!open()) return;
     function onMouseDown(e: MouseEvent) {
@@ -65,8 +66,16 @@ export function AppMenu() {
           class="ddmenu"
           style={{ top: `${pos().top}px`, left: `${pos().left}px`, transform: 'translateX(-100%)' }}
         >
-          <div class="ddmenu-item" onClick={() => toggleDevTools()}>
-            <span class="ddmenu-check">{devToolsHidden() ? '' : '✓'}</span>Developer panes
+          <div class="ddmenu-item ddmenu-parent">
+            <span class="ddmenu-check" />Panes
+            <span class="ddmenu-arrow">{'▸'}</span>
+            <div class="ddmenu ddmenu-sub">
+              <For each={paneOrder().filter(p => PANE_LABELS[p.id])}>{(p) => (
+                <div class="ddmenu-item" onClick={() => togglePaneVisibility(p.id)}>
+                  <span class="ddmenu-check">{isPaneUserHidden(p.id) ? '' : '✓'}</span>{PANE_LABELS[p.id]}
+                </div>
+              )}</For>
+            </div>
           </div>
           <div class="ddmenu-separator" />
           <div class="ddmenu-item ddmenu-parent">
