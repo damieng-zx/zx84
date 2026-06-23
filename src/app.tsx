@@ -27,6 +27,7 @@ import { DisassemblyPane } from '@/components/panes/DisassemblyPane.tsx';
 import { TextPane } from '@/components/panes/TextPane.tsx';
 import { ChangelogOverlay, toggleChangelog } from '@/components/panes/ChangelogPane.tsx';
 import { MemoryPane } from '@/components/panes/MemoryPane.tsx';
+import { KeyboardPane } from '@/components/panes/KeyboardPane.tsx';
 
 import { paneOrder, SPECTRUM_ONLY_PANES, isPaneUserHidden } from '@/ui/panes.ts';
 import { needsGamepadPolling } from '@/store/settings.ts';
@@ -175,6 +176,7 @@ export function App() {
       <div id="main">
         <Screen />
         <StatusBar />
+        <KeyboardPane />
         <div id="diag"><div id="diag-header" /></div>
       </div>
 

@@ -575,6 +575,269 @@ canvas {
 .led[data-kind="mouse"].on { color: #8cf; }
 .led[data-kind="accel"].on { color: #ff8; }
 
+/* ── 48K rubber keyboard ──────────────────────────────────────────────── */
+/* A faithful mock-up of the ZX Spectrum 48K keyboard face. Layout mirrors the
+   real machine: four legends per key (white main + white keyword on-key, red
+   symbol-shift token on-key, green extended keyword above, red ext+ss keyword
+   below) on a dark rubber mat, with the rainbow flash tucked bottom-right. */
+
+#keyboard-panel {
+  width: 100%;
+  margin-top: 8px;
+}
+
+#keyboard-panel > .pane-content {
+  /* Override the default 0 6px 6px so the dark bezel bleeds to the pane edges */
+  padding: 0 4px 4px;
+}
+
+.kbd-bezel {
+  position: relative;
+  /* Slightly mottled near-black rubber mat */
+  background:
+    radial-gradient(ellipse at 50% -10%, #34373c 0%, #202327 45%, #141619 100%);
+  padding: 10px 12px 12px;
+  border-radius: 5px;
+  border: 1px solid #050608;
+  box-shadow:
+    inset 0 1px 2px rgba(255, 255, 255, 0.05),
+    inset 0 0 22px rgba(0, 0, 0, 0.55),
+    0 2px 6px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+  container-type: inline-size;
+}
+
+.kbd-row {
+  display: grid;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  gap: 5px;
+}
+.kbd-row + .kbd-row {
+  margin-top: 4px;
+}
+
+.kbd-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  min-width: 0;
+}
+
+/* ── Above-key legends ─────────────────────────────────────────────────── */
+.kbd-above {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  line-height: 1.05;
+  text-align: center;
+  overflow: hidden;
+}
+.kbd-above--letter,
+.kbd-above--special {
+  min-height: 11px;
+  padding-bottom: 1px;
+}
+.kbd-above--num {
+  min-height: 24px;
+  padding-bottom: 1px;
+  gap: 1px;
+}
+
+.kbd-color {
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  line-height: 1;
+  white-space: nowrap;
+}
+.kbd-color--black {
+  color: #f0f0f0;
+  background: #000;
+  border: 1px solid #8a8a8a;
+  border-radius: 2px;
+  padding: 0 3px;
+}
+.kbd-cmd {
+  font-size: 7.5px;
+  font-weight: 700;
+  color: #f3f3f3;
+  letter-spacing: 0.2px;
+  line-height: 1.05;
+  white-space: nowrap;
+}
+.kbd-green {
+  font-size: 7.5px;
+  font-weight: 700;
+  color: #36d152;
+  letter-spacing: 0.2px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/* ── Below-key legend (red extended + symbol shift) ────────────────────── */
+.kbd-below {
+  height: 12px;
+  margin-top: 2px;
+  text-align: center;
+  font-size: 7.5px;
+  font-weight: 700;
+  color: #e5572f;
+  letter-spacing: 0.2px;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* ── The keys ──────────────────────────────────────────────────────────── */
+.kbd-key {
+  position: relative;
+  height: 42px;
+  border-radius: 4px;
+  background: linear-gradient(177deg, #54585e 0%, #41454b 40%, #2f3338 100%);
+  border: 1px solid #16181b;
+  color: #f4f4f4;
+  cursor: pointer;
+  user-select: none;
+  touch-action: none;
+  font-family: var(--font-ui);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    inset 0 -3px 4px rgba(0, 0, 0, 0.45),
+    0 1px 2px rgba(0, 0, 0, 0.6);
+  transition: background 0.08s ease, box-shadow 0.05s ease, transform 0.05s ease;
+}
+.kbd-key:hover {
+  background: linear-gradient(177deg, #5d626a 0%, #494e55 40%, #353a40 100%);
+}
+.kbd-key:active,
+.kbd-key.pressed {
+  background: linear-gradient(177deg, #2d3035 0%, #232629 100%);
+  box-shadow:
+    inset 0 2px 5px rgba(0, 0, 0, 0.7),
+    0 0 0 rgba(0, 0, 0, 0);
+  transform: translateY(1px);
+}
+
+/* Main glyph — top-left of the key */
+.k-num,
+.k-letter {
+  position: absolute;
+  top: 4px;
+  left: 6px;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1;
+  color: #fbfbfb;
+}
+
+/* Block-graphics swatch — top-right on number keys */
+.k-block {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 11px;
+  height: 11px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  background: #e9e9e9;
+  border: 1px solid #cfcfcf;
+}
+.k-block i { background: transparent; }
+.k-block i.on { background: #15171a; }
+
+/* Red symbol-shift symbol on number keys — lower-left, beneath the digit */
+.k-numsym {
+  position: absolute;
+  bottom: 3px;
+  left: 7px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  color: #e5572f;
+}
+
+/* Red symbol-shift token on letter keys — top-right */
+.k-redtok {
+  position: absolute;
+  top: 4px;
+  right: 5px;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  color: #e5572f;
+}
+
+/* White K-mode keyword on letter keys — bottom centre */
+.k-word {
+  position: absolute;
+  bottom: 3px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.2px;
+  color: #f4f4f4;
+  white-space: nowrap;
+}
+
+/* Special keys (CAPS SHIFT / ENTER / SYMBOL SHIFT / BREAK SPACE) */
+.kbd-key--special {
+  background: linear-gradient(177deg, #4b4f55 0%, #393d43 40%, #2a2e33 100%);
+}
+.k-special {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.15;
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  color: #f4f4f4;
+}
+.kbd-key--red .k-special { color: #e5572f; }
+.k-special--biglast span:first-child {
+  font-size: 7.5px;
+  font-weight: 600;
+  opacity: 0.95;
+}
+.k-special--biglast span:last-child {
+  font-size: 12px;
+}
+
+/* ── Rainbow flash, bottom-right ───────────────────────────────────────── */
+.kbd-rainbow {
+  position: absolute;
+  right: -6px;
+  bottom: 6px;
+  width: 64px;
+  height: 26px;
+  transform: skewX(-30deg);
+  border-radius: 2px;
+  background: linear-gradient(
+    180deg,
+    #d3322a 0 25%,
+    #e3bf2c 25% 50%,
+    #36a64a 50% 75%,
+    #2aaec0 75% 100%
+  );
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+
+/* Narrow panes: shrink the on-key legends a touch so nothing clips. */
+@container (max-width: 520px) {
+  .kbd-key { height: 38px; }
+  .k-num, .k-letter { font-size: 13px; }
+  .k-word, .kbd-green, .kbd-cmd, .kbd-below, .kbd-color { font-size: 7px; }
+}
+
 /* Mouse pane */
 .mouse-pane { display: flex; flex-direction: column; gap: 6px; }
 .mouse-controls { display: flex; gap: 6px; }

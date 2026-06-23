@@ -2,6 +2,11 @@ import { createSignal, Show } from 'solid-js';
 
 const CHANGELOG: { version: string; items: string[] }[] = [
   {
+    version: '0.6.5',
+    items: [
+      'Interactive on-screen ZX Spectrum keyboard — click to type, sticky CAPS/SYMBOL SHIFT, with live highlighting of physical keypresses',
+    ]
+  }, {
     version: '0.6.4',
     items: [
       'Interface 1/Microdrive support',
