@@ -84,6 +84,7 @@ const DEFAULTS = {
   'vtx5000':        'off',
   'cpc-parados':    'off',
   'plusd':          'off',
+  'interface1':     'off',
 } as const;
 
 type SettingKey = keyof typeof DEFAULTS;
@@ -375,6 +376,10 @@ const _plusDEnabled = /*@once*/ createRoot(() => createSignal(getSaved('plusd', 
 export const plusDEnabled = _plusDEnabled[0];
 export const setPlusDEnabled = _plusDEnabled[1];
 
+const _interface1Enabled = /*@once*/ createRoot(() => createSignal(getSaved('interface1', D('interface1')) === 'on'));
+export const interface1Enabled = _interface1Enabled[0];
+export const setInterface1Enabled = _interface1Enabled[1];
+
 // ── Derived ─────────────────────────────────────────────────────────────
 
 export const needsGamepadPolling = /*@once*/ createRoot(() => createMemo(() =>
@@ -462,6 +467,7 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'vtx5000',        set: setVtx5000Enabled,   type: 'bool' },
     { key: 'cpc-parados',    set: setCpcParados,        type: 'bool' },
     { key: 'plusd',          set: setPlusDEnabled,     type: 'bool' },
+    { key: 'interface1',     set: setInterface1Enabled, type: 'bool' },
   ],
   font: [
     { key: 'font', set: setFontName, type: 'string' },

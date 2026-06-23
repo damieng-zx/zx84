@@ -8,7 +8,7 @@ import { CpcMachine } from '@/cpc/cpc-machine.ts';
 import { type Machine, asSpectrum, asCpc } from '@/machine.ts';
 import {
   type SpectrumModel, type MachineModel, type CpcModel,
-  is128kClass, isPlus2AClass, isCpcModel, isPlusDCapable,
+  is128kClass, isPlus2AClass, isCpcModel, isPlusDCapable, isInterface1Capable,
 } from '@/models.ts';
 import { CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT, CPC_PALETTES } from '@/cpc/constants.ts';
 import { WebGLRenderer } from '@/display/webgl-renderer.ts';
@@ -26,7 +26,9 @@ import { readCpcSnaModel, applyCpcSna, saveCpcSna } from '@/snapshot/cpc-sna.ts'
 import {
   clearLastFile, clearDisk, restoreTape, restoreDisk, dbSave, dbLoad,
   persistPlusDDisk, restorePlusDDisk, clearPlusDDisk,
+  persistMicrodrive, restoreMicrodrive, clearMicrodrive,
 } from '@/store/persistence.ts';
+import { microdriveSlots, setMicrodriveSlot, clearMicrodriveSlot } from '@/state/microdrive-state.ts';
 import * as settings from '@/store/settings.ts';
 import { variantForModel, variantLabel, romFilename } from '@/peripherals/multiface.ts';
 import { onFrame, updateRegsOnce, resetSpeedTracking, resetLedActivity, forceSpeedUpdate } from '@/frame-bridge.ts';
@@ -67,10 +69,12 @@ import {
   vtx5000RomFailed,
   paradosRomFailed,
   plusDRomFailed,
+  interface1RomFailed,
   setMultifaceRomFailed,
   setVtx5000RomFailed,
   setParadosRomFailed,
   setPlusDRomFailed,
+  setInterface1RomFailed,
 } from '@/state/machine-state.ts';
 
 import {
@@ -121,7 +125,7 @@ import {
 // Re-export machine state
 export { statusText, romStatusText, currentModel, emulationPaused, turboMode, clockSpeedText, saveModel };
 export { setStatusText, setRomStatusText, setCurrentModel, setEmulationPaused, setTurboMode, setClockSpeedText };
-export { multifaceRomFailed, vtx5000RomFailed, paradosRomFailed, plusDRomFailed };
+export { multifaceRomFailed, vtx5000RomFailed, paradosRomFailed, plusDRomFailed, interface1RomFailed };
 
 // Re-export tape state
 export { tapeLoaded, tapeBlocks, tapePosition, tapePaused, tapePlaying, tapeName };
@@ -323,6 +327,12 @@ export async function createMachine(): Promise<boolean> {
       await loadPlusDROM(spectrum);
       spectrum.mgtPlusD.fdc.writeProtect[0] = settings.writeProtectC();
       spectrum.mgtPlusD.fdc.writeProtect[1] = settings.writeProtectD();
+    }
+    // ZX Interface 1 (48K/128K/+2). Load the ROM before reset so the M1 fetch
+    // traps can page it in once the main ROM starts running.
+    spectrum.interface1.enabled = settings.interface1Enabled() && isInterface1Capable(model);
+    if (spectrum.interface1.enabled) {
+      await loadInterface1ROM(spectrum);
     }
   }
 
@@ -703,6 +713,7 @@ function buildMediaCallbacks(): MediaLoadCallbacks {
     },
     unpause,
     ensure128kROM,
+    loadExtracted: (fileData, name, fileUnit) => loadFile(fileData, name, fileUnit),
   };
 }
 
@@ -746,6 +757,7 @@ export function loadableExtensions(): string[] {
   // Spectrum (and the no-machine default).
   const exts = ['.sna', '.z80', '.szx', '.sp', '.tap', '.tzx'];
   if (spectrum?.variant.hasFDC) exts.push('.dsk');
+  if (spectrum && isInterface1Capable(currentModel())) exts.push('.mdr', '.mdv');
   exts.push('.zip');
   return exts;
 }
@@ -782,6 +794,11 @@ export async function loadFile(data: Uint8Array, filename: string, unit?: number
   // MGT +D images route to the WD1772, not the media manager's +3 DSK path.
   if (/\.(mgt|img)$/i.test(filename)) {
     loadPlusDDisk(data, filename, unit ?? 0);
+    return;
+  }
+  // ZX Interface 1 microdrive cartridges route to the IF1, like the +D above.
+  if (/\.(mdr|mdv)$/i.test(filename)) {
+    loadMicrodrive(data, filename, unit ?? 0);
     return;
   }
   await mediaManager.loadFile(spectrum, data, filename, currentModel() as SpectrumModel, buildMediaCallbacks(), unit);
@@ -1134,6 +1151,63 @@ export function savePlusDDisk(unit: number): void {
 }
 
 
+// ── ZX Interface 1 microdrive helpers (drives 1-8 → units 0-7) ───────────
+
+/** Mount an .mdr/.mdv cartridge into a microdrive (unit 0-7 → drive 1-8). */
+export function loadMicrodrive(data: Uint8Array, filename: string, unit: number): void {
+  if (!spectrum) { setStatus('Load a ROM first'); return; }
+  if (!spectrum.interface1.enabled) { setStatus('Enable the ZX Interface 1 in Hardware first'); return; }
+  try {
+    const drive = spectrum.interface1.drives[unit];
+    drive.loadMDR(data);
+    setMicrodriveSlot(unit, { loaded: true, name: filename, writeProtected: drive.writeProtected, modified: false });
+    // Persist for a reload; never let a storage error take down the mount.
+    persistMicrodrive(unit, data, filename).catch((e) => console.warn('persistMicrodrive failed:', e));
+    setStatus(`Microdrive ${unit + 1}: loaded: ${filename}`);
+  } catch (e) {
+    console.error('loadMicrodrive failed:', e);
+    setStatus(`Microdrive error: ${(e as Error).message}`);
+  }
+}
+
+export function ejectMicrodrive(unit: number): void {
+  if (!spectrum) return;
+  spectrum.interface1.drives[unit].eject();
+  clearMicrodrive(unit);          // drop the persisted image so a refresh won't remount
+  clearMicrodriveSlot(unit);
+  setStatus(`Microdrive ${unit + 1}: ejected`);
+}
+
+export function insertBlankMicrodrive(unit: number, name = 'CART'): void {
+  if (!spectrum) return;
+  if (!spectrum.interface1.enabled) { setStatus('Enable the ZX Interface 1 in Hardware first'); return; }
+  const drive = spectrum.interface1.drives[unit];
+  drive.format(name);
+  const filename = `${name}.mdr`;
+  setMicrodriveSlot(unit, { loaded: true, name: filename, writeProtected: false, modified: false });
+  persistMicrodrive(unit, drive.toMDR(), filename);
+  setStatus(`Microdrive ${unit + 1}: blank cartridge inserted`);
+}
+
+export function saveMicrodrive(unit: number): void {
+  if (!spectrum) return;
+  const drive = spectrum.interface1.drives[unit];
+  if (!drive.inserted) { setStatus(`No cartridge in microdrive ${unit + 1}`); return; }
+  const base = (microdriveSlots()[unit]?.name || `mdr${unit + 1}`).replace(/\.[^.]+$/, '') || `mdr${unit + 1}`;
+  downloadFile(drive.toMDR(), `${base}.mdr`);
+}
+
+/** Toggle the write-protect tab on a mounted cartridge and re-persist it. */
+export function setMicrodriveWriteProtect(unit: number, wp: boolean): void {
+  if (!spectrum) return;
+  const drive = spectrum.interface1.drives[unit];
+  if (!drive.inserted) return;
+  drive.writeProtected = wp;
+  setMicrodriveSlot(unit, { writeProtected: wp });
+  persistMicrodrive(unit, drive.toMDR(), microdriveSlots()[unit]?.name || `mdr${unit + 1}.mdr`);
+}
+
+
 // ── Joystick helpers ────────────────────────────────────────────────────
 
 export { KEMPSTON_BITS, CURSOR_KEYS, SINCLAIR1_KEYS, SINCLAIR2_KEYS, resetJoystickKeyState } from '@/peripherals/joysticks.ts';
@@ -1285,6 +1359,36 @@ export async function loadPlusDROM(s: Spectrum): Promise<boolean> {
   s.mgtPlusD.loadROM(data);
   setStatus(`MGT +D ROM loaded (${data.length} bytes)`);
   setPlusDRomFailed('');
+  return true;
+}
+
+const IF1_ROM_KEY = 'if1-rom';
+const IF1_ROM_URL = 'https://zx84files.bitsparse.com/roms/if1-2.rom';
+
+/**
+ * Load the ZX Interface 1 shadow ROM (8KB) into a Spectrum, fetching from the
+ * CDN if not already cached in IndexedDB. Mirrors loadPlusDROM / loadVTX5000ROM.
+ */
+export async function loadInterface1ROM(s: Spectrum): Promise<boolean> {
+  let data = await dbLoad(IF1_ROM_KEY);
+  if (!data) {
+    try {
+      setStatus('Fetching ZX Interface 1 ROM…');
+      const resp = await fetch(IF1_ROM_URL);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      data = new Uint8Array(await resp.arrayBuffer());
+      await dbSave(IF1_ROM_KEY, data);
+    } catch (err) {
+      console.warn('Failed to fetch ZX Interface 1 ROM:', err);
+      const msg = 'Failed to load ZX Interface 1 ROM';
+      setStatus(msg);
+      setInterface1RomFailed(msg);
+      return false;
+    }
+  }
+  s.interface1.loadROM(data);
+  setStatus(`ZX Interface 1 ROM loaded (${data.length} bytes)`);
+  setInterface1RomFailed('');
   return true;
 }
 
@@ -1453,6 +1557,19 @@ async function restoreMedia(): Promise<void> {
         if (!image) continue;
         spectrum.loadPlusDDisk(image, unit);
         setPlusDDiskState(unit, image, disk.name);
+      } catch { /* ignore corrupt data */ }
+    }
+  }
+
+  // ZX Interface 1 microdrives (drives 1-8) — only when the IF1 is fitted.
+  if (spectrum?.interface1.enabled) {
+    for (let unit = 0; unit < 8; unit++) {
+      const cart = await restoreMicrodrive(unit);
+      if (!cart) continue;
+      try {
+        const drive = spectrum.interface1.drives[unit];
+        drive.loadMDR(cart.data);
+        setMicrodriveSlot(unit, { loaded: true, name: cart.name, writeProtected: drive.writeProtected, modified: false });
       } catch { /* ignore corrupt data */ }
     }
   }

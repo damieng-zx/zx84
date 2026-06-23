@@ -34,6 +34,7 @@ import { AudioMixer } from '@/peripherals/audio-mixer.ts';
 import { Multiface } from '@/peripherals/multiface.ts';
 import { VTX5000 } from '@/peripherals/vtx5000.ts';
 import { MgtPlusD } from '@/peripherals/mgt-plusd.ts';
+import { Interface1 } from '@/peripherals/interface1.ts';
 import { hex8, hex16 } from '@/utils/hex.ts';
 import { signed8 } from '@/utils/signed.ts';
 import { DISPLAY_WIDTH, DISPLAY_HEIGHT } from '@/cores/ula.ts';
@@ -170,6 +171,9 @@ export class Spectrum extends BaseMachine implements Machine {
 
   /** MGT +D disk interface (48K/128K/+2) — WD1772 FDC + shadow ROM/RAM. */
   mgtPlusD = new MgtPlusD();
+
+  /** ZX Interface 1 (48K/128K/+2) — shadow ROM + 8 microdrives. */
+  interface1 = new Interface1();
 
   get tStatesPerFrame(): number { return this.contention.timing.tStatesPerFrame; }
 
@@ -354,7 +358,7 @@ export class Spectrum extends BaseMachine implements Machine {
    *  Bank-switching paths use this to skip writing slot 0 so the overlay
    *  stays mapped. */
   get hasSlot0Overlay(): boolean {
-    return this.multiface.pagedIn || this.mgtPlusD.pagedIn
+    return this.multiface.pagedIn || this.mgtPlusD.pagedIn || this.interface1.pagedIn
       || (this.vtx5000.enabled && this.vtx5000.vtxRomPaged);
   }
 
@@ -461,6 +465,9 @@ export class Spectrum extends BaseMachine implements Machine {
     if (this.mgtPlusD.enabled && this.mgtPlusD.romLoaded) {
       this.mgtPlusD.pageIn(this.memory);
     }
+    // Interface 1 is paged OUT at reset; its ROM maps itself in via the M1
+    // fetch traps (0x0008 / 0x1708) once the main ROM starts running.
+    this.interface1.reset();
     this.loaderDetector.reset();
     this.contention.frameStartTStates = 0;
     this.needsDisplay = true;
@@ -615,6 +622,17 @@ export class Spectrum extends BaseMachine implements Machine {
       // entry-point traps and can intercept G+DOS commands. See mgt-plusd.ts.
       if (this.mgtPlusD.enabled) this.mgtPlusD.checkM1Page(this.cpu.pc, this.memory);
 
+      // Interface 1 shadow-ROM paging: page IN before the instruction at
+      // 0x0008 / 0x1708 (so it runs from the IF1 ROM). Page OUT is deferred to
+      // AFTER the instruction at 0x0700 executes — that byte is the IF1 ROM's
+      // RET exit and must be fetched from the IF1 ROM, not the Spectrum ROM
+      // underneath it. if1PageOut records that this instruction is the exit.
+      let if1PageOut = false;
+      if (this.interface1.enabled) {
+        this.interface1.checkM1Page(this.cpu.pc, this.memory);
+        if1PageOut = this.interface1.shouldPageOut(this.cpu.pc);
+      }
+
       // One-shot auto-boot trap (software-library play): the ROM has reached its
       // menu / 48K editor key-wait loop, so queue the loader keystrokes and
       // disarm. setKey is the same matrix path the joystick uses.
@@ -695,6 +713,10 @@ export class Spectrum extends BaseMachine implements Machine {
         // Break mid-frame if a port or memory watchpoint fired during this instruction
         if (watchActive && (this.portWatchHit !== null || this.memWatchHit !== null)) break;
       }
+
+      // IF1 page-out: now that the RET at 0x0700 has executed (fetched from the
+      // IF1 ROM), map the IF1 ROM back out so the return lands in normal memory.
+      if (if1PageOut) this.interface1.pageOut(this.memory);
 
       // Clear EI delay after each instruction (see timings.md § EI Delay).
       // The delay suppresses interrupts for exactly one instruction after EI.

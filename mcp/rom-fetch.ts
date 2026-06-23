@@ -24,6 +24,7 @@ const CPC_ROM_FILES: Record<CpcModel, string[]> = {
 const MF_ROM_CDN = 'https://zx84files.bitsparse.com/roms/';
 const VTX_ROM_URL = 'https://zx84files.bitsparse.com/roms/vtx5000-3-1.rom';
 const PLUSD_ROM_URL = 'https://zx84files.bitsparse.com/roms/plusd.rom';
+const IF1_ROM_URL = 'https://zx84files.bitsparse.com/roms/if1-2.rom';
 
 export const CACHE_DIR = path.join(import.meta.dirname!, '.cache');
 
@@ -63,4 +64,8 @@ export function fetchVTXRom(): Promise<Uint8Array> {
 
 export function fetchPlusDRom(): Promise<Uint8Array> {
   return fetchCached(PLUSD_ROM_URL, 'plusd.rom');
+}
+
+export function fetchInterface1Rom(): Promise<Uint8Array> {
+  return fetchCached(IF1_ROM_URL, 'if1-2.rom');
 }

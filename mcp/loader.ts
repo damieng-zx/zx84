@@ -8,7 +8,7 @@ import { parseDSK } from '../src/plus3/dsk.ts';
 import { parseMgt, mgtExtFromName } from '../src/plus3/mgt-image.ts';
 import { parseTZX } from '../src/tape/tzx.ts';
 import { h16 } from './hex.ts';
-import { fetchPlusDRom } from './rom-fetch.ts';
+import { fetchPlusDRom, fetchInterface1Rom } from './rom-fetch.ts';
 import { state, initMachine, activeSpectrum } from './state.ts';
 
 export async function loadFileInto(spec: Spectrum, filepath: string, diskUnit: number = 0): Promise<string> {
@@ -50,6 +50,17 @@ export async function loadFileInto(spec: Spectrum, filepath: string, diskUnit: n
     spec.loadPlusDDisk(image, diskUnit);
     const dl = diskUnit === 0 ? 'C' : 'D';
     return `+D image loaded: ${filename} → Drive ${dl}: (${image.numTracks} tracks, ${image.numSides} side${image.numSides > 1 ? 's' : ''})`;
+  } else if (ext === '.mdr' || ext === '.mdv') {
+    // Auto-enable the Interface 1 (load its ROM + reset so the M1 traps page it
+    // in) then insert the cartridge into a microdrive (diskUnit → drive 1/2…).
+    if (!spec.interface1.enabled || !spec.interface1.romLoaded) {
+      spec.interface1.loadROM(await fetchInterface1Rom());
+      spec.interface1.enabled = true;
+      spec.reset();
+    }
+    spec.interface1.drives[diskUnit].loadMDR(data);
+    const d = spec.interface1.drives[diskUnit];
+    return `MDR loaded: ${filename} → Microdrive ${diskUnit + 1} (${d.numSectors} sectors${d.writeProtected ? ', write-protected' : ''})`;
   } else if (ext === '.sna') {
     spec.reset();
     const result = loadSNA(data, spec.cpu, spec.memory);

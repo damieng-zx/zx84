@@ -2,6 +2,11 @@ import { createSignal, Show } from 'solid-js';
 
 const CHANGELOG: { version: string; items: string[] }[] = [
   {
+    version: '0.6.4',
+    items: [
+      'Interface 1/Microdrive support',
+    ]
+  }, {
     version: '0.6.3',
     items: [
       'Flipping dual-sided 180K disks support',

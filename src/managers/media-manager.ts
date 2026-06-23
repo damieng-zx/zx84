@@ -29,6 +29,10 @@ export interface MediaLoadCallbacks {
   onSnapshotLoaded: (filename: string) => void;
   unpause: () => void;
   ensure128kROM: () => Promise<boolean>;
+  /** Re-dispatch a file extracted from a ZIP through the top-level loader, so
+   *  peripheral formats (.mdr microdrive, .mgt +D) the MediaManager doesn't
+   *  itself handle still reach their loaders. */
+  loadExtracted?: (data: Uint8Array, filename: string, unit?: number) => Promise<void>;
 }
 
 /** Render a drive-unit number as a letter: 0→A, 1→B, 2→C, 3→D, … */
@@ -353,9 +357,16 @@ export class MediaManager {
       return;
     }
 
+    // Re-dispatch through the top-level loader when available so peripheral
+    // formats (.mdr/.mgt) inside the archive reach their handlers; otherwise
+    // fall back to handling it here.
+    const dispatch = (fileData: Uint8Array, name: string): Promise<void> =>
+      callbacks.loadExtracted
+        ? callbacks.loadExtracted(fileData, name, unit)
+        : this.loadFile(spectrum, fileData, name, currentModel, callbacks, unit);
+
     if (entries.length === 1) {
-      const { name, data: fileData } = entries[0];
-      await this.loadFile(spectrum, fileData, name, currentModel, callbacks, unit);
+      await dispatch(entries[0].data, entries[0].name);
       return;
     }
 
@@ -368,6 +379,6 @@ export class MediaManager {
     }
 
     const picked = entries.find(e => e.name === pickedName)!;
-    await this.loadFile(spectrum, picked.data, picked.name, currentModel, callbacks, unit);
+    await dispatch(picked.data, picked.name);
   }
 }

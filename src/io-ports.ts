@@ -69,6 +69,8 @@ export function installMemoryHooks(s: Spectrum): void {
       } else if (s.mgtPlusD.pagedIn) {
         if (addr < 0x2000) return; // +D shadow ROM — discard
         // 0x2000-0x3FFF: +D RAM — allow through
+      } else if (s.interface1.pagedIn) {
+        return; // IF1 ROM (0x0000-0x1FFF) + Spectrum ROM upper half — all ROM
       } else if (s.vtx5000.enabled && s.vtx5000.vtxRomPaged && addr >= 0x2000) {
         // VTX-5000: 0x2000-0x3FFF is RAM — allow through
       } else if (!memory.specialPaging) {
@@ -129,6 +131,13 @@ export function wirePortIO(s: Spectrum): void {
     // first and returned so a +D OUT can't also trip banking/AY decoding.
     if (s.mgtPlusD.enabled && s.mgtPlusD.matchPort(port)) {
       s.mgtPlusD.writePort(port, val, s.memory);
+      return;
+    }
+
+    // ZX Interface 1 microdrive/control ports (0xE7/0xEF/0xF7). Handled and
+    // returned like the +D — shares 0xE7/0xEF with it but never both enabled.
+    if (s.interface1.enabled && s.interface1.matchPort(port)) {
+      s.interface1.writePort(port, val);
       return;
     }
 
@@ -200,6 +209,11 @@ export function wirePortIO(s: Spectrum): void {
     // MGT +D ports (page in, WD1772 registers) take priority.
     if (s.mgtPlusD.enabled && s.mgtPlusD.matchPort(port)) {
       return s.mgtPlusD.readPort(port, s.memory);
+    }
+
+    // ZX Interface 1 microdrive data / status ports.
+    if (s.interface1.enabled && s.interface1.matchPort(port)) {
+      return s.interface1.readPort(port);
     }
 
     // ULA port: any port with bit 0 = 0

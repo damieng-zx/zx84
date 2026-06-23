@@ -18,8 +18,8 @@ import { CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT } from '../../src/cpc/constants.ts'
 export function register(server: McpServer): void {
   server.registerTool(
     'load',
-    { description: 'Load a file into the emulator. Supports TAP, TZX, SNA, Z80, DSK formats. For DSK, optional drive unit (0/A or 1/B).', inputSchema: {
-      file: z.string().describe('Path to file (TAP/TZX/SNA/Z80/DSK)'),
+    { description: 'Load a file into the emulator. Supports TAP, TZX, SNA, Z80, DSK, MDR formats. For DSK, optional drive unit (0/A or 1/B); for MDR, optional microdrive unit (0-7 → drives 1-8).', inputSchema: {
+      file: z.string().describe('Path to file (TAP/TZX/SNA/Z80/DSK/MDR)'),
       drive: z.enum(['0', '1', 'A', 'B']).default('0').describe('Drive unit for DSK files'),
     } },
     async ({ file, drive }) => {

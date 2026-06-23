@@ -31,6 +31,7 @@ import {
 
 import { asCpc } from '@/machine.ts';
 import { hex8, hex16 } from '@/utils/hex.ts';
+import { microdriveMotors, setMicrodriveMotors } from '@/state/microdrive-state.ts';
 
 // Tracks the fast-load message last shown so we announce only on a transition
 // (and re-announce for a fresh load), not every frame.
@@ -623,7 +624,17 @@ export function onFrame(): void {
     setLedLoad(ledLatched('load', (spectrum!.tape.playing && !spectrum!.tape.paused) || a.tapeLoads > 0, ledNow));
     setLedBeep(ledLatched('beep', a.beeperToggled, ledNow));
     setLedAy(ledLatched('ay', a.ayWrites > 5, ledNow));
-    setLedDsk(ledLatched('dsk', a.fdcAccesses > 0 || (spectrum!.mgtPlusD.enabled && spectrum!.mgtPlusD.fdc.motorOn), ledNow));
+    setLedDsk(ledLatched('dsk', a.fdcAccesses > 0
+      || (spectrum!.mgtPlusD.enabled && spectrum!.mgtPlusD.fdc.motorOn)
+      || (spectrum!.interface1.enabled && spectrum!.interface1.anyMotorOn), ledNow));
+
+    // Per-drive microdrive motor LEDs (latched so brief spins stay visible).
+    if (spectrum!.interface1.enabled) {
+      const drives = spectrum!.interface1.drives;
+      const motors = drives.map((d, i) => ledLatched('mdrmotor' + i, d.motorOn, ledNow));
+      const cur = microdriveMotors();
+      if (motors.some((m, i) => m !== cur[i])) setMicrodriveMotors(motors);
+    }
     setLedRainbow(ledLatched('rainbow', a.attrWrites > 768, ledNow));
     setLedMouse(ledLatched('mouse', a.mouseReads > 0, ledNow));
     // tapeTurbo is sustained engine state, not a burst — reflect it immediately.

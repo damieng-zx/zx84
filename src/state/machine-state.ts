@@ -86,3 +86,7 @@ export const setParadosRomFailed = _paradosRomFailed[1];
 const _plusDRomFailed = createSignal('');
 export const plusDRomFailed = _plusDRomFailed[0];
 export const setPlusDRomFailed = _plusDRomFailed[1];
+
+const _interface1RomFailed = createSignal('');
+export const interface1RomFailed = _interface1RomFailed[0];
+export const setInterface1RomFailed = _interface1RomFailed[1];

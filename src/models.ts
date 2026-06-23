@@ -33,6 +33,15 @@ export function isPlusDCapable(m: MachineModel): boolean {
   return m === '48k' || m === '128k' || m === '+2';
 }
 
+/**
+ * Returns true for models the ZX Interface 1 can attach to: the Ferranti-ULA
+ * 48K/128K/+2. Excluded: the 16K and the Amstrad +2A/+3, whose redesigned edge
+ * connector the IF1 is not electrically compatible with.
+ */
+export function isInterface1Capable(m: MachineModel): boolean {
+  return m === '48k' || m === '128k' || m === '+2';
+}
+
 // ── Amstrad CPC family ──────────────────────────────────────────────────
 //
 // The CPC is a different machine, not a Spectrum variant — it gets its own

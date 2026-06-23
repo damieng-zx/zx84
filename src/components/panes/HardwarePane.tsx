@@ -3,11 +3,11 @@ import { HiOutlinePower } from 'solid-icons/hi';
 import {
   currentModel, romStatusText, switchModel,
   turboMode, clockSpeedText, resetMachine, toggleTurbo,
-  spectrum, triggerNMI, loadMultifaceROM, loadVTX5000ROM, loadPlusDROM, setCpcMultiface,
-  multifaceRomFailed, vtx5000RomFailed, paradosRomFailed, plusDRomFailed,
+  spectrum, triggerNMI, loadMultifaceROM, loadVTX5000ROM, loadPlusDROM, loadInterface1ROM, setCpcMultiface,
+  multifaceRomFailed, vtx5000RomFailed, paradosRomFailed, plusDRomFailed, interface1RomFailed,
 } from '@/emulator.ts';
 import type { SpectrumModel } from '@/spectrum.ts';
-import { type MachineModel, isCpcModel, cpcHasDisk, isPlusDCapable } from '@/models.ts';
+import { type MachineModel, isCpcModel, cpcHasDisk, isPlusDCapable, isInterface1Capable } from '@/models.ts';
 import { Show } from 'solid-js';
 import { variantForModel, variantLabel } from '@/peripherals/multiface.ts';
 import * as settings from '@/store/settings.ts';
@@ -133,6 +133,35 @@ export function HardwarePane() {
                 }}
               />
               MGT +D
+            </label>
+          </div>
+        </Show>
+        <Show when={isInterface1Capable(currentModel())}>
+          <div class="multiface-row">
+            <label
+              class="mf-check"
+              title={interface1RomFailed() || 'ZX Interface 1 — shadow ROM + 8 microdrives'}
+            >
+              <input
+                type="checkbox"
+                checked={settings.interface1Enabled()}
+                onChange={(e) => {
+                  const on = (e.target as HTMLInputElement).checked;
+                  settings.setInterface1Enabled(on);
+                  settings.persistSetting('interface1', on ? 'on' : 'off');
+                  if (spectrum) {
+                    spectrum.interface1.enabled = on;
+                    // The IF1 ROM initialises at reset (its M1 traps map it in),
+                    // so a reset is needed for the toggle to take effect.
+                    if (on && !spectrum.interface1.romLoaded) {
+                      loadInterface1ROM(spectrum).then(() => resetMachine());
+                    } else {
+                      resetMachine();
+                    }
+                  }
+                }}
+              />
+              ZX Interface 1
             </label>
           </div>
         </Show>

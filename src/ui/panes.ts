@@ -31,6 +31,7 @@ const DEFAULT_ORDER: PanePosition[] = [
   { id: 'hardware-panel', sidebar: 'left' },
   { id: 'snapshot-panel', sidebar: 'left' },
   { id: 'drive-panel', sidebar: 'left' },
+  { id: 'microdrive-panel', sidebar: 'left' },
   { id: 'tape-panel', sidebar: 'left' },
   // Right: peripherals/output, then the dev panes (hidden by default).
   { id: 'sound-panel', sidebar: 'right' },

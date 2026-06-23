@@ -1,3 +1,3 @@
 @echo off
-cd /d f:\src\zx\zx84
+cd /d "%~dp0"
 npx --no-install tsx mcp/server.ts

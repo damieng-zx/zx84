@@ -150,3 +150,17 @@ export async function restorePlusDDisk(unit: number): Promise<{ data: Uint8Array
 export function clearPlusDDisk(unit: number): void {
   clearDiskSuffix(unit === 0 ? 'c' : 'd');
 }
+
+// ZX Interface 1 microdrives (8 drives) — one persisted MDR image per drive.
+
+export async function persistMicrodrive(unit: number, data: Uint8Array, filename: string): Promise<void> {
+  return persistDiskSuffix(`mdr${unit}`, data, filename);
+}
+
+export async function restoreMicrodrive(unit: number): Promise<{ data: Uint8Array; name: string } | null> {
+  return restoreDiskSuffix(`mdr${unit}`);
+}
+
+export function clearMicrodrive(unit: number): void {
+  clearDiskSuffix(`mdr${unit}`);
+}

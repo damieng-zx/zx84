@@ -922,6 +922,10 @@ input[type="range"]::-moz-range-thumb {
   border-color: #b11;
 }
 
+/* ── ZX Interface 1 microdrive pane ─────────────────────────────────────── */
+/* The pane reuses the Drives pane's .disk-section / .drive-header / .disk-slot
+ * classes, so it needs no dedicated styling of its own. */
+
 #model-row #cpu-mhz {
   flex: 0 0 auto;
   width: auto;

@@ -61,6 +61,10 @@ function makeSpectrumStub() {
     mgtPlusD: { enabled: false, loadROM: vi.fn(), romLoaded: false,
                 fdc: { writeProtect: [false, false], insertDisk: vi.fn(),
                        ejectDisk: vi.fn(), getDiskImage: vi.fn(() => null) } },
+    interface1: { enabled: false, loadROM: vi.fn(), romLoaded: false, anyMotorOn: false,
+                  drives: Array.from({ length: 8 }, () => ({
+                    loadMDR: vi.fn(), toMDR: vi.fn(() => new Uint8Array(0)),
+                    format: vi.fn(), eject: vi.fn(), inserted: false, writeProtected: false })) },
     mixer: { beeperGain: 1, ayGain: 0 },
     contention: { frameStartTStates: 0 },
     breakpoints: new Set<number>(),
@@ -246,6 +250,7 @@ vi.mock('@/store/settings.ts', () => ({
   multifaceEnabled:   vi.fn(() => false),
   plus3V41Roms:       vi.fn(() => false),
   plusDEnabled:       vi.fn(() => false),
+  interface1Enabled:  vi.fn(() => false),
   writeProtectC:      vi.fn(() => false),
   writeProtectD:      vi.fn(() => false),
   diskSoundC:         vi.fn(() => true),
@@ -267,6 +272,9 @@ vi.mock('@/store/persistence.ts', () => ({
   clearTape:       vi.fn(),
   persistDisk:     vi.fn(),
   clearDisk:       vi.fn(),
+  persistMicrodrive: vi.fn(),
+  restoreMicrodrive: vi.fn(async () => null),
+  clearMicrodrive: vi.fn(),
   getSaved:        vi.fn((_k: string, def: string) => def),
   setSaved:        vi.fn(),
 }));

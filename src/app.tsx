@@ -22,6 +22,7 @@ import { BasicVarsPane } from '@/components/panes/BasicVarsPane.tsx';
 import { BanksPane } from '@/components/panes/BanksPane.tsx';
 import { DiskInfoPane } from '@/components/panes/DiskInfoPane.tsx';
 import { DrivePane } from '@/components/panes/DrivePane.tsx';
+import { MicrodrivePane } from '@/components/panes/MicrodrivePane.tsx';
 import { TapePane } from '@/components/panes/TapePane.tsx';
 import { DisassemblyPane } from '@/components/panes/DisassemblyPane.tsx';
 import { TextPane } from '@/components/panes/TextPane.tsx';
@@ -51,6 +52,7 @@ const PANE_COMPONENTS: Record<string, () => JSX.Element> = {
   'banks-panel': BanksPane,
   'disk-info-panel': DiskInfoPane,
   'drive-panel': DrivePane,
+  'microdrive-panel': MicrodrivePane,
   'tape-panel': TapePane,
   'text-panel': TextPane,
   'disasm-panel': DisassemblyPane,
@@ -189,7 +191,7 @@ export function App() {
           <div class="drag-overlay-box">
             <span class="drag-overlay-icon">⬇</span>
             <span class="drag-overlay-label">Drop to load</span>
-            <span class="drag-overlay-hint">SNA · Z80 · SZX · TAP · TZX · DSK · ZIP</span>
+            <span class="drag-overlay-hint">SNA · Z80 · SZX · TAP · TZX · DSK · MDR · ZIP</span>
           </div>
         </div>
       </Show>
