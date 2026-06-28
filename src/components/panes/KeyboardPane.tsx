@@ -36,6 +36,7 @@ interface KeyDef {
   bigLast?: boolean;  // render the last label line large (BREAK SPACE)
   redLabel?: boolean; // colour the special label red (SYMBOL SHIFT)
   latch?: LatchMode;  // sticky one-shot modifier (CAPS SHIFT / SYMBOL SHIFT)
+  w?: number;         // width in key units (default 1)
 }
 
 const KEY_ROWS: KeyDef[][] = [
@@ -81,7 +82,7 @@ const KEY_ROWS: KeyDef[][] = [
   ],
   // Z row
   [
-    { kind: 'special', pos: [0, 0], main: 'CAPS\nSHIFT', latch: 'oneshot' },
+    { kind: 'special', pos: [0, 0], main: 'CAPS\nSHIFT', latch: 'oneshot', w: 1.25 },
     { kind: 'letter', pos: [0, 1], main: 'Z', red: ':', word: 'COPY',   green: 'LN',      below: 'BEEP' },
     { kind: 'letter', pos: [0, 2], main: 'X', red: '£', word: 'CLEAR',  green: 'EXP',     below: 'INK' },
     { kind: 'letter', pos: [0, 3], main: 'C', red: '?', word: 'CONT',   green: 'L PRINT', below: 'PAPER' },
@@ -90,7 +91,7 @@ const KEY_ROWS: KeyDef[][] = [
     { kind: 'letter', pos: [7, 3], main: 'N', red: ',', word: 'NEXT',   green: 'INKEY $', below: 'OVER' },
     { kind: 'letter', pos: [7, 2], main: 'M', red: '.', word: 'PAUSE',  green: 'PI',      below: 'INVERSE' },
     { kind: 'special', pos: [7, 1], main: 'SYMBOL\nSHIFT', redLabel: true, latch: 'oneshot' },
-    { kind: 'special', pos: [7, 0], main: 'BREAK\nSPACE', bigLast: true },
+    { kind: 'special', pos: [7, 0], main: 'BREAK\nSPACE', bigLast: true, w: 1.75 },
   ],
 ];
 
@@ -99,7 +100,7 @@ function KeyCell(props: { d: KeyDef; kbd: KeyboardController }) {
   const pos: [number, number][] = [d.pos];
   const pressed = () => props.kbd.isDown(pos);
   return (
-    <div class="kbd-cell">
+    <div class="kbd-cell" style={d.w ? { '--w': `${d.w}` } : undefined}>
       {/* Above-key legends */}
       <div class={`kbd-above kbd-above--${d.kind}`}>
         <Show when={d.kind === 'num'}>
@@ -141,7 +142,15 @@ function KeyCell(props: { d: KeyDef; kbd: KeyboardController }) {
 
         <Show when={d.kind === 'letter'}>
           <span class="k-letter">{d.main}</span>
-          <Show when={d.red}><span class="k-redtok">{d.red}</span></Show>
+          <Show when={d.red}>
+            <span
+              class="k-redtok"
+              classList={{
+                'k-redtok--word': /[A-Za-z]/.test(d.red ?? ''),
+                'k-redtok--big': ['*', ',', '.'].includes(d.red ?? ''),
+              }}
+            >{d.red}</span>
+          </Show>
           <Show when={d.word}><span class="k-word">{d.word}</span></Show>
         </Show>
 
@@ -163,14 +172,15 @@ function KeyboardRubber() {
   return (
     <Pane id="keyboard-panel" label="Keyboard">
       <div class="kbd-bezel">
-        <For each={KEY_ROWS}>
-          {(row) => (
-            <div class="kbd-row">
-              <For each={row}>{(key) => <KeyCell d={key} kbd={kbd} />}</For>
-            </div>
-          )}
-        </For>
-        <span class="kbd-rainbow" aria-hidden="true" />
+        <div class="kbd-keys">
+          <For each={KEY_ROWS}>
+            {(row) => (
+              <div class="kbd-row">
+                <For each={row}>{(key) => <KeyCell d={key} kbd={kbd} />}</For>
+              </div>
+            )}
+          </For>
+        </div>
       </div>
     </Pane>
   );
