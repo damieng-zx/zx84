@@ -847,18 +847,7 @@ canvas {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  /* Recessed grooves moulded across the case in the gaps between the five key
-     rows (row pitch = 46px key + 4px gap, offset by the 6px top padding), as on
-     the +2/+3. They run the full width; the keys sit on top so a groove only
-     shows through the gaps. The case gradient sits underneath. */
-  background:
-    linear-gradient(to bottom,
-      transparent 0 53px,    rgba(0, 0, 0, 0.45) 53px 55px,    rgba(255, 255, 255, 0.06) 55px 57px,
-      transparent 57px 103px,  rgba(0, 0, 0, 0.45) 103px 105px,  rgba(255, 255, 255, 0.06) 105px 107px,
-      transparent 107px 153px, rgba(0, 0, 0, 0.45) 153px 155px, rgba(255, 255, 255, 0.06) 155px 157px,
-      transparent 157px 203px, rgba(0, 0, 0, 0.45) 203px 205px, rgba(255, 255, 255, 0.06) 205px 207px,
-      transparent 207px),
-    linear-gradient(180deg, #26282c 0%, #1b1d20 100%);
+  background: linear-gradient(180deg, #26282c 0%, #1b1d20 100%);
   padding: 6px;
   border-radius: 4px;
   border: 1px solid #050608;
@@ -872,16 +861,30 @@ canvas {
    height); command keys scale by their --w unit count. Rows are centred, so
    their differing totals give the hardware's slightly ragged edges. The +2
    sparse face (.kbd-plus--grey2) keeps its own grid further down. */
-.kbd-plus:not(.kbd-plus--grey2) { --pku: 50px; } /* 46px square cap + 4px gap */
+.kbd-plus:not(.kbd-plus--grey2) {
+  --pku: 48px; /* 46px square cap + 2px gap */
+  gap: 2px;
+  /* Recessed groove lines (a 1px dark + 1px light bevel) moulded into the case
+     in the 2px gaps between the five key rows, offset by the 6px top padding, as
+     on the +2/+3. The keys sit on top, so a groove only shows through the gaps. */
+  background:
+    linear-gradient(to bottom,
+      transparent 0 52px,    rgba(0, 0, 0, 0.45) 52px 53px,    rgba(255, 255, 255, 0.06) 53px 54px,
+      transparent 54px 100px,  rgba(0, 0, 0, 0.45) 100px 101px,  rgba(255, 255, 255, 0.06) 101px 102px,
+      transparent 102px 148px, rgba(0, 0, 0, 0.45) 148px 149px, rgba(255, 255, 255, 0.06) 149px 150px,
+      transparent 150px 196px, rgba(0, 0, 0, 0.45) 196px 197px, rgba(255, 255, 255, 0.06) 197px 198px,
+      transparent 198px),
+    linear-gradient(180deg, #26282c 0%, #1b1d20 100%);
+}
 .kbd-plus:not(.kbd-plus--grey2) .kbd-prow { justify-content: center; gap: 0; }
-/* Each key occupies exactly w units of the 50px pitch (cap width = pitch minus
-   the 4px gap, restored as a 2px side margin), so every 13.5u row is the same
+/* Each key occupies exactly w units of the 48px pitch (cap width = pitch minus
+   the 2px gap, restored as a 1px side margin), so every 13.5u row is the same
    pixel width no matter how many keys it holds, and the rows line up. The side
    margin leaves the ENTER cell's negative bottom margin untouched. */
 .kbd-plus:not(.kbd-plus--grey2) .pk-key {
   flex: none;
-  width: calc(var(--w, 1) * var(--pku) - 4px);
-  margin-inline: 2px;
+  width: calc(var(--w, 1) * var(--pku) - 2px);
+  margin-inline: 1px;
 }
 
 /* Keys — all the same height; legends are absolutely placed inside the cap. */
@@ -910,10 +913,10 @@ canvas {
 }
 
 /* L-shaped ENTER: a narrow top cell (row 2) joined to a wider bottom cell
-   (row 3). The top cell overhangs the 4px row gap to butt against the bottom. */
+   (row 3). The top cell overhangs the 2px row gap to butt against the bottom. */
 .pk-key--enter-top {
-  height: 50px;
-  margin-bottom: -4px;
+  height: 48px;
+  margin-bottom: -2px;
   border-bottom: none;
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
@@ -998,20 +1001,20 @@ canvas {
 
 @container (max-width: 560px) {
   .pk-key { height: 40px; }
-  .pk-key--enter-top { height: 44px; }
+  .pk-key--enter-top { height: 42px; }
   .pk-main, .pk-glyph { font-size: 12px; }
   .pk-arrow { font-size: 20px; }
-  /* Narrow: 40px square cap + 4px gap = 44px pitch, so 1u stays square and the
-     grooves keep the same 44px row pitch. */
+  /* Narrow: 40px square cap + 2px gap = 42px pitch, so 1u stays square and the
+     grooves move to the matching 42px row pitch. */
   .kbd-plus:not(.kbd-plus--grey2) {
-    --pku: 44px;
+    --pku: 42px;
     background:
       linear-gradient(to bottom,
-        transparent 0 47px,    rgba(0, 0, 0, 0.45) 47px 49px,    rgba(255, 255, 255, 0.06) 49px 51px,
-        transparent 51px 91px,   rgba(0, 0, 0, 0.45) 91px 93px,    rgba(255, 255, 255, 0.06) 93px 95px,
-        transparent 95px 135px,  rgba(0, 0, 0, 0.45) 135px 137px,  rgba(255, 255, 255, 0.06) 137px 139px,
-        transparent 139px 179px, rgba(0, 0, 0, 0.45) 179px 181px,  rgba(255, 255, 255, 0.06) 181px 183px,
-        transparent 183px),
+        transparent 0 46px,    rgba(0, 0, 0, 0.45) 46px 47px,    rgba(255, 255, 255, 0.06) 47px 48px,
+        transparent 48px 88px,   rgba(0, 0, 0, 0.45) 88px 89px,    rgba(255, 255, 255, 0.06) 89px 90px,
+        transparent 90px 130px,  rgba(0, 0, 0, 0.45) 130px 131px,  rgba(255, 255, 255, 0.06) 131px 132px,
+        transparent 132px 172px, rgba(0, 0, 0, 0.45) 172px 173px,  rgba(255, 255, 255, 0.06) 173px 174px,
+        transparent 174px),
       linear-gradient(180deg, #26282c 0%, #1b1d20 100%);
   }
   /* Keys shrink to 40px here, so 1u stays square (40px) and the groove gaps
