@@ -872,11 +872,16 @@ canvas {
    height); command keys scale by their --w unit count. Rows are centred, so
    their differing totals give the hardware's slightly ragged edges. The +2
    sparse face (.kbd-plus--grey2) keeps its own grid further down. */
-.kbd-plus:not(.kbd-plus--grey2) { --pku: 46px; }
-.kbd-plus:not(.kbd-plus--grey2) .kbd-prow { justify-content: center; }
+.kbd-plus:not(.kbd-plus--grey2) { --pku: 50px; } /* 46px square cap + 4px gap */
+.kbd-plus:not(.kbd-plus--grey2) .kbd-prow { justify-content: center; gap: 0; }
+/* Each key occupies exactly w units of the 50px pitch (cap width = pitch minus
+   the 4px gap, restored as a 2px side margin), so every 13.5u row is the same
+   pixel width no matter how many keys it holds, and the rows line up. The side
+   margin leaves the ENTER cell's negative bottom margin untouched. */
 .kbd-plus:not(.kbd-plus--grey2) .pk-key {
   flex: none;
-  width: calc(var(--w, 1) * var(--pku));
+  width: calc(var(--w, 1) * var(--pku) - 4px);
+  margin-inline: 2px;
 }
 
 /* Keys — all the same height; legends are absolutely placed inside the cap. */
@@ -996,10 +1001,10 @@ canvas {
   .pk-key--enter-top { height: 44px; }
   .pk-main, .pk-glyph { font-size: 12px; }
   .pk-arrow { font-size: 20px; }
-  /* Toastrack 1u tracks the 40px key height to stay square; the grooves move to
-     the 44px row pitch (40px key + 4px gap) to match. */
+  /* Narrow: 40px square cap + 4px gap = 44px pitch, so 1u stays square and the
+     grooves keep the same 44px row pitch. */
   .kbd-plus:not(.kbd-plus--grey2) {
-    --pku: 40px;
+    --pku: 44px;
     background:
       linear-gradient(to bottom,
         transparent 0 47px,    rgba(0, 0, 0, 0.45) 47px 49px,    rgba(255, 255, 255, 0.06) 49px 51px,

@@ -48,7 +48,7 @@ interface PKey {
 // ── Key builders ────────────────────────────────────────────────────────
 const letter = (g: string): PKey => ({ variant: 'letter', main: g, positions: [POS[g]], ...LETTERS[g] });
 const number = (g: string): PKey => ({ variant: 'num', main: g, positions: [POS[g]], ...NUMBERS[g] });
-const fn = (label: string, positions: [number, number][], w = 1.4, latch?: LatchMode): PKey =>
+const fn = (label: string, positions: [number, number][], w = 1, latch?: LatchMode): PKey =>
   ({ variant: 'fn', label, positions, w, latch });
 const mod = (label: string, pos: [number, number], w: number, redLabel = false): PKey =>
   ({ variant: 'mod', label, positions: [pos], latch: 'oneshot', w, redLabel });
