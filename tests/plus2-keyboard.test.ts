@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { plus2KeepsRed, plus2UsesSparse, plus2KeyWidth, PLUS2_KEYWORDS } from '@/components/panes/plus2-legends.ts';
+import { plus2KeepsRed, sparseKeyboardFace, plus2KeyWidth, PLUS2_KEYWORDS } from '@/components/panes/plus2-legends.ts';
 
 // The standard symbol-shift token printed in red on each letter key (ZX Spectrum
 // manual). Independently transcribed here; '−' is U+2212 and '↑' is U+2191 as on
@@ -57,19 +57,22 @@ describe('PLUS2_KEYWORDS — the only BASIC keywords left on the caps', () => {
   });
 });
 
-describe('plus2UsesSparse — the sparse grey face is used for the +2 only', () => {
-  it('sparse for the +2 (in either 48K or 128K mode — the face does not switch)', () => {
-    expect(plus2UsesSparse('+2')).toBe(true);
+describe('sparseKeyboardFace — which sparse face a model uses', () => {
+  it('grey for the +2', () => {
+    expect(sparseKeyboardFace('+2')).toBe('grey2');
   });
 
-  it('never sparse for the other 128K-class models', () => {
-    expect(plus2UsesSparse('128k')).toBe(false);
-    expect(plus2UsesSparse('+2A')).toBe(false);
-    expect(plus2UsesSparse('+3')).toBe(false);
+  it('near-black (amstrad) for the +2A and +3', () => {
+    expect(sparseKeyboardFace('+2A')).toBe('amstrad');
+    expect(sparseKeyboardFace('+3')).toBe('amstrad');
   });
 
-  it('never sparse for 48K (handled by the rubber keyboard, not this path)', () => {
-    expect(plus2UsesSparse('48k')).toBe(false);
+  it('no sparse face for the 128K (it keeps the full toastrack legends)', () => {
+    expect(sparseKeyboardFace('128k')).toBe(null);
+  });
+
+  it('no sparse face for 48K (handled by the rubber keyboard, not this path)', () => {
+    expect(sparseKeyboardFace('48k')).toBe(null);
   });
 });
 

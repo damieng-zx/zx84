@@ -15,7 +15,7 @@ import { spectrum, currentModel } from '@/emulator.ts';
 import { is128kClass } from '@/models.ts';
 import { Block, useKeyboard, type KeyboardController, type LatchMode } from './keyboard-common.tsx';
 import { KeyboardPlus } from './KeyboardPlus.tsx';
-import { plus2UsesSparse } from './plus2-legends.ts';
+import { sparseKeyboardFace } from './plus2-legends.ts';
 
 type Kind = 'num' | 'letter' | 'special';
 
@@ -177,12 +177,13 @@ function KeyboardRubber() {
 }
 
 /**
- * The hard-key keyboard for the 128K-class models. The grey +2 always uses the
- * sparse face; the 128K and +2A/+3 show the full 128K/+ legends.
+ * The hard-key keyboard for the 128K-class models. The +2 uses the sparse grey
+ * face and the +2A/+3 the sparse near-black face; the 128K shows the full
+ * 128K/+ legends.
  */
 function KeyboardHard() {
-  const sparse = () => plus2UsesSparse(currentModel());
-  return <KeyboardPlus sparse={sparse()} />;
+  const face = () => sparseKeyboardFace(currentModel());
+  return <KeyboardPlus sparse={face() !== null} amstrad={face() === 'amstrad'} />;
 }
 
 export function KeyboardPane() {

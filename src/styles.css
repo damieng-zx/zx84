@@ -944,13 +944,44 @@ canvas {
   .pk-key { height: 40px; }
   .pk-key--enter-top { height: 44px; }
   .pk-main, .pk-glyph { font-size: 12px; }
+  /* Keys shrink to 40px here, so the groove gaps move to a 44px pitch. */
+  .kbd-plus--grey2 {
+    background:
+      linear-gradient(to bottom,
+        transparent 0 47px,   var(--groove-d) 47px 49px,   var(--groove-l) 49px 51px,
+        transparent 51px 91px,  var(--groove-d) 91px 93px,   var(--groove-l) 93px 95px,
+        transparent 95px 135px, var(--groove-d) 135px 137px, var(--groove-l) 137px 139px,
+        transparent 139px 179px, var(--groove-d) 179px 181px, var(--groove-l) 181px 183px,
+        transparent 183px),
+      linear-gradient(180deg, var(--case-top) 0%, var(--case-bottom) 100%);
+  }
 }
 
 /* Grey +2 (1986 Amstrad): the toastrack layout with a lighter case and almost
    bare keycaps — only the sparse legends render (see KeyboardPlus / plus2-legends). */
 .kbd-plus--grey2 {
-  background: linear-gradient(180deg, #797d81 0%, #5f6367 100%);
-  border-color: #2e3033;
+  /* Case colours are variables so the Amstrad +2A/+3 face can darken them while
+     reusing all the sparse styles below. */
+  --case-top: #797d81; --case-bottom: #5f6367; --case-border: #2e3033;
+  --groove-d: rgba(0, 0, 0, 0.40); --groove-l: rgba(255, 255, 255, 0.12);
+  /* Four recessed grooves moulded across the case, aligned to the gaps between
+     the five key rows (row pitch = 46px key + 4px gap). They run the full width
+     and are clipped at the case edges; the keys sit on top, so a groove only
+     shows through the gaps. */
+  background:
+    linear-gradient(to bottom,
+      transparent 0 53px,   var(--groove-d) 53px 55px,   var(--groove-l) 55px 57px,
+      transparent 57px 103px,  var(--groove-d) 103px 105px,  var(--groove-l) 105px 107px,
+      transparent 107px 153px, var(--groove-d) 153px 155px, var(--groove-l) 155px 157px,
+      transparent 157px 203px, var(--groove-d) 203px 205px, var(--groove-l) 205px 207px,
+      transparent 207px),
+    linear-gradient(180deg, var(--case-top) 0%, var(--case-bottom) 100%);
+  border-color: var(--case-border);
+}
+/* Amstrad +2A / +3: the same sparse keyboard on a near-black case. */
+.kbd-plus--amstrad {
+  --case-top: #232427; --case-bottom: #0c0d0f; --case-border: #050506;
+  --groove-l: rgba(255, 255, 255, 0.16);
 }
 .kbd-plus--grey2 .pk-key {
   background: linear-gradient(177deg, #43474d 0%, #34373d 45%, #282b30 100%);

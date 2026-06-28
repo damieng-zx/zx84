@@ -38,12 +38,16 @@ export function plus2KeepsRed(red: string | undefined): boolean {
 }
 
 /**
- * True when the on-screen keyboard should use the sparse grey +2 rendering — the
- * +2 model, always. (The real +2 keyboard is the same whether you're in 48K or
- * 128K mode, so we don't switch faces with the ROM.)
+ * Which sparse on-screen keyboard face a model uses, or null for the full
+ * 128K/+ toastrack. The +2 and the Amstrad +2A/+3 share the same stripped-down
+ * layout; they differ only in case colour ('grey2' vs the near-black 'amstrad').
+ * The face never switches with the ROM — the real keyboards don't change between
+ * 48K and 128K modes.
  */
-export function plus2UsesSparse(model: MachineModel): boolean {
-  return model === '+2';
+export function sparseKeyboardFace(model: MachineModel): 'grey2' | 'amstrad' | null {
+  if (model === '+2') return 'grey2';
+  if (model === '+2A' || model === '+3') return 'amstrad';
+  return null;
 }
 
 /**

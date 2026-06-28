@@ -213,15 +213,15 @@ function PRow(props: { keys: PKey[]; kbd: KeyboardController; sparse?: boolean }
 }
 
 /**
- * The hard-key + / 128K keyboard. With `sparse` it renders the grey +2 face:
- * the same layout, but with the extended-mode and keyword legends stripped
- * (see plus2-legends) and a lighter case.
+ * The hard-key + / 128K keyboard. With `sparse` it renders the stripped-down
+ * +2 face (see plus2-legends); `amstrad` darkens the case to the near-black
+ * +2A/+3 colours.
  */
-export function KeyboardPlus(props: { sparse?: boolean }) {
+export function KeyboardPlus(props: { sparse?: boolean; amstrad?: boolean }) {
   const kbd = useKeyboard();
   return (
     <Pane id="keyboard-panel" label="Keyboard">
-      <div class="kbd-plus" classList={{ 'kbd-plus--grey2': props.sparse }}>
+      <div class="kbd-plus" classList={{ 'kbd-plus--grey2': props.sparse, 'kbd-plus--amstrad': props.amstrad }}>
         <PRow keys={ROW1} kbd={kbd} sparse={props.sparse} />
         <PRow keys={ROW2} kbd={kbd} sparse={props.sparse} />
         <PRow keys={ROW3} kbd={kbd} sparse={props.sparse} />
