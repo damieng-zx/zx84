@@ -944,8 +944,10 @@ canvas {
   .pk-key { height: 40px; }
   .pk-key--enter-top { height: 44px; }
   .pk-main, .pk-glyph { font-size: 12px; }
-  /* Keys shrink to 40px here, so the groove gaps move to a 44px pitch. */
+  /* Keys shrink to 40px here, so 1u stays square (40px) and the groove gaps
+     move to a 44px pitch. */
   .kbd-plus--grey2 {
+    --pk2u: 43px;
     background:
       linear-gradient(to bottom,
         transparent 0 47px,   var(--groove-d) 47px 49px,   var(--groove-l) 49px 51px,
@@ -983,14 +985,25 @@ canvas {
   --case-top: #232427; --case-bottom: #0c0d0f; --case-border: #050506;
   --groove-l: rgba(255, 255, 255, 0.16);
 }
+/* +2 keys: lighter, to sit closer to the grey case. */
 .kbd-plus--grey2 .pk-key {
-  background: linear-gradient(177deg, #43474d 0%, #34373d 45%, #282b30 100%);
+  background: linear-gradient(177deg, #7e838a 0%, #6e737a 45%, #5e6369 100%);
 }
 .kbd-plus--grey2 .pk-key:hover {
-  background: linear-gradient(177deg, #4d5258 0%, #3d4147 45%, #303338 100%);
+  background: linear-gradient(177deg, #888d94 0%, #787d84 45%, #686d74 100%);
 }
 .kbd-plus--grey2 .pk-key.pressed {
-  background: linear-gradient(177deg, #26282c 0%, #1e2023 100%);
+  background: linear-gradient(177deg, #565a60 0%, #4a4d53 100%);
+}
+/* +2A/+3 keys: darker, to match the near-black case. */
+.kbd-plus--amstrad .pk-key {
+  background: linear-gradient(177deg, #2c2f33 0%, #212427 45%, #16181b 100%);
+}
+.kbd-plus--amstrad .pk-key:hover {
+  background: linear-gradient(177deg, #363a3e 0%, #2a2d31 45%, #1f2124 100%);
+}
+.kbd-plus--amstrad .pk-key.pressed {
+  background: linear-gradient(177deg, #131416 0%, #0d0e10 100%);
 }
 
 /* Fixed grid: keys are a fixed width (--w units × the unit), NOT stretched to
@@ -998,7 +1011,9 @@ canvas {
    into each key's width (margin + reduced width = exactly --w units), so every
    row is the same pixel width whatever its key count — which keeps the two
    halves of the L-shaped ENTER aligned. */
-.kbd-plus--grey2 { --pk2u: 6.2cqw; }
+/* Unit width is tied to the 46px key height so a 1u cap is square (1u visible =
+   46px = height; +3px for the folded inter-key margin). Wider keys scale off it. */
+.kbd-plus--grey2 { --pk2u: 49px; }
 .kbd-plus--grey2 .kbd-prow { justify-content: center; gap: 0; }
 .kbd-plus--grey2 .pk-key {
   flex: 0 0 auto;

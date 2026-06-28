@@ -110,7 +110,7 @@ function KeyBody(props: { k: PKey; sparse?: boolean }) {
   const labelText = () => {
     const l = k.label ?? '';
     if (!props.sparse) return l;
-    if (k.variant === 'mod' && l.startsWith('SYMBOL')) return 'SYM\nSHIFT';
+    if (k.variant === 'mod' && l.startsWith('SYMBOL')) return 'SYMB\nSHIFT';
     if ((k.variant === 'mod' && l.startsWith('CAPS')) || l === 'EXTEND\nMODE') return l.replace('\n', ' ');
     return l;
   };

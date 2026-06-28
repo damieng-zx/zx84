@@ -76,7 +76,7 @@ describe('sparseKeyboardFace — which sparse face a model uses', () => {
   });
 });
 
-describe('plus2KeyWidth — a fixed grid where every row totals 13.25u', () => {
+describe('plus2KeyWidth — a fixed quarter-unit grid where every row totals 13.5u', () => {
   it('shrinks TRUE/INV VIDEO, GRAPH, EDIT, CAPS LOCK and SYMBOL SHIFT to 1u', () => {
     expect(plus2KeyWidth('fn', 'TRUE\nVIDEO', 1.5)).toBe(1);
     expect(plus2KeyWidth('fn', 'INV\nVIDEO', 1.5)).toBe(1);
@@ -87,16 +87,13 @@ describe('plus2KeyWidth — a fixed grid where every row totals 13.25u', () => {
     expect(plus2KeyWidth('enter-top', undefined, 1.3)).toBe(1);
   });
 
-  it('keeps the wide keys wide: DELETE/BREAK 1.25, EXTEND MODE 1.7, CAPS SHIFT 2.125', () => {
-    expect(plus2KeyWidth('fn', 'DELETE', 1.7)).toBe(1.25);
-    expect(plus2KeyWidth('fn', 'BREAK', 1.5)).toBe(1.25);
-    expect(plus2KeyWidth('fn', 'EXTEND\nMODE', 1.7)).toBe(1.7);
-    expect(plus2KeyWidth('mod', 'CAPS\nSHIFT', 2)).toBe(2.125);
-  });
-
-  it('sizes the leftover keys: ENTER base 1.55u, SPACE 4.25u', () => {
-    expect(plus2KeyWidth('enter-bottom', 'ENTER', 2.6)).toBe(1.55);
-    expect(plus2KeyWidth('space', undefined, 6)).toBe(4.25);
+  it('sizes the wider keys on quarter units', () => {
+    expect(plus2KeyWidth('fn', 'DELETE', 1.7)).toBe(1.5);
+    expect(plus2KeyWidth('fn', 'BREAK', 1.5)).toBe(1.5);
+    expect(plus2KeyWidth('fn', 'EXTEND\nMODE', 1.7)).toBe(1.75);
+    expect(plus2KeyWidth('mod', 'CAPS\nSHIFT', 2)).toBe(2.25);
+    expect(plus2KeyWidth('enter-bottom', 'ENTER', 2.6)).toBe(1.75);
+    expect(plus2KeyWidth('space', undefined, 6)).toBe(4.5);
   });
 
   it('leaves alphanumerics and the dedicated symbol/arrow keys at 1u', () => {
@@ -106,17 +103,27 @@ describe('plus2KeyWidth — a fixed grid where every row totals 13.25u', () => {
     expect(plus2KeyWidth('arrow', undefined, 1)).toBe(1);
   });
 
-  it('every row totals the same 13.25u (so rows share both edges)', () => {
+  it('every width is a whole or quarter unit', () => {
+    const ws = [
+      plus2KeyWidth('fn', 'DELETE', 1), plus2KeyWidth('fn', 'BREAK', 1),
+      plus2KeyWidth('fn', 'EXTEND\nMODE', 1), plus2KeyWidth('mod', 'CAPS\nSHIFT', 1),
+      plus2KeyWidth('enter-top', undefined, 1), plus2KeyWidth('enter-bottom', 'ENTER', 1),
+      plus2KeyWidth('space', undefined, 1),
+    ];
+    for (const w of ws) expect((w * 4) % 1).toBe(0);
+  });
+
+  it('every row totals the same 13.5u (so rows share both edges)', () => {
     const w = plus2KeyWidth;
     const row1 = w('fn', 'TRUE\nVIDEO', 1) + w('fn', 'INV\nVIDEO', 1) + 10 * 1 + w('fn', 'BREAK', 1);
     const row2 = w('fn', 'DELETE', 1) + w('fn', 'GRAPH', 1) + 10 * 1 + w('enter-top', undefined, 1);
     const row3 = w('fn', 'EXTEND\nMODE', 1) + w('fn', 'EDIT', 1) + 9 * 1 + w('enter-bottom', 'ENTER', 1);
     const row4 = w('mod', 'CAPS\nSHIFT', 1) + w('fn', 'CAPS\nLOCK', 1) + 7 * 1 + 1 + w('mod', 'CAPS\nSHIFT', 1);
     const row5 = w('mod', 'SYMBOL\nSHIFT', 1) + 4 * 1 + w('space', undefined, 1) + 3 * 1 + w('mod', 'SYMBOL\nSHIFT', 1);
-    expect(row1).toBeCloseTo(13.25, 5);
-    expect(row2).toBeCloseTo(13.25, 5);
-    expect(row3).toBeCloseTo(13.25, 5);
-    expect(row4).toBeCloseTo(13.25, 5);
-    expect(row5).toBeCloseTo(13.25, 5);
+    expect(row1).toBeCloseTo(13.5, 5);
+    expect(row2).toBeCloseTo(13.5, 5);
+    expect(row3).toBeCloseTo(13.5, 5);
+    expect(row4).toBeCloseTo(13.5, 5);
+    expect(row5).toBeCloseTo(13.5, 5);
   });
 });

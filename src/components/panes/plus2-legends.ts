@@ -51,30 +51,29 @@ export function sparseKeyboardFace(model: MachineModel): 'grey2' | 'amstrad' | n
 }
 
 /**
- * Width (in key units) of a key on the grey +2 face. Every alphanumeric and most
- * command keys are a uniform 1u; the rest are sized so each row totals the same
- * 13.25u, giving a true fixed grid (the keys are laid out at a fixed width, not
- * stretched to fill — see the .kbd-plus--grey2 rules). `variant`/`label` come
- * from the shared key definition (see KeyboardPlus); `fallback` is used for the
- * keys that are 1u in both faces.
+ * Width (in key units) of a key on the +2/+2A/+3 sparse face. Every alphanumeric
+ * and most command keys are a uniform 1u; the rest are sized so each row totals
+ * the same 13.5u, giving a true fixed grid (the keys are laid out at a fixed
+ * width, not stretched to fill — see the .kbd-plus--grey2 rules). All widths are
+ * whole units or quarter-units. `variant`/`label` come from the shared key
+ * definition (see KeyboardPlus); `fallback` is used for the 1u keys.
  *
  *   1u   : alphanumerics, TRUE/INV VIDEO, GRAPH, EDIT, CAPS LOCK, SYMBOL SHIFT,
  *          the dedicated symbol/arrow keys, and the ENTER top.
- *   1.25u: DELETE, BREAK            1.7u: EXTEND MODE        2.125u: CAPS SHIFT
- *   1.55u: ENTER base (the L's foot — the leftover under the 1u ENTER top)
- *   4.25u: SPACE (the leftover across the bottom row)
+ *   1.5u : DELETE, BREAK        1.75u: EXTEND MODE, ENTER base
+ *   2.25u: CAPS SHIFT           4.5u: SPACE
  */
 export function plus2KeyWidth(variant: string, label: string | undefined, fallback: number): number {
   switch (variant) {
     case 'enter-top': return 1;
-    case 'enter-bottom': return 1.55;
-    case 'space': return 4.25;
+    case 'enter-bottom': return 1.75;
+    case 'space': return 4.5;
     case 'fn':
-      if (label === 'DELETE' || label === 'BREAK') return 1.25;
-      if (label === 'EXTEND\nMODE') return 1.7;
+      if (label === 'DELETE' || label === 'BREAK') return 1.5;
+      if (label === 'EXTEND\nMODE') return 1.75;
       return 1; // TRUE/INV VIDEO, GRAPH, EDIT, CAPS LOCK
     case 'mod':
-      return label?.startsWith('CAPS') ? 2.125 : 1; // CAPS SHIFT wide; SYMBOL SHIFT 1u
+      return label?.startsWith('CAPS') ? 2.25 : 1; // CAPS SHIFT wide; SYMBOL SHIFT 1u
     default:
       return fallback; // letters, numbers, dedicated symbol/arrow keys → 1u
   }
