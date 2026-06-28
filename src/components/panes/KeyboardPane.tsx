@@ -1,35 +1,21 @@
 /**
- * 48K Spectrum rubber keyboard — interactive on-screen keyboard.
+ * On-screen keyboard pane.
  *
- * Reproduces the iconic ZX Spectrum 48K keyboard face: a dark rubber mat with
- * the full four-legend-per-key set printed exactly where the real machine has
- * them —
+ * Picks the keyboard that matches the current machine: the rubber 48K membrane
+ * for 16K/48K, and the hard-key Spectrum + / 128K layout for the 128K-class
+ * models (128K, +2, +2A, +3). Both drive the live machine and highlight from
+ * the real keyboard matrix — see keyboard-common.
  *
- *   • on the key:    white main glyph, white K-mode keyword, red symbol-shift
- *                    token (and, on the number row, the block-graphics swatch).
- *   • above the key: green extended-mode keyword (and, on the number row, the
- *                    colour name + the white cursor/EDIT command).
- *   • below the key: red extended-plus-symbol-shift keyword.
- *
- * Every key is the same width — the real 48K is a uniform 4×10 grid, including
- * CAPS SHIFT / ENTER / SYMBOL SHIFT / BREAK SPACE.
- *
- * Each key maps 1:1 to a ZX keyboard-matrix [row, bit] and drives the live
- * machine via `spectrum.keyboard.setKey`:
- *   • Ordinary keys are momentary — press on pointer-down, release on
- *     pointer-up (pointer capture means a drag-off still releases). Holding a
- *     key auto-repeats through the ROM, exactly as on hardware.
- *   • CAPS SHIFT and SYMBOL SHIFT are sticky one-shots — click to latch (so a
- *     combo is possible with a single pointer), then the next key releases them
- *     automatically; click again to unlatch.
- *
- * Key highlighting is driven off the live matrix, so keys light up for physical
- * keystrokes too, not just pointer presses.
+ * This file owns the rubber 48K keyboard; the + lives in KeyboardPlus.
  */
 
-import { For, Show, createSignal, onMount, onCleanup } from 'solid-js';
+import { For, Show } from 'solid-js';
 import { Pane } from '@/components/Pane.tsx';
-import { spectrum } from '@/emulator.ts';
+import { spectrum, currentModel } from '@/emulator.ts';
+import { is128kClass } from '@/models.ts';
+import { Block, useKeyboard, type KeyboardController, type LatchMode } from './keyboard-common.tsx';
+import { KeyboardPlus } from './KeyboardPlus.tsx';
+import { plus2UsesSparse } from './plus2-legends.ts';
 
 type Kind = 'num' | 'letter' | 'special';
 
@@ -49,21 +35,8 @@ interface KeyDef {
   // special keys:
   bigLast?: boolean;  // render the last label line large (BREAK SPACE)
   redLabel?: boolean; // colour the special label red (SYMBOL SHIFT)
-  modifier?: boolean; // sticky one-shot modifier (CAPS SHIFT / SYMBOL SHIFT)
+  latch?: LatchMode;  // sticky one-shot modifier (CAPS SHIFT / SYMBOL SHIFT)
 }
-
-// Block-graphics swatches printed on number keys 1–8: which of the four
-// quadrants [top-left, top-right, bottom-left, bottom-right] are filled.
-const BLOCKS: Record<number, [boolean, boolean, boolean, boolean]> = {
-  1: [true, false, false, false],
-  2: [false, true, false, false],
-  3: [true, true, false, false],
-  4: [false, false, true, false],
-  5: [true, false, true, false],
-  6: [false, true, true, false],
-  7: [true, true, true, false],
-  8: [false, false, false, true],
-};
 
 const KEY_ROWS: KeyDef[][] = [
   // Number row — colour name + white command above, red symbol + block on key,
@@ -108,7 +81,7 @@ const KEY_ROWS: KeyDef[][] = [
   ],
   // Z row
   [
-    { kind: 'special', pos: [0, 0], main: 'CAPS\nSHIFT', modifier: true },
+    { kind: 'special', pos: [0, 0], main: 'CAPS\nSHIFT', latch: 'oneshot' },
     { kind: 'letter', pos: [0, 1], main: 'Z', red: ':', word: 'COPY',   green: 'LN',      below: 'BEEP' },
     { kind: 'letter', pos: [0, 2], main: 'X', red: '£', word: 'CLEAR',  green: 'EXP',     below: 'INK' },
     { kind: 'letter', pos: [0, 3], main: 'C', red: '?', word: 'CONT',   green: 'L PRINT', below: 'PAPER' },
@@ -116,23 +89,15 @@ const KEY_ROWS: KeyDef[][] = [
     { kind: 'letter', pos: [7, 4], main: 'B', red: '*', word: 'BORDER', green: 'BIN',     below: 'BRIGHT' },
     { kind: 'letter', pos: [7, 3], main: 'N', red: ',', word: 'NEXT',   green: 'INKEY $', below: 'OVER' },
     { kind: 'letter', pos: [7, 2], main: 'M', red: '.', word: 'PAUSE',  green: 'PI',      below: 'INVERSE' },
-    { kind: 'special', pos: [7, 1], main: 'SYMBOL\nSHIFT', redLabel: true, modifier: true },
+    { kind: 'special', pos: [7, 1], main: 'SYMBOL\nSHIFT', redLabel: true, latch: 'oneshot' },
     { kind: 'special', pos: [7, 0], main: 'BREAK\nSPACE', bigLast: true },
   ],
 ];
 
-const ROWS_RELEASED = (): number[] => [0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff];
-
-function Block(props: { n: number }) {
-  return (
-    <span class="k-block">
-      <For each={BLOCKS[props.n]}>{(on) => <i classList={{ on }} />}</For>
-    </span>
-  );
-}
-
-function KeyCell(props: { d: KeyDef; pressed: () => boolean; down: () => void; up: () => void }) {
+function KeyCell(props: { d: KeyDef; kbd: KeyboardController }) {
   const d = props.d;
+  const pos: [number, number][] = [d.pos];
+  const pressed = () => props.kbd.isDown(pos);
   return (
     <div class="kbd-cell">
       {/* Above-key legends */}
@@ -155,18 +120,18 @@ function KeyCell(props: { d: KeyDef; pressed: () => boolean; down: () => void; u
       {/* The key */}
       <div
         class={`kbd-key kbd-key--${d.kind}`}
-        classList={{ 'kbd-key--red': d.redLabel, pressed: props.pressed() }}
+        classList={{ 'kbd-key--red': d.redLabel, pressed: pressed() }}
         role="button"
-        aria-pressed={props.pressed()}
+        aria-pressed={pressed()}
         aria-label={d.main.replace('\n', ' ')}
         onPointerDown={(e) => {
           if (!spectrum) return;
           e.preventDefault();
           e.currentTarget.setPointerCapture(e.pointerId);
-          props.down();
+          props.kbd.onDown(pos, d.latch);
         }}
-        onPointerUp={() => props.up()}
-        onPointerCancel={() => props.up()}
+        onPointerUp={() => props.kbd.onUp(pos, d.latch)}
+        onPointerCancel={() => props.kbd.onUp(pos, d.latch)}
       >
         <Show when={d.kind === 'num'}>
           <span class="k-num">{d.main}</span>
@@ -193,95 +158,37 @@ function KeyCell(props: { d: KeyDef; pressed: () => boolean; down: () => void; u
   );
 }
 
-export function KeyboardPane() {
-  // Live mirror of the 8 ZX matrix half-rows (active-low). Drives key
-  // highlighting for both pointer presses and physical keystrokes.
-  const [matrix, setMatrix] = createSignal<number[]>(ROWS_RELEASED());
-  // Latched sticky modifiers, keyed by "row,bit".
-  const [latched, setLatched] = createSignal<ReadonlySet<string>>(new Set<string>());
-
-  const isPressed = (pos: [number, number]) => (matrix()[pos[0]] & (1 << pos[1])) === 0;
-
-  const onDown = (d: KeyDef) => {
-    const kb = spectrum?.keyboard;
-    if (!kb) return;
-    const [row, bit] = d.pos;
-    if (d.modifier) {
-      // Toggle the latch — held down until the next key, or until clicked again.
-      const key = `${row},${bit}`;
-      const next = new Set(latched());
-      if (next.has(key)) {
-        next.delete(key);
-        kb.setKey(row, bit, false);
-      } else {
-        next.add(key);
-        kb.setKey(row, bit, true);
-      }
-      setLatched(next);
-    } else {
-      kb.setKey(row, bit, true);
-    }
-  };
-
-  const onUp = (d: KeyDef) => {
-    const kb = spectrum?.keyboard;
-    if (!kb || d.modifier) return; // modifiers toggle on press only
-    kb.setKey(d.pos[0], d.pos[1], false);
-    // One-shot: releasing an ordinary key drops any latched modifiers too.
-    const set = latched();
-    if (set.size) {
-      for (const k of set) {
-        const [r, b] = k.split(',').map(Number);
-        kb.setKey(r, b, false);
-      }
-      setLatched(new Set<string>());
-    }
-  };
-
-  // Poll the live matrix once per frame so highlighting tracks the real machine
-  // state (pointer presses, physical keys, and latched modifiers alike).
-  onMount(() => {
-    let raf = 0;
-    const tick = () => {
-      const kb = spectrum?.keyboard;
-      if (kb) {
-        const r = kb.rows;
-        const cur = matrix();
-        let changed = false;
-        for (let i = 0; i < 8; i++) {
-          if (r[i] !== cur[i]) { changed = true; break; }
-        }
-        if (changed) setMatrix(Array.from(r));
-      } else if (matrix().some((b) => b !== 0xff)) {
-        setMatrix(ROWS_RELEASED());
-      }
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    onCleanup(() => cancelAnimationFrame(raf));
-  });
-
+function KeyboardRubber() {
+  const kbd = useKeyboard();
   return (
     <Pane id="keyboard-panel" label="Keyboard">
       <div class="kbd-bezel">
         <For each={KEY_ROWS}>
           {(row) => (
             <div class="kbd-row">
-              <For each={row}>
-                {(key) => (
-                  <KeyCell
-                    d={key}
-                    pressed={() => isPressed(key.pos)}
-                    down={() => onDown(key)}
-                    up={() => onUp(key)}
-                  />
-                )}
-              </For>
+              <For each={row}>{(key) => <KeyCell d={key} kbd={kbd} />}</For>
             </div>
           )}
         </For>
         <span class="kbd-rainbow" aria-hidden="true" />
       </div>
     </Pane>
+  );
+}
+
+/**
+ * The hard-key keyboard for the 128K-class models. The grey +2 always uses the
+ * sparse face; the 128K and +2A/+3 show the full 128K/+ legends.
+ */
+function KeyboardHard() {
+  const sparse = () => plus2UsesSparse(currentModel());
+  return <KeyboardPlus sparse={sparse()} />;
+}
+
+export function KeyboardPane() {
+  return (
+    <Show when={is128kClass(currentModel())} fallback={<KeyboardRubber />}>
+      <KeyboardHard />
+    </Show>
   );
 }

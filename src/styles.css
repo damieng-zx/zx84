@@ -838,6 +838,184 @@ canvas {
   .k-word, .kbd-green, .kbd-cmd, .kbd-below, .kbd-color { font-size: 7px; }
 }
 
+/* ── Spectrum + / 128K hard keyboard ──────────────────────────────────── */
+/* A flush, uniform-height hard-key layout. Every legend is printed inside the
+   keycap (no bezel trim, logo or rainbow). ENTER is the L-shaped Sinclair
+   return key, drawn as two seamless cells across rows 2–3. */
+
+.kbd-plus {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: linear-gradient(180deg, #26282c 0%, #1b1d20 100%);
+  padding: 6px;
+  border-radius: 4px;
+  border: 1px solid #050608;
+  box-shadow: inset 0 0 16px rgba(0, 0, 0, 0.45);
+  container-type: inline-size;
+}
+
+.kbd-prow { display: flex; gap: 4px; align-items: flex-start; }
+
+/* Keys — all the same height; legends are absolutely placed inside the cap. */
+.pk-key {
+  position: relative;
+  height: 46px;
+  min-width: 0;
+  border-radius: 3px;
+  background: linear-gradient(177deg, #474b51 0%, #383c42 45%, #2c3035 100%);
+  border: 1px solid #141619;
+  color: #f4f4f4;
+  font-family: var(--font-ui);
+  cursor: pointer;
+  user-select: none;
+  touch-action: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    inset 0 -2px 3px rgba(0, 0, 0, 0.4),
+    0 1px 1px rgba(0, 0, 0, 0.5);
+  transition: background 0.08s ease, box-shadow 0.05s ease, transform 0.05s ease;
+}
+.pk-key:hover { background: linear-gradient(177deg, #51565d 0%, #41454c 45%, #34383e 100%); }
+.pk-key.pressed {
+  background: linear-gradient(177deg, #2a2d31 0%, #212427 100%);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.7);
+}
+
+/* L-shaped ENTER: a narrow top cell (row 2) joined to a wider bottom cell
+   (row 3). The top cell overhangs the 4px row gap to butt against the bottom. */
+.pk-key--enter-top {
+  height: 50px;
+  margin-bottom: -4px;
+  border-bottom: none;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.pk-key--enter-bottom {
+  border-top: none;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+/* In-cap legend slots */
+.pk-tl, .pk-tr, .pk-ml, .pk-mr {
+  position: absolute;
+  font-size: 6px; font-weight: 700; line-height: 1;
+  white-space: nowrap; overflow: hidden; max-width: calc(100% - 6px);
+}
+.pk-tl { top: 3px; left: 3px; }
+.pk-tr { top: 3px; right: 3px; }
+.pk-ml { top: 15px; left: 3px; }
+.pk-mr { top: 15px; right: 3px; font-size: 7px; }
+.pk-main {
+  position: absolute; bottom: 1px; left: 0; right: 0;
+  text-align: center;
+  font-size: 14px; font-weight: 700; line-height: 1; color: #fbfbfb;
+}
+.pk-green { color: #36d152; }
+.pk-red   { color: #e5572f; }
+.pk-white { color: #ededed; }
+.pk-tl--black {
+  color: #efefef; background: #000; border: 1px solid #8a8a8a;
+  border-radius: 1px; padding: 0 1px;
+}
+.pk-block {
+  position: absolute; top: 15px; left: 3px;
+  width: 9px; height: 9px;
+  display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr;
+  background: #e9e9e9; border: 1px solid #cfcfcf;
+}
+.pk-block i { background: transparent; }
+.pk-block i.on { background: #15171a; }
+.pk-glyph {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; font-weight: 700; color: #fbfbfb;
+}
+.pk-label {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  font-size: 6px; font-weight: 700; line-height: 1.2; letter-spacing: 0.2px;
+  text-align: center; color: #e8e8e8;
+}
+.pk-key--red .pk-label { color: #e5572f; }
+
+@container (max-width: 560px) {
+  .pk-key { height: 40px; }
+  .pk-key--enter-top { height: 44px; }
+  .pk-main, .pk-glyph { font-size: 12px; }
+}
+
+/* Grey +2 (1986 Amstrad): the toastrack layout with a lighter case and almost
+   bare keycaps — only the sparse legends render (see KeyboardPlus / plus2-legends). */
+.kbd-plus--grey2 {
+  background: linear-gradient(180deg, #797d81 0%, #5f6367 100%);
+  border-color: #2e3033;
+}
+.kbd-plus--grey2 .pk-key {
+  background: linear-gradient(177deg, #43474d 0%, #34373d 45%, #282b30 100%);
+}
+.kbd-plus--grey2 .pk-key:hover {
+  background: linear-gradient(177deg, #4d5258 0%, #3d4147 45%, #303338 100%);
+}
+.kbd-plus--grey2 .pk-key.pressed {
+  background: linear-gradient(177deg, #26282c 0%, #1e2023 100%);
+}
+
+/* Fixed grid: keys are a fixed width (--w units × the unit), NOT stretched to
+   fill, so every alphanumeric is exactly 1u. The inter-key spacing is folded
+   into each key's width (margin + reduced width = exactly --w units), so every
+   row is the same pixel width whatever its key count — which keeps the two
+   halves of the L-shaped ENTER aligned. */
+.kbd-plus--grey2 { --pk2u: 6.2cqw; }
+.kbd-plus--grey2 .kbd-prow { justify-content: center; gap: 0; }
+.kbd-plus--grey2 .pk-key {
+  flex: 0 0 auto;
+  width: calc(var(--w, 1) * var(--pk2u) - 3px);
+  margin-left: 1.5px; margin-right: 1.5px;
+}
+
+/* The +2 prints everything in a single white oblique face — no colour coding —
+   and every legend sits bottom-left of the cap. */
+.kbd-plus--grey2 .pk-main,
+.kbd-plus--grey2 .pk-label,
+.kbd-plus--grey2 .pk-glyph { font-style: italic; color: #f3f3f3; }
+.kbd-plus--grey2 .pk-label {
+  inset: auto auto 4px 6px;
+  align-items: flex-start; justify-content: flex-end;
+  font-size: 8px; text-align: left;
+}
+.kbd-plus--grey2 .pk-key--num .pk-main,
+.kbd-plus--grey2 .pk-key--letter .pk-main {
+  top: auto; bottom: 3px; left: 6px; right: auto;
+  transform: none; text-align: left; font-size: 16px;
+}
+/* Dedicated symbol keys (; " , .) — glyph bottom-left too. */
+.kbd-plus--grey2 .pk-key--sym .pk-glyph {
+  inset: auto auto 3px 6px; align-items: flex-end; justify-content: flex-start;
+}
+
+/* Symbol-shift token (+ any RUN/CODE/LOAD keyword): same oblique face, top-left,
+   above the main legend. */
+.kbd-plus--grey2 .pk2-top {
+  position: absolute; top: 4px; bottom: auto; left: 5px; right: auto;
+  display: flex; align-items: baseline; justify-content: flex-start; gap: 2px;
+  line-height: 1; pointer-events: none;
+}
+.kbd-plus--grey2 .pk2-sym { font-size: 9.5px; font-style: italic; font-weight: 700; color: #f1f1f1; }
+/* keywords (RUN/CODE/LOAD) a touch smaller so "− LOAD" fits a 1u cap */
+.kbd-plus--grey2 .pk2-word { font-size: 8px; font-style: italic; font-weight: 700; color: #f1f1f1; }
+
+/* Chevron cursor keys, drawn from a rotated square so they stay crisp. */
+.kbd-plus--grey2 .pk2-chev {
+  display: inline-block; width: 6px; height: 6px;
+  border-right: 1.5px solid #f1f1f1; border-bottom: 1.5px solid #f1f1f1;
+}
+.kbd-plus--grey2 .pk2-chev--left  { transform: translateX(1px) rotate(135deg); }
+.kbd-plus--grey2 .pk2-chev--right { transform: translateX(-1px) rotate(-45deg); }
+.kbd-plus--grey2 .pk2-chev--up    { transform: translateY(1px) rotate(-135deg); }
+.kbd-plus--grey2 .pk2-chev--down  { transform: translateY(-1px) rotate(45deg); }
+
 /* Mouse pane */
 .mouse-pane { display: flex; flex-direction: column; gap: 6px; }
 .mouse-controls { display: flex; gap: 6px; }

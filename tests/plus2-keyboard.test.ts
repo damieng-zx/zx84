@@ -1,0 +1,119 @@
+/**
+ * Grey ZX Spectrum +2 keyboard legend rules.
+ *
+ * Reference: photographs of the Amstrad grey +2 (1986). Unlike the 128K/+
+ * "toastrack", its keycaps are almost bare — only the RUN/CODE/LOAD keywords
+ * and the single-character symbol-shift tokens that have no dedicated key
+ * survive. The expected kept-red set below is derived from the hardware (the
+ * standard Spectrum symbol-shift legend for each letter), NOT from the
+ * implementation, so the test pins the real machine.
+ */
+
+import { describe, it, expect } from 'vitest';
+import { plus2KeepsRed, plus2UsesSparse, plus2KeyWidth, PLUS2_KEYWORDS } from '@/components/panes/plus2-legends.ts';
+
+// The standard symbol-shift token printed in red on each letter key (ZX Spectrum
+// manual). Independently transcribed here; '−' is U+2212 and '↑' is U+2191 as on
+// the real keyboard.
+const LETTER_RED: Record<string, string> = {
+  Q: '<=', W: '<>', E: '>=', R: '<', T: '>',
+  Y: 'AND', U: 'OR', I: 'AT', O: ';', P: '"',
+  A: 'STOP', S: 'NOT', D: 'STEP', F: 'TO', G: 'THEN',
+  H: '↑', J: '−', K: '+', L: '=',
+  Z: ':', X: '£', C: '?', V: '/', B: '*', N: ',', M: '.',
+};
+
+describe('plus2KeepsRed — which red symbol-shift tokens the grey +2 prints', () => {
+  it('keeps exactly the single-char operators that have no dedicated key', () => {
+    const kept = Object.keys(LETTER_RED).filter((g) => plus2KeepsRed(LETTER_RED[g])).sort();
+    expect(kept).toEqual(['B', 'C', 'H', 'J', 'K', 'L', 'R', 'T', 'V', 'X', 'Z']);
+  });
+
+  it('drops multi-character tokens (compound operators and BASIC words)', () => {
+    expect(plus2KeepsRed('<=')).toBe(false);
+    expect(plus2KeepsRed('AND')).toBe(false);
+    expect(plus2KeepsRed('STOP')).toBe(false);
+  });
+
+  it('drops symbols that have their own dedicated key', () => {
+    for (const s of [';', '"', ',', '.']) expect(plus2KeepsRed(s)).toBe(false);
+  });
+
+  it('keeps awkward single glyphs (↑, −, £) — still one character each', () => {
+    expect(plus2KeepsRed('↑')).toBe(true);
+    expect(plus2KeepsRed('−')).toBe(true);
+    expect(plus2KeepsRed('£')).toBe(true);
+  });
+
+  it('treats empty/undefined as not kept', () => {
+    expect(plus2KeepsRed(undefined)).toBe(false);
+    expect(plus2KeepsRed('')).toBe(false);
+  });
+});
+
+describe('PLUS2_KEYWORDS — the only BASIC keywords left on the caps', () => {
+  it('is exactly RUN on R, CODE on I, LOAD on J', () => {
+    expect(PLUS2_KEYWORDS).toEqual({ R: 'RUN', I: 'CODE', J: 'LOAD' });
+  });
+});
+
+describe('plus2UsesSparse — the sparse grey face is used for the +2 only', () => {
+  it('sparse for the +2 (in either 48K or 128K mode — the face does not switch)', () => {
+    expect(plus2UsesSparse('+2')).toBe(true);
+  });
+
+  it('never sparse for the other 128K-class models', () => {
+    expect(plus2UsesSparse('128k')).toBe(false);
+    expect(plus2UsesSparse('+2A')).toBe(false);
+    expect(plus2UsesSparse('+3')).toBe(false);
+  });
+
+  it('never sparse for 48K (handled by the rubber keyboard, not this path)', () => {
+    expect(plus2UsesSparse('48k')).toBe(false);
+  });
+});
+
+describe('plus2KeyWidth — a fixed grid where every row totals 13.25u', () => {
+  it('shrinks TRUE/INV VIDEO, GRAPH, EDIT, CAPS LOCK and SYMBOL SHIFT to 1u', () => {
+    expect(plus2KeyWidth('fn', 'TRUE\nVIDEO', 1.5)).toBe(1);
+    expect(plus2KeyWidth('fn', 'INV\nVIDEO', 1.5)).toBe(1);
+    expect(plus2KeyWidth('fn', 'GRAPH', 1.4)).toBe(1);
+    expect(plus2KeyWidth('fn', 'EDIT', 1.4)).toBe(1);
+    expect(plus2KeyWidth('fn', 'CAPS\nLOCK', 1.4)).toBe(1);
+    expect(plus2KeyWidth('mod', 'SYMBOL\nSHIFT', 1.6)).toBe(1);
+    expect(plus2KeyWidth('enter-top', undefined, 1.3)).toBe(1);
+  });
+
+  it('keeps the wide keys wide: DELETE/BREAK 1.25, EXTEND MODE 1.7, CAPS SHIFT 2.125', () => {
+    expect(plus2KeyWidth('fn', 'DELETE', 1.7)).toBe(1.25);
+    expect(plus2KeyWidth('fn', 'BREAK', 1.5)).toBe(1.25);
+    expect(plus2KeyWidth('fn', 'EXTEND\nMODE', 1.7)).toBe(1.7);
+    expect(plus2KeyWidth('mod', 'CAPS\nSHIFT', 2)).toBe(2.125);
+  });
+
+  it('sizes the leftover keys: ENTER base 1.55u, SPACE 4.25u', () => {
+    expect(plus2KeyWidth('enter-bottom', 'ENTER', 2.6)).toBe(1.55);
+    expect(plus2KeyWidth('space', undefined, 6)).toBe(4.25);
+  });
+
+  it('leaves alphanumerics and the dedicated symbol/arrow keys at 1u', () => {
+    expect(plus2KeyWidth('letter', undefined, 1)).toBe(1);
+    expect(plus2KeyWidth('num', undefined, 1)).toBe(1);
+    expect(plus2KeyWidth('sym', undefined, 1)).toBe(1);
+    expect(plus2KeyWidth('arrow', undefined, 1)).toBe(1);
+  });
+
+  it('every row totals the same 13.25u (so rows share both edges)', () => {
+    const w = plus2KeyWidth;
+    const row1 = w('fn', 'TRUE\nVIDEO', 1) + w('fn', 'INV\nVIDEO', 1) + 10 * 1 + w('fn', 'BREAK', 1);
+    const row2 = w('fn', 'DELETE', 1) + w('fn', 'GRAPH', 1) + 10 * 1 + w('enter-top', undefined, 1);
+    const row3 = w('fn', 'EXTEND\nMODE', 1) + w('fn', 'EDIT', 1) + 9 * 1 + w('enter-bottom', 'ENTER', 1);
+    const row4 = w('mod', 'CAPS\nSHIFT', 1) + w('fn', 'CAPS\nLOCK', 1) + 7 * 1 + 1 + w('mod', 'CAPS\nSHIFT', 1);
+    const row5 = w('mod', 'SYMBOL\nSHIFT', 1) + 4 * 1 + w('space', undefined, 1) + 3 * 1 + w('mod', 'SYMBOL\nSHIFT', 1);
+    expect(row1).toBeCloseTo(13.25, 5);
+    expect(row2).toBeCloseTo(13.25, 5);
+    expect(row3).toBeCloseTo(13.25, 5);
+    expect(row4).toBeCloseTo(13.25, 5);
+    expect(row5).toBeCloseTo(13.25, 5);
+  });
+});
