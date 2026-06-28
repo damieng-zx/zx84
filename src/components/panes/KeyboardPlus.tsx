@@ -3,7 +3,8 @@
  *
  * A full hard-key layout. Unlike the rubber 48K (legends printed on the bezel
  * around the keys), the + prints every legend *inside* the keycap, so the keys
- * are a flush, uniform-height grid of proportionally-sized rows:
+ * are a flush grid of fixed-pitch caps — 1u is square (1u = key height) and the
+ * command keys are sized in quarter-units:
  *
  *   row 1:  TRUE VIDEO  INV VIDEO   1 2 3 4 5 6 7 8 9 0           BREAK
  *   row 2:  DELETE  GRAPH   Q W E R T Y U I O P             ┐ L-shaped
@@ -11,10 +12,11 @@
  *   row 4:  CAPS SHIFT  CAPS LOCK   Z X C V B N M  .   CAPS SHIFT
  *   row 5:  SYMBOL SHIFT  ; "  ← →   [SPACE]   ↑ ↓ ,   SYMBOL SHIFT
  *
- * The dedicated keys are CAPS/SYMBOL-SHIFT combos on the real matrix (DELETE =
- * CAPS+0, ← = CAPS+5, ; = SYM+O, …). The mode keys latch: CAPS/SYMBOL SHIFT are
- * one-shots; EXTEND MODE, GRAPH and CAPS LOCK hold until clicked again. ENTER is
- * the L-shaped Sinclair return key, rendered as two joined cells.
+ * Every legend on the toastrack is printed white. The dedicated keys are
+ * CAPS/SYMBOL-SHIFT combos on the real matrix (DELETE = CAPS+0, ← = CAPS+5,
+ * ; = SYM+O, …). The mode keys latch: CAPS/SYMBOL SHIFT are one-shots; EXTEND
+ * MODE, GRAPH and CAPS LOCK hold until clicked again. ENTER is the L-shaped
+ * Sinclair return key, rendered as two joined cells.
  */
 
 import { For, Show } from 'solid-js';
@@ -31,7 +33,7 @@ type PVariant = 'num' | 'letter' | 'fn' | 'mod' | 'enter-top' | 'enter-bottom' |
 interface PKey {
   variant: PVariant;
   positions: [number, number][];
-  w?: number;          // width units (flex-grow); default 1
+  w?: number;          // width units (1u = square); default 1
   latch?: LatchMode;   // sticky key (CAPS/SYMBOL SHIFT, EXTEND/GRAPH/CAPS LOCK)
   main?: string;       // big glyph (letter / digit / punctuation / arrow)
   red?: string;        // red symbol-shift token (letters/numbers)
@@ -56,49 +58,52 @@ const arrow = (g: string, positions: [number, number][]): PKey => ({ variant: 'a
 // +2 cursor-key glyph → chevron direction (the sparse face draws a CSS chevron).
 const CHEV: Record<string, string> = { '←': 'left', '→': 'right', '↑': 'up', '↓': 'down' };
 
-const ENTER_TOP: PKey = { variant: 'enter-top', positions: [POS.ENTER], w: 1.3 };
-const ENTER_BOTTOM: PKey = { variant: 'enter-bottom', label: 'ENTER', positions: [POS.ENTER], w: 2.6 };
+// Toastrack cursor caps print a big open (outline) arrow glyph.
+const OUTLINE_ARROW: Record<string, string> = { '←': '⇦', '→': '⇨', '↑': '⇧', '↓': '⇩' };
+
+const ENTER_TOP: PKey = { variant: 'enter-top', positions: [POS.ENTER], w: 1 };
+const ENTER_BOTTOM: PKey = { variant: 'enter-bottom', label: 'ENTER', positions: [POS.ENTER], w: 1.75 };
 
 const ROW1: PKey[] = [
-  fn('TRUE\nVIDEO', [CS, POS['3']], 1.5),
-  fn('INV\nVIDEO', [CS, POS['4']], 1.5),
+  fn('TRUE\nVIDEO', [CS, POS['3']], 1),
+  fn('INV\nVIDEO', [CS, POS['4']], 1),
   ...['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'].map(number),
   fn('BREAK', [CS, POS.SPACE], 1.5),
 ];
 
 const ROW2: PKey[] = [
-  fn('DELETE', [CS, POS['0']], 1.7),
-  fn('GRAPH', [CS, POS['9']], 1.4, 'hold'),
+  fn('DELETE', [CS, POS['0']], 1.5),
+  fn('GRAPH', [CS, POS['9']], 1, 'hold'),
   ...['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'].map(letter),
   ENTER_TOP,
 ];
 
 const ROW3: PKey[] = [
-  fn('EXTEND\nMODE', [CS, SS], 1.7, 'hold'),
-  fn('EDIT', [CS, POS['1']], 1.4),
+  fn('EXTEND\nMODE', [CS, SS], 1.5, 'hold'),
+  fn('EDIT', [CS, POS['1']], 1.25),
   ...['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L'].map(letter),
   ENTER_BOTTOM,
 ];
 
 const ROW4: PKey[] = [
-  mod('CAPS\nSHIFT', CS, 2.0),
-  fn('CAPS\nLOCK', [CS, POS['2']], 1.4, 'hold'),
+  mod('CAPS\nSHIFT', CS, 2.25),
+  fn('CAPS\nLOCK', [CS, POS['2']], 1, 'hold'),
   ...['Z', 'X', 'C', 'V', 'B', 'N', 'M'].map(letter),
   sym('.', [SS, POS.M]),
-  mod('CAPS\nSHIFT', CS, 2.0),
+  mod('CAPS\nSHIFT', CS, 2.25),
 ];
 
 const ROW5: PKey[] = [
-  mod('SYMBOL\nSHIFT', SS, 1.6, true),
+  mod('SYMBOL\nSHIFT', SS, 1, true),
   sym(';', [SS, POS.O]),
   sym('"', [SS, POS.P]),
   arrow('←', [CS, POS['5']]),
   arrow('→', [CS, POS['8']]),
-  { variant: 'space', positions: [POS.SPACE], w: 6 },
+  { variant: 'space', positions: [POS.SPACE], w: 4.5 },
   arrow('↑', [CS, POS['7']]),
   arrow('↓', [CS, POS['6']]),
   sym(',', [SS, POS.N]),
-  mod('SYMBOL\nSHIFT', SS, 1.6, true),
+  mod('SYMBOL\nSHIFT', SS, 1, true),
 ];
 
 function KeyBody(props: { k: PKey; sparse?: boolean }) {
@@ -116,28 +121,22 @@ function KeyBody(props: { k: PKey; sparse?: boolean }) {
   };
   return (
     <>
-      {/* Full 128K/+ legends */}
+      {/* Full 128K/+ legends — all printed white on the toastrack. */}
       <Show when={k.variant === 'num' && !props.sparse}>
         <Show when={k.color}>
-          <span
-            class="pk-tl"
-            classList={{ 'pk-tl--black': k.color === 'BLACK' }}
-            style={k.colorCss && k.color !== 'BLACK' ? { color: k.colorCss } : undefined}
-          >
-            {k.color}
-          </span>
+          <span class="pk-tl pk-white">{k.color}</span>
         </Show>
         <span class="pk-tr pk-white">{k.ext}</span>
         <Show when={k.block}>{(n) => <Block n={n()} class="pk-block" />}</Show>
-        <span class="pk-mr pk-red">{k.red}</span>
+        <span class="pk-mr pk-white">{k.red}</span>
         <span class="pk-main">{k.main}</span>
       </Show>
 
       <Show when={k.variant === 'letter' && !props.sparse}>
-        <span class="pk-tl pk-green">{k.green}</span>
-        <span class="pk-tr pk-red">{k.ess}</span>
+        <span class="pk-tl pk-white">{k.green}</span>
+        <span class="pk-tr pk-white">{k.ess}</span>
         <span class="pk-ml pk-white">{k.word}</span>
-        <span class="pk-mr pk-red">{k.red}</span>
+        <span class="pk-mr pk-white">{k.red}</span>
         <span class="pk-main">{k.main}</span>
       </Show>
 
@@ -157,8 +156,13 @@ function KeyBody(props: { k: PKey; sparse?: boolean }) {
         <span class="pk-main">{k.main}</span>
       </Show>
 
-      <Show when={k.variant === 'sym' || (k.variant === 'arrow' && !props.sparse)}>
+      <Show when={k.variant === 'sym'}>
         <span class="pk-glyph">{k.main}</span>
+      </Show>
+
+      {/* Toastrack cursor keys: big white outline arrows. */}
+      <Show when={k.variant === 'arrow' && !props.sparse}>
+        <span class="pk-glyph pk-arrow">{OUTLINE_ARROW[k.main ?? '']}</span>
       </Show>
 
       {/* +2 cursor keys are chevrons, not full arrows. */}
@@ -182,11 +186,10 @@ function PCell(props: { k: PKey; kbd: KeyboardController; sparse?: boolean }) {
     <div
       class={`pk-key pk-key--${k.variant}`}
       classList={{ pressed: pressed(), 'pk-key--red': k.redLabel }}
-      // Sparse +2: fixed-width grid via the --w unit count (the CSS turns it into
-      // a real width). Toastrack: flex-grow so the row fills the pane.
-      style={props.sparse
-        ? { '--w': `${plus2KeyWidth(k.variant, k.label, k.w ?? 1)}` }
-        : { flex: `${k.w ?? 1} 1 0` }}
+      // Both faces are fixed-width grids driven by the --w unit count (the CSS
+      // turns it into a real width): the toastrack at a square 1u pitch, the
+      // sparse +2 at its own quarter-unit grid.
+      style={{ '--w': `${props.sparse ? plus2KeyWidth(k.variant, k.label, k.w ?? 1) : (k.w ?? 1)}` }}
       role="button"
       aria-pressed={pressed()}
       aria-label={(k.label ?? k.main ?? '').replace('\n', ' ')}

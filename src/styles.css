@@ -847,7 +847,18 @@ canvas {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  background: linear-gradient(180deg, #26282c 0%, #1b1d20 100%);
+  /* Recessed grooves moulded across the case in the gaps between the five key
+     rows (row pitch = 46px key + 4px gap, offset by the 6px top padding), as on
+     the +2/+3. They run the full width; the keys sit on top so a groove only
+     shows through the gaps. The case gradient sits underneath. */
+  background:
+    linear-gradient(to bottom,
+      transparent 0 53px,    rgba(0, 0, 0, 0.45) 53px 55px,    rgba(255, 255, 255, 0.06) 55px 57px,
+      transparent 57px 103px,  rgba(0, 0, 0, 0.45) 103px 105px,  rgba(255, 255, 255, 0.06) 105px 107px,
+      transparent 107px 153px, rgba(0, 0, 0, 0.45) 153px 155px, rgba(255, 255, 255, 0.06) 155px 157px,
+      transparent 157px 203px, rgba(0, 0, 0, 0.45) 203px 205px, rgba(255, 255, 255, 0.06) 205px 207px,
+      transparent 207px),
+    linear-gradient(180deg, #26282c 0%, #1b1d20 100%);
   padding: 6px;
   border-radius: 4px;
   border: 1px solid #050608;
@@ -856,6 +867,17 @@ canvas {
 }
 
 .kbd-prow { display: flex; gap: 4px; align-items: flex-start; }
+
+/* Toastrack (+ / 128K): a fixed unit pitch so 1u keys are square (1u = key
+   height); command keys scale by their --w unit count. Rows are centred, so
+   their differing totals give the hardware's slightly ragged edges. The +2
+   sparse face (.kbd-plus--grey2) keeps its own grid further down. */
+.kbd-plus:not(.kbd-plus--grey2) { --pku: 46px; }
+.kbd-plus:not(.kbd-plus--grey2) .kbd-prow { justify-content: center; }
+.kbd-plus:not(.kbd-plus--grey2) .pk-key {
+  flex: none;
+  width: calc(var(--w, 1) * var(--pku));
+}
 
 /* Keys — all the same height; legends are absolutely placed inside the cap. */
 .pk-key {
@@ -932,6 +954,8 @@ canvas {
   display: flex; align-items: center; justify-content: center;
   font-size: 14px; font-weight: 700; color: #fbfbfb;
 }
+/* Toastrack cursor caps: a big, thin, white open-arrow glyph (⇦ ⇨ ⇧ ⇩). */
+.pk-arrow { font-size: 24px; font-weight: 400; }
 .pk-label {
   position: absolute; inset: 0;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -939,11 +963,28 @@ canvas {
   text-align: center; color: #e8e8e8;
 }
 .pk-key--red .pk-label { color: #e5572f; }
+/* The toastrack prints every legend white, including SYMBOL SHIFT (the +2 sparse
+   face below keeps it red). */
+.kbd-plus:not(.kbd-plus--grey2) .pk-key--red .pk-label { color: #e8e8e8; }
 
 @container (max-width: 560px) {
   .pk-key { height: 40px; }
   .pk-key--enter-top { height: 44px; }
   .pk-main, .pk-glyph { font-size: 12px; }
+  .pk-arrow { font-size: 20px; }
+  /* Toastrack 1u tracks the 40px key height to stay square; the grooves move to
+     the 44px row pitch (40px key + 4px gap) to match. */
+  .kbd-plus:not(.kbd-plus--grey2) {
+    --pku: 40px;
+    background:
+      linear-gradient(to bottom,
+        transparent 0 47px,    rgba(0, 0, 0, 0.45) 47px 49px,    rgba(255, 255, 255, 0.06) 49px 51px,
+        transparent 51px 91px,   rgba(0, 0, 0, 0.45) 91px 93px,    rgba(255, 255, 255, 0.06) 93px 95px,
+        transparent 95px 135px,  rgba(0, 0, 0, 0.45) 135px 137px,  rgba(255, 255, 255, 0.06) 137px 139px,
+        transparent 139px 179px, rgba(0, 0, 0, 0.45) 179px 181px,  rgba(255, 255, 255, 0.06) 181px 183px,
+        transparent 183px),
+      linear-gradient(180deg, #26282c 0%, #1b1d20 100%);
+  }
   /* Keys shrink to 40px here, so 1u stays square (40px) and the groove gaps
      move to a 44px pitch. */
   .kbd-plus--grey2 {
