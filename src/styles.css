@@ -949,6 +949,11 @@ canvas {
 }
 .pk-block i { background: transparent; }
 .pk-block i.on { background: #15171a; }
+/* Key 8 (CHR$ 128): an empty outlined box — just the border, no fill. */
+.k-block.block-empty, .pk-block.block-empty { background: transparent; }
+/* Number symbol-shift tokens are single glyphs; let the bottom-sitting '_' on
+   key 0 show instead of being clipped by the slot's overflow. */
+.pk-key--num .pk-mr { overflow: visible; }
 .pk-glyph {
   position: absolute; inset: 0;
   display: flex; align-items: center; justify-content: center;

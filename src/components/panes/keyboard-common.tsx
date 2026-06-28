@@ -90,23 +90,27 @@ export const NUMBERS: Record<string, NumberLegend> = {
 };
 
 // Block-graphics swatches printed on number keys 1–8: which of the four
-// quadrants [top-left, top-right, bottom-left, bottom-right] are filled.
+// quadrants [top-left, top-right, bottom-left, bottom-right] are filled. Keys
+// 1–4 are the inverse (all but one quadrant) of keys 7–4; key 8 is the empty
+// outlined block (CHR$ 128).
 export const BLOCKS: Record<number, [boolean, boolean, boolean, boolean]> = {
-  1: [true, false, false, false],
-  2: [false, true, false, false],
-  3: [true, true, false, false],
-  4: [false, false, true, false],
+  1: [true, false, true, true],
+  2: [false, true, true, true],
+  3: [false, false, true, true],
+  4: [true, true, true, false],
   5: [true, false, true, false],
   6: [false, true, true, false],
-  7: [true, true, true, false],
-  8: [false, false, false, true],
+  7: [false, false, true, false],
+  8: [false, false, false, false],
 };
 
-/** A 2×2 block-graphics swatch. `class` lets each keyboard position it. */
+/** A 2×2 block-graphics swatch. `class` lets each keyboard position it; an
+ *  all-empty pattern (key 8 / CHR$ 128) draws as a bare outlined box. */
 export function Block(props: { n: number; class?: string }) {
+  const quads = () => BLOCKS[props.n];
   return (
-    <span class={props.class ?? 'k-block'}>
-      <For each={BLOCKS[props.n]}>{(on) => <i classList={{ on }} />}</For>
+    <span class={props.class ?? 'k-block'} classList={{ 'block-empty': quads().every((q) => !q) }}>
+      <For each={quads()}>{(on) => <i classList={{ on }} />}</For>
     </span>
   );
 }

@@ -26,7 +26,7 @@ import {
   POS, CS, SS, LETTERS, NUMBERS, Block, useKeyboard,
   type KeyboardController, type LatchMode,
 } from './keyboard-common.tsx';
-import { plus2KeepsRed, plus2KeyWidth, PLUS2_KEYWORDS } from './plus2-legends.ts';
+import { plus2KeepsRed, plus2KeyWidth, PLUS2_KEYWORDS, PLUS2_DEDICATED_SYMBOLS } from './plus2-legends.ts';
 
 type PVariant = 'num' | 'letter' | 'fn' | 'mod' | 'enter-top' | 'enter-bottom' | 'space' | 'sym' | 'arrow';
 
@@ -136,7 +136,11 @@ function KeyBody(props: { k: PKey; sparse?: boolean }) {
         <span class="pk-tl pk-white">{k.green}</span>
         <span class="pk-tr pk-white">{k.ess}</span>
         <span class="pk-ml pk-white">{k.word}</span>
-        <span class="pk-mr pk-white">{k.red}</span>
+        {/* O/P/N/M carry a symbol-shift token (; " , .) that has its own
+            dedicated key on this layout, so it isn't reprinted on the letter. */}
+        <Show when={!PLUS2_DEDICATED_SYMBOLS.has(k.red ?? '')}>
+          <span class="pk-mr pk-white">{k.red}</span>
+        </Show>
         <span class="pk-main">{k.main}</span>
       </Show>
 
