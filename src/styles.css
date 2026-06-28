@@ -949,11 +949,18 @@ canvas {
 }
 .pk-block i { background: transparent; }
 .pk-block i.on { background: #15171a; }
+/* Stacked number caps share one row between the block-graphic swatch and the
+   symbol-shift token; the swatch is inline (not absolutely placed) here. */
+.pk-numrow { display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 2px; }
+.pk-block-inline {
+  width: 8px; height: 8px; flex: none;
+  display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr;
+  background: #e9e9e9; border: 1px solid #cfcfcf;
+}
+.pk-block-inline i { background: transparent; }
+.pk-block-inline i.on { background: #15171a; }
 /* Key 8 (CHR$ 128): an empty outlined box — just the border, no fill. */
-.k-block.block-empty, .pk-block.block-empty { background: transparent; }
-/* Number symbol-shift tokens are single glyphs; let the bottom-sitting '_' on
-   key 0 show instead of being clipped by the slot's overflow. */
-.pk-key--num .pk-mr { overflow: visible; }
+.k-block.block-empty, .pk-block.block-empty, .pk-block-inline.block-empty { background: transparent; }
 .pk-glyph {
   position: absolute; inset: 0;
   display: flex; align-items: center; justify-content: center;
@@ -961,6 +968,18 @@ canvas {
 }
 /* Toastrack cursor caps: a big, thin, white open-arrow glyph (⇦ ⇨ ⇧ ⇩). */
 .pk-arrow { font-size: 24px; font-weight: 400; }
+/* Letter caps stack every legend on its own line (extended / ext+sym / K-mode
+   keyword / symbol-shift token / main glyph), all white and centred. */
+.pk-stack {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 1px; line-height: 1; padding: 1px;
+}
+.pk-leg {
+  font-size: 6px; font-weight: 700; line-height: 1; color: #ededed;
+  white-space: nowrap; overflow: hidden; max-width: 100%;
+}
+.pk-leg--main { font-size: 13px; color: #fbfbfb; margin-top: 1px; }
 .pk-label {
   position: absolute; inset: 0;
   display: flex; flex-direction: column; align-items: center; justify-content: center;

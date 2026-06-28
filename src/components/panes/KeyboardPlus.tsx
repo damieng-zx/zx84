@@ -122,26 +122,35 @@ function KeyBody(props: { k: PKey; sparse?: boolean }) {
   return (
     <>
       {/* Full 128K/+ legends — all printed white on the toastrack. */}
+      {/* Number caps stack like the letters: colour name, extended keyword, the
+          block-graphic swatch and symbol-shift token together on one row, then
+          the digit (e.g. 1 → BLUE / DEF FN / ▘! / 1). Keys with no colour (8, 9)
+          keep a blank top line so every digit lines up. */}
       <Show when={k.variant === 'num' && !props.sparse}>
-        <Show when={k.color}>
-          <span class="pk-tl pk-white">{k.color}</span>
-        </Show>
-        <span class="pk-tr pk-white">{k.ext}</span>
-        <Show when={k.block}>{(n) => <Block n={n()} class="pk-block" />}</Show>
-        <span class="pk-mr pk-white">{k.red}</span>
-        <span class="pk-main">{k.main}</span>
+        <span class="pk-stack">
+          <span class="pk-leg">{k.color ?? ' '}</span>
+          <span class="pk-leg">{k.ext}</span>
+          <span class="pk-leg pk-numrow">
+            <Show when={k.block}>{(n) => <Block n={n()} class="pk-block-inline" />}</Show>
+            <span>{k.red}</span>
+          </span>
+          <span class="pk-leg pk-leg--main">{k.main}</span>
+        </span>
       </Show>
 
+      {/* Each legend on its own line, top to bottom: extended keyword,
+          extended+symbol-shift keyword, K-mode keyword, symbol-shift token,
+          then the main glyph (e.g. Q → SIN / ASN / PLOT / <= / Q). O/P/N/M
+          leave the symbol-shift line blank (their token — ; " , . — has its own
+          dedicated key) so every cap keeps five rows and the glyphs line up. */}
       <Show when={k.variant === 'letter' && !props.sparse}>
-        <span class="pk-tl pk-white">{k.green}</span>
-        <span class="pk-tr pk-white">{k.ess}</span>
-        <span class="pk-ml pk-white">{k.word}</span>
-        {/* O/P/N/M carry a symbol-shift token (; " , .) that has its own
-            dedicated key on this layout, so it isn't reprinted on the letter. */}
-        <Show when={!PLUS2_DEDICATED_SYMBOLS.has(k.red ?? '')}>
-          <span class="pk-mr pk-white">{k.red}</span>
-        </Show>
-        <span class="pk-main">{k.main}</span>
+        <span class="pk-stack">
+          <span class="pk-leg">{k.green}</span>
+          <span class="pk-leg">{k.ess}</span>
+          <span class="pk-leg">{k.word}</span>
+          <span class="pk-leg">{PLUS2_DEDICATED_SYMBOLS.has(k.red ?? '') ? ' ' : k.red}</span>
+          <span class="pk-leg pk-leg--main">{k.main}</span>
+        </span>
       </Show>
 
       {/* Sparse grey +2 legends: the symbol-shift token (and any surviving
