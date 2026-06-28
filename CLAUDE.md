@@ -39,8 +39,6 @@ npx tsc --noEmit          # type-check (no output = clean)
 npx vite build            # production build
 ```
 
-The dev server (`npx vite`) uses HMR — every file save triggers a hot reload. **Minimise edit churn**: plan all changes to a file upfront and apply them in one pass. Multiple sequential edits to the same file cause cascading reloads.
-
 ## Writing tests
 
 Tests must be written critically against a known-correct specification, not as a mirror of the current implementation.
