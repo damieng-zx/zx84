@@ -2,15 +2,10 @@ import { createSignal, Show } from 'solid-js';
 
 const CHANGELOG: { version: string; items: string[] }[] = [
   {
-    version: '0.6.6',
-    items: [
-      'On-screen 48K keyboard fixes: tidier key legends, and CAPS+SYMBOL SHIFT no longer flickers EXTENDED mode',
-      'Fixed a one-scanline FLASH tear at the screen\'s left edge in high-accuracy mode (the flashing cursor occasionally inverted a line)',
-    ]
-  }, {
     version: '0.6.5',
     items: [
-      'Interactive on-screen ZX Spectrum keyboard — click to type, sticky CAPS/SYMBOL SHIFT, with live highlighting of physical keypresses',
+      'Interactive 48K/128K/+2/+3 keyboards',
+      'Fix tearing on flash attr',
     ]
   }, {
     version: '0.6.4',
