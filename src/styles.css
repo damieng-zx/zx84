@@ -666,7 +666,7 @@ canvas {
 .kbd-color--black {
   color: #000;
   background: #fff;
-  border-radius: 2px;
+  border-radius: 0;
   padding: 0 3px;
 }
 .kbd-cmd {
@@ -795,8 +795,8 @@ canvas {
   color: #e5572f;
 }
 /* When the red token is a word (STOP, AND, THEN…) rather than a symbol, match
-   the white keyword's size (like LIST). */
-.k-redtok--word { font-size: 8px; }
+   the white keyword's size (like LIST). Nudge a few px right of the symbol edge. */
+.k-redtok--word { font-size: 8px; padding-right: 3px; }
 /* Bare punctuation tokens (* , .) read better larger. */
 .k-redtok--big { font-size: 13px; }
 
