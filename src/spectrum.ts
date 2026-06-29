@@ -890,7 +890,12 @@ export class Spectrum extends BaseMachine implements Machine {
     if (xStart < borderLeft) {
       ula.fillBorder(i, xStart, Math.min(xEnd, borderLeft), border);
     }
-    if (xEnd > borderLeft && colStart < colEnd) {
+    // `>=` (not `>`): when a chunk ends exactly on the left edge, the Ferranti
+    // +1 cell offset asks for col 0 (colEnd=1). `colStart < colEnd` is the real
+    // authority — gating on `xEnd > borderLeft` would skip col 0 here while
+    // nextDisplayCol still advanced past it, leaving col 0 stale (a one-scanline
+    // flash tear on a column-0 FLASH cell, e.g. the editing cursor).
+    if (xEnd >= borderLeft && colStart < colEnd) {
       const dy = i - borderTop;
       for (let col = colStart; col < colEnd; col++) {
         ula.renderDisplayCell(dy, col, this.memory.screenBank, 0x4000);
