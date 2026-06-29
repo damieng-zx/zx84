@@ -144,9 +144,27 @@ const idOf = (positions: [number, number][]) => positions.map(([r, b]) => `${r},
  *   • a per-frame poll mirrors the matrix so keys highlight for physical
  *     keystrokes too, not just pointer presses.
  */
+/**
+ * How long the CAPS+SYMBOL chord is held before release. Long enough for the
+ * ROM's 50Hz keyboard scan to register it several times, but well under the
+ * auto-repeat delay (REPDEL ≈ 0.7s) so EXTEND MODE toggles exactly once instead
+ * of flickering in and out.
+ */
+const CHORD_PULSE_MS = 120;
+
 export function useKeyboard(): KeyboardController {
   const [matrix, setMatrix] = createSignal<number[]>(ROWS_RELEASED());
   const [latched, setLatched] = createSignal<ReadonlyMap<string, { positions: [number, number][]; hold: boolean }>>(new Map());
+
+  // Shift-chord (CAPS+SYMBOL) bits currently pulsed down, awaiting release.
+  let chordTimer: ReturnType<typeof setTimeout> | undefined;
+  let chordPositions: [number, number][] = [];
+  const releaseChord = () => {
+    const kb = spectrum?.keyboard;
+    if (kb) for (const [r, b] of chordPositions) kb.setKey(r, b, false);
+    chordPositions = [];
+    chordTimer = undefined;
+  };
 
   const isDown = (positions: [number, number][]) =>
     positions.length > 0 && positions.every(([r, b]) => (matrix()[r] & (1 << b)) === 0);
@@ -154,20 +172,47 @@ export function useKeyboard(): KeyboardController {
   const onDown = (positions: [number, number][], latch?: LatchMode) => {
     const kb = spectrum?.keyboard;
     if (!kb) return;
-    if (latch) {
-      const id = idOf(positions);
-      const next = new Map(latched());
-      if (next.has(id)) {
-        for (const [r, b] of positions) kb.setKey(r, b, false);
-        next.delete(id);
-      } else {
-        for (const [r, b] of positions) kb.setKey(r, b, true);
-        next.set(id, { positions, hold: latch === 'hold' });
-      }
-      setLatched(next);
-    } else {
+    if (!latch) {
       for (const [r, b] of positions) kb.setKey(r, b, true);
+      return;
     }
+    const id = idOf(positions);
+    const cur = latched();
+    // Click an already-latched key again to unlatch it.
+    if (cur.has(id)) {
+      for (const [r, b] of positions) kb.setKey(r, b, false);
+      const next = new Map(cur);
+      next.delete(id);
+      setLatched(next);
+      return;
+    }
+    // A second one-shot shift while another one-shot is already latched forms a
+    // momentary chord (CAPS+SYMBOL → EXTEND MODE). Latching both keeps the chord
+    // asserted forever, which makes the ROM auto-repeat the mode toggle (it
+    // flickers in and out). Instead pulse both shifts down together briefly: the
+    // ROM enters the mode once and remembers it, and we release both shifts.
+    if (latch === 'oneshot') {
+      const others = [...cur.entries()].filter(([, e]) => !e.hold);
+      if (others.length > 0) {
+        const next = new Map(cur);
+        const chord: [number, number][] = [...positions];
+        for (const [oid, e] of others) {
+          next.delete(oid);          // drop the persistent latch...
+          chord.push(...e.positions); // ...but keep its bit asserted for the pulse
+        }
+        setLatched(next);
+        for (const [r, b] of positions) kb.setKey(r, b, true);
+        chordPositions = [...chordPositions, ...chord];
+        if (chordTimer) clearTimeout(chordTimer);
+        chordTimer = setTimeout(releaseChord, CHORD_PULSE_MS);
+        return;
+      }
+    }
+    // Normal latch on.
+    for (const [r, b] of positions) kb.setKey(r, b, true);
+    const next = new Map(cur);
+    next.set(id, { positions, hold: latch === 'hold' });
+    setLatched(next);
   };
 
   const onUp = (positions: [number, number][], latch?: LatchMode) => {
@@ -208,6 +253,8 @@ export function useKeyboard(): KeyboardController {
     raf = requestAnimationFrame(tick);
     onCleanup(() => cancelAnimationFrame(raf));
   });
+
+  onCleanup(() => { if (chordTimer) clearTimeout(chordTimer); });
 
   return { isDown, onDown, onUp };
 }
