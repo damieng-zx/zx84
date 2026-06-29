@@ -584,11 +584,20 @@ canvas {
 #keyboard-panel {
   width: 100%;
   margin-top: 8px;
+  /* Dark base so no white pane background peeks at the rounded corners. */
+  background: #141619;
+}
+
+/* No white gap between the title bar and the bezel (the default .pane rule
+   adds margin-bottom: 6px). */
+#keyboard-panel > .section-label {
+  margin-bottom: 0;
 }
 
 #keyboard-panel > .pane-content {
-  /* Override the default 0 6px 6px so the dark bezel bleeds to the pane edges */
-  padding: 0 4px 4px;
+  /* Bezel fills to the pane edges — the previous `0 4px 4px` exposed the white
+     pane background as a border around the keyboard (and a strip when collapsed). */
+  padding: 0;
 }
 
 .kbd-bezel {

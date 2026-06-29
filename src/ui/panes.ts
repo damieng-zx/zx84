@@ -45,6 +45,7 @@ export const PANE_LABELS: Record<string, string> = {
   'disasm-panel': 'Debugger',
   'memory-panel': 'Memory',
   'text-panel': 'Text',
+  'keyboard-panel': 'Keyboard',
 };
 
 // ── Default pane layout ─────────────────────────────────────────────────
@@ -59,6 +60,10 @@ const DEFAULT_ORDER: PanePosition[] = [
   // Right: peripherals/output, then the dev panes (hidden by default).
   { id: 'sound-panel', sidebar: 'right' },
   { id: 'display-pane', sidebar: 'right' },
+  // The keyboard pane lives under the screen in #main, not a sidebar — it has
+  // no PANE_COMPONENTS entry so it never renders in a sidebar. It's listed here
+  // only so it appears in the "Panes" show/hide menu (sidebar value unused).
+  { id: 'keyboard-panel', sidebar: 'right' },
   { id: 'joystick-panel', sidebar: 'right' },
   { id: 'mouse-panel', sidebar: 'right' },
   { id: 'font-panel', sidebar: 'right' },
