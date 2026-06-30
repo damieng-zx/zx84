@@ -2,6 +2,11 @@ import { createSignal, Show } from 'solid-js';
 
 const CHANGELOG: { version: string; items: string[] }[] = [
   {
+    version: '0.6.6',
+    items: [
+      'On-screen keyboards scale with the display size (1×/2×/3×)',
+    ]
+  }, {
     version: '0.6.5',
     items: [
       'Interactive 48K/128K/+2/+3 keyboards',
