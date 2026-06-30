@@ -183,7 +183,8 @@ export function App() {
       <div id="main">
         <Screen />
         <StatusBar />
-        <Show when={!isPaneUserHidden('keyboard-panel')}><KeyboardPane /></Show>
+        {/* The on-screen keyboard models Spectrum hardware only — hide it in CPC mode. */}
+        <Show when={!isPaneUserHidden('keyboard-panel') && !isCpcModel(currentModel())}><KeyboardPane /></Show>
         <div id="diag"><div id="diag-header" /></div>
       </div>
 
