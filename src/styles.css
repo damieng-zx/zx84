@@ -602,13 +602,19 @@ canvas {
 
 .kbd-bezel {
   position: relative;
-  --ku: 42px; /* 1u key width — ~75% of the old full-width stretch cell */
-  --kg: 10px; /* gap between keys — doubled from the old 5px */
+  /* 1u key width is tied to the display scale (1×/2×/3×): 14px × scale gives
+     the hand-tuned 42px at 3×, and the whole keyboard shrinks proportionally at
+     2×/1×. --u1 is a "design pixel": the value 1px had at the reference --ku of
+     42px, so every legend metric below stays its original number while scaling
+     with --ku as one block. */
+  --ku: calc(14px * var(--display-scale, 3));
+  --u1: calc(var(--ku) / 42);
+  --kg: calc(var(--u1) * 10); /* gap between keys */
   /* Slightly mottled near-black rubber mat */
   background:
     radial-gradient(ellipse at 50% -10%, #34373c 0%, #202327 45%, #141619 100%);
-  padding: 10px 12px 12px;
-  border-radius: 5px;
+  padding: calc(var(--u1) * 10) calc(var(--u1) * 12) calc(var(--u1) * 12);
+  border-radius: calc(var(--u1) * 5);
   border: 1px solid #050608;
   box-shadow:
     inset 0 1px 2px rgba(255, 255, 255, 0.05),
@@ -623,7 +629,7 @@ canvas {
   gap: var(--kg);
 }
 .kbd-row + .kbd-row {
-  margin-top: 4px;
+  margin-top: calc(var(--u1) * 4);
 }
 /* Centre the whole keyboard as a unit while the rows keep their stagger. */
 .kbd-keys { width: fit-content; margin-inline: auto; }
@@ -651,22 +657,22 @@ canvas {
   justify-content: flex-end;
   line-height: 1.05;
   text-align: left;
-  padding-left: 2px; /* sit just inside the key's left edge */
+  padding-left: calc(var(--u1) * 2); /* sit just inside the key's left edge */
   overflow: visible; /* let wide command names show in full rather than clip */
 }
 .kbd-above--letter,
 .kbd-above--special {
-  min-height: 11px;
-  padding-bottom: 1px;
+  min-height: calc(var(--u1) * 11);
+  padding-bottom: calc(var(--u1) * 1);
 }
 .kbd-above--num {
-  min-height: 24px;
-  padding-bottom: 1px;
-  gap: 1px;
+  min-height: calc(var(--u1) * 24);
+  padding-bottom: calc(var(--u1) * 1);
+  gap: calc(var(--u1) * 1);
 }
 
 .kbd-color {
-  font-size: 7px;
+  font-size: calc(var(--u1) * 7);
   font-weight: 700;
   letter-spacing: 0.2px;
   line-height: 1;
@@ -676,10 +682,10 @@ canvas {
   color: #000;
   background: #fff;
   border-radius: 0;
-  padding: 0 3px;
+  padding: 0 calc(var(--u1) * 3);
 }
 .kbd-cmd {
-  font-size: 7.5px;
+  font-size: calc(var(--u1) * 7.5);
   font-weight: 700;
   color: #f3f3f3;
   letter-spacing: 0.2px;
@@ -687,7 +693,7 @@ canvas {
   white-space: nowrap;
 }
 .kbd-green {
-  font-size: 7.5px;
+  font-size: calc(var(--u1) * 7.5);
   font-weight: 700;
   color: #36d152;
   letter-spacing: 0.2px;
@@ -697,11 +703,11 @@ canvas {
 
 /* ── Below-key legend (red extended + symbol shift) ────────────────────── */
 .kbd-below {
-  height: 12px;
-  margin-top: 2px;
+  height: calc(var(--u1) * 12);
+  margin-top: calc(var(--u1) * 2);
   text-align: left;
-  padding-left: 2px; /* just inside the key's left edge, like the above-key legends */
-  font-size: 7.5px;
+  padding-left: calc(var(--u1) * 2); /* just inside the key's left edge, like the above-key legends */
+  font-size: calc(var(--u1) * 7.5);
   font-weight: 700;
   color: #e5572f;
   letter-spacing: 0.2px;
@@ -715,7 +721,7 @@ canvas {
   position: relative;
   /* Real 48K key ratio 72:52 — wider than tall — derived from the unit width. */
   height: calc(var(--ku) * 52 / 72);
-  border-radius: 4px;
+  border-radius: calc(var(--u1) * 4);
   /* Cyan-tinged grey rubber. */
   background: linear-gradient(177deg, #3f6167 0%, #2d4e54 40%, #1e3b41 100%);
   border: 1px solid #11191b;
@@ -746,9 +752,9 @@ canvas {
 .k-num,
 .k-letter {
   position: absolute;
-  top: 3px;
-  left: 6px;
-  font-size: 13px;
+  top: calc(var(--u1) * 3);
+  left: calc(var(--u1) * 6);
+  font-size: calc(var(--u1) * 13);
   font-weight: 700;
   line-height: 1;
   color: #fbfbfb;
@@ -757,10 +763,10 @@ canvas {
 /* Block-graphics swatch — top-right on number keys */
 .k-block {
   position: absolute;
-  top: 3px;
-  right: 6px;
-  width: 9px;
-  height: 9px;
+  top: calc(var(--u1) * 3);
+  right: calc(var(--u1) * 6);
+  width: calc(var(--u1) * 9);
+  height: calc(var(--u1) * 9);
   display: grid;
   grid-template-columns: 1fr 1fr;
   grid-template-rows: 1fr 1fr;
@@ -779,11 +785,11 @@ canvas {
    char (same right-hand column), so 9/0 with no block still place it there. */
 .k-numsym {
   position: absolute;
-  top: 13px;
-  right: 6px;
-  width: 9px;
+  top: calc(var(--u1) * 13);
+  right: calc(var(--u1) * 6);
+  width: calc(var(--u1) * 9);
   text-align: center;
-  font-size: 9px;
+  font-size: calc(var(--u1) * 9);
   font-weight: 700;
   line-height: 1;
   color: #e5572f;
@@ -793,31 +799,31 @@ canvas {
    the main glyph), vertically centred against that glyph via its 13px band. */
 .k-redtok {
   position: absolute;
-  top: 3px;
+  top: calc(var(--u1) * 3);
   left: 0;
   right: 0;
   text-align: right;
-  padding-right: 6px;
-  font-size: 9px;
+  padding-right: calc(var(--u1) * 6);
+  font-size: calc(var(--u1) * 9);
   font-weight: 700;
-  line-height: 13px;
+  line-height: calc(var(--u1) * 13);
   color: #e5572f;
 }
 /* When the red token is a word (STOP, AND, THEN…) rather than a symbol, match
    the white keyword's size (like LIST). Nudge a few px right of the symbol edge. */
-.k-redtok--word { font-size: 8px; padding-right: 3px; }
+.k-redtok--word { font-size: calc(var(--u1) * 8); padding-right: calc(var(--u1) * 3); }
 /* Bare punctuation tokens (* , .) read better larger. */
-.k-redtok--big { font-size: 13px; }
+.k-redtok--big { font-size: calc(var(--u1) * 13); }
 
 /* White K-mode keyword on letter keys — bottom, right-aligned to the key edge */
 .k-word {
   position: absolute;
-  bottom: 2px;
+  bottom: calc(var(--u1) * 2);
   left: 0;
   right: 0;
   text-align: right;
-  padding-right: 6px;
-  font-size: 8px;
+  padding-right: calc(var(--u1) * 6);
+  font-size: calc(var(--u1) * 8);
   font-weight: 700;
   line-height: 1;
   letter-spacing: 0.2px;
@@ -837,27 +843,19 @@ canvas {
   align-items: center;
   justify-content: center;
   line-height: 1.15;
-  font-size: 8.5px;
+  font-size: calc(var(--u1) * 8.5);
   font-weight: 700;
   letter-spacing: 0.3px;
   color: #f4f4f4;
 }
-.kbd-key--red .k-special { color: #e5572f; font-size: 8px; } /* match the red word size (THEN) */
+.kbd-key--red .k-special { color: #e5572f; font-size: calc(var(--u1) * 8); } /* match the red word size (THEN) */
 .k-special--biglast span:first-child {
-  font-size: 7.5px;
+  font-size: calc(var(--u1) * 7.5);
   font-weight: 600;
   opacity: 0.95;
 }
 .k-special--biglast span:last-child {
-  font-size: 12px;
-}
-
-/* Narrow panes: shrink the unit/gap and on-key legends so the fixed-width
-   keyboard still fits. */
-@container (max-width: 520px) {
-  .kbd-bezel { --ku: 36px; --kg: 6px; } /* key height follows via the 72:52 ratio */
-  .k-num, .k-letter { font-size: 11px; }
-  .k-word, .kbd-green, .kbd-cmd, .kbd-below, .kbd-color { font-size: 7px; }
+  font-size: calc(var(--u1) * 12);
 }
 
 /* ── Spectrum + / 128K hard keyboard ──────────────────────────────────── */
@@ -868,34 +866,39 @@ canvas {
 .kbd-plus {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  /* --pu1 is a "design pixel": the value 1px had at the reference (3× / 46px
+     caps), driven by the display scale so the whole hard keyboard shrinks
+     proportionally at 2×/1×. Every metric below keeps its original number as a
+     calc(var(--pu1) * N) so the layout is identical at 3× and scales as one. */
+  --pu1: calc(1px * var(--display-scale, 3) / 3);
+  gap: calc(var(--pu1) * 4);
   background: linear-gradient(180deg, #26282c 0%, #1b1d20 100%);
-  padding: 6px;
-  border-radius: 4px;
+  padding: calc(var(--pu1) * 6);
+  border-radius: calc(var(--pu1) * 4);
   border: 1px solid #050608;
   box-shadow: inset 0 0 16px rgba(0, 0, 0, 0.45);
   container-type: inline-size;
 }
 
-.kbd-prow { display: flex; gap: 4px; align-items: flex-start; }
+.kbd-prow { display: flex; gap: calc(var(--pu1) * 4); align-items: flex-start; }
 
 /* Toastrack (+ / 128K): a fixed unit pitch so 1u keys are square (1u = key
    height); command keys scale by their --w unit count. Rows are centred, so
    their differing totals give the hardware's slightly ragged edges. The +2
    sparse face (.kbd-plus--grey2) keeps its own grid further down. */
 .kbd-plus:not(.kbd-plus--grey2) {
-  --pku: 48px; /* 46px square cap + 2px gap */
-  gap: 2px;
+  --pku: calc(var(--pu1) * 48); /* 46px square cap + 2px gap */
+  gap: calc(var(--pu1) * 2);
   /* Recessed groove lines (a 1px dark + 1px light bevel) moulded into the case
      in the 2px gaps between the five key rows, offset by the 6px top padding, as
      on the +2/+3. The keys sit on top, so a groove only shows through the gaps. */
   background:
     linear-gradient(to bottom,
-      transparent 0 52px,    rgba(0, 0, 0, 0.45) 52px 53px,    rgba(255, 255, 255, 0.06) 53px 54px,
-      transparent 54px 100px,  rgba(0, 0, 0, 0.45) 100px 101px,  rgba(255, 255, 255, 0.06) 101px 102px,
-      transparent 102px 148px, rgba(0, 0, 0, 0.45) 148px 149px, rgba(255, 255, 255, 0.06) 149px 150px,
-      transparent 150px 196px, rgba(0, 0, 0, 0.45) 196px 197px, rgba(255, 255, 255, 0.06) 197px 198px,
-      transparent 198px),
+      transparent 0 calc(var(--pu1) * 52),    rgba(0, 0, 0, 0.45) calc(var(--pu1) * 52) calc(var(--pu1) * 53),    rgba(255, 255, 255, 0.06) calc(var(--pu1) * 53) calc(var(--pu1) * 54),
+      transparent calc(var(--pu1) * 54) calc(var(--pu1) * 100),  rgba(0, 0, 0, 0.45) calc(var(--pu1) * 100) calc(var(--pu1) * 101),  rgba(255, 255, 255, 0.06) calc(var(--pu1) * 101) calc(var(--pu1) * 102),
+      transparent calc(var(--pu1) * 102) calc(var(--pu1) * 148), rgba(0, 0, 0, 0.45) calc(var(--pu1) * 148) calc(var(--pu1) * 149), rgba(255, 255, 255, 0.06) calc(var(--pu1) * 149) calc(var(--pu1) * 150),
+      transparent calc(var(--pu1) * 150) calc(var(--pu1) * 196), rgba(0, 0, 0, 0.45) calc(var(--pu1) * 196) calc(var(--pu1) * 197), rgba(255, 255, 255, 0.06) calc(var(--pu1) * 197) calc(var(--pu1) * 198),
+      transparent calc(var(--pu1) * 198)),
     linear-gradient(180deg, #26282c 0%, #1b1d20 100%);
 }
 .kbd-plus:not(.kbd-plus--grey2) .kbd-prow { justify-content: center; gap: 0; }
@@ -905,16 +908,16 @@ canvas {
    margin leaves the ENTER cell's negative bottom margin untouched. */
 .kbd-plus:not(.kbd-plus--grey2) .pk-key {
   flex: none;
-  width: calc(var(--w, 1) * var(--pku) - 2px);
-  margin-inline: 1px;
+  width: calc(var(--w, 1) * var(--pku) - var(--pu1) * 2);
+  margin-inline: calc(var(--pu1) * 1);
 }
 
 /* Keys — all the same height; legends are absolutely placed inside the cap. */
 .pk-key {
   position: relative;
-  height: 46px;
+  height: calc(var(--pu1) * 46);
   min-width: 0;
-  border-radius: 3px;
+  border-radius: calc(var(--pu1) * 3);
   background: linear-gradient(177deg, #474b51 0%, #383c42 45%, #2c3035 100%);
   border: 1px solid #141619;
   color: #f4f4f4;
@@ -937,8 +940,8 @@ canvas {
 /* L-shaped ENTER: a narrow top cell (row 2) joined to a wider bottom cell
    (row 3). The top cell overhangs the 2px row gap to butt against the bottom. */
 .pk-key--enter-top {
-  height: 48px;
-  margin-bottom: -2px;
+  height: calc(var(--pu1) * 48);
+  margin-bottom: calc(var(--pu1) * -2);
   border-bottom: none;
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
@@ -952,28 +955,28 @@ canvas {
 /* In-cap legend slots */
 .pk-tl, .pk-tr, .pk-ml, .pk-mr {
   position: absolute;
-  font-size: 6px; font-weight: 700; line-height: 1;
-  white-space: nowrap; overflow: hidden; max-width: calc(100% - 6px);
+  font-size: calc(var(--pu1) * 6); font-weight: 700; line-height: 1;
+  white-space: nowrap; overflow: hidden; max-width: calc(100% - var(--pu1) * 6);
 }
-.pk-tl { top: 3px; left: 3px; }
-.pk-tr { top: 3px; right: 3px; }
-.pk-ml { top: 15px; left: 3px; }
-.pk-mr { top: 15px; right: 3px; font-size: 7px; }
+.pk-tl { top: calc(var(--pu1) * 3); left: calc(var(--pu1) * 3); }
+.pk-tr { top: calc(var(--pu1) * 3); right: calc(var(--pu1) * 3); }
+.pk-ml { top: calc(var(--pu1) * 15); left: calc(var(--pu1) * 3); }
+.pk-mr { top: calc(var(--pu1) * 15); right: calc(var(--pu1) * 3); font-size: calc(var(--pu1) * 7); }
 .pk-main {
-  position: absolute; bottom: 1px; left: 0; right: 0;
+  position: absolute; bottom: calc(var(--pu1) * 1); left: 0; right: 0;
   text-align: center;
-  font-size: 14px; font-weight: 700; line-height: 1; color: #fbfbfb;
+  font-size: calc(var(--pu1) * 14); font-weight: 700; line-height: 1; color: #fbfbfb;
 }
 .pk-green { color: #36d152; }
 .pk-red   { color: #e5572f; }
 .pk-white { color: #ededed; }
 .pk-tl--black {
   color: #efefef; background: #000; border: 1px solid #8a8a8a;
-  border-radius: 1px; padding: 0 1px;
+  border-radius: 1px; padding: 0 calc(var(--pu1) * 1);
 }
 .pk-block {
-  position: absolute; top: 15px; left: 3px;
-  width: 9px; height: 9px;
+  position: absolute; top: calc(var(--pu1) * 15); left: calc(var(--pu1) * 3);
+  width: calc(var(--pu1) * 9); height: calc(var(--pu1) * 9);
   display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr;
   background: #e9e9e9; border: 1px solid #cfcfcf;
 }
@@ -981,9 +984,9 @@ canvas {
 .pk-block i.on { background: #15171a; }
 /* Stacked number caps share one row between the block-graphic swatch and the
    symbol-shift token; the swatch is inline (not absolutely placed) here. */
-.pk-numrow { display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 2px; }
+.pk-numrow { display: flex; flex-direction: row; align-items: center; justify-content: center; gap: calc(var(--pu1) * 2); }
 .pk-block-inline {
-  width: 8px; height: 8px; flex: none;
+  width: calc(var(--pu1) * 8); height: calc(var(--pu1) * 8); flex: none;
   display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr;
   background: #e9e9e9; border: 1px solid #cfcfcf;
 }
@@ -995,65 +998,32 @@ canvas {
 .pk-glyph {
   position: absolute; inset: 0;
   display: flex; align-items: center; justify-content: center;
-  font-size: 14px; font-weight: 700; color: #fbfbfb;
+  font-size: calc(var(--pu1) * 14); font-weight: 700; color: #fbfbfb;
 }
 /* Toastrack cursor caps: a big, thin, white open-arrow glyph (⇦ ⇨ ⇧ ⇩). */
-.pk-arrow { font-size: 24px; font-weight: 400; }
+.pk-arrow { font-size: calc(var(--pu1) * 24); font-weight: 400; }
 /* Letter caps stack every legend on its own line (extended / ext+sym / K-mode
    keyword / symbol-shift token / main glyph), all white and centred. */
 .pk-stack {
   position: absolute; inset: 0;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 1px; line-height: 1; padding: 1px;
+  gap: calc(var(--pu1) * 1); line-height: 1; padding: calc(var(--pu1) * 1);
 }
 .pk-leg {
-  font-size: 6px; font-weight: 700; line-height: 1; color: #ededed;
+  font-size: calc(var(--pu1) * 6); font-weight: 700; line-height: 1; color: #ededed;
   white-space: nowrap; overflow: hidden; max-width: 100%;
 }
-.pk-leg--main { font-size: 13px; color: #fbfbfb; margin-top: 1px; }
+.pk-leg--main { font-size: calc(var(--pu1) * 13); color: #fbfbfb; margin-top: calc(var(--pu1) * 1); }
 .pk-label {
   position: absolute; inset: 0;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  font-size: 6px; font-weight: 700; line-height: 1.2; letter-spacing: 0.2px;
+  font-size: calc(var(--pu1) * 6); font-weight: 700; line-height: 1.2; letter-spacing: 0.2px;
   text-align: center; color: #e8e8e8;
 }
 .pk-key--red .pk-label { color: #e5572f; }
 /* The toastrack prints every legend white, including SYMBOL SHIFT (the +2 sparse
    face below keeps it red). */
 .kbd-plus:not(.kbd-plus--grey2) .pk-key--red .pk-label { color: #e8e8e8; }
-
-@container (max-width: 560px) {
-  .pk-key { height: 40px; }
-  .pk-key--enter-top { height: 42px; }
-  .pk-main, .pk-glyph { font-size: 12px; }
-  .pk-arrow { font-size: 20px; }
-  /* Narrow: 40px square cap + 2px gap = 42px pitch, so 1u stays square and the
-     grooves move to the matching 42px row pitch. */
-  .kbd-plus:not(.kbd-plus--grey2) {
-    --pku: 42px;
-    background:
-      linear-gradient(to bottom,
-        transparent 0 46px,    rgba(0, 0, 0, 0.45) 46px 47px,    rgba(255, 255, 255, 0.06) 47px 48px,
-        transparent 48px 88px,   rgba(0, 0, 0, 0.45) 88px 89px,    rgba(255, 255, 255, 0.06) 89px 90px,
-        transparent 90px 130px,  rgba(0, 0, 0, 0.45) 130px 131px,  rgba(255, 255, 255, 0.06) 131px 132px,
-        transparent 132px 172px, rgba(0, 0, 0, 0.45) 172px 173px,  rgba(255, 255, 255, 0.06) 173px 174px,
-        transparent 174px),
-      linear-gradient(180deg, #26282c 0%, #1b1d20 100%);
-  }
-  /* Keys shrink to 40px here, so 1u stays square (40px) and the groove gaps
-     move to a 44px pitch. */
-  .kbd-plus--grey2 {
-    --pk2u: 43px;
-    background:
-      linear-gradient(to bottom,
-        transparent 0 47px,   var(--groove-d) 47px 49px,   var(--groove-l) 49px 51px,
-        transparent 51px 91px,  var(--groove-d) 91px 93px,   var(--groove-l) 93px 95px,
-        transparent 95px 135px, var(--groove-d) 135px 137px, var(--groove-l) 137px 139px,
-        transparent 139px 179px, var(--groove-d) 179px 181px, var(--groove-l) 181px 183px,
-        transparent 183px),
-      linear-gradient(180deg, var(--case-top) 0%, var(--case-bottom) 100%);
-  }
-}
 
 /* Grey +2 (1986 Amstrad): the toastrack layout with a lighter case and almost
    bare keycaps — only the sparse legends render (see KeyboardPlus / plus2-legends). */
@@ -1068,11 +1038,11 @@ canvas {
      shows through the gaps. */
   background:
     linear-gradient(to bottom,
-      transparent 0 53px,   var(--groove-d) 53px 55px,   var(--groove-l) 55px 57px,
-      transparent 57px 103px,  var(--groove-d) 103px 105px,  var(--groove-l) 105px 107px,
-      transparent 107px 153px, var(--groove-d) 153px 155px, var(--groove-l) 155px 157px,
-      transparent 157px 203px, var(--groove-d) 203px 205px, var(--groove-l) 205px 207px,
-      transparent 207px),
+      transparent 0 calc(var(--pu1) * 53),   var(--groove-d) calc(var(--pu1) * 53) calc(var(--pu1) * 55),   var(--groove-l) calc(var(--pu1) * 55) calc(var(--pu1) * 57),
+      transparent calc(var(--pu1) * 57) calc(var(--pu1) * 103),  var(--groove-d) calc(var(--pu1) * 103) calc(var(--pu1) * 105),  var(--groove-l) calc(var(--pu1) * 105) calc(var(--pu1) * 107),
+      transparent calc(var(--pu1) * 107) calc(var(--pu1) * 153), var(--groove-d) calc(var(--pu1) * 153) calc(var(--pu1) * 155), var(--groove-l) calc(var(--pu1) * 155) calc(var(--pu1) * 157),
+      transparent calc(var(--pu1) * 157) calc(var(--pu1) * 203), var(--groove-d) calc(var(--pu1) * 203) calc(var(--pu1) * 205), var(--groove-l) calc(var(--pu1) * 205) calc(var(--pu1) * 207),
+      transparent calc(var(--pu1) * 207)),
     linear-gradient(180deg, var(--case-top) 0%, var(--case-bottom) 100%);
   border-color: var(--case-border);
 }
@@ -1109,12 +1079,12 @@ canvas {
    halves of the L-shaped ENTER aligned. */
 /* Unit width is tied to the 46px key height so a 1u cap is square (1u visible =
    46px = height; +3px for the folded inter-key margin). Wider keys scale off it. */
-.kbd-plus--grey2 { --pk2u: 49px; }
+.kbd-plus--grey2 { --pk2u: calc(var(--pu1) * 49); }
 .kbd-plus--grey2 .kbd-prow { justify-content: center; gap: 0; }
 .kbd-plus--grey2 .pk-key {
   flex: 0 0 auto;
-  width: calc(var(--w, 1) * var(--pk2u) - 3px);
-  margin-left: 1.5px; margin-right: 1.5px;
+  width: calc(var(--w, 1) * var(--pk2u) - var(--pu1) * 3);
+  margin-left: calc(var(--pu1) * 1.5); margin-right: calc(var(--pu1) * 1.5);
 }
 
 /* The +2 prints everything in a single white oblique face — no colour coding —
@@ -1123,40 +1093,40 @@ canvas {
 .kbd-plus--grey2 .pk-label,
 .kbd-plus--grey2 .pk-glyph { font-style: italic; color: #f3f3f3; }
 .kbd-plus--grey2 .pk-label {
-  inset: auto auto 4px 6px;
+  inset: auto auto calc(var(--pu1) * 4) calc(var(--pu1) * 6);
   align-items: flex-start; justify-content: flex-end;
-  font-size: 8px; text-align: left;
+  font-size: calc(var(--pu1) * 8); text-align: left;
 }
 .kbd-plus--grey2 .pk-key--num .pk-main,
 .kbd-plus--grey2 .pk-key--letter .pk-main {
-  top: auto; bottom: 3px; left: 6px; right: auto;
-  transform: none; text-align: left; font-size: 16px;
+  top: auto; bottom: calc(var(--pu1) * 3); left: calc(var(--pu1) * 6); right: auto;
+  transform: none; text-align: left; font-size: calc(var(--pu1) * 16);
 }
 /* Dedicated symbol keys (; " , .) — glyph bottom-left too. */
 .kbd-plus--grey2 .pk-key--sym .pk-glyph {
-  inset: auto auto 3px 6px; align-items: flex-end; justify-content: flex-start;
+  inset: auto auto calc(var(--pu1) * 3) calc(var(--pu1) * 6); align-items: flex-end; justify-content: flex-start;
 }
 
 /* Symbol-shift token (+ any RUN/CODE/LOAD keyword): same oblique face, top-left,
    above the main legend. */
 .kbd-plus--grey2 .pk2-top {
-  position: absolute; top: 4px; bottom: auto; left: 5px; right: auto;
-  display: flex; align-items: baseline; justify-content: flex-start; gap: 2px;
+  position: absolute; top: calc(var(--pu1) * 4); bottom: auto; left: calc(var(--pu1) * 5); right: auto;
+  display: flex; align-items: baseline; justify-content: flex-start; gap: calc(var(--pu1) * 2);
   line-height: 1; pointer-events: none;
 }
-.kbd-plus--grey2 .pk2-sym { font-size: 9.5px; font-style: italic; font-weight: 700; color: #f1f1f1; }
+.kbd-plus--grey2 .pk2-sym { font-size: calc(var(--pu1) * 9.5); font-style: italic; font-weight: 700; color: #f1f1f1; }
 /* keywords (RUN/CODE/LOAD) a touch smaller so "− LOAD" fits a 1u cap */
-.kbd-plus--grey2 .pk2-word { font-size: 8px; font-style: italic; font-weight: 700; color: #f1f1f1; }
+.kbd-plus--grey2 .pk2-word { font-size: calc(var(--pu1) * 8); font-style: italic; font-weight: 700; color: #f1f1f1; }
 
 /* Chevron cursor keys, drawn from a rotated square so they stay crisp. */
 .kbd-plus--grey2 .pk2-chev {
-  display: inline-block; width: 6px; height: 6px;
+  display: inline-block; width: calc(var(--pu1) * 6); height: calc(var(--pu1) * 6);
   border-right: 1.5px solid #f1f1f1; border-bottom: 1.5px solid #f1f1f1;
 }
-.kbd-plus--grey2 .pk2-chev--left  { transform: translateX(1px) rotate(135deg); }
-.kbd-plus--grey2 .pk2-chev--right { transform: translateX(-1px) rotate(-45deg); }
-.kbd-plus--grey2 .pk2-chev--up    { transform: translateY(1px) rotate(-135deg); }
-.kbd-plus--grey2 .pk2-chev--down  { transform: translateY(-1px) rotate(45deg); }
+.kbd-plus--grey2 .pk2-chev--left  { transform: translateX(calc(var(--pu1) * 1)) rotate(135deg); }
+.kbd-plus--grey2 .pk2-chev--right { transform: translateX(calc(var(--pu1) * -1)) rotate(-45deg); }
+.kbd-plus--grey2 .pk2-chev--up    { transform: translateY(calc(var(--pu1) * 1)) rotate(-135deg); }
+.kbd-plus--grey2 .pk2-chev--down  { transform: translateY(calc(var(--pu1) * -1)) rotate(45deg); }
 
 /* Mouse pane */
 .mouse-pane { display: flex; flex-direction: column; gap: 6px; }

@@ -30,7 +30,7 @@ import { MemoryPane } from '@/components/panes/MemoryPane.tsx';
 import { KeyboardPane } from '@/components/panes/KeyboardPane.tsx';
 
 import { paneOrder, SPECTRUM_ONLY_PANES, isPaneUserHidden } from '@/ui/panes.ts';
-import { needsGamepadPolling } from '@/store/settings.ts';
+import { needsGamepadPolling, scale } from '@/store/settings.ts';
 import { initAudio, init, loadFile, currentModel, transcribeMode } from '@/emulator.ts';
 import { isCpcModel } from '@/models.ts';
 import { configuringPlayer } from '@/components/panes/JoystickPane.tsx';
@@ -153,6 +153,13 @@ export function App() {
   // Spectrum rainbow stripe on pane title bars) can key off it.
   createEffect(() => {
     document.body.classList.toggle('cpc-mode', isCpcModel(currentModel()));
+  });
+
+  // Mirror the display scale (1×/2×/3×) into a CSS variable so the on-screen
+  // keyboards size their key unit from the same mode as the screen canvas,
+  // shrinking proportionally instead of breaking at narrower widths.
+  createEffect(() => {
+    document.documentElement.style.setProperty('--display-scale', String(scale()));
   });
 
   // Init emulator on mount
