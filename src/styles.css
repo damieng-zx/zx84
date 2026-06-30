@@ -445,6 +445,11 @@ input[type="file"] { display: none; }
   display: flex;
   flex-direction: column;
   align-items: center;
+  /* Size the centre column to its widest fixed-size child — the screen canvas —
+     rather than to max-content. Otherwise the single-line status bar (whose
+     labels are wider than the 1x canvas) stretches the column past the screen;
+     with min-content the bar wraps within the screen width instead. */
+  width: min-content;
 }
 
 /* Transient status toast — bottom-centre, overlaying the screen area. Replaces
@@ -554,8 +559,10 @@ canvas {
 
 #activity {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
+  row-gap: 4px;
   width: 100%;
 }
 
