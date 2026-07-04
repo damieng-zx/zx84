@@ -31,7 +31,7 @@ import { KeyboardPane } from '@/components/panes/KeyboardPane.tsx';
 
 import { paneOrder, SPECTRUM_ONLY_PANES, isPaneUserHidden } from '@/ui/panes.ts';
 import { needsGamepadPolling, scale } from '@/store/settings.ts';
-import { initAudio, init, loadFile, currentModel, transcribeMode } from '@/emulator.ts';
+import { initAudio, init, loadFile, currentModel, transcribeMode, syncFocusPause } from '@/emulator.ts';
 import { isCpcModel } from '@/models.ts';
 import { configuringPlayer } from '@/components/panes/JoystickPane.tsx';
 import { InputController } from '@/input-controller.ts';
@@ -91,6 +91,13 @@ export function App() {
     window.addEventListener('blur', inputController.onBlur);
     document.addEventListener('click', initAudio, { once: true });
 
+    // Auto-pause emulation when the tab is hidden or the window loses focus.
+    // A single handler covers both "tab hidden" (visibilitychange) and "window
+    // blurred" (blur/focus); syncFocusPause() reads the combined active state.
+    window.addEventListener('focus', syncFocusPause);
+    window.addEventListener('blur', syncFocusPause);
+    document.addEventListener('visibilitychange', syncFocusPause);
+
     // Depth counter avoids flicker when pointer moves between child elements
     let dragDepth = 0;
 
@@ -126,6 +133,9 @@ export function App() {
       document.removeEventListener('keydown', inputController.onKeyDown);
       document.removeEventListener('keyup', inputController.onKeyUp);
       window.removeEventListener('blur', inputController.onBlur);
+      window.removeEventListener('focus', syncFocusPause);
+      window.removeEventListener('blur', syncFocusPause);
+      document.removeEventListener('visibilitychange', syncFocusPause);
       document.removeEventListener('click', initAudio);
       document.removeEventListener('dragenter', onDragEnter);
       document.removeEventListener('dragleave', onDragLeave);

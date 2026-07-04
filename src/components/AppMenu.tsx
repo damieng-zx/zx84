@@ -9,6 +9,7 @@ import {
   isPaneUserHidden, togglePaneVisibility, paneOrder, PANE_LABELS,
   orderedResetEntries, resetLayout, type ResetEntry,
 } from '@/ui/panes.ts';
+import { pauseOnFocusLost, setPauseOnFocusLost, persistSetting } from '@/store/settings.ts';
 
 export function AppMenu() {
   const [open, setOpen] = createSignal(false);
@@ -34,6 +35,12 @@ export function AppMenu() {
     for (const e of orderedResetEntries()) e.reset();
     resetLayout();
     close();
+  }
+
+  function togglePauseOnFocusLost() {
+    const next = !pauseOnFocusLost();
+    setPauseOnFocusLost(next);
+    persistSetting('pause-on-blur', next ? 'on' : 'off');
   }
 
   // Close on outside click or Escape (toggling panes keeps the menu open).
@@ -66,6 +73,10 @@ export function AppMenu() {
           class="ddmenu"
           style={{ top: `${pos().top}px`, left: `${pos().left}px`, transform: 'translateX(-100%)' }}
         >
+          <div class="ddmenu-item" onClick={togglePauseOnFocusLost}>
+            <span class="ddmenu-check">{pauseOnFocusLost() ? '✓' : ''}</span>Pause when focus lost
+          </div>
+          <div class="ddmenu-separator" />
           <div class="ddmenu-item ddmenu-parent">
             <span class="ddmenu-check" />Panes
             <span class="ddmenu-arrow">{'▸'}</span>

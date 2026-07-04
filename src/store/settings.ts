@@ -78,6 +78,9 @@ const DEFAULTS = {
   'tape-turbo-load':     'on',
   'tape-sound':          'on',
 
+  // Behaviour
+  'pause-on-blur': 'on',
+
   // Hardware
   'multiface':      'off',
   'plus3-v41-roms': 'off',
@@ -379,6 +382,12 @@ export const setPlusDEnabled = _plusDEnabled[1];
 const _interface1Enabled = /*@once*/ createRoot(() => createSignal(getSaved('interface1', D('interface1')) === 'on'));
 export const interface1Enabled = _interface1Enabled[0];
 export const setInterface1Enabled = _interface1Enabled[1];
+
+// ── Behaviour settings ──────────────────────────────────────────────────
+
+const _pauseOnFocusLost = /*@once*/ createRoot(() => createSignal(getSaved('pause-on-blur', D('pause-on-blur')) === 'on'));
+export const pauseOnFocusLost = _pauseOnFocusLost[0];
+export const setPauseOnFocusLost = _pauseOnFocusLost[1];
 
 // ── Derived ─────────────────────────────────────────────────────────────
 

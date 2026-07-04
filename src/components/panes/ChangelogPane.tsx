@@ -2,6 +2,11 @@ import { createSignal, Show } from 'solid-js';
 
 const CHANGELOG: { version: string; items: string[] }[] = [
   {
+    version: '0.6.7',
+    items: [
+      'Pause emulation when the tab or window loses focus (on by default)',
+    ]
+  }, {
     version: '0.6.6',
     items: [
       'On-screen keyboards scale with the display size (1×/2×/3×)',

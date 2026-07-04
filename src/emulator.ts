@@ -30,6 +30,7 @@ import {
 } from '@/store/persistence.ts';
 import { microdriveSlots, setMicrodriveSlot, clearMicrodriveSlot } from '@/state/microdrive-state.ts';
 import * as settings from '@/store/settings.ts';
+import { decideFocusPause } from '@/focus-pause.ts';
 import { variantForModel, variantLabel, romFilename } from '@/peripherals/multiface.ts';
 import { onFrame, updateRegsOnce, resetSpeedTracking, resetLedActivity, forceSpeedUpdate } from '@/frame-bridge.ts';
 export { fontDataHash, updateFontPreview, loadFontStore, saveFontStore, capturedFontData } from '@/frame-bridge.ts';
@@ -433,8 +434,40 @@ function clearDebugPanels(): void {
   setBasicVarsHtml('');
 }
 
+// True while emulation is paused solely because the tab/window lost focus, so
+// syncFocusPause() knows it may auto-resume. Any manual pause/unpause clears it.
+let autoPausedByBlur = false;
+
+/**
+ * Pause when the tab is hidden or the window loses focus; resume on return.
+ * Called from focus/blur/visibilitychange listeners. Only ever resumes a
+ * machine this logic itself paused — a manual or debugger pause is untouched.
+ */
+export function syncFocusPause(): void {
+  if (!machine) return;
+  const active = document.visibilityState === 'visible' && document.hasFocus();
+  const action = decideFocusPause({
+    active,
+    settingOn: settings.pauseOnFocusLost(),
+    paused: emulationPaused(),
+    autoPaused: autoPausedByBlur,
+  });
+  if (action === 'pause') {
+    machine.stop();
+    updateRegsOnce();
+    setEmulationPaused(true);
+    autoPausedByBlur = true;
+  } else if (action === 'resume') {
+    autoPausedByBlur = false;
+    clearDebugPanels();
+    machine.start();
+    setEmulationPaused(false);
+  }
+}
+
 export function togglePause(): void {
   if (!machine) return;
+  autoPausedByBlur = false;
   if (emulationPaused()) {
     clearDebugPanels();
     machine.start();
