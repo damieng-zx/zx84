@@ -59,14 +59,14 @@ export function sparseKeyboardFace(model: MachineModel): 'grey2' | 'amstrad' | n
  * definition (see KeyboardPlus); `fallback` is used for the 1u keys.
  *
  *   1u   : alphanumerics, TRUE/INV VIDEO, GRAPH, EDIT, CAPS LOCK, SYMBOL SHIFT,
- *          the dedicated symbol/arrow keys, and the ENTER top.
- *   1.5u : DELETE, BREAK        1.75u: EXTEND MODE, ENTER base
+ *          the dedicated symbol/arrow keys, and the ENTER stem.
+ *   1.5u : DELETE, BREAK        1.75u: EXTEND MODE, ENTER foot spacer
  *   2.25u: CAPS SHIFT           4.5u: SPACE
  */
 export function plus2KeyWidth(variant: string, label: string | undefined, fallback: number): number {
   switch (variant) {
-    case 'enter-top': return 1;
-    case 'enter-bottom': return 1.75;
+    case 'enter': return 1;          // stem cell (row 2)
+    case 'enter-spacer': return 1.75; // reserves the foot's footprint (row 3)
     case 'space': return 4.5;
     case 'fn':
       if (label === 'DELETE' || label === 'BREAK') return 1.5;

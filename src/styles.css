@@ -868,7 +868,7 @@ canvas {
 /* ── Spectrum + / 128K hard keyboard ──────────────────────────────────── */
 /* A flush, uniform-height hard-key layout. Every legend is printed inside the
    keycap (no bezel trim, logo or rainbow). ENTER is the L-shaped Sinclair
-   return key, drawn as two seamless cells across rows 2–3. */
+   return key, drawn as a single SVG "boot" outline spanning rows 2–3. */
 
 .kbd-plus {
   display: flex;
@@ -924,39 +924,126 @@ canvas {
   position: relative;
   height: calc(var(--pu1) * 46);
   min-width: 0;
-  border-radius: calc(var(--pu1) * 3);
-  background: linear-gradient(177deg, #474b51 0%, #383c42 45%, #2c3035 100%);
-  border: 1px solid #141619;
   color: #f4f4f4;
   font-family: var(--font-ui);
   cursor: pointer;
   user-select: none;
   touch-action: none;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.12),
-    inset 0 -2px 3px rgba(0, 0, 0, 0.4),
-    0 1px 1px rgba(0, 0, 0, 0.5);
-  transition: background 0.08s ease, box-shadow 0.05s ease, transform 0.05s ease;
 }
-.pk-key:hover { background: linear-gradient(177deg, #51565d 0%, #41454c 45%, #34383e 100%); }
-.pk-key.pressed {
-  background: linear-gradient(177deg, #2a2d31 0%, #212427 100%);
-  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.7);
-}
+/* The cap is drawn by an SVG (RectCap, or the ENTER boot); these --cap-* props
+   feed its gradient stops + border stroke, per face + state, so hover/pressed
+   just reassign the vars. Legends stay HTML on top. */
+.kbd-plus:not(.kbd-plus--grey2) .pk-key { --cap-g0: #474b51; --cap-g1: #383c42; --cap-g2: #2c3035; --cap-stroke: #141619; }
+.kbd-plus:not(.kbd-plus--grey2) .pk-key:hover { --cap-g0: #51565d; --cap-g1: #41454c; --cap-g2: #34383e; }
+.kbd-plus:not(.kbd-plus--grey2) .pk-key.pressed { --cap-g0: #2a2d31; --cap-g1: #25282c; --cap-g2: #212427; }
+.kbd-plus--grey2 .pk-key { --cap-g0: #7e838a; --cap-g1: #6e737a; --cap-g2: #5e6369; --cap-stroke: var(--case-border); }
+.kbd-plus--grey2 .pk-key:hover { --cap-g0: #888d94; --cap-g1: #787d84; --cap-g2: #686d74; }
+.kbd-plus--grey2 .pk-key.pressed { --cap-g0: #565a60; --cap-g1: #50535a; --cap-g2: #4a4d53; }
+.kbd-plus--amstrad .pk-key { --cap-g0: #2c2f33; --cap-g1: #212427; --cap-g2: #16181b; }
+.kbd-plus--amstrad .pk-key:hover { --cap-g0: #363a3e; --cap-g1: #2a2d31; --cap-g2: #1f2124; }
+.kbd-plus--amstrad .pk-key.pressed { --cap-g0: #131416; --cap-g1: #101113; --cap-g2: #0d0e10; }
+/* The ENTER foot is a separate cell (the spacer) from the boot it visually joins,
+   so hovering the foot must drive the boot's hover explicitly (but not while the
+   whole key is pressed — then the pressed shade wins). */
+.kbd-plus:not(.kbd-plus--grey2):has(.pk-key--enter-spacer:hover) .pk-key--enter:not(.pressed) { --cap-g0: #51565d; --cap-g1: #41454c; --cap-g2: #34383e; }
+.kbd-plus--grey2:has(.pk-key--enter-spacer:hover) .pk-key--enter:not(.pressed) { --cap-g0: #888d94; --cap-g1: #787d84; --cap-g2: #686d74; }
+.kbd-plus--amstrad:has(.pk-key--enter-spacer:hover) .pk-key--enter:not(.pressed) { --cap-g0: #363a3e; --cap-g1: #2a2d31; --cap-g2: #1f2124; }
 
-/* L-shaped ENTER: a narrow top cell (row 2) joined to a wider bottom cell
-   (row 3). The top cell overhangs the 2px row gap to butt against the bottom. */
-.pk-key--enter-top {
-  height: calc(var(--pu1) * 48);
-  margin-bottom: calc(var(--pu1) * -2);
-  border-bottom: none;
-  border-bottom-left-radius: 0;
-  border-bottom-right-radius: 0;
+/* L-shaped ("boot") ENTER, drawn as ONE continuous SVG outline. The key is a 1u
+   stem slot in row 2 whose SVG overflows down + left into row 3 to draw the wider
+   foot; an inert .pk-key--enter-spacer reserves that foot's footprint in row 3.
+   The cell itself draws no cap — the SVG path is the whole keycap. */
+.pk-key--enter,
+.pk-key--enter:hover,
+.pk-key--enter.pressed {
+  background: none;
+  border: none;
+  box-shadow: none;
+  overflow: visible;
 }
-.pk-key--enter-bottom {
-  border-top: none;
-  border-top-left-radius: 0;
-  border-top-right-radius: 0;
+/* The spacer shares ENTER's matrix position, so it also gets .pressed (and
+   :hover); list those variants explicitly or .pk-key.pressed out-specifies this
+   rule and paints a phantom pressed cap over the foot. */
+.pk-key--enter-spacer,
+.pk-key--enter-spacer:hover,
+.pk-key--enter-spacer.pressed {
+  background: none;
+  border: none;
+  box-shadow: none;
+}
+/* The boot SVG, pinned to the cell's right edge (= the row's right edge, so the
+   stem aligns with the foot below) and overflowing down + left. Sized in design
+   pixels so it scales as one block; the non-scaling stroke keeps the outline a
+   constant 1px, matching every other cap's `1px solid` border at any scale. */
+.pk-enter-svg {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: calc(var(--pu1) * 82);
+  height: calc(var(--pu1) * 94);
+  overflow: visible;
+  /* Purely visual: the stem cell and the spacer take the clicks. Without this the
+     drop-shadow'd SVG hit-tests as its full box and its left overhang steals P's
+     clicks. */
+  pointer-events: none;
+  /* Drop shadow lifting the boot off the case, matching every cap's `0 1px 1px`. */
+  filter: drop-shadow(0 calc(var(--pu1) * 1) calc(var(--pu1) * 1) rgba(0, 0, 0, 0.5));
+}
+.kbd-plus--grey2 .pk-enter-svg {
+  width: calc(var(--pu1) * 82.75);
+  height: calc(var(--pu1) * 96);
+}
+.pk-enter-shape {
+  stroke: var(--cap-stroke, #141619);
+  stroke-width: 1;
+}
+/* Gradient stops + bevel edges, shared by the ENTER boot and the RectCap so both
+   shade identically. Stops come from --cap-g0/1/2 (set per face + state above);
+   the hairline highlight/shadow match every cap's inset top/bottom box-shadow. */
+.pk-enter-g0, .pk-cap-g0 { stop-color: var(--cap-g0); }
+.pk-enter-g1, .pk-cap-g1 { stop-color: var(--cap-g1); }
+.pk-enter-g2, .pk-cap-g2 { stop-color: var(--cap-g2); }
+.pk-enter-hi, .pk-cap-hi { fill: none; stroke: rgba(255, 255, 255, 0.12); stroke-width: 1; }
+.pk-enter-lo, .pk-cap-lo { fill: none; stroke: rgba(0, 0, 0, 0.4); stroke-width: 2; }
+
+/* Ordinary cap SVG (RectCap): fills the cell behind the HTML legend, same drop
+   shadow every cap gets. */
+.pk-cap-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+  filter: drop-shadow(0 calc(var(--pu1) * 1) calc(var(--pu1) * 1) rgba(0, 0, 0, 0.5));
+}
+.pk-cap-rect { stroke: var(--cap-stroke, #141619); stroke-width: 1; }
+/* ENTER label, placed over the foot (the lower 46px band, full foot width). */
+.pk-enter-label {
+  position: absolute;
+  right: 0;
+  top: calc(var(--pu1) * 48);
+  width: calc(var(--pu1) * 82);
+  height: calc(var(--pu1) * 46);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-ui);
+  font-size: calc(var(--pu1) * 6);
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  color: #e8e8e8;
+  pointer-events: none;
+}
+.kbd-plus--grey2 .pk-enter-label {
+  top: calc(var(--pu1) * 50);
+  width: calc(var(--pu1) * 82.75);
+  align-items: flex-end;
+  justify-content: flex-start;
+  padding: 0 0 calc(var(--pu1) * 4) calc(var(--pu1) * 6);
+  font-style: italic;
+  font-size: calc(var(--pu1) * 8);
+  color: #f3f3f3;
 }
 
 /* In-cap legend slots */
@@ -1058,26 +1145,8 @@ canvas {
   --case-top: #232427; --case-bottom: #0c0d0f; --case-border: #050506;
   --groove-l: rgba(255, 255, 255, 0.16);
 }
-/* +2 keys: lighter, to sit closer to the grey case. */
-.kbd-plus--grey2 .pk-key {
-  background: linear-gradient(177deg, #7e838a 0%, #6e737a 45%, #5e6369 100%);
-}
-.kbd-plus--grey2 .pk-key:hover {
-  background: linear-gradient(177deg, #888d94 0%, #787d84 45%, #686d74 100%);
-}
-.kbd-plus--grey2 .pk-key.pressed {
-  background: linear-gradient(177deg, #565a60 0%, #4a4d53 100%);
-}
-/* +2A/+3 keys: darker, to match the near-black case. */
-.kbd-plus--amstrad .pk-key {
-  background: linear-gradient(177deg, #2c2f33 0%, #212427 45%, #16181b 100%);
-}
-.kbd-plus--amstrad .pk-key:hover {
-  background: linear-gradient(177deg, #363a3e 0%, #2a2d31 45%, #1f2124 100%);
-}
-.kbd-plus--amstrad .pk-key.pressed {
-  background: linear-gradient(177deg, #131416 0%, #0d0e10 100%);
-}
+/* (+2 and +2A/+3 cap colours are the --cap-* stops set with the base .pk-key
+   rules above; the SVG cap paints them.) */
 
 /* Fixed grid: keys are a fixed width (--w units × the unit), NOT stretched to
    fill, so every alphanumeric is exactly 1u. The inter-key spacing is folded
