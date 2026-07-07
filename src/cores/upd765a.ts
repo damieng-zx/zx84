@@ -595,6 +595,10 @@ export class UPD765A {
 
   /** End execution phase with result. Sets EN + abnormal termination if EOT was reached. */
   private finishExecution(): void {
+    // Every execution-phase termination (normal, overrun, abnormal) passes
+    // through here — the format flag must not outlive the command, or the
+    // next WRITE_DATA completion would be misrouted into finishFormat().
+    this.exFormatting = false;
     let st0 = (this.exHead << 2) | this.exUnit;
     let st1 = this.exST1;
     if (this.exHitEOT) {
@@ -1108,13 +1112,12 @@ export class UPD765A {
     // Signal to the UI layer that metadata needs refreshing
     this.formattedUnit = this.exUnit;
 
-    // Set result fields for finishExecution()
+    // Set result fields for finishExecution() — which also clears exFormatting
     this.exC   = cyl;
     this.exH   = head;
     this.exR   = lastR;
     this.exST1 = 0;
     this.exST2 = 0;
-    this.exFormatting = false;
 
     this.finishExecution();
   }
@@ -1175,6 +1178,7 @@ export class UPD765A {
     this.exPos = 0;
     this.exWriting = false;
     this.exReadTrack = false;
+    this.exFormatting = false;
     this.exTrack = null;
     this.exST1 = 0;
     this.exST2 = 0;

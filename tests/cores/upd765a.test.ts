@@ -586,6 +586,46 @@ describe('uPD765A — FORMAT_TRACK', () => {
     expect(tr.filler).toBe(0x77);
     expect(tr.sectorMap.get(0xC3)).toBe(2);
   });
+
+  // The format flag must not survive an aborted FORMAT_TRACK: a later
+  // ordinary WRITE_DATA completion would call finishFormat() instead of
+  // writing the sector back, reinterpreting the payload bytes as C/H/R/N
+  // tuples and rebuilding (destroying) the current track.
+
+  it('FORMAT_TRACK aborted by overrun does not turn the next WRITE_DATA into a format', () => {
+    // Begin a format but abandon it after two ID bytes — the CPU stops
+    // feeding data and polls MSR until the overrun terminator fires.
+    [0x0D, 0x00, 2, 4, 0x2A, 0x77].forEach(b => d.fdc.writeData(b));
+    d.fdc.writeData(0);
+    d.fdc.writeData(0);
+    for (let i = 0; i < 40; i++) d.fdc.readStatus(); // > threshold → overrun
+    const abort = d.drainResult();
+    expect(abort[1] & 0x10).toBe(0x10); // ST1.OR — format really was aborted
+
+    // An ordinary single-sector write must now write the sector…
+    [0x05, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    const payload = new Uint8Array(512).fill(0xAB);
+    d.drainWriteExecution(payload);
+
+    // …leaving the track layout intact, with the payload in sector 0xC1.
+    const tr = img.tracks[0][0]!;
+    expect(tr.sectors.length).toBe(9);
+    expect(Array.from(tr.sectors[tr.sectorMap.get(0xC1)!].data)).toEqual(Array.from(payload));
+  });
+
+  it('reset() mid-FORMAT_TRACK clears the format state before the next write', () => {
+    [0x0D, 0x00, 2, 4, 0x2A, 0x77].forEach(b => d.fdc.writeData(b));
+    d.fdc.writeData(0); // one ID byte in, then the machine is reset
+    d.fdc.reset();      // disk images are preserved across reset
+
+    [0x05, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    const payload = new Uint8Array(512).fill(0x5C);
+    d.drainWriteExecution(payload);
+
+    const tr = img.tracks[0][0]!;
+    expect(tr.sectors.length).toBe(9);
+    expect(Array.from(tr.sectors[tr.sectorMap.get(0xC1)!].data)).toEqual(Array.from(payload));
+  });
 });
 
 describe('uPD765A — READ_TRACK (Read Diagnostic — sector data fields)', () => {
