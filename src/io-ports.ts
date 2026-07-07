@@ -316,7 +316,9 @@ export function wirePortIO(s: Spectrum): void {
       return s.joystick.state;
     }
 
-    // Unattached port — return floating bus value
+    // Unattached port — Ferranti ULA models float the bus to whatever the
+    // ULA is fetching; the Amstrad gate array (+2A/+3) drives it to 0xFF.
+    if (!v.hasFloatingBus) return 0xFF;
     return s.contention.floatingBusRead(s.cpu.tStates, s.memory.screenBank);
   }
 }

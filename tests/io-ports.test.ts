@@ -211,6 +211,27 @@ describe('Port routing — Kempston joystick', () => {
   });
 });
 
+describe('Unattached port IN — floating bus vs Amstrad gate array', () => {
+  it('48K/128K (Ferranti): unattached port reads the ULA floating bus, not 0xFF', () => {
+    const s = makeMachine('128k');
+    s.contention.frameStartTStates = 0;
+    s.memory.screenBank[0] = 0x42; // pixel byte at line 0, char col 0
+    // 128K timing: contentionStart=14361, floatingBusAdjust=+1 → offset 0 at T=14360 (phase 0, pixel byte).
+    s.cpu.tStates = 14360;
+    const val = s.cpu.portIn(0x00FF) & 0xFF;
+    expect(val).toBe(0x42);
+  });
+
+  it('+2A/+3 (Amstrad gate array): unattached port always reads 0xFF, never the floating bus', () => {
+    const s = makeMachine('+3');
+    expect(s.variant.hasFloatingBus).toBe(false);
+    s.contention.frameStartTStates = 0;
+    s.memory.screenBank[0] = 0x42; // would be read as a live pixel byte on Ferranti
+    s.cpu.tStates = 14364; // mid-display for +2A/+3 timing
+    expect(s.cpu.portIn(0x00FF) & 0xFF).toBe(0xFF);
+  });
+});
+
 // ─────────────────────────────────────────────────────────────────────────
 // FDC routing (+3 only)
 // ─────────────────────────────────────────────────────────────────────────

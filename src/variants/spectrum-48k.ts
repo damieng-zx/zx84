@@ -17,6 +17,7 @@ export const spectrum48K: MachineVariant = Object.freeze({
 
   contentionPattern: CONTENTION_FERRANTI,
   hasIOContention: true,
+  hasFloatingBus: true,
 
   isContended(addr: number, _currentBank: number): boolean {
     // 48K: only 0x4000-0x7FFF is contended (no banking)

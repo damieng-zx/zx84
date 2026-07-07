@@ -22,6 +22,7 @@ export const spectrum16K: MachineVariant = Object.freeze({
 
   contentionPattern: CONTENTION_FERRANTI,
   hasIOContention: true,
+  hasFloatingBus: true,
 
   isContended(addr: number, _currentBank: number): boolean {
     // Same as 48K: only the populated 16KB at 0x4000-0x7FFF is contended.

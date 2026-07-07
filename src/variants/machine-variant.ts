@@ -32,6 +32,12 @@ export interface MachineVariant {
   /** Ferranti: true (four-case I/O contention). Amstrad: false. */
   readonly hasIOContention: boolean;
 
+  /** True on Ferranti ULA models (48K/16K/128K/+2): unattached ports return
+   *  whatever the ULA is currently fetching from VRAM. False on the Amstrad
+   *  gate array (+2A/+3), which drives unattached ports to 0xFF instead —
+   *  the reason Arkanoid hangs when run on a real +3. */
+  readonly hasFloatingBus: boolean;
+
   /** True if the given address is in ULA-contended memory.
    *  `bank` is the actual RAM bank at the address from memory.bankAt(),
    *  or -1 if the address holds ROM. */
