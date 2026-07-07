@@ -1,9 +1,10 @@
 /**
  * Kempston Mouse: X/Y wrapping counters and active-low button mapping.
  *
- * Reference: https://k1.spdns.de/Develop/Projects/zasm/Info/Hardware%20Info/Kempston%20Mouse.html
- *   X register at port 0xFBDF, Y at 0xFFDF, buttons at 0xFADF (active-low).
- *   Button bits: 0=left, 1=right, 2=middle.
+ * X register at port 0xFBDF, Y at 0xFFDF, buttons at 0xFADF (active-low).
+ * Button bits: D0 = RIGHT, D1 = LEFT, D2 = middle — per the WoS hardware
+ * FAQ ports reference and FUSE (ui.c ui_mouse_button: X11 button 1/left →
+ * kempmouse bit 1, button 3/right → bit 0 with swap_buttons off).
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
@@ -35,16 +36,16 @@ describe('KempstonMouse', () => {
     expect(m.y).toBe(400 & 0xFF);
   });
 
-  it('setButton maps to documented bits (left=0, right=1, middle=2) active-low', () => {
-    m.setButton(0, true); // left
-    expect(m.buttons).toBe(0xFF & ~0x01);
-    m.setButton(2, true); // right (button index 2 → bit 1)
-    expect(m.buttons).toBe(0xFF & ~0x01 & ~0x02);
-    m.setButton(1, true); // middle (button index 1 → bit 2)
+  it('setButton maps to hardware bits (right=D0, left=D1, middle=D2) active-low', () => {
+    m.setButton(0, true); // DOM left → bit 1
+    expect(m.buttons).toBe(0xFF & ~0x02);
+    m.setButton(2, true); // DOM right → bit 0
+    expect(m.buttons).toBe(0xFF & ~0x02 & ~0x01);
+    m.setButton(1, true); // DOM middle → bit 2
     expect(m.buttons).toBe(0xFF & ~0x07);
 
     m.setButton(0, false);
-    expect(m.buttons & 0x01).toBe(0x01);
+    expect(m.buttons & 0x02).toBe(0x02);
     m.setButton(1, false);
     m.setButton(2, false);
     expect(m.buttons).toBe(0xFF);

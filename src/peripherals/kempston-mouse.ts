@@ -7,13 +7,13 @@
  *   Spectrum: 0xFBDF → X, 0xFFDF → Y, 0xFADF → buttons
  *   CPC:      0xFBEE → X, 0xFBEF → Y, 0xFAEF → buttons
  *
- * The button *bit* layout also differs (the CPC swaps left/right and has no
- * middle button), so the active-low mapping is supplied per machine via the
- * constructor.
+ * The button *bit* layout can also differ (the CPC has no middle button),
+ * so the active-low mapping is supplied per machine via the constructor.
  */
 
-/** DOM button index → active-low byte bit. Spectrum: left=0, middle=2, right=1. */
-const SPECTRUM_BUTTON_BITS: Record<number, number> = { 0: 0, 1: 2, 2: 1 };
+/** DOM button index → active-low byte bit. Spectrum hardware (WoS FAQ ports
+ *  reference, matched by FUSE): D0 = right, D1 = left, D2 = middle. */
+const SPECTRUM_BUTTON_BITS: Record<number, number> = { 0: 1, 1: 2, 2: 0 };
 
 export class KempstonMouse {
   x = 0;

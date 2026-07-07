@@ -64,8 +64,8 @@ export class CpcMachine extends BaseMachine implements Machine {
   readonly gateArray: GateArray;
   readonly ppi: Ppi8255;
   readonly multiface = new CpcMultiface();
-  /** Kempston mouse (ports 0xFBEE/0xFBEF/0xFAEF). The CPC swaps the button bits
-   *  vs the Spectrum: bit0 = right, bit1 = left, no middle button. */
+  /** Kempston mouse (ports 0xFBEE/0xFBEF/0xFAEF). Same L/R bit layout as the
+   *  Spectrum (bit0 = right, bit1 = left) but with no middle button. */
   readonly kempstonMouse = new KempstonMouse({ 0: 1, 2: 0 });
   /** AMX mouse — presents on keyboard line 9 (joystick 0). */
   readonly amxMouse = new CpcAmxMouse();
