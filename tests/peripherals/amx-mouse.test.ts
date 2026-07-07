@@ -188,6 +188,10 @@ describe('AmxMouse — drainMovement', () => {
     activity = new IOActivity();
     m.pioVectorA = 0x40;
     m.pioVectorB = 0x42;
+    // A real Z80 PIO powers up with interrupts disabled; arm both ports via
+    // an interrupt control word (D7=1 enable, D3:0=0111, no mask follow).
+    m.pioControlWrite('A', 0x87);
+    m.pioControlWrite('B', 0x87);
     // iff1 must be re-armed between interrupts — drainMovement relies on the
     // guest's ISR to EI before RETI. In test we just keep it true.
     const realInterrupt = cpu.interruptWithVector.bind(cpu);
@@ -283,6 +287,31 @@ describe('AmxMouse — drainMovement', () => {
     const bCount = spy.mock.calls.filter(c => c[0] === 0x42).length;
     expect(aCount).toBe(4);
     expect(bCount).toBe(4);
+  });
+
+  it('with interrupts never enabled (real PIO power-up state), movement updates direction but never vectors an interrupt', () => {
+    // A fresh AmxMouse (no pioControlWrite arming at all) mirrors a real Z80
+    // PIO that has just been reset: INT E/D flip-flops both clear.
+    const fresh = new AmxMouse();
+    fresh.pioVectorA = 0x40;
+    fresh.pioVectorB = 0x42;
+    const spy = vi.spyOn(cpu, 'interruptWithVector');
+    fresh.queueMovement(3, -2);
+    fresh.drainMovement(cpu, FRAME_LEN, activity);
+    expect(spy).not.toHaveBeenCalled();
+    expect(fresh.dirX).toBe(0); // still updated: positive X → right
+    expect(fresh.dirY).toBe(0); // still updated: negative Y → up
+    expect(fresh.pendingX).toBe(0);
+    expect(fresh.pendingY).toBe(0);
+  });
+
+  it('an interrupt control word with D7=0 disables interrupts again', () => {
+    m.pioControlWrite('A', 0x07); // D7=0 → disable, no mask follow
+    m.queueMovement(3, 0);
+    const spy = vi.spyOn(cpu, 'interruptWithVector');
+    m.drainMovement(cpu, FRAME_LEN, activity);
+    expect(spy).not.toHaveBeenCalled();
+    expect(m.dirX).toBe(0);
   });
 });
 

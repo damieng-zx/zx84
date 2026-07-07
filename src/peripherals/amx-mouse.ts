@@ -36,6 +36,12 @@ export class AmxMouse {
   /** PIO control state machine */
   private pioCtrlStateA: PioCtrlState = 'normal';
   private pioCtrlStateB: PioCtrlState = 'normal';
+  /** Interrupt Enable flip-flop per port. A real Z80 PIO powers up with both
+   *  disabled — software must send an interrupt control word (D7=1) to arm
+   *  it. Until then, moving the mouse must not vector through the (possibly
+   *  uninitialised) interrupt table. */
+  private intEnabledA = false;
+  private intEnabledB = false;
 
   /** Active-low button mapping: 0=LMB(bit6), 1=MMB(bit5), 2=RMB(bit7) */
   private static BUTTON_BITS: Record<number, number> = { 0: 6, 1: 5, 2: 7 };
@@ -63,12 +69,15 @@ export class AmxMouse {
         if (port === 'A') this.pioCtrlStateA = 'await_io'; else this.pioCtrlStateB = 'await_io';
       }
     } else if ((val & 0x0F) === 0x07) {
-      // Interrupt control word: if bit 4 set, next byte is interrupt mask
+      // Interrupt control word: D7 = interrupt enable/disable flip-flop,
+      // D4 = mask follows (next byte is the interrupt mask).
+      const enabled = (val & 0x80) !== 0;
+      if (port === 'A') this.intEnabledA = enabled; else this.intEnabledB = enabled;
       if (val & 0x10) {
         if (port === 'A') this.pioCtrlStateA = 'await_int'; else this.pioCtrlStateB = 'await_int';
       }
     }
-    // Other control words (enable/disable int, etc.) -- ignore
+    // Other control words -- ignore
   }
 
   /**
@@ -97,12 +106,12 @@ export class AmxMouse {
       const doX = xRemain > 0 && (yRemain === 0 || xRemain >= yRemain);
       if (doX) {
         this.dirX = xDir;
-        cpu.interruptWithVector(this.pioVectorA);
+        if (this.intEnabledA) cpu.interruptWithVector(this.pioVectorA);
         xRemain--;
         activity.mouseReads++;
       } else {
         this.dirY = yDir;
-        cpu.interruptWithVector(this.pioVectorB);
+        if (this.intEnabledB) cpu.interruptWithVector(this.pioVectorB);
         yRemain--;
         activity.mouseReads++;
       }
@@ -141,6 +150,8 @@ export class AmxMouse {
     this.pendingY = 0;
     this.pioCtrlStateA = 'normal';
     this.pioCtrlStateB = 'normal';
+    this.intEnabledA = false;
+    this.intEnabledB = false;
     // Note: enabled is not reset — it's a user setting, not machine state
   }
 }
