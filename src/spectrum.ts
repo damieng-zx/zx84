@@ -616,6 +616,10 @@ export class Spectrum extends BaseMachine implements Machine {
 
     while (this.cpu.tStates < frameEnd) {
       const tBefore = this.cpu.tStates;
+      // EI delay: captured before the step so the flag set by EI itself
+      // survives this iteration and is cleared only after the *following*
+      // instruction (see timings.md § EI Delay).
+      const eiBefore = this.cpu.eiDelay;
 
       // MGT +D shadow-ROM paging: M1 opcode-fetch trap. Must run every
       // instruction (before any branch) so the +D maps itself in at its RST/
@@ -718,18 +722,19 @@ export class Spectrum extends BaseMachine implements Machine {
       // IF1 ROM), map the IF1 ROM back out so the return lands in normal memory.
       if (if1PageOut) this.interface1.pageOut(this.memory);
 
-      // Clear EI delay after each instruction (see timings.md § EI Delay).
-      // The delay suppresses interrupts for exactly one instruction after EI.
-      // We clear it here (not in interrupt()) so the suppression is tied to
-      // one *instruction*, not one *frame boundary check*.
-      if (this.cpu.eiDelay) {
+      // Clear EI delay one instruction after EI set it (see timings.md
+      // § EI Delay). eiBefore was captured before the step, so the flag EI
+      // sets during its own step() survives until after the next instruction
+      // — keeping EI:DI atomic and EI:HALT un-interruptible in between.
+      if (eiBefore) {
         this.cpu.eiDelay = false;
       }
 
       // Pending interrupt: INT is only held LOW for a limited window.
       // If EI re-enables interrupts within the window, fire the interrupt.
       // After the window closes, the interrupt is lost until the next frame.
-      // (eiDelay was already cleared above, so interrupt() can fire.)
+      // (While eiDelay is still set — the instruction after EI hasn't run —
+      // interrupt() refuses and the INT stays pending for the next retry.)
       if (intPending) {
         if (this.cpu.tStates >= intWindowEnd) {
           intPending = false;

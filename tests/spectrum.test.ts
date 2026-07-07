@@ -1599,3 +1599,44 @@ describe('Spectrum — startTrace transitions', () => {
     expect(out).toContain('DISASSEMBLY');
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// EI interrupt shadow — the instruction after EI always executes before a
+// pending INT is accepted (real Z80 defers acceptance by one instruction)
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('Spectrum — EI interrupt shadow', () => {
+  // EI:DI is atomic on a real Z80: the INT pending at frame start must not
+  // be accepted between EI and DI. DI re-disables interrupts, so no
+  // interrupt fires at all this frame (the INT window closes long before
+  // the loop ends).
+  it('EI:DI is atomic — a pending INT is not accepted between them', () => {
+    const s = makeMachine('48k');
+    loadProgram(s, 0xFB, 0xF3, 0x18, 0xFE); // EI ; DI ; JR $
+    s.cpu.iff1 = false;
+    s.cpu.iff2 = false;
+    s.cpu.im = 1;
+    s.tick();
+    // Interrupt accepted → SP would drop to 0xFEFE and PC leave the loop.
+    expect(s.cpu.sp).toBe(0xFF00);
+    expect(s.cpu.pc).toBe(0xC002);
+  });
+
+  // EI:HALT: the INT must be accepted after HALT executes, so the pushed
+  // return address is the byte after HALT (0xC002), not the HALT itself
+  // (0xC001) — pushing 0xC001 makes the ISR return into HALT and lose a
+  // full frame.
+  it('EI:HALT — the INT wakes the HALT, pushing the address after it', () => {
+    const s = makeMachine('48k');
+    loadProgram(s, 0xFB, 0x76); // EI ; HALT
+    s.cpu.iff1 = false;
+    s.cpu.iff2 = false;
+    s.cpu.im = 1;
+    s.tick();
+    expect(s.cpu.sp).toBe(0xFEFE);
+    // Pushed PC (little-endian at 0xFEFE) must be 0xC002, the byte after HALT.
+    const lo = s.memory.readByte(0xFEFE);
+    const hi = s.memory.readByte(0xFEFF);
+    expect((hi << 8) | lo).toBe(0xC002);
+  });
+});
