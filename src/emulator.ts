@@ -702,8 +702,10 @@ export async function loadRomFiles(files: Array<{ name: string; data: Uint8Array
 
 // ── Snapshot loading ────────────────────────────────────────────────────
 
-/** Try to switch to a 128K-class ROM, returning false if none available. */
-async function ensure128kROM(): Promise<boolean> {
+/** Try to switch to a 128K-class ROM. createMachine() destroys the old
+ *  machine and installs a new one, so hand the caller the new Spectrum (and
+ *  its model) to re-bind to. Returns null if no 128K ROM is available. */
+async function ensure128kROM(): Promise<{ spectrum: Spectrum; model: SpectrumModel } | null> {
   const models: SpectrumModel[] = ['128k', '+2', '+2A', '+3'];
   for (const model of models) {
     const entry = await restoreROM(model);
@@ -712,10 +714,10 @@ async function ensure128kROM(): Promise<boolean> {
       romData = entry.data;
       setRomStatus('');
       await createMachine();
-      return true;
+      return spectrum ? { spectrum, model } : null;
     }
   }
-  return false;
+  return null;
 }
 
 /** Build media callbacks for the MediaManager */

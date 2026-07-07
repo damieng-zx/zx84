@@ -73,6 +73,8 @@ function makeSpectrum() {
   };
 }
 
+// ensure128kROM returns the machine now in service after a model switch
+// (or null when no 128K ROM is available). Default: decline.
 function makeCallbacks() {
   return {
     onStatus: vi.fn(),
@@ -80,8 +82,14 @@ function makeCallbacks() {
     onDiskLoaded: vi.fn(),
     onSnapshotLoaded: vi.fn(),
     unpause: vi.fn(),
-    ensure128kROM: vi.fn(async () => true),
+    ensure128kROM: vi.fn(async (): Promise<any> => null),
   };
+}
+
+/** ensure128kROM stub that accepts the upgrade, handing back `sp` as the
+ *  machine now in service (as createMachine() does after a model switch). */
+function acceptUpgrade(sp: any, model = '128k') {
+  return vi.fn(async () => ({ spectrum: sp, model }));
 }
 
 beforeEach(() => {
@@ -374,7 +382,7 @@ describe('applySnapshot — SNA', () => {
     const mm = new MediaManager();
     const sp = makeSpectrum();
     const cb = makeCallbacks();
-    cb.ensure128kROM = vi.fn(async () => false);
+    cb.ensure128kROM = vi.fn(async () => null);
 
     const ok = await mm.applySnapshot(sp as any, new Uint8Array(49180), 'g.sna', '48k', cb);
 
@@ -407,7 +415,7 @@ describe('applySnapshot — SNA', () => {
     expect(cb.ensure128kROM).not.toHaveBeenCalled();
 
     // 49180 → 128K path
-    cb.ensure128kROM = vi.fn(async () => true);
+    cb.ensure128kROM = acceptUpgrade(sp);
     await mm.applySnapshot(sp as any, new Uint8Array(49180), 'b.sna', '48k', cb);
     expect(cb.ensure128kROM).toHaveBeenCalled();
   });
@@ -432,6 +440,7 @@ describe('applySnapshot — Z80', () => {
     const mm = new MediaManager();
     const sp = makeSpectrum();
     const cb = makeCallbacks();
+    cb.ensure128kROM = acceptUpgrade(sp);
     loadZ80.mockReturnValue({ is128K: true, borderColor: 0 });
 
     const ok = await mm.applySnapshot(sp as any, new Uint8Array(), 'a.z80', '48k', cb);
@@ -446,7 +455,7 @@ describe('applySnapshot — Z80', () => {
     const mm = new MediaManager();
     const sp = makeSpectrum();
     const cb = makeCallbacks();
-    cb.ensure128kROM = vi.fn(async () => false);
+    cb.ensure128kROM = vi.fn(async () => null);
     loadZ80.mockReturnValue({ is128K: true, borderColor: 0 });
 
     const ok = await mm.applySnapshot(sp as any, new Uint8Array(), 'a.z80', '48k', cb);
@@ -549,7 +558,7 @@ describe('applySnapshot — SZX 128K upgrade gating', () => {
     const mm = new MediaManager();
     const sp = makeSpectrum();
     const cb = makeCallbacks();
-    cb.ensure128kROM = vi.fn(async () => false);
+    cb.ensure128kROM = vi.fn(async () => null);
     loadSZX.mockResolvedValue({ is128K: true, borderColor: 0, port7FFD: 0, port1FFD: 0 });
 
     const ok = await mm.applySnapshot(sp as any, new Uint8Array(), 'a.szx', '48k', cb);
@@ -566,6 +575,7 @@ describe('applySnapshot — SZX 128K upgrade gating', () => {
     const mm = new MediaManager();
     const sp = makeSpectrum();
     const cb = makeCallbacks();
+    cb.ensure128kROM = acceptUpgrade(sp);
     loadSZX.mockResolvedValue({ is128K: true, borderColor: 0, port7FFD: 0x10, port1FFD: 0 });
 
     const ok = await mm.applySnapshot(sp as any, new Uint8Array(), 'a.szx', '48k', cb);
@@ -602,7 +612,7 @@ describe('applySnapshot — SP paging', () => {
     const mm = new MediaManager();
     const sp = makeSpectrum();
     const cb = makeCallbacks();
-    cb.ensure128kROM = vi.fn(async () => false);
+    cb.ensure128kROM = vi.fn(async () => null);
     loadSP.mockReturnValue({ is128K: true, borderColor: 0, flashState: false, port7FFD: 0 });
 
     const ok = await mm.applySnapshot(sp as any, new Uint8Array(), 'a.sp', '48k', cb);
@@ -619,6 +629,7 @@ describe('applySnapshot — SP paging', () => {
     const mm = new MediaManager();
     const sp = makeSpectrum();
     const cb = makeCallbacks();
+    cb.ensure128kROM = acceptUpgrade(sp);
     loadSP.mockReturnValue({ is128K: true, borderColor: 0, flashState: false, port7FFD: 0x10 });
 
     const ok = await mm.applySnapshot(sp as any, new Uint8Array(), 'a.sp', '48k', cb);
@@ -630,6 +641,80 @@ describe('applySnapshot — SP paging', () => {
     expect(loadSP).toHaveBeenCalledTimes(2);
     expect(sp.start).toHaveBeenCalledTimes(1);
     expect(cb.unpause).toHaveBeenCalled();
+  });
+});
+
+// ── applySnapshot — machine replacement on ROM upgrade ──────────────────
+//
+// ensure128kROM() destroys the current machine and creates a new one
+// (emulator.ts createMachine()). applySnapshot must re-bind to the machine
+// it returns: applying the snapshot to — or worse, start()ing — the old
+// destroyed instance resurrects it, leaving two frame loops and two
+// AudioContexts fighting over the same canvas.
+
+describe('applySnapshot — machine replacement on ROM upgrade', () => {
+  it('SNA: snapshot lands in the machine returned by ensure128kROM; the old machine is never touched again', async () => {
+    const mm = new MediaManager();
+    const oldSp = makeSpectrum();
+    const newSp = makeSpectrum();
+    const cb = makeCallbacks();
+    cb.ensure128kROM = acceptUpgrade(newSp);
+    loadSNA.mockReturnValue({ is128K: true, borderColor: 2 });
+
+    const ok = await mm.applySnapshot(oldSp as any, new Uint8Array(49180), 'g.sna', '48k', cb);
+
+    expect(ok).toBe(true);
+    expect(loadSNA.mock.calls[0][1]).toBe(newSp.cpu);
+    expect(loadSNA.mock.calls[0][2]).toBe(newSp.memory);
+    expect(newSp.start).toHaveBeenCalledTimes(1);
+    expect(newSp.ula.borderColor).toBe(2);
+    // The old machine was destroyed by the model switch — restarting it
+    // would resurrect a zombie frame loop.
+    expect(oldSp.start).not.toHaveBeenCalled();
+    expect(oldSp.stop).not.toHaveBeenCalled();
+  });
+
+  it('Z80: the post-upgrade re-load targets the new machine, and only the new machine is started', async () => {
+    const mm = new MediaManager();
+    const oldSp = makeSpectrum();
+    const newSp = makeSpectrum();
+    const cb = makeCallbacks();
+    cb.ensure128kROM = acceptUpgrade(newSp);
+    loadZ80.mockReturnValue({ is128K: true, borderColor: 0 });
+
+    const ok = await mm.applySnapshot(oldSp as any, new Uint8Array(), 'a.z80', '48k', cb);
+
+    expect(ok).toBe(true);
+    // First load reads the header on the old machine (pre-upgrade)…
+    expect(loadZ80.mock.calls[0][2]).toBe(oldSp.memory);
+    // …second load must land in the new machine.
+    expect(loadZ80.mock.calls[1][2]).toBe(newSp.memory);
+    expect(newSp.reset).toHaveBeenCalledTimes(1);
+    expect(newSp.start).toHaveBeenCalledTimes(1);
+    expect(oldSp.start).not.toHaveBeenCalled();
+  });
+
+  it('SZX: paging is applied for the model the upgrade actually produced (+2A 4-ROM math)', async () => {
+    const mm = new MediaManager();
+    const oldSp = makeSpectrum();
+    const newSp = makeSpectrum();
+    const cb = makeCallbacks();
+    cb.ensure128kROM = acceptUpgrade(newSp, '+2A');
+    loadSZX.mockResolvedValue({
+      is128K: true, borderColor: 0,
+      port7FFD: 0x10, // bit 4 → low ROM bit = 1
+      port1FFD: 0x05, // bit 2 → high ROM bit = 1, bit 0 → special paging
+    });
+
+    await mm.applySnapshot(oldSp as any, new Uint8Array(), 'a.szx', '48k', cb);
+
+    // currentModel was '48k' at entry, but the machine in service is now a
+    // +2A — the +2A/+3 paging branch must run on the NEW machine.
+    expect(newSp.memory.port1FFD).toBe(0x05);
+    expect(newSp.memory.specialPaging).toBe(true);
+    expect(newSp.memory.currentROM).toBe(3); // (1 << 1) | 1
+    expect(newSp.start).toHaveBeenCalledTimes(1);
+    expect(oldSp.start).not.toHaveBeenCalled();
   });
 });
 

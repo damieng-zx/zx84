@@ -1725,14 +1725,18 @@ describe('media callback bodies', () => {
     captured.unpause();
     expect(emulator.emulationPaused()).toBe(false);
 
-    // ensure128kROM: with no ROM available → false
+    // ensure128kROM: with no ROM available → null
     getRomManager().restoreROM.mockResolvedValue(null);
-    expect(await captured.ensure128kROM()).toBe(false);
+    expect(await captured.ensure128kROM()).toBeNull();
 
-    // ensure128kROM: with 128k ROM available → true and switches model
+    // ensure128kROM: with a 128k ROM available → switches model and returns
+    // the machine now in service, so applySnapshot can re-bind to it
     getRomManager().restoreROM
       .mockResolvedValueOnce({ data: new Uint8Array(32768), label: '128k' });
-    expect(await captured.ensure128kROM()).toBe(true);
+    const upgraded = await captured.ensure128kROM();
+    expect(upgraded).not.toBeNull();
+    expect(upgraded.model).toBe('128k');
+    expect(upgraded.spectrum).toBe(emulator.spectrum);
   });
 
   it('applyTape onTapeLoaded callback (captured) updates state', async () => {

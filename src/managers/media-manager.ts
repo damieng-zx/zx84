@@ -28,7 +28,11 @@ export interface MediaLoadCallbacks {
   onDiskLoaded: (image: DskImage, filename: string, unit: number) => void;
   onSnapshotLoaded: (filename: string) => void;
   unpause: () => void;
-  ensure128kROM: () => Promise<boolean>;
+  /** Switch to a 128K-class machine. The switch destroys the current machine
+   *  and creates a new one, so the caller must re-bind to the returned
+   *  instance and model. Returns null when no 128K ROM is available (the
+   *  machine in service is unchanged). */
+  ensure128kROM: () => Promise<{ spectrum: Spectrum; model: SpectrumModel } | null>;
   /** Re-dispatch a file extracted from a ZIP through the top-level loader, so
    *  peripheral formats (.mdr microdrive, .mgt +D) the MediaManager doesn't
    *  itself handle still reach their loaders. */
@@ -168,10 +172,14 @@ export class MediaManager {
     try {
       if (ext === 'sna') {
         if (data.length > 49179 && !is128kClass(currentModel)) {
-          if (!await callbacks.ensure128kROM()) {
+          const upgraded = await callbacks.ensure128kROM();
+          if (!upgraded) {
             callbacks.onStatus('128K SNA requires a 128K ROM — load one first');
             return false;
           }
+          // The model switch replaced the machine — everything below must
+          // target the new instance, never the destroyed one.
+          ({ spectrum, model: currentModel } = upgraded);
         }
 
         spectrum.stop();
@@ -187,11 +195,14 @@ export class MediaManager {
         const result = loadZ80(data, spectrum.cpu, spectrum.memory);
 
         if (result.is128K && !is128kClass(currentModel)) {
-          if (!await callbacks.ensure128kROM()) {
+          const upgraded = await callbacks.ensure128kROM();
+          if (!upgraded) {
             spectrum.start();
             callbacks.onStatus('128K .z80 snapshot requires a 128K ROM — load one first');
             return false;
           }
+          // Re-bind: the switch destroyed the old machine.
+          ({ spectrum, model: currentModel } = upgraded);
           spectrum.stop();
           spectrum.reset();
           loadZ80(data, spectrum.cpu, spectrum.memory);
@@ -207,11 +218,16 @@ export class MediaManager {
         const result = await loadSZX(data, spectrum.cpu, spectrum.memory);
 
         if (result.is128K && !is128kClass(currentModel)) {
-          if (!await callbacks.ensure128kROM()) {
+          const upgraded = await callbacks.ensure128kROM();
+          if (!upgraded) {
             spectrum.start();
             callbacks.onStatus('128K .szx snapshot requires a 128K ROM — load one first');
             return false;
           }
+          // Re-bind: the switch destroyed the old machine. currentModel is
+          // refreshed too so the +2A/+3 paging branch below matches the
+          // model the upgrade actually produced.
+          ({ spectrum, model: currentModel } = upgraded);
           spectrum.stop();
           spectrum.reset();
           await loadSZX(data, spectrum.cpu, spectrum.memory);
@@ -253,11 +269,14 @@ export class MediaManager {
         const result = loadSP(data, spectrum.cpu, spectrum.memory);
 
         if (result.is128K && !is128kClass(currentModel)) {
-          if (!await callbacks.ensure128kROM()) {
+          const upgraded = await callbacks.ensure128kROM();
+          if (!upgraded) {
             spectrum.start();
             callbacks.onStatus('128K .sp snapshot requires a 128K ROM — load one first');
             return false;
           }
+          // Re-bind: the switch destroyed the old machine.
+          ({ spectrum, model: currentModel } = upgraded);
           spectrum.stop();
           spectrum.reset();
           loadSP(data, spectrum.cpu, spectrum.memory);
