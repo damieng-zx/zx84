@@ -48,6 +48,9 @@ export class AY3891x {
   noisePeriod: number;
   noiseOutput: number;
   noiseRng: number;
+  // Extra ÷2 prescaler ahead of the noise counter — real hardware clocks
+  // noise at half the tone/envelope rate (master/16 vs master/8).
+  noisePrescale: number;
 
   // Envelope
   envCounter: number;
@@ -110,6 +113,7 @@ export class AY3891x {
     this.noisePeriod = 1;
     this.noiseOutput = 0;
     this.noiseRng = 1;
+    this.noisePrescale = 0;
 
     this.envCounter = 0;
     this.envPeriod = 1;
@@ -161,6 +165,7 @@ export class AY3891x {
     this.noisePeriod = 1;
     this.noiseOutput = 0;
     this.noiseRng = 1;
+    this.noisePrescale = 0;
     this.envCounter = 0;
     this.envPeriod = 1;
     this.envShape = 0;
@@ -274,12 +279,15 @@ export class AY3891x {
       }
     }
 
-    this.noiseCounter++;
-    if (this.noiseCounter >= this.noisePeriod) {
-      this.noiseCounter = 0;
-      const bit = ((this.noiseRng ^ (this.noiseRng >>> 3)) & 1);
-      this.noiseRng = (this.noiseRng >>> 1) | (bit << 16);
-      this.noiseOutput = this.noiseRng & 1;
+    this.noisePrescale ^= 1;
+    if (this.noisePrescale === 0) {
+      this.noiseCounter++;
+      if (this.noiseCounter >= this.noisePeriod) {
+        this.noiseCounter = 0;
+        const bit = ((this.noiseRng ^ (this.noiseRng >>> 3)) & 1);
+        this.noiseRng = (this.noiseRng >>> 1) | (bit << 16);
+        this.noiseOutput = this.noiseRng & 1;
+      }
     }
 
     this.envCounter++;

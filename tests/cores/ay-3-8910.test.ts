@@ -270,10 +270,17 @@ describe('AY-3-8910 — noise LFSR', () => {
     const ay = makeAy();
     ay.writeRegister(6, 1);
     const seed = ay.noiseRng;
+    let shifts = 0;
     let period = 0;
-    for (let i = 1; i <= 200000; i++) {
+    // Noise is prescaled ÷2 ahead of its counter (real hardware clocks it at
+    // half the tone/envelope rate), so it advances once every 2 clock() calls.
+    for (let i = 1; i <= 400000; i++) {
+      const before = ay.noiseRng;
       ay.clock();
-      if (ay.noiseRng === seed) { period = i; break; }
+      if (ay.noiseRng !== before) {
+        shifts++;
+        if (ay.noiseRng === seed) { period = shifts; break; }
+      }
     }
     expect(period).toBe(131071);
   });
@@ -658,21 +665,24 @@ describe('AY-3-8910 — LFSR exact behaviour', () => {
     // Standard AY/YM noise LFSR: 17-bit Galois with feedback bit = b0 XOR b3.
     const ay = makeAy();
     ay.writeRegister(6, 1);
-    // Reproduce the first few iterations in software.
+    // Reproduce the first few iterations in software. Noise is prescaled ÷2
+    // ahead of its counter, so it only shifts on every other clock() call.
     let rng = 1;
     for (let i = 0; i < 1000; i++) {
       ay.clock();
-      const bit = ((rng ^ (rng >>> 3)) & 1);
-      rng = (rng >>> 1) | (bit << 16);
+      if (i % 2 === 1) {
+        const bit = ((rng ^ (rng >>> 3)) & 1);
+        rng = (rng >>> 1) | (bit << 16);
+      }
       expect(ay.noiseRng).toBe(rng);
     }
   });
 
-  it('noise period gates the clocking — period 4 advances once per 4 clocks', () => {
+  it('noise period gates the clocking — period 4 advances once per 8 clocks', () => {
     const ay = makeAy();
     ay.writeRegister(6, 4);
     const start = ay.noiseRng;
-    ay.clock(); ay.clock(); ay.clock();
+    for (let i = 0; i < 7; i++) ay.clock();
     expect(ay.noiseRng).toBe(start);
     ay.clock();
     expect(ay.noiseRng).not.toBe(start);
