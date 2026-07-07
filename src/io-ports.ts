@@ -281,16 +281,18 @@ export function wirePortIO(s: Spectrum): void {
       if (hi === 0xFA) { s.activity.mouseReads++; return s.kempstonMouse.buttons; }
     }
 
-    // MF3 port latches
-    if (s.multiface.enabled && s.multiface.variant === 'MF3'
+    // MF3 port latches — only live once the button's NMI has armed the interface.
+    if (s.multiface.enabled && s.multiface.variant === 'MF3' && s.multiface.armed
         && (port & 0xFF) === 0x3F) {
       const hi = (port >> 8) & 0xFF;
       if (hi === 0x7F) return s.memory.port7FFD;
       if (hi === 0x1F) return s.memory.port1FFD;
     }
 
-    // Multiface port handling (IN-triggered paging)
-    if (s.multiface.enabled && s.multiface.romLoaded) {
+    // Multiface port handling (IN-triggered paging). MF1's narrower decode is
+    // always live; MF128/MF3 are invisible until the button arms them.
+    if (s.multiface.enabled && s.multiface.romLoaded
+        && (s.multiface.variant === 'MF1' || s.multiface.armed)) {
       const mfPort = s.multiface.matchPort(port);
       if (mfPort === 'in' && !s.multiface.pagedIn) {
         s.multiface.pageIn(s.memory, s.memory.slot0Bank);

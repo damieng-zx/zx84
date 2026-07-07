@@ -37,6 +37,14 @@ export class Multiface {
   romLoaded = false;
   variant: MultifaceVariant = 'MF1';
 
+  /** MF128/MF3 only: the button's NMI arms a hardware latch that makes the
+   *  paging/latch-readback ports live. Without it a game's own stray IN/OUT
+   *  to those (very common) port numbers would page the MF ROM in mid-game.
+   *  Cleared again on page-out, when the MF ROM hands control back.
+   *  MF1's narrower bit-mask decode means real MF1 hardware has no such
+   *  latch — its ports are always live, so this flag isn't consulted for it. */
+  armed = false;
+
   /** 8KB Multiface ROM (0x0000-0x1FFF when paged in) */
   mfRom = new Uint8Array(8192);
   /** 8KB Multiface RAM (0x2000-0x3FFF when paged in) */
@@ -50,6 +58,7 @@ export class Multiface {
 
   reset(): void {
     this.pagedIn = false;
+    this.armed = false;
     this.mfRam.fill(0);
     this.savedSlot0Bank = -1;
   }
@@ -84,11 +93,13 @@ export class Multiface {
     this.mfRam.set(memory.getSlot(0).subarray(0x2000, 0x4000));
     memory.restoreSlot0();
     this.pagedIn = false;
+    this.armed = false;
   }
 
-  /** Press the red button: page in then trigger NMI. */
+  /** Press the red button: arm the paging latch, page in, then trigger NMI. */
   pressButton(memory: SpectrumMemory, cpu: Z80, slot0Bank = -1): void {
     if (!this.enabled || !this.romLoaded) return;
+    this.armed = true;
     this.pageIn(memory, slot0Bank);
     cpu.nmi();
   }

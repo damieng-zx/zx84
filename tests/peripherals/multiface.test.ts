@@ -239,3 +239,50 @@ describe('multiface — pressButton', () => {
     expect(nmiCalls).toBe(1);
   });
 });
+
+describe('multiface — armed latch (MF128/MF3 button-arming)', () => {
+  it('starts disarmed; pressButton arms it', () => {
+    const mf = new Multiface();
+    mf.enabled = true;
+    mf.romLoaded = true;
+    const mem = new SpectrumMemory('128k');
+    const fakeCpu = { nmi: () => {} } as any;
+    expect(mf.armed).toBe(false);
+    mf.pressButton(mem, fakeCpu);
+    expect(mf.armed).toBe(true);
+  });
+
+  it('pageOut disarms it again', () => {
+    const mf = new Multiface();
+    mf.enabled = true;
+    mf.romLoaded = true;
+    const mem = new SpectrumMemory('128k');
+    const fakeCpu = { nmi: () => {} } as any;
+    mf.pressButton(mem, fakeCpu);
+    mf.pageOut(mem);
+    expect(mf.armed).toBe(false);
+  });
+
+  it('pressButton is a no-op (does not arm) when disabled or ROM not loaded', () => {
+    const mf = new Multiface();
+    const mem = new SpectrumMemory('128k');
+    const fakeCpu = { nmi: () => {} } as any;
+
+    mf.enabled = false;
+    mf.romLoaded = true;
+    mf.pressButton(mem, fakeCpu);
+    expect(mf.armed).toBe(false);
+
+    mf.enabled = true;
+    mf.romLoaded = false;
+    mf.pressButton(mem, fakeCpu);
+    expect(mf.armed).toBe(false);
+  });
+
+  it('reset clears the armed latch', () => {
+    const mf = new Multiface();
+    mf.armed = true;
+    mf.reset();
+    expect(mf.armed).toBe(false);
+  });
+});

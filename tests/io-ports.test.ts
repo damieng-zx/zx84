@@ -1032,22 +1032,55 @@ describe('Port routing — Multiface page-in/page-out (MF1)', () => {
 });
 
 describe('Port routing — MF3 port latch reads (+2A/+3)', () => {
-  it('IN 0x7F3F returns port7FFD latch', () => {
+  it('IN 0x7F3F returns port7FFD latch once the button has armed the interface', () => {
     const s = makeMachine('+3');
     s.multiface.enabled = true;
     s.multiface.variant = 'MF3';
+    s.multiface.romLoaded = true;
     s.cpu.portOut(0x7FFD, 0x13); // set 7FFD latch = 0x13
+    s.multiface.pressButton(s.memory, s.cpu);
     const latch = s.cpu.portIn(0x7F3F);
     expect(latch & 0xFF).toBe(s.memory.port7FFD);
   });
 
-  it('IN 0x1F3F returns port1FFD latch', () => {
+  it('IN 0x1F3F returns port1FFD latch once the button has armed the interface', () => {
     const s = makeMachine('+3');
     s.multiface.enabled = true;
     s.multiface.variant = 'MF3';
+    s.multiface.romLoaded = true;
     s.cpu.portOut(0x1FFD, 0x04); // set 1FFD latch = 0x04
+    s.multiface.pressButton(s.memory, s.cpu);
     const latch = s.cpu.portIn(0x1F3F);
     expect(latch & 0xFF).toBe(s.memory.port1FFD);
+  });
+
+  it('before the button is pressed, MF128/MF3 paging and latch ports are invisible', () => {
+    const s = makeMachine('+3');
+    s.multiface.enabled = true;
+    s.multiface.variant = 'MF3';
+    s.multiface.romLoaded = true;
+    s.cpu.portOut(0x7FFD, 0x13);
+    expect(s.multiface.armed).toBe(false);
+    // Latch port: not gated, falls through instead of returning the latch.
+    expect(s.cpu.portIn(0x7F3F) & 0xFF).not.toBe(0x13);
+    // Page-in port (0x3F for MF3): stray IN must not page the MF ROM in.
+    s.cpu.portIn(0x003F);
+    expect(s.multiface.pagedIn).toBe(false);
+  });
+
+  it('after page-out, the interface disarms again until the next button press', () => {
+    const s = makeMachine('+3');
+    s.multiface.enabled = true;
+    s.multiface.variant = 'MF3';
+    s.multiface.romLoaded = true;
+    s.multiface.pressButton(s.memory, s.cpu);
+    expect(s.multiface.armed).toBe(true);
+    s.cpu.portIn(0x00BF); // MF3 page-out port
+    expect(s.multiface.pagedIn).toBe(false);
+    expect(s.multiface.armed).toBe(false);
+    // Now invisible again: a stray IN 0x3F must not re-page it in.
+    s.cpu.portIn(0x003F);
+    expect(s.multiface.pagedIn).toBe(false);
   });
 
   it('MF3 latch reads only with MF3 variant — MF1 ignores the same ports', () => {
