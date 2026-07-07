@@ -5,6 +5,7 @@ const CHANGELOG: { version: string; items: string[] }[] = [
     version: '0.6.7',
     items: [
       'Pause emulation when the tab or window loses focus (on by default)',
+      'Rework keyboard rendering for double-height keys',
     ]
   }, {
     version: '0.6.6',

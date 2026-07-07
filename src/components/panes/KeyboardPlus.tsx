@@ -298,9 +298,12 @@ function PCell(props: { k: PKey; kbd: KeyboardController; sparse?: boolean }) {
       <Show when={k.variant === 'enter'} fallback={<KeyBody k={k} sparse={props.sparse} />}>
         <svg class="pk-enter-svg" viewBox={`0 0 ${boot().Wf} ${boot().H}`} preserveAspectRatio="none" aria-hidden="true">
           <defs>
+            {/* The boot is double-height, so its mid stop sits lower than a normal
+                cap's 0.45 — otherwise the mid-tone lands up at the stem and the
+                foot reads darker than the single-height caps beside it. */}
             <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
               <stop class="pk-enter-g0" offset="0" />
-              <stop class="pk-enter-g1" offset="0.45" />
+              <stop class="pk-enter-g1" offset="0.75" />
               <stop class="pk-enter-g2" offset="1" />
             </linearGradient>
           </defs>
