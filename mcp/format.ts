@@ -9,11 +9,13 @@ import { disasmOne, stripMarkers } from '../src/debug/z80-disasm.ts';
 import { h8, h16 } from './hex.ts';
 import { symbols } from './state.ts';
 
+/** Throws instead of returning NaN: NaN & 0xFFFF is 0, so a typo'd symbol
+ *  or bad hex would otherwise silently read — or write — address 0x0000. */
 export function parseAddr(s: string): number {
   const raw = s.trim();
   // Explicit hex prefix wins — never resolve as a symbol.
-  if (raw.startsWith('0x') || raw.startsWith('0X')) return parseInt(raw.slice(2), 16);
-  if (raw.startsWith('$')) return parseInt(raw.slice(1), 16);
+  if (raw.startsWith('0x') || raw.startsWith('0X')) return parseHex(raw.slice(2), s);
+  if (raw.startsWith('$')) return parseHex(raw.slice(1), s);
   // Identifier-shaped tokens resolve via the symbol table when one is loaded.
   // (Hex addresses can't start with a letter — `face`, `dead` etc. are rare
   // enough that symbol-first is the right default; users can disambiguate
@@ -23,7 +25,15 @@ export function parseAddr(s: string): number {
     if (sym) return sym.value;
   }
   // Plain hex — this is a Z80 debugger.
-  return parseInt(raw, 16);
+  return parseHex(raw, s);
+}
+
+function parseHex(digits: string, original: string): number {
+  if (!/^[0-9A-Fa-f]+$/.test(digits)) {
+    throw new Error(
+      `Invalid address "${original}" — expected hex (optionally 0x/$-prefixed) or a loaded symbol name`);
+  }
+  return parseInt(digits, 16);
 }
 
 export const KEY_NAME_MAP: Record<string, string> = {
