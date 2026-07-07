@@ -16,9 +16,17 @@ Z80.prototype.executeDD = function (this: Z80): void {
     return;
   }
 
-  if (op === 0xDD || op === 0xFD) {
-    // DD DD/FD: 8T (4T DD M1 + 4T this M1, both auto-counted)
-    this.pc = (this.pc - 1) & 0xFFFF;
+  if (op === 0xDD) {
+    // Redundant DD: this M1 (4T, already counted above) is the whole cost —
+    // continue the prefix chain in place rather than returning to step(),
+    // which would re-fetch this byte (double-counting it) and let the
+    // frame loop sample a pending interrupt mid-chain.
+    this.executeDD();
+    return;
+  }
+  if (op === 0xFD) {
+    // Redundant FD after DD: same reasoning, and the final prefix wins.
+    this.executeFD();
     return;
   }
 
@@ -127,9 +135,15 @@ Z80.prototype.executeFD = function (this: Z80): void {
     return;
   }
 
-  if (op === 0xDD || op === 0xFD) {
-    // FD DD/FD: 8T (4T FD M1 + 4T this M1, both auto-counted)
-    this.pc = (this.pc - 1) & 0xFFFF;
+  if (op === 0xDD) {
+    // Redundant DD after FD: same reasoning as executeDD — continue the
+    // chain in place, don't re-fetch this byte or let an interrupt slip in.
+    this.executeDD();
+    return;
+  }
+  if (op === 0xFD) {
+    // Redundant FD: this M1 (4T, already counted above) is the whole cost.
+    this.executeFD();
     return;
   }
 

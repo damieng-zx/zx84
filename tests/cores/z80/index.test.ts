@@ -471,10 +471,12 @@ describe('Z80 — FDCB BIT n,(IY+d) takes F3/F5 from MEMPTR high byte', () => {
 
 describe('Z80 — FD chained prefixes', () => {
   it('FD FD 23 → drops first FD; second FD takes effect → INC IY', () => {
+    // The whole chain resolves within one step() call — a redundant prefix
+    // never returns control to the frame loop mid-chain.
     const h = newCpu();
     h.cpu.iy = 0x2000;
     load(h.mem, 0, 0xFD, 0xFD, 0x23);
-    step(h, 2);                 // first FD eats one step, second FD+op executes
+    step(h, 1);
     expect(h.cpu.iy).toBe(0x2001);
   });
 
@@ -482,7 +484,7 @@ describe('Z80 — FD chained prefixes', () => {
     const h = newCpu();
     h.cpu.ix = 0x3000; h.cpu.iy = 0x2000;
     load(h.mem, 0, 0xFD, 0xDD, 0x23);
-    step(h, 2);
+    step(h, 1);
     expect(h.cpu.ix).toBe(0x3001);
     expect(h.cpu.iy).toBe(0x2000);
   });

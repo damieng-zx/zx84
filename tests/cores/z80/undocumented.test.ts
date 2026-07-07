@@ -401,23 +401,28 @@ describe('Z80 — BIT n,(HL) takes F3/F5 from MEMPTR high byte (not value)', () 
 
 describe('Z80 — DD/FD chained prefixes', () => {
   it('DD DD ... drops the first DD and the second DD takes effect', () => {
-    // Each prefix byte consumes its own M1 cycle on real silicon; this core
-    // models that by backing up PC after the second prefix, so the inner op
-    // executes on the next step() call. End-to-end behaviour matches: total
-    // cost = 4T + 4T + 6T = 14T and the inner INC targets IX, not HL.
+    // Each prefix byte consumes its own M1 cycle (4T) on real silicon and the
+    // whole chain — every redundant prefix plus the final opcode — resolves
+    // within a single step() call, matching hardware (no interrupt can be
+    // accepted mid-chain). Total cost: 4T + 4T + 6T = 14T, R advances by 3,
+    // and the inner INC targets IX, not HL.
     const h = newCpu();
     h.cpu.ix = 0x1000;
     load(h.mem, 0, 0xDD, 0xDD, 0x23); // DD DD 23 → effectively INC IX
-    step(h, 2);
+    const rBefore = h.cpu.r;
+    const before = h.cpu.tStates;
+    step(h, 1);
     expect(h.cpu.ix).toBe(0x1001);
     expect(h.cpu.hl).toBe(0);
+    expect(h.cpu.tStates - before).toBe(14);
+    expect((h.cpu.r - rBefore) & 0x7F).toBe(3);
   });
 
   it('DD FD ... drops the DD and FD takes effect (so IY, not IX, is incremented)', () => {
     const h = newCpu();
     h.cpu.iy = 0x2000; h.cpu.ix = 0x1000;
     load(h.mem, 0, 0xDD, 0xFD, 0x23);
-    step(h, 2);
+    step(h, 1);
     expect(h.cpu.iy).toBe(0x2001);
     expect(h.cpu.ix).toBe(0x1000);
   });
