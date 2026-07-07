@@ -113,6 +113,38 @@ describe('TapeDeck — direct block playback', () => {
     expect(deck.playing).toBe(false);
   });
 
+  it('chains into a second direct block when pause=0 (split sampled recording)', () => {
+    // Long sampled recordings are stored as consecutive 0x15 blocks where
+    // each block but the last has pause=0 — the boundary must hand straight
+    // over to the next block's samples.
+    const first: DirectBlock = {
+      kind: 'direct', tStatesPerSample: 10, pause: 0, usedBits: 8,
+      data: new Uint8Array([0xFF]),
+    };
+    const second: DirectBlock = {
+      kind: 'direct', tStatesPerSample: 10, pause: 0, usedBits: 8,
+      data: new Uint8Array([0b10100000]),
+    };
+    const deck = deckWith(first, second);
+    deck.startPlayback();
+
+    // 8 samples consume the first block; the zero pause chains into the
+    // second, whose bit 7 (1) is set by beginDirectBlock.
+    deck.advance(80);
+    expect(deck.playing).toBe(true);
+    expect(deck.earBit).toBe(1);
+
+    // The second block's remaining bits must play out (bug: its data was
+    // nulled at the hand-over, crashing the next advance()).
+    const observed: number[] = [deck.earBit];
+    for (let i = 0; i < 8; i++) {
+      deck.advance(10);
+      observed.push(deck.earBit);
+    }
+    expect(observed.slice(0, 4)).toEqual([1, 0, 1, 0]);
+    expect(deck.playing).toBe(false);
+  });
+
   it('enters PAUSE with earBit=0 when pause > 0', () => {
     const block: DirectBlock = {
       kind: 'direct',

@@ -573,8 +573,12 @@ export class TapeDeck {
       // Check if we've finished the last used bit of the last byte
       const isLastByte = this.directByteIdx === this.directData!.length - 1;
       if (isLastByte && this.directBitIdx < (8 - this.directUsedBitsLast)) {
-        // End of direct block — enter pause
+        // End of direct block — enter pause. directData is cleared before
+        // the hand-over: beginBlock() may start another direct block (long
+        // sampled recordings are split across consecutive 0x15 blocks with
+        // pause=0) and its fresh data must not be nulled afterwards.
         this.position = this.playbackIdx + 1;
+        this.directData = null;
         if (this.directPauseMs > 0) {
           this.phase = TapePhase.PAUSE;
           this.earBit = 0;
@@ -582,7 +586,6 @@ export class TapeDeck {
         } else {
           this.beginBlock(this.playbackIdx + 1);
         }
-        this.directData = null;
         return;
       }
 
