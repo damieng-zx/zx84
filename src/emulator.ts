@@ -912,7 +912,7 @@ export async function saveSnapshot(format: 'z80' | 'szx' = 'szx'): Promise<void>
     data = await saveSZX(spectrum.cpu, spectrum.memory, spectrum.ula.borderColor, model, spectrum.contention.frameStartTStates, ayRegs, spectrum.ay.selectedReg);
   } else {
     // .z80 format
-    data = saveZ80(spectrum.cpu, spectrum.memory, spectrum.ula.borderColor, spectrum.variant.hasBanking);
+    data = saveZ80(spectrum.cpu, spectrum.memory, spectrum.ula.borderColor, spectrum.variant.hasBanking, spectrum.ay.getRegisters(), spectrum.ay.selectedReg);
   }
 
   const filename = `zx84-${model.replace('+', 'plus')}.${format}`;

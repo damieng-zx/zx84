@@ -1026,6 +1026,129 @@ describe('Z80 format — 128K full round-trip', () => {
   });
 });
 
+describe('Z80 format — AY sound chip state', () => {
+  it('preserves AY register contents and selected register across round-trip', () => {
+    const cpu = new Z80();
+    const mem = makeMemory128k();
+    const ayRegs = new Uint8Array(16);
+    for (let i = 0; i < 16; i++) ayRegs[i] = (i * 17 + 3) & 0xFF;
+
+    const saved = saveZ80(cpu, mem, 0, true, ayRegs, 0x0A);
+    const cpu2 = new Z80();
+    const mem2 = makeMemory128k();
+    const result = loadZ80(saved, cpu2, mem2);
+
+    expect(result.ayCurrentReg).toBe(0x0A);
+    expect(result.ayRegs).toBeDefined();
+    // Only R0-R13 round-trip through AY3891x.setRegisters (R14/R15 are I/O
+    // ports, not sound registers) — but the raw bytes read from the file
+    // must match exactly what was written, regardless of how a consumer
+    // later applies them.
+    for (let i = 0; i < 16; i++) {
+      expect(result.ayRegs![i]).toBe(ayRegs[i]);
+    }
+  });
+
+  it('previously always saved/loaded AY state as zero regardless of input (the bug)', () => {
+    // Regression guard: a snapshot saved with distinctive, non-zero AY state
+    // must not come back as all-zero.
+    const cpu = new Z80();
+    const mem = makeMemory128k();
+    const ayRegs = new Uint8Array(16).fill(0x5A);
+
+    const saved = saveZ80(cpu, mem, 0, true, ayRegs, 0x07);
+    const result = loadZ80(saved, new Z80(), makeMemory128k());
+
+    expect(result.ayCurrentReg).toBe(0x07);
+    expect(result.ayRegs!.every(b => b === 0x5A)).toBe(true);
+  });
+
+  it('omitting ayRegs/ayCurrentReg saves zeros (48K machines with no AY, or callers that opt out)', () => {
+    const cpu = new Z80();
+    const mem = makeMemory128k();
+    const saved = saveZ80(cpu, mem, 0, true);
+    const result = loadZ80(saved, new Z80(), makeMemory128k());
+
+    expect(result.ayCurrentReg).toBe(0);
+    expect(result.ayRegs!.every(b => b === 0)).toBe(true);
+  });
+});
+
+describe('Z80 format — +2A/+3 special paging (port 0x1FFD)', () => {
+  function makeMemoryPlus3(): SpectrumMemory {
+    const mem = new SpectrumMemory('+3', { hasBanking: true, romPageCount: 4 });
+    mem.loadROM(new Uint8Array(4 * 16384));
+    return mem;
+  }
+
+  it('writes a 55-byte extended header with hwMode=7 (+3) for +2A/+3-class memory', () => {
+    const cpu = new Z80();
+    const mem = makeMemoryPlus3();
+    const saved = saveZ80(cpu, mem, 0, true);
+
+    const extHeaderLen = r16(saved, 30);
+    expect(extHeaderLen).toBe(55);
+    expect(saved[34]).toBe(7); // hwMode = +3
+  });
+
+  it('writes a 54-byte header with hwMode=4 for plain 128K/+2 memory (no regression)', () => {
+    const cpu = new Z80();
+    const mem = makeMemory128k();
+    const saved = saveZ80(cpu, mem, 0, true);
+
+    const extHeaderLen = r16(saved, 30);
+    expect(extHeaderLen).toBe(54);
+    expect(saved[34]).toBe(4); // hwMode = 128K
+  });
+
+  it('preserves special (all-RAM) paging across round-trip — without the fix, ROM paging comes back and the machine crashes', () => {
+    const cpu = new Z80();
+    const mem = makeMemoryPlus3();
+    mem.bankSwitch1FFD(0x01); // enable special paging, mode 0
+    expect(mem.specialPaging).toBe(true);
+
+    const saved = saveZ80(cpu, mem, 0, true);
+    const cpu2 = new Z80();
+    const mem2 = makeMemoryPlus3();
+    const result = loadZ80(saved, cpu2, mem2);
+
+    expect(result.port1FFD).toBe(0x01);
+    expect(mem2.port1FFD).toBe(0x01);
+    expect(mem2.specialPaging).toBe(true);
+  });
+
+  it('preserves the +2A/+3 ROM select (1FFD bit 2 + 7FFD bit 4) across round-trip', () => {
+    const cpu = new Z80();
+    const mem = makeMemoryPlus3();
+    mem.port7FFD = 0x10; // bit 4 set
+    mem.bankSwitch1FFD(0x04); // bit 2 set, special paging off
+    const expectedROM = (((mem.port1FFD >> 2) & 1) << 1) | ((mem.port7FFD >> 4) & 1);
+
+    const saved = saveZ80(cpu, mem, 0, true);
+    const cpu2 = new Z80();
+    const mem2 = makeMemoryPlus3();
+    loadZ80(saved, cpu2, mem2);
+
+    expect(mem2.currentROM).toBe(expectedROM);
+  });
+
+  it('a 128K/+2 (not +2A/+3) load never touches port1FFD or specialPaging', () => {
+    const cpu = new Z80();
+    const mem = makeMemory128k();
+    mem.port7FFD = 0x10;
+    mem.applyBanking();
+
+    const saved = saveZ80(cpu, mem, 0, true);
+    const cpu2 = new Z80();
+    const mem2 = makeMemory128k();
+    const result = loadZ80(saved, cpu2, mem2);
+
+    expect(result.port1FFD).toBeUndefined();
+    expect(mem2.specialPaging).toBe(false);
+    expect(mem2.currentROM).toBe((mem.port7FFD >> 4) & 1);
+  });
+});
+
 // ── Decompression of manually constructed blocks ───────────────────────────
 
 describe('Z80 format — decompression edge cases via v3 load', () => {

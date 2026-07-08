@@ -21,6 +21,13 @@ export interface Z80Result {
   is128K: boolean;
   port7FFD: number;
   borderColor: number;
+  /** AY register contents (R0-R15), present for v2/v3 files. */
+  ayRegs?: Uint8Array;
+  /** Last OUT to port 0xFFFD (AY selected register), present for v2/v3 files. */
+  ayCurrentReg?: number;
+  /** Last OUT to port 0x1FFD (+2A/+3 special paging), present only in the
+   *  55-byte v3 extended header. Caller applies it only on +2A/+3-class models. */
+  port1FFD?: number;
 }
 
 // ── Header parsing helpers ─────────────────────────────────────────────────
@@ -254,6 +261,22 @@ export function loadZ80(
   // Port 0x7FFD (128K paging) — byte 35 (extBase+3)
   const port7FFD = is128K ? data[extBase + 3] : 0;
 
+  // AY sound chip state (v2/v3): byte 38 (extBase+6) is the last OUT to
+  // 0xFFFD (selected register), bytes 39-54 (extBase+7..+22) are the 16
+  // register contents.
+  let ayRegs: Uint8Array | undefined;
+  let ayCurrentReg: number | undefined;
+  if (data.length > extBase + 22) {
+    ayCurrentReg = data[extBase + 6];
+    ayRegs = data.slice(extBase + 7, extBase + 23);
+  }
+
+  // Port 0x1FFD (+2A/+3 special paging) — byte 86 (extBase+54). Only present
+  // in the 55-byte v3 extended header; the 54-byte variant doesn't reach it.
+  const port1FFD = (extHeaderLen >= 55 && data.length > extBase + 54)
+    ? data[extBase + 54]
+    : undefined;
+
   // Data blocks start after the extended header
   const dataStart = 32 + extHeaderLen;
   let offset = dataStart;
@@ -280,11 +303,21 @@ export function loadZ80(
     // Apply 128K paging state
     memory.port7FFD = port7FFD;
     memory.currentBank = port7FFD & 0x07;
-    memory.currentROM = (port7FFD >> 4) & 1;
     memory.pagingLocked = (port7FFD & 0x20) !== 0;
+    if (memory.romPages.length === 4 && port1FFD !== undefined) {
+      // +2A/+3: ROM = bit 2 of 1FFD (high) | bit 4 of 7FFD (low); special
+      // (all-RAM) paging mode is bit 0 of 1FFD. Without this, a snapshot
+      // taken in an all-RAM CP/M configuration loads with ROM paging
+      // instead and crashes immediately.
+      memory.port1FFD = port1FFD;
+      memory.specialPaging = (port1FFD & 1) !== 0;
+      memory.currentROM = (((port1FFD >> 2) & 1) << 1) | ((port7FFD >> 4) & 1);
+    } else {
+      memory.currentROM = (port7FFD >> 4) & 1;
+    }
     memory.applyBanking();
 
-    return { is128K: true, port7FFD, borderColor };
+    return { is128K: true, port7FFD, borderColor, ayRegs, ayCurrentReg, port1FFD };
   } else {
     // ── 48K: load paged blocks into 48K address space ────────────────────
 
@@ -314,7 +347,7 @@ export function loadZ80(
     }
 
     memory.load48KRAM(ram);
-    return { is128K: false, port7FFD: 0, borderColor };
+    return { is128K: false, port7FFD: 0, borderColor, ayRegs, ayCurrentReg };
   }
 }
 
@@ -396,7 +429,9 @@ export function saveZ80(
   cpu: Z80,
   memory: SpectrumMemory,
   borderColor: number,
-  is128K: boolean
+  is128K: boolean,
+  ayRegs?: Uint8Array,
+  ayCurrentReg?: number
 ): Uint8Array {
   // ── 30-byte common header ──────────────────────────────────────────────
 
@@ -438,9 +473,10 @@ export function saveZ80(
   header[28] = cpu.iff2 ? 1 : 0;
   header[29] = cpu.im & 0x03;
 
-  // ── 54-byte v3 extended header ─────────────────────────────────────────
-
-  const extHeaderLen = 54;
+  // ── v3 extended header: 54 bytes, or 55 when +2A/+3 special paging (port
+  // 0x1FFD) needs to be saved — that byte only exists in the longer variant.
+  const isPlus2A3 = memory.romPages.length === 4;
+  const extHeaderLen = isPlus2A3 ? 55 : 54;
   const extHeader = new Uint8Array(2 + extHeaderLen);
 
   // Bytes 0-1: extended header length
@@ -451,7 +487,7 @@ export function saveZ80(
 
   // Byte 4 (extBase+2): hardware mode
   // v3 hardware modes: 0=48K, 1=48K+IF1, 3=48K+MGT, 4=128K, 5=128K+IF1, 7=+3, 9=Pentagon, 12=+2, 13=+2A
-  const hwMode = is128K ? 4 : 0; // 4 = 128K, 0 = 48K
+  const hwMode = is128K ? (isPlus2A3 ? 7 : 4) : 0; // 7 = +3, 4 = 128K, 0 = 48K
   extHeader[4] = hwMode;
 
   // Byte 5 (extBase+3): port 0x7FFD value (128K paging)
@@ -463,17 +499,27 @@ export function saveZ80(
   // Byte 7 (extBase+5): hardware modify flags (0 = emulate, 1 = modify)
   extHeader[7] = 0;
 
-  // Byte 8 (extBase+6): last OUT to port 0xFFFF (AY sound)
-  extHeader[8] = 0;
+  // Byte 8 (extBase+6): last OUT to port 0xFFFD (AY selected register)
+  extHeader[8] = ayCurrentReg ?? 0;
 
-  // Bytes 9-24 (extBase+7 to +22): reserved, set to 0
-  for (let i = 9; i <= 24; i++) {
+  // Bytes 9-24 (extBase+7 to +22): the 16 AY register contents (R0-R15).
+  // Previously left as 0 regardless of ayRegs — snapshots dropped AY state
+  // entirely on save, so a reload always came back with reset registers.
+  for (let i = 0; i < 16; i++) {
+    extHeader[9 + i] = ayRegs ? (ayRegs[i] ?? 0) : 0;
+  }
+
+  // Remaining reserved bytes, up to (but excluding) the optional 1FFD byte.
+  for (let i = 25; i < 2 + extHeaderLen - (isPlus2A3 ? 1 : 0); i++) {
     extHeader[i] = 0;
   }
 
-  // The rest of extended header bytes (up to 54) are also reserved
-  for (let i = 25; i < 2 + extHeaderLen; i++) {
-    extHeader[i] = 0;
+  if (isPlus2A3) {
+    // Byte 86 (extBase+54), last element of the 55-byte header: last OUT to
+    // port 0x1FFD (+2A/+3 special paging). Without this, reloading a +3
+    // snapshot taken in an all-RAM CP/M configuration comes back with ROM
+    // paging instead and crashes immediately.
+    extHeader[2 + extHeaderLen - 1] = memory.port1FFD;
   }
 
   // ── Data blocks ────────────────────────────────────────────────────────

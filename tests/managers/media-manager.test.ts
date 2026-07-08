@@ -465,6 +465,51 @@ describe('applySnapshot — Z80', () => {
     expect(cb.unpause).not.toHaveBeenCalled();
     expect(sp.start).toHaveBeenCalledTimes(1); // machine must be running again after decline
   });
+
+  it('restores AY state when Z80 result includes it', async () => {
+    const mm = new MediaManager();
+    const sp = makeSpectrum();
+    const cb = makeCallbacks();
+    const regs = new Uint8Array(16);
+    loadZ80.mockReturnValue({
+      is128K: true, borderColor: 0,
+      ayRegs: regs, ayCurrentReg: 7,
+    });
+
+    await mm.applySnapshot(sp as any, new Uint8Array(), 'a.z80', '128k', cb);
+
+    expect(sp.ay.setRegisters).toHaveBeenCalledWith(regs);
+    expect(sp.ay.selectedReg).toBe(7);
+  });
+
+  it('does NOT touch AY state when Z80 result has no AY data', async () => {
+    const mm = new MediaManager();
+    const sp = makeSpectrum();
+    const cb = makeCallbacks();
+    loadZ80.mockReturnValue({ is128K: false, borderColor: 0 });
+
+    await mm.applySnapshot(sp as any, new Uint8Array(), 'a.z80', '48k', cb);
+
+    expect(sp.ay.setRegisters).not.toHaveBeenCalled();
+  });
+
+  it('restores AY registers but leaves selectedReg alone when ayCurrentReg is absent', async () => {
+    const mm = new MediaManager();
+    const sp = makeSpectrum();
+    const cb = makeCallbacks();
+    const regs = new Uint8Array(16);
+    sp.ay.selectedReg = 3;
+    loadZ80.mockReturnValue({
+      is128K: true, borderColor: 0,
+      ayRegs: regs,
+      // ayCurrentReg deliberately omitted
+    });
+
+    await mm.applySnapshot(sp as any, new Uint8Array(), 'a.z80', '128k', cb);
+
+    expect(sp.ay.setRegisters).toHaveBeenCalledWith(regs);
+    expect(sp.ay.selectedReg).toBe(3); // unchanged — no ayCurrentReg in snapshot
+  });
 });
 
 describe('applySnapshot — SZX paging restoration', () => {

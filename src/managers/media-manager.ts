@@ -209,6 +209,15 @@ export class MediaManager {
         }
 
         spectrum.ula.borderColor = result.borderColor;
+
+        // Restore AY state if present
+        if (result.ayRegs) {
+          spectrum.ay.setRegisters(result.ayRegs);
+          if (result.ayCurrentReg !== undefined) {
+            spectrum.ay.selectedReg = result.ayCurrentReg;
+          }
+        }
+
         spectrum.start();
         callbacks.onStatus(`Loaded ${result.is128K ? '128K' : '48K'} .z80: ${filename}`);
 
