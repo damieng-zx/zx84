@@ -99,9 +99,16 @@ export class Multiface {
     this.pagedIn = false;
   }
 
-  /** Press the red button: arm the paging latch, page in, then trigger NMI. */
+  /** Press the red button: arm the paging latch, page in, then trigger NMI.
+   *  No-op while already paged in — the Z80's NMI is unconditional (it fires
+   *  even mid-ROM), so a second press while the MF ROM is still running
+   *  would push a second return address onto the game's stack. The ROM's
+   *  own "Return" only unwinds one level, so the leftover entry would later
+   *  get popped and jumped to after the ROM has already paged itself back
+   *  out — running whatever garbage happens to be there. Real hardware has
+   *  no legitimate use for a second press before the first session ends. */
   pressButton(memory: SpectrumMemory, cpu: Z80, slot0Bank = -1): void {
-    if (!this.enabled || !this.romLoaded) return;
+    if (!this.enabled || !this.romLoaded || this.pagedIn) return;
     this.armed = true;
     this.pageIn(memory, slot0Bank);
     cpu.nmi();

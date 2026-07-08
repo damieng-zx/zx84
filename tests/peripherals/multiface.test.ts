@@ -238,6 +238,33 @@ describe('multiface — pressButton', () => {
     expect(mem.readByte(0x0000)).toBe(0x77);
     expect(nmiCalls).toBe(1);
   });
+
+  it('a second press while already paged in is a no-op — real Z80 NMI is unconditional and would nest', () => {
+    // Pressing again while the MF ROM is still active would push a second
+    // return address onto the game's stack (NMI fires even mid-ROM). The
+    // ROM's "Return" only unwinds one level, so the leftover stack entry
+    // would later be popped and jumped to after the ROM has paged itself
+    // back out — a real crash this reproduced and pins.
+    const mf = new Multiface();
+    mf.enabled = true;
+    mf.mfRom.fill(0x77);
+    mf.romLoaded = true;
+    const mem = new SpectrumMemory('48k');
+    let nmiCalls = 0;
+    const fakeCpu = { nmi: () => { nmiCalls++; } } as any;
+
+    mf.pressButton(mem, fakeCpu, 2);
+    expect(nmiCalls).toBe(1);
+    mf.pressButton(mem, fakeCpu, 5); // second press while still paged in
+    expect(nmiCalls).toBe(1); // no second NMI
+    expect(mf.savedSlot0Bank).toBe(2); // unchanged — pageIn's own no-op guard also holds
+
+    // Once genuinely returned, a fresh press works again.
+    mf.pageOut(mem);
+    mf.pressButton(mem, fakeCpu, 5);
+    expect(nmiCalls).toBe(2);
+    expect(mf.savedSlot0Bank).toBe(5);
+  });
 });
 
 describe('multiface — armed latch (MF128/MF3 button-arming)', () => {
