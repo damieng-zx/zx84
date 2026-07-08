@@ -133,7 +133,10 @@ function parseTrack(data: Uint8Array, trackOffset: number, trackSize: number, is
       sector.data = copies[0];
     }
     sectors.push(sector);
-    sectorMap.set(r, i);
+    // Duplicate sector IDs (deliberate on protection tracks) resolve to the
+    // FIRST physical occurrence, matching real hardware: the FDC finds
+    // whichever copy the head reaches first during rotation and stops there.
+    if (!sectorMap.has(r)) sectorMap.set(r, i);
     dataOffset += actualSize;
   }
 

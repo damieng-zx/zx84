@@ -465,6 +465,27 @@ describe('parseDSK — standard TIB and sector parsing', () => {
     expect(t.sectorMap.get(0xC6)).toBe(8);
   });
 
+  it('duplicate sector IDs resolve to the FIRST physical occurrence, not the last', () => {
+    // Deliberate on protection tracks: real hardware's FDC finds whichever
+    // copy the head reaches first during rotation and stops there — it can
+    // never "see ahead" to a later duplicate.
+    const data = buildStandardDSK({
+      numTracks: 1, numSides: 1, trackSize: 0x100 + 3 * 512,
+      tracks: [{
+        cyl: 0, side: 0,
+        sectors: [
+          { r: 0xC1, data: new Uint8Array(512).fill(0x11) },
+          { r: 0xC1, data: new Uint8Array(512).fill(0x22) }, // duplicate ID
+          { r: 0xC2, data: new Uint8Array(512).fill(0x33) },
+        ],
+      }],
+    });
+    const img = parseDSK(data);
+    const t = img.tracks[0][0]!;
+    expect(t.sectorMap.get(0xC1)).toBe(0);
+    expect(t.sectors[t.sectorMap.get(0xC1)!].data[0]).toBe(0x11);
+  });
+
   it('preserves sector data byte-for-byte', () => {
     const sectorData = new Uint8Array(512);
     for (let i = 0; i < 512; i++) sectorData[i] = (i * 7 + 13) & 0xFF;

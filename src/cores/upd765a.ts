@@ -168,8 +168,16 @@ export class UPD765A {
    * head also reaches EOT.
    */
   private exMT = false;
-  /** R the command started at — restart point for the sector count after an MT head switch. */
-  private exStartR = 0;
+  /**
+   * SK (Skip) bit from the command, Read Data/Read Deleted Data only. When
+   * set, a sector whose address-mark type doesn't match the command (a
+   * Deleted-AM sector under READ_DATA, or a normal-AM sector under
+   * READ_DELETED) is skipped entirely — not transferred, not a termination
+   * point — and the search continues at R+1. SK=0 (the pre-existing,
+   * still-default behaviour) instead reads that sector and terminates
+   * after it (see the non-final CM-mismatch comment in advanceSector).
+   */
+  private exSK = false;
   private exAbnormal = false;
   /** Command parameters preserved for multi-sector and result phase */
   private exUnit = 0;
@@ -447,12 +455,16 @@ export class UPD765A {
       // null and we fall through to the normal End-of-Cylinder termination.
       if (this.exMT && this.exHead === 0) {
         const side1 = this.getTrack(this.exUnit, 1);
-        const idx1 = side1?.sectorMap.get(this.exStartR);
-        if (side1 && idx1 !== undefined) {
+        // Real uPD765A restarts the sector count at sector 1 on the new side,
+        // not the command's original starting R — the two only coincide by
+        // accident on disks that happen to start numbering at 1. SK applies
+        // here too: skip forward past any mark-mismatched sector 1.
+        const found1 = side1 ? this.findSectorForCommand(side1, 1, this.exEOT, this.exCmd) : null;
+        if (side1 && found1) {
           this.exHead = 1;
           this.exTrack = side1;
-          this.exR = this.exStartR;
-          const s = side1.sectors[idx1];
+          this.exR = found1.r;
+          const s = found1.sector;
           this.exBuf = this.exWriting
             ? new Uint8Array(128 << this.exCmdN)
             : this.prepareReadBuffer(s);
@@ -475,15 +487,18 @@ export class UPD765A {
     const track = this.exTrack;
     if (!track) return false;
 
-    const idx = track.sectorMap.get(this.exR);
-    if (idx === undefined) {
+    // SK (Skip): search forward from here for a mark-matching sector rather
+    // than accepting whatever's at exR outright (see findSectorForCommand).
+    const found = this.findSectorForCommand(track, this.exR, this.exEOT, this.exCmd);
+    if (!found) {
       this.exR--;
       this.exST1 |= 0x04;
       this.exAbnormal = true;
       return false;
     }
+    this.exR = found.r;
 
-    const sector = track.sectors[idx];
+    const sector = found.sector;
     if (this.exWriting) {
       this.exBuf = new Uint8Array(128 << this.exCmdN);
       this.exPos = 0;
@@ -621,6 +636,11 @@ export class UPD765A {
     // *supposed* to error, and the protection check fails. Hexagon (unsigned)
     // reads its N6 CRC-flagged sector and requires this; writes never set it.
     if (!this.exWriting && ((st1 & 0x20) || (this.exST2 & 0x20))) {
+      st0 |= ST0_ABNORMAL;
+    }
+    // Overrun (ST1.OR, bit 4) is an abnormal termination (IC=01) on the real
+    // uPD765A — the CPU failed to service the data register in time.
+    if (st1 & 0x10) {
       st0 |= ST0_ABNORMAL;
     }
     // Return actual ST1 and ST2 from the sector (preserves CRC errors!)
@@ -808,6 +828,35 @@ export class UPD765A {
     return { st1, st2, abnormal: false };
   }
 
+  /** True if the sector's address-mark type doesn't match what a Read
+   *  Data/Read Deleted Data command expects (used by the SK skip search). */
+  private markMismatches(sector: DskSector, cmd: number): boolean {
+    const sectorHasDDAM = !!(sector.st2 & 0x40);
+    const cmdExpectsDDAM = cmd === CMD_READ_DELETED;
+    return sectorHasDDAM !== cmdExpectsDDAM;
+  }
+
+  /**
+   * Find the sector to read starting at R, honouring SK (Skip). With SK=0
+   * (default), the sector at R is returned regardless of mark match — a
+   * mismatch there is reported and terminates the command elsewhere (see
+   * advanceSector's non-final CM comment). With SK=1, a mismatched sector is
+   * skipped over (not returned, not a termination point) and the search
+   * continues at R+1 up to EOT. Returns null if no usable sector is found.
+   */
+  private findSectorForCommand(track: DskTrack, startR: number, eot: number, cmd: number)
+      : { r: number; sector: DskSector } | null {
+    let r = startR;
+    for (;;) {
+      const idx = track.sectorMap.get(r);
+      if (idx === undefined) return null;
+      const sector = track.sectors[idx];
+      if (!this.exSK || !this.markMismatches(sector, cmd)) return { r, sector };
+      if (r >= eot) return null;
+      r++;
+    }
+  }
+
   /**
    * Read Data / Write Data / Read Deleted / Write Deleted / Scan.
    * No disk → abnormal termination + not ready.
@@ -816,11 +865,14 @@ export class UPD765A {
   private cmdReadWrite(): void {
     const cmd = this.cmdBuf[0] & 0x1F;
     const mt = (this.cmdBuf[0] & 0x80) !== 0; // Multi-Track (bit 7, unmasked)
+    const sk = (this.cmdBuf[0] & 0x20) !== 0; // Skip (bit 5) — Read Data/Read Deleted only
     const unit = this.cmdBuf[1] & 0x03;
     const head = (this.cmdBuf[1] >> 2) & 1;
     const c = this.cmdBuf[2], h = this.cmdBuf[3];
     const r = this.cmdBuf[4], n = this.cmdBuf[5];
     const eot = this.cmdBuf[6];
+    const isWrite = cmd === CMD_WRITE_DATA || cmd === CMD_WRITE_DELETED;
+    this.exSK = sk && !isWrite;
 
     this.log(`  → Unit=${unit} Head=${head} C=${c} H=${h} R=${r} N=${n} (${128 << n} bytes) EOT=${eot}`);
 
@@ -835,19 +887,19 @@ export class UPD765A {
       return;
     }
 
-    // Find starting sector by R value
-    const idx = track.sectorMap.get(r);
-    if (idx === undefined) {
+    // Find starting sector by R value — skipping mark-mismatched sectors
+    // first if SK is set (see findSectorForCommand).
+    const found = this.findSectorForCommand(track, r, eot, cmd);
+    if (!found) {
       // Sector not found — No Data
       this.log(`  ✗ Sector R=${r} not found on track`);
       const st0 = ST0_ABNORMAL | (head << 2) | unit;
       this.result([st0, 0x04, 0x00, c, h, r, n]); // ST1=ND (bit 2)
       return;
     }
+    const { r: foundR, sector } = found;
 
-    const sector = track.sectors[idx];
     this.log(`  ✓ Found sector: actual size=${sector.data.length} bytes, ST1=0x${sector.st1.toString(16).padStart(2, '0')} ST2=0x${sector.st2.toString(16).padStart(2, '0')}`);
-    const isWrite = cmd === CMD_WRITE_DATA || cmd === CMD_WRITE_DELETED;
 
     // Write-protected disk — reject with ST1 NW (Not Writeable)
     if (isWrite && this.writeProtect[this.physUnit(unit)]) {
@@ -866,11 +918,10 @@ export class UPD765A {
     this.exC = sector.c;
     this.exH = sector.h;
     this.exN = sector.n;  // From sector ID (may differ from command N)
-    this.exR = r;
+    this.exR = foundR;
     this.exEOT = eot;
     this.exHitEOT = false;
     this.exMT = mt;
-    this.exStartR = r;
     this.exAbnormal = false;
     this.exTrack = track;
     this.exWriting = isWrite;
@@ -878,7 +929,7 @@ export class UPD765A {
     this.exOverrunPolls = 0;
 
     // Latch for UI display (execution completes within one frame)
-    this.latchR = r;
+    this.latchR = foundR;
     this.latchHead = head;
     this.latchWriting = isWrite;
     this.latchFrames = 25; // ~0.5s at 50fps

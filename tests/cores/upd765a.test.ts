@@ -760,7 +760,7 @@ describe('uPD765A — insertDisk / ejectDisk / reset', () => {
 // so a future implementation will deliberately break and update them.
 // ─────────────────────────────────────────────────────────────────────────
 
-describe('uPD765A — command flag bits (MT modelled; MF/SK unmodelled)', () => {
+describe('uPD765A — command flag bits (MT/SK modelled; MF unmodelled)', () => {
   let d: Driver;
   beforeEach(() => {
     d = new Driver();
@@ -783,16 +783,19 @@ describe('uPD765A — command flag bits (MT modelled; MF/SK unmodelled)', () => 
 
   it('MT (bit 7) multi-track READ_DATA continues onto head 1 after EOT', () => {
     // With MT=1, after the last sector on head 0 the FDC continues on head 1 of
-    // the same cylinder, restarting the sector count, and only reports End of
-    // Cylinder once head 1 also reaches EOT.
+    // the same cylinder, restarting the sector count at sector 1, and only
+    // reports End of Cylinder once head 1 also reaches EOT. Uses sequential
+    // sector IDs (1, not 0xC1) — real MT only works on disks numbered this way.
+    const side0 = makeTrack([makeSector(0, 0, 1, 2, 0x10)]);
+    const side1 = makeTrack([makeSector(0, 1, 1, 2, 0x80)]);
     const img = makeImage({ numTracks: 1, numSides: 2 });
-    img.tracks[0][0] = makePlus3Track(0, 0, 0x10);
-    img.tracks[0][1] = makePlus3Track(0, 1, 0x80);
+    img.tracks[0][0] = side0;
+    img.tracks[0][1] = side1;
     d.fdc.ejectDisk(0);
     d.fdc.insertDisk(img, 0);
 
-    // 0x86 = READ_DATA | MT, HDS=0 (start on head 0), R=EOT=0xC1 (one sector/head)
-    [0x86, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    // 0x86 = READ_DATA | MT, HDS=0 (start on head 0), R=EOT=1 (one sector/head)
+    [0x86, 0x00, 0, 0, 1, 2, 1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
     const { data, result } = d.drainReadExecution();
     // Both sides transferred: side 0 (0x10 fill) then side 1 (0x80 fill).
     expect(data.length).toBe(1024);
@@ -804,22 +807,32 @@ describe('uPD765A — command flag bits (MT modelled; MF/SK unmodelled)', () => 
     expect(result[1] & 0x80).toBe(0x80); // ST1.EN — End of Cylinder at side-1 EOT
   });
 
-  it('MT multi-track spans multiple sectors per head before switching', () => {
-    // Two sectors per head: head 0 reads 0xC1,0xC2 then head 1 reads 0xC1,0xC2,
-    // restarting the sector count at the command R. Verifies the switch happens
-    // at EOT, not after a single sector.
-    const side0 = makeTrack([makeSector(0, 0, 0xC1, 2, 0x10), makeSector(0, 0, 0xC2, 2, 0x11)]);
-    const side1 = makeTrack([makeSector(0, 1, 0xC1, 2, 0x80), makeSector(0, 1, 0xC2, 2, 0x81)]);
+  it('MT restarts the sector count at sector 1 on the new side, not the command\'s starting R', () => {
+    // Side 0 has only sector R=5 (matches the command's start R and EOT, so
+    // side 0 terminates after one sector). Side 1 has sectors 1-5. Real
+    // uPD765A hardware always restarts at literal sector 1 after an MT head
+    // switch — if it instead restarted at the command's starting R (5, the
+    // bug this pins), it would look for sector 5 on side 1 directly, find
+    // it immediately at EOT, and stop after a single side-1 sector instead
+    // of reading through 1-5.
+    const side0 = makeTrack([makeSector(0, 0, 5, 2, 0x10)]);
+    const side1 = makeTrack([1, 2, 3, 4, 5].map(r => makeSector(0, 1, r, 2, 0x80 + r)));
     const img = makeImage({ numTracks: 1, numSides: 2 });
     img.tracks[0][0] = side0;
     img.tracks[0][1] = side1;
     d.fdc.ejectDisk(0);
     d.fdc.insertDisk(img, 0);
 
-    [0x86, 0x00, 0, 0, 0xC1, 2, 0xC2, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
-    const { data } = d.drainReadExecution();
-    expect(data.length).toBe(2048); // 4 sectors × 512
-    expect([data[0], data[512], data[1024], data[1536]]).toEqual([0x10, 0x11, 0x80, 0x81]);
+    // 0x86 = READ_DATA | MT, HDS=0, R=5, EOT=5
+    [0x86, 0x00, 0, 0, 5, 2, 5, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    const { data, result } = d.drainReadExecution();
+    expect(data.length).toBe(6 * 512); // side0's 1 sector + side1's 5 sectors
+    expect(data[0]).toBe(0x10);
+    expect([data[512], data[1024], data[1536], data[2048], data[2560]])
+      .toEqual([0x81, 0x82, 0x83, 0x84, 0x85]);
+    expect(result[4]).toBe(1);          // last read was side 1
+    expect(result[5]).toBe(5);          // R result byte — finished at sector 5
+    expect(result[1] & 0x80).toBe(0x80); // ST1.EN at side-1 EOT
   });
 
   it('MT on a single-sided disk terminates at EOT (no side-1 track)', () => {
@@ -837,12 +850,10 @@ describe('uPD765A — command flag bits (MT modelled; MF/SK unmodelled)', () => 
     expect(result[1] & 0x80).toBe(0x80); // EN at side-0 EOT
   });
 
-  it('SK (bit 5) is unmodelled — a DDAM sector terminates the read (SK=0 semantics)', () => {
-    // SK is masked off, so READ_DATA always behaves as SK=0: on encountering a
-    // Deleted Data Address Mark it reads that sector, sets CM, and TERMINATES —
-    // it does not skip ahead, nor (post-fix) read on past it. With SK=1 honoured
-    // real hardware would instead skip the deleted sector and read 0xC2; that's
-    // still not modelled, which is what this test pins.
+  it('without SK, a DDAM sector terminates the read (SK=0 semantics)', () => {
+    // SK=0: on encountering a Deleted Data Address Mark, READ_DATA reads that
+    // sector, sets CM, and TERMINATES — it does not skip ahead or read on
+    // past it.
     const tr = makeTrack([
       makeSector(0, 0, 0xC1, 2, 0xAA, 0, 0x40), // DDAM
       makeSector(0, 0, 0xC2, 2, 0xBB, 0, 0),
@@ -852,8 +863,8 @@ describe('uPD765A — command flag bits (MT modelled; MF/SK unmodelled)', () => 
     d.fdc.ejectDisk(0);
     d.fdc.insertDisk(im, 0);
 
-    // 0x26 = READ_DATA | SK, EOT=0xC2 (two sectors available)
-    [0x26, 0x00, 0, 0, 0xC1, 2, 0xC2, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    // 0x06 = READ_DATA, no SK, EOT=0xC2 (two sectors available)
+    [0x06, 0x00, 0, 0, 0xC1, 2, 0xC2, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
     const { data, result } = d.drainReadExecution();
     // Stops at the DDAM sector — only its data is transferred, 0xC2 is not read.
     expect(data.length).toBe(512);
@@ -862,7 +873,63 @@ describe('uPD765A — command flag bits (MT modelled; MF/SK unmodelled)', () => 
     expect(result[5]).toBe(0xC1);        // stopped at the DDAM sector
     expect(result[0] & 0x40).toBe(0x00); // normal termination (CM is not abnormal)
     expect(result[1] & 0x80).toBe(0x00); // no End-of-Cylinder
-    // FUTURE: with SK honoured, this would instead skip 0xC1 and read 0xC2.
+  });
+
+  it('SK (bit 5): skips a DDAM sector entirely and reads on to the next matching sector', () => {
+    // Same track as above, but with SK=1 (0x26 = READ_DATA | SK). Real
+    // uPD765A hardware never transfers the mismatched-mark sector's data at
+    // all — it skips straight to 0xC2.
+    const tr = makeTrack([
+      makeSector(0, 0, 0xC1, 2, 0xAA, 0, 0x40), // DDAM — must be skipped
+      makeSector(0, 0, 0xC2, 2, 0xBB, 0, 0),
+    ]);
+    const im = makeImage();
+    im.tracks[0][0] = tr;
+    d.fdc.ejectDisk(0);
+    d.fdc.insertDisk(im, 0);
+
+    [0x26, 0x00, 0, 0, 0xC1, 2, 0xC2, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    const { data, result } = d.drainReadExecution();
+    expect(data.length).toBe(512);       // only 0xC2's data — 0xC1 was skipped, not transferred
+    expect(data[0]).toBe(0xBB);
+    expect(result[5]).toBe(0xC2);        // finished at 0xC2, having skipped 0xC1
+    expect(result[2] & 0x40).toBe(0x00); // ST2.CM — the sector actually read matches, no mismatch
+    expect(result[1] & 0x80).toBe(0x80); // End-of-Cylinder — 0xC2 was also EOT
+  });
+
+  it('SK: a lone DDAM sector with no matching sector before EOT reports No Data', () => {
+    const tr = makeTrack([
+      makeSector(0, 0, 0xC1, 2, 0xAA, 0, 0x40), // DDAM, the only sector
+    ]);
+    const im = makeImage();
+    im.tracks[0][0] = tr;
+    d.fdc.ejectDisk(0);
+    d.fdc.insertDisk(im, 0);
+
+    const r = d.command(0x26, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF);
+    expect(r[0] & ST0_ABNORMAL).toBe(ST0_ABNORMAL);
+    expect(r[1] & 0x04).toBe(0x04); // ST1.ND — no usable sector found
+  });
+
+  it('SK on READ_DELETED skips a normal-AM sector and reads on to a DDAM sector', () => {
+    // READ_DELETED (0x0C) expects DDAM; with SK it should skip a normal-AM
+    // sector (0xC1) and land on the DDAM sector (0xC2).
+    const tr = makeTrack([
+      makeSector(0, 0, 0xC1, 2, 0xAA, 0, 0),    // normal AM — must be skipped
+      makeSector(0, 0, 0xC2, 2, 0xBB, 0, 0x40), // DDAM — matches READ_DELETED
+    ]);
+    const im = makeImage();
+    im.tracks[0][0] = tr;
+    d.fdc.ejectDisk(0);
+    d.fdc.insertDisk(im, 0);
+
+    // 0x2C = READ_DELETED | SK
+    [0x2C, 0x00, 0, 0, 0xC1, 2, 0xC2, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    const { data, result } = d.drainReadExecution();
+    expect(data.length).toBe(512);
+    expect(data[0]).toBe(0xBB);
+    expect(result[5]).toBe(0xC2);
+    expect(result[2] & 0x40).toBe(0x00); // matches command — no CM
   });
 
   // SCAN_EQUAL/LOW_EQ/HIGH_EQ are intentionally NOT implemented. Real SCAN is a
@@ -933,13 +1000,13 @@ describe('uPD765A — CRC-error sector is an abnormal termination (Fuse parity)'
     return im;
   }
 
-  it('overrun read of a clean sector reports normal termination (ST0=0x00)', () => {
+  it('overrun read of a clean sector still reports abnormal termination (overrun itself is IC=01)', () => {
     const d = new Driver();
     d.fdc.insertDisk(imageWith(0, 0), 0);
     // READ_DATA C=0 H=0 R=0xC1 N=2 EOT=0xC2 (won't reach EOT — we break early)
     const res = d.overrunRead(0x06, 0x00, 0, 0, 0xC1, 2, 0xC2, 0x2A, 0xFF);
     expect(res[1] & 0x10).toBe(0x10); // ST1.OR set (overrun happened)
-    expect(res[0] & 0x40).toBe(0x00); // ST0 not abnormal — proves overrun alone doesn't set it
+    expect(res[0] & 0x40).toBe(0x40); // ST0 abnormal — overrun alone is IC=01, no CRC error needed
   });
 
   it('overrun read of a CRC-error sector reports abnormal termination (ST0 bit 6)', () => {
@@ -951,18 +1018,23 @@ describe('uPD765A — CRC-error sector is an abnormal termination (Fuse parity)'
     expect(res[2] & 0x20).toBe(0x20); // ST2.DD still reported
   });
 
-  it('does not flag abnormal termination on a write to a CRC-error sector', () => {
+  it('overrun-terminated write to a CRC-error sector: ST1/ST2 still surface, abnormal comes from the overrun itself', () => {
+    // Overrun (now correctly abnormal on its own — see the fix above) makes
+    // this write abnormal regardless of the CRC-error rule below, which is
+    // read-only (`!this.exWriting`) and never contributes here. What this
+    // still isolates: the sector's own DE/ST2.DD flags pass through on a
+    // write untouched — they are not stripped just because it's a write.
     const d = new Driver();
     d.fdc.insertDisk(imageWith(0x20, 0x60), 0);
-    // Partial (overrun) WRITE_DATA C=0 H=0 R=0xC1 N=2 EOT=0xC2 — breaks early so
-    // no EOT, isolating whether the CRC-error rule wrongly fires on writes.
     d.fdc.writeData(0x05); // WRITE_DATA
     [0x00, 0, 0, 0xC1, 2, 0xC2, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
     d.fdc.writeData(0x00); d.fdc.writeData(0x00); // feed two data bytes
     for (let i = 0; i < 40; i++) d.fdc.readStatus(); // overrun-terminate the write
     const res = d.drainResult();
     expect(res[1] & 0x10).toBe(0x10); // ST1.OR — overrun did terminate it
-    expect(res[0] & 0x40).toBe(0x00); // ST0 NOT abnormal — CRC rule is read-only
+    expect(res[0] & 0x40).toBe(0x40); // ST0 abnormal — from the overrun, not the (inapplicable) CRC rule
+    expect(res[1] & 0x20).toBe(0x20); // ST1.DE preserved
+    expect(res[2] & 0x20).toBe(0x20); // ST2.DD preserved
   });
 });
 
