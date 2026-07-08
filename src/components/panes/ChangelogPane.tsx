@@ -2,6 +2,19 @@ import { createSignal, Show } from 'solid-js';
 
 const CHANGELOG: { version: string; items: string[] }[] = [
   {
+    version: '0.6.8',
+    items: [
+      'Fixed several Multiface crashes and hangs (repeated NMI press, mid-session page-out, Return key crash)',
+      'Fixed tape playback corrupting the trailing checksum byte',
+      'Fixed .z80 snapshots dropping AY state and ignoring +3 port 0x1FFD',
+      'Fixed four uPD765A FDC spec deviations',
+      'Fixed AMX mouse firing PIO interrupts with interrupts never enabled',
+      'Fixed +2A/+3 wrongly exposing the Ferranti floating bus',
+      'Fixed redundant DD/FD prefix chains costing extra T-states and being uninterruptible',
+      'Fixed AY noise generator running at twice the correct hardware rate',
+      'MCP: parseAddr now rejects invalid addresses instead of returning NaN',
+    ]
+  }, {
     version: '0.6.7',
     items: [
       'Pause emulation when the tab or window loses focus (on by default)',
