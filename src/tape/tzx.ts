@@ -61,13 +61,7 @@ function extractDataBlock(
   };
 }
 
-/** Options for parsing. `rawDataBlocks` attaches the verbatim on-tape bytes to
- *  each standard/turbo data block (DataBlock.rawBytes) — required for CPC/CDT
- *  tapes, whose data carries its own CRCs that the Spectrum flag/checksum split
- *  would corrupt. Off by default so Spectrum parsing is unchanged. */
-export interface TzxParseOptions { rawDataBlocks?: boolean; }
-
-export function parseTZX(fileData: Uint8Array, opts: TzxParseOptions = {}): TapeBlock[] {
+export function parseTZX(fileData: Uint8Array): TapeBlock[] {
   // Verify magic header
   for (let i = 0; i < TZX_MAGIC.length; i++) {
     if (fileData[i] !== TZX_MAGIC[i]) {
@@ -96,7 +90,7 @@ export function parseTZX(fileData: Uint8Array, opts: TzxParseOptions = {}): Tape
         // the ZX Spectrum ROM SAVE-BYTES behaviour.
         const pilotCount = raw.length > 0 && raw[0] < 0x80 ? 8063 : 3223;
         const blk = extractDataBlock(raw, pause, 2168, 667, 735, 855, 1710, pilotCount, 8, 'standard');
-        if (blk) { if (opts.rawDataBlocks) blk.rawBytes = raw; blocks.push(blk); }
+        if (blk) { blk.rawBytes = raw; blocks.push(blk); }
         o += 4 + len;
         break;
       }
@@ -112,7 +106,7 @@ export function parseTZX(fileData: Uint8Array, opts: TzxParseOptions = {}): Tape
         const len = read24(fileData, o + 15);
         const raw = fileData.slice(o + 18, o + 18 + len);
         const blk = extractDataBlock(raw, pause, pilotPulse, syncPulse1, syncPulse2, bit0Pulse, bit1Pulse, pilotCount, usedBits, 'turbo');
-        if (blk) { if (opts.rawDataBlocks) blk.rawBytes = raw; blocks.push(blk); }
+        if (blk) { blk.rawBytes = raw; blocks.push(blk); }
         o += 18 + len;
         break;
       }

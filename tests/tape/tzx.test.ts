@@ -700,14 +700,14 @@ describe('TZX — realistic multi-block sequence', () => {
   });
 });
 
-describe('TZX — rawDataBlocks option (CPC/CDT faithful bytes)', () => {
-  it('attaches verbatim rawBytes to 0x10 and 0x11 data blocks when requested', () => {
+describe('TZX — verbatim rawBytes on data blocks (always attached)', () => {
+  it('attaches verbatim rawBytes to 0x10 and 0x11 data blocks', () => {
     const data = tzx(
       header(),
       block10(1000, 0x16, [0xAA, 0xBB, 0xCC]),
       block11({ flag: 0x2C, payload: [0x01, 0x02, 0x03] }),
     );
-    const blocks = parseTZX(data, { rawDataBlocks: true });
+    const blocks = parseTZX(data);
     const b10 = blocks[0] as DataBlock;
     const b11 = blocks[1] as DataBlock;
     // rawBytes is the full on-tape frame (flag/sync first, checksum last) — not
@@ -716,9 +716,17 @@ describe('TZX — rawDataBlocks option (CPC/CDT faithful bytes)', () => {
     expect(Array.from(b11.rawBytes!)).toEqual([0x2C, 0x01, 0x02, 0x03, 0x2C ^ 0x01 ^ 0x02 ^ 0x03]);
   });
 
-  it('leaves rawBytes undefined by default (Spectrum parsing unchanged)', () => {
-    const data = tzx(header(), block11({ flag: 0xFF, payload: [1, 2, 3] }));
+  it('preserves a deliberately-bad checksum verbatim (protection schemes rely on this)', () => {
+    const data = tzx(header(), block10(1000, 0xFF, [0x11, 0x22]));
+    // The true XOR checksum for flag=0xFF, payload=[0x11,0x22] is what block10
+    // wrote; corrupt it on the wire to simulate a protection scheme's
+    // deliberately-bad checksum, the way it would appear on a real tape.
+    const trueChecksum = 0xFF ^ 0x11 ^ 0x22;
+    const lastByteOffset = data.length - 1;
+    data[lastByteOffset] = (trueChecksum ^ 0xFF) & 0xFF;
+
     const blk = parseTZX(data)[0] as DataBlock;
-    expect(blk.rawBytes).toBeUndefined();
+    // Must come back exactly as corrupted — not "fixed" by recomputing it.
+    expect(blk.rawBytes![blk.rawBytes!.length - 1]).toBe((trueChecksum ^ 0xFF) & 0xFF);
   });
 });

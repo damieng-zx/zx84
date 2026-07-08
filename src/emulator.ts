@@ -1544,7 +1544,7 @@ async function restoreMedia(): Promise<void> {
     try {
       const ext = tape.name.toLowerCase().split('.').pop();
       const blocks = ext === 'tzx' || ext === 'cdt'
-        ? parseTZX(tape.data, { rawDataBlocks: machine.kind === 'cpc' })
+        ? parseTZX(tape.data)
         : machine.tape.parseTAP(tape.data);
       machine.tape.blocks = blocks;
       machine.tape.position = 0;

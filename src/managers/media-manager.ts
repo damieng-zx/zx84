@@ -63,8 +63,7 @@ export class MediaManager {
 
     try {
       if (ext === 'tzx' || ext === 'cdt') {
-        // CPC data blocks carry their own CRCs — keep the bytes verbatim.
-        blocks = parseTZX(data, { rawDataBlocks: machine.kind === 'cpc' });
+        blocks = parseTZX(data);
       } else {
         blocks = machine.tape.parseTAP(data);
       }

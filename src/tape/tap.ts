@@ -26,10 +26,12 @@ export interface DataBlock {
   pilotCount: number;         // 0 = skip pilot/sync (pure-data)
   usedBits: number;           // last byte
   source: 'tap' | 'standard' | 'turbo' | 'pure-data';
-  /** The exact on-tape byte stream (flag/sync byte first, no checksum split or
-   *  recomputation), when faithful bytes are required. Set for CDT/CPC tapes,
-   *  whose data carries its own CRCs — the Spectrum flag+XOR-checksum model
-   *  (see buildRawData) would corrupt them. When present the playback engine and
+  /** The exact on-tape byte stream (flag + payload + checksum, verbatim from
+   *  the file). Set by both the TAP and TZX (standard/turbo) parsers so a
+   *  deliberately-bad checksum — a common protection technique, and how
+   *  CPC/CDT tapes carry their own CRCs — survives playback intact instead
+   *  of being "corrected" by recomputing it (see buildRawData, the fallback
+   *  used only when this is absent). When present, the playback engine and
    *  the CAS READ trap use it verbatim instead of reconstructing. */
   rawBytes?: Uint8Array;
 }
@@ -190,11 +192,16 @@ export class TapeDeck {
       const flag = fileData[offset];
       // Payload is everything between flag and checksum
       const data = fileData.slice(offset + 1, offset + blockLen - 1);
+      // Verbatim on-tape bytes (flag + payload + checksum). Played back as-is
+      // instead of recomputing the checksum, so a deliberately-bad checksum
+      // (a common protection technique) survives playback intact.
+      const rawBytes = fileData.slice(offset, offset + blockLen);
 
       blocks.push({
         kind: 'data',
         flag,
         data,
+        rawBytes,
         pause: PAUSE_DEFAULT_MS,
         pilotPulse: PILOT_PULSE,
         syncPulse1: SYNC_1,
@@ -523,8 +530,9 @@ export class TapeDeck {
   }
 
   private beginDataBlock(block: DataBlock): void {
-    // Faithful CDT bytes (CPC) play verbatim; pure-data plays its raw payload;
-    // everything else reconstructs the Spectrum flag+payload+XOR-checksum frame.
+    // Verbatim on-tape bytes (TAP/TZX standard/turbo, and CDT) play as-is;
+    // pure-data plays its raw payload; buildRawData is only a fallback for
+    // blocks constructed without rawBytes (e.g. by hand in tests).
     this.rawData = block.rawBytes
       ?? (block.source === 'pure-data' ? block.data : this.buildRawData(block));
 

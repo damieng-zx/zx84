@@ -258,6 +258,18 @@ describe('TAP — checksum handling', () => {
     const tap = buildBlock(0x5A, []);
     expect(tap[tap.length - 1]).toBe(0x5A);
   });
+
+  it('preserves a deliberately-bad checksum verbatim in rawBytes instead of recomputing it', () => {
+    // Protection schemes (and CPC/CDT CRCs) rely on the checksum byte played
+    // back exactly as stored, not "corrected" by recomputing flag^payload.
+    const tap = buildBlock(0xFF, [0x11, 0x22, 0x33]);
+    tap[tap.length - 1] ^= 0xFF; // corrupt the checksum on the wire
+    const deck = new TapeDeck(3_500_000);
+    const block = deck.parseTAP(tap)[0] as DataBlock;
+    expect(block.rawBytes).toBeDefined();
+    expect(block.rawBytes![block.rawBytes!.length - 1]).toBe(tap[tap.length - 1]);
+    expect(block.rawBytes![block.rawBytes!.length - 1]).not.toBe(xorSum([0xFF, 0x11, 0x22, 0x33]));
+  });
 });
 
 // ── Deck state after load() ────────────────────────────────────────────────
