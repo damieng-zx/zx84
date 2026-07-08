@@ -40,7 +40,11 @@ export class Multiface {
   /** MF128/MF3 only: the button's NMI arms a hardware latch that makes the
    *  paging/latch-readback ports live. Without it a game's own stray IN/OUT
    *  to those (very common) port numbers would page the MF ROM in mid-game.
-   *  Cleared again on page-out, when the MF ROM hands control back.
+   *  Stays armed for the rest of the session once pressed — the ROM's own
+   *  menu/tool routines legitimately page out and back in many times (e.g.
+   *  borrowing the underlying ROM's HALT/keyboard-scan idle loop), so a
+   *  page-out must NOT disarm it, or the ROM can never page itself back in
+   *  and the machine hangs. Only a hardware reset clears it.
    *  MF1's narrower bit-mask decode means real MF1 hardware has no such
    *  latch — its ports are always live, so this flag isn't consulted for it. */
   armed = false;
@@ -93,7 +97,6 @@ export class Multiface {
     this.mfRam.set(memory.getSlot(0).subarray(0x2000, 0x4000));
     memory.restoreSlot0();
     this.pagedIn = false;
-    this.armed = false;
   }
 
   /** Press the red button: arm the paging latch, page in, then trigger NMI. */

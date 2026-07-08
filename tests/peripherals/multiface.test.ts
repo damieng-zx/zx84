@@ -252,7 +252,12 @@ describe('multiface — armed latch (MF128/MF3 button-arming)', () => {
     expect(mf.armed).toBe(true);
   });
 
-  it('pageOut disarms it again', () => {
+  it('pageOut does NOT disarm it — the ROM pages in/out many times per session', () => {
+    // The MF ROM's own menu/tool routines legitimately page out and back in
+    // repeatedly (e.g. borrowing the underlying ROM's HALT/keyboard-scan
+    // idle loop). If pageOut disarmed the latch, the ROM could never page
+    // itself back in after the first internal page-out and the machine
+    // would hang — a real regression this pins.
     const mf = new Multiface();
     mf.enabled = true;
     mf.romLoaded = true;
@@ -260,7 +265,10 @@ describe('multiface — armed latch (MF128/MF3 button-arming)', () => {
     const fakeCpu = { nmi: () => {} } as any;
     mf.pressButton(mem, fakeCpu);
     mf.pageOut(mem);
-    expect(mf.armed).toBe(false);
+    expect(mf.armed).toBe(true);
+    // And it can still page itself back in.
+    mf.pageIn(mem);
+    expect(mf.pagedIn).toBe(true);
   });
 
   it('pressButton is a no-op (does not arm) when disabled or ROM not loaded', () => {

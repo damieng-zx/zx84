@@ -1068,15 +1068,36 @@ describe('Port routing — MF3 port latch reads (+2A/+3)', () => {
     expect(s.multiface.pagedIn).toBe(false);
   });
 
-  it('after page-out, the interface disarms again until the next button press', () => {
+  it('stays armed across an internal page-out/page-in cycle within the same session', () => {
+    // The MF ROM's own menu/tool routines legitimately page out and back in
+    // many times per session (e.g. borrowing the underlying ROM's
+    // HALT/keyboard-scan idle loop) — a page-out must not disarm the
+    // interface, or the ROM can never page itself back in and the machine
+    // hangs (this was a real regression).
     const s = makeMachine('+3');
     s.multiface.enabled = true;
     s.multiface.variant = 'MF3';
     s.multiface.romLoaded = true;
     s.multiface.pressButton(s.memory, s.cpu);
     expect(s.multiface.armed).toBe(true);
+
     s.cpu.portIn(0x00BF); // MF3 page-out port
     expect(s.multiface.pagedIn).toBe(false);
+    expect(s.multiface.armed).toBe(true); // still armed — not a "Return"
+
+    s.cpu.portIn(0x003F); // MF3 page-in port — must still work
+    expect(s.multiface.pagedIn).toBe(true);
+  });
+
+  it('a hardware reset disarms the interface', () => {
+    const s = makeMachine('+3');
+    s.multiface.enabled = true;
+    s.multiface.variant = 'MF3';
+    s.multiface.romLoaded = true;
+    s.multiface.pressButton(s.memory, s.cpu);
+    expect(s.multiface.armed).toBe(true);
+
+    s.multiface.reset();
     expect(s.multiface.armed).toBe(false);
     // Now invisible again: a stray IN 0x3F must not re-page it in.
     s.cpu.portIn(0x003F);
