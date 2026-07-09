@@ -2,6 +2,13 @@ import { createSignal, Show } from 'solid-js';
 
 const CHANGELOG: { version: string; items: string[] }[] = [
   {
+    version: '0.6.9',
+    items: [
+      'Save button lights red when a disk has unsaved writes',
+      'Debugger steps into the interrupt handler when the CPU is halted',
+      'Reliable resume after a page refresh (correct +3 ROM and snapshot save)',
+    ]
+  }, {
     version: '0.6.8',
     items: [
       'Fixed several Multiface crashes and hangs (repeated NMI press, mid-session page-out, Return key crash)',
