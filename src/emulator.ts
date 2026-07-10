@@ -244,7 +244,7 @@ export function applyDisplaySettings(): void {
     d.setBrightness(settings.brightness() / 50);
     d.setContrast(settings.contrast() / 50);
     d.setSmoothing(settings.smoothing() / 100);
-    d.setCurvature(settings.curvature() / 100 * 0.15);
+    d.setCurvature(settings.curvatureMode() < 0 ? 0 : settings.curvature() / 100 * 0.15);
     d.setScanlines(settings.scanlines() / 100);
     d.setMaskType(settings.maskType());
     d.setDotPitch(settings.dotPitch() / 10);

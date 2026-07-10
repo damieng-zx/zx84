@@ -27,8 +27,8 @@ interface MonitorPreset {
 }
 
 const MONITOR_PRESETS: Record<string, MonitorPreset> = {
-  'raw': { maskType: 0, dotPitch: 10, curvature: 0, curvatureMode: 0, scanlines: 0, smoothing: 0, noise: 0, brightness: 0, contrast: 50 },
-  'lcd': { maskType: 4, dotPitch: 10, curvature: 0, curvatureMode: 0, scanlines: 0, smoothing: 0, noise: 0, brightness: 0, contrast: 50 },
+  'raw': { maskType: 0, dotPitch: 10, curvature: 0, curvatureMode: -1, scanlines: 0, smoothing: 0, noise: 0, brightness: 0, contrast: 50 },
+  'lcd': { maskType: 4, dotPitch: 10, curvature: 0, curvatureMode: -1, scanlines: 0, smoothing: 0, noise: 0, brightness: 0, contrast: 50 },
   'microvitec-cub': { maskType: 1, dotPitch: 20, curvature: 70, curvatureMode: 0, scanlines: 50, smoothing: 20, noise: 8 },
   'philips-cm8833': { maskType: 3, dotPitch: 20, curvature: 50, curvatureMode: 0, scanlines: 45, smoothing: 40, noise: 10 },
   'commodore-1080': { maskType: 1, dotPitch: 10, curvature: 50, curvatureMode: 0, scanlines: 45, smoothing: 20, noise: 8 },
@@ -232,20 +232,26 @@ export function DisplayPane() {
       </Show>
       <SliderRow label="Noise" id="noise" min={0} max={100} sig={noise} setSig={setNoise}
         apply={(v) => machine?.display?.setNoise(v / 100)} settingKey="noise" />
-      <SliderRow label="Curvature" id="curvature" min={0} max={100} sig={curvature} setSig={setCurvature}
-        apply={(v) => machine?.display?.setCurvature(v / 100 * 0.15)} settingKey="curvature" />
       <div class="slider-row">
         <span class="slider-label">Curv. mode</span>
         <select id="curvature-mode-select" value={curvatureMode()} onChange={(e) => {
           const v = Number((e.target as HTMLSelectElement).value);
           setCurvatureMode(v);
-          if (machine) machine.display!.setCurvatureMode(v);
+          if (machine) {
+            if (v < 0) machine.display!.setCurvature(0);
+            else { machine.display!.setCurvatureMode(v); machine.display!.setCurvature(curvature() / 100 * 0.15); }
+          }
           persistSetting('curvature-mode', v);
         }}>
+          <option value="-1">None</option>
           <option value="0">Spherical</option>
           <option value="1">Cylindrical</option>
         </select>
       </div>
+      <Show when={curvatureMode() >= 0}>
+      <SliderRow label="Curvature" id="curvature" min={0} max={100} sig={curvature} setSig={setCurvature}
+        apply={(v) => machine?.display?.setCurvature(v / 100 * 0.15)} settingKey="curvature" />
+      </Show>
       <div class="slider-row">
         <span class="slider-label">Mask type</span>
         <select id="mask-type-select" value={maskType()} onChange={(e) => {

@@ -1273,8 +1273,8 @@ canvas {
 }
 
 .slider-row .slider-value {
-  min-width: 38px;
-  text-align: right;
+  min-width: 28px;
+  text-align: left;
   font-size: 0.75rem;
   color: #888;
   flex-shrink: 0;
