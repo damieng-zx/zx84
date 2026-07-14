@@ -2,6 +2,12 @@ import { createSignal, Show } from 'solid-js';
 
 const CHANGELOG: { version: string; items: string[] }[] = [
   {
+    version: '0.7.0',
+    items: [
+      'Add Beta Disk/TR-DOS support (.TRD, .SCL)',
+      'Add HFE and SCP image support for CPC/+3',
+    ]
+  }, {
     version: '0.6.9',
     items: [
       'Save button lights red when a disk has unsaved writes',
