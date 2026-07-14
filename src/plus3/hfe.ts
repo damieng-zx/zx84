@@ -23,7 +23,7 @@
  * Format reference: the HxC "HFE (HxC Floppy Emulator) file format" spec.
  */
 
-import { parseDSK, type DskImage, type DskSector, type DskTrack, type HfeBitstream, type HfeSectorLayout } from './dsk.ts';
+import { parseDSK, createBlankDisk, type DiskFormat, type DskImage, type DskSector, type DskTrack, type HfeBitstream, type HfeSectorLayout } from './dsk.ts';
 import { detectDiskFormat, detectProtection, isFlippyDisk } from './disk-detect.ts';
 
 // ── Signatures ───────────────────────────────────────────────────────────────
@@ -434,4 +434,151 @@ export function serializeHFE(image: DskImage): Uint8Array {
     patched.push(row);
   }
   return packHFE(patched, numTracks, numSides);
+}
+
+// ── From-scratch encode (create a brand-new blank HFE) ─────────────────────────
+//
+// The write-back above only *patches* fields into cells that already exist, so it
+// needs a disk that came from an HFE. To let the UI create a blank .hfe we build
+// the bit-cell stream ourselves — the standard IBM System 34 double-density MFM
+// track layout that a real +3/CPC/PCW controller lays down when it FORMATs a
+// track. Each sector gets its sync/IDAM/gap/DAM/data/CRC run; the decoder above
+// reads it straight back, and serializeHFE then patches later writes into it.
+
+/** MFM cell for the C2 index-mark sync (a C2 byte with a missing clock). */
+const MFM_SYNC_C2 = 0x5224;
+
+/** Standard double-density gap/sync run lengths (bytes), per the System 34 track
+ *  format. gap3 (inter-sector) comes from the disk format, not this table. */
+const GAP4A = 80;    // post-index gap of 0x4E
+const SYNC = 12;     // 0x00 sync run before an address mark
+const GAP1 = 50;     // 0x4E after the index mark
+const GAP2 = 22;     // 0x4E between the ID field and its data field
+
+/** Target cell bytes per side for a 250 kbit/s DD track at 300 rpm — one full
+ *  revolution is ~100 000 cells; matching a whole 256-byte block keeps the
+ *  interleave in packHFE clean. Real greaseweazle dumps sit right around here. */
+const TRACK_CELL_BYTES = 49 * 256; // 12544
+
+/** Accumulates MFM bit-cells (clock,data pairs), tracking the previous data cell
+ *  so each byte's leading clock follows the standard MFM rule (a clock is present
+ *  only between two 0 data bits) — the same convention patchField writes with. */
+class CellWriter {
+  private bits: number[] = [];
+  private prevData = 0;
+
+  /** Current bit position — where the next cell will be written. */
+  get pos(): number { return this.bits.length; }
+
+  /** Emit a raw 16-cell pattern (an address-mark sync with its missing clock),
+   *  most-significant cell first, matching cells16's read order. */
+  raw16(v: number): void {
+    for (let i = 15; i >= 0; i--) this.bits.push((v >> i) & 1);
+    this.prevData = v & 1; // last cell is a data cell — seeds the next clock
+  }
+
+  /** MFM-encode one data byte: eight clock,data cell pairs, MSB first. */
+  byte(v: number): void {
+    for (let i = 7; i >= 0; i--) {
+      const d = (v >> i) & 1;
+      this.bits.push(this.prevData === 0 && d === 0 ? 1 : 0); // clock
+      this.bits.push(d);                                      // data
+      this.prevData = d;
+    }
+  }
+
+  /** Emit `n` copies of the same byte (gap/sync runs). */
+  fill(v: number, n: number): void { for (let i = 0; i < n; i++) this.byte(v); }
+
+  /** Pad with 0x4E gap bytes up to `targetBits`, then zero-pad to a byte
+   *  boundary, and pack LSB-first into a Uint8Array (the readBit convention). */
+  finish(targetBits: number): Uint8Array {
+    while (this.bits.length + 16 <= targetBits) this.byte(0x4E);
+    while (this.bits.length < targetBits) this.bits.push(0);
+    const out = new Uint8Array(this.bits.length >> 3);
+    for (let i = 0; i < this.bits.length; i++) {
+      if (this.bits[i]) out[i >> 3] |= 1 << (i & 7);
+    }
+    return out;
+  }
+}
+
+/**
+ * MFM-encode one decoded {@link DskTrack} into an HFE cell stream, recording each
+ * sector's data-field position so later writes can be spliced back (parallel to
+ * `track.sectors`, exactly as decodeHfeTrack produces). Returns null for an empty
+ * track (an unformatted side).
+ */
+export function encodeHfeTrack(track: DskTrack): { cells: Uint8Array; layout: HfeSectorLayout[] } | null {
+  if (track.sectors.length === 0) return null;
+  const w = new CellWriter();
+  const layout: HfeSectorLayout[] = [];
+
+  // Track lead-in: gap 4a, then the C2 index address mark, then gap 1.
+  w.fill(0x4E, GAP4A);
+  w.fill(0x00, SYNC);
+  for (let i = 0; i < 3; i++) w.raw16(MFM_SYNC_C2);
+  w.byte(0xFC);
+  w.fill(0x4E, GAP1);
+
+  for (const sec of track.sectors) {
+    // ID address field: sync, 3×A1, IDAM, C H R N, CRC.
+    w.fill(0x00, SYNC);
+    for (let i = 0; i < 3; i++) w.raw16(MFM_SYNC_A1);
+    w.byte(0xFE);
+    w.byte(sec.c); w.byte(sec.h); w.byte(sec.r); w.byte(sec.n);
+    const idCrc = crc16([0xA1, 0xA1, 0xA1, 0xFE, sec.c, sec.h, sec.r, sec.n]);
+    w.byte(idCrc >> 8); w.byte(idCrc & 0xFF);
+
+    // Data address field: gap 2, sync, 3×A1, DAM, payload, CRC.
+    w.fill(0x4E, GAP2);
+    w.fill(0x00, SYNC);
+    for (let i = 0; i < 3; i++) w.raw16(MFM_SYNC_A1);
+    const mark = 0xFB; // blank disks carry only normal (non-deleted) data marks
+    w.byte(mark);
+    const dataBit = w.pos;
+    for (const b of sec.data) w.byte(b);
+    const dataCrc = crc16([0xA1, 0xA1, 0xA1, mark, ...sec.data]);
+    w.byte(dataCrc >> 8); w.byte(dataCrc & 0xFF);
+    layout.push({ dataBit, len: sec.data.length, mark });
+
+    w.fill(0x4E, track.gap3); // gap 3 to the next sector
+  }
+
+  // One revolution: at least the content, rounded up to a whole 256-byte block.
+  const minBits = Math.ceil(w.pos / (256 * 8)) * (256 * 8);
+  const targetBits = Math.max(minBits, TRACK_CELL_BYTES * 8);
+  return { cells: w.finish(targetBits), layout };
+}
+
+/**
+ * Attach a freshly-encoded HFE bitstream to a sector-level {@link DskImage} (from
+ * createBlankDisk), turning it into an HFE-sourced disk that saveDisk/savePlusDDisk
+ * will write back as `.hfe`. The decoded tracks are left untouched — the FDC keeps
+ * driving off them — and the layout is generated in the same sector order, so
+ * serializeHFE can patch writes back correctly.
+ */
+export function attachHfeBitstream(image: DskImage): DskImage {
+  const cells: (Uint8Array | null)[][] = [];
+  const layout: (HfeSectorLayout[] | null)[][] = [];
+  for (let t = 0; t < image.numTracks; t++) {
+    const cellRow: (Uint8Array | null)[] = new Array(image.numSides).fill(null);
+    const layoutRow: (HfeSectorLayout[] | null)[] = new Array(image.numSides).fill(null);
+    for (let s = 0; s < image.numSides; s++) {
+      const track = image.tracks[t]?.[s];
+      const enc = track ? encodeHfeTrack(track) : null;
+      if (enc) { cellRow[s] = enc.cells; layoutRow[s] = enc.layout; }
+    }
+    cells.push(cellRow);
+    layout.push(layoutRow);
+  }
+  image.format = 'extended';
+  image.bitstream = { cells, layout };
+  return image;
+}
+
+/** Create a brand-new blank disk of the given format as an HFE-sourced image, so
+ *  it round-trips (and saves) as `.hfe` rather than `.dsk`. */
+export function createBlankHfe(fmt: DiskFormat): DskImage {
+  return attachHfeBitstream(createBlankDisk(fmt));
 }

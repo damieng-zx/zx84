@@ -20,7 +20,7 @@ import { saveZ80 } from '@/snapshot/z80format.ts';
 import { parseTZX } from '@/tape/tzx.ts';
 import type { TapeBlock } from '@/tape/tap.ts';
 import { serializeDSK, type DskImage } from '@/plus3/dsk.ts';
-import { parseFloppyImage, parseHFE, serializeHFE, isHFE } from '@/plus3/hfe.ts';
+import { parseFloppyImage, parseHFE, serializeHFE, isHFE, attachHfeBitstream } from '@/plus3/hfe.ts';
 import { parseMgt, serializeMgt, blankMgtDisk, mgtExtFromName } from '@/plus3/mgt-image.ts';
 import { loadSZX, applySZXPaging } from '@/snapshot/szx.ts';
 import { readCpcSnaModel, applyCpcSna, saveCpcSna } from '@/snapshot/cpc-sna.ts';
@@ -1188,12 +1188,17 @@ export function ejectPlusDDisk(unit: number): void {
   setStatus(`+D disk ${unit === 0 ? 'C' : 'D'}: ejected`);
 }
 
-export function insertBlankPlusDDisk(unit: number): void {
+export function insertBlankPlusDDisk(unit: number, asHfe = false): void {
   if (!spectrum) return;
-  const image = blankMgtDisk();
+  // Both containers hold the same blank 800K +D geometry; an HFE-backed one
+  // additionally carries the bit-cell stream so it saves/persists as .hfe.
+  const image = asHfe ? attachHfeBitstream(blankMgtDisk()) : blankMgtDisk();
   spectrum.loadPlusDDisk(image, unit);
-  setPlusDDiskState(unit, image, 'BLANK.mgt');
-  persistPlusDDisk(unit, serializeMgt(image, 'mgt'), 'BLANK.mgt');   // survive a reload
+  const [name, data] = asHfe
+    ? ['BLANK.hfe', serializeHFE(image)]
+    : ['BLANK.mgt', serializeMgt(image, 'mgt')];
+  setPlusDDiskState(unit, image, name);
+  persistPlusDDisk(unit, data, name);   // survive a reload (see restoreMedia)
 }
 
 export function savePlusDDisk(unit: number): void {

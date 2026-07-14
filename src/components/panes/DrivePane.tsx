@@ -23,6 +23,7 @@ import {
 import { isPlus3 } from '@/spectrum.ts';
 import { cpcHasDisk, isPlusDCapable } from '@/models.ts';
 import { DISK_FORMATS, formatLabel, createBlankDisk, type DskImage } from '@/plus3/dsk.ts';
+import { createBlankHfe } from '@/plus3/hfe.ts';
 import type { DriveStatus } from '@/state/disk-state.ts';
 import { openFile } from '@/ui/file-picker.ts';
 
@@ -179,8 +180,25 @@ function syncPlusDWriteProtect(unit: number, value: boolean): void {
   if (spectrum) spectrum.mgtPlusD.fdc.writeProtect[unit] = value;
 }
 
-const PLUS3_NEW_ITEMS = DISK_FORMATS.map((fmt, i) => ({ value: `new-${i}`, label: formatLabel(fmt) }));
-const PLUSD_NEW_ITEMS = [{ value: 'blank', label: 'Blank +D disk (800K)' }];
+// Two containers for the same set of formats: a plain DSK/EDSK file, or a
+// track-level HFE (bit-cell) image that saves back as .hfe.
+const PLUS3_NEW_ITEMS = [
+  { value: 'dsk', label: 'DSK image', children: DISK_FORMATS.map((fmt, i) => ({ value: `dsk-${i}`, label: formatLabel(fmt) })) },
+  { value: 'hfe', label: 'HFE image', children: DISK_FORMATS.map((fmt, i) => ({ value: `hfe-${i}`, label: formatLabel(fmt) })) },
+];
+
+/** Create the blank image for a `dsk-N` / `hfe-N` menu value, or null if unknown. */
+function blankForNewDiskValue(value: string): { image: DskImage; label: string } | null {
+  const hfe = value.startsWith('hfe-');
+  const fmt = DISK_FORMATS[parseInt(value.slice(4))];
+  if (!fmt) return null;
+  return { image: hfe ? createBlankHfe(fmt) : createBlankDisk(fmt), label: formatLabel(fmt) };
+}
+
+const PLUSD_NEW_ITEMS = [
+  { value: 'blank', label: 'Blank +D disk (800K)' },
+  { value: 'blank-hfe', label: 'Blank +D disk (800K) — HFE' },
+];
 
 export function DrivePane() {
   async function handleInsertDisk(unit: number) {
@@ -234,8 +252,8 @@ export function DrivePane() {
           showTurbo
           newItems={PLUS3_NEW_ITEMS}
           onNewDisk={(value) => {
-            const fmt = DISK_FORMATS[parseInt(value.slice(4))];
-            if (fmt) insertBlankDisk(createBlankDisk(fmt), formatLabel(fmt), 0);
+            const blank = blankForNewDiskValue(value);
+            if (blank) insertBlankDisk(blank.image, blank.label, 0);
           }}
           onSave={() => saveDisk(0)}
           onEject={() => ejectDisk(0)}
@@ -263,8 +281,8 @@ export function DrivePane() {
           showTurbo
           newItems={PLUS3_NEW_ITEMS}
           onNewDisk={(value) => {
-            const fmt = DISK_FORMATS[parseInt(value.slice(4))];
-            if (fmt) insertBlankDisk(createBlankDisk(fmt), formatLabel(fmt), 1);
+            const blank = blankForNewDiskValue(value);
+            if (blank) insertBlankDisk(blank.image, blank.label, 1);
           }}
           onSave={() => saveDisk(1)}
           onEject={() => ejectDisk(1)}
@@ -295,7 +313,7 @@ export function DrivePane() {
           writeProtected={writeProtectC()}
           showProtection={false}
           newItems={PLUSD_NEW_ITEMS}
-          onNewDisk={() => insertBlankPlusDDisk(0)}
+          onNewDisk={(value) => insertBlankPlusDDisk(0, value === 'blank-hfe')}
           onSave={() => savePlusDDisk(0)}
           onEject={() => ejectPlusDDisk(0)}
           onInsert={() => handleInsertPlusDDisk(0)}
@@ -318,7 +336,7 @@ export function DrivePane() {
           writeProtected={writeProtectD()}
           showProtection={false}
           newItems={PLUSD_NEW_ITEMS}
-          onNewDisk={() => insertBlankPlusDDisk(1)}
+          onNewDisk={(value) => insertBlankPlusDDisk(1, value === 'blank-hfe')}
           onSave={() => savePlusDDisk(1)}
           onEject={() => ejectPlusDDisk(1)}
           onInsert={() => handleInsertPlusDDisk(1)}

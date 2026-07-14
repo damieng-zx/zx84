@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { parseHFE, serializeHFE, decodeHfeTrack, isHFE } from '@/plus3/hfe.ts';
-import type { DskImage } from '@/plus3/dsk.ts';
+import { parseHFE, serializeHFE, decodeHfeTrack, isHFE, createBlankHfe } from '@/plus3/hfe.ts';
+import { createBlankDisk, DISK_FORMATS, type DskImage } from '@/plus3/dsk.ts';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Independent HFE v1 / MFM *encoder*, derived from the HxC HFE spec and the IBM
@@ -273,5 +273,67 @@ describe('serializeHFE — write-back', () => {
   it('throws when the image has no retained HFE bitstream', () => {
     const notHfe = { numTracks: 1, numSides: 1, format: 'extended', tracks: [[null]], diskFormat: '', protection: '' } as unknown as DskImage;
     expect(() => serializeHFE(notHfe)).toThrow(/bitstream/i);
+  });
+});
+
+describe('createBlankHfe — brand-new blank HFE', () => {
+  // The +3/PCW single-density format is the representative small case.
+  const fmt = DISK_FORMATS[0];
+
+  it('carries a retained bitstream that saves as HFE (bitstream present)', () => {
+    const img = createBlankHfe(fmt);
+    expect(img.format).toBe('extended');
+    expect(img.bitstream).toBeTruthy();
+    expect(img.bitstream!.cells.length).toBe(fmt.tracks);
+    // Every side of every track was MFM-encoded (single-sided → one side each).
+    for (let t = 0; t < fmt.tracks; t++) {
+      expect(img.bitstream!.cells[t][0]).toBeInstanceOf(Uint8Array);
+    }
+  });
+
+  it('encodes the same sector content as the plain DSK blank', () => {
+    const hfe = createBlankHfe(fmt);
+    const dsk = createBlankDisk(fmt);
+    // Decode the encoded bitstream back and compare to the DSK model it mirrors.
+    for (let t = 0; t < fmt.tracks; t++) {
+      const decoded = decodeHfeTrack(hfe.bitstream!.cells[t][0]!)!;
+      const expected = dsk.tracks[t]![0]!;
+      expect(decoded.sectors.length).toBe(expected.sectors.length);
+      for (let s = 0; s < expected.sectors.length; s++) {
+        const d = decoded.sectors[s], e = expected.sectors[s];
+        expect([d.c, d.h, d.r, d.n]).toEqual([e.c, e.h, e.r, e.n]);
+        expect(d.st1 | d.st2).toBe(0);                         // freshly encoded → good CRC
+        expect(Array.from(d.data)).toEqual(Array.from(e.data));
+      }
+    }
+  });
+
+  it('round-trips an unwritten blank byte-for-byte through serialize→parse', () => {
+    const img = createBlankHfe(fmt);
+    const round = parseHFE(serializeHFE(img));
+    expect(round.numTracks).toBe(fmt.tracks);
+    expect(round.numSides).toBe(fmt.sides);
+    for (let t = 0; t < fmt.tracks; t++) {
+      const a = img.tracks[t]![0]!, b = round.tracks[t]![0]!;
+      expect(b.sectors.map(s => s.r)).toEqual(a.sectors.map(s => s.r));
+      for (let s = 0; s < a.sectors.length; s++) {
+        expect(b.sectors[s].st1 | b.sectors[s].st2).toBe(0);
+        expect(Array.from(b.sectors[s].data)).toEqual(Array.from(a.sectors[s].data));
+      }
+    }
+  });
+
+  it('re-encodes a written sector into the fresh bitstream', () => {
+    const img = createBlankHfe(fmt);
+    const track = img.tracks[0]![0]!;
+    const idx = track.sectorMap.get(fmt.firstSector)!;
+    const newData = new Uint8Array(fmt.sectorSize).map((_, i) => (0x5A ^ i) & 0xFF);
+    track.sectors[idx].data = newData;
+
+    const round = parseHFE(serializeHFE(img));
+    const rt = round.tracks[0]![0]!;
+    const s = rt.sectors[rt.sectorMap.get(fmt.firstSector)!];
+    expect(s.st1 | s.st2).toBe(0);                            // written field → valid CRC
+    expect(Array.from(s.data)).toEqual(Array.from(newData));  // read back exactly
   });
 });
