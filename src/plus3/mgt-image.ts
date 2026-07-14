@@ -132,12 +132,14 @@ export function serializeMgt(img: DskImage, ext: MgtImageExt): Uint8Array {
 }
 
 /**
- * Build a blank, unformatted 800K +D disk (all sectors present, filled with the
+ * Build a blank, unformatted +D disk (all sectors present, filled with the
  * standard 0xE5 filler). The user formats it with G+DOS to write a directory;
- * the sectors already exist so saves land even before a full format.
+ * the sectors already exist so saves land even before a full format. Geometry
+ * defaults to the 800K DS/80T layout; pass `tracks`/`sides` for the smaller
+ * single-sided or 40-track variants (all use 10 × 512-byte sectors).
  */
-export function blankMgtDisk(): DskImage {
-  const tracks = 80, sides = 2, spt = 10;
+export function blankMgtDisk(tracks = 80, sides = 2): DskImage {
+  const spt = 10;
   const out: (DskTrack | null)[][] = [];
   for (let c = 0; c < tracks; c++) {
     const sideArr: (DskTrack | null)[] = [];

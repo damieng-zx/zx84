@@ -116,6 +116,22 @@ describe('blankMgtDisk', () => {
   it('serializes to the expected 800K size', () => {
     expect(serializeMgt(blankMgtDisk(), 'mgt').length).toBe(SIZE_800K);
   });
+
+  it('builds the smaller geometries with the right size and sidedness', () => {
+    // 10 sectors × 512 B = 5120 B/track. Capacity = tracks × sides × 5120.
+    const cases: [number, number, number][] = [
+      [40, 2, 40 * 2 * 5120],   // 400K DS/40T
+      [80, 1, 80 * 1 * 5120],   // 400K SS/80T
+      [40, 1, 40 * 1 * 5120],   // 200K SS/40T
+    ];
+    for (const [tracks, sides, bytes] of cases) {
+      const img = blankMgtDisk(tracks, sides);
+      expect(img.numTracks).toBe(tracks);
+      expect(img.numSides).toBe(sides);
+      expect(img.tracks[tracks - 1][sides - 1]!.sectors.length).toBe(10);
+      expect(serializeMgt(img, 'mgt').length).toBe(bytes);
+    }
+  });
 });
 
 describe('mgtExtFromName', () => {

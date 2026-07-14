@@ -195,10 +195,25 @@ function blankForNewDiskValue(value: string): { image: DskImage; label: string }
   return { image: hfe ? createBlankHfe(fmt) : createBlankDisk(fmt), label: formatLabel(fmt) };
 }
 
-const PLUSD_NEW_ITEMS = [
-  { value: 'blank', label: 'Blank +D disk (800K)' },
-  { value: 'blank-hfe', label: 'Blank +D disk (800K) — HFE' },
+// Blank +D geometries (all 10 × 512-byte sectors), offered as a plain MGT image
+// or a track-level HFE that saves back as .hfe.
+const PLUSD_GEOMETRIES = [
+  { label: 'Blank 800K DS/80T', tracks: 80, sides: 2 },
+  { label: 'Blank 400K DS/40T', tracks: 40, sides: 2 },
+  { label: 'Blank 400K SS/80T', tracks: 80, sides: 1 },
+  { label: 'Blank 200K SS/40T', tracks: 40, sides: 1 },
 ];
+const PLUSD_NEW_ITEMS = [
+  { value: 'mgt', label: 'MGT image', children: PLUSD_GEOMETRIES.map((g, i) => ({ value: `mgt-${i}`, label: g.label })) },
+  { value: 'hfe', label: 'HFE image', children: PLUSD_GEOMETRIES.map((g, i) => ({ value: `hfe-${i}`, label: g.label })) },
+];
+
+/** Resolve a `mgt-N` / `hfe-N` +D menu value to its geometry and container. */
+function plusDBlankForValue(value: string): { geom: { tracks: number; sides: number }; hfe: boolean } | null {
+  const g = PLUSD_GEOMETRIES[parseInt(value.slice(4))];
+  if (!g) return null;
+  return { geom: { tracks: g.tracks, sides: g.sides }, hfe: value.startsWith('hfe-') };
+}
 
 export function DrivePane() {
   async function handleInsertDisk(unit: number) {
@@ -313,7 +328,10 @@ export function DrivePane() {
           writeProtected={writeProtectC()}
           showProtection={false}
           newItems={PLUSD_NEW_ITEMS}
-          onNewDisk={(value) => insertBlankPlusDDisk(0, value === 'blank-hfe')}
+          onNewDisk={(value) => {
+            const b = plusDBlankForValue(value);
+            if (b) insertBlankPlusDDisk(0, b.geom, b.hfe);
+          }}
           onSave={() => savePlusDDisk(0)}
           onEject={() => ejectPlusDDisk(0)}
           onInsert={() => handleInsertPlusDDisk(0)}
@@ -336,7 +354,10 @@ export function DrivePane() {
           writeProtected={writeProtectD()}
           showProtection={false}
           newItems={PLUSD_NEW_ITEMS}
-          onNewDisk={(value) => insertBlankPlusDDisk(1, value === 'blank-hfe')}
+          onNewDisk={(value) => {
+            const b = plusDBlankForValue(value);
+            if (b) insertBlankPlusDDisk(1, b.geom, b.hfe);
+          }}
           onSave={() => savePlusDDisk(1)}
           onEject={() => ejectPlusDDisk(1)}
           onInsert={() => handleInsertPlusDDisk(1)}

@@ -1188,11 +1188,15 @@ export function ejectPlusDDisk(unit: number): void {
   setStatus(`+D disk ${unit === 0 ? 'C' : 'D'}: ejected`);
 }
 
-export function insertBlankPlusDDisk(unit: number, asHfe = false): void {
+/** Blank +D geometries offered in the UI (all 10 × 512-byte sectors). */
+export interface PlusDBlankGeometry { tracks: number; sides: number; }
+
+export function insertBlankPlusDDisk(unit: number, geom: PlusDBlankGeometry, asHfe = false): void {
   if (!spectrum) return;
-  // Both containers hold the same blank 800K +D geometry; an HFE-backed one
-  // additionally carries the bit-cell stream so it saves/persists as .hfe.
-  const image = asHfe ? attachHfeBitstream(blankMgtDisk()) : blankMgtDisk();
+  // The MGT image is the sector-level blank; an HFE-backed one additionally
+  // carries the bit-cell stream so it saves/persists as .hfe.
+  const base = blankMgtDisk(geom.tracks, geom.sides);
+  const image = asHfe ? attachHfeBitstream(base) : base;
   spectrum.loadPlusDDisk(image, unit);
   const [name, data] = asHfe
     ? ['BLANK.hfe', serializeHFE(image)]
