@@ -19,7 +19,8 @@ import { saveSZX, saveSZXSync } from '@/snapshot/szx.ts';
 import { saveZ80 } from '@/snapshot/z80format.ts';
 import { parseTZX } from '@/tape/tzx.ts';
 import type { TapeBlock } from '@/tape/tap.ts';
-import { parseDSK, serializeDSK, type DskImage } from '@/plus3/dsk.ts';
+import { serializeDSK, type DskImage } from '@/plus3/dsk.ts';
+import { parseFloppyImage } from '@/plus3/hfe.ts';
 import { parseMgt, serializeMgt, blankMgtDisk, mgtExtFromName } from '@/plus3/mgt-image.ts';
 import { loadSZX, applySZXPaging } from '@/snapshot/szx.ts';
 import { readCpcSnaModel, applyCpcSna, saveCpcSna } from '@/snapshot/cpc-sna.ts';
@@ -786,12 +787,12 @@ export function loadableExtensions(): string[] {
   const cpc = asCpc(machine);
   if (cpc) {
     const exts = ['.sna', '.cdt'];
-    if (cpc.config.hasFDC) exts.push('.dsk');
+    if (cpc.config.hasFDC) exts.push('.dsk', '.hfe');
     return exts;
   }
   // Spectrum (and the no-machine default).
   const exts = ['.sna', '.z80', '.szx', '.sp', '.tap', '.tzx'];
-  if (spectrum?.variant.hasFDC) exts.push('.dsk');
+  if (spectrum?.variant.hasFDC) exts.push('.dsk', '.hfe');
   if (spectrum && isInterface1Capable(currentModel())) exts.push('.mdr', '.mdv');
   exts.push('.zip');
   return exts;
@@ -809,10 +810,10 @@ export async function loadFile(data: Uint8Array, filename: string, unit?: number
       await loadCpcSnapshot(data, filename);
       return;
     }
-    if (!/\.dsk$/i.test(filename)) { setStatus('CPC accepts .sna, .dsk, .cdt, .tzx and .tap files'); return; }
+    if (!/\.(dsk|hfe)$/i.test(filename)) { setStatus('CPC accepts .sna, .dsk, .hfe, .cdt, .tzx and .tap files'); return; }
     cpc.stop();
     try {
-      const image = parseDSK(data);
+      const image = parseFloppyImage(data);
       const u = unit ?? 0;
       cpc.loadDisk(image, u);
       if (u === 0) { setCurrentDiskInfo(image); setCurrentDiskName(filename); }
@@ -1125,12 +1126,12 @@ export function loadDiskToUnit(data: Uint8Array, filename: string, unit: number)
   const cpc = asCpc(machine);
   if (cpc) {
     try {
-      const image = parseDSK(data);
+      const image = parseFloppyImage(data);
       cpc.loadDisk(image, unit);
       onDiskLoaded(image, filename, unit);
       setStatus(`Disk ${unit === 0 ? 'A' : 'B'}: loaded: ${filename}`);
     } catch (e) {
-      setStatus(`DSK error: ${(e as Error).message}`);
+      setStatus(`Disk error: ${(e as Error).message}`);
     }
     return;
   }
@@ -1566,7 +1567,7 @@ async function restoreMedia(): Promise<void> {
   const diskA = await restoreDisk(0);
   if (diskA) {
     try {
-      const image = parseDSK(diskA.data);
+      const image = parseFloppyImage(diskA.data);
       machine.loadDisk(image, 0);
       setCurrentDiskInfo(image);
       setCurrentDiskName(diskA.name);
@@ -1576,7 +1577,7 @@ async function restoreMedia(): Promise<void> {
   const diskB = await restoreDisk(1);
   if (diskB) {
     try {
-      const image = parseDSK(diskB.data);
+      const image = parseFloppyImage(diskB.data);
       machine.loadDisk(image, 1);
       setCurrentDiskInfoB(image);
       setCurrentDiskNameB(diskB.name);

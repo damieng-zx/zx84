@@ -186,7 +186,7 @@ export function DrivePane() {
   async function handleInsertDisk(unit: number) {
     const results = await openFile({
       id: 'zx84-disk',
-      extensions: ['.dsk', '.zip'],
+      extensions: ['.dsk', '.hfe', '.zip'],
     });
     if (!results) return;
     await loadFile(results[0].data, results[0].name, unit);

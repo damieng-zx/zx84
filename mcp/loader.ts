@@ -4,7 +4,7 @@ import type { Spectrum, SpectrumModel } from '../src/spectrum.ts';
 import { loadSNA } from '../src/snapshot/sna.ts';
 import { loadZ80 } from '../src/snapshot/z80format.ts';
 import { loadSZX } from '../src/snapshot/szx.ts';
-import { parseDSK } from '../src/plus3/dsk.ts';
+import { parseFloppyImage } from '../src/plus3/hfe.ts';
 import { parseMgt, mgtExtFromName } from '../src/plus3/mgt-image.ts';
 import { parseTZX } from '../src/tape/tzx.ts';
 import { h16 } from './hex.ts';
@@ -32,11 +32,12 @@ export async function loadFileInto(spec: Spectrum, filepath: string, diskUnit: n
     spec.reset();
     spec.tape.startPlayback();
     return `TZX loaded: ${filename} (${blocks.length} blocks)`;
-  } else if (ext === '.dsk') {
-    const image = parseDSK(data);
+  } else if (ext === '.dsk' || ext === '.hfe') {
+    const image = parseFloppyImage(data);
     spec.loadDisk(image, diskUnit);
     const driveLetter = diskUnit === 0 ? 'A' : 'B';
-    return `DSK loaded: ${filename} → Drive ${driveLetter}: (${image.numTracks} tracks, ${image.numSides} side${image.numSides > 1 ? 's' : ''})`;
+    const kind = ext === '.hfe' ? 'HFE' : 'DSK';
+    return `${kind} loaded: ${filename} → Drive ${driveLetter}: (${image.numTracks} tracks, ${image.numSides} side${image.numSides > 1 ? 's' : ''})`;
   } else if (ext === '.mgt' || ext === '.img') {
     // Auto-enable the +D (load G+DOS ROM + reset to boot it) then insert.
     if (!spec.mgtPlusD.enabled || !spec.mgtPlusD.romLoaded) {
@@ -143,8 +144,8 @@ export function mountAndArm(
     // boots the disk in preference to the cassette. Eject so it falls through
     // (mirrors play() in LibraryBrowser).
     if (spec.fdc?.getDiskImage(0)) spec.fdc.ejectDisk(0);
-  } else if (ext === '.dsk') {
-    spec.loadDisk(parseDSK(data), 0);
+  } else if (ext === '.dsk' || ext === '.hfe') {
+    spec.loadDisk(parseFloppyImage(data), 0);
     mounted = `disk ${innerName} → A:`;
   } else {
     return `Unsupported library media type: ${ext}`;

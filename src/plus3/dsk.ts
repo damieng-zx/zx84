@@ -37,12 +37,25 @@ export interface DskTrack {
   filler: number;
 }
 
+/**
+ * Raw per-track MFM bit-cell streams retained from an HFE image. When present
+ * the mounted disk *is* the HFE bitstream: the FDC's decoded {@link DskTrack}s
+ * are derived from `cells[cylinder][side]` (see `plus3/hfe.ts`), not from a DSK
+ * file, and the flux stays attached for on-demand re-decode / future write-back.
+ */
+export interface HfeBitstream {
+  /** cells[cylinder][side] — LSB-first MFM bit-cells, or null for a blank side. */
+  cells: (Uint8Array | null)[][];
+}
+
 export interface DskImage {
   format: 'standard' | 'extended';
   numTracks: number;
   numSides: number;
   /** tracks[cylinder][side] */
   tracks: (DskTrack | null)[][];
+  /** Present only for HFE-sourced disks: the retained raw MFM bitstream. */
+  bitstream?: HfeBitstream;
   /** Detected disk format name (e.g. "+3DOS", "CPC System") */
   diskFormat: string;
   /** Detected copy protection scheme, or empty string */

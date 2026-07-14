@@ -13,7 +13,8 @@ import type { Machine } from '@/machine.ts';
 import { type SpectrumModel, is128kClass, isPlus2AClass } from '@/models.ts';
 import type { TapeBlock } from '@/tape/tap.ts';
 import { parseTZX } from '@/tape/tzx.ts';
-import { parseDSK, type DskImage } from '@/plus3/dsk.ts';
+import { type DskImage } from '@/plus3/dsk.ts';
+import { parseFloppyImage } from '@/plus3/hfe.ts';
 import { unzip } from '@/snapshot/zip.ts';
 import { showFilePicker } from '@/ui/zip-picker.ts';
 import { loadSNA } from '@/snapshot/sna.ts';
@@ -126,7 +127,7 @@ export class MediaManager {
     // applySnapshot already use.
     spectrum.stop();
     try {
-      const image = parseDSK(data);
+      const image = parseFloppyImage(data);
       callbacks.onDiskLoaded(image, filename, unit);
 
       spectrum.loadDisk(image, unit);
@@ -331,7 +332,7 @@ export class MediaManager {
       return;
     }
 
-    if (ext === 'dsk') {
+    if (ext === 'dsk' || ext === 'hfe') {
       const diskUnit = unit ?? 0;
       this.loadDisk(spectrum, data, filename, diskUnit, callbacks);
       return;

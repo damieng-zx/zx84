@@ -209,7 +209,7 @@ export function App() {
           <div class="drag-overlay-box">
             <span class="drag-overlay-icon">⬇</span>
             <span class="drag-overlay-label">Drop to load</span>
-            <span class="drag-overlay-hint">SNA · Z80 · SZX · TAP · TZX · DSK · MDR · ZIP</span>
+            <span class="drag-overlay-hint">SNA · Z80 · SZX · TAP · TZX · DSK · HFE · MDR · ZIP</span>
           </div>
         </div>
       </Show>
