@@ -19,7 +19,7 @@ import type { IScreenRenderer } from '@/display/display.ts';
 import { Audio } from '@/audio.ts';
 import { TapeDeck } from '@/tape/tap.ts';
 import { UPD765A } from '@/cores/upd765a.ts';
-import type { DskImage } from '@/plus3/dsk.ts';
+import type { DskImage } from '@/floppy/disk-image.ts';
 import { Contention } from '@/contention.ts';
 import { ScreenText, OCR_GRIDS, detectGrid } from '@/debug/screen-text.ts';
 import type { FontSource, OcrResult, OcrGridName, SpectrumOcrGrid } from '@/debug/screen-text.ts';

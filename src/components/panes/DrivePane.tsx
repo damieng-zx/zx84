@@ -23,8 +23,9 @@ import {
 } from '@/store/settings.ts';
 import { isPlus3 } from '@/spectrum.ts';
 import { cpcHasDisk, isPlusDCapable, isBetaDiskCapable } from '@/models.ts';
-import { DISK_FORMATS, formatLabel, createBlankDisk, type DskImage } from '@/plus3/dsk.ts';
-import { createBlankHfe } from '@/plus3/hfe.ts';
+import { DISK_FORMATS, formatLabel, createBlankDisk } from '@/floppy/dsk.ts';
+import type { DskImage } from '@/floppy/disk-image.ts';
+import { createBlankHfe } from '@/floppy/hfe.ts';
 import type { DriveStatus } from '@/state/disk-state.ts';
 import { openFile } from '@/ui/file-picker.ts';
 

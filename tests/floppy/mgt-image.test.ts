@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseMgt, serializeMgt, blankMgtDisk, isMgtSize, mgtExtFromName } from '@/plus3/mgt-image.ts';
+import { parseMgt, serializeMgt, blankMgtDisk, isMgtSize, mgtExtFromName } from '@/floppy/mgt-image.ts';
 
 const SECTOR = 512;
 const SPT = 10;

@@ -19,7 +19,7 @@
  *     shorter than the full geometry; missing/short sectors are zero-padded.
  */
 
-import type { DskImage, DskTrack, DskSector } from './dsk.ts';
+import type { DskImage, DskTrack, DskSector } from './disk-image.ts';
 
 export const TRD_SECTOR_BYTES = 256;
 export const TRD_SPT = 16;

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { parseSCP, isScp } from '@/plus3/scp.ts';
-import { encodeHfeTrack } from '@/plus3/hfe.ts';
-import type { DskTrack, DskSector } from '@/plus3/dsk.ts';
+import { parseSCP, isScp } from '@/floppy/scp.ts';
+import { encodeHfeTrack } from '@/floppy/hfe.ts';
+import type { DskTrack, DskSector } from '@/floppy/disk-image.ts';
 
 const CELL = 80; // 2µs bit-cell at 25ns/tick (DD MFM)
 

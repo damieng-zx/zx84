@@ -15,7 +15,7 @@
 - `src/debug/` — disassembler, BASIC parser, screen OCR (`screen-text.ts`). These tools take `Uint8Array`, not `ByteReader`.
 - `src/peripherals/` — Multiface 1/128/3, VTX-5000 Prestel modem, Kempston mouse, AMX mouse, joysticks, audio mixer.
 - `src/tape/` — TAP/TZX parsing, tape playback engine, custom loader auto-detection.
-- `src/plus3/` — DSK parser with 17 copy-protection detectors, floppy drive sound effects.
+- `src/floppy/` — floppy disk image formats and the shared `DskImage` model (`disk-image.ts`). DSK/HFE/SCP for the uPD765A (+3/CPC), MGT for the +D, TRD/SCL for the Beta Disk; copy-protection detection (`disk-detect.ts`); drive-sound synthesis (`floppy-sound.ts`). The FDC cores themselves live in `src/cores/` (uPD765A, WD179x), not here.
 - `src/display/` — Canvas and WebGL renderers with HQx/xBR upscaling shaders.
 - `src/state/` — Solid.js reactive state stores (machine, debug, disk, tape, activity).
 - `src/store/` — Settings and IndexedDB persistence.

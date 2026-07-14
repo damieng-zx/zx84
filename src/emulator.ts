@@ -14,18 +14,19 @@ import {
 import { CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT, CPC_PALETTES } from '@/cpc/constants.ts';
 import { WebGLRenderer } from '@/display/webgl-renderer.ts';
 import { CanvasRenderer } from '@/display/canvas-renderer.ts';
-import { FloppySound } from '@/plus3/floppy-sound.ts';
+import { FloppySound } from '@/floppy/floppy-sound.ts';
 import { PALETTES, SCREEN_WIDTH, SCREEN_HEIGHT } from '@/cores/ula.ts';
 import { saveSZX, saveSZXSync } from '@/snapshot/szx.ts';
 import { saveZ80 } from '@/snapshot/z80format.ts';
 import { parseTZX } from '@/tape/tzx.ts';
 import type { TapeBlock } from '@/tape/tap.ts';
-import { serializeDSK, type DskImage } from '@/plus3/dsk.ts';
-import { parseFloppyImage, parseHFE, serializeHFE, isHFE, attachHfeBitstream } from '@/plus3/hfe.ts';
-import { parseSCP, isScp } from '@/plus3/scp.ts';
-import { parseMgt, serializeMgt, blankMgtDisk, mgtExtFromName } from '@/plus3/mgt-image.ts';
-import { parseTrd, serializeTrd, blankTrdDisk } from '@/plus3/trd-image.ts';
-import { parseScl, serializeScl, isScl, SCL_DISK_FORMAT } from '@/plus3/scl-image.ts';
+import { serializeDSK } from '@/floppy/dsk.ts';
+import type { DskImage } from '@/floppy/disk-image.ts';
+import { parseFloppyImage, parseHFE, serializeHFE, isHFE, attachHfeBitstream } from '@/floppy/hfe.ts';
+import { parseSCP, isScp } from '@/floppy/scp.ts';
+import { parseMgt, serializeMgt, blankMgtDisk, mgtExtFromName } from '@/floppy/mgt-image.ts';
+import { parseTrd, serializeTrd, blankTrdDisk } from '@/floppy/trd-image.ts';
+import { parseScl, serializeScl, isScl, SCL_DISK_FORMAT } from '@/floppy/scl-image.ts';
 import { loadSZX, applySZXPaging } from '@/snapshot/szx.ts';
 import { readCpcSnaModel, applyCpcSna, saveCpcSna } from '@/snapshot/cpc-sna.ts';
 import {

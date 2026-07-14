@@ -8,7 +8,7 @@ import { state, initMachine, activeSpectrum, activeCpc } from '../state.ts';
 import { text, formatHexDump } from '../format.ts';
 import { loadFileInto, mountAndArm, runLoadVerdict } from '../loader.ts';
 import { fdcLog } from '../fdc-log.ts';
-import { parseDSK } from '../../src/plus3/dsk.ts';
+import { parseDSK } from '../../src/floppy/dsk.ts';
 import { unzip } from '../../src/snapshot/zip.ts';
 import { CACHE_DIR } from '../rom-fetch.ts';
 import { findGames, suggestTitles, fileUrls, planLoad, gameNeeds, basename } from '../catalog.ts';

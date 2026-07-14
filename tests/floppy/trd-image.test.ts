@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   parseTrd, serializeTrd, blankTrdDisk, resolveTrdGeometry, isTrdSize,
   TRD_SECTOR_BYTES, TRD_SPT,
-} from '@/plus3/trd-image.ts';
+} from '@/floppy/trd-image.ts';
 
 const FULL_DS = 80 * 2 * TRD_SPT * TRD_SECTOR_BYTES; // 655360
 

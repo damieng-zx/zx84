@@ -17,7 +17,7 @@
  * status shows BUSY|DRQ and the CPU streams the sector's bytes through the data
  * register — exactly the polling loop G+DOS / TR-DOS use (poll status,
  * read/write data, repeat while BUSY). Disk images are the shared DskImage
- * structure (see plus3/dsk.ts) so geometry, sector lookup and write-back match
+ * structure (see floppy/disk-image.ts) so geometry, sector lookup and write-back match
  * the +3 path and the existing disk UI / floppy-sound code can be reused.
  *
  * Status register bit meanings differ between Type I (Restore/Seek/Step) and
@@ -31,7 +31,7 @@
  *   • (intrq/drq getters)   — exposed for the Beta system port; +D ignores them.
  */
 
-import type { DskImage, DskTrack, DskSector } from '@/plus3/dsk.ts';
+import type { DskImage, DskTrack, DskSector } from '@/floppy/disk-image.ts';
 
 // ── Status register bits ────────────────────────────────────────────────────
 // Bit meanings differ by command type; alternate Type-I meanings are noted in

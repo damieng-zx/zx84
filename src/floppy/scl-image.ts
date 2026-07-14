@@ -16,7 +16,7 @@
  * result is an ordinary DskImage the WD1793 drives off.
  */
 
-import type { DskImage } from './dsk.ts';
+import type { DskImage } from './disk-image.ts';
 import {
   TRD_SECTOR_BYTES, TRD_SPT, parseTrd, writeTrdInfoSector, type TrdGeometry,
 } from './trd-image.ts';

@@ -13,7 +13,7 @@ import { parseBasicProgram, parseBasicVariables } from '@/debug/basic-parser.ts'
 import { parseLocomotiveBasic } from '@/debug/cpc-basic-parser.ts';
 import { isCollapsed } from '@/ui/panes.ts';
 import * as settings from '@/store/settings.ts';
-import { refreshDiskMetadata } from '@/plus3/dsk.ts';
+import { refreshDiskMetadata } from '@/floppy/dsk.ts';
 import {
   machine, spectrum, floppySound,
   currentModel, emulationPaused, tracing,

@@ -8,7 +8,7 @@
  */
 
 import { createSignal } from 'solid-js';
-import type { DskImage } from '@/plus3/dsk.ts';
+import type { DskImage } from '@/floppy/disk-image.ts';
 
 export type DriveLed = 'off' | 'motor' | 'seek' | 'read' | 'write';
 

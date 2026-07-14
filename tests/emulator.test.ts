@@ -157,7 +157,7 @@ vi.mock('@/display/webgl-renderer.ts', () => ({
   WebGLRenderer: function() { return {}; },
 }));
 
-vi.mock('@/plus3/floppy-sound.ts', () => ({
+vi.mock('@/floppy/floppy-sound.ts', () => ({
   FloppySound: function() { return { reset: vi.fn(), destroy: vi.fn() }; },
 }));
 
@@ -313,7 +313,7 @@ vi.mock('@/snapshot/z80format.ts', () => ({
 
 vi.mock('@/tape/tzx.ts', () => ({ parseTZX: vi.fn(() => []) }));
 
-vi.mock('@/plus3/dsk.ts', () => ({
+vi.mock('@/floppy/dsk.ts', () => ({
   parseDSK:     vi.fn(() => ({ tracks: [] })),
   serializeDSK: vi.fn(() => new Uint8Array()),
 }));
@@ -325,7 +325,7 @@ import * as settings from '@/store/settings.ts';
 import * as persistence from '@/store/persistence.ts';
 import * as szx from '@/snapshot/szx.ts';
 import * as z80fmt from '@/snapshot/z80format.ts';
-import * as dskMod from '@/plus3/dsk.ts';
+import * as dskMod from '@/floppy/dsk.ts';
 import * as tzxMod from '@/tape/tzx.ts';
 import * as joysticks from '@/peripherals/joysticks.ts';
 import { setCurrentModel, currentModel } from '@/state/machine-state.ts';

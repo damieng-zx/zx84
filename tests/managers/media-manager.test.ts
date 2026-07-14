@@ -27,7 +27,7 @@ const persistDisk = vi.fn();
 const clearDisk = vi.fn();
 
 vi.mock('@/tape/tzx.ts', () => ({ parseTZX: (...a: any[]) => parseTZX(...a) }));
-vi.mock('@/plus3/dsk.ts', () => ({ parseDSK: (...a: any[]) => parseDSK(...a) }));
+vi.mock('@/floppy/dsk.ts', () => ({ parseDSK: (...a: any[]) => parseDSK(...a) }));
 vi.mock('@/snapshot/zip.ts', () => ({ unzip: (...a: any[]) => unzip(...a) }));
 vi.mock('@/ui/zip-picker.ts', () => ({ showFilePicker: (...a: any[]) => showFilePicker(...a) }));
 vi.mock('@/snapshot/sna.ts', () => ({ loadSNA: (...a: any[]) => loadSNA(...a) }));

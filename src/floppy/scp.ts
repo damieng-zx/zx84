@@ -22,7 +22,7 @@
  * big-endian flux intervals (0x0000 = +65536 tick overflow into the next value).
  */
 
-import type { DskImage, DskTrack, DskSector } from './dsk.ts';
+import type { DskImage, DskTrack, DskSector } from './disk-image.ts';
 import { decodeHfeTrack } from './hfe.ts';
 
 const TRACK_TABLE = 0x10;

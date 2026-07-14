@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { UPD765A } from '@/cores/upd765a.ts';
-import type { DskImage, DskTrack, DskSector } from '@/plus3/dsk.ts';
+import type { DskImage, DskTrack, DskSector } from '@/floppy/disk-image.ts';
 
 // ── MSR bit constants (mirrors the comments in upd765a.ts) ───────────────
 const RQM = 0x80;

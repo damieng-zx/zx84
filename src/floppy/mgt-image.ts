@@ -17,7 +17,7 @@
  * +D-specific.
  */
 
-import type { DskImage, DskTrack, DskSector } from './dsk.ts';
+import type { DskImage, DskTrack, DskSector } from './disk-image.ts';
 
 const SECTOR_BYTES = 512;
 

@@ -17,7 +17,7 @@ import { Z80 } from '@/cores/z80.ts';
 import { AY3891x } from '@/cores/ay-3-8910.ts';
 import { UPD765A } from '@/cores/upd765a.ts';
 import { TapeDeck, TAPE_REF_HZ } from '@/tape/tap.ts';
-import type { DskImage } from '@/plus3/dsk.ts';
+import type { DskImage } from '@/floppy/disk-image.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/peripherals/audio-mixer.ts';
 import { disasmOne, type DisasmLine } from '@/debug/z80-disasm.ts';

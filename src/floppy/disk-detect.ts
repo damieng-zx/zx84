@@ -16,7 +16,7 @@
  * scheme name; CPC vs +3 is distinguished by the track-0 sector-ID base.
  */
 
-import type { DskImage, DskTrack, DskSector } from './dsk.ts';
+import type { DskImage, DskTrack, DskSector } from './disk-image.ts';
 
 // ── Format detection ────────────────────────────────────────────────────────
 

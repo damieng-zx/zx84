@@ -23,7 +23,8 @@
  * Format reference: the HxC "HFE (HxC Floppy Emulator) file format" spec.
  */
 
-import { parseDSK, createBlankDisk, type DiskFormat, type DskImage, type DskSector, type DskTrack, type HfeBitstream, type HfeSectorLayout } from './dsk.ts';
+import { parseDSK, createBlankDisk, type DiskFormat } from './dsk.ts';
+import type { DskImage, DskSector, DskTrack, HfeBitstream, HfeSectorLayout } from './disk-image.ts';
 import { detectDiskFormat, detectProtection, isFlippyDisk } from './disk-detect.ts';
 import { isScp, parseSCP } from './scp.ts';
 
