@@ -63,6 +63,10 @@ function makeSpectrumStub() {
                 fdc: { writeProtect: [false, false], insertDisk: vi.fn(),
                        ejectDisk: vi.fn(), getDiskImage: vi.fn(() => null),
                        clearDirty: vi.fn() } },
+    betaDisk: { enabled: false, loadROM: vi.fn(), romLoaded: false,
+                fdc: { writeProtect: [false, false], insertDisk: vi.fn(),
+                       ejectDisk: vi.fn(), getDiskImage: vi.fn(() => null),
+                       clearDirty: vi.fn() } },
     interface1: { enabled: false, loadROM: vi.fn(), romLoaded: false, anyMotorOn: false,
                   drives: Array.from({ length: 8 }, () => ({
                     loadMDR: vi.fn(), toMDR: vi.fn(() => new Uint8Array(0)),
@@ -252,6 +256,7 @@ vi.mock('@/store/settings.ts', () => ({
   multifaceEnabled:   vi.fn(() => false),
   plus3V41Roms:       vi.fn(() => false),
   plusDEnabled:       vi.fn(() => false),
+  betaDiskEnabled:    vi.fn(() => false),
   interface1Enabled:  vi.fn(() => false),
   writeProtectC:      vi.fn(() => false),
   writeProtectD:      vi.fn(() => false),

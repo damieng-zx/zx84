@@ -36,6 +36,7 @@ type MockSpectrum = {
   variant: { hasBanking: boolean; hasFDC: boolean; hasAY: boolean };
   fdc: { currentUnit: number };
   mgtPlusD: { enabled: boolean };
+  betaDisk: { enabled: boolean };
   interface1: { enabled: boolean; anyMotorOn: boolean };
   breakpointHit: number;
   breakpoints: Set<number>;
@@ -264,6 +265,7 @@ function makeSpectrumWithSnap(snap: Uint8Array): MockSpectrum {
     variant: { hasBanking: false, hasFDC: false, hasAY: false },
     fdc: { currentUnit: 0 },
     mgtPlusD: { enabled: false },
+    betaDisk: { enabled: false },
     interface1: { enabled: false, anyMotorOn: false },
     breakpointHit: -1,
     breakpoints: new Set(),

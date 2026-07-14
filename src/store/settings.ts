@@ -88,6 +88,7 @@ const DEFAULTS = {
   'cpc-parados':    'off',
   'plusd':          'off',
   'interface1':     'off',
+  'betadisk':       'off',
 } as const;
 
 type SettingKey = keyof typeof DEFAULTS;
@@ -379,6 +380,10 @@ const _plusDEnabled = /*@once*/ createRoot(() => createSignal(getSaved('plusd', 
 export const plusDEnabled = _plusDEnabled[0];
 export const setPlusDEnabled = _plusDEnabled[1];
 
+const _betaDiskEnabled = /*@once*/ createRoot(() => createSignal(getSaved('betadisk', D('betadisk')) === 'on'));
+export const betaDiskEnabled = _betaDiskEnabled[0];
+export const setBetaDiskEnabled = _betaDiskEnabled[1];
+
 const _interface1Enabled = /*@once*/ createRoot(() => createSignal(getSaved('interface1', D('interface1')) === 'on'));
 export const interface1Enabled = _interface1Enabled[0];
 export const setInterface1Enabled = _interface1Enabled[1];
@@ -476,6 +481,7 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'vtx5000',        set: setVtx5000Enabled,   type: 'bool' },
     { key: 'cpc-parados',    set: setCpcParados,        type: 'bool' },
     { key: 'plusd',          set: setPlusDEnabled,     type: 'bool' },
+    { key: 'betadisk',       set: setBetaDiskEnabled,  type: 'bool' },
     { key: 'interface1',     set: setInterface1Enabled, type: 'bool' },
   ],
   font: [

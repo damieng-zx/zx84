@@ -222,9 +222,11 @@ function updateHardwareSignals(activeUnit: number): void {
     }
   }
 
-  // MGT +D drives C/D (WD1772). Independent of the +3 FDC above.
-  if (spectrum!.mgtPlusD.enabled) {
-    const wd = spectrum!.mgtPlusD.fdc;
+  // MGT +D (WD1772) or Beta Disk (WD1793) — both drive the shared C/D signals
+  // and are mutually exclusive. Independent of the +3 FDC above.
+  const wd = spectrum!.mgtPlusD.enabled ? spectrum!.mgtPlusD.fdc
+    : spectrum!.betaDisk.enabled ? spectrum!.betaDisk.fdc : null;
+  if (wd) {
     wd.tickFrame();
     const wdActive = wd.currentUnit;
     setDriveCStatus(renderDriveStatus(0, wdActive, wd));
@@ -627,6 +629,7 @@ export function onFrame(): void {
     setLedAy(ledLatched('ay', a.ayWrites > 5, ledNow));
     setLedDsk(ledLatched('dsk', a.fdcAccesses > 0
       || (spectrum!.mgtPlusD.enabled && spectrum!.mgtPlusD.fdc.motorOn)
+      || (spectrum!.betaDisk.enabled && spectrum!.betaDisk.fdc.motorOn)
       || (spectrum!.interface1.enabled && spectrum!.interface1.anyMotorOn), ledNow));
 
     // Per-drive microdrive motor LEDs (latched so brief spins stay visible).
@@ -750,6 +753,10 @@ export function onFrame(): void {
   } else if (spectrum!.mgtPlusD.enabled) {
     soundFdc = spectrum!.mgtPlusD.fdc;
     isPlusD = true;
+    driveSoundOn = soundFdc.currentUnit === 0 ? settings.diskSoundC() : settings.diskSoundD();
+  } else if (spectrum!.betaDisk.enabled) {
+    soundFdc = spectrum!.betaDisk.fdc;
+    isPlusD = true; // same WD-family drive-sound model as the +D
     driveSoundOn = soundFdc.currentUnit === 0 ? settings.diskSoundC() : settings.diskSoundD();
   }
   if (floppySound && soundFdc && driveSoundOn) {

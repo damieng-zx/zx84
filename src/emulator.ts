@@ -9,6 +9,7 @@ import { type Machine, asSpectrum, asCpc } from '@/machine.ts';
 import {
   type SpectrumModel, type MachineModel, type CpcModel,
   is128kClass, isPlus2AClass, isCpcModel, isPlusDCapable, isInterface1Capable,
+  isBetaDiskCapable,
 } from '@/models.ts';
 import { CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT, CPC_PALETTES } from '@/cpc/constants.ts';
 import { WebGLRenderer } from '@/display/webgl-renderer.ts';
@@ -22,11 +23,14 @@ import type { TapeBlock } from '@/tape/tap.ts';
 import { serializeDSK, type DskImage } from '@/plus3/dsk.ts';
 import { parseFloppyImage, parseHFE, serializeHFE, isHFE, attachHfeBitstream } from '@/plus3/hfe.ts';
 import { parseMgt, serializeMgt, blankMgtDisk, mgtExtFromName } from '@/plus3/mgt-image.ts';
+import { parseTrd, serializeTrd, blankTrdDisk } from '@/plus3/trd-image.ts';
+import { parseScl, isScl } from '@/plus3/scl-image.ts';
 import { loadSZX, applySZXPaging } from '@/snapshot/szx.ts';
 import { readCpcSnaModel, applyCpcSna, saveCpcSna } from '@/snapshot/cpc-sna.ts';
 import {
   clearLastFile, clearDisk, restoreTape, restoreDisk, dbSave, dbLoad,
   persistPlusDDisk, restorePlusDDisk, clearPlusDDisk,
+  persistBetaDiskDisk, restoreBetaDiskDisk, clearBetaDiskDisk,
   persistMicrodrive, restoreMicrodrive, clearMicrodrive,
 } from '@/store/persistence.ts';
 import { microdriveSlots, setMicrodriveSlot, clearMicrodriveSlot } from '@/state/microdrive-state.ts';
@@ -72,11 +76,13 @@ import {
   paradosRomFailed,
   plusDRomFailed,
   interface1RomFailed,
+  betaDiskRomFailed,
   setMultifaceRomFailed,
   setVtx5000RomFailed,
   setParadosRomFailed,
   setPlusDRomFailed,
   setInterface1RomFailed,
+  setBetaDiskRomFailed,
 } from '@/state/machine-state.ts';
 
 import {
@@ -127,7 +133,7 @@ import {
 // Re-export machine state
 export { statusText, romStatusText, currentModel, emulationPaused, turboMode, clockSpeedText, saveModel };
 export { setStatusText, setRomStatusText, setCurrentModel, setEmulationPaused, setTurboMode, setClockSpeedText };
-export { multifaceRomFailed, vtx5000RomFailed, paradosRomFailed, plusDRomFailed, interface1RomFailed };
+export { multifaceRomFailed, vtx5000RomFailed, paradosRomFailed, plusDRomFailed, interface1RomFailed, betaDiskRomFailed };
 
 // Re-export tape state
 export { tapeLoaded, tapeBlocks, tapePosition, tapePaused, tapePlaying, tapeName };
@@ -322,9 +328,14 @@ export async function createMachine(): Promise<boolean> {
     if (spectrum.multiface.enabled) {
       loadMultifaceROM(spectrum).catch(err => console.warn('MF ROM load failed:', err));
     }
+    // The Beta Disk, the +D and the Interface 1 all overlay slot 0 on a
+    // 48K/128K/+2 and share the disk-interface role, so only one may be active.
+    // Beta wins when its setting is on (the UI keeps them mutually exclusive).
+    const betaActive = settings.betaDiskEnabled() && isBetaDiskCapable(model);
+
     // MGT +D (48K/128K/+2). Load the ROM before reset so the shadow ROM is
     // present when reset() pages it in to boot G+DOS.
-    spectrum.mgtPlusD.enabled = settings.plusDEnabled() && isPlusDCapable(model);
+    spectrum.mgtPlusD.enabled = !betaActive && settings.plusDEnabled() && isPlusDCapable(model);
     if (spectrum.mgtPlusD.enabled) {
       await loadPlusDROM(spectrum);
       spectrum.mgtPlusD.fdc.writeProtect[0] = settings.writeProtectC();
@@ -332,9 +343,17 @@ export async function createMachine(): Promise<boolean> {
     }
     // ZX Interface 1 (48K/128K/+2). Load the ROM before reset so the M1 fetch
     // traps can page it in once the main ROM starts running.
-    spectrum.interface1.enabled = settings.interface1Enabled() && isInterface1Capable(model);
+    spectrum.interface1.enabled = !betaActive && settings.interface1Enabled() && isInterface1Capable(model);
     if (spectrum.interface1.enabled) {
       await loadInterface1ROM(spectrum);
+    }
+    // Beta Disk / TR-DOS (48K/128K/+2). Load the 16KB TR-DOS ROM before reset;
+    // it maps itself in via the 0x3Dxx M1 trap once BASIC enters it.
+    spectrum.betaDisk.enabled = betaActive;
+    if (spectrum.betaDisk.enabled) {
+      await loadBetaDiskROM(spectrum);
+      spectrum.betaDisk.fdc.writeProtect[0] = settings.writeProtectC();
+      spectrum.betaDisk.fdc.writeProtect[1] = settings.writeProtectD();
     }
   }
 
@@ -624,6 +643,9 @@ export async function switchModel(model: MachineModel): Promise<void> {
   const carriedPlusD = spectrum?.mgtPlusD.enabled
     ? [spectrum.mgtPlusD.fdc.getDiskImage(0), spectrum.mgtPlusD.fdc.getDiskImage(1)]
     : null;
+  const carriedBeta = spectrum?.betaDisk.enabled
+    ? [spectrum.betaDisk.fdc.getDiskImage(0), spectrum.betaDisk.fdc.getDiskImage(1)]
+    : null;
 
   const romModel = effectiveROMModel(model);
   let entry = await restoreROM(romModel);
@@ -642,6 +664,10 @@ export async function switchModel(model: MachineModel): Promise<void> {
   if (carriedPlusD && spectrum?.mgtPlusD.enabled) {
     if (carriedPlusD[0]) spectrum.loadPlusDDisk(carriedPlusD[0], 0);
     if (carriedPlusD[1]) spectrum.loadPlusDDisk(carriedPlusD[1], 1);
+  }
+  if (carriedBeta && spectrum?.betaDisk.enabled) {
+    if (carriedBeta[0]) spectrum.loadBetaDiskDisk(carriedBeta[0], 0);
+    if (carriedBeta[1]) spectrum.loadBetaDiskDisk(carriedBeta[1], 1);
   }
 }
 
@@ -827,14 +853,24 @@ export async function loadFile(data: Uint8Array, filename: string, unit?: number
     return;
   }
   if (!spectrum) { setStatus('Load a ROM first'); return; }
+  // Beta Disk (TR-DOS) images route to the WD1793.
+  if (/\.(trd|scl)$/i.test(filename)) {
+    loadBetaDiskDisk(data, filename, unit ?? 0);
+    return;
+  }
   // MGT +D images route to the WD1772, not the media manager's +3 DSK path.
   if (/\.(mgt|img)$/i.test(filename)) {
     loadPlusDDisk(data, filename, unit ?? 0);
     return;
   }
-  // A .hfe targets the +D only on a +D-capable machine with no built-in FDC
-  // (the +3 has its own uPD765A and is never +D-capable — the two are mutually
-  // exclusive). On a +3, .hfe falls through to the uPD765A path below.
+  // A .hfe targets whichever WD-family interface is active: the Beta Disk first,
+  // then the +D on a +D-capable machine with no built-in FDC (the +3 has its own
+  // uPD765A and is never +D-capable). On a +3, .hfe falls through to the uPD765A
+  // path below.
+  if (/\.hfe$/i.test(filename) && spectrum.betaDisk.enabled) {
+    loadBetaDiskDisk(data, filename, unit ?? 0);
+    return;
+  }
   if (/\.hfe$/i.test(filename) && spectrum.mgtPlusD.enabled && !spectrum.variant.hasFDC) {
     loadPlusDDisk(data, filename, unit ?? 0);
     return;
@@ -1219,6 +1255,69 @@ export function savePlusDDisk(unit: number): void {
 }
 
 
+// ── Beta Disk (TR-DOS) helpers (WD1793 units 0/1) ────────────────────────
+//
+// The Beta Disk is mutually exclusive with the +D, so it shares the C:/D:
+// drive-state signals; only the FDC it routes to differs.
+
+/** Load a .trd/.scl/.hfe image into a Beta Disk drive (unit 0/1). */
+export function loadBetaDiskDisk(data: Uint8Array, filename: string, unit: number): void {
+  if (!spectrum) { setStatus('Load a ROM first'); return; }
+  if (!spectrum.betaDisk.enabled) { setStatus('Enable the Beta Disk in Hardware first'); return; }
+  let image: DskImage | null;
+  try {
+    if (isHFE(data)) image = parseHFE(data);
+    else if (isScl(data)) image = parseScl(data);
+    else image = parseTrd(data);
+  } catch (e) {
+    setStatus(`Beta Disk error: ${(e as Error).message}`);
+    return;
+  }
+  if (!image) { setStatus(`Not a recognised Beta Disk image: ${filename}`); return; }
+  spectrum.stop();
+  try {
+    spectrum.loadBetaDiskDisk(image, unit);
+    setPlusDDiskState(unit, image, filename);
+    persistBetaDiskDisk(unit, data, filename);   // survive a reload (see restoreMedia)
+    setStatus(`Beta Disk ${unit === 0 ? 'A' : 'B'}: loaded: ${filename}`);
+  } finally {
+    spectrum.start();
+  }
+}
+
+export function ejectBetaDiskDisk(unit: number): void {
+  if (!spectrum) return;
+  spectrum.betaDisk.fdc.ejectDisk(unit);
+  clearBetaDiskDisk(unit);
+  setPlusDDiskState(unit, null, '');
+  setStatus(`Beta Disk ${unit === 0 ? 'A' : 'B'}: ejected`);
+}
+
+/** Insert a freshly-formatted blank TR-DOS disk (640K 80-track DS). */
+export function insertBlankBetaDiskDisk(unit: number): void {
+  if (!spectrum) return;
+  const image = blankTrdDisk();
+  spectrum.loadBetaDiskDisk(image, unit);
+  const name = 'BLANK.trd';
+  const data = serializeTrd(image);
+  setPlusDDiskState(unit, image, name);
+  persistBetaDiskDisk(unit, data, name);
+}
+
+export function saveBetaDiskDisk(unit: number): void {
+  if (!spectrum) return;
+  const image = spectrum.betaDisk.fdc.getDiskImage(unit);
+  if (!image) { setStatus(`No disk in Beta Disk drive ${unit === 0 ? 'A' : 'B'}:`); return; }
+  const name = unit === 0 ? currentDiskNameC() : currentDiskNameD();
+  const base = name.replace(/\.[^.]+$/, '') || 'betadisk';
+  const [data, filename] = image.bitstream
+    ? [serializeHFE(image), `${base}.hfe`]
+    : [serializeTrd(image), `${base}.trd`];
+  downloadFile(data, filename);
+  spectrum.betaDisk.fdc.clearDirty(unit);
+}
+
+
 // ── ZX Interface 1 microdrive helpers (drives 1-8 → units 0-7) ───────────
 
 /** Mount an .mdr/.mdv cartridge into a microdrive (unit 0-7 → drive 1-8). */
@@ -1430,6 +1529,37 @@ export async function loadPlusDROM(s: Spectrum): Promise<boolean> {
   return true;
 }
 
+const BETADISK_ROM_KEY = 'betadisk-rom';
+const BETADISK_ROM_URL = 'https://zx84files.bitsparse.com/roms/trdos.rom';
+
+/**
+ * Load the 16KB TR-DOS ROM into a Spectrum for the Beta Disk interface,
+ * fetching from the CDN if not already cached in IndexedDB. Mirrors
+ * loadPlusDROM / loadInterface1ROM.
+ */
+export async function loadBetaDiskROM(s: Spectrum): Promise<boolean> {
+  let data = await dbLoad(BETADISK_ROM_KEY);
+  if (!data) {
+    try {
+      setStatus('Fetching TR-DOS ROM…');
+      const resp = await fetch(BETADISK_ROM_URL);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      data = new Uint8Array(await resp.arrayBuffer());
+      await dbSave(BETADISK_ROM_KEY, data);
+    } catch (err) {
+      console.warn('Failed to fetch TR-DOS ROM:', err);
+      const msg = 'Failed to load Beta Disk (TR-DOS) ROM';
+      setStatus(msg);
+      setBetaDiskRomFailed(msg);
+      return false;
+    }
+  }
+  s.betaDisk.loadROM(data);
+  setStatus(`Beta Disk TR-DOS ROM loaded (${data.length} bytes)`);
+  setBetaDiskRomFailed('');
+  return true;
+}
+
 const IF1_ROM_KEY = 'if1-rom';
 const IF1_ROM_URL = 'https://zx84files.bitsparse.com/roms/if1-2.rom';
 
@@ -1624,6 +1754,23 @@ async function restoreMedia(): Promise<void> {
         const image = isHFE(disk.data) ? parseHFE(disk.data) : parseMgt(disk.data, mgtExtFromName(disk.name));
         if (!image) continue;
         spectrum.loadPlusDDisk(image, unit);
+        setPlusDDiskState(unit, image, disk.name);
+      } catch { /* ignore corrupt data */ }
+    }
+  }
+
+  // Beta Disk drives A:/B: — only when the Beta Disk is fitted (mutually
+  // exclusive with the +D; shares the C:/D: drive-state signals).
+  if (spectrum?.betaDisk.enabled) {
+    for (const unit of [0, 1]) {
+      const disk = await restoreBetaDiskDisk(unit);
+      if (!disk) continue;
+      try {
+        const image = isHFE(disk.data) ? parseHFE(disk.data)
+          : isScl(disk.data) ? parseScl(disk.data)
+          : parseTrd(disk.data);
+        if (!image) continue;
+        spectrum.loadBetaDiskDisk(image, unit);
         setPlusDDiskState(unit, image, disk.name);
       } catch { /* ignore corrupt data */ }
     }

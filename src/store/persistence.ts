@@ -151,6 +151,21 @@ export function clearPlusDDisk(unit: number): void {
   clearDiskSuffix(unit === 0 ? 'c' : 'd');
 }
 
+// Beta Disk drives (WD1793 units 0/1) — separate keys again, since the Beta
+// Disk and the +D are mutually exclusive but persist independently.
+
+export async function persistBetaDiskDisk(unit: number, data: Uint8Array, filename: string): Promise<void> {
+  return persistDiskSuffix(unit === 0 ? 'betac' : 'betad', data, filename);
+}
+
+export async function restoreBetaDiskDisk(unit: number): Promise<{ data: Uint8Array; name: string } | null> {
+  return restoreDiskSuffix(unit === 0 ? 'betac' : 'betad');
+}
+
+export function clearBetaDiskDisk(unit: number): void {
+  clearDiskSuffix(unit === 0 ? 'betac' : 'betad');
+}
+
 // ZX Interface 1 microdrives (8 drives) — one persisted MDR image per drive.
 
 export async function persistMicrodrive(unit: number, data: Uint8Array, filename: string): Promise<void> {

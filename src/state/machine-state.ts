@@ -90,3 +90,7 @@ export const setPlusDRomFailed = _plusDRomFailed[1];
 const _interface1RomFailed = createSignal('');
 export const interface1RomFailed = _interface1RomFailed[0];
 export const setInterface1RomFailed = _interface1RomFailed[1];
+
+const _betaDiskRomFailed = createSignal('');
+export const betaDiskRomFailed = _betaDiskRomFailed[0];
+export const setBetaDiskRomFailed = _betaDiskRomFailed[1];

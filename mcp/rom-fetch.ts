@@ -25,6 +25,7 @@ const MF_ROM_CDN = 'https://zx84files.bitsparse.com/roms/';
 const VTX_ROM_URL = 'https://zx84files.bitsparse.com/roms/vtx5000-3-1.rom';
 const PLUSD_ROM_URL = 'https://zx84files.bitsparse.com/roms/plusd.rom';
 const IF1_ROM_URL = 'https://zx84files.bitsparse.com/roms/if1-2.rom';
+const BETADISK_ROM_URL = 'https://zx84files.bitsparse.com/roms/trdos.rom';
 
 export const CACHE_DIR = path.join(import.meta.dirname!, '.cache');
 
@@ -68,4 +69,8 @@ export function fetchPlusDRom(): Promise<Uint8Array> {
 
 export function fetchInterface1Rom(): Promise<Uint8Array> {
   return fetchCached(IF1_ROM_URL, 'if1-2.rom');
+}
+
+export function fetchBetaDiskRom(): Promise<Uint8Array> {
+  return fetchCached(BETADISK_ROM_URL, 'trdos.rom');
 }

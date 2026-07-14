@@ -35,6 +35,7 @@ import { Multiface } from '@/peripherals/multiface.ts';
 import { VTX5000 } from '@/peripherals/vtx5000.ts';
 import { MgtPlusD } from '@/peripherals/mgt-plusd.ts';
 import { Interface1 } from '@/peripherals/interface1.ts';
+import { BetaDisk } from '@/peripherals/beta-disk.ts';
 import { hex8, hex16 } from '@/utils/hex.ts';
 import { signed8 } from '@/utils/signed.ts';
 import { DISPLAY_WIDTH, DISPLAY_HEIGHT } from '@/cores/ula.ts';
@@ -174,6 +175,9 @@ export class Spectrum extends BaseMachine implements Machine {
 
   /** ZX Interface 1 (48K/128K/+2) — shadow ROM + 8 microdrives. */
   interface1 = new Interface1();
+
+  /** Beta Disk interface (48K/128K/+2) — WD1793 FDC + 16KB TR-DOS ROM. */
+  betaDisk = new BetaDisk();
 
   get tStatesPerFrame(): number { return this.contention.timing.tStatesPerFrame; }
 
@@ -359,6 +363,7 @@ export class Spectrum extends BaseMachine implements Machine {
    *  stays mapped. */
   get hasSlot0Overlay(): boolean {
     return this.multiface.pagedIn || this.mgtPlusD.pagedIn || this.interface1.pagedIn
+      || this.betaDisk.pagedIn
       || (this.vtx5000.enabled && this.vtx5000.vtxRomPaged);
   }
 
@@ -468,6 +473,9 @@ export class Spectrum extends BaseMachine implements Machine {
     // Interface 1 is paged OUT at reset; its ROM maps itself in via the M1
     // fetch traps (0x0008 / 0x1708) once the main ROM starts running.
     this.interface1.reset();
+    // Beta Disk is paged OUT at reset; TR-DOS ROM maps itself in via the M1
+    // fetch trap (0x3Dxx) once BASIC enters it. See beta-disk.ts.
+    this.betaDisk.reset();
     this.loaderDetector.reset();
     this.contention.frameStartTStates = 0;
     this.needsDisplay = true;
@@ -636,6 +644,11 @@ export class Spectrum extends BaseMachine implements Machine {
         this.interface1.checkM1Page(this.cpu.pc, this.memory);
         if1PageOut = this.interface1.shouldPageOut(this.cpu.pc);
       }
+
+      // Beta Disk (TR-DOS) automatic paging: map the TR-DOS ROM in on an M1
+      // fetch in 0x3Dxx (48K BASIC live), out on a fetch at >= 0x4000. See
+      // beta-disk.ts.
+      if (this.betaDisk.enabled) this.betaDisk.checkPage(this.cpu.pc, this.memory);
 
       // One-shot auto-boot trap (software-library play): the ROM has reached its
       // menu / 48K editor key-wait loop, so queue the loader keystrokes and
@@ -1007,6 +1020,11 @@ export class Spectrum extends BaseMachine implements Machine {
   /** Insert a +D disk image (.mgt/.img) into the WD1772 (unit 0/1 = drive C/D). */
   loadPlusDDisk(image: DskImage, unit: number = 0): void {
     this.mgtPlusD.fdc.insertDisk(image, unit);
+  }
+
+  /** Insert a Beta Disk image (.trd/.scl/.hfe) into the WD1793 (unit 0/1). */
+  loadBetaDiskDisk(image: DskImage, unit: number = 0): void {
+    this.betaDisk.fdc.insertDisk(image, unit);
   }
 
   /** Get the 48K ROM font (768 bytes) regardless of current paging. */

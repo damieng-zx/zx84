@@ -3,11 +3,11 @@ import { HiOutlinePower } from 'solid-icons/hi';
 import {
   currentModel, romStatusText, switchModel,
   turboMode, clockSpeedText, resetMachine, toggleTurbo,
-  spectrum, triggerNMI, loadMultifaceROM, loadVTX5000ROM, loadPlusDROM, loadInterface1ROM, setCpcMultiface,
-  multifaceRomFailed, vtx5000RomFailed, paradosRomFailed, plusDRomFailed, interface1RomFailed,
+  spectrum, triggerNMI, loadMultifaceROM, loadVTX5000ROM, loadPlusDROM, loadInterface1ROM, loadBetaDiskROM, setCpcMultiface,
+  multifaceRomFailed, vtx5000RomFailed, paradosRomFailed, plusDRomFailed, interface1RomFailed, betaDiskRomFailed,
 } from '@/emulator.ts';
 import type { SpectrumModel } from '@/spectrum.ts';
-import { type MachineModel, isCpcModel, cpcHasDisk, isPlusDCapable, isInterface1Capable } from '@/models.ts';
+import { type MachineModel, isCpcModel, cpcHasDisk, isPlusDCapable, isInterface1Capable, isBetaDiskCapable } from '@/models.ts';
 import { Show } from 'solid-js';
 import { variantForModel, variantLabel } from '@/peripherals/multiface.ts';
 import * as settings from '@/store/settings.ts';
@@ -120,7 +120,12 @@ export function HardwarePane() {
                   const on = (e.target as HTMLInputElement).checked;
                   settings.setPlusDEnabled(on);
                   settings.persistSetting('plusd', on ? 'on' : 'off');
+                  if (on) {
+                    settings.setBetaDiskEnabled(false);
+                    settings.persistSetting('betadisk', 'off');
+                  }
                   if (spectrum) {
+                    if (on) spectrum.betaDisk.enabled = false;
                     spectrum.mgtPlusD.enabled = on;
                     // The +D boots at reset (shadow ROM pages in at 0x0000), so
                     // a reset is needed for the toggle to take effect.
@@ -149,7 +154,12 @@ export function HardwarePane() {
                   const on = (e.target as HTMLInputElement).checked;
                   settings.setInterface1Enabled(on);
                   settings.persistSetting('interface1', on ? 'on' : 'off');
+                  if (on) {
+                    settings.setBetaDiskEnabled(false);
+                    settings.persistSetting('betadisk', 'off');
+                  }
                   if (spectrum) {
+                    if (on) spectrum.betaDisk.enabled = false;
                     spectrum.interface1.enabled = on;
                     // The IF1 ROM initialises at reset (its M1 traps map it in),
                     // so a reset is needed for the toggle to take effect.
@@ -162,6 +172,43 @@ export function HardwarePane() {
                 }}
               />
               ZX Interface 1
+            </label>
+          </div>
+        </Show>
+        <Show when={isBetaDiskCapable(currentModel())}>
+          <div class="multiface-row">
+            <label
+              class={`mf-check${betaDiskRomFailed() ? ' rom-failed' : ''}`}
+              title={betaDiskRomFailed() || 'Beta Disk interface (TR-DOS, drives A:/B:)'}
+            >
+              <input
+                type="checkbox"
+                checked={settings.betaDiskEnabled()}
+                disabled={!!betaDiskRomFailed()}
+                onChange={(e) => {
+                  const on = (e.target as HTMLInputElement).checked;
+                  settings.setBetaDiskEnabled(on);
+                  settings.persistSetting('betadisk', on ? 'on' : 'off');
+                  // Beta, +D and IF1 all overlay slot 0 — keep them exclusive.
+                  if (on) {
+                    settings.setPlusDEnabled(false);
+                    settings.persistSetting('plusd', 'off');
+                    settings.setInterface1Enabled(false);
+                    settings.persistSetting('interface1', 'off');
+                  }
+                  if (spectrum) {
+                    if (on) { spectrum.mgtPlusD.enabled = false; spectrum.interface1.enabled = false; }
+                    spectrum.betaDisk.enabled = on;
+                    // TR-DOS maps itself in via the 0x3Dxx trap after reset.
+                    if (on && !spectrum.betaDisk.romLoaded) {
+                      loadBetaDiskROM(spectrum).then(() => resetMachine());
+                    } else {
+                      resetMachine();
+                    }
+                  }
+                }}
+              />
+              Beta Disk/TR-DOS
             </label>
           </div>
         </Show>

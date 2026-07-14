@@ -71,6 +71,8 @@ export function installMemoryHooks(s: Spectrum): void {
         // 0x2000-0x3FFF: +D RAM — allow through
       } else if (s.interface1.pagedIn) {
         return; // IF1 ROM (0x0000-0x1FFF) + Spectrum ROM upper half — all ROM
+      } else if (s.betaDisk.pagedIn) {
+        return; // TR-DOS ROM (0x0000-0x3FFF) — all ROM, discard writes
       } else if (s.vtx5000.enabled && s.vtx5000.vtxRomPaged && addr >= 0x2000) {
         // VTX-5000: 0x2000-0x3FFF is RAM — allow through
       } else if (!memory.specialPaging) {
@@ -138,6 +140,14 @@ export function wirePortIO(s: Spectrum): void {
     // returned like the +D — shares 0xE7/0xEF with it but never both enabled.
     if (s.interface1.enabled && s.interface1.matchPort(port)) {
       s.interface1.writePort(port, val);
+      return;
+    }
+
+    // Beta Disk (TR-DOS) ports (0x1F/0x3F/0x5F/0x7F/0xFF, active only while the
+    // TR-DOS ROM is paged in). Handled first and returned so a Beta OUT can't
+    // also trip ULA / banking / AY decoding.
+    if (s.betaDisk.enabled && s.betaDisk.matchPort(port)) {
+      s.betaDisk.writePort(port, val);
       return;
     }
 
@@ -214,6 +224,11 @@ export function wirePortIO(s: Spectrum): void {
     // ZX Interface 1 microdrive data / status ports.
     if (s.interface1.enabled && s.interface1.matchPort(port)) {
       return s.interface1.readPort(port);
+    }
+
+    // Beta Disk (TR-DOS) ports — active only while the TR-DOS ROM is paged in.
+    if (s.betaDisk.enabled && s.betaDisk.matchPort(port)) {
+      return s.betaDisk.readPort(port);
     }
 
     // ULA port: any port with bit 0 = 0

@@ -1,11 +1,11 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { variantForModel, variantLabel } from '../../src/peripherals/multiface.ts';
-import { isPlusDCapable } from '../../src/models.ts';
+import { isPlusDCapable, isBetaDiskCapable } from '../../src/models.ts';
 import { h8, h16 } from '../hex.ts';
 import { state, activeSpectrum } from '../state.ts';
 import { text } from '../format.ts';
-import { fetchMFRom, fetchVTXRom, fetchPlusDRom } from '../rom-fetch.ts';
+import { fetchMFRom, fetchVTXRom, fetchPlusDRom, fetchBetaDiskRom } from '../rom-fetch.ts';
 
 export function register(server: McpServer): void {
   server.registerTool(
@@ -150,6 +150,55 @@ export function register(server: McpServer): void {
       return text(
         `MGT +D enabled (ROM ${pd.rom.length} bytes). Machine reset.\n` +
         `pagedIn=${pd.pagedIn}  [0x0000]=${h8(spec.memory.readByte(0x0000))} [0x1FFF]=${h8(spec.memory.readByte(0x1FFF))}  PC=${h16(spec.cpu.pc)}`
+      );
+    },
+  );
+
+  server.registerTool(
+    'betadisk',
+    { description: 'Enable/disable the Beta Disk interface / TR-DOS (48K/128K/+2). Loads the 16KB TR-DOS ROM; it maps itself in via the 0x3Dxx trap. Mutually exclusive with the +D and Interface 1. Actions: "on", "off", "status".', inputSchema: { action: z.enum(['on', 'off', 'status']).describe('Action to perform') } },
+    async ({ action }) => {
+      const spec = activeSpectrum();
+      if (!spec) return text('The Beta Disk is a Spectrum peripheral — not available on the CPC.');
+      const bd = spec.betaDisk;
+
+      if (action === 'status') {
+        return text(
+          `Beta Disk: ${bd.enabled ? 'ON' : 'OFF'}  romLoaded=${bd.romLoaded}  pagedIn=${bd.pagedIn}\n` +
+          `WD1793: track=${bd.fdc.currentTrack} drive=${bd.fdc.currentUnit} side=${bd.fdc.side} status=${h8(bd.fdc.readStatus())}\n` +
+          `Model: ${spec.model}  PC=${h16(spec.cpu.pc)}`
+        );
+      }
+
+      if (action === 'off') {
+        if (bd.pagedIn) bd.pageOut(spec.memory);
+        bd.enabled = false;
+        spec.reset();
+        return text('Beta Disk disabled. Machine reset.');
+      }
+
+      // action === 'on'
+      if (!isBetaDiskCapable(spec.model)) return text(`Beta Disk supported on 48k/128k/+2 only (current: ${spec.model}). Use the model tool to switch.`);
+      // Mutually exclusive with the +D / Interface 1 (all overlay slot 0).
+      if (spec.mgtPlusD.pagedIn) spec.mgtPlusD.pageOut(spec.memory);
+      spec.mgtPlusD.enabled = false;
+      if (spec.interface1.pagedIn) spec.interface1.pageOut(spec.memory);
+      spec.interface1.enabled = false;
+      bd.enabled = true;
+      if (!bd.romLoaded) {
+        try {
+          const data = await fetchBetaDiskRom();
+          bd.loadROM(data);
+        } catch (err) {
+          bd.enabled = false;
+          return text(`Failed to load TR-DOS ROM: ${err}`);
+        }
+      }
+      spec.reset(); // TR-DOS pages in on the 0x3Dxx trap once BASIC enters it
+      return text(
+        `Beta Disk enabled (TR-DOS ROM ${bd.rom.length} bytes). Machine reset.\n` +
+        `Enter TR-DOS with: RANDOMIZE USR 15616\n` +
+        `pagedIn=${bd.pagedIn}  PC=${h16(spec.cpu.pc)}`
       );
     },
   );

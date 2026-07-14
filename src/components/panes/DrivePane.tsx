@@ -9,6 +9,7 @@ import {
   ejectDisk, loadFile, insertBlankDisk, saveDisk, machine, spectrum,
   currentDiskNameC, currentDiskNameD, currentDiskInfoC, currentDiskInfoD,
   driveCStatus, driveDStatus, ejectPlusDDisk, insertBlankPlusDDisk, savePlusDDisk,
+  ejectBetaDiskDisk, insertBlankBetaDiskDisk, saveBetaDiskDisk,
   applyDisplaySettings, flipDisk, diskSideA, diskSideB,
 } from '@/emulator.ts';
 import {
@@ -17,11 +18,11 @@ import {
   driveBForceReady, setDriveBForceReady,
   diskSoundC, setDiskSoundC, diskSoundD, setDiskSoundD,
   writeProtectC, setWriteProtectC, writeProtectD, setWriteProtectD,
-  plusDEnabled, tapeTurbo, setTapeTurbo,
+  plusDEnabled, betaDiskEnabled, tapeTurbo, setTapeTurbo,
   persistSetting, resetSettingsGroup,
 } from '@/store/settings.ts';
 import { isPlus3 } from '@/spectrum.ts';
-import { cpcHasDisk, isPlusDCapable } from '@/models.ts';
+import { cpcHasDisk, isPlusDCapable, isBetaDiskCapable } from '@/models.ts';
 import { DISK_FORMATS, formatLabel, createBlankDisk, type DskImage } from '@/plus3/dsk.ts';
 import { createBlankHfe } from '@/plus3/hfe.ts';
 import type { DriveStatus } from '@/state/disk-state.ts';
@@ -215,6 +216,13 @@ function plusDBlankForValue(value: string): { geom: { tracks: number; sides: num
   return { geom: { tracks: g.tracks, sides: g.sides }, hfe: value.startsWith('hfe-') };
 }
 
+/** Beta Disk "new disk" menu — a single pre-formatted blank 640K TR-DOS disk. */
+const BETADISK_NEW_ITEMS = [{ value: 'trd', label: 'TR-DOS blank (640K)' }];
+
+function syncBetaDiskWriteProtect(unit: number, value: boolean): void {
+  if (spectrum) spectrum.betaDisk.fdc.writeProtect[unit] = value;
+}
+
 export function DrivePane() {
   async function handleInsertDisk(unit: number) {
     const results = await openFile({
@@ -234,25 +242,40 @@ export function DrivePane() {
     await loadFile(results[0].data, results[0].name, unit);
   }
 
+  async function handleInsertBetaDiskDisk(unit: number) {
+    const results = await openFile({
+      id: 'zx84-betadisk-disk',
+      extensions: ['.trd', '.scl', '.hfe', '.zip'],
+    });
+    if (!results) return;
+    await loadFile(results[0].data, results[0].name, unit);
+  }
+
   // The +D drives C:/D: only exist when the +D is enabled *and* fitted to a
   // capable model — switching to e.g. the +3 (not +D-capable) must hide them
   // even though the persisted plusDEnabled setting stays on.
   const plusDActive = () => plusDEnabled() && isPlusDCapable(currentModel());
+  // The Beta Disk (drives A:/B:) is mutually exclusive with the +D and reuses
+  // the same C/D drive-state signals; only the label and FDC differ.
+  const betaDiskActive = () => betaDiskEnabled() && isBetaDiskCapable(currentModel());
 
   return (
-    <Pane id="drive-panel" label="Drives" mono visible={isPlus3(currentModel()) || cpcHasDisk(currentModel()) || plusDActive()} onResetSettings={() => {
-      // Eject any loaded disk in each drive — +3/CPC A:/B: and the +D's C:/D:.
-      // Guarded so empty drives don't fire a misleading "ejected" toast.
+    <Pane id="drive-panel" label="Drives" mono visible={isPlus3(currentModel()) || cpcHasDisk(currentModel()) || plusDActive() || betaDiskActive()} onResetSettings={() => {
+      // Eject any loaded disk in each drive — +3/CPC A:/B: and the +D/Beta's
+      // shared C:/D: signals. Guarded so empty drives don't fire a toast.
       if (currentDiskName()) ejectDisk(0);
       if (currentDiskNameB()) ejectDisk(1);
-      if (currentDiskNameC()) ejectPlusDDisk(0);
-      if (currentDiskNameD()) ejectPlusDDisk(1);
+      if (currentDiskNameC()) betaDiskActive() ? ejectBetaDiskDisk(0) : ejectPlusDDisk(0);
+      if (currentDiskNameD()) betaDiskActive() ? ejectBetaDiskDisk(1) : ejectPlusDDisk(1);
       resetSettingsGroup('drive');
       if (machine) {
         machine.fdc.writeProtect[0] = false; machine.fdc.writeProtect[1] = false;
         machine.fdc.forceReady[1] = false;
       }
-      if (spectrum) { spectrum.mgtPlusD.fdc.writeProtect[0] = false; spectrum.mgtPlusD.fdc.writeProtect[1] = false; }
+      if (spectrum) {
+        spectrum.mgtPlusD.fdc.writeProtect[0] = false; spectrum.mgtPlusD.fdc.writeProtect[1] = false;
+        spectrum.betaDisk.fdc.writeProtect[0] = false; spectrum.betaDisk.fdc.writeProtect[1] = false;
+      }
     }}>
       <Show when={isPlus3(currentModel()) || cpcHasDisk(currentModel())}>
         <DiskInfo
@@ -369,6 +392,54 @@ export function DrivePane() {
             setWriteProtectD(!writeProtectD());
             persistSetting('write-protect-d', writeProtectD() ? 'on' : 'off');
             syncPlusDWriteProtect(1, writeProtectD());
+          }}
+        />
+      </Show>
+      <Show when={betaDiskActive()}>
+        <DiskInfo
+          label="A:"
+          name={currentDiskNameC()}
+          diskInfo={currentDiskInfoC()}
+          status={driveCStatus()}
+          soundEnabled={diskSoundC()}
+          writeProtected={writeProtectC()}
+          showProtection={false}
+          newItems={BETADISK_NEW_ITEMS}
+          onNewDisk={() => insertBlankBetaDiskDisk(0)}
+          onSave={() => saveBetaDiskDisk(0)}
+          onEject={() => ejectBetaDiskDisk(0)}
+          onInsert={() => handleInsertBetaDiskDisk(0)}
+          onToggleSound={() => {
+            setDiskSoundC(!diskSoundC());
+            persistSetting('disk-sound-c', diskSoundC() ? 'on' : 'off');
+          }}
+          onToggleWriteProtect={() => {
+            setWriteProtectC(!writeProtectC());
+            persistSetting('write-protect-c', writeProtectC() ? 'on' : 'off');
+            syncBetaDiskWriteProtect(0, writeProtectC());
+          }}
+        />
+        <DiskInfo
+          label="B:"
+          name={currentDiskNameD()}
+          diskInfo={currentDiskInfoD()}
+          status={driveDStatus()}
+          soundEnabled={diskSoundD()}
+          writeProtected={writeProtectD()}
+          showProtection={false}
+          newItems={BETADISK_NEW_ITEMS}
+          onNewDisk={() => insertBlankBetaDiskDisk(1)}
+          onSave={() => saveBetaDiskDisk(1)}
+          onEject={() => ejectBetaDiskDisk(1)}
+          onInsert={() => handleInsertBetaDiskDisk(1)}
+          onToggleSound={() => {
+            setDiskSoundD(!diskSoundD());
+            persistSetting('disk-sound-d', diskSoundD() ? 'on' : 'off');
+          }}
+          onToggleWriteProtect={() => {
+            setWriteProtectD(!writeProtectD());
+            persistSetting('write-protect-d', writeProtectD() ? 'on' : 'off');
+            syncBetaDiskWriteProtect(1, writeProtectD());
           }}
         />
       </Show>

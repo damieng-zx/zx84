@@ -42,6 +42,16 @@ export function isInterface1Capable(m: MachineModel): boolean {
   return m === '48k' || m === '128k' || m === '+2';
 }
 
+/**
+ * Returns true for models the Beta Disk interface (TR-DOS) can attach to: the
+ * Ferranti-ULA 48K/128K/+2. Excluded: the 16K and the Amstrad +2A/+3 (which
+ * already have a built-in FDC and use special paging). The classic setup is a
+ * Beta Disk on a 48K.
+ */
+export function isBetaDiskCapable(m: MachineModel): boolean {
+  return m === '48k' || m === '128k' || m === '+2';
+}
+
 // ── Amstrad CPC family ──────────────────────────────────────────────────
 //
 // The CPC is a different machine, not a Spectrum variant — it gets its own

@@ -6,9 +6,11 @@ import { loadZ80 } from '../src/snapshot/z80format.ts';
 import { loadSZX } from '../src/snapshot/szx.ts';
 import { parseFloppyImage } from '../src/plus3/hfe.ts';
 import { parseMgt, mgtExtFromName } from '../src/plus3/mgt-image.ts';
+import { parseTrd } from '../src/plus3/trd-image.ts';
+import { parseScl } from '../src/plus3/scl-image.ts';
 import { parseTZX } from '../src/tape/tzx.ts';
 import { h16 } from './hex.ts';
-import { fetchPlusDRom, fetchInterface1Rom } from './rom-fetch.ts';
+import { fetchPlusDRom, fetchInterface1Rom, fetchBetaDiskRom } from './rom-fetch.ts';
 import { state, initMachine, activeSpectrum } from './state.ts';
 
 export async function loadFileInto(spec: Spectrum, filepath: string, diskUnit: number = 0): Promise<string> {
@@ -33,11 +35,34 @@ export async function loadFileInto(spec: Spectrum, filepath: string, diskUnit: n
     spec.tape.startPlayback();
     return `TZX loaded: ${filename} (${blocks.length} blocks)`;
   } else if (ext === '.dsk' || ext === '.hfe') {
+    // A .hfe routes to the Beta Disk when it is the active interface; otherwise
+    // to the +3/CPC uPD765A (the .dsk default).
+    if (ext === '.hfe' && spec.betaDisk.enabled) {
+      const image = parseFloppyImage(data);
+      spec.loadBetaDiskDisk(image, diskUnit);
+      const dl = diskUnit === 0 ? 'A' : 'B';
+      return `HFE loaded: ${filename} → Beta Disk ${dl}: (${image.numTracks} tracks, ${image.numSides} side${image.numSides > 1 ? 's' : ''})`;
+    }
     const image = parseFloppyImage(data);
     spec.loadDisk(image, diskUnit);
     const driveLetter = diskUnit === 0 ? 'A' : 'B';
     const kind = ext === '.hfe' ? 'HFE' : 'DSK';
     return `${kind} loaded: ${filename} → Drive ${driveLetter}: (${image.numTracks} tracks, ${image.numSides} side${image.numSides > 1 ? 's' : ''})`;
+  } else if (ext === '.trd' || ext === '.scl') {
+    // Auto-enable the Beta Disk (load TR-DOS ROM + reset) then insert. Mutually
+    // exclusive with the +D / Interface 1.
+    if (!spec.betaDisk.enabled || !spec.betaDisk.romLoaded) {
+      spec.betaDisk.loadROM(await fetchBetaDiskRom());
+      spec.betaDisk.enabled = true;
+      spec.mgtPlusD.enabled = false;
+      spec.interface1.enabled = false;
+      spec.reset();
+    }
+    const image = ext === '.scl' ? parseScl(data) : parseTrd(data);
+    if (!image) return `Not a recognised Beta Disk image: ${filename} (${data.length} bytes)`;
+    spec.loadBetaDiskDisk(image, diskUnit);
+    const dl = diskUnit === 0 ? 'A' : 'B';
+    return `Beta Disk image loaded: ${filename} → Drive ${dl}: (${image.numTracks} tracks, ${image.numSides} side${image.numSides > 1 ? 's' : ''}). Enter TR-DOS: RANDOMIZE USR 15616`;
   } else if (ext === '.mgt' || ext === '.img') {
     // Auto-enable the +D (load G+DOS ROM + reset to boot it) then insert.
     if (!spec.mgtPlusD.enabled || !spec.mgtPlusD.romLoaded) {
