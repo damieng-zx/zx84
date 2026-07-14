@@ -223,12 +223,18 @@ const BETADISK_GEOMETRIES = [
   { label: 'Blank 320K SS/80T', tracks: 80, sides: 1 },
   { label: 'Blank 160K SS/40T', tracks: 40, sides: 1 },
 ];
-const BETADISK_NEW_ITEMS = BETADISK_GEOMETRIES.map((g, i) => ({ value: `trd-${i}`, label: g.label }));
+const BETADISK_NEW_ITEMS = [
+  { value: 'trd', label: 'TRD image', children: BETADISK_GEOMETRIES.map((g, i) => ({ value: `trd-${i}`, label: g.label })) },
+  // SCL is a geometry-less file archive; it is conventionally unpacked to the
+  // standard 640K 80-track DS disk, so a blank SCL offers just that.
+  { value: 'scl', label: 'SCL image', children: [{ value: 'scl-0', label: 'Blank 640K DS/80T' }] },
+];
 
-/** Resolve a `trd-N` Beta Disk menu value to its geometry. */
-function betaDiskBlankForValue(value: string): { tracks: number; sides: number } | null {
+/** Resolve a `trd-N` / `scl-N` Beta Disk menu value to its geometry + container. */
+function betaDiskBlankForValue(value: string): { geom: { tracks: number; sides: number }; scl: boolean } | null {
+  if (value.startsWith('scl')) return { geom: { tracks: 80, sides: 2 }, scl: true };
   const g = BETADISK_GEOMETRIES[parseInt(value.slice(4))];
-  return g ? { tracks: g.tracks, sides: g.sides } : null;
+  return g ? { geom: { tracks: g.tracks, sides: g.sides }, scl: false } : null;
 }
 
 function syncBetaDiskWriteProtect(unit: number, value: boolean): void {
@@ -418,8 +424,8 @@ export function DrivePane() {
           showProtection={false}
           newItems={BETADISK_NEW_ITEMS}
           onNewDisk={(value) => {
-            const g = betaDiskBlankForValue(value);
-            if (g) insertBlankBetaDiskDisk(0, g);
+            const b = betaDiskBlankForValue(value);
+            if (b) insertBlankBetaDiskDisk(0, b.geom, b.scl);
           }}
           onSave={() => saveBetaDiskDisk(0)}
           onEject={() => ejectBetaDiskDisk(0)}
@@ -444,8 +450,8 @@ export function DrivePane() {
           showProtection={false}
           newItems={BETADISK_NEW_ITEMS}
           onNewDisk={(value) => {
-            const g = betaDiskBlankForValue(value);
-            if (g) insertBlankBetaDiskDisk(1, g);
+            const b = betaDiskBlankForValue(value);
+            if (b) insertBlankBetaDiskDisk(1, b.geom, b.scl);
           }}
           onSave={() => saveBetaDiskDisk(1)}
           onEject={() => ejectBetaDiskDisk(1)}

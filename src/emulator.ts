@@ -24,7 +24,7 @@ import { serializeDSK, type DskImage } from '@/plus3/dsk.ts';
 import { parseFloppyImage, parseHFE, serializeHFE, isHFE, attachHfeBitstream } from '@/plus3/hfe.ts';
 import { parseMgt, serializeMgt, blankMgtDisk, mgtExtFromName } from '@/plus3/mgt-image.ts';
 import { parseTrd, serializeTrd, blankTrdDisk } from '@/plus3/trd-image.ts';
-import { parseScl, isScl } from '@/plus3/scl-image.ts';
+import { parseScl, serializeScl, isScl, SCL_DISK_FORMAT } from '@/plus3/scl-image.ts';
 import { loadSZX, applySZXPaging } from '@/snapshot/szx.ts';
 import { readCpcSnaModel, applyCpcSna, saveCpcSna } from '@/snapshot/cpc-sna.ts';
 import {
@@ -1296,13 +1296,17 @@ export function ejectBetaDiskDisk(unit: number): void {
 /** Blank TR-DOS geometries offered in the UI (all 16 × 256-byte sectors). */
 export interface BetaDiskBlankGeometry { tracks: number; sides: number; }
 
-/** Insert a freshly-formatted blank TR-DOS disk. Defaults to 640K 80-track DS. */
-export function insertBlankBetaDiskDisk(unit: number, geom: BetaDiskBlankGeometry = { tracks: 80, sides: 2 }): void {
+/**
+ * Insert a freshly-formatted blank TR-DOS disk. Defaults to 640K 80-track DS.
+ * With `asScl`, the disk is tagged as SCL (always 80-track DS, the SCL format's
+ * fixed geometry) so it saves/persists as .scl.
+ */
+export function insertBlankBetaDiskDisk(unit: number, geom: BetaDiskBlankGeometry = { tracks: 80, sides: 2 }, asScl = false): void {
   if (!spectrum) return;
-  const image = blankTrdDisk(geom.tracks, geom.sides);
+  const image = asScl ? blankTrdDisk(80, 2) : blankTrdDisk(geom.tracks, geom.sides);
+  if (asScl) image.diskFormat = SCL_DISK_FORMAT;
   spectrum.loadBetaDiskDisk(image, unit);
-  const name = 'BLANK.trd';
-  const data = serializeTrd(image);
+  const [name, data] = asScl ? ['BLANK.scl', serializeScl(image)] : ['BLANK.trd', serializeTrd(image)];
   setPlusDDiskState(unit, image, name);
   persistBetaDiskDisk(unit, data, name);
 }
@@ -1315,6 +1319,8 @@ export function saveBetaDiskDisk(unit: number): void {
   const base = name.replace(/\.[^.]+$/, '') || 'betadisk';
   const [data, filename] = image.bitstream
     ? [serializeHFE(image), `${base}.hfe`]
+    : image.diskFormat === SCL_DISK_FORMAT
+    ? [serializeScl(image), `${base}.scl`]
     : [serializeTrd(image), `${base}.trd`];
   downloadFile(data, filename);
   spectrum.betaDisk.fdc.clearDirty(unit);

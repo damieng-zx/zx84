@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { parseScl, isScl } from '@/plus3/scl-image.ts';
-import { TRD_SECTOR_BYTES } from '@/plus3/trd-image.ts';
+import { parseScl, serializeScl, isScl } from '@/plus3/scl-image.ts';
+import { TRD_SECTOR_BYTES, blankTrdDisk } from '@/plus3/trd-image.ts';
 
 /** Assemble an SCL archive from file descriptors (name, type, sectors, fill). */
 function makeScl(files: { name: string; type: string; sectors: number; fill: number }[]): Uint8Array {
@@ -82,5 +82,40 @@ describe('parseScl', () => {
     const info = img.tracks[0]![0]!.sectors[8].data;
     expect(info[0xE4]).toBe(2);   // two files
     expect(info[0xE1]).toBe(4);   // first free sector = 4 (4 sectors used)
+  });
+});
+
+describe('serializeScl', () => {
+  it('round-trips files (name, type, sector count and data) through parse→serialize→parse', () => {
+    const src = makeScl([
+      { name: 'FIRST', type: 'B', sectors: 3, fill: 0x11 },
+      { name: 'SECOND', type: 'C', sectors: 2, fill: 0x22 },
+    ]);
+    const img1 = parseScl(src)!;
+    const scl = serializeScl(img1);
+    expect(isScl(scl)).toBe(true);
+    expect(scl[8]).toBe(2); // file count preserved
+
+    const img2 = parseScl(scl)!;
+    // Both files land back with identical catalog metadata and data.
+    for (const [i, name, type, sectors, fill] of [[0, 'FIRST', 'B', 3, 0x11], [1, 'SECOND', 'C', 2, 0x22]] as const) {
+      const e = img2.tracks[0]![0]!.sectors[0].data.subarray(i * 16, i * 16 + 16);
+      expect(String.fromCharCode(...e.subarray(0, name.length))).toBe(name);
+      expect(e[8]).toBe(type.charCodeAt(0));
+      expect(e[13]).toBe(sectors);
+      // Data sector at the file's start location matches the original fill.
+      const lin = e[15] * 16 + e[14];
+      const sec = img2.tracks[Math.floor(lin / 16 / img2.numSides)]![(Math.floor(lin / 16)) % img2.numSides]!.sectors[lin % 16].data;
+      expect(sec.every(b => b === fill)).toBe(true);
+    }
+  });
+
+  it('serializes a blank (zero-file) disk to a minimal valid SCL', () => {
+    const blank = blankTrdDisk(80, 2);
+    const scl = serializeScl(blank);
+    expect(isScl(scl)).toBe(true);
+    expect(scl[8]).toBe(0);         // no files
+    expect(scl.length).toBe(9 + 4); // magic + count + checksum
+    expect(parseScl(scl)!.tracks[0]![0]!.sectors[8].data[0xE4]).toBe(0);
   });
 });

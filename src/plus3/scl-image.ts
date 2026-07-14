@@ -25,6 +25,9 @@ const MAGIC = 'SINCLAIR';
 const SCL_HEADER_LEN = 14;   // per-file catalog entry in the SCL
 const TRD_CATALOG_ENTRY = 16; // per-file catalog entry on a TR-DOS disk
 
+/** diskFormat tag marking a DskImage that came from (or should save as) SCL. */
+export const SCL_DISK_FORMAT = 'TR-DOS (SCL)';
+
 /** True if the bytes start with the SCL "SINCLAIR" signature. */
 export function isScl(data: Uint8Array): boolean {
   if (data.length < 9) return false;
@@ -88,6 +91,58 @@ export function parseScl(data: Uint8Array): DskImage | null {
   });
 
   const img = parseTrd(flat);
-  img.diskFormat = 'TR-DOS (SCL)';
+  img.diskFormat = SCL_DISK_FORMAT;
   return img;
+}
+
+/** Read a logical (0-based track, 0-based sector) 256-byte sector. */
+function readLogicalSector(img: DskImage, track: number, sector: number): Uint8Array {
+  const cyl = Math.floor(track / img.numSides);
+  const side = track % img.numSides;
+  return img.tracks[cyl]?.[side]?.sectors[sector]?.data ?? new Uint8Array(TRD_SECTOR_BYTES);
+}
+
+/**
+ * Serialize a TR-DOS DskImage back to an .scl archive: emit the "SINCLAIR"
+ * header, one 14-byte record per catalogued file, then each file's sector data
+ * (read contiguously from its catalog start track/sector), and a 32-bit LE
+ * checksum. Files are assumed contiguous, as TR-DOS lays them out.
+ */
+export function serializeScl(img: DskImage): Uint8Array {
+  // Catalog lives in track 0, logical sectors 0-7 (128 × 16-byte entries).
+  const catalog = new Uint8Array(8 * TRD_SECTOR_BYTES);
+  for (let s = 0; s < 8; s++) catalog.set(readLogicalSector(img, 0, s), s * TRD_SECTOR_BYTES);
+
+  const entries: Uint8Array[] = [];
+  for (let i = 0; i < 128; i++) {
+    const off = i * TRD_CATALOG_ENTRY;
+    if (catalog[off] === 0x00 || catalog[off] === 0x01) break; // end / deleted
+    entries.push(catalog.subarray(off, off + TRD_CATALOG_ENTRY));
+  }
+
+  let totalSectors = 0;
+  for (const e of entries) totalSectors += e[13];
+  const headerBlock = 9 + entries.length * SCL_HEADER_LEN;
+  const out = new Uint8Array(headerBlock + totalSectors * TRD_SECTOR_BYTES + 4);
+
+  for (let i = 0; i < MAGIC.length; i++) out[i] = MAGIC.charCodeAt(i);
+  out[8] = entries.length;
+  let hp = 9;
+  let dp = headerBlock;
+  for (const e of entries) {
+    out.set(e.subarray(0, SCL_HEADER_LEN), hp);
+    hp += SCL_HEADER_LEN;
+    let lin = e[15] * TRD_SPT + e[14];             // start track/sector → linear
+    for (let s = 0; s < e[13]; s++, lin++, dp += TRD_SECTOR_BYTES) {
+      out.set(readLogicalSector(img, Math.floor(lin / TRD_SPT), lin % TRD_SPT), dp);
+    }
+  }
+
+  let sum = 0;
+  for (let i = 0; i < dp; i++) sum = (sum + out[i]) >>> 0;
+  out[dp] = sum & 0xFF;
+  out[dp + 1] = (sum >>> 8) & 0xFF;
+  out[dp + 2] = (sum >>> 16) & 0xFF;
+  out[dp + 3] = (sum >>> 24) & 0xFF;
+  return out;
 }
