@@ -1293,10 +1293,13 @@ export function ejectBetaDiskDisk(unit: number): void {
   setStatus(`Beta Disk ${unit === 0 ? 'A' : 'B'}: ejected`);
 }
 
-/** Insert a freshly-formatted blank TR-DOS disk (640K 80-track DS). */
-export function insertBlankBetaDiskDisk(unit: number): void {
+/** Blank TR-DOS geometries offered in the UI (all 16 × 256-byte sectors). */
+export interface BetaDiskBlankGeometry { tracks: number; sides: number; }
+
+/** Insert a freshly-formatted blank TR-DOS disk. Defaults to 640K 80-track DS. */
+export function insertBlankBetaDiskDisk(unit: number, geom: BetaDiskBlankGeometry = { tracks: 80, sides: 2 }): void {
   if (!spectrum) return;
-  const image = blankTrdDisk();
+  const image = blankTrdDisk(geom.tracks, geom.sides);
   spectrum.loadBetaDiskDisk(image, unit);
   const name = 'BLANK.trd';
   const data = serializeTrd(image);

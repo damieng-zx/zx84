@@ -216,8 +216,20 @@ function plusDBlankForValue(value: string): { geom: { tracks: number; sides: num
   return { geom: { tracks: g.tracks, sides: g.sides }, hfe: value.startsWith('hfe-') };
 }
 
-/** Beta Disk "new disk" menu — a single pre-formatted blank 640K TR-DOS disk. */
-const BETADISK_NEW_ITEMS = [{ value: 'trd', label: 'TR-DOS blank (640K)' }];
+/** Blank TR-DOS geometries offered in the Beta Disk "new disk" menu. */
+const BETADISK_GEOMETRIES = [
+  { label: 'Blank 640K DS/80T', tracks: 80, sides: 2 },
+  { label: 'Blank 320K DS/40T', tracks: 40, sides: 2 },
+  { label: 'Blank 320K SS/80T', tracks: 80, sides: 1 },
+  { label: 'Blank 160K SS/40T', tracks: 40, sides: 1 },
+];
+const BETADISK_NEW_ITEMS = BETADISK_GEOMETRIES.map((g, i) => ({ value: `trd-${i}`, label: g.label }));
+
+/** Resolve a `trd-N` Beta Disk menu value to its geometry. */
+function betaDiskBlankForValue(value: string): { tracks: number; sides: number } | null {
+  const g = BETADISK_GEOMETRIES[parseInt(value.slice(4))];
+  return g ? { tracks: g.tracks, sides: g.sides } : null;
+}
 
 function syncBetaDiskWriteProtect(unit: number, value: boolean): void {
   if (spectrum) spectrum.betaDisk.fdc.writeProtect[unit] = value;
@@ -405,7 +417,10 @@ export function DrivePane() {
           writeProtected={writeProtectC()}
           showProtection={false}
           newItems={BETADISK_NEW_ITEMS}
-          onNewDisk={() => insertBlankBetaDiskDisk(0)}
+          onNewDisk={(value) => {
+            const g = betaDiskBlankForValue(value);
+            if (g) insertBlankBetaDiskDisk(0, g);
+          }}
           onSave={() => saveBetaDiskDisk(0)}
           onEject={() => ejectBetaDiskDisk(0)}
           onInsert={() => handleInsertBetaDiskDisk(0)}
@@ -428,7 +443,10 @@ export function DrivePane() {
           writeProtected={writeProtectD()}
           showProtection={false}
           newItems={BETADISK_NEW_ITEMS}
-          onNewDisk={() => insertBlankBetaDiskDisk(1)}
+          onNewDisk={(value) => {
+            const g = betaDiskBlankForValue(value);
+            if (g) insertBlankBetaDiskDisk(1, g);
+          }}
           onSave={() => saveBetaDiskDisk(1)}
           onEject={() => ejectBetaDiskDisk(1)}
           onInsert={() => handleInsertBetaDiskDisk(1)}
