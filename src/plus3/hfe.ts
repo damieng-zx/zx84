@@ -23,7 +23,7 @@
  * Format reference: the HxC "HFE (HxC Floppy Emulator) file format" spec.
  */
 
-import { parseDSK, type DskImage, type DskSector, type DskTrack, type HfeBitstream } from './dsk.ts';
+import { parseDSK, type DskImage, type DskSector, type DskTrack, type HfeBitstream, type HfeSectorLayout } from './dsk.ts';
 import { detectDiskFormat, detectProtection, isFlippyDisk } from './disk-detect.ts';
 
 // ── Signatures ───────────────────────────────────────────────────────────────
@@ -151,7 +151,7 @@ const MAX_SECTOR_BYTES = 16384;
  * decodable (unformatted / FM / empty) was found. The stream is treated as a
  * circular track, matching hardware and HxC's own reader.
  */
-export function decodeHfeTrack(cells: Uint8Array): DskTrack | null {
+export function decodeHfeTrack(cells: Uint8Array, layoutOut?: HfeSectorLayout[]): DskTrack | null {
   const nbits = cells.length * 8;
   if (nbits < 64) return null;
 
@@ -219,6 +219,8 @@ export function decodeHfeTrack(cells: Uint8Array): DskTrack | null {
 
       const sector: DskSector = { c: pending.c, h: pending.h, r: pending.r, n: pending.n, st1, st2, data: payload };
       const idx = sectors.push(sector) - 1;
+      // Record where this data field lives so a write can be spliced back in.
+      layoutOut?.push({ dataBit: body, len: size, mark });
       // First physical occurrence wins on duplicate IDs, matching real hardware.
       if (!sectorMap.has(sector.r)) sectorMap.set(sector.r, idx);
 
@@ -256,10 +258,12 @@ export function parseHFE(data: Uint8Array): DskImage {
   const lutBase = u16LE(data, 18) * 512;
 
   const cells: (Uint8Array | null)[][] = [];
+  const layout: (HfeSectorLayout[] | null)[][] = [];
   const tracks: (DskTrack | null)[][] = [];
   for (let t = 0; t < numTracks; t++) {
     const lut = lutBase + t * 4;
     const cellRow: (Uint8Array | null)[] = new Array(numSides).fill(null);
+    const layoutRow: (HfeSectorLayout[] | null)[] = new Array(numSides).fill(null);
     const trackRow: (DskTrack | null)[] = new Array(numSides).fill(null);
     if (lut + 4 <= data.length) {
       const blockOffset = u16LE(data, lut) * 512;
@@ -267,16 +271,19 @@ export function parseHFE(data: Uint8Array): DskImage {
       if (trackLen > 0 && blockOffset < data.length) {
         for (let s = 0; s < numSides; s++) {
           const sideCells = extractSide(data, blockOffset, trackLen, s);
+          const sideLayout: HfeSectorLayout[] = [];
           cellRow[s] = sideCells;
-          trackRow[s] = decodeHfeTrack(sideCells);
+          trackRow[s] = decodeHfeTrack(sideCells, sideLayout);
+          layoutRow[s] = trackRow[s] ? sideLayout : null;
         }
       }
     }
     cells.push(cellRow);
+    layout.push(layoutRow);
     tracks.push(trackRow);
   }
 
-  const bitstream: HfeBitstream = { cells };
+  const bitstream: HfeBitstream = { cells, layout };
   const image: DskImage = {
     format: 'extended',
     numTracks,
@@ -301,4 +308,130 @@ export function parseHFE(data: Uint8Array): DskImage {
  */
 export function parseFloppyImage(data: Uint8Array): DskImage {
   return isHFE(data) ? parseHFE(data) : parseDSK(data);
+}
+
+// ── Write-back (serialize a mutated HFE-sourced image to HFE bytes) ────────────
+
+function setBit(cells: Uint8Array, bit: number, val: number, nbits: number): void {
+  const b = ((bit % nbits) + nbits) % nbits;
+  const m = 1 << (b & 7);
+  if (val) cells[b >> 3] |= m; else cells[b >> 3] &= ~m;
+}
+
+/** True if the data field at `L` already holds exactly `cur` (so no re-encode is
+ *  needed — this preserves protected/unwritten fields, incl. bad CRC, verbatim). */
+function fieldMatches(cells: Uint8Array, L: HfeSectorLayout, cur: Uint8Array, nbits: number): boolean {
+  if (cur.length !== L.len) return false;
+  for (let i = 0; i < L.len; i++) {
+    if (decodeByte(cells, L.dataBit + i * 16, nbits) !== cur[i]) return false;
+  }
+  return true;
+}
+
+/**
+ * Re-encode a data field (payload + CRC) in place over its original cells. The
+ * clock of the first bit follows from the mark's last data cell, and the region
+ * length ((len+2)×16 cells) is unchanged, so surrounding gaps/marks stay intact.
+ */
+function patchField(cells: Uint8Array, L: HfeSectorLayout, cur: Uint8Array, nbits: number): void {
+  const bytes = new Uint8Array(L.len);
+  for (let i = 0; i < L.len; i++) bytes[i] = i < cur.length ? cur[i] : 0;
+  const crc = crc16([0xA1, 0xA1, 0xA1, L.mark, ...bytes]);
+
+  let prev = readBit(cells, L.dataBit - 1, nbits); // last data cell of the mark byte
+  let pos = L.dataBit;
+  const writeByte = (v: number): void => {
+    for (let i = 7; i >= 0; i--) {
+      const d = (v >> i) & 1;
+      const clock = (prev === 0 && d === 0) ? 1 : 0;
+      setBit(cells, pos, clock, nbits);
+      setBit(cells, pos + 1, d, nbits);
+      pos += 2;
+      prev = d;
+    }
+  };
+  for (const b of bytes) writeByte(b);
+  writeByte(crc >> 8);
+  writeByte(crc & 0xFF);
+}
+
+/** Assemble an HFE v1 image from per-track side cell streams (side 0 / side 1
+ *  interleaved in 256-byte blocks; single-sided images carry an empty side 1,
+ *  matching real HFEs). */
+function packHFE(sides: (Uint8Array | null)[][], numTracks: number, numSides: number): Uint8Array {
+  const header = new Uint8Array(512).fill(0xFF);
+  for (let i = 0; i < 8; i++) header[i] = SIG_V1.charCodeAt(i);
+  header[8] = 0;              // revision
+  header[9] = numTracks;
+  header[10] = numSides;
+  header[11] = 0xFF;          // track encoding: unknown (ISO MFM), as greaseweazle writes
+  header[12] = 250 & 0xFF; header[13] = 250 >> 8; // bit rate (kbit/s)
+  header[18] = 1; header[19] = 0; // track list at block 1 (0x200)
+
+  const lut = new Uint8Array(512);
+  const blocks: Uint8Array[] = [];
+  let blockCursor = 2; // header @ block 0, LUT @ block 1
+  for (let t = 0; t < numTracks; t++) {
+    const s0 = sides[t]?.[0] ?? new Uint8Array(256);
+    const s1 = (numSides > 1 ? sides[t]?.[1] : null) ?? new Uint8Array(s0.length);
+    // Interleave in whole 256-byte block pairs (side 0 then side 1), padding a
+    // short final block with zeros — so track length is always a 512 multiple.
+    const nBlocks = Math.ceil(Math.max(s0.length, s1.length) / 256);
+    const interleaved = new Uint8Array(nBlocks * 512);
+    for (let bi = 0; bi < nBlocks; bi++) {
+      const off = bi * 256;
+      interleaved.set(s0.subarray(off, off + 256), bi * 512);
+      interleaved.set(s1.subarray(off, off + 256), bi * 512 + 256);
+    }
+    const e = t * 4;
+    lut[e] = blockCursor & 0xFF; lut[e + 1] = blockCursor >> 8;
+    lut[e + 2] = interleaved.length & 0xFF; lut[e + 3] = interleaved.length >> 8;
+    const padded = new Uint8Array(Math.ceil(interleaved.length / 512) * 512);
+    padded.set(interleaved);
+    blocks.push(padded);
+    blockCursor += padded.length / 512;
+  }
+
+  const parts = [header, lut, ...blocks];
+  const total = parts.reduce((n, p) => n + p.length, 0);
+  const out = new Uint8Array(total);
+  let pos = 0;
+  for (const p of parts) { out.set(p, pos); pos += p.length; }
+  return out;
+}
+
+/**
+ * Serialize an HFE-sourced {@link DskImage} back to HFE v1 bytes. Only sectors
+ * whose data actually changed (a write) are re-encoded into a copy of the
+ * retained bitstream; every unwritten field — including protection tracks with
+ * odd gaps, non-standard marks or deliberately bad CRCs — is preserved verbatim.
+ * Throws if the image has no retained bitstream (i.e. it wasn't loaded from HFE).
+ */
+export function serializeHFE(image: DskImage): Uint8Array {
+  const bs = image.bitstream;
+  if (!bs) throw new Error('serializeHFE: image has no HFE bitstream (not HFE-sourced)');
+
+  const { numTracks, numSides } = image;
+  const patched: (Uint8Array | null)[][] = [];
+  for (let t = 0; t < numTracks; t++) {
+    const row: (Uint8Array | null)[] = new Array(numSides).fill(null);
+    for (let s = 0; s < numSides; s++) {
+      const cells = bs.cells[t]?.[s];
+      if (!cells) continue;
+      const out = new Uint8Array(cells);          // patch a copy, leave the mount intact
+      const nbits = out.length * 8;
+      const layout = bs.layout[t]?.[s];
+      const track = image.tracks[t]?.[s];
+      if (layout && track) {
+        const count = Math.min(layout.length, track.sectors.length);
+        for (let i = 0; i < count; i++) {
+          const cur = track.sectors[i].data;
+          if (!fieldMatches(out, layout[i], cur, nbits)) patchField(out, layout[i], cur, nbits);
+        }
+      }
+      row[s] = out;
+    }
+    patched.push(row);
+  }
+  return packHFE(patched, numTracks, numSides);
 }

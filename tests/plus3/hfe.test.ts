@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { parseHFE, decodeHfeTrack, isHFE } from '@/plus3/hfe.ts';
+import { parseHFE, serializeHFE, decodeHfeTrack, isHFE } from '@/plus3/hfe.ts';
+import type { DskImage } from '@/plus3/dsk.ts';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Independent HFE v1 / MFM *encoder*, derived from the HxC HFE spec and the IBM
@@ -221,5 +222,56 @@ describe('parseHFE — full image (header, LUT, side de-interleave)', () => {
     const s = cyl1.sectors[cyl1.sectorMap.get(1)!];
     expect(s.c).toBe(1);
     expect(Array.from(s.data.subarray(0, 4))).toEqual([1, 2, 3, 4]);
+  });
+});
+
+describe('serializeHFE — write-back', () => {
+  // A track mixing a normal sector, a deleted-data sector and a bad-CRC sector.
+  const mkImage = (): DskImage => {
+    const dataN = (n: number, seed: number) => Array.from({ length: 512 }, (_, i) => (i * seed + n) & 0xFF);
+    const t0 = packSide([
+      { c: 0, h: 0, r: 1, n: 2, data: dataN(1, 3) },
+      { c: 0, h: 0, r: 2, n: 2, data: dataN(2, 5), mark: 0xF8 },        // deleted
+      { c: 0, h: 0, r: 3, n: 2, data: dataN(3, 7), corruptData: true }, // bad CRC
+    ]);
+    return parseHFE(buildHFE([t0], 1));
+  };
+
+  const dump = (img: DskImage) => img.tracks[0]![0]!.sectors.map(s =>
+    `r${s.r}/${s.st1.toString(16)}/${s.st2.toString(16)}/${Array.from(s.data).join(',')}`);
+
+  it('round-trips an unwritten image byte-for-byte (protection preserved)', () => {
+    const img = mkImage();
+    const before = dump(img);
+    const round = parseHFE(serializeHFE(img));
+    expect(dump(round)).toEqual(before);
+    // The deleted mark and bad-CRC flags survive the re-encode.
+    expect(round.tracks[0]![0]!.sectors[1].st2 & 0x40).toBe(0x40);
+    expect(round.tracks[0]![0]!.sectors[2].st1 & 0x20).toBe(0x20);
+  });
+
+  it('re-encodes a written sector and leaves the others untouched', () => {
+    const img = mkImage();
+    const track = img.tracks[0]![0]!;
+    const original = dump(img);
+    // Simulate the FDC's writeBackSector: replace sector r1's data.
+    const newData = new Uint8Array(512).map((_, i) => (0xA0 ^ i) & 0xFF);
+    track.sectors[track.sectorMap.get(1)!].data = newData;
+
+    const round = parseHFE(serializeHFE(img));
+    const rt = round.tracks[0]![0]!;
+
+    const s1 = rt.sectors[rt.sectorMap.get(1)!];
+    expect(s1.st1 | s1.st2).toBe(0);                          // freshly written → good CRC
+    expect(Array.from(s1.data)).toEqual(Array.from(newData)); // read back exactly
+
+    // r2 (deleted) and r3 (bad-CRC) are byte-identical to the original.
+    expect(dump(round)[1]).toBe(original[1]);
+    expect(dump(round)[2]).toBe(original[2]);
+  });
+
+  it('throws when the image has no retained HFE bitstream', () => {
+    const notHfe = { numTracks: 1, numSides: 1, format: 'extended', tracks: [[null]], diskFormat: '', protection: '' } as unknown as DskImage;
+    expect(() => serializeHFE(notHfe)).toThrow(/bitstream/i);
   });
 });

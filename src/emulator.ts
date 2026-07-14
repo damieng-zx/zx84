@@ -20,7 +20,7 @@ import { saveZ80 } from '@/snapshot/z80format.ts';
 import { parseTZX } from '@/tape/tzx.ts';
 import type { TapeBlock } from '@/tape/tap.ts';
 import { serializeDSK, type DskImage } from '@/plus3/dsk.ts';
-import { parseFloppyImage, parseHFE, isHFE } from '@/plus3/hfe.ts';
+import { parseFloppyImage, parseHFE, serializeHFE, isHFE } from '@/plus3/hfe.ts';
 import { parseMgt, serializeMgt, blankMgtDisk, mgtExtFromName } from '@/plus3/mgt-image.ts';
 import { loadSZX, applySZXPaging } from '@/snapshot/szx.ts';
 import { readCpcSnaModel, applyCpcSna, saveCpcSna } from '@/snapshot/cpc-sna.ts';
@@ -1108,8 +1108,13 @@ export function saveDisk(unit: number): void {
   const image = machine.fdc.getDiskImage(unit);
   if (!image) { setStatus(`No disk in drive ${unit === 0 ? 'A' : 'B'}:`); return; }
   const name = unit === 0 ? currentDiskName() : currentDiskNameB();
-  const filename = name.replace(/\.[^.]+$/, '') + '.dsk';
-  downloadFile(serializeDSK(image), filename);
+  const base = name.replace(/\.[^.]+$/, '');
+  // Save an HFE-sourced disk back as HFE (writes are re-encoded into the
+  // retained bitstream, protection tracks preserved); everything else as DSK.
+  const [data, filename] = image.bitstream
+    ? [serializeHFE(image), `${base}.hfe`]
+    : [serializeDSK(image), `${base}.dsk`];
+  downloadFile(data, filename);
   machine.fdc.clearDirty(unit);   // the on-disk file now matches the image
 }
 
@@ -1197,7 +1202,10 @@ export function savePlusDDisk(unit: number): void {
   if (!image) { setStatus(`No disk in +D drive ${unit === 0 ? 'C' : 'D'}:`); return; }
   const name = unit === 0 ? currentDiskNameC() : currentDiskNameD();
   const base = name.replace(/\.[^.]+$/, '') || 'plusd';
-  downloadFile(serializeMgt(image, 'mgt'), `${base}.mgt`);
+  const [data, filename] = image.bitstream
+    ? [serializeHFE(image), `${base}.hfe`]
+    : [serializeMgt(image, 'mgt'), `${base}.mgt`];
+  downloadFile(data, filename);
   spectrum.mgtPlusD.fdc.clearDirty(unit);   // the on-disk file now matches the image
 }
 

@@ -43,9 +43,25 @@ export interface DskTrack {
  * are derived from `cells[cylinder][side]` (see `plus3/hfe.ts`), not from a DSK
  * file, and the flux stays attached for on-demand re-decode / future write-back.
  */
+/** Where one decoded sector's data field sits in a track's cell stream, so a
+ *  write can be re-encoded back into the bitstream in place (see serializeHFE). */
+export interface HfeSectorLayout {
+  /** Bit offset in the side's cells where the data payload begins. */
+  dataBit: number;
+  /** Payload byte length laid on the track (128 << N, or a truncated field). */
+  len: number;
+  /** Data address mark: 0xFB (data) or 0xF8 (deleted-data). */
+  mark: number;
+}
+
 export interface HfeBitstream {
   /** cells[cylinder][side] — LSB-first MFM bit-cells, or null for a blank side. */
   cells: (Uint8Array | null)[][];
+  /**
+   * Physical-order data-field positions per [cylinder][side], parallel to the
+   * decoded `tracks[cyl][side].sectors`, used to patch writes back into `cells`.
+   */
+  layout: (HfeSectorLayout[] | null)[][];
 }
 
 export interface DskImage {
