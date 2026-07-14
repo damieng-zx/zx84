@@ -20,7 +20,7 @@ import { saveZ80 } from '@/snapshot/z80format.ts';
 import { parseTZX } from '@/tape/tzx.ts';
 import type { TapeBlock } from '@/tape/tap.ts';
 import { serializeDSK, type DskImage } from '@/plus3/dsk.ts';
-import { parseFloppyImage } from '@/plus3/hfe.ts';
+import { parseFloppyImage, parseHFE, isHFE } from '@/plus3/hfe.ts';
 import { parseMgt, serializeMgt, blankMgtDisk, mgtExtFromName } from '@/plus3/mgt-image.ts';
 import { loadSZX, applySZXPaging } from '@/snapshot/szx.ts';
 import { readCpcSnaModel, applyCpcSna, saveCpcSna } from '@/snapshot/cpc-sna.ts';
@@ -832,6 +832,13 @@ export async function loadFile(data: Uint8Array, filename: string, unit?: number
     loadPlusDDisk(data, filename, unit ?? 0);
     return;
   }
+  // A .hfe targets the +D only on a +D-capable machine with no built-in FDC
+  // (the +3 has its own uPD765A and is never +D-capable — the two are mutually
+  // exclusive). On a +3, .hfe falls through to the uPD765A path below.
+  if (/\.hfe$/i.test(filename) && spectrum.mgtPlusD.enabled && !spectrum.variant.hasFDC) {
+    loadPlusDDisk(data, filename, unit ?? 0);
+    return;
+  }
   // ZX Interface 1 microdrive cartridges route to the IF1, like the +D above.
   if (/\.(mdr|mdv)$/i.test(filename)) {
     loadMicrodrive(data, filename, unit ?? 0);
@@ -1145,11 +1152,17 @@ function setPlusDDiskState(unit: number, image: DskImage | null, name: string): 
   else { setCurrentDiskInfoD(image); setCurrentDiskNameD(name); }
 }
 
-/** Load a .mgt/.img image into a +D drive (unit 0/1 → C:/D:). */
+/** Load a .mgt/.img/.hfe image into a +D drive (unit 0/1 → C:/D:). */
 export function loadPlusDDisk(data: Uint8Array, filename: string, unit: number): void {
   if (!spectrum) { setStatus('Load a ROM first'); return; }
   if (!spectrum.mgtPlusD.enabled) { setStatus('Enable the MGT +D in Hardware first'); return; }
-  const image = parseMgt(data, mgtExtFromName(filename));
+  let image: DskImage | null;
+  try {
+    image = isHFE(data) ? parseHFE(data) : parseMgt(data, mgtExtFromName(filename));
+  } catch (e) {
+    setStatus(`+D disk error: ${(e as Error).message}`);
+    return;
+  }
   if (!image) { setStatus(`Not a recognised +D image: ${filename}`); return; }
   spectrum.stop();
   try {
@@ -1591,7 +1604,7 @@ async function restoreMedia(): Promise<void> {
       const disk = await restorePlusDDisk(unit);
       if (!disk) continue;
       try {
-        const image = parseMgt(disk.data, mgtExtFromName(disk.name));
+        const image = isHFE(disk.data) ? parseHFE(disk.data) : parseMgt(disk.data, mgtExtFromName(disk.name));
         if (!image) continue;
         spectrum.loadPlusDDisk(image, unit);
         setPlusDDiskState(unit, image, disk.name);

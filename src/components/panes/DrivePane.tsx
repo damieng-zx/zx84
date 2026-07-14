@@ -195,7 +195,7 @@ export function DrivePane() {
   async function handleInsertPlusDDisk(unit: number) {
     const results = await openFile({
       id: 'zx84-plusd-disk',
-      extensions: ['.mgt', '.img', '.zip'],
+      extensions: ['.mgt', '.img', '.hfe', '.zip'],
     });
     if (!results) return;
     await loadFile(results[0].data, results[0].name, unit);
