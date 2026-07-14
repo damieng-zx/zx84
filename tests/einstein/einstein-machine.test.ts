@@ -70,8 +70,8 @@ describe('Einstein I/O port decode', () => {
   });
 });
 
-describe('Einstein VDP→CTC→IM2 interrupt path', () => {
-  it('services the frame interrupt through the ISR during a frame', () => {
+describe('Einstein CTC→IM2 interrupt path', () => {
+  it('services a CTC timer interrupt through the ISR during a frame', () => {
     const m = machine();
     const rom = new Uint8Array(0x2000);
     // Boot: IM 2; I := 0; EI; then loop forever with interrupts enabled.
@@ -92,11 +92,12 @@ describe('Einstein VDP→CTC→IM2 interrupt path', () => {
     m.loadROM(rom);
     m.reset();
 
-    // Program CTC channel 0: vector base 0x40, counter mode, interrupt enabled,
-    // time constant 1 — so a single VDP-vblank trigger underflows immediately.
+    // Program CTC channel 0 as a timer with interrupts enabled: vector base
+    // 0x40, timer mode, /256 prescaler, time constant 255 — so it underflows
+    // once within a PAL field (65280 < 80000 T-states) as ctc.addCycles runs.
     m.cpu.portOut(0x28, 0x40);              // vector base (bit0 = 0)
-    m.cpu.portOut(0x28, 0x01 | 0x40 | 0x80 | 0x04); // control: counter+int+TCfollows
-    m.cpu.portOut(0x28, 0x01);              // time constant = 1
+    m.cpu.portOut(0x28, 0x01 | 0x80 | 0x20 | 0x04); // control: timer+int+/256+TCfollows
+    m.cpu.portOut(0x28, 0xFF);              // time constant = 255
 
     expect(m.memory.ramSnapshot()[0x8000]).toBe(0x00); // sentinel not yet written
     m.tick();                               // run one PAL field

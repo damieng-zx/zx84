@@ -38,9 +38,8 @@ import {
   EINSTEIN_BORDER_LEFT, EINSTEIN_BORDER_TOP,
 } from '@/einstein/constants.ts';
 
-/** PAL scanlines per field, and the CTC channel the VDP vblank is wired to. */
+/** PAL scanlines per field. */
 const LINES_PER_FRAME = 313;
-const VDP_CTC_CHANNEL = 0;
 
 export class EinsteinMachine extends BaseMachine implements Machine {
   readonly kind: MachineKind = 'einstein';
@@ -201,9 +200,13 @@ export class EinsteinMachine extends BaseMachine implements Machine {
         const rowStart = (EINSTEIN_BORDER_TOP + line) * EINSTEIN_SCREEN_WIDTH + EINSTEIN_BORDER_LEFT;
         this.vdp.renderScanline(this._pixels32, rowStart, line);
       } else if (line === 192) {
-        // End of active display: VDP vblank → CTC → /INT.
+        // End of active display: set the VDP's vblank status flag. On the real
+        // Einstein the VDP INT line is NOT wired to the CPU (MAME confirms) — the
+        // MOS polls this flag via the status port. CPU interrupts instead come
+        // from the Z80 CTC (2MHz-clocked, ch2→ch3 chain) and the keyboard; the
+        // CTC timer channels are advanced by ctc.addCycles above. Full CTC
+        // clock-chain fidelity (baud, RTC tick) is a follow-up.
         this.vdp.raiseFrameInterrupt();
-        this.ctc.trigger(VDP_CTC_CHANNEL);
       }
     }
 
