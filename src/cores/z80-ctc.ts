@@ -45,6 +45,15 @@ export class Z80Ctc {
    *  enabled — the machine polls this to fire the CPU interrupt. */
   onInterrupt: (() => void) | null = null;
 
+  /** Divisor from the addCycles() clock (the CPU clock) down to the CTC's own
+   *  clock pin. The Einstein feeds channels 0–2 a 2 MHz clock = 4 MHz CPU / 2. */
+  inputClockDivide = 1;
+  private clockAccum = 0;
+
+  /** Zero-count / terminal-count output handlers per channel — the Einstein
+   *  chains channel 2's ZC to channel 3's trigger (zc2 → trg3). */
+  readonly zcHandlers: (Array<(() => void) | null>) = [null, null, null, null];
+
   constructor() {
     for (let i = 0; i < NUM_CHANNELS; i++) {
       this.ch.push({
@@ -90,24 +99,30 @@ export class Z80Ctc {
   trigger(c: number): void {
     const ch = this.ch[c & 3];
     if (!ch.running || (ch.control & CW_COUNTER_MODE) === 0) return;
-    this.decrement(ch);
+    this.decrement(ch, c & 3);
   }
 
-  /** Advance timer-mode channels by `cycles` CPU T-states. */
+  /** Advance timer-mode channels by `cycles` CPU T-states (scaled down to the
+   *  CTC clock pin by inputClockDivide). Counter-mode channels advance only on
+   *  external triggers / chained ZC pulses, not here. */
   addCycles(cycles: number): void {
+    this.clockAccum += cycles;
+    const edges = Math.floor(this.clockAccum / this.inputClockDivide);
+    if (edges <= 0) return;
+    this.clockAccum -= edges * this.inputClockDivide;
     for (let c = 0; c < NUM_CHANNELS; c++) {
       const ch = this.ch[c];
       if (!ch.running || (ch.control & CW_COUNTER_MODE) !== 0) continue;
       const prescale = (ch.control & CW_PRESCALE_256) ? 256 : 16;
-      ch.prescaleCount += cycles;
+      ch.prescaleCount += edges;
       while (ch.prescaleCount >= prescale) {
         ch.prescaleCount -= prescale;
-        this.decrement(ch);
+        this.decrement(ch, c);
       }
     }
   }
 
-  private decrement(ch: Channel): void {
+  private decrement(ch: Channel, c: number): void {
     ch.counter--;
     if (ch.counter <= 0) {
       ch.counter = ch.timeConstant === 0 ? 256 : ch.timeConstant;
@@ -115,6 +130,9 @@ export class Z80Ctc {
         ch.intPending = true;
         if (this.onInterrupt) this.onInterrupt();
       }
+      // Terminal-count (ZC/TO) output — may be chained to another channel's TRG.
+      const zc = this.zcHandlers[c];
+      if (zc) zc();
     }
   }
 
@@ -144,5 +162,7 @@ export class Z80Ctc {
       ch.tcFollows = false; ch.intPending = false; ch.prescaleCount = 0;
     }
     this.vectorBase = 0;
+    this.clockAccum = 0;
+    // zcHandlers are hardware wiring — left intact across reset.
   }
 }

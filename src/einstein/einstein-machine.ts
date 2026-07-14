@@ -81,6 +81,11 @@ export class EinsteinMachine extends BaseMachine implements Machine {
     this.fdc.pulseBusy = true;
     this.vdp = new Tms9918a();
     this.ctc = new Z80Ctc();
+    // The Einstein clocks CTC channels 0–2 at 2MHz (4MHz CPU / 2) and chains
+    // channel 2's zero-count to channel 3's trigger (zc2 → trg3); channel 3 is
+    // the periodic interrupt source (IM 2). See MAME's einstein CTC wiring.
+    this.ctc.inputClockDivide = 2;
+    this.ctc.zcHandlers[2] = () => this.ctc.trigger(3);
     this.keyboard = new EinsteinKeyboard();
     // CDT/TZX pulse timings are 3.5MHz-referenced; scale to the 4MHz Z80.
     this.tape = new TapeDeck(EINSTEIN_CPU_CLOCK);

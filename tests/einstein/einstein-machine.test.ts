@@ -93,10 +93,11 @@ describe('Einstein CTC→IM2 interrupt path', () => {
     m.reset();
 
     // Program CTC channel 0 as a timer with interrupts enabled: vector base
-    // 0x40, timer mode, /256 prescaler, time constant 255 — so it underflows
-    // once within a PAL field (65280 < 80000 T-states) as ctc.addCycles runs.
+    // 0x40, timer mode, /16 prescaler, time constant 255. The Einstein clocks
+    // the CTC at 2MHz (inputClockDivide 2), so this underflows every 16×255×2 =
+    // 8160 T-states — several times within a PAL field (80000 T) as addCycles runs.
     m.cpu.portOut(0x28, 0x40);              // vector base (bit0 = 0)
-    m.cpu.portOut(0x28, 0x01 | 0x80 | 0x20 | 0x04); // control: timer+int+/256+TCfollows
+    m.cpu.portOut(0x28, 0x01 | 0x80 | 0x04); // control: timer+int+/16+TCfollows
     m.cpu.portOut(0x28, 0xFF);              // time constant = 255
 
     expect(m.memory.ramSnapshot()[0x8000]).toBe(0x00); // sentinel not yet written
