@@ -29,7 +29,7 @@ import {
   getPendingRunTo, clearPendingRunTo,
 } from '@/emulator.ts';
 
-import { asCpc } from '@/machine.ts';
+import { asCpc, asEinstein } from '@/machine.ts';
 import { hex8, hex16 } from '@/utils/hex.ts';
 import { microdriveMotors, setMicrodriveMotors } from '@/state/microdrive-state.ts';
 
@@ -565,6 +565,19 @@ export function onFrame(): void {
         } else if (cpc.screenText.active) {
           cpc.screenText.deactivate();
         }
+      });
+    }
+    const ein = asEinstein(machine);
+    if (ein) {
+      const ea = ein.activity;
+      const activeUnit = ein.fdc.currentDrive;
+      batch(() => {
+        const ledNow = performance.now();
+        setLedKbd(ledLatched('kbd', ea.kbdReads > 0, ledNow));
+        setLedDsk(ledLatched('dsk', ea.fdcAccesses > 0, ledNow));
+        // Drive A:/B: track/sector readout + LED (WD1770 units 0/1).
+        setDriveAStatus(renderDriveStatus(0, activeUnit, ein.fdc));
+        setDriveBStatus(renderDriveStatus(1, activeUnit, ein.fdc));
       });
     }
     updateDebugFrame();
