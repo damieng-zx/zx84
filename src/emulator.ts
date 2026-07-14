@@ -22,6 +22,7 @@ import { parseTZX } from '@/tape/tzx.ts';
 import type { TapeBlock } from '@/tape/tap.ts';
 import { serializeDSK, type DskImage } from '@/plus3/dsk.ts';
 import { parseFloppyImage, parseHFE, serializeHFE, isHFE, attachHfeBitstream } from '@/plus3/hfe.ts';
+import { parseSCP, isScp } from '@/plus3/scp.ts';
 import { parseMgt, serializeMgt, blankMgtDisk, mgtExtFromName } from '@/plus3/mgt-image.ts';
 import { parseTrd, serializeTrd, blankTrdDisk } from '@/plus3/trd-image.ts';
 import { parseScl, serializeScl, isScl, SCL_DISK_FORMAT } from '@/plus3/scl-image.ts';
@@ -836,7 +837,7 @@ export async function loadFile(data: Uint8Array, filename: string, unit?: number
       await loadCpcSnapshot(data, filename);
       return;
     }
-    if (!/\.(dsk|hfe)$/i.test(filename)) { setStatus('CPC accepts .sna, .dsk, .hfe, .cdt, .tzx and .tap files'); return; }
+    if (!/\.(dsk|hfe|scp)$/i.test(filename)) { setStatus('CPC accepts .sna, .dsk, .hfe, .scp, .cdt, .tzx and .tap files'); return; }
     cpc.stop();
     try {
       const image = parseFloppyImage(data);
@@ -863,15 +864,15 @@ export async function loadFile(data: Uint8Array, filename: string, unit?: number
     loadPlusDDisk(data, filename, unit ?? 0);
     return;
   }
-  // A .hfe targets whichever WD-family interface is active: the Beta Disk first,
-  // then the +D on a +D-capable machine with no built-in FDC (the +3 has its own
-  // uPD765A and is never +D-capable). On a +3, .hfe falls through to the uPD765A
-  // path below.
-  if (/\.hfe$/i.test(filename) && spectrum.betaDisk.enabled) {
+  // A .hfe/.scp flux image targets whichever WD-family interface is active: the
+  // Beta Disk first, then the +D on a +D-capable machine with no built-in FDC
+  // (the +3 has its own uPD765A and is never +D-capable). On a +3, they fall
+  // through to the uPD765A path below.
+  if (/\.(hfe|scp)$/i.test(filename) && spectrum.betaDisk.enabled) {
     loadBetaDiskDisk(data, filename, unit ?? 0);
     return;
   }
-  if (/\.hfe$/i.test(filename) && spectrum.mgtPlusD.enabled && !spectrum.variant.hasFDC) {
+  if (/\.(hfe|scp)$/i.test(filename) && spectrum.mgtPlusD.enabled && !spectrum.variant.hasFDC) {
     loadPlusDDisk(data, filename, unit ?? 0);
     return;
   }
@@ -1199,7 +1200,7 @@ export function loadPlusDDisk(data: Uint8Array, filename: string, unit: number):
   if (!spectrum.mgtPlusD.enabled) { setStatus('Enable the MGT +D in Hardware first'); return; }
   let image: DskImage | null;
   try {
-    image = isHFE(data) ? parseHFE(data) : parseMgt(data, mgtExtFromName(filename));
+    image = isHFE(data) ? parseHFE(data) : isScp(data) ? parseSCP(data) : parseMgt(data, mgtExtFromName(filename));
   } catch (e) {
     setStatus(`+D disk error: ${(e as Error).message}`);
     return;
@@ -1267,6 +1268,7 @@ export function loadBetaDiskDisk(data: Uint8Array, filename: string, unit: numbe
   let image: DskImage | null;
   try {
     if (isHFE(data)) image = parseHFE(data);
+    else if (isScp(data)) image = parseSCP(data);
     else if (isScl(data)) image = parseScl(data);
     else image = parseTrd(data);
   } catch (e) {
@@ -1760,7 +1762,9 @@ async function restoreMedia(): Promise<void> {
       const disk = await restorePlusDDisk(unit);
       if (!disk) continue;
       try {
-        const image = isHFE(disk.data) ? parseHFE(disk.data) : parseMgt(disk.data, mgtExtFromName(disk.name));
+        const image = isHFE(disk.data) ? parseHFE(disk.data)
+          : isScp(disk.data) ? parseSCP(disk.data)
+          : parseMgt(disk.data, mgtExtFromName(disk.name));
         if (!image) continue;
         spectrum.loadPlusDDisk(image, unit);
         setPlusDDiskState(unit, image, disk.name);
@@ -1776,6 +1780,7 @@ async function restoreMedia(): Promise<void> {
       if (!disk) continue;
       try {
         const image = isHFE(disk.data) ? parseHFE(disk.data)
+          : isScp(disk.data) ? parseSCP(disk.data)
           : isScl(disk.data) ? parseScl(disk.data)
           : parseTrd(disk.data);
         if (!image) continue;

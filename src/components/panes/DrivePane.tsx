@@ -245,7 +245,7 @@ export function DrivePane() {
   async function handleInsertDisk(unit: number) {
     const results = await openFile({
       id: 'zx84-disk',
-      extensions: ['.dsk', '.hfe', '.zip'],
+      extensions: ['.dsk', '.hfe', '.scp', '.zip'],
     });
     if (!results) return;
     await loadFile(results[0].data, results[0].name, unit);
@@ -254,7 +254,7 @@ export function DrivePane() {
   async function handleInsertPlusDDisk(unit: number) {
     const results = await openFile({
       id: 'zx84-plusd-disk',
-      extensions: ['.mgt', '.img', '.hfe', '.zip'],
+      extensions: ['.mgt', '.img', '.hfe', '.scp', '.zip'],
     });
     if (!results) return;
     await loadFile(results[0].data, results[0].name, unit);
@@ -263,7 +263,7 @@ export function DrivePane() {
   async function handleInsertBetaDiskDisk(unit: number) {
     const results = await openFile({
       id: 'zx84-betadisk-disk',
-      extensions: ['.trd', '.scl', '.hfe', '.zip'],
+      extensions: ['.trd', '.scl', '.hfe', '.scp', '.zip'],
     });
     if (!results) return;
     await loadFile(results[0].data, results[0].name, unit);

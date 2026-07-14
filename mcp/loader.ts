@@ -34,19 +34,18 @@ export async function loadFileInto(spec: Spectrum, filepath: string, diskUnit: n
     spec.reset();
     spec.tape.startPlayback();
     return `TZX loaded: ${filename} (${blocks.length} blocks)`;
-  } else if (ext === '.dsk' || ext === '.hfe') {
-    // A .hfe routes to the Beta Disk when it is the active interface; otherwise
-    // to the +3/CPC uPD765A (the .dsk default).
-    if (ext === '.hfe' && spec.betaDisk.enabled) {
-      const image = parseFloppyImage(data);
+  } else if (ext === '.dsk' || ext === '.hfe' || ext === '.scp') {
+    // A .hfe/.scp flux image routes to the Beta Disk when it is the active
+    // interface; otherwise to the +3/CPC uPD765A (the .dsk default).
+    const image = parseFloppyImage(data);
+    if (ext !== '.dsk' && spec.betaDisk.enabled) {
       spec.loadBetaDiskDisk(image, diskUnit);
       const dl = diskUnit === 0 ? 'A' : 'B';
-      return `HFE loaded: ${filename} → Beta Disk ${dl}: (${image.numTracks} tracks, ${image.numSides} side${image.numSides > 1 ? 's' : ''})`;
+      return `${ext.slice(1).toUpperCase()} loaded: ${filename} → Beta Disk ${dl}: (${image.numTracks} tracks, ${image.numSides} side${image.numSides > 1 ? 's' : ''})`;
     }
-    const image = parseFloppyImage(data);
     spec.loadDisk(image, diskUnit);
     const driveLetter = diskUnit === 0 ? 'A' : 'B';
-    const kind = ext === '.hfe' ? 'HFE' : 'DSK';
+    const kind = ext === '.hfe' ? 'HFE' : ext === '.scp' ? 'SCP' : 'DSK';
     return `${kind} loaded: ${filename} → Drive ${driveLetter}: (${image.numTracks} tracks, ${image.numSides} side${image.numSides > 1 ? 's' : ''})`;
   } else if (ext === '.trd' || ext === '.scl') {
     // Auto-enable the Beta Disk (load TR-DOS ROM + reset) then insert. Mutually
@@ -169,7 +168,7 @@ export function mountAndArm(
     // boots the disk in preference to the cassette. Eject so it falls through
     // (mirrors play() in LibraryBrowser).
     if (spec.fdc?.getDiskImage(0)) spec.fdc.ejectDisk(0);
-  } else if (ext === '.dsk' || ext === '.hfe') {
+  } else if (ext === '.dsk' || ext === '.hfe' || ext === '.scp') {
     spec.loadDisk(parseFloppyImage(data), 0);
     mounted = `disk ${innerName} → A:`;
   } else {

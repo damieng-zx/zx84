@@ -332,7 +332,7 @@ export class MediaManager {
       return;
     }
 
-    if (ext === 'dsk' || ext === 'hfe') {
+    if (ext === 'dsk' || ext === 'hfe' || ext === 'scp') {
       const diskUnit = unit ?? 0;
       this.loadDisk(spectrum, data, filename, diskUnit, callbacks);
       return;
