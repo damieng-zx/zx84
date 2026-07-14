@@ -833,6 +833,11 @@ export function loadableExtensions(): string[] {
     if (cpc.config.hasFDC) exts.push('.dsk', '.hfe');
     return exts;
   }
+  const ein = asEinstein(machine);
+  if (ein) {
+    // Einstein disks are Extended CPC DSK images read by the WD1770.
+    return ein.config.hasFDC ? ['.dsk', '.hfe', '.scp'] : [];
+  }
   // Spectrum (and the no-machine default).
   const exts = ['.sna', '.z80', '.szx', '.sp', '.tap', '.tzx'];
   if (spectrum?.variant.hasFDC) exts.push('.dsk', '.hfe');
@@ -866,6 +871,25 @@ export async function loadFile(data: Uint8Array, filename: string, unit?: number
       setStatus(`DSK error: ${(e as Error).message}`);
     } finally {
       cpc.start();
+    }
+    return;
+  }
+  // Einstein: .dsk / .hfe / .scp disk images into the WD1770.
+  const ein = asEinstein(machine);
+  if (ein) {
+    if (!/\.(dsk|hfe|scp)$/i.test(filename)) { setStatus('Einstein accepts .dsk, .hfe and .scp disk images'); return; }
+    ein.stop();
+    try {
+      const image = parseFloppyImage(data);
+      const u = unit ?? 0;
+      ein.loadDisk(image, u);
+      if (u === 0) { setCurrentDiskInfo(image); setCurrentDiskName(filename); }
+      else { setCurrentDiskInfoB(image); setCurrentDiskNameB(filename); }
+      setStatus(`Drive ${u}: loaded: ${filename}`);
+    } catch (e) {
+      setStatus(`DSK error: ${(e as Error).message}`);
+    } finally {
+      ein.start();
     }
     return;
   }
@@ -1189,10 +1213,11 @@ export function loadDiskToUnit(data: Uint8Array, filename: string, unit: number)
     else { setCurrentDiskInfoB(image); setCurrentDiskNameB(fname); }
   };
   const cpc = asCpc(machine);
-  if (cpc) {
+  const ein = asEinstein(machine);
+  if (cpc || ein) {
     try {
       const image = parseFloppyImage(data);
-      cpc.loadDisk(image, unit);
+      (cpc ?? ein)!.loadDisk(image, unit);
       onDiskLoaded(image, filename, unit);
       setStatus(`Disk ${unit === 0 ? 'A' : 'B'}: loaded: ${filename}`);
     } catch (e) {

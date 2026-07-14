@@ -76,6 +76,9 @@ export class EinsteinMachine extends BaseMachine implements Machine {
     this.memory = new EinsteinMemory();
     this.ay = new AY3891x(EINSTEIN_AY_CLOCK, 48000, 'ABC');
     this.fdc = new WD1772();
+    // The MOS polls the WD1770 for BUSY to *set* (command accepted) before
+    // waiting for it to clear, so Type I commands must pulse BUSY.
+    this.fdc.pulseBusy = true;
     this.vdp = new Tms9918a();
     this.ctc = new Z80Ctc();
     this.keyboard = new EinsteinKeyboard();
@@ -210,6 +213,7 @@ export class EinsteinMachine extends BaseMachine implements Machine {
       }
     }
 
+    this.fdc.tickFrame();   // motor spin-down / display-latch decay
     this.needsDisplay = true;
   }
 

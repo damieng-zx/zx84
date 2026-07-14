@@ -60,6 +60,13 @@ const MOTOR_FRAMES = 50;
 const INDEX_PERIOD = 16;
 const INDEX_WIDTH = 4;
 
+/** Status reads a Type I command holds BUSY set before revealing its result,
+ *  when {@link WD179x.pulseBusy} is enabled. Real WD177x hardware always holds
+ *  BUSY while a command executes; some ROMs (the Einstein MOS) poll for BUSY to
+ *  *set* as a command-accepted handshake before waiting for it to clear. Small
+ *  vs any driver's completion timeout. */
+const BUSY_PULSE_READS = 4;
+
 export class WD179x {
   // ── Registers ─────────────────────────────────────────────────────────
   private statusReg = 0;
@@ -81,6 +88,14 @@ export class WD179x {
   private typeICmd = true;
   /** Advances on each status read to phase the synthesised index pulse. */
   private indexCounter = 0;
+
+  /** When true, Type I commands assert BUSY for a few status reads before
+   *  revealing their result (realistic WD177x behaviour). Off by default so the
+   *  +D / Beta Disk keep their instant-completion model; the Einstein enables it
+   *  because its MOS polls for BUSY to *set* as a command-accepted handshake. */
+  pulseBusy = false;
+  private busyCountdown = 0;
+  private busyDoneStatus = 0;
 
   // ── Disk images ───────────────────────────────────────────────────────
   protected disks: (DskImage | null)[] = [null, null];
@@ -212,6 +227,12 @@ export class WD179x {
    *  when a disk is present and spinning so the ROM's index-edge detector sees
    *  the 0→1 transition it needs. */
   readStatus(): number {
+    // Type I BUSY pulse: hold BUSY set for the first few reads after the command,
+    // then reveal the completed status (see endTypeI / pulseBusy).
+    if (this.busyCountdown > 0) {
+      if (--this.busyCountdown === 0) this.statusReg = this.busyDoneStatus;
+      return this.statusReg;
+    }
     if (this.typeICmd && (this.statusReg & ST_BUSY) === 0
         && this.motorOn && this.disks[this.currentDrive] !== null) {
       this.indexCounter = (this.indexCounter + 1) % INDEX_PERIOD;
@@ -255,6 +276,7 @@ export class WD179x {
     cmd &= 0xFF;
     this.motorOn = true;
     this.motorFrames = MOTOR_FRAMES;
+    this.busyCountdown = 0; // drop any pending Type I BUSY pulse from a prior cmd
     const hi = cmd >> 4;
     // Type I (0x0-0x7) and Force Interrupt (0xD) leave the controller in Type I
     // status, where bit 1 = INDEX. Everything else is Type II/III (bit 1 = DRQ).
@@ -301,7 +323,15 @@ export class WD179x {
     s |= this.statusBit7();
     if (this.headTrack[this.currentDrive] === 0) s |= ST_TRACK0;
     if (this.writeProtect[this.currentDrive]) s |= ST_WRITEPROT;
-    this.statusReg = s; // BUSY cleared — completes instantly
+    if (this.pulseBusy) {
+      // Hold BUSY for a few reads (see BUSY_PULSE_READS) so a "wait for BUSY set"
+      // handshake sees it; readStatus reveals `s` once the pulse expires.
+      this.busyDoneStatus = s;
+      this.busyCountdown = BUSY_PULSE_READS;
+      this.statusReg = s | ST_BUSY;
+    } else {
+      this.statusReg = s; // BUSY cleared — completes instantly (legacy model)
+    }
   }
 
   // ── Type II: Read / Write sector ──────────────────────────────────────

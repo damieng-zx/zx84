@@ -22,7 +22,7 @@ import {
   persistSetting, resetSettingsGroup,
 } from '@/store/settings.ts';
 import { isPlus3 } from '@/spectrum.ts';
-import { cpcHasDisk, isPlusDCapable, isBetaDiskCapable } from '@/models.ts';
+import { cpcHasDisk, isPlusDCapable, isBetaDiskCapable, isEinsteinModel } from '@/models.ts';
 import { DISK_FORMATS, formatLabel, createBlankDisk } from '@/floppy/dsk.ts';
 import type { DskImage } from '@/floppy/disk-image.ts';
 import { createBlankHfe } from '@/floppy/hfe.ts';
@@ -279,7 +279,7 @@ export function DrivePane() {
   const betaDiskActive = () => betaDiskEnabled() && isBetaDiskCapable(currentModel());
 
   return (
-    <Pane id="drive-panel" label="Drives" mono visible={isPlus3(currentModel()) || cpcHasDisk(currentModel()) || plusDActive() || betaDiskActive()} onResetSettings={() => {
+    <Pane id="drive-panel" label="Drives" mono visible={isPlus3(currentModel()) || cpcHasDisk(currentModel()) || isEinsteinModel(currentModel()) || plusDActive() || betaDiskActive()} onResetSettings={() => {
       // Eject any loaded disk in each drive — +3/CPC A:/B: and the +D/Beta's
       // shared C:/D: signals. Guarded so empty drives don't fire a toast.
       if (currentDiskName()) ejectDisk(0);
@@ -296,7 +296,7 @@ export function DrivePane() {
         spectrum.betaDisk.fdc.writeProtect[0] = false; spectrum.betaDisk.fdc.writeProtect[1] = false;
       }
     }}>
-      <Show when={isPlus3(currentModel()) || cpcHasDisk(currentModel())}>
+      <Show when={isPlus3(currentModel()) || cpcHasDisk(currentModel()) || isEinsteinModel(currentModel())}>
         <DiskInfo
           label="A:"
           name={currentDiskName()}

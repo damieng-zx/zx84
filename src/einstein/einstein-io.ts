@@ -63,12 +63,16 @@ export function installEinsteinMemoryHooks(m: EinsteinMachine): void {
   cpu.contend = () => {};
 }
 
-/** Decode a drive-select latch write (port 0x23) onto the WD1770. */
+/** Decode the drive-select latch write (port 0x23) onto the WD1770 (per MAME's
+ *  drsel_w): drive select is one-hot on bits 0–3 (bit0 = drive 0, bit1 = drive
+ *  1); bit4 selects the side. There is no motor or density bit — the WD1770 runs
+ *  fixed double-density and the motor is effectively on while a drive is
+ *  selected. */
 function setDriveSelect(m: EinsteinMachine, val: number): void {
-  // bit0/1 select the drive, bit2 the side; motor spins while any drive bit set.
-  m.fdc.selectDrive(val & 1);
-  m.fdc.side = (val >> 2) & 1;
-  m.fdc.motorOn = (val & 0x03) !== 0;
+  if (val & 0x01) m.fdc.selectDrive(0);
+  else if (val & 0x02) m.fdc.selectDrive(1);
+  m.fdc.side = (val >> 4) & 1;
+  m.fdc.motorOn = (val & 0x0F) !== 0;
 }
 
 /** Wire CPU port-in/out to the AY, VDP, FDC, CTC and the ROM toggle. */
