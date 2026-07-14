@@ -24,6 +24,7 @@
 
 import type { DskImage, DskTrack, DskSector } from './disk-image.ts';
 import { decodeHfeTrack } from './hfe.ts';
+import { detectDiskFormat, detectProtection, isFlippyDisk } from './disk-detect.ts';
 
 const TRACK_TABLE = 0x10;
 const MAX_TRACKS = 168;
@@ -210,12 +211,20 @@ export function parseSCP(data: Uint8Array): DskImage {
     if (rel % step === 0) put(rel / step, 0, phys[t]);          // spaced single-side
   }
 
-  return {
+  const image: DskImage = {
     format: 'extended',
     numTracks: tracks.length,
     numSides,
     tracks,
-    diskFormat: 'SCP (flux)',
+    diskFormat: '',
     protection: '',
   };
+
+  // Run the same content detectors DSK/HFE use — the whole point of flux fidelity
+  // is preserving copy protection, so it must be surfaced. Tag the geometric
+  // format with "(flux)" so the UI still shows this came from a flux image.
+  image.flippy = isFlippyDisk(image);
+  image.diskFormat = `${detectDiskFormat(image)} (flux)`;
+  image.protection = detectProtection(image);
+  return image;
 }

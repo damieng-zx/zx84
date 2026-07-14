@@ -78,7 +78,9 @@ describe('parseSCP flux decode', () => {
   it('recovers sectors from a single-revolution flux track', () => {
     const t = track([{ r: 1, fill: 0xAA }, { r: 2, fill: 0xBB }]);
     const img = parseSCP(buildScp([fluxFor(t)]));
-    expect(img.diskFormat).toBe('SCP (flux)');
+    // Format is detected from content (2 sectors × 512b here), with a "(flux)"
+    // tag marking the flux origin — not a hardcoded "SCP (flux)" placeholder.
+    expect(img.diskFormat).toBe('2×512b (flux)');
     const dec = img.tracks[0]![0]!;
     expect(dec.sectors.length).toBe(2);
     const s1 = dec.sectors[dec.sectorMap.get(1)!];
