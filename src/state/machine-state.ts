@@ -14,6 +14,7 @@ import type { MachineModel } from '@/models.ts';
 const KNOWN_MODELS: readonly MachineModel[] = [
   '16k', '48k', '128k', '+2', '+2A', '+3',
   'cpc6128', 'cpc464', 'cpc664',
+  'einstein',
 ];
 
 function loadSavedModel(): MachineModel | null {

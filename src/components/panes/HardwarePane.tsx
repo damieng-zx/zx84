@@ -7,7 +7,7 @@ import {
   multifaceRomFailed, vtx5000RomFailed, paradosRomFailed, plusDRomFailed, interface1RomFailed, betaDiskRomFailed,
 } from '@/emulator.ts';
 import type { SpectrumModel } from '@/spectrum.ts';
-import { type MachineModel, isCpcModel, cpcHasDisk, isPlusDCapable, isInterface1Capable, isBetaDiskCapable } from '@/models.ts';
+import { type MachineModel, isCpcModel, isEinsteinModel, cpcHasDisk, isPlusDCapable, isInterface1Capable, isBetaDiskCapable } from '@/models.ts';
 import { Show } from 'solid-js';
 import { variantForModel, variantLabel } from '@/peripherals/multiface.ts';
 import * as settings from '@/store/settings.ts';
@@ -38,6 +38,7 @@ export function HardwarePane() {
           <option value="cpc464">Amstrad CPC 464</option>
           <option value="cpc664">Amstrad CPC 664</option>
           <option value="cpc6128">Amstrad CPC 6128</option>
+          <option value="einstein">Tatung Einstein TC-01</option>
         </select>
         <button
           id="cpu-mhz"
@@ -48,8 +49,9 @@ export function HardwarePane() {
         <button id="cpu-reset" title="Reset machine" onClick={resetMachine}><HiOutlinePower /></button>
       </div>
       <div class="hw-options">
-      {/* Multiface and VTX-5000 are Spectrum-only peripherals. */}
-      <Show when={!isCpcModel(currentModel())}>
+      {/* Multiface, VTX-5000, +D, IF1 and Beta Disk are Spectrum-only — hide the
+          whole block for the CPC and Einstein. */}
+      <Show when={!isCpcModel(currentModel()) && !isEinsteinModel(currentModel())}>
         <div class="multiface-row">
           <label
             class={`mf-check${multifaceRomFailed() ? ' rom-failed' : ''}`}

@@ -5,13 +5,15 @@
 import { batch } from 'solid-js';
 import { Spectrum } from '@/spectrum.ts';
 import { CpcMachine } from '@/cpc/cpc-machine.ts';
-import { type Machine, asSpectrum, asCpc } from '@/machine.ts';
+import { EinsteinMachine } from '@/einstein/einstein-machine.ts';
+import { type Machine, asSpectrum, asCpc, asEinstein } from '@/machine.ts';
 import {
-  type SpectrumModel, type MachineModel, type CpcModel,
-  is128kClass, isPlus2AClass, isCpcModel, isPlusDCapable, isInterface1Capable,
-  isBetaDiskCapable,
+  type SpectrumModel, type MachineModel, type CpcModel, type EinsteinModel,
+  is128kClass, isPlus2AClass, isCpcModel, isEinsteinModel, isPlusDCapable,
+  isInterface1Capable, isBetaDiskCapable,
 } from '@/models.ts';
 import { CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT, CPC_PALETTES } from '@/cpc/constants.ts';
+import { EINSTEIN_SCREEN_WIDTH, EINSTEIN_SCREEN_HEIGHT } from '@/einstein/constants.ts';
 import { WebGLRenderer } from '@/display/webgl-renderer.ts';
 import { CanvasRenderer } from '@/display/canvas-renderer.ts';
 import { FloppySound } from '@/floppy/floppy-sound.ts';
@@ -237,8 +239,9 @@ export function setCanvas(el: HTMLCanvasElement): void {
   if (machine) {
     // Swap display without rebuilding machine (e.g. renderer switch)
     const s = asSpectrum(machine);
-    const w = s ? s.ula.screenWidth : CPC_SCREEN_WIDTH;
-    const h = s ? s.ula.screenHeight : CPC_SCREEN_HEIGHT;
+    const ein = asEinstein(machine);
+    const w = s ? s.ula.screenWidth : ein ? EINSTEIN_SCREEN_WIDTH : CPC_SCREEN_WIDTH;
+    const h = s ? s.ula.screenHeight : ein ? EINSTEIN_SCREEN_HEIGHT : CPC_SCREEN_HEIGHT;
     machine.display = createDisplay(el, w, h);
     applyDisplaySettings();
   }
@@ -273,13 +276,19 @@ export function applyDisplaySettings(): void {
     s.tapeSoundEnabled = settings.tapeSoundEnabled();
     s.scanlineAccuracy = settings.scanlineAccuracy();
   } else {
-    // CPC: AY-only, no beeper mixer. Volume + Fast ROM + Turbo while loading
-    // (no Fast edge — the CPC has no Spectrum-style loader detector).
-    const c = machine as CpcMachine;
-    c.gateArray.palette = CPC_PALETTES[settings.cpcColorMap()];
-    c.audio.setVolume(settings.volume() / 100);
-    c.tapeFastRom = settings.tapeFastRom();
-    c.tapeTurbo = settings.tapeTurbo();
+    const ein = asEinstein(machine);
+    if (ein) {
+      // Einstein: AY-only, fixed TMS9929A palette. Just volume for now.
+      ein.audio.setVolume(settings.volume() / 100);
+    } else {
+      // CPC: AY-only, no beeper mixer. Volume + Fast ROM + Turbo while loading
+      // (no Fast edge — the CPC has no Spectrum-style loader detector).
+      const c = machine as CpcMachine;
+      c.gateArray.palette = CPC_PALETTES[settings.cpcColorMap()];
+      c.audio.setVolume(settings.volume() / 100);
+      c.tapeFastRom = settings.tapeFastRom();
+      c.tapeTurbo = settings.tapeTurbo();
+    }
   }
 }
 
@@ -306,9 +315,14 @@ export async function createMachine(): Promise<boolean> {
 
   const model = currentModel();
   const cpc = isCpcModel(model);
-  const [w, h] = cpc ? [CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT] : [SCREEN_WIDTH, SCREEN_HEIGHT];
+  const einstein = isEinsteinModel(model);
+  const [w, h] = einstein ? [EINSTEIN_SCREEN_WIDTH, EINSTEIN_SCREEN_HEIGHT]
+    : cpc ? [CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT]
+    : [SCREEN_WIDTH, SCREEN_HEIGHT];
   const display = canvasEl ? createDisplay(canvasEl, w, h) : null;
-  machine = cpc
+  machine = einstein
+    ? new EinsteinMachine(model as EinsteinModel, display)
+    : cpc
     ? new CpcMachine(model as CpcModel, display)
     : new Spectrum(model as SpectrumModel, display);
   spectrum = asSpectrum(machine);
@@ -397,7 +411,8 @@ export async function createMachine(): Promise<boolean> {
   setCurrentDiskName('');
   setCurrentDiskInfoB(null);
   setCurrentDiskNameB('');
-  const hasFDC = spectrum ? spectrum.variant.hasFDC : (machine as CpcMachine).config.hasFDC;
+  const hasFDC = spectrum ? spectrum.variant.hasFDC
+    : (asCpc(machine)?.config.hasFDC ?? asEinstein(machine)?.config.hasFDC ?? false);
   if (hasFDC) {
     machine.fdc.writeProtect[0] = settings.writeProtectA();
     machine.fdc.writeProtect[1] = settings.writeProtectB();

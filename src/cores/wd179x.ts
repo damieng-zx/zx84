@@ -86,6 +86,16 @@ export class WD179x {
   protected disks: (DskImage | null)[] = [null, null];
   /** Per-drive write-protect (software tab). */
   writeProtect = [false, false];
+  /** Per-drive force-ready override and flippy-disk side selection. Present for
+   *  parity with the uPD765A so both FDCs satisfy the shared `Machine.fdc`
+   *  surface; inert on the WD179x (its drives are always ready when a disk is
+   *  present and images are not treated as flippy). */
+  forceReady = [false, false];
+  flipSide = [0, 0];
+  /** Optional command-log sink (parity with the uPD765A's `logFn` so the MCP
+   *  fdc-log tool can attach through the shared `Machine.fdc`). Unused by the
+   *  WD179x today; wired when Einstein/+D/Beta FDC logging is added. */
+  logFn: ((...args: unknown[]) => void) | null = null;
 
   // ── Chip-specific hooks (overridden by subclasses) ────────────────────
   /** Status bit 7. Default (WD1772) is the MOTOR ON line. The WD1793 overrides

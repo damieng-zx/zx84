@@ -16,6 +16,7 @@
 import type { Z80 } from '@/cores/z80.ts';
 import type { AY3891x } from '@/cores/ay-3-8910.ts';
 import type { UPD765A } from '@/cores/upd765a.ts';
+import type { WD179x } from '@/cores/wd179x.ts';
 import type { DskImage } from '@/floppy/disk-image.ts';
 import type { AudioMixer } from '@/peripherals/audio-mixer.ts';
 import type { TapeDeck } from '@/tape/tap.ts';
@@ -25,7 +26,13 @@ import type { ByteReader } from '@/memory.ts';
 import type { MachineModel } from '@/models.ts';
 import type { OcrGridName } from '@/debug/screen-text.ts';
 
-export type MachineKind = 'spectrum' | 'cpc';
+export type MachineKind = 'spectrum' | 'cpc' | 'einstein';
+
+/** The floppy controller as seen through the shared interface. The +3/CPC use
+ *  the NEC uPD765A; the Einstein (and the +D/Beta Disk interfaces) use a Western
+ *  Digital WD179x. Both expose the common surface the lifecycle/UI layer needs
+ *  (insert/eject/getDiskImage, write-protect, force-ready, tickFrame). */
+export type MachineFdc = UPD765A | WD179x;
 
 /** Border-size selector shared by both machines: 0=none, 1=small, 2=normal. */
 export type BorderMode = 0 | 1 | 2;
@@ -58,7 +65,7 @@ export interface Machine {
   cpu: Z80;
   memory: IMachineMemory;
   ay: AY3891x;
-  fdc: UPD765A;
+  fdc: MachineFdc;
   /** Cassette deck. Both machines load TZX/CDT/TAP through the same pulse-level
    *  engine; machine-specific loader extras (the Spectrum's loader detector,
    *  tape turbo) stay off this interface and are reached via `asSpectrum()`. */
@@ -112,4 +119,9 @@ export function asSpectrum(m: Machine | null): import('@/spectrum.ts').Spectrum 
 /** Narrow a Machine to a CpcMachine, or null if it is a different machine. */
 export function asCpc(m: Machine | null): import('@/cpc/cpc-machine.ts').CpcMachine | null {
   return m && m.kind === 'cpc' ? (m as unknown as import('@/cpc/cpc-machine.ts').CpcMachine) : null;
+}
+
+/** Narrow a Machine to an EinsteinMachine, or null if it is a different machine. */
+export function asEinstein(m: Machine | null): import('@/einstein/einstein-machine.ts').EinsteinMachine | null {
+  return m && m.kind === 'einstein' ? (m as unknown as import('@/einstein/einstein-machine.ts').EinsteinMachine) : null;
 }

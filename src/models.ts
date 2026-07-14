@@ -63,9 +63,6 @@ export function isBetaDiskCapable(m: MachineModel): boolean {
  *  extension point for the 464/664 (different RAM/ROM/CRTC). */
 export type CpcModel = 'cpc6128' | 'cpc464' | 'cpc664';
 
-/** Any machine ZX84 can emulate. */
-export type MachineModel = SpectrumModel | CpcModel;
-
 /** Type guard: true for any Amstrad CPC model. */
 export function isCpcModel(m: MachineModel): m is CpcModel {
   return m === 'cpc6128' || m === 'cpc464' || m === 'cpc664';
@@ -76,3 +73,20 @@ export function isCpcModel(m: MachineModel): m is CpcModel {
 export function cpcHasDisk(m: MachineModel): boolean {
   return m === 'cpc6128' || m === 'cpc664';
 }
+
+// ── Tatung Einstein family ──────────────────────────────────────────────
+//
+// Like the CPC, the Einstein is a different machine, not a Spectrum variant —
+// a Z80A with a TMS9918A VDP, AY-3-8910 and WD1770 FDC. It gets its own model
+// union so the Spectrum/CPC helpers stay closed over their own values.
+
+/** Tatung Einstein models. Only the TC-01 ships today. */
+export type EinsteinModel = 'einstein';
+
+/** Type guard: true for any Tatung Einstein model. */
+export function isEinsteinModel(m: MachineModel): m is EinsteinModel {
+  return m === 'einstein';
+}
+
+/** Any machine ZX84 can emulate. */
+export type MachineModel = SpectrumModel | CpcModel | EinsteinModel;
