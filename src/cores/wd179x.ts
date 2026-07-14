@@ -171,6 +171,7 @@ export class WD179x {
     this.fmtState = 'idle';
     this.latchFrames = 0;
     this.motorFrames = 0;
+    this.busyCountdown = 0;
   }
 
   /**

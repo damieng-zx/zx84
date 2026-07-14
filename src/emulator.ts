@@ -326,6 +326,7 @@ export async function createMachine(): Promise<boolean> {
     ? new CpcMachine(model as CpcModel, display)
     : new Spectrum(model as SpectrumModel, display);
   spectrum = asSpectrum(machine);
+  einsteinBasicPhantom = false;   // fresh FDC on the new machine
   machine.onStatus = (msg: string) => setStatus(msg);
   machine.onFrame = onFrame;
   applyDisplaySettings();
@@ -451,6 +452,10 @@ export async function createMachine(): Promise<boolean> {
       setTurboMode(false);
     });
   }
+
+  // Einstein: mount the phantom BASIC boot disk if the option is on and drive 0
+  // is empty (fire-and-forget — it only matters once the user presses Ctrl-BREAK).
+  applyEinsteinBasicDisk();
 
   unpause();
   return hmrRestored;
@@ -883,7 +888,7 @@ export async function loadFile(data: Uint8Array, filename: string, unit?: number
       const image = parseFloppyImage(data);
       const u = unit ?? 0;
       ein.loadDisk(image, u);
-      if (u === 0) { setCurrentDiskInfo(image); setCurrentDiskName(filename); }
+      if (u === 0) { einsteinBasicPhantom = false; setCurrentDiskInfo(image); setCurrentDiskName(filename); }
       else { setCurrentDiskInfoB(image); setCurrentDiskNameB(filename); }
       setStatus(`Drive ${u}: loaded: ${filename}`);
     } catch (e) {
@@ -1147,6 +1152,9 @@ export function ejectDisk(unit: number = 0): void {
     clearDisk(unit);   // drop the persisted image so a hard refresh won't remount it
     onEjected(unit);
     setStatus(`Disk ${unit === 0 ? 'A' : 'B'}: ejected`);
+    // Ejecting a real disk from Einstein drive 0 may re-expose the phantom
+    // BASIC disk (if the option is on).
+    if (unit === 0) { einsteinBasicPhantom = false; applyEinsteinBasicDisk(); }
   }
 }
 
@@ -1154,12 +1162,51 @@ export function insertBlankDisk(image: DskImage, name: string, unit: number): vo
   if (!machine) return;
   machine.fdc.insertDisk(image, unit);
   if (unit === 0) {
+    einsteinBasicPhantom = false;   // a real disk now occupies drive 0
     setCurrentDiskInfo(image);
     setCurrentDiskName(name);
   } else {
     setCurrentDiskInfoB(image);
     setCurrentDiskNameB(name);
   }
+}
+
+// ── Einstein "BASIC" auto-boot disk ──────────────────────────────────────
+// When the Einstein "BASIC" hardware option is on and drive 0 holds no user
+// disk, a phantom Xtal BASIC boot disk (einstein-xbas.dsk, fetched from the ROM
+// host) is kept in the WD1770's drive 0 so Ctrl-BREAK boots BASIC — WITHOUT
+// showing as a mounted disk (the UI drive-0 signals stay empty). A real disk
+// mounted in drive 0 always takes precedence.
+let einsteinBasicImage: DskImage | null = null;
+let einsteinBasicPhantom = false;
+
+/** Reconcile the phantom BASIC disk with the current option + drive-0 state. */
+export async function applyEinsteinBasicDisk(): Promise<void> {
+  const ein = asEinstein(machine);
+  if (!ein) { einsteinBasicPhantom = false; return; }
+  const want = settings.einsteinBasic() && currentDiskName() === '';
+  if (want && !einsteinBasicPhantom) {
+    if (!einsteinBasicImage) {
+      const data = await romManager.fetchEinsteinBasicDisk();
+      if (!data) return;                       // unavailable → option is a no-op
+      try { einsteinBasicImage = parseFloppyImage(data); } catch { return; }
+    }
+    // Re-check across the async gap: same machine, still wanted, drive 0 empty.
+    if (asEinstein(machine) === ein && settings.einsteinBasic() && currentDiskName() === '') {
+      ein.fdc.insertDisk(einsteinBasicImage, 0);
+      einsteinBasicPhantom = true;
+    }
+  } else if (!want && einsteinBasicPhantom) {
+    ein.fdc.ejectDisk(0);
+    einsteinBasicPhantom = false;
+  }
+}
+
+/** Toggle the Einstein "BASIC" hardware option and apply it immediately. */
+export function setEinsteinBasicEnabled(on: boolean): void {
+  settings.setEinsteinBasic(on);
+  settings.persistSetting('einstein-basic', on ? 'on' : 'off');
+  applyEinsteinBasicDisk();
 }
 
 /**
@@ -1218,6 +1265,7 @@ export function loadDiskToUnit(data: Uint8Array, filename: string, unit: number)
     try {
       const image = parseFloppyImage(data);
       (cpc ?? ein)!.loadDisk(image, unit);
+      if (ein && unit === 0) einsteinBasicPhantom = false;
       onDiskLoaded(image, filename, unit);
       setStatus(`Disk ${unit === 0 ? 'A' : 'B'}: loaded: ${filename}`);
     } catch (e) {

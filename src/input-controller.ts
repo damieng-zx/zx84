@@ -12,6 +12,7 @@ import {
   spectrum, machine, joyPressForType, resetJoystickKeyState,
 } from '@/emulator.ts';
 import type { CpcMachine } from '@/cpc/cpc-machine.ts';
+import type { EinsteinMachine } from '@/einstein/einstein-machine.ts';
 import {
   configuringPlayer, setConfiguringPlayer,
   configuringStep, setConfiguringStep,
@@ -144,6 +145,10 @@ export class InputController {
       if ((machine as CpcMachine).keyboard.handleKeyEvent(e.code, true)) e.preventDefault();
       return;
     }
+    if (machine?.kind === 'einstein') {
+      if ((machine as EinsteinMachine).keyboard.handleKeyEvent(e.code, true)) e.preventDefault();
+      return;
+    }
     if (!spectrum) return;
     if (this.handleJoyKey(e, true)) { e.preventDefault(); return; }
     if (spectrum.keyboard.handleKeyEvent(e.code, true, e.key)) {
@@ -158,6 +163,10 @@ export class InputController {
       if ((machine as CpcMachine).keyboard.handleKeyEvent(e.code, false)) e.preventDefault();
       return;
     }
+    if (machine?.kind === 'einstein') {
+      if ((machine as EinsteinMachine).keyboard.handleKeyEvent(e.code, false)) e.preventDefault();
+      return;
+    }
     if (!spectrum) return;
     if (this.handleJoyKey(e, false)) { e.preventDefault(); return; }
     if (spectrum.keyboard.handleKeyEvent(e.code, false, e.key)) {
@@ -170,6 +179,7 @@ export class InputController {
    *  Spectrum matrix bit (and any modifier reference counts) asserted. */
   onBlur = (): void => {
     if (machine?.kind === 'cpc') { (machine as CpcMachine).keyboard.reset(); return; }
+    if (machine?.kind === 'einstein') { (machine as EinsteinMachine).keyboard.reset(); return; }
     if (!spectrum) return;
     spectrum.keyboard.reset();
     resetJoystickKeyState();
