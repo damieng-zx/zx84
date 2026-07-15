@@ -14,8 +14,35 @@
 import type { VdpMode } from '@/cores/tms9918a.ts';
 import type { OcrResult } from '@/debug/screen-text.ts';
 
-/** ASCII-ordered 8-byte font glyphs in the 8KB MOS ROM (glyph C at +C*8). */
+/** Default ASCII-ordered 8-byte font offset in the MOS ROM (MOS 1.21). The
+ *  offset differs by MOS version (1.2 @ 0x106D, 1.21 @ 0x107A), so it is
+ *  detected at runtime with {@link findFontOffset}; this is the fallback. */
 export const EINSTEIN_FONT_OFFSET = 0x107A;
+
+/**
+ * Locate the ASCII-ordered 8-byte-glyph font in the MOS ROM. Scans for the base
+ * where the space glyph is blank while letters/digits have a plausible pixel
+ * count and punctuation is sparse — robust across MOS versions. Falls back to
+ * {@link EINSTEIN_FONT_OFFSET} if nothing scores well.
+ */
+export function findFontOffset(rom: Uint8Array): number {
+  const nz = (base: number, ch: number): number => {
+    const a = base + ch * 8;
+    if (a + 8 > rom.length) return -1;
+    let c = 0;
+    for (let i = 0; i < 8; i++) if (rom[a + i]) c++;
+    return c;
+  };
+  let best = EINSTEIN_FONT_OFFSET, bestScore = 0;
+  for (let base = 0; base + 0x80 * 8 <= rom.length; base++) {
+    if (nz(base, 0x20) !== 0) continue;                 // space must be blank
+    let score = 0;
+    for (const ch of [0x41, 0x42, 0x43, 0x45, 0x4D, 0x30, 0x31]) { const n = nz(base, ch); if (n >= 3 && n <= 7) score++; }
+    for (const ch of [0x2E, 0x2C, 0x3A]) { const n = nz(base, ch); if (n >= 1 && n <= 4) score++; }
+    if (score > bestScore) { bestScore = score; best = base; }
+  }
+  return best;
+}
 
 const FIRST_CH = 0x20;   // space
 const LAST_CH = 0x7E;    // ~
@@ -87,7 +114,8 @@ function matchGlyph(glyph: Uint8Array, font: Uint8Array): number {
 /** Foreground/background colour indices (0–15) of the character cell at column
  *  `col`, sampled from the pattern cell holding its left edge. */
 function cellColour(vram: Uint8Array, regs: Uint8Array, mode: VdpMode, col: number, row: number): { fg: number; bg: number } {
-  if (mode === 'text') return { fg: (regs[7] >> 4) & 0x0F, bg: regs[7] & 0x0F };
+  const backdrop = regs[7] & 0x0F;
+  if (mode === 'text') return { fg: (regs[7] >> 4) & 0x0F, bg: backdrop };
   const nameBase = (regs[2] & 0x0F) << 10;
   const cell = (col * CELL_W) >> 3;
   const name = vram[(nameBase + row * 32 + cell) & 0x3FFF];
@@ -100,7 +128,12 @@ function cellColour(vram: Uint8Array, regs: Uint8Array, mode: VdpMode, col: numb
   } else {
     colByte = vram[((regs[3] << 6) + (name >> 3)) & 0x3FFF];
   }
-  return { fg: (colByte >> 4) & 0x0F, bg: colByte & 0x0F };
+  let fg = (colByte >> 4) & 0x0F, bg = colByte & 0x0F;
+  // Colour 0 is transparent — the TMS9918A shows the backdrop through it, so the
+  // effective paper/ink behind a transparent cell is the backdrop colour.
+  if (fg === 0) fg = backdrop;
+  if (bg === 0) bg = backdrop;
+  return { fg, bg };
 }
 
 function abgrToHex(abgr: number): string {
@@ -117,6 +150,14 @@ export class EinsteinScreenText {
   activate(): void { this.active = true; }
   deactivate(): void { this.active = false; }
 
+  /** Cached font offset + the ROM it was detected from (re-detect on ROM change). */
+  private fontRom: Uint8Array | null = null;
+  private fontOff = EINSTEIN_FONT_OFFSET;
+  private font(rom: Uint8Array): Uint8Array {
+    if (rom !== this.fontRom) { this.fontOff = findFontOffset(rom); this.fontRom = rom; }
+    return rom.subarray(this.fontOff);
+  }
+
   /**
    * OCR the current screen to text. `font` is the MOS ROM (8KB) so glyphs can be
    * looked up at EINSTEIN_FONT_OFFSET. Returns rows of text (trailing blank rows
@@ -124,7 +165,7 @@ export class EinsteinScreenText {
    */
   ocr(vram: Uint8Array, regs: Uint8Array, mode: VdpMode, rom: Uint8Array): string {
     if (mode === 'multicolor') return '(multicolor mode — no text)';
-    const font = rom.subarray(EINSTEIN_FONT_OFFSET);
+    const font = this.font(rom);
     const cols = Math.floor(256 / CELL_W); // 42 chars across the 256px display
     const rows = 24;
     const glyph = new Uint8Array(8);
@@ -151,7 +192,7 @@ export class EinsteinScreenText {
   ocrStyled(vram: Uint8Array, regs: Uint8Array, mode: VdpMode, rom: Uint8Array, palette: Uint32Array): OcrResult {
     const cols = Math.floor(256 / CELL_W); // 42
     const rows = 24;
-    const font = rom.subarray(EINSTEIN_FONT_OFFSET);
+    const font = this.font(rom);
     const glyph = new Uint8Array(8);
     const mask: boolean[] = new Array(cols * rows);
     const paper: number[] = new Array(cols * rows);
