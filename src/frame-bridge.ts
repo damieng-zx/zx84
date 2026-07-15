@@ -575,6 +575,7 @@ export function onFrame(): void {
         const ledNow = performance.now();
         setLedKbd(ledLatched('kbd', ea.kbdReads > 0, ledNow));
         setLedDsk(ledLatched('dsk', ea.fdcAccesses > 0, ledNow));
+        setLedAy(ledLatched('ay', ea.ayWrites > 5, ledNow));
         // Drive A:/B: track/sector readout + LED (WD1770 units 0/1).
         setDriveAStatus(renderDriveStatus(0, activeUnit, ein.fdc));
         setDriveBStatus(renderDriveStatus(1, activeUnit, ein.fdc));

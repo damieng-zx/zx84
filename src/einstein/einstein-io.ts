@@ -102,6 +102,9 @@ export function wireEinsteinPortIO(m: EinsteinMachine): void {
         if (reg === 2) ay.selectedReg = val & 0x0F;
         else if (reg === 3) {
           ay.writeRegister(ay.selectedReg, val);
+          // Count only sound-register writes (0–13) for the AY LED — registers
+          // 14/15 are the I/O ports used for the keyboard scan every frame.
+          if (ay.selectedReg < 14) m.activity.ayWrites++;
           if (ay.selectedReg === AY_PORT_A) kbd.selectRows(val);
         }
         break;

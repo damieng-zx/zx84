@@ -59,7 +59,7 @@ export class EinsteinMachine extends BaseMachine implements Machine {
   display: IScreenRenderer | null;
 
   /** Per-frame I/O activity for the status-bar LEDs. */
-  readonly activity = { kbdReads: 0, fdcAccesses: 0, tapeReads: 0 };
+  readonly activity = { kbdReads: 0, fdcAccesses: 0, tapeReads: 0, ayWrites: 0 };
 
   /** RGBA frame buffer + a Uint32 view for fast VDP writes. */
   private readonly _pixels = new Uint8Array(EINSTEIN_SCREEN_WIDTH * EINSTEIN_SCREEN_HEIGHT * 4);
@@ -161,6 +161,7 @@ export class EinsteinMachine extends BaseMachine implements Machine {
     this.activity.kbdReads = 0;
     this.activity.fdcAccesses = 0;
     this.activity.tapeReads = 0;
+    this.activity.ayWrites = 0;
 
     // Fill the whole buffer (incl. border) with the current backdrop.
     this._pixels32.fill(this.vdp.backdrop());
