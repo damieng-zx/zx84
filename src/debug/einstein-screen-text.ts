@@ -102,7 +102,10 @@ function matchGlyph(glyph: Uint8Array, font: Uint8Array): number {
       let diff = 0;
       for (let p = 0; p < 8 && diff < bestDiff; p++) {
         const f = inv ? (font[fb + p] ^ 0xFF) & 0xFF : font[fb + p] & 0xFF;
-        let x = (glyph[p] ^ f) & 0xFF;
+        // Compare only the 6 significant bits (cols 0–5): the extractor leaves
+        // bits 1–0 blank, but the inverted font sets them, so masking is needed
+        // for inverse-video glyphs to match.
+        let x = (glyph[p] ^ f) & 0xFC;
         while (x) { diff++; x &= x - 1; } // popcount of differing bits
       }
       if (diff < bestDiff) { bestDiff = diff; bestCh = ch; if (diff === 0) return ch; }
