@@ -89,13 +89,15 @@ function extractGlyph(vram: Uint8Array, regs: Uint8Array, mode: VdpMode,
 }
 
 /** Match an 8-byte glyph against the font (normal + inverse video). Returns the
- *  ASCII code, or -1 if unrecognised. A blank glyph matches space. */
-function matchGlyph(glyph: Uint8Array, font: Uint8Array): number {
+ *  ASCII code (or -1 if unrecognised) and whether it matched inverse-video (the
+ *  glyph was the font inverted, i.e. the cell's fg/bg are swapped on screen). A
+ *  blank glyph matches space. */
+function matchGlyph(glyph: Uint8Array, font: Uint8Array): { code: number; inverse: boolean } {
   let blank = true;
   for (let i = 0; i < 8; i++) if (glyph[i] !== 0) { blank = false; break; }
-  if (blank) return 0x20;
+  if (blank) return { code: 0x20, inverse: false };
 
-  let bestCh = -1, bestDiff = 9; // allow a small tolerance for near-matches
+  let bestCh = -1, bestDiff = 9, bestInv = false; // allow a small tolerance
   for (let ch = FIRST_CH; ch <= LAST_CH; ch++) {
     const fb = ch * 8;
     for (let inv = 0; inv < 2; inv++) {
@@ -108,10 +110,10 @@ function matchGlyph(glyph: Uint8Array, font: Uint8Array): number {
         let x = (glyph[p] ^ f) & 0xFC;
         while (x) { diff++; x &= x - 1; } // popcount of differing bits
       }
-      if (diff < bestDiff) { bestDiff = diff; bestCh = ch; if (diff === 0) return ch; }
+      if (diff < bestDiff) { bestDiff = diff; bestCh = ch; bestInv = inv === 1; if (diff === 0) return { code: ch, inverse: bestInv }; }
     }
   }
-  return bestDiff <= 4 ? bestCh : -1;
+  return bestDiff <= 4 ? { code: bestCh, inverse: bestInv } : { code: -1, inverse: false };
 }
 
 /** Foreground/background colour indices (0–15) of the character cell at column
@@ -177,8 +179,8 @@ export class EinsteinScreenText {
       let line = '';
       for (let col = 0; col < cols; col++) {
         extractGlyph(vram, regs, mode, col, row, glyph);
-        const ch = matchGlyph(glyph, font);
-        line += ch >= 0 ? String.fromCharCode(ch) : '?';
+        const { code } = matchGlyph(glyph, font);
+        line += code >= 0 ? String.fromCharCode(code) : '?';
       }
       lines.push(line.replace(/\s+$/, ''));
     }
@@ -205,9 +207,13 @@ export class EinsteinScreenText {
       for (let col = 0; col < cols; col++) {
         const idx = row * cols + col;
         const { fg, bg } = mode === 'multicolor' ? { fg: 15, bg: 0 } : cellColour(vram, regs, mode, col, row);
-        paper[idx] = bg;
         extractGlyph(vram, regs, mode, col, row, glyph);
-        const code = mode === 'multicolor' ? -1 : matchGlyph(glyph, font);
+        const { code, inverse } = mode === 'multicolor' ? { code: -1, inverse: false } : matchGlyph(glyph, font);
+        // Inverse video swaps the on-screen fg/bg: the glyph shows in the cell's
+        // background colour on a foreground-coloured cell.
+        const ink = inverse ? bg : fg;
+        const back = inverse ? fg : bg;
+        paper[idx] = back;
         const ch = code >= 0 ? String.fromCharCode(code) : ' ';
         text += ch;
         const matched = ch !== ' ';
@@ -217,7 +223,7 @@ export class EinsteinScreenText {
           html += ' ';
           continue;
         }
-        const hex = abgrToHex(palette[fg & 0x0F]);
+        const hex = abgrToHex(palette[ink & 0x0F]);
         if (hex !== curHex) {
           if (spanOpen) html += '</span>';
           html += `<span style="color:${hex}">`;
