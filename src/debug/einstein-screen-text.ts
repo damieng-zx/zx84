@@ -12,6 +12,7 @@
  */
 
 import type { VdpMode } from '@/cores/tms9918a.ts';
+import type { OcrResult } from '@/debug/screen-text.ts';
 
 /** ASCII-ordered 8-byte font glyphs in the 8KB MOS ROM (glyph C at +C*8). */
 export const EINSTEIN_FONT_OFFSET = 0x107A;
@@ -83,7 +84,39 @@ function matchGlyph(glyph: Uint8Array, font: Uint8Array): number {
   return bestDiff <= 4 ? bestCh : -1;
 }
 
+/** Foreground/background colour indices (0–15) of the character cell at column
+ *  `col`, sampled from the pattern cell holding its left edge. */
+function cellColour(vram: Uint8Array, regs: Uint8Array, mode: VdpMode, col: number, row: number): { fg: number; bg: number } {
+  if (mode === 'text') return { fg: (regs[7] >> 4) & 0x0F, bg: regs[7] & 0x0F };
+  const nameBase = (regs[2] & 0x0F) << 10;
+  const cell = (col * CELL_W) >> 3;
+  const name = vram[(nameBase + row * 32 + cell) & 0x3FFF];
+  let colByte: number;
+  if (mode === 'graphics2') {
+    const colBase = (regs[3] & 0x80) << 6;
+    const colMask = ((regs[3] & 0x7F) << 3) | 0x07;
+    const patternNum = (name + ((row >> 3) << 8)) & colMask;
+    colByte = vram[(colBase + (patternNum << 3) + 3) & 0x3FFF];
+  } else {
+    colByte = vram[((regs[3] << 6) + (name >> 3)) & 0x3FFF];
+  }
+  return { fg: (colByte >> 4) & 0x0F, bg: colByte & 0x0F };
+}
+
+function abgrToHex(abgr: number): string {
+  const r = abgr & 0xFF, g = (abgr >>> 8) & 0xFF, b = (abgr >>> 16) & 0xFF;
+  return '#' + ((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1);
+}
+function escapeHtml(ch: string): string {
+  return ch === '<' ? '&lt;' : ch === '>' ? '&gt;' : ch === '&' ? '&amp;' : ch;
+}
+
 export class EinsteinScreenText {
+  /** True while the TEXT overlay is showing (gates the per-frame OCR work). */
+  active = false;
+  activate(): void { this.active = true; }
+  deactivate(): void { this.active = false; }
+
   /**
    * OCR the current screen to text. `font` is the MOS ROM (8KB) so glyphs can be
    * looked up at EINSTEIN_FONT_OFFSET. Returns rows of text (trailing blank rows
@@ -107,5 +140,52 @@ export class EinsteinScreenText {
     }
     while (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
     return lines.join('\n');
+  }
+
+  /**
+   * Styled OCR for the TEXT overlay: plain text, coloured HTML (per-cell ink
+   * colour), and a match mask (matched non-space cells the framebuffer should
+   * blank so the crisp overlay glyph replaces the bitmap). `palette` is the
+   * TMS9918A ABGR colour table.
+   */
+  ocrStyled(vram: Uint8Array, regs: Uint8Array, mode: VdpMode, rom: Uint8Array, palette: Uint32Array): OcrResult {
+    const cols = Math.floor(256 / CELL_W); // 42
+    const rows = 24;
+    const font = rom.subarray(EINSTEIN_FONT_OFFSET);
+    const glyph = new Uint8Array(8);
+    const mask: boolean[] = new Array(cols * rows);
+    const paper: number[] = new Array(cols * rows);
+    let text = '', html = '', curHex = '', spanOpen = false;
+
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        const idx = row * cols + col;
+        const { fg, bg } = mode === 'multicolor' ? { fg: 15, bg: 0 } : cellColour(vram, regs, mode, col, row);
+        paper[idx] = bg;
+        extractGlyph(vram, regs, mode, col, row, glyph);
+        const code = mode === 'multicolor' ? -1 : matchGlyph(glyph, font);
+        const ch = code >= 0 ? String.fromCharCode(code) : ' ';
+        text += ch;
+        const matched = ch !== ' ';
+        mask[idx] = matched;
+        if (!matched) {
+          if (spanOpen) { html += '</span>'; spanOpen = false; curHex = ''; }
+          html += ' ';
+          continue;
+        }
+        const hex = abgrToHex(palette[fg & 0x0F]);
+        if (hex !== curHex) {
+          if (spanOpen) html += '</span>';
+          html += `<span style="color:${hex}">`;
+          curHex = hex;
+          spanOpen = true;
+        }
+        html += escapeHtml(ch);
+      }
+      if (spanOpen) { html += '</span>'; spanOpen = false; curHex = ''; }
+      if (row < rows - 1) { text += '\n'; html += '\n'; }
+    }
+
+    return { text, html, mask, paper, grid: '42x24', cellWidth: CELL_W, cellHeight: 8, cols, rows };
   }
 }

@@ -5,8 +5,9 @@
 import { createEffect, createSignal, onMount, onCleanup } from 'solid-js';
 import { Toast } from '@/components/Toast.tsx';
 import { setCanvas, machine, spectrum, transcribeMode, transcribeHtml, transcribeGrid, currentModel } from '@/emulator.ts';
-import { isCpcModel } from '@/models.ts';
+import { isCpcModel, isEinsteinModel } from '@/models.ts';
 import { CPC_BORDER_LEFT, CPC_BORDER_TOP } from '@/cpc/constants.ts';
+import { EINSTEIN_BORDER_LEFT, EINSTEIN_BORDER_TOP } from '@/einstein/constants.ts';
 import { renderer, scale, borderSize, ocrFont, ocrLineHeight, ocrTracking, ocrOffsetX, ocrOffsetY, ocrScaleX, ocrScaleY } from '@/store/settings.ts';
 
 // Base font size for the overlay before auto-scaling. The overlay is always
@@ -102,6 +103,16 @@ export function Screen() {
       originY = (CPC_BORDER_TOP - viewY) * effectiveScale;
       targetW = 640 * effectiveScale * pax;
       targetH = 200 * effectiveScale;
+    } else if (isEinsteinModel(currentModel())) {
+      // The 256×192 active area sits at (EINSTEIN_BORDER_LEFT, EINSTEIN_BORDER_TOP)
+      // with a 1:1 pixel aspect; the border setting crops the viewport as on the CPC.
+      const frac = bs === 2 ? 1 : bs === 1 ? 0.5 : 0;
+      const viewX = Math.round(EINSTEIN_BORDER_LEFT * (1 - frac));
+      const viewY = Math.round(EINSTEIN_BORDER_TOP * (1 - frac));
+      originX = (EINSTEIN_BORDER_LEFT - viewX) * effectiveScale;
+      originY = (EINSTEIN_BORDER_TOP - viewY) * effectiveScale;
+      targetW = 256 * effectiveScale;
+      targetH = 192 * effectiveScale;
     } else if (spectrum) {
       const borderPx = (spectrum.ula.screenWidth - 256) / 2;
       originX = borderPx * effectiveScale;

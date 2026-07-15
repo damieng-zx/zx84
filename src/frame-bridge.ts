@@ -576,9 +576,26 @@ export function onFrame(): void {
         setLedKbd(ledLatched('kbd', ea.kbdReads > 0, ledNow));
         setLedDsk(ledLatched('dsk', ea.fdcAccesses > 0, ledNow));
         setLedAy(ledLatched('ay', ea.ayWrites > 5, ledNow));
+        setLedText(transcribeMode() === 'text');
         // Drive A:/B: track/sector readout + LED (WD1770 units 0/1).
         setDriveAStatus(renderDriveStatus(0, activeUnit, ein.fdc));
         setDriveBStatus(renderDriveStatus(1, activeUnit, ein.fdc));
+
+        // TEXT overlay: OCR the screen, push text/HTML to the overlay, and blank
+        // the matched cells so the crisp overlay glyphs replace the bitmap.
+        if (transcribeMode() !== 'off') {
+          if (!ein.screenText.active) ein.screenText.activate();
+          const result = ein.ocrScreenStyled();
+          setTranscribeText(result.text);
+          setTranscribeHtml(result.html);
+          setTranscribeGrid(result.grid);
+          if (result.mask.length > 0) {
+            ein.blankCells(result.mask, result.cols, result.rows, result.paper);
+            if (ein.display) ein.display.updateTexture(ein.pixels);
+          }
+        } else if (ein.screenText.active) {
+          ein.screenText.deactivate();
+        }
       });
     }
     updateDebugFrame();

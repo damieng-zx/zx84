@@ -39,8 +39,12 @@ export type SpectrumOcrGrid = '32x24' | '51x24' | '64x24';
  *  so these deliberately live outside OCR_GRIDS. */
 export type CpcOcrGrid = '20x25' | '40x25' | '80x25';
 
+/** Einstein text grid — the TMS9929A 256px line holds 42 columns of the 6×8
+ *  system font (MOS + Xtal DOS), 24 rows. */
+export type EinsteinOcrGrid = '42x24';
+
 /** Any grid label an OCR producer can stamp onto an OcrResult. */
-export type OcrGridName = SpectrumOcrGrid | CpcOcrGrid;
+export type OcrGridName = SpectrumOcrGrid | CpcOcrGrid | EinsteinOcrGrid;
 
 export const OCR_GRIDS: Record<SpectrumOcrGrid, OcrConfig> = {
   '32x24': { cellWidth: 8, cellHeight: 8, cols: 32, rows: 24 },

@@ -26,7 +26,7 @@ import { disasmOne, type DisasmLine } from '@/debug/z80-disasm.ts';
 import type { IScreenRenderer } from '@/display/display.ts';
 import type { Machine, MachineKind, BorderMode, MachineTraceMode } from '@/machine.ts';
 import type { EinsteinModel } from '@/models.ts';
-import type { OcrGridName } from '@/debug/screen-text.ts';
+import type { OcrGridName, OcrResult } from '@/debug/screen-text.ts';
 import { EinsteinScreenText } from '@/debug/einstein-screen-text.ts';
 import { EinsteinMemory } from '@/einstein/einstein-memory.ts';
 import { EinsteinKeyboard } from '@/einstein/einstein-keyboard.ts';
@@ -245,5 +245,34 @@ export class EinsteinMachine extends BaseMachine implements Machine {
     // Recover the screen text from the VDP by matching each cell against the MOS
     // ROM font (the grid is fixed by the VDP mode, so `mode` is advisory).
     return this.screenText.ocr(this.vdp.vram, this.vdp.regs, this.vdp.mode(), this.memory.getRom());
+  }
+
+  /** Styled OCR (text + coloured HTML + match mask) for the TEXT overlay. */
+  ocrScreenStyled(): OcrResult {
+    return this.screenText.ocrStyled(this.vdp.vram, this.vdp.regs, this.vdp.mode(), this.memory.getRom(), this.vdp.palette);
+  }
+
+  /**
+   * Blank the matched character cells in the framebuffer to their paper colour
+   * so the crisp overlay glyphs replace the underlying bitmap. `mask` is
+   * row-major `cols×rows`; cells are 6×8 at the active-area origin.
+   */
+  blankCells(mask: boolean[], cols: number, rows: number, paper?: number[]): void {
+    const cellW = 6, cellH = 8;
+    const pal = this.vdp.palette;
+    for (let row = 0; row < rows; row++) {
+      const y0 = EINSTEIN_BORDER_TOP + row * cellH;
+      if (y0 + cellH > EINSTEIN_SCREEN_HEIGHT) break;
+      for (let col = 0; col < cols; col++) {
+        if (!mask[row * cols + col]) continue;
+        const x0 = EINSTEIN_BORDER_LEFT + col * cellW;
+        if (x0 + cellW > EINSTEIN_SCREEN_WIDTH) continue;
+        const fill = pal[(paper ? paper[row * cols + col] : 0) & 0x0F];
+        for (let y = 0; y < cellH; y++) {
+          const base = (y0 + y) * EINSTEIN_SCREEN_WIDTH + x0;
+          this._pixels32.fill(fill, base, base + cellW);
+        }
+      }
+    }
   }
 }
