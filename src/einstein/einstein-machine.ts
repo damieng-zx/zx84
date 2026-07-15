@@ -27,6 +27,7 @@ import type { IScreenRenderer } from '@/display/display.ts';
 import type { Machine, MachineKind, BorderMode, MachineTraceMode } from '@/machine.ts';
 import type { EinsteinModel } from '@/models.ts';
 import type { OcrGridName } from '@/debug/screen-text.ts';
+import { EinsteinScreenText } from '@/debug/einstein-screen-text.ts';
 import { EinsteinMemory } from '@/einstein/einstein-memory.ts';
 import { EinsteinKeyboard } from '@/einstein/einstein-keyboard.ts';
 import { installEinsteinMemoryHooks, wireEinsteinPortIO } from '@/einstein/einstein-io.ts';
@@ -60,6 +61,9 @@ export class EinsteinMachine extends BaseMachine implements Machine {
 
   /** Per-frame I/O activity for the status-bar LEDs. */
   readonly activity = { kbdReads: 0, fdcAccesses: 0, tapeReads: 0, ayWrites: 0 };
+
+  /** Screen-text OCR engine for the MCP `ocr` tool. */
+  readonly screenText = new EinsteinScreenText();
 
   /** RGBA frame buffer + a Uint32 view for fast VDP writes. */
   private readonly _pixels = new Uint8Array(EINSTEIN_SCREEN_WIDTH * EINSTEIN_SCREEN_HEIGHT * 4);
@@ -238,7 +242,8 @@ export class EinsteinMachine extends BaseMachine implements Machine {
   stopTrace(): string { return ''; }
 
   ocrScreenForMcp(_mode: OcrGridName | 'auto' = 'auto'): string {
-    // TMS9929A text OCR is a follow-up; report the current VDP mode for now.
-    return `[Einstein VDP mode: ${this.vdp.mode()}]`;
+    // Recover the screen text from the VDP by matching each cell against the MOS
+    // ROM font (the grid is fixed by the VDP mode, so `mode` is advisory).
+    return this.screenText.ocr(this.vdp.vram, this.vdp.regs, this.vdp.mode(), this.memory.getRom());
   }
 }
