@@ -76,6 +76,7 @@ function parseTapeBlockMeta(block: TapeBlock, index: number, blocks: TapeBlock[]
     }
     case 'tone': return { line: `${index}: Pure Tone`, detail: `${block.pulseLen}T × ${block.count} pulses`, hidden: false, control: true, absorbsNext: false };
     case 'pulses': return { line: `${index}: Pulse Sequence`, detail: `${block.lengths.length} pulses`, hidden: false, control: true, absorbsNext: false };
+    case 'csw': return { line: `${index}: CSW Recording`, detail: `${block.pulses.length} pulses`, hidden: false, control: true, absorbsNext: false };
     case 'direct': return { line: `${index}: Direct Recording`, detail: `${block.tStatesPerSample}T/sample, ${block.data.length} bytes, pause=${block.pause}ms`, hidden: false, control: true, absorbsNext: false };
     case 'pause': return { line: block.duration === 0 ? `${index}: Stop the tape` : `${index}: Pause ${block.duration}ms`, detail: '', hidden: false, control: true, absorbsNext: false };
     case 'set-level': return { line: `${index}: Set Level ${block.level}`, detail: '', hidden: false, control: true, absorbsNext: false };
@@ -93,7 +94,7 @@ export function TapePane() {
   async function handleLoadTape() {
     const results = await openFile({
       id: 'zx84-tape',
-      extensions: isCpc() ? ['.cdt', '.tzx', '.tap', '.zip'] : ['.tap', '.tzx', '.zip'],
+      extensions: isCpc() ? ['.cdt', '.tzx', '.tap', '.zip'] : ['.tap', '.tzx', '.csw', '.zip'],
     });
     if (!results) return;
     await loadFile(results[0].data, results[0].name);

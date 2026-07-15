@@ -13,6 +13,7 @@ import type { Machine } from '@/machine.ts';
 import { type SpectrumModel, is128kClass, isPlus2AClass } from '@/models.ts';
 import type { TapeBlock } from '@/tape/tap.ts';
 import { parseTZX } from '@/tape/tzx.ts';
+import { parseCSW } from '@/tape/csw.ts';
 import type { DskImage } from '@/floppy/disk-image.ts';
 import { parseFloppyImage } from '@/floppy/hfe.ts';
 import { unzip } from '@/snapshot/zip.ts';
@@ -47,15 +48,17 @@ function driveLetter(unit: number): string {
 
 export class MediaManager {
   /**
-   * Load tape (TAP, TZX, or CPC CDT) into the machine. CDT is byte-for-byte the
-   * same container as TZX, so both parse through parseTZX.
+   * Load tape (TAP, TZX, CPC CDT, or CSW) into the machine. CDT is byte-for-byte
+   * the same container as TZX, so both parse through parseTZX. CSW decodes
+   * asynchronously (Z-RLE inflate goes through DecompressionStream), which is
+   * why this method is async.
    */
-  applyTape(
+  async applyTape(
     machine: Machine,
     data: Uint8Array,
     filename: string,
     callbacks: Pick<MediaLoadCallbacks, 'onStatus' | 'onTapeLoaded' | 'unpause'>
-  ): void {
+  ): Promise<void> {
     // Stop the machine first to prevent the frame loop from interfering
     machine.stop();
 
@@ -65,6 +68,8 @@ export class MediaManager {
     try {
       if (ext === 'tzx' || ext === 'cdt') {
         blocks = parseTZX(data);
+      } else if (ext === 'csw') {
+        blocks = await parseCSW(data);
       } else {
         blocks = machine.tape.parseTAP(data);
       }
@@ -327,8 +332,8 @@ export class MediaManager {
       return;
     }
 
-    if (ext === 'tap' || ext === 'tzx' || ext === 'cdt') {
-      this.applyTape(spectrum, data, filename, callbacks);
+    if (ext === 'tap' || ext === 'tzx' || ext === 'cdt' || ext === 'csw') {
+      await this.applyTape(spectrum, data, filename, callbacks);
       return;
     }
 

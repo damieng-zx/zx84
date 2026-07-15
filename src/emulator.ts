@@ -21,6 +21,7 @@ import { PALETTES, SCREEN_WIDTH, SCREEN_HEIGHT } from '@/cores/ula.ts';
 import { saveSZX, saveSZXSync } from '@/snapshot/szx.ts';
 import { saveZ80 } from '@/snapshot/z80format.ts';
 import { parseTZX } from '@/tape/tzx.ts';
+import { parseCSW } from '@/tape/csw.ts';
 import type { TapeBlock } from '@/tape/tap.ts';
 import { serializeDSK } from '@/floppy/dsk.ts';
 import type { DskImage } from '@/floppy/disk-image.ts';
@@ -806,10 +807,10 @@ function buildMediaCallbacks(): MediaLoadCallbacks {
 
 // ── Tape/Disk loading (via MediaManager) ───────────────────────────────
 
-export function applyTape(data: Uint8Array, filename: string): void {
+export async function applyTape(data: Uint8Array, filename: string): Promise<void> {
   if (!machine) { setStatus('Load a ROM first'); return; }
 
-  mediaManager.applyTape(machine, data, filename, {
+  await mediaManager.applyTape(machine, data, filename, {
     onStatus: setStatus,
     onTapeLoaded: (blocks, filename) => {
       batch(() => {
@@ -846,7 +847,7 @@ export function loadableExtensions(): string[] {
     return ein.config.hasFDC ? ['.dsk', '.hfe', '.scp', '.zip'] : [];
   }
   // Spectrum (and the no-machine default).
-  const exts = ['.sna', '.z80', '.szx', '.sp', '.tap', '.tzx'];
+  const exts = ['.sna', '.z80', '.szx', '.sp', '.tap', '.tzx', '.csw'];
   if (spectrum?.variant.hasFDC) exts.push('.dsk', '.hfe');
   if (spectrum && isInterface1Capable(currentModel())) exts.push('.mdr', '.mdv');
   exts.push('.zip');
@@ -858,7 +859,7 @@ export async function loadFile(data: Uint8Array, filename: string, unit?: number
   const cpc = asCpc(machine);
   if (cpc) {
     if (/\.(cdt|tzx|tap)$/i.test(filename)) {
-      applyTape(data, filename);
+      await applyTape(data, filename);
       return;
     }
     if (/\.sna$/i.test(filename)) {
@@ -1824,6 +1825,8 @@ async function restoreMedia(): Promise<void> {
       const ext = tape.name.toLowerCase().split('.').pop();
       const blocks = ext === 'tzx' || ext === 'cdt'
         ? parseTZX(tape.data)
+        : ext === 'csw'
+        ? await parseCSW(tape.data)
         : machine.tape.parseTAP(tape.data);
       machine.tape.blocks = blocks;
       machine.tape.position = 0;

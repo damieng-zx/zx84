@@ -30,7 +30,7 @@ This project has been extensively developed using AI - specifically Claude Code.
 ### 📂 Universal File Support
 Load your software instantly with drag-and-drop:
 - **Snapshots**: `.sna` (48K/128K), `.z80` (v1/v2/v3), `.szx` (ZX-State)
-- **Tapes**: `.tap`, `.tzx` with instant ROM-trap loading
+- **Tapes**: `.tap`, `.tzx` with instant ROM-trap loading, `.csw` square-wave captures
 - **Disks**: `.dsk` for +3 models (standard & extended formats)
 - **Archives**: `.zip` files with automatic extraction
 
@@ -111,7 +111,7 @@ Open `http://localhost:5174` in your browser.
 
 1. **Choose a Model** — Select 48K, 128K, +2, +2A, or +3 from the hardware pane
 2. **Load a ROM** — Click "Load ROM" and select the appropriate ROM file for your model
-3. **Load Software** — Drag and drop a `.sna`, `.z80`, `.szx`, `.tap`, `.tzx`, `.dsk`, or `.zip` file onto the window
+3. **Load Software** — Drag and drop a `.sna`, `.z80`, `.szx`, `.tap`, `.tzx`, `.csw`, `.dsk`, or `.zip` file onto the window
 
 That's it! For tape files, the emulator will start playback automatically.
 

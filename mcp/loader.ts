@@ -9,6 +9,7 @@ import { parseMgt, mgtExtFromName } from '../src/floppy/mgt-image.ts';
 import { parseTrd } from '../src/floppy/trd-image.ts';
 import { parseScl } from '../src/floppy/scl-image.ts';
 import { parseTZX } from '../src/tape/tzx.ts';
+import { parseCSW } from '../src/tape/csw.ts';
 import { h16 } from './hex.ts';
 import { fetchPlusDRom, fetchInterface1Rom, fetchBetaDiskRom } from './rom-fetch.ts';
 import { state, initMachine, activeSpectrum } from './state.ts';
@@ -34,6 +35,17 @@ export async function loadFileInto(spec: Spectrum, filepath: string, diskUnit: n
     spec.reset();
     spec.tape.startPlayback();
     return `TZX loaded: ${filename} (${blocks.length} blocks)`;
+  } else if (ext === '.csw') {
+    // CSW is a raw square-wave capture — no ROM-trappable data blocks, so it
+    // only ever loads via genuine edge sampling. parseCSW is async (Z-RLE
+    // inflate goes through DecompressionStream).
+    const blocks = await parseCSW(data);
+    spec.tape.blocks = blocks;
+    spec.tape.rewind();
+    spec.tape.paused = false;
+    spec.reset();
+    spec.tape.startPlayback();
+    return `CSW loaded: ${filename} (${blocks.length} blocks)`;
   } else if (ext === '.dsk' || ext === '.hfe' || ext === '.scp') {
     // A .hfe/.scp flux image routes to the Beta Disk when it is the active
     // interface; otherwise to the +3/CPC uPD765A (the .dsk default).

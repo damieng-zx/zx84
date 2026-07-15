@@ -38,6 +38,10 @@ export interface DataBlock {
 
 export interface ToneBlock     { kind: 'tone'; pulseLen: number; count: number; }
 export interface PulsesBlock   { kind: 'pulses'; lengths: number[]; }
+/** A raw square-wave capture (CSW): pulse durations in 3.5MHz-referenced
+ *  T-states, each toggling the EAR level. Replayed through the same PULSES
+ *  phase as a Pulse Sequence block, just over a packed Uint32Array. */
+export interface CswBlock      { kind: 'csw'; pulses: Uint32Array; }
 export interface PauseBlock    { kind: 'pause'; duration: number; }  // 0 = stop tape
 export interface DirectBlock   { kind: 'direct'; tStatesPerSample: number; pause: number; usedBits: number; data: Uint8Array; }
 export interface SetLevelBlock { kind: 'set-level'; level: number; }
@@ -47,7 +51,7 @@ export interface GroupEndBlock { kind: 'group-end'; }
 export interface TextBlock     { kind: 'text'; text: string; }
 export interface ArchiveInfoBlock { kind: 'archive-info'; entries: { id: number; text: string }[]; }
 
-export type TapeBlock = DataBlock | ToneBlock | PulsesBlock | PauseBlock | DirectBlock
+export type TapeBlock = DataBlock | ToneBlock | PulsesBlock | CswBlock | PauseBlock | DirectBlock
   | SetLevelBlock | StopIf48KBlock | GroupStartBlock | GroupEndBlock | TextBlock | ArchiveInfoBlock;
 
 // ── Standard Spectrum tape timing (T-states per half-cycle) ──────────────
@@ -166,7 +170,9 @@ export class TapeDeck {
 
   /** Pulses block: current index into lengths array */
   private pulsesIdx = 0;
-  private pulsesLengths: number[] = [];
+  // ArrayLike so a CSW block can feed its packed Uint32Array through the same
+  // PULSES phase as a TZX Pulse Sequence's number[].
+  private pulsesLengths: ArrayLike<number> = [];
 
   /** Direct block state */
   private directData: Uint8Array | null = null;
@@ -254,7 +260,7 @@ export class TapeDeck {
       }
 
       // Custom loader blocks — stop here, don't scan past them
-      if (block.kind === 'tone' || block.kind === 'pulses' || block.kind === 'direct') {
+      if (block.kind === 'tone' || block.kind === 'pulses' || block.kind === 'csw' || block.kind === 'direct') {
         return null;
       }
 
@@ -308,7 +314,7 @@ export class TapeDeck {
     for (let i = this.position; i < this.blocks.length; i++) {
       const block = this.blocks[i];
       if (block.kind === 'data') return block.source !== 'pure-data';
-      if (block.kind === 'tone' || block.kind === 'pulses' || block.kind === 'direct') return false;
+      if (block.kind === 'tone' || block.kind === 'pulses' || block.kind === 'csw' || block.kind === 'direct') return false;
       if (block.kind === 'pause' && block.duration === 0) return false;
       if (block.kind === 'stop-if-48k' && this.is48K) return false;
       // cosmetic/pause blocks: continue scanning
@@ -473,6 +479,21 @@ export class TapeDeck {
           this.pulsesLengths = block.lengths;
           this.pulsesIdx = 0;
           this.pulseLen = this.scale(block.lengths[0]);
+          return;
+
+        case 'csw':
+          // A CSW capture is just a long Pulse Sequence: reuse the PULSES phase
+          // over its packed Uint32Array. The preceding set-level block has
+          // already seeded earBit to the initial polarity.
+          if (block.pulses.length === 0) {
+            this.position = idx + 1;
+            idx++;
+            continue;
+          }
+          this.phase = TapePhase.PULSES;
+          this.pulsesLengths = block.pulses;
+          this.pulsesIdx = 0;
+          this.pulseLen = this.scale(block.pulses[0]);
           return;
 
         case 'pause':
