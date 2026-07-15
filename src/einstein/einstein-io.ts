@@ -91,6 +91,10 @@ export function wireEinsteinPortIO(m: EinsteinMachine): void {
     if (m.portWatchpoints.size > 0 && m.portWatchpoints.has(port) && m.portWatchHit === null) {
       m.portWatchHit = { port, value: val, dir: 'out' };
     }
+    // The on-board devices decode at 0x00–0x3F (A6=A7=0). A6/A7 are NOT aliased:
+    // e.g. 0x48/0x49 must not fall through to the VDP at 0x08/0x09 (XtalDOS 1.31
+    // writes there, and aliasing corrupted the VDP mode → blank screen).
+    if (port & 0xC0) return;
     const p = port & 0x3F;
     const reg = p & 0x07;
     switch (p & 0x38) {
@@ -132,6 +136,7 @@ export function wireEinsteinPortIO(m: EinsteinMachine): void {
   };
 
   function dispatchIn(port: number): number {
+    if (port & 0xC0) return 0xFF; // A6/A7 not aliased — see portOut
     const p = port & 0x3F;
     const reg = p & 0x07;
     switch (p & 0x38) {
