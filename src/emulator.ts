@@ -31,6 +31,8 @@ import { parseTrd, serializeTrd, blankTrdDisk } from '@/floppy/trd-image.ts';
 import { parseScl, serializeScl, isScl, SCL_DISK_FORMAT } from '@/floppy/scl-image.ts';
 import { loadSZX, applySZXPaging } from '@/snapshot/szx.ts';
 import { readCpcSnaModel, applyCpcSna, saveCpcSna } from '@/snapshot/cpc-sna.ts';
+import { unzip } from '@/snapshot/zip.ts';
+import { showFilePicker } from '@/ui/zip-picker.ts';
 import {
   clearLastFile, clearDisk, restoreTape, restoreDisk, dbSave, dbLoad,
   persistPlusDDisk, restorePlusDDisk, clearPlusDDisk,
@@ -326,7 +328,7 @@ export async function createMachine(): Promise<boolean> {
     ? new CpcMachine(model as CpcModel, display)
     : new Spectrum(model as SpectrumModel, display);
   spectrum = asSpectrum(machine);
-  einsteinBasicPhantom = false;   // fresh FDC on the new machine
+  einsteinXtalDosPhantom = false;   // fresh FDC on the new machine
   machine.onStatus = (msg: string) => setStatus(msg);
   machine.onFrame = onFrame;
   applyDisplaySettings();
@@ -455,7 +457,7 @@ export async function createMachine(): Promise<boolean> {
 
   // Einstein: mount the phantom BASIC boot disk if the option is on and drive 0
   // is empty (fire-and-forget — it only matters once the user presses Ctrl-BREAK).
-  applyEinsteinBasicDisk();
+  applyEinsteinXtalDosDisk();
 
   unpause();
   return hmrRestored;
@@ -841,7 +843,7 @@ export function loadableExtensions(): string[] {
   const ein = asEinstein(machine);
   if (ein) {
     // Einstein disks are Extended CPC DSK images read by the WD1770.
-    return ein.config.hasFDC ? ['.dsk', '.hfe', '.scp'] : [];
+    return ein.config.hasFDC ? ['.dsk', '.hfe', '.scp', '.zip'] : [];
   }
   // Spectrum (and the no-machine default).
   const exts = ['.sna', '.z80', '.szx', '.sp', '.tap', '.tzx'];
@@ -879,16 +881,30 @@ export async function loadFile(data: Uint8Array, filename: string, unit?: number
     }
     return;
   }
-  // Einstein: .dsk / .hfe / .scp disk images into the WD1770.
+  // Einstein: .dsk / .hfe / .scp disk images into the WD1770 (or a .zip of one).
   const ein = asEinstein(machine);
   if (ein) {
-    if (!/\.(dsk|hfe|scp)$/i.test(filename)) { setStatus('Einstein accepts .dsk, .hfe and .scp disk images'); return; }
+    if (/\.zip$/i.test(filename)) {
+      let entries;
+      try { entries = await unzip(data); } catch (e) { setStatus(`ZIP error: ${(e as Error).message}`); return; }
+      const disks = entries.filter(e => /\.(dsk|hfe|scp)$/i.test(e.name));
+      if (disks.length === 0) { setStatus('ZIP has no disk image (.dsk/.hfe/.scp)'); return; }
+      let picked = disks[0];
+      if (disks.length > 1) {
+        const name = await showFilePicker(disks.map(d => d.name));
+        if (!name) { setStatus('No file selected'); return; }
+        picked = disks.find(d => d.name === name)!;
+      }
+      await loadFile(picked.data, picked.name, unit);   // re-dispatch the extracted disk
+      return;
+    }
+    if (!/\.(dsk|hfe|scp)$/i.test(filename)) { setStatus('Einstein accepts .dsk, .hfe, .scp and .zip disk images'); return; }
     ein.stop();
     try {
       const image = parseFloppyImage(data);
       const u = unit ?? 0;
       ein.loadDisk(image, u);
-      if (u === 0) { einsteinBasicPhantom = false; setCurrentDiskInfo(image); setCurrentDiskName(filename); }
+      if (u === 0) { einsteinXtalDosPhantom = false; setCurrentDiskInfo(image); setCurrentDiskName(filename); }
       else { setCurrentDiskInfoB(image); setCurrentDiskNameB(filename); }
       setStatus(`Drive ${u}: loaded: ${filename}`);
     } catch (e) {
@@ -1154,7 +1170,7 @@ export function ejectDisk(unit: number = 0): void {
     setStatus(`Disk ${unit === 0 ? 'A' : 'B'}: ejected`);
     // Ejecting a real disk from Einstein drive 0 may re-expose the phantom
     // BASIC disk (if the option is on).
-    if (unit === 0) { einsteinBasicPhantom = false; applyEinsteinBasicDisk(); }
+    if (unit === 0) { einsteinXtalDosPhantom = false; applyEinsteinXtalDosDisk(); }
   }
 }
 
@@ -1162,7 +1178,7 @@ export function insertBlankDisk(image: DskImage, name: string, unit: number): vo
   if (!machine) return;
   machine.fdc.insertDisk(image, unit);
   if (unit === 0) {
-    einsteinBasicPhantom = false;   // a real disk now occupies drive 0
+    einsteinXtalDosPhantom = false;   // a real disk now occupies drive 0
     setCurrentDiskInfo(image);
     setCurrentDiskName(name);
   } else {
@@ -1171,42 +1187,42 @@ export function insertBlankDisk(image: DskImage, name: string, unit: number): vo
   }
 }
 
-// ── Einstein "BASIC" auto-boot disk ──────────────────────────────────────
-// When the Einstein "BASIC" hardware option is on and drive 0 holds no user
-// disk, a phantom Xtal BASIC boot disk (einstein-xbas.dsk, fetched from the ROM
-// host) is kept in the WD1770's drive 0 so Ctrl-BREAK boots BASIC — WITHOUT
+// ── Einstein "Xtal DOS" auto-boot disk ────────────────────────────────────
+// When the Einstein "Xtal DOS" hardware option is on and drive 0 holds no user
+// disk, a phantom Xtal DOS boot disk (einstein-xtaldos.dsk, fetched from the ROM
+// host) is kept in the WD1770's drive 0 so Ctrl-BREAK boots Xtal DOS — WITHOUT
 // showing as a mounted disk (the UI drive-0 signals stay empty). A real disk
 // mounted in drive 0 always takes precedence.
-let einsteinBasicImage: DskImage | null = null;
-let einsteinBasicPhantom = false;
+let einsteinXtalDosImage: DskImage | null = null;
+let einsteinXtalDosPhantom = false;
 
-/** Reconcile the phantom BASIC disk with the current option + drive-0 state. */
-export async function applyEinsteinBasicDisk(): Promise<void> {
+/** Reconcile the phantom Xtal DOS disk with the current option + drive-0 state. */
+export async function applyEinsteinXtalDosDisk(): Promise<void> {
   const ein = asEinstein(machine);
-  if (!ein) { einsteinBasicPhantom = false; return; }
-  const want = settings.einsteinBasic() && currentDiskName() === '';
-  if (want && !einsteinBasicPhantom) {
-    if (!einsteinBasicImage) {
-      const data = await romManager.fetchEinsteinBasicDisk();
+  if (!ein) { einsteinXtalDosPhantom = false; return; }
+  const want = settings.einsteinXtalDos() && currentDiskName() === '';
+  if (want && !einsteinXtalDosPhantom) {
+    if (!einsteinXtalDosImage) {
+      const data = await romManager.fetchEinsteinXtalDosDisk();
       if (!data) return;                       // unavailable → option is a no-op
-      try { einsteinBasicImage = parseFloppyImage(data); } catch { return; }
+      try { einsteinXtalDosImage = parseFloppyImage(data); } catch { return; }
     }
     // Re-check across the async gap: same machine, still wanted, drive 0 empty.
-    if (asEinstein(machine) === ein && settings.einsteinBasic() && currentDiskName() === '') {
-      ein.fdc.insertDisk(einsteinBasicImage, 0);
-      einsteinBasicPhantom = true;
+    if (asEinstein(machine) === ein && settings.einsteinXtalDos() && currentDiskName() === '') {
+      ein.fdc.insertDisk(einsteinXtalDosImage, 0);
+      einsteinXtalDosPhantom = true;
     }
-  } else if (!want && einsteinBasicPhantom) {
+  } else if (!want && einsteinXtalDosPhantom) {
     ein.fdc.ejectDisk(0);
-    einsteinBasicPhantom = false;
+    einsteinXtalDosPhantom = false;
   }
 }
 
-/** Toggle the Einstein "BASIC" hardware option and apply it immediately. */
-export function setEinsteinBasicEnabled(on: boolean): void {
-  settings.setEinsteinBasic(on);
-  settings.persistSetting('einstein-basic', on ? 'on' : 'off');
-  applyEinsteinBasicDisk();
+/** Toggle the Einstein "Xtal DOS" hardware option and apply it immediately. */
+export function setEinsteinXtalDosEnabled(on: boolean): void {
+  settings.setEinsteinXtalDos(on);
+  settings.persistSetting('einstein-xtaldos', on ? 'on' : 'off');
+  applyEinsteinXtalDosDisk();
 }
 
 /**
@@ -1265,7 +1281,7 @@ export function loadDiskToUnit(data: Uint8Array, filename: string, unit: number)
     try {
       const image = parseFloppyImage(data);
       (cpc ?? ein)!.loadDisk(image, unit);
-      if (ein && unit === 0) einsteinBasicPhantom = false;
+      if (ein && unit === 0) einsteinXtalDosPhantom = false;
       onDiskLoaded(image, filename, unit);
       setStatus(`Disk ${unit === 0 ? 'A' : 'B'}: loaded: ${filename}`);
     } catch (e) {

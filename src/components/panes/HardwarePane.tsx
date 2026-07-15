@@ -5,7 +5,7 @@ import {
   turboMode, clockSpeedText, resetMachine, toggleTurbo,
   spectrum, triggerNMI, loadMultifaceROM, loadVTX5000ROM, loadPlusDROM, loadInterface1ROM, loadBetaDiskROM, setCpcMultiface,
   multifaceRomFailed, vtx5000RomFailed, paradosRomFailed, plusDRomFailed, interface1RomFailed, betaDiskRomFailed,
-  setEinsteinBasicEnabled,
+  setEinsteinXtalDosEnabled,
 } from '@/emulator.ts';
 import type { SpectrumModel } from '@/spectrum.ts';
 import { type MachineModel, isCpcModel, isEinsteinModel, cpcHasDisk, isPlusDCapable, isInterface1Capable, isBetaDiskCapable } from '@/models.ts';
@@ -285,16 +285,16 @@ export function HardwarePane() {
           </label>
         </div>
       </Show>
-      {/* Einstein: boot Xtal BASIC from disk when drive 0 is empty. */}
+      {/* Einstein: boot Xtal DOS from disk when drive 0 is empty. */}
       <Show when={isEinsteinModel(currentModel())}>
         <div class="multiface-row">
-          <label class="mf-check" title="Boot Xtal BASIC from disk when no disk is in drive 0">
+          <label class="mf-check" title="Boot Xtal DOS from disk when no disk is in drive 0">
             <input
               type="checkbox"
-              checked={settings.einsteinBasic()}
-              onChange={(e) => setEinsteinBasicEnabled((e.target as HTMLInputElement).checked)}
+              checked={settings.einsteinXtalDos()}
+              onChange={(e) => setEinsteinXtalDosEnabled((e.target as HTMLInputElement).checked)}
             />
-            BASIC
+            Xtal DOS
           </label>
         </div>
       </Show>

@@ -89,7 +89,7 @@ const DEFAULTS = {
   'plusd':          'off',
   'interface1':     'off',
   'betadisk':       'off',
-  'einstein-basic': 'on',
+  'einstein-xtaldos': 'on',
 } as const;
 
 type SettingKey = keyof typeof DEFAULTS;
@@ -373,9 +373,9 @@ const _cpcParados = /*@once*/ createRoot(() => createSignal(getSaved('cpc-parado
 export const cpcParados = _cpcParados[0];
 export const setCpcParados = _cpcParados[1];
 
-const _einsteinBasic = /*@once*/ createRoot(() => createSignal(getSaved('einstein-basic', D('einstein-basic')) === 'on'));
-export const einsteinBasic = _einsteinBasic[0];
-export const setEinsteinBasic = _einsteinBasic[1];
+const _einsteinXtalDos = /*@once*/ createRoot(() => createSignal(getSaved('einstein-xtaldos', D('einstein-xtaldos')) === 'on'));
+export const einsteinXtalDos = _einsteinXtalDos[0];
+export const setEinsteinXtalDos = _einsteinXtalDos[1];
 
 const _vtx5000Enabled = /*@once*/ createRoot(() => createSignal(getSaved('vtx5000', D('vtx5000')) === 'on'));
 export const vtx5000Enabled = _vtx5000Enabled[0];
@@ -488,7 +488,7 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'plusd',          set: setPlusDEnabled,     type: 'bool' },
     { key: 'betadisk',       set: setBetaDiskEnabled,  type: 'bool' },
     { key: 'interface1',     set: setInterface1Enabled, type: 'bool' },
-    { key: 'einstein-basic', set: setEinsteinBasic,    type: 'bool' },
+    { key: 'einstein-xtaldos', set: setEinsteinXtalDos, type: 'bool' },
   ],
   font: [
     { key: 'font', set: setFontName, type: 'string' },

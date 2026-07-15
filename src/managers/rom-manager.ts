@@ -110,27 +110,27 @@ export class ROMManager {
     }
   }
 
-  /** In-memory cache of the Einstein Xtal BASIC boot disk. */
-  private einsteinBasicDisk: Uint8Array | null = null;
+  /** In-memory cache of the Einstein Xtal DOS boot disk. */
+  private einsteinXtalDosDisk: Uint8Array | null = null;
 
   /**
-   * Fetch the Einstein Xtal BASIC boot disk (einstein-xbas.dsk) from the ROM
+   * Fetch the Einstein Xtal DOS boot disk (einstein-xtaldos.dsk) from the ROM
    * host, trying the in-memory then IndexedDB cache first. Returns null if it
-   * can't be obtained (the BASIC option then simply has no effect). Used to
-   * boot BASIC when the "BASIC" hardware option is on and drive 0 is empty.
+   * can't be obtained (the Xtal DOS option then simply has no effect). Used to
+   * boot Xtal DOS when the "Xtal DOS" hardware option is on and drive 0 is empty.
    */
-  async fetchEinsteinBasicDisk(): Promise<Uint8Array | null> {
-    if (this.einsteinBasicDisk) return this.einsteinBasicDisk;
+  async fetchEinsteinXtalDosDisk(): Promise<Uint8Array | null> {
+    if (this.einsteinXtalDosDisk) return this.einsteinXtalDosDisk;
     try {
-      const cached = await dbLoad('disk-einstein-xbas');
-      if (cached) { this.einsteinBasicDisk = cached; return cached; }
+      const cached = await dbLoad('disk-einstein-xtaldos');
+      if (cached) { this.einsteinXtalDosDisk = cached; return cached; }
     } catch { /* fall through to network */ }
     try {
-      const resp = await fetch(`${ROM_BASE}einstein-xbas.dsk`);
+      const resp = await fetch(`${ROM_BASE}einstein-xtaldos.dsk`);
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const data = new Uint8Array(await resp.arrayBuffer());
-      this.einsteinBasicDisk = data;
-      try { await dbSave('disk-einstein-xbas', data); } catch { /* non-fatal */ }
+      this.einsteinXtalDosDisk = data;
+      try { await dbSave('disk-einstein-xtaldos', data); } catch { /* non-fatal */ }
       return data;
     } catch {
       return null;
