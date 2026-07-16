@@ -2,6 +2,12 @@ import { createSignal, Show } from 'solid-js';
 
 const CHANGELOG: { version: string; items: string[] }[] = [
   {
+    version: '0.7.1',
+    items: [
+      'Add Tatung Einstein TC-01 as a third machine (boots MOS and Xtal DOS from .dsk/.zip)',
+      'Add CSW tape support',
+    ]
+  }, {
     version: '0.7.0',
     items: [
       'Add Beta Disk/TR-DOS support (.TRD, .SCL)',
