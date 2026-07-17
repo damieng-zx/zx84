@@ -44,7 +44,7 @@ async function main(): Promise<void> {
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--model' && i + 1 < args.length) {
       const m = args[++i];
-      if (['16k', '48k', '128k', '+2', '+2A', '+3', 'cpc6128', 'cpc464', 'cpc664'].includes(m)) {
+      if (['16k', '48k', '128k', '+2', '+2A', '+3', 'cpc6128', 'cpc464', 'cpc664', 'einstein', 'hx-10'].includes(m)) {
         startModel = m as MachineModel;
       }
     }

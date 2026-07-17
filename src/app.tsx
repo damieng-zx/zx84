@@ -32,7 +32,7 @@ import { KeyboardPane } from '@/components/panes/KeyboardPane.tsx';
 import { paneOrder, SPECTRUM_ONLY_PANES, isPaneUserHidden } from '@/ui/panes.ts';
 import { needsGamepadPolling, scale } from '@/store/settings.ts';
 import { initAudio, init, loadFile, currentModel, transcribeMode, syncFocusPause } from '@/emulator.ts';
-import { isCpcModel, isEinsteinModel } from '@/models.ts';
+import { isCpcModel, isEinsteinModel, isMsxModel } from '@/models.ts';
 import { configuringPlayer } from '@/components/panes/JoystickPane.tsx';
 import { InputController } from '@/input-controller.ts';
 
@@ -195,7 +195,7 @@ export function App() {
         <StatusBar />
         {/* The on-screen keyboard models Spectrum hardware only — hide it for the
             CPC and Einstein, which have their own keyboards. */}
-        <Show when={!isPaneUserHidden('keyboard-panel') && !isCpcModel(currentModel()) && !isEinsteinModel(currentModel())}><KeyboardPane /></Show>
+        <Show when={!isPaneUserHidden('keyboard-panel') && !isCpcModel(currentModel()) && !isEinsteinModel(currentModel()) && !isMsxModel(currentModel())}><KeyboardPane /></Show>
         <div id="diag"><div id="diag-header" /></div>
       </div>
 

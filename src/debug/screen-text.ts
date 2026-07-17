@@ -43,8 +43,13 @@ export type CpcOcrGrid = '20x25' | '40x25' | '80x25';
  *  system font (MOS + Xtal DOS), 24 rows. */
 export type EinsteinOcrGrid = '42x24';
 
+/** MSX text grids — SCREEN 0 (text mode) is 40×24 with 6px cells; SCREEN 1
+ *  (graphics I) is 32×24 with 8px cells. The MSX OCR engine reads the VDP name
+ *  table directly (codes are ASCII), so it picks the grid by VDP mode. */
+export type MsxOcrGrid = '40x24' | '32x24';
+
 /** Any grid label an OCR producer can stamp onto an OcrResult. */
-export type OcrGridName = SpectrumOcrGrid | CpcOcrGrid | EinsteinOcrGrid;
+export type OcrGridName = SpectrumOcrGrid | CpcOcrGrid | EinsteinOcrGrid | MsxOcrGrid;
 
 export const OCR_GRIDS: Record<SpectrumOcrGrid, OcrConfig> = {
   '32x24': { cellWidth: 8, cellHeight: 8, cols: 32, rows: 24 },

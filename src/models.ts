@@ -88,5 +88,19 @@ export function isEinsteinModel(m: MachineModel): m is EinsteinModel {
   return m === 'einstein';
 }
 
+// ── MSX family ──────────────────────────────────────────────────────────
+//
+// The MSX1 is another Z80 + TMS9918A VDP + AY-3-8910 machine (like the
+// Einstein), but with an 8255 PPI for keyboard scan and slot paging, and MSX
+// BASIC in ROM. Only the Toshiba HX-10 ships today.
+
+/** MSX1 models. Only the Toshiba HX-10 ships today. */
+export type MsxModel = 'hx-10';
+
+/** Type guard: true for any MSX model. */
+export function isMsxModel(m: MachineModel): m is MsxModel {
+  return m === 'hx-10';
+}
+
 /** Any machine ZX84 can emulate. */
-export type MachineModel = SpectrumModel | CpcModel | EinsteinModel;
+export type MachineModel = SpectrumModel | CpcModel | EinsteinModel | MsxModel;

@@ -7,7 +7,7 @@ import {
   tapeRewind, tapeTogglePlay, tapeTogglePause, tapeSetPosition, toggleAutoRewind,
   ejectTape, loadFile, tapePrev, tapeNext, applyDisplaySettings, currentModel, saveTape,
 } from '@/emulator.ts';
-import { isCpcModel } from '@/models.ts';
+import { isCpcModel, isMsxModel } from '@/models.ts';
 import { tapeAutoRewind, tapeCollapseBlocks, setTapeCollapseBlocks, tapeFastRom, setTapeFastRom, tapeTurbo, setTapeTurbo, tapeSoundEnabled, setTapeSoundEnabled } from '@/store/settings.ts';
 import { persistSetting, resetSettingsGroup } from '@/store/settings.ts';
 import type { TapeBlock, DataBlock } from '@/tape/tap.ts';
@@ -117,7 +117,7 @@ export function TapePane() {
   });
 
   return (
-    <Pane id="tape-panel" label="Tape" mono onResetSettings={() => { if (tapeLoaded()) ejectTape(); resetSettingsGroup('tape'); applyDisplaySettings(); }}>
+    <Pane id="tape-panel" label="Tape" mono visible={!isMsxModel(currentModel())} onResetSettings={() => { if (tapeLoaded()) ejectTape(); resetSettingsGroup('tape'); applyDisplaySettings(); }}>
       <div id="tape-controls">
         <button class="btn btn-md" title="Rewind" onClick={tapeRewind}><HiOutlineBackward /></button>
         <button class="btn btn-md" title="Previous block" onClick={tapePrev}><HiOutlineChevronLeft /></button>

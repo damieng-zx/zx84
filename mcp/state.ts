@@ -7,8 +7,9 @@
 
 import { Spectrum } from '../src/spectrum.ts';
 import { CpcMachine } from '../src/cpc/cpc-machine.ts';
-import { type Machine, asSpectrum, asCpc } from '../src/machine.ts';
-import { type MachineModel, type SpectrumModel, isCpcModel } from '../src/models.ts';
+import { MsxMachine } from '../src/msx/msx-machine.ts';
+import { type Machine, asSpectrum, asCpc, asMsx } from '../src/machine.ts';
+import { type MachineModel, type SpectrumModel, type MsxModel, isCpcModel, isMsxModel } from '../src/models.ts';
 import { SymbolTable } from '../src/debug/symbols.ts';
 import { fetchROM } from './rom-fetch.ts';
 import { wireFdcLog } from './fdc-log.ts';
@@ -31,6 +32,8 @@ export const symbols = new SymbolTable();
 export function activeSpectrum(): Spectrum | null { return asSpectrum(state.spec); }
 /** The active machine as a CpcMachine, or null otherwise. */
 export function activeCpc(): CpcMachine | null { return asCpc(state.spec); }
+/** The active machine as an MsxMachine, or null otherwise. */
+export function activeMsx(): MsxMachine | null { return asMsx(state.spec); }
 
 export async function initMachine(m: MachineModel): Promise<string> {
   state.model = m;
@@ -40,6 +43,11 @@ export async function initMachine(m: MachineModel): Promise<string> {
     cpc.loadROM(state.romData);
     cpc.reset();
     state.spec = cpc;
+  } else if (isMsxModel(m)) {
+    const msx = new MsxMachine(m as MsxModel, null);
+    msx.loadROM(state.romData);
+    msx.reset();
+    state.spec = msx;
   } else {
     const spec = new Spectrum(m as SpectrumModel);
     spec.scanlineAccuracy = 'low'; // Spectrum-only knob

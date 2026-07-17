@@ -32,6 +32,7 @@ const DEFAULT_ROM_URLS: Record<MachineModel, string[]> = {
   'cpc464':  [`${ROM_BASE}os464.rom`, `${ROM_BASE}basic1-0.rom`],
   'cpc664':  [`${ROM_BASE}os664.rom`, `${ROM_BASE}basic664.rom`, `${ROM_BASE}amsdos.rom`],
   'einstein': [`${ROM_BASE}einstein-mos.rom`],
+  'hx-10': [`${ROM_BASE}hx-10_basic-bios1.rom`],
 };
 
 export class ROMManager {

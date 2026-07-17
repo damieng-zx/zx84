@@ -4,11 +4,14 @@ import { HiOutlineChevronUp, HiOutlineChevronDown, HiOutlineChevronLeft, HiOutli
 import { joyP1, joyP2, joyMapP1, joyMapP2, setJoyP1, setJoyP2, setJoyMapP1, setJoyMapP2, persistSetting, gamepadConfigP1, gamepadConfigP2, setGamepadConfigP1, setGamepadConfigP2, resetSettingsGroup } from '@/store/settings.ts';
 import { joyPressForType } from '@/emulator.ts';
 import { currentModel } from '@/state/machine-state.ts';
-import { isCpcModel, isEinsteinModel } from '@/models.ts';
+import { isCpcModel, isEinsteinModel, isMsxModel } from '@/models.ts';
 
-// The CPC joystick is fixed to the Amstrad standard (read straight off the
-// keyboard matrix), so the Spectrum interface-type selector is hidden for it.
-const isCpc = () => isCpcModel(currentModel());
+// On the Spectrum a joystick can present to the CPU through several interface
+// types (Kempston/Cursor/Sinclair — each maps to different ports/bits), so the
+// type has to be chosen. The CPC and MSX each expose a single fixed joystick
+// interface to the CPU, so there is nothing to select: the type selector is
+// hidden, and the F2 button is shown (both present a second fire button).
+const isFixedJoystick = () => isCpcModel(currentModel()) || isMsxModel(currentModel());
 
 // Configuration mode state
 export const [configuringPlayer, setConfiguringPlayer] = createSignal<number>(-1);
@@ -125,7 +128,7 @@ function JoyColumn(props: { playerIdx: number; label: string }) {
 
   return (
     <div class="joy-column">
-      <Show when={!isCpc()} fallback={<label>{props.label}</label>}>
+      <Show when={!isFixedJoystick()} fallback={<label>{props.label}</label>}>
         <label>{props.label}
           <select id={joyKey()} value={joySel()()} onChange={(e) => {
             setJoySel()((e.target as HTMLSelectElement).value);
@@ -151,9 +154,9 @@ function JoyColumn(props: { playerIdx: number; label: string }) {
       <div class="joy-dpad" data-player={props.playerIdx + 1}>
         <DpadButton dir="fire" playerIdx={props.playerIdx} />
         <DpadButton dir="up" playerIdx={props.playerIdx} />
-        {/* The CPC joystick has a real second fire button (matrix bit 4);
-            the Spectrum's joysticks are single-fire, so F2 is CPC-only. */}
-        <Show when={isCpc()} fallback={<div class="joy-spacer" />}>
+        {/* The CPC (matrix bit 4) and MSX (trigger B) joysticks have a real
+            second fire button; the Spectrum's joysticks are single-fire. */}
+        <Show when={isFixedJoystick()} fallback={<div class="joy-spacer" />}>
           <DpadButton dir="fire2" playerIdx={props.playerIdx} />
         </Show>
         <DpadButton dir="left" playerIdx={props.playerIdx} />

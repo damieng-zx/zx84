@@ -5,13 +5,13 @@ import {
   loadFile, loadableExtensions, saveSnapshot, saveCpcSnapshot, saveScreenshot,
   saveRAM, currentModel,
 } from '@/emulator.ts';
-import { isCpcModel, isEinsteinModel } from '@/models.ts';
+import { isCpcModel, isEinsteinModel, isMsxModel } from '@/models.ts';
 import { toggleLibrary, libraryVisible } from '@/ui/panes.ts';
 import { LibraryBrowser } from '@/components/LibraryBrowser.tsx';
 import { openFile } from '@/ui/file-picker.ts';
 
 const isCpc = () => isCpcModel(currentModel());
-const hideLibrary = () => isCpc() || isEinsteinModel(currentModel());
+const hideLibrary = () => isCpc() || isEinsteinModel(currentModel()) || isMsxModel(currentModel());
 
 export function LoadSavePane() {
   let menuRef!: HTMLDivElement;

@@ -29,7 +29,7 @@ import {
   getPendingRunTo, clearPendingRunTo,
 } from '@/emulator.ts';
 
-import { asCpc, asEinstein } from '@/machine.ts';
+import { asCpc, asEinstein, asMsx } from '@/machine.ts';
 import { hex8, hex16 } from '@/utils/hex.ts';
 import { microdriveMotors, setMicrodriveMotors } from '@/state/microdrive-state.ts';
 
@@ -595,6 +595,32 @@ export function onFrame(): void {
           }
         } else if (ein.screenText.active) {
           ein.screenText.deactivate();
+        }
+      });
+    }
+    const msx = asMsx(machine);
+    if (msx) {
+      const ma = msx.activity;
+      batch(() => {
+        const ledNow = performance.now();
+        setLedKbd(ledLatched('kbd', ma.kbdReads > 0, ledNow));
+        setLedAy(ledLatched('ay', ma.ayWrites > 5, ledNow));
+        setLedText(transcribeMode() === 'text');
+
+        // TEXT overlay: OCR the screen, push text/HTML to the overlay, and blank
+        // the matched cells so the crisp overlay glyphs replace the bitmap.
+        if (transcribeMode() !== 'off') {
+          if (!msx.screenText.active) msx.screenText.activate();
+          const result = msx.ocrScreenStyled();
+          setTranscribeText(result.text);
+          setTranscribeHtml(result.html);
+          setTranscribeGrid(result.grid);
+          if (result.mask.length > 0) {
+            msx.blankCells(result.mask, result.cols, result.rows, result.paper);
+            if (msx.display) msx.display.updateTexture(msx.pixels);
+          }
+        } else if (msx.screenText.active) {
+          msx.screenText.deactivate();
         }
       });
     }

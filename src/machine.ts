@@ -26,7 +26,7 @@ import type { ByteReader } from '@/memory.ts';
 import type { MachineModel } from '@/models.ts';
 import type { OcrGridName } from '@/debug/screen-text.ts';
 
-export type MachineKind = 'spectrum' | 'cpc' | 'einstein';
+export type MachineKind = 'spectrum' | 'cpc' | 'einstein' | 'msx';
 
 /** The floppy controller as seen through the shared interface. The +3/CPC use
  *  the NEC uPD765A; the Einstein (and the +D/Beta Disk interfaces) use a Western
@@ -124,4 +124,9 @@ export function asCpc(m: Machine | null): import('@/cpc/cpc-machine.ts').CpcMach
 /** Narrow a Machine to an EinsteinMachine, or null if it is a different machine. */
 export function asEinstein(m: Machine | null): import('@/einstein/einstein-machine.ts').EinsteinMachine | null {
   return m && m.kind === 'einstein' ? (m as unknown as import('@/einstein/einstein-machine.ts').EinsteinMachine) : null;
+}
+
+/** Narrow a Machine to an MsxMachine, or null if it is a different machine. */
+export function asMsx(m: Machine | null): import('@/msx/msx-machine.ts').MsxMachine | null {
+  return m && m.kind === 'msx' ? (m as unknown as import('@/msx/msx-machine.ts').MsxMachine) : null;
 }

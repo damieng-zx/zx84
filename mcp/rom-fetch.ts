@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { SpectrumModel } from '../src/spectrum.ts';
-import { type MachineModel, type CpcModel, isCpcModel } from '../src/models.ts';
+import { type MachineModel, type CpcModel, isCpcModel, isMsxModel } from '../src/models.ts';
 
 const ROM_URLS: Record<SpectrumModel, string> = {
   '16k':  'https://raw.githubusercontent.com/spectrumforeveryone/zx-roms/main/spectrum16-48/spec48.rom',
@@ -41,6 +41,9 @@ async function fetchCached(url: string, filename: string): Promise<Uint8Array> {
 }
 
 export async function fetchROM(model: MachineModel): Promise<Uint8Array> {
+  if (isMsxModel(model)) {
+    return fetchCached(CPC_ROM_BASE + 'hx-10_basic-bios1.rom', 'hx-10_basic-bios1.rom');
+  }
   if (isCpcModel(model)) {
     const files = CPC_ROM_FILES[model];
     const parts = await Promise.all(files.map(f => fetchCached(CPC_ROM_BASE + f, f)));

@@ -13,6 +13,7 @@ import {
 } from '@/emulator.ts';
 import type { CpcMachine } from '@/cpc/cpc-machine.ts';
 import type { EinsteinMachine } from '@/einstein/einstein-machine.ts';
+import type { MsxMachine } from '@/msx/msx-machine.ts';
 import {
   configuringPlayer, setConfiguringPlayer,
   configuringStep, setConfiguringStep,
@@ -149,6 +150,11 @@ export class InputController {
       if ((machine as EinsteinMachine).keyboard.handleKeyEvent(e.code, true)) e.preventDefault();
       return;
     }
+    if (machine?.kind === 'msx') {
+      if (this.handleJoyKey(e, true)) { e.preventDefault(); return; }
+      if ((machine as MsxMachine).keyboard.handleKeyEvent(e.code, true)) e.preventDefault();
+      return;
+    }
     if (!spectrum) return;
     if (this.handleJoyKey(e, true)) { e.preventDefault(); return; }
     if (spectrum.keyboard.handleKeyEvent(e.code, true, e.key)) {
@@ -167,6 +173,11 @@ export class InputController {
       if ((machine as EinsteinMachine).keyboard.handleKeyEvent(e.code, false)) e.preventDefault();
       return;
     }
+    if (machine?.kind === 'msx') {
+      if (this.handleJoyKey(e, false)) { e.preventDefault(); return; }
+      if ((machine as MsxMachine).keyboard.handleKeyEvent(e.code, false)) e.preventDefault();
+      return;
+    }
     if (!spectrum) return;
     if (this.handleJoyKey(e, false)) { e.preventDefault(); return; }
     if (spectrum.keyboard.handleKeyEvent(e.code, false, e.key)) {
@@ -180,6 +191,7 @@ export class InputController {
   onBlur = (): void => {
     if (machine?.kind === 'cpc') { (machine as CpcMachine).keyboard.reset(); return; }
     if (machine?.kind === 'einstein') { (machine as EinsteinMachine).keyboard.reset(); return; }
+    if (machine?.kind === 'msx') { const msx = machine as MsxMachine; msx.keyboard.reset(); msx.joystick.reset(); return; }
     if (!spectrum) return;
     spectrum.keyboard.reset();
     resetJoystickKeyState();

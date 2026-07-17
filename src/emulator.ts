@@ -6,14 +6,16 @@ import { batch } from 'solid-js';
 import { Spectrum } from '@/spectrum.ts';
 import { CpcMachine } from '@/cpc/cpc-machine.ts';
 import { EinsteinMachine } from '@/einstein/einstein-machine.ts';
-import { type Machine, asSpectrum, asCpc, asEinstein } from '@/machine.ts';
+import { MsxMachine } from '@/msx/msx-machine.ts';
+import { type Machine, asSpectrum, asCpc, asEinstein, asMsx } from '@/machine.ts';
 import {
-  type SpectrumModel, type MachineModel, type CpcModel, type EinsteinModel,
-  is128kClass, isPlus2AClass, isCpcModel, isEinsteinModel, isPlusDCapable,
+  type SpectrumModel, type MachineModel, type CpcModel, type EinsteinModel, type MsxModel,
+  is128kClass, isPlus2AClass, isCpcModel, isEinsteinModel, isMsxModel, isPlusDCapable,
   isInterface1Capable, isBetaDiskCapable,
 } from '@/models.ts';
 import { CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT, CPC_PALETTES } from '@/cpc/constants.ts';
 import { EINSTEIN_SCREEN_WIDTH, EINSTEIN_SCREEN_HEIGHT } from '@/einstein/constants.ts';
+import { MSX_SCREEN_WIDTH, MSX_SCREEN_HEIGHT } from '@/msx/constants.ts';
 import { WebGLRenderer } from '@/display/webgl-renderer.ts';
 import { CanvasRenderer } from '@/display/canvas-renderer.ts';
 import { FloppySound } from '@/floppy/floppy-sound.ts';
@@ -243,8 +245,9 @@ export function setCanvas(el: HTMLCanvasElement): void {
     // Swap display without rebuilding machine (e.g. renderer switch)
     const s = asSpectrum(machine);
     const ein = asEinstein(machine);
-    const w = s ? s.ula.screenWidth : ein ? EINSTEIN_SCREEN_WIDTH : CPC_SCREEN_WIDTH;
-    const h = s ? s.ula.screenHeight : ein ? EINSTEIN_SCREEN_HEIGHT : CPC_SCREEN_HEIGHT;
+    const msx = asMsx(machine);
+    const w = s ? s.ula.screenWidth : ein ? EINSTEIN_SCREEN_WIDTH : msx ? MSX_SCREEN_WIDTH : CPC_SCREEN_WIDTH;
+    const h = s ? s.ula.screenHeight : ein ? EINSTEIN_SCREEN_HEIGHT : msx ? MSX_SCREEN_HEIGHT : CPC_SCREEN_HEIGHT;
     machine.display = createDisplay(el, w, h);
     applyDisplaySettings();
   }
@@ -280,9 +283,13 @@ export function applyDisplaySettings(): void {
     s.scanlineAccuracy = settings.scanlineAccuracy();
   } else {
     const ein = asEinstein(machine);
+    const msx = asMsx(machine);
     if (ein) {
       // Einstein: AY-only, fixed TMS9929A palette. Just volume for now.
       ein.audio.setVolume(settings.volume() / 100);
+    } else if (msx) {
+      // MSX: AY/PSG-only, fixed TMS9929A palette. Just volume for now.
+      msx.audio.setVolume(settings.volume() / 100);
     } else {
       // CPC: AY-only, no beeper mixer. Volume + Fast ROM + Turbo while loading
       // (no Fast edge — the CPC has no Spectrum-style loader detector).
@@ -319,12 +326,16 @@ export async function createMachine(): Promise<boolean> {
   const model = currentModel();
   const cpc = isCpcModel(model);
   const einstein = isEinsteinModel(model);
+  const msx = isMsxModel(model);
   const [w, h] = einstein ? [EINSTEIN_SCREEN_WIDTH, EINSTEIN_SCREEN_HEIGHT]
+    : msx ? [MSX_SCREEN_WIDTH, MSX_SCREEN_HEIGHT]
     : cpc ? [CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT]
     : [SCREEN_WIDTH, SCREEN_HEIGHT];
   const display = canvasEl ? createDisplay(canvasEl, w, h) : null;
   machine = einstein
     ? new EinsteinMachine(model as EinsteinModel, display)
+    : msx
+    ? new MsxMachine(model as MsxModel, display)
     : cpc
     ? new CpcMachine(model as CpcModel, display)
     : new Spectrum(model as SpectrumModel, display);
@@ -846,6 +857,8 @@ export function loadableExtensions(): string[] {
     // Einstein disks are Extended CPC DSK images read by the WD1770.
     return ein.config.hasFDC ? ['.dsk', '.hfe', '.scp', '.zip'] : [];
   }
+  // MSX: cassette images (a .zip may wrap one).
+  if (asMsx(machine)) return ['.cas', '.zip'];
   // Spectrum (and the no-machine default).
   const exts = ['.sna', '.z80', '.szx', '.sp', '.tap', '.tzx', '.csw'];
   if (spectrum?.variant.hasFDC) exts.push('.dsk', '.hfe');
@@ -913,6 +926,27 @@ export async function loadFile(data: Uint8Array, filename: string, unit?: number
     } finally {
       ein.start();
     }
+    return;
+  }
+  // MSX: .cas cassette images (served instantly through the BIOS load traps).
+  const msx = asMsx(machine);
+  if (msx) {
+    if (/\.zip$/i.test(filename)) {
+      let entries;
+      try { entries = await unzip(data); } catch (e) { setStatus(`ZIP error: ${(e as Error).message}`); return; }
+      const tapes = entries.filter(e => /\.cas$/i.test(e.name));
+      if (tapes.length === 0) { setStatus('ZIP has no cassette image (.cas)'); return; }
+      let picked = tapes[0];
+      if (tapes.length > 1) {
+        const name = await showFilePicker(tapes.map(t => t.name));
+        if (!name) { setStatus('No file selected'); return; }
+        picked = tapes.find(t => t.name === name)!;
+      }
+      await loadFile(picked.data, picked.name, unit);   // re-dispatch the extracted .cas
+      return;
+    }
+    if (!/\.cas$/i.test(filename)) { setStatus('MSX accepts .cas cassette images (or a .zip of one)'); return; }
+    msx.mountCas(data, filename);
     return;
   }
   if (!spectrum) { setStatus('Load a ROM first'); return; }
@@ -1498,6 +1532,13 @@ export { KEMPSTON_BITS, CURSOR_KEYS, SINCLAIR1_KEYS, SINCLAIR2_KEYS, resetJoysti
 import { joyPressForType as _joyPress } from '@/peripherals/joysticks.ts';
 
 export function joyPressForType(dir: string, pressed: boolean, mode: string, player = 0): void {
+  const msx = asMsx(machine);
+  if (msx) {
+    // MSX joysticks are fixed Atari-style, two ports selected by player index;
+    // the Spectrum "mode" is irrelevant.
+    msx.joystick.set(dir, pressed, player);
+    return;
+  }
   const cpc = asCpc(machine);
   if (cpc) {
     // The CPC joystick is fixed to the Amstrad standard: joystick 0 (P1) on

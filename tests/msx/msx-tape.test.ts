@@ -1,0 +1,62 @@
+/**
+ * MsxCassette — .cas block navigation.
+ *
+ * The .cas format places an 8-byte header ID (1F A6 DE BA CC 13 7D 74) on an
+ * 8-byte boundary before each block. TAPION advances past the next ID; TAPIN
+ * reads the following bytes. Expectations are built from the format spec.
+ */
+import { describe, it, expect } from 'vitest';
+import { MsxCassette } from '@/msx/msx-tape.ts';
+
+const ID = [0x1F, 0xA6, 0xDE, 0xBA, 0xCC, 0x13, 0x7D, 0x74];
+
+/** Build a .cas: ID + block1 (padded to 8) + ID + block2. */
+function makeCas(block1: number[], block2: number[]): Uint8Array {
+  const pad = (b: number[]) => { const n = (b.length + 7) & ~7; return [...b, ...new Array(n - b.length).fill(0)]; };
+  return Uint8Array.from([...ID, ...pad(block1), ...ID, ...block2]);
+}
+
+describe('MsxCassette', () => {
+  it('finds the first header and reads the block bytes in order', () => {
+    const cas = new MsxCassette();
+    cas.mount(makeCas([0x41, 0x42], [0x43, 0x44]));  // "AB", "CD"
+    expect(cas.loaded).toBe(true);
+    expect(cas.findHeader()).toBe(true);              // skip ID #1
+    expect(cas.readByte()).toBe(0x41);
+    expect(cas.readByte()).toBe(0x42);
+  });
+
+  it('advances to the second header from mid-stream (8-byte aligned)', () => {
+    const cas = new MsxCassette();
+    cas.mount(makeCas([0x41, 0x42], [0x43, 0x44]));
+    cas.findHeader();                 // past ID #1 → pos 8
+    cas.readByte(); cas.readByte();   // read "AB" → pos 10
+    expect(cas.findHeader()).toBe(true);   // ID #2 is at aligned offset 16
+    expect(cas.readByte()).toBe(0x43);
+    expect(cas.readByte()).toBe(0x44);
+  });
+
+  it('reports EOF from readByte and failure from findHeader at the end', () => {
+    const cas = new MsxCassette();
+    cas.mount(Uint8Array.from([...ID, 0x99]));   // one block, one byte
+    expect(cas.findHeader()).toBe(true);
+    expect(cas.readByte()).toBe(0x99);
+    expect(cas.readByte()).toBe(-1);             // past end
+    expect(cas.findHeader()).toBe(false);        // no further header
+  });
+
+  it('does not recognise a header at a non-8-aligned offset', () => {
+    const cas = new MsxCassette();
+    // ID shifted by 1 byte → not on an 8-boundary → not a header.
+    cas.mount(Uint8Array.from([0x00, ...ID, 0x99]));
+    expect(cas.findHeader()).toBe(false);
+  });
+
+  it('eject clears the loaded state', () => {
+    const cas = new MsxCassette();
+    cas.mount(Uint8Array.from([...ID, 0x01]));
+    cas.eject();
+    expect(cas.loaded).toBe(false);
+    expect(cas.readByte()).toBe(-1);
+  });
+});
