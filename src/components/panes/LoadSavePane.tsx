@@ -11,7 +11,8 @@ import { LibraryBrowser } from '@/components/LibraryBrowser.tsx';
 import { openFile } from '@/ui/file-picker.ts';
 
 const isCpc = () => isCpcModel(currentModel());
-const hideLibrary = () => isCpc() || isEinsteinModel(currentModel()) || isMsxModel(currentModel());
+const isVdpMachine = () => isEinsteinModel(currentModel()) || isMsxModel(currentModel());
+const hideLibrary = () => isCpc() || isVdpMachine();
 
 export function LoadSavePane() {
   let menuRef!: HTMLDivElement;
@@ -92,17 +93,28 @@ export function LoadSavePane() {
         <div ref={menuRef} class="save-menu" style="display:none">
           <Show
             when={isCpc()}
-            fallback={<>
-              <div class="save-menu-item" onClick={handleSave(() => saveSnapshot('szx'))}>Snapshot (.szx)</div>
-              <div class="save-menu-item" onClick={handleSave(() => saveSnapshot('z80'))}>Snapshot (.z80)</div>
-              <div class="save-menu-item" onClick={handleSave(() => saveScreenshot('png'))}>Screenshot (.png)</div>
-              <div class="save-menu-item" onClick={handleSave(() => saveScreenshot('scr'))}>Screen (.scr)</div>
-              <div class="save-menu-item" onClick={handleSave(saveRAM)}>RAM (.bin)</div>
-            </>}
+            fallback={
+              <Show
+                when={isVdpMachine()}
+                fallback={<>
+                  <div class="save-menu-item" onClick={handleSave(() => saveSnapshot('szx'))}>Snapshot (.szx)</div>
+                  <div class="save-menu-item" onClick={handleSave(() => saveSnapshot('z80'))}>Snapshot (.z80)</div>
+                  <div class="save-menu-item" onClick={handleSave(() => saveScreenshot('png'))}>Screenshot (.png)</div>
+                  <div class="save-menu-item" onClick={handleSave(() => saveScreenshot('scr'))}>Screen (.scr)</div>
+                  <div class="save-menu-item" onClick={handleSave(saveRAM)}>RAM (.bin)</div>
+                </>}
+              >
+                <div class="save-menu-item" onClick={handleSave(() => saveScreenshot('png'))}>Screenshot (.png)</div>
+                <div class="save-menu-item" onClick={handleSave(() => saveScreenshot('scr'))}>Screen (.scr)</div>
+                <div class="save-menu-item" onClick={handleSave(saveRAM)}>RAM (.bin)</div>
+              </Show>
+            }
           >
             <div class="save-menu-item" onClick={handleSave(() => saveCpcSnapshot(2))}>Snapshot v2 (.sna)</div>
             <div class="save-menu-item" onClick={handleSave(() => saveCpcSnapshot(3))}>Snapshot v3 (.sna)</div>
             <div class="save-menu-item" onClick={handleSave(() => saveScreenshot('png'))}>Screenshot (.png)</div>
+            <div class="save-menu-item" onClick={handleSave(() => saveScreenshot('scr'))}>Screen (.scr)</div>
+            <div class="save-menu-item" onClick={handleSave(saveRAM)}>RAM (.bin)</div>
           </Show>
         </div>
       </div>

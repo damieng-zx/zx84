@@ -190,6 +190,12 @@ export class MsxMemory implements IMachineMemory {
     return this.ram.subarray(base, base + PAGE_SIZE);
   }
 
+  /** Fresh 64KB copy of the underlying RAM (slot 3), regardless of current
+   *  slot paging — where a running program keeps its code/data. */
+  ramSnapshot(): Uint8Array {
+    return this.ram.slice();
+  }
+
   reset(): void {
     this.ram.fill(0);
     this.primarySlot = 0;
