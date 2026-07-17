@@ -12,16 +12,15 @@ import { openFile } from '@/ui/file-picker.ts';
 
 /**
  * ROM page slot titles, in display order, paired with the underlying page
- * index (display order need not match page-byte order — e.g. 128K/+2 shows
- * the 48K ROM above the 128K ROM, matching how users usually think of them).
+ * index (display order need not match page-byte order).
  * Page indices/order for +2A/+3 follow the real 1FFD/7FFD ROM-select bits
  * (see romPageSlotCount in models.ts).
  */
 interface RomPageSlot { title: string; ejectTitle: string; page: RomPage; }
 
 const PLUS2_128K_SLOTS: RomPageSlot[] = [
-  { title: '48K ROM', ejectTitle: 'Revert to the default 48K ROM', page: 1 },
   { title: '128K ROM', ejectTitle: 'Revert to the default 128K ROM', page: 0 },
+  { title: '48K ROM', ejectTitle: 'Revert to the default 48K ROM', page: 1 },
 ];
 
 const PLUS3_SLOTS: RomPageSlot[] = [
