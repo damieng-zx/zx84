@@ -20,10 +20,14 @@ const dbSave = vi.fn(async (key: string, data: Uint8Array) => {
   idb.set(key, data);
 });
 const dbLoad = vi.fn(async (key: string) => idb.get(key) ?? null);
+const dbDelete = vi.fn(async (key: string) => {
+  idb.delete(key);
+});
 
 vi.mock('@/store/persistence.ts', () => ({
   dbSave: (key: string, data: Uint8Array) => dbSave(key, data),
   dbLoad: (key: string) => dbLoad(key),
+  dbDelete: (key: string) => dbDelete(key),
 }));
 
 // ── localStorage shim (node environment has no DOM) ───────────────────────
@@ -46,6 +50,7 @@ beforeEach(() => {
   idb.clear();
   dbSave.mockClear();
   dbLoad.mockClear();
+  dbDelete.mockClear();
   fakeLS = new FakeLocalStorage();
   (globalThis as any).localStorage = fakeLS;
 });
@@ -87,7 +92,7 @@ function installFetch(routes: Record<string, FetchSpec | FetchSpec[]>): { calls:
 
 // ── Import under test (after mocks are in place) ──────────────────────────
 
-import { ROMManager } from '@/managers/rom-manager.ts';
+import { ROMManager, defaultRomPageLabel } from '@/managers/rom-manager.ts';
 
 const ROM_BASE = 'https://zx84files.bitsparse.com/roms/';
 
@@ -400,5 +405,111 @@ describe('ROMManager.getCached', () => {
     m.getCached('48k');
     expect(dbLoad).not.toHaveBeenCalled();
     expect(calls).toEqual([]);
+  });
+});
+
+// ── Per-page overrides (128K/+2 dual-ROM models) ───────────────────────────
+
+describe('ROMManager.persistROMPage / restoreROMPage / getCachedPage', () => {
+  it('round-trips a page override through cache + IndexedDB, keyed independently per page', async () => {
+    const m = new ROMManager();
+    await m.persistROMPage('128k', 0, new Uint8Array([1, 2, 3]), 'editor.rom');
+    await m.persistROMPage('128k', 1, new Uint8Array([4, 5, 6]), 'basic.rom');
+
+    expect(m.getCachedPage('128k', 0)?.label).toBe('editor.rom');
+    expect(m.getCachedPage('128k', 1)?.label).toBe('basic.rom');
+    expect(Array.from(m.getCachedPage('128k', 0)!.data)).toEqual([1, 2, 3]);
+    expect(Array.from(m.getCachedPage('128k', 1)!.data)).toEqual([4, 5, 6]);
+    expect(idb.get('rom-128k-page0')).toEqual(new Uint8Array([1, 2, 3]));
+    expect(idb.get('rom-128k-page1')).toEqual(new Uint8Array([4, 5, 6]));
+  });
+
+  it('truncates an oversized page image to 16KB', async () => {
+    const m = new ROMManager();
+    const img = new Uint8Array(20000);
+    img[16383] = 0x42;
+    img[16384] = 0x99; // beyond 16K — must be dropped
+    await m.persistROMPage('128k', 0, img, 'big.rom');
+    const got = m.getCachedPage('128k', 0)!;
+    expect(got.data.length).toBe(16384);
+    expect(got.data[16383]).toBe(0x42);
+  });
+
+  it('getCachedPage returns null when nothing is overridden', () => {
+    expect(new ROMManager().getCachedPage('128k', 0)).toBeNull();
+  });
+
+  it('restoreROMPage returns null (not a fetch fallback) when no override is stored', async () => {
+    const m = new ROMManager();
+    expect(await m.restoreROMPage('128k', 0)).toBeNull();
+  });
+
+  it('restoreROMPage returns the cached entry without touching IDB', async () => {
+    const m = new ROMManager();
+    await m.persistROMPage('128k', 1, new Uint8Array([9]), 'cached');
+    dbLoad.mockClear();
+    const got = await m.restoreROMPage('128k', 1);
+    expect(got?.label).toBe('cached');
+    expect(dbLoad).not.toHaveBeenCalled();
+  });
+
+  it('restoreROMPage loads from IDB and re-populates the cache on a cold start', async () => {
+    const a = new ROMManager();
+    await a.persistROMPage('128k', 0, new Uint8Array([7, 7]), 'persisted.rom');
+
+    const b = new ROMManager(); // fresh instance — empty in-memory cache
+    const got = await b.restoreROMPage('128k', 0);
+    expect(got?.label).toBe('persisted.rom');
+    expect(Array.from(got!.data)).toEqual([7, 7]);
+  });
+
+  it('pages for the same model are independent — clearing one leaves the other intact', async () => {
+    const m = new ROMManager();
+    await m.persistROMPage('128k', 0, new Uint8Array([1]), 'page0');
+    await m.persistROMPage('128k', 1, new Uint8Array([2]), 'page1');
+    await m.clearROMPage('128k', 0);
+
+    expect(m.getCachedPage('128k', 0)).toBeNull();
+    expect(m.getCachedPage('128k', 1)?.label).toBe('page1');
+    expect(await m.restoreROMPage('128k', 0)).toBeNull();
+    expect((await m.restoreROMPage('128k', 1))?.label).toBe('page1');
+  });
+
+  it('pages for different models never collide on the same key', async () => {
+    const m = new ROMManager();
+    await m.persistROMPage('128k', 0, new Uint8Array([1]), '128k-page0');
+    await m.persistROMPage('+2', 0, new Uint8Array([2]), '+2-page0');
+
+    expect(m.getCachedPage('128k', 0)?.label).toBe('128k-page0');
+    expect(m.getCachedPage('+2', 0)?.label).toBe('+2-page0');
+  });
+});
+
+describe('ROMManager.clearROMPage', () => {
+  it('removes the cache entry, IDB image, and stored label', async () => {
+    const m = new ROMManager();
+    await m.persistROMPage('128k', 1, new Uint8Array([1]), 'x.rom');
+    await m.clearROMPage('128k', 1);
+
+    expect(m.getCachedPage('128k', 1)).toBeNull();
+    expect(idb.get('rom-128k-page1')).toBeUndefined();
+    expect(fakeLS.getItem('zx84-rom-label-128k-page1')).toBeNull();
+  });
+
+  it('is a no-op (does not throw) when nothing was ever persisted', async () => {
+    const m = new ROMManager();
+    await expect(m.clearROMPage('128k', 0)).resolves.not.toThrow();
+  });
+});
+
+describe('defaultRomPageLabel', () => {
+  it('names the 128K pages by their real ROM identity, not "(default)"', () => {
+    expect(defaultRomPageLabel('128k', 0)).toBe('Sinclair 128K BASIC');
+    expect(defaultRomPageLabel('128k', 1)).toBe('Sinclair 48K BASIC');
+  });
+
+  it('credits Amstrad (not Sinclair) for the +2\'s ROM — a different image despite the shared architecture', () => {
+    expect(defaultRomPageLabel('+2', 0)).toBe('Amstrad 128K BASIC');
+    expect(defaultRomPageLabel('+2', 1)).toBe('Amstrad 48K BASIC');
   });
 });

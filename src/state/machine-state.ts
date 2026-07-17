@@ -62,6 +62,24 @@ const _systemRomSize = createSignal(0);
 export const systemRomSize = _systemRomSize[0];
 export const setSystemRomSize = _systemRomSize[1];
 
+// 128K/+2 dual-ROM pane: independent 48K BASIC ROM (page 1) and 128K editor
+// ROM (page 0) slots. Empty label = using the default page.
+const _system48RomLabel = createSignal('');
+export const system48RomLabel = _system48RomLabel[0];
+export const setSystem48RomLabel = _system48RomLabel[1];
+
+const _system48RomSize = createSignal(0);
+export const system48RomSize = _system48RomSize[0];
+export const setSystem48RomSize = _system48RomSize[1];
+
+const _system128RomLabel = createSignal('');
+export const system128RomLabel = _system128RomLabel[0];
+export const setSystem128RomLabel = _system128RomLabel[1];
+
+const _system128RomSize = createSignal(0);
+export const system128RomSize = _system128RomSize[0];
+export const setSystem128RomSize = _system128RomSize[1];
+
 // Name of the mounted cartridge (empty = none), for the ROM pane.
 const _cartridgeName = createSignal('');
 export const cartridgeName = _cartridgeName[0];

@@ -11,8 +11,9 @@ import { type Machine, type MachineKind, asSpectrum, asCpc, asEinstein, asMsx } 
 import {
   type SpectrumModel, type MachineModel, type CpcModel, type EinsteinModel, type MsxModel,
   is128kClass, isPlus2AClass, isCpcModel, isEinsteinModel, isMsxModel, isPlusDCapable,
-  isInterface1Capable, isInterface2Capable, isBetaDiskCapable,
+  isInterface1Capable, isInterface2Capable, isBetaDiskCapable, isDualRomModel,
 } from '@/models.ts';
+import { BANK_SIZE } from '@/memory.ts';
 import { CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT, CPC_PALETTES } from '@/cpc/constants.ts';
 import { EINSTEIN_SCREEN_WIDTH, EINSTEIN_SCREEN_HEIGHT } from '@/einstein/constants.ts';
 import { MSX_SCREEN_WIDTH, MSX_SCREEN_HEIGHT } from '@/msx/constants.ts';
@@ -53,7 +54,7 @@ export { fontDataHash, updateFontPreview, loadFontStore, saveFontStore, captured
 export type { FontEntry } from '@/frame-bridge.ts';
 
 // Managers
-import { ROMManager } from '@/managers/rom-manager.ts';
+import { ROMManager, defaultRomPageLabel } from '@/managers/rom-manager.ts';
 import { MediaManager, type MediaLoadCallbacks } from '@/managers/media-manager.ts';
 import { DebugManager, type TraceMode } from '@/managers/debug-manager.ts';
 
@@ -96,9 +97,17 @@ import {
   setBetaDiskRomFailed,
   systemRomLabel,
   systemRomSize,
+  system48RomLabel,
+  system48RomSize,
+  system128RomLabel,
+  system128RomSize,
   cartridgeName,
   setSystemRomLabel,
   setSystemRomSize,
+  setSystem48RomLabel,
+  setSystem48RomSize,
+  setSystem128RomLabel,
+  setSystem128RomSize,
   setCartridgeName,
 } from '@/state/machine-state.ts';
 
@@ -153,7 +162,7 @@ import {
 
 // Re-export machine state
 export { statusText, romStatusText, currentModel, emulationPaused, turboMode, clockSpeedText, saveModel };
-export { systemRomLabel, systemRomSize, cartridgeName };
+export { systemRomLabel, systemRomSize, system48RomLabel, system48RomSize, system128RomLabel, system128RomSize, cartridgeName };
 export { setStatusText, setRomStatusText, setCurrentModel, setEmulationPaused, setTurboMode, setClockSpeedText };
 export { multifaceRomFailed, vtx5000RomFailed, paradosRomFailed, plusDRomFailed, interface1RomFailed, betaDiskRomFailed };
 
@@ -726,7 +735,19 @@ export async function switchModel(model: MachineModel): Promise<void> {
   if (!entry) entry = await fetchDefaultROM(romModel);
 
   if (entry) {
-    romData = entry.data;
+    let data = entry.data;
+    if (isDualRomModel(romModel)) {
+      // Splice any per-page overrides (128K editor = page 0, 48K BASIC =
+      // page 1) onto the base image, without mutating the cached default.
+      const page0 = await romManager.restoreROMPage(romModel, 0);
+      const page1 = await romManager.restoreROMPage(romModel, 1);
+      if (page0 || page1) {
+        data = new Uint8Array(entry.data);
+        if (page0) data.set(page0.data.subarray(0, BANK_SIZE), 0);
+        if (page1) data.set(page1.data.subarray(0, BANK_SIZE), BANK_SIZE);
+      }
+    }
+    romData = data;
     setRomStatus('');
   } else {
     romData = null;
@@ -750,9 +771,18 @@ export async function switchModel(model: MachineModel): Promise<void> {
 /** Refresh the ROM-pane signals from the current machine's system ROM and any
  *  mounted cartridge. Called after every (re)build of the machine. */
 export function updateRomPaneInfo(): void {
-  const entry = romManager.getCached(effectiveROMModel(currentModel()));
+  const model = effectiveROMModel(currentModel());
+  const entry = romManager.getCached(model);
   setSystemRomLabel(entry?.label ?? '');
   setSystemRomSize(romData?.length ?? 0);
+
+  const page0 = isDualRomModel(model) ? romManager.getCachedPage(model, 0) : null;
+  const page1 = isDualRomModel(model) ? romManager.getCachedPage(model, 1) : null;
+  setSystem128RomLabel(page0?.label ?? (isDualRomModel(model) ? defaultRomPageLabel(model, 0) : ''));
+  setSystem128RomSize(page0?.data.length ?? 0);
+  setSystem48RomLabel(page1?.label ?? (isDualRomModel(model) ? defaultRomPageLabel(model, 1) : ''));
+  setSystem48RomSize(page1?.data.length ?? 0);
+
   setCartridgeName(asMsx(machine)?.cartridgeName ?? spectrum?.interface2.name ?? '');
 }
 
@@ -768,6 +798,33 @@ export async function setSystemRom(data: Uint8Array, label: string): Promise<voi
 export async function resetSystemRom(): Promise<void> {
   await romManager.clearROM(effectiveROMModel(currentModel()));
   await switchModel(currentModel());   // restoreROM now misses → default is fetched
+}
+
+/**
+ * Replace one 16K page of a dual-ROM model's system ROM (128K/+2 only):
+ * page 0 = 128K editor ROM, page 1 = 48K BASIC ROM. A combined 32K image
+ * splits across both pages regardless of which slot triggered the load —
+ * matching the real ROM's layout — so loading a full image into either slot
+ * "just works".
+ */
+export async function setSystemRomPage(page: 0 | 1, data: Uint8Array, label: string): Promise<void> {
+  const model = effectiveROMModel(currentModel());
+  if (!isDualRomModel(model)) { setStatus('This model has a single System ROM'); return; }
+
+  if (data.length >= 2 * BANK_SIZE) {
+    await romManager.persistROMPage(model, 0, data.subarray(0, BANK_SIZE), `${label} (custom)`);
+    await romManager.persistROMPage(model, 1, data.subarray(BANK_SIZE, 2 * BANK_SIZE), `${label} (custom)`);
+  } else {
+    await romManager.persistROMPage(model, page, data.subarray(0, BANK_SIZE), `${label} (custom)`);
+  }
+  await switchModel(currentModel());
+}
+
+/** Revert one page of a dual-ROM model's system ROM to its default. */
+export async function resetSystemRomPage(page: 0 | 1): Promise<void> {
+  const model = effectiveROMModel(currentModel());
+  await romManager.clearROMPage(model, page);
+  await switchModel(currentModel());
 }
 
 /** Insert an MSX cartridge and reboot so the BIOS slot scan auto-runs it. */

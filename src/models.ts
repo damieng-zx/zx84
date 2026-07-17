@@ -53,6 +53,17 @@ export function isBetaDiskCapable(m: MachineModel): boolean {
 }
 
 /**
+ * Returns true for the two Ferranti-ULA 128K-class models whose ROM is two
+ * independent 16K pages — page 0 the 128K editor/menu ROM, page 1 the 48K
+ * BASIC ROM (see SpectrumMemory.isBasicRomActive). The ROM pane exposes these
+ * as two separately loadable/ejectable slots instead of one combined image.
+ * Excludes +2A/+3: their 4-page Amstrad ROM set isn't a simple 48K/128K split.
+ */
+export function isDualRomModel(m: MachineModel): m is '128k' | '+2' {
+  return m === '128k' || m === '+2';
+}
+
+/**
  * Returns true for models the ZX Interface 2 ROM cartridge slot fits: the
  * 16K and 48K Spectrum. Excluded: 128K-class machines, whose own ROM-paging
  * scheme the cartridge's permanent /ROMCS-disable would conflict with — the

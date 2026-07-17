@@ -2,9 +2,11 @@ import { Show, type JSX } from 'solid-js';
 import { Pane } from '@/components/Pane.tsx';
 import {
   currentModel, systemRomLabel, systemRomSize, cartridgeName,
-  setSystemRom, resetSystemRom, loadFile, ejectCartridge,
+  system48RomLabel, system48RomSize, system128RomLabel, system128RomSize,
+  setSystemRom, resetSystemRom, setSystemRomPage, resetSystemRomPage,
+  loadFile, ejectCartridge,
 } from '@/emulator.ts';
-import { isMsxModel, isInterface2Capable } from '@/models.ts';
+import { isMsxModel, isInterface2Capable, isDualRomModel } from '@/models.ts';
 import { openFile } from '@/ui/file-picker.ts';
 
 /** Format a byte count as a compact KB/byte string. */
@@ -60,14 +62,21 @@ function Slot(props: {
 
 /**
  * ROM / Carts pane — manage the machine's system ROM (BIOS) and, on machines
- * with a cartridge slot, a mounted ROM cartridge. Shown for the MSX (HX-10)
- * and the 16K/48K Spectrum (ZX Interface 2 cartridge slot).
+ * with a cartridge slot, a mounted ROM cartridge. Shown for the MSX (HX-10),
+ * the 16K/48K Spectrum (ZX Interface 2 cartridge slot), and the 128K/+2
+ * (two independent 16K ROM page slots).
  */
 export function RomPane(): JSX.Element {
   async function loadSystemRom(): Promise<void> {
     const results = await openFile({ id: 'zx84-system-rom', extensions: ['.rom', '.bin'] });
     if (!results) return;
     await setSystemRom(results[0].data, `${results[0].name} (custom)`);
+  }
+
+  async function loadSystemRomPage(page: 0 | 1): Promise<void> {
+    const results = await openFile({ id: `zx84-system-rom-page${page}`, extensions: ['.rom', '.bin'] });
+    if (!results) return;
+    await setSystemRomPage(page, results[0].data, results[0].name);
   }
 
   async function insertCartridge(): Promise<void> {
@@ -86,26 +95,71 @@ export function RomPane(): JSX.Element {
     return size ? `${label} · ${size}` : label;
   };
 
+  // Dual-ROM (128K/+2) page slots: the label is always populated (a named
+  // default like "Sinclair 48K BASIC", or a "(custom)"-suffixed user upload),
+  // so — like the single System ROM slot above — only a "(custom)" label
+  // offers an eject (there's no separate "unset" state to distinguish).
+  const isCustomPage = (label: string): boolean => /\(custom\)/i.test(label);
+  const pageText = (label: string, size: number): string => {
+    if (!label) return '';
+    const fmt = fmtSize(size);
+    return fmt ? `${label} · ${fmt}` : label;
+  };
+  const system48Text = (): string => pageText(system48RomLabel(), system48RomSize());
+  const system128Text = (): string => pageText(system128RomLabel(), system128RomSize());
+
+  const showCartridgeSlot = (): boolean => isMsxModel(currentModel()) || isInterface2Capable(currentModel());
+
   return (
-    <Pane id="rom-panel" label="ROM / Carts" visible={isMsxModel(currentModel()) || isInterface2Capable(currentModel())}>
-      <Slot
-        label="System ROM"
-        text={systemText()}
-        placeholder="(default)"
-        ejectable={isCustomRom()}
-        ejectTitle="Revert to the default system ROM"
-        onLoad={loadSystemRom}
-        onEject={() => resetSystemRom()}
-      />
-      <Slot
-        label="Cartridge"
-        text={cartridgeName()}
-        placeholder="No cartridge"
-        ejectable={!!cartridgeName()}
-        ejectTitle="Eject cartridge"
-        onLoad={insertCartridge}
-        onEject={ejectCartridge}
-      />
+    <Pane
+      id="rom-panel"
+      label="ROM / Carts"
+      visible={showCartridgeSlot() || isDualRomModel(currentModel())}
+    >
+      <Show
+        when={isDualRomModel(currentModel())}
+        fallback={
+          <Slot
+            label="System ROM"
+            text={systemText()}
+            placeholder="(default)"
+            ejectable={isCustomRom()}
+            ejectTitle="Revert to the default system ROM"
+            onLoad={loadSystemRom}
+            onEject={() => resetSystemRom()}
+          />
+        }
+      >
+        <Slot
+          label="System 48K ROM"
+          text={system48Text()}
+          placeholder="(default)"
+          ejectable={isCustomPage(system48RomLabel())}
+          ejectTitle="Revert to the default 48K ROM"
+          onLoad={() => loadSystemRomPage(1)}
+          onEject={() => resetSystemRomPage(1)}
+        />
+        <Slot
+          label="System 128K ROM"
+          text={system128Text()}
+          placeholder="(default)"
+          ejectable={isCustomPage(system128RomLabel())}
+          ejectTitle="Revert to the default 128K ROM"
+          onLoad={() => loadSystemRomPage(0)}
+          onEject={() => resetSystemRomPage(0)}
+        />
+      </Show>
+      <Show when={showCartridgeSlot()}>
+        <Slot
+          label="Cartridge"
+          text={cartridgeName()}
+          placeholder="No cartridge"
+          ejectable={!!cartridgeName()}
+          ejectTitle="Eject cartridge"
+          onLoad={insertCartridge}
+          onEject={ejectCartridge}
+        />
+      </Show>
     </Pane>
   );
 }

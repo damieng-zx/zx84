@@ -185,7 +185,10 @@ vi.mock('@/frame-bridge.ts', () => ({
 // vi.hoisted() guarantees this binding is shared between the mock factory
 // and test file scope in both forks and threads pool modes.
 const _h = vi.hoisted(() => ({
-  romManager: null as { restoreROM: any; fetchDefaultROM: any; persistROM: any } | null,
+  romManager: null as {
+    restoreROM: any; fetchDefaultROM: any; persistROM: any;
+    restoreROMPage: any; persistROMPage: any; getCachedPage: any; clearROMPage: any;
+  } | null,
 }));
 function getRomManager() { return _h.romManager!; }
 
@@ -196,8 +199,14 @@ vi.mock('@/managers/rom-manager.ts', () => ({
     persistROM      = vi.fn(async () => {});
     getCached       = vi.fn(() => null as any);
     clearROM        = vi.fn(async () => {});
+    restoreROMPage  = vi.fn(async () => null as any);
+    persistROMPage  = vi.fn(async () => {});
+    getCachedPage   = vi.fn(() => null as any);
+    clearROMPage    = vi.fn(async () => {});
     constructor() { _h.romManager = this as any; }
   },
+  defaultRomPageLabel: (model: string, page: 0 | 1) =>
+    `${model === '+2' ? 'Amstrad' : 'Sinclair'} ${page === 0 ? '128K' : '48K'} BASIC`,
 }));
 
 const _mgrs = vi.hoisted(() => ({
@@ -336,7 +345,9 @@ import * as z80fmt from '@/snapshot/z80format.ts';
 import * as dskMod from '@/floppy/dsk.ts';
 import * as tzxMod from '@/tape/tzx.ts';
 import * as joysticks from '@/peripherals/joysticks.ts';
-import { setCurrentModel, currentModel } from '@/state/machine-state.ts';
+import {
+  setCurrentModel, currentModel, system48RomLabel, system128RomLabel,
+} from '@/state/machine-state.ts';
 import { transcribeMode } from '@/emulator.ts';
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -559,6 +570,187 @@ describe('effectiveROMModel — +3 v4.1 ROM aliasing', () => {
     await emulator.switchModel('128k');
     expect(getRomManager().restoreROM).toHaveBeenCalledWith('128k');
     expect(getRomManager().restoreROM).not.toHaveBeenCalledWith('+2A');
+  });
+});
+
+// ── switchModel — 128K/+2 per-page ROM splicing ───────────────────────────
+
+describe('switchModel — 128K/+2 per-page ROM overrides', () => {
+  beforeEach(() => { emulator.setCanvas(fakeCanvas); });
+  afterEach(() => {
+    // Undo any per-test .mockImplementation so later, unrelated tests that
+    // happen to switch to a 128K/+2 model see the harness default (no override).
+    getRomManager().restoreROMPage.mockImplementation(async () => null as any);
+    getRomManager().getCachedPage.mockImplementation(() => null as any);
+    setCurrentModel('128k'); // restore the app default for later describes
+  });
+
+  function makeBaseRom(): Uint8Array {
+    const rom = new Uint8Array(32768);
+    for (let i = 0; i < rom.length; i++) rom[i] = i & 0xFF; // recognisable pattern
+    return rom;
+  }
+
+  it('with no page overrides, the base 32K default image passes through unchanged', async () => {
+    const base = makeBaseRom();
+    getRomManager().restoreROM.mockResolvedValueOnce({ data: base, label: '128K (default)' });
+    await emulator.switchModel('128k');
+    const loaded = lastSpectrumStub!.loadROM.mock.calls[0][0] as Uint8Array;
+    expect(Array.from(loaded)).toEqual(Array.from(base));
+  });
+
+  it('a page-1 (48K BASIC) override replaces only the second 16K half', async () => {
+    const base = makeBaseRom();
+    getRomManager().restoreROM.mockResolvedValueOnce({ data: base, label: '128K (default)' });
+    const override = new Uint8Array(16384).fill(0xAA);
+    getRomManager().restoreROMPage.mockImplementation(async (_model: string, page: number) =>
+      page === 1 ? { data: override, label: 'custom48.rom (custom)' } : null);
+
+    await emulator.switchModel('128k');
+
+    const loaded = lastSpectrumStub!.loadROM.mock.calls[0][0] as Uint8Array;
+    expect(Array.from(loaded.subarray(0, 16384))).toEqual(Array.from(base.subarray(0, 16384)));
+    expect(Array.from(loaded.subarray(16384))).toEqual(Array.from(override));
+  });
+
+  it('a page-0 (128K editor) override replaces only the first 16K half', async () => {
+    const base = makeBaseRom();
+    getRomManager().restoreROM.mockResolvedValueOnce({ data: base, label: '128K (default)' });
+    const override = new Uint8Array(16384).fill(0xBB);
+    getRomManager().restoreROMPage.mockImplementation(async (_model: string, page: number) =>
+      page === 0 ? { data: override, label: 'custom128.rom (custom)' } : null);
+
+    await emulator.switchModel('128k');
+
+    const loaded = lastSpectrumStub!.loadROM.mock.calls[0][0] as Uint8Array;
+    expect(Array.from(loaded.subarray(0, 16384))).toEqual(Array.from(override));
+    expect(Array.from(loaded.subarray(16384))).toEqual(Array.from(base.subarray(16384)));
+  });
+
+  it('overriding both pages replaces the whole image', async () => {
+    const base = makeBaseRom();
+    getRomManager().restoreROM.mockResolvedValueOnce({ data: base, label: '128K (default)' });
+    const p0 = new Uint8Array(16384).fill(0x11);
+    const p1 = new Uint8Array(16384).fill(0x22);
+    getRomManager().restoreROMPage.mockImplementation(async (_model: string, page: number) =>
+      page === 0 ? { data: p0, label: 'a' } : { data: p1, label: 'b' });
+
+    await emulator.switchModel('128k');
+
+    const loaded = lastSpectrumStub!.loadROM.mock.calls[0][0] as Uint8Array;
+    expect(Array.from(loaded.subarray(0, 16384))).toEqual(Array.from(p0));
+    expect(Array.from(loaded.subarray(16384))).toEqual(Array.from(p1));
+  });
+
+  it('does not mutate the cached default entry when splicing an override', async () => {
+    const base = makeBaseRom();
+    const baseCopy = base.slice();
+    getRomManager().restoreROM.mockResolvedValueOnce({ data: base, label: '128K (default)' });
+    getRomManager().restoreROMPage.mockImplementation(async (_model: string, page: number) =>
+      page === 1 ? { data: new Uint8Array(16384).fill(0xEE), label: 'x' } : null);
+
+    await emulator.switchModel('128k');
+
+    expect(Array.from(base)).toEqual(Array.from(baseCopy)); // untouched
+  });
+
+  it('the +2 model (also dual-ROM) is spliced the same way as 128K', async () => {
+    const base = makeBaseRom();
+    getRomManager().restoreROM.mockResolvedValueOnce({ data: base, label: '+2 (default)' });
+    const override = new Uint8Array(16384).fill(0xCC);
+    getRomManager().restoreROMPage.mockImplementation(async (_model: string, page: number) =>
+      page === 1 ? { data: override, label: 'x' } : null);
+
+    await emulator.switchModel('+2');
+
+    const loaded = lastSpectrumStub!.loadROM.mock.calls[0][0] as Uint8Array;
+    expect(Array.from(loaded.subarray(16384))).toEqual(Array.from(override));
+  });
+
+  it('non-dual models (e.g. 48K) never consult restoreROMPage', async () => {
+    getRomManager().restoreROM.mockResolvedValueOnce({ data: new Uint8Array(16384), label: '48k' });
+    await emulator.switchModel('48k');
+    expect(getRomManager().restoreROMPage).not.toHaveBeenCalled();
+  });
+
+  it('with no override, the pane shows the named default ROM, never a bare "(default)" placeholder', async () => {
+    getRomManager().restoreROM.mockResolvedValueOnce({ data: makeBaseRom(), label: '128K (default)' });
+    await emulator.switchModel('128k');
+    expect(system128RomLabel()).toBe('Sinclair 128K BASIC');
+    expect(system48RomLabel()).toBe('Sinclair 48K BASIC');
+  });
+
+  it('the +2 defaults are credited to Amstrad, not Sinclair', async () => {
+    getRomManager().restoreROM.mockResolvedValueOnce({ data: makeBaseRom(), label: '+2 (default)' });
+    await emulator.switchModel('+2');
+    expect(system128RomLabel()).toBe('Amstrad 128K BASIC');
+    expect(system48RomLabel()).toBe('Amstrad 48K BASIC');
+  });
+
+  it('a page override label is shown verbatim instead of the named default', async () => {
+    // In the real ROMManager, restoreROMPage() (used by switchModel's splicing)
+    // populates the same cache getCachedPage() (used by updateRomPaneInfo)
+    // reads from — mock both in tandem to reflect that.
+    const override = { data: new Uint8Array(16384), label: 'my48.rom (custom)' };
+    getRomManager().restoreROM.mockResolvedValueOnce({ data: makeBaseRom(), label: '128K (default)' });
+    getRomManager().restoreROMPage.mockImplementation(async (_model: string, page: number) =>
+      page === 1 ? override : null);
+    getRomManager().getCachedPage.mockImplementation((_model: string, page: number) =>
+      page === 1 ? override : null);
+
+    await emulator.switchModel('128k');
+
+    expect(system48RomLabel()).toBe('my48.rom (custom)');
+    expect(system128RomLabel()).toBe('Sinclair 128K BASIC'); // page 0 still default
+  });
+});
+
+// ── setSystemRomPage / resetSystemRomPage ─────────────────────────────────
+
+describe('setSystemRomPage / resetSystemRomPage', () => {
+  beforeEach(() => {
+    emulator.setCanvas(fakeCanvas);
+    getRomManager().restoreROMPage.mockImplementation(async () => null as any);
+  });
+  afterEach(() => { setCurrentModel('128k'); });
+
+  it('a combined 32K image persists both pages, regardless of which slot triggered the load', async () => {
+    setCurrentModel('128k');
+    const combined = new Uint8Array(32768);
+    combined.fill(0x11, 0, 16384);
+    combined.fill(0x22, 16384);
+
+    await emulator.setSystemRomPage(1, combined, 'combined.rom');
+
+    expect(getRomManager().persistROMPage).toHaveBeenCalledTimes(2);
+    const [model0, page0, data0] = getRomManager().persistROMPage.mock.calls[0];
+    const [model1, page1, data1] = getRomManager().persistROMPage.mock.calls[1];
+    expect(model0).toBe('128k');
+    expect(page0).toBe(0);
+    expect(Array.from(data0 as Uint8Array)).toEqual(Array.from(combined.subarray(0, 16384)));
+    expect(model1).toBe('128k');
+    expect(page1).toBe(1);
+    expect(Array.from(data1 as Uint8Array)).toEqual(Array.from(combined.subarray(16384)));
+  });
+
+  it('a 16K image only persists the targeted page', async () => {
+    setCurrentModel('128k');
+    const single = new Uint8Array(16384).fill(0x99);
+    await emulator.setSystemRomPage(1, single, 'basic.rom');
+    expect(getRomManager().persistROMPage).toHaveBeenCalledTimes(1);
+    expect(getRomManager().persistROMPage).toHaveBeenCalledWith('128k', 1, expect.anything(), expect.stringContaining('basic.rom'));
+  });
+
+  it('is a no-op on non-dual models', async () => {
+    setCurrentModel('48k');
+    await emulator.setSystemRomPage(1, new Uint8Array(16384), 'x.rom');
+    expect(getRomManager().persistROMPage).not.toHaveBeenCalled();
+  });
+
+  it('resetSystemRomPage clears just the targeted page', async () => {
+    setCurrentModel('128k');
+    await emulator.resetSystemRomPage(0);
+    expect(getRomManager().clearROMPage).toHaveBeenCalledWith('128k', 0);
   });
 });
 
