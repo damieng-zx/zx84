@@ -268,6 +268,8 @@ vi.mock('@/store/settings.ts', () => ({
   setTapeAutoRewind:  vi.fn(),
   cpcColorMap:        vi.fn(() => 'ga'),
   cpcParados:         vi.fn(() => false),
+  msxColorMap:        vi.fn(() => 'pal'),
+  einsteinColorMap:   vi.fn(() => 'accurate'),
 }));
 
 vi.mock('@/store/persistence.ts', () => ({

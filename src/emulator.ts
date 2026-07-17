@@ -16,6 +16,7 @@ import {
 import { CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT, CPC_PALETTES } from '@/cpc/constants.ts';
 import { EINSTEIN_SCREEN_WIDTH, EINSTEIN_SCREEN_HEIGHT } from '@/einstein/constants.ts';
 import { MSX_SCREEN_WIDTH, MSX_SCREEN_HEIGHT } from '@/msx/constants.ts';
+import { MSX_PALETTES, EINSTEIN_PALETTES } from '@/cores/tms9918a.ts';
 import { WebGLRenderer } from '@/display/webgl-renderer.ts';
 import { CanvasRenderer } from '@/display/canvas-renderer.ts';
 import { FloppySound } from '@/floppy/floppy-sound.ts';
@@ -292,10 +293,12 @@ export function applyDisplaySettings(): void {
     const ein = asEinstein(machine);
     const msx = asMsx(machine);
     if (ein) {
-      // Einstein: AY-only, fixed TMS9929A palette. Just volume for now.
+      // Einstein: AY-only, selectable TMS9929A colour map.
+      ein.vdp.palette = EINSTEIN_PALETTES[settings.einsteinColorMap()];
       ein.audio.setVolume(settings.volume() / 100);
     } else if (msx) {
-      // MSX: AY/PSG-only, fixed TMS9929A palette. Just volume for now.
+      // MSX: AY/PSG-only, selectable PAL/NTSC TMS9918A colour map.
+      msx.vdp.palette = MSX_PALETTES[settings.msxColorMap()];
       msx.audio.setVolume(settings.volume() / 100);
     } else {
       // CPC: AY-only, no beeper mixer. Volume + Fast ROM + Turbo while loading

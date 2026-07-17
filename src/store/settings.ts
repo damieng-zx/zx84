@@ -33,6 +33,8 @@ const DEFAULTS = {
   'renderer':          'webgl',
   'color-map':         'measured',
   'cpc-color-map':     'gate-array',
+  'msx-color-map':     'pal',
+  'einstein-color-map': 'accurate',
   'scanline-accuracy': 'high',
 
   // Sound
@@ -174,6 +176,14 @@ export const setColorMap = _colorMap[1];
 const _cpcColorMap = /*@once*/ createRoot(() => createSignal(getSaved('cpc-color-map', D('cpc-color-map')) as 'basic' | 'gate-array' | 'asic'));
 export const cpcColorMap = _cpcColorMap[0];
 export const setCpcColorMap = _cpcColorMap[1];
+
+const _msxColorMap = /*@once*/ createRoot(() => createSignal(getSaved('msx-color-map', D('msx-color-map')) as 'pal' | 'ntsc'));
+export const msxColorMap = _msxColorMap[0];
+export const setMsxColorMap = _msxColorMap[1];
+
+const _einsteinColorMap = /*@once*/ createRoot(() => createSignal(getSaved('einstein-color-map', D('einstein-color-map')) as 'mame' | 'accurate' | 'naive'));
+export const einsteinColorMap = _einsteinColorMap[0];
+export const setEinsteinColorMap = _einsteinColorMap[1];
 
 const _scanlineAccuracy = /*@once*/ createRoot(() => createSignal(getSaved('scanline-accuracy', D('scanline-accuracy')) as 'high' | 'mid' | 'low'));
 export const scanlineAccuracy = _scanlineAccuracy[0];
@@ -438,6 +448,8 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'border-size',       set: setBorderSize,       type: 'number' },
     { key: 'color-map',         set: setColorMap,         type: 'string' },
     { key: 'cpc-color-map',     set: setCpcColorMap,      type: 'string' },
+    { key: 'msx-color-map',     set: setMsxColorMap,      type: 'string' },
+    { key: 'einstein-color-map', set: setEinsteinColorMap, type: 'string' },
     { key: 'scanline-accuracy', set: setScanlineAccuracy, type: 'string' },
   ],
   sound: [

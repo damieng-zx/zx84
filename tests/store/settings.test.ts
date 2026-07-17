@@ -65,6 +65,9 @@ describe('settings — initial defaults from getSaved fallbacks', () => {
     expect(s.monitor()).toBe('raw');
     expect(s.renderer()).toBe('webgl');
     expect(s.colorMap()).toBe('measured');
+    expect(s.cpcColorMap()).toBe('gate-array');
+    expect(s.msxColorMap()).toBe('pal');
+    expect(s.einsteinColorMap()).toBe('accurate');
     expect(s.scanlineAccuracy()).toBe('high');
   });
 });
@@ -158,10 +161,13 @@ describe('settings — reset defaults vs initial defaults consistency', () => {
       maskType: s.maskType(), dotPitch: s.dotPitch(), curvatureMode: s.curvatureMode(),
       noise: s.noise(), scalingMode: s.scalingMode(), monitor: s.monitor(),
       borderSize: s.borderSize(), colorMap: s.colorMap(),
+      cpcColorMap: s.cpcColorMap(), msxColorMap: s.msxColorMap(),
+      einsteinColorMap: s.einsteinColorMap(),
       scanlineAccuracy: s.scanlineAccuracy(),
     };
     // Dirty a few so reset has something to do.
     s.setScale(7); s.setMonitor('greenscreen'); s.setBorderSize(99);
+    s.setCpcColorMap('asic'); s.setMsxColorMap('ntsc'); s.setEinsteinColorMap('naive');
     s.resetSettingsGroup('display');
     const after = {
       scale: s.scale(), brightness: s.brightness(), contrast: s.contrast(),
@@ -169,6 +175,8 @@ describe('settings — reset defaults vs initial defaults consistency', () => {
       maskType: s.maskType(), dotPitch: s.dotPitch(), curvatureMode: s.curvatureMode(),
       noise: s.noise(), scalingMode: s.scalingMode(), monitor: s.monitor(),
       borderSize: s.borderSize(), colorMap: s.colorMap(),
+      cpcColorMap: s.cpcColorMap(), msxColorMap: s.msxColorMap(),
+      einsteinColorMap: s.einsteinColorMap(),
       scanlineAccuracy: s.scanlineAccuracy(),
     };
     expect(after).toEqual(before);

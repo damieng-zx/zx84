@@ -53,6 +53,103 @@ export const TMS9918_PALETTE: Uint32Array = Uint32Array.from([
   0xFFFFFF, // 15 white
 ].map(packRgb));
 
+/** MSX colour map selection: PAL (TMS9929A, 50Hz — the HX-10's chip) vs NTSC
+ *  (TMS9918A, 60Hz). The two differ because the chip derives its colour
+ *  subcarrier phase from the field rate. */
+export type MsxColorMap = 'pal' | 'ntsc';
+
+/** MSX1 (V9938/TMS9918A family) colour tables, measured RGB per the openMSX
+ *  project's PAL/NTSC reference values. Index 0 (transparent) shown as black,
+ *  matching {@link TMS9918_PALETTE}. */
+export const MSX_PALETTES: Record<MsxColorMap, Uint32Array> = {
+  ntsc: Uint32Array.from([
+    0x000000, // 0  transparent
+    0x000000, // 1  black
+    0x21C832, // 2  medium green
+    0x5EDC63, // 3  light green
+    0x544FFF, // 4  dark blue
+    0x806FFF, // 5  light blue
+    0xD45247, // 6  dark red
+    0x46CDEF, // 7  cyan
+    0xFA5E53, // 8  medium red
+    0xFF8679, // 9  light red
+    0xD1C652, // 10 dark yellow
+    0xEADF88, // 11 light yellow
+    0x21A133, // 12 dark green
+    0xCE68CC, // 13 magenta
+    0xCCCCCC, // 14 gray
+    0xFFFFFF, // 15 white
+  ].map(packRgb)),
+  pal: Uint32Array.from([
+    0x000000, // 0  transparent
+    0x000000, // 1  black
+    0x27B84A, // 2  medium green
+    0x75CF7E, // 3  light green
+    0x5955DE, // 4  dark blue
+    0x8077F0, // 5  light blue
+    0xB85E51, // 6  dark red
+    0x66DBEF, // 7  cyan
+    0xDA665A, // 8  medium red
+    0xFE8A7E, // 9  light red
+    0xB7C354, // 10 dark yellow
+    0xD8D18B, // 11 light yellow
+    0x218D3C, // 12 dark green
+    0xB565B3, // 13 magenta
+    0xCCCCCC, // 14 gray
+    0xFFFFFF, // 15 white
+  ].map(packRgb)),
+};
+
+/** Einstein colour map selection — three independently-sourced reference
+ *  palettes for the TC-01's TMS9929A (PAL):
+ *   - `mame`     — MAME's tms9928a.cpp idealized RGB table.
+ *   - `accurate` — measured RGB per the openMSX project's PAL reference
+ *                  values (identical to {@link MSX_PALETTES}'s `pal` — same
+ *                  TMS9929A chip). The most accurate to real hardware.
+ *   - `naive`    — the common "bit-shifted" approximation (each colour bit
+ *                  expanded to 0x00/0x33/0xCC/0xFF) seen in simpler emulators. */
+export type EinsteinColorMap = 'mame' | 'accurate' | 'naive';
+
+export const EINSTEIN_PALETTES: Record<EinsteinColorMap, Uint32Array> = {
+  mame: Uint32Array.from([
+    0x000000, // 0  transparent
+    0x000000, // 1  black
+    0x00B300, // 2  medium green
+    0x00E600, // 3  light green
+    0x4D4DFF, // 4  dark blue
+    0x8080FF, // 5  light blue
+    0xB30000, // 6  dark red
+    0x00E6FF, // 7  cyan
+    0xE60000, // 8  medium red
+    0xFF4D4D, // 9  light red
+    0xE6E600, // 10 dark yellow
+    0xFFFF66, // 11 light yellow
+    0x008000, // 12 dark green
+    0xE600E6, // 13 magenta
+    0xCCCCCC, // 14 gray
+    0xFFFFFF, // 15 white
+  ].map(packRgb)),
+  accurate: MSX_PALETTES.pal,
+  naive: Uint32Array.from([
+    0x000000, // 0  transparent
+    0x000000, // 1  black
+    0x00CC00, // 2  medium green
+    0x00FF00, // 3  light green
+    0x0000CC, // 4  dark blue
+    0x0000FF, // 5  light blue
+    0xCC0000, // 6  dark red
+    0x00FFFF, // 7  cyan
+    0xFF0000, // 8  medium red
+    0xFF3333, // 9  light red
+    0xCCCC00, // 10 dark yellow
+    0xFFFF00, // 11 light yellow
+    0x006600, // 12 dark green
+    0xFF00FF, // 13 magenta
+    0xCCCCCC, // 14 gray
+    0xFFFFFF, // 15 white
+  ].map(packRgb)),
+};
+
 // Register 1 bits.
 const R1_BLANK = 0x40;    // 0 = display blanked to backdrop
 const R1_IE = 0x20;       // interrupt enable

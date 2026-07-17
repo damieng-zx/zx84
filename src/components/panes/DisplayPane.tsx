@@ -1,4 +1,4 @@
-import { Show, For } from 'solid-js';
+import { Show, For, Switch, Match } from 'solid-js';
 import type { Accessor, Setter } from 'solid-js';
 import { Pane } from '@/components/Pane.tsx';
 import {
@@ -8,11 +8,12 @@ import {
   noise, setNoise, scalingMode, setScalingMode,
   monitor, setMonitor, borderSize, setBorderSize,
   renderer, webglAvailable, colorMap, setColorMap, scanlineAccuracy, setScanlineAccuracy,
-  cpcColorMap, setCpcColorMap,
+  cpcColorMap, setCpcColorMap, msxColorMap, setMsxColorMap,
+  einsteinColorMap, setEinsteinColorMap,
   persistSetting, resetSettingsGroup,
 } from '@/store/settings.ts';
 import { spectrum, machine, currentModel, switchRenderer, applyDisplaySettings } from '@/emulator.ts';
-import { isCpcModel } from '@/models.ts';
+import { isCpcModel, isMsxModel, isEinsteinModel } from '@/models.ts';
 
 interface MonitorPreset {
   maskType: number;
@@ -87,6 +88,8 @@ const SCALING_ALGOS: { mode: number; label: string; nativeScale: number }[] = [
 
 export function DisplayPane() {
   const isCpc = () => isCpcModel(currentModel());
+  const isMsx = () => isMsxModel(currentModel());
+  const isEinstein = () => isEinsteinModel(currentModel());
   // Filter algorithms to those compatible with the current display scale
   const availableAlgos = () => SCALING_ALGOS.filter(
     a => a.nativeScale === 0 || a.nativeScale === scale()
@@ -134,8 +137,7 @@ export function DisplayPane() {
       </div>
       <div class="slider-row">
         <span class="slider-label">Color map</span>
-        <Show
-          when={isCpc()}
+        <Switch
           fallback={
             <select value={colorMap()} onChange={(e) => {
               const v = (e.target as HTMLSelectElement).value as 'basic' | 'measured' | 'vivid';
@@ -149,17 +151,42 @@ export function DisplayPane() {
             </select>
           }
         >
-          <select value={cpcColorMap()} onChange={(e) => {
-            const v = (e.target as HTMLSelectElement).value as 'basic' | 'gate-array' | 'asic';
-            setCpcColorMap(v);
-            persistSetting('cpc-color-map', v);
-            applyDisplaySettings();
-          }}>
-            <option value="basic">Basic</option>
-            <option value="gate-array">Gate Array</option>
-            <option value="asic">ASIC</option>
-          </select>
-        </Show>
+          <Match when={isCpc()}>
+            <select value={cpcColorMap()} onChange={(e) => {
+              const v = (e.target as HTMLSelectElement).value as 'basic' | 'gate-array' | 'asic';
+              setCpcColorMap(v);
+              persistSetting('cpc-color-map', v);
+              applyDisplaySettings();
+            }}>
+              <option value="basic">Basic</option>
+              <option value="gate-array">Gate Array</option>
+              <option value="asic">ASIC</option>
+            </select>
+          </Match>
+          <Match when={isMsx()}>
+            <select value={msxColorMap()} onChange={(e) => {
+              const v = (e.target as HTMLSelectElement).value as 'pal' | 'ntsc';
+              setMsxColorMap(v);
+              persistSetting('msx-color-map', v);
+              applyDisplaySettings();
+            }}>
+              <option value="pal">PAL</option>
+              <option value="ntsc">NTSC</option>
+            </select>
+          </Match>
+          <Match when={isEinstein()}>
+            <select value={einsteinColorMap()} onChange={(e) => {
+              const v = (e.target as HTMLSelectElement).value as 'mame' | 'accurate' | 'naive';
+              setEinsteinColorMap(v);
+              persistSetting('einstein-color-map', v);
+              applyDisplaySettings();
+            }}>
+              <option value="mame">MAME</option>
+              <option value="accurate">Accurate</option>
+              <option value="naive">Naive</option>
+            </select>
+          </Match>
+        </Switch>
       </div>
       <div class="slider-row">
         <span class="slider-label">Accuracy</span>
