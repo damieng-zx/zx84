@@ -1527,7 +1527,7 @@ input[type="range"]::-moz-range-thumb {
   border: 1px solid #bbb;
   border-radius: 3px;
   font-size: 0.75rem;
-  min-height: 24px;
+  height: 24px;
 }
 .media-slot.clickable { cursor: pointer; }
 .media-slot.clickable:hover { background: #f0f0f8; border-color: #999; }
@@ -1540,7 +1540,10 @@ input[type="range"]::-moz-range-thumb {
   color: #222;
   font-weight: 500;
 }
-.media-slot-text.placeholder {
+/* No eject button showing = the default page, not a user upload — italicise
+   it the same way an empty "No cartridge" placeholder is (matches the
+   #tape-name / .disk-name convention below). */
+.media-slot:not(:has(button.tape-eject)) .media-slot-text {
   color: #999;
   font-style: italic;
   font-weight: 400;
@@ -1744,7 +1747,7 @@ input[type="range"]::-moz-range-thumb {
   border: 1px solid #bbb;
   border-radius: 3px;
   font-size: 0.75rem;
-  min-height: 24px;
+  height: 24px;
   flex-shrink: 0;
   margin-bottom: 4px;
 }
@@ -1778,11 +1781,19 @@ input[type="range"]::-moz-range-thumb {
   width: 18px;
   height: 18px;
   min-width: 18px;
+  min-height: 18px;
+  max-height: 18px;
   margin-left: auto;
   background: none !important;
   border: none !important;
   border-radius: 0 !important;
   padding: 0 !important;
+  /* Neutralise native button chrome — some browsers otherwise give a
+     plain <button> a minimum control height taller than our 18px, which
+     grows the whole slot row whenever the eject button appears. */
+  appearance: none;
+  -webkit-appearance: none;
+  line-height: 1;
   cursor: pointer;
   color: #888;
   display: flex;
@@ -1850,7 +1861,7 @@ input[type="range"]::-moz-range-thumb {
   border: 1px solid #bbb;
   border-radius: 3px;
   font-size: 0.75rem;
-  min-height: 24px;
+  height: 24px;
   margin-bottom: 0;
 }
 .drive-led {
