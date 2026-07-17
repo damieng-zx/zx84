@@ -1,6 +1,6 @@
 /**
  * ZIP archive parser.
- * Extracts .sna / .z80 / .tap entries from ZIP files.
+ * Extracts snapshot, tape, disk, and cartridge entries from ZIP files.
  * Uses browser DecompressionStream('deflate-raw') for inflate — no runtime deps.
  */
 
@@ -9,7 +9,11 @@ export interface ZipEntry {
   data: Uint8Array;
 }
 
-const LOADABLE_EXTS = /\.(sna|z80|szx|sp|tap|tzx|csw|dsk)$/i;
+// Every extension any platform's loadFile()/zip re-dispatch can act on:
+// snapshots (sna/z80/szx/sp), Spectrum tapes (tap/tzx/csw), CPC tape (cdt),
+// disk images (dsk/hfe/scp), MSX cartridge/cassette (rom/cas), Beta Disk
+// (trd/scl), MGT +D (mgt/img), and Interface 1 microdrive (mdr/mdv).
+const LOADABLE_EXTS = /\.(sna|z80|szx|sp|tap|tzx|csw|cdt|dsk|hfe|scp|rom|cas|trd|scl|mgt|img|mdr|mdv)$/i;
 
 /** Parse a ZIP archive and return entries with loadable extensions. */
 export async function unzip(data: Uint8Array): Promise<ZipEntry[]> {

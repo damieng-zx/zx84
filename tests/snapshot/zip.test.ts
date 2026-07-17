@@ -286,6 +286,17 @@ describe('unzip — filtering', () => {
     expect(out.map(e => e.name)).toEqual(names);
   });
 
+  it('accepts cartridge and peripheral-format extensions (rom/cas/hfe/scp/trd/scl/mgt/img/mdr/mdv/cdt)', async () => {
+    const names = [
+      'cart.rom', 'game.cas', 'disk.hfe', 'disk.SCP',
+      'disk.trd', 'disk.scl', 'disk.mgt', 'disk.img',
+      'tape.mdr', 'tape.MDV', 'tape.cdt',
+    ];
+    const zip = buildZip(names.map(n => ({ name: n, data: bytes(0xFF) })));
+    const out = await unzip(zip);
+    expect(out.map(e => e.name)).toEqual(names);
+  });
+
   it('skips entries with unsupported compression methods', async () => {
     // Build a valid file then patch the central-directory method field to 99 (AE).
     const zip = buildZip([
