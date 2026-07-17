@@ -16,6 +16,7 @@ import { JoystickPane } from '@/components/panes/JoystickPane.tsx';
 import { MousePane } from '@/components/panes/MousePane.tsx';
 import { SoundPane } from '@/components/panes/SoundPane.tsx';
 import { DisplayPane } from '@/components/panes/DisplayPane.tsx';
+import { MonitorPane } from '@/components/panes/MonitorPane.tsx';
 import { FontPane } from '@/components/panes/FontPane.tsx';
 import { SysVarPane } from '@/components/panes/SysVarPane.tsx';
 import { BasicPane } from '@/components/panes/BasicPane.tsx';
@@ -47,6 +48,7 @@ const PANE_COMPONENTS: Record<string, () => JSX.Element> = {
   'mouse-panel': MousePane,
   'sound-panel': SoundPane,
   'display-pane': DisplayPane,
+  'monitor-pane': MonitorPane,
   'font-panel': FontPane,
   'sysvar-panel': SysVarPane,
   'basic-panel': BasicPane,

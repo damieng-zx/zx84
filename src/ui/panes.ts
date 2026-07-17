@@ -36,6 +36,7 @@ export const PANE_LABELS: Record<string, string> = {
   'tape-panel': 'Tape',
   'sound-panel': 'Sound',
   'display-pane': 'Display',
+  'monitor-pane': 'Monitor',
   'joystick-panel': 'Joysticks',
   'mouse-panel': 'Mouse',
   'font-panel': 'Fonts',
@@ -62,6 +63,7 @@ const DEFAULT_ORDER: PanePosition[] = [
   // Right: peripherals/output, then the dev panes (hidden by default).
   { id: 'sound-panel', sidebar: 'right' },
   { id: 'display-pane', sidebar: 'right' },
+  { id: 'monitor-pane', sidebar: 'right' },
   // The keyboard pane lives under the screen in #main, not a sidebar — it has
   // no PANE_COMPONENTS entry so it never renders in a sidebar. It's listed here
   // only so it appears in the "Panes" show/hide menu (sidebar value unused).

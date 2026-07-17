@@ -156,28 +156,43 @@ describe('settings — reset defaults vs initial defaults consistency', () => {
   it('display pane: reset gives the same values as fresh boot', async () => {
     const s = await load();
     const before = {
-      scale: s.scale(), brightness: s.brightness(), contrast: s.contrast(),
-      smoothing: s.smoothing(), curvature: s.curvature(), scanlines: s.scanlines(),
-      maskType: s.maskType(), dotPitch: s.dotPitch(), curvatureMode: s.curvatureMode(),
-      noise: s.noise(), scalingMode: s.scalingMode(), monitor: s.monitor(),
+      scale: s.scale(), scalingMode: s.scalingMode(),
       borderSize: s.borderSize(), colorMap: s.colorMap(),
       cpcColorMap: s.cpcColorMap(), msxColorMap: s.msxColorMap(),
       einsteinColorMap: s.einsteinColorMap(),
       scanlineAccuracy: s.scanlineAccuracy(),
     };
     // Dirty a few so reset has something to do.
-    s.setScale(7); s.setMonitor('greenscreen'); s.setBorderSize(99);
+    s.setScale(7); s.setBorderSize(99);
     s.setCpcColorMap('asic'); s.setMsxColorMap('ntsc'); s.setEinsteinColorMap('naive');
     s.resetSettingsGroup('display');
     const after = {
-      scale: s.scale(), brightness: s.brightness(), contrast: s.contrast(),
-      smoothing: s.smoothing(), curvature: s.curvature(), scanlines: s.scanlines(),
-      maskType: s.maskType(), dotPitch: s.dotPitch(), curvatureMode: s.curvatureMode(),
-      noise: s.noise(), scalingMode: s.scalingMode(), monitor: s.monitor(),
+      scale: s.scale(), scalingMode: s.scalingMode(),
       borderSize: s.borderSize(), colorMap: s.colorMap(),
       cpcColorMap: s.cpcColorMap(), msxColorMap: s.msxColorMap(),
       einsteinColorMap: s.einsteinColorMap(),
       scanlineAccuracy: s.scanlineAccuracy(),
+    };
+    expect(after).toEqual(before);
+  });
+
+  it('monitor pane: reset gives the same values as fresh boot', async () => {
+    const s = await load();
+    const before = {
+      brightness: s.brightness(), contrast: s.contrast(),
+      smoothing: s.smoothing(), curvature: s.curvature(), scanlines: s.scanlines(),
+      maskType: s.maskType(), dotPitch: s.dotPitch(), curvatureMode: s.curvatureMode(),
+      noise: s.noise(), monitor: s.monitor(),
+    };
+    // Dirty a few so reset has something to do.
+    s.setBrightness(25); s.setContrast(90); s.setMonitor('greenscreen');
+    s.setMaskType(3); s.setCurvatureMode(1);
+    s.resetSettingsGroup('monitor');
+    const after = {
+      brightness: s.brightness(), contrast: s.contrast(),
+      smoothing: s.smoothing(), curvature: s.curvature(), scanlines: s.scanlines(),
+      maskType: s.maskType(), dotPitch: s.dotPitch(), curvatureMode: s.curvatureMode(),
+      noise: s.noise(), monitor: s.monitor(),
     };
     expect(after).toEqual(before);
   });

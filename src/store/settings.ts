@@ -434,6 +434,15 @@ type SettingDef =
 const PANE_SETTINGS: Record<string, SettingDef[]> = {
   display: [
     { key: 'scale',             set: setScale,            type: 'number' },
+    { key: 'scaling-mode',      set: setScalingMode,      type: 'number' },
+    { key: 'border-size',       set: setBorderSize,       type: 'number' },
+    { key: 'color-map',         set: setColorMap,         type: 'string' },
+    { key: 'cpc-color-map',     set: setCpcColorMap,      type: 'string' },
+    { key: 'msx-color-map',     set: setMsxColorMap,      type: 'string' },
+    { key: 'einstein-color-map', set: setEinsteinColorMap, type: 'string' },
+    { key: 'scanline-accuracy', set: setScanlineAccuracy, type: 'string' },
+  ],
+  monitor: [
     { key: 'brightness',        set: setBrightness,       type: 'number' },
     { key: 'contrast',          set: setContrast,         type: 'number' },
     { key: 'smoothing',         set: setSmoothing,        type: 'number' },
@@ -443,14 +452,7 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'dot-pitch',         set: setDotPitch,         type: 'number' },
     { key: 'curvature-mode',    set: setCurvatureMode,    type: 'number' },
     { key: 'noise',             set: setNoise,            type: 'number' },
-    { key: 'scaling-mode',      set: setScalingMode,      type: 'number' },
     { key: 'monitor',           set: setMonitor,          type: 'string' },
-    { key: 'border-size',       set: setBorderSize,       type: 'number' },
-    { key: 'color-map',         set: setColorMap,         type: 'string' },
-    { key: 'cpc-color-map',     set: setCpcColorMap,      type: 'string' },
-    { key: 'msx-color-map',     set: setMsxColorMap,      type: 'string' },
-    { key: 'einstein-color-map', set: setEinsteinColorMap, type: 'string' },
-    { key: 'scanline-accuracy', set: setScanlineAccuracy, type: 'string' },
   ],
   sound: [
     { key: 'volume',      set: setVolume,     type: 'number' },
