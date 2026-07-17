@@ -135,13 +135,32 @@ describe('ROMManager.persistROM / restoreROM', () => {
     expect(await m.restoreROM('+3')).toBeNull();
   });
 
-  it('restoreROM falls back to "saved ROM" when the label is missing', async () => {
+  it('restoreROM recomputes the default label when none is stored', async () => {
     // Simulate: IDB has the ROM but localStorage label was lost (e.g. private
     // tab, separate domain). Pre-seed IDB without ever writing the label.
+    idb.set('rom-128k', new Uint8Array([0xFF]));
+    const m = new ROMManager();
+    const got = await m.restoreROM('128k');
+    expect(got?.label).toBe('128K (default)');
+  });
+
+  it('restoreROM discards a stale default-shaped label and recomputes it fresh', async () => {
+    // A label persisted by an older naming scheme (e.g. "16K (default)" before
+    // 16K/48K were renamed to "Sinclair BASIC") must not survive — it's not a
+    // real user-chosen name, so it's discarded rather than trusted verbatim.
     idb.set('rom-48k', new Uint8Array([0xFF]));
+    fakeLS.setItem('zx84-rom-label-48k', '48K (default)');
     const m = new ROMManager();
     const got = await m.restoreROM('48k');
-    expect(got?.label).toBe('saved ROM');
+    expect(got?.label).toBe('Sinclair BASIC');
+  });
+
+  it('restoreROM trusts a genuinely custom label', async () => {
+    idb.set('rom-48k', new Uint8Array([0xFF]));
+    fakeLS.setItem('zx84-rom-label-48k', 'my-hacked-rom.rom (custom)');
+    const m = new ROMManager();
+    const got = await m.restoreROM('48k');
+    expect(got?.label).toBe('my-hacked-rom.rom (custom)');
   });
 
   it('persistROM survives localStorage throwing (private-mode quota error)', async () => {
@@ -177,7 +196,7 @@ describe('ROMManager.fetchDefaultROM', () => {
     const got = await m.fetchDefaultROM('48k');
     expect(got).not.toBeNull();
     expect(Array.from(got!.data)).toEqual([1, 2, 3, 4]);
-    expect(got!.label).toBe('48K (default)');
+    expect(got!.label).toBe('Sinclair BASIC');
     expect(idb.get('rom-48k')).toEqual(body);
   });
 
@@ -255,7 +274,15 @@ describe('ROMManager.fetchDefaultROM', () => {
     installFetch({ [`${ROM_BASE}48.rom`]: { body: new Uint8Array([1]) } });
     const m = new ROMManager();
     const got = await m.fetchDefaultROM('48k');
-    expect(got!.label).toBe('48K (default)');
+    expect(got!.label).toBe('Sinclair BASIC');
+  });
+
+  it('16K default ROM also uses the Sinclair BASIC label', async () => {
+    // The 16K shares the 48K's ROM image (same Sinclair BASIC content).
+    installFetch({ [`${ROM_BASE}48.rom`]: { body: new Uint8Array([1]) } });
+    const m = new ROMManager();
+    const got = await m.fetchDefaultROM('16k');
+    expect(got!.label).toBe('Sinclair BASIC');
   });
 });
 

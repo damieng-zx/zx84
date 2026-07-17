@@ -18,6 +18,15 @@ export interface ROMEntry {
 
 const ROM_BASE = 'https://zx84files.bitsparse.com/roms/';
 
+/** Label for a freshly-fetched default ROM — model-specific naming where the
+ *  underlying chip has a real name (Sinclair BASIC on the 16K/48K), falling
+ *  back to a generic "<MODEL> (default)" otherwise. Always computed fresh
+ *  (never persisted verbatim — see restoreROM) so a naming change here takes
+ *  effect immediately, without a stale string surviving in localStorage. */
+function defaultRomLabel(model: MachineModel): string {
+  return (model === '16k' || model === '48k') ? 'Sinclair BASIC' : `${model.toUpperCase()} (default)`;
+}
+
 // Each model lists its ROM pages in order; they are fetched and concatenated.
 // CPC models concatenate to OS(16KB) + BASIC(16KB) [+ AMSDOS(16KB)], the layout
 // CpcMemory.loadROM() splits on.
@@ -71,7 +80,12 @@ export class ROMManager {
     }
     if (!data) return null;
 
-    const label = localStorage.getItem(`zx84-rom-label-${model}`) || 'saved ROM';
+    // A stored label is only trusted when it's a real user-chosen custom name
+    // (see setSystemRom). Anything shaped like a computed default label —
+    // including stale text from an older naming scheme, e.g. "16K (default)"
+    // — is discarded and recomputed fresh via defaultRomLabel().
+    const stored = localStorage.getItem(`zx84-rom-label-${model}`);
+    const label = (stored && !/\(default\)$/i.test(stored)) ? stored : defaultRomLabel(model);
     this.cache[model] = { data, label };
     return this.cache[model];
   }
@@ -100,8 +114,12 @@ export class ROMManager {
       let offset = 0;
       for (const page of pages) { data.set(page, offset); offset += page.length; }
 
-      const label = `${model.toUpperCase()} (default)`;
-      await this.persistROM(model, data, label);
+      // Save the raw bytes for offline reuse, but do NOT persist a label to
+      // localStorage — a default label is derived, not a real ROM name, and
+      // must stay free to be recomputed if the naming logic changes later.
+      await dbSave(`rom-${model}`, data);
+      const label = defaultRomLabel(model);
+      this.cache[model] = { data, label };
       onStatus?.(`${model.toUpperCase()} ROM loaded`);
 
       return { data, label };
