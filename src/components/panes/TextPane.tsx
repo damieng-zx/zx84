@@ -1,5 +1,5 @@
-import type { Accessor, Setter } from 'solid-js';
 import { Pane } from '@/components/Pane.tsx';
+import { SliderRow } from '@/components/Slider.tsx';
 import '@/fonts/monospace-fonts.css';
 import {
   ocrFont, setOcrFont,
@@ -27,29 +27,6 @@ const MONO_FONTS = [
   'Victor Mono',
 ];
 
-function SliderRow(props: {
-  label: string; id: string; min: number; max: number; step?: number;
-  sig: Accessor<number>; setSig: Setter<number>; settingKey: string;
-  format?: (v: number) => string;
-}) {
-  return (
-    <div class="slider-row">
-      <span class="slider-label">{props.label}</span>
-      <input
-        type="range" id={`${props.id}-slider`}
-        min={props.min} max={props.max} step={props.step ?? 1}
-        value={props.sig()}
-        onInput={(e) => {
-          const v = Number((e.target as HTMLInputElement).value);
-          props.setSig(v);
-          persistSetting(props.settingKey, v);
-        }}
-      />
-      <span class="slider-value">{props.format ? props.format(props.sig()) : props.sig()}</span>
-    </div>
-  );
-}
-
 export function TextPane() {
   return (
     <Pane id="text-panel" label="Text" onResetSettings={() => resetSettingsGroup('text')}>
@@ -67,32 +44,32 @@ export function TextPane() {
       </div>
 
       <SliderRow label="Line height" id="ocr-lh" min={80} max={160}
-        sig={ocrLineHeight} setSig={setOcrLineHeight} settingKey="ocr-line-height"
+        value={ocrLineHeight} onInput={v => { setOcrLineHeight(v); persistSetting('ocr-line-height', v); }}
         format={v => (v / 100).toFixed(2)}
       />
 
       <SliderRow label="Tracking" id="ocr-track" min={-20} max={20}
-        sig={ocrTracking} setSig={setOcrTracking} settingKey="ocr-tracking"
+        value={ocrTracking} onInput={v => { setOcrTracking(v); persistSetting('ocr-tracking', v); }}
         format={v => `${(v / 10).toFixed(1)}px`}
       />
 
       <SliderRow label="Offset X" id="ocr-ox" min={-10} max={20}
-        sig={ocrOffsetX} setSig={setOcrOffsetX} settingKey="ocr-offset-x"
+        value={ocrOffsetX} onInput={v => { setOcrOffsetX(v); persistSetting('ocr-offset-x', v); }}
         format={v => `${v}px`}
       />
 
       <SliderRow label="Offset Y" id="ocr-oy" min={-10} max={20}
-        sig={ocrOffsetY} setSig={setOcrOffsetY} settingKey="ocr-offset-y"
+        value={ocrOffsetY} onInput={v => { setOcrOffsetY(v); persistSetting('ocr-offset-y', v); }}
         format={v => `${v}px`}
       />
 
       <SliderRow label="Scale X" id="ocr-sx" min={90} max={110} step={0.1}
-        sig={ocrScaleX} setSig={setOcrScaleX} settingKey="ocr-scale-x"
+        value={ocrScaleX} onInput={v => { setOcrScaleX(v); persistSetting('ocr-scale-x', v); }}
         format={v => `${v.toFixed(1)}%`}
       />
 
       <SliderRow label="Scale Y" id="ocr-sy" min={90} max={110} step={0.1}
-        sig={ocrScaleY} setSig={setOcrScaleY} settingKey="ocr-scale-y"
+        value={ocrScaleY} onInput={v => { setOcrScaleY(v); persistSetting('ocr-scale-y', v); }}
         format={v => `${v.toFixed(1)}%`}
       />
     </Pane>

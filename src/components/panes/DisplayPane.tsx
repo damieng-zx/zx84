@@ -1,6 +1,6 @@
 import { Show, For, Switch, Match } from 'solid-js';
-import type { Accessor, Setter } from 'solid-js';
 import { Pane } from '@/components/Pane.tsx';
+import { SliderRow } from '@/components/Slider.tsx';
 import {
   scale, setScale, brightness, setBrightness, contrast, setContrast,
   smoothing, setSmoothing, curvature, setCurvature, scanlines, setScanlines,
@@ -49,28 +49,6 @@ function applyPreset(preset: MonitorPreset) {
   setNoise(preset.noise); if (machine) machine.display!.setNoise(preset.noise / 100); persistSetting('noise', preset.noise);
   if (preset.brightness != null) { setBrightness(preset.brightness); if (machine) machine.display!.setBrightness(preset.brightness / 50); persistSetting('brightness', preset.brightness); }
   if (preset.contrast != null) { setContrast(preset.contrast); if (machine) machine.display!.setContrast(preset.contrast / 50); persistSetting('contrast', preset.contrast); }
-}
-
-function SliderRow(props: {
-  label: string; id: string; min: number; max: number;
-  sig: Accessor<number>; setSig: Setter<number>; apply: (v: number) => void; settingKey: string;
-}) {
-  return (
-    <div class="slider-row">
-      <span class="slider-label">{props.label}</span>
-      <input
-        type="range" id={`${props.id}-slider`} min={props.min} max={props.max}
-        value={props.sig()}
-        onInput={(e) => {
-          const v = Number((e.target as HTMLInputElement).value);
-          props.setSig(v);
-          props.apply(v);
-          persistSetting(props.settingKey, v);
-        }}
-      />
-      <span class="slider-value" id={`${props.id}-value`}>{props.sig()}</span>
-    </div>
-  );
 }
 
 // Scaling algorithms and their native scale factors.
@@ -227,10 +205,10 @@ export function DisplayPane() {
           </For>
         </select>
       </div>
-      <SliderRow label="Brightness" id="brightness" min={-50} max={50} sig={brightness} setSig={setBrightness}
-        apply={(v) => machine?.display?.setBrightness(v / 50)} settingKey="brightness" />
-      <SliderRow label="Contrast" id="contrast" min={0} max={100} sig={contrast} setSig={setContrast}
-        apply={(v) => machine?.display?.setContrast(v / 50)} settingKey="contrast" />
+      <SliderRow label="Brightness" id="brightness" min={-50} max={50} value={brightness}
+        onInput={(v) => { setBrightness(v); machine?.display?.setBrightness(v / 50); persistSetting('brightness', v); }} />
+      <SliderRow label="Contrast" id="contrast" min={0} max={100} value={contrast}
+        onInput={(v) => { setContrast(v); machine?.display?.setContrast(v / 50); persistSetting('contrast', v); }} />
       <div class="slider-row">
         <span class="slider-label">Monitor</span>
         <select id="monitor-select" value={monitor()} onChange={(e) => {
@@ -251,14 +229,14 @@ export function DisplayPane() {
           <option value="cheap-tv">Cheap TV</option>
         </select>
       </div>
-      <SliderRow label="Scanlines" id="scanlines" min={0} max={100} sig={scanlines} setSig={setScanlines}
-        apply={(v) => machine?.display?.setScanlines(v / 100)} settingKey="scanlines" />
+      <SliderRow label="Scanlines" id="scanlines" min={0} max={100} value={scanlines}
+        onInput={(v) => { setScanlines(v); machine?.display?.setScanlines(v / 100); persistSetting('scanlines', v); }} />
       <Show when={scalingMode() === 0}>
-      <SliderRow label="Smoothing" id="smoothing" min={0} max={100} sig={smoothing} setSig={setSmoothing}
-        apply={(v) => machine?.display?.setSmoothing(v / 100)} settingKey="smoothing" />
+      <SliderRow label="Smoothing" id="smoothing" min={0} max={100} value={smoothing}
+        onInput={(v) => { setSmoothing(v); machine?.display?.setSmoothing(v / 100); persistSetting('smoothing', v); }} />
       </Show>
-      <SliderRow label="Noise" id="noise" min={0} max={100} sig={noise} setSig={setNoise}
-        apply={(v) => machine?.display?.setNoise(v / 100)} settingKey="noise" />
+      <SliderRow label="Noise" id="noise" min={0} max={100} value={noise}
+        onInput={(v) => { setNoise(v); machine?.display?.setNoise(v / 100); persistSetting('noise', v); }} />
       <div class="slider-row">
         <span class="slider-label">Curv. mode</span>
         <select id="curvature-mode-select" value={curvatureMode()} onChange={(e) => {
@@ -276,8 +254,8 @@ export function DisplayPane() {
         </select>
       </div>
       <Show when={curvatureMode() >= 0}>
-      <SliderRow label="Curvature" id="curvature" min={0} max={100} sig={curvature} setSig={setCurvature}
-        apply={(v) => machine?.display?.setCurvature(v / 100 * 0.15)} settingKey="curvature" />
+      <SliderRow label="Curvature" id="curvature" min={0} max={100} value={curvature}
+        onInput={(v) => { setCurvature(v); machine?.display?.setCurvature(v / 100 * 0.15); persistSetting('curvature', v); }} />
       </Show>
       <div class="slider-row">
         <span class="slider-label">Mask type</span>
@@ -296,8 +274,8 @@ export function DisplayPane() {
         </select>
       </div>
       <Show when={maskType() !== 4 && maskType() !== 5 && maskType() !== 0}>
-      <SliderRow label="Dot pitch" id="dot-pitch" min={10} max={40} sig={dotPitch} setSig={setDotPitch}
-        apply={(v) => machine?.display?.setDotPitch(v / 10)} settingKey="dot-pitch" />
+      <SliderRow label="Dot pitch" id="dot-pitch" min={10} max={40} value={dotPitch}
+        onInput={(v) => { setDotPitch(v); machine?.display?.setDotPitch(v / 10); persistSetting('dot-pitch', v); }} />
       </Show>
       </Show>
     </Pane>

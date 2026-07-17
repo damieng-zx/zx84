@@ -1,4 +1,5 @@
 import { Pane } from '@/components/Pane.tsx';
+import { SliderRow } from '@/components/Slider.tsx';
 import { Show } from 'solid-js';
 import {
   volume, setVolume,
@@ -41,37 +42,12 @@ export function SoundPane() {
       }
       applyDisplaySettings();
     }}>
-      <div class="slider-row">
-        <span class="slider-label">Volume</span>
-        <input
-          type="range" id="volume-slider" min="0" max="100"
-          value={volume()}
-          onInput={(e) => {
-            const v = Number((e.target as HTMLInputElement).value);
-            setVolume(v);
-            persistSetting('volume', v);
-            applyDisplaySettings();
-          }}
-        />
-        <span class="slider-value" id="volume-value">{volume()}</span>
-      </div>
+      <SliderRow label="Volume" id="volume" min={0} max={100} value={volume}
+        onInput={(v) => { setVolume(v); persistSetting('volume', v); applyDisplaySettings(); }} />
       {/* Beeper↔AY balance — Spectrum only; the CPC has no beeper. */}
       <Show when={!isCpcModel(currentModel())}>
-        <div class="slider-row">
-          <span class="slider-label">Mixer</span>
-          <span class="slider-end-label">Beep</span>
-          <input
-            type="range" id="ay-mix-slider" min="0" max="100"
-            value={ayMix()}
-            onInput={(e) => {
-              const v = Number((e.target as HTMLInputElement).value);
-              setAyMix(v);
-              persistSetting('ay-mix', v);
-              applyDisplaySettings();
-            }}
-          />
-          <span class="slider-end-label">AY</span>
-        </div>
+        <SliderRow label="Mixer" id="ay-mix" min={0} max={100} value={ayMix} endLabels={['Beep', 'AY']}
+          onInput={(v) => { setAyMix(v); persistSetting('ay-mix', v); applyDisplaySettings(); }} />
       </Show>
       <div class="slider-row">
         <span class="slider-label">AY Channels</span>
