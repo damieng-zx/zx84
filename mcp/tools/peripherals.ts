@@ -1,6 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { variantForModel, variantLabel } from '../../src/peripherals/multiface.ts';
+import { variantForModel, variantLabel } from '../../src/machines/spectrum/peripherals/multiface.ts';
 import { isPlusDCapable, isBetaDiskCapable } from '../../src/models.ts';
 import { h8, h16 } from '../hex.ts';
 import { state, activeSpectrum } from '../state.ts';

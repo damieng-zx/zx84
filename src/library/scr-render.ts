@@ -10,7 +10,7 @@
  * of ImageData's pixel buffer, so they're written straight in.
  */
 
-import { PALETTES, vramBitmapAddr, type ColorMap } from '@/cores/ula.ts';
+import { PALETTES, vramBitmapAddr, type ColorMap } from '@/machines/spectrum/ula.ts';
 
 export const SCR_WIDTH = 256;
 export const SCR_HEIGHT = 192;

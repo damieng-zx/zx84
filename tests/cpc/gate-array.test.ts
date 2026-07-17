@@ -14,9 +14,9 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { GateArray } from '@/cores/gate-array.ts';
+import { GateArray } from '@/machines/cpc/gate-array.ts';
 import type { CrtcLine } from '@/cores/crtc-6845.ts';
-import { CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT } from '@/cpc/constants.ts';
+import { CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT } from '@/machines/cpc/constants.ts';
 
 describe('Gate Array — raster interrupt', () => {
   it('requests an interrupt every 52 HSYNCs', () => {

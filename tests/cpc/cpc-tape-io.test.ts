@@ -8,10 +8,10 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { Ppi8255 } from '@/cpc/cpc-io.ts';
-import { CpcKeyboard } from '@/cpc/cpc-keyboard.ts';
+import { Ppi8255 } from '@/machines/cpc/cpc-io.ts';
+import { CpcKeyboard } from '@/machines/cpc/cpc-keyboard.ts';
 import { AY3891x } from '@/cores/ay-3-8910.ts';
-import { CpcMachine } from '@/cpc/cpc-machine.ts';
+import { CpcMachine } from '@/machines/cpc/cpc-machine.ts';
 
 describe('CPC PPI cassette bits', () => {
   function setup() {

@@ -6,7 +6,7 @@
  * reads the following bytes. Expectations are built from the format spec.
  */
 import { describe, it, expect } from 'vitest';
-import { MsxCassette, parseCasBlocks } from '@/msx/msx-tape.ts';
+import { MsxCassette, parseCasBlocks } from '@/machines/msx/msx-tape.ts';
 
 const ID = [0x1F, 0xA6, 0xDE, 0xBA, 0xCC, 0x13, 0x7D, 0x74];
 

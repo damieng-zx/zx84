@@ -17,7 +17,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { DebugManager } from '@/managers/debug-manager.ts';
 import { Z80 } from '@/cores/z80.ts';
-import type { Spectrum } from '@/spectrum.ts';
+import type { Spectrum } from '@/machines/spectrum/spectrum.ts';
 
 // ── Spectrum stub with a real Z80 backed by a flat 64KB array ─────────────
 

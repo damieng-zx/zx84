@@ -14,8 +14,8 @@ import {
   variantForModel,
   variantLabel,
   romFilename,
-} from '@/peripherals/multiface.ts';
-import { SpectrumMemory } from '@/memory.ts';
+} from '@/machines/spectrum/peripherals/multiface.ts';
+import { SpectrumMemory } from '@/machines/spectrum/memory.ts';
 
 describe('multiface — variantForModel / variantLabel / romFilename', () => {
   it('variantForModel dispatches on model class', () => {

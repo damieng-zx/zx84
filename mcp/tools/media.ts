@@ -2,18 +2,18 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { saveSZX } from '../../src/snapshot/szx.ts';
+import { saveSZX } from '../../src/machines/spectrum/snapshots/szx.ts';
 import { h8, h16 } from '../hex.ts';
 import { state, initMachine, activeSpectrum, activeCpc } from '../state.ts';
 import { text, formatHexDump } from '../format.ts';
 import { loadFileInto, mountAndArm, runLoadVerdict } from '../loader.ts';
 import { fdcLog } from '../fdc-log.ts';
-import { parseDSK } from '../../src/floppy/dsk.ts';
-import { unzip } from '../../src/snapshot/zip.ts';
+import { parseDSK } from '../../src/media/floppy/dsk.ts';
+import { unzip } from '../../src/media/zip.ts';
 import { CACHE_DIR } from '../rom-fetch.ts';
 import { findGames, suggestTitles, fileUrls, planLoad, gameNeeds, basename } from '../catalog.ts';
 import { encodePNG } from '../png.ts';
-import { CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT } from '../../src/cpc/constants.ts';
+import { CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT } from '../../src/machines/cpc/constants.ts';
 
 export function register(server: McpServer): void {
   server.registerTool(

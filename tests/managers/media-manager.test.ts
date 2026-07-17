@@ -26,18 +26,18 @@ const clearTape = vi.fn();
 const persistDisk = vi.fn();
 const clearDisk = vi.fn();
 
-vi.mock('@/tape/tzx.ts', () => ({ parseTZX: (...a: any[]) => parseTZX(...a) }));
-vi.mock('@/floppy/dsk.ts', () => ({ parseDSK: (...a: any[]) => parseDSK(...a) }));
-vi.mock('@/snapshot/zip.ts', () => ({ unzip: (...a: any[]) => unzip(...a) }));
+vi.mock('@/media/tape/tzx.ts', () => ({ parseTZX: (...a: any[]) => parseTZX(...a) }));
+vi.mock('@/media/floppy/dsk.ts', () => ({ parseDSK: (...a: any[]) => parseDSK(...a) }));
+vi.mock('@/media/zip.ts', () => ({ unzip: (...a: any[]) => unzip(...a) }));
 vi.mock('@/ui/zip-picker.ts', () => ({ showFilePicker: (...a: any[]) => showFilePicker(...a) }));
-vi.mock('@/snapshot/sna.ts', () => ({ loadSNA: (...a: any[]) => loadSNA(...a) }));
-vi.mock('@/snapshot/z80format.ts', () => ({ loadZ80: (...a: any[]) => loadZ80(...a) }));
-vi.mock('@/snapshot/szx.ts', async (importOriginal) => ({
+vi.mock('@/machines/spectrum/snapshots/sna.ts', () => ({ loadSNA: (...a: any[]) => loadSNA(...a) }));
+vi.mock('@/machines/spectrum/snapshots/z80format.ts', () => ({ loadZ80: (...a: any[]) => loadZ80(...a) }));
+vi.mock('@/machines/spectrum/snapshots/szx.ts', async (importOriginal) => ({
   // Keep the real applySZXPaging (the paging-restore logic under test); stub loadSZX.
-  ...(await importOriginal<typeof import('@/snapshot/szx.ts')>()),
+  ...(await importOriginal<typeof import('@/machines/spectrum/snapshots/szx.ts')>()),
   loadSZX: (...a: any[]) => loadSZX(...a),
 }));
-vi.mock('@/snapshot/sp.ts', () => ({ loadSP: (...a: any[]) => loadSP(...a) }));
+vi.mock('@/machines/spectrum/snapshots/sp.ts', () => ({ loadSP: (...a: any[]) => loadSP(...a) }));
 vi.mock('@/store/persistence.ts', () => ({
   persistLastFile: (...a: any[]) => persistLastFile(...a),
   persistTape: (...a: any[]) => persistTape(...a),

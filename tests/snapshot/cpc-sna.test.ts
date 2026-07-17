@@ -9,8 +9,8 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { CpcMachine } from '@/cpc/cpc-machine.ts';
-import { saveCpcSna, applyCpcSna, readCpcSnaModel } from '@/snapshot/cpc-sna.ts';
+import { CpcMachine } from '@/machines/cpc/cpc-machine.ts';
+import { saveCpcSna, applyCpcSna, readCpcSnaModel } from '@/machines/cpc/snapshots/cpc-sna.ts';
 import type { CpcModel } from '@/models.ts';
 
 const SLOT = 0x4000;

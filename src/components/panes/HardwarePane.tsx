@@ -7,10 +7,10 @@ import {
   multifaceRomFailed, vtx5000RomFailed, paradosRomFailed, plusDRomFailed, interface1RomFailed, betaDiskRomFailed,
   setEinsteinXtalDosEnabled,
 } from '@/emulator.ts';
-import type { SpectrumModel } from '@/spectrum.ts';
+import type { SpectrumModel } from '@/machines/spectrum/spectrum.ts';
 import { type MachineModel, isCpcModel, isEinsteinModel, isMsxModel, cpcHasDisk, isPlusDCapable, isInterface1Capable, isBetaDiskCapable } from '@/models.ts';
 import { Show } from 'solid-js';
-import { variantForModel, variantLabel } from '@/peripherals/multiface.ts';
+import { variantForModel, variantLabel } from '@/machines/spectrum/peripherals/multiface.ts';
 import * as settings from '@/store/settings.ts';
 import { resetSettingsGroup } from '@/store/settings.ts';
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseDSK, createBlankDisk, serializeDSK, DISK_FORMATS, refreshDiskMetadata } from '@/floppy/dsk.ts';
+import { parseDSK, createBlankDisk, serializeDSK, DISK_FORMATS, refreshDiskMetadata } from '@/media/floppy/dsk.ts';
 
 function makeMinimalStandardDSK(): Uint8Array {
   const tracks = 1;
@@ -1442,7 +1442,7 @@ describe('serializeDSK — track size alignment regression', () => {
 
 describe('formatLabel', () => {
   it('includes both the label and the capacity in KB', async () => {
-    const { formatLabel } = await import('@/floppy/dsk.ts');
+    const { formatLabel } = await import('@/media/floppy/dsk.ts');
     expect(formatLabel(DISK_FORMATS[0])).toBe('PCW/+3 Single (180K)');
     expect(formatLabel(DISK_FORMATS[1])).toBe('PCW Double (720K)');
     const byName = (l: string) => DISK_FORMATS.find((f) => f.label === l)!;

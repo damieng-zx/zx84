@@ -9,9 +9,9 @@
  */
 import { describe, it, expect } from 'vitest';
 import { deflateSync } from 'node:zlib';
-import { parseCSW } from '@/tape/csw.ts';
-import { TapeDeck } from '@/tape/tap.ts';
-import type { CswBlock, SetLevelBlock } from '@/tape/tap.ts';
+import { parseCSW } from '@/media/tape/csw.ts';
+import { TapeDeck } from '@/media/tape/tap.ts';
+import type { CswBlock, SetLevelBlock } from '@/media/tape/tap.ts';
 
 // ── Builders ────────────────────────────────────────────────────────────────
 

@@ -1,7 +1,7 @@
 import { Pane } from '@/components/Pane.tsx';
 import { RawHtml } from '@/components/RawHtml.tsx';
 import { banksHtml, currentModel } from '@/emulator.ts';
-import { is128kClass } from '@/spectrum.ts';
+import { is128kClass } from '@/machines/spectrum/spectrum.ts';
 import { isCpcModel } from '@/models.ts';
 
 export function BanksPane() {

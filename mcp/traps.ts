@@ -7,8 +7,8 @@
  *             is empty the trap reverts to "break".
  */
 
-import type { Machine } from '../src/machine.ts';
-import { asSpectrum } from '../src/machine.ts';
+import type { Machine } from '../src/machines/machine.ts';
+import { asSpectrum } from '../src/machines/machine.ts';
 import { is128kClass } from '../src/models.ts';
 import { disasmOne, stripMarkers } from '../src/debug/z80-disasm.ts';
 import { h8, h16 } from './hex.ts';

@@ -16,13 +16,13 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { Contention, TIMING_48K, TIMING_128K, TIMING_PLUS2A } from '@/contention.ts';
-import { SpectrumMemory } from '@/memory.ts';
-import { spectrum48K } from '@/variants/spectrum-48k.ts';
-import { spectrum16K } from '@/variants/spectrum-16k.ts';
-import { createFerranti128K } from '@/variants/spectrum-ferranti.ts';
-import { createAmstrad } from '@/variants/spectrum-amstrad.ts';
-import { vramBitmapAddr, vramAttrAddr } from '@/cores/ula.ts';
+import { Contention, TIMING_48K, TIMING_128K, TIMING_PLUS2A } from '@/machines/spectrum/contention.ts';
+import { SpectrumMemory } from '@/machines/spectrum/memory.ts';
+import { spectrum48K } from '@/machines/spectrum/variants/spectrum-48k.ts';
+import { spectrum16K } from '@/machines/spectrum/variants/spectrum-16k.ts';
+import { createFerranti128K } from '@/machines/spectrum/variants/spectrum-ferranti.ts';
+import { createAmstrad } from '@/machines/spectrum/variants/spectrum-amstrad.ts';
+import { vramBitmapAddr, vramAttrAddr } from '@/machines/spectrum/ula.ts';
 
 // ─────────────────────────────────────────────────────────────────────────
 // Helpers

@@ -6,7 +6,7 @@
 
 import { createEffect, onCleanup } from 'solid-js';
 import { spectrum, sysvarRev, currentModel } from '@/emulator.ts';
-import { is128kClass, isPlus2AClass } from '@/spectrum.ts';
+import { is128kClass, isPlus2AClass } from '@/machines/spectrum/spectrum.ts';
 import { HEX8, HEX16 } from '@/utils/hex.ts';
 
 /** Sysvar row definition */

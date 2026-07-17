@@ -8,8 +8,8 @@
  * PSG ports 0xA0 (address), 0xA1 (write), 0xA2 (read).
  */
 import { describe, it, expect } from 'vitest';
-import { MsxJoystick } from '@/msx/msx-joystick.ts';
-import { MsxMachine } from '@/msx/msx-machine.ts';
+import { MsxJoystick } from '@/machines/msx/msx-joystick.ts';
+import { MsxMachine } from '@/machines/msx/msx-machine.ts';
 
 describe('MsxJoystick', () => {
   it('encodes directions/triggers active-low for the selected port', () => {

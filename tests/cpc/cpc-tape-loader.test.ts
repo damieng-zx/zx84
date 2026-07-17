@@ -18,10 +18,10 @@ const ENTRY = 0x2900;            // pretend block-read routine entry
 const TEARDOWN = ENTRY + 0x0D;   // where the trap resumes
 
 import { describe, it, expect } from 'vitest';
-import { CpcMachine } from '@/cpc/cpc-machine.ts';
-import { trapCpcCasRead } from '@/cpc/cpc-tape-loader.ts';
+import { CpcMachine } from '@/machines/cpc/cpc-machine.ts';
+import { trapCpcCasRead } from '@/machines/cpc/cpc-tape-loader.ts';
 import { Z80 } from '@/cores/z80.ts';
-import type { DataBlock } from '@/tape/tap.ts';
+import type { DataBlock } from '@/media/tape/tap.ts';
 
 /** CRC-16/CCITT (poly 0x1021, init 0xFFFF) — independent of the loader's copy. */
 function crc16(bytes: Uint8Array): number {

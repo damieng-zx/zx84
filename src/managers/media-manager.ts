@@ -8,20 +8,20 @@
  * - Coordinate with Spectrum instance for media operations
  */
 
-import type { Spectrum } from '@/spectrum.ts';
-import type { Machine } from '@/machine.ts';
+import type { Spectrum } from '@/machines/spectrum/spectrum.ts';
+import type { Machine } from '@/machines/machine.ts';
 import { type SpectrumModel, is128kClass, isPlus2AClass } from '@/models.ts';
-import type { TapeBlock } from '@/tape/tap.ts';
-import { parseTZX } from '@/tape/tzx.ts';
-import { parseCSW } from '@/tape/csw.ts';
-import type { DskImage } from '@/floppy/disk-image.ts';
-import { parseFloppyImage } from '@/floppy/hfe.ts';
-import { unzip } from '@/snapshot/zip.ts';
+import type { TapeBlock } from '@/media/tape/tap.ts';
+import { parseTZX } from '@/media/tape/tzx.ts';
+import { parseCSW } from '@/media/tape/csw.ts';
+import type { DskImage } from '@/media/floppy/disk-image.ts';
+import { parseFloppyImage } from '@/media/floppy/hfe.ts';
+import { unzip } from '@/media/zip.ts';
 import { showFilePicker } from '@/ui/zip-picker.ts';
-import { loadSNA } from '@/snapshot/sna.ts';
-import { loadZ80 } from '@/snapshot/z80format.ts';
-import { loadSZX, applySZXPaging } from '@/snapshot/szx.ts';
-import { loadSP } from '@/snapshot/sp.ts';
+import { loadSNA } from '@/machines/spectrum/snapshots/sna.ts';
+import { loadZ80 } from '@/machines/spectrum/snapshots/z80format.ts';
+import { loadSZX, applySZXPaging } from '@/machines/spectrum/snapshots/szx.ts';
+import { loadSP } from '@/machines/spectrum/snapshots/sp.ts';
 import { persistLastFile, persistTape, clearTape, persistDisk, clearDisk } from '@/store/persistence.ts';
 
 export interface MediaLoadCallbacks {

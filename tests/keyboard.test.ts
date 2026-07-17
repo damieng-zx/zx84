@@ -16,7 +16,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { SpectrumKeyboard } from '@/keyboard.ts';
+import { SpectrumKeyboard } from '@/machines/spectrum/keyboard.ts';
 
 function pressed(k: SpectrumKeyboard, row: number, bit: number): boolean {
   return (k.rows[row] & (1 << bit)) === 0;

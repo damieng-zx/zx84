@@ -6,8 +6,8 @@ import { createEffect, createSignal, onMount, onCleanup } from 'solid-js';
 import { Toast } from '@/components/Toast.tsx';
 import { setCanvas, machine, spectrum, transcribeMode, transcribeHtml, transcribeGrid, currentModel } from '@/emulator.ts';
 import { isCpcModel, isEinsteinModel, isMsxModel } from '@/models.ts';
-import { CPC_BORDER_LEFT, CPC_BORDER_TOP } from '@/cpc/constants.ts';
-import { EINSTEIN_BORDER_LEFT, EINSTEIN_BORDER_TOP } from '@/einstein/constants.ts';
+import { CPC_BORDER_LEFT, CPC_BORDER_TOP } from '@/machines/cpc/constants.ts';
+import { EINSTEIN_BORDER_LEFT, EINSTEIN_BORDER_TOP } from '@/machines/einstein/constants.ts';
 import { renderer, scale, borderSize, ocrFont, ocrLineHeight, ocrTracking, ocrOffsetX, ocrOffsetY, ocrScaleX, ocrScaleY } from '@/store/settings.ts';
 
 // Base font size for the overlay before auto-scaling. The overlay is always

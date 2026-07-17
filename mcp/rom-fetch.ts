@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { SpectrumModel } from '../src/spectrum.ts';
+import type { SpectrumModel } from '../src/machines/spectrum/spectrum.ts';
 import { type MachineModel, type CpcModel, isCpcModel, isMsxModel } from '../src/models.ts';
 
 const ROM_URLS: Record<SpectrumModel, string> = {

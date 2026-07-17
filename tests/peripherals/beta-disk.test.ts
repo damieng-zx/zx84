@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { BetaDisk } from '@/peripherals/beta-disk.ts';
-import type { SpectrumMemory } from '@/memory.ts';
+import { BetaDisk } from '@/machines/spectrum/peripherals/beta-disk.ts';
+import type { SpectrumMemory } from '@/machines/spectrum/memory.ts';
 
 /** Minimal memory stub exercising only what BetaDisk.checkPage/pageIn touch. */
 function fakeMemory(basicActive: boolean) {

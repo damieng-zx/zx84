@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { detectDiskFormat, detectProtection, isFlippyDisk } from '@/floppy/disk-detect.ts';
-import type { DskImage, DskTrack, DskSector } from '@/floppy/disk-image.ts';
+import { detectDiskFormat, detectProtection, isFlippyDisk } from '@/media/floppy/disk-detect.ts';
+import type { DskImage, DskTrack, DskSector } from '@/media/floppy/disk-image.ts';
 
 // ── Synthetic DskImage builders ───────────────────────────────────────────
 //

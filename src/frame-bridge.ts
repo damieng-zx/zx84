@@ -13,7 +13,7 @@ import { parseBasicProgram, parseBasicVariables } from '@/debug/basic-parser.ts'
 import { parseLocomotiveBasic } from '@/debug/cpc-basic-parser.ts';
 import { isCollapsed } from '@/ui/panes.ts';
 import * as settings from '@/store/settings.ts';
-import { refreshDiskMetadata } from '@/floppy/dsk.ts';
+import { refreshDiskMetadata } from '@/media/floppy/dsk.ts';
 import {
   machine, spectrum, floppySound,
   currentModel, emulationPaused, tracing,
@@ -29,7 +29,7 @@ import {
   getPendingRunTo, clearPendingRunTo,
 } from '@/emulator.ts';
 
-import { asCpc, asEinstein, asMsx } from '@/machine.ts';
+import { asCpc, asEinstein, asMsx } from '@/machines/machine.ts';
 import { hex8, hex16 } from '@/utils/hex.ts';
 import { microdriveMotors, setMicrodriveMotors } from '@/state/microdrive-state.ts';
 
@@ -106,7 +106,7 @@ function renderBanks(): string {
  * The footer decodes the RAM configuration, the selected/enabled ROMs, the video
  * DMA the CRTC sees, and the Gate-Array screen mode.
  */
-function renderCpcBanks(cpc: import('@/cpc/cpc-machine.ts').CpcMachine): string {
+function renderCpcBanks(cpc: import('@/machines/cpc/cpc-machine.ts').CpcMachine): string {
   const mem = cpc.memory;
   const p = mem.pagingState();
   const n = '<span class="reg-name">';
@@ -265,7 +265,7 @@ function updateSpectrumDebugSignals(): void {
 
 /** Render the CPC's Locomotive BASIC program into the BASIC pane. Reads the
  *  underlying RAM (the program lives at &0170 under the OS ROM overlay). */
-function updateCpcBasic(cpc: import('@/cpc/cpc-machine.ts').CpcMachine): void {
+function updateCpcBasic(cpc: import('@/machines/cpc/cpc-machine.ts').CpcMachine): void {
   setBasicHtml(parseLocomotiveBasic(cpc.memory.ramSnapshot()));
 }
 

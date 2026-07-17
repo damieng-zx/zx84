@@ -1,4 +1,4 @@
-import type { Machine } from '../src/machine.ts';
+import type { Machine } from '../src/machines/machine.ts';
 
 const FDC_LOG_MAX = 2000;
 export const fdcLog: string[] = [];

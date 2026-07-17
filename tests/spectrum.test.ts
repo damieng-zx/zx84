@@ -25,7 +25,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { Spectrum, IOActivity } from '@/spectrum.ts';
+import { Spectrum, IOActivity } from '@/machines/spectrum/spectrum.ts';
 import type { SpectrumModel } from '@/models.ts';
 
 // ─────────────────────────────────────────────────────────────────────────

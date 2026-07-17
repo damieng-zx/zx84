@@ -11,8 +11,8 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { ULA, vramBitmapAddr, vramAttrAddr, PALETTES } from '@/cores/ula.ts';
-import { SpectrumKeyboard } from '@/keyboard.ts';
+import { ULA, vramBitmapAddr, vramAttrAddr, PALETTES } from '@/machines/spectrum/ula.ts';
+import { SpectrumKeyboard } from '@/machines/spectrum/keyboard.ts';
 
 // ─────────────────────────────────────────────────────────────────────────
 // VRAM address arithmetic — documented Spectrum interleave

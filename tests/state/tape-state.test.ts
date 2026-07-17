@@ -14,7 +14,7 @@
 
 import { describe, it, expect, afterEach } from 'vitest';
 import * as tape from '@/state/tape-state.ts';
-import type { TapeBlock } from '@/tape/tap.ts';
+import type { TapeBlock } from '@/media/tape/tap.ts';
 
 afterEach(() => {
   tape.setTapeLoaded(false);

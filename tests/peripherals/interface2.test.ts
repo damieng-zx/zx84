@@ -10,8 +10,8 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { Interface2 } from '@/peripherals/interface2.ts';
-import { SpectrumMemory } from '@/memory.ts';
+import { Interface2 } from '@/machines/spectrum/peripherals/interface2.ts';
+import { SpectrumMemory } from '@/machines/spectrum/memory.ts';
 
 describe('Interface2 — initial state', () => {
   it('starts with no cartridge inserted', () => {

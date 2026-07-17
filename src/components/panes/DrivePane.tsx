@@ -21,11 +21,11 @@ import {
   plusDEnabled, betaDiskEnabled, tapeTurbo, setTapeTurbo,
   persistSetting, resetSettingsGroup,
 } from '@/store/settings.ts';
-import { isPlus3 } from '@/spectrum.ts';
+import { isPlus3 } from '@/machines/spectrum/spectrum.ts';
 import { cpcHasDisk, isPlusDCapable, isBetaDiskCapable, isEinsteinModel } from '@/models.ts';
-import { DISK_FORMATS, formatLabel, createBlankDisk } from '@/floppy/dsk.ts';
-import type { DskImage } from '@/floppy/disk-image.ts';
-import { createBlankHfe } from '@/floppy/hfe.ts';
+import { DISK_FORMATS, formatLabel, createBlankDisk } from '@/media/floppy/dsk.ts';
+import type { DskImage } from '@/media/floppy/disk-image.ts';
+import { createBlankHfe } from '@/media/floppy/hfe.ts';
 import type { DriveStatus } from '@/state/disk-state.ts';
 import { openFile } from '@/ui/file-picker.ts';
 

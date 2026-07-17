@@ -45,8 +45,8 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { Z80 } from '@/cores/z80.ts';
-import { trapTapeLoad } from '@/tape/tape-loader.ts';
-import type { DataBlock, TapeBlock } from '@/tape/tap.ts';
+import { trapTapeLoad } from '@/machines/spectrum/tape-loader.ts';
+import type { DataBlock, TapeBlock } from '@/media/tape/tap.ts';
 
 // ── Minimal CPU with a 64K byte memory ────────────────────────────────────
 

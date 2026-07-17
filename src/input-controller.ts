@@ -11,9 +11,9 @@ import {
 import {
   spectrum, machine, joyPressForType, resetJoystickKeyState,
 } from '@/emulator.ts';
-import type { CpcMachine } from '@/cpc/cpc-machine.ts';
-import type { EinsteinMachine } from '@/einstein/einstein-machine.ts';
-import type { MsxMachine } from '@/msx/msx-machine.ts';
+import type { CpcMachine } from '@/machines/cpc/cpc-machine.ts';
+import type { EinsteinMachine } from '@/machines/einstein/einstein-machine.ts';
+import type { MsxMachine } from '@/machines/msx/msx-machine.ts';
 import {
   configuringPlayer, setConfiguringPlayer,
   configuringStep, setConfiguringStep,

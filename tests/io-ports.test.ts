@@ -13,7 +13,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { Spectrum } from '@/spectrum.ts';
+import { Spectrum } from '@/machines/spectrum/spectrum.ts';
 import type { SpectrumModel } from '@/models.ts';
 
 function makeMachine(model: SpectrumModel): Spectrum {

@@ -10,7 +10,7 @@
 
 import type { MachineModel } from '@/models.ts';
 import { dbSave, dbLoad, dbDelete } from '@/store/persistence.ts';
-import { BANK_SIZE } from '@/memory.ts';
+import { BANK_SIZE } from '@/utils/bank-size.ts';
 
 export interface ROMEntry {
   data: Uint8Array;

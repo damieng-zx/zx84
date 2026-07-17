@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { Microdrive, microdriveChecksum, BLOCK_LEN, HEAD_LEN, MAX_SECTORS } from '@/cores/microdrive.ts';
+import { Microdrive, microdriveChecksum, BLOCK_LEN, HEAD_LEN, MAX_SECTORS } from '@/machines/spectrum/peripherals/microdrive.ts';
 
 /** Independent (non-production) checksum used to verify FORMAT/round-trip. */
 function refChecksum(bytes: number[]): number {

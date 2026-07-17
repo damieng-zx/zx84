@@ -13,8 +13,8 @@
  * exactly these borderLeft-aligned beam chunks, so it only bit in real time.
  */
 import { describe, it, expect } from 'vitest';
-import { Spectrum } from '@/spectrum.ts';
-import { vramBitmapAddr, vramAttrAddr } from '@/cores/ula.ts';
+import { Spectrum } from '@/machines/spectrum/spectrum.ts';
+import { vramBitmapAddr, vramAttrAddr } from '@/machines/spectrum/ula.ts';
 
 function tagRom(): Uint8Array {
   const rom = new Uint8Array(64 * 1024);

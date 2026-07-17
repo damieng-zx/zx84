@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseTZX } from '@/tape/tzx.ts';
+import { parseTZX } from '@/media/tape/tzx.ts';
 import type {
   TapeBlock,
   DataBlock,
@@ -11,7 +11,7 @@ import type {
   GroupStartBlock,
   TextBlock,
   ArchiveInfoBlock,
-} from '@/tape/tap.ts';
+} from '@/media/tape/tap.ts';
 
 // ── Builder helpers ────────────────────────────────────────────────────────
 

@@ -126,7 +126,7 @@ vi.mock('@/ui/panes.ts', () => panesMock);
 
 // Mock dsk.ts since refreshDiskMetadata is called only when an FDC format
 // completes — we don't exercise that path here.
-vi.mock('@/floppy/dsk.ts', () => ({ refreshDiskMetadata: vi.fn() }));
+vi.mock('@/media/floppy/dsk.ts', () => ({ refreshDiskMetadata: vi.fn() }));
 
 // Mock z80-disasm + basic-parser since they're only called from updateRegsOnce
 // + the onFrame breakpoint path; not part of the lock-in tests below.

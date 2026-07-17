@@ -9,7 +9,7 @@
  * seek/recalibrate succeed but read/write/format return "not ready."
  */
 
-import type { DskImage, DskSector, DskTrack } from '@/floppy/disk-image.ts';
+import type { DskImage, DskSector, DskTrack } from '@/media/floppy/disk-image.ts';
 
 // ── Command codes (lower 5 bits of command byte) ────────────────────────
 

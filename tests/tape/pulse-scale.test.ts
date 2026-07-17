@@ -11,8 +11,8 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { TapeDeck, TAPE_REF_HZ } from '@/tape/tap.ts';
-import type { DataBlock } from '@/tape/tap.ts';
+import { TapeDeck, TAPE_REF_HZ } from '@/media/tape/tap.ts';
+import type { DataBlock } from '@/media/tape/tap.ts';
 
 const CPC_SCALE = 4_000_000 / TAPE_REF_HZ; // ≈ 1.142857
 

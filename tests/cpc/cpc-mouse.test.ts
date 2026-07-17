@@ -16,10 +16,10 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { KempstonMouse } from '@/peripherals/kempston-mouse.ts';
-import { CpcAmxMouse } from '@/peripherals/cpc-amx-mouse.ts';
-import { CpcKeyboard } from '@/cpc/cpc-keyboard.ts';
-import { CpcMachine } from '@/cpc/cpc-machine.ts';
+import { KempstonMouse } from '@/machines/shared/kempston-mouse.ts';
+import { CpcAmxMouse } from '@/machines/cpc/peripherals/cpc-amx-mouse.ts';
+import { CpcKeyboard } from '@/machines/cpc/cpc-keyboard.ts';
+import { CpcMachine } from '@/machines/cpc/cpc-machine.ts';
 
 describe('CPC Kempston mouse button layout', () => {
   // The CPC swaps the Spectrum's left/right bits and has no middle button.

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SpectrumMemory } from '@/memory.ts';
+import { SpectrumMemory } from '@/machines/spectrum/memory.ts';
 
 describe('SpectrumMemory — construction', () => {
   it('creates 48K memory without banking', () => {

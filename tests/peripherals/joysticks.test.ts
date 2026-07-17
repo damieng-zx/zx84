@@ -16,10 +16,10 @@ import {
   SINCLAIR2_KEYS,
   joyPressForType,
   resetJoystickKeyState,
-} from '@/peripherals/joysticks.ts';
+} from '@/machines/spectrum/peripherals/joysticks.ts';
 
 // Reset module-level cursor-shift counter between every test below.
-import { SpectrumKeyboard } from '@/keyboard.ts';
+import { SpectrumKeyboard } from '@/machines/spectrum/keyboard.ts';
 
 describe('KempstonJoystick', () => {
   let j: KempstonJoystick;

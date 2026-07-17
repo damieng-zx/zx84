@@ -14,8 +14,8 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { VTX5000 } from '@/peripherals/vtx5000.ts';
-import { SpectrumMemory } from '@/memory.ts';
+import { VTX5000 } from '@/machines/spectrum/peripherals/vtx5000.ts';
+import { SpectrumMemory } from '@/machines/spectrum/memory.ts';
 
 describe('VTX5000 — initial state', () => {
   it('starts disabled, no ROM loaded, RAM and FIFO clear, expects mode word', () => {

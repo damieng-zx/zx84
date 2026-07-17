@@ -5,10 +5,10 @@
  * — call (and await) it before touching the singletons.
  */
 
-import { Spectrum } from '../src/spectrum.ts';
-import { CpcMachine } from '../src/cpc/cpc-machine.ts';
-import { MsxMachine } from '../src/msx/msx-machine.ts';
-import { type Machine, asSpectrum, asCpc, asMsx } from '../src/machine.ts';
+import { Spectrum } from '../src/machines/spectrum/spectrum.ts';
+import { CpcMachine } from '../src/machines/cpc/cpc-machine.ts';
+import { MsxMachine } from '../src/machines/msx/msx-machine.ts';
+import { type Machine, asSpectrum, asCpc, asMsx } from '../src/machines/machine.ts';
 import { type MachineModel, type SpectrumModel, type MsxModel, isCpcModel, isMsxModel } from '../src/models.ts';
 import { SymbolTable } from '../src/debug/symbols.ts';
 import { fetchROM } from './rom-fetch.ts';

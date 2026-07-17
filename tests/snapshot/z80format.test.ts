@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { saveZ80, loadZ80 } from '@/snapshot/z80format.ts';
+import { saveZ80, loadZ80 } from '@/machines/spectrum/snapshots/z80format.ts';
 import { Z80 } from '@/cores/z80.ts';
-import { SpectrumMemory } from '@/memory.ts';
+import { SpectrumMemory } from '@/machines/spectrum/memory.ts';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 

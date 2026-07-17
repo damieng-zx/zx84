@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { KempstonMouse } from '@/peripherals/kempston-mouse.ts';
+import { KempstonMouse } from '@/machines/shared/kempston-mouse.ts';
 
 describe('KempstonMouse', () => {
   let m: KempstonMouse;

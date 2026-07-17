@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { TapeDeck } from '@/tape/tap.ts';
-import type { DataBlock } from '@/tape/tap.ts';
+import { TapeDeck } from '@/media/tape/tap.ts';
+import type { DataBlock } from '@/media/tape/tap.ts';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 

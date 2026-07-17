@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { saveSNA, loadSNA } from '@/snapshot/sna.ts';
+import { saveSNA, loadSNA } from '@/machines/spectrum/snapshots/sna.ts';
 import { Z80 } from '@/cores/z80.ts';
-import { SpectrumMemory } from '@/memory.ts';
+import { SpectrumMemory } from '@/machines/spectrum/memory.ts';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 

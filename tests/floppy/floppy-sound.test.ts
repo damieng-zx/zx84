@@ -15,7 +15,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { FloppySound } from '@/floppy/floppy-sound.ts';
+import { FloppySound } from '@/media/floppy/floppy-sound.ts';
 
 // ─────────────────────────────────────────────────────────────────────────
 // Recording AudioContext mock

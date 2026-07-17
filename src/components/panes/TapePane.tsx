@@ -10,7 +10,7 @@ import {
 import { isCpcModel, isMsxModel } from '@/models.ts';
 import { tapeAutoRewind, tapeCollapseBlocks, setTapeCollapseBlocks, tapeFastRom, setTapeFastRom, tapeTurbo, setTapeTurbo, tapeSoundEnabled, setTapeSoundEnabled } from '@/store/settings.ts';
 import { persistSetting, resetSettingsGroup } from '@/store/settings.ts';
-import type { TapeBlock, DataBlock } from '@/tape/tap.ts';
+import type { TapeBlock, DataBlock } from '@/media/tape/tap.ts';
 import { openFile } from '@/ui/file-picker.ts';
 
 const isCpc = () => isCpcModel(currentModel());

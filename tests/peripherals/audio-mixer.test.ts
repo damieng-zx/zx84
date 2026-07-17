@@ -13,7 +13,7 @@
  *    can't reinterpret old T-state counts in the new window size.
  */
 import { describe, it, expect } from 'vitest';
-import { AudioMixer } from '@/peripherals/audio-mixer.ts';
+import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import type { Audio } from '@/audio.ts';
 import type { AY3891x } from '@/cores/ay-3-8910.ts';
 

@@ -18,7 +18,7 @@
 import { createSignal, createMemo, createEffect, For, Show, onMount, onCleanup } from 'solid-js';
 import { Pane } from '@/components/Pane.tsx';
 import { machine, currentModel, emulationPaused } from '@/emulator.ts';
-import { asSpectrum, asCpc } from '@/machine.ts';
+import { asSpectrum, asCpc } from '@/machines/machine.ts';
 import { isCollapsed } from '@/ui/panes.ts';
 import { is128kClass, isPlus2AClass, isCpcModel } from '@/models.ts';
 

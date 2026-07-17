@@ -8,7 +8,7 @@
  * - CPU state inspection and disassembly
  */
 
-import type { Machine } from '@/machine.ts';
+import type { Machine } from '@/machines/machine.ts';
 import { Z80 } from '@/cores/z80.ts';
 import { disasmOne } from '@/debug/z80-disasm.ts';
 import { hex8, hex16 } from '@/utils/hex.ts';

@@ -20,12 +20,12 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { createVariant, type MachineVariant } from '@/variants/index.ts';
-import { spectrum48K } from '@/variants/spectrum-48k.ts';
-import { spectrum16K } from '@/variants/spectrum-16k.ts';
-import { createFerranti128K } from '@/variants/spectrum-ferranti.ts';
-import { createAmstrad } from '@/variants/spectrum-amstrad.ts';
-import { TIMING_48K, TIMING_128K, TIMING_PLUS2A } from '@/contention.ts';
+import { createVariant, type MachineVariant } from '@/machines/spectrum/variants/index.ts';
+import { spectrum48K } from '@/machines/spectrum/variants/spectrum-48k.ts';
+import { spectrum16K } from '@/machines/spectrum/variants/spectrum-16k.ts';
+import { createFerranti128K } from '@/machines/spectrum/variants/spectrum-ferranti.ts';
+import { createAmstrad } from '@/machines/spectrum/variants/spectrum-amstrad.ts';
+import { TIMING_48K, TIMING_128K, TIMING_PLUS2A } from '@/machines/spectrum/contention.ts';
 
 // ─────────────────────────────────────────────────────────────────────────
 // Contention patterns

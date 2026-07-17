@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { parseScl, serializeScl, isScl } from '@/floppy/scl-image.ts';
-import { TRD_SECTOR_BYTES, blankTrdDisk } from '@/floppy/trd-image.ts';
+import { parseScl, serializeScl, isScl } from '@/media/floppy/scl-image.ts';
+import { TRD_SECTOR_BYTES, blankTrdDisk } from '@/media/floppy/trd-image.ts';
 
 /** Assemble an SCL archive from file descriptors (name, type, sectors, fill). */
 function makeScl(files: { name: string; type: string; sectors: number; fill: number }[]): Uint8Array {

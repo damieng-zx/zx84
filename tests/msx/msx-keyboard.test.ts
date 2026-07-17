@@ -7,7 +7,7 @@
  * (a pressed key clears its column bit); only the selected row is visible.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
-import { MsxKeyboard } from '@/msx/msx-keyboard.ts';
+import { MsxKeyboard } from '@/machines/msx/msx-keyboard.ts';
 
 /** Expected active-low byte for a single pressed bit on an otherwise idle row. */
 const oneDown = (bit: number) => (0xFF & ~(1 << bit)) & 0xFF;

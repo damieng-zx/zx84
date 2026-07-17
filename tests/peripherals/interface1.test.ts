@@ -12,9 +12,9 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { Interface1 } from '@/peripherals/interface1.ts';
-import { Microdrive, BLOCK_LEN } from '@/cores/microdrive.ts';
-import { SpectrumMemory } from '@/memory.ts';
+import { Interface1 } from '@/machines/spectrum/peripherals/interface1.ts';
+import { Microdrive, BLOCK_LEN } from '@/machines/spectrum/peripherals/microdrive.ts';
+import { SpectrumMemory } from '@/machines/spectrum/memory.ts';
 
 describe('Interface1 — initial state', () => {
   it('starts disabled, not paged, no ROM, with 8 microdrives', () => {

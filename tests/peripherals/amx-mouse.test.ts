@@ -13,9 +13,9 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { AmxMouse } from '@/peripherals/amx-mouse.ts';
+import { AmxMouse } from '@/machines/spectrum/peripherals/amx-mouse.ts';
 import { Z80 } from '@/cores/z80.ts';
-import { IOActivity } from '@/spectrum.ts';
+import { IOActivity } from '@/machines/spectrum/spectrum.ts';
 
 /**
  * Build a minimal Z80 ready to service IM 2 interrupts:

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { EinsteinMachine } from '@/einstein/einstein-machine.ts';
+import { EinsteinMachine } from '@/machines/einstein/einstein-machine.ts';
 
 function machine(): EinsteinMachine {
   const m = new EinsteinMachine('einstein', null);

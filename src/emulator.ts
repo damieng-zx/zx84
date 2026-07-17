@@ -3,41 +3,41 @@
  */
 
 import { batch } from 'solid-js';
-import { Spectrum } from '@/spectrum.ts';
-import { CpcMachine } from '@/cpc/cpc-machine.ts';
-import { EinsteinMachine } from '@/einstein/einstein-machine.ts';
-import { MsxMachine } from '@/msx/msx-machine.ts';
-import { type Machine, type MachineKind, asSpectrum, asCpc, asEinstein, asMsx } from '@/machine.ts';
+import { Spectrum } from '@/machines/spectrum/spectrum.ts';
+import { CpcMachine } from '@/machines/cpc/cpc-machine.ts';
+import { EinsteinMachine } from '@/machines/einstein/einstein-machine.ts';
+import { MsxMachine } from '@/machines/msx/msx-machine.ts';
+import { type Machine, type MachineKind, asSpectrum, asCpc, asEinstein, asMsx } from '@/machines/machine.ts';
 import {
   type SpectrumModel, type MachineModel, type CpcModel, type EinsteinModel, type MsxModel,
   is128kClass, isPlus2AClass, isCpcModel, isEinsteinModel, isMsxModel, isPlusDCapable,
   isInterface1Capable, isInterface2Capable, isBetaDiskCapable, romPageSlotCount,
 } from '@/models.ts';
-import { BANK_SIZE } from '@/memory.ts';
-import { CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT, CPC_PALETTES } from '@/cpc/constants.ts';
-import { EINSTEIN_SCREEN_WIDTH, EINSTEIN_SCREEN_HEIGHT } from '@/einstein/constants.ts';
-import { MSX_SCREEN_WIDTH, MSX_SCREEN_HEIGHT } from '@/msx/constants.ts';
+import { BANK_SIZE } from '@/utils/bank-size.ts';
+import { CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT, CPC_PALETTES } from '@/machines/cpc/constants.ts';
+import { EINSTEIN_SCREEN_WIDTH, EINSTEIN_SCREEN_HEIGHT } from '@/machines/einstein/constants.ts';
+import { MSX_SCREEN_WIDTH, MSX_SCREEN_HEIGHT } from '@/machines/msx/constants.ts';
 import { MSX_PALETTES, EINSTEIN_PALETTES } from '@/cores/tms9918a.ts';
-import { parseCasBlocks } from '@/msx/msx-tape.ts';
+import { parseCasBlocks } from '@/machines/msx/msx-tape.ts';
 import { WebGLRenderer } from '@/display/webgl-renderer.ts';
 import { CanvasRenderer } from '@/display/canvas-renderer.ts';
-import { FloppySound } from '@/floppy/floppy-sound.ts';
-import { PALETTES, SCREEN_WIDTH, SCREEN_HEIGHT } from '@/cores/ula.ts';
-import { saveSZX, saveSZXSync } from '@/snapshot/szx.ts';
-import { saveZ80 } from '@/snapshot/z80format.ts';
-import { parseTZX } from '@/tape/tzx.ts';
-import { parseCSW } from '@/tape/csw.ts';
-import type { TapeBlock } from '@/tape/tap.ts';
-import { serializeDSK } from '@/floppy/dsk.ts';
-import type { DskImage } from '@/floppy/disk-image.ts';
-import { parseFloppyImage, parseHFE, serializeHFE, isHFE, attachHfeBitstream } from '@/floppy/hfe.ts';
-import { parseSCP, isScp } from '@/floppy/scp.ts';
-import { parseMgt, serializeMgt, blankMgtDisk, mgtExtFromName } from '@/floppy/mgt-image.ts';
-import { parseTrd, serializeTrd, blankTrdDisk } from '@/floppy/trd-image.ts';
-import { parseScl, serializeScl, isScl, SCL_DISK_FORMAT } from '@/floppy/scl-image.ts';
-import { loadSZX, applySZXPaging } from '@/snapshot/szx.ts';
-import { readCpcSnaModel, applyCpcSna, saveCpcSna } from '@/snapshot/cpc-sna.ts';
-import { unzip } from '@/snapshot/zip.ts';
+import { FloppySound } from '@/media/floppy/floppy-sound.ts';
+import { PALETTES, SCREEN_WIDTH, SCREEN_HEIGHT } from '@/machines/spectrum/ula.ts';
+import { saveSZX, saveSZXSync } from '@/machines/spectrum/snapshots/szx.ts';
+import { saveZ80 } from '@/machines/spectrum/snapshots/z80format.ts';
+import { parseTZX } from '@/media/tape/tzx.ts';
+import { parseCSW } from '@/media/tape/csw.ts';
+import type { TapeBlock } from '@/media/tape/tap.ts';
+import { serializeDSK } from '@/media/floppy/dsk.ts';
+import type { DskImage } from '@/media/floppy/disk-image.ts';
+import { parseFloppyImage, parseHFE, serializeHFE, isHFE, attachHfeBitstream } from '@/media/floppy/hfe.ts';
+import { parseSCP, isScp } from '@/media/floppy/scp.ts';
+import { parseMgt, serializeMgt, blankMgtDisk, mgtExtFromName } from '@/media/floppy/mgt-image.ts';
+import { parseTrd, serializeTrd, blankTrdDisk } from '@/media/floppy/trd-image.ts';
+import { parseScl, serializeScl, isScl, SCL_DISK_FORMAT } from '@/media/floppy/scl-image.ts';
+import { loadSZX, applySZXPaging } from '@/machines/spectrum/snapshots/szx.ts';
+import { readCpcSnaModel, applyCpcSna, saveCpcSna } from '@/machines/cpc/snapshots/cpc-sna.ts';
+import { unzip } from '@/media/zip.ts';
 import { showFilePicker } from '@/ui/zip-picker.ts';
 import {
   clearLastFile, clearDisk, restoreTape, persistTape, clearTape, restoreDisk, dbSave, dbLoad,
@@ -48,7 +48,7 @@ import {
 import { microdriveSlots, setMicrodriveSlot, clearMicrodriveSlot } from '@/state/microdrive-state.ts';
 import * as settings from '@/store/settings.ts';
 import { decideFocusPause } from '@/focus-pause.ts';
-import { variantForModel, variantLabel, romFilename } from '@/peripherals/multiface.ts';
+import { variantForModel, variantLabel, romFilename } from '@/machines/spectrum/peripherals/multiface.ts';
 import { onFrame, updateRegsOnce, resetSpeedTracking, resetLedActivity, forceSpeedUpdate } from '@/frame-bridge.ts';
 export { fontDataHash, updateFontPreview, loadFontStore, saveFontStore, capturedFontData } from '@/frame-bridge.ts';
 export type { FontEntry } from '@/frame-bridge.ts';
@@ -1804,8 +1804,8 @@ export function setMicrodriveWriteProtect(unit: number, wp: boolean): void {
 
 // ── Joystick helpers ────────────────────────────────────────────────────
 
-export { KEMPSTON_BITS, CURSOR_KEYS, SINCLAIR1_KEYS, SINCLAIR2_KEYS, resetJoystickKeyState } from '@/peripherals/joysticks.ts';
-import { joyPressForType as _joyPress } from '@/peripherals/joysticks.ts';
+export { KEMPSTON_BITS, CURSOR_KEYS, SINCLAIR1_KEYS, SINCLAIR2_KEYS, resetJoystickKeyState } from '@/machines/spectrum/peripherals/joysticks.ts';
+import { joyPressForType as _joyPress } from '@/machines/spectrum/peripherals/joysticks.ts';
 
 export function joyPressForType(dir: string, pressed: boolean, mode: string, player = 0): void {
   const msx = asMsx(machine);

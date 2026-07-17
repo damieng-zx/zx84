@@ -8,9 +8,9 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { CpcMemory } from '@/cpc/cpc-memory.ts';
-import { createCpcConfig } from '@/cpc/config.ts';
-import { CpcMultiface } from '@/peripherals/cpc-multiface.ts';
+import { CpcMemory } from '@/machines/cpc/cpc-memory.ts';
+import { createCpcConfig } from '@/machines/cpc/config.ts';
+import { CpcMultiface } from '@/machines/cpc/peripherals/cpc-multiface.ts';
 import { Z80 } from '@/cores/z80.ts';
 
 const SLOT = 0x4000;

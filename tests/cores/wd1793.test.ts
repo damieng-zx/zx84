@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { WD1793 } from '@/cores/wd1793.ts';
-import type { DskImage, DskTrack, DskSector } from '@/floppy/disk-image.ts';
+import type { DskImage, DskTrack, DskSector } from '@/media/floppy/disk-image.ts';
 
 const ST_BUSY = 0x01;
 const ST_BIT7 = 0x80; // NOT READY on the 1793

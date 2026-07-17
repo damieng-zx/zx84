@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { WD1772 } from '@/cores/wd1772.ts';
-import type { DskImage, DskTrack, DskSector } from '@/floppy/disk-image.ts';
+import type { DskImage, DskTrack, DskSector } from '@/media/floppy/disk-image.ts';
 
 // ── WD1772 status bits (mirror the constants in wd1772.ts) ───────────────
 const ST_BUSY      = 0x01;

@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { saveSZX, saveSZXSync, loadSZX, applySZXPaging } from '@/snapshot/szx.ts';
+import { saveSZX, saveSZXSync, loadSZX, applySZXPaging } from '@/machines/spectrum/snapshots/szx.ts';
 import { Z80 } from '@/cores/z80.ts';
-import { SpectrumMemory } from '@/memory.ts';
-import type { SpectrumModel } from '@/spectrum.ts';
+import { SpectrumMemory } from '@/machines/spectrum/memory.ts';
+import type { SpectrumModel } from '@/machines/spectrum/spectrum.ts';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 

@@ -4,7 +4,7 @@
  */
 
 import { is128kClass } from '../src/models.ts';
-import { type Machine, asSpectrum } from '../src/machine.ts';
+import { type Machine, asSpectrum } from '../src/machines/machine.ts';
 import { disasmOne, stripMarkers } from '../src/debug/z80-disasm.ts';
 import { h8, h16 } from './hex.ts';
 import { symbols } from './state.ts';

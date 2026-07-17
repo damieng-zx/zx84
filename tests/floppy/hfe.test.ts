@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { parseHFE, serializeHFE, decodeHfeTrack, isHFE, createBlankHfe } from '@/floppy/hfe.ts';
-import { createBlankDisk, DISK_FORMATS } from '@/floppy/dsk.ts';
-import type { DskImage } from '@/floppy/disk-image.ts';
+import { parseHFE, serializeHFE, decodeHfeTrack, isHFE, createBlankHfe } from '@/media/floppy/hfe.ts';
+import { createBlankDisk, DISK_FORMATS } from '@/media/floppy/dsk.ts';
+import type { DskImage } from '@/media/floppy/disk-image.ts';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Independent HFE v1 / MFM *encoder*, derived from the HxC HFE spec and the IBM

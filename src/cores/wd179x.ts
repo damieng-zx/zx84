@@ -31,7 +31,7 @@
  *   • (intrq/drq getters)   — exposed for the Beta system port; +D ignores them.
  */
 
-import type { DskImage, DskTrack, DskSector } from '@/floppy/disk-image.ts';
+import type { DskImage, DskTrack, DskSector } from '@/media/floppy/disk-image.ts';
 
 // ── Status register bits ────────────────────────────────────────────────────
 // Bit meanings differ by command type; alternate Type-I meanings are noted in

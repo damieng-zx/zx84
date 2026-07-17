@@ -7,7 +7,7 @@
  * empty), slot 3 = 64KB RAM, slots 1/2 = empty (read 0xFF).
  */
 import { describe, it, expect, beforeEach } from 'vitest';
-import { MsxMemory } from '@/msx/msx-memory.ts';
+import { MsxMemory } from '@/machines/msx/msx-memory.ts';
 
 /** A 32KB ROM with a distinct marker at the start of each 16KB page. */
 function makeRom(): Uint8Array {

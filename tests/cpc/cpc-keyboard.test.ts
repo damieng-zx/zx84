@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { CpcKeyboard } from '@/cpc/cpc-keyboard.ts';
+import { CpcKeyboard } from '@/machines/cpc/cpc-keyboard.ts';
 
 /** Read a matrix line by selecting it then reading (the only public surface). */
 function readLine(kb: CpcKeyboard, line: number): number {

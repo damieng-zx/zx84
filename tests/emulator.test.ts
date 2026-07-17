@@ -135,11 +135,11 @@ function makeCpcStub() {
 // the "runner not found" bug in Vitest's forks pool with vi.hoisted.
 // Settings + ROMManager spies are accessed post-import via vi.mocked().
 
-vi.mock('@/spectrum.ts', () => ({
+vi.mock('@/machines/spectrum/spectrum.ts', () => ({
   Spectrum: function() { return makeSpectrumStub(); },
 }));
 
-vi.mock('@/cpc/cpc-machine.ts', () => ({
+vi.mock('@/machines/cpc/cpc-machine.ts', () => ({
   CpcMachine: function() { return makeCpcStub(); },
 }));
 
@@ -159,11 +159,11 @@ vi.mock('@/display/webgl-renderer.ts', () => ({
   WebGLRenderer: function() { return {}; },
 }));
 
-vi.mock('@/floppy/floppy-sound.ts', () => ({
+vi.mock('@/media/floppy/floppy-sound.ts', () => ({
   FloppySound: function() { return { reset: vi.fn(), destroy: vi.fn() }; },
 }));
 
-vi.mock('@/cores/ula.ts', () => ({
+vi.mock('@/machines/spectrum/ula.ts', () => ({
   PALETTES: { measured: [] } as any,
   SCREEN_WIDTH: 320,
   SCREEN_HEIGHT: 240,
@@ -306,34 +306,34 @@ vi.mock('@/store/persistence.ts', () => ({
   setSaved:        vi.fn(),
 }));
 
-vi.mock('@/peripherals/multiface.ts', () => ({
+vi.mock('@/machines/spectrum/peripherals/multiface.ts', () => ({
   variantForModel: vi.fn(() => 'mf128'),
   variantLabel:    vi.fn(() => 'Multiface 128'),
   romFilename:     vi.fn(() => 'mf128.rom'),
 }));
 
-vi.mock('@/peripherals/joysticks.ts', () => ({
+vi.mock('@/machines/spectrum/peripherals/joysticks.ts', () => ({
   KEMPSTON_BITS: {}, CURSOR_KEYS: {}, SINCLAIR1_KEYS: {}, SINCLAIR2_KEYS: {},
   resetJoystickKeyState: vi.fn(),
   joyPressForType:       vi.fn(),
 }));
 
-vi.mock('@/snapshot/szx.ts', async (importOriginal) => ({
+vi.mock('@/machines/spectrum/snapshots/szx.ts', async (importOriginal) => ({
   // Keep the real applySZXPaging so the resume path exercises the actual
   // bank/ROM restore logic; only the file read/write helpers are stubbed.
-  ...(await importOriginal<typeof import('@/snapshot/szx.ts')>()),
+  ...(await importOriginal<typeof import('@/machines/spectrum/snapshots/szx.ts')>()),
   saveSZX: vi.fn(async () => new Uint8Array()),
   saveSZXSync: vi.fn(() => new Uint8Array()),
   loadSZX: vi.fn(async () => ({ is128K: false, borderColor: 0, port7FFD: 0, port1FFD: 0 })),
 }));
 
-vi.mock('@/snapshot/z80format.ts', () => ({
+vi.mock('@/machines/spectrum/snapshots/z80format.ts', () => ({
   saveZ80: vi.fn(() => new Uint8Array()),
 }));
 
-vi.mock('@/tape/tzx.ts', () => ({ parseTZX: vi.fn(() => []) }));
+vi.mock('@/media/tape/tzx.ts', () => ({ parseTZX: vi.fn(() => []) }));
 
-vi.mock('@/floppy/dsk.ts', () => ({
+vi.mock('@/media/floppy/dsk.ts', () => ({
   parseDSK:     vi.fn(() => ({ tracks: [] })),
   serializeDSK: vi.fn(() => new Uint8Array()),
 }));
@@ -343,11 +343,11 @@ vi.mock('@/floppy/dsk.ts', () => ({
 import * as emulator from '@/emulator.ts';
 import * as settings from '@/store/settings.ts';
 import * as persistence from '@/store/persistence.ts';
-import * as szx from '@/snapshot/szx.ts';
-import * as z80fmt from '@/snapshot/z80format.ts';
-import * as dskMod from '@/floppy/dsk.ts';
-import * as tzxMod from '@/tape/tzx.ts';
-import * as joysticks from '@/peripherals/joysticks.ts';
+import * as szx from '@/machines/spectrum/snapshots/szx.ts';
+import * as z80fmt from '@/machines/spectrum/snapshots/z80format.ts';
+import * as dskMod from '@/media/floppy/dsk.ts';
+import * as tzxMod from '@/media/tape/tzx.ts';
+import * as joysticks from '@/machines/spectrum/peripherals/joysticks.ts';
 import {
   setCurrentModel, currentModel, systemRomLabel, systemRomIsCustom,
   systemRomPageLabels, systemRomPageOverridden,
@@ -1270,7 +1270,7 @@ describe('createMachine — feature branches', () => {
     // Easiest: build machine, then assert by setting flag and re-invoking.
     // The stub factory always has hasFDC=false, so we monkey-patch the
     // factory output by reaching through Spectrum mock: replace per-test.
-    const SpectrumMod = await import('@/spectrum.ts');
+    const SpectrumMod = await import('@/machines/spectrum/spectrum.ts');
     const orig = (SpectrumMod as any).Spectrum;
     (SpectrumMod as any).Spectrum = function () {
       const s = makeSpectrumStub();

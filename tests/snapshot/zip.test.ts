@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { deflateRawSync } from 'node:zlib';
-import { unzip } from '@/snapshot/zip.ts';
+import { unzip } from '@/media/zip.ts';
 
 // ── Low-level ZIP helpers (used by both buildZip and hand-rolled tests) ────
 

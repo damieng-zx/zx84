@@ -6,9 +6,9 @@
  * datasheet's: bit7=0, bits[3:1]=port-C bit number, bit0=set(1)/reset(0).
  */
 import { describe, it, expect, beforeEach } from 'vitest';
-import { MsxMemory } from '@/msx/msx-memory.ts';
-import { MsxKeyboard } from '@/msx/msx-keyboard.ts';
-import { MsxPpi } from '@/msx/msx-io.ts';
+import { MsxMemory } from '@/machines/msx/msx-memory.ts';
+import { MsxKeyboard } from '@/machines/msx/msx-keyboard.ts';
+import { MsxPpi } from '@/machines/msx/msx-io.ts';
 
 describe('MsxPpi', () => {
   let mem: MsxMemory;
