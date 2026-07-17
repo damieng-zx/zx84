@@ -4,7 +4,7 @@ import { HiOutlineChevronUp, HiOutlineChevronDown, HiOutlineChevronLeft, HiOutli
 import { joyP1, joyP2, joyMapP1, joyMapP2, setJoyP1, setJoyP2, setJoyMapP1, setJoyMapP2, persistSetting, gamepadConfigP1, gamepadConfigP2, setGamepadConfigP1, setGamepadConfigP2, resetSettingsGroup } from '@/store/settings.ts';
 import { joyPressForType } from '@/emulator.ts';
 import { currentModel } from '@/state/machine-state.ts';
-import { isCpcModel } from '@/models.ts';
+import { isCpcModel, isEinsteinModel } from '@/models.ts';
 
 // The CPC joystick is fixed to the Amstrad standard (read straight off the
 // keyboard matrix), so the Spectrum interface-type selector is hidden for it.
@@ -169,7 +169,7 @@ function JoyColumn(props: { playerIdx: number; label: string }) {
 
 export function JoystickPane() {
   return (
-    <Pane id="joystick-panel" label="Joysticks" onResetSettings={() => {
+    <Pane id="joystick-panel" label="Joysticks" visible={!isEinsteinModel(currentModel())} onResetSettings={() => {
       cancelConfiguration();
       resetSettingsGroup('joystick');
       setGamepadConfigP1(null);

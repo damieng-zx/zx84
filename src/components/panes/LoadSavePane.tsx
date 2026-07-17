@@ -5,12 +5,13 @@ import {
   loadFile, loadableExtensions, saveSnapshot, saveCpcSnapshot, saveScreenshot,
   saveRAM, currentModel,
 } from '@/emulator.ts';
-import { isCpcModel } from '@/models.ts';
+import { isCpcModel, isEinsteinModel } from '@/models.ts';
 import { toggleLibrary, libraryVisible } from '@/ui/panes.ts';
 import { LibraryBrowser } from '@/components/LibraryBrowser.tsx';
 import { openFile } from '@/ui/file-picker.ts';
 
 const isCpc = () => isCpcModel(currentModel());
+const hideLibrary = () => isCpc() || isEinsteinModel(currentModel());
 
 export function LoadSavePane() {
   let menuRef!: HTMLDivElement;
@@ -68,7 +69,7 @@ export function LoadSavePane() {
         <button class="btn btn-md" id="snap-load-btn" title="Load file" onClick={handleLoad}>
           <HiOutlineFolderOpen /> Load
         </button>
-        <Show when={!isCpc()}>
+        <Show when={!hideLibrary()}>
           <button
             class="btn btn-md"
             id="snap-library-btn"
@@ -105,7 +106,7 @@ export function LoadSavePane() {
           </Show>
         </div>
       </div>
-      <Show when={libraryVisible() && !isCpc()}>
+      <Show when={libraryVisible() && !hideLibrary()}>
         <LibraryBrowser />
       </Show>
     </Pane>
