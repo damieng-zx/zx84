@@ -14,9 +14,10 @@
  * DEFAULT_CATALOG_URL in src/library/catalog.ts.
  *
  * Scope: ZX-Spectrum entries marked Available that have a playable tape
- * (.tzx/.tap) or disk (.dsk) download, excluding x-rated entries
- * (entries.is_xrated). Books/hardware/magazines fall out naturally — they have
- * no such download. The compact schema matches
+ * (.tzx/.tap), disk (.dsk), or ROM cartridge (.rom, ZX Interface 2, 16K/48K
+ * only) download, excluding x-rated entries (entries.is_xrated).
+ * Books/hardware/magazines fall out naturally — they have no such download.
+ * The compact schema matches
  * RawCatalog/RawGame in src/library/catalog.ts (short keys; genre & publisher
  * are indices into shared dictionaries).
  */
@@ -61,6 +62,7 @@ interface RawGame {
   ds?: [string, string][];    // extra disk sides: [file_link, label]
   n?: string;                 // 48K snapshot (.szx > .z80 > .sna)
   nk?: string;                // 128K snapshot
+  r?: string;                 // Interface 2 ROM cartridge (16K/48K only)
 }
 interface RawCatalog { genres: string[]; publishers: string[]; games: RawGame[]; }
 
@@ -149,9 +151,11 @@ function main(): void {
   ).all(MACHINE_LIKE) as unknown as MetaRow[];
 
   // Candidate downloads: tape images (filetype 8: .tzx/.tap), disk images
-  // (filetype 11: .dsk), and SCR screens (filetype 1 = loading, 2 = running).
-  // SQLite has no built-in REGEXP, so match by suffix with LOWER()+LIKE. One
-  // entry may have several — we dedupe in JS below.
+  // (filetype 11: .dsk), ROM cartridges (filetype 17: .rom, for the ZX
+  // Interface 2 — 16K/48K only, filtered by tapeBucket() below), and SCR
+  // screens (filetype 1 = loading, 2 = running). SQLite has no built-in
+  // REGEXP, so match by suffix with LOWER()+LIKE. One entry may have several
+  // — we dedupe in JS below.
   const downs = db.prepare(
     `SELECT d.entry_id AS id, d.file_link AS link, d.filetype_id AS ft, d.machinetype_id AS mt, d.release_seq AS rel, d.language_id AS lang
        FROM downloads d
@@ -160,6 +164,7 @@ function main(): void {
       WHERE e.availabletype_id = 'A'
         AND ( (d.filetype_id = 8  AND (LOWER(d.file_link) LIKE '%.tzx.zip' OR LOWER(d.file_link) LIKE '%.tap.zip'))
            OR (d.filetype_id = 11 AND LOWER(d.file_link) LIKE '%.dsk.zip')
+           OR (d.filetype_id = 17 AND LOWER(d.file_link) LIKE '%.rom.zip')
            OR (d.filetype_id IN (1, 2) AND LOWER(d.file_link) LIKE '%.scr')
            OR LOWER(d.file_link) LIKE '%.szx' OR LOWER(d.file_link) LIKE '%.szx.zip'
            OR LOWER(d.file_link) LIKE '%.z80' OR LOWER(d.file_link) LIKE '%.z80.zip'
@@ -179,7 +184,7 @@ function main(): void {
   interface Pick { link: string; en: boolean; rel: number; rank: number; }
   interface Slot {
     tape48?: Pick; tape128?: Pick; disks: { link: string; rel: number; en: boolean }[];
-    snap48?: Pick; snap128?: Pick;
+    snap48?: Pick; snap128?: Pick; rom?: Pick;
     screen?: string; screenFt?: number;
   }
   const better = (en: boolean, rel: number, rank: number, cur?: Pick) => {
@@ -206,6 +211,12 @@ function main(): void {
       if (better(en, rel, rank, cur)) {
         const t = { link: d.link, en, rel, rank };
         if (b === '128') slot.tape128 = t; else slot.tape48 = t;
+      }
+    } else if (l.endsWith('.rom.zip')) {
+      // Interface 2 cartridges only fit the 16K/48K edge connector — drop any
+      // row a 128K-class machinetype snuck in under (see isInterface2Capable).
+      if (b === '48' && better(en, rel, 0, slot.rom)) {
+        slot.rom = { link: d.link, en, rel, rank: 0 };
       }
     } else if (snap > 0) {
       const cur = b === '128' ? slot.snap128 : slot.snap48;
@@ -236,9 +247,10 @@ function main(): void {
     if (!f) continue;
     const { d, ds } = resolveDisks(f.disks);
     const hasTapeOrDisk = !!(f.tape48 || f.tape128 || d);
+    const hasRom = !!f.rom;
     // Snapshots are a fallback only — skipped entirely when a tape/disk exists.
     const hasSnap = !!(f.snap48 || f.snap128);
-    if (!hasTapeOrDisk && !hasSnap) continue;      // no playable file → skip
+    if (!hasTapeOrDisk && !hasRom && !hasSnap) continue;      // no playable file → skip
     const g: RawGame = { i: row.id, t: row.title };
     if (row.year) g.y = row.year;
     const gi = intern(row.genre, genres, genreIdx);
@@ -249,6 +261,7 @@ function main(): void {
     if (f.tape128) g.k = f.tape128.link;
     if (d) g.d = d;
     if (ds) g.ds = ds;
+    if (f.rom) g.r = f.rom.link;
     if (!hasTapeOrDisk) {
       if (f.snap48) g.n = f.snap48.link;
       if (f.snap128) g.nk = f.snap128.link;
@@ -278,6 +291,7 @@ function main(): void {
   console.log(`with screen:${games.filter(g => g.s).length}`);
   console.log(`tapes 48/128: ${games.filter(g => g.f).length} / ${games.filter(g => g.k).length}   disks: ${games.filter(g => g.d).length}   multi-side: ${games.filter(g => g.ds).length}`);
   console.log(`snapshot-only 48/128: ${games.filter(g => g.n).length} / ${games.filter(g => g.nk).length}`);
+  console.log(`ROM cartridges: ${games.filter(g => g.r).length}`);
   console.log(`genres:     ${genres.length}   publishers: ${publishers.length}`);
   console.log(`raw JSON:   ${mb(json.length)} MB`);
   console.log(`gzipped:    ${mb(gz.length)} MB`);

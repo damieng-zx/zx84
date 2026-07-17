@@ -132,8 +132,13 @@ describe('resolveGame', () => {
     expect(g).toEqual({
       id: 7, title: 'Jetpac', year: 1983, genre: 'Arcade: Action', publisher: 'Ultimate',
       tape48: '/pub/a.tzx.zip', tape128: '/pub/a128.tzx.zip', disk: '/pub/a.dsk.zip',
-      diskSides: [], isDiskOnly: false, snap48: '', snap128: '', screen: '/pub/a.scr',
+      diskSides: [], isDiskOnly: false, snap48: '', snap128: '', screen: '/pub/a.scr', rom: '',
     });
+  });
+
+  it('exposes the ROM cartridge slot', () => {
+    const g = resolveGame({ i: 8, t: 'Chess', r: '/pub/chess.rom.zip' }, cat);
+    expect(g.rom).toBe('/pub/chess.rom.zip');
   });
 
   it('exposes snapshot slots', () => {
@@ -169,6 +174,8 @@ describe('planLoad / gameNeeds', () => {
   const tapeAndDisk = mk({ t: 'TD', f: '/pub/48.tzx.zip', d: '/pub/x.dsk.zip' });
   const snap48Only = mk({ t: 'S48', n: '/pub/s.z80.zip' });
   const snap128Only = mk({ t: 'S128', nk: '/pub/s128.szx.zip' });
+  const romOnly = mk({ t: 'R', r: '/pub/x.rom.zip' });
+  const romAndTapeAndDisk = mk({ t: 'RTD', f: '/pub/48.tzx.zip', d: '/pub/x.dsk.zip', r: '/pub/x.rom.zip' });
 
   it('48K: a 48 tape jumps the ROM loader, staying on 48K', () => {
     expect(planLoad(tape48, '48k')).toEqual({ target: '48k', link: '/pub/48.tzx.zip', isDisk: false, boot: 'rom48k' });
@@ -216,5 +223,20 @@ describe('planLoad / gameNeeds', () => {
     expect(gameNeeds(bothTapes)).toBe('48');
     expect(gameNeeds(snap48Only)).toBe('48');
     expect(gameNeeds(snap128Only)).toBe('128');
+  });
+
+  it('a ROM cartridge always wins — switches down to 48K even from a +3', () => {
+    expect(planLoad(romOnly, '48k')).toEqual({ target: '48k', link: '/pub/x.rom.zip', isDisk: false, boot: 'rom' });
+    expect(planLoad(romOnly, '+3')).toEqual({ target: '48k', link: '/pub/x.rom.zip', isDisk: false, boot: 'rom' });
+    expect(planLoad(romOnly, '128k')).toEqual({ target: '48k', link: '/pub/x.rom.zip', isDisk: false, boot: 'rom' });
+  });
+
+  it('a ROM cartridge takes priority over a tape/disk on the same entry', () => {
+    expect(planLoad(romAndTapeAndDisk, '+3')).toEqual({ target: '48k', link: '/pub/x.rom.zip', isDisk: false, boot: 'rom' });
+  });
+
+  it('gameNeeds reports "rom" ahead of every other tag', () => {
+    expect(gameNeeds(romOnly)).toBe('rom');
+    expect(gameNeeds(romAndTapeAndDisk)).toBe('rom');
   });
 });

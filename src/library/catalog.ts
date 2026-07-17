@@ -14,9 +14,11 @@ import { is128kClass, isPlus3, type SpectrumModel, type MachineModel } from '@/m
 
 /** One game in the compact on-wire schema. Short keys keep the JSON small. The
  *  required model is implicit in which slot a file lands in: f ⇒ 48K tape,
- *  k ⇒ 128K tape, d/ds ⇒ +3 disk, n ⇒ 48K snapshot, nk ⇒ 128K snapshot.
+ *  k ⇒ 128K tape, d/ds ⇒ +3 disk, n ⇒ 48K snapshot, nk ⇒ 128K snapshot,
+ *  r ⇒ ZX Interface 2 ROM cartridge (16K/48K only).
  *  Snapshots are a fallback emitted only when the game has no tape and no disk;
- *  they mount directly (no loader). */
+ *  they mount directly (no loader). A ROM cartridge, when present, takes
+ *  priority over every other slot — see planLoad()/gameNeeds(). */
 export interface RawGame {
   i: number;    // ZXDB entry id
   t: string;    // title
@@ -30,6 +32,7 @@ export interface RawGame {
   ds?: [string, string][]; // extra disk sides: [file_link, label]
   n?: string;   // 48K snapshot file_link (.szx/.z80/.sna), fallback only
   nk?: string;  // 128K snapshot file_link, fallback only
+  r?: string;   // ZX Interface 2 ROM cartridge file_link (.rom), 16K/48K only
 }
 
 export interface RawCatalog {
@@ -63,6 +66,9 @@ export interface Game {
   snap128: string;
   /** ZXDB file_link for a running-screen image ('' when none). */
   screen: string;
+  /** ZXDB file_link for a ZX Interface 2 ROM cartridge, '' when none (16K/48K
+   *  only). Takes priority over every other slot when present. */
+  rom: string;
 }
 
 // Game files are tried CDN-first, Worker-second:
@@ -174,6 +180,7 @@ export function resolveGame(raw: RawGame, cat: RawCatalog): Game {
     snap48: raw.n ?? '',
     snap128: raw.nk ?? '',
     screen: raw.s ?? '',
+    rom: raw.r ?? '',
   };
 }
 
@@ -184,23 +191,27 @@ export interface LoadPlan {
   link: string;             // ZXDB file_link to fetch + mount
   isDisk: boolean;          // disk image vs tape
   // How to start it: press Enter on the 128K/+3 loader menu, jump the 48K ROM
-  // loader, or — for a snapshot — nothing (it restores running state itself).
-  boot: 'menu' | 'rom48k' | 'snapshot';
+  // loader, mount a ZX Interface 2 cartridge (self-boots on reset, no loader
+  // kick), or — for a snapshot — nothing (it restores running state itself).
+  boot: 'menu' | 'rom48k' | 'snapshot' | 'rom';
 }
 
 /**
  * Pick the best load for `game` from the current machine, preferring to stay put
  * and only upgrading when needed:
+ *   - A ROM cartridge (16K/48K only) always wins when present — instant load,
+ *     no tape-loading wait — switching down to 48K if needed.
  *   - +3: a disk loads from A: (menu); otherwise a tape (prefer 128K) via menu.
  *   - 128/+2/+2A: a tape (prefer 128K) via menu; a disk-only game upgrades to +3.
  *   - 48K (or 16K/other): a 48K tape jumps the ROM loader; a 128K-only tape
  *     upgrades to 128K; a disk-only game upgrades to +3.
- * A snapshot-only game (no tape/disk) falls back to its snapshot, loaded on the
- * snapshot's native model and mounted directly (boot 'snapshot', no loader kick).
- * Returns null only when the game has no playable file at all.
+ * A snapshot-only game (no tape/disk/rom) falls back to its snapshot, loaded on
+ * the snapshot's native model and mounted directly (boot 'snapshot', no loader
+ * kick). Returns null only when the game has no playable file at all.
  */
 export function planLoad(game: Game, current: MachineModel): LoadPlan | null {
-  const { tape48, tape128, disk, snap48, snap128 } = game;
+  const { tape48, tape128, disk, snap48, snap128, rom } = game;
+  if (rom) return { target: '48k', link: rom, isDisk: false, boot: 'rom' };
   const anyTape = tape128 || tape48;   // prefer the 128K tape where a machine runs it
 
   if (isPlus3(current)) {
@@ -221,9 +232,12 @@ export function planLoad(game: Game, current: MachineModel): LoadPlan | null {
   return null;
 }
 
-/** Minimum machine a game needs, for the row's "needs 128/+3" badge: '48' (48K
- *  tape or snapshot), '128' (128K-only tape or snapshot), or '+3' (disk-only). */
-export function gameNeeds(game: Game): '48' | '128' | '+3' {
+/** What a game needs to play, for the row's "needs 128/+3/ROM" badge: 'rom'
+ *  (a ZX Interface 2 cartridge — takes priority over every other format),
+ *  '48' (48K tape or snapshot), '128' (128K-only tape or snapshot), or '+3'
+ *  (disk-only). */
+export function gameNeeds(game: Game): '48' | '128' | '+3' | 'rom' {
+  if (game.rom) return 'rom';
   if (game.tape48) return '48';
   if (game.tape128) return '128';
   if (game.disk) return '+3';

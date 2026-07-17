@@ -32,7 +32,7 @@ export const setLoadingGame = _loadingGame[1];
 /** The library entry whose file is currently mounted, with the resulting media
  *  name + kind so we can tell when it has been ejected or replaced. Null when
  *  nothing loaded from the library is mounted. */
-const _mounted = createSignal<{ game: Game; name: string; kind: 'tape' | 'disk' } | null>(null);
+const _mounted = createSignal<{ game: Game; name: string; kind: 'tape' | 'disk' | 'rom' } | null>(null);
 export const mounted = _mounted[0];
 export const setMounted = _mounted[1];
 
@@ -84,12 +84,12 @@ export function clearGenreFilter(): void {
   persistGenreFilter(empty);
 }
 
-// ── Format / "Requires" filter (persisted) ─────────────────────────────────
-// Set of minimum-machine tags to include ('48' | '128' | '+3', matching
+// ── Format filter (persisted) ───────────────────────────────────────────────
+// Set of format tags to include ('48' | '128' | '+3' | 'rom', matching
 // gameNeeds); empty = no format filtering (show all).
 
-export type FormatReq = '48' | '128' | '+3';
-const ALL_FORMATS: FormatReq[] = ['48', '128', '+3'];
+export type FormatReq = '48' | '128' | '+3' | 'rom';
+const ALL_FORMATS: FormatReq[] = ['48', '128', '+3', 'rom'];
 
 const FORMAT_FILTER_KEY = 'zx84-library-formats';
 
@@ -119,8 +119,8 @@ export function toggleFormatFilter(fmt: FormatReq): void {
   persistFormatFilter(s);
 }
 
-/** Parent "Requires" click: clear all formats if every one is already on,
- *  otherwise select all three. */
+/** Parent "Format" click: clear all formats if every one is already on,
+ *  otherwise select them all. */
 export function toggleFormatGroup(): void {
   const s = new Set(formatFilter());
   const allOn = ALL_FORMATS.every(m => s.has(m));

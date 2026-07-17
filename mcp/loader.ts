@@ -153,18 +153,28 @@ export function bootWaitPc(model: SpectrumModel): number {
 }
 
 /**
- * Mount a library tape/disk's inner bytes and arm the app's one-shot auto-boot
- * trap, reproducing the exact sequence of emulator.ts `autoBootLoad` +
- * media-manager mounts: put the media on the deck/drive, reset, then trap the
- * ROM's key-wait loop so it injects the loader keystrokes (menu Enter, or a 48K
- * LOAD"" jump). Snapshots are NOT handled here — they restore running state and
- * route through `loadFileInto`. Returns a status line.
+ * Mount a library tape/disk/ROM cartridge's inner bytes. Tapes/disks arm the
+ * app's one-shot auto-boot trap, reproducing the exact sequence of
+ * emulator.ts `autoBootLoad` + media-manager mounts: put the media on the
+ * deck/drive, reset, then trap the ROM's key-wait loop so it injects the
+ * loader keystrokes (menu Enter, or a 48K LOAD"" jump). A ZX Interface 2 ROM
+ * cartridge self-boots on reset instead — no trap to arm. Snapshots are NOT
+ * handled here — they restore running state and route through
+ * `loadFileInto`. Returns a status line.
  */
 export function mountAndArm(
   spec: Spectrum, data: Uint8Array, innerName: string,
-  boot: 'menu' | 'rom48k', model: SpectrumModel,
+  boot: 'menu' | 'rom48k' | 'rom', model: SpectrumModel,
 ): string {
   const ext = path.extname(innerName).toLowerCase();
+
+  if (boot === 'rom') {
+    if (ext !== '.rom') return `Unsupported library media type for a ROM cartridge: ${ext}`;
+    spec.interface2.insert(data, innerName);
+    spec.reset();
+    return `Mounted ROM cartridge ${innerName} — self-booted on reset (no boot trap armed)`;
+  }
+
   let mounted: string;
 
   if (ext === '.tzx' || ext === '.tap') {

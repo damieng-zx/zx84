@@ -1,7 +1,7 @@
 import { createMemo, createSignal, createEffect, onMount, Show, For } from 'solid-js';
 import { HiOutlineEllipsisVertical, HiOutlinePlay } from 'solid-icons/hi';
 import { DropDownMenuButton, type MenuItem } from '@/components/DropDownMenuButton.tsx';
-import { loadFile, currentModel, switchModel, autoBootLoad, ejectDisk, setStatus } from '@/emulator.ts';
+import { loadFile, currentModel, switchModel, autoBootLoad, ejectDisk, setStatus, cartridgeName } from '@/emulator.ts';
 import { tapeName } from '@/state/tape-state.ts';
 import { currentDiskName } from '@/state/disk-state.ts';
 import {
@@ -16,12 +16,14 @@ import {
   formatFilter, toggleFormatFilter, toggleFormatGroup, type FormatReq,
 } from '@/state/library-state.ts';
 
-// "Requires" filter options, in display order — maps a gameNeeds() tag to its
-// label. The tag is the minimum machine a title needs to run.
+// "Format" filter options, in display order — maps a gameNeeds() tag to its
+// label. 'rom' (a ZX Interface 2 cartridge) takes priority over every other
+// tag; the rest are the minimum machine a title needs to run.
 const FORMAT_OPTIONS: { req: FormatReq; label: string }[] = [
   { req: '48', label: '48K' },
   { req: '128', label: '128K' },
   { req: '+3', label: '+3' },
+  { req: 'rom', label: 'ROM' },
 ];
 
 /** Fetch the first URL that returns 2xx; falls through to the next on error. */
@@ -58,6 +60,11 @@ const SUPER_CATEGORIES: { name: string; prefixes: string[] }[] = [
 function genrePrefix(g: string): string {
   const i = g.indexOf(': ');
   return i >= 0 ? g.slice(0, i) : g;
+}
+
+/** Row badge/tooltip label for a gameNeeds() tag ('48' shows no badge at all). */
+function needsLabel(needs: '48' | '128' | '+3' | 'rom'): string {
+  return needs === '+3' ? '+3' : needs === 'rom' ? 'ROM' : '128';
 }
 
 /** Expanded detail row: screenshot (rendered from the SCR) with the publisher
@@ -118,7 +125,7 @@ export function LibraryBrowser() {
   });
 
   // Positive title text + `-word` exclusions + year:/publisher: tokens + genre +
-  // "Requires" filters, capped for render perf.
+  // "Format" filters, capped for render perf.
   const filtered = createMemo<Game[]>(() => {
     const { text, negTerms, yearMin, yearMax, publisher } = parseLibraryQuery(query());
     const genres = genreFilter();
@@ -147,7 +154,7 @@ export function LibraryBrowser() {
   // the whole subtree under it; hovering drills in. Counts roll up so a partly
   // selected branch shows a dash.
   const filterItems = createMemo<MenuItem[]>(() => {
-    // "Requires" (format) filter — always available, independent of the catalog.
+    // "Format" filter — always available, independent of the catalog.
     const fmt = formatFilter();
     const reqChildren: MenuItem[] = FORMAT_OPTIONS.map(o => ({
       value: `req:${o.req}`, label: o.label, checked: fmt.has(o.req),
@@ -155,7 +162,7 @@ export function LibraryBrowser() {
     const reqOn = FORMAT_OPTIONS.filter(o => fmt.has(o.req)).length;
     const head: MenuItem[] = [
       {
-        value: 'reqgrp', label: 'Requires',
+        value: 'reqgrp', label: 'Format',
         checked: reqOn === FORMAT_OPTIONS.length,
         indeterminate: reqOn > 0 && reqOn < FORMAT_OPTIONS.length,
         children: reqChildren,
@@ -309,23 +316,29 @@ export function LibraryBrowser() {
       // the model-switch guard below never trips in the remount case.)
       if (plan.target !== currentModel()) await switchModel(plan.target);
       await loadFile(data, basename(plan.link));
-      // A snapshot restores running state itself — no loader kick, and no disk
-      // eject (it doesn't boot from the drive).
+      // A snapshot restores running state itself, and a ROM cartridge self-boots
+      // on insert (loadFile's .rom routing already resets+starts the machine) —
+      // neither needs a loader kick, and neither should eject a mounted disk.
       const isSnapshot = plan.boot === 'snapshot';
+      const isRom = plan.boot === 'rom';
       // A tape-only game on a +3/+2A must not find a disk in A: — the boot
       // menu's Loader boots the disk in preference to the tape. Eject any
       // mounted disk so the Loader falls through to the cassette loader.
-      if (!remountOnly && !isSnapshot && !plan.isDisk && currentDiskName()) ejectDisk(0);
+      if (!remountOnly && !isSnapshot && !isRom && !plan.isDisk && currentDiskName()) ejectDisk(0);
       // Capture the mounted media name before the boot reset so the row stays
       // highlighted until it's ejected or replaced.
-      const kind = plan.isDisk ? 'disk' : 'tape';
-      setMounted({ game, name: kind === 'disk' ? currentDiskName() : tapeName(), kind });
+      if (isRom) {
+        setMounted({ game, name: cartridgeName(), kind: 'rom' });
+      } else {
+        const kind = plan.isDisk ? 'disk' : 'tape';
+        setMounted({ game, name: kind === 'disk' ? currentDiskName() : tapeName(), kind });
+      }
       // "Loading" (not "loaded"): the file is mounted and the loader kicked, but
       // the program itself is only now starting to load. Overrides the media
       // manager's "…loaded" message and shows the clean title, not the filename.
-      const source = plan.isDisk ? 'disk' : isSnapshot ? 'snapshot' : 'tape';
+      const source = isRom ? 'cartridge' : plan.isDisk ? 'disk' : isSnapshot ? 'snapshot' : 'tape';
       setStatus(`Loading ${game.title} from ${source}`);
-      if (!remountOnly && plan.boot !== 'snapshot') autoBootLoad(plan.boot);
+      if (!remountOnly && plan.boot !== 'snapshot' && plan.boot !== 'rom') autoBootLoad(plan.boot);
     } catch (err) {
       console.warn(`Failed to load "${game.title}":`, err);
       setLibraryError(`Could not download "${game.title}".`);
@@ -334,11 +347,11 @@ export function LibraryBrowser() {
     }
   }
 
-  // Clear the "mounted" highlight once that tape/disk is ejected or replaced.
+  // Clear the "mounted" highlight once that tape/disk/cartridge is ejected or replaced.
   createEffect(() => {
     const m = mounted();
     if (!m) return;
-    const live = m.kind === 'disk' ? currentDiskName() : tapeName();
+    const live = m.kind === 'disk' ? currentDiskName() : m.kind === 'rom' ? cartridgeName() : tapeName();
     if (live !== m.name) setMounted(null);
   });
 
@@ -379,13 +392,13 @@ export function LibraryBrowser() {
                 <div
                   class={`library-row${loadingGame() === game ? ' loading' : ''}${mounted()?.game === game ? ' mounted' : ''}${selected() === game ? ' selected' : ''}`}
                   onClick={() => setSelected(selected() === game ? null : game)}
-                  title={`${game.title}${game.publisher ? ` — ${game.publisher}` : ''}${game.isDiskOnly ? ' (disk)' : ''}${gameNeeds(game) !== '48' ? ` · needs ${gameNeeds(game) === '+3' ? '+3' : '128K'}` : ''}`}
+                  title={`${game.title}${game.publisher ? ` — ${game.publisher}` : ''}${game.isDiskOnly ? ' (disk)' : ''}${gameNeeds(game) !== '48' ? ` · needs ${needsLabel(gameNeeds(game))}` : ''}`}
                 >
                   <span class="library-title">
                     {game.title}
                   </span>
                   <Show when={gameNeeds(game) !== '48'}>
-                    <span class="library-model">{gameNeeds(game) === '+3' ? '+3' : '128'}</span>
+                    <span class="library-model">{needsLabel(gameNeeds(game))}</span>
                   </Show>
                   <span
                     class="library-play"

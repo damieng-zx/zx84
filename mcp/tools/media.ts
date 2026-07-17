@@ -77,7 +77,7 @@ export function register(server: McpServer): void {
 
       // 2. Plan the load from the current model (same decision the UI makes).
       const plan = planLoad(game, state.model);
-      if (!plan) return text(`"${game.title}" has no playable tape/disk/snapshot in the catalog.`);
+      if (!plan) return text(`"${game.title}" has no playable tape/disk/ROM/snapshot in the catalog.`);
 
       // 3. Download the file: CDN first, then the file-proxy Worker.
       const urls = fileUrls(plan.link);
@@ -145,10 +145,11 @@ export function register(server: McpServer): void {
       }
 
       // 7. With a frame budget, run the loader to a pass/fail verdict (tape/disk)
-      //    using the end-of-tape oracle; a snapshot just runs the frames.
+      //    using the end-of-tape oracle; a snapshot or ROM cartridge (both
+      //    self-starting, no loader to poll) just runs the frames.
       if (frames > 0) {
         const spec = activeSpectrum()!;
-        if (plan.boot === 'snapshot') {
+        if (plan.boot === 'snapshot' || plan.boot === 'rom') {
           const ran = spec.runUntil(frames);
           lines.push(`Ran ${ran}/${frames} frame(s). PC=${h16(spec.cpu.pc)} T=${spec.cpu.tStates}`);
         } else {
@@ -157,7 +158,7 @@ export function register(server: McpServer): void {
           lines.push(`Verdict: ${tag} after ${v.frames} frame(s)`);
           lines.push(`  ${v.detail}`);
         }
-      } else if (plan.boot !== 'snapshot') {
+      } else if (plan.boot !== 'snapshot' && plan.boot !== 'rom') {
         lines.push(`Boot trap armed (not yet fired). Pass frames=N to run to a verdict, or use 'run' + 'ocr' to debug.`);
       }
       return text(lines.join('\n'));
