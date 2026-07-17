@@ -9,7 +9,7 @@
  */
 
 import type { MachineModel } from '@/models.ts';
-import { dbSave, dbLoad } from '@/store/persistence.ts';
+import { dbSave, dbLoad, dbDelete } from '@/store/persistence.ts';
 
 export interface ROMEntry {
   data: Uint8Array;
@@ -164,5 +164,15 @@ export class ROMManager {
    */
   getCached(model: MachineModel): ROMEntry | null {
     return this.cache[model] || null;
+  }
+
+  /**
+   * Forget a model's stored ROM (in-memory cache, IndexedDB image, and label),
+   * so the next load falls back to the CDN default. Used by "reset to default".
+   */
+  async clearROM(model: MachineModel): Promise<void> {
+    delete this.cache[model];
+    try { localStorage.removeItem(`zx84-rom-label-${model}`); } catch { /* */ }
+    try { await dbDelete(`rom-${model}`); } catch { /* non-fatal */ }
   }
 }

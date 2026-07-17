@@ -52,6 +52,21 @@ const _romStatusText = createSignal('');
 export const romStatusText = _romStatusText[0];
 export const setRomStatusText = _romStatusText[1];
 
+// System ROM (BIOS) description shown in the ROM pane, e.g. "HX-10 (default)".
+const _systemRomLabel = createSignal('');
+export const systemRomLabel = _systemRomLabel[0];
+export const setSystemRomLabel = _systemRomLabel[1];
+
+// Byte size of the current system ROM (0 until one is loaded).
+const _systemRomSize = createSignal(0);
+export const systemRomSize = _systemRomSize[0];
+export const setSystemRomSize = _systemRomSize[1];
+
+// Name of the mounted cartridge (empty = none), for the ROM pane.
+const _cartridgeName = createSignal('');
+export const cartridgeName = _cartridgeName[0];
+export const setCartridgeName = _cartridgeName[1];
+
 // Model selection
 const _currentModel = createSignal<MachineModel>(loadSavedModel() ?? '128k');
 export const currentModel = _currentModel[0];

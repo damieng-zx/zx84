@@ -76,6 +76,9 @@ export class MsxMachine extends BaseMachine implements Machine {
   /** Cassette (.cas) — loaded on demand; served through BIOS traps. */
   readonly cassette = new MsxCassette();
 
+  /** Name of the mounted cartridge (empty if none), for the ROM pane. */
+  cartridgeName = '';
+
   /** RGBA frame buffer + a Uint32 view for fast VDP writes. */
   private readonly _pixels = new Uint8Array(MSX_SCREEN_WIDTH * MSX_SCREEN_HEIGHT * 4);
   private readonly _pixels32 = new Uint32Array(this._pixels.buffer);
@@ -121,6 +124,19 @@ export class MsxMachine extends BaseMachine implements Machine {
   mountCas(data: Uint8Array, name = ''): void {
     this.cassette.mount(data, name);
     this.setStatus(`Cassette: ${name || 'loaded'} — type CLOAD or BLOAD"CAS:"`);
+  }
+
+  /** Insert a cartridge ROM into slot 1. The caller resets the machine so the
+   *  BIOS slot scan finds and auto-runs it. */
+  insertCartridge(data: Uint8Array, name = ''): void {
+    this.memory.insertCartridge(data);
+    this.cartridgeName = name;
+  }
+
+  /** Remove the cartridge from slot 1. */
+  ejectCartridge(): void {
+    this.memory.removeCartridge();
+    this.cartridgeName = '';
   }
 
   /** RET from a trapped BIOS routine: pop the return address into PC. */

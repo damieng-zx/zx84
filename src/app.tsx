@@ -11,6 +11,7 @@ import { AppMenu } from '@/components/AppMenu.tsx';
 
 import { HardwarePane } from '@/components/panes/HardwarePane.tsx';
 import { LoadSavePane } from '@/components/panes/LoadSavePane.tsx';
+import { RomPane } from '@/components/panes/RomPane.tsx';
 import { JoystickPane } from '@/components/panes/JoystickPane.tsx';
 import { MousePane } from '@/components/panes/MousePane.tsx';
 import { SoundPane } from '@/components/panes/SoundPane.tsx';
@@ -41,6 +42,7 @@ import { InputController } from '@/input-controller.ts';
 const PANE_COMPONENTS: Record<string, () => JSX.Element> = {
   'hardware-panel': HardwarePane,
   'snapshot-panel': LoadSavePane,
+  'rom-panel': RomPane,
   'joystick-panel': JoystickPane,
   'mouse-panel': MousePane,
   'sound-panel': SoundPane,

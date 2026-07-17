@@ -192,6 +192,8 @@ vi.mock('@/managers/rom-manager.ts', () => ({
     restoreROM      = vi.fn(async () => null as any);
     fetchDefaultROM = vi.fn(async () => ({ data: new Uint8Array(16384), label: '48k' }));
     persistROM      = vi.fn(async () => {});
+    getCached       = vi.fn(() => null as any);
+    clearROM        = vi.fn(async () => {});
     constructor() { _h.romManager = this as any; }
   },
 }));

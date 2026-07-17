@@ -27,6 +27,16 @@ export async function dbSave(key: string, data: Uint8Array): Promise<void> {
   });
 }
 
+export async function dbDelete(key: string): Promise<void> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    tx.objectStore(STORE_NAME).delete(key);
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => { db.close(); reject(tx.error); };
+  });
+}
+
 export async function dbLoad(key: string): Promise<Uint8Array | null> {
   const db = await openDB();
   return new Promise((resolve, reject) => {

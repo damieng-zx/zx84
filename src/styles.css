@@ -1499,6 +1499,47 @@ input[type="range"]::-moz-range-thumb {
   gap: 4px 8px;
 }
 
+/* ROM / Carts pane — standard media slots, matching the Tape/Disk look. */
+.rom-slot-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 6px;
+}
+.rom-slot-row:last-child { margin-bottom: 0; }
+.rom-slot-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #666;
+}
+.media-slot {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  background: #fff;
+  border: 1px solid #bbb;
+  border-radius: 3px;
+  font-size: 0.75rem;
+  min-height: 24px;
+}
+.media-slot.clickable { cursor: pointer; }
+.media-slot.clickable:hover { background: #f0f0f8; border-color: #999; }
+.media-slot-text {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #222;
+  font-weight: 500;
+}
+.media-slot-text.placeholder {
+  color: #999;
+  font-style: italic;
+  font-weight: 400;
+}
+
 /* Multiface row */
 .multiface-row {
   display: flex;

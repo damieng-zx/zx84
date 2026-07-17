@@ -92,6 +92,12 @@ import {
   setPlusDRomFailed,
   setInterface1RomFailed,
   setBetaDiskRomFailed,
+  systemRomLabel,
+  systemRomSize,
+  cartridgeName,
+  setSystemRomLabel,
+  setSystemRomSize,
+  setCartridgeName,
 } from '@/state/machine-state.ts';
 
 import {
@@ -141,6 +147,7 @@ import {
 
 // Re-export machine state
 export { statusText, romStatusText, currentModel, emulationPaused, turboMode, clockSpeedText, saveModel };
+export { systemRomLabel, systemRomSize, cartridgeName };
 export { setStatusText, setRomStatusText, setCurrentModel, setEmulationPaused, setTurboMode, setClockSpeedText };
 export { multifaceRomFailed, vtx5000RomFailed, paradosRomFailed, plusDRomFailed, interface1RomFailed, betaDiskRomFailed };
 
@@ -471,6 +478,9 @@ export async function createMachine(): Promise<boolean> {
   // is empty (fire-and-forget — it only matters once the user presses Ctrl-BREAK).
   applyEinsteinXtalDosDisk();
 
+  // Refresh the ROM pane (system ROM label/size; a fresh machine has no cart).
+  updateRomPaneInfo();
+
   unpause();
   return hmrRestored;
 }
@@ -707,6 +717,55 @@ export async function switchModel(model: MachineModel): Promise<void> {
   }
 }
 
+// ── System ROM + MSX cartridge (ROM pane) ─────────────────────────────────
+
+/** Refresh the ROM-pane signals from the current machine's system ROM and any
+ *  mounted cartridge. Called after every (re)build of the machine. */
+export function updateRomPaneInfo(): void {
+  const entry = romManager.getCached(effectiveROMModel(currentModel()));
+  setSystemRomLabel(entry?.label ?? '');
+  setSystemRomSize(romData?.length ?? 0);
+  setCartridgeName(asMsx(machine)?.cartridgeName ?? '');
+}
+
+/** Replace the current machine's system ROM (BIOS) with a user-supplied image
+ *  and reboot into it. Persisted per model so the choice survives a reload.
+ *  Generic across machines — the ROM pane calls this for any active model. */
+export async function setSystemRom(data: Uint8Array, label: string): Promise<void> {
+  await persistROM(effectiveROMModel(currentModel()), data, label);
+  await switchModel(currentModel());   // rebuild with the new ROM
+}
+
+/** Restore the current model's default system ROM (cleared, then re-fetched). */
+export async function resetSystemRom(): Promise<void> {
+  await romManager.clearROM(effectiveROMModel(currentModel()));
+  await switchModel(currentModel());   // restoreROM now misses → default is fetched
+}
+
+/** Insert an MSX cartridge and reboot so the BIOS slot scan auto-runs it. */
+export function insertMsxCartridge(data: Uint8Array, name: string): void {
+  const msx = asMsx(machine);
+  if (!msx) { setStatus('Cartridges are for the MSX'); return; }
+  msx.stop();
+  msx.insertCartridge(data, name);
+  msx.reset();
+  setCartridgeName(name);
+  setStatus(`Cartridge: ${name}`);
+  if (romData) msx.start();
+}
+
+/** Remove the MSX cartridge and reboot to BASIC. */
+export function ejectMsxCartridge(): void {
+  const msx = asMsx(machine);
+  if (!msx) return;
+  msx.stop();
+  msx.ejectCartridge();
+  msx.reset();
+  setCartridgeName('');
+  setStatus('Cartridge ejected');
+  if (romData) msx.start();
+}
+
 // ── ROM loading ─────────────────────────────────────────────────────────
 
 export async function applyROM(data: Uint8Array, fileLabel: string): Promise<void> {
@@ -857,8 +916,8 @@ export function loadableExtensions(): string[] {
     // Einstein disks are Extended CPC DSK images read by the WD1770.
     return ein.config.hasFDC ? ['.dsk', '.hfe', '.scp', '.zip'] : [];
   }
-  // MSX: cassette images (a .zip may wrap one).
-  if (asMsx(machine)) return ['.cas', '.zip'];
+  // MSX: cartridge ROMs and cassette images (a .zip may wrap one).
+  if (asMsx(machine)) return ['.rom', '.cas', '.zip'];
   // Spectrum (and the no-machine default).
   const exts = ['.sna', '.z80', '.szx', '.sp', '.tap', '.tzx', '.csw'];
   if (spectrum?.variant.hasFDC) exts.push('.dsk', '.hfe');
@@ -928,25 +987,26 @@ export async function loadFile(data: Uint8Array, filename: string, unit?: number
     }
     return;
   }
-  // MSX: .cas cassette images (served instantly through the BIOS load traps).
+  // MSX: .rom cartridges (auto-booted) and .cas cassettes (BIOS-trap load).
   const msx = asMsx(machine);
   if (msx) {
     if (/\.zip$/i.test(filename)) {
       let entries;
       try { entries = await unzip(data); } catch (e) { setStatus(`ZIP error: ${(e as Error).message}`); return; }
-      const tapes = entries.filter(e => /\.cas$/i.test(e.name));
-      if (tapes.length === 0) { setStatus('ZIP has no cassette image (.cas)'); return; }
-      let picked = tapes[0];
-      if (tapes.length > 1) {
-        const name = await showFilePicker(tapes.map(t => t.name));
+      const media = entries.filter(e => /\.(rom|cas)$/i.test(e.name));
+      if (media.length === 0) { setStatus('ZIP has no MSX image (.rom/.cas)'); return; }
+      let picked = media[0];
+      if (media.length > 1) {
+        const name = await showFilePicker(media.map(t => t.name));
         if (!name) { setStatus('No file selected'); return; }
-        picked = tapes.find(t => t.name === name)!;
+        picked = media.find(t => t.name === name)!;
       }
-      await loadFile(picked.data, picked.name, unit);   // re-dispatch the extracted .cas
+      await loadFile(picked.data, picked.name, unit);   // re-dispatch the extracted image
       return;
     }
-    if (!/\.cas$/i.test(filename)) { setStatus('MSX accepts .cas cassette images (or a .zip of one)'); return; }
-    msx.mountCas(data, filename);
+    if (/\.rom$/i.test(filename)) { insertMsxCartridge(data, filename); return; }
+    if (/\.cas$/i.test(filename)) { msx.mountCas(data, filename); return; }
+    setStatus('MSX accepts .rom cartridges and .cas cassettes (or a .zip of one)');
     return;
   }
   if (!spectrum) { setStatus('Load a ROM first'); return; }

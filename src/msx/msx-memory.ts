@@ -7,7 +7,8 @@
  * [7:6] = page 3. The HX-10's slot map is:
  *
  *   slot 0 — internal 32KB ROM (BIOS + MSX BASIC) at pages 0–1; pages 2–3 empty
- *   slot 1 — cartridge slot 1 (empty on a bare machine → reads 0xFF)
+ *   slot 1 — cartridge slot (empty on a bare machine → reads 0xFF; a mounted
+ *            .rom cartridge maps here, from 0x4000 upward per its size)
  *   slot 2 — cartridge slot 2 (empty → reads 0xFF)
  *   slot 3 — 64KB RAM
  *
@@ -35,6 +36,13 @@ export class MsxMemory implements IMachineMemory {
 
   /** Primary-slot select register (PPI port A): 2 bits per page. */
   private primarySlot = 0;
+
+  /** A mounted cartridge ROM (slot 1), or null. Kept for the debug/ROM pane. */
+  private cartRom: Uint8Array | null = null;
+
+  /** Per-page 16KB views of the cartridge as it appears in slot 1 (null = the
+   *  cartridge doesn't cover that page). Rebuilt when the cartridge changes. */
+  private readonly cartView: (Uint8Array | null)[] = [null, null, null, null];
 
   /** Per-page read source (16KB view) or null when the page is unmapped. */
   private readonly readPtr: (Uint8Array | null)[] = [null, null, null, null];
@@ -64,6 +72,62 @@ export class MsxMemory implements IMachineMemory {
   /** Live 32KB view of the internal ROM (debug/memory viewer). */
   getRom(): Uint8Array { return this.rom; }
 
+  /** Mount a cartridge ROM into slot 1, mapped from 0x4000 by size. A reset
+   *  afterwards lets the BIOS slot scan find and auto-run it. */
+  insertCartridge(data: Uint8Array): void {
+    this.cartRom = data.length > 0 ? data : null;
+    this.buildCartViews();
+    this.rebuild();
+  }
+
+  /** Remove any mounted cartridge from slot 1. */
+  removeCartridge(): void {
+    this.cartRom = null;
+    this.buildCartViews();
+    this.rebuild();
+  }
+
+  get hasCartridge(): boolean { return this.cartRom !== null; }
+  get cartridgeSize(): number { return this.cartRom?.length ?? 0; }
+
+  /**
+   * Build the per-page cartridge views from the ROM size, following the standard
+   * MSX cartridge placement (the "AB" header sits at the start, mapped to
+   * 0x4000): ≤8KB mirrors across page 1; ≤16KB → page 1; ≤32KB → pages 1–2;
+   * ≤48KB → pages 0–2. Larger images need a mega-ROM mapper (not yet supported);
+   * their first 32KB is mapped at pages 1–2 as a best effort.
+   */
+  private buildCartViews(): void {
+    this.cartView[0] = this.cartView[1] = this.cartView[2] = this.cartView[3] = null;
+    const rom = this.cartRom;
+    if (!rom) return;
+    const size = rom.length;
+    // A 16KB page copied from cart byte offset `off`, 0xFF-padded past the end.
+    const slice16 = (off: number): Uint8Array => {
+      const v = new Uint8Array(PAGE_SIZE).fill(0xFF);
+      if (off < size) v.set(rom.subarray(off, Math.min(off + PAGE_SIZE, size)), 0);
+      return v;
+    };
+    if (size <= 0x2000) {
+      const v = new Uint8Array(PAGE_SIZE);
+      v.set(rom.subarray(0, size), 0);
+      v.set(rom.subarray(0, size), 0x2000);   // 8KB carts mirror across the page
+      this.cartView[1] = v;
+    } else if (size <= 0x4000) {
+      this.cartView[1] = slice16(0);
+    } else if (size <= 0x8000) {
+      this.cartView[1] = slice16(0);
+      this.cartView[2] = slice16(0x4000);
+    } else if (size <= 0xC000) {
+      this.cartView[0] = slice16(0);
+      this.cartView[1] = slice16(0x4000);
+      this.cartView[2] = slice16(0x8000);
+    } else {
+      this.cartView[1] = slice16(0);
+      this.cartView[2] = slice16(0x4000);
+    }
+  }
+
   /** Rebuild the per-page read/write views from the slot register. */
   private rebuild(): void {
     for (let page = 0; page < 4; page++) {
@@ -78,8 +142,12 @@ export class MsxMemory implements IMachineMemory {
         const view = this.ram.subarray(off, off + PAGE_SIZE);
         this.readPtr[page] = view;
         this.writePtr[page] = view;
+      } else if (slot === 1) {
+        // Slot 1: a mounted cartridge (read-only), else empty.
+        this.readPtr[page] = this.cartView[page];
+        this.writePtr[page] = null;
       } else {
-        // Slots 1/2: empty cartridge slots.
+        // Slot 2: empty cartridge slot.
         this.readPtr[page] = null;
         this.writePtr[page] = null;
       }

@@ -30,6 +30,7 @@ export const DEV_PANES = new Set<string>([
 export const PANE_LABELS: Record<string, string> = {
   'hardware-panel': 'Hardware',
   'snapshot-panel': 'Load / Save',
+  'rom-panel': 'ROM / Carts',
   'drive-panel': 'Drives',
   'microdrive-panel': 'Microdrives',
   'tape-panel': 'Tape',
@@ -54,6 +55,7 @@ const DEFAULT_ORDER: PanePosition[] = [
   // Left: core machine controls.
   { id: 'hardware-panel', sidebar: 'left' },
   { id: 'snapshot-panel', sidebar: 'left' },
+  { id: 'rom-panel', sidebar: 'left' },
   { id: 'drive-panel', sidebar: 'left' },
   { id: 'microdrive-panel', sidebar: 'left' },
   { id: 'tape-panel', sidebar: 'left' },
