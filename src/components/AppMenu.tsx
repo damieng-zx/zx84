@@ -7,9 +7,10 @@ import { createSignal, createEffect, onCleanup, Show, For } from 'solid-js';
 import { HiOutlineEllipsisVertical } from 'solid-icons/hi';
 import {
   isPaneUserHidden, togglePaneVisibility, paneOrder, PANE_LABELS,
-  orderedResetEntries, resetLayout, type ResetEntry,
+  orderedResetEntries, type ResetEntry,
 } from '@/ui/panes.ts';
 import { pauseOnFocusLost, setPauseOnFocusLost, persistSetting } from '@/store/settings.ts';
+import { factoryReset } from '@/store/persistence.ts';
 
 export function AppMenu() {
   const [open, setOpen] = createSignal(false);
@@ -31,10 +32,17 @@ export function AppMenu() {
     close();
   }
 
-  function resetAll() {
-    for (const e of orderedResetEntries()) e.reset();
-    resetLayout();
+  async function resetAll() {
     close();
+    // A true factory reset: wipe ALL persisted state for this origin (every
+    // localStorage key + the whole IndexedDB), not just the settings we can
+    // enumerate. This is the only thing that clears a corrupt cached ROM or any
+    // stale/unknown key. Reload afterwards so the app rebuilds from defaults and
+    // re-fetches ROMs from the CDN. Confirm first — it also drops saved disks,
+    // tapes and snapshots.
+    if (!confirm('Reset everything and reload?\n\nThis clears all settings, cached ROMs, and saved disks/tapes/snapshots for this site.')) return;
+    await factoryReset();
+    location.reload();
   }
 
   function togglePauseOnFocusLost() {

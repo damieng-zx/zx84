@@ -47,6 +47,28 @@ export async function dbLoad(key: string): Promise<Uint8Array | null> {
   });
 }
 
+/**
+ * Factory reset: wipe every trace of persisted state for this origin — the
+ * whole localStorage and the entire IndexedDB database (cached ROMs, disks,
+ * tapes, snapshots, last-file). Used by the "Reset settings ▸ All" action so
+ * that ANY stale or corrupt entry is cleared, not just the setting keys we know
+ * how to enumerate. A bad cached ROM in particular can only be cleared here (and
+ * re-fetched from the CDN on the next load), which is why the caller reloads
+ * afterwards.
+ */
+export async function factoryReset(): Promise<void> {
+  try { localStorage.clear(); } catch { /* private mode / disabled */ }
+  await new Promise<void>((resolve) => {
+    try {
+      const req = indexedDB.deleteDatabase(DB_NAME);
+      // Resolve on any terminal outcome. `onblocked` fires when another tab
+      // still holds the DB open; our own helpers close after each op, so this
+      // is only defensive — we resolve regardless rather than hang the reset.
+      req.onsuccess = req.onerror = req.onblocked = () => resolve();
+    } catch { resolve(); }
+  });
+}
+
 export function getSaved(key: string, fallback: string): string {
   try { return localStorage.getItem(`zx84-${key}`) ?? fallback; } catch { return fallback; }
 }
