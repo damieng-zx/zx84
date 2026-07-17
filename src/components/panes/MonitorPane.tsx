@@ -3,6 +3,7 @@ import { Pane } from '@/components/Pane.tsx';
 import { SliderRow } from '@/components/Slider.tsx';
 import {
   brightness, setBrightness, contrast, setContrast,
+  saturation, setSaturation, gamma, setGamma,
   smoothing, setSmoothing, curvature, setCurvature, scanlines, setScanlines,
   maskType, setMaskType, dotPitch, setDotPitch, curvatureMode, setCurvatureMode,
   noise, setNoise, scalingMode,
@@ -56,6 +57,11 @@ export function MonitorPane() {
         onInput={(v) => { setBrightness(v); machine?.display?.setBrightness(v / 50); persistSetting('brightness', v); }} />
       <SliderRow label="Contrast" id="contrast" min={0} max={100} value={contrast}
         onInput={(v) => { setContrast(v); machine?.display?.setContrast(v / 50); persistSetting('contrast', v); }} />
+      <SliderRow label="Saturation" id="saturation" min={0} max={100} value={saturation}
+        onInput={(v) => { setSaturation(v); machine?.display?.setSaturation(v / 50); persistSetting('saturation', v); }} />
+      <SliderRow label="Gamma" id="gamma" min={-50} max={50} value={gamma}
+        format={v => (2 ** (v / 50)).toFixed(2)}
+        onInput={(v) => { setGamma(v); machine?.display?.setGamma(2 ** (v / 50)); persistSetting('gamma', v); }} />
       <div class="slider-row">
         <span class="slider-label">Monitor</span>
         <select id="monitor-select" value={monitor()} onChange={(e) => {
@@ -79,7 +85,7 @@ export function MonitorPane() {
       <SliderRow label="Scanlines" id="scanlines" min={0} max={100} value={scanlines}
         onInput={(v) => { setScanlines(v); machine?.display?.setScanlines(v / 100); persistSetting('scanlines', v); }} />
       <Show when={scalingMode() === 0}>
-      <SliderRow label="Smoothing" id="smoothing" min={0} max={100} value={smoothing}
+      <SliderRow label="Softness" id="smoothing" min={0} max={100} value={smoothing}
         onInput={(v) => { setSmoothing(v); machine?.display?.setSmoothing(v / 100); persistSetting('smoothing', v); }} />
       </Show>
       <SliderRow label="Noise" id="noise" min={0} max={100} value={noise}

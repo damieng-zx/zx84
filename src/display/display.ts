@@ -19,6 +19,8 @@ export interface IScreenRenderer {
   setCurvatureMode(v: number): void;
   setBrightness(v: number): void;
   setContrast(v: number): void;
+  setSaturation(v: number): void;
+  setGamma(v: number): void;
   setNoise(v: number): void;
   setScalingMode(v: number): void;
 }

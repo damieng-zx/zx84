@@ -20,6 +20,8 @@ const DEFAULTS = {
   'scale':             '2',
   'brightness':        '0',
   'contrast':          '50',
+  'saturation':        '50',
+  'gamma':             '0',
   'smoothing':         '0',
   'curvature':         '0',
   'scanlines':         '0',
@@ -118,6 +120,14 @@ export const setBrightness = _brightness[1];
 const _contrast = /*@once*/ createRoot(() => createSignal(getSavedNumber('contrast', D('contrast'))));
 export const contrast = _contrast[0];
 export const setContrast = _contrast[1];
+
+const _saturation = /*@once*/ createRoot(() => createSignal(getSavedNumber('saturation', D('saturation'))));
+export const saturation = _saturation[0];
+export const setSaturation = _saturation[1];
+
+const _gamma = /*@once*/ createRoot(() => createSignal(getSavedNumber('gamma', D('gamma'))));
+export const gamma = _gamma[0];
+export const setGamma = _gamma[1];
 
 const _smoothing = /*@once*/ createRoot(() => createSignal(getSavedNumber('smoothing', D('smoothing'))));
 export const smoothing = _smoothing[0];
@@ -445,6 +455,8 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
   monitor: [
     { key: 'brightness',        set: setBrightness,       type: 'number' },
     { key: 'contrast',          set: setContrast,         type: 'number' },
+    { key: 'saturation',        set: setSaturation,       type: 'number' },
+    { key: 'gamma',             set: setGamma,            type: 'number' },
     { key: 'smoothing',         set: setSmoothing,        type: 'number' },
     { key: 'curvature',         set: setCurvature,        type: 'number' },
     { key: 'scanlines',         set: setScanlines,        type: 'number' },

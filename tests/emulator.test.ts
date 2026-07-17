@@ -146,6 +146,7 @@ vi.mock('@/display/canvas-renderer.ts', () => ({
   CanvasRenderer: function() {
     return {
       setScale: vi.fn(), setBrightness: vi.fn(), setContrast: vi.fn(),
+      setSaturation: vi.fn(), setGamma: vi.fn(),
       setSmoothing: vi.fn(), setCurvature: vi.fn(), setScanlines: vi.fn(),
       setMaskType: vi.fn(), setDotPitch: vi.fn(), setCurvatureMode: vi.fn(),
       setNoise: vi.fn(), setScalingMode: vi.fn(),
@@ -234,6 +235,8 @@ vi.mock('@/store/settings.ts', () => ({
   scale:              vi.fn(() => 2),
   brightness:         vi.fn(() => 0),
   contrast:           vi.fn(() => 50),
+  saturation:         vi.fn(() => 50),
+  gamma:              vi.fn(() => 0),
   smoothing:          vi.fn(() => 0),
   curvature:          vi.fn(() => 0),
   scanlines:          vi.fn(() => 0),

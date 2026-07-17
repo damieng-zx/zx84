@@ -43,7 +43,7 @@ describe('settings — initial defaults from getSaved fallbacks', () => {
     // Pick a representative sample — the worry is that getSavedNumber would
     // ever return NaN. Asserting Number.isFinite catches accidental NaN
     // contamination across all numeric paths.
-    for (const v of [s.scale(), s.brightness(), s.contrast(), s.smoothing(),
+    for (const v of [s.scale(), s.brightness(), s.contrast(), s.saturation(), s.gamma(), s.smoothing(),
                      s.curvature(), s.scanlines(), s.maskType(), s.dotPitch(),
                      s.curvatureMode(), s.noise(), s.scalingMode(), s.borderSize()]) {
       expect(Number.isFinite(v)).toBe(true);
@@ -180,16 +180,19 @@ describe('settings — reset defaults vs initial defaults consistency', () => {
     const s = await load();
     const before = {
       brightness: s.brightness(), contrast: s.contrast(),
+      saturation: s.saturation(), gamma: s.gamma(),
       smoothing: s.smoothing(), curvature: s.curvature(), scanlines: s.scanlines(),
       maskType: s.maskType(), dotPitch: s.dotPitch(), curvatureMode: s.curvatureMode(),
       noise: s.noise(), monitor: s.monitor(),
     };
     // Dirty a few so reset has something to do.
     s.setBrightness(25); s.setContrast(90); s.setMonitor('greenscreen');
+    s.setSaturation(80); s.setGamma(-20);
     s.setMaskType(3); s.setCurvatureMode(1);
     s.resetSettingsGroup('monitor');
     const after = {
       brightness: s.brightness(), contrast: s.contrast(),
+      saturation: s.saturation(), gamma: s.gamma(),
       smoothing: s.smoothing(), curvature: s.curvature(), scanlines: s.scanlines(),
       maskType: s.maskType(), dotPitch: s.dotPitch(), curvatureMode: s.curvatureMode(),
       noise: s.noise(), monitor: s.monitor(),

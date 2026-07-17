@@ -349,6 +349,26 @@ describe('WebGLRenderer setters — clamping', () => {
     expect(mock.programs[6].uniforms.get('u_contrast')!.lastValue).toBe(2);
   });
 
+  it('setSaturation clamps to 0..2', () => {
+    const { r, mock } = makeRenderer();
+    r.setSaturation(-1);
+    r.updateTexture(new Uint8Array(352 * 288 * 4));
+    expect(mock.programs[6].uniforms.get('u_saturation')!.lastValue).toBe(0);
+    r.setSaturation(99);
+    r.updateTexture(new Uint8Array(352 * 288 * 4));
+    expect(mock.programs[6].uniforms.get('u_saturation')!.lastValue).toBe(2);
+  });
+
+  it('setGamma clamps to 0.25..4', () => {
+    const { r, mock } = makeRenderer();
+    r.setGamma(-1);
+    r.updateTexture(new Uint8Array(352 * 288 * 4));
+    expect(mock.programs[6].uniforms.get('u_gamma')!.lastValue).toBe(0.25);
+    r.setGamma(99);
+    r.updateTexture(new Uint8Array(352 * 288 * 4));
+    expect(mock.programs[6].uniforms.get('u_gamma')!.lastValue).toBe(4);
+  });
+
   it('setNoise clamps to 0..1', () => {
     const { r, mock } = makeRenderer();
     r.setNoise(99);

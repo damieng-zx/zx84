@@ -81,6 +81,8 @@ const FRAG_CRT = `
   uniform int   u_curvatureMode; // 0=spherical, 1=cylindrical
   uniform float u_brightness;    // -1 to 1, default 0
   uniform float u_contrast;      // 0 to 2, default 1
+  uniform float u_saturation;    // 0 = grayscale, 1 = normal, 2 = oversaturated
+  uniform float u_gamma;         // display gamma, default 1.0
   uniform float u_noise;         // 0 = off, up to 1 = heavy noise
   uniform float u_frame;         // frame counter for varying noise
   uniform float u_scale;         // integer device-pixel scale (passed from CPU)
@@ -241,8 +243,16 @@ const FRAG_CRT = `
       col += n * u_noise * 0.15;
     }
 
+    // -- Saturation --
+    float luma = dot(col, vec3(0.299, 0.587, 0.114));
+    col = mix(vec3(luma), col, u_saturation);
+
     // -- Brightness / Contrast --
     col = (col - 0.5) * u_contrast + 0.5 + u_brightness;
+    col = clamp(col, 0.0, 1.0);
+
+    // -- Gamma --
+    col = pow(col, vec3(1.0 / u_gamma));
 
     gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
   }
@@ -292,6 +302,8 @@ export class WebGLRenderer implements IScreenRenderer {
   private curvatureMode = 0;
   private brightness = 0;
   private contrast = 1;
+  private saturation = 1;
+  private gamma = 1;
   private noise = 0;
   private frameCount = 0;
 
@@ -305,6 +317,8 @@ export class WebGLRenderer implements IScreenRenderer {
   private u2CurvatureMode: WebGLUniformLocation | null = null;
   private u2Brightness: WebGLUniformLocation | null = null;
   private u2Contrast: WebGLUniformLocation | null = null;
+  private u2Saturation: WebGLUniformLocation | null = null;
+  private u2Gamma: WebGLUniformLocation | null = null;
   private u2Noise: WebGLUniformLocation | null = null;
   private u2Frame: WebGLUniformLocation | null = null;
   private u2Scale: WebGLUniformLocation | null = null;
@@ -364,6 +378,8 @@ export class WebGLRenderer implements IScreenRenderer {
     this.u2CurvatureMode = gl.getUniformLocation(this.progCRT, 'u_curvatureMode');
     this.u2Brightness = gl.getUniformLocation(this.progCRT, 'u_brightness');
     this.u2Contrast = gl.getUniformLocation(this.progCRT, 'u_contrast');
+    this.u2Saturation = gl.getUniformLocation(this.progCRT, 'u_saturation');
+    this.u2Gamma = gl.getUniformLocation(this.progCRT, 'u_gamma');
     this.u2Noise = gl.getUniformLocation(this.progCRT, 'u_noise');
     this.u2Frame = gl.getUniformLocation(this.progCRT, 'u_frame');
     this.u2Scale = gl.getUniformLocation(this.progCRT, 'u_scale');
@@ -566,6 +582,16 @@ export class WebGLRenderer implements IScreenRenderer {
     this.glDirty = true;
   }
 
+  setSaturation(v: number): void {
+    this.saturation = Math.max(0, Math.min(2, v));
+    this.glDirty = true;
+  }
+
+  setGamma(v: number): void {
+    this.gamma = Math.max(0.25, Math.min(4, v));
+    this.glDirty = true;
+  }
+
   setNoise(v: number): void {
     this.noise = Math.max(0, Math.min(1, v));
     this.glDirty = true;
@@ -652,6 +678,8 @@ export class WebGLRenderer implements IScreenRenderer {
       gl.uniform1i(this.u2CurvatureMode, this.curvatureMode);
       gl.uniform1f(this.u2Brightness, this.brightness);
       gl.uniform1f(this.u2Contrast, this.contrast);
+      gl.uniform1f(this.u2Saturation, this.saturation);
+      gl.uniform1f(this.u2Gamma, this.gamma);
       gl.uniform1f(this.u2Scale, this.deviceScale);
     }
     // u_noise and u_frame must stay in sync every frame when noise is active:

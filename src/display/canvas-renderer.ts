@@ -119,6 +119,8 @@ export class CanvasRenderer implements IScreenRenderer {
   setCurvatureMode(_v: number): void {}
   setBrightness(_v: number): void {}
   setContrast(_v: number): void {}
+  setSaturation(_v: number): void {}
+  setGamma(_v: number): void {}
   setNoise(_v: number): void {}
   setScalingMode(_v: number): void {}
 }
