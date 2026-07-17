@@ -255,6 +255,12 @@ body.cpc-mode .section-label::after {
   );
 }
 
+/* Einstein/MSX mode: no rainbow — neither machine has a Sinclair heritage. */
+body.einstein-mode .section-label::after,
+body.msx-mode .section-label::after {
+  content: none;
+}
+
 .section-label::after {
   content: '';
   position: absolute;

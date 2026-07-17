@@ -161,10 +161,13 @@ export function App() {
     });
   });
 
-  // Mark the document in Amstrad mode so CPC-specific styling (e.g. hiding the
-  // Spectrum rainbow stripe on pane title bars) can key off it.
+  // Mark the document with the active platform so platform-specific styling
+  // (e.g. hiding the Spectrum rainbow stripe on pane title bars for non-
+  // Spectrum machines) can key off it.
   createEffect(() => {
     document.body.classList.toggle('cpc-mode', isCpcModel(currentModel()));
+    document.body.classList.toggle('einstein-mode', isEinsteinModel(currentModel()));
+    document.body.classList.toggle('msx-mode', isMsxModel(currentModel()));
   });
 
   // Mirror the display scale (1×/2×/3×) into a CSS variable so the on-screen
