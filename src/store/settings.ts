@@ -87,7 +87,6 @@ const DEFAULTS = {
 
   // Hardware
   'multiface':      'off',
-  'plus3-v41-roms': 'off',
   'vtx5000':        'off',
   'cpc-parados':    'off',
   'plusd':          'off',
@@ -385,10 +384,6 @@ const _multifaceEnabled = /*@once*/ createRoot(() => createSignal(getSaved('mult
 export const multifaceEnabled = _multifaceEnabled[0];
 export const setMultifaceEnabled = _multifaceEnabled[1];
 
-const _plus3V41Roms = /*@once*/ createRoot(() => createSignal(getSaved('plus3-v41-roms', D('plus3-v41-roms')) === 'on'));
-export const plus3V41Roms = _plus3V41Roms[0];
-export const setPlus3V41Roms = _plus3V41Roms[1];
-
 const _cpcParados = /*@once*/ createRoot(() => createSignal(getSaved('cpc-parados', D('cpc-parados')) === 'on'));
 export const cpcParados = _cpcParados[0];
 export const setCpcParados = _cpcParados[1];
@@ -508,7 +503,6 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
   ],
   hardware: [
     { key: 'multiface',      set: setMultifaceEnabled, type: 'bool' },
-    { key: 'plus3-v41-roms', set: setPlus3V41Roms,     type: 'bool' },
     { key: 'vtx5000',        set: setVtx5000Enabled,   type: 'bool' },
     { key: 'cpc-parados',    set: setCpcParados,        type: 'bool' },
     { key: 'plusd',          set: setPlusDEnabled,     type: 'bool' },

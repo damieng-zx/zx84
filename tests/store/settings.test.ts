@@ -252,14 +252,12 @@ describe('settings — reset defaults vs initial defaults consistency', () => {
     const s = await load();
     const before = {
       multifaceEnabled: s.multifaceEnabled(),
-      plus3V41Roms: s.plus3V41Roms(),
       vtx5000Enabled: s.vtx5000Enabled(),
     };
     s.setMultifaceEnabled(true); s.setVtx5000Enabled(true);
     s.resetSettingsGroup('hardware');
     expect({
       multifaceEnabled: s.multifaceEnabled(),
-      plus3V41Roms: s.plus3V41Roms(),
       vtx5000Enabled: s.vtx5000Enabled(),
     }).toEqual(before);
   });
