@@ -11,7 +11,7 @@ import { type Machine, type MachineKind, asSpectrum, asCpc, asEinstein, asMsx } 
 import {
   type SpectrumModel, type MachineModel, type CpcModel, type EinsteinModel, type MsxModel,
   is128kClass, isPlus2AClass, isCpcModel, isEinsteinModel, isMsxModel, isPlusDCapable,
-  isInterface1Capable, isBetaDiskCapable,
+  isInterface1Capable, isInterface2Capable, isBetaDiskCapable,
 } from '@/models.ts';
 import { CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT, CPC_PALETTES } from '@/cpc/constants.ts';
 import { EINSTEIN_SCREEN_WIDTH, EINSTEIN_SCREEN_HEIGHT } from '@/einstein/constants.ts';
@@ -753,7 +753,7 @@ export function updateRomPaneInfo(): void {
   const entry = romManager.getCached(effectiveROMModel(currentModel()));
   setSystemRomLabel(entry?.label ?? '');
   setSystemRomSize(romData?.length ?? 0);
-  setCartridgeName(asMsx(machine)?.cartridgeName ?? '');
+  setCartridgeName(asMsx(machine)?.cartridgeName ?? spectrum?.interface2.name ?? '');
 }
 
 /** Replace the current machine's system ROM (BIOS) with a user-supplied image
@@ -812,6 +812,40 @@ export function ejectMsxCartridge(): void {
   setCartridgeName('');
   setStatus('Cartridge ejected');
   if (romData) msx.start();
+}
+
+/** Insert a ZX Interface 2 ROM cartridge (16K/48K only) and reboot into it —
+ *  matching real hardware, where booting the cartridge means power-cycling
+ *  with it already plugged in. */
+export function insertIf2Cartridge(data: Uint8Array, name: string): void {
+  if (!spectrum || !isInterface2Capable(currentModel())) {
+    setStatus('Cartridges need a 16K/48K Spectrum');
+    return;
+  }
+  spectrum.stop();
+  spectrum.interface2.insert(data, name);
+  spectrum.reset();
+  setCartridgeName(name);
+  setStatus(`Cartridge: ${name}`);
+  if (romData) spectrum.start();
+}
+
+/** Remove the Interface 2 cartridge and reboot to the system ROM. */
+export function ejectIf2Cartridge(): void {
+  if (!spectrum) return;
+  spectrum.stop();
+  spectrum.interface2.eject();
+  spectrum.reset();
+  setCartridgeName('');
+  setStatus('Cartridge ejected');
+  if (romData) spectrum.start();
+}
+
+/** Eject whichever cartridge slot is active for the current machine (MSX or
+ *  ZX Interface 2). Used by the generic ROM-pane UI. */
+export function ejectCartridge(): void {
+  if (asMsx(machine)) { ejectMsxCartridge(); return; }
+  ejectIf2Cartridge();
 }
 
 // ── ROM loading ─────────────────────────────────────────────────────────
@@ -970,6 +1004,7 @@ export function loadableExtensions(): string[] {
   const exts = ['.sna', '.z80', '.szx', '.sp', '.tap', '.tzx', '.csw'];
   if (spectrum?.variant.hasFDC) exts.push('.dsk', '.hfe');
   if (spectrum && isInterface1Capable(currentModel())) exts.push('.mdr', '.mdv');
+  if (spectrum && isInterface2Capable(currentModel())) exts.push('.rom');
   exts.push('.zip');
   return exts;
 }
@@ -1058,6 +1093,11 @@ export async function loadFile(data: Uint8Array, filename: string, unit?: number
     return;
   }
   if (!spectrum) { setStatus('Load a ROM first'); return; }
+  // ZX Interface 2 ROM cartridges (16K/48K only).
+  if (/\.rom$/i.test(filename) && isInterface2Capable(currentModel())) {
+    insertIf2Cartridge(data, filename);
+    return;
+  }
   // Beta Disk (TR-DOS) images route to the WD1793.
   if (/\.(trd|scl)$/i.test(filename)) {
     loadBetaDiskDisk(data, filename, unit ?? 0);

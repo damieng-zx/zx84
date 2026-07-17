@@ -1169,6 +1169,29 @@ describe('write8 — Multiface ROM/RAM passthrough when paged in', () => {
   });
 });
 
+describe('write8 — Interface 2 cartridge ROM passthrough when inserted', () => {
+  let s: Spectrum;
+  beforeEach(() => {
+    s = makeMachine('48k');
+    s.interface2.insert(new Uint8Array(16384).fill(0xCC), 'test.rom');
+    s.reset();
+  });
+
+  it('write anywhere in 0x0000-0x3FFF (whole cartridge ROM) is silently discarded', () => {
+    const before1 = s.memory.readByte(0x0000);
+    const before2 = s.memory.readByte(0x3000);
+    s.cpu.write8(0x0000, 0x55);
+    s.cpu.write8(0x3000, 0x55);
+    expect(s.memory.readByte(0x0000)).toBe(before1);
+    expect(s.memory.readByte(0x3000)).toBe(before2);
+  });
+
+  it('write to RAM (0x4000+) is unaffected by the inserted cartridge', () => {
+    s.cpu.write8(0x4000, 0x42);
+    expect(s.memory.readByte(0x4000)).toBe(0x42);
+  });
+});
+
 describe('write8 — 16K open-bus behaviour', () => {
   it('writes to 0x8000-0xFFFF on 16K are dropped; reads return 0xFF', () => {
     const s = makeMachine('16k');

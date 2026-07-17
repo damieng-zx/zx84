@@ -59,6 +59,7 @@ function makeSpectrumStub() {
                  romLoaded: false, mfRom: new Uint8Array(0x2000),
                  pagedIn: false, pressButton: vi.fn() },
     vtx5000: { enabled: false, loadROM: vi.fn(), romLoaded: false },
+    interface2: { inserted: false, name: '', insert: vi.fn(), eject: vi.fn(), applyROM: vi.fn() },
     mgtPlusD: { enabled: false, loadROM: vi.fn(), romLoaded: false,
                 fdc: { writeProtect: [false, false], insertDisk: vi.fn(),
                        ejectDisk: vi.fn(), getDiskImage: vi.fn(() => null),

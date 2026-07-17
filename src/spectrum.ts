@@ -33,6 +33,7 @@ import { BaseMachine } from '@/base-machine.ts';
 import { AudioMixer } from '@/peripherals/audio-mixer.ts';
 import { Multiface } from '@/peripherals/multiface.ts';
 import { VTX5000 } from '@/peripherals/vtx5000.ts';
+import { Interface2 } from '@/peripherals/interface2.ts';
 import { MgtPlusD } from '@/peripherals/mgt-plusd.ts';
 import { Interface1 } from '@/peripherals/interface1.ts';
 import { BetaDisk } from '@/peripherals/beta-disk.ts';
@@ -169,6 +170,9 @@ export class Spectrum extends BaseMachine implements Machine {
 
   /** VTX-5000 viewdata modem peripheral (48K only) */
   vtx5000 = new VTX5000();
+
+  /** ZX Interface 2 ROM cartridge slot (16K/48K only) */
+  interface2 = new Interface2();
 
   /** MGT +D disk interface (48K/128K/+2) — WD1772 FDC + shadow ROM/RAM. */
   mgtPlusD = new MgtPlusD();
@@ -358,13 +362,14 @@ export class Spectrum extends BaseMachine implements Machine {
   get traceMode(): 'full' | 'portio' | 'zxtl' { return this._traceMode; }
   get traceBuffer(): readonly string[] { return this._traceBuffer; }
 
-  /** True when slot 0 is overlaid by an external ROM (Multiface or VTX-5000).
-   *  Bank-switching paths use this to skip writing slot 0 so the overlay
-   *  stays mapped. */
+  /** True when slot 0 is overlaid by an external ROM (Multiface, VTX-5000 or
+   *  an Interface 2 cartridge). Bank-switching paths use this to skip writing
+   *  slot 0 so the overlay stays mapped. */
   get hasSlot0Overlay(): boolean {
     return this.multiface.pagedIn || this.mgtPlusD.pagedIn || this.interface1.pagedIn
       || this.betaDisk.pagedIn
-      || (this.vtx5000.enabled && this.vtx5000.vtxRomPaged);
+      || (this.vtx5000.enabled && this.vtx5000.vtxRomPaged)
+      || this.interface2.inserted;
   }
 
   /** Flush pending pixels up to the current beam position.
@@ -426,6 +431,9 @@ export class Spectrum extends BaseMachine implements Machine {
       this.vtx5000.applyROM(this.memory);
       this.memory.externalRomPaged = true;
     }
+    if (this.interface2.inserted) {
+      this.interface2.applyROM(this.memory);
+    }
     this.setStatus('ROM loaded');
   }
 
@@ -459,6 +467,9 @@ export class Spectrum extends BaseMachine implements Machine {
       }
       this.vtx5000.applyROM(this.memory);
       this.memory.externalRomPaged = true;
+    }
+    if (this.interface2.inserted) {
+      this.interface2.applyROM(this.memory);
     }
     this.joystick.reset();
     this.kempstonMouse.reset();

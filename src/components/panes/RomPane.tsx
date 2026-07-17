@@ -2,9 +2,9 @@ import { Show, type JSX } from 'solid-js';
 import { Pane } from '@/components/Pane.tsx';
 import {
   currentModel, systemRomLabel, systemRomSize, cartridgeName,
-  setSystemRom, resetSystemRom, loadFile, ejectMsxCartridge,
+  setSystemRom, resetSystemRom, loadFile, ejectCartridge,
 } from '@/emulator.ts';
-import { isMsxModel } from '@/models.ts';
+import { isMsxModel, isInterface2Capable } from '@/models.ts';
 import { openFile } from '@/ui/file-picker.ts';
 
 /** Format a byte count as a compact KB/byte string. */
@@ -60,9 +60,8 @@ function Slot(props: {
 
 /**
  * ROM / Carts pane — manage the machine's system ROM (BIOS) and, on machines
- * with a cartridge slot, a mounted ROM cartridge. Currently shown for the MSX
- * (HX-10) only; the system-ROM slot is written generically so it can be exposed
- * for the Spectrum/CPC later.
+ * with a cartridge slot, a mounted ROM cartridge. Shown for the MSX (HX-10)
+ * and the 16K/48K Spectrum (ZX Interface 2 cartridge slot).
  */
 export function RomPane(): JSX.Element {
   async function loadSystemRom(): Promise<void> {
@@ -88,7 +87,7 @@ export function RomPane(): JSX.Element {
   };
 
   return (
-    <Pane id="rom-panel" label="ROM / Carts" visible={isMsxModel(currentModel())}>
+    <Pane id="rom-panel" label="ROM / Carts" visible={isMsxModel(currentModel()) || isInterface2Capable(currentModel())}>
       <Slot
         label="System ROM"
         text={systemText()}
@@ -105,7 +104,7 @@ export function RomPane(): JSX.Element {
         ejectable={!!cartridgeName()}
         ejectTitle="Eject cartridge"
         onLoad={insertCartridge}
-        onEject={ejectMsxCartridge}
+        onEject={ejectCartridge}
       />
     </Pane>
   );

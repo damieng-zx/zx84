@@ -52,6 +52,16 @@ export function isBetaDiskCapable(m: MachineModel): boolean {
   return m === '48k' || m === '128k' || m === '+2';
 }
 
+/**
+ * Returns true for models the ZX Interface 2 ROM cartridge slot fits: the
+ * 16K and 48K Spectrum. Excluded: 128K-class machines, whose own ROM-paging
+ * scheme the cartridge's permanent /ROMCS-disable would conflict with — the
+ * real Interface 2 predates the 128K and was only ever sold for the 16K/48K.
+ */
+export function isInterface2Capable(m: MachineModel): boolean {
+  return m === '16k' || m === '48k';
+}
+
 // ── Amstrad CPC family ──────────────────────────────────────────────────
 //
 // The CPC is a different machine, not a Spectrum variant — it gets its own
