@@ -300,45 +300,47 @@ describe('persistLastFile / restoreLastFile / clearLastFile', () => {
 // ─────────────────────────────────────────────────────────────────────────
 
 describe('persistTape / restoreTape / clearTape', () => {
-  it('round-trips a tape image', async () => {
+  it('round-trips a tape image, keyed per platform', async () => {
     const p = await load();
-    await p.persistTape(new Uint8Array([0xAA, 0xBB]), 'game.tap');
-    const r = await p.restoreTape();
+    await p.persistTape('spectrum', new Uint8Array([0xAA, 0xBB]), 'game.tap');
+    const r = await p.restoreTape('spectrum');
     expect(r!.name).toBe('game.tap');
     expect(Array.from(r!.data)).toEqual([0xAA, 0xBB]);
+    // A different platform key has no tape → isolated.
+    expect(await p.restoreTape('msx')).toBeNull();
   });
 
   it('clearTape removes the LS filename', async () => {
     const p = await load();
-    await p.persistTape(new Uint8Array([1]), 'g.tap');
-    p.clearTape();
-    expect(storage.store.has('zx84-tape-file')).toBe(false);
+    await p.persistTape('spectrum', new Uint8Array([1]), 'g.tap');
+    p.clearTape('spectrum');
+    expect(storage.store.has('zx84-tape-spectrum-file')).toBe(false);
   });
 
   it('returns null after clearTape (LS removal gates the restore)', async () => {
     const p = await load();
-    await p.persistTape(new Uint8Array([1]), 'g.tap');
-    p.clearTape();
+    await p.persistTape('spectrum', new Uint8Array([1]), 'g.tap');
+    p.clearTape('spectrum');
     // microtask: let the async empty-array IDB write settle
     await new Promise(r => queueMicrotask(() => r(null)));
-    expect(await p.restoreTape()).toBeNull();
+    expect(await p.restoreTape('spectrum')).toBeNull();
   });
 
   it('restoreTape returns null when dbLoad throws (IDB error)', async () => {
     const p = await load();
-    storage.store.set('zx84-tape-file', 'game.tap');
-    memDB.failGetKey = 'tape-file';
-    expect(await p.restoreTape()).toBeNull();
+    storage.store.set('zx84-tape-spectrum-file', 'game.tap');
+    memDB.failGetKey = 'tape-spectrum-file';
+    expect(await p.restoreTape('spectrum')).toBeNull();
   });
 
   it('clearTape swallows a dbSave failure without crashing', async () => {
     const p = await load();
-    await p.persistTape(new Uint8Array([1]), 'g.tap');
-    memDB.failPutKey = 'tape-file';
-    p.clearTape();
+    await p.persistTape('spectrum', new Uint8Array([1]), 'g.tap');
+    memDB.failPutKey = 'tape-spectrum-file';
+    p.clearTape('spectrum');
     // Let the rejected dbSave microtask settle — the .catch(() => {}) must not throw.
     await new Promise(r => queueMicrotask(() => r(null)));
-    expect(storage.store.has('zx84-tape-file')).toBe(false); // LS still cleared
+    expect(storage.store.has('zx84-tape-spectrum-file')).toBe(false); // LS still cleared
   });
 });
 
@@ -417,8 +419,8 @@ describe('persistDisk / restoreDisk / clearDisk', () => {
 
   it('restoreTape returns null when the stored blob is empty (matches restoreDisk)', async () => {
     const p = await load();
-    await p.persistTape(new Uint8Array(0), 'empty.tap');
-    expect(await p.restoreTape()).toBeNull();
+    await p.persistTape('spectrum', new Uint8Array(0), 'empty.tap');
+    expect(await p.restoreTape('spectrum')).toBeNull();
   });
 });
 

@@ -67,8 +67,8 @@ export class MsxMachine extends BaseMachine implements Machine {
   readonly audio: Audio;
   display: IScreenRenderer | null;
 
-  /** Per-frame I/O activity for the status-bar LEDs. */
-  readonly activity = { kbdReads: 0, ayWrites: 0 };
+  /** Per-frame I/O activity for the status-bar LEDs / tape progress. */
+  readonly activity = { kbdReads: 0, ayWrites: 0, casReads: 0 };
 
   /** Screen-text OCR engine for the MCP `ocr` tool and the TEXT overlay. */
   readonly screenText = new MsxScreenText();
@@ -152,11 +152,13 @@ export class MsxMachine extends BaseMachine implements Machine {
   /** TAPION: skip to the next block header; CY set on failure. */
   private trapTapion(): void {
     this.cpu.setFlag(Z80.FLAG_C, !this.cassette.findHeader());
+    this.activity.casReads++;
     this.retFromTrap();
   }
 
   /** TAPIN: read one byte into A; CY set at end of stream. */
   private trapTapin(): void {
+    this.activity.casReads++;
     const b = this.cassette.readByte();
     if (b < 0) {
       this.cpu.setFlag(Z80.FLAG_C, true);
@@ -214,6 +216,7 @@ export class MsxMachine extends BaseMachine implements Machine {
     const skipAudio = this.turbo;
     this.activity.kbdReads = 0;
     this.activity.ayWrites = 0;
+    this.activity.casReads = 0;
 
     // Fill the whole buffer (incl. border) with the current backdrop.
     this._pixels32.fill(this.vdp.backdrop());

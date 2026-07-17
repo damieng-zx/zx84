@@ -80,18 +80,21 @@ export function clearLastFile(): void {
 
 // ── Per-media persistence (tape, disk A, disk B) ─────────────────────
 
-export async function persistTape(data: Uint8Array, filename: string): Promise<void> {
+// Tapes are keyed by platform (`key` = the machine kind: spectrum / cpc /
+// einstein / msx) so each system restores its own tape across a reload — a
+// Spectrum .tzx never turns up on the MSX and vice-versa.
+export async function persistTape(key: string, data: Uint8Array, filename: string): Promise<void> {
   try {
-    await dbSave('tape-file', data);
-    localStorage.setItem('zx84-tape-file', filename);
+    await dbSave(`tape-${key}-file`, data);
+    localStorage.setItem(`zx84-tape-${key}-file`, filename);
   } catch { /* quota or write error */ }
 }
 
-export async function restoreTape(): Promise<{ data: Uint8Array; name: string } | null> {
+export async function restoreTape(key: string): Promise<{ data: Uint8Array; name: string } | null> {
   try {
-    const name = localStorage.getItem('zx84-tape-file');
+    const name = localStorage.getItem(`zx84-tape-${key}-file`);
     if (!name) return null;
-    const data = await dbLoad('tape-file');
+    const data = await dbLoad(`tape-${key}-file`);
     // Empty-array sentinel is how clearTape soft-deletes the blob — treat it
     // the same as a missing entry, matching restoreDisk's contract.
     if (!data || data.length === 0) return null;
@@ -99,10 +102,10 @@ export async function restoreTape(): Promise<{ data: Uint8Array; name: string } 
   } catch { return null; }
 }
 
-export function clearTape(): void {
+export function clearTape(key: string): void {
   try {
-    localStorage.removeItem('zx84-tape-file');
-    dbSave('tape-file', new Uint8Array(0)).catch(() => {});
+    localStorage.removeItem(`zx84-tape-${key}-file`);
+    dbSave(`tape-${key}-file`, new Uint8Array(0)).catch(() => {});
   } catch { /* */ }
 }
 

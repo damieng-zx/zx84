@@ -94,9 +94,9 @@ export class MediaManager {
     callbacks.unpause();
     callbacks.onStatus(`Tape loaded: ${filename}`);
 
-    // Persist for next session
+    // Persist for next session, keyed on the platform so tapes stay isolated.
     persistLastFile(data, filename);
-    persistTape(data, filename);
+    persistTape(machine.kind, data, filename);
   }
 
   /**
@@ -113,7 +113,7 @@ export class MediaManager {
     machine.tape.paused = true;
 
     onTapeEjected();
-    clearTape();
+    clearTape(machine.kind);
     onStatus('Tape ejected');
   }
 

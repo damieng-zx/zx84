@@ -22,7 +22,7 @@ import {
   setCurrentDiskInfo, setCurrentDiskInfoB,
   setDriveCStatus, setDriveDStatus, setCurrentDiskInfoC, setCurrentDiskInfoD,
   setClockSpeedText,
-  setTapePosition, tapePaused, setTapePaused, tapePlaying, setTapePlaying, transcribeMode, setTranscribeText, setTranscribeHtml, setTranscribeGrid,
+  setTapePosition, setCasPosition, tapePaused, setTapePaused, tapePlaying, setTapePlaying, transcribeMode, setTranscribeText, setTranscribeHtml, setTranscribeGrid,
   setLedKbd, setLedKemp, setLedEar, setLedLoad, setLedText,
   setLedBeep, setLedAy, setLedDsk, setLedRainbow, setLedMouse, setLedTapeTurbo,
   setStatus, setEmulationPaused, setTracing,
@@ -605,7 +605,12 @@ export function onFrame(): void {
         const ledNow = performance.now();
         setLedKbd(ledLatched('kbd', ma.kbdReads > 0, ledNow));
         setLedAy(ledLatched('ay', ma.ayWrites > 5, ledNow));
+        setLedLoad(ledLatched('load', ma.casReads > 0, ledNow));
         setLedText(transcribeMode() === 'text');
+
+        // While the cassette is being read (CLOAD/BLOAD), track the current block
+        // so the tape pane can highlight it as it sweeps through.
+        if (ma.casReads > 0) setCasPosition(msx.cassette.currentBlock());
 
         // TEXT overlay: OCR the screen, push text/HTML to the overlay, and blank
         // the matched cells so the crisp overlay glyphs replace the bitmap.

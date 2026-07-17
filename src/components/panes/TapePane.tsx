@@ -3,7 +3,7 @@ import { Pane } from '@/components/Pane.tsx';
 import { DropDownMenuButton } from '@/components/DropDownMenuButton.tsx';
 import { HiOutlineBackward, HiOutlinePlay, HiOutlinePause, HiOutlineStop, HiOutlineEllipsisVertical, HiOutlineChevronLeft, HiOutlineChevronRight, HiOutlineArrowDownTray } from 'solid-icons/hi';
 import {
-  tapeLoaded, tapeName, tapeBlocks, tapePosition, tapePlaying, tapePaused,
+  tapeLoaded, tapeName, tapeBlocks, tapePosition, tapePlaying, tapePaused, casBlocks, casPosition,
   tapeRewind, tapeTogglePlay, tapeTogglePause, tapeSetPosition, toggleAutoRewind,
   ejectTape, loadFile, tapePrev, tapeNext, applyDisplaySettings, currentModel, saveTape,
 } from '@/emulator.ts';
@@ -14,6 +14,9 @@ import type { TapeBlock, DataBlock } from '@/tape/tap.ts';
 import { openFile } from '@/ui/file-picker.ts';
 
 const isCpc = () => isCpcModel(currentModel());
+// The MSX cassette is instant-load (BIOS trap), so it shows just a load/eject
+// slot — no pulse-level transport, block list, or fast-load toggles.
+const isMsx = () => isMsxModel(currentModel());
 
 const HEADER_TYPES: Record<number, string> = { 0: 'Program', 1: 'Number array', 2: 'Character array', 3: 'Bytes' };
 
@@ -94,7 +97,9 @@ export function TapePane() {
   async function handleLoadTape() {
     const results = await openFile({
       id: 'zx84-tape',
-      extensions: isCpc() ? ['.cdt', '.tzx', '.tap', '.zip'] : ['.tap', '.tzx', '.csw', '.zip'],
+      extensions: isCpc() ? ['.cdt', '.tzx', '.tap', '.zip']
+        : isMsx() ? ['.cas', '.zip']
+        : ['.tap', '.tzx', '.csw', '.zip'],
     });
     if (!results) return;
     await loadFile(results[0].data, results[0].name);
@@ -117,7 +122,7 @@ export function TapePane() {
   });
 
   return (
-    <Pane id="tape-panel" label="Tape" mono visible={!isMsxModel(currentModel())} onResetSettings={() => { if (tapeLoaded()) ejectTape(); resetSettingsGroup('tape'); applyDisplaySettings(); }}>
+    <Pane id="tape-panel" label="Tape" mono onResetSettings={() => { if (tapeLoaded()) ejectTape(); resetSettingsGroup('tape'); applyDisplaySettings(); }}>
       <div id="tape-controls">
         <button class="btn btn-md" title="Rewind" onClick={tapeRewind}><HiOutlineBackward /></button>
         <button class="btn btn-md" title="Previous block" onClick={tapePrev}><HiOutlineChevronLeft /></button>
@@ -167,7 +172,7 @@ export function TapePane() {
         />
       </div>
       <div
-        id="tape-name" 
+        id="tape-name"
         classList={{ 'tape-name-clickable': !tapeLoaded() }}
         onClick={() => !tapeLoaded() && handleLoadTape()}
       >
@@ -182,7 +187,32 @@ export function TapePane() {
           </button>
         </Show>
       </div>
-      <Show when={tapeLoaded()}>
+      <Show when={tapeLoaded() && isMsx()}>
+        <div id="tape-blocks" class="mono-block">
+          {casBlocks().map((b, i) => {
+            const blocks = casBlocks();
+            const collapse = tapeCollapseBlocks();
+            // Collapsed: a data block following a header is absorbed into it.
+            if (collapse && !b.header && i > 0 && blocks[i - 1].header) return null;
+            const next = blocks[i + 1];
+            const paired = collapse && b.header && next && !next.header;
+            // A collapsed header spans [i, i+1] for the current/played indicators.
+            const lastIndex = paired ? i + 1 : i;
+            const pos = casPosition();
+            const isCurrent = pos >= i && pos <= lastIndex;
+            const isPlayed = lastIndex < pos;
+            const title = paired ? `${b.type} "${b.name}"` : b.title;
+            const detail = paired ? `${b.type} · ${next.size} bytes` : b.detail;
+            return (
+              <div class={`tape-block${isPlayed ? ' played' : ''}${isCurrent ? ' current' : ''}`}>
+                {title}
+                <Show when={detail}><div class="tb-detail">{detail}</div></Show>
+              </div>
+            );
+          })}
+        </div>
+      </Show>
+      <Show when={tapeLoaded() && !isMsx()}>
         <div id="tape-blocks" class="mono-block" ref={containerRef}>
           {tapeBlocks().map((block, i) => {
             const meta = parseTapeBlockMeta(block, i, tapeBlocks(), tapeCollapseBlocks());

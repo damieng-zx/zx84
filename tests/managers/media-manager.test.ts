@@ -52,6 +52,7 @@ import { MediaManager } from '@/managers/media-manager.ts';
 
 function makeSpectrum() {
   return {
+    kind: 'spectrum' as const,
     cpu: {} as any,
     memory: {
       port7FFD: 0, port1FFD: 0,
@@ -208,7 +209,7 @@ describe('applyTape', () => {
     expect(cb.onTapeLoaded).toHaveBeenCalledWith([{ kind: 'rom' }], 'game.tap');
     expect(cb.unpause).toHaveBeenCalled();
     expect(persistLastFile).toHaveBeenCalledWith(data, 'game.tap');
-    expect(persistTape).toHaveBeenCalledWith(data, 'game.tap');
+    expect(persistTape).toHaveBeenCalledWith('spectrum', data, 'game.tap');
   });
 
   it('restarts the machine and does NOT persist on parse error', () => {

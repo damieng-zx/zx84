@@ -7,7 +7,7 @@ import { Spectrum } from '@/spectrum.ts';
 import { CpcMachine } from '@/cpc/cpc-machine.ts';
 import { EinsteinMachine } from '@/einstein/einstein-machine.ts';
 import { MsxMachine } from '@/msx/msx-machine.ts';
-import { type Machine, asSpectrum, asCpc, asEinstein, asMsx } from '@/machine.ts';
+import { type Machine, type MachineKind, asSpectrum, asCpc, asEinstein, asMsx } from '@/machine.ts';
 import {
   type SpectrumModel, type MachineModel, type CpcModel, type EinsteinModel, type MsxModel,
   is128kClass, isPlus2AClass, isCpcModel, isEinsteinModel, isMsxModel, isPlusDCapable,
@@ -17,6 +17,7 @@ import { CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT, CPC_PALETTES } from '@/cpc/constan
 import { EINSTEIN_SCREEN_WIDTH, EINSTEIN_SCREEN_HEIGHT } from '@/einstein/constants.ts';
 import { MSX_SCREEN_WIDTH, MSX_SCREEN_HEIGHT } from '@/msx/constants.ts';
 import { MSX_PALETTES, EINSTEIN_PALETTES } from '@/cores/tms9918a.ts';
+import { parseCasBlocks } from '@/msx/msx-tape.ts';
 import { WebGLRenderer } from '@/display/webgl-renderer.ts';
 import { CanvasRenderer } from '@/display/canvas-renderer.ts';
 import { FloppySound } from '@/floppy/floppy-sound.ts';
@@ -38,7 +39,7 @@ import { readCpcSnaModel, applyCpcSna, saveCpcSna } from '@/snapshot/cpc-sna.ts'
 import { unzip } from '@/snapshot/zip.ts';
 import { showFilePicker } from '@/ui/zip-picker.ts';
 import {
-  clearLastFile, clearDisk, restoreTape, restoreDisk, dbSave, dbLoad,
+  clearLastFile, clearDisk, restoreTape, persistTape, clearTape, restoreDisk, dbSave, dbLoad,
   persistPlusDDisk, restorePlusDDisk, clearPlusDDisk,
   persistBetaDiskDisk, restoreBetaDiskDisk, clearBetaDiskDisk,
   persistMicrodrive, restoreMicrodrive, clearMicrodrive,
@@ -108,9 +109,13 @@ import {
   tapePaused,
   tapePlaying,
   tapeName,
+  casBlocks,
+  casPosition,
   setTapeLoaded,
   setTapeName,
   setTapeBlocks,
+  setCasBlocks,
+  setCasPosition,
   setTapePosition,
   setTapePaused,
   setTapePlaying,
@@ -153,8 +158,8 @@ export { setStatusText, setRomStatusText, setCurrentModel, setEmulationPaused, s
 export { multifaceRomFailed, vtx5000RomFailed, paradosRomFailed, plusDRomFailed, interface1RomFailed, betaDiskRomFailed };
 
 // Re-export tape state
-export { tapeLoaded, tapeBlocks, tapePosition, tapePaused, tapePlaying, tapeName };
-export { setTapeLoaded, setTapeName, setTapeBlocks, setTapePosition, setTapePaused, setTapePlaying };
+export { tapeLoaded, tapeBlocks, tapePosition, tapePaused, tapePlaying, tapeName, casBlocks, casPosition };
+export { setTapeLoaded, setTapeName, setTapeBlocks, setTapePosition, setTapePaused, setTapePlaying, setCasPosition };
 
 // Re-export disk state
 export { currentDiskInfo, currentDiskName, currentDiskInfoB, currentDiskNameB, driveAStatus, driveBStatus, diskInfoHtml, driveHtml };
@@ -182,19 +187,24 @@ export let romData: Uint8Array | null = null;
 export let floppySound: FloppySound | null = null;
 export let canvasEl: HTMLCanvasElement | null = null;
 
-/** A loaded tape parked while another machine family is active. The Spectrum and
- *  CPC decks are kept independent: switching ZX↔CPC stashes the outgoing tape
- *  under its family and restores the incoming family's own tape (if any), so one
- *  system's tape never turns up on the other. Same-family switches (e.g.
- *  48K→128K) round-trip through the same stash and so keep the tape as before. */
+/** A loaded tape parked while another machine family is active. Decks are kept
+ *  independent per platform *kind* (spectrum / cpc / einstein / msx): switching
+ *  across incompatible families (e.g. Spectrum↔MSX) stashes the outgoing tape
+ *  under its own kind and restores the incoming kind's own tape (if any), so one
+ *  system's tape never turns up on another. Same-family switches (e.g. 48K→+3,
+ *  both kind 'spectrum') round-trip through the same stash and keep the tape.
+ *  Spectrum/CPC/Einstein use the pulse-level TapeDeck (blocks); the MSX uses its
+ *  instant-load cassette (raw .cas bytes). */
 interface TapeStash {
-  blocks: TapeBlock[];
-  position: number;
-  paused: boolean;
   name: string;
+  /** TapeDeck platforms (spectrum / cpc / einstein). */
+  blocks?: TapeBlock[];
+  position?: number;
+  paused?: boolean;
+  /** MSX cassette (.cas image bytes). */
+  casData?: Uint8Array;
 }
-let spectrumTapeStash: TapeStash | null = null;
-let cpcTapeStash: TapeStash | null = null;
+const tapeStashes: Partial<Record<MachineKind, TapeStash>> = {};
 
 
 
@@ -315,18 +325,23 @@ export function applyDisplaySettings(): void {
 export async function createMachine(): Promise<boolean> {
   if (!canvasEl) return false;
 
-  // Stash the outgoing machine's tape under its own family so a CPC tape and a
-  // Spectrum tape stay independent (see TapeStash). The deck is read off the
-  // live machine; the name comes from the UI signal that mirrors it.
+  // Stash the outgoing machine's tape under its own platform kind so tapes for
+  // different systems stay independent (see TapeStash). The MSX uses its
+  // instant-load cassette; the others use the pulse-level TapeDeck.
   if (machine) {
-    const stash: TapeStash = {
-      blocks: [...machine.tape.blocks],
-      position: machine.tape.position,
-      paused: machine.tape.paused,
-      name: tapeName(),
-    };
-    if (asCpc(machine)) cpcTapeStash = stash;
-    else spectrumTapeStash = stash;
+    const outMsx = asMsx(machine);
+    if (outMsx) {
+      tapeStashes.msx = outMsx.cassette.loaded
+        ? { name: outMsx.cassette.name, casData: outMsx.cassette.getData() }
+        : undefined;
+    } else {
+      tapeStashes[machine.kind] = {
+        blocks: [...machine.tape.blocks],
+        position: machine.tape.position,
+        paused: machine.tape.paused,
+        name: tapeName(),
+      };
+    }
   }
 
   if (machine) {
@@ -449,32 +464,40 @@ export async function createMachine(): Promise<boolean> {
     floppySound = null;
   }
 
-  // Restore the tape stashed for the NEW machine's family (if any). Switching
-  // across families therefore surfaces that family's own tape, not the one the
-  // other system had loaded.
-  const stash = cpc ? cpcTapeStash : spectrumTapeStash;
-  if (machine && stash && stash.blocks.length > 0) {
+  // Restore the tape stashed for the NEW machine's platform kind (if any).
+  // Switching across families therefore surfaces that family's own tape, not the
+  // one another system had loaded.
+  const stash = machine ? tapeStashes[machine.kind] : undefined;
+  const restoreMsx = asMsx(machine);
+  const clearTapeSignals = () => batch(() => {
+    setTapeLoaded(false);
+    setTapeName('');
+    setTapeBlocks([]);
+    setCasBlocks([]);
+    setCasPosition(-1);
+    setTapePosition(0);
+    setTapePaused(true);
+    setTapePlaying(false);
+    setTurboMode(false);
+  });
+  if (restoreMsx && stash?.casData) {
+    mountMsxCassette(stash.casData, stash.name);   // remounts + parses the .cas blocks
+    setTurboMode(false);
+  } else if (!restoreMsx && machine && stash?.blocks && stash.blocks.length > 0) {
     machine.tape.blocks = stash.blocks;
-    machine.tape.position = stash.position;
-    machine.tape.paused = stash.paused;
+    machine.tape.position = stash.position ?? 0;
+    machine.tape.paused = stash.paused ?? true;
     batch(() => {
       setTapeLoaded(true);
       setTapeName(stash.name);
-      setTapeBlocks([...stash.blocks]);
-      setTapePosition(stash.position);
-      setTapePaused(stash.paused);
+      setTapeBlocks([...stash.blocks!]);
+      setTapePosition(stash.position ?? 0);
+      setTapePaused(stash.paused ?? true);
       setTapePlaying(false);
       setTurboMode(false);
     });
   } else {
-    batch(() => {
-      setTapeLoaded(false);
-      setTapeBlocks([]);
-      setTapePosition(0);
-      setTapePaused(true);
-      setTapePlaying(false);
-      setTurboMode(false);
-    });
+    clearTapeSignals();
   }
 
   // Einstein: mount the phantom BASIC boot disk if the option is on and drive 0
@@ -757,6 +780,26 @@ export function insertMsxCartridge(data: Uint8Array, name: string): void {
   if (romData) msx.start();
 }
 
+/** Mount an MSX `.cas` cassette and reflect it in the tape-pane signals. The
+ *  cassette is served instantly through the BIOS load traps on CLOAD/BLOAD. */
+export function mountMsxCassette(data: Uint8Array, name: string): void {
+  const msx = asMsx(machine);
+  if (!msx) { setStatus('Cassettes are for the MSX'); return; }
+  msx.mountCas(data, name);
+  batch(() => {
+    setTapeLoaded(true);
+    setTapeName(name);
+    setTapeBlocks([]);
+    setCasBlocks(parseCasBlocks(data));
+    setCasPosition(0);   // highlight the first block, as TAP/TZX do on load
+    setTapePosition(0);
+    setTapePaused(true);
+    setTapePlaying(false);
+  });
+  // Persist under the MSX platform key so a reload restores it (not a ZX tape).
+  persistTape('msx', data, name);
+}
+
 /** Remove the MSX cartridge and reboot to BASIC. */
 export function ejectMsxCartridge(): void {
   const msx = asMsx(machine);
@@ -1008,7 +1051,7 @@ export async function loadFile(data: Uint8Array, filename: string, unit?: number
       return;
     }
     if (/\.rom$/i.test(filename)) { insertMsxCartridge(data, filename); return; }
-    if (/\.cas$/i.test(filename)) { msx.mountCas(data, filename); return; }
+    if (/\.cas$/i.test(filename)) { mountMsxCassette(data, filename); return; }
     setStatus('MSX accepts .rom cartridges and .cas cassettes (or a .zip of one)');
     return;
   }
@@ -1131,11 +1174,34 @@ export function saveScreenshot(format: 'png' | 'scr'): void {
   if (!machine) { setStatus('No machine running'); return; }
 
   if (format === 'scr') {
-    // .scr = raw 6912 bytes from 0x4000 (6144 pixels + 768 attrs) — Spectrum-only.
-    if (!spectrum) { setStatus('.scr is a Spectrum format'); return; }
-    const screenData = spectrum.memory.getRamBank(5).slice(0, 6912);
-    downloadFile(screenData, 'screen.scr');
-    setStatus('Saved screen.scr');
+    if (spectrum) {
+      // .scr = raw 6912 bytes from 0x4000 (6144 pixels + 768 attrs).
+      const screenData = spectrum.memory.getRamBank(5).slice(0, 6912);
+      downloadFile(screenData, 'screen.scr');
+      setStatus('Saved screen.scr');
+      return;
+    }
+
+    const cpc = asCpc(machine);
+    if (cpc) {
+      // Raw 16KB physical RAM bank the CRTC display-start register currently
+      // points into (the quadrant the gate array's video DMA reads from).
+      const quadrant = cpc.crtc.displayStart >>> 12;
+      const screenData = cpc.memory.getRamBank(quadrant).slice();
+      downloadFile(screenData, 'screen.scr');
+      setStatus('Saved screen.scr');
+      return;
+    }
+
+    // Einstein / MSX share the TMS9918A VDP — its 16KB VRAM *is* the screen.
+    const vdpMachine = asEinstein(machine) ?? asMsx(machine);
+    if (vdpMachine) {
+      downloadFile(vdpMachine.vdp.vram.slice(), 'screen.scr');
+      setStatus('Saved screen.scr');
+      return;
+    }
+
+    setStatus('.scr not supported for this machine');
   } else {
     // PNG export via canvas (works for any machine with a display).
     if (!machine.display) { setStatus('No display available'); return; }
@@ -1154,20 +1220,28 @@ export function saveScreenshot(format: 'png' | 'scr'): void {
 }
 
 export function saveRAM(): void {
-  if (!spectrum) { setStatus('No machine running'); return; }
+  if (!machine) { setStatus('No machine running'); return; }
+
+  let data: Uint8Array;
+  let filename: string;
+
+  if (spectrum) {
+    // Check if RAM is at 0x0000 (special paging mode on +2A/+3)
+    const mem = spectrum.memory;
+    const startAddr = mem.specialPaging ? 0 : 0x4000;
+    data = mem.readBlock(startAddr, 0x10000 - startAddr);
+    filename = startAddr === 0 ? 'ram-64k.bin' : 'ram-48k.bin';
+  } else {
+    const banked = asCpc(machine) ?? asEinstein(machine) ?? asMsx(machine);
+    if (!banked) { setStatus('RAM save not supported for this machine'); return; }
+    data = banked.memory.ramSnapshot();
+    filename = 'ram-64k.bin';
+  }
 
   const wasPaused = emulationPaused();
-  if (!wasPaused) spectrum.stop();
-
-  // Check if RAM is at 0x0000 (special paging mode on +2A/+3)
-  const mem = spectrum.memory;
-  const startAddr = mem.specialPaging ? 0 : 0x4000;
-  const ramData = spectrum.memory.readBlock(startAddr, 0x10000 - startAddr);
-
-  const filename = startAddr === 0 ? 'ram-64k.bin' : 'ram-48k.bin';
-  downloadFile(ramData, filename);
-
-  if (!wasPaused) spectrum.start();
+  if (!wasPaused) machine.stop();
+  downloadFile(data, filename);
+  if (!wasPaused) machine.start();
   setStatus(`Saved ${filename}`);
 }
 
@@ -1233,6 +1307,23 @@ export function toggleAutoRewind(): void {
 
 export function ejectTape(): void {
   if (!machine) return;
+  const msx = asMsx(machine);
+  if (msx) {
+    msx.cassette.eject();
+    batch(() => {
+      setTapeLoaded(false);
+      setTapeName('');
+      setTapeBlocks([]);
+      setCasBlocks([]);
+      setCasPosition(-1);
+      setTapePosition(0);
+      setTapePaused(true);
+      setTapePlaying(false);
+    });
+    clearTape('msx');
+    setStatus('Cassette ejected');
+    return;
+  }
   mediaManager.ejectTape(machine, () => {
     batch(() => {
       setTapeLoaded(false);
@@ -1362,7 +1453,15 @@ export function saveDisk(unit: number): void {
  * restore, so we read it back from storage rather than re-serialising blocks.
  */
 export async function saveTape(): Promise<void> {
-  const tape = await restoreTape();
+  if (!machine) { setStatus('No tape to save'); return; }
+  // MSX: download the whole mounted .cas straight from the cassette.
+  const msx = asMsx(machine);
+  if (msx) {
+    if (!msx.cassette.loaded) { setStatus('No tape to save'); return; }
+    downloadFile(msx.cassette.getData(), msx.cassette.name || 'tape.cas');
+    return;
+  }
+  const tape = await restoreTape(machine.kind);
   if (!tape) { setStatus('No tape to save'); return; }
   downloadFile(tape.data, tape.name);
 }
@@ -1922,27 +2021,32 @@ export function triggerNMI(): void {
 async function restoreMedia(): Promise<void> {
   if (!machine) return;
 
-  // Restore tape (both machines have a deck; CDT parses as TZX)
-  const tape = await restoreTape();
+  // Restore the tape persisted for THIS platform (kept isolated per machine
+  // kind so a Spectrum tape never surfaces on the MSX, and vice-versa).
+  const tape = await restoreTape(machine.kind);
   if (tape) {
     try {
-      const ext = tape.name.toLowerCase().split('.').pop();
-      const blocks = ext === 'tzx' || ext === 'cdt'
-        ? parseTZX(tape.data)
-        : ext === 'csw'
-        ? await parseCSW(tape.data)
-        : machine.tape.parseTAP(tape.data);
-      machine.tape.blocks = blocks;
-      machine.tape.position = 0;
-      machine.tape.paused = true;
-      batch(() => {
-        setTapeLoaded(true);
-        setTapeName(tape.name);
-        setTapeBlocks([...blocks]);
-        setTapePosition(0);
-        setTapePaused(true);
-        setTapePlaying(false);
-      });
+      if (asMsx(machine)) {
+        mountMsxCassette(tape.data, tape.name);   // .cas → instant-load cassette
+      } else {
+        const ext = tape.name.toLowerCase().split('.').pop();
+        const blocks = ext === 'tzx' || ext === 'cdt'
+          ? parseTZX(tape.data)
+          : ext === 'csw'
+          ? await parseCSW(tape.data)
+          : machine.tape.parseTAP(tape.data);
+        machine.tape.blocks = blocks;
+        machine.tape.position = 0;
+        machine.tape.paused = true;
+        batch(() => {
+          setTapeLoaded(true);
+          setTapeName(tape.name);
+          setTapeBlocks([...blocks]);
+          setTapePosition(0);
+          setTapePaused(true);
+          setTapePlaying(false);
+        });
+      }
     } catch { /* ignore corrupt data */ }
   }
 
