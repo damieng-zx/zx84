@@ -62,23 +62,26 @@ const _systemRomSize = createSignal(0);
 export const systemRomSize = _systemRomSize[0];
 export const setSystemRomSize = _systemRomSize[1];
 
-// 128K/+2 dual-ROM pane: independent 48K BASIC ROM (page 1) and 128K editor
-// ROM (page 0) slots. Empty label = using the default page.
-const _system48RomLabel = createSignal('');
-export const system48RomLabel = _system48RomLabel[0];
-export const setSystem48RomLabel = _system48RomLabel[1];
+// True when the current system ROM is a user upload (drives the ROM pane's
+// eject-button visibility — the label text no longer carries a marker).
+const _systemRomIsCustom = createSignal(false);
+export const systemRomIsCustom = _systemRomIsCustom[0];
+export const setSystemRomIsCustom = _systemRomIsCustom[1];
 
-const _system48RomSize = createSignal(0);
-export const system48RomSize = _system48RomSize[0];
-export const setSystem48RomSize = _system48RomSize[1];
+// Multi-page ROM pane (128K/+2 — 2 pages; +2A/+3 — 4 pages): one label/size
+// per ROM page, indexed by page number. Empty for single-ROM models.
+const _systemRomPageLabels = createSignal<string[]>([]);
+export const systemRomPageLabels = _systemRomPageLabels[0];
+export const setSystemRomPageLabels = _systemRomPageLabels[1];
 
-const _system128RomLabel = createSignal('');
-export const system128RomLabel = _system128RomLabel[0];
-export const setSystem128RomLabel = _system128RomLabel[1];
+const _systemRomPageSizes = createSignal<number[]>([]);
+export const systemRomPageSizes = _systemRomPageSizes[0];
+export const setSystemRomPageSizes = _systemRomPageSizes[1];
 
-const _system128RomSize = createSignal(0);
-export const system128RomSize = _system128RomSize[0];
-export const setSystem128RomSize = _system128RomSize[1];
+// Per-page override flag (true = custom upload, false = default page).
+const _systemRomPageOverridden = createSignal<boolean[]>([]);
+export const systemRomPageOverridden = _systemRomPageOverridden[0];
+export const setSystemRomPageOverridden = _systemRomPageOverridden[1];
 
 // Name of the mounted cartridge (empty = none), for the ROM pane.
 const _cartridgeName = createSignal('');

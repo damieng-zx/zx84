@@ -110,6 +110,21 @@ describe('ROMManager.persistROM / restoreROM', () => {
     expect(fakeLS.getItem('zx84-rom-label-48k')).toBe('my-rom.rom');
   });
 
+  it('persistROM marks the entry as custom', async () => {
+    const m = new ROMManager();
+    await m.persistROM('48k', new Uint8Array([1]), 'my-rom.rom');
+    expect(m.getCached('48k')?.isCustom).toBe(true);
+  });
+
+  it('restoreROM marks a genuinely custom stored label as custom', async () => {
+    const a = new ROMManager();
+    await a.persistROM('128k', new Uint8Array([1]), 'my128.rom');
+    const b = new ROMManager();
+    const got = await b.restoreROM('128k');
+    expect(got?.isCustom).toBe(true);
+    expect(got?.label).toBe('my128.rom');
+  });
+
   it('restoreROM returns the cached entry without touching IDB', async () => {
     const m = new ROMManager();
     await m.persistROM('48k', new Uint8Array([0xAA]), 'cached');
@@ -147,6 +162,7 @@ describe('ROMManager.persistROM / restoreROM', () => {
     const m = new ROMManager();
     const got = await m.restoreROM('128k');
     expect(got?.label).toBe('128K (default)');
+    expect(got?.isCustom).toBe(false);
   });
 
   it('restoreROM discards a stale default-shaped label and recomputes it fresh', async () => {
@@ -158,14 +174,16 @@ describe('ROMManager.persistROM / restoreROM', () => {
     const m = new ROMManager();
     const got = await m.restoreROM('48k');
     expect(got?.label).toBe('Sinclair BASIC');
+    expect(got?.isCustom).toBe(false);
   });
 
   it('restoreROM trusts a genuinely custom label', async () => {
     idb.set('rom-48k', new Uint8Array([0xFF]));
-    fakeLS.setItem('zx84-rom-label-48k', 'my-hacked-rom.rom (custom)');
+    fakeLS.setItem('zx84-rom-label-48k', 'my-hacked-rom.rom');
     const m = new ROMManager();
     const got = await m.restoreROM('48k');
-    expect(got?.label).toBe('my-hacked-rom.rom (custom)');
+    expect(got?.label).toBe('my-hacked-rom.rom');
+    expect(got?.isCustom).toBe(true);
   });
 
   it('persistROM survives localStorage throwing (private-mode quota error)', async () => {
@@ -202,6 +220,7 @@ describe('ROMManager.fetchDefaultROM', () => {
     expect(got).not.toBeNull();
     expect(Array.from(got!.data)).toEqual([1, 2, 3, 4]);
     expect(got!.label).toBe('Sinclair BASIC');
+    expect(got!.isCustom).toBe(false);
     expect(idb.get('rom-48k')).toEqual(body);
   });
 
@@ -424,6 +443,16 @@ describe('ROMManager.persistROMPage / restoreROMPage / getCachedPage', () => {
     expect(idb.get('rom-128k-page1')).toEqual(new Uint8Array([4, 5, 6]));
   });
 
+  it('persistROMPage/restoreROMPage always mark the entry as custom (there is no "default override")', async () => {
+    const m = new ROMManager();
+    await m.persistROMPage('128k', 0, new Uint8Array([1]), 'editor.rom');
+    expect(m.getCachedPage('128k', 0)?.isCustom).toBe(true);
+
+    const b = new ROMManager();
+    const got = await b.restoreROMPage('128k', 0);
+    expect(got?.isCustom).toBe(true);
+  });
+
   it('truncates an oversized page image to 16KB', async () => {
     const m = new ROMManager();
     const img = new Uint8Array(20000);
@@ -511,5 +540,19 @@ describe('defaultRomPageLabel', () => {
   it('credits Amstrad (not Sinclair) for the +2\'s ROM — a different image despite the shared architecture', () => {
     expect(defaultRomPageLabel('+2', 0)).toBe('Amstrad 128K BASIC');
     expect(defaultRomPageLabel('+2', 1)).toBe('Amstrad 48K BASIC');
+  });
+
+  it('names all four +3 pages by their real ROM identity (1FFD/7FFD select order)', () => {
+    expect(defaultRomPageLabel('+3', 0)).toBe('128K Editor');
+    expect(defaultRomPageLabel('+3', 1)).toBe('128K Syntax Checker');
+    expect(defaultRomPageLabel('+3', 2)).toBe('+3DOS');
+    expect(defaultRomPageLabel('+3', 3)).toBe('48K BASIC');
+  });
+
+  it('the +2A reuses the +3\'s ROM set and page names', () => {
+    expect(defaultRomPageLabel('+2A', 0)).toBe('128K Editor');
+    expect(defaultRomPageLabel('+2A', 1)).toBe('128K Syntax Checker');
+    expect(defaultRomPageLabel('+2A', 2)).toBe('+3DOS');
+    expect(defaultRomPageLabel('+2A', 3)).toBe('48K BASIC');
   });
 });

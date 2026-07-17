@@ -15,7 +15,14 @@ import { BANK_SIZE } from '@/memory.ts';
 export interface ROMEntry {
   data: Uint8Array;
   label: string;
+  /** True for a user-supplied ROM (upload); false for the stock default. Drives
+   *  the ROM pane's eject-button visibility — the label text itself no longer
+   *  carries a "(custom)" marker. */
+  isCustom: boolean;
 }
+
+/** A 16K ROM page index within a multi-page model (see romPageSlotCount). */
+export type RomPage = 0 | 1 | 2 | 3;
 
 const ROM_BASE = 'https://zx84files.bitsparse.com/roms/';
 
@@ -28,12 +35,20 @@ function defaultRomLabel(model: MachineModel): string {
   return (model === '16k' || model === '48k') ? 'Sinclair BASIC' : `${model.toUpperCase()} (default)`;
 }
 
-/** Label for a default (non-overridden) 16K page of a dual-ROM model (128K/+2
- *  — see isDualRomModel). Page 0 is the 128K editor/menu ROM, page 1 the
- *  48K-compatible BASIC ROM. Named by author: Sinclair wrote the 128K's ROM
- *  set; the grey +2 shipped under Amstrad ownership with its own (different)
- *  ROM despite the shared 128K architecture. */
-export function defaultRomPageLabel(model: MachineModel, page: 0 | 1): string {
+/** +2A/+3 default page names, in page-index order (0-3) — see
+ *  romPageSlotCount and the 1FFD/7FFD ROM-select bit table in memory.ts. */
+const PLUS3_PAGE_NAMES = ['128K Editor', '128K Syntax Checker', '+3DOS', '48K BASIC'];
+
+/** Label for a default (non-overridden) 16K page of a multi-page model
+ *  (128K/+2/+2A/+3 — see romPageSlotCount).
+ *  - 128K/+2: page 0 the 128K editor/menu ROM, page 1 the 48K-compatible
+ *    BASIC ROM. Named by author: Sinclair wrote the 128K's ROM set; the grey
+ *    +2 shipped under Amstrad ownership with its own (different) ROM despite
+ *    the shared 128K architecture.
+ *  - +2A/+3: the four real ROM names (editor, syntax checker, +3DOS, 48K
+ *    BASIC) — same for both, since the +2A reuses the +3's ROM set. */
+export function defaultRomPageLabel(model: MachineModel, page: RomPage): string {
+  if (model === '+2A' || model === '+3') return PLUS3_PAGE_NAMES[page];
   const maker = model === '+2' ? 'Amstrad' : 'Sinclair';
   return page === 0 ? `${maker} 128K BASIC` : `${maker} 48K BASIC`;
 }
@@ -67,7 +82,7 @@ export class ROMManager {
    */
   async persistROM(model: MachineModel, data: Uint8Array, label: string): Promise<void> {
     await dbSave(`rom-${model}`, data);
-    this.cache[model] = { data, label };
+    this.cache[model] = { data, label, isCustom: true };
     try {
       localStorage.setItem(`zx84-rom-label-${model}`, label);
     } catch { /* private mode / quota — label will fall back on next restore */ }
@@ -96,8 +111,10 @@ export class ROMManager {
     // including stale text from an older naming scheme, e.g. "16K (default)"
     // — is discarded and recomputed fresh via defaultRomLabel().
     const stored = localStorage.getItem(`zx84-rom-label-${model}`);
-    const label = (stored && !/\(default\)$/i.test(stored)) ? stored : defaultRomLabel(model);
-    this.cache[model] = { data, label };
+    const isCustom = !!stored && !/\(default\)$/i.test(stored);
+    this.cache[model] = isCustom
+      ? { data, label: stored!, isCustom: true }
+      : { data, label: defaultRomLabel(model), isCustom: false };
     return this.cache[model];
   }
 
@@ -130,10 +147,10 @@ export class ROMManager {
       // must stay free to be recomputed if the naming logic changes later.
       await dbSave(`rom-${model}`, data);
       const label = defaultRomLabel(model);
-      this.cache[model] = { data, label };
+      this.cache[model] = { data, label, isCustom: false };
       onStatus?.(`${model.toUpperCase()} ROM loaded`);
 
-      return { data, label };
+      return this.cache[model];
     } catch (err) {
       onStatus?.(`Failed to download ROM: ${(err as Error).message}`);
       return null;
@@ -205,26 +222,27 @@ export class ROMManager {
     try { await dbDelete(`rom-${model}`); } catch { /* non-fatal */ }
   }
 
-  // ── Per-page overrides (128K/+2 dual-ROM models) ─────────────────────────
+  // ── Per-page overrides (128K/+2/+2A/+3 multi-page models) ────────────────
   //
-  // The 128K and +2 ROM pane exposes two independently loadable/ejectable
-  // slots (128K editor = page 0, 48K BASIC = page 1) instead of one combined
-  // image. An override here sits on top of the whole-model default fetched
-  // above; the caller (emulator.ts) splices whichever pages are overridden
-  // into the base image before handing it to the machine.
+  // The ROM pane exposes multi-page models as independently loadable/
+  // ejectable page slots instead of one combined image (2 pages for 128K/+2,
+  // 4 for +2A/+3 — see romPageSlotCount). An override here sits on top of the
+  // whole-model default fetched above; the caller (emulator.ts) splices
+  // whichever pages are overridden into the base image before handing it to
+  // the machine.
 
   private pageCache: Record<string, ROMEntry> = {};
 
-  async persistROMPage(model: MachineModel, page: 0 | 1, data: Uint8Array, label: string): Promise<void> {
+  async persistROMPage(model: MachineModel, page: RomPage, data: Uint8Array, label: string): Promise<void> {
     const bytes = data.subarray(0, BANK_SIZE);
     await dbSave(`rom-${model}-page${page}`, bytes);
-    this.pageCache[`${model}:${page}`] = { data: bytes, label };
+    this.pageCache[`${model}:${page}`] = { data: bytes, label, isCustom: true };
     try {
       localStorage.setItem(`zx84-rom-label-${model}-page${page}`, label);
     } catch { /* private mode / quota — label will fall back on next restore */ }
   }
 
-  async restoreROMPage(model: MachineModel, page: 0 | 1): Promise<ROMEntry | null> {
+  async restoreROMPage(model: MachineModel, page: RomPage): Promise<ROMEntry | null> {
     const cacheKey = `${model}:${page}`;
     if (this.pageCache[cacheKey]) return this.pageCache[cacheKey];
 
@@ -236,18 +254,21 @@ export class ROMManager {
     }
     if (!data) return null;
 
+    // A page cache entry only ever exists via persistROMPage (a custom
+    // upload) — there's no "default page override" concept, so any entry
+    // found here is by construction a custom one.
     const label = localStorage.getItem(`zx84-rom-label-${model}-page${page}`) || 'custom';
-    this.pageCache[cacheKey] = { data, label };
+    this.pageCache[cacheKey] = { data, label, isCustom: true };
     return this.pageCache[cacheKey];
   }
 
   /** Get a cached page override without triggering a fetch. */
-  getCachedPage(model: MachineModel, page: 0 | 1): ROMEntry | null {
+  getCachedPage(model: MachineModel, page: RomPage): ROMEntry | null {
     return this.pageCache[`${model}:${page}`] || null;
   }
 
   /** Forget a page override so it reverts to the model's default image. */
-  async clearROMPage(model: MachineModel, page: 0 | 1): Promise<void> {
+  async clearROMPage(model: MachineModel, page: RomPage): Promise<void> {
     delete this.pageCache[`${model}:${page}`];
     try { localStorage.removeItem(`zx84-rom-label-${model}-page${page}`); } catch { /* */ }
     try { await dbDelete(`rom-${model}-page${page}`); } catch { /* non-fatal */ }

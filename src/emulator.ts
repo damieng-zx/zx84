@@ -11,7 +11,7 @@ import { type Machine, type MachineKind, asSpectrum, asCpc, asEinstein, asMsx } 
 import {
   type SpectrumModel, type MachineModel, type CpcModel, type EinsteinModel, type MsxModel,
   is128kClass, isPlus2AClass, isCpcModel, isEinsteinModel, isMsxModel, isPlusDCapable,
-  isInterface1Capable, isInterface2Capable, isBetaDiskCapable, isDualRomModel,
+  isInterface1Capable, isInterface2Capable, isBetaDiskCapable, romPageSlotCount,
 } from '@/models.ts';
 import { BANK_SIZE } from '@/memory.ts';
 import { CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT, CPC_PALETTES } from '@/cpc/constants.ts';
@@ -54,7 +54,7 @@ export { fontDataHash, updateFontPreview, loadFontStore, saveFontStore, captured
 export type { FontEntry } from '@/frame-bridge.ts';
 
 // Managers
-import { ROMManager, defaultRomPageLabel } from '@/managers/rom-manager.ts';
+import { ROMManager, defaultRomPageLabel, type RomPage } from '@/managers/rom-manager.ts';
 import { MediaManager, type MediaLoadCallbacks } from '@/managers/media-manager.ts';
 import { DebugManager, type TraceMode } from '@/managers/debug-manager.ts';
 
@@ -97,17 +97,17 @@ import {
   setBetaDiskRomFailed,
   systemRomLabel,
   systemRomSize,
-  system48RomLabel,
-  system48RomSize,
-  system128RomLabel,
-  system128RomSize,
+  systemRomIsCustom,
+  systemRomPageLabels,
+  systemRomPageSizes,
+  systemRomPageOverridden,
   cartridgeName,
   setSystemRomLabel,
   setSystemRomSize,
-  setSystem48RomLabel,
-  setSystem48RomSize,
-  setSystem128RomLabel,
-  setSystem128RomSize,
+  setSystemRomIsCustom,
+  setSystemRomPageLabels,
+  setSystemRomPageSizes,
+  setSystemRomPageOverridden,
   setCartridgeName,
 } from '@/state/machine-state.ts';
 
@@ -162,7 +162,7 @@ import {
 
 // Re-export machine state
 export { statusText, romStatusText, currentModel, emulationPaused, turboMode, clockSpeedText, saveModel };
-export { systemRomLabel, systemRomSize, system48RomLabel, system48RomSize, system128RomLabel, system128RomSize, cartridgeName };
+export { systemRomLabel, systemRomSize, systemRomIsCustom, systemRomPageLabels, systemRomPageSizes, systemRomPageOverridden, cartridgeName };
 export { setStatusText, setRomStatusText, setCurrentModel, setEmulationPaused, setTurboMode, setClockSpeedText };
 export { multifaceRomFailed, vtx5000RomFailed, paradosRomFailed, plusDRomFailed, interface1RomFailed, betaDiskRomFailed };
 
@@ -709,10 +709,11 @@ export function stopTrace(): void {
 
 /**
  * Returns the ROM model key to use when loading ROMs for a given machine model.
- * When "+3 V4.1 ROMs" is enabled the +3 machine uses the +2A ROM set.
+ * The +3 always uses the +2A's ROM set (v4.1) — the only difference between
+ * the two is the FDC; upload a v4.0 image via the ROM pane if one is needed.
  */
 function effectiveROMModel(model: MachineModel): MachineModel {
-  return model === '+3' && settings.plus3V41Roms() ? '+2A' : model;
+  return model === '+3' ? '+2A' : model;
 }
 
 export async function switchModel(model: MachineModel): Promise<void> {
@@ -736,15 +737,18 @@ export async function switchModel(model: MachineModel): Promise<void> {
 
   if (entry) {
     let data = entry.data;
-    if (isDualRomModel(romModel)) {
-      // Splice any per-page overrides (128K editor = page 0, 48K BASIC =
-      // page 1) onto the base image, without mutating the cached default.
-      const page0 = await romManager.restoreROMPage(romModel, 0);
-      const page1 = await romManager.restoreROMPage(romModel, 1);
-      if (page0 || page1) {
+    const pageCount = romPageSlotCount(romModel);
+    if (pageCount > 0) {
+      // Splice any per-page overrides onto the base image, without mutating
+      // the cached default (2 pages for 128K/+2, 4 for +2A/+3).
+      const pages = await Promise.all(
+        Array.from({ length: pageCount }, (_, page) => romManager.restoreROMPage(romModel, page as RomPage))
+      );
+      if (pages.some(p => p !== null)) {
         data = new Uint8Array(entry.data);
-        if (page0) data.set(page0.data.subarray(0, BANK_SIZE), 0);
-        if (page1) data.set(page1.data.subarray(0, BANK_SIZE), BANK_SIZE);
+        pages.forEach((p, page) => {
+          if (p) data.set(p.data.subarray(0, BANK_SIZE), page * BANK_SIZE);
+        });
       }
     }
     romData = data;
@@ -775,13 +779,21 @@ export function updateRomPaneInfo(): void {
   const entry = romManager.getCached(model);
   setSystemRomLabel(entry?.label ?? '');
   setSystemRomSize(romData?.length ?? 0);
+  setSystemRomIsCustom(entry?.isCustom ?? false);
 
-  const page0 = isDualRomModel(model) ? romManager.getCachedPage(model, 0) : null;
-  const page1 = isDualRomModel(model) ? romManager.getCachedPage(model, 1) : null;
-  setSystem128RomLabel(page0?.label ?? (isDualRomModel(model) ? defaultRomPageLabel(model, 0) : ''));
-  setSystem128RomSize(page0?.data.length ?? 0);
-  setSystem48RomLabel(page1?.label ?? (isDualRomModel(model) ? defaultRomPageLabel(model, 1) : ''));
-  setSystem48RomSize(page1?.data.length ?? 0);
+  const pageCount = romPageSlotCount(model);
+  const labels: string[] = [];
+  const sizes: number[] = [];
+  const overridden: boolean[] = [];
+  for (let page = 0; page < pageCount; page++) {
+    const p = romManager.getCachedPage(model, page as RomPage);
+    labels.push(p?.label ?? defaultRomPageLabel(model, page as RomPage));
+    sizes.push(p?.data.length ?? 0);
+    overridden.push(p !== null);
+  }
+  setSystemRomPageLabels(labels);
+  setSystemRomPageSizes(sizes);
+  setSystemRomPageOverridden(overridden);
 
   setCartridgeName(asMsx(machine)?.cartridgeName ?? spectrum?.interface2.name ?? '');
 }
@@ -801,27 +813,30 @@ export async function resetSystemRom(): Promise<void> {
 }
 
 /**
- * Replace one 16K page of a dual-ROM model's system ROM (128K/+2 only):
- * page 0 = 128K editor ROM, page 1 = 48K BASIC ROM. A combined 32K image
- * splits across both pages regardless of which slot triggered the load —
- * matching the real ROM's layout — so loading a full image into either slot
- * "just works".
+ * Replace one 16K page of a multi-page model's system ROM (128K/+2 — 2 pages;
+ * +2A/+3 — 4 pages; see romPageSlotCount). A combined image spanning every
+ * page splits across all of them regardless of which slot triggered the
+ * load — matching the real ROM's layout — so loading a full image into any
+ * one slot "just works". Each page then shows the source filename with its
+ * bank number, e.g. "plus3.rom (bank 2)", rather than a generic marker.
  */
-export async function setSystemRomPage(page: 0 | 1, data: Uint8Array, label: string): Promise<void> {
+export async function setSystemRomPage(page: RomPage, data: Uint8Array, label: string): Promise<void> {
   const model = effectiveROMModel(currentModel());
-  if (!isDualRomModel(model)) { setStatus('This model has a single System ROM'); return; }
+  const pageCount = romPageSlotCount(model);
+  if (pageCount === 0) { setStatus('This model has a single System ROM'); return; }
 
-  if (data.length >= 2 * BANK_SIZE) {
-    await romManager.persistROMPage(model, 0, data.subarray(0, BANK_SIZE), `${label} (custom)`);
-    await romManager.persistROMPage(model, 1, data.subarray(BANK_SIZE, 2 * BANK_SIZE), `${label} (custom)`);
+  if (data.length >= pageCount * BANK_SIZE) {
+    for (let i = 0; i < pageCount; i++) {
+      await romManager.persistROMPage(model, i as RomPage, data.subarray(i * BANK_SIZE, (i + 1) * BANK_SIZE), `${label} (bank ${i + 1})`);
+    }
   } else {
-    await romManager.persistROMPage(model, page, data.subarray(0, BANK_SIZE), `${label} (custom)`);
+    await romManager.persistROMPage(model, page, data.subarray(0, BANK_SIZE), label);
   }
   await switchModel(currentModel());
 }
 
-/** Revert one page of a dual-ROM model's system ROM to its default. */
-export async function resetSystemRomPage(page: 0 | 1): Promise<void> {
+/** Revert one page of a multi-page model's system ROM to its default. */
+export async function resetSystemRomPage(page: RomPage): Promise<void> {
   const model = effectiveROMModel(currentModel());
   await romManager.clearROMPage(model, page);
   await switchModel(currentModel());

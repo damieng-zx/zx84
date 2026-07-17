@@ -53,14 +53,21 @@ export function isBetaDiskCapable(m: MachineModel): boolean {
 }
 
 /**
- * Returns true for the two Ferranti-ULA 128K-class models whose ROM is two
- * independent 16K pages — page 0 the 128K editor/menu ROM, page 1 the 48K
- * BASIC ROM (see SpectrumMemory.isBasicRomActive). The ROM pane exposes these
- * as two separately loadable/ejectable slots instead of one combined image.
- * Excludes +2A/+3: their 4-page Amstrad ROM set isn't a simple 48K/128K split.
+ * Returns the number of independently loadable/ejectable 16K ROM pages the
+ * ROM pane splits this model's system ROM into, instead of showing it as one
+ * combined "System ROM" slot:
+ *  - 128K/+2 → 2 pages: page 0 the 128K editor/menu ROM, page 1 the 48K
+ *    BASIC ROM (see SpectrumMemory.isBasicRomActive).
+ *  - +2A/+3 → 4 pages, selected by 1FFD bit 2 / 7FFD bit 4 (see
+ *    memory.ts bankSwitch/bankSwitch1FFD): page 0 the 128K editor/menu/
+ *    self-test ROM, page 1 the 128K syntax checker, page 2 +3DOS, page 3 the
+ *    48K BASIC ROM.
+ *  - every other model → 0 (single combined "System ROM" slot).
  */
-export function isDualRomModel(m: MachineModel): m is '128k' | '+2' {
-  return m === '128k' || m === '+2';
+export function romPageSlotCount(m: MachineModel): 0 | 2 | 4 {
+  if (m === '128k' || m === '+2') return 2;
+  if (m === '+2A' || m === '+3') return 4;
+  return 0;
 }
 
 /**

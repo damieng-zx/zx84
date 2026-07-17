@@ -13,6 +13,7 @@ import {
   is16K,
   isPlus2AClass,
   isPlus3,
+  romPageSlotCount,
 } from '@/models.ts';
 
 const ALL_MODELS: SpectrumModel[] = ['16k', '48k', '128k', '+2', '+2A', '+3'];
@@ -44,6 +45,13 @@ describe('models — classification helpers', () => {
       '16k': false, '48k': false, '128k': false, '+2': false, '+2A': false, '+3': true,
     };
     for (const m of ALL_MODELS) expect(isPlus3(m)).toBe(truth[m]);
+  });
+
+  it('romPageSlotCount is 2 for 128K/+2, 4 for +2A/+3, 0 otherwise', () => {
+    const truth: Record<SpectrumModel, 0 | 2 | 4> = {
+      '16k': 0, '48k': 0, '128k': 2, '+2': 2, '+2A': 4, '+3': 4,
+    };
+    for (const m of ALL_MODELS) expect(romPageSlotCount(m)).toBe(truth[m]);
   });
 
   it('class predicates partition the model space sensibly', () => {
