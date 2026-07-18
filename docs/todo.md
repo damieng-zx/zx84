@@ -66,29 +66,16 @@
 - [ ] ZX81 (stretch goal)
 
 ### Peripherals
-- [ ] Interface 1 (RS232, network, microdrives)
-- [ ] Beta Disc interface
-- [ ] Disciple / Plus-D disk interface
+- [x] Interface 1 microdrives
+- [x] Interface 2 cartridges
+- [x] Beta Disc interface
+- [x] Disciple / Plus-D disk interface
 - [x] Multiface 1/128/3 (snapshot/poke hardware)
 - [x] VTX-5000 Prestel modem
 - [ ] SpecDrum (8-bit DAC)
 - [ ] RAM Music Machine (6-channel sample playback)
 - [ ] Currah speech synthesizer
-- [ ] Printer support (ZX Printer, Epson, etc.)
+- [ ] Printer (ZX Printer, Epson, etc.)
 
 ### Hardware Fixes
-- [ ] +3 Ghost fix
 - [x] External 3" / 3.5" drive support
-
-### Sound Enhancements
-- [ ] Tape motor/relay sounds
-- [ ] Enhanced floppy drive sounds (seek, read, write)
-
----
-
-## Accuracy Improvements
-
-### Timing & Edge Cases
-- [ ] Snow effect (register corruption on ULA memory contention clash)
-- [ ] Interrupt timing refinement (IM2 vector table reads)
-- [ ] Accurate +3 memory contention on special paging modes
