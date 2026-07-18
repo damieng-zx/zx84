@@ -1,10 +1,12 @@
 # ZX84 MCP Server
 
-MCP (Model Context Protocol) server that wraps the ZX84 Spectrum emulator as a persistent tool server. Claude Code (or any MCP client) can drive the emulator directly — load files, step through code, inspect memory, trace I/O, and read the screen.
+Persistent Model Context Protocol server for driving ZX84 machines from an MCP
+client. It runs a headless machine, keeps state between tool calls, and exposes
+execution, media, debugging, disk, OCR, and machine-specific bench tools.
 
 ## Setup
 
-Add to `.mcp.json` in the project root (already present):
+The project `.mcp.json` already registers the server:
 
 ```json
 {
@@ -17,270 +19,148 @@ Add to `.mcp.json` in the project root (already present):
 }
 ```
 
-Or run standalone:
+Run it directly with:
 
-```
-npm run mcp -- [--model 48k|128k|+2|+2a|+3]
+```text
+npm run mcp -- --model 48k
 ```
 
-Defaults to `48k`. ROMs are fetched from GitHub and cached in `mcp/.cache/`.
+Supported startup models are `16k`, `48k`, `128k`, `+2`, `+2A`, `+3`,
+`cpc464`, `cpc664`, `cpc6128`, `einstein`, and `hx-10`. The default is `48k`.
+System ROM pages come from the machine registry, are fetched through the shared
+ROM source loader, and are cached under `mcp/.cache/`.
+
+## Model Support
+
+The generic tools work through the `Machine` SPI and support every model where
+the relevant service exists: execution, register inspection, memory access,
+disassembly, breakpoints/watchpoints, stepping, and OCR.
+
+Some tools are intentionally hardware-specific:
+
+- Spectrum: tape/snapshot loading, ZXTL/full/port-I/O tracing, library loading,
+  Multiface, VTX-5000, +D, Beta Disk, microdrives, and +3 boot helpers.
+- CPC: `.dsk` mounting, built-in uPD765A disk inspection, CPC OCR, and PNG
+  screenshots.
+- Einstein and MSX: generic execution/debug/OCR tools; their media capabilities
+  are exposed only where their machine services support them.
+
+Use `model` to switch machines. Switching always creates a fresh machine.
 
 ## Tool Reference
 
-### Execution
+### Execution And State
 
 | Tool | Parameters | Description |
-|------|-----------|-------------|
-| `run` | `frames` (default 1) | Run N frames. Reports breakpoint or port watchpoint if hit. |
-| `step_frame` | — | Run exactly one frame. Equivalent to `run frames=1`. |
-| `step` | `count` (default 1) | Single-step N instructions. Returns disassembly + registers for each. |
-| `continue` | `max_frames` (default 5000) | Run until a breakpoint, port watchpoint, or memory watchpoint fires. Requires at least one set. |
+| --- | --- | --- |
+| `run` | `frames` (default `1`) | Run frames; reports a breakpoint or watchpoint hit. |
+| `step_frame` | | Run exactly one frame. |
+| `step` | `count` (default `1`) | Step Z80 instructions with disassembly and registers. |
+| `continue` | `max_frames` (default `5000`) | Run until a breakpoint, watchpoint, trap, or reset trap hits. |
+| `registers` | | Display CPU and machine state. |
+| `set_register` | `register`, `value` | Set A/F/AF, B/C/BC, D/E/DE, H/L/HL, SP, PC, IX, or IY. |
+| `model` | `target` (optional) | Show or switch the active model. |
 
-### Registers & CPU State
-
-| Tool | Parameters | Description |
-|------|-----------|-------------|
-| `registers` | — | All registers, flags, IM, IFF, halt state. Banking info on 128K+ models. |
-| `set_register` | `register`, `value` | Set a register: A F AF B C BC D E DE H L HL SP PC IX IY. |
-
-Values are parsed as hex if they contain `a-f` or start with `0x`/`$`, otherwise decimal.
-
-### Memory
+### Memory And Symbols
 
 | Tool | Parameters | Description |
-|------|-----------|-------------|
-| `read_memory` | `address`, `length` (default 64), `bank` (optional 0-7) | Hex dump with ASCII sidebar. With `bank`: address is offset within that 16KB RAM bank. |
-| `write_memory` | `address`, `hex_bytes`, `bank` (optional 0-7) | Write hex bytes (e.g. `"CD0050FF"`). With `bank`: address is offset within that 16KB RAM bank. |
-| `find` | `hex_bytes` | Search all 64KB for a byte sequence (e.g. `"CD0050"`). Up to 64 matches. |
+| --- | --- | --- |
+| `read_memory` | `address`, `length` (default `64`), `bank` (optional) | Hex dump mapped memory, or an explicit Spectrum RAM bank. |
+| `write_memory` | `address`, `hex_bytes`, `bank` (optional) | Write bytes to mapped memory or a Spectrum RAM bank. |
+| `find` | `hex_bytes` | Search the 64KB address space; returns up to 64 matches. |
+| `disassemble` | `address` (default PC), `lines` (default `16`) | Z80 disassembly with byte display. |
+| `symbols_load` | `file` | Load a symbol file into the MCP symbol table. |
+| `symbols` | `query`, `limit` | Find/list loaded symbols. |
 
-### Disassembly
-
-| Tool | Parameters | Description |
-|------|-----------|-------------|
-| `disassemble` | `address` (default PC), `lines` (default 16) | Z80 disassembly with byte display. Current PC marked with `>`. |
-
-### Breakpoints & Watchpoints
+### Breakpoints, Watchpoints, And Traps
 
 | Tool | Parameters | Description |
-|------|-----------|-------------|
-| `breakpoint` | `address` (optional) | Set PC breakpoint(s). Comma/space-separated list OK (e.g. `"FE10,FE20"`). Omit to list all. |
-| `delete_breakpoint` | `address` (optional) | Remove breakpoint(s). Comma/space-separated list OK. Omit to clear all. |
-| `port_watchpoint` | `port` (optional) | Set port watchpoint(s) (breaks on IN **or** OUT). Comma/space-separated list OK. Omit to list all. |
-| `delete_port_watchpoint` | `port` (optional) | Remove port watchpoint(s). Comma/space-separated list OK. Omit to clear all. |
+| --- | --- | --- |
+| `breakpoint` / `delete_breakpoint` | `address` (optional) | Add/list or remove/clear PC breakpoints. Multiple addresses are accepted. |
+| `port_watchpoint` / `delete_port_watchpoint` | `port` (optional) | Add/list or remove/clear IN/OUT port watchpoints. |
+| `memory_watchpoint` | `address` (optional), `length`, `mode` | Watch reads, writes, or both. Omit address to list. |
+| `delete_memory_watchpoint` | `address` (optional) | Remove by start address, or clear all. |
+| `reset_trap` | `enabled` (optional) | Arm (`true`), disarm (`false`), or inspect the ROM-reset trap. |
+| `trap` | `address` (optional), `action`, `cond_c`, `label`, `responses` | Add/list PC traps. Actions are `log`, `break`, and `respond`. |
+| `trap_delete` | `address` (optional), `cond_c` | Remove matching traps or clear all. |
+| `trap_log` | `from`, `to`, `clear` | Read the trap log buffer. |
+| `trap_respond` | `address`, `cond_c`, `responses` | Queue responses for a respond-mode trap. |
 
-### Memory Watchpoints
+`log` traps automatically decode CP/M BDOS calls at `0005`.
 
-| Tool | Parameters | Description |
-|------|-----------|-------------|
-| `memory_watchpoint` | `address` (optional), `length` (default 1), `mode` (`read`/`write`/`rw`, default `rw`) | Set a memory watchpoint that breaks on read, write, or either. Omit address to list all. |
-| `delete_memory_watchpoint` | `address` (optional) | Remove memory watchpoint by start address. Omit to clear all. |
-
-### Traps
-
-Traps fire when PC hits an address.  Three actions:
-
-- **`log`** — record registers + auto-decoded CP/M info to a buffer, continue execution.
-- **`break`** — halt execution so the MCP client can inspect state.
-- **`respond`** — stuff registers from a pre-queued response and RET (skip the real call).  Queue is FIFO; when empty, reverts to break.
+### Ports And Input
 
 | Tool | Parameters | Description |
-|------|-----------|-------------|
-| `trap` | `address` (optional), `action`, `cond_c`, `label`, `responses` | Set a trap, or list all if no address given. `cond_c` filters by C register (e.g. BDOS function). |
-| `trap_delete` | `address` (optional), `cond_c` | Remove traps at address (optionally filtered by `cond_c`). Omit address to clear all. |
-| `trap_log` | `from`, `to`, `clear` | Read the trap log buffer (chunked). Optionally clear after reading. |
-| `trap_respond` | `address`, `cond_c`, `responses` | Queue additional `{reg: value}` responses for an existing respond-mode trap. |
+| --- | --- | --- |
+| `port_out` | `port`, `value` | Write an I/O port. |
+| `port_in` | `port` | Read an I/O port. |
+| `key` | `name`, `frames` (default `5`) | Hold a key or combination such as `shift+2` or `sym+p`. |
+| `type` | `text` | Type text; backtick-delimited control names are supported. |
 
-BDOS calls at `0005` are auto-decoded in log output (function name, string contents for print calls, etc.).
+Spectrum key names include `a`-`z`, `0`-`9`, `enter`, `space`, `shift`,
+`sym`, `backspace`, cursor keys, `capslock`, and `escape`.
 
-### I/O Ports
-
-| Tool | Parameters | Description |
-|------|-----------|-------------|
-| `port_out` | `port`, `value` | Write to I/O port. Triggers bank switching, FDC, etc. Shows banking state on 128K+. |
-| `port_in` | `port` | Read from I/O port. |
-
-### Media
+### Media, Library, And Screenshots
 
 | Tool | Parameters | Description |
-|------|-----------|-------------|
-| `load` | `file`, `drive` (default `"0"`) | Load TAP, TZX, SNA, Z80, SZX, or DSK. TAP/TZX reset and start playback. DSK inserts into FDC. SZX restores a full snapshot. Drive accepts `0`/`1` or `A`/`B`. |
-| `save` | `file` | Save current machine state to a SZX snapshot file. `.szx` extension added automatically. |
-| `disk_boot` | `file` (optional) | +3 only. Runs 500 frames to reach the startup menu, presses Enter on "Loader". If `file` given, switches to +3, mounts the DSK, and boots it. |
-| `disk_trace` | `file` | All-in-one: switch to +3, mount DSK, boot to Loader, arm FE10h breakpoint + 3FFDh port watchpoint. |
-| `eject` | `target` (`tape`/`disk`), `drive` | Eject tape or disk from drive A/B. |
+| --- | --- | --- |
+| `load` | `file`, `drive` | Load supported local media. Spectrum accepts tape, snapshot, disk, microdrive, and Beta Disk formats; CPC accepts `.dsk`. |
+| `library` | `title`, `file`, `id`, `frames`, `refresh` | Spectrum-only exact-title library load, mount, and optional load verdict. |
+| `screenshot` | `file` (optional) | Write the current Spectrum or CPC display to PNG. |
+| `save` | `file` | Save a Spectrum `.szx` snapshot. |
+| `eject` | `target`, `drive` | Eject a Spectrum tape or an FDC disk. |
+| `disk_boot` | `file` (optional) | Spectrum +3 Loader-menu boot helper. |
+| `disk_trace` | `file` | +3 copy-protection helper: boot, arm `FE10`, and watch `3FFD`. |
 
-### Input
-
-| Tool | Parameters | Description |
-|------|-----------|-------------|
-| `key` | `name`, `frames` (default 5) | Press and hold a key for N frames. Supports combos like `"shift+2"` or `"sym+p"`. |
-| `type` | `text` | Type a string of characters. Use backtick-delimited names for control keys: `` `enter` ``, `` `backspace` ``, `` `left` ``, `` `right` ``, `` `up` ``, `` `down` ``, `` `escape` ``, `` `shift` ``, `` `sym` ``. E.g. ``LOAD ""`enter` `` |
-
-Key names: `a`–`z`, `0`–`9`, `enter`, `space`, `shift`, `sym`, `backspace`, `left`, `right`, `up`, `down`, `capslock`, `escape`
-
-### Tracing
+### Tracing And OCR
 
 | Tool | Parameters | Description |
-|------|-----------|-------------|
-| `trace` | `mode` (`full`/`portio`/`zxtl`) | Start a trace. ZXTL traces are stored in-memory for chunked retrieval. |
-| `stop_trace` | — | Stop trace. Full/portio: returns inline or writes to file. ZXTL: stores in memory, returns line count — use `trace_read` to fetch. |
-| `trace_read` | `from` (default 0), `to` (optional, default from+100) | Read a range of lines from the stored ZXTL trace buffer. |
-| `frame_trace` | — | Run one frame logging every instruction: T-state, beam position, contention delays, border changes, and VRAM writes. Always writes to file. |
+| --- | --- | --- |
+| `trace` | `mode`: `full`, `portio`, or `zxtl` | Start Spectrum execution tracing. |
+| `stop_trace` | | Stop tracing. Large full/port-I/O traces are written to a file. |
+| `trace_read` | `from`, `to` | Read stored ZXTL trace lines. |
+| `frame_trace` | | Spectrum-only one-frame instruction/contention/VRAM trace written to a file. |
+| `ocr` | `mode` (optional) | Read screen text through the active machine OCR engine. Spectrum supports `auto`, `32x24`, `51x24`, and `64x24`. |
 
-### FDC Logging
+### Disk Inspection And Protection
 
-| Tool | Parameters | Description |
-|------|-----------|-------------|
-| `fdc_log` | `clear` (default false) | Read (and optionally clear) the FDC log ring buffer. Returns up to 2000 FDC log lines. |
-
-- **full** — every instruction executed (PC ≥ 0x4000, loop detection)
-- **portio** — port I/O only (great for FDC debugging)
-- **zxtl** — ZXTL V0001 standardised format: every instruction with full register dump, including ROM
-
-### Screen
+These use the active +3 or CPC uPD765A where fitted.
 
 | Tool | Parameters | Description |
-|------|-----------|-------------|
-| `ocr` | — | Bitmap OCR of the screen. |
+| --- | --- | --- |
+| `disk_geometry` | `drive` | Mounted disk geometry and sector summary. |
+| `track_geometry` | `track`, `side`, `drive` | Detailed track and CHRN/status information. |
+| `sector_read` | `track`, `sector`, `side`, `drive`, `offset`, `length` | Hex dump raw sector data. |
+| `weak` | `track`, `sector` (optional) | Mark one sector or a whole track weak. |
+| `fdc_log` | `clear` | Read/clear the FDC log ring buffer. |
 
-### Model
-
-| Tool | Parameters | Description |
-|------|-----------|-------------|
-| `model` | `target` (optional) | Show current model, or switch to `48k`/`128k`/`+2`/`+2a`/`+3`. Switching creates a fresh machine. |
-
-### Disk Inspection
+### Spectrum Peripherals
 
 | Tool | Parameters | Description |
-|------|-----------|-------------|
-| `disk_geometry` | `drive` (default 0) | Overview of mounted disk: format, tracks, sides, protection, per-track sector summary. |
-| `track_geometry` | `track`, `side` (default 0), `drive` (default 0) | Detailed single-track info: gap3, filler, full CHRN + status + data size per sector. |
-| `sector_read` | `track`, `sector`, `side` (default 0), `drive` (default 0), `offset` (default 0), `length` (optional) | Hex dump of raw sector data from the in-memory disk image (includes any writes). |
+| --- | --- | --- |
+| `multiface` | `action`: `on`, `off`, `nmi`, `status` | Control MF1/MF128/MF3 and trigger NMI. |
+| `vtx5000` | `action`: `on`, `off`, `status` | Control the 48K VTX-5000 Viewdata modem. |
+| `plusd` | `action`: `on`, `off`, `status` | Control the MGT +D interface. |
+| `betadisk` | `action`: `on`, `off`, `status` | Control Beta Disk/TR-DOS. |
 
-### Disk Protection
+## Address Values
 
-| Tool | Parameters | Description |
-|------|-----------|-------------|
-| `weak` | `track`, `sector` (optional) | Mark sector(s) as weak (randomised on each read). Omit sector to mark entire track. |
+Address and register-value strings are parsed by the shared MCP parser:
 
-### Peripherals
-
-| Tool | Parameters | Description |
-|------|-----------|-------------|
-| `multiface` | `action` (`on`/`off`/`nmi`/`status`) | Enable/disable the Multiface peripheral, press its NMI button, or show status. Supports MF1, MF128, MF3. |
-| `vtx5000` | `action` (`on`/`off`/`status`) | Enable/disable the VTX-5000 Viewdata/Prestel modem (48K only). Loads ROM overlay and resets. |
-
-## Workflows
-
-### Trace a +3 copy-protection scheme (one step)
-
-```
-disk_trace   → file: "path/to/game.dsk"
-continue     → runs to FE10h bootstrap entry
-registers
-disassemble
-continue     → runs to next FDC command byte (port 3FFDh watchpoint)
-...
-```
-
-`disk_trace` does everything in one call: switch to +3, mount the DSK, boot to Loader, set FE10h breakpoint + 3FFDh port watchpoint. No manual setup needed.
-
-### Save and restore a checkpoint
-
-```
-save         → file: "C:/tmp/checkpoint.szx"
-... (investigation continues) ...
-load         → file: "C:/tmp/checkpoint.szx"   (restores full machine state)
-```
-
-Checkpoints let you rewind to a known state without re-running hundreds of frames.
-
-### Boot a +3 disk and break at entry (manual)
-
-```
-disk_boot    → file: "path/to/game.dsk"    # switches to +3, mounts, and boots
-breakpoint   → address: "FE10"
-continue
-registers
-disassemble
-```
-
-The +3 bootstrap loads sector T0/S0/R1 into `FE00h` and jumps to `FE10h`. Breaking there catches the moment of entry.
-
-### Inspect bootstrap code
-
-```
-memory       → address: "FE00", length: 256
-disassemble  → address: "FE00", lines: 32
-```
-
-### Trace FDC I/O
-
-```
-trace        → mode: "portio"
-run          → frames: 50
-stop_trace
-```
-
-Shows every IN/OUT to the FDC ports (`0x2FFD`, `0x3FFD`).
-
-### Step through code
-
-```
-breakpoint   → address: "FE10"
-continue
-step         → count: 1
-step
-step
-```
-
-Each step returns: `ADDR  MNEMONIC            A=xx F=xx BC=xxxx DE=xxxx HL=xxxx SP=xxxx T=n`
-
-### Search for a signature
-
-```
-find         → hex_bytes: "C93E01"     (RET / LD A,1)
-find         → hex_bytes: "4C6F6164"   ("Load")
-```
-
-### Bank switching on 128K/+3
-
-```
-port_out     → port: "0x7FFD", value: "0x10"   (select ROM 1)
-port_out     → port: "0x7FFD", value: "0x03"   (select RAM bank 3 at C000)
-```
-
-The response includes the new banking state.
-
-### Watch for bank/paging changes
-
-```
-port_watchpoint  → port: "7FFD"
-continue
-```
-
-Fires on any `OUT (7FFD), *` — catches ROM switches, RAM bank changes, paging locks. Check `registers` at each hit to see the new banking state.
-
-### Test weak-sector protection
-
-```
-load         → file: "protected.dsk"
-weak         → track: 33, sector: 246
-disk_boot
-continue
-```
-
-## Address Parsing
-
-All address/value string parameters are parsed as **hex by default**:
-
-- `FE10` → 0xFE10
-- `4000` → 0x4000
-- `0x1234` or `$1234` → hex (explicit prefix also works)
-- There is no decimal mode — use hex throughout
+- `0x1234` and `$1234` are explicitly hexadecimal.
+- All other address/value strings are hexadecimal, including digit-only values
+  such as `4000`.
+- Identifier-shaped strings resolve through the loaded symbol table. Prefer
+  `0x` or `$` when a token could be either a symbol or hexadecimal text.
 
 ## Architecture
 
-The server (`mcp/server.ts`) creates a single `Spectrum` instance that persists across all tool calls. State (breakpoints, loaded files, memory modifications) accumulates naturally. Switching models with the `model` tool creates a fresh machine. Tool handlers are grouped by topic under `mcp/tools/` (machine, memory, breakpoints, traps, io, media, trace, peripherals, symbols); shared helpers (`format.ts`, `state.ts`, `loader.ts`, `traps.ts`, `fdc-log.ts`, `rom-fetch.ts`, `hex.ts`) sit at the `mcp/` root.
+`mcp/server.ts` creates one persistent, headless `Machine` through the machine
+registry. `mcp/state.ts` remains machine-blind and owns the active handle, ROM
+image, symbols, FDC log wiring, and traps. Generic tools consume
+`machine.services`; concrete MCP bench tools narrow only in `mcp/concrete.ts`.
 
-The server communicates over stdio using the MCP SDK (`@modelcontextprotocol/sdk`). Claude Code spawns it automatically based on `.mcp.json`.
+Tool registrations live under `mcp/tools/`. The root helpers cover formatting,
+ROM/media loading, catalog access, PNG output, traps, FDC logging, and ZXTL
+storage. Hex output uses the shared `src/utils/hex.ts`; there is no MCP-local
+hex formatter.
