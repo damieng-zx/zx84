@@ -15,7 +15,7 @@ import { SymbolTable } from '../src/debug/symbols.ts';
 import { fetchROM } from './rom-fetch.ts';
 import { wireFdcLog } from './fdc-log.ts';
 import { installTrapHook } from './traps.ts';
-import { h16 } from './hex.ts';
+import { hex16 as h16 } from '../src/utils/hex.ts';
 
 interface State {
   model: MachineModel;

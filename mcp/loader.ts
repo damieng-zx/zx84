@@ -10,7 +10,7 @@ import { parseTrd } from '../src/media/floppy/trd-image.ts';
 import { parseScl } from '../src/media/floppy/scl-image.ts';
 import { parseTZX } from '../src/media/tape/tzx.ts';
 import { parseCSW } from '../src/media/tape/csw.ts';
-import { h16 } from './hex.ts';
+import { hex16 as h16 } from '../src/utils/hex.ts';
 import { fetchPlusDRom, fetchInterface1Rom, fetchBetaDiskRom } from './rom-fetch.ts';
 import { state, initMachine } from './state.ts';
 import { activeSpectrum } from './concrete.ts';

@@ -1,6 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { h8, h16 } from '../hex.ts';
+import { hex8 as h8, hex16 as h16 } from '../../src/utils/hex.ts';
 import { parseAddr, text } from '../format.ts';
 import { traps, trapLog, resetTrap, setResetTrap, type Trap } from '../traps.ts';
 

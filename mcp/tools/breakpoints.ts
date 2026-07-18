@@ -1,6 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { h16 } from '../hex.ts';
+import { hex16 as h16 } from '../../src/utils/hex.ts';
 import { state } from '../state.ts';
 import { parseAddr, text } from '../format.ts';
 

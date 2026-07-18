@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { saveSZX } from '../../src/machines/spectrum/snapshots/szx.ts';
-import { h8, h16 } from '../hex.ts';
+import { hex8 as h8, hex16 as h16 } from '../../src/utils/hex.ts';
 import { state, initMachine } from '../state.ts';
 import { activeSpectrum, activeCpc, activeFdc } from '../concrete.ts';
 import { text, formatHexDump } from '../format.ts';

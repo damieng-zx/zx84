@@ -1,7 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { is128kClass } from '../../src/models.ts';
-import { h8, h16 } from '../hex.ts';
+import { hex8 as h8, hex16 as h16 } from '../../src/utils/hex.ts';
 import { state } from '../state.ts';
 import { activeSpectrum, activeCpc } from '../concrete.ts';
 import { z80Cpu } from '../../src/debug/z80/service.ts';
