@@ -11,7 +11,6 @@ import type { SpectrumModel } from './models.ts';
 import { is128kClass, isPlus2AClass, isPlus3, isInterface2Capable, romPageSlotCount } from './models.ts';
 import { Spectrum } from './spectrum.ts';
 import { SCREEN_WIDTH, SCREEN_HEIGHT } from './ula.ts';
-import { ROM_BASE } from '@/utils/rom-host.ts';
 
 // The Spectrum active display is 256×192; the full ("Normal") border is 48px on
 // every side (SCREEN_WIDTH/HEIGHT = 256/192 + 48·2). The border-size crop is
@@ -60,12 +59,12 @@ function spectrumUi(model: MachineModel): MachineUiCapabilities {
 // set by the shell's effectiveROMModel() before lookup, but keep its own row
 // so the table is total over the family.
 const ROM_SOURCES: Record<SpectrumModel, string[]> = {
-  '16k':  [`${ROM_BASE}48.rom`],
-  '48k':  [`${ROM_BASE}48.rom`],
-  '128k': [`${ROM_BASE}128-0.rom`, `${ROM_BASE}128-1.rom`],
-  '+2':   [`${ROM_BASE}plus2-0.rom`, `${ROM_BASE}plus2-1.rom`],
-  '+2A':  [`${ROM_BASE}plus3-41-0.rom`, `${ROM_BASE}plus3-41-1.rom`, `${ROM_BASE}plus3-41-2.rom`, `${ROM_BASE}plus3-41-3.rom`],
-  '+3':   [`${ROM_BASE}plus3-0.rom`, `${ROM_BASE}plus3-1.rom`, `${ROM_BASE}plus3-2.rom`, `${ROM_BASE}plus3-3.rom`],
+  '16k':  ['48.rom'],
+  '48k':  ['48.rom'],
+  '128k': ['128-0.rom', '128-1.rom'],
+  '+2':   ['plus2-0.rom', 'plus2-1.rom'],
+  '+2A':  ['plus3-41-0.rom', 'plus3-41-1.rom', 'plus3-41-2.rom', 'plus3-41-3.rom'],
+  '+3':   ['plus3-0.rom', 'plus3-1.rom', 'plus3-2.rom', 'plus3-3.rom'],
 };
 
 /** Descriptor for one Spectrum model — shared by the registry entry and the

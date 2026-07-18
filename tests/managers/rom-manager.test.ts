@@ -92,9 +92,18 @@ function installFetch(routes: Record<string, FetchSpec | FetchSpec[]>): { calls:
 
 // ── Import under test (after mocks are in place) ──────────────────────────
 
-import { ROMManager, defaultRomPageLabel } from '@/managers/rom-manager.ts';
+import { ROM_BASE, ROMManager, defaultRomPageLabel, resolveRomSource } from '@/managers/rom-manager.ts';
 
-const ROM_BASE = 'https://zx84files.bitsparse.com/roms/';
+describe('resolveRomSource', () => {
+  it('prepends the ROM host for a bare filename', () => {
+    expect(resolveRomSource('48.rom')).toBe(`${ROM_BASE}48.rom`);
+  });
+
+  it('preserves an explicit URL or path', () => {
+    expect(resolveRomSource('https://example.test/roms/custom.rom')).toBe('https://example.test/roms/custom.rom');
+    expect(resolveRomSource('local-roms/custom.rom')).toBe('local-roms/custom.rom');
+  });
+});
 
 // ── persistROM / restoreROM ───────────────────────────────────────────────
 

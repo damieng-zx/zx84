@@ -2,7 +2,7 @@
  * Spectrum peripheral-ROM requests. Each fitted peripheral (VTX-5000, Multiface,
  * MGT +D, ZX Interface 1, Beta Disk) contributes an AuxRomRequest the shell
  * fetches/caches and wires back through `apply`. The machine owns all the
- * peripheral-specific knowledge (which CDN URL, which cache key, the status text,
+ * peripheral-specific knowledge (which ROM image, which cache key, the status text,
  * and how the bytes land in its chip); the shell owns only the generic mechanics.
  *
  * This is where the shell's former per-machine peripheral-ROM cascade lives now.
@@ -18,15 +18,14 @@ import type { SpectrumModel } from '@/machines/spectrum/models.ts';
 import { isPlusDCapable, isInterface1Capable, isBetaDiskCapable } from '@/machines/spectrum/models.ts';
 import { variantForModel, variantLabel, romFilename } from '@/machines/spectrum/peripherals/multiface.ts';
 
-const ROM_CDN = 'https://zx84files.bitsparse.com/roms/';
-const VTX5000_ROM_URL = `${ROM_CDN}vtx5000-3-1.rom`;
-const PLUSD_ROM_URL = `${ROM_CDN}plusd.rom`;
-const BETADISK_ROM_URL = `${ROM_CDN}trdos.rom`;
-const IF1_ROM_URL = `${ROM_CDN}if1-2.rom`;
+export const VTX5000_ROM = 'vtx5000-3-1.rom';
+export const PLUSD_ROM = 'plusd.rom';
+export const BETADISK_ROM = 'trdos.rom';
+export const IF1_ROM = 'if1-2.rom';
 
 export function vtx5000AuxRom(m: Spectrum): AuxRomRequest {
   return {
-    cacheKey: 'vtx5000-rom', url: VTX5000_ROM_URL,
+    cacheKey: 'vtx5000-rom', source: VTX5000_ROM,
     fetchingMsg: 'Fetching VTX-5000 ROM…',
     loadedMsg: (n) => `VTX-5000 ROM loaded (${n} bytes)`,
     failMsg: 'Failed to load VTX-5000 ROM', failId: 'vtx5000',
@@ -40,7 +39,7 @@ export function multifaceAuxRom(m: Spectrum): AuxRomRequest {
   const variant = variantForModel(m.model as SpectrumModel);
   m.multiface.variant = variant;
   return {
-    cacheKey: `mf-rom-${variant}`, url: ROM_CDN + romFilename(variant),
+    cacheKey: `mf-rom-${variant}`, source: romFilename(variant),
     fetchingMsg: `Fetching ${variantLabel(variant)} ROM...`,
     loadedMsg: (n) => `${variantLabel(variant)} ROM loaded (${n} bytes)`,
     failMsg: `Failed to load ${variantLabel(variant)} ROM`, failId: 'multiface',
@@ -50,7 +49,7 @@ export function multifaceAuxRom(m: Spectrum): AuxRomRequest {
 
 export function plusDAuxRom(m: Spectrum): AuxRomRequest {
   return {
-    cacheKey: 'plusd-rom', url: PLUSD_ROM_URL,
+    cacheKey: 'plusd-rom', source: PLUSD_ROM,
     fetchingMsg: 'Fetching MGT +D ROM…',
     loadedMsg: (n) => `MGT +D ROM loaded (${n} bytes)`,
     failMsg: 'Failed to load MGT +D ROM', failId: 'plusd',
@@ -60,7 +59,7 @@ export function plusDAuxRom(m: Spectrum): AuxRomRequest {
 
 export function if1AuxRom(m: Spectrum): AuxRomRequest {
   return {
-    cacheKey: 'if1-rom', url: IF1_ROM_URL,
+    cacheKey: 'if1-rom', source: IF1_ROM,
     fetchingMsg: 'Fetching ZX Interface 1 ROM…',
     loadedMsg: (n) => `ZX Interface 1 ROM loaded (${n} bytes)`,
     failMsg: 'Failed to load ZX Interface 1 ROM', failId: 'interface1',
@@ -70,7 +69,7 @@ export function if1AuxRom(m: Spectrum): AuxRomRequest {
 
 export function betaAuxRom(m: Spectrum): AuxRomRequest {
   return {
-    cacheKey: 'betadisk-rom', url: BETADISK_ROM_URL,
+    cacheKey: 'betadisk-rom', source: BETADISK_ROM,
     fetchingMsg: 'Fetching TR-DOS ROM…',
     loadedMsg: (n) => `Beta Disk TR-DOS ROM loaded (${n} bytes)`,
     failMsg: 'Failed to load Beta Disk (TR-DOS) ROM', failId: 'betadisk',

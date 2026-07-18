@@ -276,6 +276,7 @@ vi.mock('@/managers/rom-manager.ts', () => ({
     }
     return `${model === '+2' ? 'Amstrad' : 'Sinclair'} ${page === 0 ? '128K' : '48K'} BASIC`;
   },
+  resolveRomSource: (source: string) => source,
 }));
 
 const _mgrs = vi.hoisted(() => ({

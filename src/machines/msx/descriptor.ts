@@ -11,7 +11,6 @@ import { MsxMachine } from './msx-machine.ts';
 import {
   MSX_SCREEN_WIDTH, MSX_SCREEN_HEIGHT, MSX_BORDER_LEFT, MSX_BORDER_TOP,
 } from './constants.ts';
-import { ROM_BASE } from '@/utils/rom-host.ts';
 
 const MSX_UI: MachineUiCapabilities = {
   hiddenPanes: [],
@@ -66,6 +65,6 @@ export const msxEntry: MachineEntry = {
     return new MsxMachine(model as MsxModel, display);
   },
   romSources() {
-    return [`${ROM_BASE}hx-10_basic-bios1.rom`];
+    return ['hx-10_basic-bios1.rom'];
   },
 };

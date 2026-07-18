@@ -10,7 +10,6 @@ import type { CpcModel } from './models.ts';
 import { cpcHasDisk } from './models.ts';
 import { CpcMachine } from './cpc-machine.ts';
 import { CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT, CPC_BORDER_LEFT, CPC_BORDER_TOP } from './constants.ts';
-import { ROM_BASE } from '@/utils/rom-host.ts';
 
 function cpcUi(model: MachineModel): MachineUiCapabilities {
   return {
@@ -52,9 +51,9 @@ function cpcUi(model: MachineModel): MachineUiCapabilities {
 // Concatenated to OS(16KB) + BASIC(16KB) [+ AMSDOS(16KB)] — the layout
 // CpcMemory.loadROM() splits on.
 const ROM_SOURCES: Record<CpcModel, string[]> = {
-  cpc6128: [`${ROM_BASE}os6128.rom`, `${ROM_BASE}basic1-1.rom`, `${ROM_BASE}amsdos.rom`],
-  cpc664:  [`${ROM_BASE}os664.rom`, `${ROM_BASE}basic664.rom`, `${ROM_BASE}amsdos.rom`],
-  cpc464:  [`${ROM_BASE}os464.rom`, `${ROM_BASE}basic1-0.rom`],
+  cpc6128: ['os6128.rom', 'basic1-1.rom', 'amsdos.rom'],
+  cpc664:  ['os664.rom', 'basic664.rom', 'amsdos.rom'],
+  cpc464:  ['os464.rom', 'basic1-0.rom'],
 };
 
 /** Descriptor for one CPC model — shared by the registry entry and the machine

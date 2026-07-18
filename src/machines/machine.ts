@@ -283,7 +283,7 @@ export interface SettingsView {
 
 /**
  * A peripheral-ROM load a machine wants performed. The machine owns everything
- * peripheral-specific (which cache key, which CDN URL, the human status text,
+ * peripheral-specific (which cache key, which ROM source, the human status text,
  * and how the bytes are wired into its chip); the shell owns the generic
  * fetch/IndexedDB-cache/status/failure-signal mechanics. This is how the shell's
  * old per-machine peripheral-ROM cascade dissolves: the machine's `prepare()` /
@@ -292,8 +292,8 @@ export interface SettingsView {
 export interface AuxRomRequest {
   /** IndexedDB cache key. */
   readonly cacheKey: string;
-  /** CDN URL fetched on a cache miss. */
-  readonly url: string;
+  /** Bare filename or explicit path/URL fetched on a cache miss. */
+  readonly source: string;
   /** Status shown before a network fetch (cache miss only). */
   readonly fetchingMsg: string;
   /** Status shown once the ROM is wired in. */
@@ -771,7 +771,7 @@ export interface MachineEntry {
   readonly models: readonly MachineModel[];
   descriptor(model: MachineModel): MachineDescriptor;
   create(model: MachineModel, display: IScreenRenderer | null): Machine;
-  /** Default system-ROM image URLs, fetched and concatenated in order by the
+  /** Default system-ROM image sources, fetched and concatenated in order by the
    *  shared rom-manager machinery. */
   romSources(model: MachineModel): readonly string[];
   /** Classify a raw system-ROM image dropped on the ROM pane to the model that

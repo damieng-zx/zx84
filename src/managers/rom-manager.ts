@@ -11,8 +11,15 @@
 import type { MachineModel } from '@/models.ts';
 import { dbSave, dbLoad, dbDelete } from '@/store/persistence.ts';
 import { BANK_SIZE } from '@/utils/bank-size.ts';
-import { ROM_BASE } from '@/utils/rom-host.ts';
 import { entryForModel } from '@/machines/registry.ts';
+
+export const ROM_BASE = 'https://zx84files.bitsparse.com/roms/';
+
+/** Resolve a bare ROM filename against the default host without changing an
+ * explicit URL or a path supplied by a machine definition. */
+export function resolveRomSource(source: string): string {
+  return source.includes('/') ? source : `${ROM_BASE}${source}`;
+}
 
 export interface ROMEntry {
   data: Uint8Array;
@@ -100,7 +107,8 @@ export class ROMManager {
     onStatus?.(`Downloading ${model.toUpperCase()} ROM…`);
 
     try {
-      const pages = await Promise.all(urls.map(async url => {
+      const pages = await Promise.all(urls.map(async source => {
+        const url = resolveRomSource(source);
         const resp = await fetch(url);
         if (!resp.ok) throw new Error(`HTTP ${resp.status} fetching ${url.split('/').pop()}`);
         return new Uint8Array(await resp.arrayBuffer());
@@ -143,7 +151,7 @@ export class ROMManager {
       if (cached) { this.einsteinXtalDosDisk = cached; return cached; }
     } catch { /* fall through to network */ }
     try {
-      const resp = await fetch(`${ROM_BASE}einstein-xtaldos.dsk`);
+      const resp = await fetch(resolveRomSource('einstein-xtaldos.dsk'));
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const data = new Uint8Array(await resp.arrayBuffer());
       this.einsteinXtalDosDisk = data;

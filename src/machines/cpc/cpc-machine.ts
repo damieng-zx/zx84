@@ -53,9 +53,6 @@ import {
 const TAPE_LOAD_ENTER_GAP = 500;
 const TAPE_LOAD_EXIT_GAP = 5000;
 
-/** CDN base for the CPC's optional add-on ROMs (Multiface Two, ParaDOS). */
-const CPC_ROM_CDN = 'https://zx84files.bitsparse.com/roms/';
-
 export class CpcMachine extends BaseMachine implements Machine {
   readonly kind: MachineKind = 'cpc';
   readonly model: CpcModel;
@@ -214,7 +211,7 @@ export class CpcMachine extends BaseMachine implements Machine {
    *  live enable toggle (setCpcMultiface). */
   multifaceAuxRom(awaitLoad: boolean): AuxRomRequest {
     return {
-      cacheKey: 'cpc-mf2-rom', url: `${CPC_ROM_CDN}cpc-multiface2.rom`,
+      cacheKey: 'cpc-mf2-rom', source: 'cpc-multiface2.rom',
       fetchingMsg: 'Fetching Multiface Two ROM…',
       loadedMsg: (n) => `Multiface Two ROM loaded (${n} bytes)`,
       failMsg: 'Failed to load Multiface Two ROM', failId: 'multiface',
@@ -240,7 +237,7 @@ export class CpcMachine extends BaseMachine implements Machine {
   bootRoms(view: SettingsView): AuxRomRequest[] {
     if (!this.config.hasFDC || !view.get('cpc-parados', false)) return [];
     return [{
-      cacheKey: 'cpc-parados-rom', url: `${CPC_ROM_CDN}parados.rom`,
+      cacheKey: 'cpc-parados-rom', source: 'parados.rom',
       fetchingMsg: 'Fetching ParaDOS ROM…',
       loadedMsg: (n) => `ParaDOS ROM loaded (${n} bytes)`,
       failMsg: 'Failed to load ParaDOS ROM', failId: 'parados',

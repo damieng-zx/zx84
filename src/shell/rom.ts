@@ -15,7 +15,7 @@ import {
 } from '@/models.ts';
 import { registry } from '@/machines/registry.ts';
 import { BANK_SIZE } from '@/utils/bank-size.ts';
-import { defaultRomPageLabel, type RomPage } from '@/managers/rom-manager.ts';
+import { defaultRomPageLabel, resolveRomSource, type RomPage } from '@/managers/rom-manager.ts';
 import { dbSave, dbLoad } from '@/store/persistence.ts';
 import {
   currentModel as currentModelValue,
@@ -227,7 +227,7 @@ export async function loadAuxRom(r: AuxRomRequest): Promise<boolean> {
   if (!data) {
     try {
       setStatus(r.fetchingMsg);
-      const resp = await fetch(r.url);
+      const resp = await fetch(resolveRomSource(r.source));
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       data = new Uint8Array(await resp.arrayBuffer());
       await dbSave(r.cacheKey, data);
@@ -256,4 +256,3 @@ export async function fulfillAuxRoms(requests: AuxRomRequest[]): Promise<void> {
     else loadAuxRom(r).catch(err => console.warn('Aux ROM load failed:', err));
   }
 }
-

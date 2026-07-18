@@ -11,7 +11,6 @@ import { EinsteinMachine } from './einstein-machine.ts';
 import {
   EINSTEIN_SCREEN_WIDTH, EINSTEIN_SCREEN_HEIGHT, EINSTEIN_BORDER_LEFT, EINSTEIN_BORDER_TOP,
 } from './constants.ts';
-import { ROM_BASE } from '@/utils/rom-host.ts';
 
 const EINSTEIN_UI: MachineUiCapabilities = {
   hiddenPanes: [],
@@ -66,6 +65,6 @@ export const einsteinEntry: MachineEntry = {
     return new EinsteinMachine(model as EinsteinModel, display);
   },
   romSources() {
-    return [`${ROM_BASE}einstein-mos.rom`];
+    return ['einstein-mos.rom'];
   },
 };
