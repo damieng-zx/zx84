@@ -1,5 +1,5 @@
 import { createMemo, createSignal, createEffect, onMount, Show, For } from 'solid-js';
-import { HiOutlineEllipsisVertical, HiOutlinePlay } from 'solid-icons/hi';
+import { HiOutlineFunnel, HiOutlinePlay } from 'solid-icons/hi';
 import { DropDownMenuButton, type MenuItem } from '@/ui/components/DropDownMenuButton.tsx';
 import { loadFile, ejectDisk } from '@/shell/media.ts';
 import { switchModel, autoBootLoad, resetMachine } from '@/shell/lifecycle.ts';
@@ -136,6 +136,10 @@ export function LibraryBrowser() {
     const { text, negTerms, yearMin, yearMax, publisher } = parseLibraryQuery(query());
     return text !== '' || negTerms.length > 0 || yearMin !== null || yearMax !== null || publisher !== '' || genreFilter().size > 0 || formatFilter().size > 0 || machineFilter().size > 0;
   });
+
+  // True when any filter (genre / format / machine) is set — highlights the
+  // funnel icon so the borderless in-box control still signals it's engaged.
+  const filtersActive = createMemo(() => genreFilter().size > 0 || formatFilter().size > 0 || machineFilter().size > 0);
 
   // Positive title text + `-word` exclusions + year:/publisher: tokens + genre +
   // Format and compatible-machine filters, capped for render perf.
@@ -408,18 +412,31 @@ export function LibraryBrowser() {
   return (
     <div class="library-browser">
       <div class="library-search">
-        <input
-          type="search"
-          class="library-search-input"
-          placeholder="Search software…"
-          title="Search by title. Also: -word (exclude), year:1987, year:1983-1989, publisher:ocean"
-          value={query()}
-          onInput={(e) => setQuery(e.currentTarget.value)}
-        />
-        <div class="library-search-menu">
+        <div class="library-search-field">
+          <input
+            type="search"
+            class="library-search-input"
+            placeholder="Search software…"
+            title="Search by title. Also: -word (exclude), year:1987, year:1983-1989, publisher:ocean"
+            value={query()}
+            onInput={(e) => setQuery(e.currentTarget.value)}
+          />
+          <Show when={query()}>
+            <button
+              type="button"
+              class="library-search-clear"
+              title="Clear search"
+              aria-label="Clear search"
+              onClick={() => setQuery('')}
+            >
+              {'×'}
+            </button>
+          </Show>
+        </div>
+        <div class="library-search-menu" classList={{ active: filtersActive() }}>
           <DropDownMenuButton
             size="sm"
-            icon={<HiOutlineEllipsisVertical />}
+            icon={<HiOutlineFunnel />}
             title="Filter by media format, compatible machine, or genre"
             items={filterItems()}
             onSelect={onFilterSelect}

@@ -2,6 +2,19 @@ import { createSignal, Show } from 'solid-js';
 
 const CHANGELOG: { version: string; items: string[] }[] = [
   {
+    version: '0.7.2',
+    items: [
+      'Add Toshiba HX-10 as a fourth machine — boots MSX BASIC, with cartridge, tape and joystick support',
+      'Add ZX Interface 2 cartridge support for the Spectrum',
+      'New Variables pane shows Locomotive BASIC variables on the CPC',
+      'Save menu tailored to each machine — screenshots and memory in native formats (CPC .scr/.bin, Einstein/MSX)',
+      'Display pane gains Saturation and Gamma sliders and per-machine colour',
+      'ROM pane adds independent 48K/128K slots and +2A/+3 support',
+      'Software library adds separate machine and media filters',
+      'Security fix in the BASIC viewer',
+      'Major internal refactoring',
+    ]
+  }, {
     version: '0.7.1',
     items: [
       'Add Tatung Einstein TC-01 as a third machine (boots MOS and Xtal DOS from .dsk/.zip)',

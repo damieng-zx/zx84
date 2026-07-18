@@ -1953,19 +1953,17 @@ input[type="range"]::-moz-range-thumb {
 }
 
 /* Software library — embedded in the Load/Save pane below the button row. */
-.library-browser {
-  margin-top: 6px;
-  padding-top: 6px;
-  border-top: 1px solid #ddd;
-}
+.library-search { display: flex; align-items: center; gap: 2px; padding: 0 3px 6px; }
 
-.library-search { display: flex; align-items: center; gap: 2px; padding: 2px 3px 6px; }
+/* Wraps the input so our own clear "×" can overlay its right edge. */
+.library-search-field { position: relative; flex: 1; min-width: 0; display: flex; }
 
 .library-search-input {
   flex: 1;
   min-width: 0;
   box-sizing: border-box;
-  padding: 3px 6px;
+  /* Right padding leaves room for our clear "×". */
+  padding: 3px 20px 3px 6px;
   font: inherit;
   font-size: 0.75rem;
   border: 1px solid #aab;
@@ -1973,14 +1971,44 @@ input[type="range"]::-moz-range-thumb {
   background: #fff;
 }
 
-/* The filter "⋮" is a flex sibling after the input (not an overlay) so the
-   native type=search clear "×" has room at the input's right edge. The button
-   keeps the standard bordered .btn look, matching the tape pane. */
+/* Suppress the browser's own search "×" — its presence and position vary by
+   browser (Firefox never shows one); our own button below is consistent. */
+.library-search-input::-webkit-search-cancel-button { display: none; }
+
+/* Our clear "×", overlaid at the input's right edge, shown only when non-empty.
+   Scoped under .library-search to beat the generic `.pane button` rule (which
+   would otherwise force width:100% and its own chrome onto it). */
+.library-search .library-search-clear {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  padding: 0 0 1px;
+  border: none;
+  background: none;
+  color: #99a;
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.library-search .library-search-clear:hover { color: #223; background: none; }
+
+/* The filter funnel is a flex sibling after the input (not an overlay) so the
+   native type=search clear "×" keeps its room at the input's right edge. It
+   keeps the standard bordered grey .btn look, matching the pane's other buttons. */
 .library-search-menu {
   display: flex;
   align-items: center;
   flex: none;
 }
+
+/* Engaged filter → the standard .btn active highlight. */
+.library-search-menu.active .ddmenu-btn { background: #ddf; border-color: #66c; color: #00c; }
 
 /* A long genre submenu can scroll — but ONLY a leaf one (no further flyouts).
    A submenu that itself contains sub-flyouts must not clip: overflow-y would
