@@ -44,6 +44,9 @@ export async function fetchROM(model: MachineModel): Promise<Uint8Array> {
   if (isMsxModel(model)) {
     return fetchCached(CPC_ROM_BASE + 'hx-10_basic-bios1.rom', 'hx-10_basic-bios1.rom');
   }
+  if (model === 'einstein') {
+    return fetchCached(CPC_ROM_BASE + 'einstein-mos.rom', 'einstein-mos.rom');
+  }
   if (isCpcModel(model)) {
     const files = CPC_ROM_FILES[model];
     const parts = await Promise.all(files.map(f => fetchCached(CPC_ROM_BASE + f, f)));

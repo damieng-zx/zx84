@@ -11,6 +11,8 @@
 import type { MachineModel } from '@/models.ts';
 import { dbSave, dbLoad, dbDelete } from '@/store/persistence.ts';
 import { BANK_SIZE } from '@/utils/bank-size.ts';
+import { ROM_BASE } from '@/utils/rom-host.ts';
+import { entryForModel } from '@/machines/registry.ts';
 
 export interface ROMEntry {
   data: Uint8Array;
@@ -23,8 +25,6 @@ export interface ROMEntry {
 
 /** A 16K ROM page index within a multi-page model (see romPageSlotCount). */
 export type RomPage = 0 | 1 | 2 | 3;
-
-const ROM_BASE = 'https://zx84files.bitsparse.com/roms/';
 
 /** Label for a freshly-fetched default ROM — model-specific naming where the
  *  underlying chip has a real name (Sinclair BASIC on the 16K/48K), falling
@@ -52,23 +52,6 @@ export function defaultRomPageLabel(model: MachineModel, page: RomPage): string 
   const maker = model === '+2' ? 'Amstrad' : 'Sinclair';
   return page === 0 ? `${maker} 128K BASIC` : `${maker} 48K BASIC`;
 }
-
-// Each model lists its ROM pages in order; they are fetched and concatenated.
-// CPC models concatenate to OS(16KB) + BASIC(16KB) [+ AMSDOS(16KB)], the layout
-// CpcMemory.loadROM() splits on.
-const DEFAULT_ROM_URLS: Record<MachineModel, string[]> = {
-  '16k':  [`${ROM_BASE}48.rom`],
-  '48k':  [`${ROM_BASE}48.rom`],
-  '128k': [`${ROM_BASE}128-0.rom`, `${ROM_BASE}128-1.rom`],
-  '+2':   [`${ROM_BASE}plus2-0.rom`, `${ROM_BASE}plus2-1.rom`],
-  '+2A':  [`${ROM_BASE}plus3-41-0.rom`, `${ROM_BASE}plus3-41-1.rom`, `${ROM_BASE}plus3-41-2.rom`, `${ROM_BASE}plus3-41-3.rom`],
-  '+3':   [`${ROM_BASE}plus3-0.rom`, `${ROM_BASE}plus3-1.rom`, `${ROM_BASE}plus3-2.rom`, `${ROM_BASE}plus3-3.rom`],
-  'cpc6128': [`${ROM_BASE}os6128.rom`, `${ROM_BASE}basic1-1.rom`, `${ROM_BASE}amsdos.rom`],
-  'cpc464':  [`${ROM_BASE}os464.rom`, `${ROM_BASE}basic1-0.rom`],
-  'cpc664':  [`${ROM_BASE}os664.rom`, `${ROM_BASE}basic664.rom`, `${ROM_BASE}amsdos.rom`],
-  'einstein': [`${ROM_BASE}einstein-mos.rom`],
-  'hx-10': [`${ROM_BASE}hx-10_basic-bios1.rom`],
-};
 
 export class ROMManager {
   private cache: Record<string, ROMEntry> = {};
@@ -126,7 +109,10 @@ export class ROMManager {
     model: MachineModel,
     onStatus?: (msg: string) => void
   ): Promise<ROMEntry | null> {
-    const urls = DEFAULT_ROM_URLS[model];
+    // Each machine's registry entry lists its ROM pages in order; they are
+    // fetched and concatenated here (CPC: OS + BASIC [+ AMSDOS], the layout
+    // CpcMemory.loadROM() splits on).
+    const urls = entryForModel(model).romSources(model);
     onStatus?.(`Downloading ${model.toUpperCase()} ROM…`);
 
     try {

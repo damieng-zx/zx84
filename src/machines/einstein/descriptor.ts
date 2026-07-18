@@ -1,0 +1,31 @@
+/**
+ * Einstein registry entry — pure metadata + factory (re-architecture §3.5).
+ * Imported only by `machines/registry.ts`; must stay headless-safe.
+ */
+
+import type { IScreenRenderer } from '@/display/display.ts';
+import type { MachineDescriptor, MachineEntry } from '@/machines/machine.ts';
+import type { MachineModel } from '@/models.ts';
+import type { EinsteinModel } from './models.ts';
+import { EinsteinMachine } from './einstein-machine.ts';
+import { EINSTEIN_SCREEN_WIDTH, EINSTEIN_SCREEN_HEIGHT } from './constants.ts';
+import { ROM_BASE } from '@/utils/rom-host.ts';
+
+export const einsteinEntry: MachineEntry = {
+  kind: 'einstein',
+  models: ['einstein'],
+  descriptor(model: MachineModel): MachineDescriptor {
+    return {
+      kind: 'einstein',
+      model,
+      cpuFamily: 'z80',
+      screen: { width: EINSTEIN_SCREEN_WIDTH, height: EINSTEIN_SCREEN_HEIGHT, pixelAspectX: 1 },
+    };
+  },
+  create(model: MachineModel, display: IScreenRenderer | null) {
+    return new EinsteinMachine(model as EinsteinModel, display);
+  },
+  romSources() {
+    return [`${ROM_BASE}einstein-mos.rom`];
+  },
+};

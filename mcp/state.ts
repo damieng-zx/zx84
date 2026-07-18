@@ -5,11 +5,12 @@
  * — call (and await) it before touching the singletons.
  */
 
-import { Spectrum } from '../src/machines/spectrum/spectrum.ts';
-import { CpcMachine } from '../src/machines/cpc/cpc-machine.ts';
-import { MsxMachine } from '../src/machines/msx/msx-machine.ts';
+import type { Spectrum } from '../src/machines/spectrum/spectrum.ts';
+import type { CpcMachine } from '../src/machines/cpc/cpc-machine.ts';
+import type { MsxMachine } from '../src/machines/msx/msx-machine.ts';
 import { type Machine, asSpectrum, asCpc, asMsx } from '../src/machines/machine.ts';
-import { type MachineModel, type SpectrumModel, type MsxModel, isCpcModel, isMsxModel } from '../src/models.ts';
+import { entryForModel } from '../src/machines/registry.ts';
+import type { MachineModel } from '../src/models.ts';
 import { SymbolTable } from '../src/debug/symbols.ts';
 import { fetchROM } from './rom-fetch.ts';
 import { wireFdcLog } from './fdc-log.ts';
@@ -38,23 +39,12 @@ export function activeMsx(): MsxMachine | null { return asMsx(state.spec); }
 export async function initMachine(m: MachineModel): Promise<string> {
   state.model = m;
   state.romData = await fetchROM(m);
-  if (isCpcModel(m)) {
-    const cpc = new CpcMachine(m, null);
-    cpc.loadROM(state.romData);
-    cpc.reset();
-    state.spec = cpc;
-  } else if (isMsxModel(m)) {
-    const msx = new MsxMachine(m as MsxModel, null);
-    msx.loadROM(state.romData);
-    msx.reset();
-    state.spec = msx;
-  } else {
-    const spec = new Spectrum(m as SpectrumModel);
-    spec.scanlineAccuracy = 'low'; // Spectrum-only knob
-    spec.loadROM(state.romData);
-    spec.reset();
-    state.spec = spec;
-  }
+  const machine = entryForModel(m).create(m, null);
+  const spec = asSpectrum(machine);
+  if (spec) spec.scanlineAccuracy = 'low'; // Spectrum-only headless knob
+  machine.loadROM(state.romData);
+  machine.reset();
+  state.spec = machine;
   wireFdcLog(state.spec);
   installTrapHook(state.spec);
   return `Machine ready: ${m.toUpperCase()} PC=${h16(state.spec.cpu.pc)}`;

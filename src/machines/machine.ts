@@ -109,6 +109,335 @@ export interface Machine {
   startTrace(mode?: MachineTraceMode): void;
   stopTrace(): string;
   ocrScreenForMcp(mode?: OcrGridName | 'auto'): string;
+
+  // ── SPI v2 (optional during the Phase 3-7 transition; see below) ─────
+  /** Static metadata for this machine+model (also available construction-free
+   *  via the registry's `descriptor(model)`). */
+  readonly descriptor?: MachineDescriptor;
+  /** The service surface (§3.3). Required from Phase 7 on. */
+  readonly services?: MachineServices;
+  /** Attach the operator's panel (shell / MCP). */
+  attachHost?(host: MachineHost): void;
+  /** Pull the settings this machine cares about from the generic store view. */
+  applySettings?(view: SettingsView): void;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Machine SPI v2 (re-architecture Phase 2 — see docs/re-architecture.md §3.2-3.5)
+//
+// The interfaces below are the *service* surface each machine will implement in
+// Phase 3: narrow management routines the UI, shell, and MCP bind to instead of
+// narrowing to a concrete machine. During the transition the accessors on
+// `Machine` are optional; Phase 7 makes them required and deletes the legacy
+// chip-typed fields (cpu/ay/fdc/tape/mixer) and the as*() helpers above.
+//
+// Everything here must stay headless-safe: types + plain functions only, no
+// solid-js, no DOM beyond what `IScreenRenderer` already implies for the shell.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** CPU families the debug layer can host. Extended when a new family arrives
+ *  (the first 6502 machine adds 'm6502' panels/disassembler — §3.7). */
+export type CpuFamily = 'z80' | 'm6502';
+
+/**
+ * Static, construction-free metadata for one model of one machine. Everything
+ * the shell needs *before* (or without) building the machine: which family it
+ * is, how big its frame buffer is, how to letterbox it.
+ */
+export interface MachineDescriptor {
+  readonly kind: MachineKind;
+  readonly model: MachineModel;
+  readonly cpuFamily: CpuFamily;
+  /** Full-border frame-buffer geometry the display is created with. The live
+   *  machine may render less (border-size setting); that stays machine-owned. */
+  readonly screen: { readonly width: number; readonly height: number; readonly pixelAspectX: number };
+}
+
+/**
+ * The operator's panel — how a machine reaches *out* (status line, "this media
+ * needs a different model", persistence). Provided by the shell (or MCP) via
+ * `attachHost`; a machine must function with no host attached.
+ */
+export interface MachineHost {
+  setStatus(msg: string): void;
+  /** Ask to be rebuilt as `model` (e.g. a 128K-only snapshot on a 48K, a CPC
+   *  .sna for a different CPC). Resolves false if the host declines. The
+   *  current machine instance is destroyed on success — treat as terminal. */
+  requestModel(model: MachineModel, reason: string): Promise<boolean>;
+  /** Persist (data) or clear (null) a piece of mounted media under a
+   *  machine-chosen key, so a reload can restore it. */
+  persistMedia(kind: string, data: Uint8Array | null, name: string): void;
+}
+
+/** Read-only view over the generic key/value settings store. The shell snapshots
+ *  the store into this and pushes it via `applySettings`; machines never import
+ *  the reactive settings module. */
+export interface SettingsView {
+  get<T>(key: string, fallback: T): T;
+}
+
+// ── Media / device services ─────────────────────────────────────────────────
+
+/** Identifies a mountable device inside a machine, e.g. 'tape', 'drive:0',
+ *  'cartridge', 'snapshot', 'rom'. Machine-defined; opaque to the shell. */
+export type MediaTargetId = string;
+
+export interface MediaTypeDescriptor {
+  /** Lower-case extension including the dot, e.g. '.tzx'. */
+  readonly ext: string;
+  /** Default device this extension routes to (informational for pickers). */
+  readonly target: MediaTargetId;
+}
+
+export interface MountResult {
+  readonly ok: boolean;
+  /** Device the media actually landed in (when ok). */
+  readonly target?: MediaTargetId;
+  /** Human status line ("Disk A: loaded: game.dsk" / error text). */
+  readonly message: string;
+}
+
+/**
+ * File routing for one machine. The shell handles machine-agnostic concerns
+ * (zip unwrapping, multi-entry pickers, persistence, signal updates) and hands
+ * everything else here; the machine owns ALL routing logic — which extension
+ * goes to which device given its fitted peripherals. After a successful mount
+ * the shell re-reads the device services (tape/disks/roms) to refresh state.
+ */
+export interface MediaService {
+  /** Extensions currently loadable (varies with enabled peripherals). */
+  accepts(): MediaTypeDescriptor[];
+  mount(data: Uint8Array, filename: string, target?: MediaTargetId): Promise<MountResult>;
+}
+
+export interface TapeBlockInfo {
+  readonly index: number;
+  readonly label: string;
+  /** Format-specific kind tag ('header', 'data', 'turbo', …) for pane styling. */
+  readonly kind: string;
+}
+
+/** Cassette transport. Spectrum/CPC/Einstein implement this over the shared
+ *  pulse-level TapeDeck; the MSX over its instant-load .cas cassette — one
+ *  surface, so the tape pane and tape-state signals stay machine-blind. */
+export interface TapeService {
+  readonly loaded: boolean;
+  readonly name: string;
+  readonly blocks: readonly TapeBlockInfo[];
+  readonly position: number;
+  readonly playing: boolean;
+  readonly paused: boolean;
+  play(): void;
+  pause(): void;
+  rewind(): void;
+  seek(block: number): void;
+  eject(): void;
+}
+
+export interface DriveDescriptor {
+  /** Stable id within this machine ('a', 'plusd:0', …). */
+  readonly id: string;
+  /** Pane label ("A:", "+D drive 1", "Drive 0"). */
+  readonly label: string;
+  readonly loaded: boolean;
+  readonly mediaName: string;
+  readonly writeProtected: boolean;
+  readonly motorOn: boolean;
+}
+
+/** Every drive-bearing device the machine currently has fitted, flattened:
+ *  the +3's internal uPD765A units and any enabled +D/Beta/IF1 drives appear
+ *  side by side, distinguished only by their descriptors. */
+export interface DiskService {
+  readonly drives: readonly DriveDescriptor[];
+  mount(id: string, image: DskImage, name: string): void;
+  eject(id: string): void;
+  /** Serialize the drive's current image for download, or null if empty. */
+  save(id: string): Uint8Array | null;
+  setWriteProtect(id: string, on: boolean): void;
+}
+
+export interface RomSlotInfo {
+  readonly index: number;
+  readonly label: string;
+  readonly size: number;
+  /** True when a user-supplied image overrides the default. */
+  readonly overridden: boolean;
+}
+
+export interface CartridgeSlot {
+  /** Mounted cartridge name, '' when empty. */
+  readonly name: string;
+  insert(data: Uint8Array, name: string): void;
+  eject(): void;
+}
+
+/** System-ROM and cartridge management for the ROM pane. */
+export interface RomService {
+  readonly systemSlots: readonly RomSlotInfo[];
+  setSystemRom(data: Uint8Array, label: string, page?: number): Promise<void>;
+  resetSystemRom(page?: number): Promise<void>;
+  /** The machine's cartridge slot (MSX slot, ZX Interface 2), or null. */
+  readonly cartridge: CartridgeSlot | null;
+}
+
+export interface SnapshotService {
+  formats(): { ext: string; canSave: boolean }[];
+  apply(data: Uint8Array, filename: string): Promise<void>;
+  save(ext: string): Uint8Array;
+}
+
+// ── Debug service ───────────────────────────────────────────────────────────
+
+export interface RegisterDesc {
+  readonly name: string;
+  readonly width: 8 | 16;
+  readonly value: number;
+  /** Grouping hint for generic layouts ('main', 'alt', 'index', 'flags'…). */
+  readonly group?: string;
+}
+
+export interface RegisterSnapshot {
+  readonly pc: number;
+  readonly regs: readonly RegisterDesc[];
+}
+
+export interface DisasmRow {
+  readonly addr: number;
+  readonly bytes: string;
+  readonly text: string;
+  readonly length: number;
+}
+
+/** A machine-specific debug panel the machine offers (sysvars, BASIC listing,
+ *  banks…). Data only — the matching UI component is registered separately in
+ *  the UI-side manifest (§3.5). */
+export interface DebugPanelDescriptor {
+  readonly id: string;
+  readonly title: string;
+}
+
+/**
+ * CPU-family-specific debug provider. Breakpoint/watchpoint storage stays on
+ * the machine itself (BaseMachine fields — the frame loop checks them on the
+ * hot path); this service is the *presentation* surface over CPU state.
+ */
+export interface DebugService {
+  readonly cpuFamily: CpuFamily;
+  regs(): RegisterSnapshot;
+  setReg(name: string, value: number): void;
+  disasm(addr: number, lines: number): DisasmRow[];
+  startTrace(mode?: string): void;
+  stopTrace(): string;
+  /** Screen OCR ('auto' or a machine-defined grid name). */
+  ocr(mode?: string): string;
+  panels(): DebugPanelDescriptor[];
+}
+
+// ── Input service ───────────────────────────────────────────────────────────
+
+/** A host keyboard event, pre-digested so machines don't touch DOM types. */
+export interface HostKeyEvent {
+  readonly code: string;
+  readonly key: string;
+  readonly shift: boolean;
+  readonly ctrl: boolean;
+  readonly alt: boolean;
+}
+
+export interface MouseSink {
+  motion(dx: number, dy: number): void;
+  button(index: number, down: boolean): void;
+  wheel(delta: number): void;
+}
+
+/** Host input delivery. Each machine maps host events onto its own keyboard
+ *  matrix / joystick / mouse hardware — replacing the shell's per-machine
+ *  dispatch ladder. */
+export interface InputService {
+  /** Returns true when the event was consumed (shell then preventDefaults). */
+  keyDown(e: HostKeyEvent): boolean;
+  keyUp(e: HostKeyEvent): void;
+  /** Release everything (window blur). */
+  releaseAll(): void;
+  readonly mouse: MouseSink | null;
+}
+
+// ── Frame probe ─────────────────────────────────────────────────────────────
+
+/**
+ * Per-frame dashboard sample. ONE preallocated instance is reused every frame
+ * (`FrameProbe.sample` must not allocate — §6). Channels are generic; each
+ * machine writes only what it has and maps its own counters onto them (the
+ * Spectrum maps Kempston reads → joystick, attribute-cycling → videoFx, …).
+ * Exact level semantics are fixed in Phase 5; the shape is fixed here.
+ */
+export interface FrameIndicators {
+  /* Activity levels, 0 = idle (counters or 0..1 levels — Phase 5 defines). */
+  keyboard: number;
+  joystick: number;
+  mouse: number;
+  tapeIn: number;
+  tapeLoad: number;
+  tapeTurbo: number;
+  disk: number;
+  beeper: number;
+  psg: number;
+  videoFx: number;
+  text: number;
+  /* Transports */
+  driveMotorMask: number;
+  tapePlaying: boolean;
+  tapePositionBlock: number;
+  /* Speed */
+  tStates: number;
+}
+
+export function createFrameIndicators(): FrameIndicators {
+  return {
+    keyboard: 0, joystick: 0, mouse: 0, tapeIn: 0, tapeLoad: 0, tapeTurbo: 0,
+    disk: 0, beeper: 0, psg: 0, videoFx: 0, text: 0,
+    driveMotorMask: 0, tapePlaying: false, tapePositionBlock: -1,
+    tStates: 0,
+  };
+}
+
+export interface FrameProbe {
+  /** Overwrite `out` in place with this frame's indicator state. No allocation. */
+  sample(out: FrameIndicators): void;
+}
+
+// ── Service bundle + registry entry ─────────────────────────────────────────
+
+/**
+ * The full service surface of a machine. Grouped under one property (rather
+ * than flat on `Machine`) because the legacy field `tape: TapeDeck` collides
+ * with the `TapeService` accessor during the transition — and because it makes
+ * the Phase 7 slimming a single-property swap.
+ */
+export interface MachineServices {
+  readonly media: MediaService;
+  readonly roms: RomService;
+  readonly tape: TapeService | null;
+  readonly disks: DiskService | null;
+  readonly snapshots: SnapshotService | null;
+  readonly debug: DebugService;
+  readonly input: InputService;
+  readonly probe: FrameProbe;
+}
+
+/**
+ * One machine family's registry entry: the parts catalog line. `registry.ts`
+ * and `src/models.ts` are the ONLY files that may name every machine (§3.5).
+ */
+export interface MachineEntry {
+  readonly kind: MachineKind;
+  readonly models: readonly MachineModel[];
+  descriptor(model: MachineModel): MachineDescriptor;
+  create(model: MachineModel, display: IScreenRenderer | null): Machine;
+  /** Default system-ROM image URLs, fetched and concatenated in order by the
+   *  shared rom-manager machinery. */
+  romSources(model: MachineModel): readonly string[];
 }
 
 /** Narrow a Machine to a Spectrum, or null if it is a different machine. */

@@ -5,12 +5,11 @@
 import { batch } from 'solid-js';
 import { Spectrum } from '@/machines/spectrum/spectrum.ts';
 import { CpcMachine } from '@/machines/cpc/cpc-machine.ts';
-import { EinsteinMachine } from '@/machines/einstein/einstein-machine.ts';
-import { MsxMachine } from '@/machines/msx/msx-machine.ts';
 import { type Machine, type MachineKind, asSpectrum, asCpc, asEinstein, asMsx } from '@/machines/machine.ts';
+import { entryForModel } from '@/machines/registry.ts';
 import {
-  type SpectrumModel, type MachineModel, type CpcModel, type EinsteinModel, type MsxModel,
-  is128kClass, isPlus2AClass, isCpcModel, isEinsteinModel, isMsxModel, isPlusDCapable,
+  type SpectrumModel, type MachineModel,
+  is128kClass, isPlus2AClass, isCpcModel, isPlusDCapable,
   isInterface1Capable, isInterface2Capable, isBetaDiskCapable, romPageSlotCount,
 } from '@/models.ts';
 import { BANK_SIZE } from '@/utils/bank-size.ts';
@@ -22,7 +21,7 @@ import { parseCasBlocks } from '@/machines/msx/msx-tape.ts';
 import { WebGLRenderer } from '@/display/webgl-renderer.ts';
 import { CanvasRenderer } from '@/display/canvas-renderer.ts';
 import { FloppySound } from '@/media/floppy/floppy-sound.ts';
-import { PALETTES, SCREEN_WIDTH, SCREEN_HEIGHT } from '@/machines/spectrum/ula.ts';
+import { PALETTES } from '@/machines/spectrum/ula.ts';
 import { saveSZX, saveSZXSync } from '@/machines/spectrum/snapshots/szx.ts';
 import { saveZ80 } from '@/machines/spectrum/snapshots/z80format.ts';
 import { parseTZX } from '@/media/tape/tzx.ts';
@@ -248,10 +247,10 @@ export function setRomStatus(msg: string): void {
 }
 
 function createDisplay(el: HTMLCanvasElement, w: number, h: number) {
-  // The CPC frame buffer is 2× oversampled horizontally (16 Gate-Array pixel
-  // clocks per character); display it at half width to restore a ~4:3 pixel
-  // aspect and keep the Scale steps consistent with the Spectrum.
-  const pixelAspectX = isCpcModel(currentModel()) ? 0.5 : 1;
+  // Pixel aspect is machine metadata (the CPC's buffer is 2× oversampled
+  // horizontally and displays at half width to restore ~4:3).
+  const model = currentModel();
+  const pixelAspectX = entryForModel(model).descriptor(model).screen.pixelAspectX;
   if (settings.renderer() === 'webgl' && settings.webglAvailable()) {
     try {
       return new WebGLRenderer(el, w, h, pixelAspectX);
@@ -361,20 +360,10 @@ export async function createMachine(): Promise<boolean> {
 
   const model = currentModel();
   const cpc = isCpcModel(model);
-  const einstein = isEinsteinModel(model);
-  const msx = isMsxModel(model);
-  const [w, h] = einstein ? [EINSTEIN_SCREEN_WIDTH, EINSTEIN_SCREEN_HEIGHT]
-    : msx ? [MSX_SCREEN_WIDTH, MSX_SCREEN_HEIGHT]
-    : cpc ? [CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT]
-    : [SCREEN_WIDTH, SCREEN_HEIGHT];
+  const entry = entryForModel(model);
+  const { width: w, height: h } = entry.descriptor(model).screen;
   const display = canvasEl ? createDisplay(canvasEl, w, h) : null;
-  machine = einstein
-    ? new EinsteinMachine(model as EinsteinModel, display)
-    : msx
-    ? new MsxMachine(model as MsxModel, display)
-    : cpc
-    ? new CpcMachine(model as CpcModel, display)
-    : new Spectrum(model as SpectrumModel, display);
+  machine = entry.create(model, display);
   spectrum = asSpectrum(machine);
   einsteinXtalDosPhantom = false;   // fresh FDC on the new machine
   machine.onStatus = (msg: string) => setStatus(msg);
