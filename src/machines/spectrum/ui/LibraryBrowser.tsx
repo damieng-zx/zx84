@@ -395,11 +395,10 @@ export function LibraryBrowser() {
       } else {
         setMounted(null);
       }
-      // "Loading" (not "loaded"): the file is mounted and the loader kicked, but
-      // the program itself is only now starting to load. Overrides the media
-      // manager's "…loaded" message and shows the clean title, not the filename.
+      // Report the mounted media by kind and filename, overriding the media
+      // manager's default "…loaded" message.
       const source = plan.kind === 'plus3-disk' ? '+3 disk' : plan.kind === 'mgt-disk' ? 'MGT disk' : plan.kind;
-      setStatus(`${isPeripheral ? 'Mounted' : 'Loading'} ${game.title} from ${source}`);
+      setStatus(`Loaded ${source} ${basename(plan.link)}`);
       // G+DOS boots from the mounted disk after reset; Interface 1 cartridges
       // remain mounted for the program's own LOAD * command.
       if (!remountOnly && plan.kind === 'mgt-disk') resetMachine();
