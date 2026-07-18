@@ -1809,12 +1809,15 @@ input[type="range"]::-moz-range-thumb {
 }
 .tape-eject:hover { color: #c00; background: none !important; }
 
-/* Disk drive pane */
+/* Disk drive pane. The 20px gap here used to leave room for the LED that hung
+   below each filename box; the LED now lives in the header, so drives pack
+   tight — spacing comes from the flex gap alone (no per-section margin, so no
+   trailing space after the last drive either). */
 #drive-panel .pane-content-inner {
-  gap: 20px;
+  gap: 8px;
 }
 .disk-section {
-  margin-bottom: 8px;
+  margin-bottom: 0;
 }
 
 /* Header row: drive letter + track/sector + menu buttons */
@@ -1854,10 +1857,9 @@ input[type="range"]::-moz-range-thumb {
   border-color: #dd2222;
 }
 
-/* Filename slot + LED indicator */
+/* Filename slot */
 .disk-slot {
-  position: relative;
-  margin-bottom: 2px;
+  margin-bottom: 2px;   /* small gap before the "Format" info line */
 }
 .disk-name {
   display: flex;
@@ -1871,12 +1873,13 @@ input[type="range"]::-moz-range-thumb {
   height: 24px;
   margin-bottom: 0;
 }
+/* LED indicator — sits inline in the header, right after the drive letter. */
 .drive-led {
-  position: absolute;
-  bottom: -9px;
-  right: 0;
-  width: 22px;
-  height: 8px;
+  flex: 0 0 auto;
+  position: relative;
+  top: 1px;              /* nudge down to sit level with the letter's baseline */
+  width: 18px;
+  height: 7px;
   border-radius: 1px;
   border: 1px solid rgba(0,0,0,0.3);
 }

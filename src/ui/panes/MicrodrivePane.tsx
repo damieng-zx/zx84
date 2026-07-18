@@ -81,6 +81,11 @@ function MicrodriveSlot(props: { unit: number }) {
     <div class="disk-section">
       <div class="drive-header">
         <span class="disk-label">{label()}</span>
+        <span
+          class="drive-led"
+          title={motorOn() ? 'motor on' : (slot()?.loaded ? 'idle' : 'empty')}
+          style={{ background: motorOn() ? '#2266ee' : '#111' }}
+        />
         <span class="drive-track-info" />
         <DropDownMenuButton
           icon={<HiOutlineDocumentPlus />}
@@ -125,11 +130,6 @@ function MicrodriveSlot(props: { unit: number }) {
             </button>
           </Show>
         </div>
-        <span
-          class="drive-led"
-          title={motorOn() ? 'motor on' : (slot()?.loaded ? 'idle' : 'empty')}
-          style={{ background: motorOn() ? '#2266ee' : '#111' }}
-        />
       </div>
       <Show when={slot()?.loaded}>
         <div class="microdrive-blocks mono-block" ref={blocksRef}>

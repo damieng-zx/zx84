@@ -91,6 +91,7 @@ function DiskInfo(props: {
     <div class="disk-section">
       <div class="drive-header">
         <span class="disk-label">{props.label}</span>
+        <span class="drive-led" style={{ background: LED_COLORS[props.status.led] }} title={props.status.led} />
         <span class="drive-track-info">
           <span class="reg-name">Track</span>{' '}{props.status.track}
           {'  '}
@@ -167,7 +168,6 @@ function DiskInfo(props: {
             </button>
           </Show>
         </div>
-        <span class="drive-led" style={{ background: LED_COLORS[props.status.led] }} title={props.status.led} />
       </div>
       <Show when={props.diskInfo}>
         <pre class="disk-info-output" innerHTML={renderDiskInfoStr(props.diskInfo!, props.showProtection ?? true)} />
