@@ -1,171 +1,105 @@
 # ZX84
 
-**A ZX Spectrum emulator for your browser & MCP server for AI testing**
+**A browser emulator for the ZX Spectrum, Amstrad CPC, Tatung Einstein, and MSX, with a Spectrum MCP server for automated testing.**
 
 https://zx84.envytech.workers.dev
 
-Experience the legendary ZX Spectrum with authentic CRT filtering, multi-model support and a powerful integrated debugger. Built from scratch in TypeScript with zero runtime dependencies.
+ZX84 is an old-computer emulator with machine-specific hardware models, browser-based media management, inspection tools, and a configurable CRT presentation layer.
 
-![ZX Spectrum Models](https://img.shields.io/badge/Models-48K%20%7C%20128K%20%7C%20%2B2%20%7C%20%2B2A%20%7C%20%2B3-blue)
-![File Formats](https://img.shields.io/badge/Formats-SNA%20%7C%20Z80%20%7C%20SZX%20%7C%20TAP%20%7C%20TZX%20%7C%20DSK%20%7C%20ZIP-green)
+## Supported Machines
 
-This project has been extensively developed using AI - specifically Claude Code.
+| Family | Models | Core Hardware |
+| --- | --- | --- |
+| Sinclair ZX Spectrum | 16K, 48K, 128K, +2, +2A, +3 | Z80, ULA or Amstrad gate array, beeper, AY on 128K-class models, uPD765A on +3 |
+| Amstrad CPC | CPC 464, CPC 664, CPC 6128 | Z80, gate array, 6845 CRTC, AY-3-891x, 8255 PPI, uPD765A on 664/6128 |
+| Tatung Einstein | TC-01 | Z80, TMS9929A VDP, AY-3-8910, Z80 CTC, WD1770 |
+| MSX | Toshiba HX-10 | Z80, TMS9929A VDP, AY-3-8910, 8255 PPI, cartridge slot |
 
----
+## Features
 
-## ✨ Features
+### Hardware And Peripherals
 
-### 🎮 Complete Spectrum Family
-- **48K** — The original rubber-key classic
-- **128K / +2** — 128KB RAM, AY sound chip, improved BASIC
-- **+2A / +3** — Built-in disk drive support with full +3DOS emulation
+- Spectrum ULA timing, floating bus, contention, 128K paging, AY sound, and +3 floppy support.
+- Spectrum peripherals: Multiface 1/128/3, Interface 2 cartridges, VTX-5000 Viewdata modem, ZX Interface 1 with up to eight Microdrives, MGT +D, and Beta Disk/TR-DOS.
+- CPC cassette support, disk-capable 664/6128 models, Multiface Two, and optional ParaDOS ROM.
+- Einstein disk mounting and optional Xtal DOS boot-disk behavior.
+- HX-10 cartridge loading and BIOS-level `.cas` cassette loading.
 
-### 🕹️ Authentic Hardware Emulation
-- **Z80 CPU** — Cycle-accurate with contended memory timing
-- **ULA** — Precise video rendering with floating bus emulation
-- **AY-3-8912** — 3-channel programmable sound chip (128K models)
-- **Beeper** — 1-bit audio with DC-blocking filter
-- **uPD765A FDC** — Full floppy disk controller (+3 only)
+Spectrum ROM-overlay peripherals are model-dependent. Interface 1, MGT +D, and Beta Disk are mutually exclusive; Beta Disk takes precedence when enabled.
 
-### 📂 Universal File Support
-Load your software instantly with drag-and-drop:
-- **Snapshots**: `.sna` (48K/128K), `.z80` (v1/v2/v3), `.szx` (ZX-State)
-- **Tapes**: `.tap`, `.tzx` with instant ROM-trap loading, `.csw` square-wave captures
-- **Disks**: `.dsk` for +3 models (standard & extended formats)
-- **Archives**: `.zip` files with automatic extraction
+### Media
 
-### 🎨 Authentic CRT Display
-Relive the 80s with customizable visual filters:
-- **Scanlines** — Adjustable horizontal line intensity
-- **Phosphor Masks** — RGB aperture grille or shadow mask patterns
-- **Curvature** — Authentic barrel distortion
-- **Brightness/Contrast** — Fine-tune the picture
-- **Border Modes** — None, standard, or full (for overscan effects)
-- **Sub-frame Rendering** — Pixel-perfect rainbow effects including Nirvana+
+Load by picker or drag-and-drop. ZIP archives are unpacked and routed to compatible machines where supported.
 
-### 🎵 Crystal-Clear Audio
-- **AudioWorklet** — Low-latency, glitch-free sound
-- **Stereo Modes** — ABC, ACB, BAC, or mono mixing
-- **Volume Control** — Individual beeper and AY levels
-- **Frame Pacing** — Audio-buffer-driven timing (no drift)
+| Machine Or Device | Supported Media |
+| --- | --- |
+| Spectrum | Snapshots: `.sna`, `.z80`, `.szx`, `.sp`; tapes: `.tap`, `.tzx`, `.cdt`, `.csw`; +3 disks: `.dsk`, `.hfe`, `.scp` |
+| Spectrum peripherals | Interface 2: `.rom`; Interface 1: `.mdr`, `.mdv`; MGT +D: `.mgt`, `.img`, `.hfe`, `.scp`; Beta Disk: `.trd`, `.scl`, `.hfe`, `.scp` |
+| CPC | Snapshots: `.sna`; tapes: `.cdt`, `.tzx`, `.tap`; disks: `.dsk`, `.hfe`, `.scp` on disk-capable models |
+| Einstein | Disks: `.dsk`, `.hfe`, `.scp` |
+| MSX | Cartridges: `.rom`; cassettes: `.cas` |
 
-### 🕹️ Controller Support
-Play your way with multiple input options:
-- **Keyboard** — Full PC keyboard mapping with extended symbols
-  - `;`, `:`, `'`, `#`, `?`, `@`, `~`, `{`, `}`, `-`, `+`, `=`, `_`, `[`, `]`
-  - `ESC` as BREAK (CAPS SHIFT + SPACE)
-- **Joystick Emulation** — Kempston, Cursor, Sinclair IF2, Sinclair 1
-- **Gamepad** — Dual physical controller support via Gamepad API
-- **Mouse** — Kempston mouse and AMX mouse support
-- **On-screen D-Pad** — Touch and mouse controls
+The tape deck provides block navigation, transport controls, fast ROM loading, turbo loading, loading sound where applicable, and original-media download. The disk UI supports drive selection, write protection, disk sounds, changed-image saving, blank image creation, and flippy disks.
 
-### 🔧 Powerful Debugger
-Built-in development tools for reverse engineering and learning:
-- **Breakpoints** — Double-click to set, visual indicators
-- **Stepping** — Step Into, Step Over, Step Out
-- **Run to Cursor** — Right-click any instruction
-- **Live Disassembly** — Real-time Z80 code view at PC
-- **Register Inspector** — All CPU registers with tooltips
-- **Memory Viewer** — Banking state and layout (128K)
-- **Execution Tracing** — Full, Contention, or Port I/O modes
-- **Loop Detection** — Automatic stuck-loop analysis
+### Display And Audio
 
-### 📊 Activity Monitoring
-Watch your Spectrum work in real-time:
-- **Activity LEDs** — Keyboard, Kempston, Tape, Beeper, AY, Disk
-- **Tape Deck** — Block list, position, play/pause control
-- **Disk Drive** — Motor, head, track, sector, operation status
-- **Performance** — T-states/frame, clock speed (MHz)
-- **Turbo Mode** — ~50MHz for fast-loading
+- WebGL CRT renderer with a Canvas fallback.
+- Integer scaling plus HQx and xBR upscalers.
+- Scanline accuracy controls, Spectrum rainbow rendering, selectable palettes, border cropping, and CPC pixel-aspect correction.
+- CRT controls for brightness, contrast, saturation, gamma, scanlines, softness, noise, dot pitch, curvature, masks, and monitor presets.
+- Shadow-mask, aperture-grille, slot-mask, LCD-grid, and attribute-mask options.
+- Web Audio output with AudioWorklet and SharedArrayBuffer paths where available, plus a ScriptProcessor fallback.
+- Master volume, beeper-to-AY mix, AY stereo placement, DC blocking, and ultrasonic-tone filtering.
 
-### 💾 Smart Persistence
-- **Auto-save** — ROMs stored in IndexedDB
-- **Last Session** — Restores your last loaded file on startup
-- **UI State** — Model, scale, display settings, pane layout
-- **Custom Fonts** — Load and store `.ch8` font files
+### Input And Development Tools
 
-### 🎯 Transcription Tools
-Extract text and graphics from running programs:
-- **Pixel OCR** — Live character recognition from screen
+- Keyboard mapping, configurable two-player joystick mappings, physical gamepads, and touch/mouse D-pads.
+- Spectrum joystick interfaces: Kempston, Cursor, Sinclair 1, and Sinclair 2.
+- Kempston and AMX mouse modes on supported machines.
+- Pause, frame stepping, step into/over/out, breakpoints, run-to-cursor, disassembly, registers, memory views, and clipboard export.
+- Spectrum and Einstein tracing: full execution, port I/O, and ZXTrace. Spectrum traces coalesce repeated loops.
+- Spectrum-specific BASIC, BASIC variables, system variables, font, memory-bank, screen-text, and OCR tools.
+- Customizable pane ordering, placement, visibility, collapse state, and persistent per-pane settings.
 
-### 🔌 Peripherals
-Hardware add-ons for expanded capabilities:
-- **Multiface 1 / 128 / 3** — Snapshot/poke hardware with NMI button
-- **VTX-5000** — Viewdata/Prestel modem with ROM overlay (48K only)
-- **+3 Floppy Drive** — Motor and seek sound effects
+### Saving, Library, And Persistence
 
----
+- Export Spectrum `.szx` and `.z80` snapshots, CPC snapshots, screenshots, and supported screen/RAM exports.
+- Persist settings, pane layout, custom ROMs and fonts, and supported media in browser storage.
+- Spectrum software library with ZXDB-derived search, filters, screenshots, automatic model selection, and cached catalog data.
 
-## 🚀 Getting Started
+## MCP Server
 
-### Installation
+The included stdio MCP server drives **Spectrum models** (48K, 128K, +2, +2A, and +3) for automated testing and reverse engineering. It supports execution control, memory and register inspection, disassembly, breakpoints and watchpoints, traps, keyboard input, port I/O, OCR, snapshots, tape/disk mounting, tracing, disk inspection, and Multiface/VTX-5000 control.
+
+See [`mcp/README.md`](mcp/README.md) for setup, the complete tool reference, and workflows.
+
+## Getting Started
 
 ```bash
 npm install
 npm run dev
 ```
 
-Open `http://localhost:5174` in your browser.
+Open `http://localhost:5174`, choose a machine in the Hardware pane, then load compatible ROMs and media. The hosted version supplies the standard machine ROM sets; local builds can load replacement ROM images from the ROM pane.
 
-### Quick Start
-
-1. **Choose a Model** — Select 48K, 128K, +2, +2A, or +3 from the hardware pane
-2. **Load a ROM** — Click "Load ROM" and select the appropriate ROM file for your model
-3. **Load Software** — Drag and drop a `.sna`, `.z80`, `.szx`, `.tap`, `.tzx`, `.csw`, `.dsk`, or `.zip` file onto the window
-
-That's it! For tape files, the emulator will start playback automatically.
-
-### Keyboard Controls
-
-- **ESC** — BREAK (stops tape loading)
-- **Arrow Keys** — Mapped to CAPS SHIFT + 5/6/7/8
-- **Backspace** — DELETE (CAPS SHIFT + 0)
-- **All symbols** — Extended mappings for `;:'"#?@~{}-=_[]`
-
----
-
-## 🎮 Controls
-
-### Debugger
-- **Play/Pause** — Run or pause emulation
-- **Step Into** — Execute one instruction (when paused)
-- **Step Over** — Execute, stepping over CALLs (when paused)
-- **Step Out** — Run until RET (when paused)
-- **Double-click** — Toggle breakpoint on disassembly line
-- **Right-click** — Context menu with "Run to here"
-- **Trace** — Select mode (Full, Contention, Port I/O, Loop Analysis)
-
-### Display
-- **Scale** — 1x to 4x integer scaling
-- **Border** — None, Standard, or Full
-- **Scanlines** — 0-100% intensity
-- **Curvature** — Off, Low, Medium, High
-- **Mask Type** — None, RGB, Aperture Grille
-- **Sub-frame** — Enable for rainbow/raster effects
-
-### Audio
-- **Volume** — 0-100% master volume
-- **Stereo Mode** — ABC, ACB, BAC, Mono
-
----
-
-## 🏗️ Build for Production
+Useful commands:
 
 ```bash
-npm run build     # TypeScript check + Vite build → dist/
-npm run preview   # Serve production build locally
+npm test              # full Vitest suite
+npx tsc --noEmit      # type-check without output
+npm run depcheck      # enforce architecture boundaries
+npm run build         # production build
+npm run mcp           # start the Spectrum MCP server
 ```
 
----
+## Current Scope
 
-## 📜 License
+Hardware and media support varies by machine and model. In particular, the HX-10 has no floppy controller, and some Einstein subsystems remain incomplete. See [`docs/todo.md`](docs/todo.md) for planned formats, devices, and machine work.
+
+## License
 
 [MIT](LICENSE)
 
----
+## Acknowledgments
 
-## 🙏 Acknowledgments
-
-Built with inspiration from the ZX Spectrum community and based on extensive hardware documentation. Special thanks to all the homebrew developers keeping the Spectrum alive!
-
-**Enjoy your trip back to 1984! 🎉**
+Built with inspiration from the ZX Spectrum, CPC, Einstein, and MSX communities and their hardware documentation.
