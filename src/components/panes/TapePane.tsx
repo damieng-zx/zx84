@@ -5,18 +5,17 @@ import { HiOutlineBackward, HiOutlinePlay, HiOutlinePause, HiOutlineStop, HiOutl
 import {
   tapeLoaded, tapeName, tapeBlocks, tapePosition, tapePlaying, tapePaused, casBlocks, casPosition,
   tapeRewind, tapeTogglePlay, tapeTogglePause, tapeSetPosition, toggleAutoRewind,
-  ejectTape, loadFile, tapePrev, tapeNext, applyDisplaySettings, currentModel, saveTape,
+  ejectTape, loadFile, tapePrev, tapeNext, applyDisplaySettings, saveTape,
 } from '@/emulator.ts';
-import { isCpcModel, isMsxModel } from '@/models.ts';
+import { machineCaps } from '@/state/machine-caps.ts';
 import { tapeAutoRewind, tapeCollapseBlocks, setTapeCollapseBlocks, tapeFastRom, setTapeFastRom, tapeTurbo, setTapeTurbo, tapeSoundEnabled, setTapeSoundEnabled } from '@/store/settings.ts';
 import { persistSetting, resetSettingsGroup } from '@/store/settings.ts';
 import type { TapeBlock, DataBlock } from '@/media/tape/tap.ts';
 import { openFile } from '@/ui/file-picker.ts';
 
-const isCpc = () => isCpcModel(currentModel());
 // The MSX cassette is instant-load (BIOS trap), so it shows just a load/eject
 // slot — no pulse-level transport, block list, or fast-load toggles.
-const isMsx = () => isMsxModel(currentModel());
+const isInstantTape = () => machineCaps().tape === 'instant';
 
 const HEADER_TYPES: Record<number, string> = { 0: 'Program', 1: 'Number array', 2: 'Character array', 3: 'Bytes' };
 
@@ -97,9 +96,7 @@ export function TapePane() {
   async function handleLoadTape() {
     const results = await openFile({
       id: 'zx84-tape',
-      extensions: isCpc() ? ['.cdt', '.tzx', '.tap', '.zip']
-        : isMsx() ? ['.cas', '.zip']
-        : ['.tap', '.tzx', '.csw', '.zip'],
+      extensions: [...machineCaps().tapeExtensions],
     });
     if (!results) return;
     await loadFile(results[0].data, results[0].name);
@@ -143,7 +140,7 @@ export function TapePane() {
           title="Tape options"
           items={[
             // Loading sounds aren't wired for the CPC (its cassette is AY-silent).
-            ...(isCpc() ? [] : [{ value: 'tape-sound', label: 'Loading sounds', checked: tapeSoundEnabled() }]),
+            ...(machineCaps().tapeSound ? [{ value: 'tape-sound', label: 'Loading sounds', checked: tapeSoundEnabled() }] : []),
             { value: 'auto-rewind', label: 'Auto-rewind', checked: tapeAutoRewind() },
             { value: 'collapse-blocks', label: 'Combine paired blocks', checked: tapeCollapseBlocks() },
             { value: '__sep1', label: '', separator: true },
@@ -187,7 +184,7 @@ export function TapePane() {
           </button>
         </Show>
       </div>
-      <Show when={tapeLoaded() && isMsx()}>
+      <Show when={tapeLoaded() && isInstantTape()}>
         <div id="tape-blocks" class="mono-block">
           {casBlocks().map((b, i) => {
             const blocks = casBlocks();
@@ -212,7 +209,7 @@ export function TapePane() {
           })}
         </div>
       </Show>
-      <Show when={tapeLoaded() && !isMsx()}>
+      <Show when={tapeLoaded() && !isInstantTape()}>
         <div id="tape-blocks" class="mono-block" ref={containerRef}>
           {tapeBlocks().map((block, i) => {
             const meta = parseTapeBlockMeta(block, i, tapeBlocks(), tapeCollapseBlocks());

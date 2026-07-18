@@ -463,6 +463,16 @@ export class CpcMachine extends BaseMachine implements Machine {
 
   // ── Machine: debug helpers ───────────────────────────────────────────
 
+  /** Resolve a Memory-pane ROM region id (declared in the descriptor) to a live
+   *  ROM view: the lower (OS) ROM at 0x0000, and the upper BASIC/AMSDOS ROMs
+   *  where they overlay at 0xC000. */
+  resolveMemoryRegion(value: string): { data: Uint8Array; baseAddr: number } | null {
+    if (value === 'cpcRomLower') return { data: this.memory.getLowerRom(), baseAddr: 0x0000 };
+    if (value === 'cpcRomBasic') { const d = this.memory.getUpperRom(0); return d ? { data: d, baseAddr: 0xC000 } : null; }
+    if (value === 'cpcRomAmsdos') { const d = this.memory.getUpperRom(7); return d ? { data: d, baseAddr: 0xC000 } : null; }
+    return null;
+  }
+
   disasmAt(pc: number): DisasmLine {
     const buf = new Uint8Array(8);
     for (let i = 0; i < 8; i++) buf[i] = this.memory.readByte((pc + i) & 0xFFFF);

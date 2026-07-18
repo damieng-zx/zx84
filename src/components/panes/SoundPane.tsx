@@ -9,8 +9,8 @@ import {
   ayAntialias, setAyAntialias,
   persistSetting, resetSettingsGroup,
 } from '@/store/settings.ts';
-import { machine, currentModel, applyDisplaySettings } from '@/emulator.ts';
-import { isCpcModel } from '@/models.ts';
+import { machine, applyDisplaySettings } from '@/emulator.ts';
+import { machineCaps } from '@/state/machine-caps.ts';
 import type { AYStereoMode, AYAntialiasMode } from '@/cores/ay-3-8910.ts';
 
 const STEREO_MODES: { value: AYStereoMode; label: string }[] = [
@@ -44,8 +44,8 @@ export function SoundPane() {
     }}>
       <SliderRow label="Volume" id="volume" min={0} max={100} value={volume}
         onInput={(v) => { setVolume(v); persistSetting('volume', v); applyDisplaySettings(); }} />
-      {/* Beeper↔AY balance — Spectrum only; the CPC has no beeper. */}
-      <Show when={!isCpcModel(currentModel())}>
+      {/* Beeper↔AY balance — machines with a 1-bit beeper; the CPC has none. */}
+      <Show when={machineCaps().beeper}>
         <SliderRow label="Mixer" id="ay-mix" min={0} max={100} value={ayMix} endLabels={['Beep', 'AY']}
           onInput={(v) => { setAyMix(v); persistSetting('ay-mix', v); applyDisplaySettings(); }} />
       </Show>

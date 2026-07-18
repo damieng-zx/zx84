@@ -14,12 +14,11 @@ import {
   startTrace, stopTrace, copyCpuState,
   togglePause, toggleBreakpoint, runTo,
 } from '@/emulator.ts';
-import { currentModel } from '@/state/machine-state.ts';
-import { isCpcModel } from '@/models.ts';
+import { machineCaps } from '@/state/machine-caps.ts';
 
 // Execution tracing isn't implemented for the CPC (CpcMachine.startTrace is a
 // no-op), so the trace control is hidden there; the rest of the debugger works.
-const tracingSupported = () => !isCpcModel(currentModel());
+const tracingSupported = () => machineCaps().trace;
 
 function addrFromEvent(e: MouseEvent): number | null {
   const line = (e.target as HTMLElement).closest('.d-line');

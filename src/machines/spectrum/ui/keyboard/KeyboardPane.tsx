@@ -12,7 +12,7 @@
 import { For, Show } from 'solid-js';
 import { Pane } from '@/components/Pane.tsx';
 import { spectrum, currentModel } from '@/emulator.ts';
-import { is128kClass } from '@/models.ts';
+import { is128kClass } from '@/machines/spectrum/models.ts';
 import { Block, useKeyboard, type KeyboardController, type LatchMode } from './keyboard-common.tsx';
 import { KeyboardPlus } from './KeyboardPlus.tsx';
 import { sparseKeyboardFace } from './plus2-legends.ts';

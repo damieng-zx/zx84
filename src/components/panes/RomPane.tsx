@@ -6,7 +6,8 @@ import {
   setSystemRom, resetSystemRom, setSystemRomPage, resetSystemRomPage,
   loadFile, ejectCartridge,
 } from '@/emulator.ts';
-import { isMsxModel, isInterface2Capable, romPageSlotCount, type MachineModel } from '@/models.ts';
+import type { MachineModel } from '@/models.ts';
+import { machineCaps } from '@/state/machine-caps.ts';
 import type { RomPage } from '@/managers/rom-manager.ts';
 import { openFile } from '@/ui/file-picker.ts';
 
@@ -132,16 +133,16 @@ export function RomPane(): JSX.Element {
     return size ? `${label} · ${size}` : label;
   };
 
-  const showCartridgeSlot = (): boolean => isMsxModel(currentModel()) || isInterface2Capable(currentModel());
+  const showCartridgeSlot = (): boolean => machineCaps().cartridge;
   const pageSlots = (): RomPageSlot[] => ROM_PAGE_SLOTS[currentModel()] ?? [];
   // MSX keeps "System ROM" (its BIOS); the 16K/48K Spectrum just says "ROM".
-  const systemSlotLabel = (): string => isMsxModel(currentModel()) ? 'System ROM' : 'ROM';
+  const systemSlotLabel = (): string => machineCaps().systemRomLabel;
 
   return (
     <Pane
       id="rom-panel"
       label="ROM / Carts"
-      visible={showCartridgeSlot() || romPageSlotCount(currentModel()) > 0}
+      visible={showCartridgeSlot() || machineCaps().romPages > 0}
     >
       <Show
         when={pageSlots().length > 0}

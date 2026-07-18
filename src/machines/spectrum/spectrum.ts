@@ -1093,6 +1093,18 @@ export class Spectrum extends BaseMachine implements Machine {
     return `[${grid}]\n${text}`;
   }
 
+  /** Resolve a Memory-pane ROM region id to a live 16K ROM-page view. The page
+   *  regions are declared in the descriptor (`rom0`..`romN`). */
+  resolveMemoryRegion(value: string): { data: Uint8Array; baseAddr: number } | null {
+    if (value.startsWith('rom')) {
+      const idx = parseInt(value.slice(3), 10);
+      return idx < this.memory.romPages.length
+        ? { data: this.memory.romPages[idx], baseAddr: 0 }
+        : null;
+    }
+    return null;
+  }
+
   /** Disassemble a single instruction at `pc` without a full memory snapshot. */
   disasmAt(pc: number): DisasmLine {
     const buf = new Uint8Array(8);

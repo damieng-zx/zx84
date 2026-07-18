@@ -80,14 +80,10 @@ const DEFAULT_ORDER: PanePosition[] = [
   { id: 'text-panel', sidebar: 'right' },
 ];
 
-/**
- * Panes that depend on Spectrum ROM/hardware specifics and are hidden when a
- * CPC is active (they read Spectrum memory layouts, paging, or peripherals).
- */
-export const SPECTRUM_ONLY_PANES = new Set<string>([
-  'sysvar-panel', 'basic-vars-panel',
-  'font-panel',
-]);
+// Panes that depend on machine-specific memory layouts/peripherals and are
+// hidden per machine are now declared by each machine's descriptor
+// (`descriptor.ui.hiddenPanes`) and applied generically in app.tsx — no
+// machine-kind list lives here any more.
 
 function loadPaneOrder(): PanePosition[] {
   try {

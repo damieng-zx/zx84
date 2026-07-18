@@ -21,8 +21,8 @@ import {
   plusDEnabled, betaDiskEnabled, tapeTurbo, setTapeTurbo,
   persistSetting, resetSettingsGroup,
 } from '@/store/settings.ts';
-import { isPlus3 } from '@/machines/spectrum/spectrum.ts';
-import { cpcHasDisk, isPlusDCapable, isBetaDiskCapable, isEinsteinModel } from '@/models.ts';
+import { isPlusDCapable, isBetaDiskCapable } from '@/models.ts';
+import { machineCaps } from '@/state/machine-caps.ts';
 import { DISK_FORMATS, formatLabel, createBlankDisk } from '@/media/floppy/dsk.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { createBlankHfe } from '@/media/floppy/hfe.ts';
@@ -277,9 +277,11 @@ export function DrivePane() {
   // The Beta Disk (drives A:/B:) is mutually exclusive with the +D and reuses
   // the same C/D drive-state signals; only the label and FDC differ.
   const betaDiskActive = () => betaDiskEnabled() && isBetaDiskCapable(currentModel());
+  // Machines with a built-in floppy controller (Spectrum +3, disk CPCs, Einstein).
+  const builtinDisk = () => machineCaps().builtinDisk;
 
   return (
-    <Pane id="drive-panel" label="Drives" mono visible={isPlus3(currentModel()) || cpcHasDisk(currentModel()) || isEinsteinModel(currentModel()) || plusDActive() || betaDiskActive()} onResetSettings={() => {
+    <Pane id="drive-panel" label="Drives" mono visible={builtinDisk() || plusDActive() || betaDiskActive()} onResetSettings={() => {
       // Eject any loaded disk in each drive — +3/CPC A:/B: and the +D/Beta's
       // shared C:/D: signals. Guarded so empty drives don't fire a toast.
       if (currentDiskName()) ejectDisk(0);
@@ -296,7 +298,7 @@ export function DrivePane() {
         spectrum.betaDisk.fdc.writeProtect[0] = false; spectrum.betaDisk.fdc.writeProtect[1] = false;
       }
     }}>
-      <Show when={isPlus3(currentModel()) || cpcHasDisk(currentModel()) || isEinsteinModel(currentModel())}>
+      <Show when={builtinDisk()}>
         <DiskInfo
           label="A:"
           name={currentDiskName()}

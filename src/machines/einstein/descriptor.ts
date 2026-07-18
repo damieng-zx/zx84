@@ -4,12 +4,40 @@
  */
 
 import type { IScreenRenderer } from '@/display/display.ts';
-import type { MachineDescriptor, MachineEntry } from '@/machines/machine.ts';
+import type { MachineDescriptor, MachineEntry, MachineUiCapabilities } from '@/machines/machine.ts';
 import type { MachineModel } from '@/models.ts';
 import type { EinsteinModel } from './models.ts';
 import { EinsteinMachine } from './einstein-machine.ts';
-import { EINSTEIN_SCREEN_WIDTH, EINSTEIN_SCREEN_HEIGHT } from './constants.ts';
+import {
+  EINSTEIN_SCREEN_WIDTH, EINSTEIN_SCREEN_HEIGHT, EINSTEIN_BORDER_LEFT, EINSTEIN_BORDER_TOP,
+} from './constants.ts';
 import { ROM_BASE } from '@/utils/rom-host.ts';
+
+const EINSTEIN_UI: MachineUiCapabilities = {
+  hiddenPanes: [],
+  memoryLayout: false,
+  trace: true,
+  colorMap: 'einstein',
+  builtinDisk: true,
+  joystick: false,
+  fixedJoystick: false,
+  mouse: false,
+  cartridge: false,
+  systemRomLabel: 'ROM',
+  romPages: 0,
+  beeper: true,
+  kempston: true,
+  tapeEar: true,
+  rainbow: true,
+  keyboardBus: 'ula',
+  tape: 'deck',
+  tapeSound: true,
+  tapeExtensions: ['.tap', '.tzx', '.csw', '.zip'],
+  saveMenu: 'vdp',
+  library: false,
+  memoryRegions: [{ value: 'rom0', label: 'ROM 0' }],
+  charset: 'spectrum',
+};
 
 export const einsteinEntry: MachineEntry = {
   kind: 'einstein',
@@ -19,7 +47,12 @@ export const einsteinEntry: MachineEntry = {
       kind: 'einstein',
       model,
       cpuFamily: 'z80',
-      screen: { width: EINSTEIN_SCREEN_WIDTH, height: EINSTEIN_SCREEN_HEIGHT, pixelAspectX: 1 },
+      screen: {
+        width: EINSTEIN_SCREEN_WIDTH, height: EINSTEIN_SCREEN_HEIGHT, pixelAspectX: 1,
+        activeWidth: 256, activeHeight: 192,
+        borderLeft: EINSTEIN_BORDER_LEFT, borderTop: EINSTEIN_BORDER_TOP,
+      },
+      ui: EINSTEIN_UI,
     };
   },
   create(model: MachineModel, display: IScreenRenderer | null) {

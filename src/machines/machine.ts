@@ -112,6 +112,13 @@ export interface Machine {
   stopTrace(): string;
   ocrScreenForMcp(mode?: OcrGridName | 'auto'): string;
 
+  /** Resolve a Memory-pane ROM region id (from descriptor.ui.memoryRegions) to a
+   *  live byte view + base address, or null when the region is unavailable on
+   *  this machine. The generic "mapped" and per-bank regions are handled by the
+   *  pane via `memory`; only the machine-specific ROM regions come through here.
+   *  (Phase 7 folds this into DebugService.mem.) */
+  resolveMemoryRegion?(value: string): { data: Uint8Array; baseAddr: number } | null;
+
   // ── SPI v2 (optional during the Phase 3-7 transition; see below) ─────
   /** Static metadata for this machine+model (also available construction-free
    *  via the registry's `descriptor(model)`). */
@@ -157,9 +164,92 @@ export interface MachineDescriptor {
   readonly kind: MachineKind;
   readonly model: MachineModel;
   readonly cpuFamily: CpuFamily;
-  /** Full-border frame-buffer geometry the display is created with. The live
-   *  machine may render less (border-size setting); that stays machine-owned. */
-  readonly screen: { readonly width: number; readonly height: number; readonly pixelAspectX: number };
+  /** Full-border frame-buffer geometry the display is created with, plus the
+   *  active (non-border) area's size and its offset within the buffer at the
+   *  Normal border setting. The generic transcribe overlay (Screen.tsx) derives
+   *  its position/scale from these instead of branching on machine family; the
+   *  border-size crop is applied uniformly. The live machine may render less
+   *  (border-size setting); that stays machine-owned. */
+  readonly screen: {
+    readonly width: number;
+    readonly height: number;
+    readonly pixelAspectX: number;
+    /** Active display area (the 256×192 Spectrum window, 640×200 CPC, …). */
+    readonly activeWidth: number;
+    readonly activeHeight: number;
+    /** Offset of the active area within the full-border buffer. */
+    readonly borderLeft: number;
+    readonly borderTop: number;
+  };
+  /** Static, per-model UI capabilities the generic panes bind to instead of
+   *  branching on machine kind/model. Pure data — see MachineUiCapabilities. */
+  readonly ui: MachineUiCapabilities;
+}
+
+/** A ROM/region entry offered by the Memory pane's region picker. */
+export interface MemoryRegionInfo {
+  /** Opaque region id passed back to `Machine.resolveMemoryRegion`. */
+  readonly value: string;
+  /** Human label shown in the picker. */
+  readonly label: string;
+}
+
+/**
+ * Per-model UI capability flags, declared by each machine's descriptor. The
+ * generic panes read these (reactively, keyed off the current model) instead of
+ * calling `isCpcModel(...)` / `is128kClass(...)` etc. This keeps the UI machine-
+ * blind: a new machine declares its capabilities and the existing panes adapt.
+ *
+ * Everything here is presentation-facing but *machine-owned*: the machine knows
+ * which of its features the UI should surface. Pure data (headless-safe).
+ */
+export interface MachineUiCapabilities {
+  /** Pane ids removed from the sidebar entirely for this machine. */
+  readonly hiddenPanes: readonly string[];
+  /** Memory-layout ("banks") pane applies to this model. */
+  readonly memoryLayout: boolean;
+  /** Execution-trace debugger control is available. */
+  readonly trace: boolean;
+  /** Palette / colour-map family shown in the Display pane. */
+  readonly colorMap: 'spectrum' | 'cpc' | 'msx' | 'einstein';
+  /** Built-in floppy drives (A:/B:) are fitted. */
+  readonly builtinDisk: boolean;
+  /** Joystick pane applies. */
+  readonly joystick: boolean;
+  /** Joystick presents a single fixed interface (no type selector; F2 shown). */
+  readonly fixedJoystick: boolean;
+  /** Mouse pane applies. */
+  readonly mouse: boolean;
+  /** Cartridge slot present (MSX slot / ZX Interface 2). */
+  readonly cartridge: boolean;
+  /** Label for the system-ROM slot in the ROM pane. */
+  readonly systemRomLabel: string;
+  /** Independently-overridable 16K system ROM pages (0 = single image). */
+  readonly romPages: 0 | 2 | 4;
+  /** 1-bit beeper present (Sound-pane mixer + BEEP activity LED). */
+  readonly beeper: boolean;
+  /** Kempston-joystick activity LED shown in the status bar. */
+  readonly kempston: boolean;
+  /** EAR tape-input activity LED shown in the status bar. */
+  readonly tapeEar: boolean;
+  /** Attribute-cycling ("rainbow") activity LED shown in the status bar. */
+  readonly rainbow: boolean;
+  /** Keyboard read path, for the KEY LED tip. */
+  readonly keyboardBus: 'ula' | 'ppi';
+  /** Tape transport: 'deck' (pulse-level block list) or 'instant' (.cas). */
+  readonly tape: 'deck' | 'instant';
+  /** Loading-sound toggle applies (AY-audible tape loading). */
+  readonly tapeSound: boolean;
+  /** Extensions the tape loader accepts (Load picker). */
+  readonly tapeExtensions: readonly string[];
+  /** Save / snapshot menu family in the Load/Save pane. */
+  readonly saveMenu: 'spectrum' | 'cpc' | 'vdp';
+  /** Software-library button applies. */
+  readonly library: boolean;
+  /** ROM regions the Memory pane's region picker offers (besides mapped/banks). */
+  readonly memoryRegions: readonly MemoryRegionInfo[];
+  /** ASCII glyph table the Memory pane renders with. */
+  readonly charset: 'spectrum' | 'cpc';
 }
 
 /**

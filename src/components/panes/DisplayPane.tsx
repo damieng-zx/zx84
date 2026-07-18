@@ -8,8 +8,8 @@ import {
   einsteinColorMap, setEinsteinColorMap,
   persistSetting, resetSettingsGroup,
 } from '@/store/settings.ts';
-import { spectrum, machine, currentModel, switchRenderer, applyDisplaySettings } from '@/emulator.ts';
-import { isCpcModel, isMsxModel, isEinsteinModel } from '@/models.ts';
+import { spectrum, machine, switchRenderer, applyDisplaySettings } from '@/emulator.ts';
+import { machineCaps } from '@/state/machine-caps.ts';
 
 // Scaling algorithms and their native scale factors.
 // The algorithm IS the scaler — it takes 1x source pixels and produces
@@ -25,9 +25,6 @@ const SCALING_ALGOS: { mode: number; label: string; nativeScale: number }[] = [
 ];
 
 export function DisplayPane() {
-  const isCpc = () => isCpcModel(currentModel());
-  const isMsx = () => isMsxModel(currentModel());
-  const isEinstein = () => isEinsteinModel(currentModel());
   // Filter algorithms to those compatible with the current display scale
   const availableAlgos = () => SCALING_ALGOS.filter(
     a => a.nativeScale === 0 || a.nativeScale === scale()
@@ -89,7 +86,7 @@ export function DisplayPane() {
             </select>
           }
         >
-          <Match when={isCpc()}>
+          <Match when={machineCaps().colorMap === 'cpc'}>
             <select value={cpcColorMap()} onChange={(e) => {
               const v = (e.target as HTMLSelectElement).value as 'basic' | 'gate-array' | 'asic';
               setCpcColorMap(v);
@@ -101,7 +98,7 @@ export function DisplayPane() {
               <option value="asic">ASIC</option>
             </select>
           </Match>
-          <Match when={isMsx()}>
+          <Match when={machineCaps().colorMap === 'msx'}>
             <select value={msxColorMap()} onChange={(e) => {
               const v = (e.target as HTMLSelectElement).value as 'pal' | 'ntsc';
               setMsxColorMap(v);
@@ -112,7 +109,7 @@ export function DisplayPane() {
               <option value="ntsc">NTSC</option>
             </select>
           </Match>
-          <Match when={isEinstein()}>
+          <Match when={machineCaps().colorMap === 'einstein'}>
             <select value={einsteinColorMap()} onChange={(e) => {
               const v = (e.target as HTMLSelectElement).value as 'mame' | 'accurate' | 'naive';
               setEinsteinColorMap(v);

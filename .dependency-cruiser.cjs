@@ -64,10 +64,33 @@ module.exports = {
       comment:
         'A machine folder must not import UI, reactive state, the settings store, ' +
         'the shell, or solid-js; those bind to machines through services/registry, ' +
-        'not vice-versa. §3.1.',
+        'not vice-versa. §3.1.\n' +
+        'EXCEPTION: a machine`s own `ui/` subfolder holds its Solid UI contributions ' +
+        '(hardware-pane section, on-screen keyboard, sysvars) — the only machine files ' +
+        'allowed to import solid-js and the shell/state/store they bind to. They are ' +
+        'still islands (machines-are-islands forbids importing another machine).',
       severity: 'error',
-      from: { path: '^src/machines/' },
+      from: { path: '^src/machines/', pathNot: '^src/machines/[^/]+/ui/' },
       to: { path: '^(src/components/|src/state/|src/store/|src/shell/|solid-js)' },
+    },
+    {
+      name: 'ui-no-concrete-machines',
+      comment:
+        'Generic UI (src/components) and reactive state (src/state) must not import a ' +
+        'concrete machine folder (src/machines/<name>/). They bind to machines through ' +
+        'the SPI (machine.ts), the registry, the descriptor`s `ui` capabilities, and ' +
+        'services. §3.1/§7.\n' +
+        'The SOLE sanctioned exception is the UI-side manifest ' +
+        '`src/components/machine-ui.ts`, which lazily maps a machine kind to its `ui/` ' +
+        'contributions. The shell is governed separately by `shell-stays-above-machines` ' +
+        '(which keeps its own Phase-7 carve-outs).\n' +
+        'The `to.pathNot` msx-tape carve-out is a pre-existing backlog item: ' +
+        '`state/tape-state.ts` imports the MSX `CasBlock` type for the `casBlocks` ' +
+        'signal; it is removed when `casBlocks`/`casPosition` merge into the generic ' +
+        'TapeService (re-architecture §4).',
+      severity: 'error',
+      from: { path: '^src/(components|state)/', pathNot: '^src/components/machine-ui\\.ts$' },
+      to: { path: '^src/machines/[^/]+/', pathNot: '^src/machines/msx/msx-tape\\.ts$' },
     },
     {
       name: 'shell-stays-above-machines',

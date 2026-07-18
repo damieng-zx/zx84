@@ -3,16 +3,15 @@ import { Pane } from '@/components/Pane.tsx';
 import { HiOutlineFolderOpen, HiOutlineArrowDownTray, HiOutlineRectangleStack } from 'solid-icons/hi';
 import {
   loadFile, loadableExtensions, saveSnapshot, saveCpcSnapshot, saveScreenshot,
-  saveRAM, currentModel,
+  saveRAM,
 } from '@/emulator.ts';
-import { isCpcModel, isEinsteinModel, isMsxModel } from '@/models.ts';
+import { machineCaps } from '@/state/machine-caps.ts';
 import { toggleLibrary, libraryVisible } from '@/ui/panes.ts';
 import { LibraryBrowser } from '@/components/LibraryBrowser.tsx';
 import { openFile } from '@/ui/file-picker.ts';
 
-const isCpc = () => isCpcModel(currentModel());
-const isVdpMachine = () => isEinsteinModel(currentModel()) || isMsxModel(currentModel());
-const hideLibrary = () => isCpc() || isVdpMachine();
+const saveMenuKind = () => machineCaps().saveMenu;
+const hasLibrary = () => machineCaps().library;
 
 export function LoadSavePane() {
   let menuRef!: HTMLDivElement;
@@ -70,7 +69,7 @@ export function LoadSavePane() {
         <button class="btn btn-md" id="snap-load-btn" title="Load file" onClick={handleLoad}>
           <HiOutlineFolderOpen /> Load
         </button>
-        <Show when={!hideLibrary()}>
+        <Show when={hasLibrary()}>
           <button
             class="btn btn-md"
             id="snap-library-btn"
@@ -92,10 +91,10 @@ export function LoadSavePane() {
         </button>
         <div ref={menuRef} class="save-menu" style="display:none">
           <Show
-            when={isCpc()}
+            when={saveMenuKind() === 'cpc'}
             fallback={
               <Show
-                when={isVdpMachine()}
+                when={saveMenuKind() === 'vdp'}
                 fallback={<>
                   <div class="save-menu-item" onClick={handleSave(() => saveSnapshot('szx'))}>Snapshot (.szx)</div>
                   <div class="save-menu-item" onClick={handleSave(() => saveSnapshot('z80'))}>Snapshot (.z80)</div>
@@ -118,7 +117,7 @@ export function LoadSavePane() {
           </Show>
         </div>
       </div>
-      <Show when={libraryVisible() && !hideLibrary()}>
+      <Show when={libraryVisible() && hasLibrary()}>
         <LibraryBrowser />
       </Show>
     </Pane>

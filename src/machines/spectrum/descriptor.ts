@@ -4,12 +4,52 @@
  */
 
 import type { IScreenRenderer } from '@/display/display.ts';
-import type { MachineDescriptor, MachineEntry } from '@/machines/machine.ts';
+import type { MachineDescriptor, MachineEntry, MachineUiCapabilities, MemoryRegionInfo } from '@/machines/machine.ts';
 import type { MachineModel } from '@/models.ts';
 import type { SpectrumModel } from './models.ts';
+import { is128kClass, isPlus2AClass, isPlus3, isInterface2Capable, romPageSlotCount } from './models.ts';
 import { Spectrum } from './spectrum.ts';
 import { SCREEN_WIDTH, SCREEN_HEIGHT } from './ula.ts';
 import { ROM_BASE } from '@/utils/rom-host.ts';
+
+// The Spectrum active display is 256×192; the full ("Normal") border is 48px on
+// every side (SCREEN_WIDTH/HEIGHT = 256/192 + 48·2). The border-size crop is
+// applied generically by Screen.tsx.
+const SPECTRUM_BORDER = 48;
+
+/** ROM regions the Memory pane offers: one entry per 16K system-ROM page. */
+function spectrumMemoryRegions(model: MachineModel): MemoryRegionInfo[] {
+  const romCount = isPlus2AClass(model) ? 4 : is128kClass(model) ? 2 : 1;
+  return Array.from({ length: romCount }, (_, i) => ({ value: `rom${i}`, label: `ROM ${i}` }));
+}
+
+function spectrumUi(model: MachineModel): MachineUiCapabilities {
+  return {
+    hiddenPanes: [],
+    memoryLayout: is128kClass(model),
+    trace: true,
+    colorMap: 'spectrum',
+    builtinDisk: isPlus3(model),
+    joystick: true,
+    fixedJoystick: false,
+    mouse: true,
+    cartridge: isInterface2Capable(model),
+    systemRomLabel: 'ROM',
+    romPages: romPageSlotCount(model),
+    beeper: true,
+    kempston: true,
+    tapeEar: true,
+    rainbow: true,
+    keyboardBus: 'ula',
+    tape: 'deck',
+    tapeSound: true,
+    tapeExtensions: ['.tap', '.tzx', '.csw', '.zip'],
+    saveMenu: 'spectrum',
+    library: true,
+    memoryRegions: spectrumMemoryRegions(model),
+    charset: 'spectrum',
+  };
+}
 
 // Each model lists its ROM pages in order; they are fetched and concatenated
 // by the shared rom-manager machinery. The +3 is resolved to the +2A's v4.1
@@ -32,7 +72,12 @@ export const spectrumEntry: MachineEntry = {
       kind: 'spectrum',
       model,
       cpuFamily: 'z80',
-      screen: { width: SCREEN_WIDTH, height: SCREEN_HEIGHT, pixelAspectX: 1 },
+      screen: {
+        width: SCREEN_WIDTH, height: SCREEN_HEIGHT, pixelAspectX: 1,
+        activeWidth: 256, activeHeight: 192,
+        borderLeft: SPECTRUM_BORDER, borderTop: SPECTRUM_BORDER,
+      },
+      ui: spectrumUi(model),
     };
   },
   create(model: MachineModel, display: IScreenRenderer | null) {

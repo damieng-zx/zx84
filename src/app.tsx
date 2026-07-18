@@ -29,12 +29,12 @@ import { DisassemblyPane } from '@/components/panes/DisassemblyPane.tsx';
 import { TextPane } from '@/components/panes/TextPane.tsx';
 import { ChangelogOverlay, toggleChangelog } from '@/components/panes/ChangelogPane.tsx';
 import { MemoryPane } from '@/components/panes/MemoryPane.tsx';
-import { KeyboardPane } from '@/components/panes/KeyboardPane.tsx';
 
-import { paneOrder, SPECTRUM_ONLY_PANES, isPaneUserHidden } from '@/ui/panes.ts';
+import { machineUi } from '@/components/machine-ui.ts';
+import { machineCaps, machineKind } from '@/state/machine-caps.ts';
+import { paneOrder, isPaneUserHidden } from '@/ui/panes.ts';
 import { needsGamepadPolling, scale } from '@/store/settings.ts';
-import { initAudio, init, loadFile, currentModel, transcribeMode, syncFocusPause } from '@/emulator.ts';
-import { isCpcModel, isEinsteinModel, isMsxModel } from '@/models.ts';
+import { initAudio, init, loadFile, transcribeMode, syncFocusPause } from '@/emulator.ts';
 import { configuringPlayer } from '@/components/panes/JoystickPane.tsx';
 import { InputController } from '@/input-controller.ts';
 
@@ -65,12 +65,12 @@ const PANE_COMPONENTS: Record<string, () => JSX.Element> = {
 function renderPanes(side: 'left' | 'right') {
   return () => {
     const order = paneOrder();
-    const cpc = isCpcModel(currentModel());
+    const hidden = machineCaps().hiddenPanes;
     const textMode = transcribeMode() !== 'off';
     return order
       .filter(p => p.sidebar === side)
       .filter(p => !isPaneUserHidden(p.id))
-      .filter(p => !(cpc && SPECTRUM_ONLY_PANES.has(p.id)))
+      .filter(p => !hidden.includes(p.id))
       .filter(p => p.id !== 'text-panel' || textMode)
       .map(p => {
         const Component = PANE_COMPONENTS[p.id];
@@ -167,9 +167,10 @@ export function App() {
   // (e.g. hiding the Spectrum rainbow stripe on pane title bars for non-
   // Spectrum machines) can key off it.
   createEffect(() => {
-    document.body.classList.toggle('cpc-mode', isCpcModel(currentModel()));
-    document.body.classList.toggle('einstein-mode', isEinsteinModel(currentModel()));
-    document.body.classList.toggle('msx-mode', isMsxModel(currentModel()));
+    const kind = machineKind();
+    document.body.classList.toggle('cpc-mode', kind === 'cpc');
+    document.body.classList.toggle('einstein-mode', kind === 'einstein');
+    document.body.classList.toggle('msx-mode', kind === 'msx');
   });
 
   // Mirror the display scale (1×/2×/3×) into a CSS variable so the on-screen
@@ -200,9 +201,11 @@ export function App() {
       <div id="main">
         <Screen />
         <StatusBar />
-        {/* The on-screen keyboard models Spectrum hardware only — hide it for the
-            CPC and Einstein, which have their own keyboards. */}
-        <Show when={!isPaneUserHidden('keyboard-panel') && !isCpcModel(currentModel()) && !isEinsteinModel(currentModel()) && !isMsxModel(currentModel())}><KeyboardPane /></Show>
+        {/* The on-screen keyboard is a per-machine UI contribution (only the
+            Spectrum supplies one); machines without one show no keyboard. */}
+        <Show when={!isPaneUserHidden('keyboard-panel') && machineUi(machineKind()).Keyboard} keyed>
+          {(Keyboard) => <Keyboard />}
+        </Show>
         <div id="diag"><div id="diag-header" /></div>
       </div>
 

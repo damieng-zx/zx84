@@ -15,12 +15,11 @@
  * remains fast to render and update.
  */
 
-import { createSignal, createMemo, createEffect, For, Show, onMount, onCleanup } from 'solid-js';
+import { createSignal, createEffect, For, Show, onMount, onCleanup } from 'solid-js';
 import { Pane } from '@/components/Pane.tsx';
 import { machine, currentModel, emulationPaused } from '@/emulator.ts';
-import { asSpectrum, asCpc } from '@/machines/machine.ts';
+import { machineCaps } from '@/state/machine-caps.ts';
 import { isCollapsed } from '@/ui/panes.ts';
-import { is128kClass, isPlus2AClass, isCpcModel } from '@/models.ts';
 
 // ── Virtual-scroll geometry ──────────────────────────────────────────────
 
@@ -181,24 +180,15 @@ export function MemoryPane() {
   let preEl!:    HTMLPreElement;
   let goInputEl!: HTMLInputElement;
 
-  const isCpc = () => isCpcModel(currentModel());
-
-  // Number of Spectrum ROM pages depends on the model (CPC handled separately).
-  const romCount = createMemo(() => {
-    const m = currentModel();
-    return isPlus2AClass(m) ? 4 : is128kClass(m) ? 2 : 1;
-  });
-
   /** ASCII glyph table for the active machine. */
-  const chars = (): string[] => isCpc() ? CPC_CHARS : SPECTRUM_CHARS;
+  const chars = (): string[] => machineCaps().charset === 'cpc' ? CPC_CHARS : SPECTRUM_CHARS;
 
   function bpr(): number { return mode() === 'ascii' ? BYTES_ASCII : BYTES_HEX; }
 
   /** Whether a saved region key is valid for the active machine. */
   function regionValid(r: string): boolean {
     if (r === 'mapped' || r.startsWith('bank')) return true;
-    if (isCpc()) return r.startsWith('cpcRom');
-    return r.startsWith('rom');
+    return machineCaps().memoryRegions.some(x => x.value === r);
   }
 
   /** Resolve the currently selected region to a data buffer and base address. */
@@ -215,23 +205,8 @@ export function MemoryPane() {
       return { data: mem.getRamBank(bank), baseAddr: 0 };
     }
 
-    // ── ROM regions (machine-specific) ──
-    const cpc = asCpc(m);
-    if (cpc) {
-      // CPC ROMs sit where they overlay: lower (OS) at 0x0000, upper at 0xC000.
-      if (r === 'cpcRomLower')  return { data: cpc.memory.getLowerRom(), baseAddr: 0x0000 };
-      if (r === 'cpcRomBasic')  { const d = cpc.memory.getUpperRom(0); return d ? { data: d, baseAddr: 0xC000 } : null; }
-      if (r === 'cpcRomAmsdos') { const d = cpc.memory.getUpperRom(7); return d ? { data: d, baseAddr: 0xC000 } : null; }
-      return null;
-    }
-
-    const spec = asSpectrum(m);
-    if (spec && r.startsWith('rom')) {
-      const idx = parseInt(r.slice(3), 10);
-      return idx < spec.memory.romPages.length ? { data: spec.memory.romPages[idx], baseAddr: 0 } : null;
-    }
-
-    return null;
+    // ── ROM regions (machine-specific, resolved by the active machine) ──
+    return m.resolveMemoryRegion?.(r) ?? null;
   }
 
   /** True if the user has an active text selection inside the hex dump. */
@@ -347,15 +322,9 @@ export function MemoryPane() {
       <div class="mem-controls">
         <select onChange={e => changeRegion(e.currentTarget.value)}>
           <option value="mapped"   selected={region() === 'mapped'}>Mapped (64K)</option>
-          <Show when={isCpc()} fallback={
-            <For each={Array.from({ length: romCount() }, (_, i) => i)}>
-              {(i) => <option value={`rom${i}`} selected={region() === `rom${i}`}>ROM {i}</option>}
-            </For>
-          }>
-            <option value="cpcRomLower"  selected={region() === 'cpcRomLower'} >ROM Lower (OS)</option>
-            <option value="cpcRomBasic"  selected={region() === 'cpcRomBasic'} >ROM BASIC</option>
-            <option value="cpcRomAmsdos" selected={region() === 'cpcRomAmsdos'}>ROM AMSDOS</option>
-          </Show>
+          <For each={machineCaps().memoryRegions}>
+            {(reg) => <option value={reg.value} selected={region() === reg.value}>{reg.label}</option>}
+          </For>
           <For each={banks}>
             {(i) => <option value={`bank${i}`} selected={region() === `bank${i}`}>Bank {i}</option>}
           </For>

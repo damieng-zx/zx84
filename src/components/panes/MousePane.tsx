@@ -1,7 +1,7 @@
 import { createSignal, onCleanup, Show } from 'solid-js';
 import { Pane } from '@/components/Pane.tsx';
-import { setMouseMode, updateMousePosition, setMouseButton, type MouseMode, currentModel } from '@/emulator.ts';
-import { isEinsteinModel, isMsxModel } from '@/models.ts';
+import { setMouseMode, updateMousePosition, setMouseButton, type MouseMode } from '@/emulator.ts';
+import { machineCaps } from '@/state/machine-caps.ts';
 
 export function MousePane() {
   const [captured, setCaptured] = createSignal<MouseMode>(null);
@@ -65,7 +65,7 @@ export function MousePane() {
   }
 
   return (
-    <Pane id="mouse-panel" label="Mouse" visible={!isEinsteinModel(currentModel()) && !isMsxModel(currentModel())}>
+    <Pane id="mouse-panel" label="Mouse" visible={machineCaps().mouse}>
       <div class="mouse-pane">
         <Show
           when={captured()}

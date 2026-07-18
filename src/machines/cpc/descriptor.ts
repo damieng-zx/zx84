@@ -4,12 +4,47 @@
  */
 
 import type { IScreenRenderer } from '@/display/display.ts';
-import type { MachineDescriptor, MachineEntry } from '@/machines/machine.ts';
+import type { MachineDescriptor, MachineEntry, MachineUiCapabilities } from '@/machines/machine.ts';
 import type { MachineModel } from '@/models.ts';
 import type { CpcModel } from './models.ts';
+import { cpcHasDisk } from './models.ts';
 import { CpcMachine } from './cpc-machine.ts';
-import { CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT } from './constants.ts';
+import { CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT, CPC_BORDER_LEFT, CPC_BORDER_TOP } from './constants.ts';
 import { ROM_BASE } from '@/utils/rom-host.ts';
+
+function cpcUi(model: MachineModel): MachineUiCapabilities {
+  return {
+    // Spectrum-specific debug panes (sysvars, BASIC variables, fonts) read
+    // Spectrum memory layouts and are hidden entirely on the CPC.
+    hiddenPanes: ['sysvar-panel', 'basic-vars-panel', 'font-panel'],
+    memoryLayout: true,
+    trace: false,
+    colorMap: 'cpc',
+    builtinDisk: cpcHasDisk(model),
+    joystick: true,
+    fixedJoystick: true,
+    mouse: true,
+    cartridge: false,
+    systemRomLabel: 'ROM',
+    romPages: 0,
+    beeper: false,
+    kempston: false,
+    tapeEar: false,
+    rainbow: false,
+    keyboardBus: 'ppi',
+    tape: 'deck',
+    tapeSound: false,
+    tapeExtensions: ['.cdt', '.tzx', '.tap', '.zip'],
+    saveMenu: 'cpc',
+    library: false,
+    memoryRegions: [
+      { value: 'cpcRomLower', label: 'ROM Lower (OS)' },
+      { value: 'cpcRomBasic', label: 'ROM BASIC' },
+      { value: 'cpcRomAmsdos', label: 'ROM AMSDOS' },
+    ],
+    charset: 'cpc',
+  };
+}
 
 // Concatenated to OS(16KB) + BASIC(16KB) [+ AMSDOS(16KB)] — the layout
 // CpcMemory.loadROM() splits on.
@@ -29,7 +64,12 @@ export const cpcEntry: MachineEntry = {
       cpuFamily: 'z80',
       // The CPC frame buffer is 2× oversampled horizontally (16 Gate-Array
       // pixel clocks per character); display at half width to restore ~4:3.
-      screen: { width: CPC_SCREEN_WIDTH, height: CPC_SCREEN_HEIGHT, pixelAspectX: 0.5 },
+      screen: {
+        width: CPC_SCREEN_WIDTH, height: CPC_SCREEN_HEIGHT, pixelAspectX: 0.5,
+        activeWidth: 640, activeHeight: 200,
+        borderLeft: CPC_BORDER_LEFT, borderTop: CPC_BORDER_TOP,
+      },
+      ui: cpcUi(model),
     };
   },
   create(model: MachineModel, display: IScreenRenderer | null) {

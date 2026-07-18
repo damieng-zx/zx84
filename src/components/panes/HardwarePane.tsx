@@ -1,23 +1,22 @@
+import { Show } from 'solid-js';
 import { Pane } from '@/components/Pane.tsx';
 import { HiOutlinePower } from 'solid-icons/hi';
 import {
   currentModel, romStatusText, switchModel,
   turboMode, clockSpeedText, resetMachine, toggleTurbo,
-  spectrum, triggerNMI, loadMultifaceROM, loadVTX5000ROM, loadPlusDROM, loadInterface1ROM, loadBetaDiskROM, setCpcMultiface,
-  multifaceRomFailed, vtx5000RomFailed, paradosRomFailed, plusDRomFailed, interface1RomFailed, betaDiskRomFailed,
-  setEinsteinXtalDosEnabled,
+  spectrum, setCpcMultiface,
 } from '@/emulator.ts';
-import type { SpectrumModel } from '@/machines/spectrum/spectrum.ts';
-import { type MachineModel, isCpcModel, isEinsteinModel, isMsxModel, cpcHasDisk, isPlusDCapable, isInterface1Capable, isBetaDiskCapable } from '@/models.ts';
-import { Show } from 'solid-js';
-import { variantForModel, variantLabel } from '@/machines/spectrum/peripherals/multiface.ts';
-import * as settings from '@/store/settings.ts';
+import type { MachineModel } from '@/models.ts';
 import { resetSettingsGroup } from '@/store/settings.ts';
+import { machineUi } from '@/components/machine-ui.ts';
+import { machineKind } from '@/state/machine-caps.ts';
 
 export function HardwarePane() {
   return (
     <Pane id="hardware-panel" label="Hardware" onResetSettings={() => {
       resetSettingsGroup('hardware');
+      // Machine-specific peripheral cleanup, via the shell handle (no machine
+      // import): disable the Spectrum Multiface and the CPC Multiface Two.
       if (spectrum) spectrum.multiface.enabled = false;
       setCpcMultiface(false);
     }}>
@@ -51,237 +50,10 @@ export function HardwarePane() {
         <button id="cpu-reset" title="Reset machine" onClick={resetMachine}><HiOutlinePower /></button>
       </div>
       <div class="hw-options">
-      {/* Multiface, VTX-5000, +D, IF1 and Beta Disk are Spectrum-only — hide the
-          whole block for the CPC, Einstein and MSX. */}
-      <Show when={!isCpcModel(currentModel()) && !isEinsteinModel(currentModel()) && !isMsxModel(currentModel())}>
-        <div class="multiface-row">
-          <label
-            class={`mf-check${multifaceRomFailed() ? ' rom-failed' : ''}`}
-            title={multifaceRomFailed() || undefined}
-          >
-            <input
-              type="checkbox"
-              checked={settings.multifaceEnabled()}
-              disabled={!!multifaceRomFailed()}
-              onChange={(e) => {
-                const on = (e.target as HTMLInputElement).checked;
-                settings.setMultifaceEnabled(on);
-                settings.persistSetting('multiface', on ? 'on' : 'off');
-                if (spectrum) {
-                  spectrum.multiface.enabled = on;
-                  if (on && !spectrum.multiface.romLoaded) {
-                    loadMultifaceROM(spectrum);
-                  }
-                }
-              }}
-            />
-            {variantLabel(variantForModel(currentModel() as SpectrumModel))}
-          </label>
-          <Show when={settings.multifaceEnabled()}>
-            <button
-              class="mf-trigger"
-              title="Trigger NMI (Multiface button)"
-              aria-label="Trigger Multiface NMI"
-              onClick={triggerNMI}
-            />
-          </Show>
-        </div>
-        <div class="multiface-row">
-          <label
-            class={`mf-check${vtx5000RomFailed() ? ' rom-failed' : ''}`}
-            title={vtx5000RomFailed() || undefined}
-          >
-            <input
-              type="checkbox"
-              checked={settings.vtx5000Enabled()}
-              disabled={!!vtx5000RomFailed()}
-              onChange={(e) => {
-                const on = (e.target as HTMLInputElement).checked;
-                settings.setVtx5000Enabled(on);
-                settings.persistSetting('vtx5000', on ? 'on' : 'off');
-                if (spectrum) {
-                  spectrum.vtx5000.enabled = on;
-                  if (on && !spectrum.vtx5000.romLoaded) {
-                    loadVTX5000ROM(spectrum);
-                  }
-                }
-              }}
-            />
-            VTX-5000
-          </label>
-        </div>
-        <Show when={isPlusDCapable(currentModel())}>
-          <div class="multiface-row">
-            <label
-              class={`mf-check${plusDRomFailed() ? ' rom-failed' : ''}`}
-              title={plusDRomFailed() || 'MGT +D disk interface (G+DOS, drives C:/D:)'}
-            >
-              <input
-                type="checkbox"
-                checked={settings.plusDEnabled()}
-                disabled={!!plusDRomFailed()}
-                onChange={(e) => {
-                  const on = (e.target as HTMLInputElement).checked;
-                  settings.setPlusDEnabled(on);
-                  settings.persistSetting('plusd', on ? 'on' : 'off');
-                  if (on) {
-                    settings.setBetaDiskEnabled(false);
-                    settings.persistSetting('betadisk', 'off');
-                  }
-                  if (spectrum) {
-                    if (on) spectrum.betaDisk.enabled = false;
-                    spectrum.mgtPlusD.enabled = on;
-                    // The +D boots at reset (shadow ROM pages in at 0x0000), so
-                    // a reset is needed for the toggle to take effect.
-                    if (on && !spectrum.mgtPlusD.romLoaded) {
-                      loadPlusDROM(spectrum).then(() => resetMachine());
-                    } else {
-                      resetMachine();
-                    }
-                  }
-                }}
-              />
-              MGT +D
-            </label>
-          </div>
+        {/* Machine-specific hardware options, contributed per machine kind. */}
+        <Show when={machineUi(machineKind()).HardwareSection} keyed>
+          {(Section) => <Section />}
         </Show>
-        <Show when={isInterface1Capable(currentModel())}>
-          <div class="multiface-row">
-            <label
-              class="mf-check"
-              title={interface1RomFailed() || 'ZX Interface 1 — shadow ROM + 8 microdrives'}
-            >
-              <input
-                type="checkbox"
-                checked={settings.interface1Enabled()}
-                onChange={(e) => {
-                  const on = (e.target as HTMLInputElement).checked;
-                  settings.setInterface1Enabled(on);
-                  settings.persistSetting('interface1', on ? 'on' : 'off');
-                  if (on) {
-                    settings.setBetaDiskEnabled(false);
-                    settings.persistSetting('betadisk', 'off');
-                  }
-                  if (spectrum) {
-                    if (on) spectrum.betaDisk.enabled = false;
-                    spectrum.interface1.enabled = on;
-                    // The IF1 ROM initialises at reset (its M1 traps map it in),
-                    // so a reset is needed for the toggle to take effect.
-                    if (on && !spectrum.interface1.romLoaded) {
-                      loadInterface1ROM(spectrum).then(() => resetMachine());
-                    } else {
-                      resetMachine();
-                    }
-                  }
-                }}
-              />
-              ZX Interface 1
-            </label>
-          </div>
-        </Show>
-        <Show when={isBetaDiskCapable(currentModel())}>
-          <div class="multiface-row">
-            <label
-              class={`mf-check${betaDiskRomFailed() ? ' rom-failed' : ''}`}
-              title={betaDiskRomFailed() || 'Beta Disk interface (TR-DOS, drives A:/B:)'}
-            >
-              <input
-                type="checkbox"
-                checked={settings.betaDiskEnabled()}
-                disabled={!!betaDiskRomFailed()}
-                onChange={(e) => {
-                  const on = (e.target as HTMLInputElement).checked;
-                  settings.setBetaDiskEnabled(on);
-                  settings.persistSetting('betadisk', on ? 'on' : 'off');
-                  // Beta, +D and IF1 all overlay slot 0 — keep them exclusive.
-                  if (on) {
-                    settings.setPlusDEnabled(false);
-                    settings.persistSetting('plusd', 'off');
-                    settings.setInterface1Enabled(false);
-                    settings.persistSetting('interface1', 'off');
-                  }
-                  if (spectrum) {
-                    if (on) { spectrum.mgtPlusD.enabled = false; spectrum.interface1.enabled = false; }
-                    spectrum.betaDisk.enabled = on;
-                    // TR-DOS maps itself in via the 0x3Dxx trap after reset.
-                    if (on && !spectrum.betaDisk.romLoaded) {
-                      loadBetaDiskROM(spectrum).then(() => resetMachine());
-                    } else {
-                      resetMachine();
-                    }
-                  }
-                }}
-              />
-              Beta Disk/TR-DOS
-            </label>
-          </div>
-        </Show>
-      </Show>
-      {/* Multiface Two — CPC freeze/toolkit cartridge with red STOP (NMI). */}
-      <Show when={isCpcModel(currentModel())}>
-        <div class="multiface-row">
-          <label
-            class={`mf-check${multifaceRomFailed() ? ' rom-failed' : ''}`}
-            title={multifaceRomFailed() || undefined}
-          >
-            <input
-              type="checkbox"
-              checked={settings.multifaceEnabled()}
-              disabled={!!multifaceRomFailed()}
-              onChange={(e) => {
-                const on = (e.target as HTMLInputElement).checked;
-                settings.setMultifaceEnabled(on);
-                settings.persistSetting('multiface', on ? 'on' : 'off');
-                setCpcMultiface(on);
-              }}
-            />
-            Multiface Two
-          </label>
-          <Show when={settings.multifaceEnabled()}>
-            <button
-              class="mf-trigger"
-              title="Press the red STOP button (NMI)"
-              aria-label="Press the Multiface STOP button"
-              onClick={triggerNMI}
-            />
-          </Show>
-        </div>
-      </Show>
-      {/* ParaDOS — AMSDOS replacement, disk-capable CPCs (664/6128) only. */}
-      <Show when={cpcHasDisk(currentModel())}>
-        <div class="multiface-row">
-          <label
-            class={`mf-check${paradosRomFailed() ? ' rom-failed' : ''}`}
-            title={paradosRomFailed() || 'Use ParaDOS instead of AMSDOS in ROM 7'}
-          >
-            <input
-              type="checkbox"
-              checked={settings.cpcParados()}
-              disabled={!!paradosRomFailed()}
-              onChange={(e) => {
-                const on = (e.target as HTMLInputElement).checked;
-                settings.setCpcParados(on);
-                settings.persistSetting('cpc-parados', on ? 'on' : 'off');
-                switchModel(currentModel());   // rebuild with/without the ParaDOS overlay
-              }}
-            />
-            ParaDOS
-          </label>
-        </div>
-      </Show>
-      {/* Einstein: boot Xtal DOS from disk when drive 0 is empty. */}
-      <Show when={isEinsteinModel(currentModel())}>
-        <div class="multiface-row">
-          <label class="mf-check" title="Boot Xtal DOS from disk when no disk is in drive 0">
-            <input
-              type="checkbox"
-              checked={settings.einsteinXtalDos()}
-              onChange={(e) => setEinsteinXtalDosEnabled((e.target as HTMLInputElement).checked)}
-            />
-            Xtal DOS
-          </label>
-        </div>
-      </Show>
       </div>
       <Show when={romStatusText()}>
         <span class="rom-status" id="rom-status">{romStatusText()}</span>

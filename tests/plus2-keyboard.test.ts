@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { plus2KeepsRed, sparseKeyboardFace, plus2KeyWidth, PLUS2_KEYWORDS } from '@/components/panes/plus2-legends.ts';
+import { plus2KeepsRed, sparseKeyboardFace, plus2KeyWidth, PLUS2_KEYWORDS } from '@/machines/spectrum/ui/keyboard/plus2-legends.ts';
 
 // The standard symbol-shift token printed in red on each letter key (ZX Spectrum
 // manual). Independently transcribed here; '−' is U+2212 and '↑' is U+2191 as on

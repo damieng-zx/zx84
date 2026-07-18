@@ -3,15 +3,14 @@ import { Pane } from '@/components/Pane.tsx';
 import { HiOutlineChevronUp, HiOutlineChevronDown, HiOutlineChevronLeft, HiOutlineChevronRight } from 'solid-icons/hi';
 import { joyP1, joyP2, joyMapP1, joyMapP2, setJoyP1, setJoyP2, setJoyMapP1, setJoyMapP2, persistSetting, gamepadConfigP1, gamepadConfigP2, setGamepadConfigP1, setGamepadConfigP2, resetSettingsGroup } from '@/store/settings.ts';
 import { joyPressForType } from '@/emulator.ts';
-import { currentModel } from '@/state/machine-state.ts';
-import { isCpcModel, isEinsteinModel, isMsxModel } from '@/models.ts';
+import { machineCaps } from '@/state/machine-caps.ts';
 
 // On the Spectrum a joystick can present to the CPU through several interface
 // types (Kempston/Cursor/Sinclair — each maps to different ports/bits), so the
 // type has to be chosen. The CPC and MSX each expose a single fixed joystick
 // interface to the CPU, so there is nothing to select: the type selector is
 // hidden, and the F2 button is shown (both present a second fire button).
-const isFixedJoystick = () => isCpcModel(currentModel()) || isMsxModel(currentModel());
+const isFixedJoystick = () => machineCaps().fixedJoystick;
 
 // Configuration mode state
 export const [configuringPlayer, setConfiguringPlayer] = createSignal<number>(-1);
@@ -172,7 +171,7 @@ function JoyColumn(props: { playerIdx: number; label: string }) {
 
 export function JoystickPane() {
   return (
-    <Pane id="joystick-panel" label="Joysticks" visible={!isEinsteinModel(currentModel())} onResetSettings={() => {
+    <Pane id="joystick-panel" label="Joysticks" visible={machineCaps().joystick} onResetSettings={() => {
       cancelConfiguration();
       resetSettingsGroup('joystick');
       setGamepadConfigP1(null);

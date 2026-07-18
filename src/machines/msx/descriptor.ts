@@ -4,12 +4,40 @@
  */
 
 import type { IScreenRenderer } from '@/display/display.ts';
-import type { MachineDescriptor, MachineEntry } from '@/machines/machine.ts';
+import type { MachineDescriptor, MachineEntry, MachineUiCapabilities } from '@/machines/machine.ts';
 import type { MachineModel } from '@/models.ts';
 import type { MsxModel } from './models.ts';
 import { MsxMachine } from './msx-machine.ts';
-import { MSX_SCREEN_WIDTH, MSX_SCREEN_HEIGHT } from './constants.ts';
+import {
+  MSX_SCREEN_WIDTH, MSX_SCREEN_HEIGHT, MSX_BORDER_LEFT, MSX_BORDER_TOP,
+} from './constants.ts';
 import { ROM_BASE } from '@/utils/rom-host.ts';
+
+const MSX_UI: MachineUiCapabilities = {
+  hiddenPanes: [],
+  memoryLayout: false,
+  trace: true,
+  colorMap: 'msx',
+  builtinDisk: false,
+  joystick: true,
+  fixedJoystick: true,
+  mouse: false,
+  cartridge: true,
+  systemRomLabel: 'System ROM',
+  romPages: 0,
+  beeper: true,
+  kempston: true,
+  tapeEar: true,
+  rainbow: true,
+  keyboardBus: 'ula',
+  tape: 'instant',
+  tapeSound: true,
+  tapeExtensions: ['.cas', '.zip'],
+  saveMenu: 'vdp',
+  library: false,
+  memoryRegions: [{ value: 'rom0', label: 'ROM 0' }],
+  charset: 'spectrum',
+};
 
 export const msxEntry: MachineEntry = {
   kind: 'msx',
@@ -19,7 +47,12 @@ export const msxEntry: MachineEntry = {
       kind: 'msx',
       model,
       cpuFamily: 'z80',
-      screen: { width: MSX_SCREEN_WIDTH, height: MSX_SCREEN_HEIGHT, pixelAspectX: 1 },
+      screen: {
+        width: MSX_SCREEN_WIDTH, height: MSX_SCREEN_HEIGHT, pixelAspectX: 1,
+        activeWidth: 256, activeHeight: 192,
+        borderLeft: MSX_BORDER_LEFT, borderTop: MSX_BORDER_TOP,
+      },
+      ui: MSX_UI,
     };
   },
   create(model: MachineModel, display: IScreenRenderer | null) {

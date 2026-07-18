@@ -4,10 +4,8 @@
 
 import { createEffect, createSignal, onMount, onCleanup } from 'solid-js';
 import { Toast } from '@/components/Toast.tsx';
-import { setCanvas, machine, spectrum, transcribeMode, transcribeHtml, transcribeGrid, currentModel } from '@/emulator.ts';
-import { isCpcModel, isEinsteinModel, isMsxModel } from '@/models.ts';
-import { CPC_BORDER_LEFT, CPC_BORDER_TOP } from '@/machines/cpc/constants.ts';
-import { EINSTEIN_BORDER_LEFT, EINSTEIN_BORDER_TOP } from '@/machines/einstein/constants.ts';
+import { setCanvas, machine, transcribeMode, transcribeHtml, transcribeGrid } from '@/emulator.ts';
+import { machineDescriptor } from '@/state/machine-caps.ts';
 import { renderer, scale, borderSize, ocrFont, ocrLineHeight, ocrTracking, ocrOffsetX, ocrOffsetY, ocrScaleX, ocrScaleY } from '@/store/settings.ts';
 
 // Base font size for the overlay before auto-scaling. The overlay is always
@@ -88,42 +86,20 @@ export function Screen() {
     // aligned with the canvas at fractional DPRs.
     const effectiveScale = scl / curDpr;
 
-    let originX: number, originY: number, targetW: number, targetH: number;
-    if (isCpcModel(currentModel())) {
-      // The CPC buffer is 2× oversampled horizontally (pixelAspectX 0.5); the
-      // 640×200 active area sits at (CPC_BORDER_LEFT, CPC_BORDER_TOP). The border
-      // setting crops the displayed viewport (None=0, Small=½, Normal=full
-      // border), so map active-area buffer coords through the same crop. A buffer
-      // point (bx,by) lands at ((bx-viewX)·scale·pax, (by-viewY)·scale) in CSS.
-      const frac = bs === 2 ? 1 : bs === 1 ? 0.5 : 0;
-      const viewX = Math.round(CPC_BORDER_LEFT * (1 - frac));
-      const viewY = Math.round(CPC_BORDER_TOP * (1 - frac));
-      const pax = 0.5;
-      originX = (CPC_BORDER_LEFT - viewX) * effectiveScale * pax;
-      originY = (CPC_BORDER_TOP - viewY) * effectiveScale;
-      targetW = 640 * effectiveScale * pax;
-      targetH = 200 * effectiveScale;
-    } else if (isEinsteinModel(currentModel()) || isMsxModel(currentModel())) {
-      // Einstein and MSX share the TMS9918A layout: the 256×192 active area sits
-      // at (EINSTEIN_BORDER_LEFT, EINSTEIN_BORDER_TOP) — identical to the MSX
-      // border constants — with a 1:1 pixel aspect; the border setting crops the
-      // viewport as on the CPC.
-      const frac = bs === 2 ? 1 : bs === 1 ? 0.5 : 0;
-      const viewX = Math.round(EINSTEIN_BORDER_LEFT * (1 - frac));
-      const viewY = Math.round(EINSTEIN_BORDER_TOP * (1 - frac));
-      originX = (EINSTEIN_BORDER_LEFT - viewX) * effectiveScale;
-      originY = (EINSTEIN_BORDER_TOP - viewY) * effectiveScale;
-      targetW = 256 * effectiveScale;
-      targetH = 192 * effectiveScale;
-    } else if (spectrum) {
-      const borderPx = (spectrum.ula.screenWidth - 256) / 2;
-      originX = borderPx * effectiveScale;
-      originY = borderPx * effectiveScale;
-      targetW = 256 * effectiveScale;
-      targetH = 192 * effectiveScale;
-    } else {
-      return;
-    }
+    // Overlay geometry is machine-agnostic: the descriptor gives the active
+    // area's size, its full-border offset, and the horizontal pixel aspect. The
+    // border-size setting crops the displayed viewport uniformly (None=0,
+    // Small=½, Normal=full border); a buffer point (bx,by) lands at
+    // ((bx-viewX)·scale·pax, (by-viewY)·scale) in CSS.
+    const geom = machineDescriptor().screen;
+    const frac = bs === 2 ? 1 : bs === 1 ? 0.5 : 0;
+    const viewX = Math.round(geom.borderLeft * (1 - frac));
+    const viewY = Math.round(geom.borderTop * (1 - frac));
+    const pax = geom.pixelAspectX;
+    const originX = (geom.borderLeft - viewX) * effectiveScale * pax;
+    const originY = (geom.borderTop - viewY) * effectiveScale;
+    const targetW = geom.activeWidth * effectiveScale * pax;
+    const targetH = geom.activeHeight * effectiveScale;
 
     // Apply font settings
     ov.style.fontFamily = ocrFont();

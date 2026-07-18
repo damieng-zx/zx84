@@ -1,14 +1,13 @@
 import { Pane } from '@/components/Pane.tsx';
 import { RawHtml } from '@/components/RawHtml.tsx';
-import { banksHtml, currentModel } from '@/emulator.ts';
-import { is128kClass } from '@/machines/spectrum/spectrum.ts';
-import { isCpcModel } from '@/models.ts';
+import { banksHtml } from '@/emulator.ts';
+import { machineCaps } from '@/state/machine-caps.ts';
 
 export function BanksPane() {
-  // 48K Spectrum has no banking; 128K-class and the CPC (paged ROM-over-RAM) do.
-  const visible = () => is128kClass(currentModel()) || isCpcModel(currentModel());
+  // Shown for machines with paged memory (128K-class Spectrum, CPC paged
+  // ROM-over-RAM); the flat 16K/48K models and the VDP machines have none.
   return (
-    <Pane id="banks-panel" label="Memory Layout" mono visible={visible()}>
+    <Pane id="banks-panel" label="Memory Layout" mono visible={machineCaps().memoryLayout}>
       <RawHtml id="banks-output" html={banksHtml} />
     </Pane>
   );

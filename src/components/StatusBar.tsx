@@ -6,11 +6,8 @@ import { Show } from 'solid-js';
 import {
   ledKbd, ledKemp, ledEar, ledLoad, ledText,
   ledBeep, ledAy, ledDsk, ledRainbow, ledMouse, toggleTranscribeMode, machine,
-  currentModel,
 } from '@/emulator.ts';
-import { isCpcModel } from '@/models.ts';
-
-const isCpc = () => isCpcModel(currentModel());
+import { machineCaps } from '@/state/machine-caps.ts';
 
 function Led(props: {
   id: string; kind: string; label: string; tip: string; on: boolean;
@@ -37,8 +34,8 @@ export function StatusBar() {
         <div class="led-group">
           {/* Group 1: Input devices */}
           <Led id="led-kbd" kind="kbd" label="KEY" on={ledKbd()}
-            tip={isCpc() ? 'Scanning the keyboard matrix (PPI → AY port A)' : 'Reading the keyboard via the ULA port'} />
-          <Show when={!isCpc()}>
+            tip={machineCaps().keyboardBus === 'ppi' ? 'Scanning the keyboard matrix (PPI → AY port A)' : 'Reading the keyboard via the ULA port'} />
+          <Show when={machineCaps().kempston}>
             <Led id="led-kemp" kind="kemp" label="KEMPSTON" on={ledKemp()}
               tip="Reading the Kempston joystick port" />
           </Show>
@@ -47,7 +44,7 @@ export function StatusBar() {
         </div>
         <div class="led-group">
           {/* Group 2: Tape and disk */}
-          <Show when={!isCpc()}>
+          <Show when={machineCaps().tapeEar}>
             <Led id="led-ear" kind="ear" label="EAR" on={ledEar()}
               tip="Sampling the EAR port (tape playback)" />
           </Show>
@@ -61,14 +58,14 @@ export function StatusBar() {
           <Led id="led-text" kind="text" label="TEXT" on={ledText()}
             tip="Pixel-based screen OCR — click to toggle overlay"
             onClick={() => machine && toggleTranscribeMode('text')} />
-          <Show when={!isCpc()}>
+          <Show when={machineCaps().rainbow}>
             <Led id="led-rainbow" kind="rainbow" label="RAINBOW" on={ledRainbow()}
               tip="Attribute area is being rewritten mid-frame (rainbow/colour-cycling effect)" />
           </Show>
         </div>
         <div class="led-group">
           {/* Group 4: Sound */}
-          <Show when={!isCpc()}>
+          <Show when={machineCaps().beeper}>
             <Led id="led-beep" kind="beep" label="BEEP" on={ledBeep()}
               tip="Beeper bit is toggling (producing sound)" />
           </Show>

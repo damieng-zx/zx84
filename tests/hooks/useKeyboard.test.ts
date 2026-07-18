@@ -39,7 +39,7 @@ vi.mock('@/emulator.ts', () => {
   return { spectrum: { keyboard } };
 });
 
-import { useKeyboard, CS, SS } from '@/components/panes/keyboard-common.tsx';
+import { useKeyboard, CS, SS } from '@/machines/spectrum/ui/keyboard/keyboard-common.tsx';
 import { spectrum } from '@/emulator.ts';
 
 const kb = () => spectrum!.keyboard;
