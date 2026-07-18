@@ -4,21 +4,22 @@ const CHANGELOG: { version: string; items: string[] }[] = [
   {
     version: '0.7.2',
     items: [
-      'Add Toshiba HX-10 as a fourth machine — boots MSX BASIC, with cartridge, tape and joystick support',
-      'Add ZX Interface 2 cartridge support for the Spectrum',
-      'New Variables pane shows Locomotive BASIC variables on the CPC',
-      'Save menu tailored to each machine — screenshots and memory in native formats (CPC .scr/.bin, Einstein/MSX)',
-      'Display pane gains Saturation and Gamma sliders and per-machine colour',
-      'ROM pane adds independent 48K/128K slots and +2A/+3 support',
-      'Software library adds separate machine and media filters',
-      'Security fix in the BASIC viewer',
+      'Add experimental MSX support',
+      'Add custom ROMs and cartridge for Spectrum & MSX',
+      'Show BASIC variables on Amstrad CPC',
+      'Correct the save menu for each platform',
+      'Split monitor & display pane and added saturation and gamma',
+      'Spectrum software library new filters, Microdrives & ROM carts',
+      'Fixed screenshots and added links to Spectrum Computing',
+      'Microdrives pane lists files stored on each cartridge',
       'Major internal refactoring',
+      'Lots of UI tweaking'
     ]
   }, {
     version: '0.7.1',
     items: [
-      'Add Tatung Einstein TC-01 as a third machine (boots MOS and Xtal DOS from .dsk/.zip)',
-      'Add CSW tape support',
+      'Add experimental Tatung Einstein TC-01 support',
+      'Add CSW digital tape support',
     ]
   }, {
     version: '0.7.0',
