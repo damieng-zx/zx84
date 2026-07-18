@@ -12,6 +12,7 @@ import { SpectrumDiskService } from './disks.ts';
 import { SpectrumRomService } from './roms.ts';
 import { SpectrumSnapshotService } from './snapshots.ts';
 import { SpectrumMediaService } from './media.ts';
+import { SpectrumFrameProbe } from './frame-probe.ts';
 
 export interface SpectrumServices extends MachineServices {
   readonly media: SpectrumMediaService;
@@ -20,6 +21,7 @@ export interface SpectrumServices extends MachineServices {
   readonly disks: SpectrumDiskService;
   readonly snapshots: SpectrumSnapshotService;
   readonly input: SpectrumInputService;
+  readonly probe: SpectrumFrameProbe;
 }
 
 export function createSpectrumServices(s: Spectrum): SpectrumServices {
@@ -29,5 +31,9 @@ export function createSpectrumServices(s: Spectrum): SpectrumServices {
   const roms = new SpectrumRomService(s, host);
   const snapshots = new SpectrumSnapshotService(s, host);
   const media = new SpectrumMediaService(s, disks, tape, snapshots, roms);
-  return { media, roms, tape, disks, snapshots, input: new SpectrumInputService(s) };
+  return {
+    media, roms, tape, disks, snapshots,
+    input: new SpectrumInputService(s),
+    probe: new SpectrumFrameProbe(s),
+  };
 }

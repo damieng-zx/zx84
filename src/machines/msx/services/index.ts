@@ -10,6 +10,7 @@ import { MsxInputService } from './input.ts';
 import { MsxTapeService } from './tape.ts';
 import { MsxRomService } from './roms.ts';
 import { MsxMediaService } from './media.ts';
+import { MsxFrameProbe } from './frame-probe.ts';
 
 export interface MsxServices extends MachineServices {
   readonly media: MsxMediaService;
@@ -18,6 +19,7 @@ export interface MsxServices extends MachineServices {
   readonly disks: null;
   readonly snapshots: null;
   readonly input: MsxInputService;
+  readonly probe: MsxFrameProbe;
 }
 
 export function createMsxServices(m: MsxMachine): MsxServices {
@@ -25,5 +27,9 @@ export function createMsxServices(m: MsxMachine): MsxServices {
   const tape = new MsxTapeService(m);
   const roms = new MsxRomService(m, host);
   const media = new MsxMediaService(roms, tape);
-  return { media, roms, tape, disks: null, snapshots: null, input: new MsxInputService(m) };
+  return {
+    media, roms, tape, disks: null, snapshots: null,
+    input: new MsxInputService(m),
+    probe: new MsxFrameProbe(m),
+  };
 }

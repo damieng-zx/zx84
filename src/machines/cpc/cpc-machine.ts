@@ -127,6 +127,8 @@ export class CpcMachine extends BaseMachine implements Machine {
   /** Auto-accelerate while the cassette is being read (the CPC reads at real
    *  tape speed, so without this a game takes minutes to load). */
   tapeTurbo = true;
+  /** Auto-rewind the tape to the start when it runs out (frame probe). */
+  tapeAutoRewind = false;
 
   // The `turbo` flag, the debug surface (breakpoints / watchpoints / onTrap /
   // onStatus / onFrame), and the frame-loop + lifecycle state all live on
@@ -183,6 +185,7 @@ export class CpcMachine extends BaseMachine implements Machine {
     this.audio.setVolume(view.get('volume', 70) / 100);
     this.tapeFastRom = view.get('tape-instant-rom', true);
     this.tapeTurbo = view.get('tape-turbo-load', true);
+    this.tapeAutoRewind = view.get('tape-auto-rewind', false);
   }
 
   /** The Multiface Two ROM load request — shared by build-time prepare() and the

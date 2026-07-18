@@ -29,6 +29,7 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'tape-instant-rom': () => settings.tapeFastRom(),
   'tape-turbo-load': () => settings.tapeTurbo(),
   'tape-sound': () => settings.tapeSoundEnabled(),
+  'tape-auto-rewind': () => settings.tapeAutoRewind(),
   // Peripheral enablement + write-protects read by each machine's prepare() hook.
   'vtx5000': () => settings.vtx5000Enabled(),
   'multiface': () => settings.multifaceEnabled(),

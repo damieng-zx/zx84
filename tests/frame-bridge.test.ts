@@ -182,6 +182,7 @@ import {
   onFrame,
 } from '@/frame-bridge.ts';
 import type { FontEntry } from '@/frame-bridge.ts';
+import { SpectrumFrameProbe } from '@/machines/spectrum/services/frame-probe.ts';
 
 // ── fontDataHash ─────────────────────────────────────────────────────────
 
@@ -259,7 +260,8 @@ describe('saveFontStore / loadFontStore', () => {
 // ── updateFontPreview ─────────────────────────────────────────────────────
 
 function makeSpectrumWithSnap(snap: Uint8Array): MockSpectrum {
-  return {
+  const s: any = {
+    model: '48k',
     memory: { snapshot: () => snap },
     cpu: { tStates: 0, pc: 0 },
     variant: { hasBanking: false, hasFDC: false, hasAY: false },
@@ -274,12 +276,20 @@ function makeSpectrumWithSnap(snap: Uint8Array): MockSpectrum {
     tracing: false,
     turbo: false,
     tapeTurboActive: false,
+    tapeFastRom: false,
+    tapeAutoRewind: false,
     tape: { loaded: false, position: 0, playing: false, paused: false, finished: false, startPlayback: vi.fn(), cpuClock: 3_546_900 },
     activity: {},
     screenText: { active: false, activate: vi.fn(), deactivate: vi.fn() },
     loaderDetector: { signature: 'unknown' },
     ocrScreenStyled: vi.fn(() => ({ text: '', html: '', grid: [], mask: [] as number[] })),
+    get audioContext() { return this.audio?.ctx ?? null; },
   };
+  // The bridge is generic now: machine-specific frame logic lives in the
+  // machine's probe. Attach a REAL SpectrumFrameProbe over the stub so these
+  // tests exercise the actual probe + generic bridge together.
+  s.services = { probe: new SpectrumFrameProbe(s) };
+  return s;
 }
 
 describe('updateFontPreview', () => {
@@ -553,6 +563,7 @@ function makeFdcMock(opts: {
     dirty = false } = opts;
   return {
     motorOn, isExecuting, isWriting, currentUnit, currentTrack, currentSector, formattedUnit,
+    unsupportedScan: -1,
     tickFrame: vi.fn(),
     getUnitTrack: vi.fn((_u: number) => currentTrack),
     getDiskImage: vi.fn((_u: number) => null as any),
@@ -579,6 +590,7 @@ describe('renderBanks (via updateRegsOnce)', () => {
     emu.currentModel.mockReturnValue(model as any);
     const snap = new Uint8Array(0x10000);
     const s = makeSpectrumWithSnap(snap)!;
+    (s as any).model = model;   // renderBanks now reads the machine's own model
     s.variant = { hasBanking: true, hasFDC: false, hasAY: false };
     (s as any).memory = {
       ...s.memory, port7FFD: 0, port1FFD: 0, pagingLocked: false,
@@ -822,11 +834,14 @@ describe('onFrame — trace auto-stop', () => {
   it('stops tracing, clears signal, and copies text when spectrum.tracing flips false', () => {
     const snap = new Uint8Array(0x10000);
     const spec = makeSpectrumWithSnap(snap)!;
-    spec.tracing = false;
+    spec.tracing = true;
     spec.stopTrace = vi.fn(() => 'a\nb\nc');
     (spec as any).memory = { ...spec.memory, port7FFD: 0, port1FFD: 0, pagingLocked: false, specialPaging: false, currentROM: 0, currentBank: 0 };
     emu.spectrum = spec;
     emu.tracing.mockReturnValue(true);
+    onFrame();                    // trace engine running — primes the edge detector
+    expect(spec.stopTrace).not.toHaveBeenCalled();
+    spec.tracing = false;         // buffer full — engine auto-stopped
     onFrame();
     expect(spec.stopTrace).toHaveBeenCalled();
     expect(emu.setTracing).toHaveBeenCalledWith(false);
@@ -899,10 +914,12 @@ describe('onFrame — tape handling', () => {
     expect(emu.setTapePaused).not.toHaveBeenCalled();
   });
 
-  it('auto-rewinds when tape finishes and tapeAutoRewind is on', () => {
-    settingsMock.tapeAutoRewind.mockReturnValue(true);
+  it('auto-rewinds when tape finishes and the machine tapeAutoRewind flag is on', () => {
+    // The auto-rewind setting now reaches the machine via applySettings; the
+    // probe's frameTick applies it (the bridge no longer reads the setting).
     const startPlayback = vi.fn();
     const s = makeSpectrumWithTape({ loaded: true, playing: false, finished: true, startPlayback });
+    (s as any).tapeAutoRewind = true;
     emu.spectrum = s;
     onFrame();
     expect(s.tape.position).toBe(0);
@@ -911,7 +928,6 @@ describe('onFrame — tape handling', () => {
   });
 
   it('does not auto-rewind when tapeAutoRewind is off', () => {
-    settingsMock.tapeAutoRewind.mockReturnValue(false);
     const startPlayback = vi.fn();
     emu.spectrum = makeSpectrumWithTape({ loaded: true, playing: false, finished: true, startPlayback });
     onFrame();
@@ -919,9 +935,10 @@ describe('onFrame — tape handling', () => {
   });
 
   it('does not auto-rewind when tape is still playing', () => {
-    settingsMock.tapeAutoRewind.mockReturnValue(true);
     const startPlayback = vi.fn();
-    emu.spectrum = makeSpectrumWithTape({ loaded: true, playing: true, finished: false, startPlayback });
+    const s = makeSpectrumWithTape({ loaded: true, playing: true, finished: false, startPlayback });
+    (s as any).tapeAutoRewind = true;
+    emu.spectrum = s;
     onFrame();
     expect(startPlayback).not.toHaveBeenCalled();
   });

@@ -85,6 +85,9 @@ export abstract class BaseMachine {
 
   protected setStatus(msg: string): void { if (this.onStatus) this.onStatus(msg); }
 
+  /** Live AudioContext once audio is initialised (drive-sound synth attach). */
+  get audioContext(): AudioContext | null { return this.audio.ctx; }
+
   // ── Lifecycle ────────────────────────────────────────────────────────────
 
   async start(): Promise<void> {

@@ -24,7 +24,7 @@ import type { IScreenRenderer } from '@/display/display.ts';
 import type { DisasmLine } from '@/debug/z80-disasm.ts';
 import type { ByteReader } from '@/machines/spectrum/memory.ts';
 import type { MachineModel } from '@/models.ts';
-import type { OcrGridName } from '@/debug/screen-text.ts';
+import type { OcrGridName, FontSource } from '@/debug/screen-text.ts';
 
 export type MachineKind = 'spectrum' | 'cpc' | 'einstein' | 'msx';
 
@@ -72,6 +72,8 @@ export interface Machine {
   tape: TapeDeck;
   mixer: AudioMixer;
   display: IScreenRenderer | null;
+  /** Live AudioContext once audio is initialised (drive-sound synth attach). */
+  readonly audioContext: AudioContext | null;
 
   /** RGBA frame buffer the machine renders into. */
   readonly pixels: Uint8Array;
@@ -449,41 +451,116 @@ export interface InputService {
  * (`FrameProbe.sample` must not allocate — §6). Channels are generic; each
  * machine writes only what it has and maps its own counters onto them (the
  * Spectrum maps Kempston reads → joystick, attribute-cycling → videoFx, …).
- * Exact level semantics are fixed in Phase 5; the shape is fixed here.
+ * The bridge owns presentation policy: the 500ms LED latch, string formatting,
+ * signal diffing — machines only report this frame's raw source state.
  */
 export interface FrameIndicators {
-  /* Activity levels, 0 = idle (counters or 0..1 levels — Phase 5 defines). */
+  /* Raw LED source levels for this frame, 0 = idle (latched by the bridge). */
   keyboard: number;
   joystick: number;
   mouse: number;
+  /** EAR-style tape input sampling (Spectrum ROM loader polls). */
   tapeIn: number;
   tapeLoad: number;
-  tapeTurbo: number;
-  disk: number;
   beeper: number;
   psg: number;
+  /** Attribute-cycling / palette-effect activity ("rainbow"). */
   videoFx: number;
-  text: number;
-  /* Transports */
-  driveMotorMask: number;
+  disk: number;
+  /** Sustained tape-turbo engine state — reflected immediately, not latched. */
+  tapeTurbo: boolean;
+
+  /* Cassette transport (deck machines; tapeLoaded=false ⇒ bridge leaves the
+   * tape signals alone). */
+  tapeLoaded: boolean;
   tapePlaying: boolean;
-  tapePositionBlock: number;
-  /* Speed */
-  tStates: number;
+  tapePaused: boolean;
+  tapeFinished: boolean;
+  tapePosition: number;
+  /** Instant-load cassette block being read this frame (MSX), -1 = no update. */
+  casBlock: number;
+  /** ROM fast-loader engaged (drives the one-shot status announcement). */
+  fastRomLoading: boolean;
+
+  /** Machine trace engine currently capturing (bridge auto-stop edge detect). */
+  tracingActive: boolean;
+
+  /* Drive panel slots A..D (fixed 4). led -1 = slot absent (signal untouched);
+   * 0 off, 1 motor, 2 read, 3 write. sector -1 renders as '--'. */
+  driveLed: Int8Array;
+  driveTrack: Int16Array;
+  driveSector: Int16Array;
+  driveDirty: Uint8Array;
+  /** Slot (0..3) whose media a FORMAT just rewrote this tick, -1 = none. */
+  formattedSlot: number;
+  /** uPD765A SCAN opcode rejected this tick, -1 = none. */
+  scanUnsupported: number;
+
+  /* Microdrive motor states, one bit per drive. mdvCount = 0 when no IF1. */
+  mdvMotorMask: number;
+  mdvCount: number;
+
+  /* Floppy drive-sound feed. floppySlot: A..D panel slot whose per-drive sound
+   * setting gates the synth, -1 = no sound-capable drive path active.
+   * floppyProfile: 0 = 3" CF2, 1 = 3.5", -1 = keep the synth's current one. */
+  floppySlot: number;
+  floppyMotor: boolean;
+  floppyTrack: number;
+  floppyProfile: number;
 }
 
 export function createFrameIndicators(): FrameIndicators {
   return {
-    keyboard: 0, joystick: 0, mouse: 0, tapeIn: 0, tapeLoad: 0, tapeTurbo: 0,
-    disk: 0, beeper: 0, psg: 0, videoFx: 0, text: 0,
-    driveMotorMask: 0, tapePlaying: false, tapePositionBlock: -1,
-    tStates: 0,
+    keyboard: 0, joystick: 0, mouse: 0, tapeIn: 0, tapeLoad: 0,
+    beeper: 0, psg: 0, videoFx: 0, disk: 0, tapeTurbo: false,
+    tapeLoaded: false, tapePlaying: false, tapePaused: true, tapeFinished: false,
+    tapePosition: 0, casBlock: -1, fastRomLoading: false,
+    tracingActive: false,
+    driveLed: new Int8Array([-1, -1, -1, -1]),
+    driveTrack: new Int16Array(4),
+    driveSector: new Int16Array([-1, -1, -1, -1]),
+    driveDirty: new Uint8Array(4),
+    formattedSlot: -1, scanUnsupported: -1,
+    mdvMotorMask: 0, mdvCount: 0,
+    floppySlot: -1, floppyMotor: false, floppyTrack: 0, floppyProfile: -1,
   };
 }
 
+/** Pull-on-demand debug-pane content. Called by the bridge only when the pane
+ *  is open (and throttled as the bridge sees fit) — may allocate freely. */
+export interface FramePaneProvider {
+  /** Memory-layout pane HTML, or null when this model has none (16K/48K). */
+  banksHtml?(): string | null;
+  basicHtml?(): string;
+  basicVarsHtml?(): string;
+  /** Machine has a sysvars pane (the bridge bumps its refresh signal). */
+  readonly hasSysvars?: boolean;
+}
+
+/** OCR text-overlay driver. `run()` performs the OCR, blanks the matched cells
+ *  in the machine's framebuffer, re-uploads the display, and returns the
+ *  overlay strings. Only called while transcribe mode is on — may allocate. */
+export interface TranscribeDriver {
+  readonly active: boolean;
+  /** extraFonts: host-supplied user fonts (Spectrum font store); others ignore. */
+  activate(extraFonts?: readonly FontSource[]): void;
+  deactivate(): void;
+  run(): { text: string; html: string; grid: OcrGridName };
+}
+
 export interface FrameProbe {
-  /** Overwrite `out` in place with this frame's indicator state. No allocation. */
+  /** Overwrite `out` in place with this frame's indicator state. PURE READ —
+   *  no allocation, no machine mutation. Called every rAF. */
   sample(out: FrameIndicators): void;
+  /** Once-per-UI-frame device bookkeeping: FDC frame ticks, one-shot event
+   *  consumption (format/scan latches → out.formattedSlot/scanUnsupported),
+   *  tape auto-rewind. Runs at the bridge's signal-batch cadence (throttled
+   *  under turbo), exactly like the pre-probe per-machine bodies. */
+  frameTick?(out: FrameIndicators): void;
+  /** Live disk image in panel slot 0..3 (post-format metadata refresh). */
+  diskImageForSlot?(slot: number): DskImage | null;
+  readonly panes?: FramePaneProvider;
+  readonly transcribe?: TranscribeDriver;
 }
 
 // ── Service bundle + registry entry ─────────────────────────────────────────

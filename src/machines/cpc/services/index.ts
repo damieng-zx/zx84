@@ -12,6 +12,7 @@ import { CpcDiskService } from './disks.ts';
 import { CpcRomService } from './roms.ts';
 import { CpcSnapshotService } from './snapshots.ts';
 import { CpcMediaService } from './media.ts';
+import { CpcFrameProbe } from './frame-probe.ts';
 
 export interface CpcServices extends MachineServices {
   readonly media: CpcMediaService;
@@ -20,6 +21,7 @@ export interface CpcServices extends MachineServices {
   readonly disks: CpcDiskService;
   readonly snapshots: CpcSnapshotService;
   readonly input: CpcInputService;
+  readonly probe: CpcFrameProbe;
 }
 
 export function createCpcServices(c: CpcMachine): CpcServices {
@@ -29,5 +31,9 @@ export function createCpcServices(c: CpcMachine): CpcServices {
   const roms = new CpcRomService(host);
   const snapshots = new CpcSnapshotService(c, host);
   const media = new CpcMediaService(c, disks, tape, snapshots);
-  return { media, roms, tape, disks, snapshots, input: new CpcInputService(c) };
+  return {
+    media, roms, tape, disks, snapshots,
+    input: new CpcInputService(c),
+    probe: new CpcFrameProbe(c),
+  };
 }

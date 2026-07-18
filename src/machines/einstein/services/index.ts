@@ -10,6 +10,7 @@ import { EinsteinInputService } from './input.ts';
 import { EinsteinDiskService } from './disks.ts';
 import { EinsteinRomService } from './roms.ts';
 import { EinsteinMediaService } from './media.ts';
+import { EinsteinFrameProbe } from './frame-probe.ts';
 
 export interface EinsteinServices extends MachineServices {
   readonly media: EinsteinMediaService;
@@ -18,6 +19,7 @@ export interface EinsteinServices extends MachineServices {
   readonly disks: EinsteinDiskService;
   readonly snapshots: null;
   readonly input: EinsteinInputService;
+  readonly probe: EinsteinFrameProbe;
 }
 
 export function createEinsteinServices(e: EinsteinMachine): EinsteinServices {
@@ -25,5 +27,9 @@ export function createEinsteinServices(e: EinsteinMachine): EinsteinServices {
   const disks = new EinsteinDiskService(e);
   const roms = new EinsteinRomService(host);
   const media = new EinsteinMediaService(e, disks);
-  return { media, roms, tape: null, disks, snapshots: null, input: new EinsteinInputService(e) };
+  return {
+    media, roms, tape: null, disks, snapshots: null,
+    input: new EinsteinInputService(e),
+    probe: new EinsteinFrameProbe(e),
+  };
 }

@@ -234,6 +234,10 @@ export class Spectrum extends BaseMachine implements Machine {
   /** Whether tape loading sounds are mixed into audio output */
   tapeSoundEnabled = true;
 
+  /** Auto-rewind the tape to the start when it runs out (frame probe applies
+   *  it once per UI frame, matching the old frame-bridge behaviour). */
+  tapeAutoRewind = false;
+
   /** Internal: whether tape turbo is currently engaged */
   private _tapeTurboActive = false;
   /** Frames remaining before tape turbo disengages (cooldown) */
@@ -344,6 +348,7 @@ export class Spectrum extends BaseMachine implements Machine {
     this.tapeFastRom = view.get('tape-instant-rom', true);
     this.tapeTurbo = view.get('tape-turbo-load', true);
     this.tapeSoundEnabled = view.get('tape-sound', true);
+    this.tapeAutoRewind = view.get('tape-auto-rewind', false);
     this.scanlineAccuracy = view.get('scanline-accuracy', 'high') as 'high' | 'mid' | 'low';
   }
 
