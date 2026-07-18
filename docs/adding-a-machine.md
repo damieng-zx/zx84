@@ -87,11 +87,11 @@ components) — that manifest is the single sanctioned exception to
 "components never import a machine folder". A `ui/` file that needs its concrete
 machine narrows the shell's handle itself (see `spectrum/ui/active.ts`).
 
-### 5. Optional new `debug-<family>/` (new CPU family)
+### 5. Optional new `debug/<family>/` (new CPU family)
 
 If your machine's CPU isn't already supported (i.e. not `z80`):
 
-- Add `src/machines/debug-<family>/` — the disassembler, step-over/step-out
+- Add `src/debug/<family>/` — the disassembler, step-over/step-out
   reasoning, trace formats, and register descriptors for that family. This is
   shared substrate; any machine of that family imports it.
 - Set `descriptor.cpuFamily` to the new family and extend the `CpuFamily` union
@@ -102,7 +102,7 @@ If your machine's CPU isn't already supported (i.e. not `z80`):
   `DebugService` and works unchanged.
 
 **Worked example — a 6502 machine (e.g. BBC/C64):** create
-`src/machines/bbc/` per steps 1–4; add `src/machines/debug-m6502/` with a 6502
+`src/machines/bbc/` per steps 1–4; add `src/debug/m6502/` with a 6502
 disassembler + register descriptors; set `cpuFamily: 'm6502'`; add a
 `M6502RegisterPane`/`M6502DisassemblyPane` under `bbc/ui/` and register them in
 `machine-ui.ts` keyed off `cpuFamily`. The MCP `registers`/`step`/`trace` tools,

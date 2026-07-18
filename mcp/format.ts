@@ -5,7 +5,7 @@
 
 import { is128kClass } from '../src/models.ts';
 import type { Machine } from '../src/machines/machine.ts';
-import { stripMarkers } from '../src/debug/z80-disasm.ts';
+import { stripMarkers } from '../src/debug/z80/disasm.ts';
 import { h8, h16 } from './hex.ts';
 import { symbols } from './state.ts';
 import { activeSpectrum } from './concrete.ts';

@@ -20,7 +20,7 @@ import { TapeDeck, TAPE_REF_HZ } from '@/media/tape/tap.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
-import { disasmOne, type DisasmLine } from '@/debug/z80-disasm.ts';
+import { disasmOne, type DisasmLine } from '@/debug/z80/disasm.ts';
 import type { IScreenRenderer } from '@/display/display.ts';
 import type { Machine, MachineHost, MachineKind, MachineDescriptor, BorderMode, MachineTraceMode, SettingsView, AuxRomRequest } from '@/machines/machine.ts';
 import { applyAySettings } from '@/machines/shared/ay-settings.ts';

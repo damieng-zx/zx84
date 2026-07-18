@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   disasmOne, disassemble, disassembleAroundPC,
   stripMarkers, formatDisasmHtml,
-} from '@/debug/z80-disasm.ts';
+} from '@/debug/z80/disasm.ts';
 
 function disasm(bytes: number[], addr = 0): string {
   const mem = new Uint8Array(65536);

@@ -6,7 +6,7 @@
 
 import type { MachineServices } from '@/machines/machine.ts';
 import type { EinsteinMachine } from '@/machines/einstein/einstein-machine.ts';
-import { Z80DebugService } from '@/machines/debug-z80/index.ts';
+import { Z80DebugService } from '@/debug/z80/service.ts';
 import { EinsteinInputService } from './input.ts';
 import { EinsteinDiskService } from './disks.ts';
 import { EinsteinRomService } from './roms.ts';

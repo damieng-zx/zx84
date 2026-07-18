@@ -8,10 +8,10 @@
  */
 
 import type { Machine } from '../src/machines/machine.ts';
-import { z80Cpu } from '../src/machines/debug-z80/index.ts';
+import { z80Cpu } from '../src/debug/z80/service.ts';
 import { activeSpectrum } from './concrete.ts';
 import { is128kClass } from '../src/models.ts';
-import { disasmOne, stripMarkers } from '../src/debug/z80-disasm.ts';
+import { disasmOne, stripMarkers } from '../src/debug/z80/disasm.ts';
 import { h8, h16 } from './hex.ts';
 
 export interface TrapResponse {

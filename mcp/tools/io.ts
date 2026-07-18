@@ -4,7 +4,7 @@ import { is128kClass } from '../../src/models.ts';
 import { h8, h16 } from '../hex.ts';
 import { state } from '../state.ts';
 import { activeSpectrum, activeCpc } from '../concrete.ts';
-import { z80Cpu } from '../../src/machines/debug-z80/index.ts';
+import { z80Cpu } from '../../src/debug/z80/service.ts';
 import { parseAddr, text, checkWatchHit, KEY_NAME_MAP, CHAR_KEYS } from '../format.ts';
 
 /** The active machine's keyboard (both expose handleKeyEvent(code, pressed)). */

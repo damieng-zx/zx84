@@ -1,19 +1,20 @@
 /**
- * Z80 debug family module (re-architecture §3.7).
+ * Z80 debug family module.
  *
  * Everything Z80-*shaped* about debugging lives here, shared by every Z80-based
  * machine (all four today): the register snapshot/poke surface, disassembly
  * formatting for the debugger pane, the step-into/over/out opcode reasoning
  * (moved out of managers/debug-manager.ts), and the clipboard CPU-state block.
- * A future 6502 machine adds a sibling `debug-m6502/` module and its own panels;
+ * A future 6502 machine adds a sibling `debug/m6502/` module and its own panels;
  * nothing here is reached by machines of another family.
  *
- * This is CPU-family substrate, like `machines/shared/`: machine folders may
- * import it; it imports only cores + the shared disassembler.
+ * This is CPU-family substrate, not a machine: machine folders may import
+ * their family's module; it imports only cores, the sibling disassembler, and
+ * the SPI *types* from machine.ts.
  */
 
 import { Z80 } from '@/cores/z80.ts';
-import { disasmOne, disassembleAroundPC, formatDisasmHtml } from '@/debug/z80-disasm.ts';
+import { disasmOne, disassembleAroundPC, formatDisasmHtml } from '@/debug/z80/disasm.ts';
 import { hex8, hex16 } from '@/utils/hex.ts';
 import type {
   DebugPanelDescriptor, DebugService, DisasmRow, Machine, RegisterDesc, RegisterSnapshot,

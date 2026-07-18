@@ -31,15 +31,11 @@ boundaries are enforced mechanically (`npm run depcheck`, zero exceptions).
   audio back-pressure, lifecycle, debug-field storage). Untouched by machines.
 - `src/machines/registry.ts` — the **parts catalog**: the only file besides
   `src/models.ts` allowed to name every machine. Stays headless-safe.
-- `src/machines/debug-<family>/` — CPU-family debug substrate (`debug-z80/`:
-  disassembler, step-over/out logic, trace formats, register descriptors). A
-  machine may import a *family* module — that counts as substrate, not another
-  machine.
 - `src/media/` — format codecs → neutral models: `floppy/` (`DskImage`,
   DSK/HFE/SCP/MGT/TRD/SCL, `disk-detect.ts`, `floppy-sound.ts`), `tape/`
   (TAP/TZX/CSW deck + `.cas`), `zip.ts`. Pure — imports only media + utils.
 - `src/shell/` — the host: `context.ts` (shared machine handle + managers),
-  `lifecycle.ts` (create/switch/destroy, pause/turbo, stepping, HMR),
+  `lifecycle.ts` (create/switch/destroy, pause/turbo, stepping, refresh state),
   `media.ts` (zip/picker/dispatch/persistence + transport wrappers),
   `settings.ts` (SettingsView pump), `rom.ts` (fetch/cache/persist). Reaches
   machines **only** through `machine.services` and the SPI/registry — never a
@@ -58,8 +54,13 @@ boundaries are enforced mechanically (`npm run depcheck`, zero exceptions).
 - `src/models.ts` — the `MachineModel` union manifest + leaf helpers
   (`isCpcModel`, …). Per-family helpers (`is128kClass`, `isPlusDCapable`, …)
   live in each machine's own `models.ts`.
-- `src/debug/` — machine-agnostic disassembler, BASIC parser, screen OCR
-  (`screen-text.ts`). These tools take `Uint8Array`, not `ByteReader`.
+- `src/debug/` — machine-agnostic debug tools (BASIC parser, screen OCR
+  `screen-text.ts`) plus per-CPU-family debug substrate in `src/debug/<family>/`
+  (`z80/`: `disasm.ts` disassembler + `service.ts` `Z80DebugService`/`z80Cpu()`,
+  step-over/out logic, register surface — shared by every Z80 machine). A
+  machine may import its *family* module — that's substrate, not another
+  machine. Imports only cores, utils, and machine SPI *types*. These tools take
+  `Uint8Array`, not `ByteReader`.
 - `src/display/` — Canvas and WebGL renderers with HQx/xBR upscaling shaders.
 - `src/emulator.ts` — a thin **compatibility shim** (re-exports shell + state),
   retained only because `frame-bridge.ts` and its module-mock tests still import

@@ -1,6 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { disassemble, stripMarkers } from '../../src/debug/z80-disasm.ts';
+import { disassemble, stripMarkers } from '../../src/debug/z80/disasm.ts';
 import { h8, h16 } from '../hex.ts';
 import { state } from '../state.ts';
 import { parseAddr, formatHexDump, doFindBytes, text } from '../format.ts';

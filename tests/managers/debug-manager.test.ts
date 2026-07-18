@@ -16,7 +16,7 @@
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { DebugManager } from '@/managers/debug-manager.ts';
-import { Z80DebugService, type Z80DebugTarget } from '@/machines/debug-z80/index.ts';
+import { Z80DebugService, type Z80DebugTarget } from '@/debug/z80/service.ts';
 import { Z80 } from '@/cores/z80.ts';
 import type { Spectrum } from '@/machines/spectrum/spectrum.ts';
 

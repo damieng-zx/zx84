@@ -10,9 +10,13 @@
  *   - src/media/       format/codec code; imports only media + utils (pure data).
  *   - src/machines/<name>/  one machine per folder; an island that may reach its
  *                      own folder, the shared machine substrate
- *                      (machine.ts / base-machine.ts / registry / shared / debug-*),
- *                      cores, media and utils — but never another machine folder,
- *                      and never UI / reactive state / settings store.
+ *                      (machine.ts / base-machine.ts / registry / shared),
+ *                      cores, media, debug substrate (src/debug) and utils — but
+ *                      never another machine folder, and never UI / reactive
+ *                      state / settings store.
+ *   - src/debug/       machine-agnostic debug tools + CPU-family debug substrate
+ *                      (src/debug/<family>/); imports cores, utils, and the
+ *                      machine SPI *types* only.
  *
  * All four rules currently pass with ZERO exceptions — the Phase 0 baseline
  * backlog (cores/ula.ts → keyboard.ts, cores/gate-array.ts → cpc/constants.ts)
@@ -52,11 +56,24 @@ module.exports = {
       comment:
         'A machine folder (src/machines/<name>/) is an island: it may import its ' +
         'own folder plus the shared substrate (machine.ts, base-machine.ts, ' +
-        'registry, shared/, debug-*), but never another machine folder. §3.1.',
+        'registry, shared/), but never another machine folder. §3.1.',
       severity: 'error',
       from: { path: '^src/machines/([^/]+)/' },
       to: {
-        path: '^src/machines/(?!$1/|machine|base-machine|registry|shared|debug-)',
+        path: '^src/machines/(?!$1/|machine|base-machine|registry|shared)',
+      },
+    },
+    {
+      name: 'debug-is-cpu-substrate',
+      comment:
+        'src/debug holds machine-agnostic debug tools and CPU-family debug ' +
+        'substrate (src/debug/<family>/: disassembler + DebugService provider). ' +
+        'It may import cores, utils, and the machine SPI *types* (machine.ts) — ' +
+        'never a concrete machine folder, UI, state, store, or shell.',
+      severity: 'error',
+      from: { path: '^src/debug/' },
+      to: {
+        pathNot: '^(src/debug/|src/cores/|src/utils/|src/machines/machine\\.ts$|node_modules/)',
       },
     },
     {

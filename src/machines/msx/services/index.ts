@@ -6,7 +6,7 @@
 
 import type { MachineServices } from '@/machines/machine.ts';
 import type { MsxMachine } from '@/machines/msx/msx-machine.ts';
-import { Z80DebugService } from '@/machines/debug-z80/index.ts';
+import { Z80DebugService } from '@/debug/z80/service.ts';
 import { MsxInputService } from './input.ts';
 import { MsxTapeService } from './tape.ts';
 import { MsxRomService } from './roms.ts';

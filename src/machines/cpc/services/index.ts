@@ -6,7 +6,7 @@
 
 import type { MachineServices } from '@/machines/machine.ts';
 import type { CpcMachine } from '@/machines/cpc/cpc-machine.ts';
-import { Z80DebugService } from '@/machines/debug-z80/index.ts';
+import { Z80DebugService } from '@/debug/z80/service.ts';
 import { CpcInputService } from './input.ts';
 import { CpcTapeService } from './tape.ts';
 import { CpcDiskService } from './disks.ts';

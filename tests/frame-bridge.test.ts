@@ -130,7 +130,7 @@ vi.mock('@/media/floppy/dsk.ts', () => ({ refreshDiskMetadata: vi.fn() }));
 
 // Mock z80-disasm + basic-parser since they're only called from updateRegsOnce
 // + the onFrame breakpoint path; not part of the lock-in tests below.
-vi.mock('@/debug/z80-disasm.ts', () => ({
+vi.mock('@/debug/z80/disasm.ts', () => ({
   disassembleAroundPC: vi.fn(() => []),
   formatDisasmHtml: vi.fn(() => ''),
 }));
@@ -183,7 +183,7 @@ import {
 } from '@/frame-bridge.ts';
 import type { FontEntry } from '@/frame-bridge.ts';
 import { SpectrumFrameProbe } from '@/machines/spectrum/services/frame-probe.ts';
-import { Z80DebugService } from '@/machines/debug-z80/index.ts';
+import { Z80DebugService } from '@/debug/z80/service.ts';
 
 // ── fontDataHash ─────────────────────────────────────────────────────────
 

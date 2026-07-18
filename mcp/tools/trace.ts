@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { disasmOne, stripMarkers } from '../../src/debug/z80-disasm.ts';
+import { disasmOne, stripMarkers } from '../../src/debug/z80/disasm.ts';
 import { h8, h16 } from '../hex.ts';
 import { state } from '../state.ts';
 import { activeSpectrum } from '../concrete.ts';

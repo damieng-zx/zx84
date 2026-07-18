@@ -3,7 +3,7 @@
  *
  * All CPU-family reasoning (halted-wake, step-over/step-out opcode analysis,
  * register/disassembly formatting) lives in the machine's `services.debug`
- * provider (`machines/debug-z80/` for the Z80 machines); this manager only
+ * provider (`debug/z80/` for the Z80 machines); this manager only
  * sequences those operations against UI callbacks and owns the generic
  * breakpoint conveniences (toggle, run-to).
  */

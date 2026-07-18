@@ -6,7 +6,7 @@
 
 import type { MachineServices } from '@/machines/machine.ts';
 import type { Spectrum } from '@/machines/spectrum/spectrum.ts';
-import { Z80DebugService } from '@/machines/debug-z80/index.ts';
+import { Z80DebugService } from '@/debug/z80/service.ts';
 import { SpectrumInputService } from './input.ts';
 import { SpectrumTapeService } from './tape.ts';
 import { SpectrumDiskService } from './disks.ts';

@@ -10,7 +10,7 @@
  */
 
 import { Z80 } from '@/cores/z80.ts';
-import { disasmOne, stripMarkers, type DisasmLine } from '@/debug/z80-disasm.ts';
+import { disasmOne, stripMarkers, type DisasmLine } from '@/debug/z80/disasm.ts';
 import { AY3891x } from '@/cores/ay-3-8910.ts';
 import { SpectrumMemory } from '@/machines/spectrum/memory.ts';
 import { ULA, PALETTES, type BorderMode } from '@/machines/spectrum/ula.ts';

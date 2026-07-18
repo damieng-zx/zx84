@@ -5,7 +5,7 @@
  * (CPU, PSG, FDC, tape deck, mixer) and everything CPU-family-shaped (register
  * layout, disassembly, tracing) lives OFF this interface: consumers reach
  * machine internals only through `services` (§3.3) and the per-family debug
- * provider (`services.debug`, backed by `machines/debug-<family>/`).
+ * provider (`services.debug`, backed by `debug/<family>/`).
  *
  * Deliberate exceptions kept on the interface (see docs/re-architecture.md §6):
  *  - `memory` — the 64KB address-space view is a fundamental machine property
@@ -483,12 +483,12 @@ export interface SnapshotService {
   apply(data: Uint8Array, filename: string): Promise<SnapshotApplyResult>;
   /** Serialize current state (async: some formats compress). */
   save(ext: string): Promise<Uint8Array>;
-  /** Synchronous full-state snapshot for the HMR dev-reload path (must run from
+  /** Synchronous full-state snapshot for the browser-refresh path (must run from
    *  a `beforeunload` handler). null when the machine can't serialise
-   *  synchronously; its presence also gates whether the shell attempts HMR
+   *  synchronously; its presence also gates whether the shell attempts refresh
    *  resume at all. */
   saveSync?(): Uint8Array | null;
-  /** Restore a saveSync() snapshot on the SAME model (HMR resume): no model
+  /** Restore a saveSync() snapshot on the SAME model (refresh resume): no model
    *  upgrade, no persistence, no reflection. Returns true on success. */
   restoreSync?(data: Uint8Array): Promise<boolean>;
 }
@@ -780,4 +780,3 @@ export interface MachineEntry {
    *  in the machine that owns it; the shell iterates entries. */
   detectModelForRom?(data: Uint8Array, current: MachineModel): MachineModel | null;
 }
-
