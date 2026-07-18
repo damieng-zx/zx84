@@ -22,6 +22,8 @@ export interface MachineUiContribution {
   readonly Keyboard?: Component;
   /** System-variables pane body. */
   readonly SysVars?: Component;
+  /** Software-library browser. */
+  readonly LibraryBrowser?: Component;
 }
 
 const CONTRIBUTIONS: Record<string, MachineUiContribution> = {
@@ -32,6 +34,8 @@ const CONTRIBUTIONS: Record<string, MachineUiContribution> = {
       import('@/machines/spectrum/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
     SysVars: lazy(() =>
       import('@/machines/spectrum/ui/SysVars.tsx').then(m => ({ default: m.SysVars }))),
+    LibraryBrowser: lazy(() =>
+      import('@/machines/spectrum/ui/LibraryBrowser.tsx').then(m => ({ default: m.LibraryBrowser }))),
   },
   cpc: {
     HardwareSection: lazy(() =>

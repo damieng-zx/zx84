@@ -12,7 +12,7 @@
  */
 
 import type { VdpMode } from '@/cores/tms9918a.ts';
-import type { OcrResult } from '@/debug/screen-text.ts';
+import type { OcrResult } from '@/ocr/spectrum.ts';
 
 /** Default ASCII-ordered 8-byte font offset in the MOS ROM (MOS 1.21). The
  *  offset differs by MOS version (1.2 @ 0x106D, 1.21 @ 0x107A), so it is

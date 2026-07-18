@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { CpcScreenText, cpcCols, cpcGrid, type CpcOcrInput } from '@/debug/cpc-screen-text.ts';
+import { CpcScreenText, cpcCols, cpcGrid, type CpcOcrInput } from '@/ocr/cpc.ts';
 
 // Two distinct, non-blank, non-solid glyphs assigned to 'A' (0x41) and 'B'.
 const GLYPH_A = [0x18, 0x24, 0x42, 0x42, 0x7E, 0x42, 0x42, 0x00];

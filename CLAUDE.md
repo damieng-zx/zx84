@@ -54,13 +54,15 @@ boundaries are enforced mechanically (`npm run depcheck`, zero exceptions).
 - `src/models.ts` — the `MachineModel` union manifest + leaf helpers
   (`isCpcModel`, …). Per-family helpers (`is128kClass`, `isPlusDCapable`, …)
   live in each machine's own `models.ts`.
-- `src/debug/` — machine-agnostic debug tools (BASIC parser, screen OCR
-  `screen-text.ts`) plus per-CPU-family debug substrate in `src/debug/<family>/`
+- `src/debug/` — machine-agnostic debug tools (BASIC parser) plus per-CPU-family
+  debug substrate in `src/debug/<family>/`
   (`z80/`: `disasm.ts` disassembler + `service.ts` `Z80DebugService`/`z80Cpu()`,
   step-over/out logic, register surface — shared by every Z80 machine). A
   machine may import its *family* module — that's substrate, not another
   machine. Imports only cores, utils, and machine SPI *types*. These tools take
   `Uint8Array`, not `ByteReader`.
+- `src/ocr/` — machine-specific screen OCR engines, each returning neutral text
+  and styling data from display memory.
 - `src/display/` — Canvas and WebGL renderers with HQx/xBR upscaling shaders.
 - `src/emulator.ts` — a thin **compatibility shim** (re-exports shell + state),
   retained only because `frame-bridge.ts` and its module-mock tests still import

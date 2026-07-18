@@ -20,7 +20,7 @@ import {
   extractCellGlyph,
   type OcrConfig,
   type FontSource,
-} from '@/debug/screen-text.ts';
+} from '@/ocr/spectrum.ts';
 
 // ─────────────────────────────────────────────────────────────────────────
 // Test helpers

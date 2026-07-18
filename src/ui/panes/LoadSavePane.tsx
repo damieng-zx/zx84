@@ -5,9 +5,9 @@ import {
   loadFile, loadableExtensions, saveSnapshot, saveCpcSnapshot, saveScreenshot,
   saveRAM,
 } from '@/shell/media.ts';
-import { machineCaps } from '@/state/machine-caps.ts';
+import { machineCaps, machineKind } from '@/state/machine-caps.ts';
 import { toggleLibrary, libraryVisible } from '@/ui/panes.ts';
-import { LibraryBrowser } from '@/ui/components/LibraryBrowser.tsx';
+import { machineUi } from '@/ui/machine-ui.ts';
 import { openFile } from '@/ui/file-picker.ts';
 
 const saveMenuKind = () => machineCaps().saveMenu;
@@ -117,8 +117,8 @@ export function LoadSavePane() {
           </Show>
         </div>
       </div>
-      <Show when={libraryVisible() && hasLibrary()}>
-        <LibraryBrowser />
+      <Show when={libraryVisible() && hasLibrary() && machineUi(machineKind()).LibraryBrowser} keyed>
+        {(LibraryBrowser) => <LibraryBrowser />}
       </Show>
     </Pane>
   );

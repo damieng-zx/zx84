@@ -6,7 +6,7 @@
  * the implementation: text mode = 40 cols from name base (regs[2]&0x0F)<<10.
  */
 import { describe, it, expect } from 'vitest';
-import { MsxScreenText, msxTextGrid } from '@/debug/msx-screen-text.ts';
+import { MsxScreenText, msxTextGrid } from '@/ocr/msx.ts';
 import { TMS9918_PALETTE } from '@/cores/tms9918a.ts';
 
 /** Text-mode registers: R1 bit4 = text mode; R7 = fg/bg; name base = 0. */

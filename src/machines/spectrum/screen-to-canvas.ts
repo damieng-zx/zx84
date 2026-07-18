@@ -1,5 +1,5 @@
 /**
- * Render a ZX Spectrum SCR screen dump to a canvas.
+ * Render a ZX Spectrum screen dump to a canvas.
  *
  * Algorithm adapted from damieng/retro-render (SpectrumScreen), using the
  * emulator's own palette (src/cores/ula.ts) so library thumbnails match the live
@@ -21,7 +21,7 @@ const ATTR_OFFSET = 6144;   // 0x1800 — attributes follow the bitmap in a .scr
  * Draw `scr` onto `canvas` (resized to 256×192). Returns false if the data isn't
  * a recognisable SCR dump (caller can then show a fallback).
  */
-export function renderScrToCanvas(scr: Uint8Array, canvas: HTMLCanvasElement, colorMap: ColorMap = 'basic'): boolean {
+export function renderScreenToCanvas(scr: Uint8Array, canvas: HTMLCanvasElement, colorMap: ColorMap = 'basic'): boolean {
   if (scr.length < ATTR_OFFSET) return false;
   canvas.width = SCR_WIDTH;
   canvas.height = SCR_HEIGHT;

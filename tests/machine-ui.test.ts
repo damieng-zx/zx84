@@ -34,6 +34,7 @@ describe('machine-ui manifest', () => {
     expect(isLazyLoader(spectrum.HardwareSection)).toBe(true);
     expect(isLazyLoader(spectrum.Keyboard)).toBe(true);
     expect(isLazyLoader(spectrum.SysVars)).toBe(true);
+    expect(isLazyLoader(spectrum.LibraryBrowser)).toBe(true);
 
     const cpc = machineUi('cpc');
     expect(isLazyLoader(cpc.HardwareSection)).toBe(true);
@@ -47,7 +48,7 @@ describe('machine-ui manifest', () => {
   });
 
   it('exposes only known contribution keys per kind', () => {
-    const allowed = new Set(['HardwareSection', 'Keyboard', 'SysVars']);
+    const allowed = new Set(['HardwareSection', 'Keyboard', 'SysVars', 'LibraryBrowser']);
     for (const kind of ['spectrum', 'cpc', 'einstein', 'msx']) {
       for (const key of Object.keys(machineUi(kind))) {
         expect(allowed.has(key)).toBe(true);

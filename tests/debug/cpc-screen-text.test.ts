@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { CpcScreenText, type CpcOcrInput } from '@/debug/cpc-screen-text.ts';
+import { CpcScreenText, type CpcOcrInput } from '@/ocr/cpc.ts';
 
 /** A distinctive non-blank 8×8 bitmap. Its exact shape is irrelevant — the test
  *  fonts contain at most one non-blank glyph, so any non-zero pattern matches

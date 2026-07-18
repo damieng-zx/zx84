@@ -10,7 +10,7 @@ import { currentDiskName } from '@/state/disk-state.ts';
 import {
   fetchCatalog, fileUrls, basename, resolveGame, parseLibraryQuery, planLoad, gameNeeds, type Game,
 } from '@/library/catalog.ts';
-import { renderScrToCanvas } from '@/library/scr-render.ts';
+import { renderScreenToCanvas } from '@/machines/spectrum/screen-to-canvas.ts';
 import {
   catalog, setCatalog, query, setQuery,
   libraryLoading, setLibraryLoading, libraryError, setLibraryError,
@@ -82,7 +82,7 @@ function GameDetail(props: { game: Game }) {
     if (!props.game.screen) return;
     try {
       const data = await fetchFirst(fileUrls(props.game.screen));
-      setShot(canvasRef && renderScrToCanvas(data, canvasRef) ? 'ok' : 'error');
+       setShot(canvasRef && renderScreenToCanvas(data, canvasRef) ? 'ok' : 'error');
     } catch {
       setShot('error');
     }

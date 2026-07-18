@@ -1,5 +1,5 @@
 /**
- * Screen OCR — bitmap-level character recognition for the ZX Spectrum display.
+ * Spectrum OCR — bitmap-level character recognition for the ZX Spectrum display.
  *
  * The engine extracts each character cell from the displayed screen bank and
  * compares it against a prioritised font list. Cell layout is configurable
@@ -35,7 +35,7 @@ export interface OcrConfig {
 export type SpectrumOcrGrid = '32x24' | '51x24' | '64x24';
 
 /** CPC text grids — one per screen mode (mode 0/1/2 → 20/40/80 columns), all
- *  8×8. The CPC OCR engine (cpc-screen-text.ts) picks by mode, not by heuristic,
+ *  8×8. The CPC OCR engine (cpc.ts) picks by mode, not by heuristic,
  *  so these deliberately live outside OCR_GRIDS. */
 export type CpcOcrGrid = '20x25' | '40x25' | '80x25';
 

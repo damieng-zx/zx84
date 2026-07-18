@@ -17,7 +17,7 @@
  * was drawn; the byte addressing mirrors GateArray.renderScanline.
  */
 
-import type { CpcOcrGrid, OcrResult } from './screen-text.ts';
+import type { CpcOcrGrid, OcrResult } from './spectrum.ts';
 
 /** Offset of the 256×8-byte character matrix within the 16KB lower OS ROM. */
 export const CPC_FONT_OFFSET = 0x3800;

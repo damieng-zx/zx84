@@ -20,7 +20,7 @@ import type { IScreenRenderer } from '@/display/display.ts';
 import type { ByteReader } from '@/machines/spectrum/memory.ts';
 import type { TapeBlock } from '@/media/tape/tap.ts';
 import type { MachineModel } from '@/models.ts';
-import type { OcrGridName, FontSource } from '@/debug/screen-text.ts';
+import type { OcrGridName, FontSource } from '@/ocr/spectrum.ts';
 
 export type MachineKind = 'spectrum' | 'cpc' | 'einstein' | 'msx';
 

@@ -9,7 +9,7 @@ import type {
   FrameIndicators, FrameProbe, TranscribeDriver,
 } from '@/machines/machine.ts';
 import type { MsxMachine } from '@/machines/msx/msx-machine.ts';
-import type { OcrGridName } from '@/debug/screen-text.ts';
+import type { OcrGridName } from '@/ocr/spectrum.ts';
 
 class MsxTranscribeDriver implements TranscribeDriver {
   constructor(private readonly m: MsxMachine) {}

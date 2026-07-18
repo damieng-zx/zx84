@@ -17,7 +17,7 @@ import type { Spectrum } from '@/machines/spectrum/spectrum.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import type { WD179x } from '@/cores/wd179x.ts';
 import type { UPD765A } from '@/cores/upd765a.ts';
-import type { FontSource, OcrGridName } from '@/debug/screen-text.ts';
+import type { FontSource, OcrGridName } from '@/ocr/spectrum.ts';
 import { isPlus2AClass } from '@/machines/spectrum/models.ts';
 import { parseBasicProgram, parseBasicVariables } from '@/basic/sinclair-basic-parser';
 import { hex8 } from '@/utils/hex.ts';
