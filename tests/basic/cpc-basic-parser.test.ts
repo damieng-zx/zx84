@@ -7,7 +7,7 @@
  * pins the detokenizer to verified hardware behaviour, not to its own logic.
  */
 import { describe, it, expect } from 'vitest';
-import { parseLocomotiveBasic } from '@/debug/cpc-basic-parser.ts';
+import { parseLocomotiveBasic } from '@/basic/cpc-basic-parser.ts';
 
 const PROG_START = 0x0170;
 
