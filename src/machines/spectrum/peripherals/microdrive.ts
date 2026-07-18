@@ -90,6 +90,10 @@ export class Microdrive {
   private readonly pream = new Uint8Array(512);
 
   get inserted(): boolean { return this.cartridge !== null; }
+  /** Physical sector currently under the read/write head, or -1 while idle. */
+  get currentSector(): number {
+    return this.motorOn && this.cartridge !== null ? Math.floor(this.headPos / BLOCK_LEN) : -1;
+  }
 
   /** Eject the cartridge and clear all transfer state. */
   eject(): void {

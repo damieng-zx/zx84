@@ -203,11 +203,15 @@ export class SpectrumFrameProbe implements FrameProbe {
     }
 
     // Microdrive motors (IF1).
+    out.mdvSector.fill(-1);
     if (s.interface1.enabled) {
       out.mdvCount = 8;
       let mask = 0;
       const drives = s.interface1.drives;
-      for (let i = 0; i < 8; i++) if (drives[i].motorOn) mask |= 1 << i;
+      for (let i = 0; i < 8; i++) {
+        if (drives[i].motorOn) mask |= 1 << i;
+        out.mdvSector[i] = drives[i].currentSector;
+      }
       out.mdvMotorMask = mask;
     } else {
       out.mdvCount = 0;

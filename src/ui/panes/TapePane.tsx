@@ -20,7 +20,15 @@ import { openFile } from '@/ui/file-picker.ts';
 // slot — no pulse-level transport, block list, or fast-load toggles.
 const isInstantTape = () => machineCaps().tape === 'instant';
 
-const HEADER_TYPES: Record<number, string> = { 0: 'Program', 1: 'Number array', 2: 'Character array', 3: 'Bytes' };
+function tapeFileLine(typeId: number, filename: string, dataLen: number, param1: number): string {
+  switch (typeId) {
+    case 0: return `PROGRAM "${filename}"${param1 < 10000 ? ` LINE ${param1}` : ''}`;
+    case 1: return `NUMERIC ARRAY "${filename}" ${dataLen}`;
+    case 2: return `CHARACTER ARRAY "${filename}" ${dataLen}`;
+    case 3: return `CODE "${filename}" ${param1},${dataLen}`;
+    default: return `DATA "${filename}" ${dataLen}`;
+  }
+}
 
 function sourceTag(block: DataBlock): string {
   if (block.source === 'standard') return ' [STD]';
@@ -45,25 +53,14 @@ function parseTapeBlockMeta(block: TapeBlock, index: number, blocks: TapeBlock[]
       const timing = block.source !== 'tap' ? dataTimingDetail(block) : '';
       if (block.source !== 'pure-data' && block.flag === 0x00 && block.data.length >= 15) {
         const typeId = block.data[0];
-        const typeName = HEADER_TYPES[typeId] ?? `Type ${typeId}`;
         let filename = '';
         for (let i = 1; i <= 10; i++) filename += String.fromCharCode(block.data[i]);
         const dataLen = block.data[11] | (block.data[12] << 8);
         const param1 = block.data[13] | (block.data[14] << 8);
         const nextBlock = blocks[index + 1];
         const hasMatchingData = nextBlock && nextBlock.kind === 'data' && nextBlock.flag === 0xFF && nextBlock.data.length === dataLen;
-        let displayType = typeName;
-        if (hasMatchingData && collapseBlocks) {
-          if (typeId === 0) displayType = 'PROGRAM';
-          else if (typeId === 3) displayType = (dataLen === 6912 && param1 === 16384) ? 'SCREEN$' : 'CODE';
-        }
-        const line = (hasMatchingData && collapseBlocks)
-          ? `${index}: ${displayType} "${filename.trimEnd()}"${tag}`
-          : `${index}: Header "${filename.trimEnd()}"${tag}`;
-        let detail = `${typeName} ${dataLen} bytes`;
-        if (typeId === 0 && param1 < 10000) detail += ` LINE ${param1}`;
-        else if (typeId === 3) detail += ` @ ${param1}`;
-        if (timing) detail += `\n${timing}`;
+        const line = `${index}: ${tapeFileLine(typeId, filename.trimEnd(), dataLen, param1)}${tag}`;
+        const detail = timing;
         // When collapsed, the header row absorbs the hidden data child that follows it,
         // so it must also reflect that child's loading/played state.
         return { line, detail, hidden: false, control: false, absorbsNext: !!(hasMatchingData && collapseBlocks) };

@@ -8,16 +8,18 @@
  */
 
 import { createSignal } from 'solid-js';
+import type { MdrBlock } from '@/media/microdrive.ts';
 
 export interface MicrodriveSlot {
   loaded: boolean;
   name: string;
   writeProtected: boolean;
   modified: boolean;
+  blocks: MdrBlock[];
 }
 
 function blank(): MicrodriveSlot {
-  return { loaded: false, name: '', writeProtected: false, modified: false };
+  return { loaded: false, name: '', writeProtected: false, modified: false, blocks: [] };
 }
 
 const _slots = createSignal<MicrodriveSlot[]>(Array.from({ length: 8 }, blank));
@@ -40,6 +42,12 @@ export function clearMicrodriveSlot(unit: number): void {
 const _motors = createSignal<boolean[]>(new Array(8).fill(false));
 export const microdriveMotors = _motors[0];
 export const setMicrodriveMotors = _motors[1];
+
+/** Physical MDR sector under each drive head (-1 while idle). The frame bridge
+ * updates this from the allocation-free machine probe for the block viewer. */
+const _currentSectors = createSignal<number[]>(new Array(8).fill(-1));
+export const microdriveCurrentSectors = _currentSectors[0];
+export const setMicrodriveCurrentSectors = _currentSectors[1];
 
 /** How many drives the pane shows (1-8). All eight are always emulated; this is
  *  purely a UI choice, persisted so it survives a reload. */

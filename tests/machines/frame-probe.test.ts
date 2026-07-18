@@ -14,6 +14,7 @@ import { Spectrum } from '@/machines/spectrum/spectrum.ts';
 import { serializeDSK } from '@/media/floppy/dsk.ts';
 import { blankMgtDisk } from '@/media/floppy/mgt-image.ts';
 import { parseFloppyImage } from '@/media/floppy/hfe.ts';
+import { BLOCK_LEN } from '@/machines/spectrum/peripherals/microdrive.ts';
 
 /** Minimal valid TAP: one 3-byte block (flag, one payload byte, checksum). */
 function tinyTap(): Uint8Array {
@@ -98,6 +99,21 @@ describe('SpectrumFrameProbe.sample', () => {
     expect(ind.tapePlaying).toBe(true);
     expect(ind.tapePaused).toBe(true);
     expect(ind.tapePosition).toBe(0);
+  });
+
+  it('reports the active Interface 1 microdrive sector for the block viewer', async () => {
+    const s = headless('48k');
+    s.interface1.enabled = true;
+    await s.services.media.mount(new Uint8Array(BLOCK_LEN * 2), 'probe.mdr');
+    s.interface1.drives[0].motorOn = true;
+    s.interface1.drives[0].headPos = BLOCK_LEN + 15;
+    const ind = createFrameIndicators();
+
+    s.services.probe.sample(ind);
+
+    expect(ind.mdvCount).toBe(8);
+    expect(ind.mdvSector[0]).toBe(1);
+    expect(ind.mdvSector[1]).toBe(-1);
   });
 
   it('frameTick auto-rewinds a finished tape only when tapeAutoRewind is set', async () => {

@@ -675,6 +675,8 @@ export interface FrameIndicators {
   /* Microdrive motor states, one bit per drive. mdvCount = 0 when no IF1. */
   mdvMotorMask: number;
   mdvCount: number;
+  /** Physical MDR sector under each active drive's head, or -1 while idle. */
+  mdvSector: Int16Array;
 
   /* Floppy drive-sound feed. floppySlot: A..D panel slot whose per-drive sound
    * setting gates the synth, -1 = no sound-capable drive path active.
@@ -697,7 +699,7 @@ export function createFrameIndicators(): FrameIndicators {
     driveSector: new Int16Array([-1, -1, -1, -1]),
     driveDirty: new Uint8Array(4),
     formattedSlot: -1, scanUnsupported: -1,
-    mdvMotorMask: 0, mdvCount: 0,
+    mdvMotorMask: 0, mdvCount: 0, mdvSector: new Int16Array(8).fill(-1),
     floppySlot: -1, floppyMotor: false, floppyTrack: 0, floppyProfile: -1,
   };
 }

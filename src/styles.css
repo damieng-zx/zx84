@@ -1910,6 +1910,13 @@ input[type="range"]::-moz-range-thumb {
   font-size: 0.7rem;
 }
 
+.microdrive-blocks {
+  margin-top: 4px;
+  max-height: 240px;
+  overflow-y: auto;
+  font-size: 0.7rem;
+}
+
 .tape-block {
   padding: 4px 6px;
   cursor: pointer;

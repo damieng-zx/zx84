@@ -19,6 +19,7 @@ import { parseSCP, isScp } from '@/media/floppy/scp.ts';
 import { parseMgt, serializeMgt, blankMgtDisk, mgtExtFromName } from '@/media/floppy/mgt-image.ts';
 import { parseTrd, serializeTrd, blankTrdDisk } from '@/media/floppy/trd-image.ts';
 import { parseScl, serializeScl, isScl, SCL_DISK_FORMAT } from '@/media/floppy/scl-image.ts';
+import { parseMdrBlocks } from '@/media/microdrive.ts';
 import { unzip } from '@/media/zip.ts';
 import { parseCasBlocks } from '@/media/tape/cas.ts';
 import { showFilePicker } from '@/ui/zip-picker.ts';
@@ -197,7 +198,7 @@ async function reflectMount(
   } else if (target.startsWith('mdv:')) {
     const u = Number(target.slice(4));
     const drive = m.services.disks?.drives.find(d => d.id === target);
-    setMicrodriveSlot(u, { loaded: true, name: filename, writeProtected: drive?.writeProtected ?? false, modified: false });
+    setMicrodriveSlot(u, { loaded: true, name: filename, writeProtected: drive?.writeProtected ?? false, modified: false, blocks: parseMdrBlocks(data) });
     persistMicrodrive(u, data, filename).catch((e) => console.warn('persistMicrodrive failed:', e));
   } else if (target === 'cas') {
     reflectInstantCassette(data, filename);
@@ -671,7 +672,7 @@ export function loadMicrodrive(data: Uint8Array, filename: string, unit: number)
   try {
     machine.services.disks!.insert(`mdv:${unit}`, data, filename);
     const drive = machine.services.disks!.drives.find(d => d.id === `mdv:${unit}`);
-    setMicrodriveSlot(unit, { loaded: true, name: filename, writeProtected: drive?.writeProtected ?? false, modified: false });
+    setMicrodriveSlot(unit, { loaded: true, name: filename, writeProtected: drive?.writeProtected ?? false, modified: false, blocks: parseMdrBlocks(data) });
     persistMicrodrive(unit, data, filename).catch((e) => console.warn('persistMicrodrive failed:', e));
     setStatus(`Microdrive ${unit + 1}: loaded: ${filename}`);
   } catch (e) {
@@ -697,7 +698,7 @@ export function insertBlankMicrodrive(unit: number, name = 'CART'): void {
   }
   const blank = disks.formatBlank(`mdv:${unit}`, name);
   if (!blank) { setStatus('Enable the ZX Interface 1 in Hardware first'); return; }
-  setMicrodriveSlot(unit, { loaded: true, name: blank.name, writeProtected: false, modified: false });
+  setMicrodriveSlot(unit, { loaded: true, name: blank.name, writeProtected: false, modified: false, blocks: [] });
   persistMicrodrive(unit, blank.data, blank.name);
   setStatus(`Microdrive ${unit + 1}: blank cartridge inserted`);
 }
@@ -876,7 +877,7 @@ export async function restoreMedia(): Promise<void> {
         try {
           disks.insert(`mdv:${unit}`, cart.data, cart.name);
           const drive = disks.drives.find(d => d.id === `mdv:${unit}`);
-          setMicrodriveSlot(unit, { loaded: true, name: cart.name, writeProtected: drive?.writeProtected ?? false, modified: false });
+          setMicrodriveSlot(unit, { loaded: true, name: cart.name, writeProtected: drive?.writeProtected ?? false, modified: false, blocks: parseMdrBlocks(cart.data) });
         } catch { /* ignore corrupt data */ }
       }
     }

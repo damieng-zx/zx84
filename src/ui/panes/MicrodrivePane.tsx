@@ -9,7 +9,7 @@
  * loadFile() path (.mdr/.mdv), so drag-drop and the global Load picker work too.
  */
 
-import { Show, For } from 'solid-js';
+import { createEffect, Show, For } from 'solid-js';
 import { Pane } from '@/ui/components/Pane.tsx';
 import { DropDownMenuButton, type MenuItem } from '@/ui/components/DropDownMenuButton.tsx';
 import { HiOutlineEllipsisVertical, HiOutlineDocumentPlus, HiOutlineArrowDownTray } from 'solid-icons/hi';
@@ -20,6 +20,7 @@ import {
 import { currentModel } from '@/state/machine-state.ts';
 import {
   microdriveSlots, microdriveMotors, microdriveCount, setMicrodriveCount,
+  microdriveCurrentSectors,
 } from '@/state/microdrive-state.ts';
 import { isInterface1Capable } from '@/models.ts';
 import { interface1Enabled } from '@/store/settings.ts';
@@ -27,10 +28,31 @@ import { openFile } from '@/ui/file-picker.ts';
 
 const NEW_ITEMS = [{ value: 'blank', label: 'Blank cartridge' }];
 
+function blockLine(block: { type: string; name: string; bytes: number; loadAddress: number | null; autorunLine: number | null }): string {
+  if (block.type === 'Program') return `PROGRAM "${block.name}"${block.autorunLine !== null ? ` LINE ${block.autorunLine}` : ''}`;
+  if (block.type === 'Bytes') return `CODE "${block.name}" ${block.loadAddress ?? 0},${block.bytes}`;
+  if (block.type === 'Number array') return `NUMERIC ARRAY "${block.name}" ${block.bytes}`;
+  if (block.type === 'Character array') return `CHARACTER ARRAY "${block.name}" ${block.bytes}`;
+  return `DATA "${block.name}" ${block.bytes}`;
+}
+
 function MicrodriveSlot(props: { unit: number }) {
+  let blocksRef!: HTMLDivElement;
   const slot = () => microdriveSlots()[props.unit];
   const motorOn = () => microdriveMotors()[props.unit];
-  const label = () => `Drive ${props.unit + 1}`;
+  const currentSector = () => microdriveCurrentSectors()[props.unit];
+  const label = () => `${props.unit + 1}:`;
+
+  createEffect(() => {
+    currentSector(); // track
+    if (!blocksRef) return;
+    const current = blocksRef.querySelector('.microdrive-block.current') as HTMLElement;
+    if (!current) return;
+    const container = blocksRef.getBoundingClientRect();
+    const element = current.getBoundingClientRect();
+    if (element.top < container.top) blocksRef.scrollTop -= container.top - element.top;
+    else if (element.bottom > container.bottom) blocksRef.scrollTop += element.bottom - container.bottom;
+  });
 
   async function insert() {
     const results = await openFile({ id: 'zx84-microdrive', extensions: ['.mdr', '.mdv', '.zip'] });
@@ -109,6 +131,17 @@ function MicrodriveSlot(props: { unit: number }) {
           style={{ background: motorOn() ? '#2266ee' : '#111' }}
         />
       </div>
+      <Show when={slot()?.loaded}>
+        <div class="microdrive-blocks mono-block" ref={blocksRef}>
+          <For each={slot()?.blocks} fallback={<div class="tape-empty">No files on this cartridge.</div>}>
+            {(block) => (
+              <div class={`tape-block microdrive-block${block.sectors.includes(currentSector()) ? ' current' : ''}`}>
+                {blockLine(block)}
+              </div>
+            )}
+          </For>
+        </div>
+      </Show>
     </div>
   );
 }

@@ -39,11 +39,12 @@ import {
 
 import { createFrameIndicators, type FrameProbe } from '@/machines/machine.ts';
 import { hex16 } from '@/utils/hex.ts';
-import { microdriveMotors, setMicrodriveMotors } from '@/state/microdrive-state.ts';
+import { microdriveMotors, setMicrodriveMotors, microdriveCurrentSectors, setMicrodriveCurrentSectors } from '@/state/microdrive-state.ts';
 import type { DriveStatus, DriveLed } from '@/state/disk-state.ts';
 
 // The ONE shared indicators struct — machines overwrite it in place (§6).
 const ind = createFrameIndicators();
+const IDLE_MDV_SECTORS = [-1, -1, -1, -1, -1, -1, -1, -1];
 
 // Tracks the fast-load message last shown so we announce only on a transition
 // (and re-announce for a fresh load), not every frame.
@@ -495,6 +496,9 @@ export function onFrame(): void {
         const cur = microdriveMotors();
         if (motors.some((m, i) => m !== cur[i])) setMicrodriveMotors(motors);
       }
+      const sectors = ind.mdvCount > 0 ? Array.from(ind.mdvSector) : IDLE_MDV_SECTORS;
+      const currentSectors = microdriveCurrentSectors();
+      if (sectors.some((sector, i) => sector !== currentSectors[i])) setMicrodriveCurrentSectors(sectors);
 
       // Drive panel telemetry + one-shot drive events.
       applyDriveSignals();
