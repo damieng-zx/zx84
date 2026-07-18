@@ -7,7 +7,8 @@
  * pins the detokenizer to verified hardware behaviour, not to its own logic.
  */
 import { describe, it, expect } from 'vitest';
-import { parseLocomotiveBasic } from '@/basic/cpc-basic-parser.ts';
+import { parseLocomotiveBasic, parseLocomotiveVariables } from '@/basic/cpc-basic-parser.ts';
+import type { BasicVariable } from '@/basic/types.ts';
 
 const PROG_START = 0x0170;
 
@@ -104,5 +105,122 @@ describe('parseLocomotiveBasic', () => {
     const lines = parseLocomotiveBasic(ram);
     expect(lines).toHaveLength(1);
     expect(lines[0]).toEqual({ lineNumber: 10, text: 'PRINT 1' });
+  });
+});
+
+/**
+ * Locomotive BASIC variable-table tests.
+ *
+ * The layouts here were captured from real CPC firmware by creating variables
+ * (via INPUT / DIM, which need no `=` key) and dumping RAM. Simple variables and
+ * arrays occupy two separate regions delimited by the pointer block
+ * [016F][VARTAB][VARTAB][ARYTAB][ARYEND] in BASIC's workspace (&AE64 on BASIC
+ * 1.1, &AE81 on BASIC 1.0). The builder writes that block from the region sizes
+ * so each test states only the variable bytes it cares about.
+ */
+const ZEROS = (n: number): number[] => new Array(n).fill(0);
+
+function buildVarRam(opts: {
+  program?: number[];                       // bytes at &0170, ending with the 00 00 marker
+  simple?: number[];                        // simple-variable region bytes
+  arrays?: number[];                        // array region bytes
+  strings?: { addr: number; bytes: number[] }[];
+  blockAddr?: number;                       // pointer-block address (default &AE64)
+  withBlock?: boolean;                      // omit the block entirely (default true)
+}): Uint8Array {
+  const ram = new Uint8Array(0x10000);
+  const program = opts.program ?? [0x00, 0x00];
+  ram.set(program, 0x0170);
+  const vartab = 0x0170 + program.length;   // program must end with its 00 00 marker
+  const simple = opts.simple ?? [];
+  const arrays = opts.arrays ?? [];
+  const arytab = vartab + simple.length;
+  const aryend = arytab + arrays.length;
+  ram.set(simple, vartab);
+  ram.set(arrays, arytab);
+  for (const s of opts.strings ?? []) ram.set(s.bytes, s.addr);
+  if (opts.withBlock ?? true) {
+    const b = opts.blockAddr ?? 0xAE64;
+    const w = (a: number, v: number) => { ram[a] = v & 0xFF; ram[a + 1] = (v >> 8) & 0xFF; };
+    w(b, 0x016F); w(b + 2, vartab); w(b + 4, vartab); w(b + 6, arytab); w(b + 8, aryend);
+  }
+  return ram;
+}
+
+describe('parseLocomotiveVariables', () => {
+  it('decodes every simple type and an array from a real 6128 capture', () => {
+    // Exact bytes dumped after: INPUT a→1234, INPUT b%→1000, INPUT n$→"HELLO",
+    // INPUT z→42, DIM sc(5). Names are stored upper-cased; the `%`/`$` suffix is
+    // implied by the type byte (04 real, 01 integer, 02 string), not stored.
+    const simple = [
+      0x00, 0x00, 0xC1, 0x04, 0x00, 0x00, 0x40, 0x1A, 0x8B,   // A  = 1234 (real)
+      0x00, 0x00, 0xC2, 0x01, 0xE8, 0x03,                     // B% = 1000 (integer)
+      0x00, 0x00, 0xCE, 0x02, 0x05, 0x77, 0xA6,               // N$ = ptr→&A677, len 5
+      0x00, 0x00, 0xDA, 0x04, 0x00, 0x00, 0x00, 0x28, 0x86,   // Z  = 42 (real)
+    ];
+    const arrays = [
+      0x00, 0x00, 0x53, 0xC3, 0x04, 0x21, 0x00, 0x01, 0x06, 0x00, // SC(): 1 dim, size 6
+      ...ZEROS(30),                                               // 6 × 5-byte elements
+    ];
+    const ram = buildVarRam({
+      simple, arrays,
+      strings: [{ addr: 0xA677, bytes: [0x48, 0x45, 0x4C, 0x4C, 0x4F] }], // "HELLO"
+    });
+    expect(parseLocomotiveVariables(ram)).toEqual<BasicVariable[]>([
+      { name: 'A', kind: 'number', value: '1234' },
+      { name: 'B%', kind: 'number', value: '1000' },
+      { name: 'N$', kind: 'string', value: 'HELLO' },
+      { name: 'Z', kind: 'number', value: '42' },
+      { name: 'SC(5)', kind: 'array' },
+    ]);
+  });
+
+  it('reads a negative integer as 16-bit two`s complement', () => {
+    // X% = -5  →  &FFFB little-endian.
+    const ram = buildVarRam({ simple: [0x00, 0x00, 0xD8, 0x01, 0xFB, 0xFF] });
+    expect(parseLocomotiveVariables(ram)).toEqual<BasicVariable[]>([
+      { name: 'X%', kind: 'number', value: '-5' },
+    ]);
+  });
+
+  it('reads a multi-character variable name', () => {
+    // COUNT% = 7  →  name letters C O U N, last (T) has bit 7 set.
+    const ram = buildVarRam({
+      simple: [0x00, 0x00, 0x43, 0x4F, 0x55, 0x4E, 0xD4, 0x01, 0x07, 0x00],
+    });
+    expect(parseLocomotiveVariables(ram)).toEqual<BasicVariable[]>([
+      { name: 'COUNT%', kind: 'number', value: '7' },
+    ]);
+  });
+
+  it('shows a 2-D array as its DIM subscripts, skipping element data', () => {
+    // DIM q(2,3): 2 dims, stored sizes 3 and 4 (subscript + 1). Payload size
+    // &41 = 1 (ndims) + 4 (dim words) + 60 (3×4 reals × 5 bytes).
+    const ram = buildVarRam({
+      arrays: [
+        0x00, 0x00, 0xD1, 0x04, 0x41, 0x00, 0x02, 0x03, 0x00, 0x04, 0x00,
+        ...ZEROS(60),
+      ],
+    });
+    expect(parseLocomotiveVariables(ram)).toEqual<BasicVariable[]>([
+      { name: 'Q(2,3)', kind: 'array' },
+    ]);
+  });
+
+  it('locates the pointer block at the BASIC 1.0 (464) address &AE81', () => {
+    const ram = buildVarRam({ simple: [0x00, 0x00, 0xC1, 0x01, 0x2A, 0x00], blockAddr: 0xAE81 });
+    expect(parseLocomotiveVariables(ram)).toEqual<BasicVariable[]>([
+      { name: 'A%', kind: 'number', value: '42' },
+    ]);
+  });
+
+  it('returns [] when there are no variables', () => {
+    expect(parseLocomotiveVariables(buildVarRam({}))).toEqual([]);
+  });
+
+  it('returns [] when the workspace pointer block is absent', () => {
+    expect(parseLocomotiveVariables(buildVarRam({
+      simple: [0x00, 0x00, 0xC1, 0x01, 0x2A, 0x00], withBlock: false,
+    }))).toEqual([]);
   });
 });

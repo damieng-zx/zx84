@@ -36,7 +36,7 @@
  *   &80–&FF  keyword tokens (&FF = function prefix; the next byte selects it).
  */
 
-import type { BasicListingLine } from './types.ts';
+import type { BasicListingLine, BasicVariable } from './types.ts';
 
 /** Where Locomotive BASIC keeps the program text in RAM (fixed on 464/664/6128,
  *  unaffected by AMSDOS which reserves its workspace elsewhere). */
@@ -192,4 +192,165 @@ export function parseLocomotiveBasic(ram: Uint8Array): BasicListingLine[] {
   }
 
   return lines;
+}
+
+// ── Variables ───────────────────────────────────────────────────────────────
+//
+// Locomotive BASIC stores simple variables and arrays in two separate,
+// contiguous regions that grow upward from the end of the program text:
+//
+//     [program text] [simple variables] [arrays] [free space]
+//
+// delimited by three pointers held in BASIC's fixed workspace. The pointer
+// block is [016F][VARTAB][VARTAB][ARYTAB][ARYEND] — the leading &016F is
+// (program start − 1), a constant, and VARTAB is duplicated. It sits at &AE64
+// on BASIC 1.1 (6128/664) and &AE81 on BASIC 1.0 (464); rather than hard-code a
+// per-model address we locate it by that signature, cross-checking VARTAB
+// against the program end we scan for ourselves. Layouts verified on real
+// CPC464/664/6128 firmware by creating variables and dumping RAM.
+//
+// Each variable entry (both regions use the same head):
+//     [link:2] [name: letters, last byte |&80, stored UPPER-CASE] [type:1] …
+//   type &01  integer  → 2-byte little-endian signed value
+//   type &02  string   → [len:1][ptr:2] — the characters live at ptr in the
+//                        string space (near HIMEM), not inline
+//   type &04  real     → 5-byte Locomotive float (see decodeFloat)
+// An array entry continues after the type byte with:
+//     [size:2] [ndims:1] [dim size:2 × ndims] [elements…]
+//   where `size` counts every byte after itself, and each stored dim size is
+//   the DIM subscript + 1 (arrays are 0…N). We show the subscript (size − 1)
+//   and skip the element data, matching the Spectrum variables pane.
+
+/** BASIC value-type codes (the byte after a variable's name). */
+const TYPE_INTEGER = 0x01;
+const TYPE_STRING = 0x02;
+const TYPE_REAL = 0x04;
+
+/** Type code → the suffix BASIC would show on the name. */
+const TYPE_SUFFIX: Record<number, string> = { [TYPE_INTEGER]: '%', [TYPE_STRING]: '$', [TYPE_REAL]: '' };
+
+/** &016F = PROG_START − 1, the constant that heads BASIC's pointer block. */
+const POINTER_ANCHOR = PROG_START - 1;
+
+/** Window of BASIC's workspace RAM to scan for the pointer block (covers the
+ *  &AE64 / &AE81 layouts with margin). */
+const WORKSPACE_LO = 0xAE00;
+const WORKSPACE_HI = 0xAF00;
+
+/** Advance past the program text and return the offset of the variable area
+ *  (VARTAB) — the byte just after the &0000 length word that ends the program. */
+function programEnd(ram: Uint8Array): number {
+  let offset = PROG_START;
+  let guard = 0;
+  while (offset + 2 <= ram.length && guard++ < 20000) {
+    const len = word(ram, offset);
+    if (len === 0) return offset + 2;             // past the &0000 end marker
+    if (len < 4 || offset + len > ram.length) break;
+    offset += len;
+  }
+  return offset;
+}
+
+/** Locate BASIC's variable-area pointers by their signature, tying the block to
+ *  the program end (VARTAB) we computed independently. Returns the array-region
+ *  bounds, or null if the block can't be found or fails a sanity check. */
+function findArrayBounds(ram: Uint8Array, vartab: number): { arytab: number; aryend: number } | null {
+  for (let p = WORKSPACE_LO; p + 10 <= WORKSPACE_HI && p + 10 <= ram.length; p++) {
+    if (word(ram, p) !== POINTER_ANCHOR) continue;
+    if (word(ram, p + 2) !== vartab || word(ram, p + 4) !== vartab) continue;
+    const arytab = word(ram, p + 6);
+    const aryend = word(ram, p + 8);
+    if (arytab < vartab || aryend < arytab || aryend > ram.length) continue;
+    return { arytab, aryend };
+  }
+  return null;
+}
+
+/** Parse the simple-variable region [start, end) into structured entries. */
+function parseSimpleVars(ram: Uint8Array, start: number, end: number, out: BasicVariable[]): void {
+  let offset = start;
+  let guard = 0;
+  while (offset < end && guard++ < 2000) {
+    offset += 2;                                  // skip the 2-byte link
+    if (offset >= end) break;
+    const { name, next } = readVarName(ram, offset, end);
+    offset = next;
+    if (offset >= end) break;
+    const type = ram[offset++];
+    const displayName = name + (TYPE_SUFFIX[type] ?? '');
+
+    if (type === TYPE_INTEGER) {
+      if (offset + 2 > end) break;
+      let value = word(ram, offset);
+      if (value >= 0x8000) value -= 0x10000;      // 16-bit two's complement
+      out.push({ name: displayName, kind: 'number', value: String(value) });
+      offset += 2;
+    } else if (type === TYPE_REAL) {
+      if (offset + 5 > end) break;
+      out.push({ name: displayName, kind: 'number', value: decodeFloat(ram, offset) });
+      offset += 5;
+    } else if (type === TYPE_STRING) {
+      if (offset + 3 > end) break;
+      const len = ram[offset];
+      const ptr = word(ram, offset + 1);
+      let str = '';
+      if (ptr + len <= ram.length) {
+        for (let i = 0; i < len; i++) str += String.fromCharCode(ram[ptr + i]);
+      }
+      out.push({ name: displayName, kind: 'string', value: str });
+      offset += 3;
+    } else {
+      break;                                      // unknown type — stop, don't run wild
+    }
+  }
+}
+
+/** Parse the array region [start, end) into structured entries. Only the name,
+ *  type suffix and dimensions are reported — the element data is skipped. */
+function parseArrays(ram: Uint8Array, start: number, end: number, out: BasicVariable[]): void {
+  let offset = start;
+  let guard = 0;
+  while (offset < end && guard++ < 2000) {
+    offset += 2;                                  // skip the 2-byte link
+    if (offset >= end) break;
+    const { name, next } = readVarName(ram, offset, end);
+    offset = next;
+    if (offset + 3 > end) break;
+    const type = ram[offset++];
+    const size = word(ram, offset);               // bytes following this word
+    offset += 2;
+    const payloadStart = offset;
+    if (size < 1 || payloadStart + size > ram.length) break;
+
+    const ndims = ram[offset++];
+    const dims: number[] = [];
+    for (let d = 0; d < ndims && offset + 2 <= end; d++) {
+      dims.push(word(ram, offset));
+      offset += 2;
+    }
+    // Stored dim size is the subscript + 1 (index 0…N); show N.
+    const subscripts = dims.map((d) => Math.max(0, d - 1)).join(',');
+    const suffix = TYPE_SUFFIX[type] ?? '';
+    out.push({ name: `${name}${suffix}(${subscripts})`, kind: 'array' });
+
+    offset = payloadStart + size;                 // skip the element data
+  }
+}
+
+/**
+ * Parse Locomotive BASIC's variables from a 64KB RAM snapshot (the underlying
+ * RAM, not the ROM-overlaid CPU view — use `CpcMemory.ramSnapshot()`). Returns
+ * simple variables followed by arrays, as plain unescaped text; the renderer
+ * handles display. Returns [] when there are no variables or the workspace
+ * pointers can't be located.
+ */
+export function parseLocomotiveVariables(ram: Uint8Array): BasicVariable[] {
+  const vartab = programEnd(ram);
+  const bounds = findArrayBounds(ram, vartab);
+  if (!bounds) return [];
+
+  const vars: BasicVariable[] = [];
+  parseSimpleVars(ram, vartab, bounds.arytab, vars);
+  parseArrays(ram, bounds.arytab, bounds.aryend, vars);
+  return vars;
 }

@@ -13,9 +13,10 @@ import { CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT, CPC_BORDER_LEFT, CPC_BORDER_TOP } 
 
 function cpcUi(model: MachineModel): MachineUiCapabilities {
   return {
-    // Spectrum-specific debug panes (sysvars, BASIC variables, fonts) read
-    // Spectrum memory layouts and are hidden entirely on the CPC.
-    hiddenPanes: ['sysvar-panel', 'basic-vars-panel', 'font-panel'],
+    // Sysvars and fonts read Spectrum-specific memory layouts and stay hidden;
+    // BASIC variables are parsed from Locomotive BASIC's own tables (see the
+    // frame probe), so that pane is available.
+    hiddenPanes: ['sysvar-panel', 'font-panel'],
     memoryLayout: true,
     trace: false,
     colorMap: 'cpc',

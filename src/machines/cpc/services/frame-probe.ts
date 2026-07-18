@@ -14,7 +14,7 @@ import type {
 } from '@/machines/machine.ts';
 import type { CpcMachine } from '@/machines/cpc/cpc-machine.ts';
 import type { OcrGridName } from '@/ocr/ocr.ts';
-import { parseLocomotiveBasic } from '@/basic/cpc-basic-parser.ts';
+import { parseLocomotiveBasic, parseLocomotiveVariables } from '@/basic/cpc-basic-parser.ts';
 import { hex16 } from '@/utils/hex.ts';
 
 /**
@@ -103,6 +103,7 @@ export class CpcFrameProbe implements FrameProbe {
       banksHtml: () => renderCpcBanks(cpc),
       // The Locomotive BASIC program lives at &0170 under the OS ROM overlay.
       basicListing: () => parseLocomotiveBasic(cpc.memory.ramSnapshot()),
+      basicVars: () => parseLocomotiveVariables(cpc.memory.ramSnapshot()),
     };
   }
 
