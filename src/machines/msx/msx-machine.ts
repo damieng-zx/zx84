@@ -24,7 +24,8 @@ import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { disasmOne, type DisasmLine } from '@/debug/z80-disasm.ts';
 import type { IScreenRenderer } from '@/display/display.ts';
-import type { Machine, MachineKind, BorderMode, MachineTraceMode } from '@/machines/machine.ts';
+import type { Machine, MachineHost, MachineKind, BorderMode, MachineTraceMode } from '@/machines/machine.ts';
+import { createMsxServices, type MsxServices } from '@/machines/msx/services/index.ts';
 import type { MsxModel } from '@/models.ts';
 import type { OcrGridName, OcrResult } from '@/debug/screen-text.ts';
 import { MsxScreenText, msxTextGrid } from '@/debug/msx-screen-text.ts';
@@ -50,6 +51,10 @@ export class MsxMachine extends BaseMachine implements Machine {
   readonly kind: MachineKind = 'msx';
   readonly model: MsxModel;
   readonly config: MsxConfig;
+  /** Operator's panel (shell / MCP) — null when running headless. */
+  host: MachineHost | null = null;
+  /** The service surface (§3.3): the only way shell/UI/MCP reach internals. */
+  readonly services: MsxServices;
 
   readonly cpu: Z80;
   readonly memory: MsxMemory;
@@ -107,7 +112,11 @@ export class MsxMachine extends BaseMachine implements Machine {
 
     installMsxMemoryHooks(this);
     wireMsxPortIO(this);
+
+    this.services = createMsxServices(this);
   }
+
+  attachHost(host: MachineHost): void { this.host = host; }
 
   // ── Machine: lifecycle ───────────────────────────────────────────────
 

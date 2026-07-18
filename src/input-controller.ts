@@ -12,9 +12,6 @@ import {
   machine, joyPressForType,
 } from '@/emulator.ts';
 import type { HostKeyEvent } from '@/machines/machine.ts';
-import type { CpcMachine } from '@/machines/cpc/cpc-machine.ts';
-import type { EinsteinMachine } from '@/machines/einstein/einstein-machine.ts';
-import type { MsxMachine } from '@/machines/msx/msx-machine.ts';
 
 /** Digest a DOM KeyboardEvent into the machine-facing HostKeyEvent. */
 function hostKeyEvent(e: KeyboardEvent): HostKeyEvent {
@@ -141,28 +138,14 @@ export class InputController {
 
   onKeyDown = (e: KeyboardEvent): void => {
     // Let keystrokes reach focused text fields (library search, address box, …)
-    // instead of forwarding them to the Spectrum keyboard.
+    // instead of forwarding them to the emulated keyboard.
     if (isEditableTarget(e)) return;
     // Drop OS-generated auto-repeat keydowns. Each one would re-enter setKey()
     // and push pressCount / physicalShiftCount / cursorShiftCount past what
     // the single keyup can undo, leaving the key stuck pressed.
     if (e.repeat) { e.preventDefault(); return; }
-    if (machine?.kind === 'cpc') {
-      if (this.handleJoyKey(e, true)) { e.preventDefault(); return; }
-      if ((machine as CpcMachine).keyboard.handleKeyEvent(e.code, true)) e.preventDefault();
-      return;
-    }
-    if (machine?.kind === 'einstein') {
-      if ((machine as EinsteinMachine).keyboard.handleKeyEvent(e.code, true)) e.preventDefault();
-      return;
-    }
-    if (machine?.kind === 'msx') {
-      if (this.handleJoyKey(e, true)) { e.preventDefault(); return; }
-      if ((machine as MsxMachine).keyboard.handleKeyEvent(e.code, true)) e.preventDefault();
-      return;
-    }
-    // Machines with an InputService (Spectrum today; all machines once Phase 3b
-    // lands) map host keys themselves — no concrete-machine dispatch needed.
+    // Every machine maps host keys itself through its InputService — the shell
+    // resolves joystick key-mappings first, then forwards unclaimed keys.
     const svc = machine?.services?.input;
     if (!svc) return;
     if (this.handleJoyKey(e, true)) { e.preventDefault(); return; }
@@ -173,20 +156,6 @@ export class InputController {
 
   onKeyUp = (e: KeyboardEvent): void => {
     if (isEditableTarget(e)) return;
-    if (machine?.kind === 'cpc') {
-      if (this.handleJoyKey(e, false)) { e.preventDefault(); return; }
-      if ((machine as CpcMachine).keyboard.handleKeyEvent(e.code, false)) e.preventDefault();
-      return;
-    }
-    if (machine?.kind === 'einstein') {
-      if ((machine as EinsteinMachine).keyboard.handleKeyEvent(e.code, false)) e.preventDefault();
-      return;
-    }
-    if (machine?.kind === 'msx') {
-      if (this.handleJoyKey(e, false)) { e.preventDefault(); return; }
-      if ((machine as MsxMachine).keyboard.handleKeyEvent(e.code, false)) e.preventDefault();
-      return;
-    }
     const svc = machine?.services?.input;
     if (!svc) return;
     if (this.handleJoyKey(e, false)) { e.preventDefault(); return; }
@@ -197,11 +166,9 @@ export class InputController {
 
   /** Release all held keys when the window loses focus — otherwise the keyup
    *  event is delivered to whatever window the user tabbed to, leaving the
-   *  Spectrum matrix bit (and any modifier reference counts) asserted. */
+   *  emulated matrix bit (and any modifier reference counts) asserted. Each
+   *  machine's InputService also zeroes its own joystick (MSX). */
   onBlur = (): void => {
-    if (machine?.kind === 'cpc') { (machine as CpcMachine).keyboard.reset(); return; }
-    if (machine?.kind === 'einstein') { (machine as EinsteinMachine).keyboard.reset(); return; }
-    if (machine?.kind === 'msx') { const msx = machine as MsxMachine; msx.keyboard.reset(); msx.joystick.reset(); return; }
     const svc = machine?.services?.input;
     if (!svc) return;
     svc.releaseAll();

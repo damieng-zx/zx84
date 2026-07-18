@@ -34,7 +34,6 @@ import { parseMgt, serializeMgt, blankMgtDisk, mgtExtFromName } from '@/media/fl
 import { parseTrd, serializeTrd, blankTrdDisk } from '@/media/floppy/trd-image.ts';
 import { parseScl, serializeScl, isScl, SCL_DISK_FORMAT } from '@/media/floppy/scl-image.ts';
 import { loadSZX, applySZXPaging } from '@/machines/spectrum/snapshots/szx.ts';
-import { readCpcSnaModel, applyCpcSna, saveCpcSna } from '@/machines/cpc/snapshots/cpc-sna.ts';
 import { unzip } from '@/media/zip.ts';
 import { showFilePicker } from '@/ui/zip-picker.ts';
 import {
@@ -54,12 +53,10 @@ export type { FontEntry } from '@/frame-bridge.ts';
 
 // Managers
 import { ROMManager, defaultRomPageLabel, type RomPage } from '@/managers/rom-manager.ts';
-import { MediaManager } from '@/managers/media-manager.ts';
 import { DebugManager, type TraceMode } from '@/managers/debug-manager.ts';
 
 // Create manager instances
 const romManager = new ROMManager();
-const mediaManager = new MediaManager();
 const debugManager = new DebugManager();
 
 // Re-export TraceMode for compatibility
@@ -878,22 +875,16 @@ export async function resetSystemRomPage(page: RomPage): Promise<void> {
 
 /** Insert an MSX cartridge and reboot so the BIOS slot scan auto-runs it. */
 export function insertMsxCartridge(data: Uint8Array, name: string): void {
-  const msx = asMsx(machine);
-  if (!msx) { setStatus('Cartridges are for the MSX'); return; }
-  msx.stop();
-  msx.insertCartridge(data, name);
-  msx.reset();
+  const slot = asMsx(machine)?.services.roms.cartridge;
+  if (!slot) { setStatus('Cartridges are for the MSX'); return; }
+  slot.insert(data, name);   // power-cycles the machine (stop → insert → reset)
   setCartridgeName(name);
   setStatus(`Cartridge: ${name}`);
-  if (romData) msx.start();
+  if (romData) machine!.start();
 }
 
-/** Mount an MSX `.cas` cassette and reflect it in the tape-pane signals. The
- *  cassette is served instantly through the BIOS load traps on CLOAD/BLOAD. */
-export function mountMsxCassette(data: Uint8Array, name: string): void {
-  const msx = asMsx(machine);
-  if (!msx) { setStatus('Cassettes are for the MSX'); return; }
-  msx.mountCas(data, name);
+/** Reflect a mounted MSX `.cas` cassette into the tape-pane signals + storage. */
+function reflectMsxCassette(data: Uint8Array, name: string): void {
   batch(() => {
     setTapeLoaded(true);
     setTapeName(name);
@@ -908,16 +899,23 @@ export function mountMsxCassette(data: Uint8Array, name: string): void {
   persistTape('msx', data, name);
 }
 
+/** Mount an MSX `.cas` cassette and reflect it in the tape-pane signals. The
+ *  cassette is served instantly through the BIOS load traps on CLOAD/BLOAD. */
+export function mountMsxCassette(data: Uint8Array, name: string): void {
+  const tape = asMsx(machine)?.services.tape;
+  if (!tape) { setStatus('Cassettes are for the MSX'); return; }
+  tape.mount(data, name);
+  reflectMsxCassette(data, name);
+}
+
 /** Remove the MSX cartridge and reboot to BASIC. */
 export function ejectMsxCartridge(): void {
-  const msx = asMsx(machine);
-  if (!msx) return;
-  msx.stop();
-  msx.ejectCartridge();
-  msx.reset();
+  const slot = asMsx(machine)?.services.roms.cartridge;
+  if (!slot) return;
+  slot.eject();   // power-cycles the machine (stop → eject → reset)
   setCartridgeName('');
   setStatus('Cartridge ejected');
-  if (romData) msx.start();
+  if (romData) machine!.start();
 }
 
 /** Insert a ZX Interface 2 ROM cartridge (16K/48K only) and reboot into it —
@@ -1032,28 +1030,10 @@ async function ensure128kROM(): Promise<{ spectrum: Spectrum; model: SpectrumMod
 
 export async function applyTape(data: Uint8Array, filename: string): Promise<void> {
   if (!machine) { setStatus('Load a ROM first'); return; }
-
-  // Spectrum: the machine's own MediaService routes and mounts the tape.
-  if (spectrum) {
-    const result = await spectrum.services.media.mount(data, filename);
-    await reflectSpectrumMount(result, data, filename);
-    return;
-  }
-
-  await mediaManager.applyTape(machine, data, filename, {
-    onStatus: setStatus,
-    onTapeLoaded: (blocks, filename) => {
-      batch(() => {
-        setTapeLoaded(true);
-        setTapeName(filename);
-        setTapeBlocks([...blocks]);
-        setTapePosition(0);
-        setTapePaused(true);
-        setTapePlaying(true);
-      });
-    },
-    unpause,
-  });
+  // The active machine's own MediaService routes and mounts the tape; the shell
+  // reflects the outcome into signals below.
+  const result = await machine.services!.media.mount(data, filename);
+  await reflectMount(result, data, filename);
 }
 
 // ── File routing ────────────────────────────────────────────────────────
@@ -1086,99 +1066,95 @@ export function loadableExtensions(): string[] {
 }
 
 export async function loadFile(data: Uint8Array, filename: string, unit?: number): Promise<void> {
-  // CPC: .dsk disk images into the shared uPD765A, or .cdt/.tzx/.tap cassettes.
-  const cpc = asCpc(machine);
-  if (cpc) {
-    if (/\.(cdt|tzx|tap)$/i.test(filename)) {
-      await applyTape(data, filename);
-      return;
-    }
-    if (/\.sna$/i.test(filename)) {
-      await loadCpcSnapshot(data, filename);
-      return;
-    }
-    if (!/\.(dsk|hfe|scp)$/i.test(filename)) { setStatus('CPC accepts .sna, .dsk, .hfe, .scp, .cdt, .tzx and .tap files'); return; }
-    cpc.stop();
-    try {
-      const image = parseFloppyImage(data);
-      const u = unit ?? 0;
-      cpc.loadDisk(image, u);
-      if (u === 0) { setCurrentDiskInfo(image); setCurrentDiskName(filename); }
-      else { setCurrentDiskInfoB(image); setCurrentDiskNameB(filename); }
-      setStatus(`Disk ${u === 0 ? 'A' : 'B'}: loaded: ${filename}`);
-    } catch (e) {
-      setStatus(`DSK error: ${(e as Error).message}`);
-    } finally {
-      cpc.start();
-    }
-    return;
-  }
-  // Einstein: .dsk / .hfe / .scp disk images into the WD1770 (or a .zip of one).
-  const ein = asEinstein(machine);
-  if (ein) {
-    if (/\.zip$/i.test(filename)) {
-      let entries;
-      try { entries = await unzip(data); } catch (e) { setStatus(`ZIP error: ${(e as Error).message}`); return; }
-      const disks = entries.filter(e => /\.(dsk|hfe|scp)$/i.test(e.name));
-      if (disks.length === 0) { setStatus('ZIP has no disk image (.dsk/.hfe/.scp)'); return; }
-      let picked = disks[0];
-      if (disks.length > 1) {
-        const name = await showFilePicker(disks.map(d => d.name));
-        if (!name) { setStatus('No file selected'); return; }
-        picked = disks.find(d => d.name === name)!;
-      }
-      await loadFile(picked.data, picked.name, unit);   // re-dispatch the extracted disk
-      return;
-    }
-    if (!/\.(dsk|hfe|scp)$/i.test(filename)) { setStatus('Einstein accepts .dsk, .hfe, .scp and .zip disk images'); return; }
-    ein.stop();
-    try {
-      const image = parseFloppyImage(data);
-      const u = unit ?? 0;
-      ein.loadDisk(image, u);
-      if (u === 0) { einsteinXtalDosPhantom = false; setCurrentDiskInfo(image); setCurrentDiskName(filename); }
-      else { setCurrentDiskInfoB(image); setCurrentDiskNameB(filename); }
-      setStatus(`Drive ${u}: loaded: ${filename}`);
-    } catch (e) {
-      setStatus(`DSK error: ${(e as Error).message}`);
-    } finally {
-      ein.start();
-    }
-    return;
-  }
-  // MSX: .rom cartridges (auto-booted) and .cas cassettes (BIOS-trap load).
-  const msx = asMsx(machine);
-  if (msx) {
-    if (/\.zip$/i.test(filename)) {
-      let entries;
-      try { entries = await unzip(data); } catch (e) { setStatus(`ZIP error: ${(e as Error).message}`); return; }
-      const media = entries.filter(e => /\.(rom|cas)$/i.test(e.name));
-      if (media.length === 0) { setStatus('ZIP has no MSX image (.rom/.cas)'); return; }
-      let picked = media[0];
-      if (media.length > 1) {
-        const name = await showFilePicker(media.map(t => t.name));
-        if (!name) { setStatus('No file selected'); return; }
-        picked = media.find(t => t.name === name)!;
-      }
-      await loadFile(picked.data, picked.name, unit);   // re-dispatch the extracted image
-      return;
-    }
-    if (/\.rom$/i.test(filename)) { insertMsxCartridge(data, filename); return; }
-    if (/\.cas$/i.test(filename)) { mountMsxCassette(data, filename); return; }
-    setStatus('MSX accepts .rom cartridges and .cas cassettes (or a .zip of one)');
-    return;
-  }
-  if (!spectrum) { setStatus('Load a ROM first'); return; }
-  // ZIP archives are a shell concern: unwrap, pick, re-dispatch.
+  if (!machine) { setStatus('Load a ROM first'); return; }
+  // ZIP archives are a machine-agnostic shell concern: unwrap, pick, re-dispatch
+  // (the per-machine filter of which entries are loadable lives in handleZip).
   if (/\.zip$/i.test(filename)) {
-    await handleSpectrumZip(data, unit);
+    await handleZip(data, unit);
     return;
   }
-  // Everything else routes through the Spectrum's own MediaService — which
+  // Everything else routes through the active machine's own MediaService — which
   // extension goes to which device, given the fitted peripherals, is the
   // machine's business. The shell reflects the outcome into signals below.
-  const result = await spectrum.services.media.mount(data, filename, unit !== undefined ? `unit:${unit}` : undefined);
-  await reflectSpectrumMount(result, data, filename, unit);
+  const result = await machine.services!.media.mount(data, filename, unit !== undefined ? `unit:${unit}` : undefined);
+  await reflectMount(result, data, filename, unit);
+}
+
+/**
+ * Reflect a MediaService mount into the shell's signals / persistence / status,
+ * keyed off the device the media landed in. The machine mutated itself; this is
+ * all UI/session state. Spectrum keeps its own richer reflection (multiple
+ * peripheral devices); the other machines share the compact reflection here.
+ */
+async function reflectMount(
+  result: import('@/machines/machine.ts').MountResult,
+  data: Uint8Array,
+  filename: string,
+  unit?: number,
+): Promise<void> {
+  if (result.replay) {
+    // The mount triggered a model rebuild (128K snapshot on a 48K, a CPC .sna
+    // for a different model): the old machine is gone — re-dispatch to the new one.
+    await loadFile(data, filename, unit);
+    return;
+  }
+  if (spectrum) { await reflectSpectrumMount(result, data, filename, unit); return; }
+  if (!result.ok || !machine) { setStatus(result.message); return; }
+  const target = result.target ?? '';
+  if (target === 'tape') {
+    batch(() => {
+      setTapeLoaded(true);
+      setTapeName(filename);
+      setTapeBlocks([...machine!.tape.blocks]);
+      setTapePosition(0);
+      setTapePaused(true);
+      setTapePlaying(true);
+    });
+    unpause();
+    persistLastFile(data, filename);
+    persistTape(machine.kind, data, filename);
+  } else if (target === 'a' || target === 'b') {
+    const u = target === 'a' ? 0 : 1;
+    const image = machine.fdc.getDiskImage(u);
+    if (u === 0) {
+      // A real disk in Einstein drive 0 supersedes the phantom Xtal DOS disk.
+      if (asEinstein(machine)) einsteinXtalDosPhantom = false;
+      setCurrentDiskInfo(image); setCurrentDiskName(filename);
+    } else {
+      setCurrentDiskInfoB(image); setCurrentDiskNameB(filename);
+    }
+    // CPC/Einstein disks are session-only (the old cascade never persisted them).
+  } else if (target === 'cas') {
+    reflectMsxCassette(data, filename);
+  } else if (target === 'cartridge') {
+    setCartridgeName(filename);
+    if (romData) machine.start();
+  }
+  setStatus(result.message);
+}
+
+/** Unwrap a .zip and re-dispatch its (relevant) contents through loadFile. The
+ *  set of relevant entries is machine-specific: the Spectrum accepts everything
+ *  (its MediaService sorts it out), the Einstein/MSX filter to their media, and
+ *  the CPC never supported archives. */
+async function handleZip(data: Uint8Array, unit?: number): Promise<void> {
+  if (!machine) return;
+  if (spectrum) { await handleSpectrumZip(data, unit); return; }
+  if (asCpc(machine)) { setStatus('CPC accepts .sna, .dsk, .hfe, .scp, .cdt, .tzx and .tap files'); return; }
+  const ein = asEinstein(machine);
+  const filter = ein ? /\.(dsk|hfe|scp)$/i : /\.(rom|cas)$/i;
+  const emptyMsg = ein ? 'ZIP has no disk image (.dsk/.hfe/.scp)' : 'ZIP has no MSX image (.rom/.cas)';
+  let entries;
+  try { entries = await unzip(data); } catch (e) { setStatus(`ZIP error: ${(e as Error).message}`); return; }
+  const media = entries.filter(e => filter.test(e.name));
+  if (media.length === 0) { setStatus(emptyMsg); return; }
+  let picked = media[0];
+  if (media.length > 1) {
+    const name = await showFilePicker(media.map(m => m.name));
+    if (!name) { setStatus('No file selected'); return; }
+    picked = media.find(m => m.name === name)!;
+  }
+  await loadFile(picked.data, picked.name, unit);   // re-dispatch the extracted image
 }
 
 /** Unwrap a .zip for the Spectrum (single entry loads directly; several show
@@ -1280,38 +1256,8 @@ function downloadFile(data: Uint8Array, filename: string): void {
   URL.revokeObjectURL(url);
 }
 
-/**
- * Load a CPC `.SNA`. Auto-switches the running machine to the snapshot's model
- * (464/664/6128 differ in RAM size and ROM set) before applying state.
- */
-async function loadCpcSnapshot(data: Uint8Array, filename: string): Promise<void> {
-  let info;
-  try {
-    info = readCpcSnaModel(data);
-  } catch (e) {
-    setStatus(`SNA error: ${(e as Error).message}`);
-    return;
-  }
-
-  if (info.model !== currentModel()) {
-    await switchModel(info.model);   // rebuilds + starts the machine with the right ROM
-  }
-
-  const cpc = asCpc(machine);
-  if (!cpc) { setStatus('SNA load needs a CPC machine'); return; }
-
-  cpc.stop();
-  try {
-    applyCpcSna(data, cpc);
-    setStatus(`Loaded ${info.model} SNA v${info.version}: ${filename}`);
-  } catch (e) {
-    setStatus(`SNA error: ${(e as Error).message}`);
-  } finally {
-    cpc.start();
-  }
-}
-
-/** Save the running CPC as a `.SNA` (v2 = flat, v3 = RLE-compressed). */
+/** Save the running CPC as a `.SNA` (v2 = flat, v3 = RLE-compressed). The CPC's
+ *  SnapshotService owns the serialization; the shell handles pause + download. */
 export function saveCpcSnapshot(version: 2 | 3): void {
   const cpc = asCpc(machine);
   if (!cpc) { setStatus('No CPC running'); return; }
@@ -1319,7 +1265,7 @@ export function saveCpcSnapshot(version: 2 | 3): void {
   const wasPaused = emulationPaused();
   if (!wasPaused) cpc.stop();
 
-  const data = saveCpcSna(cpc, version);
+  const data = cpc.services.snapshots.saveSna(version);
   downloadFile(data, `zx84-${cpc.model}.sna`);
 
   if (!wasPaused) cpc.start();
@@ -1503,38 +1449,29 @@ export function toggleAutoRewind(): void {
 export function ejectTape(): void {
   if (!machine) return;
   const msx = asMsx(machine);
-  if (msx) {
-    msx.cassette.eject();
-    batch(() => {
-      setTapeLoaded(false);
-      setTapeName('');
-      setTapeBlocks([]);
-      setCasBlocks([]);
-      setCasPosition(-1);
-      setTapePosition(0);
-      setTapePaused(true);
-      setTapePlaying(false);
-    });
-    clearTape('msx');
-    setStatus('Cassette ejected');
-    return;
-  }
   const clearSignals = () => batch(() => {
     setTapeLoaded(false);
     setTapeName('');
     setTapeBlocks([]);
+    setCasBlocks([]);
+    setCasPosition(-1);
     setTapePosition(0);
     setTapePaused(true);
     setTapePlaying(false);
   });
-  if (spectrum) {
-    spectrum.services.tape.eject();
-    clearSignals();
-    clearTape('spectrum');
-    setStatus('Tape ejected');
-    return;
+  const tape = machine.services!.tape;
+  if (tape) {
+    tape.eject();
+  } else {
+    // The Einstein deck is inert (no TapeService); reset it directly.
+    machine.tape.stopPlayback();
+    machine.tape.blocks = [];
+    machine.tape.position = 0;
+    machine.tape.paused = true;
   }
-  mediaManager.ejectTape(machine, clearSignals, setStatus);
+  clearSignals();
+  clearTape(machine.kind);
+  setStatus(msx ? 'Cassette ejected' : 'Tape ejected');
 }
 
 export function ejectDisk(unit: number = 0): void {
@@ -1552,7 +1489,10 @@ export function ejectDisk(unit: number = 0): void {
     }
   };
   if (spectrum) {
-    mediaManager.ejectDisk(spectrum, unit, onEjected, setStatus);
+    spectrum.services.disks.eject(unit === 0 ? 'a' : 'b');
+    clearDisk(unit);   // drop the persisted image so a hard refresh won't remount it
+    onEjected(unit);
+    setStatus(`Disk ${unit === 0 ? 'A' : 'B'}: ejected`);
   } else {
     machine.fdc.ejectDisk(unit);
     clearDisk(unit);   // drop the persisted image so a hard refresh won't remount it
@@ -1655,13 +1595,8 @@ export function saveDisk(unit: number): void {
  */
 export async function saveTape(): Promise<void> {
   if (!machine) { setStatus('No tape to save'); return; }
-  // MSX: download the whole mounted .cas straight from the cassette.
-  const msx = asMsx(machine);
-  if (msx) {
-    if (!msx.cassette.loaded) { setStatus('No tape to save'); return; }
-    downloadFile(msx.cassette.getData(), msx.cassette.name || 'tape.cas');
-    return;
-  }
+  // The verbatim original was persisted per platform on load (TapeDeck blobs and
+  // MSX .cas alike), so read it back rather than re-serialising the deck.
   const tape = await restoreTape(machine.kind);
   if (!tape) { setStatus('No tape to save'); return; }
   downloadFile(tape.data, tape.name);
@@ -1669,25 +1604,40 @@ export async function saveTape(): Promise<void> {
 
 export function loadDiskToUnit(data: Uint8Array, filename: string, unit: number): void {
   if (!machine) { setStatus('Load a ROM first'); return; }
-  const onDiskLoaded = (image: DskImage, fname: string, u: number) => {
-    if (u === 0) { setCurrentDiskInfo(image); setCurrentDiskName(fname); }
-    else { setCurrentDiskInfoB(image); setCurrentDiskNameB(fname); }
+  const id = unit === 0 ? 'a' : 'b';
+  const onDiskLoaded = (image: DskImage) => {
+    if (unit === 0) { setCurrentDiskInfo(image); setCurrentDiskName(filename); }
+    else { setCurrentDiskInfoB(image); setCurrentDiskNameB(filename); }
   };
   const cpc = asCpc(machine);
   const ein = asEinstein(machine);
   if (cpc || ein) {
     try {
       const image = parseFloppyImage(data);
-      (cpc ?? ein)!.loadDisk(image, unit);
+      machine.services!.disks!.insert(id, image, filename);
       if (ein && unit === 0) einsteinXtalDosPhantom = false;
-      onDiskLoaded(image, filename, unit);
+      onDiskLoaded(image);
       setStatus(`Disk ${unit === 0 ? 'A' : 'B'}: loaded: ${filename}`);
     } catch (e) {
       setStatus(`Disk error: ${(e as Error).message}`);
     }
     return;
   }
-  mediaManager.loadDisk(spectrum!, data, filename, unit, { onStatus: setStatus, onDiskLoaded });
+  // Spectrum +3 internal drives: stop the frame loop before swapping the image.
+  if (!spectrum) { setStatus('Load a ROM first'); return; }
+  spectrum.stop();
+  try {
+    const image = parseFloppyImage(data);
+    onDiskLoaded(image);
+    spectrum.services.disks.insert(id, image, filename);
+    if (unit === 0) persistLastFile(data, filename);
+    persistDisk(unit, data, filename);
+    setStatus(`Disk ${unit === 0 ? 'A' : 'B'}: loaded: ${filename}`);
+  } catch (e) {
+    setStatus(`DSK error: ${(e as Error).message}`);
+  } finally {
+    spectrum.start();
+  }
 }
 
 // ── MGT +D disk helpers (drives C/D = WD1772 units 0/1) ──────────────────

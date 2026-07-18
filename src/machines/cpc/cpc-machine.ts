@@ -22,7 +22,8 @@ import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { disasmOne, type DisasmLine } from '@/debug/z80-disasm.ts';
 import type { IScreenRenderer } from '@/display/display.ts';
-import type { Machine, MachineKind, BorderMode, MachineTraceMode } from '@/machines/machine.ts';
+import type { Machine, MachineHost, MachineKind, BorderMode, MachineTraceMode } from '@/machines/machine.ts';
+import { createCpcServices, type CpcServices } from '@/machines/cpc/services/index.ts';
 import type { CpcModel } from '@/models.ts';
 import type { OcrGridName, OcrResult } from '@/debug/screen-text.ts';
 import { CpcScreenText, cpcGrid, CPC_FONT_OFFSET, type CpcOcrInput } from '@/debug/cpc-screen-text.ts';
@@ -53,6 +54,10 @@ export class CpcMachine extends BaseMachine implements Machine {
   readonly kind: MachineKind = 'cpc';
   readonly model: CpcModel;
   readonly config: CpcConfig;
+  /** Operator's panel (shell / MCP) — null when running headless. */
+  host: MachineHost | null = null;
+  /** The service surface (§3.3): the only way shell/UI/MCP reach internals. */
+  readonly services: CpcServices;
 
   readonly cpu: Z80;
   readonly memory: CpcMemory;
@@ -158,7 +163,11 @@ export class CpcMachine extends BaseMachine implements Machine {
 
     installCpcMemoryHooks(this);
     wireCpcPortIO(this);
+
+    this.services = createCpcServices(this);
   }
+
+  attachHost(host: MachineHost): void { this.host = host; }
 
   // ── Machine: lifecycle ───────────────────────────────────────────────
 

@@ -22,6 +22,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createSpectrumServices } from '@/machines/spectrum/services/index.ts';
+import { createCpcServices } from '@/machines/cpc/services/index.ts';
 
 // ── Spectrum stub ────────────────────────────────────────────────────────
 // Function declarations are hoisted and safe to reference in vi.mock factories.
@@ -124,6 +125,10 @@ function makeCpcStub() {
     crtc: { displayStart: 0 },
     multiface: { enabled: false },
     config: { hasFDC: false },
+    keyboard: { handleKeyEvent: vi.fn(() => true), reset: vi.fn() },
+    fdc: { motorOn: false, currentUnit: 0, getDiskImage: vi.fn(() => null),
+           writeProtect: [false, false], ejectDisk: vi.fn(), insertDisk: vi.fn(),
+           clearDirty: vi.fn() },
     amxMouse: { enabled: false, active: false },
     kempstonMouse: { enabled: false },
     breakpoints: new Set<number>(),
@@ -133,7 +138,14 @@ function makeCpcStub() {
     tick: vi.fn(), loadDisk: vi.fn(), setBorderSize: vi.fn(),
     onStatus: null as any, onFrame: null as any,
     display: null as any,
+    host: null as any,
+    attachHost(h: unknown) { c.host = h; },
+    services: null as any,
   };
+  // Real CPC services over the stub, exactly as the Spectrum stub does: the
+  // emulator flips dispatch through machine.services (which only touch the
+  // stubbed fields above).
+  c.services = createCpcServices(c as any);
   lastCpcStub = c;
   return c;
 }
@@ -222,19 +234,9 @@ vi.mock('@/managers/rom-manager.ts', () => ({
 }));
 
 const _mgrs = vi.hoisted(() => ({
-  media: null as any,
   debug: null as any,
 }));
-function getMediaManager() { return _mgrs.media!; }
 function getDebugManager() { return _mgrs.debug!; }
-
-vi.mock('@/managers/media-manager.ts', () => ({
-  MediaManager: class {
-    applyTape = vi.fn(); loadFile = vi.fn(); ejectTape = vi.fn();
-    ejectDisk = vi.fn(); loadDisk = vi.fn();
-    constructor() { _mgrs.media = this; }
-  },
-}));
 
 vi.mock('@/managers/debug-manager.ts', () => ({
   DebugManager: class {
@@ -2085,27 +2087,20 @@ describe('media callback bodies', () => {
     expect(emulator.statusText()).toMatch(/Tape ejected/);
   });
 
-  it('ejectDisk callback clears disk A and disk B state', () => {
-    const mm = getMediaManager();
-    let cb: any = null;
-    mm.ejectDisk.mockImplementationOnce((_s: any, _u: any, fn: any) => { cb = fn; });
+  it('ejectDisk clears disk A and disk B state', () => {
+    // ejectDisk now drives the Spectrum's DiskService directly (no manager).
     emulator.setCurrentDiskName('a.dsk');
     emulator.setCurrentDiskNameB('b.dsk');
     emulator.ejectDisk(0);
-    cb(0);
     expect(emulator.currentDiskName()).toBe('');
-    cb(1);
+    emulator.ejectDisk(1);
     expect(emulator.currentDiskNameB()).toBe('');
   });
 
-  it('loadDiskToUnit callback updates disk A / disk B signals', () => {
-    const mm = getMediaManager();
-    let captured: any = null;
-    mm.loadDisk.mockImplementationOnce((_s: any, _d: any, _f: any, _u: any, cb: any) => { captured = cb; });
+  it('loadDiskToUnit updates disk A / disk B signals via the DiskService', () => {
     emulator.loadDiskToUnit(new Uint8Array(10), 'cb-a.dsk', 0);
-    captured.onDiskLoaded({ tracks: [] } as any, 'cb-a.dsk', 0);
     expect(emulator.currentDiskName()).toBe('cb-a.dsk');
-    captured.onDiskLoaded({ tracks: [] } as any, 'cb-b.dsk', 1);
+    emulator.loadDiskToUnit(new Uint8Array(10), 'cb-b.dsk', 1);
     expect(emulator.currentDiskNameB()).toBe('cb-b.dsk');
   });
 });

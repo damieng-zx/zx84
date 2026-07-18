@@ -24,7 +24,8 @@ import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { disasmOne, type DisasmLine } from '@/debug/z80-disasm.ts';
 import type { IScreenRenderer } from '@/display/display.ts';
-import type { Machine, MachineKind, BorderMode, MachineTraceMode } from '@/machines/machine.ts';
+import type { Machine, MachineHost, MachineKind, BorderMode, MachineTraceMode } from '@/machines/machine.ts';
+import { createEinsteinServices, type EinsteinServices } from '@/machines/einstein/services/index.ts';
 import type { EinsteinModel } from '@/models.ts';
 import type { OcrGridName, OcrResult } from '@/debug/screen-text.ts';
 import { EinsteinScreenText } from '@/debug/einstein-screen-text.ts';
@@ -46,6 +47,10 @@ export class EinsteinMachine extends BaseMachine implements Machine {
   readonly kind: MachineKind = 'einstein';
   readonly model: EinsteinModel;
   readonly config: EinsteinConfig;
+  /** Operator's panel (shell / MCP) — null when running headless. */
+  host: MachineHost | null = null;
+  /** The service surface (§3.3): the only way shell/UI/MCP reach internals. */
+  readonly services: EinsteinServices;
 
   readonly cpu: Z80;
   readonly memory: EinsteinMemory;
@@ -102,7 +107,11 @@ export class EinsteinMachine extends BaseMachine implements Machine {
 
     installEinsteinMemoryHooks(this);
     wireEinsteinPortIO(this);
+
+    this.services = createEinsteinServices(this);
   }
+
+  attachHost(host: MachineHost): void { this.host = host; }
 
   // ── Machine: lifecycle ───────────────────────────────────────────────
 
