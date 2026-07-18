@@ -16,11 +16,11 @@
  */
 
 import type { DskImage } from '@/media/floppy/disk-image.ts';
-import type { IScreenRenderer } from '@/display/display.ts';
+import type { IScreenRenderer } from '@/display/renderer.ts';
 import type { ByteReader } from '@/machines/spectrum/memory.ts';
 import type { TapeBlock } from '@/media/tape/tap.ts';
 import type { MachineModel } from '@/models.ts';
-import type { OcrGridName, FontSource } from '@/ocr/spectrum.ts';
+import type { OcrGridName, FontSource } from '@/ocr/ocr.ts';
 import type { BasicListingLine, BasicVariable } from '@/basic/types.ts';
 
 export type MachineKind = 'spectrum' | 'cpc' | 'einstein' | 'msx';

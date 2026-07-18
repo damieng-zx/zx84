@@ -14,7 +14,7 @@
  */
 
 import type { VdpMode } from '@/cores/tms9918a.ts';
-import type { OcrResult, OcrGridName } from '@/ocr/spectrum.ts';
+import type { OcrResult, OcrGridName } from '@/ocr/ocr.ts';
 
 /** Per-mode text-grid geometry, matching the TMS9918A renderer in
  *  `cores/tms9918a.ts` (text: 40 cols of 6px from x=8; graphics1: 32 cols of

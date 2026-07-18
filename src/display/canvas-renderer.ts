@@ -5,7 +5,7 @@
  * onto the visible canvas with imageSmoothingEnabled = false.
  */
 
-import type { IScreenRenderer } from '@/display/display.ts';
+import type { IScreenRenderer } from '@/display/renderer.ts';
 
 export class CanvasRenderer implements IScreenRenderer {
   canvas: HTMLCanvasElement;

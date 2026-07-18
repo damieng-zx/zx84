@@ -13,7 +13,7 @@ import type {
   FrameIndicators, FrameProbe, FramePaneProvider, TranscribeDriver,
 } from '@/machines/machine.ts';
 import type { CpcMachine } from '@/machines/cpc/cpc-machine.ts';
-import type { OcrGridName } from '@/ocr/spectrum.ts';
+import type { OcrGridName } from '@/ocr/ocr.ts';
 import { parseLocomotiveBasic } from '@/basic/cpc-basic-parser.ts';
 import { hex16 } from '@/utils/hex.ts';
 

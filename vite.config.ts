@@ -52,7 +52,7 @@ export default defineConfig(({ mode }) => ({
       provider: 'v8',
       reporter: ['text', 'html'],
       include: ['src/**/*.ts'],
-      exclude: ['src/**/*.d.ts', 'src/display/display.ts'],
+      exclude: ['src/**/*.d.ts', 'src/display/renderer.ts'],
     },
   },
   build: {

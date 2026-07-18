@@ -18,7 +18,7 @@
  */
 
 import { batch } from 'solid-js';
-import type { FontSource } from '@/ocr/spectrum.ts';
+import type { FontSource } from '@/ocr/ocr.ts';
 import { isCollapsed } from '@/ui/panes.ts';
 import * as settings from '@/store/settings.ts';
 import { refreshDiskMetadata } from '@/media/floppy/dsk.ts';

@@ -18,9 +18,8 @@ import {
   detectGrid,
   detectFontFromRam,
   extractCellGlyph,
-  type OcrConfig,
-  type FontSource,
 } from '@/ocr/spectrum.ts';
+import type { OcrConfig, FontSource } from '@/ocr/ocr.ts';
 
 // ─────────────────────────────────────────────────────────────────────────
 // Test helpers

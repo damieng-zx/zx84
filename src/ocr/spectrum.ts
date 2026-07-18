@@ -17,82 +17,13 @@
  *   4. Extra fonts from the fonts pane
  */
 
-/** Cell-grid configuration for OCR. */
-export interface OcrConfig {
-  /** Pixels per cell column (4, 5, 6, 8…). */
-  cellWidth: number;
-  /** Pixels per cell row (8 in practice). */
-  cellHeight: number;
-  cols: number;
-  rows: number;
-  /** Pixel x-offset of grid origin (default 0). */
-  xOffset?: number;
-  /** Pixel y-offset of grid origin (default 0). */
-  yOffset?: number;
-}
-
-/** Spectrum cell-grid presets (the heuristic detector chooses among these). */
-export type SpectrumOcrGrid = '32x24' | '51x24' | '64x24';
-
-/** CPC text grids — one per screen mode (mode 0/1/2 → 20/40/80 columns), all
- *  8×8. The CPC OCR engine (cpc.ts) picks by mode, not by heuristic,
- *  so these deliberately live outside OCR_GRIDS. */
-export type CpcOcrGrid = '20x25' | '40x25' | '80x25';
-
-/** Einstein text grid — the TMS9929A 256px line holds 42 columns of the 6×8
- *  system font (MOS + Xtal DOS), 24 rows. */
-export type EinsteinOcrGrid = '42x24';
-
-/** MSX text grids — SCREEN 0 (text mode) is 40×24 with 6px cells; SCREEN 1
- *  (graphics I) is 32×24 with 8px cells. The MSX OCR engine reads the VDP name
- *  table directly (codes are ASCII), so it picks the grid by VDP mode. */
-export type MsxOcrGrid = '40x24' | '32x24';
-
-/** Any grid label an OCR producer can stamp onto an OcrResult. */
-export type OcrGridName = SpectrumOcrGrid | CpcOcrGrid | EinsteinOcrGrid | MsxOcrGrid;
+import type { FontSource, OcrConfig, OcrResult, SpectrumOcrGrid } from './ocr.ts';
 
 export const OCR_GRIDS: Record<SpectrumOcrGrid, OcrConfig> = {
   '32x24': { cellWidth: 8, cellHeight: 8, cols: 32, rows: 24 },
   '51x24': { cellWidth: 5, cellHeight: 8, cols: 51, rows: 24 },
   '64x24': { cellWidth: 4, cellHeight: 8, cols: 64, rows: 24 },
 };
-
-/** A font source for OCR matching.
- *  `data` is always 768 bytes (96 chars × 8 bytes). For non-8-wide cells only
- *  `cellWidth` bits of each byte are significant.
- *
- *  `bitOffset` is the number of zero bits to the LEFT of the glyph in each
- *  font byte: 0 means glyph is MSB-aligned (top of byte); a value of N means
- *  the font byte must be left-shifted by N before comparing with a screen
- *  glyph (e.g. Tasword 64 stores 4-pixel glyphs in bits 3-0, so bitOffset=4). */
-export interface FontSource {
-  label: string;
-  data: Uint8Array;
-  /** Cell width the font was authored for (defaults to 8). */
-  cellWidth?: number;
-  /** Glyph left-shift inside each font byte (defaults to 0 = MSB-aligned). */
-  bitOffset?: number;
-}
-
-/** OCR result. */
-export interface OcrResult {
-  /** Plain text with newlines between rows. */
-  text: string;
-  /** HTML with per-cell coloured spans. */
-  html: string;
-  /** `cols×rows` bitmask: true = cell was matched (used to blank the framebuffer). */
-  mask: boolean[];
-  /** `cols×rows` per-cell paper (background) pen index, for blanking matched
-   *  cells to their own paper colour. Set by the CPC engine; the Spectrum
-   *  engine derives paper from the attribute file instead and leaves this unset. */
-  paper?: number[];
-  /** Grid the result was produced with. */
-  grid: OcrGridName;
-  cellWidth: number;
-  cellHeight: number;
-  cols: number;
-  rows: number;
-}
 
 /** Map character code (33-127) to display character. */
 function charForCode(c: number): string {

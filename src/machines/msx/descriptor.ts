@@ -3,7 +3,7 @@
  * Imported only by `machines/registry.ts`; must stay headless-safe.
  */
 
-import type { IScreenRenderer } from '@/display/display.ts';
+import type { IScreenRenderer } from '@/display/renderer.ts';
 import type { MachineDescriptor, MachineEntry, MachineUiCapabilities } from '@/machines/machine.ts';
 import type { MachineModel } from '@/models.ts';
 import type { MsxModel } from './models.ts';

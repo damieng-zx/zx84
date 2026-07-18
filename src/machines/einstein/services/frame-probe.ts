@@ -9,7 +9,7 @@ import type {
   FrameIndicators, FrameProbe, TranscribeDriver,
 } from '@/machines/machine.ts';
 import type { EinsteinMachine } from '@/machines/einstein/einstein-machine.ts';
-import type { OcrGridName } from '@/ocr/spectrum.ts';
+import type { OcrGridName } from '@/ocr/ocr.ts';
 
 class EinsteinTranscribeDriver implements TranscribeDriver {
   constructor(private readonly m: EinsteinMachine) {}

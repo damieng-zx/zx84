@@ -9,7 +9,7 @@
  *   brightness/contrast, and vignette.
  */
 
-import type { IScreenRenderer } from '@/display/display.ts';
+import type { IScreenRenderer } from '@/display/renderer.ts';
 import hq2xLutUrl from '@/display/shaders/hq2x-lut.png';  // 256×64 RGBA LUT for HQ2x blend weights
 import hq3xLutUrl from '@/display/shaders/hq3x-lut.png';  // 256×144 RGBA LUT for HQ3x blend weights
 import hq4xLutUrl from '@/display/shaders/hq4x-lut.png';  // 256×256 RGBA LUT for HQ4x blend weights

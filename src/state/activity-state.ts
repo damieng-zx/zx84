@@ -10,7 +10,7 @@
  */
 
 import { createSignal } from 'solid-js';
-import type { OcrGridName } from '@/ocr/spectrum.ts';
+import type { OcrGridName } from '@/ocr/ocr.ts';
 
 // Input devices
 const _ledKbd = createSignal(false);

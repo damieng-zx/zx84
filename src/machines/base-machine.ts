@@ -25,7 +25,7 @@
 import type { Audio } from '@/audio.ts';
 import type { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import type { AY3891x } from '@/cores/ay-3-8910.ts';
-import type { IScreenRenderer } from '@/display/display.ts';
+import type { IScreenRenderer } from '@/display/renderer.ts';
 
 /** rAF-independent frame period: 50 Hz. */
 const FRAME_PERIOD = 1000 / 50;
