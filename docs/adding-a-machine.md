@@ -82,7 +82,7 @@ frame):
 A machine's `ui/` subfolder is the ONLY place its files may import solid-js and
 the shell/state layers. Put Hardware-pane sections, sysvars/BASIC panels, an
 on-screen keyboard, and per-family debug panels here. Register them in the
-UI-side manifest `src/components/machine-ui.ts` (`kind` → lazily-imported
+UI-side manifest `src/ui/machine-ui.ts` (`kind` → lazily-imported
 components) — that manifest is the single sanctioned exception to
 "components never import a machine folder". A `ui/` file that needs its concrete
 machine narrows the shell's handle itself (see `spectrum/ui/active.ts`).
@@ -126,7 +126,7 @@ generically; peripheral ROMs go through `AuxRomRequest` from your `prepare()`/
 
 Nothing else. In particular: no edits to `src/cores/` (add a *new* core only if
 your machine uses a genuinely new commodity chip), `src/shell/*`,
-`src/frame-bridge.ts`, `src/components/*` generic panes, `src/state/*`,
+`src/frame-bridge.ts`, `src/ui/*` generic panes, `src/state/*`,
 `src/media/*`, or another machine's folder. If a generic pane can't express your
 machine, add a `descriptor.ui` capability flag it can read — don't branch on
 `kind`.

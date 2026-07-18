@@ -1,7 +1,7 @@
 /**
  * WD179x Floppy Disk Controller — shared base for the Western Digital FD179x
- * family. The MGT +D uses a WD1772 (see wd1772.ts); the Beta Disk interface
- * uses a WD1793 (see wd1793.ts). Both are register-compatible: four
+ * family. The MGT +D uses a WD1772; the Beta Disk interface uses a WD1793.
+ * Both are register-compatible: four
  * directly-addressed registers and a synchronous command model with no
  * command/result phases.
  *
@@ -24,14 +24,18 @@
  * Type II/III (Read/Write). We set the bits explicitly per command so the
  * caller's interpretation matches; the comments below give both meanings.
  *
- * The three chip-specific differences are isolated behind protected hooks so
- * the concrete WD1772 / WD1793 subclasses only override what actually differs:
- *   • statusBit7()          — WD1772: MOTOR ON; WD1793: NOT READY.
- *   • formatSectorsPerTrack — sectors per track a WRITE TRACK lays down.
- *   • (intrq/drq getters)   — exposed for the Beta system port; +D ignores them.
+ * The owning peripheral supplies the status-bit-7 behavior and disk format
+ * geometry. The controller itself does not prescribe a disk format.
  */
 
 import type { DskImage, DskTrack, DskSector } from '@/media/floppy/disk-image.ts';
+
+export interface WD179xOptions {
+  /** WD1770/1772: MOTOR ON; WD1793: NOT READY. */
+  readonly statusBit7: 'motor-on' | 'not-ready';
+  /** Sectors a WRITE TRACK command lays down before completing. */
+  readonly formatSectorsPerTrack: number;
+}
 
 // ── Status register bits ────────────────────────────────────────────────────
 // Bit meanings differ by command type; alternate Type-I meanings are noted in
@@ -45,7 +49,7 @@ const ST_RNF       = 0x10; // Type II/III: record not found
 const ST_RECTYPE   = 0x20; // Type II read: record type / Type I: head loaded
 const ST_WRITEPROT = 0x40; // write protected
 /** Status bit 7 — WD1772: MOTOR ON (no READY line on the 1770/1772);
- *  WD1793: NOT READY. Which meaning applies is decided by statusBit7(). */
+ *  WD1793: NOT READY. */
 const ST_BIT7      = 0x80;
 
 /** Frames the activity LED / sector readout lingers after a transfer. */
@@ -68,6 +72,14 @@ const INDEX_WIDTH = 4;
 const BUSY_PULSE_READS = 4;
 
 export class WD179x {
+  private readonly statusBit7Mode: WD179xOptions['statusBit7'];
+  private readonly formatSectorsPerTrack: number;
+
+  constructor(options: WD179xOptions) {
+    this.statusBit7Mode = options.statusBit7;
+    this.formatSectorsPerTrack = options.formatSectorsPerTrack;
+  }
+
   // ── Registers ─────────────────────────────────────────────────────────
   private statusReg = 0;
   trackReg = 0;
@@ -112,15 +124,13 @@ export class WD179x {
    *  WD179x today; wired when Einstein/+D/Beta FDC logging is added. */
   logFn: ((...args: unknown[]) => void) | null = null;
 
-  // ── Chip-specific hooks (overridden by subclasses) ────────────────────
-  /** Status bit 7. Default (WD1772) is the MOTOR ON line. The WD1793 overrides
-   *  this to report NOT READY (set when the selected drive has no disk). */
-  protected statusBit7(): number {
-    return this.motorOn ? ST_BIT7 : 0;
+  // ── Chip configuration ────────────────────────────────────────────────
+  /** Status bit 7 is either MOTOR ON or NOT READY, according to the FDC model. */
+  private statusBit7(): number {
+    return this.statusBit7Mode === 'motor-on'
+      ? (this.motorOn ? ST_BIT7 : 0)
+      : (this.disks[this.currentDrive] === null ? ST_BIT7 : 0);
   }
-  /** Sectors a WRITE TRACK (format) lays down before the track is finalised.
-   *  G+DOS writes 10 × 512-byte sectors; TR-DOS writes 16 × 256. */
-  protected readonly formatSectorsPerTrack: number = 10;
 
   /**
    * Set to a unit (0/1) when a WRITE TRACK (format) completes; cleared by the

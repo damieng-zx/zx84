@@ -47,9 +47,10 @@ boundaries are enforced mechanically (`npm run depcheck`, zero exceptions).
 - `src/state/` — Solid reactive stores (machine, debug, disk, tape, activity,
   microdrive). Shared flat signal bags; the *writers* are generic (shell + probe).
 - `src/store/` — settings + IndexedDB persistence.
-- `src/components/` — generic UI panes. Bind to `machine.services` and the
-  descriptor's `ui` capabilities; never import a concrete machine or branch on
-  machine kind. `machine-ui.ts` is the UI-side manifest mapping a kind → its
+- `src/ui/` — generic UI: `panes/` hosts panes and `components/` hosts reusable
+  elements. Bind to `machine.services` and the descriptor's `ui` capabilities;
+  never import a concrete machine or branch on machine kind. `machine-ui.ts` is
+  the UI-side manifest mapping a kind → its
   lazily-imported `ui/` contributions (the sole sanctioned exception).
 - `src/frame-bridge.ts` — the generic per-frame consumer of each machine's
   `FrameProbe`; owns presentation policy (LED latch, formatting, diffing).

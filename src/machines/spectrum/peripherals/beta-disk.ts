@@ -34,7 +34,7 @@
  */
 
 import type { SpectrumMemory } from '@/machines/spectrum/memory.ts';
-import { WD1793 } from '@/cores/wd1793.ts';
+import { WD179x } from '@/cores/wd179x.ts';
 
 // Low-byte port addresses.
 const PORT_STATUS_CMD = 0x1F;
@@ -56,7 +56,10 @@ export class BetaDisk {
   /** Last value written to the system register (port 0xFF). */
   systemReg = 0;
 
-  readonly fdc = new WD1793();
+  readonly fdc = new WD179x({
+    statusBit7: 'not-ready',
+    formatSectorsPerTrack: 16,
+  });
 
   reset(): void {
     this.pagedIn = false;

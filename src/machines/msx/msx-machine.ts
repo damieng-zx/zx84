@@ -16,7 +16,7 @@
 
 import { Z80 } from '@/cores/z80.ts';
 import { AY3891x } from '@/cores/ay-3-8910.ts';
-import { WD1772 } from '@/cores/wd1772.ts';
+import { WD179x } from '@/cores/wd179x.ts';
 import { Tms9918a, MSX_PALETTES } from '@/cores/tms9918a.ts';
 import { TapeDeck } from '@/media/tape/tap.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
@@ -67,7 +67,7 @@ export class MsxMachine extends BaseMachine implements Machine {
   readonly ppi: MsxPpi;
   /** The HX-10 has no floppy controller; this inert WD1772 exists only to
    *  satisfy the shared `Machine.fdc` type — it is never wired to any port. */
-  readonly fdc: WD1772;
+  readonly fdc: WD179x;
   /** Inert cassette deck (interface requirement; cassette is a follow-up). */
   readonly tape: TapeDeck;
   readonly mixer: AudioMixer;
@@ -104,7 +104,10 @@ export class MsxMachine extends BaseMachine implements Machine {
     this.keyboard = new MsxKeyboard();
     this.joystick = new MsxJoystick();
     this.ppi = new MsxPpi(this.memory, this.keyboard);
-    this.fdc = new WD1772();
+    this.fdc = new WD179x({
+      statusBit7: 'motor-on',
+      formatSectorsPerTrack: 10,
+    });
     this.tape = new TapeDeck(MSX_CPU_CLOCK);
     this.audio = new Audio();
     this.mixer = new AudioMixer(MSX_CPU_CLOCK);

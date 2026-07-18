@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { WD1772 } from '@/cores/wd1772.ts';
+import { WD179x } from '@/cores/wd179x.ts';
 import type { DskImage, DskTrack, DskSector } from '@/media/floppy/disk-image.ts';
 
-// ── WD1772 status bits (mirror the constants in wd1772.ts) ───────────────
+// ── WD1772 status bits (mirror the constants in wd179x.ts) ───────────────
 const ST_BUSY      = 0x01;
 const ST_DRQ       = 0x02;
 const ST_TRACK0    = 0x04;
@@ -15,6 +15,10 @@ const CMD_RESTORE = 0x00;
 const CMD_SEEK    = 0x10;
 const CMD_READ    = 0x80;
 const CMD_WRITE   = 0xA0;
+
+function wd1772(): WD179x {
+  return new WD179x({ statusBit7: 'motor-on', formatSectorsPerTrack: 10 });
+}
 
 function sector(c: number, h: number, r: number, fill: number): DskSector {
   const data = new Uint8Array(512);
@@ -32,8 +36,8 @@ function makeImage(): DskImage {
 }
 
 describe('WD1772 Type I (Restore/Seek)', () => {
-  let wd: WD1772;
-  beforeEach(() => { wd = new WD1772(); });
+  let wd: WD179x;
+  beforeEach(() => { wd = wd1772(); });
 
   it('SEEK loads the data register value into the track register', () => {
     wd.writeData(40);          // desired track in the data register
@@ -61,9 +65,9 @@ describe('WD1772 Type I (Restore/Seek)', () => {
 });
 
 describe('WD1772 READ SECTOR', () => {
-  let wd: WD1772;
+  let wd: WD179x;
   beforeEach(() => {
-    wd = new WD1772();
+    wd = wd1772();
     wd.insertDisk(makeImage(), 0);
     wd.selectDrive(0);
     wd.setSide(0);
@@ -88,7 +92,7 @@ describe('WD1772 READ SECTOR', () => {
   });
 
   it('reports RECORD NOT FOUND when no disk is present', () => {
-    const empty = new WD1772();
+    const empty = wd1772();
     empty.writeSectorReg(1);
     empty.writeCommand(CMD_READ);
     expect(empty.readStatus() & ST_RNF).toBeTruthy();
@@ -96,10 +100,10 @@ describe('WD1772 READ SECTOR', () => {
 });
 
 describe('WD1772 WRITE SECTOR', () => {
-  let wd: WD1772;
+  let wd: WD179x;
   let img: DskImage;
   beforeEach(() => {
-    wd = new WD1772();
+    wd = wd1772();
     img = makeImage();
     wd.insertDisk(img, 0);
     wd.selectDrive(0);
@@ -159,7 +163,7 @@ describe('WD1772 INDEX pulse (Type I status bit 1)', () => {
   // after a Type I / Force Interrupt command. Without the pulse it reports
   // "CHECK DISC". (Regression test for that bug.)
   it('toggles bit 1 across repeated status reads when a disk is present', () => {
-    const wd = new WD1772();
+    const wd = wd1772();
     wd.insertDisk(makeImage(), 0);
     wd.selectDrive(0);
     wd.writeCommand(CMD_RESTORE); // Type I → motor on
@@ -172,7 +176,7 @@ describe('WD1772 INDEX pulse (Type I status bit 1)', () => {
   });
 
   it('also pulses after a FORCE INTERRUPT (0xD0), which G+DOS issues first', () => {
-    const wd = new WD1772();
+    const wd = wd1772();
     wd.insertDisk(makeImage(), 0);
     wd.selectDrive(0);
     wd.writeCommand(0xD0); // Force Interrupt → Type I status
@@ -185,14 +189,14 @@ describe('WD1772 INDEX pulse (Type I status bit 1)', () => {
   });
 
   it('never sets the index bit when the drive is empty (so CHECK DISC is correct then)', () => {
-    const wd = new WD1772();
+    const wd = wd1772();
     wd.selectDrive(0);
     wd.writeCommand(CMD_RESTORE);
     for (let i = 0; i < 64; i++) expect(wd.readStatus() & 0x02).toBe(0);
   });
 
   it('does not inject the index pulse during a Type II read (bit 1 = DRQ)', () => {
-    const wd = new WD1772();
+    const wd = wd1772();
     wd.insertDisk(makeImage(), 0);
     wd.selectDrive(0);
     wd.setSide(0);
@@ -205,7 +209,7 @@ describe('WD1772 INDEX pulse (Type I status bit 1)', () => {
 
 describe('WD1772 drive/side selection', () => {
   it('reads from the side selected via the control register', () => {
-    const wd = new WD1772();
+    const wd = wd1772();
     // Two-sided image: side 0 sector filled 0x11, side 1 filled 0x22.
     const mk = (h: number, fill: number): DskTrack => {
       const s = [sector(0, h, 1, fill)];

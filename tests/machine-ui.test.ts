@@ -1,5 +1,5 @@
 /**
- * The UI-side machine manifest (src/components/machine-ui.ts) maps each machine
+ * The UI-side machine manifest (src/ui/machine-ui.ts) maps each machine
  * kind to lazily-imported Solid components. These tests assert the manifest is
  * wired correctly: every declared contribution is a well-formed Solid `lazy`
  * loader (a component exposing `.preload`), and each kind exposes exactly the
@@ -13,7 +13,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { machineUi } from '@/components/machine-ui.ts';
+import { machineUi } from '@/ui/machine-ui.ts';
 
 /** A Solid `lazy()` component is a function carrying a `.preload` method. */
 function isLazyLoader(v: unknown): boolean {

@@ -3,41 +3,41 @@
  */
 
 import { onMount, onCleanup, createEffect, createSignal, Show, type JSX } from 'solid-js';
-import { Sidebar } from '@/components/Sidebar.tsx';
-import { Screen } from '@/components/Screen.tsx';
-import { StatusBar } from '@/components/StatusBar.tsx';
-import { Tooltip } from '@/components/Tooltip.tsx';
-import { AppMenu } from '@/components/AppMenu.tsx';
+import { Sidebar } from '@/ui/components/Sidebar.tsx';
+import { Screen } from '@/ui/components/Screen.tsx';
+import { StatusBar } from '@/ui/components/StatusBar.tsx';
+import { Tooltip } from '@/ui/components/Tooltip.tsx';
+import { AppMenu } from '@/ui/components/AppMenu.tsx';
 
-import { HardwarePane } from '@/components/panes/HardwarePane.tsx';
-import { LoadSavePane } from '@/components/panes/LoadSavePane.tsx';
-import { RomPane } from '@/components/panes/RomPane.tsx';
-import { JoystickPane } from '@/components/panes/JoystickPane.tsx';
-import { MousePane } from '@/components/panes/MousePane.tsx';
-import { SoundPane } from '@/components/panes/SoundPane.tsx';
-import { DisplayPane } from '@/components/panes/DisplayPane.tsx';
-import { MonitorPane } from '@/components/panes/MonitorPane.tsx';
-import { FontPane } from '@/components/panes/FontPane.tsx';
-import { SysVarPane } from '@/components/panes/SysVarPane.tsx';
-import { BasicPane } from '@/components/panes/BasicPane.tsx';
-import { BasicVarsPane } from '@/components/panes/BasicVarsPane.tsx';
-import { BanksPane } from '@/components/panes/BanksPane.tsx';
-import { DrivePane } from '@/components/panes/DrivePane.tsx';
-import { MicrodrivePane } from '@/components/panes/MicrodrivePane.tsx';
-import { TapePane } from '@/components/panes/TapePane.tsx';
-import { DisassemblyPane } from '@/components/panes/DisassemblyPane.tsx';
-import { TextPane } from '@/components/panes/TextPane.tsx';
-import { ChangelogOverlay, toggleChangelog } from '@/components/panes/ChangelogPane.tsx';
-import { MemoryPane } from '@/components/panes/MemoryPane.tsx';
+import { HardwarePane } from '@/ui/panes/HardwarePane.tsx';
+import { LoadSavePane } from '@/ui/panes/LoadSavePane.tsx';
+import { RomPane } from '@/ui/panes/RomPane.tsx';
+import { JoystickPane } from '@/ui/panes/JoystickPane.tsx';
+import { MousePane } from '@/ui/panes/MousePane.tsx';
+import { SoundPane } from '@/ui/panes/SoundPane.tsx';
+import { DisplayPane } from '@/ui/panes/DisplayPane.tsx';
+import { MonitorPane } from '@/ui/panes/MonitorPane.tsx';
+import { FontPane } from '@/ui/panes/FontPane.tsx';
+import { SysVarPane } from '@/ui/panes/SysVarPane.tsx';
+import { BasicPane } from '@/ui/panes/BasicPane.tsx';
+import { BasicVarsPane } from '@/ui/panes/BasicVarsPane.tsx';
+import { BanksPane } from '@/ui/panes/BanksPane.tsx';
+import { DrivePane } from '@/ui/panes/DrivePane.tsx';
+import { MicrodrivePane } from '@/ui/panes/MicrodrivePane.tsx';
+import { TapePane } from '@/ui/panes/TapePane.tsx';
+import { DisassemblyPane } from '@/ui/panes/DisassemblyPane.tsx';
+import { TextPane } from '@/ui/panes/TextPane.tsx';
+import { ChangelogOverlay, toggleChangelog } from '@/ui/panes/ChangelogPane.tsx';
+import { MemoryPane } from '@/ui/panes/MemoryPane.tsx';
 
-import { machineUi } from '@/components/machine-ui.ts';
+import { machineUi } from '@/ui/machine-ui.ts';
 import { machineCaps, machineKind } from '@/state/machine-caps.ts';
 import { paneOrder, isPaneUserHidden } from '@/ui/panes.ts';
 import { needsGamepadPolling, scale } from '@/store/settings.ts';
 import { initAudio, init, syncFocusPause } from '@/shell/lifecycle.ts';
 import { loadFile } from '@/shell/media.ts';
 import { transcribeMode } from '@/state/activity-state.ts';
-import { configuringPlayer } from '@/components/panes/JoystickPane.tsx';
+import { configuringPlayer } from '@/ui/panes/JoystickPane.tsx';
 import { InputController } from '@/input-controller.ts';
 
 // ── Pane registry ───────────────────────────────────────────────────────

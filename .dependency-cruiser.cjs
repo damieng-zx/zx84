@@ -71,20 +71,20 @@ module.exports = {
         'still islands (machines-are-islands forbids importing another machine).',
       severity: 'error',
       from: { path: '^src/machines/', pathNot: '^src/machines/[^/]+/ui/' },
-      to: { path: '^(src/components/|src/state/|src/store/|src/shell/|solid-js)' },
+      to: { path: '^(src/ui/|src/state/|src/store/|src/shell/|solid-js)' },
     },
     {
       name: 'ui-no-concrete-machines',
       comment:
-        'Generic UI (src/components) and reactive state (src/state) must not import a ' +
+        'Generic UI (src/ui) and reactive state (src/state) must not import a ' +
         'concrete machine folder (src/machines/<name>/). They bind to machines through ' +
         'the SPI (machine.ts), the registry, the descriptor`s `ui` capabilities, and ' +
         'services. §3.1/§7.\n' +
         'The SOLE sanctioned exception is the UI-side manifest ' +
-        '`src/components/machine-ui.ts`, which lazily maps a machine kind to its `ui/` ' +
+        '`src/ui/machine-ui.ts`, which lazily maps a machine kind to its `ui/` ' +
         'contributions. The shell is governed separately by `shell-stays-above-machines`.',
       severity: 'error',
-      from: { path: '^src/(components|state)/', pathNot: '^src/components/machine-ui\\.ts$' },
+      from: { path: '^src/(ui|state)/', pathNot: '^src/ui/machine-ui\\.ts$' },
       to: { path: '^src/machines/[^/]+/' },
     },
     {

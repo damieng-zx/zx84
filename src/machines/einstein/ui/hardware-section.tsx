@@ -1,6 +1,6 @@
 /**
  * Einstein-specific Hardware-pane options: the Xtal DOS boot toggle. Contributed
- * to the generic Hardware pane via the UI manifest (`src/components/machine-ui.ts`).
+ * to the generic Hardware pane via the UI manifest (`src/ui/machine-ui.ts`).
  */
 
 import { setEinsteinXtalDosEnabled } from '@/shell/media.ts';

@@ -30,7 +30,7 @@
  */
 
 import type { SpectrumMemory } from '@/machines/spectrum/memory.ts';
-import { WD1772 } from '@/cores/wd1772.ts';
+import { WD179x } from '@/cores/wd179x.ts';
 
 // Low-byte port addresses.
 const PORT_STATUS_CMD = 0xE3;
@@ -56,7 +56,10 @@ export class MgtPlusD {
   /** Last value written to the control register (port 0xEF). */
   controlReg = 0;
 
-  readonly fdc = new WD1772();
+  readonly fdc = new WD179x({
+    statusBit7: 'motor-on',
+    formatSectorsPerTrack: 10,
+  });
 
   reset(): void {
     this.pagedIn = false;

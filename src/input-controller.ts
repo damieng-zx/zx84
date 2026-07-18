@@ -20,7 +20,7 @@ import {
   configuringPlayer, setConfiguringPlayer,
   configuringStep, setConfiguringStep,
   setConfiguringProgress,
-} from '@/components/panes/JoystickPane.tsx';
+} from '@/ui/panes/JoystickPane.tsx';
 
 // ── Keyboard mappings ───────────────────────────────────────────────────
 

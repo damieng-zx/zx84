@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { WD1793 } from '@/cores/wd1793.ts';
+import { WD179x } from '@/cores/wd179x.ts';
 import type { DskImage, DskTrack, DskSector } from '@/media/floppy/disk-image.ts';
 
 const ST_BUSY = 0x01;
@@ -8,6 +8,10 @@ const ST_BIT7 = 0x80; // NOT READY on the 1793
 const CMD_RESTORE = 0x00;
 const CMD_READ    = 0x80;
 const CMD_WRITETRACK = 0xF0;
+
+function wd1793(): WD179x {
+  return new WD179x({ statusBit7: 'not-ready', formatSectorsPerTrack: 16 });
+}
 
 /** One-track single-sided TR-DOS-geometry image (16 × 256-byte sectors). */
 function trdImage(fill = 0xAB): DskImage {
@@ -24,14 +28,14 @@ function trdImage(fill = 0xAB): DskImage {
 
 describe('WD1793 status bit 7 = NOT READY', () => {
   it('sets bit 7 after a Type I command when no disk is present', () => {
-    const wd = new WD1793();
+    const wd = wd1793();
     wd.selectDrive(0);
     wd.writeCommand(CMD_RESTORE);
     expect(wd.readStatus() & ST_BIT7).toBe(ST_BIT7); // not ready
   });
 
   it('clears bit 7 when a disk is present (drive ready)', () => {
-    const wd = new WD1793();
+    const wd = wd1793();
     wd.insertDisk(trdImage(), 0);
     wd.selectDrive(0);
     wd.writeCommand(CMD_RESTORE);
@@ -41,7 +45,7 @@ describe('WD1793 status bit 7 = NOT READY', () => {
 
 describe('WD1793 INTRQ / DRQ lines', () => {
   it('INTRQ set (command complete) and DRQ clear after a Type I command', () => {
-    const wd = new WD1793();
+    const wd = wd1793();
     wd.insertDisk(trdImage(), 0);
     wd.selectDrive(0);
     wd.writeCommand(CMD_RESTORE); // Type I completes instantly → not busy
@@ -50,7 +54,7 @@ describe('WD1793 INTRQ / DRQ lines', () => {
   });
 
   it('INTRQ clear (busy) and DRQ set during a Type II read transfer', () => {
-    const wd = new WD1793();
+    const wd = wd1793();
     wd.insertDisk(trdImage(), 0);
     wd.selectDrive(0);
     wd.setSide(0);
@@ -63,7 +67,7 @@ describe('WD1793 INTRQ / DRQ lines', () => {
 
 describe('WD1793 WRITE TRACK finalises at 16 sectors', () => {
   it('rebuilds a 16-sector TR-DOS track from the format stream', () => {
-    const wd = new WD1793();
+    const wd = wd1793();
     const img = trdImage(); // reuse geometry; we overwrite cylinder 0
     wd.insertDisk(img, 0);
     wd.selectDrive(0);

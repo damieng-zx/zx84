@@ -105,7 +105,7 @@ vi.mock('@/shell/media.ts', () => ({
   },
 }));
 
-vi.mock('@/components/panes/JoystickPane.tsx', () => ({
+vi.mock('@/ui/panes/JoystickPane.tsx', () => ({
   configuringPlayer: () => mockState.configuringPlayerValue,
   setConfiguringPlayer: (v: number) => {
     mockState.configuringPlayerValue = v;

@@ -459,7 +459,7 @@ input[type="file"] { display: none; }
 }
 
 /* Transient status toast — bottom-centre, overlaying the screen area. Replaces
-   the old persistent status line; see components/Toast.tsx. Anchored inside
+   the old persistent status line; see ui/components/Toast.tsx. Anchored inside
    #screen-wrap, so it floats over the bottom of the display and slides up. */
 .toast {
   position: absolute;

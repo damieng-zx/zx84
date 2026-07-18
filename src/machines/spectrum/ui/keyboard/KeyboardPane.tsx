@@ -10,7 +10,7 @@
  */
 
 import { For, Show } from 'solid-js';
-import { Pane } from '@/components/Pane.tsx';
+import { Pane } from '@/ui/components/Pane.tsx';
 import { activeSpectrum } from '@/machines/spectrum/ui/active.ts';
 import { currentModel } from '@/state/machine-state.ts';
 import { is128kClass } from '@/machines/spectrum/models.ts';

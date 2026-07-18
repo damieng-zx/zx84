@@ -1,7 +1,7 @@
 /**
  * CPC-specific Hardware-pane options: the Multiface Two freeze cartridge and the
  * ParaDOS AMSDOS-replacement toggle. Contributed to the generic Hardware pane
- * via the UI manifest (`src/components/machine-ui.ts`).
+ * via the UI manifest (`src/ui/machine-ui.ts`).
  */
 
 import { Show } from 'solid-js';

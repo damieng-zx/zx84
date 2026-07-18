@@ -15,7 +15,7 @@
 
 import { Z80 } from '@/cores/z80.ts';
 import { AY3891x } from '@/cores/ay-3-8910.ts';
-import { WD1772 } from '@/cores/wd1772.ts';
+import { WD179x } from '@/cores/wd179x.ts';
 import { Tms9918a, EINSTEIN_PALETTES } from '@/cores/tms9918a.ts';
 import { Z80Ctc } from '@/cores/z80-ctc.ts';
 import { TapeDeck, TAPE_REF_HZ } from '@/media/tape/tap.ts';
@@ -57,7 +57,7 @@ export class EinsteinMachine extends BaseMachine implements Machine {
   readonly cpu: Z80;
   readonly memory: EinsteinMemory;
   readonly ay: AY3891x;
-  readonly fdc: WD1772;
+  readonly fdc: WD179x;
   readonly vdp: Tms9918a;
   readonly ctc: Z80Ctc;
   readonly keyboard: EinsteinKeyboard;
@@ -86,7 +86,10 @@ export class EinsteinMachine extends BaseMachine implements Machine {
     this.cpu = new Z80();
     this.memory = new EinsteinMemory();
     this.ay = new AY3891x(EINSTEIN_AY_CLOCK, 48000, 'ABC');
-    this.fdc = new WD1772();
+    this.fdc = new WD179x({
+      statusBit7: 'motor-on',
+      formatSectorsPerTrack: 10,
+    });
     // The MOS polls the WD1770 for BUSY to *set* (command accepted) before
     // waiting for it to clear, so Type I commands must pulse BUSY.
     this.fdc.pulseBusy = true;

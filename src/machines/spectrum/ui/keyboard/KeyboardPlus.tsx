@@ -20,7 +20,7 @@
  */
 
 import { For, Show, createUniqueId } from 'solid-js';
-import { Pane } from '@/components/Pane.tsx';
+import { Pane } from '@/ui/components/Pane.tsx';
 import { activeSpectrum } from '@/machines/spectrum/ui/active.ts';
 import {
   POS, CS, SS, LETTERS, NUMBERS, Block, useKeyboard,

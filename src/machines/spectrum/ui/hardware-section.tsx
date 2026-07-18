@@ -1,7 +1,7 @@
 /**
  * Spectrum-specific Hardware-pane options: the Multiface, VTX-5000 modem, MGT
  * +D, ZX Interface 1 and Beta Disk toggles. Contributed to the generic Hardware
- * pane via the UI manifest (`src/components/machine-ui.ts`).
+ * pane via the UI manifest (`src/ui/machine-ui.ts`).
  *
  * A machine `ui/` file — the only Spectrum files allowed to import solid-js and
  * the shell/settings/state layers. It reaches its own peripherals directly
