@@ -38,7 +38,7 @@ export function HardwarePane() {
           <option value="cpc664">Amstrad CPC 664</option>
           <option value="cpc6128">Amstrad CPC 6128</option>
           <option value="einstein">Tatung Einstein TC-01</option>
-          <option value="hx-10">Toshiba HX-10 (MSX)</option>
+          <option value="hx-10">MSX</option>
         </select>
         <button
           id="cpu-mhz"

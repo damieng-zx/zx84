@@ -41,7 +41,9 @@ import type { RomPage } from '@/models.ts';
  *  (never persisted verbatim — see restoreROM) so a naming change here takes
  *  effect immediately, without a stale string surviving in localStorage. */
 function defaultRomLabel(model: MachineModel): string {
-  return (model === '16k' || model === '48k') ? 'Sinclair BASIC' : `${model.toUpperCase()} (default)`;
+  if (model === '16k' || model === '48k') return 'Sinclair BASIC';
+  if (model === 'hx-10') return 'Toshiba HX-10 (MSX BASIC 1.0)';
+  return `${model.toUpperCase()} (default)`;
 }
 
 export class ROMManager {
