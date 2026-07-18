@@ -30,14 +30,21 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'tape-turbo-load': () => settings.tapeTurbo(),
   'tape-sound': () => settings.tapeSoundEnabled(),
   'tape-auto-rewind': () => settings.tapeAutoRewind(),
+  // AY/PSG shaping (all machines carry an AY-family PSG).
+  'ay-stereo': () => settings.ayStereo(),
+  'ay-dc-block': () => settings.ayDcBlock(),
+  'ay-antialias': () => settings.ayAntialias(),
   // Peripheral enablement + write-protects read by each machine's prepare() hook.
   'vtx5000': () => settings.vtx5000Enabled(),
   'multiface': () => settings.multifaceEnabled(),
   'plusd': () => settings.plusDEnabled(),
   'interface1': () => settings.interface1Enabled(),
   'betadisk': () => settings.betaDiskEnabled(),
+  'write-protect-a': () => settings.writeProtectA(),
+  'write-protect-b': () => settings.writeProtectB(),
   'write-protect-c': () => settings.writeProtectC(),
   'write-protect-d': () => settings.writeProtectD(),
+  'drive-b-force-ready': () => settings.driveBForceReady(),
   'cpc-parados': () => settings.cpcParados(),
 };
 

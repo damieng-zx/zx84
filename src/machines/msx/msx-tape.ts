@@ -19,70 +19,15 @@
  * "Emulation related file formats" (.cas layout).
  */
 
+import { CAS_HEADER } from '@/media/tape/cas.ts';
+
 /** BIOS main-ROM cassette entry points (jump-table addresses). */
 export const MSX_TAPION = 0x00E1;
 export const MSX_TAPIN = 0x00E4;
 
-/** The 8-byte `.cas` block header ID (stands in for the sync tone). */
-const CAS_HEADER = [0x1F, 0xA6, 0xDE, 0xBA, 0xCC, 0x13, 0x7D, 0x74];
-
-/** A block of a `.cas` image, for the tape-pane listing. */
-export interface CasBlock {
-  /** True for a 16-byte file-header block, false for a data block. */
-  header: boolean;
-  /** Main line, e.g. `Header "GAME"` or `Data`. */
-  title: string;
-  /** Secondary line, e.g. `BASIC file` or `2048 bytes`. */
-  detail: string;
-  /** File name (header blocks only). */
-  name?: string;
-  /** File type — BASIC / Binary / ASCII (header blocks only). */
-  type?: string;
-  /** Size of this block's payload in bytes. */
-  size: number;
-}
-
-/** MSX file-header type markers (10 identical bytes lead a header block). */
-const CAS_FILE_TYPE: Record<number, string> = { 0xD3: 'BASIC', 0xD0: 'Binary', 0xEA: 'ASCII' };
-
-/**
- * Parse a `.cas` image into its logical blocks (header + data), the way the
- * tape pane lists TAP/TZX blocks. Each 8-byte sync ID (on an 8-byte boundary)
- * starts a block that runs to the next ID or end of file. A 16-byte block led by
- * ten identical D3/D0/EA bytes is a file header (its last 6 bytes are the name);
- * everything else is data.
- */
-export function parseCasBlocks(data: Uint8Array): CasBlock[] {
-  const isIdAt = (p: number): boolean => {
-    if (p + 8 > data.length) return false;
-    for (let i = 0; i < 8; i++) if (data[p + i] !== CAS_HEADER[i]) return false;
-    return true;
-  };
-  const syncs: number[] = [];
-  for (let p = 0; p + 8 <= data.length; p += 8) if (isIdAt(p)) syncs.push(p);
-
-  const out: CasBlock[] = [];
-  for (let i = 0; i < syncs.length; i++) {
-    const start = syncs[i] + 8;
-    const end = i + 1 < syncs.length ? syncs[i + 1] : data.length;
-    const chunk = data.subarray(start, end);
-    const marker = chunk.length >= 16 ? CAS_FILE_TYPE[chunk[0]] : undefined;
-    let isHeader = false;
-    if (marker) {
-      isHeader = true;
-      for (let k = 1; k < 10; k++) if (chunk[k] !== chunk[0]) { isHeader = false; break; }
-    }
-    if (isHeader) {
-      let name = '';
-      for (let k = 10; k < 16; k++) name += String.fromCharCode(chunk[k]);
-      name = name.trimEnd();
-      out.push({ header: true, title: `Header "${name}"`, detail: `${marker} file`, name, type: marker, size: chunk.length });
-    } else {
-      out.push({ header: false, title: 'Data', detail: `${chunk.length} bytes`, size: chunk.length });
-    }
-  }
-  return out;
-}
+// The `.cas` block parser + types are media-layer format code; re-exported so
+// existing machine-side imports keep working.
+export { parseCasBlocks, type CasBlock } from '@/media/tape/cas.ts';
 
 export class MsxCassette {
   private data: Uint8Array = new Uint8Array(0);

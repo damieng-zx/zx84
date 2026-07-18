@@ -183,6 +183,7 @@ import {
 } from '@/frame-bridge.ts';
 import type { FontEntry } from '@/frame-bridge.ts';
 import { SpectrumFrameProbe } from '@/machines/spectrum/services/frame-probe.ts';
+import { Z80DebugService } from '@/machines/debug-z80/index.ts';
 
 // ── fontDataHash ─────────────────────────────────────────────────────────
 
@@ -284,11 +285,13 @@ function makeSpectrumWithSnap(snap: Uint8Array): MockSpectrum {
     loaderDetector: { signature: 'unknown' },
     ocrScreenStyled: vi.fn(() => ({ text: '', html: '', grid: [], mask: [] as number[] })),
     get audioContext() { return this.audio?.ctx ?? null; },
+    get cpuClockHz() { return this.tape.cpuClock; },
   };
   // The bridge is generic now: machine-specific frame logic lives in the
-  // machine's probe. Attach a REAL SpectrumFrameProbe over the stub so these
-  // tests exercise the actual probe + generic bridge together.
-  s.services = { probe: new SpectrumFrameProbe(s) };
+  // machine's probe and its CPU-family debug provider. Attach REAL instances
+  // over the stub so these tests exercise the actual probe/provider + generic
+  // bridge together.
+  s.services = { probe: new SpectrumFrameProbe(s), debug: new Z80DebugService(s) };
   return s;
 }
 

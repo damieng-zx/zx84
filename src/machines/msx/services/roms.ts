@@ -32,7 +32,7 @@ class MsxCartridgeSlot implements CartridgeSlot {
 export class MsxRomService implements RomService {
   private readonly slot: MsxCartridgeSlot;
 
-  constructor(m: MsxMachine, private readonly host: () => MachineHost | null) {
+  constructor(private readonly m: MsxMachine, private readonly host: () => MachineHost | null) {
     this.slot = new MsxCartridgeSlot(m);
   }
 
@@ -40,6 +40,8 @@ export class MsxRomService implements RomService {
     const c = this.host()?.roms?.cached() ?? null;
     return [{ index: 0, label: c?.label ?? '', size: c?.size ?? 0, overridden: c?.isCustom ?? false }];
   }
+
+  installSystemRom(data: Uint8Array): void { this.m.loadROM(data); }
 
   async setSystemRom(data: Uint8Array, label: string, _page?: number): Promise<void> {
     const ops = this.host()?.roms;

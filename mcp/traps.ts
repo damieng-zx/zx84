@@ -8,7 +8,8 @@
  */
 
 import type { Machine } from '../src/machines/machine.ts';
-import { asSpectrum } from '../src/machines/machine.ts';
+import { z80Cpu } from '../src/machines/debug-z80/index.ts';
+import { activeSpectrum } from './concrete.ts';
 import { is128kClass } from '../src/models.ts';
 import { disasmOne, stripMarkers } from '../src/debug/z80-disasm.ts';
 import { h8, h16 } from './hex.ts';
@@ -62,7 +63,7 @@ export function consumeResetHit(): ResetHit | null {
 
 /** Snapshot the reboot: culprit instruction + return-address chain + paging. */
 function captureReset(spec: Machine, culpritPc: number): ResetHit {
-  const cpu = spec.cpu;
+  const cpu = z80Cpu(spec)!;
   const snap = spec.memory.snapshot();
   const culprit = stripMarkers(disasmOne(snap, culpritPc).text);
 
@@ -80,7 +81,7 @@ function captureReset(spec: Machine, culpritPc: number): ResetHit {
     `SP=${h16(sp)}  stack: ${stack.join(' ')}`,
     `T=${cpu.tStates}`,
   ];
-  const s = asSpectrum(spec);
+  const s = activeSpectrum();
   if (s && is128kClass(s.model)) {
     const mem = s.memory;
     lines.push(`Paging: bank ${mem.currentBank}  ROM ${mem.currentROM}  7FFD=${h8(mem.port7FFD)}  locked=${mem.pagingLocked ? 'Y' : 'N'}`);
@@ -101,7 +102,7 @@ function readCpmString(spec: Machine, addr: number, maxLen = 256): string {
 
 /** Format a trap log entry with registers and optional CP/M decoding. */
 export function formatTrapLog(trap: Trap, spec: Machine): string {
-  const cpu = spec.cpu;
+  const cpu = z80Cpu(spec)!;
   let line = `[${h16(cpu.pc)}] ${trap.label}  C=${h8(cpu.c)} DE=${h16(cpu.de)} A=${h8(cpu.a)} T=${cpu.tStates}`;
   // Auto-decode common BDOS calls
   if (trap.address === 0x0005) {
@@ -130,7 +131,7 @@ export function formatTrapLog(trap: Trap, spec: Machine): string {
 
 /** Execute a synthetic RET: pop PC from stack. */
 function execRET(spec: Machine): void {
-  const cpu = spec.cpu;
+  const cpu = z80Cpu(spec)!;
   const lo = spec.memory.readByte(cpu.sp & 0xFFFF);
   const hi = spec.memory.readByte((cpu.sp + 1) & 0xFFFF);
   cpu.sp = (cpu.sp + 2) & 0xFFFF;
@@ -154,7 +155,7 @@ export function installTrapHook(spec: Machine): void {
     const list = traps.get(pc);
     if (!list) return false;
     for (const trap of list) {
-      if (trap.condC !== undefined && spec.cpu.c !== trap.condC) continue;
+      if (trap.condC !== undefined && z80Cpu(spec)!.c !== trap.condC) continue;
 
       if (trap.action === 'log') {
         trapLog.push(formatTrapLog(trap, spec));
@@ -171,7 +172,7 @@ export function installTrapHook(spec: Machine): void {
           return true;
         }
         trapLog.push(formatTrapLog(trap, spec) + `  [RESPOND ${JSON.stringify(resp.regs)}]`);
-        const cpu = spec.cpu;
+        const cpu = z80Cpu(spec)!;
         for (const [reg, val] of Object.entries(resp.regs)) {
           switch (reg.toUpperCase()) {
             case 'A':  cpu.a  = val & 0xFF; break;

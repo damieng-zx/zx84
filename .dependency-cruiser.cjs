@@ -82,15 +82,10 @@ module.exports = {
         'services. §3.1/§7.\n' +
         'The SOLE sanctioned exception is the UI-side manifest ' +
         '`src/components/machine-ui.ts`, which lazily maps a machine kind to its `ui/` ' +
-        'contributions. The shell is governed separately by `shell-stays-above-machines` ' +
-        '(which keeps its own Phase-7 carve-outs).\n' +
-        'The `to.pathNot` msx-tape carve-out is a pre-existing backlog item: ' +
-        '`state/tape-state.ts` imports the MSX `CasBlock` type for the `casBlocks` ' +
-        'signal; it is removed when `casBlocks`/`casPosition` merge into the generic ' +
-        'TapeService (re-architecture §4).',
+        'contributions. The shell is governed separately by `shell-stays-above-machines`.',
       severity: 'error',
       from: { path: '^src/(components|state)/', pathNot: '^src/components/machine-ui\\.ts$' },
-      to: { path: '^src/machines/[^/]+/', pathNot: '^src/machines/msx/msx-tape\\.ts$' },
+      to: { path: '^src/machines/[^/]+/' },
     },
     {
       name: 'shell-stays-above-machines',
@@ -98,11 +93,11 @@ module.exports = {
         'The shell (src/shell) may import the machine SPI + registry (machine.ts, ' +
         'registry.ts), state, store, media, and display — but NOT a concrete machine ' +
         "folder. It reaches machines through the SPI/services. §3.1/§7.\n" +
-        'The pathNot carve-outs are the Phase-4 → Phase-7 burn-down backlog: shell ' +
-        'still narrows to concrete Spectrum/CPC types for the peripheral-ROM loaders ' +
-        '(move to a machine prepare() hook), the szx HMR snapshot (→ SnapshotService), ' +
-        'the joystick router (→ InputService), and the MSX .cas parser (→ MediaService). ' +
-        'Each entry is removed as its Phase 5-7 seam lands.',
+        'Two carve-outs remain for Phase 8+ (each documented at its import site):\n' +
+        ' - spectrum/spectrum: TYPE-ONLY — the shell context`s `spectrum` narrowing ' +
+        '   shim (TODO(P8): HMR snapshot, library boot traps, IF1 blank-format).\n' +
+        ' - spectrum/snapshots/szx: the HMR dev-reload snapshot (a shell-owned dev ' +
+        '   convenience with no service seam; candidates: SnapshotService.saveSync).',
       severity: 'error',
       from: { path: '^src/shell/' },
       to: {
@@ -110,10 +105,7 @@ module.exports = {
         pathNot:
           '^src/machines/(' +
           'spectrum/spectrum|' +
-          'spectrum/aux-roms|' +
-          'spectrum/peripherals/joysticks|' +
-          'spectrum/snapshots/szx|' +
-          'msx/msx-tape' +
+          'spectrum/snapshots/szx' +
           ')\\.ts$',
       },
     },

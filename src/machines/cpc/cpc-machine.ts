@@ -22,7 +22,9 @@ import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { disasmOne, type DisasmLine } from '@/debug/z80-disasm.ts';
 import type { IScreenRenderer } from '@/display/display.ts';
-import type { Machine, MachineHost, MachineKind, BorderMode, MachineTraceMode, SettingsView, AuxRomRequest } from '@/machines/machine.ts';
+import type { Machine, MachineHost, MachineKind, MachineDescriptor, BorderMode, MachineTraceMode, SettingsView, AuxRomRequest } from '@/machines/machine.ts';
+import { applyAySettings } from '@/machines/shared/ay-settings.ts';
+import { cpcDescriptor } from '@/machines/cpc/descriptor.ts';
 import { createCpcServices, type CpcServices } from '@/machines/cpc/services/index.ts';
 import type { CpcModel } from '@/models.ts';
 import type { OcrGridName, OcrResult } from '@/debug/screen-text.ts';
@@ -175,6 +177,20 @@ export class CpcMachine extends BaseMachine implements Machine {
 
   attachHost(host: MachineHost): void { this.host = host; }
 
+  get descriptor(): MachineDescriptor { return cpcDescriptor(this.model); }
+  get frameWidth(): number { return CPC_SCREEN_WIDTH; }
+  get frameHeight(): number { return CPC_SCREEN_HEIGHT; }
+  /** Nominal CPU clock (4 MHz). */
+  get cpuClockHz(): number { return this.tape.cpuClock; }
+
+  /** `.scr` export: the 16K RAM quadrant the CRTC displays from. */
+  screenExportBytes(): Uint8Array { return this.memory.getRamBank(this.crtc.displayStart >>> 12).slice(); }
+
+  /** RAM export: the full 64K physical RAM image. */
+  ramExportBytes(): { data: Uint8Array; filename: string } {
+    return { data: this.memory.ramSnapshot(), filename: 'ram-64k.bin' };
+  }
+
   /**
    * Apply the CPC-specific settings: the Gate Array colour map, master volume,
    * and the tape loader flags (Fast ROM + Turbo while loading; the CPC has no
@@ -186,6 +202,12 @@ export class CpcMachine extends BaseMachine implements Machine {
     this.tapeFastRom = view.get('tape-instant-rom', true);
     this.tapeTurbo = view.get('tape-turbo-load', true);
     this.tapeAutoRewind = view.get('tape-auto-rewind', false);
+    applyAySettings(this.ay, view);
+    // Live-disable only: enabling needs a ROM load, which prepare() owns.
+    if (!view.get('multiface', false) && this.multiface.enabled) {
+      this.multiface.enabled = false;
+      this.multiface.pageOut(this.memory);
+    }
   }
 
   /** The Multiface Two ROM load request — shared by build-time prepare() and the
@@ -202,6 +224,13 @@ export class CpcMachine extends BaseMachine implements Machine {
 
   /** Enable the Multiface Two from settings and request its ROM (before boot). */
   prepare(view: SettingsView): AuxRomRequest[] {
+    // Built-in uPD765A drive settings (664/6128): write-protect tabs + the
+    // drive-B force-ready override. Once per build, like the peripherals.
+    if (this.config.hasFDC) {
+      this.fdc.writeProtect[0] = view.get('write-protect-a', false);
+      this.fdc.writeProtect[1] = view.get('write-protect-b', false);
+      this.fdc.forceReady[1] = view.get('drive-b-force-ready', false);
+    }
     this.multiface.enabled = view.get('multiface', false);
     return this.multiface.enabled ? [this.multifaceAuxRom(true)] : [];
   }

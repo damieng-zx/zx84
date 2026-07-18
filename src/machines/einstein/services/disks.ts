@@ -69,6 +69,26 @@ export class EinsteinDiskService implements DiskService {
     this.e.fdc.writeProtect[id === 'a' ? 0 : 1] = on;
   }
 
+  /** Live parsed image in a drive (drive-pane info signals), or null. */
+  image(id: string): DskImage | null {
+    return this.e.fdc.getDiskImage(id === 'a' ? 0 : 1);
+  }
+
+  /** Force the drive-ready line on regardless of media. */
+  setForceReady(id: string, on: boolean): void {
+    this.e.fdc.forceReady[id === 'a' ? 0 : 1] = on;
+  }
+
+  /** Flip a "flippy" double-sided image to its other side. */
+  flipSide(id: string): number | null {
+    const phys = (id === 'a' ? 0 : 1) & 1;
+    const image = this.e.fdc.getDiskImage(phys);
+    if (!image?.flippy) return null;
+    const newSide = this.e.fdc.flipSide[phys] ^ 1;
+    this.e.fdc.flipSide[phys] = newSide;
+    return newSide;
+  }
+
   /** Record a drive's mounted-media name without going through insert(). */
   noteName(id: string, name: string): void { this.names.set(id, name); }
 }

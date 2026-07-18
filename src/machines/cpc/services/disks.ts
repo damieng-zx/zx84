@@ -70,6 +70,26 @@ export class CpcDiskService implements DiskService {
     this.c.fdc.writeProtect[id === 'a' ? 0 : 1] = on;
   }
 
+  /** Live parsed image in a drive (drive-pane info signals), or null. */
+  image(id: string): DskImage | null {
+    return this.c.fdc.getDiskImage(id === 'a' ? 0 : 1);
+  }
+
+  /** Force the uPD765A drive-ready line on regardless of media. */
+  setForceReady(id: string, on: boolean): void {
+    this.c.fdc.forceReady[id === 'a' ? 0 : 1] = on;
+  }
+
+  /** Flip a "flippy" double-sided image to its other side. */
+  flipSide(id: string): number | null {
+    const phys = (id === 'a' ? 0 : 1) & 1;
+    const image = this.c.fdc.getDiskImage(phys);
+    if (!image?.flippy) return null;
+    const newSide = this.c.fdc.flipSide[phys] ^ 1;
+    this.c.fdc.flipSide[phys] = newSide;
+    return newSide;
+  }
+
   /** Record a drive's mounted-media name without going through insert() — used
    *  by shell paths that mutate the FDC directly (blank inserts). */
   noteName(id: string, name: string): void { this.names.set(id, name); }

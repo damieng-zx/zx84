@@ -10,7 +10,8 @@
  * from the other shell modules, so it is the dependency root of the shell.
  */
 
-import { type Machine, asSpectrum } from '@/machines/machine.ts';
+import type { Machine } from '@/machines/machine.ts';
+import type { Spectrum } from '@/machines/spectrum/spectrum.ts';
 import { entryForModel } from '@/machines/registry.ts';
 import type { MachineModel } from '@/models.ts';
 import { WebGLRenderer } from '@/display/webgl-renderer.ts';
@@ -29,10 +30,14 @@ export const debugManager = new DebugManager();
 
 /** The active machine. Canonical handle for lifecycle/driver. */
 export let machine: Machine | null = null;
-/** Narrowed view of `machine` when it is a Spectrum, else null. Spectrum-only
- *  code paths (tape, Multiface, VTX, ULA, snapshots) use this and no-op on CPC.
- *  Typed via the SPI narrowing so the shell root doesn't import the machine folder. */
-export let spectrum: ReturnType<typeof asSpectrum> = null;
+/**
+ * TODO(P8): the last concrete-machine handle in the shell. Only the paths with
+ * no service seam yet still reach through it: HMR SZX save/restore, the
+ * library's boot traps, switchModel's +D/Beta disk carry, and restoreMedia's
+ * peripheral drive restore. Everything else goes through `machine.services`.
+ * (Type-only import — carve-out documented in .dependency-cruiser.cjs.)
+ */
+export let spectrum: Spectrum | null = null;
 export let romData: Uint8Array | null = null;
 export let floppySound: FloppySound | null = null;
 export let canvasEl: HTMLCanvasElement | null = null;
@@ -40,7 +45,7 @@ export let canvasEl: HTMLCanvasElement | null = null;
 /** Install the active machine (and derive the Spectrum narrowing). */
 export function setMachine(m: Machine | null): void {
   machine = m;
-  spectrum = asSpectrum(m);
+  spectrum = m && m.kind === 'spectrum' ? (m as unknown as Spectrum) : null;
 }
 export function setRomData(data: Uint8Array | null): void { romData = data; }
 export function setFloppySound(fs: FloppySound | null): void { floppySound = fs; }

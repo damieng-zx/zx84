@@ -6,11 +6,45 @@
 
 import { Show } from 'solid-js';
 import {
-  currentModel, switchModel, setCpcMultiface, triggerNMI,
+  currentModel, switchModel, machine, fulfillAuxRoms, setStatus,
   multifaceRomFailed, paradosRomFailed,
 } from '@/emulator.ts';
+import type { CpcMachine } from '@/machines/cpc/cpc-machine.ts';
 import { cpcHasDisk } from '@/machines/cpc/models.ts';
 import * as settings from '@/store/settings.ts';
+
+/** The active machine as a CPC (this file is CPC-owned; kind-narrowing to the
+ *  folder's own machine is the sanctioned pattern for machine `ui/` files). */
+function activeCpc(): CpcMachine | null {
+  return machine && machine.kind === 'cpc' ? (machine as unknown as CpcMachine) : null;
+}
+
+/** Enable/disable the Multiface Two live (no machine rebuild). */
+function setCpcMultiface(on: boolean): void {
+  const cpc = activeCpc();
+  if (!cpc) return;
+  cpc.multiface.enabled = on;
+  if (on) {
+    cpc.seedMultifaceShadow();
+    if (!cpc.multiface.romLoaded) {
+      // Fire-and-forget: the ROM is paged only on the button press.
+      void fulfillAuxRoms([cpc.multifaceAuxRom(false)]);
+    }
+  } else {
+    cpc.multiface.pageOut(cpc.memory);
+  }
+}
+
+/** Press the red STOP button (NMI). */
+function triggerNMI(): void {
+  const cpc = activeCpc();
+  if (!cpc) return;
+  const mf = cpc.multiface;
+  if (!mf.enabled) { setStatus('Multiface not enabled'); return; }
+  if (!mf.romLoaded) { setStatus('Multiface ROM not loaded'); return; }
+  mf.pressButton(cpc.memory, cpc.cpu);
+  setStatus('Multiface NMI triggered');
+}
 
 export function CpcHardwareSection() {
   return (

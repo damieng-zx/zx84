@@ -8,7 +8,7 @@ import {
   einsteinColorMap, setEinsteinColorMap,
   persistSetting, resetSettingsGroup,
 } from '@/store/settings.ts';
-import { spectrum, machine, switchRenderer, applyDisplaySettings } from '@/emulator.ts';
+import { machine, switchRenderer, applyDisplaySettings } from '@/emulator.ts';
 import { machineCaps } from '@/state/machine-caps.ts';
 
 // Scaling algorithms and their native scale factors.
@@ -129,7 +129,7 @@ export function DisplayPane() {
           const v = (e.target as HTMLSelectElement).value as 'high' | 'mid' | 'low';
           setScanlineAccuracy(v);
           persistSetting('scanline-accuracy', v);
-          if (spectrum) spectrum.scanlineAccuracy = v;
+          applyDisplaySettings();   // machine re-reads its scanline setting
         }}>
           <option value="high">High (per t-state)</option>
           <option value="mid">Mid (per scanline)</option>

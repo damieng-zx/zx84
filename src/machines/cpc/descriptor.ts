@@ -36,6 +36,9 @@ function cpcUi(model: MachineModel): MachineUiCapabilities {
     tapeSound: false,
     tapeExtensions: ['.cdt', '.tzx', '.tap', '.zip'],
     saveMenu: 'cpc',
+    zipPolicy: 'none',
+    persistMedia: false,
+    bootDisk: false,
     library: false,
     memoryRegions: [
       { value: 'cpcRomLower', label: 'ROM Lower (OS)' },
@@ -54,24 +57,28 @@ const ROM_SOURCES: Record<CpcModel, string[]> = {
   cpc464:  [`${ROM_BASE}os464.rom`, `${ROM_BASE}basic1-0.rom`],
 };
 
+/** Descriptor for one CPC model — shared by the registry entry and the machine
+ *  instance's own `descriptor` getter. */
+export function cpcDescriptor(model: MachineModel): MachineDescriptor {
+  return {
+    kind: 'cpc',
+    model,
+    cpuFamily: 'z80',
+    // The CPC frame buffer is 2× oversampled horizontally (16 Gate-Array
+    // pixel clocks per character); display at half width to restore ~4:3.
+    screen: {
+      width: CPC_SCREEN_WIDTH, height: CPC_SCREEN_HEIGHT, pixelAspectX: 0.5,
+      activeWidth: 640, activeHeight: 200,
+      borderLeft: CPC_BORDER_LEFT, borderTop: CPC_BORDER_TOP,
+    },
+    ui: cpcUi(model),
+  };
+}
+
 export const cpcEntry: MachineEntry = {
   kind: 'cpc',
   models: ['cpc464', 'cpc664', 'cpc6128'],
-  descriptor(model: MachineModel): MachineDescriptor {
-    return {
-      kind: 'cpc',
-      model,
-      cpuFamily: 'z80',
-      // The CPC frame buffer is 2× oversampled horizontally (16 Gate-Array
-      // pixel clocks per character); display at half width to restore ~4:3.
-      screen: {
-        width: CPC_SCREEN_WIDTH, height: CPC_SCREEN_HEIGHT, pixelAspectX: 0.5,
-        activeWidth: 640, activeHeight: 200,
-        borderLeft: CPC_BORDER_LEFT, borderTop: CPC_BORDER_TOP,
-      },
-      ui: cpcUi(model),
-    };
-  },
+  descriptor: cpcDescriptor,
   create(model: MachineModel, display: IScreenRenderer | null) {
     return new CpcMachine(model as CpcModel, display);
   },

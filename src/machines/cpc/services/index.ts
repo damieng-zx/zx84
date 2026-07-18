@@ -6,6 +6,7 @@
 
 import type { MachineServices } from '@/machines/machine.ts';
 import type { CpcMachine } from '@/machines/cpc/cpc-machine.ts';
+import { Z80DebugService } from '@/machines/debug-z80/index.ts';
 import { CpcInputService } from './input.ts';
 import { CpcTapeService } from './tape.ts';
 import { CpcDiskService } from './disks.ts';
@@ -28,12 +29,13 @@ export function createCpcServices(c: CpcMachine): CpcServices {
   const host = () => c.host;
   const tape = new CpcTapeService(c);
   const disks = new CpcDiskService(c);
-  const roms = new CpcRomService(host);
+  const roms = new CpcRomService(c, host);
   const snapshots = new CpcSnapshotService(c, host);
   const media = new CpcMediaService(c, disks, tape, snapshots);
   return {
     media, roms, tape, disks, snapshots,
     input: new CpcInputService(c),
     probe: new CpcFrameProbe(c),
+    debug: new Z80DebugService(c),
   };
 }

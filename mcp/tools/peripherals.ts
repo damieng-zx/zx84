@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { variantForModel, variantLabel } from '../../src/machines/spectrum/peripherals/multiface.ts';
 import { isPlusDCapable, isBetaDiskCapable } from '../../src/models.ts';
 import { h8, h16 } from '../hex.ts';
-import { state, activeSpectrum } from '../state.ts';
+import { state } from '../state.ts';
+import { activeSpectrum } from '../concrete.ts';
 import { text } from '../format.ts';
 import { fetchMFRom, fetchVTXRom, fetchPlusDRom, fetchBetaDiskRom } from '../rom-fetch.ts';
 
@@ -206,6 +207,6 @@ export function register(server: McpServer): void {
   server.registerTool(
     'ocr',
     { description: 'OCR the screen bitmap. mode: auto (default) | 32x24 | 51x24 (CP/M Plus) | 64x24 (Tasword).', inputSchema: { mode: z.enum(['auto', '32x24', '51x24', '64x24']).optional().describe('Cell grid (default: auto-detect).') } },
-    async ({ mode }) => text(state.spec.ocrScreenForMcp(mode ?? 'auto')),
+    async ({ mode }) => text(state.spec.services.debug.ocr(mode ?? 'auto')),
   );
 }

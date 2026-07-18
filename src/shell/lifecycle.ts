@@ -4,7 +4,7 @@
  * trace wrappers, the boot-loader auto-trap, HMR state save/restore, and init.
  */
 
-import { asCpc, asEinstein, type MachineHost } from '@/machines/machine.ts';
+import type { MachineHost } from '@/machines/machine.ts';
 import { entryForModel } from '@/machines/registry.ts';
 import {
   type SpectrumModel, type MachineModel,
@@ -12,7 +12,6 @@ import {
 } from '@/models.ts';
 import { BANK_SIZE } from '@/utils/bank-size.ts';
 import { FloppySound } from '@/media/floppy/floppy-sound.ts';
-import type { AYStereoMode, AYAntialiasMode } from '@/cores/ay-3-8910.ts';
 import { saveSZXSync, loadSZX, applySZXPaging } from '@/machines/spectrum/snapshots/szx.ts';
 import type { RomPage } from '@/managers/rom-manager.ts';
 import { type TraceMode } from '@/managers/debug-manager.ts';
@@ -67,7 +66,7 @@ function buildMachineHost(): MachineHost {
       if (model === '128k') {
         // Any 128K-class machine with a restorable ROM satisfies a 128K
         // snapshot — same fallback chain ensure128kROM always used.
-        return (await ensure128kROM()) !== null;
+        return await ensure128kROM();
       }
       await switchModel(model);
       return true;
@@ -129,7 +128,7 @@ export async function createMachine(): Promise<boolean> {
 
   let hmrRestored = false;
   if (romData) {
-    built.loadROM(romData);
+    built.services.roms.installSystemRom(romData);
     built.reset();
 
     // Post-reset ROM overlays (CPC ParaDOS in upper ROM 7) — applied after the
@@ -143,23 +142,14 @@ export async function createMachine(): Promise<boolean> {
     }
   }
 
-  // Apply saved AY stereo mode + DC blocking (both machines have an AY)
-  const savedAyStereo = settings.ayStereo() as AYStereoMode;
-  built.ay.setStereoMode(savedAyStereo);
-  built.ay.dcBlocking = settings.ayDcBlock();
-  built.ay.antialias = settings.ayAntialias() as AYAntialiasMode;
-
-  // Disk write-protect + floppy sound (Spectrum +3 or any CPC with a controller)
+  // Fresh drive-pane signals; floppy sound synth only for machines with a
+  // built-in controller (write-protects/force-ready are applied by each
+  // machine's prepare() from the same settings keys).
   setCurrentDiskInfo(null);
   setCurrentDiskName('');
   setCurrentDiskInfoB(null);
   setCurrentDiskNameB('');
-  const hasFDC = spectrum ? spectrum.variant.hasFDC
-    : (asCpc(built)?.config.hasFDC ?? asEinstein(built)?.config.hasFDC ?? false);
-  if (hasFDC) {
-    built.fdc.writeProtect[0] = settings.writeProtectA();
-    built.fdc.writeProtect[1] = settings.writeProtectB();
-    built.fdc.forceReady[1] = settings.driveBForceReady();
+  if (built.descriptor.ui.builtinDisk) {
     if (!floppySound) setFloppySound(new FloppySound());
     floppySound!.reset();
   } else {
@@ -358,13 +348,14 @@ export async function switchModel(model: MachineModel): Promise<void> {
   setCurrentModel(model);
   saveModel(model);
 
-  // The +D is a model-independent peripheral: preserve any mounted +D disks
-  // across the rebuild so a model switch doesn't leave the new WD1772 empty.
-  const carriedPlusD = spectrum?.mgtPlusD.enabled
-    ? [spectrum.mgtPlusD.fdc.getDiskImage(0), spectrum.mgtPlusD.fdc.getDiskImage(1)]
+  // The +D/Beta are model-independent peripherals: preserve any mounted disks
+  // across the rebuild so a model switch doesn't leave the new controller empty.
+  const disksSvc = machine?.services.disks;
+  const carriedPlusD = disksSvc?.drives.some(d => d.id === 'plusd:0')
+    ? [disksSvc.image?.('plusd:0') ?? null, disksSvc.image?.('plusd:1') ?? null]
     : null;
-  const carriedBeta = spectrum?.betaDisk.enabled
-    ? [spectrum.betaDisk.fdc.getDiskImage(0), spectrum.betaDisk.fdc.getDiskImage(1)]
+  const carriedBeta = disksSvc?.drives.some(d => d.id === 'beta:0')
+    ? [disksSvc.image?.('beta:0') ?? null, disksSvc.image?.('beta:1') ?? null]
     : null;
 
   const romModel = effectiveROMModel(model);
@@ -396,13 +387,14 @@ export async function switchModel(model: MachineModel): Promise<void> {
 
   await createMachine();
 
-  if (carriedPlusD && spectrum?.mgtPlusD.enabled) {
-    if (carriedPlusD[0]) spectrum.loadPlusDDisk(carriedPlusD[0], 0);
-    if (carriedPlusD[1]) spectrum.loadPlusDDisk(carriedPlusD[1], 1);
+  const newDisks = machine?.services.disks;
+  if (carriedPlusD && newDisks?.drives.some(d => d.id === 'plusd:0')) {
+    if (carriedPlusD[0]) newDisks.insert('plusd:0', carriedPlusD[0], '');
+    if (carriedPlusD[1]) newDisks.insert('plusd:1', carriedPlusD[1], '');
   }
-  if (carriedBeta && spectrum?.betaDisk.enabled) {
-    if (carriedBeta[0]) spectrum.loadBetaDiskDisk(carriedBeta[0], 0);
-    if (carriedBeta[1]) spectrum.loadBetaDiskDisk(carriedBeta[1], 1);
+  if (carriedBeta && newDisks?.drives.some(d => d.id === 'beta:0')) {
+    if (carriedBeta[0]) newDisks.insert('beta:0', carriedBeta[0], '');
+    if (carriedBeta[1]) newDisks.insert('beta:1', carriedBeta[1], '');
   }
 }
 
@@ -411,11 +403,9 @@ export async function switchModel(model: MachineModel): Promise<void> {
 export function setCanvas(el: HTMLCanvasElement): void {
   setCanvasEl(el);
   if (machine) {
-    // Spectrum's frame buffer shrinks with the border-size setting (ula
-    // reallocates its pixels); the fixed-geometry machines use the descriptor.
-    const w = spectrum ? spectrum.ula.screenWidth : entryForModel(machine.model).descriptor(machine.model).screen.width;
-    const h = spectrum ? spectrum.ula.screenHeight : entryForModel(machine.model).descriptor(machine.model).screen.height;
-    machine.display = createDisplay(el, w, h);
+    // The machine reports its live frame-buffer geometry (the Spectrum's
+    // shrinks with the border-size setting).
+    machine.display = createDisplay(el, machine.frameWidth, machine.frameHeight);
     applyDisplaySettings();
   }
 }

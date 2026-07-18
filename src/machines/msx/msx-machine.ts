@@ -24,7 +24,9 @@ import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { disasmOne, type DisasmLine } from '@/debug/z80-disasm.ts';
 import type { IScreenRenderer } from '@/display/display.ts';
-import type { Machine, MachineHost, MachineKind, BorderMode, MachineTraceMode, SettingsView } from '@/machines/machine.ts';
+import type { Machine, MachineHost, MachineKind, MachineDescriptor, BorderMode, MachineTraceMode, SettingsView } from '@/machines/machine.ts';
+import { applyAySettings } from '@/machines/shared/ay-settings.ts';
+import { msxDescriptor } from '@/machines/msx/descriptor.ts';
 import { createMsxServices, type MsxServices } from '@/machines/msx/services/index.ts';
 import type { MsxModel } from '@/models.ts';
 import type { OcrGridName, OcrResult } from '@/debug/screen-text.ts';
@@ -118,11 +120,26 @@ export class MsxMachine extends BaseMachine implements Machine {
 
   attachHost(host: MachineHost): void { this.host = host; }
 
+  get descriptor(): MachineDescriptor { return msxDescriptor(this.model); }
+  get frameWidth(): number { return MSX_SCREEN_WIDTH; }
+  get frameHeight(): number { return MSX_SCREEN_HEIGHT; }
+  /** Nominal CPU clock (3.58 MHz). */
+  get cpuClockHz(): number { return this.tape.cpuClock; }
+
+  /** `.scr` export: the TMS9918A's 16KB VRAM *is* the screen. */
+  screenExportBytes(): Uint8Array { return this.vdp.vram.slice(); }
+
+  /** RAM export: the full 64K physical RAM image. */
+  ramExportBytes(): { data: Uint8Array; filename: string } {
+    return { data: this.memory.ramSnapshot(), filename: 'ram-64k.bin' };
+  }
+
   /** Apply the MSX-specific settings: the TMS9918A PAL/NTSC colour map and the
    *  master volume (AY/PSG-only). */
   applySettings(view: SettingsView): void {
     this.vdp.palette = MSX_PALETTES[view.get('msx-color-map', 'pal') as keyof typeof MSX_PALETTES];
     this.audio.setVolume(view.get('volume', 70) / 100);
+    applyAySettings(this.ay, view);
   }
 
   // ── Machine: lifecycle ───────────────────────────────────────────────

@@ -6,6 +6,7 @@
 
 import type { MachineServices } from '@/machines/machine.ts';
 import type { MsxMachine } from '@/machines/msx/msx-machine.ts';
+import { Z80DebugService } from '@/machines/debug-z80/index.ts';
 import { MsxInputService } from './input.ts';
 import { MsxTapeService } from './tape.ts';
 import { MsxRomService } from './roms.ts';
@@ -31,5 +32,6 @@ export function createMsxServices(m: MsxMachine): MsxServices {
     media, roms, tape, disks: null, snapshots: null,
     input: new MsxInputService(m),
     probe: new MsxFrameProbe(m),
+    debug: new Z80DebugService(m),
   };
 }

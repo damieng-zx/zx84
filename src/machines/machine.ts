@@ -1,38 +1,28 @@
 /**
  * Machine — the common surface shared by every emulated computer.
  *
- * ZX84 began as a Spectrum-only emulator with a single concrete `Spectrum`
- * class that the UI, frame-bridge, and MCP server reached into directly. Adding
- * a fundamentally different machine (the Amstrad CPC) means those consumers need
- * a machine-agnostic handle. This interface is that handle: the minimal surface
- * the lifecycle/driver layer (`emulator.ts`) and the debug layer (`mcp/`) need
- * to talk to *either* a `Spectrum` or a `CpcMachine`.
+ * The machine-blind handle the shell, UI, and MCP hold. Everything chip-shaped
+ * (CPU, PSG, FDC, tape deck, mixer) and everything CPU-family-shaped (register
+ * layout, disassembly, tracing) lives OFF this interface: consumers reach
+ * machine internals only through `services` (§3.3) and the per-family debug
+ * provider (`services.debug`, backed by `machines/debug-<family>/`).
  *
- * Machine-specific concerns (the Spectrum's ULA/contention/tape/Multiface, the
- * CPC's CRTC/Gate Array/PPI) stay off this interface. Consumers that need them
- * narrow with `asSpectrum()` / a `kind` check.
+ * Deliberate exceptions kept on the interface (see docs/re-architecture.md §6):
+ *  - `memory` — the 64KB address-space view is a fundamental machine property
+ *    (a 6502 machine has one too), used pervasively by hosts and debug tools.
+ *  - breakpoint/watchpoint storage — generic across CPU families, and the
+ *    frame loop checks these fields on the hot path; they stay where BaseMachine
+ *    declares them.
  */
 
-import type { Z80 } from '@/cores/z80.ts';
-import type { AY3891x } from '@/cores/ay-3-8910.ts';
-import type { UPD765A } from '@/cores/upd765a.ts';
-import type { WD179x } from '@/cores/wd179x.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
-import type { AudioMixer } from '@/machines/shared/audio-mixer.ts';
-import type { TapeDeck } from '@/media/tape/tap.ts';
 import type { IScreenRenderer } from '@/display/display.ts';
-import type { DisasmLine } from '@/debug/z80-disasm.ts';
 import type { ByteReader } from '@/machines/spectrum/memory.ts';
+import type { TapeBlock } from '@/media/tape/tap.ts';
 import type { MachineModel } from '@/models.ts';
 import type { OcrGridName, FontSource } from '@/debug/screen-text.ts';
 
 export type MachineKind = 'spectrum' | 'cpc' | 'einstein' | 'msx';
-
-/** The floppy controller as seen through the shared interface. The +3/CPC use
- *  the NEC uPD765A; the Einstein (and the +D/Beta Disk interfaces) use a Western
- *  Digital WD179x. Both expose the common surface the lifecycle/UI layer needs
- *  (insert/eject/getDiskImage, write-protect, force-ready, tickFrame). */
-export type MachineFdc = UPD765A | WD179x;
 
 /** Border-size selector shared by both machines: 0=none, 1=small, 2=normal. */
 export type BorderMode = 0 | 1 | 2;
@@ -61,34 +51,29 @@ export interface Machine {
   readonly kind: MachineKind;
   readonly model: MachineModel;
 
-  // ── Shared cores ─────────────────────────────────────────────────────
-  cpu: Z80;
+  // ── Machine-blind fundamentals ───────────────────────────────────────
   memory: IMachineMemory;
-  ay: AY3891x;
-  fdc: MachineFdc;
-  /** Cassette deck. Both machines load TZX/CDT/TAP through the same pulse-level
-   *  engine; machine-specific loader extras (the Spectrum's loader detector,
-   *  tape turbo) stay off this interface and are reached via `asSpectrum()`. */
-  tape: TapeDeck;
-  mixer: AudioMixer;
   display: IScreenRenderer | null;
   /** Live AudioContext once audio is initialised (drive-sound synth attach). */
   readonly audioContext: AudioContext | null;
 
   /** RGBA frame buffer the machine renders into. */
   readonly pixels: Uint8Array;
+  /** Current frame-buffer dimensions (the Spectrum's shrink with the border
+   *  setting; fixed-geometry machines report their descriptor size). */
+  readonly frameWidth: number;
+  readonly frameHeight: number;
 
   /** Nominal T-states per video frame (for the debugger's register readout). */
   readonly tStatesPerFrame: number;
+  /** Nominal CPU clock in Hz (drives the speed readout). */
+  readonly cpuClockHz: number;
 
   // ── Lifecycle / driver ───────────────────────────────────────────────
   start(): Promise<void>;
   stop(): void;
   destroy(): void;
   reset(): void;
-  loadROM(data: Uint8Array): void;
-  /** Insert a parsed disk image into a drive of the shared uPD765A FDC. */
-  loadDisk(image: DskImage, unit?: number): void;
   setBorderSize(mode: BorderMode): void;
   /** Run one frame (headless / test harness). */
   tick(): void;
@@ -96,7 +81,7 @@ export interface Machine {
   runUntil(maxFrames: number): number;
   turbo: boolean;
 
-  // ── Debug surface (consumed by the MCP server) ───────────────────────
+  // ── Debug hooks (generic across CPU families; storage on BaseMachine) ─
   breakpoints: Set<number>;
   breakpointHit: number;
   portWatchpoints: Set<number>;
@@ -107,28 +92,16 @@ export interface Machine {
   onStatus: ((msg: string) => void) | null;
   onFrame: (() => void) | null;
 
-  disasmAt(pc: number): DisasmLine;
-  startTrace(mode?: MachineTraceMode): void;
-  stopTrace(): string;
-  ocrScreenForMcp(mode?: OcrGridName | 'auto'): string;
-
-  /** Resolve a Memory-pane ROM region id (from descriptor.ui.memoryRegions) to a
-   *  live byte view + base address, or null when the region is unavailable on
-   *  this machine. The generic "mapped" and per-bank regions are handled by the
-   *  pane via `memory`; only the machine-specific ROM regions come through here.
-   *  (Phase 7 folds this into DebugService.mem.) */
-  resolveMemoryRegion?(value: string): { data: Uint8Array; baseAddr: number } | null;
-
-  // ── SPI v2 (optional during the Phase 3-7 transition; see below) ─────
+  // ── SPI v2 ───────────────────────────────────────────────────────────
   /** Static metadata for this machine+model (also available construction-free
    *  via the registry's `descriptor(model)`). */
-  readonly descriptor?: MachineDescriptor;
-  /** The service surface (§3.3). Required from Phase 7 on. */
-  readonly services?: MachineServices;
+  readonly descriptor: MachineDescriptor;
+  /** The service surface (§3.3) — the only way hosts reach machine internals. */
+  readonly services: MachineServices;
   /** Attach the operator's panel (shell / MCP). */
-  attachHost?(host: MachineHost): void;
+  attachHost(host: MachineHost): void;
   /** Pull the settings this machine cares about from the generic store view. */
-  applySettings?(view: SettingsView): void;
+  applySettings(view: SettingsView): void;
   /** Configure fitted peripherals from settings (enable flags, write-protects —
    *  set synchronously) and return the peripheral-ROM loads the shell must
    *  fulfil BEFORE the system ROM is loaded and the machine is reset. */
@@ -244,6 +217,13 @@ export interface MachineUiCapabilities {
   readonly tapeExtensions: readonly string[];
   /** Save / snapshot menu family in the Load/Save pane. */
   readonly saveMenu: 'spectrum' | 'cpc' | 'vdp';
+  /** How .zip archives are handled by the Load path: offer every entry
+   *  ('all'), only entries matching accepts() ('media'), or reject ('none'). */
+  readonly zipPolicy: 'all' | 'media' | 'none';
+  /** Persist mounted disks/snapshots across reloads (tapes always persist). */
+  readonly persistMedia: boolean;
+  /** Machine offers an auto-boot phantom boot-disk option (Einstein Xtal DOS). */
+  readonly bootDisk: boolean;
   /** Software-library button applies. */
   readonly library: boolean;
   /** ROM regions the Memory pane's region picker offers (besides mapped/banks). */
@@ -367,6 +347,18 @@ export interface TapeBlockInfo {
   readonly kind: string;
 }
 
+/** Cross-rebuild tape transport state (see TapeService.stashState). Data-shaped
+ *  rather than fully opaque so the shell can reflect a restore into the right
+ *  signal family without asking the machine's kind. */
+export interface TapeStashState {
+  /** Pulse-deck machines: parsed blocks + transport position. */
+  blocks?: TapeBlock[];
+  position?: number;
+  paused?: boolean;
+  /** Instant-load cassette machines: the raw image bytes. */
+  casData?: Uint8Array;
+}
+
 /** Cassette transport. Spectrum/CPC/Einstein implement this over the shared
  *  pulse-level TapeDeck; the MSX over its instant-load .cas cassette — one
  *  surface, so the tape pane and tape-state signals stay machine-blind. */
@@ -374,9 +366,21 @@ export interface TapeService {
   readonly loaded: boolean;
   readonly name: string;
   readonly blocks: readonly TapeBlockInfo[];
+  /** The pulse-deck block list backing the tape-pane signal ([] for instant
+   *  cassettes, whose block view flows through the cas signals instead). */
+  readonly rawBlocks: readonly TapeBlock[];
   readonly position: number;
   readonly playing: boolean;
   readonly paused: boolean;
+  /** Parse + mount persisted tape bytes (positioned at start, paused, not
+   *  playing) — the reload-restore path. False when the data isn't a tape
+   *  this machine understands. Async: some formats (CSW) decompress. */
+  mountBytes(data: Uint8Array, name: string): Promise<boolean>;
+  /** Cross-rebuild transport state (deck blocks / cassette bytes) for the
+   *  shell's per-kind tape stash. null = nothing mounted. */
+  stashState(): TapeStashState | null;
+  /** Re-mount a stashed transport state on a fresh machine of the same kind. */
+  restoreStash(state: TapeStashState, name: string): void;
   play(): void;
   pause(): void;
   /** Clear pause WITHOUT restarting the current block (play() re-begins the
@@ -417,6 +421,13 @@ export interface DiskService {
    *  format-appropriate extension), or null if the drive is empty. */
   save(id: string): { data: Uint8Array; name: string } | null;
   setWriteProtect(id: string, on: boolean): void;
+  /** Live parsed image in a drive (drive-pane info signals), or null. */
+  image?(id: string): DskImage | null;
+  /** Force the drive-ready line on regardless of media (uPD765A drives). */
+  setForceReady?(id: string, on: boolean): void;
+  /** Flip a "flippy" double-sided image to its other side; returns the new
+   *  side (0/1), or null when the drive's media isn't flippy. */
+  flipSide?(id: string): number | null;
 }
 
 export interface RomSlotInfo {
@@ -437,6 +448,9 @@ export interface CartridgeSlot {
 /** System-ROM and cartridge management for the ROM pane. */
 export interface RomService {
   readonly systemSlots: readonly RomSlotInfo[];
+  /** Burn the system-ROM image into the machine (build-time raw install; no
+   *  persistence, no rebuild — that's what setSystemRom is for). */
+  installSystemRom(data: Uint8Array): void;
   setSystemRom(data: Uint8Array, label: string, page?: number): Promise<void>;
   resetSystemRom(page?: number): Promise<void>;
   /** The machine's cartridge slot (MSX slot, ZX Interface 2), or null. */
@@ -464,12 +478,19 @@ export interface RegisterDesc {
   readonly name: string;
   readonly width: 8 | 16;
   readonly value: number;
-  /** Grouping hint for generic layouts ('main', 'alt', 'index', 'flags'…). */
+  /** Grouping hint for generic layouts ('main', 'alt', 'index', 'system'…). */
   readonly group?: string;
 }
 
 export interface RegisterSnapshot {
   readonly pc: number;
+  readonly sp: number;
+  readonly tStates: number;
+  /** Interrupt mode (family-specific meaning; Z80: 0/1/2). */
+  readonly im: number;
+  readonly iff1: boolean;
+  readonly halted: boolean;
+  readonly flags: readonly { name: string; set: boolean }[];
   readonly regs: readonly RegisterDesc[];
 }
 
@@ -489,19 +510,43 @@ export interface DebugPanelDescriptor {
 }
 
 /**
- * CPU-family-specific debug provider. Breakpoint/watchpoint storage stays on
- * the machine itself (BaseMachine fields — the frame loop checks them on the
- * hot path); this service is the *presentation* surface over CPU state.
+ * CPU-family-specific debug provider (implemented once per family in
+ * `machines/debug-<family>/`, wired by each machine). Breakpoint/watchpoint
+ * storage stays on the machine itself (BaseMachine fields — the frame loop
+ * checks them on the hot path); this service is the *presentation and control*
+ * surface over CPU state.
  */
 export interface DebugService {
   readonly cpuFamily: CpuFamily;
+  /** Cheap scalar reads for hosts polling between frames (no snapshot alloc). */
+  readonly pc: number;
+  readonly tStates: number;
   regs(): RegisterSnapshot;
-  setReg(name: string, value: number): void;
+  /** Poke a register by family-conventional name; false = unknown register. */
+  setReg(name: string, value: number): boolean;
   disasm(addr: number, lines: number): DisasmRow[];
+  /** The debugger pane's disassembly-around-PC HTML (family formatting). */
+  disasmPaneHtml(lines: number): string;
+  /** Raw single instruction (host stepping — no UI wake semantics). */
+  stepOne(): void;
+  /** UI stepping (a halted CPU is woken into its interrupt handler first). */
+  stepInto(): void;
+  stepOver(): void;
+  stepOut(): void;
+  /** Multi-line CPU state + disassembly block (clipboard copy). */
+  cpuStateText(): string;
   startTrace(mode?: string): void;
   stopTrace(): string;
   /** Screen OCR ('auto' or a machine-defined grid name). */
   ocr(mode?: string): string;
+  /** Resolve a Memory-pane ROM region id (descriptor.ui.memoryRegions) to a
+   *  live byte view + base address, or null when unavailable. */
+  resolveMemoryRegion(value: string): { data: Uint8Array; baseAddr: number } | null;
+  /** Raw screen-memory dump for the `.scr` export (machine-defined layout:
+   *  Spectrum bank 5, CPC CRTC quadrant, TMS9918A VRAM), or null. */
+  screenExport(): Uint8Array | null;
+  /** RAM dump + suggested filename for the RAM export, or null. */
+  ramExport(): { data: Uint8Array; filename: string } | null;
   panels(): DebugPanelDescriptor[];
 }
 
@@ -525,6 +570,21 @@ export interface MouseSink {
 /** Host input delivery. Each machine maps host events onto its own keyboard
  *  matrix / joystick / mouse hardware — replacing the shell's per-machine
  *  dispatch ladder. */
+/** Mode-aware mouse routing (machines with both a Kempston and an AMX mouse).
+ *  The pane owns which mode is active and passes it per event, exactly as the
+ *  old shell helpers did. */
+export interface MouseInput {
+  setMode(mode: 'kempston' | 'amx' | null): void;
+  motion(dx: number, dy: number, mode: 'kempston' | 'amx' | null): void;
+  button(index: number, pressed: boolean, mode: 'kempston' | 'amx' | null): void;
+}
+
+/** Joystick delivery: direction/fire press mapped onto the machine's own
+ *  joystick hardware (Kempston port, PPI matrix row, …). */
+export interface JoystickInput {
+  press(dir: string, pressed: boolean, mode: string, player: number): void;
+}
+
 export interface InputService {
   /** Returns true when the event was consumed (shell then preventDefaults). */
   keyDown(e: HostKeyEvent): boolean;
@@ -532,6 +592,10 @@ export interface InputService {
   /** Release everything (window blur). */
   releaseAll(): void;
   readonly mouse: MouseSink | null;
+  /** Mode-aware two-mouse routing, or null when the machine has no mice. */
+  readonly mice?: MouseInput | null;
+  /** Joystick press routing, or null when the machine has no joystick. */
+  readonly joystick?: JoystickInput | null;
 }
 
 // ── Frame probe ─────────────────────────────────────────────────────────────
@@ -625,6 +689,11 @@ export interface FramePaneProvider {
   basicVarsHtml?(): string;
   /** Machine has a sysvars pane (the bridge bumps its refresh signal). */
   readonly hasSysvars?: boolean;
+  /** Candidate in-memory character font for the Font pane's ROM-capture path
+   *  (Spectrum CHARS heuristic): the 768-byte font's start address within the
+   *  returned address-space snapshot, or null when no valid font is resident.
+   *  Hash-caching and slicing stay bridge-side. */
+  romFontCandidate?(): { fontStart: number; snap: Uint8Array } | null;
 }
 
 /** OCR text-overlay driver. `run()` performs the OCR, blanks the matched cells
@@ -667,10 +736,9 @@ export interface MachineServices {
   readonly tape: TapeService | null;
   readonly disks: DiskService | null;
   readonly snapshots: SnapshotService | null;
-  /** Optional until Phase 7 (debug provider) / Phase 5 (frame probe) land. */
-  readonly debug?: DebugService;
+  readonly debug: DebugService;
   readonly input: InputService;
-  readonly probe?: FrameProbe;
+  readonly probe: FrameProbe;
 }
 
 /**
@@ -687,22 +755,3 @@ export interface MachineEntry {
   romSources(model: MachineModel): readonly string[];
 }
 
-/** Narrow a Machine to a Spectrum, or null if it is a different machine. */
-export function asSpectrum(m: Machine | null): import('@/machines/spectrum/spectrum.ts').Spectrum | null {
-  return m && m.kind === 'spectrum' ? (m as unknown as import('@/machines/spectrum/spectrum.ts').Spectrum) : null;
-}
-
-/** Narrow a Machine to a CpcMachine, or null if it is a different machine. */
-export function asCpc(m: Machine | null): import('@/machines/cpc/cpc-machine.ts').CpcMachine | null {
-  return m && m.kind === 'cpc' ? (m as unknown as import('@/machines/cpc/cpc-machine.ts').CpcMachine) : null;
-}
-
-/** Narrow a Machine to an EinsteinMachine, or null if it is a different machine. */
-export function asEinstein(m: Machine | null): import('@/machines/einstein/einstein-machine.ts').EinsteinMachine | null {
-  return m && m.kind === 'einstein' ? (m as unknown as import('@/machines/einstein/einstein-machine.ts').EinsteinMachine) : null;
-}
-
-/** Narrow a Machine to an MsxMachine, or null if it is a different machine. */
-export function asMsx(m: Machine | null): import('@/machines/msx/msx-machine.ts').MsxMachine | null {
-  return m && m.kind === 'msx' ? (m as unknown as import('@/machines/msx/msx-machine.ts').MsxMachine) : null;
-}

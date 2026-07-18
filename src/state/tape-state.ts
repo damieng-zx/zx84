@@ -9,7 +9,7 @@
 
 import { createSignal } from 'solid-js';
 import type { TapeBlock } from '@/media/tape/tap.ts';
-import type { CasBlock } from '@/machines/msx/msx-tape.ts';
+import type { CasBlock } from '@/media/tape/cas.ts';
 
 const _tapeLoaded = createSignal(false);
 export const tapeLoaded = _tapeLoaded[0];

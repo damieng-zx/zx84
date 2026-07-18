@@ -80,14 +80,14 @@ export function register(server: McpServer): void {
     } },
     async ({ address, lines: n }) => {
       const spec = state.spec;
-      const addr = address ? parseAddr(address) : spec.cpu.pc;
+      const addr = address ? parseAddr(address) : spec.services.debug.pc;
       const snap = spec.memory.snapshot();
       const result = disassemble(snap, addr, n);
       const out: string[] = [];
       for (const l of result) {
         const bytes: string[] = [];
         for (let i = 0; i < l.length; i++) bytes.push(h8(snap[(l.addr + i) & 0xFFFF]));
-        const prefix = l.addr === spec.cpu.pc ? '>' : ' ';
+        const prefix = l.addr === spec.services.debug.pc ? '>' : ' ';
         out.push(`${prefix} ${h16(l.addr)}  ${bytes.join(' ').padEnd(11)}  ${stripMarkers(l.text)}`);
       }
       return text(out.join('\n'));

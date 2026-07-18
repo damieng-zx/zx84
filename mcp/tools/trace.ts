@@ -4,7 +4,8 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { disasmOne, stripMarkers } from '../../src/debug/z80-disasm.ts';
 import { h8, h16 } from '../hex.ts';
-import { state, activeSpectrum } from '../state.ts';
+import { state } from '../state.ts';
+import { activeSpectrum } from '../concrete.ts';
 import { text } from '../format.ts';
 import { clearZxtlBuffer, setZxtlBuffer, zxtlBufferSize, readZxtlChunk } from '../zxtl-store.ts';
 
@@ -14,7 +15,7 @@ export function register(server: McpServer): void {
     { description: 'Start a trace. Modes: "full" (all instructions), "portio" (port I/O), "zxtl" (ZXTL V0001 standardised format with full register dumps, stored in-memory — use stop_trace then trace_read to retrieve chunks).', inputSchema: { mode: z.enum(['full', 'portio', 'zxtl']).default('full') } },
     async ({ mode }) => {
       if (mode === 'zxtl') clearZxtlBuffer();
-      state.spec.startTrace(mode);
+      state.spec.services.debug.startTrace(mode);
       return text(`Trace started (${mode} mode)`);
     },
   );

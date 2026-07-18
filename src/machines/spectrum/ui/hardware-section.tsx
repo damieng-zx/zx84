@@ -10,10 +10,12 @@
 
 import { Show } from 'solid-js';
 import {
-  currentModel, resetMachine, spectrum, triggerNMI,
-  loadMultifaceROM, loadVTX5000ROM, loadPlusDROM, loadInterface1ROM, loadBetaDiskROM,
+  currentModel, resetMachine, spectrum,
   multifaceRomFailed, vtx5000RomFailed, plusDRomFailed, interface1RomFailed, betaDiskRomFailed,
 } from '@/emulator.ts';
+import {
+  loadMultifaceROM, loadVTX5000ROM, loadPlusDROM, loadInterface1ROM, loadBetaDiskROM, triggerNMI,
+} from '@/machines/spectrum/ui/hardware-actions.ts';
 import { isPlusDCapable, isInterface1Capable, isBetaDiskCapable, type SpectrumModel } from '@/machines/spectrum/models.ts';
 import { variantForModel, variantLabel } from '@/machines/spectrum/peripherals/multiface.ts';
 import * as settings from '@/store/settings.ts';

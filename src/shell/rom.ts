@@ -8,11 +8,7 @@
  * glue between it and the shell's state signals + the active machine.
  */
 
-import { Spectrum } from '@/machines/spectrum/spectrum.ts';
-import {
-  multifaceAuxRom, vtx5000AuxRom, plusDAuxRom, if1AuxRom, betaAuxRom,
-} from '@/machines/spectrum/aux-roms.ts';
-import { asMsx, type AuxRomRequest } from '@/machines/machine.ts';
+import type { AuxRomRequest } from '@/machines/machine.ts';
 import {
   type SpectrumModel, type MachineModel,
   is128kClass, isPlus2AClass, isCpcModel, romPageSlotCount,
@@ -30,7 +26,7 @@ import {
   setPlusDRomFailed, setInterface1RomFailed, setBetaDiskRomFailed,
 } from '@/state/machine-state.ts';
 import {
-  romManager, machine, spectrum, romData, setRomData,
+  romManager, machine, romData, setRomData,
   setStatus, setRomStatus, effectiveROMModel,
 } from '@/shell/context.ts';
 import { createMachine, switchModel } from '@/shell/lifecycle.ts';
@@ -78,21 +74,21 @@ export function updateRomPaneInfo(): void {
   setSystemRomPageSizes(sizes);
   setSystemRomPageOverridden(overridden);
 
-  setCartridgeName(asMsx(machine)?.cartridgeName ?? spectrum?.interface2.name ?? '');
+  setCartridgeName(machine?.services.roms.cartridge?.name ?? '');
 }
 
 /** Replace the current machine's system ROM (BIOS) with a user-supplied image
  *  and reboot into it. Persisted per model so the choice survives a reload.
  *  Generic across machines — the ROM pane calls this for any active model. */
 export async function setSystemRom(data: Uint8Array, label: string): Promise<void> {
-  if (spectrum) { await spectrum.services.roms.setSystemRom(data, label); return; }
+  if (machine) { await machine.services.roms.setSystemRom(data, label); return; }
   await persistROM(effectiveROMModel(currentModelValue()), data, label);
   await switchModel(currentModelValue());   // rebuild with the new ROM
 }
 
 /** Restore the current model's default system ROM (cleared, then re-fetched). */
 export async function resetSystemRom(): Promise<void> {
-  if (spectrum) { await spectrum.services.roms.resetSystemRom(); return; }
+  if (machine) { await machine.services.roms.resetSystemRom(); return; }
   await romManager.clearROM(effectiveROMModel(currentModelValue()));
   await switchModel(currentModelValue());   // restoreROM now misses → default is fetched
 }
@@ -106,7 +102,7 @@ export async function resetSystemRom(): Promise<void> {
  * bank number, e.g. "plus3.rom (bank 2)", rather than a generic marker.
  */
 export async function setSystemRomPage(page: RomPage, data: Uint8Array, label: string): Promise<void> {
-  if (spectrum) { await spectrum.services.roms.setSystemRom(data, label, page); return; }
+  if (machine) { await machine.services.roms.setSystemRom(data, label, page); return; }
   const model = effectiveROMModel(currentModelValue());
   const pageCount = romPageSlotCount(model);
   if (pageCount === 0) { setStatus('This model has a single System ROM'); return; }
@@ -123,7 +119,7 @@ export async function setSystemRomPage(page: RomPage, data: Uint8Array, label: s
 
 /** Revert one page of a multi-page model's system ROM to its default. */
 export async function resetSystemRomPage(page: RomPage): Promise<void> {
-  if (spectrum) { await spectrum.services.roms.resetSystemRom(page); return; }
+  if (machine) { await machine.services.roms.resetSystemRom(page); return; }
   const model = effectiveROMModel(currentModelValue());
   await romManager.clearROMPage(model, page);
   await switchModel(currentModelValue());
@@ -185,10 +181,10 @@ export async function loadRomFiles(files: Array<{ name: string; data: Uint8Array
   await applyROM(data, label);
 }
 
-/** Try to switch to a 128K-class ROM. createMachine() destroys the old
- *  machine and installs a new one, so hand the caller the new Spectrum (and
- *  its model) to re-bind to. Returns null if no 128K ROM is available. */
-export async function ensure128kROM(): Promise<{ spectrum: Spectrum; model: SpectrumModel } | null> {
+/** Try to switch to a 128K-class machine (first model with a restorable ROM).
+ *  createMachine() destroys the old machine and installs a new one; the caller
+ *  re-reads the shell context. Returns false if no 128K ROM is available. */
+export async function ensure128kROM(): Promise<boolean> {
   const models: SpectrumModel[] = ['128k', '+2', '+2A', '+3'];
   for (const model of models) {
     const entry = await restoreROM(model);
@@ -197,10 +193,10 @@ export async function ensure128kROM(): Promise<{ spectrum: Spectrum; model: Spec
       setRomData(entry.data);
       setRomStatus('');
       await createMachine();
-      return spectrum ? { spectrum, model } : null;
+      return machine !== null;
     }
   }
-  return null;
+  return false;
 }
 
 // ── Generic peripheral-ROM fulfiller ───────────────────────────────────────
@@ -259,12 +255,3 @@ export async function fulfillAuxRoms(requests: AuxRomRequest[]): Promise<void> {
   }
 }
 
-// ── Thin per-peripheral wrappers (Hardware pane live-enable path) ───────────
-// The Hardware pane toggles a peripheral on, sets the enable flag on the machine
-// itself, then calls one of these to fetch just that peripheral's ROM.
-
-export function loadMultifaceROM(s: Spectrum): Promise<boolean> { return loadAuxRom(multifaceAuxRom(s)); }
-export function loadVTX5000ROM(s: Spectrum): Promise<boolean> { return loadAuxRom(vtx5000AuxRom(s)); }
-export function loadPlusDROM(s: Spectrum): Promise<boolean> { return loadAuxRom(plusDAuxRom(s)); }
-export function loadInterface1ROM(s: Spectrum): Promise<boolean> { return loadAuxRom(if1AuxRom(s)); }
-export function loadBetaDiskROM(s: Spectrum): Promise<boolean> { return loadAuxRom(betaAuxRom(s)); }

@@ -6,9 +6,11 @@
  * so a user stop/pause is a plain deck operation.
  */
 
-import type { TapeBlockInfo, TapeService } from '@/machines/machine.ts';
+import type { TapeBlockInfo, TapeService, TapeStashState } from '@/machines/machine.ts';
 import type { CpcMachine } from '@/machines/cpc/cpc-machine.ts';
 import type { TapeBlock } from '@/media/tape/tap.ts';
+import { parseTZX } from '@/media/tape/tzx.ts';
+import { parseCSW } from '@/media/tape/csw.ts';
 import { tapeBlockInfo } from '@/machines/shared/tape-block-info.ts';
 
 export class CpcTapeService implements TapeService {
@@ -21,6 +23,7 @@ export class CpcTapeService implements TapeService {
   get loaded(): boolean { return this.c.tape.blocks.length > 0; }
   get name(): string { return this._name; }
   get blocks(): readonly TapeBlockInfo[] { return this.c.tape.blocks.map(tapeBlockInfo); }
+  get rawBlocks(): readonly TapeBlock[] { return this.c.tape.blocks; }
   get position(): number { return this.c.tape.position; }
   get playing(): boolean { return this.c.tape.playing; }
   get paused(): boolean { return this.c.tape.paused; }
@@ -56,5 +59,40 @@ export class CpcTapeService implements TapeService {
     this.c.tape.position = 0;
     this.c.tape.paused = true;
     this._name = '';
+  }
+
+  /** Parse + mount persisted tape bytes at the start, paused and not playing —
+   *  the reload-restore path. */
+  async mountBytes(data: Uint8Array, name: string): Promise<boolean> {
+    let blocks: TapeBlock[];
+    try {
+      const ext = name.toLowerCase().split('.').pop();
+      blocks = ext === 'tzx' || ext === 'cdt' ? parseTZX(data)
+        : ext === 'csw' ? await parseCSW(data)
+        : this.c.tape.parseTAP(data);
+    } catch {
+      return false;
+    }
+    this.c.tape.blocks = blocks;
+    this.c.tape.position = 0;
+    this.c.tape.paused = true;
+    this._name = name;
+    return true;
+  }
+
+  stashState(): TapeStashState | null {
+    return {
+      blocks: [...this.c.tape.blocks],
+      position: this.c.tape.position,
+      paused: this.c.tape.paused,
+    };
+  }
+
+  restoreStash(state: TapeStashState, name: string): void {
+    if (!state.blocks || state.blocks.length === 0) return;
+    this.c.tape.blocks = state.blocks;
+    this.c.tape.position = state.position ?? 0;
+    this.c.tape.paused = state.paused ?? true;
+    this._name = name;
   }
 }

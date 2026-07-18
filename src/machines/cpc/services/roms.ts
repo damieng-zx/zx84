@@ -7,14 +7,17 @@
  */
 
 import type { CartridgeSlot, MachineHost, RomService, RomSlotInfo } from '@/machines/machine.ts';
+import type { CpcMachine } from '@/machines/cpc/cpc-machine.ts';
 
 export class CpcRomService implements RomService {
-  constructor(private readonly host: () => MachineHost | null) {}
+  constructor(private readonly c: CpcMachine, private readonly host: () => MachineHost | null) {}
 
   get systemSlots(): readonly RomSlotInfo[] {
     const c = this.host()?.roms?.cached() ?? null;
     return [{ index: 0, label: c?.label ?? '', size: c?.size ?? 0, overridden: c?.isCustom ?? false }];
   }
+
+  installSystemRom(data: Uint8Array): void { this.c.loadROM(data); }
 
   async setSystemRom(data: Uint8Array, label: string, _page?: number): Promise<void> {
     const ops = this.host()?.roms;

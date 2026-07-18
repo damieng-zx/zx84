@@ -41,7 +41,9 @@ import { hex8, hex16 } from '@/utils/hex.ts';
 import { signed8 } from '@/utils/signed.ts';
 import { DISPLAY_WIDTH, DISPLAY_HEIGHT } from '@/machines/spectrum/ula.ts';
 import { createVariant, type MachineVariant } from '@/machines/spectrum/variants/index.ts';
-import type { Machine, MachineKind, MachineHost, SettingsView, AuxRomRequest } from '@/machines/machine.ts';
+import type { Machine, MachineKind, MachineHost, MachineDescriptor, SettingsView, AuxRomRequest } from '@/machines/machine.ts';
+import { applyAySettings } from '@/machines/shared/ay-settings.ts';
+import { spectrumDescriptor } from '@/machines/spectrum/descriptor.ts';
 import { buildSpectrumAuxRoms } from '@/machines/spectrum/aux-roms.ts';
 import { createSpectrumServices, type SpectrumServices } from '@/machines/spectrum/services/index.ts';
 
@@ -333,6 +335,27 @@ export class Spectrum extends BaseMachine implements Machine {
 
   attachHost(host: MachineHost): void { this.host = host; }
 
+  get descriptor(): MachineDescriptor { return spectrumDescriptor(this.model); }
+
+  /** Current frame-buffer geometry (shrinks with the border-size setting). */
+  get frameWidth(): number { return this.ula.screenWidth; }
+  get frameHeight(): number { return this.ula.screenHeight; }
+
+  /** Nominal CPU clock (48K 3.5 MHz, 128K family 3.5469 MHz). */
+  get cpuClockHz(): number { return this.tape.cpuClock; }
+
+  /** `.scr` export: the 6912-byte display file in bank 5. */
+  screenExportBytes(): Uint8Array { return this.memory.getRamBank(5).slice(0, 6912); }
+
+  /** RAM export: 0x4000-0xFFFF, or all 64K under +2A/+3 special paging. */
+  ramExportBytes(): { data: Uint8Array; filename: string } {
+    const startAddr = this.memory.specialPaging ? 0 : 0x4000;
+    return {
+      data: this.memory.readBlock(startAddr, 0x10000 - startAddr),
+      filename: startAddr === 0 ? 'ram-64k.bin' : 'ram-48k.bin',
+    };
+  }
+
   /**
    * Apply the Spectrum-specific settings from the shell's read-only view: the
    * ULA colour map, master volume, beeper/AY balance, tape loader flags, and
@@ -350,12 +373,24 @@ export class Spectrum extends BaseMachine implements Machine {
     this.tapeSoundEnabled = view.get('tape-sound', true);
     this.tapeAutoRewind = view.get('tape-auto-rewind', false);
     this.scanlineAccuracy = view.get('scanline-accuracy', 'high') as 'high' | 'mid' | 'low';
+    applyAySettings(this.ay, view);
+    // Live-disable only: enabling needs a ROM load, which prepare() owns.
+    if (!view.get('multiface', false)) this.multiface.enabled = false;
   }
 
   /** Configure fitted peripherals from settings (VTX-5000, Multiface, +D, IF1,
    *  Beta Disk) and return the peripheral-ROM loads the shell must fulfil before
    *  the system ROM is loaded and the machine reset. */
   prepare(view: SettingsView): AuxRomRequest[] {
+    // Built-in uPD765A drive settings (+3): write-protect tabs + the drive-B
+    // force-ready override. Applied here (once per build) — DrivePane live
+    // toggles poke the drives via services and must not be clobbered by the
+    // settings pump.
+    if (this.variant.hasFDC) {
+      this.fdc.writeProtect[0] = view.get('write-protect-a', false);
+      this.fdc.writeProtect[1] = view.get('write-protect-b', false);
+      this.fdc.forceReady[1] = view.get('drive-b-force-ready', false);
+    }
     return buildSpectrumAuxRoms(this, view);
   }
 

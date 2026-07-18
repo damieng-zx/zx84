@@ -6,7 +6,6 @@
 
 import { createEffect, onMount, onCleanup } from 'solid-js';
 import { machine, regsRev } from '@/emulator.ts';
-import { Z80 } from '@/cores/z80.ts';
 import { HEX8, HEX16 } from '@/utils/hex.ts';
 
 /** Update text node only if numeric value changed; returns new prev */
@@ -39,7 +38,7 @@ function makeSlot(): Text {
 }
 
 /** Create a flag span: check/unchecked + label */
-function makeFlag(label: string, tip: string): { el: HTMLSpanElement; update: (f: number, mask: number) => void } {
+function makeFlag(label: string, tip: string): { el: HTMLSpanElement; update: (on: boolean) => void } {
   const el = document.createElement('span');
   el.dataset.tip = tip;
   const txt = document.createTextNode('');
@@ -47,8 +46,7 @@ function makeFlag(label: string, tip: string): { el: HTMLSpanElement; update: (f
   let prevOn: boolean | null = null;
   return {
     el,
-    update(f: number, mask: number) {
-      const on = (f & mask) !== 0;
+    update(on: boolean) {
       if (on === prevOn) return;
       prevOn = on;
       el.className = on ? 'flag-on' : 'flag-off';
@@ -123,33 +121,35 @@ export function Registers() {
 
     createEffect(() => {
       regsRev(); // track the signal
-      const cpu = machine?.cpu;
-      if (!cpu) return;
-      pAF = set16(s.af, cpu.af, pAF);
-      pAF_ = set16(s.af_, (cpu.a_ << 8) | cpu.f_, pAF_);
-      pBC = set16(s.bc, cpu.bc, pBC);
-      pBC_ = set16(s.bc_, (cpu.b_ << 8) | cpu.c_, pBC_);
-      pDE = set16(s.de, cpu.de, pDE);
-      pDE_ = set16(s.de_, (cpu.d_ << 8) | cpu.e_, pDE_);
-      pHL = set16(s.hl, cpu.hl, pHL);
-      pHL_ = set16(s.hl_, (cpu.h_ << 8) | cpu.l_, pHL_);
-      pIX = set16(s.ix, cpu.ix, pIX);
-      pIY = set16(s.iy, cpu.iy, pIY);
-      pSP = set16(s.sp, cpu.sp, pSP);
-      pPC = set16(s.pc, cpu.pc, pPC);
-      pIR = set8x2(s.ir, cpu.i, cpu.r, pIR);
-      const tpf = machine!.tStatesPerFrame.toLocaleString();
+      if (!machine) return;
+      const snap = machine.services.debug.regs();
+      const v: Record<string, number> = {};
+      for (const r of snap.regs) v[r.name] = r.value;
+      pAF = set16(s.af, v['AF'] ?? 0, pAF);
+      pAF_ = set16(s.af_, v["AF'"] ?? 0, pAF_);
+      pBC = set16(s.bc, v['BC'] ?? 0, pBC);
+      pBC_ = set16(s.bc_, v["BC'"] ?? 0, pBC_);
+      pDE = set16(s.de, v['DE'] ?? 0, pDE);
+      pDE_ = set16(s.de_, v["DE'"] ?? 0, pDE_);
+      pHL = set16(s.hl, v['HL'] ?? 0, pHL);
+      pHL_ = set16(s.hl_, v["HL'"] ?? 0, pHL_);
+      pIX = set16(s.ix, v['IX'] ?? 0, pIX);
+      pIY = set16(s.iy, v['IY'] ?? 0, pIY);
+      pSP = set16(s.sp, snap.sp, pSP);
+      pPC = set16(s.pc, snap.pc, pPC);
+      pIR = set8x2(s.ir, v['I'] ?? 0, v['R'] ?? 0, pIR);
+      const tpf = machine.tStatesPerFrame.toLocaleString();
       pTPF = setStr(s.tpf, tpf, pTPF);
-      pIFF = setStr(s.iff, cpu.iff1 ? 'EI' : 'DI', pIFF);
-      pIM = setStr(s.im, String(cpu.im), pIM);
-      pHALT = setStr(s.halt, cpu.halted ? ' HALT' : '', pHALT);
-      const f = cpu.f;
-      s.fSign.update(f, Z80.FLAG_S);
-      s.fZero.update(f, Z80.FLAG_Z);
-      s.fHalf.update(f, Z80.FLAG_H);
-      s.fPrty.update(f, Z80.FLAG_PV);
-      s.fSubt.update(f, Z80.FLAG_N);
-      s.fCrry.update(f, Z80.FLAG_C);
+      pIFF = setStr(s.iff, snap.iff1 ? 'EI' : 'DI', pIFF);
+      pIM = setStr(s.im, String(snap.im), pIM);
+      pHALT = setStr(s.halt, snap.halted ? ' HALT' : '', pHALT);
+      const flag = (name: string) => snap.flags.find(fl => fl.name === name)?.set ?? false;
+      s.fSign.update(flag('S'));
+      s.fZero.update(flag('Z'));
+      s.fHalf.update(flag('H'));
+      s.fPrty.update(flag('P'));
+      s.fSubt.update(flag('N'));
+      s.fCrry.update(flag('C'));
     });
 
     onCleanup(() => {

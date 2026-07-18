@@ -14,18 +14,18 @@ export function register(server: McpServer): void {
       const ran = spec.runUntil(frames);
       if (spec.portWatchHit !== null) {
         const { port, value, dir } = spec.portWatchHit;
-        return text(`Port watchpoint: ${dir === 'out' ? 'OUT' : 'IN '} (${h16(port)}) = ${h8(value)}  PC=${h16(spec.cpu.pc)}\n${formatStep(spec)}`);
+        return text(`Port watchpoint: ${dir === 'out' ? 'OUT' : 'IN '} (${h16(port)}) = ${h8(value)}  PC=${h16(spec.services.debug.pc)}\n${formatStep(spec)}`);
       }
       if (spec.memWatchHit !== null) {
         const { addr, value, dir } = spec.memWatchHit;
-        return text(`Memory watchpoint: ${dir === 'write' ? 'WR' : 'RD'} (${h16(addr)}) = ${h8(value)}  PC=${h16(spec.cpu.pc)}\n${formatStep(spec)}`);
+        return text(`Memory watchpoint: ${dir === 'write' ? 'WR' : 'RD'} (${h16(addr)}) = ${h8(value)}  PC=${h16(spec.services.debug.pc)}\n${formatStep(spec)}`);
       }
       if (spec.breakpointHit >= 0) {
         const reset = consumeResetHit();
         if (reset) return text(`${reset.text}\nafter ${ran}/${frames} frame(s)\n${formatStep(spec)}`);
-        return text(`Breakpoint hit at ${h16(spec.breakpointHit)} after ${ran}/${frames} frame(s). T=${spec.cpu.tStates}\n${formatStep(spec)}`);
+        return text(`Breakpoint hit at ${h16(spec.breakpointHit)} after ${ran}/${frames} frame(s). T=${spec.services.debug.tStates}\n${formatStep(spec)}`);
       }
-      return text(`Ran ${frames} frame(s). T=${spec.cpu.tStates}`);
+      return text(`Ran ${frames} frame(s). T=${spec.services.debug.tStates}`);
     },
   );
 
@@ -37,18 +37,18 @@ export function register(server: McpServer): void {
       spec.tick();
       if (spec.portWatchHit !== null) {
         const { port, value, dir } = spec.portWatchHit;
-        return text(`Port watchpoint: ${dir === 'out' ? 'OUT' : 'IN '} (${h16(port)}) = ${h8(value)}  PC=${h16(spec.cpu.pc)}\n${formatStep(spec)}`);
+        return text(`Port watchpoint: ${dir === 'out' ? 'OUT' : 'IN '} (${h16(port)}) = ${h8(value)}  PC=${h16(spec.services.debug.pc)}\n${formatStep(spec)}`);
       }
       if (spec.memWatchHit !== null) {
         const { addr, value, dir } = spec.memWatchHit;
-        return text(`Memory watchpoint: ${dir === 'write' ? 'WR' : 'RD'} (${h16(addr)}) = ${h8(value)}  PC=${h16(spec.cpu.pc)}\n${formatStep(spec)}`);
+        return text(`Memory watchpoint: ${dir === 'write' ? 'WR' : 'RD'} (${h16(addr)}) = ${h8(value)}  PC=${h16(spec.services.debug.pc)}\n${formatStep(spec)}`);
       }
       if (spec.breakpointHit >= 0) {
         const reset = consumeResetHit();
         if (reset) return text(`${reset.text}\n${formatStep(spec)}`);
-        return text(`Breakpoint at ${h16(spec.breakpointHit)}. T=${spec.cpu.tStates}\n${formatStep(spec)}`);
+        return text(`Breakpoint at ${h16(spec.breakpointHit)}. T=${spec.services.debug.tStates}\n${formatStep(spec)}`);
       }
-      return text(`Frame complete. T=${spec.cpu.tStates}`);
+      return text(`Frame complete. T=${spec.services.debug.tStates}`);
     },
   );
 
@@ -60,7 +60,7 @@ export function register(server: McpServer): void {
       const lines: string[] = [];
       for (let i = 0; i < count; i++) {
         lines.push(formatStep(spec));
-        spec.cpu.step();
+        spec.services.debug.stepOne();
       }
       return text(lines.join('\n'));
     },
@@ -76,18 +76,18 @@ export function register(server: McpServer): void {
       const ran = spec.runUntil(max_frames);
       if (spec.portWatchHit !== null) {
         const { port, value, dir } = spec.portWatchHit;
-        return text(`Port watchpoint: ${dir === 'out' ? 'OUT' : 'IN '} (${h16(port)}) = ${h8(value)}  after ${ran} frame(s)  PC=${h16(spec.cpu.pc)}\n${formatStep(spec)}`);
+        return text(`Port watchpoint: ${dir === 'out' ? 'OUT' : 'IN '} (${h16(port)}) = ${h8(value)}  after ${ran} frame(s)  PC=${h16(spec.services.debug.pc)}\n${formatStep(spec)}`);
       }
       if (spec.memWatchHit !== null) {
         const { addr, value, dir } = spec.memWatchHit;
-        return text(`Memory watchpoint: ${dir === 'write' ? 'WR' : 'RD'} (${h16(addr)}) = ${h8(value)}  after ${ran} frame(s)  PC=${h16(spec.cpu.pc)}\n${formatStep(spec)}`);
+        return text(`Memory watchpoint: ${dir === 'write' ? 'WR' : 'RD'} (${h16(addr)}) = ${h8(value)}  after ${ran} frame(s)  PC=${h16(spec.services.debug.pc)}\n${formatStep(spec)}`);
       }
       if (spec.breakpointHit >= 0) {
         const reset = consumeResetHit();
         if (reset) return text(`${reset.text}\nafter ${ran} frame(s)\n${formatStep(spec)}`);
-        return text(`Breakpoint hit at ${h16(spec.breakpointHit)} after ${ran} frame(s). T=${spec.cpu.tStates}\n${formatStep(spec)}`);
+        return text(`Breakpoint hit at ${h16(spec.breakpointHit)} after ${ran} frame(s). T=${spec.services.debug.tStates}\n${formatStep(spec)}`);
       }
-      return text(`No breakpoint hit after ${max_frames} frames (T=${spec.cpu.tStates})`);
+      return text(`No breakpoint hit after ${max_frames} frames (T=${spec.services.debug.tStates})`);
     },
   );
 
@@ -106,25 +106,8 @@ export function register(server: McpServer): void {
     async ({ register, value }) => {
       const reg = register.toUpperCase();
       const val = parseAddr(value);
-      const cpu = state.spec.cpu;
-      switch (reg) {
-        case 'A':  cpu.a  = val & 0xFF; break;
-        case 'F':  cpu.f  = val & 0xFF; break;
-        case 'AF': cpu.af = val & 0xFFFF; break;
-        case 'B':  cpu.b  = val & 0xFF; break;
-        case 'C':  cpu.c  = val & 0xFF; break;
-        case 'BC': cpu.bc = val & 0xFFFF; break;
-        case 'D':  cpu.d  = val & 0xFF; break;
-        case 'E':  cpu.e  = val & 0xFF; break;
-        case 'DE': cpu.de = val & 0xFFFF; break;
-        case 'H':  cpu.h  = val & 0xFF; break;
-        case 'L':  cpu.l  = val & 0xFF; break;
-        case 'HL': cpu.hl = val & 0xFFFF; break;
-        case 'SP': cpu.sp = val & 0xFFFF; break;
-        case 'PC': cpu.pc = val & 0xFFFF; break;
-        case 'IX': cpu.ix = val & 0xFFFF; break;
-        case 'IY': cpu.iy = val & 0xFFFF; break;
-        default: return text(`Unknown register: ${reg}`);
+      if (!state.spec.services.debug.setReg(reg, val)) {
+        return text(`Unknown register: ${reg}`);
       }
       return text(`${reg} = ${val <= 0xFF ? h8(val) : h16(val)}`);
     },

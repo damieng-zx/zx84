@@ -2,7 +2,9 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { is128kClass } from '../../src/models.ts';
 import { h8, h16 } from '../hex.ts';
-import { state, activeSpectrum, activeCpc } from '../state.ts';
+import { state } from '../state.ts';
+import { activeSpectrum, activeCpc } from '../concrete.ts';
+import { z80Cpu } from '../../src/machines/debug-z80/index.ts';
 import { parseAddr, text, checkWatchHit, KEY_NAME_MAP, CHAR_KEYS } from '../format.ts';
 
 /** The active machine's keyboard (both expose handleKeyEvent(code, pressed)). */
@@ -19,10 +21,9 @@ export function register(server: McpServer): void {
       value: z.string().describe('Byte value'),
     } },
     async ({ port, value }) => {
-      const spec = state.spec;
       const p = parseAddr(port) & 0xFFFF;
       const v = parseAddr(value) & 0xFF;
-      spec.cpu.portOut(p, v);
+      z80Cpu(state.spec)!.portOut(p, v);
       let result = `OUT ${h16(p)}, ${h8(v)}`;
       const s = activeSpectrum();
       if (s && is128kClass(s.model)) {
@@ -37,9 +38,8 @@ export function register(server: McpServer): void {
     'port_in',
     { description: 'Read a byte from an I/O port.', inputSchema: { port: z.string().describe('Port address (hex/decimal)') } },
     async ({ port }) => {
-      const spec = state.spec;
       const p = parseAddr(port) & 0xFFFF;
-      const val = spec.cpu.portIn(p);
+      const val = z80Cpu(state.spec)!.portIn(p);
       return text(`IN ${h16(p)} = ${h8(val)} (${val})`);
     },
   );

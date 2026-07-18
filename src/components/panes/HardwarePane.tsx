@@ -4,7 +4,7 @@ import { HiOutlinePower } from 'solid-icons/hi';
 import {
   currentModel, romStatusText, switchModel,
   turboMode, clockSpeedText, resetMachine, toggleTurbo,
-  spectrum, setCpcMultiface,
+  applyDisplaySettings,
 } from '@/emulator.ts';
 import type { MachineModel } from '@/models.ts';
 import { resetSettingsGroup } from '@/store/settings.ts';
@@ -15,10 +15,9 @@ export function HardwarePane() {
   return (
     <Pane id="hardware-panel" label="Hardware" onResetSettings={() => {
       resetSettingsGroup('hardware');
-      // Machine-specific peripheral cleanup, via the shell handle (no machine
-      // import): disable the Spectrum Multiface and the CPC Multiface Two.
-      if (spectrum) spectrum.multiface.enabled = false;
-      setCpcMultiface(false);
+      // Re-pump so the machine applies the defaults (each machine's
+      // applySettings live-disables peripherals whose setting is now off).
+      applyDisplaySettings();
     }}>
       <div id="model-row">
         <select

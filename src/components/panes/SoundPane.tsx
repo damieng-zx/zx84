@@ -9,7 +9,7 @@ import {
   ayAntialias, setAyAntialias,
   persistSetting, resetSettingsGroup,
 } from '@/store/settings.ts';
-import { machine, applyDisplaySettings } from '@/emulator.ts';
+import { applyDisplaySettings } from '@/emulator.ts';
 import { machineCaps } from '@/state/machine-caps.ts';
 import type { AYStereoMode, AYAntialiasMode } from '@/cores/ay-3-8910.ts';
 
@@ -35,11 +35,7 @@ export function SoundPane() {
   return (
     <Pane id="sound-panel" label="Sound" onResetSettings={() => {
       resetSettingsGroup('sound');
-      if (machine) {
-        machine.ay.setStereoMode('ABC');
-        machine.ay.dcBlocking = true;
-        machine.ay.antialias = 'mute';
-      }
+      // Re-pump: the machine re-reads its AY settings from the store view.
       applyDisplaySettings();
     }}>
       <SliderRow label="Volume" id="volume" min={0} max={100} value={volume}
@@ -57,8 +53,8 @@ export function SoundPane() {
           onChange={(e) => {
             const mode = (e.target as HTMLSelectElement).value as AYStereoMode;
             setAyStereo(mode);
-            if (machine) machine.ay.setStereoMode(mode);
             persistSetting('ay-stereo', mode);
+            applyDisplaySettings();
           }}
         >
           {STEREO_MODES.map(m => <option value={m.value}>{m.label}</option>)}
@@ -72,8 +68,8 @@ export function SoundPane() {
           onChange={(e) => {
             const mode = (e.target as HTMLSelectElement).value as AYAntialiasMode;
             setAyAntialias(mode);
-            if (machine) machine.ay.antialias = mode;
             persistSetting('ay-antialias', mode);
+            applyDisplaySettings();
           }}
         >
           {ANTIALIAS_MODES.map(m => <option value={m.value}>{m.label}</option>)}
@@ -89,8 +85,8 @@ export function SoundPane() {
             onChange={(e) => {
               const on = (e.target as HTMLInputElement).checked;
               setAyDcBlock(on);
-              if (machine) machine.ay.dcBlocking = on;
               persistSetting('ay-dc-block', on ? 'on' : 'off');
+              applyDisplaySettings();
             }}
           />
         </label>

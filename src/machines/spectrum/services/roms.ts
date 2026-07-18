@@ -62,6 +62,8 @@ export class SpectrumRomService implements RomService {
     return slots;
   }
 
+  installSystemRom(data: Uint8Array): void { this.s.loadROM(data); }
+
   async setSystemRom(data: Uint8Array, label: string, page?: number): Promise<void> {
     const ops = this.host()?.roms;
     if (!ops) return;

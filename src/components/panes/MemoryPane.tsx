@@ -205,8 +205,8 @@ export function MemoryPane() {
       return { data: mem.getRamBank(bank), baseAddr: 0 };
     }
 
-    // ── ROM regions (machine-specific, resolved by the active machine) ──
-    return m.resolveMemoryRegion?.(r) ?? null;
+    // ── ROM regions (machine-specific, resolved by the debug provider) ──
+    return m.services.debug.resolveMemoryRegion(r);
   }
 
   /** True if the user has an active text selection inside the hex dump. */

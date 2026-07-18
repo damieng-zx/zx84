@@ -18,13 +18,12 @@
  */
 
 import { batch } from 'solid-js';
-import { disassembleAroundPC, formatDisasmHtml } from '@/debug/z80-disasm.ts';
 import type { FontSource } from '@/debug/screen-text.ts';
 import { isCollapsed } from '@/ui/panes.ts';
 import * as settings from '@/store/settings.ts';
 import { refreshDiskMetadata } from '@/media/floppy/dsk.ts';
 import {
-  machine, spectrum, floppySound,
+  machine, floppySound,
   emulationPaused, tracing,
   setRegsRev, setSysvarRev, setBasicHtml, setBasicVarsHtml,
   setBanksHtml, setDriveAStatus, setDriveBStatus, setShowTrapLog, setDisasmText,
@@ -90,12 +89,10 @@ function resetDriveCache(): void {
 
 // ── Debug panel updates ─────────────────────────────────────────────────
 
-/** Refresh the disassembly around PC for the active machine (machine-agnostic). */
+/** Refresh the disassembly around PC for the active machine (the CPU-family
+ *  debug provider owns the formatting). */
 function updateDisasm(): void {
-  const snap = machine!.memory.snapshot();
-  const cpu = machine!.cpu;
-  const dLines = disassembleAroundPC(snap, cpu.pc, 24);
-  setDisasmText(formatDisasmHtml(dLines, snap, cpu.pc, machine!.breakpoints));
+  setDisasmText(machine!.services.debug.disasmPaneHtml(24));
 }
 
 export function updateRegsOnce(): void {
@@ -204,7 +201,7 @@ let lastTapeTurbo = false;
  *  pause (negative or implausibly long deltas) rather than printing garbage. */
 function sampleSpeed(now: number): void {
   if (!machine) return;
-  const t = machine.cpu.tStates;
+  const t = machine.services.debug.tStates;
   if (_spdSampleWall === 0) { _spdSampleWall = now; _spdSampleT = t; return; }
   const dWall = now - _spdSampleWall;
   if (dWall < 350) return;                    // ~3 Hz update cadence
@@ -213,7 +210,7 @@ function sampleSpeed(now: number): void {
   _spdSampleT = t;
   // Reset/snapshot/wrap → dT<=0; pause/tab-hidden → dWall huge. Drop the figure.
   if (dT <= 0 || dWall > 2000) { _spdMultiplier = 0; return; }
-  const clock = machine.tape.cpuClock || 3_500_000;
+  const clock = machine.cpuClockHz || 3_500_000;
   _spdMultiplier = (dT / (dWall / 1000)) / clock;
 }
 
@@ -232,7 +229,7 @@ function clockLabel(): string {
   if (machine.turbo || lastTapeTurbo) {
     return _spdMultiplier > 0 ? formatMultiplier(_spdMultiplier) : 'Turbo';
   }
-  return (Math.trunc(machine.tape.cpuClock / 10_000) / 100).toFixed(2);
+  return (Math.trunc(machine.cpuClockHz / 10_000) / 100).toFixed(2);
 }
 
 export function resetSpeedTracking(): void {
@@ -302,16 +299,11 @@ export function updateFontPreview(): { type: 'custom'; data: Uint8Array } | { ty
     romFontCacheHash = -1;
     return { type: 'custom', data: font };
   } else {
-    if (!spectrum) return null;
-    const snap = spectrum.memory.snapshot();
-    let charsAddr = snap[0x5C36] | (snap[0x5C37] << 8);
-    if (charsAddr === 0) charsAddr = 0x3C00;
-    const fontStart = charsAddr + 256;
-    if (fontStart + 768 > 65536) return null;
-
-    let spaceBlank = true;
-    for (let i = 0; i < 8; i++) { if (snap[fontStart + i] !== 0) { spaceBlank = false; break; } }
-    if (!spaceBlank) return null;
+    // ROM-font capture is a machine-provided hook (Spectrum CHARS heuristic);
+    // machines without one have no capturable font.
+    const candidate = machine?.services?.probe?.panes?.romFontCandidate?.();
+    if (!candidate) return null;
+    const { fontStart, snap } = candidate;
 
     const hash = fontDataHash(snap, fontStart, 768);
     if (fontStart === romFontCacheAddr && hash === romFontCacheHash) return null;
@@ -424,7 +416,7 @@ export function onFrame(): void {
   // full). Edge-triggered so machines whose startTrace is a no-op (their
   // engine never turns on) don't immediately cancel a UI trace request.
   if (tracing() && prevTracingActive && !ind.tracingActive) {
-    const text = machine.stopTrace();
+    const text = machine.services.debug.stopTrace();
     setTracing(false);
     navigator.clipboard.writeText(text);
     setStatus(`Trace auto-stopped and copied (${text.split('\n').length.toLocaleString()} lines)`);

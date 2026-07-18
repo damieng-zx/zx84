@@ -34,27 +34,34 @@ const MSX_UI: MachineUiCapabilities = {
   tapeSound: true,
   tapeExtensions: ['.cas', '.zip'],
   saveMenu: 'vdp',
+  zipPolicy: 'media',
+  persistMedia: false,
+  bootDisk: false,
   library: false,
   memoryRegions: [{ value: 'rom0', label: 'ROM 0' }],
   charset: 'spectrum',
 };
 
+/** Descriptor for the HX-10 — shared by the registry entry and the machine
+ *  instance's own `descriptor` getter. */
+export function msxDescriptor(model: MachineModel): MachineDescriptor {
+  return {
+    kind: 'msx',
+    model,
+    cpuFamily: 'z80',
+    screen: {
+      width: MSX_SCREEN_WIDTH, height: MSX_SCREEN_HEIGHT, pixelAspectX: 1,
+      activeWidth: 256, activeHeight: 192,
+      borderLeft: MSX_BORDER_LEFT, borderTop: MSX_BORDER_TOP,
+    },
+    ui: MSX_UI,
+  };
+}
+
 export const msxEntry: MachineEntry = {
   kind: 'msx',
   models: ['hx-10'],
-  descriptor(model: MachineModel): MachineDescriptor {
-    return {
-      kind: 'msx',
-      model,
-      cpuFamily: 'z80',
-      screen: {
-        width: MSX_SCREEN_WIDTH, height: MSX_SCREEN_HEIGHT, pixelAspectX: 1,
-        activeWidth: 256, activeHeight: 192,
-        borderLeft: MSX_BORDER_LEFT, borderTop: MSX_BORDER_TOP,
-      },
-      ui: MSX_UI,
-    };
-  },
+  descriptor: msxDescriptor,
   create(model: MachineModel, display: IScreenRenderer | null) {
     return new MsxMachine(model as MsxModel, display);
   },

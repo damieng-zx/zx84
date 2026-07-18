@@ -181,6 +181,32 @@ export class SpectrumDiskService implements DiskService {
     else if (id.startsWith('mdv:')) s.interface1.drives[Number(id.slice(4))].writeProtected = on;
   }
 
+  /** Live parsed image in a drive (drive-pane info signals), or null. */
+  image(id: string): DskImage | null {
+    const s = this.s;
+    if (id === 'a' || id === 'b') return s.fdc.getDiskImage(id === 'a' ? 0 : 1);
+    if (id.startsWith('plusd:')) return s.mgtPlusD.fdc.getDiskImage(Number(id.slice(6)));
+    if (id.startsWith('beta:')) return s.betaDisk.fdc.getDiskImage(Number(id.slice(5)));
+    return null;
+  }
+
+  /** Force the uPD765A drive-ready line on regardless of media (drive B mod). */
+  setForceReady(id: string, on: boolean): void {
+    if (id === 'a' || id === 'b') this.s.fdc.forceReady[id === 'a' ? 0 : 1] = on;
+  }
+
+  /** Flip a "flippy" double-sided image in a uPD765A drive to its other side.
+   *  Units 2/3 alias to physical drives 0/1 — use the physical unit. */
+  flipSide(id: string): number | null {
+    if (id !== 'a' && id !== 'b') return null;
+    const phys = (id === 'a' ? 0 : 1) & 1;
+    const image = this.s.fdc.getDiskImage(phys);
+    if (!image?.flippy) return null;
+    const newSide = this.s.fdc.flipSide[phys] ^ 1;
+    this.s.fdc.flipSide[phys] = newSide;
+    return newSide;
+  }
+
   /** Record a drive's mounted-media name without going through insert() —
    *  used by shell paths that mutate the FDC directly (blank inserts). */
   noteName(id: string, name: string): void { this.names.set(id, name); }

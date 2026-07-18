@@ -4,7 +4,8 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { saveSZX } from '../../src/machines/spectrum/snapshots/szx.ts';
 import { h8, h16 } from '../hex.ts';
-import { state, initMachine, activeSpectrum, activeCpc } from '../state.ts';
+import { state, initMachine } from '../state.ts';
+import { activeSpectrum, activeCpc, activeFdc } from '../concrete.ts';
 import { text, formatHexDump } from '../format.ts';
 import { loadFileInto, mountAndArm, runLoadVerdict } from '../loader.ts';
 import { fdcLog } from '../fdc-log.ts';
@@ -248,7 +249,7 @@ export function register(server: McpServer): void {
         }
       } else {
         if (state.model !== '+3') return text('disk_boot requires +3 model. Use model tool to switch, or pass a file path.');
-        if (!state.spec.fdc.getDiskImage(0)) return text('No disk in drive A:. Use load tool first, or pass a file path.');
+        if (!activeFdc()!.getDiskImage(0)) return text('No disk in drive A:. Use load tool first, or pass a file path.');
       }
       const spec = activeSpectrum()!;
       spec.runUntil(500);
@@ -315,7 +316,7 @@ export function register(server: McpServer): void {
         return text('Tape ejected');
       }
       const unit = (drive === '1' || drive === 'B') ? 1 : 0;
-      state.spec.fdc.ejectDisk(unit);
+      activeFdc()!.ejectDisk(unit);
       return text(`Drive ${unit === 0 ? 'A' : 'B'}: ejected`);
     },
   );
@@ -327,7 +328,7 @@ export function register(server: McpServer): void {
       sector: z.number().int().min(0).optional().describe('Sector R value (omit for all sectors on track)'),
     } },
     async ({ track: wTrack, sector: wSector }) => {
-      const dsk = state.spec.fdc.getDiskImage(0);
+      const dsk = activeFdc()!.getDiskImage(0);
       if (!dsk) return text('No disk in drive A:');
       const track = dsk.tracks[wTrack]?.[0];
       if (!track) return text(`Track ${wTrack} not found`);
@@ -346,7 +347,7 @@ export function register(server: McpServer): void {
     'disk_geometry',
     { description: 'Show geometry of the mounted disk image: format, tracks, sides, protection, and a per-track sector summary.', inputSchema: { drive: z.number().int().min(0).max(1).default(0).describe('Drive number (0=A, 1=B)') } },
     async ({ drive }) => {
-      const dsk = state.spec.fdc.getDiskImage(drive);
+      const dsk = activeFdc()!.getDiskImage(drive);
       if (!dsk) return text(`No disk in drive ${drive === 0 ? 'A' : 'B'}:`);
       const lines: string[] = [];
       lines.push(`Format: ${dsk.format}  Tracks: ${dsk.numTracks}  Sides: ${dsk.numSides}`);
@@ -374,7 +375,7 @@ export function register(server: McpServer): void {
       drive: z.number().int().min(0).max(1).default(0).describe('Drive number (0=A, 1=B)'),
     } },
     async ({ track: tNum, side, drive }) => {
-      const dsk = state.spec.fdc.getDiskImage(drive);
+      const dsk = activeFdc()!.getDiskImage(drive);
       if (!dsk) return text(`No disk in drive ${drive === 0 ? 'A' : 'B'}:`);
       const track = dsk.tracks[tNum]?.[side];
       if (!track) return text(`Track ${tNum} side ${side} not found`);
@@ -401,7 +402,7 @@ export function register(server: McpServer): void {
       length: z.number().int().positive().optional().describe('Number of bytes to dump (default: entire sector)'),
     } },
     async ({ track: tNum, sector: sR, side, drive, offset, length }) => {
-      const dsk = state.spec.fdc.getDiskImage(drive);
+      const dsk = activeFdc()!.getDiskImage(drive);
       if (!dsk) return text(`No disk in drive ${drive === 0 ? 'A' : 'B'}:`);
       const track = dsk.tracks[tNum]?.[side];
       if (!track) return text(`Track ${tNum} side ${side} not found`);

@@ -6,6 +6,7 @@
 
 import type { MachineServices } from '@/machines/machine.ts';
 import type { Spectrum } from '@/machines/spectrum/spectrum.ts';
+import { Z80DebugService } from '@/machines/debug-z80/index.ts';
 import { SpectrumInputService } from './input.ts';
 import { SpectrumTapeService } from './tape.ts';
 import { SpectrumDiskService } from './disks.ts';
@@ -35,5 +36,6 @@ export function createSpectrumServices(s: Spectrum): SpectrumServices {
     media, roms, tape, disks, snapshots,
     input: new SpectrumInputService(s),
     probe: new SpectrumFrameProbe(s),
+    debug: new Z80DebugService(s),
   };
 }

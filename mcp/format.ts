@@ -4,10 +4,11 @@
  */
 
 import { is128kClass } from '../src/models.ts';
-import { type Machine, asSpectrum } from '../src/machines/machine.ts';
-import { disasmOne, stripMarkers } from '../src/debug/z80-disasm.ts';
+import type { Machine } from '../src/machines/machine.ts';
+import { stripMarkers } from '../src/debug/z80-disasm.ts';
 import { h8, h16 } from './hex.ts';
 import { symbols } from './state.ts';
+import { activeSpectrum } from './concrete.ts';
 
 /** Throws instead of returning NaN: NaN & 0xFFFF is 0, so a typo'd symbol
  *  or bad hex would otherwise silently read — or write — address 0x0000. */
@@ -69,39 +70,46 @@ export const CHAR_KEYS: Record<string, string[]> = {
   '\n': ['enter'],
 };
 
+/** Named 16-bit register values from a debug snapshot. */
+function regMap(spec: Machine): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const r of spec.services.debug.regs().regs) out[r.name] = r.value;
+  return out;
+}
+
 export function formatStep(spec: Machine): string {
-  const cpu = spec.cpu;
-  const snap = spec.memory.snapshot();
-  const line = disasmOne(snap, cpu.pc);
+  const dbg = spec.services.debug;
+  const line = dbg.disasm(dbg.pc, 1)[0];
   const mnem = stripMarkers(line.text).padEnd(20);
+  const v = regMap(spec);
+  const af = v['AF'] ?? 0;
   return (
-    `${h16(cpu.pc)}  ${mnem}` +
-    `A=${h8(cpu.a)} F=${h8(cpu.f)} ` +
-    `BC=${h16(cpu.bc)} DE=${h16(cpu.de)} HL=${h16(cpu.hl)} ` +
-    `SP=${h16(cpu.sp)}  T=${cpu.tStates}`
+    `${h16(dbg.pc)}  ${mnem}` +
+    `A=${h8(af >> 8)} F=${h8(af & 0xFF)} ` +
+    `BC=${h16(v['BC'] ?? 0)} DE=${h16(v['DE'] ?? 0)} HL=${h16(v['HL'] ?? 0)} ` +
+    `SP=${h16(v['SP'] ?? 0)}  T=${dbg.tStates}`
   );
 }
 
 export function formatRegs(spec: Machine): string {
-  const cpu = spec.cpu;
-  const f = cpu.f;
-  const flags = [
-    (f & 0x80) ? 'S' : '-', (f & 0x40) ? 'Z' : '-',
-    (f & 0x10) ? 'H' : '-', (f & 0x04) ? 'P' : '-',
-    (f & 0x02) ? 'N' : '-', (f & 0x01) ? 'C' : '-',
-  ].join('');
-  const iff = cpu.iff1 ? 'EI' : 'DI';
-  const halt = cpu.halted ? ' HALT' : '';
+  const snap = spec.services.debug.regs();
+  const v: Record<string, number> = {};
+  for (const r of snap.regs) v[r.name] = r.value;
+  // Flag order/letters match the Z80 convention the tool always printed.
+  const flagSet = new Map(snap.flags.map(fl => [fl.name, fl.set]));
+  const flags = ['S', 'Z', 'H', 'P', 'N', 'C'].map(n => flagSet.get(n) ? n : '-').join('');
+  const iff = snap.iff1 ? 'EI' : 'DI';
+  const halt = snap.halted ? ' HALT' : '';
   const lines = [
-    `AF  ${h16(cpu.af)}  AF' ${h16((cpu.a_ << 8) | cpu.f_)}   Flags: ${flags}`,
-    `BC  ${h16(cpu.bc)}  BC' ${h16((cpu.b_ << 8) | cpu.c_)}`,
-    `DE  ${h16(cpu.de)}  DE' ${h16((cpu.d_ << 8) | cpu.e_)}`,
-    `HL  ${h16(cpu.hl)}  HL' ${h16((cpu.h_ << 8) | cpu.l_)}`,
-    `IX  ${h16(cpu.ix)}  IY  ${h16(cpu.iy)}   ${iff}  IM${cpu.im}${halt}`,
-    `SP  ${h16(cpu.sp)}  PC  ${h16(cpu.pc)}   IR  ${h8(cpu.i)}${h8(cpu.r)}`,
-    `T-states: ${cpu.tStates}`,
+    `AF  ${h16(v['AF'] ?? 0)}  AF' ${h16(v["AF'"] ?? 0)}   Flags: ${flags}`,
+    `BC  ${h16(v['BC'] ?? 0)}  BC' ${h16(v["BC'"] ?? 0)}`,
+    `DE  ${h16(v['DE'] ?? 0)}  DE' ${h16(v["DE'"] ?? 0)}`,
+    `HL  ${h16(v['HL'] ?? 0)}  HL' ${h16(v["HL'"] ?? 0)}`,
+    `IX  ${h16(v['IX'] ?? 0)}  IY  ${h16(v['IY'] ?? 0)}   ${iff}  IM${snap.im}${halt}`,
+    `SP  ${h16(snap.sp)}  PC  ${h16(snap.pc)}   IR  ${h8(v['I'] ?? 0)}${h8(v['R'] ?? 0)}`,
+    `T-states: ${snap.tStates}`,
   ];
-  const s = asSpectrum(spec);
+  const s = activeSpectrum();
   if (s && is128kClass(s.model)) {
     const mem = s.memory;
     lines.push(`Bank: ${mem.currentBank}  ROM: ${mem.currentROM}  7FFD: ${h8(mem.port7FFD)}  Locked: ${mem.pagingLocked ? 'Y' : 'N'}`);
@@ -111,16 +119,17 @@ export function formatRegs(spec: Machine): string {
 
 /** Returns a one-line watchpoint/breakpoint hit message, or null if none. */
 export function checkWatchHit(spec: Machine): string | null {
+  const dbg = spec.services.debug;
   if (spec.portWatchHit !== null) {
     const { port, value, dir } = spec.portWatchHit;
-    return `Port watchpoint: ${dir === 'out' ? 'OUT' : 'IN '} (${h16(port)}) = ${h8(value)}  PC=${h16(spec.cpu.pc)}\n${formatStep(spec)}`;
+    return `Port watchpoint: ${dir === 'out' ? 'OUT' : 'IN '} (${h16(port)}) = ${h8(value)}  PC=${h16(dbg.pc)}\n${formatStep(spec)}`;
   }
   if (spec.memWatchHit !== null) {
     const { addr, value, dir } = spec.memWatchHit;
-    return `Memory watchpoint: ${dir === 'write' ? 'WR' : 'RD'} (${h16(addr)}) = ${h8(value)}  PC=${h16(spec.cpu.pc)}\n${formatStep(spec)}`;
+    return `Memory watchpoint: ${dir === 'write' ? 'WR' : 'RD'} (${h16(addr)}) = ${h8(value)}  PC=${h16(dbg.pc)}\n${formatStep(spec)}`;
   }
   if (spec.breakpointHit >= 0) {
-    return `Breakpoint at ${h16(spec.breakpointHit)}. T=${spec.cpu.tStates}\n${formatStep(spec)}`;
+    return `Breakpoint at ${h16(spec.breakpointHit)}. T=${dbg.tStates}\n${formatStep(spec)}`;
   }
   return null;
 }

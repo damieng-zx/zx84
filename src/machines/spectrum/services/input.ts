@@ -8,9 +8,9 @@
  * unclaimed keys here.
  */
 
-import type { HostKeyEvent, InputService, MouseSink } from '@/machines/machine.ts';
+import type { HostKeyEvent, InputService, JoystickInput, MouseInput, MouseSink } from '@/machines/machine.ts';
 import type { Spectrum } from '@/machines/spectrum/spectrum.ts';
-import { resetJoystickKeyState } from '@/machines/spectrum/peripherals/joysticks.ts';
+import { joyPressForType, resetJoystickKeyState } from '@/machines/spectrum/peripherals/joysticks.ts';
 
 export class SpectrumInputService implements InputService {
   constructor(private readonly s: Spectrum) {}
@@ -28,7 +28,26 @@ export class SpectrumInputService implements InputService {
     resetJoystickKeyState();
   }
 
-  /** Mice still route through the shell's mode-aware path (Kempston vs AMX is
-   *  a settings decision); wired here in a later phase. */
   readonly mouse: MouseSink | null = null;
+
+  /** Mode-aware Kempston/AMX routing (which mode is active stays pane state). */
+  readonly mice: MouseInput = {
+    setMode: (mode) => {
+      this.s.kempstonMouse.enabled = mode === 'kempston';
+      this.s.amxMouse.enabled = mode === 'amx';
+    },
+    motion: (dx, dy, mode) => {
+      if (mode === 'kempston') this.s.kempstonMouse.updatePosition(dx, dy);
+      else if (mode === 'amx') this.s.amxMouse.queueMovement(dx, dy);
+    },
+    button: (index, pressed, mode) => {
+      if (mode === 'kempston') this.s.kempstonMouse.setButton(index, pressed);
+      else if (mode === 'amx') this.s.amxMouse.setButton(index, pressed);
+    },
+  };
+
+  /** Kempston port / Sinclair-row / cursor-key joystick press routing. */
+  readonly joystick: JoystickInput = {
+    press: (dir, pressed, mode, _player) => joyPressForType(this.s, dir, pressed, mode),
+  };
 }

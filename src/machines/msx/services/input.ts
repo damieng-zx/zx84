@@ -5,11 +5,16 @@
  * Atari-style joystick ports.
  */
 
-import type { HostKeyEvent, InputService, MouseSink } from '@/machines/machine.ts';
+import type { HostKeyEvent, InputService, JoystickInput, MouseSink } from '@/machines/machine.ts';
 import type { MsxMachine } from '@/machines/msx/msx-machine.ts';
 
 export class MsxInputService implements InputService {
   constructor(private readonly m: MsxMachine) {}
+
+  /** Atari-style joystick ports (two players). */
+  readonly joystick: JoystickInput = {
+    press: (dir, pressed, _mode, player) => this.m.joystick.set(dir, pressed, player),
+  };
 
   keyDown(e: HostKeyEvent): boolean {
     return this.m.keyboard.handleKeyEvent(e.code, true);

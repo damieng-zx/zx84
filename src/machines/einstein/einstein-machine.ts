@@ -24,7 +24,9 @@ import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { disasmOne, type DisasmLine } from '@/debug/z80-disasm.ts';
 import type { IScreenRenderer } from '@/display/display.ts';
-import type { Machine, MachineHost, MachineKind, BorderMode, MachineTraceMode, SettingsView } from '@/machines/machine.ts';
+import type { Machine, MachineHost, MachineKind, MachineDescriptor, BorderMode, MachineTraceMode, SettingsView } from '@/machines/machine.ts';
+import { applyAySettings } from '@/machines/shared/ay-settings.ts';
+import { einsteinDescriptor } from '@/machines/einstein/descriptor.ts';
 import { createEinsteinServices, type EinsteinServices } from '@/machines/einstein/services/index.ts';
 import type { EinsteinModel } from '@/models.ts';
 import type { OcrGridName, OcrResult } from '@/debug/screen-text.ts';
@@ -113,11 +115,36 @@ export class EinsteinMachine extends BaseMachine implements Machine {
 
   attachHost(host: MachineHost): void { this.host = host; }
 
+  get descriptor(): MachineDescriptor { return einsteinDescriptor(this.model); }
+  get frameWidth(): number { return EINSTEIN_SCREEN_WIDTH; }
+  get frameHeight(): number { return EINSTEIN_SCREEN_HEIGHT; }
+  /** Nominal CPU clock (4 MHz). */
+  get cpuClockHz(): number { return this.tape.cpuClock; }
+
+  /** `.scr` export: the TMS9929A's 16KB VRAM *is* the screen. */
+  screenExportBytes(): Uint8Array { return this.vdp.vram.slice(); }
+
+  /** RAM export: the full 64K physical RAM image. */
+  ramExportBytes(): { data: Uint8Array; filename: string } {
+    return { data: this.memory.ramSnapshot(), filename: 'ram-64k.bin' };
+  }
+
   /** Apply the Einstein-specific settings: the TMS9929A colour map and the
    *  master volume (AY-only, no beeper). */
   applySettings(view: SettingsView): void {
     this.vdp.palette = EINSTEIN_PALETTES[view.get('einstein-color-map', 'accurate') as keyof typeof EINSTEIN_PALETTES];
     this.audio.setVolume(view.get('volume', 70) / 100);
+    applyAySettings(this.ay, view);
+  }
+
+  /** Built-in WD1772 drive settings — once per build (no peripheral ROMs). */
+  prepare(view: SettingsView): [] {
+    if (this.config.hasFDC) {
+      this.fdc.writeProtect[0] = view.get('write-protect-a', false);
+      this.fdc.writeProtect[1] = view.get('write-protect-b', false);
+      this.fdc.forceReady[1] = view.get('drive-b-force-ready', false);
+    }
+    return [];
   }
 
   // ── Machine: lifecycle ───────────────────────────────────────────────

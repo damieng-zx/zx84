@@ -45,6 +45,9 @@ function spectrumUi(model: MachineModel): MachineUiCapabilities {
     tapeSound: true,
     tapeExtensions: ['.tap', '.tzx', '.csw', '.zip'],
     saveMenu: 'spectrum',
+    zipPolicy: 'all',
+    persistMedia: true,
+    bootDisk: false,
     library: true,
     memoryRegions: spectrumMemoryRegions(model),
     charset: 'spectrum',
@@ -64,22 +67,26 @@ const ROM_SOURCES: Record<SpectrumModel, string[]> = {
   '+3':   [`${ROM_BASE}plus3-0.rom`, `${ROM_BASE}plus3-1.rom`, `${ROM_BASE}plus3-2.rom`, `${ROM_BASE}plus3-3.rom`],
 };
 
+/** Descriptor for one Spectrum model — shared by the registry entry and the
+ *  machine instance's own `descriptor` getter. */
+export function spectrumDescriptor(model: MachineModel): MachineDescriptor {
+  return {
+    kind: 'spectrum',
+    model,
+    cpuFamily: 'z80',
+    screen: {
+      width: SCREEN_WIDTH, height: SCREEN_HEIGHT, pixelAspectX: 1,
+      activeWidth: 256, activeHeight: 192,
+      borderLeft: SPECTRUM_BORDER, borderTop: SPECTRUM_BORDER,
+    },
+    ui: spectrumUi(model),
+  };
+}
+
 export const spectrumEntry: MachineEntry = {
   kind: 'spectrum',
   models: ['16k', '48k', '128k', '+2', '+2A', '+3'],
-  descriptor(model: MachineModel): MachineDescriptor {
-    return {
-      kind: 'spectrum',
-      model,
-      cpuFamily: 'z80',
-      screen: {
-        width: SCREEN_WIDTH, height: SCREEN_HEIGHT, pixelAspectX: 1,
-        activeWidth: 256, activeHeight: 192,
-        borderLeft: SPECTRUM_BORDER, borderTop: SPECTRUM_BORDER,
-      },
-      ui: spectrumUi(model),
-    };
-  },
+  descriptor: spectrumDescriptor,
   create(model: MachineModel, display: IScreenRenderer | null) {
     return new Spectrum(model as SpectrumModel, display);
   },

@@ -5,9 +5,11 @@
  * restarting playback on post-load keyboard polling.
  */
 
-import type { TapeBlockInfo, TapeService } from '@/machines/machine.ts';
+import type { TapeBlockInfo, TapeService, TapeStashState } from '@/machines/machine.ts';
 import type { Spectrum } from '@/machines/spectrum/spectrum.ts';
 import type { TapeBlock } from '@/media/tape/tap.ts';
+import { parseTZX } from '@/media/tape/tzx.ts';
+import { parseCSW } from '@/media/tape/csw.ts';
 
 /** One-line pane label for a tape block (data blocks show flag + length). */
 export function tapeBlockInfo(b: TapeBlock, index: number): TapeBlockInfo {
@@ -34,6 +36,7 @@ export class SpectrumTapeService implements TapeService {
   get loaded(): boolean { return this.s.tape.blocks.length > 0; }
   get name(): string { return this._name; }
   get blocks(): readonly TapeBlockInfo[] { return this.s.tape.blocks.map(tapeBlockInfo); }
+  get rawBlocks(): readonly TapeBlock[] { return this.s.tape.blocks; }
   get position(): number { return this.s.tape.position; }
   get playing(): boolean { return this.s.tape.playing; }
   get paused(): boolean { return this.s.tape.paused; }
@@ -84,5 +87,41 @@ export class SpectrumTapeService implements TapeService {
     this.s.tape.position = 0;
     this.s.tape.paused = true;
     this._name = '';
+  }
+
+  /** Parse + mount persisted tape bytes at the start, paused and not playing —
+   *  the reload-restore path (distinct from a MediaService mount, which starts
+   *  the motor with pause held). */
+  async mountBytes(data: Uint8Array, name: string): Promise<boolean> {
+    let blocks: TapeBlock[];
+    try {
+      const ext = name.toLowerCase().split('.').pop();
+      blocks = ext === 'tzx' || ext === 'cdt' ? parseTZX(data)
+        : ext === 'csw' ? await parseCSW(data)
+        : this.s.tape.parseTAP(data);
+    } catch {
+      return false;
+    }
+    this.s.tape.blocks = blocks;
+    this.s.tape.position = 0;
+    this.s.tape.paused = true;
+    this._name = name;
+    return true;
+  }
+
+  stashState(): TapeStashState | null {
+    return {
+      blocks: [...this.s.tape.blocks],
+      position: this.s.tape.position,
+      paused: this.s.tape.paused,
+    };
+  }
+
+  restoreStash(state: TapeStashState, name: string): void {
+    if (!state.blocks || state.blocks.length === 0) return;
+    this.s.tape.blocks = state.blocks;
+    this.s.tape.position = state.position ?? 0;
+    this.s.tape.paused = state.paused ?? true;
+    this._name = name;
   }
 }

@@ -6,14 +6,17 @@
  */
 
 import type { CartridgeSlot, MachineHost, RomService, RomSlotInfo } from '@/machines/machine.ts';
+import type { EinsteinMachine } from '@/machines/einstein/einstein-machine.ts';
 
 export class EinsteinRomService implements RomService {
-  constructor(private readonly host: () => MachineHost | null) {}
+  constructor(private readonly e: EinsteinMachine, private readonly host: () => MachineHost | null) {}
 
   get systemSlots(): readonly RomSlotInfo[] {
     const c = this.host()?.roms?.cached() ?? null;
     return [{ index: 0, label: c?.label ?? '', size: c?.size ?? 0, overridden: c?.isCustom ?? false }];
   }
+
+  installSystemRom(data: Uint8Array): void { this.e.loadROM(data); }
 
   async setSystemRom(data: Uint8Array, label: string, _page?: number): Promise<void> {
     const ops = this.host()?.roms;

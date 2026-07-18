@@ -16,6 +16,7 @@
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { DebugManager } from '@/managers/debug-manager.ts';
+import { Z80DebugService, type Z80DebugTarget } from '@/machines/debug-z80/index.ts';
 import { Z80 } from '@/cores/z80.ts';
 import type { Spectrum } from '@/machines/spectrum/spectrum.ts';
 
@@ -48,7 +49,11 @@ function makeStub(): StubSpectrum {
     display: null,
     // The Machine frame buffer surface used by stepFrame's display refresh.
     pixels: new Uint8Array(8),
-  };
+  } as Record<string, unknown>;
+  // The manager delegates the CPU-family reasoning to the machine's debug
+  // provider — attach a REAL Z80DebugService over the stub, so these tests
+  // pin the actual step-into/over/out logic end to end.
+  stub.services = { debug: new Z80DebugService(stub as unknown as Z80DebugTarget) };
   return stub as unknown as StubSpectrum;
 }
 

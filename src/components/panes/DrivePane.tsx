@@ -171,15 +171,15 @@ function DiskInfo(props: {
 }
 
 function syncWriteProtect(unit: number, value: boolean): void {
-  if (machine) machine.fdc.writeProtect[unit] = value;
+  machine?.services.disks?.setWriteProtect(unit === 0 ? 'a' : 'b', value);
 }
 
 function syncForceReady(unit: number, value: boolean): void {
-  if (machine) machine.fdc.forceReady[unit] = value;
+  machine?.services.disks?.setForceReady?.(unit === 0 ? 'a' : 'b', value);
 }
 
 function syncPlusDWriteProtect(unit: number, value: boolean): void {
-  if (spectrum) spectrum.mgtPlusD.fdc.writeProtect[unit] = value;
+  machine?.services.disks?.setWriteProtect(`plusd:${unit}`, value);
 }
 
 // Two containers for the same set of formats: a plain DSK/EDSK file, or a
@@ -289,13 +289,12 @@ export function DrivePane() {
       if (currentDiskNameC()) betaDiskActive() ? ejectBetaDiskDisk(0) : ejectPlusDDisk(0);
       if (currentDiskNameD()) betaDiskActive() ? ejectBetaDiskDisk(1) : ejectPlusDDisk(1);
       resetSettingsGroup('drive');
-      if (machine) {
-        machine.fdc.writeProtect[0] = false; machine.fdc.writeProtect[1] = false;
-        machine.fdc.forceReady[1] = false;
-      }
-      if (spectrum) {
-        spectrum.mgtPlusD.fdc.writeProtect[0] = false; spectrum.mgtPlusD.fdc.writeProtect[1] = false;
-        spectrum.betaDisk.fdc.writeProtect[0] = false; spectrum.betaDisk.fdc.writeProtect[1] = false;
+      const disks = machine?.services.disks;
+      if (disks) {
+        disks.setWriteProtect('a', false); disks.setWriteProtect('b', false);
+        disks.setForceReady?.('b', false);
+        disks.setWriteProtect('plusd:0', false); disks.setWriteProtect('plusd:1', false);
+        disks.setWriteProtect('beta:0', false); disks.setWriteProtect('beta:1', false);
       }
     }}>
       <Show when={builtinDisk()}>

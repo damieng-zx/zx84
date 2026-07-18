@@ -23,6 +23,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createSpectrumServices } from '@/machines/spectrum/services/index.ts';
 import { createCpcServices } from '@/machines/cpc/services/index.ts';
+import { spectrumDescriptor } from '@/machines/spectrum/descriptor.ts';
+import { cpcDescriptor } from '@/machines/cpc/descriptor.ts';
 import { buildSpectrumAuxRoms } from '@/machines/spectrum/aux-roms.ts';
 
 // ── Spectrum stub ────────────────────────────────────────────────────────
@@ -40,7 +42,7 @@ function makeSpectrumStub(model: unknown = '128k') {
     memory: {
       snapshot: vi.fn(() => new Uint8Array(0x10000)),
       readByte: vi.fn(() => 0), writeByte: vi.fn(),
-      getRamBank: vi.fn(() => new Uint8Array(0x4000)),
+      getRamBank: vi.fn((_n: number) => new Uint8Array(0x4000)),
       readBlock: vi.fn((_start: number, len: number) => new Uint8Array(len)),
       specialPaging: false, port7FFD: 0, port1FFD: 0,
       currentBank: 0, currentROM: 0, pagingLocked: false,
@@ -95,10 +97,38 @@ function makeSpectrumStub(model: unknown = '128k') {
     disasmAt: vi.fn(() => ({ text: 'NOP', size: 1 })),
     host: null as any,
     attachHost(h: unknown) { s.host = h; },
+    applySettings: vi.fn(),
     // Delegate to the real peripheral-enablement logic so createMachine's
-    // prepare()/fulfillAuxRoms path exercises genuine code against the stub.
-    prepare(view: any) { return buildSpectrumAuxRoms(s as any, view); },
+    // prepare()/fulfillAuxRoms path exercises genuine code against the stub —
+    // including the built-in-drive settings block the real prepare() applies.
+    prepare(view: any) {
+      if (s.variant.hasFDC) {
+        s.fdc.writeProtect[0] = view.get('write-protect-a', false);
+        s.fdc.writeProtect[1] = view.get('write-protect-b', false);
+        s.fdc.forceReady[1] = view.get('drive-b-force-ready', false);
+      }
+      return buildSpectrumAuxRoms(s as any, view);
+    },
     services: null as any,
+    // Descriptor mirrors the real one, with builtinDisk following the stub's
+    // variant (hasFDC:false) so the floppy-sound branch stays skipped as before.
+    get descriptor() {
+      const d = spectrumDescriptor(s.model);
+      return { ...d, ui: { ...d.ui, builtinDisk: s.variant.hasFDC } };
+    },
+    get frameWidth() { return s.ula.screenWidth; },
+    get frameHeight() { return s.ula.screenHeight; },
+    get cpuClockHz() { return 3_546_900; },
+    // Debug-service export hooks, mirroring the real Spectrum over the stubbed
+    // memory (saveScreenshot/saveRAM route through services.debug now).
+    screenExportBytes() { return s.memory.getRamBank(5).slice(0, 6912); },
+    ramExportBytes() {
+      const startAddr = s.memory.specialPaging ? 0 : 0x4000;
+      return {
+        data: s.memory.readBlock(startAddr, 0x10000 - startAddr),
+        filename: startAddr === 0 ? 'ram-64k.bin' : 'ram-48k.bin',
+      };
+    },
   };
   // Real Spectrum services over the stub: emulator flips dispatch through
   // machine.services, so the stub carries the genuine service layer (which
@@ -144,7 +174,17 @@ function makeCpcStub() {
     display: null as any,
     host: null as any,
     attachHost(h: unknown) { c.host = h; },
+    applySettings: vi.fn(),
     services: null as any,
+    // Descriptor mirrors the real one, with builtinDisk following the stub's
+    // config (hasFDC:false) so the floppy-sound branch stays skipped as before.
+    get descriptor() {
+      const d = cpcDescriptor(c.model);
+      return { ...d, ui: { ...d.ui, builtinDisk: c.config.hasFDC } };
+    },
+    get frameWidth() { return 768; },
+    get frameHeight() { return 272; },
+    get cpuClockHz() { return 4_000_000; },
   };
   // Real CPC services over the stub, exactly as the Spectrum stub does: the
   // emulator flips dispatch through machine.services (which only touch the
@@ -362,6 +402,7 @@ import * as z80fmt from '@/machines/spectrum/snapshots/z80format.ts';
 import * as dskMod from '@/media/floppy/dsk.ts';
 import * as tzxMod from '@/media/tape/tzx.ts';
 import * as joysticks from '@/machines/spectrum/peripherals/joysticks.ts';
+import { loadMultifaceROM, loadVTX5000ROM, triggerNMI } from '@/machines/spectrum/ui/hardware-actions.ts';
 import {
   setCurrentModel, currentModel, systemRomLabel, systemRomIsCustom,
   systemRomPageLabels, systemRomPageOverridden,
@@ -940,7 +981,7 @@ describe('null guards — spectrum-dependent functions do not throw when null', 
     ['saveScreenshot',      () => emulator.saveScreenshot('scr')],
     ['saveRAM',             () => emulator.saveRAM()],
     ['saveDisk',            () => emulator.saveDisk(0)],
-    ['triggerNMI',          () => emulator.triggerNMI()],
+    ['triggerNMI',          () => triggerNMI()],
   ] as const)('%s does not throw', (_name, fn) => {
     expect(fn).not.toThrow();
   });
@@ -1718,7 +1759,7 @@ describe('loadMultifaceROM', () => {
     const s = await setupSpectrum();
     vi.mocked(persistence.dbLoad).mockResolvedValueOnce(new Uint8Array(8192));
     (globalThis as any).fetch = vi.fn();
-    const ok = await emulator.loadMultifaceROM(s as any);
+    const ok = await loadMultifaceROM(s as any);
     expect(ok).toBe(true);
     expect(s.multiface.loadROM).toHaveBeenCalled();
     expect((globalThis as any).fetch).not.toHaveBeenCalled();
@@ -1730,7 +1771,7 @@ describe('loadMultifaceROM', () => {
     (globalThis as any).fetch = vi.fn(async () => ({
       ok: true, arrayBuffer: async () => new ArrayBuffer(8192),
     }));
-    const ok = await emulator.loadMultifaceROM(s as any);
+    const ok = await loadMultifaceROM(s as any);
     expect(ok).toBe(true);
     expect(vi.mocked(persistence.dbSave)).toHaveBeenCalled();
     expect(s.multiface.loadROM).toHaveBeenCalled();
@@ -1740,7 +1781,7 @@ describe('loadMultifaceROM', () => {
     const s = await setupSpectrum();
     vi.mocked(persistence.dbLoad).mockResolvedValueOnce(null);
     (globalThis as any).fetch = vi.fn(async () => ({ ok: false, status: 500 }));
-    const ok = await emulator.loadMultifaceROM(s as any);
+    const ok = await loadMultifaceROM(s as any);
     expect(ok).toBe(false);
     expect(emulator.multifaceRomFailed()).toMatch(/Failed to load/);
   });
@@ -1749,7 +1790,7 @@ describe('loadMultifaceROM', () => {
     const s = await setupSpectrum();
     vi.mocked(persistence.dbLoad).mockResolvedValueOnce(null);
     (globalThis as any).fetch = vi.fn(async () => { throw new Error('net'); });
-    const ok = await emulator.loadMultifaceROM(s as any);
+    const ok = await loadMultifaceROM(s as any);
     expect(ok).toBe(false);
   });
 });
@@ -1759,7 +1800,7 @@ describe('loadVTX5000ROM', () => {
     const s = await setupSpectrum();
     vi.mocked(persistence.dbLoad).mockResolvedValueOnce(new Uint8Array(8192));
     (globalThis as any).fetch = vi.fn();
-    const ok = await emulator.loadVTX5000ROM(s as any);
+    const ok = await loadVTX5000ROM(s as any);
     expect(ok).toBe(true);
     expect(s.vtx5000.loadROM).toHaveBeenCalled();
   });
@@ -1770,7 +1811,7 @@ describe('loadVTX5000ROM', () => {
     (globalThis as any).fetch = vi.fn(async () => ({
       ok: true, arrayBuffer: async () => new ArrayBuffer(8192),
     }));
-    const ok = await emulator.loadVTX5000ROM(s as any);
+    const ok = await loadVTX5000ROM(s as any);
     expect(ok).toBe(true);
     expect(s.vtx5000.loadROM).toHaveBeenCalled();
   });
@@ -1779,7 +1820,7 @@ describe('loadVTX5000ROM', () => {
     const s = await setupSpectrum();
     vi.mocked(persistence.dbLoad).mockResolvedValueOnce(null);
     (globalThis as any).fetch = vi.fn(async () => ({ ok: false, status: 404 }));
-    const ok = await emulator.loadVTX5000ROM(s as any);
+    const ok = await loadVTX5000ROM(s as any);
     expect(ok).toBe(false);
     expect(emulator.vtx5000RomFailed()).toMatch(/Failed to load/);
   });
@@ -1788,7 +1829,7 @@ describe('loadVTX5000ROM', () => {
     const s = await setupSpectrum();
     vi.mocked(persistence.dbLoad).mockResolvedValueOnce(null);
     (globalThis as any).fetch = vi.fn(async () => { throw new Error('boom'); });
-    const ok = await emulator.loadVTX5000ROM(s as any);
+    const ok = await loadVTX5000ROM(s as any);
     expect(ok).toBe(false);
   });
 });
@@ -1799,7 +1840,7 @@ describe('triggerNMI', () => {
   it('reports "Multiface not enabled" when disabled', async () => {
     const s = await setupSpectrum();
     s.multiface.enabled = false;
-    emulator.triggerNMI();
+    triggerNMI();
     expect(emulator.statusText()).toMatch(/not enabled/);
     expect(s.multiface.pressButton).not.toHaveBeenCalled();
   });
@@ -1808,7 +1849,7 @@ describe('triggerNMI', () => {
     const s = await setupSpectrum();
     s.multiface.enabled = true;
     s.multiface.romLoaded = false;
-    emulator.triggerNMI();
+    triggerNMI();
     expect(emulator.statusText()).toMatch(/ROM not loaded/);
   });
 
@@ -1817,7 +1858,7 @@ describe('triggerNMI', () => {
     s.multiface.enabled = true;
     s.multiface.romLoaded = true;
     s.multiface.mfRom = new Uint8Array(0x2000);
-    emulator.triggerNMI();
+    triggerNMI();
     expect(s.multiface.pressButton).toHaveBeenCalledOnce();
     expect(emulator.statusText()).toMatch(/NMI triggered/);
   });

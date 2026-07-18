@@ -12,7 +12,8 @@ import { parseTZX } from '../src/media/tape/tzx.ts';
 import { parseCSW } from '../src/media/tape/csw.ts';
 import { h16 } from './hex.ts';
 import { fetchPlusDRom, fetchInterface1Rom, fetchBetaDiskRom } from './rom-fetch.ts';
-import { state, initMachine, activeSpectrum } from './state.ts';
+import { state, initMachine } from './state.ts';
+import { activeSpectrum } from './concrete.ts';
 
 export async function loadFileInto(spec: Spectrum, filepath: string, diskUnit: number = 0): Promise<string> {
   if (!fs.existsSync(filepath)) return `File not found: ${filepath}`;

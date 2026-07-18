@@ -34,27 +34,34 @@ const EINSTEIN_UI: MachineUiCapabilities = {
   tapeSound: true,
   tapeExtensions: ['.tap', '.tzx', '.csw', '.zip'],
   saveMenu: 'vdp',
+  zipPolicy: 'media',
+  persistMedia: false,
+  bootDisk: true,
   library: false,
   memoryRegions: [{ value: 'rom0', label: 'ROM 0' }],
   charset: 'spectrum',
 };
 
+/** Descriptor for the Einstein — shared by the registry entry and the machine
+ *  instance's own `descriptor` getter. */
+export function einsteinDescriptor(model: MachineModel): MachineDescriptor {
+  return {
+    kind: 'einstein',
+    model,
+    cpuFamily: 'z80',
+    screen: {
+      width: EINSTEIN_SCREEN_WIDTH, height: EINSTEIN_SCREEN_HEIGHT, pixelAspectX: 1,
+      activeWidth: 256, activeHeight: 192,
+      borderLeft: EINSTEIN_BORDER_LEFT, borderTop: EINSTEIN_BORDER_TOP,
+    },
+    ui: EINSTEIN_UI,
+  };
+}
+
 export const einsteinEntry: MachineEntry = {
   kind: 'einstein',
   models: ['einstein'],
-  descriptor(model: MachineModel): MachineDescriptor {
-    return {
-      kind: 'einstein',
-      model,
-      cpuFamily: 'z80',
-      screen: {
-        width: EINSTEIN_SCREEN_WIDTH, height: EINSTEIN_SCREEN_HEIGHT, pixelAspectX: 1,
-        activeWidth: 256, activeHeight: 192,
-        borderLeft: EINSTEIN_BORDER_LEFT, borderTop: EINSTEIN_BORDER_TOP,
-      },
-      ui: EINSTEIN_UI,
-    };
-  },
+  descriptor: einsteinDescriptor,
   create(model: MachineModel, display: IScreenRenderer | null) {
     return new EinsteinMachine(model as EinsteinModel, display);
   },
