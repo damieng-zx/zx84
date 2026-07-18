@@ -10,9 +10,9 @@
  */
 
 import type { IScreenRenderer } from '@/display/display.ts';
-import hq2xLutUrl from '@/display/hq2x-lut.png';  // 256×64 RGBA LUT for HQ2x blend weights
-import hq3xLutUrl from '@/display/hq3x-lut.png';  // 256×144 RGBA LUT for HQ3x blend weights
-import hq4xLutUrl from '@/display/hq4x-lut.png';  // 256×256 RGBA LUT for HQ4x blend weights
+import hq2xLutUrl from '@/display/shaders/hq2x-lut.png';  // 256×64 RGBA LUT for HQ2x blend weights
+import hq3xLutUrl from '@/display/shaders/hq3x-lut.png';  // 256×144 RGBA LUT for HQ3x blend weights
+import hq4xLutUrl from '@/display/shaders/hq4x-lut.png';  // 256×256 RGBA LUT for HQ4x blend weights
 import { FRAG_HQ2X, FRAG_HQ3X, FRAG_HQ4X } from '@/display/shaders/hqx.ts';
 import { FRAG_XBR_LV2, FRAG_XBR_LV3 } from '@/display/shaders/xbr.ts';
 import { UPSCALE_HEAD } from '@/display/shaders/upscale-head.ts';
