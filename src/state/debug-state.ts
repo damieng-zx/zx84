@@ -12,6 +12,7 @@
  */
 
 import { createSignal } from 'solid-js';
+import type { BasicListingLine, BasicVariable } from '@/basic/types.ts';
 
 // CPU registers
 const _regsHtml = createSignal('');
@@ -31,14 +32,15 @@ const _sysvarRev = createSignal(0);
 export const sysvarRev = _sysvarRev[0];
 export const setSysvarRev = _sysvarRev[1];
 
-// BASIC program
-const _basicHtml = createSignal('');
-export const basicHtml = _basicHtml[0];
-export const setBasicHtml = _basicHtml[1];
+// BASIC program listing (structured; the pane renders + escapes)
+const _basicListing = createSignal<BasicListingLine[]>([]);
+export const basicListing = _basicListing[0];
+export const setBasicListing = _basicListing[1];
 
-const _basicVarsHtml = createSignal('');
-export const basicVarsHtml = _basicVarsHtml[0];
-export const setBasicVarsHtml = _basicVarsHtml[1];
+// BASIC variables (structured; the pane renders + escapes)
+const _basicVars = createSignal<BasicVariable[]>([]);
+export const basicVars = _basicVars[0];
+export const setBasicVars = _basicVars[1];
 
 // Memory banks
 const _banksHtml = createSignal('');

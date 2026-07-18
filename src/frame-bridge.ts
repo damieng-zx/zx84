@@ -25,7 +25,7 @@ import { refreshDiskMetadata } from '@/media/floppy/dsk.ts';
 import {
   machine, floppySound,
   emulationPaused, tracing,
-  setRegsRev, setSysvarRev, setBasicHtml, setBasicVarsHtml,
+  setRegsRev, setSysvarRev, setBasicListing, setBasicVars,
   setBanksHtml, setDriveAStatus, setDriveBStatus, setShowTrapLog, setDisasmText,
   setCurrentDiskInfo, setCurrentDiskInfoB,
   setDriveCStatus, setDriveDStatus, setCurrentDiskInfoC, setCurrentDiskInfoD,
@@ -105,8 +105,8 @@ export function updateRegsOnce(): void {
     const panes = probe?.panes;
     if (panes) {
       if (panes.hasSysvars) setSysvarRev(v => v + 1);
-      if (panes.basicHtml) setBasicHtml(panes.basicHtml());
-      if (panes.basicVarsHtml) setBasicVarsHtml(panes.basicVarsHtml());
+      if (panes.basicListing) setBasicListing(panes.basicListing());
+      if (panes.basicVars) setBasicVars(panes.basicVars());
       if (panes.banksHtml) {
         const banks = panes.banksHtml();
         if (banks !== null) setBanksHtml(banks);
@@ -513,8 +513,8 @@ export function onFrame(): void {
       if (now - _lastSlowUpdate > 1000) {
         _lastSlowUpdate = now;
         if (panes?.hasSysvars && !isCollapsed('sysvar-panel')) setSysvarRev(v => v + 1);
-        if (panes?.basicHtml && !isCollapsed('basic-panel')) setBasicHtml(panes.basicHtml());
-        if (panes?.basicVarsHtml && !isCollapsed('basic-vars-panel')) setBasicVarsHtml(panes.basicVarsHtml());
+        if (panes?.basicListing && !isCollapsed('basic-panel')) setBasicListing(panes.basicListing());
+        if (panes?.basicVars && !isCollapsed('basic-vars-panel')) setBasicVars(panes.basicVars());
       }
       // Memory layout — cheap; refresh live so paging shows as games bank-switch.
       if (panes?.banksHtml && !isCollapsed('banks-panel')) {

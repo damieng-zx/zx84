@@ -102,7 +102,7 @@ export class CpcFrameProbe implements FrameProbe {
     this.panes = {
       banksHtml: () => renderCpcBanks(cpc),
       // The Locomotive BASIC program lives at &0170 under the OS ROM overlay.
-      basicHtml: () => parseLocomotiveBasic(cpc.memory.ramSnapshot()),
+      basicListing: () => parseLocomotiveBasic(cpc.memory.ramSnapshot()),
     };
   }
 

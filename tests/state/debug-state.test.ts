@@ -29,8 +29,8 @@ afterEach(() => {
   debug.setRegsRev(0);
   debug.setSysvarHtml('');
   debug.setSysvarRev(0);
-  debug.setBasicHtml('');
-  debug.setBasicVarsHtml('');
+  debug.setBasicListing([]);
+  debug.setBasicVars([]);
   debug.setBanksHtml('');
   debug.setDisasmText('');
   debug.setTracing(false);
@@ -42,11 +42,14 @@ describe('debug-state — defaults', () => {
   it('all HTML/text signals start empty', () => {
     expect(debug.regsHtml()).toBe('');
     expect(debug.sysvarHtml()).toBe('');
-    expect(debug.basicHtml()).toBe('');
-    expect(debug.basicVarsHtml()).toBe('');
     expect(debug.banksHtml()).toBe('');
     expect(debug.disasmText()).toBe('');
     expect(debug.trapLogHtml()).toBe('');
+  });
+
+  it('structured BASIC signals start as empty arrays', () => {
+    expect(debug.basicListing()).toEqual([]);
+    expect(debug.basicVars()).toEqual([]);
   });
 
   it('revision counters start at 0 (consumers rely on this to detect first render)', () => {
@@ -69,8 +72,8 @@ describe('debug-state — getter/setter pairing', () => {
     { name: 'regsRev',      get: debug.regsRev,      set: debug.setRegsRev,      sample: 42 },
     { name: 'sysvarHtml',   get: debug.sysvarHtml,   set: debug.setSysvarHtml,   sample: 'X' },
     { name: 'sysvarRev',    get: debug.sysvarRev,    set: debug.setSysvarRev,    sample: 99 },
-    { name: 'basicHtml',    get: debug.basicHtml,    set: debug.setBasicHtml,    sample: '10 PRINT' },
-    { name: 'basicVarsHtml',get: debug.basicVarsHtml,set: debug.setBasicVarsHtml,sample: 'a=1' },
+    { name: 'basicListing', get: debug.basicListing, set: debug.setBasicListing, sample: [{ lineNumber: 10, text: 'PRINT' }] },
+    { name: 'basicVars',    get: debug.basicVars,    set: debug.setBasicVars,    sample: [{ name: 'a', kind: 'number', value: '1' }] },
     { name: 'banksHtml',    get: debug.banksHtml,    set: debug.setBanksHtml,    sample: 'bank 0' },
     { name: 'disasmText',   get: debug.disasmText,   set: debug.setDisasmText,   sample: 'NOP' },
     { name: 'tracing',      get: debug.tracing,      set: debug.setTracing,      sample: true },

@@ -36,6 +36,8 @@
  *   &80–&FF  keyword tokens (&FF = function prefix; the next byte selects it).
  */
 
+import type { BasicListingLine } from './types.ts';
+
 /** Where Locomotive BASIC keeps the program text in RAM (fixed on 464/664/6128,
  *  unaffected by AMSDOS which reserves its workspace elsewhere). */
 const PROG_START = 0x0170;
@@ -167,16 +169,13 @@ function detokenizeLine(mem: Uint8Array, start: number, end: number): string {
   return out;
 }
 
-function escapeHtml(text: string): string {
-  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
 /**
  * Parse a Locomotive BASIC program from a 64KB RAM snapshot (the underlying RAM,
- * not the ROM-overlaid CPU view — use `CpcMemory.ramSnapshot()`). Returns HTML.
+ * not the ROM-overlaid CPU view — use `CpcMemory.ramSnapshot()`). Returns
+ * structured lines of plain, unescaped text — the renderer handles display.
  */
-export function parseLocomotiveBasic(ram: Uint8Array): string {
-  const lines: string[] = [];
+export function parseLocomotiveBasic(ram: Uint8Array): BasicListingLine[] {
+  const lines: BasicListingLine[] = [];
   let offset = PROG_START;
   let guard = 0;
 
@@ -187,12 +186,10 @@ export function parseLocomotiveBasic(ram: Uint8Array): string {
 
     const lineNum = word(ram, offset + 2);
     const body = detokenizeLine(ram, offset + 4, offset + len - 1); // -1 skips the &00
-    const numStr = String(lineNum).padStart(4, ' ');
-    lines.push(`<span class="basic-line-num">${numStr}</span> ${escapeHtml(body)}`);
+    lines.push({ lineNumber: lineNum, text: body });
 
     offset += len;
   }
 
-  if (lines.length === 0) return '<span style="color:#666">(no BASIC program)</span>';
-  return lines.join('\n');
+  return lines;
 }

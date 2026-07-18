@@ -12,14 +12,13 @@ import { parseLocomotiveBasic } from '@/basic/cpc-basic-parser.ts';
 const PROG_START = 0x0170;
 
 /** Build a 64KB RAM image with the given line records at &0170 + a 0x0000 end
- *  marker, then detokenize and return the listing as plain-text lines. */
+ *  marker, then detokenize and return the listing as "<num> <text>" lines. */
 function listing(records: number[][]): string[] {
   const ram = new Uint8Array(0x10000);
   let o = PROG_START;
   for (const rec of records) { ram.set(rec, o); o += rec.length; }
   // end-of-program marker is the next length word being zero (already 0).
-  const html = parseLocomotiveBasic(ram);
-  return html.split('\n').map(l => l.replace(/<[^>]*>/g, '').trim());
+  return parseLocomotiveBasic(ram).map(l => `${l.lineNumber} ${l.text}`);
 }
 
 describe('parseLocomotiveBasic', () => {
@@ -81,20 +80,20 @@ describe('parseLocomotiveBasic', () => {
       .toEqual(['10 PRINT SIN']);
   });
 
-  it('escapes HTML metacharacters from relational operator tokens', () => {
-    // a(var) ee(>) b(var):  ee renders as ">", which must be HTML-escaped.
-    const html = parseLocomotiveBasic((() => {
-      const ram = new Uint8Array(0x10000);
-      // 10 IF a>0 THEN ...  — keep it minimal: a > 0
-      ram.set([0x0c, 0x00, 0x0a, 0x00, 0x0d, 0x00, 0x00, 0xe1, 0xee, 0x0e, 0x00], PROG_START);
-      return ram;
-    })());
-    expect(html).toContain('&gt;');
-    expect(html).not.toMatch(/[^&]>0/); // the raw '>' must not appear unescaped before 0
+  it('returns relational operator tokens as raw text (escaping is the renderer`s job)', () => {
+    // a(var) ee(>) 0:  ee detokenizes to ">". The parser must return it raw —
+    // it produces plain data, and the pane escapes it via Solid interpolation.
+    const ram = new Uint8Array(0x10000);
+    // 10 IF a>0 THEN ...  — keep it minimal: a > 0
+    ram.set([0x0c, 0x00, 0x0a, 0x00, 0x0d, 0x00, 0x00, 0xe1, 0xee, 0x0e, 0x00], PROG_START);
+    const lines = parseLocomotiveBasic(ram);
+    expect(lines).toEqual([{ lineNumber: 10, text: 'a>0' }]);
+    // No HTML entities leak into the structured output.
+    expect(lines[0].text).not.toContain('&gt;');
   });
 
-  it('returns a placeholder when there is no program', () => {
-    expect(parseLocomotiveBasic(new Uint8Array(0x10000))).toContain('no BASIC program');
+  it('returns an empty listing when there is no program', () => {
+    expect(parseLocomotiveBasic(new Uint8Array(0x10000))).toEqual([]);
   });
 
   it('stops at the &0000 end-of-program marker (ignores trailing garbage)', () => {
@@ -102,8 +101,8 @@ describe('parseLocomotiveBasic', () => {
     ram.set([0x08, 0x00, 0x0a, 0x00, 0xbf, 0x20, 0x0f, 0x00], PROG_START); // 10 PRINT 1
     // end marker, then garbage that must not be parsed as a line
     ram.set([0x00, 0x00, 0xde, 0xad, 0xbe, 0xef], PROG_START + 8);
-    const lines = parseLocomotiveBasic(ram).split('\n');
+    const lines = parseLocomotiveBasic(ram);
     expect(lines).toHaveLength(1);
-    expect(lines[0].replace(/<[^>]*>/g, '').trim()).toBe('10 PRINT 1');
+    expect(lines[0]).toEqual({ lineNumber: 10, text: 'PRINT 1' });
   });
 });

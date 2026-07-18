@@ -4,6 +4,8 @@
  * Reference: Sinclair BASIC tokenized file format documentation
  */
 
+import type { BasicListingLine, BasicVariable } from './types.ts';
+
 // Token table for ZX Spectrum 48K/128K BASIC
 // Based on official ZX Spectrum character set documentation
 const TOKENS: Record<number, string> = {
@@ -153,19 +155,19 @@ function detokenizeLine(mem: Uint8Array, offset: number, lineEnd: number): strin
 }
 
 /**
- * Parse a BASIC program from memory.
- * Returns HTML for display.
+ * Parse a BASIC program from memory into structured lines.
+ * Returns plain, unescaped detokenised text — the renderer handles display.
  */
-export function parseBasicProgram(mem: Uint8Array): string {
+export function parseBasicProgram(mem: Uint8Array): BasicListingLine[] {
   // Read PROG and VARS system variables
   const progAddr = mem[0x5C53] | (mem[0x5C54] << 8);
   const varsAddr = mem[0x5C4B] | (mem[0x5C4C] << 8);
 
   if (progAddr === 0 || varsAddr === 0 || progAddr >= varsAddr) {
-    return '<span style="color:#666">(no BASIC program)</span>';
+    return [];
   }
 
-  const lines: string[] = [];
+  const lines: BasicListingLine[] = [];
   let offset = progAddr;
   let lineCount = 0;
   const maxLines = 10000; // Safety limit
@@ -190,20 +192,13 @@ export function parseBasicProgram(mem: Uint8Array): string {
 
     // Detokenize the line
     const lineText = detokenizeLine(mem, offset + 4, offset + 4 + lineLen);
-
-    // Format as HTML with line number
-    const lineNumStr = lineNum.toString().padStart(4, ' ');
-    lines.push(`<span class="basic-line-num">${lineNumStr}</span> ${escapeHtml(lineText)}`);
+    lines.push({ lineNumber: lineNum, text: lineText });
 
     offset += 4 + lineLen;
     lineCount++;
   }
 
-  if (lines.length === 0) {
-    return '<span style="color:#666">(empty program)</span>';
-  }
-
-  return lines.join('\n');
+  return lines;
 }
 
 /**
@@ -223,13 +218,6 @@ function readArrayDims(mem: Uint8Array, dataStart: number, dataLen: number, end:
     dims.push(mem[lo] | (mem[lo + 1] << 8));
   }
   return dims;
-}
-
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
 }
 
 /**
@@ -267,19 +255,19 @@ function parse5ByteNumber(mem: Uint8Array, offset: number): string {
 }
 
 /**
- * Parse BASIC variables area from memory.
- * Returns HTML for display.
+ * Parse the BASIC variables area from memory into structured entries.
+ * All names/values are plain text — the renderer handles markup and escaping.
  */
-export function parseBasicVariables(mem: Uint8Array): string {
+export function parseBasicVariables(mem: Uint8Array): BasicVariable[] {
   // Read VARS and E_LINE system variables
   const varsAddr = mem[0x5C4B] | (mem[0x5C4C] << 8);
   const eLineAddr = mem[0x5C59] | (mem[0x5C5A] << 8);
 
   if (varsAddr === 0 || eLineAddr === 0 || varsAddr >= eLineAddr) {
-    return '<span style="color:#666">(no variables)</span>';
+    return [];
   }
 
-  const lines: string[] = [];
+  const vars: BasicVariable[] = [];
   let offset = varsAddr;
   let varCount = 0;
   const maxVars = 1000; // Safety limit
@@ -294,7 +282,7 @@ export function parseBasicVariables(mem: Uint8Array): string {
     if (typeFlags === 0x60) {
       const name = String.fromCharCode(firstByte);
       const value = parse5ByteNumber(mem, offset + 1);
-      lines.push(`<span class="var-name">${name}</span> = ${escapeHtml(value)}`);
+      vars.push({ name, kind: 'number', value });
       offset += 6;
       varCount++;
     }
@@ -304,7 +292,7 @@ export function parseBasicVariables(mem: Uint8Array): string {
       const len = mem[offset + 1] | (mem[offset + 2] << 8);
       const strData = mem.slice(offset + 3, offset + 3 + len);
       const str = String.fromCharCode(...strData);
-      lines.push(`<span class="var-name">${name}</span> = "${escapeHtml(str)}"`);
+      vars.push({ name, kind: 'string', value: str });
       offset += 3 + len;
       varCount++;
     }
@@ -313,10 +301,8 @@ export function parseBasicVariables(mem: Uint8Array): string {
       const baseName = String.fromCharCode(firstByte - 0x20);
       const dataLen = mem[offset + 1] | (mem[offset + 2] << 8);
       const dims = readArrayDims(mem, offset + 3, dataLen, eLineAddr);
-      const display = dims.length > 0
-        ? `${baseName}(${dims.join(',')})`
-        : `${baseName}()`;
-      lines.push(`<span class="var-name">${display}</span> <span style="color:#888">[array]</span>`);
+      const name = dims.length > 0 ? `${baseName}(${dims.join(',')})` : `${baseName}()`;
+      vars.push({ name, kind: 'array' });
       offset += 3 + dataLen;
       varCount++;
     }
@@ -325,10 +311,8 @@ export function parseBasicVariables(mem: Uint8Array): string {
       const baseName = String.fromCharCode(firstByte - 0x80);
       const dataLen = mem[offset + 1] | (mem[offset + 2] << 8);
       const dims = readArrayDims(mem, offset + 3, dataLen, eLineAddr);
-      const display = dims.length > 0
-        ? `${baseName}$(${dims.join(',')})`
-        : `${baseName}$()`;
-      lines.push(`<span class="var-name">${display}</span> <span style="color:#888">[array]</span>`);
+      const name = dims.length > 0 ? `${baseName}$(${dims.join(',')})` : `${baseName}$()`;
+      vars.push({ name, kind: 'array' });
       offset += 3 + dataLen;
       varCount++;
     }
@@ -347,7 +331,7 @@ export function parseBasicVariables(mem: Uint8Array): string {
         i++;
       }
       const value = parse5ByteNumber(mem, i);
-      lines.push(`<span class="var-name">${name}</span> = ${escapeHtml(value)}`);
+      vars.push({ name, kind: 'number', value });
       offset = i + 5;
       varCount++;
     }
@@ -357,7 +341,7 @@ export function parseBasicVariables(mem: Uint8Array): string {
       const current = parse5ByteNumber(mem, offset + 1);
       const limit = parse5ByteNumber(mem, offset + 6);
       const step = parse5ByteNumber(mem, offset + 11);
-      lines.push(`<span class="var-name">${name}</span> = ${escapeHtml(current)} <span style="color:#888">TO ${escapeHtml(limit)} STEP ${escapeHtml(step)}</span>`);
+      vars.push({ name, kind: 'for-next', value: current, detail: `TO ${limit} STEP ${step}` });
       offset += 19;
       varCount++;
     }
@@ -367,9 +351,5 @@ export function parseBasicVariables(mem: Uint8Array): string {
     }
   }
 
-  if (lines.length === 0) {
-    return '<span style="color:#666">(no variables defined)</span>';
-  }
-
-  return lines.join('\n');
+  return vars;
 }

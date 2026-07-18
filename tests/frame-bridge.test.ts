@@ -70,8 +70,8 @@ const { emu, settingsMock, panesMock } = vi.hoisted(() => ({
     // Setters — every one is a vi.fn so call-counts are observable.
     setRegsRev: vi.fn(),
     setSysvarRev: vi.fn(),
-    setBasicHtml: vi.fn(),
-    setBasicVarsHtml: vi.fn(),
+    setBasicListing: vi.fn(),
+    setBasicVars: vi.fn(),
     setBanksHtml: vi.fn(),
     setDriveAStatus: vi.fn(),
     setDriveBStatus: vi.fn(),
@@ -135,8 +135,8 @@ vi.mock('@/debug/z80/disasm.ts', () => ({
   formatDisasmHtml: vi.fn(() => ''),
 }));
 vi.mock('@/basic/sinclair-basic-parser.ts', () => ({
-  parseBasicProgram: vi.fn(() => ''),
-  parseBasicVariables: vi.fn(() => ''),
+  parseBasicProgram: vi.fn(() => []),
+  parseBasicVariables: vi.fn(() => []),
 }));
 
 // localStorage fake (Node has no DOM).
@@ -1103,8 +1103,8 @@ describe('onFrame — throttled slow panel updates (_lastSlowUpdate)', () => {
     emu.spectrum = makeThrottleSpectrum();
     onFrame();
     emu.setSysvarRev.mockClear();
-    emu.setBasicHtml.mockClear();
-    emu.setBasicVarsHtml.mockClear();
+    emu.setBasicListing.mockClear();
+    emu.setBasicVars.mockClear();
   });
 
   afterEach(() => {
@@ -1117,8 +1117,8 @@ describe('onFrame — throttled slow panel updates (_lastSlowUpdate)', () => {
     panesMock.isCollapsed.mockReturnValue(false);
     onFrame();
     expect(emu.setSysvarRev).not.toHaveBeenCalled();
-    expect(emu.setBasicHtml).not.toHaveBeenCalled();
-    expect(emu.setBasicVarsHtml).not.toHaveBeenCalled();
+    expect(emu.setBasicListing).not.toHaveBeenCalled();
+    expect(emu.setBasicVars).not.toHaveBeenCalled();
   });
 
   it('calls setSysvarRev when sysvar-panel is open and > 1s elapsed', () => {
@@ -1135,33 +1135,33 @@ describe('onFrame — throttled slow panel updates (_lastSlowUpdate)', () => {
     expect(emu.setSysvarRev).not.toHaveBeenCalled();
   });
 
-  it('calls setBasicHtml when basic-panel is open and > 1s elapsed', () => {
+  it('calls setBasicListing when basic-panel is open and > 1s elapsed', () => {
     nowSpy.mockReturnValue(throttleBase + 1001);
     panesMock.isCollapsed.mockImplementation((id: string) => id !== 'basic-panel');
     onFrame();
-    expect(emu.setBasicHtml).toHaveBeenCalled();
+    expect(emu.setBasicListing).toHaveBeenCalled();
   });
 
-  it('does not call setBasicHtml when basic-panel is collapsed even after > 1s', () => {
+  it('does not call setBasicListing when basic-panel is collapsed even after > 1s', () => {
     nowSpy.mockReturnValue(throttleBase + 1001);
     panesMock.isCollapsed.mockReturnValue(true);
     onFrame();
-    expect(emu.setBasicHtml).not.toHaveBeenCalled();
+    expect(emu.setBasicListing).not.toHaveBeenCalled();
   });
 
-  it('calls setBasicVarsHtml when basic-vars-panel is open and > 1s elapsed', () => {
+  it('calls setBasicVars when basic-vars-panel is open and > 1s elapsed', () => {
     nowSpy.mockReturnValue(throttleBase + 1001);
     panesMock.isCollapsed.mockImplementation((id: string) => id !== 'basic-vars-panel');
     onFrame();
-    expect(emu.setBasicVarsHtml).toHaveBeenCalled();
+    expect(emu.setBasicVars).toHaveBeenCalled();
   });
 
-  it('updates only the open pane — basic open but vars closed: no setBasicVarsHtml', () => {
+  it('updates only the open pane — basic open but vars closed: no setBasicVars', () => {
     nowSpy.mockReturnValue(throttleBase + 1001);
     panesMock.isCollapsed.mockImplementation((id: string) => id !== 'basic-panel');
     onFrame();
-    expect(emu.setBasicHtml).toHaveBeenCalled();
-    expect(emu.setBasicVarsHtml).not.toHaveBeenCalled();
+    expect(emu.setBasicListing).toHaveBeenCalled();
+    expect(emu.setBasicVars).not.toHaveBeenCalled();
   });
 });
 

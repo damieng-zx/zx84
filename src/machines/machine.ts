@@ -21,6 +21,7 @@ import type { ByteReader } from '@/machines/spectrum/memory.ts';
 import type { TapeBlock } from '@/media/tape/tap.ts';
 import type { MachineModel } from '@/models.ts';
 import type { OcrGridName, FontSource } from '@/ocr/spectrum.ts';
+import type { BasicListingLine, BasicVariable } from '@/basic/types.ts';
 
 export type MachineKind = 'spectrum' | 'cpc' | 'einstein' | 'msx';
 
@@ -706,8 +707,10 @@ export function createFrameIndicators(): FrameIndicators {
 export interface FramePaneProvider {
   /** Memory-layout pane HTML, or null when this model has none (16K/48K). */
   banksHtml?(): string | null;
-  basicHtml?(): string;
-  basicVarsHtml?(): string;
+  /** Detokenised BASIC program listing, as structured plain-text lines. */
+  basicListing?(): BasicListingLine[];
+  /** BASIC variables area, as structured plain-text entries. */
+  basicVars?(): BasicVariable[];
   /** Machine has a sysvars pane (the bridge bumps its refresh signal). */
   readonly hasSysvars?: boolean;
   /** Candidate in-memory character font for the Font pane's ROM-capture path

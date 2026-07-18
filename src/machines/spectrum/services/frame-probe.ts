@@ -139,8 +139,8 @@ export class SpectrumFrameProbe implements FrameProbe {
     this.panes = {
       hasSysvars: true,
       banksHtml: () => spec.variant.hasBanking ? renderBanks(spec) : null,
-      basicHtml: () => parseBasicProgram(spec.memory.snapshot()),
-      basicVarsHtml: () => parseBasicVariables(spec.memory.snapshot()),
+      basicListing: () => parseBasicProgram(spec.memory.snapshot()),
+      basicVars: () => parseBasicVariables(spec.memory.snapshot()),
       // Font-pane ROM capture: the current CHARS font, when its space glyph is
       // blank (the heuristic that filters garbage). Hash-cache stays bridge-side.
       romFontCandidate: () => {

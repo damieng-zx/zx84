@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { parseBasicProgram, parseBasicVariables } from '@/basic/sinclair-basic-parser';
+import type { BasicVariable } from '@/basic/types';
 
 /**
  * Sinclair BASIC stored-number format: ASCII digits, then a single
@@ -46,30 +47,52 @@ function buildBasicMemory(lines: { num: number; text: number[] }[]): Uint8Array 
   return mem;
 }
 
+/**
+ * The debug panes render the parsers' structured output with auto-escaping
+ * Solid interpolation. These helpers mirror that display as plain text so the
+ * content-focused assertions below stay concise. The parsers themselves return
+ * structured data and never HTML.
+ */
+function programText(mem: Uint8Array): string {
+  return parseBasicProgram(mem)
+    .map(l => `${l.lineNumber.toString().padStart(4, ' ')} ${l.text}`)
+    .join('\n');
+}
+
+function renderVar(v: BasicVariable): string {
+  switch (v.kind) {
+    case 'string': return `${v.name} = "${v.value}"`;
+    case 'array': return `${v.name} [array]`;
+    case 'for-next': return `${v.name} = ${v.value} ${v.detail}`;
+    default: return `${v.name} = ${v.value}`;
+  }
+}
+
+function varsText(mem: Uint8Array): string {
+  return parseBasicVariables(mem).map(renderVar).join('\n');
+}
+
 describe('parseBasicProgram — empty/invalid', () => {
-  it('returns no-program message when PROG is 0', () => {
+  it('returns an empty listing when PROG is 0', () => {
     const mem = new Uint8Array(65536);
-    const result = parseBasicProgram(mem);
-    expect(result).toContain('no BASIC program');
+    expect(parseBasicProgram(mem)).toEqual([]);
   });
 
-  it('returns no-program when PROG >= VARS', () => {
+  it('returns an empty listing when PROG >= VARS', () => {
     const mem = new Uint8Array(65536);
     mem[0x5C53] = 0x00; mem[0x5C54] = 0x80;
     mem[0x5C4B] = 0x00; mem[0x5C4C] = 0x70;
-    const result = parseBasicProgram(mem);
-    expect(result).toContain('no BASIC program');
+    expect(parseBasicProgram(mem)).toEqual([]);
   });
 
-  it('returns empty-program when there are no lines', () => {
+  it('returns an empty listing when there are no lines', () => {
     const mem = new Uint8Array(65536);
     const progAddr = 0x8000;
     mem[0x5C53] = progAddr & 0xFF; mem[0x5C54] = (progAddr >> 8) & 0xFF;
     const varsAddr = progAddr + 2;
     mem[0x5C4B] = varsAddr & 0xFF; mem[0x5C4C] = (varsAddr >> 8) & 0xFF;
     mem[progAddr] = 0x80;
-    const result = parseBasicProgram(mem);
-    expect(result).toContain('empty program');
+    expect(parseBasicProgram(mem)).toEqual([]);
   });
 });
 
@@ -78,7 +101,7 @@ describe('parseBasicProgram — simple lines', () => {
     const mem = buildBasicMemory([
       { num: 10, text: [0xF5, 0x22, 0x48, 0x49, 0x22] },
     ]);
-    const result = parseBasicProgram(mem);
+    const result = programText(mem);
     expect(result).toContain('10');
     expect(result).toContain('PRINT');
     expect(result).toContain('"HI"');
@@ -88,7 +111,7 @@ describe('parseBasicProgram — simple lines', () => {
     const mem = buildBasicMemory([
       { num: 10, text: [0xF1, 0x61, 0x3D, 0x31, 0x32, 0x33, 0x0E, 0x00, 0x00, 0x7B, 0x00, 0x00] },
     ]);
-    const result = parseBasicProgram(mem);
+    const result = programText(mem);
     expect(result).toContain('10');
     expect(result).toContain('LET');
     expect(result).toContain('a');
@@ -100,7 +123,7 @@ describe('parseBasicProgram — simple lines', () => {
       { num: 10, text: [0xF5, 0x22, 0x48, 0x49, 0x22] },
       { num: 20, text: [0xF7] },
     ]);
-    const result = parseBasicProgram(mem);
+    const result = programText(mem);
     expect(result).toContain('10');
     expect(result).toContain('20');
     expect(result).toContain('PRINT');
@@ -111,7 +134,7 @@ describe('parseBasicProgram — simple lines', () => {
     const mem = buildBasicMemory([
       { num: 1, text: [0xA3] },
     ]);
-    const result = parseBasicProgram(mem);
+    const result = programText(mem);
     expect(result).toContain('SPECTRUM');
   });
 });
@@ -121,7 +144,7 @@ describe('parseBasicProgram — line numbers', () => {
     const mem = buildBasicMemory([
       { num: 1, text: [0xF7] },
     ]);
-    const result = parseBasicProgram(mem);
+    const result = programText(mem);
     expect(result).toMatch(/\b\s*1\b/);
   });
 
@@ -129,7 +152,7 @@ describe('parseBasicProgram — line numbers', () => {
     const mem = buildBasicMemory([
       { num: 9999, text: [0xF7] },
     ]);
-    const result = parseBasicProgram(mem);
+    const result = programText(mem);
     expect(result).toContain('9999');
   });
 });
@@ -142,7 +165,7 @@ describe('parseBasicProgram — number marker handling', () => {
     const mem = buildBasicMemory([
       { num: 10, text: [0xEC, ...numLiteral('100', 100)] },
     ]);
-    const result = parseBasicProgram(mem);
+    const result = programText(mem);
     // Digits are kept, marker + binary bytes are gone — no stray ASCII '@'/'d'
     // from the binary [00 00 64 00 00] should leak into the output.
     expect(result).toContain('100');
@@ -161,37 +184,36 @@ describe('parseBasicProgram — number marker handling', () => {
     const mem = buildBasicMemory([
       { num: 10, text: [0xEA, tilde, ...abcde] }, // REM ~ABCDE
     ]);
-    const result = parseBasicProgram(mem);
+    const result = programText(mem);
     expect(result).toContain('~ABCDE');
   });
 });
 
-describe('parseBasicProgram — HTML escaping', () => {
-  it('escapes <, >, & in line text', () => {
-    // Use the <=, >= and "and" tokens? Those use entity-unsafe chars in their
-    // detokenized form. Easier: put literal ASCII '<' '>' '&' into a REM.
+describe('parseBasicProgram — plain-text output (no HTML)', () => {
+  it('returns <, >, & as raw characters, not HTML entities', () => {
+    // The parser emits plain detokenised text; escaping is the renderer's job
+    // (Solid interpolation in the pane). A crafted line therefore cannot smuggle
+    // markup through the parser output.
     const mem = buildBasicMemory([
       { num: 10, text: [0xEA, 0x3C, 0x26, 0x3E] }, // REM <&>
     ]);
-    const result = parseBasicProgram(mem);
-    // Raw chars must not appear, escaped entities must.
-    expect(result).not.toMatch(/REM\s+<&>/);
-    expect(result).toContain('&lt;');
-    expect(result).toContain('&amp;');
-    expect(result).toContain('&gt;');
+    const [line] = parseBasicProgram(mem);
+    expect(line.text).toContain('<');
+    expect(line.text).toContain('&');
+    expect(line.text).toContain('>');
+    expect(line.text).not.toContain('&lt;');
+    expect(line.text).not.toContain('&amp;');
+    expect(line.text).not.toContain('&gt;');
   });
 
-  it('renders the <= token without leaking raw < into HTML', () => {
-    // Token 0xC7 = '<='. The string contains a literal '<' — which must be
-    // escaped before insertion into the output HTML.
+  it('returns the <= token as raw text', () => {
+    // Token 0xC7 = '<='. It stays a literal '<=' in the structured output.
     const mem = buildBasicMemory([
       { num: 10, text: [0xFA, 0x61, 0xC7, 0x35] }, // IF a<=5
     ]);
-    const result = parseBasicProgram(mem);
-    expect(result).toContain('&lt;=');
-    // Raw '<=' would be a broken-HTML symptom.
-    const lineSection = result.split('class="basic-line-num">')[1] ?? result;
-    expect(lineSection).not.toMatch(/<=/);
+    const [line] = parseBasicProgram(mem);
+    expect(line.text).toContain('<=');
+    expect(line.text).not.toContain('&lt;');
   });
 });
 
@@ -203,7 +225,7 @@ describe('parseBasicProgram — truncated number marker', () => {
     const mem = buildBasicMemory([
       { num: 10, text: [0xEA, 0x41, 0x0E, 0x00] }, // REM A 0x0E <only 1 trailing byte>
     ]);
-    const result = parseBasicProgram(mem);
+    const result = programText(mem);
     expect(typeof result).toBe('string');
     expect(result).toContain('A');
   });
@@ -214,7 +236,7 @@ describe('parseBasicProgram — embedded characters', () => {
     const mem = buildBasicMemory([
       { num: 10, text: [0xEA, 0x41, 0x0A, 0x42] }, // REM A␤B
     ]);
-    const result = parseBasicProgram(mem);
+    const result = programText(mem);
     expect(result).toContain('↵');
   });
 
@@ -222,7 +244,7 @@ describe('parseBasicProgram — embedded characters', () => {
     const mem = buildBasicMemory([
       { num: 10, text: [0xEA, 0x01, 0x1F] },
     ]);
-    const result = parseBasicProgram(mem);
+    const result = programText(mem);
     expect(result).toContain('[01]');
     expect(result).toContain('[1F]');
   });
@@ -241,7 +263,7 @@ describe('parseBasicProgram — end-of-program markers', () => {
     mem[progAddr + 6] = 0x80;
     const varsAddr = progAddr + 16;
     mem[0x5C4B] = varsAddr & 0xFF; mem[0x5C4C] = (varsAddr >> 8) & 0xFF;
-    const result = parseBasicProgram(mem);
+    const result = programText(mem);
     expect(result).toContain('10');
     expect(result).toContain('RUN');
   });
@@ -255,7 +277,7 @@ describe('parseBasicProgram — end-of-program markers', () => {
     // Line claims length 0xFFFF — must NOT be parsed and must NOT hang.
     mem[progAddr + 0] = 0x00; mem[progAddr + 1] = 0x0A;
     mem[progAddr + 2] = 0xFF; mem[progAddr + 3] = 0xFF;
-    const result = parseBasicProgram(mem);
+    const result = programText(mem);
     // Either renders nothing or the empty-program fallback — but doesn't crash.
     expect(typeof result).toBe('string');
   });
@@ -276,41 +298,41 @@ function buildVarsMemory(varBytes: number[]): Uint8Array {
 }
 
 describe('parseBasicVariables — empty/invalid', () => {
-  it('returns no-variables message when VARS is 0', () => {
+  it('returns an empty list when VARS is 0', () => {
     const mem = new Uint8Array(65536);
-    expect(parseBasicVariables(mem)).toContain('no variables');
+    expect(parseBasicVariables(mem)).toEqual([]);
   });
 
-  it('returns no-variables when VARS >= E_LINE', () => {
+  it('returns an empty list when VARS >= E_LINE', () => {
     const mem = new Uint8Array(65536);
     mem[0x5C4B] = 0x00; mem[0x5C4C] = 0x80;
     mem[0x5C59] = 0x00; mem[0x5C5A] = 0x70;
-    expect(parseBasicVariables(mem)).toContain('no variables');
+    expect(parseBasicVariables(mem)).toEqual([]);
   });
 
-  it('returns no-variables when the area starts with the 0x80 end marker', () => {
+  it('returns an empty list when the area starts with the 0x80 end marker', () => {
     const mem = buildVarsMemory([]); // helper writes 0x80 at varsAddr
-    expect(parseBasicVariables(mem)).toContain('no variables defined');
+    expect(parseBasicVariables(mem)).toEqual([]);
   });
 });
 
 describe('parseBasicVariables — simple numeric (positive/negative/zero)', () => {
   it('parses a single-letter numeric variable a = 42', () => {
     const mem = buildVarsMemory([0x61, ...intNumber(42)]);
-    const result = parseBasicVariables(mem);
+    const result = varsText(mem);
     expect(result).toContain('a');
     expect(result).toContain('= 42');
   });
 
   it('handles negative integer correctly (uses 2-byte signed form)', () => {
     const mem = buildVarsMemory([0x61, ...intNumber(-7)]);
-    const result = parseBasicVariables(mem);
+    const result = varsText(mem);
     expect(result).toContain('-7');
   });
 
   it('handles zero', () => {
     const mem = buildVarsMemory([0x61, ...intNumber(0)]);
-    const result = parseBasicVariables(mem);
+    const result = varsText(mem);
     expect(result).toMatch(/=\s*0(?!\d)/);
   });
 
@@ -320,7 +342,7 @@ describe('parseBasicVariables — simple numeric (positive/negative/zero)', () =
       0x62, ...intNumber(2),
       0x63, ...intNumber(3),
     ]);
-    const result = parseBasicVariables(mem);
+    const result = varsText(mem);
     expect(result).toContain('a');
     expect(result).toContain('= 1');
     expect(result).toContain('b');
@@ -334,22 +356,23 @@ describe('parseBasicVariables — strings', () => {
   it('parses a$ = "hi"', () => {
     // String var: 0x40 | letter-offset. 'a' offset = 1, so byte = 0x41.
     const mem = buildVarsMemory([0x41, 0x02, 0x00, 0x68, 0x69]);
-    const result = parseBasicVariables(mem);
+    const result = varsText(mem);
     expect(result).toMatch(/[Aa]\$/);
     expect(result).toContain('"hi"');
   });
 
-  it('escapes HTML metacharacters in string contents', () => {
+  it('returns string contents as raw text, not HTML entities', () => {
+    // The parser returns the raw string; the pane escapes it on render. This is
+    // the multi-char-name XSS fix generalised: no field is HTML-encoded here.
     const mem = buildVarsMemory([0x41, 0x03, 0x00, 0x3C, 0x26, 0x3E]);
-    const result = parseBasicVariables(mem);
-    expect(result).toContain('&lt;');
-    expect(result).toContain('&amp;');
-    expect(result).toContain('&gt;');
+    const [v] = parseBasicVariables(mem);
+    expect(v.value).toBe('<&>');
+    expect(v.value).not.toContain('&lt;');
   });
 
   it('handles empty string a$ = ""', () => {
     const mem = buildVarsMemory([0x41, 0x00, 0x00]);
-    const result = parseBasicVariables(mem);
+    const result = varsText(mem);
     expect(result).toContain('""');
   });
 });
@@ -358,7 +381,7 @@ describe('parseBasicVariables — arrays', () => {
   it('shows numeric array as a name + [array] marker', () => {
     // Numeric array: top 3 bits = 100. Array A() = 0x81. dataLen=0 for the test.
     const mem = buildVarsMemory([0x81, 0x00, 0x00]);
-    const result = parseBasicVariables(mem);
+    const result = varsText(mem);
     expect(result).toContain('[array]');
     expect(result).toMatch(/[Aa]\(\)/);
   });
@@ -366,7 +389,7 @@ describe('parseBasicVariables — arrays', () => {
   it('shows string array as a$() with [array] marker', () => {
     // String array: top 3 bits = 110. A$() = 0xC1. dataLen=0.
     const mem = buildVarsMemory([0xC1, 0x00, 0x00]);
-    const result = parseBasicVariables(mem);
+    const result = varsText(mem);
     expect(result).toContain('[array]');
     expect(result).toMatch(/[Aa]\$\(\)/);
   });
@@ -383,7 +406,7 @@ describe('parseBasicVariables — FOR-NEXT control', () => {
       // The parser also reads "looping line + statement" extras in real
       // ROMs but the current parser stops at 18 bytes — that's what we test.
     ]);
-    const result = parseBasicVariables(mem);
+    const result = varsText(mem);
     expect(result).toMatch(/=\s*1\b/);
     expect(result).toContain('TO 10');
     expect(result).toContain('STEP 1');
@@ -399,7 +422,7 @@ describe('parseBasicProgram — token spacing', () => {
     const mem = buildBasicMemory([
       { num: 10, text: [0xF5, 0xA5] },
     ]);
-    const result = parseBasicProgram(mem);
+    const result = programText(mem);
     expect(result).toContain('PRINT RND');
     expect(result).not.toContain('PRINT  RND');
   });
@@ -409,7 +432,7 @@ describe('parseBasicProgram — token spacing', () => {
     const mem = buildBasicMemory([
       { num: 10, text: [0xF1, 0x61, 0x3D, 0x31] },
     ]);
-    const result = parseBasicProgram(mem);
+    const result = programText(mem);
     expect(result).toContain('LET a=1');
   });
 });
@@ -418,7 +441,7 @@ describe('parse5ByteNumber — floating-point', () => {
   // We exercise it indirectly via a numeric variable.
   function readVar(bytes5: number[]): string {
     const mem = buildVarsMemory([0x61, ...bytes5]);
-    return parseBasicVariables(mem);
+    return varsText(mem);
   }
 
   it('decodes PI ≈ 3.14159…', () => {
@@ -455,7 +478,7 @@ describe('parse5ByteNumber — integer-form strictness', () => {
     // value = b2|b3<<8 = 0x42, displaying as "66". New code falls through
     // to FP — which for exp=0 yields a vanishingly small number, NOT '66'.
     const mem = buildVarsMemory([0x61, 0x00, 0x50, 0x42, 0x00, 0x00]);
-    const result = parseBasicVariables(mem);
+    const result = varsText(mem);
     expect(result).not.toContain('= 66');
   });
 });
@@ -473,7 +496,7 @@ describe('parseBasicVariables — array dimensions', () => {
       0x05, 0x00, // dim 0 = 5
       ...elements,
     ]);
-    const result = parseBasicVariables(mem);
+    const result = varsText(mem);
     expect(result).toMatch(/[Aa]\(5\)/);
   });
 
@@ -490,7 +513,7 @@ describe('parseBasicVariables — array dimensions', () => {
       0x03, 0x00,
       ...elements,
     ]);
-    const result = parseBasicVariables(mem);
+    const result = varsText(mem);
     expect(result).toMatch(/[Bb]\(2,3\)/);
   });
 
@@ -498,7 +521,7 @@ describe('parseBasicVariables — array dimensions', () => {
     // dataLen=5 but dimCount=5 requires 1 + 2*5 = 11 bytes → early return of []
     // → array shown as A() with no dimension sizes
     const mem = buildVarsMemory([0x81, 5, 0, 5, 0x01, 0x00, 0x02, 0x00]);
-    const result = parseBasicVariables(mem);
+    const result = varsText(mem);
     expect(result).toMatch(/[Aa]\(\)/);
   });
 
@@ -507,7 +530,7 @@ describe('parseBasicVariables — array dimensions', () => {
     // The first dim's second byte falls exactly at eLineAddr → break fires.
     // eLineAddr = varsAddr + 4 + 1 = varsAddr + 5; lo+1 = varsAddr+5 = end.
     const mem = buildVarsMemory([0x81, 3, 0, 1]);
-    const result = parseBasicVariables(mem);
+    const result = varsText(mem);
     // dims are empty (break before reading any dim) → shows as A()
     expect(result).toMatch(/[Aa]\(\)/);
   });
@@ -525,7 +548,7 @@ describe('parseBasicVariables — array dimensions', () => {
       0x0A, 0x00,
       ...stringBytes,
     ]);
-    const result = parseBasicVariables(mem);
+    const result = varsText(mem);
     expect(result).toMatch(/[Ss]\$\(2,10\)/);
   });
 });
@@ -534,9 +557,8 @@ describe('parseBasicVariables — robustness', () => {
   it('stops on an unknown variable-type byte rather than looping forever', () => {
     // 0x00 has typeFlags 0x00 — none of the if-branches match.
     const mem = buildVarsMemory([0x00, 0x00, 0x00]);
-    const result = parseBasicVariables(mem);
-    // The parser breaks → no lines were appended → fallback message.
-    expect(result).toContain('no variables defined');
+    // The parser breaks immediately → no variables parsed.
+    expect(parseBasicVariables(mem)).toEqual([]);
   });
 });
 
@@ -547,7 +569,7 @@ describe('parseBasicVariables — multi-char numeric variable', () => {
   it('parses a two-letter variable ab = 5', () => {
     // first byte = 0xA0 | ('a'-0x60) = 0xA1; 'b' | 0x80 = 0xE2
     const mem = buildVarsMemory([0xA1, 0xE2, ...intNumber(5)]);
-    const result = parseBasicVariables(mem);
+    const result = varsText(mem);
     expect(result).toContain('ab');
     expect(result).toContain('= 5');
   });
@@ -556,7 +578,7 @@ describe('parseBasicVariables — multi-char numeric variable', () => {
     // first byte = 0xA0 | ('x'-0x60) = 0xA0|0x18 = 0xB8
     // middle char 'y' = 0x79 (bit 7 clear); last 'z' | 0x80 = 0xFA
     const mem = buildVarsMemory([0xB8, 0x79, 0xFA, ...intNumber(99)]);
-    const result = parseBasicVariables(mem);
+    const result = varsText(mem);
     expect(result).toContain('xyz');
     expect(result).toContain('= 99');
   });
@@ -566,9 +588,20 @@ describe('parseBasicVariables — multi-char numeric variable', () => {
       0xA1, 0xE2, ...intNumber(1),  // ab = 1
       0xA3, 0xE4, ...intNumber(2),  // cd = 2
     ]);
-    const result = parseBasicVariables(mem);
+    const result = varsText(mem);
     expect(result).toContain('ab');
     expect(result).toContain('cd');
+  });
+
+  it('returns a name containing < verbatim, unescaped (the XSS fix)', () => {
+    // Multi-char name bytes are read straight from RAM, so a crafted snapshot
+    // could spell "a<b". The OLD code spliced the name into an innerHTML string
+    // without escaping — a stored-XSS hole. The parser must now return the raw
+    // name as data; escaping happens only at render time (Solid interpolation).
+    const mem = buildVarsMemory([0xA1, 0x3C, 0xE2, ...intNumber(1)]); // a<b = 1
+    const [v] = parseBasicVariables(mem);
+    expect(v.name).toBe('a<b');
+    expect(v.name).not.toContain('&lt;');
   });
 });
 
@@ -587,7 +620,7 @@ describe('parseBasicVariables — FOR-NEXT occupies exactly 19 bytes', () => {
       0x00,               // statement number within that line
       0x61, ...intNumber(42), // a = 42, immediately following
     ]);
-    const result = parseBasicVariables(mem);
+    const result = varsText(mem);
     expect(result).toContain('TO 10');
     // 'a = 42' must appear — only possible when FOR-NEXT advances 19 bytes.
     expect(result).toContain('= 42');

@@ -21,7 +21,7 @@ import {
   currentModel, setCurrentModel, saveModel, emulationPaused, setEmulationPaused, setTurboMode,
 } from '@/state/machine-state.ts';
 import {
-  setDisasmText, setSysvarHtml, setBasicHtml, setBasicVarsHtml, setTracing,
+  setDisasmText, setSysvarHtml, setBasicListing, setBasicVars, setTracing,
 } from '@/state/debug-state.ts';
 import { transcribeMode, setTranscribeMode } from '@/state/activity-state.ts';
 import {
@@ -182,8 +182,8 @@ export function unpause(): void {
 function clearDebugPanels(): void {
   setDisasmText('');
   setSysvarHtml('');
-  setBasicHtml('');
-  setBasicVarsHtml('');
+  setBasicListing([]);
+  setBasicVars([]);
 }
 
 // ── Pause / focus-pause ────────────────────────────────────────────────────
