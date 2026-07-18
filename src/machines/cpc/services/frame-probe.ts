@@ -14,7 +14,7 @@ import type {
 } from '@/machines/machine.ts';
 import type { CpcMachine } from '@/machines/cpc/cpc-machine.ts';
 import type { OcrGridName } from '@/debug/screen-text.ts';
-import { parseLocomotiveBasic } from '@/debug/cpc-basic-parser.ts';
+import { parseLocomotiveBasic } from '@/basic/cpc-basic-parser.ts';
 import { hex16 } from '@/utils/hex.ts';
 
 /**

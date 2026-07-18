@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseBasicProgram, parseBasicVariables } from '@/debug/basic-parser.ts';
+import { parseBasicProgram, parseBasicVariables } from '@/basic/sinclair-basic-parser';
 
 /**
  * Sinclair BASIC stored-number format: ASCII digits, then a single

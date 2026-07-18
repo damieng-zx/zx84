@@ -134,7 +134,7 @@ vi.mock('@/debug/z80-disasm.ts', () => ({
   disassembleAroundPC: vi.fn(() => []),
   formatDisasmHtml: vi.fn(() => ''),
 }));
-vi.mock('@/debug/basic-parser.ts', () => ({
+vi.mock('@/basic/sinclair-basic-parser.ts', () => ({
   parseBasicProgram: vi.fn(() => ''),
   parseBasicVariables: vi.fn(() => ''),
 }));

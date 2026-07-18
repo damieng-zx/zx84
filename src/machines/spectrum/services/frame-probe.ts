@@ -19,7 +19,7 @@ import type { WD179x } from '@/cores/wd179x.ts';
 import type { UPD765A } from '@/cores/upd765a.ts';
 import type { FontSource, OcrGridName } from '@/debug/screen-text.ts';
 import { isPlus2AClass } from '@/machines/spectrum/models.ts';
-import { parseBasicProgram, parseBasicVariables } from '@/debug/basic-parser.ts';
+import { parseBasicProgram, parseBasicVariables } from '@/basic/sinclair-basic-parser';
 import { hex8 } from '@/utils/hex.ts';
 
 /** Compute a drive-panel slot's LED state: 0 off, 1 motor, 2 read, 3 write.
