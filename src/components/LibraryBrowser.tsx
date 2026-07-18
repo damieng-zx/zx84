@@ -1,7 +1,10 @@
 import { createMemo, createSignal, createEffect, onMount, Show, For } from 'solid-js';
 import { HiOutlineEllipsisVertical, HiOutlinePlay } from 'solid-icons/hi';
 import { DropDownMenuButton, type MenuItem } from '@/components/DropDownMenuButton.tsx';
-import { loadFile, currentModel, switchModel, autoBootLoad, ejectDisk, setStatus, cartridgeName } from '@/emulator.ts';
+import { loadFile, ejectDisk } from '@/shell/media.ts';
+import { switchModel, autoBootLoad } from '@/shell/lifecycle.ts';
+import { setStatus } from '@/shell/context.ts';
+import { currentModel, cartridgeName } from '@/state/machine-state.ts';
 import { tapeName } from '@/state/tape-state.ts';
 import { currentDiskName } from '@/state/disk-state.ts';
 import {

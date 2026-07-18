@@ -192,7 +192,7 @@ let _spdSampleWall = 0;     // performance.now() at the last accepted sample
 let _spdMultiplier = 0;     // last measured ×realtime (0 = no valid sample yet)
 
 // Sustained tape-turbo engine state as of the last probe sample (feeds the
-// clock label; replaces the old direct spectrum.tapeTurboActive read).
+// clock label; sourced from FrameIndicators.tapeTurbo, not any concrete machine).
 let lastTapeTurbo = false;
 
 /** Sample emulated T-states against wall-clock to derive a realtime multiplier.

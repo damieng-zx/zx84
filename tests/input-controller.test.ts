@@ -72,13 +72,11 @@ vi.mock('@/store/settings.ts', () => ({
     mockState.persistSettingCalls.push({ key, value }),
 }));
 
-vi.mock('@/emulator.ts', () => ({
-  get spectrum() {
-    return mockState.spectrumPresent ? {} : null;
-  },
-  // The input controller dispatches through machine.services.input (the
-  // machine's own InputService); these tests exercise the Spectrum path, so
-  // report a spectrum-kind machine with an input service when present.
+// The input controller reads the active `machine` from the shell context and
+// dispatches through machine.services.input (the machine's own InputService);
+// these tests exercise the Spectrum path, so report a spectrum-kind machine
+// with an input service when present.
+vi.mock('@/shell/context.ts', () => ({
   get machine() {
     return mockState.spectrumPresent ? {
       kind: 'spectrum',
@@ -99,6 +97,9 @@ vi.mock('@/emulator.ts', () => ({
       },
     } : null;
   },
+}));
+
+vi.mock('@/shell/media.ts', () => ({
   joyPressForType: (dir: string, pressed: boolean, type: string) => {
     mockState.joyPressCalls.push({ dir, pressed, type });
   },

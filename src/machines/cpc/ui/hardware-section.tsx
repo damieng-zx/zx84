@@ -5,10 +5,12 @@
  */
 
 import { Show } from 'solid-js';
+import { machine, setStatus } from '@/shell/context.ts';
+import { switchModel } from '@/shell/lifecycle.ts';
+import { fulfillAuxRoms } from '@/shell/rom.ts';
 import {
-  currentModel, switchModel, machine, fulfillAuxRoms, setStatus,
-  multifaceRomFailed, paradosRomFailed,
-} from '@/emulator.ts';
+  currentModel, multifaceRomFailed, paradosRomFailed,
+} from '@/state/machine-state.ts';
 import type { CpcMachine } from '@/machines/cpc/cpc-machine.ts';
 import { cpcHasDisk } from '@/machines/cpc/models.ts';
 import * as settings from '@/store/settings.ts';

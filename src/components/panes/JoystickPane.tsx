@@ -2,7 +2,7 @@ import { createSignal, Show } from 'solid-js';
 import { Pane } from '@/components/Pane.tsx';
 import { HiOutlineChevronUp, HiOutlineChevronDown, HiOutlineChevronLeft, HiOutlineChevronRight } from 'solid-icons/hi';
 import { joyP1, joyP2, joyMapP1, joyMapP2, setJoyP1, setJoyP2, setJoyMapP1, setJoyMapP2, persistSetting, gamepadConfigP1, gamepadConfigP2, setGamepadConfigP1, setGamepadConfigP2, resetSettingsGroup } from '@/store/settings.ts';
-import { joyPressForType } from '@/emulator.ts';
+import { joyPressForType } from '@/shell/media.ts';
 import { machineCaps } from '@/state/machine-caps.ts';
 
 // On the Spectrum a joystick can present to the CPU through several interface

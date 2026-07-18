@@ -11,7 +11,8 @@ import {
   renderer,
   persistSetting, resetSettingsGroup,
 } from '@/store/settings.ts';
-import { machine, applyDisplaySettings } from '@/emulator.ts';
+import { machine } from '@/shell/context.ts';
+import { applyDisplaySettings } from '@/shell/settings.ts';
 
 interface MonitorPreset {
   maskType: number;

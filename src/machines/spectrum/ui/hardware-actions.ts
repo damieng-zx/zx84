@@ -5,7 +5,9 @@
  * directly; the shell contributes only the generic aux-ROM loader and handles.
  */
 
-import { spectrum, loadAuxRom, setStatus } from '@/emulator.ts';
+import { loadAuxRom } from '@/shell/rom.ts';
+import { setStatus } from '@/shell/context.ts';
+import { activeSpectrum } from '@/machines/spectrum/ui/active.ts';
 import type { Spectrum } from '@/machines/spectrum/spectrum.ts';
 import {
   multifaceAuxRom, vtx5000AuxRom, plusDAuxRom, if1AuxRom, betaAuxRom,
@@ -19,10 +21,11 @@ export const loadBetaDiskROM = (s: Spectrum) => loadAuxRom(betaAuxRom(s));
 
 /** Press the Multiface's red button (NMI). */
 export function triggerNMI(): void {
-  if (!spectrum) return;
-  const mf = spectrum.multiface;
+  const s = activeSpectrum();
+  if (!s) return;
+  const mf = s.multiface;
   if (!mf.enabled) { setStatus('Multiface not enabled'); return; }
   if (!mf.romLoaded) { setStatus('Multiface ROM not loaded'); return; }
-  mf.pressButton(spectrum.memory, spectrum.cpu, spectrum.memory.slot0Bank);
+  mf.pressButton(s.memory, s.cpu, s.memory.slot0Bank);
   setStatus('Multiface NMI triggered');
 }

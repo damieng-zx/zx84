@@ -7,12 +7,11 @@
 import type { MachineHost } from '@/machines/machine.ts';
 import { entryForModel } from '@/machines/registry.ts';
 import {
-  type SpectrumModel, type MachineModel,
+  type MachineModel,
   romPageSlotCount,
 } from '@/models.ts';
 import { BANK_SIZE } from '@/utils/bank-size.ts';
 import { FloppySound } from '@/media/floppy/floppy-sound.ts';
-import { saveSZXSync, loadSZX, applySZXPaging } from '@/machines/spectrum/snapshots/szx.ts';
 import type { RomPage } from '@/managers/rom-manager.ts';
 import { type TraceMode } from '@/managers/debug-manager.ts';
 import * as settings from '@/store/settings.ts';
@@ -32,7 +31,7 @@ import {
   onFrame, updateRegsOnce, resetSpeedTracking, resetLedActivity, forceSpeedUpdate,
 } from '@/frame-bridge.ts';
 import {
-  machine, spectrum, romData, floppySound, canvasEl,
+  machine, romData, floppySound, canvasEl,
   romManager, debugManager,
   setMachine, setRomData, setFloppySound, setCanvasEl,
   setStatus, setRomStatus, effectiveROMModel, createDisplay,
@@ -135,8 +134,9 @@ export async function createMachine(): Promise<boolean> {
     // firmware ROM set is in place, on machine build only.
     await fulfillAuxRoms(built.bootRoms?.(view) ?? []);
 
-    // HMR state restore is Spectrum-only (snapshot formats); CPC starts fresh.
-    if (spectrum) hmrRestored = await restoreHMRState();
+    // HMR state restore needs a machine that can serialise synchronously
+    // (SnapshotService.saveSync — the Spectrum). CPC/others start fresh.
+    if (built.services.snapshots?.saveSync) hmrRestored = await restoreHMRState();
     if (!hmrRestored) {
       built.start();
     }
@@ -273,24 +273,16 @@ export function resetMachine(): void {
   clearLastFile();
 }
 
-/** ROM address where each model idles waiting for a key — the deterministic
- *  point to fire the auto-boot loader (found by tracing each ROM's key-wait). */
-function bootWaitPc(model: MachineModel): number {
-  if (model === '+2A' || model === '+3') return 0x1875;   // +2A/+3 menu wait loop
-  if (model === '128k' || model === '+2') return 0x0E65;  // 128K/+2 menu wait loop
-  return 0x15DE;                                           // 48K editor WAIT-KEY
-}
-
 /**
  * Reset the machine and arm a one-shot trap to kick off its loader once the ROM
  * reaches its menu/editor key-wait loop. Used by the software library's
- * one-click play. The media must already be mounted.
+ * one-click play. The media must already be mounted. The machine owns the trap
+ * address for its own ROM family (Machine.armBootTrap); machines without a
+ * ROM-loader auto-boot leave the method unimplemented and this is a no-op.
  */
 export function autoBootLoad(method: 'menu' | 'rom48k'): void {
   resetMachine();
-  if (!spectrum) return;
-  spectrum.bootTrapKind = method;
-  spectrum.bootTrapPc = bootWaitPc(currentModel());
+  machine?.armBootTrap?.(method);
 }
 
 export function toggleTurbo(): void {
@@ -432,9 +424,7 @@ export async function init(): Promise<void> {
 }
 
 export function initAudio(): void {
-  if (spectrum && !spectrum['audio'].running) {
-    spectrum['audio'].init();
-  }
+  machine?.initAudio();
 }
 
 // ── HMR state preservation ──────────────────────────────────────────────
@@ -457,21 +447,14 @@ function bytesToBase64(bytes: Uint8Array): string {
  * left off. MUST be fully synchronous (runs from a `beforeunload` handler).
  */
 export function saveHMRState(): void {
-  if (!spectrum || !romData) return;
+  const snapshots = machine?.services.snapshots;
+  if (!snapshots?.saveSync || !romData) return;
 
   try {
-    if (!emulationPaused()) spectrum.stop();
+    if (!emulationPaused()) machine!.stop();
 
-    const ayRegs = spectrum.ay.getRegisters();
-    const szxData = saveSZXSync(
-      spectrum.cpu,
-      spectrum.memory,
-      spectrum.ula.borderColor,
-      currentModel() as SpectrumModel,
-      spectrum.contention.frameStartTStates,
-      ayRegs,
-      spectrum.ay.selectedReg
-    );
+    const szxData = snapshots.saveSync();
+    if (!szxData) return;
 
     const state = {
       snapshot: bytesToBase64(szxData),
@@ -506,25 +489,11 @@ export async function restoreHMRState(): Promise<boolean> {
       data[i] = binary.charCodeAt(i);
     }
 
-    if (!spectrum || !romData) return false;
+    const snapshots = machine?.services.snapshots;
+    if (!snapshots?.restoreSync || !romData) return false;
 
-    spectrum.stop();
-    spectrum.reset();
-    const result = await loadSZX(data, spectrum.cpu, spectrum.memory);
-
-    // Apply paging state for 128K. Shared with the file-load path so the +2A/+3
-    // ROM-bit handling can't drift.
-    applySZXPaging(spectrum.memory, spectrum.variant.hasSpecialPaging, result);
-
-    spectrum.ula.borderColor = result.borderColor;
-    if (result.ayRegs) {
-      spectrum.ay.setRegisters(result.ayRegs);
-      if (result.ayCurrentReg !== undefined) {
-        spectrum.ay.selectedReg = result.ayCurrentReg;
-      }
-    }
-
-    spectrum.start();
+    const ok = await snapshots.restoreSync(data);
+    if (!ok) { localStorage.removeItem(HMR_STATE_KEY); return false; }
 
     localStorage.removeItem(HMR_STATE_KEY);
 

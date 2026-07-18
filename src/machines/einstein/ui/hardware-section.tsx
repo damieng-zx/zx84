@@ -3,7 +3,7 @@
  * to the generic Hardware pane via the UI manifest (`src/components/machine-ui.ts`).
  */
 
-import { setEinsteinXtalDosEnabled } from '@/emulator.ts';
+import { setEinsteinXtalDosEnabled } from '@/shell/media.ts';
 import * as settings from '@/store/settings.ts';
 
 export function EinsteinHardwareSection() {

@@ -3,10 +3,13 @@ import { Pane } from '@/components/Pane.tsx';
 import { DropDownMenuButton } from '@/components/DropDownMenuButton.tsx';
 import { HiOutlineBackward, HiOutlinePlay, HiOutlinePause, HiOutlineStop, HiOutlineEllipsisVertical, HiOutlineChevronLeft, HiOutlineChevronRight, HiOutlineArrowDownTray } from 'solid-icons/hi';
 import {
-  tapeLoaded, tapeName, tapeBlocks, tapePosition, tapePlaying, tapePaused, casBlocks, casPosition,
   tapeRewind, tapeTogglePlay, tapeTogglePause, tapeSetPosition, toggleAutoRewind,
-  ejectTape, loadFile, tapePrev, tapeNext, applyDisplaySettings, saveTape,
-} from '@/emulator.ts';
+  ejectTape, loadFile, tapePrev, tapeNext, saveTape,
+} from '@/shell/media.ts';
+import { applyDisplaySettings } from '@/shell/settings.ts';
+import {
+  tapeLoaded, tapeName, tapeBlocks, tapePosition, tapePlaying, tapePaused, casBlocks, casPosition,
+} from '@/state/tape-state.ts';
 import { machineCaps } from '@/state/machine-caps.ts';
 import { tapeAutoRewind, tapeCollapseBlocks, setTapeCollapseBlocks, tapeFastRom, setTapeFastRom, tapeTurbo, setTapeTurbo, tapeSoundEnabled, setTapeSoundEnabled } from '@/store/settings.ts';
 import { persistSetting, resetSettingsGroup } from '@/store/settings.ts';

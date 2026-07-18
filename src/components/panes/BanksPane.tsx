@@ -1,6 +1,6 @@
 import { Pane } from '@/components/Pane.tsx';
 import { RawHtml } from '@/components/RawHtml.tsx';
-import { banksHtml } from '@/emulator.ts';
+import { banksHtml } from '@/state/debug-state.ts';
 import { machineCaps } from '@/state/machine-caps.ts';
 
 export function BanksPane() {

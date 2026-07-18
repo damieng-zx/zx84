@@ -1,11 +1,13 @@
 import { For, Show, type JSX } from 'solid-js';
 import { Pane } from '@/components/Pane.tsx';
 import {
+  setSystemRom, resetSystemRom, setSystemRomPage, resetSystemRomPage,
+} from '@/shell/rom.ts';
+import { loadFile, ejectCartridge } from '@/shell/media.ts';
+import {
   currentModel, systemRomLabel, systemRomSize, systemRomIsCustom, cartridgeName,
   systemRomPageLabels, systemRomPageSizes, systemRomPageOverridden,
-  setSystemRom, resetSystemRom, setSystemRomPage, resetSystemRomPage,
-  loadFile, ejectCartridge,
-} from '@/emulator.ts';
+} from '@/state/machine-state.ts';
 import type { MachineModel } from '@/models.ts';
 import { machineCaps } from '@/state/machine-caps.ts';
 import type { RomPage } from '@/managers/rom-manager.ts';

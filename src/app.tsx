@@ -34,7 +34,9 @@ import { machineUi } from '@/components/machine-ui.ts';
 import { machineCaps, machineKind } from '@/state/machine-caps.ts';
 import { paneOrder, isPaneUserHidden } from '@/ui/panes.ts';
 import { needsGamepadPolling, scale } from '@/store/settings.ts';
-import { initAudio, init, loadFile, transcribeMode, syncFocusPause } from '@/emulator.ts';
+import { initAudio, init, syncFocusPause } from '@/shell/lifecycle.ts';
+import { loadFile } from '@/shell/media.ts';
+import { transcribeMode } from '@/state/activity-state.ts';
 import { configuringPlayer } from '@/components/panes/JoystickPane.tsx';
 import { InputController } from '@/input-controller.ts';
 

@@ -92,21 +92,15 @@ module.exports = {
       comment:
         'The shell (src/shell) may import the machine SPI + registry (machine.ts, ' +
         'registry.ts), state, store, media, and display — but NOT a concrete machine ' +
-        "folder. It reaches machines through the SPI/services. §3.1/§7.\n" +
-        'Two carve-outs remain for Phase 8+ (each documented at its import site):\n' +
-        ' - spectrum/spectrum: TYPE-ONLY — the shell context`s `spectrum` narrowing ' +
-        '   shim (TODO(P8): HMR snapshot, library boot traps, IF1 blank-format).\n' +
-        ' - spectrum/snapshots/szx: the HMR dev-reload snapshot (a shell-owned dev ' +
-        '   convenience with no service seam; candidates: SnapshotService.saveSync).',
+        'folder. It reaches machines through the SPI/services only. §3.1/§7.\n' +
+        'Phase 8 dissolved the last two carve-outs: the shell-context `spectrum` ' +
+        'narrowing shim (HMR/boot-trap/IF1-format now go through services + narrow ' +
+        'SPI hooks) and the direct SZX import (now SnapshotService.saveSync/' +
+        'restoreSync). ZERO exceptions remain — the boundary is a hard error.',
       severity: 'error',
       from: { path: '^src/shell/' },
       to: {
         path: '^src/machines/[^/]+/',
-        pathNot:
-          '^src/machines/(' +
-          'spectrum/spectrum|' +
-          'spectrum/snapshots/szx' +
-          ')\\.ts$',
       },
     },
   ],

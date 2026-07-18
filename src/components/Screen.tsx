@@ -4,7 +4,9 @@
 
 import { createEffect, createSignal, onMount, onCleanup } from 'solid-js';
 import { Toast } from '@/components/Toast.tsx';
-import { setCanvas, machine, transcribeMode, transcribeHtml, transcribeGrid } from '@/emulator.ts';
+import { machine } from '@/shell/context.ts';
+import { setCanvas } from '@/shell/lifecycle.ts';
+import { transcribeMode, transcribeHtml, transcribeGrid } from '@/state/activity-state.ts';
 import { machineDescriptor } from '@/state/machine-caps.ts';
 import { renderer, scale, borderSize, ocrFont, ocrLineHeight, ocrTracking, ocrOffsetX, ocrOffsetY, ocrScaleX, ocrScaleY } from '@/store/settings.ts';
 

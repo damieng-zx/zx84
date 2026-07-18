@@ -5,7 +5,8 @@
  */
 
 import { createEffect, onMount, onCleanup } from 'solid-js';
-import { machine, regsRev } from '@/emulator.ts';
+import { machine } from '@/shell/context.ts';
+import { regsRev } from '@/state/debug-state.ts';
 import { HEX8, HEX16 } from '@/utils/hex.ts';
 
 /** Update text node only if numeric value changed; returns new prev */

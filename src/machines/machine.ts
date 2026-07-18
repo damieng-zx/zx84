@@ -74,6 +74,9 @@ export interface Machine {
   stop(): void;
   destroy(): void;
   reset(): void;
+  /** Initialise the audio pipeline without starting the frame loop (first user
+   *  gesture unlocks the AudioContext). No-op once audio is running. */
+  initAudio(): void;
   setBorderSize(mode: BorderMode): void;
   /** Run one frame (headless / test harness). */
   tick(): void;
@@ -109,6 +112,11 @@ export interface Machine {
   /** Peripheral-ROM overlays applied AFTER reset, on machine build only (the CPC
    *  ParaDOS overlay needs the firmware ROM set already in place). */
   bootRoms?(view: SettingsView): AuxRomRequest[];
+  /** Arm the software library's one-click auto-boot trap: fire the loader once
+   *  the freshly-reset ROM reaches its menu/editor key-wait loop. The machine
+   *  owns the trap address(es) for its own ROM family. Machines without a
+   *  ROM-loader auto-boot omit this (the shell keys off its presence). */
+  armBootTrap?(kind: 'menu' | 'rom48k'): void;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -428,6 +436,11 @@ export interface DiskService {
   /** Flip a "flippy" double-sided image to its other side; returns the new
    *  side (0/1), or null when the drive's media isn't flippy. */
   flipSide?(id: string): number | null;
+  /** Format a fresh blank cartridge/disk directly in the drive (IF1 microdrive
+   *  FORMAT — a machine mechanism with no generic image codec) and return the
+   *  serialized bytes + filename for the shell to persist, or null when the
+   *  drive doesn't support in-place formatting. */
+  formatBlank?(id: string, name?: string): { data: Uint8Array; name: string } | null;
 }
 
 export interface RomSlotInfo {
@@ -470,6 +483,14 @@ export interface SnapshotService {
   apply(data: Uint8Array, filename: string): Promise<SnapshotApplyResult>;
   /** Serialize current state (async: some formats compress). */
   save(ext: string): Promise<Uint8Array>;
+  /** Synchronous full-state snapshot for the HMR dev-reload path (must run from
+   *  a `beforeunload` handler). null when the machine can't serialise
+   *  synchronously; its presence also gates whether the shell attempts HMR
+   *  resume at all. */
+  saveSync?(): Uint8Array | null;
+  /** Restore a saveSync() snapshot on the SAME model (HMR resume): no model
+   *  upgrade, no persistence, no reflection. Returns true on success. */
+  restoreSync?(data: Uint8Array): Promise<boolean>;
 }
 
 // ── Debug service ───────────────────────────────────────────────────────────
@@ -753,5 +774,10 @@ export interface MachineEntry {
   /** Default system-ROM image URLs, fetched and concatenated in order by the
    *  shared rom-manager machinery. */
   romSources(model: MachineModel): readonly string[];
+  /** Classify a raw system-ROM image dropped on the ROM pane to the model that
+   *  should host it (inferred from its size + the current model), or null when
+   *  this machine family can't accept the image. Keeps ROM-size→model knowledge
+   *  in the machine that owns it; the shell iterates entries. */
+  detectModelForRom?(data: Uint8Array, current: MachineModel): MachineModel | null;
 }
 

@@ -5,7 +5,7 @@
 
 import { render } from 'solid-js/web';
 import { App } from '@/app.tsx';
-import { saveHMRState } from '@/emulator.ts';
+import { saveHMRState } from '@/shell/lifecycle.ts';
 import '@/styles.css';
 
 const root = document.getElementById('app')!;

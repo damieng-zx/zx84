@@ -2,8 +2,8 @@ import { createSignal } from 'solid-js';
 import { Pane } from '@/components/Pane.tsx';
 import { HiOutlineArrowDownTray, HiOutlineXMark } from 'solid-icons/hi';
 import { fontName, setFontName, persistSetting, resetSettingsGroup } from '@/store/settings.ts';
-import { setStatus, loadFontStore, saveFontStore, spectrum } from '@/emulator.ts';
-import type { FontEntry } from '@/emulator.ts';
+import { machine, setStatus } from '@/shell/context.ts';
+import { loadFontStore, saveFontStore, type FontEntry } from '@/shell/lifecycle.ts';
 import { openFile } from '@/ui/file-picker.ts';
 
 const COPYRIGHT_SIG = [0x3C, 0x42, 0x99, 0xA1, 0xA1, 0x99, 0x42, 0x3C];
@@ -130,8 +130,8 @@ export function FontPane() {
   }
 
   function huntFonts() {
-    if (!spectrum) { setStatus('No emulator running'); return; }
-    const mem = spectrum.memory.snapshot();
+    if (!machine || machine.kind !== 'spectrum') { setStatus('No emulator running'); return; }
+    const mem = machine.memory.snapshot();
     const store = loadFontStore();
     const existingIds = new Set(store.map(e => e.id));
     const existingAddrs = new Set(store.filter(e => e.address != null).map(e => e.address!));

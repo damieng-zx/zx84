@@ -1,7 +1,7 @@
 /**
  * CPC MediaService — the machine's own file routing, ported verbatim from the
- * shell's per-extension CPC cascade (emulator.loadFile's asCpc branch, plus
- * loadCpcSnapshot and the CPC half of loadDiskToUnit).
+ * shell's former per-extension CPC cascade (the CPC branch of the old
+ * emulator.loadFile, plus loadCpcSnapshot and the CPC half of loadDiskToUnit).
  *
  * The service mutates the machine only. Signals, persistence and downloads stay
  * shell reflection, keyed off MountResult.target.

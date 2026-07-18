@@ -12,8 +12,8 @@
  *     latch pressed while another is already latched must deliver a *brief*
  *     chord — both bits down together, then released — not a permanent latch.
  *
- * The hook reads the `spectrum` global and lives on a Solid reactive owner, so
- * each test mocks `@/emulator.ts` and runs inside `createRoot`.
+ * The hook reads the active Spectrum via `activeSpectrum()` and lives on a Solid
+ * reactive owner, so each test mocks that helper and runs inside `createRoot`.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -21,7 +21,7 @@ import { createRoot } from 'solid-js';
 
 // A minimal, reference-counted stand-in for SpectrumKeyboard: enough for the
 // hook, which only calls setKey() and (in its rAF poll) reads rows.
-vi.mock('@/emulator.ts', () => {
+vi.mock('@/machines/spectrum/ui/active.ts', () => {
   const rows = new Uint8Array(8).fill(0xff);
   const counts = Array.from({ length: 8 }, () => new Array(5).fill(0));
   const keyboard = {
@@ -36,13 +36,13 @@ vi.mock('@/emulator.ts', () => {
       for (const row of counts) row.fill(0);
     },
   };
-  return { spectrum: { keyboard } };
+  return { activeSpectrum: () => ({ keyboard }) };
 });
 
 import { useKeyboard, CS, SS } from '@/machines/spectrum/ui/keyboard/keyboard-common.tsx';
-import { spectrum } from '@/emulator.ts';
+import { activeSpectrum } from '@/machines/spectrum/ui/active.ts';
 
-const kb = () => spectrum!.keyboard;
+const kb = () => activeSpectrum()!.keyboard;
 const down = (r: number, b: number) => (kb().rows[r] & (1 << b)) === 0;
 
 // The hook's onMount poll uses requestAnimationFrame; stub it to a no-op so the

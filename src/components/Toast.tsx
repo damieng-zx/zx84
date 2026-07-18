@@ -9,7 +9,7 @@
  */
 
 import { createEffect, createSignal, Show, onCleanup } from 'solid-js';
-import { statusText } from '@/emulator.ts';
+import { statusText } from '@/state/machine-state.ts';
 
 // Redundant lifecycle messages — never worth a toast.
 const SUPPRESS = new Set(['Running', 'Reset', 'ROM loaded']);

@@ -11,7 +11,8 @@
 
 import { For, Show } from 'solid-js';
 import { Pane } from '@/components/Pane.tsx';
-import { spectrum, currentModel } from '@/emulator.ts';
+import { activeSpectrum } from '@/machines/spectrum/ui/active.ts';
+import { currentModel } from '@/state/machine-state.ts';
 import { is128kClass } from '@/machines/spectrum/models.ts';
 import { Block, useKeyboard, type KeyboardController, type LatchMode } from './keyboard-common.tsx';
 import { KeyboardPlus } from './KeyboardPlus.tsx';
@@ -126,7 +127,7 @@ function KeyCell(props: { d: KeyDef; kbd: KeyboardController }) {
         aria-pressed={pressed()}
         aria-label={d.main.replace('\n', ' ')}
         onPointerDown={(e) => {
-          if (!spectrum) return;
+          if (!activeSpectrum()) return;
           e.preventDefault();
           e.currentTarget.setPointerCapture(e.pointerId);
           props.kbd.onDown(pos, d.latch);

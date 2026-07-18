@@ -88,6 +88,13 @@ export abstract class BaseMachine {
   /** Live AudioContext once audio is initialised (drive-sound synth attach). */
   get audioContext(): AudioContext | null { return this.audio.ctx; }
 
+  /** Unlock the AudioContext on the first user gesture without starting the
+   *  frame loop (browsers require a gesture before audio may run). No-op once
+   *  audio is already running. */
+  initAudio(): void {
+    if (!this.audio.running) void this.audio.init();
+  }
+
   // ── Lifecycle ────────────────────────────────────────────────────────────
 
   async start(): Promise<void> {

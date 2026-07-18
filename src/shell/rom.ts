@@ -11,8 +11,9 @@
 import type { AuxRomRequest } from '@/machines/machine.ts';
 import {
   type SpectrumModel, type MachineModel,
-  is128kClass, isPlus2AClass, isCpcModel, romPageSlotCount,
+  romPageSlotCount,
 } from '@/models.ts';
+import { registry } from '@/machines/registry.ts';
 import { BANK_SIZE } from '@/utils/bank-size.ts';
 import { defaultRomPageLabel, type RomPage } from '@/managers/rom-manager.ts';
 import { dbSave, dbLoad } from '@/store/persistence.ts';
@@ -130,16 +131,17 @@ export async function resetSystemRomPage(page: RomPage): Promise<void> {
 export async function applyROM(data: Uint8Array, fileLabel: string): Promise<void> {
   setRomData(data);
 
-  // Spectrum ROM-image drop. A CPC active here falls back to a 128K default.
-  const cur: SpectrumModel = isCpcModel(currentModelValue()) ? '128k' : currentModelValue() as SpectrumModel;
-  let detectedModel: SpectrumModel;
-  if (data.length >= 65536) {
-    detectedModel = isPlus2AClass(cur) ? cur : '+2A';
-  } else if (data.length >= 32768) {
-    detectedModel = is128kClass(cur) ? cur : '128k';
-  } else if (data.length >= 16384) {
-    detectedModel = '48k';
-  } else {
+  // Which machine+model a raw ROM image lands on is machine knowledge: ask each
+  // registered family to classify it (ROM-size → model); the first that claims
+  // it wins. Today only the Spectrum family does — a raw image always boots a
+  // Spectrum, defaulting to 128K when a CPC is active.
+  const current = currentModelValue();
+  let detectedModel: MachineModel | null = null;
+  for (const entry of registry) {
+    detectedModel = entry.detectModelForRom?.(data, current) ?? null;
+    if (detectedModel) break;
+  }
+  if (!detectedModel) {
     setStatus(`ROM too small (${data.length} bytes)`);
     return;
   }

@@ -9,7 +9,7 @@ import {
   ayAntialias, setAyAntialias,
   persistSetting, resetSettingsGroup,
 } from '@/store/settings.ts';
-import { applyDisplaySettings } from '@/emulator.ts';
+import { applyDisplaySettings } from '@/shell/settings.ts';
 import { machineCaps } from '@/state/machine-caps.ts';
 import type { AYStereoMode, AYAntialiasMode } from '@/cores/ay-3-8910.ts';
 

@@ -8,7 +8,9 @@ import {
   einsteinColorMap, setEinsteinColorMap,
   persistSetting, resetSettingsGroup,
 } from '@/store/settings.ts';
-import { machine, switchRenderer, applyDisplaySettings } from '@/emulator.ts';
+import { machine } from '@/shell/context.ts';
+import { switchRenderer } from '@/shell/media.ts';
+import { applyDisplaySettings } from '@/shell/settings.ts';
 import { machineCaps } from '@/state/machine-caps.ts';
 
 // Scaling algorithms and their native scale factors.

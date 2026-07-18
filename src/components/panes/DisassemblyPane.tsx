@@ -9,11 +9,12 @@ import {
   HiOutlineForward, HiOutlinePencilSquare,
 } from 'solid-icons/hi';
 import {
-  disasmText, tracing, emulationPaused,
   stepInto, stepOver, stepOut, stepFrame,
   startTrace, stopTrace, copyCpuState,
   togglePause, toggleBreakpoint, runTo,
-} from '@/emulator.ts';
+} from '@/shell/lifecycle.ts';
+import { disasmText, tracing } from '@/state/debug-state.ts';
+import { emulationPaused } from '@/state/machine-state.ts';
 import { machineCaps } from '@/state/machine-caps.ts';
 
 // Execution tracing isn't implemented for the CPC (CpcMachine.startTrace is a

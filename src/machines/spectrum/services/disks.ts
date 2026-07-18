@@ -210,4 +210,16 @@ export class SpectrumDiskService implements DiskService {
   /** Record a drive's mounted-media name without going through insert() —
    *  used by shell paths that mutate the FDC directly (blank inserts). */
   noteName(id: string, name: string): void { this.names.set(id, name); }
+
+  /** Format a fresh blank microdrive cartridge in place (IF1 FORMAT mechanism —
+   *  no image codec produces one). Returns the serialized .mdr + filename for
+   *  the shell to persist, or null when the id isn't an enabled microdrive. */
+  formatBlank(id: string, name = 'CART'): { data: Uint8Array; name: string } | null {
+    if (!id.startsWith('mdv:') || !this.s.interface1.enabled) return null;
+    const drive = this.s.interface1.drives[Number(id.slice(4))];
+    drive.format(name);
+    const filename = `${name}.mdr`;
+    this.names.set(id, filename);
+    return { data: drive.toMDR(), name: filename };
+  }
 }

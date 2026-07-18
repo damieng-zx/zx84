@@ -4,7 +4,7 @@ import { HiOutlineFolderOpen, HiOutlineArrowDownTray, HiOutlineRectangleStack } 
 import {
   loadFile, loadableExtensions, saveSnapshot, saveCpcSnapshot, saveScreenshot,
   saveRAM,
-} from '@/emulator.ts';
+} from '@/shell/media.ts';
 import { machineCaps } from '@/state/machine-caps.ts';
 import { toggleLibrary, libraryVisible } from '@/ui/panes.ts';
 import { LibraryBrowser } from '@/components/LibraryBrowser.tsx';

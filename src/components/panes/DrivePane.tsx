@@ -3,15 +3,21 @@ import { Pane } from '@/components/Pane.tsx';
 import { RawHtml } from '@/components/RawHtml.tsx';
 import { DropDownMenuButton } from '@/components/DropDownMenuButton.tsx';
 import { HiOutlineEllipsisVertical, HiOutlineDocumentPlus, HiOutlineArrowDownTray, HiOutlineArrowPath } from 'solid-icons/hi';
+import { machine } from '@/shell/context.ts';
 import {
-  driveAStatus, driveBStatus, trapLogHtml, showTrapLog, currentModel,
+  ejectDisk, loadFile, insertBlankDisk, saveDisk,
+  ejectPlusDDisk, insertBlankPlusDDisk, savePlusDDisk,
+  ejectBetaDiskDisk, insertBlankBetaDiskDisk, saveBetaDiskDisk, flipDisk,
+} from '@/shell/media.ts';
+import { applyDisplaySettings } from '@/shell/settings.ts';
+import {
+  driveAStatus, driveBStatus,
   currentDiskName, currentDiskNameB, currentDiskInfo, currentDiskInfoB,
-  ejectDisk, loadFile, insertBlankDisk, saveDisk, machine, spectrum,
   currentDiskNameC, currentDiskNameD, currentDiskInfoC, currentDiskInfoD,
-  driveCStatus, driveDStatus, ejectPlusDDisk, insertBlankPlusDDisk, savePlusDDisk,
-  ejectBetaDiskDisk, insertBlankBetaDiskDisk, saveBetaDiskDisk,
-  applyDisplaySettings, flipDisk, diskSideA, diskSideB,
-} from '@/emulator.ts';
+  driveCStatus, driveDStatus, diskSideA, diskSideB,
+} from '@/state/disk-state.ts';
+import { trapLogHtml, showTrapLog } from '@/state/debug-state.ts';
+import { currentModel } from '@/state/machine-state.ts';
 import {
   diskSoundA, setDiskSoundA, diskSoundB, setDiskSoundB,
   writeProtectA, setWriteProtectA, writeProtectB, setWriteProtectB,
@@ -239,7 +245,7 @@ function betaDiskBlankForValue(value: string): { geom: { tracks: number; sides: 
 }
 
 function syncBetaDiskWriteProtect(unit: number, value: boolean): void {
-  if (spectrum) spectrum.betaDisk.fdc.writeProtect[unit] = value;
+  machine?.services.disks?.setWriteProtect(`beta:${unit}`, value);
 }
 
 export function DrivePane() {

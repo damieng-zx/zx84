@@ -267,6 +267,18 @@ export class Spectrum extends BaseMachine implements Machine {
   private bootStepKeys: ReadonlyArray<readonly [number, number]> = [];
   private bootStepFrames = 0;
 
+  /** Arm the software library's one-click auto-boot trap after a reset. The
+   *  trap PC is the ROM's menu/editor key-wait loop — a Spectrum-family address
+   *  (found by tracing each model's key-wait), so it lives here, not the shell.
+   *  'menu' holds Enter on the 128K boot menu; 'rom48k' types LOAD "" on 48K. */
+  armBootTrap(kind: 'menu' | 'rom48k'): void {
+    this.bootTrapKind = kind;
+    const m = this.model;
+    this.bootTrapPc = (m === '+2A' || m === '+3') ? 0x1875   // +2A/+3 menu wait
+      : (m === '128k' || m === '+2') ? 0x0E65               // 128K/+2 menu wait
+      : 0x15DE;                                             // 48K editor WAIT-KEY
+  }
+
   // The debug surface (breakpoints / port + memory watchpoints / onTrap /
   // onStatus / onFrame) is inherited from BaseMachine, shared with the CPC.
 
@@ -394,7 +406,7 @@ export class Spectrum extends BaseMachine implements Machine {
     return buildSpectrumAuxRoms(this, view);
   }
 
-  /** Trace state accessors for io-ports.ts */
+  /** Trace state accessors for io.ts */
   get tracing(): boolean { return this._tracing; }
   get traceMode(): 'full' | 'portio' | 'zxtl' { return this._traceMode; }
   get traceBuffer(): readonly string[] { return this._traceBuffer; }
@@ -440,7 +452,7 @@ export class Spectrum extends BaseMachine implements Machine {
     this.ula.tapeEarBit = this.tape.earBit;
   }
 
-  /** Log a port access for trace modes (called from io-ports.ts). */
+  /** Log a port access for trace modes (called from io.ts). */
   logPortAccess(dir: string, port: number, val: number): void {
     const pc = this.cpu.pc;
 
@@ -851,7 +863,7 @@ export class Spectrum extends BaseMachine implements Machine {
     // Turbo is also engaged directly when the LoaderDetector fires 'start',
     // ensuring custom loaders get acceleration even before earReads accumulates.
     // Tape auto-pause is handled by LoaderDetector on a microsecond timescale
-    // (src/io-ports.ts). This per-frame cooldown ONLY disengages turbo — it
+    // (machines/spectrum/io.ts). This per-frame cooldown ONLY disengages turbo — it
     // does NOT pause the tape. Previous versions auto-paused here as a fallback
     // for the case where port activity stops entirely, but this caused custom
     // loaders to be paused mid-load (their EAR reads used non-0xFF port values,

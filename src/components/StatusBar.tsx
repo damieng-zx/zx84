@@ -3,10 +3,12 @@
  */
 
 import { Show } from 'solid-js';
+import { machine } from '@/shell/context.ts';
+import { toggleTranscribeMode } from '@/shell/media.ts';
 import {
   ledKbd, ledKemp, ledEar, ledLoad, ledText,
-  ledBeep, ledAy, ledDsk, ledRainbow, ledMouse, toggleTranscribeMode, machine,
-} from '@/emulator.ts';
+  ledBeep, ledAy, ledDsk, ledRainbow, ledMouse,
+} from '@/state/activity-state.ts';
 import { machineCaps } from '@/state/machine-caps.ts';
 
 function Led(props: {

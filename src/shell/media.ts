@@ -46,7 +46,7 @@ import {
 } from '@/state/disk-state.ts';
 import { setTranscribeMode, transcribeMode } from '@/state/activity-state.ts';
 import { microdriveSlots, setMicrodriveSlot, clearMicrodriveSlot } from '@/state/microdrive-state.ts';
-import { machine, spectrum, romData, setStatus, romManager } from '@/shell/context.ts';
+import { machine, romData, setStatus, romManager } from '@/shell/context.ts';
 import { unpause } from '@/shell/lifecycle.ts';
 import type { SpectrumModel } from '@/models.ts';
 
@@ -689,15 +689,16 @@ export function ejectMicrodrive(unit: number): void {
 }
 
 export function insertBlankMicrodrive(unit: number, name = 'CART'): void {
-  // Formatting a blank cartridge is a Spectrum IF1 mechanism with no generic
-  // service shape; the shell reaches the peripheral via its concrete handle.
-  if (!spectrum) return;
-  if (!spectrum.interface1.enabled) { setStatus('Enable the ZX Interface 1 in Hardware first'); return; }
-  const drive = spectrum.interface1.drives[unit];
-  drive.format(name);
-  const filename = `${name}.mdr`;
-  setMicrodriveSlot(unit, { loaded: true, name: filename, writeProtected: false, modified: false });
-  persistMicrodrive(unit, drive.toMDR(), filename);
+  // Formatting a blank cartridge is an IF1 FORMAT mechanism (no image codec
+  // makes one); the machine's DiskService owns it and hands back the bytes.
+  const disks = machine?.services.disks;
+  if (!machine || !disks?.formatBlank || !hasDrive(`mdv:${unit}`)) {
+    setStatus('Enable the ZX Interface 1 in Hardware first'); return;
+  }
+  const blank = disks.formatBlank(`mdv:${unit}`, name);
+  if (!blank) { setStatus('Enable the ZX Interface 1 in Hardware first'); return; }
+  setMicrodriveSlot(unit, { loaded: true, name: blank.name, writeProtected: false, modified: false });
+  persistMicrodrive(unit, blank.data, blank.name);
   setStatus(`Microdrive ${unit + 1}: blank cartridge inserted`);
 }
 

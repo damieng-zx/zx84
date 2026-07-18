@@ -88,6 +88,7 @@ function makeSpectrumStub(model: unknown = '128k') {
     kind: 'spectrum' as const,
     model: model as any,
     loadROM: vi.fn(), reset: vi.fn(), start: vi.fn(), stop: vi.fn(), destroy: vi.fn(),
+    initAudio() { if (!s.audio.running) s.audio.init(); },
     tick: vi.fn(), startTrace: vi.fn(), stopTrace: vi.fn(() => ''),
     onStatus: null as any, onFrame: null as any,
     setBorderSize: vi.fn(), scanlineAccuracy: 'high' as any,
@@ -169,7 +170,7 @@ function makeCpcStub() {
     model: 'cpc6128' as any,
     tapeFastRom: false, tapeTurbo: false, turbo: false,
     loadROM: vi.fn(), reset: vi.fn(), start: vi.fn(), stop: vi.fn(), destroy: vi.fn(),
-    tick: vi.fn(), loadDisk: vi.fn(), setBorderSize: vi.fn(),
+    initAudio: vi.fn(), tick: vi.fn(), loadDisk: vi.fn(), setBorderSize: vi.fn(),
     onStatus: null as any, onFrame: null as any,
     display: null as any,
     host: null as any,
@@ -1269,10 +1270,10 @@ describe('restoreHMRState', () => {
 describe('destroy', () => {
   it('calls spectrum.destroy() and nullifies the reference', async () => {
     const s = await setupSpectrum();
-    expect(emulator.spectrum).not.toBeNull();
+    expect(emulator.machine).not.toBeNull();
     emulator.destroy();
     expect(s.destroy).toHaveBeenCalledOnce();
-    expect(emulator.spectrum).toBeNull();
+    expect(emulator.machine).toBeNull();
   });
 
   it('is safe to call when spectrum is already null', () => {
@@ -1925,7 +1926,7 @@ describe('init / restoreMedia', () => {
     getRomManager().restoreROM.mockResolvedValueOnce(null);
     getRomManager().fetchDefaultROM.mockResolvedValueOnce(null);
     await emulator.init();
-    expect(emulator.spectrum).toBeNull();
+    expect(emulator.machine).toBeNull();
   });
 
   it('restoreMedia (via init): restores tape from TAP', async () => {
@@ -2094,7 +2095,7 @@ describe('media callback bodies', () => {
   });
 
   it("host.requestModel('128k'): upgrades via the restorable-ROM chain, declines when none", async () => {
-    const host = (emulator.spectrum as any).host;
+    const host = (emulator.machine as any).host;
     expect(host).not.toBeNull();
 
     // No 128K-class ROM restorable → the host declines the upgrade.
@@ -2106,7 +2107,7 @@ describe('media callback bodies', () => {
       .mockResolvedValueOnce({ data: new Uint8Array(32768), label: '128k' });
     expect(await host.requestModel('128k', 'test')).toBe(true);
     expect(currentModel()).toBe('128k');
-    expect(emulator.spectrum).not.toBeNull();
+    expect(emulator.machine).not.toBeNull();
   });
 
   it('applyTape mounts via the TapeService and updates the tape signals', async () => {

@@ -17,7 +17,8 @@
 
 import { createSignal, createEffect, For, Show, onMount, onCleanup } from 'solid-js';
 import { Pane } from '@/components/Pane.tsx';
-import { machine, currentModel, emulationPaused } from '@/emulator.ts';
+import { machine } from '@/shell/context.ts';
+import { currentModel, emulationPaused } from '@/state/machine-state.ts';
 import { machineCaps } from '@/state/machine-caps.ts';
 import { isCollapsed } from '@/ui/panes.ts';
 

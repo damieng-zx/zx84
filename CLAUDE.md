@@ -2,34 +2,101 @@
 
 ## Architecture
 
-### Source layout
+The codebase is layered "machines as hardware, components as chips" — see
+`docs/re-architecture.md` for the full rationale and `docs/adding-a-machine.md`
+for the new-machine checklist. Dependencies point strictly downward and the
+boundaries are enforced mechanically (`npm run depcheck`, zero exceptions).
 
-- `src/cores/` — hardware cores (Z80, ULA, AY-3-8910, uPD765A FDC). Pure emulation logic, no UI or framework dependencies.
-- `src/variants/` — `MachineVariant` strategy objects. Model-specific behaviour (contention pattern, contended banks, I/O contention, port decode) lives here instead of inline `if (model)` checks. One factory per class: 48K, Ferranti 128K/+2, Amstrad +2A/+3.
-- `src/spectrum.ts` — the main machine. Owns the frame loop, orchestrates cores, is the authority on machine state.
-- `src/io-ports.ts` — wires CPU port I/O to the appropriate cores. Thin glue only, no business logic.
-- `src/contention.ts` — ULA memory/IO contention timing (Ferranti vs Amstrad models differ — see below).
-- `src/frame-bridge.ts` — transfers per-frame state from the emulator to the Solid.js UI. Read-only consumer of machine state.
-- `src/memory.ts` — `SpectrumMemory`: slot-based paged memory, 8 × 16KB RAM banks, ROM pages.
-- `src/models.ts` — `SpectrumModel` type and classification helpers (`is128kClass`, `isPlus2AClass`, etc.).
-- `src/debug/` — disassembler, BASIC parser, screen OCR (`screen-text.ts`). These tools take `Uint8Array`, not `ByteReader`.
-- `src/peripherals/` — Multiface 1/128/3, VTX-5000 Prestel modem, Kempston mouse, AMX mouse, joysticks, audio mixer.
-- `src/tape/` — TAP/TZX parsing, tape playback engine, custom loader auto-detection.
-- `src/floppy/` — floppy disk image formats and the shared `DskImage` model (`disk-image.ts`). DSK/HFE/SCP for the uPD765A (+3/CPC), MGT for the +D, TRD/SCL for the Beta Disk; copy-protection detection (`disk-detect.ts`); drive-sound synthesis (`floppy-sound.ts`). The FDC cores themselves live in `src/cores/` (uPD765A, WD179x), not here.
+### Layer map
+
+- `src/cores/` — **commodity silicon only**: chips that shipped in more than one
+  machine (Z80, AY-3-891x, TMS9918A, CRTC 6845, uPD765A, WD179x/1772/1793, Z80
+  CTC, i8255). Pure — imports only other cores, `src/media/` *types*, `src/utils/`.
+  Custom silicon that only ever existed in one machine (the Spectrum's Ferranti
+  ULA, the CPC's Amstrad gate array, the microdrive) is **not** here — it lives
+  in that machine's folder.
+- `src/machines/<name>/` — **one folder per machine = a motherboard**. Everything
+  specific to that machine: the machine class (extends `base-machine.ts`), its
+  custom silicon (`spectrum/ula.ts`, `cpc/gate-array.ts`), `contention.ts`,
+  `variants/`, `memory.ts`, `io.ts` (port decode if-chain — hot, load-bearing),
+  `keyboard.ts`, `peripherals/`, `snapshots/`, `tape-loader.ts`, per-family
+  `models.ts` helpers, `descriptor.ts` (pure metadata + factory), `services/`
+  (the service surface), and `ui/` (Solid contributions — the ONLY machine files
+  allowed to import solid-js and the shell/state layers). A machine folder is an
+  island: it never imports another machine folder, nor UI/state/store/shell.
+- `src/machines/machine.ts` — the **SPI**: `Machine`, `MachineServices`, the
+  service interfaces (media/roms/tape/disks/snapshots/debug/input/probe),
+  `MachineDescriptor` + `MachineUiCapabilities`, `MachineHost`, `MachineEntry`.
+- `src/machines/base-machine.ts` — shared driver loop (frame pacing, turbo pump,
+  audio back-pressure, lifecycle, debug-field storage). Untouched by machines.
+- `src/machines/registry.ts` — the **parts catalog**: the only file besides
+  `src/models.ts` allowed to name every machine. Stays headless-safe.
+- `src/machines/debug-<family>/` — CPU-family debug substrate (`debug-z80/`:
+  disassembler, step-over/out logic, trace formats, register descriptors). A
+  machine may import a *family* module — that counts as substrate, not another
+  machine.
+- `src/media/` — format codecs → neutral models: `floppy/` (`DskImage`,
+  DSK/HFE/SCP/MGT/TRD/SCL, `disk-detect.ts`, `floppy-sound.ts`), `tape/`
+  (TAP/TZX/CSW deck + `.cas`), `zip.ts`. Pure — imports only media + utils.
+- `src/shell/` — the host: `context.ts` (shared machine handle + managers),
+  `lifecycle.ts` (create/switch/destroy, pause/turbo, stepping, HMR),
+  `media.ts` (zip/picker/dispatch/persistence + transport wrappers),
+  `settings.ts` (SettingsView pump), `rom.ts` (fetch/cache/persist). Reaches
+  machines **only** through `machine.services` and the SPI/registry — never a
+  concrete machine folder.
+- `src/state/` — Solid reactive stores (machine, debug, disk, tape, activity,
+  microdrive). Shared flat signal bags; the *writers* are generic (shell + probe).
+- `src/store/` — settings + IndexedDB persistence.
+- `src/components/` — generic UI panes. Bind to `machine.services` and the
+  descriptor's `ui` capabilities; never import a concrete machine or branch on
+  machine kind. `machine-ui.ts` is the UI-side manifest mapping a kind → its
+  lazily-imported `ui/` contributions (the sole sanctioned exception).
+- `src/frame-bridge.ts` — the generic per-frame consumer of each machine's
+  `FrameProbe`; owns presentation policy (LED latch, formatting, diffing).
+- `src/managers/` — `debug-manager` + `rom-manager`: generic orchestration.
+- `src/models.ts` — the `MachineModel` union manifest + leaf helpers
+  (`isCpcModel`, …). Per-family helpers (`is128kClass`, `isPlusDCapable`, …)
+  live in each machine's own `models.ts`.
+- `src/debug/` — machine-agnostic disassembler, BASIC parser, screen OCR
+  (`screen-text.ts`). These tools take `Uint8Array`, not `ByteReader`.
 - `src/display/` — Canvas and WebGL renderers with HQx/xBR upscaling shaders.
-- `src/state/` — Solid.js reactive state stores (machine, debug, disk, tape, activity).
-- `src/store/` — Settings and IndexedDB persistence.
-- `src/managers/` — debug-manager, media-manager, rom-manager. Higher-level orchestration over the emulator.
-- `src/snapshot/` — SNA, Z80, SZX, SP snapshot loaders/savers, ZIP extraction.
-- `mcp/` — MCP server for Claude Code integration (persistent Node process; `mcp/server.ts` is the entry point, tool handlers live under `mcp/tools/`).
+- `src/emulator.ts` — a thin **compatibility shim** (re-exports shell + state),
+  retained only because `frame-bridge.ts` and its module-mock tests still import
+  from it. New code imports from `@/shell/*` and `@/state/*` directly.
+- `mcp/` — MCP server (persistent Node process; `mcp/server.ts` entry, tools
+  under `mcp/tools/`). Binds to `state.spec.services`; `mcp/concrete.ts` is the
+  single sanctioned module that narrows to a concrete machine.
+
+### Services model (UI binds to services, never machine kinds)
+
+Everything above the machine layer reaches machine internals through
+`machine.services` (§3.3 of the re-architecture) and the descriptor's static
+`ui` capabilities — never by narrowing to a concrete machine or testing
+`machine.kind`. A machine that lacks a piece of hardware returns `null` for that
+service (or omits an optional SPI hook) and the pane hides/disables itself. The
+only concrete narrowings left are the two sanctioned seams: `mcp/concrete.ts`
+(bench-probe machine-specific MCP tools) and `machines/spectrum/ui/active.ts`
+(the Spectrum's own `ui/` contributions reaching their machine).
+
+### Hot-path rules (see re-architecture §6)
+
+- **Tiers 1–2 are untouchable** (per-t-state exec + memory access, per-scanline
+  render). No interface sits between a machine and its chips, memory, or port
+  handlers; inside a machine, code refers to concrete `this.ula`/`this.fdc`
+  fields, never through its own service interfaces.
+- **The `Machine` SPI is consumed only on tiers 3–4** (once-per-frame probe +
+  user actions). `FrameProbe.sample()` overwrites one preallocated
+  `FrameIndicators` struct and allocates nothing. Services may allocate freely.
 
 ### Memory architecture
 
-Each of the 8 × 16KB RAM banks is the single authoritative source for its data. The Z80 address space is a 4-slot view into those banks (and ROM pages), updated O(1) on each bank switch.
+`SpectrumMemory` lives at `machines/spectrum/memory.ts`. Each of the 8 × 16KB
+RAM banks is the single authoritative source for its data. The Z80 address space
+is a 4-slot view into those banks (and ROM pages), updated O(1) on each bank switch.
 
 - **Z80 execution** — must go through `memory.readByte(addr)` / `memory.writeByte(addr, val)`. These do the slot/paging lookup.
-- **Debug tools and UI** — use `Uint8Array` directly. Call `memory.snapshot()` for a full 64KB view, or `memory.getRamBank(n)` / `memory.screenBank` for a specific bank.
-- **`memory.snapshot()`** allocates a fresh 64KB `Uint8Array` — don't call it from hot paths (e.g. per traced instruction). The trace path uses `spectrum.disasmAt(pc)` which reads just 8 bytes.
+- **Debug tools and UI** — use `Uint8Array` directly via the SPI: `machine.memory.snapshot()` for a full 64KB view, or `machine.memory.getRamBank(n)` for a specific bank.
+- **`memory.snapshot()`** allocates a fresh 64KB `Uint8Array` — don't call it from hot paths (e.g. per traced instruction). The trace path goes through `machine.services.debug` (disassembly reads just a few bytes).
 - **Multiface / VTX overlays** use `memory.setSlot0(overlay)` / `memory.restoreSlot0()` to temporarily replace slot 0. Pass `skipSlot0 = true` to `bankSwitch()` while an overlay is active.
 
 ## Build and type-checking
@@ -63,8 +130,10 @@ Tests must be written critically against a known-correct specification, not as a
 
 - **Memory access layer**: only the Z80 execution path uses `readByte`/`writeByte`. Debug tools (`src/debug/`), UI components, and snapshot code use `Uint8Array` directly — either a `snapshot()` or a specific bank array. Don't add `ByteReader` parameters to debug tool functions.
 
-- **Contention models differ**: Ferranti ULA (48K/128K/+2) vs Amstrad gate array (+2A/+3) have different contention patterns, different contended banks, and different IO contention rules. Check `contention.ts` and `timings.md` before touching timing-sensitive code.
+- **Contention models differ**: Ferranti ULA (48K/128K/+2) vs Amstrad gate array (+2A/+3) have different contention patterns, different contended banks, and different IO contention rules. Check `machines/spectrum/contention.ts` and `timings.md` before touching timing-sensitive code.
+
+- **Port decode is hot**: `machines/spectrum/io.ts` (and each machine's `io.ts`) wires CPU port I/O to the cores as an ordered if-chain whose early returns prevent double-decode. It's a tier-1 hot path — no interfaces, no logic changes beyond the wiring.
 
 - **FDC drive aliasing**: on the +3, units 2/3 alias to physical drives 0/1 (`physUnit = unit & 1`). Use the alias for all physical resource access (disk images, track positions); keep the original logical unit for ST0/ST3 result bits.
 
-- **`romPages` indexing**: for +2A/+3 (4 ROM pages), the 48K BASIC ROM is page 3. For 128K/+2 (2 ROM pages), it's page 1. `spectrum.romFont` handles this correctly — use it rather than indexing `romPages` directly.
+- **`romPages` indexing**: for +2A/+3 (4 ROM pages), the 48K BASIC ROM is page 3. For 128K/+2 (2 ROM pages), it's page 1. `spectrum.romFont` (on `machines/spectrum/spectrum.ts`) handles this correctly — use it rather than indexing `romPages` directly.

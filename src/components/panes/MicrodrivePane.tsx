@@ -14,9 +14,10 @@ import { Pane } from '@/components/Pane.tsx';
 import { DropDownMenuButton, type MenuItem } from '@/components/DropDownMenuButton.tsx';
 import { HiOutlineEllipsisVertical, HiOutlineDocumentPlus, HiOutlineArrowDownTray } from 'solid-icons/hi';
 import {
-  currentModel, loadFile,
+  loadFile,
   ejectMicrodrive, insertBlankMicrodrive, saveMicrodrive, setMicrodriveWriteProtect,
-} from '@/emulator.ts';
+} from '@/shell/media.ts';
+import { currentModel } from '@/state/machine-state.ts';
 import {
   microdriveSlots, microdriveMotors, microdriveCount, setMicrodriveCount,
 } from '@/state/microdrive-state.ts';

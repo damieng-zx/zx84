@@ -21,7 +21,7 @@
 
 import { For, Show, createUniqueId } from 'solid-js';
 import { Pane } from '@/components/Pane.tsx';
-import { spectrum } from '@/emulator.ts';
+import { activeSpectrum } from '@/machines/spectrum/ui/active.ts';
 import {
   POS, CS, SS, LETTERS, NUMBERS, Block, useKeyboard,
   type KeyboardController, type LatchMode,
@@ -283,7 +283,7 @@ function PCell(props: { k: PKey; kbd: KeyboardController; sparse?: boolean }) {
       aria-pressed={pressed()}
       aria-label={(k.label ?? k.main ?? '').replace('\n', ' ')}
       onPointerDown={(e) => {
-        if (!spectrum) return;
+        if (!activeSpectrum()) return;
         e.preventDefault();
         e.currentTarget.setPointerCapture(e.pointerId);
         props.kbd.onDown(k.positions, k.latch);

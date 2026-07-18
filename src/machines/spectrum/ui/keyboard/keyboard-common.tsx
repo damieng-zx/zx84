@@ -10,7 +10,7 @@
  */
 
 import { For, createSignal, onMount, onCleanup } from 'solid-js';
-import { spectrum } from '@/emulator.ts';
+import { activeSpectrum } from '@/machines/spectrum/ui/active.ts';
 
 /** ZX keyboard-matrix [row, bit] for each key glyph. */
 export const POS: Record<string, [number, number]> = {
@@ -160,7 +160,7 @@ export function useKeyboard(): KeyboardController {
   let chordTimer: ReturnType<typeof setTimeout> | undefined;
   let chordPositions: [number, number][] = [];
   const releaseChord = () => {
-    const kb = spectrum?.keyboard;
+    const kb = activeSpectrum()?.keyboard;
     if (kb) for (const [r, b] of chordPositions) kb.setKey(r, b, false);
     chordPositions = [];
     chordTimer = undefined;
@@ -170,7 +170,7 @@ export function useKeyboard(): KeyboardController {
     positions.length > 0 && positions.every(([r, b]) => (matrix()[r] & (1 << b)) === 0);
 
   const onDown = (positions: [number, number][], latch?: LatchMode) => {
-    const kb = spectrum?.keyboard;
+    const kb = activeSpectrum()?.keyboard;
     if (!kb) return;
     if (!latch) {
       for (const [r, b] of positions) kb.setKey(r, b, true);
@@ -216,7 +216,7 @@ export function useKeyboard(): KeyboardController {
   };
 
   const onUp = (positions: [number, number][], latch?: LatchMode) => {
-    const kb = spectrum?.keyboard;
+    const kb = activeSpectrum()?.keyboard;
     if (!kb || latch) return; // latched keys toggle on press only
     for (const [r, b] of positions) kb.setKey(r, b, false);
     // Drop one-shot latches (CAPS/SYMBOL SHIFT); leave 'hold' latches asserted.
@@ -236,7 +236,7 @@ export function useKeyboard(): KeyboardController {
   onMount(() => {
     let raf = 0;
     const tick = () => {
-      const kb = spectrum?.keyboard;
+      const kb = activeSpectrum()?.keyboard;
       if (kb) {
         const r = kb.rows;
         const cur = matrix();

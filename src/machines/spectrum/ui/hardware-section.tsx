@@ -9,10 +9,12 @@
  */
 
 import { Show } from 'solid-js';
+import { resetMachine } from '@/shell/lifecycle.ts';
 import {
-  currentModel, resetMachine, spectrum,
+  currentModel,
   multifaceRomFailed, vtx5000RomFailed, plusDRomFailed, interface1RomFailed, betaDiskRomFailed,
-} from '@/emulator.ts';
+} from '@/state/machine-state.ts';
+import { activeSpectrum } from '@/machines/spectrum/ui/active.ts';
 import {
   loadMultifaceROM, loadVTX5000ROM, loadPlusDROM, loadInterface1ROM, loadBetaDiskROM, triggerNMI,
 } from '@/machines/spectrum/ui/hardware-actions.ts';
@@ -36,10 +38,11 @@ export function SpectrumHardwareSection() {
               const on = (e.target as HTMLInputElement).checked;
               settings.setMultifaceEnabled(on);
               settings.persistSetting('multiface', on ? 'on' : 'off');
-              if (spectrum) {
-                spectrum.multiface.enabled = on;
-                if (on && !spectrum.multiface.romLoaded) {
-                  loadMultifaceROM(spectrum);
+              const s = activeSpectrum();
+              if (s) {
+                s.multiface.enabled = on;
+                if (on && !s.multiface.romLoaded) {
+                  loadMultifaceROM(s);
                 }
               }
             }}
@@ -68,10 +71,11 @@ export function SpectrumHardwareSection() {
               const on = (e.target as HTMLInputElement).checked;
               settings.setVtx5000Enabled(on);
               settings.persistSetting('vtx5000', on ? 'on' : 'off');
-              if (spectrum) {
-                spectrum.vtx5000.enabled = on;
-                if (on && !spectrum.vtx5000.romLoaded) {
-                  loadVTX5000ROM(spectrum);
+              const s = activeSpectrum();
+              if (s) {
+                s.vtx5000.enabled = on;
+                if (on && !s.vtx5000.romLoaded) {
+                  loadVTX5000ROM(s);
                 }
               }
             }}
@@ -97,13 +101,14 @@ export function SpectrumHardwareSection() {
                   settings.setBetaDiskEnabled(false);
                   settings.persistSetting('betadisk', 'off');
                 }
-                if (spectrum) {
-                  if (on) spectrum.betaDisk.enabled = false;
-                  spectrum.mgtPlusD.enabled = on;
+                const s = activeSpectrum();
+                if (s) {
+                  if (on) s.betaDisk.enabled = false;
+                  s.mgtPlusD.enabled = on;
                   // The +D boots at reset (shadow ROM pages in at 0x0000), so
                   // a reset is needed for the toggle to take effect.
-                  if (on && !spectrum.mgtPlusD.romLoaded) {
-                    loadPlusDROM(spectrum).then(() => resetMachine());
+                  if (on && !s.mgtPlusD.romLoaded) {
+                    loadPlusDROM(s).then(() => resetMachine());
                   } else {
                     resetMachine();
                   }
@@ -131,13 +136,14 @@ export function SpectrumHardwareSection() {
                   settings.setBetaDiskEnabled(false);
                   settings.persistSetting('betadisk', 'off');
                 }
-                if (spectrum) {
-                  if (on) spectrum.betaDisk.enabled = false;
-                  spectrum.interface1.enabled = on;
+                const s = activeSpectrum();
+                if (s) {
+                  if (on) s.betaDisk.enabled = false;
+                  s.interface1.enabled = on;
                   // The IF1 ROM initialises at reset (its M1 traps map it in),
                   // so a reset is needed for the toggle to take effect.
-                  if (on && !spectrum.interface1.romLoaded) {
-                    loadInterface1ROM(spectrum).then(() => resetMachine());
+                  if (on && !s.interface1.romLoaded) {
+                    loadInterface1ROM(s).then(() => resetMachine());
                   } else {
                     resetMachine();
                   }
@@ -169,12 +175,13 @@ export function SpectrumHardwareSection() {
                   settings.setInterface1Enabled(false);
                   settings.persistSetting('interface1', 'off');
                 }
-                if (spectrum) {
-                  if (on) { spectrum.mgtPlusD.enabled = false; spectrum.interface1.enabled = false; }
-                  spectrum.betaDisk.enabled = on;
+                const s = activeSpectrum();
+                if (s) {
+                  if (on) { s.mgtPlusD.enabled = false; s.interface1.enabled = false; }
+                  s.betaDisk.enabled = on;
                   // TR-DOS maps itself in via the 0x3Dxx trap after reset.
-                  if (on && !spectrum.betaDisk.romLoaded) {
-                    loadBetaDiskROM(spectrum).then(() => resetMachine());
+                  if (on && !s.betaDisk.romLoaded) {
+                    loadBetaDiskROM(s).then(() => resetMachine());
                   } else {
                     resetMachine();
                   }

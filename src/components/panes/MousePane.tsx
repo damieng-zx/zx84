@@ -1,6 +1,6 @@
 import { createSignal, onCleanup, Show } from 'solid-js';
 import { Pane } from '@/components/Pane.tsx';
-import { setMouseMode, updateMousePosition, setMouseButton, type MouseMode } from '@/emulator.ts';
+import { setMouseMode, updateMousePosition, setMouseButton, type MouseMode } from '@/shell/media.ts';
 import { machineCaps } from '@/state/machine-caps.ts';
 
 export function MousePane() {

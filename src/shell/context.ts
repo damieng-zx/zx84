@@ -11,7 +11,6 @@
  */
 
 import type { Machine } from '@/machines/machine.ts';
-import type { Spectrum } from '@/machines/spectrum/spectrum.ts';
 import { entryForModel } from '@/machines/registry.ts';
 import type { MachineModel } from '@/models.ts';
 import { WebGLRenderer } from '@/display/webgl-renderer.ts';
@@ -28,24 +27,17 @@ export const debugManager = new DebugManager();
 
 // ── Mutable machine handles ──────────────────────────────────────────────
 
-/** The active machine. Canonical handle for lifecycle/driver. */
+/** The active machine. Canonical handle for lifecycle/driver. The shell reaches
+ *  machine internals ONLY through `machine.services` and the SPI — there is no
+ *  concrete-machine narrowing here (dissolved in Phase 8). */
 export let machine: Machine | null = null;
-/**
- * TODO(P8): the last concrete-machine handle in the shell. Only the paths with
- * no service seam yet still reach through it: HMR SZX save/restore, the
- * library's boot traps, switchModel's +D/Beta disk carry, and restoreMedia's
- * peripheral drive restore. Everything else goes through `machine.services`.
- * (Type-only import — carve-out documented in .dependency-cruiser.cjs.)
- */
-export let spectrum: Spectrum | null = null;
 export let romData: Uint8Array | null = null;
 export let floppySound: FloppySound | null = null;
 export let canvasEl: HTMLCanvasElement | null = null;
 
-/** Install the active machine (and derive the Spectrum narrowing). */
+/** Install the active machine. */
 export function setMachine(m: Machine | null): void {
   machine = m;
-  spectrum = m && m.kind === 'spectrum' ? (m as unknown as Spectrum) : null;
 }
 export function setRomData(data: Uint8Array | null): void { romData = data; }
 export function setFloppySound(fs: FloppySound | null): void { floppySound = fs; }

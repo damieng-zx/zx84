@@ -1,11 +1,11 @@
 import { Show } from 'solid-js';
 import { Pane } from '@/components/Pane.tsx';
 import { HiOutlinePower } from 'solid-icons/hi';
+import { switchModel, resetMachine, toggleTurbo } from '@/shell/lifecycle.ts';
+import { applyDisplaySettings } from '@/shell/settings.ts';
 import {
-  currentModel, romStatusText, switchModel,
-  turboMode, clockSpeedText, resetMachine, toggleTurbo,
-  applyDisplaySettings,
-} from '@/emulator.ts';
+  currentModel, romStatusText, turboMode, clockSpeedText,
+} from '@/state/machine-state.ts';
 import type { MachineModel } from '@/models.ts';
 import { resetSettingsGroup } from '@/store/settings.ts';
 import { machineUi } from '@/components/machine-ui.ts';

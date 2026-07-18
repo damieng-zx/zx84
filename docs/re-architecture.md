@@ -1,11 +1,29 @@
 # ZX84 Re-Architecture — Machines as Hardware, Components as Chips
 
-**Status:** proposed · **Audience:** the engineer/agent executing the migration · **Scope:** whole `src/` + `mcp/`
+**Status:** implemented (Phases 0–8 complete; Phase 9 deferred) · **Audience:** the engineer/agent executing the migration · **Scope:** whole `src/` + `mcp/`
 
 This document defines the target architecture for ZX84 as it grows beyond four machines
 (Spectrum, CPC, Einstein, MSX — with 6502-based machines expected later), and a phased,
 independently-shippable migration plan. Every claim about the current code below was
 verified against the source in July 2026; file:line references are from that audit.
+
+The migration is **done** — the new-machine checklist that this whole effort was for
+lives in `docs/adding-a-machine.md`; the layer map + import rules are summarised in
+`CLAUDE.md`. Phase status (each phase was one committed step):
+
+| Phase | What landed | Status |
+|---|---|---|
+| 0 | dependency-cruiser guardrails + baseline exception list | ✅ `71f97aa` |
+| 1 | mechanical relocation into `src/machines/**`, `src/media/**` | ✅ `f0d21e5` |
+| 2 | the SPI (`machine.ts` v2), descriptors, `registry.ts` | ✅ `d894bb3` |
+| 3a | input + tape services | ✅ `97555b5` |
+| 3b | disk + rom + media + snapshot services | ✅ `689fef7` |
+| 4 | shell split (`emulator.ts` → `src/shell/*`) | ✅ `70a30c4` |
+| 5 | `FrameProbe` + generic `frame-bridge.ts` | ✅ `5b195e4` |
+| 6 | UI decomposition (`machine-ui.ts`, per-machine `ui/`) | ✅ `359c018` |
+| 7 | `DebugService` + `debug-z80/`, slimmed `Machine`, `as*` deleted | ✅ `3942025` |
+| 8 | last shell shims dissolved, zero-exception boundaries, docs | ✅ (this commit) |
+| 9 | library `planLoad` generalisation | ⏸ deferred (user-facing, not architecture) |
 
 ---
 

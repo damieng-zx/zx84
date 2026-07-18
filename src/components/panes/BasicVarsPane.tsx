@@ -1,6 +1,6 @@
 import { Pane } from '@/components/Pane.tsx';
 import { RawHtml } from '@/components/RawHtml.tsx';
-import { basicVarsHtml } from '@/emulator.ts';
+import { basicVarsHtml } from '@/state/debug-state.ts';
 
 export function BasicVarsPane() {
   return (

@@ -5,7 +5,9 @@
  */
 
 import { createEffect, onCleanup } from 'solid-js';
-import { spectrum, sysvarRev, currentModel } from '@/emulator.ts';
+import { activeSpectrum } from '@/machines/spectrum/ui/active.ts';
+import { sysvarRev } from '@/state/debug-state.ts';
+import { currentModel } from '@/state/machine-state.ts';
 import { is128kClass, isPlus2AClass } from '@/machines/spectrum/spectrum.ts';
 import { HEX8, HEX16 } from '@/utils/hex.ts';
 
@@ -143,7 +145,7 @@ export function SysVars() {
 
     createEffect(() => {
       sysvarRev(); // track
-      const mem = spectrum?.memory.snapshot();
+      const mem = activeSpectrum()?.memory.snapshot();
       if (!mem) return;
       for (const slot of slots) {
         const { num, str } = readVal(mem, slot.def);

@@ -8,9 +8,8 @@ import {
   gamepadConfigP1, gamepadConfigP2, saveGamepadConfig, persistSetting,
   type GamepadConfig, type GamepadBinding
 } from '@/store/settings.ts';
-import {
-  machine, joyPressForType,
-} from '@/emulator.ts';
+import { machine } from '@/shell/context.ts';
+import { joyPressForType } from '@/shell/media.ts';
 import type { HostKeyEvent } from '@/machines/machine.ts';
 
 /** Digest a DOM KeyboardEvent into the machine-facing HostKeyEvent. */

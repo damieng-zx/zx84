@@ -14,8 +14,9 @@ import type { Spectrum } from '@/machines/spectrum/spectrum.ts';
 import { is128kClass, isPlus2AClass } from '@/models.ts';
 import { loadSNA } from '@/machines/spectrum/snapshots/sna.ts';
 import { loadZ80, saveZ80 } from '@/machines/spectrum/snapshots/z80format.ts';
-import { loadSZX, saveSZX, applySZXPaging } from '@/machines/spectrum/snapshots/szx.ts';
+import { loadSZX, saveSZX, saveSZXSync, applySZXPaging } from '@/machines/spectrum/snapshots/szx.ts';
 import { loadSP } from '@/machines/spectrum/snapshots/sp.ts';
+import type { SpectrumModel } from '@/machines/spectrum/models.ts';
 
 export class SpectrumSnapshotService implements SnapshotService {
   constructor(private readonly s: Spectrum, private readonly host: () => MachineHost | null) {}
@@ -139,5 +140,32 @@ export class SpectrumSnapshotService implements SnapshotService {
       return saveZ80(s.cpu, s.memory, s.ula.borderColor, s.variant.hasBanking, s.ay.getRegisters(), s.ay.selectedReg);
     }
     throw new Error(`Unsupported snapshot save format: ${ext}`);
+  }
+
+  /** Synchronous SZX snapshot for the shell's HMR/beforeunload dev path. */
+  saveSync(): Uint8Array {
+    const s = this.s;
+    return saveSZXSync(
+      s.cpu, s.memory, s.ula.borderColor, s.model as SpectrumModel,
+      s.contention.frameStartTStates, s.ay.getRegisters(), s.ay.selectedReg,
+    );
+  }
+
+  /** Restore a saveSync() SZX blob on the same model (HMR resume). Mirrors the
+   *  szx branch of apply() minus the model-upgrade check (HMR never crosses
+   *  models) — ported verbatim from the old shell HMR path. */
+  async restoreSync(data: Uint8Array): Promise<boolean> {
+    const s = this.s;
+    s.stop();
+    s.reset();
+    const result = await loadSZX(data, s.cpu, s.memory);
+    applySZXPaging(s.memory, s.variant.hasSpecialPaging, result);
+    s.ula.borderColor = result.borderColor;
+    if (result.ayRegs) {
+      s.ay.setRegisters(result.ayRegs);
+      if (result.ayCurrentReg !== undefined) s.ay.selectedReg = result.ayCurrentReg;
+    }
+    s.start();
+    return true;
   }
 }

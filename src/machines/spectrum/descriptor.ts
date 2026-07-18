@@ -6,6 +6,7 @@
 import type { IScreenRenderer } from '@/display/display.ts';
 import type { MachineDescriptor, MachineEntry, MachineUiCapabilities, MemoryRegionInfo } from '@/machines/machine.ts';
 import type { MachineModel } from '@/models.ts';
+import { isCpcModel } from '@/models.ts';
 import type { SpectrumModel } from './models.ts';
 import { is128kClass, isPlus2AClass, isPlus3, isInterface2Capable, romPageSlotCount } from './models.ts';
 import { Spectrum } from './spectrum.ts';
@@ -92,5 +93,15 @@ export const spectrumEntry: MachineEntry = {
   },
   romSources(model: MachineModel) {
     return ROM_SOURCES[model as SpectrumModel];
+  },
+  /** ROM-size → Spectrum model: a raw image always lands on a Spectrum (a CPC
+   *  falls back to a 128K base), keeping the current model when its class
+   *  already matches the image size. Ported verbatim from the shell's applyROM. */
+  detectModelForRom(data: Uint8Array, current: MachineModel): MachineModel | null {
+    const cur: SpectrumModel = isCpcModel(current) ? '128k' : current as SpectrumModel;
+    if (data.length >= 65536) return isPlus2AClass(cur) ? cur : '+2A';
+    if (data.length >= 32768) return is128kClass(cur) ? cur : '128k';
+    if (data.length >= 16384) return '48k';
+    return null;   // too small to be a system ROM
   },
 };
