@@ -29,6 +29,8 @@ export {
   isBetaDiskCapable,
   romPageSlotCount,
   isInterface2Capable,
+  defaultRomPageLabel,
+  type RomPage,
 } from '@/machines/spectrum/models.ts';
 export { isCpcModel, cpcHasDisk } from '@/machines/cpc/models.ts';
 export { isEinsteinModel } from '@/machines/einstein/models.ts';

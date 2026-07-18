@@ -41,7 +41,8 @@ import { hex8, hex16 } from '@/utils/hex.ts';
 import { signed8 } from '@/utils/signed.ts';
 import { DISPLAY_WIDTH, DISPLAY_HEIGHT } from '@/machines/spectrum/ula.ts';
 import { createVariant, type MachineVariant } from '@/machines/spectrum/variants/index.ts';
-import type { Machine, MachineKind } from '@/machines/machine.ts';
+import type { Machine, MachineKind, MachineHost } from '@/machines/machine.ts';
+import { createSpectrumServices, type SpectrumServices } from '@/machines/spectrum/services/index.ts';
 
 // Re-export model type and helpers from their canonical home (models.ts)
 // so existing imports from '@/machines/spectrum/spectrum.ts' continue to work.
@@ -98,6 +99,10 @@ function load48kSequence(): BootKeyStep[] {
 
 export class Spectrum extends BaseMachine implements Machine {
   readonly kind: MachineKind = 'spectrum';
+  /** Operator's panel (shell / MCP) — null when running headless. */
+  host: MachineHost | null = null;
+  /** The service surface (§3.3): the only way shell/UI/MCP reach internals. */
+  readonly services: SpectrumServices;
   model: SpectrumModel;
   variant: MachineVariant;
   memory: SpectrumMemory;
@@ -301,6 +306,8 @@ export class Spectrum extends BaseMachine implements Machine {
       if (!this.tape.playing || this.tape.paused) this.ula.tapeActive = false;
     };
 
+    this.services = createSpectrumServices(this);
+
     // VTX-5000: wire ROM paging callback driven by the 8251's RTS output.
     // When RTS changes, swap slot 0 between VTX ROM+RAM and Spectrum ROM.
     this.vtx5000.onRomPage = (rts: boolean) => {
@@ -318,6 +325,8 @@ export class Spectrum extends BaseMachine implements Machine {
       }
     };
   }
+
+  attachHost(host: MachineHost): void { this.host = host; }
 
   /** Trace state accessors for io-ports.ts */
   get tracing(): boolean { return this._tracing; }

@@ -9,11 +9,17 @@ import {
   type GamepadConfig, type GamepadBinding
 } from '@/store/settings.ts';
 import {
-  spectrum, machine, joyPressForType, resetJoystickKeyState,
+  machine, joyPressForType,
 } from '@/emulator.ts';
+import type { HostKeyEvent } from '@/machines/machine.ts';
 import type { CpcMachine } from '@/machines/cpc/cpc-machine.ts';
 import type { EinsteinMachine } from '@/machines/einstein/einstein-machine.ts';
 import type { MsxMachine } from '@/machines/msx/msx-machine.ts';
+
+/** Digest a DOM KeyboardEvent into the machine-facing HostKeyEvent. */
+function hostKeyEvent(e: KeyboardEvent): HostKeyEvent {
+  return { code: e.code, key: e.key, shift: e.shiftKey, ctrl: e.ctrlKey, alt: e.altKey };
+}
 import {
   configuringPlayer, setConfiguringPlayer,
   configuringStep, setConfiguringStep,
@@ -155,9 +161,12 @@ export class InputController {
       if ((machine as MsxMachine).keyboard.handleKeyEvent(e.code, true)) e.preventDefault();
       return;
     }
-    if (!spectrum) return;
+    // Machines with an InputService (Spectrum today; all machines once Phase 3b
+    // lands) map host keys themselves — no concrete-machine dispatch needed.
+    const svc = machine?.services?.input;
+    if (!svc) return;
     if (this.handleJoyKey(e, true)) { e.preventDefault(); return; }
-    if (spectrum.keyboard.handleKeyEvent(e.code, true, e.key)) {
+    if (svc.keyDown(hostKeyEvent(e))) {
       e.preventDefault();
     }
   };
@@ -178,9 +187,10 @@ export class InputController {
       if ((machine as MsxMachine).keyboard.handleKeyEvent(e.code, false)) e.preventDefault();
       return;
     }
-    if (!spectrum) return;
+    const svc = machine?.services?.input;
+    if (!svc) return;
     if (this.handleJoyKey(e, false)) { e.preventDefault(); return; }
-    if (spectrum.keyboard.handleKeyEvent(e.code, false, e.key)) {
+    if (svc.keyUp(hostKeyEvent(e))) {
       e.preventDefault();
     }
   };
@@ -192,9 +202,9 @@ export class InputController {
     if (machine?.kind === 'cpc') { (machine as CpcMachine).keyboard.reset(); return; }
     if (machine?.kind === 'einstein') { (machine as EinsteinMachine).keyboard.reset(); return; }
     if (machine?.kind === 'msx') { const msx = machine as MsxMachine; msx.keyboard.reset(); msx.joystick.reset(); return; }
-    if (!spectrum) return;
-    spectrum.keyboard.reset();
-    resetJoystickKeyState();
+    const svc = machine?.services?.input;
+    if (!svc) return;
+    svc.releaseAll();
     // Release any gamepad-driven joystick directions still tracked as held.
     // Zeroing prev state alone is not enough: the press was forwarded to the
     // Spectrum's joystick/keyboard, and only a matching release will clear

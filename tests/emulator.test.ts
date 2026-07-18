@@ -21,6 +21,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { createSpectrumServices } from '@/machines/spectrum/services/index.ts';
 
 // ── Spectrum stub ────────────────────────────────────────────────────────
 // Function declarations are hoisted and safe to reference in vi.mock factories.
@@ -31,7 +32,7 @@ let lastSpectrumStub: SpectrumStub | null = null;
 type CpcStub = ReturnType<typeof makeCpcStub>;
 let lastCpcStub: CpcStub | null = null;
 
-function makeSpectrumStub() {
+function makeSpectrumStub(model: unknown = '128k') {
   const s = {
     cpu: { pc: 0, sp: 0, a: 0, f: 0, iff1: false, halted: false },
     memory: {
@@ -81,16 +82,23 @@ function makeSpectrumStub() {
     amxMouse: { enabled: false, queueMovement: vi.fn(), setButton: vi.fn() },
     variant: { hasFDC: false, hasBanking: false, hasSpecialPaging: false },
     kind: 'spectrum' as const,
-    model: '128k' as any,
+    model: model as any,
     loadROM: vi.fn(), reset: vi.fn(), start: vi.fn(), stop: vi.fn(), destroy: vi.fn(),
     tick: vi.fn(), startTrace: vi.fn(), stopTrace: vi.fn(() => ''),
     onStatus: null as any, onFrame: null as any,
     setBorderSize: vi.fn(), scanlineAccuracy: 'high' as any,
     loaderDetector: { accelerateLoader: false, userOverride: false },
     tapeSoundEnabled: true,
-    turbo: false, loadDisk: vi.fn(),
+    turbo: false, loadDisk: vi.fn(), loadPlusDDisk: vi.fn(), loadBetaDiskDisk: vi.fn(),
     disasmAt: vi.fn(() => ({ text: 'NOP', size: 1 })),
+    host: null as any,
+    attachHost(h: unknown) { s.host = h; },
+    services: null as any,
   };
+  // Real Spectrum services over the stub: emulator flips dispatch through
+  // machine.services, so the stub carries the genuine service layer (which
+  // only touches the stubbed fields above).
+  s.services = createSpectrumServices(s as any);
   lastSpectrumStub = s;
   return s;
 }
@@ -136,7 +144,7 @@ function makeCpcStub() {
 // Settings + ROMManager spies are accessed post-import via vi.mocked().
 
 vi.mock('@/machines/spectrum/spectrum.ts', () => ({
-  Spectrum: function() { return makeSpectrumStub(); },
+  Spectrum: function(model?: unknown) { return makeSpectrumStub(model); },
 }));
 
 vi.mock('@/machines/cpc/cpc-machine.ts', () => ({
@@ -759,6 +767,7 @@ describe('setSystemRomPage / resetSystemRomPage', () => {
 
   it('a combined 32K image persists both pages, regardless of which slot triggered the load', async () => {
     setCurrentModel('128k');
+    await emulator.createMachine();
     const combined = new Uint8Array(32768);
     combined.fill(0x11, 0, 16384);
     combined.fill(0x22, 16384);
@@ -780,6 +789,7 @@ describe('setSystemRomPage / resetSystemRomPage', () => {
 
   it('a 16K image only persists the targeted page, with no "(custom)" marker', async () => {
     setCurrentModel('128k');
+    await emulator.createMachine();
     const single = new Uint8Array(16384).fill(0x99);
     await emulator.setSystemRomPage(1, single, 'basic.rom');
     expect(getRomManager().persistROMPage).toHaveBeenCalledTimes(1);
@@ -788,18 +798,21 @@ describe('setSystemRomPage / resetSystemRomPage', () => {
 
   it('is a no-op on non-dual models', async () => {
     setCurrentModel('48k');
+    await emulator.createMachine();
     await emulator.setSystemRomPage(1, new Uint8Array(16384), 'x.rom');
     expect(getRomManager().persistROMPage).not.toHaveBeenCalled();
   });
 
   it('resetSystemRomPage clears just the targeted page', async () => {
     setCurrentModel('128k');
+    await emulator.createMachine();
     await emulator.resetSystemRomPage(0);
     expect(getRomManager().clearROMPage).toHaveBeenCalledWith('128k', 0);
   });
 
   it('a combined 64K image on a +3 persists all four pages, regardless of which slot triggered the load', async () => {
     setCurrentModel('+3');
+    await emulator.createMachine();
     const combined = new Uint8Array(65536);
     for (let page = 0; page < 4; page++) combined.fill(0x10 + page, page * 16384, (page + 1) * 16384);
 
@@ -2026,71 +2039,50 @@ describe('saveHMRState / restoreHMRState — happy paths', () => {
 describe('media callback bodies', () => {
   beforeEach(async () => { await setupSpectrum(); });
 
-  it('buildMediaCallbacks: invoke captured tape/disk/ensure128kROM callbacks', async () => {
-    const mm = getMediaManager();
-    let captured: any = null;
-    mm.loadFile.mockImplementationOnce((_s: any, _d: any, _f: any, _m: any, cb: any) => { captured = cb; });
+  it('snapshot mount errors surface on the status line', async () => {
+    // 10 junk bytes are no valid .sna — the machine's SnapshotService reports
+    // the parse failure and the shell reflects it into statusText.
     await emulator.loadFile(new Uint8Array(10), 'x.sna');
-    expect(captured).not.toBeNull();
+    expect(emulator.statusText()).toMatch(/Error|Invalid|SNA/i);
+  });
 
-    // onTapeLoaded
-    captured.onTapeLoaded([{ a: 1 }] as any, 'cb.tap');
-    expect(emulator.tapeLoaded()).toBe(true);
-    expect(emulator.tapeName()).toBe('cb.tap');
+  it("host.requestModel('128k'): upgrades via the restorable-ROM chain, declines when none", async () => {
+    const host = (emulator.spectrum as any).host;
+    expect(host).not.toBeNull();
 
-    // onDiskLoaded — unit 0
-    captured.onDiskLoaded({ tracks: [] } as any, 'a.dsk', 0);
-    expect(emulator.currentDiskName()).toBe('a.dsk');
-    // unit 1
-    captured.onDiskLoaded({ tracks: [] } as any, 'b.dsk', 1);
-    expect(emulator.currentDiskNameB()).toBe('b.dsk');
-
-    // onSnapshotLoaded (no-op, just call it)
-    captured.onSnapshotLoaded('snap.sna');
-
-    // unpause
-    emulator.setEmulationPaused(true);
-    captured.unpause();
-    expect(emulator.emulationPaused()).toBe(false);
-
-    // ensure128kROM: with no ROM available → null
+    // No 128K-class ROM restorable → the host declines the upgrade.
     getRomManager().restoreROM.mockResolvedValue(null);
-    expect(await captured.ensure128kROM()).toBeNull();
+    expect(await host.requestModel('128k', 'test')).toBe(false);
 
-    // ensure128kROM: with a 128k ROM available → switches model and returns
-    // the machine now in service, so applySnapshot can re-bind to it
+    // A 128k ROM available → rebuilds as 128k and reports success.
     getRomManager().restoreROM
       .mockResolvedValueOnce({ data: new Uint8Array(32768), label: '128k' });
-    const upgraded = await captured.ensure128kROM();
-    expect(upgraded).not.toBeNull();
-    expect(upgraded.model).toBe('128k');
-    expect(upgraded.spectrum).toBe(emulator.spectrum);
+    expect(await host.requestModel('128k', 'test')).toBe(true);
+    expect(currentModel()).toBe('128k');
+    expect(emulator.spectrum).not.toBeNull();
   });
 
-  it('applyTape onTapeLoaded callback (captured) updates state', async () => {
-    const mm = getMediaManager();
-    let captured: any = null;
-    mm.applyTape.mockImplementationOnce((_s: any, _d: any, _f: any, cb: any) => { captured = cb; });
-    emulator.applyTape(new Uint8Array(10), 'cb-tape.tap');
-    expect(captured).not.toBeNull();
-    captured.onTapeLoaded([{}, {}] as any, 'inv.tap');
-    expect(emulator.tapeName()).toBe('inv.tap');
-    expect(emulator.tapeBlocks()).toHaveLength(2);
+  it('applyTape mounts via the TapeService and updates the tape signals', async () => {
+    const s = lastSpectrumStub!;
+    s.tape.parseTAP.mockReturnValueOnce([{}, {}] as any);
     emulator.setEmulationPaused(true);
-    captured.unpause();
+    await emulator.applyTape(new Uint8Array(10), 'cb-tape.tap');
+    expect(emulator.tapeName()).toBe('cb-tape.tap');
+    expect(emulator.tapeLoaded()).toBe(true);
+    expect(emulator.tapeBlocks()).toHaveLength(2);
+    expect(s.tape.startPlayback).toHaveBeenCalled();
     expect(emulator.emulationPaused()).toBe(false);
   });
 
-  it('ejectTape callback resets tape signals', () => {
-    const mm = getMediaManager();
-    let cb: any = null;
-    mm.ejectTape.mockImplementationOnce((_s: any, fn: any) => { cb = fn; });
+  it('ejectTape resets the deck and the tape signals', () => {
+    const s = lastSpectrumStub!;
     emulator.setTapeLoaded(true);
     emulator.setTapeName('x.tap');
     emulator.ejectTape();
-    cb();
+    expect(s.tape.stopPlayback).toHaveBeenCalled();
     expect(emulator.tapeLoaded()).toBe(false);
     expect(emulator.tapeName()).toBe('');
+    expect(emulator.statusText()).toMatch(/Tape ejected/);
   });
 
   it('ejectDisk callback clears disk A and disk B state', () => {

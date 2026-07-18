@@ -10,7 +10,7 @@ import { entryForModel } from '@/machines/registry.ts';
 import {
   type SpectrumModel, type MachineModel,
   is128kClass, isPlus2AClass, isCpcModel, isPlusDCapable,
-  isInterface1Capable, isInterface2Capable, isBetaDiskCapable, romPageSlotCount,
+  isInterface1Capable, isBetaDiskCapable, romPageSlotCount,
 } from '@/models.ts';
 import { BANK_SIZE } from '@/utils/bank-size.ts';
 import { CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT, CPC_PALETTES } from '@/machines/cpc/constants.ts';
@@ -22,8 +22,7 @@ import { WebGLRenderer } from '@/display/webgl-renderer.ts';
 import { CanvasRenderer } from '@/display/canvas-renderer.ts';
 import { FloppySound } from '@/media/floppy/floppy-sound.ts';
 import { PALETTES } from '@/machines/spectrum/ula.ts';
-import { saveSZX, saveSZXSync } from '@/machines/spectrum/snapshots/szx.ts';
-import { saveZ80 } from '@/machines/spectrum/snapshots/z80format.ts';
+import { saveSZXSync } from '@/machines/spectrum/snapshots/szx.ts';
 import { parseTZX } from '@/media/tape/tzx.ts';
 import { parseCSW } from '@/media/tape/csw.ts';
 import type { TapeBlock } from '@/media/tape/tap.ts';
@@ -40,6 +39,7 @@ import { unzip } from '@/media/zip.ts';
 import { showFilePicker } from '@/ui/zip-picker.ts';
 import {
   clearLastFile, clearDisk, restoreTape, persistTape, clearTape, restoreDisk, dbSave, dbLoad,
+  persistLastFile, persistDisk,
   persistPlusDDisk, restorePlusDDisk, clearPlusDDisk,
   persistBetaDiskDisk, restoreBetaDiskDisk, clearBetaDiskDisk,
   persistMicrodrive, restoreMicrodrive, clearMicrodrive,
@@ -54,7 +54,7 @@ export type { FontEntry } from '@/frame-bridge.ts';
 
 // Managers
 import { ROMManager, defaultRomPageLabel, type RomPage } from '@/managers/rom-manager.ts';
-import { MediaManager, type MediaLoadCallbacks } from '@/managers/media-manager.ts';
+import { MediaManager } from '@/managers/media-manager.ts';
 import { DebugManager, type TraceMode } from '@/managers/debug-manager.ts';
 
 // Create manager instances
@@ -332,6 +332,46 @@ export function applyDisplaySettings(): void {
   }
 }
 
+/**
+ * The operator's panel handed to each machine via attachHost(): status line,
+ * model-upgrade requests (128K snapshot on a 48K), and the EPROM box backing
+ * the machine's RomService. All shell-owned state stays behind this seam.
+ */
+function buildMachineHost(): import('@/machines/machine.ts').MachineHost {
+  return {
+    setStatus,
+    async requestModel(model, _reason) {
+      if (model === '128k') {
+        // Any 128K-class machine with a restorable ROM satisfies a 128K
+        // snapshot — same fallback chain ensure128kROM always used.
+        return (await ensure128kROM()) !== null;
+      }
+      await switchModel(model);
+      return true;
+    },
+    persistMedia(_kind, _data, _name) {
+      // Persistence currently stays in shell reflection (reflectSpectrumMount
+      // and the pane helpers) so keys/behaviour are byte-identical; machines
+      // will move to this once the shell split lands (Phase 4).
+    },
+    roms: {
+      persistFull: (data, label) => persistROM(effectiveROMModel(currentModel()), data, label),
+      clearFull: () => romManager.clearROM(effectiveROMModel(currentModel())),
+      persistPage: (page, data, label) => romManager.persistROMPage(effectiveROMModel(currentModel()), page as RomPage, data, label),
+      clearPage: (page) => romManager.clearROMPage(effectiveROMModel(currentModel()), page as RomPage),
+      cached: () => {
+        const e = romManager.getCached(effectiveROMModel(currentModel()));
+        return e ? { label: e.label, size: e.data.length, isCustom: e.isCustom } : null;
+      },
+      cachedPage: (page) => {
+        const e = romManager.getCachedPage(effectiveROMModel(currentModel()), page as RomPage);
+        return e ? { label: e.label, size: e.data.length } : null;
+      },
+      rebuild: () => switchModel(currentModel()),
+    },
+  };
+}
+
 export async function createMachine(): Promise<boolean> {
   if (!canvasEl) return false;
 
@@ -365,6 +405,7 @@ export async function createMachine(): Promise<boolean> {
   const display = canvasEl ? createDisplay(canvasEl, w, h) : null;
   machine = entry.create(model, display);
   spectrum = asSpectrum(machine);
+  machine.attachHost?.(buildMachineHost());
   einsteinXtalDosPhantom = false;   // fresh FDC on the new machine
   machine.onStatus = (msg: string) => setStatus(msg);
   machine.onFrame = onFrame;
@@ -791,12 +832,14 @@ export function updateRomPaneInfo(): void {
  *  and reboot into it. Persisted per model so the choice survives a reload.
  *  Generic across machines — the ROM pane calls this for any active model. */
 export async function setSystemRom(data: Uint8Array, label: string): Promise<void> {
+  if (spectrum) { await spectrum.services.roms.setSystemRom(data, label); return; }
   await persistROM(effectiveROMModel(currentModel()), data, label);
   await switchModel(currentModel());   // rebuild with the new ROM
 }
 
 /** Restore the current model's default system ROM (cleared, then re-fetched). */
 export async function resetSystemRom(): Promise<void> {
+  if (spectrum) { await spectrum.services.roms.resetSystemRom(); return; }
   await romManager.clearROM(effectiveROMModel(currentModel()));
   await switchModel(currentModel());   // restoreROM now misses → default is fetched
 }
@@ -810,6 +853,7 @@ export async function resetSystemRom(): Promise<void> {
  * bank number, e.g. "plus3.rom (bank 2)", rather than a generic marker.
  */
 export async function setSystemRomPage(page: RomPage, data: Uint8Array, label: string): Promise<void> {
+  if (spectrum) { await spectrum.services.roms.setSystemRom(data, label, page); return; }
   const model = effectiveROMModel(currentModel());
   const pageCount = romPageSlotCount(model);
   if (pageCount === 0) { setStatus('This model has a single System ROM'); return; }
@@ -826,6 +870,7 @@ export async function setSystemRomPage(page: RomPage, data: Uint8Array, label: s
 
 /** Revert one page of a multi-page model's system ROM to its default. */
 export async function resetSystemRomPage(page: RomPage): Promise<void> {
+  if (spectrum) { await spectrum.services.roms.resetSystemRom(page); return; }
   const model = effectiveROMModel(currentModel());
   await romManager.clearROMPage(model, page);
   await switchModel(currentModel());
@@ -879,27 +924,25 @@ export function ejectMsxCartridge(): void {
  *  matching real hardware, where booting the cartridge means power-cycling
  *  with it already plugged in. */
 export function insertIf2Cartridge(data: Uint8Array, name: string): void {
-  if (!spectrum || !isInterface2Capable(currentModel())) {
+  const slot = spectrum?.services.roms.cartridge;
+  if (!slot) {
     setStatus('Cartridges need a 16K/48K Spectrum');
     return;
   }
-  spectrum.stop();
-  spectrum.interface2.insert(data, name);
-  spectrum.reset();
+  slot.insert(data, name);
   setCartridgeName(name);
   setStatus(`Cartridge: ${name}`);
-  if (romData) spectrum.start();
+  if (romData) spectrum!.start();
 }
 
 /** Remove the Interface 2 cartridge and reboot to the system ROM. */
 export function ejectIf2Cartridge(): void {
-  if (!spectrum) return;
-  spectrum.stop();
-  spectrum.interface2.eject();
-  spectrum.reset();
+  const slot = spectrum?.services.roms.cartridge;
+  if (!slot) return;
+  slot.eject();
   setCartridgeName('');
   setStatus('Cartridge ejected');
-  if (romData) spectrum.start();
+  if (romData) spectrum!.start();
 }
 
 /** Eject whichever cartridge slot is active for the current machine (MSX or
@@ -985,43 +1028,17 @@ async function ensure128kROM(): Promise<{ spectrum: Spectrum; model: SpectrumMod
   return null;
 }
 
-/** Build media callbacks for the MediaManager */
-function buildMediaCallbacks(): MediaLoadCallbacks {
-  return {
-    onStatus: setStatus,
-    onTapeLoaded: (blocks, filename) => {
-      batch(() => {
-        setTapeLoaded(true);
-        setTapeName(filename);
-        setTapeBlocks([...blocks]);
-        setTapePosition(0);
-        setTapePaused(true);
-        setTapePlaying(true);
-      });
-    },
-    onDiskLoaded: (image, filename, unit) => {
-      if (unit === 0) {
-        setCurrentDiskInfo(image);
-        setCurrentDiskName(filename);
-      } else {
-        setCurrentDiskInfoB(image);
-        setCurrentDiskNameB(filename);
-      }
-    },
-    onSnapshotLoaded: (_filename) => {
-      // No special action needed beyond what MediaManager already does
-    },
-    unpause,
-    ensure128kROM,
-    loadExtracted: (fileData, name, fileUnit) => loadFile(fileData, name, fileUnit),
-  };
-}
-
-
 // ── Tape/Disk loading (via MediaManager) ───────────────────────────────
 
 export async function applyTape(data: Uint8Array, filename: string): Promise<void> {
   if (!machine) { setStatus('Load a ROM first'); return; }
+
+  // Spectrum: the machine's own MediaService routes and mounts the tape.
+  if (spectrum) {
+    const result = await spectrum.services.media.mount(data, filename);
+    await reflectSpectrumMount(result, data, filename);
+    return;
+  }
 
   await mediaManager.applyTape(machine, data, filename, {
     onStatus: setStatus,
@@ -1061,13 +1078,11 @@ export function loadableExtensions(): string[] {
   }
   // MSX: cartridge ROMs and cassette images (a .zip may wrap one).
   if (asMsx(machine)) return ['.rom', '.cas', '.zip'];
-  // Spectrum (and the no-machine default).
-  const exts = ['.sna', '.z80', '.szx', '.sp', '.tap', '.tzx', '.csw'];
-  if (spectrum?.variant.hasFDC) exts.push('.dsk', '.hfe');
-  if (spectrum && isInterface1Capable(currentModel())) exts.push('.mdr', '.mdv');
-  if (spectrum && isInterface2Capable(currentModel())) exts.push('.rom');
-  exts.push('.zip');
-  return exts;
+  // Spectrum: the machine's MediaService declares its loadable set; the shell
+  // appends .zip (archives are unwrapped shell-side).
+  if (spectrum) return [...spectrum.services.media.accepts().map(t => t.ext), '.zip'];
+  // No-machine default (same list a Spectrum without FDC/IF1/IF2 offers).
+  return ['.sna', '.z80', '.szx', '.sp', '.tap', '.tzx', '.csw', '.zip'];
 }
 
 export async function loadFile(data: Uint8Array, filename: string, unit?: number): Promise<void> {
@@ -1154,39 +1169,103 @@ export async function loadFile(data: Uint8Array, filename: string, unit?: number
     return;
   }
   if (!spectrum) { setStatus('Load a ROM first'); return; }
-  // ZX Interface 2 ROM cartridges (16K/48K only).
-  if (/\.rom$/i.test(filename) && isInterface2Capable(currentModel())) {
-    insertIf2Cartridge(data, filename);
+  // ZIP archives are a shell concern: unwrap, pick, re-dispatch.
+  if (/\.zip$/i.test(filename)) {
+    await handleSpectrumZip(data, unit);
     return;
   }
-  // Beta Disk (TR-DOS) images route to the WD1793.
-  if (/\.(trd|scl)$/i.test(filename)) {
-    loadBetaDiskDisk(data, filename, unit ?? 0);
+  // Everything else routes through the Spectrum's own MediaService — which
+  // extension goes to which device, given the fitted peripherals, is the
+  // machine's business. The shell reflects the outcome into signals below.
+  const result = await spectrum.services.media.mount(data, filename, unit !== undefined ? `unit:${unit}` : undefined);
+  await reflectSpectrumMount(result, data, filename, unit);
+}
+
+/** Unwrap a .zip for the Spectrum (single entry loads directly; several show
+ *  the picker) and re-dispatch through loadFile so every peripheral format
+ *  reaches its handler — verbatim from the MediaManager's zip path. */
+async function handleSpectrumZip(data: Uint8Array, unit?: number): Promise<void> {
+  let entries;
+  try {
+    entries = await unzip(data);
+  } catch (e) {
+    setStatus(`ZIP error: ${(e as Error).message}`);
     return;
   }
-  // MGT +D images route to the WD1772, not the media manager's +3 DSK path.
-  if (/\.(mgt|img)$/i.test(filename)) {
-    loadPlusDDisk(data, filename, unit ?? 0);
+  if (entries.length === 0) { setStatus('ZIP is empty'); return; }
+  if (entries.length === 1) {
+    await loadFile(entries[0].data, entries[0].name, unit);
     return;
   }
-  // A .hfe/.scp flux image targets whichever WD-family interface is active: the
-  // Beta Disk first, then the +D on a +D-capable machine with no built-in FDC
-  // (the +3 has its own uPD765A and is never +D-capable). On a +3, they fall
-  // through to the uPD765A path below.
-  if (/\.(hfe|scp)$/i.test(filename) && spectrum.betaDisk.enabled) {
-    loadBetaDiskDisk(data, filename, unit ?? 0);
+  const pickedName = await showFilePicker(entries.map(e => e.name));
+  if (!pickedName) { setStatus('No file selected'); return; }
+  const picked = entries.find(e => e.name === pickedName)!;
+  await loadFile(picked.data, picked.name, unit);
+}
+
+/**
+ * Shell reflection after a Spectrum MediaService mount: update the signals,
+ * persistence and status line for whatever device the media landed in. The
+ * machine mutated itself; everything here is UI/session state.
+ */
+async function reflectSpectrumMount(
+  result: import('@/machines/machine.ts').MountResult,
+  data: Uint8Array,
+  filename: string,
+  unit?: number,
+): Promise<void> {
+  if (result.replay) {
+    // The mount triggered a model rebuild (128K snapshot on a 48K): the old
+    // machine is gone — re-dispatch the same file to the new machine.
+    await loadFile(data, filename, unit);
     return;
   }
-  if (/\.(hfe|scp)$/i.test(filename) && spectrum.mgtPlusD.enabled && !spectrum.variant.hasFDC) {
-    loadPlusDDisk(data, filename, unit ?? 0);
+  if (!result.ok || !spectrum) {
+    setStatus(result.message);
     return;
   }
-  // ZX Interface 1 microdrive cartridges route to the IF1, like the +D above.
-  if (/\.(mdr|mdv)$/i.test(filename)) {
-    loadMicrodrive(data, filename, unit ?? 0);
-    return;
+  const target = result.target ?? '';
+  if (target === 'tape') {
+    batch(() => {
+      setTapeLoaded(true);
+      setTapeName(filename);
+      setTapeBlocks([...spectrum!.tape.blocks]);
+      setTapePosition(0);
+      setTapePaused(true);
+      setTapePlaying(true);
+    });
+    unpause();
+    persistLastFile(data, filename);
+    persistTape('spectrum', data, filename);
+  } else if (target === 'a' || target === 'b') {
+    const u = target === 'a' ? 0 : 1;
+    const image = spectrum.fdc.getDiskImage(u);
+    if (u === 0) { setCurrentDiskInfo(image); setCurrentDiskName(filename); }
+    else { setCurrentDiskInfoB(image); setCurrentDiskNameB(filename); }
+    if (u === 0) persistLastFile(data, filename);
+    persistDisk(u, data, filename);
+  } else if (target.startsWith('plusd:')) {
+    const u = Number(target.slice(6));
+    setPlusDDiskState(u, spectrum.mgtPlusD.fdc.getDiskImage(u), filename);
+    persistPlusDDisk(u, data, filename);
+  } else if (target.startsWith('beta:')) {
+    const u = Number(target.slice(5));
+    setPlusDDiskState(u, spectrum.betaDisk.fdc.getDiskImage(u), filename);
+    persistBetaDiskDisk(u, data, filename);
+  } else if (target.startsWith('mdv:')) {
+    const u = Number(target.slice(4));
+    const drive = spectrum.interface1.drives[u];
+    setMicrodriveSlot(u, { loaded: true, name: filename, writeProtected: drive.writeProtected, modified: false });
+    // Persist for a reload; never let a storage error take down the mount.
+    persistMicrodrive(u, data, filename).catch((e) => console.warn('persistMicrodrive failed:', e));
+  } else if (target === 'cartridge') {
+    setCartridgeName(filename);
+    if (romData) spectrum.start();
+  } else if (target === 'snapshot') {
+    persistLastFile(data, filename);
+    unpause();
   }
-  await mediaManager.loadFile(spectrum, data, filename, currentModel() as SpectrumModel, buildMediaCallbacks(), unit);
+  setStatus(result.message);
 }
 
 // ── Save snapshot ───────────────────────────────────────────────────────
@@ -1255,15 +1334,7 @@ export async function saveSnapshot(format: 'z80' | 'szx' = 'szx'): Promise<void>
 
   // spectrum non-null ⇒ a Spectrum model is active (snapshots are Spectrum-only).
   const model = currentModel() as SpectrumModel;
-  let data: Uint8Array;
-
-  if (format === 'szx') {
-    const ayRegs = spectrum.ay.getRegisters();
-    data = await saveSZX(spectrum.cpu, spectrum.memory, spectrum.ula.borderColor, model, spectrum.contention.frameStartTStates, ayRegs, spectrum.ay.selectedReg);
-  } else {
-    // .z80 format
-    data = saveZ80(spectrum.cpu, spectrum.memory, spectrum.ula.borderColor, spectrum.variant.hasBanking, spectrum.ay.getRegisters(), spectrum.ay.selectedReg);
-  }
+  const data = await spectrum.services.snapshots.save(format);
 
   const filename = `zx84-${model.replace('+', 'plus')}.${format}`;
 
@@ -1352,27 +1423,41 @@ export function saveRAM(): void {
 
 export function tapeRewind(): void {
   if (!machine) return;
-  machine.tape.rewind();
+  if (spectrum) spectrum.services.tape.rewind();
+  else machine.tape.rewind();
   setTapePosition(0);
 }
 
 export function tapePrev(): void {
   if (!machine) return;
-  if (machine.tape.position > 0) machine.tape.position--;
+  const pos = machine.tape.position;
+  if (pos > 0) {
+    if (spectrum) spectrum.services.tape.seek(pos - 1);
+    else machine.tape.position = pos - 1;
+  }
   setTapePosition(machine.tape.position);
 }
 
 export function tapeTogglePlay(): void {
   if (!machine) return;
-  const spec = asSpectrum(machine);
+  if (spectrum) {
+    // The TapeService owns the loader-detector interplay (a user stop blocks
+    // auto-play; a manual play clears the override).
+    const svc = spectrum.services.tape;
+    if (svc.playing) {
+      svc.stop();
+      setTapePlaying(false);
+    } else {
+      svc.play();
+      setTapePaused(false);
+      setTapePlaying(true);
+    }
+    return;
+  }
   if (machine.tape.playing) {
-    // User-initiated stop — block the Spectrum LoaderDetector from auto-
-    // restarting on post-load keyboard polling. Cleared on the next manual play.
-    if (spec) spec.loaderDetector.userOverride = true;
     machine.tape.stopPlayback();
     setTapePlaying(false);
   } else {
-    if (spec) spec.loaderDetector.userOverride = false;
     machine.tape.paused = false;
     machine.tape.startPlayback();
     setTapePaused(false);
@@ -1382,24 +1467,31 @@ export function tapeTogglePlay(): void {
 
 export function tapeTogglePause(): void {
   if (!machine) return;
+  if (spectrum) {
+    const svc = spectrum.services.tape;
+    if (svc.paused) svc.resume();
+    else svc.pause();
+    setTapePaused(svc.paused);
+    return;
+  }
   machine.tape.paused = !machine.tape.paused;
-  // Pausing is a user action — prevent the Spectrum LoaderDetector from auto-
-  // resuming the tape via its 'start' event on post-load polling. Cleared
-  // when the user unpauses.
-  const spec = asSpectrum(machine);
-  if (spec) spec.loaderDetector.userOverride = machine.tape.paused;
   setTapePaused(machine.tape.paused);
 }
 
 export function tapeNext(): void {
   if (!machine) return;
-  if (machine.tape.position < machine.tape.blocks.length) machine.tape.position++;
+  const pos = machine.tape.position;
+  if (pos < machine.tape.blocks.length) {
+    if (spectrum) spectrum.services.tape.seek(pos + 1);
+    else machine.tape.position = pos + 1;
+  }
   setTapePosition(machine.tape.position);
 }
 
 export function tapeSetPosition(pos: number): void {
   if (!machine) return;
-  machine.tape.position = pos;
+  if (spectrum) spectrum.services.tape.seek(pos);
+  else machine.tape.position = pos;
   setTapePosition(pos);
 }
 
@@ -1427,16 +1519,22 @@ export function ejectTape(): void {
     setStatus('Cassette ejected');
     return;
   }
-  mediaManager.ejectTape(machine, () => {
-    batch(() => {
-      setTapeLoaded(false);
-      setTapeName('');
-      setTapeBlocks([]);
-      setTapePosition(0);
-      setTapePaused(true);
-      setTapePlaying(false);
-    });
-  }, setStatus);
+  const clearSignals = () => batch(() => {
+    setTapeLoaded(false);
+    setTapeName('');
+    setTapeBlocks([]);
+    setTapePosition(0);
+    setTapePaused(true);
+    setTapePlaying(false);
+  });
+  if (spectrum) {
+    spectrum.services.tape.eject();
+    clearSignals();
+    clearTape('spectrum');
+    setStatus('Tape ejected');
+    return;
+  }
+  mediaManager.ejectTape(machine, clearSignals, setStatus);
 }
 
 export function ejectDisk(unit: number = 0): void {

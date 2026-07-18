@@ -167,6 +167,24 @@ export interface MachineHost {
   /** Persist (data) or clear (null) a piece of mounted media under a
    *  machine-chosen key, so a reload can restore it. */
   persistMedia(kind: string, data: Uint8Array | null, name: string): void;
+  /** The operator's EPROM box: persistence + rebuild ops backing RomService.
+   *  Provided by the shell (rom-manager + model switch); absent headless. */
+  roms?: RomHostOps;
+}
+
+/** Host-side backing for a machine's RomService: the machine owns slot layout
+ *  and splice rules; the host owns override storage and the rebuild. Pages are
+ *  16K indices for multi-page models; the full-image ops cover the whole ROM. */
+export interface RomHostOps {
+  persistFull(data: Uint8Array, label: string): Promise<void>;
+  clearFull(): Promise<void>;
+  persistPage(page: number, data: Uint8Array, label: string): Promise<void>;
+  clearPage(page: number): Promise<void>;
+  /** Cached override metadata (null = default in use). */
+  cached(): { label: string; size: number; isCustom: boolean } | null;
+  cachedPage(page: number): { label: string; size: number } | null;
+  /** Rebuild the machine so the new ROM takes effect. Destroys this machine. */
+  rebuild(): Promise<void>;
 }
 
 /** Read-only view over the generic key/value settings store. The shell snapshots
@@ -195,6 +213,10 @@ export interface MountResult {
   readonly target?: MediaTargetId;
   /** Human status line ("Disk A: loaded: game.dsk" / error text). */
   readonly message: string;
+  /** Set when the mount triggered a host.requestModel() rebuild (e.g. a 128K
+   *  snapshot on a 48K): this machine is destroyed; the shell must re-dispatch
+   *  the same file to the NEW machine's MediaService. */
+  readonly replay?: boolean;
 }
 
 /**
@@ -229,6 +251,13 @@ export interface TapeService {
   readonly paused: boolean;
   play(): void;
   pause(): void;
+  /** Clear pause WITHOUT restarting the current block (play() re-begins the
+   *  block at `position`; resume() picks up mid-block exactly where pause
+   *  left the pulse engine). */
+  resume(): void;
+  /** Full stop (motor off) — distinct from pause on a real deck, and from the
+   *  Spectrum loader-detector's point of view (a user stop blocks auto-play). */
+  stop(): void;
   rewind(): void;
   seek(block: number): void;
   eject(): void;
@@ -245,15 +274,20 @@ export interface DriveDescriptor {
   readonly motorOn: boolean;
 }
 
+/** Media a drive accepts: a parsed floppy image, or raw cartridge bytes for
+ *  byte-stream devices (IF1 microdrives take .mdr images, not DskImages). */
+export type DriveMedia = DskImage | Uint8Array;
+
 /** Every drive-bearing device the machine currently has fitted, flattened:
  *  the +3's internal uPD765A units and any enabled +D/Beta/IF1 drives appear
  *  side by side, distinguished only by their descriptors. */
 export interface DiskService {
   readonly drives: readonly DriveDescriptor[];
-  mount(id: string, image: DskImage, name: string): void;
+  insert(id: string, media: DriveMedia, name: string): void;
   eject(id: string): void;
-  /** Serialize the drive's current image for download, or null if empty. */
-  save(id: string): Uint8Array | null;
+  /** Serialize the drive's current image for download (the name carries the
+   *  format-appropriate extension), or null if the drive is empty. */
+  save(id: string): { data: Uint8Array; name: string } | null;
   setWriteProtect(id: string, on: boolean): void;
 }
 
@@ -281,10 +315,19 @@ export interface RomService {
   readonly cartridge: CartridgeSlot | null;
 }
 
+export interface SnapshotApplyResult {
+  readonly ok: boolean;
+  /** The apply triggered a host.requestModel() rebuild — this machine is gone;
+   *  re-dispatch the same file to the new machine (see MountResult.replay). */
+  readonly needsReplay?: boolean;
+  readonly message: string;
+}
+
 export interface SnapshotService {
   formats(): { ext: string; canSave: boolean }[];
-  apply(data: Uint8Array, filename: string): Promise<void>;
-  save(ext: string): Uint8Array;
+  apply(data: Uint8Array, filename: string): Promise<SnapshotApplyResult>;
+  /** Serialize current state (async: some formats compress). */
+  save(ext: string): Promise<Uint8Array>;
 }
 
 // ── Debug service ───────────────────────────────────────────────────────────
@@ -357,7 +400,7 @@ export interface MouseSink {
 export interface InputService {
   /** Returns true when the event was consumed (shell then preventDefaults). */
   keyDown(e: HostKeyEvent): boolean;
-  keyUp(e: HostKeyEvent): void;
+  keyUp(e: HostKeyEvent): boolean;
   /** Release everything (window blur). */
   releaseAll(): void;
   readonly mouse: MouseSink | null;
@@ -421,9 +464,10 @@ export interface MachineServices {
   readonly tape: TapeService | null;
   readonly disks: DiskService | null;
   readonly snapshots: SnapshotService | null;
-  readonly debug: DebugService;
+  /** Optional until Phase 7 (debug provider) / Phase 5 (frame probe) land. */
+  readonly debug?: DebugService;
   readonly input: InputService;
-  readonly probe: FrameProbe;
+  readonly probe?: FrameProbe;
 }
 
 /**

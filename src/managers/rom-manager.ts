@@ -23,8 +23,10 @@ export interface ROMEntry {
   isCustom: boolean;
 }
 
-/** A 16K ROM page index within a multi-page model (see romPageSlotCount). */
-export type RomPage = 0 | 1 | 2 | 3;
+/** Page index + default page labels live with the Spectrum's model helpers
+ *  (they describe Spectrum ROM sets); re-exported here for existing callers. */
+export { defaultRomPageLabel, type RomPage } from '@/models.ts';
+import type { RomPage } from '@/models.ts';
 
 /** Label for a freshly-fetched default ROM — model-specific naming where the
  *  underlying chip has a real name (Sinclair BASIC on the 16K/48K), falling
@@ -33,24 +35,6 @@ export type RomPage = 0 | 1 | 2 | 3;
  *  effect immediately, without a stale string surviving in localStorage. */
 function defaultRomLabel(model: MachineModel): string {
   return (model === '16k' || model === '48k') ? 'Sinclair BASIC' : `${model.toUpperCase()} (default)`;
-}
-
-/** +2A/+3 default page names, in page-index order (0-3) — see
- *  romPageSlotCount and the 1FFD/7FFD ROM-select bit table in memory.ts. */
-const PLUS3_PAGE_NAMES = ['128K Editor', '128K Syntax Checker', '+3DOS', '48K BASIC'];
-
-/** Label for a default (non-overridden) 16K page of a multi-page model
- *  (128K/+2/+2A/+3 — see romPageSlotCount).
- *  - 128K/+2: page 0 the 128K editor/menu ROM, page 1 the 48K-compatible
- *    BASIC ROM. Named by author: Sinclair wrote the 128K's ROM set; the grey
- *    +2 shipped under Amstrad ownership with its own (different) ROM despite
- *    the shared 128K architecture.
- *  - +2A/+3: the four real ROM names (editor, syntax checker, +3DOS, 48K
- *    BASIC) — same for both, since the +2A reuses the +3's ROM set. */
-export function defaultRomPageLabel(model: MachineModel, page: RomPage): string {
-  if (model === '+2A' || model === '+3') return PLUS3_PAGE_NAMES[page];
-  const maker = model === '+2' ? 'Amstrad' : 'Sinclair';
-  return page === 0 ? `${maker} 128K BASIC` : `${maker} 48K BASIC`;
 }
 
 export class ROMManager {

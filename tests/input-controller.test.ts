@@ -74,25 +74,34 @@ vi.mock('@/store/settings.ts', () => ({
 
 vi.mock('@/emulator.ts', () => ({
   get spectrum() {
+    return mockState.spectrumPresent ? {} : null;
+  },
+  // The input controller dispatches through machine.services.input (the
+  // machine's own InputService); these tests exercise the Spectrum path, so
+  // report a spectrum-kind machine with an input service when present.
+  get machine() {
     return mockState.spectrumPresent ? {
-      keyboard: {
-        handleKeyEvent: (code: string, pressed: boolean, key?: string) => {
-          mockState.handleKeyEventCalls.push({ code, pressed, key });
-          return mockState.handleKeyEventReturn;
+      kind: 'spectrum',
+      services: {
+        input: {
+          keyDown: (e: { code: string; key?: string }) => {
+            mockState.handleKeyEventCalls.push({ code: e.code, pressed: true, key: e.key });
+            return mockState.handleKeyEventReturn;
+          },
+          keyUp: (e: { code: string; key?: string }) => {
+            mockState.handleKeyEventCalls.push({ code: e.code, pressed: false, key: e.key });
+            return mockState.handleKeyEventReturn;
+          },
+          // The real SpectrumInputService resets the keyboard matrix AND the
+          // shared joystick key-state counters (see services/input.ts).
+          releaseAll: () => { mockState.keyboardResetCount++; mockState.joystickResetCount++; },
         },
-        reset: () => { mockState.keyboardResetCount++; },
       },
     } : null;
-  },
-  // The input controller checks machine.kind to route CPC keys; these tests
-  // exercise the Spectrum path, so report a spectrum-kind machine when present.
-  get machine() {
-    return mockState.spectrumPresent ? { kind: 'spectrum' } : null;
   },
   joyPressForType: (dir: string, pressed: boolean, type: string) => {
     mockState.joyPressCalls.push({ dir, pressed, type });
   },
-  resetJoystickKeyState: () => { mockState.joystickResetCount++; },
 }));
 
 vi.mock('@/components/panes/JoystickPane.tsx', () => ({
