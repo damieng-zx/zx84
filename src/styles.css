@@ -2048,19 +2048,6 @@ input[type="range"]::-moz-range-thumb {
 }
 @keyframes library-spin { to { transform: rotate(360deg); } }
 
-/* Required-model badge ("128"/"+3"); only shown for non-48K titles. */
-.library-model {
-  flex: 0 0 auto;
-  font-size: 0.6rem;
-  font-weight: 600;
-  line-height: 1;
-  padding: 2px 4px;
-  border-radius: 3px;
-  background: #e6e6f2;
-  color: #556;
-  letter-spacing: 0.3px;
-}
-
 /* Expanded detail — screenshot (1:1, fills the pane width) with publisher below. */
 .library-detail {
   display: flex;
@@ -2111,7 +2098,13 @@ input[type="range"]::-moz-range-thumb {
   white-space: nowrap;
   font-weight: 600;
 }
-.library-detail-year { flex: 0 0 auto; color: #888; }
+.library-detail-link {
+  flex: 0 0 auto;
+  color: #5577bb;
+  font-weight: 600;
+  text-decoration: none;
+}
+.library-detail-link:hover { color: #224499; text-decoration: underline; }
 
 /* Diag pane — below screen */
 #diag {

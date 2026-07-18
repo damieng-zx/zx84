@@ -12,13 +12,9 @@
 import { dbLoad, dbSave, getSaved, setSaved } from '@/store/persistence.ts';
 import { is128kClass, isPlus3, type SpectrumModel, type MachineModel } from '@/models.ts';
 
-/** One game in the compact on-wire schema. Short keys keep the JSON small. The
- *  required model is implicit in which slot a file lands in: f ⇒ 48K tape,
- *  k ⇒ 128K tape, d/ds ⇒ +3 disk, n ⇒ 48K snapshot, nk ⇒ 128K snapshot,
- *  r ⇒ ZX Interface 2 ROM cartridge (16K/48K only).
- *  Snapshots are a fallback emitted only when the game has no tape and no disk;
- *  they mount directly (no loader). A ROM cartridge, when present, takes
- *  priority over every other slot — see planLoad()/gameNeeds(). */
+/** One game in the compact on-wire schema. Short keys keep the JSON small. Each
+ *  slot retains one preferred file for a format and its native machine class.
+ *  The UI derives format and compatible-machine filters from these slots. */
 export interface RawGame {
   i: number;    // ZXDB entry id
   t: string;    // title
@@ -26,12 +22,18 @@ export interface RawGame {
   g?: number;   // genre — index into RawCatalog.genres
   p?: number;   // publisher — index into RawCatalog.publishers
   s?: string;   // running-screen image file_link (.scr)
-  f?: string;   // 48K tape file_link (.tzx preferred, else .tap)
+  a?: string;   // 16K/16K-48K tape file_link (.tzx preferred, else .tap)
+  f?: string;   // 48K tape file_link
   k?: string;   // 128K tape file_link
   d?: string;   // disk file_link (.dsk) — side A / disk 1
   ds?: [string, string][]; // extra disk sides: [file_link, label]
-  n?: string;   // 48K snapshot file_link (.szx/.z80/.sna), fallback only
-  nk?: string;  // 128K snapshot file_link, fallback only
+  m?: string;   // MGT +D disk file_link for 48K-class machines (.mgt/.img)
+  mk?: string;  // MGT +D disk file_link for 128K-class machines
+  u?: string;   // Interface 1 microdrive file_link for 48K-class machines (.mdr/.mdv)
+  uk?: string;  // Interface 1 microdrive file_link for 128K-class machines
+  n16?: string; // 16K/16K-48K snapshot file_link (.szx/.z80/.sna)
+  n?: string;   // 48K snapshot file_link
+  nk?: string;  // 128K snapshot file_link
   r?: string;   // ZX Interface 2 ROM cartridge file_link (.rom), 16K/48K only
 }
 
@@ -49,18 +51,27 @@ export interface Game {
   year: number | null;
   genre: string;
   publisher: string;
+  /** ZXDB file_link for a 16K/16K-48K tape, '' when none. */
+  tape16: string;
   /** ZXDB file_link for the 48K tape, '' when none. */
   tape48: string;
   /** ZXDB file_link for the 128K tape, '' when none. */
   tape128: string;
-  /** ZXDB file_link for the primary disk side, '' when none. */
-  disk: string;
+  /** ZXDB file_link for the primary +3 disk side, '' when none. */
+  plus3Disk: string;
   /** Extra disk sides: [file_link, label]. */
   diskSides: [string, string][];
-  /** True when the game has only a disk (no tape) — forces a +3. */
-  isDiskOnly: boolean;
-  /** ZXDB file_link for a 48K snapshot, '' when none. Fallback when there's no
-   *  tape/disk; mounts directly. */
+  /** ZXDB file_link for an MGT +D disk on a 48K-class machine, '' when none. */
+  mgt48: string;
+  /** ZXDB file_link for an MGT +D disk on a 128K-class machine, '' when none. */
+  mgt128: string;
+  /** ZXDB file_link for an Interface 1 cartridge on a 48K-class machine, '' when none. */
+  microdrive48: string;
+  /** ZXDB file_link for an Interface 1 cartridge on a 128K-class machine, '' when none. */
+  microdrive128: string;
+  /** ZXDB file_link for a 16K/16K-48K snapshot, '' when none. */
+  snap16: string;
+  /** ZXDB file_link for a 48K snapshot, '' when none. */
   snap48: string;
   /** ZXDB file_link for a 128K snapshot, '' when none. */
   snap128: string;
@@ -172,11 +183,16 @@ export function resolveGame(raw: RawGame, cat: RawCatalog): Game {
     year: raw.y ?? null,
     genre: raw.g != null ? cat.genres[raw.g] ?? '' : '',
     publisher: raw.p != null ? cat.publishers[raw.p] ?? '' : '',
+    tape16: raw.a ?? '',
     tape48: raw.f ?? '',
     tape128: raw.k ?? '',
-    disk: raw.d ?? '',
+    plus3Disk: raw.d ?? '',
     diskSides: raw.ds ?? [],
-    isDiskOnly: raw.f == null && raw.k == null && raw.d != null,
+    mgt48: raw.m ?? '',
+    mgt128: raw.mk ?? '',
+    microdrive48: raw.u ?? '',
+    microdrive128: raw.uk ?? '',
+    snap16: raw.n16 ?? '',
     snap48: raw.n ?? '',
     snap128: raw.nk ?? '',
     screen: raw.s ?? '',
@@ -189,11 +205,51 @@ export function resolveGame(raw: RawGame, cat: RawCatalog): Game {
 export interface LoadPlan {
   target: SpectrumModel;     // model to load it on (may equal the current one)
   link: string;             // ZXDB file_link to fetch + mount
-  isDisk: boolean;          // disk image vs tape
+  kind: 'tape' | 'plus3-disk' | 'mgt-disk' | 'snapshot' | 'rom' | 'microdrive';
+  peripheral?: 'plusd' | 'interface1';
   // How to start it: press Enter on the 128K/+3 loader menu, jump the 48K ROM
   // loader, mount a ZX Interface 2 cartridge (self-boots on reset, no loader
   // kick), or — for a snapshot — nothing (it restores running state itself).
-  boot: 'menu' | 'rom48k' | 'snapshot' | 'rom';
+  boot: 'menu' | 'rom48k' | 'snapshot' | 'rom' | 'peripheral';
+}
+
+/** Select a specific requested media format while preserving the current model
+ * where it can run that format. Used when the library Format filter is active. */
+function planFormat(game: Game, current: MachineModel, format: LibraryFormat): LoadPlan | null {
+  const { tape16, tape48, tape128, plus3Disk, mgt48, mgt128, microdrive48, microdrive128, snap16, snap48, snap128, rom } = game;
+  const peripheral = (kind: 'mgt-disk' | 'microdrive', link48: string, link128: string): LoadPlan | null => {
+    const peripheralName = kind === 'mgt-disk' ? 'plusd' : 'interface1';
+    if (is128kClass(current) && !isPlus3(current)) {
+      const target = current === '+2A' ? '128k' : current as SpectrumModel;
+      if (link128 || link48) return { target, link: link128 || link48, kind, peripheral: peripheralName, boot: 'peripheral' };
+    }
+    if (link48) return { target: '48k', link: link48, kind, peripheral: peripheralName, boot: 'peripheral' };
+    if (link128) return { target: '128k', link: link128, kind, peripheral: peripheralName, boot: 'peripheral' };
+    return null;
+  };
+
+  switch (format) {
+    case 'tape':
+      if (isPlus3(current)) {
+        if (tape128 || tape48 || tape16) return { target: '+3', link: tape128 || tape48 || tape16, kind: 'tape', boot: 'menu' };
+      } else if (is128kClass(current)) {
+        if (tape128 || tape48 || tape16) return { target: current as SpectrumModel, link: tape128 || tape48 || tape16, kind: 'tape', boot: 'menu' };
+      } else if (current === '16k' && tape16) {
+        return { target: '16k', link: tape16, kind: 'tape', boot: 'rom48k' };
+      }
+      if (tape48 || tape16) return { target: '48k', link: tape48 || tape16, kind: 'tape', boot: 'rom48k' };
+      if (tape128) return { target: '128k', link: tape128, kind: 'tape', boot: 'menu' };
+      return null;
+    case 'plus3-disk':
+      return plus3Disk ? { target: '+3', link: plus3Disk, kind: 'plus3-disk', boot: 'menu' } : null;
+    case 'mgt-disk': return peripheral('mgt-disk', mgt48, mgt128);
+    case 'snapshot':
+      if (snap128) return { target: '128k', link: snap128, kind: 'snapshot', boot: 'snapshot' };
+      if (snap48) return { target: '48k', link: snap48, kind: 'snapshot', boot: 'snapshot' };
+      return snap16 ? { target: '16k', link: snap16, kind: 'snapshot', boot: 'snapshot' } : null;
+    case 'rom': return rom ? { target: current === '16k' ? '16k' : '48k', link: rom, kind: 'rom', boot: 'rom' } : null;
+    case 'microdrive': return peripheral('microdrive', microdrive48, microdrive128);
+  }
 }
 
 /**
@@ -201,48 +257,83 @@ export interface LoadPlan {
  * and only upgrading when needed:
  *   - A ROM cartridge (16K/48K only) always wins when present — instant load,
  *     no tape-loading wait — switching down to 48K if needed.
- *   - +3: a disk loads from A: (menu); otherwise a tape (prefer 128K) via menu.
- *   - 128/+2/+2A: a tape (prefer 128K) via menu; a disk-only game upgrades to +3.
- *   - 48K (or 16K/other): a 48K tape jumps the ROM loader; a 128K-only tape
- *     upgrades to 128K; a disk-only game upgrades to +3.
- * A snapshot-only game (no tape/disk/rom) falls back to its snapshot, loaded on
- * the snapshot's native model and mounted directly (boot 'snapshot', no loader
- * kick). Returns null only when the game has no playable file at all.
+ *   - +3: a +3 disk loads from A: (menu); otherwise a tape (prefer 128K) via menu.
+ *   - 128/+2/+2A: a tape (prefer 128K) via menu; peripheral media stays on a
+ *     compatible 48K/128K machine.
+ *   - 48K/16K (or a non-Spectrum machine): use the smallest compatible model.
+ * Snapshots mount directly on their native model. Returns null only when the
+ * game has no playable file at all.
  */
-export function planLoad(game: Game, current: MachineModel): LoadPlan | null {
-  const { tape48, tape128, disk, snap48, snap128, rom } = game;
-  if (rom) return { target: '48k', link: rom, isDisk: false, boot: 'rom' };
-  const anyTape = tape128 || tape48;   // prefer the 128K tape where a machine runs it
+export function planLoad(game: Game, current: MachineModel, preferredFormats: Iterable<LibraryFormat> = []): LoadPlan | null {
+  // A Format filter is an explicit request for its medium, not merely a way to
+  // find titles. Preserve Set insertion order when more than one is selected.
+  for (const format of preferredFormats) {
+    const preferred = planFormat(game, current, format);
+    if (preferred) return preferred;
+  }
+  const { tape16, tape48, tape128, plus3Disk, mgt48, mgt128, microdrive48, microdrive128, snap16, snap48, snap128, rom } = game;
+  if (rom) return { target: current === '16k' ? '16k' : '48k', link: rom, kind: 'rom', boot: 'rom' };
+  const anyTape = tape128 || tape48 || tape16;
 
   if (isPlus3(current)) {
-    if (disk) return { target: '+3', link: disk, isDisk: true, boot: 'menu' };
-    if (anyTape) return { target: '+3', link: anyTape, isDisk: false, boot: 'menu' };
+    if (plus3Disk) return { target: '+3', link: plus3Disk, kind: 'plus3-disk', boot: 'menu' };
+    if (anyTape) return { target: '+3', link: anyTape, kind: 'tape', boot: 'menu' };
   } else if (is128kClass(current)) {   // 128 / +2 / +2A (not +3, handled above)
-    if (anyTape) return { target: current as SpectrumModel, link: anyTape, isDisk: false, boot: 'menu' };
-    if (disk) return { target: '+3', link: disk, isDisk: true, boot: 'menu' };
+    if (anyTape) return { target: current as SpectrumModel, link: anyTape, kind: 'tape', boot: 'menu' };
+    // The +2A is 128K-class but its Amstrad edge connector cannot host the +D
+    // or Interface 1. Use a plain 128K model when a peripheral is needed.
+    const peripheralTarget = current === '128k' || current === '+2' ? current as SpectrumModel : '128k';
+    if (mgt128 || mgt48) return { target: peripheralTarget, link: mgt128 || mgt48, kind: 'mgt-disk', peripheral: 'plusd', boot: 'peripheral' };
+    if (microdrive128 || microdrive48) return { target: peripheralTarget, link: microdrive128 || microdrive48, kind: 'microdrive', peripheral: 'interface1', boot: 'peripheral' };
+    if (plus3Disk) return { target: '+3', link: plus3Disk, kind: 'plus3-disk', boot: 'menu' };
   } else {
-    // 48K, 16K, or a non-Spectrum machine: load on the minimal Spectrum that fits.
-    if (tape48)  return { target: '48k', link: tape48, isDisk: false, boot: 'rom48k' };
-    if (tape128) return { target: '128k', link: tape128, isDisk: false, boot: 'menu' };
-    if (disk)    return { target: '+3', link: disk, isDisk: true, boot: 'menu' };
+    const is16 = current === '16k';
+    if (is16 && tape16) return { target: '16k', link: tape16, kind: 'tape', boot: 'rom48k' };
+    if (!is16 && tape48) return { target: '48k', link: tape48, kind: 'tape', boot: 'rom48k' };
+    if (tape16) return { target: '48k', link: tape16, kind: 'tape', boot: 'rom48k' };
+    if (tape48) return { target: '48k', link: tape48, kind: 'tape', boot: 'rom48k' };
+    if (mgt48) return { target: '48k', link: mgt48, kind: 'mgt-disk', peripheral: 'plusd', boot: 'peripheral' };
+    if (microdrive48) return { target: '48k', link: microdrive48, kind: 'microdrive', peripheral: 'interface1', boot: 'peripheral' };
+    if (tape128) return { target: '128k', link: tape128, kind: 'tape', boot: 'menu' };
+    if (mgt128) return { target: '128k', link: mgt128, kind: 'mgt-disk', peripheral: 'plusd', boot: 'peripheral' };
+    if (microdrive128) return { target: '128k', link: microdrive128, kind: 'microdrive', peripheral: 'interface1', boot: 'peripheral' };
+    if (plus3Disk) return { target: '+3', link: plus3Disk, kind: 'plus3-disk', boot: 'menu' };
   }
-  // Snapshot fallback (present only when there's no tape/disk).
-  if (snap128) return { target: '128k', link: snap128, isDisk: false, boot: 'snapshot' };
-  if (snap48)  return { target: '48k', link: snap48, isDisk: false, boot: 'snapshot' };
+  if (snap128) return { target: '128k', link: snap128, kind: 'snapshot', boot: 'snapshot' };
+  if (snap48) return { target: '48k', link: snap48, kind: 'snapshot', boot: 'snapshot' };
+  if (snap16) return { target: '16k', link: snap16, kind: 'snapshot', boot: 'snapshot' };
   return null;
 }
 
-/** What a game needs to play, for the row's "needs 128/+3/ROM" badge: 'rom'
- *  (a ZX Interface 2 cartridge — takes priority over every other format),
- *  '48' (48K tape or snapshot), '128' (128K-only tape or snapshot), or '+3'
- *  (disk-only). */
-export function gameNeeds(game: Game): '48' | '128' | '+3' | 'rom' {
-  if (game.rom) return 'rom';
-  if (game.tape48) return '48';
-  if (game.tape128) return '128';
-  if (game.disk) return '+3';
-  if (game.snap128) return '128';
-  return '48';   // 48K snapshot (or, defensively, nothing)
+export type LibraryFormat = 'tape' | 'plus3-disk' | 'mgt-disk' | 'snapshot' | 'rom' | 'microdrive';
+export type LibraryMachine = '16' | '48' | '128' | '+3';
+
+/** Whether a title has a retained image of the requested media format. */
+export function hasFormat(game: Game, format: LibraryFormat): boolean {
+  switch (format) {
+    case 'tape': return !!(game.tape16 || game.tape48 || game.tape128);
+    case 'plus3-disk': return !!game.plus3Disk;
+    case 'mgt-disk': return !!(game.mgt48 || game.mgt128);
+    case 'snapshot': return !!(game.snap16 || game.snap48 || game.snap128);
+    case 'rom': return !!game.rom;
+    case 'microdrive': return !!(game.microdrive48 || game.microdrive128);
+  }
+}
+
+/** Retained media formats in display order. */
+export function availableFormats(game: Game): LibraryFormat[] {
+  const formats: LibraryFormat[] = ['tape', 'plus3-disk', 'mgt-disk', 'snapshot', 'rom', 'microdrive'];
+  return formats.filter(format => hasFormat(game, format));
+}
+
+/** Whether at least one retained image can run on this Spectrum model. */
+export function supportsMachine(game: Game, machine: LibraryMachine): boolean {
+  switch (machine) {
+    case '16': return !!(game.tape16 || game.snap16 || game.rom);
+    case '48': return !!(game.tape16 || game.tape48 || game.snap16 || game.snap48 || game.rom || game.mgt48 || game.microdrive48);
+    case '128': return !!(game.tape16 || game.tape48 || game.tape128 || game.snap16 || game.snap48 || game.snap128 || game.mgt48 || game.mgt128 || game.microdrive48 || game.microdrive128);
+    case '+3': return !!(game.tape16 || game.tape48 || game.tape128 || game.snap16 || game.snap48 || game.snap128 || game.plus3Disk);
+  }
 }
 
 // ── Catalog fetch / cache ─────────────────────────────────────────────────

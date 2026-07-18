@@ -2,13 +2,15 @@ import { createMemo, createSignal, createEffect, onMount, Show, For } from 'soli
 import { HiOutlineEllipsisVertical, HiOutlinePlay } from 'solid-icons/hi';
 import { DropDownMenuButton, type MenuItem } from '@/ui/components/DropDownMenuButton.tsx';
 import { loadFile, ejectDisk } from '@/shell/media.ts';
-import { switchModel, autoBootLoad } from '@/shell/lifecycle.ts';
+import { switchModel, autoBootLoad, resetMachine } from '@/shell/lifecycle.ts';
 import { setStatus } from '@/shell/context.ts';
+import * as settings from '@/store/settings.ts';
 import { currentModel, cartridgeName } from '@/state/machine-state.ts';
 import { tapeName } from '@/state/tape-state.ts';
 import { currentDiskName } from '@/state/disk-state.ts';
 import {
-  fetchCatalog, fileUrls, basename, resolveGame, parseLibraryQuery, planLoad, gameNeeds, type Game,
+  fetchCatalog, fileUrls, basename, resolveGame, parseLibraryQuery, planLoad, hasFormat, supportsMachine,
+  type Game, type LibraryFormat, type LibraryMachine,
 } from '@/library/catalog.ts';
 import { renderScreenToCanvas } from '@/machines/spectrum/screen-to-canvas.ts';
 import {
@@ -16,17 +18,24 @@ import {
   libraryLoading, setLibraryLoading, libraryError, setLibraryError,
   loadingGame, setLoadingGame, mounted, setMounted,
   genreFilter, toggleGenreFilter, toggleGenreGroup,
-  formatFilter, toggleFormatFilter, toggleFormatGroup, type FormatReq,
+  formatFilter, toggleFormatFilter, toggleFormatGroup,
+  machineFilter, toggleMachineFilter, toggleMachineGroup,
 } from '@/state/library-state.ts';
 
-// "Format" filter options, in display order — maps a gameNeeds() tag to its
-// label. 'rom' (a ZX Interface 2 cartridge) takes priority over every other
-// tag; the rest are the minimum machine a title needs to run.
-const FORMAT_OPTIONS: { req: FormatReq; label: string }[] = [
-  { req: '48', label: '48K' },
-  { req: '128', label: '128K' },
-  { req: '+3', label: '+3' },
-  { req: 'rom', label: 'ROM' },
+const FORMAT_OPTIONS: { format: LibraryFormat; label: string }[] = [
+  { format: 'tape', label: 'Tape' },
+  { format: 'plus3-disk', label: '+3 Disk' },
+  { format: 'mgt-disk', label: 'MGT Disk' },
+  { format: 'snapshot', label: 'Snapshot' },
+  { format: 'rom', label: 'ROM' },
+  { format: 'microdrive', label: 'Microdrive' },
+];
+
+const MACHINE_OPTIONS: { machine: LibraryMachine; label: string }[] = [
+  { machine: '16', label: '16K' },
+  { machine: '48', label: '48K' },
+  { machine: '128', label: '128K' },
+  { machine: '+3', label: '+3' },
 ];
 
 /** Fetch the first URL that returns 2xx; falls through to the next on error. */
@@ -65,11 +74,6 @@ function genrePrefix(g: string): string {
   return i >= 0 ? g.slice(0, i) : g;
 }
 
-/** Row badge/tooltip label for a gameNeeds() tag ('48' shows no badge at all). */
-function needsLabel(needs: '48' | '128' | '+3' | 'rom'): string {
-  return needs === '+3' ? '+3' : needs === 'rom' ? 'ROM' : '128';
-}
-
 /** Expanded detail row: screenshot (rendered from the SCR) with the publisher
  *  name below it. */
 function GameDetail(props: { game: Game }) {
@@ -96,14 +100,19 @@ function GameDetail(props: { game: Game }) {
           <div class="library-shot-empty">{shot() === 'loading' ? 'Loading…' : 'No screenshot'}</div>
         </Show>
       </div>
-      <Show when={props.game.publisher || props.game.year}>
-        <div class="library-detail-pub">
-          <span class="library-detail-pubname">{props.game.publisher}</span>
-          <Show when={props.game.year}>
-            <span class="library-detail-year">{props.game.year}</span>
-          </Show>
-        </div>
-      </Show>
+      <div class="library-detail-pub">
+        <span class="library-detail-pubname">{props.game.publisher}{props.game.year !== null ? ` (${props.game.year})` : ''}</span>
+        <a
+          class="library-detail-link"
+          href={`https://spectrumcomputing.co.uk/entry/${props.game.id}/`}
+          target="_blank"
+          rel="noopener noreferrer"
+          title="View on Spectrum Computing"
+          aria-label={`View ${props.game.title} on Spectrum Computing`}
+        >
+          info
+        </a>
+      </div>
     </div>
   );
 }
@@ -121,20 +130,22 @@ export function LibraryBrowser() {
   });
 
   // Active when any constraint is set: free text, year:/publisher: tokens, or a
-  // genre filter. Inactive → the list shows nothing (just the search box).
+  // genre, format, or machine filter. Inactive → the list shows nothing (just
+  // the search box).
   const isActive = createMemo(() => {
     const { text, negTerms, yearMin, yearMax, publisher } = parseLibraryQuery(query());
-    return text !== '' || negTerms.length > 0 || yearMin !== null || yearMax !== null || publisher !== '' || genreFilter().size > 0 || formatFilter().size > 0;
+    return text !== '' || negTerms.length > 0 || yearMin !== null || yearMax !== null || publisher !== '' || genreFilter().size > 0 || formatFilter().size > 0 || machineFilter().size > 0;
   });
 
   // Positive title text + `-word` exclusions + year:/publisher: tokens + genre +
-  // "Format" filters, capped for render perf.
+  // Format and compatible-machine filters, capped for render perf.
   const filtered = createMemo<Game[]>(() => {
     const { text, negTerms, yearMin, yearMax, publisher } = parseLibraryQuery(query());
     const genres = genreFilter();
     const formats = formatFilter();
+    const machines = machineFilter();
     const hasYear = yearMin !== null || yearMax !== null;
-    if (!text && negTerms.length === 0 && !hasYear && !publisher && genres.size === 0 && formats.size === 0) return [];
+    if (!text && negTerms.length === 0 && !hasYear && !publisher && genres.size === 0 && formats.size === 0 && machines.size === 0) return [];
     const out: Game[] = [];
     for (const g of games()) {
       const title = g.title.toLowerCase();
@@ -143,7 +154,8 @@ export function LibraryBrowser() {
       if (hasYear && (g.year === null || (yearMin !== null && g.year < yearMin) || (yearMax !== null && g.year > yearMax))) continue;
       if (publisher && !g.publisher.toLowerCase().includes(publisher)) continue;
       if (genres.size > 0 && !genres.has(g.genre)) continue;
-      if (formats.size > 0 && !formats.has(gameNeeds(g))) continue;
+      if (formats.size > 0 && ![...formats].some(format => hasFormat(g, format))) continue;
+      if (machines.size > 0 && ![...machines].some(machine => supportsMachine(g, machine))) continue;
       out.push(g);
       if (out.length >= RESULT_LIMIT) break;
     }
@@ -157,18 +169,30 @@ export function LibraryBrowser() {
   // the whole subtree under it; hovering drills in. Counts roll up so a partly
   // selected branch shows a dash.
   const filterItems = createMemo<MenuItem[]>(() => {
-    // "Format" filter — always available, independent of the catalog.
+    // Media format and compatible machine filters — always available,
+    // independent of the catalog.
     const fmt = formatFilter();
     const reqChildren: MenuItem[] = FORMAT_OPTIONS.map(o => ({
-      value: `req:${o.req}`, label: o.label, checked: fmt.has(o.req),
+      value: `fmt:${o.format}`, label: o.label, checked: fmt.has(o.format),
     }));
-    const reqOn = FORMAT_OPTIONS.filter(o => fmt.has(o.req)).length;
+    const reqOn = FORMAT_OPTIONS.filter(o => fmt.has(o.format)).length;
+    const selectedMachines = machineFilter();
+    const machineChildren: MenuItem[] = MACHINE_OPTIONS.map(o => ({
+      value: `machine:${o.machine}`, label: o.label, checked: selectedMachines.has(o.machine),
+    }));
+    const machineOn = MACHINE_OPTIONS.filter(o => selectedMachines.has(o.machine)).length;
     const head: MenuItem[] = [
       {
-        value: 'reqgrp', label: 'Format',
+        value: 'fmtgrp', label: 'Format',
         checked: reqOn === FORMAT_OPTIONS.length,
         indeterminate: reqOn > 0 && reqOn < FORMAT_OPTIONS.length,
         children: reqChildren,
+      },
+      {
+        value: 'machinegrp', label: 'Machine',
+        checked: machineOn === MACHINE_OPTIONS.length,
+        indeterminate: machineOn > 0 && machineOn < MACHINE_OPTIONS.length,
+        children: machineChildren,
       },
       { value: '_sep', label: '', separator: true },
       { value: '_genre', label: 'Genre', heading: true },
@@ -259,8 +283,10 @@ export function LibraryBrowser() {
   });
 
   function onFilterSelect(value: string) {
-    if (value === 'reqgrp') { toggleFormatGroup(); return; }
-    if (value.startsWith('req:')) { toggleFormatFilter(value.slice(4) as FormatReq); return; }
+    if (value === 'fmtgrp') { toggleFormatGroup(); return; }
+    if (value.startsWith('fmt:')) { toggleFormatFilter(value.slice(4) as LibraryFormat); return; }
+    if (value === 'machinegrp') { toggleMachineGroup(); return; }
+    if (value.startsWith('machine:')) { toggleMachineFilter(value.slice(8) as LibraryMachine); return; }
     if (value.startsWith('g:')) { toggleGenreFilter(value.slice(2)); return; }
     const cat = catalog();
     if (!cat) return;
@@ -299,7 +325,7 @@ export function LibraryBrowser() {
   onMount(ensureCatalog);
 
   async function play(game: Game) {
-    const plan = planLoad(game, currentModel());
+    const plan = planLoad(game, currentModel(), formatFilter());
     if (!plan || loadingGame()) return;
     const urls = fileUrls(plan.link);
     if (!urls.length) return;
@@ -312,36 +338,57 @@ export function LibraryBrowser() {
     setLibraryError('');
     try {
       const data = await fetchFirst(urls);
+      if (plan.peripheral === 'plusd') {
+        settings.setPlusDEnabled(true);
+        settings.persistSetting('plusd', 'on');
+        settings.setInterface1Enabled(false);
+        settings.persistSetting('interface1', 'off');
+        settings.setBetaDiskEnabled(false);
+        settings.persistSetting('betadisk', 'off');
+      } else if (plan.peripheral === 'interface1') {
+        settings.setInterface1Enabled(true);
+        settings.persistSetting('interface1', 'on');
+        settings.setPlusDEnabled(false);
+        settings.persistSetting('plusd', 'off');
+        settings.setBetaDiskEnabled(false);
+        settings.persistSetting('betadisk', 'off');
+      }
       // Switch to the model this load needs (if any), mount the media, then
       // reset + kick the loader (Enter on the 128K/+3 menu, or 48K ROM jump) —
       // unless this is an in-place remount, where we mount and leave the
       // machine running. (An active game already runs on the right model, so
       // the model-switch guard below never trips in the remount case.)
-      if (plan.target !== currentModel()) await switchModel(plan.target);
+      if (plan.target !== currentModel() || plan.peripheral) await switchModel(plan.target);
       await loadFile(data, basename(plan.link));
       // A snapshot restores running state itself, and a ROM cartridge self-boots
       // on insert (loadFile's .rom routing already resets+starts the machine) —
       // neither needs a loader kick, and neither should eject a mounted disk.
       const isSnapshot = plan.boot === 'snapshot';
       const isRom = plan.boot === 'rom';
+      const isPeripheral = plan.boot === 'peripheral';
       // A tape-only game on a +3/+2A must not find a disk in A: — the boot
       // menu's Loader boots the disk in preference to the tape. Eject any
       // mounted disk so the Loader falls through to the cassette loader.
-      if (!remountOnly && !isSnapshot && !isRom && !plan.isDisk && currentDiskName()) ejectDisk(0);
+      if (!remountOnly && !isSnapshot && !isRom && !isPeripheral && plan.kind !== 'plus3-disk' && currentDiskName()) ejectDisk(0);
       // Capture the mounted media name before the boot reset so the row stays
       // highlighted until it's ejected or replaced.
       if (isRom) {
         setMounted({ game, name: cartridgeName(), kind: 'rom' });
-      } else {
-        const kind = plan.isDisk ? 'disk' : 'tape';
+      } else if (!isSnapshot && !isPeripheral) {
+        const kind = plan.kind === 'plus3-disk' ? 'disk' : 'tape';
         setMounted({ game, name: kind === 'disk' ? currentDiskName() : tapeName(), kind });
+      } else {
+        setMounted(null);
       }
       // "Loading" (not "loaded"): the file is mounted and the loader kicked, but
       // the program itself is only now starting to load. Overrides the media
       // manager's "…loaded" message and shows the clean title, not the filename.
-      const source = isRom ? 'cartridge' : plan.isDisk ? 'disk' : isSnapshot ? 'snapshot' : 'tape';
-      setStatus(`Loading ${game.title} from ${source}`);
-      if (!remountOnly && plan.boot !== 'snapshot' && plan.boot !== 'rom') autoBootLoad(plan.boot);
+      const source = plan.kind === 'plus3-disk' ? '+3 disk' : plan.kind === 'mgt-disk' ? 'MGT disk' : plan.kind;
+      setStatus(`${isPeripheral ? 'Mounted' : 'Loading'} ${game.title} from ${source}`);
+      // G+DOS boots from the mounted disk after reset; Interface 1 cartridges
+      // remain mounted for the program's own LOAD * command.
+      if (!remountOnly && plan.kind === 'mgt-disk') resetMachine();
+      if (!remountOnly && plan.boot !== 'snapshot' && plan.boot !== 'rom' && plan.boot !== 'peripheral') autoBootLoad(plan.boot);
     } catch (err) {
       console.warn(`Failed to load "${game.title}":`, err);
       setLibraryError(`Could not download "${game.title}".`);
@@ -373,7 +420,7 @@ export function LibraryBrowser() {
           <DropDownMenuButton
             size="sm"
             icon={<HiOutlineEllipsisVertical />}
-            title="Filter by required machine or genre"
+            title="Filter by media format, compatible machine, or genre"
             items={filterItems()}
             onSelect={onFilterSelect}
           />
@@ -395,14 +442,11 @@ export function LibraryBrowser() {
                 <div
                   class={`library-row${loadingGame() === game ? ' loading' : ''}${mounted()?.game === game ? ' mounted' : ''}${selected() === game ? ' selected' : ''}`}
                   onClick={() => setSelected(selected() === game ? null : game)}
-                  title={`${game.title}${game.publisher ? ` — ${game.publisher}` : ''}${game.isDiskOnly ? ' (disk)' : ''}${gameNeeds(game) !== '48' ? ` · needs ${needsLabel(gameNeeds(game))}` : ''}`}
+                  title={`${game.title}${game.publisher ? ` — ${game.publisher}` : ''}`}
                 >
                   <span class="library-title">
                     {game.title}
                   </span>
-                  <Show when={gameNeeds(game) !== '48'}>
-                    <span class="library-model">{needsLabel(gameNeeds(game))}</span>
-                  </Show>
                   <span
                     class="library-play"
                     title={loadingGame() === game ? 'Requesting file…' : 'Load'}

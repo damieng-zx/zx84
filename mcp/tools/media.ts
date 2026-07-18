@@ -12,7 +12,7 @@ import { fdcLog } from '../fdc-log.ts';
 import { parseDSK } from '../../src/media/floppy/dsk.ts';
 import { unzip } from '../../src/media/zip.ts';
 import { CACHE_DIR } from '../rom-fetch.ts';
-import { findGames, suggestTitles, fileUrls, planLoad, gameNeeds, basename } from '../catalog.ts';
+import { findGames, suggestTitles, fileUrls, planLoad, availableFormats, basename } from '../catalog.ts';
 import { encodePNG } from '../png.ts';
 import { CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT } from '../../src/machines/cpc/constants.ts';
 
@@ -70,7 +70,7 @@ export function register(server: McpServer): void {
       if (games.length > 1) {
         const picked = id != null ? games.find(g => g.id === id) : undefined;
         if (!picked) {
-          const list = games.map(g => `  id=${g.id}  ${g.title} (${g.year ?? '?'})  ${g.publisher || '—'}  [needs ${gameNeeds(g)}]`).join('\n');
+          const list = games.map(g => `  id=${g.id}  ${g.title} (${g.year ?? '?'})  ${g.publisher || '—'}  [${availableFormats(g).join(', ')}]`).join('\n');
           return text(`${games.length} titles match "${title}" exactly — re-run with id=:\n${list}`);
         }
         game = picked;
@@ -133,10 +133,10 @@ export function register(server: McpServer): void {
         lines.push(await initMachine(plan.target));
       }
 
-      // 6. Mount + boot. Snapshots restore running state and self-select their
-      //    model, so route them through the path-based loader (SZX banking etc.);
-      //    tapes/disks mount + arm the auto-boot trap like the UI's one-click play.
-      if (plan.boot === 'snapshot') {
+      // 6. Mount + boot. Snapshots and peripheral media use the path-based
+      // loader: it handles SZX banking and enables the +D/Interface 1 ROM before
+      // mounting. Tapes/disks mount + arm the auto-boot trap like the UI.
+      if (plan.boot === 'snapshot' || plan.boot === 'peripheral') {
         fs.mkdirSync(CACHE_DIR, { recursive: true });
         const tmp = path.join(CACHE_DIR, `library-${path.basename(innerName)}`);
         fs.writeFileSync(tmp, data);
@@ -150,7 +150,7 @@ export function register(server: McpServer): void {
       //    self-starting, no loader to poll) just runs the frames.
       if (frames > 0) {
         const spec = activeSpectrum()!;
-        if (plan.boot === 'snapshot' || plan.boot === 'rom') {
+        if (plan.boot === 'snapshot' || plan.boot === 'rom' || plan.boot === 'peripheral') {
           const ran = spec.runUntil(frames);
           lines.push(`Ran ${ran}/${frames} frame(s). PC=${h16(spec.cpu.pc)} T=${spec.cpu.tStates}`);
         } else {
@@ -159,7 +159,7 @@ export function register(server: McpServer): void {
           lines.push(`Verdict: ${tag} after ${v.frames} frame(s)`);
           lines.push(`  ${v.detail}`);
         }
-      } else if (plan.boot !== 'snapshot' && plan.boot !== 'rom') {
+      } else if (plan.boot !== 'snapshot' && plan.boot !== 'rom' && plan.boot !== 'peripheral') {
         lines.push(`Boot trap armed (not yet fired). Pass frames=N to run to a verdict, or use 'run' + 'ocr' to debug.`);
       }
       return text(lines.join('\n'));

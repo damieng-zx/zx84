@@ -5,7 +5,7 @@
  * IndexedDB (see src/library/catalog.ts `fetchCatalog`). That path is
  * browser-only (IndexedDB/localStorage), so here we do a plain fetch + on-disk
  * cache under the MCP `.cache` dir. The *pure* resolution logic — `planLoad`,
- * `fileUrls`, `resolveGame`, `gameNeeds`, `basename` — is imported straight from
+ * `fileUrls`, `resolveGame`, `availableFormats`, `basename` — is imported straight from
  * the app module so the MCP exercises exactly the same Library decisions the UI
  * does (which is the whole point: debugging why a Library title won't load).
  */
@@ -14,12 +14,12 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as zlib from 'node:zlib';
 import {
-  resolveGame, fileUrls, planLoad, gameNeeds, basename,
+  resolveGame, fileUrls, planLoad, availableFormats, basename,
   DEFAULT_CATALOG_URL, type RawCatalog, type Game,
 } from '../src/library/catalog.ts';
 import { CACHE_DIR } from './rom-fetch.ts';
 
-export { fileUrls, planLoad, gameNeeds, basename, type Game };
+export { fileUrls, planLoad, availableFormats, basename, type Game };
 
 const CACHE_FILE = path.join(CACHE_DIR, 'catalog.json.gz');
 

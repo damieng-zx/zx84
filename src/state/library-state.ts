@@ -5,7 +5,7 @@
  */
 
 import { createSignal } from 'solid-js';
-import type { RawCatalog, Game } from '@/library/catalog.ts';
+import type { RawCatalog, Game, LibraryFormat, LibraryMachine } from '@/library/catalog.ts';
 
 const _catalog = createSignal<RawCatalog | null>(null);
 export const catalog = _catalog[0];
@@ -84,39 +84,42 @@ export function clearGenreFilter(): void {
   persistGenreFilter(empty);
 }
 
-// ── Format filter (persisted) ───────────────────────────────────────────────
-// Set of format tags to include ('48' | '128' | '+3' | 'rom', matching
-// gameNeeds); empty = no format filtering (show all).
+// ── Format / machine filters (persisted) ────────────────────────────────────
+// Each set is ORed internally; the browser combines non-empty sets with AND.
 
-export type FormatReq = '48' | '128' | '+3' | 'rom';
-const ALL_FORMATS: FormatReq[] = ['48', '128', '+3', 'rom'];
+const ALL_FORMATS: LibraryFormat[] = ['tape', 'plus3-disk', 'mgt-disk', 'snapshot', 'rom', 'microdrive'];
+const ALL_MACHINES: LibraryMachine[] = ['16', '48', '128', '+3'];
 
-const FORMAT_FILTER_KEY = 'zx84-library-formats';
+const FORMAT_FILTER_KEY = 'zx84-library-media-formats';
+const MACHINE_FILTER_KEY = 'zx84-library-machines';
 
-function loadFormatFilter(): Set<FormatReq> {
+function loadFilter<T extends string>(key: string, allowed: readonly T[]): Set<T> {
   try {
-    const raw = localStorage.getItem(FORMAT_FILTER_KEY);
-    if (raw) return new Set<FormatReq>(JSON.parse(raw));
+    const raw = localStorage.getItem(key);
+    if (raw) {
+      const values = JSON.parse(raw);
+      if (Array.isArray(values)) return new Set(values.filter((v): v is T => typeof v === 'string' && allowed.includes(v as T)));
+    }
   } catch { /* */ }
   return new Set();
 }
 
-const _formatFilter = createSignal<Set<FormatReq>>(loadFormatFilter());
-export const formatFilter = _formatFilter[0];
-const setFormatFilter = _formatFilter[1];
-
-function persistFormatFilter(s: Set<FormatReq>): void {
+function persistFilter<T extends string>(key: string, s: Set<T>): void {
   try {
-    if (s.size === 0) localStorage.removeItem(FORMAT_FILTER_KEY);
-    else localStorage.setItem(FORMAT_FILTER_KEY, JSON.stringify([...s]));
+    if (s.size === 0) localStorage.removeItem(key);
+    else localStorage.setItem(key, JSON.stringify([...s]));
   } catch { /* */ }
 }
 
-export function toggleFormatFilter(fmt: FormatReq): void {
+const _formatFilter = createSignal<Set<LibraryFormat>>(loadFilter(FORMAT_FILTER_KEY, ALL_FORMATS));
+export const formatFilter = _formatFilter[0];
+const setFormatFilter = _formatFilter[1];
+
+export function toggleFormatFilter(fmt: LibraryFormat): void {
   const s = new Set(formatFilter());
   if (s.has(fmt)) s.delete(fmt); else s.add(fmt);
   setFormatFilter(s);
-  persistFormatFilter(s);
+  persistFilter(FORMAT_FILTER_KEY, s);
 }
 
 /** Parent "Format" click: clear all formats if every one is already on,
@@ -126,5 +129,26 @@ export function toggleFormatGroup(): void {
   const allOn = ALL_FORMATS.every(m => s.has(m));
   for (const m of ALL_FORMATS) { if (allOn) s.delete(m); else s.add(m); }
   setFormatFilter(s);
-  persistFormatFilter(s);
+  persistFilter(FORMAT_FILTER_KEY, s);
+}
+
+const _machineFilter = createSignal<Set<LibraryMachine>>(loadFilter(MACHINE_FILTER_KEY, ALL_MACHINES));
+export const machineFilter = _machineFilter[0];
+const setMachineFilter = _machineFilter[1];
+
+export function toggleMachineFilter(machine: LibraryMachine): void {
+  const s = new Set(machineFilter());
+  if (s.has(machine)) s.delete(machine); else s.add(machine);
+  setMachineFilter(s);
+  persistFilter(MACHINE_FILTER_KEY, s);
+}
+
+/** Parent "Machine" click: clear all machines if every one is already on,
+ * otherwise select them all. */
+export function toggleMachineGroup(): void {
+  const s = new Set(machineFilter());
+  const allOn = ALL_MACHINES.every(m => s.has(m));
+  for (const m of ALL_MACHINES) { if (allOn) s.delete(m); else s.add(m); }
+  setMachineFilter(s);
+  persistFilter(MACHINE_FILTER_KEY, s);
 }

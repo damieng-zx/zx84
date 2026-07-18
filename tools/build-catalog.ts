@@ -14,7 +14,8 @@
  * DEFAULT_CATALOG_URL in src/library/catalog.ts.
  *
  * Scope: ZX-Spectrum entries marked Available that have a playable tape
- * (.tzx/.tap), disk (.dsk), or ROM cartridge (.rom, ZX Interface 2, 16K/48K
+ * (.tzx/.tap), +3 disk (.dsk), MGT +D disk (.mgt/.img), microdrive
+ * (.mdr/.mdv), snapshot, or ROM cartridge (.rom, ZX Interface 2, 16K/48K
  * only) download, excluding x-rated entries (entries.is_xrated).
  * Books/hardware/magazines fall out naturally — they have no such download.
  * The compact schema matches
@@ -48,32 +49,34 @@ const OUT_DIR = resolve(HERE, 'out');
 interface MetaRow { id: number; title: string; year: number | null; genre: string | null; publisher: string | null; }
 interface DownRow { id: number; link: string; ft: number; mt: number | null; rel: number | null; lang: string | null; }
 
-// Compact output schema — keep in sync with src/library/catalog.ts. Model is
-// implicit in which slot a file lands in: f ⇒ 48K, k ⇒ 128K, d/ds ⇒ +3 (disk),
-// n ⇒ 48K snapshot, nk ⇒ 128K snapshot. Snapshots are a fallback, emitted only
-// for entries with no tape and no disk; they mount directly (no loader).
+// Compact output schema — keep in sync with src/library/catalog.ts. Each media
+// format retains one preferred file for its native machine class.
 interface RawGame {
   i: number;                  // ZXDB entry id
   t: string;
   y?: number; g?: number; p?: number; s?: string;
+  a?: string;                 // 16K/16K-48K tape (.tzx preferred)
   f?: string;                 // 48K tape (.tzx preferred)
   k?: string;                 // 128K tape
-  d?: string;                 // disk (side A / disk 1 when multi-side)
+  d?: string;                 // +3 disk (side A / disk 1 when multi-side)
   ds?: [string, string][];    // extra disk sides: [file_link, label]
-  n?: string;                 // 48K snapshot (.szx > .z80 > .sna)
+  m?: string; mk?: string;    // MGT +D disk (48K / 128K class)
+  u?: string; uk?: string;    // Interface 1 microdrive (48K / 128K class)
+  n16?: string;               // 16K/16K-48K snapshot (.szx > .z80 > .sna)
+  n?: string;                 // 48K snapshot
   nk?: string;                // 128K snapshot
   r?: string;                 // Interface 2 ROM cartridge (16K/48K only)
 }
 interface RawCatalog { genres: string[]; publishers: string[]; games: RawGame[]; }
 
 /**
- * 48K vs 128K bucket for a tape, from its machinetype_id. The "48K/128K" dual
- * (4), 128K (5), +2 (7) and the rarer +2A/+3 tapes (8–10) plus Next (27) all go
- * in the 128 bucket — they want, or at least tolerate, a 128K-class machine.
- * 16K/48K/untagged stay 48.
+ * Native model bucket from ZXDB's machinetype_id. The 16K/48K dual remains in
+ * the 16K slot: it can run on either 16K or 48K, and compatibility expansion is
+ * handled by the client. Untagged downloads stay in the conservative 48K slot.
  */
-function tapeBucket(mt: number | null | undefined): '48' | '128' {
+function nativeBucket(mt: number | null | undefined): '16' | '48' | '128' {
   switch (mt) {
+    case 1: case 2: return '16';
     case 4: case 5: case 7: case 8: case 9: case 10: case 27: return '128';
     default: return '48';
   }
@@ -150,9 +153,10 @@ function main(): void {
         AND e.is_xrated = 0`,
   ).all(MACHINE_LIKE) as unknown as MetaRow[];
 
-  // Candidate downloads: tape images (filetype 8: .tzx/.tap), disk images
-  // (filetype 11: .dsk), ROM cartridges (filetype 17: .rom, for the ZX
-  // Interface 2 — 16K/48K only, filtered by tapeBucket() below), and SCR
+  // Candidate downloads: tape images (filetype 8: .tzx/.tap), +3 disk images
+  // (filetype 11: .dsk), MGT +D images (.mgt/.img), Interface 1 microdrives
+  // (.mdr/.mdv), ROM cartridges (filetype 17: .rom, for the ZX Interface 2 —
+  // 16K/48K only), and SCR
   // screens (filetype 1 = loading, 2 = running). SQLite has no built-in
   // REGEXP, so match by suffix with LOWER()+LIKE. One entry may have several
   // — we dedupe in JS below.
@@ -163,7 +167,9 @@ function main(): void {
        JOIN machinetypes m   ON m.id = e.machinetype_id AND m.text LIKE ?
       WHERE e.availabletype_id = 'A'
         AND ( (d.filetype_id = 8  AND (LOWER(d.file_link) LIKE '%.tzx.zip' OR LOWER(d.file_link) LIKE '%.tap.zip'))
-           OR (d.filetype_id = 11 AND LOWER(d.file_link) LIKE '%.dsk.zip')
+            OR (d.filetype_id = 11 AND LOWER(d.file_link) LIKE '%.dsk.zip')
+            OR LOWER(d.file_link) LIKE '%.mgt.zip' OR LOWER(d.file_link) LIKE '%.img.zip'
+            OR LOWER(d.file_link) LIKE '%.mdr.zip' OR LOWER(d.file_link) LIKE '%.mdv.zip'
            OR (d.filetype_id = 17 AND LOWER(d.file_link) LIKE '%.rom.zip')
            OR (d.filetype_id IN (1, 2) AND LOWER(d.file_link) LIKE '%.scr')
            OR LOWER(d.file_link) LIKE '%.szx' OR LOWER(d.file_link) LIKE '%.szx.zip'
@@ -173,9 +179,10 @@ function main(): void {
 
   db.close();
 
-  // Per entry: best 48K/128K tape (each prefers .tzx over .tap), all disk links
-  // (resolved to a primary + sides later), best 48K/128K snapshot (.szx>.z80>
-  // .sna), and one SCR screen (prefer a loading screen, ft 1, over running, 2).
+  // Per entry: best 16K/48K/128K tape (each prefers .tzx over .tap), all +3
+  // disk links (resolved to a primary + sides later), MGT/Interface 1 media by
+  // 48K/128K class, snapshots, and one SCR screen (prefer a loading screen,
+  // ft 1, over running, 2).
   // Classify by file extension — snapshots share no single filetype_id.
   // Selection priority for each slot: English first, then the ORIGINAL release
   // (lowest release_seq) over budget re-issues (Erbe, Mastertronic, …), then the
@@ -183,8 +190,10 @@ function main(): void {
   // Untagged release_seq sorts last; only language_id 'en' counts as English.
   interface Pick { link: string; en: boolean; rel: number; rank: number; }
   interface Slot {
-    tape48?: Pick; tape128?: Pick; disks: { link: string; rel: number; en: boolean }[];
-    snap48?: Pick; snap128?: Pick; rom?: Pick;
+    tape16?: Pick; tape48?: Pick; tape128?: Pick;
+    disks: { link: string; rel: number; en: boolean }[];
+    mgt48?: Pick; mgt128?: Pick; microdrive48?: Pick; microdrive128?: Pick;
+    snap16?: Pick; snap48?: Pick; snap128?: Pick; rom?: Pick;
     screen?: string; screenFt?: number;
   }
   const better = (en: boolean, rel: number, rank: number, cur?: Pick) => {
@@ -202,27 +211,43 @@ function main(): void {
     const rel = d.rel ?? 999;
     const en = d.lang === 'en';
     const snap = snapRank(l);
-    const b = tapeBucket(d.mt);
+    const b = nativeBucket(d.mt);
     if (l.endsWith('.dsk.zip')) {
       slot.disks.push({ link: d.link, rel, en });
     } else if (l.endsWith('.tzx.zip') || l.endsWith('.tap.zip')) {
       const rank = l.endsWith('.tzx.zip') ? 1 : 0;
-      const cur = b === '128' ? slot.tape128 : slot.tape48;
+      const cur = b === '16' ? slot.tape16 : b === '128' ? slot.tape128 : slot.tape48;
       if (better(en, rel, rank, cur)) {
         const t = { link: d.link, en, rel, rank };
-        if (b === '128') slot.tape128 = t; else slot.tape48 = t;
+        if (b === '16') slot.tape16 = t;
+        else if (b === '128') slot.tape128 = t;
+        else slot.tape48 = t;
+      }
+    } else if (l.endsWith('.mgt.zip') || l.endsWith('.img.zip')) {
+      const cur = b === '128' ? slot.mgt128 : slot.mgt48;
+      if (better(en, rel, 0, cur)) {
+        if (b === '128') slot.mgt128 = { link: d.link, en, rel, rank: 0 };
+        else slot.mgt48 = { link: d.link, en, rel, rank: 0 };
+      }
+    } else if (l.endsWith('.mdr.zip') || l.endsWith('.mdv.zip')) {
+      const cur = b === '128' ? slot.microdrive128 : slot.microdrive48;
+      if (better(en, rel, 0, cur)) {
+        if (b === '128') slot.microdrive128 = { link: d.link, en, rel, rank: 0 };
+        else slot.microdrive48 = { link: d.link, en, rel, rank: 0 };
       }
     } else if (l.endsWith('.rom.zip')) {
       // Interface 2 cartridges only fit the 16K/48K edge connector — drop any
       // row a 128K-class machinetype snuck in under (see isInterface2Capable).
-      if (b === '48' && better(en, rel, 0, slot.rom)) {
+      if (b !== '128' && better(en, rel, 0, slot.rom)) {
         slot.rom = { link: d.link, en, rel, rank: 0 };
       }
     } else if (snap > 0) {
-      const cur = b === '128' ? slot.snap128 : slot.snap48;
+      const cur = b === '16' ? slot.snap16 : b === '128' ? slot.snap128 : slot.snap48;
       if (better(en, rel, snap, cur)) {
         const s = { link: d.link, en, rel, rank: snap };
-        if (b === '128') slot.snap128 = s; else slot.snap48 = s;
+        if (b === '16') slot.snap16 = s;
+        else if (b === '128') slot.snap128 = s;
+        else slot.snap48 = s;
       }
     } else if (d.ft === 1 || d.ft === 2) {
       if (!slot.screen || (d.ft === 1 && slot.screenFt !== 1)) { slot.screen = d.link; slot.screenFt = d.ft; }
@@ -246,26 +271,29 @@ function main(): void {
     const f = files.get(row.id);
     if (!f) continue;
     const { d, ds } = resolveDisks(f.disks);
-    const hasTapeOrDisk = !!(f.tape48 || f.tape128 || d);
+    const hasMedia = !!(f.tape16 || f.tape48 || f.tape128 || d || f.mgt48 || f.mgt128 || f.microdrive48 || f.microdrive128);
     const hasRom = !!f.rom;
-    // Snapshots are a fallback only — skipped entirely when a tape/disk exists.
-    const hasSnap = !!(f.snap48 || f.snap128);
-    if (!hasTapeOrDisk && !hasRom && !hasSnap) continue;      // no playable file → skip
+    const hasSnap = !!(f.snap16 || f.snap48 || f.snap128);
+    if (!hasMedia && !hasRom && !hasSnap) continue;      // no playable file → skip
     const g: RawGame = { i: row.id, t: row.title };
     if (row.year) g.y = row.year;
     const gi = intern(row.genre, genres, genreIdx);
     if (gi !== undefined) g.g = gi;
     const pi = intern(row.publisher, publishers, pubIdx);
     if (pi !== undefined) g.p = pi;
+    if (f.tape16) g.a = f.tape16.link;
     if (f.tape48) g.f = f.tape48.link;
     if (f.tape128) g.k = f.tape128.link;
     if (d) g.d = d;
     if (ds) g.ds = ds;
+    if (f.mgt48) g.m = f.mgt48.link;
+    if (f.mgt128) g.mk = f.mgt128.link;
+    if (f.microdrive48) g.u = f.microdrive48.link;
+    if (f.microdrive128) g.uk = f.microdrive128.link;
     if (f.rom) g.r = f.rom.link;
-    if (!hasTapeOrDisk) {
-      if (f.snap48) g.n = f.snap48.link;
-      if (f.snap128) g.nk = f.snap128.link;
-    }
+    if (f.snap16) g.n16 = f.snap16.link;
+    if (f.snap48) g.n = f.snap48.link;
+    if (f.snap128) g.nk = f.snap128.link;
     if (f.screen) g.s = f.screen;
     games.push(g);
   }
@@ -289,8 +317,9 @@ function main(): void {
   const mb = (n: number) => (n / 1024 / 1024).toFixed(2);
   console.log(`games:      ${games.length}`);
   console.log(`with screen:${games.filter(g => g.s).length}`);
-  console.log(`tapes 48/128: ${games.filter(g => g.f).length} / ${games.filter(g => g.k).length}   disks: ${games.filter(g => g.d).length}   multi-side: ${games.filter(g => g.ds).length}`);
-  console.log(`snapshot-only 48/128: ${games.filter(g => g.n).length} / ${games.filter(g => g.nk).length}`);
+  console.log(`tapes 16/48/128: ${games.filter(g => g.a).length} / ${games.filter(g => g.f).length} / ${games.filter(g => g.k).length}`);
+  console.log(`+3 disks: ${games.filter(g => g.d).length}   MGT 48/128: ${games.filter(g => g.m).length} / ${games.filter(g => g.mk).length}   microdrive 48/128: ${games.filter(g => g.u).length} / ${games.filter(g => g.uk).length}`);
+  console.log(`snapshots 16/48/128: ${games.filter(g => g.n16).length} / ${games.filter(g => g.n).length} / ${games.filter(g => g.nk).length}   multi-side: ${games.filter(g => g.ds).length}`);
   console.log(`ROM cartridges: ${games.filter(g => g.r).length}`);
   console.log(`genres:     ${genres.length}   publishers: ${publishers.length}`);
   console.log(`raw JSON:   ${mb(json.length)} MB`);
