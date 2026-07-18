@@ -6,10 +6,11 @@
  */
 
 import type {
-  FrameIndicators, FrameProbe, TranscribeDriver,
+  FrameIndicators, FramePaneProvider, FrameProbe, TranscribeDriver,
 } from '@/machines/machine.ts';
 import type { MsxMachine } from '@/machines/msx/msx-machine.ts';
 import type { OcrGridName } from '@/ocr/ocr.ts';
+import { parseMsxBasic, parseMsxBasicVariables } from '@/basic/msx-basic-parser.ts';
 
 class MsxTranscribeDriver implements TranscribeDriver {
   constructor(private readonly m: MsxMachine) {}
@@ -28,10 +29,16 @@ class MsxTranscribeDriver implements TranscribeDriver {
 }
 
 export class MsxFrameProbe implements FrameProbe {
+  readonly panes: FramePaneProvider;
   readonly transcribe: MsxTranscribeDriver;
 
   constructor(private readonly m: MsxMachine) {
     this.transcribe = new MsxTranscribeDriver(m);
+    this.panes = {
+      // MSX BASIC's program and variable tables live in the physical RAM slot.
+      basicListing: () => parseMsxBasic(m.memory.ramSnapshot()),
+      basicVars: () => parseMsxBasicVariables(m.memory.ramSnapshot()),
+    };
   }
 
   sample(out: FrameIndicators): void {
