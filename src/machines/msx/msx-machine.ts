@@ -17,14 +17,14 @@
 import { Z80 } from '@/cores/z80.ts';
 import { AY3891x } from '@/cores/ay-3-8910.ts';
 import { WD1772 } from '@/cores/wd1772.ts';
-import { Tms9918a } from '@/cores/tms9918a.ts';
+import { Tms9918a, MSX_PALETTES } from '@/cores/tms9918a.ts';
 import { TapeDeck } from '@/media/tape/tap.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { disasmOne, type DisasmLine } from '@/debug/z80-disasm.ts';
 import type { IScreenRenderer } from '@/display/display.ts';
-import type { Machine, MachineHost, MachineKind, BorderMode, MachineTraceMode } from '@/machines/machine.ts';
+import type { Machine, MachineHost, MachineKind, BorderMode, MachineTraceMode, SettingsView } from '@/machines/machine.ts';
 import { createMsxServices, type MsxServices } from '@/machines/msx/services/index.ts';
 import type { MsxModel } from '@/models.ts';
 import type { OcrGridName, OcrResult } from '@/debug/screen-text.ts';
@@ -117,6 +117,13 @@ export class MsxMachine extends BaseMachine implements Machine {
   }
 
   attachHost(host: MachineHost): void { this.host = host; }
+
+  /** Apply the MSX-specific settings: the TMS9918A PAL/NTSC colour map and the
+   *  master volume (AY/PSG-only). */
+  applySettings(view: SettingsView): void {
+    this.vdp.palette = MSX_PALETTES[view.get('msx-color-map', 'pal') as keyof typeof MSX_PALETTES];
+    this.audio.setVolume(view.get('volume', 70) / 100);
+  }
 
   // ── Machine: lifecycle ───────────────────────────────────────────────
 

@@ -120,6 +120,13 @@ export interface Machine {
   attachHost?(host: MachineHost): void;
   /** Pull the settings this machine cares about from the generic store view. */
   applySettings?(view: SettingsView): void;
+  /** Configure fitted peripherals from settings (enable flags, write-protects —
+   *  set synchronously) and return the peripheral-ROM loads the shell must
+   *  fulfil BEFORE the system ROM is loaded and the machine is reset. */
+  prepare?(view: SettingsView): AuxRomRequest[];
+  /** Peripheral-ROM overlays applied AFTER reset, on machine build only (the CPC
+   *  ParaDOS overlay needs the firmware ROM set already in place). */
+  bootRoms?(view: SettingsView): AuxRomRequest[];
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -192,6 +199,35 @@ export interface RomHostOps {
  *  the reactive settings module. */
 export interface SettingsView {
   get<T>(key: string, fallback: T): T;
+}
+
+/**
+ * A peripheral-ROM load a machine wants performed. The machine owns everything
+ * peripheral-specific (which cache key, which CDN URL, the human status text,
+ * and how the bytes are wired into its chip); the shell owns the generic
+ * fetch/IndexedDB-cache/status/failure-signal mechanics. This is how the shell's
+ * old per-machine peripheral-ROM cascade dissolves: the machine's `prepare()` /
+ * `bootRoms()` hooks return these, and the shell fulfils them uniformly.
+ */
+export interface AuxRomRequest {
+  /** IndexedDB cache key. */
+  readonly cacheKey: string;
+  /** CDN URL fetched on a cache miss. */
+  readonly url: string;
+  /** Status shown before a network fetch (cache miss only). */
+  readonly fetchingMsg: string;
+  /** Status shown once the ROM is wired in. */
+  loadedMsg(bytes: number): string;
+  /** Status + failure-signal text on load failure. */
+  readonly failMsg: string;
+  /** Which peripheral-ROM-failure signal the shell sets/clears (e.g. 'vtx5000',
+   *  'multiface', 'plusd', 'betadisk', 'interface1', 'parados'). */
+  readonly failId: string;
+  /** Wire the fetched bytes into the peripheral's chip. */
+  apply(data: Uint8Array): void;
+  /** Await the load before continuing (ROM must be present before reset), or
+   *  fire-and-forget (Multiface — paged only on the button press). */
+  readonly awaitLoad: boolean;
 }
 
 // ── Media / device services ─────────────────────────────────────────────────

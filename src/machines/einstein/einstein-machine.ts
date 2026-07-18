@@ -16,7 +16,7 @@
 import { Z80 } from '@/cores/z80.ts';
 import { AY3891x } from '@/cores/ay-3-8910.ts';
 import { WD1772 } from '@/cores/wd1772.ts';
-import { Tms9918a } from '@/cores/tms9918a.ts';
+import { Tms9918a, EINSTEIN_PALETTES } from '@/cores/tms9918a.ts';
 import { Z80Ctc } from '@/cores/z80-ctc.ts';
 import { TapeDeck, TAPE_REF_HZ } from '@/media/tape/tap.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
@@ -24,7 +24,7 @@ import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { disasmOne, type DisasmLine } from '@/debug/z80-disasm.ts';
 import type { IScreenRenderer } from '@/display/display.ts';
-import type { Machine, MachineHost, MachineKind, BorderMode, MachineTraceMode } from '@/machines/machine.ts';
+import type { Machine, MachineHost, MachineKind, BorderMode, MachineTraceMode, SettingsView } from '@/machines/machine.ts';
 import { createEinsteinServices, type EinsteinServices } from '@/machines/einstein/services/index.ts';
 import type { EinsteinModel } from '@/models.ts';
 import type { OcrGridName, OcrResult } from '@/debug/screen-text.ts';
@@ -112,6 +112,13 @@ export class EinsteinMachine extends BaseMachine implements Machine {
   }
 
   attachHost(host: MachineHost): void { this.host = host; }
+
+  /** Apply the Einstein-specific settings: the TMS9929A colour map and the
+   *  master volume (AY-only, no beeper). */
+  applySettings(view: SettingsView): void {
+    this.vdp.palette = EINSTEIN_PALETTES[view.get('einstein-color-map', 'accurate') as keyof typeof EINSTEIN_PALETTES];
+    this.audio.setVolume(view.get('volume', 70) / 100);
+  }
 
   // ── Machine: lifecycle ───────────────────────────────────────────────
 

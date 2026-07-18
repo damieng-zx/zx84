@@ -22,7 +22,7 @@ import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { disasmOne, type DisasmLine } from '@/debug/z80-disasm.ts';
 import type { IScreenRenderer } from '@/display/display.ts';
-import type { Machine, MachineHost, MachineKind, BorderMode, MachineTraceMode } from '@/machines/machine.ts';
+import type { Machine, MachineHost, MachineKind, BorderMode, MachineTraceMode, SettingsView, AuxRomRequest } from '@/machines/machine.ts';
 import { createCpcServices, type CpcServices } from '@/machines/cpc/services/index.ts';
 import type { CpcModel } from '@/models.ts';
 import type { OcrGridName, OcrResult } from '@/debug/screen-text.ts';
@@ -41,6 +41,7 @@ import { BaseMachine } from '@/machines/base-machine.ts';
 import {
   CPC_AY_CLOCK, CPC_CPU_CLOCK, CPC_T_PER_CHAR,
   CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT, CPC_BORDER_TOP, CPC_BORDER_LEFT,
+  CPC_PALETTES,
 } from '@/machines/cpc/constants.ts';
 
 /** Cassette read-cadence thresholds (CPU T-states between consecutive Port B
@@ -49,6 +50,9 @@ import {
  *  VSYNC polls). Inter-byte gaps fall between and keep the tape advancing. */
 const TAPE_LOAD_ENTER_GAP = 500;
 const TAPE_LOAD_EXIT_GAP = 5000;
+
+/** CDN base for the CPC's optional add-on ROMs (Multiface Two, ParaDOS). */
+const CPC_ROM_CDN = 'https://zx84files.bitsparse.com/roms/';
 
 export class CpcMachine extends BaseMachine implements Machine {
   readonly kind: MachineKind = 'cpc';
@@ -168,6 +172,49 @@ export class CpcMachine extends BaseMachine implements Machine {
   }
 
   attachHost(host: MachineHost): void { this.host = host; }
+
+  /**
+   * Apply the CPC-specific settings: the Gate Array colour map, master volume,
+   * and the tape loader flags (Fast ROM + Turbo while loading; the CPC has no
+   * Spectrum-style loader detector, so there is no "Fast edge" setting).
+   */
+  applySettings(view: SettingsView): void {
+    this.gateArray.palette = CPC_PALETTES[view.get('cpc-color-map', 'gate-array') as keyof typeof CPC_PALETTES];
+    this.audio.setVolume(view.get('volume', 70) / 100);
+    this.tapeFastRom = view.get('tape-instant-rom', true);
+    this.tapeTurbo = view.get('tape-turbo-load', true);
+  }
+
+  /** The Multiface Two ROM load request — shared by build-time prepare() and the
+   *  live enable toggle (setCpcMultiface). */
+  multifaceAuxRom(awaitLoad: boolean): AuxRomRequest {
+    return {
+      cacheKey: 'cpc-mf2-rom', url: `${CPC_ROM_CDN}cpc-multiface2.rom`,
+      fetchingMsg: 'Fetching Multiface Two ROM…',
+      loadedMsg: (n) => `Multiface Two ROM loaded (${n} bytes)`,
+      failMsg: 'Failed to load Multiface Two ROM', failId: 'multiface',
+      apply: (d) => this.multiface.loadROM(d), awaitLoad,
+    };
+  }
+
+  /** Enable the Multiface Two from settings and request its ROM (before boot). */
+  prepare(view: SettingsView): AuxRomRequest[] {
+    this.multiface.enabled = view.get('multiface', false);
+    return this.multiface.enabled ? [this.multifaceAuxRom(true)] : [];
+  }
+
+  /** ParaDOS overlay (upper ROM 7, replacing AMSDOS) on a disk-capable CPC —
+   *  applied AFTER reset so the firmware ROM scan initialises it. */
+  bootRoms(view: SettingsView): AuxRomRequest[] {
+    if (!this.config.hasFDC || !view.get('cpc-parados', false)) return [];
+    return [{
+      cacheKey: 'cpc-parados-rom', url: `${CPC_ROM_CDN}parados.rom`,
+      fetchingMsg: 'Fetching ParaDOS ROM…',
+      loadedMsg: (n) => `ParaDOS ROM loaded (${n} bytes)`,
+      failMsg: 'Failed to load ParaDOS ROM', failId: 'parados',
+      apply: (d) => this.memory.setUpperRom(7, d), awaitLoad: true,
+    }];
+  }
 
   // ── Machine: lifecycle ───────────────────────────────────────────────
 

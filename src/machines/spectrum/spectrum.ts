@@ -13,7 +13,7 @@ import { Z80 } from '@/cores/z80.ts';
 import { disasmOne, stripMarkers, type DisasmLine } from '@/debug/z80-disasm.ts';
 import { AY3891x } from '@/cores/ay-3-8910.ts';
 import { SpectrumMemory } from '@/machines/spectrum/memory.ts';
-import { ULA, type BorderMode } from '@/machines/spectrum/ula.ts';
+import { ULA, PALETTES, type BorderMode } from '@/machines/spectrum/ula.ts';
 import { SpectrumKeyboard } from '@/machines/spectrum/keyboard.ts';
 import type { IScreenRenderer } from '@/display/display.ts';
 import { Audio } from '@/audio.ts';
@@ -41,7 +41,8 @@ import { hex8, hex16 } from '@/utils/hex.ts';
 import { signed8 } from '@/utils/signed.ts';
 import { DISPLAY_WIDTH, DISPLAY_HEIGHT } from '@/machines/spectrum/ula.ts';
 import { createVariant, type MachineVariant } from '@/machines/spectrum/variants/index.ts';
-import type { Machine, MachineKind, MachineHost } from '@/machines/machine.ts';
+import type { Machine, MachineKind, MachineHost, SettingsView, AuxRomRequest } from '@/machines/machine.ts';
+import { buildSpectrumAuxRoms } from '@/machines/spectrum/aux-roms.ts';
 import { createSpectrumServices, type SpectrumServices } from '@/machines/spectrum/services/index.ts';
 
 // Re-export model type and helpers from their canonical home (models.ts)
@@ -327,6 +328,31 @@ export class Spectrum extends BaseMachine implements Machine {
   }
 
   attachHost(host: MachineHost): void { this.host = host; }
+
+  /**
+   * Apply the Spectrum-specific settings from the shell's read-only view: the
+   * ULA colour map, master volume, beeper/AY balance, tape loader flags, and
+   * scanline accuracy. The shell owns the display/renderer settings; everything
+   * here reads keys the Spectrum alone cares about.
+   */
+  applySettings(view: SettingsView): void {
+    this.ula.palette = PALETTES[view.get('color-map', 'measured') as keyof typeof PALETTES];
+    this.audio.setVolume(view.get('volume', 70) / 100);
+    const mix = view.get('ay-mix', 50) / 100;
+    this.mixer.beeperGain = Math.min(1, 2 * (1 - mix));
+    this.mixer.ayGain = Math.min(1, 2 * mix);
+    this.tapeFastRom = view.get('tape-instant-rom', true);
+    this.tapeTurbo = view.get('tape-turbo-load', true);
+    this.tapeSoundEnabled = view.get('tape-sound', true);
+    this.scanlineAccuracy = view.get('scanline-accuracy', 'high') as 'high' | 'mid' | 'low';
+  }
+
+  /** Configure fitted peripherals from settings (VTX-5000, Multiface, +D, IF1,
+   *  Beta Disk) and return the peripheral-ROM loads the shell must fulfil before
+   *  the system ROM is loaded and the machine reset. */
+  prepare(view: SettingsView): AuxRomRequest[] {
+    return buildSpectrumAuxRoms(this, view);
+  }
 
   /** Trace state accessors for io-ports.ts */
   get tracing(): boolean { return this._tracing; }

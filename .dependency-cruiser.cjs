@@ -69,6 +69,31 @@ module.exports = {
       from: { path: '^src/machines/' },
       to: { path: '^(src/components/|src/state/|src/store/|src/shell/|solid-js)' },
     },
+    {
+      name: 'shell-stays-above-machines',
+      comment:
+        'The shell (src/shell) may import the machine SPI + registry (machine.ts, ' +
+        'registry.ts), state, store, media, and display — but NOT a concrete machine ' +
+        "folder. It reaches machines through the SPI/services. §3.1/§7.\n" +
+        'The pathNot carve-outs are the Phase-4 → Phase-7 burn-down backlog: shell ' +
+        'still narrows to concrete Spectrum/CPC types for the peripheral-ROM loaders ' +
+        '(move to a machine prepare() hook), the szx HMR snapshot (→ SnapshotService), ' +
+        'the joystick router (→ InputService), and the MSX .cas parser (→ MediaService). ' +
+        'Each entry is removed as its Phase 5-7 seam lands.',
+      severity: 'error',
+      from: { path: '^src/shell/' },
+      to: {
+        path: '^src/machines/[^/]+/',
+        pathNot:
+          '^src/machines/(' +
+          'spectrum/spectrum|' +
+          'spectrum/aux-roms|' +
+          'spectrum/peripherals/joysticks|' +
+          'spectrum/snapshots/szx|' +
+          'msx/msx-tape' +
+          ')\\.ts$',
+      },
+    },
   ],
   options: {
     doNotFollow: { path: 'node_modules' },

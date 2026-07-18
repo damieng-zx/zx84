@@ -23,6 +23,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createSpectrumServices } from '@/machines/spectrum/services/index.ts';
 import { createCpcServices } from '@/machines/cpc/services/index.ts';
+import { buildSpectrumAuxRoms } from '@/machines/spectrum/aux-roms.ts';
 
 // ── Spectrum stub ────────────────────────────────────────────────────────
 // Function declarations are hoisted and safe to reference in vi.mock factories.
@@ -94,6 +95,9 @@ function makeSpectrumStub(model: unknown = '128k') {
     disasmAt: vi.fn(() => ({ text: 'NOP', size: 1 })),
     host: null as any,
     attachHost(h: unknown) { s.host = h; },
+    // Delegate to the real peripheral-enablement logic so createMachine's
+    // prepare()/fulfillAuxRoms path exercises genuine code against the stub.
+    prepare(view: any) { return buildSpectrumAuxRoms(s as any, view); },
     services: null as any,
   };
   // Real Spectrum services over the stub: emulator flips dispatch through
