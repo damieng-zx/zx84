@@ -413,7 +413,7 @@ describe('Spectrum.logPortAccess', () => {
     s.logPortAccess('IN', 0xFE, 0x42);
     s.cpu.pc = 0x8001;
     s.logPortAccess('IN', 0xFE, 0x43);
-    const inTally = (s as any)._portTallyIn as Map<number, { count: number; pcs: Set<number>; vals: Set<number> }>;
+    const inTally = (s.trace as any).portTallyIn as Map<number, { count: number; pcs: Set<number>; vals: Set<number> }>;
     const e = inTally.get(0xFE)!;
     expect(e.count).toBe(2);
     expect(e.pcs.has(0x8000)).toBe(true);
@@ -425,7 +425,7 @@ describe('Spectrum.logPortAccess', () => {
   it('full: writing >= 500_000 trace lines auto-disables tracing', () => {
     const s = makeMachine('48k');
     s.startTrace('full');
-    const buf = (s as any)._traceBuffer as string[];
+    const buf = s.trace.buffer;
     for (let i = 0; i < 500_000; i++) buf.push('x');
     // Any subsequent logPortAccess in full mode reaches the >= 500k check and disables tracing.
     s.logPortAccess('IN', 0xFE, 0);
@@ -1053,13 +1053,13 @@ describe('Spectrum — trace loop detection (full mode)', () => {
 // ─────────────────────────────────────────────────────────────────────────
 
 describe('Spectrum — traceCtx context strings', () => {
-  // Call captureTraceLine() directly so we don't need a full runFrame.
+  // Call SpectrumTrace directly so we don't need a full runFrame.
   // The method reads the current PC + registers, so set them up first.
   function trace(s: Spectrum, ...bytes: number[]): string {
     s.startTrace('full');
     for (let i = 0; i < bytes.length; i++) s.memory.writeByte(0xC000 + i, bytes[i]);
     s.cpu.pc = 0xC000;
-    (s as any).captureTraceLine();
+    s.trace.captureFull();
     return s.stopTrace();
   }
 
@@ -1497,16 +1497,16 @@ describe('Spectrum — startTrace transitions', () => {
   it('switching from full → portio clears the full-mode loop cache', () => {
     const s = makeMachine('48k');
     s.startTrace('full');
-    (s as any)._traceLoopPC[0] = 0xABCD;
+    (s.trace as any).loopPC[0] = 0xABCD;
     s.startTrace('portio');
-    expect((s as any)._traceLoopPC[0]).toBe(-1);
-    expect((s as any)._portTallyIn).not.toBeNull();
+    expect((s.trace as any).loopPC[0]).toBe(-1);
+    expect((s.trace as any).portTallyIn).not.toBeNull();
   });
 
   it('traceBuffer getter exposes the (readonly) line array', () => {
     const s = makeMachine('48k');
     s.startTrace('full');
-    (s as any)._traceBuffer.push('hello');
+    s.trace.buffer.push('hello');
     expect(s.traceBuffer.length).toBe(1);
     expect(s.traceBuffer[0]).toBe('hello');
   });
@@ -1523,8 +1523,8 @@ describe('Spectrum — startTrace transitions', () => {
   it('stopTrace flushes a pending loop marker when count > 0 at end', () => {
     const s = makeMachine('48k');
     s.startTrace('full');
-    (s as any)._traceLoopCount = 7;
-    (s as any)._traceLoopAddr = 0xABCD;
+    (s.trace as any).loopCount = 7;
+    (s.trace as any).loopAddr = 0xABCD;
     const out = s.stopTrace();
     expect(out).toMatch(/loops back to ABCD x7/);
   });
@@ -1532,10 +1532,10 @@ describe('Spectrum — startTrace transitions', () => {
   it('captureTraceLine flushes loop marker when it sees a fresh PC with count > 0', () => {
     const s = makeMachine('48k');
     s.startTrace('full');
-    (s as any)._traceLoopCount = 3;
-    (s as any)._traceLoopAddr = 0x9000;
+    (s.trace as any).loopCount = 3;
+    (s.trace as any).loopAddr = 0x9000;
     s.cpu.pc = 0xC000; // a fresh slot, not in the cache (cache was filled with -1)
-    (s as any).captureTraceLine();
+    s.trace.captureFull();
     const out = s.stopTrace();
     expect(out).toMatch(/loops back to 9000 x3/);
     // And the new line was recorded too
@@ -1545,20 +1545,20 @@ describe('Spectrum — startTrace transitions', () => {
   it('full-mode trace auto-disables once buffer crosses 500_000 lines', () => {
     const s = makeMachine('48k');
     s.startTrace('full');
-    const buf = (s as any)._traceBuffer as string[];
+    const buf = s.trace.buffer;
     for (let i = 0; i < 499_999; i++) buf.push('x');
     s.cpu.pc = 0xC000;
-    (s as any).captureTraceLine(); // pushes 1 → length 500_000, triggers the >= check
+    s.trace.captureFull(); // pushes 1 → length 500_000, triggers the >= check
     expect(s.tracing).toBe(false);
   });
 
   it('zxtl-mode trace auto-disables once buffer crosses 500_000 lines', () => {
     const s = makeMachine('48k');
     s.startTrace('zxtl');
-    const buf = (s as any)._traceBuffer as string[];
+    const buf = s.trace.buffer;
     while (buf.length < 499_999) buf.push('x');
     s.cpu.pc = 0xC000;
-    (s as any).captureZxtlLine(0xC000);
+    s.trace.captureZxtl(0xC000);
     expect(s.tracing).toBe(false);
   });
 

@@ -10,7 +10,7 @@
  */
 
 import { Z80 } from '@/cores/z80.ts';
-import { disasmOne, stripMarkers, type DisasmLine } from '@/debug/z80/disasm.ts';
+import type { DisasmLine } from '@/debug/z80/disasm.ts';
 import { AY3891x } from '@/cores/ay-3-8910.ts';
 import { SpectrumMemory } from '@/machines/spectrum/memory.ts';
 import { ULA, PALETTES, type BorderMode } from '@/machines/spectrum/ula.ts';
@@ -37,8 +37,6 @@ import { Interface2 } from '@/machines/spectrum/peripherals/interface2.ts';
 import { MgtPlusD } from '@/machines/spectrum/peripherals/mgt-plusd.ts';
 import { Interface1 } from '@/machines/spectrum/peripherals/interface1.ts';
 import { BetaDisk } from '@/machines/spectrum/peripherals/beta-disk.ts';
-import { hex8, hex16 } from '@/utils/hex.ts';
-import { signed8 } from '@/utils/signed.ts';
 import { DISPLAY_WIDTH, DISPLAY_HEIGHT } from '@/machines/spectrum/ula.ts';
 import { createVariant, type MachineVariant } from '@/machines/spectrum/variants/index.ts';
 import type { Machine, MachineKind, MachineHost, MachineDescriptor, SettingsView, AuxRomRequest } from '@/machines/machine.ts';
@@ -46,6 +44,7 @@ import { applyAySettings } from '@/machines/shared/ay-settings.ts';
 import { spectrumDescriptor } from '@/machines/spectrum/descriptor.ts';
 import { buildSpectrumAuxRoms } from '@/machines/spectrum/aux-roms.ts';
 import { createSpectrumServices, type SpectrumServices } from '@/machines/spectrum/services/index.ts';
+import { SpectrumTrace } from '@/machines/spectrum/trace.ts';
 
 // Re-export model type and helpers from their canonical home (models.ts)
 // so existing imports from '@/machines/spectrum/spectrum.ts' continue to work.
@@ -119,6 +118,7 @@ export class Spectrum extends BaseMachine implements Machine {
   fdc: UPD765A;
   contention: Contention;
   screenText = new ScreenText();
+  readonly trace: SpectrumTrace;
 
   /** Per-frame I/O activity counters */
   activity = new IOActivity();
@@ -200,23 +200,6 @@ export class Spectrum extends BaseMachine implements Machine {
   private nextPixelX = 0;
   private nextDisplayCol = 0;  // next unrendered display cell (0..32) on current line
   private totalRenderLines = 0;
-  /** Execution trace */
-  private _tracing = false;
-  private _traceMode: 'full' | 'portio' | 'zxtl' = 'full';
-  private _traceBuffer: string[] = [];
-  /** Loop detection (full mode): direct-mapped cache of PC → register hash */
-  private _traceLoopPC = new Int32Array(1024).fill(-1);
-  private _traceLoopHash = new Int32Array(1024);
-  private _traceLoopAddr = -1;
-  private _traceLoopCount = 0;
-  /** Port IO tally (portio mode) */
-  private _portTallyIn: Map<number, { count: number; pcs: Set<number>; vals: Set<number> }> | null = null;
-  private _portTallyOut: Map<number, { count: number; pcs: Set<number>; vals: Set<number> }> | null = null;
-
-  /** ZXTL trace: previous instruction PC and length for jump detection */
-  private _zxtlPrevPC = -1;
-  private _zxtlPrevLen = 0;
-
   /** Tape auto play/stop detector — decides when the tape runs and exposes
    *  `loaderActive` to engage tape turbo. Never touches CPU/tape data. */
   loaderDetector = new LoaderDetector();
@@ -305,6 +288,7 @@ export class Spectrum extends BaseMachine implements Machine {
     this.tape = new TapeDeck(this.variant.timing.cpuClock);
     this.tape.is48K = this.variant.is48K;
     this.fdc = new UPD765A();
+    this.trace = new SpectrumTrace(this);
     // 48K/16K (Issue 2 ULA): render as the beam enters each cell (+1) for
     // tightest accuracy.  The beam flush (vramFlushEnd=0x5B00) ensures cells
     // are captured with the correct attribute before multicolor engines
@@ -407,9 +391,9 @@ export class Spectrum extends BaseMachine implements Machine {
   }
 
   /** Trace state accessors for io.ts */
-  get tracing(): boolean { return this._tracing; }
-  get traceMode(): 'full' | 'portio' | 'zxtl' { return this._traceMode; }
-  get traceBuffer(): readonly string[] { return this._traceBuffer; }
+  get tracing(): boolean { return this.trace.active; }
+  get traceMode(): 'full' | 'portio' | 'zxtl' { return this.trace.mode; }
+  get traceBuffer(): readonly string[] { return this.trace.buffer; }
 
   /** True when slot 0 is overlaid by an external ROM (Multiface, VTX-5000 or
    *  an Interface 2 cartridge). Bank-switching paths use this to skip writing
@@ -454,21 +438,7 @@ export class Spectrum extends BaseMachine implements Machine {
 
   /** Log a port access for trace modes (called from io.ts). */
   logPortAccess(dir: string, port: number, val: number): void {
-    const pc = this.cpu.pc;
-
-    if (this._traceMode === 'portio') {
-      const tally = dir === 'IN' ? this._portTallyIn! : this._portTallyOut!;
-      let entry = tally.get(port);
-      if (!entry) {
-        entry = { count: 0, pcs: new Set(), vals: new Set() };
-        tally.set(port, entry);
-      }
-      entry.count++;
-      if (entry.pcs.size < 32) entry.pcs.add(pc);
-      if (entry.vals.size < 64) entry.vals.add(val);
-      return;
-    }
-    if (this._traceBuffer.length >= 500_000) this._tracing = false;
+    this.trace.logPortAccess(dir, port, val);
   }
 
   loadROM(data: Uint8Array): void {
@@ -783,10 +753,10 @@ export class Spectrum extends BaseMachine implements Machine {
           this.breakpointHit = this.cpu.pc;
           break;
         }
-        if (this._tracing && this._traceMode === 'full' && this.cpu.pc >= 0x4000) this.captureTraceLine();
-        const zxtlPC = this._tracing && this._traceMode === 'zxtl' ? this.cpu.pc : -1;
+        if (this.trace.active && this.trace.mode === 'full' && this.cpu.pc >= 0x4000) this.trace.captureFull();
+        const zxtlPC = this.trace.active && this.trace.mode === 'zxtl' ? this.cpu.pc : -1;
         this.cpu.step();
-        if (zxtlPC >= 0) this.captureZxtlLine(zxtlPC);
+        if (zxtlPC >= 0) this.trace.captureZxtl(zxtlPC);
         // Break mid-frame if a port or memory watchpoint fired during this instruction
         if (watchActive && (this.portWatchHit !== null || this.memWatchHit !== null)) break;
       }
@@ -1154,247 +1124,14 @@ export class Spectrum extends BaseMachine implements Machine {
 
   /** Disassemble a single instruction at `pc` without a full memory snapshot. */
   disasmAt(pc: number): DisasmLine {
-    const buf = new Uint8Array(8);
-    for (let i = 0; i < 8; i++) buf[i] = this.memory.readByte((pc + i) & 0xFFFF);
-    const result = disasmOne(buf, 0);
-    return { ...result, addr: pc };
+    return this.trace.disasmAt(pc);
   }
 
   startTrace(mode: 'full' | 'portio' | 'zxtl' = 'full'): void {
-    this._traceBuffer = [];
-    this._traceMode = mode;
-    this._traceLoopPC.fill(-1);
-    this._traceLoopHash.fill(0);
-    this._traceLoopAddr = -1;
-    this._traceLoopCount = 0;
-    if (mode === 'portio') {
-      this._portTallyIn = new Map();
-      this._portTallyOut = new Map();
-    }
-    if (mode === 'zxtl') {
-      this._zxtlPrevPC = -1;
-      this._zxtlPrevLen = 0;
-      this._traceBuffer.push('ZXTL V0001, ZX84 Emulator, JUMPS ADDRESS CYCLES MEM4 DISASSEMBLY REGS');
-      this._traceBuffer.push('J   Cycle Addr. +0 +1 +2 +3 DISASSEMBLY          A  F  B  C  D  E  H  L  XH XL YH YL SP   PC   W  Z  I  R');
-    }
-    this._tracing = true;
+    this.trace.start(mode);
   }
 
   stopTrace(): string {
-    this._tracing = false;
-    if (this._traceMode === 'portio') return this.formatPortTally();
-    if (this._traceMode === 'full' && this._traceLoopCount > 0) {
-      this._traceBuffer.push(`      ... loops back to ${hex16(this._traceLoopAddr)} x${this._traceLoopCount}`);
-    }
-    return this._traceBuffer.join('\n');
-  }
-
-  private captureTraceLine(): void {
-    const cpu = this.cpu;
-    const pc = cpu.pc;
-
-    // Loop detection: mix the full architectural register state (not just
-    // A/F/BC/DE/HL — IX/IY/SP progress must invalidate dedup too) through a
-    // proper combining hash. R is excluded because it ticks every M1 fetch
-    // and would defeat dedup entirely; memptr likewise changes on too many
-    // instructions to be useful.
-    const slot = pc & 0x3FF;
-    let hash = cpu.a;
-    hash = Math.imul(hash, 31) + cpu.f | 0;
-    hash = Math.imul(hash, 31) + cpu.bc | 0;
-    hash = Math.imul(hash, 31) + cpu.de | 0;
-    hash = Math.imul(hash, 31) + cpu.hl | 0;
-    hash = Math.imul(hash, 31) + cpu.ix | 0;
-    hash = Math.imul(hash, 31) + cpu.iy | 0;
-    hash = Math.imul(hash, 31) + cpu.sp | 0;
-    hash = Math.imul(hash, 31) + cpu.i | 0;
-
-    if (this._traceLoopPC[slot] === pc && this._traceLoopHash[slot] === hash) {
-      // Same PC, same register state — suppress duplicate iteration
-      if (this._traceLoopCount === 0) this._traceLoopAddr = pc;
-      this._traceLoopCount++;
-      return;
-    }
-
-    // Flush any accumulated loop marker
-    if (this._traceLoopCount > 0) {
-      this._traceBuffer.push(`      ... loops back to ${hex16(this._traceLoopAddr)} x${this._traceLoopCount}`);
-      this._traceLoopCount = 0;
-    }
-
-    // Update cache
-    this._traceLoopPC[slot] = pc;
-    this._traceLoopHash[slot] = hash;
-
-    // Record trace line
-    const line = this.disasmAt(pc);
-    const mnem = stripMarkers(line.text);
-    const ctx = this.traceCtx(pc);
-    const addr = hex16(pc);
-    this._traceBuffer.push(ctx
-      ? `${addr}  ${mnem.padEnd(24)} ${ctx}`
-      : `${addr}  ${mnem}`);
-    if (this._traceBuffer.length >= 500_000) this._tracing = false;
-  }
-
-  /**
-   * Capture one ZXTL trace line.  Called after cpu.step() with the pre-step PC
-   * so register values reflect the result of the executed instruction.
-   */
-  private captureZxtlLine(prePC: number): void {
-    const cpu = this.cpu;
-    const mem = this.memory;
-
-    // Disassemble the instruction that was at prePC
-    const dl = this.disasmAt(prePC);
-    const mnem = stripMarkers(dl.text);
-
-    // Jump detection: is prePC non-sequential from previous instruction?
-    const isJump = this._zxtlPrevPC >= 0 &&
-      prePC !== ((this._zxtlPrevPC + this._zxtlPrevLen) & 0xFFFF);
-    this._zxtlPrevPC = prePC;
-    this._zxtlPrevLen = dl.length;
-
-    // Format: J Cycle Addr MEM4 DISASM REGS
-    this._traceBuffer.push(
-      `${isJump ? '*' : ' '} ${String(cpu.tStates).padStart(7)} ${String(prePC).padStart(5)} ` +
-      `${hex8(mem.readByte(prePC))} ${hex8(mem.readByte((prePC + 1) & 0xFFFF))} ` +
-      `${hex8(mem.readByte((prePC + 2) & 0xFFFF))} ${hex8(mem.readByte((prePC + 3) & 0xFFFF))} ` +
-      `${mnem.padEnd(20)} ` +
-      `${hex8(cpu.a)} ${hex8(cpu.f)} ` +
-      `${hex8((cpu.bc >> 8) & 0xFF)} ${hex8(cpu.bc & 0xFF)} ` +
-      `${hex8((cpu.de >> 8) & 0xFF)} ${hex8(cpu.de & 0xFF)} ` +
-      `${hex8((cpu.hl >> 8) & 0xFF)} ${hex8(cpu.hl & 0xFF)} ` +
-      `${hex8((cpu.ix >> 8) & 0xFF)} ${hex8(cpu.ix & 0xFF)} ` +
-      `${hex8((cpu.iy >> 8) & 0xFF)} ${hex8(cpu.iy & 0xFF)} ` +
-      `${hex16(cpu.sp)} ${hex16(cpu.pc)} ` +
-      `${hex8((cpu.memptr >> 8) & 0xFF)} ${hex8(cpu.memptr & 0xFF)} ` +
-      `${hex8(cpu.i)} ${hex8(cpu.r)}`
-    );
-    if (this._traceBuffer.length >= 500_000) this._tracing = false;
-  }
-
-  private traceCtx(pc: number): string {
-    const cpu = this.cpu;
-    const mem = this.memory;
-    let op = mem.readByte(pc);
-
-    // DD/FD prefix → IX/IY memory access
-    if (op === 0xDD || op === 0xFD) {
-      const ixr = op === 0xDD ? cpu.ix : cpu.iy;
-      const op2 = mem.readByte((pc + 1) & 0xFFFF);
-      if (op2 === 0xCB) {
-        const d = mem.readByte((pc + 2) & 0xFFFF);
-        const addr = (ixr + signed8(d)) & 0xFFFF;
-        return `(${hex16(addr)})=${hex8(mem.readByte(addr))}`;
-      }
-      if (op2 === 0xED || op2 === 0xDD || op2 === 0xFD) return '';
-      const x = (op2 >> 6) & 3, y = (op2 >> 3) & 7, z = op2 & 7;
-      if ((x === 1 && (y === 6 || z === 6) && !(y === 6 && z === 6)) ||
-          (x === 2 && z === 6) ||
-          (x === 0 && (z === 4 || z === 5) && y === 6) ||
-          op2 === 0x36) {
-        const d = mem.readByte((pc + 2) & 0xFFFF);
-        const addr = (ixr + signed8(d)) & 0xFFFF;
-        if (x === 2) return `A=${hex8(cpu.a)} (${hex16(addr)})=${hex8(mem.readByte(addr))}`;
-        return `(${hex16(addr)})=${hex8(mem.readByte(addr))}`;
-      }
-      return '';
-    }
-
-    // CB: bit ops on (HL)
-    if (op === 0xCB) {
-      if ((mem.readByte((pc + 1) & 0xFFFF) & 7) === 6) return `(${hex16(cpu.hl)})=${hex8(mem.readByte(cpu.hl))}`;
-      return '';
-    }
-
-    // ED prefix
-    if (op === 0xED) {
-      const ed = mem.readByte((pc + 1) & 0xFFFF);
-      const x = (ed >> 6) & 3, y = (ed >> 3) & 7, z = ed & 7;
-      if (x === 1 && (z === 0 || z === 1)) return `port=${hex16(cpu.bc)}`;
-      if (x === 2 && y >= 4 && z < 4) return `HL=${hex16(cpu.hl)} DE=${hex16(cpu.de)} BC=${hex16(cpu.bc)}`;
-      return '';
-    }
-
-    // Main table
-    const x = (op >> 6) & 3, y = (op >> 3) & 7, z = op & 7;
-    const p = (y >> 1) & 3, q = y & 1;
-
-    if (x === 0) {
-      if (z === 0 && y === 2) return `B=${hex8((cpu.bc >> 8) & 0xFF)}`; // DJNZ
-      if (z === 0 && y >= 4) return cpu.checkCondition(y - 4) ? 'taken' : '--'; // JR cc
-      if (z === 2) {
-        if (q === 0 && p <= 1) return `A=${hex8(cpu.a)}→(${hex16(p === 0 ? cpu.bc : cpu.de)})`;
-        if (q === 1 && p === 0) return `(${hex16(cpu.bc)})=${hex8(mem.readByte(cpu.bc & 0xFFFF))}`;
-        if (q === 1 && p === 1) return `(${hex16(cpu.de)})=${hex8(mem.readByte(cpu.de & 0xFFFF))}`;
-      }
-      if ((z === 4 || z === 5) && y === 6) return `(${hex16(cpu.hl)})=${hex8(mem.readByte(cpu.hl & 0xFFFF))}`;
-    }
-
-    if (x === 1) {
-      if (y === 6 && z !== 6) return `${hex8(cpu.getReg8(z))}→(${hex16(cpu.hl)})`;
-      if (z === 6 && y !== 6) return `(${hex16(cpu.hl)})=${hex8(mem.readByte(cpu.hl & 0xFFFF))}`;
-    }
-
-    if (x === 2) {
-      if (z === 6) return `A=${hex8(cpu.a)} (${hex16(cpu.hl)})=${hex8(mem.readByte(cpu.hl & 0xFFFF))}`;
-      return `A=${hex8(cpu.a)}`;
-    }
-
-    if (x === 3) {
-      if (z === 0) return cpu.checkCondition(y) ? 'taken' : '--'; // RET cc
-      if (z === 2) return cpu.checkCondition(y) ? 'taken' : '--'; // JP cc
-      if (z === 4) return cpu.checkCondition(y) ? 'taken' : '--'; // CALL cc
-      if (z === 6) return `A=${hex8(cpu.a)}`; // ALU A,n
-      if (z === 3 && y === 2) return `A=${hex8(cpu.a)}`; // OUT (n),A
-    }
-
-    return '';
-  }
-
-  private portLabel(port: number): string {
-    const v = this.variant;
-    if ((port & 1) === 0) return 'ULA';
-    if ((port & 0x00E0) === 0) return 'Kemp';
-    if (v.hasAY) {
-      if ((port & 0xC002) === 0xC000) return 'AY';
-      if ((port & 0xC002) === 0x8000) return 'AY';
-    }
-    if (v.decodes7FFD(port)) return '7FFD';
-    if (v.decodes1FFD(port)) return '1FFD';
-    if (v.decodesFDCStatus(port)) return 'FDC';
-    if (v.decodesFDCData(port)) return 'FDC';
-    return '';
-  }
-
-  private formatPortTally(): string {
-    const formatSection = (title: string, tally: Map<number, { count: number; pcs: Set<number>; vals: Set<number> }>) => {
-      if (!tally.size) return '';
-      const entries = [...tally.entries()].sort((a, b) => b[1].count - a[1].count);
-      const lines = [`${title}:`];
-      for (const [port, info] of entries) {
-        const label = (this.portLabel(port) || '').padEnd(6);
-        const pcs = [...info.pcs].map(hex16).join(',');
-        const vals = [...info.vals].map(hex8).join(',');
-        lines.push(`  ${hex16(port)}  ${String(info.count).padStart(8)}x  ${label} from ${pcs}  vals ${vals}`);
-      }
-      return lines.join('\n');
-    };
-
-    const parts = ['=== Port IO Summary ===', ''];
-    // Idempotent: a second stopTrace() in portio mode must not crash on the
-    // nulled-out tallies from the first call.
-    if (this._portTallyIn) {
-      const inSection = formatSection('IN', this._portTallyIn);
-      if (inSection) parts.push(inSection, '');
-    }
-    if (this._portTallyOut) {
-      const outSection = formatSection('OUT', this._portTallyOut);
-      if (outSection) parts.push(outSection, '');
-    }
-    this._portTallyIn = null;
-    this._portTallyOut = null;
-    return parts.join('\n');
+    return this.trace.stop();
   }
 }
