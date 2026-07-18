@@ -1508,13 +1508,18 @@ input[type="range"]::-moz-range-thumb {
 }
 
 /* ROM / Carts pane — standard media slots, matching the Tape/Disk look. */
+/* ROM / Carts slots laid out two-up. */
+.rom-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
 .rom-slot-row {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  margin-bottom: 6px;
+  min-width: 0;   /* let the media-slot text ellipsis inside its grid track */
 }
-.rom-slot-row:last-child { margin-bottom: 0; }
 .rom-slot-label {
   font-size: 0.7rem;
   font-weight: 600;

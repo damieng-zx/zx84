@@ -28,7 +28,7 @@ const PLUS2_128K_SLOTS: RomPageSlot[] = [
 
 const PLUS3_SLOTS: RomPageSlot[] = [
   { title: '128K Editor ROM', ejectTitle: 'Revert to the default 128K Editor ROM', page: 0 },
-  { title: '128K Syntax Checker ROM', ejectTitle: 'Revert to the default 128K Syntax Checker ROM', page: 1 },
+  { title: '128K Syntax ROM', ejectTitle: 'Revert to the default 128K Syntax Checker ROM', page: 1 },
   { title: '+3DOS ROM', ejectTitle: 'Revert to the default +3DOS ROM', page: 2 },
   { title: '48K BASIC ROM', ejectTitle: 'Revert to the default 48K BASIC ROM', page: 3 },
 ];
@@ -146,45 +146,47 @@ export function RomPane(): JSX.Element {
       label="ROM / Carts"
       visible={showCartridgeSlot() || machineCaps().romPages > 0}
     >
-      <Show
-        when={pageSlots().length > 0}
-        fallback={
-          <Slot
-            label={systemSlotLabel()}
-            text={systemText()}
-            placeholder="(default)"
-            ejectable={systemRomIsCustom()}
-            ejectTitle="Revert to the default system ROM"
-            onLoad={loadSystemRom}
-            onEject={() => resetSystemRom()}
-          />
-        }
-      >
-        <For each={pageSlots()}>
-          {(slot) => (
+      <div class="rom-grid">
+        <Show
+          when={pageSlots().length > 0}
+          fallback={
             <Slot
-              label={slot.title}
-              text={pageText(slot.page)}
+              label={systemSlotLabel()}
+              text={systemText()}
               placeholder="(default)"
-              ejectable={systemRomPageOverridden()[slot.page] ?? false}
-              ejectTitle={slot.ejectTitle}
-              onLoad={() => loadSystemRomPage(slot.page)}
-              onEject={() => resetSystemRomPage(slot.page)}
+              ejectable={systemRomIsCustom()}
+              ejectTitle="Revert to the default system ROM"
+              onLoad={loadSystemRom}
+              onEject={() => resetSystemRom()}
             />
-          )}
-        </For>
-      </Show>
-      <Show when={showCartridgeSlot()}>
-        <Slot
-          label="Cartridge"
-          text={cartridgeName()}
-          placeholder="No cartridge"
-          ejectable={!!cartridgeName()}
-          ejectTitle="Eject cartridge"
-          onLoad={insertCartridge}
-          onEject={ejectCartridge}
-        />
-      </Show>
+          }
+        >
+          <For each={pageSlots()}>
+            {(slot) => (
+              <Slot
+                label={slot.title}
+                text={pageText(slot.page)}
+                placeholder="(default)"
+                ejectable={systemRomPageOverridden()[slot.page] ?? false}
+                ejectTitle={slot.ejectTitle}
+                onLoad={() => loadSystemRomPage(slot.page)}
+                onEject={() => resetSystemRomPage(slot.page)}
+              />
+            )}
+          </For>
+        </Show>
+        <Show when={showCartridgeSlot()}>
+          <Slot
+            label="Cartridge"
+            text={cartridgeName()}
+            placeholder="No cartridge"
+            ejectable={!!cartridgeName()}
+            ejectTitle="Eject cartridge"
+            onLoad={insertCartridge}
+            onEject={ejectCartridge}
+          />
+        </Show>
+      </div>
     </Pane>
   );
 }
