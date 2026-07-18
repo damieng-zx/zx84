@@ -1231,11 +1231,11 @@ describe('saveRAM — filename and address selection', () => {
   });
 });
 
-// ── HMR state ─────────────────────────────────────────────────────────────
+// ── Refresh state ─────────────────────────────────────────────────────────
 
-describe('restoreHMRState', () => {
+describe('restoreRefreshState', () => {
   it('returns false when localStorage has no entry', async () => {
-    expect(await emulator.restoreHMRState()).toBe(false);
+    expect(await emulator.restoreRefreshState()).toBe(false);
   });
 
   it('returns false and clears the key when snapshot is stale (> 60s old)', async () => {
@@ -1247,9 +1247,9 @@ describe('restoreHMRState', () => {
       setItem: vi.fn(), removeItem: vi.fn(),
     };
     (globalThis as any).localStorage = ls;
-    const result = await emulator.restoreHMRState();
+    const result = await emulator.restoreRefreshState();
     expect(result).toBe(false);
-    expect(ls.removeItem).toHaveBeenCalledWith('zx84-hmr-state');
+    expect(ls.removeItem).toHaveBeenCalledWith('zx84-refresh-state');
   });
 
   it('returns false when spectrum is null even with a fresh snapshot', async () => {
@@ -1261,7 +1261,7 @@ describe('restoreHMRState', () => {
       })),
       setItem: vi.fn(), removeItem: vi.fn(),
     };
-    expect(await emulator.restoreHMRState()).toBe(false);
+    expect(await emulator.restoreRefreshState()).toBe(false);
   });
 });
 
@@ -1906,7 +1906,7 @@ describe('misc setters', () => {
 describe('init / restoreMedia', () => {
   beforeEach(() => { emulator.setCanvas(fakeCanvas); });
 
-  it('init: with cached ROM creates machine and (no HMR) calls restoreMedia', async () => {
+  it('init: with cached ROM creates machine and restores media', async () => {
     getRomManager().restoreROM.mockResolvedValueOnce({ data: new Uint8Array(16384), label: '48k' });
     vi.mocked(persistence.restoreTape).mockResolvedValueOnce(null);
     vi.mocked(persistence.restoreDisk).mockResolvedValue(null);
@@ -1974,13 +1974,13 @@ describe('init / restoreMedia', () => {
     await expect(emulator.init()).resolves.toBeUndefined();
   });
 
-  it('restores media even when an HMR snapshot was restored (media is not in the snapshot)', async () => {
-    // A fresh HMR snapshot makes createMachine() restore RAM and report
-    // hmrRestored=true. The mounted disk/tape are persisted separately, so
+  it('restores media even when a refresh snapshot was restored (media is not in the snapshot)', async () => {
+    // A fresh refresh snapshot makes createMachine() restore RAM. The mounted
+    // disk/tape are persisted separately, so
     // restoreMedia() must still run — otherwise a hard reload drops the media.
     getRomManager().restoreROM.mockResolvedValueOnce({ data: new Uint8Array(16384), label: '48k' });
     (globalThis as any).localStorage = {
-      getItem: vi.fn((k: string) => k === 'zx84-hmr-state'
+      getItem: vi.fn((k: string) => k === 'zx84-refresh-state'
         ? JSON.stringify({ snapshot: btoa('xx'), model: '48k', timestamp: Date.now() })
         : null),
       setItem: vi.fn(), removeItem: vi.fn(),
@@ -1996,12 +1996,12 @@ describe('init / restoreMedia', () => {
   });
 });
 
-// ── HMR save/restore ──────────────────────────────────────────────────────
+// ── Refresh save/restore ──────────────────────────────────────────────────
 
-describe('saveHMRState / restoreHMRState — happy paths', () => {
+describe('saveRefreshState / restoreRefreshState — happy paths', () => {
   beforeEach(() => { emulator.setCanvas(fakeCanvas); });
 
-  it('saveHMRState writes a JSON blob to localStorage when spectrum + romData present', async () => {
+  it('saveRefreshState writes a JSON blob to localStorage when spectrum + romData present', async () => {
     await setupSpectrum();
     // emulator.romData is null after setupSpectrum (no ROM loaded); inject one
     // by going through applyROM-equivalent path: call switchModel to get romData.
@@ -2010,28 +2010,28 @@ describe('saveHMRState / restoreHMRState — happy paths', () => {
     const setItem = vi.fn();
     (globalThis as any).localStorage = { getItem: vi.fn(() => null), setItem, removeItem: vi.fn() };
     vi.mocked(szx.saveSZXSync).mockReturnValueOnce(new Uint8Array([1, 2, 3]));
-    emulator.saveHMRState();
-    expect(setItem).toHaveBeenCalledWith('zx84-hmr-state', expect.any(String));
+    emulator.saveRefreshState();
+    expect(setItem).toHaveBeenCalledWith('zx84-refresh-state', expect.any(String));
   });
 
-  it('saveHMRState is a no-op when spectrum is null', () => {
+  it('saveRefreshState is a no-op when spectrum is null', () => {
     emulator.destroy();
     const setItem = vi.fn();
     (globalThis as any).localStorage = { getItem: vi.fn(() => null), setItem, removeItem: vi.fn() };
-    emulator.saveHMRState();
+    emulator.saveRefreshState();
     expect(setItem).not.toHaveBeenCalled();
   });
 
-  it('saveHMRState catches errors from saveSZXSync (no throw on unload)', async () => {
+  it('saveRefreshState catches errors from saveSZXSync (no throw on unload)', async () => {
     await setupSpectrum();
     getRomManager().restoreROM.mockResolvedValueOnce({ data: new Uint8Array(16384), label: 'x' });
     await emulator.switchModel('48k');
     (globalThis as any).localStorage = { getItem: vi.fn(() => null), setItem: vi.fn(), removeItem: vi.fn() };
     vi.mocked(szx.saveSZXSync).mockImplementationOnce(() => { throw new Error('fail'); });
-    expect(() => emulator.saveHMRState()).not.toThrow();
+    expect(() => emulator.saveRefreshState()).not.toThrow();
   });
 
-  it('restoreHMRState happy: loads SZX, restarts spectrum, returns true', async () => {
+  it('restoreRefreshState happy: loads SZX, restarts spectrum, returns true', async () => {
     await setupSpectrum();
     getRomManager().restoreROM.mockResolvedValueOnce({ data: new Uint8Array(16384), label: 'x' });
     await emulator.switchModel('48k');
@@ -2045,13 +2045,13 @@ describe('saveHMRState / restoreHMRState — happy paths', () => {
     vi.mocked(szx.loadSZX).mockResolvedValueOnce({
       is128K: false, borderColor: 3, port7FFD: 0, port1FFD: 0,
     } as any);
-    const result = await emulator.restoreHMRState();
+    const result = await emulator.restoreRefreshState();
     expect(result).toBe(true);
     expect(s.ula.borderColor).toBe(3);
     expect(s.start).toHaveBeenCalled();
   });
 
-  it('restoreHMRState 128K path: applies port7FFD/1FFD and re-banks', async () => {
+  it('restoreRefreshState 128K path: applies port7FFD/1FFD and re-banks', async () => {
     await setupSpectrum();
     getRomManager().restoreROM.mockResolvedValueOnce({ data: new Uint8Array(16384), label: 'x' });
     await emulator.switchModel('48k');
@@ -2067,7 +2067,7 @@ describe('saveHMRState / restoreHMRState — happy paths', () => {
       is128K: true, borderColor: 0, port7FFD: 0x37, port1FFD: 0x01,
       ayRegs: new Uint8Array(16), ayCurrentReg: 7,
     } as any);
-    const ok = await emulator.restoreHMRState();
+    const ok = await emulator.restoreRefreshState();
     expect(ok).toBe(true);
     expect(s.memory.port7FFD).toBe(0x37);
     expect(s.memory.currentBank).toBe(0x37 & 7);
@@ -2216,7 +2216,7 @@ describe('createDisplay — WebGL constructor throw triggers Canvas fallback', (
     expect(emulator.statusText()).toMatch(/WebGL unavailable/);
   });
 
-  it('restoreHMRState catches errors and returns false', async () => {
+  it('restoreRefreshState catches errors and returns false', async () => {
     await setupSpectrum();
     getRomManager().restoreROM.mockResolvedValueOnce({ data: new Uint8Array(16384), label: 'x' });
     await emulator.switchModel('48k');
@@ -2225,7 +2225,7 @@ describe('createDisplay — WebGL constructor throw triggers Canvas fallback', (
       getItem: vi.fn(() => 'not-json'),
       setItem: vi.fn(), removeItem,
     };
-    const ok = await emulator.restoreHMRState();
+    const ok = await emulator.restoreRefreshState();
     expect(ok).toBe(false);
     expect(removeItem).toHaveBeenCalled();
   });

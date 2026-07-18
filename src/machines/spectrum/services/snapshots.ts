@@ -90,7 +90,7 @@ export class SpectrumSnapshotService implements SnapshotService {
           s.start();
           return { ok: false, message: '128K .szx snapshot requires a 128K ROM — load one first' };
         }
-        // Apply paging state for 128K (shared with the refresh/HMR resume path).
+        // Apply paging state for 128K (shared with the browser-refresh resume path).
         applySZXPaging(s.memory, isPlus2AClass(model), result);
         s.ula.borderColor = result.borderColor;
         if (result.ayRegs) {
@@ -142,7 +142,7 @@ export class SpectrumSnapshotService implements SnapshotService {
     throw new Error(`Unsupported snapshot save format: ${ext}`);
   }
 
-  /** Synchronous SZX snapshot for the shell's HMR/beforeunload dev path. */
+  /** Synchronous SZX snapshot for the shell's beforeunload refresh path. */
   saveSync(): Uint8Array {
     const s = this.s;
     return saveSZXSync(
@@ -151,9 +151,9 @@ export class SpectrumSnapshotService implements SnapshotService {
     );
   }
 
-  /** Restore a saveSync() SZX blob on the same model (HMR resume). Mirrors the
-   *  szx branch of apply() minus the model-upgrade check (HMR never crosses
-   *  models) — ported verbatim from the old shell HMR path. */
+  /** Restore a saveSync() SZX blob on the same model (browser-refresh resume).
+   *  Mirrors the szx branch of apply() minus the model-upgrade check because a
+   *  refresh never crosses models. */
   async restoreSync(data: Uint8Array): Promise<boolean> {
     const s = this.s;
     s.stop();

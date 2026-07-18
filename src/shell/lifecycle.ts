@@ -1,7 +1,7 @@
 /**
  * Shell lifecycle: machine construction and model switching, the MachineHost the
  * shell hands each machine, pause / turbo / focus-pause, the debugger step and
- * trace wrappers, the boot-loader auto-trap, HMR state save/restore, and init.
+ * trace wrappers, the boot-loader auto-trap, refresh-state save/restore, and init.
  */
 
 import type { MachineHost } from '@/machines/machine.ts';
@@ -125,7 +125,7 @@ export async function createMachine(): Promise<boolean> {
   // the shell only fulfils the returned ROM requests.
   await fulfillAuxRoms(built.prepare?.(view) ?? []);
 
-  let hmrRestored = false;
+  let refreshRestored = false;
   if (romData) {
     built.services.roms.installSystemRom(romData);
     built.reset();
@@ -134,10 +134,10 @@ export async function createMachine(): Promise<boolean> {
     // firmware ROM set is in place, on machine build only.
     await fulfillAuxRoms(built.bootRoms?.(view) ?? []);
 
-    // HMR state restore needs a machine that can serialise synchronously
+    // Refresh-state restore needs a machine that can serialise synchronously
     // (SnapshotService.saveSync — the Spectrum). CPC/others start fresh.
-    if (built.services.snapshots?.saveSync) hmrRestored = await restoreHMRState();
-    if (!hmrRestored) {
+    if (built.services.snapshots?.saveSync) refreshRestored = await restoreRefreshState();
+    if (!refreshRestored) {
       built.start();
     }
   }
@@ -168,7 +168,7 @@ export async function createMachine(): Promise<boolean> {
   updateRomPaneInfo();
 
   unpause();
-  return hmrRestored;
+  return refreshRestored;
 }
 
 export function createMachineSync(): void {
@@ -416,7 +416,7 @@ export async function init(): Promise<void> {
     setRomStatus('');
     await createMachine();
 
-    // Always re-mount persisted media. The HMR/SZX snapshot restored by
+    // Always re-mount persisted media. The refresh SZX snapshot restored by
     // createMachine() captures RAM/CPU/AY state but NOT the mounted disk and
     // tape *images* — those are persisted separately.
     await restoreMedia();
@@ -427,9 +427,9 @@ export function initAudio(): void {
   machine?.initAudio();
 }
 
-// ── HMR state preservation ──────────────────────────────────────────────
+// ── Refresh-state preservation ───────────────────────────────────────────
 
-const HMR_STATE_KEY = 'zx84-hmr-state';
+const REFRESH_STATE_KEY = 'zx84-refresh-state';
 
 /** Base64-encode bytes in chunks — String.fromCharCode(...all) overflows the
  *  call stack for the ~128KB uncompressed snapshot, so feed it 32KB at a time. */
@@ -446,7 +446,7 @@ function bytesToBase64(bytes: Uint8Array): string {
  * Snapshot machine state to localStorage so a page refresh resumes where it
  * left off. MUST be fully synchronous (runs from a `beforeunload` handler).
  */
-export function saveHMRState(): void {
+export function saveRefreshState(): void {
   const snapshots = machine?.services.snapshots;
   if (!snapshots?.saveSync || !romData) return;
 
@@ -462,15 +462,15 @@ export function saveHMRState(): void {
       timestamp: Date.now(),
     };
 
-    localStorage.setItem(HMR_STATE_KEY, JSON.stringify(state));
+    localStorage.setItem(REFRESH_STATE_KEY, JSON.stringify(state));
   } catch (err) {
-    console.warn('Failed to save HMR state:', err);
+    console.warn('Failed to save refresh state:', err);
   }
 }
 
-export async function restoreHMRState(): Promise<boolean> {
+export async function restoreRefreshState(): Promise<boolean> {
   try {
-    const raw = localStorage.getItem(HMR_STATE_KEY);
+    const raw = localStorage.getItem(REFRESH_STATE_KEY);
     if (!raw) return false;
 
     const state = JSON.parse(raw);
@@ -478,7 +478,7 @@ export async function restoreHMRState(): Promise<boolean> {
 
     // Only restore if less than 60 seconds old (avoid restoring stale state)
     if (age > 60000) {
-      localStorage.removeItem(HMR_STATE_KEY);
+      localStorage.removeItem(REFRESH_STATE_KEY);
       return false;
     }
 
@@ -493,15 +493,15 @@ export async function restoreHMRState(): Promise<boolean> {
     if (!snapshots?.restoreSync || !romData) return false;
 
     const ok = await snapshots.restoreSync(data);
-    if (!ok) { localStorage.removeItem(HMR_STATE_KEY); return false; }
+    if (!ok) { localStorage.removeItem(REFRESH_STATE_KEY); return false; }
 
-    localStorage.removeItem(HMR_STATE_KEY);
+    localStorage.removeItem(REFRESH_STATE_KEY);
 
-    setStatus('HMR: State restored');
+    setStatus('Refresh: State restored');
     return true;
   } catch (err) {
-    console.warn('Failed to restore HMR state:', err);
-    localStorage.removeItem(HMR_STATE_KEY);
+    console.warn('Failed to restore refresh state:', err);
+    localStorage.removeItem(REFRESH_STATE_KEY);
     return false;
   }
 }

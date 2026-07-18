@@ -189,7 +189,7 @@ export async function loadSZX(
 
 /**
  * Apply the paging state from a parsed SZX result to memory. Shared by every
- * SZX consumer (file load + the refresh/HMR resume) so the bank/ROM selection
+ * SZX consumer (file load + the browser-refresh resume) so the bank/ROM selection
  * can't drift between them.
  *
  * `hasSpecialPaging` must be true for +2A/+3-class machines: there the ROM page

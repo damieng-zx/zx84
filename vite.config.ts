@@ -28,7 +28,7 @@ export default defineConfig(({ mode }) => ({
   },
   server: {
     // HMR disabled — saves require a manual browser refresh. The SZX snapshot
-    // saved on `beforeunload` (see saveHMRState) makes that refresh resume the
+    // saved on `beforeunload` (see saveRefreshState) makes that refresh resume the
     // machine where it left off.
     hmr: false,
     headers: {
