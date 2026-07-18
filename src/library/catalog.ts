@@ -21,7 +21,7 @@ export interface RawGame {
   y?: number;   // release year
   g?: number;   // genre — index into RawCatalog.genres
   p?: number;   // publisher — index into RawCatalog.publishers
-  s?: string;   // running-screen image file_link (.scr)
+  s?: string;   // screen image file_link (.scr, or raster .gif/.png/.jpg)
   a?: string;   // 16K/16K-48K tape file_link (.tzx preferred, else .tap)
   f?: string;   // 48K tape file_link
   k?: string;   // 128K tape file_link
@@ -75,7 +75,8 @@ export interface Game {
   snap48: string;
   /** ZXDB file_link for a 128K snapshot, '' when none. */
   snap128: string;
-  /** ZXDB file_link for a running-screen image ('' when none). */
+  /** ZXDB file_link for a screen image — a native .scr dump or a raster
+   *  .gif/.png/.jpg loading/in-game screen ('' when none). */
   screen: string;
   /** ZXDB file_link for a ZX Interface 2 ROM cartridge, '' when none (16K/48K
    *  only). Takes priority over every other slot when present. */

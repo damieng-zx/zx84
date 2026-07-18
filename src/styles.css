@@ -23,14 +23,16 @@ body {
   justify-content: center;
   min-height: 100vh;
   padding: 20px;
-  gap: 20px;
+  /* 15px column gap (was 20): the 5px each side goes to the sidebars below. */
+  gap: 15px;
 }
 
 .sidebar {
   display: flex;
   flex-direction: column;
   gap: 15px;
-  width: 272px;
+  /* 277px (was 272): +5px eaten from the gap to the centre column. */
+  width: 277px;
 }
 
 #toolbar {
@@ -1910,6 +1912,21 @@ input[type="range"]::-moz-range-thumb {
   font-size: 0.7rem;
 }
 
+/* Reserve NO scrollbar gutter — the native bar is hidden so content (notably the
+   library screenshot) uses the full width. These lists still scroll by wheel,
+   trackpad and drag. A visible zero-space overlay bar would need JS. */
+#tape-blocks,
+.microdrive-blocks,
+.library-list {
+  scrollbar-width: none;                 /* Firefox */
+}
+#tape-blocks::-webkit-scrollbar,
+.microdrive-blocks::-webkit-scrollbar,
+.library-list::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
 .microdrive-blocks {
   margin-top: 4px;
   max-height: 240px;
@@ -2041,7 +2058,12 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .library-row:hover { background: #eef; }
-.library-row.selected { background: #e9e9f2; }
+/* Expanded row → the same blue as the active tape block (.tape-block.current). */
+.library-row.selected {
+  background: #f0f0fe;
+  border-left-color: #44e;
+  color: #22c;
+}
 .library-row.loading {
   background: #f0f0fe;
   border-left-color: #44e;
@@ -2088,9 +2110,13 @@ input[type="range"]::-moz-range-thumb {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 6px 8px 8px;
-  background: #f6f6fb;
-  border-left: 3px solid #ccd;
+  /* No left/right inset — the screenshot spans the pane's full width. */
+  padding: 6px 0 8px;
+  /* Same blue fill + left indicator as the selected row (.library-row.selected)
+     so the expanded entry reads as one continuous highlighted block, the blue
+     edge running unbroken down past the publisher line and screenshot. */
+  background: #f0f0fe;
+  border-left: 3px solid #44e;
 }
 
 .library-shot {
@@ -2105,6 +2131,7 @@ input[type="range"]::-moz-range-thumb {
   width: 100%;
   height: 100%;
   display: block;
+  object-fit: contain;   /* raster screenshots that aren't 256×192 fit without stretching */
   image-rendering: pixelated;
 }
 .library-shot-canvas.hidden { display: none; }
@@ -2123,6 +2150,7 @@ input[type="range"]::-moz-range-thumb {
   display: flex;
   align-items: baseline;
   gap: 8px;
+  padding: 0 8px;   /* keep the caption text inset even though the shot is full-bleed */
   font-size: 0.72rem;
 }
 .library-detail-pubname {
@@ -2131,15 +2159,39 @@ input[type="range"]::-moz-range-thumb {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-weight: 600;
+  font-style: italic;
 }
-.library-detail-link {
+/* Primary genre, pushed to the right end of the publisher line. */
+.library-detail-genre {
   flex: 0 0 auto;
-  color: #5577bb;
-  font-weight: 600;
+  color: #667;
+  font-style: italic;
+  white-space: nowrap;
+}
+
+/* Blue "i" outlined in a blue ring over a transparent background, sat next to
+   the ">" play button — links to the entry on Spectrum Computing. */
+.library-info {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: transparent;
+  border: 1px solid #26c;
+  color: #26c;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-style: italic;
+  font-weight: 700;
+  font-size: 0.62rem;
+  line-height: 1;
   text-decoration: none;
 }
-.library-detail-link:hover { color: #224499; text-decoration: underline; }
+.library-info:hover { background: rgba(38, 102, 204, 0.12); }
+/* Optically centre the italic glyph: nudge it 1px down and 1px left. */
+.library-info-i { display: block; transform: translate(-1px, 1px); }
 
 /* Diag pane — below screen */
 #diag {

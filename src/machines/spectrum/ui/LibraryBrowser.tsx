@@ -1,4 +1,4 @@
-import { createMemo, createSignal, createEffect, onMount, Show, For } from 'solid-js';
+import { createMemo, createSignal, createEffect, onMount, onCleanup, Show, For } from 'solid-js';
 import { HiOutlineFunnel, HiOutlinePlay } from 'solid-icons/hi';
 import { DropDownMenuButton, type MenuItem } from '@/ui/components/DropDownMenuButton.tsx';
 import { loadFile, ejectDisk } from '@/shell/media.ts';
@@ -74,44 +74,55 @@ function genrePrefix(g: string): string {
   return i >= 0 ? g.slice(0, i) : g;
 }
 
-/** Expanded detail row: screenshot (rendered from the SCR) with the publisher
- *  name below it. */
+/** Expanded detail row: screenshot — a native .scr decoded to canvas, or a
+ *  raster in-game/loading image (.gif/.png/.jpg) shown as-is — with the
+ *  publisher name below it. */
 function GameDetail(props: { game: Game }) {
   let canvasRef: HTMLCanvasElement | undefined;
-  const [shot, setShot] = createSignal<'none' | 'loading' | 'ok' | 'error'>(
+  const [shot, setShot] = createSignal<'none' | 'loading' | 'canvas' | 'image' | 'error'>(
     props.game.screen ? 'loading' : 'none',
   );
+  const [imgUrl, setImgUrl] = createSignal('');
 
   onMount(async () => {
-    if (!props.game.screen) return;
+    const screen = props.game.screen;
+    if (!screen) return;
     try {
-      const data = await fetchFirst(fileUrls(props.game.screen));
-       setShot(canvasRef && renderScreenToCanvas(data, canvasRef) ? 'ok' : 'error');
+      const data = await fetchFirst(fileUrls(screen));
+      if (/\.scr$/i.test(screen)) {
+        setShot(canvasRef && renderScreenToCanvas(data, canvasRef) ? 'canvas' : 'error');
+      } else {
+        // Raster screenshot — wrap the bytes in a blob URL for an <img>. Type it
+        // by extension so the browser decodes it without content sniffing.
+        const l = screen.toLowerCase();
+        const mime = l.endsWith('.gif') ? 'image/gif' : l.endsWith('.png') ? 'image/png' : 'image/jpeg';
+        setImgUrl(URL.createObjectURL(new Blob([data as unknown as BlobPart], { type: mime })));
+        setShot('image');
+      }
     } catch {
       setShot('error');
     }
   });
 
+  // Free the blob URL when the detail row collapses.
+  onCleanup(() => { if (imgUrl()) URL.revokeObjectURL(imgUrl()); });
+
   return (
     <div class="library-detail">
-      <div class="library-shot">
-        <canvas ref={canvasRef} class="library-shot-canvas" classList={{ hidden: shot() !== 'ok' }} />
-        <Show when={shot() !== 'ok'}>
-          <div class="library-shot-empty">{shot() === 'loading' ? 'Loading…' : 'No screenshot'}</div>
-        </Show>
-      </div>
       <div class="library-detail-pub">
         <span class="library-detail-pubname">{props.game.publisher}{props.game.year !== null ? ` (${props.game.year})` : ''}</span>
-        <a
-          class="library-detail-link"
-          href={`https://spectrumcomputing.co.uk/entry/${props.game.id}/`}
-          target="_blank"
-          rel="noopener noreferrer"
-          title="View on Spectrum Computing"
-          aria-label={`View ${props.game.title} on Spectrum Computing`}
-        >
-          info
-        </a>
+        <Show when={props.game.genre}>
+          <span class="library-detail-genre">{genrePrefix(props.game.genre)}</span>
+        </Show>
+      </div>
+      <div class="library-shot">
+        <canvas ref={canvasRef} class="library-shot-canvas" classList={{ hidden: shot() !== 'canvas' }} />
+        <Show when={shot() === 'image'}>
+          <img class="library-shot-canvas" src={imgUrl()} alt={`${props.game.title} screen`} />
+        </Show>
+        <Show when={shot() !== 'canvas' && shot() !== 'image'}>
+          <div class="library-shot-empty">{shot() === 'loading' ? 'Loading…' : 'No screenshot'}</div>
+        </Show>
       </div>
     </div>
   );
@@ -464,6 +475,17 @@ export function LibraryBrowser() {
                   <span class="library-title">
                     {game.title}
                   </span>
+                  <a
+                    class="library-info"
+                    href={`https://spectrumcomputing.co.uk/entry/${game.id}/`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="View on Spectrum Computing"
+                    aria-label={`View ${game.title} on Spectrum Computing`}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <span class="library-info-i">i</span>
+                  </a>
                   <span
                     class="library-play"
                     title={loadingGame() === game ? 'Requesting file…' : 'Load'}

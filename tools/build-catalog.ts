@@ -156,8 +156,8 @@ function main(): void {
   // Candidate downloads: tape images (filetype 8: .tzx/.tap), +3 disk images
   // (filetype 11: .dsk), MGT +D images (.mgt/.img), Interface 1 microdrives
   // (.mdr/.mdv), ROM cartridges (filetype 17: .rom, for the ZX Interface 2 —
-  // 16K/48K only), and SCR
-  // screens (filetype 1 = loading, 2 = running). SQLite has no built-in
+  // 16K/48K only), and screen images (filetype 1 = loading, 2 = running) —
+  // either a native .scr dump or a raster .gif/.png/.jpg. SQLite has no built-in
   // REGEXP, so match by suffix with LOWER()+LIKE. One entry may have several
   // — we dedupe in JS below.
   const downs = db.prepare(
@@ -171,7 +171,9 @@ function main(): void {
             OR LOWER(d.file_link) LIKE '%.mgt.zip' OR LOWER(d.file_link) LIKE '%.img.zip'
             OR LOWER(d.file_link) LIKE '%.mdr.zip' OR LOWER(d.file_link) LIKE '%.mdv.zip'
            OR (d.filetype_id = 17 AND LOWER(d.file_link) LIKE '%.rom.zip')
-           OR (d.filetype_id IN (1, 2) AND LOWER(d.file_link) LIKE '%.scr')
+           OR (d.filetype_id IN (1, 2) AND (LOWER(d.file_link) LIKE '%.scr'
+                OR LOWER(d.file_link) LIKE '%.gif' OR LOWER(d.file_link) LIKE '%.png'
+                OR LOWER(d.file_link) LIKE '%.jpg' OR LOWER(d.file_link) LIKE '%.jpeg'))
            OR LOWER(d.file_link) LIKE '%.szx' OR LOWER(d.file_link) LIKE '%.szx.zip'
            OR LOWER(d.file_link) LIKE '%.z80' OR LOWER(d.file_link) LIKE '%.z80.zip'
            OR LOWER(d.file_link) LIKE '%.sna' OR LOWER(d.file_link) LIKE '%.sna.zip' )`,
@@ -181,8 +183,8 @@ function main(): void {
 
   // Per entry: best 16K/48K/128K tape (each prefers .tzx over .tap), all +3
   // disk links (resolved to a primary + sides later), MGT/Interface 1 media by
-  // 48K/128K class, snapshots, and one SCR screen (prefer a loading screen,
-  // ft 1, over running, 2).
+  // 48K/128K class, snapshots, and one screen image (prefer a native .scr over a
+  // raster, then a loading screen, ft 1, over an in-game one, ft 2).
   // Classify by file extension — snapshots share no single filetype_id.
   // Selection priority for each slot: English first, then the ORIGINAL release
   // (lowest release_seq) over budget re-issues (Erbe, Mastertronic, …), then the
@@ -194,7 +196,7 @@ function main(): void {
     disks: { link: string; rel: number; en: boolean }[];
     mgt48?: Pick; mgt128?: Pick; microdrive48?: Pick; microdrive128?: Pick;
     snap16?: Pick; snap48?: Pick; snap128?: Pick; rom?: Pick;
-    screen?: string; screenFt?: number;
+    screen?: string; screenScore?: number;
   }
   const better = (en: boolean, rel: number, rank: number, cur?: Pick) => {
     if (!cur) return true;
@@ -250,7 +252,10 @@ function main(): void {
         else slot.snap48 = s;
       }
     } else if (d.ft === 1 || d.ft === 2) {
-      if (!slot.screen || (d.ft === 1 && slot.screenFt !== 1)) { slot.screen = d.link; slot.screenFt = d.ft; }
+      // Prefer a native .scr (renders pixel-perfect) over a raster screenshot,
+      // and a loading screen (ft 1) over an in-game one (ft 2) within each.
+      const score = (l.endsWith('.scr') ? 100 : 10) + (d.ft === 1 ? 1 : 0);
+      if (score > (slot.screenScore ?? -1)) { slot.screen = d.link; slot.screenScore = score; }
     }
   }
 
