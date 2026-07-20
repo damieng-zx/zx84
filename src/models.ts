@@ -32,7 +32,7 @@ export {
   defaultRomPageLabel,
   type RomPage,
 } from '@/machines/spectrum/models.ts';
-export { isCpcModel, cpcHasDisk } from '@/machines/cpc/models.ts';
+export { isCpcModel, cpcHasDisk, cpcHasTape, cpcIsPlusClass } from '@/machines/cpc/models.ts';
 export { isEinsteinModel } from '@/machines/einstein/models.ts';
 export { isMsxModel } from '@/machines/msx/models.ts';
 

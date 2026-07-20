@@ -218,8 +218,9 @@ export interface MachineUiCapabilities {
   readonly rainbow: boolean;
   /** Keyboard read path, for the KEY LED tip. */
   readonly keyboardBus: 'ula' | 'ppi';
-  /** Tape transport: 'deck' (pulse-level block list) or 'instant' (.cas). */
-  readonly tape: 'deck' | 'instant';
+  /** Tape transport: 'deck' (pulse-level block list) or 'instant' (.cas).
+   *  Omitted when the model has no cassette hardware (e.g. the GX4000 console). */
+  readonly tape?: 'deck' | 'instant';
   /** Loading-sound toggle applies (AY-audible tape loading). */
   readonly tapeSound: boolean;
   /** Extensions the tape loader accepts (Load picker). */

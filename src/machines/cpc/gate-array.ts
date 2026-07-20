@@ -21,16 +21,17 @@ const FN_PEN = 0x00;
 const FN_COLOUR = 0x40;
 const FN_RMR = 0x80;
 const FN_RAM = 0xC0;
+export { FN_PEN, FN_COLOUR, FN_RMR, FN_RAM };
 
 const BORDER_PEN = 16;
 
 export class GateArray {
-  private selectedPen = 0;
+  protected selectedPen = 0;
   /** Hardware colour (0–31) for each pen (0–15) and the border (16). */
   readonly pens = new Uint8Array(17);
 
   mode = 1;
-  private pendingMode = 1;
+  protected pendingMode = 1;
 
   /** Active colour map (ABGR, indexed by hardware value 0–31). Swapped by the
    *  display settings; defaults to the measured Gate Array palette. */
@@ -41,7 +42,7 @@ export class GateArray {
   onRamConfig: (val: number) => void = () => {};
 
   // ── Raster interrupt ─────────────────────────────────────────────────
-  private rasterCount = 0;
+  protected rasterCount = 0;
   interruptRequested = false;
 
   write(val: number): void {

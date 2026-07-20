@@ -33,6 +33,7 @@ import { CpcMemory } from '@/machines/cpc/cpc-memory.ts';
 import { CpcKeyboard } from '@/machines/cpc/cpc-keyboard.ts';
 import { Crtc6845, R_HORIZ_DISPLAYED, R_VERT_DISPLAYED } from '@/cores/crtc-6845.ts';
 import { GateArray } from '@/machines/cpc/gate-array.ts';
+import { Asic } from '@/machines/cpc/asic.ts';
 import { Ppi8255, installCpcMemoryHooks, wireCpcPortIO } from '@/machines/cpc/cpc-io.ts';
 import { CpcMultiface } from '@/machines/cpc/peripherals/cpc-multiface.ts';
 import { KempstonMouse } from '@/machines/shared/kempston-mouse.ts';
@@ -146,7 +147,7 @@ export class CpcMachine extends BaseMachine implements Machine {
     this.tape.pulseScale = CPC_CPU_CLOCK / TAPE_REF_HZ;
     this.keyboard = new CpcKeyboard();
     this.crtc = new Crtc6845(this.config.crtcType);
-    this.gateArray = new GateArray();
+    this.gateArray = this.config.isPlus ? new Asic() : new GateArray();
     this.audio = new Audio();
     this.mixer = new AudioMixer(CPC_CPU_CLOCK);
     // The CPC has no beeper; the mixer carries the AY only.
