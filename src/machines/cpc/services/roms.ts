@@ -40,6 +40,22 @@ class CpcCartridgeSlot implements CartridgeSlot {
     } else {
       throw new Error('Not a CPR image (missing RIFF/AMS! signature)');
     }
+    // Sanity-check bank 0: a bootable Plus cartridge puts the firmware at
+    // bank 0 (CPU &0000–&3FFF), whose reset vector starts with `F3 AF 31`
+    // (DI; XOR A; LD SP,&nnnn). Some "cracked" or "game-only" cartridges
+    // put an upper ROM (header `01 89 7F`) or a custom loader at bank 0
+    // instead — they boot on real hardware via custom loaders but typically
+    // hang in emulators that don't model every ASIC quirk. Surface that as
+    // a status hint rather than silently freezing on a pale-green screen.
+    const page0 = pages[0];
+    if (page0 && page0.length >= 3) {
+      const looksLikeFirmware = page0[0] === 0xF3 && page0[1] === 0xAF && page0[2] === 0x31;
+      const looksLikeUpperRom = page0[0] === 0x01 && page0[1] === 0x89 && page0[2] === 0x7F;
+      if (!looksLikeFirmware) {
+        const kind = looksLikeUpperRom ? 'an upper ROM (BASIC/AMSDOS)' : 'an unknown image';
+        this.m.host?.setStatus(`Warning: bank 0 of ${name} looks like ${kind}, not firmware — may not boot`);
+      }
+    }
     this.m.stop();
     this.m.memory.loadCartridge(pages);
     this.cartName = name;
