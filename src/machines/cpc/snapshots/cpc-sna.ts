@@ -16,6 +16,8 @@
 
 import type { CpcMachine } from '@/machines/cpc/cpc-machine.ts';
 import type { CpcModel } from '@/models.ts';
+import type { Asic } from '@/machines/cpc/asic.ts';
+import { cpcIsPlusClass } from '@/machines/cpc/models.ts';
 
 const HEADER_SIZE = 256;
 const SLOT_SIZE = 0x4000;   // 16KB bank
@@ -33,9 +35,39 @@ export interface CpcSnaInfo {
   version: number;
 }
 
-/** RAM banks for a model (4 = 64K for 464/664, 8 = 128K for 6128). */
+/** RAM banks for a model (4 = 64K for 464/664, 8 = 128K for 6128/Plus/GX4000). */
 function banksFor(model: CpcModel): number {
-  return model === 'cpc6128' ? 8 : 4;
+  return model === 'cpc464' || model === 'cpc664' ? 4 : 8;
+}
+
+/** CPC type byte at offset 0x6D: 0=464, 1=664, 2=6128, 3=6128Plus, 4=GX4000.
+ *  Values 3 and 4 are a ZX84 extension — the standard CPCEMU/WinAPE format
+ *  stops at 2, so Plus snapshots can't be misread by older tools as a 6128. */
+const TYPE_464 = 0;
+const TYPE_664 = 1;
+const TYPE_6128 = 2;
+const TYPE_6128PLUS = 3;
+const TYPE_GX4000 = 4;
+
+function typeByteOf(model: CpcModel): number {
+  switch (model) {
+    case 'cpc464': return TYPE_464;
+    case 'cpc664': return TYPE_664;
+    case 'cpc6128': return TYPE_6128;
+    case 'cpc6128plus': return TYPE_6128PLUS;
+    case 'gx4000': return TYPE_GX4000;
+  }
+}
+
+function modelOfType(type: number): CpcModel {
+  switch (type) {
+    case TYPE_464: return 'cpc464';
+    case TYPE_664: return 'cpc664';
+    case TYPE_6128: return 'cpc6128';
+    case TYPE_6128PLUS: return 'cpc6128plus';
+    case TYPE_GX4000: return 'gx4000';
+    default: return 'cpc6128';   // unknown → safest fallback
+  }
 }
 
 function checkSignature(data: Uint8Array): void {
@@ -56,8 +88,7 @@ export function readCpcSnaModel(data: Uint8Array): CpcSnaInfo {
   const version = data[0x10];
   let model: CpcSnaModel;
   if (version >= 2) {
-    const type = data[0x6D];
-    model = type === 0 ? 'cpc464' : type === 1 ? 'cpc664' : 'cpc6128';
+    model = modelOfType(data[0x6D]);
   } else {
     // v1 has no type byte; infer from the RAM dump size in KB.
     const sizeKB = data[0x6B] | (data[0x6C] << 8);
@@ -144,7 +175,8 @@ function applyFlatMemory(m: CpcMachine, data: Uint8Array, banks: number): void {
   }
 }
 
-/** Apply v3 chunked memory ("MEM0".."MEM8", each a 64K block). */
+/** Apply v3 chunked memory ("MEM0".."MEM8", each a 64K block) and any Plus
+ *  "ASIC" extension chunk. */
 function applyChunkedMemory(m: CpcMachine, data: Uint8Array): void {
   let p = HEADER_SIZE;
   while (p + 8 <= data.length) {
@@ -158,9 +190,59 @@ function applyChunkedMemory(m: CpcMachine, data: Uint8Array): void {
       const baseBank = Number(mem[1]) * 4;
       const block = len === BLOCK_SIZE ? body : rleDecode(body, BLOCK_SIZE);
       applyBlock(m, baseBank, block);
+    } else if (id === 'ASIC' && cpcIsPlusClass(m.model)) {
+      applyAsicChunk(m.gateArray as Asic, body);
     }
-    // Unknown chunks (CRTC/FDC/tape device state we don't model) are skipped.
+    // Other unknown chunks (CRTC/FDC/tape device state we don't model) are
+    // skipped, matching the standard SNA chunk-skip behaviour.
   }
+}
+
+/** Layout of the "ASIC" chunk body:
+ *    [0]     locked (1 byte)
+ *    [1..0x4000]  registerPage (16 KB)
+ *    [0x4001..0x4080]  asicPalette (32 × 4-byte ABGR = 128 bytes)
+ *    [0x4081..0x408F]  DMA dynamic state (18 bytes, captureDmaState() + pad)
+ *  Total: 0x4091 bytes. */
+const ASIC_CHUNK_LOCKED_OFF = 0;
+const ASIC_CHUNK_PAGE_OFF = 1;
+const ASIC_CHUNK_PAGE_BYTES = 0x4000;
+const ASIC_CHUNK_PAL_OFF = ASIC_CHUNK_PAGE_OFF + ASIC_CHUNK_PAGE_BYTES;
+const ASIC_CHUNK_PAL_BYTES = 32 * 4;
+const ASIC_CHUNK_DMA_OFF = ASIC_CHUNK_PAL_OFF + ASIC_CHUNK_PAL_BYTES;
+const ASIC_CHUNK_DMA_BYTES = 18;
+
+function applyAsicChunk(asic: Asic, body: Uint8Array): void {
+  if (body.length < ASIC_CHUNK_DMA_OFF) return;
+  const locked = body[ASIC_CHUNK_LOCKED_OFF] !== 0;
+  const page = body.subarray(ASIC_CHUNK_PAGE_OFF, ASIC_CHUNK_PAGE_OFF + ASIC_CHUNK_PAGE_BYTES);
+  const pal = new Uint32Array(32);
+  for (let i = 0; i < 32; i++) {
+    const o = ASIC_CHUNK_PAL_OFF + i * 4;
+    pal[i] = (body[o] | (body[o + 1] << 8) | (body[o + 2] << 16) | (body[o + 3] << 24)) >>> 0;
+  }
+  asic.restoreCoreState(locked, page, pal);
+  if (body.length >= ASIC_CHUNK_DMA_OFF + ASIC_CHUNK_DMA_BYTES) {
+    asic.restoreDmaState(body.subarray(ASIC_CHUNK_DMA_OFF, ASIC_CHUNK_DMA_OFF + ASIC_CHUNK_DMA_BYTES));
+  }
+}
+
+/** Serialise the ASIC chunk body for saveCpcSna. */
+function buildAsicChunk(asic: Asic): Uint8Array {
+  const out = new Uint8Array(ASIC_CHUNK_DMA_OFF + ASIC_CHUNK_DMA_BYTES);
+  out[ASIC_CHUNK_LOCKED_OFF] = asic.locked ? 1 : 0;
+  out.set(asic.registerPage, ASIC_CHUNK_PAGE_OFF);
+  for (let i = 0; i < 32; i++) {
+    const v = asic.asicPalette[i] >>> 0;
+    const o = ASIC_CHUNK_PAL_OFF + i * 4;
+    out[o] = v & 0xFF;
+    out[o + 1] = (v >>> 8) & 0xFF;
+    out[o + 2] = (v >>> 16) & 0xFF;
+    out[o + 3] = (v >>> 24) & 0xFF;
+  }
+  const dma = asic.captureDmaState();
+  out.set(dma, ASIC_CHUNK_DMA_OFF);
+  return out;
 }
 
 // ── Load ─────────────────────────────────────────────────────────────────────
@@ -291,8 +373,7 @@ export function saveCpcSna(m: CpcMachine, version: 2 | 3): Uint8Array {
 
   const banks = banksFor(m.model);
   const sizeKB = banks * 16;
-  // CPC type byte (v2+): 464=0, 664=1, 6128=2.
-  header[0x6D] = m.model === 'cpc464' ? 0 : m.model === 'cpc664' ? 1 : 2;
+  header[0x6D] = typeByteOf(m.model);
 
   if (version >= 3) {
     // v3: memory size 0 in the header; memory follows as MEM chunks.
@@ -312,6 +393,19 @@ export function saveCpcSna(m: CpcMachine, version: 2 | 3): Uint8Array {
       chunkHeader[5] = (len >> 8) & 0xFF;
       chunkHeader[6] = (len >> 16) & 0xFF;
       chunkHeader[7] = (len >> 24) & 0xFF;
+      parts.push(chunkHeader, body);
+    }
+    // Plus extension: an "ASIC" chunk after the MEM chunks carries the ASIC
+    // register page, palette, and DMA dynamic state. Non-Plus models omit
+    // it; older loaders skip unknown chunks (standard SNA behaviour).
+    if (cpcIsPlusClass(m.model)) {
+      const body = buildAsicChunk(m.gateArray as Asic);
+      const chunkHeader = new Uint8Array(8);
+      chunkHeader[0] = 0x41; chunkHeader[1] = 0x53; chunkHeader[2] = 0x49; chunkHeader[3] = 0x43; // "ASIC"
+      chunkHeader[4] = body.length & 0xFF;
+      chunkHeader[5] = (body.length >> 8) & 0xFF;
+      chunkHeader[6] = (body.length >> 16) & 0xFF;
+      chunkHeader[7] = (body.length >> 24) & 0xFF;
       parts.push(chunkHeader, body);
     }
     return concat(parts);

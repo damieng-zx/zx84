@@ -12,8 +12,15 @@ import { describe, it, expect } from 'vitest';
 import { CpcMachine } from '@/machines/cpc/cpc-machine.ts';
 import { saveCpcSna, applyCpcSna, readCpcSnaModel } from '@/machines/cpc/snapshots/cpc-sna.ts';
 import type { CpcModel } from '@/models.ts';
+import { cpcIsPlusClass } from '@/machines/cpc/models.ts';
+import type { Asic } from '@/machines/cpc/asic.ts';
 
 const SLOT = 0x4000;
+
+/** Banks per model — 4 for 464/664, 8 for 6128/6128Plus/GX4000. */
+function bankCount(model: CpcModel): number {
+  return model === 'cpc464' || model === 'cpc664' ? 4 : 8;
+}
 
 /** Fill a machine's state with distinctive, recoverable values. Bank contents
  *  include RLE-hostile patterns (literal 0xE5, runs of 0xE5, long plain runs). */
@@ -49,7 +56,7 @@ function seedState(m: CpcMachine): void {
   m.ay.selectedReg = 7;
 
   // RAM: every bank a different base byte, with embedded RLE edge cases.
-  const banks = m.model === 'cpc6128' ? 8 : 4;
+  const banks = bankCount(m.model);
   for (let b = 0; b < banks; b++) {
     const bank = m.memory.getRamBank(b);
     bank.fill((b * 37 + 1) & 0xFF);       // long plain run
@@ -57,6 +64,27 @@ function seedState(m: CpcMachine): void {
     bank[1] = 0x00;
     bank.fill(0xE5, 100, 140);            // run of the marker byte
     bank[SLOT - 1] = (b ^ 0x5A) & 0xFF;
+  }
+
+  // Plus ASIC: program a distinctive state — unlocked, a non-zero palette
+  // entry, sprite pixels, scroll, raster IRQ, and DMA channel 0 mid-pause.
+  if (cpcIsPlusClass(m.model)) {
+    const asic = m.gateArray as Asic;
+    asic.locked = false;
+    asic.cpuWrite(0x2400, 0x12);     // pen 0 even byte (R=1, B=2)
+    asic.cpuWrite(0x2401, 0x34);     // pen 0 odd byte (G=4)
+    asic.cpuWrite(0x0000, 0x07);     // sprite 0 pixel (0,0) = pen 7
+    asic.cpuWrite(0x2804, 0x85);     // scroll: extendBorder + vscroll 0 + hscroll 5
+    asic.cpuWrite(0x2800, 0x80);     // raster IRQ scanline = 128
+    asic.cpuWrite(0x2805, 0xF0);     // interrupt vector = 0xF0
+    asic.cpuWrite(0x2C00, 0x10);     // DMA ch0 source lo = 0x10
+    asic.cpuWrite(0x2C01, 0x00);     // DMA ch0 source hi = 0x00
+    asic.cpuWrite(0x2C0F, 0x01);     // DCSR: enable ch0
+    // Dynamic DMA state not stored in registerPage:
+    const dma = (asic as unknown as { dma: { pauseTicks: number; loops: number; loopAddr: number }[] }).dma;
+    dma[0].pauseTicks = 5;
+    dma[0].loops = 3;
+    dma[0].loopAddr = 0x1234;
   }
 }
 
@@ -96,9 +124,32 @@ function expectMatches(loaded: CpcMachine, ref: CpcMachine): void {
   }
   expect(loaded.ay.selectedReg).toBe(ref.ay.selectedReg);
 
-  const banks = ref.model === 'cpc6128' ? 8 : 4;
+  const banks = bankCount(ref.model);
   for (let bk = 0; bk < banks; bk++) {
     expect(loaded.memory.getRamBank(bk), `bank ${bk}`).toEqual(ref.memory.getRamBank(bk));
+  }
+
+  // Plus ASIC: the snapshot must restore locked, registerPage (sprites,
+  // palette, scroll, raster IRQ, DMA regs), and the dynamic DMA state.
+  if (cpcIsPlusClass(ref.model)) {
+    const la = loaded.gateArray as Asic, ra = ref.gateArray as Asic;
+    expect(la.locked).toBe(ra.locked);
+    expect(la.registerPage).toEqual(ra.registerPage);
+    expect(la.asicPalette).toEqual(ra.asicPalette);
+    expect(la.interruptSl).toBe(ra.interruptSl);
+    expect(la.hscroll).toBe(ra.hscroll);
+    expect(la.vscroll).toBe(ra.vscroll);
+    expect(la.extendBorder).toBe(ra.extendBorder);
+    expect(la.interruptVector).toBe(ra.interruptVector);
+    const ld = (la as unknown as { dma: { source: number; pauseTicks: number; loops: number; loopAddr: number; enabled: boolean }[] }).dma;
+    const rd = (ra as unknown as { dma: { source: number; pauseTicks: number; loops: number; loopAddr: number; enabled: boolean }[] }).dma;
+    for (let c = 0; c < 3; c++) {
+      expect(ld[c].source, `dma${c}.source`).toBe(rd[c].source);
+      expect(ld[c].pauseTicks, `dma${c}.pauseTicks`).toBe(rd[c].pauseTicks);
+      expect(ld[c].loops, `dma${c}.loops`).toBe(rd[c].loops);
+      expect(ld[c].loopAddr, `dma${c}.loopAddr`).toBe(rd[c].loopAddr);
+      expect(ld[c].enabled, `dma${c}.enabled`).toBe(rd[c].enabled);
+    }
   }
 }
 
@@ -128,6 +179,14 @@ describe('CPC .SNA round-trip', () => {
 
   it('restores 664 (64K) state from v2', () => {
     roundTrip('cpc664', 2);
+  });
+
+  it('restores 6128Plus (128K + ASIC state) from v3', () => {
+    roundTrip('cpc6128plus', 3);
+  });
+
+  it('restores GX4000 (128K + ASIC state) from v3', () => {
+    roundTrip('gx4000', 3);
   });
 });
 
@@ -164,6 +223,13 @@ describe('readCpcSnaModel', () => {
 
     const v2 = saveCpcSna(new CpcMachine('cpc464', null), 2);
     expect(readCpcSnaModel(v2)).toEqual({ model: 'cpc464', version: 2 });
+  });
+
+  it('recognises the Plus type-byte extension (3 = 6128Plus, 4 = GX4000)', () => {
+    const plus = saveCpcSna(new CpcMachine('cpc6128plus', null), 3);
+    expect(readCpcSnaModel(plus)).toEqual({ model: 'cpc6128plus', version: 3 });
+    const gx = saveCpcSna(new CpcMachine('gx4000', null), 3);
+    expect(readCpcSnaModel(gx)).toEqual({ model: 'gx4000', version: 3 });
   });
 
   it('rejects a file without the MV - SNA signature', () => {

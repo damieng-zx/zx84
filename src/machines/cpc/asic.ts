@@ -599,6 +599,42 @@ export class Asic extends GateArray {
     this.writeDcsr();
   }
 
+  /**
+   * Snapshot helper: capture the dynamic DMA channel state that isn't stored
+   * in `registerPage` (pauseTicks, loops, loopAddr, enabled, intPending).
+   * Returns 15 bytes (3 channels × 5 fields, each one byte except loopAddr
+   * which is two). The register-page bytes carry everything else.
+   */
+  captureDmaState(): Uint8Array {
+    const out = new Uint8Array(3 * 6);
+    for (let c = 0; c < 3; c++) {
+      const ch = this.dma[c];
+      const base = c * 6;
+      out[base] = ch.pauseTicks & 0xFF;
+      out[base + 1] = ch.loops & 0xFF;
+      out[base + 2] = ch.loopAddr & 0xFF;
+      out[base + 3] = (ch.loopAddr >>> 8) & 0xFF;
+      out[base + 4] = ch.enabled ? 1 : 0;
+      out[base + 5] = ch.intPending ? 1 : 0;
+    }
+    return out;
+  }
+
+  /** Snapshot helper: restore the dynamic DMA state from a `captureDmaState`
+   *  byte array. Complements `restoreCoreState` — call after it. */
+  restoreDmaState(state: ArrayLike<number>): void {
+    for (let c = 0; c < 3; c++) {
+      const base = c * 6;
+      const ch = this.dma[c];
+      ch.pauseTicks = state[base] & 0xFF;
+      ch.loops = state[base + 1] & 0xFF;
+      ch.loopAddr = state[base + 2] | (state[base + 3] << 8);
+      ch.enabled = state[base + 4] !== 0;
+      ch.intPending = state[base + 5] !== 0;
+    }
+    this.writeDcsr();
+  }
+
   reset(): void {
     super.reset();
     this.locked = true;
