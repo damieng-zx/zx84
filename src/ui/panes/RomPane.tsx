@@ -111,9 +111,9 @@ export function RomPane(): JSX.Element {
   }
 
   async function insertCartridge(): Promise<void> {
-    const results = await openFile({ id: 'zx84-cartridge', extensions: ['.rom', '.zip'] });
+    const results = await openFile({ id: 'zx84-cartridge', extensions: ['.rom', '.cpr', '.zip'] });
     if (!results) return;
-    await loadFile(results[0].data, results[0].name);   // routes .rom → cartridge
+    await loadFile(results[0].data, results[0].name);   // routes .rom/.cpr → cartridge
   }
 
   // The system ROM is always present; a user-loaded image is only ejectable

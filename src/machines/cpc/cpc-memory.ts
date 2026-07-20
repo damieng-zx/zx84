@@ -80,9 +80,13 @@ export class CpcMemory implements IMachineMemory {
   private asicPage: Uint8Array | null = null;
 
   private readonly ramBanks: number;
+  /** Cached at construction — drives the Plus ROM-select logical-to-physical
+   *  translation in `selectUpperRom`. */
+  private readonly isPlus: boolean;
 
   constructor(cfg: CpcConfig) {
     this.ramBanks = cfg.ramBanks;
+    this.isPlus = cfg.isPlus;
     this.ram = [];
     for (let i = 0; i < cfg.ramBanks; i++) this.ram.push(new Uint8Array(SLOT_SIZE));
     this.applyMapping();
@@ -95,6 +99,41 @@ export class CpcMemory implements IMachineMemory {
     this.lowerRom = padTo16K(lowerOs);
     this.upperRoms[0] = padTo16K(basic);
     if (amsdos) this.upperRoms[7] = padTo16K(amsdos);
+    // The Plus boots from cartridge — the Burnin' Rubber layout puts BASIC at
+    // physical page 1 and AMSDOS at physical page 3. Mirror them so the
+    // logical-to-physical translation in `selectUpperRom` finds them when
+    // firmware ROM-scans for ROMs 0 and 7.
+    if (this.isPlus) {
+      this.upperRoms[1] = this.upperRoms[0];
+      if (amsdos) this.upperRoms[3] = this.upperRoms[7];
+    }
+    this.applyMapping();
+  }
+
+  /**
+   * Load a parsed .CPR cartridge image. Page 0 becomes the lower (OS) ROM;
+   * pages 1..31 populate the upper ROM slots by physical page index, so a
+   * subsequent `selectUpperRom(0x80 | n)` reaches them. Replaces any prior
+   * cartridge / on-board ROMs. Absent pages leave the slot unchanged (so a
+   * partial cartridge can still boot if the missing pages aren't needed).
+   */
+  loadCartridge(pages: ReadonlyArray<Uint8Array | undefined>): void {
+    const page0 = pages[0];
+    if (page0) this.lowerRom = padTo16K(page0);
+    for (let i = 1; i < 32; i++) {
+      const p = pages[i];
+      if (p) this.upperRoms[i] = padTo16K(p);
+    }
+    // Reset the selected upper ROM to physical 1 (BASIC) on the assumption
+    // that the new cartridge uses the same Burnin' Rubber layout.
+    this.selectedUpperRom = this.isPlus ? 1 : 0;
+    this.applyMapping();
+  }
+
+  /** Eject the cartridge: clear every page slot populated by `loadCartridge`. */
+  ejectCartridge(): void {
+    for (let i = 1; i < 32; i++) this.upperRoms[i] = undefined;
+    this.selectedUpperRom = this.isPlus ? 1 : 0;
     this.applyMapping();
   }
 
@@ -136,6 +175,21 @@ export class CpcMemory implements IMachineMemory {
 
   /** OUT &DFxx — select which upper ROM appears at 0xC000 when enabled. */
   selectUpperRom(n: number): void {
+    // On the Plus, the ROM-select byte carries both logical and physical IDs:
+    //   bit 7 = 0 → logical (0..127); the firmware ROM scan uses 0 (BASIC)
+    //            and 7 (AMSDOS), which on the Burnin' Rubber cartridge map
+    //            to physical pages 1 and 3 respectively.
+    //   bit 7 = 1 → direct physical (n & 0x1F), addressing any of the 32
+    //            cartridge pages.
+    // Non-Plus 464/664/6128 have no cartridge — pass `n` straight through.
+    if (this.isPlus) {
+      let physical: number;
+      if (n & 0x80) physical = n & 0x1F;
+      else if (n === 0) physical = 1;
+      else if (n === 7) physical = 3;
+      else physical = 1;
+      n = physical;
+    }
     if (this.selectedUpperRom === n) return;
     this.selectedUpperRom = n;
     if (this.upperRomEnabled) this.applyMapping();

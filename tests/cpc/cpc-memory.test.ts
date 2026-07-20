@@ -179,6 +179,70 @@ describe('CPC Plus config (6128Plus / GX4000)', () => {
   });
 });
 
+describe('CpcMemory Plus ROM-select (logical → physical mapping)', () => {
+  // Spec: the Plus's ROM-select byte uses bit 7 to distinguish logical (0)
+  // from physical (0x80 | n). Logical 0 = BASIC (physical 1), logical 7 =
+  // AMSDOS (physical 3) — the Burnin' Rubber cartridge layout.
+  it('maps logical 0 to physical page 1 (BASIC)', () => {
+    const mem = new CpcMemory(createCpcConfig('cpc6128plus'));
+    mem.loadROM(makeImage(0x11, 0x22, 0x33));   // OS=0x11, BASIC=0x22, AMSDOS=0x33
+    // After loadROM, BASIC is mirrored to physical slot 1.
+    expect(mem.getUpperRom(1)?.[0]).toBe(0x22);
+    mem.selectUpperRom(0);   // logical 0
+    expect(mem.readByte(0xC000)).toBe(0x22);
+  });
+
+  it('maps logical 7 to physical page 3 (AMSDOS)', () => {
+    const mem = new CpcMemory(createCpcConfig('cpc6128plus'));
+    mem.loadROM(makeImage(0x11, 0x22, 0x33));
+    expect(mem.getUpperRom(3)?.[0]).toBe(0x33);
+    mem.selectUpperRom(7);   // logical 7
+    expect(mem.readByte(0xC000)).toBe(0x33);
+  });
+
+  it('addresses a cartridge page directly with the 0x80 bit set', () => {
+    const mem = new CpcMemory(createCpcConfig('cpc6128plus'));
+    mem.loadROM(makeImage(0x11, 0x22, 0x33));
+    // Load a 5-page cartridge where page 5 is filled with 0x55.
+    const pages: (Uint8Array | undefined)[] = new Array(32).fill(undefined);
+    pages[5] = new Uint8Array(SLOT).fill(0x55);
+    mem.loadCartridge(pages);
+    mem.selectUpperRom(0x80 | 5);   // direct physical
+    expect(mem.readByte(0xC000)).toBe(0x55);
+  });
+
+  it('non-Plus models pass the select byte through unchanged', () => {
+    const mem = new CpcMemory(createCpcConfig('cpc6128'));
+    mem.loadROM(makeImage(0x11, 0x22, 0x33));
+    mem.selectUpperRom(0);
+    expect(mem.readByte(0xC000)).toBe(0x22);   // BASIC at upper ROM 0
+    mem.selectUpperRom(7);
+    expect(mem.readByte(0xC000)).toBe(0x33);   // AMSDOS at upper ROM 7
+  });
+
+  it('loadCartridge replaces the lower ROM with cartridge page 0', () => {
+    const mem = new CpcMemory(createCpcConfig('cpc6128plus'));
+    mem.loadROM(makeImage(0x11, 0x22, 0x33));
+    expect(mem.readByte(0x0000)).toBe(0x11);   // OS lower ROM
+    const pages: (Uint8Array | undefined)[] = new Array(32).fill(undefined);
+    pages[0] = new Uint8Array(SLOT).fill(0x77);
+    mem.loadCartridge(pages);
+    expect(mem.readByte(0x0000)).toBe(0x77);
+  });
+
+  it('ejectCartridge clears upper-ROM slots 1..31', () => {
+    const mem = new CpcMemory(createCpcConfig('cpc6128plus'));
+    const pages: (Uint8Array | undefined)[] = new Array(32).fill(undefined);
+    pages[1] = new Uint8Array(SLOT).fill(0xBB);
+    pages[5] = new Uint8Array(SLOT).fill(0x55);
+    mem.loadCartridge(pages);
+    expect(mem.getUpperRom(1)?.[0]).toBe(0xBB);
+    mem.ejectCartridge();
+    expect(mem.getUpperRom(1)).toBeUndefined();
+    expect(mem.getUpperRom(5)).toBeUndefined();
+  });
+});
+
 describe('CpcMemory on a 64KB machine (464/664)', () => {
   it('allocates only four RAM banks', () => {
     const mem = new CpcMemory(createCpcConfig('cpc464'));
