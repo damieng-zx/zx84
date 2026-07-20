@@ -70,6 +70,15 @@ export class CpcMemory implements IMachineMemory {
    *  precedence over the normal slot-0 read/write source. */
   private mfOverlay: Uint8Array | null = null;
 
+  /**
+   * Plus ASIC register window (16 KB) when paged into slot 1 by RMR2; null
+   * when hidden. Takes precedence over the normal slot-1 RAM mapping for both
+   * reads and writes — the ASIC's own decode handles side-effects via the
+   * `cpuWrite` indirection in `cpc-io.ts`. The Multiface overlay only touches
+   * slot 0, so the two never conflict.
+   */
+  private asicPage: Uint8Array | null = null;
+
   private readonly ramBanks: number;
 
   constructor(cfg: CpcConfig) {
@@ -158,6 +167,13 @@ export class CpcMemory implements IMachineMemory {
     if (this.upperRomEnabled) {
       this.readPtr[3] = this.upperRoms[this.selectedUpperRom] ?? this.absentRom;
     }
+    // The Plus ASIC register window, when paged in by RMR2, replaces slot 1
+    // for both reads and writes — CPU writes go through `cpuWrite` for
+    // side-effects, but the storage underneath is this buffer.
+    if (this.asicPage) {
+      this.readPtr[1] = this.asicPage;
+      this.writePtr[1] = this.asicPage;
+    }
     // Multiface Two overlay wins slot 0 outright (ROM+RAM, read and write).
     if (this.mfOverlay) {
       this.readPtr[0] = this.mfOverlay;
@@ -174,6 +190,18 @@ export class CpcMemory implements IMachineMemory {
 
   clearSlot0Overlay(): void {
     this.mfOverlay = null;
+    this.applyMapping();
+  }
+
+  // ── Plus ASIC register window ─────────────────────────────────────────────
+
+  /**
+   * Page the Plus ASIC's 16 KB register window into slot 1 (`&4000–&7FFF`) or
+   * hide it again. Driven by the ASIC's RMR2 escape. Passing null restores the
+   * normal RAM-backed slot 1 mapping.
+   */
+  setAsicPage(buf: Uint8Array | null): void {
+    this.asicPage = buf;
     this.applyMapping();
   }
 
@@ -289,6 +317,7 @@ export class CpcMemory implements IMachineMemory {
     this.upperRomEnabled = true;
     this.selectedUpperRom = 0;
     this.mfOverlay = null;
+    this.asicPage = null;
     this.applyMapping();
   }
 }

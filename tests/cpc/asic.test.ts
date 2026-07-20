@@ -117,3 +117,181 @@ describe('CpcMachine Plus integration (Phase 1 smoke)', () => {
     expect(() => m.tick()).not.toThrow();
   });
 });
+
+// ── Phase 2: ASIC unlock, register-window paging, palette decode ─────────────
+
+/** The canonical 16-byte unlock sequence poked through &BC00 followed by an
+ *  arbitrary toggle byte. Verified against published Plus unlock routines. */
+const UNLOCK_BYTES = [
+  0x00, 0x00, 0xFF, 0x77, 0xB3, 0x51, 0xA8, 0xD4,
+  0x62, 0x39, 0x9C, 0x46, 0x2B, 0x15, 0x8A, 0xCD,
+];
+
+describe('Asic unlock state machine', () => {
+  it('unlocks after the full 16-byte sequence plus one toggle byte', () => {
+    const a = new Asic();
+    expect(a.locked).toBe(true);
+    for (const b of UNLOCK_BYTES) a.pokeLockSequence(b);
+    // 16 bytes matched; not yet unlocked.
+    expect(a.locked).toBe(true);
+    // The 17th byte (any value) toggles.
+    a.pokeLockSequence(0x00);
+    expect(a.locked).toBe(false);
+  });
+
+  it('re-locks when the same sequence is poked again', () => {
+    const a = new Asic();
+    for (const b of UNLOCK_BYTES) a.pokeLockSequence(b);
+    a.pokeLockSequence(0x00);
+    expect(a.locked).toBe(false);
+    for (const b of UNLOCK_BYTES) a.pokeLockSequence(b);
+    a.pokeLockSequence(0xFF);   // any toggle byte works
+    expect(a.locked).toBe(true);
+  });
+
+  it('ignores a wrong byte in the middle of the sequence (matcher resets)', () => {
+    const a = new Asic();
+    // First 8 bytes correct, then a wrong byte at position 8 (expects 0x62).
+    for (let i = 0; i < 8; i++) a.pokeLockSequence(UNLOCK_BYTES[i]);
+    a.pokeLockSequence(0xEE);   // wrong — resets to 0
+    // Now feed the rest of the sequence; nothing should unlock.
+    for (let i = 8; i < 16; i++) a.pokeLockSequence(UNLOCK_BYTES[i]);
+    a.pokeLockSequence(0x00);
+    expect(a.locked).toBe(true);
+  });
+
+  it('restarts the matcher if the byte after a mismatch itself matches SEQ[0]', () => {
+    // Spec edge case: a mismatch followed by SEQ[0] should count as the new
+    // start of the sequence, so software that re-enters the routine mid-stream
+    // only needs ONE extra leading 0x00, not two.
+    const a = new Asic();
+    for (let i = 0; i < 5; i++) a.pokeLockSequence(UNLOCK_BYTES[i]);
+    a.pokeLockSequence(0xEE);   // mismatch — resets, but 0xEE != SEQ[0]
+    a.pokeLockSequence(0x00);   // this matches SEQ[0]; matcher should be at 1
+    // Continue with SEQ[1..15] from here.
+    for (let i = 1; i < 16; i++) a.pokeLockSequence(UNLOCK_BYTES[i]);
+    a.pokeLockSequence(0x00);   // toggle
+    expect(a.locked).toBe(false);
+  });
+});
+
+describe('Asic RMR2 escape (Plus banking surface)', () => {
+  it('treats a %101xxxxx byte as plain RMR while locked', () => {
+    const a = new Asic();
+    // 0xA9 = %10101001 — would be RMR2 if unlocked. Locked: bit-5 escape is
+    // ignored, so it lands as FN_RMR with mode 1, lower ROM on, upper ROM on.
+    a.write(0xA9);
+    expect(a.mode).toBe(1);
+    // The ASIC window must NOT be visible — locked mode never pages it in.
+    expect(a.asicPageVisible).toBe(false);
+  });
+
+  it('decodes RMR2 bit 4 (ASIC window enable) when unlocked', () => {
+    const a = new Asic();
+    for (const b of UNLOCK_BYTES) a.pokeLockSequence(b);
+    a.pokeLockSequence(0x00);
+    expect(a.locked).toBe(false);
+
+    // No callback wired in the unit test — track via field read. RMR2 with
+    // bit 4 set, cartridge page 0: byte = %10110000 = 0xB0.
+    a.write(0xB0);
+    expect(a.asicPageVisible).toBe(true);
+
+    // RMR2 with bit 4 clear hides the window again: %10100000 = 0xA0.
+    a.write(0xA0);
+    expect(a.asicPageVisible).toBe(false);
+  });
+
+  it('re-locking the ASIC immediately hides the window', () => {
+    const a = new Asic();
+    for (const b of UNLOCK_BYTES) a.pokeLockSequence(b);
+    a.pokeLockSequence(0x00);
+    expect(a.locked).toBe(false);
+
+    a.write(0xB0);              // page in
+    expect(a.asicPageVisible).toBe(true);
+
+    // Re-run the unlock sequence to toggle back to locked.
+    for (const b of UNLOCK_BYTES) a.pokeLockSequence(b);
+    a.pokeLockSequence(0x00);
+    expect(a.locked).toBe(true);
+    expect(a.asicPageVisible).toBe(false);
+  });
+});
+
+describe('Asic 12-bit palette decode', () => {
+  it('decodes the even byte into R (high nibble) and B (low nibble)', () => {
+    const a = new Asic();
+    // Pen 5, even byte. &6400 + 5*2 = &640A → ASIC-RAM offset 0x240A.
+    // Write R=0xA (→ 0xAA), B=0x3 (→ 0x33): byte = 0xA3.
+    a.cpuWrite(0x240A, 0xA3);
+    const abgr = a.asicPalette[5];
+    const r = abgr & 0xFF, b = (abgr >>> 8) & 0xFF;
+    expect(r).toBe(0xAA);
+    expect(b).toBe(0x33);
+  });
+
+  it('decodes the odd byte into G (low nibble) and preserves R/B', () => {
+    const a = new Asic();
+    // Pen 5: set R=0xF (→ 0xFF), B=0x0 (→ 0x00): byte 0xF0.
+    a.cpuWrite(0x240A, 0xF0);
+    // Then odd byte at &640B → offset 0x240B: G=0x7 (→ 0x77): byte 0x77.
+    a.cpuWrite(0x240B, 0x77);
+    const abgr = a.asicPalette[5];
+    const r = abgr & 0xFF, g = (abgr >>> 16) & 0xFF, b = (abgr >>> 8) & 0xFF;
+    expect(r).toBe(0xFF);
+    expect(g).toBe(0x77);
+    expect(b).toBe(0x00);
+  });
+
+  it('leaves un-programmed pens at black (palette defaults to zero)', () => {
+    const a = new Asic();
+    expect(a.asicPalette[0]).toBe(0);
+    expect(a.asicPalette[31]).toBe(0);
+  });
+
+  it('stores the raw byte in registerPage so reads mirror back', () => {
+    const a = new Asic();
+    a.cpuWrite(0x240A, 0xA3);
+    expect(a.registerPage[0x240A]).toBe(0xA3);
+  });
+});
+
+describe('CpcMachine ASIC integration (Phase 2: unlock + window paging)', () => {
+  it('unlocks via the CRTC register-select port (&BC00) writes', () => {
+    const m = new CpcMachine('cpc6128plus', null);
+    const asic = m.gateArray as unknown as Asic;
+    expect(asic.locked).toBe(true);
+    // Poke the sequence + toggle byte through the real port decode.
+    for (const b of UNLOCK_BYTES) m.cpu.portOut(0xBC00, b);
+    m.cpu.portOut(0xBC00, 0x00);
+    expect(asic.locked).toBe(false);
+  });
+
+  it('pages the ASIC window into &4000–&7FFF via RMR2 (port &7Fxx)', () => {
+    const m = new CpcMachine('cpc6128plus', null);
+    const asic = m.gateArray as unknown as Asic;
+
+    // Unlock first.
+    for (const b of UNLOCK_BYTES) m.cpu.portOut(0xBC00, b);
+    m.cpu.portOut(0xBC00, 0x00);
+    expect(asic.locked).toBe(false);
+
+    // Page the ASIC window in via RMR2: OUT (&7FB0), 0xB0.
+    // (Port decode: (port & 0xC000) === 0x4000 → GA port. Value 0xB0 = RMR2.)
+    m.cpu.portOut(0x7FB0, 0xB0);
+    expect(asic.asicPageVisible).toBe(true);
+
+    // A CPU write inside the window must land in the ASIC register page and
+    // be visible to a subsequent read of the same address.
+    m.cpu.write8(0x6400, 0x5A);
+    expect(asic.registerPage[0x2400]).toBe(0x5A);
+  });
+
+  it('does not page in the ASIC window when locked (RMR2 escape suppressed)', () => {
+    const m = new CpcMachine('cpc6128plus', null);
+    const asic = m.gateArray as unknown as Asic;
+    m.cpu.portOut(0x7FB0, 0xB0);   // would-be RMR2 page-in
+    expect(asic.asicPageVisible).toBe(false);
+  });
+});

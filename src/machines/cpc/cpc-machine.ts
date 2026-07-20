@@ -164,6 +164,16 @@ export class CpcMachine extends BaseMachine implements Machine {
     this.gateArray.onUpperRom = (on) => this.memory.setUpperRomEnabled(on);
     this.gateArray.onRamConfig = (val) => this.memory.setRamConfig(val);
 
+    // Plus ASIC: route register-window paging through to memory. CPU writes
+    // that land inside the window go straight to `asic.cpuWrite()` from
+    // `cpc-io.ts` (palette/sprite/scroll side-effects fire there). Non-Plus
+    // machines skip this entirely (`gateArray` is a plain GateArray).
+    if (this.config.isPlus) {
+      const asic = this.gateArray as Asic;
+      asic.onAsicPage = (visible) =>
+        this.memory.setAsicPage(visible ? asic.registerPage : null);
+    }
+
     // The AMX mouse rides keyboard line 9 (joystick 0).
     this.keyboard.amx = this.amxMouse;
 
