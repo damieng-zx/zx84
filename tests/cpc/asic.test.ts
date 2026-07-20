@@ -120,10 +120,11 @@ describe('CpcMachine Plus integration (Phase 1 smoke)', () => {
 
 // ── Phase 2: ASIC unlock, register-window paging, palette decode ─────────────
 
-/** The canonical 16-byte unlock sequence poked through &BC00 followed by an
- *  arbitrary toggle byte. Verified against published Plus unlock routines. */
+/** The canonical 16-byte unlock key poked through &BC00 followed by a toggle
+ *  byte. First byte is 0xFF — verified against Caprice32's `asic_locked_seq`
+ *  and the real Batman The Movie loader (which writes FF 00 FF 77 … CD EE). */
 const UNLOCK_BYTES = [
-  0x00, 0x00, 0xFF, 0x77, 0xB3, 0x51, 0xA8, 0xD4,
+  0xFF, 0x00, 0xFF, 0x77, 0xB3, 0x51, 0xA8, 0xD4,
   0x62, 0x39, 0x9C, 0x46, 0x2B, 0x15, 0x8A, 0xCD,
 ];
 
@@ -163,11 +164,11 @@ describe('Asic unlock state machine', () => {
   it('restarts the matcher if the byte after a mismatch itself matches SEQ[0]', () => {
     // Spec edge case: a mismatch followed by SEQ[0] should count as the new
     // start of the sequence, so software that re-enters the routine mid-stream
-    // only needs ONE extra leading 0x00, not two.
+    // only needs ONE extra leading 0xFF, not two.
     const a = new Asic();
     for (let i = 0; i < 5; i++) a.pokeLockSequence(UNLOCK_BYTES[i]);
     a.pokeLockSequence(0xEE);   // mismatch — resets, but 0xEE != SEQ[0]
-    a.pokeLockSequence(0x00);   // this matches SEQ[0]; matcher should be at 1
+    a.pokeLockSequence(0xFF);   // this matches SEQ[0]; matcher should be at 1
     // Continue with SEQ[1..15] from here.
     for (let i = 1; i < 16; i++) a.pokeLockSequence(UNLOCK_BYTES[i]);
     a.pokeLockSequence(0x00);   // toggle
@@ -225,10 +226,12 @@ describe('Asic 12-bit palette decode', () => {
     // Pen 5, even byte. &6400 + 5*2 = &640A → ASIC-RAM offset 0x240A.
     // Write R=0xA (→ 0xAA), B=0x3 (→ 0x33): byte = 0xA3.
     a.cpuWrite(0x240A, 0xA3);
-    const abgr = a.asicPalette[5];
-    const r = abgr & 0xFF, b = (abgr >>> 8) & 0xFF;
+    // Packed little-endian RGBA: A<<24 | B<<16 | G<<8 | R (matches packRgb).
+    const rgba = a.asicPalette[5];
+    const r = rgba & 0xFF, b = (rgba >>> 16) & 0xFF, alpha = (rgba >>> 24) & 0xFF;
     expect(r).toBe(0xAA);
     expect(b).toBe(0x33);
+    expect(alpha).toBe(0xFF);   // opaque — a 0 alpha renders black/transparent
   });
 
   it('decodes the odd byte into G (low nibble) and preserves R/B', () => {
@@ -237,8 +240,9 @@ describe('Asic 12-bit palette decode', () => {
     a.cpuWrite(0x240A, 0xF0);
     // Then odd byte at &640B → offset 0x240B: G=0x7 (→ 0x77): byte 0x77.
     a.cpuWrite(0x240B, 0x77);
-    const abgr = a.asicPalette[5];
-    const r = abgr & 0xFF, g = (abgr >>> 16) & 0xFF, b = (abgr >>> 8) & 0xFF;
+    // Packed little-endian RGBA: A<<24 | B<<16 | G<<8 | R.
+    const rgba = a.asicPalette[5];
+    const r = rgba & 0xFF, g = (rgba >>> 8) & 0xFF, b = (rgba >>> 16) & 0xFF;
     expect(r).toBe(0xFF);
     expect(g).toBe(0x77);
     expect(b).toBe(0x00);

@@ -31,13 +31,19 @@ import { GateArray, FN_RMR } from '@/machines/cpc/gate-array.ts';
 import type { CrtcLine } from '@/cores/crtc-6845.ts';
 
 /**
- * The 16-byte sequence poked through the CRTC register-select port (&BC00)
- * that toggles the ASIC lock. Real hardware matches it byte-for-byte against
- * an internal state machine; a single mismatch resets the matcher. Source:
- * Grimware CPC Plus ASIC documentation / Caprice32 asic.cpp.
+ * The 16-byte key poked through the CRTC register-select port (&BC00) that
+ * arms the ASIC lock toggle; the 17th byte then flips the lock (unlock/lock).
+ * Real hardware matches it byte-for-byte against an internal state machine; a
+ * single mismatch resets the matcher (the leading 0xFF re-syncs it). Source:
+ * Grimware CPC Plus ASIC documentation / Caprice32 `asic_locked_seq`.
+ *
+ * The first byte is 0xFF, NOT 0x00 — a 0x00 here never matches the sequence
+ * real Plus software sends (e.g. Batman The Movie's loader writes
+ * FF 00 FF 77 … CD EE), so the ASIC would never unlock and every ASIC game
+ * hangs waiting for it.
  */
 const LOCK_SEQUENCE: readonly number[] = [
-  0x00, 0x00, 0xFF, 0x77, 0xB3, 0x51, 0xA8, 0xD4,
+  0xFF, 0x00, 0xFF, 0x77, 0xB3, 0x51, 0xA8, 0xD4,
   0x62, 0x39, 0x9C, 0x46, 0x2B, 0x15, 0x8A, 0xCD,
 ];
 
@@ -424,14 +430,35 @@ export class Asic extends GateArray {
     if (pen >= 32) return;
     const isGreenByte = (idx & 1) === 1;
     const current = this.asicPalette[pen];
+    // Pack to the renderer's little-endian RGBA word: A<<24 | B<<16 | G<<8 | R
+    // (matching constants.ts packRgb). Alpha is forced opaque — a palette entry
+    // with alpha 0 renders transparent/black, which is why unlocked Plus screens
+    // came out blank.
     if (isGreenByte) {
       const g = nibbleToByte(val & 0x0F);
-      this.asicPalette[pen] = (current & 0xFF00FFFF) | (g << 16);
+      this.asicPalette[pen] = (0xFF000000 | (current & 0x00FF00FF) | (g << 8)) >>> 0;
     } else {
       const r = nibbleToByte((val >>> 4) & 0x0F);
       const b = nibbleToByte(val & 0x0F);
-      this.asicPalette[pen] = (current & 0xFF00FF00) | (b << 8) | r;
+      this.asicPalette[pen] = (0xFF000000 | (current & 0x0000FF00) | (b << 16) | r) >>> 0;
     }
+  }
+
+  // ── Rendering: 12-bit palette when unlocked ───────────────────────────
+
+  /** Border colour: the ASIC's pen 16 (12-bit) once unlocked, else the classic
+   *  Gate-Array border. */
+  protected borderColor(): number {
+    return this.locked ? super.borderColor() : this.asicPalette[16];
+  }
+
+  /** Drawing pens: the ASIC's 12-bit pens 0–15 once unlocked, else the classic
+   *  Gate-Array pens. A Plus game programs colour through the ASIC palette RAM
+   *  (&6400), so a locked-mode pens[] lookup would render the wrong colours (in
+   *  practice a near-uniform screen). */
+  protected refreshPenLut(): void {
+    if (this.locked) { super.refreshPenLut(); return; }
+    for (let p = 0; p < 16; p++) this.penLut[p] = this.asicPalette[p];
   }
 
   // ── Phase 3: per-frame hooks ──────────────────────────────────────────

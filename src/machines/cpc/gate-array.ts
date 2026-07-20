@@ -112,10 +112,26 @@ export class GateArray {
 
   // ── Rendering ─────────────────────────────────────────────────────────
 
+  /** Resolved RGBA for the 16 drawing pens, rebuilt once per scanline. Kept as
+   *  a field (not re-allocated) so the per-pixel plot is a plain array index.
+   *  On the Plus, `Asic` overrides `refreshPenLut`/`borderColor` to feed the
+   *  12-bit ASIC palette instead of the classic pens once unlocked. */
+  protected readonly penLut = new Uint32Array(16);
+
+  /** Resolve the current border colour to an RGBA word. */
+  protected borderColor(): number {
+    return this.palette[this.pens[BORDER_PEN] & 0x1F];
+  }
+
+  /** (Re)fill `penLut` with the RGBA of drawing pens 0–15. */
+  protected refreshPenLut(): void {
+    for (let p = 0; p < 16; p++) this.penLut[p] = this.palette[this.pens[p] & 0x1F];
+  }
+
   /** Fill the whole frame buffer with the current border colour (top/bottom
    *  border and any rows a short frame never reaches). */
   beginFrame(px: Uint32Array): void {
-    px.fill(this.palette[this.pens[BORDER_PEN] & 0x1F]);
+    px.fill(this.borderColor());
   }
 
   /**
@@ -126,10 +142,12 @@ export class GateArray {
                  readVideo: (addr: number) => number): void {
     if (bufferY < 0 || bufferY >= CPC_SCREEN_HEIGHT) return;
     const rowStart = bufferY * CPC_SCREEN_WIDTH;
-    const border = this.palette[this.pens[BORDER_PEN] & 0x1F];
-    px.fill(border, rowStart, rowStart + CPC_SCREEN_WIDTH);
+    px.fill(this.borderColor(), rowStart, rowStart + CPC_SCREEN_WIDTH);
     if (!line.vDisplay) return;
 
+    // Snapshot the pen colours for this scanline (mid-frame palette changes
+    // take effect per line, matching the per-scanline render loop).
+    this.refreshPenLut();
     const mode = this.mode;
     let x = CPC_BORDER_LEFT;
     for (let c = 0; c < line.hDisplayed; c++) {
@@ -146,11 +164,10 @@ export class GateArray {
    *  next x. Mode determines how the 16 clocks split into logical pixels. */
   private plotChar(px: Uint32Array, rowStart: number, x: number,
                    b0: number, b1: number, mode: number): number {
-    const pal = this.palette;
-    const pens = this.pens;
+    const lut = this.penLut;
     const put = (n: number, pen: number): void => {
       const px0 = x;
-      const rgba = pal[pens[pen & 0x0F] & 0x1F];
+      const rgba = lut[pen & 0x0F];
       for (let i = 0; i < n; i++) {
         const xi = px0 + i;
         if (xi >= 0 && xi < CPC_SCREEN_WIDTH) px[rowStart + xi] = rgba;

@@ -18,6 +18,7 @@ import { AY3891x } from '@/cores/ay-3-8910.ts';
 import { UPD765A } from '@/cores/upd765a.ts';
 import { TapeDeck, TAPE_REF_HZ } from '@/media/tape/tap.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
+import { isCpr, parseCpr } from '@/media/cartridge/cpr.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { disasmOne, type DisasmLine } from '@/debug/z80/disasm.ts';
@@ -265,6 +266,17 @@ export class CpcMachine extends BaseMachine implements Machine {
   // ── Machine: lifecycle ───────────────────────────────────────────────
 
   loadROM(data: Uint8Array): void {
+    // The Plus range boots from a .CPR firmware cartridge (system.cpr — the
+    // real v4 OS + BASIC + AMSDOS, with the Burnin' Rubber pack-in on pages
+    // 4–7), not the OS+BASIC[+AMSDOS] file split the non-Plus models use. A
+    // .CPR arriving here (the Plus models' `romSources`) goes through the
+    // cartridge path; anything else is the classic three-ROM image.
+    if (isCpr(data)) {
+      this.memory.loadCartridge(parseCpr(data));
+      this.casReadAddr = -2;   // force a re-scan against the new lower ROM
+      this.setStatus('Cartridge firmware loaded');
+      return;
+    }
     this.memory.loadROM(data);
     this.casReadAddr = -2;   // force a re-scan against the new lower ROM
     this.setStatus('ROM loaded');

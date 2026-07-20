@@ -64,19 +64,35 @@ function cpcUi(model: MachineModel): MachineUiCapabilities {
   };
 }
 
-// Concatenated to OS(16KB) + BASIC(16KB) [+ AMSDOS(16KB)] — the layout
-// CpcMemory.loadROM() splits on. The Plus boots from a hybrid V3/V4 firmware
-// set: the V3 OS+BASIC work unchanged because the ASIC ships locked, and the
-// user-supplied `cpc-plus.rom` provides the Plus-aware AMSDOS that knows
-// about cartridge banking and the ASIC's extended features. A real Plus
-// cartridge would supply all four pages from V4 sources; this hybrid is the
-// closest we can get without the full V4 OS + BASIC images.
+// Non-Plus models: OS(16KB) + BASIC(16KB) [+ AMSDOS(16KB)] fetched, concatenated
+// (rom-manager) and split by CpcMemory.loadROM().
+//
+// The Plus range (6128Plus / GX4000) has no on-board ROMs — it boots from a
+// cartridge. `plus-system.cpr` is the real Amstrad Plus firmware cartridge: v4
+// OS + BASIC 1.1 + AMSDOS across pages 0–3, with the bundled Burnin' Rubber
+// game on pages 4–7 (so a bare Plus boots to the authentic "f1 Amstrad BASIC /
+// f2 Burnin' Rubber" menu). It is a single .CPR file, which CpcMachine.loadROM
+// recognises and routes through memory.loadCartridge() rather than the
+// three-ROM split. A user-loaded game .CPR later replaces it via the cartridge
+// slot.
+//
+// The Plus cartridge lives in a `cpc/` subfolder on the ROM host. A source
+// containing '/' is treated by resolveRomSource() as an already-resolved
+// location (not prefixed with ROM_BASE), so it must be given fully qualified;
+// this descriptor is in the machine layer and may not import ROM_BASE from the
+// managers layer. Keep the host in sync with rom-manager's ROM_BASE.
+//
+// NOTE: do NOT wire `cpc-plus.rom` here — that image is page 0 of this cartridge
+// (the Plus OS *lower* ROM, header 01 89 7F …), NOT an AMSDOS background ROM.
+// Loading it at the upper-ROM slot hangs the firmware's boot-time ROM scan,
+// leaving the machine stuck before the BASIC "Ready" prompt.
+const PLUS_SYSTEM_CPR = 'https://zx84files.bitsparse.com/roms/cpc/plus-system.cpr';
 const ROM_SOURCES: Record<CpcModel, string[]> = {
   cpc6128:     ['os6128.rom', 'basic1-1.rom', 'amsdos.rom'],
   cpc664:      ['os664.rom', 'basic664.rom', 'amsdos.rom'],
   cpc464:      ['os464.rom', 'basic1-0.rom'],
-  cpc6128plus: ['os6128.rom', 'basic1-1.rom', 'cpc-plus.rom'],
-  gx4000:      ['os6128.rom', 'basic1-1.rom', 'cpc-plus.rom'],
+  cpc6128plus: [PLUS_SYSTEM_CPR],
+  gx4000:      [PLUS_SYSTEM_CPR],
 };
 
 /** Descriptor for one CPC model — shared by the registry entry and the machine

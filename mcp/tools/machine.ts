@@ -115,7 +115,7 @@ export function register(server: McpServer): void {
 
   server.registerTool(
     'model',
-    { description: 'Show or switch the machine model. Creates a fresh machine when switching.', inputSchema: { target: z.enum(['16k', '48k', '128k', '+2', '+2A', '+3', 'cpc6128', 'cpc464', 'cpc664', 'einstein', 'hx-10']).optional().describe('Model to switch to (omit to show current)') } },
+    { description: 'Show or switch the machine model. Creates a fresh machine when switching.', inputSchema: { target: z.enum(['16k', '48k', '128k', '+2', '+2A', '+3', 'cpc6128', 'cpc464', 'cpc664', 'cpc6128plus', 'gx4000', 'einstein', 'hx-10']).optional().describe('Model to switch to (omit to show current)') } },
     async ({ target }) => {
       if (!target) return text(`Current model: ${state.model}`);
       const msg = await initMachine(target);
