@@ -61,6 +61,8 @@ const ASIC_SPLIT_ADDR_HI_OFFSET = 0x2802;   // &6802 — split address high
 const ASIC_SPLIT_ADDR_LO_OFFSET = 0x2803;   // &6803 — split address low
 const ASIC_SCROLL_OFFSET = 0x2804;          // &6804 — scroll / extend border
 const ASIC_VECTOR_OFFSET = 0x2805;          // &6805 — interrupt vector
+const ASIC_DMA_CHAN_OFFSET = 0x2C00;        // &6C00 — 3 channels × 4 bytes
+const ASIC_DMA_DCSR_OFFSET = 0x2C0F;        // &6C0F — DMA control/status
 
 /** Number of hardware sprites the ASIC renders (fixed in hardware). */
 const SPRITE_COUNT = 16;
@@ -139,6 +141,22 @@ export class Asic extends GateArray {
    *  in `beginFrame`. Separate from the inherited `rasterCount` (which wraps
    *  at 52 for the legacy flyback). */
   private frameLine = 0;
+
+  // ── Phase 5: DMA sound (3 channels feeding the AY-3-8912) ─────────────
+  /** Per-channel DMA state. Each channel executes one instruction per HSYNC
+   *  while enabled and not paused. Source addresses target base 64 KB RAM. */
+  private readonly dma = [
+    { source: 0, prescaler: 0, pauseTicks: 0, loops: 0, loopAddr: 0, enabled: false, intPending: false },
+    { source: 0, prescaler: 0, pauseTicks: 0, loops: 0, loopAddr: 0, enabled: false, intPending: false },
+    { source: 0, prescaler: 0, pauseTicks: 0, loops: 0, loopAddr: 0, enabled: false, intPending: false },
+  ];
+  /** Raster-interrupt pending bit, mirrored into DCSR bit 7 for the CPU. */
+  private rasterIntPending = false;
+  /** Wired by the machine: read a 16-bit little-endian word from base 64 KB
+   *  RAM (used by the DMA engine to fetch instructions). */
+  readRam16: (addr: number) => number = () => 0;
+  /** Wired by the machine: write an AY-3-8912 register (LOAD instruction). */
+  writeAy: (reg: number, val: number) => void = () => {};
 
   /** Wired by the machine: swap slot 1's read/write source between RAM and the
    *  ASIC register page. */
@@ -253,6 +271,144 @@ export class Asic extends GateArray {
         this.interruptVector = val & 0xF8;
         return;
     }
+
+    // DMA channel registers: 3 channels × 4 bytes at offset 0x2C00.
+    // Per channel: +0 src LSB, +1 src MSB, +2 prescaler, +3 unused.
+    if (offset >= ASIC_DMA_CHAN_OFFSET && offset < ASIC_DMA_CHAN_OFFSET + 12) {
+      const chan = (offset - ASIC_DMA_CHAN_OFFSET) >> 2;
+      const field = (offset - ASIC_DMA_CHAN_OFFSET) & 3;
+      const ch = this.dma[chan];
+      if (field === 0) ch.source = (ch.source & 0xFF00) | (val & 0xFF);
+      else if (field === 1) ch.source = (ch.source & 0x00FF) | ((val & 0xFF) << 8);
+      else if (field === 2) ch.prescaler = val & 0xFF;
+      return;
+    }
+
+    // DCSR (DMA Control/Status Register): writes set channel enables (bits
+    // 0-2) and clear interrupt-pending bits (bits 3-5 = ch2/1/0).
+    if (offset === ASIC_DMA_DCSR_OFFSET) {
+      for (let c = 0; c < 3; c++) {
+        this.dma[c].enabled = (val & (1 << c)) !== 0;
+      }
+      for (let c = 0; c < 3; c++) {
+        if (val & (1 << (3 + (2 - c)))) this.dma[c].intPending = false;
+      }
+      this.writeDcsr();
+      return;
+    }
+  }
+
+  /** Recompute the DCSR byte (enables + int-pending bits) and write it back
+   *  into the register page so a CPU read sees the live state. */
+  private writeDcsr(): void {
+    let v = 0;
+    for (let c = 0; c < 3; c++) {
+      if (this.dma[c].enabled) v |= 1 << c;
+      if (this.dma[c].intPending) v |= 1 << (3 + (2 - c));
+    }
+    if (this.rasterIntPending) v |= 0x80;
+    this.registerPage[ASIC_DMA_DCSR_OFFSET] = v;
+  }
+
+  /**
+   * Advance one DMA tick — called once per HSYNC after the GA's own per-line
+   * work. Each enabled, non-paused channel fetches one 16-bit instruction
+   * from base 64 KB RAM at its source address and executes it. The top 3
+   * bits encode the opcode:
+   *
+   *   %000 (0x0000) — LOAD R,DD: write DD to PSG register R (R in bits 11:8).
+   *   %011 (0x1800) — PAUSE N: pause for N ticks (N in bits 11:0).
+   *   %010 (0x1000) — REPEAT N: set loop counter to N, loop body starts at
+   *                    the next instruction.
+   *   %100 (0x2000) — STOP group, sub-selected by low bits: bit 0 = LOOP,
+   *                    bit 4 = INT, bit 5 = STOP.
+   *
+   * Source: CPCWiki DMA sound + Caprice32 asic_step_dma. The prescaler would
+   * divide the tick rate further on real hardware; Phase 5 leaves it unused
+   * (treat each tick as one HSYNC).
+   */
+  dmaCycle(): void {
+    if (this.locked) return;
+    for (const ch of this.dma) {
+      if (!ch.enabled) continue;
+      if (ch.pauseTicks > 0) { ch.pauseTicks--; continue; }
+      const instr = this.readRam16(ch.source & 0xFFFF);
+      ch.source = (ch.source + 2) & 0xFFFF;
+      // Mirror the advanced source back into the register page so software
+      // reading &6C00/&6C01 after a DMA tick sees the live position.
+      const chanIdx = this.dma.indexOf(ch);
+      if (chanIdx >= 0) {
+        const base = ASIC_DMA_CHAN_OFFSET + (chanIdx << 2);
+        this.registerPage[base] = ch.source & 0xFF;
+        this.registerPage[base + 1] = (ch.source >>> 8) & 0xFF;
+      }
+      this.executeDma(ch, instr);
+    }
+  }
+
+  /** Decode and execute one DMA instruction. */
+  private executeDma(ch: { source: number; pauseTicks: number; loops: number; loopAddr: number; enabled: boolean; intPending: boolean; }, instr: number): void {
+    switch ((instr >>> 13) & 0x07) {
+      case 0x00:
+        // LOAD — write data byte to a PSG register.
+        this.writeAy((instr >>> 8) & 0x0F, instr & 0xFF);
+        return;
+      case 0x02:
+        // REPEAT — remember the next instruction as the loop body and set
+        // the loop counter.
+        ch.loops = instr & 0x07FF;
+        ch.loopAddr = ch.source;
+        return;
+      case 0x03:
+        // PAUSE — stall the channel for N ticks.
+        ch.pauseTicks = instr & 0x07FF;
+        return;
+      case 0x04:
+        // NOP / LOOP / INT / STOP group.
+        if (instr & 0x01) {
+          if (ch.loops > 0) { ch.loops--; ch.source = ch.loopAddr; }
+        }
+        if (instr & 0x10) {
+          if (!ch.intPending) {
+            ch.intPending = true;
+            this.interruptRequested = true;
+            this.writeDcsr();
+          }
+        }
+        if (instr & 0x20) {
+          ch.enabled = false;
+          this.writeDcsr();
+        }
+        return;
+    }
+  }
+
+  /**
+   * Compute the IM 2 vector byte for the highest-priority pending interrupt
+   * source. Priority order: raster (6) > DMA2 (4) > DMA1 (2) > DMA0 (0). The
+   * raster source is implicit (any time the raster IRQ fires). DMA sources
+   * are gated by their channel's intPending bit.
+   *
+   * Called by the machine when it services a Plus interrupt in IM 2. Clears
+   * the raster pending bit (the CPU's ack is implicit); DMA pending bits
+   * clear only on a write to DCSR.
+   */
+  consumeInterruptVector(): number {
+    const base = this.interruptVector;
+    if (this.rasterIntPending) {
+      this.rasterIntPending = false;
+      this.writeDcsr();
+      return base | 0x06;
+    }
+    for (let c = 2; c >= 0; c--) {
+      if (this.dma[c].intPending) {
+        // DMA sources stay pending until DCSR clears them — multiple
+        // services in a row return the same vector. Real hardware behaves
+        // identically (the bit clears on a DCSR write, not on ack).
+        return base | (c << 1);
+      }
+    }
+    return base;   // no DMA source — fall back to base (e.g. legacy flyback)
   }
 
   /**
@@ -311,6 +467,10 @@ export class Asic extends GateArray {
     } else if (this.frameLine === this.interruptSl) {
       // Plus programmable raster interrupt — fires exactly once per frame.
       this.interruptRequested = true;
+      if (!this.rasterIntPending) {
+        this.rasterIntPending = true;
+        this.writeDcsr();
+      }
     }
   }
 
@@ -428,6 +588,15 @@ export class Asic extends GateArray {
     this.hscroll = sc & 0x0F;
     this.interruptVector = this.registerPage[ASIC_VECTOR_OFFSET] & 0xF8;
     this.frameLine = 0;
+    // Restore DMA channel state from the register page.
+    for (let c = 0; c < 3; c++) {
+      const base = ASIC_DMA_CHAN_OFFSET + (c << 2);
+      const src = this.registerPage[base] | (this.registerPage[base + 1] << 8);
+      this.dma[c].source = src;
+      this.dma[c].prescaler = this.registerPage[base + 2];
+    }
+    this.rasterIntPending = false;
+    this.writeDcsr();
   }
 
   reset(): void {
@@ -445,6 +614,16 @@ export class Asic extends GateArray {
     this.extendBorder = false;
     this.interruptVector = 0xF8;
     this.frameLine = 0;
+    for (const ch of this.dma) {
+      ch.source = 0;
+      ch.prescaler = 0;
+      ch.pauseTicks = 0;
+      ch.loops = 0;
+      ch.loopAddr = 0;
+      ch.enabled = false;
+      ch.intPending = false;
+    }
+    this.rasterIntPending = false;
   }
 }
 

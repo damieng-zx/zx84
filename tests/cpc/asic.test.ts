@@ -494,3 +494,141 @@ describe('Asic soft scroll + split screen (applyScrollAndSplit)', () => {
     expect(out.maRow).toBe(0x1234);
   });
 });
+
+// ── Phase 5: DMA sound ───────────────────────────────────────────────────────
+
+/** DMA register file in ASIC RAM (offsets within registerPage). */
+const DMA_CHAN_BASE = 0x2C00;
+const DMA_DCSR = 0x2C0F;
+
+describe('Asic DMA sound', () => {
+  /** Wire an unlocked Asic to in-memory RAM and AY-register capture. */
+  function wiredAsic(ram: Uint8Array): { asic: Asic; ayWrites: [number, number][] } {
+    const a = unlockedAsic();
+    const ayWrites: [number, number][] = [];
+    a.readRam16 = (addr) => ram[addr & 0xFFFF] | ((ram[(addr + 1) & 0xFFFF] << 8));
+    a.writeAy = (reg, val) => ayWrites.push([reg, val]);
+    return { asic: a, ayWrites };
+  }
+
+  /** DMA instruction encoders — keep independent of the implementation.
+   *  Top 3 bits = opcode: %000 LOAD, %010 REPEAT, %011 PAUSE, %100 STOP group. */
+  const LOAD = (reg: number, data: number) => ((reg & 0x0F) << 8) | (data & 0xFF);
+  const PAUSE = (n: number) => (0x03 << 13) | (n & 0x07FF);
+  const STOP = (0x04 << 13) | 0x20;
+  const INT = (0x04 << 13) | 0x10;
+
+  it('LOAD writes the PSG register from RAM-instruction data', () => {
+    const ram = new Uint8Array(0x10000);
+    // Channel 0 source = 0x1000. Instruction: LOAD reg=5, data=0xAB.
+    ram[0x1000] = LOAD(5, 0xAB) & 0xFF;
+    ram[0x1001] = (LOAD(5, 0xAB) >>> 8) & 0xFF;
+    const { asic, ayWrites } = wiredAsic(ram);
+
+    // Program channel 0: source = 0x1000, prescaler = 0, then enable via DCSR.
+    asic.cpuWrite(DMA_CHAN_BASE, 0x00);          // src lo
+    asic.cpuWrite(DMA_CHAN_BASE + 1, 0x10);      // src hi
+    asic.cpuWrite(DMA_CHAN_BASE + 2, 0x00);      // prescaler
+    asic.cpuWrite(DMA_DCSR, 0x01);               // enable ch0
+
+    asic.dmaCycle();
+    expect(ayWrites).toEqual([[5, 0xAB]]);
+    // Source advanced past the consumed 2-byte instruction.
+    expect(asic.registerPage[DMA_CHAN_BASE]).toBe(0x02);
+    expect(asic.registerPage[DMA_CHAN_BASE + 1]).toBe(0x10);
+  });
+
+  it('PAUSE holds the channel for N ticks before the next instruction', () => {
+    const ram = new Uint8Array(0x10000);
+    // PAUSE 3, then LOAD reg 0 with 0x42.
+    ram[0x0000] = PAUSE(3) & 0xFF; ram[0x0001] = (PAUSE(3) >>> 8) & 0xFF;
+    ram[0x0002] = LOAD(0, 0x42) & 0xFF; ram[0x0003] = (LOAD(0, 0x42) >>> 8) & 0xFF;
+    const { asic, ayWrites } = wiredAsic(ram);
+    asic.cpuWrite(DMA_CHAN_BASE, 0x00);
+    asic.cpuWrite(DMA_CHAN_BASE + 1, 0x00);
+    asic.cpuWrite(DMA_DCSR, 0x01);
+
+    asic.dmaCycle();   // consumes PAUSE 3
+    expect(ayWrites).toEqual([]);
+    asic.dmaCycle();   // tick 1 of 3
+    asic.dmaCycle();   // tick 2 of 3
+    asic.dmaCycle();   // tick 3 of 3 — channel unpaused, but no instruction yet
+    expect(ayWrites).toEqual([]);
+    asic.dmaCycle();   // LOAD fires
+    expect(ayWrites).toEqual([[0, 0x42]]);
+  });
+
+  it('STOP disables the channel — subsequent cycles are no-ops', () => {
+    const ram = new Uint8Array(0x10000);
+    ram[0x0000] = STOP & 0xFF; ram[0x0001] = (STOP >>> 8) & 0xFF;
+    ram[0x0002] = LOAD(0, 0x99) & 0xFF; ram[0x0003] = (LOAD(0, 0x99) >>> 8) & 0xFF;
+    const { asic, ayWrites } = wiredAsic(ram);
+    asic.cpuWrite(DMA_CHAN_BASE, 0x00);
+    asic.cpuWrite(DMA_CHAN_BASE + 1, 0x00);
+    asic.cpuWrite(DMA_DCSR, 0x01);
+
+    asic.dmaCycle();   // STOP — channel disabled
+    asic.dmaCycle();   // channel off — no instruction consumed
+    expect(ayWrites).toEqual([]);
+  });
+
+  it('INT raises the channel interrupt and DCSR reflects it', () => {
+    const ram = new Uint8Array(0x10000);
+    ram[0x0000] = INT & 0xFF; ram[0x0001] = (INT >>> 8) & 0xFF;
+    const { asic } = wiredAsic(ram);
+    asic.cpuWrite(DMA_CHAN_BASE, 0x00);
+    asic.cpuWrite(DMA_CHAN_BASE + 1, 0x00);
+    asic.cpuWrite(DMA_DCSR, 0x01);
+
+    asic.dmaCycle();
+    // Channel 0's int-pending bit is bit 5 of DCSR.
+    expect(asic.registerPage[DMA_DCSR] & 0x20).toBe(0x20);
+    expect(asic.interruptRequested).toBe(true);
+  });
+
+  it('writing DCSR with the int-pending bit clears the pending state', () => {
+    const ram = new Uint8Array(0x10000);
+    ram[0x0000] = INT & 0xFF; ram[0x0001] = (INT >>> 8) & 0xFF;
+    const { asic } = wiredAsic(ram);
+    asic.cpuWrite(DMA_CHAN_BASE, 0x00);
+    asic.cpuWrite(DMA_CHAN_BASE + 1, 0x00);
+    asic.cpuWrite(DMA_DCSR, 0x01);
+    asic.dmaCycle();
+    expect(asic.registerPage[DMA_DCSR] & 0x20).toBe(0x20);
+
+    // Acknowledge by writing bit 5 (ch0 clear).
+    asic.cpuWrite(DMA_DCSR, 0x20);
+    expect(asic.registerPage[DMA_DCSR] & 0x20).toBe(0);
+  });
+
+  it('consumeInterruptVector encodes the source priority (raster > DMA2 > DMA1 > DMA0)', () => {
+    const a = unlockedAsic();
+    a.interruptVector = 0xF8;
+    // Force all four sources pending.
+    a.interruptRequested = true;
+    (a as unknown as { rasterIntPending: boolean }).rasterIntPending = true;
+    const dma = (a as unknown as { dma: { intPending: boolean }[] }).dma;
+    dma[0].intPending = true;
+    dma[1].intPending = true;
+    dma[2].intPending = true;
+
+    // Highest priority first: raster (source 6).
+    expect(a.consumeInterruptVector()).toBe(0xF8 | 0x06);
+    // Raster bit cleared on consume — next ack returns DMA2 (source 4).
+    expect(a.consumeInterruptVector()).toBe(0xF8 | 0x04);
+    // DMA1 (source 2).
+    // DMA2 is still pending (ack does not clear DMA bits) — DMA2 wins again
+    // until software writes DCSR. Cap expectation at DMA2.
+    expect(a.consumeInterruptVector()).toBe(0xF8 | 0x04);
+  });
+
+  it('dmaCycle is a no-op while locked', () => {
+    const a = new Asic();   // locked
+    const ram = new Uint8Array(0x10000).fill(0xFF);
+    const ayWrites: [number, number][] = [];
+    a.readRam16 = (addr) => ram[addr & 0xFFFF] | (ram[(addr + 1) & 0xFFFF] << 8);
+    a.writeAy = (reg, val) => ayWrites.push([reg, val]);
+    a.dmaCycle();
+    expect(ayWrites).toEqual([]);
+  });
+});

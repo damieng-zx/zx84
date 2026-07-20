@@ -172,6 +172,12 @@ export class CpcMachine extends BaseMachine implements Machine {
       const asic = this.gateArray as Asic;
       asic.onAsicPage = (visible) =>
         this.memory.setAsicPage(visible ? asic.registerPage : null);
+      // DMA engine hooks: the channel reads 16-bit little-endian instructions
+      // from base 64 KB RAM (using the same video-DMA read path the CRTC uses)
+      // and writes PSG registers via the AY.
+      asic.readRam16 = (addr) =>
+        this.memory.readVideo(addr) | (this.memory.readVideo((addr + 1) & 0xFFFF) << 8);
+      asic.writeAy = (reg, val) => this.ay.writeRegister(reg, val);
     }
 
     // The AMX mouse rides keyboard line 9 (joystick 0).
@@ -465,7 +471,12 @@ export class CpcMachine extends BaseMachine implements Machine {
         if (eiBefore) this.cpu.eiDelay = false;
 
         if (ga.interruptRequested && this.cpu.iff1 && !this.cpu.eiDelay) {
-          const t = this.cpu.interrupt();
+          // Plus IM 2: the ASIC supplies a vector byte encoding the interrupt
+          // source (raster > DMA2 > DMA1 > DMA0). Non-Plus / non-IM-2 paths
+          // fall through to the plain INT ack (RST 38h on IM 1).
+          const t = (plusActive && this.cpu.im === 2)
+            ? this.cpu.interruptWithVector(asic!.consumeInterruptVector())
+            : this.cpu.interrupt();
           if (t > 0) ga.acknowledgeInterrupt();
         }
 
@@ -493,6 +504,10 @@ export class CpcMachine extends BaseMachine implements Machine {
         asic!.drawSprites(this._pixels32, CPC_BORDER_TOP + line);
       }
       ga.onHSync();
+      // Plus DMA sound: each HSYNC, every enabled channel runs one
+      // instruction (LOAD/PAUSE/REPEAT/LOOP/INT/STOP) — driving the AY for
+      // sample playback without burning CPU time on tight timing loops.
+      if (plusActive) asic!.dmaCycle();
       crtc.advanceLine();
 
       // Post-VSYNC interrupt re-sync, two lines after VSYNC onset.
