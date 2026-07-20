@@ -65,19 +65,18 @@ function cpcUi(model: MachineModel): MachineUiCapabilities {
 }
 
 // Concatenated to OS(16KB) + BASIC(16KB) [+ AMSDOS(16KB)] — the layout
-// CpcMemory.loadROM() splits on.
-//
-// Phase 1 stand-in: the Plus range boots from cartridge and ships with no
-// on-board ROMs, but until Phase 4 wires up the cartridge port we reuse the
-// V3 6128 firmware set (OS 3 + BASIC 1.1 + AMSDOS) — the locked ASIC behaves
-// bit-for-bit like a 40010 gate array, so V3 firmware boots identically on a
-// Plus. Phase 4 replaces this with the proper V4 boot cartridge.
+// CpcMemory.loadROM() splits on. The Plus boots from a hybrid V3/V4 firmware
+// set: the V3 OS+BASIC work unchanged because the ASIC ships locked, and the
+// user-supplied `cpc-plus.rom` provides the Plus-aware AMSDOS that knows
+// about cartridge banking and the ASIC's extended features. A real Plus
+// cartridge would supply all four pages from V4 sources; this hybrid is the
+// closest we can get without the full V4 OS + BASIC images.
 const ROM_SOURCES: Record<CpcModel, string[]> = {
   cpc6128:     ['os6128.rom', 'basic1-1.rom', 'amsdos.rom'],
   cpc664:      ['os664.rom', 'basic664.rom', 'amsdos.rom'],
   cpc464:      ['os464.rom', 'basic1-0.rom'],
-  cpc6128plus: ['os6128.rom', 'basic1-1.rom', 'amsdos.rom'],
-  gx4000:      ['os6128.rom', 'basic1-1.rom', 'amsdos.rom'],
+  cpc6128plus: ['os6128.rom', 'basic1-1.rom', 'cpc-plus.rom'],
+  gx4000:      ['os6128.rom', 'basic1-1.rom', 'cpc-plus.rom'],
 };
 
 /** Descriptor for one CPC model — shared by the registry entry and the machine

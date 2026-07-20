@@ -130,7 +130,7 @@ export async function createMachine(): Promise<boolean> {
     built.services.roms.installSystemRom(romData);
     built.reset();
 
-    // Post-reset ROM overlays (CPC ParaDOS in upper ROM 7) — applied after the
+    // Post-reset ROM overlays (CPC ParaDOS in upper-ROM 7) — applied after the
     // firmware ROM set is in place, on machine build only.
     await fulfillAuxRoms(built.bootRoms?.(view) ?? []);
 

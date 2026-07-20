@@ -99,10 +99,11 @@ export class CpcMemory implements IMachineMemory {
     this.lowerRom = padTo16K(lowerOs);
     this.upperRoms[0] = padTo16K(basic);
     if (amsdos) this.upperRoms[7] = padTo16K(amsdos);
-    // The Plus boots from cartridge — the Burnin' Rubber layout puts BASIC at
-    // physical page 1 and AMSDOS at physical page 3. Mirror them so the
-    // logical-to-physical translation in `selectUpperRom` finds them when
-    // firmware ROM-scans for ROMs 0 and 7.
+    // The Plus's ROM-select byte translates logical 0 → physical 1 (BASIC)
+    // and logical 7 → physical 3 (AMSDOS), matching the Burnin' Rubber
+    // cartridge layout. Mirror the loaded ROMs into those physical slots so
+    // firmware ROM-scans resolve cleanly. A real .CPR overrides these via
+    // `loadCartridge`, which clears every upper slot first.
     if (this.isPlus) {
       this.upperRoms[1] = this.upperRoms[0];
       if (amsdos) this.upperRoms[3] = this.upperRoms[7];
@@ -111,28 +112,42 @@ export class CpcMemory implements IMachineMemory {
   }
 
   /**
-   * Load a parsed .CPR cartridge image. Page 0 becomes the lower (OS) ROM;
-   * pages 1..31 populate the upper ROM slots by physical page index, so a
-   * subsequent `selectUpperRom(0x80 | n)` reaches them. Replaces any prior
-   * cartridge / on-board ROMs. Absent pages leave the slot unchanged (so a
-   * partial cartridge can still boot if the missing pages aren't needed).
+   * Load a parsed .CPR cartridge image.
+   *
+   * Two cases:
+   *
+   *   1. **System cartridge** (page 0 present, e.g. Burnin' Rubber): replaces
+   *      the lower (OS) ROM with page 0 and CLEARS every upper-ROM slot
+   *      first, so any stale stand-in firmware (the V3 mirror populated by
+   *      `loadRoms`) is gone — absent cartridge pages correctly read as 0xFF
+   *      (open bus), matching real Plus hardware.
+   *
+   *   2. **Game-only cartridge** (no page 0): leaves the existing lower ROM
+   *      and upper-ROM slots intact, overlaying only the pages the cartridge
+   *      provides. The running firmware (typically the V3 stand-in) supplies
+   *      BASIC/AMSDOS; the cartridge adds the game at pages 4..7.
    */
   loadCartridge(pages: ReadonlyArray<Uint8Array | undefined>): void {
     const page0 = pages[0];
-    if (page0) this.lowerRom = padTo16K(page0);
+    if (page0) {
+      // System cartridge — clear stale state so only cartridge pages remain.
+      this.lowerRom = padTo16K(page0);
+      for (let i = 0; i < this.upperRoms.length; i++) this.upperRoms[i] = undefined;
+    }
     for (let i = 1; i < 32; i++) {
       const p = pages[i];
       if (p) this.upperRoms[i] = padTo16K(p);
     }
-    // Reset the selected upper ROM to physical 1 (BASIC) on the assumption
-    // that the new cartridge uses the same Burnin' Rubber layout.
+    // Default the selected upper ROM to physical 1 (BASIC) on Plus — the
+    // Burnin' Rubber layout. selectUpperRom's logical→physical translation
+    // will re-resolve on the next OUT &DFxx.
     this.selectedUpperRom = this.isPlus ? 1 : 0;
     this.applyMapping();
   }
 
   /** Eject the cartridge: clear every page slot populated by `loadCartridge`. */
   ejectCartridge(): void {
-    for (let i = 1; i < 32; i++) this.upperRoms[i] = undefined;
+    for (let i = 0; i < 32; i++) this.upperRoms[i] = undefined;
     this.selectedUpperRom = this.isPlus ? 1 : 0;
     this.applyMapping();
   }
