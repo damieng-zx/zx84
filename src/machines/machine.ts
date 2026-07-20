@@ -206,6 +206,11 @@ export interface MachineUiCapabilities {
   readonly cartridge: boolean;
   /** Label for the system-ROM slot in the ROM pane. */
   readonly systemRomLabel: string;
+  /** Whether to show the system-ROM slot at all. Defaults to true. False on
+   *  machines where the cartridge IS the boot source (the Plus range), so the
+   *  ROM pane doesn't show two competing "Cartridge" entries — the cartridge
+   *  slot is the only path to load firmware. */
+  readonly systemRomSlot?: boolean;
   /** Independently-overridable 16K system ROM pages (0 = single image). */
   readonly romPages: 0 | 2 | 4;
   /** 1-bit beeper present (Sound-pane mixer + BEEP activity LED). */

@@ -27,7 +27,12 @@ function cpcUi(model: MachineModel): MachineUiCapabilities {
     // The Plus range exposes a cartridge ROM port (32 × 16 KB) — the ROM pane
     // shows a cartridge slot. Non-Plus 464/664/6128 have no cartridge.
     cartridge: cpcIsPlusClass(model),
-    systemRomLabel: cpcIsPlusClass(model) ? 'Cartridge' : 'ROM',
+    // The Plus boots from cartridge: there is no separate on-board "system
+    // ROM" concept, so hide that slot (it would otherwise duplicate the
+    // cartridge slot, both labelled "Cartridge"). Non-Plus models keep their
+    // on-board ROM slot visible.
+    systemRomSlot: !cpcIsPlusClass(model),
+    systemRomLabel: 'ROM',
     romPages: 0,
     beeper: false,
     kempston: false,
