@@ -482,28 +482,38 @@ describe('Asic soft scroll + split screen (applyScrollAndSplit)', () => {
   it('returns the line unchanged while locked', () => {
     const a = new Asic();   // locked
     const l = lineAt(0x1000);
-    expect(a.applyScrollAndSplit(l, 64)).toBe(l);
+    expect(a.applyScrollAndSplit(l)).toBe(l);
   });
 
   it('offsets maRow by vscroll character rows', () => {
     const a = unlockedAsic();
     a.vscroll = 3;
     const l = lineAt(0x1000);
-    const out = a.applyScrollAndSplit(l, 64);
+    const out = a.applyScrollAndSplit(l);
     // Each char row = 0x800 bytes; vscroll 3 → +0x1800.
     expect(out.maRow).toBe((0x1000 + 3 * 0x800) & 0x3FFF);
   });
 
-  it('overrides maRow with splitAddr from the split scanline onward', () => {
+  it('tracks the CRTC address as an offset from splitAddr past the split', () => {
     const a = unlockedAsic();
     a.splitSl = 50;
     a.splitAddr = 0x2000;
     a.beginFrame(new Uint32Array(1));
-    // Advance the frameLine to "just past" the split.
-    for (let i = 0; i < 55; i++) a.onHSync();
-    const out = a.applyScrollAndSplit(lineAt(0x1000), 64);
-    // splitAddr + (55 - 50) lines * 64 chars = 0x2000 + 5 * 64 = 0x2000 + 0x140.
-    expect(out.maRow).toBe((0x2000 + 5 * 64) & 0x3FFF);
+    // Drive the render loop's order: apply for the current frameLine, then
+    // onHSync advances it. The CRTC's natural maRow grows 0x40 per scanline
+    // here (arbitrary but monotonic).
+    const results: Record<number, number> = {};
+    for (let fl = 0; fl <= 55; fl++) {
+      results[fl] = a.applyScrollAndSplit(lineAt(0x1000 + fl * 0x40)).maRow;
+      a.onHSync();
+    }
+    // The split engages the line after splitSl and starts exactly at splitAddr.
+    expect(results[51]).toBe(0x2000);
+    // Later lines follow the CRTC delta: splitAddr + (fl-51)*0x40.
+    expect(results[52]).toBe(0x2000 + 0x40);
+    expect(results[55]).toBe(0x2000 + 4 * 0x40);
+    // Before the split the address is untouched.
+    expect(results[50]).toBe(0x1000 + 50 * 0x40);
   });
 
   it('does not apply the split before splitSl is reached', () => {
@@ -512,7 +522,7 @@ describe('Asic soft scroll + split screen (applyScrollAndSplit)', () => {
     a.splitAddr = 0x2000;
     a.beginFrame(new Uint32Array(1));
     for (let i = 0; i < 20; i++) a.onHSync();
-    const out = a.applyScrollAndSplit(lineAt(0x1234), 64);
+    const out = a.applyScrollAndSplit(lineAt(0x1234));
     expect(out.maRow).toBe(0x1234);
   });
 });

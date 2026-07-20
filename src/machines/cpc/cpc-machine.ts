@@ -510,7 +510,7 @@ export class CpcMachine extends BaseMachine implements Machine {
       // it, and composites sprites on top of the rendered output.
       let lineState = crtc.currentLine();
       if (plusActive) {
-        lineState = asic!.applyScrollAndSplit(lineState, crtc.charsPerLine());
+        lineState = asic!.applyScrollAndSplit(lineState);
       }
       ga.renderScanline(this._pixels32, CPC_BORDER_TOP + line, lineState,
                         (addr) => this.memory.readVideo(addr));

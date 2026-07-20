@@ -146,6 +146,10 @@ export class Asic extends GateArray {
    *  at 52 for the legacy flyback). */
   private frameLine = 0;
 
+  /** The CRTC's natural `maRow` captured at the split line, so the split region
+   *  can track the CRTC's address progression as an offset from `splitAddr`. */
+  private splitBaseMa = 0;
+
   // ── Phase 5: DMA sound (3 channels feeding the AY-3-8912) ─────────────
   /** Per-channel DMA state. Each channel executes one instruction per HSYNC
    *  while enabled and not paused. Source addresses target base 64 KB RAM. */
@@ -524,21 +528,20 @@ export class Asic extends GateArray {
    * implements address-level scroll (vertical fine + horizontal coarse);
    * pixel-precise horizontal scroll (sub-character) is a later refinement.
    *
-   * Split screen: from `splitSl` onward, the CRTC's MA is forced to
-   * `splitAddr`, with subsequent lines progressing by `charsPerLine` per
-   * character row. This is an approximation that assumes one display
-   * character row per scanline — fine for the rupture-style splits the Plus
-   * typically uses (where R9 = 0).
+   * Split screen: from `splitSl` onward the display base becomes `splitAddr`,
+   * after which the address follows the CRTC's own progression. We reproduce
+   * that by offsetting `splitAddr` by the CRTC's natural `maRow` delta since
+   * the split line — so the address advances one char-row per (R9+1) scanlines
+   * exactly as the CRTC does, with no assumption about the row height.
    */
-  applyScrollAndSplit(line: CrtcLine, charsPerLine: number): CrtcLine {
+  applyScrollAndSplit(line: CrtcLine): CrtcLine {
     if (this.locked) return line;
     let maRow = line.maRow;
     if (this.splitSl > 0 && this.frameLine > this.splitSl) {
-      // Approximate continuation: splitAddr advanced by one char-row per
-      // (R9+1) scanlines. Phase 3 assumes R9 = 0 (one raster per row), so
-      // every scanline past the split advances MA by charsPerLine.
-      const linesPast = this.frameLine - this.splitSl;
-      maRow = (this.splitAddr + linesPast * charsPerLine) & 0x3FFF;
+      // Capture the CRTC's address at the split line, then track its delta so
+      // the split region follows the same per-character-row advancement.
+      if (this.frameLine === this.splitSl + 1) this.splitBaseMa = line.maRow;
+      maRow = (this.splitAddr + line.maRow - this.splitBaseMa) & 0x3FFF;
     } else if (this.vscroll !== 0) {
       // Vertical soft scroll: shift the video address by vscroll char rows.
       // Each char row is 0x0800 bytes (half of one RAM bank); clamped to the
