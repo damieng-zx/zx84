@@ -295,3 +295,202 @@ describe('CpcMachine ASIC integration (Phase 2: unlock + window paging)', () => 
     expect(asic.asicPageVisible).toBe(false);
   });
 });
+
+// ── Phase 3: sprites, scroll, split, raster IRQ ──────────────────────────────
+
+import { CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT } from '@/machines/cpc/constants.ts';
+import type { CrtcLine } from '@/cores/crtc-6845.ts';
+
+/** Build an unlocked Asic with the ASIC window paged into a throwaway machine
+ *  — so registerPage writes go through the public `cpuWrite` path. */
+function unlockedAsic(): Asic {
+  const a = new Asic();
+  for (const b of UNLOCK_BYTES) a.pokeLockSequence(b);
+  a.pokeLockSequence(0x00);
+  expect(a.locked).toBe(false);
+  return a;
+}
+
+/** Sprites live in ASIC RAM: pixel data at offset 0x0000+, attrs at 0x2000+. */
+const SPRITE_PIXELS = 0x0000;
+const SPRITE_ATTRS = 0x2000;
+
+describe('Asic hardware sprites', () => {
+  it('renders a sprite pixel at its (x, y) position in the framebuffer', () => {
+    const a = unlockedAsic();
+    // Program sprite 0: a single opaque pixel at (0, 0) of its 16×16 cell.
+    a.cpuWrite(SPRITE_PIXELS + (0 << 8) + (0 << 4) + 0, 0x01);  // pen 1
+    // Place the sprite at buffer (10, 20).
+    a.cpuWrite(SPRITE_ATTRS + (0 << 3) + 0, 10);        // X lo
+    a.cpuWrite(SPRITE_ATTRS + (0 << 3) + 1, 0);         // X hi
+    a.cpuWrite(SPRITE_ATTRS + (0 << 3) + 2, 20);        // Y lo
+    a.cpuWrite(SPRITE_ATTRS + (0 << 3) + 3, 0);         // Y hi
+    a.cpuWrite(SPRITE_ATTRS + (0 << 3) + 4, 0);         // mag = 1×1
+    // Program pen 1 (sprite pen) to red.
+    a.cpuWrite(0x2400 + (17 * 2), 0xF0);   // R=0xF, B=0
+    a.cpuWrite(0x2400 + (17 * 2) + 1, 0x00);
+
+    const px = new Uint32Array(CPC_SCREEN_WIDTH * CPC_SCREEN_HEIGHT);
+    a.drawSprites(px, 20);
+    const expected = a.asicPalette[17];
+    expect(px[20 * CPC_SCREEN_WIDTH + 10]).toBe(expected);
+    // Adjacent pixels stay cleared.
+    expect(px[20 * CPC_SCREEN_WIDTH + 11]).toBe(0);
+    expect(px[21 * CPC_SCREEN_WIDTH + 10]).toBe(0);
+  });
+
+  it('treats pen value 0 as transparent (does not overwrite the framebuffer)', () => {
+    const a = unlockedAsic();
+    const px = new Uint32Array(CPC_SCREEN_WIDTH * CPC_SCREEN_HEIGHT);
+    // Pre-fill a pixel that the sprite will overlap.
+    px[5 * CPC_SCREEN_WIDTH + 5] = 0xDEADBEEF;
+    // Sprite 0 with pen 0 at (5, 5) — should NOT overwrite.
+    a.cpuWrite(SPRITE_PIXELS + 0, 0x00);
+    a.cpuWrite(SPRITE_ATTRS + 0, 5);
+    a.cpuWrite(SPRITE_ATTRS + 1, 0);
+    a.cpuWrite(SPRITE_ATTRS + 2, 5);
+    a.cpuWrite(SPRITE_ATTRS + 3, 0);
+    a.cpuWrite(SPRITE_ATTRS + 4, 0);
+    a.drawSprites(px, 5);
+    expect(px[5 * CPC_SCREEN_WIDTH + 5]).toBe(0xDEADBEEF);
+  });
+
+  it('sprite 0 wins over sprite 15 at the same pixel (priority order)', () => {
+    const a = unlockedAsic();
+    // Sprite 15: opaque pixel pen 1, positioned at (10, 10).
+    a.cpuWrite(SPRITE_PIXELS + (15 << 8), 0x01);
+    a.cpuWrite(SPRITE_ATTRS + (15 << 3) + 0, 10);
+    a.cpuWrite(SPRITE_ATTRS + (15 << 3) + 2, 10);
+    // Sprite 0: opaque pixel pen 2 at the same position.
+    a.cpuWrite(SPRITE_PIXELS + (0 << 8), 0x02);
+    a.cpuWrite(SPRITE_ATTRS + (0 << 3) + 0, 10);
+    a.cpuWrite(SPRITE_ATTRS + (0 << 3) + 2, 10);
+    // Program sprite pens 1 and 2 to distinct colours.
+    a.cpuWrite(0x2400 + (17 * 2), 0x0F);     // pen 1: blue
+    a.cpuWrite(0x2400 + (18 * 2), 0xF0);     // pen 2: red
+
+    const px = new Uint32Array(CPC_SCREEN_WIDTH * CPC_SCREEN_HEIGHT);
+    a.drawSprites(px, 10);
+    // Pen 2 (sprite 0) wins over pen 1 (sprite 15).
+    expect(px[10 * CPC_SCREEN_WIDTH + 10]).toBe(a.asicPalette[18]);
+  });
+
+  it('magnifies the sprite by 2× when the magnification byte is 1', () => {
+    const a = unlockedAsic();
+    // Sprite 0: one opaque pixel at (0, 0); mag = 2× on both axes.
+    a.cpuWrite(SPRITE_PIXELS + 0, 0x01);
+    a.cpuWrite(SPRITE_ATTRS + (0 << 3) + 0, 10);
+    a.cpuWrite(SPRITE_ATTRS + (0 << 3) + 2, 10);
+    a.cpuWrite(SPRITE_ATTRS + (0 << 3) + 4, 0x05);   // bits 3:2 = 01 (x mag 2), bits 1:0 = 01 (y mag 2)
+    a.cpuWrite(0x2400 + (17 * 2), 0xF0);
+
+    const px = new Uint32Array(CPC_SCREEN_WIDTH * CPC_SCREEN_HEIGHT);
+    // 2×2 magnified: scanlines 10 and 11, columns 10 and 11 should be lit.
+    a.drawSprites(px, 10);
+    a.drawSprites(px, 11);
+    const expected = a.asicPalette[17];
+    expect(px[10 * CPC_SCREEN_WIDTH + 10]).toBe(expected);
+    expect(px[10 * CPC_SCREEN_WIDTH + 11]).toBe(expected);
+    expect(px[11 * CPC_SCREEN_WIDTH + 10]).toBe(expected);
+    expect(px[11 * CPC_SCREEN_WIDTH + 11]).toBe(expected);
+    // Outside the 2×2 box stays cleared.
+    expect(px[10 * CPC_SCREEN_WIDTH + 12]).toBe(0);
+    expect(px[12 * CPC_SCREEN_WIDTH + 10]).toBe(0);
+  });
+
+  it('does nothing while locked', () => {
+    const a = new Asic();   // locked
+    const px = new Uint32Array(CPC_SCREEN_WIDTH * CPC_SCREEN_HEIGHT);
+    a.drawSprites(px, 0);
+    // Every pixel stays zero.
+    expect(px.every(v => v === 0)).toBe(true);
+  });
+});
+
+describe('Asic raster interrupt (Plus programmable scanline IRQ)', () => {
+  it('uses the legacy 52-line flyback while interruptSl === 0', () => {
+    const a = unlockedAsic();
+    a.interruptSl = 0;
+    for (let i = 0; i < 51; i++) a.onHSync();
+    expect(a.interruptRequested).toBe(false);
+    a.onHSync();
+    expect(a.interruptRequested).toBe(true);
+  });
+
+  it('suppresses the 52-line flyback and fires at the programmed scanline', () => {
+    const a = unlockedAsic();
+    a.beginFrame(new Uint32Array(1));
+    a.interruptSl = 100;
+    // Tick 99 HSYNCs — no interrupt yet (would have fired at 52 in legacy mode).
+    for (let i = 0; i < 99; i++) {
+      a.onHSync();
+      expect(a.interruptRequested).toBe(false);
+    }
+    a.onHSync();   // 100th HSYNC
+    expect(a.interruptRequested).toBe(true);
+  });
+
+  it('resets the per-frame scanline counter at beginFrame', () => {
+    const a = unlockedAsic();
+    a.interruptSl = 50;
+    a.beginFrame(new Uint32Array(1));
+    for (let i = 0; i < 49; i++) a.onHSync();
+    expect(a.interruptRequested).toBe(false);
+    a.onHSync();   // 50th since beginFrame
+    expect(a.interruptRequested).toBe(true);
+  });
+
+  it('falls back to legacy flyback when locked', () => {
+    const a = new Asic();   // locked
+    a.interruptSl = 100;    // would-be raster IRQ
+    a.beginFrame(new Uint32Array(1));
+    // Locked → legacy flyback at 52.
+    for (let i = 0; i < 51; i++) a.onHSync();
+    expect(a.interruptRequested).toBe(false);
+    a.onHSync();
+    expect(a.interruptRequested).toBe(true);
+  });
+});
+
+describe('Asic soft scroll + split screen (applyScrollAndSplit)', () => {
+  function lineAt(maRow: number): CrtcLine {
+    return { maRow, ra: 0, hDisplayed: 40, vDisplay: true };
+  }
+
+  it('returns the line unchanged while locked', () => {
+    const a = new Asic();   // locked
+    const l = lineAt(0x1000);
+    expect(a.applyScrollAndSplit(l, 64)).toBe(l);
+  });
+
+  it('offsets maRow by vscroll character rows', () => {
+    const a = unlockedAsic();
+    a.vscroll = 3;
+    const l = lineAt(0x1000);
+    const out = a.applyScrollAndSplit(l, 64);
+    // Each char row = 0x800 bytes; vscroll 3 → +0x1800.
+    expect(out.maRow).toBe((0x1000 + 3 * 0x800) & 0x3FFF);
+  });
+
+  it('overrides maRow with splitAddr from the split scanline onward', () => {
+    const a = unlockedAsic();
+    a.splitSl = 50;
+    a.splitAddr = 0x2000;
+    a.beginFrame(new Uint32Array(1));
+    // Advance the frameLine to "just past" the split.
+    for (let i = 0; i < 55; i++) a.onHSync();
+    const out = a.applyScrollAndSplit(lineAt(0x1000), 64);
+    // splitAddr + (55 - 50) lines * 64 chars = 0x2000 + 5 * 64 = 0x2000 + 0x140.
+    expect(out.maRow).toBe((0x2000 + 5 * 64) & 0x3FFF);
+  });
+
+  it('does not apply the split before splitSl is reached', () => {
+    const a = unlockedAsic();
+    a.splitSl = 50;
+    a.splitAddr = 0x2000;
+    a.beginFrame(new Uint32Array(1));
+    for (let i = 0; i < 20; i++) a.onHSync();
+    const out = a.applyScrollAndSplit(lineAt(0x1234), 64);
+    expect(out.maRow).toBe(0x1234);
+  });
+});

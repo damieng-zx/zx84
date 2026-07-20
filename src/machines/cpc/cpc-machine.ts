@@ -410,6 +410,11 @@ export class CpcMachine extends BaseMachine implements Machine {
     const crtc = this.crtc;
     const ga = this.gateArray;
     const skipAudio = this.turbo || (this.tapeTurbo && this.tapeLoadingActive);
+    // Plus extensions (sprites, scroll, split, raster IRQ) only fire when the
+    // ASIC is unlocked. On non-Plus models `asic` is null and `plusActive`
+    // is permanently false — the GA path runs unchanged.
+    const asic = this.config.isPlus ? (this.gateArray as Asic) : null;
+    const plusActive = asic !== null && !asic.locked;
 
     this.activity.kbdReads = 0;
     this.activity.fdcAccesses = 0;
@@ -475,9 +480,18 @@ export class CpcMachine extends BaseMachine implements Machine {
       }
       if (broke) break;
 
-      // Draw this scanline, then advance the raster.
-      ga.renderScanline(this._pixels32, CPC_BORDER_TOP + line, crtc.currentLine(),
+      // Draw this scanline, then advance the raster. On a Plus model the ASIC
+      // applies scroll + split-screen to the CRTC line before the GA renders
+      // it, and composites sprites on top of the rendered output.
+      let lineState = crtc.currentLine();
+      if (plusActive) {
+        lineState = asic!.applyScrollAndSplit(lineState, crtc.charsPerLine());
+      }
+      ga.renderScanline(this._pixels32, CPC_BORDER_TOP + line, lineState,
                         (addr) => this.memory.readVideo(addr));
+      if (plusActive) {
+        asic!.drawSprites(this._pixels32, CPC_BORDER_TOP + line);
+      }
       ga.onHSync();
       crtc.advanceLine();
 

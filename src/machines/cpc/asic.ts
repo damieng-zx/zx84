@@ -26,7 +26,9 @@
  * non-Plus cost to zero.
  */
 
+import { CPC_SCREEN_WIDTH } from '@/machines/cpc/constants.ts';
 import { GateArray, FN_RMR } from '@/machines/cpc/gate-array.ts';
+import type { CrtcLine } from '@/cores/crtc-6845.ts';
 
 /**
  * The 16-byte sequence poked through the CRTC register-select port (&BC00)
@@ -48,9 +50,22 @@ const RMR2_PREFIX = 0xA0;
 const RMR2_ASIC_PAGE = 0x10;
 
 /** ASIC RAM regions within the 16 KB register window (CPU addresses
- *  &4000–&7FFF while paged). */
-const ASIC_PALETTE_OFFSET = 0x2400;   // &6400 − &4000 = 0x2400
-const ASIC_PALETTE_BYTES = 32 * 2;    // 32 pens × 2 bytes (R+B, G)
+ *  &4000–&7FFF while paged). Offsets are within `registerPage`. */
+const ASIC_SPRITE_PIXELS_OFFSET = 0x0000;   // &4000 — 16 sprites × 256 bytes (4 KB)
+const ASIC_SPRITE_ATTRS_OFFSET = 0x2000;    // &6000 — 16 sprites × 8 bytes (128 B)
+const ASIC_PALETTE_OFFSET = 0x2400;         // &6400 — 32 pens × 2 bytes (64 B)
+const ASIC_PALETTE_BYTES = 32 * 2;
+const ASIC_RASTER_IRQ_OFFSET = 0x2800;      // &6800 — raster interrupt scanline
+const ASIC_SPLIT_SCANLINE_OFFSET = 0x2801;  // &6801 — split scanline
+const ASIC_SPLIT_ADDR_HI_OFFSET = 0x2802;   // &6802 — split address high
+const ASIC_SPLIT_ADDR_LO_OFFSET = 0x2803;   // &6803 — split address low
+const ASIC_SCROLL_OFFSET = 0x2804;          // &6804 — scroll / extend border
+const ASIC_VECTOR_OFFSET = 0x2805;          // &6805 — interrupt vector
+
+/** Number of hardware sprites the ASIC renders (fixed in hardware). */
+const SPRITE_COUNT = 16;
+/** Native sprite dimensions in pixels (each axis independently magnified). */
+const SPRITE_NATIVE = 16;
 
 /**
  * Expand a 4-bit channel value (0–15) to 8 bits by scaling ×17, matching the
@@ -58,6 +73,16 @@ const ASIC_PALETTE_BYTES = 32 * 2;    // 32 pens × 2 bytes (R+B, G)
  */
 function nibbleToByte(n: number): number {
   return n | (n << 4);
+}
+
+/**
+ * Decode a 2-bit magnification field into a pixel multiplier. Real hardware
+ * quirk: values 0/1/2/3 give 1×/2×/4×/4× (the 3× setting is implemented in
+ * silicon as 4×). Source: CPCWiki hardware-sprites reference + Caprice32
+ * asic_draw_sprites.
+ */
+function magToMultiplier(mag: number): number {
+  return mag <= 1 ? mag + 1 : 4;
 }
 
 export class Asic extends GateArray {
@@ -91,6 +116,29 @@ export class Asic extends GateArray {
 
   /** True when the ASIC register window is currently mapped at CPU &4000. */
   asicPageVisible = false;
+
+  // ── Phase 3: sprites, scroll, split, raster IRQ ────────────────────────
+
+  /** Programmable raster interrupt scanline (0 = legacy 52-line flyback). */
+  interruptSl = 0;
+  /** Scanline (from frame start) at which the CRTC's MA is force-loaded from
+   *  `splitAddr`. 0 disables the split. */
+  splitSl = 0;
+  /** Forced memory address for split-screen rendering. */
+  splitAddr = 0;
+  /** Sub-character horizontal scroll, in mode-2 pixels (0–15). */
+  hscroll = 0;
+  /** Sub-row vertical scroll, in scanlines (0–7). */
+  vscroll = 0;
+  /** When set, the border is widened by 16 px (and hstart bumps by 1). */
+  extendBorder = false;
+  /** Top 5 bits of the IM 2 interrupt vector. Phase 5 (DMA) consumes this. */
+  interruptVector = 0xF8;
+
+  /** Scanline counter from frame start, used by the raster IRQ + split. Reset
+   *  in `beginFrame`. Separate from the inherited `rasterCount` (which wraps
+   *  at 52 for the legacy flyback). */
+  private frameLine = 0;
 
   /** Wired by the machine: swap slot 1's read/write source between RAM and the
    *  ASIC register page. */
@@ -169,14 +217,41 @@ export class Asic extends GateArray {
   /**
    * Route a CPU write that landed inside the ASIC register window. Stores the
    * byte (so a follow-up read mirrors it back) and applies register-specific
-   * side-effects. Phase 2 owns the palette; Phase 3 adds sprite/scroll/split/
-   * DMA side-effects.
+   * side-effects. Phase 2 owns the palette; Phase 3 adds scroll/split/raster
+   * IRQ; Phase 5 will add DMA.
    */
   cpuWrite(offset: number, val: number): void {
     this.registerPage[offset] = val & 0xFF;
     if (offset >= ASIC_PALETTE_OFFSET &&
         offset < ASIC_PALETTE_OFFSET + ASIC_PALETTE_BYTES) {
       this.writePaletteReg(offset - ASIC_PALETTE_OFFSET, val);
+      return;
+    }
+    // Phase 3 control registers — each is a single byte with side-effects.
+    switch (offset) {
+      case ASIC_RASTER_IRQ_OFFSET:
+        this.interruptSl = val & 0xFF;
+        return;
+      case ASIC_SPLIT_SCANLINE_OFFSET:
+        this.splitSl = val & 0xFF;
+        // Writing the split-scanline register also resets the split counter,
+        // matching real hardware (the CRTC's sl_count resets on write).
+        this.frameLine = 0;
+        return;
+      case ASIC_SPLIT_ADDR_HI_OFFSET:
+        this.splitAddr = (this.splitAddr & 0x00FF) | ((val & 0x3F) << 8);
+        return;
+      case ASIC_SPLIT_ADDR_LO_OFFSET:
+        this.splitAddr = (this.splitAddr & 0xFF00) | (val & 0xFF);
+        return;
+      case ASIC_SCROLL_OFFSET:
+        this.extendBorder = (val & 0x80) !== 0;
+        this.vscroll = (val >>> 4) & 0x07;
+        this.hscroll = val & 0x0F;
+        return;
+      case ASIC_VECTOR_OFFSET:
+        this.interruptVector = val & 0xF8;
+        return;
     }
   }
 
@@ -203,6 +278,132 @@ export class Asic extends GateArray {
     }
   }
 
+  // ── Phase 3: per-frame hooks ──────────────────────────────────────────
+
+  /**
+   * Per-frame setup. Calls the GA's framebuffer-clear (which fills the buffer
+   * with the border colour) and resets the Plus per-frame counters so the
+   * raster IRQ and split-scanline logic start at frame-line 0.
+   */
+  beginFrame(px: Uint32Array): void {
+    super.beginFrame(px);
+    this.frameLine = 0;
+  }
+
+  /**
+   * Per-HSYNC hook. Applies the screen-mode latch, advances the GA's legacy
+   * 52-line flyback counter (kept for VSYNC-resync compatibility), and either
+   * fires the legacy flyback OR the Plus raster IRQ — never both in the same
+   * frame. The Plus raster IRQ is suppressed while locked or when
+   * `interruptSl === 0` (the documented compatibility behaviour).
+   */
+  onHSync(): void {
+    this.mode = this.pendingMode;
+    this.rasterCount++;
+    this.frameLine++;
+    if (this.locked || this.interruptSl === 0) {
+      // Legacy 52-line flyback — the only interrupt source on a discrete GA
+      // and on a locked / raster-IRQ-disabled ASIC.
+      if (this.rasterCount === 52) {
+        this.rasterCount = 0;
+        this.interruptRequested = true;
+      }
+    } else if (this.frameLine === this.interruptSl) {
+      // Plus programmable raster interrupt — fires exactly once per frame.
+      this.interruptRequested = true;
+    }
+  }
+
+  /**
+   * Adjust a CRTC scanline's display address for the Plus soft-scroll + split
+   * screen. Returns the (possibly modified) line for the GA renderer to use.
+   * No-op when locked or when neither feature is active.
+   *
+   * Soft scroll: each scanline's video address is offset by `vscroll` char
+   * rows (× 0x0800 bytes) plus a coarse `hscroll` byte backstep. Phase 3
+   * implements address-level scroll (vertical fine + horizontal coarse);
+   * pixel-precise horizontal scroll (sub-character) is a later refinement.
+   *
+   * Split screen: from `splitSl` onward, the CRTC's MA is forced to
+   * `splitAddr`, with subsequent lines progressing by `charsPerLine` per
+   * character row. This is an approximation that assumes one display
+   * character row per scanline — fine for the rupture-style splits the Plus
+   * typically uses (where R9 = 0).
+   */
+  applyScrollAndSplit(line: CrtcLine, charsPerLine: number): CrtcLine {
+    if (this.locked) return line;
+    let maRow = line.maRow;
+    if (this.splitSl > 0 && this.frameLine > this.splitSl) {
+      // Approximate continuation: splitAddr advanced by one char-row per
+      // (R9+1) scanlines. Phase 3 assumes R9 = 0 (one raster per row), so
+      // every scanline past the split advances MA by charsPerLine.
+      const linesPast = this.frameLine - this.splitSl;
+      maRow = (this.splitAddr + linesPast * charsPerLine) & 0x3FFF;
+    } else if (this.vscroll !== 0) {
+      // Vertical soft scroll: shift the video address by vscroll char rows.
+      // Each char row is 0x0800 bytes (half of one RAM bank); clamped to the
+      // 14-bit CRTC address space.
+      maRow = (maRow + this.vscroll * 0x0800) & 0x3FFF;
+    }
+    if (maRow === line.maRow) return line;
+    return { ...line, maRow };
+  }
+
+  /**
+   * Composite the 16 hardware sprites onto the framebuffer for one scanline.
+   * Sprites are drawn lowest-priority-first so sprite 0 wins on top. A sprite
+   * pixel of 0 is transparent and does not overwrite. Sprite colours come
+   * from `asicPalette[17..31]` (pen value 1–15 maps to index 16 + value).
+   *
+   * Coordinate convention: sprite (X, Y) maps directly to buffer (X, Y) in
+   * the 768×272 framebuffer (border + active area). Software that wants a
+   * sprite at the top-left of the active area uses (CPC_BORDER_LEFT,
+   * CPC_BORDER_TOP). Matches Caprice32.
+   *
+   * No-op when locked.
+   */
+  drawSprites(px: Uint32Array, bufferY: number): void {
+    if (this.locked) return;
+    const page = this.registerPage;
+    const pal = this.asicPalette;
+    for (let id = SPRITE_COUNT - 1; id >= 0; id--) {
+      const attrBase = ASIC_SPRITE_ATTRS_OFFSET + (id << 3);
+      const xLo = page[attrBase];
+      const xHi = page[attrBase + 1];
+      const yLo = page[attrBase + 2];
+      const yHi = page[attrBase + 3];
+      const mag = page[attrBase + 4];
+      // Sign-extend the 16-bit X/Y coordinates.
+      let x = ((xHi << 8) | xLo) << 16 >> 16;
+      let y = ((yHi << 8) | yLo) << 16 >> 16;
+
+      const xMult = magToMultiplier((mag >>> 2) & 0x03);
+      const yMult = magToMultiplier(mag & 0x03);
+      const spriteW = SPRITE_NATIVE * xMult;
+      const spriteH = SPRITE_NATIVE * yMult;
+
+      // Cull sprites that don't touch this scanline.
+      if (bufferY < y || bufferY >= y + spriteH) continue;
+      const srcRow = ((bufferY - y) / yMult) | 0;
+      if (srcRow < 0 || srcRow >= SPRITE_NATIVE) continue;
+
+      const rowBase = ASIC_SPRITE_PIXELS_OFFSET + (id << 8) + (srcRow << 4);
+      const rowEnd = px.length - CPC_SCREEN_WIDTH;   // safety for buffer overruns
+      for (let dx = 0; dx < spriteW; dx++) {
+        const srcX = (dx / xMult) | 0;
+        const pen = page[rowBase + srcX] & 0x0F;
+        if (pen === 0) continue;                     // transparent — keep underlying pixel
+        const bufferX = x + dx;
+        if (bufferX < 0 || bufferX >= CPC_SCREEN_WIDTH) continue;
+        const idx = bufferY * CPC_SCREEN_WIDTH + bufferX;
+        if (idx < 0 || idx > rowEnd) continue;
+        px[idx] = pal[16 + pen];
+      }
+    }
+  }
+
+  // ── Snapshot restore ──────────────────────────────────────────────────
+
   /** Restore ASIC state from a snapshot — extends the GA's restoreState. */
   restoreCoreState(locked: boolean, registerPage: ArrayLike<number>,
                    asicPalette: ArrayLike<number>): void {
@@ -215,6 +416,18 @@ export class Asic extends GateArray {
     for (let i = 0; i < this.asicPalette.length; i++) {
       this.asicPalette[i] = asicPalette[i] >>> 0;
     }
+    // Re-derive scroll/split/raster state from the restored register page.
+    this.interruptSl = this.registerPage[ASIC_RASTER_IRQ_OFFSET] & 0xFF;
+    this.splitSl = this.registerPage[ASIC_SPLIT_SCANLINE_OFFSET] & 0xFF;
+    this.splitAddr =
+      ((this.registerPage[ASIC_SPLIT_ADDR_HI_OFFSET] & 0x3F) << 8) |
+      this.registerPage[ASIC_SPLIT_ADDR_LO_OFFSET];
+    const sc = this.registerPage[ASIC_SCROLL_OFFSET];
+    this.extendBorder = (sc & 0x80) !== 0;
+    this.vscroll = (sc >>> 4) & 0x07;
+    this.hscroll = sc & 0x0F;
+    this.interruptVector = this.registerPage[ASIC_VECTOR_OFFSET] & 0xF8;
+    this.frameLine = 0;
   }
 
   reset(): void {
@@ -224,6 +437,14 @@ export class Asic extends GateArray {
     this.asicPageVisible = false;
     this.registerPage.fill(0);
     this.asicPalette.fill(0);
+    this.interruptSl = 0;
+    this.splitSl = 0;
+    this.splitAddr = 0;
+    this.hscroll = 0;
+    this.vscroll = 0;
+    this.extendBorder = false;
+    this.interruptVector = 0xF8;
+    this.frameLine = 0;
   }
 }
 
