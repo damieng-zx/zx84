@@ -44,11 +44,20 @@ export class CpcMemory implements IMachineMemory {
   /** Physical 16KB RAM banks (8 on the 6128). */
   private readonly ram: Uint8Array[];
 
-  /** Lower ROM (OS), overlays slot 0 when enabled. */
-  private lowerRom = new Uint8Array(SLOT_SIZE);
+  /** Lower ROM (OS), overlays the slot chosen by `lowerRomSlot` when enabled. */
+  private lowerRom: Uint8Array = new Uint8Array(SLOT_SIZE);
   /** Upper ROM slots (0 = BASIC, 7 = AMSDOS). Sparse; an absent slot reads as
    *  no-ROM (0xFF) so the firmware's boot-time ROM scan skips it. */
   private readonly upperRoms: (Uint8Array | undefined)[] = [];
+
+  /** All 32 cartridge ROM pages (Plus), retained so the ASIC's RMR2 register can
+   *  bank any of the low 8 pages into the lower-ROM slot. Empty on non-Plus. */
+  private readonly cartPages: (Uint8Array | undefined)[] = [];
+  /** Which cartridge page currently backs the lower ROM (Plus RMR2 D2–D0). */
+  private lowerRomPage = 0;
+  /** Which Z80 slot the lower ROM overlays: 0 = &0000, 1 = &4000, 2 = &8000
+   *  (Plus RMR2 D4–D3). 0 on the classic CPC. */
+  private lowerRomSlot = 0;
   /** Returned for an enabled-but-absent upper ROM (open bus). */
   private readonly absentRom = new Uint8Array(SLOT_SIZE).fill(0xFF);
 
@@ -138,10 +147,31 @@ export class CpcMemory implements IMachineMemory {
       const p = pages[i];
       if (p) this.upperRoms[i] = padTo16K(p);
     }
+    // Retain every page for RMR2 lower-ROM banking (D2–D0 selects one of the
+    // low 8 pages into the lower-ROM slot). Page 0 boots as the lower ROM.
+    this.cartPages.length = 0;
+    for (let i = 0; i < 32; i++) this.cartPages[i] = pages[i] ? padTo16K(pages[i]!) : undefined;
+    this.lowerRomPage = 0;
+    this.lowerRomSlot = 0;
     // Default the selected upper ROM to physical 1 (BASIC) on Plus — the
     // Burnin' Rubber layout. selectUpperRom's logical→physical translation
     // will re-resolve on the next OUT &DFxx.
     this.selectedUpperRom = this.isPlus ? 1 : 0;
+    this.applyMapping();
+  }
+
+  /**
+   * Plus ASIC RMR2 lower-ROM bank select. `page` (0–7) chooses which cartridge
+   * ROM page backs the lower ROM; `slot` (0 = &0000, 1 = &4000, 2 = &8000) is
+   * where it overlays, from RMR2 D4–D3. Driven by the ASIC once unlocked.
+   */
+  setLowerRomBank(page: number, slot: number): void {
+    const pg = page & 0x07;
+    const sl = slot & 0x03;
+    if (pg === this.lowerRomPage && sl === this.lowerRomSlot) return;
+    this.lowerRomPage = pg;
+    this.lowerRomSlot = sl;
+    this.lowerRom = this.cartPages[pg] ?? this.absentRom;
     this.applyMapping();
   }
 
@@ -232,7 +262,7 @@ export class CpcMemory implements IMachineMemory {
       this.writePtr[slot] = this.ram[bank];
       this.readPtr[slot] = this.ram[bank];
     }
-    if (this.lowerRomEnabled) this.readPtr[0] = this.lowerRom;
+    if (this.lowerRomEnabled) this.readPtr[this.lowerRomSlot] = this.lowerRom;
     if (this.upperRomEnabled) {
       this.readPtr[3] = this.upperRoms[this.selectedUpperRom] ?? this.absentRom;
     }
@@ -387,6 +417,10 @@ export class CpcMemory implements IMachineMemory {
     this.selectedUpperRom = 0;
     this.mfOverlay = null;
     this.asicPage = null;
+    // Restore the default lower-ROM bank (cartridge page 0 at &0000) on the Plus.
+    this.lowerRomPage = 0;
+    this.lowerRomSlot = 0;
+    if (this.cartPages[0]) this.lowerRom = this.cartPages[0]!;
     this.applyMapping();
   }
 }

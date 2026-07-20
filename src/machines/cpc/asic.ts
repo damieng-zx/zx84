@@ -52,8 +52,6 @@ const LOCK_SEQUENCE: readonly number[] = [
 const RMR2_MASK = 0xE0;
 /** The %101 prefix that distinguishes RMR2 from a plain FN_RMR byte. */
 const RMR2_PREFIX = 0xA0;
-/** Bit 4 of RMR2: pages the ASIC register window into &4000–&7FFF. */
-const RMR2_ASIC_PAGE = 0x10;
 
 /** ASIC RAM regions within the 16 KB register window (CPU addresses
  *  &4000–&7FFF while paged). Offsets are within `registerPage`. */
@@ -168,6 +166,10 @@ export class Asic extends GateArray {
    *  ASIC register page. */
   onAsicPage: (visible: boolean) => void = () => {};
 
+  /** Wired by the machine: bank a cartridge ROM page into the lower-ROM slot
+   *  (RMR2 D2–D0 page, D4–D3 overlay position). */
+  onLowerRomBank: (page: number, slot: number) => void = () => {};
+
   /** Override of the GA command-byte decoder: in unlocked state, the %101
    *  prefix selects RMR2 (the Plus banking surface) instead of plain RMR. */
   write(val: number): void {
@@ -179,22 +181,33 @@ export class Asic extends GateArray {
   }
 
   /**
-   * Decode an RMR2 byte. Phase 2 handles only bit 4 (ASIC register window
-   * paging); Phase 4 will add bits 3 (lower-ROM relocation) and 2:0
-   * (cartridge ROM page select).
+   * Decode an RMR2 byte (unlocked-only secondary ROM mapping register).
    *
-   * RMR2 layout (Grimware):
-   *   %101  asic_page  lower_rom_loc  cartridge_rom_page[2:0]
-   *   bit 4 = 1 → page ASIC register window into &4000–&7FFF
-   *   bit 3 = lower-ROM mapping area selector (Phase 4)
-   *   bits 2:0 = cartridge ROM page 0–7 for the lower-ROM slot (Phase 4)
+   * RMR2 layout (Arnold V / Grimware):
+   *   %101  D4 D3  D2 D1 D0
+   *   D4–D3 = lower-ROM overlay position AND ASIC register-page enable:
+   *     00 → lower ROM at &0000, register page off
+   *     01 → lower ROM at &4000, register page off
+   *     10 → lower ROM at &8000, register page off
+   *     11 → lower ROM at &0000, register page ON at &4000–&7FFF
+   *   D2–D0 = which of the low 8 cartridge ROM pages backs the lower ROM.
+   *
+   * The register page is enabled ONLY when D4=D3=1 — a bit-4-only test wrongly
+   * pages it in for the &8000 lower-ROM position (D4=1,D3=0), which real Plus
+   * software uses for banking.
    */
   private writeRmr2(val: number): void {
-    const wantPage = (val & RMR2_ASIC_PAGE) !== 0;
+    const d4d3 = (val >>> 3) & 0x03;
+    const page = val & 0x07;
+    const wantPage = d4d3 === 0x03;
     if (wantPage !== this.asicPageVisible) {
       this.asicPageVisible = wantPage;
       this.onAsicPage(wantPage);
     }
+    // Lower-ROM overlay slot: 01 → &4000 (slot 1), 10 → &8000 (slot 2),
+    // 00/11 → &0000 (slot 0).
+    const slot = d4d3 === 0x01 ? 1 : d4d3 === 0x02 ? 2 : 0;
+    this.onLowerRomBank(page, slot);
   }
 
   /**

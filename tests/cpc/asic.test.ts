@@ -187,20 +187,38 @@ describe('Asic RMR2 escape (Plus banking surface)', () => {
     expect(a.asicPageVisible).toBe(false);
   });
 
-  it('decodes RMR2 bit 4 (ASIC window enable) when unlocked', () => {
+  it('enables the ASIC window only when RMR2 D4=D3=1 (not bit 4 alone)', () => {
     const a = new Asic();
     for (const b of UNLOCK_BYTES) a.pokeLockSequence(b);
     a.pokeLockSequence(0x00);
     expect(a.locked).toBe(false);
 
-    // No callback wired in the unit test — track via field read. RMR2 with
-    // bit 4 set, cartridge page 0: byte = %10110000 = 0xB0.
-    a.write(0xB0);
+    // D4=D3=1 (%10111000 = 0xB8): register page on.
+    a.write(0xB8);
     expect(a.asicPageVisible).toBe(true);
 
-    // RMR2 with bit 4 clear hides the window again: %10100000 = 0xA0.
+    // D4=1,D3=0 (%10110000 = 0xB0): lower ROM to &8000, register page OFF —
+    // a bit-4-only test would wrongly keep it visible.
+    a.write(0xB0);
+    expect(a.asicPageVisible).toBe(false);
+
+    // D4=D3=0 (%10100000 = 0xA0) also hides it.
+    a.write(0xB8);
     a.write(0xA0);
     expect(a.asicPageVisible).toBe(false);
+  });
+
+  it('drives lower-ROM cartridge banking from RMR2 D2–D0 / D4–D3', () => {
+    const a = new Asic();
+    for (const b of UNLOCK_BYTES) a.pokeLockSequence(b);
+    a.pokeLockSequence(0x00);
+    const banks: Array<[number, number]> = [];
+    a.onLowerRomBank = (page, slot) => banks.push([page, slot]);
+    a.write(0xA1);   // D4D3=00, page 1 → cartridge page 1 at &0000 (slot 0)
+    a.write(0xA9);   // D4D3=01, page 1 → &4000 (slot 1)
+    a.write(0xB2);   // D4D3=10, page 2 → &8000 (slot 2)
+    a.write(0xB8);   // D4D3=11, page 0 → &0000 (slot 0) + register page
+    expect(banks).toEqual([[1, 0], [1, 1], [2, 2], [0, 0]]);
   });
 
   it('re-locking the ASIC immediately hides the window', () => {
@@ -209,7 +227,7 @@ describe('Asic RMR2 escape (Plus banking surface)', () => {
     a.pokeLockSequence(0x00);
     expect(a.locked).toBe(false);
 
-    a.write(0xB0);              // page in
+    a.write(0xB8);              // page in (D4=D3=1)
     expect(a.asicPageVisible).toBe(true);
 
     // Re-run the unlock sequence to toggle back to locked.
@@ -281,9 +299,9 @@ describe('CpcMachine ASIC integration (Phase 2: unlock + window paging)', () => 
     m.cpu.portOut(0xBC00, 0x00);
     expect(asic.locked).toBe(false);
 
-    // Page the ASIC window in via RMR2: OUT (&7FB0), 0xB0.
-    // (Port decode: (port & 0xC000) === 0x4000 → GA port. Value 0xB0 = RMR2.)
-    m.cpu.portOut(0x7FB0, 0xB0);
+    // Page the ASIC window in via RMR2: OUT (&7FB8), 0xB8 (D4=D3=1).
+    // (Port decode: (port & 0xC000) === 0x4000 → GA port. Value 0xB8 = RMR2.)
+    m.cpu.portOut(0x7FB8, 0xB8);
     expect(asic.asicPageVisible).toBe(true);
 
     // A CPU write inside the window must land in the ASIC register page and
@@ -295,7 +313,7 @@ describe('CpcMachine ASIC integration (Phase 2: unlock + window paging)', () => 
   it('does not page in the ASIC window when locked (RMR2 escape suppressed)', () => {
     const m = new CpcMachine('cpc6128plus', null);
     const asic = m.gateArray as unknown as Asic;
-    m.cpu.portOut(0x7FB0, 0xB0);   // would-be RMR2 page-in
+    m.cpu.portOut(0x7FB8, 0xB8);   // would-be RMR2 page-in (D4=D3=1)
     expect(asic.asicPageVisible).toBe(false);
   });
 });

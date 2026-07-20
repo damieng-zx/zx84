@@ -173,6 +173,8 @@ export class CpcMachine extends BaseMachine implements Machine {
       const asic = this.gateArray as Asic;
       asic.onAsicPage = (visible) =>
         this.memory.setAsicPage(visible ? asic.registerPage : null);
+      // RMR2 lower-ROM banking: page a cartridge ROM page into the lower slot.
+      asic.onLowerRomBank = (page, slot) => this.memory.setLowerRomBank(page, slot);
       // DMA engine hooks: the channel reads 16-bit little-endian instructions
       // from base 64 KB RAM (using the same video-DMA read path the CRTC uses)
       // and writes PSG registers via the AY.
