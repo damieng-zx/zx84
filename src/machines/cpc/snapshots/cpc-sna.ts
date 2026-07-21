@@ -202,15 +202,15 @@ function applyChunkedMemory(m: CpcMachine, data: Uint8Array): void {
  *    [0]     locked (1 byte)
  *    [1..0x4000]  registerPage (16 KB)
  *    [0x4001..0x4080]  asicPalette (32 × 4-byte ABGR = 128 bytes)
- *    [0x4081..0x408F]  DMA dynamic state (18 bytes, captureDmaState() + pad)
- *  Total: 0x4091 bytes. */
+ *    [0x4081..0x4095]  DMA dynamic state (21 bytes, captureDmaState())
+ *  Total: 0x4096 bytes. */
 const ASIC_CHUNK_LOCKED_OFF = 0;
 const ASIC_CHUNK_PAGE_OFF = 1;
 const ASIC_CHUNK_PAGE_BYTES = 0x4000;
 const ASIC_CHUNK_PAL_OFF = ASIC_CHUNK_PAGE_OFF + ASIC_CHUNK_PAGE_BYTES;
 const ASIC_CHUNK_PAL_BYTES = 32 * 4;
 const ASIC_CHUNK_DMA_OFF = ASIC_CHUNK_PAL_OFF + ASIC_CHUNK_PAL_BYTES;
-const ASIC_CHUNK_DMA_BYTES = 18;
+const ASIC_CHUNK_DMA_BYTES = 21;
 
 function applyAsicChunk(asic: Asic, body: Uint8Array): void {
   if (body.length < ASIC_CHUNK_DMA_OFF) return;

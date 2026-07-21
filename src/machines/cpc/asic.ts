@@ -701,20 +701,22 @@ export class Asic extends GateArray {
   /**
    * Snapshot helper: capture the dynamic DMA channel state that isn't stored
    * in `registerPage` (pauseTicks, loops, loopAddr, enabled, intPending).
-   * Returns 15 bytes (3 channels × 5 fields, each one byte except loopAddr
-   * which is two). The register-page bytes carry everything else.
+   * Returns 21 bytes (3 channels × 7 fields). The register-page bytes carry
+   * everything else. pauseTicks is stored as a 16-bit LE value to hold the
+   * full 12-bit range (0–4095).
    */
   captureDmaState(): Uint8Array {
-    const out = new Uint8Array(3 * 6);
+    const out = new Uint8Array(3 * 7);
     for (let c = 0; c < 3; c++) {
       const ch = this.dma[c];
-      const base = c * 6;
+      const base = c * 7;
       out[base] = ch.pauseTicks & 0xFF;
-      out[base + 1] = ch.loops & 0xFF;
-      out[base + 2] = ch.loopAddr & 0xFF;
-      out[base + 3] = (ch.loopAddr >>> 8) & 0xFF;
-      out[base + 4] = ch.enabled ? 1 : 0;
-      out[base + 5] = ch.intPending ? 1 : 0;
+      out[base + 1] = (ch.pauseTicks >>> 8) & 0xFF;
+      out[base + 2] = ch.loops & 0xFF;
+      out[base + 3] = ch.loopAddr & 0xFF;
+      out[base + 4] = (ch.loopAddr >>> 8) & 0xFF;
+      out[base + 5] = ch.enabled ? 1 : 0;
+      out[base + 6] = ch.intPending ? 1 : 0;
     }
     return out;
   }
@@ -723,13 +725,13 @@ export class Asic extends GateArray {
    *  byte array. Complements `restoreCoreState` — call after it. */
   restoreDmaState(state: ArrayLike<number>): void {
     for (let c = 0; c < 3; c++) {
-      const base = c * 6;
+      const base = c * 7;
       const ch = this.dma[c];
-      ch.pauseTicks = state[base] & 0xFF;
-      ch.loops = state[base + 1] & 0xFF;
-      ch.loopAddr = state[base + 2] | (state[base + 3] << 8);
-      ch.enabled = state[base + 4] !== 0;
-      ch.intPending = state[base + 5] !== 0;
+      ch.pauseTicks = state[base] | ((state[base + 1] || 0) << 8);
+      ch.loops = state[base + 2] & 0xFF;
+      ch.loopAddr = state[base + 3] | ((state[base + 4] || 0) << 8);
+      ch.enabled = state[base + 5] !== 0;
+      ch.intPending = state[base + 6] !== 0;
     }
     this.writeDcsr();
   }
