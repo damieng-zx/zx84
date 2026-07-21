@@ -335,19 +335,20 @@ export class Asic extends GateArray {
   /**
    * Advance one DMA tick — called once per HSYNC after the GA's own per-line
    * work. Each enabled, non-paused channel fetches one 16-bit instruction
-   * from base 64 KB RAM at its source address and executes it. The top 3
-   * bits encode the opcode:
+   * from base 64 KB RAM at its source address and executes it. The top 4
+   * bits (15:12) encode the opcode:
    *
-   *   %000 (0x0000) — LOAD R,DD: write DD to PSG register R (R in bits 11:8).
-   *   %011 (0x6000) — PAUSE N: pause for N ticks (N in bits 11:0).
-   *   %010 (0x4000) — REPEAT N: set loop counter to N, loop body starts at
+   *   0x0 (0x0RDD) — LOAD R,DD: write DD to PSG register R (R in bits 11:8).
+   *   0x1 (0x1NNN) — PAUSE N: pause for N ticks (N in bits 11:0, 0 < N ≤ 4095).
+   *   0x2 (0x2NNN) — REPEAT N: set loop counter to N, loop body starts at
    *                    the next instruction.
-   *   %100 (0x8000) — STOP group, sub-selected by low bits: bit 0 = LOOP,
-   *                    bit 4 = INT, bit 5 = STOP.
+   *   0x3          — Reserved (do not use).
+   *   0x4 (0x400x) — Control group: bit 0 = LOOP, bit 4 = INT, bit 5 = STOP.
+   *                   Sub-bits can be OR'd (e.g. 0x4030 = INT|STOP).
    *
-   * Source: CPCWiki DMA sound + Caprice32 asic_step_dma. The prescaler would
-   * divide the tick rate further on real hardware; Phase 5 leaves it unused
-   * (treat each tick as one HSYNC).
+   * Source: Arnold V spec (Issue 1.4) + CPCWiki DMA sound + MAME amstrad.
+   * The prescaler would divide the tick rate further on real hardware;
+   * Phase 5 leaves it unused (treat each tick as one HSYNC).
    */
   dmaCycle(): void {
     if (this.locked) return;
@@ -366,25 +367,27 @@ export class Asic extends GateArray {
     }
   }
 
-  /** Decode and execute one DMA instruction. */
+  /** Decode and execute one DMA instruction. Top 4 bits (15:12) select the
+   *  opcode class; sub-bits within each class select the specific operation. */
   private executeDma(ch: { source: number; pauseTicks: number; loops: number; loopAddr: number; enabled: boolean; intPending: boolean; }, instr: number): void {
-    switch ((instr >>> 13) & 0x07) {
-      case 0x00:
-        // LOAD — write data byte to a PSG register.
+    switch ((instr >>> 12) & 0x0F) {
+      case 0x0:
+        // LOAD R,DD — write data byte DD to PSG register R.
         this.writeAy((instr >>> 8) & 0x0F, instr & 0xFF);
         return;
-      case 0x02:
-        // REPEAT — remember the next instruction as the loop body and set
-        // the loop counter.
+      case 0x1:
+        // PAUSE N — stall the channel for N × (PPR+1) HSYNC periods.
+        // N is a 12-bit count (bits 11:0); PAUSE 0 is treated as a NOP.
+        ch.pauseTicks = instr & 0x0FFF;
+        return;
+      case 0x2:
+        // REPEAT N — set loop counter to N and mark the next instruction
+        // as the loop body. N is an 11-bit count (bits 10:0).
         ch.loops = instr & 0x07FF;
         ch.loopAddr = ch.source;
         return;
-      case 0x03:
-        // PAUSE — stall the channel for N ticks.
-        ch.pauseTicks = instr & 0x07FF;
-        return;
-      case 0x04:
-        // NOP / LOOP / INT / STOP group.
+      case 0x4:
+        // Control group (NOP / LOOP / INT / STOP). Sub-bits can be OR'd.
         if (instr & 0x01) {
           if (ch.loops > 0) { ch.loops--; ch.source = ch.loopAddr; }
         }

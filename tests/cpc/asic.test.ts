@@ -593,12 +593,12 @@ describe('Asic DMA sound', () => {
     return { asic: a, ayWrites };
   }
 
-  /** DMA instruction encoders — keep independent of the implementation.
-   *  Top 3 bits = opcode: %000 LOAD, %010 REPEAT, %011 PAUSE, %100 STOP group. */
+  /** DMA instruction encoders — independent of the implementation.
+   *  Top 4 bits = opcode: 0x0 LOAD, 0x1 PAUSE, 0x2 REPEAT, 0x4 control group. */
   const LOAD = (reg: number, data: number) => ((reg & 0x0F) << 8) | (data & 0xFF);
-  const PAUSE = (n: number) => (0x03 << 13) | (n & 0x07FF);
-  const STOP = (0x04 << 13) | 0x20;
-  const INT = (0x04 << 13) | 0x10;
+  const PAUSE = (n: number) => (0x1 << 12) | (n & 0x0FFF);
+  const STOP = (0x4 << 12) | 0x20;
+  const INT = (0x4 << 12) | 0x10;
 
   it('LOAD writes the PSG register from RAM-instruction data', () => {
     const ram = new Uint8Array(0x10000);
