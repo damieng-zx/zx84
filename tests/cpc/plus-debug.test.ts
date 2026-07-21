@@ -64,4 +64,28 @@ describe('DEBUG: Plus cartridge load + boot trace', () => {
     m.tick();
     expect(m.memory.readByte(0x8000)).toBe(0x99);
   });
+
+  it('resolveMemoryRegion maps the Plus cartridge region ids from the descriptor', () => {
+    // descriptor.ts declares cpcCartLower/Basic/Amsdos for Plus models; the
+    // Memory pane resolves them through here. page1 = BASIC, page3 = AMSDOS.
+    const m = new CpcMachine('cpc6128plus', null);
+    const pages: (Uint8Array | undefined)[] = new Array(32).fill(undefined);
+    pages[0] = new Uint8Array(0x4000).fill(0xA0);
+    pages[1] = new Uint8Array(0x4000).fill(0xB1);
+    pages[3] = new Uint8Array(0x4000).fill(0xC3);
+    m.memory.loadCartridge(pages);
+    m.reset();
+
+    const lower = m.resolveMemoryRegion('cpcCartLower');
+    expect(lower?.baseAddr).toBe(0x0000);
+    expect(lower?.data[0]).toBe(0xA0);
+
+    const basic = m.resolveMemoryRegion('cpcCartBasic');
+    expect(basic?.baseAddr).toBe(0xC000);
+    expect(basic?.data[0]).toBe(0xB1);
+
+    const amsdos = m.resolveMemoryRegion('cpcCartAmsdos');
+    expect(amsdos?.baseAddr).toBe(0xC000);
+    expect(amsdos?.data[0]).toBe(0xC3);
+  });
 });

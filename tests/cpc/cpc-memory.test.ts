@@ -241,6 +241,30 @@ describe('CpcMemory Plus ROM-select (logical → physical mapping)', () => {
     expect(mem.getUpperRom(1)).toBeUndefined();
     expect(mem.getUpperRom(5)).toBeUndefined();
   });
+
+  it('ejectCartridge drops the lower ROM to open bus (0xFF) immediately', () => {
+    // Ejecting the cartridge physically removes all ROM access — the lower ROM
+    // must not keep serving the ejected cartridge's page 0.
+    const mem = new CpcMemory(createCpcConfig('cpc6128plus'));
+    const pages: (Uint8Array | undefined)[] = new Array(32).fill(undefined);
+    pages[0] = new Uint8Array(SLOT).fill(0x77);
+    mem.loadCartridge(pages);
+    expect(mem.readByte(0x0000)).toBe(0x77);
+    mem.ejectCartridge();
+    expect(mem.readByte(0x0000)).toBe(0xFF);
+  });
+
+  it('reset after ejectCartridge boots to open bus, not the stale cartridge', () => {
+    // reset() re-maps cartPages[0] as the lower ROM; if eject left cartPages
+    // populated, the machine would boot the just-ejected firmware.
+    const mem = new CpcMemory(createCpcConfig('cpc6128plus'));
+    const pages: (Uint8Array | undefined)[] = new Array(32).fill(undefined);
+    pages[0] = new Uint8Array(SLOT).fill(0x77);
+    mem.loadCartridge(pages);
+    mem.ejectCartridge();
+    mem.reset();
+    expect(mem.readByte(0x0000)).toBe(0xFF);
+  });
 });
 
 describe('CpcMemory on a 64KB machine (464/664)', () => {

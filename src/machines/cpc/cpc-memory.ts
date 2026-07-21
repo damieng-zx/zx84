@@ -175,9 +175,16 @@ export class CpcMemory implements IMachineMemory {
     this.applyMapping();
   }
 
-  /** Eject the cartridge: clear every page slot populated by `loadCartridge`. */
+  /** Eject the cartridge: clear every page slot populated by `loadCartridge`.
+   *  On real hardware pulling the cartridge removes all ROM access, so the
+   *  lower ROM falls to open bus (0xFF) — including across the next `reset`,
+   *  which re-maps `cartPages[0]` when a cartridge is present. */
   ejectCartridge(): void {
     for (let i = 0; i < 32; i++) this.upperRoms[i] = undefined;
+    this.cartPages.length = 0;
+    this.lowerRom = this.absentRom;
+    this.lowerRomPage = 0;
+    this.lowerRomSlot = 0;
     this.selectedUpperRom = this.isPlus ? 1 : 0;
     this.applyMapping();
   }

@@ -550,6 +550,11 @@ export class CpcMachine extends BaseMachine implements Machine {
     if (value === 'cpcRomLower') return { data: this.memory.getLowerRom(), baseAddr: 0x0000 };
     if (value === 'cpcRomBasic') { const d = this.memory.getUpperRom(0); return d ? { data: d, baseAddr: 0xC000 } : null; }
     if (value === 'cpcRomAmsdos') { const d = this.memory.getUpperRom(7); return d ? { data: d, baseAddr: 0xC000 } : null; }
+    // Plus models (descriptor.ts) label their ROM slots as cartridge pages: page
+    // 0 is the lower/OS ROM, page 1 backs BASIC and page 3 backs AMSDOS at 0xC000.
+    if (value === 'cpcCartLower') return { data: this.memory.getLowerRom(), baseAddr: 0x0000 };
+    if (value === 'cpcCartBasic') { const d = this.memory.getUpperRom(1); return d ? { data: d, baseAddr: 0xC000 } : null; }
+    if (value === 'cpcCartAmsdos') { const d = this.memory.getUpperRom(3); return d ? { data: d, baseAddr: 0xC000 } : null; }
     return null;
   }
 
