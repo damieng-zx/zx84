@@ -215,22 +215,20 @@ function sampleSpeed(now: number): void {
   _spdMultiplier = (dT / (dWall / 1000)) / clock;
 }
 
-/** Format a realtime multiplier compactly: one decimal below 10× ("8.4×"),
- *  whole numbers at/above ("23×", "140×"). */
-function formatMultiplier(m: number): string {
-  return m >= 10 ? `${Math.round(m)}×` : `${m.toFixed(1)}×`;
-}
-
-/** The label the CPU-speed button should show: a measured "N×" while the
- *  machine runs flat-out (manual turbo or auto tape-turbo) — "Turbo" until the
- *  first sample lands — otherwise the nominal clock as "N.NN" (truncated, so the
- *  128K's 3.5469 MHz reads as the conventional 3.54; 48K → 3.50, CPC → 4.00). */
+/** The MHz label shown beside the speed slider. Fixed stops use their requested
+ *  clock; uncapped/tape turbo uses the measured rate once a sample is ready. */
 function clockLabel(): string {
   if (!machine) return '';
   if (machine.turbo || lastTapeTurbo) {
-    return _spdMultiplier > 0 ? formatMultiplier(_spdMultiplier) : 'Turbo';
+    if (_spdMultiplier <= 0) return 'Max';
+    const measuredMhz = (_spdMultiplier * machine.cpuClockHz) / 1_000_000;
+    return measuredMhz > 28 ? Math.round(measuredMhz).toString() : measuredMhz.toFixed(2);
   }
-  return (Math.trunc(machine.cpuClockHz / 10_000) / 100).toFixed(2);
+  const multiplier = machine.speedMultiplier ?? 1;
+  const requestedMhz = (machine.cpuClockHz * multiplier) / 1_000_000;
+  return requestedMhz > 28
+    ? Math.round(requestedMhz).toString()
+    : (Math.trunc(requestedMhz * 100) / 100).toFixed(2);
 }
 
 export function resetSpeedTracking(): void {

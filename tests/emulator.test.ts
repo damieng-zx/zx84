@@ -1162,6 +1162,27 @@ describe('toggleTurbo', () => {
   });
 });
 
+describe('setEmulationSpeed', () => {
+  it('maps each fixed slider stop to its pacing multiplier', async () => {
+    const s = await setupSpectrum();
+    emulator.setEmulationSpeed(2);
+    expect((s as any).speedMultiplier).toBe(0.25);
+    expect(s.turbo).toBe(false);
+
+    emulator.setEmulationSpeed(8);
+    expect((s as any).speedMultiplier).toBe(16);
+    expect(s.turbo).toBe(false);
+  });
+
+  it('maps the final stop to uncapped max speed', async () => {
+    const s = await setupSpectrum();
+    emulator.setEmulationSpeed(9);
+    expect((s as any).speedMultiplier).toBeNull();
+    expect(s.turbo).toBe(true);
+    expect(emulator.turboMode()).toBe(true);
+  });
+});
+
 // ── resetMachine ──────────────────────────────────────────────────────────
 
 describe('resetMachine', () => {

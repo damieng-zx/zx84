@@ -398,7 +398,7 @@ export class CpcMachine extends BaseMachine implements Machine {
   protected runFrame(): void {
     const crtc = this.crtc;
     const ga = this.gateArray;
-    const skipAudio = this.turbo || (this.tapeTurbo && this.tapeLoadingActive);
+    const skipAudio = this.speedMultiplier !== 1 || (this.tapeTurbo && this.tapeLoadingActive);
 
     this.activity.kbdReads = 0;
     this.activity.fdcAccesses = 0;

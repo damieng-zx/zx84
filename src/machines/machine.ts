@@ -83,6 +83,10 @@ export interface Machine {
   tick(): void;
   /** Run up to maxFrames, stopping early on a breakpoint/watchpoint hit. */
   runUntil(maxFrames: number): number;
+  /** Requested wall-clock speed. `null` means run without a fixed limit. */
+  speedMultiplier: number | null;
+  setSpeedMultiplier(multiplier: number | null): void;
+  /** Legacy max-speed flag retained for tape/debug integrations. */
   turbo: boolean;
 
   // ── Debug hooks (generic across CPU families; storage on BaseMachine) ─
