@@ -239,6 +239,9 @@ export interface MachineUiCapabilities {
   readonly persistMedia: boolean;
   /** Machine offers an auto-boot phantom boot-disk option (Einstein Xtal DOS). */
   readonly bootDisk: boolean;
+  /** Machine hidden-mounts a default firmware cartridge when its cartridge slot
+   *  is empty (CPC Plus / GX4000 → plus-system.cpr). */
+  readonly bootCartridge?: boolean;
   /** Software-library button applies. */
   readonly library: boolean;
   /** ROM regions the Memory pane's region picker offers (besides mapped/banks). */
@@ -785,6 +788,11 @@ export interface MachineEntry {
   /** Default system-ROM image sources, fetched and concatenated in order by the
    *  shared rom-manager machinery. */
   romSources(model: MachineModel): readonly string[];
+  /** Source (ROM-host name or URL) of the hidden default cartridge to mount when
+   *  this model's cartridge slot is empty, or undefined if it has none. Fetched
+   *  generically by the rom-manager; keeps the image identity in the machine
+   *  that owns it (CPC Plus → plus-system.cpr). Paired with `ui.bootCartridge`. */
+  bootCartridgeSource?(model: MachineModel): string | undefined;
   /** Classify a raw system-ROM image dropped on the ROM pane to the model that
    *  should host it (inferred from its size + the current model), or null when
    *  this machine family can't accept the image. Keeps ROM-size→model knowledge

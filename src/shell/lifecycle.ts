@@ -42,6 +42,7 @@ import {
 import {
   stashOutgoingTape, restoreTapeForMachine, restoreMedia,
   applyEinsteinXtalDosDisk, resetEinsteinPhantom,
+  applyBootCartridge,
 } from '@/shell/media.ts';
 import { applyDisplaySettings, buildSettingsView } from '@/shell/settings.ts';
 
@@ -126,7 +127,9 @@ export async function createMachine(): Promise<boolean> {
   await fulfillAuxRoms(built.prepare?.(view) ?? []);
 
   let refreshRestored = false;
-  if (romData) {
+  // Machines with no on-board ROM (CPC Plus / GX4000) have empty romData — they
+  // boot from the cartridge slot (applyBootCartridge, below) instead.
+  if (romData && romData.length > 0) {
     built.services.roms.installSystemRom(romData);
     built.reset();
 
@@ -163,6 +166,11 @@ export async function createMachine(): Promise<boolean> {
   // Einstein: mount the phantom BASIC boot disk if the option is on and drive 0
   // is empty (fire-and-forget — it only matters once the user presses Ctrl-BREAK).
   applyEinsteinXtalDosDisk();
+
+  // CPC Plus / GX4000: boot the cartridge slot — restore a persisted user
+  // cartridge, or hidden-mount the default firmware cartridge. This is the
+  // Plus's only boot path (no on-board system ROM), so it is awaited.
+  await applyBootCartridge();
 
   // Refresh the ROM pane (system ROM label/size; a fresh machine has no cart).
   updateRomPaneInfo();

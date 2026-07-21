@@ -48,6 +48,10 @@ function cpcUi(model: MachineModel): MachineUiCapabilities {
     zipPolicy: 'none',
     persistMedia: false,
     bootDisk: false,
+    // The Plus range has no on-board ROM: when its cartridge slot is empty the
+    // shell hidden-mounts the plus-system.cpr firmware cartridge (unshown, like
+    // the Einstein Xtal-DOS phantom disk). A user cartridge supersedes it.
+    bootCartridge: cpcIsPlusClass(model),
     library: false,
     memoryRegions: cpcIsPlusClass(model)
       ? [
@@ -91,9 +95,17 @@ const ROM_SOURCES: Record<CpcModel, string[]> = {
   cpc6128:     ['os6128.rom', 'basic1-1.rom', 'amsdos.rom'],
   cpc664:      ['os664.rom', 'basic664.rom', 'amsdos.rom'],
   cpc464:      ['os464.rom', 'basic1-0.rom'],
-  cpc6128plus: [PLUS_SYSTEM_CPR],
-  gx4000:      [PLUS_SYSTEM_CPR],
+  // The Plus range has no on-board system ROM — it boots from a cartridge. When
+  // no user cartridge is mounted the shell (and the MCP) hidden-mount
+  // PLUS_SYSTEM_CPR into the cartridge slot; see `applyPlusSystemCartridge`.
+  cpc6128plus: [],
+  gx4000:      [],
 };
+
+/** Fully-qualified URL of the default Plus firmware cartridge (v4 OS + BASIC +
+ *  AMSDOS on pages 0–3, Burnin' Rubber on 4–7). Hidden-mounted when the Plus
+ *  cartridge slot is empty. */
+export const PLUS_SYSTEM_CARTRIDGE = PLUS_SYSTEM_CPR;
 
 /** Descriptor for one CPC model — shared by the registry entry and the machine
  *  instance's own `descriptor` getter. */
@@ -122,5 +134,10 @@ export const cpcEntry: MachineEntry = {
   },
   romSources(model: MachineModel) {
     return ROM_SOURCES[model as CpcModel];
+  },
+  bootCartridgeSource(model: MachineModel) {
+    // Plus range only: the firmware ships as a cartridge, hidden-mounted when
+    // the slot is empty. Non-Plus CPCs carry their ROM on-board (no cartridge).
+    return cpcIsPlusClass(model) ? PLUS_SYSTEM_CARTRIDGE : undefined;
   },
 };

@@ -29,7 +29,9 @@ import {
   persistPlusDDisk, restorePlusDDisk, clearPlusDDisk,
   persistBetaDiskDisk, restoreBetaDiskDisk, clearBetaDiskDisk,
   persistMicrodrive, restoreMicrodrive, clearMicrodrive,
+  persistCartridge, restoreCartridge, clearCartridge,
 } from '@/store/persistence.ts';
+import { entryForModel } from '@/machines/registry.ts';
 import {
   tapeName,
   setTapeLoaded, setTapeName, setTapeBlocks, setCasBlocks, setCasPosition,
@@ -97,12 +99,20 @@ export function insertIf2Cartridge(data: Uint8Array, name: string): void {
 
 /** Remove the cartridge and reboot to the system ROM/BASIC. */
 export function ejectCartridge(): void {
-  const slot = machine?.services.roms.cartridge;
-  if (!slot) return;
+  const m = machine;
+  const slot = m?.services.roms.cartridge;
+  if (!m || !slot) return;
   slot.eject();   // power-cycles the machine (stop → eject → reset)
   setCartridgeNameSig('');
   setStatus('Cartridge ejected');
-  if (romData) machine!.start();
+  if (m.descriptor.ui.bootCartridge) {
+    // No on-board ROM: drop the persisted cartridge and fall back to the hidden
+    // default firmware cartridge (re-mounts + reboots), rather than a blank slot.
+    clearCartridge(m.kind);
+    void applyBootCartridge();
+  } else if (romData) {
+    m.start();
+  }
 }
 
 export const ejectMsxCartridge = ejectCartridge;
@@ -204,6 +214,9 @@ async function reflectMount(
     reflectInstantCassette(data, filename);
   } else if (target === 'cartridge') {
     setCartridgeNameSig(filename);
+    // A real user cartridge supersedes any hidden default-firmware cartridge and
+    // is persisted across reloads (machines that declare bootCartridge only).
+    if (m.descriptor.ui.bootCartridge) persistCartridge(m.kind, data, filename);
     if (romData) m.start();
   } else if (target === 'snapshot') {
     if (persistMedia) {
@@ -476,6 +489,43 @@ export async function applyEinsteinXtalDosDisk(): Promise<void> {
   } else if (!want && einsteinXtalDosPhantom) {
     m.services.disks?.eject('a');
     einsteinXtalDosPhantom = false;
+  }
+}
+
+// ── Phantom default boot cartridge (machines with no on-board ROM) ─────────
+
+/**
+ * Boot the cartridge slot for machines that declare `ui.bootCartridge` (CPC
+ * Plus / GX4000). Restores a persisted user cartridge if one exists; otherwise
+ * hidden-mounts the machine's default firmware cartridge with an empty name, so
+ * the ROM pane shows the slot as unoccupied (a real cartridge is the only thing
+ * with a name). A user cartridge later supersedes it (see reflectMount);
+ * ejecting re-exposes it. Machine-agnostic — the image source comes from the
+ * machine entry's `bootCartridgeSource` hook.
+ */
+export async function applyBootCartridge(): Promise<void> {
+  const m = machine;
+  if (!m || !m.descriptor.ui.bootCartridge) return;
+  const slot = m.services.roms.cartridge;
+  if (!slot || slot.name !== '') return;   // no slot, or a real cartridge already in
+
+  // A user cartridge persisted from a previous session takes precedence.
+  const saved = await restoreCartridge(m.kind);
+  if (saved && machine === m && slot.name === '') {
+    try {
+      slot.insert(saved.data, saved.name);
+      setCartridgeNameSig(saved.name);
+      setStatus(`Cartridge: ${saved.name}`);
+      return;
+    } catch { /* corrupt persisted cart → fall through to the default firmware */ }
+  }
+
+  // Otherwise hidden-mount the machine's default firmware cartridge.
+  const source = entryForModel(m.model).bootCartridgeSource?.(m.model);
+  if (!source) return;
+  const data = await romManager.fetchBootCartridge(source);
+  if (data && machine === m && slot.name === '') {
+    slot.insert(data, '');   // empty name → shown as not mounted
   }
 }
 
