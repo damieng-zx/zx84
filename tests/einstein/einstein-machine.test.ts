@@ -7,6 +7,20 @@ function machine(): EinsteinMachine {
   return m;
 }
 
+describe('Einstein BASIC listing pane', () => {
+  it('exposes the Xtal BASIC listing from RAM via the frame probe', () => {
+    const m = machine();
+    m.reset();
+    // Write "10 PRINT F" as an Xtal BASIC record at the fixed program base
+    // 0x3E01: [len=08][line=10][A2 20 46][00], then the 0x0000 end marker.
+    const prog = [0x08, 0x00, 0x0A, 0x00, 0xA2, 0x20, 0x46, 0x00, 0x00, 0x00];
+    prog.forEach((b, i) => m.memory.writeByte(0x3E01 + i, b));
+
+    const listing = m.services.probe.panes?.basicListing?.();
+    expect(listing).toEqual([{ lineNumber: 10, text: 'PRINT F' }]);
+  });
+});
+
 describe('EinsteinMemory ROM overlay + toggle', () => {
   let m: EinsteinMachine;
   beforeEach(() => {
