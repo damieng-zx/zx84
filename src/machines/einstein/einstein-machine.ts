@@ -207,7 +207,7 @@ export class EinsteinMachine extends BaseMachine implements Machine {
    * the CTC channel wired to the Z80 /INT.
    */
   protected runFrame(): void {
-    const skipAudio = this.turbo;
+    const skipAudio = this.speedMultiplier !== 1;
     this.activity.kbdReads = 0;
     this.activity.fdcAccesses = 0;
     this.activity.tapeReads = 0;

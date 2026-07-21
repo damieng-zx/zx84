@@ -102,6 +102,11 @@ const _turboMode = createSignal(false);
 export const turboMode = _turboMode[0];
 export const setTurboMode = _turboMode[1];
 
+// Index into the discrete speed stops exposed by the Hardware pane.
+const _speedStep = createSignal(4);
+export const speedStep = _speedStep[0];
+export const setSpeedStep = _speedStep[1];
+
 // Speed display — holds just the numeric value; the "MHz" unit is rendered
 // separately (smaller) in the UI. Empty until the first sample arrives.
 const _clockSpeedText = createSignal('');

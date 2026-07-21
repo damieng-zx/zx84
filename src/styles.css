@@ -1612,18 +1612,19 @@ input[type="range"]::-moz-range-thumb {
 /* The pane reuses the Drives pane's .disk-section / .drive-header / .disk-slot
  * classes, so it needs no dedicated styling of its own. */
 
-#model-row #cpu-mhz {
-  flex: 0 0 auto;
-  width: auto;
-  height: 28px;
-  font-size: 0.7rem;
+#speed-value {
+  width: 12ch;
+  min-width: 12ch;
+  text-align: right;
   font-variant-numeric: tabular-nums;
 }
 
-#cpu-mhz .cpu-mhz-unit {
-  font-size: 0.75em;
-  margin-left: 3px;
-  opacity: 0.75;
+.speed-slider-row {
+  gap: 1em;
+}
+
+.speed-slider-row .slider-label {
+  width: auto;
 }
 
 #regs-output {
