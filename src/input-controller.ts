@@ -118,6 +118,10 @@ export class InputController {
   // ── Keyboard handling ─────────────────────────────────────────────────
 
   private handleJoyKey(e: KeyboardEvent, pressed: boolean): boolean {
+    // A persisted Spectrum joystick mapping must not consume keys after the
+    // user switches to a machine with no joystick service (ZX80/ZX81, etc.).
+    // In particular, Space belongs to those machines' keyboard matrices.
+    if (!machine?.services.input.joystick) return false;
     const joySelectors = [joyP1, joyP2];
     const joyMapSelectors = [joyMapP1, joyMapP2];
     let handled = false;

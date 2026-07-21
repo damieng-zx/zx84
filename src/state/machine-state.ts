@@ -16,6 +16,7 @@ const KNOWN_MODELS: readonly MachineModel[] = [
   'cpc6128', 'cpc464', 'cpc664',
   'einstein',
   'hx-10',
+  'zx80', 'zx81',
 ];
 
 function loadSavedModel(): MachineModel | null {

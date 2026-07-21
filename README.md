@@ -1,6 +1,6 @@
 # ZX84
 
-**A browser emulator for the ZX Spectrum, Amstrad CPC, Tatung Einstein, and MSX, with a Spectrum MCP server for automated testing.**
+**A browser emulator for the Sinclair ZX80, ZX81 and ZX Spectrum, Amstrad CPC, Tatung Einstein, and MSX, with a Spectrum MCP server for automated testing.**
 
 https://zx84.envytech.workers.dev
 
@@ -11,6 +11,7 @@ ZX84 is an old-computer emulator with machine-specific hardware models, browser-
 | Family | Models | Core Hardware |
 | --- | --- | --- |
 | Sinclair ZX Spectrum | 16K, 48K, 128K, +2, +2A, +3 | Z80, ULA or Amstrad gate array, beeper, AY on 128K-class models, uPD765A on +3 |
+| Sinclair ZX80 / ZX81 | ZX80, ZX81, optional 16KB RAM pack | Z80, software-generated monochrome display, keyboard matrix, `.o` / `.p` program images |
 | Amstrad CPC | CPC 464, CPC 664, CPC 6128 | Z80, gate array, 6845 CRTC, AY-3-891x, 8255 PPI, uPD765A on 664/6128 |
 | Tatung Einstein | TC-01 | Z80, TMS9929A VDP, AY-3-8910, Z80 CTC, WD1770 |
 | MSX | Toshiba HX-10 | Z80, TMS9929A VDP, AY-3-8910, 8255 PPI, cartridge slot |
@@ -65,7 +66,7 @@ The tape deck provides block navigation, transport controls, fast ROM loading, t
 
 - Export Spectrum `.szx` and `.z80` snapshots, CPC snapshots, screenshots, and supported screen/RAM exports.
 - Persist settings, pane layout, custom ROMs and fonts, and supported media in browser storage.
-- Spectrum software library with ZXDB-derived search, filters, screenshots, automatic model selection, and cached catalog data.
+- Spectrum and ZX80/ZX81 software libraries with ZXDB-derived search, screenshots, automatic model selection, and cached catalog data.
 
 ## MCP Server
 

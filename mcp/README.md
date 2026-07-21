@@ -25,8 +25,9 @@ Run it directly with:
 npm run mcp -- --model 48k
 ```
 
-Supported startup models are `16k`, `48k`, `128k`, `+2`, `+2A`, `+3`,
-`cpc464`, `cpc664`, `cpc6128`, `einstein`, and `hx-10`. The default is `48k`.
+Supported startup models are derived from the machine registry and include
+`zx80`, `zx81`, `16k`, `48k`, `128k`, `+2`, `+2A`, `+3`, `cpc464`, `cpc664`,
+`cpc6128`, `cpc6128plus`, `gx4000`, `einstein`, and `hx-10`. The default is `48k`.
 System ROM pages come from the machine registry, are fetched through the shared
 ROM source loader, and are cached under `mcp/.cache/`.
 
@@ -42,6 +43,9 @@ Some tools are intentionally hardware-specific:
   Multiface, VTX-5000, +D, Beta Disk, microdrives, and +3 boot helpers.
 - CPC: `.dsk` mounting, built-in uPD765A disk inspection, CPC OCR, and PNG
   screenshots.
+- ZX80/ZX81: native program loading (`.o`/`.80` or `.p`/`.81`/`.p81`),
+  model-constrained ZXDB library loading, 1KB/16KB RAM selection, keyboard
+  input, display-file OCR, screenshots, and generic execution/debug tools.
 - Einstein and MSX: generic execution/debug/OCR tools; their media capabilities
   are exposed only where their machine services support them.
 
@@ -59,7 +63,7 @@ Use `model` to switch machines. Switching always creates a fresh machine.
 | `continue` | `max_frames` (default `5000`) | Run until a breakpoint, watchpoint, trap, or reset trap hits. |
 | `registers` | | Display CPU and machine state. |
 | `set_register` | `register`, `value` | Set A/F/AF, B/C/BC, D/E/DE, H/L/HL, SP, PC, IX, or IY. |
-| `model` | `target` (optional) | Show or switch the active model. |
+| `model` | `target`, `ram16k` (optional) | Show or switch the active model; `ram16k` selects ZX80/ZX81 16KB RAM. |
 
 ### Memory And Symbols
 
@@ -97,16 +101,17 @@ Use `model` to switch machines. Switching always creates a fresh machine.
 | `key` | `name`, `frames` (default `5`) | Hold a key or combination such as `shift+2` or `sym+p`. |
 | `type` | `text` | Type text; backtick-delimited control names are supported. |
 
-Spectrum key names include `a`-`z`, `0`-`9`, `enter`, `space`, `shift`,
-`sym`, `backspace`, cursor keys, `capslock`, and `escape`.
+Common key names include `a`-`z`, `0`-`9`, `enter`, `space`, `shift`,
+`backspace`, cursor keys, and `escape`. ZX80/ZX81 also accept `period`;
+Spectrum additionally supports `sym`, `capslock`, and symbol-shift combos.
 
 ### Media, Library, And Screenshots
 
 | Tool | Parameters | Description |
 | --- | --- | --- |
-| `load` | `file`, `drive` | Load supported local media. Spectrum accepts tape, snapshot, disk, microdrive, and Beta Disk formats; CPC accepts `.dsk`. |
-| `library` | `title`, `file`, `id`, `frames`, `refresh` | Spectrum-only exact-title library load, mount, and optional load verdict. |
-| `screenshot` | `file` (optional) | Write the current Spectrum or CPC display to PNG. |
+| `load` | `file`, `drive` | Load supported local media. ZX80/ZX81 accept native program files or a ZIP containing one compatible program. |
+| `library` | `title`, `file`, `id`, `frames`, `refresh` | Exact-title library load. ZX80 and ZX81 searches stay strictly within the active model and enable 16KB RAM before launch. |
+| `screenshot` | `file` (optional) | Write the active machine display to PNG. |
 | `save` | `file` | Save a Spectrum `.szx` snapshot. |
 | `eject` | `target`, `drive` | Eject a Spectrum tape or an FDC disk. |
 | `disk_boot` | `file` (optional) | Spectrum +3 Loader-menu boot helper. |
@@ -120,7 +125,7 @@ Spectrum key names include `a`-`z`, `0`-`9`, `enter`, `space`, `shift`,
 | `stop_trace` | | Stop tracing. Large full/port-I/O traces are written to a file. |
 | `trace_read` | `from`, `to` | Read stored ZXTL trace lines. |
 | `frame_trace` | | Spectrum-only one-frame instruction/contention/VRAM trace written to a file. |
-| `ocr` | `mode` (optional) | Read screen text through the active machine OCR engine. Spectrum supports `auto`, `32x24`, `51x24`, and `64x24`. |
+| `ocr` | `mode` (optional) | Read screen text through the active machine OCR engine. ZX80/ZX81 return their 32×24 display-file text. |
 
 ### Disk Inspection And Protection
 

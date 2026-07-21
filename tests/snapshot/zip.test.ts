@@ -297,6 +297,13 @@ describe('unzip — filtering', () => {
     expect(out.map(e => e.name)).toEqual(names);
   });
 
+  it('accepts ZX80 and ZX81 program images', async () => {
+    const names = ['rps.o', 'old.80', 'maze.p', 'game.81', 'named.p81'];
+    const zip = buildZip(names.map(name => ({ name, data: bytes(0xFF) })));
+    const out = await unzip(zip);
+    expect(out.map(entry => entry.name)).toEqual(names);
+  });
+
   it('skips entries with unsupported compression methods', async () => {
     // Build a valid file then patch the central-directory method field to 99 (AE).
     const zip = buildZip([
