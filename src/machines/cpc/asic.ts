@@ -226,6 +226,10 @@ export class Asic extends GateArray {
    *     start of the sequence (otherwise a real byte 0 in the middle would
    *     force two writes to recover).
    *   - state 16: the full sequence has been seen; this byte toggles lock.
+   *   - re-lock: if the full sequence matches while the ASIC is already
+   *     unlocked, re-lock immediately (no acquisition byte needed) — matching
+   *     MAME's behaviour and the Arnold V spec ("same sequence without the
+   *     terminating EE" re-locks).
    */
   pokeLockSequence(val: number): void {
     if (this.lockSeqPos >= LOCK_SEQUENCE.length) {
@@ -236,6 +240,12 @@ export class Asic extends GateArray {
     }
     if (val === LOCK_SEQUENCE[this.lockSeqPos]) {
       this.lockSeqPos++;
+      // If the final sequence byte just matched while already unlocked,
+      // re-lock immediately — no need for an acquisition byte.
+      if (this.lockSeqPos >= LOCK_SEQUENCE.length && !this.locked) {
+        this.setLocked(true);
+        this.lockSeqPos = 0;
+      }
       return;
     }
     // Mismatch: restart, but credit this byte if it itself matches SEQ[0].
