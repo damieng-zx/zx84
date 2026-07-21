@@ -17,6 +17,7 @@ export type { SpectrumModel } from '@/machines/spectrum/models.ts';
 export type { CpcModel } from '@/machines/cpc/models.ts';
 export type { EinsteinModel } from '@/machines/einstein/models.ts';
 export type { MsxModel } from '@/machines/msx/models.ts';
+export type { Zx8xModel } from '@/machines/zx8x/models.ts';
 
 // ── Per-family classification helpers (re-exported from each machine folder) ─
 export {
@@ -35,12 +36,14 @@ export {
 export { isCpcModel, cpcHasDisk } from '@/machines/cpc/models.ts';
 export { isEinsteinModel } from '@/machines/einstein/models.ts';
 export { isMsxModel } from '@/machines/msx/models.ts';
+export { isZx8xModel } from '@/machines/zx8x/models.ts';
 
 // ── The open union ─────────────────────────────────────────────────────────
 import type { SpectrumModel } from '@/machines/spectrum/models.ts';
 import type { CpcModel } from '@/machines/cpc/models.ts';
 import type { EinsteinModel } from '@/machines/einstein/models.ts';
 import type { MsxModel } from '@/machines/msx/models.ts';
+import type { Zx8xModel } from '@/machines/zx8x/models.ts';
 
 /** Any machine ZX84 can emulate. */
-export type MachineModel = SpectrumModel | CpcModel | EinsteinModel | MsxModel;
+export type MachineModel = SpectrumModel | CpcModel | EinsteinModel | MsxModel | Zx8xModel;

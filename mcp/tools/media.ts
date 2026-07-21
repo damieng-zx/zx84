@@ -7,24 +7,93 @@ import { hex8 as h8, hex16 as h16 } from '../../src/utils/hex.ts';
 import { state, initMachine } from '../state.ts';
 import { activeSpectrum, activeCpc, activeFdc } from '../concrete.ts';
 import { text, formatHexDump } from '../format.ts';
-import { loadFileInto, mountAndArm, runLoadVerdict } from '../loader.ts';
+import { loadFileInto, loadMediaInto, mountAndArm, mountMediaBytes, runLoadVerdict } from '../loader.ts';
 import { fdcLog } from '../fdc-log.ts';
 import { parseDSK } from '../../src/media/floppy/dsk.ts';
 import { unzip } from '../../src/media/zip.ts';
 import { CACHE_DIR } from '../rom-fetch.ts';
-import { findGames, suggestTitles, fileUrls, planLoad, availableFormats, basename } from '../catalog.ts';
+import {
+  findGames, findZx8xGames, suggestTitles, suggestZx8xTitles,
+  fileUrls, planLoad, availableFormats, basename,
+} from '../catalog.ts';
 import { encodePNG } from '../png.ts';
-import { CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT } from '../../src/machines/cpc/constants.ts';
+import { isZx8xModel } from '../../src/models.ts';
+
+async function loadZx8xLibraryTitle(
+  title: string, innerFile: string | undefined, id: number | undefined,
+  frames: number, refresh: boolean,
+): Promise<string> {
+  if (!isZx8xModel(state.model)) return 'ZX80/ZX81 library requires a ZX80 or ZX81 model.';
+  const model = state.model;
+
+  let games;
+  try {
+    games = await findZx8xGames(title, model, refresh);
+  } catch (error) {
+    return `Catalog error: ${(error as Error).message}`;
+  }
+  if (games.length === 0) {
+    const near = await suggestZx8xTitles(title, model);
+    return `No exact ${model.toUpperCase()} title match for "${title}".` +
+      (near.length ? `\n${model.toUpperCase()} titles containing it:\n${near.map(name => `  • ${name}`).join('\n')}` : '');
+  }
+
+  let game = games[0];
+  if (games.length > 1) {
+    const picked = id === undefined ? undefined : games.find(candidate => candidate.id === id);
+    if (!picked) {
+      return `${games.length} ${model.toUpperCase()} titles match "${title}" exactly — re-run with id=:\n` +
+        games.map(candidate => `  id=${candidate.id}  ${candidate.title} (${candidate.year ?? '?'})  ${candidate.publisher || '—'}`).join('\n');
+    }
+    game = picked;
+  }
+
+  let data: Uint8Array | null = null;
+  let fetchedFrom = '';
+  let lastError = 'no candidate URL';
+  for (const url of fileUrls(game.file)) {
+    try {
+      const response = await fetch(url);
+      if (response.ok) {
+        data = new Uint8Array(await response.arrayBuffer());
+        fetchedFrom = url;
+        break;
+      }
+      lastError = `HTTP ${response.status} (${url})`;
+    } catch (error) {
+      lastError = `${(error as Error).message} (${url})`;
+    }
+  }
+  if (!data) return `Download failed for "${game.title}" → ${game.file}\n  ${lastError}`;
+
+  const lines = [
+    `Match: ${game.title}${game.year === null ? '' : ` (${game.year})`}  id=${game.id}`,
+    `Model: ${model.toUpperCase()} (catalog constrained; no model switch)`,
+    `From:  ${fetchedFrom}`,
+  ];
+
+  // ZXDB does not record RAM requirements. Match the app's library launch:
+  // fit the backward-compatible 16KB pack before mounting any catalog title.
+  if (!state.zx8x16kRam) lines.push(await initMachine(model, { zx8x16kRam: true }));
+  lines.push(await mountMediaBytes(state.spec, data, basename(game.file), innerFile));
+
+  if (frames > 0) {
+    const ran = state.spec.runUntil(frames);
+    lines.push(`Ran ${ran}/${frames} frame(s). PC=${h16(state.spec.services.debug.pc)} T=${state.spec.services.debug.tStates}`);
+  }
+  return lines.join('\n');
+}
 
 export function register(server: McpServer): void {
   server.registerTool(
     'load',
-    { description: 'Load a file into the emulator. Supports TAP, TZX, SNA, Z80, DSK, MDR formats. For DSK, optional drive unit (0/A or 1/B); for MDR, optional microdrive unit (0-7 → drives 1-8).', inputSchema: {
-      file: z.string().describe('Path to file (TAP/TZX/SNA/Z80/DSK/MDR)'),
+    { description: 'Load a file into the emulator. ZX80 accepts .o/.80; ZX81 accepts .p/.81/.p81; either may be the sole compatible file in a ZIP. Spectrum and CPC media formats are also supported.', inputSchema: {
+      file: z.string().describe('Path to a machine-compatible media file or ZIP'),
       drive: z.enum(['0', '1', 'A', 'B']).default('0').describe('Drive unit for DSK files'),
     } },
     async ({ file, drive }) => {
       const diskUnit = (drive === '1' || drive === 'B') ? 1 : 0;
+      if (state.spec.kind === 'zx8x') return text(await loadMediaInto(state.spec, file));
       const cpc = activeCpc();
       if (cpc) {
         if (!fs.existsSync(file)) return text(`File not found: ${file}`);
@@ -33,7 +102,9 @@ export function register(server: McpServer): void {
         cpc.loadDisk(image, diskUnit);
         return text(`DSK mounted in drive ${diskUnit === 0 ? 'A' : 'B'}: ${path.basename(file)}`);
       }
-      return text(await loadFileInto(activeSpectrum()!, file, diskUnit));
+      const spectrum = activeSpectrum();
+      if (!spectrum) return text(`load is not implemented for ${state.model.toUpperCase()}.`);
+      return text(await loadFileInto(spectrum, file, diskUnit));
     },
   );
 
@@ -52,7 +123,8 @@ export function register(server: McpServer): void {
       },
     },
     async ({ title, file, id, frames, refresh }) => {
-      if (activeCpc()) return text('library is Spectrum-only — switch to a Spectrum model first (CPC titles are not in this catalog).');
+      if (isZx8xModel(state.model)) return text(await loadZx8xLibraryTitle(title, file, id, frames, refresh));
+      if (!activeSpectrum()) return text('library supports Spectrum, ZX80, and ZX81 models. Switch model first.');
 
       // 1. Resolve the exact title against the catalog.
       let games;
@@ -169,7 +241,7 @@ export function register(server: McpServer): void {
   server.registerTool(
     'screenshot',
     {
-      description: 'Capture the current display as a PNG file. Renders the active screen (Spectrum: shadow-screen aware; CPC: live framebuffer) and writes it to disk. Returns the file path.',
+      description: 'Capture the active machine display as a PNG file and return the file path.',
       inputSchema: {
         file: z.string().optional().describe('Output PNG path (default: <mcp cache>/screenshot.png)'),
       },
@@ -179,19 +251,18 @@ export function register(server: McpServer): void {
       let width: number;
       let height: number;
 
-      const cpc = activeCpc();
-      if (cpc) {
-        rgba = cpc.pixels;
-        width = CPC_SCREEN_WIDTH;
-        height = CPC_SCREEN_HEIGHT;
-      } else {
-        const spec = activeSpectrum()!;
+      const spec = activeSpectrum();
+      if (spec) {
         // Re-render from the active screen bank: the headless run may have skipped
         // the bulk frame render, so the pixel buffer can be stale.
         spec.ula.renderFrame(spec.memory.screenBank, 0x4000);
         rgba = spec.ula.pixels;
         width = spec.ula.screenWidth;
         height = spec.ula.screenHeight;
+      } else {
+        rgba = state.spec.pixels;
+        width = state.spec.frameWidth;
+        height = state.spec.frameHeight;
       }
 
       let out = file ?? path.join(CACHE_DIR, 'screenshot.png');

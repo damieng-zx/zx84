@@ -4,6 +4,7 @@ import { hex8 as h8, hex16 as h16 } from '../../src/utils/hex.ts';
 import { state, initMachine } from '../state.ts';
 import { formatStep, formatRegs, parseAddr, text } from '../format.ts';
 import { traps, resetTrap, consumeResetHit } from '../traps.ts';
+import { MCP_MODELS } from '../models.ts';
 
 export function register(server: McpServer): void {
   server.registerTool(
@@ -115,11 +116,18 @@ export function register(server: McpServer): void {
 
   server.registerTool(
     'model',
-    { description: 'Show or switch the machine model. Creates a fresh machine when switching.', inputSchema: { target: z.enum(['16k', '48k', '128k', '+2', '+2A', '+3', 'cpc6128', 'cpc464', 'cpc664', 'einstein', 'hx-10']).optional().describe('Model to switch to (omit to show current)') } },
-    async ({ target }) => {
-      if (!target) return text(`Current model: ${state.model}`);
-      const msg = await initMachine(target);
-      return text(`Switched to ${target.toUpperCase()}. ${msg}`);
-    },
+    { description: 'Show or switch the machine model. Creates a fresh machine when switching. ZX80/ZX81 may select the 16KB RAM pack.', inputSchema: {
+      target: z.enum(MCP_MODELS).optional().describe('Model to switch to (omit to show current)'),
+      ram16k: z.boolean().optional().describe('ZX80/ZX81 only: enable or disable 16KB RAM'),
+    } },
+    async ({ target, ram16k }) => {
+      if (!target && ram16k === undefined) {
+        const ram = state.spec.kind === 'zx8x' ? ` (${state.zx8x16kRam ? '16KB' : '1KB'} RAM)` : '';
+        return text(`Current model: ${state.model}${ram}`);
+      }
+      const next = target ?? state.model;
+       const msg = await initMachine(next, { zx8x16kRam: ram16k ?? (next === state.model ? state.zx8x16kRam : false) });
+       return text(`Switched to ${next.toUpperCase()}. ${msg}`);
+     },
   );
 }
