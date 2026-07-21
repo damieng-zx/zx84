@@ -320,7 +320,7 @@ describe('CpcMachine ASIC integration (Phase 2: unlock + window paging)', () => 
 
 // ── Phase 3: sprites, scroll, split, raster IRQ ──────────────────────────────
 
-import { CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT } from '@/machines/cpc/constants.ts';
+import { CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT, CPC_BORDER_LEFT, CPC_BORDER_TOP } from '@/machines/cpc/constants.ts';
 import type { CrtcLine } from '@/cores/crtc-6845.ts';
 
 /** Build an unlocked Asic with the ASIC window paged into a throwaway machine
@@ -338,43 +338,49 @@ const SPRITE_PIXELS = 0x0000;
 const SPRITE_ATTRS = 0x2000;
 
 describe('Asic hardware sprites', () => {
+  // Sprite (x, y) is in mode-2 pixels with the origin at the active area's
+  // top-left, so it lands in the framebuffer at (CPC_BORDER_LEFT + x,
+  // CPC_BORDER_TOP + y). Magnification %01 = 1× → mag byte 0x05 for 1×1.
+  const bx = (x: number) => CPC_BORDER_LEFT + x;
+  const by = (y: number) => CPC_BORDER_TOP + y;
+
   it('renders a sprite pixel at its (x, y) position in the framebuffer', () => {
     const a = unlockedAsic();
     // Program sprite 0: a single opaque pixel at (0, 0) of its 16×16 cell.
     a.cpuWrite(SPRITE_PIXELS + (0 << 8) + (0 << 4) + 0, 0x01);  // pen 1
-    // Place the sprite at buffer (10, 20).
+    // Place the sprite at active-area (10, 20).
     a.cpuWrite(SPRITE_ATTRS + (0 << 3) + 0, 10);        // X lo
     a.cpuWrite(SPRITE_ATTRS + (0 << 3) + 1, 0);         // X hi
     a.cpuWrite(SPRITE_ATTRS + (0 << 3) + 2, 20);        // Y lo
     a.cpuWrite(SPRITE_ATTRS + (0 << 3) + 3, 0);         // Y hi
-    a.cpuWrite(SPRITE_ATTRS + (0 << 3) + 4, 0);         // mag = 1×1
+    a.cpuWrite(SPRITE_ATTRS + (0 << 3) + 4, 0x05);      // mag = 1×1
     // Program pen 1 (sprite pen) to red.
     a.cpuWrite(0x2400 + (17 * 2), 0xF0);   // R=0xF, B=0
     a.cpuWrite(0x2400 + (17 * 2) + 1, 0x00);
 
     const px = new Uint32Array(CPC_SCREEN_WIDTH * CPC_SCREEN_HEIGHT);
-    a.drawSprites(px, 20);
+    a.drawSprites(px, by(20));
     const expected = a.asicPalette[17];
-    expect(px[20 * CPC_SCREEN_WIDTH + 10]).toBe(expected);
+    expect(px[by(20) * CPC_SCREEN_WIDTH + bx(10)]).toBe(expected);
     // Adjacent pixels stay cleared.
-    expect(px[20 * CPC_SCREEN_WIDTH + 11]).toBe(0);
-    expect(px[21 * CPC_SCREEN_WIDTH + 10]).toBe(0);
+    expect(px[by(20) * CPC_SCREEN_WIDTH + bx(11)]).toBe(0);
+    expect(px[by(21) * CPC_SCREEN_WIDTH + bx(10)]).toBe(0);
   });
 
   it('treats pen value 0 as transparent (does not overwrite the framebuffer)', () => {
     const a = unlockedAsic();
     const px = new Uint32Array(CPC_SCREEN_WIDTH * CPC_SCREEN_HEIGHT);
-    // Pre-fill a pixel that the sprite will overlap.
-    px[5 * CPC_SCREEN_WIDTH + 5] = 0xDEADBEEF;
+    // Pre-fill the pixel the sprite will overlap.
+    px[by(5) * CPC_SCREEN_WIDTH + bx(5)] = 0xDEADBEEF;
     // Sprite 0 with pen 0 at (5, 5) — should NOT overwrite.
     a.cpuWrite(SPRITE_PIXELS + 0, 0x00);
     a.cpuWrite(SPRITE_ATTRS + 0, 5);
     a.cpuWrite(SPRITE_ATTRS + 1, 0);
     a.cpuWrite(SPRITE_ATTRS + 2, 5);
     a.cpuWrite(SPRITE_ATTRS + 3, 0);
-    a.cpuWrite(SPRITE_ATTRS + 4, 0);
-    a.drawSprites(px, 5);
-    expect(px[5 * CPC_SCREEN_WIDTH + 5]).toBe(0xDEADBEEF);
+    a.cpuWrite(SPRITE_ATTRS + 4, 0x05);
+    a.drawSprites(px, by(5));
+    expect(px[by(5) * CPC_SCREEN_WIDTH + bx(5)]).toBe(0xDEADBEEF);
   });
 
   it('sprite 0 wins over sprite 15 at the same pixel (priority order)', () => {
@@ -383,41 +389,43 @@ describe('Asic hardware sprites', () => {
     a.cpuWrite(SPRITE_PIXELS + (15 << 8), 0x01);
     a.cpuWrite(SPRITE_ATTRS + (15 << 3) + 0, 10);
     a.cpuWrite(SPRITE_ATTRS + (15 << 3) + 2, 10);
+    a.cpuWrite(SPRITE_ATTRS + (15 << 3) + 4, 0x05);
     // Sprite 0: opaque pixel pen 2 at the same position.
     a.cpuWrite(SPRITE_PIXELS + (0 << 8), 0x02);
     a.cpuWrite(SPRITE_ATTRS + (0 << 3) + 0, 10);
     a.cpuWrite(SPRITE_ATTRS + (0 << 3) + 2, 10);
+    a.cpuWrite(SPRITE_ATTRS + (0 << 3) + 4, 0x05);
     // Program sprite pens 1 and 2 to distinct colours.
     a.cpuWrite(0x2400 + (17 * 2), 0x0F);     // pen 1: blue
     a.cpuWrite(0x2400 + (18 * 2), 0xF0);     // pen 2: red
 
     const px = new Uint32Array(CPC_SCREEN_WIDTH * CPC_SCREEN_HEIGHT);
-    a.drawSprites(px, 10);
+    a.drawSprites(px, by(10));
     // Pen 2 (sprite 0) wins over pen 1 (sprite 15).
-    expect(px[10 * CPC_SCREEN_WIDTH + 10]).toBe(a.asicPalette[18]);
+    expect(px[by(10) * CPC_SCREEN_WIDTH + bx(10)]).toBe(a.asicPalette[18]);
   });
 
-  it('magnifies the sprite by 2× when the magnification byte is 1', () => {
+  it('magnifies the sprite by 2× when the magnification field is %10', () => {
     const a = unlockedAsic();
-    // Sprite 0: one opaque pixel at (0, 0); mag = 2× on both axes.
+    // Sprite 0: one opaque pixel at (0, 0); mag byte 0x0A = X:%10 (2×), Y:%10.
     a.cpuWrite(SPRITE_PIXELS + 0, 0x01);
     a.cpuWrite(SPRITE_ATTRS + (0 << 3) + 0, 10);
     a.cpuWrite(SPRITE_ATTRS + (0 << 3) + 2, 10);
-    a.cpuWrite(SPRITE_ATTRS + (0 << 3) + 4, 0x05);   // bits 3:2 = 01 (x mag 2), bits 1:0 = 01 (y mag 2)
+    a.cpuWrite(SPRITE_ATTRS + (0 << 3) + 4, 0x0A);   // bits 3:2 = 10 (x 2×), bits 1:0 = 10 (y 2×)
     a.cpuWrite(0x2400 + (17 * 2), 0xF0);
 
     const px = new Uint32Array(CPC_SCREEN_WIDTH * CPC_SCREEN_HEIGHT);
-    // 2×2 magnified: scanlines 10 and 11, columns 10 and 11 should be lit.
-    a.drawSprites(px, 10);
-    a.drawSprites(px, 11);
+    // 2×2 magnified: active rows 10 and 11, columns 10 and 11 should be lit.
+    a.drawSprites(px, by(10));
+    a.drawSprites(px, by(11));
     const expected = a.asicPalette[17];
-    expect(px[10 * CPC_SCREEN_WIDTH + 10]).toBe(expected);
-    expect(px[10 * CPC_SCREEN_WIDTH + 11]).toBe(expected);
-    expect(px[11 * CPC_SCREEN_WIDTH + 10]).toBe(expected);
-    expect(px[11 * CPC_SCREEN_WIDTH + 11]).toBe(expected);
+    expect(px[by(10) * CPC_SCREEN_WIDTH + bx(10)]).toBe(expected);
+    expect(px[by(10) * CPC_SCREEN_WIDTH + bx(11)]).toBe(expected);
+    expect(px[by(11) * CPC_SCREEN_WIDTH + bx(10)]).toBe(expected);
+    expect(px[by(11) * CPC_SCREEN_WIDTH + bx(11)]).toBe(expected);
     // Outside the 2×2 box stays cleared.
-    expect(px[10 * CPC_SCREEN_WIDTH + 12]).toBe(0);
-    expect(px[12 * CPC_SCREEN_WIDTH + 10]).toBe(0);
+    expect(px[by(10) * CPC_SCREEN_WIDTH + bx(12)]).toBe(0);
+    expect(px[by(12) * CPC_SCREEN_WIDTH + bx(10)]).toBe(0);
   });
 
   it('does nothing while locked', () => {
@@ -443,12 +451,15 @@ describe('Asic raster interrupt (Plus programmable scanline IRQ)', () => {
     const a = unlockedAsic();
     a.beginFrame(new Uint32Array(1));
     a.interruptSl = 100;
-    // Tick 99 HSYNCs — no interrupt yet (would have fired at 52 in legacy mode).
-    for (let i = 0; i < 99; i++) {
+    // The frame-line counter is compared BEFORE it advances (MAME `vpos`
+    // semantics), so interruptSl=N fires on the (N+1)th HSYNC after beginFrame.
+    // Across the first 100 HSYNCs the 52-counter also wraps once, but the legacy
+    // flyback is suppressed while a PRI is armed — so no interrupt appears yet.
+    for (let i = 0; i < 100; i++) {
       a.onHSync();
       expect(a.interruptRequested).toBe(false);
     }
-    a.onHSync();   // 100th HSYNC
+    a.onHSync();   // 101st HSYNC — frameLine reaches 100
     expect(a.interruptRequested).toBe(true);
   });
 
@@ -456,10 +467,25 @@ describe('Asic raster interrupt (Plus programmable scanline IRQ)', () => {
     const a = unlockedAsic();
     a.interruptSl = 50;
     a.beginFrame(new Uint32Array(1));
-    for (let i = 0; i < 49; i++) a.onHSync();
+    for (let i = 0; i < 50; i++) a.onHSync();
     expect(a.interruptRequested).toBe(false);
-    a.onHSync();   // 50th since beginFrame
+    a.onHSync();   // 51st since beginFrame — frameLine reaches 50
     expect(a.interruptRequested).toBe(true);
+  });
+
+  it('does not perturb the HSync counter when the PRI coincides with a 52-wrap', () => {
+    // Regression for the Burnin' Rubber logo-band flicker. The game programs its
+    // PRI to fire on the same HSYNC the 52-counter wraps. The 52-check must reset
+    // rasterCount to 0 BEFORE the PRI clears bit 5, so the clear is a no-op. If
+    // the PRI fires one HSYNC early (the old bug: frameLine incremented up-front),
+    // it clears bit 5 of 51 → 19 — a −32 shift that makes the frame-setup handler
+    // miss VSYNC every other frame.
+    const a = unlockedAsic();
+    a.beginFrame(new Uint32Array(1));
+    a.interruptSl = 51;   // frameLine reaches 51 on the 52nd HSYNC — the wrap
+    for (let i = 0; i < 52; i++) a.onHSync();
+    expect(a.interruptRequested).toBe(true);   // PRI fired
+    expect(a.rasterCount).toBe(0);             // wrapped to 0, NOT perturbed to 20
   });
 
   it('falls back to legacy flyback when locked', () => {

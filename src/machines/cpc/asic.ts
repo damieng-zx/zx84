@@ -26,7 +26,7 @@
  * non-Plus cost to zero.
  */
 
-import { CPC_SCREEN_WIDTH } from '@/machines/cpc/constants.ts';
+import { CPC_SCREEN_WIDTH, CPC_BORDER_LEFT, CPC_BORDER_TOP } from '@/machines/cpc/constants.ts';
 import { GateArray, FN_RMR } from '@/machines/cpc/gate-array.ts';
 import type { CrtcLine } from '@/cores/crtc-6845.ts';
 
@@ -82,13 +82,12 @@ function nibbleToByte(n: number): number {
 }
 
 /**
- * Decode a 2-bit magnification field into a pixel multiplier. Real hardware
- * quirk: values 0/1/2/3 give 1×/2×/4×/4× (the 3× setting is implemented in
- * silicon as 4×). Source: CPCWiki hardware-sprites reference + Caprice32
- * asic_draw_sprites.
+ * Decode a 2-bit magnification field into a pixel multiplier per the Arnold V
+ * spec: %00 = not displayed (0×), %01 = 1×, %10 = 2×, %11 = 4×. A 0 on either
+ * axis hides the sprite.
  */
 function magToMultiplier(mag: number): number {
-  return mag <= 1 ? mag + 1 : 4;
+  return mag === 0 ? 0 : mag === 1 ? 1 : mag === 2 ? 2 : 4;
 }
 
 export class Asic extends GateArray {
@@ -500,21 +499,51 @@ export class Asic extends GateArray {
   onHSync(): void {
     this.mode = this.pendingMode;
     this.rasterCount++;
-    this.frameLine++;
-    if (this.locked || this.interruptSl === 0) {
-      // Legacy 52-line flyback — the only interrupt source on a discrete GA
-      // and on a locked / raster-IRQ-disabled ASIC.
-      if (this.rasterCount === 52) {
-        this.rasterCount = 0;
-        this.interruptRequested = true;
-      }
-    } else if (this.frameLine === this.interruptSl) {
-      // Plus programmable raster interrupt — fires exactly once per frame.
+    // NB: `frameLine` is incremented at the END of this method (matching MAME's
+    // `vpos++` after the PRI comparison). Incrementing it up-front fired the PRI
+    // one scanline early — before the coincident 52-wrap had reset rasterCount —
+    // so the PRI's bit-5 clear (below) hit rasterCount=51 instead of 0 and
+    // subtracted 32, shifting the counter and making the game miss VSYNC every
+    // other frame (the Burnin' Rubber logo-band palette flicker).
+    // The gate-array 52-HSync interrupt counter runs and wraps at 52 ALWAYS —
+    // even while a Plus raster interrupt (PRI) is armed. Only the RAISING of the
+    // INT line is suppressed while PRI is active; the counter keeps ticking so
+    // that when PRI is later disabled the standard interrupt still lands at the
+    // right scanline. (Our previous code took an either/or branch and never
+    // reset rasterCount while PRI was armed, so a stale count fired a spurious
+    // mid-screen interrupt the moment PRI went back to 0 — desyncing games that
+    // toggle PRI every frame, which flickered every other frame.)
+    // Source: MAME amstrad_plus_hsync_changed / Arnold ASIC_HSync.
+    if (this.rasterCount >= 52) {
+      this.rasterCount = 0;
+      if (this.locked || this.interruptSl === 0) this.interruptRequested = true;
+    }
+    // Plus programmable raster interrupt: fires when the ASIC frame line reaches
+    // interruptSl. On match the ASIC clears bit 5 (0x20) of the HSync counter,
+    // which re-syncs the standard interrupt to the frame top once PRI is off.
+    if (!this.locked && this.interruptSl !== 0 && this.frameLine === this.interruptSl) {
       this.interruptRequested = true;
+      this.rasterCount &= ~0x20;
       if (!this.rasterIntPending) {
         this.rasterIntPending = true;
         this.writeDcsr();
       }
+    }
+    this.frameLine++;
+  }
+
+  /**
+   * VSYNC re-sync of the HSync interrupt counter. The counter always resets to
+   * 0 a couple of lines after VSYNC (keeping interrupts phase-locked to the
+   * display), but the interrupt it would raise is suppressed while a Plus
+   * raster interrupt is armed — matching the 52-line path above. Source: MAME
+   * (`hsync_after_vsync_counter`, gated by `pri == 0 || !enabled`).
+   */
+  onVSyncResync(): void {
+    const wouldInterrupt = this.rasterCount >= 32;
+    this.rasterCount = 0;
+    if (wouldInterrupt && (this.locked || this.interruptSl === 0)) {
+      this.interruptRequested = true;
     }
   }
 
@@ -558,10 +587,10 @@ export class Asic extends GateArray {
    * pixel of 0 is transparent and does not overwrite. Sprite colours come
    * from `asicPalette[17..31]` (pen value 1–15 maps to index 16 + value).
    *
-   * Coordinate convention: sprite (X, Y) maps directly to buffer (X, Y) in
-   * the 768×272 framebuffer (border + active area). Software that wants a
-   * sprite at the top-left of the active area uses (CPC_BORDER_LEFT,
-   * CPC_BORDER_TOP). Matches Caprice32.
+   * Coordinate convention (Arnold V): sprite (X, Y) is in mode-2 pixels with
+   * the origin at the top-left of the *active* display area, so it maps to the
+   * framebuffer at (CPC_BORDER_LEFT + X, CPC_BORDER_TOP + Y). X is a signed
+   * 16-bit value, Y likewise.
    *
    * No-op when locked.
    */
@@ -576,12 +605,16 @@ export class Asic extends GateArray {
       const yLo = page[attrBase + 2];
       const yHi = page[attrBase + 3];
       const mag = page[attrBase + 4];
-      // Sign-extend the 16-bit X/Y coordinates.
-      let x = ((xHi << 8) | xLo) << 16 >> 16;
-      let y = ((yHi << 8) | yLo) << 16 >> 16;
 
       const xMult = magToMultiplier((mag >>> 2) & 0x03);
       const yMult = magToMultiplier(mag & 0x03);
+      if (xMult === 0 || yMult === 0) continue;      // %00 on either axis = hidden
+
+      // Sign-extend the 16-bit X/Y coordinates, then place relative to the
+      // active area's top-left corner.
+      const x = CPC_BORDER_LEFT + (((xHi << 8) | xLo) << 16 >> 16);
+      const y = CPC_BORDER_TOP + (((yHi << 8) | yLo) << 16 >> 16);
+
       const spriteW = SPRITE_NATIVE * xMult;
       const spriteH = SPRITE_NATIVE * yMult;
 

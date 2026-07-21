@@ -42,7 +42,10 @@ export class GateArray {
   onRamConfig: (val: number) => void = () => {};
 
   // ── Raster interrupt ─────────────────────────────────────────────────
-  protected rasterCount = 0;
+  /** Gate-array HSync interrupt counter (0–51). Public so ASIC interrupt tests
+   *  can assert it is not perturbed when a PRI coincides with the 52-wrap; only
+   *  the GA/ASIC mutate it. */
+  rasterCount = 0;
   interruptRequested = false;
 
   write(val: number): void {
