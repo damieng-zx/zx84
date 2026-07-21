@@ -475,6 +475,16 @@ export class Asic extends GateArray {
     for (let p = 0; p < 16; p++) this.penLut[p] = this.asicPalette[p];
   }
 
+  /** Horizontal render start: the base centres the display by its width; when
+   *  unlocked the ASIC adds its sub-character hscroll (left shift, 0-15 px) and
+   *  extendBorder (right shift, 16 px) on top. Locked (= plain Gate Array mode)
+   *  falls through to the centred base. */
+  protected renderStartX(hDisplayed: number): number {
+    const base = super.renderStartX(hDisplayed);
+    if (this.locked) return base;
+    return base - this.hscroll + (this.extendBorder ? 16 : 0);
+  }
+
   // ── Phase 3: per-frame hooks ──────────────────────────────────────────
 
   /**

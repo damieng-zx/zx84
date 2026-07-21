@@ -450,6 +450,12 @@ export class CpcMachine extends BaseMachine implements Machine {
 
     const totalLines = crtc.linesPerFrame();
     const lineT = crtc.charsPerLine() * CPC_T_PER_CHAR;
+    // Centre the display vertically by its height, the vertical analogue of the
+    // GA's horizontal width-centring: a standard 200-line display lands at
+    // CPC_BORDER_TOP (36), while a taller overscan display (more R6 rows) shifts
+    // up to stay centred rather than overflowing the bottom edge — e.g. the
+    // Crazy Cars II title, whose ground was clipped off the bottom.
+    const displayTop = (CPC_SCREEN_HEIGHT - crtc.displayedLines()) >> 1;
     let lineEnd = this.cpu.tStates;
     let lastAudioT = this.cpu.tStates;
     let broke = false;
@@ -516,10 +522,10 @@ export class CpcMachine extends BaseMachine implements Machine {
       if (plusActive) {
         lineState = asic!.applyScrollAndSplit(lineState);
       }
-      ga.renderScanline(this._pixels32, CPC_BORDER_TOP + line, lineState,
+      ga.renderScanline(this._pixels32, displayTop + line, lineState,
                         (addr) => this.memory.readVideo(addr));
       if (plusActive) {
-        asic!.drawSprites(this._pixels32, CPC_BORDER_TOP + line);
+        asic!.drawSprites(this._pixels32, displayTop + line);
       }
       ga.onHSync();
       // Plus DMA sound: each HSYNC, every enabled channel runs one

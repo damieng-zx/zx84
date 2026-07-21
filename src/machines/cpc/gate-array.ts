@@ -13,7 +13,7 @@
  */
 
 import {
-  CPC_PALETTE, CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT, CPC_BORDER_LEFT,
+  CPC_PALETTE, CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT,
 } from '@/machines/cpc/constants.ts';
 import type { CrtcLine } from '@/cores/crtc-6845.ts';
 
@@ -24,6 +24,10 @@ const FN_RAM = 0xC0;
 export { FN_PEN, FN_COLOUR, FN_RMR, FN_RAM };
 
 const BORDER_PEN = 16;
+
+/** Buffer pixels per CRTC character. The standard 40-char display is 640 px
+ *  wide (CPC_SCREEN_WIDTH − 2·CPC_BORDER_LEFT), i.e. 16 px per character. */
+const CPC_CHAR_PX = 16;
 
 export class GateArray {
   protected selectedPen = 0;
@@ -117,13 +121,28 @@ export class GateArray {
 
   /** Resolved RGBA for the 16 drawing pens, rebuilt once per scanline. Kept as
    *  a field (not re-allocated) so the per-pixel plot is a plain array index.
-   *  On the Plus, `Asic` overrides `refreshPenLut`/`borderColor` to feed the
-   *  12-bit ASIC palette instead of the classic pens once unlocked. */
+   *  On the Plus, `Asic` overrides `refreshPenLut`/`borderColor`/`renderStartX`
+   *  to feed the 12-bit ASIC palette and apply scroll/border extensions. */
   protected readonly penLut = new Uint32Array(16);
 
   /** Resolve the current border colour to an RGBA word. */
   protected borderColor(): number {
     return this.palette[this.pens[BORDER_PEN] & 0x1F];
+  }
+
+  /** Horizontal pixel offset where the first display character starts.
+   *
+   *  The active area is centred in the framebuffer by its displayed width, so
+   *  the standard 40-char display lands at CPC_BORDER_LEFT (64) exactly — same
+   *  as a fixed anchor — while an overscan display (hDisplayed > 40) shifts
+   *  left to stay centred on the monitor. A real CPC centres the display on the
+   *  tube regardless of width (games widen R1 and pull the HSYNC position in to
+   *  recentre); a fixed left anchor instead lets a wide display overflow the
+   *  right edge (e.g. the Crazy Cars II title, hDisplayed ≈ 46, clipped its
+   *  right end). The ASIC overrides this when unlocked to add hscroll +
+   *  extendBorder on top of the centred base. */
+  protected renderStartX(hDisplayed: number): number {
+    return (CPC_SCREEN_WIDTH - hDisplayed * CPC_CHAR_PX) >> 1;
   }
 
   /** (Re)fill `penLut` with the RGBA of drawing pens 0–15. */
@@ -152,7 +171,7 @@ export class GateArray {
     // take effect per line, matching the per-scanline render loop).
     this.refreshPenLut();
     const mode = this.mode;
-    let x = CPC_BORDER_LEFT;
+    let x = this.renderStartX(line.hDisplayed);
     for (let c = 0; c < line.hDisplayed; c++) {
       const ma = (line.maRow + c) & 0x3FFF;
       const addr = (((ma & 0x3000) << 2) | ((line.ra & 7) << 11) | ((ma & 0x3FF) << 1)) & 0xFFFF;
