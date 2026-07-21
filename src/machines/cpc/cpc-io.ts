@@ -291,6 +291,27 @@ export function wireCpcPortIO(m: CpcMachine): void {
       if ((port & 0x0510) === 0x0000) { m.activity.mouseReads++; return km.buttons; }
     }
 
+    // On the Plus ASIC, IN from the Gate Array (&7Fxx, A15=0 A14=1) and from
+    // CRTC ports (&BCxx/&BDxx, fn 0/1) performs the same write as an OUT would
+    // — the bus value is written to the target register as a ghost-write.
+    // Source: cpctech.cpcwiki.de/docs/cpcplus.html.
+    if (asic !== null) {
+      if ((port & 0xC000) === 0x4000) {
+        const busVal = 0xFF;  // bus float value during an IN instruction
+        ga.write(busVal);
+      }
+      if ((port & 0x6000) === 0x2000) {
+        const fn = (port >> 8) & 3;
+        if (fn === 0) {
+          const busVal = 0xFF;
+          if (asic !== null) asic.pokeLockSequence(busVal);
+          m.crtc.selectRegister(busVal);
+        } else if (fn === 1) {
+          m.crtc.writeRegister(0xFF);
+        }
+      }
+    }
+
     // CRTC read: A14=0, A13=1, fn 2/3
     if ((port & 0x6000) === 0x2000) {
       const fn = (port >> 8) & 3;
