@@ -200,7 +200,11 @@ export class CpcMachine extends BaseMachine implements Machine {
   /** Nominal CPU clock (4 MHz). */
   get cpuClockHz(): number { return this.tape.cpuClock; }
 
-  /** `.scr` export: the 16K RAM quadrant the CRTC displays from. */
+  /** `.scr` export: the 16K RAM quadrant the CRTC displays from (R12:R13 bits
+   *  12-13 pick the bank; video DMA only ever reads banks 0-3). This is a raw
+   *  screen-RAM dump — it does not carry the ASIC soft-scroll offset or a
+   *  split-screen's second base, so it may not match the composited image for
+   *  Plus scroll/split effects. Use the PNG screenshot for the exact display. */
   screenExportBytes(): Uint8Array { return this.memory.getRamBank(this.crtc.displayStart >>> 12).slice(); }
 
   /** RAM export: the full 64K physical RAM image. */

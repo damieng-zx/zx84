@@ -351,19 +351,17 @@ export class Asic extends GateArray {
    */
   dmaCycle(): void {
     if (this.locked) return;
-    for (const ch of this.dma) {
+    for (let chanIdx = 0; chanIdx < this.dma.length; chanIdx++) {
+      const ch = this.dma[chanIdx];
       if (!ch.enabled) continue;
       if (ch.pauseTicks > 0) { ch.pauseTicks--; continue; }
       const instr = this.readRam16(ch.source & 0xFFFF);
       ch.source = (ch.source + 2) & 0xFFFF;
       // Mirror the advanced source back into the register page so software
       // reading &6C00/&6C01 after a DMA tick sees the live position.
-      const chanIdx = this.dma.indexOf(ch);
-      if (chanIdx >= 0) {
-        const base = ASIC_DMA_CHAN_OFFSET + (chanIdx << 2);
-        this.registerPage[base] = ch.source & 0xFF;
-        this.registerPage[base + 1] = (ch.source >>> 8) & 0xFF;
-      }
+      const base = ASIC_DMA_CHAN_OFFSET + (chanIdx << 2);
+      this.registerPage[base] = ch.source & 0xFF;
+      this.registerPage[base + 1] = (ch.source >>> 8) & 0xFF;
       this.executeDma(ch, instr);
     }
   }
