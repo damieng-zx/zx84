@@ -428,6 +428,30 @@ describe('Asic hardware sprites', () => {
     expect(px[by(12) * CPC_SCREEN_WIDTH + bx(10)]).toBe(0);
   });
 
+  it('draws every pixel on the last framebuffer scanline (bufferY = height-1)', () => {
+    // The buffer-overrun guard must reject only out-of-range rows, not clip the
+    // final valid scanline. Two adjacent opaque pixels on row height-1 must both
+    // render — the bug dropped everything past bufferX 0 on the last row.
+    const a = unlockedAsic();
+    const lastY = CPC_SCREEN_HEIGHT - 1;               // 271
+    const activeY = lastY - CPC_BORDER_TOP;            // sprite Y that lands on row 271
+    a.cpuWrite(SPRITE_PIXELS + (0 << 8) + 0, 0x01);   // sprite 0, row 0, col 0 → pen 1
+    a.cpuWrite(SPRITE_PIXELS + (0 << 8) + 1, 0x01);   // row 0, col 1 → pen 1
+    a.cpuWrite(SPRITE_ATTRS + 0, 10);                 // X lo
+    a.cpuWrite(SPRITE_ATTRS + 1, 0);                  // X hi
+    a.cpuWrite(SPRITE_ATTRS + 2, activeY & 0xFF);     // Y lo
+    a.cpuWrite(SPRITE_ATTRS + 3, (activeY >> 8) & 0xFF); // Y hi
+    a.cpuWrite(SPRITE_ATTRS + 4, 0x05);               // mag 1×1
+    a.cpuWrite(0x2400 + (17 * 2), 0xF0);              // pen 1 → red
+    a.cpuWrite(0x2400 + (17 * 2) + 1, 0x00);
+
+    const px = new Uint32Array(CPC_SCREEN_WIDTH * CPC_SCREEN_HEIGHT);
+    a.drawSprites(px, lastY);
+    const expected = a.asicPalette[17];
+    expect(px[lastY * CPC_SCREEN_WIDTH + bx(10)]).toBe(expected);
+    expect(px[lastY * CPC_SCREEN_WIDTH + bx(11)]).toBe(expected);
+  });
+
   it('does nothing while locked', () => {
     const a = new Asic();   // locked
     const px = new Uint32Array(CPC_SCREEN_WIDTH * CPC_SCREEN_HEIGHT);

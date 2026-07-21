@@ -339,10 +339,10 @@ export class Asic extends GateArray {
    * bits encode the opcode:
    *
    *   %000 (0x0000) — LOAD R,DD: write DD to PSG register R (R in bits 11:8).
-   *   %011 (0x1800) — PAUSE N: pause for N ticks (N in bits 11:0).
-   *   %010 (0x1000) — REPEAT N: set loop counter to N, loop body starts at
+   *   %011 (0x6000) — PAUSE N: pause for N ticks (N in bits 11:0).
+   *   %010 (0x4000) — REPEAT N: set loop counter to N, loop body starts at
    *                    the next instruction.
-   *   %100 (0x2000) — STOP group, sub-selected by low bits: bit 0 = LOOP,
+   *   %100 (0x8000) — STOP group, sub-selected by low bits: bit 0 = LOOP,
    *                    bit 4 = INT, bit 5 = STOP.
    *
    * Source: CPCWiki DMA sound + Caprice32 asic_step_dma. The prescaler would
@@ -624,7 +624,6 @@ export class Asic extends GateArray {
       if (srcRow < 0 || srcRow >= SPRITE_NATIVE) continue;
 
       const rowBase = ASIC_SPRITE_PIXELS_OFFSET + (id << 8) + (srcRow << 4);
-      const rowEnd = px.length - CPC_SCREEN_WIDTH;   // safety for buffer overruns
       for (let dx = 0; dx < spriteW; dx++) {
         const srcX = (dx / xMult) | 0;
         const pen = page[rowBase + srcX] & 0x0F;
@@ -632,7 +631,10 @@ export class Asic extends GateArray {
         const bufferX = x + dx;
         if (bufferX < 0 || bufferX >= CPC_SCREEN_WIDTH) continue;
         const idx = bufferY * CPC_SCREEN_WIDTH + bufferX;
-        if (idx < 0 || idx > rowEnd) continue;
+        // bufferX is already in range, so this only guards bufferY (there is no
+        // separate height check). >= px.length rejects out-of-range rows while
+        // still allowing the final valid scanline.
+        if (idx < 0 || idx >= px.length) continue;
         px[idx] = pal[16 + pen];
       }
     }
