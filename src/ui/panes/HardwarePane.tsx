@@ -18,8 +18,11 @@ export function HardwarePane() {
   const speedValue = () => {
     const stop = SPEED_LABELS[speedStep()];
     const mhz = clockSpeedText();
-    if (mhz === 'Max') return stop === 'max' ? 'max' : `${stop} max`;
-    return `${stop} ${mhz}MHz`;
+    const actual = mhz === 'Max' ? (stop === 'max' ? '' : 'max') : `${mhz}MHz`;
+    return <>
+      <span class="speed-stop">{stop}</span>
+      <Show when={actual}><span class="speed-mhz">{actual}</span></Show>
+    </>;
   };
 
   return (

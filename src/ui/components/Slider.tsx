@@ -1,5 +1,5 @@
 import { Show } from 'solid-js';
-import type { Accessor } from 'solid-js';
+import type { Accessor, JSX } from 'solid-js';
 
 // Standard labelled range-input row used across the settings panes
 // (Display, Sound, Text). Callers own the side effects (signal update,
@@ -13,7 +13,7 @@ export function SliderRow(props: {
   step?: number;
   value: Accessor<number>;
   onInput: (v: number) => void;
-  format?: (v: number) => string;
+  format?: (v: number) => JSX.Element;
   endLabels?: [string, string];
   stops?: readonly number[];
   valueText?: (v: number) => string;

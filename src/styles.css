@@ -1615,8 +1615,16 @@ input[type="range"]::-moz-range-thumb {
 #speed-value {
   width: 12ch;
   min-width: 12ch;
-  text-align: right;
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 0.35em;
+  white-space: nowrap;
   font-variant-numeric: tabular-nums;
+}
+
+#speed-value .speed-mhz {
+  font-size: 0.82em;
 }
 
 .speed-slider-row {
