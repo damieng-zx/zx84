@@ -18,14 +18,15 @@ import type { Machine } from '../src/machines/machine.ts';
 import { unzip } from '../src/media/zip.ts';
 
 /** Load a local file through a machine's generic media service. */
-export async function loadMediaInto(machine: Machine, filepath: string): Promise<string> {
+export async function loadMediaInto(machine: Machine, filepath: string, target?: string): Promise<string> {
   if (!fs.existsSync(filepath)) return `File not found: ${filepath}`;
-  return mountMediaBytes(machine, new Uint8Array(fs.readFileSync(filepath)), path.basename(filepath));
+  return mountMediaBytes(machine, new Uint8Array(fs.readFileSync(filepath)), path.basename(filepath), undefined, target);
 }
 
 /** Mount in-memory media, unwrapping a ZIP when it contains exactly one file
- * accepted by the active machine. */
-export async function mountMediaBytes(machine: Machine, source: Uint8Array, sourceName: string, innerFile?: string): Promise<string> {
+ *  accepted by the active machine. `target` is the MediaService's drive hint
+ *  ('a'/'b'/'unit:N') when the user picked a drive. */
+export async function mountMediaBytes(machine: Machine, source: Uint8Array, sourceName: string, innerFile?: string, target?: string): Promise<string> {
   let data = source;
   let filename = sourceName;
   const accepted = new Set(machine.services.media.accepts().map(type => type.ext.toLowerCase()));
@@ -52,13 +53,13 @@ export async function mountMediaBytes(machine: Machine, source: Uint8Array, sour
     filename = entries[0].name;
   }
 
-  const result = await machine.services.media.mount(data, filename);
+  const result = await machine.services.media.mount(data, filename, target);
   if (result.replay) {
     // The mount rebuilt the machine as another model (cross-model snapshot)
     // via host.requestModel — re-dispatch to the replacement in state.spec,
     // exactly like the shell's reflectMount. The new machine matches the
     // media's model, so the replayed mount cannot recurse.
-    return mountMediaBytes(state.spec, data, filename, innerFile);
+    return mountMediaBytes(state.spec, data, filename, innerFile, target);
   }
   return result.message;
 }
