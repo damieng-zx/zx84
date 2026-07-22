@@ -4,7 +4,7 @@
  * trace wrappers, the boot-loader auto-trap, refresh-state save/restore, and init.
  */
 
-import type { MachineHost } from '@/machines/machine.ts';
+import type { Machine, MachineHost } from '@/machines/machine.ts';
 import { entryForModel } from '@/machines/registry.ts';
 import {
   type MachineModel,
@@ -18,7 +18,8 @@ import * as settings from '@/store/settings.ts';
 import { clearLastFile } from '@/store/persistence.ts';
 import { decideFocusPause } from '@/focus-pause.ts';
 import {
-  currentModel, setCurrentModel, saveModel, emulationPaused, setEmulationPaused, setTurboMode,
+  currentModel, setCurrentModel, saveModel, emulationPaused, setEmulationPaused,
+  speedStep, setSpeedStep, setTurboMode,
 } from '@/state/machine-state.ts';
 import {
   setDisasmText, setSysvarHtml, setBasicListing, setBasicVars, setTracing,
@@ -51,6 +52,24 @@ import { applyDisplaySettings, buildSettingsView } from '@/shell/settings.ts';
 export type { TraceMode };
 export { fontDataHash, updateFontPreview, loadFontStore, saveFontStore, capturedFontData } from '@/frame-bridge.ts';
 export type { FontEntry } from '@/frame-bridge.ts';
+
+export const SPEED_MULTIPLIERS: readonly (number | null)[] = [
+  0, 0.1, 0.25, 0.5, 1, 2, 4, 8, 16, null,
+];
+export const SPEED_LABELS = [
+  '0%', '10%', '25%', '50%', '100%', '2×', '4×', '8×', '16×', 'max',
+] as const;
+
+function applySpeedMultiplier(target: Machine, multiplier: number | null): void {
+  // The fallback keeps lightweight test/third-party machine doubles compatible
+  // while all built-in machines use the driver method above.
+  if (typeof target.setSpeedMultiplier === 'function') {
+    target.setSpeedMultiplier(multiplier);
+  } else {
+    target.speedMultiplier = multiplier;
+    target.turbo = multiplier === null;
+  }
+}
 
 // ── MachineHost ────────────────────────────────────────────────────────────
 
@@ -109,6 +128,7 @@ export async function createMachine(): Promise<boolean> {
   const display = canvasEl ? createDisplay(canvasEl, w, h) : null;
   const built = entry.create(model, display);
   setMachine(built);
+  applySpeedMultiplier(built, SPEED_MULTIPLIERS[speedStep()] ?? 1);
   built.attachHost?.(buildMachineHost());
   resetEinsteinPhantom();   // fresh FDC on the new machine
   built.onStatus = (msg: string) => setStatus(msg);
@@ -269,8 +289,7 @@ export function stepFrame(): void {
 export function resetMachine(): void {
   floppySound?.reset();
   if (machine) {
-    machine.turbo = false;
-    setTurboMode(false);
+    setEmulationSpeed(4);
     machine.reset();
     if (romData) machine.start();
     unpause();
@@ -295,8 +314,15 @@ export function autoBootLoad(method: 'menu' | 'rom48k'): void {
 
 export function toggleTurbo(): void {
   if (!machine) return;
-  machine.turbo = !machine.turbo;
-  setTurboMode(machine.turbo);
+  setEmulationSpeed(machine.turbo ? 4 : SPEED_MULTIPLIERS.length - 1);
+}
+
+export function setEmulationSpeed(step: number): void {
+  const index = Math.max(0, Math.min(SPEED_MULTIPLIERS.length - 1, Math.round(step)));
+  const multiplier = SPEED_MULTIPLIERS[index];
+  setSpeedStep(index);
+  if (machine) applySpeedMultiplier(machine, multiplier);
+  setTurboMode(multiplier === null);
   forceSpeedUpdate();
 }
 

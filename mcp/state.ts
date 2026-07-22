@@ -21,6 +21,7 @@ interface State {
   model: MachineModel;
   spec: Machine;
   romData: Uint8Array;
+  zx8x16kRam: boolean;
 }
 
 // Populated by initMachine(); consumers must await initMachine before access.
@@ -28,8 +29,14 @@ export const state = {} as State;
 
 export const symbols = new SymbolTable();
 
-export async function initMachine(m: MachineModel): Promise<string> {
+export interface InitMachineOptions {
+  /** ZX80/ZX81 RAM pack. Ignored by other machine families. */
+  zx8x16kRam?: boolean;
+}
+
+export async function initMachine(m: MachineModel, options: InitMachineOptions = {}): Promise<string> {
   state.model = m;
+  state.zx8x16kRam = m === 'zx80' || m === 'zx81' ? (options.zx8x16kRam ?? false) : false;
   state.romData = await fetchROM(m);
   // Machines with no on-board ROM (CPC Plus / GX4000) have empty romSources and
   // boot from a hidden default cartridge instead; fetch it via the generic
@@ -44,10 +51,18 @@ export async function initMachine(m: MachineModel): Promise<string> {
     // Spectrum-only headless knob (cheap scanline rendering off-screen).
     (machine as unknown as { scanlineAccuracy: string }).scanlineAccuracy = 'low';
   }
+  if (machine.kind === 'zx8x') {
+    machine.applySettings({
+      get<T>(key: string, fallback: T): T {
+        return key === 'zx8x-16k-ram' ? (state.zx8x16kRam as T) : fallback;
+      },
+    });
+  }
   machine.services.roms.installSystemRom(state.romData);
   machine.reset();
   state.spec = machine;
   wireFdcLog(state.spec);
   installTrapHook(state.spec);
-  return `Machine ready: ${m.toUpperCase()} PC=${h16(state.spec.services.debug.pc)}`;
+  const ram = machine.kind === 'zx8x' ? ` RAM=${state.zx8x16kRam ? '16KB' : '1KB'}` : '';
+  return `Machine ready: ${m.toUpperCase()}${ram} PC=${h16(state.spec.services.debug.pc)}`;
 }

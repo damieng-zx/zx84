@@ -23,7 +23,7 @@ import type { MachineModel } from '@/models.ts';
 import type { OcrGridName, FontSource } from '@/ocr/ocr.ts';
 import type { BasicListingLine, BasicVariable } from '@/basic/types.ts';
 
-export type MachineKind = 'spectrum' | 'cpc' | 'einstein' | 'msx';
+export type MachineKind = 'spectrum' | 'cpc' | 'einstein' | 'msx' | 'zx8x';
 
 /** Border-size selector shared by both machines: 0=none, 1=small, 2=normal. */
 export type BorderMode = 0 | 1 | 2;
@@ -83,6 +83,10 @@ export interface Machine {
   tick(): void;
   /** Run up to maxFrames, stopping early on a breakpoint/watchpoint hit. */
   runUntil(maxFrames: number): number;
+  /** Requested wall-clock speed. `null` means run without a fixed limit. */
+  speedMultiplier: number | null;
+  setSpeedMultiplier(multiplier: number | null): void;
+  /** Legacy max-speed flag retained for tape/debug integrations. */
   turbo: boolean;
 
   // ── Debug hooks (generic across CPU families; storage on BaseMachine) ─
@@ -193,7 +197,7 @@ export interface MachineUiCapabilities {
   /** Execution-trace debugger control is available. */
   readonly trace: boolean;
   /** Palette / colour-map family shown in the Display pane. */
-  readonly colorMap: 'spectrum' | 'cpc' | 'msx' | 'einstein';
+  readonly colorMap: 'spectrum' | 'cpc' | 'msx' | 'einstein' | 'mono';
   /** Built-in floppy drives (A:/B:) are fitted. */
   readonly builtinDisk: boolean;
   /** Joystick pane applies. */

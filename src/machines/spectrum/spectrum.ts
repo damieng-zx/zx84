@@ -628,7 +628,7 @@ export class Spectrum extends BaseMachine implements Machine {
     this._scanAcc = sa === 'high' ? 2 : sa === 'mid' ? 1 : 0;
     // Cache the audio-skip decision once per frame so the per-instruction
     // loop doesn't re-read two properties on every iteration.
-    const skipAudio = this.turbo || this._tapeTurboActive;
+    const skipAudio = this.speedMultiplier !== 1 || this._tapeTurboActive;
     // Cache watchpoint activity: when no watchpoints are configured the
     // post-step null-compare on portWatchHit/memWatchHit is dead weight.
     // Watchpoints are added/removed from the UI between rAFs, so caching

@@ -433,10 +433,7 @@ export class CpcMachine extends BaseMachine implements Machine {
   protected runFrame(): void {
     const crtc = this.crtc;
     const ga = this.gateArray;
-    const skipAudio = this.turbo || (this.tapeTurbo && this.tapeLoadingActive);
-    // Plus extensions (sprites, scroll, split, raster IRQ) only fire when the
-    // ASIC is unlocked. On non-Plus models `asic` is null and `plusActive`
-    // is permanently false — the GA path runs unchanged.
+    const skipAudio = this.speedMultiplier !== 1 || (this.tapeTurbo && this.tapeLoadingActive);
     const asic = this.config.isPlus ? (this.gateArray as Asic) : null;
     const plusActive = asic !== null && !asic.locked;
 

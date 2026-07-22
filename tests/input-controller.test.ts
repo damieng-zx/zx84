@@ -50,6 +50,7 @@ const mockState = vi.hoisted(() => {
     setJoyMapP2Calls: [] as string[],
 
     spectrumPresent: true,
+    joystickPresent: true,
   };
 });
 
@@ -93,6 +94,7 @@ vi.mock('@/shell/context.ts', () => ({
           // The real SpectrumInputService resets the keyboard matrix AND the
           // shared joystick key-state counters (see services/input.ts).
           releaseAll: () => { mockState.keyboardResetCount++; mockState.joystickResetCount++; },
+          joystick: mockState.joystickPresent ? { press: () => {} } : null,
         },
       },
     } : null;
@@ -197,6 +199,7 @@ function resetMockState(): void {
   mockState.setJoyMapP1Calls.length = 0;
   mockState.setJoyMapP2Calls.length = 0;
   mockState.spectrumPresent = true;
+  mockState.joystickPresent = true;
 
   // Minimal document for the DOM-touching setDpadHighlight helper.
   (globalThis as any).document = {
@@ -269,6 +272,21 @@ describe('keyboard — onKeyDown', () => {
     expect(mockState.joyPressCalls).toHaveLength(0);
     // Falls through to the Spectrum keyboard handler instead.
     expect(mockState.handleKeyEventCalls).toHaveLength(1);
+  });
+
+  it('does not let a persisted joystick mapping steal Space from a machine with no joystick', () => {
+    mockState.joystickPresent = false;
+    mockState.joyP1Type = 'kempston';
+    mockState.joyMapP1Mode = 'keys';
+    const event = makeKey('Space', { key: ' ' });
+
+    new InputController().onKeyDown(event);
+
+    expect(mockState.joyPressCalls).toHaveLength(0);
+    expect(mockState.handleKeyEventCalls).toEqual([
+      { code: 'Space', pressed: true, key: ' ' },
+    ]);
+    expect(event.defaultPrevented).toBe(true);
   });
 
   it('skipped when map is unmapped (any value not in KEY_MAP_FOR_MODE)', () => {

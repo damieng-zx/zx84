@@ -971,21 +971,37 @@ describe('updateClockSpeed', () => {
     expect(emu.setClockSpeedText).toHaveBeenLastCalledWith('3.50');
   });
 
-  it('shows "Turbo" while the machine runs flat-out', () => {
+  it('shows "Max" while the machine runs flat-out before a sample is ready', () => {
     const s = makeBasicSpectrum(3_546_900);
     s.turbo = true;
     emu.spectrum = s;
     resetSpeedTracking();
-    expect(emu.setClockSpeedText).toHaveBeenLastCalledWith('Turbo');
+    expect(emu.setClockSpeedText).toHaveBeenLastCalledWith('Max');
   });
 
-  it('shows "Turbo" during auto tape-turbo even when manual turbo is off', () => {
+  it('shows "Max" during auto tape-turbo even when manual turbo is off', () => {
     const s = makeBasicSpectrum(3_546_900);
     s.turbo = false;
     s.tapeTurboActive = true;
     emu.spectrum = s;
     resetSpeedTracking();
-    expect(emu.setClockSpeedText).toHaveBeenLastCalledWith('Turbo');
+    expect(emu.setClockSpeedText).toHaveBeenLastCalledWith('Max');
+  });
+
+  it('shows the requested MHz at a fractional speed stop', () => {
+    const s = makeBasicSpectrum(3_546_900);
+    (s as any).speedMultiplier = 0.25;
+    emu.spectrum = s;
+    resetSpeedTracking();
+    expect(emu.setClockSpeedText).toHaveBeenLastCalledWith('0.88');
+  });
+
+  it('drops decimal places above 28 MHz', () => {
+    const s = makeBasicSpectrum(3_546_900);
+    (s as any).speedMultiplier = 16;
+    emu.spectrum = s;
+    resetSpeedTracking();
+    expect(emu.setClockSpeedText).toHaveBeenLastCalledWith('57');
   });
 
   it('repaints only when the label changes (steady readout)', () => {
@@ -997,14 +1013,14 @@ describe('updateClockSpeed', () => {
     expect(emu.setClockSpeedText).not.toHaveBeenCalled();
   });
 
-  it('flips from a clock reading to "Turbo" when turbo engages mid-run', () => {
+  it('flips from a clock reading to "Max" when max speed engages mid-run', () => {
     const s = makeBasicSpectrum(3_546_900);
     emu.spectrum = s;
     resetSpeedTracking();
     emu.setClockSpeedText.mockClear();
     s.turbo = true;
     onFrame();
-    expect(emu.setClockSpeedText).toHaveBeenCalledWith('Turbo');
+    expect(emu.setClockSpeedText).toHaveBeenCalledWith('Max');
   });
 });
 

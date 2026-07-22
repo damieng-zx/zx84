@@ -46,6 +46,7 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'write-protect-d': () => settings.writeProtectD(),
   'drive-b-force-ready': () => settings.driveBForceReady(),
   'cpc-parados': () => settings.cpcParados(),
+  'zx8x-16k-ram': () => settings.zx8x16kRam(),
 };
 
 export function buildSettingsView(): SettingsView {

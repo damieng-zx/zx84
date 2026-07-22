@@ -1,17 +1,18 @@
 /**
  * MCP Server for ZX84 emulator.
  *
- * Wraps the Spectrum emulator as a persistent MCP tool server so Claude Code
- * can interact with it without spinning up/tearing down the harness each time.
+ * Wraps the emulator as a persistent MCP tool server so clients can interact
+ * with a headless machine without rebuilding the harness for every call.
  *
  * Usage:
- *   npx tsx mcp/server.ts [--model 48k|128k|+2|+2A|+3]
+ *   npx tsx mcp/server.ts [--model zx80|zx81|48k|128k|+2|+2A|+3|...]
  */
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import type { MachineModel } from '../src/models.ts';
 import { initMachine } from './state.ts';
+import { isMcpModel } from './models.ts';
 
 import { register as registerMachine } from './tools/machine.ts';
 import { register as registerMemory } from './tools/memory.ts';
@@ -44,9 +45,7 @@ async function main(): Promise<void> {
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--model' && i + 1 < args.length) {
       const m = args[++i];
-      if (['16k', '48k', '128k', '+2', '+2A', '+3', 'cpc6128', 'cpc464', 'cpc664', 'cpc6128plus', 'gx4000', 'einstein', 'hx-10'].includes(m)) {
-        startModel = m as MachineModel;
-      }
+      if (isMcpModel(m)) startModel = m;
     }
   }
 

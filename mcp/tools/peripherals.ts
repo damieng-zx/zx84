@@ -206,7 +206,7 @@ export function register(server: McpServer): void {
 
   server.registerTool(
     'ocr',
-    { description: 'OCR the screen bitmap. mode: auto (default) | 32x24 | 51x24 (CP/M Plus) | 64x24 (Tasword).', inputSchema: { mode: z.enum(['auto', '32x24', '51x24', '64x24']).optional().describe('Cell grid (default: auto-detect).') } },
+    { description: 'Read text from the active display. ZX80/ZX81 decode their 32x24 display file; bitmap machines use OCR. mode: auto (default) | 32x24 | 51x24 (CP/M Plus) | 64x24 (Tasword).', inputSchema: { mode: z.enum(['auto', '32x24', '51x24', '64x24']).optional().describe('Cell grid (default: auto-detect).') } },
     async ({ mode }) => text(state.spec.services.debug.ocr(mode ?? 'auto')),
   );
 }

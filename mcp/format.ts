@@ -46,7 +46,7 @@ export const KEY_NAME_MAP: Record<string, string> = {
   'z': 'KeyZ',
   '0': 'Digit0', '1': 'Digit1', '2': 'Digit2', '3': 'Digit3', '4': 'Digit4',
   '5': 'Digit5', '6': 'Digit6', '7': 'Digit7', '8': 'Digit8', '9': 'Digit9',
-  'enter': 'Enter', 'space': 'Space',
+  'enter': 'Enter', 'space': 'Space', 'period': 'Period',
   'shift': 'ShiftLeft', 'sym': 'ControlLeft',
   'backspace': 'Backspace', 'delete': 'Delete',
   'left': 'ArrowLeft', 'right': 'ArrowRight',
