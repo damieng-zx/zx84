@@ -53,6 +53,13 @@ export async function mountMediaBytes(machine: Machine, source: Uint8Array, sour
   }
 
   const result = await machine.services.media.mount(data, filename);
+  if (result.replay) {
+    // The mount rebuilt the machine as another model (cross-model snapshot)
+    // via host.requestModel — re-dispatch to the replacement in state.spec,
+    // exactly like the shell's reflectMount. The new machine matches the
+    // media's model, so the replayed mount cannot recurse.
+    return mountMediaBytes(state.spec, data, filename, innerFile);
+  }
   return result.message;
 }
 

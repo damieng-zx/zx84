@@ -16,6 +16,7 @@ import { fetchROM, fetchBootCartridge } from './rom-fetch.ts';
 import { wireFdcLog } from './fdc-log.ts';
 import { installTrapHook } from './traps.ts';
 import { applyHeadlessKnobs } from './concrete.ts';
+import { createMcpHost } from './host.ts';
 import { hex16 as h16 } from '../src/utils/hex.ts';
 
 interface State {
@@ -35,6 +36,11 @@ export interface InitMachineOptions {
 }
 
 export async function initMachine(m: MachineModel, options: InitMachineOptions = {}): Promise<string> {
+  // Tear down the machine being replaced (headless this just cancels timers
+  // and closes audio/turbo plumbing) — including when a mount triggered this
+  // rebuild via host.requestModel, mid-mount on the OLD machine; its service
+  // returns needsReplay immediately afterwards and touches nothing more.
+  state.spec?.destroy();
   state.model = m;
   state.romData = await fetchROM(m);
   // Machines with no on-board ROM (CPC Plus / GX4000) have empty romSources and
@@ -46,6 +52,7 @@ export async function initMachine(m: MachineModel, options: InitMachineOptions =
     if (cartSource) state.romData = await fetchBootCartridge(cartSource);
   }
   const machine = entryForModel(m).create(m, null);
+  machine.attachHost(createMcpHost());
   const ramNote = applyHeadlessKnobs(machine, options);
   machine.services.roms.installSystemRom(state.romData);
   machine.reset();
