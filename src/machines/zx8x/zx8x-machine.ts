@@ -21,6 +21,16 @@ import {
 
 const WHITE = 0xffffffff;
 const BLACK = 0xff000000;
+const PSEUDO_HIRES_ROW_BYTES = 32;
+const PSEUDO_HIRES_MAX_ROWS = 192;
+const PSEUDO_HIRES_TEXT_MAX_ROWS = 64;
+// A normal ZX81 scanline is 207T. Software-only hi-res rows are accepted only
+// when their 32 display M1 fetches are contiguous 4T NOP cycles and bracketed
+// by the program's sync pulses; this rejects arbitrary high-memory execution.
+const PSEUDO_HIRES_SYNC_MAX_AGE_T = 207;
+const PSEUDO_HIRES_FRAME_GAP_T = 512;
+const PSEUDO_HIRES_TIMEOUT_T = ZX8X_T_PER_FRAME * 2;
+const ZX81_CDFLAG = 0x403b;
 
 export class Zx8xMachine extends BaseMachine implements Machine {
   readonly kind: MachineKind = 'zx8x';
@@ -40,6 +50,28 @@ export class Zx8xMachine extends BaseMachine implements Machine {
   private readonly frame = new Uint8Array(ZX8X_SCREEN_WIDTH * ZX8X_SCREEN_HEIGHT * 4);
   private readonly frame32 = new Uint32Array(this.frame.buffer);
   private nmiEnabled = false;
+  private m1ReadPending = false;
+  private readonly pseudoHiresRow = new Uint8Array(PSEUDO_HIRES_ROW_BYTES);
+  private readonly pseudoHiresBuilding = new Uint8Array(PSEUDO_HIRES_ROW_BYTES * PSEUDO_HIRES_MAX_ROWS);
+  private readonly pseudoHiresFrame = new Uint8Array(PSEUDO_HIRES_ROW_BYTES * PSEUDO_HIRES_MAX_ROWS);
+  private readonly pseudoHiresTextBuilding = new Uint8Array(PSEUDO_HIRES_ROW_BYTES * PSEUDO_HIRES_TEXT_MAX_ROWS);
+  private readonly pseudoHiresTextFrame = new Uint8Array(PSEUDO_HIRES_ROW_BYTES * PSEUDO_HIRES_TEXT_MAX_ROWS);
+  private pseudoHiresRunLength = 0;
+  private pseudoHiresRunValid = false;
+  private pseudoHiresRunIsText = false;
+  private pseudoHiresRunGlyphRow = 0;
+  private pseudoHiresRowReady = false;
+  private pseudoHiresRowIsText = false;
+  private pseudoHiresBuildingRows = 0;
+  private pseudoHiresFrameRows = 0;
+  private pseudoHiresTextBuildingRows = 0;
+  private pseudoHiresTextFrameRows = 0;
+  private pseudoHiresLastSyncT = -1;
+  private pseudoHiresLastCommittedRowT = -1;
+  private pseudoHiresLastTextRowT = -1;
+  private pseudoHiresLastTextRunT = -1;
+  private pseudoHiresTextLineCounter = 0;
+  private pseudoHiresLastFetchT = -1;
 
   constructor(model: Zx8xModel, display: IScreenRenderer | null = null) {
     super();
@@ -49,6 +81,7 @@ export class Zx8xMachine extends BaseMachine implements Machine {
     this.mixer.beeperGain = 0;
     this.mixer.ayGain = 0;
     this.installCpuBus();
+    this.installCpuStep();
     this.services = createZx8xServices(this);
   }
 
@@ -63,10 +96,12 @@ export class Zx8xMachine extends BaseMachine implements Machine {
   private installCpuBus(): void {
     this.cpu.read8 = (addr: number): number => {
       addr &= 0xffff;
+      const m1 = this.m1ReadPending;
+      if (m1) this.m1ReadPending = false;
       let value = this.memory.readByte(addr);
       // During an opcode fetch from the echoed display file the ULA presents a
       // NOP for a character byte; a 0x76 line terminator remains HALT.
-      if (addr >= 0xc000 && addr <= 0xffff && (value & 0x40) === 0) value = 0x00;
+      if (m1 && addr >= 0x8000 && (value & 0x40) === 0) value = 0x00;
       if (this.memWatchpoints.length && this.memWatchHit === null) {
         for (const wp of this.memWatchpoints) if ((wp.mode === 'read' || wp.mode === 'rw') && addr >= wp.start && addr <= wp.end) {
           this.memWatchHit = { addr, value, dir: 'read' }; break;
@@ -94,10 +129,23 @@ export class Zx8xMachine extends BaseMachine implements Machine {
     this.cpu.portOutHandler = (port: number, value: number): void => {
       const low = port & 0xff;
       if (this.model === 'zx81') {
+        this.observeZx81SyncStart();
         if (low === 0xfe) this.nmiEnabled = true;
         else if (low === 0xfd) this.nmiEnabled = false;
       }
       if (this.portWatchpoints.has(port & 0xffff) && this.portWatchHit === null) this.portWatchHit = { port: port & 0xffff, value: value & 0xff, dir: 'out' };
+    };
+  }
+
+  /** Mark the first memory read of every CPU step as its M1 opcode fetch.
+   * This keeps ZX81 video interception machine-local and also covers debugger
+   * stepping, whose debug service calls cpu.step() directly. */
+  private installCpuStep(): void {
+    const step = this.cpu.step.bind(this.cpu);
+    this.cpu.step = (): void => {
+      this.observePseudoHiresM1();
+      this.m1ReadPending = true;
+      try { step(); } finally { this.m1ReadPending = false; }
     };
   }
 
@@ -120,7 +168,7 @@ export class Zx8xMachine extends BaseMachine implements Machine {
       this.cpu.sp = this.memory.has16kExpansion ? 0x7ffc : 0x43fc;
       this.cpu.pc = 0x0283;
     }
-    this.renderDisplayFile();
+    this.renderCurrentVideo();
     this.needsDisplay = true;
     // Browser loads resume the live frame loop; the headless MCP deliberately
     // advances with tick()/runUntil() and has no requestAnimationFrame.
@@ -186,6 +234,7 @@ export class Zx8xMachine extends BaseMachine implements Machine {
     this.nmiEnabled = false;
     this.audio.reset();
     this.mixer.reset();
+    this.resetPseudoHires();
     this.frame32.fill(WHITE);
     this.needsDisplay = true;
   }
@@ -225,8 +274,244 @@ export class Zx8xMachine extends BaseMachine implements Machine {
       }
       if (broke) break;
     }
-    this.renderDisplayFile();
+    this.renderCurrentVideo();
     this.needsDisplay = true;
+  }
+
+  /** Capture the ROM-pattern pseudo-hires byte selected during this M1 fetch.
+   *
+   * Software-only hi-res temporarily points I at a nonstandard ROM page and
+   * executes a 32-byte display stream in the A15-high memory echo. The ULA
+   * gives the CPU NOPs while latching one 8-pixel pattern per 4T fetch. The
+   * program restores I before the frame ends, so this must happen alongside
+   * CPU execution rather than in the post-frame D_FILE renderer. */
+  private observePseudoHiresM1(): void {
+    const pc = this.cpu.pc & 0xffff;
+    const raw = this.memory.readByte(pc);
+    const fontPage = this.cpu.i & 0xff;
+    const isPseudoHires = this.model === 'zx81'
+      && (pc & 0x8000) !== 0
+      && (raw & 0x40) === 0
+      && fontPage < 0x20;
+
+    if (!isPseudoHires) {
+      this.finishPseudoHiresRow();
+      return;
+    }
+
+    const now = this.cpu.tStates;
+    if (this.pseudoHiresRunLength === 0) {
+      // A fresh display stream must follow a software-generated sync pulse.
+      // Any unconsumed row means another stream began without the delimiter
+      // that real pseudo-hires routines use, so discard it.
+      this.pseudoHiresRowReady = false;
+      const followsSync = this.pseudoHiresLastSyncT >= 0
+        && now - this.pseudoHiresLastSyncT <= PSEUDO_HIRES_SYNC_MAX_AGE_T;
+      // The first visible row after vertical blank can begin more than one
+      // scanline after the preceding OUT. Once a real row has established the
+      // stream, accept that frame boundary as well as an immediately preceding
+      // horizontal sync pulse.
+      const followsFrameGap = this.pseudoHiresLastCommittedRowT >= 0
+        && now - this.pseudoHiresLastCommittedRowT > PSEUDO_HIRES_FRAME_GAP_T;
+      this.pseudoHiresRunValid = followsSync || followsFrameGap;
+      this.pseudoHiresRunIsText = fontPage === 0x1e;
+      if (this.pseudoHiresRunIsText) {
+        if (this.pseudoHiresLastTextRunT >= 0
+            && now - this.pseudoHiresLastTextRunT <= PSEUDO_HIRES_SYNC_MAX_AGE_T) {
+          this.pseudoHiresTextLineCounter = (this.pseudoHiresTextLineCounter + 1) & 7;
+        } else {
+          this.pseudoHiresTextLineCounter = 0;
+        }
+        this.pseudoHiresLastTextRunT = now;
+        this.pseudoHiresRunGlyphRow = this.pseudoHiresTextLineCounter;
+      } else {
+        // Pseudo-hires resets the modulo-8 line counter for every raster row.
+        this.pseudoHiresRunGlyphRow = 0;
+      }
+      this.pseudoHiresRow.fill(0);
+    } else if (now - this.pseudoHiresLastFetchT !== 4) {
+      this.pseudoHiresRunValid = false;
+    }
+
+    if (this.pseudoHiresRunLength < PSEUDO_HIRES_ROW_BYTES) {
+      const glyph = ((fontPage & 0xfe) << 8) | ((raw & 0x3f) << 3) | this.pseudoHiresRunGlyphRow;
+      let bits = this.memory.readByte(glyph);
+      if (raw & 0x80) bits ^= 0xff;
+      this.pseudoHiresRow[this.pseudoHiresRunLength] = bits;
+    }
+    this.pseudoHiresRunLength++;
+    this.pseudoHiresLastFetchT = now;
+  }
+
+  private finishPseudoHiresRow(): void {
+    if (this.pseudoHiresRunLength === 0) return;
+    this.pseudoHiresRowReady = this.pseudoHiresRunValid
+      && this.pseudoHiresRunLength === PSEUDO_HIRES_ROW_BYTES;
+    this.pseudoHiresRowIsText = this.pseudoHiresRunIsText;
+    this.pseudoHiresRunLength = 0;
+    this.pseudoHiresRunValid = false;
+    this.pseudoHiresRunIsText = false;
+    // Standard-font scanlines are paced by the ZX81's NMI display cycle and
+    // do not have the software OUT delimiter used by pseudo-hires rows.
+    if (this.pseudoHiresRowReady && this.pseudoHiresRowIsText) {
+      this.commitPseudoHiresTextRow();
+      this.pseudoHiresRowReady = false;
+      this.pseudoHiresRowIsText = false;
+    }
+  }
+
+  private commitPseudoHiresTextRow(): void {
+    const now = this.cpu.tStates;
+    if (this.pseudoHiresTextBuildingRows > 0 && this.pseudoHiresLastTextRowT >= 0
+        && now - this.pseudoHiresLastTextRowT > PSEUDO_HIRES_FRAME_GAP_T) {
+      this.finishPseudoHiresTextFrame();
+    }
+    if (this.pseudoHiresTextBuildingRows === PSEUDO_HIRES_TEXT_MAX_ROWS) {
+      this.finishPseudoHiresTextFrame();
+    }
+    this.pseudoHiresTextBuilding.set(
+      this.pseudoHiresRow,
+      this.pseudoHiresTextBuildingRows * PSEUDO_HIRES_ROW_BYTES,
+    );
+    this.pseudoHiresTextBuildingRows++;
+    this.pseudoHiresLastTextRowT = now;
+  }
+
+  /** Every ZX81 OUT begins a sync interval. Pseudo-hires software issues one
+   * after each RET-terminated raster row; using that real delimiter prevents
+   * ordinary high-memory instruction streams from becoming bitmap noise. */
+  private observeZx81SyncStart(): void {
+    const now = this.cpu.tStates;
+    if (this.pseudoHiresTextBuildingRows > 0 && this.pseudoHiresLastTextRowT >= 0
+        && now - this.pseudoHiresLastTextRowT > PSEUDO_HIRES_FRAME_GAP_T) {
+      this.finishPseudoHiresTextFrame();
+    }
+    if (this.pseudoHiresRowReady) {
+      // Only a sync pulse that actually terminates a qualified display row can
+      // delimit frames. Control OUTs elsewhere in the program must not publish
+      // a one-row partial frame over the last complete raster.
+      if (this.pseudoHiresBuildingRows > 0 && this.pseudoHiresLastCommittedRowT >= 0
+          && now - this.pseudoHiresLastCommittedRowT > PSEUDO_HIRES_FRAME_GAP_T) {
+        this.finishPseudoHiresFrame();
+      }
+      if (this.pseudoHiresBuildingRows === PSEUDO_HIRES_MAX_ROWS) this.finishPseudoHiresFrame();
+      this.pseudoHiresBuilding.set(
+        this.pseudoHiresRow,
+        this.pseudoHiresBuildingRows * PSEUDO_HIRES_ROW_BYTES,
+      );
+      this.pseudoHiresBuildingRows++;
+      this.pseudoHiresLastCommittedRowT = now;
+    }
+    this.pseudoHiresRowReady = false;
+    this.pseudoHiresRowIsText = false;
+    this.pseudoHiresLastSyncT = now;
+  }
+
+  private finishPseudoHiresFrame(): void {
+    if (this.pseudoHiresBuildingRows === 0) return;
+    // Manic Miner (and similar routines) performs an isolated display-shaped
+    // transfer between its real raster passes. It is valid bus traffic, but
+    // not a replacement frame. Debounce that solitary row once a multi-row
+    // raster is established so it cannot flash as bitmap noise.
+    if (this.pseudoHiresBuildingRows === 1 && this.pseudoHiresFrameRows > 1) {
+      this.pseudoHiresBuildingRows = 0;
+      return;
+    }
+    const length = this.pseudoHiresBuildingRows * PSEUDO_HIRES_ROW_BYTES;
+    this.pseudoHiresFrame.fill(0);
+    this.pseudoHiresFrame.set(this.pseudoHiresBuilding.subarray(0, length));
+    this.pseudoHiresFrameRows = this.pseudoHiresBuildingRows;
+    this.pseudoHiresBuildingRows = 0;
+  }
+
+  private finishPseudoHiresTextFrame(): void {
+    if (this.pseudoHiresTextBuildingRows === 0) return;
+    const length = this.pseudoHiresTextBuildingRows * PSEUDO_HIRES_ROW_BYTES;
+    this.pseudoHiresTextFrame.fill(0);
+    this.pseudoHiresTextFrame.set(this.pseudoHiresTextBuilding.subarray(0, length));
+    this.pseudoHiresTextFrameRows = this.pseudoHiresTextBuildingRows;
+    this.pseudoHiresTextBuildingRows = 0;
+  }
+
+  private pseudoHiresActive(): boolean {
+    if (this.pseudoHiresFrameRows === 0) return false;
+    if (this.pseudoHiresLastFetchT >= 0
+        && this.cpu.tStates - this.pseudoHiresLastFetchT <= PSEUDO_HIRES_TIMEOUT_T) return true;
+    this.pseudoHiresFrameRows = 0;
+    return false;
+  }
+
+  private renderPseudoHires(): boolean {
+    if (!this.pseudoHiresActive()) return false;
+    if (this.pseudoHiresTextBuildingRows > 0 && this.pseudoHiresLastTextRowT >= 0
+        && this.cpu.tStates - this.pseudoHiresLastTextRowT > PSEUDO_HIRES_FRAME_GAP_T) {
+      this.finishPseudoHiresTextFrame();
+    }
+    this.frame32.fill(WHITE);
+    const textRows = Math.min(
+      this.pseudoHiresTextFrameRows,
+      ZX8X_ACTIVE_HEIGHT - this.pseudoHiresFrameRows,
+    );
+    const totalRows = this.pseudoHiresFrameRows + textRows;
+    const top = ZX8X_BORDER_TOP + ((ZX8X_ACTIVE_HEIGHT - totalRows) >> 1);
+    for (let y = 0; y < this.pseudoHiresFrameRows; y++) {
+      const dest = (top + y) * ZX8X_SCREEN_WIDTH + ZX8X_BORDER_LEFT;
+      const source = y * PSEUDO_HIRES_ROW_BYTES;
+      for (let col = 0; col < PSEUDO_HIRES_ROW_BYTES; col++) {
+        const bits = this.pseudoHiresFrame[source + col];
+        const px = dest + col * 8;
+        for (let bit = 0; bit < 8; bit++) {
+          this.frame32[px + bit] = bits & (0x80 >> bit) ? BLACK : WHITE;
+        }
+      }
+    }
+    for (let y = 0; y < textRows; y++) {
+      const dest = (top + this.pseudoHiresFrameRows + y) * ZX8X_SCREEN_WIDTH + ZX8X_BORDER_LEFT;
+      const source = y * PSEUDO_HIRES_ROW_BYTES;
+      for (let col = 0; col < PSEUDO_HIRES_ROW_BYTES; col++) {
+        const bits = this.pseudoHiresTextFrame[source + col];
+        const px = dest + col * 8;
+        for (let bit = 0; bit < 8; bit++) {
+          this.frame32[px + bit] = bits & (0x80 >> bit) ? BLACK : WHITE;
+        }
+      }
+    }
+    return true;
+  }
+
+  private resetPseudoHires(): void {
+    this.pseudoHiresRow.fill(0);
+    this.pseudoHiresBuilding.fill(0);
+    this.pseudoHiresFrame.fill(0);
+    this.pseudoHiresTextBuilding.fill(0);
+    this.pseudoHiresTextFrame.fill(0);
+    this.pseudoHiresRunLength = 0;
+    this.pseudoHiresRunValid = false;
+    this.pseudoHiresRunIsText = false;
+    this.pseudoHiresRunGlyphRow = 0;
+    this.pseudoHiresRowReady = false;
+    this.pseudoHiresRowIsText = false;
+    this.pseudoHiresBuildingRows = 0;
+    this.pseudoHiresFrameRows = 0;
+    this.pseudoHiresTextBuildingRows = 0;
+    this.pseudoHiresTextFrameRows = 0;
+    this.pseudoHiresLastSyncT = -1;
+    this.pseudoHiresLastCommittedRowT = -1;
+    this.pseudoHiresLastTextRowT = -1;
+    this.pseudoHiresLastTextRunT = -1;
+    this.pseudoHiresTextLineCounter = 0;
+    this.pseudoHiresLastFetchT = -1;
+  }
+
+  /** Render software-generated pixels in either ZX81 mode. Ordinary display-
+   * file video is available only in SLOW; FAST leaves the active area blank. */
+  private renderCurrentVideo(): void {
+    if (this.renderPseudoHires()) return;
+    if (this.model === 'zx81' && (this.memory.readByte(ZX81_CDFLAG) & 0x80) === 0) {
+      this.frame32.fill(WHITE);
+      return;
+    }
+    this.renderDisplayFile();
   }
 
   /** Render the current 32x24 display file with the character page selected by I. */
@@ -271,6 +556,7 @@ export class Zx8xMachine extends BaseMachine implements Machine {
     return out;
   }
   ocrScreenStyled(): OcrResult {
+    if (this.pseudoHiresActive()) return this.screenText.ocrStyled(new Uint8Array(0x10000), this.model);
     return this.screenText.ocrStyled(this.memory.snapshot(), this.model);
   }
   blankTextCells(mask: readonly boolean[]): void {
@@ -289,6 +575,7 @@ export class Zx8xMachine extends BaseMachine implements Machine {
   startTrace(_mode: MachineTraceMode = 'full'): void {}
   stopTrace(): string { return ''; }
   ocrScreenForMcp(_mode: OcrGridName | 'auto' = 'auto'): string {
+    if (this.pseudoHiresActive()) return '[32x24]\n';
     return `[32x24]\n${this.screenText.ocr(this.memory.snapshot(), this.model)}`;
   }
   resolveMemoryRegion(value: string): { data: Uint8Array; baseAddr: number } | null {
