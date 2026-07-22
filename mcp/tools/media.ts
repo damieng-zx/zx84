@@ -5,11 +5,11 @@ import { z } from 'zod';
 import { saveSZX } from '../../src/machines/spectrum/snapshots/szx.ts';
 import { hex8 as h8, hex16 as h16 } from '../../src/utils/hex.ts';
 import { state, initMachine } from '../state.ts';
-import { activeSpectrum, activeCpc, activeFdc } from '../concrete.ts';
+import { activeSpectrum, activeCpc, activeFdc, zx8x16kRam } from '../concrete.ts';
 import { text, formatHexDump } from '../format.ts';
-import { loadFileInto, loadMediaInto, mountAndArm, mountMediaBytes, runLoadVerdict } from '../loader.ts';
+import { loadMediaInto, mountMediaBytes } from '../loader.ts';
+import { loadFileInto, mountAndArm, runLoadVerdict } from '../spectrum-loader.ts';
 import { fdcLog } from '../fdc-log.ts';
-import { parseDSK } from '../../src/media/floppy/dsk.ts';
 import { unzip } from '../../src/media/zip.ts';
 import { CACHE_DIR } from '../rom-fetch.ts';
 import {
@@ -74,7 +74,7 @@ async function loadZx8xLibraryTitle(
 
   // ZXDB does not record RAM requirements. Match the app's library launch:
   // fit the backward-compatible 16KB pack before mounting any catalog title.
-  if (!state.zx8x16kRam) lines.push(await initMachine(model, { zx8x16kRam: true }));
+  if (!zx8x16kRam()) lines.push(await initMachine(model, { zx8x16kRam: true }));
   lines.push(await mountMediaBytes(state.spec, data, basename(game.file), innerFile));
 
   if (frames > 0) {
@@ -87,33 +87,20 @@ async function loadZx8xLibraryTitle(
 export function register(server: McpServer): void {
   server.registerTool(
     'load',
-    { description: 'Load a file into the emulator. ZX80 accepts .o/.80; ZX81 accepts .p/.81/.p81; either may be the sole compatible file in a ZIP. Spectrum and CPC media formats are also supported. On the CPC also .CPR cartridges (Plus/GX4000 firmware or game). For DSK, optional drive unit (0/A or 1/B); for MDR, optional microdrive unit (0-7 → drives 1-8).', inputSchema: {
-      file: z.string().describe('Path to a machine-compatible media file or ZIP, or .CPR on CPC'),
+    { description: 'Load a file into the emulator. ZX80 accepts .o/.80; ZX81 accepts .p/.81/.p81; CPC accepts .dsk/.hfe/.scp disks, .cdt tapes, .sna snapshots, and .cpr cartridges on Plus models; MSX accepts .rom/.cas; Einstein accepts .dsk/.hfe/.scp; Spectrum accepts its tape/snapshot/disk formats (peripheral media auto-enables the matching interface). ZIPs are unwrapped when they hold exactly one compatible file. For DSK, optional drive unit (0/A or 1/B); for MDR, optional microdrive unit (0-7 → drives 1-8).', inputSchema: {
+      file: z.string().describe('Path to a machine-compatible media file or ZIP'),
       drive: z.enum(['0', '1', 'A', 'B']).default('0').describe('Drive unit for DSK files'),
     } },
     async ({ file, drive }) => {
       const diskUnit = (drive === '1' || drive === 'B') ? 1 : 0;
-      if (state.spec.kind === 'zx8x') return text(await loadMediaInto(state.spec, file));
-      const cpc = activeCpc();
-      if (cpc) {
-        if (!fs.existsSync(file)) return text(`File not found: ${file}`);
-        const data = new Uint8Array(fs.readFileSync(file));
-        if (/\.cpr$/i.test(file)) {
-          // .CPR cartridge (Plus/GX4000). loadROM detects the RIFF/CPR header
-          // and routes to memory.loadCartridge; reset boots from the freshly
-          // inserted cartridge, matching a real power-cycle with a new cart.
-          cpc.loadROM(data);
-          cpc.reset();
-          return text(`CPR cartridge inserted and booted: ${path.basename(file)}`);
-        }
-        if (!/\.dsk$/i.test(file)) return text('On the CPC, load accepts .dsk disk images or .cpr cartridges.');
-        const image = parseDSK(data);
-        cpc.loadDisk(image, diskUnit);
-        return text(`DSK mounted in drive ${diskUnit === 0 ? 'A' : 'B'}: ${path.basename(file)}`);
-      }
+      // The Spectrum keeps its bench path: it auto-enables the +D/Interface 1/
+      // Beta Disk ROMs for peripheral media, which the machine's own
+      // MediaService deliberately refuses to do.
       const spectrum = activeSpectrum();
-      if (!spectrum) return text(`load is not implemented for ${state.model.toUpperCase()}.`);
-      return text(await loadFileInto(spectrum, file, diskUnit));
+      if (spectrum) return text(await loadFileInto(spectrum, file, diskUnit));
+      // Every other machine mounts through its own MediaService — the machine
+      // owns the extension→device routing; ZIP unwrapping is handled inside.
+      return text(await loadMediaInto(state.spec, file, `unit:${diskUnit}`));
     },
   );
 
@@ -390,13 +377,18 @@ export function register(server: McpServer): void {
     } },
     async ({ target, drive }) => {
       if (target === 'tape') {
-        const s = activeSpectrum();
-        if (!s) return text('No tape on the CPC.');
-        s.tape.load(new Uint8Array(0));
+        const tape = state.spec.services.tape;
+        if (!tape) return text(`${state.model.toUpperCase()} has no cassette deck.`);
+        tape.eject();
         return text('Tape ejected');
       }
       const unit = (drive === '1' || drive === 'B') ? 1 : 0;
-      activeFdc()!.ejectDisk(unit);
+      const id = unit === 0 ? 'a' : 'b';
+      const disks = state.spec.services.disks;
+      if (!disks || !disks.drives.some(d => d.id === id)) {
+        return text(`${state.model.toUpperCase()} has no drive ${unit === 0 ? 'A:' : 'B:'}.`);
+      }
+      disks.eject(id);
       return text(`Drive ${unit === 0 ? 'A' : 'B'}: ejected`);
     },
   );
@@ -408,7 +400,9 @@ export function register(server: McpServer): void {
       sector: z.number().int().min(0).optional().describe('Sector R value (omit for all sectors on track)'),
     } },
     async ({ track: wTrack, sector: wSector }) => {
-      const dsk = activeFdc()!.getDiskImage(0);
+      const fdc = activeFdc();
+      if (!fdc) return text(`No uPD765A fitted on ${state.model.toUpperCase()} — disk inspection needs a +3 or a CPC.`);
+      const dsk = fdc.getDiskImage(0);
       if (!dsk) return text('No disk in drive A:');
       const track = dsk.tracks[wTrack]?.[0];
       if (!track) return text(`Track ${wTrack} not found`);
@@ -427,7 +421,9 @@ export function register(server: McpServer): void {
     'disk_geometry',
     { description: 'Show geometry of the mounted disk image: format, tracks, sides, protection, and a per-track sector summary.', inputSchema: { drive: z.number().int().min(0).max(1).default(0).describe('Drive number (0=A, 1=B)') } },
     async ({ drive }) => {
-      const dsk = activeFdc()!.getDiskImage(drive);
+      const fdc = activeFdc();
+      if (!fdc) return text(`No uPD765A fitted on ${state.model.toUpperCase()} — disk inspection needs a +3 or a CPC.`);
+      const dsk = fdc.getDiskImage(drive);
       if (!dsk) return text(`No disk in drive ${drive === 0 ? 'A' : 'B'}:`);
       const lines: string[] = [];
       lines.push(`Format: ${dsk.format}  Tracks: ${dsk.numTracks}  Sides: ${dsk.numSides}`);
@@ -455,7 +451,9 @@ export function register(server: McpServer): void {
       drive: z.number().int().min(0).max(1).default(0).describe('Drive number (0=A, 1=B)'),
     } },
     async ({ track: tNum, side, drive }) => {
-      const dsk = activeFdc()!.getDiskImage(drive);
+      const fdc = activeFdc();
+      if (!fdc) return text(`No uPD765A fitted on ${state.model.toUpperCase()} — disk inspection needs a +3 or a CPC.`);
+      const dsk = fdc.getDiskImage(drive);
       if (!dsk) return text(`No disk in drive ${drive === 0 ? 'A' : 'B'}:`);
       const track = dsk.tracks[tNum]?.[side];
       if (!track) return text(`Track ${tNum} side ${side} not found`);
@@ -482,7 +480,9 @@ export function register(server: McpServer): void {
       length: z.number().int().positive().optional().describe('Number of bytes to dump (default: entire sector)'),
     } },
     async ({ track: tNum, sector: sR, side, drive, offset, length }) => {
-      const dsk = activeFdc()!.getDiskImage(drive);
+      const fdc = activeFdc();
+      if (!fdc) return text(`No uPD765A fitted on ${state.model.toUpperCase()} — disk inspection needs a +3 or a CPC.`);
+      const dsk = fdc.getDiskImage(drive);
       if (!dsk) return text(`No disk in drive ${drive === 0 ? 'A' : 'B'}:`);
       const track = dsk.tracks[tNum]?.[side];
       if (!track) return text(`Track ${tNum} side ${side} not found`);

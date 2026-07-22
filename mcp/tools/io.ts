@@ -1,11 +1,9 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { is128kClass } from '../../src/models.ts';
 import { hex8 as h8, hex16 as h16 } from '../../src/utils/hex.ts';
 import { state } from '../state.ts';
-import { activeSpectrum } from '../concrete.ts';
 import { z80Cpu } from '../../src/debug/z80/service.ts';
-import { parseAddr, text, checkWatchHit, KEY_NAME_MAP, CHAR_KEYS } from '../format.ts';
+import { parseAddr, text, checkWatchHit, spectrumPagingLine, KEY_NAME_MAP, CHAR_KEYS } from '../format.ts';
 import type { HostKeyEvent } from '../../src/machines/machine.ts';
 
 function hostKeyEvent(code: string): HostKeyEvent {
@@ -38,11 +36,8 @@ export function register(server: McpServer): void {
       const v = parseAddr(value) & 0xFF;
       z80Cpu(state.spec)!.portOut(p, v);
       let result = `OUT ${h16(p)}, ${h8(v)}`;
-      const s = activeSpectrum();
-      if (s && is128kClass(s.model)) {
-        const mem = s.memory;
-        result += `\nBank: ${mem.currentBank}  ROM: ${mem.currentROM}  7FFD: ${h8(mem.port7FFD)}  Locked: ${mem.pagingLocked ? 'Y' : 'N'}`;
-      }
+      const paging = spectrumPagingLine();
+      if (paging) result += `\n${paging}`;
       return text(result);
     },
   );

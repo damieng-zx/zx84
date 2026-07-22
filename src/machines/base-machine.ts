@@ -112,7 +112,9 @@ export abstract class BaseMachine {
     this.starting = true;
     const gen = ++this.startGen;
 
-    await this.audio.init();
+    // Headless hosts (the MCP server, Node tests) have no AudioContext: skip
+    // the audio pipeline. Frames are driven manually via tick()/runUntil().
+    if (typeof AudioContext !== 'undefined') await this.audio.init();
 
     // Bail if stop() ran, or a newer start() superseded us, while awaiting.
     if (!this.starting || gen !== this.startGen) return;
@@ -125,7 +127,10 @@ export abstract class BaseMachine {
     this.lastFrameTime = performance.now();
     this.frameTimeAccum = 0;
     // The rAF loop stays alive across pause/resume, so only start it once.
-    if (!this.rafId) this.rafId = requestAnimationFrame(this.frameLoop);
+    // Headless there is no rAF: nothing schedules frames autonomously.
+    if (!this.rafId && typeof requestAnimationFrame !== 'undefined') {
+      this.rafId = requestAnimationFrame(this.frameLoop);
+    }
     this.setStatus('Running');
   }
 

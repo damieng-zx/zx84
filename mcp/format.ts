@@ -102,6 +102,16 @@ export function formatStep(spec: Machine): string {
   );
 }
 
+/** One-line 128K-class Spectrum paging state, or null on 16K/48K and on
+ *  non-Spectrum machines. Shared by `registers`, `port_out`, and the reset
+ *  trap so the banking readout is formatted in exactly one place. */
+export function spectrumPagingLine(): string | null {
+  const s = activeSpectrum();
+  if (!s || !is128kClass(s.model)) return null;
+  const mem = s.memory;
+  return `Bank: ${mem.currentBank}  ROM: ${mem.currentROM}  7FFD: ${h8(mem.port7FFD)}  Locked: ${mem.pagingLocked ? 'Y' : 'N'}`;
+}
+
 export function formatRegs(spec: Machine): string {
   const snap = spec.services.debug.regs();
   const v: Record<string, number> = {};
@@ -120,11 +130,8 @@ export function formatRegs(spec: Machine): string {
     `SP  ${h16(snap.sp)}  PC  ${h16(snap.pc)}   IR  ${h8(v['I'] ?? 0)}${h8(v['R'] ?? 0)}`,
     `T-states: ${snap.tStates}`,
   ];
-  const s = activeSpectrum();
-  if (s && is128kClass(s.model)) {
-    const mem = s.memory;
-    lines.push(`Bank: ${mem.currentBank}  ROM: ${mem.currentROM}  7FFD: ${h8(mem.port7FFD)}  Locked: ${mem.pagingLocked ? 'Y' : 'N'}`);
-  }
+  const paging = spectrumPagingLine();
+  if (paging) lines.push(paging);
   return lines.join('\n');
 }
 

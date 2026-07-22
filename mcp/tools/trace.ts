@@ -8,12 +8,27 @@ import { state } from '../state.ts';
 import { activeSpectrum } from '../concrete.ts';
 import { text } from '../format.ts';
 import { clearZxtlBuffer, setZxtlBuffer, zxtlBufferSize, readZxtlChunk } from '../zxtl-store.ts';
+import { CACHE_DIR } from '../rom-fetch.ts';
+
+/** Timestamped trace dumps go to the gitignored MCP cache dir, never into
+ *  the source tree. */
+function writeTraceFile(prefix: string, contents: string): string {
+  fs.mkdirSync(CACHE_DIR, { recursive: true });
+  const outPath = path.join(CACHE_DIR, `${prefix}-${Date.now()}.txt`);
+  fs.writeFileSync(outPath, contents);
+  return outPath;
+}
 
 export function register(server: McpServer): void {
   server.registerTool(
     'trace',
     { description: 'Start a trace. Modes: "full" (all instructions), "portio" (port I/O), "zxtl" (ZXTL V0001 standardised format with full register dumps, stored in-memory — use stop_trace then trace_read to retrieve chunks).', inputSchema: { mode: z.enum(['full', 'portio', 'zxtl']).default('full') } },
     async ({ mode }) => {
+      // Only the Spectrum implements startTrace today; the other machines'
+      // is a no-op stub, so starting there would silently trace nothing.
+      if (!activeSpectrum()) {
+        return text(`Execution tracing is Spectrum-only (active model: ${state.model.toUpperCase()}).`);
+      }
       if (mode === 'zxtl') clearZxtlBuffer();
       state.spec.services.debug.startTrace(mode);
       return text(`Trace started (${mode} mode)`);
@@ -25,7 +40,7 @@ export function register(server: McpServer): void {
     { description: 'Stop the current trace and return the results. Full/portio: large traces written to file. ZXTL: stored in-memory — returns line count, use trace_read to fetch chunks.' },
     async () => {
       const spec = activeSpectrum();
-      if (!spec) return text('Execution tracing is not supported on the CPC yet.');
+      if (!spec) return text(`Execution tracing is Spectrum-only (active model: ${state.model.toUpperCase()}).`);
       if (!spec.tracing) return text('Not tracing');
       const mode = spec.traceMode;
       if (mode === 'zxtl') {
@@ -37,8 +52,7 @@ export function register(server: McpServer): void {
       const traceText = spec.stopTrace();
       const lines = traceText.split('\n');
       if (lines.length <= 200) return text(traceText);
-      const outPath = path.join(import.meta.dirname!, `trace-${Date.now()}.txt`);
-      fs.writeFileSync(outPath, traceText);
+      const outPath = writeTraceFile('trace', traceText);
       return text(`Trace: ${lines.length} lines written to ${outPath}`);
     },
   );
@@ -61,7 +75,7 @@ export function register(server: McpServer): void {
     { description: 'Run one frame, logging per-instruction: T-state, beam line/col, contention delays, border changes, and VRAM writes. Writes to file.' },
     async () => {
       const spec = activeSpectrum();
-      if (!spec) return text('Frame trace is not supported on the CPC yet.');
+      if (!spec) return text(`Frame trace is Spectrum-only (active model: ${state.model.toUpperCase()}).`);
       const timing = spec.contention.timing;
       const tpl = timing.tStatesPerLine;
       const contentionStart = timing.contentionStart;
@@ -207,8 +221,7 @@ export function register(server: McpServer): void {
 
       lines.push(`\n--- ${instrCount} instructions, frame ${fStart}-${frameEnd} ---`);
 
-      const outPath = path.join(import.meta.dirname!, `frame-trace-${Date.now()}.txt`);
-      fs.writeFileSync(outPath, lines.join('\n'));
+      const outPath = writeTraceFile('frame-trace', lines.join('\n'));
       return text(`Frame trace: ${instrCount} instructions written to ${outPath}`);
     },
   );

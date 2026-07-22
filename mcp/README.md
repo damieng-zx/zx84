@@ -39,15 +39,17 @@ disassembly, breakpoints/watchpoints, stepping, and OCR.
 
 Some tools are intentionally hardware-specific:
 
-- Spectrum: tape/snapshot loading, ZXTL/full/port-I/O tracing, library loading,
-  Multiface, VTX-5000, +D, Beta Disk, microdrives, and +3 boot helpers.
-- CPC: `.dsk` mounting, built-in uPD765A disk inspection, CPC OCR, and PNG
-  screenshots.
-- ZX80/ZX81: native program loading (`.o`/`.80` or `.p`/`.81`/`.p81`),
-  model-constrained ZXDB library loading, 1KB/16KB RAM selection, keyboard
-  input, display-file OCR, screenshots, and generic execution/debug tools.
-- Einstein and MSX: generic execution/debug/OCR tools; their media capabilities
-  are exposed only where their machine services support them.
+- Spectrum: tape/snapshot loading (auto-enabling the +D / Interface 1 / Beta
+  Disk ROMs), ZXTL/full/port-I/O tracing, library loading, Multiface, VTX-5000,
+  +D, Beta Disk, microdrives, and +3 boot helpers.
+- CPC, MSX, Einstein, ZX80/ZX81: media loads route through the machine's own
+  `MediaService` (CPC `.dsk/.hfe/.scp/.cdt/.sna/.cpr`, MSX `.rom/.cas`,
+  Einstein `.dsk/.hfe/.scp`, ZX80/ZX81 program files). CPC adds built-in
+  uPD765A disk inspection, CPC OCR, and PNG screenshots.
+- ZX80/ZX81 additionally: model-constrained ZXDB library loading, 1KB/16KB
+  RAM selection, and display-file OCR.
+- MSX/Einstein media capabilities are exposed exactly where their machine
+  services support them.
 
 Use `model` to switch machines. Switching always creates a fresh machine.
 
@@ -109,11 +111,11 @@ Spectrum additionally supports `sym`, `capslock`, and symbol-shift combos.
 
 | Tool | Parameters | Description |
 | --- | --- | --- |
-| `load` | `file`, `drive` | Load supported local media. ZX80/ZX81 accept native program files or a ZIP containing one compatible program. |
+| `load` | `file`, `drive` | Load local media. Spectrum uses its bench path (auto-enables peripheral ROMs); every other machine routes through its own MediaService. ZIPs unwrap to a sole compatible file. |
 | `library` | `title`, `file`, `id`, `frames`, `refresh` | Exact-title library load. ZX80 and ZX81 searches stay strictly within the active model and enable 16KB RAM before launch. |
 | `screenshot` | `file` (optional) | Write the active machine display to PNG. |
 | `save` | `file` | Save a Spectrum `.szx` snapshot. |
-| `eject` | `target`, `drive` | Eject a Spectrum tape or an FDC disk. |
+| `eject` | `target`, `drive` | Eject a tape (any deck machine) or a disk (`a`/`b` where fitted). |
 | `disk_boot` | `file` (optional) | Spectrum +3 Loader-menu boot helper. |
 | `disk_trace` | `file` | +3 copy-protection helper: boot, arm `FE10`, and watch `3FFD`. |
 
@@ -121,7 +123,7 @@ Spectrum additionally supports `sym`, `capslock`, and symbol-shift combos.
 
 | Tool | Parameters | Description |
 | --- | --- | --- |
-| `trace` | `mode`: `full`, `portio`, or `zxtl` | Start Spectrum execution tracing. |
+| `trace` | `mode`: `full`, `portio`, or `zxtl` | Start Spectrum execution tracing (other machines have no trace engine yet — the tool declines). |
 | `stop_trace` | | Stop tracing. Large full/port-I/O traces are written to a file. |
 | `trace_read` | `from`, `to` | Read stored ZXTL trace lines. |
 | `frame_trace` | | Spectrum-only one-frame instruction/contention/VRAM trace written to a file. |
@@ -162,10 +164,15 @@ Address and register-value strings are parsed by the shared MCP parser:
 
 `mcp/server.ts` creates one persistent, headless `Machine` through the machine
 registry. `mcp/state.ts` remains machine-blind and owns the active handle, ROM
-image, symbols, FDC log wiring, and traps. Generic tools consume
-`machine.services`; concrete MCP bench tools narrow only in `mcp/concrete.ts`.
+image, symbols, FDC log wiring, and traps; `mcp/host.ts` is the attached
+`MachineHost` (a cross-model snapshot rebuild re-runs `initMachine`, and the
+mount is replayed onto the replacement machine). Generic tools consume
+`machine.services`; concrete MCP bench tools narrow only in `mcp/concrete.ts`
+(which also holds the per-family headless launch knobs).
 
 Tool registrations live under `mcp/tools/`. The root helpers cover formatting,
-ROM/media loading, catalog access, PNG output, traps, FDC logging, and ZXTL
-storage. Hex output uses the shared `src/utils/hex.ts`; there is no MCP-local
-hex formatter.
+ROM fetching, catalog access, PNG output, traps, FDC logging, and ZXTL storage;
+`mcp/loader.ts` is the generic MediaService + ZIP mount path, while
+`mcp/spectrum-loader.ts` is the Spectrum bench loader (peripheral-ROM arming,
+boot traps, load verdicts). Hex output uses the shared `src/utils/hex.ts`;
+there is no MCP-local hex formatter.

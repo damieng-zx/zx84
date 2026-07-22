@@ -15,13 +15,14 @@ import { SymbolTable } from '../src/debug/symbols.ts';
 import { fetchROM, fetchBootCartridge } from './rom-fetch.ts';
 import { wireFdcLog } from './fdc-log.ts';
 import { installTrapHook } from './traps.ts';
+import { applyHeadlessKnobs } from './concrete.ts';
+import { createMcpHost } from './host.ts';
 import { hex16 as h16 } from '../src/utils/hex.ts';
 
 interface State {
   model: MachineModel;
   spec: Machine;
   romData: Uint8Array;
-  zx8x16kRam: boolean;
 }
 
 // Populated by initMachine(); consumers must await initMachine before access.
@@ -35,8 +36,12 @@ export interface InitMachineOptions {
 }
 
 export async function initMachine(m: MachineModel, options: InitMachineOptions = {}): Promise<string> {
+  // Tear down the machine being replaced (headless this just cancels timers
+  // and closes audio/turbo plumbing) — including when a mount triggered this
+  // rebuild via host.requestModel, mid-mount on the OLD machine; its service
+  // returns needsReplay immediately afterwards and touches nothing more.
+  state.spec?.destroy();
   state.model = m;
-  state.zx8x16kRam = m === 'zx80' || m === 'zx81' ? (options.zx8x16kRam ?? false) : false;
   state.romData = await fetchROM(m);
   // Machines with no on-board ROM (CPC Plus / GX4000) have empty romSources and
   // boot from a hidden default cartridge instead; fetch it via the generic
@@ -47,22 +52,12 @@ export async function initMachine(m: MachineModel, options: InitMachineOptions =
     if (cartSource) state.romData = await fetchBootCartridge(cartSource);
   }
   const machine = entryForModel(m).create(m, null);
-  if (machine.kind === 'spectrum') {
-    // Spectrum-only headless knob (cheap scanline rendering off-screen).
-    (machine as unknown as { scanlineAccuracy: string }).scanlineAccuracy = 'low';
-  }
-  if (machine.kind === 'zx8x') {
-    machine.applySettings({
-      get<T>(key: string, fallback: T): T {
-        return key === 'zx8x-16k-ram' ? (state.zx8x16kRam as T) : fallback;
-      },
-    });
-  }
+  machine.attachHost(createMcpHost());
+  const ramNote = applyHeadlessKnobs(machine, options);
   machine.services.roms.installSystemRom(state.romData);
   machine.reset();
   state.spec = machine;
   wireFdcLog(state.spec);
   installTrapHook(state.spec);
-  const ram = machine.kind === 'zx8x' ? ` RAM=${state.zx8x16kRam ? '16KB' : '1KB'}` : '';
-  return `Machine ready: ${m.toUpperCase()}${ram} PC=${h16(state.spec.services.debug.pc)}`;
+  return `Machine ready: ${m.toUpperCase()}${ramNote} PC=${h16(state.spec.services.debug.pc)}`;
 }
