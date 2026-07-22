@@ -49,6 +49,18 @@ export function activeFdc(): UPD765A | null {
   return activeSpectrum()?.fdc ?? activeCpc()?.fdc ?? null;
 }
 
+/** Structural view of a machine's floppy chip for log wiring. Every machine
+ *  carries a concrete `fdc` field (the MSX's is an unwired stub); probing it
+ *  here keeps the cast inside the sanctioned seam. */
+export interface FdcLogSink {
+  logFn: ((...args: unknown[]) => void) | null;
+}
+
+/** The machine's FDC log sink, or null when the machine has no floppy chip. */
+export function fdcLogSink(machine: Machine): FdcLogSink | null {
+  return (machine as unknown as { fdc?: FdcLogSink }).fdc ?? null;
+}
+
 // ── Headless launch knobs ─────────────────────────────────────────────
 // Family-specific headless tweaks, consolidated here so state.ts stays
 // machine-blind. The zx8x RAM-pack flag doubles as MCP session state: the
