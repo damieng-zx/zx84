@@ -390,13 +390,18 @@ export function register(server: McpServer): void {
     } },
     async ({ target, drive }) => {
       if (target === 'tape') {
-        const s = activeSpectrum();
-        if (!s) return text('No tape on the CPC.');
-        s.tape.load(new Uint8Array(0));
+        const tape = state.spec.services.tape;
+        if (!tape) return text(`${state.model.toUpperCase()} has no cassette deck.`);
+        tape.eject();
         return text('Tape ejected');
       }
       const unit = (drive === '1' || drive === 'B') ? 1 : 0;
-      activeFdc()!.ejectDisk(unit);
+      const id = unit === 0 ? 'a' : 'b';
+      const disks = state.spec.services.disks;
+      if (!disks || !disks.drives.some(d => d.id === id)) {
+        return text(`${state.model.toUpperCase()} has no drive ${unit === 0 ? 'A:' : 'B:'}.`);
+      }
+      disks.eject(id);
       return text(`Drive ${unit === 0 ? 'A' : 'B'}: ejected`);
     },
   );
@@ -408,7 +413,9 @@ export function register(server: McpServer): void {
       sector: z.number().int().min(0).optional().describe('Sector R value (omit for all sectors on track)'),
     } },
     async ({ track: wTrack, sector: wSector }) => {
-      const dsk = activeFdc()!.getDiskImage(0);
+      const fdc = activeFdc();
+      if (!fdc) return text(`No uPD765A fitted on ${state.model.toUpperCase()} — disk inspection needs a +3 or a CPC.`);
+      const dsk = fdc.getDiskImage(0);
       if (!dsk) return text('No disk in drive A:');
       const track = dsk.tracks[wTrack]?.[0];
       if (!track) return text(`Track ${wTrack} not found`);
@@ -427,7 +434,9 @@ export function register(server: McpServer): void {
     'disk_geometry',
     { description: 'Show geometry of the mounted disk image: format, tracks, sides, protection, and a per-track sector summary.', inputSchema: { drive: z.number().int().min(0).max(1).default(0).describe('Drive number (0=A, 1=B)') } },
     async ({ drive }) => {
-      const dsk = activeFdc()!.getDiskImage(drive);
+      const fdc = activeFdc();
+      if (!fdc) return text(`No uPD765A fitted on ${state.model.toUpperCase()} — disk inspection needs a +3 or a CPC.`);
+      const dsk = fdc.getDiskImage(drive);
       if (!dsk) return text(`No disk in drive ${drive === 0 ? 'A' : 'B'}:`);
       const lines: string[] = [];
       lines.push(`Format: ${dsk.format}  Tracks: ${dsk.numTracks}  Sides: ${dsk.numSides}`);
@@ -455,7 +464,9 @@ export function register(server: McpServer): void {
       drive: z.number().int().min(0).max(1).default(0).describe('Drive number (0=A, 1=B)'),
     } },
     async ({ track: tNum, side, drive }) => {
-      const dsk = activeFdc()!.getDiskImage(drive);
+      const fdc = activeFdc();
+      if (!fdc) return text(`No uPD765A fitted on ${state.model.toUpperCase()} — disk inspection needs a +3 or a CPC.`);
+      const dsk = fdc.getDiskImage(drive);
       if (!dsk) return text(`No disk in drive ${drive === 0 ? 'A' : 'B'}:`);
       const track = dsk.tracks[tNum]?.[side];
       if (!track) return text(`Track ${tNum} side ${side} not found`);
@@ -482,7 +493,9 @@ export function register(server: McpServer): void {
       length: z.number().int().positive().optional().describe('Number of bytes to dump (default: entire sector)'),
     } },
     async ({ track: tNum, sector: sR, side, drive, offset, length }) => {
-      const dsk = activeFdc()!.getDiskImage(drive);
+      const fdc = activeFdc();
+      if (!fdc) return text(`No uPD765A fitted on ${state.model.toUpperCase()} — disk inspection needs a +3 or a CPC.`);
+      const dsk = fdc.getDiskImage(drive);
       if (!dsk) return text(`No disk in drive ${drive === 0 ? 'A' : 'B'}:`);
       const track = dsk.tracks[tNum]?.[side];
       if (!track) return text(`Track ${tNum} side ${side} not found`);
