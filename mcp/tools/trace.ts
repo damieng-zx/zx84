@@ -8,6 +8,16 @@ import { state } from '../state.ts';
 import { activeSpectrum } from '../concrete.ts';
 import { text } from '../format.ts';
 import { clearZxtlBuffer, setZxtlBuffer, zxtlBufferSize, readZxtlChunk } from '../zxtl-store.ts';
+import { CACHE_DIR } from '../rom-fetch.ts';
+
+/** Timestamped trace dumps go to the gitignored MCP cache dir, never into
+ *  the source tree. */
+function writeTraceFile(prefix: string, contents: string): string {
+  fs.mkdirSync(CACHE_DIR, { recursive: true });
+  const outPath = path.join(CACHE_DIR, `${prefix}-${Date.now()}.txt`);
+  fs.writeFileSync(outPath, contents);
+  return outPath;
+}
 
 export function register(server: McpServer): void {
   server.registerTool(
@@ -42,8 +52,7 @@ export function register(server: McpServer): void {
       const traceText = spec.stopTrace();
       const lines = traceText.split('\n');
       if (lines.length <= 200) return text(traceText);
-      const outPath = path.join(import.meta.dirname!, `trace-${Date.now()}.txt`);
-      fs.writeFileSync(outPath, traceText);
+      const outPath = writeTraceFile('trace', traceText);
       return text(`Trace: ${lines.length} lines written to ${outPath}`);
     },
   );
@@ -212,8 +221,7 @@ export function register(server: McpServer): void {
 
       lines.push(`\n--- ${instrCount} instructions, frame ${fStart}-${frameEnd} ---`);
 
-      const outPath = path.join(import.meta.dirname!, `frame-trace-${Date.now()}.txt`);
-      fs.writeFileSync(outPath, lines.join('\n'));
+      const outPath = writeTraceFile('frame-trace', lines.join('\n'));
       return text(`Frame trace: ${instrCount} instructions written to ${outPath}`);
     },
   );
