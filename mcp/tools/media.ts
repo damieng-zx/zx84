@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { saveSZX } from '../../src/machines/spectrum/snapshots/szx.ts';
 import { hex8 as h8, hex16 as h16 } from '../../src/utils/hex.ts';
 import { state, initMachine } from '../state.ts';
-import { activeSpectrum, activeCpc, activeFdc } from '../concrete.ts';
+import { activeSpectrum, activeCpc, activeFdc, zx8x16kRam } from '../concrete.ts';
 import { text, formatHexDump } from '../format.ts';
 import { loadFileInto, loadMediaInto, mountAndArm, mountMediaBytes, runLoadVerdict } from '../loader.ts';
 import { fdcLog } from '../fdc-log.ts';
@@ -74,7 +74,7 @@ async function loadZx8xLibraryTitle(
 
   // ZXDB does not record RAM requirements. Match the app's library launch:
   // fit the backward-compatible 16KB pack before mounting any catalog title.
-  if (!state.zx8x16kRam) lines.push(await initMachine(model, { zx8x16kRam: true }));
+  if (!zx8x16kRam()) lines.push(await initMachine(model, { zx8x16kRam: true }));
   lines.push(await mountMediaBytes(state.spec, data, basename(game.file), innerFile));
 
   if (frames > 0) {

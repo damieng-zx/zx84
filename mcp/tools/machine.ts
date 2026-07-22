@@ -2,6 +2,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { hex8 as h8, hex16 as h16 } from '../../src/utils/hex.ts';
 import { state, initMachine } from '../state.ts';
+import { zx8x16kRam } from '../concrete.ts';
 import { formatStep, formatRegs, parseAddr, text } from '../format.ts';
 import { traps, resetTrap, consumeResetHit } from '../traps.ts';
 import { MCP_MODELS } from '../models.ts';
@@ -122,11 +123,11 @@ export function register(server: McpServer): void {
     } },
     async ({ target, ram16k }) => {
       if (!target && ram16k === undefined) {
-        const ram = state.spec.kind === 'zx8x' ? ` (${state.zx8x16kRam ? '16KB' : '1KB'} RAM)` : '';
+        const ram = state.spec.kind === 'zx8x' ? ` (${zx8x16kRam() ? '16KB' : '1KB'} RAM)` : '';
         return text(`Current model: ${state.model}${ram}`);
       }
       const next = target ?? state.model;
-      const msg = await initMachine(next, { zx8x16kRam: ram16k ?? (next === state.model ? state.zx8x16kRam : false) });
+      const msg = await initMachine(next, { zx8x16kRam: ram16k ?? (next === state.model ? zx8x16kRam() : false) });
       return text(`Switched to ${next.toUpperCase()}. ${msg}`);
     },
   );
