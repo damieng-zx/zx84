@@ -1,4 +1,5 @@
 import { dbLoad, dbSave, getSaved, setSaved } from '@/store/persistence.ts';
+import { zx8xHardwareOverride, type Zx81HiResMode } from './zx8x-hardware.ts';
 
 export interface RawZx8xGame {
   i: number;
@@ -9,11 +10,19 @@ export interface RawZx8xGame {
   p?: number;
   f: string;
   s?: string;
+  /** Required RAM in KB, taken from ZXDB's machine type. */
+  r?: number;
+  /** Compact hi-res mode: software, UDG, or WRX. */
+  h?: 's' | 'u' | 'w';
+  /** Indices into the catalog's ZX81 enhanced-graphics dictionary. */
+  x?: number[];
 }
 
 export interface RawZx8xCatalog {
   genres: string[];
   publishers: string[];
+  /** ZXDB tag type Z: ZX81 Enhanced Graphics. Absent in older catalogs. */
+  graphics?: string[];
   games: RawZx8xGame[];
 }
 
@@ -26,9 +35,14 @@ export interface Zx8xGame {
   publisher: string;
   file: string;
   screen: string;
+  ramKb: number | null;
+  hiRes: Zx81HiResMode | null;
+  enhancedGraphics: string[];
 }
 
 export function resolveZx8xGame(raw: RawZx8xGame, catalog: RawZx8xCatalog): Zx8xGame {
+  const override = zx8xHardwareOverride(raw.i);
+  const hiResCode = raw.h;
   return {
     id: raw.i,
     title: raw.t,
@@ -38,6 +52,13 @@ export function resolveZx8xGame(raw: RawZx8xGame, catalog: RawZx8xCatalog): Zx8x
     publisher: raw.p === undefined ? '' : catalog.publishers[raw.p] ?? '',
     file: raw.f,
     screen: raw.s ?? '',
+    ramKb: raw.r ?? override?.ramKb ?? null,
+    hiRes: hiResCode === 's' ? 'software'
+      : hiResCode === 'u' ? 'udg'
+      : hiResCode === 'w' ? 'wrx'
+      : override?.hiRes ?? null,
+    enhancedGraphics: raw.x?.map(index => catalog.graphics?.[index] ?? '').filter(Boolean)
+      ?? [...(override?.enhancedGraphics ?? [])],
   };
 }
 

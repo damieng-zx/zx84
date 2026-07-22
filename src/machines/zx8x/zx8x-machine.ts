@@ -54,15 +54,22 @@ export class Zx8xMachine extends BaseMachine implements Machine {
   private readonly pseudoHiresRow = new Uint8Array(PSEUDO_HIRES_ROW_BYTES);
   private readonly pseudoHiresBuilding = new Uint8Array(PSEUDO_HIRES_ROW_BYTES * PSEUDO_HIRES_MAX_ROWS);
   private readonly pseudoHiresFrame = new Uint8Array(PSEUDO_HIRES_ROW_BYTES * PSEUDO_HIRES_MAX_ROWS);
+  private readonly pseudoHiresBuildingWidths = new Uint8Array(PSEUDO_HIRES_MAX_ROWS);
+  private readonly pseudoHiresFrameWidths = new Uint8Array(PSEUDO_HIRES_MAX_ROWS);
   private readonly pseudoHiresTextBuilding = new Uint8Array(PSEUDO_HIRES_ROW_BYTES * PSEUDO_HIRES_TEXT_MAX_ROWS);
   private readonly pseudoHiresTextFrame = new Uint8Array(PSEUDO_HIRES_ROW_BYTES * PSEUDO_HIRES_TEXT_MAX_ROWS);
   private pseudoHiresRunLength = 0;
   private pseudoHiresRunValid = false;
   private pseudoHiresRunIsText = false;
+  private pseudoHiresRunCommitOnFinish = false;
+  private pseudoHiresRunIsUdg = false;
+  private pseudoHiresRunIsWrx = false;
   private pseudoHiresRunGlyphRow = 0;
+  private pseudoHiresRowWidth = PSEUDO_HIRES_ROW_BYTES;
   private pseudoHiresRowReady = false;
   private pseudoHiresRowIsText = false;
   private pseudoHiresBuildingRows = 0;
+  private pseudoHiresBuildingMode: 'software' | 'udg' | 'wrx' | null = null;
   private pseudoHiresFrameRows = 0;
   private pseudoHiresTextBuildingRows = 0;
   private pseudoHiresTextFrameRows = 0;
@@ -153,6 +160,8 @@ export class Zx8xMachine extends BaseMachine implements Machine {
 
   applySettings(view: SettingsView): void {
     this.memory.set16kExpansion(view.get('zx8x-16k-ram', false));
+    this.memory.setUdgRam(this.model === 'zx81' && view.get('zx81-udg-ram', false));
+    this.memory.setWrxRam(this.model === 'zx81' && view.get('zx81-wrx-hires', false));
     this.audio.setVolume(view.get('volume', 70) / 100);
   }
 
@@ -278,7 +287,7 @@ export class Zx8xMachine extends BaseMachine implements Machine {
     this.needsDisplay = true;
   }
 
-  /** Capture the ROM-pattern pseudo-hires byte selected during this M1 fetch.
+  /** Capture the video byte selected during this M1 fetch.
    *
    * Software-only hi-res temporarily points I at a nonstandard ROM page and
    * executes a 32-byte display stream in the A15-high memory echo. The ULA
@@ -289,10 +298,14 @@ export class Zx8xMachine extends BaseMachine implements Machine {
     const pc = this.cpu.pc & 0xffff;
     const raw = this.memory.readByte(pc);
     const fontPage = this.cpu.i & 0xff;
+    const patternBase = (fontPage & 0xfe) << 8;
+    const wrxAddress = (fontPage << 8) | (this.cpu.r & 0xff);
+    const isUdg = this.memory.isUdgPatternAddress(patternBase);
+    const isWrx = this.memory.isWrxBitmapAddress(wrxAddress);
     const isPseudoHires = this.model === 'zx81'
       && (pc & 0x8000) !== 0
       && (raw & 0x40) === 0
-      && fontPage < 0x20;
+      && (fontPage < 0x20 || isUdg || isWrx);
 
     if (!isPseudoHires) {
       this.finishPseudoHiresRow();
@@ -313,9 +326,15 @@ export class Zx8xMachine extends BaseMachine implements Machine {
       // horizontal sync pulse.
       const followsFrameGap = this.pseudoHiresLastCommittedRowT >= 0
         && now - this.pseudoHiresLastCommittedRowT > PSEUDO_HIRES_FRAME_GAP_T;
-      this.pseudoHiresRunValid = followsSync || followsFrameGap;
+      // Explicit UDG/WRX hardware supplies its own qualified video source.
+      // ROM pseudo-hires still needs the software sync contract to distinguish
+      // it from arbitrary high-memory execution.
+      this.pseudoHiresRunValid = isUdg || isWrx || followsSync || followsFrameGap;
       this.pseudoHiresRunIsText = fontPage === 0x1e;
-      if (this.pseudoHiresRunIsText) {
+      this.pseudoHiresRunCommitOnFinish = this.pseudoHiresRunIsText || isUdg || isWrx;
+      this.pseudoHiresRunIsUdg = isUdg;
+      this.pseudoHiresRunIsWrx = isWrx;
+      if ((this.pseudoHiresRunIsText || isUdg) && !isWrx) {
         if (this.pseudoHiresLastTextRunT >= 0
             && now - this.pseudoHiresLastTextRunT <= PSEUDO_HIRES_SYNC_MAX_AGE_T) {
           this.pseudoHiresTextLineCounter = (this.pseudoHiresTextLineCounter + 1) & 7;
@@ -334,8 +353,10 @@ export class Zx8xMachine extends BaseMachine implements Machine {
     }
 
     if (this.pseudoHiresRunLength < PSEUDO_HIRES_ROW_BYTES) {
-      const glyph = ((fontPage & 0xfe) << 8) | ((raw & 0x3f) << 3) | this.pseudoHiresRunGlyphRow;
-      let bits = this.memory.readByte(glyph);
+      const glyph = patternBase | ((raw & 0x3f) << 3) | this.pseudoHiresRunGlyphRow;
+      let bits = this.pseudoHiresRunIsWrx
+        ? this.memory.readByte(wrxAddress)
+        : this.memory.readByte(glyph);
       if (raw & 0x80) bits ^= 0xff;
       this.pseudoHiresRow[this.pseudoHiresRunLength] = bits;
     }
@@ -345,19 +366,68 @@ export class Zx8xMachine extends BaseMachine implements Machine {
 
   private finishPseudoHiresRow(): void {
     if (this.pseudoHiresRunLength === 0) return;
+    const commitOnFinish = this.pseudoHiresRunCommitOnFinish;
+    const mainMode = this.pseudoHiresRunIsWrx ? 'wrx' : this.pseudoHiresRunIsUdg ? 'udg' : 'software';
+    const runLength = this.pseudoHiresRunLength;
     this.pseudoHiresRowReady = this.pseudoHiresRunValid
-      && this.pseudoHiresRunLength === PSEUDO_HIRES_ROW_BYTES;
+      && (runLength === PSEUDO_HIRES_ROW_BYTES
+        || (this.pseudoHiresRunIsWrx && runLength > 0 && runLength < PSEUDO_HIRES_ROW_BYTES));
+    this.pseudoHiresRowWidth = Math.min(runLength, PSEUDO_HIRES_ROW_BYTES);
     this.pseudoHiresRowIsText = this.pseudoHiresRunIsText;
     this.pseudoHiresRunLength = 0;
     this.pseudoHiresRunValid = false;
     this.pseudoHiresRunIsText = false;
+    this.pseudoHiresRunCommitOnFinish = false;
+    this.pseudoHiresRunIsUdg = false;
+    this.pseudoHiresRunIsWrx = false;
     // Standard-font scanlines are paced by the ZX81's NMI display cycle and
-    // do not have the software OUT delimiter used by pseudo-hires rows.
-    if (this.pseudoHiresRowReady && this.pseudoHiresRowIsText) {
-      this.commitPseudoHiresTextRow();
+    // UDG/WRX hardware rows likewise do not use pseudo-hires' software OUT
+    // delimiter. WRX1K programs use miniature rows from 1 to 31 bytes wide;
+    // WRX16 and UDG normally use the full 32 bytes.
+    if (this.pseudoHiresRowReady && commitOnFinish) {
+      if (this.pseudoHiresRowIsText) this.commitPseudoHiresTextRow();
+      else this.commitPseudoHiresMainRow(mainMode);
       this.pseudoHiresRowReady = false;
       this.pseudoHiresRowIsText = false;
     }
+  }
+
+  private commitPseudoHiresMainRow(mode: 'software' | 'udg' | 'wrx'): void {
+    const now = this.cpu.tStates;
+    if (this.pseudoHiresBuildingRows > 0 && this.pseudoHiresBuildingMode !== mode) {
+      this.finishPseudoHiresFrame();
+    }
+    if (this.pseudoHiresBuildingRows > 0 && this.pseudoHiresLastCommittedRowT >= 0) {
+      const delta = now - this.pseudoHiresLastCommittedRowT;
+      if (mode === 'wrx') {
+        // Compact WRX1K routines may omit completely blank scanlines. Preserve
+        // their beam positions when the next run is an exact 207T multiple;
+        // a gap over 32 lines is vertical blank and starts the next frame.
+        const lines = Math.round(delta / PSEUDO_HIRES_SYNC_MAX_AGE_T);
+        const timingError = Math.abs(delta - lines * PSEUDO_HIRES_SYNC_MAX_AGE_T);
+        if (lines > 1 && lines <= 32 && timingError <= 8) {
+          for (let line = 1; line < lines && this.pseudoHiresBuildingRows < PSEUDO_HIRES_MAX_ROWS; line++) {
+            const offset = this.pseudoHiresBuildingRows * PSEUDO_HIRES_ROW_BYTES;
+            this.pseudoHiresBuilding.fill(0, offset, offset + PSEUDO_HIRES_ROW_BYTES);
+            this.pseudoHiresBuildingWidths[this.pseudoHiresBuildingRows] = this.pseudoHiresRowWidth;
+            this.pseudoHiresBuildingRows++;
+          }
+        } else if (delta > PSEUDO_HIRES_FRAME_GAP_T) {
+          this.finishPseudoHiresFrame();
+        }
+      } else if (delta > PSEUDO_HIRES_FRAME_GAP_T) {
+        this.finishPseudoHiresFrame();
+      }
+    }
+    if (this.pseudoHiresBuildingRows === PSEUDO_HIRES_MAX_ROWS) this.finishPseudoHiresFrame();
+    if (this.pseudoHiresBuildingRows === 0) this.pseudoHiresBuildingMode = mode;
+    this.pseudoHiresBuilding.set(
+      this.pseudoHiresRow,
+      this.pseudoHiresBuildingRows * PSEUDO_HIRES_ROW_BYTES,
+    );
+    this.pseudoHiresBuildingWidths[this.pseudoHiresBuildingRows] = this.pseudoHiresRowWidth;
+    this.pseudoHiresBuildingRows++;
+    this.pseudoHiresLastCommittedRowT = now;
   }
 
   private commitPseudoHiresTextRow(): void {
@@ -390,17 +460,7 @@ export class Zx8xMachine extends BaseMachine implements Machine {
       // Only a sync pulse that actually terminates a qualified display row can
       // delimit frames. Control OUTs elsewhere in the program must not publish
       // a one-row partial frame over the last complete raster.
-      if (this.pseudoHiresBuildingRows > 0 && this.pseudoHiresLastCommittedRowT >= 0
-          && now - this.pseudoHiresLastCommittedRowT > PSEUDO_HIRES_FRAME_GAP_T) {
-        this.finishPseudoHiresFrame();
-      }
-      if (this.pseudoHiresBuildingRows === PSEUDO_HIRES_MAX_ROWS) this.finishPseudoHiresFrame();
-      this.pseudoHiresBuilding.set(
-        this.pseudoHiresRow,
-        this.pseudoHiresBuildingRows * PSEUDO_HIRES_ROW_BYTES,
-      );
-      this.pseudoHiresBuildingRows++;
-      this.pseudoHiresLastCommittedRowT = now;
+      this.commitPseudoHiresMainRow('software');
     }
     this.pseudoHiresRowReady = false;
     this.pseudoHiresRowIsText = false;
@@ -415,13 +475,17 @@ export class Zx8xMachine extends BaseMachine implements Machine {
     // raster is established so it cannot flash as bitmap noise.
     if (this.pseudoHiresBuildingRows === 1 && this.pseudoHiresFrameRows > 1) {
       this.pseudoHiresBuildingRows = 0;
+      this.pseudoHiresBuildingMode = null;
       return;
     }
     const length = this.pseudoHiresBuildingRows * PSEUDO_HIRES_ROW_BYTES;
     this.pseudoHiresFrame.fill(0);
     this.pseudoHiresFrame.set(this.pseudoHiresBuilding.subarray(0, length));
+    this.pseudoHiresFrameWidths.fill(0);
+    this.pseudoHiresFrameWidths.set(this.pseudoHiresBuildingWidths.subarray(0, this.pseudoHiresBuildingRows));
     this.pseudoHiresFrameRows = this.pseudoHiresBuildingRows;
     this.pseudoHiresBuildingRows = 0;
+    this.pseudoHiresBuildingMode = null;
   }
 
   private finishPseudoHiresTextFrame(): void {
@@ -455,9 +519,11 @@ export class Zx8xMachine extends BaseMachine implements Machine {
     const totalRows = this.pseudoHiresFrameRows + textRows;
     const top = ZX8X_BORDER_TOP + ((ZX8X_ACTIVE_HEIGHT - totalRows) >> 1);
     for (let y = 0; y < this.pseudoHiresFrameRows; y++) {
-      const dest = (top + y) * ZX8X_SCREEN_WIDTH + ZX8X_BORDER_LEFT;
+      const width = this.pseudoHiresFrameWidths[y] || PSEUDO_HIRES_ROW_BYTES;
+      const left = ZX8X_BORDER_LEFT + ((ZX8X_ACTIVE_WIDTH - width * 8) >> 1);
+      const dest = (top + y) * ZX8X_SCREEN_WIDTH + left;
       const source = y * PSEUDO_HIRES_ROW_BYTES;
-      for (let col = 0; col < PSEUDO_HIRES_ROW_BYTES; col++) {
+      for (let col = 0; col < width; col++) {
         const bits = this.pseudoHiresFrame[source + col];
         const px = dest + col * 8;
         for (let bit = 0; bit < 8; bit++) {
@@ -483,15 +549,22 @@ export class Zx8xMachine extends BaseMachine implements Machine {
     this.pseudoHiresRow.fill(0);
     this.pseudoHiresBuilding.fill(0);
     this.pseudoHiresFrame.fill(0);
+    this.pseudoHiresBuildingWidths.fill(0);
+    this.pseudoHiresFrameWidths.fill(0);
     this.pseudoHiresTextBuilding.fill(0);
     this.pseudoHiresTextFrame.fill(0);
     this.pseudoHiresRunLength = 0;
     this.pseudoHiresRunValid = false;
     this.pseudoHiresRunIsText = false;
+    this.pseudoHiresRunCommitOnFinish = false;
+    this.pseudoHiresRunIsUdg = false;
+    this.pseudoHiresRunIsWrx = false;
     this.pseudoHiresRunGlyphRow = 0;
+    this.pseudoHiresRowWidth = PSEUDO_HIRES_ROW_BYTES;
     this.pseudoHiresRowReady = false;
     this.pseudoHiresRowIsText = false;
     this.pseudoHiresBuildingRows = 0;
+    this.pseudoHiresBuildingMode = null;
     this.pseudoHiresFrameRows = 0;
     this.pseudoHiresTextBuildingRows = 0;
     this.pseudoHiresTextFrameRows = 0;

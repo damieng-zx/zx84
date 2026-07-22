@@ -2,8 +2,9 @@
 
 ## Scope and terminology
 
-The requested “fake” software-only high-resolution mode is the ZX81
-**pseudo-hires** technique, not WRX true bitmap hi-res.
+The original “fake” software-only high-resolution request is the ZX81
+**pseudo-hires** technique. The emulator now also supports the two common
+optional hardware paths as separate, mutually exclusive settings.
 
 - Normal video executes character bytes from the A15-high echo of `D_FILE`.
   On an M1 opcode fetch with bit 6 clear, the ULA latches the character and
@@ -13,11 +14,11 @@ The requested “fake” software-only high-resolution mode is the ZX81
   Software points `I` at a useful ROM region and resets the ULA line counter,
   choosing the closest available ROM pattern for every 8-pixel group. It is
   256x192 output, but not an arbitrary bitmap.
-- UDG variants point the same character-pattern path at extra RAM, commonly
-  around `$3000`.
-- WRX true hi-res uses the unmodified `I:R` refresh address to read a 6K
-  bitmap from refresh-readable static RAM. That is a distinct hardware/RAM
-  capability and should be a later feature.
+- **UDG RAM ($3000)** points the character-pattern path at writable RAM in
+  `$3000-$3FFF`.
+- **WRX hi-res** uses the unmodified `I:R` refresh address. WRX16 uses the
+  optional refresh-readable `$2000-$3FFF` RAM, while compact WRX1K programs
+  can source pixels from the ZX81's stock RAM.
 
 ## Evidence from the baseline emulator
 
@@ -106,8 +107,8 @@ machine-local raster capture path for nonstandard ROM-based display streams.
    generation stops. Keep the feature ZX81-only initially.
 
 This approach is small, machine-local, and avoids adding a hot-path callback
-to every Z80 machine. It should support the classic software-only mode while
-leaving UDG and WRX explicitly out of scope.
+to every Z80 machine. The same ZX81-local M1 observer now selects ROM patterns,
+UDG character RAM, or WRX refresh bytes according to the enabled hardware.
 
 ### Tests for Option A
 
@@ -125,7 +126,53 @@ leaving UDG and WRX explicitly out of scope.
 - Pseudo-hires mode does not feed the ordinary text OCR path garbage; report
   no text unless a later framebuffer OCR implementation is added.
 
-## Option B: cycle-aware ZX81 ULA (future complete solution)
+## Hardware options now implemented
+
+The Hardware panel exposes `UDG RAM ($3000)` and `WRX hi-res` for ZX81 only.
+Selecting either recreates the machine with the relevant RAM decoding and
+turns the other option off. Both modes retain the unconditional high-accuracy
+M1/sync capture needed by software pseudo-hires and preserve FAST/SLOW-mode
+behaviour.
+
+- UDG rows read glyph bytes from character-generator RAM and use the ZX81's
+  modulo-8 line counter.
+- WRX rows read bitmap bytes from the pre-step `I:R` refresh address. Full-width
+  32-byte WRX16 and centered variable-width WRX1K rows are accepted, including
+  sparse blank scanlines encoded as exact 207-T-state gaps.
+- The MCP `model` tool exposes the same `udgRam` and `wrxHires` options and
+  preserves them when a ZXDB library launch enables 16KB RAM.
+
+Real-program validation covers Artic's **ZX Galaxians** UDG board title and all
+ten programs in the WRX1K **1K hires gamepack**, in addition to the ROM
+pseudo-hires Manic Miner fixture.
+
+## ZXDB enhanced-graphics classifications
+
+ZXDB tag type `Z` is the structured `ZX81 Enhanced Graphics` filter shown by
+Spectrum Computing. The catalog builder now retains every tag for filtering and
+maps the modes we emulate to launch settings. Counts below are from ZXDB
+1.0.238 (July 2026); a title can carry more than one tag.
+
+| ZXDB tag | Titles | Status |
+| --- | ---: | --- |
+| ZX81 Pseudo Hi-Res (Software) | 28 | Supported |
+| ZX81 Hi-res: WRX (Original 1K RAM) | 61 | Supported |
+| ZX81 Hi-res: WRX (Modified RAM Pack) | 41 | Supported |
+| ZX81 Hi-res: UDG Card (Mapped at 3000h) | 7 | Supported |
+| ZX81 Hi-res: Memotech HRG Interface | 4 | Missing |
+| ZX81 Hi-res: QuickSilva (QS) HRG Interface | 10 | Missing |
+| ZX81 Hi-res: HRG-ms (Modified RAM Pack) | 7 | Missing |
+| ZX81 Hi-res: UDG-128 | 11 | Missing |
+| ZX81 Chroma Interface | 53 | Missing colour and attribute emulation |
+| ZX81 Hi-res - unknown/unidentified method | 18 | Needs title-by-title research |
+
+Zedragon (ZXDB 33460) is tagged with the `$3000` UDG card, so library launches
+select that graphics board automatically. The title as a whole is not yet
+supported: it is also a ZX81 32K program that requires ZXpand and advertises AY
+sound, while the emulator currently offers only 1KB/16KB RAM and no ZXpand.
+Those dependencies are separate from the enhanced-graphics classification.
+
+## Cycle-aware ZX81 ULA (possible future refinement)
 
 For standard, pseudo-hires, UDG, WRX, FAST/SLOW video, and unusual sync code,
 introduce a proper ZX81 ULA object and an explicit Z80 M1-fetch seam.
@@ -136,22 +183,13 @@ introduce a proper ZX81 ULA object and an explicit Z80 M1-fetch seam.
   NMI/INT timing, character/inverse latches, and framebuffer writes.
 - Advance the ULA by elapsed CPU T-states rather than rendering memory after
   the frame.
-- Add optional refresh-readable RAM regions for UDG/WRX. In WRX mode the pixel
-  byte comes from the pre-increment `I:R` refresh address rather than the
-  character/ROM address.
+- Move the existing optional refresh-readable UDG/WRX RAM and pre-step `I:R`
+  byte selection into that ULA object.
 
 This is architecturally accurate but materially larger. It touches the shared
 Z80 M1 hot path and needs regression testing against every Z80 machine and the
 Spectrum timing suites. It should follow, rather than block, targeted
 pseudo-hires support.
-
-## Suggested implementation sequence
-
-1. Implement Option A and validate with Manic Miner plus a synthetic fixture.
-2. Add a framebuffer/raster-active signal so OCR does not decode pseudo-hires
-   bytes as ZX81 text.
-3. Separately design RAM-at-`$2000-$3FFF` configuration for UDG programs.
-4. Implement the cycle-aware ULA before claiming WRX compatibility.
 
 ## References
 

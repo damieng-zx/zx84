@@ -47,6 +47,8 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'drive-b-force-ready': () => settings.driveBForceReady(),
   'cpc-parados': () => settings.cpcParados(),
   'zx8x-16k-ram': () => settings.zx8x16kRam(),
+  'zx81-udg-ram': () => settings.zx81UdgRam(),
+  'zx81-wrx-hires': () => settings.zx81WrxHires(),
 };
 
 export function buildSettingsView(): SettingsView {

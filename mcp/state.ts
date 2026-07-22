@@ -33,6 +33,10 @@ export const symbols = new SymbolTable();
 export interface InitMachineOptions {
   /** ZX80/ZX81 RAM pack. Ignored by other machine families. */
   zx8x16kRam?: boolean;
+  /** ZX81 user-defined character RAM mapped at $3000-$3FFF. */
+  zx81UdgRam?: boolean;
+  /** ZX81 refresh-readable WRX bitmap RAM mapped at $2000-$3FFF. */
+  zx81WrxHires?: boolean;
 }
 
 export async function initMachine(m: MachineModel, options: InitMachineOptions = {}): Promise<string> {

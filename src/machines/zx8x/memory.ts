@@ -3,6 +3,9 @@ import type { Zx8xModel } from './models.ts';
 
 const ADDRESS_SPACE = 0x10000;
 const RAM_BASE = 0x4000;
+const HIRES_RAM_BASE = 0x2000;
+const HIRES_RAM_SIZE = 0x2000;
+const UDG_RAM_BASE = 0x3000;
 
 /**
  * ZX80/ZX81 memory decoding. A15 is not decoded, so the lower 32K is echoed in
@@ -12,7 +15,10 @@ const RAM_BASE = 0x4000;
 export class Zx8xMemory implements IMachineMemory {
   private rom: Uint8Array;
   private ram: Uint8Array;
+  private readonly hiresRam = new Uint8Array(HIRES_RAM_SIZE);
   private expanded = false;
+  private udgRam = false;
+  private wrxRam = false;
 
   constructor(readonly model: Zx8xModel) {
     this.rom = new Uint8Array(model === 'zx80' ? 0x1000 : 0x2000);
@@ -20,6 +26,8 @@ export class Zx8xMemory implements IMachineMemory {
   }
 
   get has16kExpansion(): boolean { return this.expanded; }
+  get hasUdgRam(): boolean { return this.udgRam; }
+  get hasWrxRam(): boolean { return this.wrxRam; }
   get ramSize(): number { return this.ram.length; }
 
   set16kExpansion(enabled: boolean): void {
@@ -28,6 +36,30 @@ export class Zx8xMemory implements IMachineMemory {
     next.set(this.ram.subarray(0, Math.min(next.length, this.ram.length)));
     this.ram = next;
     this.expanded = enabled;
+  }
+
+  /** Character-generator RAM board decoded at $3000-$3FFF. */
+  setUdgRam(enabled: boolean): void {
+    this.udgRam = enabled;
+    if (enabled) this.wrxRam = false;
+  }
+
+  /** WRX refresh-readable static RAM decoded at $2000-$3FFF. */
+  setWrxRam(enabled: boolean): void {
+    this.wrxRam = enabled;
+    if (enabled) this.udgRam = false;
+  }
+
+  isUdgPatternAddress(addr: number): boolean {
+    const decoded = (addr & 0xffff) & 0x7fff;
+    return this.udgRam && decoded >= UDG_RAM_BASE && decoded < RAM_BASE;
+  }
+
+  isWrxBitmapAddress(addr: number): boolean {
+    const decoded = (addr & 0xffff) & 0x7fff;
+    // WRX16 commonly stores HFILE in the added static RAM at $2000-$3FFF;
+    // WRX1K deliberately uses the ZX81's stock RAM at $4000 and its mirrors.
+    return this.wrxRam && decoded >= HIRES_RAM_BASE;
   }
 
   loadROM(data: Uint8Array): void {
@@ -45,12 +77,26 @@ export class Zx8xMemory implements IMachineMemory {
 
   readByte(addr: number): number {
     const decoded = (addr & 0xffff) & 0x7fff;
+    if (this.wrxRam && decoded >= HIRES_RAM_BASE && decoded < RAM_BASE) {
+      return this.hiresRam[decoded - HIRES_RAM_BASE];
+    }
+    if (this.udgRam && decoded >= UDG_RAM_BASE && decoded < RAM_BASE) {
+      return this.hiresRam[decoded - HIRES_RAM_BASE];
+    }
     if (decoded < RAM_BASE) return this.rom[decoded % this.rom.length];
     return this.ram[(decoded - RAM_BASE) % this.ram.length];
   }
 
   writeByte(addr: number, val: number): void {
     const decoded = (addr & 0xffff) & 0x7fff;
+    if (this.wrxRam && decoded >= HIRES_RAM_BASE && decoded < RAM_BASE) {
+      this.hiresRam[decoded - HIRES_RAM_BASE] = val & 0xff;
+      return;
+    }
+    if (this.udgRam && decoded >= UDG_RAM_BASE && decoded < RAM_BASE) {
+      this.hiresRam[decoded - HIRES_RAM_BASE] = val & 0xff;
+      return;
+    }
     if (decoded < RAM_BASE) return;
     this.ram[(decoded - RAM_BASE) % this.ram.length] = val & 0xff;
   }
@@ -74,5 +120,8 @@ export class Zx8xMemory implements IMachineMemory {
 
   ramSnapshot(): Uint8Array { return this.ram.slice(); }
 
-  reset(): void { this.ram.fill(0); }
+  reset(): void {
+    this.ram.fill(0);
+    this.hiresRam.fill(0);
+  }
 }

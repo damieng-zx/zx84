@@ -153,6 +153,100 @@ describe('ZX81 software-only pseudo-hires', () => {
     }
   });
 
+  it('captures UDG character patterns from RAM at $3000', () => {
+    const machine = new Zx8xMachine('zx81');
+    machine.memory.set16kExpansion(true);
+    machine.memory.setUdgRam(true);
+    for (let row = 0; row < 8; row++) machine.memory.writeByte(0x3008 + row, 0x81 >> row);
+    write(machine, 0xc100, new Array(32).fill(0x01));
+    write(machine, 0xc120, [0xc9]);
+
+    const capture = machine as unknown as {
+      pseudoHiresBuilding: Uint8Array;
+      pseudoHiresBuildingRows: number;
+      observePseudoHiresM1(): void;
+    };
+    machine.cpu.i = 0x30;
+    machine.cpu.tStates = 1_000;
+
+    for (let row = 0; row < 8; row++) {
+      for (let col = 0; col < 32; col++) {
+        machine.cpu.pc = 0xc100 + col;
+        capture.observePseudoHiresM1();
+        machine.cpu.tStates += 4;
+      }
+      machine.cpu.pc = 0xc120;
+      capture.observePseudoHiresM1();
+      machine.cpu.tStates += 75;
+    }
+
+    expect(capture.pseudoHiresBuildingRows).toBe(8);
+    for (let row = 0; row < 8; row++) {
+      expect(capture.pseudoHiresBuilding[row * 32]).toBe(0x81 >> row);
+    }
+  });
+
+  it('captures WRX bitmap bytes from the unmodified I:R refresh address', () => {
+    const machine = new Zx8xMachine('zx81');
+    machine.memory.set16kExpansion(true);
+    machine.memory.setWrxRam(true);
+    // WRX1K display loops commonly emit 31 bytes (248 pixels) per row.
+    for (let col = 0; col < 31; col++) machine.memory.writeByte(0x2040 + col, col ^ 0xa5);
+    write(machine, 0xc100, new Array(31).fill(0x00));
+    write(machine, 0xc11f, [0xc9]);
+
+    const capture = machine as unknown as {
+      pseudoHiresBuilding: Uint8Array;
+      pseudoHiresBuildingRows: number;
+      observePseudoHiresM1(): void;
+    };
+    machine.cpu.i = 0x20;
+    machine.cpu.tStates = 1_000;
+    for (let col = 0; col < 31; col++) {
+      machine.cpu.r = 0x40 + col;
+      machine.cpu.pc = 0xc100 + col;
+      capture.observePseudoHiresM1();
+      machine.cpu.tStates += 4;
+    }
+    machine.cpu.pc = 0xc11f;
+    capture.observePseudoHiresM1();
+
+    expect(capture.pseudoHiresBuildingRows).toBe(1);
+    expect(Array.from(capture.pseudoHiresBuilding.subarray(0, 31))).toEqual(
+      Array.from({ length: 31 }, (_, col) => col ^ 0xa5),
+    );
+    expect(capture.pseudoHiresBuilding[31]).toBe(0);
+  });
+
+  it('captures and centers miniature variable-width WRX1K rows', () => {
+    const machine = new Zx8xMachine('zx81');
+    machine.memory.setWrxRam(true);
+    for (let col = 0; col < 5; col++) machine.memory.writeByte(0x4240 + col, 0x80 >> col);
+    write(machine, 0xc100, new Array(5).fill(0x00));
+    write(machine, 0xc105, [0xc9]);
+
+    const capture = machine as unknown as {
+      pseudoHiresBuilding: Uint8Array;
+      pseudoHiresBuildingWidths: Uint8Array;
+      pseudoHiresBuildingRows: number;
+      observePseudoHiresM1(): void;
+    };
+    machine.cpu.i = 0x42;
+    machine.cpu.tStates = 1_000;
+    for (let col = 0; col < 5; col++) {
+      machine.cpu.r = 0x40 + col;
+      machine.cpu.pc = 0xc100 + col;
+      capture.observePseudoHiresM1();
+      machine.cpu.tStates += 4;
+    }
+    machine.cpu.pc = 0xc105;
+    capture.observePseudoHiresM1();
+
+    expect(capture.pseudoHiresBuildingRows).toBe(1);
+    expect(capture.pseudoHiresBuildingWidths[0]).toBe(5);
+    expect(Array.from(capture.pseudoHiresBuilding.subarray(0, 5))).toEqual([0x80, 0x40, 0x20, 0x10, 0x08]);
+  });
+
   it('retains the ordinary display-file renderer when pseudo-hires is inactive', () => {
     const machine = new Zx8xMachine('zx81');
     machine.memory.set16kExpansion(true);

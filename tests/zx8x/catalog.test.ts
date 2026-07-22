@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { resolveZx8xGame, resolveZx8xGamesForModel, type RawZx8xCatalog } from '@/library/zx8x-catalog.ts';
+import { zx81HiResModeForTags, zx8xLaunchHardware } from '@/library/zx8x-hardware.ts';
 
 describe('ZX80/ZX81 catalog schema', () => {
   it('expands dictionary values and the native model', () => {
@@ -17,6 +18,9 @@ describe('ZX80/ZX81 catalog schema', () => {
       publisher: 'Sinclair Research Ltd',
       file: '/maze.p.zip',
       screen: '',
+      ramKb: null,
+      hiRes: null,
+      enhancedGraphics: [],
     });
   });
 
@@ -40,5 +44,37 @@ describe('ZX80/ZX81 catalog schema', () => {
 
     expect(resolveZx8xGamesForModel(catalog, 'zx80').map(game => game.id)).toEqual([80]);
     expect(resolveZx8xGamesForModel(catalog, 'zx81').map(game => game.id)).toEqual([81]);
+  });
+
+  it('applies compact and curated ZX81 hardware requirements', () => {
+    const catalog: RawZx8xCatalog = {
+      genres: [],
+      publishers: [],
+      graphics: ['ZX81 Hi-res: UDG Card (Mapped at 3000h)'],
+      games: [],
+    };
+    const pack = resolveZx8xGame({ i: 31906, t: '1K hires gamepack', m: 81, f: '/pack.p.zip' }, catalog);
+    expect(pack.ramKb).toBe(1);
+    expect(pack.hiRes).toBe('wrx');
+
+    const explicit = resolveZx8xGame({ i: 7, t: 'UDG game', m: 81, r: 16, h: 'u', x: [0], f: '/udg.p.zip' }, catalog);
+    expect(explicit.ramKb).toBe(16);
+    expect(explicit.hiRes).toBe('udg');
+    expect(explicit.enhancedGraphics).toEqual(['ZX81 Hi-res: UDG Card (Mapped at 3000h)']);
+  });
+
+  it('selects 1KB and WRX when launching the 1K hi-res gamepack', () => {
+    expect(zx8xLaunchHardware({ ramKb: 1, hiRes: 'wrx' }, {
+      ram16k: true,
+      udgRam: true,
+      wrxHires: false,
+    })).toEqual({ ram16k: false, udgRam: false, wrxHires: true });
+  });
+
+  it('maps supported ZXDB graphics tags without misclassifying missing boards', () => {
+    expect(zx81HiResModeForTags([13004])).toBe('wrx');
+    expect(zx81HiResModeForTags([13007])).toBe('udg');
+    expect(zx81HiResModeForTags([13001, 13010])).toBe('software');
+    expect(zx81HiResModeForTags([13002, 13003, 13008, 13010])).toBeNull();
   });
 });

@@ -63,19 +63,29 @@ export function fdcLogSink(machine: Machine): FdcLogSink | null {
 
 // ── Headless launch knobs ─────────────────────────────────────────────
 // Family-specific headless tweaks, consolidated here so state.ts stays
-// machine-blind. The zx8x RAM-pack flag doubles as MCP session state: the
-// model tool reports it and the library loader upgrades it.
+// machine-blind. The zx8x hardware flags double as MCP session state: the
+// model tool reports them and the library loader applies catalog requirements.
 
 let zx8x16k = false;
+let zx81Udg = false;
+let zx81Wrx = false;
 
 /** Whether the active ZX80/ZX81 session has the 16KB RAM pack fitted. */
 export function zx8x16kRam(): boolean { return zx8x16k; }
 
+/** Whether the active ZX81 session has UDG character RAM fitted. */
+export function zx81UdgRam(): boolean { return zx81Udg; }
+
+/** Whether the active ZX81 session has WRX bitmap RAM fitted. */
+export function zx81WrxHires(): boolean { return zx81Wrx; }
+
 /** Apply per-family headless knobs to a freshly created machine, before its
- *  ROM is installed and it is reset. Returns a short status fragment (the
- *  ZX80/ZX81 RAM size) for initMachine's ready line. */
+ *  ROM is installed and it is reset. Returns a short status fragment for
+ *  initMachine's ready line. */
 export function applyHeadlessKnobs(machine: Machine, options: InitMachineOptions): string {
   zx8x16k = machine.kind === 'zx8x' ? (options.zx8x16kRam ?? false) : false;
+  zx81Wrx = machine.model === 'zx81' ? (options.zx81WrxHires ?? false) : false;
+  zx81Udg = machine.model === 'zx81' && !zx81Wrx ? (options.zx81UdgRam ?? false) : false;
   if (machine.kind === 'spectrum') {
     // Cheap scanline rendering — the MCP framebuffer is only read on demand.
     (machine as unknown as { scanlineAccuracy: string }).scanlineAccuracy = 'low';
@@ -83,10 +93,16 @@ export function applyHeadlessKnobs(machine: Machine, options: InitMachineOptions
   if (machine.kind === 'zx8x') {
     machine.applySettings({
       get<T>(key: string, fallback: T): T {
-        return key === 'zx8x-16k-ram' ? (zx8x16k as T) : fallback;
+        if (key === 'zx8x-16k-ram') return zx8x16k as T;
+        if (key === 'zx81-udg-ram') return zx81Udg as T;
+        if (key === 'zx81-wrx-hires') return zx81Wrx as T;
+        return fallback;
       },
     });
-    return ` RAM=${zx8x16k ? '16KB' : '1KB'}`;
+    const hires = machine.model === 'zx81'
+      ? ` HIRES=${zx81Wrx ? 'WRX' : zx81Udg ? 'UDG' : 'off'}`
+      : '';
+    return ` RAM=${zx8x16k ? '16KB' : '1KB'}${hires}`;
   }
   return '';
 }

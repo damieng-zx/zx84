@@ -45,6 +45,40 @@ describe('ZX80/ZX81 machine family', () => {
     expect(machine.memory.ramSize).toBe(0x4000);
   });
 
+  it('maps the two ZX81 hi-res RAM devices and keeps them exclusive', () => {
+    const machine = new Zx8xMachine('zx81');
+    machine.loadROM(new Uint8Array(0x2000).fill(0x55));
+
+    machine.memory.writeByte(0x3000, 0xa5);
+    expect(machine.memory.readByte(0x3000)).toBe(0x55);
+
+    machine.memory.setUdgRam(true);
+    machine.memory.writeByte(0x3000, 0xa5);
+    machine.memory.writeByte(0x2000, 0x3c);
+    expect(machine.memory.readByte(0x3000)).toBe(0xa5);
+    expect(machine.memory.readByte(0x2000)).toBe(0x55);
+    expect(machine.memory.readByte(0xb000)).toBe(0xa5); // A15-high echo
+
+    machine.memory.setWrxRam(true);
+    machine.memory.writeByte(0x2000, 0x3c);
+    expect(machine.memory.hasUdgRam).toBe(false);
+    expect(machine.memory.hasWrxRam).toBe(true);
+    expect(machine.memory.readByte(0x2000)).toBe(0x3c);
+    expect(machine.memory.readByte(0x3000)).toBe(0xa5);
+  });
+
+  it('applies mutually exclusive ZX81 hi-res settings', () => {
+    const machine = new Zx8xMachine('zx81');
+    machine.applySettings({
+      get: (key, fallback) => (
+        (key === 'zx81-udg-ram' || key === 'zx81-wrx-hires') ? true : fallback
+      ) as typeof fallback,
+    });
+
+    expect(machine.memory.hasUdgRam).toBe(false);
+    expect(machine.memory.hasWrxRam).toBe(true);
+  });
+
   it('restores the ZX81 post-LOAD state without selecting IM 2', () => {
     const machine = new Zx8xMachine('zx81');
     machine.memory.set16kExpansion(true);

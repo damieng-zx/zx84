@@ -47,7 +47,8 @@ Some tools are intentionally hardware-specific:
   Einstein `.dsk/.hfe/.scp`, ZX80/ZX81 program files). CPC adds built-in
   uPD765A disk inspection, CPC OCR, and PNG screenshots.
 - ZX80/ZX81 additionally: model-constrained ZXDB library loading, 1KB/16KB
-  RAM selection, and display-file OCR.
+  RAM selection, ZX81 UDG and WRX hi-res hardware selection, and display-file
+  OCR.
 - MSX/Einstein media capabilities are exposed exactly where their machine
   services support them.
 
@@ -65,7 +66,7 @@ Use `model` to switch machines. Switching always creates a fresh machine.
 | `continue` | `max_frames` (default `5000`) | Run until a breakpoint, watchpoint, trap, or reset trap hits. |
 | `registers` | | Display CPU and machine state. |
 | `set_register` | `register`, `value` | Set A/F/AF, B/C/BC, D/E/DE, H/L/HL, SP, PC, IX, or IY. |
-| `model` | `target`, `ram16k` (optional) | Show or switch the active model; `ram16k` selects ZX80/ZX81 16KB RAM. |
+| `model` | `target`, `ram16k`, `udgRam`, `wrxHires` (optional) | Show or switch the active model; `ram16k` selects ZX80/ZX81 16KB RAM, while the mutually exclusive `udgRam` and `wrxHires` options configure ZX81 hi-res hardware. |
 
 ### Memory And Symbols
 
@@ -112,7 +113,7 @@ Spectrum additionally supports `sym`, `capslock`, and symbol-shift combos.
 | Tool | Parameters | Description |
 | --- | --- | --- |
 | `load` | `file`, `drive` | Load local media. Spectrum uses its bench path (auto-enables peripheral ROMs); every other machine routes through its own MediaService. ZIPs unwrap to a sole compatible file. |
-| `library` | `title`, `file`, `id`, `frames`, `refresh` | Exact-title library load. ZX80 and ZX81 searches stay strictly within the active model and enable 16KB RAM before launch. |
+| `library` | `title`, `file`, `id`, `frames`, `refresh` | Exact-title library load. ZX80 and ZX81 searches stay strictly within the active model and apply catalog RAM and hi-res hardware requirements before launch. |
 | `screenshot` | `file` (optional) | Write the active machine display to PNG. |
 | `save` | `file` | Save a Spectrum `.szx` snapshot. |
 | `eject` | `target`, `drive` | Eject a tape (any deck machine) or a disk (`a`/`b` where fitted). |

@@ -2,7 +2,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { hex8 as h8, hex16 as h16 } from '../../src/utils/hex.ts';
 import { state, initMachine } from '../state.ts';
-import { zx8x16kRam } from '../concrete.ts';
+import { zx8x16kRam, zx81UdgRam, zx81WrxHires } from '../concrete.ts';
 import { formatStep, formatRegs, parseAddr, text, checkWatchHit } from '../format.ts';
 import { traps, resetTrap, consumeResetHit } from '../traps.ts';
 import { MCP_MODELS } from '../models.ts';
@@ -90,17 +90,33 @@ export function register(server: McpServer): void {
 
   server.registerTool(
     'model',
-    { description: 'Show or switch the machine model. Creates a fresh machine when switching. ZX80/ZX81 may select the 16KB RAM pack.', inputSchema: {
+    { description: 'Show or switch the machine model. Creates a fresh machine when switching. ZX80/ZX81 may select 16KB RAM; ZX81 may select mutually exclusive UDG or WRX hi-res hardware.', inputSchema: {
       target: z.enum(MCP_MODELS).optional().describe('Model to switch to (omit to show current)'),
       ram16k: z.boolean().optional().describe('ZX80/ZX81 only: enable or disable 16KB RAM'),
+      udgRam: z.boolean().optional().describe('ZX81 only: map UDG character RAM at $3000-$3FFF'),
+      wrxHires: z.boolean().optional().describe('ZX81 only: enable WRX refresh-readable bitmap RAM (disables UDG RAM)'),
     } },
-    async ({ target, ram16k }) => {
-      if (!target && ram16k === undefined) {
+    async ({ target, ram16k, udgRam, wrxHires }) => {
+      if (!target && ram16k === undefined && udgRam === undefined && wrxHires === undefined) {
         const ram = state.spec.kind === 'zx8x' ? ` (${zx8x16kRam() ? '16KB' : '1KB'} RAM)` : '';
-        return text(`Current model: ${state.model}${ram}`);
+        const hires = state.model === 'zx81'
+          ? ` (hi-res: ${zx81WrxHires() ? 'WRX' : zx81UdgRam() ? 'UDG' : 'off'})`
+          : '';
+        return text(`Current model: ${state.model}${ram}${hires}`);
       }
       const next = target ?? state.model;
-      const msg = await initMachine(next, { zx8x16kRam: ram16k ?? (next === state.model ? zx8x16kRam() : false) });
+      const sameModel = next === state.model;
+      let nextWrx = next === 'zx81' ? (wrxHires ?? (sameModel ? zx81WrxHires() : false)) : false;
+      let nextUdg = next === 'zx81' ? (udgRam ?? (sameModel ? zx81UdgRam() : false)) : false;
+      // Match the UI checkboxes: explicitly enabling either hardware option
+      // disables the other. If a caller explicitly enables both, WRX wins.
+      if (wrxHires === true) nextUdg = false;
+      else if (udgRam === true) nextWrx = false;
+      const msg = await initMachine(next, {
+        zx8x16kRam: ram16k ?? (sameModel ? zx8x16kRam() : false),
+        zx81UdgRam: nextUdg,
+        zx81WrxHires: nextWrx,
+      });
       return text(`Switched to ${next.toUpperCase()}. ${msg}`);
     },
   );
