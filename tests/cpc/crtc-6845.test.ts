@@ -50,6 +50,25 @@ describe('CRTC 6845 — frame geometry', () => {
     expect(c.linesPerFrame()).toBe(39 * 8 + 6);
   });
 
+  it('reports 200 displayed lines for a standard 25-row display', () => {
+    const c = new Crtc6845(0);
+    programStandard(c);
+    expect(c.displayedLines()).toBe(200); // R6·(R9+1) = 25·8
+  });
+
+  it('reports a taller displayed height for a vertical-overscan display', () => {
+    const c = new Crtc6845(0);
+    programStandard(c);
+    setReg(c, R_VERT_DISPLAYED, 32);      // 32 rows of overscan
+    expect(c.displayedLines()).toBe(256); // 32·8 — would overflow the bottom if
+                                          // anchored at the fixed top border
+  });
+
+  it('falls back to 200 displayed lines while R6 is still unprogrammed', () => {
+    const c = new Crtc6845(0);            // all registers zero → R6·(R9+1) = 0
+    expect(c.displayedLines()).toBe(200);
+  });
+
   it('decodes the 14-bit display start from R12:R13', () => {
     const c = new Crtc6845(0);
     setReg(c, R_DISPLAY_START_H, 0x30);

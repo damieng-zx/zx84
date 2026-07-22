@@ -166,6 +166,36 @@ export class ROMManager {
     }
   }
 
+  /** In-memory cache of hidden default boot cartridges, keyed by source. */
+  private bootCartridges = new Map<string, Uint8Array>();
+
+  /**
+   * Fetch a machine's hidden default boot cartridge from `source` (a ROM-host
+   * name or fully-qualified URL, resolved via resolveRomSource), trying the
+   * in-memory then IndexedDB cache first. Machine-agnostic: the source string
+   * is supplied by the machine entry's `bootCartridgeSource` hook, so no
+   * per-machine specifics leak into this layer. Returns null if unobtainable.
+   */
+  async fetchBootCartridge(source: string): Promise<Uint8Array | null> {
+    const mem = this.bootCartridges.get(source);
+    if (mem) return mem;
+    const key = `boot-cart-${source.split('/').pop()}`;
+    try {
+      const cached = await dbLoad(key);
+      if (cached) { this.bootCartridges.set(source, cached); return cached; }
+    } catch { /* fall through to network */ }
+    try {
+      const resp = await fetch(resolveRomSource(source));
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = new Uint8Array(await resp.arrayBuffer());
+      this.bootCartridges.set(source, data);
+      try { await dbSave(key, data); } catch { /* non-fatal */ }
+      return data;
+    } catch {
+      return null;
+    }
+  }
+
   /**
    * Load a ROM and return it, trying cache first, then fetching if needed.
    * Concurrent calls for the same model share a single in-flight promise.

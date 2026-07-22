@@ -87,8 +87,8 @@ async function loadZx8xLibraryTitle(
 export function register(server: McpServer): void {
   server.registerTool(
     'load',
-    { description: 'Load a file into the emulator. ZX80 accepts .o/.80; ZX81 accepts .p/.81/.p81; either may be the sole compatible file in a ZIP. Spectrum and CPC media formats are also supported.', inputSchema: {
-      file: z.string().describe('Path to a machine-compatible media file or ZIP'),
+    { description: 'Load a file into the emulator. ZX80 accepts .o/.80; ZX81 accepts .p/.81/.p81; either may be the sole compatible file in a ZIP. Spectrum and CPC media formats are also supported. On the CPC also .CPR cartridges (Plus/GX4000 firmware or game). For DSK, optional drive unit (0/A or 1/B); for MDR, optional microdrive unit (0-7 → drives 1-8).', inputSchema: {
+      file: z.string().describe('Path to a machine-compatible media file or ZIP, or .CPR on CPC'),
       drive: z.enum(['0', '1', 'A', 'B']).default('0').describe('Drive unit for DSK files'),
     } },
     async ({ file, drive }) => {
@@ -97,8 +97,17 @@ export function register(server: McpServer): void {
       const cpc = activeCpc();
       if (cpc) {
         if (!fs.existsSync(file)) return text(`File not found: ${file}`);
-        if (!/\.dsk$/i.test(file)) return text('On the CPC, load accepts .dsk disk images only.');
-        const image = parseDSK(new Uint8Array(fs.readFileSync(file)));
+        const data = new Uint8Array(fs.readFileSync(file));
+        if (/\.cpr$/i.test(file)) {
+          // .CPR cartridge (Plus/GX4000). loadROM detects the RIFF/CPR header
+          // and routes to memory.loadCartridge; reset boots from the freshly
+          // inserted cartridge, matching a real power-cycle with a new cart.
+          cpc.loadROM(data);
+          cpc.reset();
+          return text(`CPR cartridge inserted and booted: ${path.basename(file)}`);
+        }
+        if (!/\.dsk$/i.test(file)) return text('On the CPC, load accepts .dsk disk images or .cpr cartridges.');
+        const image = parseDSK(data);
         cpc.loadDisk(image, diskUnit);
         return text(`DSK mounted in drive ${diskUnit === 0 ? 'A' : 'B'}: ${path.basename(file)}`);
       }

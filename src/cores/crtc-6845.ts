@@ -92,6 +92,14 @@ export class Crtc6845 {
     return n >= 32 && n <= 400 ? n : 312;
   }
 
+  /** Displayed scanlines this frame (R6 character rows × (R9+1) rasters). The
+   *  standard 25-row display is 200 lines; overscan games use more. Clamped to a
+   *  sane range while the registers are still being programmed (fallback 200). */
+  displayedLines(): number {
+    const n = this.regs[R_VERT_DISPLAYED] * (this.regs[R_MAX_RASTER] + 1);
+    return n >= 8 && n <= 400 ? n : 200;
+  }
+
   beginFrame(): void {
     this.vcc = 0;
     this.ra = 0;

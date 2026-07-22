@@ -44,11 +44,20 @@ export class CpcMemory implements IMachineMemory {
   /** Physical 16KB RAM banks (8 on the 6128). */
   private readonly ram: Uint8Array[];
 
-  /** Lower ROM (OS), overlays slot 0 when enabled. */
-  private lowerRom = new Uint8Array(SLOT_SIZE);
+  /** Lower ROM (OS), overlays the slot chosen by `lowerRomSlot` when enabled. */
+  private lowerRom: Uint8Array = new Uint8Array(SLOT_SIZE);
   /** Upper ROM slots (0 = BASIC, 7 = AMSDOS). Sparse; an absent slot reads as
    *  no-ROM (0xFF) so the firmware's boot-time ROM scan skips it. */
   private readonly upperRoms: (Uint8Array | undefined)[] = [];
+
+  /** All 32 cartridge ROM pages (Plus), retained so the ASIC's RMR2 register can
+   *  bank any of the low 8 pages into the lower-ROM slot. Empty on non-Plus. */
+  private readonly cartPages: (Uint8Array | undefined)[] = [];
+  /** Which cartridge page currently backs the lower ROM (Plus RMR2 D2–D0). */
+  private lowerRomPage = 0;
+  /** Which Z80 slot the lower ROM overlays: 0 = &0000, 1 = &4000, 2 = &8000
+   *  (Plus RMR2 D4–D3). 0 on the classic CPC. */
+  private lowerRomSlot = 0;
   /** Returned for an enabled-but-absent upper ROM (open bus). */
   private readonly absentRom = new Uint8Array(SLOT_SIZE).fill(0xFF);
 
@@ -70,10 +79,23 @@ export class CpcMemory implements IMachineMemory {
    *  precedence over the normal slot-0 read/write source. */
   private mfOverlay: Uint8Array | null = null;
 
+  /**
+   * Plus ASIC register window (16 KB) when paged into slot 1 by RMR2; null
+   * when hidden. Takes precedence over the normal slot-1 RAM mapping for both
+   * reads and writes — the ASIC's own decode handles side-effects via the
+   * `cpuWrite` indirection in `cpc-io.ts`. The Multiface overlay only touches
+   * slot 0, so the two never conflict.
+   */
+  private asicPage: Uint8Array | null = null;
+
   private readonly ramBanks: number;
+  /** Cached at construction — drives the Plus ROM-select logical-to-physical
+   *  translation in `selectUpperRom`. */
+  private readonly isPlus: boolean;
 
   constructor(cfg: CpcConfig) {
     this.ramBanks = cfg.ramBanks;
+    this.isPlus = cfg.isPlus;
     this.ram = [];
     for (let i = 0; i < cfg.ramBanks; i++) this.ram.push(new Uint8Array(SLOT_SIZE));
     this.applyMapping();
@@ -86,6 +108,84 @@ export class CpcMemory implements IMachineMemory {
     this.lowerRom = padTo16K(lowerOs);
     this.upperRoms[0] = padTo16K(basic);
     if (amsdos) this.upperRoms[7] = padTo16K(amsdos);
+    // The Plus's ROM-select byte translates logical 0 → physical 1 (BASIC)
+    // and logical 7 → physical 3 (AMSDOS), matching the Burnin' Rubber
+    // cartridge layout. Mirror the loaded ROMs into those physical slots so
+    // firmware ROM-scans resolve cleanly. A real .CPR overrides these via
+    // `loadCartridge`, which clears every upper slot first.
+    if (this.isPlus) {
+      this.upperRoms[1] = this.upperRoms[0];
+      if (amsdos) this.upperRoms[3] = this.upperRoms[7];
+    }
+    this.applyMapping();
+  }
+
+  /**
+   * Load a parsed .CPR cartridge image.
+   *
+   * Two cases:
+   *
+   *   1. **System cartridge** (page 0 present, e.g. Burnin' Rubber): replaces
+   *      the lower (OS) ROM with page 0 and CLEARS every upper-ROM slot
+   *      first, so any stale stand-in firmware (the V3 mirror populated by
+   *      `loadRoms`) is gone — absent cartridge pages correctly read as 0xFF
+   *      (open bus), matching real Plus hardware.
+   *
+   *   2. **Game-only cartridge** (no page 0): leaves the existing lower ROM
+   *      and upper-ROM slots intact, overlaying only the pages the cartridge
+   *      provides. The running firmware (typically the V3 stand-in) supplies
+   *      BASIC/AMSDOS; the cartridge adds the game at pages 4..7.
+   */
+  loadCartridge(pages: ReadonlyArray<Uint8Array | undefined>): void {
+    const page0 = pages[0];
+    if (page0) {
+      // System cartridge — clear stale state so only cartridge pages remain.
+      this.lowerRom = padTo16K(page0);
+      for (let i = 0; i < this.upperRoms.length; i++) this.upperRoms[i] = undefined;
+    }
+    for (let i = 1; i < 32; i++) {
+      const p = pages[i];
+      if (p) this.upperRoms[i] = padTo16K(p);
+    }
+    // Retain every page for RMR2 lower-ROM banking (D2–D0 selects one of the
+    // low 8 pages into the lower-ROM slot). Page 0 boots as the lower ROM.
+    this.cartPages.length = 0;
+    for (let i = 0; i < 32; i++) this.cartPages[i] = pages[i] ? padTo16K(pages[i]!) : undefined;
+    this.lowerRomPage = 0;
+    this.lowerRomSlot = 0;
+    // Default the selected upper ROM to physical 1 (BASIC) on Plus — the
+    // Burnin' Rubber layout. selectUpperRom's logical→physical translation
+    // will re-resolve on the next OUT &DFxx.
+    this.selectedUpperRom = this.isPlus ? 1 : 0;
+    this.applyMapping();
+  }
+
+  /**
+   * Plus ASIC RMR2 lower-ROM bank select. `page` (0–7) chooses which cartridge
+   * ROM page backs the lower ROM; `slot` (0 = &0000, 1 = &4000, 2 = &8000) is
+   * where it overlays, from RMR2 D4–D3. Driven by the ASIC once unlocked.
+   */
+  setLowerRomBank(page: number, slot: number): void {
+    const pg = page & 0x07;
+    const sl = slot & 0x03;
+    if (pg === this.lowerRomPage && sl === this.lowerRomSlot) return;
+    this.lowerRomPage = pg;
+    this.lowerRomSlot = sl;
+    this.lowerRom = this.cartPages[pg] ?? this.absentRom;
+    this.applyMapping();
+  }
+
+  /** Eject the cartridge: clear every page slot populated by `loadCartridge`.
+   *  On real hardware pulling the cartridge removes all ROM access, so the
+   *  lower ROM falls to open bus (0xFF) — including across the next `reset`,
+   *  which re-maps `cartPages[0]` when a cartridge is present. */
+  ejectCartridge(): void {
+    for (let i = 0; i < 32; i++) this.upperRoms[i] = undefined;
+    this.cartPages.length = 0;
+    this.lowerRom = this.absentRom;
+    this.lowerRomPage = 0;
+    this.lowerRomSlot = 0;
+    this.selectedUpperRom = this.isPlus ? 1 : 0;
     this.applyMapping();
   }
 
@@ -127,6 +227,21 @@ export class CpcMemory implements IMachineMemory {
 
   /** OUT &DFxx — select which upper ROM appears at 0xC000 when enabled. */
   selectUpperRom(n: number): void {
+    // On the Plus, the ROM-select byte carries both logical and physical IDs:
+    //   bit 7 = 0 → logical (0..127); the firmware ROM scan uses 0 (BASIC)
+    //            and 7 (AMSDOS), which on the Burnin' Rubber cartridge map
+    //            to physical pages 1 and 3 respectively.
+    //   bit 7 = 1 → direct physical (n & 0x1F), addressing any of the 32
+    //            cartridge pages.
+    // Non-Plus 464/664/6128 have no cartridge — pass `n` straight through.
+    if (this.isPlus) {
+      let physical: number;
+      if (n & 0x80) physical = n & 0x1F;
+      else if (n === 0) physical = 1;
+      else if (n === 7) physical = 3;
+      else physical = 1;
+      n = physical;
+    }
     if (this.selectedUpperRom === n) return;
     this.selectedUpperRom = n;
     if (this.upperRomEnabled) this.applyMapping();
@@ -154,9 +269,16 @@ export class CpcMemory implements IMachineMemory {
       this.writePtr[slot] = this.ram[bank];
       this.readPtr[slot] = this.ram[bank];
     }
-    if (this.lowerRomEnabled) this.readPtr[0] = this.lowerRom;
+    if (this.lowerRomEnabled) this.readPtr[this.lowerRomSlot] = this.lowerRom;
     if (this.upperRomEnabled) {
       this.readPtr[3] = this.upperRoms[this.selectedUpperRom] ?? this.absentRom;
+    }
+    // The Plus ASIC register window, when paged in by RMR2, replaces slot 1
+    // for both reads and writes — CPU writes go through `cpuWrite` for
+    // side-effects, but the storage underneath is this buffer.
+    if (this.asicPage) {
+      this.readPtr[1] = this.asicPage;
+      this.writePtr[1] = this.asicPage;
     }
     // Multiface Two overlay wins slot 0 outright (ROM+RAM, read and write).
     if (this.mfOverlay) {
@@ -174,6 +296,18 @@ export class CpcMemory implements IMachineMemory {
 
   clearSlot0Overlay(): void {
     this.mfOverlay = null;
+    this.applyMapping();
+  }
+
+  // ── Plus ASIC register window ─────────────────────────────────────────────
+
+  /**
+   * Page the Plus ASIC's 16 KB register window into slot 1 (`&4000–&7FFF`) or
+   * hide it again. Driven by the ASIC's RMR2 escape. Passing null restores the
+   * normal RAM-backed slot 1 mapping.
+   */
+  setAsicPage(buf: Uint8Array | null): void {
+    this.asicPage = buf;
     this.applyMapping();
   }
 
@@ -289,6 +423,11 @@ export class CpcMemory implements IMachineMemory {
     this.upperRomEnabled = true;
     this.selectedUpperRom = 0;
     this.mfOverlay = null;
+    this.asicPage = null;
+    // Restore the default lower-ROM bank (cartridge page 0 at &0000) on the Plus.
+    this.lowerRomPage = 0;
+    this.lowerRomSlot = 0;
+    if (this.cartPages[0]) this.lowerRom = this.cartPages[0]!;
     this.applyMapping();
   }
 }

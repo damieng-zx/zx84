@@ -17,6 +17,7 @@
 import type { CpcMachine } from '@/machines/cpc/cpc-machine.ts';
 import type { AY3891x } from '@/cores/ay-3-8910.ts';
 import type { CpcKeyboard } from '@/machines/cpc/cpc-keyboard.ts';
+import type { Asic } from '@/machines/cpc/asic.ts';
 
 /** Manufacturer code reported on PPI Port B bits 1–3 (7 = Amstrad). */
 const MANUFACTURER_AMSTRAD = 7;
@@ -150,6 +151,10 @@ export class Ppi8255 {
 export function installCpcMemoryHooks(m: CpcMachine): void {
   const memory = m.memory;
   const cpu = m.cpu;
+  // Plus ASIC register window (when paged in by RMR2) — CPU writes that land
+  // in &4000–&7FFF go through the ASIC's `cpuWrite` so palette/sprite/scroll
+  // side-effects fire. Null on non-Plus models.
+  const asic = m.config.isPlus ? (m.gateArray as unknown as Asic) : null;
 
   cpu.read8 = (addr: number): number => {
     addr &= 0xFFFF;
@@ -167,7 +172,15 @@ export function installCpcMemoryHooks(m: CpcMachine): void {
 
   cpu.write8 = (addr: number, val: number): void => {
     addr &= 0xFFFF;
-    memory.writeByte(addr, val);
+    // Plus ASIC register window intercepts slot 1 writes for side-effects.
+    // The underlying storage write still happens through writePtr[1] →
+    // registerPage, but the ASIC's decode (palette, sprite attrs, scroll, …)
+    // must run too.
+    if (asic !== null && asic.asicPageVisible && (addr >>> 14) === 1) {
+      asic.cpuWrite(addr & 0x3FFF, val & 0xFF);
+    } else {
+      memory.writeByte(addr, val);
+    }
     if (m.memWatchpoints.length > 0 && m.memWatchHit === null) {
       for (const wp of m.memWatchpoints) {
         if ((wp.mode === 'write' || wp.mode === 'rw') && addr >= wp.start && addr <= wp.end) {
@@ -191,6 +204,10 @@ export function wireCpcPortIO(m: CpcMachine): void {
   const ga = m.gateArray;
   const memory = m.memory;
   const fdc = m.fdc;
+  // Plus ASIC: present on cpc6128plus / gx4000. Used to snoop the CRTC
+  // register-select writes for the unlock sequence (every other Plus feature
+  // is reached through CPU memory writes once the ASIC window is paged in).
+  const asic = m.config.isPlus ? (ga as unknown as Asic) : null;
 
   cpu.portOut = (port: number, val: number): void => {
     port &= 0xFFFF;
@@ -216,8 +233,15 @@ export function wireCpcPortIO(m: CpcMachine): void {
     // CRTC: A14=0, A13=1
     if ((port & 0x6000) === 0x2000) {
       const fn = (port >> 8) & 3;
-      if (fn === 0) m.crtc.selectRegister(val);
-      else if (fn === 1) m.crtc.writeRegister(val);
+      if (fn === 0) {
+        // CRTC register-select writes are snooped by the Plus ASIC for the
+        // unlock sequence. The CRTC itself ignores the byte as an out-of-range
+        // register select; the ASIC matcher advances/toggles independently.
+        if (asic !== null) asic.pokeLockSequence(val);
+        m.crtc.selectRegister(val);
+      } else if (fn === 1) {
+        m.crtc.writeRegister(val);
+      }
     }
 
     // ROM select: A13=0
@@ -265,6 +289,27 @@ export function wireCpcPortIO(m: CpcMachine): void {
       if ((port & 0x0511) === 0x0100) { m.activity.mouseReads++; return km.x & 0xFF; }
       if ((port & 0x0511) === 0x0101) { m.activity.mouseReads++; return km.y & 0xFF; }
       if ((port & 0x0510) === 0x0000) { m.activity.mouseReads++; return km.buttons; }
+    }
+
+    // On the Plus ASIC, IN from the Gate Array (&7Fxx, A15=0 A14=1) and from
+    // CRTC ports (&BCxx/&BDxx, fn 0/1) performs the same write as an OUT would
+    // — the bus value is written to the target register as a ghost-write.
+    // Source: cpctech.cpcwiki.de/docs/cpcplus.html.
+    if (asic !== null) {
+      if ((port & 0xC000) === 0x4000) {
+        const busVal = 0xFF;  // bus float value during an IN instruction
+        ga.write(busVal);
+      }
+      if ((port & 0x6000) === 0x2000) {
+        const fn = (port >> 8) & 3;
+        if (fn === 0) {
+          const busVal = 0xFF;
+          if (asic !== null) asic.pokeLockSequence(busVal);
+          m.crtc.selectRegister(busVal);
+        } else if (fn === 1) {
+          m.crtc.writeRegister(0xFF);
+        }
+      }
     }
 
     // CRTC read: A14=0, A13=1, fn 2/3

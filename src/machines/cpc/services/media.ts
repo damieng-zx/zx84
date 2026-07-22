@@ -15,6 +15,7 @@ import { parseFloppyImage } from '@/media/floppy/hfe.ts';
 import type { CpcTapeService } from './tape.ts';
 import type { CpcDiskService } from './disks.ts';
 import type { CpcSnapshotService } from './snapshots.ts';
+import type { CpcRomService } from './roms.ts';
 
 function fail(message: string): MountResult { return { ok: false, message }; }
 
@@ -24,6 +25,7 @@ export class CpcMediaService implements MediaService {
     private readonly disks: CpcDiskService,
     private readonly tape: CpcTapeService,
     private readonly snapshots: CpcSnapshotService,
+    private readonly roms: CpcRomService,
   ) {}
 
   accepts(): MediaTypeDescriptor[] {
@@ -31,6 +33,7 @@ export class CpcMediaService implements MediaService {
       { ext: '.sna', target: 'snapshot' },
       { ext: '.cdt', target: 'tape' },
     ];
+    if (this.c.config.isPlus) out.push({ ext: '.cpr', target: 'cartridge' });
     if (this.c.config.hasFDC) out.push({ ext: '.dsk', target: 'a' }, { ext: '.hfe', target: 'a' });
     return out;
   }
@@ -64,6 +67,21 @@ export class CpcMediaService implements MediaService {
       const r = await this.snapshots.apply(data, filename);
       if (r.needsReplay) return { ok: true, replay: true, message: r.message };
       return r.ok ? { ok: true, target: 'snapshot', message: r.message } : fail(r.message);
+    }
+
+    // Plus cartridge (.CPR container). Routed through the ROM service's slot.
+    if (/\.cpr$/i.test(filename)) {
+      const slot = this.roms.cartridge;
+      if (!slot) return fail('Cartridges are only supported on Plus models');
+      c.stop();
+      try {
+        slot.insert(data, filename);
+        return { ok: true, target: 'cartridge', message: `Cartridge: ${filename}` };
+      } catch (e) {
+        return fail(`CPR error: ${(e as Error).message}`);
+      } finally {
+        c.start();
+      }
     }
 
     // Disk images into the uPD765A.

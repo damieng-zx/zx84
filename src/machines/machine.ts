@@ -210,6 +210,11 @@ export interface MachineUiCapabilities {
   readonly cartridge: boolean;
   /** Label for the system-ROM slot in the ROM pane. */
   readonly systemRomLabel: string;
+  /** Whether to show the system-ROM slot at all. Defaults to true. False on
+   *  machines where the cartridge IS the boot source (the Plus range), so the
+   *  ROM pane doesn't show two competing "Cartridge" entries — the cartridge
+   *  slot is the only path to load firmware. */
+  readonly systemRomSlot?: boolean;
   /** Independently-overridable 16K system ROM pages (0 = single image). */
   readonly romPages: 0 | 2 | 4;
   /** 1-bit beeper present (Sound-pane mixer + BEEP activity LED). */
@@ -222,8 +227,9 @@ export interface MachineUiCapabilities {
   readonly rainbow: boolean;
   /** Keyboard read path, for the KEY LED tip. */
   readonly keyboardBus: 'ula' | 'ppi';
-  /** Tape transport: 'deck' (pulse-level block list) or 'instant' (.cas). */
-  readonly tape: 'deck' | 'instant';
+  /** Tape transport: 'deck' (pulse-level block list) or 'instant' (.cas).
+   *  Omitted when the model has no cassette hardware (e.g. the GX4000 console). */
+  readonly tape?: 'deck' | 'instant';
   /** Loading-sound toggle applies (AY-audible tape loading). */
   readonly tapeSound: boolean;
   /** Extensions the tape loader accepts (Load picker). */
@@ -237,6 +243,9 @@ export interface MachineUiCapabilities {
   readonly persistMedia: boolean;
   /** Machine offers an auto-boot phantom boot-disk option (Einstein Xtal DOS). */
   readonly bootDisk: boolean;
+  /** Machine hidden-mounts a default firmware cartridge when its cartridge slot
+   *  is empty (CPC Plus / GX4000 → plus-system.cpr). */
+  readonly bootCartridge?: boolean;
   /** Software-library button applies. */
   readonly library: boolean;
   /** ROM regions the Memory pane's region picker offers (besides mapped/banks). */
@@ -783,6 +792,11 @@ export interface MachineEntry {
   /** Default system-ROM image sources, fetched and concatenated in order by the
    *  shared rom-manager machinery. */
   romSources(model: MachineModel): readonly string[];
+  /** Source (ROM-host name or URL) of the hidden default cartridge to mount when
+   *  this model's cartridge slot is empty, or undefined if it has none. Fetched
+   *  generically by the rom-manager; keeps the image identity in the machine
+   *  that owns it (CPC Plus → plus-system.cpr). Paired with `ui.bootCartridge`. */
+  bootCartridgeSource?(model: MachineModel): string | undefined;
   /** Classify a raw system-ROM image dropped on the ROM pane to the model that
    *  should host it (inferred from its size + the current model), or null when
    *  this machine family can't accept the image. Keeps ROM-size→model knowledge

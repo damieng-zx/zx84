@@ -131,6 +131,33 @@ export function clearTape(key: string): void {
   } catch { /* */ }
 }
 
+// Cartridges are keyed by platform kind (only the CPC Plus / GX4000 has a slot),
+// so a user-mounted .CPR survives a reload. The hidden plus-system.cpr firmware
+// cartridge is NOT persisted here — an empty entry restores to the phantom.
+export async function persistCartridge(key: string, data: Uint8Array, filename: string): Promise<void> {
+  try {
+    await dbSave(`cart-${key}-file`, data);
+    localStorage.setItem(`zx84-cart-${key}-file`, filename);
+  } catch { /* quota or write error */ }
+}
+
+export async function restoreCartridge(key: string): Promise<{ data: Uint8Array; name: string } | null> {
+  try {
+    const name = localStorage.getItem(`zx84-cart-${key}-file`);
+    if (!name) return null;
+    const data = await dbLoad(`cart-${key}-file`);
+    if (!data || data.length === 0) return null;
+    return { data, name };
+  } catch { return null; }
+}
+
+export function clearCartridge(key: string): void {
+  try {
+    localStorage.removeItem(`zx84-cart-${key}-file`);
+    dbSave(`cart-${key}-file`, new Uint8Array(0)).catch(() => {});
+  } catch { /* */ }
+}
+
 // Disks are keyed by a single-letter suffix so each drive gets its own LS
 // filename + IDB blob: the main uPD765A drives are 'a'/'b' (+3 / CPC A:/B:),
 // the MGT +D's WD1772 drives are 'c'/'d' (C:/D:). Both FDCs number their units

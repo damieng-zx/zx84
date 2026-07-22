@@ -12,7 +12,7 @@ import type { Machine } from '../src/machines/machine.ts';
 import { entryForModel } from '../src/machines/registry.ts';
 import type { MachineModel } from '../src/models.ts';
 import { SymbolTable } from '../src/debug/symbols.ts';
-import { fetchROM } from './rom-fetch.ts';
+import { fetchROM, fetchBootCartridge } from './rom-fetch.ts';
 import { wireFdcLog } from './fdc-log.ts';
 import { installTrapHook } from './traps.ts';
 import { hex16 as h16 } from '../src/utils/hex.ts';
@@ -38,6 +38,14 @@ export async function initMachine(m: MachineModel, options: InitMachineOptions =
   state.model = m;
   state.zx8x16kRam = m === 'zx80' || m === 'zx81' ? (options.zx8x16kRam ?? false) : false;
   state.romData = await fetchROM(m);
+  // Machines with no on-board ROM (CPC Plus / GX4000) have empty romSources and
+  // boot from a hidden default cartridge instead; fetch it via the generic
+  // entry hook and install it as the boot image (loadROM routes a .CPR through
+  // memory.loadCartridge). Mirrors the shell's applyBootCartridge.
+  if (state.romData.length === 0) {
+    const cartSource = entryForModel(m).bootCartridgeSource?.(m);
+    if (cartSource) state.romData = await fetchBootCartridge(cartSource);
+  }
   const machine = entryForModel(m).create(m, null);
   if (machine.kind === 'spectrum') {
     // Spectrum-only headless knob (cheap scanline rendering off-screen).

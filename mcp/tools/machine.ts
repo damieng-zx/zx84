@@ -126,8 +126,8 @@ export function register(server: McpServer): void {
         return text(`Current model: ${state.model}${ram}`);
       }
       const next = target ?? state.model;
-       const msg = await initMachine(next, { zx8x16kRam: ram16k ?? (next === state.model ? state.zx8x16kRam : false) });
-       return text(`Switched to ${next.toUpperCase()}. ${msg}`);
-     },
+      const msg = await initMachine(next, { zx8x16kRam: ram16k ?? (next === state.model ? state.zx8x16kRam : false) });
+      return text(`Switched to ${next.toUpperCase()}. ${msg}`);
+    },
   );
 }

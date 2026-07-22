@@ -52,6 +52,17 @@ export const KEY_NAME_MAP: Record<string, string> = {
   'left': 'ArrowLeft', 'right': 'ArrowRight',
   'up': 'ArrowUp', 'down': 'ArrowDown',
   'capslock': 'CapsLock', 'escape': 'Escape', 'esc': 'Escape',
+  // Numeric keypad — on the CPC these are the function keys (f0–f9), e.g. the
+  // firmware boot menu's "f2 Burnin' Rubber" is Numpad2. Harmless on machines
+  // whose matrix has no numpad (handleKeyEvent just returns false).
+  'numpad0': 'Numpad0', 'numpad1': 'Numpad1', 'numpad2': 'Numpad2',
+  'numpad3': 'Numpad3', 'numpad4': 'Numpad4', 'numpad5': 'Numpad5',
+  'numpad6': 'Numpad6', 'numpad7': 'Numpad7', 'numpad8': 'Numpad8',
+  'numpad9': 'Numpad9', 'numpadenter': 'NumpadEnter', 'numpaddot': 'NumpadDecimal',
+  // Aliases so "f2" works as the CPC firmware function key.
+  'f0': 'Numpad0', 'f1': 'Numpad1', 'f2': 'Numpad2', 'f3': 'Numpad3',
+  'f4': 'Numpad4', 'f5': 'Numpad5', 'f6': 'Numpad6', 'f7': 'Numpad7',
+  'f8': 'Numpad8', 'f9': 'Numpad9',
 };
 
 /** Spectrum keyboard mapping for printable characters (used by `type`). */

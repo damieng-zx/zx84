@@ -43,10 +43,17 @@ export class CpcInputService implements InputService {
     },
   };
 
-  /** Joystick presses land in the keyboard matrix rows 9/6 (per player). */
+  /** Joystick presses land in the keyboard matrix rows 9/6 (per player).
+   *
+   *  The CPC's *main* fire button is Fire 2, not Fire 1 — an Amstrad naming
+   *  quirk: a single-button joystick wires its one button to Fire 2, so games
+   *  put their primary action there (CPCWiki/magic-cookie joystick pinout).
+   *  Map the emulator's primary fire ('fire') to CPC Fire 2 so the main action
+   *  button behaves as on real hardware; the secondary button drives Fire 1.
+   *  Without this, Burnin' Rubber's launch/options were reversed. */
   readonly joystick: JoystickInput = {
     press: (dir, pressed, _mode, player) => {
-      const d = dir === 'fire' ? 'fire1' : dir;
+      const d = dir === 'fire' ? 'fire2' : dir === 'fire2' ? 'fire1' : dir;
       if (d === 'up' || d === 'down' || d === 'left' || d === 'right' || d === 'fire1' || d === 'fire2') {
         this.c.keyboard.setJoystick(d, pressed, player);
       }

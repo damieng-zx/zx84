@@ -53,6 +53,8 @@ export function HardwarePane() {
           <option value="cpc464">Amstrad CPC 464</option>
           <option value="cpc664">Amstrad CPC 664</option>
           <option value="cpc6128">Amstrad CPC 6128</option>
+          <option value="cpc6128plus">Amstrad CPC 6128Plus</option>
+          <option value="gx4000">Amstrad GX4000</option>
           <option value="einstein">Tatung Einstein TC-01</option>
           <option value="hx-10">MSX</option>
         </select>
