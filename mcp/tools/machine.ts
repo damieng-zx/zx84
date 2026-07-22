@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { hex8 as h8, hex16 as h16 } from '../../src/utils/hex.ts';
 import { state, initMachine } from '../state.ts';
 import { zx8x16kRam } from '../concrete.ts';
-import { formatStep, formatRegs, parseAddr, text } from '../format.ts';
+import { formatStep, formatRegs, parseAddr, text, checkWatchHit } from '../format.ts';
 import { traps, resetTrap, consumeResetHit } from '../traps.ts';
 import { MCP_MODELS } from '../models.ts';
 
@@ -14,19 +14,10 @@ export function register(server: McpServer): void {
     async ({ frames }) => {
       const spec = state.spec;
       const ran = spec.runUntil(frames);
-      if (spec.portWatchHit !== null) {
-        const { port, value, dir } = spec.portWatchHit;
-        return text(`Port watchpoint: ${dir === 'out' ? 'OUT' : 'IN '} (${h16(port)}) = ${h8(value)}  PC=${h16(spec.services.debug.pc)}\n${formatStep(spec)}`);
-      }
-      if (spec.memWatchHit !== null) {
-        const { addr, value, dir } = spec.memWatchHit;
-        return text(`Memory watchpoint: ${dir === 'write' ? 'WR' : 'RD'} (${h16(addr)}) = ${h8(value)}  PC=${h16(spec.services.debug.pc)}\n${formatStep(spec)}`);
-      }
-      if (spec.breakpointHit >= 0) {
-        const reset = consumeResetHit();
-        if (reset) return text(`${reset.text}\nafter ${ran}/${frames} frame(s)\n${formatStep(spec)}`);
-        return text(`Breakpoint hit at ${h16(spec.breakpointHit)} after ${ran}/${frames} frame(s). T=${spec.services.debug.tStates}\n${formatStep(spec)}`);
-      }
+      const reset = consumeResetHit();
+      if (reset) return text(`${reset.text}\nafter ${ran}/${frames} frame(s)\n${formatStep(spec)}`);
+      const hit = checkWatchHit(spec);
+      if (hit) return text(`${hit}\nafter ${ran}/${frames} frame(s)`);
       return text(`Ran ${frames} frame(s). T=${spec.services.debug.tStates}`);
     },
   );
@@ -37,19 +28,10 @@ export function register(server: McpServer): void {
     async () => {
       const spec = state.spec;
       spec.tick();
-      if (spec.portWatchHit !== null) {
-        const { port, value, dir } = spec.portWatchHit;
-        return text(`Port watchpoint: ${dir === 'out' ? 'OUT' : 'IN '} (${h16(port)}) = ${h8(value)}  PC=${h16(spec.services.debug.pc)}\n${formatStep(spec)}`);
-      }
-      if (spec.memWatchHit !== null) {
-        const { addr, value, dir } = spec.memWatchHit;
-        return text(`Memory watchpoint: ${dir === 'write' ? 'WR' : 'RD'} (${h16(addr)}) = ${h8(value)}  PC=${h16(spec.services.debug.pc)}\n${formatStep(spec)}`);
-      }
-      if (spec.breakpointHit >= 0) {
-        const reset = consumeResetHit();
-        if (reset) return text(`${reset.text}\n${formatStep(spec)}`);
-        return text(`Breakpoint at ${h16(spec.breakpointHit)}. T=${spec.services.debug.tStates}\n${formatStep(spec)}`);
-      }
+      const reset = consumeResetHit();
+      if (reset) return text(`${reset.text}\n${formatStep(spec)}`);
+      const hit = checkWatchHit(spec);
+      if (hit) return text(hit);
       return text(`Frame complete. T=${spec.services.debug.tStates}`);
     },
   );
@@ -76,19 +58,10 @@ export function register(server: McpServer): void {
       if (spec.breakpoints.size === 0 && spec.portWatchpoints.size === 0 && spec.memWatchpoints.length === 0 && traps.size === 0 && !resetTrap.armed)
         return text('No breakpoints or traps set. Use "breakpoint", "port_watchpoint", "memory_watchpoint", "trap", or "reset_trap" first.');
       const ran = spec.runUntil(max_frames);
-      if (spec.portWatchHit !== null) {
-        const { port, value, dir } = spec.portWatchHit;
-        return text(`Port watchpoint: ${dir === 'out' ? 'OUT' : 'IN '} (${h16(port)}) = ${h8(value)}  after ${ran} frame(s)  PC=${h16(spec.services.debug.pc)}\n${formatStep(spec)}`);
-      }
-      if (spec.memWatchHit !== null) {
-        const { addr, value, dir } = spec.memWatchHit;
-        return text(`Memory watchpoint: ${dir === 'write' ? 'WR' : 'RD'} (${h16(addr)}) = ${h8(value)}  after ${ran} frame(s)  PC=${h16(spec.services.debug.pc)}\n${formatStep(spec)}`);
-      }
-      if (spec.breakpointHit >= 0) {
-        const reset = consumeResetHit();
-        if (reset) return text(`${reset.text}\nafter ${ran} frame(s)\n${formatStep(spec)}`);
-        return text(`Breakpoint hit at ${h16(spec.breakpointHit)} after ${ran} frame(s). T=${spec.services.debug.tStates}\n${formatStep(spec)}`);
-      }
+      const reset = consumeResetHit();
+      if (reset) return text(`${reset.text}\nafter ${ran} frame(s)\n${formatStep(spec)}`);
+      const hit = checkWatchHit(spec);
+      if (hit) return text(`${hit}\nafter ${ran} frame(s)`);
       return text(`No breakpoint hit after ${max_frames} frames (T=${spec.services.debug.tStates})`);
     },
   );
