@@ -25,8 +25,17 @@ function isCell(value: Cell | readonly Cell[]): value is Cell {
 }
 
 export class Zx8xKeyboard {
-  private readonly rows = new Uint8Array(8).fill(0xff);
+  /** 8 half-rows, bits 0-4, active-low (0 = pressed). Read by the on-screen
+   *  keyboard to mirror the live matrix for highlighting. */
+  readonly rows = new Uint8Array(8).fill(0xff);
   private readonly held = new Map<string, readonly Cell[]>();
+
+  /**
+   * Reference count per [row][bit]. Several sources can hold the same bit at
+   * once — e.g. the on-screen SHIFT and a physical Shift both press [0,0]. A
+   * bit only releases when its count drops back to zero.
+   */
+  private readonly pressCount = Array.from({ length: 8 }, () => new Array<number>(5).fill(0));
 
   read(highByte: number): number {
     let value = 0x1f;
@@ -36,6 +45,18 @@ export class Zx8xKeyboard {
     return value;
   }
 
+  /** Press or release one matrix bit by position, reference-counted so
+   *  overlapping presses of the same bit coexist. */
+  setKey(row: number, bit: number, pressed: boolean): void {
+    if (pressed) {
+      this.pressCount[row][bit]++;
+      this.rows[row] &= ~(1 << bit);
+    } else {
+      this.pressCount[row][bit] = Math.max(0, this.pressCount[row][bit] - 1);
+      if (this.pressCount[row][bit] === 0) this.rows[row] |= 1 << bit;
+    }
+  }
+
   handleKeyEvent(code: string, pressed: boolean): boolean {
     const mapped = KEY_MAP[code];
     if (!mapped) return false;
@@ -43,14 +64,12 @@ export class Zx8xKeyboard {
     if (pressed) {
       if (this.held.has(code)) return true;
       this.held.set(code, cells);
-      for (const [row, bit] of cells) this.rows[row] &= ~(1 << bit);
+      for (const [row, bit] of cells) this.setKey(row, bit, true);
     } else {
-      const active = this.held.get(code) ?? cells;
+      const active = this.held.get(code);
+      if (!active) return true;
       this.held.delete(code);
-      for (const [row, bit] of active) {
-        const stillHeld = [...this.held.values()].some(group => group.some(c => c[0] === row && c[1] === bit));
-        if (!stillHeld) this.rows[row] |= 1 << bit;
-      }
+      for (const [row, bit] of active) this.setKey(row, bit, false);
     }
     return true;
   }
@@ -58,5 +77,6 @@ export class Zx8xKeyboard {
   reset(): void {
     this.rows.fill(0xff);
     this.held.clear();
+    for (const row of this.pressCount) row.fill(0);
   }
 }
