@@ -3,7 +3,7 @@ import { HiOutlineFunnel, HiOutlinePlay } from 'solid-icons/hi';
 import { DropDownMenuButton, type MenuItem } from '@/ui/components/DropDownMenuButton.tsx';
 import { basename, fileUrls, parseLibraryQuery } from '@/library/catalog.ts';
 import {
-  fetchZx8xCatalog, matchesZx8xHardwareFilters, resolveZx8xGamesForModel,
+  fetchZx8xCatalog, matchesZx8xGenreFilter, matchesZx8xHardwareFilters, resolveZx8xGamesForModel,
   type RawZx8xCatalog, type Zx8xGame,
 } from '@/library/zx8x-catalog.ts';
 import { zx8xLaunchHardware } from '@/library/zx8x-hardware.ts';
@@ -13,6 +13,18 @@ import { currentModel } from '@/state/machine-state.ts';
 import * as settings from '@/store/settings.ts';
 
 const RESULT_LIMIT = 500;
+
+const SUPER_CATEGORIES: { name: string; prefixes: string[] }[] = [
+  { name: 'Games', prefixes: ['Adventure Game', 'Arcade Game', 'Casual Game', 'Game', 'Puzzle Game', 'Sport Game', 'Strategy Game'] },
+  { name: 'Serious', prefixes: ['Emulator', 'General', 'Programming', 'Utility'] },
+  { name: 'Fan', prefixes: ['Advertising', 'Animation', 'Demoscene', 'E-Book', 'Electronic Magazine', 'Tech Demo'] },
+  { name: 'Compilations', prefixes: ['Box Set', 'Compilation', 'Covertape'] },
+];
+
+function genrePrefix(genre: string): string {
+  const separator = genre.indexOf(': ');
+  return separator >= 0 ? genre.slice(0, separator) : genre;
+}
 
 async function fetchFirst(urls: string[]): Promise<Uint8Array> {
   let last: unknown = new Error('No download URL');
@@ -71,6 +83,7 @@ export function Zx8xLibraryBrowser() {
   const [selected, setSelected] = createSignal<Zx8xGame | null>(null);
   const [graphicsFilter, setGraphicsFilter] = createSignal<Set<string>>(new Set());
   const [memoryFilter, setMemoryFilter] = createSignal<Set<number>>(new Set());
+  const [genreFilter, setGenreFilter] = createSignal<Set<string>>(new Set());
 
   onMount(async () => {
     try { setCatalog(await fetchZx8xCatalog()); }
@@ -90,8 +103,9 @@ export function Zx8xLibraryBrowser() {
     const parsed = parseLibraryQuery(query());
     const selectedGraphics = graphicsFilter();
     const selectedMemory = memoryFilter();
+    const selectedGenres = genreFilter();
     if (!parsed.text && !parsed.negTerms.length && parsed.yearMin === null && parsed.yearMax === null
-        && !parsed.publisher && !selectedGraphics.size && !selectedMemory.size) return [];
+        && !parsed.publisher && !selectedGraphics.size && !selectedMemory.size && !selectedGenres.size) return [];
     return games().filter(game => {
       const title = game.title.toLowerCase();
       return (!parsed.text || title.includes(parsed.text))
@@ -99,23 +113,29 @@ export function Zx8xLibraryBrowser() {
         && (!parsed.publisher || game.publisher.toLowerCase().includes(parsed.publisher))
         && (parsed.yearMin === null || (game.year !== null && game.year >= parsed.yearMin))
         && (parsed.yearMax === null || (game.year !== null && game.year <= parsed.yearMax))
-        && matchesZx8xHardwareFilters(game, selectedGraphics, selectedMemory);
+        && matchesZx8xHardwareFilters(game, selectedGraphics, selectedMemory)
+        && matchesZx8xGenreFilter(game, selectedGenres);
     }).slice(0, RESULT_LIMIT);
   });
 
   const isActive = createMemo(() => {
     const parsed = parseLibraryQuery(query());
     return !!parsed.text || !!parsed.negTerms.length || parsed.yearMin !== null || parsed.yearMax !== null
-      || !!parsed.publisher || graphicsFilter().size > 0 || memoryFilter().size > 0;
+      || !!parsed.publisher || graphicsFilter().size > 0 || memoryFilter().size > 0 || genreFilter().size > 0;
   });
 
   const videoFeatures = createMemo(() => (
     [...new Set(games().flatMap(game => game.enhancedGraphics))].sort((a, b) => a.localeCompare(b))
   ));
 
+  const genres = createMemo(() => (
+    [...new Set(games().map(game => game.genre).filter(Boolean))].sort((a, b) => a.localeCompare(b))
+  ));
+
   const filterItems = createMemo<MenuItem[]>(() => {
     const selectedGraphics = graphicsFilter();
     const selectedMemory = memoryFilter();
+    const selectedGenres = genreFilter();
     const features = videoFeatures();
     const selectedVideoCount = features.filter(feature => selectedGraphics.has(feature)).length;
     const selectedMemoryCount = [1, 16].filter(ramKb => selectedMemory.has(ramKb)).length;
@@ -142,10 +162,120 @@ export function Zx8xLibraryBrowser() {
         checked: selectedMemory.has(ramKb),
       })),
     });
+
+    const groups = new Map<string, { bare?: string; subs: { sub: string; value: string }[] }>();
+    for (const genre of genres()) {
+      const separator = genre.indexOf(': ');
+      const prefix = separator >= 0 ? genre.slice(0, separator) : genre;
+      let group = groups.get(prefix);
+      if (!group) { group = { subs: [] }; groups.set(prefix, group); }
+      if (separator >= 0) group.subs.push({ sub: genre.slice(separator + 2), value: genre });
+      else group.bare = genre;
+    }
+
+    function buildGenreGroup(prefix: string): { item: MenuItem; members: string[] } {
+      const group = groups.get(prefix)!;
+      if (group.subs.length === 0) {
+        return {
+          item: { value: `genre:${group.bare}`, label: prefix, checked: selectedGenres.has(group.bare!) },
+          members: [group.bare!],
+        };
+      }
+      const children: MenuItem[] = [];
+      const members: string[] = [];
+      if (group.bare) {
+        members.push(group.bare);
+        children.push({ value: `genre:${group.bare}`, label: '(general)', checked: selectedGenres.has(group.bare) });
+      }
+      for (const { sub, value } of group.subs.sort((a, b) => a.sub.localeCompare(b.sub))) {
+        members.push(value);
+        children.push({ value: `genre:${value}`, label: sub, checked: selectedGenres.has(value) });
+      }
+      const selectedCount = members.filter(member => selectedGenres.has(member)).length;
+      return {
+        item: {
+          value: `genre-group:${prefix}`,
+          label: prefix,
+          checked: selectedCount === members.length,
+          indeterminate: selectedCount > 0 && selectedCount < members.length,
+          children,
+        },
+        members,
+      };
+    }
+
+    const buckets = SUPER_CATEGORIES.map(category => ({ name: category.name, prefixes: [] as string[] }));
+    const other: string[] = [];
+    for (const prefix of groups.keys()) {
+      const index = SUPER_CATEGORIES.findIndex(category => category.prefixes.includes(prefix));
+      if (index >= 0) buckets[index].prefixes.push(prefix);
+      else other.push(prefix);
+    }
+    if (other.length) buckets.push({ name: 'Other', prefixes: other });
+
+    const genreItems: MenuItem[] = [];
+    for (const bucket of buckets) {
+      const prefixes = bucket.prefixes.sort((a, b) => a.localeCompare(b));
+      if (!prefixes.length) continue;
+      const children: MenuItem[] = [];
+      const members: string[] = [];
+      for (const prefix of prefixes) {
+        const built = buildGenreGroup(prefix);
+        children.push(built.item);
+        members.push(...built.members);
+      }
+      const selectedCount = members.filter(member => selectedGenres.has(member)).length;
+      genreItems.push({
+        value: `genre-super:${bucket.name}`,
+        label: bucket.name,
+        checked: selectedCount === members.length,
+        indeterminate: selectedCount > 0 && selectedCount < members.length,
+        children,
+      });
+    }
+    if (genreItems.length) {
+      items.push(
+        { value: '_separator', label: '', separator: true },
+        { value: '_genre', label: 'Genre', heading: true },
+        ...genreItems,
+      );
+    }
     return items;
   });
 
+  function toggleGenreGroup(members: readonly string[]): void {
+    const next = new Set(genreFilter());
+    const allSelected = members.length > 0 && members.every(member => next.has(member));
+    for (const member of members) {
+      if (allSelected) next.delete(member);
+      else next.add(member);
+    }
+    setGenreFilter(next);
+  }
+
   function toggleFilter(value: string): void {
+    if (value.startsWith('genre:')) {
+      const genre = value.slice('genre:'.length);
+      const next = new Set(genreFilter());
+      if (next.has(genre)) next.delete(genre);
+      else next.add(genre);
+      setGenreFilter(next);
+      return;
+    }
+    if (value.startsWith('genre-group:')) {
+      const prefix = value.slice('genre-group:'.length);
+      toggleGenreGroup(genres().filter(genre => genrePrefix(genre) === prefix));
+      return;
+    }
+    if (value.startsWith('genre-super:')) {
+      const name = value.slice('genre-super:'.length);
+      const category = SUPER_CATEGORIES.find(candidate => candidate.name === name);
+      const inBucket = category
+        ? (genre: string) => category.prefixes.includes(genrePrefix(genre))
+        : (genre: string) => !SUPER_CATEGORIES.some(candidate => candidate.prefixes.includes(genrePrefix(genre)));
+      toggleGenreGroup(genres().filter(inBucket));
+      return;
+    }
     if (value === 'video') {
       const features = videoFeatures();
       const next = new Set(graphicsFilter());
@@ -244,7 +374,7 @@ export function Zx8xLibraryBrowser() {
           <Show when={query()}><button class="library-search-clear" onClick={() => setQuery('')} aria-label="Clear search">×</button></Show>
         </div>
         <Show when={catalog()}>
-          <div class="library-search-menu" classList={{ active: graphicsFilter().size > 0 || memoryFilter().size > 0 }}>
+          <div class="library-search-menu" classList={{ active: graphicsFilter().size > 0 || memoryFilter().size > 0 || genreFilter().size > 0 }}>
             <DropDownMenuButton
               size="sm"
               icon={<HiOutlineFunnel />}

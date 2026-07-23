@@ -53,6 +53,10 @@ export function matchesZx8xHardwareFilters(
     && (!selectedMemory.size || selectedMemory.has(effectiveRamKb));
 }
 
+export function matchesZx8xGenreFilter(game: Zx8xGame, selectedGenres: ReadonlySet<string>): boolean {
+  return !selectedGenres.size || selectedGenres.has(game.genre);
+}
+
 export function resolveZx8xGame(raw: RawZx8xGame, catalog: RawZx8xCatalog): Zx8xGame {
   const override = zx8xHardwareOverride(raw.i);
   const hiResCode = raw.h;

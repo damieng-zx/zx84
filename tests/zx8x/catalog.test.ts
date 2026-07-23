@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  matchesZx8xHardwareFilters, resolveZx8xGame, resolveZx8xGamesForModel,
+  matchesZx8xGenreFilter, matchesZx8xHardwareFilters, resolveZx8xGame, resolveZx8xGamesForModel,
   type RawZx8xCatalog,
 } from '@/library/zx8x-catalog.ts';
 import { zx81HiResModeForTags, zx8xLaunchHardware } from '@/library/zx8x-hardware.ts';
@@ -107,5 +107,18 @@ describe('ZX80/ZX81 catalog schema', () => {
       new Set(['ZX81 Hi-res: UDG Card (Mapped at 3000h)']),
       new Set([1]),
     )).toBe(false);
+  });
+
+  it('filters exact ZXDB genres and leaves an empty Genre selection inactive', () => {
+    const catalog: RawZx8xCatalog = {
+      genres: ['Arcade Game: Action', 'Strategy Game: Chess'],
+      publishers: [],
+      games: [],
+    };
+    const action = resolveZx8xGame({ i: 1, t: 'Action', m: 81, g: 0, f: '/action.p.zip' }, catalog);
+
+    expect(matchesZx8xGenreFilter(action, new Set())).toBe(true);
+    expect(matchesZx8xGenreFilter(action, new Set(['Arcade Game: Action']))).toBe(true);
+    expect(matchesZx8xGenreFilter(action, new Set(['Strategy Game: Chess']))).toBe(false);
   });
 });
