@@ -250,9 +250,12 @@ function syncBetaDiskWriteProtect(unit: number, value: boolean): void {
 
 export function DrivePane() {
   async function handleInsertDisk(unit: number) {
+    const extensions = machine?.services.media.accepts()
+      .filter(type => type.target === 'a' || type.target === 'b')
+      .map(type => type.ext) ?? ['.dsk', '.hfe', '.scp'];
     const results = await openFile({
       id: 'zx84-disk',
-      extensions: ['.dsk', '.hfe', '.scp', '.zip'],
+      extensions: [...new Set([...extensions, '.zip'])],
     });
     if (!results) return;
     await loadFile(results[0].data, results[0].name, unit);

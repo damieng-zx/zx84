@@ -11,19 +11,19 @@ import {
 } from './constants.ts';
 
 const MTX_UI: MachineUiCapabilities = {
-  hiddenPanes: ['drive-panel', 'microdrive-panel', 'mouse-panel', 'sysvar-panel'],
+  hiddenPanes: ['microdrive-panel', 'mouse-panel', 'sysvar-panel'],
   memoryLayout: true,
   trace: true,
   colorMap: 'msx',
-  builtinDisk: false,
+  builtinDisk: true,
   joystick: false,
   fixedJoystick: false,
   mouse: false,
   cartridge: false,
-  systemRomLabel: 'OS + BASIC + ASSEM ROMs',
+  systemRomLabel: 'OS + BASIC + ASSEM + FDX ROMs',
   romPages: 0,
   beeper: false,
-  statusLeds: ['kbd', 'load', 'psg'],
+  statusLeds: ['kbd', 'load', 'dsk', 'psg'],
   keyboardBus: 'matrix',
   tape: 'instant',
   tapeSound: false,
@@ -37,6 +37,7 @@ const MTX_UI: MachineUiCapabilities = {
     { value: 'rom-os', label: 'OS ROM' },
     { value: 'rom-basic', label: 'BASIC ROM' },
     { value: 'rom-assem', label: 'Assembler ROM' },
+    { value: 'rom-fdx', label: 'FDX Disk BASIC ROM' },
   ],
   charset: 'spectrum',
 };
@@ -70,14 +71,18 @@ export const mtxEntry: MachineEntry = {
   create(model: MachineModel, display: IScreenRenderer | null) {
     return new MtxMachine(model as MtxModel, display);
   },
-  // These are the three physical 8K ROM images, concatenated by ROMManager.
-  // The project ROM CDN needs matching files; users can already install a
-  // combined 24K dump through the generic system-ROM service.
+  // The first three physical 8K ROMs are the MTX motherboard firmware. The
+  // fourth is the public MEMU Type 07 FDX/SDX Disk BASIC ROM, mapped at page 5.
   romSources() {
-    return ['mtx/os.rom', 'mtx/basic.rom', 'mtx/assem.rom'];
+    return [
+      'mtx/os.rom',
+      'mtx/basic.rom',
+      'mtx/assem.rom',
+      'https://raw.githubusercontent.com/Memotech-Bill/MEMU/main/run_time/roms/sdx-type07.rom',
+    ];
   },
   detectModelForRom(data: Uint8Array, current: MachineModel): MachineModel | null {
-    if (data.length !== 0x6000) return null;
+    if (data.length !== 0x6000 && data.length !== 0x8000) return null;
     return isMtxModel(current) ? current : 'mtx512';
   },
 };

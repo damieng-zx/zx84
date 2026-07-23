@@ -36,8 +36,8 @@ export class MtxMemory implements IMachineMemory {
   }
 
   /**
-   * Install the standard 24K firmware image in physical order:
-   * 8K OS, 8K BASIC (ROM page 0), 8K ASSEM (ROM page 1).
+   * Install firmware in physical order: 8K OS, 8K BASIC (page 0), 8K ASSEM
+   * (page 1), and optionally the 8K FDX/SDX Disk BASIC ROM (page 5).
    */
   loadRom(data: Uint8Array): void {
     this.osRom.fill(0xFF);
@@ -45,6 +45,7 @@ export class MtxMemory implements IMachineMemory {
     this.osRom.set(data.subarray(0, ROM_SIZE));
     this.romPages[0].set(data.subarray(ROM_SIZE, ROM_SIZE * 2));
     this.romPages[1].set(data.subarray(ROM_SIZE * 2, ROM_SIZE * 3));
+    this.romPages[5].set(data.subarray(ROM_SIZE * 3, ROM_SIZE * 4));
   }
 
   readByte(addr: number): number {

@@ -112,7 +112,7 @@ async function loadZx8xLibraryTitle(
 export function register(server: McpServer): void {
   server.registerTool(
     'load',
-    { description: 'Load media from a local path or HTTP(S) URL into the emulator. ZX80 accepts .o/.80; ZX81 accepts .p/.81/.p81; CPC accepts .dsk/.hfe/.scp disks, .cdt tapes, .sna snapshots, and .cpr cartridges on Plus models; MSX accepts .rom/.cas; MTX accepts .mtx tapes; Einstein accepts .dsk/.hfe/.scp; Spectrum accepts its tape/snapshot/disk formats (peripheral media auto-enables the matching interface). ZIPs are unwrapped when they hold exactly one compatible file. For DSK, optional drive unit (0/A or 1/B); for MDR, optional microdrive unit (0-7 → drives 1-8).', inputSchema: {
+    { description: 'Load media from a local path or HTTP(S) URL into the emulator. ZX80 accepts .o/.80; ZX81 accepts .p/.81/.p81; CPC accepts .dsk/.hfe/.scp disks, .cdt tapes, .sna snapshots, and .cpr cartridges on Plus models; MSX accepts .rom/.cas; MTX accepts .mtx tapes and Type 07 .mfloppy/.mfloppy-07 disks; Einstein accepts .dsk/.hfe/.scp; Spectrum accepts its tape/snapshot/disk formats (peripheral media auto-enables the matching interface). ZIPs are unwrapped when they hold exactly one compatible file. For disks, optional drive unit (0/A or 1/B); for MDR, optional microdrive unit (0-7 → drives 1-8).', inputSchema: {
       file: z.string().describe('Local path or HTTP(S) URL to a machine-compatible media file or ZIP'),
       drive: z.enum(['0', '1', 'A', 'B']).default('0').describe('Drive unit for DSK files'),
     } },

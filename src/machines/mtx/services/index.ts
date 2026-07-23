@@ -6,12 +6,13 @@ import { MtxInputService } from './input.ts';
 import { MtxMediaService } from './media.ts';
 import { MtxRomService } from './roms.ts';
 import { MtxTapeService } from './tape.ts';
+import { MtxDiskService } from './disks.ts';
 
 export interface MtxServices extends MachineServices {
   readonly media: MtxMediaService;
   readonly roms: MtxRomService;
   readonly tape: MtxTapeService;
-  readonly disks: null;
+  readonly disks: MtxDiskService;
   readonly snapshots: null;
   readonly input: MtxInputService;
   readonly probe: MtxFrameProbe;
@@ -19,11 +20,12 @@ export interface MtxServices extends MachineServices {
 
 export function createMtxServices(machine: MtxMachine): MtxServices {
   const tape = new MtxTapeService(machine);
+  const disks = new MtxDiskService(machine);
   return {
-    media: new MtxMediaService(tape),
+    media: new MtxMediaService(tape, disks),
     roms: new MtxRomService(machine, () => machine.host),
     tape,
-    disks: null,
+    disks,
     snapshots: null,
     input: new MtxInputService(machine),
     probe: new MtxFrameProbe(machine),

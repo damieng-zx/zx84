@@ -4,7 +4,8 @@
  * Reuses the commodity Z80A, TMS9929A, Z80 CTC and SN76489A cores. This first
  * base-machine implementation covers ROM BASIC operation, banked memory,
  * keyboard scanning, VDP video, CTC interrupts, PSG audio and logical `.mtx`
- * cassette loading. Printer, DART and disk expansions remain unfitted.
+ * cassette loading and the FDX/SDX-compatible floppy expansion. Printer and
+ * DART hardware remain unfitted.
  */
 
 import { Z80 } from '@/cores/z80.ts';
@@ -17,6 +18,7 @@ import { BaseMachine } from '@/machines/base-machine.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import { Tms9918ScreenText } from '@/ocr/tms9918.ts';
 import type { OcrGridName } from '@/ocr/ocr.ts';
+import type { DskImage } from '@/media/floppy/disk-image.ts';
 import type {
   BorderMode, Machine, MachineDescriptor, MachineHost, MachineKind,
   MachineTraceMode, SettingsView,
@@ -24,6 +26,7 @@ import type {
 import type { MtxModel } from './models.ts';
 import { MtxMemory } from './mtx-memory.ts';
 import { MtxKeyboard } from './mtx-keyboard.ts';
+import { MtxFdx } from './peripherals/fdx.ts';
 import { installMtxMemoryHooks, wireMtxPortIO } from './mtx-io.ts';
 import { mtxDescriptor } from './descriptor.ts';
 import { createMtxServices, type MtxServices } from './services/index.ts';
@@ -48,6 +51,8 @@ export class MtxMachine extends BaseMachine implements Machine {
   readonly vdp = new Tms9918a();
   readonly ctc = new Z80Ctc();
   readonly keyboard = new MtxKeyboard();
+  readonly fdx = new MtxFdx();
+  readonly fdc = this.fdx.fdc;
   readonly psg = new Sn76489(MTX_CPU_CLOCK, 48_000, 'mtx');
   readonly screenText = new Tms9918ScreenText();
   readonly mixer = new AudioMixer(MTX_CPU_CLOCK);
@@ -58,7 +63,7 @@ export class MtxMachine extends BaseMachine implements Machine {
   tapeOutput = 0;
   /** Logical `.mtx` stream served through the ROM tape routine. */
   readonly cassette = new MtxCassette();
-  readonly activity = { kbdReads: 0, psgWrites: 0, casReads: 0 };
+  readonly activity = { kbdReads: 0, psgWrites: 0, casReads: 0, fdcAccesses: 0 };
 
   private readonly _pixels = new Uint8Array(MTX_SCREEN_WIDTH * MTX_SCREEN_HEIGHT * 4);
   private readonly _pixels32 = new Uint32Array(this._pixels.buffer);
@@ -88,7 +93,11 @@ export class MtxMachine extends BaseMachine implements Machine {
 
   loadROM(data: Uint8Array): void {
     this.memory.loadRom(data);
-    this.setStatus(`MTX firmware loaded (${Math.min(data.length, 0x6000)} bytes)`);
+    this.setStatus(`MTX firmware loaded (${Math.min(data.length, 0x8000)} bytes)`);
+  }
+
+  loadDisk(image: DskImage, unit = 0): void {
+    this.fdc.insertDisk(image, unit);
   }
 
   screenExportBytes(): Uint8Array { return this.vdp.vram.slice(); }
@@ -104,6 +113,7 @@ export class MtxMachine extends BaseMachine implements Machine {
     if (value === 'rom-os') return { data: this.memory.osRom, baseAddr: 0x0000 };
     if (value === 'rom-basic') return { data: this.memory.romPages[0], baseAddr: 0x2000 };
     if (value === 'rom-assem') return { data: this.memory.romPages[1], baseAddr: 0x2000 };
+    if (value === 'rom-fdx') return { data: this.memory.romPages[5], baseAddr: 0x2000 };
     return null;
   }
 
@@ -111,6 +121,12 @@ export class MtxMachine extends BaseMachine implements Machine {
     this.vdp.palette =
       MSX_PALETTES[view.get('msx-color-map', 'pal') as keyof typeof MSX_PALETTES];
     this.audio.setVolume(view.get('volume', 70) / 100);
+  }
+
+  prepare(view: SettingsView): [] {
+    this.fdc.writeProtect[0] = view.get('write-protect-a', false);
+    this.fdc.writeProtect[1] = view.get('write-protect-b', false);
+    return [];
   }
 
   setBorderSize(mode: BorderMode): void {
@@ -132,6 +148,7 @@ export class MtxMachine extends BaseMachine implements Machine {
     this.vdp.reset();
     this.ctc.reset();
     this.keyboard.reset();
+    this.fdx.reset();
     this.psg.reset();
     this.audio.reset();
     this.mixer.reset();
@@ -202,6 +219,7 @@ export class MtxMachine extends BaseMachine implements Machine {
     this.activity.kbdReads = 0;
     this.activity.psgWrites = 0;
     this.activity.casReads = 0;
+    this.activity.fdcAccesses = 0;
     this._pixels32.fill(this.vdp.backdrop());
 
     const tPerLine = MTX_TSTATES_PER_FRAME / MTX_LINES_PER_FRAME;
@@ -260,6 +278,7 @@ export class MtxMachine extends BaseMachine implements Machine {
       }
     }
 
+    this.fdx.tickFrame();
     this.needsDisplay = true;
   }
 

@@ -40,7 +40,8 @@ export function installMtxMemoryHooks(m: MtxMachine): void {
  * MTX motherboard port decode.
  *
  * 00 paging, 01/02 TMS9929A, 03 cassette, 04 printer, 05/06 keyboard and
- * SN76489A, 08-0B Z80 CTC. The base MTX has no DART fitted.
+ * SN76489A, 08-0B Z80 CTC, 10-14 FDX/SDX floppy expansion. The base MTX has
+ * no DART fitted.
  */
 export function wireMtxPortIO(m: MtxMachine): void {
   const cpu = m.cpu;
@@ -64,6 +65,14 @@ export function wireMtxPortIO(m: MtxMachine): void {
       case 0x0A:
       case 0x0B:
         m.ctc.write(port & 3, value);
+        break;
+      case 0x10:
+      case 0x11:
+      case 0x12:
+      case 0x13:
+      case 0x14:
+        m.fdx.write(port, value);
+        m.activity.fdcAccesses++;
         break;
       // Port 4 printer and port 7 uncommitted PIO are not yet surfaced.
     }
@@ -92,6 +101,13 @@ export function wireMtxPortIO(m: MtxMachine): void {
       case 0x0A:
       case 0x0B:
         return m.ctc.read(port & 3);
+      case 0x10:
+      case 0x11:
+      case 0x12:
+      case 0x13:
+      case 0x14:
+        m.activity.fdcAccesses++;
+        return m.fdx.read(port);
       default: return 0xFF;
     }
   }

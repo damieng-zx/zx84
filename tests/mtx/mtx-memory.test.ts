@@ -63,4 +63,15 @@ describe('MTX memory', () => {
 
     expect(memory.readByte(0x8000)).toBe(0x10);
   });
+
+  it('maps the optional fourth firmware image into FDX ROM page 5', () => {
+    const memory = new MtxMemory('mtx512');
+    const rom = new Uint8Array(0x8000);
+    rom[0x6000] = 0xD7;
+
+    memory.loadRom(rom);
+    memory.setPageRegister(0x50);
+
+    expect(memory.readByte(0x2000)).toBe(0xD7);
+  });
 });
