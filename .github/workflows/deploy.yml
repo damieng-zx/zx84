@@ -1,0 +1,43 @@
+name: Deploy to Cloudflare
+
+# Production deploys are tag-driven: pushing a `vX.Y.Z` tag builds that exact
+# commit and publishes it to Cloudflare Workers. Merges to `main` do NOT deploy.
+# See RELEASING.md for the release procedure.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+# Never run two deploys at once; let an in-flight deploy finish rather than
+# cancelling it (a half-cancelled `wrangler deploy` is worse than a queued one).
+concurrency:
+  group: cloudflare-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout tagged commit
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # `wrangler deploy` runs the `build.command` (`npm run build`) declared in
+      # wrangler.jsonc before uploading `dist`, so no separate build step here.
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy
