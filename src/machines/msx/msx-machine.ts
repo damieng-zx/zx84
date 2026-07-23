@@ -50,6 +50,7 @@ const LINES_PER_FRAME = 313;
 const ACTIVE_LINES = 192;
 
 export class MsxMachine extends BaseMachine implements Machine {
+  protected get audioChip(): AY3891x { return this.ay; }
   readonly kind: MachineKind = 'msx';
   readonly model: MsxModel;
   readonly config: MsxConfig;

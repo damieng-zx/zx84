@@ -2,17 +2,23 @@
  * Einstein DiskService — the two WD1772 drives ('a'/'b'). The Einstein reads
  * Extended CPC DSK images (and HFE/SCP flux) via the same neutral DskImage model.
  *
- * The Xtal-DOS phantom boot disk is deliberately NOT modelled here: it is a shell
- * concern (a hidden image kept in drive 0 when the option is on and drive 0 is
- * empty). The service only performs explicit user inserts/ejects; the shell keeps
- * the phantom reconciled around them.
+ * The optional Xtal-DOS disk is declared as a generic hidden boot-disk request;
+ * the shell owns fetching/caching and this service owns DSK decoding.
  */
 
-import type { DiskService, DriveDescriptor, DriveMedia } from '@/machines/machine.ts';
+import type {
+  BootDiskRequest, DiskService, DriveDescriptor, DriveMedia,
+} from '@/machines/machine.ts';
 import type { EinsteinMachine } from '@/machines/einstein/einstein-machine.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { serializeDSK } from '@/media/floppy/dsk.ts';
-import { serializeHFE } from '@/media/floppy/hfe.ts';
+import { parseFloppyImage, serializeHFE } from '@/media/floppy/hfe.ts';
+
+const XTAL_DOS_BOOT_DISK: BootDiskRequest = {
+  source: 'einstein/xtaldos.dsk',
+  cacheKey: 'disk-einstein-xtaldos',
+  parse: parseFloppyImage,
+};
 
 function baseName(name: string, fallback: string): string {
   return name.replace(/\.[^.]+$/, '') || fallback;
@@ -23,6 +29,14 @@ export class EinsteinDiskService implements DiskService {
   private names = new Map<string, string>();
 
   constructor(private readonly e: EinsteinMachine) {}
+
+  get bootDisk(): BootDiskRequest | null {
+    return this.e.config.hasFDC && this.e.bootDiskEnabled ? XTAL_DOS_BOOT_DISK : null;
+  }
+
+  setBootDiskEnabled(on: boolean): void {
+    this.e.bootDiskEnabled = on;
+  }
 
   get drives(): readonly DriveDescriptor[] {
     const e = this.e;

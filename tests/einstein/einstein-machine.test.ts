@@ -21,6 +21,20 @@ describe('Einstein BASIC listing pane', () => {
   });
 });
 
+describe('Einstein hidden boot-disk profile', () => {
+  it('keeps Xtal DOS on the generic disk-service boot-disk seam', () => {
+    const m = machine();
+
+    expect(m.services.disks.bootDisk).toMatchObject({
+      source: 'einstein/xtaldos.dsk',
+      cacheKey: 'disk-einstein-xtaldos',
+    });
+
+    m.services.disks.setBootDiskEnabled(false);
+    expect(m.services.disks.bootDisk).toBeNull();
+  });
+});
+
 describe('EinsteinMemory ROM overlay + toggle', () => {
   let m: EinsteinMachine;
   beforeEach(() => {

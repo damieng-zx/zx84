@@ -148,27 +148,27 @@ export class ROMManager {
     }
   }
 
-  /** In-memory cache of the Einstein Xtal DOS boot disk. */
-  private einsteinXtalDosDisk: Uint8Array | null = null;
+  /** In-memory cache of hidden default boot disks, keyed by machine-owned key. */
+  private bootDisks = new Map<string, Uint8Array>();
 
   /**
-   * Fetch the Einstein Xtal DOS boot disk (einstein-xtaldos.dsk) from the ROM
-   * host, trying the in-memory then IndexedDB cache first. Returns null if it
-   * can't be obtained (the Xtal DOS option then simply has no effect). Used to
-   * boot Xtal DOS when the "Xtal DOS" hardware option is on and drive 0 is empty.
+   * Fetch a machine-declared hidden boot disk, trying memory and IndexedDB
+   * before the public source. Returns null when unavailable, leaving the
+   * hardware profile enabled but with an empty drive.
    */
-  async fetchEinsteinXtalDosDisk(): Promise<Uint8Array | null> {
-    if (this.einsteinXtalDosDisk) return this.einsteinXtalDosDisk;
+  async fetchBootDisk(source: string, cacheKey: string): Promise<Uint8Array | null> {
+    const memory = this.bootDisks.get(cacheKey);
+    if (memory) return memory;
     try {
-      const cached = await dbLoad('disk-einstein-xtaldos');
-      if (cached) { this.einsteinXtalDosDisk = cached; return cached; }
+      const cached = await dbLoad(cacheKey);
+      if (cached) { this.bootDisks.set(cacheKey, cached); return cached; }
     } catch { /* fall through to network */ }
     try {
-      const resp = await fetch(resolveRomSource('einstein/xtaldos.dsk'));
+      const resp = await fetch(resolveRomSource(source));
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const data = new Uint8Array(await resp.arrayBuffer());
-      this.einsteinXtalDosDisk = data;
-      try { await dbSave('disk-einstein-xtaldos', data); } catch { /* non-fatal */ }
+      this.bootDisks.set(cacheKey, data);
+      try { await dbSave(cacheKey, data); } catch { /* non-fatal */ }
       return data;
     } catch {
       return null;

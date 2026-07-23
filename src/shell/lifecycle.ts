@@ -42,7 +42,7 @@ import {
 } from '@/shell/rom.ts';
 import {
   stashOutgoingTape, restoreTapeForMachine, restoreMedia,
-  applyEinsteinXtalDosDisk, resetEinsteinPhantom,
+  applyBootDisk, resetBootDiskPhantom,
   applyBootCartridge,
 } from '@/shell/media.ts';
 import { applyDisplaySettings, buildSettingsView } from '@/shell/settings.ts';
@@ -131,7 +131,7 @@ export async function createMachine(): Promise<boolean> {
   setMachine(built);
   applySpeedMultiplier(built, SPEED_MULTIPLIERS[speedStep()] ?? 1);
   built.attachHost?.(buildMachineHost());
-  resetEinsteinPhantom();   // fresh FDC on the new machine
+  resetBootDiskPhantom();   // fresh FDC on the new machine
   built.onStatus = (msg: string) => setStatus(msg);
   built.onFrame = onFrame;
   applyDisplaySettings();
@@ -184,9 +184,9 @@ export async function createMachine(): Promise<boolean> {
   // Restore the tape stashed for the NEW machine's platform kind (if any).
   restoreTapeForMachine(built);
 
-  // Einstein: mount the phantom BASIC boot disk if the option is on and drive 0
-  // is empty (fire-and-forget — it only matters once the user presses Ctrl-BREAK).
-  applyEinsteinXtalDosDisk();
+  // Mount a machine-declared hidden boot disk when its profile is enabled and
+  // drive 0 is empty. Explicit user media always takes precedence.
+  void applyBootDisk();
 
   // CPC Plus / GX4000: boot the cartridge slot — restore a persisted user
   // cartridge, or hidden-mount the default firmware cartridge. This is the

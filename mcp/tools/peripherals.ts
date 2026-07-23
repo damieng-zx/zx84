@@ -4,7 +4,7 @@ import { variantForModel, variantLabel } from '../../src/machines/spectrum/perip
 import { isPlusDCapable, isBetaDiskCapable } from '../../src/models.ts';
 import { hex8 as h8, hex16 as h16 } from '../../src/utils/hex.ts';
 import { state } from '../state.ts';
-import { activeSpectrum } from '../concrete.ts';
+import { activeMtx, activeSpectrum } from '../concrete.ts';
 import { text } from '../format.ts';
 import { fetchMFRom, fetchVTXRom, fetchPlusDRom, fetchBetaDiskRom } from '../rom-fetch.ts';
 
@@ -200,6 +200,104 @@ export function register(server: McpServer): void {
         `Beta Disk enabled (TR-DOS ROM ${bd.rom.length} bytes). Machine reset.\n` +
         `Enter TR-DOS with: RANDOMIZE USR 15616\n` +
         `pagedIn=${bd.pagedIn}  PC=${h16(spec.cpu.pc)}`
+      );
+    },
+  );
+
+  server.registerTool(
+    'mtx80column',
+    {
+      description: 'Enable, disable, or inspect the Memotech FDX 6845-based 80-column display.',
+      inputSchema: {
+        action: z.enum(['on', 'off', 'status']).describe('Action to perform'),
+      },
+    },
+    async ({ action }) => {
+      const mtx = activeMtx();
+      if (!mtx) return text('The FDX 80-column display is a Memotech MTX peripheral.');
+      if (action === 'status') {
+        return text(
+          `FDX 80-column display: ${mtx.column80.enabled ? 'ON' : 'OFF'}  ` +
+          `${mtx.frameWidth}x${mtx.frameHeight}  ` +
+          `CRTC R12:R13=${h8(mtx.column80.crtc.regs[12])}:${h8(mtx.column80.crtc.regs[13])}`,
+        );
+      }
+      mtx.set80ColumnEnabled(action === 'on');
+      return text(`FDX 80-column display ${action === 'on' ? 'enabled' : 'disabled'}.`);
+    },
+  );
+
+  server.registerTool(
+    'mtx512kram',
+    {
+      description: 'Enable, disable, or inspect the Memotech 512 KiB SDX/FDX RAM expansion.',
+      inputSchema: {
+        action: z.enum(['on', 'off', 'status']).describe('Action to perform'),
+      },
+    },
+    async ({ action }) => {
+      const mtx = activeMtx();
+      if (!mtx) return text('The 512 KiB RAM expansion is for the Memotech MTX.');
+      if (action === 'status') {
+        return text(
+          `512 KiB RAM expansion: ${mtx.memory.ramExpansion512kEnabled ? 'ON' : 'OFF'}  ` +
+          `total=${mtx.memory.ramSizeBytes / 1024} KiB  model=${mtx.model}`,
+        );
+      }
+      mtx.set512kRamEnabled(action === 'on');
+      mtx.reset();
+      return text(
+        `512 KiB RAM expansion ${action === 'on' ? 'enabled' : 'disabled'}; ` +
+        `${mtx.memory.ramSizeBytes / 1024} KiB total. Machine reset.`,
+      );
+    },
+  );
+
+  server.registerTool(
+    'mtxcpm',
+    {
+      description: 'Enable, disable, or inspect the Memotech MTX512/RS128 CP/M hardware profile.',
+      inputSchema: {
+        action: z.enum(['on', 'off', 'status']).describe('Action to perform'),
+      },
+    },
+    async ({ action }) => {
+      const mtx = activeMtx();
+      if (!mtx) return text('The CP/M hardware profile is for the Memotech MTX.');
+      if (action === 'status') {
+        return text(
+          `MTX CP/M system: ${mtx.cpmSystemEnabled ? 'ON' : 'OFF'}  ` +
+          `model=${mtx.model}  80-column=${mtx.column80.enabled ? 'ON' : 'OFF'}`,
+        );
+      }
+      if (action === 'on' && mtx.model === 'mtx500') {
+        return text('MTX CP/M requires an MTX512 or RS128. Use the model tool to switch first.');
+      }
+      mtx.setCpmSystemEnabled(action === 'on');
+      if (action === 'on' && !mtx.services.disks.drives[0].loaded) {
+        const request = mtx.services.disks.bootDisk;
+        if (!request) return text('MTX CP/M system disk is not configured.');
+        try {
+          const response = await fetch(request.source);
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const data = new Uint8Array(await response.arrayBuffer());
+          mtx.services.disks.insert('a', request.parse(data), '');
+        } catch (err) {
+          mtx.setCpmSystemEnabled(false);
+          return text(`Failed to load the public MTX CP/M system disk: ${err}`);
+        }
+      }
+      if (
+        action === 'off' &&
+        mtx.services.disks.drives[0].loaded &&
+        mtx.services.disks.drives[0].mediaName === ''
+      ) {
+        mtx.services.disks.eject('a');
+      }
+      mtx.reset();
+      return text(
+        `MTX CP/M system ${action === 'on' ? 'enabled' : 'disabled'}. ` +
+        `${action === 'on' ? 'System disk mounted in drive B:. ' : ''}Machine reset.`,
       );
     },
   );

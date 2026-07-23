@@ -23,7 +23,7 @@ import type { MachineModel } from '@/models.ts';
 import type { OcrGridName, FontSource } from '@/ocr/ocr.ts';
 import type { BasicListingLine, BasicVariable } from '@/basic/types.ts';
 
-export type MachineKind = 'spectrum' | 'cpc' | 'einstein' | 'msx' | 'zx8x';
+export type MachineKind = 'spectrum' | 'cpc' | 'einstein' | 'msx' | 'zx8x' | 'mtx';
 
 /** Keyboard/ROM locale for international machine variants.
  *  'uk' = default (English, no locale-specific ROM/keyboard). */
@@ -190,7 +190,7 @@ export interface MemoryRegionInfo {
  *  declared here so machine descriptors stay headless-safe. A machine lists the
  *  ids it exposes via `MachineUiCapabilities.statusLeds`. */
 export type StatusLedId =
-  | 'kbd' | 'kemp' | 'mouse' | 'ear' | 'load' | 'dsk' | 'text' | 'rainbow' | 'beep' | 'ay';
+  | 'kbd' | 'kemp' | 'mouse' | 'ear' | 'load' | 'dsk' | 'text' | 'rainbow' | 'beep' | 'ay' | 'psg';
 
 /**
  * Per-model UI capability flags, declared by each machine's descriptor. The
@@ -239,8 +239,8 @@ export interface MachineUiCapabilities {
    *  ZX80/81). Rendered from the STATUS_LEDS catalog in `status-leds.ts`. */
   readonly statusLeds: readonly StatusLedId[];
   /** Keyboard read path, for the KEY LED tip. */
-  readonly keyboardBus: 'ula' | 'ppi';
-  /** Tape transport: 'deck' (pulse-level block list) or 'instant' (.cas).
+  readonly keyboardBus: 'ula' | 'ppi' | 'matrix';
+  /** Tape transport: 'deck' (pulse-level block list) or 'instant' (logical image).
    *  Omitted when the model has no cassette hardware (e.g. the GX4000 console). */
   readonly tape?: 'deck' | 'instant';
   /** Loading-sound toggle applies (AY-audible tape loading). */
@@ -254,7 +254,7 @@ export interface MachineUiCapabilities {
   readonly zipPolicy: 'all' | 'media' | 'none';
   /** Persist mounted disks/snapshots across reloads (tapes always persist). */
   readonly persistMedia: boolean;
-  /** Machine offers an auto-boot phantom boot-disk option (Einstein Xtal DOS). */
+  /** Machine offers a hidden default boot-disk profile. */
   readonly bootDisk: boolean;
   /** Machine hidden-mounts a default firmware cartridge when its cartridge slot
    *  is empty (CPC Plus / GX4000 → plus-system.cpr). */
@@ -380,6 +380,12 @@ export interface TapeBlockInfo {
   readonly label: string;
   /** Format-specific kind tag ('header', 'data', 'turbo', …) for pane styling. */
   readonly kind: string;
+  /** Optional second line for instant-cassette block listings. */
+  readonly detail?: string;
+  /** Optional file metadata used by the instant-cassette pane. */
+  readonly name?: string;
+  readonly type?: string;
+  readonly size?: number;
 }
 
 /** Cross-rebuild tape transport state (see TapeService.stashState). Data-shaped
@@ -394,9 +400,8 @@ export interface TapeStashState {
   casData?: Uint8Array;
 }
 
-/** Cassette transport. Spectrum/CPC/Einstein implement this over the shared
- *  pulse-level TapeDeck; the MSX over its instant-load .cas cassette — one
- *  surface, so the tape pane and tape-state signals stay machine-blind. */
+/** Cassette transport. Pulse-level decks and logical instant-load cassette
+ *  formats share one surface so the tape pane and state stay machine-blind. */
 export interface TapeService {
   readonly loaded: boolean;
   readonly name: string;
@@ -445,11 +450,24 @@ export interface DriveDescriptor {
  *  byte-stream devices (IF1 microdrives take .mdr images, not DskImages). */
 export type DriveMedia = DskImage | Uint8Array;
 
+/** Hidden default disk supplied by a machine's own service. The shell fetches
+ * and caches the bytes, while the service owns the format decoder. */
+export interface BootDiskRequest {
+  readonly source: string;
+  readonly cacheKey: string;
+  parse(data: Uint8Array): DriveMedia;
+}
+
 /** Every drive-bearing device the machine currently has fitted, flattened:
  *  the +3's internal uPD765A units and any enabled +D/Beta/IF1 drives appear
  *  side by side, distinguished only by their descriptors. */
 export interface DiskService {
   readonly drives: readonly DriveDescriptor[];
+  /** Optional hidden disk mounted in the first drive when the profile is
+   * enabled and no explicit user disk occupies it. */
+  readonly bootDisk?: BootDiskRequest | null;
+  /** Live enable switch for profiles whose hidden boot disk is optional. */
+  setBootDiskEnabled?(on: boolean): void;
   insert(id: string, media: DriveMedia, name: string): void;
   eject(id: string): void;
   /** Serialize the drive's current image for download (the name carries the
@@ -679,7 +697,7 @@ export interface FrameIndicators {
   tapePaused: boolean;
   tapeFinished: boolean;
   tapePosition: number;
-  /** Instant-load cassette block being read this frame (MSX), -1 = no update. */
+  /** Instant-load cassette block being read this frame, -1 = no update. */
   casBlock: number;
   /** ROM fast-loader engaged (drives the one-shot status announcement). */
   fastRomLoading: boolean;

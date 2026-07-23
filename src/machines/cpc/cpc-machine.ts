@@ -56,6 +56,7 @@ const TAPE_LOAD_ENTER_GAP = 500;
 const TAPE_LOAD_EXIT_GAP = 5000;
 
 export class CpcMachine extends BaseMachine implements Machine {
+  protected get audioChip(): AY3891x { return this.ay; }
   readonly kind: MachineKind = 'cpc';
   readonly model: CpcModel;
   readonly config: CpcConfig;
