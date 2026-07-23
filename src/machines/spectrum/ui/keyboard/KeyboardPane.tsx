@@ -13,10 +13,13 @@ import { For, Show } from 'solid-js';
 import { Pane } from '@/ui/components/Pane.tsx';
 import { activeSpectrum } from '@/machines/spectrum/ui/active.ts';
 import { currentModel } from '@/state/machine-state.ts';
+import { machineDescriptor } from '@/state/machine-caps.ts';
 import { is128kClass } from '@/machines/spectrum/models.ts';
 import { Block, useKeyboard, type KeyboardController, type LatchMode } from './keyboard-common.tsx';
 import { KeyboardPlus } from './KeyboardPlus.tsx';
 import { sparseKeyboardFace } from './plus2-legends.ts';
+import { lettersFor, numbersFor } from './legends.ts';
+import type { MachineLocale } from '@/machines/machine.ts';
 
 type Kind = 'num' | 'letter' | 'special';
 
@@ -40,61 +43,66 @@ interface KeyDef {
   w?: number;         // width in key units (default 1)
 }
 
-const KEY_ROWS: KeyDef[][] = [
-  // Number row — colour name + white command above, red symbol + block on key,
-  // red extended keyword below.
-  [
-    { kind: 'num', pos: [3, 0], main: '1', red: '!', block: 1, color: 'BLUE',    colorCss: '#2f7bff', cmd: 'EDIT',       below: 'DEF FN' },
-    { kind: 'num', pos: [3, 1], main: '2', red: '@', block: 2, color: 'RED',     colorCss: '#ff3b3b', cmd: 'CAPS LOCK',  below: 'FN' },
-    { kind: 'num', pos: [3, 2], main: '3', red: '#', block: 3, color: 'MAGENTA', colorCss: '#d24bd2', cmd: 'TRUE VIDEO', below: 'LINE' },
-    { kind: 'num', pos: [3, 3], main: '4', red: '$', block: 4, color: 'GREEN',   colorCss: '#33cc55', cmd: 'INV. VIDEO', below: 'OPEN #' },
-    { kind: 'num', pos: [3, 4], main: '5', red: '%', block: 5, color: 'CYAN',    colorCss: '#2ad2d2', cmd: '←',     below: 'CLOSE #' },
-    { kind: 'num', pos: [4, 4], main: '6', red: '&', block: 6, color: 'YELLOW',  colorCss: '#e6d62e', cmd: '↓',     below: 'MOVE' },
-    { kind: 'num', pos: [4, 3], main: '7', red: "'", block: 7, color: 'WHITE',   colorCss: '#ffffff', cmd: '↑',     below: 'ERASE' },
-    { kind: 'num', pos: [4, 2], main: '8', red: '(', block: 8,                                        cmd: '→',     below: 'POINT' },
-    { kind: 'num', pos: [4, 1], main: '9', red: ')',                                                  cmd: 'GRAPHICS',   below: 'CAT' },
-    { kind: 'num', pos: [4, 0], main: '0', red: '_',           color: 'BLACK',   colorCss: '#000',    cmd: 'DELETE',     below: 'FORMAT' },
-  ],
-  // Q row
-  [
-    { kind: 'letter', pos: [2, 0], main: 'Q', red: '<=',  word: 'PLOT',   green: 'SIN',   below: 'ASN' },
-    { kind: 'letter', pos: [2, 1], main: 'W', red: '<>',  word: 'DRAW',   green: 'COS',   below: 'ACS' },
-    { kind: 'letter', pos: [2, 2], main: 'E', red: '>=',  word: 'REM',    green: 'TAN',   below: 'ATN' },
-    { kind: 'letter', pos: [2, 3], main: 'R', red: '<',   word: 'RUN',    green: 'INT',   below: 'VERIFY' },
-    { kind: 'letter', pos: [2, 4], main: 'T', red: '>',   word: 'RAND',   green: 'RND',   below: 'MERGE' },
-    { kind: 'letter', pos: [5, 4], main: 'Y', red: 'AND', word: 'RETURN', green: 'STR $', below: '[' },
-    { kind: 'letter', pos: [5, 3], main: 'U', red: 'OR',  word: 'IF',     green: 'CHR $', below: ']' },
-    { kind: 'letter', pos: [5, 2], main: 'I', red: 'AT',  word: 'INPUT',  green: 'CODE',  below: 'IN' },
-    { kind: 'letter', pos: [5, 1], main: 'O', red: ';',   word: 'POKE',   green: 'PEEK',  below: 'OUT' },
-    { kind: 'letter', pos: [5, 0], main: 'P', red: '"',   word: 'PRINT',  green: 'TAB',   below: '©' },
-  ],
-  // A row
-  [
-    { kind: 'letter', pos: [1, 0], main: 'A', red: 'STOP',   word: 'NEW',   green: 'READ',    below: '~' },
-    { kind: 'letter', pos: [1, 1], main: 'S', red: 'NOT',    word: 'SAVE',  green: 'RESTORE', below: '|' },
-    { kind: 'letter', pos: [1, 2], main: 'D', red: 'STEP',   word: 'DIM',   green: 'DATA',    below: '\\' },
-    { kind: 'letter', pos: [1, 3], main: 'F', red: 'TO',     word: 'FOR',   green: 'SGN',     below: '{' },
-    { kind: 'letter', pos: [1, 4], main: 'G', red: 'THEN',   word: 'GOTO',  green: 'ABS',     below: '}' },
-    { kind: 'letter', pos: [6, 4], main: 'H', red: '↑', word: 'GOSUB', green: 'SQR',     below: 'CIRCLE' },
-    { kind: 'letter', pos: [6, 3], main: 'J', red: '−', word: 'LOAD',  green: 'VAL',     below: 'VAL $' },
-    { kind: 'letter', pos: [6, 2], main: 'K', red: '+',      word: 'LIST',  green: 'LEN',     below: 'SCREEN $' },
-    { kind: 'letter', pos: [6, 1], main: 'L', red: '=',      word: 'LET',   green: 'USR',     below: 'ATTR' },
-    { kind: 'special', pos: [6, 0], main: 'ENTER' },
-  ],
-  // Z row
-  [
-    { kind: 'special', pos: [0, 0], main: 'CAPS\nSHIFT', latch: 'oneshot', w: 1.25 },
-    { kind: 'letter', pos: [0, 1], main: 'Z', red: ':', word: 'COPY',   green: 'LN',      below: 'BEEP' },
-    { kind: 'letter', pos: [0, 2], main: 'X', red: '£', word: 'CLEAR',  green: 'EXP',     below: 'INK' },
-    { kind: 'letter', pos: [0, 3], main: 'C', red: '?', word: 'CONT',   green: 'L PRINT', below: 'PAPER' },
-    { kind: 'letter', pos: [0, 4], main: 'V', red: '/', word: 'CLS',    green: 'L LIST',  below: 'FLASH' },
-    { kind: 'letter', pos: [7, 4], main: 'B', red: '*', word: 'BORDER', green: 'BIN',     below: 'BRIGHT' },
-    { kind: 'letter', pos: [7, 3], main: 'N', red: ',', word: 'NEXT',   green: 'INKEY $', below: 'OVER' },
-    { kind: 'letter', pos: [7, 2], main: 'M', red: '.', word: 'PAUSE',  green: 'PI',      below: 'INVERSE' },
-    { kind: 'special', pos: [7, 1], main: 'SYMBOL\nSHIFT', redLabel: true, latch: 'oneshot' },
-    { kind: 'special', pos: [7, 0], main: 'BREAK\nSPACE', bigLast: true, w: 1.75 },
-  ],
-];
+/** Build the rubber-keyboard row data for a given locale. */
+function buildKeyRows(locale: MachineLocale): KeyDef[][] {
+  const ltrs = lettersFor(locale);
+  const nums = numbersFor(locale);
+
+  return [
+    // Number row
+    [
+      { kind: 'num', pos: [3, 0], main: '1', red: nums['1'].red!, block: nums['1'].block!, color: nums['1'].color, colorCss: nums['1'].colorCss, cmd: nums['1'].cmd, below: nums['1'].ext },
+      { kind: 'num', pos: [3, 1], main: '2', red: nums['2'].red!, block: nums['2'].block!, color: nums['2'].color, colorCss: nums['2'].colorCss, cmd: nums['2'].cmd, below: nums['2'].ext },
+      { kind: 'num', pos: [3, 2], main: '3', red: nums['3'].red!, block: nums['3'].block!, color: nums['3'].color, colorCss: nums['3'].colorCss, cmd: nums['3'].cmd, below: nums['3'].ext },
+      { kind: 'num', pos: [3, 3], main: '4', red: nums['4'].red!, block: nums['4'].block!, color: nums['4'].color, colorCss: nums['4'].colorCss, cmd: nums['4'].cmd, below: nums['4'].ext },
+      { kind: 'num', pos: [3, 4], main: '5', red: nums['5'].red!, block: nums['5'].block!, color: nums['5'].color, colorCss: nums['5'].colorCss, cmd: nums['5'].cmd, below: nums['5'].ext },
+      { kind: 'num', pos: [4, 4], main: '6', red: nums['6'].red!, block: nums['6'].block!, color: nums['6'].color, colorCss: nums['6'].colorCss, cmd: nums['6'].cmd, below: nums['6'].ext },
+      { kind: 'num', pos: [4, 3], main: '7', red: nums['7'].red!, block: nums['7'].block!, color: nums['7'].color, colorCss: nums['7'].colorCss, cmd: nums['7'].cmd, below: nums['7'].ext },
+      { kind: 'num', pos: [4, 2], main: '8', red: nums['8'].red!, block: nums['8'].block!,                                     cmd: nums['8'].cmd, below: nums['8'].ext },
+      { kind: 'num', pos: [4, 1], main: '9', red: nums['9'].red!,                                                 cmd: nums['9'].cmd, below: nums['9'].ext },
+      { kind: 'num', pos: [4, 0], main: '0', red: nums['0'].red!,           color: nums['0'].color, colorCss: nums['0'].colorCss, cmd: nums['0'].cmd, below: nums['0'].ext },
+    ],
+    // Q row
+    [
+      { kind: 'letter', pos: [2, 0], main: 'Q', red: ltrs.Q.red,  word: ltrs.Q.word, green: ltrs.Q.green, below: ltrs.Q.ess },
+      { kind: 'letter', pos: [2, 1], main: 'W', red: ltrs.W.red,  word: ltrs.W.word, green: ltrs.W.green, below: ltrs.W.ess },
+      { kind: 'letter', pos: [2, 2], main: 'E', red: ltrs.E.red,  word: ltrs.E.word, green: ltrs.E.green, below: ltrs.E.ess },
+      { kind: 'letter', pos: [2, 3], main: 'R', red: ltrs.R.red,  word: ltrs.R.word, green: ltrs.R.green, below: ltrs.R.ess },
+      { kind: 'letter', pos: [2, 4], main: 'T', red: ltrs.T.red,  word: ltrs.T.word, green: ltrs.T.green, below: ltrs.T.ess },
+      { kind: 'letter', pos: [5, 4], main: 'Y', red: ltrs.Y.red,  word: ltrs.Y.word, green: ltrs.Y.green, below: ltrs.Y.ess },
+      { kind: 'letter', pos: [5, 3], main: 'U', red: ltrs.U.red,  word: ltrs.U.word, green: ltrs.U.green, below: ltrs.U.ess },
+      { kind: 'letter', pos: [5, 2], main: 'I', red: ltrs.I.red,  word: ltrs.I.word, green: ltrs.I.green, below: ltrs.I.ess },
+      { kind: 'letter', pos: [5, 1], main: 'O', red: ltrs.O.red,  word: ltrs.O.word, green: ltrs.O.green, below: ltrs.O.ess },
+      { kind: 'letter', pos: [5, 0], main: 'P', red: ltrs.P.red,  word: ltrs.P.word, green: ltrs.P.green, below: ltrs.P.ess },
+    ],
+    // A row
+    [
+      { kind: 'letter', pos: [1, 0], main: 'A', red: ltrs.A.red,  word: ltrs.A.word, green: ltrs.A.green, below: ltrs.A.ess },
+      { kind: 'letter', pos: [1, 1], main: 'S', red: ltrs.S.red,  word: ltrs.S.word, green: ltrs.S.green, below: ltrs.S.ess },
+      { kind: 'letter', pos: [1, 2], main: 'D', red: ltrs.D.red,  word: ltrs.D.word, green: ltrs.D.green, below: ltrs.D.ess },
+      { kind: 'letter', pos: [1, 3], main: 'F', red: ltrs.F.red,  word: ltrs.F.word, green: ltrs.F.green, below: ltrs.F.ess },
+      { kind: 'letter', pos: [1, 4], main: 'G', red: ltrs.G.red,  word: ltrs.G.word, green: ltrs.G.green, below: ltrs.G.ess },
+      { kind: 'letter', pos: [6, 4], main: 'H', red: ltrs.H.red,  word: ltrs.H.word, green: ltrs.H.green, below: ltrs.H.ess },
+      { kind: 'letter', pos: [6, 3], main: 'J', red: ltrs.J.red,  word: ltrs.J.word, green: ltrs.J.green, below: ltrs.J.ess },
+      { kind: 'letter', pos: [6, 2], main: 'K', red: ltrs.K.red,  word: ltrs.K.word, green: ltrs.K.green, below: ltrs.K.ess },
+      { kind: 'letter', pos: [6, 1], main: 'L', red: ltrs.L.red,  word: ltrs.L.word, green: ltrs.L.green, below: ltrs.L.ess },
+      { kind: 'special', pos: [6, 0], main: 'ENTER' },
+    ],
+    // Z row
+    [
+      { kind: 'special', pos: [0, 0], main: 'CAPS\nSHIFT', latch: 'oneshot', w: 1.25 },
+      { kind: 'letter', pos: [0, 1], main: 'Z', red: ltrs.Z.red, word: ltrs.Z.word, green: ltrs.Z.green, below: ltrs.Z.ess },
+      { kind: 'letter', pos: [0, 2], main: 'X', red: ltrs.X.red, word: ltrs.X.word, green: ltrs.X.green, below: ltrs.X.ess },
+      { kind: 'letter', pos: [0, 3], main: 'C', red: ltrs.C.red, word: ltrs.C.word, green: ltrs.C.green, below: ltrs.C.ess },
+      { kind: 'letter', pos: [0, 4], main: 'V', red: ltrs.V.red, word: ltrs.V.word, green: ltrs.V.green, below: ltrs.V.ess },
+      { kind: 'letter', pos: [7, 4], main: 'B', red: ltrs.B.red, word: ltrs.B.word, green: ltrs.B.green, below: ltrs.B.ess },
+      { kind: 'letter', pos: [7, 3], main: 'N', red: ltrs.N.red, word: ltrs.N.word, green: ltrs.N.green, below: ltrs.N.ess },
+      { kind: 'letter', pos: [7, 2], main: 'M', red: ltrs.M.red, word: ltrs.M.word, green: ltrs.M.green, below: ltrs.M.ess },
+      { kind: 'special', pos: [7, 1], main: 'SYMBOL\nSHIFT', redLabel: true, latch: 'oneshot' },
+      { kind: 'special', pos: [7, 0], main: 'BREAK\nSPACE', bigLast: true, w: 1.75 },
+    ],
+  ];
+}
 
 function KeyCell(props: { d: KeyDef; kbd: KeyboardController }) {
   const d = props.d;
@@ -170,11 +178,12 @@ function KeyCell(props: { d: KeyDef; kbd: KeyboardController }) {
 
 function KeyboardRubber() {
   const kbd = useKeyboard();
+  const rows = () => buildKeyRows(machineDescriptor().locale);
   return (
     <Pane id="keyboard-panel" label="Keyboard">
       <div class="kbd-bezel">
         <div class="kbd-keys">
-          <For each={KEY_ROWS}>
+          <For each={rows()}>
             {(row) => (
               <div class="kbd-row">
                 <For each={row}>{(key) => <KeyCell d={key} kbd={kbd} />}</For>

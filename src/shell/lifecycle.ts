@@ -19,7 +19,7 @@ import { clearLastFile } from '@/store/persistence.ts';
 import { decideFocusPause } from '@/focus-pause.ts';
 import {
   currentModel, setCurrentModel, saveModel, emulationPaused, setEmulationPaused,
-  speedStep, setSpeedStep, setTurboMode,
+  speedStep, setSpeedStep, setTurboMode, currentLocale,
 } from '@/state/machine-state.ts';
 import {
   setDisasmText, setSysvarHtml, setBasicListing, setBasicVars, setTracing,
@@ -35,7 +35,7 @@ import {
   machine, romData, floppySound, canvasEl,
   romManager, debugManager,
   setMachine, setRomData, setFloppySound, setCanvasEl,
-  setStatus, setRomStatus, effectiveROMModel, createDisplay,
+  setStatus, setRomStatus, effectiveROMModel, effectiveROMKey, createDisplay,
 } from '@/shell/context.ts';
 import {
   persistROM, restoreROM, fetchDefaultROM, ensure128kROM, updateRomPaneInfo, fulfillAuxRoms,
@@ -95,16 +95,16 @@ function buildMachineHost(): MachineHost {
       // and the pane helpers) so keys/behaviour are byte-identical.
     },
     roms: {
-      persistFull: (data, label) => persistROM(effectiveROMModel(currentModel()), data, label),
-      clearFull: () => romManager.clearROM(effectiveROMModel(currentModel())),
-      persistPage: (page, data, label) => romManager.persistROMPage(effectiveROMModel(currentModel()), page as RomPage, data, label),
-      clearPage: (page) => romManager.clearROMPage(effectiveROMModel(currentModel()), page as RomPage),
+      persistFull: (data, label) => persistROM(effectiveROMKey(currentModel(), currentLocale()), data, label),
+      clearFull: () => romManager.clearROM(effectiveROMKey(currentModel(), currentLocale())),
+      persistPage: (page, data, label) => romManager.persistROMPage(effectiveROMKey(currentModel(), currentLocale()), page as RomPage, data, label),
+      clearPage: (page) => romManager.clearROMPage(effectiveROMKey(currentModel(), currentLocale()), page as RomPage),
       cached: () => {
-        const e = romManager.getCached(effectiveROMModel(currentModel()));
+        const e = romManager.getCached(effectiveROMKey(currentModel(), currentLocale()));
         return e ? { label: e.label, size: e.data.length, isCustom: e.isCustom } : null;
       },
       cachedPage: (page) => {
-        const e = romManager.getCachedPage(effectiveROMModel(currentModel()), page as RomPage);
+        const e = romManager.getCachedPage(effectiveROMKey(currentModel(), currentLocale()), page as RomPage);
         return e ? { label: e.label, size: e.data.length } : null;
       },
       rebuild: () => switchModel(currentModel()),
@@ -123,8 +123,9 @@ export async function createMachine(): Promise<boolean> {
   if (machine) machine.destroy();
 
   const model = currentModel();
+  const locale = currentLocale();
   const entry = entryForModel(model);
-  const { width: w, height: h } = entry.descriptor(model).screen;
+  const { width: w, height: h } = entry.descriptor(model, locale).screen;
   const display = canvasEl ? createDisplay(canvasEl, w, h) : null;
   const built = entry.create(model, display);
   setMachine(built);
@@ -385,8 +386,10 @@ export async function switchModel(model: MachineModel): Promise<void> {
     : null;
 
   const romModel = effectiveROMModel(model);
-  let entry = await restoreROM(romModel);
-  if (!entry) entry = await fetchDefaultROM(romModel);
+  const locale = currentLocale();
+  const key = effectiveROMKey(model, locale);
+  let entry = await restoreROM(key);
+  if (!entry) entry = await fetchDefaultROM(romModel, key, locale);
 
   if (entry) {
     let data = entry.data;
@@ -395,7 +398,7 @@ export async function switchModel(model: MachineModel): Promise<void> {
       // Splice any per-page overrides onto the base image, without mutating
       // the cached default (2 pages for 128K/+2, 4 for +2A/+3).
       const pages = await Promise.all(
-        Array.from({ length: pageCount }, (_, page) => romManager.restoreROMPage(romModel, page as RomPage))
+        Array.from({ length: pageCount }, (_, page) => romManager.restoreROMPage(key, page as RomPage))
       );
       if (pages.some(p => p !== null)) {
         data = new Uint8Array(entry.data);
@@ -440,10 +443,12 @@ export function setCanvas(el: HTMLCanvasElement): void {
 
 export async function init(): Promise<void> {
   const model = currentModel();
+  const locale = currentLocale();
 
   const romModel = effectiveROMModel(model);
-  let entry = await restoreROM(romModel);
-  if (!entry) entry = await fetchDefaultROM(romModel);
+  const key = effectiveROMKey(model, locale);
+  let entry = await restoreROM(key);
+  if (!entry) entry = await fetchDefaultROM(romModel, key, locale);
 
   if (entry) {
     setRomData(entry.data);

@@ -16,6 +16,9 @@ export interface MenuItem {
   separator?: boolean;
   /** Renders a non-clickable section sub-heading instead of an item. */
   heading?: boolean;
+  /** Locale flags shown inline on the right of this item row.
+   *  Clicking a flag fires onSelect with the flag's value string. */
+  flags?: { locale: string; emoji: string; value: string }[];
 }
 
 interface Props {
@@ -66,11 +69,15 @@ export function DropDownMenuButton(props: Props) {
   });
 
   function handleClick(item: MenuItem) {
-    // A pure submenu parent (no toggle) doesn't fire \u2014 only its flyout matters.
     if (item.children && item.checked === undefined) return;
     props.onSelect(item.value);
-    // Toggles (checkable items, incl. checkable parents) stay open; actions close.
     if (item.checked === undefined) close();
+  }
+
+  function handleFlagClick(value: string, e: MouseEvent) {
+    e.stopPropagation();
+    props.onSelect(value);
+    close();
   }
 
   function check(item: MenuItem) {
@@ -110,9 +117,16 @@ export function DropDownMenuButton(props: Props) {
       );
     }
     return (
-      <div class="ddmenu-item" onClick={() => handleClick(item)}>
+      <div class="ddmenu-item ddmenu-item-flags" onClick={() => handleClick(item)}>
         {check(item)}
-        <span>{item.label}</span>
+        <span class="ddmenu-label">{item.label}</span>
+        {item.flags && (
+          <span class="ddmenu-flags">
+            {item.flags.map(f => (
+              <span class="ddmenu-flag" title={`${item.label} (${f.locale})`} onClick={e => handleFlagClick(f.value, e)}>{f.emoji}</span>
+            ))}
+          </span>
+        )}
       </div>
     );
   }

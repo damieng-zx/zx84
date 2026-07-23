@@ -10,7 +10,7 @@
  * from the other shell modules, so it is the dependency root of the shell.
  */
 
-import type { Machine } from '@/machines/machine.ts';
+import type { Machine, MachineLocale } from '@/machines/machine.ts';
 import { entryForModel } from '@/machines/registry.ts';
 import type { MachineModel } from '@/models.ts';
 import { WebGLRenderer } from '@/display/webgl-renderer.ts';
@@ -57,6 +57,21 @@ export function setRomStatus(msg: string): void { setRomStatusText(msg); }
  */
 export function effectiveROMModel(model: MachineModel): MachineModel {
   return model === '+3' ? '+2A' : model;
+}
+
+/**
+ * Returns the model key for ROM cache + persistence. When the machine has
+ * locale-specific ROM sources, appends the locale suffix (e.g. '48k-es').
+ * Falls back to the bare model when the locale is 'uk' or the machine has no
+ * locale ROM variant. The +3 → +2A aliasing from effectiveROMModel is applied first.
+ */
+export function effectiveROMKey(model: MachineModel, locale?: MachineLocale): string {
+  const m = effectiveROMModel(model);
+  if (!locale || locale === 'uk') return m;
+  const entry = entryForModel(model);
+  const ukSources = entry.romSources(model).join('|');
+  const lcSources = entry.romSources(model, locale).join('|');
+  return lcSources !== ukSources ? `${m}-${locale}` : m;
 }
 
 // ── Display ──────────────────────────────────────────────────────────────

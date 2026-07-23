@@ -8,7 +8,7 @@
  * glue between it and the shell's state signals + the active machine.
  */
 
-import type { AuxRomRequest } from '@/machines/machine.ts';
+import type { AuxRomRequest, MachineLocale } from '@/machines/machine.ts';
 import {
   type SpectrumModel, type MachineModel,
   romPageSlotCount,
@@ -18,7 +18,7 @@ import { BANK_SIZE } from '@/utils/bank-size.ts';
 import { defaultRomPageLabel, resolveRomSource, type RomPage } from '@/managers/rom-manager.ts';
 import { dbSave, dbLoad } from '@/store/persistence.ts';
 import {
-  currentModel as currentModelValue,
+  currentModel as currentModelValue, currentLocale as currentLocaleValue,
   setCurrentModel, saveModel,
   setSystemRomLabel, setSystemRomSize, setSystemRomIsCustom,
   setSystemRomPageLabels, setSystemRomPageSizes, setSystemRomPageOverridden,
@@ -28,7 +28,7 @@ import {
 } from '@/state/machine-state.ts';
 import {
   romManager, machine, romData, setRomData,
-  setStatus, setRomStatus, effectiveROMModel,
+  setStatus, setRomStatus, effectiveROMModel, effectiveROMKey,
 } from '@/shell/context.ts';
 import { createMachine, switchModel } from '@/shell/lifecycle.ts';
 
@@ -36,18 +36,18 @@ import { createMachine, switchModel } from '@/shell/lifecycle.ts';
 export type { ROMEntry } from '@/managers/rom-manager.ts';
 
 /** Persist a ROM to cache and storage (delegates to ROMManager) */
-export async function persistROM(model: MachineModel, data: Uint8Array, label: string): Promise<void> {
-  await romManager.persistROM(model, data, label);
+export async function persistROM(key: string, data: Uint8Array, label: string): Promise<void> {
+  await romManager.persistROM(key, data, label);
 }
 
 /** Restore a ROM from cache (delegates to ROMManager) */
-export async function restoreROM(model: MachineModel) {
-  return await romManager.restoreROM(model);
+export async function restoreROM(key: string) {
+  return await romManager.restoreROM(key);
 }
 
 /** Fetch default ROM from CDN (delegates to ROMManager) */
-export async function fetchDefaultROM(model: MachineModel) {
-  return await romManager.fetchDefaultROM(model, setStatus);
+export async function fetchDefaultROM(model: MachineModel, key: string, locale?: MachineLocale) {
+  return await romManager.fetchDefaultROM(model, key, locale, setStatus);
 }
 
 // ── System ROM + MSX cartridge (ROM pane) ─────────────────────────────────
@@ -56,7 +56,8 @@ export async function fetchDefaultROM(model: MachineModel) {
  *  mounted cartridge. Called after every (re)build of the machine. */
 export function updateRomPaneInfo(): void {
   const model = effectiveROMModel(currentModelValue());
-  const entry = romManager.getCached(model);
+  const key = effectiveROMKey(currentModelValue(), currentLocaleValue());
+  const entry = romManager.getCached(key);
   setSystemRomLabel(entry?.label ?? '');
   setSystemRomSize(romData?.length ?? 0);
   setSystemRomIsCustom(entry?.isCustom ?? false);
@@ -66,7 +67,7 @@ export function updateRomPaneInfo(): void {
   const sizes: number[] = [];
   const overridden: boolean[] = [];
   for (let page = 0; page < pageCount; page++) {
-    const p = romManager.getCachedPage(model, page as RomPage);
+    const p = romManager.getCachedPage(key, page as RomPage);
     labels.push(p?.label ?? defaultRomPageLabel(model, page as RomPage));
     sizes.push(p?.data.length ?? 0);
     overridden.push(p !== null);
@@ -83,14 +84,16 @@ export function updateRomPaneInfo(): void {
  *  Generic across machines — the ROM pane calls this for any active model. */
 export async function setSystemRom(data: Uint8Array, label: string): Promise<void> {
   if (machine) { await machine.services.roms.setSystemRom(data, label); return; }
-  await persistROM(effectiveROMModel(currentModelValue()), data, label);
+  const key = effectiveROMKey(currentModelValue(), currentLocaleValue());
+  await persistROM(key, data, label);
   await switchModel(currentModelValue());   // rebuild with the new ROM
 }
 
 /** Restore the current model's default system ROM (cleared, then re-fetched). */
 export async function resetSystemRom(): Promise<void> {
   if (machine) { await machine.services.roms.resetSystemRom(); return; }
-  await romManager.clearROM(effectiveROMModel(currentModelValue()));
+  const key = effectiveROMKey(currentModelValue(), currentLocaleValue());
+  await romManager.clearROM(key);
   await switchModel(currentModelValue());   // restoreROM now misses → default is fetched
 }
 
@@ -105,15 +108,16 @@ export async function resetSystemRom(): Promise<void> {
 export async function setSystemRomPage(page: RomPage, data: Uint8Array, label: string): Promise<void> {
   if (machine) { await machine.services.roms.setSystemRom(data, label, page); return; }
   const model = effectiveROMModel(currentModelValue());
+  const key = effectiveROMKey(currentModelValue(), currentLocaleValue());
   const pageCount = romPageSlotCount(model);
   if (pageCount === 0) { setStatus('This model has a single System ROM'); return; }
 
   if (data.length >= pageCount * BANK_SIZE) {
     for (let i = 0; i < pageCount; i++) {
-      await romManager.persistROMPage(model, i as RomPage, data.subarray(i * BANK_SIZE, (i + 1) * BANK_SIZE), `${label} (bank ${i + 1})`);
+      await romManager.persistROMPage(key, i as RomPage, data.subarray(i * BANK_SIZE, (i + 1) * BANK_SIZE), `${label} (bank ${i + 1})`);
     }
   } else {
-    await romManager.persistROMPage(model, page, data.subarray(0, BANK_SIZE), label);
+    await romManager.persistROMPage(key, page, data.subarray(0, BANK_SIZE), label);
   }
   await switchModel(currentModelValue());
 }
@@ -121,8 +125,8 @@ export async function setSystemRomPage(page: RomPage, data: Uint8Array, label: s
 /** Revert one page of a multi-page model's system ROM to its default. */
 export async function resetSystemRomPage(page: RomPage): Promise<void> {
   if (machine) { await machine.services.roms.resetSystemRom(page); return; }
-  const model = effectiveROMModel(currentModelValue());
-  await romManager.clearROMPage(model, page);
+  const key = effectiveROMKey(currentModelValue(), currentLocaleValue());
+  await romManager.clearROMPage(key, page);
   await switchModel(currentModelValue());
 }
 
@@ -188,8 +192,10 @@ export async function loadRomFiles(files: Array<{ name: string; data: Uint8Array
  *  re-reads the shell context. Returns false if no 128K ROM is available. */
 export async function ensure128kROM(): Promise<boolean> {
   const models: SpectrumModel[] = ['128k', '+2', '+2A', '+3'];
+  const locale = currentLocaleValue();
   for (const model of models) {
-    const entry = await restoreROM(model);
+    const key = effectiveROMKey(model, locale);
+    const entry = await restoreROM(key);
     if (entry) {
       setCurrentModel(model);
       setRomData(entry.data);

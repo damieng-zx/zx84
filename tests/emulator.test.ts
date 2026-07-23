@@ -1499,7 +1499,7 @@ describe('switchModel', () => {
     getRomManager().restoreROM.mockResolvedValueOnce(null);
     getRomManager().fetchDefaultROM.mockResolvedValueOnce({ data: new Uint8Array(32768), label: 'y' });
     await emulator.switchModel('128k');
-    expect(getRomManager().fetchDefaultROM).toHaveBeenCalledWith('128k', expect.any(Function));
+    expect(getRomManager().fetchDefaultROM).toHaveBeenCalledWith('128k', '128k', 'uk', expect.any(Function));
   });
 
   it('sets romData to null when both restore and fetch fail', async () => {

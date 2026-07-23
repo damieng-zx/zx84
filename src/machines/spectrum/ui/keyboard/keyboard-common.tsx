@@ -36,35 +36,14 @@ export interface LetterLegend {
   word: string;  // K-mode keyword printed on the key
 }
 
-/** The four legends for each letter key. */
-export const LETTERS: Record<string, LetterLegend> = {
-  Q: { green: 'SIN', ess: 'ASN', red: '<=', word: 'PLOT' },
-  W: { green: 'COS', ess: 'ACS', red: '<>', word: 'DRAW' },
-  E: { green: 'TAN', ess: 'ATN', red: '>=', word: 'REM' },
-  R: { green: 'INT', ess: 'VERIFY', red: '<', word: 'RUN' },
-  T: { green: 'RND', ess: 'MERGE', red: '>', word: 'RAND' },
-  Y: { green: 'STR $', ess: '[', red: 'AND', word: 'RETURN' },
-  U: { green: 'CHR $', ess: ']', red: 'OR', word: 'IF' },
-  I: { green: 'CODE', ess: 'IN', red: 'AT', word: 'INPUT' },
-  O: { green: 'PEEK', ess: 'OUT', red: ';', word: 'POKE' },
-  P: { green: 'TAB', ess: '©', red: '"', word: 'PRINT' },
-  A: { green: 'READ', ess: '~', red: 'STOP', word: 'NEW' },
-  S: { green: 'RESTORE', ess: '|', red: 'NOT', word: 'SAVE' },
-  D: { green: 'DATA', ess: '\\', red: 'STEP', word: 'DIM' },
-  F: { green: 'SGN', ess: '{', red: 'TO', word: 'FOR' },
-  G: { green: 'ABS', ess: '}', red: 'THEN', word: 'GOTO' },
-  H: { green: 'SQR', ess: 'CIRCLE', red: '↑', word: 'GOSUB' },
-  J: { green: 'VAL', ess: 'VAL $', red: '−', word: 'LOAD' },
-  K: { green: 'LEN', ess: 'SCREEN $', red: '+', word: 'LIST' },
-  L: { green: 'USR', ess: 'ATTR', red: '=', word: 'LET' },
-  Z: { green: 'LN', ess: 'BEEP', red: ':', word: 'COPY' },
-  X: { green: 'EXP', ess: 'INK', red: '£', word: 'CLEAR' },
-  C: { green: 'L PRINT', ess: 'PAPER', red: '?', word: 'CONT' },
-  V: { green: 'L LIST', ess: 'FLASH', red: '/', word: 'CLS' },
-  B: { green: 'BIN', ess: 'BRIGHT', red: '*', word: 'BORDER' },
-  N: { green: 'INKEY $', ess: 'OVER', red: ',', word: 'NEXT' },
-  M: { green: 'PI', ess: 'INVERSE', red: '.', word: 'PAUSE' },
-};
+// Legacy UK legend constants — retained for backward compatibility.
+// New code should use lettersFor()/numbersFor() from ./legends.ts.
+import { lettersFor as _lettersFor, numbersFor as _numbersFor } from './legends.ts';
+
+/** The four legends for each letter key (UK locale). */
+export const LETTERS: Record<string, LetterLegend> = _lettersFor('uk');
+
+export { lettersFor, numbersFor } from './legends.ts';
 
 export interface NumberLegend {
   color?: string;    // ZX colour name (blank on 8 and 9)
@@ -75,19 +54,8 @@ export interface NumberLegend {
   block?: number;    // 1..8 block-graphics swatch
 }
 
-/** The legends for each number key. */
-export const NUMBERS: Record<string, NumberLegend> = {
-  '1': { color: 'BLUE',    colorCss: '#2f7bff', cmd: 'EDIT',       ext: 'DEF FN',  red: '!', block: 1 },
-  '2': { color: 'RED',     colorCss: '#ff3b3b', cmd: 'CAPS LOCK',  ext: 'FN',      red: '@', block: 2 },
-  '3': { color: 'MAGENTA', colorCss: '#d24bd2', cmd: 'TRUE VIDEO', ext: 'LINE',    red: '#', block: 3 },
-  '4': { color: 'GREEN',   colorCss: '#33cc55', cmd: 'INV. VIDEO', ext: 'OPEN #',  red: '$', block: 4 },
-  '5': { color: 'CYAN',    colorCss: '#2ad2d2', cmd: '←',     ext: 'CLOSE #', red: '%', block: 5 },
-  '6': { color: 'YELLOW',  colorCss: '#e6d62e', cmd: '↓',     ext: 'MOVE',    red: '&', block: 6 },
-  '7': { color: 'WHITE',   colorCss: '#ffffff', cmd: '↑',     ext: 'ERASE',   red: "'", block: 7 },
-  '8': {                                         cmd: '→',     ext: 'POINT',   red: '(', block: 8 },
-  '9': {                                         cmd: 'GRAPHICS',   ext: 'CAT',     red: ')' },
-  '0': { color: 'BLACK',   colorCss: '#000',    cmd: 'DELETE',     ext: 'FORMAT',  red: '_' },
-};
+/** The legends for each number key (UK locale). */
+export const NUMBERS: Record<string, NumberLegend> = _numbersFor('uk');
 
 // Block-graphics swatches printed on number keys 1–8: which of the four
 // quadrants [top-left, top-right, bottom-left, bottom-right] are filled. Keys

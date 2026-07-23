@@ -25,6 +25,10 @@ import type { BasicListingLine, BasicVariable } from '@/basic/types.ts';
 
 export type MachineKind = 'spectrum' | 'cpc' | 'einstein' | 'msx' | 'zx8x';
 
+/** Keyboard/ROM locale for international machine variants.
+ *  'uk' = default (English, no locale-specific ROM/keyboard). */
+export type MachineLocale = 'uk' | 'es' | 'fr';
+
 /** Border-size selector shared by both machines: 0=none, 1=small, 2=normal. */
 export type BorderMode = 0 | 1 | 2;
 
@@ -149,6 +153,7 @@ export type CpuFamily = 'z80' | 'm6502';
 export interface MachineDescriptor {
   readonly kind: MachineKind;
   readonly model: MachineModel;
+  readonly locale: MachineLocale;
   readonly cpuFamily: CpuFamily;
   /** Full-border frame-buffer geometry the display is created with, plus the
    *  active (non-border) area's size and its offset within the buffer at the
@@ -793,16 +798,16 @@ export interface MachineServices {
 export interface MachineEntry {
   readonly kind: MachineKind;
   readonly models: readonly MachineModel[];
-  descriptor(model: MachineModel): MachineDescriptor;
+  descriptor(model: MachineModel, locale?: MachineLocale): MachineDescriptor;
   create(model: MachineModel, display: IScreenRenderer | null): Machine;
   /** Default system-ROM image sources, fetched and concatenated in order by the
    *  shared rom-manager machinery. */
-  romSources(model: MachineModel): readonly string[];
+  romSources(model: MachineModel, locale?: MachineLocale): readonly string[];
   /** Source (ROM-host name or URL) of the hidden default cartridge to mount when
    *  this model's cartridge slot is empty, or undefined if it has none. Fetched
    *  generically by the rom-manager; keeps the image identity in the machine
    *  that owns it (CPC Plus → plus-system.cpr). Paired with `ui.bootCartridge`. */
-  bootCartridgeSource?(model: MachineModel): string | undefined;
+  bootCartridgeSource?(model: MachineModel, locale?: MachineLocale): string | undefined;
   /** Classify a raw system-ROM image dropped on the ROM pane to the model that
    *  should host it (inferred from its size + the current model), or null when
    *  this machine family can't accept the image. Keeps ROM-size→model knowledge

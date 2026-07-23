@@ -431,6 +431,22 @@ body.msx-mode .section-label::after {
   flex-shrink: 0;
 }
 
+/* Locale row: label + dropdown inline, same rhythm as the speed slider. */
+#locale-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+}
+
+#locale-row .row-label {
+  width: 72px;
+  flex-shrink: 0;
+  color: #999;
+}
+
+#locale-row .ddmenu-btn { flex: 1; min-width: 0; }
+
 .rom-status {
   font-size: 0.75rem;
   color: #c66;
@@ -2483,7 +2499,7 @@ input[type="range"]::-moz-range-thumb {
 .ddmenu {
   position: fixed;
   width: max-content;
-  min-width: 160px;
+  min-width: 200px;
   background: #fff;
   border: 1px solid #ccc;
   border-radius: 4px;
@@ -2509,6 +2525,31 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .ddmenu-item:hover { background: #eef; }
+
+.ddmenu-item-flags {
+  padding-right: 8px;
+}
+
+.ddmenu-item-flags .ddmenu-label {
+  flex: 1;
+}
+
+.ddmenu-flags {
+  display: flex;
+  gap: 1px;
+  margin-left: 1em;
+  flex-shrink: 0;
+}
+
+.ddmenu-flag {
+  cursor: pointer;
+  padding: 0 2px;
+  opacity: 0.7;
+}
+
+.ddmenu-flag:hover {
+  opacity: 1;
+}
 
 .ddmenu-separator {
   height: 1px;
