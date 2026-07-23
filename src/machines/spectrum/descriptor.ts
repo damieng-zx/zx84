@@ -37,6 +37,7 @@ function spectrumUi(model: MachineModel): MachineUiCapabilities {
     memoryLayout: is128kClass(model),
     trace: true,
     colorMap: 'spectrum',
+    accuracy: true,
     builtinDisk: isPlus3(model),
     joystick: true,
     fixedJoystick: false,

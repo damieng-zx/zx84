@@ -17,6 +17,7 @@ const MSX_UI: MachineUiCapabilities = {
   memoryLayout: false,
   trace: true,
   colorMap: 'msx',
+  accuracy: false,
   builtinDisk: false,
   joystick: true,
   fixedJoystick: true,

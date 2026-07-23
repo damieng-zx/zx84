@@ -16,6 +16,7 @@ const UI: MachineUiCapabilities = {
   memoryLayout: false,
   trace: true,
   colorMap: 'mono',
+  accuracy: false,
   builtinDisk: false,
   joystick: false,
   fixedJoystick: false,
