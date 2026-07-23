@@ -35,6 +35,8 @@ const MODEL_LABELS: Record<MachineModel, string> = {
   einstein: 'Einstein TC-01',
   'einstein-256': 'Einstein TC-01 256',
   'hx-10': 'Toshiba HX-10',
+  mtx500: 'Memotech MTX500',
+  mtx512: 'Memotech MTX512',
 };
 
 const LOCALE_LABELS: Record<MachineLocale, string> = {

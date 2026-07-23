@@ -24,8 +24,11 @@
 
 import type { Audio } from '@/audio.ts';
 import type { AudioMixer } from '@/machines/shared/audio-mixer.ts';
-import type { AY3891x } from '@/cores/ay-3-8910.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
+
+interface SampleRateAwareAudioChip {
+  setSampleRate(sampleRate: number): void;
+}
 
 /** rAF-independent frame period: 50 Hz. */
 const FRAME_PERIOD = 1000 / 50;
@@ -41,7 +44,8 @@ function samplesPerFrame(sampleRate: number): number { return Math.round(sampleR
 
 export abstract class BaseMachine {
   // ── Audio/video plumbing the driver needs (each machine supplies these) ──
-  abstract ay: AY3891x;
+  /** Machine's primary sample-generating chip (AY, SN76489, etc.). */
+  protected abstract get audioChip(): SampleRateAwareAudioChip;
   abstract mixer: AudioMixer;
   abstract audio: Audio;
   abstract display: IScreenRenderer | null;
@@ -121,7 +125,7 @@ export abstract class BaseMachine {
     this.starting = false;
 
     this.mixer.init(this.audio.sampleRate);
-    this.ay.setSampleRate(this.audio.sampleRate);
+    this.audioChip.setSampleRate(this.audio.sampleRate);
 
     this.running = true;
     this.lastFrameTime = performance.now();

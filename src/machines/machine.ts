@@ -23,7 +23,7 @@ import type { MachineModel } from '@/models.ts';
 import type { OcrGridName, FontSource } from '@/ocr/ocr.ts';
 import type { BasicListingLine, BasicVariable } from '@/basic/types.ts';
 
-export type MachineKind = 'spectrum' | 'cpc' | 'einstein' | 'msx' | 'zx8x';
+export type MachineKind = 'spectrum' | 'cpc' | 'einstein' | 'msx' | 'zx8x' | 'mtx';
 
 /** Keyboard/ROM locale for international machine variants.
  *  'uk' = default (English, no locale-specific ROM/keyboard). */
@@ -190,7 +190,7 @@ export interface MemoryRegionInfo {
  *  declared here so machine descriptors stay headless-safe. A machine lists the
  *  ids it exposes via `MachineUiCapabilities.statusLeds`. */
 export type StatusLedId =
-  | 'kbd' | 'kemp' | 'mouse' | 'ear' | 'load' | 'dsk' | 'text' | 'rainbow' | 'beep' | 'ay';
+  | 'kbd' | 'kemp' | 'mouse' | 'ear' | 'load' | 'dsk' | 'text' | 'rainbow' | 'beep' | 'ay' | 'psg';
 
 /**
  * Per-model UI capability flags, declared by each machine's descriptor. The
@@ -237,7 +237,7 @@ export interface MachineUiCapabilities {
    *  ZX80/81). Rendered from the STATUS_LEDS catalog in `status-leds.ts`. */
   readonly statusLeds: readonly StatusLedId[];
   /** Keyboard read path, for the KEY LED tip. */
-  readonly keyboardBus: 'ula' | 'ppi';
+  readonly keyboardBus: 'ula' | 'ppi' | 'matrix';
   /** Tape transport: 'deck' (pulse-level block list) or 'instant' (.cas).
    *  Omitted when the model has no cassette hardware (e.g. the GX4000 console). */
   readonly tape?: 'deck' | 'instant';

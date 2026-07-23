@@ -50,6 +50,7 @@ import {
 const LINES_PER_FRAME = 313;
 
 export class EinsteinMachine extends BaseMachine implements Machine {
+  protected get audioChip(): AY3891x { return this.ay; }
   readonly kind: MachineKind = 'einstein';
   readonly model: EinsteinModel;
   readonly config: EinsteinConfig;

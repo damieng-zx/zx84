@@ -19,6 +19,7 @@ import { cpcEntry } from '@/machines/cpc/descriptor.ts';
 import { einsteinEntry } from '@/machines/einstein/descriptor.ts';
 import { msxEntry } from '@/machines/msx/descriptor.ts';
 import { zx8xEntry } from '@/machines/zx8x/descriptor.ts';
+import { mtxEntry } from '@/machines/mtx/descriptor.ts';
 
 export const registry: readonly MachineEntry[] = [
   spectrumEntry,
@@ -26,6 +27,7 @@ export const registry: readonly MachineEntry[] = [
   einsteinEntry,
   msxEntry,
   zx8xEntry,
+  mtxEntry,
 ];
 
 /** The registry entry owning `model`. Throws on an unknown model — every

@@ -1,0 +1,89 @@
+import { describe, expect, it } from 'vitest';
+import { entryForModel } from '@/machines/registry.ts';
+import { MtxMachine } from '@/machines/mtx/mtx-machine.ts';
+
+function machine(model: 'mtx500' | 'mtx512' = 'mtx512'): MtxMachine {
+  const m = new MtxMachine(model, null);
+  m.turbo = true;
+  m.reset();
+  return m;
+}
+
+describe('MTX machine registration', () => {
+  it('constructs both MTX models through the headless machine registry', () => {
+    for (const model of ['mtx500', 'mtx512'] as const) {
+      const entry = entryForModel(model);
+      const m = entry.create(model, null);
+      expect(entry.kind).toBe('mtx');
+      expect(m.kind).toBe('mtx');
+      expect(m.model).toBe(model);
+    }
+  });
+});
+
+describe('MTX motherboard I/O', () => {
+  it('routes the IOBYTE paging latch through port 0', () => {
+    const m = machine();
+
+    m.cpu.portOut(0xAB00, 0x92);
+
+    expect(m.memory.pageRegister).toBe(0x92);
+    expect(m.memory.selectedRamPage).toBe(2);
+    expect(m.memory.selectedRomPage).toBe(1);
+    expect(m.memory.ramMode).toBe(true);
+  });
+
+  it('routes TMS9929A register and VRAM writes through ports 2 and 1', () => {
+    const m = machine();
+
+    m.cpu.portOut(0x02, 0x50);
+    m.cpu.portOut(0x02, 0x81);
+    expect(m.vdp.regs[1]).toBe(0x50);
+
+    m.cpu.portOut(0x02, 0x00);
+    m.cpu.portOut(0x02, 0x40);
+    m.cpu.portOut(0x01, 0x99);
+    expect(m.vdp.vram[0]).toBe(0x99);
+  });
+
+  it('scans the active-low keyboard matrix through ports 5 and 6', () => {
+    const m = machine();
+    m.keyboard.handleKeyEvent('KeyA', true);
+
+    m.cpu.portOut(0x05, 0xDF);
+
+    expect(m.cpu.portIn(0x05)).toBe(0xFE);
+    expect(m.cpu.portIn(0x06)).toBe(0x03);
+  });
+
+  it('routes PSG writes through port 6', () => {
+    const m = machine();
+
+    m.cpu.portOut(0x06, 0x85);
+    m.cpu.portOut(0x06, 0x2A);
+
+    expect(m.psg.tonePeriod[0]).toBe(0x2A5);
+    expect(m.activity.psgWrites).toBe(2);
+  });
+});
+
+describe('MTX CPU boot wiring', () => {
+  it('executes firmware from the fixed OS ROM and reaches the VDP', () => {
+    const m = machine();
+    const firmware = new Uint8Array(0x6000);
+    firmware.set([
+      0x3E, 0xD0,       // LD A,D0
+      0xD3, 0x02,       // OUT (02),A
+      0x3E, 0x81,       // LD A,81
+      0xD3, 0x02,       // OUT (02),A: VDP R1 := D0
+      0x76,             // HALT
+    ]);
+    m.loadROM(firmware);
+    m.reset();
+
+    for (let i = 0; i < 5; i++) m.cpu.step();
+
+    expect(m.cpu.halted).toBe(true);
+    expect(m.vdp.regs[1]).toBe(0xD0);
+  });
+});

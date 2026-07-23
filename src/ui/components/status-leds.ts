@@ -40,7 +40,9 @@ export const STATUS_LEDS: readonly StatusLed[] = [
     id: 'kbd', label: 'KEY', group: 1, signal: ledKbd,
     tip: (caps) => caps.keyboardBus === 'ppi'
       ? 'Scanning the keyboard matrix (PPI → AY port A)'
-      : 'Reading the keyboard via the ULA port',
+      : caps.keyboardBus === 'ula'
+        ? 'Reading the keyboard via the ULA port'
+        : 'Scanning the keyboard matrix',
   },
   { id: 'kemp', label: 'KEMPSTON', group: 1, signal: ledKemp, tip: 'Reading the Kempston joystick port' },
   { id: 'mouse', label: 'MOUSE', group: 1, signal: ledMouse, tip: 'Reading the mouse ports' },
@@ -61,6 +63,7 @@ export const STATUS_LEDS: readonly StatusLed[] = [
   // Group 4 — sound
   { id: 'beep', label: 'BEEP', group: 4, signal: ledBeep, tip: 'Beeper bit is toggling (producing sound)' },
   { id: 'ay', label: 'AY-3-8912', group: 4, signal: ledAy, tip: 'Writing to the AY sound chip registers' },
+  { id: 'psg', label: 'PSG', group: 4, signal: ledAy, tip: 'Writing to the programmable sound generator' },
 ];
 
 /** Column groups in render order. */

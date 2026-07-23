@@ -100,6 +100,7 @@ function load48kSequence(): BootKeyStep[] {
 }
 
 export class Spectrum extends BaseMachine implements Machine {
+  protected get audioChip(): AY3891x { return this.ay; }
   readonly kind: MachineKind = 'spectrum';
   /** Operator's panel (shell / MCP) — null when running headless. */
   host: MachineHost | null = null;
