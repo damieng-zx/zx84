@@ -1,79 +1,49 @@
 /**
  * Status text + activity LEDs.
+ *
+ * Machine-blind: the LED set comes from the STATUS_LEDS catalog filtered by the
+ * active machine's declared `statusLeds` list, so the bar only ever shows
+ * indicators the current hardware actually has.
  */
 
-import { Show } from 'solid-js';
-import { machine } from '@/shell/context.ts';
-import { toggleTranscribeMode } from '@/shell/media.ts';
-import {
-  ledKbd, ledKemp, ledEar, ledLoad, ledText,
-  ledBeep, ledAy, ledDsk, ledRainbow, ledMouse,
-} from '@/state/activity-state.ts';
+import { For, Show } from 'solid-js';
 import { machineCaps } from '@/state/machine-caps.ts';
+import { STATUS_LEDS, STATUS_LED_GROUPS, type StatusLed } from '@/ui/components/status-leds.ts';
 
-function Led(props: {
-  id: string; kind: string; label: string; tip: string; on: boolean;
-  onClick?: () => void;
-}) {
+function Led(props: { led: StatusLed }) {
+  const tip = () => {
+    const t = props.led.tip;
+    return typeof t === 'function' ? t(machineCaps()) : t;
+  };
   return (
     <div
-      id={props.id}
-      class={`led${props.on ? ' on' : ''}`}
-      data-kind={props.kind}
-      onClick={props.onClick}
-      style={props.onClick ? 'cursor:pointer' : undefined}
-      title={props.tip}
+      id={`led-${props.led.id}`}
+      class={`led${props.led.signal() ? ' on' : ''}`}
+      data-kind={props.led.id}
+      onClick={props.led.onClick}
+      style={props.led.onClick ? 'cursor:pointer' : undefined}
+      title={tip()}
     >
-      {props.label}
+      {props.led.label}
     </div>
   );
 }
 
 export function StatusBar() {
+  const inGroup = (group: number) =>
+    STATUS_LEDS.filter((l) => l.group === group && machineCaps().statusLeds.includes(l.id));
   return (
     <div id="status-bar" class="status-controls">
       <div id="activity">
-        <div class="led-group">
-          {/* Group 1: Input devices */}
-          <Led id="led-kbd" kind="kbd" label="KEY" on={ledKbd()}
-            tip={machineCaps().keyboardBus === 'ppi' ? 'Scanning the keyboard matrix (PPI → AY port A)' : 'Reading the keyboard via the ULA port'} />
-          <Show when={machineCaps().kempston}>
-            <Led id="led-kemp" kind="kemp" label="KEMPSTON" on={ledKemp()}
-              tip="Reading the Kempston joystick port" />
-          </Show>
-          <Led id="led-mouse" kind="mouse" label="MOUSE" on={ledMouse()}
-            tip="Reading the Kempston mouse ports" />
-        </div>
-        <div class="led-group">
-          {/* Group 2: Tape and disk */}
-          <Show when={machineCaps().tapeEar}>
-            <Led id="led-ear" kind="ear" label="EAR" on={ledEar()}
-              tip="Sampling the EAR port (tape playback)" />
-          </Show>
-          <Led id="led-load" kind="load" label="TAPE" on={ledLoad()}
-            tip="ROM tape-load routine is active (LD-BYTES at 0556h)" />
-          <Led id="led-dsk" kind="dsk" label="DISK" on={ledDsk()}
-            tip="Floppy disk controller is being accessed" />
-        </div>
-        <div class="led-group">
-          {/* Group 3: Screen effects and transcription */}
-          <Led id="led-text" kind="text" label="TEXT" on={ledText()}
-            tip="Pixel-based screen OCR — click to toggle overlay"
-            onClick={() => machine && toggleTranscribeMode('text')} />
-          <Show when={machineCaps().rainbow}>
-            <Led id="led-rainbow" kind="rainbow" label="RAINBOW" on={ledRainbow()}
-              tip="Attribute area is being rewritten mid-frame (rainbow/colour-cycling effect)" />
-          </Show>
-        </div>
-        <div class="led-group">
-          {/* Group 4: Sound */}
-          <Show when={machineCaps().beeper}>
-            <Led id="led-beep" kind="beep" label="BEEP" on={ledBeep()}
-              tip="Beeper bit is toggling (producing sound)" />
-          </Show>
-          <Led id="led-ay" kind="ay" label="AY-3-8912" on={ledAy()}
-            tip="Writing to the AY sound chip registers" />
-        </div>
+        <For each={STATUS_LED_GROUPS}>
+          {(group) => (
+            <Show when={inGroup(group).length > 0}>
+              <div class="led-group">
+                <For each={inGroup(group)}>{(led) => <Led led={led} />}</For>
+              </div>
+            </Show>
+          )}
+        </For>
       </div>
     </div>
   );

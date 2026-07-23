@@ -92,9 +92,10 @@ export class CpcMachine extends BaseMachine implements Machine {
    *  each frame. `kbdReads` counts keyboard-matrix scans (the firmware reads the
    *  AY's port A through the PPI ~once per frame); `fdcAccesses` counts FDC
    *  data-port transfers; `tapeReads` counts cassette reads (pulse-load edges or
-   *  instant CAS READ traps) so the TAPE LED lights. Mirrors the Spectrum's
-   *  IOActivity so KEYBOARD/DISK/TAPE light up the same way. */
-  readonly activity = { kbdReads: 0, fdcAccesses: 0, mouseReads: 0, tapeReads: 0 };
+   *  instant CAS READ traps) so the TAPE LED lights; `ayWrites` counts sound-
+   *  register writes to the AY so the AY LED lights. Mirrors the Spectrum's
+   *  IOActivity so KEYBOARD/DISK/TAPE/AY light up the same way. */
+  readonly activity = { kbdReads: 0, fdcAccesses: 0, mouseReads: 0, tapeReads: 0, ayWrites: 0 };
 
   /** Screen OCR engine for the TEXT overlay + MCP `ocr` tool. */
   readonly screenText = new CpcScreenText();
@@ -157,7 +158,8 @@ export class CpcMachine extends BaseMachine implements Machine {
     this.ppi = new Ppi8255(this.ay, this.keyboard, () => this.crtc.vsyncActive,
                            () => { this.activity.kbdReads++; },
                            () => { this.advanceTapeTo(); return this.tape.earBit; },
-                           (on) => this.setTapeMotor(on));
+                           (on) => this.setTapeMotor(on),
+                           () => { this.activity.ayWrites++; });
     this.display = display ?? null;
 
     // Gate Array drives ROM enable + RAM banking through the memory.
@@ -441,6 +443,7 @@ export class CpcMachine extends BaseMachine implements Machine {
     this.activity.fdcAccesses = 0;
     this.activity.mouseReads = 0;
     this.activity.tapeReads = 0;
+    this.activity.ayWrites = 0;
 
     crtc.beginFrame();
     ga.beginFrame(this._pixels32);

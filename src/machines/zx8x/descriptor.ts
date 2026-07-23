@@ -24,9 +24,9 @@ const UI: MachineUiCapabilities = {
   systemRomLabel: 'ROM',
   romPages: 0,
   beeper: false,
-  kempston: false,
-  tapeEar: false,
-  rainbow: false,
+  // No sound chip, no disk, no joystick/mouse ports — only the keyboard and the
+  // screen-OCR overlay have activity to show.
+  statusLeds: ['kbd', 'text'],
   keyboardBus: 'ula',
   tape: 'instant',
   tapeExtensions: ['.o', '.80', '.p', '.81', '.p81', '.zip'],

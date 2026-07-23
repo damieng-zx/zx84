@@ -44,6 +44,8 @@ export class Ppi8255 {
     private readonly readTapeBit: () => number = () => 0,
     /** Called with the cassette motor state (Port C bit 4) whenever it changes. */
     private readonly setMotor: (on: boolean) => void = () => {},
+    /** Called whenever a sound register is written to the AY — drives the LED. */
+    private readonly onAyWrite: () => void = () => {},
   ) {}
 
   /** Port A is an input when control bit 4 is set. */
@@ -104,7 +106,10 @@ export class Ppi8255 {
   private strobeAy(): void {
     switch (this.ayFunction) {
       case 3: this.ay.selectedReg = this.pA & 0x0F; break;      // select register
-      case 2: this.ay.writeRegister(this.ay.selectedReg, this.pA); break; // write
+      case 2:                                                    // write
+        this.ay.writeRegister(this.ay.selectedReg, this.pA);
+        this.onAyWrite();
+        break;
       // read is satisfied lazily in ayRead()
     }
   }
