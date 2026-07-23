@@ -27,7 +27,7 @@ ZX84 is an old-computer emulator with machine-specific hardware models, browser-
 - Einstein disk mounting and optional Xtal DOS boot-disk behavior.
 - HX-10 cartridge loading and BIOS-level `.cas` cassette loading.
 - MTX CP/M 2.2 boot through the real FDX hardware using MEMU's public Type 07 system disk.
-- MTX logical cassette loading, FDX/SDX Type 07 floppy mounting, optional 512 KiB RAM expansion, and optional 80×24 colour display.
+- MTX logical cassette loading, FDX/SDX Type 03 and Type 07 floppy mounting, optional 512 KiB RAM expansion, and optional 80×24 colour display.
 - The bundled MTX CP/M profile installs the native SIDISC module and exposes fitted expansion RAM as an empty 512 KiB type-51 drive F:.
 
 Spectrum ROM-overlay peripherals are model-dependent. Interface 1, MGT +D, and Beta Disk are mutually exclusive; Beta Disk takes precedence when enabled.
@@ -43,7 +43,7 @@ Load by picker or drag-and-drop. ZIP archives are unpacked and routed to compati
 | CPC | Snapshots: `.sna`; tapes: `.cdt`, `.tzx`, `.tap`; disks: `.dsk`, `.hfe`, `.scp` on disk-capable models |
 | Einstein | Disks: `.dsk`, `.hfe`, `.scp` |
 | MSX | Cartridges: `.rom`; cassettes: `.cas` |
-| Memotech MTX | Logical cassettes: `.mtx`; FDX/SDX Type 07 disks: `.mfloppy`, `.mfloppy-07` |
+| Memotech MTX | Logical cassettes: `.mtx`; FDX/SDX Type 03/07 disks: `.mfloppy`, `.mfloppy-03`, `.mfloppy-07` |
 
 The tape deck provides block navigation, transport controls, fast ROM loading, turbo loading, loading sound where applicable, and original-media download. The disk UI supports drive selection, write protection, disk sounds, changed-image saving, blank image creation, and flippy disks.
 

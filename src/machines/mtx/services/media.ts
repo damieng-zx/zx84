@@ -5,7 +5,7 @@ import { parseMtxMfloppy } from '@/media/floppy/mtx-mfloppy.ts';
 import type { MtxTapeService } from './tape.ts';
 import type { MtxDiskService } from './disks.ts';
 
-/** MTX media routing: logical `.mtx` tapes and Type 07 `.mfloppy` disks. */
+/** MTX media routing: logical `.mtx` tapes and Type 03/07 `.mfloppy` disks. */
 export class MtxMediaService implements MediaService {
   constructor(
     private readonly tape: MtxTapeService,
@@ -16,6 +16,7 @@ export class MtxMediaService implements MediaService {
     return [
       { ext: '.mtx', target: 'tape' },
       { ext: '.mfloppy', target: 'a' },
+      { ext: '.mfloppy-03', target: 'a' },
       { ext: '.mfloppy-07', target: 'a' },
     ];
   }
@@ -35,7 +36,7 @@ export class MtxMediaService implements MediaService {
         message: `Cassette: ${filename} — type LOAD or VERIFY`,
       };
     }
-    if (/\.mfloppy(?:-07)?$/i.test(filename)) {
+    if (/\.mfloppy(?:-(?:03|07))?$/i.test(filename)) {
       try {
         const id = target === 'b' || target === 'unit:1' ? 'b' : 'a';
         this.disks.insert(id, parseMtxMfloppy(data), filename);
@@ -50,7 +51,7 @@ export class MtxMediaService implements MediaService {
     }
     return {
       ok: false,
-      message: 'MTX accepts .mtx cassette and .mfloppy/.mfloppy-07 disk images',
+      message: 'MTX accepts .mtx cassette and Type 03/07 .mfloppy disk images',
     };
   }
 }

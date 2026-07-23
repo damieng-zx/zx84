@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MtxMachine } from '@/machines/mtx/mtx-machine.ts';
 import {
+  MTX_TYPE03_SIZE,
   MTX_TYPE07_SIZE,
   parseMtxMfloppy,
 } from '@/media/floppy/mtx-mfloppy.ts';
@@ -70,6 +71,26 @@ describe('Memotech FDX/SDX disk expansion', () => {
     );
 
     expect(result).toMatchObject({ ok: true, target: 'a' });
+  });
+
+  it('mounts, detects, and saves 40-track Type 03 images', async () => {
+    const m = machine();
+
+    const result = await m.services.media.mount(
+      new Uint8Array(MTX_TYPE03_SIZE),
+      'original.mfloppy-03',
+    );
+
+    expect(result).toMatchObject({ ok: true, target: 'a' });
+    expect(m.services.disks.image('a')).toMatchObject({
+      numTracks: 40,
+      numSides: 2,
+      diskFormat: 'Memotech Type 03',
+    });
+    expect(m.services.disks.save('a')).toMatchObject({
+      name: 'original.mfloppy-03',
+      data: { length: MTX_TYPE03_SIZE },
+    });
   });
 
   it('declares and decodes the public Type 07 CP/M system disk only for the CP/M profile', () => {

@@ -72,9 +72,10 @@ export class MtxDiskService implements DiskService {
     const unit = id === 'b' ? 1 : 0;
     const image = this.machine.fdc.getDiskImage(unit);
     if (!image) return null;
+    const extension = image.numTracks === 40 ? '.mfloppy-03' : '.mfloppy';
     const result = {
       data: serializeMtxMfloppy(image),
-      name: `${baseName(this.names.get(id) ?? '')}.mfloppy`,
+      name: `${baseName(this.names.get(id) ?? '')}${extension}`,
     };
     this.machine.fdc.clearDirty(unit);
     return result;
