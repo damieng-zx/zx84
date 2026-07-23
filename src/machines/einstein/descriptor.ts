@@ -19,6 +19,7 @@ const EINSTEIN_UI: MachineUiCapabilities = {
   memoryLayout: false,
   trace: true,
   colorMap: 'einstein',
+  accuracy: false,
   builtinDisk: true,
   joystick: false,
   fixedJoystick: false,
