@@ -10,11 +10,12 @@
 
 import { createSignal } from 'solid-js';
 import type { MachineModel } from '@/models.ts';
+import type { MachineLocale } from '@/machines/machine.ts';
 
 const KNOWN_MODELS: readonly MachineModel[] = [
   '16k', '48k', '128k', '+2', '+2A', '+3',
   'cpc6128', 'cpc464', 'cpc664', 'cpc6128plus', 'gx4000',
-  'einstein',
+  'einstein-tc01', 'einstein-256',
   'hx-10',
   'zx80', 'zx81',
 ];
@@ -23,8 +24,9 @@ function loadSavedModel(): MachineModel | null {
   try {
     const raw = localStorage.getItem('zx84-model');
     if (raw === null) return null;
-    // Legacy: pre-2026-05 builds stored '+2a' lower-case. Migrate transparently.
-    const val = raw === '+2a' ? '+2A' : raw;
+    // Legacy migrations: pre-2026-05 builds stored '+2a' lower-case, and the
+    // Einstein TC-01 was 'einstein' before it was renamed 'einstein-tc01'.
+    const val = raw === '+2a' ? '+2A' : raw === 'einstein' ? 'einstein-tc01' : raw;
     if ((KNOWN_MODELS as readonly string[]).includes(val)) {
       if (val !== raw) {
         try { localStorage.setItem('zx84-model', val); } catch { /* */ }
@@ -93,6 +95,26 @@ export const setCartridgeName = _cartridgeName[1];
 const _currentModel = createSignal<MachineModel>(loadSavedModel() ?? '128k');
 export const currentModel = _currentModel[0];
 export const setCurrentModel = _currentModel[1];
+
+// Locale selection (keyboard / ROM region)
+function loadSavedLocale(): MachineLocale {
+  try {
+    const raw = localStorage.getItem('zx84-locale');
+    if (raw === 'es' || raw === 'fr') return raw;
+  } catch { /* */ }
+  return 'uk';
+}
+
+function saveLocale(locale: MachineLocale): void {
+  try { localStorage.setItem('zx84-locale', locale); } catch { /* */ }
+}
+
+const _currentLocale = createSignal<MachineLocale>(loadSavedLocale());
+export const currentLocale = _currentLocale[0];
+export const setCurrentLocale = (locale: MachineLocale): void => {
+  _currentLocale[1](locale);
+  saveLocale(locale);
+};
 
 // Execution control
 const _emulationPaused = createSignal(false);

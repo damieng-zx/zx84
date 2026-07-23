@@ -25,6 +25,10 @@ import type { BasicListingLine, BasicVariable } from '@/basic/types.ts';
 
 export type MachineKind = 'spectrum' | 'cpc' | 'einstein' | 'msx' | 'zx8x';
 
+/** Keyboard/ROM locale for international machine variants.
+ *  'uk' = default (English, no locale-specific ROM/keyboard). */
+export type MachineLocale = 'uk' | 'es' | 'fr';
+
 /** Border-size selector shared by both machines: 0=none, 1=small, 2=normal. */
 export type BorderMode = 0 | 1 | 2;
 
@@ -149,6 +153,7 @@ export type CpuFamily = 'z80' | 'm6502';
 export interface MachineDescriptor {
   readonly kind: MachineKind;
   readonly model: MachineModel;
+  readonly locale: MachineLocale;
   readonly cpuFamily: CpuFamily;
   /** Full-border frame-buffer geometry the display is created with, plus the
    *  active (non-border) area's size and its offset within the buffer at the
@@ -180,6 +185,13 @@ export interface MemoryRegionInfo {
   readonly label: string;
 }
 
+/** Identifiers for the status-bar activity LEDs. The runtime catalog (labels,
+ *  tips, signals) lives in `ui/components/status-leds.ts`; only the id union is
+ *  declared here so machine descriptors stay headless-safe. A machine lists the
+ *  ids it exposes via `MachineUiCapabilities.statusLeds`. */
+export type StatusLedId =
+  | 'kbd' | 'kemp' | 'mouse' | 'ear' | 'load' | 'dsk' | 'text' | 'rainbow' | 'beep' | 'ay';
+
 /**
  * Per-model UI capability flags, declared by each machine's descriptor. The
  * generic panes read these (reactively, keyed off the current model) instead of
@@ -198,6 +210,8 @@ export interface MachineUiCapabilities {
   readonly trace: boolean;
   /** Palette / colour-map family shown in the Display pane. */
   readonly colorMap: 'spectrum' | 'cpc' | 'msx' | 'einstein' | 'mono';
+  /** Whether the Accuracy drop-down applies (per-t-state scanline rendering). */
+  readonly accuracy: boolean;
   /** Built-in floppy drives (A:/B:) are fitted. */
   readonly builtinDisk: boolean;
   /** Joystick pane applies. */
@@ -219,12 +233,11 @@ export interface MachineUiCapabilities {
   readonly romPages: 0 | 2 | 4;
   /** 1-bit beeper present (Sound-pane mixer + BEEP activity LED). */
   readonly beeper: boolean;
-  /** Kempston-joystick activity LED shown in the status bar. */
-  readonly kempston: boolean;
-  /** EAR tape-input activity LED shown in the status bar. */
-  readonly tapeEar: boolean;
-  /** Attribute-cycling ("rainbow") activity LED shown in the status bar. */
-  readonly rainbow: boolean;
+  /** Status-bar activity LEDs this machine exposes. Each machine lists only the
+   *  indicators its hardware actually has *and* its frame probe drives, so the
+   *  status bar can never show an LED for absent hardware (e.g. no AY/DISK on a
+   *  ZX80/81). Rendered from the STATUS_LEDS catalog in `status-leds.ts`. */
+  readonly statusLeds: readonly StatusLedId[];
   /** Keyboard read path, for the KEY LED tip. */
   readonly keyboardBus: 'ula' | 'ppi';
   /** Tape transport: 'deck' (pulse-level block list) or 'instant' (.cas).
@@ -787,16 +800,16 @@ export interface MachineServices {
 export interface MachineEntry {
   readonly kind: MachineKind;
   readonly models: readonly MachineModel[];
-  descriptor(model: MachineModel): MachineDescriptor;
+  descriptor(model: MachineModel, locale?: MachineLocale): MachineDescriptor;
   create(model: MachineModel, display: IScreenRenderer | null): Machine;
   /** Default system-ROM image sources, fetched and concatenated in order by the
    *  shared rom-manager machinery. */
-  romSources(model: MachineModel): readonly string[];
+  romSources(model: MachineModel, locale?: MachineLocale): readonly string[];
   /** Source (ROM-host name or URL) of the hidden default cartridge to mount when
    *  this model's cartridge slot is empty, or undefined if it has none. Fetched
    *  generically by the rom-manager; keeps the image identity in the machine
    *  that owns it (CPC Plus → plus-system.cpr). Paired with `ui.bootCartridge`. */
-  bootCartridgeSource?(model: MachineModel): string | undefined;
+  bootCartridgeSource?(model: MachineModel, locale?: MachineLocale): string | undefined;
   /** Classify a raw system-ROM image dropped on the ROM pane to the model that
    *  should host it (inferred from its size + the current model), or null when
    *  this machine family can't accept the image. Keeps ROM-size→model knowledge

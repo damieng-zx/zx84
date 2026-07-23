@@ -19,12 +19,13 @@
 
 import { entryForModel } from '@/machines/registry.ts';
 import type { MachineDescriptor, MachineUiCapabilities } from '@/machines/machine.ts';
-import { currentModel } from '@/state/machine-state.ts';
+import { currentModel, currentLocale } from '@/state/machine-state.ts';
 
-/** The active model's full descriptor (reactive on `currentModel`). */
+/** The active model's full descriptor (reactive on `currentModel` + `currentLocale`). */
 export function machineDescriptor(): MachineDescriptor {
   const model = currentModel();
-  return entryForModel(model).descriptor(model);
+  const locale = currentLocale();
+  return entryForModel(model).descriptor(model, locale);
 }
 
 /** The active model's UI capabilities (reactive on `currentModel`). */

@@ -228,7 +228,7 @@ describe('ROMManager.fetchDefaultROM', () => {
     installFetch({ [`${ROM_BASE}sinclair/48.rom`]: { body } });
 
     const m = new ROMManager();
-    const got = await m.fetchDefaultROM('48k');
+    const got = await m.fetchDefaultROM('48k', '48k');
     expect(got).not.toBeNull();
     expect(Array.from(got!.data)).toEqual([1, 2, 3, 4]);
     expect(got!.label).toBe('Sinclair BASIC');
@@ -242,7 +242,7 @@ describe('ROMManager.fetchDefaultROM', () => {
       [`${ROM_BASE}sinclair/128-1.rom`]: { body: new Uint8Array([0xCC, 0xDD, 0xEE]) },
     });
     const m = new ROMManager();
-    const got = await m.fetchDefaultROM('128k');
+    const got = await m.fetchDefaultROM('128k', '128k');
     expect(got).not.toBeNull();
     expect(Array.from(got!.data)).toEqual([0xAA, 0xBB, 0xCC, 0xDD, 0xEE]);
   });
@@ -256,7 +256,7 @@ describe('ROMManager.fetchDefaultROM', () => {
       [`${ROM_BASE}sinclair/plus3-3.rom`]: { body: new Uint8Array([3]), delayMs: 15 },
     });
     const m = new ROMManager();
-    const got = await m.fetchDefaultROM('+3');
+    const got = await m.fetchDefaultROM('+3', '+3');
     expect(Array.from(got!.data)).toEqual([0, 1, 2, 3]);
   });
 
@@ -267,7 +267,7 @@ describe('ROMManager.fetchDefaultROM', () => {
     });
     const status = vi.fn();
     const m = new ROMManager();
-    const got = await m.fetchDefaultROM('128k', status);
+    const got = await m.fetchDefaultROM('128k', '128k', undefined, status);
     expect(got).toBeNull();
     // Nothing persisted on partial failure.
     expect(idb.get('rom-128k')).toBeUndefined();
@@ -282,7 +282,7 @@ describe('ROMManager.fetchDefaultROM', () => {
     installFetch({ [`${ROM_BASE}sinclair/48.rom`]: { fail: true } });
     const status = vi.fn();
     const m = new ROMManager();
-    expect(await m.fetchDefaultROM('48k', status)).toBeNull();
+    expect(await m.fetchDefaultROM('48k', '48k', undefined, status)).toBeNull();
     expect(status.mock.calls.some(c => /Failed/.test(c[0] as string))).toBe(true);
   });
 
@@ -290,7 +290,7 @@ describe('ROMManager.fetchDefaultROM', () => {
     installFetch({ [`${ROM_BASE}sinclair/48.rom`]: { body: new Uint8Array([1]) } });
     const status = vi.fn();
     const m = new ROMManager();
-    await m.fetchDefaultROM('48k', status);
+    await m.fetchDefaultROM('48k', '48k', undefined, status);
     const msgs = status.mock.calls.map(c => c[0] as string);
     expect(msgs[0]).toMatch(/Downloading/i);
     expect(msgs[msgs.length - 1]).toMatch(/loaded/i);
@@ -302,14 +302,14 @@ describe('ROMManager.fetchDefaultROM', () => {
       [`${ROM_BASE}sinclair/128-1.rom`]: { body: new Uint8Array([2]) },
     });
     const m = new ROMManager();
-    const got = await m.fetchDefaultROM('128k');
+    const got = await m.fetchDefaultROM('128k', '128k');
     expect(got!.label).toBe('128K (default)');
   });
 
   it('single-page default ROMs use the same model-named label', async () => {
     installFetch({ [`${ROM_BASE}sinclair/48.rom`]: { body: new Uint8Array([1]) } });
     const m = new ROMManager();
-    const got = await m.fetchDefaultROM('48k');
+    const got = await m.fetchDefaultROM('48k', '48k');
     expect(got!.label).toBe('Sinclair BASIC');
   });
 
@@ -317,7 +317,7 @@ describe('ROMManager.fetchDefaultROM', () => {
     // The 16K shares the 48K's ROM image (same Sinclair BASIC content).
     installFetch({ [`${ROM_BASE}sinclair/48.rom`]: { body: new Uint8Array([1]) } });
     const m = new ROMManager();
-    const got = await m.fetchDefaultROM('16k');
+    const got = await m.fetchDefaultROM('16k', '16k');
     expect(got!.label).toBe('Sinclair BASIC');
   });
 });
@@ -329,7 +329,7 @@ describe('ROMManager.loadROM', () => {
     const { calls } = installFetch({});
     const m = new ROMManager();
     await m.persistROM('48k', new Uint8Array([9]), 'cached');
-    const got = await m.loadROM('48k');
+    const got = await m.loadROM('48k', '48k');
     expect(got?.label).toBe('cached');
     expect(calls).toEqual([]);
   });
@@ -340,7 +340,7 @@ describe('ROMManager.loadROM', () => {
     idb.set('rom-+2', new Uint8Array([0xEE]));
     fakeLS.setItem('zx84-rom-label-+2', 'restored');
     const m = new ROMManager();
-    const got = await m.loadROM('+2');
+    const got = await m.loadROM('+2', '+2');
     expect(got?.label).toBe('restored');
     expect(calls).toEqual([]);
   });
@@ -350,7 +350,7 @@ describe('ROMManager.loadROM', () => {
       [`${ROM_BASE}sinclair/48.rom`]: { body: new Uint8Array([1, 2]) },
     });
     const m = new ROMManager();
-    const got = await m.loadROM('48k');
+    const got = await m.loadROM('48k', '48k');
     expect(got).not.toBeNull();
     expect(calls).toEqual([`${ROM_BASE}sinclair/48.rom`]);
   });
@@ -358,7 +358,7 @@ describe('ROMManager.loadROM', () => {
   it('returns null when neither cache nor fetch succeeds', async () => {
     installFetch({ [`${ROM_BASE}sinclair/48.rom`]: { status: 500 } });
     const m = new ROMManager();
-    expect(await m.loadROM('48k')).toBeNull();
+    expect(await m.loadROM('48k', '48k')).toBeNull();
   });
 
   it('falls back to fetching when IndexedDB throws (corrupt-DB recovery)', async () => {
@@ -367,7 +367,7 @@ describe('ROMManager.loadROM', () => {
       [`${ROM_BASE}sinclair/48.rom`]: { body: new Uint8Array([0xAB]) },
     });
     const m = new ROMManager();
-    const got = await m.loadROM('48k');
+    const got = await m.loadROM('48k', '48k');
     expect(got).not.toBeNull();
     expect(Array.from(got!.data)).toEqual([0xAB]);
     expect(calls).toEqual([`${ROM_BASE}sinclair/48.rom`]);
@@ -379,9 +379,9 @@ describe('ROMManager.loadROM', () => {
     });
     const m = new ROMManager();
     const [a, b, c] = await Promise.all([
-      m.loadROM('48k'),
-      m.loadROM('48k'),
-      m.loadROM('48k'),
+      m.loadROM('48k', '48k'),
+      m.loadROM('48k', '48k'),
+      m.loadROM('48k', '48k'),
     ]);
     // All three resolve to the same entry; only one network round-trip.
     expect(a).toBe(b);
@@ -395,8 +395,8 @@ describe('ROMManager.loadROM', () => {
       [`${ROM_BASE}sinclair/48.rom`]: [{ status: 500 }, { body: new Uint8Array([0x42]) }],
     });
     const m = new ROMManager();
-    expect(await m.loadROM('48k')).toBeNull();
-    const got = await m.loadROM('48k');
+    expect(await m.loadROM('48k', '48k')).toBeNull();
+    const got = await m.loadROM('48k', '48k');
     expect(got).not.toBeNull();
     expect(Array.from(got!.data)).toEqual([0x42]);
   });
@@ -408,7 +408,7 @@ describe('ROMManager.loadROM', () => {
       [`${ROM_BASE}sinclair/plus2-1.rom`]: { body: new Uint8Array([3]), delayMs: 10 },
     });
     const m = new ROMManager();
-    await Promise.all([m.loadROM('48k'), m.loadROM('+2')]);
+    await Promise.all([m.loadROM('48k', '48k'), m.loadROM('+2', '+2')]);
     expect(calls.length).toBe(3); // 1 page for 48k + 2 pages for +2
   });
 });

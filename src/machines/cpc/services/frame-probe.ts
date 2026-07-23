@@ -118,7 +118,7 @@ export class CpcFrameProbe implements FrameProbe {
     out.tapeIn = 0;
     out.tapeLoad = a.tapeReads;
     out.beeper = 0;
-    out.psg = 0;
+    out.psg = a.ayWrites > 5 ? 1 : 0;
     out.videoFx = 0;
     out.disk = a.fdcAccesses;
     out.tapeTurbo = false;

@@ -88,11 +88,15 @@ function extractGlyph(vram: Uint8Array, regs: Uint8Array, mode: VdpMode,
   }
 }
 
+/** Character cell width in pixels for the Einstein system font — shared with the
+ *  Einstein 256 (V9938) engine, which draws the same 6-px MOS font. */
+export const EINSTEIN_CELL_W = CELL_W;
+
 /** Match an 8-byte glyph against the font (normal + inverse video). Returns the
  *  ASCII code (or -1 if unrecognised) and whether it matched inverse-video (the
  *  glyph was the font inverted, i.e. the cell's fg/bg are swapped on screen). A
- *  blank glyph matches space. */
-function matchGlyph(glyph: Uint8Array, font: Uint8Array): { code: number; inverse: boolean } {
+ *  blank glyph matches space. Shared by the TC-01 and Einstein 256 engines. */
+export function matchGlyph(glyph: Uint8Array, font: Uint8Array): { code: number; inverse: boolean } {
   let blank = true;
   for (let i = 0; i < 8; i++) if (glyph[i] !== 0) { blank = false; break; }
   if (blank) return { code: 0x20, inverse: false };

@@ -126,6 +126,8 @@ export function DisplayPane() {
           </Match>
         </Switch>
       </div>
+      </Show>
+      <Show when={machineCaps().accuracy}>
       <div class="slider-row">
         <span class="slider-label">Accuracy</span>
         <select value={scanlineAccuracy()} onChange={(e) => {

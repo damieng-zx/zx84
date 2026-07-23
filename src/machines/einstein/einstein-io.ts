@@ -21,6 +21,7 @@
  */
 
 import type { EinsteinMachine } from '@/machines/einstein/einstein-machine.ts';
+import { V9938 } from '@/cores/v9938.ts';
 
 /** AY register 14 = I/O port A (keyboard row select). */
 const AY_PORT_A = 14;
@@ -84,12 +85,19 @@ export function wireEinsteinPortIO(m: EinsteinMachine): void {
   const ctc = m.ctc;
   const kbd = m.keyboard;
   const memory = m.memory;
+  const is256 = vdp instanceof V9938;
 
   cpu.portOut = (port: number, val: number): void => {
     port &= 0xFFFF;
     val &= 0xFF;
     if (m.portWatchpoints.size > 0 && m.portWatchpoints.has(port) && m.portWatchHit === null) {
       m.portWatchHit = { port, value: val, dir: 'out' };
+    }
+    // Einstein 256: the VDP interrupt mask lives outside the on-board decode
+    // (0x80, high byte ignored). Bit0 set = masked off.
+    if (is256 && (port & 0xFF) === 0x80) {
+      m.vdpIntEnabled = (val & 0x01) === 0;
+      return;
     }
     // The on-board devices decode at 0x00–0x3F (A6=A7=0). A6/A7 are NOT aliased:
     // e.g. 0x48/0x49 must not fall through to the VDP at 0x08/0x09 (XtalDOS 1.31
@@ -109,7 +117,17 @@ export function wireEinsteinPortIO(m: EinsteinMachine): void {
         }
         break;
       case 0x08: // VDP
-        if (reg === 0) vdp.writeData(val); else vdp.writeControl(val);
+        if (is256) {
+          // V9938: 0x08 VRAM data, 0x09 control/status, 0x0A palette,
+          // 0x0B indirect register (0x0C–0x0F alias 0x08–0x0B).
+          const r = reg & 3;
+          if (r === 0) vdp.writeData(val);
+          else if (r === 1) vdp.writeControl(val);
+          else if (r === 2) (vdp as V9938).writePalette(val);
+          else (vdp as V9938).writeRegister(val);
+        } else {
+          if (reg === 0) vdp.writeData(val); else vdp.writeControl(val);
+        }
         break;
       case 0x18: // WD1770 FDC
         if (reg === 0) fdc.writeCommand(val);
@@ -120,12 +138,16 @@ export function wireEinsteinPortIO(m: EinsteinMachine): void {
       case 0x20: // control latches
         if (reg === 4) memory.toggleRom();          // 0x24 ROM/RAM toggle
         else if (reg === 3) setDriveSelect(m, val); // 0x23 drive select
+        else if (reg === 2 && is256) kbd.toggleAlphaLock(); // 0x22 ALPHA LOCK (256)
         // reg 0/1/5 = keyboard/ADC/fire interrupt masks — not modelled.
         break;
       case 0x28: // Z80 CTC
         ctc.write(reg, val);
         break;
-      // 0x10 (8251), 0x30 (PIO), 0x38 (ADC): no-op for now.
+      case 0x30: // Einstein 256: port A = printer data low nibble + strobe;
+        //          0x31 = port A interrupt mask. Not modelled (no printer).
+        break;
+      // 0x10 (8251), 0x38 (ADC / pseudo-ADC): no-op for now.
     }
   };
 
@@ -150,6 +172,13 @@ export function wireEinsteinPortIO(m: EinsteinMachine): void {
         }
         return 0xFF;
       case 0x08: // VDP
+        if (is256) {
+          // V9938: 0x08 data, 0x09 status; 0x0A/0x0B are write-only.
+          const r = reg & 3;
+          if (r === 0) return vdp.readData();
+          if (r === 1) return vdp.readStatus();
+          return 0xFF;
+        }
         return reg === 0 ? vdp.readData() : vdp.readStatus();
       case 0x10: // 8251 USART: report Tx ready / empty, no Rx.
         return reg === 1 ? 0x05 : 0x00;
@@ -162,11 +191,33 @@ export function wireEinsteinPortIO(m: EinsteinMachine): void {
       case 0x20:
         if (reg === 0) return kbd.statusByte();      // 0x20 keyboard status
         if (reg === 4) { memory.toggleRom(); return 0xFF; } // 0x24 also toggles on read
+        if (is256 && reg === 2) { kbd.toggleAlphaLock(); return 0xFF; } // 0x22 toggles on read too
+        if (is256 && reg === 6) return systemStatus(m); // 0x26 system status (256)
         return 0xFF;
       case 0x28: // Z80 CTC
         return ctc.read(reg);
+      case 0x30: // Einstein 256: joystick/printer ports. 0x30 = joy 1 + printer
+        //          status (idle high), 0x32 = joy 2; 0x31 is write-only.
+        if (is256) {
+          if (reg === 0) return 0x60 | kbd.joystickByte(1);
+          if (reg === 2) return 0x60 | kbd.joystickByte(2);
+          return 0xFF;
+        }
+        return 0xFF;
+      case 0x38: // Einstein 256 pseudo-ADC: joystick centred.
+        return is256 ? 0x7F : 0xFF;
       default:   // 8251 data, PIO, ADC, unmapped
         return 0xFF;
     }
+  }
+
+  /** Port 0x26 system status (Einstein 256, per MAME's system_r):
+   *  b0 ALPHA LOCK key down, b1 ROM paged in, b2–b5 dipswitches (hardwired:
+   *  625-line/50Hz, parallel printer, English), b6 no mouse, b7 cassette in. */
+  function systemStatus(machine: EinsteinMachine): number {
+    let v = 0x44;                          // 50Hz dipswitch + no mouse
+    if (machine.keyboard.alphaLockKeyPressed()) v |= 0x01;
+    if (machine.memory.romPagedIn) v |= 0x02;
+    return v;
   }
 }

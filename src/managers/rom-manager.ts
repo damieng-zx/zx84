@@ -9,6 +9,7 @@
  */
 
 import type { MachineModel } from '@/models.ts';
+import type { MachineLocale } from '@/machines/machine.ts';
 import { dbSave, dbLoad, dbDelete } from '@/store/persistence.ts';
 import { BANK_SIZE } from '@/utils/bank-size.ts';
 import { entryForModel } from '@/machines/registry.ts';
@@ -42,29 +43,31 @@ import type { RomPage } from '@/models.ts';
  *  back to a generic "<MODEL> (default)" otherwise. Always computed fresh
  *  (never persisted verbatim — see restoreROM) so a naming change here takes
  *  effect immediately, without a stale string surviving in localStorage. */
-function defaultRomLabel(model: MachineModel): string {
+function defaultRomLabel(key: string): string {
+  // Strip locale suffix to get the base model for display
+  const model = key.split('-')[0].toLowerCase();
   if (model === '16k' || model === '48k') return 'Sinclair BASIC';
   if (model === 'hx-10') return 'Toshiba HX-10 (MSX BASIC 1.0)';
   if (model === 'zx80') return 'Sinclair ZX80 BASIC';
   if (model === 'zx81') return 'Sinclair ZX81 BASIC';
-  return `${model.toUpperCase()} (default)`;
+  return `${key.toUpperCase()} (default)`;
 }
 
 export class ROMManager {
   private cache: Record<string, ROMEntry> = {};
-  /** In-flight loadROM promises, deduplicated per model. */
-  private inFlight: Partial<Record<MachineModel, Promise<ROMEntry | null>>> = {};
+  /** In-flight loadROM promises, deduplicated per key. */
+  private inFlight: Partial<Record<string, Promise<ROMEntry | null>>> = {};
 
   /**
    * Persist a ROM image to cache and IndexedDB.
    * Cache is only populated if the IDB write succeeds, so cache and disk
    * never disagree on a failed save.
    */
-  async persistROM(model: MachineModel, data: Uint8Array, label: string): Promise<void> {
-    await dbSave(`rom-${model}`, data);
-    this.cache[model] = { data, label, isCustom: true };
+  async persistROM(key: string, data: Uint8Array, label: string): Promise<void> {
+    await dbSave(`rom-${key}`, data);
+    this.cache[key] = { data, label, isCustom: true };
     try {
-      localStorage.setItem(`zx84-rom-label-${model}`, label);
+      localStorage.setItem(`zx84-rom-label-${key}`, label);
     } catch { /* private mode / quota — label will fall back on next restore */ }
   }
 
@@ -73,12 +76,12 @@ export class ROMManager {
    * Returns null if no ROM is stored OR if IDB throws (caller can fall back
    * to fetching the default).
    */
-  async restoreROM(model: MachineModel): Promise<ROMEntry | null> {
-    if (this.cache[model]) return this.cache[model];
+  async restoreROM(key: string): Promise<ROMEntry | null> {
+    if (this.cache[key]) return this.cache[key];
 
     let data: Uint8Array | null;
     try {
-      data = await dbLoad(`rom-${model}`);
+      data = await dbLoad(`rom-${key}`);
     } catch {
       // Corrupt DB / quota / etc. — treat as "not stored" so loadROM can fall
       // back to the default fetch path rather than permanently bricking.
@@ -90,27 +93,31 @@ export class ROMManager {
     // (see setSystemRom). Anything shaped like a computed default label —
     // including stale text from an older naming scheme, e.g. "16K (default)"
     // — is discarded and recomputed fresh via defaultRomLabel().
-    const stored = localStorage.getItem(`zx84-rom-label-${model}`);
+    const stored = localStorage.getItem(`zx84-rom-label-${key}`);
     const isCustom = !!stored && !/\(default\)$/i.test(stored);
-    this.cache[model] = isCustom
+    this.cache[key] = isCustom
       ? { data, label: stored!, isCustom: true }
-      : { data, label: defaultRomLabel(model), isCustom: false };
-    return this.cache[model];
+      : { data, label: defaultRomLabel(key), isCustom: false };
+    return this.cache[key];
   }
 
   /**
-   * Fetch default ROM from CDN and cache it.
+   * Fetch default ROM from CDN and cache it. `model` is the base MachineModel
+   * (for ROM source lookup), `key` is the cache key (may include locale),
+   * `locale` selects the locale-specific ROM source variant.
    * Returns null if fetch fails.
    */
   async fetchDefaultROM(
     model: MachineModel,
+    key: string,
+    locale?: MachineLocale,
     onStatus?: (msg: string) => void
   ): Promise<ROMEntry | null> {
     // Each machine's registry entry lists its ROM pages in order; they are
     // fetched and concatenated here (CPC: OS + BASIC [+ AMSDOS], the layout
     // CpcMemory.loadROM() splits on).
-    const urls = entryForModel(model).romSources(model);
-    onStatus?.(`Downloading ${model.toUpperCase()} ROM…`);
+    const urls = entryForModel(model).romSources(model, locale);
+    onStatus?.(`Downloading ${key.toUpperCase()} ROM…`);
 
     try {
       const pages = await Promise.all(urls.map(async source => {
@@ -129,12 +136,12 @@ export class ROMManager {
       // Save the raw bytes for offline reuse, but do NOT persist a label to
       // localStorage — a default label is derived, not a real ROM name, and
       // must stay free to be recomputed if the naming logic changes later.
-      await dbSave(`rom-${model}`, data);
-      const label = defaultRomLabel(model);
-      this.cache[model] = { data, label, isCustom: false };
-      onStatus?.(`${model.toUpperCase()} ROM loaded`);
+      await dbSave(`rom-${key}`, data);
+      const label = defaultRomLabel(key);
+      this.cache[key] = { data, label, isCustom: false };
+      onStatus?.(`${key.toUpperCase()} ROM loaded`);
 
-      return this.cache[model];
+      return this.cache[key];
     } catch (err) {
       onStatus?.(`Failed to download ROM: ${(err as Error).message}`);
       return null;
@@ -200,40 +207,43 @@ export class ROMManager {
 
   /**
    * Load a ROM and return it, trying cache first, then fetching if needed.
-   * Concurrent calls for the same model share a single in-flight promise.
+   * Concurrent calls for the same key share a single in-flight promise.
+   * `model` is the base MachineModel for source lookup; `key` is the cache key.
    */
   loadROM(
     model: MachineModel,
+    key: string,
+    locale?: MachineLocale,
     onStatus?: (msg: string) => void
   ): Promise<ROMEntry | null> {
-    const existing = this.inFlight[model];
+    const existing = this.inFlight[key];
     if (existing) return existing;
 
     const p = (async () => {
-      let entry = await this.restoreROM(model);
-      if (!entry) entry = await this.fetchDefaultROM(model, onStatus);
+      let entry = await this.restoreROM(key);
+      if (!entry) entry = await this.fetchDefaultROM(model, key, locale, onStatus);
       return entry;
-    })().finally(() => { delete this.inFlight[model]; });
+    })().finally(() => { delete this.inFlight[key]; });
 
-    this.inFlight[model] = p;
+    this.inFlight[key] = p;
     return p;
   }
 
   /**
    * Get cached ROM without triggering a fetch.
    */
-  getCached(model: MachineModel): ROMEntry | null {
-    return this.cache[model] || null;
+  getCached(key: string): ROMEntry | null {
+    return this.cache[key] || null;
   }
 
   /**
-   * Forget a model's stored ROM (in-memory cache, IndexedDB image, and label),
+   * Forget a ROM's stored data (in-memory cache, IndexedDB image, and label),
    * so the next load falls back to the CDN default. Used by "reset to default".
    */
-  async clearROM(model: MachineModel): Promise<void> {
-    delete this.cache[model];
-    try { localStorage.removeItem(`zx84-rom-label-${model}`); } catch { /* */ }
-    try { await dbDelete(`rom-${model}`); } catch { /* non-fatal */ }
+  async clearROM(key: string): Promise<void> {
+    delete this.cache[key];
+    try { localStorage.removeItem(`zx84-rom-label-${key}`); } catch { /* */ }
+    try { await dbDelete(`rom-${key}`); } catch { /* non-fatal */ }
   }
 
   // ── Per-page overrides (128K/+2/+2A/+3 multi-page models) ────────────────
@@ -247,22 +257,22 @@ export class ROMManager {
 
   private pageCache: Record<string, ROMEntry> = {};
 
-  async persistROMPage(model: MachineModel, page: RomPage, data: Uint8Array, label: string): Promise<void> {
+  async persistROMPage(key: string, page: RomPage, data: Uint8Array, label: string): Promise<void> {
     const bytes = data.subarray(0, BANK_SIZE);
-    await dbSave(`rom-${model}-page${page}`, bytes);
-    this.pageCache[`${model}:${page}`] = { data: bytes, label, isCustom: true };
+    await dbSave(`rom-${key}-page${page}`, bytes);
+    this.pageCache[`${key}:${page}`] = { data: bytes, label, isCustom: true };
     try {
-      localStorage.setItem(`zx84-rom-label-${model}-page${page}`, label);
+      localStorage.setItem(`zx84-rom-label-${key}-page${page}`, label);
     } catch { /* private mode / quota — label will fall back on next restore */ }
   }
 
-  async restoreROMPage(model: MachineModel, page: RomPage): Promise<ROMEntry | null> {
-    const cacheKey = `${model}:${page}`;
+  async restoreROMPage(key: string, page: RomPage): Promise<ROMEntry | null> {
+    const cacheKey = `${key}:${page}`;
     if (this.pageCache[cacheKey]) return this.pageCache[cacheKey];
 
     let data: Uint8Array | null;
     try {
-      data = await dbLoad(`rom-${model}-page${page}`);
+      data = await dbLoad(`rom-${key}-page${page}`);
     } catch {
       return null;
     }
@@ -271,20 +281,20 @@ export class ROMManager {
     // A page cache entry only ever exists via persistROMPage (a custom
     // upload) — there's no "default page override" concept, so any entry
     // found here is by construction a custom one.
-    const label = localStorage.getItem(`zx84-rom-label-${model}-page${page}`) || 'custom';
+    const label = localStorage.getItem(`zx84-rom-label-${key}-page${page}`) || 'custom';
     this.pageCache[cacheKey] = { data, label, isCustom: true };
     return this.pageCache[cacheKey];
   }
 
   /** Get a cached page override without triggering a fetch. */
-  getCachedPage(model: MachineModel, page: RomPage): ROMEntry | null {
-    return this.pageCache[`${model}:${page}`] || null;
+  getCachedPage(key: string, page: RomPage): ROMEntry | null {
+    return this.pageCache[`${key}:${page}`] || null;
   }
 
   /** Forget a page override so it reverts to the model's default image. */
-  async clearROMPage(model: MachineModel, page: RomPage): Promise<void> {
-    delete this.pageCache[`${model}:${page}`];
-    try { localStorage.removeItem(`zx84-rom-label-${model}-page${page}`); } catch { /* */ }
-    try { await dbDelete(`rom-${model}-page${page}`); } catch { /* non-fatal */ }
+  async clearROMPage(key: string, page: RomPage): Promise<void> {
+    delete this.pageCache[`${key}:${page}`];
+    try { localStorage.removeItem(`zx84-rom-label-${key}-page${page}`); } catch { /* */ }
+    try { await dbDelete(`rom-${key}-page${page}`); } catch { /* non-fatal */ }
   }
 }
