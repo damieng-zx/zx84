@@ -87,3 +87,22 @@ describe('MTX CPU boot wiring', () => {
     expect(m.vdp.regs[1]).toBe(0xD0);
   });
 });
+
+describe('MTX MCP screen OCR', () => {
+  it('reads ASCII text directly from the TMS9929A text-mode name table', () => {
+    const m = machine();
+    m.vdp.regs[1] = 0x10; // M1: 40-column text mode
+    m.vdp.regs[2] = 0x07; // name table at 0x1C00, as used by the MTX ROM
+    const nameBase = 0x1C00;
+    m.vdp.vram.fill(0x20, nameBase, nameBase + 40 * 24);
+    const text = ' Ready';
+    for (let i = 0; i < text.length; i++) {
+      m.vdp.vram[nameBase + 23 * 40 + i] = text.charCodeAt(i);
+    }
+
+    const rows = m.ocrScreenForMcp().split('\n');
+
+    expect(rows).toHaveLength(24);
+    expect(rows[23]).toBe(' Ready');
+  });
+});

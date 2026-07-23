@@ -15,6 +15,8 @@ import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
+import { Tms9918ScreenText } from '@/ocr/tms9918.ts';
+import type { OcrGridName } from '@/ocr/ocr.ts';
 import type {
   BorderMode, Machine, MachineDescriptor, MachineHost, MachineKind,
   MachineTraceMode, SettingsView,
@@ -43,6 +45,7 @@ export class MtxMachine extends BaseMachine implements Machine {
   readonly ctc = new Z80Ctc();
   readonly keyboard = new MtxKeyboard();
   readonly psg = new Sn76489(MTX_CPU_CLOCK, 48_000, 'mtx');
+  readonly screenText = new Tms9918ScreenText();
   readonly mixer = new AudioMixer(MTX_CPU_CLOCK);
   readonly audio = new Audio();
   display: IScreenRenderer | null;
@@ -200,5 +203,7 @@ export class MtxMachine extends BaseMachine implements Machine {
 
   startTrace(_mode: MachineTraceMode = 'full'): void {}
   stopTrace(): string { return ''; }
-  ocrScreenForMcp(_mode = 'auto'): string { return ''; }
+  ocrScreenForMcp(_mode: OcrGridName | 'auto' = 'auto'): string {
+    return this.screenText.ocr(this.vdp.vram, this.vdp.regs, this.vdp.mode());
+  }
 }
