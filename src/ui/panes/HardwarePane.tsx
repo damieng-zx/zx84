@@ -114,6 +114,8 @@ const MODEL_MENU: MenuItem[] = [
       modelEntry('hx-10'),
     ],
   },
+  modelEntry('mtx500'),
+  modelEntry('mtx512'),
 ];
 
 function selectModel(value: string) {

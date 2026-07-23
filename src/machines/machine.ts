@@ -238,7 +238,7 @@ export interface MachineUiCapabilities {
   readonly statusLeds: readonly StatusLedId[];
   /** Keyboard read path, for the KEY LED tip. */
   readonly keyboardBus: 'ula' | 'ppi' | 'matrix';
-  /** Tape transport: 'deck' (pulse-level block list) or 'instant' (.cas).
+  /** Tape transport: 'deck' (pulse-level block list) or 'instant' (logical image).
    *  Omitted when the model has no cassette hardware (e.g. the GX4000 console). */
   readonly tape?: 'deck' | 'instant';
   /** Loading-sound toggle applies (AY-audible tape loading). */
@@ -378,6 +378,12 @@ export interface TapeBlockInfo {
   readonly label: string;
   /** Format-specific kind tag ('header', 'data', 'turbo', …) for pane styling. */
   readonly kind: string;
+  /** Optional second line for instant-cassette block listings. */
+  readonly detail?: string;
+  /** Optional file metadata used by the instant-cassette pane. */
+  readonly name?: string;
+  readonly type?: string;
+  readonly size?: number;
 }
 
 /** Cross-rebuild tape transport state (see TapeService.stashState). Data-shaped
@@ -392,9 +398,8 @@ export interface TapeStashState {
   casData?: Uint8Array;
 }
 
-/** Cassette transport. Spectrum/CPC/Einstein implement this over the shared
- *  pulse-level TapeDeck; the MSX over its instant-load .cas cassette — one
- *  surface, so the tape pane and tape-state signals stay machine-blind. */
+/** Cassette transport. Pulse-level decks and logical instant-load cassette
+ *  formats share one surface so the tape pane and state stay machine-blind. */
 export interface TapeService {
   readonly loaded: boolean;
   readonly name: string;
@@ -677,7 +682,7 @@ export interface FrameIndicators {
   tapePaused: boolean;
   tapeFinished: boolean;
   tapePosition: number;
-  /** Instant-load cassette block being read this frame (MSX), -1 = no update. */
+  /** Instant-load cassette block being read this frame, -1 = no update. */
   casBlock: number;
   /** ROM fast-loader engaged (drives the one-shot status announcement). */
   fastRomLoading: boolean;

@@ -3,8 +3,8 @@
  *
  * Reuses the commodity Z80A, TMS9929A, Z80 CTC and SN76489A cores. This first
  * base-machine implementation covers ROM BASIC operation, banked memory,
- * keyboard scanning, VDP video, CTC interrupts and PSG audio. Cassette,
- * printer, DART and disk expansions remain unfitted.
+ * keyboard scanning, VDP video, CTC interrupts, PSG audio and logical `.mtx`
+ * cassette loading. Printer, DART and disk expansions remain unfitted.
  */
 
 import { Z80 } from '@/cores/z80.ts';
@@ -28,6 +28,10 @@ import { installMtxMemoryHooks, wireMtxPortIO } from './mtx-io.ts';
 import { mtxDescriptor } from './descriptor.ts';
 import { createMtxServices, type MtxServices } from './services/index.ts';
 import {
+  MtxCassette, MTX_FIRST_HEADER_ADDRESS, MTX_FIRST_HEADER_LENGTH,
+  MTX_TAPE_FAILURE, MTX_TAPE_RETURN, MTX_TAPE_ROUTINE,
+} from './mtx-tape.ts';
+import {
   MTX_ACTIVE_LINES, MTX_BORDER_LEFT, MTX_BORDER_TOP, MTX_CPU_CLOCK,
   MTX_LINES_PER_FRAME, MTX_SCREEN_HEIGHT, MTX_SCREEN_WIDTH,
   MTX_TSTATES_PER_FRAME,
@@ -50,9 +54,11 @@ export class MtxMachine extends BaseMachine implements Machine {
   readonly audio = new Audio();
   display: IScreenRenderer | null;
 
-  /** Last byte written to the cassette output port (transport is a follow-up). */
+  /** Last byte written to the physical cassette output port. */
   tapeOutput = 0;
-  readonly activity = { kbdReads: 0, psgWrites: 0 };
+  /** Logical `.mtx` stream served through the ROM tape routine. */
+  readonly cassette = new MtxCassette();
+  readonly activity = { kbdReads: 0, psgWrites: 0, casReads: 0 };
 
   private readonly _pixels = new Uint8Array(MTX_SCREEN_WIDTH * MTX_SCREEN_HEIGHT * 4);
   private readonly _pixels32 = new Uint32Array(this._pixels.buffer);
@@ -134,6 +140,60 @@ export class MtxMachine extends BaseMachine implements Machine {
     this.setStatus('Reset');
   }
 
+  /**
+   * Serve one ROM LOAD/VERIFY request from the mounted logical cassette.
+   *
+   * MEMU's established `.mtx` convention patches the routine at 0AAE with a
+   * host trap followed by RET at 0AB0. We leave ROM immutable and intercept the
+   * same entry point. SAVE (FD68=0) falls through to the real hardware routine;
+   * this fast path only claims LOAD and VERIFY.
+   */
+  trapCassetteRoutine(): boolean {
+    if (
+      !this.cassette.loaded ||
+      this.memory.ramMode ||
+      this.cpu.pc !== MTX_TAPE_ROUTINE ||
+      this.memory.readByte(0xFD68) === 0
+    ) return false;
+
+    const base = this.cpu.hl;
+    const length = this.cpu.de;
+    if (base === MTX_FIRST_HEADER_ADDRESS && length === MTX_FIRST_HEADER_LENGTH) {
+      this.cassette.rewind();
+    }
+
+    let ok = true;
+    if (this.memory.readByte(0xFD67) !== 0) {
+      ok = this.cassette.verifyChunk(this.memory.readBlock(base, length)) === true;
+    } else {
+      const chunk = this.cassette.readChunk(length);
+      if (!chunk) {
+        ok = false;
+      } else {
+        for (let i = 0; i < chunk.length; i++) {
+          this.memory.writeByte((base + i) & 0xFFFF, chunk[i]);
+        }
+      }
+    }
+
+    this.activity.casReads++;
+    this.cpu.pc = ok ? MTX_TAPE_RETURN : MTX_TAPE_FAILURE;
+    // Account for the two-byte host-trap opcode used by the reference patch.
+    this.cpu.tStates += 8;
+
+    // The bypassed ROM routine stops all CTC channels, acknowledges the VDP
+    // interrupt, then restores channel 0 as the frame-interrupt counter.
+    this.ctc.write(0, 0xF0);
+    this.ctc.write(0, 0x03);
+    this.ctc.write(1, 0x03);
+    this.ctc.write(2, 0x03);
+    this.ctc.write(3, 0x03);
+    this.vdp.readStatus();
+    this.ctc.write(0, 0xA5);
+    this.ctc.write(0, 0x7D);
+    return true;
+  }
+
   protected framePixels(): Uint8Array { return this._pixels; }
   protected inTurbo(): boolean { return this.turbo; }
 
@@ -141,6 +201,7 @@ export class MtxMachine extends BaseMachine implements Machine {
     const skipAudio = this.speedMultiplier !== 1;
     this.activity.kbdReads = 0;
     this.activity.psgWrites = 0;
+    this.activity.casReads = 0;
     this._pixels32.fill(this.vdp.backdrop());
 
     const tPerLine = MTX_TSTATES_PER_FRAME / MTX_LINES_PER_FRAME;
@@ -161,6 +222,7 @@ export class MtxMachine extends BaseMachine implements Machine {
           broke = true;
           break;
         }
+        if (this.trapCassetteRoutine()) continue;
 
         const eiBefore = this.cpu.eiDelay;
         this.cpu.step();

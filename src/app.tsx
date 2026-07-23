@@ -36,6 +36,7 @@ import { paneOrder, isPaneUserHidden } from '@/ui/panes.ts';
 import { needsGamepadPolling, scale } from '@/store/settings.ts';
 import { initAudio, init, syncFocusPause } from '@/shell/lifecycle.ts';
 import { loadFile } from '@/shell/media.ts';
+import { loadStartupMedia } from '@/shell/url-media.ts';
 import { transcribeMode } from '@/state/activity-state.ts';
 import { configuringPlayer } from '@/ui/panes/JoystickPane.tsx';
 import { InputController } from '@/input-controller.ts';
@@ -183,7 +184,9 @@ export function App() {
   });
 
   // Init emulator on mount
-  onMount(() => { init(); });
+  onMount(() => {
+    void init().then(() => loadStartupMedia(window.location.search));
+  });
 
   return (
     <>

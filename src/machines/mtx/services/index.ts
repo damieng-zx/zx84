@@ -5,11 +5,12 @@ import { MtxFrameProbe } from './frame-probe.ts';
 import { MtxInputService } from './input.ts';
 import { MtxMediaService } from './media.ts';
 import { MtxRomService } from './roms.ts';
+import { MtxTapeService } from './tape.ts';
 
 export interface MtxServices extends MachineServices {
   readonly media: MtxMediaService;
   readonly roms: MtxRomService;
-  readonly tape: null;
+  readonly tape: MtxTapeService;
   readonly disks: null;
   readonly snapshots: null;
   readonly input: MtxInputService;
@@ -17,10 +18,11 @@ export interface MtxServices extends MachineServices {
 }
 
 export function createMtxServices(machine: MtxMachine): MtxServices {
+  const tape = new MtxTapeService(machine);
   return {
-    media: new MtxMediaService(),
+    media: new MtxMediaService(tape),
     roms: new MtxRomService(machine, () => machine.host),
-    tape: null,
+    tape,
     disks: null,
     snapshots: null,
     input: new MtxInputService(machine),

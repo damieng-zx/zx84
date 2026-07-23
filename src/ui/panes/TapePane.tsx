@@ -16,8 +16,8 @@ import { persistSetting, resetSettingsGroup } from '@/store/settings.ts';
 import type { TapeBlock, DataBlock } from '@/media/tape/tap.ts';
 import { openFile } from '@/ui/file-picker.ts';
 
-// The MSX cassette is instant-load (BIOS trap), so it shows just a load/eject
-// slot — no pulse-level transport, block list, or fast-load toggles.
+// Logical cassettes are instant-load (ROM/BIOS trap), with a simple block list.
+// They do not expose pulse timings or a real-time transport.
 const isInstantTape = () => machineCaps().tape === 'instant';
 
 function tapeFileLine(typeId: number, filename: string, dataLen: number, param1: number): string {
@@ -189,16 +189,17 @@ export function TapePane() {
           {casBlocks().map((b, i) => {
             const blocks = casBlocks();
             const collapse = tapeCollapseBlocks();
+            const isHeader = b.kind === 'header';
             // Collapsed: a data block following a header is absorbed into it.
-            if (collapse && !b.header && i > 0 && blocks[i - 1].header) return null;
+            if (collapse && !isHeader && i > 0 && blocks[i - 1].kind === 'header') return null;
             const next = blocks[i + 1];
-            const paired = collapse && b.header && next && !next.header;
+            const paired = collapse && isHeader && next && next.kind !== 'header';
             // A collapsed header spans [i, i+1] for the current/played indicators.
             const lastIndex = paired ? i + 1 : i;
             const pos = casPosition();
             const isCurrent = pos >= i && pos <= lastIndex;
             const isPlayed = lastIndex < pos;
-            const title = paired ? `${b.type} "${b.name}"` : b.title;
+            const title = paired ? `${b.type} "${b.name}"` : b.label;
             const detail = paired ? `${b.type} · ${next.size} bytes` : b.detail;
             return (
               <div class={`tape-block${isPlayed ? ' played' : ''}${isCurrent ? ' current' : ''}`}>

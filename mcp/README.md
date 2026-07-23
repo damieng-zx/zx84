@@ -27,7 +27,8 @@ npm run mcp -- --model 48k
 
 Supported startup models are derived from the machine registry and include
 `zx80`, `zx81`, `16k`, `48k`, `128k`, `+2`, `+2A`, `+3`, `cpc464`, `cpc664`,
-`cpc6128`, `cpc6128plus`, `gx4000`, `einstein`, and `hx-10`. The default is `48k`.
+`cpc6128`, `cpc6128plus`, `gx4000`, `einstein`, `hx-10`, `mtx500`, and
+`mtx512`. The default is `48k`.
 System ROM pages come from the machine registry, are fetched through the shared
 ROM source loader, and are cached under `mcp/.cache/`.
 
@@ -42,14 +43,14 @@ Some tools are intentionally hardware-specific:
 - Spectrum: tape/snapshot loading (auto-enabling the +D / Interface 1 / Beta
   Disk ROMs), ZXTL/full/port-I/O tracing, library loading, Multiface, VTX-5000,
   +D, Beta Disk, microdrives, and +3 boot helpers.
-- CPC, MSX, Einstein, ZX80/ZX81: media loads route through the machine's own
+- CPC, MSX, MTX, Einstein, ZX80/ZX81: media loads route through the machine's own
   `MediaService` (CPC `.dsk/.hfe/.scp/.cdt/.sna/.cpr`, MSX `.rom/.cas`,
-  Einstein `.dsk/.hfe/.scp`, ZX80/ZX81 program files). CPC adds built-in
-  uPD765A disk inspection, CPC OCR, and PNG screenshots.
+  MTX `.mtx`, Einstein `.dsk/.hfe/.scp`, ZX80/ZX81 program files). CPC adds
+  built-in uPD765A disk inspection, CPC OCR, and PNG screenshots.
 - ZX80/ZX81 additionally: model-constrained ZXDB library loading, 1KB/16KB
   RAM selection, ZX81 UDG and WRX hi-res hardware selection, and display-file
   OCR.
-- MSX/Einstein media capabilities are exposed exactly where their machine
+- MSX/MTX/Einstein media capabilities are exposed exactly where their machine
   services support them.
 
 Use `model` to switch machines. Switching always creates a fresh machine.
@@ -112,13 +113,13 @@ Spectrum additionally supports `sym`, `capslock`, and symbol-shift combos.
 
 | Tool | Parameters | Description |
 | --- | --- | --- |
-| `load` | `file`, `drive` | Load local media. Spectrum uses its bench path (auto-enables peripheral ROMs); every other machine routes through its own MediaService. ZIPs unwrap to a sole compatible file. |
+| `load` | `file`, `drive` | Load media from a local path or HTTP(S) URL. Spectrum uses its bench path (auto-enables peripheral ROMs); every other machine routes through its own MediaService. ZIPs unwrap to a sole compatible file. |
 | `library` | `title`, `file`, `id`, `frames`, `refresh` | Exact-title library load. ZX80 and ZX81 searches stay strictly within the active model and apply catalog RAM and hi-res hardware requirements before launch. |
 | `screenshot` | `file` (optional) | Write the active machine display to PNG. |
 | `save` | `file` | Save a Spectrum `.szx` snapshot. |
 | `eject` | `target`, `drive` | Eject a tape (any deck machine) or a disk (`a`/`b` where fitted). |
-| `disk_boot` | `file` (optional) | Spectrum +3 Loader-menu boot helper. |
-| `disk_trace` | `file` | +3 copy-protection helper: boot, arm `FE10`, and watch `3FFD`. |
+| `disk_boot` | `file` (optional) | Spectrum +3 Loader-menu boot helper; the optional DSK may be a local path or HTTP(S) URL. |
+| `disk_trace` | `file` | +3 copy-protection helper for a local or HTTP(S) DSK: boot, arm `FE10`, and watch `3FFD`. |
 
 ### Tracing And OCR
 

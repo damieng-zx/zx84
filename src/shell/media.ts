@@ -21,7 +21,6 @@ import { parseTrd, serializeTrd, blankTrdDisk } from '@/media/floppy/trd-image.t
 import { parseScl, serializeScl, isScl, SCL_DISK_FORMAT } from '@/media/floppy/scl-image.ts';
 import { parseMdrBlocks } from '@/media/microdrive.ts';
 import { unzip } from '@/media/zip.ts';
-import { parseCasBlocks } from '@/media/tape/cas.ts';
 import { showFilePicker } from '@/ui/zip-picker.ts';
 import * as settings from '@/store/settings.ts';
 import {
@@ -57,11 +56,12 @@ import type { SpectrumModel } from '@/models.ts';
 
 /** Reflect a mounted instant-load cassette into the tape-pane signals + storage. */
 function reflectInstantCassette(data: Uint8Array, name: string): void {
+  const blocks = machine?.services.tape?.blocks ?? [];
   batch(() => {
     setTapeLoaded(true);
     setTapeName(name);
     setTapeBlocks([]);
-    setCasBlocks(parseCasBlocks(data));
+    setCasBlocks([...blocks]);
     setCasPosition(0);   // highlight the first block, as TAP/TZX do on load
     setTapePosition(0);
     setTapePaused(true);
@@ -71,10 +71,10 @@ function reflectInstantCassette(data: Uint8Array, name: string): void {
   persistTape(machine!.kind, data, name);
 }
 
-/** Mount an instant-load cassette (.cas) and reflect it in the tape signals. */
-export function mountMsxCassette(data: Uint8Array, name: string): void {
+/** Mount a logical instant-load cassette and reflect it in the tape signals. */
+export function mountInstantCassette(data: Uint8Array, name: string): void {
   const tape = machine?.descriptor.ui.tape === 'instant' ? machine.services.tape : null;
-  if (!tape) { setStatus('Cassettes are for the MSX'); return; }
+  if (!tape) { setStatus('This machine has no instant cassette'); return; }
   void tape.mountBytes(data, name);   // instant mount — resolves synchronously
   reflectInstantCassette(data, name);
 }
@@ -828,7 +828,7 @@ export function restoreTapeForMachine(m: Machine): void {
     setTurboMode(false);
   });
   if (svc && stash?.state.casData) {
-    // Instant cassette: re-mount + reflect (parses the .cas block list).
+    // Instant cassette: re-mount and reflect the machine-parsed block list.
     svc.restoreStash(stash.state, stash.name);
     reflectInstantCassette(stash.state.casData, stash.name);
     setTurboMode(false);
@@ -859,7 +859,7 @@ export async function restoreMedia(): Promise<void> {
   const tapeSvc = machine.services.tape;
   if (tape && tapeSvc) {
     if (machine.descriptor.ui.tape === 'instant') {
-      mountMsxCassette(tape.data, tape.name);   // .cas → instant-load cassette
+      mountInstantCassette(tape.data, tape.name);
     } else if (await tapeSvc.mountBytes(tape.data, tape.name)) {
       batch(() => {
         setTapeLoaded(true);

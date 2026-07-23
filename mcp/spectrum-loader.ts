@@ -10,7 +10,6 @@
  * for a bench probe; the shell-facing policy stays in the machine's service.
  */
 
-import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Spectrum, SpectrumModel } from '../src/machines/spectrum/spectrum.ts';
 import { loadSNA } from '../src/machines/spectrum/snapshots/sna.ts';
@@ -26,12 +25,17 @@ import { hex16 as h16 } from '../src/utils/hex.ts';
 import { fetchPlusDRom, fetchInterface1Rom, fetchBetaDiskRom } from './rom-fetch.ts';
 import { state, initMachine } from './state.ts';
 import { activeSpectrum } from './concrete.ts';
+import { resolveMediaSource } from './media-source.ts';
 
-export async function loadFileInto(spec: Spectrum, filepath: string, diskUnit: number = 0): Promise<string> {
-  if (!fs.existsSync(filepath)) return `File not found: ${filepath}`;
-  const data = new Uint8Array(fs.readFileSync(filepath));
-  const ext = path.extname(filepath).toLowerCase();
-  const filename = path.basename(filepath);
+export async function loadFileInto(spec: Spectrum, source: string, diskUnit: number = 0): Promise<string> {
+  let media;
+  try {
+    media = await resolveMediaSource(source);
+  } catch (error) {
+    return (error as Error).message;
+  }
+  const { data, filename } = media;
+  const ext = path.extname(filename).toLowerCase();
 
   if (ext === '.tap') {
     spec.loadTAP(data);

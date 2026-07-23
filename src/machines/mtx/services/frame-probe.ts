@@ -6,7 +6,8 @@ export class MtxFrameProbe implements FrameProbe {
 
   sample(out: FrameIndicators): void {
     out.keyboard = this.machine.activity.kbdReads;
-    out.joystick = out.mouse = out.tapeIn = out.tapeLoad = 0;
+    out.joystick = out.mouse = out.tapeIn = 0;
+    out.tapeLoad = this.machine.activity.casReads;
     out.beeper = 0;
     out.psg = this.machine.activity.psgWrites;
     out.videoFx = out.disk = 0;
@@ -16,7 +17,9 @@ export class MtxFrameProbe implements FrameProbe {
     out.tapePaused = true;
     out.tapeFinished = false;
     out.tapePosition = 0;
-    out.casBlock = -1;
+    out.casBlock = this.machine.activity.casReads > 0
+      ? this.machine.cassette.currentBlock()
+      : -1;
     out.fastRomLoading = false;
     out.tracingActive = false;
     out.driveLed[0] = out.driveLed[1] = out.driveLed[2] = out.driveLed[3] = -1;
