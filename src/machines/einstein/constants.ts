@@ -32,3 +32,17 @@ export const EINSTEIN_BORDER_TOP = (240 - VDP_HEIGHT) >> 1;  // 24
 /** Output RGBA buffer geometry (active area + border). */
 export const EINSTEIN_SCREEN_WIDTH = VDP_WIDTH + EINSTEIN_BORDER_LEFT * 2;   // 320
 export const EINSTEIN_SCREEN_HEIGHT = VDP_HEIGHT + EINSTEIN_BORDER_TOP * 2;  // 240
+
+// ── Einstein 256 (V9938) geometry ────────────────────────────────────────
+
+/** Border padding around the 512×212 V9938 active display, giving the same
+ *  240-line window height as the TC-01. */
+export const EINSTEIN_256_BORDER_LEFT = 32;
+export const EINSTEIN_256_BORDER_TOP = 14;
+
+/** Output RGBA buffer geometry for the 256 (active area + border). */
+export const EINSTEIN_256_SCREEN_WIDTH = 512 + EINSTEIN_256_BORDER_LEFT * 2;   // 576
+export const EINSTEIN_256_SCREEN_HEIGHT = 212 + EINSTEIN_256_BORDER_TOP * 2;   // 240
+
+/** The V9938's IM 2 interrupt vector on the Einstein 256 daisy chain. */
+export const EINSTEIN_256_VDP_INT_VECTOR = 0xFE;

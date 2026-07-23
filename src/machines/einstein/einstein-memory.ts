@@ -6,48 +6,66 @@
  * is plain RAM. So CPU stores into 0x0000–0x7FFF always land in the underlying
  * 64KB RAM even while the MOS ROM is mapped for reads.
  *
- * The 8KB MOS ROM is mirror-loaded across 0x0000–0x3FFF (it appears twice); the
- * upper half of the ROM window, 0x4000–0x7FFF, reads 0xFF. When the ROM is
- * paged out (port 0x24 toggle) the whole 0x0000–0x7FFF window reads RAM.
+ * The ROM window layout is model-dependent (config.ts):
+ *  - TC-01: the 8KB MOS is mirror-loaded across 0x0000–0x3FFF.
+ *  - Einstein 256: the 16KB MOS 2.1 sits at 0x0000–0x3FFF with no mirror.
+ * In both cases the upper half of the ROM window, 0x4000–0x7FFF, reads 0xFF.
+ * When the ROM is paged out (port 0x24 toggle) the whole 0x0000–0x7FFF window
+ * reads RAM.
  *
- * VRAM is NOT part of this map: the 16KB video RAM lives inside the TMS9929A and
- * the CPU only reaches it through the VDP's I/O ports (0x08/0x09).
+ * VRAM is NOT part of this map: the video RAM lives inside the VDP and the
+ * CPU only reaches it through the VDP's I/O ports.
  */
 
 import type { IMachineMemory } from '@/machines/machine.ts';
 
 const RAM_SIZE = 0x10000;      // 64KB
-const MOS_SIZE = 0x2000;       // 8KB MOS ROM
 const ROM_WINDOW = 0x8000;     // low 32KB ROM read-window when paged in
 
+export interface EinsteinMemoryOptions {
+  /** MOS ROM size in bytes (0x2000 TC-01, 0x4000 Einstein 256). */
+  readonly romSize: number;
+  /** TC-01: mirror the 8KB MOS across 0x0000–0x3FFF. */
+  readonly romMirrored: boolean;
+}
+
 export class EinsteinMemory implements IMachineMemory {
+  private readonly options: EinsteinMemoryOptions;
+
   /** The full 64KB RAM — the write target for every address, and the read
    *  source wherever the ROM overlay is not active. */
   private readonly ram = new Uint8Array(RAM_SIZE);
 
-  /** The 32KB ROM read-window: MOS mirrored across 0x0000–0x3FFF, 0xFF above. */
+  /** The 32KB ROM read-window, 0xFF-filled beyond the MOS image. */
   private romWindow = new Uint8Array(ROM_WINDOW).fill(0xFF);
 
-  /** Raw 8KB MOS image, kept for the debug/memory viewer. */
-  private mos = new Uint8Array(MOS_SIZE);
+  /** Raw MOS image, kept for the debug/memory viewer. */
+  private mos = new Uint8Array(0);
 
   /** ROM overlay enabled (true at reset — the machine boots into the MOS). */
   private romEnabled = true;
 
-  /** Install the MOS ROM image (clamped to 8KB) and rebuild the mirror window. */
+  constructor(options: EinsteinMemoryOptions = { romSize: 0x2000, romMirrored: true }) {
+    this.options = options;
+    this.mos = new Uint8Array(options.romSize);
+  }
+
+  /** Install the MOS ROM image (clamped to the model's ROM size) and rebuild
+   *  the read window (mirrored on the TC-01, linear on the 256). */
   loadROM(data: Uint8Array): void {
-    this.mos = new Uint8Array(MOS_SIZE);
-    this.mos.set(data.subarray(0, MOS_SIZE));
+    const { romSize, romMirrored } = this.options;
+    this.mos = new Uint8Array(romSize);
+    this.mos.set(data.subarray(0, romSize));
     this.romWindow = new Uint8Array(ROM_WINDOW).fill(0xFF);
-    this.romWindow.set(this.mos, 0x0000);       // 0x0000–0x1FFF
-    this.romWindow.set(this.mos, 0x2000);       // 0x2000–0x3FFF (mirror)
+    this.romWindow.set(this.mos, 0x0000);                       // 0x0000+
+    if (romMirrored) this.romWindow.set(this.mos, romSize);     // TC-01 mirror
   }
 
   /** Port 0x24 is a toggle: any access flips the ROM overlay in/out. */
   toggleRom(): void { this.romEnabled = !this.romEnabled; }
   get romPagedIn(): boolean { return this.romEnabled; }
 
-  /** Live 8KB view of the MOS ROM, for the debug/memory viewer. */
+  /** Live view of the MOS ROM, for the debug/memory viewer. */
   getRom(): Uint8Array { return this.mos; }
 
   // ── IMachineMemory ───────────────────────────────────────────────────────

@@ -31,6 +31,7 @@ const MODEL_LABELS: Record<MachineModel, string> = {
   cpc6128plus: 'Amstrad CPC 6128Plus',
   gx4000: 'Amstrad GX4000',
   einstein: 'Tatung Einstein TC-01',
+  'einstein-256': 'Tatung Einstein 256',
   'hx-10': 'MSX',
 };
 
@@ -63,6 +64,7 @@ const MODEL_MENU: MenuItem[] = [
     ],
   },
   { value: 'einstein', label: 'Tatung Einstein TC-01' },
+  { value: 'einstein-256', label: 'Tatung Einstein 256' },
   { value: 'hx-10', label: 'MSX' },
 ];
 

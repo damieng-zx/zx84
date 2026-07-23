@@ -68,6 +68,10 @@ export class EinsteinKeyboard {
   private fire1 = false;
   private fire2 = false;
 
+  /** ALPHA LOCK latch (Einstein 256): toggled by any port 0x22 access, read
+   *  back via port 0x26 bit0 and mirrored on the keyboard LED. */
+  private alphaLock = true;
+
   /** AY port A write — select the rows to scan. */
   selectRows(mask: number): void { this.selectMask = mask & 0xFF; }
 
@@ -117,10 +121,26 @@ export class EinsteinKeyboard {
     else this.fire2 = pressed;
   }
 
+  /** Port 0x22 (Einstein 256): any access toggles the ALPHA LOCK latch. */
+  toggleAlphaLock(): void { this.alphaLock = !this.alphaLock; }
+  /** ALPHA LOCK latch state (LED). */
+  get alphaLockState(): boolean { return this.alphaLock; }
+  /** Whether the ALPHA LOCK key itself is currently held (matrix line 0 bit 4)
+   *  — port 0x26 bit0 on the 256. */
+  alphaLockKeyPressed(): boolean { return (this.matrix[0] & 0x10) === 0; }
+
+  /** Einstein 256 joystick port low nibble bits (active-low, b4 = fire).
+   *  Directions are not mapped yet; fire rides the fire1/fire2 state. */
+  joystickByte(stick: 1 | 2): number {
+    const fire = stick === 1 ? this.fire1 : this.fire2;
+    return fire ? 0x0F : 0x1F;
+  }
+
   reset(): void {
     this.matrix.fill(0xFF);
     this.selectMask = 0xFF;
     this.shift = this.control = this.graph = false;
     this.fire1 = this.fire2 = false;
+    this.alphaLock = true;
   }
 }
