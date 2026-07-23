@@ -186,6 +186,7 @@ export class MtxMachine extends BaseMachine implements Machine {
 
   set512kRamEnabled(enabled: boolean): void {
     this.memory.set512kRamExpansionEnabled(enabled);
+    this.services.disks.configureCpmRamDiskStartup(enabled);
     const ramKib = this.memory.ramSizeBytes / 1024;
     this.setStatus(`512 KiB RAM expansion ${enabled ? 'enabled' : 'disabled'} (${ramKib} KiB total)`);
   }

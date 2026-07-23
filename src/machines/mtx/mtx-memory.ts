@@ -4,6 +4,7 @@ import type { MtxModel } from './models.ts';
 const BLOCK_SIZE = 0x4000;
 const ROM_SIZE = 0x2000;
 const RAM_EXPANSION_BLOCKS = 512 * 1024 / BLOCK_SIZE;
+const CPM_EMPTY_DIRECTORY_BYTE = 0xE5;
 
 /**
  * MTX banked memory.
@@ -50,7 +51,7 @@ export class MtxMemory implements IMachineMemory {
     const blocks = this.baseRamBlocks + (enabled ? RAM_EXPANSION_BLOCKS : 0);
     if (enabled) {
       while (this.ramBanks.length < blocks) {
-        this.ramBanks.push(new Uint8Array(BLOCK_SIZE));
+        this.ramBanks.push(new Uint8Array(BLOCK_SIZE).fill(CPM_EMPTY_DIRECTORY_BYTE));
       }
     } else {
       this.ramBanks.length = blocks;
@@ -131,7 +132,9 @@ export class MtxMemory implements IMachineMemory {
   reset(): void {
     this.ioByte = 0;
     this.romSubpage = 0;
-    for (const bank of this.ramBanks) bank.fill(0);
+    // The motherboard RAM is working memory, while the 512 KiB expansion is
+    // also used as CP/M's volatile RAM disc and survives the reset line.
+    for (let i = 0; i < this.baseRamBlocks; i++) this.ramBanks[i].fill(0);
   }
 
   private ramLocation(addr: number): { bank: Uint8Array; offset: number } | null {

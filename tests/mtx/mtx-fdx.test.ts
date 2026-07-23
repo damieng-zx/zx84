@@ -95,4 +95,34 @@ describe('Memotech FDX/SDX disk expansion', () => {
     });
     expect(m.fdc.getDiskImage(0)?.tracks[0][0]?.sectors[0].data[0]).toBe(0xA5);
   });
+
+  it('boots the hidden CP/M disk with a type-51 RAM disc when 512 KiB is fitted', () => {
+    const m = machine();
+    m.set512kRamEnabled(true);
+    m.setCpmSystemEnabled(true);
+    const request = m.services.disks.bootDisk!;
+    const image = request.parse(new Uint8Array(MTX_TYPE07_SIZE));
+    if (image instanceof Uint8Array) throw new Error('Expected parsed MTX floppy image');
+    const startup = image.tracks[0][0]!.sectors[0].data.subarray(0x10, 0x25);
+
+    expect(new TextDecoder().decode(startup)).toBe('SIDISC\rCONFIG F:51\r\0\0');
+    m.services.disks.insert('a', image, '');
+
+    m.set512kRamEnabled(false);
+    const restored = image.tracks[0][0]!.sectors[0].data.subarray(0x10, 0x18);
+    expect(new TextDecoder().decode(restored)).toBe('CONFIG\r\0');
+  });
+
+  it('does not rewrite startup commands on an explicitly mounted disk', () => {
+    const m = machine();
+    const raw = new Uint8Array(MTX_TYPE07_SIZE);
+    raw.set(new TextEncoder().encode('CUSTOM\r'), 0x10);
+    const image = parseMtxMfloppy(raw);
+    m.services.disks.insert('a', image, 'custom.mfloppy');
+
+    m.set512kRamEnabled(true);
+
+    const startup = image.tracks[0][0]!.sectors[0].data.subarray(0x10, 0x17);
+    expect(new TextDecoder().decode(startup)).toBe('CUSTOM\r');
+  });
 });

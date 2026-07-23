@@ -94,7 +94,7 @@ describe('MTX memory', () => {
     expect(memory.readByte(0x4000)).toBe(0xFF);
     expect(memory.readByte(0x8000)).toBe(0x80);
     expect(memory.getRamBank(31)[0]).toBe(0x80);
-    expect(memory.getRamBank(32)[0]).toBe(0);
+    expect(memory.getRamBank(32)[0]).toBe(0xE5);
   });
 
   it('removes expansion blocks while preserving motherboard RAM', () => {
@@ -109,6 +109,19 @@ describe('MTX memory', () => {
     expect(memory.ramBanks).toHaveLength(4);
     expect(memory.getRamBank(0)[0]).toBe(0x64);
     expect(memory.getRamBank(4)[0]).toBe(0);
+  });
+
+  it('preserves the volatile CP/M RAM disc across resets', () => {
+    const memory = new MtxMemory('mtx512');
+    memory.set512kRamExpansionEnabled(true);
+    expect(memory.getRamBank(4)[0]).toBe(0xE5);
+    memory.getRamBank(4)[0] = 0x51;
+    memory.getRamBank(0)[0] = 0x64;
+
+    memory.reset();
+
+    expect(memory.getRamBank(4)[0]).toBe(0x51);
+    expect(memory.getRamBank(0)[0]).toBe(0);
   });
 
   it('maps the optional fourth firmware image into FDX ROM page 5', () => {
