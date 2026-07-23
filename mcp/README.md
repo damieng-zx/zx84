@@ -157,6 +157,7 @@ These use the active +3 or CPC uPD765A where fitted.
 | Tool | Parameters | Description |
 | --- | --- | --- |
 | `mtx80column` | `action`: `on`, `off`, `status` | Control the FDX 6845-based 80-column display and select it as the active monitor. |
+| `mtx512kram` | `action`: `on`, `off`, `status` | Control the 512 KiB SDX/FDX RAM expansion (576 KiB total on an MTX512). |
 | `mtxcpm` | `action`: `on`, `off`, `status` | Configure the MTX512 CP/M profile, fetch its public Type-07 system disk when needed, and reset. |
 
 ## Address Values

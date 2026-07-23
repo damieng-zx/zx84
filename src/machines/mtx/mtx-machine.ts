@@ -116,9 +116,10 @@ export class MtxMachine extends BaseMachine implements Machine {
   screenExportBytes(): Uint8Array { return this.vdp.vram.slice(); }
 
   ramExportBytes(): { data: Uint8Array; filename: string } {
+    const ramKib = this.memory.ramSizeBytes / 1024;
     return {
       data: this.memory.ramSnapshot(),
-      filename: this.model === 'mtx500' ? 'mtx500-ram-32k.bin' : 'mtx512-ram-64k.bin',
+      filename: `${this.model}-ram-${ramKib}k.bin`,
     };
   }
 
@@ -136,6 +137,7 @@ export class MtxMachine extends BaseMachine implements Machine {
       MSX_PALETTES[view.get('msx-color-map', 'pal') as keyof typeof MSX_PALETTES];
     this.audio.setVolume(view.get('volume', 70) / 100);
     this.column80Requested = view.get('mtx-80-column', false);
+    this.set512kRamEnabled(view.get('mtx-512k-ram', false));
     this.setCpmSystemEnabled(view.get('mtx-cpm', false));
   }
 
@@ -143,6 +145,7 @@ export class MtxMachine extends BaseMachine implements Machine {
     this.fdc.writeProtect[0] = view.get('write-protect-a', false);
     this.fdc.writeProtect[1] = view.get('write-protect-b', false);
     this.column80Requested = view.get('mtx-80-column', false);
+    this.set512kRamEnabled(view.get('mtx-512k-ram', false));
     this.setCpmSystemEnabled(view.get('mtx-cpm', false));
     return [];
   }
@@ -179,6 +182,12 @@ export class MtxMachine extends BaseMachine implements Machine {
     this.memory.setCpmBootstrapEnabled(enabled);
     this.set80ColumnEnabled(enabled || this.column80Requested);
     this.setStatus(`CP/M system ${enabled ? 'enabled' : 'disabled'}`);
+  }
+
+  set512kRamEnabled(enabled: boolean): void {
+    this.memory.set512kRamExpansionEnabled(enabled);
+    const ramKib = this.memory.ramSizeBytes / 1024;
+    this.setStatus(`512 KiB RAM expansion ${enabled ? 'enabled' : 'disabled'} (${ramKib} KiB total)`);
   }
 
   reset(): void {

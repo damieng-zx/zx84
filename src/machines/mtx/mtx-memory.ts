@@ -3,6 +3,7 @@ import type { MtxModel } from './models.ts';
 
 const BLOCK_SIZE = 0x4000;
 const ROM_SIZE = 0x2000;
+const RAM_EXPANSION_BLOCKS = 512 * 1024 / BLOCK_SIZE;
 
 /**
  * MTX banked memory.
@@ -20,10 +21,15 @@ export class MtxMemory implements IMachineMemory {
   private ioByte = 0;
   private romSubpage = 0;
   private cpmBootstrapEnabled = false;
+  private ramExpansion512k = false;
+  private readonly baseRamBlocks: number;
 
   constructor(readonly model: MtxModel) {
-    const blocks = model === 'mtx500' ? 2 : 4;
-    this.ramBanks = Array.from({ length: blocks }, () => new Uint8Array(BLOCK_SIZE));
+    this.baseRamBlocks = model === 'mtx500' ? 2 : 4;
+    this.ramBanks = Array.from(
+      { length: this.baseRamBlocks },
+      () => new Uint8Array(BLOCK_SIZE),
+    );
   }
 
   get pageRegister(): number { return this.ioByte; }
@@ -31,9 +37,24 @@ export class MtxMemory implements IMachineMemory {
   get selectedRomSubpage(): number { return this.romSubpage; }
   get selectedRamPage(): number { return this.ioByte & 0x0F; }
   get ramMode(): boolean { return (this.ioByte & 0x80) !== 0; }
+  get ramExpansion512kEnabled(): boolean { return this.ramExpansion512k; }
+  get ramSizeBytes(): number { return this.ramBanks.length * BLOCK_SIZE; }
 
   setCpmBootstrapEnabled(enabled: boolean): void {
     this.cpmBootstrapEnabled = enabled;
+  }
+
+  set512kRamExpansionEnabled(enabled: boolean): void {
+    if (this.ramExpansion512k === enabled) return;
+    this.ramExpansion512k = enabled;
+    const blocks = this.baseRamBlocks + (enabled ? RAM_EXPANSION_BLOCKS : 0);
+    if (enabled) {
+      while (this.ramBanks.length < blocks) {
+        this.ramBanks.push(new Uint8Array(BLOCK_SIZE));
+      }
+    } else {
+      this.ramBanks.length = blocks;
+    }
   }
 
   setPageRegister(value: number): void {
@@ -127,6 +148,10 @@ export class MtxMemory implements IMachineMemory {
       block = page === 0 ? 3 - region : 1 + page * 3 + region;
     } else {
       const page = this.selectedRamPage;
+      // The MTX ROM's memory-sizing routine probes page 15. Real expanded
+      // systems leave 0x4000-0x7FFF open there so it stops at 512 KiB rather
+      // than counting the motherboard RAM a second time.
+      if (page === 0x0F && region === 1) return null;
       block = region === 2 ? 1 + page * 2 : 2 + page * 2;
     }
 

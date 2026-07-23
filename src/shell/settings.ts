@@ -49,6 +49,7 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'cpc-parados': () => settings.cpcParados(),
   'mtx-cpm': () => settings.mtxCpm(),
   'mtx-80-column': () => settings.mtx80Column(),
+  'mtx-512k-ram': () => settings.mtx512kRam(),
   'zx8x-16k-ram': () => settings.zx8x16kRam(),
   'zx81-udg-ram': () => settings.zx81UdgRam(),
   'zx81-udg128-ram': () => settings.zx81Udg128Ram(),

@@ -21,6 +21,25 @@ export function MtxHardwareSection() {
       <div class="multiface-row">
         <label
           class="mf-check"
+          title="Fit the 512 KiB SDX/FDX RAM expansion (576 KiB total on an MTX512)"
+        >
+          <input
+            type="checkbox"
+            checked={settings.mtx512kRam()}
+            onChange={(event) => {
+              const enabled = (event.target as HTMLInputElement).checked;
+              settings.setMtx512kRam(enabled);
+              settings.persistSetting('mtx-512k-ram', enabled ? 'on' : 'off');
+              activeMtx()?.set512kRamEnabled(enabled);
+              resetMachine();
+            }}
+          />
+          512 KiB RAM expansion
+        </label>
+      </div>
+      <div class="multiface-row">
+        <label
+          class="mf-check"
           title="Configure an MTX512 with the FDX 80-column display for CP/M"
         >
           <input

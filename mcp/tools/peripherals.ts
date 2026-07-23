@@ -228,6 +228,32 @@ export function register(server: McpServer): void {
   );
 
   server.registerTool(
+    'mtx512kram',
+    {
+      description: 'Enable, disable, or inspect the Memotech 512 KiB SDX/FDX RAM expansion.',
+      inputSchema: {
+        action: z.enum(['on', 'off', 'status']).describe('Action to perform'),
+      },
+    },
+    async ({ action }) => {
+      const mtx = activeMtx();
+      if (!mtx) return text('The 512 KiB RAM expansion is for the Memotech MTX.');
+      if (action === 'status') {
+        return text(
+          `512 KiB RAM expansion: ${mtx.memory.ramExpansion512kEnabled ? 'ON' : 'OFF'}  ` +
+          `total=${mtx.memory.ramSizeBytes / 1024} KiB  model=${mtx.model}`,
+        );
+      }
+      mtx.set512kRamEnabled(action === 'on');
+      mtx.reset();
+      return text(
+        `512 KiB RAM expansion ${action === 'on' ? 'enabled' : 'disabled'}; ` +
+        `${mtx.memory.ramSizeBytes / 1024} KiB total. Machine reset.`,
+      );
+    },
+  );
+
+  server.registerTool(
     'mtxcpm',
     {
       description: 'Enable, disable, or inspect the Memotech MTX512 CP/M hardware profile.',

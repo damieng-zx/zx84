@@ -64,6 +64,53 @@ describe('MTX memory', () => {
     expect(memory.readByte(0x8000)).toBe(0x10);
   });
 
+  it('adds 512 KiB of independently paged RAM to an MTX512', () => {
+    const memory = new MtxMemory('mtx512');
+    memory.set512kRamExpansionEnabled(true);
+
+    expect(memory.ramSizeBytes).toBe(576 * 1024);
+    expect(memory.ramBanks).toHaveLength(36);
+
+    memory.setPageRegister(0x8A);
+    memory.writeByte(0x0000, 0x31);
+    memory.writeByte(0x4000, 0x32);
+    memory.writeByte(0x8000, 0x33);
+    memory.writeByte(0xC000, 0xC0);
+
+    expect(memory.getRamBank(31)[0]).toBe(0x31);
+    expect(memory.getRamBank(32)[0]).toBe(0x32);
+    expect(memory.getRamBank(33)[0]).toBe(0x33);
+    expect(memory.getRamBank(0)[0]).toBe(0xC0);
+  });
+
+  it('leaves the firmware sizing hole on ROM-mode page 15', () => {
+    const memory = new MtxMemory('mtx512');
+    memory.set512kRamExpansionEnabled(true);
+    memory.setPageRegister(0x0F);
+
+    memory.writeByte(0x4000, 0x40);
+    memory.writeByte(0x8000, 0x80);
+
+    expect(memory.readByte(0x4000)).toBe(0xFF);
+    expect(memory.readByte(0x8000)).toBe(0x80);
+    expect(memory.getRamBank(31)[0]).toBe(0x80);
+    expect(memory.getRamBank(32)[0]).toBe(0);
+  });
+
+  it('removes expansion blocks while preserving motherboard RAM', () => {
+    const memory = new MtxMemory('mtx512');
+    memory.getRamBank(0)[0] = 0x64;
+    memory.set512kRamExpansionEnabled(true);
+    memory.getRamBank(4)[0] = 0xE5;
+
+    memory.set512kRamExpansionEnabled(false);
+
+    expect(memory.ramSizeBytes).toBe(64 * 1024);
+    expect(memory.ramBanks).toHaveLength(4);
+    expect(memory.getRamBank(0)[0]).toBe(0x64);
+    expect(memory.getRamBank(4)[0]).toBe(0);
+  });
+
   it('maps the optional fourth firmware image into FDX ROM page 5', () => {
     const memory = new MtxMemory('mtx512');
     const rom = new Uint8Array(0x8000);

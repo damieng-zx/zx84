@@ -113,6 +113,20 @@ describe('Memotech FDX 80-column rendering', () => {
     expect(m.column80.enabled).toBe(true);
   });
 
+  it('reads the persisted 512 KiB RAM expansion through the settings view', () => {
+    const m = machine();
+
+    m.applySettings({
+      get<T>(key: string, fallback: T): T {
+        return (key === 'mtx-512k-ram' ? true : fallback) as T;
+      },
+    });
+
+    expect(m.memory.ramExpansion512kEnabled).toBe(true);
+    expect(m.memory.ramSizeBytes).toBe(576 * 1024);
+    expect(m.ramExportBytes().filename).toBe('mtx512-ram-576k.bin');
+  });
+
   it('forces the 80-column display while the CP/M hardware profile is enabled', () => {
     const m = machine();
 

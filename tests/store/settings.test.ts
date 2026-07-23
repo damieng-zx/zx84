@@ -255,15 +255,17 @@ describe('settings — reset defaults vs initial defaults consistency', () => {
       vtx5000Enabled: s.vtx5000Enabled(),
       mtxCpm: s.mtxCpm(),
       mtx80Column: s.mtx80Column(),
+      mtx512kRam: s.mtx512kRam(),
     };
     s.setMultifaceEnabled(true); s.setVtx5000Enabled(true);
-    s.setMtxCpm(true); s.setMtx80Column(true);
+    s.setMtxCpm(true); s.setMtx80Column(true); s.setMtx512kRam(true);
     s.resetSettingsGroup('hardware');
     expect({
       multifaceEnabled: s.multifaceEnabled(),
       vtx5000Enabled: s.vtx5000Enabled(),
       mtxCpm: s.mtxCpm(),
       mtx80Column: s.mtx80Column(),
+      mtx512kRam: s.mtx512kRam(),
     }).toEqual(before);
   });
 
