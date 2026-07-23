@@ -74,4 +74,17 @@ describe('MTX memory', () => {
 
     expect(memory.readByte(0x2000)).toBe(0xD7);
   });
+
+  it('maps the five-image CP/M pack into bootstrap page 4 and FDX page 5', () => {
+    const memory = new MtxMemory('mtx512');
+    const rom = new Uint8Array(0xA000);
+    rom[0x6000] = 0xC4;
+    rom[0x8000] = 0xD5;
+
+    memory.loadRom(rom);
+    memory.setPageRegister(0x40);
+    expect(memory.readByte(0x2000)).toBe(0xC4);
+    memory.setPageRegister(0x50);
+    expect(memory.readByte(0x2000)).toBe(0xD5);
+  });
 });

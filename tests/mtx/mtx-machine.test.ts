@@ -19,6 +19,19 @@ describe('MTX machine registration', () => {
       expect(m.model).toBe(model);
     }
   });
+
+  it('declares the page-4 CP/M bootstrap before page-5 Disk BASIC', () => {
+    const entry = entryForModel('mtx512');
+
+    expect(entry.romSources('mtx512').map(source => source.split('/').pop())).toEqual([
+      'os.rom',
+      'basic.rom',
+      'assem.rom',
+      'boot-type07.rom',
+      'sdx-type07.rom',
+    ]);
+    expect(entry.detectModelForRom?.(new Uint8Array(0xA000), 'mtx512')).toBe('mtx512');
+  });
 });
 
 describe('MTX motherboard I/O', () => {

@@ -20,7 +20,7 @@ const MTX_UI: MachineUiCapabilities = {
   fixedJoystick: false,
   mouse: false,
   cartridge: false,
-  systemRomLabel: 'OS + BASIC + ASSEM + FDX ROMs',
+  systemRomLabel: 'OS + BASIC + ASSEM + CP/M + FDX ROMs',
   romPages: 0,
   beeper: false,
   statusLeds: ['kbd', 'load', 'dsk', 'psg'],
@@ -37,6 +37,7 @@ const MTX_UI: MachineUiCapabilities = {
     { value: 'rom-os', label: 'OS ROM' },
     { value: 'rom-basic', label: 'BASIC ROM' },
     { value: 'rom-assem', label: 'Assembler ROM' },
+    { value: 'rom-cpm', label: 'CP/M Bootstrap ROM' },
     { value: 'rom-fdx', label: 'FDX Disk BASIC ROM' },
   ],
   charset: 'spectrum',
@@ -71,18 +72,19 @@ export const mtxEntry: MachineEntry = {
   create(model: MachineModel, display: IScreenRenderer | null) {
     return new MtxMachine(model as MtxModel, display);
   },
-  // The first three physical 8K ROMs are the MTX motherboard firmware. The
-  // fourth is the public MEMU Type 07 FDX/SDX Disk BASIC ROM, mapped at page 5.
+  // The first three physical 8K ROMs are the MTX motherboard firmware. MEMU's
+  // public Type 07 bootstrap and Disk BASIC ROMs occupy pages 4 and 5.
   romSources() {
     return [
       'mtx/os.rom',
       'mtx/basic.rom',
       'mtx/assem.rom',
+      'https://raw.githubusercontent.com/Memotech-Bill/MEMU/main/run_time/roms/boot-type07.rom',
       'https://raw.githubusercontent.com/Memotech-Bill/MEMU/main/run_time/roms/sdx-type07.rom',
     ];
   },
   detectModelForRom(data: Uint8Array, current: MachineModel): MachineModel | null {
-    if (data.length !== 0x6000 && data.length !== 0x8000) return null;
+    if (data.length !== 0x6000 && data.length !== 0x8000 && data.length !== 0xA000) return null;
     return isMtxModel(current) ? current : 'mtx512';
   },
 };

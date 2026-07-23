@@ -104,7 +104,7 @@ export class MtxMachine extends BaseMachine implements Machine {
 
   loadROM(data: Uint8Array): void {
     this.memory.loadRom(data);
-    this.setStatus(`MTX firmware loaded (${Math.min(data.length, 0x8000)} bytes)`);
+    this.setStatus(`MTX firmware loaded (${Math.min(data.length, 0xA000)} bytes)`);
   }
 
   loadDisk(image: DskImage, unit = 0): void {
@@ -124,6 +124,7 @@ export class MtxMachine extends BaseMachine implements Machine {
     if (value === 'rom-os') return { data: this.memory.osRom, baseAddr: 0x0000 };
     if (value === 'rom-basic') return { data: this.memory.romPages[0], baseAddr: 0x2000 };
     if (value === 'rom-assem') return { data: this.memory.romPages[1], baseAddr: 0x2000 };
+    if (value === 'rom-cpm') return { data: this.memory.romPages[4], baseAddr: 0x2000 };
     if (value === 'rom-fdx') return { data: this.memory.romPages[5], baseAddr: 0x2000 };
     return null;
   }

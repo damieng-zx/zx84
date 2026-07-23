@@ -37,7 +37,10 @@ export class MtxMemory implements IMachineMemory {
 
   /**
    * Install firmware in physical order: 8K OS, 8K BASIC (page 0), 8K ASSEM
-   * (page 1), and optionally the 8K FDX/SDX Disk BASIC ROM (page 5).
+   * (page 1), 8K CP/M bootstrap (page 4), and 8K FDX/SDX Disk BASIC (page 5).
+   *
+   * Older 32K combined images pre-date the bootstrap slot and place Disk BASIC
+   * fourth. Keep accepting that layout so existing custom ROM packs still boot.
    */
   loadRom(data: Uint8Array): void {
     this.osRom.fill(0xFF);
@@ -45,7 +48,12 @@ export class MtxMemory implements IMachineMemory {
     this.osRom.set(data.subarray(0, ROM_SIZE));
     this.romPages[0].set(data.subarray(ROM_SIZE, ROM_SIZE * 2));
     this.romPages[1].set(data.subarray(ROM_SIZE * 2, ROM_SIZE * 3));
-    this.romPages[5].set(data.subarray(ROM_SIZE * 3, ROM_SIZE * 4));
+    if (data.length >= ROM_SIZE * 5) {
+      this.romPages[4].set(data.subarray(ROM_SIZE * 3, ROM_SIZE * 4));
+      this.romPages[5].set(data.subarray(ROM_SIZE * 4, ROM_SIZE * 5));
+    } else {
+      this.romPages[5].set(data.subarray(ROM_SIZE * 3, ROM_SIZE * 4));
+    }
   }
 
   readByte(addr: number): number {
