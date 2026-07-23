@@ -112,4 +112,26 @@ describe('Memotech FDX 80-column rendering', () => {
 
     expect(m.column80.enabled).toBe(true);
   });
+
+  it('forces the 80-column display while the CP/M hardware profile is enabled', () => {
+    const m = machine();
+
+    m.applySettings({
+      get<T>(key: string, fallback: T): T {
+        return (key === 'mtx-cpm' ? true : fallback) as T;
+      },
+    });
+
+    expect(m.cpmSystemEnabled).toBe(true);
+    expect(m.column80.enabled).toBe(true);
+
+    m.applySettings({
+      get<T>(_key: string, fallback: T): T {
+        return fallback;
+      },
+    });
+
+    expect(m.cpmSystemEnabled).toBe(false);
+    expect(m.column80.enabled).toBe(false);
+  });
 });

@@ -6,6 +6,7 @@
  */
 
 import { machine } from '@/shell/context.ts';
+import { resetMachine, switchModel } from '@/shell/lifecycle.ts';
 import * as settings from '@/store/settings.ts';
 import type { MtxMachine } from '../mtx-machine.ts';
 
@@ -15,14 +16,40 @@ function activeMtx(): MtxMachine | null {
 
 export function MtxHardwareSection() {
   return (
-    <div class="multiface-row">
-      <label
+    <>
+      <div class="multiface-row">
+        <label
+          class="mf-check"
+          title="Configure an MTX512 with the FDX 80-column display for CP/M"
+        >
+          <input
+            type="checkbox"
+            checked={settings.mtxCpm()}
+            onChange={(event) => {
+              const enabled = (event.target as HTMLInputElement).checked;
+              settings.setMtxCpm(enabled);
+              settings.persistSetting('mtx-cpm', enabled ? 'on' : 'off');
+              const mtx = activeMtx();
+              if (enabled && mtx?.model === 'mtx500') {
+                void switchModel('mtx512');
+                return;
+              }
+              mtx?.setCpmSystemEnabled(enabled);
+              resetMachine();
+            }}
+          />
+          CP/M system
+        </label>
+      </div>
+      <div class="multiface-row">
+        <label
         class="mf-check"
         title="Fit the FDX 6845-based 80×24 colour display and show its monitor"
       >
         <input
           type="checkbox"
-          checked={settings.mtx80Column()}
+          checked={settings.mtxCpm() || settings.mtx80Column()}
+          disabled={settings.mtxCpm()}
           onChange={(event) => {
             const enabled = (event.target as HTMLInputElement).checked;
             settings.setMtx80Column(enabled);
@@ -31,7 +58,8 @@ export function MtxHardwareSection() {
           }}
         />
         FDX 80-column display
-      </label>
-    </div>
+        </label>
+      </div>
+    </>
   );
 }

@@ -228,6 +228,32 @@ export function register(server: McpServer): void {
   );
 
   server.registerTool(
+    'mtxcpm',
+    {
+      description: 'Enable, disable, or inspect the Memotech MTX512 CP/M hardware profile.',
+      inputSchema: {
+        action: z.enum(['on', 'off', 'status']).describe('Action to perform'),
+      },
+    },
+    async ({ action }) => {
+      const mtx = activeMtx();
+      if (!mtx) return text('The CP/M hardware profile is for the Memotech MTX.');
+      if (action === 'status') {
+        return text(
+          `MTX CP/M system: ${mtx.cpmSystemEnabled ? 'ON' : 'OFF'}  ` +
+          `model=${mtx.model}  80-column=${mtx.column80.enabled ? 'ON' : 'OFF'}`,
+        );
+      }
+      if (action === 'on' && mtx.model !== 'mtx512') {
+        return text('MTX CP/M requires the MTX512. Use the model tool to switch first.');
+      }
+      mtx.setCpmSystemEnabled(action === 'on');
+      mtx.reset();
+      return text(`MTX CP/M system ${action === 'on' ? 'enabled' : 'disabled'}. Machine reset.`);
+    },
+  );
+
+  server.registerTool(
     'ocr',
     { description: 'Read text from the active display. ZX80/ZX81 decode their 32x24 display file; bitmap machines use OCR. mode: auto (default) | 32x24 | 51x24 (CP/M Plus) | 64x24 (Tasword).', inputSchema: { mode: z.enum(['auto', '32x24', '51x24', '64x24']).optional().describe('Cell grid (default: auto-detect).') } },
     async ({ mode }) => text(state.spec.services.debug.ocr(mode ?? 'auto')),

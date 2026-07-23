@@ -68,10 +68,12 @@ export class MtxMachine extends BaseMachine implements Machine {
   /** Logical `.mtx` stream served through the ROM tape routine. */
   readonly cassette = new MtxCassette();
   readonly activity = { kbdReads: 0, psgWrites: 0, casReads: 0, fdcAccesses: 0 };
+  cpmSystemEnabled = false;
 
   private readonly vdpPixels = new Uint8Array(MTX_SCREEN_WIDTH * MTX_SCREEN_HEIGHT * 4);
   private readonly vdpPixels32 = new Uint32Array(this.vdpPixels.buffer);
   private borderMode: BorderMode = 1;
+  private column80Requested = false;
   get pixels(): Uint8Array {
     return this.column80.enabled ? this.column80.pixels : this.vdpPixels;
   }
@@ -133,13 +135,15 @@ export class MtxMachine extends BaseMachine implements Machine {
     this.vdp.palette =
       MSX_PALETTES[view.get('msx-color-map', 'pal') as keyof typeof MSX_PALETTES];
     this.audio.setVolume(view.get('volume', 70) / 100);
-    this.set80ColumnEnabled(view.get('mtx-80-column', false));
+    this.column80Requested = view.get('mtx-80-column', false);
+    this.setCpmSystemEnabled(view.get('mtx-cpm', false));
   }
 
   prepare(view: SettingsView): [] {
     this.fdc.writeProtect[0] = view.get('write-protect-a', false);
     this.fdc.writeProtect[1] = view.get('write-protect-b', false);
-    this.set80ColumnEnabled(view.get('mtx-80-column', false));
+    this.column80Requested = view.get('mtx-80-column', false);
+    this.setCpmSystemEnabled(view.get('mtx-cpm', false));
     return [];
   }
 
@@ -168,6 +172,12 @@ export class MtxMachine extends BaseMachine implements Machine {
     if (enabled) this.column80.renderFrame();
     this.needsDisplay = true;
     this.setStatus(`80-column display ${enabled ? 'enabled' : 'disabled'}`);
+  }
+
+  setCpmSystemEnabled(enabled: boolean): void {
+    this.cpmSystemEnabled = enabled;
+    this.set80ColumnEnabled(enabled || this.column80Requested);
+    this.setStatus(`CP/M system ${enabled ? 'enabled' : 'disabled'}`);
   }
 
   reset(): void {

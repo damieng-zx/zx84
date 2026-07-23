@@ -93,6 +93,7 @@ const DEFAULTS = {
   'interface1':     'off',
   'betadisk':       'off',
   'einstein-xtaldos': 'on',
+  'mtx-cpm':        'off',
   'mtx-80-column':  'off',
   'zx8x-16k-ram':  'off',
   'zx81-udg-ram':  'off',
@@ -399,6 +400,10 @@ const _einsteinXtalDos = /*@once*/ createRoot(() => createSignal(getSaved('einst
 export const einsteinXtalDos = _einsteinXtalDos[0];
 export const setEinsteinXtalDos = _einsteinXtalDos[1];
 
+const _mtxCpm = /*@once*/ createRoot(() => createSignal(getSaved('mtx-cpm', D('mtx-cpm')) === 'on'));
+export const mtxCpm = _mtxCpm[0];
+export const setMtxCpm = _mtxCpm[1];
+
 const _mtx80Column = /*@once*/ createRoot(() => createSignal(getSaved('mtx-80-column', D('mtx-80-column')) === 'on'));
 export const mtx80Column = _mtx80Column[0];
 export const setMtx80Column = _mtx80Column[1];
@@ -544,6 +549,7 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'betadisk',       set: setBetaDiskEnabled,  type: 'bool' },
     { key: 'interface1',     set: setInterface1Enabled, type: 'bool' },
     { key: 'einstein-xtaldos', set: setEinsteinXtalDos, type: 'bool' },
+    { key: 'mtx-cpm', set: setMtxCpm, type: 'bool' },
     { key: 'mtx-80-column', set: setMtx80Column, type: 'bool' },
     { key: 'zx8x-16k-ram', set: setZx8x16kRam, type: 'bool' },
     { key: 'zx81-udg-ram', set: setZx81UdgRam, type: 'bool' },

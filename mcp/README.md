@@ -157,6 +157,7 @@ These use the active +3 or CPC uPD765A where fitted.
 | Tool | Parameters | Description |
 | --- | --- | --- |
 | `mtx80column` | `action`: `on`, `off`, `status` | Control the FDX 6845-based 80-column display and select it as the active monitor. |
+| `mtxcpm` | `action`: `on`, `off`, `status` | Configure the MTX512 CP/M hardware profile and reset the machine. |
 
 ## Address Values
 
