@@ -235,7 +235,7 @@ export class CpcMachine extends BaseMachine implements Machine {
    *  live enable toggle (setCpcMultiface). */
   multifaceAuxRom(awaitLoad: boolean): AuxRomRequest {
     return {
-      cacheKey: 'cpc-mf2-rom', source: 'cpc-multiface2.rom',
+      cacheKey: 'cpc-mf2-rom', source: 'cpc/multiface-2.rom',
       fetchingMsg: 'Fetching Multiface Two ROM…',
       loadedMsg: (n) => `Multiface Two ROM loaded (${n} bytes)`,
       failMsg: 'Failed to load Multiface Two ROM', failId: 'multiface',
@@ -261,7 +261,7 @@ export class CpcMachine extends BaseMachine implements Machine {
   bootRoms(view: SettingsView): AuxRomRequest[] {
     if (!this.config.hasFDC || !view.get('cpc-parados', false)) return [];
     return [{
-      cacheKey: 'cpc-parados-rom', source: 'parados.rom',
+      cacheKey: 'cpc-parados-rom', source: 'cpc/parados.rom',
       fetchingMsg: 'Fetching ParaDOS ROM…',
       loadedMsg: (n) => `ParaDOS ROM loaded (${n} bytes)`,
       failMsg: 'Failed to load ParaDOS ROM', failId: 'parados',

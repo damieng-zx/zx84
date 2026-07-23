@@ -80,29 +80,20 @@ function cpcUi(model: MachineModel): MachineUiCapabilities {
 // three-ROM split. A user-loaded game .CPR later replaces it via the cartridge
 // slot.
 //
-// The Plus cartridge lives in a `cpc/` subfolder on the ROM host. A source
-// containing '/' is treated by resolveRomSource() as an already-resolved
-// location (not prefixed with ROM_BASE), so it must be given fully qualified;
-// this descriptor is in the machine layer and may not import ROM_BASE from the
-// managers layer. Keep the host in sync with rom-manager's ROM_BASE.
-//
 // NOTE: do NOT wire `cpc-plus.rom` here — that image is page 0 of this cartridge
 // (the Plus OS *lower* ROM, header 01 89 7F …), NOT an AMSDOS background ROM.
 // Loading it at the upper-ROM slot hangs the firmware's boot-time ROM scan,
 // leaving the machine stuck before the BASIC "Ready" prompt.
-const PLUS_SYSTEM_CPR = 'https://zx84files.bitsparse.com/roms/cpc/plus-system.cpr';
+const PLUS_SYSTEM_CPR = 'cpc/plus-system.cpr';
 const ROM_SOURCES: Record<CpcModel, string[]> = {
-  cpc6128:     ['os6128.rom', 'basic1-1.rom', 'amsdos.rom'],
-  cpc664:      ['os664.rom', 'basic664.rom', 'amsdos.rom'],
-  cpc464:      ['os464.rom', 'basic1-0.rom'],
-  // The Plus range has no on-board system ROM — it boots from a cartridge. When
-  // no user cartridge is mounted the shell (and the MCP) hidden-mount
-  // PLUS_SYSTEM_CPR into the cartridge slot; see `applyPlusSystemCartridge`.
+  cpc6128:     ['cpc/os-6128.rom', 'cpc/basic-1-1-6128.rom', 'cpc/amsdos.rom'],
+  cpc664:      ['cpc/os-664.rom', 'cpc/basic-1-1-664.rom', 'cpc/amsdos.rom'],
+  cpc464:      ['cpc/os-464.rom', 'cpc/basic-1-0.rom'],
   cpc6128plus: [],
   gx4000:      [],
 };
 
-/** Fully-qualified URL of the default Plus firmware cartridge (v4 OS + BASIC +
+/** ROM-host-relative path of the default Plus firmware cartridge (v4 OS + BASIC +
  *  AMSDOS on pages 0–3, Burnin' Rubber on 4–7). Hidden-mounted when the Plus
  *  cartridge slot is empty. */
 export const PLUS_SYSTEM_CARTRIDGE = PLUS_SYSTEM_CPR;

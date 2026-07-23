@@ -15,10 +15,12 @@ import { entryForModel } from '@/machines/registry.ts';
 
 export const ROM_BASE = 'https://zx84files.bitsparse.com/roms/';
 
-/** Resolve a bare ROM filename against the default host without changing an
- * explicit URL or a path supplied by a machine definition. */
+/** Resolve a ROM source against the default host. Bare filenames and relative
+ *  paths (containing / but not ://) are prefixed with ROM_BASE; fully-qualified
+ *  URLs are returned unchanged. */
 export function resolveRomSource(source: string): string {
-  return source.includes('/') ? source : `${ROM_BASE}${source}`;
+  if (source.includes('://')) return source;
+  return `${ROM_BASE}${source}`;
 }
 
 export interface ROMEntry {
@@ -155,7 +157,7 @@ export class ROMManager {
       if (cached) { this.einsteinXtalDosDisk = cached; return cached; }
     } catch { /* fall through to network */ }
     try {
-      const resp = await fetch(resolveRomSource('einstein-xtaldos.dsk'));
+      const resp = await fetch(resolveRomSource('einstein/xtaldos.dsk'));
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const data = new Uint8Array(await resp.arrayBuffer());
       this.einsteinXtalDosDisk = data;
