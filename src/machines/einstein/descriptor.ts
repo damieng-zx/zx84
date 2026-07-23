@@ -15,10 +15,14 @@ import {
 } from './constants.ts';
 
 const EINSTEIN_UI: MachineUiCapabilities = {
-  hiddenPanes: [],
+  // The Einstein is disk-only: it has no cassette transport (the deck is inert,
+  // no tape service, no tape port I/O — see services/index.ts + frame-probe.ts),
+  // so the tape pane is hidden and no tape media is advertised.
+  hiddenPanes: ['tape-panel'],
   memoryLayout: false,
   trace: true,
   colorMap: 'einstein',
+  accuracy: false,
   builtinDisk: true,
   joystick: false,
   fixedJoystick: false,
@@ -29,9 +33,8 @@ const EINSTEIN_UI: MachineUiCapabilities = {
   beeper: true,
   statusLeds: ['kbd', 'ay', 'dsk', 'text'],
   keyboardBus: 'ula',
-  tape: 'deck',
-  tapeSound: true,
-  tapeExtensions: ['.tap', '.tzx', '.csw', '.zip'],
+  tapeSound: false,
+  tapeExtensions: [],
   saveMenu: 'vdp',
   zipPolicy: 'media',
   persistMedia: false,
@@ -69,7 +72,7 @@ export function einsteinDescriptor(model: MachineModel, locale: MachineLocale = 
 
 export const einsteinEntry: MachineEntry = {
   kind: 'einstein',
-  models: ['einstein', 'einstein-256'],
+  models: ['einstein-tc01', 'einstein-256'],
   descriptor: einsteinDescriptor,
   create(model: MachineModel, display: IScreenRenderer | null) {
     return new EinsteinMachine(model as EinsteinModel, display);
@@ -82,7 +85,7 @@ export const einsteinEntry: MachineEntry = {
   detectModelForRom(data: Uint8Array, current: MachineModel): MachineModel | null {
     if (!isEinsteinModel(current)) return null;
     if (data.length === 0x4000) return 'einstein-256';
-    if (data.length === 0x2000) return 'einstein';
+    if (data.length === 0x2000) return 'einstein-tc01';
     return null;
   },
 };

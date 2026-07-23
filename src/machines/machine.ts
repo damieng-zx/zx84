@@ -210,6 +210,8 @@ export interface MachineUiCapabilities {
   readonly trace: boolean;
   /** Palette / colour-map family shown in the Display pane. */
   readonly colorMap: 'spectrum' | 'cpc' | 'msx' | 'einstein' | 'mono';
+  /** Whether the Accuracy drop-down applies (per-t-state scanline rendering). */
+  readonly accuracy: boolean;
   /** Built-in floppy drives (A:/B:) are fitted. */
   readonly builtinDisk: boolean;
   /** Joystick pane applies. */

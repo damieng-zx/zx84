@@ -32,6 +32,7 @@ import { createEinsteinServices, type EinsteinServices } from '@/machines/einste
 import type { EinsteinModel } from '@/models.ts';
 import type { OcrGridName, OcrResult } from '@/ocr/ocr.ts';
 import { EinsteinScreenText } from '@/ocr/einstein.ts';
+import { EinsteinV9938ScreenText } from '@/ocr/einstein256.ts';
 import { EinsteinMemory } from '@/machines/einstein/einstein-memory.ts';
 import { EinsteinKeyboard } from '@/machines/einstein/einstein-keyboard.ts';
 import { installEinsteinMemoryHooks, wireEinsteinPortIO } from '@/machines/einstein/einstein-io.ts';
@@ -80,9 +81,10 @@ export class EinsteinMachine extends BaseMachine implements Machine {
   readonly activity = { kbdReads: 0, fdcAccesses: 0, tapeReads: 0, ayWrites: 0 };
   bootDiskEnabled = true;
 
-  /** Screen-text OCR engine for the MCP `ocr` tool (TC-01 only for now —
-   *  the 256's V9938 modes need their own engine). */
-  readonly screenText = new EinsteinScreenText();
+  /** Screen-text OCR engine for the MCP `ocr` tool and the TEXT overlay. The
+   *  TC-01's TMS9929A and the 256's V9938 draw the same MOS font but with
+   *  different addressing, so each gets its own engine (chosen in the ctor). */
+  readonly screenText: EinsteinScreenText | EinsteinV9938ScreenText;
 
   /** Per-model output geometry (TC-01 320×240, 256 576×240). */
   private readonly _screenW: number;
@@ -101,6 +103,9 @@ export class EinsteinMachine extends BaseMachine implements Machine {
     super();
     this.model = model;
     this.config = createEinsteinConfig(model);
+    this.screenText = this.config.vdp === 'v9938'
+      ? new EinsteinV9938ScreenText()
+      : new EinsteinScreenText();
     this.cpu = new Z80();
     this.memory = new EinsteinMemory({
       romSize: this.config.romSizeKB * 1024,
@@ -348,29 +353,54 @@ export class EinsteinMachine extends BaseMachine implements Machine {
   stopTrace(): string { return ''; }
 
   ocrScreenForMcp(_mode: OcrGridName | 'auto' = 'auto'): string {
-    // V9938 screen OCR is a follow-up; degrade on the 256.
-    if (!(this.vdp instanceof Tms9918a)) return '';
     // Recover the screen text from the VDP by matching each cell against the MOS
     // ROM font (the grid is fixed by the VDP mode, so `mode` is advisory).
-    return this.screenText.ocr(this.vdp.vram, this.vdp.regs, this.vdp.mode(), this.memory.getRom());
+    const rom = this.memory.getRom();
+    if (this.vdp instanceof V9938) {
+      return (this.screenText as EinsteinV9938ScreenText).ocr(this.vdp.vram, this.vdp.regs, this.vdp.mode(), rom);
+    }
+    return (this.screenText as EinsteinScreenText).ocr(this.vdp.vram, this.vdp.regs, this.vdp.mode(), rom);
   }
 
   /** Styled OCR (text + coloured HTML + match mask) for the TEXT overlay. */
   ocrScreenStyled(): OcrResult {
-    if (!(this.vdp instanceof Tms9918a)) {
-      return { text: '', html: '', mask: [], grid: '42x24', cellWidth: 6, cellHeight: 8, cols: 0, rows: 0 };
+    const rom = this.memory.getRom();
+    if (this.vdp instanceof V9938) {
+      return (this.screenText as EinsteinV9938ScreenText).ocrStyled(this.vdp.vram, this.vdp.regs, this.vdp.mode(), rom, this.vdp.pens);
     }
-    return this.screenText.ocrStyled(this.vdp.vram, this.vdp.regs, this.vdp.mode(), this.memory.getRom(), this.vdp.palette);
+    return (this.screenText as EinsteinScreenText).ocrStyled(this.vdp.vram, this.vdp.regs, this.vdp.mode(), rom, this.vdp.palette);
   }
 
   /**
    * Blank the matched character cells in the framebuffer to their paper colour
    * so the crisp overlay glyphs replace the underlying bitmap. `mask` is
-   * row-major `cols×rows`; cells are 6×8 at the active-area origin.
+   * row-major `cols×rows`. On the TC-01 cells are 6×8 at the active-area origin;
+   * on the 256 the GRAPHIC 2 field is pixel-doubled to 512 and vertically
+   * centred, so each source cell spans 12×8 screen pixels.
    */
   blankCells(mask: boolean[], cols: number, rows: number, paper?: number[]): void {
-    if (!(this.vdp instanceof Tms9918a)) return;   // TC-01 only (see ocrScreenStyled)
-    const cellW = 6, cellH = 8;
+    const cellH = 8;
+    if (this.vdp instanceof V9938) {
+      const pens = this.vdp.pens;
+      const cellW = 12;   // 6 source px doubled
+      const yTop = this._borderT + ((212 - this.vdp.visibleHeight) >> 1);
+      for (let row = 0; row < rows; row++) {
+        const y0 = yTop + row * cellH;
+        if (y0 + cellH > this._screenH) break;
+        for (let col = 0; col < cols; col++) {
+          if (!mask[row * cols + col]) continue;
+          const x0 = this._borderL + col * cellW;
+          if (x0 + cellW > this._screenW) continue;
+          const fill = pens[(paper ? paper[row * cols + col] : 0) & 0x0F];
+          for (let y = 0; y < cellH; y++) {
+            const base = (y0 + y) * this._screenW + x0;
+            this._pixels32.fill(fill, base, base + cellW);
+          }
+        }
+      }
+      return;
+    }
+    const cellW = 6;
     const pal = this.vdp.palette;
     for (let row = 0; row < rows; row++) {
       const y0 = this._borderT + row * cellH;
