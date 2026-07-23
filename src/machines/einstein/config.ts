@@ -35,7 +35,7 @@ export interface EinsteinConfig {
 }
 
 const TC01: EinsteinConfig = {
-  model: 'einstein',
+  model: 'einstein-tc01',
   ramKB: 64,
   ramBanks: 4,
   hasFDC: true,
@@ -65,7 +65,7 @@ const TCS256: EinsteinConfig = {
 /** Build the config for an Einstein model. */
 export function createEinsteinConfig(model: EinsteinModel): EinsteinConfig {
   switch (model) {
-    case 'einstein':
+    case 'einstein-tc01':
       return TC01;
     case 'einstein-256':
       return TCS256;

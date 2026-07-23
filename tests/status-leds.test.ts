@@ -69,7 +69,7 @@ describe('status-bar LED declarations', () => {
   it('MSX shows PSG + cassette, Einstein shows PSG + disk', () => {
     expect(leds('hx-10')).toEqual(expect.arrayContaining(['ay', 'load']));
     expect(leds('hx-10')).not.toContain('dsk');
-    expect(leds('einstein')).toEqual(expect.arrayContaining(['ay', 'dsk']));
-    expect(leds('einstein')).not.toContain('load');
+    expect(leds('einstein-tc01')).toEqual(expect.arrayContaining(['ay', 'dsk']));
+    expect(leds('einstein-tc01')).not.toContain('load');
   });
 });

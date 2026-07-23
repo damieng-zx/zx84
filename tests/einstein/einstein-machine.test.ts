@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { EinsteinMachine } from '@/machines/einstein/einstein-machine.ts';
 
 function machine(): EinsteinMachine {
-  const m = new EinsteinMachine('einstein', null);
+  const m = new EinsteinMachine('einstein-tc01', null);
   m.turbo = true; // skip the audio path in headless runFrame
   return m;
 }
