@@ -120,6 +120,28 @@ Tests must be written critically against a known-correct specification, not as a
 - **One clear failure message.** Each test should have a single, obvious reason to fail so the diagnostic points directly to the broken behaviour.
 - **Tests that can never fail are useless.** If an assertion can only fail when you've already broken the test itself, delete it.
 
+## Branching and releases
+
+- **`main` is the integration branch.** All PRs branch from and merge into `main`.
+  There is no long-lived `dev` branch. Merges to `main` do **not** deploy — see
+  [`RELEASING.md`](./RELEASING.md); production is cut by pushing a `vX.Y.Z` tag.
+- **Starting new work: sync `main`, then create a sibling worktree from its tip.**
+  First bring `main` up to date (`git fetch origin && git checkout main && git pull`),
+  then create a new sibling worktree branched off the freshly-synced tip
+  (`git worktree add ../<branch> -b <branch> main`). Never edit or commit in the
+  shared working tree, and never base work off `dev`.
+- **Branch naming** mirrors the Conventional Commit types (`feat:`, `fix:`, …).
+  `<name>` is short kebab-case (e.g. `feature/tape-fast-load`, `fix/gx4000-palette`):
+
+  | Prefix | Use for |
+  | --- | --- |
+  | `feature/<name>` | New features |
+  | `fix/<name>` | Bug fixes |
+  | `chore/<name>` | Maintenance: deps, tooling, build, config |
+  | `docs/<name>` | Documentation only |
+  | `refactor/<name>` | Internal restructuring, no behaviour change |
+  | `perf/<name>` | Performance work |
+
 ## Workflow rules
 
 - **No `cd` in commands.** Don't prefix commands with `cd /path &&`. It breaks the permission model. Qualify file paths on the command itself (e.g. `npx tsc --noEmit` run from the project root).
