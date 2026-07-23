@@ -18,7 +18,7 @@ import {
 import type { MachineModel } from '@/models.ts';
 
 const CPC: ReadonlyArray<MachineModel> = ['cpc464', 'cpc664', 'cpc6128', 'cpc6128plus', 'gx4000'];
-const NON_CPC: ReadonlyArray<MachineModel> = ['48k', '128k', '+2', '+2A', '+3', '16k', 'einstein', 'hx-10'];
+const NON_CPC: ReadonlyArray<MachineModel> = ['48k', '128k', '+2', '+2A', '+3', '16k', 'einstein-tc01', 'hx-10'];
 
 describe('isCpcModel', () => {
   it('returns true for every CPC family model', () => {

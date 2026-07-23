@@ -119,9 +119,9 @@ describe('Einstein 256 system status port 0x26', () => {
 
 describe('Einstein 256 registry entry', () => {
   it('classifies a dropped ROM by size, only while an Einstein is active', () => {
-    expect(einsteinEntry.detectModelForRom?.(new Uint8Array(0x4000), 'einstein')).toBe('einstein-256');
-    expect(einsteinEntry.detectModelForRom?.(new Uint8Array(0x2000), 'einstein-256')).toBe('einstein');
-    expect(einsteinEntry.detectModelForRom?.(new Uint8Array(0x1000), 'einstein')).toBeNull();
+    expect(einsteinEntry.detectModelForRom?.(new Uint8Array(0x4000), 'einstein-tc01')).toBe('einstein-256');
+    expect(einsteinEntry.detectModelForRom?.(new Uint8Array(0x2000), 'einstein-256')).toBe('einstein-tc01');
+    expect(einsteinEntry.detectModelForRom?.(new Uint8Array(0x1000), 'einstein-tc01')).toBeNull();
     // 8/16KB collide with Spectrum ROMs — don't steal them from other machines.
     expect(einsteinEntry.detectModelForRom?.(new Uint8Array(0x4000), '48k')).toBeNull();
     expect(einsteinEntry.detectModelForRom?.(new Uint8Array(0x2000), 'hx-10')).toBeNull();

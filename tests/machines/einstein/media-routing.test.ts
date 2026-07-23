@@ -15,7 +15,7 @@ const dskBytes = () => serializeDSK(blankMgtDisk(40, 1));
 const hfeBytes = () => serializeHFE(attachHfeBitstream(blankMgtDisk(80, 2)));
 
 function machine(): EinsteinMachine {
-  const e = new EinsteinMachine('einstein', null);
+  const e = new EinsteinMachine('einstein-tc01', null);
   e.start = async () => {};   // headless: no AudioContext / rAF
   return e;
 }

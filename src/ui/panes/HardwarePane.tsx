@@ -32,8 +32,8 @@ const MODEL_LABELS: Record<MachineModel, string> = {
   cpc6128: 'CPC 6128',
   cpc6128plus: 'CPC 6128 Plus',
   gx4000: 'GX4000',
-  einstein: 'Einstein TC-01',
-  'einstein-256': 'Einstein TC-01 256',
+  'einstein-tc01': 'Einstein TC-01',
+  'einstein-256': 'Einstein 256',
   'hx-10': 'Toshiba HX-10',
 };
 
@@ -102,7 +102,8 @@ const MODEL_MENU: MenuItem[] = [
     value: 'tatung',
     label: 'Tatung',
     children: [
-      modelEntry('einstein'),
+      modelEntry('einstein-tc01'),
+      modelEntry('einstein-256'),
     ],
   },
   {

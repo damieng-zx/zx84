@@ -15,7 +15,7 @@ import type { MachineLocale } from '@/machines/machine.ts';
 const KNOWN_MODELS: readonly MachineModel[] = [
   '16k', '48k', '128k', '+2', '+2A', '+3',
   'cpc6128', 'cpc464', 'cpc664', 'cpc6128plus', 'gx4000',
-  'einstein', 'einstein-256',
+  'einstein-tc01', 'einstein-256',
   'hx-10',
   'zx80', 'zx81',
 ];
@@ -24,8 +24,9 @@ function loadSavedModel(): MachineModel | null {
   try {
     const raw = localStorage.getItem('zx84-model');
     if (raw === null) return null;
-    // Legacy: pre-2026-05 builds stored '+2a' lower-case. Migrate transparently.
-    const val = raw === '+2a' ? '+2A' : raw;
+    // Legacy migrations: pre-2026-05 builds stored '+2a' lower-case, and the
+    // Einstein TC-01 was 'einstein' before it was renamed 'einstein-tc01'.
+    const val = raw === '+2a' ? '+2A' : raw === 'einstein' ? 'einstein-tc01' : raw;
     if ((KNOWN_MODELS as readonly string[]).includes(val)) {
       if (val !== raw) {
         try { localStorage.setItem('zx84-model', val); } catch { /* */ }
