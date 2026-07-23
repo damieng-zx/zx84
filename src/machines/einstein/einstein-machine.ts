@@ -78,6 +78,7 @@ export class EinsteinMachine extends BaseMachine implements Machine {
 
   /** Per-frame I/O activity for the status-bar LEDs. */
   readonly activity = { kbdReads: 0, fdcAccesses: 0, tapeReads: 0, ayWrites: 0 };
+  bootDiskEnabled = true;
 
   /** Screen-text OCR engine for the MCP `ocr` tool (TC-01 only for now —
    *  the 256's V9938 modes need their own engine). */
@@ -175,10 +176,12 @@ export class EinsteinMachine extends BaseMachine implements Machine {
     }
     this.audio.setVolume(view.get('volume', 70) / 100);
     applyAySettings(this.ay, view);
+    this.bootDiskEnabled = view.get('einstein-xtaldos', true);
   }
 
   /** Built-in WD1772 drive settings — once per build (no peripheral ROMs). */
   prepare(view: SettingsView): [] {
+    this.bootDiskEnabled = view.get('einstein-xtaldos', true);
     if (this.config.hasFDC) {
       this.fdc.writeProtect[0] = view.get('write-protect-a', false);
       this.fdc.writeProtect[1] = view.get('write-protect-b', false);

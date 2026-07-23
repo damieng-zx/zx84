@@ -26,6 +26,7 @@ ZX84 is an old-computer emulator with machine-specific hardware models, browser-
 - CPC cassette support, disk-capable 664/6128 models, Multiface Two, and optional ParaDOS ROM.
 - Einstein disk mounting and optional Xtal DOS boot-disk behavior.
 - HX-10 cartridge loading and BIOS-level `.cas` cassette loading.
+- MTX CP/M 2.2 boot through the real FDX hardware using MEMU's public Type 07 system disk.
 - MTX logical cassette loading, FDX/SDX Type 07 floppy mounting, and optional 80×24 colour display.
 
 Spectrum ROM-overlay peripherals are model-dependent. Interface 1, MGT +D, and Beta Disk are mutually exclusive; Beta Disk takes precedence when enabled.

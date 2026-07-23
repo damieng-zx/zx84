@@ -31,7 +31,7 @@ const MTX_UI: MachineUiCapabilities = {
   saveMenu: 'vdp',
   zipPolicy: 'media',
   persistMedia: false,
-  bootDisk: false,
+  bootDisk: true,
   library: false,
   memoryRegions: [
     { value: 'rom-os', label: 'OS ROM' },

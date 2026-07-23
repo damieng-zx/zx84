@@ -7,6 +7,7 @@
 
 import { machine } from '@/shell/context.ts';
 import { resetMachine, switchModel } from '@/shell/lifecycle.ts';
+import { applyBootDisk } from '@/shell/media.ts';
 import * as settings from '@/store/settings.ts';
 import type { MtxMachine } from '../mtx-machine.ts';
 
@@ -35,7 +36,7 @@ export function MtxHardwareSection() {
                 return;
               }
               mtx?.setCpmSystemEnabled(enabled);
-              resetMachine();
+              void applyBootDisk().then(resetMachine);
             }}
           />
           CP/M system

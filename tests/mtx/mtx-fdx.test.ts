@@ -71,4 +71,28 @@ describe('Memotech FDX/SDX disk expansion', () => {
 
     expect(result).toMatchObject({ ok: true, target: 'a' });
   });
+
+  it('declares and decodes the public Type 07 CP/M system disk only for the CP/M profile', () => {
+    const m = machine();
+    expect(m.services.disks.bootDisk).toBeNull();
+
+    m.setCpmSystemEnabled(true);
+    const request = m.services.disks.bootDisk;
+    expect(request?.source).toBe(
+      'https://raw.githubusercontent.com/Memotech-Bill/MEMU/main/run_time/disks/andy_sys.mfloppy',
+    );
+    expect(request?.cacheKey).toBe('disk-mtx-cpm-type07');
+
+    const raw = new Uint8Array(MTX_TYPE07_SIZE);
+    raw[0] = 0xA5;
+    m.services.disks.insert('a', request!.parse(raw), '');
+
+    expect(m.services.disks.drives[0]).toMatchObject({
+      id: 'a',
+      label: 'Drive B:',
+      loaded: true,
+      mediaName: '',
+    });
+    expect(m.fdc.getDiskImage(0)?.tracks[0][0]?.sectors[0].data[0]).toBe(0xA5);
+  });
 });

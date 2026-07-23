@@ -187,8 +187,8 @@ async function reflectMount(
     const u = target === 'a' ? 0 : 1;
     const image = m.services.disks?.image?.(target) ?? null;
     if (u === 0) {
-      // A real disk in drive 0 supersedes the Einstein's phantom Xtal DOS disk.
-      einsteinXtalDosPhantom = false;
+      // A real disk in drive 0 supersedes any hidden default boot disk.
+      bootDiskPhantom = false;
       setCurrentDiskInfo(image); setCurrentDiskName(filename);
     } else {
       setCurrentDiskInfoB(image); setCurrentDiskNameB(filename);
@@ -441,10 +441,10 @@ export function ejectDisk(unit: number = 0): void {
     setDiskSideB(0);
   }
   setStatus(`Disk ${unit === 0 ? 'A' : 'B'}: ejected`);
-  // Ejecting a real disk from drive 0 may re-expose the phantom boot disk.
+  // Ejecting a real disk from drive 0 may re-expose the hidden boot disk.
   if (unit === 0 && machine.descriptor.ui.bootDisk) {
-    einsteinXtalDosPhantom = false;
-    applyEinsteinXtalDosDisk();
+    bootDiskPhantom = false;
+    void applyBootDisk();
   }
 }
 
@@ -453,7 +453,7 @@ export function insertBlankDisk(image: DskImage, name: string, unit: number): vo
   if (!machine || !disks) return;
   disks.insert(unit === 0 ? 'a' : 'b', image, name);
   if (unit === 0) {
-    einsteinXtalDosPhantom = false;   // a real disk now occupies drive 0
+    bootDiskPhantom = false;   // a real disk now occupies drive 0
     setCurrentDiskInfo(image);
     setCurrentDiskName(name);
   } else {
@@ -462,33 +462,40 @@ export function insertBlankDisk(image: DskImage, name: string, unit: number): vo
   }
 }
 
-// ── Phantom auto-boot disk (Einstein "Xtal DOS" hardware option) ───────────
+// ── Hidden default boot disk ──────────────────────────────────────────────
 
-let einsteinXtalDosImage: DskImage | null = null;
-let einsteinXtalDosPhantom = false;
+let bootDiskPhantom = false;
 
 /** Reset the phantom flag (a fresh FDC on the new machine). Called by lifecycle
  *  on every machine (re)build. */
-export function resetEinsteinPhantom(): void { einsteinXtalDosPhantom = false; }
+export function resetBootDiskPhantom(): void { bootDiskPhantom = false; }
 
-/** Reconcile the phantom boot disk with the current option + drive-0 state. */
-export async function applyEinsteinXtalDosDisk(): Promise<void> {
+/** Reconcile the machine-declared boot disk with its profile and drive 0. */
+export async function applyBootDisk(): Promise<void> {
   const m = machine;
-  if (!m || !m.descriptor.ui.bootDisk) { einsteinXtalDosPhantom = false; return; }
-  const want = settings.einsteinXtalDos() && currentDiskName() === '';
-  if (want && !einsteinXtalDosPhantom) {
-    if (!einsteinXtalDosImage) {
-      const data = await romManager.fetchEinsteinXtalDosDisk();
-      if (!data) return;                       // unavailable → option is a no-op
-      try { einsteinXtalDosImage = parseFloppyImage(data); } catch { return; }
+  const disks = m?.services.disks;
+  const request = disks?.bootDisk ?? null;
+  if (!m || !disks || !m.descriptor.ui.bootDisk) { bootDiskPhantom = false; return; }
+  const want = request !== null && currentDiskName() === '';
+  if (want && !bootDiskPhantom) {
+    const data = await romManager.fetchBootDisk(request.source, request.cacheKey);
+    if (!data) return;                         // unavailable → option is a no-op
+    const current = machine?.services.disks?.bootDisk ?? null;
+    if (
+      machine === m &&
+      current?.cacheKey === request.cacheKey &&
+      currentDiskName() === ''
+    ) {
+      try {
+        disks.insert('a', current.parse(data.slice()), '');
+        bootDiskPhantom = true;
+      } catch {
+        return;
+      }
     }
-    if (machine === m && settings.einsteinXtalDos() && currentDiskName() === '') {
-      m.services.disks?.insert('a', einsteinXtalDosImage, '');
-      einsteinXtalDosPhantom = true;
-    }
-  } else if (!want && einsteinXtalDosPhantom) {
-    m.services.disks?.eject('a');
-    einsteinXtalDosPhantom = false;
+  } else if (!want && bootDiskPhantom) {
+    disks.eject('a');
+    bootDiskPhantom = false;
   }
 }
 
@@ -533,7 +540,8 @@ export async function applyBootCartridge(): Promise<void> {
 export function setEinsteinXtalDosEnabled(on: boolean): void {
   settings.setEinsteinXtalDos(on);
   settings.persistSetting('einstein-xtaldos', on ? 'on' : 'off');
-  applyEinsteinXtalDosDisk();
+  machine?.services.disks?.setBootDiskEnabled?.(on);
+  void applyBootDisk();
 }
 
 /**
@@ -569,7 +577,7 @@ export function loadDiskToUnit(data: Uint8Array, filename: string, unit: number)
     const image = parseFloppyImage(data);
     disks.insert(id, image, filename);
     if (unit === 0) {
-      einsteinXtalDosPhantom = false;
+      bootDiskPhantom = false;
       setCurrentDiskInfo(image); setCurrentDiskName(filename);
     } else {
       setCurrentDiskInfoB(image); setCurrentDiskNameB(filename);

@@ -1,7 +1,15 @@
-import type { DiskService, DriveDescriptor, DriveMedia } from '@/machines/machine.ts';
+import type {
+  BootDiskRequest, DiskService, DriveDescriptor, DriveMedia,
+} from '@/machines/machine.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
-import { serializeMtxMfloppy } from '@/media/floppy/mtx-mfloppy.ts';
+import { parseMtxMfloppy, serializeMtxMfloppy } from '@/media/floppy/mtx-mfloppy.ts';
 import type { MtxMachine } from '../mtx-machine.ts';
+
+const CPM_SYSTEM_DISK: BootDiskRequest = {
+  source: 'https://raw.githubusercontent.com/Memotech-Bill/MEMU/main/run_time/disks/andy_sys.mfloppy',
+  cacheKey: 'disk-mtx-cpm-type07',
+  parse: parseMtxMfloppy,
+};
 
 function baseName(name: string): string {
   return name.replace(/\.[^.]+$/, '') || 'disk';
@@ -11,6 +19,10 @@ export class MtxDiskService implements DiskService {
   private readonly names = new Map<string, string>();
 
   constructor(private readonly machine: MtxMachine) {}
+
+  get bootDisk(): BootDiskRequest | null {
+    return this.machine.cpmSystemEnabled ? CPM_SYSTEM_DISK : null;
+  }
 
   get drives(): readonly DriveDescriptor[] {
     return [

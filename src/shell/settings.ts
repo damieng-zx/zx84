@@ -45,6 +45,7 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'write-protect-c': () => settings.writeProtectC(),
   'write-protect-d': () => settings.writeProtectD(),
   'drive-b-force-ready': () => settings.driveBForceReady(),
+  'einstein-xtaldos': () => settings.einsteinXtalDos(),
   'cpc-parados': () => settings.cpcParados(),
   'mtx-cpm': () => settings.mtxCpm(),
   'mtx-80-column': () => settings.mtx80Column(),

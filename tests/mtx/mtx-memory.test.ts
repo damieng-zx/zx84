@@ -83,6 +83,8 @@ describe('MTX memory', () => {
 
     memory.loadRom(rom);
     memory.setPageRegister(0x40);
+    expect(memory.readByte(0x2000)).toBe(0xFF);
+    memory.setCpmBootstrapEnabled(true);
     expect(memory.readByte(0x2000)).toBe(0xC4);
     memory.setPageRegister(0x50);
     expect(memory.readByte(0x2000)).toBe(0xD5);

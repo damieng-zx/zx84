@@ -176,6 +176,7 @@ export class MtxMachine extends BaseMachine implements Machine {
 
   setCpmSystemEnabled(enabled: boolean): void {
     this.cpmSystemEnabled = enabled;
+    this.memory.setCpmBootstrapEnabled(enabled);
     this.set80ColumnEnabled(enabled || this.column80Requested);
     this.setStatus(`CP/M system ${enabled ? 'enabled' : 'disabled'}`);
   }

@@ -248,8 +248,31 @@ export function register(server: McpServer): void {
         return text('MTX CP/M requires the MTX512. Use the model tool to switch first.');
       }
       mtx.setCpmSystemEnabled(action === 'on');
+      if (action === 'on' && !mtx.services.disks.drives[0].loaded) {
+        const request = mtx.services.disks.bootDisk;
+        if (!request) return text('MTX CP/M system disk is not configured.');
+        try {
+          const response = await fetch(request.source);
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const data = new Uint8Array(await response.arrayBuffer());
+          mtx.services.disks.insert('a', request.parse(data), '');
+        } catch (err) {
+          mtx.setCpmSystemEnabled(false);
+          return text(`Failed to load the public MTX CP/M system disk: ${err}`);
+        }
+      }
+      if (
+        action === 'off' &&
+        mtx.services.disks.drives[0].loaded &&
+        mtx.services.disks.drives[0].mediaName === ''
+      ) {
+        mtx.services.disks.eject('a');
+      }
       mtx.reset();
-      return text(`MTX CP/M system ${action === 'on' ? 'enabled' : 'disabled'}. Machine reset.`);
+      return text(
+        `MTX CP/M system ${action === 'on' ? 'enabled' : 'disabled'}. ` +
+        `${action === 'on' ? 'System disk mounted in drive B:. ' : ''}Machine reset.`,
+      );
     },
   );
 

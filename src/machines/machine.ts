@@ -252,7 +252,7 @@ export interface MachineUiCapabilities {
   readonly zipPolicy: 'all' | 'media' | 'none';
   /** Persist mounted disks/snapshots across reloads (tapes always persist). */
   readonly persistMedia: boolean;
-  /** Machine offers an auto-boot phantom boot-disk option (Einstein Xtal DOS). */
+  /** Machine offers a hidden default boot-disk profile. */
   readonly bootDisk: boolean;
   /** Machine hidden-mounts a default firmware cartridge when its cartridge slot
    *  is empty (CPC Plus / GX4000 → plus-system.cpr). */
@@ -448,11 +448,24 @@ export interface DriveDescriptor {
  *  byte-stream devices (IF1 microdrives take .mdr images, not DskImages). */
 export type DriveMedia = DskImage | Uint8Array;
 
+/** Hidden default disk supplied by a machine's own service. The shell fetches
+ * and caches the bytes, while the service owns the format decoder. */
+export interface BootDiskRequest {
+  readonly source: string;
+  readonly cacheKey: string;
+  parse(data: Uint8Array): DriveMedia;
+}
+
 /** Every drive-bearing device the machine currently has fitted, flattened:
  *  the +3's internal uPD765A units and any enabled +D/Beta/IF1 drives appear
  *  side by side, distinguished only by their descriptors. */
 export interface DiskService {
   readonly drives: readonly DriveDescriptor[];
+  /** Optional hidden disk mounted in the first drive when the profile is
+   * enabled and no explicit user disk occupies it. */
+  readonly bootDisk?: BootDiskRequest | null;
+  /** Live enable switch for profiles whose hidden boot disk is optional. */
+  setBootDiskEnabled?(on: boolean): void;
   insert(id: string, media: DriveMedia, name: string): void;
   eject(id: string): void;
   /** Serialize the drive's current image for download (the name carries the

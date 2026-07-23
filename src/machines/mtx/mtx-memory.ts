@@ -19,6 +19,7 @@ export class MtxMemory implements IMachineMemory {
 
   private ioByte = 0;
   private romSubpage = 0;
+  private cpmBootstrapEnabled = false;
 
   constructor(readonly model: MtxModel) {
     const blocks = model === 'mtx500' ? 2 : 4;
@@ -30,6 +31,10 @@ export class MtxMemory implements IMachineMemory {
   get selectedRomSubpage(): number { return this.romSubpage; }
   get selectedRamPage(): number { return this.ioByte & 0x0F; }
   get ramMode(): boolean { return (this.ioByte & 0x80) !== 0; }
+
+  setCpmBootstrapEnabled(enabled: boolean): void {
+    this.cpmBootstrapEnabled = enabled;
+  }
 
   setPageRegister(value: number): void {
     this.ioByte = value & 0xFF;
@@ -60,6 +65,7 @@ export class MtxMemory implements IMachineMemory {
     addr &= 0xFFFF;
     if (!this.ramMode && addr < 0x2000) return this.osRom[addr];
     if (!this.ramMode && addr < 0x4000) {
+      if (this.selectedRomPage === 4 && !this.cpmBootstrapEnabled) return 0xFF;
       return this.romPages[this.selectedRomPage][addr - 0x2000];
     }
     const mapped = this.ramLocation(addr);
