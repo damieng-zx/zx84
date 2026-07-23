@@ -63,30 +63,78 @@ export function fdcLogSink(machine: Machine): FdcLogSink | null {
 
 // ── Headless launch knobs ─────────────────────────────────────────────
 // Family-specific headless tweaks, consolidated here so state.ts stays
-// machine-blind. The zx8x RAM-pack flag doubles as MCP session state: the
-// model tool reports it and the library loader upgrades it.
+// machine-blind. The zx8x hardware flags double as MCP session state: the
+// model tool reports them and the library loader applies catalog requirements.
 
 let zx8x16k = false;
+let zx81Udg = false;
+let zx81Udg128 = false;
+let zx81Wrx = false;
+let zx81Memotech = false;
+let zx81QuickSilva = false;
 
 /** Whether the active ZX80/ZX81 session has the 16KB RAM pack fitted. */
 export function zx8x16kRam(): boolean { return zx8x16k; }
 
+/** Whether the active ZX81 session has UDG character RAM fitted. */
+export function zx81UdgRam(): boolean { return zx81Udg; }
+
+/** Whether the active ZX81 session has 128-character UDG RAM fitted. */
+export function zx81Udg128Ram(): boolean { return zx81Udg128; }
+
+/** Whether the active ZX81 session has WRX bitmap RAM fitted. */
+export function zx81WrxHires(): boolean { return zx81Wrx; }
+
+/** Whether the active ZX81 session has a Memotech HRG board fitted. */
+export function zx81MemotechHrg(): boolean { return zx81Memotech; }
+
+/** Whether the active ZX81 session has a QuickSilva HRG board fitted. */
+export function zx81QuickSilvaHrg(): boolean { return zx81QuickSilva; }
+
 /** Apply per-family headless knobs to a freshly created machine, before its
- *  ROM is installed and it is reset. Returns a short status fragment (the
- *  ZX80/ZX81 RAM size) for initMachine's ready line. */
-export function applyHeadlessKnobs(machine: Machine, options: InitMachineOptions): string {
+ *  ROM is installed and it is reset. Returns a short status fragment for
+ *  initMachine's ready line. */
+export async function applyHeadlessKnobs(machine: Machine, options: InitMachineOptions): Promise<string> {
   zx8x16k = machine.kind === 'zx8x' ? (options.zx8x16kRam ?? false) : false;
+  const requested = machine.model === 'zx81' ? [
+    options.zx81QuickSilvaHrg && 'quicksilva',
+    options.zx81MemotechHrg && 'memotech',
+    options.zx81WrxHires && 'wrx',
+    options.zx81Udg128Ram && 'udg128',
+    options.zx81UdgRam && 'udg',
+  ].find(Boolean) : undefined;
+  zx81Udg = requested === 'udg';
+  zx81Udg128 = requested === 'udg128';
+  zx81Wrx = requested === 'wrx';
+  zx81Memotech = requested === 'memotech';
+  zx81QuickSilva = requested === 'quicksilva';
   if (machine.kind === 'spectrum') {
     // Cheap scanline rendering — the MCP framebuffer is only read on demand.
     (machine as unknown as { scanlineAccuracy: string }).scanlineAccuracy = 'low';
   }
   if (machine.kind === 'zx8x') {
-    machine.applySettings({
+    const view = {
       get<T>(key: string, fallback: T): T {
-        return key === 'zx8x-16k-ram' ? (zx8x16k as T) : fallback;
+        if (key === 'zx8x-16k-ram') return zx8x16k as T;
+        if (key === 'zx81-udg-ram') return zx81Udg as T;
+        if (key === 'zx81-udg128-ram') return zx81Udg128 as T;
+        if (key === 'zx81-wrx-hires') return zx81Wrx as T;
+        if (key === 'zx81-memotech-hrg') return zx81Memotech as T;
+        if (key === 'zx81-quicksilva-hrg') return zx81QuickSilva as T;
+        return fallback;
       },
-    });
-    return ` RAM=${zx8x16k ? '16KB' : '1KB'}`;
+    };
+    machine.applySettings(view);
+    for (const request of machine.prepare?.(view) ?? []) {
+      const response = await fetch(request.source);
+      if (!response.ok) throw new Error(`${request.failMsg}: HTTP ${response.status}`);
+      request.apply(new Uint8Array(await response.arrayBuffer()));
+    }
+    const hires = machine.model === 'zx81'
+      ? ` HIRES=${zx81QuickSilva ? 'QuickSilva' : zx81Memotech ? 'Memotech'
+        : zx81Wrx ? 'WRX' : zx81Udg128 ? 'UDG-128' : zx81Udg ? 'UDG' : 'off'}`
+      : '';
+    return ` RAM=${zx8x16k ? '16KB' : '1KB'}${hires}`;
   }
   return '';
 }

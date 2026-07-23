@@ -1,6 +1,7 @@
 export const ZX8X_CPU_CLOCK = 3_250_000;
-export const ZX8X_T_PER_FRAME = ZX8X_CPU_CLOCK / 50;
 export const ZX8X_LINES_PER_FRAME = 312;
+export const ZX8X_T_PER_LINE = 207;
+export const ZX8X_T_PER_FRAME = ZX8X_T_PER_LINE * ZX8X_LINES_PER_FRAME;
 
 export const ZX8X_ACTIVE_WIDTH = 256;
 export const ZX8X_ACTIVE_HEIGHT = 192;

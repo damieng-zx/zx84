@@ -33,6 +33,16 @@ export const symbols = new SymbolTable();
 export interface InitMachineOptions {
   /** ZX80/ZX81 RAM pack. Ignored by other machine families. */
   zx8x16kRam?: boolean;
+  /** ZX81 user-defined character RAM mapped at $3000-$3FFF. */
+  zx81UdgRam?: boolean;
+  /** ZX81 128-character UDG board mapped at $3000. */
+  zx81Udg128Ram?: boolean;
+  /** ZX81 refresh-readable WRX bitmap RAM mapped at $2000-$3FFF. */
+  zx81WrxHires?: boolean;
+  /** ZX81 Memotech high-resolution graphics board. */
+  zx81MemotechHrg?: boolean;
+  /** ZX81 QuickSilva high-resolution graphics board. */
+  zx81QuickSilvaHrg?: boolean;
 }
 
 export async function initMachine(m: MachineModel, options: InitMachineOptions = {}): Promise<string> {
@@ -53,7 +63,7 @@ export async function initMachine(m: MachineModel, options: InitMachineOptions =
   }
   const machine = entryForModel(m).create(m, null);
   machine.attachHost(createMcpHost());
-  const ramNote = applyHeadlessKnobs(machine, options);
+  const ramNote = await applyHeadlessKnobs(machine, options);
   machine.services.roms.installSystemRom(state.romData);
   machine.reset();
   state.spec = machine;

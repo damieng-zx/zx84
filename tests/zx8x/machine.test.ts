@@ -45,6 +45,93 @@ describe('ZX80/ZX81 machine family', () => {
     expect(machine.memory.ramSize).toBe(0x4000);
   });
 
+  it('maps the two ZX81 hi-res RAM devices and keeps them exclusive', () => {
+    const machine = new Zx8xMachine('zx81');
+    machine.loadROM(new Uint8Array(0x2000).fill(0x55));
+
+    machine.memory.writeByte(0x3000, 0xa5);
+    expect(machine.memory.readByte(0x3000)).toBe(0x55);
+
+    machine.memory.setUdgRam(true);
+    machine.memory.writeByte(0x3000, 0xa5);
+    machine.memory.writeByte(0x2000, 0x3c);
+    expect(machine.memory.readByte(0x3000)).toBe(0xa5);
+    expect(machine.memory.readByte(0x2000)).toBe(0x55);
+    expect(machine.memory.readByte(0xb000)).toBe(0xa5); // A15-high echo
+
+    machine.memory.setWrxRam(true);
+    machine.memory.writeByte(0x2000, 0x3c);
+    expect(machine.memory.hasUdgRam).toBe(false);
+    expect(machine.memory.hasWrxRam).toBe(true);
+    expect(machine.memory.readByte(0x2000)).toBe(0x3c);
+    expect(machine.memory.readByte(0x3000)).toBe(0xa5);
+  });
+
+  it('applies mutually exclusive ZX81 hi-res settings with board priority', () => {
+    const machine = new Zx8xMachine('zx81');
+    machine.applySettings({
+      get: (key, fallback) => (
+        key.startsWith('zx81-') ? true : fallback
+      ) as typeof fallback,
+    });
+
+    expect(machine.memory.hasUdgRam).toBe(false);
+    expect(machine.memory.hasWrxRam).toBe(false);
+    expect(machine.memory.hasQuickSilvaHrg).toBe(true);
+  });
+
+  it('requests the correct expansion ROM for firmware-based HRG boards', () => {
+    const machine = new Zx8xMachine('zx81');
+    const requests = machine.prepare({
+      get: (key, fallback) => (key === 'zx81-memotech-hrg' ? true : fallback) as typeof fallback,
+    });
+    expect(requests).toHaveLength(1);
+    expect(requests[0].cacheKey).toBe('zx81-memotech-hrg-rom');
+    expect(requests[0].source).toContain('memotechhrg.rom');
+  });
+
+  it('switches QuickSilva video on reads and off on writes to its control window', () => {
+    const machine = new Zx8xMachine('zx81');
+    machine.memory.setQuickSilvaHrg(true);
+    machine.memory.writeByte(0xa000, 0x80);
+    machine.cpu.read8(0x2000);
+    (machine as unknown as { renderCurrentVideo(): void }).renderCurrentVideo();
+    expect(machine.screenExportBytes()[0]).toBe(0x80);
+    machine.cpu.write8(0x2000, 0);
+    (machine as unknown as { renderCurrentVideo(): void }).renderCurrentVideo();
+    expect(machine.screenExportBytes()[0]).toBe(0);
+  });
+
+  it('renders the Memotech 248-pixel display selected through port $025F', () => {
+    const machine = new Zx8xMachine('zx81');
+    machine.memory.set16kExpansion(true);
+    machine.memory.setMemotechHrg(true);
+    machine.cpu.i = 0x1f;
+    machine.memory.writeByte(0x407b, 0x00);
+    machine.memory.writeByte(0x407c, 0x41);
+    machine.memory.writeByte(0x4102, 0xff);
+    machine.cpu.portInHandler!(0x025f);
+    (machine as unknown as { renderCurrentVideo(): void }).renderCurrentVideo();
+    expect(machine.screenExportBytes()[0]).toBe(0x0f);
+    expect(machine.screenExportBytes()[1]).toBe(0xf0);
+  });
+
+  it('uses bit 7 as the upper character-bank selector in UDG-128 mode', () => {
+    const machine = new Zx8xMachine('zx81');
+    machine.memory.set16kExpansion(true);
+    machine.memory.setUdg128Ram(true);
+    machine.cpu.i = 0x30;
+    machine.memory.writeByte(0x400c, 0x00);
+    machine.memory.writeByte(0x400d, 0x41);
+    machine.memory.writeByte(0x403b, 0x80);
+    machine.memory.writeByte(0x4100, 0x76);
+    machine.memory.writeByte(0x4101, 0x80);
+    machine.memory.writeByte(0x4102, 0x76);
+    machine.memory.writeByte(0x3200, 0x80);
+    (machine as unknown as { renderCurrentVideo(): void }).renderCurrentVideo();
+    expect(machine.screenExportBytes()[0]).toBe(0x80);
+  });
+
   it('restores the ZX81 post-LOAD state without selecting IM 2', () => {
     const machine = new Zx8xMachine('zx81');
     machine.memory.set16kExpansion(true);

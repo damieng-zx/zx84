@@ -34,4 +34,36 @@ describe('ZX80/ZX81 memory decoding', () => {
     expect(memory.readByte(0)).toBe(0x7e);
     expect(memory.readByte(0x4000)).toBe(0);
   });
+
+  it('maps the Memotech overlay RAM and expansion ROM', () => {
+    const memory = new Zx8xMemory('zx81');
+    memory.setMemotechHrg(true);
+    memory.loadHrgROM(new Uint8Array([0xa5]));
+    memory.writeByte(0x0012, 0x3c);
+    expect(memory.readMemotechOverlay(0x12)).toBe(0x3c);
+    expect(memory.readByte(0x2000)).toBe(0xa5);
+    expect(memory.hasUdgRam).toBe(false);
+    expect(memory.hasWrxRam).toBe(false);
+  });
+
+  it('maps QuickSilva ROM and its non-mirrored framebuffer', () => {
+    const memory = new Zx8xMemory('zx81');
+    memory.setQuickSilvaHrg(true);
+    memory.loadHrgROM(new Uint8Array([0x5a]));
+    memory.writeByte(0xa000, 0xc3);
+    expect(memory.readByte(0x2800)).toBe(0x5a);
+    expect(memory.readByte(0xa000)).toBe(0xc3);
+    expect(memory.readByte(0x2000)).not.toBe(0xc3);
+  });
+
+  it('keeps all five ZX81 graphics boards mutually exclusive', () => {
+    const memory = new Zx8xMemory('zx81');
+    memory.setUdgRam(true);
+    memory.setUdg128Ram(true);
+    expect(memory.hasUdgRam).toBe(false);
+    expect(memory.hasUdg128Ram).toBe(true);
+    memory.setQuickSilvaHrg(true);
+    expect(memory.hasUdg128Ram).toBe(false);
+    expect(memory.hasQuickSilvaHrg).toBe(true);
+  });
 });

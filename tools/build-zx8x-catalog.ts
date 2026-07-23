@@ -5,6 +5,11 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  ZX81_ENHANCED_GRAPHICS_TAG,
+  zx81HiResModeForTags,
+  zx8xHardwareOverride,
+} from '../src/library/zx8x-hardware.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DB_FILE = resolve(HERE, 'zxdb.sqlite');
@@ -15,7 +20,15 @@ interface MetaRow {
   genre: string | null; publisher: string | null;
 }
 interface FileRow { id: number; link: string; ft: number; rel: number | null; lang: string | null; }
-interface RawGame { i: number; t: string; m: 80 | 81; y?: number; g?: number; p?: number; f: string; s?: string; }
+interface GraphicsRow { id: number; tagId: number; name: string; }
+interface RawGame {
+  i: number; t: string; m: 80 | 81; y?: number; g?: number; p?: number;
+  f: string; s?: string; r?: number; h?: 's' | 'u' | 'r' | 'w' | 'm' | 'q'; x?: number[];
+}
+
+function compactHires(mode: NonNullable<ReturnType<typeof zx81HiResModeForTags>>): NonNullable<RawGame['h']> {
+  return { software: 's', udg: 'u', udg128: 'r', wrx: 'w', memotech: 'm', quicksilva: 'q' }[mode];
+}
 
 const PROGRAM = /\.(o|80|p|81|p81)(\.zip)?$/i;
 const SCREEN = /\.(gif|png|jpe?g)$/i;
@@ -42,6 +55,14 @@ function main(): void {
        JOIN machinetypes m ON m.id=e.machinetype_id AND ${machineWhere}
       WHERE e.availabletype_id='A'`,
   ).all() as unknown as FileRow[];
+  const enhancedGraphics = db.prepare(
+    `SELECT members.entry_id AS id, tags.id AS tagId, tags.name
+       FROM members
+       JOIN tags ON tags.id=members.tag_id AND tags.tagtype_id='Z'
+       JOIN entries e ON e.id=members.entry_id
+       JOIN machinetypes m ON m.id=e.machinetype_id AND ${machineWhere}
+      ORDER BY members.entry_id, tags.id`,
+  ).all() as unknown as GraphicsRow[];
   db.close();
 
   const byEntry = new Map<number, FileRow[]>();
@@ -56,6 +77,8 @@ function main(): void {
   const publishers: string[] = [];
   const genreIndex = new Map<string, number>();
   const publisherIndex = new Map<string, number>();
+  const graphics: string[] = [];
+  const graphicsIndex = new Map<string, number>();
   const intern = (value: string | null, values: string[], index: Map<string, number>): number | undefined => {
     if (!value) return undefined;
     const known = index.get(value);
@@ -65,6 +88,12 @@ function main(): void {
     index.set(value, next);
     return next;
   };
+  const graphicsByEntry = new Map<number, GraphicsRow[]>();
+  for (const feature of enhancedGraphics) {
+    const list = graphicsByEntry.get(feature.id) ?? [];
+    list.push(feature);
+    graphicsByEntry.set(feature.id, list);
+  }
 
   const games: RawGame[] = [];
   for (const row of meta) {
@@ -78,6 +107,18 @@ function main(): void {
     const screenshots = candidates.filter(file => (file.ft === 1 || file.ft === 2) && SCREEN.test(file.link));
     screenshots.sort((a, b) => a.ft - b.ft);
     const game: RawGame = { i: row.id, t: row.title, m: row.machine.startsWith('ZX80') ? 80 : 81, f: programs[0].link };
+    const ram = /ZX(?:80|81) (\d+)K/.exec(row.machine);
+    if (ram) game.r = Number(ram[1]);
+    const features = graphicsByEntry.get(row.id) ?? [];
+    if (features.length) {
+      game.x = features.map(feature => intern(feature.name, graphics, graphicsIndex) as number);
+      const mode = zx81HiResModeForTags(features.map(feature => feature.tagId));
+      if (mode) game.h = compactHires(mode);
+      if (features.some(feature => feature.tagId === ZX81_ENHANCED_GRAPHICS_TAG.wrx1k)) game.r = 1;
+    }
+    const hardware = zx8xHardwareOverride(row.id);
+    if (hardware?.ramKb !== undefined) game.r = hardware.ramKb;
+    if (hardware?.hiRes) game.h = compactHires(hardware.hiRes);
     if (row.year) game.y = row.year;
     const genre = intern(row.genre, genres, genreIndex);
     const publisher = intern(row.publisher, publishers, publisherIndex);
@@ -88,7 +129,7 @@ function main(): void {
   }
   games.sort((a, b) => a.t.localeCompare(b.t));
 
-  const json = JSON.stringify({ genres, publishers, games });
+  const json = JSON.stringify({ genres, publishers, graphics, games });
   const version = createHash('sha256').update(json).digest('hex').slice(0, 12);
   mkdirSync(OUT, { recursive: true });
   writeFileSync(resolve(OUT, 'zx8x-catalog.json'), json);

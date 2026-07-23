@@ -1,4 +1,5 @@
 import { dbLoad, dbSave, getSaved, setSaved } from '@/store/persistence.ts';
+import { zx8xHardwareOverride, type Zx81HiResMode } from './zx8x-hardware.ts';
 
 export interface RawZx8xGame {
   i: number;
@@ -9,11 +10,19 @@ export interface RawZx8xGame {
   p?: number;
   f: string;
   s?: string;
+  /** Required RAM in KB, taken from ZXDB's machine type. */
+  r?: number;
+  /** Compact hi-res mode: software, UDG, UDG-128, WRX, Memotech, or QuickSilva. */
+  h?: 's' | 'u' | 'r' | 'w' | 'm' | 'q';
+  /** Indices into the catalog's ZX81 enhanced-graphics dictionary. */
+  x?: number[];
 }
 
 export interface RawZx8xCatalog {
   genres: string[];
   publishers: string[];
+  /** ZXDB tag type Z: ZX81 Enhanced Graphics. Absent in older catalogs. */
+  graphics?: string[];
   games: RawZx8xGame[];
 }
 
@@ -26,9 +35,31 @@ export interface Zx8xGame {
   publisher: string;
   file: string;
   screen: string;
+  ramKb: number | null;
+  hiRes: Zx81HiResMode | null;
+  enhancedGraphics: string[];
+}
+
+export function matchesZx8xHardwareFilters(
+  game: Zx8xGame,
+  selectedGraphics: ReadonlySet<string>,
+  selectedMemory: ReadonlySet<number>,
+): boolean {
+  // ZXDB often leaves the RAM field blank for ordinary expanded titles. The
+  // launcher already treats every non-1KB requirement as the emulator's 16KB
+  // configuration, so filtering must use that same effective machine setup.
+  const effectiveRamKb = game.ramKb === 1 ? 1 : 16;
+  return (!selectedGraphics.size || game.enhancedGraphics.some(feature => selectedGraphics.has(feature)))
+    && (!selectedMemory.size || selectedMemory.has(effectiveRamKb));
+}
+
+export function matchesZx8xGenreFilter(game: Zx8xGame, selectedGenres: ReadonlySet<string>): boolean {
+  return !selectedGenres.size || selectedGenres.has(game.genre);
 }
 
 export function resolveZx8xGame(raw: RawZx8xGame, catalog: RawZx8xCatalog): Zx8xGame {
+  const override = zx8xHardwareOverride(raw.i);
+  const hiResCode = raw.h;
   return {
     id: raw.i,
     title: raw.t,
@@ -38,6 +69,16 @@ export function resolveZx8xGame(raw: RawZx8xGame, catalog: RawZx8xCatalog): Zx8x
     publisher: raw.p === undefined ? '' : catalog.publishers[raw.p] ?? '',
     file: raw.f,
     screen: raw.s ?? '',
+    ramKb: raw.r ?? override?.ramKb ?? null,
+    hiRes: hiResCode === 's' ? 'software'
+      : hiResCode === 'u' ? 'udg'
+      : hiResCode === 'r' ? 'udg128'
+      : hiResCode === 'w' ? 'wrx'
+      : hiResCode === 'm' ? 'memotech'
+      : hiResCode === 'q' ? 'quicksilva'
+      : override?.hiRes ?? null,
+    enhancedGraphics: raw.x?.map(index => catalog.graphics?.[index] ?? '').filter(Boolean)
+      ?? [...(override?.enhancedGraphics ?? [])],
   };
 }
 
