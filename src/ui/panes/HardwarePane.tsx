@@ -33,6 +33,7 @@ const MODEL_LABELS: Record<MachineModel, string> = {
   cpc6128plus: 'CPC 6128 Plus',
   gx4000: 'GX4000',
   einstein: 'Einstein TC-01',
+  'einstein-256': 'Einstein TC-01 256',
   'hx-10': 'Toshiba HX-10',
 };
 

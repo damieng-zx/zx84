@@ -4,18 +4,22 @@
  */
 
 import type { IScreenRenderer } from '@/display/renderer.ts';
-import type { MachineDescriptor, MachineEntry, MachineLocale, MachineUiCapabilities } from '@/machines/machine.ts';
+import type { MachineDescriptor, MachineEntry, MachineLocale, MachineUiCapabilities, StatusLedId } from '@/machines/machine.ts';
 import type { MachineModel } from '@/models.ts';
 import type { CpcModel } from './models.ts';
 import { cpcHasDisk, cpcHasTape, cpcIsPlusClass } from './models.ts';
 import { CpcMachine } from './cpc-machine.ts';
 import { CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT, CPC_BORDER_LEFT, CPC_BORDER_TOP } from './constants.ts';
 
+function cpcStatusLeds(model: MachineModel): StatusLedId[] {
+  const leds: StatusLedId[] = ['kbd', 'mouse', 'text', 'ay'];
+  if (cpcHasTape(model)) leds.push('load');
+  if (cpcHasDisk(model)) leds.push('dsk');
+  return leds;
+}
+
 function cpcUi(model: MachineModel): MachineUiCapabilities {
   return {
-    // Sysvars and fonts read Spectrum-specific memory layouts and stay hidden;
-    // BASIC variables are parsed from Locomotive BASIC's own tables (see the
-    // frame probe), so that pane is available.
     hiddenPanes: ['sysvar-panel', 'font-panel'],
     memoryLayout: true,
     trace: false,
@@ -24,20 +28,12 @@ function cpcUi(model: MachineModel): MachineUiCapabilities {
     joystick: true,
     fixedJoystick: true,
     mouse: true,
-    // The Plus range exposes a cartridge ROM port (32 × 16 KB) — the ROM pane
-    // shows a cartridge slot. Non-Plus 464/664/6128 have no cartridge.
     cartridge: cpcIsPlusClass(model),
-    // The Plus boots from cartridge: there is no separate on-board "system
-    // ROM" concept, so hide that slot (it would otherwise duplicate the
-    // cartridge slot, both labelled "Cartridge"). Non-Plus models keep their
-    // on-board ROM slot visible.
     systemRomSlot: !cpcIsPlusClass(model),
     systemRomLabel: 'ROM',
     romPages: 0,
     beeper: false,
-    kempston: false,
-    tapeEar: false,
-    rainbow: false,
+    statusLeds: cpcStatusLeds(model),
     keyboardBus: 'ppi',
     // The GX4000 console has no cassette — drop the tape pane. Other CPC
     // models drive the deck through PPI Port B.

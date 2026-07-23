@@ -5,6 +5,7 @@
 
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type { MachineDescriptor, MachineEntry, MachineLocale, MachineUiCapabilities, MemoryRegionInfo } from '@/machines/machine.ts';
+import type { StatusLedId } from '@/machines/machine.ts';
 import type { MachineModel } from '@/models.ts';
 import { isCpcModel } from '@/models.ts';
 import type { SpectrumModel } from './models.ts';
@@ -23,6 +24,13 @@ function spectrumMemoryRegions(model: MachineModel): MemoryRegionInfo[] {
   return Array.from({ length: romCount }, (_, i) => ({ value: `rom${i}`, label: `ROM ${i}` }));
 }
 
+function spectrumStatusLeds(model: MachineModel): StatusLedId[] {
+  const leds: StatusLedId[] = ['kbd', 'kemp', 'mouse', 'ear', 'load', 'text', 'rainbow', 'beep'];
+  if (is128kClass(model)) leds.push('ay');
+  if (isPlus3(model)) leds.push('dsk');
+  return leds;
+}
+
 function spectrumUi(model: MachineModel): MachineUiCapabilities {
   return {
     hiddenPanes: [],
@@ -37,9 +45,7 @@ function spectrumUi(model: MachineModel): MachineUiCapabilities {
     systemRomLabel: 'ROM',
     romPages: romPageSlotCount(model),
     beeper: true,
-    kempston: true,
-    tapeEar: true,
-    rainbow: true,
+    statusLeds: spectrumStatusLeds(model),
     keyboardBus: 'ula',
     tape: 'deck',
     tapeSound: true,
