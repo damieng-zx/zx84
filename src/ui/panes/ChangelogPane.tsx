@@ -2,6 +2,15 @@ import { createSignal, Show } from 'solid-js';
 
 const CHANGELOG: { version: string; items: string[] }[] = [
   {
+    version: '0.7.3',
+    items: [
+      'Add ZX80 and ZX81 emulation with library',
+      'Add CPC 6128 Plus and GX4000 (Amstrad\'s ASIC-based "Plus" range): sprites, soft scroll, split-screen, DMA sound, .CPR cartridge loading (boots from a built-in cartridge out of the box), and .SNA snapshots',
+      'Xtal and MSX BASIC pane support',
+      'Stepped speed control on the toolbar',
+      'Grouped machine picker into submenus',
+    ]
+  }, {
     version: '0.7.2',
     items: [
       'Add experimental MSX support',
