@@ -268,6 +268,7 @@ export class EinsteinMachine extends BaseMachine implements Machine {
 
     for (let line = 0; line < LINES_PER_FRAME; line++) {
       lineEnd += tPerLine;
+      if (is256) vdp.advanceScanline(line);
 
       while (this.cpu.tStates < lineEnd) {
         if (this.breakpoints.has(this.cpu.pc)) { this.breakpointHit = this.cpu.pc; broke = true; break; }

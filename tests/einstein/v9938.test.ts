@@ -25,6 +25,13 @@ describe('V9938 CPU port interface', () => {
     expect(v.regs[14]).toBe(0x07);         // R14 is 3 bits
   });
 
+  it('treats R25-R27 as absent on a V9938', () => {
+    setReg(v, 25, 0x7F);
+    setReg(v, 26, 0x3F);
+    setReg(v, 27, 0x07);
+    expect(Array.from(v.regs.slice(25, 28))).toEqual([0, 0, 0]);
+  });
+
   it('writes and reads back VRAM with auto-increment across a 16KB page', () => {
     setAddress(v, 0x0000);
     v.writeData(0x11);
@@ -169,6 +176,26 @@ describe('V9938 status registers and frame interrupt', () => {
     setReg(v, 15, 0);
     expect(v.readStatus() & 0x80).toBe(0x80);
   });
+
+  it('raises FH on the R19 line and clears it when S1 is read', () => {
+    setReg(v, 0, 0x10);                    // IE0
+    setReg(v, 19, 37);
+    v.advanceScanline(36);
+    expect(v.interruptPending()).toBe(false);
+    v.advanceScanline(37);
+    expect(v.interruptPending()).toBe(true);
+    setReg(v, 15, 1);
+    expect(v.readStatus() & 1).toBe(1);
+    expect(v.interruptPending()).toBe(false);
+  });
+
+  it('includes R23 in the line-interrupt comparison', () => {
+    setReg(v, 0, 0x10);
+    setReg(v, 19, 12);
+    setReg(v, 23, 3);
+    v.advanceScanline(9);
+    expect(v.interruptPending()).toBe(true);
+  });
 });
 
 describe('V9938 mode decode and geometry', () => {
@@ -283,5 +310,223 @@ describe('V9938 TMS-compatible graphics rendering', () => {
     expect(line[0]).toBe(v.pens[15]);
     expect(line[1]).toBe(v.pens[15]); // 256-pixel mode doubles horizontally
     expect(line[2]).toBe(v.pens[1]);
+  });
+});
+
+describe('V9938 bitmap rendering', () => {
+  let v: V9938;
+  let line: Uint32Array;
+  beforeEach(() => {
+    v = new V9938();
+    v.reset();
+    line = new Uint32Array(V9938_WIDTH);
+    setReg(v, 1, 0x40);                    // display on
+  });
+
+  it('renders GRAPHIC 4 as 256 four-bit pixels doubled to 512', () => {
+    setReg(v, 0, 0x06);
+    v.vram[0] = 0xF1;
+    v.renderScanline(line, 0, 0);
+    expect(Array.from(line.slice(0, 4))).toEqual([
+      v.pens[15], v.pens[15], v.pens[1], v.pens[1],
+    ]);
+  });
+
+  it('renders GRAPHIC 5 as 512 two-bit pixels', () => {
+    setReg(v, 0, 0x08);
+    v.vram[0] = 0x1B;                     // 00,01,10,11
+    v.renderScanline(line, 0, 0);
+    expect(Array.from(line.slice(0, 4))).toEqual([
+      v.pens[0], v.pens[1], v.pens[2], v.pens[3],
+    ]);
+  });
+
+  it('uses the two-bank byte interleave in GRAPHIC 6', () => {
+    setReg(v, 0, 0x0A);
+    v.vram[0] = 0xF1;                     // logical byte 0
+    v.vram[0x10000] = 0x23;               // logical byte 1
+    v.renderScanline(line, 0, 0);
+    expect(Array.from(line.slice(0, 4))).toEqual([
+      v.pens[15], v.pens[1], v.pens[2], v.pens[3],
+    ]);
+  });
+
+  it('decodes the GRAPHIC 7 fixed GGGRRRBB palette', () => {
+    setReg(v, 0, 0x0E);
+    v.vram[0] = 0x1C;                     // G=0, R=7, B=0
+    v.renderScanline(line, 0, 0);
+    expect(line[0]).toBe(0xFF0000FF);      // opaque red in ABGR
+    expect(line[1]).toBe(0xFF0000FF);
+  });
+
+  it('applies R18 horizontal display adjustment and clips at the edge', () => {
+    setReg(v, 0, 0x06);
+    setReg(v, 18, 0x0F);                  // +1 character-clock position
+    v.vram[0] = 0xF0;
+    v.renderScanline(line, 0, 0);
+    expect(line[0]).toBe(v.backdrop());
+    expect(line[1]).toBe(v.backdrop());
+    expect(line[2]).toBe(v.pens[15]);
+  });
+});
+
+describe('V9938 sprite rendering', () => {
+  it('renders mode-2 sprites and records a collision position', () => {
+    const v = new V9938();
+    v.reset();
+    const line = new Uint32Array(V9938_WIDTH);
+    setReg(v, 0, 0x06);                   // GRAPHIC 4 / sprite mode 2
+    setReg(v, 1, 0x40);
+    setReg(v, 5, 0x24);                   // colour 1000h, attributes 1200h
+    setReg(v, 6, 0x01);                   // patterns at 0800h
+    v.vram[0x1200] = 0xFF;                // sprite 0 starts on line 0
+    v.vram[0x1201] = 0;
+    v.vram[0x1202] = 0;
+    v.vram[0x1204] = 0xFF;                // sprite 1, same position
+    v.vram[0x1205] = 0;
+    v.vram[0x1206] = 0;
+    v.vram[0x1208] = 216;                 // end marker
+    v.vram[0x1000] = 0x0F;
+    v.vram[0x1010] = 0x04;
+    v.vram[0x0800] = 0x80;
+
+    v.renderScanline(line, 0, 0);
+    expect(line[0]).toBe(v.pens[15]);      // lower sprite number wins
+    setReg(v, 15, 0);
+    expect(v.readStatus() & 0x20).toBe(0x20);
+    setReg(v, 15, 3);
+    expect(v.readStatus()).toBe(12);       // VDP timing-space X bias
+    setReg(v, 15, 5);
+    expect(v.readStatus()).toBe(8);        // VDP timing-space Y bias
+  });
+});
+
+describe('V9938 command processor', () => {
+  let v: V9938;
+  beforeEach(() => {
+    v = new V9938();
+    v.reset();
+    setReg(v, 0, 0x06);                   // GRAPHIC 4
+  });
+
+  function status2(): number {
+    setReg(v, 15, 2);
+    return v.readStatus();
+  }
+
+  it('executes HMMV in a bounded scanline slice and updates CE', () => {
+    setReg(v, 36, 0); setReg(v, 37, 0);   // DX
+    setReg(v, 38, 0); setReg(v, 39, 0);   // DY
+    setReg(v, 40, 4); setReg(v, 41, 0);   // NX = 4 dots = 2 bytes
+    setReg(v, 42, 1); setReg(v, 43, 0);   // NY
+    setReg(v, 44, 0xA5);
+    setReg(v, 46, 0xC0);                  // HMMV
+    expect(status2() & 1).toBe(1);
+    v.advanceScanline(0);
+    expect(Array.from(v.vram.slice(0, 2))).toEqual([0xA5, 0xA5]);
+    expect(status2() & 1).toBe(0);
+  });
+
+  it('performs logical PSET and POINT operations', () => {
+    setReg(v, 36, 1); setReg(v, 38, 0);
+    setReg(v, 44, 0x0C);
+    setReg(v, 46, 0x50);                  // PSET
+    expect(v.vram[0] & 0x0F).toBe(0x0C);
+
+    setReg(v, 32, 1); setReg(v, 34, 0);
+    setReg(v, 46, 0x40);                  // POINT
+    setReg(v, 15, 7);
+    expect(v.readStatus()).toBe(0x0C);
+  });
+
+  it('honours HMMC transfer-ready handshakes', () => {
+    setReg(v, 40, 4); setReg(v, 42, 1);
+    setReg(v, 46, 0xF0);
+    expect(status2() & 0x81).toBe(0x81);   // TR + CE
+    setReg(v, 44, 0x12);
+    expect(status2() & 0x81).toBe(0x81);
+    setReg(v, 44, 0x34);
+    expect(Array.from(v.vram.slice(0, 2))).toEqual([0x12, 0x34]);
+    expect(status2() & 0x81).toBe(0);
+  });
+
+  it('streams LMCM pixels through S7', () => {
+    v.vram[0] = 0xAB;
+    setReg(v, 40, 2); setReg(v, 42, 1);
+    setReg(v, 46, 0xA0);
+    expect(status2() & 0x81).toBe(0x81);
+    setReg(v, 15, 7);
+    expect(v.readStatus()).toBe(0x0A);
+    expect(v.readStatus()).toBe(0x0B);
+    expect(status2() & 0x81).toBe(0);
+  });
+
+  it('fills and copies rectangles with LMMV and LMMM', () => {
+    setReg(v, 36, 0); setReg(v, 38, 0);
+    setReg(v, 40, 2); setReg(v, 42, 2);
+    setReg(v, 44, 5);
+    setReg(v, 46, 0x80);                  // LMMV 2x2
+    v.advanceScanline(0);
+    expect(v.vram[0]).toBe(0x55);
+    expect(v.vram[128]).toBe(0x55);
+
+    setReg(v, 32, 0); setReg(v, 34, 0);
+    setReg(v, 36, 4); setReg(v, 38, 2);
+    setReg(v, 40, 2); setReg(v, 42, 2);
+    setReg(v, 46, 0x90);                  // LMMM
+    v.advanceScanline(1);
+    expect(v.vram[2 * 128 + 2]).toBe(0x55);
+    expect(v.vram[3 * 128 + 2]).toBe(0x55);
+  });
+
+  it('supports HMMM and YMMM byte copies', () => {
+    v.vram[0] = 0x12;
+    v.vram[1] = 0x34;
+    setReg(v, 32, 0); setReg(v, 34, 0);
+    setReg(v, 36, 4); setReg(v, 38, 1);
+    setReg(v, 40, 4); setReg(v, 42, 1);
+    setReg(v, 46, 0xD0);                  // HMMM: two packed bytes
+    v.advanceScanline(0);
+    expect(Array.from(v.vram.slice(130, 132))).toEqual([0x12, 0x34]);
+
+    setReg(v, 34, 1);                     // SY
+    setReg(v, 36, 4); setReg(v, 38, 2);   // DX/DY
+    setReg(v, 42, 1);
+    setReg(v, 46, 0xE0);                  // YMMM: DX to right border
+    v.advanceScanline(1);
+    expect(Array.from(v.vram.slice(258, 260))).toEqual([0x12, 0x34]);
+  });
+
+  it('draws LINE and reports SRCH boundary coordinates', () => {
+    setReg(v, 36, 0); setReg(v, 38, 0);
+    setReg(v, 40, 3); setReg(v, 42, 0);   // major 3, minor 0
+    setReg(v, 44, 0x0E);
+    setReg(v, 46, 0x70);                  // LINE, x-major
+    v.advanceScanline(0);
+    expect(Array.from(v.vram.slice(0, 2))).toEqual([0xEE, 0xEE]);
+
+    v.vram[3] = 0x07;                     // colour 7 at x=7
+    setReg(v, 32, 0); setReg(v, 34, 0);
+    setReg(v, 44, 7);
+    setReg(v, 45, 0);                     // right, search equal
+    setReg(v, 46, 0x60);
+    v.advanceScanline(1);
+    expect(status2() & 0x10).toBe(0x10);   // BD
+    setReg(v, 15, 8);
+    expect(v.readStatus()).toBe(7);
+  });
+
+  it('uses expansion VRAM as a command source and destination', () => {
+    setReg(v, 36, 0); setReg(v, 38, 0);
+    setReg(v, 44, 9);
+    setReg(v, 45, 0x20);                  // MXD
+    setReg(v, 46, 0x50);                  // PSET
+    expect(v.vram[0x20000]).toBe(0x90);
+
+    setReg(v, 32, 0); setReg(v, 34, 0);
+    setReg(v, 45, 0x10);                  // MXS
+    setReg(v, 46, 0x40);                  // POINT
+    setReg(v, 15, 7);
+    expect(v.readStatus()).toBe(9);
   });
 });
