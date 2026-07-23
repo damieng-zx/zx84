@@ -521,7 +521,7 @@ export async function applyBootCartridge(): Promise<void> {
   }
 
   // Otherwise hidden-mount the machine's default firmware cartridge.
-  const source = entryForModel(m.model).bootCartridgeSource?.(m.model);
+  const source = entryForModel(m.model).bootCartridgeSource?.(m.model, m.descriptor.locale);
   if (!source) return;
   const data = await romManager.fetchBootCartridge(source);
   if (data && machine === m && slot.name === '') {

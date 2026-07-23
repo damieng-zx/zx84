@@ -10,6 +10,7 @@
 
 import { createSignal } from 'solid-js';
 import type { MachineModel } from '@/models.ts';
+import type { MachineLocale } from '@/machines/machine.ts';
 
 const KNOWN_MODELS: readonly MachineModel[] = [
   '16k', '48k', '128k', '+2', '+2A', '+3',
@@ -93,6 +94,26 @@ export const setCartridgeName = _cartridgeName[1];
 const _currentModel = createSignal<MachineModel>(loadSavedModel() ?? '128k');
 export const currentModel = _currentModel[0];
 export const setCurrentModel = _currentModel[1];
+
+// Locale selection (keyboard / ROM region)
+function loadSavedLocale(): MachineLocale {
+  try {
+    const raw = localStorage.getItem('zx84-locale');
+    if (raw === 'es' || raw === 'fr') return raw;
+  } catch { /* */ }
+  return 'uk';
+}
+
+function saveLocale(locale: MachineLocale): void {
+  try { localStorage.setItem('zx84-locale', locale); } catch { /* */ }
+}
+
+const _currentLocale = createSignal<MachineLocale>(loadSavedLocale());
+export const currentLocale = _currentLocale[0];
+export const setCurrentLocale = (locale: MachineLocale): void => {
+  _currentLocale[1](locale);
+  saveLocale(locale);
+};
 
 // Execution control
 const _emulationPaused = createSignal(false);

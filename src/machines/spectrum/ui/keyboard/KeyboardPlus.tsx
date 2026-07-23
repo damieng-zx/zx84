@@ -22,10 +22,12 @@
 import { For, Show, createUniqueId } from 'solid-js';
 import { Pane } from '@/ui/components/Pane.tsx';
 import { activeSpectrum } from '@/machines/spectrum/ui/active.ts';
+import { machineDescriptor } from '@/state/machine-caps.ts';
 import {
-  POS, CS, SS, LETTERS, NUMBERS, Block, useKeyboard,
+  POS, CS, SS, Block, useKeyboard,
   type KeyboardController, type LatchMode,
 } from './keyboard-common.tsx';
+import { lettersFor, numbersFor } from './keyboard-common.tsx';
 import { plus2KeepsRed, plus2KeyWidth, PLUS2_KEYWORDS, PLUS2_DEDICATED_SYMBOLS } from './plus2-legends.ts';
 
 type PVariant = 'num' | 'letter' | 'fn' | 'mod' | 'enter' | 'enter-spacer' | 'space' | 'sym' | 'arrow';
@@ -46,8 +48,16 @@ interface PKey {
 }
 
 // ── Key builders ────────────────────────────────────────────────────────
-const letter = (g: string): PKey => ({ variant: 'letter', main: g, positions: [POS[g]], ...LETTERS[g] });
-const number = (g: string): PKey => ({ variant: 'num', main: g, positions: [POS[g]], ...NUMBERS[g] });
+
+/** Build a letter-keyfactory from a locale-specific legend map. */
+function mkLetter(ltrs: Record<string, import('./keyboard-common.tsx').LetterLegend>) {
+  return (g: string): PKey => ({ variant: 'letter', main: g, positions: [POS[g]], ...ltrs[g] });
+}
+
+/** Build a number-key factory from a locale-specific legend map. */
+function mkNumber(nums: Record<string, import('./keyboard-common.tsx').NumberLegend>) {
+  return (g: string): PKey => ({ variant: 'num', main: g, positions: [POS[g]], ...nums[g] });
+}
 const fn = (label: string, positions: [number, number][], w = 1, latch?: LatchMode): PKey =>
   ({ variant: 'fn', label, positions, w, latch });
 const mod = (label: string, pos: [number, number], w: number, redLabel = false): PKey =>
@@ -110,47 +120,57 @@ function bootShadow(m: BootMetrics): string {
   return [`M ${r} ${H - 1}`, `L ${Wf - r} ${H - 1}`].join(' ');
 }
 
-const ROW1: PKey[] = [
-  fn('TRUE\nVIDEO', [CS, POS['3']], 1),
-  fn('INV\nVIDEO', [CS, POS['4']], 1),
-  ...['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'].map(number),
-  fn('BREAK', [CS, POS.SPACE], 1.5),
-];
+/** Build all five keyboard rows for a given locale. */
+function buildRows(locale: import('@/machines/machine.ts').MachineLocale) {
+  const ltrs = lettersFor(locale);
+  const nums = numbersFor(locale);
+  const letter = mkLetter(ltrs);
+  const number = mkNumber(nums);
 
-const ROW2: PKey[] = [
-  fn('DELETE', [CS, POS['0']], 1.5),
-  fn('GRAPH', [CS, POS['9']], 1, 'hold'),
-  ...['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'].map(letter),
-  ENTER,
-];
+  const ROW1: PKey[] = [
+    fn('TRUE\nVIDEO', [CS, POS['3']], 1),
+    fn('INV\nVIDEO', [CS, POS['4']], 1),
+    ...['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'].map(number),
+    fn('BREAK', [CS, POS.SPACE], 1.5),
+  ];
 
-const ROW3: PKey[] = [
-  fn('EXTEND\nMODE', [CS, SS], 1.5, 'hold'),
-  fn('EDIT', [CS, POS['1']], 1.25),
-  ...['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L'].map(letter),
-  ENTER_SPACER,
-];
+  const ROW2: PKey[] = [
+    fn('DELETE', [CS, POS['0']], 1.5),
+    fn('GRAPH', [CS, POS['9']], 1, 'hold'),
+    ...['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'].map(letter),
+    ENTER,
+  ];
 
-const ROW4: PKey[] = [
-  mod('CAPS\nSHIFT', CS, 2.25),
-  fn('CAPS\nLOCK', [CS, POS['2']], 1, 'hold'),
-  ...['Z', 'X', 'C', 'V', 'B', 'N', 'M'].map(letter),
-  sym('.', [SS, POS.M]),
-  mod('CAPS\nSHIFT', CS, 2.25),
-];
+  const ROW3: PKey[] = [
+    fn('EXTEND\nMODE', [CS, SS], 1.5, 'hold'),
+    fn('EDIT', [CS, POS['1']], 1.25),
+    ...['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L'].map(letter),
+    ENTER_SPACER,
+  ];
 
-const ROW5: PKey[] = [
-  mod('SYMBOL\nSHIFT', SS, 1, true),
-  sym(';', [SS, POS.O]),
-  sym('"', [SS, POS.P]),
-  arrow('←', [CS, POS['5']]),
-  arrow('→', [CS, POS['8']]),
-  { variant: 'space', positions: [POS.SPACE], w: 4.5 },
-  arrow('↑', [CS, POS['7']]),
-  arrow('↓', [CS, POS['6']]),
-  sym(',', [SS, POS.N]),
-  mod('SYMBOL\nSHIFT', SS, 1, true),
-];
+  const ROW4: PKey[] = [
+    mod('CAPS\nSHIFT', CS, 2.25),
+    fn('CAPS\nLOCK', [CS, POS['2']], 1, 'hold'),
+    ...['Z', 'X', 'C', 'V', 'B', 'N', 'M'].map(letter),
+    sym('.', [SS, POS.M]),
+    mod('CAPS\nSHIFT', CS, 2.25),
+  ];
+
+  const ROW5: PKey[] = [
+    mod('SYMBOL\nSHIFT', SS, 1, true),
+    sym(';', [SS, POS.O]),
+    sym('"', [SS, POS.P]),
+    arrow('←', [CS, POS['5']]),
+    arrow('→', [CS, POS['8']]),
+    { variant: 'space', positions: [POS.SPACE], w: 4.5 },
+    arrow('↑', [CS, POS['7']]),
+    arrow('↓', [CS, POS['6']]),
+    sym(',', [SS, POS.N]),
+    mod('SYMBOL\nSHIFT', SS, 1, true),
+  ];
+
+  return [ROW1, ROW2, ROW3, ROW4, ROW5];
+}
 
 function KeyBody(props: { k: PKey; sparse?: boolean }) {
   const k = props.k;
@@ -332,14 +352,16 @@ function PRow(props: { keys: PKey[]; kbd: KeyboardController; sparse?: boolean }
  */
 export function KeyboardPlus(props: { sparse?: boolean; amstrad?: boolean }) {
   const kbd = useKeyboard();
+  const locale = () => machineDescriptor().locale;
+  const rows = () => buildRows(locale());
   return (
     <Pane id="keyboard-panel" label="Keyboard">
       <div class="kbd-plus" classList={{ 'kbd-plus--grey2': props.sparse, 'kbd-plus--amstrad': props.amstrad }}>
-        <PRow keys={ROW1} kbd={kbd} sparse={props.sparse} />
-        <PRow keys={ROW2} kbd={kbd} sparse={props.sparse} />
-        <PRow keys={ROW3} kbd={kbd} sparse={props.sparse} />
-        <PRow keys={ROW4} kbd={kbd} sparse={props.sparse} />
-        <PRow keys={ROW5} kbd={kbd} sparse={props.sparse} />
+        <PRow keys={rows()[0]} kbd={kbd} sparse={props.sparse} />
+        <PRow keys={rows()[1]} kbd={kbd} sparse={props.sparse} />
+        <PRow keys={rows()[2]} kbd={kbd} sparse={props.sparse} />
+        <PRow keys={rows()[3]} kbd={kbd} sparse={props.sparse} />
+        <PRow keys={rows()[4]} kbd={kbd} sparse={props.sparse} />
       </div>
     </Pane>
   );

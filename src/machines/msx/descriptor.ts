@@ -4,7 +4,7 @@
  */
 
 import type { IScreenRenderer } from '@/display/renderer.ts';
-import type { MachineDescriptor, MachineEntry, MachineUiCapabilities } from '@/machines/machine.ts';
+import type { MachineDescriptor, MachineEntry, MachineLocale, MachineUiCapabilities } from '@/machines/machine.ts';
 import type { MachineModel } from '@/models.ts';
 import type { MsxModel } from './models.ts';
 import { MsxMachine } from './msx-machine.ts';
@@ -43,10 +43,11 @@ const MSX_UI: MachineUiCapabilities = {
 
 /** Descriptor for the HX-10 — shared by the registry entry and the machine
  *  instance's own `descriptor` getter. */
-export function msxDescriptor(model: MachineModel): MachineDescriptor {
+export function msxDescriptor(model: MachineModel, locale: MachineLocale = 'uk'): MachineDescriptor {
   return {
     kind: 'msx',
     model,
+    locale,
     cpuFamily: 'z80',
     screen: {
       width: MSX_SCREEN_WIDTH, height: MSX_SCREEN_HEIGHT, pixelAspectX: 1,
@@ -64,7 +65,7 @@ export const msxEntry: MachineEntry = {
   create(model: MachineModel, display: IScreenRenderer | null) {
     return new MsxMachine(model as MsxModel, display);
   },
-  romSources() {
+  romSources(_model?: MachineModel, _locale?: MachineLocale) {
     return ['msx/hx-10_basic-bios1.rom'];
   },
 };

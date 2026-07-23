@@ -4,7 +4,7 @@
  */
 
 import type { IScreenRenderer } from '@/display/renderer.ts';
-import type { MachineDescriptor, MachineEntry, MachineUiCapabilities } from '@/machines/machine.ts';
+import type { MachineDescriptor, MachineEntry, MachineLocale, MachineUiCapabilities } from '@/machines/machine.ts';
 import type { MachineModel } from '@/models.ts';
 import { isEinsteinModel, type EinsteinModel } from './models.ts';
 import { EinsteinMachine } from './einstein-machine.ts';
@@ -27,8 +27,6 @@ const EINSTEIN_UI: MachineUiCapabilities = {
   systemRomLabel: 'ROM',
   romPages: 0,
   beeper: true,
-  // PSG (AY) sound, built-in floppy drives, keyboard and OCR. Tape-load activity
-  // isn't tracked by the Einstein probe, so no TAPE LED.
   statusLeds: ['kbd', 'ay', 'dsk', 'text'],
   keyboardBus: 'ula',
   tape: 'deck',
@@ -47,11 +45,12 @@ const EINSTEIN_UI: MachineUiCapabilities = {
  *  instance's own `descriptor` getter. Screen geometry is per-model: the
  *  TC-01's TMS9929A drives a 256×192 active area, the 256's V9938 a 512×212
  *  one. */
-export function einsteinDescriptor(model: MachineModel): MachineDescriptor {
+export function einsteinDescriptor(model: MachineModel, locale: MachineLocale = 'uk'): MachineDescriptor {
   const is256 = model === 'einstein-256';
   return {
     kind: 'einstein',
     model,
+    locale,
     cpuFamily: 'z80',
     screen: is256
       ? {
@@ -75,15 +74,11 @@ export const einsteinEntry: MachineEntry = {
   create(model: MachineModel, display: IScreenRenderer | null) {
     return new EinsteinMachine(model as EinsteinModel, display);
   },
-  romSources(model: MachineModel) {
+  romSources(model: MachineModel, _locale?: MachineLocale) {
     return model === 'einstein-256'
       ? ['einstein/mos21.rom']
       : ['einstein/mos12.rom'];
   },
-  /** A raw system-ROM drop classifies by image size: the 256's MOS 2.1 is
-   *  16KB, the TC-01's MOS 8KB. Both sizes collide with Spectrum ROMs, so we
-   *  only claim an image while an Einstein is already active (the zx8x
-   *  precedent). */
   detectModelForRom(data: Uint8Array, current: MachineModel): MachineModel | null {
     if (!isEinsteinModel(current)) return null;
     if (data.length === 0x4000) return 'einstein-256';

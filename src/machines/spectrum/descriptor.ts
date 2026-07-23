@@ -4,7 +4,8 @@
  */
 
 import type { IScreenRenderer } from '@/display/renderer.ts';
-import type { MachineDescriptor, MachineEntry, MachineUiCapabilities, MemoryRegionInfo, StatusLedId } from '@/machines/machine.ts';
+import type { MachineDescriptor, MachineEntry, MachineLocale, MachineUiCapabilities, MemoryRegionInfo } from '@/machines/machine.ts';
+import type { StatusLedId } from '@/machines/machine.ts';
 import type { MachineModel } from '@/models.ts';
 import { isCpcModel } from '@/models.ts';
 import type { SpectrumModel } from './models.ts';
@@ -24,11 +25,9 @@ function spectrumMemoryRegions(model: MachineModel): MemoryRegionInfo[] {
 }
 
 function spectrumStatusLeds(model: MachineModel): StatusLedId[] {
-  // Common to every Spectrum: keyboard, Kempston joystick, mouse, EAR tape-in,
-  // tape-load, OCR, rainbow attribute-cycling and the 1-bit beeper.
   const leds: StatusLedId[] = ['kbd', 'kemp', 'mouse', 'ear', 'load', 'text', 'rainbow', 'beep'];
-  if (is128kClass(model)) leds.push('ay');   // AY only on 128K-class (not 16K/48K)
-  if (isPlus3(model)) leds.push('dsk');       // built-in FDC only on the +3
+  if (is128kClass(model)) leds.push('ay');
+  if (isPlus3(model)) leds.push('dsk');
   return leds;
 }
 
@@ -61,25 +60,48 @@ function spectrumUi(model: MachineModel): MachineUiCapabilities {
   };
 }
 
+/** Build a ROM lookup key from model + locale. Returns just the model for 'uk'
+ *  (the default, matching existing CDN paths with no locale suffix). */
+function romKey(model: SpectrumModel, locale?: MachineLocale): string {
+  return locale && locale !== 'uk' ? `${model}-${locale}` : model;
+}
+
 // Each model lists its ROM pages in order; they are fetched and concatenated
 // by the shared rom-manager machinery. The +3 is resolved to the +2A's v4.1
 // set by the shell's effectiveROMModel() before lookup, but keep its own row
 // so the table is total over the family.
-const ROM_SOURCES: Record<SpectrumModel, string[]> = {
+//
+// International variants: 'es' = Spanish (Investrónica), 'fr' = French.
+// Keyed by model (UK) or `${model}-${locale}` for non-UK variants.
+// Falls back to UK when a locale ROM is not registered.
+const ROM_SOURCES: Record<string, string[]> = {
+  // ── UK defaults ──────────────────────────────────────────────────────────
   '16k':  ['sinclair/48.rom'],
   '48k':  ['sinclair/48.rom'],
   '128k': ['sinclair/128-0.rom', 'sinclair/128-1.rom'],
   '+2':   ['sinclair/plus2-0.rom', 'sinclair/plus2-1.rom'],
   '+2A':  ['sinclair/plus3-41-0.rom', 'sinclair/plus3-41-1.rom', 'sinclair/plus3-41-2.rom', 'sinclair/plus3-41-3.rom'],
   '+3':   ['sinclair/plus3-0.rom', 'sinclair/plus3-1.rom', 'sinclair/plus3-2.rom', 'sinclair/plus3-3.rom'],
+
+  // ── Spanish (Investrónica) ───────────────────────────────────────────────
+  '48k-es':  ['sinclair/48-es.rom'],
+  '128k-es': ['sinclair/128-0-es.rom', 'sinclair/128-1-es.rom'],
+  '+2-es':   ['sinclair/plus2-0-es.rom', 'sinclair/plus2-1-es.rom'],
+  '+2A-es':  ['sinclair/plus3-0-es.rom', 'sinclair/plus3-1-es.rom', 'sinclair/plus3-2-es.rom', 'sinclair/plus3-3-es.rom'],
+  '+3-es':   ['sinclair/plus3-0-es.rom', 'sinclair/plus3-1-es.rom', 'sinclair/plus3-2-es.rom', 'sinclair/plus3-3-es.rom'],
+
+  // ── French ───────────────────────────────────────────────────────────────
+  '128k-fr': ['sinclair/128-0-fr.rom', 'sinclair/128-1-fr.rom'],
+  '+2-fr':   ['sinclair/plus2-0-fr.rom', 'sinclair/plus2-1-fr.rom'],
 };
 
 /** Descriptor for one Spectrum model — shared by the registry entry and the
  *  machine instance's own `descriptor` getter. */
-export function spectrumDescriptor(model: MachineModel): MachineDescriptor {
+export function spectrumDescriptor(model: MachineModel, locale: MachineLocale = 'uk'): MachineDescriptor {
   return {
     kind: 'spectrum',
     model,
+    locale,
     cpuFamily: 'z80',
     screen: {
       width: SCREEN_WIDTH, height: SCREEN_HEIGHT, pixelAspectX: 1,
@@ -97,8 +119,10 @@ export const spectrumEntry: MachineEntry = {
   create(model: MachineModel, display: IScreenRenderer | null) {
     return new Spectrum(model as SpectrumModel, display);
   },
-  romSources(model: MachineModel) {
-    return ROM_SOURCES[model as SpectrumModel];
+  romSources(model: MachineModel, locale?: MachineLocale) {
+    const sm = model as SpectrumModel;
+    const key = romKey(sm, locale);
+    return ROM_SOURCES[key] ?? ROM_SOURCES[sm];
   },
   /** ROM-size → Spectrum model: a raw image always lands on a Spectrum (a CPC
    *  falls back to a 128K base), keeping the current model when its class

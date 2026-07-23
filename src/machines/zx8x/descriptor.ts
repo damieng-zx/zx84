@@ -1,5 +1,5 @@
 import type { IScreenRenderer } from '@/display/renderer.ts';
-import type { MachineDescriptor, MachineEntry, MachineUiCapabilities } from '@/machines/machine.ts';
+import type { MachineDescriptor, MachineEntry, MachineLocale, MachineUiCapabilities } from '@/machines/machine.ts';
 import type { MachineModel } from '@/models.ts';
 import type { Zx8xModel } from './models.ts';
 import { Zx8xMachine } from './zx8x-machine.ts';
@@ -40,9 +40,9 @@ const UI: MachineUiCapabilities = {
   charset: 'spectrum',
 };
 
-export function zx8xDescriptor(model: MachineModel): MachineDescriptor {
+export function zx8xDescriptor(model: MachineModel, locale: MachineLocale = 'uk'): MachineDescriptor {
   return {
-    kind: 'zx8x', model, cpuFamily: 'z80',
+    kind: 'zx8x', model, locale, cpuFamily: 'z80',
     screen: {
       width: ZX8X_SCREEN_WIDTH, height: ZX8X_SCREEN_HEIGHT, pixelAspectX: 1,
       activeWidth: ZX8X_ACTIVE_WIDTH, activeHeight: ZX8X_ACTIVE_HEIGHT,
@@ -59,7 +59,7 @@ export const zx8xEntry: MachineEntry = {
   create(model: MachineModel, display: IScreenRenderer | null) {
     return new Zx8xMachine(model as Zx8xModel, display);
   },
-  romSources(model: MachineModel) {
+  romSources(model: MachineModel, _locale?: MachineLocale) {
     return [model === 'zx80' ? ZX80_ROM : ZX81_ROM];
   },
   detectModelForRom(data: Uint8Array, current: MachineModel): MachineModel | null {
