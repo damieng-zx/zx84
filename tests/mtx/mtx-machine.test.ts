@@ -20,6 +20,20 @@ describe('MTX machine registration', () => {
     }
   });
 
+  it('exposes both fixed-wiring joystick ports through the input service', () => {
+    const m = machine();
+    expect(m.descriptor.ui.joystick).toBe(true);
+    expect(m.descriptor.ui.fixedJoystick).toBe(true);
+
+    m.services.input.joystick.press('up', true, 'fixed', 0);
+    m.keyboard.selectDrive(0xFB);
+    expect(m.keyboard.readSenseLow()).toBe(0x7F);
+
+    m.services.input.releaseAll();
+    m.keyboard.selectDrive(0xFB);
+    expect(m.keyboard.readSenseLow()).toBe(0xFF);
+  });
+
   it('declares the page-4 CP/M bootstrap before page-5 Disk BASIC', () => {
     const entry = entryForModel('mtx512');
 

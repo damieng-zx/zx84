@@ -8,6 +8,18 @@
 
 type Cell = readonly [drive: number, sense: number];
 
+// Both Atari-style joystick sockets are wired in parallel with the keyboard.
+// The preferred right socket shadows the cursor/Home keys; the left socket
+// shadows the Z/C/B/M/Space cluster.
+const JOYSTICK_MAP: readonly Record<string, Cell>[] = [
+  {
+    left: [3, 7], right: [4, 7], up: [2, 7], down: [6, 7], fire: [5, 7],
+  },
+  {
+    left: [7, 0], right: [7, 1], up: [7, 2], down: [7, 3], fire: [7, 8],
+  },
+];
+
 const KEY_MAP: Record<string, Cell> = {
   Digit1: [0, 0], Digit2: [1, 1], Digit3: [0, 1], Digit4: [1, 2],
   Digit5: [0, 2], Digit6: [1, 3], Digit7: [0, 3], Digit8: [1, 4],
@@ -40,6 +52,7 @@ const KEY_MAP: Record<string, Cell> = {
 export class MtxKeyboard {
   /** Ten active-low sense bits for each of the eight drive lines. */
   private readonly matrix = new Uint16Array(8).fill(0x03FF);
+  private readonly joystickMatrix = new Uint16Array(8).fill(0x03FF);
   private driveMask = 0xFF;
 
   selectDrive(mask: number): void {
@@ -70,15 +83,26 @@ export class MtxKeyboard {
     else this.matrix[drive] |= bit;
   }
 
+  setJoystick(direction: string, pressed: boolean, player: number): void {
+    const cell = JOYSTICK_MAP[player]?.[direction];
+    if (!cell) return;
+    const bit = 1 << cell[1];
+    if (pressed) this.joystickMatrix[cell[0]] &= ~bit & 0x03FF;
+    else this.joystickMatrix[cell[0]] |= bit;
+  }
+
   reset(): void {
     this.matrix.fill(0x03FF);
+    this.joystickMatrix.fill(0x03FF);
     this.driveMask = 0xFF;
   }
 
   private selectedSense(): number {
     let result = 0x03FF;
     for (let drive = 0; drive < 8; drive++) {
-      if ((this.driveMask & (1 << drive)) === 0) result &= this.matrix[drive];
+      if ((this.driveMask & (1 << drive)) === 0) {
+        result &= this.matrix[drive] & this.joystickMatrix[drive];
+      }
     }
     return result;
   }

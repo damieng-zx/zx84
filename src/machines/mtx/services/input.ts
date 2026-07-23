@@ -1,4 +1,6 @@
-import type { HostKeyEvent, InputService, MouseSink } from '@/machines/machine.ts';
+import type {
+  HostKeyEvent, InputService, JoystickInput, MouseSink,
+} from '@/machines/machine.ts';
 import type { MtxMachine } from '../mtx-machine.ts';
 
 export class MtxInputService implements InputService {
@@ -17,5 +19,9 @@ export class MtxInputService implements InputService {
   }
 
   readonly mouse: MouseSink | null = null;
-  readonly joystick = null;
+  readonly joystick: JoystickInput = {
+    press: (direction, pressed, _mode, player) => {
+      this.machine.keyboard.setJoystick(direction, pressed, player);
+    },
+  };
 }
