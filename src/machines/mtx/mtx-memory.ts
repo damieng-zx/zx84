@@ -3,6 +3,7 @@ import type { MtxModel } from './models.ts';
 
 const BLOCK_SIZE = 0x4000;
 const ROM_SIZE = 0x2000;
+const ROM_PACK_MAX_SIZE = 0x20000;
 const RAM_EXPANSION_BLOCKS = 512 * 1024 / BLOCK_SIZE;
 const CPM_EMPTY_DIRECTORY_BYTE = 0xE5;
 
@@ -21,6 +22,7 @@ export class MtxMemory implements IMachineMemory {
 
   private ioByte = 0;
   private romSubpage = 0;
+  private romPack: Uint8Array | null = null;
   private cpmBootstrapEnabled = false;
   private ramExpansion512k = false;
   private readonly baseRamBlocks: number;
@@ -40,6 +42,7 @@ export class MtxMemory implements IMachineMemory {
   get ramMode(): boolean { return (this.ioByte & 0x80) !== 0; }
   get ramExpansion512kEnabled(): boolean { return this.ramExpansion512k; }
   get ramSizeBytes(): number { return this.ramBanks.length * BLOCK_SIZE; }
+  get romPackSizeBytes(): number { return this.romPack?.length ?? 0; }
 
   setCpmBootstrapEnabled(enabled: boolean): void {
     this.cpmBootstrapEnabled = enabled;
@@ -60,6 +63,21 @@ export class MtxMemory implements IMachineMemory {
 
   setPageRegister(value: number): void {
     this.ioByte = value & 0xFF;
+  }
+
+  insertRomPack(data: Uint8Array): void {
+    if (
+      data.length < ROM_SIZE ||
+      data.length > ROM_PACK_MAX_SIZE ||
+      data.length % ROM_SIZE !== 0
+    ) {
+      throw new Error('ROM pack must contain 1-16 complete 8 KiB banks');
+    }
+    this.romPack = data.slice();
+  }
+
+  ejectRomPack(): void {
+    this.romPack = null;
   }
 
   /**
@@ -88,6 +106,10 @@ export class MtxMemory implements IMachineMemory {
     if (!this.ramMode && addr < 0x2000) return this.osRom[addr];
     if (!this.ramMode && addr < 0x4000) {
       if (this.selectedRomPage === 4 && !this.cpmBootstrapEnabled) return 0xFF;
+      if (this.selectedRomPage === 2 && this.romPack) {
+        const offset = this.romSubpage * ROM_SIZE + addr - 0x2000;
+        return offset < this.romPack.length ? this.romPack[offset] : 0xFF;
+      }
       return this.romPages[this.selectedRomPage][addr - 0x2000];
     }
     const mapped = this.ramLocation(addr);
@@ -98,8 +120,7 @@ export class MtxMemory implements IMachineMemory {
     addr &= 0xFFFF;
     value &= 0xFF;
     if (!this.ramMode && addr < 0x2000) {
-      // Writes under the fixed OS ROM select a subpage on expansion ROM
-      // hardware. Standard MTX ROMs have one subpage, but retain the latch.
+      // The ROM extension card latches the written byte as its 8K subpage.
       this.romSubpage = value;
       return;
     }

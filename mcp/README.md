@@ -45,7 +45,7 @@ Some tools are intentionally hardware-specific:
   +D, Beta Disk, microdrives, and +3 boot helpers.
 - CPC, MSX, MTX, Einstein, ZX80/ZX81: media loads route through the machine's own
   `MediaService` (CPC `.dsk/.hfe/.scp/.cdt/.sna/.cpr`, MSX `.rom/.cas`,
-  MTX `.mtx/.mfloppy`, Einstein `.dsk/.hfe/.scp`, ZX80/ZX81 program files). CPC adds
+  MTX `.rom/.mtx/.mfloppy`, Einstein `.dsk/.hfe/.scp`, ZX80/ZX81 program files). CPC adds
   built-in uPD765A disk inspection, CPC OCR, and PNG screenshots.
 - ZX80/ZX81 additionally: model-constrained ZXDB library loading, 1KB/16KB
   RAM selection, ZX81 UDG and WRX hi-res hardware selection, and display-file

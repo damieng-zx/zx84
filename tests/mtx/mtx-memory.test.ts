@@ -149,4 +149,48 @@ describe('MTX memory', () => {
     memory.setPageRegister(0x50);
     expect(memory.readByte(0x2000)).toBe(0xD5);
   });
+
+  it('maps ROM-pack banks into ROM page 2 through the subpage latch', () => {
+    const memory = new MtxMemory('mtx512');
+    const pack = new Uint8Array(4 * 0x2000);
+    for (let bank = 0; bank < 4; bank++) {
+      pack.fill(0x40 + bank, bank * 0x2000, (bank + 1) * 0x2000);
+    }
+    memory.insertRomPack(pack);
+    memory.setPageRegister(0x20);
+
+    expect(memory.readByte(0x2000)).toBe(0x40);
+    memory.writeByte(0x0123, 2);
+    expect(memory.selectedRomSubpage).toBe(2);
+    expect(memory.readByte(0x2000)).toBe(0x42);
+
+    memory.writeByte(0x0123, 4);
+    expect(memory.readByte(0x2000)).toBe(0xFF);
+  });
+
+  it('keeps a fitted ROM pack across reset and removes it on eject', () => {
+    const memory = new MtxMemory('mtx512');
+    memory.insertRomPack(new Uint8Array(0x2000).fill(0x5A));
+    memory.setPageRegister(0x20);
+    memory.writeByte(0, 7);
+
+    memory.reset();
+    memory.setPageRegister(0x20);
+    expect(memory.selectedRomSubpage).toBe(0);
+    expect(memory.readByte(0x2000)).toBe(0x5A);
+
+    memory.ejectRomPack();
+    expect(memory.readByte(0x2000)).toBe(0xFF);
+  });
+
+  it('rejects malformed and oversized ROM packs', () => {
+    const memory = new MtxMemory('mtx512');
+
+    expect(() => memory.insertRomPack(new Uint8Array(0x1FFF)))
+      .toThrow(/1-16 complete 8 KiB banks/);
+    expect(() => memory.insertRomPack(new Uint8Array(0x2001)))
+      .toThrow(/1-16 complete 8 KiB banks/);
+    expect(() => memory.insertRomPack(new Uint8Array(0x22000)))
+      .toThrow(/1-16 complete 8 KiB banks/);
+  });
 });

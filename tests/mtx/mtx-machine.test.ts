@@ -46,6 +46,42 @@ describe('MTX machine registration', () => {
     ]);
     expect(entry.detectModelForRom?.(new Uint8Array(0xA000), 'mtx512')).toBe('mtx512');
   });
+
+  it('loads and ejects a native ROM pack through the cartridge service', async () => {
+    const m = machine();
+    const pack = new Uint8Array(0x4000);
+    pack[0] = 0x21;
+    pack[0x2000] = 0x22;
+
+    const result = await m.services.media.mount(pack, 'pascal.rom');
+
+    expect(m.descriptor.ui.cartridge).toBe(true);
+    expect(m.services.media.accepts()).toContainEqual({ ext: '.rom', target: 'cartridge' });
+    expect(result).toEqual({
+      ok: true,
+      target: 'cartridge',
+      message: 'ROM pack: pascal.rom — type ROM 2',
+    });
+    expect(m.services.roms.cartridge.name).toBe('pascal.rom');
+    m.memory.setPageRegister(0x20);
+    expect(m.memory.readByte(0x2000)).toBe(0x21);
+    m.memory.writeByte(0, 1);
+    expect(m.memory.readByte(0x2000)).toBe(0x22);
+
+    m.services.roms.cartridge.eject();
+    expect(m.services.roms.cartridge.name).toBe('');
+    m.memory.setPageRegister(0x20);
+    expect(m.memory.readByte(0x2000)).toBe(0xFF);
+  });
+
+  it('reports invalid ROM-pack geometry through media routing', async () => {
+    const m = machine();
+
+    const result = await m.services.media.mount(new Uint8Array(123), 'broken.rom');
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toMatch(/1-16 complete 8 KiB banks/);
+  });
 });
 
 describe('MTX motherboard I/O', () => {

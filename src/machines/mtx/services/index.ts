@@ -21,9 +21,10 @@ export interface MtxServices extends MachineServices {
 export function createMtxServices(machine: MtxMachine): MtxServices {
   const tape = new MtxTapeService(machine);
   const disks = new MtxDiskService(machine);
+  const roms = new MtxRomService(machine, () => machine.host);
   return {
-    media: new MtxMediaService(tape, disks),
-    roms: new MtxRomService(machine, () => machine.host),
+    media: new MtxMediaService(tape, disks, roms),
+    roms,
     tape,
     disks,
     snapshots: null,
