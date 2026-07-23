@@ -1,13 +1,17 @@
-import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Machine } from '../src/machines/machine.ts';
 import { unzip } from '../src/media/zip.ts';
 import { state } from './state.ts';
+import { resolveMediaSource } from './media-source.ts';
 
-/** Load a local file through a machine's generic media service. */
-export async function loadMediaInto(machine: Machine, filepath: string, target?: string): Promise<string> {
-  if (!fs.existsSync(filepath)) return `File not found: ${filepath}`;
-  return mountMediaBytes(machine, new Uint8Array(fs.readFileSync(filepath)), path.basename(filepath), undefined, target);
+/** Load a local path or HTTP(S) URL through a machine's media service. */
+export async function loadMediaInto(machine: Machine, source: string, target?: string): Promise<string> {
+  try {
+    const media = await resolveMediaSource(source);
+    return mountMediaBytes(machine, media.data, media.filename, undefined, target);
+  } catch (error) {
+    return (error as Error).message;
+  }
 }
 
 /** Mount in-memory media, unwrapping a ZIP when it contains exactly one file

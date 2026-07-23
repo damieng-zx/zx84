@@ -23,6 +23,10 @@ export class MsxTapeService implements TapeService {
       index,
       label: b.title,
       kind: b.header ? 'header' : 'data',
+      detail: b.detail,
+      name: b.name,
+      type: b.type,
+      size: b.size,
     }));
   }
   /** No pulse deck: the block view flows through the cas signals instead. */

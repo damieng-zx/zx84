@@ -112,8 +112,8 @@ async function loadZx8xLibraryTitle(
 export function register(server: McpServer): void {
   server.registerTool(
     'load',
-    { description: 'Load a file into the emulator. ZX80 accepts .o/.80; ZX81 accepts .p/.81/.p81; CPC accepts .dsk/.hfe/.scp disks, .cdt tapes, .sna snapshots, and .cpr cartridges on Plus models; MSX accepts .rom/.cas; Einstein accepts .dsk/.hfe/.scp; Spectrum accepts its tape/snapshot/disk formats (peripheral media auto-enables the matching interface). ZIPs are unwrapped when they hold exactly one compatible file. For DSK, optional drive unit (0/A or 1/B); for MDR, optional microdrive unit (0-7 → drives 1-8).', inputSchema: {
-      file: z.string().describe('Path to a machine-compatible media file or ZIP'),
+    { description: 'Load media from a local path or HTTP(S) URL into the emulator. ZX80 accepts .o/.80; ZX81 accepts .p/.81/.p81; CPC accepts .dsk/.hfe/.scp disks, .cdt tapes, .sna snapshots, and .cpr cartridges on Plus models; MSX accepts .rom/.cas; MTX accepts .rom packs, .mtx tapes, and Type 03/07 .mfloppy disks; Einstein accepts .dsk/.hfe/.scp; Spectrum accepts its tape/snapshot/disk formats (peripheral media auto-enables the matching interface). ZIPs are unwrapped when they hold exactly one compatible file. For disks, optional drive unit (0/A or 1/B); for MDR, optional microdrive unit (0-7 → drives 1-8).', inputSchema: {
+      file: z.string().describe('Local path or HTTP(S) URL to a machine-compatible media file or ZIP'),
       drive: z.enum(['0', '1', 'A', 'B']).default('0').describe('Drive unit for DSK files'),
     } },
     async ({ file, drive }) => {
@@ -323,7 +323,7 @@ export function register(server: McpServer): void {
 
   server.registerTool(
     'disk_boot',
-    { description: 'Boot from disk in drive A: on a +3. Runs 500 frames to reach the menu, then presses Enter on "Loader". If a file path is given, switches to +3, mounts the DSK, and boots it.', inputSchema: { file: z.string().optional().describe('Path to DSK file to load into drive A: (optional — omit if disk already mounted)') } },
+    { description: 'Boot from disk in drive A: on a +3. Runs 500 frames to reach the menu, then presses Enter on "Loader". If a local path or HTTP(S) URL is given, switches to +3, mounts the DSK, and boots it.', inputSchema: { file: z.string().optional().describe('Local path or HTTP(S) URL to a DSK for drive A: (optional — omit if disk already mounted)') } },
     async ({ file }) => {
       if (activeCpc()) return text('disk_boot is +3-specific. On the CPC, use load to mount a .dsk, then type RUN"DISC or |CPM.');
       const lines: string[] = [];
@@ -358,7 +358,7 @@ export function register(server: McpServer): void {
 
   server.registerTool(
     'disk_trace',
-    { description: 'Copy-protection trace helper: switch to +3, mount a DSK, boot to Loader, then arm a FE10h PC breakpoint and a 3FFDh FDC data port watchpoint so every FDC command byte breaks execution.', inputSchema: { file: z.string().describe('Path to DSK file to load into drive A:') } },
+    { description: 'Copy-protection trace helper: switch to +3, mount a local or HTTP(S) DSK, boot to Loader, then arm a FE10h PC breakpoint and a 3FFDh FDC data port watchpoint so every FDC command byte breaks execution.', inputSchema: { file: z.string().describe('Local path or HTTP(S) URL to a DSK for drive A:') } },
     async ({ file }) => {
       if (activeCpc()) return text('disk_trace is a +3 copy-protection helper, not applicable to the CPC.');
       const lines: string[] = [];

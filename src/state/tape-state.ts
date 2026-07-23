@@ -9,7 +9,7 @@
 
 import { createSignal } from 'solid-js';
 import type { TapeBlock } from '@/media/tape/tap.ts';
-import type { CasBlock } from '@/media/tape/cas.ts';
+import type { TapeBlockInfo } from '@/machines/machine.ts';
 
 const _tapeLoaded = createSignal(false);
 export const tapeLoaded = _tapeLoaded[0];
@@ -23,13 +23,13 @@ const _tapeBlocks = createSignal<TapeBlock[]>([]);
 export const tapeBlocks = _tapeBlocks[0];
 export const setTapeBlocks = _tapeBlocks[1];
 
-// MSX .cas blocks (the MSX cassette is instant-load, so it has its own simple
-// block list separate from the pulse-level TapeBlock[] above).
-const _casBlocks = createSignal<CasBlock[]>([]);
+// Logical instant-cassette blocks (.cas, .mtx), separate from the pulse-level
+// TapeBlock[] used by real-time tape decks.
+const _casBlocks = createSignal<TapeBlockInfo[]>([]);
 export const casBlocks = _casBlocks[0];
 export const setCasBlocks = _casBlocks[1];
 
-// Index of the .cas block currently being read (-1 = none / not loading).
+// Index of the instant-cassette block currently being read (-1 = not loading).
 const _casPosition = createSignal(-1);
 export const casPosition = _casPosition[0];
 export const setCasPosition = _casPosition[1];

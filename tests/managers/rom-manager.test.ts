@@ -324,6 +324,36 @@ describe('ROMManager.fetchDefaultROM', () => {
 
 // ── loadROM (cache → IDB → fetch) ─────────────────────────────────────────
 
+describe('ROMManager.fetchBootDisk', () => {
+  it('fetches a fully-qualified public disk once and persists it under the machine key', async () => {
+    const source = 'https://example.test/mtx/system.mfloppy';
+    const body = new Uint8Array([0x07, 0x80, 0x22]);
+    const { calls } = installFetch({ [source]: { body } });
+    const m = new ROMManager();
+
+    const first = await m.fetchBootDisk(source, 'disk-mtx-cpm-test');
+    const second = await m.fetchBootDisk(source, 'disk-mtx-cpm-test');
+
+    expect(Array.from(first ?? [])).toEqual([0x07, 0x80, 0x22]);
+    expect(second).toBe(first);
+    expect(calls).toEqual([source]);
+    expect(idb.get('disk-mtx-cpm-test')).toEqual(body);
+  });
+
+  it('restores a boot disk from IndexedDB without fetching', async () => {
+    idb.set('disk-mtx-cpm-test', new Uint8Array([0xA5]));
+    const { calls } = installFetch({});
+
+    const got = await new ROMManager().fetchBootDisk(
+      'https://example.test/mtx/system.mfloppy',
+      'disk-mtx-cpm-test',
+    );
+
+    expect(Array.from(got ?? [])).toEqual([0xA5]);
+    expect(calls).toEqual([]);
+  });
+});
+
 describe('ROMManager.loadROM', () => {
   it('returns the in-memory cached entry without fetching', async () => {
     const { calls } = installFetch({});

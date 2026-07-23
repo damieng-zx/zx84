@@ -14,7 +14,7 @@ export interface ZipEntry {
 // disk images (dsk/hfe/scp), MSX cartridge/cassette (rom/cas), Beta Disk
 // (trd/scl), MGT +D (mgt/img), Interface 1 microdrive (mdr/mdv), and
 // ZX80/ZX81 program images (o/80/p/81/p81).
-const LOADABLE_EXTS = /\.(sna|z80|szx|sp|tap|tzx|csw|cdt|dsk|hfe|scp|rom|cas|trd|scl|mgt|img|mdr|mdv|o|80|p|81|p81)$/i;
+const LOADABLE_EXTS = /\.(sna|z80|szx|sp|tap|tzx|csw|cdt|dsk|hfe|scp|rom|cas|mtx|trd|scl|mgt|img|mdr|mdv|o|80|p|81|p81)$/i;
 
 /** Parse a ZIP archive and return entries with loadable extensions. */
 export async function unzip(data: Uint8Array): Promise<ZipEntry[]> {

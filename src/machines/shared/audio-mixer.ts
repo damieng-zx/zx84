@@ -1,14 +1,16 @@
 /**
  * Audio mixer peripheral: beeper accumulation, DC-blocking filter,
- * and stereo sample generation (beeper + AY).
+ * and stereo sample generation (beeper + programmable sound generator).
  *
  * Lives in `machines/shared/` because every machine (Spectrum, CPC, Einstein,
- * MSX) mixes its beeper/AY output through it — it is genuinely machine-agnostic
+ * MSX, MTX) mixes its beeper/PSG output through it — it is genuinely machine-agnostic
  * DSP, not owned by any single machine folder.
  */
 
 import type { Audio } from '@/audio.ts';
-import type { AY3891x } from '@/cores/ay-3-8910.ts';
+export interface StereoAudioSource {
+  generateSampleStereo(): { left: number; right: number };
+}
 
 function clamp01(v: number): number {
   return v < 0 ? 0 : v > 1 ? 1 : v;
@@ -33,7 +35,7 @@ export class AudioMixer {
   private beeperDCPrev = 0;
   private beeperDCOut = 0;
 
-  /** Gain factors for AY/beeper balance (clamped to 0..1) */
+  /** Gain factors for PSG/beeper balance (clamped to 0..1). */
   private _beeperGain = 1.0;
   private _ayGain = 1.0;
 
@@ -42,6 +44,9 @@ export class AudioMixer {
 
   get ayGain(): number { return this._ayGain; }
   set ayGain(v: number) { this._ayGain = clamp01(v); }
+  /** Machine-neutral alias; `ayGain` remains for settings compatibility. */
+  get psgGain(): number { return this._ayGain; }
+  set psgGain(v: number) { this._ayGain = clamp01(v); }
 
   constructor(cpuClock: number) {
     this.cpuClock = cpuClock;
@@ -71,7 +76,7 @@ export class AudioMixer {
   }
 
   /** Generate audio samples when enough T-states have accumulated. */
-  generateSamples(audio: Audio, ay: AY3891x | null, is128k: boolean): void {
+  generateSamples(audio: Audio, psg: StereoAudioSource | null, psgEnabled: boolean): void {
     while (this.beeperTStatesAccum >= this.tStatesPerSample) {
       // Time-weighted duty across the currently accumulated window. When
       // multiple sample windows are pending (catch-up: snapshot restore,
@@ -89,10 +94,10 @@ export class AudioMixer {
       const beeperOut = this.beeperDCOut;
 
       let left: number, right: number;
-      if (is128k && ay) {
-        const aySample = ay.generateSampleStereo();
-        left = aySample.left * this._ayGain + beeperOut * this._beeperGain;
-        right = aySample.right * this._ayGain + beeperOut * this._beeperGain;
+      if (psgEnabled && psg) {
+        const psgSample = psg.generateSampleStereo();
+        left = psgSample.left * this._ayGain + beeperOut * this._beeperGain;
+        right = psgSample.right * this._ayGain + beeperOut * this._beeperGain;
       } else {
         left = beeperOut * this._beeperGain;
         right = beeperOut * this._beeperGain;

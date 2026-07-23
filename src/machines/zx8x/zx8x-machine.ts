@@ -39,6 +39,7 @@ const MEMOTECH_ROM_SOURCE = 'https://raw.githubusercontent.com/charlierobson/Eig
 const QUICKSILVA_ROM_SOURCE = 'https://raw.githubusercontent.com/charlierobson/EightyOne/master/Source/ROMs/Graphics/quicksilvahires.rom';
 
 export class Zx8xMachine extends BaseMachine implements Machine {
+  protected get audioChip(): AY3891x { return this.ay; }
   readonly kind: MachineKind = 'zx8x';
   readonly model: Zx8xModel;
   readonly cpu = new Z80();

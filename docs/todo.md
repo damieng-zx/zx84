@@ -6,7 +6,7 @@
 - [ ] Fullscreen mode
 - [ ] Mobile-responsive layout
 - [ ] Virtual keyboard overlay (mobile/tablet)
-- [ ] URL query parameter loading (e.g. `?tap=url`)
+- [x] URL query parameter loading (`?tape=`, `?diskN=`, `?snap=`)
 
 ### File Formats
 - [x] `.szx` snapshot format

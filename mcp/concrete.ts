@@ -14,6 +14,7 @@ import type { Spectrum } from '../src/machines/spectrum/spectrum.ts';
 import type { CpcMachine } from '../src/machines/cpc/cpc-machine.ts';
 import type { MsxMachine } from '../src/machines/msx/msx-machine.ts';
 import type { EinsteinMachine } from '../src/machines/einstein/einstein-machine.ts';
+import type { MtxMachine } from '../src/machines/mtx/mtx-machine.ts';
 import type { UPD765A } from '../src/cores/upd765a.ts';
 import type { Machine } from '../src/machines/machine.ts';
 import { state, type InitMachineOptions } from './state.ts';
@@ -42,6 +43,11 @@ export function activeMsx(): MsxMachine | null {
 /** The active machine as an EinsteinMachine, or null otherwise. */
 export function activeEinstein(): EinsteinMachine | null {
   return narrow<EinsteinMachine>('einstein');
+}
+
+/** The active Memotech MTX motherboard, or null otherwise. */
+export function activeMtx(): MtxMachine | null {
+  return narrow<MtxMachine>('mtx');
 }
 
 /** The built-in uPD765A of the active +3/CPC, or null (sector-level tools). */
