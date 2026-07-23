@@ -15,7 +15,7 @@ ZX84 is an old-computer emulator with machine-specific hardware models, browser-
 | Amstrad CPC | CPC 464, CPC 664, CPC 6128 | Z80, gate array, 6845 CRTC, AY-3-891x, 8255 PPI, uPD765A on 664/6128 |
 | Tatung Einstein | TC-01 | Z80, TMS9929A VDP, AY-3-8910, Z80 CTC, WD1770 |
 | MSX | Toshiba HX-10 | Z80, TMS9929A VDP, AY-3-8910, 8255 PPI, cartridge slot |
-| Memotech MTX | MTX500, MTX512 | Z80, TMS9929A VDP, Z80 CTC, SN76489A, FDX/SDX WD179x disk interface |
+| Memotech MTX | MTX500, MTX512 | Z80, TMS9929A VDP, Z80 CTC, SN76489A, FDX/SDX WD179x disk interface, optional 6845 80-column display |
 
 ## Features
 
@@ -26,7 +26,7 @@ ZX84 is an old-computer emulator with machine-specific hardware models, browser-
 - CPC cassette support, disk-capable 664/6128 models, Multiface Two, and optional ParaDOS ROM.
 - Einstein disk mounting and optional Xtal DOS boot-disk behavior.
 - HX-10 cartridge loading and BIOS-level `.cas` cassette loading.
-- MTX logical cassette loading and FDX/SDX Type 07 floppy mounting.
+- MTX logical cassette loading, FDX/SDX Type 07 floppy mounting, and optional 80×24 colour display.
 
 Spectrum ROM-overlay peripherals are model-dependent. Interface 1, MGT +D, and Beta Disk are mutually exclusive; Beta Disk takes precedence when enabled.
 

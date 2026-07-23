@@ -4,8 +4,8 @@
  * Reuses the commodity Z80A, TMS9929A, Z80 CTC and SN76489A cores. This first
  * base-machine implementation covers ROM BASIC operation, banked memory,
  * keyboard scanning, VDP video, CTC interrupts, PSG audio and logical `.mtx`
- * cassette loading and the FDX/SDX-compatible floppy expansion. Printer and
- * DART hardware remain unfitted.
+ * cassette loading, the FDX/SDX-compatible floppy expansion, and the optional
+ * FDX 80-column display. Printer and DART hardware remain unfitted.
  */
 
 import { Z80 } from '@/cores/z80.ts';
@@ -27,6 +27,9 @@ import type { MtxModel } from './models.ts';
 import { MtxMemory } from './mtx-memory.ts';
 import { MtxKeyboard } from './mtx-keyboard.ts';
 import { MtxFdx } from './peripherals/fdx.ts';
+import {
+  Mtx80ColumnCard, MTX_80_COLUMN_HEIGHT, MTX_80_COLUMN_WIDTH,
+} from './peripherals/fdx-80-column.ts';
 import { installMtxMemoryHooks, wireMtxPortIO } from './mtx-io.ts';
 import { mtxDescriptor } from './descriptor.ts';
 import { createMtxServices, type MtxServices } from './services/index.ts';
@@ -53,6 +56,7 @@ export class MtxMachine extends BaseMachine implements Machine {
   readonly keyboard = new MtxKeyboard();
   readonly fdx = new MtxFdx();
   readonly fdc = this.fdx.fdc;
+  readonly column80 = new Mtx80ColumnCard();
   readonly psg = new Sn76489(MTX_CPU_CLOCK, 48_000, 'mtx');
   readonly screenText = new Tms9918ScreenText();
   readonly mixer = new AudioMixer(MTX_CPU_CLOCK);
@@ -65,14 +69,21 @@ export class MtxMachine extends BaseMachine implements Machine {
   readonly cassette = new MtxCassette();
   readonly activity = { kbdReads: 0, psgWrites: 0, casReads: 0, fdcAccesses: 0 };
 
-  private readonly _pixels = new Uint8Array(MTX_SCREEN_WIDTH * MTX_SCREEN_HEIGHT * 4);
-  private readonly _pixels32 = new Uint32Array(this._pixels.buffer);
-  get pixels(): Uint8Array { return this._pixels; }
+  private readonly vdpPixels = new Uint8Array(MTX_SCREEN_WIDTH * MTX_SCREEN_HEIGHT * 4);
+  private readonly vdpPixels32 = new Uint32Array(this.vdpPixels.buffer);
+  private borderMode: BorderMode = 1;
+  get pixels(): Uint8Array {
+    return this.column80.enabled ? this.column80.pixels : this.vdpPixels;
+  }
 
   protected get audioChip(): Sn76489 { return this.psg; }
   get descriptor(): MachineDescriptor { return mtxDescriptor(this.model); }
-  get frameWidth(): number { return MTX_SCREEN_WIDTH; }
-  get frameHeight(): number { return MTX_SCREEN_HEIGHT; }
+  get frameWidth(): number {
+    return this.column80.enabled ? MTX_80_COLUMN_WIDTH : MTX_SCREEN_WIDTH;
+  }
+  get frameHeight(): number {
+    return this.column80.enabled ? MTX_80_COLUMN_HEIGHT : MTX_SCREEN_HEIGHT;
+  }
   get tStatesPerFrame(): number { return MTX_TSTATES_PER_FRAME; }
   get cpuClockHz(): number { return MTX_CPU_CLOCK; }
 
@@ -121,15 +132,22 @@ export class MtxMachine extends BaseMachine implements Machine {
     this.vdp.palette =
       MSX_PALETTES[view.get('msx-color-map', 'pal') as keyof typeof MSX_PALETTES];
     this.audio.setVolume(view.get('volume', 70) / 100);
+    this.set80ColumnEnabled(view.get('mtx-80-column', false));
   }
 
   prepare(view: SettingsView): [] {
     this.fdc.writeProtect[0] = view.get('write-protect-a', false);
     this.fdc.writeProtect[1] = view.get('write-protect-b', false);
+    this.set80ColumnEnabled(view.get('mtx-80-column', false));
     return [];
   }
 
   setBorderSize(mode: BorderMode): void {
+    this.borderMode = mode;
+    if (this.column80.enabled) {
+      this.display?.setViewport(0, 0, MTX_80_COLUMN_WIDTH, MTX_80_COLUMN_HEIGHT);
+      return;
+    }
     const fraction = mode === 2 ? 1 : mode === 1 ? 0.5 : 0;
     const cropX = Math.round(MTX_BORDER_LEFT * (1 - fraction));
     const cropY = Math.round(MTX_BORDER_TOP * (1 - fraction));
@@ -141,6 +159,16 @@ export class MtxMachine extends BaseMachine implements Machine {
     );
   }
 
+  set80ColumnEnabled(enabled: boolean): void {
+    if (this.column80.enabled === enabled) return;
+    this.column80.enabled = enabled;
+    this.display?.resize(this.frameWidth, this.frameHeight);
+    this.setBorderSize(this.borderMode);
+    if (enabled) this.column80.renderFrame();
+    this.needsDisplay = true;
+    this.setStatus(`80-column display ${enabled ? 'enabled' : 'disabled'}`);
+  }
+
   reset(): void {
     this.stop();
     this.cpu.reset();
@@ -149,6 +177,7 @@ export class MtxMachine extends BaseMachine implements Machine {
     this.ctc.reset();
     this.keyboard.reset();
     this.fdx.reset();
+    this.column80.reset();
     this.psg.reset();
     this.audio.reset();
     this.mixer.reset();
@@ -211,7 +240,7 @@ export class MtxMachine extends BaseMachine implements Machine {
     return true;
   }
 
-  protected framePixels(): Uint8Array { return this._pixels; }
+  protected framePixels(): Uint8Array { return this.pixels; }
   protected inTurbo(): boolean { return this.turbo; }
 
   protected runFrame(): void {
@@ -220,7 +249,7 @@ export class MtxMachine extends BaseMachine implements Machine {
     this.activity.psgWrites = 0;
     this.activity.casReads = 0;
     this.activity.fdcAccesses = 0;
-    this._pixels32.fill(this.vdp.backdrop());
+    this.vdpPixels32.fill(this.vdp.backdrop());
 
     const tPerLine = MTX_TSTATES_PER_FRAME / MTX_LINES_PER_FRAME;
     let lineEnd = this.cpu.tStates;
@@ -270,7 +299,7 @@ export class MtxMachine extends BaseMachine implements Machine {
 
       if (line < MTX_ACTIVE_LINES) {
         const rowStart = (MTX_BORDER_TOP + line) * MTX_SCREEN_WIDTH + MTX_BORDER_LEFT;
-        this.vdp.renderScanline(this._pixels32, rowStart, line);
+        this.vdp.renderScanline(this.vdpPixels32, rowStart, line);
       } else if (line === MTX_ACTIVE_LINES) {
         // VDP INT is wired to CTC channel 0's trigger, not directly to /INT.
         this.vdp.raiseFrameInterrupt();
@@ -278,6 +307,7 @@ export class MtxMachine extends BaseMachine implements Machine {
       }
     }
 
+    if (this.column80.enabled) this.column80.renderFrame();
     this.fdx.tickFrame();
     this.needsDisplay = true;
   }
@@ -285,6 +315,7 @@ export class MtxMachine extends BaseMachine implements Machine {
   startTrace(_mode: MachineTraceMode = 'full'): void {}
   stopTrace(): string { return ''; }
   ocrScreenForMcp(_mode: OcrGridName | 'auto' = 'auto'): string {
+    if (this.column80.enabled) return this.column80.text();
     return this.screenText.ocr(this.vdp.vram, this.vdp.regs, this.vdp.mode());
   }
 }

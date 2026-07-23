@@ -46,6 +46,7 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'write-protect-d': () => settings.writeProtectD(),
   'drive-b-force-ready': () => settings.driveBForceReady(),
   'cpc-parados': () => settings.cpcParados(),
+  'mtx-80-column': () => settings.mtx80Column(),
   'zx8x-16k-ram': () => settings.zx8x16kRam(),
   'zx81-udg-ram': () => settings.zx81UdgRam(),
   'zx81-udg128-ram': () => settings.zx81Udg128Ram(),

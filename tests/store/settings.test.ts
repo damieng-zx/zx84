@@ -253,12 +253,14 @@ describe('settings — reset defaults vs initial defaults consistency', () => {
     const before = {
       multifaceEnabled: s.multifaceEnabled(),
       vtx5000Enabled: s.vtx5000Enabled(),
+      mtx80Column: s.mtx80Column(),
     };
-    s.setMultifaceEnabled(true); s.setVtx5000Enabled(true);
+    s.setMultifaceEnabled(true); s.setVtx5000Enabled(true); s.setMtx80Column(true);
     s.resetSettingsGroup('hardware');
     expect({
       multifaceEnabled: s.multifaceEnabled(),
       vtx5000Enabled: s.vtx5000Enabled(),
+      mtx80Column: s.mtx80Column(),
     }).toEqual(before);
   });
 

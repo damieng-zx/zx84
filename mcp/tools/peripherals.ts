@@ -4,7 +4,7 @@ import { variantForModel, variantLabel } from '../../src/machines/spectrum/perip
 import { isPlusDCapable, isBetaDiskCapable } from '../../src/models.ts';
 import { hex8 as h8, hex16 as h16 } from '../../src/utils/hex.ts';
 import { state } from '../state.ts';
-import { activeSpectrum } from '../concrete.ts';
+import { activeMtx, activeSpectrum } from '../concrete.ts';
 import { text } from '../format.ts';
 import { fetchMFRom, fetchVTXRom, fetchPlusDRom, fetchBetaDiskRom } from '../rom-fetch.ts';
 
@@ -201,6 +201,29 @@ export function register(server: McpServer): void {
         `Enter TR-DOS with: RANDOMIZE USR 15616\n` +
         `pagedIn=${bd.pagedIn}  PC=${h16(spec.cpu.pc)}`
       );
+    },
+  );
+
+  server.registerTool(
+    'mtx80column',
+    {
+      description: 'Enable, disable, or inspect the Memotech FDX 6845-based 80-column display.',
+      inputSchema: {
+        action: z.enum(['on', 'off', 'status']).describe('Action to perform'),
+      },
+    },
+    async ({ action }) => {
+      const mtx = activeMtx();
+      if (!mtx) return text('The FDX 80-column display is a Memotech MTX peripheral.');
+      if (action === 'status') {
+        return text(
+          `FDX 80-column display: ${mtx.column80.enabled ? 'ON' : 'OFF'}  ` +
+          `${mtx.frameWidth}x${mtx.frameHeight}  ` +
+          `CRTC R12:R13=${h8(mtx.column80.crtc.regs[12])}:${h8(mtx.column80.crtc.regs[13])}`,
+        );
+      }
+      mtx.set80ColumnEnabled(action === 'on');
+      return text(`FDX 80-column display ${action === 'on' ? 'enabled' : 'disabled'}.`);
     },
   );
 

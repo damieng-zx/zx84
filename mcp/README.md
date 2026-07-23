@@ -45,7 +45,7 @@ Some tools are intentionally hardware-specific:
   +D, Beta Disk, microdrives, and +3 boot helpers.
 - CPC, MSX, MTX, Einstein, ZX80/ZX81: media loads route through the machine's own
   `MediaService` (CPC `.dsk/.hfe/.scp/.cdt/.sna/.cpr`, MSX `.rom/.cas`,
-  MTX `.mtx`, Einstein `.dsk/.hfe/.scp`, ZX80/ZX81 program files). CPC adds
+  MTX `.mtx/.mfloppy`, Einstein `.dsk/.hfe/.scp`, ZX80/ZX81 program files). CPC adds
   built-in uPD765A disk inspection, CPC OCR, and PNG screenshots.
 - ZX80/ZX81 additionally: model-constrained ZXDB library loading, 1KB/16KB
   RAM selection, ZX81 UDG and WRX hi-res hardware selection, and display-file
@@ -151,6 +151,12 @@ These use the active +3 or CPC uPD765A where fitted.
 | `vtx5000` | `action`: `on`, `off`, `status` | Control the 48K VTX-5000 Viewdata modem. |
 | `plusd` | `action`: `on`, `off`, `status` | Control the MGT +D interface. |
 | `betadisk` | `action`: `on`, `off`, `status` | Control Beta Disk/TR-DOS. |
+
+### Memotech MTX Peripherals
+
+| Tool | Parameters | Description |
+| --- | --- | --- |
+| `mtx80column` | `action`: `on`, `off`, `status` | Control the FDX 6845-based 80-column display and select it as the active monitor. |
 
 ## Address Values
 
