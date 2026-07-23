@@ -8,10 +8,11 @@
 
 import type { MachineModel } from '@/models.ts';
 
-/** Tatung Einstein models. Only the TC-01 ships today. */
-export type EinsteinModel = 'einstein';
+/** Tatung Einstein models: the TC-01 (TMS9929A) and the Einstein 256
+ *  (V9938, 16KB MOS 2.1). */
+export type EinsteinModel = 'einstein' | 'einstein-256';
 
 /** Type guard: true for any Tatung Einstein model. */
 export function isEinsteinModel(m: MachineModel): m is EinsteinModel {
-  return m === 'einstein';
+  return m === 'einstein' || m === 'einstein-256';
 }

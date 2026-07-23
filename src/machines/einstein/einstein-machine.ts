@@ -17,6 +17,7 @@ import { Z80 } from '@/cores/z80.ts';
 import { AY3891x } from '@/cores/ay-3-8910.ts';
 import { WD179x } from '@/cores/wd179x.ts';
 import { Tms9918a, EINSTEIN_PALETTES } from '@/cores/tms9918a.ts';
+import { V9938 } from '@/cores/v9938.ts';
 import { Z80Ctc } from '@/cores/z80-ctc.ts';
 import { TapeDeck, TAPE_REF_HZ } from '@/media/tape/tap.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
@@ -40,6 +41,9 @@ import {
   EINSTEIN_AY_CLOCK, EINSTEIN_CPU_CLOCK, EINSTEIN_T_PER_FRAME,
   EINSTEIN_SCREEN_WIDTH, EINSTEIN_SCREEN_HEIGHT,
   EINSTEIN_BORDER_LEFT, EINSTEIN_BORDER_TOP,
+  EINSTEIN_256_SCREEN_WIDTH, EINSTEIN_256_SCREEN_HEIGHT,
+  EINSTEIN_256_BORDER_LEFT, EINSTEIN_256_BORDER_TOP,
+  EINSTEIN_256_VDP_INT_VECTOR,
 } from '@/machines/einstein/constants.ts';
 
 /** PAL scanlines per field. */
@@ -58,7 +62,8 @@ export class EinsteinMachine extends BaseMachine implements Machine {
   readonly memory: EinsteinMemory;
   readonly ay: AY3891x;
   readonly fdc: WD179x;
-  readonly vdp: Tms9918a;
+  /** Video chip: TMS9929A on the TC-01, V9938 on the Einstein 256. */
+  readonly vdp: Tms9918a | V9938;
   readonly ctc: Z80Ctc;
   readonly keyboard: EinsteinKeyboard;
   readonly tape: TapeDeck;
@@ -66,15 +71,26 @@ export class EinsteinMachine extends BaseMachine implements Machine {
   readonly audio: Audio;
   display: IScreenRenderer | null;
 
+  /** Einstein 256: the V9938's daisy-chain interrupt can be masked off via
+   *  port 0x80 (bit0 set = disabled). Enabled at reset. */
+  vdpIntEnabled = true;
+
   /** Per-frame I/O activity for the status-bar LEDs. */
   readonly activity = { kbdReads: 0, fdcAccesses: 0, tapeReads: 0, ayWrites: 0 };
 
-  /** Screen-text OCR engine for the MCP `ocr` tool. */
+  /** Screen-text OCR engine for the MCP `ocr` tool (TC-01 only for now —
+   *  the 256's V9938 modes need their own engine). */
   readonly screenText = new EinsteinScreenText();
 
+  /** Per-model output geometry (TC-01 320×240, 256 576×240). */
+  private readonly _screenW: number;
+  private readonly _screenH: number;
+  private readonly _borderL: number;
+  private readonly _borderT: number;
+
   /** RGBA frame buffer + a Uint32 view for fast VDP writes. */
-  private readonly _pixels = new Uint8Array(EINSTEIN_SCREEN_WIDTH * EINSTEIN_SCREEN_HEIGHT * 4);
-  private readonly _pixels32 = new Uint32Array(this._pixels.buffer);
+  private readonly _pixels: Uint8Array;
+  private readonly _pixels32: Uint32Array;
   get pixels(): Uint8Array { return this._pixels; }
 
   get tStatesPerFrame(): number { return EINSTEIN_T_PER_FRAME; }
@@ -84,7 +100,10 @@ export class EinsteinMachine extends BaseMachine implements Machine {
     this.model = model;
     this.config = createEinsteinConfig(model);
     this.cpu = new Z80();
-    this.memory = new EinsteinMemory();
+    this.memory = new EinsteinMemory({
+      romSize: this.config.romSizeKB * 1024,
+      romMirrored: this.config.romMirrored,
+    });
     this.ay = new AY3891x(EINSTEIN_AY_CLOCK, 48000, 'ABC');
     this.fdc = new WD179x({
       statusBit7: 'motor-on',
@@ -93,7 +112,7 @@ export class EinsteinMachine extends BaseMachine implements Machine {
     // The MOS polls the WD1770 for BUSY to *set* (command accepted) before
     // waiting for it to clear, so Type I commands must pulse BUSY.
     this.fdc.pulseBusy = true;
-    this.vdp = new Tms9918a();
+    this.vdp = this.config.vdp === 'v9938' ? new V9938() : new Tms9918a();
     this.ctc = new Z80Ctc();
     // The Einstein clocks CTC channels 0–2 at 2MHz (4MHz CPU / 2) and chains
     // channel 2's zero-count to channel 3's trigger (zc2 → trg3); channel 3 is
@@ -110,6 +129,20 @@ export class EinsteinMachine extends BaseMachine implements Machine {
     this.mixer.ayGain = 1;
     this.display = display ?? null;
 
+    if (this.config.vdp === 'v9938') {
+      this._screenW = EINSTEIN_256_SCREEN_WIDTH;
+      this._screenH = EINSTEIN_256_SCREEN_HEIGHT;
+      this._borderL = EINSTEIN_256_BORDER_LEFT;
+      this._borderT = EINSTEIN_256_BORDER_TOP;
+    } else {
+      this._screenW = EINSTEIN_SCREEN_WIDTH;
+      this._screenH = EINSTEIN_SCREEN_HEIGHT;
+      this._borderL = EINSTEIN_BORDER_LEFT;
+      this._borderT = EINSTEIN_BORDER_TOP;
+    }
+    this._pixels = new Uint8Array(this._screenW * this._screenH * 4);
+    this._pixels32 = new Uint32Array(this._pixels.buffer);
+
     installEinsteinMemoryHooks(this);
     wireEinsteinPortIO(this);
 
@@ -119,12 +152,12 @@ export class EinsteinMachine extends BaseMachine implements Machine {
   attachHost(host: MachineHost): void { this.host = host; }
 
   get descriptor(): MachineDescriptor { return einsteinDescriptor(this.model); }
-  get frameWidth(): number { return EINSTEIN_SCREEN_WIDTH; }
-  get frameHeight(): number { return EINSTEIN_SCREEN_HEIGHT; }
+  get frameWidth(): number { return this._screenW; }
+  get frameHeight(): number { return this._screenH; }
   /** Nominal CPU clock (4 MHz). */
   get cpuClockHz(): number { return this.tape.cpuClock; }
 
-  /** `.scr` export: the TMS9929A's 16KB VRAM *is* the screen. */
+  /** `.scr` export: the VDP's private VRAM *is* the screen. */
   screenExportBytes(): Uint8Array { return this.vdp.vram.slice(); }
 
   /** RAM export: the full 64K physical RAM image. */
@@ -132,10 +165,13 @@ export class EinsteinMachine extends BaseMachine implements Machine {
     return { data: this.memory.ramSnapshot(), filename: 'ram-64k.bin' };
   }
 
-  /** Apply the Einstein-specific settings: the TMS9929A colour map and the
-   *  master volume (AY-only, no beeper). */
+  /** Apply the Einstein-specific settings: the TMS9929A colour map (TC-01
+   *  only — the 256's palette is V9938 register-controlled) and the master
+   *  volume (AY-only, no beeper). */
   applySettings(view: SettingsView): void {
-    this.vdp.palette = EINSTEIN_PALETTES[view.get('einstein-color-map', 'accurate') as keyof typeof EINSTEIN_PALETTES];
+    if (this.vdp instanceof Tms9918a) {
+      this.vdp.palette = EINSTEIN_PALETTES[view.get('einstein-color-map', 'accurate') as keyof typeof EINSTEIN_PALETTES];
+    }
     this.audio.setVolume(view.get('volume', 70) / 100);
     applyAySettings(this.ay, view);
   }
@@ -167,13 +203,13 @@ export class EinsteinMachine extends BaseMachine implements Machine {
     // The VDP always renders into the full framebuffer with the active area
     // centred; cropping is a pure display concern.
     const frac = mode === 2 ? 1 : mode === 1 ? 0.5 : 0;
-    const cropX = Math.round(EINSTEIN_BORDER_LEFT * (1 - frac));
-    const cropY = Math.round(EINSTEIN_BORDER_TOP * (1 - frac));
+    const cropX = Math.round(this._borderL * (1 - frac));
+    const cropY = Math.round(this._borderT * (1 - frac));
     if (this.display) {
       this.display.setViewport(
         cropX, cropY,
-        EINSTEIN_SCREEN_WIDTH - cropX * 2,
-        EINSTEIN_SCREEN_HEIGHT - cropY * 2,
+        this._screenW - cropX * 2,
+        this._screenH - cropY * 2,
       );
     }
   }
@@ -190,6 +226,7 @@ export class EinsteinMachine extends BaseMachine implements Machine {
     this.keyboard.reset();
     this.audio.reset();
     this.mixer.reset();
+    this.vdpIntEnabled = true;
     this.needsDisplay = true;
     this.setStatus('Reset');
   }
@@ -202,9 +239,10 @@ export class EinsteinMachine extends BaseMachine implements Machine {
 
   /**
    * Execute one PAL field. Runs the CPU scanline by scanline, advancing the CTC
-   * timers and servicing IM 2 interrupts as they arm; renders the 192 active
-   * lines; at the end of the active display raises the VDP vblank, which pulses
-   * the CTC channel wired to the Z80 /INT.
+   * timers and servicing IM 2 interrupts as they arm; renders the active lines;
+   * at the end of the active display the VDP raises its frame flag — polled by
+   * the MOS on the TC-01, and fed to the Z80 /INT (vector 0xFE, maskable via
+   * port 0x80) on the Einstein 256.
    */
   protected runFrame(): void {
     const skipAudio = this.speedMultiplier !== 1;
@@ -213,8 +251,14 @@ export class EinsteinMachine extends BaseMachine implements Machine {
     this.activity.tapeReads = 0;
     this.activity.ayWrites = 0;
 
+    const vdp = this.vdp;
+    const is256 = vdp instanceof V9938;
+    // Active lines rendered per frame: the V9938's R9 LN bit picks 192/212.
+    const activeLines = is256 ? vdp.visibleHeight : 192;
+    if (is256) vdp.beginFrame();
+
     // Fill the whole buffer (incl. border) with the current backdrop.
-    this._pixels32.fill(this.vdp.backdrop());
+    this._pixels32.fill(vdp.backdrop());
 
     const tPerLine = EINSTEIN_T_PER_FRAME / LINES_PER_FRAME;
     let lineEnd = this.cpu.tStates;
@@ -224,6 +268,7 @@ export class EinsteinMachine extends BaseMachine implements Machine {
 
     for (let line = 0; line < LINES_PER_FRAME; line++) {
       lineEnd += tPerLine;
+      if (is256) vdp.advanceScanline(line);
 
       while (this.cpu.tStates < lineEnd) {
         if (this.breakpoints.has(this.cpu.pc)) { this.breakpointHit = this.cpu.pc; broke = true; break; }
@@ -243,6 +288,14 @@ export class EinsteinMachine extends BaseMachine implements Machine {
           if (vec >= 0 && this.cpu.interruptWithVector(vec) > 0) this.ctc.acknowledge();
         }
 
+        // Einstein 256: the V9938's INT output sits on the daisy chain
+        // (vector 0xFE), maskable via port 0x80.
+        if (is256 && this.vdpIntEnabled && vdp.interruptPending() && this.cpu.iff1 && !this.cpu.eiDelay) {
+          // Accepting the interrupt does not clear the V9938's F flag or INT
+          // output; hardware holds both until the handler reads S0.
+          this.cpu.interruptWithVector(EINSTEIN_256_VDP_INT_VECTOR);
+        }
+
         if (!skipAudio) {
           const elapsed = this.cpu.tStates - lastAudioT;
           if (elapsed > 0) {
@@ -255,17 +308,20 @@ export class EinsteinMachine extends BaseMachine implements Machine {
       if (broke) break;
 
       // Render active scanlines into the centred active area.
-      if (line < 192) {
-        const rowStart = (EINSTEIN_BORDER_TOP + line) * EINSTEIN_SCREEN_WIDTH + EINSTEIN_BORDER_LEFT;
-        this.vdp.renderScanline(this._pixels32, rowStart, line);
-      } else if (line === 192) {
-        // End of active display: set the VDP's vblank status flag. On the real
-        // Einstein the VDP INT line is NOT wired to the CPU (MAME confirms) — the
-        // MOS polls this flag via the status port. CPU interrupts instead come
-        // from the Z80 CTC (2MHz-clocked, ch2→ch3 chain) and the keyboard; the
-        // CTC timer channels are advanced by ctc.addCycles above. Full CTC
-        // clock-chain fidelity (baud, RTC tick) is a follow-up.
-        this.vdp.raiseFrameInterrupt();
+      if (line < activeLines) {
+        // R9's 192-line mode starts ten lines later than 212-line mode on the
+        // V9938, keeping both modes centred in the same output aperture.
+        const activeTop = this._borderT + (is256 ? (212 - activeLines) >> 1 : 0);
+        const rowStart = (activeTop + line) * this._screenW + this._borderL;
+        vdp.renderScanline(this._pixels32, rowStart, line);
+      } else if (line === activeLines) {
+        // End of active display. On the TC-01 the VDP INT line is NOT wired
+        // to the CPU (MAME confirms) — the MOS polls the status flag. On the
+        // 256 the V9938's INT is on the daisy chain (serviced above). Either
+        // way the CPU's periodic interrupts also come from the Z80 CTC
+        // (2MHz-clocked, ch2→ch3 chain), advanced by ctc.addCycles above.
+        if (is256) vdp.endActiveDisplay();
+        else (vdp as Tms9918a).raiseFrameInterrupt();
       }
     }
 
@@ -288,6 +344,8 @@ export class EinsteinMachine extends BaseMachine implements Machine {
   stopTrace(): string { return ''; }
 
   ocrScreenForMcp(_mode: OcrGridName | 'auto' = 'auto'): string {
+    // V9938 screen OCR is a follow-up; degrade on the 256.
+    if (!(this.vdp instanceof Tms9918a)) return '';
     // Recover the screen text from the VDP by matching each cell against the MOS
     // ROM font (the grid is fixed by the VDP mode, so `mode` is advisory).
     return this.screenText.ocr(this.vdp.vram, this.vdp.regs, this.vdp.mode(), this.memory.getRom());
@@ -295,6 +353,9 @@ export class EinsteinMachine extends BaseMachine implements Machine {
 
   /** Styled OCR (text + coloured HTML + match mask) for the TEXT overlay. */
   ocrScreenStyled(): OcrResult {
+    if (!(this.vdp instanceof Tms9918a)) {
+      return { text: '', html: '', mask: [], grid: '42x24', cellWidth: 6, cellHeight: 8, cols: 0, rows: 0 };
+    }
     return this.screenText.ocrStyled(this.vdp.vram, this.vdp.regs, this.vdp.mode(), this.memory.getRom(), this.vdp.palette);
   }
 
@@ -304,18 +365,19 @@ export class EinsteinMachine extends BaseMachine implements Machine {
    * row-major `cols×rows`; cells are 6×8 at the active-area origin.
    */
   blankCells(mask: boolean[], cols: number, rows: number, paper?: number[]): void {
+    if (!(this.vdp instanceof Tms9918a)) return;   // TC-01 only (see ocrScreenStyled)
     const cellW = 6, cellH = 8;
     const pal = this.vdp.palette;
     for (let row = 0; row < rows; row++) {
-      const y0 = EINSTEIN_BORDER_TOP + row * cellH;
-      if (y0 + cellH > EINSTEIN_SCREEN_HEIGHT) break;
+      const y0 = this._borderT + row * cellH;
+      if (y0 + cellH > this._screenH) break;
       for (let col = 0; col < cols; col++) {
         if (!mask[row * cols + col]) continue;
-        const x0 = EINSTEIN_BORDER_LEFT + col * cellW;
-        if (x0 + cellW > EINSTEIN_SCREEN_WIDTH) continue;
+        const x0 = this._borderL + col * cellW;
+        if (x0 + cellW > this._screenW) continue;
         const fill = pal[(paper ? paper[row * cols + col] : 0) & 0x0F];
         for (let y = 0; y < cellH; y++) {
-          const base = (y0 + y) * EINSTEIN_SCREEN_WIDTH + x0;
+          const base = (y0 + y) * this._screenW + x0;
           this._pixels32.fill(fill, base, base + cellW);
         }
       }
