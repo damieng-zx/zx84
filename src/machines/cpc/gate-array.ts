@@ -13,7 +13,7 @@
  */
 
 import {
-  CPC_PALETTE, CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT, CPC_BORDER_LEFT,
+  CPC_PALETTE, CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT,
 } from '@/machines/cpc/constants.ts';
 import type { CrtcLine } from '@/cores/crtc-6845.ts';
 
@@ -21,16 +21,21 @@ const FN_PEN = 0x00;
 const FN_COLOUR = 0x40;
 const FN_RMR = 0x80;
 const FN_RAM = 0xC0;
+export { FN_PEN, FN_COLOUR, FN_RMR, FN_RAM };
 
 const BORDER_PEN = 16;
 
+/** Buffer pixels per CRTC character. The standard 40-char display is 640 px
+ *  wide (CPC_SCREEN_WIDTH − 2·CPC_BORDER_LEFT), i.e. 16 px per character. */
+const CPC_CHAR_PX = 16;
+
 export class GateArray {
-  private selectedPen = 0;
+  protected selectedPen = 0;
   /** Hardware colour (0–31) for each pen (0–15) and the border (16). */
   readonly pens = new Uint8Array(17);
 
   mode = 1;
-  private pendingMode = 1;
+  protected pendingMode = 1;
 
   /** Active colour map (ABGR, indexed by hardware value 0–31). Swapped by the
    *  display settings; defaults to the measured Gate Array palette. */
@@ -41,7 +46,10 @@ export class GateArray {
   onRamConfig: (val: number) => void = () => {};
 
   // ── Raster interrupt ─────────────────────────────────────────────────
-  private rasterCount = 0;
+  /** Gate-array HSync interrupt counter (0–51). Public so ASIC interrupt tests
+   *  can assert it is not perturbed when a PRI coincides with the 52-wrap; only
+   *  the GA/ASIC mutate it. */
+  rasterCount = 0;
   interruptRequested = false;
 
   write(val: number): void {
@@ -111,10 +119,41 @@ export class GateArray {
 
   // ── Rendering ─────────────────────────────────────────────────────────
 
+  /** Resolved RGBA for the 16 drawing pens, rebuilt once per scanline. Kept as
+   *  a field (not re-allocated) so the per-pixel plot is a plain array index.
+   *  On the Plus, `Asic` overrides `refreshPenLut`/`borderColor`/`renderStartX`
+   *  to feed the 12-bit ASIC palette and apply scroll/border extensions. */
+  protected readonly penLut = new Uint32Array(16);
+
+  /** Resolve the current border colour to an RGBA word. */
+  protected borderColor(): number {
+    return this.palette[this.pens[BORDER_PEN] & 0x1F];
+  }
+
+  /** Horizontal pixel offset where the first display character starts.
+   *
+   *  The active area is centred in the framebuffer by its displayed width, so
+   *  the standard 40-char display lands at CPC_BORDER_LEFT (64) exactly — same
+   *  as a fixed anchor — while an overscan display (hDisplayed > 40) shifts
+   *  left to stay centred on the monitor. A real CPC centres the display on the
+   *  tube regardless of width (games widen R1 and pull the HSYNC position in to
+   *  recentre); a fixed left anchor instead lets a wide display overflow the
+   *  right edge (e.g. the Crazy Cars II title, hDisplayed ≈ 46, clipped its
+   *  right end). The ASIC overrides this when unlocked to add hscroll +
+   *  extendBorder on top of the centred base. */
+  protected renderStartX(hDisplayed: number): number {
+    return (CPC_SCREEN_WIDTH - hDisplayed * CPC_CHAR_PX) >> 1;
+  }
+
+  /** (Re)fill `penLut` with the RGBA of drawing pens 0–15. */
+  protected refreshPenLut(): void {
+    for (let p = 0; p < 16; p++) this.penLut[p] = this.palette[this.pens[p] & 0x1F];
+  }
+
   /** Fill the whole frame buffer with the current border colour (top/bottom
    *  border and any rows a short frame never reaches). */
   beginFrame(px: Uint32Array): void {
-    px.fill(this.palette[this.pens[BORDER_PEN] & 0x1F]);
+    px.fill(this.borderColor());
   }
 
   /**
@@ -125,12 +164,14 @@ export class GateArray {
                  readVideo: (addr: number) => number): void {
     if (bufferY < 0 || bufferY >= CPC_SCREEN_HEIGHT) return;
     const rowStart = bufferY * CPC_SCREEN_WIDTH;
-    const border = this.palette[this.pens[BORDER_PEN] & 0x1F];
-    px.fill(border, rowStart, rowStart + CPC_SCREEN_WIDTH);
+    px.fill(this.borderColor(), rowStart, rowStart + CPC_SCREEN_WIDTH);
     if (!line.vDisplay) return;
 
+    // Snapshot the pen colours for this scanline (mid-frame palette changes
+    // take effect per line, matching the per-scanline render loop).
+    this.refreshPenLut();
     const mode = this.mode;
-    let x = CPC_BORDER_LEFT;
+    let x = this.renderStartX(line.hDisplayed);
     for (let c = 0; c < line.hDisplayed; c++) {
       const ma = (line.maRow + c) & 0x3FFF;
       const addr = (((ma & 0x3000) << 2) | ((line.ra & 7) << 11) | ((ma & 0x3FF) << 1)) & 0xFFFF;
@@ -145,11 +186,10 @@ export class GateArray {
    *  next x. Mode determines how the 16 clocks split into logical pixels. */
   private plotChar(px: Uint32Array, rowStart: number, x: number,
                    b0: number, b1: number, mode: number): number {
-    const pal = this.palette;
-    const pens = this.pens;
+    const lut = this.penLut;
     const put = (n: number, pen: number): void => {
       const px0 = x;
-      const rgba = pal[pens[pen & 0x0F] & 0x1F];
+      const rgba = lut[pen & 0x0F];
       for (let i = 0; i < n; i++) {
         const xi = px0 + i;
         if (xi >= 0 && xi < CPC_SCREEN_WIDTH) px[rowStart + xi] = rgba;

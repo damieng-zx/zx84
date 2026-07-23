@@ -22,7 +22,7 @@ function isLazyLoader(v: unknown): boolean {
 
 describe('machine-ui manifest', () => {
   it('gives every registered kind a (possibly empty) contribution object', () => {
-    for (const kind of ['spectrum', 'cpc', 'einstein', 'msx']) {
+    for (const kind of ['spectrum', 'cpc', 'einstein', 'msx', 'zx8x']) {
       expect(machineUi(kind)).toBeTypeOf('object');
     }
     // Unknown kinds degrade to an empty contribution, never undefined.
@@ -45,11 +45,14 @@ describe('machine-ui manifest', () => {
 
     // The MSX contributes no bespoke UI (fixed hardware, no sysvars/keyboard).
     expect(machineUi('msx')).toEqual({});
+
+    expect(isLazyLoader(machineUi('zx8x').HardwareSection)).toBe(true);
+    expect(isLazyLoader(machineUi('zx8x').LibraryBrowser)).toBe(true);
   });
 
   it('exposes only known contribution keys per kind', () => {
     const allowed = new Set(['HardwareSection', 'Keyboard', 'SysVars', 'LibraryBrowser']);
-    for (const kind of ['spectrum', 'cpc', 'einstein', 'msx']) {
+    for (const kind of ['spectrum', 'cpc', 'einstein', 'msx', 'zx8x']) {
       for (const key of Object.keys(machineUi(kind))) {
         expect(allowed.has(key)).toBe(true);
       }

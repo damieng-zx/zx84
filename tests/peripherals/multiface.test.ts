@@ -34,9 +34,9 @@ describe('multiface — variantForModel / variantLabel / romFilename', () => {
   });
 
   it('romFilename matches what the ROM manager expects', () => {
-    expect(romFilename('MF1')).toBe('MF1.rom');
-    expect(romFilename('MF128')).toBe('MF128.rom');
-    expect(romFilename('MF3')).toBe('MF3.rom');
+    expect(romFilename('MF1')).toBe('sinclair/MF1.rom');
+    expect(romFilename('MF128')).toBe('sinclair/MF128.rom');
+    expect(romFilename('MF3')).toBe('sinclair/MF3.rom');
   });
 });
 

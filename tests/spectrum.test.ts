@@ -613,6 +613,10 @@ describe('Spectrum.start (audio mocked)', () => {
     let rafCalls = 0;
     const prevRAF = globalThis.requestAnimationFrame;
     globalThis.requestAnimationFrame = ((_cb: any) => { rafCalls++; return 7; }) as any;
+    // Present-but-fake AudioContext: start()'s headless guard then takes the
+    // (stubbed) audio path this test is about.
+    const prevAC = (globalThis as any).AudioContext;
+    (globalThis as any).AudioContext = class {};
     try {
       await s.start();
       expect((s as any).running).toBe(true);
@@ -620,6 +624,8 @@ describe('Spectrum.start (audio mocked)', () => {
       expect((s as any).rafId).toBe(7);
     } finally {
       globalThis.requestAnimationFrame = prevRAF;
+      if (prevAC === undefined) delete (globalThis as any).AudioContext;
+      else (globalThis as any).AudioContext = prevAC;
     }
   });
 
@@ -640,6 +646,10 @@ describe('Spectrum.start (audio mocked)', () => {
     s.ay.setSampleRate = (() => {}) as any;
     const prevRAF = globalThis.requestAnimationFrame;
     globalThis.requestAnimationFrame = ((_cb: any) => 1) as any;
+    // Present-but-fake AudioContext: start()'s headless guard then takes the
+    // audio path (the stub above), which is what this test is about.
+    const prevAC = (globalThis as any).AudioContext;
+    (globalThis as any).AudioContext = class {};
     try {
       const p = s.start();
       s.stop(); // cancel
@@ -648,6 +658,8 @@ describe('Spectrum.start (audio mocked)', () => {
       expect((s as any).running).toBe(false);
     } finally {
       globalThis.requestAnimationFrame = prevRAF;
+      if (prevAC === undefined) delete (globalThis as any).AudioContext;
+      else (globalThis as any).AudioContext = prevAC;
     }
   });
 });
@@ -669,6 +681,43 @@ describe('Spectrum.frameLoop (audio + rAF mocked)', () => {
     const t0 = s.cpu.tStates;
     (s as any).frameLoop();
     expect(s.cpu.tStates - t0).toBeGreaterThanOrEqual(s.tStatesPerFrame);
+  });
+
+  it('uses the discrete multiplier for paced frame counts', () => {
+    const s = makeMachine('48k');
+    s.audio.ctx = null as any;
+    let frames = 0;
+    (s as any).runFrame = () => { frames++; };
+
+    s.setSpeedMultiplier(2);
+    (s as any).lastFrameTime = 0;
+    (s as any).runPacedFrames(20);
+    expect(frames).toBe(2); // 50 Hz × 2 for 20 ms
+
+    frames = 0;
+    s.setSpeedMultiplier(16);
+    (s as any).lastFrameTime = 0;
+    (s as any).runPacedFrames(20);
+    expect(frames).toBe(16); // 50 Hz × 16 for 20 ms
+  });
+
+  it('honours the 0% and 10% pacing stops', () => {
+    const s = makeMachine('48k');
+    s.audio.ctx = null as any;
+    let frames = 0;
+    (s as any).runFrame = () => { frames++; };
+
+    s.setSpeedMultiplier(0);
+    (s as any).lastFrameTime = 0;
+    (s as any).runPacedFrames(1_000);
+    expect(frames).toBe(0);
+
+    s.setSpeedMultiplier(0.1);
+    (s as any).lastFrameTime = 0;
+    (s as any).runPacedFrames(199);
+    expect(frames).toBe(0);
+    (s as any).runPacedFrames(200);
+    expect(frames).toBe(1); // 50 Hz × 10% = one frame every 200 ms
   });
 
   it('runTurboBurst runs frames until the wall-clock budget is exhausted', () => {

@@ -18,6 +18,7 @@ import { AY3891x } from '@/cores/ay-3-8910.ts';
 import { UPD765A } from '@/cores/upd765a.ts';
 import { TapeDeck, TAPE_REF_HZ } from '@/media/tape/tap.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
+import { isCpr, parseCpr } from '@/media/cartridge/cpr.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { disasmOne, type DisasmLine } from '@/debug/z80/disasm.ts';
@@ -33,6 +34,7 @@ import { CpcMemory } from '@/machines/cpc/cpc-memory.ts';
 import { CpcKeyboard } from '@/machines/cpc/cpc-keyboard.ts';
 import { Crtc6845, R_HORIZ_DISPLAYED, R_VERT_DISPLAYED } from '@/cores/crtc-6845.ts';
 import { GateArray } from '@/machines/cpc/gate-array.ts';
+import { Asic } from '@/machines/cpc/asic.ts';
 import { Ppi8255, installCpcMemoryHooks, wireCpcPortIO } from '@/machines/cpc/cpc-io.ts';
 import { CpcMultiface } from '@/machines/cpc/peripherals/cpc-multiface.ts';
 import { KempstonMouse } from '@/machines/shared/kempston-mouse.ts';
@@ -146,7 +148,7 @@ export class CpcMachine extends BaseMachine implements Machine {
     this.tape.pulseScale = CPC_CPU_CLOCK / TAPE_REF_HZ;
     this.keyboard = new CpcKeyboard();
     this.crtc = new Crtc6845(this.config.crtcType);
-    this.gateArray = new GateArray();
+    this.gateArray = this.config.isPlus ? new Asic() : new GateArray();
     this.audio = new Audio();
     this.mixer = new AudioMixer(CPC_CPU_CLOCK);
     // The CPC has no beeper; the mixer carries the AY only.
@@ -162,6 +164,24 @@ export class CpcMachine extends BaseMachine implements Machine {
     this.gateArray.onLowerRom = (on) => this.memory.setLowerRomEnabled(on);
     this.gateArray.onUpperRom = (on) => this.memory.setUpperRomEnabled(on);
     this.gateArray.onRamConfig = (val) => this.memory.setRamConfig(val);
+
+    // Plus ASIC: route register-window paging through to memory. CPU writes
+    // that land inside the window go straight to `asic.cpuWrite()` from
+    // `cpc-io.ts` (palette/sprite/scroll side-effects fire there). Non-Plus
+    // machines skip this entirely (`gateArray` is a plain GateArray).
+    if (this.config.isPlus) {
+      const asic = this.gateArray as Asic;
+      asic.onAsicPage = (visible) =>
+        this.memory.setAsicPage(visible ? asic.registerPage : null);
+      // RMR2 lower-ROM banking: page a cartridge ROM page into the lower slot.
+      asic.onLowerRomBank = (page, slot) => this.memory.setLowerRomBank(page, slot);
+      // DMA engine hooks: the channel reads 16-bit little-endian instructions
+      // from base 64 KB RAM (using the same video-DMA read path the CRTC uses)
+      // and writes PSG registers via the AY.
+      asic.readRam16 = (addr) =>
+        this.memory.readVideo(addr) | (this.memory.readVideo((addr + 1) & 0xFFFF) << 8);
+      asic.writeAy = (reg, val) => this.ay.writeRegister(reg, val);
+    }
 
     // The AMX mouse rides keyboard line 9 (joystick 0).
     this.keyboard.amx = this.amxMouse;
@@ -180,7 +200,11 @@ export class CpcMachine extends BaseMachine implements Machine {
   /** Nominal CPU clock (4 MHz). */
   get cpuClockHz(): number { return this.tape.cpuClock; }
 
-  /** `.scr` export: the 16K RAM quadrant the CRTC displays from. */
+  /** `.scr` export: the 16K RAM quadrant the CRTC displays from (R12:R13 bits
+   *  12-13 pick the bank; video DMA only ever reads banks 0-3). This is a raw
+   *  screen-RAM dump — it does not carry the ASIC soft-scroll offset or a
+   *  split-screen's second base, so it may not match the composited image for
+   *  Plus scroll/split effects. Use the PNG screenshot for the exact display. */
   screenExportBytes(): Uint8Array { return this.memory.getRamBank(this.crtc.displayStart >>> 12).slice(); }
 
   /** RAM export: the full 64K physical RAM image. */
@@ -211,7 +235,7 @@ export class CpcMachine extends BaseMachine implements Machine {
    *  live enable toggle (setCpcMultiface). */
   multifaceAuxRom(awaitLoad: boolean): AuxRomRequest {
     return {
-      cacheKey: 'cpc-mf2-rom', source: 'cpc-multiface2.rom',
+      cacheKey: 'cpc-mf2-rom', source: 'cpc/multiface-2.rom',
       fetchingMsg: 'Fetching Multiface Two ROM…',
       loadedMsg: (n) => `Multiface Two ROM loaded (${n} bytes)`,
       failMsg: 'Failed to load Multiface Two ROM', failId: 'multiface',
@@ -237,7 +261,7 @@ export class CpcMachine extends BaseMachine implements Machine {
   bootRoms(view: SettingsView): AuxRomRequest[] {
     if (!this.config.hasFDC || !view.get('cpc-parados', false)) return [];
     return [{
-      cacheKey: 'cpc-parados-rom', source: 'parados.rom',
+      cacheKey: 'cpc-parados-rom', source: 'cpc/parados.rom',
       fetchingMsg: 'Fetching ParaDOS ROM…',
       loadedMsg: (n) => `ParaDOS ROM loaded (${n} bytes)`,
       failMsg: 'Failed to load ParaDOS ROM', failId: 'parados',
@@ -248,6 +272,17 @@ export class CpcMachine extends BaseMachine implements Machine {
   // ── Machine: lifecycle ───────────────────────────────────────────────
 
   loadROM(data: Uint8Array): void {
+    // The Plus range boots from a .CPR firmware cartridge (system.cpr — the
+    // real v4 OS + BASIC + AMSDOS, with the Burnin' Rubber pack-in on pages
+    // 4–7), not the OS+BASIC[+AMSDOS] file split the non-Plus models use. A
+    // .CPR arriving here (the Plus models' `romSources`) goes through the
+    // cartridge path; anything else is the classic three-ROM image.
+    if (isCpr(data)) {
+      this.memory.loadCartridge(parseCpr(data));
+      this.casReadAddr = -2;   // force a re-scan against the new lower ROM
+      this.setStatus('Cartridge firmware loaded');
+      return;
+    }
     this.memory.loadROM(data);
     this.casReadAddr = -2;   // force a re-scan against the new lower ROM
     this.setStatus('ROM loaded');
@@ -398,7 +433,9 @@ export class CpcMachine extends BaseMachine implements Machine {
   protected runFrame(): void {
     const crtc = this.crtc;
     const ga = this.gateArray;
-    const skipAudio = this.turbo || (this.tapeTurbo && this.tapeLoadingActive);
+    const skipAudio = this.speedMultiplier !== 1 || (this.tapeTurbo && this.tapeLoadingActive);
+    const asic = this.config.isPlus ? (this.gateArray as Asic) : null;
+    const plusActive = asic !== null && !asic.locked;
 
     this.activity.kbdReads = 0;
     this.activity.fdcAccesses = 0;
@@ -410,6 +447,12 @@ export class CpcMachine extends BaseMachine implements Machine {
 
     const totalLines = crtc.linesPerFrame();
     const lineT = crtc.charsPerLine() * CPC_T_PER_CHAR;
+    // Centre the display vertically by its height, the vertical analogue of the
+    // GA's horizontal width-centring: a standard 200-line display lands at
+    // CPC_BORDER_TOP (36), while a taller overscan display (more R6 rows) shifts
+    // up to stay centred rather than overflowing the bottom edge — e.g. the
+    // Crazy Cars II title, whose ground was clipped off the bottom.
+    const displayTop = (CPC_SCREEN_HEIGHT - crtc.displayedLines()) >> 1;
     let lineEnd = this.cpu.tStates;
     let lastAudioT = this.cpu.tStates;
     let broke = false;
@@ -449,7 +492,12 @@ export class CpcMachine extends BaseMachine implements Machine {
         if (eiBefore) this.cpu.eiDelay = false;
 
         if (ga.interruptRequested && this.cpu.iff1 && !this.cpu.eiDelay) {
-          const t = this.cpu.interrupt();
+          // Plus IM 2: the ASIC supplies a vector byte encoding the interrupt
+          // source (raster > DMA2 > DMA1 > DMA0). Non-Plus / non-IM-2 paths
+          // fall through to the plain INT ack (RST 38h on IM 1).
+          const t = (plusActive && this.cpu.im === 2)
+            ? this.cpu.interruptWithVector(asic!.consumeInterruptVector())
+            : this.cpu.interrupt();
           if (t > 0) ga.acknowledgeInterrupt();
         }
 
@@ -464,10 +512,23 @@ export class CpcMachine extends BaseMachine implements Machine {
       }
       if (broke) break;
 
-      // Draw this scanline, then advance the raster.
-      ga.renderScanline(this._pixels32, CPC_BORDER_TOP + line, crtc.currentLine(),
+      // Draw this scanline, then advance the raster. On a Plus model the ASIC
+      // applies scroll + split-screen to the CRTC line before the GA renders
+      // it, and composites sprites on top of the rendered output.
+      let lineState = crtc.currentLine();
+      if (plusActive) {
+        lineState = asic!.applyScrollAndSplit(lineState);
+      }
+      ga.renderScanline(this._pixels32, displayTop + line, lineState,
                         (addr) => this.memory.readVideo(addr));
+      if (plusActive) {
+        asic!.drawSprites(this._pixels32, displayTop + line);
+      }
       ga.onHSync();
+      // Plus DMA sound: each HSYNC, every enabled channel runs one
+      // instruction (LOAD/PAUSE/REPEAT/LOOP/INT/STOP) — driving the AY for
+      // sample playback without burning CPU time on tight timing loops.
+      if (plusActive) asic!.dmaCycle();
       crtc.advanceLine();
 
       // Post-VSYNC interrupt re-sync, two lines after VSYNC onset.
@@ -496,6 +557,11 @@ export class CpcMachine extends BaseMachine implements Machine {
     if (value === 'cpcRomLower') return { data: this.memory.getLowerRom(), baseAddr: 0x0000 };
     if (value === 'cpcRomBasic') { const d = this.memory.getUpperRom(0); return d ? { data: d, baseAddr: 0xC000 } : null; }
     if (value === 'cpcRomAmsdos') { const d = this.memory.getUpperRom(7); return d ? { data: d, baseAddr: 0xC000 } : null; }
+    // Plus models (descriptor.ts) label their ROM slots as cartridge pages: page
+    // 0 is the lower/OS ROM, page 1 backs BASIC and page 3 backs AMSDOS at 0xC000.
+    if (value === 'cpcCartLower') return { data: this.memory.getLowerRom(), baseAddr: 0x0000 };
+    if (value === 'cpcCartBasic') { const d = this.memory.getUpperRom(1); return d ? { data: d, baseAddr: 0xC000 } : null; }
+    if (value === 'cpcCartAmsdos') { const d = this.memory.getUpperRom(3); return d ? { data: d, baseAddr: 0xC000 } : null; }
     return null;
   }
 

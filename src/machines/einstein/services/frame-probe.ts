@@ -6,10 +6,11 @@
  */
 
 import type {
-  FrameIndicators, FrameProbe, TranscribeDriver,
+  FrameIndicators, FramePaneProvider, FrameProbe, TranscribeDriver,
 } from '@/machines/machine.ts';
 import type { EinsteinMachine } from '@/machines/einstein/einstein-machine.ts';
 import type { OcrGridName } from '@/ocr/ocr.ts';
+import { parseXtalBasic } from '@/basic/xtal-basic-parser.ts';
 
 class EinsteinTranscribeDriver implements TranscribeDriver {
   constructor(private readonly m: EinsteinMachine) {}
@@ -29,9 +30,16 @@ class EinsteinTranscribeDriver implements TranscribeDriver {
 
 export class EinsteinFrameProbe implements FrameProbe {
   readonly transcribe: EinsteinTranscribeDriver;
+  readonly panes: FramePaneProvider;
 
   constructor(private readonly m: EinsteinMachine) {
     this.transcribe = new EinsteinTranscribeDriver(m);
+    // Xtal BASIC's program text lives in main RAM under any ROM overlay, so we
+    // read the underlying RAM (not the paged address space). Pulled on demand
+    // by the frame bridge (~1 Hz, only while the pane is open).
+    this.panes = {
+      basicListing: () => parseXtalBasic(m.memory.ramSnapshot()),
+    };
   }
 
   sample(out: FrameIndicators): void {

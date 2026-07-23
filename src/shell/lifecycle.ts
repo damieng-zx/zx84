@@ -4,7 +4,7 @@
  * trace wrappers, the boot-loader auto-trap, refresh-state save/restore, and init.
  */
 
-import type { MachineHost } from '@/machines/machine.ts';
+import type { Machine, MachineHost } from '@/machines/machine.ts';
 import { entryForModel } from '@/machines/registry.ts';
 import {
   type MachineModel,
@@ -18,7 +18,8 @@ import * as settings from '@/store/settings.ts';
 import { clearLastFile } from '@/store/persistence.ts';
 import { decideFocusPause } from '@/focus-pause.ts';
 import {
-  currentModel, setCurrentModel, saveModel, emulationPaused, setEmulationPaused, setTurboMode,
+  currentModel, setCurrentModel, saveModel, emulationPaused, setEmulationPaused,
+  speedStep, setSpeedStep, setTurboMode,
 } from '@/state/machine-state.ts';
 import {
   setDisasmText, setSysvarHtml, setBasicListing, setBasicVars, setTracing,
@@ -42,6 +43,7 @@ import {
 import {
   stashOutgoingTape, restoreTapeForMachine, restoreMedia,
   applyEinsteinXtalDosDisk, resetEinsteinPhantom,
+  applyBootCartridge,
 } from '@/shell/media.ts';
 import { applyDisplaySettings, buildSettingsView } from '@/shell/settings.ts';
 
@@ -50,6 +52,24 @@ import { applyDisplaySettings, buildSettingsView } from '@/shell/settings.ts';
 export type { TraceMode };
 export { fontDataHash, updateFontPreview, loadFontStore, saveFontStore, capturedFontData } from '@/frame-bridge.ts';
 export type { FontEntry } from '@/frame-bridge.ts';
+
+export const SPEED_MULTIPLIERS: readonly (number | null)[] = [
+  0, 0.1, 0.25, 0.5, 1, 2, 4, 8, 16, null,
+];
+export const SPEED_LABELS = [
+  '0%', '10%', '25%', '50%', '100%', '2×', '4×', '8×', '16×', 'max',
+] as const;
+
+function applySpeedMultiplier(target: Machine, multiplier: number | null): void {
+  // The fallback keeps lightweight test/third-party machine doubles compatible
+  // while all built-in machines use the driver method above.
+  if (typeof target.setSpeedMultiplier === 'function') {
+    target.setSpeedMultiplier(multiplier);
+  } else {
+    target.speedMultiplier = multiplier;
+    target.turbo = multiplier === null;
+  }
+}
 
 // ── MachineHost ────────────────────────────────────────────────────────────
 
@@ -108,6 +128,7 @@ export async function createMachine(): Promise<boolean> {
   const display = canvasEl ? createDisplay(canvasEl, w, h) : null;
   const built = entry.create(model, display);
   setMachine(built);
+  applySpeedMultiplier(built, SPEED_MULTIPLIERS[speedStep()] ?? 1);
   built.attachHost?.(buildMachineHost());
   resetEinsteinPhantom();   // fresh FDC on the new machine
   built.onStatus = (msg: string) => setStatus(msg);
@@ -126,11 +147,13 @@ export async function createMachine(): Promise<boolean> {
   await fulfillAuxRoms(built.prepare?.(view) ?? []);
 
   let refreshRestored = false;
-  if (romData) {
+  // Machines with no on-board ROM (CPC Plus / GX4000) have empty romData — they
+  // boot from the cartridge slot (applyBootCartridge, below) instead.
+  if (romData && romData.length > 0) {
     built.services.roms.installSystemRom(romData);
     built.reset();
 
-    // Post-reset ROM overlays (CPC ParaDOS in upper ROM 7) — applied after the
+    // Post-reset ROM overlays (CPC ParaDOS in upper-ROM 7) — applied after the
     // firmware ROM set is in place, on machine build only.
     await fulfillAuxRoms(built.bootRoms?.(view) ?? []);
 
@@ -163,6 +186,11 @@ export async function createMachine(): Promise<boolean> {
   // Einstein: mount the phantom BASIC boot disk if the option is on and drive 0
   // is empty (fire-and-forget — it only matters once the user presses Ctrl-BREAK).
   applyEinsteinXtalDosDisk();
+
+  // CPC Plus / GX4000: boot the cartridge slot — restore a persisted user
+  // cartridge, or hidden-mount the default firmware cartridge. This is the
+  // Plus's only boot path (no on-board system ROM), so it is awaited.
+  await applyBootCartridge();
 
   // Refresh the ROM pane (system ROM label/size; a fresh machine has no cart).
   updateRomPaneInfo();
@@ -261,8 +289,7 @@ export function stepFrame(): void {
 export function resetMachine(): void {
   floppySound?.reset();
   if (machine) {
-    machine.turbo = false;
-    setTurboMode(false);
+    setEmulationSpeed(4);
     machine.reset();
     if (romData) machine.start();
     unpause();
@@ -287,8 +314,15 @@ export function autoBootLoad(method: 'menu' | 'rom48k'): void {
 
 export function toggleTurbo(): void {
   if (!machine) return;
-  machine.turbo = !machine.turbo;
-  setTurboMode(machine.turbo);
+  setEmulationSpeed(machine.turbo ? 4 : SPEED_MULTIPLIERS.length - 1);
+}
+
+export function setEmulationSpeed(step: number): void {
+  const index = Math.max(0, Math.min(SPEED_MULTIPLIERS.length - 1, Math.round(step)));
+  const multiplier = SPEED_MULTIPLIERS[index];
+  setSpeedStep(index);
+  if (machine) applySpeedMultiplier(machine, multiplier);
+  setTurboMode(multiplier === null);
   forceSpeedUpdate();
 }
 

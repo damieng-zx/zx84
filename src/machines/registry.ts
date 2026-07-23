@@ -18,12 +18,14 @@ import { spectrumEntry } from '@/machines/spectrum/descriptor.ts';
 import { cpcEntry } from '@/machines/cpc/descriptor.ts';
 import { einsteinEntry } from '@/machines/einstein/descriptor.ts';
 import { msxEntry } from '@/machines/msx/descriptor.ts';
+import { zx8xEntry } from '@/machines/zx8x/descriptor.ts';
 
 export const registry: readonly MachineEntry[] = [
   spectrumEntry,
   cpcEntry,
   einsteinEntry,
   msxEntry,
+  zx8xEntry,
 ];
 
 /** The registry entry owning `model`. Throws on an unknown model — every

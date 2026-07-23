@@ -65,6 +65,6 @@ export const msxEntry: MachineEntry = {
     return new MsxMachine(model as MsxModel, display);
   },
   romSources() {
-    return ['hx-10_basic-bios1.rom'];
+    return ['msx/hx-10_basic-bios1.rom'];
   },
 };

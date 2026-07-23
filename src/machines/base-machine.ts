@@ -60,6 +60,8 @@ export abstract class BaseMachine {
   // ── Frame-loop / lifecycle state ─────────────────────────────────────────
   /** Turbo mode: run as many frames as fit in the per-rAF budget. */
   turbo = false;
+  /** Requested wall-clock speed. `null` selects the uncapped turbo pump. */
+  speedMultiplier: number | null = 1;
   protected running = false;
   protected starting = false;
   protected startGen = 0;
@@ -95,6 +97,14 @@ export abstract class BaseMachine {
     if (!this.audio.running) void this.audio.init();
   }
 
+  setSpeedMultiplier(multiplier: number | null): void {
+    this.speedMultiplier = multiplier;
+    this.turbo = multiplier === null;
+    // Do not carry pacing debt across a speed change.
+    this.lastFrameTime = performance.now();
+    this.frameTimeAccum = 0;
+  }
+
   // ── Lifecycle ────────────────────────────────────────────────────────────
 
   async start(): Promise<void> {
@@ -102,7 +112,9 @@ export abstract class BaseMachine {
     this.starting = true;
     const gen = ++this.startGen;
 
-    await this.audio.init();
+    // Headless hosts (the MCP server, Node tests) have no AudioContext: skip
+    // the audio pipeline. Frames are driven manually via tick()/runUntil().
+    if (typeof AudioContext !== 'undefined') await this.audio.init();
 
     // Bail if stop() ran, or a newer start() superseded us, while awaiting.
     if (!this.starting || gen !== this.startGen) return;
@@ -115,7 +127,10 @@ export abstract class BaseMachine {
     this.lastFrameTime = performance.now();
     this.frameTimeAccum = 0;
     // The rAF loop stays alive across pause/resume, so only start it once.
-    if (!this.rafId) this.rafId = requestAnimationFrame(this.frameLoop);
+    // Headless there is no rAF: nothing schedules frames autonomously.
+    if (!this.rafId && typeof requestAnimationFrame !== 'undefined') {
+      this.rafId = requestAnimationFrame(this.frameLoop);
+    }
     this.setStatus('Running');
   }
 
@@ -194,20 +209,29 @@ export abstract class BaseMachine {
 
   /** Wall-clock paced execution: catch up at 50 Hz, throttled by audio buffer. */
   protected runPacedFrames(now: number): void {
+    const multiplier = this.speedMultiplier ?? 1;
+    if (multiplier <= 0) {
+      this.lastFrameTime = now;
+      this.frameTimeAccum = 0;
+      return;
+    }
+    const framePeriod = FRAME_PERIOD / multiplier;
     this.frameTimeAccum = Math.min(
       this.frameTimeAccum + (now - this.lastFrameTime),
-      FRAME_PERIOD * 3, // cap catch-up to 3 frames (e.g. after the tab was hidden)
+      Math.max(FRAME_PERIOD * 3, framePeriod * 3),
     );
     this.lastFrameTime = now;
 
-    const audioPacing = this.audio.ctx !== null && this.audio.ctx.state === 'running';
+    const audioPacing = multiplier === 1
+      && this.audio.ctx !== null && this.audio.ctx.state === 'running';
     const targetSamples = samplesPerFrame(this.audio.sampleRate) * TARGET_BUFFER_FRAMES;
+    const maxFrames = Math.max(2, Math.ceil(multiplier * 2));
 
     let framesRun = 0;
-    while (this.frameTimeAccum >= FRAME_PERIOD && framesRun < 2) {
+    while (this.frameTimeAccum >= framePeriod && framesRun < maxFrames) {
       if (audioPacing && this.audio.bufferedSamples() >= targetSamples) break;
       this.runFrame();
-      this.frameTimeAccum -= FRAME_PERIOD;
+      this.frameTimeAccum -= framePeriod;
       framesRun++;
       if (this.breakpointHit >= 0) break;
     }

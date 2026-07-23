@@ -31,7 +31,7 @@ export function createCpcServices(c: CpcMachine): CpcServices {
   const disks = new CpcDiskService(c);
   const roms = new CpcRomService(c, host);
   const snapshots = new CpcSnapshotService(c, host);
-  const media = new CpcMediaService(c, disks, tape, snapshots);
+  const media = new CpcMediaService(c, disks, tape, snapshots, roms);
   return {
     media, roms, tape, disks, snapshots,
     input: new CpcInputService(c),

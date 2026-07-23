@@ -46,12 +46,23 @@ export const KEY_NAME_MAP: Record<string, string> = {
   'z': 'KeyZ',
   '0': 'Digit0', '1': 'Digit1', '2': 'Digit2', '3': 'Digit3', '4': 'Digit4',
   '5': 'Digit5', '6': 'Digit6', '7': 'Digit7', '8': 'Digit8', '9': 'Digit9',
-  'enter': 'Enter', 'space': 'Space',
+  'enter': 'Enter', 'space': 'Space', 'period': 'Period',
   'shift': 'ShiftLeft', 'sym': 'ControlLeft',
   'backspace': 'Backspace', 'delete': 'Delete',
   'left': 'ArrowLeft', 'right': 'ArrowRight',
   'up': 'ArrowUp', 'down': 'ArrowDown',
   'capslock': 'CapsLock', 'escape': 'Escape', 'esc': 'Escape',
+  // Numeric keypad — on the CPC these are the function keys (f0–f9), e.g. the
+  // firmware boot menu's "f2 Burnin' Rubber" is Numpad2. Harmless on machines
+  // whose matrix has no numpad (handleKeyEvent just returns false).
+  'numpad0': 'Numpad0', 'numpad1': 'Numpad1', 'numpad2': 'Numpad2',
+  'numpad3': 'Numpad3', 'numpad4': 'Numpad4', 'numpad5': 'Numpad5',
+  'numpad6': 'Numpad6', 'numpad7': 'Numpad7', 'numpad8': 'Numpad8',
+  'numpad9': 'Numpad9', 'numpadenter': 'NumpadEnter', 'numpaddot': 'NumpadDecimal',
+  // Aliases so "f2" works as the CPC firmware function key.
+  'f0': 'Numpad0', 'f1': 'Numpad1', 'f2': 'Numpad2', 'f3': 'Numpad3',
+  'f4': 'Numpad4', 'f5': 'Numpad5', 'f6': 'Numpad6', 'f7': 'Numpad7',
+  'f8': 'Numpad8', 'f9': 'Numpad9',
 };
 
 /** Spectrum keyboard mapping for printable characters (used by `type`). */
@@ -91,6 +102,16 @@ export function formatStep(spec: Machine): string {
   );
 }
 
+/** One-line 128K-class Spectrum paging state, or null on 16K/48K and on
+ *  non-Spectrum machines. Shared by `registers`, `port_out`, and the reset
+ *  trap so the banking readout is formatted in exactly one place. */
+export function spectrumPagingLine(): string | null {
+  const s = activeSpectrum();
+  if (!s || !is128kClass(s.model)) return null;
+  const mem = s.memory;
+  return `Bank: ${mem.currentBank}  ROM: ${mem.currentROM}  7FFD: ${h8(mem.port7FFD)}  Locked: ${mem.pagingLocked ? 'Y' : 'N'}`;
+}
+
 export function formatRegs(spec: Machine): string {
   const snap = spec.services.debug.regs();
   const v: Record<string, number> = {};
@@ -109,11 +130,8 @@ export function formatRegs(spec: Machine): string {
     `SP  ${h16(snap.sp)}  PC  ${h16(snap.pc)}   IR  ${h8(v['I'] ?? 0)}${h8(v['R'] ?? 0)}`,
     `T-states: ${snap.tStates}`,
   ];
-  const s = activeSpectrum();
-  if (s && is128kClass(s.model)) {
-    const mem = s.memory;
-    lines.push(`Bank: ${mem.currentBank}  ROM: ${mem.currentROM}  7FFD: ${h8(mem.port7FFD)}  Locked: ${mem.pagingLocked ? 'Y' : 'N'}`);
-  }
+  const paging = spectrumPagingLine();
+  if (paging) lines.push(paging);
   return lines.join('\n');
 }
 

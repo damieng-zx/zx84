@@ -19,7 +19,11 @@ export interface MenuItem {
 }
 
 interface Props {
-  icon: JSX.Element;
+  icon?: JSX.Element;
+  /** Text shown on the button face instead of (or alongside) the icon, with a
+   *  dropdown caret — renders the button like a select box rather than an
+   *  icon-only control. */
+  label?: string;
   title?: string;
   items: MenuItem[];
   onSelect: (value: string) => void;
@@ -118,10 +122,15 @@ export function DropDownMenuButton(props: Props) {
       <button
         ref={btnRef}
         class={`btn btn-${props.size ?? 'md'} ddmenu-btn`}
+        classList={{ 'ddmenu-btn-labeled': !!props.label }}
         title={props.title}
         onClick={() => setOpen(!open())}
       >
         {props.icon}
+        <Show when={props.label}>
+          <span class="ddmenu-btn-label">{props.label}</span>
+          <span class="ddmenu-btn-caret">{'▾'}</span>
+        </Show>
       </button>
       <Show when={open()}>
         <div

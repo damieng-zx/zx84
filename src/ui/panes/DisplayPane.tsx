@@ -72,6 +72,7 @@ export function DisplayPane() {
           </select>
         </label>
       </div>
+      <Show when={machineCaps().colorMap !== 'mono'}>
       <div class="slider-row">
         <span class="slider-label">Color map</span>
         <Switch
@@ -138,6 +139,7 @@ export function DisplayPane() {
           <option value="low">Low (per 8-scanlines/cell)</option>
         </select>
       </div>
+      </Show>
       <div class="slider-row">
         <span class="slider-label">Renderer</span>
         <select id="renderer-select" value={renderer()} onChange={(e) => {

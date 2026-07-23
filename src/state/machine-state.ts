@@ -13,9 +13,10 @@ import type { MachineModel } from '@/models.ts';
 
 const KNOWN_MODELS: readonly MachineModel[] = [
   '16k', '48k', '128k', '+2', '+2A', '+3',
-  'cpc6128', 'cpc464', 'cpc664',
+  'cpc6128', 'cpc464', 'cpc664', 'cpc6128plus', 'gx4000',
   'einstein',
   'hx-10',
+  'zx80', 'zx81',
 ];
 
 function loadSavedModel(): MachineModel | null {
@@ -101,6 +102,11 @@ export const setEmulationPaused = _emulationPaused[1];
 const _turboMode = createSignal(false);
 export const turboMode = _turboMode[0];
 export const setTurboMode = _turboMode[1];
+
+// Index into the discrete speed stops exposed by the Hardware pane.
+const _speedStep = createSignal(4);
+export const speedStep = _speedStep[0];
+export const setSpeedStep = _speedStep[1];
 
 // Speed display — holds just the numeric value; the "MHz" unit is rendered
 // separately (smaller) in the UI. Empty until the first sample arrives.

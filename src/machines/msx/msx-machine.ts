@@ -249,7 +249,7 @@ export class MsxMachine extends BaseMachine implements Machine {
    * (with R1 interrupt-enable set) pulls the Z80 /INT — serviced in IM 1.
    */
   protected runFrame(): void {
-    const skipAudio = this.turbo;
+    const skipAudio = this.speedMultiplier !== 1;
     this.activity.kbdReads = 0;
     this.activity.ayWrites = 0;
     this.activity.casReads = 0;

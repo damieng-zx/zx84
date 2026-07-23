@@ -12,9 +12,11 @@ import type { Machine } from '../src/machines/machine.ts';
 import { entryForModel } from '../src/machines/registry.ts';
 import type { MachineModel } from '../src/models.ts';
 import { SymbolTable } from '../src/debug/symbols.ts';
-import { fetchROM } from './rom-fetch.ts';
+import { fetchROM, fetchBootCartridge } from './rom-fetch.ts';
 import { wireFdcLog } from './fdc-log.ts';
 import { installTrapHook } from './traps.ts';
+import { applyHeadlessKnobs } from './concrete.ts';
+import { createMcpHost } from './host.ts';
 import { hex16 as h16 } from '../src/utils/hex.ts';
 
 interface State {
@@ -28,18 +30,44 @@ export const state = {} as State;
 
 export const symbols = new SymbolTable();
 
-export async function initMachine(m: MachineModel): Promise<string> {
+export interface InitMachineOptions {
+  /** ZX80/ZX81 RAM pack. Ignored by other machine families. */
+  zx8x16kRam?: boolean;
+  /** ZX81 user-defined character RAM mapped at $3000-$3FFF. */
+  zx81UdgRam?: boolean;
+  /** ZX81 128-character UDG board mapped at $3000. */
+  zx81Udg128Ram?: boolean;
+  /** ZX81 refresh-readable WRX bitmap RAM mapped at $2000-$3FFF. */
+  zx81WrxHires?: boolean;
+  /** ZX81 Memotech high-resolution graphics board. */
+  zx81MemotechHrg?: boolean;
+  /** ZX81 QuickSilva high-resolution graphics board. */
+  zx81QuickSilvaHrg?: boolean;
+}
+
+export async function initMachine(m: MachineModel, options: InitMachineOptions = {}): Promise<string> {
+  // Tear down the machine being replaced (headless this just cancels timers
+  // and closes audio/turbo plumbing) — including when a mount triggered this
+  // rebuild via host.requestModel, mid-mount on the OLD machine; its service
+  // returns needsReplay immediately afterwards and touches nothing more.
+  state.spec?.destroy();
   state.model = m;
   state.romData = await fetchROM(m);
-  const machine = entryForModel(m).create(m, null);
-  if (machine.kind === 'spectrum') {
-    // Spectrum-only headless knob (cheap scanline rendering off-screen).
-    (machine as unknown as { scanlineAccuracy: string }).scanlineAccuracy = 'low';
+  // Machines with no on-board ROM (CPC Plus / GX4000) have empty romSources and
+  // boot from a hidden default cartridge instead; fetch it via the generic
+  // entry hook and install it as the boot image (loadROM routes a .CPR through
+  // memory.loadCartridge). Mirrors the shell's applyBootCartridge.
+  if (state.romData.length === 0) {
+    const cartSource = entryForModel(m).bootCartridgeSource?.(m);
+    if (cartSource) state.romData = await fetchBootCartridge(cartSource);
   }
+  const machine = entryForModel(m).create(m, null);
+  machine.attachHost(createMcpHost());
+  const ramNote = await applyHeadlessKnobs(machine, options);
   machine.services.roms.installSystemRom(state.romData);
   machine.reset();
   state.spec = machine;
   wireFdcLog(state.spec);
   installTrapHook(state.spec);
-  return `Machine ready: ${m.toUpperCase()} PC=${h16(state.spec.services.debug.pc)}`;
+  return `Machine ready: ${m.toUpperCase()}${ramNote} PC=${h16(state.spec.services.debug.pc)}`;
 }

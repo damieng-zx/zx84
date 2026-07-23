@@ -18,10 +18,10 @@ import type { SpectrumModel } from '@/machines/spectrum/models.ts';
 import { isPlusDCapable, isInterface1Capable, isBetaDiskCapable } from '@/machines/spectrum/models.ts';
 import { variantForModel, variantLabel, romFilename } from '@/machines/spectrum/peripherals/multiface.ts';
 
-export const VTX5000_ROM = 'vtx5000-3-1.rom';
-export const PLUSD_ROM = 'plusd.rom';
-export const BETADISK_ROM = 'trdos.rom';
-export const IF1_ROM = 'if1-2.rom';
+export const VTX5000_ROM = 'sinclair/vtx5000-3-1.rom';
+export const PLUSD_ROM = 'sinclair/plus-d.rom';
+export const BETADISK_ROM = 'sinclair/trdos.rom';
+export const IF1_ROM = 'sinclair/if1-2.rom';
 
 export function vtx5000AuxRom(m: Spectrum): AuxRomRequest {
   return {

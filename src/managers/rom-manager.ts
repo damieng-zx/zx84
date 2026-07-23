@@ -15,10 +15,12 @@ import { entryForModel } from '@/machines/registry.ts';
 
 export const ROM_BASE = 'https://zx84files.bitsparse.com/roms/';
 
-/** Resolve a bare ROM filename against the default host without changing an
- * explicit URL or a path supplied by a machine definition. */
+/** Resolve a ROM source against the default host. Bare filenames and relative
+ *  paths (containing / but not ://) are prefixed with ROM_BASE; fully-qualified
+ *  URLs are returned unchanged. */
 export function resolveRomSource(source: string): string {
-  return source.includes('/') ? source : `${ROM_BASE}${source}`;
+  if (source.includes('://')) return source;
+  return `${ROM_BASE}${source}`;
 }
 
 export interface ROMEntry {
@@ -43,6 +45,8 @@ import type { RomPage } from '@/models.ts';
 function defaultRomLabel(model: MachineModel): string {
   if (model === '16k' || model === '48k') return 'Sinclair BASIC';
   if (model === 'hx-10') return 'Toshiba HX-10 (MSX BASIC 1.0)';
+  if (model === 'zx80') return 'Sinclair ZX80 BASIC';
+  if (model === 'zx81') return 'Sinclair ZX81 BASIC';
   return `${model.toUpperCase()} (default)`;
 }
 
@@ -153,11 +157,41 @@ export class ROMManager {
       if (cached) { this.einsteinXtalDosDisk = cached; return cached; }
     } catch { /* fall through to network */ }
     try {
-      const resp = await fetch(resolveRomSource('einstein-xtaldos.dsk'));
+      const resp = await fetch(resolveRomSource('einstein/xtaldos.dsk'));
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const data = new Uint8Array(await resp.arrayBuffer());
       this.einsteinXtalDosDisk = data;
       try { await dbSave('disk-einstein-xtaldos', data); } catch { /* non-fatal */ }
+      return data;
+    } catch {
+      return null;
+    }
+  }
+
+  /** In-memory cache of hidden default boot cartridges, keyed by source. */
+  private bootCartridges = new Map<string, Uint8Array>();
+
+  /**
+   * Fetch a machine's hidden default boot cartridge from `source` (a ROM-host
+   * name or fully-qualified URL, resolved via resolveRomSource), trying the
+   * in-memory then IndexedDB cache first. Machine-agnostic: the source string
+   * is supplied by the machine entry's `bootCartridgeSource` hook, so no
+   * per-machine specifics leak into this layer. Returns null if unobtainable.
+   */
+  async fetchBootCartridge(source: string): Promise<Uint8Array | null> {
+    const mem = this.bootCartridges.get(source);
+    if (mem) return mem;
+    const key = `boot-cart-${source.split('/').pop()}`;
+    try {
+      const cached = await dbLoad(key);
+      if (cached) { this.bootCartridges.set(source, cached); return cached; }
+    } catch { /* fall through to network */ }
+    try {
+      const resp = await fetch(resolveRomSource(source));
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = new Uint8Array(await resp.arrayBuffer());
+      this.bootCartridges.set(source, data);
+      try { await dbSave(key, data); } catch { /* non-fatal */ }
       return data;
     } catch {
       return null;

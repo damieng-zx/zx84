@@ -5,35 +5,127 @@ import { z } from 'zod';
 import { saveSZX } from '../../src/machines/spectrum/snapshots/szx.ts';
 import { hex8 as h8, hex16 as h16 } from '../../src/utils/hex.ts';
 import { state, initMachine } from '../state.ts';
-import { activeSpectrum, activeCpc, activeFdc } from '../concrete.ts';
+import {
+  activeSpectrum, activeCpc, activeFdc, zx8x16kRam, zx81MemotechHrg, zx81QuickSilvaHrg,
+  zx81Udg128Ram, zx81UdgRam, zx81WrxHires,
+} from '../concrete.ts';
 import { text, formatHexDump } from '../format.ts';
-import { loadFileInto, mountAndArm, runLoadVerdict } from '../loader.ts';
+import { loadMediaInto, mountMediaBytes } from '../loader.ts';
+import { loadFileInto, mountAndArm, runLoadVerdict } from '../spectrum-loader.ts';
 import { fdcLog } from '../fdc-log.ts';
-import { parseDSK } from '../../src/media/floppy/dsk.ts';
 import { unzip } from '../../src/media/zip.ts';
 import { CACHE_DIR } from '../rom-fetch.ts';
-import { findGames, suggestTitles, fileUrls, planLoad, availableFormats, basename } from '../catalog.ts';
+import {
+  findGames, findZx8xGames, suggestTitles, suggestZx8xTitles,
+  fileUrls, planLoad, availableFormats, basename,
+} from '../catalog.ts';
 import { encodePNG } from '../png.ts';
-import { CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT } from '../../src/machines/cpc/constants.ts';
+import { isZx8xModel } from '../../src/models.ts';
+import { zx8xLaunchHardware } from '../../src/library/zx8x-hardware.ts';
+
+async function loadZx8xLibraryTitle(
+  title: string, innerFile: string | undefined, id: number | undefined,
+  frames: number, refresh: boolean,
+): Promise<string> {
+  if (!isZx8xModel(state.model)) return 'ZX80/ZX81 library requires a ZX80 or ZX81 model.';
+  const model = state.model;
+
+  let games;
+  try {
+    games = await findZx8xGames(title, model, refresh);
+  } catch (error) {
+    return `Catalog error: ${(error as Error).message}`;
+  }
+  if (games.length === 0) {
+    const near = await suggestZx8xTitles(title, model);
+    return `No exact ${model.toUpperCase()} title match for "${title}".` +
+      (near.length ? `\n${model.toUpperCase()} titles containing it:\n${near.map(name => `  • ${name}`).join('\n')}` : '');
+  }
+
+  let game = games[0];
+  if (games.length > 1) {
+    const picked = id === undefined ? undefined : games.find(candidate => candidate.id === id);
+    if (!picked) {
+      return `${games.length} ${model.toUpperCase()} titles match "${title}" exactly — re-run with id=:\n` +
+        games.map(candidate => `  id=${candidate.id}  ${candidate.title} (${candidate.year ?? '?'})  ${candidate.publisher || '—'}`).join('\n');
+    }
+    game = picked;
+  }
+
+  let data: Uint8Array | null = null;
+  let fetchedFrom = '';
+  let lastError = 'no candidate URL';
+  for (const url of fileUrls(game.file)) {
+    try {
+      const response = await fetch(url);
+      if (response.ok) {
+        data = new Uint8Array(await response.arrayBuffer());
+        fetchedFrom = url;
+        break;
+      }
+      lastError = `HTTP ${response.status} (${url})`;
+    } catch (error) {
+      lastError = `${(error as Error).message} (${url})`;
+    }
+  }
+  if (!data) return `Download failed for "${game.title}" → ${game.file}\n  ${lastError}`;
+
+  const lines = [
+    `Match: ${game.title}${game.year === null ? '' : ` (${game.year})`}  id=${game.id}`,
+    `Model: ${model.toUpperCase()} (catalog constrained; no model switch)`,
+    `From:  ${fetchedFrom}`,
+  ];
+
+  // Match the app's library launch using ZXDB RAM and enhanced-graphics tags.
+  const target = zx8xLaunchHardware(game, {
+    ram16k: zx8x16kRam(),
+    udgRam: zx81UdgRam(),
+    udg128Ram: zx81Udg128Ram(),
+    wrxHires: zx81WrxHires(),
+    memotechHrg: zx81MemotechHrg(),
+    quickSilvaHrg: zx81QuickSilvaHrg(),
+  });
+  if (zx8x16kRam() !== target.ram16k
+      || zx81UdgRam() !== target.udgRam
+      || zx81Udg128Ram() !== target.udg128Ram
+      || zx81WrxHires() !== target.wrxHires
+      || zx81MemotechHrg() !== target.memotechHrg
+      || zx81QuickSilvaHrg() !== target.quickSilvaHrg) {
+    lines.push(await initMachine(model, {
+      zx8x16kRam: target.ram16k,
+      zx81UdgRam: target.udgRam,
+      zx81Udg128Ram: target.udg128Ram,
+      zx81WrxHires: target.wrxHires,
+      zx81MemotechHrg: target.memotechHrg,
+      zx81QuickSilvaHrg: target.quickSilvaHrg,
+    }));
+  }
+  lines.push(await mountMediaBytes(state.spec, data, basename(game.file), innerFile));
+
+  if (frames > 0) {
+    const ran = state.spec.runUntil(frames);
+    lines.push(`Ran ${ran}/${frames} frame(s). PC=${h16(state.spec.services.debug.pc)} T=${state.spec.services.debug.tStates}`);
+  }
+  return lines.join('\n');
+}
 
 export function register(server: McpServer): void {
   server.registerTool(
     'load',
-    { description: 'Load a file into the emulator. Supports TAP, TZX, SNA, Z80, DSK, MDR formats. For DSK, optional drive unit (0/A or 1/B); for MDR, optional microdrive unit (0-7 → drives 1-8).', inputSchema: {
-      file: z.string().describe('Path to file (TAP/TZX/SNA/Z80/DSK/MDR)'),
+    { description: 'Load a file into the emulator. ZX80 accepts .o/.80; ZX81 accepts .p/.81/.p81; CPC accepts .dsk/.hfe/.scp disks, .cdt tapes, .sna snapshots, and .cpr cartridges on Plus models; MSX accepts .rom/.cas; Einstein accepts .dsk/.hfe/.scp; Spectrum accepts its tape/snapshot/disk formats (peripheral media auto-enables the matching interface). ZIPs are unwrapped when they hold exactly one compatible file. For DSK, optional drive unit (0/A or 1/B); for MDR, optional microdrive unit (0-7 → drives 1-8).', inputSchema: {
+      file: z.string().describe('Path to a machine-compatible media file or ZIP'),
       drive: z.enum(['0', '1', 'A', 'B']).default('0').describe('Drive unit for DSK files'),
     } },
     async ({ file, drive }) => {
       const diskUnit = (drive === '1' || drive === 'B') ? 1 : 0;
-      const cpc = activeCpc();
-      if (cpc) {
-        if (!fs.existsSync(file)) return text(`File not found: ${file}`);
-        if (!/\.dsk$/i.test(file)) return text('On the CPC, load accepts .dsk disk images only.');
-        const image = parseDSK(new Uint8Array(fs.readFileSync(file)));
-        cpc.loadDisk(image, diskUnit);
-        return text(`DSK mounted in drive ${diskUnit === 0 ? 'A' : 'B'}: ${path.basename(file)}`);
-      }
-      return text(await loadFileInto(activeSpectrum()!, file, diskUnit));
+      // The Spectrum keeps its bench path: it auto-enables the +D/Interface 1/
+      // Beta Disk ROMs for peripheral media, which the machine's own
+      // MediaService deliberately refuses to do.
+      const spectrum = activeSpectrum();
+      if (spectrum) return text(await loadFileInto(spectrum, file, diskUnit));
+      // Every other machine mounts through its own MediaService — the machine
+      // owns the extension→device routing; ZIP unwrapping is handled inside.
+      return text(await loadMediaInto(state.spec, file, `unit:${diskUnit}`));
     },
   );
 
@@ -52,7 +144,8 @@ export function register(server: McpServer): void {
       },
     },
     async ({ title, file, id, frames, refresh }) => {
-      if (activeCpc()) return text('library is Spectrum-only — switch to a Spectrum model first (CPC titles are not in this catalog).');
+      if (isZx8xModel(state.model)) return text(await loadZx8xLibraryTitle(title, file, id, frames, refresh));
+      if (!activeSpectrum()) return text('library supports Spectrum, ZX80, and ZX81 models. Switch model first.');
 
       // 1. Resolve the exact title against the catalog.
       let games;
@@ -169,7 +262,7 @@ export function register(server: McpServer): void {
   server.registerTool(
     'screenshot',
     {
-      description: 'Capture the current display as a PNG file. Renders the active screen (Spectrum: shadow-screen aware; CPC: live framebuffer) and writes it to disk. Returns the file path.',
+      description: 'Capture the active machine display as a PNG file and return the file path.',
       inputSchema: {
         file: z.string().optional().describe('Output PNG path (default: <mcp cache>/screenshot.png)'),
       },
@@ -179,19 +272,18 @@ export function register(server: McpServer): void {
       let width: number;
       let height: number;
 
-      const cpc = activeCpc();
-      if (cpc) {
-        rgba = cpc.pixels;
-        width = CPC_SCREEN_WIDTH;
-        height = CPC_SCREEN_HEIGHT;
-      } else {
-        const spec = activeSpectrum()!;
+      const spec = activeSpectrum();
+      if (spec) {
         // Re-render from the active screen bank: the headless run may have skipped
         // the bulk frame render, so the pixel buffer can be stale.
         spec.ula.renderFrame(spec.memory.screenBank, 0x4000);
         rgba = spec.ula.pixels;
         width = spec.ula.screenWidth;
         height = spec.ula.screenHeight;
+      } else {
+        rgba = state.spec.pixels;
+        width = state.spec.frameWidth;
+        height = state.spec.frameHeight;
       }
 
       let out = file ?? path.join(CACHE_DIR, 'screenshot.png');
@@ -310,13 +402,18 @@ export function register(server: McpServer): void {
     } },
     async ({ target, drive }) => {
       if (target === 'tape') {
-        const s = activeSpectrum();
-        if (!s) return text('No tape on the CPC.');
-        s.tape.load(new Uint8Array(0));
+        const tape = state.spec.services.tape;
+        if (!tape) return text(`${state.model.toUpperCase()} has no cassette deck.`);
+        tape.eject();
         return text('Tape ejected');
       }
       const unit = (drive === '1' || drive === 'B') ? 1 : 0;
-      activeFdc()!.ejectDisk(unit);
+      const id = unit === 0 ? 'a' : 'b';
+      const disks = state.spec.services.disks;
+      if (!disks || !disks.drives.some(d => d.id === id)) {
+        return text(`${state.model.toUpperCase()} has no drive ${unit === 0 ? 'A:' : 'B:'}.`);
+      }
+      disks.eject(id);
       return text(`Drive ${unit === 0 ? 'A' : 'B'}: ejected`);
     },
   );
@@ -328,7 +425,9 @@ export function register(server: McpServer): void {
       sector: z.number().int().min(0).optional().describe('Sector R value (omit for all sectors on track)'),
     } },
     async ({ track: wTrack, sector: wSector }) => {
-      const dsk = activeFdc()!.getDiskImage(0);
+      const fdc = activeFdc();
+      if (!fdc) return text(`No uPD765A fitted on ${state.model.toUpperCase()} — disk inspection needs a +3 or a CPC.`);
+      const dsk = fdc.getDiskImage(0);
       if (!dsk) return text('No disk in drive A:');
       const track = dsk.tracks[wTrack]?.[0];
       if (!track) return text(`Track ${wTrack} not found`);
@@ -347,7 +446,9 @@ export function register(server: McpServer): void {
     'disk_geometry',
     { description: 'Show geometry of the mounted disk image: format, tracks, sides, protection, and a per-track sector summary.', inputSchema: { drive: z.number().int().min(0).max(1).default(0).describe('Drive number (0=A, 1=B)') } },
     async ({ drive }) => {
-      const dsk = activeFdc()!.getDiskImage(drive);
+      const fdc = activeFdc();
+      if (!fdc) return text(`No uPD765A fitted on ${state.model.toUpperCase()} — disk inspection needs a +3 or a CPC.`);
+      const dsk = fdc.getDiskImage(drive);
       if (!dsk) return text(`No disk in drive ${drive === 0 ? 'A' : 'B'}:`);
       const lines: string[] = [];
       lines.push(`Format: ${dsk.format}  Tracks: ${dsk.numTracks}  Sides: ${dsk.numSides}`);
@@ -375,7 +476,9 @@ export function register(server: McpServer): void {
       drive: z.number().int().min(0).max(1).default(0).describe('Drive number (0=A, 1=B)'),
     } },
     async ({ track: tNum, side, drive }) => {
-      const dsk = activeFdc()!.getDiskImage(drive);
+      const fdc = activeFdc();
+      if (!fdc) return text(`No uPD765A fitted on ${state.model.toUpperCase()} — disk inspection needs a +3 or a CPC.`);
+      const dsk = fdc.getDiskImage(drive);
       if (!dsk) return text(`No disk in drive ${drive === 0 ? 'A' : 'B'}:`);
       const track = dsk.tracks[tNum]?.[side];
       if (!track) return text(`Track ${tNum} side ${side} not found`);
@@ -402,7 +505,9 @@ export function register(server: McpServer): void {
       length: z.number().int().positive().optional().describe('Number of bytes to dump (default: entire sector)'),
     } },
     async ({ track: tNum, sector: sR, side, drive, offset, length }) => {
-      const dsk = activeFdc()!.getDiskImage(drive);
+      const fdc = activeFdc();
+      if (!fdc) return text(`No uPD765A fitted on ${state.model.toUpperCase()} — disk inspection needs a +3 or a CPC.`);
+      const dsk = fdc.getDiskImage(drive);
       if (!dsk) return text(`No disk in drive ${drive === 0 ? 'A' : 'B'}:`);
       const track = dsk.tracks[tNum]?.[side];
       if (!track) return text(`Track ${tNum} side ${side} not found`);

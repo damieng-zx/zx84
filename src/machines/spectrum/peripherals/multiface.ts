@@ -26,9 +26,9 @@ export function variantLabel(variant: MultifaceVariant): string {
 }
 
 export function romFilename(variant: MultifaceVariant): string {
-  if (variant === 'MF1') return 'MF1.rom';
-  if (variant === 'MF128') return 'MF128.rom';
-  return 'MF3.rom';
+  if (variant === 'MF1') return 'sinclair/MF1.rom';
+  if (variant === 'MF128') return 'sinclair/MF128.rom';
+  return 'sinclair/MF3.rom';
 }
 
 export class Multiface {

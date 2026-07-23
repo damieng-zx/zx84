@@ -1,16 +1,27 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { is128kClass } from '../../src/models.ts';
 import { hex8 as h8, hex16 as h16 } from '../../src/utils/hex.ts';
 import { state } from '../state.ts';
-import { activeSpectrum, activeCpc } from '../concrete.ts';
 import { z80Cpu } from '../../src/debug/z80/service.ts';
-import { parseAddr, text, checkWatchHit, KEY_NAME_MAP, CHAR_KEYS } from '../format.ts';
+import { parseAddr, text, checkWatchHit, spectrumPagingLine, KEY_NAME_MAP, CHAR_KEYS } from '../format.ts';
+import type { HostKeyEvent } from '../../src/machines/machine.ts';
 
-/** The active machine's keyboard (both expose handleKeyEvent(code, pressed)). */
-function activeKeyboard(): { handleKeyEvent(code: string, pressed: boolean): boolean } {
-  const s = activeSpectrum();
-  return s ? s.keyboard : activeCpc()!.keyboard;
+function hostKeyEvent(code: string): HostKeyEvent {
+  const key = code.startsWith('Key') ? code.slice(3).toLowerCase()
+    : code.startsWith('Digit') ? code.slice(5)
+      : code === 'Space' ? ' ' : code;
+  return {
+    code, key,
+    shift: code === 'ShiftLeft' || code === 'ShiftRight',
+    ctrl: code === 'ControlLeft' || code === 'ControlRight',
+    alt: code === 'AltLeft' || code === 'AltRight',
+  };
+}
+
+function setKey(code: string, pressed: boolean): boolean {
+  const input = state.spec.services.input;
+  const event = hostKeyEvent(code);
+  return pressed ? input.keyDown(event) : input.keyUp(event);
 }
 
 export function register(server: McpServer): void {
@@ -25,11 +36,8 @@ export function register(server: McpServer): void {
       const v = parseAddr(value) & 0xFF;
       z80Cpu(state.spec)!.portOut(p, v);
       let result = `OUT ${h16(p)}, ${h8(v)}`;
-      const s = activeSpectrum();
-      if (s && is128kClass(s.model)) {
-        const mem = s.memory;
-        result += `\nBank: ${mem.currentBank}  ROM: ${mem.currentROM}  7FFD: ${h8(mem.port7FFD)}  Locked: ${mem.pagingLocked ? 'Y' : 'N'}`;
-      }
+      const paging = spectrumPagingLine();
+      if (paging) result += `\n${paging}`;
       return text(result);
     },
   );
@@ -46,13 +54,12 @@ export function register(server: McpServer): void {
 
   server.registerTool(
     'key',
-    { description: 'Press a key for N frames (default 5). Keys: a-z, 0-9, enter, space, shift (CAPS SHIFT), sym (SYMBOL SHIFT), backspace, arrows, capslock, escape. Combine keys with "+" to hold them together, e.g. "shift+2" or "sym+p". Pure-modifier combos work too: "shift+sym" enters extended mode (E cursor) — follow it with a letter for the extended keyword (e.g. "shift+sym" then "m" gives PI).', inputSchema: {
+    { description: 'Press a key through the active machine input service for N frames (default 5). Common keys: a-z, 0-9, enter, space, shift, backspace, arrows, period, escape. Spectrum also supports sym, capslock, and "+"-joined combos.', inputSchema: {
       name: z.string().describe('Key name, or "+"-joined combo (e.g. "enter", "a", "shift+sym")'),
       frames: z.number().int().positive().default(5).describe('How many frames to hold the key'),
     } },
     async ({ name, frames }) => {
       const spec = state.spec;
-      const kb = activeKeyboard();
       // Support combos like "sym+p", "shift+2"
       const parts = name.toLowerCase().split('+');
       const codes: string[] = [];
@@ -61,9 +68,11 @@ export function register(server: McpServer): void {
         if (!code) return text(`Unknown key: ${p.trim()}. Available: ${Object.keys(KEY_NAME_MAP).join(', ')}`);
         codes.push(code);
       }
-      for (const c of codes) kb.handleKeyEvent(c, true);
+      let consumed = false;
+      for (const c of codes) consumed = setKey(c, true) || consumed;
+      if (!consumed) return text(`Key '${name}' is not present on ${state.model.toUpperCase()}`);
       for (let i = 0; i < frames; i++) spec.tick();
-      for (const c of codes) kb.handleKeyEvent(c, false);
+      for (const c of codes) setKey(c, false);
       spec.tick();
       return text(`Key '${name}' held for ${frames} frames`);
     },
@@ -71,10 +80,9 @@ export function register(server: McpServer): void {
 
   server.registerTool(
     'type',
-    { description: 'Type a string of characters, pressing each key for a few frames. Handles letters, digits, symbols. Use backtick-delimited names for control keys: `enter`, `backspace`, `left`, `right`, `up`, `down`, `escape`, `space`, `shift`, `sym`, `capslock`. Each backtick token is pressed and released on its own, so combos cannot be held here — to enter extended mode (CAPS SHIFT + SYMBOL SHIFT held together) use the `key` tool with "shift+sym".', inputSchema: { text: z.string().describe('Text to type, e.g. "LOAD \\"\\"`enter`" or "10 PRINT `shift`2`enter`"') } },
+    { description: 'Type text through the active machine keyboard. Letters, digits, spaces, and backtick-delimited control names work on ZX80/ZX81; printable-symbol chords use Spectrum mappings.', inputSchema: { text: z.string().describe('Text to type, e.g. "LOAD \\"\\"`enter`" or "10 PRINT `shift`2`enter`"') } },
     async ({ text: str }) => {
       const spec = state.spec;
-      const kb = activeKeyboard();
       // Parse the string, extracting `name` escape sequences for control keys
       const tokens: string[][] = [];
       let i = 0;
@@ -90,10 +98,12 @@ export function register(server: McpServer): void {
         } else {
           const ch = str[i];
           const lower = ch.toLowerCase();
-          if (CHAR_KEYS[ch]) {
+          if (spec.kind === 'zx8x' && ch === '.') {
+            tokens.push(['period']);
+          } else if (CHAR_KEYS[ch]) {
             tokens.push(CHAR_KEYS[ch]);
           } else if (KEY_NAME_MAP[lower]) {
-            tokens.push(ch >= 'A' && ch <= 'Z' ? ['shift', lower] : [lower]);
+            tokens.push(ch >= 'A' && ch <= 'Z' && spec.kind !== 'zx8x' ? ['shift', lower] : [lower]);
           } else if (ch === ' ') {
             tokens.push(['space']);
           }
@@ -104,13 +114,13 @@ export function register(server: McpServer): void {
       let hit: string | null = null;
       typeLoop: for (const keys of tokens) {
         const codes = keys.map(k => KEY_NAME_MAP[k]);
-        for (const c of codes) kb.handleKeyEvent(c, true);
+        for (const c of codes) setKey(c, true);
         for (let f = 0; f < 5; f++) {
           spec.tick();
           hit = checkWatchHit(spec);
-          if (hit) { for (const c of codes) kb.handleKeyEvent(c, false); break typeLoop; }
+          if (hit) { for (const c of codes) setKey(c, false); break typeLoop; }
         }
-        for (const c of codes) kb.handleKeyEvent(c, false);
+        for (const c of codes) setKey(c, false);
         spec.tick();
         hit = checkWatchHit(spec);
         if (hit) break;

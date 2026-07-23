@@ -37,6 +37,13 @@ export function fetchMFRom(variant: MultifaceVariant): Promise<Uint8Array> {
   return fetchCached(romFilename(variant));
 }
 
+/** Fetch a machine's hidden default boot cartridge (CPC Plus → plus-system.cpr).
+ *  The source string comes from the machine entry's `bootCartridgeSource` hook,
+ *  keeping the image identity in the machine that owns it. */
+export function fetchBootCartridge(source: string): Promise<Uint8Array> {
+  return fetchCached(source);
+}
+
 export function fetchVTXRom(): Promise<Uint8Array> {
   return fetchCached(VTX5000_ROM);
 }

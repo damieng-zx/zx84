@@ -2,8 +2,12 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { hex8 as h8, hex16 as h16 } from '../../src/utils/hex.ts';
 import { state, initMachine } from '../state.ts';
-import { formatStep, formatRegs, parseAddr, text } from '../format.ts';
+import {
+  zx8x16kRam, zx81MemotechHrg, zx81QuickSilvaHrg, zx81Udg128Ram, zx81UdgRam, zx81WrxHires,
+} from '../concrete.ts';
+import { formatStep, formatRegs, parseAddr, text, checkWatchHit } from '../format.ts';
 import { traps, resetTrap, consumeResetHit } from '../traps.ts';
+import { MCP_MODELS } from '../models.ts';
 
 export function register(server: McpServer): void {
   server.registerTool(
@@ -12,19 +16,10 @@ export function register(server: McpServer): void {
     async ({ frames }) => {
       const spec = state.spec;
       const ran = spec.runUntil(frames);
-      if (spec.portWatchHit !== null) {
-        const { port, value, dir } = spec.portWatchHit;
-        return text(`Port watchpoint: ${dir === 'out' ? 'OUT' : 'IN '} (${h16(port)}) = ${h8(value)}  PC=${h16(spec.services.debug.pc)}\n${formatStep(spec)}`);
-      }
-      if (spec.memWatchHit !== null) {
-        const { addr, value, dir } = spec.memWatchHit;
-        return text(`Memory watchpoint: ${dir === 'write' ? 'WR' : 'RD'} (${h16(addr)}) = ${h8(value)}  PC=${h16(spec.services.debug.pc)}\n${formatStep(spec)}`);
-      }
-      if (spec.breakpointHit >= 0) {
-        const reset = consumeResetHit();
-        if (reset) return text(`${reset.text}\nafter ${ran}/${frames} frame(s)\n${formatStep(spec)}`);
-        return text(`Breakpoint hit at ${h16(spec.breakpointHit)} after ${ran}/${frames} frame(s). T=${spec.services.debug.tStates}\n${formatStep(spec)}`);
-      }
+      const reset = consumeResetHit();
+      if (reset) return text(`${reset.text}\nafter ${ran}/${frames} frame(s)\n${formatStep(spec)}`);
+      const hit = checkWatchHit(spec);
+      if (hit) return text(`${hit}\nafter ${ran}/${frames} frame(s)`);
       return text(`Ran ${frames} frame(s). T=${spec.services.debug.tStates}`);
     },
   );
@@ -35,19 +30,10 @@ export function register(server: McpServer): void {
     async () => {
       const spec = state.spec;
       spec.tick();
-      if (spec.portWatchHit !== null) {
-        const { port, value, dir } = spec.portWatchHit;
-        return text(`Port watchpoint: ${dir === 'out' ? 'OUT' : 'IN '} (${h16(port)}) = ${h8(value)}  PC=${h16(spec.services.debug.pc)}\n${formatStep(spec)}`);
-      }
-      if (spec.memWatchHit !== null) {
-        const { addr, value, dir } = spec.memWatchHit;
-        return text(`Memory watchpoint: ${dir === 'write' ? 'WR' : 'RD'} (${h16(addr)}) = ${h8(value)}  PC=${h16(spec.services.debug.pc)}\n${formatStep(spec)}`);
-      }
-      if (spec.breakpointHit >= 0) {
-        const reset = consumeResetHit();
-        if (reset) return text(`${reset.text}\n${formatStep(spec)}`);
-        return text(`Breakpoint at ${h16(spec.breakpointHit)}. T=${spec.services.debug.tStates}\n${formatStep(spec)}`);
-      }
+      const reset = consumeResetHit();
+      if (reset) return text(`${reset.text}\n${formatStep(spec)}`);
+      const hit = checkWatchHit(spec);
+      if (hit) return text(hit);
       return text(`Frame complete. T=${spec.services.debug.tStates}`);
     },
   );
@@ -74,19 +60,10 @@ export function register(server: McpServer): void {
       if (spec.breakpoints.size === 0 && spec.portWatchpoints.size === 0 && spec.memWatchpoints.length === 0 && traps.size === 0 && !resetTrap.armed)
         return text('No breakpoints or traps set. Use "breakpoint", "port_watchpoint", "memory_watchpoint", "trap", or "reset_trap" first.');
       const ran = spec.runUntil(max_frames);
-      if (spec.portWatchHit !== null) {
-        const { port, value, dir } = spec.portWatchHit;
-        return text(`Port watchpoint: ${dir === 'out' ? 'OUT' : 'IN '} (${h16(port)}) = ${h8(value)}  after ${ran} frame(s)  PC=${h16(spec.services.debug.pc)}\n${formatStep(spec)}`);
-      }
-      if (spec.memWatchHit !== null) {
-        const { addr, value, dir } = spec.memWatchHit;
-        return text(`Memory watchpoint: ${dir === 'write' ? 'WR' : 'RD'} (${h16(addr)}) = ${h8(value)}  after ${ran} frame(s)  PC=${h16(spec.services.debug.pc)}\n${formatStep(spec)}`);
-      }
-      if (spec.breakpointHit >= 0) {
-        const reset = consumeResetHit();
-        if (reset) return text(`${reset.text}\nafter ${ran} frame(s)\n${formatStep(spec)}`);
-        return text(`Breakpoint hit at ${h16(spec.breakpointHit)} after ${ran} frame(s). T=${spec.services.debug.tStates}\n${formatStep(spec)}`);
-      }
+      const reset = consumeResetHit();
+      if (reset) return text(`${reset.text}\nafter ${ran} frame(s)\n${formatStep(spec)}`);
+      const hit = checkWatchHit(spec);
+      if (hit) return text(`${hit}\nafter ${ran} frame(s)`);
       return text(`No breakpoint hit after ${max_frames} frames (T=${spec.services.debug.tStates})`);
     },
   );
@@ -115,11 +92,52 @@ export function register(server: McpServer): void {
 
   server.registerTool(
     'model',
-    { description: 'Show or switch the machine model. Creates a fresh machine when switching.', inputSchema: { target: z.enum(['16k', '48k', '128k', '+2', '+2A', '+3', 'cpc6128', 'cpc464', 'cpc664', 'einstein', 'hx-10']).optional().describe('Model to switch to (omit to show current)') } },
-    async ({ target }) => {
-      if (!target) return text(`Current model: ${state.model}`);
-      const msg = await initMachine(target);
-      return text(`Switched to ${target.toUpperCase()}. ${msg}`);
+    { description: 'Show or switch the machine model. Creates a fresh machine when switching. ZX80/ZX81 may select 16KB RAM; ZX81 may select one high-resolution graphics device.', inputSchema: {
+      target: z.enum(MCP_MODELS).optional().describe('Model to switch to (omit to show current)'),
+      ram16k: z.boolean().optional().describe('ZX80/ZX81 only: enable or disable 16KB RAM'),
+      udgRam: z.boolean().optional().describe('ZX81 only: map UDG character RAM at $3000-$3FFF'),
+      udg128Ram: z.boolean().optional().describe('ZX81 only: map the 128-character UDG board at $3000-$3FFF'),
+      wrxHires: z.boolean().optional().describe('ZX81 only: enable WRX refresh-readable bitmap RAM (disables UDG RAM)'),
+      memotechHrg: z.boolean().optional().describe('ZX81 only: enable the Memotech 248x192 HRG board'),
+      quickSilvaHrg: z.boolean().optional().describe('ZX81 only: enable the QuickSilva 256x192 HRG board'),
+    } },
+    async ({ target, ram16k, udgRam, udg128Ram, wrxHires, memotechHrg, quickSilvaHrg }) => {
+      if (!target && ram16k === undefined && udgRam === undefined && udg128Ram === undefined
+          && wrxHires === undefined && memotechHrg === undefined && quickSilvaHrg === undefined) {
+        const ram = state.spec.kind === 'zx8x' ? ` (${zx8x16kRam() ? '16KB' : '1KB'} RAM)` : '';
+        const hires = state.model === 'zx81'
+          ? ` (hi-res: ${zx81QuickSilvaHrg() ? 'QuickSilva' : zx81MemotechHrg() ? 'Memotech'
+            : zx81WrxHires() ? 'WRX' : zx81Udg128Ram() ? 'UDG-128' : zx81UdgRam() ? 'UDG' : 'off'})`
+          : '';
+        return text(`Current model: ${state.model}${ram}${hires}`);
+      }
+      const next = target ?? state.model;
+      const sameModel = next === state.model;
+      const explicit = quickSilvaHrg === true ? 'quicksilva'
+        : memotechHrg === true ? 'memotech'
+        : wrxHires === true ? 'wrx'
+        : udg128Ram === true ? 'udg128'
+        : udgRam === true ? 'udg'
+        : null;
+      const hardwareTouched = udgRam !== undefined || udg128Ram !== undefined || wrxHires !== undefined
+        || memotechHrg !== undefined || quickSilvaHrg !== undefined;
+      const keep = sameModel && next === 'zx81' && !hardwareTouched ? {
+        zx81UdgRam: zx81UdgRam(),
+        zx81Udg128Ram: zx81Udg128Ram(),
+        zx81WrxHires: zx81WrxHires(),
+        zx81MemotechHrg: zx81MemotechHrg(),
+        zx81QuickSilvaHrg: zx81QuickSilvaHrg(),
+      } : {};
+      const msg = await initMachine(next, {
+        zx8x16kRam: ram16k ?? (sameModel ? zx8x16kRam() : false),
+        ...keep,
+        ...(explicit ? {
+          zx81UdgRam: explicit === 'udg', zx81Udg128Ram: explicit === 'udg128',
+          zx81WrxHires: explicit === 'wrx', zx81MemotechHrg: explicit === 'memotech',
+          zx81QuickSilvaHrg: explicit === 'quicksilva',
+        } : {}),
+      });
+      return text(`Switched to ${next.toUpperCase()}. ${msg}`);
     },
   );
 }

@@ -111,9 +111,9 @@ export function RomPane(): JSX.Element {
   }
 
   async function insertCartridge(): Promise<void> {
-    const results = await openFile({ id: 'zx84-cartridge', extensions: ['.rom', '.zip'] });
+    const results = await openFile({ id: 'zx84-cartridge', extensions: ['.rom', '.cpr', '.zip'] });
     if (!results) return;
-    await loadFile(results[0].data, results[0].name);   // routes .rom → cartridge
+    await loadFile(results[0].data, results[0].name);   // routes .rom/.cpr → cartridge
   }
 
   // The system ROM is always present; a user-loaded image is only ejectable
@@ -136,6 +136,10 @@ export function RomPane(): JSX.Element {
   };
 
   const showCartridgeSlot = (): boolean => machineCaps().cartridge;
+  // On the Plus range the cartridge IS the boot source — no separate on-board
+  // ROM to upload, so the system-ROM slot is suppressed to avoid showing two
+  // competing cartridge entries.
+  const showSystemRomSlot = (): boolean => machineCaps().systemRomSlot !== false;
   const pageSlots = (): RomPageSlot[] => ROM_PAGE_SLOTS[currentModel()] ?? [];
   // MSX keeps "System ROM" (its BIOS); the 16K/48K Spectrum just says "ROM".
   const systemSlotLabel = (): string => machineCaps().systemRomLabel;
@@ -144,23 +148,10 @@ export function RomPane(): JSX.Element {
     <Pane
       id="rom-panel"
       label="ROM / Carts"
-      visible={showCartridgeSlot() || machineCaps().romPages > 0}
+      visible={showCartridgeSlot() || machineCaps().romPages > 0 || showSystemRomSlot()}
     >
       <div class="rom-grid">
-        <Show
-          when={pageSlots().length > 0}
-          fallback={
-            <Slot
-              label={systemSlotLabel()}
-              text={systemText()}
-              placeholder="(default)"
-              ejectable={systemRomIsCustom()}
-              ejectTitle="Revert to the default system ROM"
-              onLoad={loadSystemRom}
-              onEject={() => resetSystemRom()}
-            />
-          }
-        >
+        <Show when={pageSlots().length > 0}>
           <For each={pageSlots()}>
             {(slot) => (
               <Slot
@@ -174,6 +165,17 @@ export function RomPane(): JSX.Element {
               />
             )}
           </For>
+        </Show>
+        <Show when={pageSlots().length === 0 && showSystemRomSlot()}>
+          <Slot
+            label={systemSlotLabel()}
+            text={systemText()}
+            placeholder="(default)"
+            ejectable={systemRomIsCustom()}
+            ejectTitle="Revert to the default system ROM"
+            onLoad={loadSystemRom}
+            onEject={() => resetSystemRom()}
+          />
         </Show>
         <Show when={showCartridgeSlot()}>
           <Slot

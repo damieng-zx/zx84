@@ -46,6 +46,12 @@ const CONTRIBUTIONS: Record<string, MachineUiContribution> = {
       import('@/machines/einstein/ui/hardware-section.tsx').then(m => ({ default: m.EinsteinHardwareSection }))),
   },
   msx: {},
+  zx8x: {
+    HardwareSection: lazy(() =>
+      import('@/machines/zx8x/ui/hardware-section.tsx').then(m => ({ default: m.Zx8xHardwareSection }))),
+    LibraryBrowser: lazy(() =>
+      import('@/machines/zx8x/ui/LibraryBrowser.tsx').then(m => ({ default: m.Zx8xLibraryBrowser }))),
+  },
 };
 
 /** The UI contributions for a machine kind (empty object when none registered). */

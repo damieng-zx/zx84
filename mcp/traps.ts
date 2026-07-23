@@ -9,10 +9,9 @@
 
 import type { Machine } from '../src/machines/machine.ts';
 import { z80Cpu } from '../src/debug/z80/service.ts';
-import { activeSpectrum } from './concrete.ts';
-import { is128kClass } from '../src/models.ts';
 import { disasmOne, stripMarkers } from '../src/debug/z80/disasm.ts';
 import { hex8 as h8, hex16 as h16 } from '../src/utils/hex.ts';
+import { spectrumPagingLine } from './format.ts';
 
 export interface TrapResponse {
   /** Register values to set before RETurning. Only listed regs are changed. */
@@ -81,11 +80,8 @@ function captureReset(spec: Machine, culpritPc: number): ResetHit {
     `SP=${h16(sp)}  stack: ${stack.join(' ')}`,
     `T=${cpu.tStates}`,
   ];
-  const s = activeSpectrum();
-  if (s && is128kClass(s.model)) {
-    const mem = s.memory;
-    lines.push(`Paging: bank ${mem.currentBank}  ROM ${mem.currentROM}  7FFD=${h8(mem.port7FFD)}  locked=${mem.pagingLocked ? 'Y' : 'N'}`);
-  }
+  const paging = spectrumPagingLine();
+  if (paging) lines.push(paging);
   return { text: lines.join('\n'), culpritPc };
 }
 

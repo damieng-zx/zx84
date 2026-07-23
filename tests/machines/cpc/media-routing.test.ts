@@ -98,3 +98,60 @@ describe('CPC MediaService routing', () => {
     expect(r.message).toMatch(/CPC accepts/);
   });
 });
+
+describe('CPC Plus cartridge routing', () => {
+  // Spec: .cpr is offered only on Plus models; the cartridge slot lives on
+  // the ROM service. Non-Plus 464/664/6128 reject .cpr outright.
+  function plusMachine(): CpcMachine {
+    const c = new CpcMachine('cpc6128plus', null);
+    c.start = async () => {};
+    return c;
+  }
+
+  /** Minimal valid CPR: header + one cb00 chunk filled with a marker byte. */
+  function tinyCpr(fill: number): Uint8Array {
+    const out = new Uint8Array(12 + 8 + 0x4000);
+    out[0] = 0x52; out[1] = 0x49; out[2] = 0x46; out[3] = 0x46;   // 'RIFF'
+    const riffSize = 4 + 8 + 0x4000;
+    out[4] = riffSize & 0xFF;
+    out[5] = (riffSize >> 8) & 0xFF;
+    out[8] = 0x41; out[9] = 0x4D; out[10] = 0x53; out[11] = 0x21; // 'AMS!'
+    out[12] = 0x63; out[13] = 0x62; out[14] = 0x30; out[15] = 0x30; // 'cb00'
+    out[16] = 0x00; out[17] = 0x40;                                // size 0x4000
+    out.fill(fill, 20);
+    return out;
+  }
+
+  it('accepts() lists .cpr only on Plus models', () => {
+    expect(plusMachine().services.media.accepts().map(t => t.ext)).toContain('.cpr');
+    expect(machine('cpc6128').services.media.accepts().map(t => t.ext)).not.toContain('.cpr');
+  });
+
+  it('mounts a .cpr into the ROM service cartridge slot', async () => {
+    const c = plusMachine();
+    const slot = c.services.roms.cartridge;
+    expect(slot).not.toBeNull();
+    expect(slot!.name).toBe('');
+
+    const r = await c.services.media.mount(tinyCpr(0x77), 'game.cpr');
+    expect(r.ok).toBe(true);
+    expect(r.target).toBe('cartridge');
+    expect(slot!.name).toBe('game.cpr');
+    // Page 0 of the cartridge overlays the lower (OS) ROM at 0x0000.
+    expect(c.memory.readByte(0x0000)).toBe(0x77);
+  });
+
+  it('rejects .cpr on a non-Plus model', async () => {
+    const c = machine('cpc6128');
+    const r = await c.services.media.mount(tinyCpr(0x77), 'game.cpr');
+    expect(r.ok).toBe(false);
+    expect(r.message).toMatch(/Plus/);
+  });
+
+  it('rejects a malformed .cpr (missing AMS! signature)', async () => {
+    const c = plusMachine();
+    const r = await c.services.media.mount(new Uint8Array(64).fill(0xFF), 'bad.cpr');
+    expect(r.ok).toBe(false);
+    expect(r.message).toMatch(/CPR error/);
+  });
+});
