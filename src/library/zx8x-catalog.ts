@@ -12,8 +12,8 @@ export interface RawZx8xGame {
   s?: string;
   /** Required RAM in KB, taken from ZXDB's machine type. */
   r?: number;
-  /** Compact hi-res mode: software, UDG, or WRX. */
-  h?: 's' | 'u' | 'w';
+  /** Compact hi-res mode: software, UDG, UDG-128, WRX, Memotech, or QuickSilva. */
+  h?: 's' | 'u' | 'r' | 'w' | 'm' | 'q';
   /** Indices into the catalog's ZX81 enhanced-graphics dictionary. */
   x?: number[];
 }
@@ -55,7 +55,10 @@ export function resolveZx8xGame(raw: RawZx8xGame, catalog: RawZx8xCatalog): Zx8x
     ramKb: raw.r ?? override?.ramKb ?? null,
     hiRes: hiResCode === 's' ? 'software'
       : hiResCode === 'u' ? 'udg'
+      : hiResCode === 'r' ? 'udg128'
       : hiResCode === 'w' ? 'wrx'
+      : hiResCode === 'm' ? 'memotech'
+      : hiResCode === 'q' ? 'quicksilva'
       : override?.hiRes ?? null,
     enhancedGraphics: raw.x?.map(index => catalog.graphics?.[index] ?? '').filter(Boolean)
       ?? [...(override?.enhancedGraphics ?? [])],

@@ -39,7 +39,10 @@ function Detail(props: { game: Zx8xGame }) {
   const hardware = () => [
     props.game.model.toUpperCase(),
     props.game.ramKb === null ? '' : `${props.game.ramKb}KB`,
-    graphics() || (props.game.hiRes === 'udg' ? 'UDG' : props.game.hiRes === 'wrx' ? 'WRX' : props.game.hiRes === 'software' ? 'Software hi-res' : ''),
+    graphics() || (props.game.hiRes ? ({
+      udg: 'UDG', udg128: 'UDG-128', wrx: 'WRX', memotech: 'Memotech HRG',
+      quicksilva: 'QuickSilva HRG', software: 'Software hi-res',
+    } as const)[props.game.hiRes] : ''),
   ].filter(Boolean).join(' · ');
   return (
     <div class="library-detail">
@@ -131,25 +134,32 @@ export function Zx8xLibraryBrowser() {
       const target = zx8xLaunchHardware(game, {
         ram16k: settings.zx8x16kRam(),
         udgRam: settings.zx81UdgRam(),
+        udg128Ram: settings.zx81Udg128Ram(),
         wrxHires: settings.zx81WrxHires(),
+        memotechHrg: settings.zx81MemotechHrg(),
+        quickSilvaHrg: settings.zx81QuickSilvaHrg(),
       });
-      const target16k = target.ram16k;
-      const targetUdg = target.udgRam;
-      const targetWrx = target.wrxHires;
-      const needsRebuild = settings.zx8x16kRam() !== target16k
-        || settings.zx81UdgRam() !== targetUdg
-        || settings.zx81WrxHires() !== targetWrx;
-      if (settings.zx8x16kRam() !== target16k) {
-        settings.setZx8x16kRam(target16k);
-        settings.persistSetting('zx8x-16k-ram', target16k ? 'on' : 'off');
+      const needsRebuild = settings.zx8x16kRam() !== target.ram16k
+        || settings.zx81UdgRam() !== target.udgRam
+        || settings.zx81Udg128Ram() !== target.udg128Ram
+        || settings.zx81WrxHires() !== target.wrxHires
+        || settings.zx81MemotechHrg() !== target.memotechHrg
+        || settings.zx81QuickSilvaHrg() !== target.quickSilvaHrg;
+      if (settings.zx8x16kRam() !== target.ram16k) {
+        settings.setZx8x16kRam(target.ram16k);
+        settings.persistSetting('zx8x-16k-ram', target.ram16k ? 'on' : 'off');
       }
-      if (settings.zx81UdgRam() !== targetUdg) {
-        settings.setZx81UdgRam(targetUdg);
-        settings.persistSetting('zx81-udg-ram', targetUdg ? 'on' : 'off');
-      }
-      if (settings.zx81WrxHires() !== targetWrx) {
-        settings.setZx81WrxHires(targetWrx);
-        settings.persistSetting('zx81-wrx-hires', targetWrx ? 'on' : 'off');
+      const modes = [
+        [settings.zx81UdgRam, settings.setZx81UdgRam, 'zx81-udg-ram', target.udgRam],
+        [settings.zx81Udg128Ram, settings.setZx81Udg128Ram, 'zx81-udg128-ram', target.udg128Ram],
+        [settings.zx81WrxHires, settings.setZx81WrxHires, 'zx81-wrx-hires', target.wrxHires],
+        [settings.zx81MemotechHrg, settings.setZx81MemotechHrg, 'zx81-memotech-hrg', target.memotechHrg],
+        [settings.zx81QuickSilvaHrg, settings.setZx81QuickSilvaHrg, 'zx81-quicksilva-hrg', target.quickSilvaHrg],
+      ] as const;
+      for (const [get, set, key, value] of modes) {
+        if (get() === value) continue;
+        set(value);
+        settings.persistSetting(key, value ? 'on' : 'off');
       }
       if (needsRebuild) await switchModel(model);
       await loadFile(data, basename(game.file));

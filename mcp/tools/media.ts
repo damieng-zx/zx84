@@ -6,7 +6,8 @@ import { saveSZX } from '../../src/machines/spectrum/snapshots/szx.ts';
 import { hex8 as h8, hex16 as h16 } from '../../src/utils/hex.ts';
 import { state, initMachine } from '../state.ts';
 import {
-  activeSpectrum, activeCpc, activeFdc, zx8x16kRam, zx81UdgRam, zx81WrxHires,
+  activeSpectrum, activeCpc, activeFdc, zx8x16kRam, zx81MemotechHrg, zx81QuickSilvaHrg,
+  zx81Udg128Ram, zx81UdgRam, zx81WrxHires,
 } from '../concrete.ts';
 import { text, formatHexDump } from '../format.ts';
 import { loadMediaInto, mountMediaBytes } from '../loader.ts';
@@ -79,18 +80,24 @@ async function loadZx8xLibraryTitle(
   const target = zx8xLaunchHardware(game, {
     ram16k: zx8x16kRam(),
     udgRam: zx81UdgRam(),
+    udg128Ram: zx81Udg128Ram(),
     wrxHires: zx81WrxHires(),
+    memotechHrg: zx81MemotechHrg(),
+    quickSilvaHrg: zx81QuickSilvaHrg(),
   });
-  const target16k = target.ram16k;
-  const targetUdg = target.udgRam;
-  const targetWrx = target.wrxHires;
-  if (zx8x16kRam() !== target16k
-      || zx81UdgRam() !== targetUdg
-      || zx81WrxHires() !== targetWrx) {
+  if (zx8x16kRam() !== target.ram16k
+      || zx81UdgRam() !== target.udgRam
+      || zx81Udg128Ram() !== target.udg128Ram
+      || zx81WrxHires() !== target.wrxHires
+      || zx81MemotechHrg() !== target.memotechHrg
+      || zx81QuickSilvaHrg() !== target.quickSilvaHrg) {
     lines.push(await initMachine(model, {
-      zx8x16kRam: target16k,
-      zx81UdgRam: targetUdg,
-      zx81WrxHires: targetWrx,
+      zx8x16kRam: target.ram16k,
+      zx81UdgRam: target.udgRam,
+      zx81Udg128Ram: target.udg128Ram,
+      zx81WrxHires: target.wrxHires,
+      zx81MemotechHrg: target.memotechHrg,
+      zx81QuickSilvaHrg: target.quickSilvaHrg,
     }));
   }
   lines.push(await mountMediaBytes(state.spec, data, basename(game.file), innerFile));

@@ -67,14 +67,24 @@ describe('ZX80/ZX81 catalog schema', () => {
     expect(zx8xLaunchHardware({ ramKb: 1, hiRes: 'wrx' }, {
       ram16k: true,
       udgRam: true,
+      udg128Ram: false,
       wrxHires: false,
-    })).toEqual({ ram16k: false, udgRam: false, wrxHires: true });
+      memotechHrg: false,
+      quickSilvaHrg: false,
+    })).toEqual({
+      ram16k: false, udgRam: false, udg128Ram: false, wrxHires: true,
+      memotechHrg: false, quickSilvaHrg: false,
+    });
   });
 
-  it('maps supported ZXDB graphics tags without misclassifying missing boards', () => {
+  it('maps every implemented ZXDB graphics tag to its required board', () => {
+    expect(zx81HiResModeForTags([13002])).toBe('memotech');
+    expect(zx81HiResModeForTags([13003])).toBe('quicksilva');
     expect(zx81HiResModeForTags([13004])).toBe('wrx');
+    expect(zx81HiResModeForTags([13006])).toBe('wrx');
     expect(zx81HiResModeForTags([13007])).toBe('udg');
+    expect(zx81HiResModeForTags([13008])).toBe('udg128');
     expect(zx81HiResModeForTags([13001, 13010])).toBe('software');
-    expect(zx81HiResModeForTags([13002, 13003, 13008, 13010])).toBeNull();
+    expect(zx81HiResModeForTags([13010])).toBeNull();
   });
 });

@@ -95,7 +95,10 @@ const DEFAULTS = {
   'einstein-xtaldos': 'on',
   'zx8x-16k-ram':  'off',
   'zx81-udg-ram':  'off',
+  'zx81-udg128-ram': 'off',
   'zx81-wrx-hires': 'off',
+  'zx81-memotech-hrg': 'off',
+  'zx81-quicksilva-hrg': 'off',
 } as const;
 
 type SettingKey = keyof typeof DEFAULTS;
@@ -403,9 +406,21 @@ const _zx81UdgRam = /*@once*/ createRoot(() => createSignal(getSaved('zx81-udg-r
 export const zx81UdgRam = _zx81UdgRam[0];
 export const setZx81UdgRam = _zx81UdgRam[1];
 
+const _zx81Udg128Ram = /*@once*/ createRoot(() => createSignal(getSaved('zx81-udg128-ram', D('zx81-udg128-ram')) === 'on'));
+export const zx81Udg128Ram = _zx81Udg128Ram[0];
+export const setZx81Udg128Ram = _zx81Udg128Ram[1];
+
 const _zx81WrxHires = /*@once*/ createRoot(() => createSignal(getSaved('zx81-wrx-hires', D('zx81-wrx-hires')) === 'on'));
 export const zx81WrxHires = _zx81WrxHires[0];
 export const setZx81WrxHires = _zx81WrxHires[1];
+
+const _zx81MemotechHrg = /*@once*/ createRoot(() => createSignal(getSaved('zx81-memotech-hrg', D('zx81-memotech-hrg')) === 'on'));
+export const zx81MemotechHrg = _zx81MemotechHrg[0];
+export const setZx81MemotechHrg = _zx81MemotechHrg[1];
+
+const _zx81QuickSilvaHrg = /*@once*/ createRoot(() => createSignal(getSaved('zx81-quicksilva-hrg', D('zx81-quicksilva-hrg')) === 'on'));
+export const zx81QuickSilvaHrg = _zx81QuickSilvaHrg[0];
+export const setZx81QuickSilvaHrg = _zx81QuickSilvaHrg[1];
 
 const _vtx5000Enabled = /*@once*/ createRoot(() => createSignal(getSaved('vtx5000', D('vtx5000')) === 'on'));
 export const vtx5000Enabled = _vtx5000Enabled[0];
@@ -526,7 +541,10 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'einstein-xtaldos', set: setEinsteinXtalDos, type: 'bool' },
     { key: 'zx8x-16k-ram', set: setZx8x16kRam, type: 'bool' },
     { key: 'zx81-udg-ram', set: setZx81UdgRam, type: 'bool' },
+    { key: 'zx81-udg128-ram', set: setZx81Udg128Ram, type: 'bool' },
     { key: 'zx81-wrx-hires', set: setZx81WrxHires, type: 'bool' },
+    { key: 'zx81-memotech-hrg', set: setZx81MemotechHrg, type: 'bool' },
+    { key: 'zx81-quicksilva-hrg', set: setZx81QuickSilvaHrg, type: 'bool' },
   ],
   font: [
     { key: 'font', set: setFontName, type: 'string' },

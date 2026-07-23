@@ -4,7 +4,7 @@ import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
 import type {
-  BorderMode, Machine, MachineDescriptor, MachineHost, MachineKind, MachineTraceMode, SettingsView,
+  AuxRomRequest, BorderMode, Machine, MachineDescriptor, MachineHost, MachineKind, MachineTraceMode, SettingsView,
 } from '@/machines/machine.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type { OcrGridName, OcrResult } from '@/ocr/ocr.ts';
@@ -31,6 +31,12 @@ const PSEUDO_HIRES_SYNC_MAX_AGE_T = 207;
 const PSEUDO_HIRES_FRAME_GAP_T = 512;
 const PSEUDO_HIRES_TIMEOUT_T = ZX8X_T_PER_FRAME * 2;
 const ZX81_CDFLAG = 0x403b;
+const MEMOTECH_DFILE = 0x407b;
+const MEMOTECH_ROW_BYTES = 33;
+const MEMOTECH_PIXEL_BYTES = 31;
+const QUICKSILVA_RAM = 0xa000;
+const MEMOTECH_ROM_SOURCE = 'https://raw.githubusercontent.com/charlierobson/EightyOne/master/Source/ROMs/Graphics/memotechhrg.rom';
+const QUICKSILVA_ROM_SOURCE = 'https://raw.githubusercontent.com/charlierobson/EightyOne/master/Source/ROMs/Graphics/quicksilvahires.rom';
 
 export class Zx8xMachine extends BaseMachine implements Machine {
   readonly kind: MachineKind = 'zx8x';
@@ -50,6 +56,8 @@ export class Zx8xMachine extends BaseMachine implements Machine {
   private readonly frame = new Uint8Array(ZX8X_SCREEN_WIDTH * ZX8X_SCREEN_HEIGHT * 4);
   private readonly frame32 = new Uint32Array(this.frame.buffer);
   private nmiEnabled = false;
+  private memotechMode = 0;
+  private quickSilvaMode = false;
   private m1ReadPending = false;
   private readonly pseudoHiresRow = new Uint8Array(PSEUDO_HIRES_ROW_BYTES);
   private readonly pseudoHiresBuilding = new Uint8Array(PSEUDO_HIRES_ROW_BYTES * PSEUDO_HIRES_MAX_ROWS);
@@ -105,7 +113,12 @@ export class Zx8xMachine extends BaseMachine implements Machine {
       addr &= 0xffff;
       const m1 = this.m1ReadPending;
       if (m1) this.m1ReadPending = false;
-      let value = this.memory.readByte(addr);
+      if (this.memory.hasQuickSilvaHrg && addr >= 0x2000 && addr < 0x4000) {
+        this.quickSilvaMode = true;
+      }
+      let value = this.memory.hasMemotechHrg && (this.cpu.i & 1) !== 0 && addr < 0x400
+        ? this.memory.readMemotechOverlay(addr)
+        : this.memory.readByte(addr);
       // During an opcode fetch from the echoed display file the ULA presents a
       // NOP for a character byte; a 0x76 line terminator remains HALT.
       if (m1 && addr >= 0x8000 && (value & 0x40) === 0) value = 0x00;
@@ -118,6 +131,9 @@ export class Zx8xMachine extends BaseMachine implements Machine {
     };
     this.cpu.write8 = (addr: number, value: number): void => {
       addr &= 0xffff;
+      if (this.memory.hasQuickSilvaHrg && addr >= 0x2000 && addr < 0x4000) {
+        this.quickSilvaMode = false;
+      }
       this.memory.writeByte(addr, value);
       if (this.memWatchpoints.length && this.memWatchHit === null) {
         for (const wp of this.memWatchpoints) if ((wp.mode === 'write' || wp.mode === 'rw') && addr >= wp.start && addr <= wp.end) {
@@ -128,6 +144,10 @@ export class Zx8xMachine extends BaseMachine implements Machine {
     this.cpu._contendAccurate = () => {};
     this.cpu.contend = () => {};
     this.cpu.portInHandler = (port: number): number => {
+      if (this.memory.hasMemotechHrg && (port & 0xff) === 0x5f) {
+        this.memotechMode = (port >> 8) & 0xff;
+        return 0xff;
+      }
       this.activity.kbdReads++;
       const value = 0x60 | this.keyboard.read((port >> 8) & 0xff);
       if (this.portWatchpoints.has(port & 0xffff) && this.portWatchHit === null) this.portWatchHit = { port: port & 0xffff, value, dir: 'in' };
@@ -160,9 +180,40 @@ export class Zx8xMachine extends BaseMachine implements Machine {
 
   applySettings(view: SettingsView): void {
     this.memory.set16kExpansion(view.get('zx8x-16k-ram', false));
-    this.memory.setUdgRam(this.model === 'zx81' && view.get('zx81-udg-ram', false));
-    this.memory.setWrxRam(this.model === 'zx81' && view.get('zx81-wrx-hires', false));
+    this.memory.setUdgRam(false);
+    this.memory.setUdg128Ram(false);
+    this.memory.setWrxRam(false);
+    this.memory.setMemotechHrg(false);
+    this.memory.setQuickSilvaHrg(false);
+    if (this.model === 'zx81') {
+      if (view.get('zx81-quicksilva-hrg', false)) this.memory.setQuickSilvaHrg(true);
+      else if (view.get('zx81-memotech-hrg', false)) this.memory.setMemotechHrg(true);
+      else if (view.get('zx81-wrx-hires', false)) this.memory.setWrxRam(true);
+      else if (view.get('zx81-udg128-ram', false)) this.memory.setUdg128Ram(true);
+      else if (view.get('zx81-udg-ram', false)) this.memory.setUdgRam(true);
+    }
     this.audio.setVolume(view.get('volume', 70) / 100);
+  }
+
+  prepare(view: SettingsView): AuxRomRequest[] {
+    this.applySettings(view);
+    if (this.memory.hasMemotechHrg) return [this.hrgAuxRom('memotech')];
+    if (this.memory.hasQuickSilvaHrg) return [this.hrgAuxRom('quicksilva')];
+    return [];
+  }
+
+  private hrgAuxRom(board: 'memotech' | 'quicksilva'): AuxRomRequest {
+    const label = board === 'memotech' ? 'Memotech HRG' : 'QuickSilva HRG';
+    return {
+      cacheKey: `zx81-${board}-hrg-rom`,
+      source: board === 'memotech' ? MEMOTECH_ROM_SOURCE : QUICKSILVA_ROM_SOURCE,
+      fetchingMsg: `Fetching ${label} ROM…`,
+      loadedMsg: bytes => `${label} ROM loaded (${bytes} bytes)`,
+      failMsg: `Failed to load ${label} ROM`,
+      failId: `zx81-${board}-hrg`,
+      apply: data => this.memory.loadHrgROM(data),
+      awaitLoad: true,
+    };
   }
 
   loadProgram(data: Uint8Array, address: number): void {
@@ -229,6 +280,8 @@ export class Zx8xMachine extends BaseMachine implements Machine {
     this.memory.writeByte(sp + 2, 0x00);
     this.memory.writeByte(sp + 3, 0x3e);
     this.nmiEnabled = false;
+    this.memotechMode = 0;
+    this.quickSilvaMode = false;
   }
 
   private read16(addr: number): number {
@@ -301,6 +354,7 @@ export class Zx8xMachine extends BaseMachine implements Machine {
     const patternBase = (fontPage & 0xfe) << 8;
     const wrxAddress = (fontPage << 8) | (this.cpu.r & 0xff);
     const isUdg = this.memory.isUdgPatternAddress(patternBase);
+    const isUdg128 = this.memory.isUdg128PatternAddress(patternBase);
     const isWrx = this.memory.isWrxBitmapAddress(wrxAddress);
     const isPseudoHires = this.model === 'zx81'
       && (pc & 0x8000) !== 0
@@ -353,11 +407,12 @@ export class Zx8xMachine extends BaseMachine implements Machine {
     }
 
     if (this.pseudoHiresRunLength < PSEUDO_HIRES_ROW_BYTES) {
-      const glyph = patternBase | ((raw & 0x3f) << 3) | this.pseudoHiresRunGlyphRow;
+      const charIndex = (raw & 0x3f) | (isUdg128 ? ((raw & 0x80) >> 1) : 0);
+      const glyph = patternBase | (charIndex << 3) | this.pseudoHiresRunGlyphRow;
       let bits = this.pseudoHiresRunIsWrx
         ? this.memory.readByte(wrxAddress)
         : this.memory.readByte(glyph);
-      if (raw & 0x80) bits ^= 0xff;
+      if ((raw & 0x80) && !isUdg128) bits ^= 0xff;
       this.pseudoHiresRow[this.pseudoHiresRunLength] = bits;
     }
     this.pseudoHiresRunLength++;
@@ -579,12 +634,50 @@ export class Zx8xMachine extends BaseMachine implements Machine {
   /** Render software-generated pixels in either ZX81 mode. Ordinary display-
    * file video is available only in SLOW; FAST leaves the active area blank. */
   private renderCurrentVideo(): void {
+    if (this.renderMemotechHrg() || this.renderQuickSilvaHrg()) return;
     if (this.renderPseudoHires()) return;
     if (this.model === 'zx81' && (this.memory.readByte(ZX81_CDFLAG) & 0x80) === 0) {
       this.frame32.fill(WHITE);
       return;
     }
     this.renderDisplayFile();
+  }
+
+  private renderMemotechHrg(): boolean {
+    if (!this.memory.hasMemotechHrg || (this.cpu.i & 1) === 0
+        || (this.memotechMode !== 2 && this.memotechMode !== 3)) return false;
+    const pointer = this.read16(MEMOTECH_DFILE);
+    if (pointer < 0x4000 || pointer > 0x7fff) return false;
+    this.frame32.fill(WHITE);
+    const inverse = this.memotechMode === 3;
+    const left = ZX8X_BORDER_LEFT + 4;
+    for (let y = 0; y < ZX8X_ACTIVE_HEIGHT; y++) {
+      const source = pointer + y * MEMOTECH_ROW_BYTES + 2;
+      const dest = (ZX8X_BORDER_TOP + y) * ZX8X_SCREEN_WIDTH + left;
+      for (let col = 0; col < MEMOTECH_PIXEL_BYTES; col++) {
+        const bits = this.memory.readByte(source + col) ^ (inverse ? 0xff : 0);
+        for (let bit = 0; bit < 8; bit++) {
+          this.frame32[dest + col * 8 + bit] = bits & (0x80 >> bit) ? BLACK : WHITE;
+        }
+      }
+    }
+    return true;
+  }
+
+  private renderQuickSilvaHrg(): boolean {
+    if (!this.memory.hasQuickSilvaHrg || !this.quickSilvaMode) return false;
+    this.frame32.fill(WHITE);
+    for (let y = 0; y < ZX8X_ACTIVE_HEIGHT; y++) {
+      const source = QUICKSILVA_RAM + y * PSEUDO_HIRES_ROW_BYTES;
+      const dest = (ZX8X_BORDER_TOP + y) * ZX8X_SCREEN_WIDTH + ZX8X_BORDER_LEFT;
+      for (let col = 0; col < PSEUDO_HIRES_ROW_BYTES; col++) {
+        const bits = this.memory.readByte(source + col);
+        for (let bit = 0; bit < 8; bit++) {
+          this.frame32[dest + col * 8 + bit] = bits & (0x80 >> bit) ? BLACK : WHITE;
+        }
+      }
+    }
+    return true;
   }
 
   /** Render the current 32x24 display file with the character page selected by I. */
@@ -599,8 +692,10 @@ export class Zx8xMachine extends BaseMachine implements Machine {
       while (col < 32) {
         const code = this.memory.readByte(ptr++);
         if (code === 0x76) break;
-        const inverse = (code & 0x80) !== 0;
-        const glyph = (fontPage << 8) + ((code & 0x3f) << 3);
+        const udg128 = this.memory.isUdg128PatternAddress(fontPage << 8);
+        const inverse = (code & 0x80) !== 0 && !udg128;
+        const charIndex = (code & 0x3f) | (udg128 ? ((code & 0x80) >> 1) : 0);
+        const glyph = (fontPage << 8) + (charIndex << 3);
         for (let gy = 0; gy < 8; gy++) {
           const bits = this.memory.readByte(glyph + gy);
           const base = (ZX8X_BORDER_TOP + row * 8 + gy) * ZX8X_SCREEN_WIDTH + ZX8X_BORDER_LEFT + col * 8;

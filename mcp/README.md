@@ -66,7 +66,7 @@ Use `model` to switch machines. Switching always creates a fresh machine.
 | `continue` | `max_frames` (default `5000`) | Run until a breakpoint, watchpoint, trap, or reset trap hits. |
 | `registers` | | Display CPU and machine state. |
 | `set_register` | `register`, `value` | Set A/F/AF, B/C/BC, D/E/DE, H/L/HL, SP, PC, IX, or IY. |
-| `model` | `target`, `ram16k`, `udgRam`, `wrxHires` (optional) | Show or switch the active model; `ram16k` selects ZX80/ZX81 16KB RAM, while the mutually exclusive `udgRam` and `wrxHires` options configure ZX81 hi-res hardware. |
+| `model` | `target`, `ram16k`, `udgRam`, `udg128Ram`, `wrxHires`, `memotechHrg`, `quickSilvaHrg` (optional) | Show or switch the active model; `ram16k` selects ZX80/ZX81 16KB RAM, while the graphics options select one mutually exclusive ZX81 hi-res device. |
 
 ### Memory And Symbols
 

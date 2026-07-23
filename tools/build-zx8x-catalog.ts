@@ -23,7 +23,11 @@ interface FileRow { id: number; link: string; ft: number; rel: number | null; la
 interface GraphicsRow { id: number; tagId: number; name: string; }
 interface RawGame {
   i: number; t: string; m: 80 | 81; y?: number; g?: number; p?: number;
-  f: string; s?: string; r?: number; h?: 's' | 'u' | 'w'; x?: number[];
+  f: string; s?: string; r?: number; h?: 's' | 'u' | 'r' | 'w' | 'm' | 'q'; x?: number[];
+}
+
+function compactHires(mode: NonNullable<ReturnType<typeof zx81HiResModeForTags>>): NonNullable<RawGame['h']> {
+  return { software: 's', udg: 'u', udg128: 'r', wrx: 'w', memotech: 'm', quicksilva: 'q' }[mode];
 }
 
 const PROGRAM = /\.(o|80|p|81|p81)(\.zip)?$/i;
@@ -109,12 +113,12 @@ function main(): void {
     if (features.length) {
       game.x = features.map(feature => intern(feature.name, graphics, graphicsIndex) as number);
       const mode = zx81HiResModeForTags(features.map(feature => feature.tagId));
-      if (mode) game.h = mode === 'software' ? 's' : mode === 'udg' ? 'u' : 'w';
+      if (mode) game.h = compactHires(mode);
       if (features.some(feature => feature.tagId === ZX81_ENHANCED_GRAPHICS_TAG.wrx1k)) game.r = 1;
     }
     const hardware = zx8xHardwareOverride(row.id);
     if (hardware?.ramKb !== undefined) game.r = hardware.ramKb;
-    if (hardware?.hiRes) game.h = hardware.hiRes === 'software' ? 's' : hardware.hiRes === 'udg' ? 'u' : 'w';
+    if (hardware?.hiRes) game.h = compactHires(hardware.hiRes);
     if (row.year) game.y = row.year;
     const genre = intern(row.genre, genres, genreIndex);
     const publisher = intern(row.publisher, publishers, publisherIndex);
