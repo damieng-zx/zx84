@@ -1212,6 +1212,145 @@ canvas {
 .kbd-plus--grey2 .pk2-chev--up    { transform: translateY(calc(var(--pu1) * 1)) rotate(-135deg); }
 .kbd-plus--grey2 .pk2-chev--down  { transform: translateY(calc(var(--pu1) * -1)) rotate(45deg); }
 
+/* ── ZX81 / ZX80 keyboard ──────────────────────────────────────────────────
+   Faithful to the real membrane: a staggered 4×10 grid of flat keycaps on a
+   textured black case. Each key prints the keyword ABOVE (left-aligned) and the
+   FUNCTION word BELOW on the case, and on the cap the red shifted function (top),
+   the black/white main glyph (bottom-left, sharing a baseline with the block
+   swatch bottom-right) and the red SHIFT token (upper-right). Two faces: ZX81
+   (silver caps, black glyphs, red legends) and ZX80 (deep-blue caps, white
+   glyphs, yellow legends). Sizing reuses the display-scaled design-pixel units. */
+.zxk-bezel {
+  position: relative;
+  --ku: calc(15px * var(--display-scale, 3));
+  --u1: calc(var(--ku) / 42);
+  --kg: calc(var(--u1) * 6); /* gap between keys */
+  padding: calc(var(--u1) * 10) calc(var(--u1) * 14) calc(var(--u1) * 12);
+  border-radius: calc(var(--u1) * 6);
+  overflow: hidden;
+  container-type: inline-size;
+}
+.zxk-keys { width: fit-content; margin-inline: auto; }
+.zxk-row { display: flex; gap: var(--kg); }
+.zxk-row + .zxk-row { margin-top: 0; }
+/* Typewriter stagger: Q centres in the 1–2 gap (half a pitch); A insets a
+   further 0.25 key from Q; the number row and SHIFT row stay flush-left. */
+.zxk-row:nth-child(2) { padding-left: calc((var(--ku) + var(--kg)) / 2); }
+.zxk-row:nth-child(3) { padding-left: calc((var(--ku) + var(--kg)) / 2 + var(--ku) * 0.25); }
+
+.zxk-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  flex: none;
+  width: var(--ku);
+}
+
+/* Case legends: keyword above, FUNCTION below — both white/yellow, left-aligned. */
+.zxk-above, .zxk-below {
+  height: calc(var(--u1) * 8);
+  display: flex; align-items: flex-end; justify-content: flex-start;
+  padding-inline: calc(var(--u1) * 2);
+  text-align: left;
+  font-size: calc(var(--u1) * 7); font-weight: 700; line-height: 1;
+  letter-spacing: -0.2px;
+  white-space: nowrap; overflow: visible;
+}
+.zxk-below { align-items: flex-start; }
+.zxk-above { padding-bottom: 1px; } /* nudge the keyword up 1px off the cap */
+
+/* Flat keycap — no border; the black case seeps through the rounded corners. */
+.zxk-key {
+  position: relative;
+  height: calc(var(--u1) * 40);
+  margin-block: calc(var(--u1) * 1.5);
+  border-radius: calc(var(--u1) * 4);
+  cursor: pointer;
+  user-select: none;
+  touch-action: none;
+  font-family: var(--font-ui);
+  transition: filter 0.06s ease, background 0.06s ease, transform 0.05s ease;
+}
+.zxk-key.pressed, .zxk-key:active { transform: translateY(1px); }
+
+/* Red shifted-function word at the top of the cap (number keys, BREAK, FUNCTION). */
+.zxk-capfn {
+  position: absolute; top: calc(var(--u1) * 3); left: 0; right: 0;
+  text-align: center;
+  font-size: calc(var(--u1) * 7); font-weight: 700; line-height: 1;
+  letter-spacing: -0.3px; white-space: nowrap; overflow: hidden;
+}
+/* Cursor keys 5–8: a big, fat, horizontally-stretched red outline arrow. */
+.zxk-capfn--arrow {
+  top: calc(var(--u1) * 1); overflow: visible;
+  font-size: calc(var(--u1) * 15); font-weight: 400; line-height: 1;
+  transform: scaleX(1.7);
+}
+/* Main glyph — bottom-left of the cap. */
+.zxk-main {
+  position: absolute; left: calc(var(--u1) * 5); bottom: calc(var(--u1) * 4);
+  font-size: calc(var(--u1) * 18); font-weight: 700; line-height: 1;
+}
+/* Word labels (SPACE / NEW⏎LINE) centre and shrink; SHIFT prints larger. */
+.zxk-key--label .zxk-main {
+  left: 0; right: 0; text-align: center;
+  font-size: calc(var(--u1) * 6.5); letter-spacing: -0.2px;
+  white-space: pre-line; line-height: 1.1;
+}
+.zxk-key--mod .zxk-main {
+  font-size: calc(var(--u1) * 9);
+  top: 50%; bottom: auto; transform: translateY(-50%); /* SHIFT centred vertically */
+}
+/* Red SHIFT token — upper-right of the cap. Keyword tokens (STOP, LPRINT…) stay
+   small; single symbols (", <=, $, £…) print noticeably larger. */
+.zxk-shift {
+  position: absolute; top: calc(var(--u1) * 3); right: calc(var(--u1) * 3.5);
+  max-width: 74%; text-align: right;
+  font-size: calc(var(--u1) * 7); font-weight: 700; line-height: 1;
+  letter-spacing: -0.3px; white-space: nowrap; overflow: hidden;
+}
+.zxk-shift--sym { font-size: calc(var(--u1) * 13); top: calc(var(--u1) * 2); }
+/* Block-graphics swatch — an SVG, bottom-right, sharing the glyph's baseline.
+   Unfilled parts stay transparent (cap shows through); grey (2) is a checker. */
+.zxk-block {
+  position: absolute; right: calc(var(--u1) * 4); bottom: calc(var(--u1) * 4);
+  width: calc(var(--u1) * 12); height: calc(var(--u1) * 12);
+  background: transparent; border: 1px solid;
+}
+
+/* ── ZX81 face: textured black case, flat silver caps, black glyphs, red legends */
+.zxk--zx81 {
+  background:
+    radial-gradient(ellipse at 50% -20%, #2a2b2d 0%, #161718 55%, #0b0c0d 100%);
+  box-shadow: inset 0 0 26px rgba(0, 0, 0, 0.6), 0 2px 6px rgba(0, 0, 0, 0.45);
+}
+.zxk--zx81 .zxk-above, .zxk--zx81 .zxk-below { color: #eaeaea; }
+/* Shorter caps bring the red shifted-function label down toward the glyph. */
+.zxk--zx81 .zxk-key { background: #d8dada; height: calc(var(--u1) * 30); }
+.zxk--zx81 .zxk-key:hover { background: #e6e8e8; }
+.zxk--zx81 .zxk-key.pressed { background: #bcbfbf; }
+.zxk--zx81 .zxk-main { color: #17181a; }
+.zxk--zx81 .zxk-capfn, .zxk--zx81 .zxk-shift { color: #d62828; }
+.zxk--zx81 .zxk-key--mod .zxk-main { color: #d62828; } /* SHIFT prints red */
+.zxk--zx81 .zxk-block { border-color: #000; }
+.zxk--zx81 .zxk-block rect { fill: #1b1b1b; }
+
+/* ── ZX80 face: black case, flat deep-blue caps, white glyphs, yellow legends ── */
+.zxk--zx80 {
+  background:
+    radial-gradient(ellipse at 50% -20%, #232426 0%, #141516 55%, #090a0b 100%);
+  box-shadow: inset 0 0 26px rgba(0, 0, 0, 0.6), 0 2px 6px rgba(0, 0, 0, 0.45);
+}
+.zxk--zx80 .zxk-above, .zxk--zx80 .zxk-below { color: #f2c53d; }
+.zxk--zx80 .zxk-key { background: #1f3f86; }
+.zxk--zx80 .zxk-key:hover { background: #274c9e; }
+.zxk--zx80 .zxk-key.pressed { background: #16305f; }
+.zxk--zx80 .zxk-main { color: #ffffff; }
+.zxk--zx80 .zxk-capfn, .zxk--zx80 .zxk-shift { color: #f2c53d; }
+.zxk--zx80 .zxk-key--mod .zxk-main { color: #ffffff; }
+.zxk--zx80 .zxk-block { border-color: #000; }
+.zxk--zx80 .zxk-block rect { fill: #ffffff; }
+
 /* Mouse pane */
 .mouse-pane { display: flex; flex-direction: column; gap: 6px; }
 .mouse-controls { display: flex; gap: 6px; }

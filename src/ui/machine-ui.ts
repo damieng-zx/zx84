@@ -49,6 +49,8 @@ const CONTRIBUTIONS: Record<string, MachineUiContribution> = {
   zx8x: {
     HardwareSection: lazy(() =>
       import('@/machines/zx8x/ui/hardware-section.tsx').then(m => ({ default: m.Zx8xHardwareSection }))),
+    Keyboard: lazy(() =>
+      import('@/machines/zx8x/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
     LibraryBrowser: lazy(() =>
       import('@/machines/zx8x/ui/LibraryBrowser.tsx').then(m => ({ default: m.Zx8xLibraryBrowser }))),
   },
