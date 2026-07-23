@@ -422,7 +422,7 @@ body.msx-mode .section-label::after {
   gap: 4px;
 }
 
-#model-row select { flex: 1; min-width: 0; }
+#model-row .ddmenu-btn { flex: 1; min-width: 0; }
 
 #model-row #cpu-reset {
   width: 28px;
@@ -2308,9 +2308,27 @@ input[type="range"]::-moz-range-thumb {
   justify-content: center;
 }
 
+.ddmenu-btn-labeled {
+  justify-content: space-between;
+  width: 100%;
+}
+
+.ddmenu-btn-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ddmenu-btn-caret {
+  margin-left: 6px;
+  color: #888;
+  flex-shrink: 0;
+}
+
 .ddmenu {
   position: fixed;
   width: max-content;
+  min-width: 160px;
   background: #fff;
   border: 1px solid #ccc;
   border-radius: 4px;
@@ -2329,7 +2347,7 @@ input[type="range"]::-moz-range-thumb {
 .ddmenu-item {
   display: flex;
   align-items: center;
-  padding: 5px 12px 5px 6px;
+  padding: 6px 20px 6px 10px;
   cursor: pointer;
   white-space: nowrap;
   user-select: none;
