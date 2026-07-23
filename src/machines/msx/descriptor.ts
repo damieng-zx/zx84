@@ -25,9 +25,9 @@ const MSX_UI: MachineUiCapabilities = {
   systemRomLabel: 'System ROM',
   romPages: 0,
   beeper: true,
-  kempston: true,
-  tapeEar: true,
-  rainbow: true,
+  // PSG (AY-3-8910) sound, cassette load, keyboard and OCR. The MSX has no
+  // Spectrum-style EAR/rainbow/Kempston activity to indicate.
+  statusLeds: ['kbd', 'load', 'ay', 'text'],
   keyboardBus: 'ula',
   tape: 'instant',
   tapeSound: true,

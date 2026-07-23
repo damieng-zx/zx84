@@ -180,6 +180,13 @@ export interface MemoryRegionInfo {
   readonly label: string;
 }
 
+/** Identifiers for the status-bar activity LEDs. The runtime catalog (labels,
+ *  tips, signals) lives in `ui/components/status-leds.ts`; only the id union is
+ *  declared here so machine descriptors stay headless-safe. A machine lists the
+ *  ids it exposes via `MachineUiCapabilities.statusLeds`. */
+export type StatusLedId =
+  | 'kbd' | 'kemp' | 'mouse' | 'ear' | 'load' | 'dsk' | 'text' | 'rainbow' | 'beep' | 'ay';
+
 /**
  * Per-model UI capability flags, declared by each machine's descriptor. The
  * generic panes read these (reactively, keyed off the current model) instead of
@@ -219,12 +226,11 @@ export interface MachineUiCapabilities {
   readonly romPages: 0 | 2 | 4;
   /** 1-bit beeper present (Sound-pane mixer + BEEP activity LED). */
   readonly beeper: boolean;
-  /** Kempston-joystick activity LED shown in the status bar. */
-  readonly kempston: boolean;
-  /** EAR tape-input activity LED shown in the status bar. */
-  readonly tapeEar: boolean;
-  /** Attribute-cycling ("rainbow") activity LED shown in the status bar. */
-  readonly rainbow: boolean;
+  /** Status-bar activity LEDs this machine exposes. Each machine lists only the
+   *  indicators its hardware actually has *and* its frame probe drives, so the
+   *  status bar can never show an LED for absent hardware (e.g. no AY/DISK on a
+   *  ZX80/81). Rendered from the STATUS_LEDS catalog in `status-leds.ts`. */
+  readonly statusLeds: readonly StatusLedId[];
   /** Keyboard read path, for the KEY LED tip. */
   readonly keyboardBus: 'ula' | 'ppi';
   /** Tape transport: 'deck' (pulse-level block list) or 'instant' (.cas).

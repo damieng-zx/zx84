@@ -25,9 +25,9 @@ const EINSTEIN_UI: MachineUiCapabilities = {
   systemRomLabel: 'ROM',
   romPages: 0,
   beeper: true,
-  kempston: true,
-  tapeEar: true,
-  rainbow: true,
+  // PSG (AY) sound, built-in floppy drives, keyboard and OCR. Tape-load activity
+  // isn't tracked by the Einstein probe, so no TAPE LED.
+  statusLeds: ['kbd', 'ay', 'dsk', 'text'],
   keyboardBus: 'ula',
   tape: 'deck',
   tapeSound: true,

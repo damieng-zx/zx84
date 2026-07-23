@@ -4,12 +4,22 @@
  */
 
 import type { IScreenRenderer } from '@/display/renderer.ts';
-import type { MachineDescriptor, MachineEntry, MachineUiCapabilities } from '@/machines/machine.ts';
+import type { MachineDescriptor, MachineEntry, MachineUiCapabilities, StatusLedId } from '@/machines/machine.ts';
 import type { MachineModel } from '@/models.ts';
 import type { CpcModel } from './models.ts';
 import { cpcHasDisk, cpcHasTape, cpcIsPlusClass } from './models.ts';
 import { CpcMachine } from './cpc-machine.ts';
 import { CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT, CPC_BORDER_LEFT, CPC_BORDER_TOP } from './constants.ts';
+
+function cpcStatusLeds(model: MachineModel): StatusLedId[] {
+  // AY-3-8912 (the CPC's sound chip), keyboard, mouse (AMX/Kempston) and OCR are
+  // always relevant; the beeper/EAR/rainbow indicators don't apply. TAPE and DISK
+  // depend on whether this model has a cassette / built-in drives.
+  const leds: StatusLedId[] = ['kbd', 'mouse', 'text', 'ay'];
+  if (cpcHasTape(model)) leds.push('load');
+  if (cpcHasDisk(model)) leds.push('dsk');
+  return leds;
+}
 
 function cpcUi(model: MachineModel): MachineUiCapabilities {
   return {
@@ -35,9 +45,7 @@ function cpcUi(model: MachineModel): MachineUiCapabilities {
     systemRomLabel: 'ROM',
     romPages: 0,
     beeper: false,
-    kempston: false,
-    tapeEar: false,
-    rainbow: false,
+    statusLeds: cpcStatusLeds(model),
     keyboardBus: 'ppi',
     // The GX4000 console has no cassette — drop the tape pane. Other CPC
     // models drive the deck through PPI Port B.
