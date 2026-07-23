@@ -40,6 +40,19 @@ export interface Zx8xGame {
   enhancedGraphics: string[];
 }
 
+export function matchesZx8xHardwareFilters(
+  game: Zx8xGame,
+  selectedGraphics: ReadonlySet<string>,
+  selectedMemory: ReadonlySet<number>,
+): boolean {
+  // ZXDB often leaves the RAM field blank for ordinary expanded titles. The
+  // launcher already treats every non-1KB requirement as the emulator's 16KB
+  // configuration, so filtering must use that same effective machine setup.
+  const effectiveRamKb = game.ramKb === 1 ? 1 : 16;
+  return (!selectedGraphics.size || game.enhancedGraphics.some(feature => selectedGraphics.has(feature)))
+    && (!selectedMemory.size || selectedMemory.has(effectiveRamKb));
+}
+
 export function resolveZx8xGame(raw: RawZx8xGame, catalog: RawZx8xCatalog): Zx8xGame {
   const override = zx8xHardwareOverride(raw.i);
   const hiResCode = raw.h;

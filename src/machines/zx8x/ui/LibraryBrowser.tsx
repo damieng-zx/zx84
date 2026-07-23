@@ -2,7 +2,10 @@ import { createMemo, createSignal, For, onCleanup, onMount, Show } from 'solid-j
 import { HiOutlineFunnel, HiOutlinePlay } from 'solid-icons/hi';
 import { DropDownMenuButton, type MenuItem } from '@/ui/components/DropDownMenuButton.tsx';
 import { basename, fileUrls, parseLibraryQuery } from '@/library/catalog.ts';
-import { fetchZx8xCatalog, resolveZx8xGamesForModel, type RawZx8xCatalog, type Zx8xGame } from '@/library/zx8x-catalog.ts';
+import {
+  fetchZx8xCatalog, matchesZx8xHardwareFilters, resolveZx8xGamesForModel,
+  type RawZx8xCatalog, type Zx8xGame,
+} from '@/library/zx8x-catalog.ts';
 import { zx8xLaunchHardware } from '@/library/zx8x-hardware.ts';
 import { loadFile } from '@/shell/media.ts';
 import { switchModel } from '@/shell/lifecycle.ts';
@@ -67,6 +70,7 @@ export function Zx8xLibraryBrowser() {
   const [loadingGame, setLoadingGame] = createSignal<Zx8xGame | null>(null);
   const [selected, setSelected] = createSignal<Zx8xGame | null>(null);
   const [graphicsFilter, setGraphicsFilter] = createSignal<Set<string>>(new Set());
+  const [memoryFilter, setMemoryFilter] = createSignal<Set<number>>(new Set());
 
   onMount(async () => {
     try { setCatalog(await fetchZx8xCatalog()); }
@@ -85,7 +89,9 @@ export function Zx8xLibraryBrowser() {
   const filtered = createMemo(() => {
     const parsed = parseLibraryQuery(query());
     const selectedGraphics = graphicsFilter();
-    if (!parsed.text && !parsed.negTerms.length && parsed.yearMin === null && parsed.yearMax === null && !parsed.publisher && !selectedGraphics.size) return [];
+    const selectedMemory = memoryFilter();
+    if (!parsed.text && !parsed.negTerms.length && parsed.yearMin === null && parsed.yearMax === null
+        && !parsed.publisher && !selectedGraphics.size && !selectedMemory.size) return [];
     return games().filter(game => {
       const title = game.title.toLowerCase();
       return (!parsed.text || title.includes(parsed.text))
@@ -93,27 +99,89 @@ export function Zx8xLibraryBrowser() {
         && (!parsed.publisher || game.publisher.toLowerCase().includes(parsed.publisher))
         && (parsed.yearMin === null || (game.year !== null && game.year >= parsed.yearMin))
         && (parsed.yearMax === null || (game.year !== null && game.year <= parsed.yearMax))
-        && (!selectedGraphics.size || game.enhancedGraphics.some(feature => selectedGraphics.has(feature)));
+        && matchesZx8xHardwareFilters(game, selectedGraphics, selectedMemory);
     }).slice(0, RESULT_LIMIT);
   });
 
   const isActive = createMemo(() => {
     const parsed = parseLibraryQuery(query());
     return !!parsed.text || !!parsed.negTerms.length || parsed.yearMin !== null || parsed.yearMax !== null
-      || !!parsed.publisher || graphicsFilter().size > 0;
+      || !!parsed.publisher || graphicsFilter().size > 0 || memoryFilter().size > 0;
   });
+
+  const videoFeatures = createMemo(() => (
+    [...new Set(games().flatMap(game => game.enhancedGraphics))].sort((a, b) => a.localeCompare(b))
+  ));
 
   const filterItems = createMemo<MenuItem[]>(() => {
     const selectedGraphics = graphicsFilter();
-    const features = [...new Set(games().flatMap(game => game.enhancedGraphics))].sort((a, b) => a.localeCompare(b));
-    return features.map(feature => ({ value: feature, label: feature.replace(/^ZX81\s+/, ''), checked: selectedGraphics.has(feature) }));
+    const selectedMemory = memoryFilter();
+    const features = videoFeatures();
+    const selectedVideoCount = features.filter(feature => selectedGraphics.has(feature)).length;
+    const selectedMemoryCount = [1, 16].filter(ramKb => selectedMemory.has(ramKb)).length;
+    const items: MenuItem[] = [];
+    if (features.length) items.push({
+      value: 'video',
+      label: 'Video',
+      checked: selectedVideoCount === features.length,
+      indeterminate: selectedVideoCount > 0 && selectedVideoCount < features.length,
+      children: features.map(feature => ({
+        value: `video:${feature}`,
+        label: feature.replace(/^ZX81\s+/, ''),
+        checked: selectedGraphics.has(feature),
+      })),
+    });
+    items.push({
+      value: 'memory',
+      label: 'Memory',
+      checked: selectedMemoryCount === 2,
+      indeterminate: selectedMemoryCount > 0 && selectedMemoryCount < 2,
+      children: [1, 16].map(ramKb => ({
+        value: `memory:${ramKb}`,
+        label: `${ramKb}KB`,
+        checked: selectedMemory.has(ramKb),
+      })),
+    });
+    return items;
   });
 
-  function toggleGraphicsFilter(feature: string): void {
-    const next = new Set(graphicsFilter());
-    if (next.has(feature)) next.delete(feature);
-    else next.add(feature);
-    setGraphicsFilter(next);
+  function toggleFilter(value: string): void {
+    if (value === 'video') {
+      const features = videoFeatures();
+      const next = new Set(graphicsFilter());
+      const allSelected = features.length > 0 && features.every(feature => next.has(feature));
+      for (const feature of features) {
+        if (allSelected) next.delete(feature);
+        else next.add(feature);
+      }
+      setGraphicsFilter(next);
+      return;
+    }
+    if (value === 'memory') {
+      const next = new Set(memoryFilter());
+      const allSelected = [1, 16].every(ramKb => next.has(ramKb));
+      for (const ramKb of [1, 16]) {
+        if (allSelected) next.delete(ramKb);
+        else next.add(ramKb);
+      }
+      setMemoryFilter(next);
+      return;
+    }
+    if (value.startsWith('memory:')) {
+      const ramKb = Number(value.slice('memory:'.length));
+      const next = new Set(memoryFilter());
+      if (next.has(ramKb)) next.delete(ramKb);
+      else next.add(ramKb);
+      setMemoryFilter(next);
+      return;
+    }
+    if (value.startsWith('video:')) {
+      const feature = value.slice('video:'.length);
+      const next = new Set(graphicsFilter());
+      if (next.has(feature)) next.delete(feature);
+      else next.add(feature);
+      setGraphicsFilter(next);
+    }
   }
 
   async function play(game: Zx8xGame): Promise<void> {
@@ -175,14 +243,14 @@ export function Zx8xLibraryBrowser() {
           <input class="library-search-input" type="search" placeholder={`Search ${currentModel().toUpperCase()} software…`} value={query()} onInput={event => setQuery(event.currentTarget.value)} />
           <Show when={query()}><button class="library-search-clear" onClick={() => setQuery('')} aria-label="Clear search">×</button></Show>
         </div>
-        <Show when={filterItems().length}>
-          <div class="library-search-menu" classList={{ active: graphicsFilter().size > 0 }}>
+        <Show when={catalog()}>
+          <div class="library-search-menu" classList={{ active: graphicsFilter().size > 0 || memoryFilter().size > 0 }}>
             <DropDownMenuButton
               size="sm"
               icon={<HiOutlineFunnel />}
-              title="Filter by ZX81 enhanced graphics"
+              title="Filter software"
               items={filterItems()}
-              onSelect={toggleGraphicsFilter}
+              onSelect={toggleFilter}
             />
           </div>
         </Show>

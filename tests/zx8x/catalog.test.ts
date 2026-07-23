@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { resolveZx8xGame, resolveZx8xGamesForModel, type RawZx8xCatalog } from '@/library/zx8x-catalog.ts';
+import {
+  matchesZx8xHardwareFilters, resolveZx8xGame, resolveZx8xGamesForModel,
+  type RawZx8xCatalog,
+} from '@/library/zx8x-catalog.ts';
 import { zx81HiResModeForTags, zx8xLaunchHardware } from '@/library/zx8x-hardware.ts';
 
 describe('ZX80/ZX81 catalog schema', () => {
@@ -86,5 +89,23 @@ describe('ZX80/ZX81 catalog schema', () => {
     expect(zx81HiResModeForTags([13008])).toBe('udg128');
     expect(zx81HiResModeForTags([13001, 13010])).toBe('software');
     expect(zx81HiResModeForTags([13010])).toBeNull();
+  });
+
+  it('unions memory choices and intersects them with the Video filter', () => {
+    const catalog: RawZx8xCatalog = { genres: [], publishers: [], games: [] };
+    const wrx1k = resolveZx8xGame({ i: 31906, t: 'WRX 1K', m: 81, f: '/wrx.p.zip' }, catalog);
+    const udg16k = resolveZx8xGame({ i: 32023, t: 'UDG 16K', m: 81, f: '/udg.p.zip' }, catalog);
+    const ordinary = resolveZx8xGame({ i: 999, t: 'Ordinary game', m: 81, f: '/game.p.zip' }, catalog);
+
+    expect(matchesZx8xHardwareFilters(wrx1k, new Set(), new Set([1, 16]))).toBe(true);
+    expect(matchesZx8xHardwareFilters(udg16k, new Set(), new Set([1]))).toBe(false);
+    expect(ordinary.ramKb).toBeNull();
+    expect(matchesZx8xHardwareFilters(ordinary, new Set(), new Set([16]))).toBe(true);
+    expect(matchesZx8xHardwareFilters(ordinary, new Set(), new Set([1]))).toBe(false);
+    expect(matchesZx8xHardwareFilters(
+      wrx1k,
+      new Set(['ZX81 Hi-res: UDG Card (Mapped at 3000h)']),
+      new Set([1]),
+    )).toBe(false);
   });
 });
