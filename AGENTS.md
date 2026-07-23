@@ -122,9 +122,11 @@ Tests must be written critically against a known-correct specification, not as a
 
 ## Branching and releases
 
+### Branch management
+
 - **`main` is the integration branch.** All PRs branch from and merge into `main`.
-  There is no long-lived `dev` branch. Merges to `main` do **not** deploy — see
-  [`RELEASING.md`](./RELEASING.md); production is cut by pushing a `vX.Y.Z` tag.
+  There is no long-lived `dev` branch. Merges to `main` do **not** deploy;
+  production is cut by pushing a `vX.Y.Z` tag (see [Releasing](#releasing) below).
 - **Starting new work: sync `main`, then create a sibling worktree from its tip.**
   First bring `main` up to date (`git fetch origin && git checkout main && git pull`),
   then create a new sibling worktree branched off the freshly-synced tip
@@ -141,6 +143,47 @@ Tests must be written critically against a known-correct specification, not as a
   | `docs/<name>` | Documentation only |
   | `refactor/<name>` | Internal restructuring, no behaviour change |
   | `perf/<name>` | Performance work |
+
+### Releasing
+
+Production is **tag-driven**. Cloudflare no longer auto-deploys `main`; instead,
+pushing a `vX.Y.Z` git tag triggers the `Deploy to Cloudflare` GitHub Action
+(`.github/workflows/deploy.yml`), which builds that exact commit and runs
+`wrangler deploy`. **The most recently pushed release tag is what Cloudflare
+serves.** `main` is a pure integration branch — merges to it never touch
+production.
+
+The app version lives in **two** places that must stay in sync:
+
+1. **`package.json`** — the `version` field (single source injected into the app as
+   `__APP_VERSION__` via `vite.config.ts`, rendered as the version superscript).
+2. **`src/ui/panes/ChangelogPane.tsx`** — the top entry of the hand-maintained
+   `CHANGELOG` array. This one does *not* derive from `package.json`, so it silently
+   drifts if you forget it.
+
+**Steps:**
+
+1. Bump `version` in `package.json` (e.g. `0.7.3` → `0.7.4`).
+2. Add the matching new entry at the top of the `CHANGELOG` array in
+   `src/ui/panes/ChangelogPane.tsx`.
+3. Verify locally: `npx vitest run` (green) and `npx tsc --noEmit` (clean).
+4. Commit both files (`git commit -F <tempfile>`).
+5. Tag and push:
+   ```sh
+   git tag v0.7.4
+   git push && git push --tags
+   ```
+6. Watch the **Actions** tab — the `Deploy to Cloudflare` run publishes production.
+   Confirm the live version superscript and changelog match the release.
+
+Version numbers follow the existing `MAJOR.MINOR.PATCH` scheme.
+
+The library **catalog** (R2) is deployed separately and only when catalog data
+changes — it is unaffected by app releases:
+
+```sh
+npm run deploy:catalog
+```
 
 ## Workflow rules
 
