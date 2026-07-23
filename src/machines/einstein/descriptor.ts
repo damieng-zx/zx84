@@ -65,6 +65,6 @@ export const einsteinEntry: MachineEntry = {
     return new EinsteinMachine(model as EinsteinModel, display);
   },
   romSources() {
-    return ['einstein-mos.rom'];
+    return ['einstein/mos12.rom'];
   },
 };

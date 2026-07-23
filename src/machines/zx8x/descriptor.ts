@@ -8,8 +8,8 @@ import {
   ZX8X_SCREEN_HEIGHT, ZX8X_SCREEN_WIDTH,
 } from './constants.ts';
 
-const ZX80_ROM = 'https://zx84files.bitsparse.com/roms/sinclair/zx80.rom';
-const ZX81_ROM = 'https://zx84files.bitsparse.com/roms/sinclair/zx81-v2.rom';
+const ZX80_ROM = 'sinclair/zx80.rom';
+const ZX81_ROM = 'sinclair/zx81-v2.rom';
 
 const UI: MachineUiCapabilities = {
   hiddenPanes: ['drive-panel', 'microdrive-panel', 'tape-panel', 'sound-panel', 'joystick-panel', 'mouse-panel', 'font-panel', 'sysvar-panel', 'banks-panel'],

@@ -9,10 +9,10 @@ describe('ZX80/ZX81 machine family', () => {
     expect(zx80.kind).toBe('zx8x');
     expect(zx81).toBe(zx80);
     expect(zx80.romSources('zx80')).toEqual([
-      'https://zx84files.bitsparse.com/roms/sinclair/zx80.rom',
+      'sinclair/zx80.rom',
     ]);
     expect(zx80.romSources('zx81')).toEqual([
-      'https://zx84files.bitsparse.com/roms/sinclair/zx81-v2.rom',
+      'sinclair/zx81-v2.rom',
     ]);
     expect(zx81.descriptor('zx81').ui.library).toBe(true);
   });

@@ -59,12 +59,12 @@ function spectrumUi(model: MachineModel): MachineUiCapabilities {
 // set by the shell's effectiveROMModel() before lookup, but keep its own row
 // so the table is total over the family.
 const ROM_SOURCES: Record<SpectrumModel, string[]> = {
-  '16k':  ['48.rom'],
-  '48k':  ['48.rom'],
-  '128k': ['128-0.rom', '128-1.rom'],
-  '+2':   ['plus2-0.rom', 'plus2-1.rom'],
-  '+2A':  ['plus3-41-0.rom', 'plus3-41-1.rom', 'plus3-41-2.rom', 'plus3-41-3.rom'],
-  '+3':   ['plus3-0.rom', 'plus3-1.rom', 'plus3-2.rom', 'plus3-3.rom'],
+  '16k':  ['sinclair/48.rom'],
+  '48k':  ['sinclair/48.rom'],
+  '128k': ['sinclair/128-0.rom', 'sinclair/128-1.rom'],
+  '+2':   ['sinclair/plus2-0.rom', 'sinclair/plus2-1.rom'],
+  '+2A':  ['sinclair/plus3-41-0.rom', 'sinclair/plus3-41-1.rom', 'sinclair/plus3-41-2.rom', 'sinclair/plus3-41-3.rom'],
+  '+3':   ['sinclair/plus3-0.rom', 'sinclair/plus3-1.rom', 'sinclair/plus3-2.rom', 'sinclair/plus3-3.rom'],
 };
 
 /** Descriptor for one Spectrum model — shared by the registry entry and the
