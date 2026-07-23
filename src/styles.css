@@ -1257,7 +1257,8 @@ canvas {
   white-space: nowrap; overflow: visible;
 }
 .zxk-below { align-items: flex-start; }
-.zxk-above { padding-bottom: 1px; } /* nudge the keyword up 1px off the cap */
+/* Legends above a key are centred; the FUNCTION word below stays left-aligned. */
+.zxk-above { justify-content: center; text-align: center; padding-bottom: 1px; }
 
 /* Flat keycap — no border; the black case seeps through the rounded corners. */
 .zxk-key {
@@ -1341,15 +1342,30 @@ canvas {
     radial-gradient(ellipse at 50% -20%, #232426 0%, #141516 55%, #090a0b 100%);
   box-shadow: inset 0 0 26px rgba(0, 0, 0, 0.6), 0 2px 6px rgba(0, 0, 0, 0.45);
 }
-.zxk--zx80 .zxk-above, .zxk--zx80 .zxk-below { color: #f2c53d; }
+/* The ZX80 prints in a lighter, non-bold face. */
+.zxk--zx80 .zxk-above, .zxk--zx80 .zxk-below,
+.zxk--zx80 .zxk-main, .zxk--zx80 .zxk-shift { font-weight: 400; }
+/* Off-key labels (keyword / function / arrows above the key) print white. */
+.zxk--zx80 .zxk-above, .zxk--zx80 .zxk-below { color: #ffffff; }
+.zxk--zx80 .zxk-above--break { color: #5b8ee6; } /* BREAK prints blue */
 .zxk--zx80 .zxk-key { background: #1f3f86; }
 .zxk--zx80 .zxk-key:hover { background: #274c9e; }
 .zxk--zx80 .zxk-key.pressed { background: #16305f; }
 .zxk--zx80 .zxk-main { color: #ffffff; }
-.zxk--zx80 .zxk-capfn, .zxk--zx80 .zxk-shift { color: #f2c53d; }
+/* Only the numeric caps centre their glyph; letters stay bottom-left. */
+.zxk--zx80 .zxk-key--num .zxk-main {
+  left: 0; right: 0; text-align: center;
+  top: 50%; bottom: auto; transform: translateY(-50%);
+}
+.zxk--zx80 .zxk-shift { color: #f2c53d; } /* on-key shift symbol stays yellow */
 .zxk--zx80 .zxk-key--mod .zxk-main { color: #ffffff; }
-.zxk--zx80 .zxk-block { border-color: #000; }
-.zxk--zx80 .zxk-block rect { fill: #ffffff; }
+/* ZX80 graphics: yellow outline + fill; unfilled parts show the blue cap.
+   Sit them high on the cap, level with the other shifted symbols. */
+.zxk--zx80 .zxk-block {
+  border-color: #f2c53d;
+  top: calc(var(--u1) * 3); bottom: auto; right: calc(var(--u1) * 3.5);
+}
+.zxk--zx80 .zxk-block rect { fill: #f2c53d; }
 
 /* Mouse pane */
 .mouse-pane { display: flex; flex-direction: column; gap: 6px; }

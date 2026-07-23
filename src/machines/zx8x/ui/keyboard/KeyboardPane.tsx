@@ -53,17 +53,20 @@ function Block(props: { g: Graphic }) {
   );
 }
 
-function KeyCell(props: { k: Zx8xKey; kbd: KeyboardController }) {
+function KeyCell(props: { k: Zx8xKey; kbd: KeyboardController; zx80?: boolean }) {
   const k = props.k;
   const pressed = () => props.kbd.isDown(k.pos);
   const arrow = () => (k.capFn ? ARROW_OUTLINE[k.capFn] : undefined);
+  // The ZX81 prints the shifted function (EDIT, arrows…) on the cap; the ZX80
+  // prints everything secondary above the key, so its number functions move up.
+  const above = () => (props.zx80 ? (k.keyword ?? k.capFn) : k.keyword);
   return (
     <div class="zxk-cell">
-      {/* On the case above: the white K-mode keyword (letter keys). */}
-      <div class="zxk-above">{k.keyword ?? ' '}</div>
+      {/* On the case above: keyword (both) plus the shifted function on the ZX80. */}
+      <div class="zxk-above" classList={{ 'zxk-above--break': above() === 'BREAK' }}>{above() ?? ' '}</div>
       <div
         class="zxk-key"
-        classList={{ 'zxk-key--mod': k.latch, 'zxk-key--label': k.main.includes('\n') || k.main.length > 1, pressed: pressed() }}
+        classList={{ 'zxk-key--mod': k.latch, 'zxk-key--label': k.main.includes('\n') || k.main.length > 1, 'zxk-key--num': /^[0-9]$/.test(k.main), pressed: pressed() }}
         role="button"
         aria-pressed={pressed()}
         aria-label={k.main.replace('\n', ' ')}
@@ -78,7 +81,7 @@ function KeyCell(props: { k: Zx8xKey; kbd: KeyboardController }) {
       >
         {/* Red shifted-function at the top of the cap. Cursor keys print a big
             fat outline arrow; everything else prints the word. */}
-        <Show when={k.capFn}>
+        <Show when={!props.zx80 && k.capFn}>
           <span class="zxk-capfn" classList={{ 'zxk-capfn--arrow': !!arrow() }}>{arrow() ?? k.capFn}</span>
         </Show>
         <span class="zxk-main">{k.main}</span>
@@ -105,7 +108,7 @@ export function KeyboardPane() {
           <For each={rows()}>
             {(row) => (
               <div class="zxk-row">
-                <For each={row}>{(key) => <KeyCell k={key} kbd={kbd} />}</For>
+                <For each={row}>{(key) => <KeyCell k={key} kbd={kbd} zx80={model() === 'zx80'} />}</For>
               </div>
             )}
           </For>
