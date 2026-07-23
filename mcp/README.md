@@ -27,8 +27,8 @@ npm run mcp -- --model 48k
 
 Supported startup models are derived from the machine registry and include
 `zx80`, `zx81`, `16k`, `48k`, `128k`, `+2`, `+2A`, `+3`, `cpc464`, `cpc664`,
-`cpc6128`, `cpc6128plus`, `gx4000`, `einstein`, `hx-10`, `mtx500`, and
-`mtx512`. The default is `48k`.
+`cpc6128`, `cpc6128plus`, `gx4000`, `einstein`, `hx-10`, `mtx500`, `mtx512`,
+and `rs128`. The default is `48k`.
 System ROM pages come from the machine registry, are fetched through the shared
 ROM source loader, and are cached under `mcp/.cache/`.
 
@@ -157,7 +157,7 @@ These use the active +3 or CPC uPD765A where fitted.
 | Tool | Parameters | Description |
 | --- | --- | --- |
 | `mtx80column` | `action`: `on`, `off`, `status` | Control the FDX 6845-based 80-column display and select it as the active monitor. |
-| `mtx512kram` | `action`: `on`, `off`, `status` | Control the 512 KiB SDX/FDX RAM expansion (576 KiB total on an MTX512); the bundled CP/M disk exposes it as type-51 drive F:. |
+| `mtx512kram` | `action`: `on`, `off`, `status` | Control the 512 KiB SDX/FDX RAM expansion (576 KiB total on an MTX512, 640 KiB on an RS128); the bundled CP/M disk exposes it as type-51 drive F:. |
 | `mtxcpm` | `action`: `on`, `off`, `status` | Configure the MTX512 CP/M profile, fetch its public Type-07 system disk when needed, and reset. |
 
 ## Address Values

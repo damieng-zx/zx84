@@ -21,7 +21,7 @@ export function MtxHardwareSection() {
       <div class="multiface-row">
         <label
           class="mf-check"
-          title="Fit the 512 KiB SDX/FDX RAM expansion (576 KiB total on an MTX512)"
+          title="Fit the 512 KiB SDX/FDX RAM expansion"
         >
           <input
             type="checkbox"
@@ -40,7 +40,7 @@ export function MtxHardwareSection() {
       <div class="multiface-row">
         <label
           class="mf-check"
-          title="Configure an MTX512 with the FDX 80-column display for CP/M"
+          title="Configure an MTX512 or RS128 with the FDX 80-column display for CP/M"
         >
           <input
             type="checkbox"

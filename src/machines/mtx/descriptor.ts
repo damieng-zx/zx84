@@ -67,20 +67,20 @@ export function mtxDescriptor(
 
 export const mtxEntry: MachineEntry = {
   kind: 'mtx',
-  models: ['mtx500', 'mtx512'],
+  models: ['mtx500', 'mtx512', 'rs128'],
   descriptor: mtxDescriptor,
   create(model: MachineModel, display: IScreenRenderer | null) {
     return new MtxMachine(model as MtxModel, display);
   },
-  // The first three physical 8K ROMs are the MTX motherboard firmware. MEMU's
-  // public Type 07 bootstrap and Disk BASIC ROMs occupy pages 4 and 5.
+  // The first three physical 8K ROMs are the MTX motherboard firmware. The
+  // Type 07 bootstrap and Disk BASIC ROMs occupy pages 4 and 5.
   romSources() {
     return [
-      'mtx/os.rom',
-      'mtx/basic.rom',
-      'mtx/assem.rom',
-      'https://raw.githubusercontent.com/Memotech-Bill/MEMU/main/run_time/roms/boot-type07.rom',
-      'https://raw.githubusercontent.com/Memotech-Bill/MEMU/main/run_time/roms/sdx-type07.rom',
+      'memotech/os.rom',
+      'memotech/basic.rom',
+      'memotech/assem.rom',
+      'memotech/boot-type07.rom',
+      'memotech/sdx-type07.rom',
     ];
   },
   detectModelForRom(data: Uint8Array, current: MachineModel): MachineModel | null {

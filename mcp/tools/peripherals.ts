@@ -256,7 +256,7 @@ export function register(server: McpServer): void {
   server.registerTool(
     'mtxcpm',
     {
-      description: 'Enable, disable, or inspect the Memotech MTX512 CP/M hardware profile.',
+      description: 'Enable, disable, or inspect the Memotech MTX512/RS128 CP/M hardware profile.',
       inputSchema: {
         action: z.enum(['on', 'off', 'status']).describe('Action to perform'),
       },
@@ -270,8 +270,8 @@ export function register(server: McpServer): void {
           `model=${mtx.model}  80-column=${mtx.column80.enabled ? 'ON' : 'OFF'}`,
         );
       }
-      if (action === 'on' && mtx.model !== 'mtx512') {
-        return text('MTX CP/M requires the MTX512. Use the model tool to switch first.');
+      if (action === 'on' && mtx.model === 'mtx500') {
+        return text('MTX CP/M requires an MTX512 or RS128. Use the model tool to switch first.');
       }
       mtx.setCpmSystemEnabled(action === 'on');
       if (action === 'on' && !mtx.services.disks.drives[0].loaded) {

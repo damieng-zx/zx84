@@ -1,11 +1,12 @@
 /**
- * Memotech MTX500/512 motherboard.
+ * Memotech MTX500/512 and RS128 motherboard.
  *
  * Reuses the commodity Z80A, TMS9929A, Z80 CTC and SN76489A cores. This first
  * base-machine implementation covers ROM BASIC operation, banked memory,
  * keyboard scanning, VDP video, CTC interrupts, PSG audio and logical `.mtx`
  * cassette loading, the FDX/SDX-compatible floppy expansion, and the optional
- * FDX 80-column display. Printer and DART hardware remain unfitted.
+ * FDX 80-column display. Printer and DART/RS-232 behavior is not emulated;
+ * the DART was optional on the MTX models and standard on the RS128.
  */
 
 import { Z80 } from '@/cores/z80.ts';

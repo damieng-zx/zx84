@@ -28,7 +28,7 @@ export class MtxMemory implements IMachineMemory {
   private readonly baseRamBlocks: number;
 
   constructor(readonly model: MtxModel) {
-    this.baseRamBlocks = model === 'mtx500' ? 2 : 4;
+    this.baseRamBlocks = model === 'mtx500' ? 2 : model === 'mtx512' ? 4 : 8;
     this.ramBanks = Array.from(
       { length: this.baseRamBlocks },
       () => new Uint8Array(BLOCK_SIZE),

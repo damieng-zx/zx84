@@ -26,6 +26,27 @@ describe('MTX memory', () => {
     expect(memory.getRamBank(0)[0]).toBe(0xC1);
   });
 
+  it('provides the RS128 with eight physical 16K RAM blocks', () => {
+    const memory = new MtxMemory('rs128');
+
+    expect(memory.ramSizeBytes).toBe(128 * 1024);
+    expect(memory.ramBanks).toHaveLength(8);
+
+    memory.setPageRegister(0x03);
+    memory.writeByte(0x8000, 0x78);
+    expect(memory.getRamBank(7)[0]).toBe(0x78);
+    expect(memory.readByte(0x4000)).toBe(0xFF);
+  });
+
+  it('adds 512 KiB to the RS128 base memory', () => {
+    const memory = new MtxMemory('rs128');
+
+    memory.set512kRamExpansionEnabled(true);
+
+    expect(memory.ramSizeBytes).toBe(640 * 1024);
+    expect(memory.ramBanks).toHaveLength(40);
+  });
+
   it('keeps the common 16K block visible across RAM pages', () => {
     const memory = new MtxMemory('mtx512');
     memory.writeByte(0xC123, 0x5A);

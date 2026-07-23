@@ -37,6 +37,7 @@ const MODEL_LABELS: Record<MachineModel, string> = {
   'hx-10': 'Toshiba HX-10',
   mtx500: 'Memotech MTX500',
   mtx512: 'Memotech MTX512',
+  rs128: 'Memotech RS128',
 };
 
 const LOCALE_LABELS: Record<MachineLocale, string> = {
@@ -116,6 +117,7 @@ const MODEL_MENU: MenuItem[] = [
   },
   modelEntry('mtx500'),
   modelEntry('mtx512'),
+  modelEntry('rs128'),
 ];
 
 function selectModel(value: string) {

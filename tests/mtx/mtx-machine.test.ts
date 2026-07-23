@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { entryForModel } from '@/machines/registry.ts';
 import { MtxMachine } from '@/machines/mtx/mtx-machine.ts';
 
-function machine(model: 'mtx500' | 'mtx512' = 'mtx512'): MtxMachine {
+function machine(model: 'mtx500' | 'mtx512' | 'rs128' = 'mtx512'): MtxMachine {
   const m = new MtxMachine(model, null);
   m.turbo = true;
   m.reset();
@@ -10,14 +10,25 @@ function machine(model: 'mtx500' | 'mtx512' = 'mtx512'): MtxMachine {
 }
 
 describe('MTX machine registration', () => {
-  it('constructs both MTX models through the headless machine registry', () => {
-    for (const model of ['mtx500', 'mtx512'] as const) {
+  it('constructs every MTX model through the headless machine registry', () => {
+    expect(entryForModel('rs128').models).toEqual(['mtx500', 'mtx512', 'rs128']);
+    for (const model of ['mtx500', 'mtx512', 'rs128'] as const) {
       const entry = entryForModel(model);
       const m = entry.create(model, null);
       expect(entry.kind).toBe('mtx');
       expect(m.kind).toBe('mtx');
       expect(m.model).toBe(model);
     }
+  });
+
+  it('exports the RS128 base RAM under its own model identity', () => {
+    const m = machine('rs128');
+
+    expect(m.memory.ramSizeBytes).toBe(128 * 1024);
+    expect(m.ramExportBytes()).toMatchObject({
+      filename: 'rs128-ram-128k.bin',
+      data: { length: 128 * 1024 },
+    });
   });
 
   it('exposes both fixed-wiring joystick ports through the input service', () => {
@@ -37,12 +48,12 @@ describe('MTX machine registration', () => {
   it('declares the page-4 CP/M bootstrap before page-5 Disk BASIC', () => {
     const entry = entryForModel('mtx512');
 
-    expect(entry.romSources('mtx512').map(source => source.split('/').pop())).toEqual([
-      'os.rom',
-      'basic.rom',
-      'assem.rom',
-      'boot-type07.rom',
-      'sdx-type07.rom',
+    expect(entry.romSources('mtx512')).toEqual([
+      'memotech/os.rom',
+      'memotech/basic.rom',
+      'memotech/assem.rom',
+      'memotech/boot-type07.rom',
+      'memotech/sdx-type07.rom',
     ]);
     expect(entry.detectModelForRom?.(new Uint8Array(0xA000), 'mtx512')).toBe('mtx512');
   });

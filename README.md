@@ -15,7 +15,7 @@ ZX84 is an old-computer emulator with machine-specific hardware models, browser-
 | Amstrad CPC | CPC 464, CPC 664, CPC 6128 | Z80, gate array, 6845 CRTC, AY-3-891x, 8255 PPI, uPD765A on 664/6128 |
 | Tatung Einstein | TC-01 | Z80, TMS9929A VDP, AY-3-8910, Z80 CTC, WD1770 |
 | MSX | Toshiba HX-10 | Z80, TMS9929A VDP, AY-3-8910, 8255 PPI, cartridge slot |
-| Memotech MTX | MTX500, MTX512 | Z80, TMS9929A VDP, Z80 CTC, SN76489A, twin matrix-wired joysticks, ROM extension card, FDX/SDX WD179x disk interface, optional 6845 80-column display |
+| Memotech MTX | MTX500, MTX512, RS128 | Z80, TMS9929A VDP, Z80 CTC, SN76489A, twin matrix-wired joysticks, ROM extension card, FDX/SDX WD179x disk interface, optional 6845 80-column display |
 
 ## Features
 
@@ -26,7 +26,7 @@ ZX84 is an old-computer emulator with machine-specific hardware models, browser-
 - CPC cassette support, disk-capable 664/6128 models, Multiface Two, and optional ParaDOS ROM.
 - Einstein disk mounting and optional Xtal DOS boot-disk behavior.
 - HX-10 cartridge loading and BIOS-level `.cas` cassette loading.
-- MTX CP/M 2.2 boot through the real FDX hardware using MEMU's public Type 07 system disk.
+- MTX CP/M 2.2 boot through the real FDX hardware using a hosted Type 07 system disk.
 - MTX logical cassette loading, banked ROM packs, FDX/SDX Type 03 and Type 07 floppy mounting, optional 512 KiB RAM expansion, and optional 80×24 colour display.
 - The bundled MTX CP/M profile installs the native SIDISC module and exposes fitted expansion RAM as an empty 512 KiB type-51 drive F:.
 

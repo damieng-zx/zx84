@@ -11,7 +11,7 @@ const DEFAULT_STARTUP = 'CONFIG\r';
 const RAM_DISK_STARTUP = 'SIDISC\rCONFIG F:51\r';
 
 const CPM_SYSTEM_DISK = {
-  source: 'https://raw.githubusercontent.com/Memotech-Bill/MEMU/main/run_time/disks/andy_sys.mfloppy',
+  source: 'https://zx84files.bitsparse.com/library/memotech/andy_sys.mfloppy',
   cacheKey: 'disk-mtx-cpm-type07',
 };
 

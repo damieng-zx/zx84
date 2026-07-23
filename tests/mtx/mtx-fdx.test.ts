@@ -100,7 +100,7 @@ describe('Memotech FDX/SDX disk expansion', () => {
     m.setCpmSystemEnabled(true);
     const request = m.services.disks.bootDisk;
     expect(request?.source).toBe(
-      'https://raw.githubusercontent.com/Memotech-Bill/MEMU/main/run_time/disks/andy_sys.mfloppy',
+      'https://zx84files.bitsparse.com/library/memotech/andy_sys.mfloppy',
     );
     expect(request?.cacheKey).toBe('disk-mtx-cpm-type07');
 
