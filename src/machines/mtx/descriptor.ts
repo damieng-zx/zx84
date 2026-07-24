@@ -25,7 +25,7 @@ const MTX_UI: MachineUiCapabilities = {
   systemRomLabel: 'OS + BASIC + ASSEM + CP/M + FDX ROMs',
   romPages: 0,
   beeper: false,
-  statusLeds: ['kbd', 'load', 'dsk', 'psg'],
+  statusLeds: ['kbd', 'load', 'dsk', 'psg', 'text'],
   keyboardBus: 'matrix',
   tape: 'instant',
   tapeSound: false,

@@ -17,8 +17,8 @@ import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
-import { Tms9918ScreenText } from '@/ocr/tms9918.ts';
-import type { OcrGridName } from '@/ocr/ocr.ts';
+import { Tms9918ScreenText, tms9918TextGrid } from '@/ocr/tms9918.ts';
+import type { OcrGridName, OcrResult } from '@/ocr/ocr.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import type {
   BorderMode, Machine, MachineDescriptor, MachineHost, MachineKind,
@@ -354,5 +354,37 @@ export class MtxMachine extends BaseMachine implements Machine {
   ocrScreenForMcp(_mode: OcrGridName | 'auto' = 'auto'): string {
     if (this.column80.enabled) return this.column80.text();
     return this.screenText.ocr(this.vdp.vram, this.vdp.regs, this.vdp.mode());
+  }
+
+  /** Styled OCR (text + coloured HTML + match mask) for the TEXT overlay. */
+  ocrScreenStyled(): OcrResult {
+    return this.screenText.ocrStyled(this.vdp.vram, this.vdp.regs, this.vdp.mode(), this.vdp.palette);
+  }
+
+  /**
+   * Blank the matched VDP character cells to their paper colour so the crisp
+   * overlay glyphs replace the underlying bitmap. `mask` is row-major
+   * `cols×rows`; cell width/x-origin follow the current VDP mode (same TMS9918
+   * geometry as the MSX).
+   */
+  blankCells(mask: boolean[], cols: number, rows: number, paper?: number[]): void {
+    const g = tms9918TextGrid(this.vdp.mode());
+    if (!g) return;
+    const cellW = g.cellWidth, cellH = 8;
+    const pal = this.vdp.palette;
+    for (let row = 0; row < rows; row++) {
+      const y0 = MTX_BORDER_TOP + row * cellH;
+      if (y0 + cellH > MTX_SCREEN_HEIGHT) break;
+      for (let col = 0; col < cols; col++) {
+        if (!mask[row * cols + col]) continue;
+        const x0 = MTX_BORDER_LEFT + (g.xOffset ?? 0) + col * cellW;
+        if (x0 + cellW > MTX_SCREEN_WIDTH) continue;
+        const fill = pal[(paper ? paper[row * cols + col] : 0) & 0x0F];
+        for (let y = 0; y < cellH; y++) {
+          const b = (y0 + y) * MTX_SCREEN_WIDTH + x0;
+          this.vdpPixels32.fill(fill, b, b + cellW);
+        }
+      }
+    }
   }
 }
