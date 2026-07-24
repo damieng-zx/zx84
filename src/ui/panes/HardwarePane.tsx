@@ -116,9 +116,15 @@ const MODEL_MENU: MenuItem[] = [
       modelEntry('hx-10'),
     ],
   },
-  modelEntry('mtx500'),
-  modelEntry('mtx512'),
-  modelEntry('rs128'),
+  {
+    value: 'memotech',
+    label: 'Memotech',
+    children: [
+      modelEntry('mtx500'),
+      modelEntry('mtx512'),
+      modelEntry('rs128'),
+    ],
+  },
 ];
 
 function selectModel(value: string) {

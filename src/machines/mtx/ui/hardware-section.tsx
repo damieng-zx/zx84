@@ -34,7 +34,7 @@ export function MtxHardwareSection() {
               resetMachine();
             }}
           />
-          512 KiB RAM expansion
+          512KB RAM
         </label>
       </div>
       <div class="multiface-row">
@@ -58,7 +58,7 @@ export function MtxHardwareSection() {
               void applyBootDisk().then(resetMachine);
             }}
           />
-          CP/M system
+          CP/M
         </label>
       </div>
       <div class="multiface-row">
@@ -77,7 +77,7 @@ export function MtxHardwareSection() {
             activeMtx()?.set80ColumnEnabled(enabled);
           }}
         />
-        FDX 80-column display
+        80-columns
         </label>
       </div>
     </>

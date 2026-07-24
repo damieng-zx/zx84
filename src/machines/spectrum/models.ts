@@ -80,8 +80,10 @@ export function isInterface2Capable(m: MachineModel): boolean {
   return m === '16k' || m === '48k';
 }
 
-/** A 16K ROM page index within a multi-page model (see romPageSlotCount). */
-export type RomPage = 0 | 1 | 2 | 3;
+/** A system-ROM slot index within a multi-slot model. 0-3 index the Spectrum's
+ *  16K pages (see romPageSlotCount); index 4 is only reached by the MTX's five
+ *  8K firmware slots, which reuse this same override machinery. */
+export type RomPage = 0 | 1 | 2 | 3 | 4;
 
 /** +2A/+3 default page names, in page-index order (0-3) — see
  *  romPageSlotCount and the 1FFD/7FFD ROM-select bit table in memory.ts. */
