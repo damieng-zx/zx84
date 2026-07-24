@@ -6,6 +6,10 @@ import { z80Cpu } from '../../src/debug/z80/service.ts';
 import { parseAddr, text, checkWatchHit, spectrumPagingLine, KEY_NAME_MAP, CHAR_KEYS } from '../format.ts';
 import type { HostKeyEvent } from '../../src/machines/machine.ts';
 
+/** Frames to idle after Enter so the machine ROM can tokenise the line and
+ *  resume keyboard scanning before the next keystroke. */
+const ENTER_SETTLE_FRAMES = 30;
+
 function hostKeyEvent(code: string): HostKeyEvent {
   const key = code.startsWith('Key') ? code.slice(3).toLowerCase()
     : code.startsWith('Digit') ? code.slice(5)
@@ -150,6 +154,16 @@ export function register(server: McpServer): void {
           spec.tick();
           hit = checkWatchHit(spec);
           if (hit) break typeLoop;
+        }
+        // After Enter the ROM tokenises/stores the line and stops scanning the
+        // keyboard; without a settle the next line's first key is dropped
+        // (observed on the MTX, where ~20 frames suffice — 30 for margin).
+        if ('keys' in action && action.keys.includes('enter')) {
+          for (let f = 0; f < ENTER_SETTLE_FRAMES; f++) {
+            spec.tick();
+            hit = checkWatchHit(spec);
+            if (hit) break typeLoop;
+          }
         }
       }
       if (hit) return text(`Typed ${actions.length} keystrokes, then hit:\n${hit}`);
