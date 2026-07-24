@@ -72,6 +72,11 @@ export class MsxKeyboard {
   /** Per-row column state, active-low. 0xFF = all keys on that row released. */
   private readonly matrix = new Uint8Array(ROWS).fill(0xFF);
 
+  /** Live matrix view for the MSX-owned on-screen keyboard highlighter. */
+  get rows(): Uint8Array {
+    return this.matrix;
+  }
+
   /** Selected row (PPI port C low nibble). Rows 11–15 read as no keys. */
   private selectedRow = 0;
 
