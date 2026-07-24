@@ -21,7 +21,7 @@
 
 import { For, Show, createUniqueId } from 'solid-js';
 import { Pane } from '@/ui/components/Pane.tsx';
-import { activeSpectrum } from '@/machines/spectrum/ui/active.ts';
+import { KeyboardScene, SceneKey } from '@/ui/components/KeyboardScene.tsx';
 import { machineDescriptor } from '@/state/machine-caps.ts';
 import {
   POS, CS, SS, Block, useKeyboard,
@@ -29,8 +29,14 @@ import {
 } from './keyboard-common.tsx';
 import { lettersFor, numbersFor } from './keyboard-common.tsx';
 import { plus2KeepsRed, plus2KeyWidth, PLUS2_KEYWORDS, PLUS2_DEDICATED_SYMBOLS } from './plus2-legends.ts';
+import {
+  hardScene,
+  placeHardRows,
+  type HardFace,
+  type PlacedHardKey,
+} from './scene-geometry.ts';
 
-type PVariant = 'num' | 'letter' | 'fn' | 'mod' | 'enter' | 'enter-spacer' | 'space' | 'sym' | 'arrow';
+type PVariant = 'num' | 'letter' | 'fn' | 'mod' | 'enter' | 'space' | 'sym' | 'arrow';
 
 interface PKey {
   variant: PVariant;
@@ -71,12 +77,9 @@ const CHEV: Record<string, string> = { '←': 'left', '→': 'right', '↑': 'up
 // Toastrack cursor caps print a big open (outline) arrow glyph.
 const OUTLINE_ARROW: Record<string, string> = { '←': '⇦', '→': '⇨', '↑': '⇧', '↓': '⇩' };
 
-// The L-shaped ("boot") Sinclair ENTER is a single key drawn as one SVG outline.
-// ENTER itself is a 1u slot in row 2 (the stem); its overflowing SVG extends down
-// and left into row 3 to draw the wider foot. ENTER_SPACER reserves that foot's
-// 1.75u footprint in row 3 so both rows still total 13.5u and stay aligned.
+// The L-shaped ("boot") Sinclair ENTER is one scene key and one SVG outline.
+// Its measured hit region spans the stem in row 2 and the wider foot in row 3.
 const ENTER: PKey = { variant: 'enter', label: 'ENTER', positions: [POS.ENTER], w: 1 };
-const ENTER_SPACER: PKey = { variant: 'enter-spacer', positions: [POS.ENTER], w: 1.75 };
 
 // Boot geometry in "design pixels" (each ×--pu1 in CSS, so it scales with the
 // display scale). The two faces differ only in unit pitch (48 vs 49) and row gap
@@ -145,7 +148,6 @@ function buildRows(locale: import('@/machines/machine.ts').MachineLocale) {
     fn('EXTEND\nMODE', [CS, SS], 1.5, 'hold'),
     fn('EDIT', [CS, POS['1']], 1.25),
     ...['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L'].map(letter),
-    ENTER_SPACER,
   ];
 
   const ROW4: PKey[] = [
@@ -283,33 +285,30 @@ function RectCap(props: { w: number; sparse?: boolean }) {
   );
 }
 
-function PCell(props: { k: PKey; kbd: KeyboardController; sparse?: boolean }) {
-  const k = props.k;
+function PCell(props: { placed: PlacedHardKey<PKey>; kbd: KeyboardController; sparse?: boolean }) {
+  const k = props.placed.key;
   const pressed = () => props.kbd.isDown(k.positions);
   const boot = () => (props.sparse ? BOOT_SPARSE : BOOT_TOASTRACK);
   const gradId = createUniqueId();
   const wUnits = () => (props.sparse ? plus2KeyWidth(k.variant, k.label, k.w ?? 1) : (k.w ?? 1));
-  // Every cap draws an SVG except the boot ENTER (its own SVG) and the inert foot spacer.
-  const svgCap = () => k.variant !== 'enter' && k.variant !== 'enter-spacer';
+  // Every cap draws an SVG except the boot ENTER, which owns its own path.
+  const svgCap = () => k.variant !== 'enter';
+  const hitClip = () => {
+    if (k.variant !== 'enter') return undefined;
+    const m = boot();
+    const notchX = m.N / m.Wf * 100;
+    const footY = m.footTop / m.H * 100;
+    return `polygon(${notchX}% 0, 100% 0, 100% 100%, 0 100%, 0 ${footY}%, ${notchX}% ${footY}%)`;
+  };
   return (
-    <div
-      class={`pk-key pk-key--${k.variant}`}
-      classList={{ pressed: pressed(), 'pk-key--red': k.redLabel }}
-      // Both faces are fixed-width grids driven by the --w unit count (the CSS
-      // turns it into a real width): the toastrack at a square 1u pitch, the
-      // sparse +2 at its own quarter-unit grid.
-      style={{ '--w': `${wUnits()}` }}
-      role="button"
-      aria-pressed={pressed()}
-      aria-label={(k.label ?? k.main ?? '').replace('\n', ' ')}
-      onPointerDown={(e) => {
-        if (!activeSpectrum()) return;
-        e.preventDefault();
-        e.currentTarget.setPointerCapture(e.pointerId);
-        props.kbd.onDown(k.positions, k.latch);
-      }}
-      onPointerUp={() => props.kbd.onUp(k.positions, k.latch)}
-      onPointerCancel={() => props.kbd.onUp(k.positions, k.latch)}
+    <SceneKey
+      box={props.placed.cap}
+      class={`pk-key pk-key--${k.variant}${k.redLabel ? ' pk-key--red' : ''}`}
+      pressed={pressed()}
+      label={(k.label ?? k.main ?? (k.variant === 'space' ? 'SPACE' : '')).replace('\n', ' ')}
+      hitClip={hitClip()}
+      onDown={() => props.kbd.onDown(k.positions, k.latch)}
+      onUp={() => props.kbd.onUp(k.positions, k.latch)}
     >
       {/* An SVG rounded-rect cap behind the (unchanged HTML) label. */}
       <Show when={svgCap()}><RectCap w={wUnits()} sparse={props.sparse} /></Show>
@@ -333,15 +332,7 @@ function PCell(props: { k: PKey; kbd: KeyboardController; sparse?: boolean }) {
         </svg>
         <span class="pk-enter-label">{k.label}</span>
       </Show>
-    </div>
-  );
-}
-
-function PRow(props: { keys: PKey[]; kbd: KeyboardController; sparse?: boolean }) {
-  return (
-    <div class="kbd-prow">
-      <For each={props.keys}>{(k) => <PCell k={k} kbd={props.kbd} sparse={props.sparse} />}</For>
-    </div>
+    </SceneKey>
   );
 }
 
@@ -354,15 +345,25 @@ export function KeyboardPlus(props: { sparse?: boolean; amstrad?: boolean }) {
   const kbd = useKeyboard();
   const locale = () => machineDescriptor().locale;
   const rows = () => buildRows(locale());
+  const face = (): HardFace => props.sparse ? 'sparse' : 'toastrack';
+  const metrics = () => hardScene(face());
+  const widthOf = (key: PKey) =>
+    props.sparse ? plus2KeyWidth(key.variant, key.label, key.w ?? 1) : (key.w ?? 1);
+  const keys = () => placeHardRows(rows(), face(), widthOf);
   return (
     <Pane id="keyboard-panel" label="Keyboard">
-      <div class="kbd-plus" classList={{ 'kbd-plus--grey2': props.sparse, 'kbd-plus--amstrad': props.amstrad }}>
-        <PRow keys={rows()[0]} kbd={kbd} sparse={props.sparse} />
-        <PRow keys={rows()[1]} kbd={kbd} sparse={props.sparse} />
-        <PRow keys={rows()[2]} kbd={kbd} sparse={props.sparse} />
-        <PRow keys={rows()[3]} kbd={kbd} sparse={props.sparse} />
-        <PRow keys={rows()[4]} kbd={kbd} sparse={props.sparse} />
-      </div>
+      <KeyboardScene
+        width={metrics().width}
+        height={metrics().height}
+        unit={metrics().unit}
+        class="kbd-plus"
+        classList={{ 'kbd-plus--grey2': props.sparse, 'kbd-plus--amstrad': props.amstrad }}
+        label="ZX Spectrum hard-key keyboard"
+      >
+        <For each={keys()}>
+          {(placed) => <PCell placed={placed} kbd={kbd} sparse={props.sparse} />}
+        </For>
+      </KeyboardScene>
     </Pane>
   );
 }

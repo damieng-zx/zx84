@@ -12,9 +12,14 @@
 import { For, Show } from 'solid-js';
 import { Pane } from '@/ui/components/Pane.tsx';
 import { currentModel } from '@/state/machine-state.ts';
-import { activeZx8x } from '@/machines/zx8x/ui/active.ts';
-import { rowsForModel, type Zx8xKey, type Graphic } from './legends.ts';
+import { KeyboardScene, SceneElement, SceneKey } from '@/ui/components/KeyboardScene.tsx';
+import { rowsForModel, type Graphic } from './legends.ts';
 import { useKeyboard, type KeyboardController } from './keyboard-common.tsx';
+import {
+  placeZx8xRows,
+  zx8xScene,
+  type PlacedZx8xKey,
+} from './scene-geometry.ts';
 
 // Cursor keys 5–8 print a big fat outline arrow instead of a small glyph.
 const ARROW_OUTLINE: Record<string, string> = { '←': '⇦', '↓': '⇩', '↑': '⇧', '→': '⇨' };
@@ -53,31 +58,34 @@ function Block(props: { g: Graphic }) {
   );
 }
 
-function KeyCell(props: { k: Zx8xKey; kbd: KeyboardController; zx80?: boolean }) {
-  const k = props.k;
+function KeyCell(props: { placed: PlacedZx8xKey; kbd: KeyboardController; zx80?: boolean }) {
+  const k = props.placed.key;
   const pressed = () => props.kbd.isDown(k.pos);
   const arrow = () => (k.capFn ? ARROW_OUTLINE[k.capFn] : undefined);
   // The ZX81 prints the shifted function (EDIT, arrows…) on the cap; the ZX80
   // prints everything secondary above the key, so its number functions move up.
   const above = () => (props.zx80 ? (k.keyword ?? k.capFn) : k.keyword);
   return (
-    <div class="zxk-cell">
+    <>
       {/* On the case above: keyword (both) plus the shifted function on the ZX80. */}
-      <div class="zxk-above" classList={{ 'zxk-above--break': above() === 'BREAK' }}>{above() ?? ' '}</div>
-      <div
-        class="zxk-key"
-        classList={{ 'zxk-key--mod': k.latch, 'zxk-key--label': k.main.includes('\n') || k.main.length > 1, 'zxk-key--num': /^[0-9]$/.test(k.main), pressed: pressed() }}
-        role="button"
-        aria-pressed={pressed()}
-        aria-label={k.main.replace('\n', ' ')}
-        onPointerDown={(e) => {
-          if (!activeZx8x()) return;
-          e.preventDefault();
-          e.currentTarget.setPointerCapture(e.pointerId);
-          props.kbd.onDown(k.pos, k.latch);
-        }}
-        onPointerUp={() => props.kbd.onUp(k.pos, k.latch)}
-        onPointerCancel={() => props.kbd.onUp(k.pos, k.latch)}
+      <SceneElement
+        box={props.placed.above}
+        class={`zxk-above${above() === 'BREAK' ? ' zxk-above--break' : ''}`}
+      >
+        {above() ?? ' '}
+      </SceneElement>
+      <SceneKey
+        box={props.placed.cap}
+        class={[
+          'zxk-key',
+          k.latch ? 'zxk-key--mod' : '',
+          k.main.includes('\n') || k.main.length > 1 ? 'zxk-key--label' : '',
+          /^[0-9]$/.test(k.main) ? 'zxk-key--num' : '',
+        ].filter(Boolean).join(' ')}
+        pressed={pressed()}
+        label={k.main.replace('\n', ' ')}
+        onDown={() => props.kbd.onDown(k.pos, k.latch)}
+        onUp={() => props.kbd.onUp(k.pos, k.latch)}
       >
         {/* Red shifted-function at the top of the cap. Cursor keys print a big
             fat outline arrow; everything else prints the word. */}
@@ -90,30 +98,33 @@ function KeyCell(props: { k: Zx8xKey; kbd: KeyboardController; zx80?: boolean })
           <span class="zxk-shift" classList={{ 'zxk-shift--sym': !/[A-Za-z]/.test(k.shift!) }}>{k.shift}</span>
         </Show>
         <Show when={k.graphic}>{(g) => <Block g={g()} />}</Show>
-      </div>
+      </SceneKey>
       {/* On the case below: white FUNCTION word (ZX81 letter keys). */}
-      <div class="zxk-below">{k.func ?? ' '}</div>
-    </div>
+      <SceneElement box={props.placed.below} class="zxk-below">{k.func ?? ' '}</SceneElement>
+    </>
   );
 }
 
 export function KeyboardPane() {
   const model = () => (currentModel() === 'zx80' ? 'zx80' : 'zx81');
   const rows = () => rowsForModel(model());
+  const scene = () => zx8xScene(model());
+  const keys = () => placeZx8xRows(rows(), model());
   const kbd = useKeyboard();
   return (
     <Pane id="keyboard-panel" label="Keyboard">
-      <div class="zxk-bezel" classList={{ 'zxk--zx81': model() === 'zx81', 'zxk--zx80': model() === 'zx80' }}>
-        <div class="zxk-keys">
-          <For each={rows()}>
-            {(row) => (
-              <div class="zxk-row">
-                <For each={row}>{(key) => <KeyCell k={key} kbd={kbd} zx80={model() === 'zx80'} />}</For>
-              </div>
-            )}
-          </For>
-        </div>
-      </div>
+      <KeyboardScene
+        width={scene().width}
+        height={scene().height}
+        unit={scene().unit}
+        class="zxk-bezel"
+        classList={{ 'zxk--zx81': model() === 'zx81', 'zxk--zx80': model() === 'zx80' }}
+        label={model() === 'zx80' ? 'Sinclair ZX80 keyboard' : 'Sinclair ZX81 keyboard'}
+      >
+        <For each={keys()}>
+          {(placed) => <KeyCell placed={placed} kbd={kbd} zx80={model() === 'zx80'} />}
+        </For>
+      </KeyboardScene>
     </Pane>
   );
 }

@@ -11,7 +11,7 @@
 
 import { For, Show } from 'solid-js';
 import { Pane } from '@/ui/components/Pane.tsx';
-import { activeSpectrum } from '@/machines/spectrum/ui/active.ts';
+import { KeyboardScene, SceneElement, SceneKey } from '@/ui/components/KeyboardScene.tsx';
 import { currentModel } from '@/state/machine-state.ts';
 import { machineDescriptor } from '@/state/machine-caps.ts';
 import { is128kClass } from '@/machines/spectrum/models.ts';
@@ -19,6 +19,11 @@ import { Block, useKeyboard, type KeyboardController, type LatchMode } from './k
 import { KeyboardPlus } from './KeyboardPlus.tsx';
 import { sparseKeyboardFace } from './plus2-legends.ts';
 import { lettersFor, numbersFor } from './legends.ts';
+import {
+  RUBBER_SCENE,
+  placeRubberRows,
+  type PlacedRubberKey,
+} from './scene-geometry.ts';
 import type { MachineLocale } from '@/machines/machine.ts';
 
 type Kind = 'num' | 'letter' | 'special';
@@ -104,14 +109,14 @@ function buildKeyRows(locale: MachineLocale): KeyDef[][] {
   ];
 }
 
-function KeyCell(props: { d: KeyDef; kbd: KeyboardController }) {
-  const d = props.d;
+function RubberKey(props: { placed: PlacedRubberKey<KeyDef>; kbd: KeyboardController }) {
+  const d = props.placed.key;
   const pos: [number, number][] = [d.pos];
   const pressed = () => props.kbd.isDown(pos);
   return (
-    <div class="kbd-cell" style={d.w ? { '--w': `${d.w}` } : undefined}>
+    <>
       {/* Above-key legends */}
-      <div class={`kbd-above kbd-above--${d.kind}`}>
+      <SceneElement box={props.placed.above} class={`kbd-above kbd-above--${d.kind}`}>
         <Show when={d.kind === 'num'}>
           <span
             class="kbd-color"
@@ -125,23 +130,16 @@ function KeyCell(props: { d: KeyDef; kbd: KeyboardController }) {
         <Show when={d.kind === 'letter'}>
           <span class="kbd-green">{d.green ?? ' '}</span>
         </Show>
-      </div>
+      </SceneElement>
 
       {/* The key */}
-      <div
-        class={`kbd-key kbd-key--${d.kind}`}
-        classList={{ 'kbd-key--red': d.redLabel, pressed: pressed() }}
-        role="button"
-        aria-pressed={pressed()}
-        aria-label={d.main.replace('\n', ' ')}
-        onPointerDown={(e) => {
-          if (!activeSpectrum()) return;
-          e.preventDefault();
-          e.currentTarget.setPointerCapture(e.pointerId);
-          props.kbd.onDown(pos, d.latch);
-        }}
-        onPointerUp={() => props.kbd.onUp(pos, d.latch)}
-        onPointerCancel={() => props.kbd.onUp(pos, d.latch)}
+      <SceneKey
+        box={props.placed.cap}
+        class={`kbd-key kbd-key--${d.kind}${d.redLabel ? ' kbd-key--red' : ''}`}
+        pressed={pressed()}
+        label={d.main.replace('\n', ' ')}
+        onDown={() => props.kbd.onDown(pos, d.latch)}
+        onUp={() => props.kbd.onUp(pos, d.latch)}
       >
         <Show when={d.kind === 'num'}>
           <span class="k-num">{d.main}</span>
@@ -168,30 +166,29 @@ function KeyCell(props: { d: KeyDef; kbd: KeyboardController }) {
             <For each={d.main.split('\n')}>{(line) => <span>{line}</span>}</For>
           </span>
         </Show>
-      </div>
+      </SceneKey>
 
       {/* Below-key legend */}
-      <div class="kbd-below">{d.below ?? ' '}</div>
-    </div>
+      <SceneElement box={props.placed.below} class="kbd-below">{d.below ?? ' '}</SceneElement>
+    </>
   );
 }
 
 function KeyboardRubber() {
   const kbd = useKeyboard();
   const rows = () => buildKeyRows(machineDescriptor().locale);
+  const keys = () => placeRubberRows(rows());
   return (
     <Pane id="keyboard-panel" label="Keyboard">
-      <div class="kbd-bezel">
-        <div class="kbd-keys">
-          <For each={rows()}>
-            {(row) => (
-              <div class="kbd-row">
-                <For each={row}>{(key) => <KeyCell d={key} kbd={kbd} />}</For>
-              </div>
-            )}
-          </For>
-        </div>
-      </div>
+      <KeyboardScene
+        width={RUBBER_SCENE.width}
+        height={RUBBER_SCENE.height}
+        unit={RUBBER_SCENE.unit}
+        class="kbd-bezel"
+        label="ZX Spectrum rubber keyboard"
+      >
+        <For each={keys()}>{(placed) => <RubberKey placed={placed} kbd={kbd} />}</For>
+      </KeyboardScene>
     </Pane>
   );
 }

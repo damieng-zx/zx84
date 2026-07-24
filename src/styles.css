@@ -631,6 +631,23 @@ canvas {
   padding: 0;
 }
 
+/* Fixed-coordinate scene shared by every skeuomorphic keyboard face. The scene
+   carries no row/key/legend assumptions: machine UI code positions arbitrary
+   case decorations, legends, cap shapes and hit regions in design coordinates. */
+.keyboard-scene-frame {
+  width: 100%;
+  container-type: inline-size;
+}
+.keyboard-scene {
+  position: relative;
+  width: calc(var(--keyboard-scene-px) * var(--keyboard-scene-width));
+  height: calc(var(--keyboard-scene-px) * var(--keyboard-scene-height));
+  margin-inline: auto;
+  flex: none;
+}
+.keyboard-scene__item { pointer-events: none; }
+.keyboard-scene__key { position: absolute; }
+
 .kbd-bezel {
   position: relative;
   /* 1u key width is tied to the display scale (1×/2×/3×): 14px × scale gives
@@ -640,11 +657,10 @@ canvas {
      with --ku as one block. */
   --ku: calc(14px * var(--display-scale, 3));
   --u1: calc(var(--ku) / 42);
-  --kg: calc(var(--u1) * 10); /* gap between keys */
   /* Slightly mottled near-black rubber mat */
   background:
     radial-gradient(ellipse at 50% -10%, #34373c 0%, #202327 45%, #141619 100%);
-  padding: calc(var(--u1) * 10) calc(var(--u1) * 12) calc(var(--u1) * 12);
+  padding: 0;
   border-radius: calc(var(--u1) * 5);
   border: 1px solid #050608;
   box-shadow:
@@ -653,31 +669,6 @@ canvas {
     0 2px 6px rgba(0, 0, 0, 0.4);
   overflow: hidden;
   container-type: inline-size;
-}
-
-.kbd-row {
-  display: flex;
-  gap: var(--kg);
-}
-.kbd-row + .kbd-row {
-  margin-top: calc(var(--u1) * 4);
-}
-/* Centre the whole keyboard as a unit while the rows keep their stagger. */
-.kbd-keys { width: fit-content; margin-inline: auto; }
-/* Staggered rows (offsets derived from the unit width --ku and gap --kg): Q sits
-   centred under the 1–2 gap (a half-pitch shift); A's right edge meets W's left
-   edge. Row 4 stays flush-left so CAPS SHIFT lines up under the 1 key. */
-.kbd-row:nth-child(2) { padding-left: calc((var(--ku) + var(--kg)) / 2); }
-.kbd-row:nth-child(3) { padding-left: calc((var(--ku) + 3 * var(--kg)) / 2); }
-
-.kbd-cell {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  flex: none;
-  /* Fixed unit width: 1u = --ku; an n-u key spans n pitches minus the trailing
-     gap, so its right edge lands on the unit grid. */
-  width: calc(var(--w, 1) * (var(--ku) + var(--kg)) - var(--kg));
 }
 
 /* ── Above-key legends ─────────────────────────────────────────────────── */
@@ -735,7 +726,7 @@ canvas {
 /* ── Below-key legend (red extended + symbol shift) ────────────────────── */
 .kbd-below {
   height: calc(var(--u1) * 12);
-  margin-top: calc(var(--u1) * 2);
+  margin-top: 0;
   text-align: left;
   padding-left: calc(var(--u1) * 2); /* just inside the key's left edge, like the above-key legends */
   font-size: calc(var(--u1) * 7.5);
@@ -895,31 +886,23 @@ canvas {
    return key, drawn as a single SVG "boot" outline spanning rows 2–3. */
 
 .kbd-plus {
-  display: flex;
-  flex-direction: column;
+  display: block;
   /* --pu1 is a "design pixel": the value 1px had at the reference (3× / 46px
      caps), driven by the display scale so the whole hard keyboard shrinks
      proportionally at 2×/1×. Every metric below keeps its original number as a
      calc(var(--pu1) * N) so the layout is identical at 3× and scales as one. */
-  --pu1: calc(1px * var(--display-scale, 3) / 3);
-  gap: calc(var(--pu1) * 4);
+  --pu1: var(--keyboard-scene-px);
   background: linear-gradient(180deg, #26282c 0%, #1b1d20 100%);
-  padding: calc(var(--pu1) * 6);
+  padding: 0;
   border-radius: calc(var(--pu1) * 4);
   border: 1px solid #050608;
   box-shadow: inset 0 0 16px rgba(0, 0, 0, 0.45);
   container-type: inline-size;
 }
 
-.kbd-prow { display: flex; gap: calc(var(--pu1) * 4); align-items: flex-start; }
-
-/* Toastrack (+ / 128K): a fixed unit pitch so 1u keys are square (1u = key
-   height); command keys scale by their --w unit count. Rows are centred, so
-   their differing totals give the hardware's slightly ragged edges. The +2
-   sparse face (.kbd-plus--grey2) keeps its own grid further down. */
+/* Toastrack (+ / 128K): measured scene geometry keeps 1u keys square and
+   command keys on the real quarter-unit pitch. */
 .kbd-plus:not(.kbd-plus--grey2) {
-  --pku: calc(var(--pu1) * 48); /* 46px square cap + 2px gap */
-  gap: calc(var(--pu1) * 2);
   /* Recessed groove lines (a 1px dark + 1px light bevel) moulded into the case
      in the 2px gaps between the five key rows, offset by the 6px top padding, as
      on the +2/+3. The keys sit on top, so a groove only shows through the gaps. */
@@ -932,17 +915,6 @@ canvas {
       transparent calc(var(--pu1) * 198)),
     linear-gradient(180deg, #26282c 0%, #1b1d20 100%);
 }
-.kbd-plus:not(.kbd-plus--grey2) .kbd-prow { justify-content: center; gap: 0; }
-/* Each key occupies exactly w units of the 48px pitch (cap width = pitch minus
-   the 2px gap, restored as a 1px side margin), so every 13.5u row is the same
-   pixel width no matter how many keys it holds, and the rows line up. The side
-   margin leaves the ENTER cell's negative bottom margin untouched. */
-.kbd-plus:not(.kbd-plus--grey2) .pk-key {
-  flex: none;
-  width: calc(var(--w, 1) * var(--pku) - var(--pu1) * 2);
-  margin-inline: calc(var(--pu1) * 1);
-}
-
 /* Keys — all the same height; legends are absolutely placed inside the cap. */
 .pk-key {
   position: relative;
@@ -966,17 +938,9 @@ canvas {
 .kbd-plus--amstrad .pk-key { --cap-g0: #2c2f33; --cap-g1: #212427; --cap-g2: #16181b; }
 .kbd-plus--amstrad .pk-key:hover { --cap-g0: #363a3e; --cap-g1: #2a2d31; --cap-g2: #1f2124; }
 .kbd-plus--amstrad .pk-key.pressed { --cap-g0: #131416; --cap-g1: #101113; --cap-g2: #0d0e10; }
-/* The ENTER foot is a separate cell (the spacer) from the boot it visually joins,
-   so hovering the foot must drive the boot's hover explicitly (but not while the
-   whole key is pressed — then the pressed shade wins). */
-.kbd-plus:not(.kbd-plus--grey2):has(.pk-key--enter-spacer:hover) .pk-key--enter:not(.pressed) { --cap-g0: #51565d; --cap-g1: #41454c; --cap-g2: #34383e; }
-.kbd-plus--grey2:has(.pk-key--enter-spacer:hover) .pk-key--enter:not(.pressed) { --cap-g0: #888d94; --cap-g1: #787d84; --cap-g2: #686d74; }
-.kbd-plus--amstrad:has(.pk-key--enter-spacer:hover) .pk-key--enter:not(.pressed) { --cap-g0: #363a3e; --cap-g1: #2a2d31; --cap-g2: #1f2124; }
-
-/* L-shaped ("boot") ENTER, drawn as ONE continuous SVG outline. The key is a 1u
-   stem slot in row 2 whose SVG overflows down + left into row 3 to draw the wider
-   foot; an inert .pk-key--enter-spacer reserves that foot's footprint in row 3.
-   The cell itself draws no cap — the SVG path is the whole keycap. */
+/* L-shaped ("boot") ENTER, drawn as one continuous SVG and owned by one scene
+   hit region. The region is clipped to the boot outline so its empty upper-left
+   notch cannot steal pointer input from P. */
 .pk-key--enter,
 .pk-key--enter:hover,
 .pk-key--enter.pressed {
@@ -985,20 +949,8 @@ canvas {
   box-shadow: none;
   overflow: visible;
 }
-/* The spacer shares ENTER's matrix position, so it also gets .pressed (and
-   :hover); list those variants explicitly or .pk-key.pressed out-specifies this
-   rule and paints a phantom pressed cap over the foot. */
-.pk-key--enter-spacer,
-.pk-key--enter-spacer:hover,
-.pk-key--enter-spacer.pressed {
-  background: none;
-  border: none;
-  box-shadow: none;
-}
-/* The boot SVG, pinned to the cell's right edge (= the row's right edge, so the
-   stem aligns with the foot below) and overflowing down + left. Sized in design
-   pixels so it scales as one block; the non-scaling stroke keeps the outline a
-   constant 1px, matching every other cap's `1px solid` border at any scale. */
+/* The boot SVG fills its measured scene box. The non-scaling stroke keeps the
+   outline a constant 1px, matching every other cap at any display scale. */
 .pk-enter-svg {
   position: absolute;
   top: 0;
@@ -1006,9 +958,7 @@ canvas {
   width: calc(var(--pu1) * 82);
   height: calc(var(--pu1) * 94);
   overflow: visible;
-  /* Purely visual: the stem cell and the spacer take the clicks. Without this the
-     drop-shadow'd SVG hit-tests as its full box and its left overhang steals P's
-     clicks. */
+  /* The surrounding scene key owns the pointer hit region. */
   pointer-events: none;
   /* Drop shadow lifting the boot off the case, matching every cap's `0 1px 1px`. */
   filter: drop-shadow(0 calc(var(--pu1) * 1) calc(var(--pu1) * 1) rgba(0, 0, 0, 0.5));
@@ -1172,21 +1122,8 @@ canvas {
 /* (+2 and +2A/+3 cap colours are the --cap-* stops set with the base .pk-key
    rules above; the SVG cap paints them.) */
 
-/* Fixed grid: keys are a fixed width (--w units × the unit), NOT stretched to
-   fill, so every alphanumeric is exactly 1u. The inter-key spacing is folded
-   into each key's width (margin + reduced width = exactly --w units), so every
-   row is the same pixel width whatever its key count — which keeps the two
-   halves of the L-shaped ENTER aligned. */
-/* Unit width is tied to the 46px key height so a 1u cap is square (1u visible =
-   46px = height; +3px for the folded inter-key margin). Wider keys scale off it. */
-.kbd-plus--grey2 { --pk2u: calc(var(--pu1) * 49); }
-.kbd-plus--grey2 .kbd-prow { justify-content: center; gap: 0; }
-.kbd-plus--grey2 .pk-key {
-  flex: 0 0 auto;
-  width: calc(var(--w, 1) * var(--pk2u) - var(--pu1) * 3);
-  margin-left: calc(var(--pu1) * 1.5); margin-right: calc(var(--pu1) * 1.5);
-}
-
+/* Sparse geometry is measured on a 49px quarter-unit pitch: alphanumerics are
+   1u and command keys retain their real unequal widths. */
 /* The +2 prints everything in a single white oblique face — no colour coding —
    and every legend sits bottom-left of the cap. */
 .kbd-plus--grey2 .pk-main,
@@ -1238,30 +1175,12 @@ canvas {
    glyphs, yellow legends). Sizing reuses the display-scaled design-pixel units. */
 .zxk-bezel {
   position: relative;
-  --ku: calc(15px * var(--display-scale, 3));
-  --u1: calc(var(--ku) / 42);
-  --kg: calc(var(--u1) * 6); /* gap between keys */
-  padding: calc(var(--u1) * 10) calc(var(--u1) * 14) calc(var(--u1) * 12);
+  --u1: var(--keyboard-scene-px);
+  padding: 0;
   border-radius: calc(var(--u1) * 6);
   overflow: hidden;
   container-type: inline-size;
 }
-.zxk-keys { width: fit-content; margin-inline: auto; }
-.zxk-row { display: flex; gap: var(--kg); }
-.zxk-row + .zxk-row { margin-top: 0; }
-/* Typewriter stagger: Q centres in the 1–2 gap (half a pitch); A insets a
-   further 0.25 key from Q; the number row and SHIFT row stay flush-left. */
-.zxk-row:nth-child(2) { padding-left: calc((var(--ku) + var(--kg)) / 2); }
-.zxk-row:nth-child(3) { padding-left: calc((var(--ku) + var(--kg)) / 2 + var(--ku) * 0.25); }
-
-.zxk-cell {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  flex: none;
-  width: var(--ku);
-}
-
 /* Case legends: keyword above, FUNCTION below — both white/yellow, left-aligned. */
 .zxk-above, .zxk-below {
   height: calc(var(--u1) * 8);
@@ -1280,7 +1199,6 @@ canvas {
 .zxk-key {
   position: relative;
   height: calc(var(--u1) * 40);
-  margin-block: calc(var(--u1) * 1.5);
   border-radius: calc(var(--u1) * 4);
   cursor: pointer;
   user-select: none;
