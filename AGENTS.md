@@ -110,6 +110,15 @@ npx tsc --noEmit          # type-check (no output = clean)
 npx vite build            # production build
 ```
 
+## Fix broken tools, don't work around them
+
+We do not struggle past broken tools — we fix the tool. If a tool (the MCP
+server and its `type`/`ocr`/`screenshot` helpers, a build step, a test harness,
+a script) misbehaves or gives unreliable output, **stop and fix the tool at its
+root cause** before continuing the task that surfaced it. Squinting at garbled
+output, retrying, or hand-compensating for a flaky tool wastes time and hides
+real bugs. A reliable toolchain is a prerequisite, not a nice-to-have.
+
 ## Writing tests
 
 Tests must be written critically against a known-correct specification, not as a mirror of the current implementation.
