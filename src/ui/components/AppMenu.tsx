@@ -7,6 +7,7 @@ import { createSignal, createEffect, onCleanup, Show, For } from 'solid-js';
 import { HiOutlineEllipsisVertical } from 'solid-icons/hi';
 import {
   isPaneUserHidden, togglePaneVisibility, paneOrder, PANE_LABELS,
+  PANE_GROUP_ORDER, PANE_GROUPS,
   orderedResetEntries, type ResetEntry,
 } from '@/ui/panes.ts';
 import { pauseOnFocusLost, setPauseOnFocusLost, persistSetting } from '@/store/settings.ts';
@@ -85,17 +86,23 @@ export function AppMenu() {
             <span class="ddmenu-check">{pauseOnFocusLost() ? '✓' : ''}</span>Pause when focus lost
           </div>
           <div class="ddmenu-separator" />
-          <div class="ddmenu-item ddmenu-parent">
-            <span class="ddmenu-check" />Panes
-            <span class="ddmenu-arrow">{'▸'}</span>
-            <div class="ddmenu ddmenu-sub">
-              <For each={paneOrder().filter(p => PANE_LABELS[p.id])}>{(p) => (
-                <div class="ddmenu-item" onClick={() => togglePaneVisibility(p.id)}>
-                  <span class="ddmenu-check">{isPaneUserHidden(p.id) ? '' : '✓'}</span>{PANE_LABELS[p.id]}
+          <For each={PANE_GROUP_ORDER}>{(group) => {
+            const panes = paneOrder().filter(p => PANE_GROUPS[p.id] === group && PANE_LABELS[p.id]);
+            if (panes.length === 0) return null;
+            return (
+              <div class="ddmenu-item ddmenu-parent">
+                <span class="ddmenu-check" />{group}
+                <span class="ddmenu-arrow">{'▸'}</span>
+                <div class="ddmenu ddmenu-sub">
+                  <For each={panes}>{(p) => (
+                    <div class="ddmenu-item" onClick={() => togglePaneVisibility(p.id)}>
+                      <span class="ddmenu-check">{isPaneUserHidden(p.id) ? '' : '✓'}</span>{PANE_LABELS[p.id]}
+                    </div>
+                  )}</For>
                 </div>
-              )}</For>
-            </div>
-          </div>
+              </div>
+            );
+          }}</For>
           <div class="ddmenu-separator" />
           <div class="ddmenu-item ddmenu-parent">
             <span class="ddmenu-check" />Reset settings
