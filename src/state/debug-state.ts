@@ -13,6 +13,7 @@
 
 import { createSignal } from 'solid-js';
 import type { BasicListingLine, BasicVariable } from '@/basic/types.ts';
+import type { MemoryMapSnapshot } from '@/machines/machine.ts';
 
 // CPU registers
 const _regsHtml = createSignal('');
@@ -42,10 +43,10 @@ const _basicVars = createSignal<BasicVariable[]>([]);
 export const basicVars = _basicVars[0];
 export const setBasicVars = _basicVars[1];
 
-// Memory banks
-const _banksHtml = createSignal('');
-export const banksHtml = _banksHtml[0];
-export const setBanksHtml = _banksHtml[1];
+// Memory layout (structured snapshot the BanksPane renders generically)
+const _memoryMap = createSignal<MemoryMapSnapshot | null>(null);
+export const memoryMap = _memoryMap[0];
+export const setMemoryMap = _memoryMap[1];
 
 // Disassembly
 const _disasmText = createSignal('');

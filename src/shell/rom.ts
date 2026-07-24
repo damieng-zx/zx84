@@ -15,19 +15,18 @@ import {
 } from '@/models.ts';
 import { registry } from '@/machines/registry.ts';
 import { BANK_SIZE } from '@/utils/bank-size.ts';
-import { defaultRomPageLabel, resolveRomSource, type RomPage } from '@/managers/rom-manager.ts';
+import { resolveRomSource, type RomPage } from '@/managers/rom-manager.ts';
 import { dbSave, dbLoad } from '@/store/persistence.ts';
 import {
   currentModel as currentModelValue, currentLocale as currentLocaleValue,
   setCurrentModel, saveModel,
-  setSystemRomLabel, setSystemRomSize, setSystemRomIsCustom,
-  setSystemRomPageLabels, setSystemRomPageSizes, setSystemRomPageOverridden,
+  setRomSlots,
   setCartridgeName,
   setMultifaceRomFailed, setVtx5000RomFailed, setParadosRomFailed,
   setPlusDRomFailed, setInterface1RomFailed, setBetaDiskRomFailed,
 } from '@/state/machine-state.ts';
 import {
-  romManager, machine, romData, setRomData,
+  romManager, machine, setRomData,
   setStatus, setRomStatus, effectiveROMModel, effectiveROMKey,
 } from '@/shell/context.ts';
 import { createMachine, switchModel } from '@/shell/lifecycle.ts';
@@ -52,30 +51,12 @@ export async function fetchDefaultROM(model: MachineModel, key: string, locale?:
 
 // ── System ROM + MSX cartridge (ROM pane) ─────────────────────────────────
 
-/** Refresh the ROM-pane signals from the current machine's system ROM and any
- *  mounted cartridge. Called after every (re)build of the machine. */
+/** Refresh the ROM-pane signals from the current machine's ROM slots and any
+ *  mounted cartridge. Called after every (re)build of the machine. The machine
+ *  owns its slot layout (via RomService.systemSlots); the shell just mirrors it
+ *  into a Solid signal for the pane. */
 export function updateRomPaneInfo(): void {
-  const model = effectiveROMModel(currentModelValue());
-  const key = effectiveROMKey(currentModelValue(), currentLocaleValue());
-  const entry = romManager.getCached(key);
-  setSystemRomLabel(entry?.label ?? '');
-  setSystemRomSize(romData?.length ?? 0);
-  setSystemRomIsCustom(entry?.isCustom ?? false);
-
-  const pageCount = romPageSlotCount(model);
-  const labels: string[] = [];
-  const sizes: number[] = [];
-  const overridden: boolean[] = [];
-  for (let page = 0; page < pageCount; page++) {
-    const p = romManager.getCachedPage(key, page as RomPage);
-    labels.push(p?.label ?? defaultRomPageLabel(model, page as RomPage));
-    sizes.push(p?.data.length ?? 0);
-    overridden.push(p !== null);
-  }
-  setSystemRomPageLabels(labels);
-  setSystemRomPageSizes(sizes);
-  setSystemRomPageOverridden(overridden);
-
+  setRomSlots(machine?.services.roms.systemSlots ?? []);
   setCartridgeName(machine?.services.roms.cartridge?.name ?? '');
 }
 

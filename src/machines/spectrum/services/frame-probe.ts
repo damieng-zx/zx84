@@ -12,6 +12,7 @@
 
 import type {
   FrameIndicators, FrameProbe, FramePaneProvider, TranscribeDriver,
+  MemoryMapSnapshot,
 } from '@/machines/machine.ts';
 import type { Spectrum } from '@/machines/spectrum/spectrum.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
@@ -19,6 +20,7 @@ import type { WD179x } from '@/cores/wd179x.ts';
 import type { UPD765A } from '@/cores/upd765a.ts';
 import type { FontSource, OcrGridName } from '@/ocr/ocr.ts';
 import { isPlus2AClass } from '@/machines/spectrum/models.ts';
+import { SPECIAL_MODES } from '@/machines/spectrum/memory.ts';
 import { parseBasicProgram, parseBasicVariables } from '@/basic/sinclair-basic-parser';
 import { hex8 } from '@/utils/hex.ts';
 
@@ -45,55 +47,43 @@ function activeWd(s: Spectrum): WD179x | null {
   return s.mgtPlusD.enabled ? s.mgtPlusD.fdc : s.betaDisk.enabled ? s.betaDisk.fdc : null;
 }
 
-/** Render the Spectrum memory-layout pane (moved verbatim from frame-bridge). */
-function renderBanks(s: Spectrum): string {
+/** Build the Spectrum memory-layout snapshot (128K/+2/+2A/+3 paging). */
+function spectrumMemoryMap(s: Spectrum): MemoryMapSnapshot | null {
   const mem = s.memory;
-  const n = '<span class="reg-name">';
-  const e = '</span>';
   const plus2a = isPlus2AClass(s.model);
 
-  const region = (addr: string, label: string) => `${n}${addr}${e} ${label}`;
-  const lines: string[] = [];
+  const screenBank = (mem.port7FFD & 0x08) ? 7 : 5;
+  const screenFlags = (bank: number): readonly ('screen')[] | undefined =>
+    bank === screenBank ? ['screen'] : undefined;
 
+  let slots;
   if (plus2a && mem.specialPaging) {
-    // Special paging mode - all RAM
-    const mode = (mem.port1FFD >> 1) & 3;
-    const configs = [
-      ['0', '1', '2', '3'],
-      ['4', '5', '6', '7'],
-      ['4', '5', '6', '3'],
-      ['4', '7', '6', '3'],
+    // Special paging mode — all RAM. Mode selects one of four configurations.
+    const [b0, b1, b2, b3] = SPECIAL_MODES[(mem.port1FFD >> 1) & 3];
+    slots = [
+      { range: 'C000-FFFF', read: `RAM Bank ${b3}`, flags: screenFlags(b3) },
+      { range: '8000-BFFF', read: `RAM Bank ${b2}`, flags: screenFlags(b2) },
+      { range: '4000-7FFF', read: `RAM Bank ${b1}`, flags: screenFlags(b1) },
+      { range: '0000-3FFF', read: `RAM Bank ${b0}`, flags: screenFlags(b0) },
     ];
-    const [b0, b1, b2, b3] = configs[mode];
-    lines.push(
-      region('C000-FFFF', `RAM Bank ${b3}`),
-      region('8000-BFFF', `RAM Bank ${b2}`),
-      region('4000-7FFF', `RAM Bank ${b1}`),
-      region('0000-3FFF', `RAM Bank ${b0}`),
-    );
   } else {
-    const romNum = mem.currentROM;
     const romLabel = plus2a
-      ? `ROM Page ${romNum}`
-      : romNum === 0 ? '128K Editor ROM' : '48K BASIC ROM';
-
-    const screenBank = (mem.port7FFD & 0x08) ? 7 : 5;
-    const isScreenPage = (bank: number) => bank === screenBank;
-
-    lines.push(
-      region('C000-FFFF', `RAM Bank ${mem.currentBank}${isScreenPage(mem.currentBank) ? ' (Screen)' : ''}`),
-      region('8000-BFFF', `RAM Bank 2`),
-      region('4000-7FFF', `RAM Bank 5${isScreenPage(5) ? ' (Screen)' : ''}`),
-      region('0000-3FFF', romLabel),
-    );
+      ? `ROM Page ${mem.currentROM}`
+      : mem.currentROM === 0 ? '128K Editor ROM' : '48K BASIC ROM';
+    slots = [
+      { range: 'C000-FFFF', read: `RAM Bank ${mem.currentBank}`, flags: screenFlags(mem.currentBank) },
+      { range: '8000-BFFF', read: 'RAM Bank 2' },
+      { range: '4000-7FFF', read: 'RAM Bank 5', flags: screenFlags(5) },
+      { range: '0000-3FFF', read: romLabel },
+    ];
   }
 
-  let portLine = `${n}7FFD${e} ${hex8(mem.port7FFD)}`;
-  if (plus2a) portLine += `  ${n}1FFD${e} ${hex8(mem.port1FFD)}`;
-  portLine += `  ${n}Lock${e} ${mem.pagingLocked ? 'Y' : 'N'}`;
+  // Paging-register footer: 7FFD, optional 1FFD (+2A), and the lock latch.
+  const registers = [{ name: '7FFD', value: hex8(mem.port7FFD) }];
+  if (plus2a) registers.push({ name: '1FFD', value: hex8(mem.port1FFD) });
+  registers.push({ name: 'Lock', value: mem.pagingLocked ? 'Y' : 'N' });
 
-  lines.push('', portLine);
-  return lines.join('\n');
+  return { slots, registers };
 }
 
 class SpectrumTranscribeDriver implements TranscribeDriver {
@@ -138,7 +128,7 @@ export class SpectrumFrameProbe implements FrameProbe {
     this.transcribe = new SpectrumTranscribeDriver(s);
     this.panes = {
       hasSysvars: true,
-      banksHtml: () => spec.variant.hasBanking ? renderBanks(spec) : null,
+      memoryMap: () => spec.variant.hasBanking ? spectrumMemoryMap(spec) : null,
       basicListing: () => parseBasicProgram(spec.memory.snapshot()),
       basicVars: () => parseBasicVariables(spec.memory.snapshot()),
       // Font-pane ROM capture: the current CHARS font, when its space glyph is

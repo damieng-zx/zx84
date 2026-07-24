@@ -10,7 +10,7 @@
 
 import { createSignal } from 'solid-js';
 import type { MachineModel } from '@/models.ts';
-import type { MachineLocale } from '@/machines/machine.ts';
+import type { MachineLocale, RomSlotInfo } from '@/machines/machine.ts';
 
 const KNOWN_MODELS: readonly MachineModel[] = [
   '16k', '48k', '128k', '+2', '+2A', '+3',
@@ -55,36 +55,12 @@ const _romStatusText = createSignal('');
 export const romStatusText = _romStatusText[0];
 export const setRomStatusText = _romStatusText[1];
 
-// System ROM (BIOS) description shown in the ROM pane, e.g. "HX-10 (default)".
-const _systemRomLabel = createSignal('');
-export const systemRomLabel = _systemRomLabel[0];
-export const setSystemRomLabel = _systemRomLabel[1];
-
-// Byte size of the current system ROM (0 until one is loaded).
-const _systemRomSize = createSignal(0);
-export const systemRomSize = _systemRomSize[0];
-export const setSystemRomSize = _systemRomSize[1];
-
-// True when the current system ROM is a user upload (drives the ROM pane's
-// eject-button visibility — the label text no longer carries a marker).
-const _systemRomIsCustom = createSignal(false);
-export const systemRomIsCustom = _systemRomIsCustom[0];
-export const setSystemRomIsCustom = _systemRomIsCustom[1];
-
-// Multi-page ROM pane (128K/+2 — 2 pages; +2A/+3 — 4 pages): one label/size
-// per ROM page, indexed by page number. Empty for single-ROM models.
-const _systemRomPageLabels = createSignal<string[]>([]);
-export const systemRomPageLabels = _systemRomPageLabels[0];
-export const setSystemRomPageLabels = _systemRomPageLabels[1];
-
-const _systemRomPageSizes = createSignal<number[]>([]);
-export const systemRomPageSizes = _systemRomPageSizes[0];
-export const setSystemRomPageSizes = _systemRomPageSizes[1];
-
-// Per-page override flag (true = custom upload, false = default page).
-const _systemRomPageOverridden = createSignal<boolean[]>([]);
-export const systemRomPageOverridden = _systemRomPageOverridden[0];
-export const setSystemRomPageOverridden = _systemRomPageOverridden[1];
+// System ROM slots — the single source for the ROM pane, populated from
+// machine.services.roms.systemSlots after each build / ROM mutation. One entry
+// per socket (single-ROM models = 1; 128K/+2 = 2; +2A/+3 = 4).
+const _romSlots = createSignal<readonly RomSlotInfo[]>([]);
+export const romSlots = _romSlots[0];
+export const setRomSlots = _romSlots[1];
 
 // Name of the mounted cartridge (empty = none), for the ROM pane.
 const _cartridgeName = createSignal('');

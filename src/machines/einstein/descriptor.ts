@@ -19,7 +19,7 @@ const EINSTEIN_UI: MachineUiCapabilities = {
   // no tape service, no tape port I/O — see services/index.ts + frame-probe.ts),
   // so the tape pane is hidden and no tape media is advertised.
   hiddenPanes: ['tape-panel'],
-  memoryLayout: false,
+  memoryLayout: true,
   trace: true,
   colorMap: 'einstein',
   accuracy: false,

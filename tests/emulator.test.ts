@@ -406,8 +406,7 @@ import * as tzxMod from '@/media/tape/tzx.ts';
 import * as joysticks from '@/machines/spectrum/peripherals/joysticks.ts';
 import { loadMultifaceROM, loadVTX5000ROM, triggerNMI } from '@/machines/spectrum/ui/hardware-actions.ts';
 import {
-  setCurrentModel, currentModel, systemRomLabel, systemRomIsCustom,
-  systemRomPageLabels, systemRomPageOverridden,
+  setCurrentModel, currentModel, romSlots,
 } from '@/state/machine-state.ts';
 import { transcribeMode } from '@/emulator.ts';
 
@@ -770,27 +769,27 @@ describe('switchModel — multi-page ROM overrides (128K/+2 2-page, +2A/+3 4-pag
   it('with no override, the pane shows the named default ROM, never a bare "(default)" placeholder', async () => {
     getRomManager().restoreROM.mockResolvedValueOnce({ data: makeBaseRom(), label: '128K (default)' });
     await emulator.switchModel('128k');
-    expect(systemRomPageLabels()[0]).toBe('Sinclair 128K BASIC');
-    expect(systemRomPageLabels()[1]).toBe('Sinclair 48K BASIC');
+    expect(romSlots()[0].label).toBe('Sinclair 128K BASIC');
+    expect(romSlots()[1].label).toBe('Sinclair 48K BASIC');
   });
 
   it('the +2 defaults are credited to Amstrad, not Sinclair', async () => {
     getRomManager().restoreROM.mockResolvedValueOnce({ data: makeBaseRom(), label: '+2 (default)' });
     await emulator.switchModel('+2');
-    expect(systemRomPageLabels()[0]).toBe('Amstrad 128K BASIC');
-    expect(systemRomPageLabels()[1]).toBe('Amstrad 48K BASIC');
+    expect(romSlots()[0].label).toBe('Amstrad 128K BASIC');
+    expect(romSlots()[1].label).toBe('Amstrad 48K BASIC');
   });
 
   it('a +3 with no overrides shows all four named default ROMs', async () => {
     getRomManager().restoreROM.mockResolvedValueOnce({ data: makeBaseRom(65536), label: '+3 (default)' });
     await emulator.switchModel('+3');
-    expect(systemRomPageLabels()).toEqual(['128K Editor', '128K Syntax Checker', '+3DOS', '48K BASIC']);
+    expect(romSlots().map(s => s.label)).toEqual(['128K Editor', '128K Syntax Checker', '+3DOS', '48K BASIC']);
   });
 
   it('a page override label is shown verbatim instead of the named default', async () => {
     // In the real ROMManager, restoreROMPage() (used by switchModel's splicing)
-    // populates the same cache getCachedPage() (used by updateRomPaneInfo)
-    // reads from — mock both in tandem to reflect that.
+    // populates the same cache getCachedPage() (used by systemSlots) reads from
+    // — mock both in tandem to reflect that.
     const override = { data: new Uint8Array(16384), label: 'my48.rom' };
     getRomManager().restoreROM.mockResolvedValueOnce({ data: makeBaseRom(), label: '128K (default)' });
     getRomManager().restoreROMPage.mockImplementation(async (_model: string, page: number) =>
@@ -800,8 +799,8 @@ describe('switchModel — multi-page ROM overrides (128K/+2 2-page, +2A/+3 4-pag
 
     await emulator.switchModel('128k');
 
-    expect(systemRomPageLabels()[1]).toBe('my48.rom');
-    expect(systemRomPageLabels()[0]).toBe('Sinclair 128K BASIC'); // page 0 still default
+    expect(romSlots()[1].label).toBe('my48.rom');
+    expect(romSlots()[0].label).toBe('Sinclair 128K BASIC'); // page 0 still default
   });
 });
 
@@ -889,7 +888,7 @@ describe('setSystemRomPage / resetSystemRomPage', () => {
 
 // ── ROM pane: isCustom / overridden flags drive eject visibility ─────────
 
-describe('updateRomPaneInfo — custom/overridden flags (not label text) drive eject visibility', () => {
+describe('updateRomPaneInfo — systemSlots (custom/overridden flags drive eject visibility)', () => {
   beforeEach(() => { emulator.setCanvas(fakeCanvas); });
   afterEach(() => {
     getRomManager().restoreROMPage.mockImplementation(async () => null as any);
@@ -898,30 +897,30 @@ describe('updateRomPaneInfo — custom/overridden flags (not label text) drive e
     setCurrentModel('128k');
   });
 
-  it('a single-ROM model (e.g. 48K) reports isCustom=false for the stock default', async () => {
+  it('a single-ROM model (e.g. 48K) reports overridden=false for the stock default', async () => {
     // In the real ROMManager, restoreROM() populates the same in-memory cache
-    // getCached() (used by updateRomPaneInfo) reads from — mock both in tandem.
+    // getCached() (used by systemSlots) reads from — mock both in tandem.
     const entry = { data: new Uint8Array(16384), label: 'Sinclair BASIC', isCustom: false };
     getRomManager().restoreROM.mockResolvedValueOnce(entry);
     getRomManager().getCached.mockImplementation(() => entry);
     await emulator.switchModel('48k');
-    expect(systemRomLabel()).toBe('Sinclair BASIC');
-    expect(systemRomIsCustom()).toBe(false);
+    expect(romSlots()[0].label).toBe('Sinclair BASIC');
+    expect(romSlots()[0].overridden).toBe(false);
   });
 
-  it('a single-ROM model reports isCustom=true for a user upload', async () => {
+  it('a single-ROM model reports overridden=true for a user upload', async () => {
     const entry = { data: new Uint8Array(16384), label: 'myrom.rom', isCustom: true };
     getRomManager().restoreROM.mockResolvedValueOnce(entry);
     getRomManager().getCached.mockImplementation(() => entry);
     await emulator.switchModel('48k');
-    expect(systemRomLabel()).toBe('myrom.rom');
-    expect(systemRomIsCustom()).toBe(true);
+    expect(romSlots()[0].label).toBe('myrom.rom');
+    expect(romSlots()[0].overridden).toBe(true);
   });
 
   it('a multi-page model reports overridden=false for every default page', async () => {
     getRomManager().restoreROM.mockResolvedValueOnce({ data: new Uint8Array(32768), label: '128K (default)' });
     await emulator.switchModel('128k');
-    expect(systemRomPageOverridden()).toEqual([false, false]);
+    expect(romSlots().map(s => s.overridden)).toEqual([false, false]);
   });
 
   it('a multi-page model reports overridden=true only for the page with a custom upload', async () => {
@@ -929,7 +928,7 @@ describe('updateRomPaneInfo — custom/overridden flags (not label text) drive e
     getRomManager().getCachedPage.mockImplementation((_model: string, page: number) =>
       page === 1 ? { data: new Uint8Array(16384), label: 'basic.rom', isCustom: true } : null);
     await emulator.switchModel('128k');
-    expect(systemRomPageOverridden()).toEqual([false, true]);
+    expect(romSlots().map(s => s.overridden)).toEqual([false, true]);
   });
 });
 

@@ -14,7 +14,7 @@ import {
 
 const MSX_UI: MachineUiCapabilities = {
   hiddenPanes: [],
-  memoryLayout: false,
+  memoryLayout: true,
   trace: true,
   colorMap: 'msx',
   accuracy: false,

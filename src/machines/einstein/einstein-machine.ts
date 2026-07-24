@@ -371,6 +371,12 @@ export class EinsteinMachine extends BaseMachine implements Machine {
     return (this.screenText as EinsteinScreenText).ocrStyled(this.vdp.vram, this.vdp.regs, this.vdp.mode(), rom, this.vdp.palette);
   }
 
+  /** Resolve the Memory-pane ROM region: the MOS ROM at &0000. */
+  resolveMemoryRegion(value: string): { data: Uint8Array; baseAddr: number } | null {
+    if (value === 'rom0') return { data: this.memory.getRom(), baseAddr: 0x0000 };
+    return null;
+  }
+
   /**
    * Blank the matched character cells in the framebuffer to their paper colour
    * so the crisp overlay glyphs replace the underlying bitmap. `mask` is

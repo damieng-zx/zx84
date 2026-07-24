@@ -27,7 +27,7 @@ import { BANK_SIZE } from '@/utils/bank-size.ts';
 export { BANK_SIZE };
 
 /** Special paging all-RAM bank configurations (indexed by mode 0-3). */
-const SPECIAL_MODES: ReadonlyArray<readonly [number, number, number, number]> = [
+export const SPECIAL_MODES: ReadonlyArray<readonly [number, number, number, number]> = [
   [0, 1, 2, 3],
   [4, 5, 6, 7],
   [4, 5, 6, 3],
