@@ -50,6 +50,7 @@ export class MtxDiskService implements DiskService {
   }
 
   get drives(): readonly DriveDescriptor[] {
+    if (!this.machine.floppyEnabled) return [];
     return [
       this.describe('a', 'Drive B:', 0),
       this.describe('b', 'Drive C:', 1),

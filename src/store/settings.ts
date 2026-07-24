@@ -96,6 +96,7 @@ const DEFAULTS = {
   'mtx-cpm':        'off',
   'mtx-80-column':  'off',
   'mtx-512k-ram':   'off',
+  'mtx-floppy':     'on',
   'zx8x-16k-ram':  'off',
   'zx81-udg-ram':  'off',
   'zx81-udg128-ram': 'off',
@@ -413,6 +414,10 @@ const _mtx512kRam = /*@once*/ createRoot(() => createSignal(getSaved('mtx-512k-r
 export const mtx512kRam = _mtx512kRam[0];
 export const setMtx512kRam = _mtx512kRam[1];
 
+const _mtxFloppy = /*@once*/ createRoot(() => createSignal(getSaved('mtx-floppy', D('mtx-floppy')) === 'on'));
+export const mtxFloppy = _mtxFloppy[0];
+export const setMtxFloppy = _mtxFloppy[1];
+
 const _zx8x16kRam = /*@once*/ createRoot(() => createSignal(getSaved('zx8x-16k-ram', D('zx8x-16k-ram')) === 'on'));
 export const zx8x16kRam = _zx8x16kRam[0];
 export const setZx8x16kRam = _zx8x16kRam[1];
@@ -557,6 +562,7 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'mtx-cpm', set: setMtxCpm, type: 'bool' },
     { key: 'mtx-80-column', set: setMtx80Column, type: 'bool' },
     { key: 'mtx-512k-ram', set: setMtx512kRam, type: 'bool' },
+    { key: 'mtx-floppy', set: setMtxFloppy, type: 'bool' },
     { key: 'zx8x-16k-ram', set: setZx8x16kRam, type: 'bool' },
     { key: 'zx81-udg-ram', set: setZx81UdgRam, type: 'bool' },
     { key: 'zx81-udg128-ram', set: setZx81Udg128Ram, type: 'bool' },

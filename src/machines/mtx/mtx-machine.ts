@@ -70,11 +70,14 @@ export class MtxMachine extends BaseMachine implements Machine {
   readonly cassette = new MtxCassette();
   readonly activity = { kbdReads: 0, psgWrites: 0, casReads: 0, fdcAccesses: 0 };
   cpmSystemEnabled = false;
+  /** FDX floppy subsystem fitted (drives B:/C: + FDX Disk BASIC ROM). */
+  floppyEnabled = true;
 
   private readonly vdpPixels = new Uint8Array(MTX_SCREEN_WIDTH * MTX_SCREEN_HEIGHT * 4);
   private readonly vdpPixels32 = new Uint32Array(this.vdpPixels.buffer);
   private borderMode: BorderMode = 1;
   private column80Requested = false;
+  private floppyRequested = true;
   get pixels(): Uint8Array {
     return this.column80.enabled ? this.column80.pixels : this.vdpPixels;
   }
@@ -138,6 +141,7 @@ export class MtxMachine extends BaseMachine implements Machine {
       MSX_PALETTES[view.get('msx-color-map', 'pal') as keyof typeof MSX_PALETTES];
     this.audio.setVolume(view.get('volume', 70) / 100);
     this.column80Requested = view.get('mtx-80-column', false);
+    this.floppyRequested = view.get('mtx-floppy', true);
     this.set512kRamEnabled(view.get('mtx-512k-ram', false));
     this.setCpmSystemEnabled(view.get('mtx-cpm', false));
   }
@@ -146,6 +150,7 @@ export class MtxMachine extends BaseMachine implements Machine {
     this.fdc.writeProtect[0] = view.get('write-protect-a', false);
     this.fdc.writeProtect[1] = view.get('write-protect-b', false);
     this.column80Requested = view.get('mtx-80-column', false);
+    this.floppyRequested = view.get('mtx-floppy', true);
     this.set512kRamEnabled(view.get('mtx-512k-ram', false));
     this.setCpmSystemEnabled(view.get('mtx-cpm', false));
     return [];
@@ -182,7 +187,16 @@ export class MtxMachine extends BaseMachine implements Machine {
     this.cpmSystemEnabled = enabled;
     this.memory.setCpmBootstrapEnabled(enabled);
     this.set80ColumnEnabled(enabled || this.column80Requested);
+    // CP/M boots from a floppy, so it force-fits the FDX subsystem.
+    this.setFloppyEnabled(enabled || this.floppyRequested);
     this.setStatus(`CP/M system ${enabled ? 'enabled' : 'disabled'}`);
+  }
+
+  /** Fit or remove the FDX floppy subsystem — drives B:/C: and the FDX Disk
+   *  BASIC ROM. CP/M force-fits it (see setCpmSystemEnabled). */
+  setFloppyEnabled(enabled: boolean): void {
+    this.floppyEnabled = enabled;
+    this.memory.setFdxRomEnabled(enabled);
   }
 
   set512kRamEnabled(enabled: boolean): void {

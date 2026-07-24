@@ -40,6 +40,26 @@ export function MtxHardwareSection() {
       <div class="multiface-row">
         <label
           class="mf-check"
+          title="Fit the FDX/SDX floppy subsystem — drives B:/C: and the FDX Disk BASIC ROM (CP/M requires it)"
+        >
+          <input
+            type="checkbox"
+            checked={settings.mtxFloppy() || settings.mtxCpm()}
+            disabled={settings.mtxCpm()}
+            onChange={(event) => {
+              const enabled = (event.target as HTMLInputElement).checked;
+              settings.setMtxFloppy(enabled);
+              settings.persistSetting('mtx-floppy', enabled ? 'on' : 'off');
+              activeMtx()?.setFloppyEnabled(enabled);
+              resetMachine();
+            }}
+          />
+          Floppy (FDX)
+        </label>
+      </div>
+      <div class="multiface-row">
+        <label
+          class="mf-check"
           title="Configure an MTX512 or RS128 with the FDX 80-column display for CP/M"
         >
           <input

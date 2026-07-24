@@ -24,6 +24,7 @@ export class MtxMemory implements IMachineMemory {
   private romSubpage = 0;
   private romPack: Uint8Array | null = null;
   private cpmBootstrapEnabled = false;
+  private fdxRomEnabled = true;
   private ramExpansion512k = false;
   private readonly baseRamBlocks: number;
 
@@ -46,6 +47,12 @@ export class MtxMemory implements IMachineMemory {
 
   setCpmBootstrapEnabled(enabled: boolean): void {
     this.cpmBootstrapEnabled = enabled;
+  }
+
+  /** Empty the FDX Disk BASIC ROM socket (page 5) when the FDX floppy subsystem
+   *  is not fitted — an absent board reads back as 0xFF. */
+  setFdxRomEnabled(enabled: boolean): void {
+    this.fdxRomEnabled = enabled;
   }
 
   set512kRamExpansionEnabled(enabled: boolean): void {
@@ -106,6 +113,7 @@ export class MtxMemory implements IMachineMemory {
     if (!this.ramMode && addr < 0x2000) return this.osRom[addr];
     if (!this.ramMode && addr < 0x4000) {
       if (this.selectedRomPage === 4 && !this.cpmBootstrapEnabled) return 0xFF;
+      if (this.selectedRomPage === 5 && !this.fdxRomEnabled) return 0xFF;
       if (this.selectedRomPage === 2 && this.romPack) {
         const offset = this.romSubpage * ROM_SIZE + addr - 0x2000;
         return offset < this.romPack.length ? this.romPack[offset] : 0xFF;
