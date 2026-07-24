@@ -12,6 +12,7 @@
  */
 
 import { lazy, type Component } from 'solid-js';
+import type { KeyboardLabPresetLoader } from './keyboard-lab/types.ts';
 
 /** Per-machine UI contributions. Any field may be absent (the machine doesn't
  *  contribute that piece of UI); the generic host then renders nothing there. */
@@ -69,3 +70,31 @@ const CONTRIBUTIONS: Record<string, MachineUiContribution> = {
 export function machineUi(kind: string): MachineUiContribution {
   return CONTRIBUTIONS[kind] ?? {};
 }
+
+/**
+ * Development-only keyboard editor seeds. Keeping these adapters in this
+ * manifest preserves the same concrete-machine import boundary as the runtime
+ * UI contributions above.
+ */
+export const keyboardLabPresetLoaders: readonly KeyboardLabPresetLoader[] = [
+  {
+    group: 'Sinclair ZX Spectrum',
+    load: () => import('@/machines/spectrum/ui/keyboard/lab-preset.ts')
+      .then((module) => module.spectrumKeyboardLabPresets()),
+  },
+  {
+    group: 'Sinclair ZX80/ZX81',
+    load: () => import('@/machines/zx8x/ui/keyboard/lab-preset.ts')
+      .then((module) => module.zx8xKeyboardLabPresets()),
+  },
+  {
+    group: 'Amstrad CPC',
+    load: () => import('@/machines/cpc/ui/keyboard/lab-preset.ts')
+      .then((module) => module.cpcKeyboardLabPresets()),
+  },
+  {
+    group: 'MSX',
+    load: () => import('@/machines/msx/ui/keyboard/lab-preset.ts')
+      .then((module) => module.hx10KeyboardLabPresets()),
+  },
+];
