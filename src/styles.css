@@ -2853,3 +2853,79 @@ input[type="range"]::-moz-range-thumb {
   padding-bottom: calc(var(--cpc-u) * 3);
   font-size: calc(var(--cpc-u) * 15);
 }
+
+/* CPC 664: the same electrical keyboard in the short-lived cream/blue face.
+   Its four arrow wedges form one cursor diamond around a raised COPY cap. */
+.cpc664-keyboard {
+  border-color: #23282c;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.06), transparent 20%),
+    radial-gradient(ellipse at 48% -18%, #596066 0%, #3e454a 50%, #2a3035 100%);
+}
+.cpc664-keyboard .cpc464-brand {
+  color: #e3e0d5;
+}
+.cpc664-tagline {
+  display: flex;
+  align-items: center;
+  color: #c7cac8;
+  font-size: calc(var(--cpc-u) * 7);
+  font-weight: 600;
+  letter-spacing: calc(var(--cpc-u) * 0.45);
+  text-shadow: 0 1px #20252a;
+}
+.cpc664-keyboard .cpc464-model {
+  color: #cdd2d4;
+}
+.cpc664-leds {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.cpc664-leds i {
+  width: calc(var(--cpc-u) * 5);
+  height: calc(var(--cpc-u) * 5);
+  border: 1px solid #361519;
+  border-radius: 50%;
+  background: #ef4b58;
+  box-shadow: 0 0 calc(var(--cpc-u) * 4) rgba(239,75,88,0.75);
+}
+
+.cpc664-key {
+  --cpc-cap-top: #fbfaf0;
+  --cpc-cap-mid: #dedfd8;
+  --cpc-cap-bottom: #aeb3b1;
+  border-color: #686f71;
+  color: #20272d;
+  box-shadow:
+    inset calc(var(--cpc-u) * 1) calc(var(--cpc-u) * 1) 0 rgba(255,255,255,0.78),
+    inset calc(var(--cpc-u) * -2) calc(var(--cpc-u) * -3) calc(var(--cpc-u) * 4) rgba(52,60,63,0.25),
+    0 calc(var(--cpc-u) * 2) calc(var(--cpc-u) * 2) rgba(0,0,0,0.55);
+}
+.cpc664-key--blue {
+  --cpc-cap-top: #b8d4fa;
+  --cpc-cap-mid: #8fb5ec;
+  --cpc-cap-bottom: #648dd1;
+  border-color: #4c6085;
+}
+.cpc664-key .cpc464-key__main,
+.cpc664-key .cpc464-key__shift,
+.cpc664-key .cpc464-key__fn {
+  color: #20272d;
+  text-shadow: 0 1px rgba(255,255,255,0.72);
+}
+
+.cpc664-key--cursor-up,
+.cpc664-key--cursor-left,
+.cpc664-key--cursor-right,
+.cpc664-key--cursor-down {
+  z-index: 1;
+  border-radius: 0;
+}
+.cpc664-key--copy {
+  z-index: 3;
+  --cpc-cap-top: #fffef6;
+  --cpc-cap-mid: #e6e6de;
+  --cpc-cap-bottom: #b8bcba;
+  border-color: #656c70;
+}

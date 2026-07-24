@@ -17,6 +17,8 @@ export const CPC464_SCENE = {
   unit: 1,
 } as const;
 
+export const CPC664_SCENE = CPC464_SCENE;
+
 const PITCH = 42;
 const GAP = 4;
 const CAP_HEIGHT = 34;
@@ -29,6 +31,7 @@ export interface PlacedCpcKey {
   readonly key: CpcKeyDef;
   readonly box: SceneBox;
   readonly region: CpcKeyRegion;
+  readonly hitClip?: string;
 }
 
 const widthOf = (units = 1) => units * PITCH - GAP;
@@ -91,4 +94,37 @@ export function placeCpc464Keys(): PlacedCpcKey[] {
   });
 
   return placed;
+}
+
+/**
+ * The CPC664 retained the 464 matrix and main-key geometry, but replaced the
+ * five separated cursor caps with four joined wedges around a COPY key.
+ */
+export function placeCpc664Keys(): PlacedCpcKey[] {
+  const cursorFace: Readonly<Record<string, Pick<PlacedCpcKey, 'box' | 'hitClip'>>> = {
+    'cursor-up': {
+      box: { x: CLUSTER_LEFT, y: 4, width: PITCH * 3 - GAP, height: 55 },
+      hitClip: 'polygon(0 0, 100% 0, 65% 100%, 35% 100%)',
+    },
+    'cursor-left': {
+      box: { x: CLUSTER_LEFT, y: 4, width: 61, height: 110 },
+      hitClip: 'polygon(0 0, 100% 35%, 100% 65%, 0 100%)',
+    },
+    copy: {
+      box: { x: CLUSTER_LEFT + PITCH, y: 42, width: widthOf(), height: CAP_HEIGHT },
+    },
+    'cursor-right': {
+      box: { x: CLUSTER_LEFT + 61, y: 4, width: 61, height: 110 },
+      hitClip: 'polygon(0 35%, 100% 0, 100% 100%, 0 65%)',
+    },
+    'cursor-down': {
+      box: { x: CLUSTER_LEFT, y: 59, width: PITCH * 3 - GAP, height: 55 },
+      hitClip: 'polygon(35% 0, 65% 0, 100% 100%, 0 100%)',
+    },
+  };
+
+  return placeCpc464Keys().map((placed) => {
+    const face = cursorFace[placed.key.id];
+    return face ? { ...placed, ...face } : placed;
+  });
 }
