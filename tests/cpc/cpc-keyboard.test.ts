@@ -17,6 +17,14 @@ function readLine(kb: CpcKeyboard, line: number): number {
 }
 
 describe('CpcKeyboard joystick multiplexing', () => {
+  it('exposes the live active-low rows for CPC-owned UI highlighting', () => {
+    const kb = new CpcKeyboard();
+    kb.setKey(8, 2, true);
+    expect(kb.rows[8] & 0x04).toBe(0);
+    kb.setKey(8, 2, false);
+    expect(kb.rows[8] & 0x04).toBe(0x04);
+  });
+
   it('player 1 directions/fires clear the matching bits on line 9 only', () => {
     const kb = new CpcKeyboard();
     expect(readLine(kb, 9)).toBe(0xFF);

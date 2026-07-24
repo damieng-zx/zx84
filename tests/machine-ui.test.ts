@@ -38,7 +38,7 @@ describe('machine-ui manifest', () => {
 
     const cpc = machineUi('cpc');
     expect(isLazyLoader(cpc.HardwareSection)).toBe(true);
-    expect(cpc.Keyboard).toBeUndefined();      // CPC has its own physical keyboard
+    expect(isLazyLoader(cpc.Keyboard)).toBe(true);
     expect(cpc.SysVars).toBeUndefined();
 
     expect(isLazyLoader(machineUi('einstein').HardwareSection)).toBe(true);

@@ -631,6 +631,23 @@ canvas {
   padding: 0;
 }
 
+/* Fixed-coordinate scene shared by every skeuomorphic keyboard face. The scene
+   carries no row/key/legend assumptions: machine UI code positions arbitrary
+   case decorations, legends, cap shapes and hit regions in design coordinates. */
+.keyboard-scene-frame {
+  width: 100%;
+  container-type: inline-size;
+}
+.keyboard-scene {
+  position: relative;
+  width: calc(var(--keyboard-scene-px) * var(--keyboard-scene-width));
+  height: calc(var(--keyboard-scene-px) * var(--keyboard-scene-height));
+  margin-inline: auto;
+  flex: none;
+}
+.keyboard-scene__item { pointer-events: none; }
+.keyboard-scene__key { position: absolute; }
+
 .kbd-bezel {
   position: relative;
   /* 1u key width is tied to the display scale (1×/2×/3×): 14px × scale gives
@@ -640,11 +657,10 @@ canvas {
      with --ku as one block. */
   --ku: calc(14px * var(--display-scale, 3));
   --u1: calc(var(--ku) / 42);
-  --kg: calc(var(--u1) * 10); /* gap between keys */
   /* Slightly mottled near-black rubber mat */
   background:
     radial-gradient(ellipse at 50% -10%, #34373c 0%, #202327 45%, #141619 100%);
-  padding: calc(var(--u1) * 10) calc(var(--u1) * 12) calc(var(--u1) * 12);
+  padding: 0;
   border-radius: calc(var(--u1) * 5);
   border: 1px solid #050608;
   box-shadow:
@@ -653,31 +669,6 @@ canvas {
     0 2px 6px rgba(0, 0, 0, 0.4);
   overflow: hidden;
   container-type: inline-size;
-}
-
-.kbd-row {
-  display: flex;
-  gap: var(--kg);
-}
-.kbd-row + .kbd-row {
-  margin-top: calc(var(--u1) * 4);
-}
-/* Centre the whole keyboard as a unit while the rows keep their stagger. */
-.kbd-keys { width: fit-content; margin-inline: auto; }
-/* Staggered rows (offsets derived from the unit width --ku and gap --kg): Q sits
-   centred under the 1–2 gap (a half-pitch shift); A's right edge meets W's left
-   edge. Row 4 stays flush-left so CAPS SHIFT lines up under the 1 key. */
-.kbd-row:nth-child(2) { padding-left: calc((var(--ku) + var(--kg)) / 2); }
-.kbd-row:nth-child(3) { padding-left: calc((var(--ku) + 3 * var(--kg)) / 2); }
-
-.kbd-cell {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  flex: none;
-  /* Fixed unit width: 1u = --ku; an n-u key spans n pitches minus the trailing
-     gap, so its right edge lands on the unit grid. */
-  width: calc(var(--w, 1) * (var(--ku) + var(--kg)) - var(--kg));
 }
 
 /* ── Above-key legends ─────────────────────────────────────────────────── */
@@ -735,7 +726,7 @@ canvas {
 /* ── Below-key legend (red extended + symbol shift) ────────────────────── */
 .kbd-below {
   height: calc(var(--u1) * 12);
-  margin-top: calc(var(--u1) * 2);
+  margin-top: 0;
   text-align: left;
   padding-left: calc(var(--u1) * 2); /* just inside the key's left edge, like the above-key legends */
   font-size: calc(var(--u1) * 7.5);
@@ -895,31 +886,23 @@ canvas {
    return key, drawn as a single SVG "boot" outline spanning rows 2–3. */
 
 .kbd-plus {
-  display: flex;
-  flex-direction: column;
+  display: block;
   /* --pu1 is a "design pixel": the value 1px had at the reference (3× / 46px
      caps), driven by the display scale so the whole hard keyboard shrinks
      proportionally at 2×/1×. Every metric below keeps its original number as a
      calc(var(--pu1) * N) so the layout is identical at 3× and scales as one. */
-  --pu1: calc(1px * var(--display-scale, 3) / 3);
-  gap: calc(var(--pu1) * 4);
+  --pu1: var(--keyboard-scene-px);
   background: linear-gradient(180deg, #26282c 0%, #1b1d20 100%);
-  padding: calc(var(--pu1) * 6);
+  padding: 0;
   border-radius: calc(var(--pu1) * 4);
   border: 1px solid #050608;
   box-shadow: inset 0 0 16px rgba(0, 0, 0, 0.45);
   container-type: inline-size;
 }
 
-.kbd-prow { display: flex; gap: calc(var(--pu1) * 4); align-items: flex-start; }
-
-/* Toastrack (+ / 128K): a fixed unit pitch so 1u keys are square (1u = key
-   height); command keys scale by their --w unit count. Rows are centred, so
-   their differing totals give the hardware's slightly ragged edges. The +2
-   sparse face (.kbd-plus--grey2) keeps its own grid further down. */
+/* Toastrack (+ / 128K): measured scene geometry keeps 1u keys square and
+   command keys on the real quarter-unit pitch. */
 .kbd-plus:not(.kbd-plus--grey2) {
-  --pku: calc(var(--pu1) * 48); /* 46px square cap + 2px gap */
-  gap: calc(var(--pu1) * 2);
   /* Recessed groove lines (a 1px dark + 1px light bevel) moulded into the case
      in the 2px gaps between the five key rows, offset by the 6px top padding, as
      on the +2/+3. The keys sit on top, so a groove only shows through the gaps. */
@@ -932,17 +915,6 @@ canvas {
       transparent calc(var(--pu1) * 198)),
     linear-gradient(180deg, #26282c 0%, #1b1d20 100%);
 }
-.kbd-plus:not(.kbd-plus--grey2) .kbd-prow { justify-content: center; gap: 0; }
-/* Each key occupies exactly w units of the 48px pitch (cap width = pitch minus
-   the 2px gap, restored as a 1px side margin), so every 13.5u row is the same
-   pixel width no matter how many keys it holds, and the rows line up. The side
-   margin leaves the ENTER cell's negative bottom margin untouched. */
-.kbd-plus:not(.kbd-plus--grey2) .pk-key {
-  flex: none;
-  width: calc(var(--w, 1) * var(--pku) - var(--pu1) * 2);
-  margin-inline: calc(var(--pu1) * 1);
-}
-
 /* Keys — all the same height; legends are absolutely placed inside the cap. */
 .pk-key {
   position: relative;
@@ -966,17 +938,9 @@ canvas {
 .kbd-plus--amstrad .pk-key { --cap-g0: #2c2f33; --cap-g1: #212427; --cap-g2: #16181b; }
 .kbd-plus--amstrad .pk-key:hover { --cap-g0: #363a3e; --cap-g1: #2a2d31; --cap-g2: #1f2124; }
 .kbd-plus--amstrad .pk-key.pressed { --cap-g0: #131416; --cap-g1: #101113; --cap-g2: #0d0e10; }
-/* The ENTER foot is a separate cell (the spacer) from the boot it visually joins,
-   so hovering the foot must drive the boot's hover explicitly (but not while the
-   whole key is pressed — then the pressed shade wins). */
-.kbd-plus:not(.kbd-plus--grey2):has(.pk-key--enter-spacer:hover) .pk-key--enter:not(.pressed) { --cap-g0: #51565d; --cap-g1: #41454c; --cap-g2: #34383e; }
-.kbd-plus--grey2:has(.pk-key--enter-spacer:hover) .pk-key--enter:not(.pressed) { --cap-g0: #888d94; --cap-g1: #787d84; --cap-g2: #686d74; }
-.kbd-plus--amstrad:has(.pk-key--enter-spacer:hover) .pk-key--enter:not(.pressed) { --cap-g0: #363a3e; --cap-g1: #2a2d31; --cap-g2: #1f2124; }
-
-/* L-shaped ("boot") ENTER, drawn as ONE continuous SVG outline. The key is a 1u
-   stem slot in row 2 whose SVG overflows down + left into row 3 to draw the wider
-   foot; an inert .pk-key--enter-spacer reserves that foot's footprint in row 3.
-   The cell itself draws no cap — the SVG path is the whole keycap. */
+/* L-shaped ("boot") ENTER, drawn as one continuous SVG and owned by one scene
+   hit region. The region is clipped to the boot outline so its empty upper-left
+   notch cannot steal pointer input from P. */
 .pk-key--enter,
 .pk-key--enter:hover,
 .pk-key--enter.pressed {
@@ -985,20 +949,8 @@ canvas {
   box-shadow: none;
   overflow: visible;
 }
-/* The spacer shares ENTER's matrix position, so it also gets .pressed (and
-   :hover); list those variants explicitly or .pk-key.pressed out-specifies this
-   rule and paints a phantom pressed cap over the foot. */
-.pk-key--enter-spacer,
-.pk-key--enter-spacer:hover,
-.pk-key--enter-spacer.pressed {
-  background: none;
-  border: none;
-  box-shadow: none;
-}
-/* The boot SVG, pinned to the cell's right edge (= the row's right edge, so the
-   stem aligns with the foot below) and overflowing down + left. Sized in design
-   pixels so it scales as one block; the non-scaling stroke keeps the outline a
-   constant 1px, matching every other cap's `1px solid` border at any scale. */
+/* The boot SVG fills its measured scene box. The non-scaling stroke keeps the
+   outline a constant 1px, matching every other cap at any display scale. */
 .pk-enter-svg {
   position: absolute;
   top: 0;
@@ -1006,9 +958,7 @@ canvas {
   width: calc(var(--pu1) * 82);
   height: calc(var(--pu1) * 94);
   overflow: visible;
-  /* Purely visual: the stem cell and the spacer take the clicks. Without this the
-     drop-shadow'd SVG hit-tests as its full box and its left overhang steals P's
-     clicks. */
+  /* The surrounding scene key owns the pointer hit region. */
   pointer-events: none;
   /* Drop shadow lifting the boot off the case, matching every cap's `0 1px 1px`. */
   filter: drop-shadow(0 calc(var(--pu1) * 1) calc(var(--pu1) * 1) rgba(0, 0, 0, 0.5));
@@ -1172,21 +1122,8 @@ canvas {
 /* (+2 and +2A/+3 cap colours are the --cap-* stops set with the base .pk-key
    rules above; the SVG cap paints them.) */
 
-/* Fixed grid: keys are a fixed width (--w units × the unit), NOT stretched to
-   fill, so every alphanumeric is exactly 1u. The inter-key spacing is folded
-   into each key's width (margin + reduced width = exactly --w units), so every
-   row is the same pixel width whatever its key count — which keeps the two
-   halves of the L-shaped ENTER aligned. */
-/* Unit width is tied to the 46px key height so a 1u cap is square (1u visible =
-   46px = height; +3px for the folded inter-key margin). Wider keys scale off it. */
-.kbd-plus--grey2 { --pk2u: calc(var(--pu1) * 49); }
-.kbd-plus--grey2 .kbd-prow { justify-content: center; gap: 0; }
-.kbd-plus--grey2 .pk-key {
-  flex: 0 0 auto;
-  width: calc(var(--w, 1) * var(--pk2u) - var(--pu1) * 3);
-  margin-left: calc(var(--pu1) * 1.5); margin-right: calc(var(--pu1) * 1.5);
-}
-
+/* Sparse geometry is measured on a 49px quarter-unit pitch: alphanumerics are
+   1u and command keys retain their real unequal widths. */
 /* The +2 prints everything in a single white oblique face — no colour coding —
    and every legend sits bottom-left of the cap. */
 .kbd-plus--grey2 .pk-main,
@@ -1238,30 +1175,12 @@ canvas {
    glyphs, yellow legends). Sizing reuses the display-scaled design-pixel units. */
 .zxk-bezel {
   position: relative;
-  --ku: calc(15px * var(--display-scale, 3));
-  --u1: calc(var(--ku) / 42);
-  --kg: calc(var(--u1) * 6); /* gap between keys */
-  padding: calc(var(--u1) * 10) calc(var(--u1) * 14) calc(var(--u1) * 12);
+  --u1: var(--keyboard-scene-px);
+  padding: 0;
   border-radius: calc(var(--u1) * 6);
   overflow: hidden;
   container-type: inline-size;
 }
-.zxk-keys { width: fit-content; margin-inline: auto; }
-.zxk-row { display: flex; gap: var(--kg); }
-.zxk-row + .zxk-row { margin-top: 0; }
-/* Typewriter stagger: Q centres in the 1–2 gap (half a pitch); A insets a
-   further 0.25 key from Q; the number row and SHIFT row stay flush-left. */
-.zxk-row:nth-child(2) { padding-left: calc((var(--ku) + var(--kg)) / 2); }
-.zxk-row:nth-child(3) { padding-left: calc((var(--ku) + var(--kg)) / 2 + var(--ku) * 0.25); }
-
-.zxk-cell {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  flex: none;
-  width: var(--ku);
-}
-
 /* Case legends: keyword above, FUNCTION below — both white/yellow, left-aligned. */
 .zxk-above, .zxk-below {
   height: calc(var(--u1) * 8);
@@ -1280,7 +1199,6 @@ canvas {
 .zxk-key {
   position: relative;
   height: calc(var(--u1) * 40);
-  margin-block: calc(var(--u1) * 1.5);
   border-radius: calc(var(--u1) * 4);
   cursor: pointer;
   user-select: none;
@@ -2593,7 +2511,6 @@ input[type="range"]::-moz-range-thumb {
 .ddmenu-parent:hover > .ddmenu-sub {
   display: block;
 }
-
 .disasm-output {
   font-family: var(--font-mono);
   font-size: 0.7rem;
@@ -2774,4 +2691,314 @@ input[type="range"]::-moz-range-thumb {
   padding: 0;
   font-size: 0.75rem;
   line-height: 1.6;
+}
+
+/* Amstrad CPC 464: a fixed 74-key scene with high-profile caps, coloured
+   controls, double-height ENTER, cursor diamond and function/numeric pad. */
+.cpc464-keyboard {
+  --cpc-u: var(--keyboard-scene-px);
+  overflow: hidden;
+  border: 1px solid #111419;
+  border-radius: calc(var(--cpc-u) * 5);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.055), transparent 18%),
+    radial-gradient(ellipse at 48% -20%, #414850 0%, #2d333a 52%, #20252b 100%);
+  box-shadow:
+    inset 0 calc(var(--cpc-u) * 2) calc(var(--cpc-u) * 5) rgba(255,255,255,0.05),
+    inset 0 calc(var(--cpc-u) * -8) calc(var(--cpc-u) * 18) rgba(0,0,0,0.38),
+    0 2px 5px rgba(0,0,0,0.45);
+  font-family: var(--font-ui);
+}
+
+.cpc464-brand {
+  display: flex;
+  align-items: center;
+  color: #d5d8d8;
+  font-size: calc(var(--cpc-u) * 17);
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: calc(var(--cpc-u) * -1);
+  text-shadow: 0 1px #090b0d, 1px 0 rgba(255,255,255,0.18);
+}
+
+.cpc464-model {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: calc(var(--cpc-u) * 7);
+  color: #cbd0d4;
+  font-size: calc(var(--cpc-u) * 16);
+  font-weight: 700;
+  letter-spacing: calc(var(--cpc-u) * 1);
+  text-shadow: 0 1px #121519;
+}
+.cpc464-model small {
+  align-self: flex-end;
+  margin-bottom: calc(var(--cpc-u) * 2);
+  font-size: calc(var(--cpc-u) * 6);
+  letter-spacing: 0;
+}
+.cpc464-colour-bars {
+  width: calc(var(--cpc-u) * 46);
+  height: calc(var(--cpc-u) * 12);
+  border: 1px solid rgba(230,230,230,0.65);
+  background: linear-gradient(90deg,
+    #e63d3d 0 25%,
+    #51bd58 25% 50%,
+    #4d72df 50% 75%,
+    #e7e7e7 75% 100%);
+  box-shadow: 0 1px 1px rgba(0,0,0,0.6);
+}
+
+.cpc464-key {
+  --cpc-cap-top: #3f454c;
+  --cpc-cap-mid: #282d33;
+  --cpc-cap-bottom: #171b20;
+  position: absolute;
+  overflow: hidden;
+  border: 1px solid #111419;
+  border-radius: calc(var(--cpc-u) * 2);
+  background:
+    linear-gradient(135deg, rgba(255,255,255,0.12), transparent 22%),
+    linear-gradient(180deg,
+      var(--cpc-cap-top) 0%,
+      var(--cpc-cap-mid) 53%,
+      var(--cpc-cap-bottom) 100%);
+  box-shadow:
+    inset calc(var(--cpc-u) * 1) calc(var(--cpc-u) * 1) 0 rgba(255,255,255,0.10),
+    inset calc(var(--cpc-u) * -2) calc(var(--cpc-u) * -3) calc(var(--cpc-u) * 4) rgba(0,0,0,0.42),
+    0 calc(var(--cpc-u) * 2) calc(var(--cpc-u) * 2) rgba(0,0,0,0.68);
+  color: #f1f3f2;
+  cursor: pointer;
+  user-select: none;
+  touch-action: none;
+  transition: filter 0.06s ease, transform 0.05s ease;
+}
+.cpc464-key:hover { filter: brightness(1.13); }
+.cpc464-key.pressed {
+  filter: brightness(0.78);
+  transform: translateY(calc(var(--cpc-u) * 1.5));
+}
+.cpc464-key--green {
+  --cpc-cap-top: #6fd66f;
+  --cpc-cap-mid: #4db753;
+  --cpc-cap-bottom: #318e3c;
+}
+.cpc464-key--red {
+  --cpc-cap-top: #ef6257;
+  --cpc-cap-mid: #d94037;
+  --cpc-cap-bottom: #a82d2a;
+}
+.cpc464-key--blue {
+  --cpc-cap-top: #7893f0;
+  --cpc-cap-mid: #5b72d3;
+  --cpc-cap-bottom: #3d50a6;
+}
+
+.cpc464-key__main {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  padding-bottom: calc(var(--cpc-u) * 4);
+  font-size: calc(var(--cpc-u) * 17);
+  font-weight: 700;
+  line-height: 0.92;
+  text-shadow: 0 1px rgba(0,0,0,0.65);
+  pointer-events: none;
+}
+.cpc464-key__shift,
+.cpc464-key__fn {
+  position: absolute;
+  top: calc(var(--cpc-u) * 3);
+  left: calc(var(--cpc-u) * 5);
+  z-index: 1;
+  font-size: calc(var(--cpc-u) * 9);
+  font-weight: 700;
+  line-height: 1;
+  color: #f4f5f3;
+  text-shadow: 0 1px rgba(0,0,0,0.65);
+  pointer-events: none;
+}
+.cpc464-key__fn {
+  font-size: calc(var(--cpc-u) * 7);
+  color: #cfd4d7;
+}
+.cpc464-key--word .cpc464-key__main,
+.cpc464-key--numpad.cpc464-key--word .cpc464-key__main {
+  justify-content: center;
+  padding: calc(var(--cpc-u) * 2);
+  font-size: calc(var(--cpc-u) * 8);
+  line-height: 1.05;
+  text-align: center;
+}
+.cpc464-key--tall .cpc464-key__main {
+  justify-content: center;
+  padding: 0;
+  font-size: calc(var(--cpc-u) * 9);
+}
+.cpc464-key--cursor .cpc464-key__main {
+  justify-content: center;
+  padding: 0;
+  font-size: calc(var(--cpc-u) * 18);
+  font-weight: 500;
+}
+.cpc464-key--cursor.cpc464-key--green .cpc464-key__main {
+  font-size: calc(var(--cpc-u) * 7);
+  font-weight: 700;
+}
+.cpc464-key--numpad .cpc464-key__main {
+  padding-bottom: calc(var(--cpc-u) * 3);
+  font-size: calc(var(--cpc-u) * 15);
+}
+
+/* CPC 664: the same electrical keyboard in the short-lived cream/blue face.
+   Four separately moulded arrow wedges surround a raised COPY cap. */
+.cpc664-keyboard {
+  border-color: #23282c;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.06), transparent 20%),
+    radial-gradient(ellipse at 48% -18%, #596066 0%, #3e454a 50%, #2a3035 100%);
+}
+.cpc664-keyboard .cpc464-brand {
+  color: #e3e0d5;
+}
+.cpc664-tagline {
+  display: flex;
+  align-items: center;
+  color: #c7cac8;
+  font-size: calc(var(--cpc-u) * 7);
+  font-weight: 600;
+  letter-spacing: calc(var(--cpc-u) * 0.45);
+  text-shadow: 0 1px #20252a;
+}
+.cpc664-keyboard .cpc464-model {
+  color: #cdd2d4;
+}
+.cpc664-leds {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.cpc664-leds i {
+  width: calc(var(--cpc-u) * 5);
+  height: calc(var(--cpc-u) * 5);
+  border: 1px solid #361519;
+  border-radius: 50%;
+  background: #ef4b58;
+  box-shadow: 0 0 calc(var(--cpc-u) * 4) rgba(239,75,88,0.75);
+}
+
+.cpc664-key {
+  --cpc-cap-top: #fbfaf0;
+  --cpc-cap-mid: #dedfd8;
+  --cpc-cap-bottom: #aeb3b1;
+  border-color: #686f71;
+  color: #20272d;
+  box-shadow:
+    inset calc(var(--cpc-u) * 1) calc(var(--cpc-u) * 1) 0 rgba(255,255,255,0.78),
+    inset calc(var(--cpc-u) * -2) calc(var(--cpc-u) * -3) calc(var(--cpc-u) * 4) rgba(52,60,63,0.25),
+    0 calc(var(--cpc-u) * 2) calc(var(--cpc-u) * 2) rgba(0,0,0,0.55);
+}
+.cpc664-key--blue {
+  --cpc-cap-top: #b8d4fa;
+  --cpc-cap-mid: #8fb5ec;
+  --cpc-cap-bottom: #648dd1;
+  border-color: #4c6085;
+}
+.cpc664-key .cpc464-key__main,
+.cpc664-key .cpc464-key__shift,
+.cpc664-key .cpc464-key__fn {
+  color: #20272d;
+  text-shadow: 0 1px rgba(255,255,255,0.72);
+}
+
+.cpc664-key--cursor-up,
+.cpc664-key--cursor-left,
+.cpc664-key--cursor-right,
+.cpc664-key--cursor-down {
+  z-index: 1;
+  border-radius: calc(var(--cpc-u) * 2);
+}
+.cpc664-key--copy {
+  z-index: 3;
+  --cpc-cap-top: #fffef6;
+  --cpc-cap-mid: #e6e6de;
+  --cpc-cap-bottom: #b8bcba;
+  border-color: #656c70;
+}
+
+/* CPC 6128: compact five-row calculator keyboard with a flush right-hand
+   function/cursor block and uniformly warm-grey caps. */
+.cpc6128-keyboard {
+  border-color: #171b1f;
+  background:
+    repeating-linear-gradient(
+      90deg,
+      rgba(8,10,12,0.7) 0 calc(var(--cpc-u) * 4),
+      rgba(85,91,94,0.42) calc(var(--cpc-u) * 4) calc(var(--cpc-u) * 6)
+    ) top / 100% calc(var(--cpc-u) * 5) no-repeat,
+    linear-gradient(180deg, rgba(255,255,255,0.05), transparent 19%),
+    radial-gradient(ellipse at 47% -20%, #53595e 0%, #3a4045 54%, #272d31 100%);
+}
+.cpc6128-keyboard .cpc464-brand {
+  color: #deddd5;
+  font-size: calc(var(--cpc-u) * 16);
+}
+.cpc6128-tagline {
+  display: flex;
+  align-items: center;
+  color: #c8cac8;
+  font-size: calc(var(--cpc-u) * 8);
+  font-weight: 650;
+  letter-spacing: calc(var(--cpc-u) * 0.35);
+  text-shadow: 0 1px #202428;
+}
+
+.cpc6128-key {
+  --cpc-cap-top: #fbfaf1;
+  --cpc-cap-mid: #deddd4;
+  --cpc-cap-bottom: #a9aba7;
+  border-color: #6b7070;
+  border-radius: calc(var(--cpc-u) * 1.5);
+  color: #262b2e;
+  box-shadow:
+    inset calc(var(--cpc-u) * 1) calc(var(--cpc-u) * 1) 0 rgba(255,255,255,0.82),
+    inset calc(var(--cpc-u) * -2) calc(var(--cpc-u) * -3) calc(var(--cpc-u) * 4) rgba(50,55,56,0.25),
+    0 calc(var(--cpc-u) * 2) calc(var(--cpc-u) * 2) rgba(0,0,0,0.58);
+}
+.cpc6128-key .cpc464-key__main,
+.cpc6128-key .cpc464-key__shift {
+  color: #252a2d;
+  text-shadow: 0 1px rgba(255,255,255,0.76);
+}
+.cpc6128-key .cpc464-key__main {
+  justify-content: center;
+  padding: 0;
+  font-size: calc(var(--cpc-u) * 15);
+}
+.cpc6128-key:has(.cpc464-key__shift) .cpc464-key__main {
+  justify-content: flex-end;
+  padding-bottom: calc(var(--cpc-u) * 3);
+}
+.cpc6128-key .cpc464-key__fn {
+  display: none;
+}
+.cpc6128-key.cpc464-key--word .cpc464-key__main,
+.cpc6128-key.cpc464-key--numpad .cpc464-key__main {
+  justify-content: center;
+  padding: calc(var(--cpc-u) * 2);
+  font-size: calc(var(--cpc-u) * 8);
+}
+.cpc6128-key--return .cpc464-key__main {
+  inset: 47.37% 0 0 15.15%;
+}
+.cpc6128-key.cpc464-key--cursor .cpc464-key__main {
+  font-size: calc(var(--cpc-u) * 17);
+  font-weight: 600;
+}
+.cpc6128-key--copy.cpc464-key--cursor .cpc464-key__main {
+  font-size: calc(var(--cpc-u) * 6.5);
 }

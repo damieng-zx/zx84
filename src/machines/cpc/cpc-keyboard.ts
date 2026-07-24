@@ -57,6 +57,11 @@ export class CpcKeyboard {
   /** Per-line state, active-low. 0xFF = all keys on that line released. */
   private readonly matrix = new Uint8Array(LINES).fill(0xFF);
 
+  /** Live matrix view for the CPC-owned on-screen keyboard highlighter. */
+  get rows(): Uint8Array {
+    return this.matrix;
+  }
+
   /** Currently selected line (PPI port C bits 0–3). */
   private selectedLine = 0;
 
