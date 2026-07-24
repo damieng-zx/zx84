@@ -40,6 +40,8 @@ const CONTRIBUTIONS: Record<string, MachineUiContribution> = {
   cpc: {
     HardwareSection: lazy(() =>
       import('@/machines/cpc/ui/hardware-section.tsx').then(m => ({ default: m.CpcHardwareSection }))),
+    Keyboard: lazy(() =>
+      import('@/machines/cpc/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
   },
   einstein: {
     HardwareSection: lazy(() =>
