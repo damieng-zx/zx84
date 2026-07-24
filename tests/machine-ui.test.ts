@@ -44,8 +44,7 @@ describe('machine-ui manifest', () => {
     expect(isLazyLoader(machineUi('einstein').HardwareSection)).toBe(true);
     expect(isLazyLoader(machineUi('mtx').HardwareSection)).toBe(true);
 
-    // The MSX contributes no bespoke UI (fixed hardware, no sysvars/keyboard).
-    expect(machineUi('msx')).toEqual({});
+    expect(isLazyLoader(machineUi('msx').Keyboard)).toBe(true);
 
     expect(isLazyLoader(machineUi('zx8x').HardwareSection)).toBe(true);
     expect(isLazyLoader(machineUi('zx8x').LibraryBrowser)).toBe(true);
