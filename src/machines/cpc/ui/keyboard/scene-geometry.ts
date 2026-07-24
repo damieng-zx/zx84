@@ -98,33 +98,42 @@ export function placeCpc464Keys(): PlacedCpcKey[] {
 
 /**
  * The CPC664 retained the 464 matrix and main-key geometry, but replaced the
- * five separated cursor caps with four joined wedges around a COPY key.
+ * five separated cursor caps with four individually spaced wedges around COPY.
  */
 export function placeCpc664Keys(): PlacedCpcKey[] {
+  const base = placeCpc464Keys();
+  const rightShift = base.find((placed) => placed.key.id === 'shift-right');
+  if (!rightShift) throw new Error('CPC keyboard geometry is missing right SHIFT');
+  const controlRight = rightShift.box.x + rightShift.box.width;
+
   const cursorFace: Readonly<Record<string, Pick<PlacedCpcKey, 'box' | 'hitClip'>>> = {
     'cursor-up': {
-      box: { x: CLUSTER_LEFT, y: 4, width: PITCH * 3 - GAP, height: 55 },
+      box: { x: CLUSTER_LEFT + 3, y: 4, width: PITCH * 3 - GAP - 6, height: 35 },
       hitClip: 'polygon(0 0, 100% 0, 65% 100%, 35% 100%)',
     },
     'cursor-left': {
-      box: { x: CLUSTER_LEFT, y: 4, width: 61, height: 110 },
+      box: { x: CLUSTER_LEFT, y: 7, width: 40, height: 104 },
       hitClip: 'polygon(0 0, 100% 35%, 100% 65%, 0 100%)',
     },
     copy: {
       box: { x: CLUSTER_LEFT + PITCH, y: 42, width: widthOf(), height: CAP_HEIGHT },
     },
     'cursor-right': {
-      box: { x: CLUSTER_LEFT + 61, y: 4, width: 61, height: 110 },
+      box: { x: CLUSTER_LEFT + 82, y: 7, width: 40, height: 104 },
       hitClip: 'polygon(0 35%, 100% 0, 100% 100%, 0 65%)',
     },
     'cursor-down': {
-      box: { x: CLUSTER_LEFT, y: 59, width: PITCH * 3 - GAP, height: 55 },
+      box: { x: CLUSTER_LEFT + 3, y: 78, width: PITCH * 3 - GAP - 6, height: 36 },
       hitClip: 'polygon(35% 0, 65% 0, 100% 100%, 0 100%)',
     },
   };
 
-  return placeCpc464Keys().map((placed) => {
+  return base.map((placed) => {
+    const alignRight = placed.key.id === 'return' || placed.key.id === 'del';
+    const adjusted = alignRight
+      ? { ...placed, box: { ...placed.box, x: controlRight - placed.box.width } }
+      : placed;
     const face = cursorFace[placed.key.id];
-    return face ? { ...placed, ...face } : placed;
+    return face ? { ...adjusted, ...face } : adjusted;
   });
 }

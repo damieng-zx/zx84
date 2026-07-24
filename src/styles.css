@@ -2855,7 +2855,7 @@ input[type="range"]::-moz-range-thumb {
 }
 
 /* CPC 664: the same electrical keyboard in the short-lived cream/blue face.
-   Its four arrow wedges form one cursor diamond around a raised COPY cap. */
+   Four separately moulded arrow wedges surround a raised COPY cap. */
 .cpc664-keyboard {
   border-color: #23282c;
   background:
@@ -2920,7 +2920,7 @@ input[type="range"]::-moz-range-thumb {
 .cpc664-key--cursor-right,
 .cpc664-key--cursor-down {
   z-index: 1;
-  border-radius: 0;
+  border-radius: calc(var(--cpc-u) * 2);
 }
 .cpc664-key--copy {
   z-index: 3;

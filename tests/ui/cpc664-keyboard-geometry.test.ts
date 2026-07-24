@@ -26,15 +26,30 @@ describe('CPC 664 keyboard scene geometry', () => {
     }
   });
 
-  it('forms the 664 cursor diamond from four clipped wedges around COPY', () => {
+  it('spaces four clipped cursor wedges around COPY', () => {
     const cursors = placeCpc664Keys().filter((item) => item.region === 'cursor');
     const copy = cursors.find((item) => item.key.id === 'copy')!;
     const arrows = cursors.filter((item) => item.key.id !== 'copy');
+    const byId = (id: string) => cursors.find((item) => item.key.id === id)!.box;
 
     expect(arrows.every((item) => item.hitClip?.startsWith('polygon('))).toBe(true);
     expect(arrows.filter((item) => item.box.width > item.box.height)).toHaveLength(2);
     expect(arrows.filter((item) => item.box.height > item.box.width)).toHaveLength(2);
     expect(copy.hitClip).toBeUndefined();
+    expect(byId('cursor-up').y + byId('cursor-up').height).toBeLessThan(copy.box.y);
+    expect(byId('cursor-down').y).toBeGreaterThan(copy.box.y + copy.box.height);
+    expect(byId('cursor-left').x + byId('cursor-left').width).toBeLessThan(copy.box.x);
+    expect(byId('cursor-right').x).toBeGreaterThan(copy.box.x + copy.box.width);
+  });
+
+  it('right-aligns DEL, RETURN and right SHIFT as one control column', () => {
+    const placed = placeCpc664Keys();
+    const byId = (id: string) => placed.find((item) => item.key.id === id)!.box;
+    const rightEdge = (id: string) => byId(id).x + byId(id).width;
+
+    expect(rightEdge('del')).toBe(rightEdge('shift-right'));
+    expect(rightEdge('return')).toBe(rightEdge('shift-right'));
+    expect(byId('return').x - rightEdge('backslash')).toBeGreaterThan(20);
   });
 
   it('uses the documented RETURN face and blue control set', () => {
