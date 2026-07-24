@@ -2,6 +2,7 @@ import type {
   FrameIndicators, FramePaneProvider, FrameProbe, MemoryMapSnapshot, TranscribeDriver,
 } from '@/machines/machine.ts';
 import type { OcrGridName } from '@/ocr/ocr.ts';
+import { parseMtxBasic } from '@/basic/mtx-basic-parser.ts';
 import type { MtxMachine } from '../mtx-machine.ts';
 import { hex8 } from '@/utils/hex.ts';
 
@@ -86,6 +87,8 @@ export class MtxFrameProbe implements FrameProbe {
   constructor(private readonly machine: MtxMachine) {
     this.panes = {
       memoryMap: () => mtxMemoryMap(this.machine),
+      // The BASIC program sits at CPU 0x4000; snapshot() gives the flat CPU view.
+      basicListing: () => parseMtxBasic(machine.memory.snapshot()),
     };
     this.transcribe = new MtxTranscribeDriver(machine);
   }
