@@ -8,7 +8,7 @@ import { HiOutlineEllipsisVertical } from 'solid-icons/hi';
 import {
   isPaneUserHidden, togglePaneVisibility, paneOrder, PANE_LABELS,
   PANE_GROUP_ORDER, PANE_GROUPS,
-  orderedResetEntries, type ResetEntry,
+  orderedResetEntries,
 } from '@/ui/panes.ts';
 import { pauseOnFocusLost, setPauseOnFocusLost, persistSetting } from '@/store/settings.ts';
 import { factoryReset } from '@/store/persistence.ts';
@@ -28,8 +28,10 @@ export function AppMenu() {
 
   function close() { setOpen(false); }
 
-  function resetOne(e: ResetEntry) {
-    e.reset();
+  function resetGroup(group: string) {
+    for (const e of orderedResetEntries()) {
+      if (PANE_GROUPS[e.id] === group) e.reset();
+    }
     close();
   }
 
@@ -99,22 +101,14 @@ export function AppMenu() {
                       <span class="ddmenu-check">{isPaneUserHidden(p.id) ? '' : '✓'}</span>{PANE_LABELS[p.id]}
                     </div>
                   )}</For>
+                  <div class="ddmenu-separator" />
+                  <div class="ddmenu-item" onClick={() => resetGroup(group)}><span class="ddmenu-check" />Reset settings</div>
                 </div>
               </div>
             );
           }}</For>
           <div class="ddmenu-separator" />
-          <div class="ddmenu-item ddmenu-parent">
-            <span class="ddmenu-check" />Reset settings
-            <span class="ddmenu-arrow">{'▸'}</span>
-            <div class="ddmenu ddmenu-sub">
-              <For each={orderedResetEntries()}>{(e) => (
-                <div class="ddmenu-item" onClick={() => resetOne(e)}>{e.label}</div>
-              )}</For>
-              <div class="ddmenu-separator" />
-              <div class="ddmenu-item" onClick={resetAll}>All</div>
-            </div>
-          </div>
+          <div class="ddmenu-item" onClick={resetAll}><span class="ddmenu-check" />Reset all settings</div>
         </div>
       </Show>
     </>
