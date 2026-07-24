@@ -50,6 +50,46 @@ export const PANE_LABELS: Record<string, string> = {
   'keyboard-panel': 'Keyboard',
 };
 
+/**
+ * Ordered groups for the toolbar "Panes" submenu. Panes are assigned to a
+ * group; groups appear in this order. Panes with no group assignment appear
+ * after the last group.
+ */
+export const PANE_GROUP_ORDER = [
+  'System',
+  'Media',
+  'Input',
+  'Audio-Visual',
+  'Developer',
+];
+
+/**
+ * Pane → group mapping. Every pane with a PANE_LABELS entry should have a group
+ * assignment so it appears under a heading in the Panes submenu.
+ */
+export const PANE_GROUPS: Record<string, string> = {
+  'tape-panel': 'Media',
+  'drive-panel': 'Media',
+  'microdrive-panel': 'Media',
+  'keyboard-panel': 'Input',
+  'joystick-panel': 'Input',
+  'mouse-panel': 'Input',
+  'display-pane': 'Audio-Visual',
+  'monitor-pane': 'Audio-Visual',
+  'sound-panel': 'Audio-Visual',
+  'hardware-panel': 'System',
+  'snapshot-panel': 'System',
+  'rom-panel': 'System',
+  'font-panel': 'Developer',
+  'sysvar-panel': 'Developer',
+  'basic-panel': 'Developer',
+  'basic-vars-panel': 'Developer',
+  'banks-panel': 'Developer',
+  'disasm-panel': 'Developer',
+  'memory-panel': 'Developer',
+  'text-panel': 'Developer',
+};
+
 // ── Default pane layout ─────────────────────────────────────────────────
 
 const DEFAULT_ORDER: PanePosition[] = [

@@ -2587,6 +2587,8 @@ input[type="range"]::-moz-range-thumb {
   position: absolute;
   top: -4px;
   left: 100%;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
 }
 .ddmenu-parent:hover > .ddmenu-sub {
   display: block;

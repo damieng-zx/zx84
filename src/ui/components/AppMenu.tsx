@@ -7,7 +7,8 @@ import { createSignal, createEffect, onCleanup, Show, For } from 'solid-js';
 import { HiOutlineEllipsisVertical } from 'solid-icons/hi';
 import {
   isPaneUserHidden, togglePaneVisibility, paneOrder, PANE_LABELS,
-  orderedResetEntries, type ResetEntry,
+  PANE_GROUP_ORDER, PANE_GROUPS,
+  orderedResetEntries,
 } from '@/ui/panes.ts';
 import { pauseOnFocusLost, setPauseOnFocusLost, persistSetting } from '@/store/settings.ts';
 import { factoryReset } from '@/store/persistence.ts';
@@ -27,8 +28,10 @@ export function AppMenu() {
 
   function close() { setOpen(false); }
 
-  function resetOne(e: ResetEntry) {
-    e.reset();
+  function resetGroup(group: string) {
+    for (const e of orderedResetEntries()) {
+      if (PANE_GROUPS[e.id] === group) e.reset();
+    }
     close();
   }
 
@@ -85,29 +88,27 @@ export function AppMenu() {
             <span class="ddmenu-check">{pauseOnFocusLost() ? '✓' : ''}</span>Pause when focus lost
           </div>
           <div class="ddmenu-separator" />
-          <div class="ddmenu-item ddmenu-parent">
-            <span class="ddmenu-check" />Panes
-            <span class="ddmenu-arrow">{'▸'}</span>
-            <div class="ddmenu ddmenu-sub">
-              <For each={paneOrder().filter(p => PANE_LABELS[p.id])}>{(p) => (
-                <div class="ddmenu-item" onClick={() => togglePaneVisibility(p.id)}>
-                  <span class="ddmenu-check">{isPaneUserHidden(p.id) ? '' : '✓'}</span>{PANE_LABELS[p.id]}
+          <For each={PANE_GROUP_ORDER}>{(group) => {
+            const panes = paneOrder().filter(p => PANE_GROUPS[p.id] === group && PANE_LABELS[p.id]);
+            if (panes.length === 0) return null;
+            return (
+              <div class="ddmenu-item ddmenu-parent">
+                <span class="ddmenu-check" />{group}
+                <span class="ddmenu-arrow">{'▸'}</span>
+                <div class="ddmenu ddmenu-sub">
+                  <For each={panes}>{(p) => (
+                    <div class="ddmenu-item" onClick={() => togglePaneVisibility(p.id)}>
+                      <span class="ddmenu-check">{isPaneUserHidden(p.id) ? '' : '✓'}</span>{PANE_LABELS[p.id]}
+                    </div>
+                  )}</For>
+                  <div class="ddmenu-separator" />
+                  <div class="ddmenu-item" onClick={() => resetGroup(group)}><span class="ddmenu-check" />Reset settings</div>
                 </div>
-              )}</For>
-            </div>
-          </div>
+              </div>
+            );
+          }}</For>
           <div class="ddmenu-separator" />
-          <div class="ddmenu-item ddmenu-parent">
-            <span class="ddmenu-check" />Reset settings
-            <span class="ddmenu-arrow">{'▸'}</span>
-            <div class="ddmenu ddmenu-sub">
-              <For each={orderedResetEntries()}>{(e) => (
-                <div class="ddmenu-item" onClick={() => resetOne(e)}>{e.label}</div>
-              )}</For>
-              <div class="ddmenu-separator" />
-              <div class="ddmenu-item" onClick={resetAll}>All</div>
-            </div>
-          </div>
+          <div class="ddmenu-item" onClick={resetAll}><span class="ddmenu-check" />Reset all settings</div>
         </div>
       </Show>
     </>
