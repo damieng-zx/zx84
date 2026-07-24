@@ -19,6 +19,12 @@ export const CPC464_SCENE = {
 
 export const CPC664_SCENE = CPC464_SCENE;
 
+export const CPC6128_SCENE = {
+  width: 744,
+  height: 248,
+  unit: 1,
+} as const;
+
 const PITCH = 42;
 const GAP = 4;
 const CAP_HEIGHT = 34;
@@ -136,4 +142,99 @@ export function placeCpc664Keys(): PlacedCpcKey[] {
     const face = cursorFace[placed.key.id];
     return face ? { ...adjusted, ...face } : adjusted;
   });
+}
+
+const CPC_KEY_INDEX = new Map<string, { key: CpcKeyDef; region: CpcKeyRegion }>([
+  ...CPC_MAIN_ROWS.flatMap((row) =>
+    row.keys.map((key) => [key.id, { key, region: 'main' as const }] as const)),
+  ...CPC_CURSOR_KEYS.map((key) =>
+    [key.id, { key, region: 'cursor' as const }] as const),
+  ...CPC_NUMPAD_ROWS.flatMap((row) =>
+    row.map((key) => [key.id, { key, region: 'numpad' as const }] as const)),
+]);
+
+type Cpc6128Row = readonly (readonly [id: string, units: number])[];
+
+const CPC6128_MAIN_ROWS: readonly Cpc6128Row[] = [
+  [
+    ['esc', 1.25],
+    ['1', 1], ['2', 1], ['3', 1], ['4', 1], ['5', 1], ['6', 1],
+    ['7', 1], ['8', 1], ['9', 1], ['0', 1],
+    ['hyphen', 1], ['caret', 1], ['clr', 1], ['del', 1],
+  ],
+  [
+    ['tab', 1.5],
+    ['q', 1], ['w', 1], ['e', 1], ['r', 1], ['t', 1], ['y', 1],
+    ['u', 1], ['i', 1], ['o', 1], ['p', 1], ['at', 1], ['open-bracket', 1],
+    ['return', 1.75],
+  ],
+  [
+    ['caps-lock', 1.75],
+    ['a', 1], ['s', 1], ['d', 1], ['f', 1], ['g', 1], ['h', 1],
+    ['j', 1], ['k', 1], ['l', 1],
+    ['semicolon', 1], ['colon', 1], ['close-bracket', 1],
+  ],
+  [
+    ['shift-left', 2.25],
+    ['z', 1], ['x', 1], ['c', 1], ['v', 1], ['b', 1], ['n', 1], ['m', 1],
+    ['comma', 1], ['dot', 1], ['slash', 1], ['backslash', 1],
+    ['shift-right', 2],
+  ],
+  [
+    ['ctrl', 2.25],
+    ['copy', 1.75],
+    ['space', 7.5],
+    ['numpad-enter', 3.75],
+  ],
+] as const;
+
+const CPC6128_RIGHT_ROWS: readonly Cpc6128Row[] = [
+  [['f7', 1], ['f8', 1], ['f9', 1]],
+  [['f4', 1], ['f5', 1], ['f6', 1]],
+  [['f1', 1], ['f2', 1], ['f3', 1]],
+  [['f0', 1], ['cursor-up', 1], ['fdot', 1]],
+  [['cursor-left', 1], ['cursor-down', 1], ['cursor-right', 1]],
+] as const;
+
+/**
+ * The CPC6128 rearranged the same 74 matrix switches into a compact five-row
+ * calculator-style keyboard, with the function and cursor keys at the right.
+ */
+export function placeCpc6128Keys(): PlacedCpcKey[] {
+  const placed: PlacedCpcKey[] = [];
+  const pitch = 40;
+  const gap = 4;
+  const capHeight = 36;
+  const rowPitch = 40;
+  const left = 8;
+  const top = 42;
+  const rightStartUnits = 15.25;
+
+  const placeRow = (row: Cpc6128Row, rowIndex: number, startUnits = 0) => {
+    let units = startUnits;
+    for (const [id, keyUnits] of row) {
+      const indexed = CPC_KEY_INDEX.get(id);
+      if (!indexed) throw new Error(`Unknown CPC key in 6128 geometry: ${id}`);
+      const isReturn = id === 'return';
+      placed.push({
+        ...indexed,
+        box: {
+          x: left + units * pitch,
+          y: top + rowIndex * rowPitch,
+          width: keyUnits * pitch - gap,
+          height: isReturn ? capHeight * 2 + rowPitch - capHeight : capHeight,
+        },
+        hitClip: isReturn
+          ? 'polygon(0 0, 100% 0, 100% 100%, 15.15% 100%, 15.15% 47.37%, 0 47.37%)'
+          : undefined,
+      });
+      units += keyUnits;
+    }
+  };
+
+  CPC6128_MAIN_ROWS.forEach((row, rowIndex) => placeRow(row, rowIndex));
+  CPC6128_RIGHT_ROWS.forEach((row, rowIndex) =>
+    placeRow(row, rowIndex, rightStartUnits));
+
+  return placed;
 }

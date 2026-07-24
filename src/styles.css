@@ -2929,3 +2929,76 @@ input[type="range"]::-moz-range-thumb {
   --cpc-cap-bottom: #b8bcba;
   border-color: #656c70;
 }
+
+/* CPC 6128: compact five-row calculator keyboard with a flush right-hand
+   function/cursor block and uniformly warm-grey caps. */
+.cpc6128-keyboard {
+  border-color: #171b1f;
+  background:
+    repeating-linear-gradient(
+      90deg,
+      rgba(8,10,12,0.7) 0 calc(var(--cpc-u) * 4),
+      rgba(85,91,94,0.42) calc(var(--cpc-u) * 4) calc(var(--cpc-u) * 6)
+    ) top / 100% calc(var(--cpc-u) * 5) no-repeat,
+    linear-gradient(180deg, rgba(255,255,255,0.05), transparent 19%),
+    radial-gradient(ellipse at 47% -20%, #53595e 0%, #3a4045 54%, #272d31 100%);
+}
+.cpc6128-keyboard .cpc464-brand {
+  color: #deddd5;
+  font-size: calc(var(--cpc-u) * 16);
+}
+.cpc6128-tagline {
+  display: flex;
+  align-items: center;
+  color: #c8cac8;
+  font-size: calc(var(--cpc-u) * 8);
+  font-weight: 650;
+  letter-spacing: calc(var(--cpc-u) * 0.35);
+  text-shadow: 0 1px #202428;
+}
+
+.cpc6128-key {
+  --cpc-cap-top: #fbfaf1;
+  --cpc-cap-mid: #deddd4;
+  --cpc-cap-bottom: #a9aba7;
+  border-color: #6b7070;
+  border-radius: calc(var(--cpc-u) * 1.5);
+  color: #262b2e;
+  box-shadow:
+    inset calc(var(--cpc-u) * 1) calc(var(--cpc-u) * 1) 0 rgba(255,255,255,0.82),
+    inset calc(var(--cpc-u) * -2) calc(var(--cpc-u) * -3) calc(var(--cpc-u) * 4) rgba(50,55,56,0.25),
+    0 calc(var(--cpc-u) * 2) calc(var(--cpc-u) * 2) rgba(0,0,0,0.58);
+}
+.cpc6128-key .cpc464-key__main,
+.cpc6128-key .cpc464-key__shift {
+  color: #252a2d;
+  text-shadow: 0 1px rgba(255,255,255,0.76);
+}
+.cpc6128-key .cpc464-key__main {
+  justify-content: center;
+  padding: 0;
+  font-size: calc(var(--cpc-u) * 15);
+}
+.cpc6128-key:has(.cpc464-key__shift) .cpc464-key__main {
+  justify-content: flex-end;
+  padding-bottom: calc(var(--cpc-u) * 3);
+}
+.cpc6128-key .cpc464-key__fn {
+  display: none;
+}
+.cpc6128-key.cpc464-key--word .cpc464-key__main,
+.cpc6128-key.cpc464-key--numpad .cpc464-key__main {
+  justify-content: center;
+  padding: calc(var(--cpc-u) * 2);
+  font-size: calc(var(--cpc-u) * 8);
+}
+.cpc6128-key--return .cpc464-key__main {
+  inset: 47.37% 0 0 15.15%;
+}
+.cpc6128-key.cpc464-key--cursor .cpc464-key__main {
+  font-size: calc(var(--cpc-u) * 17);
+  font-weight: 600;
+}
+.cpc6128-key--copy.cpc464-key--cursor .cpc464-key__main {
+  font-size: calc(var(--cpc-u) * 6.5);
+}

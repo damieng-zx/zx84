@@ -1,11 +1,11 @@
 /**
  * Model-specific CPC key faces. The electrical cells are shared, while the
- * 664 changed the printed RETURN legend and its blue control-key set.
+ * 664 and 6128 changed printed legends and physical key treatments.
  */
 
 import type { CpcKeyDef } from './layout.ts';
 
-export type CpcKeyboardVariant = 'cpc464' | 'cpc664';
+export type CpcKeyboardVariant = 'cpc464' | 'cpc664' | 'cpc6128';
 
 const CPC664_BLUE_KEYS = new Set([
   'esc',
@@ -24,7 +24,13 @@ const CPC664_BLUE_KEYS = new Set([
 ]);
 
 export function cpcKeyMain(key: CpcKeyDef, variant: CpcKeyboardVariant): string {
-  return variant === 'cpc664' && key.id === 'return' ? 'RETURN' : key.main;
+  if (variant === 'cpc664' && key.id === 'return') return 'RETURN';
+  if (variant === 'cpc6128') {
+    if (key.id === 'return') return 'RETURN';
+    if (key.id === 'ctrl') return 'CONTROL';
+    if (key.fn) return key.fn;
+  }
+  return key.main;
 }
 
 export function isCpc664BlueKey(key: CpcKeyDef): boolean {
