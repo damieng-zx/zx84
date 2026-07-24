@@ -59,6 +59,20 @@ describe('Toshiba HX-10 keyboard scene geometry', () => {
       .toBeLessThan(item('return').box.x + item('return').box.width);
   });
 
+  it('uses the reviewed compact 738 by 280 scene geometry', () => {
+    const placed = placeHx10Keys();
+    const box = (id: string) =>
+      placed.find((item) => item.key.id === id)!.box;
+
+    expect(HX10_SCENE).toEqual({ width: 738, height: 280, unit: 1 });
+    expect(box('f1')).toEqual({ x: 54, y: 14, width: 76, height: 36 });
+    expect(box('f5')).toEqual({ x: 374, y: 14, width: 76, height: 36 });
+    expect(box('esc')).toEqual({ x: 13, y: 58, width: 36, height: 36 });
+    expect(box('return')).toEqual({ x: 554, y: 100, width: 57, height: 78 });
+    expect(box('space')).toEqual({ x: 184, y: 226, width: 275, height: 36 });
+    expect(box('cursor-right')).toEqual({ x: 676, y: 184, width: 47, height: 36 });
+  });
+
   it('forms the detached edit block and cursor cross', () => {
     const placed = placeHx10Keys();
     const box = (id: string) =>

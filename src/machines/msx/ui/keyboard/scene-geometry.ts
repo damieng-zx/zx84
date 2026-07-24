@@ -9,8 +9,8 @@ import {
 } from './layout.ts';
 
 export const HX10_SCENE = {
-  width: 860,
-  height: 440,
+  width: 738,
+  height: 280,
   unit: 1,
 } as const;
 
@@ -39,72 +39,71 @@ function put(
   });
 }
 
-const MAIN_LEFT = 44;
 const PITCH = 40;
-const ROW_TOP = 200;
+const ROW_TOP = 58;
 const ROW_PITCH = 42;
 
 // Five physical function caps, each with an MSX SHIFT function above it.
 for (let index = 0; index < 5; index++) {
-  put(`f${index + 1}`, 102 + index * 90, 154, 84);
+  put(`f${index + 1}`, 54 + index * 80, 14, 76);
 }
-put('stop', 606, 154, 82);
+put('stop', 528, 14, 82);
 
 // Editing block.
-put('ins', 714, 154, 38);
-put('del', 756, 154, 38);
-put('select', 714, 196, 38);
-put('home', 756, 196, 38);
+put('ins', 624, 14, 38);
+put('del', 666, 14, 38);
+put('select', 624, 58, 38);
+put('home', 666, 58, 38);
 
 // Number row.
-put('esc', MAIN_LEFT, ROW_TOP, 56);
+put('esc', 13, ROW_TOP, 36);
 [
   '1', '2', '3', '4', '5', '6', '7',
   '8', '9', '0', 'minus', 'equal', 'backslash',
-].forEach((id, index) => put(id, 104 + index * PITCH, ROW_TOP, 36));
-put('bs', 624, ROW_TOP, 64);
+].forEach((id, index) => put(id, 54 + index * PITCH, ROW_TOP, 36));
+put('bs', 574, ROW_TOP, 36);
 
 // Q row and the upper bar of the inverted-L RETURN.
-put('tab', MAIN_LEFT, ROW_TOP + ROW_PITCH, 66);
+put('tab', 23, ROW_TOP + ROW_PITCH, 46);
 [
   'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p',
   'open-bracket', 'close-bracket',
-].forEach((id, index) => put(id, 114 + index * PITCH, ROW_TOP + ROW_PITCH, 36));
+].forEach((id, index) => put(id, 74 + index * PITCH, ROW_TOP + ROW_PITCH, 36));
 put(
   'return',
-  594,
+  554,
   ROW_TOP + ROW_PITCH,
-  94,
+  57,
   78,
-  'polygon(0 0, 100% 0, 100% 100%, 31.91% 100%, 31.91% 46.15%, 0 46.15%)',
+  'polygon(0 0, 100% 0, 100% 100%, 18% 100%, 18% 48%, 0 48%)',
 );
 
 // A row.
-put('ctrl', MAIN_LEFT, ROW_TOP + ROW_PITCH * 2, 66);
+put('ctrl', 31, ROW_TOP + ROW_PITCH * 2, 49);
 [
   'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l',
   'semicolon', 'quote', 'backquote',
-].forEach((id, index) => put(id, 114 + index * PITCH, ROW_TOP + ROW_PITCH * 2, 36));
+].forEach((id, index) => put(id, 84 + index * PITCH, ROW_TOP + ROW_PITCH * 2, 36));
 
 // Z row.
-put('shift-left', MAIN_LEFT, ROW_TOP + ROW_PITCH * 3, 86);
+put('shift-left', 41, ROW_TOP + ROW_PITCH * 3, 59);
 [
   'z', 'x', 'c', 'v', 'b', 'n', 'm', 'comma', 'dot', 'slash',
-].forEach((id, index) => put(id, 134 + index * PITCH, ROW_TOP + ROW_PITCH * 3, 36));
-put('shift-right', 534, ROW_TOP + ROW_PITCH * 3, 90);
-put('pound', 628, ROW_TOP + ROW_PITCH * 3, 60);
+].forEach((id, index) => put(id, 104 + index * PITCH, ROW_TOP + ROW_PITCH * 3, 36));
+put('shift-right', 504, ROW_TOP + ROW_PITCH * 3, 56);
+put('pound', 564, ROW_TOP + ROW_PITCH * 3, 36);
 
 // Bottom modifier row.
-put('caps', 136, 368, 48);
-put('graph', 188, 368, 50);
-put('space', 242, 368, 326);
-put('code', 572, 368, 58);
+put('caps', 104, 226, 36);
+put('graph', 144, 226, 36);
+put('space', 184, 226, 275);
+put('code', 464, 226, 36);
 
 // Detached blue cursor cross.
-put('cursor-up', 741, 270, 48, 40);
-put('cursor-left', 689, 316, 48, 40);
-put('cursor-right', 793, 316, 48, 40);
-put('cursor-down', 741, 362, 48, 40);
+put('cursor-up', 651, 140, 47, 40);
+put('cursor-left', 625, 184, 48, 36);
+put('cursor-right', 676, 184, 47, 36);
+put('cursor-down', 651, 224, 48, 40);
 
 export function placeHx10Keys(): readonly PlacedHx10Key[] {
   return placed;
