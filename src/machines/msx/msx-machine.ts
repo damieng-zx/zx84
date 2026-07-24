@@ -176,6 +176,12 @@ export class MsxMachine extends BaseMachine implements Machine {
     this.cartridgeName = '';
   }
 
+  /** Resolve the Memory-pane ROM region: the 32KB internal ROM at &0000. */
+  resolveMemoryRegion(value: string): { data: Uint8Array; baseAddr: number } | null {
+    if (value === 'rom0') return { data: this.memory.getRom(), baseAddr: 0x0000 };
+    return null;
+  }
+
   /** RET from a trapped BIOS routine: pop the return address into PC. */
   private retFromTrap(): void {
     const sp = this.cpu.sp;

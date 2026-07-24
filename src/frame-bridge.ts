@@ -26,7 +26,7 @@ import {
   machine, floppySound,
   emulationPaused, tracing,
   setRegsRev, setSysvarRev, setBasicListing, setBasicVars,
-  setBanksHtml, setDriveAStatus, setDriveBStatus, setShowTrapLog, setDisasmText,
+  setMemoryMap, setDriveAStatus, setDriveBStatus, setShowTrapLog, setDisasmText,
   setCurrentDiskInfo, setCurrentDiskInfoB,
   setDriveCStatus, setDriveDStatus, setCurrentDiskInfoC, setCurrentDiskInfoD,
   setClockSpeedText,
@@ -108,9 +108,9 @@ export function updateRegsOnce(): void {
       if (panes.hasSysvars) setSysvarRev(v => v + 1);
       if (panes.basicListing) setBasicListing(panes.basicListing());
       if (panes.basicVars) setBasicVars(panes.basicVars());
-      if (panes.banksHtml) {
-        const banks = panes.banksHtml();
-        if (banks !== null) setBanksHtml(banks);
+      if (panes.memoryMap) {
+        const map = panes.memoryMap();
+        if (map !== null) setMemoryMap(map);
       }
     }
     // Device bookkeeping + drive telemetry (paused/stepping refresh).
@@ -519,9 +519,9 @@ export function onFrame(): void {
         if (panes?.basicVars && !isCollapsed('basic-vars-panel')) setBasicVars(panes.basicVars());
       }
       // Memory layout — cheap; refresh live so paging shows as games bank-switch.
-      if (panes?.banksHtml && !isCollapsed('banks-panel')) {
-        const banks = panes.banksHtml();
-        if (banks !== null) setBanksHtml(banks);
+      if (panes?.memoryMap && !isCollapsed('banks-panel')) {
+        const map = panes.memoryMap();
+        if (map !== null) setMemoryMap(map);
       }
 
       // TEXT overlay: OCR the screen, push text/HTML to the overlay; the driver

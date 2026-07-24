@@ -52,9 +52,11 @@ export class SpectrumRomService implements RomService {
     const slots: RomSlotInfo[] = [];
     for (let page = 0; page < pageCount; page++) {
       const p = ops?.cachedPage(page) ?? null;
+      const name = defaultRomPageLabel(this.s.model, page as RomPage);
       slots.push({
         index: page,
-        label: p?.label ?? defaultRomPageLabel(this.s.model, page as RomPage),
+        title: name,
+        label: p?.label ?? name,
         size: p?.size ?? 0,
         overridden: p !== null,
       });

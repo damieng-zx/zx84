@@ -7,10 +7,45 @@
 
 import type {
   FrameIndicators, FramePaneProvider, FrameProbe, TranscribeDriver,
+  MemoryMapSnapshot,
 } from '@/machines/machine.ts';
 import type { MsxMachine } from '@/machines/msx/msx-machine.ts';
 import type { OcrGridName } from '@/ocr/ocr.ts';
 import { parseMsxBasic, parseMsxBasicVariables } from '@/basic/msx-basic-parser.ts';
+import { hex8 } from '@/utils/hex.ts';
+
+/** Label the source paged into one MSX 16KB page given its primary slot number.
+ *  slot 0 = internal ROM (BIOS+BASIC, pages 0-1 only), slot 1 = cartridge,
+ *  slot 2 = empty, slot 3 = 64KB RAM. */
+function msxSlotLabel(slot: number, page: number, hasCart: boolean): { read: string } {
+  switch (slot) {
+    case 0: return { read: page < 2 ? 'ROM' : '(empty)' };
+    case 1: return { read: hasCart ? 'Cartridge' : '(empty)' };
+    case 2: return { read: '(empty)' };
+    case 3: return { read: 'RAM' };
+    default: return { read: '?' };
+  }
+}
+
+/** Build the MSX memory-layout snapshot: four 16KB pages each selecting one of
+ *  four primary slots via the 2-bit fields of PPI port A (0xA8). */
+function msxMemoryMap(m: MsxMachine): MemoryMapSnapshot | null {
+  const mem = m.memory;
+  const primary = mem.getPrimarySlot();
+  const hasCart = mem.hasCartridge;
+  const ranges = ['0000-3FFF', '4000-7FFF', '8000-BFFF', 'C000-FFFF'];
+
+  const slots = ranges.map((range, page) => {
+    const slot = (primary >> (page * 2)) & 3;
+    const label = msxSlotLabel(slot, page, hasCart);
+    return { range, ...label };
+  });
+
+  return {
+    slots,
+    registers: [{ name: 'Port A8', value: hex8(primary) }],
+  };
+}
 
 class MsxTranscribeDriver implements TranscribeDriver {
   constructor(private readonly m: MsxMachine) {}
@@ -35,6 +70,7 @@ export class MsxFrameProbe implements FrameProbe {
   constructor(private readonly m: MsxMachine) {
     this.transcribe = new MsxTranscribeDriver(m);
     this.panes = {
+      memoryMap: () => msxMemoryMap(m),
       // MSX BASIC's program and variable tables live in the physical RAM slot.
       basicListing: () => parseMsxBasic(m.memory.ramSnapshot()),
       basicVars: () => parseMsxBasicVariables(m.memory.ramSnapshot()),

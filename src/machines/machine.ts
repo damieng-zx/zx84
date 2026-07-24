@@ -185,6 +185,42 @@ export interface MemoryRegionInfo {
   readonly label: string;
 }
 
+/** A single address-range row in the memory-layout pane. */
+export interface MemoryMapSlot {
+  /** Address range, e.g. '0000-3FFF'. */
+  readonly range: string;
+  /** What the CPU reads from this range, e.g. 'RAM Bank 5', 'OS ROM'. */
+  readonly read: string;
+  /** What the CPU writes land in, when it differs from `read` (ROM-over-RAM
+   *  machines like the CPC). Omitted when read === write. */
+  readonly write?: string;
+  /** Decorative markers: 'screen' (display fetches here), 'active' (the
+   *  currently-paged ROM page). */
+  readonly flags?: readonly MemoryMapFlag[];
+}
+
+/** A named paging register or status line shown in the layout footer. */
+export interface MemoryMapReg {
+  /** Register name, e.g. '7FFD', 'Lock'. */
+  readonly name: string;
+  /** Formatted value, e.g. '1F', 'Y'. */
+  readonly value: string;
+}
+
+/** The structured memory-layout snapshot the generic BanksPane renders. */
+export interface MemoryMapSnapshot {
+  /** Optional column headers above read/write (CPC's 'CPU read'/'CPU write').
+   *  Omitted for single-source machines. */
+  readonly columns?: readonly string[];
+  /** Address-range rows, ordered high→low. */
+  readonly slots: readonly MemoryMapSlot[];
+  /** Paging registers / status lines (footer). */
+  readonly registers: readonly MemoryMapReg[];
+}
+
+/** Marker flags for a {@link MemoryMapSlot}. */
+export type MemoryMapFlag = 'screen' | 'active';
+
 /** Identifiers for the status-bar activity LEDs. The runtime catalog (labels,
  *  tips, signals) lives in `ui/components/status-leds.ts`; only the id union is
  *  declared here so machine descriptors stay headless-safe. A machine lists the
@@ -490,6 +526,9 @@ export interface DiskService {
 
 export interface RomSlotInfo {
   readonly index: number;
+  /** Fixed socket name shown as the row title (e.g. '128K Editor ROM'). When
+   *  omitted, the pane falls back to the descriptor's systemRomLabel. */
+  readonly title?: string;
   readonly label: string;
   readonly size: number;
   /** True when a user-supplied image overrides the default. */
@@ -751,8 +790,8 @@ export function createFrameIndicators(): FrameIndicators {
 /** Pull-on-demand debug-pane content. Called by the bridge only when the pane
  *  is open (and throttled as the bridge sees fit) — may allocate freely. */
 export interface FramePaneProvider {
-  /** Memory-layout pane HTML, or null when this model has none (16K/48K). */
-  banksHtml?(): string | null;
+  /** Structured memory-layout snapshot, or null when this model has none. */
+  memoryMap?(): MemoryMapSnapshot | null;
   /** Detokenised BASIC program listing, as structured plain-text lines. */
   basicListing?(): BasicListingLine[];
   /** BASIC variables area, as structured plain-text entries. */

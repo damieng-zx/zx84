@@ -31,7 +31,7 @@ afterEach(() => {
   debug.setSysvarRev(0);
   debug.setBasicListing([]);
   debug.setBasicVars([]);
-  debug.setBanksHtml('');
+  debug.setMemoryMap(null);
   debug.setDisasmText('');
   debug.setTracing(false);
   debug.setTrapLogHtml('');
@@ -42,7 +42,7 @@ describe('debug-state — defaults', () => {
   it('all HTML/text signals start empty', () => {
     expect(debug.regsHtml()).toBe('');
     expect(debug.sysvarHtml()).toBe('');
-    expect(debug.banksHtml()).toBe('');
+    expect(debug.memoryMap()).toBeNull();
     expect(debug.disasmText()).toBe('');
     expect(debug.trapLogHtml()).toBe('');
   });
@@ -74,7 +74,7 @@ describe('debug-state — getter/setter pairing', () => {
     { name: 'sysvarRev',    get: debug.sysvarRev,    set: debug.setSysvarRev,    sample: 99 },
     { name: 'basicListing', get: debug.basicListing, set: debug.setBasicListing, sample: [{ lineNumber: 10, text: 'PRINT' }] },
     { name: 'basicVars',    get: debug.basicVars,    set: debug.setBasicVars,    sample: [{ name: 'a', kind: 'number', value: '1' }] },
-    { name: 'banksHtml',    get: debug.banksHtml,    set: debug.setBanksHtml,    sample: 'bank 0' },
+    { name: 'memoryMap',    get: debug.memoryMap,    set: debug.setMemoryMap,    sample: { slots: [], registers: [] } },
     { name: 'disasmText',   get: debug.disasmText,   set: debug.setDisasmText,   sample: 'NOP' },
     { name: 'tracing',      get: debug.tracing,      set: debug.setTracing,      sample: true },
     { name: 'trapLogHtml',  get: debug.trapLogHtml,  set: debug.setTrapLogHtml,  sample: 'trap' },

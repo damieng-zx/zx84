@@ -72,7 +72,7 @@ const { emu, settingsMock, panesMock } = vi.hoisted(() => ({
     setSysvarRev: vi.fn(),
     setBasicListing: vi.fn(),
     setBasicVars: vi.fn(),
-    setBanksHtml: vi.fn(),
+    setMemoryMap: vi.fn(),
     setDriveAStatus: vi.fn(),
     setDriveBStatus: vi.fn(),
     setShowTrapLog: vi.fn(),
@@ -432,7 +432,7 @@ describe('updateRegsOnce', () => {
     updateRegsOnce();
     expect(emu.setRegsRev).toHaveBeenCalled();
     expect(emu.setSysvarRev).toHaveBeenCalled();
-    expect(emu.setBanksHtml).toHaveBeenCalled();
+    expect(emu.setMemoryMap).toHaveBeenCalled();
   });
 });
 
@@ -586,14 +586,14 @@ function makeSpectrumWithFDC(fdcOpts?: Parameters<typeof makeFdcMock>[0]): Retur
   return s;
 }
 
-// ── renderBanks content ───────────────────────────────────────────────────
+// ── memoryMap content ────────────────────────────────────────────────────
 
-describe('renderBanks (via updateRegsOnce)', () => {
+describe('memoryMap (via updateRegsOnce)', () => {
   function make128K(memOverrides: Record<string, unknown> = {}, model: string = '128k') {
     emu.currentModel.mockReturnValue(model as any);
     const snap = new Uint8Array(0x10000);
     const s = makeSpectrumWithSnap(snap)!;
-    (s as any).model = model;   // renderBanks now reads the machine's own model
+    (s as any).model = model;   // spectrumMemoryMap now reads the machine's own model
     s.variant = { hasBanking: true, hasFDC: false, hasAY: false };
     (s as any).memory = {
       ...s.memory, port7FFD: 0, port1FFD: 0, pagingLocked: false,
@@ -603,113 +603,110 @@ describe('renderBanks (via updateRegsOnce)', () => {
     return s;
   }
 
+  /** Extract the most recent MemoryMapSnapshot pushed to setMemoryMap. */
+  function lastMap(): any {
+    const calls = emu.setMemoryMap.mock.calls;
+    return calls[calls.length - 1]![0];
+  }
+  const slotByRange = (range: string): any => lastMap().slots.find((s: any) => s.range === range);
+  const slotRead = (range: string): string => slotByRange(range).read;
+  const slotFlags = (range: string): readonly string[] | undefined => slotByRange(range)?.flags;
+  const hasFlag = (range: string, flag: string): boolean => slotFlags(range)?.includes(flag) ?? false;
+  const regVal = (name: string): string | undefined => lastMap().registers.find((r: any) => r.name === name)?.value;
+
   afterEach(() => { emu.currentModel.mockReturnValue('48k' as any); });
 
-  it('48K: setBanksHtml is not called when hasBanking is false', () => {
+  it('48K: setMemoryMap is not called when hasBanking is false', () => {
     const snap = new Uint8Array(0x10000);
     const s = makeSpectrumWithSnap(snap)!;
     s.variant = { hasBanking: false, hasFDC: false, hasAY: false };
     (s as any).memory = { ...s.memory, port7FFD: 0, port1FFD: 0, pagingLocked: false, specialPaging: false, currentROM: 0, currentBank: 0 };
     emu.spectrum = s;
     updateRegsOnce();
-    expect(emu.setBanksHtml).not.toHaveBeenCalled();
+    expect(emu.setMemoryMap).not.toHaveBeenCalled();
   });
 
-  it('128K ROM 0 → "128K Editor ROM"', () => {
+  it('128K ROM 0 → slot 0000-3FFF reads "128K Editor ROM"', () => {
     emu.spectrum = make128K({ currentROM: 0 });
     updateRegsOnce();
-    expect(emu.setBanksHtml).toHaveBeenCalledWith(expect.stringContaining('128K Editor ROM'));
+    expect(slotRead('0000-3FFF')).toBe('128K Editor ROM');
   });
 
-  it('128K ROM 1 → "48K BASIC ROM"', () => {
+  it('128K ROM 1 → slot 0000-3FFF reads "48K BASIC ROM"', () => {
     emu.spectrum = make128K({ currentROM: 1 });
     updateRegsOnce();
-    expect(emu.setBanksHtml).toHaveBeenCalledWith(expect.stringContaining('48K BASIC ROM'));
+    expect(slotRead('0000-3FFF')).toBe('48K BASIC ROM');
   });
 
-  it('bank 5 marked (Screen) when port7FFD bit 3 is clear (default screen)', () => {
+  it('bank 5 flagged screen when port7FFD bit 3 is clear (default screen)', () => {
     emu.spectrum = make128K({ port7FFD: 0x00, currentBank: 0 });
     updateRegsOnce();
-    expect(emu.setBanksHtml).toHaveBeenCalledWith(expect.stringContaining('RAM Bank 5 (Screen)'));
+    expect(hasFlag('4000-7FFF', 'screen')).toBe(true);
   });
 
-  it('bank 7 marked (Screen) and bank 5 not marked when port7FFD bit 3 is set', () => {
+  it('bank 7 flagged screen and bank 5 not flagged when port7FFD bit 3 is set', () => {
     emu.spectrum = make128K({ port7FFD: 0x08, currentBank: 7 });
     updateRegsOnce();
-    const html: string = emu.setBanksHtml.mock.calls[0]![0];
-    expect(html).toContain('RAM Bank 7 (Screen)');
-    expect(html).not.toContain('RAM Bank 5 (Screen)');
+    expect(hasFlag('C000-FFFF', 'screen')).toBe(true);
+    expect(hasFlag('4000-7FFF', 'screen')).toBe(false);
   });
 
   it('current RAM bank shown at C000-FFFF', () => {
     emu.spectrum = make128K({ currentBank: 3 });
     updateRegsOnce();
-    const html: string = emu.setBanksHtml.mock.calls[0]![0];
-    expect(html).toMatch(/C000-FFFF.*RAM Bank 3/);
+    expect(slotRead('C000-FFFF')).toBe('RAM Bank 3');
   });
 
-  it('pagingLocked=true shows "Lock" and "Y"', () => {
+  it('pagingLocked=true shows "Lock" register with value "Y"', () => {
     emu.spectrum = make128K({ pagingLocked: true });
     updateRegsOnce();
-    const html: string = emu.setBanksHtml.mock.calls[0]![0];
-    expect(html).toContain('Lock');
-    expect(html).toContain('Y');
+    expect(regVal('Lock')).toBe('Y');
   });
 
   it('+2A normal paging shows "ROM Page N"', () => {
     emu.spectrum = make128K({ currentROM: 2, specialPaging: false }, '+2A');
     updateRegsOnce();
-    expect(emu.setBanksHtml).toHaveBeenCalledWith(expect.stringContaining('ROM Page 2'));
+    expect(slotRead('0000-3FFF')).toBe('ROM Page 2');
   });
 
-  it('+2A port line includes 1FFD column', () => {
+  it('+2A registers include 1FFD', () => {
     emu.spectrum = make128K({ port7FFD: 0x10, port1FFD: 0x04, specialPaging: false }, '+2A');
     updateRegsOnce();
-    const html: string = emu.setBanksHtml.mock.calls[0]![0];
-    expect(html).toContain('7FFD');
-    expect(html).toContain('1FFD');
+    expect(regVal('1FFD')).toBeDefined();
   });
 
-  it('+2A special paging mode 0 → banks 0,1,2,3 from bottom to top', () => {
-    // mode = (port1FFD >> 1) & 3 = 0 → configs[0] = ['0','1','2','3']
+  it('+2A special paging mode 0 → banks 0,1,2,3', () => {
     emu.spectrum = make128K({ specialPaging: true, port1FFD: 0x00 }, '+2A');
     updateRegsOnce();
-    const html: string = emu.setBanksHtml.mock.calls[0]![0];
-    expect(html).toContain('RAM Bank 0');
-    expect(html).toContain('RAM Bank 1');
-    expect(html).toContain('RAM Bank 2');
-    expect(html).toContain('RAM Bank 3');
+    expect(slotRead('0000-3FFF')).toBe('RAM Bank 0');
+    expect(slotRead('4000-7FFF')).toBe('RAM Bank 1');
+    expect(slotRead('8000-BFFF')).toBe('RAM Bank 2');
+    expect(slotRead('C000-FFFF')).toBe('RAM Bank 3');
   });
 
   it('+2A special paging mode 1 → banks 4,5,6,7', () => {
-    // mode = (0x02 >> 1) & 3 = 1 → configs[1] = ['4','5','6','7']
     emu.spectrum = make128K({ specialPaging: true, port1FFD: 0x02 }, '+2A');
     updateRegsOnce();
-    const html: string = emu.setBanksHtml.mock.calls[0]![0];
-    expect(html).toContain('RAM Bank 4');
-    expect(html).toContain('RAM Bank 5');
-    expect(html).toContain('RAM Bank 6');
-    expect(html).toContain('RAM Bank 7');
+    expect(slotRead('0000-3FFF')).toBe('RAM Bank 4');
+    expect(slotRead('4000-7FFF')).toBe('RAM Bank 5');
+    expect(slotRead('8000-BFFF')).toBe('RAM Bank 6');
+    expect(slotRead('C000-FFFF')).toBe('RAM Bank 7');
   });
 
   it('+2A special paging mode 2 → banks 4,5,6,3', () => {
-    // mode = (0x04 >> 1) & 3 = 2 → configs[2] = ['4','5','6','3']
     emu.spectrum = make128K({ specialPaging: true, port1FFD: 0x04 }, '+2A');
     updateRegsOnce();
-    const html: string = emu.setBanksHtml.mock.calls[0]![0];
-    // All four banks appear; spot-check the top (C000) and bottom (0000)
-    expect(html).toContain('RAM Bank 3');  // C000-FFFF
-    expect(html).toContain('RAM Bank 4');  // 0000-3FFF
+    expect(slotRead('0000-3FFF')).toBe('RAM Bank 4');
+    expect(slotRead('C000-FFFF')).toBe('RAM Bank 3');
   });
 
   it('+2A special paging mode 3 → banks 4,7,6,3', () => {
-    // mode = (0x06 >> 1) & 3 = 3 → configs[3] = ['4','7','6','3']
     emu.spectrum = make128K({ specialPaging: true, port1FFD: 0x06 }, '+2A');
     updateRegsOnce();
-    const html: string = emu.setBanksHtml.mock.calls[0]![0];
-    expect(html).toContain('RAM Bank 3');
-    expect(html).toContain('RAM Bank 7');
-    expect(html).toContain('RAM Bank 4');
+    expect(slotRead('0000-3FFF')).toBe('RAM Bank 4');
+    expect(slotRead('4000-7FFF')).toBe('RAM Bank 7');
+    expect(slotRead('8000-BFFF')).toBe('RAM Bank 6');
+    expect(slotRead('C000-FFFF')).toBe('RAM Bank 3');
   });
 });
 

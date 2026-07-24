@@ -15,6 +15,7 @@ const MTX_UI: MachineUiCapabilities = {
   memoryLayout: true,
   trace: true,
   colorMap: 'msx',
+  accuracy: false,
   builtinDisk: true,
   joystick: true,
   fixedJoystick: true,
