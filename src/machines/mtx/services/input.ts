@@ -7,11 +7,11 @@ export class MtxInputService implements InputService {
   constructor(private readonly machine: MtxMachine) {}
 
   keyDown(event: HostKeyEvent): boolean {
-    return this.machine.keyboard.handleKeyEvent(event.code, true);
+    return this.machine.keyboard.handleEvent(event, true);
   }
 
   keyUp(event: HostKeyEvent): boolean {
-    return this.machine.keyboard.handleKeyEvent(event.code, false);
+    return this.machine.keyboard.handleEvent(event, false);
   }
 
   releaseAll(): void {

@@ -6,6 +6,8 @@
  * ANDed, matching the keyboard diodes and ROM scanning routine.
  */
 
+import type { HostKeyEvent } from '@/machines/machine.ts';
+
 type Cell = readonly [drive: number, sense: number];
 
 // Both Atari-style joystick sockets are wired in parallel with the keyboard.
@@ -49,11 +51,53 @@ const KEY_MAP: Record<string, Cell> = {
   F5: [1, 9], F6: [3, 9], F7: [4, 9], F8: [6, 9],
 };
 
+const SHIFT_CELL: Cell = [6, 0];
+
+/**
+ * The unshifted / shifted character each printable key produces, from the MTX
+ * BASIC ROM key legend (basic.rom 0x1729 unshifted, 0x177A shifted). Note the
+ * MTX's non-PC positions: '=' is Shift+'-', '+' is Shift+';', and ':' / '_'
+ * sit on their own keys ([5,5] and [7,5]) that KEY_MAP had no code for at all.
+ */
+const KEY_LEGEND: ReadonlyArray<readonly [Cell, string, string]> = [
+  [[0, 0], '1', '!'], [[1, 1], '2', '"'], [[0, 1], '3', '#'], [[1, 2], '4', '$'],
+  [[0, 2], '5', '%'], [[1, 3], '6', '&'], [[0, 3], '7', "'"], [[1, 4], '8', '('],
+  [[0, 4], '9', ')'], [[1, 5], '0', '0'], [[0, 5], '-', '='], [[4, 5], ';', '+'],
+  [[3, 5], '@', '`'], [[6, 4], ',', '<'], [[7, 4], '.', '>'], [[6, 5], '/', '?'],
+  [[5, 5], ':', '*'], [[7, 5], '_', '_'], [[7, 8], ' ', ' '],
+];
+
+const LETTER_CELLS: Record<string, Cell> = {
+  a: [5, 0], b: [7, 2], c: [7, 1], d: [5, 1], e: [3, 1], f: [4, 2], g: [5, 2],
+  h: [4, 3], i: [2, 4], j: [5, 3], k: [4, 4], l: [5, 4], m: [7, 3], n: [6, 3],
+  o: [3, 4], p: [2, 5], q: [3, 0], r: [2, 2], s: [4, 1], t: [3, 2], u: [3, 3],
+  v: [6, 2], w: [2, 1], x: [6, 1], y: [2, 3], z: [7, 0],
+};
+
+interface CharKey { cell: Cell; shift: boolean; }
+
+/** Character → cell + shift, for character-intent typing. */
+const CHAR_MAP: Record<string, CharKey> = (() => {
+  const map: Record<string, CharKey> = {};
+  for (const [cell, un, sh] of KEY_LEGEND) {
+    map[un] = { cell, shift: false };
+    if (sh !== un) map[sh] = { cell, shift: true };
+  }
+  // Letters always press the unshifted cell: the MTX shows uppercase via its
+  // own caps state, so both cases map to the same keypress (no case inversion).
+  for (const [ch, cell] of Object.entries(LETTER_CELLS)) {
+    map[ch] = { cell, shift: false };
+    map[ch.toUpperCase()] = { cell, shift: false };
+  }
+  return map;
+})();
+
 export class MtxKeyboard {
   /** Ten active-low sense bits for each of the eight drive lines. */
   private readonly matrix = new Uint16Array(8).fill(0x03FF);
   private readonly joystickMatrix = new Uint16Array(8).fill(0x03FF);
   private driveMask = 0xFF;
+  private readonly heldChars = new Map<string, CharKey>();
 
   selectDrive(mask: number): void {
     this.driveMask = mask & 0xFF;
@@ -67,6 +111,29 @@ export class MtxKeyboard {
     // English country code = 00 on bits 2-3. Bits 4-7 are pulled low on the
     // original board; sense lines 8-9 occupy bits 0-1.
     return (this.selectedSense() >> 8) & 0x03;
+  }
+
+  /**
+   * Character-intent input: type the character in `event.key`, deriving the
+   * matrix cell and Shift state from the MTX legend so a PC key legend "just
+   * works" on the MTX's differently-arranged keyboard. Physical Shift is
+   * ignored (the character determines shift); non-character keys (Enter,
+   * cursors, …) fall through to the physical code matrix.
+   */
+  handleEvent(event: HostKeyEvent, pressed: boolean): boolean {
+    if (event.code === 'ShiftLeft' || event.code === 'ShiftRight') return true;
+    const mapped = event.key.length === 1 ? CHAR_MAP[event.key] : undefined;
+    if (mapped) { this.setCharKey(event.key, mapped, pressed); return true; }
+    return this.handleKeyEvent(event.code, pressed);
+  }
+
+  private setCharKey(ch: string, mapped: CharKey, pressed: boolean): void {
+    if (pressed) this.heldChars.set(ch, mapped);
+    else this.heldChars.delete(ch);
+    this.setKey(mapped.cell[0], mapped.cell[1], pressed);
+    let needShift = false;
+    for (const m of this.heldChars.values()) if (m.shift) needShift = true;
+    this.setKey(SHIFT_CELL[0], SHIFT_CELL[1], needShift);
   }
 
   handleKeyEvent(code: string, pressed: boolean): boolean {
@@ -95,6 +162,7 @@ export class MtxKeyboard {
     this.matrix.fill(0x03FF);
     this.joystickMatrix.fill(0x03FF);
     this.driveMask = 0xFF;
+    this.heldChars.clear();
   }
 
   private selectedSense(): number {

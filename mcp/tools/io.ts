@@ -24,6 +24,14 @@ function setKey(code: string, pressed: boolean): boolean {
   return pressed ? input.keyDown(event) : input.keyUp(event);
 }
 
+/** Deliver a literal character for character-intent keyboards (e.g. MTX): the
+ *  machine maps the character onto its own key layout, so no code/chord. */
+function setCharKey(ch: string, pressed: boolean): boolean {
+  const input = state.spec.services.input;
+  const event: HostKeyEvent = { code: '', key: ch, shift: false, ctrl: false, alt: false };
+  return pressed ? input.keyDown(event) : input.keyUp(event);
+}
+
 export function register(server: McpServer): void {
   server.registerTool(
     'port_out',
@@ -83,8 +91,15 @@ export function register(server: McpServer): void {
     { description: 'Type text through the active machine keyboard. Letters, digits, spaces, and backtick-delimited control names work on ZX80/ZX81; printable-symbol chords use Spectrum mappings.', inputSchema: { text: z.string().describe('Text to type, e.g. "LOAD \\"\\"`enter`" or "10 PRINT `shift`2`enter`"') } },
     async ({ text: str }) => {
       const spec = state.spec;
-      // Parse the string, extracting `name` escape sequences for control keys
-      const tokens: string[][] = [];
+      // Character-intent keyboards (MTX) map a typed character onto their own
+      // key layout, so we send the literal character rather than resolving a
+      // Spectrum symbol-shift chord that would land on the wrong MTX key.
+      const charIntent = spec.kind === 'mtx';
+
+      // Parse the string into actions: either code-based key names, or (for
+      // character-intent machines) a literal character.
+      type Action = { keys: string[] } | { char: string };
+      const actions: Action[] = [];
       let i = 0;
       while (i < str.length) {
         if (str[i] === '`') {
@@ -92,35 +107,41 @@ export function register(server: McpServer): void {
           if (end === -1) { i++; continue; } // unmatched backtick — skip
           const name = str.slice(i + 1, end).toLowerCase();
           if (KEY_NAME_MAP[name]) {
-            tokens.push([name]);
+            actions.push({ keys: [name] });
           } // else skip unknown name silently
           i = end + 1;
         } else {
           const ch = str[i];
           const lower = ch.toLowerCase();
-          if (spec.kind === 'zx8x' && ch === '.') {
-            tokens.push(['period']);
+          if (charIntent) {
+            if (ch === '\n') actions.push({ keys: ['enter'] });
+            else actions.push({ char: ch });
+          } else if (spec.kind === 'zx8x' && ch === '.') {
+            actions.push({ keys: ['period'] });
           } else if (CHAR_KEYS[ch]) {
-            tokens.push(CHAR_KEYS[ch]);
+            actions.push({ keys: CHAR_KEYS[ch] });
           } else if (KEY_NAME_MAP[lower]) {
-            tokens.push(ch >= 'A' && ch <= 'Z' && spec.kind !== 'zx8x' ? ['shift', lower] : [lower]);
+            actions.push({ keys: ch >= 'A' && ch <= 'Z' && spec.kind !== 'zx8x' ? ['shift', lower] : [lower] });
           } else if (ch === ' ') {
-            tokens.push(['space']);
+            actions.push({ keys: ['space'] });
           }
           // else skip unknown chars
           i++;
         }
       }
+      const press = (action: Action, down: boolean): void => {
+        if ('char' in action) setCharKey(action.char, down);
+        else for (const k of action.keys) setKey(KEY_NAME_MAP[k], down);
+      };
       let hit: string | null = null;
-      typeLoop: for (const keys of tokens) {
-        const codes = keys.map(k => KEY_NAME_MAP[k]);
-        for (const c of codes) setKey(c, true);
+      typeLoop: for (const action of actions) {
+        press(action, true);
         for (let f = 0; f < 5; f++) {
           spec.tick();
           hit = checkWatchHit(spec);
-          if (hit) { for (const c of codes) setKey(c, false); break typeLoop; }
+          if (hit) { press(action, false); break typeLoop; }
         }
-        for (const c of codes) setKey(c, false);
+        press(action, false);
         spec.tick();
         hit = checkWatchHit(spec);
         if (hit) break;
@@ -131,8 +152,8 @@ export function register(server: McpServer): void {
           if (hit) break typeLoop;
         }
       }
-      if (hit) return text(`Typed ${tokens.length} keystrokes, then hit:\n${hit}`);
-      return text(`Typed ${tokens.length} keystrokes`);
+      if (hit) return text(`Typed ${actions.length} keystrokes, then hit:\n${hit}`);
+      return text(`Typed ${actions.length} keystrokes`);
     },
   );
 }
