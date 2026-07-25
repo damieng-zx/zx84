@@ -17,8 +17,8 @@ import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
-import { Tms9918ScreenText } from '@/ocr/tms9918.ts';
-import type { OcrGridName } from '@/ocr/ocr.ts';
+import { Tms9918ScreenText, tms9918TextGrid } from '@/ocr/tms9918.ts';
+import type { OcrGridName, OcrResult } from '@/ocr/ocr.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import type {
   BorderMode, Machine, MachineDescriptor, MachineHost, MachineKind,
@@ -70,11 +70,14 @@ export class MtxMachine extends BaseMachine implements Machine {
   readonly cassette = new MtxCassette();
   readonly activity = { kbdReads: 0, psgWrites: 0, casReads: 0, fdcAccesses: 0 };
   cpmSystemEnabled = false;
+  /** FDX floppy subsystem fitted (drives B:/C: + FDX Disk BASIC ROM). */
+  floppyEnabled = true;
 
   private readonly vdpPixels = new Uint8Array(MTX_SCREEN_WIDTH * MTX_SCREEN_HEIGHT * 4);
   private readonly vdpPixels32 = new Uint32Array(this.vdpPixels.buffer);
   private borderMode: BorderMode = 1;
   private column80Requested = false;
+  private floppyRequested = true;
   get pixels(): Uint8Array {
     return this.column80.enabled ? this.column80.pixels : this.vdpPixels;
   }
@@ -138,6 +141,7 @@ export class MtxMachine extends BaseMachine implements Machine {
       MSX_PALETTES[view.get('msx-color-map', 'pal') as keyof typeof MSX_PALETTES];
     this.audio.setVolume(view.get('volume', 70) / 100);
     this.column80Requested = view.get('mtx-80-column', false);
+    this.floppyRequested = view.get('mtx-floppy', true);
     this.set512kRamEnabled(view.get('mtx-512k-ram', false));
     this.setCpmSystemEnabled(view.get('mtx-cpm', false));
   }
@@ -146,6 +150,7 @@ export class MtxMachine extends BaseMachine implements Machine {
     this.fdc.writeProtect[0] = view.get('write-protect-a', false);
     this.fdc.writeProtect[1] = view.get('write-protect-b', false);
     this.column80Requested = view.get('mtx-80-column', false);
+    this.floppyRequested = view.get('mtx-floppy', true);
     this.set512kRamEnabled(view.get('mtx-512k-ram', false));
     this.setCpmSystemEnabled(view.get('mtx-cpm', false));
     return [];
@@ -182,7 +187,16 @@ export class MtxMachine extends BaseMachine implements Machine {
     this.cpmSystemEnabled = enabled;
     this.memory.setCpmBootstrapEnabled(enabled);
     this.set80ColumnEnabled(enabled || this.column80Requested);
+    // CP/M boots from a floppy, so it force-fits the FDX subsystem.
+    this.setFloppyEnabled(enabled || this.floppyRequested);
     this.setStatus(`CP/M system ${enabled ? 'enabled' : 'disabled'}`);
+  }
+
+  /** Fit or remove the FDX floppy subsystem — drives B:/C: and the FDX Disk
+   *  BASIC ROM. CP/M force-fits it (see setCpmSystemEnabled). */
+  setFloppyEnabled(enabled: boolean): void {
+    this.floppyEnabled = enabled;
+    this.memory.setFdxRomEnabled(enabled);
   }
 
   set512kRamEnabled(enabled: boolean): void {
@@ -340,5 +354,37 @@ export class MtxMachine extends BaseMachine implements Machine {
   ocrScreenForMcp(_mode: OcrGridName | 'auto' = 'auto'): string {
     if (this.column80.enabled) return this.column80.text();
     return this.screenText.ocr(this.vdp.vram, this.vdp.regs, this.vdp.mode());
+  }
+
+  /** Styled OCR (text + coloured HTML + match mask) for the TEXT overlay. */
+  ocrScreenStyled(): OcrResult {
+    return this.screenText.ocrStyled(this.vdp.vram, this.vdp.regs, this.vdp.mode(), this.vdp.palette);
+  }
+
+  /**
+   * Blank the matched VDP character cells to their paper colour so the crisp
+   * overlay glyphs replace the underlying bitmap. `mask` is row-major
+   * `cols×rows`; cell width/x-origin follow the current VDP mode (same TMS9918
+   * geometry as the MSX).
+   */
+  blankCells(mask: boolean[], cols: number, rows: number, paper?: number[]): void {
+    const g = tms9918TextGrid(this.vdp.mode());
+    if (!g) return;
+    const cellW = g.cellWidth, cellH = 8;
+    const pal = this.vdp.palette;
+    for (let row = 0; row < rows; row++) {
+      const y0 = MTX_BORDER_TOP + row * cellH;
+      if (y0 + cellH > MTX_SCREEN_HEIGHT) break;
+      for (let col = 0; col < cols; col++) {
+        if (!mask[row * cols + col]) continue;
+        const x0 = MTX_BORDER_LEFT + (g.xOffset ?? 0) + col * cellW;
+        if (x0 + cellW > MTX_SCREEN_WIDTH) continue;
+        const fill = pal[(paper ? paper[row * cols + col] : 0) & 0x0F];
+        for (let y = 0; y < cellH; y++) {
+          const b = (y0 + y) * MTX_SCREEN_WIDTH + x0;
+          this.vdpPixels32.fill(fill, b, b + cellW);
+        }
+      }
+    }
   }
 }

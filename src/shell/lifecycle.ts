@@ -9,8 +9,8 @@ import { entryForModel } from '@/machines/registry.ts';
 import {
   type MachineModel,
   romPageSlotCount,
+  romSlotSize,
 } from '@/models.ts';
-import { BANK_SIZE } from '@/utils/bank-size.ts';
 import { FloppySound } from '@/media/floppy/floppy-sound.ts';
 import type { RomPage } from '@/managers/rom-manager.ts';
 import { type TraceMode } from '@/managers/debug-manager.ts';
@@ -395,15 +395,17 @@ export async function switchModel(model: MachineModel): Promise<void> {
     let data = entry.data;
     const pageCount = romPageSlotCount(romModel);
     if (pageCount > 0) {
-      // Splice any per-page overrides onto the base image, without mutating
-      // the cached default (2 pages for 128K/+2, 4 for +2A/+3).
+      // Splice any per-slot overrides onto the base image, without mutating the
+      // cached default. Slot stride is model-specific (Spectrum 16K × 2/4;
+      // MTX 8K × 5) — the concatenation order matches the machine's ROM layout.
+      const slotSize = romSlotSize(romModel);
       const pages = await Promise.all(
         Array.from({ length: pageCount }, (_, page) => romManager.restoreROMPage(key, page as RomPage))
       );
       if (pages.some(p => p !== null)) {
         data = new Uint8Array(entry.data);
         pages.forEach((p, page) => {
-          if (p) data.set(p.data.subarray(0, BANK_SIZE), page * BANK_SIZE);
+          if (p) data.set(p.data.subarray(0, slotSize), page * slotSize);
         });
       }
     }

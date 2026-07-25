@@ -11,10 +11,9 @@
 import type { AuxRomRequest, MachineLocale } from '@/machines/machine.ts';
 import {
   type SpectrumModel, type MachineModel,
-  romPageSlotCount,
+  romPageSlotCount, romSlotSize,
 } from '@/models.ts';
 import { registry } from '@/machines/registry.ts';
-import { BANK_SIZE } from '@/utils/bank-size.ts';
 import { resolveRomSource, type RomPage } from '@/managers/rom-manager.ts';
 import { dbSave, dbLoad } from '@/store/persistence.ts';
 import {
@@ -93,12 +92,13 @@ export async function setSystemRomPage(page: RomPage, data: Uint8Array, label: s
   const pageCount = romPageSlotCount(model);
   if (pageCount === 0) { setStatus('This model has a single System ROM'); return; }
 
-  if (data.length >= pageCount * BANK_SIZE) {
+  const slotSize = romSlotSize(model);
+  if (data.length >= pageCount * slotSize) {
     for (let i = 0; i < pageCount; i++) {
-      await romManager.persistROMPage(key, i as RomPage, data.subarray(i * BANK_SIZE, (i + 1) * BANK_SIZE), `${label} (bank ${i + 1})`);
+      await romManager.persistROMPage(key, i as RomPage, data.subarray(i * slotSize, (i + 1) * slotSize), `${label} (bank ${i + 1})`);
     }
   } else {
-    await romManager.persistROMPage(key, page, data.subarray(0, BANK_SIZE), label);
+    await romManager.persistROMPage(key, page, data.subarray(0, slotSize), label);
   }
   await switchModel(currentModelValue());
 }

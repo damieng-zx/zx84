@@ -1,4 +1,8 @@
-import type { FrameIndicators, FramePaneProvider, FrameProbe, MemoryMapSnapshot } from '@/machines/machine.ts';
+import type {
+  FrameIndicators, FramePaneProvider, FrameProbe, MemoryMapSnapshot, TranscribeDriver,
+} from '@/machines/machine.ts';
+import type { OcrGridName } from '@/ocr/ocr.ts';
+import { parseMtxBasic } from '@/basic/mtx-basic-parser.ts';
 import type { MtxMachine } from '../mtx-machine.ts';
 import { hex8 } from '@/utils/hex.ts';
 
@@ -56,13 +60,37 @@ function mtxMemoryMap(m: MtxMachine): MemoryMapSnapshot | null {
   return { slots, registers };
 }
 
+/** TEXT-overlay driver: OCRs the VDP screen, blanks the matched cells, and
+ *  returns the crisp text/HTML. The FDX 80-column board already renders sharp
+ *  text, so nothing is transcribed while it is showing. */
+class MtxTranscribeDriver implements TranscribeDriver {
+  constructor(private readonly m: MtxMachine) {}
+  get active(): boolean { return this.m.screenText.active; }
+  activate(): void { this.m.screenText.activate(); }
+  deactivate(): void { this.m.screenText.deactivate(); }
+  run(): { text: string; html: string; grid: OcrGridName } {
+    const m = this.m;
+    if (m.column80.enabled) return { text: '', html: '', grid: '32x24' };
+    const result = m.ocrScreenStyled();
+    if (result.mask.length > 0) {
+      m.blankCells(result.mask, result.cols, result.rows, result.paper);
+      if (m.display) m.display.updateTexture(m.pixels);
+    }
+    return result;
+  }
+}
+
 export class MtxFrameProbe implements FrameProbe {
   readonly panes: FramePaneProvider;
+  readonly transcribe: MtxTranscribeDriver;
 
   constructor(private readonly machine: MtxMachine) {
     this.panes = {
       memoryMap: () => mtxMemoryMap(this.machine),
+      // The BASIC program sits at CPU 0x4000; snapshot() gives the flat CPU view.
+      basicListing: () => parseMtxBasic(machine.memory.snapshot()),
     };
+    this.transcribe = new MtxTranscribeDriver(machine);
   }
 
   sample(out: FrameIndicators): void {

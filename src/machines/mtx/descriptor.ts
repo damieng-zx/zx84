@@ -15,6 +15,7 @@ const MTX_UI: MachineUiCapabilities = {
   memoryLayout: true,
   trace: true,
   colorMap: 'msx',
+  // VDP-based scanline rendering — no per-t-state Accuracy dropdown (as MSX).
   accuracy: false,
   builtinDisk: true,
   joystick: true,
@@ -24,7 +25,7 @@ const MTX_UI: MachineUiCapabilities = {
   systemRomLabel: 'OS + BASIC + ASSEM + CP/M + FDX ROMs',
   romPages: 0,
   beeper: false,
-  statusLeds: ['kbd', 'load', 'dsk', 'psg'],
+  statusLeds: ['kbd', 'load', 'dsk', 'psg', 'text'],
   keyboardBus: 'matrix',
   tape: 'instant',
   tapeSound: false,
