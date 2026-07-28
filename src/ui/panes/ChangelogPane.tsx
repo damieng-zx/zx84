@@ -2,6 +2,18 @@ import { createSignal, Show } from 'solid-js';
 
 const CHANGELOG: { version: string; items: string[] }[] = [
   {
+    version: '0.7.4',
+    items: [
+      'Add Memotech MTX family support',
+      'Add Tatung Einstein 256',
+      'Virtual on-screen keyboards for ZX80/ZX81, CPC 464/664/6128 and Toshiba HX-10',
+      'Spanish and French ROM variants with flag-based locale selection',
+      'Machine status-bar indicators',
+      'Generic memory layout pane and unified ROM catalog',
+      'Panes menu organized into groups',
+      'Hide accuracy options on machines that do not use them',
+    ]
+  }, {
     version: '0.7.3',
     items: [
       'Add ZX80 and ZX81 emulation with library',
