@@ -195,6 +195,10 @@ export class MtxMachine extends BaseMachine implements Machine {
   /** Fit or remove the FDX floppy subsystem — drives B:/C: and the FDX Disk
    *  BASIC ROM. CP/M force-fits it (see setCpmSystemEnabled). */
   setFloppyEnabled(enabled: boolean): void {
+    if (!enabled && this.floppyEnabled) {
+      this.fdc.ejectDisk(0);
+      this.fdc.ejectDisk(1);
+    }
     this.floppyEnabled = enabled;
     this.memory.setFdxRomEnabled(enabled);
   }

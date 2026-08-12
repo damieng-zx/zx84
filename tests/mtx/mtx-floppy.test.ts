@@ -70,4 +70,12 @@ describe('MTX floppy (FDX) hardware option', () => {
     m.applySettings(view({ 'mtx-floppy': false }));
     expect(m.memory.readByte(0x2000)).toBe(0xFF);
   });
+
+  it('ejects mounted disks when the FDX is disabled live', async () => {
+    const m = machine();
+    await m.services.media.mount(new Uint8Array(0xA0000), 'disk.mfloppy');
+    expect(m.fdc.getDiskImage(0)).not.toBeNull();
+    m.setFloppyEnabled(false);
+    expect(m.fdc.getDiskImage(0)).toBeNull();
+  });
 });
