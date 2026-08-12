@@ -371,7 +371,10 @@ export function stopTrace(): void {
 
 // ── Model switching ─────────────────────────────────────────────────────
 
+let modelSwitchGeneration = 0;
+
 export async function switchModel(model: MachineModel): Promise<void> {
+  const generation = ++modelSwitchGeneration;
   setCurrentModel(model);
   saveModel(model);
 
@@ -390,6 +393,9 @@ export async function switchModel(model: MachineModel): Promise<void> {
   const key = effectiveROMKey(model, locale);
   let entry = await restoreROM(key);
   if (!entry) entry = await fetchDefaultROM(romModel, key, locale);
+
+  // A newer selection may have completed while this ROM was loading.
+  if (generation !== modelSwitchGeneration || currentModel() !== model) return;
 
   if (entry) {
     let data = entry.data;
@@ -416,7 +422,10 @@ export async function switchModel(model: MachineModel): Promise<void> {
     setRomStatus('');
   }
 
+  if (generation !== modelSwitchGeneration || currentModel() !== model) return;
   await createMachine();
+
+  if (generation !== modelSwitchGeneration || currentModel() !== model) return;
 
   const newDisks = machine?.services.disks;
   if (carriedPlusD && newDisks?.drives.some(d => d.id === 'plusd:0')) {

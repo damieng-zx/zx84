@@ -623,6 +623,28 @@ describe('effectiveROMModel — +3 always uses the +2A (v4.1) ROM set', () => {
   });
 });
 
+describe('switchModel — stale ROM loads', () => {
+  beforeEach(() => { emulator.setCanvas(fakeCanvas); });
+
+  it('does not let an older ROM request rebuild over the latest model', async () => {
+    let resolveOld!: (entry: unknown) => void;
+    const oldRom = new Promise<unknown>((resolve) => { resolveOld = resolve; });
+    const newData = new Uint8Array([0x22]);
+    getRomManager().restoreROM.mockImplementation((key: string) =>
+      key === '48k' ? oldRom : Promise.resolve({ data: newData, label: '128K' }));
+
+    const oldSwitch = emulator.switchModel('48k');
+    await Promise.resolve();
+    await emulator.switchModel('128k');
+    resolveOld({ data: new Uint8Array([0x11]), label: '48K' });
+    await oldSwitch;
+
+    expect(currentModel()).toBe('128k');
+    expect(lastSpectrumStub?.model).toBe('128k');
+    expect(lastSpectrumStub?.loadROM.mock.calls.at(-1)?.[0]).toBe(newData);
+  });
+});
+
 // ── switchModel — 128K/+2/+2A/+3 per-page ROM splicing ────────────────────
 
 describe('switchModel — multi-page ROM overrides (128K/+2 2-page, +2A/+3 4-page)', () => {
