@@ -463,6 +463,19 @@ describe('TZX — 0x23 Jump to Block', () => {
     const blocks = parseTZX(data);
     expect(blocks.map((b) => (b as PauseBlock).duration)).toEqual([1, 3]);
   });
+
+  it('rejects a block whose declared payload is truncated', () => {
+    const corrupt = tzx(header(), [0x10, ...w16(0), ...w16(4), 0xFF, 0x01]);
+    expect(() => parseTZX(corrupt)).toThrow('Truncated TZX block');
+  });
+
+  it.each([
+    ['turbo', [0x11, ...new Array(15).fill(0), 0x04, 0x00, 0x01]],
+    ['pure-data', [0x14, ...new Array(7).fill(0), 0x04, 0x00, 0x01]],
+    ['direct', [0x15, ...new Array(5).fill(0), 0x04, 0x00, 0x01]],
+  ])('rejects a truncated %s payload', (_name, body) => {
+    expect(() => parseTZX(tzx(header(), body))).toThrow('Truncated TZX block');
+  });
 });
 
 // ── Block 0x24 / 0x25 (Loop expansion) ─────────────────────────────────────
