@@ -43,6 +43,7 @@ export class MtxRomService implements RomService {
       const p = ops?.cachedPage(index) ?? null;
       return {
         index,
+        title: defaultLabel,
         label: p?.label ?? defaultLabel,
         size: p?.size ?? 0,
         overridden: p !== null,

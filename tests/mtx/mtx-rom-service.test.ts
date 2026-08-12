@@ -42,6 +42,9 @@ describe('MtxRomService system slots', () => {
     expect(slots.map(s => s.label)).toEqual([
       'MTX OS', 'MTX BASIC', 'MTX ASSEM', 'CP/M Bootstrap', 'FDX Disk BASIC',
     ]);
+    expect(slots.map(s => s.title)).toEqual([
+      'MTX OS', 'MTX BASIC', 'MTX ASSEM', 'CP/M Bootstrap', 'FDX Disk BASIC',
+    ]);
     expect(slots.map(s => s.index)).toEqual([0, 1, 2, 3, 4]);
     expect(slots.every(s => !s.overridden)).toBe(true);
   });
