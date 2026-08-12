@@ -56,6 +56,7 @@ export function parseScl(data: Uint8Array): DskImage | null {
   // track 1 (track 0 holds the catalog + info sector).
   let cursorTrack = 1;
   let cursorSector = 0;
+  let importedFiles = 0;
 
   for (let i = 0; i < fileCount; i++) {
     const h = headerPtr + i * SCL_HEADER_LEN;
@@ -79,13 +80,14 @@ export function parseScl(data: Uint8Array): DskImage | null {
     flat.set(data.subarray(dataPtr, dataPtr + dataLen), start * TRD_SECTOR_BYTES);
 
     dataPtr += dataLen;
+    importedFiles++;
     const next = start + sectors;
     cursorTrack = Math.floor(next / TRD_SPT);
     cursorSector = next % TRD_SPT;
   }
 
   writeTrdInfoSector(flat, g, {
-    fileCount,
+    fileCount: importedFiles,
     firstFreeTrack: cursorTrack,
     firstFreeSector: cursorSector,
   });

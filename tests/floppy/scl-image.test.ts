@@ -30,6 +30,18 @@ describe('isScl', () => {
 });
 
 describe('parseScl', () => {
+  it('reports only successfully imported files in the TR-DOS info sector', () => {
+    const data = new Uint8Array(9 + 14 * 2 + 256);
+    data.set(new TextEncoder().encode('SINCLAIR'), 0);
+    data[8] = 2;
+    data[9 + 13] = 1;
+    data[23 + 13] = 1;
+    data.fill(0xAA, 9 + 28);
+    const image = parseScl(data)!;
+    const info = image.tracks[0][0]!.sectors[8].data;
+    expect(info[0xE4]).toBe(1);
+  });
+
   it('returns null when the signature is missing', () => {
     expect(parseScl(new Uint8Array(20))).toBeNull();
   });
