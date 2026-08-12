@@ -17,8 +17,13 @@ const KNOWN_MODELS: readonly MachineModel[] = [
   'cpc6128', 'cpc464', 'cpc664', 'cpc6128plus', 'gx4000',
   'einstein-tc01', 'einstein-256',
   'hx-10',
+  'mtx500', 'mtx512', 'rs128',
   'zx80', 'zx81',
 ];
+
+export function isKnownModel(value: string): value is MachineModel {
+  return (KNOWN_MODELS as readonly string[]).includes(value);
+}
 
 function loadSavedModel(): MachineModel | null {
   try {
@@ -27,7 +32,7 @@ function loadSavedModel(): MachineModel | null {
     // Legacy migrations: pre-2026-05 builds stored '+2a' lower-case, and the
     // Einstein TC-01 was 'einstein' before it was renamed 'einstein-tc01'.
     const val = raw === '+2a' ? '+2A' : raw === 'einstein' ? 'einstein-tc01' : raw;
-    if ((KNOWN_MODELS as readonly string[]).includes(val)) {
+    if (isKnownModel(val)) {
       if (val !== raw) {
         try { localStorage.setItem('zx84-model', val); } catch { /* */ }
       }

@@ -15,10 +15,16 @@ import {
   isPlus3,
   romPageSlotCount,
 } from '@/models.ts';
+import { isKnownModel } from '@/state/machine-state.ts';
 
 const ALL_MODELS: SpectrumModel[] = ['16k', '48k', '128k', '+2', '+2A', '+3'];
 
 describe('models — classification helpers', () => {
+  it('recognizes persisted MTX models', () => {
+    expect(isKnownModel('mtx500')).toBe(true);
+    expect(isKnownModel('mtx512')).toBe(true);
+    expect(isKnownModel('rs128')).toBe(true);
+  });
   it('is16K matches only 16K', () => {
     const truth: Record<SpectrumModel, boolean> = {
       '16k': true, '48k': false, '128k': false, '+2': false, '+2A': false, '+3': false,
