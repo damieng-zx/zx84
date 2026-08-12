@@ -277,11 +277,12 @@ export function saveCpcSnapshot(version: 2 | 3): void {
 
   const wasPaused = emulationPaused();
   if (!wasPaused) m.stop();
-
-  const data = (cpcSnapshots as unknown as { saveSna(v: 2 | 3): Uint8Array }).saveSna(version);
-  downloadFile(data, `zx84-${m.model}.sna`);
-
-  if (!wasPaused) m.start();
+  try {
+    const data = (cpcSnapshots as unknown as { saveSna(v: 2 | 3): Uint8Array }).saveSna(version);
+    downloadFile(data, `zx84-${m.model}.sna`);
+  } finally {
+    if (!wasPaused) m.start();
+  }
   setStatus(`Saved zx84-${m.model}.sna (v${version})`);
 }
 
@@ -291,14 +292,15 @@ export async function saveSnapshot(format: 'z80' | 'szx' = 'szx'): Promise<void>
 
   const wasPaused = emulationPaused();
   if (!wasPaused) machine.stop();
-
-  const model = currentModel() as SpectrumModel;
-  const data = await snapshots.save(format);
-  const filename = `zx84-${model.replace('+', 'plus')}.${format}`;
-
-  downloadFile(data, filename);
-
-  if (!wasPaused) machine.start();
+  try {
+    const model = currentModel() as SpectrumModel;
+    const data = await snapshots.save(format);
+    const filename = `zx84-${model.replace('+', 'plus')}.${format}`;
+    downloadFile(data, filename);
+  } finally {
+    if (!wasPaused) machine.start();
+  }
+  const filename = `zx84-${currentModel().replace('+', 'plus')}.${format}`;
   setStatus(`Saved ${filename}`);
 }
 
@@ -334,8 +336,11 @@ export function saveRAM(): void {
 
   const wasPaused = emulationPaused();
   if (!wasPaused) machine.stop();
-  downloadFile(ram.data, ram.filename);
-  if (!wasPaused) machine.start();
+  try {
+    downloadFile(ram.data, ram.filename);
+  } finally {
+    if (!wasPaused) machine.start();
+  }
   setStatus(`Saved ${ram.filename}`);
 }
 

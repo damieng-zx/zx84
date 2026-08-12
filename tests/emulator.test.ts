@@ -1726,6 +1726,24 @@ describe('saveSnapshot', () => {
     await emulator.saveSnapshot();
     expect(emulator.statusText()).toMatch(/No machine running/);
   });
+
+  it('restarts after a snapshot serialization failure', async () => {
+    const s = await setupSpectrum();
+    emulator.setEmulationPaused(false);
+    s.start.mockClear();
+    vi.mocked(szx.saveSZX).mockImplementationOnce(() => { throw new Error('serialize'); });
+    await expect(emulator.saveSnapshot()).rejects.toThrow('serialize');
+    expect(s.start).toHaveBeenCalledOnce();
+  });
+
+  it('restarts after a RAM download failure', async () => {
+    const s = await setupSpectrum();
+    emulator.setEmulationPaused(false);
+    s.start.mockClear();
+    (globalThis as any).Blob = vi.fn(() => { throw new Error('download'); });
+    expect(() => emulator.saveRAM()).toThrow('download');
+    expect(s.start).toHaveBeenCalledOnce();
+  });
 });
 
 describe('saveScreenshot', () => {
