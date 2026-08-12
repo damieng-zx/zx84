@@ -31,6 +31,56 @@ function readString(d: Uint8Array, o: number, len: number): string {
   return s;
 }
 
+function readSigned16(d: Uint8Array, o: number): number {
+  const value = read16(d, o);
+  return value & 0x8000 ? value - 0x10000 : value;
+}
+
+/** Return the offset of the block after the one starting at `start`. */
+function nextBlockOffset(d: Uint8Array, start: number): number {
+  const id = d[start];
+  const p = start + 1;
+  switch (id) {
+    case 0x10: return p + 4 + read16(d, p + 2);
+    case 0x11: return p + 18 + read24(d, p + 15);
+    case 0x12: return p + 4;
+    case 0x13: return p + 1 + d[p] * 2;
+    case 0x14: return p + 10 + read24(d, p + 7);
+    case 0x15: return p + 8 + read24(d, p + 5);
+    case 0x18:
+    case 0x19:
+    case 0x2B: return p + 4 + read32(d, p);
+    case 0x20: return p + 2;
+    case 0x21: return p + 1 + d[p];
+    case 0x22:
+    case 0x25:
+    case 0x27: return p;
+    case 0x23:
+    case 0x24: return p + 2;
+    case 0x26: return p + 2 + read16(d, p) * 2;
+    case 0x28: return p + 2 + read16(d, p);
+    case 0x2A: return p + 4;
+    case 0x30: return p + 1 + d[p];
+    case 0x31: return p + 2 + d[p + 1];
+    case 0x32: return p + 2 + read16(d, p);
+    case 0x33: return p + 1 + d[p] * 3;
+    case 0x35: return p + 20 + read32(d, p + 16);
+    case 0x5A: return p + 9;
+    default: throw new Error(`Unknown TZX block type 0x${id.toString(16).padStart(2, '0')} at offset ${start}`);
+  }
+}
+
+function blockOffsets(d: Uint8Array): number[] {
+  const starts: number[] = [];
+  for (let o = 10; o < d.length;) {
+    starts.push(o);
+    const next = nextBlockOffset(d, o);
+    if (next <= o || next > d.length) throw new Error(`Truncated TZX block at offset ${o}`);
+    o = next;
+  }
+  return starts;
+}
+
 /** Extract a DataBlock from raw block data with baked-in timing. */
 function extractDataBlock(
   raw: Uint8Array,
@@ -70,12 +120,15 @@ export function parseTZX(fileData: Uint8Array): TapeBlock[] {
   }
 
   const blocks: TapeBlock[] = [];
+  const starts = blockOffsets(fileData);
+  const startIndex = new Map(starts.map((start, index) => [start, index]));
   let o = 10; // skip 8-byte magic + major + minor version
 
   // Loop expansion state. A stack is needed because TZX permits nested
   // loops; a single pair would let an inner Loop End clobber the outer
   // bookkeeping, silently dropping the outer expansion.
   const loopStack: { start: number; count: number }[] = [];
+  const callStack: number[] = [];
 
   while (o < fileData.length) {
     const id = fileData[o++];
@@ -217,9 +270,13 @@ export function parseTZX(fileData: Uint8Array): TapeBlock[] {
       case 0x22: // Group End
         blocks.push({ kind: 'group-end' });
         break;
-      case 0x23: // Jump to Block
-        o += 2;
+      case 0x23: { // Jump to Block
+        const index = startIndex.get(o - 1)!;
+        const target = index + 1 + readSigned16(fileData, o);
+        if (target < 0 || target >= starts.length) throw new Error('TZX jump target is out of range');
+        o = starts[target];
         break;
+      }
       case 0x24: // Loop Start
         loopStack.push({ start: blocks.length, count: read16(fileData, o) });
         o += 2;
@@ -234,14 +291,32 @@ export function parseTZX(fileData: Uint8Array): TapeBlock[] {
         }
         break;
       }
-      case 0x26: // Call Sequence
-        o += 2 + read16(fileData, o) * 2;
+      case 0x26: { // Call Sequence (select the first destination)
+        const index = startIndex.get(o - 1)!;
+        const count = read16(fileData, o);
+        if (count === 0) { o += 2; break; }
+        const target = index + 1 + readSigned16(fileData, o + 2);
+        if (target < 0 || target >= starts.length) throw new Error('TZX call target is out of range');
+        callStack.push(index + 1);
+        o = starts[target];
         break;
-      case 0x27: // Return from Sequence
+      }
+      case 0x27: { // Return from Sequence
+        const target = callStack.pop();
+        if (target === undefined) throw new Error('TZX return without call');
+        if (target >= starts.length) { o = fileData.length; break; }
+        o = starts[target];
         break;
-      case 0x28: // Select Block
-        o += 2 + read16(fileData, o);
+      }
+      case 0x28: { // Select Block (choose the first option)
+        const index = startIndex.get(o - 1)!;
+        const count = fileData[o + 2];
+        if (count === 0) { o += 2 + read16(fileData, o); break; }
+        const target = index + 1 + readSigned16(fileData, o + 3);
+        if (target < 0 || target >= starts.length) throw new Error('TZX select target is out of range');
+        o = starts[target];
         break;
+      }
       case 0x2A: // Stop tape if in 48K mode
         blocks.push({ kind: 'stop-if-48k' });
         o += 4;

@@ -201,6 +201,11 @@ function block18(pulses: number[], pause = 100): number[] {
   ];
   return [0x18, ...w32(body.length), ...body];
 }
+
+function block28Select(offsets: number[]): number[] {
+  const entries = [offsets.length, ...offsets.flatMap((offset) => [...w16(offset), 0])];
+  return [0x28, ...w16(entries.length), ...entries];
+}
 /** 0x19 Generalized Data Block — same shape for skipping purposes. */
 function block19(bodyBytes: number[]): number[] {
   return [0x19, ...w32(bodyBytes.length), ...bodyBytes];
@@ -450,14 +455,13 @@ describe('TZX — 0x21 Group Start / 0x22 Group End', () => {
   });
 });
 
-// ── Block 0x23 (Jump) — silently skipped ───────────────────────────────────
+// ── Block 0x23 (Jump) ───────────────────────────────────────────────────────
 
 describe('TZX — 0x23 Jump to Block', () => {
-  it('skips the 2-byte offset without producing a block and continues parsing', () => {
-    const data = tzx(header(), block23(-5), block20(123));
+  it('jumps relative to the following block', () => {
+    const data = tzx(header(), block20(1), block23(1), block20(2), block20(3));
     const blocks = parseTZX(data);
-    expect(blocks.length).toBe(1);
-    expect(blocks[0].kind).toBe('pause');
+    expect(blocks.map((b) => (b as PauseBlock).duration)).toEqual([1, 3]);
   });
 });
 
@@ -528,32 +532,28 @@ describe('TZX — 0x24 Loop Start / 0x25 Loop End', () => {
   });
 });
 
-// ── Block 0x26 / 0x27 (Call / Return) — skipped ────────────────────────────
+// ── Block 0x26 / 0x27 (Call / Return) ───────────────────────────────────────
 
 describe('TZX — 0x26 Call Sequence / 0x27 Return', () => {
-  it('skips a call sequence and continues parsing', () => {
-    const data = tzx(header(), block26([10, 20, 30]), block20(99));
+  it('executes a called sequence before continuing after the call', () => {
+    const data = tzx(header(), block26([1]), block23(2), block20(99), block27(), block20(7));
     const blocks = parseTZX(data);
-    expect(blocks.length).toBe(1);
-    expect((blocks[0] as PauseBlock).duration).toBe(99);
+    expect(blocks.map((b) => (b as PauseBlock).duration)).toEqual([99, 7]);
   });
 
-  it('skips a return block', () => {
-    const data = tzx(header(), block27(), block20(11));
-    const blocks = parseTZX(data);
-    expect(blocks.length).toBe(1);
+  it('rejects a return without a call sequence', () => {
+    expect(() => parseTZX(tzx(header(), block27(), block20(11)))).toThrow('return without call');
   });
 });
 
-// ── Block 0x28 (Select Block) — skipped ────────────────────────────────────
+// ── Block 0x28 (Select Block) ───────────────────────────────────────────────
 
 describe('TZX — 0x28 Select Block', () => {
-  it('skips an entire select block via its 2-byte total length', () => {
-    const payload = new Array(50).fill(0xAA);
-    const data = tzx(header(), block28(payload), block20(11));
+  it('chooses the first selected destination', () => {
+    const data = tzx(header(), block28Select([1]), block20(11), block20(22));
     const blocks = parseTZX(data);
     expect(blocks.length).toBe(1);
-    expect((blocks[0] as PauseBlock).duration).toBe(11);
+    expect((blocks[0] as PauseBlock).duration).toBe(22);
   });
 });
 
