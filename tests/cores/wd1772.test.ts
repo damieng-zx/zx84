@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { WD179x } from '@/cores/wd179x.ts';
 import type { DskImage, DskTrack, DskSector } from '@/media/floppy/disk-image.ts';
 
@@ -96,6 +96,18 @@ describe('WD1772 READ SECTOR', () => {
     empty.writeSectorReg(1);
     empty.writeCommand(CMD_READ);
     expect(empty.readStatus() & ST_RNF).toBeTruthy();
+  });
+
+  it('selects a stored weak-sector copy for each read', () => {
+    const image = makeImage();
+    const weak = image.tracks[0][0]!.sectors[0];
+    weak.copies = [new Uint8Array(512).fill(0x11), new Uint8Array(512).fill(0x22)];
+    wd.insertDisk(image, 0);
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0.99);
+    wd.writeSectorReg(1);
+    wd.writeCommand(CMD_READ);
+    expect(wd.readData()).toBe(0x22);
+    random.mockRestore();
   });
 });
 

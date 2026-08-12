@@ -360,7 +360,7 @@ export class WD179x {
     const idx = track.sectorMap.get(this.sectorReg);
     if (idx === undefined) { this.statusReg = this.base() | ST_RNF; return; }
     const sec = track.sectors[idx];
-    this.buffer = sec.data;
+    this.buffer = this.readCopy(sec);
     this.bufPos = 0;
     this.writing = false;
     this.multi = multi;
@@ -406,7 +406,7 @@ export class WD179x {
     this.sectorReg = (this.sectorReg + 1) & 0xFF;
     const idx = this.curTrack?.sectorMap.get(this.sectorReg);
     if (this.curTrack && idx !== undefined) {
-      this.buffer = this.curTrack.sectors[idx].data;
+      this.buffer = writing ? this.curTrack.sectors[idx].data : this.readCopy(this.curTrack.sectors[idx]);
       this.bufPos = 0;
       this.writing = writing;
       this.statusReg = this.base() | ST_BUSY | ST_DRQ;
@@ -414,6 +414,12 @@ export class WD179x {
       return true;
     }
     return false;
+  }
+
+  private readCopy(sector: DskSector): Uint8Array {
+    const copies = sector.copies;
+    if (!copies || copies.length < 2) return sector.data;
+    return copies[Math.floor(Math.random() * copies.length)];
   }
 
   // ── Type III: Read address / Read track / Write track ─────────────────
