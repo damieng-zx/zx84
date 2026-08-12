@@ -572,6 +572,7 @@ export function loadDiskToUnit(data: Uint8Array, filename: string, unit: number)
   const disks = machine?.services.disks;
   if (!machine || !disks) { setStatus('Load a ROM first'); return; }
   const id = unit === 0 ? 'a' : 'b';
+  const wasPaused = emulationPaused();
   machine.stop();
   try {
     const image = parseFloppyImage(data);
@@ -590,7 +591,7 @@ export function loadDiskToUnit(data: Uint8Array, filename: string, unit: number)
   } catch (e) {
     setStatus(`Disk error: ${(e as Error).message}`);
   } finally {
-    machine.start();
+    if (!wasPaused) machine.start();
   }
 }
 

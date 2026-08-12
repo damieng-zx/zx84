@@ -1561,6 +1561,14 @@ describe('media wrappers', () => {
     expect(() => emulator.loadDiskToUnit(new Uint8Array(10), 'x.dsk', 0)).not.toThrow();
   });
 
+  it('loadDiskToUnit keeps a manually paused machine paused', async () => {
+    const s = await setupSpectrum();
+    emulator.setEmulationPaused(true);
+    s.start.mockClear();
+    emulator.loadDiskToUnit(new Uint8Array(10), 'x.dsk', 0);
+    expect(s.start).not.toHaveBeenCalled();
+  });
+
   it('insertBlankDisk(unit=0) updates disk A signals', async () => {
     await setupSpectrum();
     const img = { tracks: [] } as any;
