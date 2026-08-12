@@ -106,12 +106,12 @@ export class AmxMouse {
       const doX = xRemain > 0 && (yRemain === 0 || xRemain >= yRemain);
       if (doX) {
         this.dirX = xDir;
-        if (this.intEnabledA) cpu.interruptWithVector(this.pioVectorA);
+        if (!this.intEnabledA || cpu.interruptWithVector(this.pioVectorA) === 0) break;
         xRemain--;
         activity.mouseReads++;
       } else {
         this.dirY = yDir;
-        if (this.intEnabledB) cpu.interruptWithVector(this.pioVectorB);
+        if (!this.intEnabledB || cpu.interruptWithVector(this.pioVectorB) === 0) break;
         yRemain--;
         activity.mouseReads++;
       }
@@ -121,8 +121,8 @@ export class AmxMouse {
         cpu.step();
       }
     }
-    this.pendingX = 0;
-    this.pendingY = 0;
+    this.pendingX = (this.pendingX < 0 ? -1 : 1) * xRemain;
+    this.pendingY = (this.pendingY < 0 ? -1 : 1) * yRemain;
   }
 
   queueMovement(dx: number, dy: number): void {

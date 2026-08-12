@@ -301,8 +301,8 @@ describe('AmxMouse — drainMovement', () => {
     expect(spy).not.toHaveBeenCalled();
     expect(fresh.dirX).toBe(0); // still updated: positive X → right
     expect(fresh.dirY).toBe(0); // still updated: negative Y → up
-    expect(fresh.pendingX).toBe(0);
-    expect(fresh.pendingY).toBe(0);
+    expect(fresh.pendingX).toBe(3);
+    expect(fresh.pendingY).toBe(-2);
   });
 
   it('an interrupt control word with D7=0 disables interrupts again', () => {
@@ -312,6 +312,20 @@ describe('AmxMouse — drainMovement', () => {
     m.drainMovement(cpu, FRAME_LEN, activity);
     expect(spy).not.toHaveBeenCalled();
     expect(m.dirX).toBe(0);
+  });
+
+  it('retains movement when the CPU rejects the interrupt', () => {
+    const fresh = new AmxMouse();
+    fresh.pioVectorA = 0x40;
+    const first = makeCpu().cpu;
+    fresh.queueMovement(1, 0);
+    fresh.drainMovement(first, FRAME_LEN, activity);
+    expect(fresh.pendingX).toBe(1);
+
+    fresh.pioControlWrite('A', 0x87);
+    const second = makeCpu().cpu;
+    fresh.drainMovement(second, FRAME_LEN, activity);
+    expect(fresh.pendingX).toBe(0);
   });
 });
 
