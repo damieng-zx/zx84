@@ -71,6 +71,7 @@ export function wireMtxPortIO(m: MtxMachine): void {
       case 0x12:
       case 0x13:
       case 0x14:
+        if (!m.floppyEnabled) break;
         m.fdx.write(port, value);
         m.activity.fdcAccesses++;
         break;
@@ -114,6 +115,7 @@ export function wireMtxPortIO(m: MtxMachine): void {
       case 0x12:
       case 0x13:
       case 0x14:
+        if (!m.floppyEnabled) return 0xFF;
         m.activity.fdcAccesses++;
         return m.fdx.read(port);
       case 0x30:

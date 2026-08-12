@@ -37,6 +37,17 @@ describe('MTX floppy (FDX) hardware option', () => {
     expect(m.services.disks.drives).toEqual([]);
   });
 
+  it('rejects floppy media and ignores FDX ports when the hardware is absent', async () => {
+    const m = machine();
+    m.applySettings(view({ 'mtx-floppy': false }));
+    const result = await m.services.media.mount(new Uint8Array(0x40000), 'disk.mfloppy');
+    expect(result.ok).toBe(false);
+    expect(m.fdc.getDiskImage(0)).toBeNull();
+    m.cpu.portOut(0x10, 0x80);
+    expect(m.cpu.portIn(0x10)).toBe(0xFF);
+    expect(m.activity.fdcAccesses).toBe(0);
+  });
+
   it('CP/M force-fits the floppy even when mtx-floppy is off', () => {
     const m = machine();
     m.applySettings(view({ 'mtx-floppy': false, 'mtx-cpm': true }));
