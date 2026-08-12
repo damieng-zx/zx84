@@ -87,6 +87,7 @@ function trackBlockOffset(c: number, h: number, sides: number): number {
  * materialised; sectors past the end of a truncated file are zero-filled.
  */
 export function parseTrd(data: Uint8Array): DskImage {
+  if (!isTrdSize(data.length)) throw new Error(`Invalid TRD image size: ${data.length}`);
   const g = resolveTrdGeometry(data);
   const tracks: (DskTrack | null)[][] = [];
   for (let c = 0; c < g.tracks; c++) {

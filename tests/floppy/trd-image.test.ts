@@ -37,6 +37,11 @@ describe('resolveTrdGeometry', () => {
 });
 
 describe('parseTrd geometry & sector IDs', () => {
+  it('rejects empty and non-sector-aligned input', () => {
+    expect(() => parseTrd(new Uint8Array())).toThrow('Invalid TRD image size');
+    expect(() => parseTrd(new Uint8Array(1))).toThrow('Invalid TRD image size');
+  });
+
   it('materialises 16 sectors per track, r=1..16, n=1', () => {
     const img = parseTrd(patternedImage());
     expect(img.numTracks).toBe(80);
