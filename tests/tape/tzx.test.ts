@@ -11,6 +11,7 @@ import type {
   GroupStartBlock,
   TextBlock,
   ArchiveInfoBlock,
+  CswBlock,
 } from '@/media/tape/tap.ts';
 
 // ── Builder helpers ────────────────────────────────────────────────────────
@@ -189,9 +190,16 @@ function block5A(): number[] {
   return [0x5A, ...new Array(9).fill(0)];
 }
 
-/** 0x18 CSW Recording — block length excludes itself. */
-function block18(bodyBytes: number[]): number[] {
-  return [0x18, ...w32(bodyBytes.length), ...bodyBytes];
+/** 0x18 CSW Recording — block length excludes the ID and length itself. */
+function block18(pulses: number[], pause = 100): number[] {
+  const body = [
+    ...w16(pause),
+    ...w32(3_500_000),
+    1,
+    ...w32(pulses.length),
+    ...pulses,
+  ];
+  return [0x18, ...w32(body.length), ...body];
 }
 /** 0x19 Generalized Data Block — same shape for skipping purposes. */
 function block19(bodyBytes: number[]): number[] {
@@ -385,15 +393,16 @@ describe('TZX — 0x15 Direct Recording', () => {
   });
 });
 
-// ── Block 0x18 / 0x19 (CSW and Generalized — skipped) ──────────────────────
+// ── Block 0x18 / 0x19 (CSW and Generalized) ────────────────────────────────
 
 describe('TZX — 0x18 CSW Recording / 0x19 Generalized Data', () => {
-  it('skips a 0x18 block via its dword length and continues parsing', () => {
-    const body = [0xAA, 0xBB, 0xCC, 0xDD];
-    const data = tzx(header(), block18(body), block20(100));
+  it('decodes an embedded CSW recording and continues parsing', () => {
+    const data = tzx(header(), block18([10, 20], 0), block20(100));
     const blocks = parseTZX(data);
-    expect(blocks.length).toBe(1);
-    expect(blocks[0].kind).toBe('pause');
+    expect(blocks.length).toBe(2);
+    expect((blocks[0] as CswBlock).kind).toBe('csw');
+    expect(Array.from((blocks[0] as CswBlock).pulses)).toEqual([10, 20]);
+    expect(blocks[1].kind).toBe('pause');
   });
 
   it('skips a 0x19 block via its dword length and continues parsing', () => {

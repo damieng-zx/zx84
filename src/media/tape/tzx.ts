@@ -166,6 +166,37 @@ export function parseTZX(fileData: Uint8Array): TapeBlock[] {
         break;
       }
       case 0x18: // CSW Recording
+      { // pause + sample rate + compression + pulse count + RLE data
+        const blockLen = read32(fileData, o);
+        const body = o + 4;
+        const pause = read16(fileData, body);
+        const sampleRate = read32(fileData, body + 2);
+        const compression = fileData[body + 6];
+        const pulseCount = read32(fileData, body + 7);
+        if (compression !== 1) {
+          throw new Error(`Unsupported embedded TZX CSW compression type ${compression}`);
+        }
+        const rleStart = body + 11;
+        const rleEnd = body + blockLen;
+        const pulses = new Uint32Array(pulseCount);
+        let pulse = 0;
+        for (let p = rleStart; p < rleEnd && pulse < pulseCount;) {
+          const length = fileData[p++];
+          if (length !== 0) {
+            pulses[pulse++] = Math.max(1, Math.round(length * 3_500_000 / sampleRate));
+          } else {
+            if (p + 4 > rleEnd) throw new Error('Truncated embedded TZX CSW pulse');
+            const samples = read32(fileData, p);
+            p += 4;
+            pulses[pulse++] = Math.max(1, Math.round(samples * 3_500_000 / sampleRate));
+          }
+        }
+        if (pulse !== pulseCount) throw new Error('Truncated embedded TZX CSW recording');
+        blocks.push({ kind: 'csw', pulses });
+        if (pause > 0) blocks.push({ kind: 'pause', duration: pause });
+        o += 4 + blockLen;
+        break;
+      }
       case 0x19: { // Generalized Data Block
         o += 4 + read32(fileData, o);
         break;
