@@ -140,11 +140,6 @@ function block26(offsets: number[]): number[] {
 }
 function block27(): number[] { return [0x27]; }
 
-function block28(payloadBytes: number[]): number[] {
-  // 0x28 Select Block: WORD totalLength + payload
-  return [0x28, ...w16(payloadBytes.length), ...payloadBytes];
-}
-
 function block2A(): number[] { return [0x2A, ...w32(0)]; }
 
 function block2B(level: number): number[] {
