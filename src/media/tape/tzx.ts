@@ -13,6 +13,12 @@ import type { TapeBlock, DataBlock } from '@/media/tape/tap.ts';
 
 const TZX_MAGIC = [0x5A, 0x58, 0x54, 0x61, 0x70, 0x65, 0x21, 0x1A]; // "ZXTape!\x1A"
 
+/** Hard ceiling on expanded output blocks. Nested Loop Start/End pairs
+ *  multiply (each up to 65535 repetitions), so unbounded expansion turns a
+ *  tiny hand-crafted TZX into billions of pushed entries — an OOM/hang.
+ *  Real tapes stay orders of magnitude below this. */
+const MAX_EXPANDED_BLOCKS = 262144;
+
 function read16(d: Uint8Array, o: number): number {
   return d[o] | (d[o + 1] << 8);
 }
@@ -297,6 +303,10 @@ export function parseTZX(fileData: Uint8Array): TapeBlock[] {
         const frame = loopStack.pop();
         if (frame && frame.count > 1) {
           const loopBody = blocks.slice(frame.start);
+          const extra = loopBody.length * (frame.count - 1);
+          if (blocks.length + extra > MAX_EXPANDED_BLOCKS) {
+            throw new Error('TZX loop expansion too large (nested loops?)');
+          }
           for (let i = 1; i < frame.count; i++) {
             for (const blk of loopBody) blocks.push(blk);
           }

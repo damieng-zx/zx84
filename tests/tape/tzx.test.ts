@@ -547,6 +547,29 @@ describe('TZX — 0x24 Loop Start / 0x25 Loop End', () => {
     expect(blocks.length).toBe(6);
     expect(blocks.every((b) => b.kind === 'pause')).toBe(true);
   });
+
+  it('rejects a nested-loop bomb whose expansion exceeds the block budget', () => {
+    // Two nested loops of 60000 multiply to 3.6 billion expanded blocks —
+    // the parser must reject this instead of allocating until OOM. The
+    // inner loop alone (60000 pauses) is under budget; only the product
+    // trips the limit.
+    const bomb = tzx(
+      header(),
+      block24(60000),
+        block24(60000),
+          block20(1),
+        block25(),
+      block25(),
+    );
+    expect(() => parseTZX(bomb)).toThrow(/expansion too large/);
+  });
+
+  it('still expands a single large-but-legitimate loop under the budget', () => {
+    const data = tzx(header(), block24(50000), block20(2), block25());
+    const blocks = parseTZX(data);
+    expect(blocks.length).toBe(50000);
+    expect((blocks[49999] as PauseBlock).duration).toBe(2);
+  });
 });
 
 // ── Block 0x26 / 0x27 (Call / Return) ───────────────────────────────────────
