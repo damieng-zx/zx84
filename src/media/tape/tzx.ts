@@ -247,6 +247,15 @@ export function parseTZX(fileData: Uint8Array): TapeBlock[] {
         }
         const rleStart = body + 11;
         const rleEnd = body + blockLen;
+        // Validate before allocating: a zero sample rate would poison every
+        // pulse with NaN/Infinity, and each RLE item produces at most one
+        // pulse from at least one byte — so a header claiming more pulses
+        // than there are RLE bytes is corrupt. Bounded by the RLE length,
+        // the allocation can never blow up on a hostile header value.
+        if (sampleRate === 0) throw new Error('Embedded TZX CSW has a zero sample rate');
+        if (pulseCount > rleEnd - rleStart) {
+          throw new Error('Truncated embedded TZX CSW recording');
+        }
         const pulses = new Uint32Array(pulseCount);
         let pulse = 0;
         for (let p = rleStart; p < rleEnd && pulse < pulseCount;) {

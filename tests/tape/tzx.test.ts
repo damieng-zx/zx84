@@ -405,6 +405,20 @@ describe('TZX — 0x18 CSW Recording / 0x19 Generalized Data', () => {
     expect(blocks[1].kind).toBe('pause');
   });
 
+  it('rejects a pulse count larger than the RLE data can ever yield', () => {
+    // Each RLE byte produces at most one pulse; a header claiming more is
+    // corrupt and must be rejected — not used to size the allocation.
+    const body = [...w16(100), ...w32(3_500_000), 1, ...w32(0xFFFFFFFF), 10, 20];
+    const bomb = tzx(header(), [0x18, ...w32(body.length), ...body]);
+    expect(() => parseTZX(bomb)).toThrow('Truncated embedded TZX CSW');
+  });
+
+  it('rejects a zero sample rate', () => {
+    const body = [...w16(100), ...w32(0), 1, ...w32(2), 10, 20];
+    const bad = tzx(header(), [0x18, ...w32(body.length), ...body]);
+    expect(() => parseTZX(bad)).toThrow('zero sample rate');
+  });
+
   it('skips a 0x19 block via its dword length and continues parsing', () => {
     const body = new Array(500).fill(0xFF);
     const data = tzx(header(), block19(body), block20(50));
