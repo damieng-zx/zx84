@@ -35,15 +35,10 @@ export const SPECIAL_MODES: ReadonlyArray<readonly [number, number, number, numb
 ];
 
 /**
- * Minimal interface for reading from the Z80 paged address space.
- * Implemented by SpectrumMemory; accepted by all debug and display tools.
+ * Minimal interface for reading from the Z80 paged address space. Defined on
+ * the machine SPI (`@/machines/machine.ts`); `SpectrumMemory` implements it.
  */
-export interface ByteReader {
-  readByte(addr: number): number;
-  readBlock(addr: number, len: number): Uint8Array;
-}
-
-export class SpectrumMemory implements ByteReader, IMachineMemory {
+export class SpectrumMemory implements IMachineMemory {
   /** The Z80's flat 64KB view. Source of truth for all CPU memory access.
    *  Hot-path callers (io-ports.ts) capture this once and index directly. */
   readonly flat = new Uint8Array(0x10000);

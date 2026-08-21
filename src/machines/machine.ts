@@ -17,7 +17,6 @@
 
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
-import type { ByteReader } from '@/machines/spectrum/memory.ts';
 import type { TapeBlock } from '@/media/tape/tap.ts';
 import type { MachineModel } from '@/models.ts';
 import type { OcrGridName, FontSource } from '@/ocr/ocr.ts';
@@ -34,6 +33,16 @@ export type BorderMode = 0 | 1 | 2;
 
 /** Trace flavours supported by the debug layer. */
 export type MachineTraceMode = 'full' | 'portio' | 'zxtl';
+
+/**
+ * Minimal interface for reading from the Z80 paged address space.
+ * Implemented by each machine's memory class; accepted by debug and display
+ * tools. Lives on the SPI so no machine folder owns the common contract.
+ */
+export interface ByteReader {
+  readByte(addr: number): number;
+  readBlock(addr: number, len: number): Uint8Array;
+}
 
 /**
  * The common memory surface. Both `SpectrumMemory` and the CPC's memory expose
