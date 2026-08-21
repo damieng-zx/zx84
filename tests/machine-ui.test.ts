@@ -51,11 +51,22 @@ describe('machine-ui manifest', () => {
   });
 
   it('exposes only known contribution keys per kind', () => {
-    const allowed = new Set(['HardwareSection', 'Keyboard', 'SysVars', 'LibraryBrowser']);
+    const allowed = new Set(['HardwareSection', 'Keyboard', 'SysVars', 'LibraryBrowser', 'HuntFonts']);
     for (const kind of ['spectrum', 'cpc', 'einstein', 'msx', 'mtx', 'zx8x']) {
       for (const key of Object.keys(machineUi(kind))) {
         expect(allowed.has(key)).toBe(true);
       }
+    }
+  });
+
+  it('HuntFonts is a plain dynamic-import thunk, only where registered', () => {
+    // Not a lazy component — the pane calls it imperatively; the import must
+    // only fire on first call.
+    const hunt = machineUi('spectrum').HuntFonts;
+    expect(typeof hunt).toBe('function');
+    expect(isLazyLoader(hunt)).toBe(false);
+    for (const kind of ['cpc', 'einstein', 'msx', 'mtx', 'zx8x']) {
+      expect(machineUi(kind).HuntFonts).toBeUndefined();
     }
   });
 });

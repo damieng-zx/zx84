@@ -25,6 +25,10 @@ export interface MachineUiContribution {
   readonly SysVars?: Component;
   /** Software-library browser. */
   readonly LibraryBrowser?: Component;
+  /** Scan live RAM for character fonts into the shared font store (Fonts
+   *  pane "Hunt"). Dynamically imported on first use, so the machine's
+   *  bundle only loads when its Hunt actually runs. */
+  readonly HuntFonts?: () => void;
 }
 
 const CONTRIBUTIONS: Record<string, MachineUiContribution> = {
@@ -37,6 +41,8 @@ const CONTRIBUTIONS: Record<string, MachineUiContribution> = {
       import('@/machines/spectrum/ui/SysVars.tsx').then(m => ({ default: m.SysVars }))),
     LibraryBrowser: lazy(() =>
       import('@/machines/spectrum/ui/LibraryBrowser.tsx').then(m => ({ default: m.LibraryBrowser }))),
+    HuntFonts: () =>
+      import('@/machines/spectrum/ui/font-hunt.ts').then(m => m.huntSpectrumFonts()),
   },
   cpc: {
     HardwareSection: lazy(() =>
