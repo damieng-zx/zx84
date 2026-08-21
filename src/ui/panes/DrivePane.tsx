@@ -1,6 +1,5 @@
 import { Show } from 'solid-js';
 import { Pane } from '@/ui/components/Pane.tsx';
-import { RawHtml } from '@/ui/components/RawHtml.tsx';
 import { DropDownMenuButton } from '@/ui/components/DropDownMenuButton.tsx';
 import { HiOutlineEllipsisVertical, HiOutlineDocumentPlus, HiOutlineArrowDownTray, HiOutlineArrowPath } from 'solid-icons/hi';
 import { machine } from '@/shell/context.ts';
@@ -16,7 +15,6 @@ import {
   currentDiskNameC, currentDiskNameD, currentDiskInfoC, currentDiskInfoD,
   driveCStatus, driveDStatus, diskSideA, diskSideB,
 } from '@/state/disk-state.ts';
-import { trapLogHtml, showTrapLog } from '@/state/debug-state.ts';
 import { currentModel } from '@/state/machine-state.ts';
 import {
   diskSoundA, setDiskSoundA, diskSoundB, setDiskSoundB,
@@ -477,9 +475,6 @@ export function DrivePane() {
             syncBetaDiskWriteProtect(1, writeProtectD());
           }}
         />
-      </Show>
-      <Show when={showTrapLog()}>
-        <RawHtml id="trap-log" html={trapLogHtml} />
       </Show>
     </Pane>
   );

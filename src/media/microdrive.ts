@@ -7,8 +7,9 @@
  */
 
 const SECTOR_BYTES = 543;
+// Offset of the record header within a sector, and of the 512-byte data
+// payload within a record — both 15 bytes on the IF1 cartridge format.
 const RECORD_OFFSET = 15;
-const RECORD_DATA_OFFSET = 15;
 const RECORD_DATA_BYTES = 512;
 
 const FILE_TYPES: Record<number, string> = {
@@ -69,7 +70,7 @@ export function parseMdrBlocks(data: Uint8Array): MdrBlock[] {
 
     // Record zero begins a Spectrum file with a compact type/length header.
     if (data[record + 1] === 0 && length >= 9) {
-      const header = record + RECORD_DATA_OFFSET;
+      const header = record + RECORD_OFFSET;
       const type = data[header];
       if (FILE_TYPES[type]) {
         block.type = FILE_TYPES[type];

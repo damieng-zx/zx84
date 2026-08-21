@@ -1,5 +1,5 @@
 /**
- * debug-state — 11 thin createSignal wrappers for the debug pane.
+ * debug-state — 9 thin createSignal wrappers for the debug pane.
  *
  * No logic to test, but two classes of accidents are easy to make and
  * silent at runtime:
@@ -34,8 +34,6 @@ afterEach(() => {
   debug.setMemoryMap(null);
   debug.setDisasmText('');
   debug.setTracing(false);
-  debug.setTrapLogHtml('');
-  debug.setShowTrapLog(false);
 });
 
 describe('debug-state — defaults', () => {
@@ -44,7 +42,6 @@ describe('debug-state — defaults', () => {
     expect(debug.sysvarHtml()).toBe('');
     expect(debug.memoryMap()).toBeNull();
     expect(debug.disasmText()).toBe('');
-    expect(debug.trapLogHtml()).toBe('');
   });
 
   it('structured BASIC signals start as empty arrays', () => {
@@ -57,9 +54,8 @@ describe('debug-state — defaults', () => {
     expect(debug.sysvarRev()).toBe(0);
   });
 
-  it('tracing and showTrapLog default to false', () => {
+  it('tracing defaults to false', () => {
     expect(debug.tracing()).toBe(false);
-    expect(debug.showTrapLog()).toBe(false);
   });
 });
 
@@ -77,8 +73,6 @@ describe('debug-state — getter/setter pairing', () => {
     { name: 'memoryMap',    get: debug.memoryMap,    set: debug.setMemoryMap,    sample: { slots: [], registers: [] } },
     { name: 'disasmText',   get: debug.disasmText,   set: debug.setDisasmText,   sample: 'NOP' },
     { name: 'tracing',      get: debug.tracing,      set: debug.setTracing,      sample: true },
-    { name: 'trapLogHtml',  get: debug.trapLogHtml,  set: debug.setTrapLogHtml,  sample: 'trap' },
-    { name: 'showTrapLog',  get: debug.showTrapLog,  set: debug.setShowTrapLog,  sample: true },
   ];
 
   for (const p of pairs) {

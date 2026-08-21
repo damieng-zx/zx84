@@ -8,7 +8,6 @@
  * - Memory banks
  * - Disassembly
  * - Execution tracing
- * - BIOS trap log
  */
 
 import { createSignal } from 'solid-js';
@@ -57,12 +56,3 @@ export const setDisasmText = _disasmText[1];
 const _tracing = createSignal(false);
 export const tracing = _tracing[0];
 export const setTracing = _tracing[1];
-
-// BIOS trap log
-const _trapLogHtml = createSignal('');
-export const trapLogHtml = _trapLogHtml[0];
-export const setTrapLogHtml = _trapLogHtml[1];
-
-const _showTrapLog = createSignal(false);
-export const showTrapLog = _showTrapLog[0];
-export const setShowTrapLog = _showTrapLog[1];

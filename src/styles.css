@@ -1814,23 +1814,6 @@ input[type="range"]::-moz-range-thumb {
 
 #drive-output .reg-name { color: #999; }
 
-#trap-log {
-  display: none;
-  margin: 0;
-  padding: 4px 6px;
-  background: #0a0a18;
-  border: 1px solid #333;
-  border-radius: 4px;
-  font-size: 0.65rem;
-  color: #8a8;
-  white-space: pre;
-  max-height: 120px;
-  overflow-y: auto;
-  --mono-line-height: 1.4;
-}
-
-#trap-log .trap-warn { color: #fa0; }
-
 /* Tape pane */
 
 #tape-controls {

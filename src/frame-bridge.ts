@@ -26,7 +26,7 @@ import {
   machine, floppySound,
   emulationPaused, tracing,
   setRegsRev, setSysvarRev, setBasicListing, setBasicVars,
-  setMemoryMap, setDriveAStatus, setDriveBStatus, setShowTrapLog, setDisasmText,
+  setMemoryMap, setDriveAStatus, setDriveBStatus, setDisasmText,
   setCurrentDiskInfo, setCurrentDiskInfoB,
   setDriveCStatus, setDriveDStatus, setCurrentDiskInfoC, setCurrentDiskInfoD,
   setClockSpeedText,
@@ -128,7 +128,6 @@ export function updateRegsOnce(): void {
 /** Post-format metadata refresh + unsupported-SCAN surfacing (one-shot events
  *  consumed by frameTick into the indicators). */
 function handleDriveEvents(probe: FrameProbe): void {
-  if (ind.driveLed[0] >= 0) setShowTrapLog(false);
   if (ind.scanUnsupported >= 0) {
     setStatus(`Unsupported 765A FDC SCAN command (0x${ind.scanUnsupported.toString(16).toUpperCase().padStart(2, '0')}) — rejected`);
   }

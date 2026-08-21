@@ -75,7 +75,6 @@ const { emu, settingsMock, panesMock } = vi.hoisted(() => ({
     setMemoryMap: vi.fn(),
     setDriveAStatus: vi.fn(),
     setDriveBStatus: vi.fn(),
-    setShowTrapLog: vi.fn(),
     setDisasmText: vi.fn(),
     setCurrentDiskInfo: vi.fn(),
     setCurrentDiskInfoB: vi.fn(),
