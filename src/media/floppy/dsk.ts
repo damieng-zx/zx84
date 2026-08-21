@@ -47,7 +47,12 @@ function parseTrack(data: Uint8Array, trackOffset: number, trackSize: number, is
     const st2 = data[sibOffset + 5];
     const sibDataLen = u16LE(data, sibOffset + 6);
 
-    // Actual stored size: extended format uses SIB dataLen, standard uses 128 << N
+    // Actual stored size: extended format uses SIB dataLen, standard uses 128 << N.
+    // N=6 is deliberately 6144, NOT the nominal 128 << 6 = 8192: these images
+    // come off 3" Hitachi DD drives whose tracks hold ~6.25 KB in total, so an
+    // 8 KB sector can never physically exist on this media. Giant-sector
+    // protections (Hexagon/Speedlock et al) recorded 6144 bytes under N=6.
+    // N >= 7 is treated as absent (0).
     let actualSize: number;
     if (isExtended && sibDataLen > 0) {
       actualSize = sibDataLen;
