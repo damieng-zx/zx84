@@ -315,7 +315,9 @@ export class WD179x {
   }
 
   private seek(): void {
-    const target = Math.max(0, Math.min(79, this.dataReg));
+    // The track register is 8-bit on real hardware; values beyond the drive's
+    // cylinder count simply miss on the next data command (RNF).
+    const target = this.dataReg & 0xFF;
     this.headTrack[this.currentDrive] = target;
     this.trackReg = target;
     this.endTypeI();
@@ -323,7 +325,7 @@ export class WD179x {
 
   private step(cmd: number, dir: number): void {
     if (dir !== 0) this.stepDir = dir;
-    const next = Math.max(0, Math.min(79, this.headTrack[this.currentDrive] + this.stepDir));
+    const next = (this.headTrack[this.currentDrive] + this.stepDir) & 0xFF;
     this.headTrack[this.currentDrive] = next;
     if (cmd & 0x10) this.trackReg = next; // 'T' update-track-register flag
     this.endTypeI();

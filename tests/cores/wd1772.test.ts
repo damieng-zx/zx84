@@ -57,10 +57,16 @@ describe('WD1772 Type I (Restore/Seek)', () => {
     expect(wd.readStatus() & ST_TRACK0).toBeTruthy();
   });
 
-  it('SEEK clamps beyond the outermost track (79)', () => {
+  it('SEEK keeps the full 8-bit data-register value (no 0-79 clamp)', () => {
     wd.writeData(200);
     wd.writeCommand(CMD_SEEK);
-    expect(wd.getUnitTrack(0)).toBe(79);
+    expect(wd.trackReg).toBe(200);
+    expect(wd.getUnitTrack(0)).toBe(200);
+  });
+
+  it('STEP OUT below track 0 wraps the 8-bit track register to 255', () => {
+    wd.writeCommand(0x60); // Step-out with update ('u' flag set)
+    expect(wd.getUnitTrack(0)).toBe(255);
   });
 });
 
