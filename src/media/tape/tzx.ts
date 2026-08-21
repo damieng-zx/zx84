@@ -130,7 +130,19 @@ export function parseTZX(fileData: Uint8Array): TapeBlock[] {
   const loopStack: { start: number; count: number }[] = [];
   const callStack: number[] = [];
 
+  // Jump/Call/Select/Return reposition the cursor, and since loops are
+  // expanded at parse time a cycle in that control flow can never terminate
+  // (a Jump with offset -1 targets itself). Budget iterations generously
+  // against the pre-computed block table — legitimate files execute each
+  // block once plus a little call/return revisit traffic — and reject the
+  // tape as cyclic if the budget is exhausted.
+  const maxSteps = starts.length * 4 + 1024;
+  let steps = 0;
+
   while (o < fileData.length) {
+    if (++steps > maxSteps) {
+      throw new Error('TZX control flow does not terminate (cyclic Jump/Call/Select block)');
+    }
     const id = fileData[o++];
 
     switch (id) {

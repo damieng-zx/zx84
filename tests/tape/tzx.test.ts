@@ -459,6 +459,15 @@ describe('TZX — 0x23 Jump to Block', () => {
     expect(blocks.map((b) => (b as PauseBlock).duration)).toEqual([1, 3]);
   });
 
+  it('rejects a cyclic jump instead of looping forever', () => {
+    // Offset -1 makes the jump target the jump block itself. Since loops
+    // are expanded at parse time this can never terminate; the parser must
+    // reject the tape rather than spin.
+    const cyclic = tzx(header(), block23(-1));
+    expect(() => parseTZX(cyclic)).toThrow(/does not terminate/);
+  });
+
+
   it('rejects a block whose declared payload is truncated', () => {
     const corrupt = tzx(header(), [0x10, ...w16(0), ...w16(4), 0xFF, 0x01]);
     expect(() => parseTZX(corrupt)).toThrow('Truncated TZX block');
