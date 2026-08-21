@@ -72,7 +72,10 @@ export function parseCpr(data: Uint8Array): (Uint8Array | undefined)[] {
   let off = 12;
   while (off + 8 <= data.length) {
     const id = chunkIdAt(data, off);
-    const size = data[off + 4] | (data[off + 5] << 8) | (data[off + 6] << 16) | (data[off + 7] << 24);
+    // Decode as unsigned: a signed interpretation of the sign bit would make
+    // `size` negative, pass every bound below, and walk `off` backwards off
+    // the start of the buffer — stalling this loop forever.
+    const size = (data[off + 4] | (data[off + 5] << 8) | (data[off + 6] << 16) | (data[off + 7] << 24)) >>> 0;
     off += 8;
     if (off + size > data.length) break;     // truncated file — accept what we have
 

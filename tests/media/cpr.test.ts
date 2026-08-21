@@ -133,6 +133,22 @@ describe('parseCpr', () => {
     const pages = parseCpr(cpr);
     expect(pages[0]?.[0]).toBe(0x99);
   });
+
+  it('stops cleanly on a chunk whose size has the sign bit set (no hang)', () => {
+    // RIFF sizes are unsigned 32-bit. A size with the high bit set must be
+    // treated as a huge value that fails the truncation guard — not as a
+    // negative offset that rewinds the cursor into an endless loop.
+    const cpr = new Uint8Array(12 + 8);
+    cpr[0] = 0x52; cpr[1] = 0x49; cpr[2] = 0x46; cpr[3] = 0x46;
+    cpr[8] = 0x41; cpr[9] = 0x4D; cpr[10] = 0x53; cpr[11] = 0x21;
+    // 'cb00' with size 0x80000001 (sign bit set, odd to also stress the
+    // word-align step that would otherwise amplify a negative size).
+    let off = 12;
+    cpr[off] = 0x63; cpr[off+1] = 0x62; cpr[off+2] = 0x30; cpr[off+3] = 0x30;
+    cpr[off+4] = 0x01; cpr[off+7] = 0x80;
+    const pages = parseCpr(cpr);   // must terminate
+    expect(pages[0]).toBeUndefined();
+  });
 });
 
 describe('writeCpr', () => {
