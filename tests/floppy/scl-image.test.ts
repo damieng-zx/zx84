@@ -95,6 +95,37 @@ describe('parseScl', () => {
     expect(info[0xE4]).toBe(2);   // two files
     expect(info[0xE1]).toBe(4);   // first free sector = 4 (4 sectors used)
   });
+
+  it('caps the catalog at 128 entries instead of overrunning into the info sector', () => {
+    // 130 valid one-sector files: entries 128+ would land at track 0 sector 8
+    // (the disk-info sector) and beyond, corrupting the disk.
+    const scl = makeScl(
+      Array.from({ length: 130 }, (_, i) =>
+        ({ name: `F${i}`, type: 'C', sectors: 1, fill: 0x30 + (i % 10) })));
+    const img = parseScl(scl)!;
+
+    const info = img.tracks[0]![0]!.sectors[8].data;
+    expect(info[0xE4]).toBe(128);  // 128th entry (index 127) is the last import
+    expect(info[0xE7]).toBe(0x10); // TR-DOS ID survived — no catalog overrun
+    // Catalog entry 127 (last legal slot) exists and is the 128th file.
+    const cat127 = img.tracks[0]![0]!.sectors[7].data.subarray(112, 128);
+    expect(cat127[13]).toBe(1);
+    expect(cat127[15]).toBe(8);    // file 128 starts at track 8 (127 sectors after track 1 sector 0)
+  });
+
+  it('rejects file headers that run past EOF instead of letting NaN defeat the guards', () => {
+    // Count claims 5 files but the archive ends before the first header is
+    // complete: data[h+13] reads undefined, undefined * 256 = NaN, and every
+    // NaN `>` comparison is false — the old parser "imported" all 5 phantom
+    // files. The bound check must stop it at zero.
+    const scl = new Uint8Array(20);
+    scl.set(new TextEncoder().encode('SINCLAIR'), 0);
+    scl[8] = 5;
+    const img = parseScl(scl)!;
+
+    const info = img.tracks[0]![0]!.sectors[8].data;
+    expect(info[0xE4]).toBe(0); // nothing imported
+  });
 });
 
 describe('serializeScl', () => {

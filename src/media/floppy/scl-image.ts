@@ -49,6 +49,8 @@ export function parseScl(data: Uint8Array): DskImage | null {
   const flat = new Uint8Array(g.tracks * g.sides * TRD_SPT * TRD_SECTOR_BYTES);
 
   const fileCount = data[8];
+  // TR-DOS catalogs hold at most 128 entries (8 sectors × 16 bytes in track 0).
+  const count = Math.min(fileCount, 128);
   let headerPtr = 9;
   let dataPtr = 9 + fileCount * SCL_HEADER_LEN;
 
@@ -58,8 +60,12 @@ export function parseScl(data: Uint8Array): DskImage | null {
   let cursorSector = 0;
   let importedFiles = 0;
 
-  for (let i = 0; i < fileCount; i++) {
+  for (let i = 0; i < count; i++) {
     const h = headerPtr + i * SCL_HEADER_LEN;
+    // A header running past EOF means the archive is truncated. Out-of-bounds
+    // reads return undefined, and the resulting NaN arithmetic silently
+    // defeats every guard below — so bound-check before reading.
+    if (h + SCL_HEADER_LEN > data.length) break;
     const sectors = data[h + 13];
     const dataLen = sectors * TRD_SECTOR_BYTES;
 
