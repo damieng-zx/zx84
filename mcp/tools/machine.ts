@@ -12,7 +12,7 @@ import { MCP_MODELS } from '../models.ts';
 export function register(server: McpServer): void {
   server.registerTool(
     'run',
-    { description: 'Run the emulator for N frames (default 1). Returns breakpoint info if hit.', inputSchema: { frames: z.number().int().positive().default(1).describe('Number of frames to run') } },
+    { description: 'Run the emulator for N frames (default 1, max 5000). Returns breakpoint info if hit.', inputSchema: { frames: z.number().int().positive().max(5000).default(1).describe('Number of frames to run') } },
     async ({ frames }) => {
       const spec = state.spec;
       const ran = spec.runUntil(frames);
