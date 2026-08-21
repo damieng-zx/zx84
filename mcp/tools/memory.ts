@@ -10,7 +10,7 @@ export function register(server: McpServer): void {
     'read_memory',
     { description: 'Hex dump of memory. Without bank: reads from the 64KB address space. With bank (0-7): reads from that 16KB RAM bank directly, address is offset within the bank.', inputSchema: {
       address: z.string().describe('Start address (hex, or offset within bank)'),
-      length: z.number().int().positive().default(64).describe('Number of bytes to dump'),
+      length: z.number().int().positive().max(0x10000).default(64).describe('Number of bytes to dump'),
       bank: z.number().int().min(0).max(7).optional().describe('RAM bank 0-7 (omit for flat 64KB address space)'),
     } },
     async ({ address, length, bank }) => {
