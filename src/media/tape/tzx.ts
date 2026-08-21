@@ -42,6 +42,14 @@ function readSigned16(d: Uint8Array, o: number): number {
   return value & 0x8000 ? value - 0x10000 : value;
 }
 
+/** Pulse lengths are T-state durations. A length of 0 is non-physical and
+ *  makes the playback loop burn through every remaining pulse in a single
+ *  advance() call (a zero-period Direct Recording sample never terminates),
+ *  so malformed values are clamped to 1 T-state at parse time. */
+function pulse(v: number): number {
+  return v > 0 ? v : 1;
+}
+
 /** Return the offset of the block after the one starting at `start`. */
 function nextBlockOffset(d: Uint8Array, start: number): number {
   const id = d[start];
@@ -179,21 +187,22 @@ export function parseTZX(fileData: Uint8Array): TapeBlock[] {
         const pause = read16(fileData, o + 13);
         const len = read24(fileData, o + 15);
         const raw = fileData.slice(o + 18, o + 18 + len);
-        const blk = extractDataBlock(raw, pause, pilotPulse, syncPulse1, syncPulse2, bit0Pulse, bit1Pulse, pilotCount, usedBits, 'turbo');
+        const blk = extractDataBlock(raw, pause, pulse(pilotPulse), pulse(syncPulse1), pulse(syncPulse2),
+          pulse(bit0Pulse), pulse(bit1Pulse), pilotCount, usedBits, 'turbo');
         if (blk) { blk.rawBytes = raw; blocks.push(blk); }
         break;
       }
       case 0x12: { // Pure Tone
         const pulseLen = read16(fileData, o);
         const count = read16(fileData, o + 2);
-        blocks.push({ kind: 'tone', pulseLen, count });
+        blocks.push({ kind: 'tone', pulseLen: pulse(pulseLen), count });
         break;
       }
       case 0x13: { // Pulse Sequence
         const count = fileData[o];
         const lengths: number[] = [];
         for (let i = 0; i < count; i++) {
-          lengths.push(read16(fileData, o + 1 + i * 2));
+          lengths.push(pulse(read16(fileData, o + 1 + i * 2)));
         }
         blocks.push({ kind: 'pulses', lengths });
         break;
@@ -216,8 +225,8 @@ export function parseTZX(fileData: Uint8Array): TapeBlock[] {
             pilotPulse: 0,
             syncPulse1: 0,
             syncPulse2: 0,
-            bit0Pulse,
-            bit1Pulse,
+            bit0Pulse: pulse(bit0Pulse),
+            bit1Pulse: pulse(bit1Pulse),
             pilotCount: 0,
             usedBits,
             source: 'pure-data',
@@ -231,7 +240,7 @@ export function parseTZX(fileData: Uint8Array): TapeBlock[] {
         const usedBits = fileData[o + 4];
         const len = read24(fileData, o + 5);
         const data = fileData.slice(o + 8, o + 8 + len);
-        blocks.push({ kind: 'direct', tStatesPerSample, pause, usedBits, data });
+        blocks.push({ kind: 'direct', tStatesPerSample: pulse(tStatesPerSample), pause, usedBits, data });
         break;
       }
       case 0x18: // CSW Recording

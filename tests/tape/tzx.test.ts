@@ -393,6 +393,52 @@ describe('TZX — 0x15 Direct Recording', () => {
   });
 });
 
+// ── Zero pulse lengths are clamped at parse time ────────────────────────────
+
+describe('TZX — zero pulse lengths are clamped to 1 T-state', () => {
+  // A pulse length of 0 is non-physical: the playback loop burns through
+  // every remaining pulse in a single advance() (a Pure Tone with count
+  // 65535 does all 65535 toggles in one frame), and a Direct Recording
+  // with a zero sample period never terminates at all.
+  it('0x12 Pure Tone with pulseLen=0', () => {
+    const data = tzx(header(), block12(0, 65535));
+    const b = parseTZX(data)[0] as ToneBlock;
+    expect(b.pulseLen).toBe(1);
+  });
+
+  it('0x13 Pulse Sequence zeroes become 1, real lengths untouched', () => {
+    const data = tzx(header(), block13([0, 667, 0]));
+    const b = parseTZX(data)[0] as PulsesBlock;
+    expect(b.lengths).toEqual([1, 667, 1]);
+  });
+
+  it('0x11 Turbo with all-zero timing fields', () => {
+    const data = tzx(header(), block11({
+      pilotPulse: 0, syncPulse1: 0, syncPulse2: 0, bit0Pulse: 0, bit1Pulse: 0,
+      flag: 0xFF, payload: [0x01],
+    }));
+    const b = parseTZX(data)[0] as DataBlock;
+    expect(b.pilotPulse).toBe(1);
+    expect(b.syncPulse1).toBe(1);
+    expect(b.syncPulse2).toBe(1);
+    expect(b.bit0Pulse).toBe(1);
+    expect(b.bit1Pulse).toBe(1);
+  });
+
+  it('0x14 Pure Data with zero bit pulses', () => {
+    const data = tzx(header(), block14(0, 0, 8, 0, [0xAA]));
+    const b = parseTZX(data)[0] as DataBlock;
+    expect(b.bit0Pulse).toBe(1);
+    expect(b.bit1Pulse).toBe(1);
+  });
+
+  it('0x15 Direct Recording with zero sample period (would never terminate)', () => {
+    const data = tzx(header(), block15(0, 0, 8, [0xF0]));
+    const b = parseTZX(data)[0] as DirectBlock;
+    expect(b.tStatesPerSample).toBe(1);
+  });
+});
+
 // ── Block 0x18 / 0x19 (CSW and Generalized) ────────────────────────────────
 
 describe('TZX — 0x18 CSW Recording / 0x19 Generalized Data', () => {
