@@ -149,6 +149,10 @@ export function parseTZX(fileData: Uint8Array): TapeBlock[] {
     if (++steps > maxSteps) {
       throw new Error('TZX control flow does not terminate (cyclic Jump/Call/Select block)');
     }
+    // Remember where this block starts so the shared offset arithmetic can
+    // advance past it; flow-control blocks position `o` themselves and skip
+    // the shared advance with `continue`.
+    const blockStart = o;
     const id = fileData[o++];
 
     switch (id) {
@@ -162,7 +166,6 @@ export function parseTZX(fileData: Uint8Array): TapeBlock[] {
         const pilotCount = raw.length > 0 && raw[0] < 0x80 ? 8063 : 3223;
         const blk = extractDataBlock(raw, pause, 2168, 667, 735, 855, 1710, pilotCount, 8, 'standard');
         if (blk) { blk.rawBytes = raw; blocks.push(blk); }
-        o += 4 + len;
         break;
       }
       case 0x11: { // Turbo Speed Data Block
@@ -178,14 +181,12 @@ export function parseTZX(fileData: Uint8Array): TapeBlock[] {
         const raw = fileData.slice(o + 18, o + 18 + len);
         const blk = extractDataBlock(raw, pause, pilotPulse, syncPulse1, syncPulse2, bit0Pulse, bit1Pulse, pilotCount, usedBits, 'turbo');
         if (blk) { blk.rawBytes = raw; blocks.push(blk); }
-        o += 18 + len;
         break;
       }
       case 0x12: { // Pure Tone
         const pulseLen = read16(fileData, o);
         const count = read16(fileData, o + 2);
         blocks.push({ kind: 'tone', pulseLen, count });
-        o += 4;
         break;
       }
       case 0x13: { // Pulse Sequence
@@ -195,7 +196,6 @@ export function parseTZX(fileData: Uint8Array): TapeBlock[] {
           lengths.push(read16(fileData, o + 1 + i * 2));
         }
         blocks.push({ kind: 'pulses', lengths });
-        o += 1 + count * 2;
         break;
       }
       case 0x14: { // Pure Data Block
@@ -223,7 +223,6 @@ export function parseTZX(fileData: Uint8Array): TapeBlock[] {
             source: 'pure-data',
           });
         }
-        o += 10 + len;
         break;
       }
       case 0x15: { // Direct Recording
@@ -233,7 +232,6 @@ export function parseTZX(fileData: Uint8Array): TapeBlock[] {
         const len = read24(fileData, o + 5);
         const data = fileData.slice(o + 8, o + 8 + len);
         blocks.push({ kind: 'direct', tStatesPerSample, pause, usedBits, data });
-        o += 8 + len;
         break;
       }
       case 0x18: // CSW Recording
@@ -265,39 +263,33 @@ export function parseTZX(fileData: Uint8Array): TapeBlock[] {
         if (pulse !== pulseCount) throw new Error('Truncated embedded TZX CSW recording');
         blocks.push({ kind: 'csw', pulses });
         if (pause > 0) blocks.push({ kind: 'pause', duration: pause });
-        o += 4 + blockLen;
         break;
       }
-      case 0x19: { // Generalized Data Block
-        o += 4 + read32(fileData, o);
+      case 0x19: // Generalized Data Block (skipped)
         break;
-      }
       case 0x20: { // Pause / Stop the tape
         const duration = read16(fileData, o);
         blocks.push({ kind: 'pause', duration });
-        o += 2;
         break;
       }
       case 0x21: { // Group Start
         const nameLen = fileData[o];
         const name = readString(fileData, o + 1, nameLen);
         blocks.push({ kind: 'group-start', name });
-        o += 1 + nameLen;
         break;
       }
       case 0x22: // Group End
         blocks.push({ kind: 'group-end' });
         break;
       case 0x23: { // Jump to Block
-        const index = startIndex.get(o - 1)!;
+        const index = startIndex.get(blockStart)!;
         const target = index + 1 + readSigned16(fileData, o);
         if (target < 0 || target >= starts.length) throw new Error('TZX jump target is out of range');
         o = starts[target];
-        break;
+        continue;
       }
       case 0x24: // Loop Start
         loopStack.push({ start: blocks.length, count: read16(fileData, o) });
-        o += 2;
         break;
       case 0x25: { // Loop End
         const frame = loopStack.pop();
@@ -314,51 +306,46 @@ export function parseTZX(fileData: Uint8Array): TapeBlock[] {
         break;
       }
       case 0x26: { // Call Sequence (select the first destination)
-        const index = startIndex.get(o - 1)!;
+        const index = startIndex.get(blockStart)!;
         const count = read16(fileData, o);
-        if (count === 0) { o += 2; break; }
+        if (count === 0) break;
         const target = index + 1 + readSigned16(fileData, o + 2);
         if (target < 0 || target >= starts.length) throw new Error('TZX call target is out of range');
         callStack.push(index + 1);
         o = starts[target];
-        break;
+        continue;
       }
       case 0x27: { // Return from Sequence
         const target = callStack.pop();
         if (target === undefined) throw new Error('TZX return without call');
-        if (target >= starts.length) { o = fileData.length; break; }
+        if (target >= starts.length) { o = fileData.length; continue; }
         o = starts[target];
-        break;
+        continue;
       }
       case 0x28: { // Select Block (choose the first option)
-        const index = startIndex.get(o - 1)!;
+        const index = startIndex.get(blockStart)!;
         const count = fileData[o + 2];
-        if (count === 0) { o += 2 + read16(fileData, o); break; }
+        if (count === 0) break;
         const target = index + 1 + readSigned16(fileData, o + 3);
         if (target < 0 || target >= starts.length) throw new Error('TZX select target is out of range');
         o = starts[target];
-        break;
+        continue;
       }
       case 0x2A: // Stop tape if in 48K mode
         blocks.push({ kind: 'stop-if-48k' });
-        o += 4;
         break;
       case 0x2B: { // Set Signal Level
-        const blockLen = read32(fileData, o);
         const level = fileData[o + 4] & 1;
         blocks.push({ kind: 'set-level', level });
-        o += 4 + blockLen;
         break;
       }
       case 0x30: { // Text Description
         const textLen = fileData[o];
         const text = readString(fileData, o + 1, textLen);
         blocks.push({ kind: 'text', text });
-        o += 1 + textLen;
         break;
       }
-      case 0x31: // Message Block
-        o += 2 + fileData[o + 1];
+      case 0x31: // Message Block (skipped)
         break;
       case 0x32: { // Archive Info
         const totalLen = read16(fileData, o);
@@ -373,21 +360,21 @@ export function parseTZX(fileData: Uint8Array): TapeBlock[] {
           pos += 2 + entryLen;
         }
         blocks.push({ kind: 'archive-info', entries });
-        o += 2 + totalLen;
         break;
       }
-      case 0x33: // Hardware Type
-        o += 1 + fileData[o] * 3;
+      case 0x33: // Hardware Type (skipped)
         break;
-      case 0x35: // Custom Info Block
-        o += 20 + read32(fileData, o + 16);
+      case 0x35: // Custom Info Block (skipped)
         break;
-      case 0x5A: // Glue block
-        o += 9;
+      case 0x5A: // Glue block (skipped)
         break;
       default:
-        throw new Error(`Unknown TZX block type 0x${id.toString(16).padStart(2, '0')} at offset ${o - 1}`);
+        throw new Error(`Unknown TZX block type 0x${id.toString(16).padStart(2, '0')} at offset ${blockStart}`);
     }
+
+    // Advance past this block with the same offset arithmetic the up-front
+    // validation pass used — one source of truth for block sizes.
+    o = nextBlockOffset(fileData, blockStart);
   }
 
   return blocks;
