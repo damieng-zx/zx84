@@ -109,6 +109,23 @@ describe('MsxMemory slot paging', () => {
     expect(mem.readByte(0x8000)).toBe(0x22);
   });
 
+  it('maps a 48KB cartridge across pages 1–3 (0x4000–0xFFFF), never page 0', () => {
+    // MSX cartridges decode from 0x4000 up — mapping page 0 would shadow the
+    // BIOS ROM and strand the cart's last 16KB above 0xBFFF.
+    const cart = new Uint8Array(0xC000);
+    cart[0x0000] = 0xA1;   // → 0x4000
+    cart[0x4000] = 0xB2;   // → 0x8000
+    cart[0x8000] = 0xC3;   // → 0xC000
+    mem.insertCartridge(cart);
+    mem.setPrimarySlots(0x54);   // pages 1–3 → slot 1 (01<<2 | 01<<4 | 01<<6)
+    expect(mem.readByte(0x4000)).toBe(0xA1);
+    expect(mem.readByte(0x8000)).toBe(0xB2);
+    expect(mem.readByte(0xC000)).toBe(0xC3);
+    // Slot 1 covers no page 0 view: selecting it there reads open bus.
+    mem.setPrimarySlots(0x01);   // page 0 → slot 1
+    expect(mem.readByte(0x0000)).toBe(0xFF);
+  });
+
   it('keeps the cartridge across a reset (so the BIOS slot scan can boot it)', () => {
     const cart = new Uint8Array(0x4000);
     cart[0x0000] = 0x41; cart[0x0001] = 0x42;   // "AB"

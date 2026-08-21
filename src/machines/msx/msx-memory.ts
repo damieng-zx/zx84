@@ -94,8 +94,10 @@ export class MsxMemory implements IMachineMemory {
    * Build the per-page cartridge views from the ROM size, following the standard
    * MSX cartridge placement (the "AB" header sits at the start, mapped to
    * 0x4000): ≤8KB mirrors across page 1; ≤16KB → page 1; ≤32KB → pages 1–2;
-   * ≤48KB → pages 0–2. Larger images need a mega-ROM mapper (not yet supported);
-   * their first 32KB is mapped at pages 1–2 as a best effort.
+   * ≤48KB → pages 1–3 (MSX cartridges decode from 0x4000 upward — never page
+   * 0, which would shadow the BIOS ROM). Larger images need a mega-ROM mapper
+   * (not yet supported); their first 32KB is mapped at pages 1–2 as a best
+   * effort.
    */
   private buildCartViews(): void {
     this.cartView[0] = this.cartView[1] = this.cartView[2] = this.cartView[3] = null;
@@ -119,9 +121,9 @@ export class MsxMemory implements IMachineMemory {
       this.cartView[1] = slice16(0);
       this.cartView[2] = slice16(0x4000);
     } else if (size <= 0xC000) {
-      this.cartView[0] = slice16(0);
-      this.cartView[1] = slice16(0x4000);
-      this.cartView[2] = slice16(0x8000);
+      this.cartView[1] = slice16(0);
+      this.cartView[2] = slice16(0x4000);
+      this.cartView[3] = slice16(0x8000);
     } else {
       this.cartView[1] = slice16(0);
       this.cartView[2] = slice16(0x4000);
