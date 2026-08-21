@@ -207,6 +207,25 @@ describe('uPD765A — RECALIBRATE / SEEK', () => {
     expect(d.fdc.getUnitTrack(1)).toBe(25);
     expect(d.fdc.getUnitTrack(0)).toBe(0); // untouched
   });
+
+  it('public APIs alias units 2/3 to physical drives 0/1 like the core', () => {
+    // insertDisk/getDiskImage/setTrack/ejectDisk must resolve through the
+    // same physUnit() mapping as command execution: inserting at logical
+    // unit 2 into slot 2 would strand the image where no drive can read it.
+    const d = new Driver();
+    const img = makeStdImage();
+    d.fdc.insertDisk(img, 2);
+    expect(d.fdc.getDiskImage(0)).toBe(img);
+    expect(d.fdc.getDiskImage(2)).toBe(img);
+    d.fdc.setTrack(2, 12);
+    expect(d.fdc.getUnitTrack(0)).toBe(12);
+    expect(d.fdc.getUnitTrack(1)).toBe(0);
+    d.fdc.ejectDisk(3);
+    expect(d.fdc.getDiskImage(1)).toBeNull();
+    expect(d.fdc.getDiskImage(0)).toBe(img); // drive 0 untouched
+    d.fdc.ejectDisk(2);
+    expect(d.fdc.getDiskImage(0)).toBeNull();
+  });
 });
 
 describe('uPD765A — SENSE_DRIVE_STATUS (ST3)', () => {
@@ -757,14 +776,15 @@ describe('uPD765A — insertDisk / ejectDisk / reset', () => {
     expect(d.fdc.diskImage).toBe(img);
   });
 
-  it('getDiskImage(unit) does NOT apply drive aliasing — by design', () => {
-    // Intentional documentation: getDiskImage uses logical units.
-    // Physical alias (units 2/3 → 0/1) is only inside FDC operations.
+  it('getDiskImage(unit) applies drive aliasing like the rest of the core', () => {
+    // Units 2/3 alias to physical drives 0/1 everywhere: insert/eject/read
+    // through a logical unit ≥ 2 must land on the wired drive, not a slot
+    // no drive can address.
     const d = new Driver();
     const img = makeStdImage();
     d.fdc.insertDisk(img, 0);
     expect(d.fdc.getDiskImage(0)).toBe(img);
-    expect(d.fdc.getDiskImage(2)).toBeNull(); // alias not applied here
+    expect(d.fdc.getDiskImage(2)).toBe(img);
   });
 
   it('eject clears the slot', () => {

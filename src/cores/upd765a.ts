@@ -106,7 +106,7 @@ export class UPD765A {
 
   // ── Per-drive state ─────────────────────────────────────────────────
 
-  private pcn = [0, 0, 0, 0]; // Present Cylinder Number
+  private pcn = [0, 0]; // Present Cylinder Number (per physical drive)
 
   // Specify parameters are accepted and discarded (mechanical timing).
 
@@ -115,17 +115,20 @@ export class UPD765A {
 
   // ── Disk image ─────────────────────────────────────────────────────
 
-  private disks: (DskImage | null)[] = [null, null, null, null];
+  // Per-drive state is indexed by PHYSICAL drive (physUnit); the +3 wires only
+  // two drive-select lines, so logical units 2/3 alias to drives 0/1 and the
+  // original logical unit survives only in ST0/ST3 result bits.
+  private disks: (DskImage | null)[] = [null, null];
 
   /** Per-drive write-protect flag (software-controlled, like a physical tab) */
-  writeProtect = [false, false, false, false];
+  writeProtect = [false, false];
 
   /**
    * Per-drive "force ready" flag.  When set, Sense Drive Status always
    * reports the drive as ready (ST3 bit 5 = 1) even with no disk inserted.
    * Used to keep the +3 ROM from remapping B: to a swap-A on boot.
    */
-  forceReady = [false, false, false, false];
+  forceReady = [false, false];
 
   /**
    * Set to the unit number (0/1) when FORMAT_TRACK finishes; cleared by the
@@ -134,7 +137,7 @@ export class UPD765A {
   formattedUnit = -1;
 
   /** Per-drive Read ID cycling index */
-  private idIndex = [0, 0, 0, 0];
+  private idIndex = [0, 0];
 
   /**
    * Per-drive "flipped side" offset for combined flippy disks (a single DSK
@@ -144,7 +147,7 @@ export class UPD765A {
    * this offset re-points that head at the other stored side, exactly as
    * physically turning the disk over would. Always 0 for ordinary disks.
    */
-  flipSide = [0, 0, 0, 0];
+  flipSide = [0, 0];
 
   /**
    * Per-drive "written since insert" flag, indexed by physical unit (0/1).
@@ -248,11 +251,11 @@ export class UPD765A {
 
   /** Get disk image for a specific drive unit. */
   getDiskImage(unit: number): DskImage | null {
-    return this.disks[unit & 3];
+    return this.disks[this.physUnit(unit)];
   }
 
   /** Set the Present Cylinder Number for a drive (used by BIOS trap seek). */
-  setTrack(unit: number, cyl: number): void { this.pcn[unit & 3] = cyl; }
+  setTrack(unit: number, cyl: number): void { this.pcn[this.physUnit(unit)] = cyl; }
 
   /** Latch sector access info for UI display (used by BIOS trap read/write). */
   latchAccess(r: number, head: number, writing: boolean): void {
@@ -263,10 +266,11 @@ export class UPD765A {
   }
 
   insertDisk(image: DskImage, unit: number = 0): void {
-    this.disks[unit & 3] = image;
-    this.idIndex[unit & 3] = 0;
-    this.flipSide[unit & 3] = 0;   // a freshly inserted disk always starts Side A
-    this.dirty[unit & 1] = false;  // a freshly inserted image has no unsaved writes
+    const phys = this.physUnit(unit);
+    this.disks[phys] = image;
+    this.idIndex[phys] = 0;
+    this.flipSide[phys] = 0;        // a freshly inserted disk always starts Side A
+    this.dirty[phys] = false;       // a freshly inserted image has no unsaved writes
     this.log(`🎮 Disk inserted in unit ${unit}: ${image.numTracks} tracks, ${image.numSides} sides, ${image.format} format`);
     if (image.protection && image.protection !== 'None') {
       this.log(`   🔒 Copy protection detected: ${image.protection}`);
@@ -278,9 +282,10 @@ export class UPD765A {
 
   ejectDisk(unit: number = 0): void {
     this.log(`📤 Disk ejected from unit ${unit}`);
-    this.disks[unit & 3] = null;
-    this.flipSide[unit & 3] = 0;
-    this.dirty[unit & 1] = false;
+    const phys = this.physUnit(unit);
+    this.disks[phys] = null;
+    this.flipSide[phys] = 0;
+    this.dirty[phys] = false;
   }
 
   /** True if the disk in `unit` has been written to since it was inserted/saved. */
@@ -1255,7 +1260,7 @@ export class UPD765A {
     this.intPending = false;
     this.intST0 = 0;
     this.intPCN = 0;
-    this.pcn = [0, 0, 0, 0];
+    this.pcn = [0, 0];
     this.motorOn = false;
     this.exBuf = new Uint8Array(0);
     this.exPos = 0;
