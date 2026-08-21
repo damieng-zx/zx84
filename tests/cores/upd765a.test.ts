@@ -1214,3 +1214,42 @@ describe('uPD765A — weak (DD) vs stable deleted-data (CM+DD) reads', () => {
     expect(first.every(b => b === 0xAB)).toBe(true); // exactly the stored bytes
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// Hostile N codes — N arrives as a raw byte from command streams and image
+// sector IDs; only its low 3 bits are meaningful. Unmasked, `128 << n` goes
+// negative for n = 31/63/… and the transfer-buffer allocation throws a
+// RangeError out of port I/O, killing the frame.
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('uPD765A — hostile N codes do not throw', () => {
+  it('WRITE DATA with N=31 starts execution instead of throwing', () => {
+    const d = new Driver();
+    d.fdc.insertDisk(makeStdImage(), 0);
+    // unit head C H R N=31 EOT GPL DTL
+    const issue = () => [0x05, 0x00, 0, 0, 0xC1, 31, 0xC1, 0x2A, 0xFF]
+      .forEach(b => d.fdc.writeData(b));
+    expect(issue).not.toThrow();
+    expect(d.fdc.readStatus() & 0x20).toBe(0x20);   // EXM: execution phase running
+  });
+
+  it('FORMAT TRACK tolerates an N of 255 in the CPU-supplied CHRN tuples', () => {
+    const d = new Driver();
+    d.fdc.insertDisk(makeStdImage(), 0);
+    d.command(0x0F, 0x00, 3);      // seek to a fresh cylinder
+    d.command(0x08);               // clear the seek interrupt latch
+    // FORMAT_TRACK unit=0 head=0 N=2 SC=1 GPL=0x2A Fill=0x77
+    [0x0D, 0x00, 2, 1, 0x2A, 0x77].forEach(b => d.fdc.writeData(b));
+    const run = () => d.drainWriteExecution([3, 0, 0xC1, 255]);
+    expect(run).not.toThrow();     // previously RangeError in finishFormat()
+  });
+
+  it('READ DATA from a sector whose ID carries N=255 does not throw', () => {
+    const d = new Driver();
+    const im = makeImage();
+    im.tracks[0][0] = makeTrack([{ ...makeSector(0, 0, 0xC1, 2, 0xAB), n: 255 }]);
+    d.fdc.insertDisk(im, 0);
+    const run = () => { [0x06, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b)); };
+    expect(run).not.toThrow();
+  });
+});

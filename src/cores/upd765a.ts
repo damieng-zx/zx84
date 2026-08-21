@@ -30,6 +30,19 @@ const CMD_SCAN_EQUAL    = 0x11;
 const CMD_SCAN_LOW_EQ   = 0x19;
 const CMD_SCAN_HIGH_EQ  = 0x1D;
 
+/**
+ * Sector data-field size for an N code: 128 << N.
+ *
+ * N arrives from CPU command bytes (READ/WRITE DATA, FORMAT TRACK CHRN
+ * tuples) or disk-image sector IDs — any raw byte value. Only the low 3
+ * bits are meaningful (as the WD179x core also treats them): unmasked, an
+ * N of e.g. 31 makes `128 << n` negative and the transfer-buffer
+ * allocation throw a RangeError from inside port I/O, killing the frame.
+ */
+export function sectorXferSize(n: number): number {
+  return 128 << (n & 7);
+}
+
 // ── Status Register 0 bit masks ─────────────────────────────────────────
 
 /** Interrupt code: abnormal termination */
@@ -483,7 +496,7 @@ export class UPD765A {
           this.exR = found1.r;
           const s = found1.sector;
           this.exBuf = this.exWriting
-            ? new Uint8Array(128 << this.exCmdN)
+            ? new Uint8Array(sectorXferSize(this.exCmdN))
             : this.prepareReadBuffer(s);
           this.exPos = 0;
           this.exC = s.c;
@@ -517,7 +530,7 @@ export class UPD765A {
 
     const sector = found.sector;
     if (this.exWriting) {
-      this.exBuf = new Uint8Array(128 << this.exCmdN);
+      this.exBuf = new Uint8Array(sectorXferSize(this.exCmdN));
       this.exPos = 0;
     } else {
       this.exBuf = this.prepareReadBuffer(sector);
@@ -546,14 +559,14 @@ export class UPD765A {
    *   does NOT expand the transfer to cmdN bytes.  On real hardware the FDC
    *   CRC-terminates after the physical sector bytes and the execution phase
    *   ends there — no extra bytes are pushed into the DMA buffer.
-   * - Short sector (data.length < 128 << sector.n): fill tail with random data.
+   * - Short sector (data.length < sectorXferSize(sector.n)): fill tail with random data.
    * - Weak/CRC-error flag (st2 & 0x20): randomise all returned data.
    */
   private prepareReadBuffer(sector: DskSector): Uint8Array {
     // Physical transfer size is always determined by the sector's own N field.
     // Undersized sectors (sector.n < cmdN) only affect status reporting in
     // cmdReadWrite — the number of bytes transferred here is always physSize.
-    const physSize = 128 << sector.n;
+    const physSize = sectorXferSize(sector.n);
 
     // Simon Owen v5 multi-copy weak sector: the DSK parser populated
     // `copies` with K real reads of the same sector. Pick one at random
@@ -892,7 +905,7 @@ export class UPD765A {
     const isWrite = cmd === CMD_WRITE_DATA || cmd === CMD_WRITE_DELETED;
     this.exSK = sk && !isWrite;
 
-    this.log(`  → Unit=${unit} Head=${head} C=${c} H=${h} R=${r} N=${n} (${128 << n} bytes) EOT=${eot}`);
+    this.log(`  → Unit=${unit} Head=${head} C=${c} H=${h} R=${r} N=${n} (${sectorXferSize(n)} bytes) EOT=${eot}`);
 
     const track = this.getTrack(unit, head);
 
@@ -956,7 +969,7 @@ export class UPD765A {
     this.exCmd = cmd; // for command-relative CM in advanceSector
 
     if (isWrite) {
-      this.exBuf = new Uint8Array(128 << n);
+      this.exBuf = new Uint8Array(sectorXferSize(n));
       this.exPos = 0;
     } else {
       this.exBuf = this.prepareReadBuffer(sector);
@@ -1018,11 +1031,11 @@ export class UPD765A {
     const count = Math.max(1, Math.min(eot, track.sectors.length));
     const sectors = track.sectors.slice(0, count);
     let totalLen = 0;
-    for (const s of sectors) totalLen += 128 << s.n;
+    for (const s of sectors) totalLen += sectorXferSize(s.n);
     const buf = new Uint8Array(totalLen);
     let dst = 0;
     for (const s of sectors) {
-      const sz = 128 << s.n;
+      const sz = sectorXferSize(s.n);
       buf.set(s.data.subarray(0, sz), dst); // short sectors leave a zero tail
       dst += sz;
     }
@@ -1161,7 +1174,7 @@ export class UPD765A {
       const h = buf[i * 4 + 1];
       const r = buf[i * 4 + 2];
       const n = buf[i * 4 + 3];
-      const data = new Uint8Array(128 << n).fill(filler);
+      const data = new Uint8Array(sectorXferSize(n)).fill(filler);
       sectors.push({ c, h, r, n, st1: 0, st2: 0, data });
       sectorMap.set(r, i);
       lastR = r;
