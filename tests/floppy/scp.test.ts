@@ -92,6 +92,27 @@ describe('parseSCP flux decode', () => {
   });
 });
 
+describe('parseSCP malformed-input robustness', () => {
+  it('terminates when the header claims more flux than the file holds', () => {
+    // Truncate a valid image mid-flux-block. The TDH still declares the full
+    // fluxCount; past EOF every read decodes as 0 and would spin the old
+    // loop toward 4 billion iterations.
+    const full = buildScp([fluxFor(track([{ r: 1, fill: 0xAA }]))]);
+    const truncated = full.subarray(0, full.length - Math.floor(full.length * 0.4));
+    expect(() => parseSCP(truncated)).not.toThrow();
+  });
+
+  it('caps cell expansion from pathological overflow intervals', () => {
+    // 60000 zero words accumulate carry (0x10000 each), then one final
+    // interval — the derived cell count is astronomically large and must be
+    // clamped instead of allocating billions of entries.
+    const words: number[] = new Array(60000).fill(0);
+    words.push(1);
+    const img = parseSCP(buildScp([words]));
+    expect(img.numSides).toBe(1);
+  });
+});
+
 describe('parseSCP weak-sector detection across revolutions', () => {
   it('attaches copies[] for a sector that reads differently each revolution', () => {
     // Two revolutions: sector 1 differs (weak), sector 2 identical.

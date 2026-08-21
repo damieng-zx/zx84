@@ -29,6 +29,11 @@ import { detectDiskFormat, detectProtection, isFlippyDisk } from './disk-detect.
 const TRACK_TABLE = 0x10;
 const MAX_TRACKS = 168;
 
+/** Ceiling on recovered bit-cells per revolution. A real track tops out
+ *  around 200k cells (250 kbps × 300 ms); crafted giant flux intervals must
+ *  not amplify into hundreds of millions of pushed cells. */
+const MAX_CELLS = 1 << 21;
+
 /** True if the bytes start with the "SCP" signature. */
 export function isScp(data: Uint8Array): boolean {
   return data.length >= 0x10
@@ -58,10 +63,14 @@ function fluxToCells(flux: number[], cellTicks: number): Uint8Array {
   let cell = cellTicks;
   const gain = 0.10; // PLL adaptation rate
   for (const t of flux) {
+    if (bits.length >= MAX_CELLS) break;
     // Number of cells this interval spans (at least 1); the transition lands in
     // the final cell, so emit (n-1) empty cells then one flux cell.
     let n = Math.round(t / cell);
     if (n < 1) n = 1;
+    // Clamp to the remaining cell budget — malformed intervals must not push
+    // unbounded zeros.
+    n = Math.min(n, MAX_CELLS - bits.length);
     for (let i = 0; i < n - 1; i++) bits.push(0);
     bits.push(1);
     // Adapt the cell estimate toward this interval's per-cell time.
@@ -173,10 +182,18 @@ export function parseSCP(data: Uint8Array): DskImage {
     let cellTicks = 0;
     for (let r = 0; r < numRevs; r++) {
       const o = tdhOff + 4 + r * 12;
-      const fluxCount = u32le(data, o + 4);
+      let fluxCount = u32le(data, o + 4);
       const dataOffset = u32le(data, o + 8);
       if (fluxCount === 0) continue;
-      const flux = readFlux(data, tdhOff + dataOffset, fluxCount);
+      // Clamp the count to the bytes actually present: past EOF every 16-bit
+      // read decodes as 0, which only accumulates carry — a header claiming
+      // more flux than the file holds would otherwise spin this loop toward
+      // 4 billion iterations.
+      const fluxBase = tdhOff + dataOffset;
+      const avail = data.length - fluxBase;
+      if (avail < 2) continue;
+      fluxCount = Math.min(fluxCount, Math.floor(avail / 2));
+      const flux = readFlux(data, fluxBase, fluxCount);
       if (cellTicks === 0) cellTicks = estimateCellTicks(flux, resTicks);
       const dec = decodeHfeTrack(fluxToCells(flux, cellTicks));
       if (dec) revTracks.push(dec);
