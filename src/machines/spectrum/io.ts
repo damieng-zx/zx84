@@ -277,7 +277,13 @@ export function wirePortIO(s: Spectrum): void {
       }
     }
 
-    // AMX mouse PIO data ports (A7=0) and button port (0xDF)
+    // AMX mouse PIO data ports (A7=0) and button port (0xDF).
+    // Intentional bus priority: the AMX hardware decodes only A5-A7, so its
+    // X-counter port (0x00-0x1F) overlaps the Kempston joystick port 0x1F —
+    // on real hardware both interfaces would fight to drive the bus. When
+    // the AMX mouse is enabled it sits EARLIER in this chain and wins 0x1F
+    // (and 0xDF over the Kempston mouse), mirroring the FAQ's "joystick
+    // takes priority over the keyboard" rule for overlapping decodes.
     if (s.amxMouse.enabled) {
       if ((port & 0x80) === 0) {
         const lo = port & 0xE0;
