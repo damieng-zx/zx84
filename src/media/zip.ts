@@ -106,8 +106,19 @@ export async function unzip(data: Uint8Array): Promise<ZipEntry[]> {
   return results;
 }
 
-/** Decompress deflate-raw data via browser DecompressionStream API. */
-async function inflate(compressed: Uint8Array, expectedSize: number): Promise<Uint8Array> {
+/** Hard cap on a single inflated entry. No legitimate emulator file comes
+ *  close; anything larger is a corrupt or hostile (zip-bomb) archive. */
+const MAX_INFLATED_SIZE = 64 * 1024 * 1024;
+
+/** Decompress deflate-raw data via browser DecompressionStream API.
+ *  The declared central-directory size is only a pre-flight hint — the
+ *  result is sized from the bytes the stream actually produces, so a
+ *  lying directory entry cannot overflow the assembly buffer. */
+async function inflate(compressed: Uint8Array, declaredSize: number): Promise<Uint8Array> {
+  if (declaredSize > MAX_INFLATED_SIZE) {
+    throw new Error(`Inflated entry exceeds ${MAX_INFLATED_SIZE} bytes (declared ${declaredSize})`);
+  }
+
   const ds = new DecompressionStream('deflate-raw');
   const writer = ds.writable.getWriter();
   const reader = ds.readable.getReader();
@@ -120,13 +131,18 @@ async function inflate(compressed: Uint8Array, expectedSize: number): Promise<Ui
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
-    chunks.push(value);
     totalLen += value.byteLength;
+    if (totalLen > MAX_INFLATED_SIZE) {
+      // Abandon the stream (cancelling fires an extra internal AbortError
+      // rejection in Node's webstreams) and refuse the entry.
+      throw new Error(`Inflated entry exceeds ${MAX_INFLATED_SIZE} bytes (possible zip bomb)`);
+    }
+    chunks.push(value);
   }
 
   if (chunks.length === 1) return chunks[0];
 
-  const result = new Uint8Array(expectedSize > 0 ? expectedSize : totalLen);
+  const result = new Uint8Array(totalLen);
   let offset = 0;
   for (const chunk of chunks) {
     result.set(chunk, offset);

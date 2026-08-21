@@ -456,3 +456,106 @@ describe('unzip — multi-chunk inflate concatenation', () => {
     expect(out[0].data[SIZE - 1]).toBe(0);
   });
 });
+
+// ── inflate: output cap and lying central-directory sizes ───────────────────
+
+describe('unzip — inflate output cap and size mismatches', () => {
+  function bombZip(declaredSize: number, rawSize: number): Uint8Array {
+    const raw = new Uint8Array(rawSize); // all zeros — maximal deflate ratio
+    const deflated = new Uint8Array(deflateRawSync(raw));
+    const name = new TextEncoder().encode('bomb.dsk');
+    const lh = makeLocalFileHeader({
+      name, method: 8,
+      compressedSize: deflated.length,
+      uncompressedSize: declaredSize,
+    });
+    const cd = makeCentralDirEntry({
+      name, method: 8,
+      compressedSize: deflated.length,
+      uncompressedSize: declaredSize,
+      localHeaderOffset: 0,
+    });
+    const eocd = makeEocd({
+      totalEntries: 1,
+      cdSize: cd.length,
+      cdOffset: lh.length + deflated.length,
+    });
+    return concat(lh, deflated, cd, eocd);
+  }
+
+  it('rejects a declared uncompressedSize above the 64 MiB cap before inflating', async () => {
+    const CAP = 64 * 1024 * 1024;
+    const zip = bombZip(CAP + 1, 1024);
+    await expect(unzip(zip)).rejects.toThrow(/exceeds 67108864 bytes/);
+  });
+
+  it('stops inflating a zip bomb whose stream exceeds the 64 MiB cap', async () => {
+    const CAP = 64 * 1024 * 1024;
+    // Central directory claims an innocent 1 KiB; the stream really inflates
+    // past the cap. Must reject cleanly, not buffer the whole expansion.
+    const zip = bombZip(1024, CAP + 1);
+    await expect(unzip(zip)).rejects.toThrow(/exceeds 67108864 bytes/);
+  });
+
+  it('returns the full payload when the CD understates the uncompressed size', async () => {
+    // Multi-chunk payload (64 KiB) with a CD claiming 4 KiB: the old code
+    // allocated 4 KiB and threw RangeError when the chunks overflowed it.
+    const SIZE = 64 * 1024;
+    const raw = new Uint8Array(SIZE);
+    for (let i = 0; i < SIZE; i++) raw[i] = i & 0xFF;
+    const deflated = new Uint8Array(deflateRawSync(raw));
+    const name = new TextEncoder().encode('lie.sna');
+
+    const lh = makeLocalFileHeader({
+      name, method: 8,
+      compressedSize: deflated.length,
+      uncompressedSize: 4096,
+    });
+    const cd = makeCentralDirEntry({
+      name, method: 8,
+      compressedSize: deflated.length,
+      uncompressedSize: 4096,
+      localHeaderOffset: 0,
+    });
+    const eocd = makeEocd({
+      totalEntries: 1,
+      cdSize: cd.length,
+      cdOffset: lh.length + deflated.length,
+    });
+
+    const out = await unzip(concat(lh, deflated, cd, eocd));
+    expect(out).toHaveLength(1);
+    expect(out[0].data).toEqual(raw);
+  });
+
+  it('returns only the produced bytes when the CD overstates the uncompressed size', async () => {
+    // CD claims 1 MiB, stream produces 64 KiB: the old code zero-padded the
+    // tail; the result must be exactly the bytes that were inflated.
+    const SIZE = 64 * 1024;
+    const raw = new Uint8Array(SIZE);
+    for (let i = 0; i < SIZE; i++) raw[i] = (i * 7) & 0xFF;
+    const deflated = new Uint8Array(deflateRawSync(raw));
+    const name = new TextEncoder().encode('pad.dsk');
+
+    const lh = makeLocalFileHeader({
+      name, method: 8,
+      compressedSize: deflated.length,
+      uncompressedSize: 1024 * 1024,
+    });
+    const cd = makeCentralDirEntry({
+      name, method: 8,
+      compressedSize: deflated.length,
+      uncompressedSize: 1024 * 1024,
+      localHeaderOffset: 0,
+    });
+    const eocd = makeEocd({
+      totalEntries: 1,
+      cdSize: cd.length,
+      cdOffset: lh.length + deflated.length,
+    });
+
+    const out = await unzip(concat(lh, deflated, cd, eocd));
+    expect(out).toHaveLength(1);
+    expect(out[0].data).toEqual(raw);
+  });
+});
