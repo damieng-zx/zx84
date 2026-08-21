@@ -293,6 +293,14 @@ export class WebGLRenderer implements IScreenRenderer {
   private bufferFBO: WebGLBuffer;  // quad with standard UVs (for FBO)
   private glDirty = true;
 
+  // Shaders created for our programs — tracked so dispose() can delete them.
+  private shaders: WebGLShader[] = [];
+  // Every texture this renderer ever created (source, FBO, LUT placeholders,
+  // async-loaded LUTs) — dispose() walks this rather than the live slots,
+  // since a loaded LUT replaces its placeholder in lutTextures.
+  private ownedTextures: WebGLTexture[] = [];
+  private disposed = false;
+
   // Effect parameters
   private smoothing = 0;
   private curvature = 0;
@@ -364,9 +372,6 @@ export class WebGLRenderer implements IScreenRenderer {
       });
     }
 
-    // ── Load HQ4x LUT texture asynchronously ──
-    this.loadLUT();
-
     // ── Pass 2 program (CRT) ──
     this.progCRT = this.buildProgram(VERT_SRC, FRAG_CRT);
     this.u2Resolution = gl.getUniformLocation(this.progCRT, 'u_resolution');
@@ -386,6 +391,7 @@ export class WebGLRenderer implements IScreenRenderer {
 
     // ── Source texture (emulator pixels, NEAREST) ──
     this.texture = gl.createTexture()!;
+    this.ownedTextures.push(this.texture);
     gl.bindTexture(gl.TEXTURE_2D, this.texture);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
@@ -395,6 +401,7 @@ export class WebGLRenderer implements IScreenRenderer {
 
     // ── FBO texture (upscaled, LINEAR for smooth barrel sampling) ──
     this.fboTex = gl.createTexture()!;
+    this.ownedTextures.push(this.fboTex);
     gl.bindTexture(gl.TEXTURE_2D, this.fboTex);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
@@ -406,6 +413,9 @@ export class WebGLRenderer implements IScreenRenderer {
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.fboTex, 0);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+
+    // ── Load HQx LUT textures asynchronously ──
+    this.loadLUT();
 
     // Apply default 2x scale (also sizes the FBO texture)
     this.applyScale();
@@ -428,6 +438,7 @@ export class WebGLRenderer implements IScreenRenderer {
   private compileShader(type: number, src: string): WebGLShader {
     const gl = this.gl;
     const shader = gl.createShader(type)!;
+    this.shaders.push(shader);
     gl.shaderSource(shader, src);
     gl.compileShader(shader);
     if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
@@ -445,7 +456,11 @@ export class WebGLRenderer implements IScreenRenderer {
     lutMap[3] = hq4xLutUrl;   // HQ4x
 
     const gl = this.gl;
-    this.lutTextures = lutMap.map(() => null);
+    // Seed every LUT slot with a 1×1 placeholder so an HQx mode selected
+    // before its PNG arrives still samples a defined (black) texture rather
+    // than whatever is lying around on texture unit 1.
+    const placeholder = this.createPlaceholderTexture();
+    this.lutTextures = lutMap.map((url) => (url ? placeholder : null));
 
     for (let i = 0; i < lutMap.length; i++) {
       const url = lutMap[i];
@@ -453,7 +468,9 @@ export class WebGLRenderer implements IScreenRenderer {
       const idx = i;
       const img = new Image();
       img.onload = () => {
+        if (this.disposed) return;
         const tex = gl.createTexture()!;
+        this.ownedTextures.push(tex);
         gl.activeTexture(gl.TEXTURE2);  // scratch unit
         gl.bindTexture(gl.TEXTURE_2D, tex);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
@@ -466,6 +483,50 @@ export class WebGLRenderer implements IScreenRenderer {
         this.glDirty = true;
       };
       img.src = url;
+    }
+  }
+
+  /** 1×1 opaque black texture used as a defined stand-in (LUT placeholder). */
+  private createPlaceholderTexture(): WebGLTexture {
+    const gl = this.gl;
+    const tex = gl.createTexture()!;
+    this.ownedTextures.push(tex);
+    gl.activeTexture(gl.TEXTURE2);  // scratch unit
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE,
+      new Uint8Array([0, 0, 0, 255]));
+    gl.activeTexture(gl.TEXTURE0);
+    return tex;
+  }
+
+  /**
+   * Release every GPU resource this renderer owns. Call when replacing the
+   * renderer (settings toggle, model switch) or tearing the machine down.
+   * Pass `{ loseContext: true }` only if the canvas itself is going away —
+   * forcing the context lost on a canvas that stays in the DOM would also
+   * kill the context any successor obtains from it.
+   */
+  dispose(options?: { loseContext?: boolean }): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    const gl = this.gl;
+    for (const p of this.upscalePrograms) gl.deleteProgram(p);
+    this.upscalePrograms = [];
+    gl.deleteProgram(this.progCRT);
+    for (const s of this.shaders) gl.deleteShader(s);
+    this.shaders = [];
+    for (const t of this.ownedTextures) gl.deleteTexture(t);
+    this.ownedTextures = [];
+    gl.deleteBuffer(this.buffer);
+    gl.deleteBuffer(this.bufferFBO);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.deleteFramebuffer(this.fbo);
+    if (options?.loseContext) {
+      gl.getExtension('WEBGL_lose_context')?.loseContext();
     }
   }
 

@@ -84,6 +84,15 @@ function makeMockGL(opts: MockGLOptions = {}) {
   const drawCalls: { mode: number; first: number; count: number; viewport: [number, number, number, number]; program: MockProgram | null; framebuffer: MockFramebuffer | null; activeUnit: number; boundTextureOnUnit0: MockTexture | null; boundTextureOnUnit1: MockTexture | null }[] = [];
   let viewport: [number, number, number, number] = [0, 0, 0, 0];
 
+  const deleted = {
+    programs: [] as MockProgram[],
+    shaders: [] as MockShader[],
+    textures: [] as MockTexture[],
+    buffers: [] as MockBuffer[],
+    framebuffers: [] as MockFramebuffer[],
+  };
+  let contextLost = false;
+
   const gl: any = {
     // ── constants ──
     ARRAY_BUFFER: 0x8892, STATIC_DRAW: 0x88E4,
@@ -167,6 +176,17 @@ function makeMockGL(opts: MockGLOptions = {}) {
       if (boundFramebuffer) boundFramebuffer.attachment = t;
     },
 
+    // ── deletion / context loss ──
+    deleteProgram(p: MockProgram) { deleted.programs.push(p); },
+    deleteShader(s: MockShader) { deleted.shaders.push(s); },
+    deleteTexture(t: MockTexture) { deleted.textures.push(t); },
+    deleteBuffer(b: MockBuffer) { deleted.buffers.push(b); },
+    deleteFramebuffer(f: MockFramebuffer) { deleted.framebuffers.push(f); },
+    getExtension(name: string) {
+      if (name === 'WEBGL_lose_context') return { loseContext() { contextLost = true; } };
+      return null;
+    },
+
     // ── draw ──
     viewport(x: number, y: number, w: number, h: number) { viewport = [x, y, w, h]; },
     drawArrays(mode: number, first: number, count: number) {
@@ -181,7 +201,7 @@ function makeMockGL(opts: MockGLOptions = {}) {
     },
   };
 
-  return { gl, programs, textures, drawCalls, log, getBoundProgram: () => boundProgram, get activeUnit() { return activeUnit; } };
+  return { gl, programs, shaders, textures, drawCalls, log, deleted, isContextLost: () => contextLost, getBoundProgram: () => boundProgram, get activeUnit() { return activeUnit; } };
 }
 
 // ── DOM stubs ────────────────────────────────────────────────────────────
@@ -652,5 +672,50 @@ describe('WebGLRenderer frame counter', () => {
     //   draw2: 0x7FFFFFFF + 1 = 0x80000000 → masked to 0, push 0
     expect(last).toBe(0);
     expect((r as any).frameCount).toBe(0);
+  });
+});
+
+// ── Dispose ──────────────────────────────────────────────────────────────
+
+describe('WebGLRenderer dispose', () => {
+  it('deletes every program, shader, texture, buffer, and framebuffer it created', () => {
+    const { r, mock } = makeRenderer();
+    // Load a LUT so an async-created texture exists too.
+    StubImage.instances.forEach((img) => img.fire());
+    r.dispose();
+    expect(mock.deleted.programs).toHaveLength(mock.programs.length);
+    expect(mock.deleted.shaders).toHaveLength(mock.shaders.length);
+    expect(mock.deleted.textures).toHaveLength(mock.textures.length);
+    expect(mock.deleted.buffers).toHaveLength(2);       // source quad + FBO quad
+    expect(mock.deleted.framebuffers).toHaveLength(1);
+  });
+
+  it('does not lose the context by default (canvas may be reused)', () => {
+    const { r, mock } = makeRenderer();
+    r.dispose();
+    expect(mock.isContextLost()).toBe(false);
+  });
+
+  it('loses the context only when asked (canvas being discarded)', () => {
+    const { r, mock } = makeRenderer();
+    r.dispose({ loseContext: true });
+    expect(mock.isContextLost()).toBe(true);
+  });
+
+  it('is idempotent', () => {
+    const { r, mock } = makeRenderer();
+    r.dispose({ loseContext: true });
+    r.dispose();
+    // Second call must not double-delete or resurrect the context loss path.
+    expect(mock.isContextLost()).toBe(true);
+    expect(mock.deleted.programs).toHaveLength(mock.programs.length);
+  });
+
+  it('ignores a LUT image that arrives after dispose', () => {
+    const { r, mock } = makeRenderer();
+    const texturesAtDispose = mock.textures.length;
+    r.dispose();
+    StubImage.instances.forEach((img) => img.fire());
+    expect(mock.textures.length).toBe(texturesAtDispose);
   });
 });

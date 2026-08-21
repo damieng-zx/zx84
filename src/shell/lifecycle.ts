@@ -120,7 +120,12 @@ export async function createMachine(): Promise<boolean> {
   // Stash the outgoing machine's tape under its own platform kind so tapes for
   // different systems stay independent (see stashOutgoingTape).
   if (machine) stashOutgoingTape(machine);
-  if (machine) machine.destroy();
+  if (machine) {
+    // The canvas is reused by the next machine's renderer, so release only
+    // this renderer's GPU resources — not the shared WebGL context.
+    machine.display?.dispose?.();
+    machine.destroy();
+  }
 
   const model = currentModel();
   const locale = currentLocale();
@@ -443,6 +448,10 @@ export async function switchModel(model: MachineModel): Promise<void> {
 export function setCanvas(el: HTMLCanvasElement): void {
   setCanvasEl(el);
   if (machine) {
+    // The old renderer's canvas is being discarded (a fresh element was
+    // mounted), so its WebGL context can be released outright — leaving it
+    // alive would count against the browser's per-page context limit.
+    machine.display?.dispose?.({ loseContext: true });
     // The machine reports its live frame-buffer geometry (the Spectrum's
     // shrinks with the border-size setting).
     machine.display = createDisplay(el, machine.frameWidth, machine.frameHeight);
@@ -562,6 +571,7 @@ export function destroy(): void {
   floppySound?.destroy();
   setFloppySound(null);
   if (machine) {
+    machine.display?.dispose?.({ loseContext: true });
     machine.destroy();
     setMachine(null);
   }
