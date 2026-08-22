@@ -30,7 +30,17 @@ export interface Trap {
 }
 
 export const traps = new Map<number, Trap[]>();
+
+/** Cap on retained trap-log lines — same bound as the FDC log ring buffer.
+ *  A 'log'-mode trap fires once per instruction passing its PC, so an
+ *  unbounded log grows without limit on long runs. */
+const TRAP_LOG_MAX = 2000;
 export const trapLog: string[] = [];
+
+function pushTrapLog(line: string): void {
+  trapLog.push(line);
+  if (trapLog.length > TRAP_LOG_MAX) trapLog.shift();
+}
 
 /**
  * Reset trap: catches the whole class of "machine reboots" — loaders RET/JP/RST 0
@@ -142,7 +152,7 @@ export function installTrapHook(spec: Machine): void {
       // instruction, so arming while already at boot PC=0 can't false-fire).
       if (pc === 0x0000 && resetTrap.lastPc > 0) {
         resetTrap.hit = captureReset(spec, resetTrap.lastPc);
-        trapLog.push(resetTrap.hit.text);
+        pushTrapLog(resetTrap.hit.text);
         resetTrap.lastPc = pc;
         return true;
       }
@@ -154,20 +164,20 @@ export function installTrapHook(spec: Machine): void {
       if (trap.condC !== undefined && z80Cpu(spec)!.c !== trap.condC) continue;
 
       if (trap.action === 'log') {
-        trapLog.push(formatTrapLog(trap, spec));
+        pushTrapLog(formatTrapLog(trap, spec));
         return false;
       }
       if (trap.action === 'break') {
-        trapLog.push(formatTrapLog(trap, spec) + '  [BREAK]');
+        pushTrapLog(formatTrapLog(trap, spec) + '  [BREAK]');
         return true;
       }
       if (trap.action === 'respond') {
         const resp = trap.responses.shift();
         if (!resp) {
-          trapLog.push(formatTrapLog(trap, spec) + '  [RESPOND queue empty — BREAK]');
+          pushTrapLog(formatTrapLog(trap, spec) + '  [RESPOND queue empty — BREAK]');
           return true;
         }
-        trapLog.push(formatTrapLog(trap, spec) + `  [RESPOND ${JSON.stringify(resp.regs)}]`);
+        pushTrapLog(formatTrapLog(trap, spec) + `  [RESPOND ${JSON.stringify(resp.regs)}]`);
         const cpu = z80Cpu(spec)!;
         for (const [reg, val] of Object.entries(resp.regs)) {
           switch (reg.toUpperCase()) {
