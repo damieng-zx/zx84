@@ -15,6 +15,7 @@ import { loadFileInto, mountAndArm, runLoadVerdict } from '../spectrum-loader.ts
 import { fdcLog } from '../fdc-log.ts';
 import { unzip } from '../../src/media/zip.ts';
 import { CACHE_DIR } from '../rom-fetch.ts';
+import { checkPathAllowed } from '../paths.ts';
 import {
   findGames, findZx8xGames, suggestTitles, suggestZx8xTitles,
   fileUrls, planLoad, availableFormats, basename,
@@ -289,6 +290,8 @@ export function register(server: McpServer): void {
       let out = file ?? path.join(CACHE_DIR, 'screenshot.png');
       if (!/\.png$/i.test(out)) out += '.png';
       out = path.resolve(out);
+      const denied = checkPathAllowed(out);
+      if (denied) return text(denied);
 
       const png = encodePNG(rgba, width, height);
       fs.mkdirSync(path.dirname(out), { recursive: true });
@@ -304,6 +307,9 @@ export function register(server: McpServer): void {
       const spec = activeSpectrum();
       if (!spec) return text('SZX snapshot save is Spectrum-only.');
       if (!file.toLowerCase().endsWith('.szx')) file = file + '.szx';
+      const out = path.resolve(file);
+      const denied = checkPathAllowed(out);
+      if (denied) return text(denied);
       const ayRegs = spec.ay ? new Uint8Array(16).map((_, i) => spec.ay.readRegister(i)) : undefined;
       const ayCurrentReg = spec.ay?.selectedReg;
       const szxData = await saveSZX(
@@ -315,9 +321,9 @@ export function register(server: McpServer): void {
         ayRegs,
         ayCurrentReg,
       );
-      fs.mkdirSync(path.dirname(path.resolve(file)), { recursive: true });
-      fs.writeFileSync(file, szxData);
-      return text(`Saved ${szxData.length} bytes → ${file}\nPC=${h16(spec.cpu.pc)}  Model=${state.model}  Bank=${spec.memory.currentBank}  ROM=${spec.memory.currentROM}`);
+      fs.mkdirSync(path.dirname(out), { recursive: true });
+      fs.writeFileSync(out, szxData);
+      return text(`Saved ${szxData.length} bytes → ${out}\nPC=${h16(spec.cpu.pc)}  Model=${state.model}  Bank=${spec.memory.currentBank}  ROM=${spec.memory.currentROM}`);
     },
   );
 

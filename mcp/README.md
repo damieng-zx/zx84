@@ -121,6 +121,11 @@ Spectrum additionally supports `sym`, `capslock`, and symbol-shift combos.
 | `disk_boot` | `file` (optional) | Spectrum +3 Loader-menu boot helper; the optional DSK may be a local path or HTTP(S) URL. |
 | `disk_trace` | `file` | +3 copy-protection helper for a local or HTTP(S) DSK: boot, arm `FE10`, and watch `3FFD`. |
 
+**Path confinement:** `screenshot`/`save` outputs and `symbols_load`
+inputs are confined to the MCP cache directory (`mcp/.cache`) and the
+server's working directory; reads are size-capped. Paths elsewhere are
+refused.
+
 ### Tracing And OCR
 
 | Tool | Parameters | Description |

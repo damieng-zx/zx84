@@ -5,14 +5,23 @@ import { z } from 'zod';
 import { hex16 as h16 } from '../../src/utils/hex.ts';
 import { symbols } from '../state.ts';
 import { text } from '../format.ts';
+import { checkPathAllowed, readTextBounded } from '../paths.ts';
+
+/** .lst listings are text and rarely exceed a few hundred KB; 8 MB is a
+ *  generous ceiling that still stops a mis-pointed path at a huge file. */
+const MAX_SYMBOLS_BYTES = 8 * 1024 * 1024;
 
 export function register(server: McpServer): void {
   server.registerTool(
     'symbols_load',
-    { description: 'Load symbols from an sjasmplus .lst file. Recognises both `name:` labels and `name equ <literal>` defines. Replaces matching names; other symbols are kept.', inputSchema: { path: z.string().describe('Path to the .lst file (e.g. "../opencpm-plus3/build/bios.lst")') } },
+    { description: 'Load symbols from an sjasmplus .lst file. Recognises both `name:` labels and `name equ <literal>` defines. Replaces matching names; other symbols are kept. The file must live under the MCP cache or the server working directory.', inputSchema: { path: z.string().describe('Path to the .lst file (e.g. "../opencpm-plus3/build/bios.lst")') } },
     async ({ path: p }) => {
       if (!fs.existsSync(p)) return text(`File not found: ${p}`);
-      const txt = fs.readFileSync(p, 'utf8');
+      const denied = checkPathAllowed(p);
+      if (denied) return text(denied);
+      const read = readTextBounded(p, MAX_SYMBOLS_BYTES);
+      if (read.error) return text(read.error);
+      const txt = read.text!;
       const before = symbols.size;
       const r = symbols.loadLst(txt, p);
       const added = symbols.size - before;
