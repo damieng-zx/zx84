@@ -5,7 +5,6 @@
 
 import { is128kClass } from '../src/models.ts';
 import type { Machine } from '../src/machines/machine.ts';
-import { stripMarkers } from '../src/debug/z80/disasm.ts';
 import { hex8 as h8, hex16 as h16 } from '../src/utils/hex.ts';
 import { symbols } from './state.ts';
 import { activeSpectrum } from './concrete.ts';
@@ -25,7 +24,7 @@ export function parseAddr(s: string): number {
     const sym = symbols.lookup(raw);
     if (sym) return sym.value;
   }
-  // Plain hex — this is a Z80 debugger.
+  // Plain hex — addresses are hex by default in every CPU family we debug.
   return parseHex(raw, s);
 }
 
@@ -81,25 +80,10 @@ export const CHAR_KEYS: Record<string, string[]> = {
   '\n': ['enter'],
 };
 
-/** Named 16-bit register values from a debug snapshot. */
-function regMap(spec: Machine): Record<string, number> {
-  const out: Record<string, number> = {};
-  for (const r of spec.services.debug.regs().regs) out[r.name] = r.value;
-  return out;
-}
-
+/** One-line "PC, instruction, working registers, elapsed time" step trace.
+ *  The layout is the CPU family's — this is only where the tools reach it. */
 export function formatStep(spec: Machine): string {
-  const dbg = spec.services.debug;
-  const line = dbg.disasm(dbg.pc, 1)[0];
-  const mnem = stripMarkers(line.text).padEnd(20);
-  const v = regMap(spec);
-  const af = v['AF'] ?? 0;
-  return (
-    `${h16(dbg.pc)}  ${mnem}` +
-    `A=${h8(af >> 8)} F=${h8(af & 0xFF)} ` +
-    `BC=${h16(v['BC'] ?? 0)} DE=${h16(v['DE'] ?? 0)} HL=${h16(v['HL'] ?? 0)} ` +
-    `SP=${h16(v['SP'] ?? 0)}  T=${dbg.tStates}`
-  );
+  return spec.services.debug.stepLine();
 }
 
 /** One-line 128K-class Spectrum paging state, or null on 16K/48K and on
@@ -112,24 +96,10 @@ export function spectrumPagingLine(): string | null {
   return `Bank: ${mem.currentBank}  ROM: ${mem.currentROM}  7FFD: ${h8(mem.port7FFD)}  Locked: ${mem.pagingLocked ? 'Y' : 'N'}`;
 }
 
+/** The `registers` readout: the CPU family's own register/flag block, plus the
+ *  machine's banking line when it has one. */
 export function formatRegs(spec: Machine): string {
-  const snap = spec.services.debug.regs();
-  const v: Record<string, number> = {};
-  for (const r of snap.regs) v[r.name] = r.value;
-  // Flag order/letters match the Z80 convention the tool always printed.
-  const flagSet = new Map(snap.flags.map(fl => [fl.name, fl.set]));
-  const flags = ['S', 'Z', 'H', 'P', 'N', 'C'].map(n => flagSet.get(n) ? n : '-').join('');
-  const iff = snap.iff1 ? 'EI' : 'DI';
-  const halt = snap.halted ? ' HALT' : '';
-  const lines = [
-    `AF  ${h16(v['AF'] ?? 0)}  AF' ${h16(v["AF'"] ?? 0)}   Flags: ${flags}`,
-    `BC  ${h16(v['BC'] ?? 0)}  BC' ${h16(v["BC'"] ?? 0)}`,
-    `DE  ${h16(v['DE'] ?? 0)}  DE' ${h16(v["DE'"] ?? 0)}`,
-    `HL  ${h16(v['HL'] ?? 0)}  HL' ${h16(v["HL'"] ?? 0)}`,
-    `IX  ${h16(v['IX'] ?? 0)}  IY  ${h16(v['IY'] ?? 0)}   ${iff}  IM${snap.im}${halt}`,
-    `SP  ${h16(snap.sp)}  PC  ${h16(snap.pc)}   IR  ${h8(v['I'] ?? 0)}${h8(v['R'] ?? 0)}`,
-    `T-states: ${snap.tStates}`,
-  ];
+  const lines = [spec.services.debug.regsText()];
   const paging = spectrumPagingLine();
   if (paging) lines.push(paging);
   return lines.join('\n');

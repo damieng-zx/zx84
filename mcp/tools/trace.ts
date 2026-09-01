@@ -2,6 +2,10 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+// The generic trace tools go through `services.debug`; `frame_trace` below is
+// deliberately Spectrum-specific (it wraps the CPU's own read8/write8/contend
+// hooks to attribute contention T-states per instruction), so it reaches the
+// Z80 disassembler directly behind the `activeSpectrum()` narrowing.
 import { disasmOne, stripMarkers } from '../../src/debug/z80/disasm.ts';
 import { hex8 as h8, hex16 as h16 } from '../../src/utils/hex.ts';
 import { state } from '../state.ts';

@@ -2,7 +2,6 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { hex8 as h8, hex16 as h16 } from '../../src/utils/hex.ts';
 import { state } from '../state.ts';
-import { z80Cpu } from '../../src/debug/z80/service.ts';
 import { parseAddr, text, checkWatchHit, spectrumPagingLine, KEY_NAME_MAP, CHAR_KEYS } from '../format.ts';
 import type { HostKeyEvent } from '../../src/machines/machine.ts';
 
@@ -36,6 +35,15 @@ function setCharKey(ch: string, pressed: boolean): boolean {
   return pressed ? input.keyDown(event) : input.keyUp(event);
 }
 
+/** The active CPU's port space. Machines whose CPU memory-maps its hardware
+ *  instead of using an I/O port space (any 6502 machine) have none, and the
+ *  port tools say so rather than throwing. */
+function cpuPorts() {
+  return state.spec.services.debug.ports;
+}
+
+const NO_PORTS = 'This machine has no CPU I/O port space (its hardware is memory-mapped) — use read_memory / write_memory instead.';
+
 export function register(server: McpServer): void {
   server.registerTool(
     'port_out',
@@ -44,9 +52,11 @@ export function register(server: McpServer): void {
       value: z.string().describe('Byte value'),
     } },
     async ({ port, value }) => {
+      const ports = cpuPorts();
+      if (!ports) return text(NO_PORTS);
       const p = parseAddr(port) & 0xFFFF;
       const v = parseAddr(value) & 0xFF;
-      z80Cpu(state.spec)!.portOut(p, v);
+      ports.out(p, v);
       let result = `OUT ${h16(p)}, ${h8(v)}`;
       const paging = spectrumPagingLine();
       if (paging) result += `\n${paging}`;
@@ -58,8 +68,10 @@ export function register(server: McpServer): void {
     'port_in',
     { description: 'Read a byte from an I/O port.', inputSchema: { port: z.string().describe('Port address (hex/decimal)') } },
     async ({ port }) => {
+      const ports = cpuPorts();
+      if (!ports) return text(NO_PORTS);
       const p = parseAddr(port) & 0xFFFF;
-      const val = z80Cpu(state.spec)!.portIn(p);
+      const val = ports.in(p);
       return text(`IN ${h16(p)} = ${h8(val)} (${val})`);
     },
   );

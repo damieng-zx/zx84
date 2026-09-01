@@ -1,7 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { disassemble, stripMarkers } from '../../src/debug/z80/disasm.ts';
-import { hex8 as h8, hex16 as h16 } from '../../src/utils/hex.ts';
+import { hex16 as h16 } from '../../src/utils/hex.ts';
 import { state } from '../state.ts';
 import { parseAddr, formatHexDump, doFindBytes, text } from '../format.ts';
 
@@ -74,22 +73,19 @@ export function register(server: McpServer): void {
 
   server.registerTool(
     'disassemble',
-    { description: 'Disassemble Z80 code at a given address (default: PC). Shows N lines (default 16).', inputSchema: {
+    { description: 'Disassemble code at a given address (default: PC), in the CPU dialect of the active machine. Shows N lines (default 16).', inputSchema: {
       address: z.string().optional().describe('Start address (hex/decimal). Defaults to current PC.'),
       lines: z.number().int().positive().default(16).describe('Number of lines to disassemble'),
     } },
     async ({ address, lines: n }) => {
-      const spec = state.spec;
-      const addr = address ? parseAddr(address) : spec.services.debug.pc;
-      const snap = spec.memory.snapshot();
-      const result = disassemble(snap, addr, n);
-      const out: string[] = [];
-      for (const l of result) {
-        const bytes: string[] = [];
-        for (let i = 0; i < l.length; i++) bytes.push(h8(snap[(l.addr + i) & 0xFFFF]));
-        const prefix = l.addr === spec.services.debug.pc ? '>' : ' ';
-        out.push(`${prefix} ${h16(l.addr)}  ${bytes.join(' ').padEnd(11)}  ${stripMarkers(l.text)}`);
-      }
+      const dbg = state.spec.services.debug;
+      const pc = dbg.pc;
+      const rows = dbg.disasm(address ? parseAddr(address) : pc, n);
+      // Stop at the end of the routine: past an unconditional RET/JP the bytes
+      // are usually data, and disassembling them is noise.
+      const end = rows.findIndex(l => l.isTerminal);
+      const out = rows.slice(0, end < 0 ? rows.length : end + 1).map(l =>
+        `${l.addr === pc ? '>' : ' '} ${h16(l.addr)}  ${l.bytes.padEnd(11)}  ${l.text}`);
       return text(out.join('\n'));
     },
   );

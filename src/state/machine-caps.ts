@@ -18,7 +18,7 @@
  */
 
 import { entryForModel } from '@/machines/registry.ts';
-import type { MachineDescriptor, MachineUiCapabilities } from '@/machines/machine.ts';
+import type { CpuFamily, MachineDescriptor, MachineUiCapabilities } from '@/machines/machine.ts';
 import { currentModel, currentLocale } from '@/state/machine-state.ts';
 
 /** The active model's full descriptor (reactive on `currentModel` + `currentLocale`). */
@@ -36,4 +36,10 @@ export function machineCaps(): MachineUiCapabilities {
 /** The active machine kind — a string for CSS/manifest lookup only. */
 export function machineKind(): string {
   return machineDescriptor().kind;
+}
+
+/** The active machine's CPU family (reactive) — selects the debugger's
+ *  register panel and any other per-family UI. */
+export function machineCpuFamily(): CpuFamily {
+  return machineDescriptor().cpuFamily;
 }

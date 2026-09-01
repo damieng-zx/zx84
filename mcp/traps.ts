@@ -8,9 +8,7 @@
  */
 
 import type { Machine } from '../src/machines/machine.ts';
-import { z80Cpu } from '../src/debug/z80/service.ts';
-import { disasmOne, stripMarkers } from '../src/debug/z80/disasm.ts';
-import { hex8 as h8, hex16 as h16 } from '../src/utils/hex.ts';
+import { hex16 as h16 } from '../src/utils/hex.ts';
 import { spectrumPagingLine } from './format.ts';
 
 export interface TrapResponse {
@@ -21,8 +19,10 @@ export interface TrapResponse {
 export interface Trap {
   address: number;
   action: 'log' | 'break' | 'respond';
-  /** Optional: only fire when C register equals this value (for BDOS function filtering) */
-  condC?: number;
+  /** Optional: only fire when a named register holds this value (BDOS function
+   *  filtering uses C). The register is looked up through the CPU family's
+   *  debug service, so a family without that register simply never matches. */
+  cond?: { reg: string; value: number };
   /** Label shown in log output */
   label: string;
   /** Pre-queued responses for 'respond' mode */
@@ -72,23 +72,16 @@ export function consumeResetHit(): ResetHit | null {
 
 /** Snapshot the reboot: culprit instruction + return-address chain + paging. */
 function captureReset(spec: Machine, culpritPc: number): ResetHit {
-  const cpu = z80Cpu(spec)!;
-  const snap = spec.memory.snapshot();
-  const culprit = stripMarkers(disasmOne(snap, culpritPc).text);
-
+  const dbg = spec.services.debug;
+  const culprit = dbg.disasm(culpritPc, 1)[0].text;
   // The unwound return-address chain — what RET'd through to 0x0000.
-  const sp = cpu.sp;
-  const stack: string[] = [];
-  for (let i = 0; i < 8; i++) {
-    const a = (sp + i * 2) & 0xFFFF;
-    stack.push(h16((snap[(a + 1) & 0xFFFF] << 8) | snap[a]));
-  }
+  const stack = dbg.returnStack(8).map(h16);
 
   const lines = [
     '*** RESET TRAP: PC reached 0x0000 (reboot) ***',
     `Culprit: ${h16(culpritPc)}  ${culprit}`,
-    `SP=${h16(sp)}  stack: ${stack.join(' ')}`,
-    `T=${cpu.tStates}`,
+    `SP=${h16(dbg.regs().sp)}  stack: ${stack.join(' ')}`,
+    `T=${dbg.tStates}`,
   ];
   const paging = spectrumPagingLine();
   if (paging) lines.push(paging);
@@ -106,42 +99,39 @@ function readCpmString(spec: Machine, addr: number, maxLen = 256): string {
   return s;
 }
 
-/** Format a trap log entry with registers and optional CP/M decoding. */
+/** Format a trap log entry with registers and optional CP/M decoding.
+ *
+ *  The register text is the CPU family's own summary; the BDOS decode below is
+ *  a CP/M calling convention, so it engages only when the family actually has
+ *  the C/DE/E registers CP/M passes arguments in (getReg returns null when it
+ *  does not) — no CPU-family branch needed. */
 export function formatTrapLog(trap: Trap, spec: Machine): string {
-  const cpu = z80Cpu(spec)!;
-  let line = `[${h16(cpu.pc)}] ${trap.label}  C=${h8(cpu.c)} DE=${h16(cpu.de)} A=${h8(cpu.a)} T=${cpu.tStates}`;
-  // Auto-decode common BDOS calls
-  if (trap.address === 0x0005) {
-    const fn = cpu.c;
-    if (fn === 2) line += `  CON_OUT char='${String.fromCharCode(cpu.e)}'`;
-    else if (fn === 9) line += `  PRINT_STR "${readCpmString(spec, cpu.de)}"`;
+  const dbg = spec.services.debug;
+  let line = `[${h16(dbg.pc)}] ${trap.label}  ${dbg.regsSummary()} T=${dbg.tStates}`;
+  const fn = trap.address === 0x0005 ? dbg.getReg('C') : null;
+  if (fn !== null) {
+    const de = dbg.getReg('DE') ?? 0;
+    const e = dbg.getReg('E') ?? 0;
+    if (fn === 2) line += `  CON_OUT char='${String.fromCharCode(e)}'`;
+    else if (fn === 9) line += `  PRINT_STR "${readCpmString(spec, de)}"`;
     else if (fn === 1) line += '  CON_IN';
-    else if (fn === 10) line += `  READ_LINE buf=${h16(cpu.de)}`;
+    else if (fn === 10) line += `  READ_LINE buf=${h16(de)}`;
     else if (fn === 12) line += '  GET_VERSION';
-    else if (fn === 15) line += `  OPEN fcb=${h16(cpu.de)}`;
-    else if (fn === 16) line += `  CLOSE fcb=${h16(cpu.de)}`;
-    else if (fn === 17) line += `  SEARCH_FIRST fcb=${h16(cpu.de)}`;
+    else if (fn === 15) line += `  OPEN fcb=${h16(de)}`;
+    else if (fn === 16) line += `  CLOSE fcb=${h16(de)}`;
+    else if (fn === 17) line += `  SEARCH_FIRST fcb=${h16(de)}`;
     else if (fn === 18) line += '  SEARCH_NEXT';
-    else if (fn === 19) line += `  DELETE fcb=${h16(cpu.de)}`;
-    else if (fn === 20) line += `  READ_SEQ fcb=${h16(cpu.de)}`;
-    else if (fn === 21) line += `  WRITE_SEQ fcb=${h16(cpu.de)}`;
-    else if (fn === 22) line += `  CREATE fcb=${h16(cpu.de)}`;
-    else if (fn === 26) line += `  SET_DMA addr=${h16(cpu.de)}`;
-    else if (fn === 33) line += `  READ_RND fcb=${h16(cpu.de)}`;
-    else if (fn === 34) line += `  WRITE_RND fcb=${h16(cpu.de)}`;
-    else if (fn === 35) line += `  FILE_SIZE fcb=${h16(cpu.de)}`;
-    else if (fn === 36) line += `  SET_RND fcb=${h16(cpu.de)}`;
+    else if (fn === 19) line += `  DELETE fcb=${h16(de)}`;
+    else if (fn === 20) line += `  READ_SEQ fcb=${h16(de)}`;
+    else if (fn === 21) line += `  WRITE_SEQ fcb=${h16(de)}`;
+    else if (fn === 22) line += `  CREATE fcb=${h16(de)}`;
+    else if (fn === 26) line += `  SET_DMA addr=${h16(de)}`;
+    else if (fn === 33) line += `  READ_RND fcb=${h16(de)}`;
+    else if (fn === 34) line += `  WRITE_RND fcb=${h16(de)}`;
+    else if (fn === 35) line += `  FILE_SIZE fcb=${h16(de)}`;
+    else if (fn === 36) line += `  SET_RND fcb=${h16(de)}`;
   }
   return line;
-}
-
-/** Execute a synthetic RET: pop PC from stack. */
-function execRET(spec: Machine): void {
-  const cpu = z80Cpu(spec)!;
-  const lo = spec.memory.readByte(cpu.sp & 0xFFFF);
-  const hi = spec.memory.readByte((cpu.sp + 1) & 0xFFFF);
-  cpu.sp = (cpu.sp + 2) & 0xFFFF;
-  cpu.pc = (hi << 8) | lo;
 }
 
 /** Install the onTrap callback on the given spec. Called from initMachine. */
@@ -160,8 +150,9 @@ export function installTrapHook(spec: Machine): void {
     }
     const list = traps.get(pc);
     if (!list) return false;
+    const dbg = spec.services.debug;
     for (const trap of list) {
-      if (trap.condC !== undefined && z80Cpu(spec)!.c !== trap.condC) continue;
+      if (trap.cond && dbg.getReg(trap.cond.reg) !== trap.cond.value) continue;
 
       if (trap.action === 'log') {
         pushTrapLog(formatTrapLog(trap, spec));
@@ -178,23 +169,8 @@ export function installTrapHook(spec: Machine): void {
           return true;
         }
         pushTrapLog(formatTrapLog(trap, spec) + `  [RESPOND ${JSON.stringify(resp.regs)}]`);
-        const cpu = z80Cpu(spec)!;
-        for (const [reg, val] of Object.entries(resp.regs)) {
-          switch (reg.toUpperCase()) {
-            case 'A':  cpu.a  = val & 0xFF; break;
-            case 'F':  cpu.f  = val & 0xFF; break;
-            case 'B':  cpu.b  = val & 0xFF; break;
-            case 'C':  cpu.c  = val & 0xFF; break;
-            case 'D':  cpu.d  = val & 0xFF; break;
-            case 'E':  cpu.e  = val & 0xFF; break;
-            case 'H':  cpu.h  = val & 0xFF; break;
-            case 'L':  cpu.l  = val & 0xFF; break;
-            case 'BC': cpu.bc = val & 0xFFFF; break;
-            case 'DE': cpu.de = val & 0xFFFF; break;
-            case 'HL': cpu.hl = val & 0xFFFF; break;
-          }
-        }
-        execRET(spec);
+        for (const [reg, val] of Object.entries(resp.regs)) dbg.setReg(reg, val);
+        dbg.returnFromCall();
         return false;
       }
     }

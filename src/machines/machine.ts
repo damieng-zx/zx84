@@ -613,6 +613,19 @@ export interface DisasmRow {
   readonly bytes: string;
   readonly text: string;
   readonly length: number;
+  /** Control leaves here unconditionally (Z80 RET/JP, 6502 RTS/JMP), so the
+   *  bytes after it are usually data, not the next instruction. Listings that
+   *  disassemble a routine stop on it; `disasm()` itself always returns the
+   *  full count asked for. */
+  readonly isTerminal: boolean;
+}
+
+/** Direct access to a CPU's I/O-port space (the Z80's IN/OUT), for hosts that
+ *  poke hardware without executing code. Machines whose CPU has no port space
+ *  expose `DebugService.ports === null`. */
+export interface CpuPorts {
+  in(port: number): number;
+  out(port: number, value: number): void;
 }
 
 /** A machine-specific debug panel the machine offers (sysvars, BASIC listing,
@@ -636,8 +649,13 @@ export interface DebugService {
   readonly pc: number;
   readonly tStates: number;
   regs(): RegisterSnapshot;
+  /** Read a register by family-conventional name; null = unknown register. */
+  getReg(name: string): number | null;
   /** Poke a register by family-conventional name; false = unknown register. */
   setReg(name: string, value: number): boolean;
+  /** Plain-text disassembly rows — `text` carries no formatting markers, so a
+   *  text host can print it as-is (the pane's marked-up variant is
+   *  `disasmPaneHtml`). */
   disasm(addr: number, lines: number): DisasmRow[];
   /** The debugger pane's disassembly-around-PC HTML (family formatting). */
   disasmPaneHtml(lines: number): string;
@@ -662,6 +680,29 @@ export interface DebugService {
   /** RAM dump + suggested filename for the RAM export, or null. */
   ramExport(): { data: Uint8Array; filename: string } | null;
   panels(): DebugPanelDescriptor[];
+
+  /* Family-formatted text for hosts that print CPU state (the MCP server's
+   * `step`/`registers`/trap log). The layout — which registers, in what order,
+   * with what flag letters — is family knowledge, so it is produced here rather
+   * than reassembled from `regs()` by every host. */
+
+  /** One line: PC, the instruction there, the working registers, elapsed time. */
+  stepLine(): string;
+  /** Multi-line register/flag block (the MCP `registers` readout). */
+  regsText(): string;
+  /** Compact one-line register summary appended to trap-log entries. */
+  regsSummary(): string;
+
+  /** Return addresses currently sitting on the stack, innermost first — the
+   *  RET/RTS chain a crash unwound through. Reads memory only; no side effects. */
+  returnStack(depth: number): number[];
+  /** Execute a synthetic return (Z80 RET, 6502 RTS): pop the return address into
+   *  PC. Used by respond-mode traps that skip the real routine. */
+  returnFromCall(): void;
+
+  /** The CPU's I/O-port space, or null on machines whose CPU has none (the
+   *  6502 memory-maps its hardware instead). */
+  readonly ports: CpuPorts | null;
 }
 
 // ── Input service ───────────────────────────────────────────────────────────

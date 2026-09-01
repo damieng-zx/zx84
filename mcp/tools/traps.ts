@@ -37,7 +37,7 @@ export function register(server: McpServer): void {
         for (const [addr, list] of traps) {
           for (const t of list) {
             let desc = `${h16(addr)}  ${t.action}`;
-            if (t.condC !== undefined) desc += `  C==${h8(t.condC)}`;
+            if (t.cond) desc += `  ${t.cond.reg}==${h8(t.cond.value)}`;
             if (t.label) desc += `  "${t.label}"`;
             if (t.action === 'respond') desc += `  queue=${t.responses.length}`;
             lines.push(desc);
@@ -49,7 +49,7 @@ export function register(server: McpServer): void {
       const trap: Trap = {
         address: addr,
         action,
-        condC: cond_c,
+        cond: cond_c === undefined ? undefined : { reg: 'C', value: cond_c },
         label: label || `trap@${h16(addr)}`,
         responses: (responses ?? []).map(r => ({ regs: r })),
       };
@@ -79,7 +79,7 @@ export function register(server: McpServer): void {
       if (!list || list.length === 0) return text(`No traps at ${h16(addr)}`);
       if (cond_c !== undefined) {
         const before = list.length;
-        const filtered = list.filter(t => t.condC !== cond_c);
+        const filtered = list.filter(t => !(t.cond?.reg === 'C' && t.cond.value === cond_c));
         traps.set(addr, filtered);
         if (filtered.length === 0) traps.delete(addr);
         return text(`Removed ${before - filtered.length} trap(s) at ${h16(addr)} with C==${h8(cond_c)}`);
@@ -118,7 +118,8 @@ export function register(server: McpServer): void {
       const addr = parseAddr(address) & 0xFFFF;
       const list = traps.get(addr);
       if (!list) return text(`No traps at ${h16(addr)}`);
-      const match = list.find(t => t.action === 'respond' && (cond_c === undefined || t.condC === cond_c));
+      const match = list.find(t => t.action === 'respond'
+        && (cond_c === undefined || (t.cond?.reg === 'C' && t.cond.value === cond_c)));
       if (!match) return text(`No respond-mode trap at ${h16(addr)}${cond_c !== undefined ? ` with C==${h8(cond_c)}` : ''}`);
       for (const r of responses) match.responses.push({ regs: r });
       return text(`Queued ${responses.length} response(s) at ${h16(addr)}. Total queue: ${match.responses.length}`);

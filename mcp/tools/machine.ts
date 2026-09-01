@@ -40,7 +40,7 @@ export function register(server: McpServer): void {
 
   server.registerTool(
     'step',
-    { description: 'Single-step N Z80 instructions (default 1), showing disassembly and registers for each.', inputSchema: { count: z.number().int().positive().default(1).describe('Number of instructions to step') } },
+    { description: 'Single-step N CPU instructions (default 1), showing disassembly and registers for each.', inputSchema: { count: z.number().int().positive().default(1).describe('Number of instructions to step') } },
     async ({ count }) => {
       const spec = state.spec;
       const lines: string[] = [];
@@ -76,8 +76,8 @@ export function register(server: McpServer): void {
 
   server.registerTool(
     'set_register',
-    { description: 'Set a CPU register. Supported: A F AF B C BC D E DE H L HL SP PC IX IY.', inputSchema: {
-      register: z.string().describe('Register name (e.g. A, BC, HL, SP, PC, IX, IY)'),
+    { description: 'Set a CPU register, named as its family names it (Z80: A F AF B C BC D E DE H L HL SP PC IX IY).', inputSchema: {
+      register: z.string().describe('Register name (Z80: A, BC, HL, SP, PC, IX, IY)'),
       value: z.string().describe('Value (hex or decimal, e.g. "FF", "0x1234", "512")'),
     } },
     async ({ register, value }) => {

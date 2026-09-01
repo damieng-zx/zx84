@@ -14,10 +14,10 @@
  */
 
 import { Z80 } from '@/cores/z80.ts';
-import { disasmOne, disassembleAroundPC, formatDisasmHtml } from '@/debug/z80/disasm.ts';
+import { disasmOne, disassembleAroundPC, formatDisasmHtml, stripMarkers } from '@/debug/z80/disasm.ts';
 import { hex8, hex16 } from '@/utils/hex.ts';
 import type {
-  DebugPanelDescriptor, DebugService, DisasmRow, Machine, RegisterDesc, RegisterSnapshot,
+  CpuPorts, DebugPanelDescriptor, DebugService, DisasmRow, Machine, RegisterDesc, RegisterSnapshot,
 } from '@/machines/machine.ts';
 
 /** The structural surface a Z80 machine offers its debug service. Every Z80
@@ -54,7 +54,16 @@ function wakeHaltedIntoInterrupt(cpu: Z80): boolean {
 export class Z80DebugService implements DebugService {
   readonly cpuFamily = 'z80' as const;
 
-  constructor(private readonly m: Z80DebugTarget) {}
+  /** The Z80 has a real 64K port space — IN/OUT straight onto the CPU's own
+   *  handlers, exactly as an `IN A,(n)` would drive them. */
+  readonly ports: CpuPorts;
+
+  constructor(private readonly m: Z80DebugTarget) {
+    this.ports = {
+      in: (port: number) => this.m.cpu.portIn(port),
+      out: (port: number, value: number) => this.m.cpu.portOut(port, value),
+    };
+  }
 
   get pc(): number { return this.m.cpu.pc; }
   get tStates(): number { return this.m.cpu.tStates; }
@@ -92,6 +101,31 @@ export class Z80DebugService implements DebugService {
     };
   }
 
+  getReg(name: string): number | null {
+    const cpu = this.m.cpu;
+    switch (name.toUpperCase()) {
+      case 'A':  return cpu.a;
+      case 'F':  return cpu.f;
+      case 'AF': return cpu.af;
+      case 'B':  return cpu.b;
+      case 'C':  return cpu.c;
+      case 'BC': return cpu.bc;
+      case 'D':  return cpu.d;
+      case 'E':  return cpu.e;
+      case 'DE': return cpu.de;
+      case 'H':  return cpu.h;
+      case 'L':  return cpu.l;
+      case 'HL': return cpu.hl;
+      case 'IX': return cpu.ix;
+      case 'IY': return cpu.iy;
+      case 'SP': return cpu.sp;
+      case 'PC': return cpu.pc;
+      case 'I':  return cpu.i;
+      case 'R':  return cpu.r;
+      default: return null;
+    }
+  }
+
   setReg(name: string, value: number): boolean {
     const cpu = this.m.cpu;
     switch (name.toUpperCase()) {
@@ -123,7 +157,12 @@ export class Z80DebugService implements DebugService {
     for (let i = 0; i < lines; i++) {
       const dl = disasmOne(snap, a);
       const bytes = Array.from({ length: dl.length }, (_, j) => hex8(snap[(dl.addr + j) & 0xFFFF])).join(' ');
-      out.push({ addr: dl.addr, bytes, text: dl.text, length: dl.length });
+      // Markers are the pane's HTML scaffolding (disasmPaneHtml) — a DisasmRow
+      // is contracted to be printable text.
+      out.push({
+        addr: dl.addr, bytes, text: stripMarkers(dl.text),
+        length: dl.length, isTerminal: dl.isTerminal,
+      });
       a = (a + dl.length) & 0xFFFF;
     }
     return out;
@@ -236,6 +275,72 @@ export class Z80DebugService implements DebugService {
       addr = (addr + dl.length) & 0xFFFF;
     }
     return lines.join('\n');
+  }
+
+  /* ── Family-formatted text ────────────────────────────────────────────────
+   * Which registers a step line carries, the AF/AF' pairing, the SZHPNC flag
+   * letters — all Z80 convention, so the layout lives here rather than being
+   * reassembled from regs() by every host that prints CPU state.
+   */
+
+  /** `PC  mnemonic  A=.. F=.. BC=.. DE=.. HL=.. SP=..  T=..` (one traced step). */
+  stepLine(): string {
+    const cpu = this.m.cpu;
+    const mnem = this.disasm(cpu.pc, 1)[0].text.padEnd(20);
+    return (
+      `${hex16(cpu.pc)}  ${mnem}` +
+      `A=${hex8(cpu.a)} F=${hex8(cpu.f)} ` +
+      `BC=${hex16(cpu.bc)} DE=${hex16(cpu.de)} HL=${hex16(cpu.hl)} ` +
+      `SP=${hex16(cpu.sp)}  T=${cpu.tStates}`
+    );
+  }
+
+  /** The register/flag block: main + shadow pairs, index regs, IFF/IM, IR. */
+  regsText(): string {
+    const cpu = this.m.cpu;
+    const flagBits: readonly (readonly [number, string])[] = [
+      [Z80.FLAG_S, 'S'], [Z80.FLAG_Z, 'Z'], [Z80.FLAG_H, 'H'],
+      [Z80.FLAG_PV, 'P'], [Z80.FLAG_N, 'N'], [Z80.FLAG_C, 'C'],
+    ];
+    const flags = flagBits.map(([bit, ch]) => (cpu.f & bit) ? ch : '-').join('');
+    const iff = cpu.iff1 ? 'EI' : 'DI';
+    const halt = cpu.halted ? ' HALT' : '';
+    return [
+      `AF  ${hex16(cpu.af)}  AF' ${hex16((cpu.a_ << 8) | cpu.f_)}   Flags: ${flags}`,
+      `BC  ${hex16(cpu.bc)}  BC' ${hex16((cpu.b_ << 8) | cpu.c_)}`,
+      `DE  ${hex16(cpu.de)}  DE' ${hex16((cpu.d_ << 8) | cpu.e_)}`,
+      `HL  ${hex16(cpu.hl)}  HL' ${hex16((cpu.h_ << 8) | cpu.l_)}`,
+      `IX  ${hex16(cpu.ix)}  IY  ${hex16(cpu.iy)}   ${iff}  IM${cpu.im}${halt}`,
+      `SP  ${hex16(cpu.sp)}  PC  ${hex16(cpu.pc)}   IR  ${hex8(cpu.i)}${hex8(cpu.r)}`,
+      `T-states: ${cpu.tStates}`,
+    ].join('\n');
+  }
+
+  /** Trap-log tail: the registers CP/M and firmware calls pass arguments in. */
+  regsSummary(): string {
+    const cpu = this.m.cpu;
+    return `C=${hex8(cpu.c)} DE=${hex16(cpu.de)} A=${hex8(cpu.a)}`;
+  }
+
+  /** Words on the stack from SP upward — the RET chain, innermost first. */
+  returnStack(depth: number): number[] {
+    const mem = this.m.memory;
+    const sp = this.m.cpu.sp;
+    const out: number[] = [];
+    for (let i = 0; i < depth; i++) {
+      const a = (sp + i * 2) & 0xFFFF;
+      out.push((mem.readByte((a + 1) & 0xFFFF) << 8) | mem.readByte(a));
+    }
+    return out;
+  }
+
+  /** Synthetic RET: pop the return address into PC. */
+  returnFromCall(): void {
+    const cpu = this.m.cpu;
+    const lo = this.m.memory.readByte(cpu.sp & 0xFFFF);
+    const hi = this.m.memory.readByte((cpu.sp + 1) & 0xFFFF);
+    cpu.sp = (cpu.sp + 2) & 0xFFFF;
+    cpu.pc = (hi << 8) | lo;
   }
 
   startTrace(mode?: string): void { this.m.startTrace(mode); }

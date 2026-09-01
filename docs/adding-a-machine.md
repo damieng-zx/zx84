@@ -91,23 +91,38 @@ machine narrows the shell's handle itself (see `spectrum/ui/active.ts`).
 
 If your machine's CPU isn't already supported (i.e. not `z80`):
 
-- Add `src/debug/<family>/` — the disassembler, step-over/step-out
-  reasoning, trace formats, and register descriptors for that family. This is
-  shared substrate; any machine of that family imports it.
+- Add `src/debug/<family>/` — the disassembler, step-over/step-out reasoning,
+  trace formats, register descriptors, and the family's **text formatting**
+  (`stepLine`, `regsText`, `regsSummary`) for that family. This is shared
+  substrate; any machine of that family imports it.
 - Set `descriptor.cpuFamily` to the new family and extend the `CpuFamily` union
   in `machines/machine.ts`.
-- Ship a per-family debug UI panel (a *different* register/disassembly component
-  is expected and fine) and register it in `machine-ui.ts`. The generic debug
-  chrome (breakpoint list, hex memory view, trace buttons) binds to
-  `DebugService` and works unchanged.
+- Implement the whole of `DebugService`. Beyond stepping and disassembly it
+  carries the seams that keep the hosts family-blind:
+  `getReg`/`setReg` (register poking by the family's own names),
+  `returnStack`/`returnFromCall` (the RET/RTS chain, used by the reset trap and
+  respond-mode traps), and `ports` — return `null` there if your CPU has no I/O
+  port space and memory-maps its hardware instead (any 6502), and the MCP
+  `port_in`/`port_out` tools say so rather than failing.
+- A register panel is **optional**: `src/ui/components/Registers.tsx` maps
+  `cpuFamily` → panel and falls back to `GenericRegisters`, which renders
+  whatever `RegisterSnapshot` reports. Your machine is debuggable in the UI the
+  day its `DebugService` lands; add
+  `src/ui/components/registers/<Family>Registers.tsx` and one line in that map
+  when you want a hand-laid-out one (`Z80Registers.tsx` is the model).
 
-**Worked example — a 6502 machine (e.g. BBC/C64):** create
-`src/machines/bbc/` per steps 1–4; add `src/debug/m6502/` with a 6502
-disassembler + register descriptors; set `cpuFamily: 'm6502'`; add a
-`M6502RegisterPane`/`M6502DisassemblyPane` under `bbc/ui/` and register them in
-`machine-ui.ts` keyed off `cpuFamily`. The MCP `registers`/`step`/`trace` tools,
-the breakpoint list, and the memory pane keep working because they bind to
-`DebugService`, not to Z80.
+**Worked example — a 6502 machine (e.g. BBC/C64):** create `src/machines/bbc/`
+per steps 1–4; add `src/debug/m6502/` with a 6502 disassembler, register
+descriptors and `M6502DebugService`; set `cpuFamily: 'm6502'`. Nothing under
+`mcp/` or `src/ui/` changes: the MCP `registers`/`step`/`disassemble`/trap tools,
+the breakpoint list, the memory pane and the register panel all bind to
+`DebugService`. `tests/mcp/cpu-family-decoupling.test.ts` holds that line — it
+drives the trap system and the shared formatters with a fabricated non-Z80
+service, so a Z80 assumption creeping back into a host fails there.
+
+The one deliberate exception is the MCP `frame_trace` tool, which is Spectrum
+hardware forensics (per-instruction contention attribution) behind the
+`activeSpectrum()` narrowing, not a generic debug tool.
 
 ### 6. Register it (the only two manifests)
 
