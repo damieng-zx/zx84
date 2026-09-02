@@ -257,6 +257,17 @@ export class AY3891x {
     return this.regs[reg] & REG_READ_MASK[reg];
   }
 
+  /** Latch a register address (the Z80 I/O "select register" bus cycle).
+   *  Real 8910/8912 silicon only accepts a value whose upper nibble is
+   *  zero (register 0-15 as a byte); anything else deselects the chip
+   *  instead of masking down to a valid register, leaving whichever
+   *  register was already selected active. FUSE and some other emulators
+   *  just mask with `& 0x0F`, which wrongly lets an out-of-range latch
+   *  silently switch to a valid-looking register. */
+  selectRegister(val: number): void {
+    if ((val & 0xF0) === 0) this.selectedReg = val;
+  }
+
   getRegisters(): Uint8Array {
     return new Uint8Array(this.regs.subarray(0, 14));
   }

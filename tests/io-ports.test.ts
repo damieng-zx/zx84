@@ -177,10 +177,22 @@ describe('Port routing — AY-3-8910 (128K only)', () => {
     expect(s.cpu.portIn(0xFFFD) & 0xFF).toBe(0x42);
   });
 
-  it('AY register select masks to 4 bits (only 16 registers)', () => {
+  it('AY register select accepts only a byte with the upper nibble zero (0-15)', () => {
     const s = makeMachine('128k');
-    s.cpu.portOut(0xFFFD, 0x1A); // 0x1A & 0x0F = 0x0A
+    s.cpu.portOut(0xFFFD, 0x0A); // upper nibble 0 -> selects register 10
     expect(s.ay.selectedReg).toBe(0x0A);
+  });
+
+  it('AY register select deselects the chip on a non-zero upper nibble, not mask to 4 bits', () => {
+    // Real 8910/8912 silicon requires the whole byte's upper nibble to be
+    // zero to latch a new register; anything else deselects the chip
+    // instead of wrapping down to a valid-looking register (0x1A -> 0x0A
+    // would be FUSE's simplified `& 0x0F`, not real hardware).
+    const s = makeMachine('128k');
+    s.cpu.portOut(0xFFFD, 0x05); // select register 5 first
+    expect(s.ay.selectedReg).toBe(0x05);
+    s.cpu.portOut(0xFFFD, 0x1A); // upper nibble non-zero -> deselect, ignored
+    expect(s.ay.selectedReg).toBe(0x05); // unchanged, not 0x0A
   });
 
   it('48K: writing to "AY port" 0xBFFD does nothing — no AY hardware', () => {

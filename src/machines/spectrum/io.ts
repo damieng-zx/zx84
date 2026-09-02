@@ -204,7 +204,7 @@ export function wirePortIO(s: Spectrum): void {
     // AY ports — 128K only
     if (v.hasAY) {
       if ((port & 0xC002) === 0xC000) {
-        s.ay.selectedReg = val & 0x0F;
+        s.ay.selectRegister(val);
       }
       if ((port & 0xC002) === 0x8000) {
         s.ay.writeRegister(s.ay.selectedReg, val);

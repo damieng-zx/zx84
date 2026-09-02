@@ -89,6 +89,18 @@ describe('AY-3-8910 — writeRegister / readRegister', () => {
     expect(ay.readRegister(0x20)).toBe(0x42); // reg 0
   });
 
+  it('selectRegister latches only a byte whose upper nibble is zero', () => {
+    ay.selectRegister(0x0A);
+    expect(ay.selectedReg).toBe(0x0A);
+    // A non-zero upper nibble deselects the chip on real silicon instead
+    // of masking down to a valid-looking register — the previously
+    // selected register stays active.
+    ay.selectRegister(0x1A);
+    expect(ay.selectedReg).toBe(0x0A);
+    ay.selectRegister(0xFF);
+    expect(ay.selectedReg).toBe(0x0A);
+  });
+
   it('readRegister masks narrow registers to their real bit width on read', () => {
     // Real hardware has no latch for the unused high bits of these
     // registers — they read back 0 regardless of what was written.

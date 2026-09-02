@@ -139,7 +139,7 @@ export function wireMsxPortIO(m: MsxMachine): void {
     switch (port & 0xFF) {
       case 0x98: vdp.writeData(val); break;
       case 0x99: vdp.writeControl(val); break;
-      case 0xA0: ay.selectedReg = val & 0x0F; break;
+      case 0xA0: ay.selectRegister(val); break;
       case 0xA1:
         ay.writeRegister(ay.selectedReg, val);
         if (ay.selectedReg < 14) m.activity.ayWrites++;

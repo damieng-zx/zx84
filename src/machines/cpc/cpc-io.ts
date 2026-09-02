@@ -109,7 +109,7 @@ export class Ppi8255 {
   /** Act on the AY when Port C carries a select/write strobe. */
   private strobeAy(): void {
     switch (this.ayFunction) {
-      case 3: this.ay.selectedReg = this.pA & 0x0F; break;      // select register
+      case 3: this.ay.selectRegister(this.pA); break;           // select register
       case 2:                                                    // write
         this.ay.writeRegister(this.ay.selectedReg, this.pA);
         this.onAyWrite();

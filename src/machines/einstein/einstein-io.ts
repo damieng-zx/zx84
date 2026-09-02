@@ -107,7 +107,7 @@ export function wireEinsteinPortIO(m: EinsteinMachine): void {
     const reg = p & 0x07;
     switch (p & 0x38) {
       case 0x00: // AY-3-8910
-        if (reg === 2) ay.selectedReg = val & 0x0F;
+        if (reg === 2) ay.selectRegister(val);
         else if (reg === 3) {
           ay.writeRegister(ay.selectedReg, val);
           // Count only sound-register writes (0–13) for the AY LED — registers
