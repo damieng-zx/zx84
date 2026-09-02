@@ -102,6 +102,23 @@ describe('V9938 CPU port interface', () => {
     expect(v.regs[16]).toBe(0);
   });
 
+  it('an unrelated register write (R15) does not reset the palette write latch', () => {
+    setReg(v, 16, 0);
+    v.writePalette(0xAA);                  // first of two bytes — latch pending
+    setReg(v, 15, 1);                      // selects a status register; must not disturb it
+    v.writePalette(0xBB);                  // completes the pending two-byte write
+    expect(v.pens[0]).not.toBe(0xFF000000); // reset-default black — proves the write landed
+  });
+
+  it('writing R16 does reset the palette write latch', () => {
+    setReg(v, 16, 0);
+    v.writePalette(0xAA);                  // first of two bytes — latch pending
+    setReg(v, 16, 5);                      // re-selecting the index resets the latch
+    const before = v.pens[5];
+    v.writePalette(0xBB);                  // treated as a fresh first byte, not the second
+    expect(v.pens[5]).toBe(before);        // unwritten — one byte alone can't complete an entry
+  });
+
   it('writes registers indirectly through port 3 / R17', () => {
     setReg(v, 17, 1);
     v.writeRegister(0x60);

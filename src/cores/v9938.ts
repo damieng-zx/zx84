@@ -313,7 +313,10 @@ export class V9938 {
     if (reg <= 27) val &= REG_MASK[reg];
     // R25-R27 are V9958-only. A V9938 reads them internally as zero.
     if (reg >= 25 && reg <= 27) val = 0;
-    if (reg === 15) this.paletteSecond = false;
+    // R16 is the palette index pointer, not R15 (status register select) —
+    // writing it resets the two-byte palette write latch so a subsequent
+    // writePalette() sequence always starts clean on its first byte.
+    if (reg === 16) this.paletteSecond = false;
     const oldMode = reg <= 1 ? this.mode() : null;
     this.regs[reg] = val;
     if (oldMode !== null && oldMode !== this.mode()) this.abortCommand();
