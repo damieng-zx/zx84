@@ -316,9 +316,18 @@ export class V9938 {
     this.status[2] &= ~S2_VR & 0xFF;
   }
 
-  /** Advance line-sensitive VDP state at the beginning of a physical line. */
+  /**
+   * Advance line-sensitive VDP state at the beginning of a physical line.
+   *
+   * The line (FH) interrupt fires at the right border of the matched line —
+   * i.e. once that line has finished — not at its start. Since this is
+   * called once per line before that line's own cycles run, the line that
+   * "just finished" is `line - 1`: comparing against it here (rather than
+   * `line` itself) delays the FH assert by one scanline call to land at the
+   * right border instead of firing a full line early.
+   */
   advanceScanline(line: number): void {
-    const adjusted = line - this.positionOffset(this.regs[18] >> 4);
+    const adjusted = (line - 1) - this.positionOffset(this.regs[18] >> 4);
     if (adjusted >= 0 && adjusted <= 255
       && (((adjusted + this.regs[23]) & 0xFF) === this.regs[19])) {
       this.status[1] |= S1_FH;

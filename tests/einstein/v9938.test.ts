@@ -177,12 +177,15 @@ describe('V9938 status registers and frame interrupt', () => {
     expect(v.readStatus() & 0x80).toBe(0x80);
   });
 
-  it('raises FH on the R19 line and clears it when S1 is read', () => {
+  it('raises FH at the right border of the R19 line (one advanceScanline call later), and clears it when S1 is read', () => {
+    // FH fires once line R19 has finished (its right border), not at its
+    // start — since advanceScanline(line) runs before that line's own
+    // cycles, the "line has finished" call is advanceScanline(line + 1).
     setReg(v, 0, 0x10);                    // IE0
     setReg(v, 19, 37);
-    v.advanceScanline(36);
-    expect(v.interruptPending()).toBe(false);
     v.advanceScanline(37);
+    expect(v.interruptPending()).toBe(false);
+    v.advanceScanline(38);
     expect(v.interruptPending()).toBe(true);
     setReg(v, 15, 1);
     expect(v.readStatus() & 1).toBe(1);
@@ -193,7 +196,7 @@ describe('V9938 status registers and frame interrupt', () => {
     setReg(v, 0, 0x10);
     setReg(v, 19, 12);
     setReg(v, 23, 3);
-    v.advanceScanline(9);
+    v.advanceScanline(10);
     expect(v.interruptPending()).toBe(true);
   });
 });
