@@ -307,10 +307,16 @@ export class WD179x {
   // ── Command register ──────────────────────────────────────────────────
   writeCommand(cmd: number): void {
     cmd &= 0xFF;
+    const hi = cmd >> 4;
+    // Real hardware ignores a new command register write while a command is
+    // still BUSY — except Force Interrupt (0xD_), which always aborts
+    // whatever is running. Without this, a command issued mid-transfer
+    // (e.g. a driver bug, or racing the DRQ polling loop) would silently
+    // overwrite the in-flight one instead of being dropped.
+    if ((this.statusReg & ST_BUSY) !== 0 && hi !== 0xD) return;
     this.motorOn = true;
     this.motorFrames = MOTOR_FRAMES;
     this.busyCountdown = 0; // drop any pending Type I BUSY pulse from a prior cmd
-    const hi = cmd >> 4;
     // Type I (0x0-0x7) and Force Interrupt (0xD) leave the controller in Type I
     // status, where bit 1 = INDEX. Everything else is Type II/III (bit 1 = DRQ).
     this.typeICmd = hi <= 0x7 || hi === 0xD;

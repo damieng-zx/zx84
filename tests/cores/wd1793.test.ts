@@ -331,6 +331,35 @@ describe('WD1793 READ TRACK on an empty track', () => {
   });
 });
 
+describe('WD1793 command register ignores writes while BUSY', () => {
+  it('a command issued mid-transfer does not overwrite the in-flight read', () => {
+    const wd = wd1793();
+    wd.insertDisk(trdImage(0x11), 0);
+    wd.selectDrive(0);
+    wd.setSide(0);
+    wd.writeSectorReg(1);
+    wd.writeCommand(CMD_READ); // BUSY|DRQ, streaming sector 1's 256 bytes
+    expect(wd.readData()).toBe(0x11); // one byte consumed
+    wd.writeSectorReg(2);
+    wd.writeCommand(CMD_READ); // rogue re-issue while still BUSY — must be dropped
+    // The original transfer keeps streaming sector 1's data undisturbed.
+    for (let i = 0; i < 255; i++) expect(wd.readData()).toBe(0x11);
+    expect(wd.readStatus() & ST_BUSY).toBe(0);
+  });
+
+  it('FORCE INTERRUPT is always accepted, even while BUSY, and aborts the transfer', () => {
+    const wd = wd1793();
+    wd.insertDisk(trdImage(), 0);
+    wd.selectDrive(0);
+    wd.setSide(0);
+    wd.writeSectorReg(1);
+    wd.writeCommand(CMD_READ);
+    expect(wd.readStatus() & ST_BUSY).toBeTruthy();
+    wd.writeCommand(0xD0); // Force Interrupt
+    expect(wd.readStatus() & ST_BUSY).toBe(0);
+  });
+});
+
 describe('WD1793 Type I verify (V bit)', () => {
   const CMD_SEEK_V = 0x14; // SEEK with V=1 (bit 2)
 
