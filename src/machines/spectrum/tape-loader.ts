@@ -74,18 +74,18 @@ export function trapTapeLoad(cpu: Z80, tape: TapeDeck): boolean {
   // loaders that CALL straight into the routine *after* that PUSH never
   // stack the $053F — e.g. Solseed enters at $0562, some protected
   // loaders at $056C — so the top word is already the caller's return
-  // address. Pop the $053F only when it's actually present, then pop the
-  // caller's address into PC.
+  // address.
   //
-  // FUSE sets PC=$05E2 and lets the ROM's bare RET pop exactly once;
-  // ZEsarUX traps at $0562 and does a single pop_valor(). Both return
-  // exactly once. Our earlier *unconditional* double-pop corrupted the
-  // stack for these partial-entry loaders — it discarded the real return
-  // address and jumped to garbage, unwinding back to the BASIC main loop
-  // which then HALTed with interrupts disabled (a permanent hang).
-  const stackTop = cpu.read8(cpu.sp) | (cpu.read8((cpu.sp + 1) & 0xFFFF) << 8);
-  if (stackTop === 0x053F) cpu.pop16();
-  cpu.pc = cpu.pop16();
+  // Rather than pop by hand, land PC on the ROM's own bare RET at $05E2
+  // (as FUSE does) and let the CPU execute it normally. When $053F is on
+  // top, that RET jumps into SA/LD-RET, which restores the border from
+  // BORDCR, checks BREAK, does EI at $054F, then RETs itself to the real
+  // caller. When it isn't (partial entry), the same RET pops the caller's
+  // address directly. Either way SA/LD-RET runs whenever it's supposed to
+  // — an earlier version popped $053F by hand and jumped straight to the
+  // caller, silently skipping SA/LD-RET's EI and leaving interrupts
+  // disabled (a permanent hang the next time MAIN-4 HALTs).
+  cpu.pc = 0x05E2;
   // Carry on main F = success (matches the ROM's natural exit at $05E0/$05E2).
   cpu.setFlag(Z80.FLAG_C, true);
   return true;

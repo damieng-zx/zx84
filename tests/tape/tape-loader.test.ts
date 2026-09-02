@@ -12,18 +12,20 @@
  *     LD-BYTES so custom-speed and protected tapes load correctly.
  *   - Trap SUCCEEDS by copying `cpu.de` bytes to `cpu.ix`, advancing
  *     IX by DE, zeroing DE, consuming the block from the tape, then
- *     returning to the caller. A normal entry via $0556 leaves the
- *     0x053F parity-error return (pushed at $0561) on top of the
- *     caller's address, so the trap pops it only when present and then
- *     pops the caller's address into PC. Partial-entry loaders that
- *     CALL into LD-BYTES after $0561 (e.g. $0562/$056C) have no 0x053F,
- *     so a single pop returns to them. main-F's carry is set to 1 to
- *     signal success.
+ *     landing PC on $05E2 — the ROM's own bare RET at the end of
+ *     LD-BYTES — without touching the stack itself. Whatever the CPU
+ *     executes that RET against decides the rest: a normal entry via
+ *     $0556 left $053F (SA/LD-RET) on top, so the RET jumps into
+ *     SA/LD-RET, which restores the border, checks BREAK, does EI, then
+ *     itself RETs to the caller. Partial-entry loaders that CALL into
+ *     LD-BYTES after $0561 (e.g. $0562/$056C) never stacked $053F, so
+ *     the same RET pops the caller's address directly. main-F's carry
+ *     is set to 1 to signal success.
  *   - SAVE-half of LD-BYTES is "VERIFY" semantics: cleared carry.
  *     Verify advances IX/DE the same way but writes nothing. We do
  *     NOT compare bytes (JSpeccy/ZEsarUX shortcut).
- *   - The trap never touches IFF1/IFF2 — the caller's EI handles
- *     interrupt re-enable.
+ *   - The trap itself never touches IFF1/IFF2 or SP — it hands off to
+ *     $05E2 and lets the ROM's own SA/LD-RET (when reached) do the EI.
  *
  * Behaviour deliberately pinned because it differs from earlier
  * versions:
@@ -166,7 +168,7 @@ describe('trapTapeLoad — declines without side-effects', () => {
 // ── Success paths ────────────────────────────────────────────────────────
 
 describe('trapTapeLoad — LOAD success', () => {
-  it('exact-length block: copies bytes, advances IX, zeroes DE, returns to caller with carry=1', () => {
+  it('exact-length block: copies bytes, advances IX, zeroes DE, lands on $05E2 with carry=1', () => {
     const payload = [0x11, 0x22, 0x33, 0x44];
     const tape = new TapeStub([makeDataBlock(0xFF, payload)]);
     primeForTrap(cpu, { a: 0xFF, carry: true, ix: 0x8000, de: 4, retAddr: 0xBEEF });
@@ -175,8 +177,8 @@ describe('trapTapeLoad — LOAD success', () => {
     expect(Array.from(cpu.mem.slice(0x8000, 0x8004))).toEqual(payload);
     expect(cpu.ix).toBe(0x8004);
     expect(cpu.de).toBe(0);
-    expect(cpu.pc).toBe(0xBEEF);
-    expect(cpu.sp).toBe((spBefore + 4) & 0xFFFF); // popped both 0x053F and caller return
+    expect(cpu.pc).toBe(0x05E2);   // ROM's bare RET — not popped by the trap itself
+    expect(cpu.sp).toBe(spBefore); // stack untouched; the RET will pop it
     expect(cpu.getFlag(Z80.FLAG_C)).toBe(true);
     expect(tape.consumed).toBe(1);
   });
@@ -194,7 +196,7 @@ describe('trapTapeLoad — LOAD success', () => {
     expect(cpu.mem[0x8003]).toBe(0);
     expect(cpu.ix).toBe(0x8003);   // advanced by DE, not by block length
     expect(cpu.de).toBe(0);
-    expect(cpu.pc).toBe(0xBEEF);
+    expect(cpu.pc).toBe(0x05E2);
     expect(cpu.getFlag(Z80.FLAG_C)).toBe(true);
     // Whole block consumed — the ROM cannot resume mid-block.
     expect(tape.consumed).toBe(1);
@@ -245,7 +247,7 @@ describe('trapTapeLoad — VERIFY success (carry=0 in F_)', () => {
     expect(Array.from(cpu.mem.slice(0x8000, 0x8003))).toEqual([0, 0, 0]);
     expect(cpu.ix).toBe(0x8003);
     expect(cpu.de).toBe(0);
-    expect(cpu.pc).toBe(0xABCD);
+    expect(cpu.pc).toBe(0x05E2);
     expect(cpu.getFlag(Z80.FLAG_C)).toBe(true);
   });
 
@@ -271,21 +273,28 @@ describe('trapTapeLoad — VERIFY success (carry=0 in F_)', () => {
 // ── Stack and IFF behaviour ───────────────────────────────────────────────
 
 describe('trapTapeLoad — stack and IFF behaviour', () => {
-  it('pops the 0x053F push and the caller return on success', () => {
+  it('leaves the 0x053F push and the caller return on the stack, lands on $05E2', () => {
+    // The trap no longer pops by hand: it lands PC on the ROM's own bare RET
+    // at $05E2 and leaves the stack exactly as LD-BYTES left it — [$053F]
+    // [caller]. Executing that RET pops $053F and jumps into SA/LD-RET,
+    // which restores the border, checks BREAK, does EI, then itself RETs to
+    // the caller — so SA/LD-RET always runs when a normal entry stacked it.
     const tape = new TapeStub([makeDataBlock(0xFF, [1])]);
     primeForTrap(cpu, { a: 0xFF, carry: true, ix: 0, de: 1, retAddr: 0x1357, sp: 0xF000 });
     const spBefore = cpu.sp;
     trapTapeLoad(cpu, tape as any);
-    expect(cpu.pc).toBe(0x1357);
-    expect(cpu.sp).toBe((spBefore + 4) & 0xFFFF);
+    expect(cpu.pc).toBe(0x05E2);
+    expect(cpu.sp).toBe(spBefore);
+    expect(cpu.read16(cpu.sp)).toBe(0x053F);
+    expect(cpu.read16((cpu.sp + 2) & 0xFFFF)).toBe(0x1357);
   });
 
-  it('partial entry (no 0x053F on stack) pops ONCE and returns to the direct caller', () => {
+  it('partial entry (no 0x053F on stack) still lands on $05E2, leaving a single pop for the caller', () => {
     // Loaders such as Solseed CALL straight into LD-BYTES at $0562, *after*
     // the PUSH HL at $0561, so the $053F filler is never stacked — the top
-    // word is already the caller's return address. The trap must pop exactly
-    // once. An unconditional double-pop here discards the real return and
-    // jumps to garbage (the original bug: machine ends up hung in BASIC).
+    // word is already the caller's return address. The RET at $05E2 pops it
+    // directly, same as any other RET. The trap doesn't need to distinguish
+    // the two cases any more — the ROM's own RET handles either stack shape.
     const tape = new TapeStub([makeDataBlock(0xFF, [0x42])]);
     cpu.sp = 0xF000;
     cpu.push16(0xAEC3);            // ONLY the direct caller's return address
@@ -297,8 +306,9 @@ describe('trapTapeLoad — stack and IFF behaviour', () => {
     const spBefore = cpu.sp;
     expect(trapTapeLoad(cpu, tape as any)).toBe(true);
     expect(cpu.mem[0x8000]).toBe(0x42);
-    expect(cpu.pc).toBe(0xAEC3);                  // returned to the real caller
-    expect(cpu.sp).toBe((spBefore + 2) & 0xFFFF); // single pop only
+    expect(cpu.pc).toBe(0x05E2);
+    expect(cpu.sp).toBe(spBefore);
+    expect(cpu.read16(cpu.sp)).toBe(0xAEC3);
     expect(cpu.getFlag(Z80.FLAG_C)).toBe(true);
   });
 
