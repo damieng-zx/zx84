@@ -462,6 +462,26 @@ export class SpectrumMemory implements IMachineMemory {
   }
 
   /**
+   * Force-page the 48K-compatible ROM and lock paging — hardware
+   * 7FFD=0x30 (ROM select + lock bit) plus, on 4-ROM machines, 1FFD bit 2
+   * (see isBasicRomActive: the 48K ROM is always the last romPages entry).
+   *
+   * Used when a 48K-format snapshot is applied to a 128K-class machine.
+   * reset() leaves ROM 0 (the 128K editor/menu ROM) paged in and paging
+   * unlocked; that ROM's 0x0038 interrupt vector jumps through a RAM stub
+   * the snapshot never populated, so if the snapshot's IFF1 is set the
+   * machine crashes on the very first interrupt.
+   */
+  selectSnapshot48KRom(): void {
+    if (!this.is128K) return;
+    this.currentROM = this.romPages.length - 1;
+    this.port7FFD = (this.port7FFD & ~0x30) | 0x10 | 0x20;
+    if (this.romPages.length === 4) this.port1FFD |= 0x04;
+    this.pagingLocked = true;
+    this.applyBanking();
+  }
+
+  /**
    * Return all 8 RAM banks for serialisation. Returns live views (subarrays
    * of flat for mapped banks; cold storage otherwise) so post-call writes
    * through getRamBank reflect in the returned references.

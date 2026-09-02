@@ -169,6 +169,70 @@ describe('SpectrumSnapshotService — SP paging', () => {
   });
 });
 
+describe('SpectrumSnapshotService — 48K snapshot on a 128K-class machine', () => {
+  // reset() leaves ROM 0 (128K editor) paged and paging unlocked. Its 0x0038
+  // interrupt vector jumps through a RAM stub the snapshot never populated,
+  // so a 48K snapshot loaded without a ROM fixup crashes on the first
+  // interrupt if IFF1 is set. The service must force-select the 48K-
+  // compatible ROM (the last romPages entry) and lock paging — hardware
+  // 7FFD=0x30 (+ 1FFD bit 2 on 4-ROM machines).
+
+  it('48K SNA on a 128K selects ROM 1 and locks paging', async () => {
+    const s = machine('128k');
+    loadSNA.mockReturnValue({ is128K: false, borderColor: 0 });
+    const { svc } = svcOf(s, true);
+    await svc.apply(new Uint8Array(49179), 'g.sna');
+    expect(s.memory.currentROM).toBe(1);
+    expect(s.memory.pagingLocked).toBe(true);
+    expect(s.memory.port7FFD & 0x30).toBe(0x30);
+  });
+
+  it('48K SNA on a +2A selects ROM 3 (last romPages entry) via 1FFD bit 2', async () => {
+    const s = machine('+2A');
+    loadSNA.mockReturnValue({ is128K: false, borderColor: 0 });
+    const { svc } = svcOf(s, true);
+    await svc.apply(new Uint8Array(49179), 'g.sna');
+    expect(s.memory.currentROM).toBe(3);
+    expect(s.memory.pagingLocked).toBe(true);
+    expect(s.memory.port1FFD & 0x04).toBe(0x04);
+  });
+
+  it('48K Z80 on a 128K selects ROM 1 and locks paging', async () => {
+    const s = machine('128k');
+    loadZ80.mockReturnValue({ is128K: false, borderColor: 0 });
+    const { svc } = svcOf(s, true);
+    await svc.apply(new Uint8Array(), 'a.z80');
+    expect(s.memory.currentROM).toBe(1);
+    expect(s.memory.pagingLocked).toBe(true);
+  });
+
+  it('48K SZX on a 128K selects ROM 1 and locks paging', async () => {
+    const s = machine('128k');
+    loadSZX.mockResolvedValue({ is128K: false, borderColor: 0, port7FFD: 0, port1FFD: 0 });
+    const { svc } = svcOf(s, true);
+    await svc.apply(new Uint8Array(), 'a.szx');
+    expect(s.memory.currentROM).toBe(1);
+    expect(s.memory.pagingLocked).toBe(true);
+  });
+
+  it('48K SP on a 128K selects ROM 1 and locks paging', async () => {
+    const s = machine('128k');
+    loadSP.mockReturnValue({ is128K: false, borderColor: 0, flashState: false });
+    const { svc } = svcOf(s, true);
+    await svc.apply(new Uint8Array(), 'a.sp');
+    expect(s.memory.currentROM).toBe(1);
+    expect(s.memory.pagingLocked).toBe(true);
+  });
+
+  it('does NOT touch ROM selection on a plain 48K machine', async () => {
+    const s = machine('48k');
+    loadSNA.mockReturnValue({ is128K: false, borderColor: 0 });
+    const { svc } = svcOf(s, true);
+    await svc.apply(new Uint8Array(49179), 'g.sna');
+    expect(s.memory.pagingLocked).toBe(false);
+  });
+});
+
 describe('SpectrumSnapshotService — errors', () => {
   it('a parser throw surfaces as ok:false + an error message', async () => {
     const s = machine('48k');

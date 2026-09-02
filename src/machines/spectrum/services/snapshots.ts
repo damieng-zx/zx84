@@ -54,6 +54,7 @@ export class SpectrumSnapshotService implements SnapshotService {
         s.stop();
         s.reset();
         const result = loadSNA(data, s.cpu, s.memory);
+        if (!result.is128K && is128kClass(model)) s.memory.selectSnapshot48KRom();
         s.ula.borderColor = result.borderColor;
         s.start();
         return { ok: true, message: `Loaded ${result.is128K ? '128K' : '48K'} SNA: ${filename}` };
@@ -70,6 +71,7 @@ export class SpectrumSnapshotService implements SnapshotService {
           s.start();
           return { ok: false, message: '128K .z80 snapshot requires a 128K ROM — load one first' };
         }
+        if (!result.is128K && is128kClass(model)) s.memory.selectSnapshot48KRom();
         s.ula.borderColor = result.borderColor;
         if (result.ayRegs) {
           s.ay.setRegisters(result.ayRegs);
@@ -92,6 +94,7 @@ export class SpectrumSnapshotService implements SnapshotService {
         }
         // Apply paging state for 128K (shared with the browser-refresh resume path).
         applySZXPaging(s.memory, isPlus2AClass(model), result);
+        if (!result.is128K && is128kClass(model)) s.memory.selectSnapshot48KRom();
         s.ula.borderColor = result.borderColor;
         if (result.ayRegs) {
           s.ay.setRegisters(result.ayRegs);
@@ -118,6 +121,8 @@ export class SpectrumSnapshotService implements SnapshotService {
           s.memory.currentROM = (result.port7FFD >> 4) & 1;
           s.memory.pagingLocked = (result.port7FFD & 0x20) !== 0;
           s.memory.applyBanking();
+        } else if (is128kClass(model)) {
+          s.memory.selectSnapshot48KRom();
         }
         s.ula.borderColor = result.borderColor;
         s.ula.flashState = result.flashState;
