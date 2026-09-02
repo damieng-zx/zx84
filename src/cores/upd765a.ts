@@ -187,6 +187,18 @@ export class UPD765A {
   private exEOT = 0;
   private exHitEOT = false;
   /**
+   * True only when EOT was reached by genuinely walking off the end of a
+   * real sector search (advanceSector's R>EOT branch with MT off/exhausted).
+   * finishExecution() uses this to decide whether to apply the datasheet's
+   * "C+1, R=1" End-of-Cylinder result rewrite. Deliberately NOT set by the
+   * copy-protection exSingleSector short-circuit (Alkatraz/Speedlock-style
+   * mismatched-cylinder tracks) — that path stops after one sector without
+   * ever searching, and real hardware's C/R result there is unverified;
+   * rewriting it risks breaking the verified single-sector protection
+   * result contract (see the "single-sector protection mode" test).
+   */
+  private exNormalEOT = false;
+  /**
    * MT (Multi-Track) bit from the command. When set, reaching EOT on the
    * starting head continues the same command on the other side of the cylinder
    * instead of terminating — End of Cylinder is only reported after the second
@@ -516,6 +528,13 @@ export class UPD765A {
       }
       this.exR--;
       this.exHitEOT = true;
+      // Datasheet End-of-Cylinder result rewrite (C+1, R=1) applies here —
+      // this is a genuine search exhaustion, not the copy-protection
+      // exSingleSector short-circuit. Scoped to MT=0 only (see exNormalEOT);
+      // the MT=1 case immediately above either continues on side 1 (returns
+      // before reaching here) or falls through when no side-1 track exists,
+      // whose exact result-register rewrite isn't verified here.
+      if (!this.exMT) this.exNormalEOT = true;
       return false;
     }
 
@@ -679,13 +698,23 @@ export class UPD765A {
     if (st1 & 0x10) {
       st0 |= ST0_ABNORMAL;
     }
+    // Datasheet End-of-Cylinder result rewrite: on a normal (MT=0) run off
+    // the end of a real track search, the result reports C+1/R=1 rather than
+    // the last sector transferred — the standard "reissue with the returned
+    // CHRN to continue onto the next cylinder" convention. Deliberately NOT
+    // applied to the exSingleSector copy-protection short-circuit (see
+    // exNormalEOT) — that path's result CHRN is a verified protection
+    // contract and must keep reporting the sector actually read.
+    const resultC = this.exNormalEOT ? (this.exC + 1) & 0xFF : this.exC;
+    const resultR = this.exNormalEOT ? 1 : this.exR;
+
     // Return actual ST1 and ST2 from the sector (preserves CRC errors!)
     // Speedlock checks for intentional CRC errors - must not "fix" them!
-    this.log(`  ← Result: ST0=0x${st0.toString(16).padStart(2, '0')} ST1=0x${st1.toString(16).padStart(2, '0')} ST2=0x${this.exST2.toString(16).padStart(2, '0')} C=${this.exC} H=${this.exH} R=${this.exR} N=${this.exN}`);
+    this.log(`  ← Result: ST0=0x${st0.toString(16).padStart(2, '0')} ST1=0x${st1.toString(16).padStart(2, '0')} ST2=0x${this.exST2.toString(16).padStart(2, '0')} C=${resultC} H=${this.exH} R=${resultR} N=${this.exN}`);
     if ((st1 & ~0x80) || this.exST2) {
       this.log(`  ⚠ CRC/Error flags present in result!`);
     }
-    this.result([st0, st1, this.exST2, this.exC, this.exH, this.exR, this.exN]);
+    this.result([st0, st1, this.exST2, resultC, this.exH, resultR, this.exN]);
   }
 
   // ── Command dispatch ───────────────────────────────────────────────
@@ -957,6 +986,7 @@ export class UPD765A {
     this.exR = foundR;
     this.exEOT = eot;
     this.exHitEOT = false;
+    this.exNormalEOT = false;
     this.exMT = mt;
     this.exAbnormal = false;
     this.exTrack = track;
@@ -1056,6 +1086,7 @@ export class UPD765A {
     this.exR = last.r;
     this.exEOT = eot;
     this.exHitEOT = false;
+    this.exNormalEOT = false;
     this.exAbnormal = false;
     this.exTrack = track;
     this.exWriting = false;
@@ -1145,6 +1176,7 @@ export class UPD765A {
     this.exFormatting = true;
     this.exWriting   = true;
     this.exHitEOT    = false;
+    this.exNormalEOT = false;
     this.exST1       = 0;
     this.exST2       = 0;
     // Receive SC×4 bytes from CPU: one (C, H, R, N) tuple per sector

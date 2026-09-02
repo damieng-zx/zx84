@@ -363,11 +363,13 @@ describe('uPD765A — READ_DATA', () => {
     // ST0: abnormal + EOT (no error in sector itself). ST1 EN bit 7.
     expect(result[0] & ST0_ABNORMAL).toBe(ST0_ABNORMAL);
     expect(result[1] & 0x80).toBe(0x80);
-    // Result CHRN reflects last sector read
-    expect(result[3]).toBe(0); // C
+    // Datasheet End-of-Cylinder result rewrite (MT=0, genuine search
+    // exhaustion — not a copy-protection single-sector track): C+1, R=1,
+    // NOT the last sector's own CHRN.
+    expect(result[3]).toBe(1); // C incremented
     expect(result[4]).toBe(0); // H
-    expect(result[5]).toBe(0xC1); // R
-    expect(result[6]).toBe(2);    // N
+    expect(result[5]).toBe(1); // R reset to 1
+    expect(result[6]).toBe(2); // N
   });
 
   it('advances through multiple sectors up to EOT', () => {
@@ -378,7 +380,10 @@ describe('uPD765A — READ_DATA', () => {
     expect(data.slice(0, 512).every(b => b === 0x10)).toBe(true);
     expect(data.slice(512, 1024).every(b => b === 0x11)).toBe(true);
     expect(data.slice(1024, 1536).every(b => b === 0x12)).toBe(true);
-    expect(result[5]).toBe(0xC3); // final R
+    // End-of-Cylinder result rewrite: C+1, R=1 (not the final sector's own
+    // R=0xC3) — see the single-sector test above.
+    expect(result[3]).toBe(1); // C incremented
+    expect(result[5]).toBe(1); // R reset to 1
     expect(result[1] & 0x80).toBe(0x80); // EN
   });
 
@@ -943,7 +948,9 @@ describe('uPD765A — command flag bits (MT/SK modelled; MF unmodelled)', () => 
     const { data, result } = d.drainReadExecution();
     expect(data.length).toBe(512);       // only 0xC2's data — 0xC1 was skipped, not transferred
     expect(data[0]).toBe(0xBB);
-    expect(result[5]).toBe(0xC2);        // finished at 0xC2, having skipped 0xC1
+    // End-of-Cylinder result rewrite (genuine search exhaustion, MT=0): R=1,
+    // not the last sector transferred (0xC2).
+    expect(result[5]).toBe(1);
     expect(result[2] & 0x40).toBe(0x00); // ST2.CM — the sector actually read matches, no mismatch
     expect(result[1] & 0x80).toBe(0x80); // End-of-Cylinder — 0xC2 was also EOT
   });
@@ -979,7 +986,8 @@ describe('uPD765A — command flag bits (MT/SK modelled; MF unmodelled)', () => 
     const { data, result } = d.drainReadExecution();
     expect(data.length).toBe(512);
     expect(data[0]).toBe(0xBB);
-    expect(result[5]).toBe(0xC2);
+    // End-of-Cylinder result rewrite (genuine search exhaustion, MT=0): R=1.
+    expect(result[5]).toBe(1);
     expect(result[2] & 0x40).toBe(0x00); // matches command — no CM
   });
 
@@ -1203,7 +1211,11 @@ describe('uPD765A — mid-stream termination (error/control mark on a non-final 
     expect([data[0], data[512], data[1024]]).toEqual([0x10, 0x11, 0x12]);
     expect(result[2] & 0x40).toBe(0x00); // CM clear — marks matched on every sector
     expect(result[1] & 0x80).toBe(0x80); // EN at EOT
-    expect(result[5]).toBe(0xC3);        // CHRN advanced to the last sector
+    // End-of-Cylinder result rewrite (genuine search exhaustion, MT=0): R=1,
+    // not the last sector transferred (0xC3). This is the datasheet's C+1/
+    // R=1 convention, not a protection-specific value — only the ST2=0x00
+    // (CM clear) behaviour above is the Platoon/Barbarian II-verified bit.
+    expect(result[5]).toBe(1);
   });
 });
 
