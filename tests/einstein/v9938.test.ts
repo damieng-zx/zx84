@@ -307,6 +307,40 @@ describe('V9938 text-mode rendering', () => {
     v.renderScanline(line, 0, 0);
     expect(line[30]).toBe(v.pens[2]);
   });
+
+  it('shows the R7 backdrop, not pens[0], for a foreground colour index of 0', () => {
+    setReg(v, 1, 0x50);
+    setReg(v, 0, 0x04);                      // Text 2
+    setReg(v, 7, 0x0F);                      // fg index 0, backdrop (bg) index 15
+    primeCell(0x41, 0xFF);                   // all bits set -> all fg
+    v.renderScanline(line, 0, 0);
+    expect(line[16]).toBe(v.pens[15]);
+  });
+
+  it('shows literal pens[0] for a foreground colour index of 0 when TP is set', () => {
+    setReg(v, 1, 0x50);
+    setReg(v, 0, 0x04);
+    setReg(v, 7, 0x0F);
+    setReg(v, 8, 0x20);                      // TP set -> colour 0 is opaque
+    primeCell(0x41, 0xFF);
+    v.renderScanline(line, 0, 0);
+    expect(line[16]).toBe(v.pens[0]);
+  });
+
+  it('shows the R7 backdrop for a blink-table foreground colour index of 0', () => {
+    setReg(v, 1, 0x50);
+    setReg(v, 0, 0x04);                      // Text 2
+    setReg(v, 7, 0x05);                      // backdrop = pens[5]
+    setReg(v, 12, 0x0A);                     // blink: fg index 0, bg index 10
+    setReg(v, 3, 0xF8);
+    setReg(v, 10, 0);
+    setReg(v, 13, 0x10);                     // off-period 0 -> blink pinned on
+    primeCell(0x41, 0xFF);                   // all bits set -> all blink-fg
+    v.vram[0x3E00] = 0x80;                   // blink bit for cell 0
+    v.endActiveDisplay();
+    v.renderScanline(line, 0, 0);
+    expect(line[16]).toBe(v.pens[5]);
+  });
 });
 
 describe('V9938 TMS-compatible graphics rendering', () => {
@@ -327,6 +361,42 @@ describe('V9938 TMS-compatible graphics rendering', () => {
     expect(line[0]).toBe(v.pens[15]);
     expect(line[1]).toBe(v.pens[15]); // 256-pixel mode doubles horizontally
     expect(line[2]).toBe(v.pens[1]);
+  });
+
+  it('shows the R7 backdrop, not pens[0], for a Graphics 1 background colour index of 0', () => {
+    const v = new V9938();
+    v.reset();
+    const line = new Uint32Array(V9938_WIDTH);
+
+    setReg(v, 1, 0x40);              // display on, Graphics 1
+    setReg(v, 3, 0x30);              // colour table at 0x0C00
+    setReg(v, 4, 0x01);              // pattern table at 0x0800
+    setReg(v, 7, 0x05);              // backdrop = pens[5]
+    setReg(v, 23, 0x01);             // display source line 1 at output line 0
+    v.vram[0x0000] = 1;              // first name-table cell uses pattern group 0
+    v.vram[0x0800 + 8 + 1] = 0x00;   // source line 1: all bits clear -> all bg
+    v.vram[0x0C00] = 0xF0;           // pattern group 0: fg=15, bg index 0
+
+    v.renderScanline(line, 0, 0);
+    expect(line[0]).toBe(v.pens[5]);
+  });
+
+  it('shows the R7 backdrop, not pens[0], for a Graphics 2 background colour index of 0', () => {
+    const v = new V9938();
+    v.reset();
+    const line = new Uint32Array(V9938_WIDTH);
+
+    setReg(v, 1, 0x40);              // display on
+    setReg(v, 0, 0x02);              // Graphics 2 (M3)
+    setReg(v, 3, 0xFF);              // colour table at 0x2000, full mask
+    setReg(v, 4, 0x03);              // pattern table at 0, full mask
+    setReg(v, 7, 0x05);              // backdrop = pens[5]
+    v.vram[0x0000] = 1;              // name-table cell -> pattern/colour group 1
+    v.vram[8] = 0x00;                // pattern byte: all bits clear -> all bg
+    v.vram[0x2008] = 0xF0;           // colour byte: fg=15, bg index 0
+
+    v.renderScanline(line, 0, 0);
+    expect(line[0]).toBe(v.pens[5]);
   });
 });
 
@@ -374,6 +444,17 @@ describe('V9938 bitmap rendering', () => {
     v.renderScanline(line, 0, 0);
     expect(line[0]).toBe(0xFF0000FF);      // opaque red in ABGR
     expect(line[1]).toBe(0xFF0000FF);
+  });
+
+  it('GRAPHIC 5 colour index 0 shows the even/odd R7 backdrop half by X position', () => {
+    setReg(v, 0, 0x08);                    // GRAPHIC 5
+    setReg(v, 7, 0x09);                    // even backdrop = pens[2], odd = pens[1]
+    v.vram[0] = 0x00;                      // all four 2-bit pixels = colour index 0
+    v.renderScanline(line, 0, 0);
+    expect(line[0]).toBe(v.pens[2]);       // even X -> (R7 >> 2) & 3
+    expect(line[1]).toBe(v.pens[1]);       // odd X -> R7 & 3
+    expect(line[2]).toBe(v.pens[2]);
+    expect(line[3]).toBe(v.pens[1]);
   });
 
   it('applies R18 horizontal display adjustment and clips at the edge', () => {

@@ -486,9 +486,20 @@ export class V9938 {
     return value < 8 ? -value : 16 - value;
   }
 
-  private palettePen(index: number, graphic5 = false): number {
-    if (index === 0 && !(this.regs[8] & 0x20) && !graphic5) return this.backdrop();
+  private palettePen(index: number): number {
+    if (index === 0 && !(this.regs[8] & 0x20)) return this.backdrop();
     return this.pens[index & 0x0F];
+  }
+
+  /** GRAPHIC 5 (SCREEN6) colour index → pen. Each R7 byte packs two 2-bit
+   *  backdrop colours (even/odd X — see fillBackdrop), so a transparent
+   *  colour-0 pixel (TP clear) must pick the even or odd half depending on
+   *  its own X position, unlike palettePen()'s single 4-bit backdrop. */
+  private graphic5Pen(index: number, x: number): number {
+    if (index === 0 && !(this.regs[8] & 0x20)) {
+      return this.pens[(x & 1) ? (this.regs[7] & 3) : ((this.regs[7] >> 2) & 3)];
+    }
+    return this.pens[index & 3];
   }
 
   /** GRAPHIC 4–7 (MSX SCREEN 5–8) bitmap scanline. */
@@ -509,7 +520,8 @@ export class V9938 {
           px[x++] = b; px[x++] = b;
         } else {
           for (let shift = 6; shift >= 0; shift -= 2) {
-            px[x++] = this.palettePen((value >> shift) & 3, true);
+            px[x] = this.graphic5Pen((value >> shift) & 3, x);
+            x++;
           }
         }
       }
@@ -548,10 +560,13 @@ export class V9938 {
     const vram = this.vram;
 
     const patBase = this.regs[4] << 11;
-    const fg = this.pens[this.regs[7] >> 4];
-    const bg = this.pens[this.regs[7] & 0x0F];
-    const fgBlink = this.pens[this.regs[12] >> 4];
-    const bgBlink = this.pens[this.regs[12] & 0x0F];
+    // R7/R12 nibbles are colour-table indices like any other: index 0 shows
+    // the R7 backdrop, not palette entry 0, while TP (R8 bit 5) is clear —
+    // see palettePen().
+    const fg = this.palettePen(this.regs[7] >> 4);
+    const bg = this.palettePen(this.regs[7] & 0x0F);
+    const fgBlink = this.palettePen(this.regs[12] >> 4);
+    const bgBlink = this.palettePen(this.regs[12] & 0x0F);
 
     let nameBase: number, nameMask: number, colourBase = 0, colourMask = 0;
     if (t2) {
@@ -606,8 +621,10 @@ export class V9938 {
       const code = vram[(nameBase + col) % VRAM_SIZE];
       const bits = vram[(patBase + code * 8 + (line2 & 7)) % VRAM_SIZE];
       const colByte = vram[(colBase + (code >> 3)) % VRAM_SIZE];
-      const fg = this.pens[colByte >> 4];
-      const bg = this.pens[colByte & 0x0F];
+      // Colour index 0 shows the R7 backdrop, not palette entry 0, while TP
+      // (R8 bit 5) is clear — see palettePen().
+      const fg = this.palettePen(colByte >> 4);
+      const bg = this.palettePen(colByte & 0x0F);
       for (let b = 0; b < 8; b++) {
         const pen = (bits & (0x80 >> b)) ? fg : bg;
         px[x++] = pen;
@@ -633,8 +650,10 @@ export class V9938 {
       const code = vram[(nameBase + col) % VRAM_SIZE] + third;
       const bits = vram[(patBase + ((code & patMask) << 3) + line) % VRAM_SIZE];
       const colByte = vram[(colBase + ((code & colMask) << 3) + line) % VRAM_SIZE];
-      const fg = this.pens[colByte >> 4];
-      const bg = this.pens[colByte & 0x0F];
+      // Colour index 0 shows the R7 backdrop, not palette entry 0, while TP
+      // (R8 bit 5) is clear — see palettePen().
+      const fg = this.palettePen(colByte >> 4);
+      const bg = this.palettePen(colByte & 0x0F);
       for (let b = 0; b < 8; b++) {
         const pen = (bits & (0x80 >> b)) ? fg : bg;
         px[x++] = pen;
