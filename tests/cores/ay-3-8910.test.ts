@@ -946,10 +946,24 @@ describe('AY-3-8910 — ultrasonic anti-aliasing (the Chase HQ II whine)', () =>
     expect(range(s)).toBeGreaterThan(0.2);
   });
 
-  it("'mute' turns an ultrasonic (period ≤ 1) channel into a constant level — no whine", () => {
+  it("'mute' turns an ultrasonic (period 1, ~110kHz) channel into a constant level — no whine", () => {
     // Forcing the tone gate high makes the channel pure DC: every sample equal,
     // so there is nothing to alias. (DC itself is removed by AC coupling.)
     const s = collect(oneChannel('mute', 0), 256);
+    expect(range(s)).toBe(0);
+  });
+
+  it("'mute' threshold is sample-rate dependent: at 48kHz, periods up to ~4 are also muted", () => {
+    // period 4 -> 1773400/(16*4) ≈ 27709 Hz, still above the 24kHz Nyquist
+    // at 48kHz output (still ultrasonic on hardware, but would alias if
+    // naively point-sampled) — a fixed "period <= 1" threshold missed this.
+    const ay = new AY3891x(CHIP_FREQ, 48000);
+    ay.dcBlocking = false;
+    ay.antialias = 'mute';
+    ay.writeRegister(4, 4); ay.writeRegister(5, 0); // period 4
+    ay.writeRegister(10, 0x0F);
+    ay.writeRegister(7, 0b11111011); // tone C only
+    const s = collect(ay, 256);
     expect(range(s)).toBe(0);
   });
 

@@ -33,12 +33,15 @@ const REG_READ_MASK: readonly number[] = [
 export type AYStereoMode = 'MONO' | 'ABC' | 'ACB' | 'BAC' | 'BCA' | 'CAB' | 'CBA';
 
 // Resampler anti-aliasing strategy for the AY output stage. The chip can emit
-// ultrasonic tones (e.g. a channel parked at period 0/1 ≈ 110 kHz) that are
+// ultrasonic tones (e.g. a channel parked at period 1 ≈ 110 kHz) that are
 // inaudible on real hardware but alias down into the audible band as a whine
 // when the output is naively point-sampled.
 //   none    — legacy point-sampling (no anti-aliasing; aliases)
 //   box     — average the chip output across the clocks in each output sample
-//   mute    — treat an ultrasonic tone (period ≤ 1) as silent
+//   mute    — treat a tone at or above Nyquist for the current sample rate as
+//             silent (see AY3891x._muteThresholdPeriod — sample-rate
+//             dependent, not just period 1: at 48kHz output periods up to
+//             ~4 are still ultrasonic on hardware but would alias if sampled)
 //   lowpass — low-pass the mixed output, modelling the Spectrum's audio bandwidth
 export type AYAntialiasMode = 'none' | 'box' | 'mute' | 'lowpass';
 
@@ -103,6 +106,15 @@ export class AY3891x {
   private _lpOutL = 0;
   private _lpOutR = 0;
 
+  // 'mute' anti-alias threshold: any tone period at or above this value
+  // produces a frequency at or above Nyquist for the current sample rate —
+  // still ultrasonic on real hardware, but aliasing down into the audible
+  // band if naively point-sampled. Recomputed whenever chipFreq/sampleRate
+  // change (see _recomputeMuteThreshold). Sample-rate dependent: a fixed
+  // "period <= 1" threshold only covers ~110kHz, but e.g. at 48kHz output
+  // (Nyquist 24kHz) periods up to ~4 (≈27-55kHz) also alias.
+  private _muteThresholdPeriod = 1;
+
   // DC-blocking filter state (AC coupling, like real hardware's coupling capacitor)
   // y[n] = α * (y[n-1] + x[n] - x[n-1]), α ≈ 0.997 for ~20 Hz cutoff at 44.1 kHz
   private _dcAlpha: number;
@@ -155,6 +167,14 @@ export class AY3891x {
 
     // Low-pass coefficient for 'lowpass' anti-alias mode
     this._lpAlpha = 1 - Math.exp(-2 * Math.PI * LP_CUTOFF_HZ / sampleRate);
+
+    this._recomputeMuteThreshold();
+  }
+
+  /** Recompute the 'mute' anti-alias period threshold for the current
+   *  chipFreq/sampleRate — see _muteThresholdPeriod. */
+  private _recomputeMuteThreshold(): void {
+    this._muteThresholdPeriod = Math.floor(this.chipFreq / (16 * (this.sampleRate / 2)));
   }
 
   /** Update the sample rate after construction (e.g. once the AudioContext
@@ -167,6 +187,7 @@ export class AY3891x {
     this.cyclesPerSample = this.chipFreq / (sampleRate * 8);
     this._dcAlpha = 1 - (2 * Math.PI * 20 / sampleRate);
     this._lpAlpha = 1 - Math.exp(-2 * Math.PI * LP_CUTOFF_HZ / sampleRate);
+    this._recomputeMuteThreshold();
   }
 
   reset(): void {
@@ -355,11 +376,15 @@ export class AY3891x {
     const toneEnable = !((this.mixer >> ch) & 1);
     const noiseEnable = !((this.mixer >> (ch + 3)) & 1);
 
-    // 'mute' anti-alias: a tone period of 0/1 is ultrasonic (~110 kHz) and
-    // inaudible on real hardware. Force the tone gate high so the channel
-    // emits a steady level (DC, removed by AC coupling) instead of a tone
-    // that would alias into an audible whine.
-    const ultrasonic = this.antialias === 'mute' && toneEnable && this.tonePeriod[ch] <= 1;
+    // 'mute' anti-alias: a tone at or above Nyquist for the current sample
+    // rate (see _muteThresholdPeriod) is ultrasonic and inaudible on real
+    // hardware. Force the tone gate high so the channel emits a steady
+    // level (DC, removed by AC coupling) instead of a tone that would
+    // alias down into an audible whine. A fixed "period <= 1" threshold
+    // only covers ~110kHz; at 48kHz output (Nyquist 24kHz) periods up to
+    // ~4 (≈27-55kHz) also fold into the audible band.
+    const ultrasonic = this.antialias === 'mute' && toneEnable
+      && this.tonePeriod[ch] <= this._muteThresholdPeriod;
     const toneOut = (toneEnable && !ultrasonic) ? this.toneOutput[ch] : 1;
     const noiseOut = noiseEnable ? this.noiseOutput : 1;
 
