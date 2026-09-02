@@ -185,11 +185,13 @@ function block5A(): number[] {
   return [0x5A, ...new Array(9).fill(0)];
 }
 
-/** 0x18 CSW Recording — block length excludes the ID and length itself. */
+/** 0x18 CSW Recording — block length excludes the ID and length itself.
+ *  Layout: pause WORD, sample rate BYTE[3], compression BYTE, pulse count
+ *  DWORD, then RLE data. */
 function block18(pulses: number[], pause = 100): number[] {
   const body = [
     ...w16(pause),
-    ...w32(3_500_000),
+    ...w24(3_500_000),
     1,
     ...w32(pulses.length),
     ...pulses,
@@ -454,13 +456,13 @@ describe('TZX — 0x18 CSW Recording / 0x19 Generalized Data', () => {
   it('rejects a pulse count larger than the RLE data can ever yield', () => {
     // Each RLE byte produces at most one pulse; a header claiming more is
     // corrupt and must be rejected — not used to size the allocation.
-    const body = [...w16(100), ...w32(3_500_000), 1, ...w32(0xFFFFFFFF), 10, 20];
+    const body = [...w16(100), ...w24(3_500_000), 1, ...w32(0xFFFFFFFF), 10, 20];
     const bomb = tzx(header(), [0x18, ...w32(body.length), ...body]);
     expect(() => parseTZX(bomb)).toThrow('Truncated embedded TZX CSW');
   });
 
   it('rejects a zero sample rate', () => {
-    const body = [...w16(100), ...w32(0), 1, ...w32(2), 10, 20];
+    const body = [...w16(100), ...w24(0), 1, ...w32(2), 10, 20];
     const bad = tzx(header(), [0x18, ...w32(body.length), ...body]);
     expect(() => parseTZX(bad)).toThrow('zero sample rate');
   });
@@ -513,17 +515,23 @@ describe('TZX — 0x21 Group Start / 0x22 Group End', () => {
 // ── Block 0x23 (Jump) ───────────────────────────────────────────────────────
 
 describe('TZX — 0x23 Jump to Block', () => {
-  it('jumps relative to the following block', () => {
+  it('offset 1 is the jump block\'s own next block (no-op jump)', () => {
     const data = tzx(header(), block20(1), block23(1), block20(2), block20(3));
+    const blocks = parseTZX(data);
+    expect(blocks.map((b) => (b as PauseBlock).duration)).toEqual([1, 2, 3]);
+  });
+
+  it('offset 2 skips the block immediately after the jump', () => {
+    const data = tzx(header(), block20(1), block23(2), block20(2), block20(3));
     const blocks = parseTZX(data);
     expect(blocks.map((b) => (b as PauseBlock).duration)).toEqual([1, 3]);
   });
 
   it('rejects a cyclic jump instead of looping forever', () => {
-    // Offset -1 makes the jump target the jump block itself. Since loops
-    // are expanded at parse time this can never terminate; the parser must
-    // reject the tape rather than spin.
-    const cyclic = tzx(header(), block23(-1));
+    // Offset 0 makes the jump target the jump block itself (spec: 0 = loop
+    // forever). Since loops are expanded at parse time this can never
+    // terminate; the parser must reject the tape rather than spin.
+    const cyclic = tzx(header(), block23(0));
     expect(() => parseTZX(cyclic)).toThrow(/does not terminate/);
   });
 
@@ -636,9 +644,31 @@ describe('TZX — 0x24 Loop Start / 0x25 Loop End', () => {
 
 describe('TZX — 0x26 Call Sequence / 0x27 Return', () => {
   it('executes a called sequence before continuing after the call', () => {
-    const data = tzx(header(), block26([1]), block23(2), block20(99), block27(), block20(7));
+    // index0 Call(offset 2 -> index2); index1 is a Jump used only as the
+    // return landing pad, forwarding past the dead zone to index4.
+    const data = tzx(header(), block26([2]), block23(3), block20(99), block27(), block20(7));
     const blocks = parseTZX(data);
     expect(blocks.map((b) => (b as PauseBlock).duration)).toEqual([99, 7]);
+  });
+
+  it('visits every destination in the call list, not just the first', () => {
+    // index0 Call([2, 4]) -> targets index2 and index4. index1 is the
+    // return landing pad (a Jump to index6, the tail). Each target ends in
+    // its own Return: the first Return finds a queued destination left and
+    // continues to it instead of returning; only the second (list now
+    // empty) returns to the landing pad.
+    const data = tzx(
+      header(),
+      block26([2, 4]),  // index0
+      block23(5),        // index1
+      block20(10),        // index2 (target A)
+      block27(),          // index3
+      block20(20),        // index4 (target B)
+      block27(),          // index5
+      block20(7),         // index6 (tail)
+    );
+    const blocks = parseTZX(data);
+    expect(blocks.map((b) => (b as PauseBlock).duration)).toEqual([10, 20, 7]);
   });
 
   it('rejects a return without a call sequence', () => {
@@ -650,7 +680,7 @@ describe('TZX — 0x26 Call Sequence / 0x27 Return', () => {
 
 describe('TZX — 0x28 Select Block', () => {
   it('chooses the first selected destination', () => {
-    const data = tzx(header(), block28Select([1]), block20(11), block20(22));
+    const data = tzx(header(), block28Select([2]), block20(11), block20(22));
     const blocks = parseTZX(data);
     expect(blocks.length).toBe(1);
     expect((blocks[0] as PauseBlock).duration).toBe(22);

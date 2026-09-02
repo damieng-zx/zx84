@@ -142,7 +142,11 @@ export function parseTZX(fileData: Uint8Array): TapeBlock[] {
   // loops; a single pair would let an inner Loop End clobber the outer
   // bookkeeping, silently dropping the outer expansion.
   const loopStack: { start: number; count: number }[] = [];
-  const callStack: number[] = [];
+  // Each call frame tracks where to resume once every target in a 0x26
+  // Call's list has run (returnTo) and the not-yet-visited targets after
+  // the first (remaining) — a Call can list several destinations to visit
+  // in sequence before returning, not just one.
+  const callStack: { returnTo: number; remaining: number[] }[] = [];
 
   // Jump/Call/Select/Return reposition the cursor, and since loops are
   // expanded at parse time a cycle in that control flow can never terminate
@@ -244,17 +248,17 @@ export function parseTZX(fileData: Uint8Array): TapeBlock[] {
         break;
       }
       case 0x18: // CSW Recording
-      { // pause + sample rate + compression + pulse count + RLE data
+      { // pause WORD + sample rate BYTE[3] + compression + pulse count DWORD + RLE data
         const blockLen = read32(fileData, o);
         const body = o + 4;
         const pause = read16(fileData, body);
-        const sampleRate = read32(fileData, body + 2);
-        const compression = fileData[body + 6];
-        const pulseCount = read32(fileData, body + 7);
+        const sampleRate = read24(fileData, body + 2);
+        const compression = fileData[body + 5];
+        const pulseCount = read32(fileData, body + 6);
         if (compression !== 1) {
           throw new Error(`Unsupported embedded TZX CSW compression type ${compression}`);
         }
-        const rleStart = body + 11;
+        const rleStart = body + 10;
         const rleEnd = body + blockLen;
         // Validate before allocating: a zero sample rate would poison every
         // pulse with NaN/Infinity, and each RLE item produces at most one
@@ -300,8 +304,12 @@ export function parseTZX(fileData: Uint8Array): TapeBlock[] {
         blocks.push({ kind: 'group-end' });
         break;
       case 0x23: { // Jump to Block
+        // Offset is relative to this block itself: 0 jumps to itself (an
+        // infinite loop — caught by the step budget below), 1 to the next
+        // block (equivalent to falling through with no jump), -1 to the
+        // previous one.
         const index = startIndex.get(blockStart)!;
-        const target = index + 1 + readSigned16(fileData, o);
+        const target = index + readSigned16(fileData, o);
         if (target < 0 || target >= starts.length) throw new Error('TZX jump target is out of range');
         o = starts[target];
         continue;
@@ -323,28 +331,39 @@ export function parseTZX(fileData: Uint8Array): TapeBlock[] {
         }
         break;
       }
-      case 0x26: { // Call Sequence (select the first destination)
+      case 0x26: { // Call Sequence (visit every listed destination in order)
         const index = startIndex.get(blockStart)!;
         const count = read16(fileData, o);
         if (count === 0) break;
-        const target = index + 1 + readSigned16(fileData, o + 2);
-        if (target < 0 || target >= starts.length) throw new Error('TZX call target is out of range');
-        callStack.push(index + 1);
-        o = starts[target];
+        const targets: number[] = [];
+        for (let i = 0; i < count; i++) {
+          const target = index + readSigned16(fileData, o + 2 + i * 2);
+          if (target < 0 || target >= starts.length) throw new Error('TZX call target is out of range');
+          targets.push(target);
+        }
+        callStack.push({ returnTo: index + 1, remaining: targets.slice(1) });
+        o = starts[targets[0]];
         continue;
       }
       case 0x27: { // Return from Sequence
-        const target = callStack.pop();
-        if (target === undefined) throw new Error('TZX return without call');
-        if (target >= starts.length) { o = fileData.length; continue; }
-        o = starts[target];
+        const frame = callStack[callStack.length - 1];
+        if (frame === undefined) throw new Error('TZX return without call');
+        if (frame.remaining.length > 0) {
+          // More destinations queued on this call — visit the next one
+          // instead of returning past the whole 0x26 block.
+          o = starts[frame.remaining.shift()!];
+          continue;
+        }
+        callStack.pop();
+        if (frame.returnTo >= starts.length) { o = fileData.length; continue; }
+        o = starts[frame.returnTo];
         continue;
       }
       case 0x28: { // Select Block (choose the first option)
         const index = startIndex.get(blockStart)!;
         const count = fileData[o + 2];
         if (count === 0) break;
-        const target = index + 1 + readSigned16(fileData, o + 3);
+        const target = index + readSigned16(fileData, o + 3);
         if (target < 0 || target >= starts.length) throw new Error('TZX select target is out of range');
         o = starts[target];
         continue;
