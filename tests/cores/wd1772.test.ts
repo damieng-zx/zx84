@@ -64,9 +64,30 @@ describe('WD1772 Type I (Restore/Seek)', () => {
     expect(wd.getUnitTrack(0)).toBe(200);
   });
 
-  it('STEP OUT below track 0 wraps the 8-bit track register to 255', () => {
-    wd.writeCommand(0x60); // Step-out with update ('u' flag set)
-    expect(wd.getUnitTrack(0)).toBe(255);
+  it('STEP OUT at track 0 stays at track 0 (TR00 inhibits the pulse, no wrap)', () => {
+    // 0x60 = 0110 0000: hi nibble 0x6 selects STEP OUT; bit4 ('u', update
+    // track register) is clear here, so only the physical position is
+    // checked, not trackReg.
+    wd.writeCommand(0x60); // Step-out, u=0
+    expect(wd.getUnitTrack(0)).toBe(0);
+    expect(wd.readStatus() & ST_TRACK0).toBeTruthy();
+  });
+
+  it('STEP OUT with the u flag set also holds trackReg at 0, not 255', () => {
+    // 0x70 = 0111 0000: STEP OUT with bit4 ('u') set.
+    wd.trackReg = 5; // stale value from some earlier command
+    wd.writeCommand(0x70);
+    expect(wd.getUnitTrack(0)).toBe(0);
+    expect(wd.trackReg).toBe(0);
+  });
+
+  it('STEP OUT below track 1 stops at track 0 instead of continuing to wrap', () => {
+    wd.writeData(1);
+    wd.writeCommand(CMD_SEEK); // move to track 1 first
+    wd.writeCommand(0x60);     // step out -> track 0
+    expect(wd.getUnitTrack(0)).toBe(0);
+    wd.writeCommand(0x60);     // step out again -> stays at track 0
+    expect(wd.getUnitTrack(0)).toBe(0);
   });
 });
 

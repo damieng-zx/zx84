@@ -325,9 +325,14 @@ export class WD179x {
 
   private step(cmd: number, dir: number): void {
     if (dir !== 0) this.stepDir = dir;
-    const next = (this.headTrack[this.currentDrive] + this.stepDir) & 0xFF;
+    const cur = this.headTrack[this.currentDrive];
+    // TR00 inhibits a further STEP OUT pulse: real hardware does not step
+    // the head (or its internal position) past the physical track-0 stop —
+    // it just stays there. Without this, stepping out at track 0 wraps the
+    // 8-bit position to 255 instead of staying put.
+    const next = (this.stepDir < 0 && cur === 0) ? 0 : (cur + this.stepDir) & 0xFF;
     this.headTrack[this.currentDrive] = next;
-    if (cmd & 0x10) this.trackReg = next; // 'T' update-track-register flag
+    if (cmd & 0x10) this.trackReg = next; // 'u' update-track-register flag
     this.endTypeI();
   }
 
