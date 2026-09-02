@@ -10,7 +10,7 @@
  */
 
 import { Z80 } from '@/cores/z80.ts';
-import { Sn76489 } from '@/cores/sn76489.ts';
+import { Sn76489, type Sn76489AntialiasMode } from '@/cores/sn76489.ts';
 import { Tms9918a, MSX_PALETTES } from '@/cores/tms9918a.ts';
 import { Z80Ctc } from '@/cores/z80-ctc.ts';
 import { Audio } from '@/audio.ts';
@@ -140,6 +140,10 @@ export class MtxMachine extends BaseMachine implements Machine {
     this.vdp.palette =
       MSX_PALETTES[view.get('msx-color-map', 'pal') as keyof typeof MSX_PALETTES];
     this.audio.setVolume(view.get('volume', 70) / 100);
+    // Reuses the Sound panel's shared Filter dropdown — the MTX carries an
+    // SN76489 instead of the AY-family PSG the setting is named after, but
+    // the anti-alias strategies (see Sn76489AntialiasMode) are equivalent.
+    this.psg.antialias = view.get<Sn76489AntialiasMode>('ay-antialias', 'mute');
     this.column80Requested = view.get('mtx-80-column', false);
     this.floppyRequested = view.get('mtx-floppy', true);
     this.set512kRamEnabled(view.get('mtx-512k-ram', false));

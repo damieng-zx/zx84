@@ -19,6 +19,21 @@ export interface StereoPsgSample {
   right: number;
 }
 
+// Resampler anti-aliasing strategy for the SN76489 output stage — mirrors
+// AYAntialiasMode (src/cores/ay-3-8910.ts). A channel parked at a low tone
+// period is ultrasonic on real hardware but aliases down into the audible
+// band as a whine when the output is naively point-sampled.
+//   none    — legacy point-sampling (no anti-aliasing; aliases)
+//   box     — average the chip output across the clocks in each output sample
+//   mute    — treat a tone at or above Nyquist for the current sample rate as
+//             silent (see Sn76489.muteThresholdPeriod — sample-rate
+//             dependent, not just period 1)
+//   lowpass — low-pass the mixed output, modelling the host's audio bandwidth
+export type Sn76489AntialiasMode = 'none' | 'box' | 'mute' | 'lowpass';
+
+// Cutoff for the 'lowpass' anti-alias mode (one-pole), matching the AY core.
+const LP_CUTOFF_HZ = 14000;
+
 /** Measured/logarithmic 2 dB attenuation steps, normalised to 1.0. */
 export const SN76489_VOLUME_TABLE = new Float64Array([
   1.000000, 0.794328, 0.630957, 0.501187,
@@ -47,12 +62,32 @@ export class Sn76489 {
   private dcPrevious = 0;
   private dcOutput = 0;
 
+  // Resampler anti-aliasing mode. Core default is 'none' (deterministic
+  // point-sampling for conformance tests); the app sets it from the user's
+  // Sound-panel choice (see applySettings in the owning machine).
+  antialias: Sn76489AntialiasMode = 'none';
+
+  // One-pole low-pass state for the 'lowpass' anti-alias mode.
+  private lpAlpha: number;
+  private lpOutput = 0;
+
+  // 'mute' anti-alias threshold: any tone period at or above this value
+  // produces a frequency at or above Nyquist for the current sample rate —
+  // still ultrasonic on real hardware, but aliasing down into the audible
+  // band if naively point-sampled. Recomputed whenever clockHz/sampleRate
+  // change (see recomputeMuteThreshold). A tone toggles once per
+  // `effectiveTonePeriod` internal (clock/16) ticks, so its full period is
+  // 32*N ticks of the input clock — see generateSample().
+  private muteThresholdPeriod = 1;
+
   constructor(
     public readonly clockHz: number,
     public sampleRate: number,
     public readonly variant: Sn76489Variant = 'ti-15bit',
   ) {
     this.dcAlpha = this.dcCoefficient(sampleRate);
+    this.lpAlpha = this.lpCoefficient(sampleRate);
+    this.recomputeMuteThreshold();
     this.reset();
   }
 
@@ -60,7 +95,15 @@ export class Sn76489 {
     if (!Number.isFinite(sampleRate) || sampleRate <= 0) return;
     this.sampleRate = sampleRate;
     this.dcAlpha = this.dcCoefficient(sampleRate);
+    this.lpAlpha = this.lpCoefficient(sampleRate);
+    this.recomputeMuteThreshold();
     this.cycleFraction = 0;
+  }
+
+  /** Recompute the 'mute' anti-alias period threshold for the current
+   *  clockHz/sampleRate — see muteThresholdPeriod. */
+  private recomputeMuteThreshold(): void {
+    this.muteThresholdPeriod = Math.floor(this.clockHz / (16 * this.sampleRate));
   }
 
   /** Disable only for deterministic raw-waveform conformance tests. */
@@ -84,6 +127,7 @@ export class Sn76489 {
     this.cycleFraction = 0;
     this.dcPrevious = 0;
     this.dcOutput = 0;
+    this.lpOutput = 0;
   }
 
   /** Write one byte to the PSG data bus. */
@@ -112,7 +156,17 @@ export class Sn76489 {
     let mixed = 0;
     for (let channel = 0; channel < 3; channel++) {
       const level = SN76489_VOLUME_TABLE[this.attenuation[channel]];
-      mixed += this.toneOutput[channel] ? level : -level;
+      // 'mute' anti-alias: a tone at or above Nyquist for the current sample
+      // rate (see muteThresholdPeriod) is ultrasonic and inaudible on real
+      // hardware. Force the tone gate high so the channel contributes a
+      // steady level (DC, removed by AC coupling) instead of a tone that
+      // would alias down into an audible whine. This only reshapes the
+      // output stage — the tone/noise generators still clock at full rate,
+      // so noise-mode-3's sync off channel 2 is unaffected.
+      const ultrasonic = this.antialias === 'mute'
+        && this.effectiveTonePeriod(channel) <= this.muteThresholdPeriod;
+      const toneOut = ultrasonic ? 1 : this.toneOutput[channel];
+      mixed += toneOut ? level : -level;
     }
     const noiseLevel = SN76489_VOLUME_TABLE[this.attenuation[3]];
     mixed += this.noiseOutput ? noiseLevel : -noiseLevel;
@@ -127,13 +181,34 @@ export class Sn76489 {
     this.cycleFraction += this.clockHz / (this.sampleRate * 16);
     const ticks = Math.floor(this.cycleFraction);
     this.cycleFraction -= ticks;
-    if (ticks > 0) this.advanceTicks(ticks);
 
-    const raw = this.rawSample();
-    if (!this.dcBlocking) return raw;
-    this.dcOutput = this.dcAlpha * (this.dcOutput + raw - this.dcPrevious);
-    this.dcPrevious = raw;
-    return this.dcOutput;
+    let raw: number;
+    if (this.antialias === 'box' && ticks > 0) {
+      // Average the chip output across every clock in this output sample
+      // (box-filter decimation) — anti-aliases content near the sample
+      // rate, so ultrasonic tones collapse to ~DC instead of aliasing to a
+      // whine. Mirrors AY3891x.generateSample's 'box' path.
+      let acc = 0;
+      for (let i = 0; i < ticks; i++) {
+        this.advanceTicks(1);
+        acc += this.rawSample();
+      }
+      raw = acc / ticks;
+    } else {
+      if (ticks > 0) this.advanceTicks(ticks);
+      raw = this.rawSample();
+    }
+
+    if (this.dcBlocking) {
+      this.dcOutput = this.dcAlpha * (this.dcOutput + raw - this.dcPrevious);
+      this.dcPrevious = raw;
+      raw = this.dcOutput;
+    }
+    if (this.antialias === 'lowpass') {
+      this.lpOutput += this.lpAlpha * (raw - this.lpOutput);
+      raw = this.lpOutput;
+    }
+    return raw;
   }
 
   /** The physical chip is mono; duplicate its output for the stereo mixer. */
@@ -251,5 +326,9 @@ export class Sn76489 {
 
   private dcCoefficient(sampleRate: number): number {
     return 1 - (2 * Math.PI * 20 / sampleRate);
+  }
+
+  private lpCoefficient(sampleRate: number): number {
+    return 1 - Math.exp(-2 * Math.PI * LP_CUTOFF_HZ / sampleRate);
   }
 }

@@ -30,7 +30,8 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'tape-turbo-load': () => settings.tapeTurbo(),
   'tape-sound': () => settings.tapeSoundEnabled(),
   'tape-auto-rewind': () => settings.tapeAutoRewind(),
-  // AY/PSG shaping (all machines carry an AY-family PSG).
+  // AY/PSG shaping. Every machine carries an AY-family PSG except the MTX
+  // (SN76489), which reuses these same keys — see Sn76489AntialiasMode.
   'ay-stereo': () => settings.ayStereo(),
   'ay-dc-block': () => settings.ayDcBlock(),
   'ay-antialias': () => settings.ayAntialias(),
