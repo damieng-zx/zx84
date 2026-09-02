@@ -287,9 +287,10 @@ export class EinsteinMachine extends BaseMachine implements Machine {
         if (this.breakpoints.has(this.cpu.pc)) { this.breakpointHit = this.cpu.pc; broke = true; break; }
         if (this.onTrap !== null && this.onTrap(this.cpu.pc)) { broke = true; break; }
 
-        const eiBefore = this.cpu.eiDelay;
+        // EI suppresses interrupts for one instruction; step() itself resets
+        // and re-arms eiDelay per-instruction (see core.ts), so a plain
+        // post-step check is enough here.
         this.cpu.step();
-        if (eiBefore) this.cpu.eiDelay = false;
 
         // Advance CTC timers by the elapsed T-states.
         const dt = this.cpu.tStates - lastCtcT;

@@ -428,7 +428,8 @@ Z80.prototype.executeMain = function (this: Z80, opcode: number): void {
             case 7:
               // EI: 4T (M1 auto-counted)
               // Real Z80 suppresses interrupts for one instruction after EI.
-              // The run loop clears eiDelay after the *next* instruction.
+              // step() resets eiDelay to false before every instruction; EI
+              // re-arms it here, so a run of EI;EI;... keeps re-suppressing.
               this.iff1 = true;
               this.iff2 = true;
               this.eiDelay = true;

@@ -312,9 +312,10 @@ export class MtxMachine extends BaseMachine implements Machine {
         }
         if (this.trapCassetteRoutine()) continue;
 
-        const eiBefore = this.cpu.eiDelay;
+        // EI suppresses interrupts for one instruction; step() itself resets
+        // and re-arms eiDelay per-instruction (see core.ts), so a plain
+        // post-step check is enough here.
         this.cpu.step();
-        if (eiBefore) this.cpu.eiDelay = false;
 
         const elapsed = this.cpu.tStates - lastCtcT;
         if (elapsed > 0) {

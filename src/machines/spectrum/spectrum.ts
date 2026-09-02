@@ -655,10 +655,17 @@ export class Spectrum extends BaseMachine implements Machine {
 
     while (this.cpu.tStates < frameEnd) {
       const tBefore = this.cpu.tStates;
-      // EI delay: captured before the step so the flag set by EI itself
-      // survives this iteration and is cleared only after the *following*
-      // instruction (see timings.md § EI Delay).
+      // EI delay bookkeeping for the two fast paths below (trapHandled /
+      // halted) that bypass core.ts's step() entirely: step() itself resets
+      // eiDelay before every instruction and lets EI re-arm it (so a run of
+      // EI;EI;... keeps re-suppressing correctly) — but that only happens
+      // inside step(), so these step()-skipping paths still need the old
+      // "one instruction after EI" clear applied manually below. tookStep
+      // tracks whether the normal step() branch ran, so that clear is
+      // skipped there — applying it after a real step() would wipe out a
+      // fresh EI;EI re-arm and let an interrupt sneak in one instruction early.
       const eiBefore = this.cpu.eiDelay;
+      let tookStep = false;
 
       // MGT +D shadow-ROM paging: M1 opcode-fetch trap. Must run every
       // instruction (before any branch) so the +D maps itself in at its RST/
@@ -757,6 +764,7 @@ export class Spectrum extends BaseMachine implements Machine {
         if (this.trace.active && this.trace.mode === 'full' && this.cpu.pc >= 0x4000) this.trace.captureFull();
         const zxtlPC = this.trace.active && this.trace.mode === 'zxtl' ? this.cpu.pc : -1;
         this.cpu.step();
+        tookStep = true;
         if (zxtlPC >= 0) this.trace.captureZxtl(zxtlPC);
         // Break mid-frame if a port or memory watchpoint fired during this instruction
         if (watchActive && (this.portWatchHit !== null || this.memWatchHit !== null)) break;
@@ -766,11 +774,11 @@ export class Spectrum extends BaseMachine implements Machine {
       // IF1 ROM), map the IF1 ROM back out so the return lands in normal memory.
       if (if1PageOut) this.interface1.pageOut(this.memory);
 
-      // Clear EI delay one instruction after EI set it (see timings.md
-      // § EI Delay). eiBefore was captured before the step, so the flag EI
-      // sets during its own step() survives until after the next instruction
-      // — keeping EI:DI atomic and EI:HALT un-interruptible in between.
-      if (eiBefore) {
+      // Clear EI delay one instruction after EI set it, for the trapHandled /
+      // halted fast paths that bypass core.ts's step() (see the comment at
+      // eiBefore's declaration above). A real step() already handled this
+      // internally, so skip it there.
+      if (eiBefore && !tookStep) {
         this.cpu.eiDelay = false;
       }
 

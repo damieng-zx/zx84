@@ -30,9 +30,10 @@ describe('Z80 — Interrupt modes', () => {
 
   it('EI sets eiDelay so an interrupt during the next M1 is blocked', () => {
     // Documented Zilog behaviour: EI enables interrupts but the *next*
-    // instruction's M1 cycle still rejects them. In this core, eiDelay is set
-    // by EI and the surrounding run loop (io-ports.ts / spectrum.ts) clears
-    // it after the next instruction executes — step() alone does not.
+    // instruction's M1 cycle still rejects them. step() itself resets
+    // eiDelay to false before every instruction and lets EI's own opcode
+    // handler set it back to true, so the flag survives exactly one
+    // instruction with no run-loop bookkeeping required.
     const h = newCpu();
     load(h.mem, 0, 0xFB, 0x00); // EI ; NOP
     step(h); // EI
@@ -40,7 +41,49 @@ describe('Z80 — Interrupt modes', () => {
     expect(h.cpu.eiDelay).toBe(true);
     expect(h.cpu.interrupt()).toBe(0); // blocked
     step(h); // NOP
-    h.cpu.eiDelay = false;
+    expect(h.cpu.eiDelay).toBe(false); // step() cleared it on its own
+    expect(h.cpu.interrupt()).toBeGreaterThan(0);
+  });
+
+  it('EI;EI;X keeps interrupts blocked through both EIs, not just the first', () => {
+    // Each EI re-arms its own one-instruction suppression window. A run of
+    // EI;EI;X must stay blocked through the second EI too, and only accept
+    // an interrupt once X has executed — not in the gap right after the
+    // second EI (the bug: a run loop that only tracked "was eiDelay already
+    // true before this step" wiped out the second EI's fresh re-arm).
+    const h = newCpu();
+    load(h.mem, 0, 0xFB, 0xFB, 0x00); // EI ; EI ; NOP
+    step(h); // 1st EI
+    expect(h.cpu.eiDelay).toBe(true);
+    expect(h.cpu.interrupt()).toBe(0); // blocked after EI #1
+    step(h); // 2nd EI
+    expect(h.cpu.eiDelay).toBe(true);  // re-armed, not cleared
+    expect(h.cpu.interrupt()).toBe(0); // still blocked after EI #2
+    step(h); // NOP (X)
+    expect(h.cpu.eiDelay).toBe(false);
+    expect(h.cpu.interrupt()).toBeGreaterThan(0); // accepted only now
+  });
+
+  it('HALT is itself the one suppressed instruction after EI, so EI;HALT accepts interrupts right away', () => {
+    // step()'s reset runs before the halted check too, so it applies whether
+    // an instruction transitions into HALT or re-fetches while already
+    // halted. HALT's own fetch cycle satisfies "one instruction after EI",
+    // so interrupts are already accepted from the very next sampling point —
+    // no extra re-fetch needed, matching the common "EI ; HALT" idle-wait idiom.
+    // (Inspecting eiDelay directly rather than calling interrupt() along the
+    // way — interrupt() mutates halted/iff1 on acceptance.)
+    const h = newCpu();
+    load(h.mem, 0, 0xFB, 0x76); // EI ; HALT
+    step(h); // EI
+    expect(h.cpu.eiDelay).toBe(true); // suppressed right after EI
+    step(h); // HALT — the suppressed instruction; transitions into halted
+    expect(h.cpu.halted).toBe(true);
+    expect(h.cpu.eiDelay).toBe(false); // already un-suppressed
+    // A subsequent re-fetch on the already-halted fast path must not
+    // reintroduce stale suppression either.
+    step(h);
+    expect(h.cpu.halted).toBe(true);
+    expect(h.cpu.eiDelay).toBe(false);
     expect(h.cpu.interrupt()).toBeGreaterThan(0);
   });
 

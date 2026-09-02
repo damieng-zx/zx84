@@ -324,9 +324,10 @@ export class Zx8xMachine extends BaseMachine implements Machine {
       while (this.cpu.tStates < lineEnd) {
         if (this.breakpoints.has(this.cpu.pc)) { this.breakpointHit = this.cpu.pc; broke = true; break; }
         if (this.onTrap?.(this.cpu.pc)) { broke = true; break; }
-        const beforeEi = this.cpu.eiDelay;
+        // EI suppresses interrupts for one instruction; step() itself resets
+        // and re-arms eiDelay per-instruction (see core.ts), so a plain
+        // post-step check is enough here.
         this.cpu.step();
-        if (beforeEi) this.cpu.eiDelay = false;
         if (this.cpu.halted && this.cpu.pc >= 0xc000 && this.cpu.iff1 && !this.cpu.eiDelay) this.cpu.interrupt();
         const elapsed = this.cpu.tStates - lastAudio;
         if (!this.turbo && elapsed > 0) {

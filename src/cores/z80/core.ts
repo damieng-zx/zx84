@@ -358,6 +358,14 @@ export class Z80 {
 
   // --- Execute one instruction ---
   step(): void {
+    // Interrupts are suppressed for exactly the one instruction following an
+    // EI — but that suppression is per-EI, not "one instruction after the
+    // first EI in a run": EI re-arms it on every execution, so EI;EI;X must
+    // keep interrupts blocked through both EIs and only accept one after X.
+    // Modelled by resetting the flag before every instruction (including a
+    // HALT re-fetch) and letting EI's own opcode handler set it again —
+    // nothing reads eiDelay mid-instruction, only between step() calls.
+    this.eiDelay = false;
     if (this.halted) {
       // HALT repeats a NOP-like M1 fetch from PC — apply contention.
       // No contention probe during the T3-T4 refresh: the ULA only stalls

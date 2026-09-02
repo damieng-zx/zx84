@@ -283,9 +283,10 @@ export class MsxMachine extends BaseMachine implements Machine {
           if (this.cpu.pc === MSX_TAPIN) { this.trapTapin(); continue; }
         }
 
-        const eiBefore = this.cpu.eiDelay;
+        // EI suppresses interrupts for one instruction; step() itself resets
+        // and re-arms eiDelay per-instruction (see core.ts), so a plain
+        // post-step check is enough here.
         this.cpu.step();
-        if (eiBefore) this.cpu.eiDelay = false;
 
         // The VDP INT line is level-sensitive: while its frame flag is set and
         // interrupts are enabled, take a maskable IM 1 interrupt as soon as the

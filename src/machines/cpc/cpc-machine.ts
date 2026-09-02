@@ -488,12 +488,10 @@ export class CpcMachine extends BaseMachine implements Machine {
           }
         }
 
-        // EI suppresses interrupts for one instruction. eiDelay is set by EI
-        // during step(); clear it one instruction later so the interrupt fires
-        // after the instruction following EI (and never gets stuck on).
-        const eiBefore = this.cpu.eiDelay;
+        // EI suppresses interrupts for one instruction; step() itself resets
+        // and re-arms eiDelay per-instruction (see core.ts), so a plain
+        // post-step check is enough here.
         this.cpu.step();
-        if (eiBefore) this.cpu.eiDelay = false;
 
         if (ga.interruptRequested && this.cpu.iff1 && !this.cpu.eiDelay) {
           // Plus IM 2: the ASIC supplies a vector byte encoding the interrupt

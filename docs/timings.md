@@ -35,9 +35,24 @@ models (+2A/+3) have no I/O contention. ROM and uncontended RAM are never delaye
 On real Z80, interrupts are suppressed for one instruction after EI. This is
 critical for loaders and multicolor engines.
 
-**Implementation:** `eiDelay` flag set by EI, cleared after the *next instruction
-executes* in the run loop (not in `interrupt()`). `interrupt()` returns 0 if
-`eiDelay` is set but does not clear it — the run loop clears it.
+**Implementation:** `eiDelay` flag reset to false at the top of `Z80.step()`,
+before every instruction (including a HALT re-fetch), and set back to true by
+EI's own opcode handler. `interrupt()` returns 0 if `eiDelay` is set but does
+not clear it — nothing reads `eiDelay` mid-instruction, only between `step()`
+calls, so resetting it unconditionally at the top of each `step()` is safe.
+
+This makes the suppression per-EI rather than "one instruction after the
+first EI in a run": `EI; EI; X` must keep interrupts blocked through *both*
+EIs (each one re-arms its own one-instruction window) and only accept one
+after X runs. An earlier version cleared `eiDelay` in the machine run loops
+instead, keyed off whether it was set *before* the just-executed instruction —
+which incorrectly let the second EI's re-arm be wiped by the first EI's
+already-consumed suppression, admitting an interrupt one instruction early.
+
+A few machine run loops (Spectrum's HALT fast-path and instant tape-load trap)
+bypass `step()` entirely for performance, so they still carry their own
+one-shot "clear after the next instruction" bookkeeping for exactly those two
+paths — everything going through `step()` normally needs no such handling.
 
 **Why this matters:**
 
