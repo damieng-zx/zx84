@@ -16,13 +16,13 @@ import { hex8 } from '@/utils/hex.ts';
 
 /** Label the source paged into one MSX 16KB page given its primary slot number.
  *  slot 0 = internal ROM (BIOS+BASIC, pages 0-1 only), slot 1 = cartridge,
- *  slot 2 = empty, slot 3 = 64KB RAM. */
+ *  slot 2 = 64KB RAM, slot 3 = rear expansion connector (unmodelled, empty). */
 function msxSlotLabel(slot: number, page: number, hasCart: boolean): { read: string } {
   switch (slot) {
     case 0: return { read: page < 2 ? 'ROM' : '(empty)' };
     case 1: return { read: hasCart ? 'Cartridge' : '(empty)' };
-    case 2: return { read: '(empty)' };
-    case 3: return { read: 'RAM' };
+    case 2: return { read: 'RAM' };
+    case 3: return { read: '(empty)' };
     default: return { read: '?' };
   }
 }

@@ -31,7 +31,7 @@ describe('MsxPpi', () => {
   });
 
   it('port A actually repages memory', () => {
-    ppi.writeA(0xFF);                 // all RAM
+    ppi.writeA(0xAA);                 // all pages → slot 2 (RAM)
     mem.writeByte(0x0000, 0x5A);
     expect(mem.readByte(0x0000)).toBe(0x5A);
     ppi.writeA(0x00);                 // page 0 back to ROM

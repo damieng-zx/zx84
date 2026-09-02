@@ -4,19 +4,21 @@
  * The MSX Z80 address space is four 16KB pages; each page independently selects
  * one of four *primary slots* via a 2-bit field in the 8255 PPI's port A
  * (0xA8) — bits [1:0] = page 0 (0x0000), [3:2] = page 1, [5:4] = page 2,
- * [7:6] = page 3. The HX-10's slot map is:
+ * [7:6] = page 3. The HX-10's slot map (MAME msx1.cpp / openMSX
+ * Toshiba_HX-10.xml) is:
  *
  *   slot 0 — internal 32KB ROM (BIOS + MSX BASIC) at pages 0–1; pages 2–3 empty
  *   slot 1 — cartridge slot (empty on a bare machine → reads 0xFF; a mounted
  *            .rom cartridge maps here, from 0x4000 upward per its size)
- *   slot 2 — cartridge slot 2 (empty → reads 0xFF)
- *   slot 3 — 64KB RAM
+ *   slot 2 — 64KB RAM
+ *   slot 3 — the rear expansion connector; unpopulated here → reads 0xFF,
+ *            same as an empty cartridge slot (no expansion unit is modelled)
  *
  * The HX-10 has no secondary-slot expansion, so the 0xFFFF expansion register
- * needs no handling — 0xFFFF is just the top of slot 3 RAM.
+ * needs no handling — 0xFFFF is just the top of slot 2 RAM.
  *
  * At reset port A = 0x00, so every page points at slot 0: the BIOS runs from ROM
- * at 0x0000 and pages RAM (slot 3) into the upper pages during start-up.
+ * at 0x0000 and pages RAM (slot 2) into the upper pages during start-up.
  * Read/write are O(1) through per-page `readPtr`/`writePtr` views rebuilt only
  * when the slot register changes.
  */
@@ -24,14 +26,14 @@
 import type { IMachineMemory } from '@/machines/machine.ts';
 
 const ROM_SIZE = 0x8000;       // 32KB internal ROM (BIOS + BASIC)
-const RAM_SIZE = 0x10000;      // 64KB RAM (slot 3)
+const RAM_SIZE = 0x10000;      // 64KB RAM (slot 2)
 const PAGE_SIZE = 0x4000;      // 16KB
 
 export class MsxMemory implements IMachineMemory {
   /** Internal ROM: BIOS + MSX BASIC, mapped in slot 0 pages 0–1. */
   private rom = new Uint8Array(ROM_SIZE);
 
-  /** 64KB main RAM (slot 3). */
+  /** 64KB main RAM (slot 2). */
   private readonly ram = new Uint8Array(RAM_SIZE);
 
   /** Primary-slot select register (PPI port A): 2 bits per page. */
@@ -139,8 +141,8 @@ export class MsxMemory implements IMachineMemory {
         // Slot 0: ROM in pages 0–1 (read-only), empty above.
         this.readPtr[page] = page < 2 ? this.rom.subarray(off, off + PAGE_SIZE) : null;
         this.writePtr[page] = null;
-      } else if (slot === 3) {
-        // Slot 3: 64KB RAM, read and write.
+      } else if (slot === 2) {
+        // Slot 2: 64KB RAM, read and write.
         const view = this.ram.subarray(off, off + PAGE_SIZE);
         this.readPtr[page] = view;
         this.writePtr[page] = view;
@@ -149,7 +151,7 @@ export class MsxMemory implements IMachineMemory {
         this.readPtr[page] = this.cartView[page];
         this.writePtr[page] = null;
       } else {
-        // Slot 2: empty cartridge slot.
+        // Slot 3: the (unmodelled) rear expansion connector — reads 0xFF.
         this.readPtr[page] = null;
         this.writePtr[page] = null;
       }
@@ -192,7 +194,7 @@ export class MsxMemory implements IMachineMemory {
     return this.ram.subarray(base, base + PAGE_SIZE);
   }
 
-  /** Fresh 64KB copy of the underlying RAM (slot 3), regardless of current
+  /** Fresh 64KB copy of the underlying RAM (slot 2), regardless of current
    *  slot paging — where a running program keeps its code/data. */
   ramSnapshot(): Uint8Array {
     return this.ram.slice();

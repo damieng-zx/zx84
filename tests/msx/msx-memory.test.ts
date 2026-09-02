@@ -3,8 +3,10 @@
  *
  * Expectations are derived from the MSX slot model, not from the implementation:
  * PPI port A holds a 2-bit slot selector per 16KB page ([1:0]=page0 … [7:6]=
- * page3). On the HX-10, slot 0 = 32KB ROM (pages 0–1, read-only; pages 2–3
- * empty), slot 3 = 64KB RAM, slots 1/2 = empty (read 0xFF).
+ * page3). On the HX-10 (MAME msx1.cpp / openMSX Toshiba_HX-10.xml), slot 0 =
+ * 32KB ROM (pages 0–1, read-only; pages 2–3 empty), slot 2 = 64KB RAM, slot 1 =
+ * the cartridge (empty on a bare machine), slot 3 = the rear expansion
+ * connector (unmodelled — reads 0xFF like an empty slot).
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { MsxMemory } from '@/machines/msx/msx-memory.ts';
@@ -43,9 +45,9 @@ describe('MsxMemory slot paging', () => {
     expect(mem.readByte(0x0000)).toBe(0x42);   // unchanged
   });
 
-  it('pages RAM (slot 3) into pages 2–3 when port A = 0xF0', () => {
-    // 0xF0 = 11_11_00_00: page3=slot3, page2=slot3, page1=slot0, page0=slot0.
-    mem.setPrimarySlots(0xF0);
+  it('pages RAM (slot 2) into pages 2–3 when port A = 0xA0', () => {
+    // 0xA0 = 10_10_00_00: page3=slot2, page2=slot2, page1=slot0, page0=slot0.
+    mem.setPrimarySlots(0xA0);
     expect(mem.readByte(0x0000)).toBe(0x42);    // page 0 still ROM
     expect(mem.readByte(0x4000)).toBe(0x99);    // page 1 still ROM
     mem.writeByte(0x8000, 0x5A);                // page 2 now RAM
@@ -54,15 +56,23 @@ describe('MsxMemory slot paging', () => {
     expect(mem.readByte(0xC000)).toBe(0xA5);
   });
 
-  it('pages RAM into every page when port A = 0xFF, with flat RAM addressing', () => {
-    mem.setPrimarySlots(0xFF);                  // all pages → slot 3 (RAM)
+  it('pages RAM into every page when port A = 0xAA, with flat RAM addressing', () => {
+    mem.setPrimarySlots(0xAA);                  // all pages → slot 2 (RAM)
     mem.writeByte(0x0000, 0x01);
     mem.writeByte(0xC000, 0x02);
     expect(mem.readByte(0x0000)).toBe(0x01);
     expect(mem.readByte(0xC000)).toBe(0x02);
-    // Slot-3 RAM is flat: CPU address == physical RAM offset.
+    // Slot-2 RAM is flat: CPU address == physical RAM offset.
     expect(mem.getRamBank(0)[0x0000]).toBe(0x01);
     expect(mem.getRamBank(3)[0x0000]).toBe(0x02);
+  });
+
+  it('reads 0xFF from the rear expansion connector (slot 3, unmodelled)', () => {
+    // page0 = slot 3 (bits [1:0] = 11).
+    mem.setPrimarySlots(0x03);
+    expect(mem.readByte(0x0000)).toBe(0xFF);
+    mem.writeByte(0x0000, 0x33);               // dropped (nothing there)
+    expect(mem.readByte(0x0000)).toBe(0xFF);
   });
 
   it('reads 0xFF from an empty cartridge slot (slot 1)', () => {
@@ -146,12 +156,12 @@ describe('MsxMemory slot paging', () => {
   });
 
   it('reset clears RAM and returns all pages to slot 0', () => {
-    mem.setPrimarySlots(0xFF);
+    mem.setPrimarySlots(0xAA);
     mem.writeByte(0x8000, 0xCD);
     mem.reset();
     expect(mem.getPrimarySlot()).toBe(0x00);
     expect(mem.readByte(0x0000)).toBe(0x42);   // ROM back in page 0
-    mem.setPrimarySlots(0xFF);                  // expose RAM again
+    mem.setPrimarySlots(0xAA);                  // expose RAM again
     expect(mem.readByte(0x8000)).toBe(0x00);   // RAM was zeroed
   });
 });
