@@ -158,6 +158,9 @@ export class WD179x {
    *  continuation (same command byte applies to every sector searched). */
   private sideCompare = false;
   private sideExpected = 0;
+  /** READ ADDRESS rotation: index of the next ID field the head "encounters" —
+   *  see readAddress. */
+  private addressRotation = 0;
 
   // ── Write-track (format) parser state ─────────────────────────────────
   private formatting = false;
@@ -195,6 +198,7 @@ export class WD179x {
     this.writeDeleted = false;
     this.sideCompare = false;
     this.sideExpected = 0;
+    this.addressRotation = 0;
     this.formatting = false;
     this.fmtState = 'idle';
     this.latchFrames = 0;
@@ -522,7 +526,14 @@ export class WD179x {
       this.statusReg = this.base() | ST_RNF;
       return;
     }
-    const sec = track.sectors[0];
+    // Real hardware returns whichever ID field the head next encounters as
+    // the disk spins, not always the first one on the track — repeated
+    // READ ADDRESS calls walk the track sequentially and wrap at the index
+    // pulse. Clamp defensively in case the current track is shorter than
+    // wherever rotation last left off (e.g. after switching tracks).
+    if (this.addressRotation >= track.sectors.length) this.addressRotation = 0;
+    const sec = track.sectors[this.addressRotation];
+    this.addressRotation = (this.addressRotation + 1) % track.sectors.length;
     // 6-byte ID: track, side, sector, size code, CRC hi, CRC lo (CRC faked 0).
     this.buffer = Uint8Array.from([sec.c, sec.h, sec.r, sec.n, 0, 0]);
     this.bufPos = 0;

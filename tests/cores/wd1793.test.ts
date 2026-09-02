@@ -269,6 +269,38 @@ describe('WD1793 Type II side compare (S/C command bits)', () => {
   });
 });
 
+describe('WD1793 READ ADDRESS rotation', () => {
+  const CMD_READ_ADDRESS = 0xC0;
+
+  function readOneId(wd: WD179x): number {
+    wd.writeCommand(CMD_READ_ADDRESS);
+    wd.readData();               // track
+    wd.readData();               // side
+    const sector = wd.readData(); // sector
+    wd.readData(); wd.readData(); wd.readData(); // size, CRC hi/lo
+    return sector;
+  }
+
+  it('returns successive ID fields on repeated calls instead of always the first', () => {
+    const wd = wd1793();
+    wd.insertDisk(trdImage(), 0);
+    wd.selectDrive(0);
+    wd.setSide(0);
+    expect(readOneId(wd)).toBe(1);
+    expect(readOneId(wd)).toBe(2);
+    expect(readOneId(wd)).toBe(3);
+  });
+
+  it('wraps back to the first ID field after the last one on the track', () => {
+    const wd = wd1793();
+    wd.insertDisk(trdImage(), 0); // 16 sectors
+    wd.selectDrive(0);
+    wd.setSide(0);
+    for (let i = 0; i < 16; i++) readOneId(wd);
+    expect(readOneId(wd)).toBe(1); // wrapped
+  });
+});
+
 describe('WD1793 Type I verify (V bit)', () => {
   const CMD_SEEK_V = 0x14; // SEEK with V=1 (bit 2)
 
