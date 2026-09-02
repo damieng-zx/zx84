@@ -237,6 +237,23 @@ describe('TMS9918A sprites', () => {
     vdp.renderScanline(px, 0, 0);
     expect(vdp.readStatus() & 0x40).toBe(0x40);
   });
+
+  it('does not update 5S while F (frame flag) is still set and unread', () => {
+    vdp.raiseFrameInterrupt(); // F set, as if the previous frame's vblank was never polled
+    for (let n = 0; n < 5; n++) setSprite(n, n * 20, 2);
+    terminate(5);
+    vdp.renderScanline(px, 0, 0);
+    expect(vdp.readStatus() & 0x40).toBe(0); // 5S inhibited while F was set
+  });
+
+  it('updates 5S normally once F has been cleared by a status read', () => {
+    vdp.raiseFrameInterrupt();
+    vdp.readStatus(); // clears F
+    for (let n = 0; n < 5; n++) setSprite(n, n * 20, 2);
+    terminate(5);
+    vdp.renderScanline(px, 0, 0);
+    expect(vdp.readStatus() & 0x40).toBe(0x40);
+  });
 });
 
 describe('TMS9918A Text mode rendering', () => {

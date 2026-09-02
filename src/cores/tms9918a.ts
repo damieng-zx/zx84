@@ -480,6 +480,10 @@ export class Tms9918a {
   }
 
   private setFifthSprite(n: number): void {
+    // Real hardware only updates 5S while F (frame interrupt flag) is
+    // clear — an unread F from the previous frame inhibits fifth-sprite
+    // detection until a status read clears it.
+    if (this.status & ST_INT) return;
     // Only latch the first over-limit occurrence per frame.
     if ((this.status & ST_5S) === 0) {
       this.status = (this.status & 0xE0) | (n & 0x1F) | ST_5S;
