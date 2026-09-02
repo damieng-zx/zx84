@@ -30,8 +30,19 @@ describe('CPC PPI cassette bits', () => {
     expect(ppi.readB() & 0x80).toBe(0x80);
     setEar(0);
     expect(ppi.readB() & 0x80).toBe(0);
-    // The other Port B bits (manufacturer=7, 50Hz) are unaffected by the tape bit.
-    expect(ppi.readB() & 0x7F).toBe((7 << 1) | 0x10);
+    // The other Port B bits (manufacturer=7, 50Hz, and the pulled-up
+    // /EXP + printer /BUSY bits 5-6) are unaffected by the tape bit.
+    expect(ppi.readB() & 0x7F).toBe((7 << 1) | 0x10 | 0x60);
+  });
+
+  it('Port B bits 5-6 (/EXP present, printer /BUSY) read pulled-up (1)', () => {
+    // Nothing here models a connected expansion device or printer to pull
+    // either line low, so both read as pulled up regardless of other state.
+    const { ppi, setEar } = setup();
+    setEar(0);
+    expect(ppi.readB() & 0x60).toBe(0x60);
+    setEar(1);
+    expect(ppi.readB() & 0x60).toBe(0x60);
   });
 
   it('drives the motor from Port C bit 4 via writeC', () => {

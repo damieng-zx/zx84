@@ -96,8 +96,12 @@ export class Ppi8255 {
     if (this.vsyncActive()) v |= 0x01;        // bit 0: CRTC VSYNC
     v |= (MANUFACTURER_AMSTRAD & 7) << 1;      // bits 1–3: manufacturer
     v |= 0x10;                                 // bit 4: 1 = 50 Hz (PAL)
+    // Bits 5-6 (/EXP present, printer /BUSY) are pulled up on real hardware;
+    // nothing here models a connected expansion device or printer to pull
+    // either low, so both read 1.
+    v |= 0x60;
     if (this.readTapeBit()) v |= 0x80;         // bit 7: cassette read data
-    return v;                                   // bits 5–6: printer/expansion = 0
+    return v;
   }
 
   readC(): number { return this.pC; }
