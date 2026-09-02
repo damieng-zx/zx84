@@ -128,7 +128,7 @@ export class Z80 {
 
     this.iff1 = false;
     this.iff2 = false;
-    this.im = 1;
+    this.im = 0;
     this.halted = false;
     this.eiDelay = false;
 

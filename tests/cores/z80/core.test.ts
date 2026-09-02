@@ -6,11 +6,11 @@ import { describe, it, expect } from 'vitest';
 import { newCpu, load, step, F_S, F_Z, F_F5, F_H, F_F3, F_PV, F_N, F_C } from './_harness.ts';
 
 describe('Z80 — reset state', () => {
-  it('zeros main and shadow registers, SP=0xFFFF, IM=1, halted=false', () => {
+  it('zeros main and shadow registers, SP=0xFFFF, IM=0, halted=false', () => {
     const { cpu } = newCpu();
     cpu.a = 0xAA; cpu.f = 0x55; cpu.bc = 0x1234;
     cpu.sp = 0x1234;
-    cpu.iff1 = true; cpu.halted = true;
+    cpu.iff1 = true; cpu.halted = true; cpu.im = 2;
     cpu.reset();
     expect(cpu.a).toBe(0); expect(cpu.f).toBe(0);
     expect(cpu.bc).toBe(0); expect(cpu.de).toBe(0); expect(cpu.hl).toBe(0);
@@ -18,7 +18,10 @@ describe('Z80 — reset state', () => {
     // SP resets to 0xFFFF (power-on convention), not 0.
     expect(cpu.pc).toBe(0); expect(cpu.sp).toBe(0xFFFF);
     expect(cpu.i).toBe(0); expect(cpu.r).toBe(0);
-    expect(cpu.im).toBe(1);
+    // Real hardware resets to IM 0 (Zilog datasheet); RESET does not select
+    // IM 1 as a convenience default. ROMs that need IM 1 (e.g. the Spectrum
+    // 48K ROM) select it explicitly during boot.
+    expect(cpu.im).toBe(0);
     expect(cpu.iff1).toBe(false); expect(cpu.iff2).toBe(false);
     expect(cpu.halted).toBe(false);
   });
