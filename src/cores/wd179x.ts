@@ -424,7 +424,15 @@ export class WD179x {
   }
 
   private finishRead(): void {
-    if (this.multi && this.advanceSector(false)) return;
+    if (this.multi) {
+      if (this.advanceSector(false)) return;
+      // Hardware keeps searching for R+1's ID field for up to a full disk
+      // revolution; failing to find it ends the command in RECORD NOT
+      // FOUND, not a silent stop.
+      this.buffer = null;
+      this.statusReg = this.base() | ST_RNF;
+      return;
+    }
     this.buffer = null;
     this.statusReg = this.base() | this.recFlags;
   }

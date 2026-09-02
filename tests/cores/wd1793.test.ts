@@ -4,12 +4,14 @@ import type { DskImage, DskTrack, DskSector } from '@/media/floppy/disk-image.ts
 
 const ST_BUSY    = 0x01;
 const ST_CRCERR  = 0x08;
+const ST_RNF     = 0x10;
 const ST_RECTYPE = 0x20; // Type II read: record type (deleted-data mark)
 const ST_BIT7    = 0x80; // NOT READY on the 1793
 
-const CMD_RESTORE = 0x00;
-const CMD_READ    = 0x80;
-const CMD_WRITE   = 0xA0;
+const CMD_RESTORE   = 0x00;
+const CMD_READ      = 0x80;
+const CMD_READ_MULTI = 0x90;
+const CMD_WRITE     = 0xA0;
 const CMD_WRITETRACK = 0xF0;
 
 function wd1793(): WD179x {
@@ -170,5 +172,37 @@ describe('WD1793 Type II status — record type and CRC error', () => {
     wd.writeCommand(CMD_WRITE); // a0=0 -> normal data mark
     for (let i = 0; i < 256; i++) wd.writeData(0x11);
     expect(img.tracks[0][0]!.sectors[0].st2 & 0x40).toBe(0);
+  });
+});
+
+describe('WD1793 multi-sector READ termination', () => {
+  it('reads through consecutive sectors when each R+1 is found', () => {
+    const wd = wd1793();
+    wd.insertDisk(trdImage(), 0);
+    wd.selectDrive(0);
+    wd.setSide(0);
+    wd.writeSectorReg(1);
+    wd.writeCommand(CMD_READ_MULTI);
+    // Drain sectors 1..15 (256 bytes each) — each finishRead should chain
+    // straight into the next sector's DRQ instead of completing.
+    for (let s = 1; s < 15; s++) {
+      for (let i = 0; i < 256; i++) wd.readData();
+      const status = wd.readStatus();
+      expect(status & ST_BUSY).toBeTruthy();
+      expect(wd.readSectorReg()).toBe(s + 1);
+    }
+  });
+
+  it('ends in RECORD NOT FOUND once R+1 is absent (real hardware behaviour)', () => {
+    const wd = wd1793();
+    wd.insertDisk(trdImage(), 0); // sectors 1..16 only
+    wd.selectDrive(0);
+    wd.setSide(0);
+    wd.writeSectorReg(16); // last sector on the track
+    wd.writeCommand(CMD_READ_MULTI);
+    for (let i = 0; i < 256; i++) wd.readData();
+    const status = wd.readStatus();
+    expect(status & ST_BUSY).toBe(0);
+    expect(status & ST_RNF).toBeTruthy();
   });
 });
