@@ -2,11 +2,14 @@ import { describe, it, expect } from 'vitest';
 import { WD179x } from '@/cores/wd179x.ts';
 import type { DskImage, DskTrack, DskSector } from '@/media/floppy/disk-image.ts';
 
-const ST_BUSY = 0x01;
-const ST_BIT7 = 0x80; // NOT READY on the 1793
+const ST_BUSY    = 0x01;
+const ST_CRCERR  = 0x08;
+const ST_RECTYPE = 0x20; // Type II read: record type (deleted-data mark)
+const ST_BIT7    = 0x80; // NOT READY on the 1793
 
 const CMD_RESTORE = 0x00;
 const CMD_READ    = 0x80;
+const CMD_WRITE   = 0xA0;
 const CMD_WRITETRACK = 0xF0;
 
 function wd1793(): WD179x {
@@ -95,5 +98,77 @@ describe('WD1793 WRITE TRACK finalises at 16 sectors', () => {
     expect(s5.data.length).toBe(256);
     expect(s5.data[0]).toBe(5);
     expect(wd.readStatus() & ST_BUSY).toBe(0); // command finished
+  });
+});
+
+describe('WD1793 Type II status — record type and CRC error', () => {
+  function readSector(wd: WD179x, r: number, bytes = 256): number {
+    wd.writeSectorReg(r);
+    wd.writeCommand(CMD_READ);
+    const status = wd.readStatus();
+    for (let i = 0; i < bytes; i++) wd.readData();
+    return status;
+  }
+
+  it('READ SECTOR reports bit 5 (record type) for a sector stored with a deleted-data mark', () => {
+    const wd = wd1793();
+    const img = trdImage();
+    img.tracks[0][0]!.sectors[0].st2 = 0x40; // DDAM
+    wd.insertDisk(img, 0);
+    wd.selectDrive(0);
+    wd.setSide(0);
+    const status = readSector(wd, 1);
+    expect(status & ST_RECTYPE).toBeTruthy();
+    // Completion status (after the buffer drains) still carries the flag.
+    expect(wd.readStatus() & ST_RECTYPE).toBeTruthy();
+  });
+
+  it('READ SECTOR leaves bit 5 clear for a normal data-mark sector', () => {
+    const wd = wd1793();
+    wd.insertDisk(trdImage(), 0);
+    wd.selectDrive(0);
+    wd.setSide(0);
+    const status = readSector(wd, 1);
+    expect(status & ST_RECTYPE).toBe(0);
+  });
+
+  it('READ SECTOR reports bit 3 (CRC error) for a sector flagged with a data CRC error', () => {
+    const wd = wd1793();
+    const img = trdImage();
+    img.tracks[0][0]!.sectors[0].st1 = 0x20; // data field CRC error
+    wd.insertDisk(img, 0);
+    wd.selectDrive(0);
+    wd.setSide(0);
+    const status = readSector(wd, 1);
+    expect(status & ST_CRCERR).toBeTruthy();
+  });
+
+  it('a0 (bit 0) on WRITE SECTOR marks the sector with a deleted-data address mark', () => {
+    const wd = wd1793();
+    const img = trdImage();
+    wd.insertDisk(img, 0);
+    wd.selectDrive(0);
+    wd.setSide(0);
+    wd.writeSectorReg(1);
+    wd.writeCommand(CMD_WRITE | 0x01); // a0=1 -> deleted-data mark
+    for (let i = 0; i < 256; i++) wd.writeData(0xEE);
+    expect(img.tracks[0][0]!.sectors[0].st2 & 0x40).toBeTruthy();
+
+    // A subsequent read now reports the record-type bit.
+    const status = readSector(wd, 1);
+    expect(status & ST_RECTYPE).toBeTruthy();
+  });
+
+  it('a0=0 on WRITE SECTOR clears a previously-set deleted-data mark', () => {
+    const wd = wd1793();
+    const img = trdImage();
+    img.tracks[0][0]!.sectors[0].st2 = 0x40; // starts deleted
+    wd.insertDisk(img, 0);
+    wd.selectDrive(0);
+    wd.setSide(0);
+    wd.writeSectorReg(1);
+    wd.writeCommand(CMD_WRITE); // a0=0 -> normal data mark
+    for (let i = 0; i < 256; i++) wd.writeData(0x11);
+    expect(img.tracks[0][0]!.sectors[0].st2 & 0x40).toBe(0);
   });
 });

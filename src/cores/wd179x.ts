@@ -45,8 +45,9 @@ const ST_BUSY      = 0x01; // all commands: command in progress
 const ST_DRQ       = 0x02; // Type II/III: data register needs service
 const ST_INDEX     = 0x02; // Type I: index pulse (same bit as DRQ)
 const ST_TRACK0    = 0x04; // Type I: head over track 0
+const ST_CRCERR    = 0x08; // Type II/III: CRC error (ID or data field)
 const ST_RNF       = 0x10; // Type II/III: record not found
-const ST_RECTYPE   = 0x20; // Type II read: record type / Type I: head loaded
+const ST_RECTYPE   = 0x20; // Type II read: record type (1 = deleted-data mark) / Type I: head loaded
 const ST_WRITEPROT = 0x40; // write protected
 /** Status bit 7 — WD1772: MOTOR ON (no READY line on the 1770/1772);
  *  WD1793: NOT READY. */
@@ -144,6 +145,13 @@ export class WD179x {
   private writing = false;
   private multi = false;        // multi-sector (read 0x9x / write 0xBx)
   private curTrack: DskTrack | null = null;
+  /** Type II read: record-type (deleted-data mark) / CRC-error status bits
+   *  for the sector currently (or most recently) in the transfer buffer —
+   *  reported both during and at the end of the transfer. */
+  private recFlags = 0;
+  /** Address mark the current/multi-sector WRITE SECTOR command lays down —
+   *  a0 (bit 0 of the command byte): false = FB (normal), true = F8 (deleted). */
+  private writeDeleted = false;
 
   // ── Write-track (format) parser state ─────────────────────────────────
   private formatting = false;
@@ -177,6 +185,8 @@ export class WD179x {
     this.writing = false;
     this.multi = false;
     this.curTrack = null;
+    this.recFlags = 0;
+    this.writeDeleted = false;
     this.formatting = false;
     this.fmtState = 'idle';
     this.latchFrames = 0;
@@ -299,7 +309,9 @@ export class WD179x {
       case 0x4: case 0x5: this.step(cmd, +1); break;
       case 0x6: case 0x7: this.step(cmd, -1); break;
       case 0x8: case 0x9: this.readSectorCmd(hi === 0x9); break;
-      case 0xA: case 0xB: this.writeSectorCmd(hi === 0xB); break;
+      // bit 0 (a0) selects the address mark the sector is written with:
+      // 0 = FB (normal data), 1 = F8 (deleted data).
+      case 0xA: case 0xB: this.writeSectorCmd(hi === 0xB, (cmd & 0x01) !== 0); break;
       case 0xC: this.readAddress(); break;
       case 0xD: this.forceInterrupt(); break;
       case 0xE: this.readTrackCmd(); break;
@@ -361,6 +373,15 @@ export class WD179x {
 
   private base(): number { return this.statusBit7(); }
 
+  /** Record-type (deleted-data mark, bit 5) and CRC-error (bit 3) status
+   *  bits for a Type II READ of `sec` — see ST_RECTYPE/ST_CRCERR. */
+  private recordFlags(sec: DskSector): number {
+    let f = 0;
+    if (sec.st2 & 0x40) f |= ST_RECTYPE; // deleted-data address mark
+    if ((sec.st1 & 0x20) || (sec.st2 & 0x20)) f |= ST_CRCERR; // ID or data CRC error
+    return f;
+  }
+
   private readSectorCmd(multi: boolean): void {
     const track = this.locateTrack();
     if (!track) { this.statusReg = this.base() | ST_RNF; return; }
@@ -372,11 +393,12 @@ export class WD179x {
     this.writing = false;
     this.multi = multi;
     this.curTrack = track;
-    this.statusReg = this.base() | ST_BUSY | ST_DRQ;
+    this.recFlags = this.recordFlags(sec);
+    this.statusReg = this.base() | ST_BUSY | ST_DRQ | this.recFlags;
     this.latch(false);
   }
 
-  private writeSectorCmd(multi: boolean): void {
+  private writeSectorCmd(multi: boolean, deleted: boolean): void {
     if (this.writeProtect[this.currentDrive]) {
       this.statusReg = this.base() | ST_WRITEPROT;
       return;
@@ -386,6 +408,11 @@ export class WD179x {
     const idx = track.sectorMap.get(this.sectorReg);
     if (idx === undefined) { this.statusReg = this.base() | ST_RNF; return; }
     const sec = track.sectors[idx];
+    // a0 selects the address mark laid down with the sector (FB/F8) — see
+    // writeDeleted. Applied up front: the mark precedes the data field on
+    // the physical track, and multi-sector writes reuse the same mark.
+    this.writeDeleted = deleted;
+    sec.st2 = deleted ? (sec.st2 | 0x40) : (sec.st2 & ~0x40);
     this.buffer = sec.data;      // written into the image in place
     this.bufPos = 0;
     this.writing = true;
@@ -399,7 +426,7 @@ export class WD179x {
   private finishRead(): void {
     if (this.multi && this.advanceSector(false)) return;
     this.buffer = null;
-    this.statusReg = this.base();
+    this.statusReg = this.base() | this.recFlags;
   }
 
   private finishWrite(): void {
@@ -413,10 +440,18 @@ export class WD179x {
     this.sectorReg = (this.sectorReg + 1) & 0xFF;
     const idx = this.curTrack?.sectorMap.get(this.sectorReg);
     if (this.curTrack && idx !== undefined) {
-      this.buffer = writing ? this.curTrack.sectors[idx].data : this.readCopy(this.curTrack.sectors[idx]);
+      const sec = this.curTrack.sectors[idx];
+      if (writing) {
+        sec.st2 = this.writeDeleted ? (sec.st2 | 0x40) : (sec.st2 & ~0x40);
+        this.buffer = sec.data;
+        this.recFlags = 0;
+      } else {
+        this.buffer = this.readCopy(sec);
+        this.recFlags = this.recordFlags(sec);
+      }
       this.bufPos = 0;
       this.writing = writing;
-      this.statusReg = this.base() | ST_BUSY | ST_DRQ;
+      this.statusReg = this.base() | ST_BUSY | ST_DRQ | (writing ? 0 : this.recFlags);
       this.latch(writing);
       return true;
     }
