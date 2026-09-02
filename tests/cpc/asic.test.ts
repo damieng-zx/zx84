@@ -129,25 +129,36 @@ const UNLOCK_BYTES = [
 ];
 
 describe('Asic unlock state machine', () => {
-  it('unlocks after the full 16-byte sequence plus one toggle byte', () => {
+  it('unlocks after the full 16-byte sequence plus the 0xEE unlock byte', () => {
     const a = new Asic();
     expect(a.locked).toBe(true);
     for (const b of UNLOCK_BYTES) a.pokeLockSequence(b);
     // 16 bytes matched; not yet unlocked.
     expect(a.locked).toBe(true);
-    // The 17th byte (any value) toggles.
-    a.pokeLockSequence(0x00);
+    a.pokeLockSequence(0xEE);
     expect(a.locked).toBe(false);
   });
 
-  it('re-locks when the same sequence is poked again', () => {
+  it('a non-0xEE 17th byte locks (matters when already unlocked)', () => {
     const a = new Asic();
     for (const b of UNLOCK_BYTES) a.pokeLockSequence(b);
-    a.pokeLockSequence(0x00);
+    a.pokeLockSequence(0xEE);
     expect(a.locked).toBe(false);
     for (const b of UNLOCK_BYTES) a.pokeLockSequence(b);
-    a.pokeLockSequence(0xFF);   // any toggle byte works
+    a.pokeLockSequence(0x00);   // anything but 0xEE locks
     expect(a.locked).toBe(true);
+  });
+
+  it('re-sending the sequence + 0xEE while already unlocked stays unlocked (no toggle)', () => {
+    // The 17th byte's VALUE decides the resulting state, independent of the
+    // current one — it does not flip whatever state the ASIC was already in.
+    const a = new Asic();
+    for (const b of UNLOCK_BYTES) a.pokeLockSequence(b);
+    a.pokeLockSequence(0xEE);
+    expect(a.locked).toBe(false);
+    for (const b of UNLOCK_BYTES) a.pokeLockSequence(b);
+    a.pokeLockSequence(0xEE);
+    expect(a.locked).toBe(false);
   });
 
   it('ignores a wrong byte in the middle of the sequence (matcher resets)', () => {
@@ -157,7 +168,7 @@ describe('Asic unlock state machine', () => {
     a.pokeLockSequence(0xEE);   // wrong — resets to 0
     // Now feed the rest of the sequence; nothing should unlock.
     for (let i = 8; i < 16; i++) a.pokeLockSequence(UNLOCK_BYTES[i]);
-    a.pokeLockSequence(0x00);
+    a.pokeLockSequence(0xEE);
     expect(a.locked).toBe(true);
   });
 
@@ -167,11 +178,11 @@ describe('Asic unlock state machine', () => {
     // only needs ONE extra leading 0xFF, not two.
     const a = new Asic();
     for (let i = 0; i < 5; i++) a.pokeLockSequence(UNLOCK_BYTES[i]);
-    a.pokeLockSequence(0xEE);   // mismatch — resets, but 0xEE != SEQ[0]
+    a.pokeLockSequence(0x00);   // mismatch — resets, but 0x00 != SEQ[0]
     a.pokeLockSequence(0xFF);   // this matches SEQ[0]; matcher should be at 1
     // Continue with SEQ[1..15] from here.
     for (let i = 1; i < 16; i++) a.pokeLockSequence(UNLOCK_BYTES[i]);
-    a.pokeLockSequence(0x00);   // toggle
+    a.pokeLockSequence(0xEE);
     expect(a.locked).toBe(false);
   });
 });
@@ -190,7 +201,7 @@ describe('Asic RMR2 escape (Plus banking surface)', () => {
   it('enables the ASIC window only when RMR2 D4=D3=1 (not bit 4 alone)', () => {
     const a = new Asic();
     for (const b of UNLOCK_BYTES) a.pokeLockSequence(b);
-    a.pokeLockSequence(0x00);
+    a.pokeLockSequence(0xEE);
     expect(a.locked).toBe(false);
 
     // D4=D3=1 (%10111000 = 0xB8): register page on.
@@ -211,7 +222,7 @@ describe('Asic RMR2 escape (Plus banking surface)', () => {
   it('drives lower-ROM cartridge banking from RMR2 D2–D0 / D4–D3', () => {
     const a = new Asic();
     for (const b of UNLOCK_BYTES) a.pokeLockSequence(b);
-    a.pokeLockSequence(0x00);
+    a.pokeLockSequence(0xEE);
     const banks: Array<[number, number]> = [];
     a.onLowerRomBank = (page, slot) => banks.push([page, slot]);
     a.write(0xA1);   // D4D3=00, page 1 → cartridge page 1 at &0000 (slot 0)
@@ -224,13 +235,13 @@ describe('Asic RMR2 escape (Plus banking surface)', () => {
   it('re-locking the ASIC immediately hides the window', () => {
     const a = new Asic();
     for (const b of UNLOCK_BYTES) a.pokeLockSequence(b);
-    a.pokeLockSequence(0x00);
+    a.pokeLockSequence(0xEE);
     expect(a.locked).toBe(false);
 
     a.write(0xB8);              // page in (D4=D3=1)
     expect(a.asicPageVisible).toBe(true);
 
-    // Re-run the unlock sequence to toggle back to locked.
+    // Re-run the sequence with a non-0xEE 17th byte to lock again.
     for (const b of UNLOCK_BYTES) a.pokeLockSequence(b);
     a.pokeLockSequence(0x00);
     expect(a.locked).toBe(true);
@@ -312,9 +323,9 @@ describe('CpcMachine ASIC integration (Phase 2: unlock + window paging)', () => 
     const m = new CpcMachine('cpc6128plus', null);
     const asic = m.gateArray as unknown as Asic;
     expect(asic.locked).toBe(true);
-    // Poke the sequence + toggle byte through the real port decode.
+    // Poke the sequence + unlock byte through the real port decode.
     for (const b of UNLOCK_BYTES) m.cpu.portOut(0xBC00, b);
-    m.cpu.portOut(0xBC00, 0x00);
+    m.cpu.portOut(0xBC00, 0xEE);
     expect(asic.locked).toBe(false);
   });
 
@@ -324,7 +335,7 @@ describe('CpcMachine ASIC integration (Phase 2: unlock + window paging)', () => 
 
     // Unlock first.
     for (const b of UNLOCK_BYTES) m.cpu.portOut(0xBC00, b);
-    m.cpu.portOut(0xBC00, 0x00);
+    m.cpu.portOut(0xBC00, 0xEE);
     expect(asic.locked).toBe(false);
 
     // Page the ASIC window in via RMR2: OUT (&7FB8), 0xB8 (D4=D3=1).
@@ -356,7 +367,7 @@ import type { CrtcLine } from '@/cores/crtc-6845.ts';
 function unlockedAsic(): Asic {
   const a = new Asic();
   for (const b of UNLOCK_BYTES) a.pokeLockSequence(b);
-  a.pokeLockSequence(0x00);
+  a.pokeLockSequence(0xEE);
   expect(a.locked).toBe(false);
   return a;
 }

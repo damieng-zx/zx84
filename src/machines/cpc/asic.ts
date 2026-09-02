@@ -32,10 +32,11 @@ import type { CrtcLine } from '@/cores/crtc-6845.ts';
 
 /**
  * The 16-byte key poked through the CRTC register-select port (&BC00) that
- * arms the ASIC lock toggle; the 17th byte then flips the lock (unlock/lock).
- * Real hardware matches it byte-for-byte against an internal state machine; a
- * single mismatch resets the matcher (the leading 0xFF re-syncs it). Source:
- * Grimware CPC Plus ASIC documentation / Caprice32 `asic_locked_seq`.
+ * arms the ASIC lock; the 17th byte's VALUE then selects the resulting
+ * state (see UNLOCK_BYTE). Real hardware matches it byte-for-byte against an
+ * internal state machine; a single mismatch resets the matcher (the leading
+ * 0xFF re-syncs it). Source: Grimware CPC Plus ASIC documentation / Caprice32
+ * `asic_locked_seq`.
  *
  * The first byte is 0xFF, NOT 0x00 — a 0x00 here never matches the sequence
  * real Plus software sends (e.g. Batman The Movie's loader writes
@@ -46,6 +47,11 @@ const LOCK_SEQUENCE: readonly number[] = [
   0xFF, 0x00, 0xFF, 0x77, 0xB3, 0x51, 0xA8, 0xD4,
   0x62, 0x39, 0x9C, 0x46, 0x2B, 0x15, 0x8A, 0xCD,
 ];
+
+/** The 17th byte's value, following the 16-byte key, that unlocks the ASIC.
+ *  Any other value locks it — independent of the current lock state (see
+ *  pokeLockSequence). */
+const UNLOCK_BYTE = 0xEE;
 
 /** Mask selecting the top three bits — %101xxxxx = RMR2 escape in the GA
  *  command byte (FN_RMR = %100xxxxx with bit 5 set). */
@@ -221,36 +227,32 @@ export class Asic extends GateArray {
   /**
    * Snoop a write to the CRTC register-select port (&BC00). The CRTC ignores
    * out-of-range register selects; the ASIC matches the byte against the
-   * unlock sequence and toggles `locked` once the full sequence plus a final
-   * byte arrive. Called from `cpc-io.ts` BEFORE the regular CRTC select so
-   * both chips always see the byte.
+   * unlock sequence and decodes the 17th (final) byte to set `locked` once
+   * the full sequence plus that byte arrive. Called from `cpc-io.ts` BEFORE
+   * the regular CRTC select so both chips always see the byte.
    *
    * State machine:
    *   - state 0..15: expect LOCK_SEQUENCE[state]. Match → advance. Mismatch
    *     restarts, but if the byte itself matches SEQ[0] it counts as the new
    *     start of the sequence (otherwise a real byte 0 in the middle would
    *     force two writes to recover).
-   *   - state 16: the full sequence has been seen; this byte toggles lock.
-   *   - re-lock: if the full sequence matches while the ASIC is already
-   *     unlocked, re-lock immediately (no acquisition byte needed) — matching
-   *     MAME's behaviour and the Arnold V spec ("same sequence without the
-   *     terminating EE" re-locks).
+   *   - state 16: the full 16-byte key has been seen; this 17th byte's VALUE
+   *     decides the resulting state — UNLOCK_BYTE (0xEE) unlocks, any other
+   *     value locks (Arnold V / Grimware ASIC docs). This is independent of
+   *     the current lock state: resending the whole sequence + 0xEE while
+   *     already unlocked stays unlocked, it does not toggle back to locked.
+   *     Earlier code toggled unconditionally on the 16th byte instead of
+   *     examining the 17th at all, so re-sending the key while unlocked
+   *     always re-locked immediately regardless of what followed it.
    */
   pokeLockSequence(val: number): void {
     if (this.lockSeqPos >= LOCK_SEQUENCE.length) {
-      // 16 bytes already matched — toggle and reset, regardless of `val`.
-      this.setLocked(!this.locked);
+      this.setLocked(val !== UNLOCK_BYTE);
       this.lockSeqPos = 0;
       return;
     }
     if (val === LOCK_SEQUENCE[this.lockSeqPos]) {
       this.lockSeqPos++;
-      // If the final sequence byte just matched while already unlocked,
-      // re-lock immediately — no need for an acquisition byte.
-      if (this.lockSeqPos >= LOCK_SEQUENCE.length && !this.locked) {
-        this.setLocked(true);
-        this.lockSeqPos = 0;
-      }
       return;
     }
     // Mismatch: restart, but credit this byte if it itself matches SEQ[0].
