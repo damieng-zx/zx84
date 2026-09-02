@@ -40,14 +40,17 @@ function banksFor(model: CpcModel): number {
   return model === 'cpc464' || model === 'cpc664' ? 4 : 8;
 }
 
-/** CPC type byte at offset 0x6D: 0=464, 1=664, 2=6128, 3=6128Plus, 4=GX4000.
- *  Values 3 and 4 are a ZX84 extension — the standard CPCEMU/WinAPE format
- *  stops at 2, so Plus snapshots can't be misread by older tools as a 6128. */
+/** CPC type byte at offset 0x6D, per the published CPCEMU/WinAPE format
+ *  (cpcwiki SNA File Format): 0=464, 1=664, 2=6128, 3=unknown, 4=6128 Plus,
+ *  5=464 Plus, 6=GX4000. Values 3 and 5 have no corresponding CpcModel here
+ *  (a plain "unknown" and the unmodelled 464 Plus respectively) and fall
+ *  back to 6128 on load. Getting 4/6 wrong made WinAPE 6128 Plus snapshots
+ *  load here as GX4000 and vice versa. */
 const TYPE_464 = 0;
 const TYPE_664 = 1;
 const TYPE_6128 = 2;
-const TYPE_6128PLUS = 3;
-const TYPE_GX4000 = 4;
+const TYPE_6128PLUS = 4;
+const TYPE_GX4000 = 6;
 
 function typeByteOf(model: CpcModel): number {
   switch (model) {
@@ -358,7 +361,17 @@ export function saveCpcSna(m: CpcMachine, version: 2 | 3): Uint8Array {
   header[0x42] = m.crtc.selectedRegister & 0x1F;
   for (let i = 0; i < 18; i++) header[0x43 + i] = m.crtc.regs[i];
 
-  header[0x55] = paging.selectedUpperRom & 0xFF;
+  // pagingState().selectedUpperRom is already the physical cartridge page
+  // (post logical→physical translation — see selectUpperRom). On the Plus,
+  // .SNA byte 0x55 must carry the raw OUT &DFxx form: bit 7 set selects a
+  // page directly (n & 0x1F), which round-trips exactly through the loader's
+  // translation. Writing the physical page as a bare (bit7-clear) byte would
+  // instead be reinterpreted as a firmware ROM number on load. Non-Plus
+  // models have no translation to begin with, so the raw value round-trips
+  // as-is.
+  header[0x55] = cpcIsPlusClass(m.model)
+    ? (0x80 | (paging.selectedUpperRom & 0x1F))
+    : (paging.selectedUpperRom & 0xFF);
 
   // PPI.
   const ppi = m.ppi.getState();

@@ -385,7 +385,15 @@ export class CpcMemory implements IMachineMemory {
   }
 
   /** Restore the full paging configuration from a snapshot in one shot, then
-   *  remap. Counterpart to pagingState(); used by the .SNA loader. */
+   *  remap. Counterpart to pagingState(); used by the .SNA loader.
+   *
+   *  `selectedUpperRom` here is the RAW upper-ROM-select byte as a real
+   *  OUT &DFxx would carry it (and as .SNA byte 0x55 stores it) — NOT the
+   *  physical page pagingState() returns. It goes through the same
+   *  logical→physical translation a live selectUpperRom() write does, so a
+   *  Plus snapshot's firmware-style ROM number (0/7/etc.) resolves to the
+   *  correct cartridge page instead of being (mis)read as an already-
+   *  physical index. */
   restorePaging(state: {
     ramConfig: number;
     ram64kBlock: number;
@@ -397,7 +405,7 @@ export class CpcMemory implements IMachineMemory {
     this.ram64kBlock = state.ram64kBlock & 0x07;
     this.lowerRomEnabled = state.lowerRomEnabled;
     this.upperRomEnabled = state.upperRomEnabled;
-    this.selectedUpperRom = state.selectedUpperRom;
+    this.selectUpperRom(state.selectedUpperRom);
     this.applyMapping();
   }
 

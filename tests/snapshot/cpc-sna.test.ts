@@ -190,6 +190,71 @@ describe('CPC .SNA round-trip', () => {
   });
 });
 
+describe('CPC .SNA Plus upper-ROM select (logical -> physical translation)', () => {
+  // .SNA byte 0x55 carries the raw OUT &DFxx value, exactly as selectUpperRom()
+  // expects — NOT an already-physical page index. On the Plus, the firmware
+  // ROM numbers 0 (BASIC) and 7 (AMSDOS) map to physical cartridge pages 1
+  // and 3 respectively; loading byte 0x55 straight into the physical field
+  // would misread firmware ROM 7 as physical page 7.
+  it('translates a raw firmware ROM number (7 = AMSDOS) to its physical page', () => {
+    const ref = new CpcMachine('cpc6128plus', null);
+    const data = saveCpcSna(ref, 3);
+    data[0x55] = 7;   // raw AMSDOS firmware ROM number, bit 7 clear
+
+    const loaded = new CpcMachine('cpc6128plus', null);
+    applyCpcSna(data, loaded);
+    expect(loaded.memory.pagingState().selectedUpperRom).toBe(3);
+  });
+
+  it('translates a raw firmware ROM number (0 = BASIC) to its physical page', () => {
+    const ref = new CpcMachine('cpc6128plus', null);
+    const data = saveCpcSna(ref, 3);
+    data[0x55] = 0;
+
+    const loaded = new CpcMachine('cpc6128plus', null);
+    applyCpcSna(data, loaded);
+    expect(loaded.memory.pagingState().selectedUpperRom).toBe(1);
+  });
+
+  it('a direct-physical byte (bit 7 set) selects that page unchanged', () => {
+    const ref = new CpcMachine('cpc6128plus', null);
+    const data = saveCpcSna(ref, 3);
+    data[0x55] = 0x80 | 12;
+
+    const loaded = new CpcMachine('cpc6128plus', null);
+    applyCpcSna(data, loaded);
+    expect(loaded.memory.pagingState().selectedUpperRom).toBe(12);
+  });
+
+  it('save encodes the physical page as direct-physical (bit 7 set) so it round-trips', () => {
+    const ref = new CpcMachine('cpc6128plus', null);
+    ref.memory.setUpperRomEnabled(true);
+    ref.memory.selectUpperRom(7); // AMSDOS -> physical page 3
+    expect(ref.memory.pagingState().selectedUpperRom).toBe(3);
+
+    const data = saveCpcSna(ref, 3);
+    expect(data[0x55]).toBe(0x80 | 3);
+
+    const loaded = new CpcMachine('cpc6128plus', null);
+    applyCpcSna(data, loaded);
+    expect(loaded.memory.pagingState().selectedUpperRom).toBe(3);
+  });
+
+  it('non-Plus models round-trip the raw byte unchanged (no translation)', () => {
+    const ref = new CpcMachine('cpc6128', null);
+    ref.memory.setUpperRomEnabled(true);
+    ref.memory.selectUpperRom(7);
+    expect(ref.memory.pagingState().selectedUpperRom).toBe(7);
+
+    const data = saveCpcSna(ref, 3);
+    expect(data[0x55]).toBe(7);
+
+    const loaded = new CpcMachine('cpc6128', null);
+    applyCpcSna(data, loaded);
+    expect(loaded.memory.pagingState().selectedUpperRom).toBe(7);
+  });
+});
+
 describe('CPC .SNA RLE codec (via the format)', () => {
   it('reproduces a bank with runs, literal 0xE5 and 0xE5 runs byte-for-byte', () => {
     const ref = new CpcMachine('cpc6128', null);
@@ -225,11 +290,24 @@ describe('readCpcSnaModel', () => {
     expect(readCpcSnaModel(v2)).toEqual({ model: 'cpc464', version: 2 });
   });
 
-  it('recognises the Plus type-byte extension (3 = 6128Plus, 4 = GX4000)', () => {
+  it('uses the published CPC-type byte values (4 = 6128Plus, 6 = GX4000)', () => {
+    // cpcwiki SNA File Format, offset 0x6D: 0=464, 1=664, 2=6128, 3=unknown,
+    // 4=6128 Plus, 5=464 Plus, 6=GX4000. Getting these wrong made WinAPE
+    // 6128 Plus snapshots (type 4) load here as GX4000, and vice versa.
     const plus = saveCpcSna(new CpcMachine('cpc6128plus', null), 3);
+    expect(plus[0x6D]).toBe(4);
     expect(readCpcSnaModel(plus)).toEqual({ model: 'cpc6128plus', version: 3 });
     const gx = saveCpcSna(new CpcMachine('gx4000', null), 3);
+    expect(gx[0x6D]).toBe(6);
     expect(readCpcSnaModel(gx)).toEqual({ model: 'gx4000', version: 3 });
+  });
+
+  it('falls back to 6128 for the unknown (3) and unmodelled 464-Plus (5) type bytes', () => {
+    const data = saveCpcSna(new CpcMachine('cpc6128', null), 3);
+    data[0x6D] = 3;
+    expect(readCpcSnaModel(data).model).toBe('cpc6128');
+    data[0x6D] = 5;
+    expect(readCpcSnaModel(data).model).toBe('cpc6128');
   });
 
   it('rejects a file without the MV - SNA signature', () => {
