@@ -104,6 +104,11 @@ export class ULA {
   /** Beeper state (bit 4 of port 0xFE) */
   beeperBit = 0;
 
+  /** MIC state (bit 3 of port 0xFE) — the tape SAVE output. Real hardware
+   *  drives the speaker from both this and beeperBit through their own
+   *  resistor paths; see getAudioEarBit. */
+  micBit = 0;
+
   /** Tape EAR bit (0 or 1), set by the tape player */
   tapeEarBit = 0;
 
@@ -143,6 +148,7 @@ export class ULA {
     // hides the genuine boot flash and masks bugs where ROM init is bypassed.
     this.borderColor = 0;
     this.beeperBit = 0;
+    this.micBit = 0;
     this.tapeEarBit = 0;
     this.tapeActive = false;
     this.flashCounter = 0;
@@ -153,11 +159,12 @@ export class ULA {
   /**
    * Write to port 0xFE.
    * Bits 0-2: border color
-   * Bit 3: MIC
+   * Bit 3: MIC (tape SAVE output — also audible, see getAudioEarBit)
    * Bit 4: EAR (beeper)
    */
   writePort(val: number): void {
     this.borderColor = val & 0x07;
+    this.micBit = (val >> 3) & 1;
     this.beeperBit = (val >> 4) & 1;
   }
 
@@ -166,6 +173,12 @@ export class ULA {
    * Bit 5 = always 1 (not connected on 48K hardware).
    * Bit 6 = EAR input (tape signal or beeper feedback).
    * Bit 7 = 1 (unused, always set).
+   *
+   * Models only Issue 3 behaviour: bit 6 reflects EAR input (or the beeper
+   * feedback when idle) with no MIC contribution. Issue 2 boards fold bit 3
+   * (MIC) into this readback too, via a different resistor network — not
+   * modelled here (no per-machine "ULA issue" setting exists), so software
+   * that probes this difference to detect the board issue won't see it.
    */
   readPort(highByte: number): number {
     const ear = this.tapeActive ? this.tapeEarBit : this.beeperBit;
@@ -175,10 +188,14 @@ export class ULA {
   /**
    * Get the effective EAR bit for audio output.
    * During tape playback (with sound enabled), this is the tape signal;
-   * otherwise it's the beeper.
+   * otherwise it's the beeper OR'd with MIC — real hardware drives the
+   * speaker from both bit 3 (MIC) and bit 4 (EAR) through their own
+   * resistor paths, so MIC-only output (SAVE, or games that toggle MIC
+   * instead of EAR for an effect) is audible too, not silent.
    */
   getAudioEarBit(tapeSoundEnabled: boolean): number {
-    return (this.tapeActive && tapeSoundEnabled) ? this.tapeEarBit : this.beeperBit;
+    if (this.tapeActive && tapeSoundEnabled) return this.tapeEarBit;
+    return this.beeperBit | this.micBit;
   }
 
   /**

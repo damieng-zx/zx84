@@ -151,13 +151,16 @@ describe('Port 0xFE — write (output latch)', () => {
     expect(ula.beeperBit).toBe(1);
   });
 
-  // Documentation: Issue 3 boards (and 128K) — bit 3 is the MIC output (used for
-  // tape SAVE). It does not affect the audible beeper but on an Issue 2 ULA it
-  // is the value reflected back on bit 6 of the read port when no tape is
-  // playing. The current implementation does not separately model MIC — see
-  // the "Issue 2 vs Issue 3" suite below for the consequence.
-  it('bit 3 (MIC) is accepted without throwing', () => {
-    expect(() => ula.writePort(0x08)).not.toThrow();
+  // Documentation: Issue 3 boards (and 128K) — bit 3 is the MIC output (used
+  // for tape SAVE). It's captured into micBit and mixed into the audible
+  // output (see the getAudioEarBit suite), but is NOT reflected back on bit 6
+  // of the read port when no tape is playing — that's the Issue 2 ULA's
+  // behaviour, which stays unmodelled (see the "Issue 2 vs Issue 3" suite
+  // below).
+  it('bit 3 (MIC) is captured independently of the beeper (bit 4)', () => {
+    ula.writePort(0x08); // MIC=1, EAR=0
+    expect(ula.micBit).toBe(1);
+    expect(ula.beeperBit).toBe(0);
   });
 });
 
@@ -555,6 +558,29 @@ describe('getAudioEarBit — beeper / tape routing', () => {
     ula.tapeActive = true;
     ula.tapeEarBit = 0;
     expect(ula.getAudioEarBit(false)).toBe(1); // beeper still audible
+  });
+
+  it('MIC alone (bit 3) is audible without EAR — SAVE audio', () => {
+    // Real hardware drives the speaker from both MIC and EAR through their
+    // own resistor paths; MIC-only output (as during tape SAVE) must not
+    // be silent just because the beeper (EAR) bit is 0.
+    ula.writePort(0x08); // MIC=1, EAR=0
+    expect(ula.micBit).toBe(1);
+    expect(ula.getAudioEarBit(true)).toBe(1);
+  });
+
+  it('MIC and EAR combine (OR), neither masks the other', () => {
+    ula.writePort(0x18); // MIC=1, EAR=1
+    expect(ula.getAudioEarBit(true)).toBe(1);
+    ula.writePort(0x00); // both clear
+    expect(ula.getAudioEarBit(true)).toBe(0);
+  });
+
+  it('during tape playback, MIC does not leak into the tape signal', () => {
+    ula.writePort(0x08); // MIC=1
+    ula.tapeActive = true;
+    ula.tapeEarBit = 0;
+    expect(ula.getAudioEarBit(true)).toBe(0); // tape signal wins, not MIC
   });
 });
 
