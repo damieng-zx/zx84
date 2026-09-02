@@ -94,6 +94,15 @@ const S2_VR = 0x40;        // vertical retrace period flag
 const S2_TR = 0x80;        // CPU transfer ready
 const S2_BD = 0x10;        // SRCH found border
 const S2_CE = 0x01;        // command executing
+const S2_HR = 0x20;        // horizontal retrace period flag
+
+// HR toggles once per scanline on real hardware (high during H-blank), far
+// faster than this core's per-line granularity can track precisely. Rather
+// than never asserting it (hanging any HR-polling loop), synthesise a
+// toggling pattern from the read cadence itself — same technique as
+// WD179x's synthesised INDEX pulse — so a 0→1 edge always eventually shows.
+const HR_PERIOD = 8;
+const HR_WIDTH = 2;
 
 type CommandMode = 0 | 1 | 2 | 3;
 
@@ -150,6 +159,8 @@ export class V9938 {
 
   /** Status registers S0–S9 (S3–S9 stay 0 until the command engine lands). */
   private readonly status = new Uint8Array(10);
+  /** Advances on each S2 status read to phase the synthesised HR pulse. */
+  private hrCounter = 0;
 
   /** Blink state machine for the Text 2 blink colour table. */
   private blinkOn = false;
@@ -259,6 +270,11 @@ export class V9938 {
     this.controlSecond = false;
     const reg = this.regs[15] & 0x0F;
     if (reg > 9) return 0xFF;
+    if (reg === 2) {
+      this.hrCounter = (this.hrCounter + 1) % HR_PERIOD;
+      if (this.hrCounter < HR_WIDTH) this.status[2] |= S2_HR;
+      else this.status[2] &= ~S2_HR & 0xFF;
+    }
     const ret = this.status[reg];
     if (reg === 0) this.status[0] &= 0x1F;
     else if (reg === 1) this.status[1] &= ~S1_FH & 0xFF;
@@ -1073,6 +1089,7 @@ export class V9938 {
     this.paletteFirst = 0;
     this.paletteSecond = false;
     this.status.fill(0);
+    this.hrCounter = 0;
     // Power-up state per the data book / MAME: S2 reports the retrace and
     // border flags set.
     this.status[2] = 0x0C;

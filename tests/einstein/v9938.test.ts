@@ -157,6 +157,20 @@ describe('V9938 status registers and frame interrupt', () => {
     expect(v.readStatus() & 0x40).toBe(0);
   });
 
+  it('asserts HR (S2 bit 5) at least once across repeated status reads', () => {
+    // Real hardware toggles HR once per scanline; this core has no sub-line
+    // T-state granularity to time it exactly, so it synthesises a toggling
+    // pattern from the read cadence (see HR_PERIOD/HR_WIDTH). A polling
+    // loop waiting for HR to assert must not hang.
+    setReg(v, 15, 2);
+    let sawSet = false, sawClear = false;
+    for (let i = 0; i < 32; i++) {
+      if (v.readStatus() & 0x20) sawSet = true; else sawClear = true;
+    }
+    expect(sawSet).toBe(true);
+    expect(sawClear).toBe(true);
+  });
+
   it('returns 0xFF for status registers above S9', () => {
     setReg(v, 15, 15);
     expect(v.readStatus()).toBe(0xFF);
