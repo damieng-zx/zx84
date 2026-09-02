@@ -163,10 +163,15 @@ describe('AY-3-8910 — writeRegister / readRegister', () => {
 
   it('writing envelope shape resets the envelope generator', () => {
     ay.envStep = 17;
+    ay.envCounter = 9; // mid-way through a sub-step from the previous shape
     ay.envHolding = true;
     ay.writeRegister(13, 0x0E); // /\/\/\ alternate, continue, attack
     expect(ay.envShape).toBe(0x0E);
     expect(ay.envStep).toBe(0);
+    // The sub-step counter must restart too, or the first step after a
+    // retrigger only runs for whatever fraction of envPeriod already
+    // elapsed under the previous shape, not the full period.
+    expect(ay.envCounter).toBe(0);
     expect(ay.envHolding).toBe(false);
     expect(ay.envContinue).toBe(true);
     expect(ay.envAttack).toBe(0x1F); // attack=1
@@ -681,6 +686,23 @@ describe('AY-3-8910 — envelope period changes mid-flight', () => {
     expect(ay.envVolume).toBe(5); // not yet
     ay.clock();
     expect(ay.envVolume).toBe(6);
+  });
+
+  it('retriggering mid-step (rewriting R13) requires the full envPeriod again, not a shortened one', () => {
+    const ay = makeAy();
+    ay.writeRegister(11, 4); ay.writeRegister(12, 0); // envPeriod = 4
+    ay.writeRegister(13, 0x0C); // saw-up (also retriggers: envStep=envCounter=0)
+    for (let i = 0; i < 3; i++) ay.clock(); // 3 of 4 clocks into the first step
+    expect(ay.envStep).toBe(0); // not yet advanced
+
+    ay.writeRegister(13, 0x0C); // retrigger again, mid-step
+    // A full 4 clocks must elapse again before the next step -- not just
+    // the 1 remaining from before the retrigger (the bug: envCounter was
+    // left at 3, so a single clock would wrongly complete the step).
+    for (let i = 0; i < 3; i++) ay.clock();
+    expect(ay.envStep).toBe(0); // still not advanced after only 3 more clocks
+    ay.clock(); // the 4th
+    expect(ay.envStep).toBe(1);
   });
 });
 

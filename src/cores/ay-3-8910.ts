@@ -236,6 +236,12 @@ export class AY3891x {
       case 13:
         this.envShape = value & 0x0F;
         this.envStep = 0;
+        // Real hardware restarts the envelope generator's sub-step counter
+        // too, not just the 32-step position — without this, the first
+        // step after a retrigger only runs for whatever fraction of
+        // envPeriod was already elapsed before the write, not the full
+        // period.
+        this.envCounter = 0;
         this.envHolding = false;
         this.envContinue = (this.envShape & 0x08) !== 0;
         this.envAttack = (this.envShape & 0x04) ? 0x1F : 0x00;
