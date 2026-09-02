@@ -46,7 +46,7 @@ const ST_DRQ       = 0x02; // Type II/III: data register needs service
 const ST_INDEX     = 0x02; // Type I: index pulse (same bit as DRQ)
 const ST_TRACK0    = 0x04; // Type I: head over track 0
 const ST_CRCERR    = 0x08; // Type II/III: CRC error (ID or data field)
-const ST_RNF       = 0x10; // Type II/III: record not found
+const ST_RNF       = 0x10; // Type II/III: record not found / Type I: seek error (V=1 verify mismatch)
 const ST_RECTYPE   = 0x20; // Type II read: record type (1 = deleted-data mark) / Type I: head loaded
 const ST_WRITEPROT = 0x40; // write protected
 /** Status bit 7 — WD1772: MOTOR ON (no READY line on the 1770/1772);
@@ -152,6 +152,12 @@ export class WD179x {
   /** Address mark the current/multi-sector WRITE SECTOR command lays down —
    *  a0 (bit 0 of the command byte): false = FB (normal), true = F8 (deleted). */
   private writeDeleted = false;
+  /** Type II side-compare (command bits C/S): when enabled, the ID field's
+   *  side byte must also match `sideExpected`, in addition to the standard
+   *  cylinder/sector match — see findSector. Held for multi-sector
+   *  continuation (same command byte applies to every sector searched). */
+  private sideCompare = false;
+  private sideExpected = 0;
 
   // ── Write-track (format) parser state ─────────────────────────────────
   private formatting = false;
@@ -187,6 +193,8 @@ export class WD179x {
     this.curTrack = null;
     this.recFlags = 0;
     this.writeDeleted = false;
+    this.sideCompare = false;
+    this.sideExpected = 0;
     this.formatting = false;
     this.fmtState = 'idle';
     this.latchFrames = 0;
@@ -303,15 +311,21 @@ export class WD179x {
     // status, where bit 1 = INDEX. Everything else is Type II/III (bit 1 = DRQ).
     this.typeICmd = hi <= 0x7 || hi === 0xD;
     switch (hi) {
-      case 0x0: this.restore(); break;
-      case 0x1: this.seek(); break;
+      case 0x0: this.restore(cmd); break;
+      case 0x1: this.seek(cmd); break;
       case 0x2: case 0x3: this.step(cmd, 0); break;
       case 0x4: case 0x5: this.step(cmd, +1); break;
       case 0x6: case 0x7: this.step(cmd, -1); break;
-      case 0x8: case 0x9: this.readSectorCmd(hi === 0x9); break;
+      // bit 3 (S) selects the side to compare for, bit 1 (C) enables the
+      // comparison — see findSector.
+      case 0x8: case 0x9:
+        this.readSectorCmd(hi === 0x9, (cmd & 0x02) !== 0, (cmd >> 3) & 1);
+        break;
       // bit 0 (a0) selects the address mark the sector is written with:
       // 0 = FB (normal data), 1 = F8 (deleted data).
-      case 0xA: case 0xB: this.writeSectorCmd(hi === 0xB, (cmd & 0x01) !== 0); break;
+      case 0xA: case 0xB:
+        this.writeSectorCmd(hi === 0xB, (cmd & 0x01) !== 0, (cmd & 0x02) !== 0, (cmd >> 3) & 1);
+        break;
       case 0xC: this.readAddress(); break;
       case 0xD: this.forceInterrupt(); break;
       case 0xE: this.readTrackCmd(); break;
@@ -320,19 +334,19 @@ export class WD179x {
   }
 
   // ── Type I: Restore / Seek / Step ─────────────────────────────────────
-  private restore(): void {
+  private restore(cmd: number): void {
     this.headTrack[this.currentDrive] = 0;
     this.trackReg = 0;
-    this.endTypeI();
+    this.endTypeI(cmd);
   }
 
-  private seek(): void {
+  private seek(cmd: number): void {
     // The track register is 8-bit on real hardware; values beyond the drive's
     // cylinder count simply miss on the next data command (RNF).
     const target = this.dataReg & 0xFF;
     this.headTrack[this.currentDrive] = target;
     this.trackReg = target;
-    this.endTypeI();
+    this.endTypeI(cmd);
   }
 
   private step(cmd: number, dir: number): void {
@@ -345,14 +359,22 @@ export class WD179x {
     const next = (this.stepDir < 0 && cur === 0) ? 0 : (cur + this.stepDir) & 0xFF;
     this.headTrack[this.currentDrive] = next;
     if (cmd & 0x10) this.trackReg = next; // 'u' update-track-register flag
-    this.endTypeI();
+    this.endTypeI(cmd);
   }
 
-  private endTypeI(): void {
+  private endTypeI(cmd: number): void {
     let s = ST_RECTYPE; // head loaded / spin-up complete
     s |= this.statusBit7();
     if (this.headTrack[this.currentDrive] === 0) s |= ST_TRACK0;
     if (this.writeProtect[this.currentDrive]) s |= ST_WRITEPROT;
+    if (cmd & 0x04) {
+      // V (verify, bit 2): read the first ID field encountered on the
+      // destination track and compare its cylinder against the Track
+      // Register. A mismatch (or no ID field at all) is a seek error —
+      // shares ST_RNF's bit, reinterpreted for Type I status.
+      const sec = this.locateTrack()?.sectors[0];
+      if (!sec || sec.c !== this.trackReg) s |= ST_RNF;
+    }
     if (this.pulseBusy) {
       // Hold BUSY for a few reads (see BUSY_PULSE_READS) so a "wait for BUSY set"
       // handshake sees it; readStatus reveals `s` once the pulse expires.
@@ -382,12 +404,33 @@ export class WD179x {
     return f;
   }
 
-  private readSectorCmd(multi: boolean): void {
+  /**
+   * Type II ID-field search: a Sector Register (R) match in the sector map
+   * alone isn't enough. Real hardware always additionally compares the ID
+   * field's cylinder against the Track Register (this is how a disk can
+   * fail a read on a track whose physical position and TR have been
+   * deliberately desynced by a STEP without the 'u' flag — a documented
+   * protection technique), and — when the command's side-compare bits (S,
+   * C) request it — its side against `sideExpected`. Either mismatch means
+   * this ID wasn't accepted, so the caller falls through to Record Not
+   * Found just as it would if no sector with that R existed at all.
+   */
+  private findSector(track: DskTrack, sideCompare: boolean, sideExpected: number): DskSector | null {
+    const idx = track.sectorMap.get(this.sectorReg);
+    if (idx === undefined) return null;
+    const sec = track.sectors[idx];
+    if (sec.c !== this.trackReg) return null;
+    if (sideCompare && (sec.h & 1) !== sideExpected) return null;
+    return sec;
+  }
+
+  private readSectorCmd(multi: boolean, sideCompare: boolean, sideExpected: number): void {
     const track = this.locateTrack();
     if (!track) { this.statusReg = this.base() | ST_RNF; return; }
-    const idx = track.sectorMap.get(this.sectorReg);
-    if (idx === undefined) { this.statusReg = this.base() | ST_RNF; return; }
-    const sec = track.sectors[idx];
+    this.sideCompare = sideCompare;
+    this.sideExpected = sideExpected;
+    const sec = this.findSector(track, sideCompare, sideExpected);
+    if (!sec) { this.statusReg = this.base() | ST_RNF; return; }
     this.buffer = this.readCopy(sec);
     this.bufPos = 0;
     this.writing = false;
@@ -398,16 +441,17 @@ export class WD179x {
     this.latch(false);
   }
 
-  private writeSectorCmd(multi: boolean, deleted: boolean): void {
+  private writeSectorCmd(multi: boolean, deleted: boolean, sideCompare: boolean, sideExpected: number): void {
     if (this.writeProtect[this.currentDrive]) {
       this.statusReg = this.base() | ST_WRITEPROT;
       return;
     }
     const track = this.locateTrack();
     if (!track) { this.statusReg = this.base() | ST_RNF; return; }
-    const idx = track.sectorMap.get(this.sectorReg);
-    if (idx === undefined) { this.statusReg = this.base() | ST_RNF; return; }
-    const sec = track.sectors[idx];
+    this.sideCompare = sideCompare;
+    this.sideExpected = sideExpected;
+    const sec = this.findSector(track, sideCompare, sideExpected);
+    if (!sec) { this.statusReg = this.base() | ST_RNF; return; }
     // a0 selects the address mark laid down with the sector (FB/F8) — see
     // writeDeleted. Applied up front: the mark precedes the data field on
     // the physical track, and multi-sector writes reuse the same mark.
@@ -446,9 +490,8 @@ export class WD179x {
   /** Multi-sector continuation: bump R and load the next sector if present. */
   private advanceSector(writing: boolean): boolean {
     this.sectorReg = (this.sectorReg + 1) & 0xFF;
-    const idx = this.curTrack?.sectorMap.get(this.sectorReg);
-    if (this.curTrack && idx !== undefined) {
-      const sec = this.curTrack.sectors[idx];
+    const sec = this.curTrack ? this.findSector(this.curTrack, this.sideCompare, this.sideExpected) : null;
+    if (this.curTrack && sec) {
       if (writing) {
         sec.st2 = this.writeDeleted ? (sec.st2 | 0x40) : (sec.st2 & ~0x40);
         this.buffer = sec.data;

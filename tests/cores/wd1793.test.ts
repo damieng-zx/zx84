@@ -206,3 +206,99 @@ describe('WD1793 multi-sector READ termination', () => {
     expect(status & ST_RNF).toBeTruthy();
   });
 });
+
+describe('WD1793 Type II ID search — cylinder must match the Track Register', () => {
+  // trdImage's sectors are all stored with C=0. The physical head position
+  // (headTrack) and the Track Register normally move together, but a STEP
+  // without the 'u' flag — or directly poking trackReg, as here — can desync
+  // them, which is exactly the technique some protections use.
+  it('READ SECTOR fails RNF when the Track Register does not match the ID field', () => {
+    const wd = wd1793();
+    wd.insertDisk(trdImage(), 0);
+    wd.selectDrive(0);
+    wd.setSide(0);
+    wd.trackReg = 5; // desynced from the physical position (still 0)
+    wd.writeSectorReg(1);
+    wd.writeCommand(CMD_READ);
+    expect(wd.readStatus() & ST_RNF).toBeTruthy();
+  });
+
+  it('READ SECTOR succeeds when the Track Register matches the ID field', () => {
+    const wd = wd1793();
+    wd.insertDisk(trdImage(), 0); // trackReg defaults to 0, matching every sector's C
+    wd.selectDrive(0);
+    wd.setSide(0);
+    wd.writeSectorReg(1);
+    wd.writeCommand(CMD_READ);
+    expect(wd.readStatus() & ST_RNF).toBe(0);
+  });
+});
+
+describe('WD1793 Type II side compare (S/C command bits)', () => {
+  const CMD_READ_SIDE0 = 0x82; // C=1 (enable), S=0 -> compare for side 0
+  const CMD_READ_SIDE1 = 0x8A; // C=1 (enable), S=1 -> compare for side 1
+
+  it('accepts a sector whose stored side matches the S bit', () => {
+    const wd = wd1793();
+    wd.insertDisk(trdImage(), 0); // sectors stored with h=0
+    wd.selectDrive(0);
+    wd.setSide(0);
+    wd.writeSectorReg(1);
+    wd.writeCommand(CMD_READ_SIDE0);
+    expect(wd.readStatus() & ST_RNF).toBe(0);
+  });
+
+  it('rejects (RNF) a sector whose stored side does not match the S bit', () => {
+    const wd = wd1793();
+    wd.insertDisk(trdImage(), 0); // sectors stored with h=0
+    wd.selectDrive(0);
+    wd.setSide(0);
+    wd.writeSectorReg(1);
+    wd.writeCommand(CMD_READ_SIDE1);
+    expect(wd.readStatus() & ST_RNF).toBeTruthy();
+  });
+
+  it('side compare is off by default (C=0): a stored-side mismatch is not checked', () => {
+    const wd = wd1793();
+    wd.insertDisk(trdImage(), 0);
+    wd.selectDrive(0);
+    wd.setSide(0);
+    wd.writeSectorReg(1);
+    wd.writeCommand(CMD_READ); // C=0, S=0 — no comparison performed
+    expect(wd.readStatus() & ST_RNF).toBe(0);
+  });
+});
+
+describe('WD1793 Type I verify (V bit)', () => {
+  const CMD_SEEK_V = 0x14; // SEEK with V=1 (bit 2)
+
+  it('sets the seek-error bit (shares ST_RNF) when the destination track has no matching ID', () => {
+    const wd = wd1793();
+    wd.insertDisk(trdImage(), 0); // only cylinder 0 exists
+    wd.selectDrive(0);
+    wd.setSide(0);
+    wd.writeData(5); // seek target has no track in the image at all
+    wd.writeCommand(CMD_SEEK_V);
+    expect(wd.readStatus() & ST_RNF).toBeTruthy();
+  });
+
+  it('clears the seek-error bit when the destination track\'s ID matches the Track Register', () => {
+    const wd = wd1793();
+    wd.insertDisk(trdImage(), 0);
+    wd.selectDrive(0);
+    wd.setSide(0);
+    wd.writeData(0); // the image's only track, ID C=0 matches the post-seek TR=0
+    wd.writeCommand(CMD_SEEK_V);
+    expect(wd.readStatus() & ST_RNF).toBe(0);
+  });
+
+  it('V=0 (default) never checks the ID field, even seeking to a non-existent track', () => {
+    const wd = wd1793();
+    wd.insertDisk(trdImage(), 0);
+    wd.selectDrive(0);
+    wd.setSide(0);
+    wd.writeData(5);
+    wd.writeCommand(0x10); // plain SEEK, V=0
+    expect(wd.readStatus() & ST_RNF).toBe(0);
+  });
+});
