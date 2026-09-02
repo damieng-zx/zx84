@@ -228,8 +228,17 @@ export class GateArray {
         put(2, ((b & 0x20) >> 5) | ((b & 0x02) >> 0));
         put(2, ((b & 0x10) >> 4) | ((b & 0x01) << 1));
       }
+    } else if (mode === 3) {
+      // Undocumented Mode 3: 160×200, 4 colours. Same 2-pixels/byte,
+      // 4-clocks-each bit wiring as Mode 0 — hardware computes the same
+      // 4-bit pen value, but the palette lookup only honours the low 2
+      // bits (pen bits 2-3 ignored), not the full 16-colour range.
+      for (const b of [b0, b1]) {
+        put(4, (((b & 0x80) >> 7) | ((b & 0x08) >> 2) | ((b & 0x20) >> 3) | ((b & 0x02) << 2)) & 0x03);
+        put(4, (((b & 0x40) >> 6) | ((b & 0x04) >> 1) | ((b & 0x10) >> 2) | ((b & 0x01) << 3)) & 0x03);
+      }
     } else {
-      // Mode 2 (and 3, treated as 2): 8 pixels/byte, 1 clock each.
+      // Mode 2: 8 pixels/byte, 1 clock each.
       for (const b of [b0, b1]) {
         for (let bit = 7; bit >= 0; bit--) put(1, (b >> bit) & 1);
       }

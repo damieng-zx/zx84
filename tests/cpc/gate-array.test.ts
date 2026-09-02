@@ -130,3 +130,47 @@ describe('Gate Array — screen-address scramble', () => {
     expect(reads.length).toBe(0);
   });
 });
+
+describe('Gate Array — Mode 3 pixel decode (undocumented, 160×200 4-colour)', () => {
+  it('uses the Mode 0 pixel-bit wiring but masks the pen to bits 0-1', () => {
+    // b=0x20 (bit5 set): Mode 0's formula puts bit5 into pen bit 2, giving
+    // pen=4 for the first pixel of each byte and pen=0 for the second —
+    // exactly the "bits 2-3 ignored" boundary Mode 3 is supposed to apply.
+    const ga = new GateArray();
+    ga.pens[4] = 0x0A; // distinct hardware colours so the mask is observable
+    ga.pens[0] = 0x0B;
+    const line: CrtcLine = { maRow: 0, ra: 0, hDisplayed: 1, vDisplay: true };
+
+    ga.mode = 0;
+    const px0 = new Uint32Array(CPC_SCREEN_WIDTH * CPC_SCREEN_HEIGHT);
+    ga.renderScanline(px0, 0, line, () => 0x20);
+    expect(px0.includes(ga.palette[0x0A & 0x1F])).toBe(true); // pen 4 visible
+
+    ga.mode = 3;
+    const px3 = new Uint32Array(CPC_SCREEN_WIDTH * CPC_SCREEN_HEIGHT);
+    ga.renderScanline(px3, 0, line, () => 0x20);
+    // Mode 3 must NOT show pen 4's colour (bit 2 of the pen index is
+    // ignored) — every plotted pixel falls back to pen 0's colour instead.
+    expect(px3.includes(ga.palette[0x0A & 0x1F])).toBe(false);
+    expect(px3.includes(ga.palette[0x0B & 0x1F])).toBe(true);
+  });
+
+  it('differs from Mode 2 (previously mode 3 was rendered identically to mode 2)', () => {
+    const ga = new GateArray();
+    // Distinct colours per pen so Mode 2's 8×1-clock decode and Mode 3's
+    // 2×4-clock decode can't coincidentally render the same pixels for the
+    // same byte just because unset pens all default to the same colour.
+    for (let p = 0; p < 16; p++) ga.pens[p] = p;
+    const line: CrtcLine = { maRow: 0, ra: 0, hDisplayed: 1, vDisplay: true };
+
+    ga.mode = 2;
+    const px2 = new Uint32Array(CPC_SCREEN_WIDTH * CPC_SCREEN_HEIGHT);
+    ga.renderScanline(px2, 0, line, () => 0x20);
+
+    ga.mode = 3;
+    const px3 = new Uint32Array(CPC_SCREEN_WIDTH * CPC_SCREEN_HEIGHT);
+    ga.renderScanline(px3, 0, line, () => 0x20);
+
+    expect(px3).not.toEqual(px2);
+  });
+});
