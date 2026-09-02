@@ -544,9 +544,13 @@ export class WD179x {
   }
 
   private readTrackCmd(): void {
-    // Rarely used; serve the concatenated sector data of the track.
+    // Rarely used; serve the concatenated sector data of the track. A track
+    // with no sectors would otherwise build a zero-length buffer: readData()
+    // indexes it once anyway, handing the CPU `undefined` in A instead of a
+    // byte. Report RNF instead, matching readAddress's existing convention
+    // for the same "track present but nothing on it" case.
     const track = this.locateTrack();
-    if (!track) { this.statusReg = this.base() | ST_RNF; return; }
+    if (!track || track.sectors.length === 0) { this.statusReg = this.base() | ST_RNF; return; }
     const total = track.sectors.reduce((n, s) => n + s.data.length, 0);
     const buf = new Uint8Array(total);
     let off = 0;

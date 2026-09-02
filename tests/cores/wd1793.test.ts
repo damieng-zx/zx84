@@ -301,6 +301,36 @@ describe('WD1793 READ ADDRESS rotation', () => {
   });
 });
 
+describe('WD1793 READ TRACK on an empty track', () => {
+  const CMD_READ_TRACK = 0xE0;
+
+  it('reports RECORD NOT FOUND instead of handing back undefined for a sector-less track', () => {
+    const wd = wd1793();
+    const emptyTrack: DskTrack = { sectors: [], sectorMap: new Map(), gap3: 0x2A, filler: 0 };
+    const img: DskImage = {
+      format: 'standard', numTracks: 1, numSides: 1,
+      tracks: [[emptyTrack]], diskFormat: 'TR-DOS', protection: '',
+    };
+    wd.insertDisk(img, 0);
+    wd.selectDrive(0);
+    wd.setSide(0);
+    wd.writeCommand(CMD_READ_TRACK);
+    expect(wd.readStatus() & ST_RNF).toBeTruthy();
+    expect(wd.readStatus() & ST_BUSY).toBe(0);
+    expect(wd.readData()).not.toBe(undefined);
+  });
+
+  it('still streams data normally for a populated track', () => {
+    const wd = wd1793();
+    wd.insertDisk(trdImage(0x42), 0);
+    wd.selectDrive(0);
+    wd.setSide(0);
+    wd.writeCommand(CMD_READ_TRACK);
+    expect(wd.readStatus() & ST_BUSY).toBeTruthy();
+    expect(wd.readData()).toBe(0x42);
+  });
+});
+
 describe('WD1793 Type I verify (V bit)', () => {
   const CMD_SEEK_V = 0x14; // SEEK with V=1 (bit 2)
 
