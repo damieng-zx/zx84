@@ -191,7 +191,12 @@ export class Z80 {
   }
 
   portIn(port: number): number {
-    return this.portInHandler ? this.portInHandler(port) : 0xFF;
+    // The Z80's data bus is 8 bits — mask defensively so a misbehaving
+    // handler returning a value >255 can't corrupt whatever consumes it.
+    // IN r,(C) in particular indexes the 256-entry SZP flags table with
+    // this value directly; an out-of-range index there silently zeroes
+    // S/Z/H/PV/F3/F5 instead of computing them from the low 8 bits.
+    return (this.portInHandler ? this.portInHandler(port) : 0xFF) & 0xFF;
   }
 
   // --- Interrupt handling ---

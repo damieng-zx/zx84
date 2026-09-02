@@ -336,6 +336,34 @@ describe('Z80 — ED 70: IN F,(C) — reads, discards into flags only', () => {
   });
 });
 
+describe('Z80 — IN r,(C) masks a misbehaving port handler\'s return value', () => {
+  // The data bus is 8 bits; a handler returning something outside 0-255 must
+  // not corrupt the destination register or the SZP flags-table lookup (an
+  // out-of-range index there used to silently zero S/Z/H/PV/F3/F5 instead of
+  // computing them from the low 8 bits — see Z80.portIn).
+  it('IN r,(C): destination register and flags come from the low 8 bits only', () => {
+    const h = newCpu();
+    h.cpu.bc = 0x1234;
+    h.ports.set(0x1234, 0x1A5); // out-of-range: low byte is 0xA5 (bit 7 set)
+    load(h.mem, 0, 0xED, 0x50); // IN D,(C)
+    step(h);
+    expect(h.cpu.d).toBe(0xA5);
+    // SZP[0xA5], not the out-of-bounds SZP[0x1A5] (which would read as
+    // undefined and silently zero every flag but carry).
+    expect(h.cpu.f & F_S).toBe(F_S);
+    expect(h.cpu.f & F_Z).toBe(0);
+  });
+
+  it('IN F,(C): flags come from the low 8 bits only', () => {
+    const h = newCpu();
+    h.cpu.bc = 0x1234;
+    h.ports.set(0x1234, 0x180); // out-of-range: low byte is 0x80 (bit 7 set)
+    load(h.mem, 0, 0xED, 0x70); // IN F,(C)
+    step(h);
+    expect(h.cpu.f & F_S).toBe(F_S); // SZP[0x80], not SZP[0x180]
+  });
+});
+
 describe('Z80 — ED 71: OUT (C),0 — NMOS Z80 writes 0', () => {
   it('writes the byte 0 to port BC, regardless of any register', () => {
     const h = newCpu();
