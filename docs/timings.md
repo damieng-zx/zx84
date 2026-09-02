@@ -74,33 +74,36 @@ mid-frame EI to defer the interrupt a whole extra frame.
 
 ## intPending Mechanism
 
-On real hardware INT is held low for ~32T. If IFF1 is false when INT fires (code
-is inside DI), the CPU accepts it as soon as IFF1 becomes true again.
+On real hardware INT is held low for a model-dependent window (48K: 32T,
+128K/+2: 36T, +2A/+3: 32T — see `intLength` per model). If IFF1 is false when
+INT fires (code is inside DI), or `eiDelay` is still set (the instruction
+right after EI), the CPU accepts it as soon as both clear, as long as that
+happens before the window closes.
 
 The emulator models this with a frame-scoped `intPending` flag (local variable
 in the `runFrame()` loop in `spectrum.ts`, not a Z80 instance variable):
 
 1. Frame start: `interrupt()` called on the Z80.
-   - If it **fires** (IFF1=true, eiDelay=false) → `intPending = false`.
-   - If blocked by **DI** (`!IFF1`) → `intPending = true`.
-   - If blocked by **eiDelay** → leave `intPending` unchanged.
-2. During the instruction loop: after each instruction, if `intPending && IFF1`,
-   call `interrupt()`. If it fires, `intPending = false`.
-3. When `cpu.tStates >= intWindowEnd`, `intPending` is cleared (INT window
-   expired).
+   - If it **fires** → `intPending = false`.
+   - If it **declines** (returns 0 — DI or eiDelay, `interrupt()` doesn't
+     distinguish the reason in its return value) → `intPending = true`.
+2. During the instruction loop: after each instruction, while `intPending` and
+   `cpu.tStates < intWindowEnd`, retry — if `cpu.iff1`, call `interrupt()`
+   again. `interrupt()` itself still declines harmlessly while `eiDelay` is
+   set, so the loop just keeps retrying every instruction until both `iff1`
+   is true and `eiDelay` has cleared; there's no separate eiDelay branch here.
+   If it fires, `intPending = false`.
+3. Once `cpu.tStates >= intWindowEnd`, `intPending` is cleared unconditionally
+   (INT window expired — the interrupt is lost until the next frame).
 
-**Why the eiDelay case must NOT set intPending:**
-
-If EI is the last instruction in frame N, `eiDelay=true` persists past the frame
-boundary. At T=0 of frame N+1, `interrupt()` returns 0 (eiDelay). If we set
-`_intPending=true` here, the pending fires mid-frame N+1 (after eiDelay clears)
-at the wrong T-state — causing alternating correct/incorrect interrupt timing and
-visible flicker (observed in Daley Thompson's Decathlon title screen).
-
-The correct behaviour: when eiDelay blocks at T=0, the first instruction of
-the new frame clears eiDelay, and T=0 of frame N+2 fires normally. No interrupt
-is "lost" — it just fires one frame later, which is what real hardware does
-(EI suppresses the current frame's interrupt, next frame fires at T=0).
+**On EI at a frame boundary:** if EI is the last instruction of frame N,
+`eiDelay=true` persists past the frame boundary, so frame N+1's frame-start
+`interrupt()` declines and sets `intPending = true`. The very next instruction
+of frame N+1 clears `eiDelay` (see EI Delay above), and the retry loop fires
+the interrupt right after — one instruction into frame N+1, comfortably inside
+the window for all but pathologically long instructions. No interrupt is
+"lost"; EI's one-instruction suppression just pushes it a few T-states into
+the new frame, matching real hardware.
 
 ---
 

@@ -47,7 +47,7 @@ export const TIMING_48K: MachineTiming = {
   tStatesPerFrame: TSTATES_PER_FRAME_48K,   // 224 × 312
   tStatesPerLine: 224,
   contentionStart: 14335,
-  displayOrigin: 14336,     // 64 lines × 224 (8 VBlank + 56 border)
+  displayOrigin: 14336,     // 64 lines × 224 (16 vertical-retrace + 48 top-border)
   intLength: 32,
   floatingBusAdjust: -1,
 };
