@@ -220,6 +220,15 @@ describe('CpcMemory Plus ROM-select (logical → physical mapping)', () => {
     expect(mem.readByte(0xC000)).toBe(0x33);   // AMSDOS at upper ROM 7
   });
 
+  it('selecting an unmapped upper ROM number falls back to on-board BASIC, not open bus', () => {
+    // Real hardware's ROM-select routine relies on an out-of-range number
+    // recovering to the on-board firmware rather than reading open bus.
+    const mem = new CpcMemory(createCpcConfig('cpc6128'));
+    mem.loadROM(makeImage(0x11, 0x22, 0x33)); // only ROM 0 (BASIC) and 7 (AMSDOS) exist
+    mem.selectUpperRom(3); // never loaded
+    expect(mem.readByte(0xC000)).toBe(0x22); // BASIC, not 0xFF
+  });
+
   it('loadCartridge replaces the lower ROM with cartridge page 0', () => {
     const mem = new CpcMemory(createCpcConfig('cpc6128plus'));
     mem.loadROM(makeImage(0x11, 0x22, 0x33));
@@ -264,6 +273,20 @@ describe('CpcMemory Plus ROM-select (logical → physical mapping)', () => {
     mem.ejectCartridge();
     mem.reset();
     expect(mem.readByte(0x0000)).toBe(0xFF);
+  });
+
+  it('an unmapped upper ROM stays open bus on GX4000/Plus after a system cartridge load', () => {
+    // A system cartridge (page 0 present) clears every upper-ROM slot,
+    // including 0 -- a console cartridge may supply no BASIC at all, so
+    // unlike the classic CPC there's no on-board firmware to fall back to.
+    const mem = new CpcMemory(createCpcConfig('cpc6128plus'));
+    mem.loadROM(makeImage(0x11, 0x22, 0x33)); // BASIC loaded initially...
+    const pages: (Uint8Array | undefined)[] = new Array(32).fill(undefined);
+    pages[0] = new Uint8Array(SLOT).fill(0x77); // system cartridge
+    mem.loadCartridge(pages);
+    expect(mem.getUpperRom(0)).toBeUndefined(); // ...cleared by the load
+    mem.selectUpperRom(0x80 | 9); // direct physical page 9, never provided
+    expect(mem.readByte(0xC000)).toBe(0xFF);
   });
 });
 

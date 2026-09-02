@@ -58,7 +58,8 @@ export class CpcMemory implements IMachineMemory {
   /** Which Z80 slot the lower ROM overlays: 0 = &0000, 1 = &4000, 2 = &8000
    *  (Plus RMR2 D4–D3). 0 on the classic CPC. */
   private lowerRomSlot = 0;
-  /** Returned for an enabled-but-absent upper ROM (open bus). */
+  /** Last-resort fallback for an enabled-but-absent upper ROM, once the
+   *  on-board BASIC fallback (upperRoms[0]) is also absent — open bus. */
   private readonly absentRom = new Uint8Array(SLOT_SIZE).fill(0xFF);
 
   /** Per-slot read source (ROM overlay or RAM bank). */
@@ -271,7 +272,14 @@ export class CpcMemory implements IMachineMemory {
     }
     if (this.lowerRomEnabled) this.readPtr[this.lowerRomSlot] = this.lowerRom;
     if (this.upperRomEnabled) {
-      this.readPtr[3] = this.upperRoms[this.selectedUpperRom] ?? this.absentRom;
+      // Selecting an unmapped ROM number falls back to the on-board BASIC
+      // ROM (upperRoms[0]) on real hardware, not open bus — the firmware's
+      // own ROM-select routine relies on this to recover from a stray
+      // number. That fallback is itself absent on the Plus/GX4000 after a
+      // system cartridge load (loadCartridge clears every upper slot,
+      // including 0, since a console cartridge may supply no BASIC at
+      // all), in which case this correctly stays open bus (0xFF).
+      this.readPtr[3] = this.upperRoms[this.selectedUpperRom] ?? this.upperRoms[0] ?? this.absentRom;
     }
     // The Plus ASIC register window, when paged in by RMR2, replaces slot 1
     // for both reads and writes — CPU writes go through `cpuWrite` for
