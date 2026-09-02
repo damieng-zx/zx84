@@ -119,6 +119,18 @@ describe('V9938 CPU port interface', () => {
     expect(v.pens[5]).toBe(before);        // unwritten — one byte alone can't complete an entry
   });
 
+  it('updates the address low byte on the first control write, before the second byte arrives', () => {
+    // Establish a base address with a non-zero high byte, then send only
+    // the first byte of a new address write (no second byte). Real
+    // hardware updates the address register's low byte immediately, so a
+    // data access at this point combines the new low byte with the old
+    // high byte, not the fully stale address.
+    setAddress(v, 0x1200);
+    v.writeControl(0x34);            // first byte only of a new low address
+    v.writeData(0xAB);
+    expect(v.vram[0x1234]).toBe(0xAB);
+  });
+
   it('writes registers indirectly through port 3 / R17', () => {
     setReg(v, 17, 1);
     v.writeRegister(0x60);

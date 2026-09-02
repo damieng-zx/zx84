@@ -242,6 +242,11 @@ export class Tms9918a {
     if (!this.secondByte) {
       this.firstByte = val;
       this.secondByte = true;
+      // Real hardware updates the address register's low byte on the first
+      // control write already, without waiting for the second byte — a data
+      // access sandwiched between the two writes (never sends a second byte)
+      // sees the new low byte combined with the previous high byte.
+      this.address = ((this.address & ~0xFF) | val) & VRAM_MASK;
       return;
     }
     this.secondByte = false;

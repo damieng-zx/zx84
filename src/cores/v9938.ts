@@ -250,6 +250,11 @@ export class V9938 {
     if (!this.controlSecond) {
       this.controlFirst = val;
       this.controlSecond = true;
+      // Real hardware updates the address register's low byte on the first
+      // control write already, without waiting for the second byte — a data
+      // access sandwiched between the two writes (never sends a second byte)
+      // sees the new low byte combined with the previous high byte.
+      this.addressLatch = ((this.addressLatch & ~0xFF) | val) & ADDR_LATCH_MASK;
       return;
     }
     this.controlSecond = false;

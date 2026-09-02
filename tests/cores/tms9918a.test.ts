@@ -39,6 +39,19 @@ describe('TMS9918A CPU interface', () => {
     expect(vdp.readData()).toBe(0x34); // then vram[6]
   });
 
+  it('updates the address low byte on the first control write, before the second byte arrives', () => {
+    // Establish a base address with a non-zero high byte, then send only
+    // the first byte of a new address write (no second byte). Real
+    // hardware updates the address register's low byte immediately, so a
+    // data access at this point combines the new low byte with the old
+    // high byte, not the fully stale address.
+    vdp.writeControl(0x00);
+    vdp.writeControl(0x40 | 0x12);   // address 0x1200 (write intent)
+    vdp.writeControl(0x34);          // first byte only of a new low address
+    vdp.writeData(0xAB);
+    expect(vdp.vram[0x1234]).toBe(0xAB);
+  });
+
   it('wraps the VRAM address at 14 bits (16KB)', () => {
     // Point at the last VRAM byte via a write setup.
     vdp.writeControl(0xFF);       // low
