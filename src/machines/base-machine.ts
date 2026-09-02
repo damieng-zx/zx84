@@ -40,6 +40,16 @@ const FRAME_PERIOD = 1000 / 50;
 const TURBO_PUMP_BUDGET_MS = 8;
 /** Audio back-pressure target, in frames of buffered samples. */
 const TARGET_BUFFER_FRAMES = 3;
+/** Low-water mark, in frames of buffered samples, below which a frame runs
+ *  immediately regardless of wall-clock pacing (see runPacedFrames). A real
+ *  frame produces slightly fewer samples than the worklet consumes per
+ *  nominal frame (e.g. the 48K's true 50.08 Hz vs the assumed flat 50 Hz —
+ *  958.47 samples/frame vs 960 consumed, about -0.16%), so pacing purely on
+ *  wall-clock time lets that drift accumulate into periodic underruns (the
+ *  worklet zero-fills, an audible ~10-sample gap roughly every 100 ms). This
+ *  gives the buffer a chance to catch back up before it actually runs dry,
+ *  rather than only ever being throttled down once it's already full. */
+const LOW_BUFFER_FRAMES = 1;
 function samplesPerFrame(sampleRate: number): number { return Math.round(sampleRate / 50); }
 
 export abstract class BaseMachine {
@@ -211,7 +221,10 @@ export abstract class BaseMachine {
     this.rafId = requestAnimationFrame(this.frameLoop);
   };
 
-  /** Wall-clock paced execution: catch up at 50 Hz, throttled by audio buffer. */
+  /** Wall-clock paced execution: catch up at 50 Hz, throttled by audio buffer
+   *  at the high end (TARGET_BUFFER_FRAMES) and allowed to run ahead of
+   *  wall-clock pacing at the low end (LOW_BUFFER_FRAMES) so small, steady
+   *  sample-rate drift can't starve the audio worklet. */
   protected runPacedFrames(now: number): void {
     const multiplier = this.speedMultiplier ?? 1;
     if (multiplier <= 0) {
@@ -228,14 +241,23 @@ export abstract class BaseMachine {
 
     const audioPacing = multiplier === 1
       && this.audio.ctx !== null && this.audio.ctx.state === 'running';
-    const targetSamples = samplesPerFrame(this.audio.sampleRate) * TARGET_BUFFER_FRAMES;
+    const perFrame = samplesPerFrame(this.audio.sampleRate);
+    const targetSamples = perFrame * TARGET_BUFFER_FRAMES;
+    const lowWaterSamples = perFrame * LOW_BUFFER_FRAMES;
     const maxFrames = Math.max(2, Math.ceil(multiplier * 2));
 
     let framesRun = 0;
-    while (this.frameTimeAccum >= framePeriod && framesRun < maxFrames) {
-      if (audioPacing && this.audio.bufferedSamples() >= targetSamples) break;
+    while (framesRun < maxFrames) {
+      const bufferedSamples = audioPacing ? this.audio.bufferedSamples() : 0;
+      if (audioPacing && bufferedSamples >= targetSamples) break;
+      // Below the low-water mark, run a frame immediately even if wall-clock
+      // time hasn't caught up yet — the buffer is at real risk of underrun
+      // before the next naturally-paced frame would arrive (see
+      // LOW_BUFFER_FRAMES). Otherwise, stick to normal wall-clock pacing.
+      const catchingUp = audioPacing && bufferedSamples < lowWaterSamples;
+      if (this.frameTimeAccum < framePeriod && !catchingUp) break;
       this.runFrame();
-      this.frameTimeAccum -= framePeriod;
+      this.frameTimeAccum = Math.max(0, this.frameTimeAccum - framePeriod);
       framesRun++;
       if (this.breakpointHit >= 0) break;
     }

@@ -814,6 +814,30 @@ describe('Spectrum.frameLoop (audio + rAF mocked)', () => {
     expect(s.cpu.tStates - t0).toBe(0);
   });
 
+  it('low-water catch-up runs a frame immediately even with zero elapsed wall-clock time', () => {
+    // A real frame produces slightly fewer samples than the worklet consumes
+    // per nominal frame, so pure wall-clock pacing alone lets that drift
+    // accumulate into periodic underruns. Below LOW_BUFFER_FRAMES, a frame
+    // must run right away regardless of frameTimeAccum, and stop once the
+    // buffer reaches the low-water mark rather than running away.
+    const s = makeMachine('48k');
+    s.audio.ctx = { state: 'running' } as any;
+    s.audio.sampleRate = 48000; // perFrame = 960, low-water = 960 (1 frame)
+    let samplesProduced = 0;
+    s.audio.bufferedSamples = (() => samplesProduced) as any;
+    let frames = 0;
+    (s as any).runFrame = () => { frames++; samplesProduced += 960; };
+
+    const now = 12_345;
+    (s as any).lastFrameTime = now; // zero elapsed wall-clock time
+    (s as any).frameTimeAccum = 0;
+    (s as any).runPacedFrames(now);
+
+    // Exactly one catch-up frame: it stops once bufferedSamples (960)
+    // reaches the low-water mark (960), not because time passed.
+    expect(frames).toBe(1);
+  });
+
   it('breakpoint stops the inner loop in normal (non-turbo) mode', () => {
     const s = makeMachine('48k');
     bootHeadless(s);
