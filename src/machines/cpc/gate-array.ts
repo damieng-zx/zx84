@@ -59,6 +59,7 @@ export class GateArray {
         break;
       case FN_COLOUR:
         this.pens[this.selectedPen] = val & 0x1F;
+        this.onPenColourChanged(this.selectedPen, val & 0x1F);
         break;
       case FN_RMR:
         this.pendingMode = val & 0x03;
@@ -150,6 +151,21 @@ export class GateArray {
     for (let p = 0; p < 16; p++) this.penLut[p] = this.palette[this.pens[p] & 0x1F];
   }
 
+  /** Hook for the Plus ASIC's vertical soft scroll: given the byte address
+   *  computed from MA/RA above, return the address actually fetched. No-op
+   *  on the plain gate array. */
+  protected videoAddress(addr: number): number {
+    return addr;
+  }
+
+  /** Hook for the Plus ASIC: called whenever a classic FN_COLOUR command sets
+   *  a pen (0-15) or the border (16) to a hardware colour code. Real hardware
+   *  translates these &7Fxx writes into the same 12-bit ASIC palette RAM that
+   *  &6400 MMIO writes, so old-style colour code still works once a game
+   *  unlocks the extended features without reprogramming colour via &6400.
+   *  No-op on the plain gate array. */
+  protected onPenColourChanged(_pen: number, _hwColour: number): void {}
+
   /** Fill the whole frame buffer with the current border colour (top/bottom
    *  border and any rows a short frame never reaches). */
   beginFrame(px: Uint32Array): void {
@@ -174,7 +190,8 @@ export class GateArray {
     let x = this.renderStartX(line.hDisplayed);
     for (let c = 0; c < line.hDisplayed; c++) {
       const ma = (line.maRow + c) & 0x3FFF;
-      const addr = (((ma & 0x3000) << 2) | ((line.ra & 7) << 11) | ((ma & 0x3FF) << 1)) & 0xFFFF;
+      const addr = this.videoAddress(
+        (((ma & 0x3000) << 2) | ((line.ra & 7) << 11) | ((ma & 0x3FF) << 1)) & 0xFFFF);
       const b0 = readVideo(addr);
       const b1 = readVideo((addr + 1) & 0xFFFF);
       x = this.plotChar(px, rowStart, x, b0, b1, mode);

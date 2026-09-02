@@ -26,7 +26,7 @@
  * non-Plus cost to zero.
  */
 
-import { CPC_SCREEN_WIDTH, CPC_BORDER_LEFT, CPC_BORDER_TOP } from '@/machines/cpc/constants.ts';
+import { CPC_SCREEN_WIDTH, CPC_BORDER_LEFT, CPC_BORDER_TOP, CPC_PALETTES } from '@/machines/cpc/constants.ts';
 import { GateArray, FN_RMR } from '@/machines/cpc/gate-array.ts';
 import type { CrtcLine } from '@/cores/crtc-6845.ts';
 
@@ -148,6 +148,11 @@ export class Asic extends GateArray {
   /** The CRTC's natural `maRow` captured at the split line, so the split region
    *  can track the CRTC's address progression as an offset from `splitAddr`. */
   private splitBaseMa = 0;
+
+  /** Byte-address offset for the current scanline's vertical soft scroll,
+   *  computed by `applyScrollAndSplit` and consumed by `videoAddress`. Zero
+   *  whenever scroll doesn't apply (locked, vscroll=0, or a split line). */
+  private vscrollAddrOffset = 0;
 
   // ── Phase 5: DMA sound (3 channels feeding the AY-3-8912) ─────────────
   /** Per-channel DMA state. Each channel executes one instruction per HSYNC
@@ -317,14 +322,19 @@ export class Asic extends GateArray {
     }
 
     // DCSR (DMA Control/Status Register): writes set channel enables (bits
-    // 0-2) and clear interrupt-pending bits (bits 3-5 = ch2/1/0).
+    // 0-2) and clear interrupt-pending bits — bits 4-6 = ch0/1/2, bit 7 =
+    // raster (Arnold V). Writing a 1 to any of bits 4-7 clears that source's
+    // pending flag; bit 7 is the only way IM1 code (which never fetches a
+    // vector, so consumeInterruptVector's ack never runs) can clear the
+    // raster-pending flag at all.
     if (offset === ASIC_DMA_DCSR_OFFSET) {
       for (let c = 0; c < 3; c++) {
         this.dma[c].enabled = (val & (1 << c)) !== 0;
       }
       for (let c = 0; c < 3; c++) {
-        if (val & (1 << (3 + (2 - c)))) this.dma[c].intPending = false;
+        if (val & (1 << (4 + c))) this.dma[c].intPending = false;
       }
+      if (val & 0x80) this.rasterIntPending = false;
       this.writeDcsr();
       return;
     }
@@ -336,7 +346,7 @@ export class Asic extends GateArray {
     let v = 0;
     for (let c = 0; c < 3; c++) {
       if (this.dma[c].enabled) v |= 1 << c;
-      if (this.dma[c].intPending) v |= 1 << (3 + (2 - c));
+      if (this.dma[c].intPending) v |= 1 << (4 + c);
     }
     if (this.rasterIntPending) v |= 0x80;
     this.registerPage[ASIC_DMA_DCSR_OFFSET] = v;
@@ -379,16 +389,17 @@ export class Asic extends GateArray {
 
   /** Decode and execute one DMA instruction. Top 4 bits (15:12) select the
    *  opcode class; sub-bits within each class select the specific operation. */
-  private executeDma(ch: { source: number; pauseTicks: number; loops: number; loopAddr: number; enabled: boolean; intPending: boolean; }, instr: number): void {
+  private executeDma(ch: { source: number; prescaler: number; pauseTicks: number; loops: number; loopAddr: number; enabled: boolean; intPending: boolean; }, instr: number): void {
     switch ((instr >>> 12) & 0x0F) {
       case 0x0:
         // LOAD R,DD — write data byte DD to PSG register R.
         this.writeAy((instr >>> 8) & 0x0F, instr & 0xFF);
         return;
       case 0x1:
-        // PAUSE N — stall the channel for N × (PPR+1) HSYNC periods.
-        // N is a 12-bit count (bits 11:0); PAUSE 0 is treated as a NOP.
-        ch.pauseTicks = instr & 0x0FFF;
+        // PAUSE N — stall the channel for N × (PPR+1) HSYNC periods, where
+        // PPR is the channel's own prescaler register (0-255). N is a
+        // 12-bit count (bits 11:0); PAUSE 0 is treated as a NOP.
+        ch.pauseTicks = (instr & 0x0FFF) * (ch.prescaler + 1);
         return;
       case 0x2:
         // REPEAT N — set loop counter to N and mark the next instruction
@@ -469,6 +480,19 @@ export class Asic extends GateArray {
       const b = nibbleToByte(val & 0x0F);
       this.asicPalette[pen] = (0xFF000000 | (current & 0x0000FF00) | (b << 16) | r) >>> 0;
     }
+  }
+
+  /**
+   * Mirror a classic FN_COLOUR write (pen 0-15, or 16 for the border) into
+   * the ASIC's own 12-bit palette RAM — real hardware does this unconditionally
+   * (locked or not), so old-style colour code keeps working once a game unlocks
+   * the extended features without ever touching &6400 directly. Uses the
+   * `basic` colour map (the exact ASIC 12-bit register value expanded to
+   * 8-bit-per-channel — see constants.ts) since asicPalette itself only ever
+   * holds that idealized representation, never a "measured" analogue tint.
+   */
+  protected onPenColourChanged(pen: number, hwColour: number): void {
+    this.asicPalette[pen] = CPC_PALETTES.basic[hwColour & 0x1F];
   }
 
   // ── Rendering: 12-bit palette when unlocked ───────────────────────────
@@ -573,10 +597,15 @@ export class Asic extends GateArray {
    * screen. Returns the (possibly modified) line for the GA renderer to use.
    * No-op when locked or when neither feature is active.
    *
-   * Soft scroll: each scanline's video address is offset by `vscroll` char
-   * rows (× 0x0800 bytes) plus a coarse `hscroll` byte backstep. Phase 3
-   * implements address-level scroll (vertical fine + horizontal coarse);
-   * pixel-precise horizontal scroll (sub-character) is a later refinement.
+   * Soft scroll: hardware offsets the RA-derived component of the *byte*
+   * address (adds `vscroll << 11`, letting the carry ripple naturally into
+   * higher bits) — not the CRTC's MA. MA's bits 10-11 never reach the byte
+   * address at all (gate-array.ts masks them out via `ma & 0x3000` /
+   * `ma & 0x3FF`), so an offset added there is silently dropped for
+   * vscroll=1 and wraps into the wrong 16K RAM bank for vscroll>=2. The
+   * actual offset is cached in `vscrollAddrOffset` and applied in
+   * `videoAddress`, after the byte address is computed. A coarse `hscroll`
+   * byte backstep remains a later refinement.
    *
    * Split screen: from `splitSl` onward the display base becomes `splitAddr`,
    * after which the address follows the CRTC's own progression. We reproduce
@@ -585,6 +614,7 @@ export class Asic extends GateArray {
    * exactly as the CRTC does, with no assumption about the row height.
    */
   applyScrollAndSplit(line: CrtcLine): CrtcLine {
+    this.vscrollAddrOffset = 0;
     if (this.locked) return line;
     let maRow = line.maRow;
     if (this.splitSl > 0 && this.frameLine > this.splitSl) {
@@ -593,13 +623,16 @@ export class Asic extends GateArray {
       if (this.frameLine === this.splitSl + 1) this.splitBaseMa = line.maRow;
       maRow = (this.splitAddr + line.maRow - this.splitBaseMa) & 0x3FFF;
     } else if (this.vscroll !== 0) {
-      // Vertical soft scroll: shift the video address by vscroll char rows.
-      // Each char row is 0x0800 bytes (half of one RAM bank); clamped to the
-      // 14-bit CRTC address space.
-      maRow = (maRow + this.vscroll * 0x0800) & 0x3FFF;
+      this.vscrollAddrOffset = this.vscroll << 11;
     }
     if (maRow === line.maRow) return line;
     return { ...line, maRow };
+  }
+
+  /** Vertical soft scroll applies to the byte address after MA/RA decode,
+   *  not to MA itself — see `applyScrollAndSplit`. */
+  protected videoAddress(addr: number): number {
+    return this.vscrollAddrOffset === 0 ? addr : (addr + this.vscrollAddrOffset) & 0xFFFF;
   }
 
   /**
@@ -742,7 +775,13 @@ export class Asic extends GateArray {
     this.lockSeqPos = 0;
     this.asicPageVisible = false;
     this.registerPage.fill(0);
-    this.asicPalette.fill(0);
+    // GateArray.reset() sets every pen to hardware colour 0 directly (not via
+    // FN_COLOUR, so onPenColourChanged never fires) — mirror that baseline
+    // here instead of filling with literal black. Colour 0 is a mid-grey on
+    // real hardware, and alpha=0 (the old fill(0)) rendered as transparent,
+    // which is exactly why unlocked-but-uncoloured Plus screens came out
+    // blank (see writePaletteReg's comment on forced-opaque alpha).
+    this.asicPalette.fill(CPC_PALETTES.basic[0]);
     this.interruptSl = 0;
     this.splitSl = 0;
     this.splitAddr = 0;
@@ -751,6 +790,7 @@ export class Asic extends GateArray {
     this.extendBorder = false;
     this.interruptVector = 0xF8;
     this.frameLine = 0;
+    this.vscrollAddrOffset = 0;
     for (const ch of this.dma) {
       ch.source = 0;
       ch.prescaler = 0;

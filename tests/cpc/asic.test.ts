@@ -277,6 +277,34 @@ describe('Asic 12-bit palette decode', () => {
     a.cpuWrite(0x240A, 0xA3);
     expect(a.registerPage[0x240A]).toBe(0xA3);
   });
+
+  it('reset() initialises the palette to hardware colour 0, not literal black', () => {
+    // GateArray.reset() sets every pen to hardware colour 0 directly (not
+    // through FN_COLOUR, so it doesn't go through the mirror path below) —
+    // asicPalette must start consistent with that, not alpha=0 (which
+    // renders transparent/black and is why unlocked-but-uncoloured Plus
+    // screens used to come out blank).
+    const a = new Asic();
+    a.reset();
+    for (let pen = 0; pen < 32; pen++) expect(a.asicPalette[pen]).toBe(CPC_PALETTES.basic[0]);
+  });
+
+  it('a classic FN_COLOUR write mirrors into the ASIC palette, locked or not', () => {
+    // Real hardware translates &7Fxx colour writes into the same 12-bit
+    // palette RAM &6400 writes — so a game that unlocks for sprites/DMA but
+    // sets colours only via the classic firmware still renders correctly.
+    const a = unlockedAsic();
+    a.write(0x04);   // select pen 4
+    a.write(0x54);   // FN_COLOUR: hardware colour 0x14
+    expect(a.asicPalette[4]).toBe(CPC_PALETTES.basic[0x14]);
+  });
+
+  it('mirrors the border pen (16) too, and works while still locked', () => {
+    const a = new Asic();   // locked
+    a.write(0x10);   // select the border pen
+    a.write(0x47);   // FN_COLOUR: hardware colour 0x07
+    expect(a.asicPalette[16]).toBe(CPC_PALETTES.basic[0x07]);
+  });
 });
 
 describe('CpcMachine ASIC integration (Phase 2: unlock + window paging)', () => {
@@ -320,7 +348,7 @@ describe('CpcMachine ASIC integration (Phase 2: unlock + window paging)', () => 
 
 // ── Phase 3: sprites, scroll, split, raster IRQ ──────────────────────────────
 
-import { CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT, CPC_BORDER_LEFT, CPC_BORDER_TOP } from '@/machines/cpc/constants.ts';
+import { CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT, CPC_BORDER_LEFT, CPC_BORDER_TOP, CPC_PALETTES } from '@/machines/cpc/constants.ts';
 import type { CrtcLine } from '@/cores/crtc-6845.ts';
 
 /** Build an unlocked Asic with the ASIC window paged into a throwaway machine
@@ -535,13 +563,33 @@ describe('Asic soft scroll + split screen (applyScrollAndSplit)', () => {
     expect(a.applyScrollAndSplit(l)).toBe(l);
   });
 
-  it('offsets maRow by vscroll character rows', () => {
+  it('vertical soft scroll offsets the byte address, NOT maRow', () => {
+    // Real hardware adds vscroll<<11 to the byte address computed from
+    // MA/RA, letting the carry ripple naturally into higher bits. MA itself
+    // must stay untouched: gate-array.ts's address formula masks away MA
+    // bits 10-11 (`ma & 0x3000` / `ma & 0x3FF`), so an offset added to MA
+    // there would be silently dropped for vscroll=1 and wrap into the wrong
+    // 16K bank for vscroll>=2.
     const a = unlockedAsic();
     a.vscroll = 3;
     const l = lineAt(0x1000);
     const out = a.applyScrollAndSplit(l);
-    // Each char row = 0x800 bytes; vscroll 3 → +0x1800.
-    expect(out.maRow).toBe((0x1000 + 3 * 0x800) & 0x3FFF);
+    expect(out.maRow).toBe(0x1000); // unchanged
+
+    const seen: number[] = [];
+    a.renderScanline(new Uint32Array(CPC_SCREEN_WIDTH), 100, out, (addr) => { seen.push(addr); return 0; });
+    // Base byte address for ma=0x1000, ra=0: (0x1000&0x3000)<<2 = 0x4000.
+    // vscroll 3 adds 3<<11 = 0x1800 to that address (not to MA).
+    expect(seen[0]).toBe(0x4000 + 0x1800);
+  });
+
+  it('a large vscroll lets the carry ripple into the bank-select bits, like real hardware', () => {
+    const a = unlockedAsic();
+    a.vscroll = 4; // 4<<11 = 0x2000 — pushes a carry into bit 13
+    const out = a.applyScrollAndSplit(lineAt(0x1000));
+    const seen: number[] = [];
+    a.renderScanline(new Uint32Array(CPC_SCREEN_WIDTH), 100, out, (addr) => { seen.push(addr); return 0; });
+    expect(seen[0]).toBe(0x4000 + 0x2000);
   });
 
   it('tracks the CRTC address as an offset from splitAddr past the split', () => {
@@ -640,6 +688,28 @@ describe('Asic DMA sound', () => {
     expect(ayWrites).toEqual([[0, 0x42]]);
   });
 
+  it('PAUSE scales by the channel prescaler: N x (PPR+1) ticks', () => {
+    // With PPR=1, PAUSE 3 must hold for 3 x (1+1) = 6 ticks, not 3 — DMA
+    // soundtracks that set a non-zero prescaler otherwise play at the wrong
+    // tempo (the wait was hardcoded to N ticks regardless of PPR).
+    const ram = new Uint8Array(0x10000);
+    ram[0x0000] = PAUSE(3) & 0xFF; ram[0x0001] = (PAUSE(3) >>> 8) & 0xFF;
+    ram[0x0002] = LOAD(0, 0x42) & 0xFF; ram[0x0003] = (LOAD(0, 0x42) >>> 8) & 0xFF;
+    const { asic, ayWrites } = wiredAsic(ram);
+    asic.cpuWrite(DMA_CHAN_BASE, 0x00);
+    asic.cpuWrite(DMA_CHAN_BASE + 1, 0x00);
+    asic.cpuWrite(DMA_CHAN_BASE + 2, 0x01);  // prescaler (PPR) = 1
+    asic.cpuWrite(DMA_DCSR, 0x01);
+
+    asic.dmaCycle();          // consumes PAUSE 3 -> pauseTicks = 3*(1+1) = 6
+    for (let i = 0; i < 5; i++) asic.dmaCycle();
+    expect(ayWrites).toEqual([]);   // still paused after 5 of 6 ticks
+    asic.dmaCycle();          // 6th tick — channel unpaused, no instruction yet
+    expect(ayWrites).toEqual([]);
+    asic.dmaCycle();          // LOAD fires
+    expect(ayWrites).toEqual([[0, 0x42]]);
+  });
+
   it('STOP disables the channel — subsequent cycles are no-ops', () => {
     const ram = new Uint8Array(0x10000);
     ram[0x0000] = STOP & 0xFF; ram[0x0001] = (STOP >>> 8) & 0xFF;
@@ -663,8 +733,9 @@ describe('Asic DMA sound', () => {
     asic.cpuWrite(DMA_DCSR, 0x01);
 
     asic.dmaCycle();
-    // Channel 0's int-pending bit is bit 5 of DCSR.
-    expect(asic.registerPage[DMA_DCSR] & 0x20).toBe(0x20);
+    // Channel 0's int-pending bit is bit 4 of DCSR (Arnold V: bits 4-6 =
+    // ch0/1/2, bit 7 = raster).
+    expect(asic.registerPage[DMA_DCSR] & 0x10).toBe(0x10);
     expect(asic.interruptRequested).toBe(true);
   });
 
@@ -676,11 +747,24 @@ describe('Asic DMA sound', () => {
     asic.cpuWrite(DMA_CHAN_BASE + 1, 0x00);
     asic.cpuWrite(DMA_DCSR, 0x01);
     asic.dmaCycle();
-    expect(asic.registerPage[DMA_DCSR] & 0x20).toBe(0x20);
+    expect(asic.registerPage[DMA_DCSR] & 0x10).toBe(0x10);
 
-    // Acknowledge by writing bit 5 (ch0 clear).
-    asic.cpuWrite(DMA_DCSR, 0x20);
-    expect(asic.registerPage[DMA_DCSR] & 0x20).toBe(0);
+    // Acknowledge by writing bit 4 (ch0 clear).
+    asic.cpuWrite(DMA_DCSR, 0x10);
+    expect(asic.registerPage[DMA_DCSR] & 0x10).toBe(0);
+  });
+
+  it('a DCSR write with bit 7 clears the raster-pending flag', () => {
+    // Real hardware: writing a 1 to DCSR bit 7 clears raster-pending — the
+    // only mechanism IM1 code (which never calls consumeInterruptVector,
+    // since IM1 doesn't fetch a vector) has to ack the raster interrupt.
+    const a = unlockedAsic();
+    (a as unknown as { rasterIntPending: boolean }).rasterIntPending = true;
+    (a as unknown as { writeDcsr(): void }).writeDcsr();
+    expect(a.registerPage[DMA_DCSR] & 0x80).toBe(0x80);
+    a.cpuWrite(DMA_DCSR, 0x80);
+    expect(a.registerPage[DMA_DCSR] & 0x80).toBe(0);
+    expect((a as unknown as { rasterIntPending: boolean }).rasterIntPending).toBe(false);
   });
 
   it('consumeInterruptVector encodes the source priority (raster > DMA2 > DMA1 > DMA0)', () => {
