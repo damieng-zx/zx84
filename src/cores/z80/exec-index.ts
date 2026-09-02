@@ -3,33 +3,54 @@ import { ddfdUsesHL } from './tables.ts';
 import { contendN } from './contention.ts';
 import { signed8 } from '@/utils/signed.ts';
 
+/**
+ * Consume a chain of redundant DD/FD prefix bytes iteratively rather than by
+ * recursing (executeDD calling executeDD, or executeDD/executeFD calling
+ * each other back and forth) — a long run of prefix bytes in RAM would
+ * otherwise blow the JS call stack with a RangeError; real hardware has no
+ * such limit, since it's just re-running the same M1 fetch. Each redundant
+ * byte costs its own 4T M1 cycle exactly as a real recursive fetch would;
+ * only the LAST prefix before a non-prefix opcode determines IX vs IY.
+ *
+ * Returns the final opcode byte and which register won (false=IX/DD,
+ * true=IY/FD), or null if the chain ended in a CB-suffixed instruction —
+ * fully executed by this helper, since DDCB/FDCB fetch their own d/opcode
+ * bytes and don't fit the {op, useIY} shape.
+ */
+Z80.prototype._resolveDdFdChain = function (this: Z80, useIY: boolean): { op: number; useIY: boolean } | null {
+  for (;;) {
+    // Inlined fetch8 (+3T M1 read)
+    const op = this.read8(this.pc);
+    this.pc = (this.pc + 1) & 0xFFFF;
+    this.tStates += 3;
+    this.tStates += 1;             // +1T (M1 refresh — never contended)
+    this.r = (this.r & 0x80) | ((this.r + 1) & 0x7F);
+
+    if (op === 0xCB) {
+      if (useIY) this.executeFDCB(); else this.executeDDCB();
+      return null;
+    }
+    if (op === 0xDD) { useIY = false; continue; }
+    if (op === 0xFD) { useIY = true; continue; }
+    return { op, useIY };
+  }
+};
+
 Z80.prototype.executeDD = function (this: Z80): void {
-  // Inlined fetch8 (+3T M1 read)
-  const op = this.read8(this.pc);
-  this.pc = (this.pc + 1) & 0xFFFF;
-  this.tStates += 3;
-  this.tStates += 1;             // +1T (M1 refresh — never contended)
-  this.r = (this.r & 0x80) | ((this.r + 1) & 0x7F);
+  const resolved = this._resolveDdFdChain(false);
+  if (resolved === null) return;
+  if (resolved.useIY) this._executeFDBody(resolved.op);
+  else this._executeDDBody(resolved.op);
+};
 
-  if (op === 0xCB) {
-    this.executeDDCB();
-    return;
-  }
+Z80.prototype.executeFD = function (this: Z80): void {
+  const resolved = this._resolveDdFdChain(true);
+  if (resolved === null) return;
+  if (resolved.useIY) this._executeFDBody(resolved.op);
+  else this._executeDDBody(resolved.op);
+};
 
-  if (op === 0xDD) {
-    // Redundant DD: this M1 (4T, already counted above) is the whole cost —
-    // continue the prefix chain in place rather than returning to step(),
-    // which would re-fetch this byte (double-counting it) and let the
-    // frame loop sample a pending interrupt mid-chain.
-    this.executeDD();
-    return;
-  }
-  if (op === 0xFD) {
-    // Redundant FD after DD: same reasoning, and the final prefix wins.
-    this.executeFD();
-    return;
-  }
-
+Z80.prototype._executeDDBody = function (this: Z80, op: number): void {
   const savedH = this.h;
   const savedL = this.l;
   this.h = (this.ix >> 8) & 0xFF;
@@ -122,31 +143,7 @@ Z80.prototype.executeDD = function (this: Z80): void {
   }
 };
 
-Z80.prototype.executeFD = function (this: Z80): void {
-  // Inlined fetch8 (+3T M1 read)
-  const op = this.read8(this.pc);
-  this.pc = (this.pc + 1) & 0xFFFF;
-  this.tStates += 3;
-  this.tStates += 1;             // +1T (M1 refresh — never contended)
-  this.r = (this.r & 0x80) | ((this.r + 1) & 0x7F);
-
-  if (op === 0xCB) {
-    this.executeFDCB();
-    return;
-  }
-
-  if (op === 0xDD) {
-    // Redundant DD after FD: same reasoning as executeDD — continue the
-    // chain in place, don't re-fetch this byte or let an interrupt slip in.
-    this.executeDD();
-    return;
-  }
-  if (op === 0xFD) {
-    // Redundant FD: this M1 (4T, already counted above) is the whole cost.
-    this.executeFD();
-    return;
-  }
-
+Z80.prototype._executeFDBody = function (this: Z80, op: number): void {
   const savedH = this.h;
   const savedL = this.l;
   this.h = (this.iy >> 8) & 0xFF;
@@ -322,5 +319,8 @@ declare module './core.ts' {
     executeDDCB(): void;
     executeFDCB(): void;
     _executeIndexCB(addr: number, op: number): void;
+    _resolveDdFdChain(useIY: boolean): { op: number; useIY: boolean } | null;
+    _executeDDBody(op: number): void;
+    _executeFDBody(op: number): void;
   }
 }

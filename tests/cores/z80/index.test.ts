@@ -488,6 +488,35 @@ describe('Z80 — FD chained prefixes', () => {
     expect(h.cpu.ix).toBe(0x3001);
     expect(h.cpu.iy).toBe(0x2000);
   });
+
+  it('a very long run of redundant DD bytes does not overflow the JS call stack', () => {
+    // Regression: executeDD used to recurse into itself for each redundant
+    // DD byte, so a long run in RAM threw "Maximum call stack size
+    // exceeded". Real hardware has no such limit — it's just re-running the
+    // same M1 fetch each time, and only the last prefix before a non-prefix
+    // opcode wins.
+    const h = newCpu();
+    const n = 50000;
+    for (let i = 0; i < n; i++) h.mem[i] = 0xDD;
+    h.mem[n] = 0x23; // INC IX
+    h.cpu.ix = 0x1000;
+    expect(() => step(h)).not.toThrow();
+    expect(h.cpu.ix).toBe(0x1001);
+    expect(h.cpu.pc).toBe(n + 1);
+  });
+
+  it('a very long alternating DD/FD run does not overflow the JS call stack either', () => {
+    // The other unbounded-recursion path: executeDD/executeFD calling each
+    // other back and forth on an alternating chain.
+    const h = newCpu();
+    const n = 50000; // even length: index n-1 (odd) is FD, so FD wins
+    for (let i = 0; i < n; i++) h.mem[i] = (i % 2 === 0) ? 0xDD : 0xFD;
+    h.mem[n] = 0x23; // INC IX or IY, whichever prefix won
+    h.cpu.ix = 0x1000; h.cpu.iy = 0x2000;
+    expect(() => step(h)).not.toThrow();
+    expect(h.cpu.iy).toBe(0x2001); // last prefix (index n-1) was FD
+    expect(h.cpu.ix).toBe(0x1000); // untouched
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────
