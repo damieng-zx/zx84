@@ -397,6 +397,17 @@ describe('Memory paging — port 0x1FFD special modes (+2A/+3)', () => {
     s.cpu.portOut(0x1FFD, 0x00);
     expect(s.fdc.motorOn).toBe(false);
   });
+
+  it('once paging is locked (7FFD bit 5), 1FFD writes — including the motor bit — are ignored', () => {
+    // Hardware freezes the whole 1FFD register on lock, not just the
+    // paging-related bits: the motor bit lives in the same port.
+    s.cpu.portOut(0x7FFD, 0x20); // lock paging
+    expect(s.memory.pagingLocked).toBe(true);
+    s.cpu.portOut(0x1FFD, 0x08); // would turn the motor on if honoured
+    expect(s.fdc.motorOn).toBe(false);
+    s.cpu.portOut(0x1FFD, 0x01); // would enter special paging if honoured
+    expect(s.memory.specialPaging).toBe(false);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────

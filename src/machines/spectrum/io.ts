@@ -170,10 +170,14 @@ export function wirePortIO(s: Spectrum): void {
         s.memory.bankSwitch(val, s.hasSlot0Overlay);
       }
 
-      // +2A: port 0x1FFD
+      // +2A: port 0x1FFD. Once paging is locked (7FFD bit 5), hardware
+      // freezes the whole register — the motor bit lives in the same port,
+      // so it must be ignored too, not just the paging-related bits that
+      // bankSwitch1FFD already gates on pagingLocked internally.
       if (v.decodes1FFD(port)) {
+        const wasLocked = s.memory.pagingLocked;
         s.memory.bankSwitch1FFD(val, s.hasSlot0Overlay);
-        if (v.hasFDC) s.fdc.motorOn = (val & 0x08) !== 0;
+        if (v.hasFDC && !wasLocked) s.fdc.motorOn = (val & 0x08) !== 0;
       }
 
       // FDC data write: port 0x3FFD
