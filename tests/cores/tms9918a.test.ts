@@ -120,6 +120,112 @@ describe('TMS9918A Graphics I rendering', () => {
   });
 });
 
+describe('TMS9918A sprites', () => {
+  let vdp: Tms9918a;
+  let px: Uint32Array;
+  beforeEach(() => {
+    vdp = new Tms9918a();
+    px = new Uint32Array(VDP_WIDTH);
+    // Graphics I, display enabled: R1 = BLANK(0x40); 8x8, no magnification.
+    vdp.regs[1] = 0x40;
+    vdp.regs[0] = 0x00;
+    vdp.regs[5] = 0x01;   // sprite attribute table @ 0x0080 — kept off the
+                           // sprite pattern table (below) so a sprite's own
+                           // attribute bytes can't alias its pattern data.
+    vdp.regs[6] = 0x00;   // sprite pattern table @ 0x0000
+    vdp.regs[3] = 0x80;   // Graphics I colour table @ 0x2000, deliberately
+                           // isolated from every VRAM address these tests
+                           // write: its bytes stay 0, so fg=bg=0 and the
+                           // background layer never draws — sprites render
+                           // onto a clean backdrop regardless of what the
+                           // (untouched) name/pattern registers point at.
+    vdp.regs[7] = 0x00;   // backdrop black
+    // One shared 8x8 pattern (index 0), all bits set, at pattern table base.
+    for (let line = 0; line < 8; line++) vdp.vram[line] = 0xFF;
+  });
+
+  const ATTR_BASE = 0x0080;
+
+  /** Sprite attribute entry: Y is "one less than the display row"; 0xFF
+   *  (wrapping to 0) puts the sprite's top row at y=0. */
+  function setSprite(n: number, x: number, colour: number): void {
+    const a = ATTR_BASE + n * 4;
+    vdp.vram[a] = 0xFF;      // sy=0
+    vdp.vram[a + 1] = x;
+    vdp.vram[a + 2] = 0;     // pattern index 0
+    vdp.vram[a + 3] = colour;
+  }
+  function terminate(n: number): void { vdp.vram[ATTR_BASE + n * 4] = 0xD0; }
+
+  it('draws a single sprite at its attribute position and colour', () => {
+    setSprite(0, 20, 2 /* green */);
+    terminate(1);
+    vdp.renderScanline(px, 0, 0);
+    for (let i = 0; i < 8; i++) expect(px[20 + i]).toBe(vdp.palette[2]);
+    expect(px[19]).toBe(vdp.palette[0]); // backdrop just outside the sprite
+  });
+
+  it('sprite 0 has display priority over higher-numbered, overlapping sprites', () => {
+    setSprite(0, 10, 2 /* green */);
+    setSprite(1, 10, 8 /* red — fully overlaps sprite 0 */);
+    terminate(2);
+    vdp.renderScanline(px, 0, 0);
+    for (let i = 0; i < 8; i++) expect(px[10 + i]).toBe(vdp.palette[2]); // sprite 0 wins
+  });
+
+  it('lower-priority sprite still shows where it does not overlap a higher one', () => {
+    setSprite(0, 10, 2 /* green, columns 10-17 */);
+    setSprite(1, 14, 8 /* red, columns 14-21 — overlaps only 14-17 */);
+    terminate(2);
+    vdp.renderScanline(px, 0, 0);
+    for (let i = 10; i < 14; i++) expect(px[i]).toBe(vdp.palette[2]);   // sprite 0 only
+    for (let i = 14; i < 18; i++) expect(px[i]).toBe(vdp.palette[2]);   // overlap: sprite 0 wins
+    for (let i = 18; i < 22; i++) expect(px[i]).toBe(vdp.palette[8]);   // sprite 1 only
+  });
+
+  it('sets the coincidence flag when two opaque sprites overlap', () => {
+    setSprite(0, 10, 2);
+    setSprite(1, 10, 8); // fully overlapping
+    terminate(2);
+    vdp.renderScanline(px, 0, 0);
+    expect(vdp.readStatus() & 0x20).toBe(0x20);
+  });
+
+  it('does NOT set the coincidence flag when sprites do not overlap', () => {
+    setSprite(0, 10, 2);
+    setSprite(1, 100, 8); // far apart, no overlap
+    terminate(2);
+    vdp.renderScanline(px, 0, 0);
+    expect(vdp.readStatus() & 0x20).toBe(0);
+  });
+
+  it('a transparent (colour 0) sprite neither draws nor triggers coincidence', () => {
+    setSprite(0, 10, 0);  // transparent
+    setSprite(1, 10, 8);  // opaque, same position
+    terminate(2);
+    vdp.renderScanline(px, 0, 0);
+    for (let i = 0; i < 8; i++) expect(px[10 + i]).toBe(vdp.palette[8]); // only sprite 1 drawn
+    expect(vdp.readStatus() & 0x20).toBe(0); // no collision — sprite 0 never drew a pixel
+  });
+
+  it('a 5th sprite on the same line sets the fifth-sprite status flag and number', () => {
+    for (let n = 0; n < 5; n++) setSprite(n, n * 20, 2);
+    terminate(5);
+    vdp.renderScanline(px, 0, 0);
+    const st = vdp.readStatus();
+    expect(st & 0x40).toBe(0x40);
+    expect(st & 0x1F).toBe(4); // number of the first sprite over the limit
+  });
+
+  it('a transparent sprite still counts toward the 4-per-line / 5th-sprite limit', () => {
+    setSprite(0, 0, 0);   // transparent, still occupies a slot
+    for (let n = 1; n < 5; n++) setSprite(n, n * 20, 2);
+    terminate(5);
+    vdp.renderScanline(px, 0, 0);
+    expect(vdp.readStatus() & 0x40).toBe(0x40);
+  });
+});
+
 describe('TMS9918A Text mode rendering', () => {
   it('renders 6px cells with an 8px backdrop margin and R7 colours', () => {
     const vdp = new Tms9918a();

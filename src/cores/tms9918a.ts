@@ -195,6 +195,12 @@ export class Tms9918a {
   /** Active colour map (ABGR, indexed 0–15). Swappable by display settings. */
   palette: Uint32Array = TMS9918_PALETTE;
 
+  /** Per-scanline sprite scratch buffer, reused across renderSprites() calls
+   *  to avoid a per-line allocation. Bit 0 = an earlier (lower-numbered,
+   *  higher-priority) sprite already drew this pixel; bit 1 = some sprite
+   *  has already put an opaque pixel here (see renderSprites). */
+  private readonly spriteLine = new Uint8Array(VDP_WIDTH);
+
   // ── CPU interface ─────────────────────────────────────────────────────
 
   /** Data-port read (auto-increment, read-ahead buffered). */
@@ -404,6 +410,12 @@ export class Tms9918a {
    * 5th sets the fifth-sprite flag. Size (8/16) and magnification come from R1.
    * `y` is 0..191. Sprite colour 0 is transparent; the early-clock (EC) bit
    * shifts a sprite 32px left.
+   *
+   * Sprite 0 has display priority over higher-numbered sprites (hardware:
+   * lower sprite number wins), and any two opaque sprite pixels overlapping
+   * set the coincidence (C) status flag — both tracked per-pixel via
+   * {@link spriteLine} since sprites are walked low-to-high but a later,
+   * lower-priority sprite must not overwrite an earlier one's pixel.
    */
   private renderSprites(px: Uint32Array, rowStart: number, y: number): void {
     const attrBase = (this.regs[5] & 0x7F) << 7;
@@ -412,6 +424,9 @@ export class Tms9918a {
     const mag = (this.regs[1] & R1_SPRITE_MAG) !== 0 ? 2 : 1;
     const dim = size16 ? 16 : 8;      // logical pixel size
     const height = dim * mag;         // on-screen size
+
+    const line = this.spriteLine;
+    line.fill(0);
 
     let visible = 0;
     for (let s = 0; s < 32; s++) {
@@ -447,7 +462,13 @@ export class Tms9918a {
         if (!bitSet) continue;
         for (let m = 0; m < mag; m++) {
           const x = sx0 + ec + px16 * mag + m;
-          if (x >= 0 && x < VDP_WIDTH) px[rowStart + x] = colour;
+          if (x < 0 || x >= VDP_WIDTH) continue;
+          if (line[x] & 0x02) this.status |= ST_COINC;
+          line[x] |= 0x02;
+          if (!(line[x] & 0x01)) {
+            px[rowStart + x] = colour;
+            line[x] |= 0x01;
+          }
         }
       }
     }
