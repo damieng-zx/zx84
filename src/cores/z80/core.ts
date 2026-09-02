@@ -249,15 +249,19 @@ export class Z80 {
   }
 
   /** Non-maskable interrupt: pushes PC, jumps to 0x0066.
-   *  IFF1 is cleared (disabling maskable interrupts); IFF2 is preserved
-   *  so RETN can restore IFF1 from IFF2. Takes 11 T-states. */
+   *  IFF1 is cleared (disabling maskable interrupts); IFF2 is left
+   *  untouched, so RETN can restore IFF1 from IFF2. Takes 11 T-states. */
   nmi(): void {
     this.halted = false;
-    // Documented Zilog NMI sequence: IFF2 ← IFF1; IFF1 ← 0.
-    // IFF2 preserves the pre-NMI maskable-interrupt state so RETN can restore
-    // it via `IFF1 ← IFF2`. Without this, RETN after an NMI silently masks
-    // all subsequent maskable interrupts.
-    this.iff2 = this.iff1;
+    // Documented Zilog NMI sequence: IFF1 ← 0. IFF2 is NOT copied from
+    // IFF1 here — it's left holding whatever it already had, so RETN's
+    // `IFF1 ← IFF2` restores the pre-NMI state. Copying IFF1 into IFF2 on
+    // entry only coincidentally matches hardware for a single, non-nested
+    // NMI (where IFF1 and IFF2 already track together); it corrupts IFF2
+    // for a nested NMI — one firing again before the first's RETN — since
+    // by then IFF1 is 0 (cleared by the first NMI), so the copy would
+    // stomp IFF2's true pre-NMI value with 0, leaving maskable interrupts
+    // permanently masked after the eventual RETN.
     this.iff1 = false;
     // NMI acknowledge is an M1 cycle — R increments like any opcode fetch.
     this.r = (this.r & 0x80) | ((this.r + 1) & 0x7F);

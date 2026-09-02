@@ -99,16 +99,33 @@ describe('Z80 — Interrupt modes', () => {
     expect(h.mem[0xC00F]).toBe(0xAB);
   });
 
-  it('NMI jumps to $66 and saves IFF1 into IFF2 (IFF1 cleared)', () => {
+  it('NMI jumps to $66, clears IFF1, and leaves IFF2 untouched', () => {
+    // Real hardware does NOT copy IFF1 into IFF2 on NMI entry — only RETN's
+    // IFF1 <- IFF2 touches IFF2. Confirmed here with IFF1/IFF2 starting at
+    // different values: a copy-on-entry bug would make them equal.
     const h = newCpu();
     h.cpu.iff1 = true; h.cpu.iff2 = false;
     h.cpu.pc = 0x500; h.cpu.sp = 0xC010;
     h.cpu.nmi();
     expect(h.cpu.pc).toBe(0x66);
     expect(h.cpu.iff1).toBe(false);
-    expect(h.cpu.iff2).toBe(true);
+    expect(h.cpu.iff2).toBe(false); // untouched, not copied from the pre-NMI IFF1
     expect(h.mem[0xC00E]).toBe(0x00);
     expect(h.mem[0xC00F]).toBe(0x05);
+  });
+
+  it('a nested NMI does not corrupt IFF2, so RETN restores the true pre-NMI state', () => {
+    // A second NMI firing before the first's RETN must not stomp IFF2 with
+    // IFF1's current (already-cleared-by-the-first-NMI) value — that would
+    // permanently mask maskable interrupts once RETN eventually runs.
+    const h = newCpu();
+    h.cpu.iff1 = true; h.cpu.iff2 = true; // pre-NMI: maskable interrupts enabled
+    h.cpu.nmi(); // first NMI: iff1 -> false, iff2 untouched (still true)
+    expect(h.cpu.iff1).toBe(false);
+    expect(h.cpu.iff2).toBe(true);
+    h.cpu.nmi(); // nested NMI: iff1 already false, must still leave iff2 alone
+    expect(h.cpu.iff1).toBe(false);
+    expect(h.cpu.iff2).toBe(true); // still true — RETN can restore it correctly
   });
 });
 
