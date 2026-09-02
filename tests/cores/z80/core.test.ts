@@ -208,6 +208,60 @@ describe('Z80 — SCF/CCF and the Q register', () => {
     expect(h.cpu.f & F_F3).toBe(F_F3);
     expect(h.cpu.f & F_F5).toBe(F_F5);
   });
+
+  it('an accepted interrupt resets Q, so the ISR\'s first SCF does not see pre-interrupt flags', () => {
+    // Real hardware's INT-ack cycle doesn't modify flags — it's a "Q=0" step
+    // for the SCF/CCF quirk, same as any other non-flag instruction. Without
+    // resetting Q in interrupt(), the ISR's first SCF/CCF would incorrectly
+    // read the Q value left by whatever ran right before the interrupt was
+    // taken, instead of Q=0 for the (flag-inert) ack cycle in between.
+    //
+    // A must have bits 3/5 clear (so SCF's `| A` term can't mask the effect)
+    // and the flag-setting instruction must not touch A at all — any extra
+    // step() in between (even a non-flag one) would already reset Q via its
+    // own top-of-step bookkeeping and hide the bug, so the interrupt has to
+    // follow the flag-setting instruction directly.
+    const h = newCpu();
+    h.cpu.a = 0x00;
+    h.cpu.b = 0x27;
+    load(h.mem, 0, 0x04); // INC B
+    step(h); // B -> 0x28 (bits 3,5 set) — Q now holds that resulting F
+    expect(h.cpu.b).toBe(0x28);
+    expect(h.cpu.f & 0x28).toBe(0x28);
+
+    h.cpu.iff1 = true; h.cpu.im = 1;
+    const t = h.cpu.interrupt();
+    expect(t).toBeGreaterThan(0);
+    expect(h.cpu.pc).toBe(0x38);
+
+    h.mem[0x38] = 0x37; // SCF — the ISR's first instruction
+    step(h);
+    // Correct (Q reset by the ack cycle): bits35 = (0 ^ F | A) & 0x28 — F
+    // still has bits 3/5 set (nothing changed it since INC B), so they
+    // survive via F. The bug (Q carried the pre-interrupt value through
+    // unreset): prevQ === F here (both INC B's result), so prevQ ^ F
+    // cancels to 0, and A (0x00) no longer supplies those bits either.
+    expect(h.cpu.f & F_F3).toBe(F_F3);
+    expect(h.cpu.f & F_F5).toBe(F_F5);
+  });
+
+  it('an accepted NMI resets Q too, so the handler\'s first SCF does not see pre-NMI flags', () => {
+    // Same reasoning as the interrupt() case above, for nmi()'s ack cycle.
+    const h = newCpu();
+    h.cpu.a = 0x00;
+    h.cpu.b = 0x27;
+    load(h.mem, 0, 0x04); // INC B
+    step(h); // B -> 0x28 (bits 3,5 set) — Q now holds that resulting F
+    expect(h.cpu.f & 0x28).toBe(0x28);
+
+    h.cpu.nmi();
+    expect(h.cpu.pc).toBe(0x66);
+
+    h.mem[0x66] = 0x37; // SCF — the NMI handler's first instruction
+    step(h);
+    expect(h.cpu.f & F_F3).toBe(F_F3);
+    expect(h.cpu.f & F_F5).toBe(F_F5);
+  });
 });
 
 describe('Z80 — R register increment', () => {

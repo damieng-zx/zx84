@@ -206,6 +206,13 @@ export class Z80 {
     this.iff2 = false;
     // INT acknowledge is an M1 cycle — R increments like any opcode fetch.
     this.r = (this.r & 0x80) | ((this.r + 1) & 0x7F);
+    // The ack cycle doesn't touch flags, so it's a "Q=0" step for the Q
+    // register's SCF/CCF F3/F5 quirk — same reset step() does before every
+    // instruction. Without this, an ISR whose first instruction is SCF/CCF
+    // would incorrectly read the flags of whatever ran before the interrupt
+    // was taken, rather than seeing a non-flag-touching step in between.
+    this._prevQ = this._qReg;
+    this._qReg = 0;
 
     switch (this.im) {
       case 0:
@@ -265,6 +272,12 @@ export class Z80 {
     this.iff1 = false;
     // NMI acknowledge is an M1 cycle — R increments like any opcode fetch.
     this.r = (this.r & 0x80) | ((this.r + 1) & 0x7F);
+    // The ack cycle doesn't touch flags — reset Q the same way step() does
+    // before every instruction, so an ISR whose first instruction is
+    // SCF/CCF reads a non-flag-touching step in between, not the flags of
+    // whatever ran before the NMI.
+    this._prevQ = this._qReg;
+    this._qReg = 0;
     this.tStates += 5;       // NMI acknowledge: 5T
     this.push16(this.pc);    // push PC: 2×3T (inside push16's write16)
     this.memptr = this.pc = 0x0066;
