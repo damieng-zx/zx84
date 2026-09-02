@@ -360,6 +360,27 @@ describe('WD1793 command register ignores writes while BUSY', () => {
   });
 });
 
+describe('WD1793 WRITE SECTOR clears stale weak-sector copies', () => {
+  it('a write to a weak sector drops its copies, so later reads see the new data deterministically', () => {
+    const wd = wd1793();
+    const img = trdImage();
+    const weak = img.tracks[0][0]!.sectors[0];
+    weak.copies = [new Uint8Array(256).fill(0x11), new Uint8Array(256).fill(0x22)];
+    wd.insertDisk(img, 0);
+    wd.selectDrive(0);
+    wd.setSide(0);
+
+    wd.writeSectorReg(1);
+    wd.writeCommand(CMD_WRITE);
+    for (let i = 0; i < 256; i++) wd.writeData(0x99);
+    expect(weak.copies).toBe(undefined);
+
+    wd.writeSectorReg(1);
+    wd.writeCommand(CMD_READ);
+    for (let i = 0; i < 256; i++) expect(wd.readData()).toBe(0x99);
+  });
+});
+
 describe('WD1793 Type I verify (V bit)', () => {
   const CMD_SEEK_V = 0x14; // SEEK with V=1 (bit 2)
 

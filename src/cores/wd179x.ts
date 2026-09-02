@@ -467,6 +467,10 @@ export class WD179x {
     // the physical track, and multi-sector writes reuse the same mark.
     this.writeDeleted = deleted;
     sec.st2 = deleted ? (sec.st2 | 0x40) : (sec.st2 & ~0x40);
+    // A real write lays down one deterministic bit pattern, destroying any
+    // weak-bit variation the sector had — drop stale `copies` so a later
+    // read doesn't still randomly return pre-write data (see readCopy).
+    sec.copies = undefined;
     this.buffer = sec.data;      // written into the image in place
     this.bufPos = 0;
     this.writing = true;
@@ -504,6 +508,7 @@ export class WD179x {
     if (this.curTrack && sec) {
       if (writing) {
         sec.st2 = this.writeDeleted ? (sec.st2 | 0x40) : (sec.st2 & ~0x40);
+        sec.copies = undefined; // see writeSectorCmd — a write kills weak-bit variation
         this.buffer = sec.data;
         this.recFlags = 0;
       } else {
