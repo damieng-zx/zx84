@@ -45,8 +45,15 @@ export class Z80Ctc {
    *  enabled — the machine polls this to fire the CPU interrupt. */
   onInterrupt: (() => void) | null = null;
 
-  /** Divisor from the addCycles() clock (the CPU clock) down to the CTC's own
-   *  clock pin. The Einstein feeds channels 0–2 a 2 MHz clock = 4 MHz CPU / 2. */
+  /** Divisor from the addCycles() clock (the CPU clock) down to the CTC
+   *  device clock that drives the timer-mode prescaler. Only relevant if a
+   *  host wires the CTC's own clock pin to something slower than the CPU —
+   *  it does NOT apply to counter-mode channels (advanced only by explicit
+   *  {@link trigger} calls, never by addCycles). Real hardware nearly
+   *  always ties CLK to the CPU clock directly (see the Einstein, which
+   *  leaves this at 1: its per-channel CLK/TRG pins run at 2 MHz, but that
+   *  only matters for counter mode, and the CTC *device* clock driving the
+   *  timer prescaler is the full undivided 4 MHz). */
   inputClockDivide = 1;
   private clockAccum = 0;
 

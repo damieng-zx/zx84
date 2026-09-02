@@ -121,10 +121,14 @@ export class EinsteinMachine extends BaseMachine implements Machine {
     this.fdc.pulseBusy = true;
     this.vdp = this.config.vdp === 'v9938' ? new V9938() : new Tms9918a();
     this.ctc = new Z80Ctc();
-    // The Einstein clocks CTC channels 0–2 at 2MHz (4MHz CPU / 2) and chains
-    // channel 2's zero-count to channel 3's trigger (zc2 → trg3); channel 3 is
-    // the periodic interrupt source (IM 2). See MAME's einstein CTC wiring.
-    this.ctc.inputClockDivide = 2;
+    // MAME wires the Einstein's Z80CTC device to XTAL/2 (4MHz CPU / 2), but
+    // that's the frequency on channels 0–2's external CLK/TRG *pins* — which
+    // nothing here drives, since the Einstein doesn't use CTC counter mode.
+    // The CTC's own device clock, which drives the timer-mode prescaler for
+    // every channel, is the full undivided 4MHz CPU clock (Z80Ctc's default
+    // inputClockDivide of 1 is already correct for that — do not halve it
+    // here). The machine chains channel 2's zero-count to channel 3's
+    // trigger (zc2 → trg3); channel 3 is the periodic interrupt source (IM 2).
     this.ctc.zcHandlers[2] = () => this.ctc.trigger(3);
     this.keyboard = new EinsteinKeyboard();
     // CDT/TZX pulse timings are 3.5MHz-referenced; scale to the 4MHz Z80.
@@ -328,7 +332,8 @@ export class EinsteinMachine extends BaseMachine implements Machine {
         // to the CPU (MAME confirms) — the MOS polls the status flag. On the
         // 256 the V9938's INT is on the daisy chain (serviced above). Either
         // way the CPU's periodic interrupts also come from the Z80 CTC
-        // (2MHz-clocked, ch2→ch3 chain), advanced by ctc.addCycles above.
+        // (4MHz-clocked timer prescaler, ch2→ch3 chain), advanced by
+        // ctc.addCycles above.
         if (is256) vdp.endActiveDisplay();
         else (vdp as Tms9918a).raiseFrameInterrupt();
       }

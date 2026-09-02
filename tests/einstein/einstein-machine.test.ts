@@ -121,9 +121,10 @@ describe('Einstein CTC→IM2 interrupt path', () => {
     m.reset();
 
     // Program CTC channel 0 as a timer with interrupts enabled: vector base
-    // 0x40, timer mode, /16 prescaler, time constant 255. The Einstein clocks
-    // the CTC at 2MHz (inputClockDivide 2), so this underflows every 16×255×2 =
-    // 8160 T-states — several times within a PAL field (80000 T) as addCycles runs.
+    // 0x40, timer mode, /16 prescaler, time constant 255. The CTC's timer
+    // prescaler runs off the undivided 4MHz CPU clock, so this underflows
+    // every 16×255 = 4080 T-states — several times within a PAL field
+    // (80000 T) as addCycles runs.
     m.cpu.portOut(0x28, 0x40);              // vector base (bit0 = 0)
     m.cpu.portOut(0x28, 0x01 | 0x80 | 0x04); // control: timer+int+/16+TCfollows
     m.cpu.portOut(0x28, 0xFF);              // time constant = 255
@@ -131,6 +132,23 @@ describe('Einstein CTC→IM2 interrupt path', () => {
     expect(m.memory.ramSnapshot()[0x8000]).toBe(0x00); // sentinel not yet written
     m.tick();                               // run one PAL field
     expect(m.memory.ramSnapshot()[0x8000]).toBe(0xEE); // ISR ran via IM 2
+  });
+
+  it('the timer prescaler runs off the undivided 4MHz CPU clock, not a halved 2MHz', () => {
+    // Regression pin: the CTC device clock that drives the timer-mode
+    // prescaler is the full CPU clock (MAME's XTAL/2 wiring only affects
+    // channels 0-2's external CLK/TRG pins, which nothing here drives — see
+    // Z80Ctc.inputClockDivide). A wrongly halved clock doubles every timer
+    // period; this checks the exact undivided underflow point.
+    const m = machine();
+    m.reset();
+    m.cpu.portOut(0x28, 0x01 | 0x80 | 0x04); // channel 0: timer+int+/16+TCfollows
+    m.cpu.portOut(0x28, 0xFF);               // time constant = 255
+    // /16 prescaler x 255 = 4080 T-states to underflow once.
+    m.ctc.addCycles(4079);
+    expect(m.ctc.interruptPending).toBe(false);
+    m.ctc.addCycles(1);
+    expect(m.ctc.interruptPending).toBe(true);
   });
 });
 
