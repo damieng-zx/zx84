@@ -666,10 +666,13 @@ export class Asic extends GateArray {
       const yMult = magToMultiplier(mag & 0x03);
       if (xMult === 0 || yMult === 0) continue;      // %00 on either axis = hidden
 
-      // Sign-extend the 16-bit X/Y coordinates, then place relative to the
-      // active area's top-left corner.
-      const x = CPC_BORDER_LEFT + (((xHi << 8) | xLo) << 16 >> 16);
-      const y = CPC_BORDER_TOP + (((yHi << 8) | yLo) << 16 >> 16);
+      // Sign-extend X from its real 10-bit register (Y: 9-bit), then place
+      // relative to the active area's top-left corner. Sign-extending the
+      // full 16 bits instead would treat the unused high bits (garbage from
+      // whatever xHi/yHi happen to hold) as part of the coordinate rather
+      // than ignoring them as real hardware does.
+      const x = CPC_BORDER_LEFT + (((xHi << 8) | xLo) << 22 >> 22);
+      const y = CPC_BORDER_TOP + (((yHi << 8) | yLo) << 23 >> 23);
 
       const spriteW = SPRITE_NATIVE * xMult;
       const spriteH = SPRITE_NATIVE * yMult;

@@ -406,6 +406,50 @@ describe('Asic hardware sprites', () => {
     expect(px[by(21) * CPC_SCREEN_WIDTH + bx(10)]).toBe(0);
   });
 
+  it('X/Y registers are only 10/9 bits — garbage in the unused high bits does not shift the sprite', () => {
+    // Real hardware's X register is 10 bits (Y: 9), not the full 16 the
+    // attribute bytes span. xHi bits 2-7 (X) / yHi bits 1-7 (Y) are unused
+    // and must be ignored, not folded into the sign as if this were a full
+    // 16-bit two's-complement coordinate.
+    const a = unlockedAsic();
+    a.cpuWrite(SPRITE_PIXELS + (0 << 8) + (0 << 4) + 0, 0x01); // pen 1
+    a.cpuWrite(SPRITE_ATTRS + (0 << 3) + 0, 10);   // X lo = 10
+    a.cpuWrite(SPRITE_ATTRS + (0 << 3) + 1, 0xFC); // X hi: garbage above bit 1
+    a.cpuWrite(SPRITE_ATTRS + (0 << 3) + 2, 20);   // Y lo = 20
+    a.cpuWrite(SPRITE_ATTRS + (0 << 3) + 3, 0xFE); // Y hi: garbage above bit 0
+    a.cpuWrite(SPRITE_ATTRS + (0 << 3) + 4, 0x05); // mag = 1×1
+    a.cpuWrite(0x2400 + (17 * 2), 0xF0);
+    a.cpuWrite(0x2400 + (17 * 2) + 1, 0x00);
+
+    const px = new Uint32Array(CPC_SCREEN_WIDTH * CPC_SCREEN_HEIGHT);
+    a.drawSprites(px, by(20));
+    // Still renders at (10, 20) — the high garbage bits are outside the
+    // real 10/9-bit registers and must not shift it off-screen.
+    expect(px[by(20) * CPC_SCREEN_WIDTH + bx(10)]).toBe(a.asicPalette[17]);
+  });
+
+  it('X sign-extends from bit 9 (10-bit register), not bit 15', () => {
+    // xHi bit1 set, rest 0 -> raw combined value 0x0200. As a 10-bit signed
+    // register this is -512 (bit 9 is the sign bit) — off-screen to the
+    // left, so nothing should render. The old (buggy) 16-bit sign-extend
+    // read bit 15 instead: 0x0200's bit 15 is clear, so it stayed +512 and
+    // rendered visibly on-screen at CPC_BORDER_LEFT+512 — the two
+    // interpretations disagree observably, which is what this pins.
+    const a = unlockedAsic();
+    a.cpuWrite(SPRITE_PIXELS + (0 << 8) + (0 << 4) + 0, 0x01);
+    a.cpuWrite(SPRITE_ATTRS + (0 << 3) + 0, 0x00);  // X lo
+    a.cpuWrite(SPRITE_ATTRS + (0 << 3) + 1, 0x02);  // X hi bit1 set -> raw 0x200
+    a.cpuWrite(SPRITE_ATTRS + (0 << 3) + 2, 20);
+    a.cpuWrite(SPRITE_ATTRS + (0 << 3) + 3, 0);
+    a.cpuWrite(SPRITE_ATTRS + (0 << 3) + 4, 0x05);
+    a.cpuWrite(0x2400 + (17 * 2), 0xF0);
+    a.cpuWrite(0x2400 + (17 * 2) + 1, 0x00);
+
+    const px = new Uint32Array(CPC_SCREEN_WIDTH * CPC_SCREEN_HEIGHT);
+    a.drawSprites(px, by(20));
+    expect(px.includes(a.asicPalette[17])).toBe(false); // off-screen, not at +512
+  });
+
   it('treats pen value 0 as transparent (does not overwrite the framebuffer)', () => {
     const a = unlockedAsic();
     const px = new Uint32Array(CPC_SCREEN_WIDTH * CPC_SCREEN_HEIGHT);
