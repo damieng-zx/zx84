@@ -108,6 +108,18 @@ describe('CRTC 6845 — register access', () => {
     c.selectRegister(13 + 0x20);          // 0x2D → masks to 13
     expect(c.readRegister()).toBe(0x12);
   });
+
+  it('R16/R17 (light pen position) are read-only — writes are ignored', () => {
+    // Real hardware latches these from a light-pen strobe, never from the
+    // CPU; nothing here models a light pen, so they simply never change.
+    const c = new Crtc6845(0);
+    setReg(c, 16, 0x55);
+    c.selectRegister(16);
+    expect(c.readRegister()).toBe(0);
+    setReg(c, 17, 0x66);
+    c.selectRegister(17);
+    expect(c.readRegister()).toBe(0);
+  });
 });
 
 describe('CRTC 6845 — raster sequencing', () => {

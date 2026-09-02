@@ -24,6 +24,8 @@ export const R_VSYNC_POS = 7;
 export const R_MAX_RASTER = 9;
 export const R_DISPLAY_START_H = 12;
 export const R_DISPLAY_START_L = 13;
+export const R_LIGHT_PEN_H = 16;
+export const R_LIGHT_PEN_L = 17;
 
 /** State of the scanline about to be rendered. */
 export interface CrtcLine {
@@ -61,6 +63,10 @@ export class Crtc6845 {
   get selectedRegister(): number { return this.selected; }
 
   writeRegister(val: number): void {
+    // R16/R17 (light pen position) are read-only on real hardware — they're
+    // latched by the light-pen strobe, not writable by the CPU. Nothing here
+    // models a light pen, so they simply never change.
+    if (this.selected === R_LIGHT_PEN_H || this.selected === R_LIGHT_PEN_L) return;
     if (this.selected < 18) this.regs[this.selected] = val & 0xFF;
   }
 
