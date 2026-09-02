@@ -177,6 +177,27 @@ describe('Port routing — AY-3-8910 (128K only)', () => {
     expect(s.cpu.portIn(0xFFFD) & 0xFF).toBe(0x42);
   });
 
+  it('R14 in input mode (R7 bit 6 = 0, the reset default) reads idle AUX pins (0xFF), not the last write', () => {
+    // The Spectrum wires nothing to the AY's I/O port A, so in input mode
+    // it idles high — unlike CPC/MSX/Einstein, which use it for a real
+    // keyboard scan. Reading back whatever was last written to R14 would
+    // be a stale output-mode value that no longer applies once the port
+    // is (or defaults to) input mode.
+    const s = makeMachine('128k');
+    s.cpu.portOut(0xFFFD, 14);
+    s.cpu.portOut(0xBFFD, 0x42); // write R14 while selected
+    expect(s.cpu.portIn(0xFFFD) & 0xFF).toBe(0xFF); // R7 bit 6 still 0 (input)
+  });
+
+  it('R14 in output mode (R7 bit 6 = 1) reads back the last written value', () => {
+    const s = makeMachine('128k');
+    s.cpu.portOut(0xFFFD, 7);
+    s.cpu.portOut(0xBFFD, 0x40); // R7 bit 6 = 1 -> port A output
+    s.cpu.portOut(0xFFFD, 14);
+    s.cpu.portOut(0xBFFD, 0x42);
+    expect(s.cpu.portIn(0xFFFD) & 0xFF).toBe(0x42);
+  });
+
   it('AY register select accepts only a byte with the upper nibble zero (0-15)', () => {
     const s = makeMachine('128k');
     s.cpu.portOut(0xFFFD, 0x0A); // upper nibble 0 -> selects register 10

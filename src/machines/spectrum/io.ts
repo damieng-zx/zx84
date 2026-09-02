@@ -265,6 +265,12 @@ export function wirePortIO(s: Spectrum): void {
 
     // AY register read: port 0xFFFD — 128K only
     if (v.hasAY && (port & 0xC002) === 0xC000) {
+      // R14 (I/O port A) in input mode (R7 bit 6 = 0) reads the external
+      // AUX pins, not the last value written to the register — the
+      // Spectrum wires nothing to that port, so it idles high (0xFF).
+      // Real hardware distinguishes this from output mode, where R14
+      // reads back whatever was last written (the normal readRegister path).
+      if (s.ay.selectedReg === 14 && (s.ay.regs[7] & 0x40) === 0) return 0xFF;
       return s.ay.readRegister(s.ay.selectedReg);
     }
 
