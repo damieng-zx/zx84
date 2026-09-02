@@ -5,11 +5,11 @@
     - setRegisters(regs)         — bulk frame load (YM file driven)
 */
 
-// YM2149 DAC voltage levels (5-bit, 32 entries).
-// Based on measured values from SC68 / real YM2149 chips.
-// The YM2149 has 16 unique DAC levels — consecutive 5-bit pairs produce
-// the same voltage (0/1 → same, 2/3 → same, etc.), unlike the AY-3-8910
-// which has 32 distinct levels. ~3 dB per 4-bit step.
+// AY-3-8910 DAC voltage levels (5-bit register, 32 entries) — measured
+// values matching MAME's AY-3-8910 table. Despite the register being 5
+// bits, the DAC ladder only produces 16 distinguishable voltages:
+// consecutive pairs read the same level (0/1 → same, 2/3 → same, etc.).
+// ~3 dB per 4-bit step.
 export const VOLUME_TABLE: number[] = [
   0.0000, 0.0000, 0.0128, 0.0128, 0.0185, 0.0185, 0.0271, 0.0271,
   0.0400, 0.0400, 0.0591, 0.0591, 0.0823, 0.0823, 0.1347, 0.1347,

@@ -35,7 +35,7 @@ describe('AY-3-8910 — construction & defaults', () => {
 });
 
 describe('AY-3-8910 — VOLUME_TABLE', () => {
-  it('has 32 entries forming 16 pairs (YM2149 DAC)', () => {
+  it('has 32 entries forming 16 pairs (AY-3-8910 DAC ladder)', () => {
     expect(VOLUME_TABLE.length).toBe(32);
     for (let i = 0; i < 32; i += 2) {
       expect(VOLUME_TABLE[i]).toBe(VOLUME_TABLE[i + 1]);
