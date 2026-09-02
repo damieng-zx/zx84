@@ -89,6 +89,30 @@ describe('AY-3-8910 — writeRegister / readRegister', () => {
     expect(ay.readRegister(0x20)).toBe(0x42); // reg 0
   });
 
+  it('readRegister masks narrow registers to their real bit width on read', () => {
+    // Real hardware has no latch for the unused high bits of these
+    // registers — they read back 0 regardless of what was written.
+    // Chip-detect routines rely on this. The stored raw byte (regs[])
+    // is untouched — only readRegister()'s output is masked.
+    const narrow: [reg: number, mask: number][] = [
+      [1, 0x0F], [3, 0x0F], [5, 0x0F], [13, 0x0F], // 4-bit
+      [6, 0x1F], [8, 0x1F], [9, 0x1F], [10, 0x1F], // 5-bit
+    ];
+    for (const [reg, mask] of narrow) {
+      ay.writeRegister(reg, 0xFF);
+      expect(ay.regs[reg]).toBe(0xFF); // raw storage keeps the full byte
+      expect(ay.readRegister(reg)).toBe(0xFF & mask); // read-back is masked
+    }
+  });
+
+  it('readRegister does not mask the full 8-bit registers', () => {
+    const full = [0, 2, 4, 7, 11, 12, 14, 15];
+    for (const reg of full) {
+      ay.writeRegister(reg, 0xFF);
+      expect(ay.readRegister(reg)).toBe(0xFF);
+    }
+  });
+
   it('forms 12-bit tone periods, masking high nibble', () => {
     ay.writeRegister(0, 0x34);
     ay.writeRegister(1, 0xF2); // only low nibble used

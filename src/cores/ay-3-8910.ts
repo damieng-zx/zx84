@@ -17,6 +17,19 @@ export const VOLUME_TABLE: number[] = [
   0.5640, 0.5640, 0.7083, 0.7083, 0.8423, 0.8423, 1.0000, 1.0000
 ];
 
+/**
+ * Read-back bit mask per register. Registers narrower than 8 bits have no
+ * physical latch for their unused high bits — real hardware returns 0 there
+ * regardless of what was last written, and chip-detect routines rely on it.
+ * R0/R2/R4 (tone fine), R7 (mixer), R11/R12 (envelope period), R14/R15 (I/O)
+ * are full 8-bit latches. Applied only on read; the stored register value
+ * (writeRegister/getRegisters/snapshots) keeps the raw byte as written.
+ */
+const REG_READ_MASK: readonly number[] = [
+  0xFF, 0x0F, 0xFF, 0x0F, 0xFF, 0x0F, 0x1F, 0xFF,
+  0x1F, 0x1F, 0x1F, 0xFF, 0xFF, 0x0F, 0xFF, 0xFF,
+];
+
 export type AYStereoMode = 'MONO' | 'ABC' | 'ACB' | 'BAC' | 'BCA' | 'CAB' | 'CBA';
 
 // Resampler anti-aliasing strategy for the AY output stage. The chip can emit
@@ -234,7 +247,8 @@ export class AY3891x {
   }
 
   readRegister(reg: number): number {
-    return this.regs[reg & 0x0F];
+    reg &= 0x0F;
+    return this.regs[reg] & REG_READ_MASK[reg];
   }
 
   getRegisters(): Uint8Array {
