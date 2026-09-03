@@ -23,6 +23,7 @@ import type {
   MachineTraceMode, SettingsView,
 } from '@/machines/machine.ts';
 import type { OcrGridName } from '@/ocr/ocr.ts';
+import { samScreenText, SAM_FONT_PAGE, SAM_FONT_OFFSET } from '@/ocr/sam.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
 import { SamMemory } from './sam-memory.ts';
 import { SamAsic } from './asic.ts';
@@ -341,28 +342,27 @@ export class SamMachine extends BaseMachine implements Machine {
   stopTrace(): string { return ''; }
 
   /**
-   * Screen OCR — not implemented yet, but a tractable piece of work.
+   * Screen OCR.
    *
-   * Unlike the VDP machines there is no name table to read character codes
-   * from: the SAM's BASIC screen is a plain bitmap (mode 4 at boot), so OCR
-   * means matching cells against the font, as the Spectrum's engine does.
-   *
-   * Measured from a real LIST, the font is FIXED-WIDTH on an 8-pixel pitch.
-   * A line of `iiiiiiii` gives thirteen ink-run starts every 8 pixels apart
-   * (26, 34, 50, 58, 66, 82, 90, 98 ...; the 16s are spaces), all at a
-   * constant phase. Left bearings differ per glyph — an `m` run sits at
-   * phase 4 where digits and capitals sit at phase 2 — which is ordinary
-   * font behaviour and not proportional spacing.
-   *
-   * The font is NOT in ROM as plain 8-byte bitmaps; searching for rendered
-   * glyphs there finds nothing, while the same search hits in RAM (page 0,
-   * around 0x13d7), which fits SAM BASIC keeping a redefinable copy in RAM.
-   * So an engine needs to locate that table, then it is ordinary 8x8 cell
-   * matching. Until then this reports honestly rather than returning
-   * plausible-looking nonsense.
+   * There is no character grid in memory — the SAM's screen is a bitmap — so
+   * this matches 8x8 cells against SAM BASIC's font, which lives in RAM rather
+   * than ROM and so follows a program that redefines characters. See
+   * `src/ocr/sam.ts` for the layout details, all measured rather than assumed.
    */
   ocrScreenForMcp(_mode: OcrGridName | 'auto' = 'auto'): string {
-    return '[sam] OCR not implemented: the screen is a bitmap and the 8x8 '
-      + 'font table has still to be located in RAM.';
+    const base = this.memory.videoBasePage;
+    const pageA = this.memory.videoPage(base);
+    const pageB = this.memory.videoPage(base + 1);
+    const vram = (off: number) => (off < 0x4000 ? pageA[off] : pageB[off - 0x4000]);
+
+    const fontPage = this.memory.getRamBank(SAM_FONT_PAGE);
+    const font = fontPage.subarray(SAM_FONT_OFFSET, SAM_FONT_OFFSET + 128 * 8);
+
+    const result = samScreenText(vram, this.memory.videoMode, font);
+    if (!result) {
+      return '[sam] OCR unavailable: no usable font table at the expected '
+        + 'address, so the screen cannot be transcribed.';
+    }
+    return result.text;
   }
 }
