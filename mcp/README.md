@@ -28,7 +28,8 @@ npm run mcp -- --model 48k
 Supported startup models are derived from the machine registry and include
 `zx80`, `zx81`, `16k`, `48k`, `128k`, `+2`, `+2A`, `+3`, `cpc464`, `cpc664`,
 `cpc6128`, `cpc6128plus`, `gx4000`, `einstein-tc01`, `einstein-256`, `hx-10`,
-`mtx500`, `mtx512`, and `rs128`. The default is `48k`.
+`mtx500`, `mtx512`, `rs128`, `sam256`, `sam512`, and `sam1m`. The default is
+`48k`.
 System ROM pages come from the machine registry, are fetched through the shared
 ROM source loader, and are cached under `mcp/.cache/`.
 

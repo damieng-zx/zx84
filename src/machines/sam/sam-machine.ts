@@ -176,6 +176,8 @@ export class SamMachine extends BaseMachine implements Machine {
     const map = view.get('sam-color-map', 'linear') as SamColorMap;
     this.asic.palette = SAM_PALETTES[map] ?? SAM_PALETTES.linear;
     this.contention.enabled = view.get('sam-contention', true);
+    this.disk.setWriteProtect(0, view.get('sam-write-protect-1', false));
+    this.disk.setWriteProtect(1, view.get('sam-write-protect-2', false));
     this.audio.setVolume(view.get('volume', 70) / 100);
     this.needsDisplay = true;
   }
@@ -338,8 +340,25 @@ export class SamMachine extends BaseMachine implements Machine {
 
   stopTrace(): string { return ''; }
 
+  /**
+   * Screen OCR — not implemented, and not a quick win.
+   *
+   * Every other machine here OCRs a character grid: the VDP machines read
+   * character codes straight out of a name table, and the Spectrum matches
+   * 8x8 cells against a ROM font. The SAM does neither. Its BASIC screen is a
+   * plain bitmap (mode 4 at boot), and its font is PROPORTIONAL — measuring
+   * the boot text's ink runs gives starts at 26, 35, 41, 50, 58, 66... which
+   * is a mixture of 6, 8 and 9 pixel advances at phase 2 relative to the cell
+   * grid, so not one of 27 glyphs begins on an 8-pixel boundary.
+   *
+   * Reading it back therefore needs variable-width glyph segmentation against
+   * a font table that is not stored as plain 8-byte bitmaps either (searching
+   * the ROM for the rendered glyphs finds nothing). That is a real piece of
+   * work rather than polish, so this reports honestly instead of returning
+   * plausible-looking nonsense.
+   */
   ocrScreenForMcp(_mode: OcrGridName | 'auto' = 'auto'): string {
-    // A mode-1/2 text grid engine lands in the polish phase (src/ocr/sam.ts).
-    return '[sam] (OCR not implemented)';
+    return '[sam] OCR unavailable: the SAM renders text as a bitmap in a '
+      + 'proportional font, so there is no character grid to read.';
   }
 }

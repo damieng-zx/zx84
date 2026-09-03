@@ -49,6 +49,8 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'drive-b-force-ready': () => settings.driveBForceReady(),
   'einstein-xtaldos': () => settings.einsteinXtalDos(),
   'sam-contention': () => settings.samContention(),
+  'sam-write-protect-1': () => settings.samWriteProtect1(),
+  'sam-write-protect-2': () => settings.samWriteProtect2(),
   'cpc-parados': () => settings.cpcParados(),
   'mtx-cpm': () => settings.mtxCpm(),
   'mtx-80-column': () => settings.mtx80Column(),

@@ -62,6 +62,10 @@ const CONTRIBUTIONS: Record<string, MachineUiContribution> = {
     HardwareSection: lazy(() =>
       import('@/machines/mtx/ui/hardware-section.tsx').then(m => ({ default: m.MtxHardwareSection }))),
   },
+  sam: {
+    HardwareSection: lazy(() =>
+      import('@/machines/sam/ui/hardware-section.tsx').then(m => ({ default: m.SamHardwareSection }))),
+  },
   zx8x: {
     HardwareSection: lazy(() =>
       import('@/machines/zx8x/ui/hardware-section.tsx').then(m => ({ default: m.Zx8xHardwareSection }))),
