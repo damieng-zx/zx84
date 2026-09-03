@@ -335,6 +335,16 @@ export class SamMemory implements IMachineMemory {
     return this.ram[n] ?? this.ram[0];
   }
 
+  /** How many internal 16K pages this model has fitted. */
+  get internalPageCount(): number { return this.cfg.internalPages; }
+  /** How many external megabyte pages are reachable (0 when not fitted). */
+  get externalPageCount(): number { return this.cfg.externalPages; }
+
+  /** Live view of one external megabyte page, for state serialisation. */
+  externalPage(n: number): Uint8Array | null {
+    return this.cfg.externalPages === 0 ? null : this.ext[n % this.cfg.externalPages];
+  }
+
   /** Every internal page concatenated — the RAM export. */
   allRam(): Uint8Array {
     const out = new Uint8Array(this.cfg.internalPages * SAM_PAGE_SIZE);

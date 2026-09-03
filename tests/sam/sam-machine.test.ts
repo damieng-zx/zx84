@@ -331,11 +331,14 @@ describe('SamMachine services', () => {
     expect(m.services.debug.cpuFamily).toBe('z80');
     expect(m.services.debug.ports).not.toBeNull();
     expect(m.services.roms.cartridge).toBeNull();
-    // Two internal drives and a cassette deck are fitted.
+    // Every device is fitted: two internal drives, a cassette deck, and a
+    // snapshot service that backs refresh-resume.
     expect(m.services.disks.drives).toHaveLength(2);
     expect(m.services.tape).not.toBeNull();
-    // Not fitted — the generic panes hide themselves on null.
-    expect(m.services.snapshots).toBeNull();
+    expect(m.services.snapshots).not.toBeNull();
+    // ...but offers no interchange format, so the Save menu stays snapshot-free.
+    expect(m.services.snapshots.formats()).toEqual([]);
+    expect(m.services.snapshots.saveSync).toBeTypeOf('function');
     m.destroy();
   });
 

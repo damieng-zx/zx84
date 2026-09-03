@@ -125,6 +125,10 @@ export class SAA1099 {
   private readonly noise: Noise[] = [];
   private readonly envelopes: Envelope[] = [];
 
+  /** Shadow of every register byte written, so machine state can round-trip.
+   *  The chip is write-only, so this is the only way to read it back. */
+  private readonly regFile = new Uint8Array(32);
+
   /** Register 0x1C bit 0 — with this clear the chip is silent. */
   private soundEnabled = false;
   /** Currently addressed register (written through the address port). */
@@ -177,6 +181,7 @@ export class SAA1099 {
       e.externalClock = false; e.reverseRight = false;
       e.step = 0; e.finished = false;
     }
+    this.regFile.fill(0);
     this.soundEnabled = false;
     this.address = 0;
     this.dcPrevL = this.dcPrevR = this.dcOutL = this.dcOutR = 0;
@@ -193,6 +198,7 @@ export class SAA1099 {
   /** Write a register directly, bypassing the address latch. */
   writeRegister(reg: number, value: number): void {
     const v = value & 0xFF;
+    this.regFile[reg & 0x1F] = v;
     switch (reg & 0x1F) {
       case 0x00: case 0x01: case 0x02:
       case 0x03: case 0x04: case 0x05: {
@@ -400,6 +406,23 @@ export class SAA1099 {
 
   /** True while register 0x1C bit 0 is set. */
   get enabled(): boolean { return this.soundEnabled; }
+
+  /** Every register byte written, for machine-state serialisation. */
+  registerFile(): Uint8Array { return this.regFile.slice(); }
+
+  /**
+   * Replay a saved register file. Writes go through the normal path so all
+   * derived state is rebuilt; 0x1C goes last so the sync bit does not clear
+   * generators the earlier writes have just set up.
+   */
+  restoreRegisterFile(bytes: Uint8Array): void {
+    this.reset();
+    for (let r = 0; r < 32 && r < bytes.length; r++) {
+      if (r === 0x1C) continue;
+      this.writeRegister(r, bytes[r]);
+    }
+    if (bytes.length > 0x1C) this.writeRegister(0x1C, bytes[0x1C]);
+  }
 
   /** Amplitude nibbles [left, right] of a channel, for tests. */
   amplitudeOf(ch: number): readonly [number, number] {

@@ -161,6 +161,10 @@ export class SamMachine extends BaseMachine implements Machine {
     this.activity.tapeReads++;
   }
 
+  /** Ask for the frame buffer to be re-uploaded on the next display tick.
+   *  Services use this after mutating machine state out-of-band. */
+  requestRedraw(): void { this.needsDisplay = true; }
+
   /** Screen-off latch, read back through port 0xFE. */
   get screenOff(): boolean { return this.asic.screenOff; }
   /** Active-low interrupt status, read through port 0xF9. */
