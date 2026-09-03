@@ -8,11 +8,12 @@
  *
  * The CPU, memory paging, all four screen modes and both interrupt sources are
  * live, as are the keyboard, the Kempston port, the SAA1099 and the two WD1772
- * drives. Still to come: the cassette deck and snapshots.
+ * drives and the cassette deck. Still to come: snapshots.
  */
 
 import { Z80 } from '@/cores/z80.ts';
 import { SAA1099 } from '@/cores/saa1099.ts';
+import { TapeDeck, TAPE_REF_HZ } from '@/media/tape/tap.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { disasmOne, type DisasmLine } from '@/debug/z80/disasm.ts';
@@ -63,6 +64,9 @@ export class SamMachine extends BaseMachine implements Machine {
   readonly psg: SAA1099;
   /** The two internal 3.5" drives on their WD1772 controllers. */
   readonly disk = new SamDiskInterface();
+  /** Cassette deck. Pulse lengths in tape images are referenced to 3.5 MHz,
+   *  so the deck scales them to the SAM's 6 MHz clock. */
+  readonly tape: TapeDeck;
   readonly mixer: AudioMixer;
   readonly audio: Audio;
   display: IScreenRenderer | null;
@@ -99,6 +103,8 @@ export class SamMachine extends BaseMachine implements Machine {
     this.memory = new SamMemory(this.config);
     this.asic = new SamAsic(this.memory);
     this.psg = new SAA1099(SAM_SAA_CLOCK, 44100);
+    this.tape = new TapeDeck(SAM_CPU_CLOCK);
+    this.tape.pulseScale = SAM_CPU_CLOCK / TAPE_REF_HZ;
     this.audio = new Audio();
     this.mixer = new AudioMixer(SAM_CPU_CLOCK);
     this.mixer.beeperGain = 1;
@@ -130,6 +136,30 @@ export class SamMachine extends BaseMachine implements Machine {
   readKeyboardHigh(rowSelect: number): number { return this.keyboard.readHigh(rowSelect); }
   /** Kempston joystick on port 0x1F. */
   readKempston(): number { return this.joystick.read(); }
+
+  /** T-state the deck was last advanced to. */
+  private tapeLastAdvanceT = 0;
+
+  /**
+   * Catch the cassette up to the current T-state and latch its EAR level.
+   *
+   * Called from the port 0xFE read handler so each poll of the tape bit sees an
+   * up-to-date edge, exactly as the Spectrum does. The SAM has no motor relay
+   * to gate on, so playback runs whenever the deck is playing and unpaused.
+   */
+  advanceTapeTo(): void {
+    const now = this.cpu.tStates;
+    if (this.tape.playing && !this.tape.paused) {
+      const delta = now - this.tapeLastAdvanceT;
+      if (delta > 0) this.tape.advance(delta);
+      this.earBit = this.tape.earBit;
+    }
+    // The baseline moves on even while stopped or paused. Leaving it stale
+    // would hand the deck the whole paused interval as a single delta on
+    // resume, skipping the tape forward by however long the user waited.
+    this.tapeLastAdvanceT = now;
+    this.activity.tapeReads++;
+  }
 
   /** Screen-off latch, read back through port 0xFE. */
   get screenOff(): boolean { return this.asic.screenOff; }
@@ -198,6 +228,8 @@ export class SamMachine extends BaseMachine implements Machine {
     this.joystick.reset();
     this.psg.reset();
     this.disk.reset();
+    this.tape.stopPlayback();
+    this.tapeLastAdvanceT = 0;
     this.beeperBit = 0;
     this.micBit = 0;
     this.audio.reset();
@@ -227,6 +259,7 @@ export class SamMachine extends BaseMachine implements Machine {
     a.psgWrites = 0; a.fdcAccesses = 0; a.tapeReads = 0;
 
     asic.beginFrame();
+    this.tapeLastAdvanceT = cpu.tStates;
 
     let lineEnd = cpu.tStates;
     let lastAudioT = cpu.tStates;

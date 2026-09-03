@@ -123,3 +123,20 @@ describe('isSamModel', () => {
     }
   });
 });
+
+describe('SAM save menu', () => {
+  it('offers no snapshot format, because the SAM has none implemented', () => {
+    // 'vdp' is the Save menu's no-snapshot arm (screenshot / screen / RAM).
+    // 'spectrum' would offer .szx and .z80 entries that cannot be produced,
+    // and the SAM has no snapshot service to answer them.
+    expect(samDescriptor('sam512').ui.saveMenu).toBe('vdp');
+  });
+
+  it('has the exports that save menu actually needs', async () => {
+    const { SamMachine } = await import('@/machines/sam/sam-machine.ts');
+    const m = new SamMachine('sam512', null);
+    expect(m.screenExportBytes().length).toBe(0x8000);
+    expect(m.ramExportBytes().data.length).toBe(512 * 1024);
+    m.destroy();
+  });
+});

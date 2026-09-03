@@ -4,11 +4,10 @@
  *
  * Services for hardware that is not fitted yet return `null`, which the SPI
  * treats as "this machine hasn't got one" and the generic panes hide
- * themselves accordingly. The cassette deck and `.sna` snapshots arrive in a
- * later phase and will replace the remaining nulls.
+ * themselves accordingly. Snapshots are the last remaining null.
  */
 
-import type { MachineServices, SnapshotService, TapeService } from '@/machines/machine.ts';
+import type { MachineServices, SnapshotService } from '@/machines/machine.ts';
 import { Z80DebugService } from '@/debug/z80/service.ts';
 import type { SamMachine } from '../sam-machine.ts';
 import { SamMediaService } from './media.ts';
@@ -16,6 +15,7 @@ import { SamRomService } from './roms.ts';
 import { SamInputService } from './input.ts';
 import { SamFrameProbe } from './frame-probe.ts';
 import { SamDiskService } from './disks.ts';
+import { SamTapeService } from './tape.ts';
 
 export interface SamServices extends MachineServices {
   readonly media: SamMediaService;
@@ -23,17 +23,18 @@ export interface SamServices extends MachineServices {
   readonly input: SamInputService;
   readonly probe: SamFrameProbe;
   readonly disks: SamDiskService;
-  readonly tape: TapeService | null;
+  readonly tape: SamTapeService;
   readonly snapshots: SnapshotService | null;
 }
 
 export function createSamServices(m: SamMachine): SamServices {
   const disks = new SamDiskService(m);
+  const tape = new SamTapeService(m);
   return {
-    media: new SamMediaService(m, disks),
+    media: new SamMediaService(m, disks, tape),
     roms: new SamRomService(m, () => m.host),
     disks,
-    tape: null,
+    tape,
     snapshots: null,
     input: new SamInputService(m),
     probe: new SamFrameProbe(m),

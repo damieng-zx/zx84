@@ -174,6 +174,9 @@ export function wireSamPortIO(m: SamMachine): void {
 
       case PORT_BORDER: {
         m.activity.kbdReads++;
+        // Catch the cassette up first, so a loader polling this port sees an
+        // edge placed at the right T-state rather than one frame stale.
+        m.advanceTapeTo();
         // Bits 0-4 keyboard, 5 light pen, 6 cassette EAR, 7 screen-off latch.
         const keys = m.readKeyboardLow(port >> 8) & BORDER_KEY_MASK;
         const ear = m.earBit ? BORDER_EAR : 0;

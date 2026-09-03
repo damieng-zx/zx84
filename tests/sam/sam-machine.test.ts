@@ -331,10 +331,10 @@ describe('SamMachine services', () => {
     expect(m.services.debug.cpuFamily).toBe('z80');
     expect(m.services.debug.ports).not.toBeNull();
     expect(m.services.roms.cartridge).toBeNull();
-    // Two internal drives are fitted.
+    // Two internal drives and a cassette deck are fitted.
     expect(m.services.disks.drives).toHaveLength(2);
-    // Not fitted yet — the generic panes hide themselves on null.
-    expect(m.services.tape).toBeNull();
+    expect(m.services.tape).not.toBeNull();
+    // Not fitted — the generic panes hide themselves on null.
     expect(m.services.snapshots).toBeNull();
     m.destroy();
   });

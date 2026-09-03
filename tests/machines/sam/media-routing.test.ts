@@ -99,16 +99,20 @@ describe('SAM MediaService routing', () => {
 
   it('rejects an extension the SAM has no device for', async () => {
     const m = machine();
-    const r = await m.services.media.mount(new Uint8Array(1024), 'game.tap');
+    const r = await m.services.media.mount(new Uint8Array(1024), 'game.sna');
     expect(r.ok).toBe(false);
     expect(r.message).toMatch(/\.mgt/);
     m.destroy();
   });
 
-  it('offers the disk extensions it can actually mount', async () => {
+  it('offers the disk and tape extensions it can actually mount', async () => {
     const m = machine();
     const exts = m.services.media.accepts().map(e => e.ext).sort();
-    expect(exts).toEqual(['.dsk', '.hfe', '.img', '.mgt', '.scp']);
+    expect(exts).toEqual(['.csw', '.dsk', '.hfe', '.img', '.mgt', '.scp', '.tap', '.tzx']);
+    // Disks land in a drive, tapes on the deck.
+    const byExt = new Map(m.services.media.accepts().map(e => [e.ext, e.target]));
+    expect(byExt.get('.mgt')).toBe('1');
+    expect(byExt.get('.tap')).toBe('tape');
     m.destroy();
   });
 

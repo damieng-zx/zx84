@@ -7,16 +7,22 @@
  * container magic is tested before the size table so an 819,200-byte EDSK is
  * not silently misread as a raw dump.
  *
- * Tapes and snapshots are not fitted yet and land in a later phase.
+ * Tape images are the Spectrum-referenced pulse formats SimCoupe also reads
+ * through libspectrum: TAP, TZX and CSW. Snapshots are not fitted.
  */
 
 import type {
   MediaService, MediaTargetId, MediaTypeDescriptor, MountResult,
 } from '@/machines/machine.ts';
+import type { TapeBlock } from '@/media/tape/tap.ts';
+import { parseTZX } from '@/media/tape/tzx.ts';
+import { parseCSW } from '@/media/tape/csw.ts';
 import type { SamMachine } from '../sam-machine.ts';
 import { isDskContainer, isSad, parseSamMedia, type SamDiskService } from './disks.ts';
+import type { SamTapeService } from './tape.ts';
 
 const DISK_EXT = /\.(mgt|img|dsk|sad|hfe|scp)$/i;
+const TAPE_EXT = /\.(tap|tzx|csw)$/i;
 
 function fail(message: string): MountResult { return { ok: false, message }; }
 
@@ -24,6 +30,7 @@ export class SamMediaService implements MediaService {
   constructor(
     private readonly m: SamMachine,
     private readonly disks: SamDiskService,
+    private readonly tape: SamTapeService,
   ) {}
 
   accepts(): MediaTypeDescriptor[] {
@@ -33,6 +40,9 @@ export class SamMediaService implements MediaService {
       { ext: '.dsk', target: '1' },
       { ext: '.hfe', target: '1' },
       { ext: '.scp', target: '1' },
+      { ext: '.tap', target: 'tape' },
+      { ext: '.tzx', target: 'tape' },
+      { ext: '.csw', target: 'tape' },
     ];
   }
 
@@ -41,8 +51,29 @@ export class SamMediaService implements MediaService {
     filename: string,
     target?: MediaTargetId,
   ): Promise<MountResult> {
+    // Cassette images: the same pulse-level formats the Spectrum uses, with
+    // their 3.5 MHz-referenced pulse lengths scaled to the SAM's 6 MHz clock.
+    if (TAPE_EXT.test(filename)) {
+      this.m.stop();
+      let blocks: TapeBlock[];
+      try {
+        const ext = filename.toLowerCase().split('.').pop();
+        blocks = ext === 'tzx' ? parseTZX(data)
+          : ext === 'csw' ? await parseCSW(data)
+          : this.m.tape.parseTAP(data);
+      } catch (e) {
+        return fail(`Tape error: ${(e as Error).message}`);
+      } finally {
+        this.m.start();
+      }
+      if (blocks.length === 0) return fail(`No tape blocks in ${filename}`);
+      this.tape.mountBlocks(blocks, filename);
+      return { ok: true, target: 'tape', message: `Tape loaded: ${filename}` };
+    }
+
     if (!DISK_EXT.test(filename)) {
-      return fail('SAM accepts .mgt, .img, .dsk, .hfe and .scp disk images');
+      return fail('SAM accepts .mgt, .img, .dsk, .hfe and .scp disks, '
+        + 'and .tap, .tzx and .csw tapes');
     }
 
     // Refused rather than guessed at: the SAD container's sector ordering

@@ -42,8 +42,10 @@ const SAM_UI: MachineUiCapabilities = {
   keyboardBus: 'ula',
   tape: 'deck',
   tapeSound: false,
-  tapeExtensions: ['.tap', '.tzx', '.zip'],
-  saveMenu: 'spectrum',
+  tapeExtensions: ['.tap', '.tzx', '.csw', '.zip'],
+  // The no-snapshot arm of the Save menu: screenshot, screen and RAM only.
+  // 'spectrum' would offer .szx/.z80 saves this machine cannot produce.
+  saveMenu: 'vdp',
   zipPolicy: 'media',
   persistMedia: true,
   bootDisk: false,

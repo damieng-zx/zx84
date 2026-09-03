@@ -6,8 +6,8 @@
  * must not allocate. `panes.memoryMap()` is pull-on-demand and may allocate
  * freely.
  *
- * The tape transport channels stay absent (the bridge then leaves those
- * signals alone) until the cassette deck is fitted.
+ * The instant-cassette channel stays absent: the SAM's deck is pulse-level,
+ * so its block view flows through the tape signals rather than the cas ones.
  */
 
 import type {
@@ -92,11 +92,12 @@ export class SamFrameProbe implements FrameProbe {
     out.disk = a.fdcAccesses;
     out.tapeTurbo = false;
 
-    out.tapeLoaded = false;
-    out.tapePlaying = false;
-    out.tapePaused = true;
-    out.tapeFinished = false;
-    out.tapePosition = 0;
+    const tape = this.m.tape;
+    out.tapeLoaded = tape.blocks.length > 0;
+    out.tapePlaying = tape.playing;
+    out.tapePaused = tape.paused;
+    out.tapeFinished = tape.finished;
+    out.tapePosition = tape.position;
     out.casBlock = -1;
     out.fastRomLoading = false;
     out.tracingActive = false;
