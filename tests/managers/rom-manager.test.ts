@@ -598,3 +598,155 @@ describe('defaultRomPageLabel', () => {
     expect(defaultRomPageLabel('+2A', 3)).toBe('48K BASIC');
   });
 });
+
+// ── Zipped ROM sources ────────────────────────────────────────────────────
+//
+// Some ROMs are only distributed as archives (the SAM Coupe's is), so
+// fetchDefaultROM unwraps a fetched ZIP transparently. These build real
+// archives using the STORED method (no deflate needed) — the parser supports
+// method 0 and 8 alike.
+
+/** Build a ZIP archive holding the given entries, all stored uncompressed. */
+function makeZip(files: { name: string; data: Uint8Array }[]): Uint8Array {
+  const enc = new TextEncoder();
+  const locals: Uint8Array[] = [];
+  const centrals: Uint8Array[] = [];
+  let offset = 0;
+
+  for (const f of files) {
+    const name = enc.encode(f.name);
+
+    const lh = new Uint8Array(30 + name.length + f.data.length);
+    const lv = new DataView(lh.buffer);
+    lv.setUint32(0, 0x04034b50, true);   // local file header signature
+    lv.setUint16(4, 10, true);           // version needed
+    lv.setUint16(8, 0, true);            // method 0 = stored
+    lv.setUint32(14, 0, true);           // CRC-32 (not verified by the parser)
+    lv.setUint32(18, f.data.length, true);
+    lv.setUint32(22, f.data.length, true);
+    lv.setUint16(26, name.length, true);
+    lh.set(name, 30);
+    lh.set(f.data, 30 + name.length);
+    locals.push(lh);
+
+    const cd = new Uint8Array(46 + name.length);
+    const cv = new DataView(cd.buffer);
+    cv.setUint32(0, 0x02014b50, true);   // central directory signature
+    cv.setUint16(4, 20, true);           // version made by
+    cv.setUint16(6, 10, true);           // version needed
+    cv.setUint16(10, 0, true);           // method 0 = stored
+    cv.setUint32(16, 0, true);           // CRC-32
+    cv.setUint32(20, f.data.length, true);
+    cv.setUint32(24, f.data.length, true);
+    cv.setUint16(28, name.length, true);
+    cv.setUint32(42, offset, true);      // local header offset
+    cd.set(name, 46);
+    centrals.push(cd);
+
+    offset += lh.length;
+  }
+
+  const cdSize = centrals.reduce((n, c) => n + c.length, 0);
+  const eocd = new Uint8Array(22);
+  const ev = new DataView(eocd.buffer);
+  ev.setUint32(0, 0x06054b50, true);     // end of central directory
+  ev.setUint16(8, files.length, true);
+  ev.setUint16(10, files.length, true);
+  ev.setUint32(12, cdSize, true);
+  ev.setUint32(16, offset, true);
+
+  const total = offset + cdSize + eocd.length;
+  const out = new Uint8Array(total);
+  let p = 0;
+  for (const b of [...locals, ...centrals, eocd]) { out.set(b, p); p += b.length; }
+  return out;
+}
+
+describe('ROMManager zipped ROM sources', () => {
+  it('unwraps a ZIP-hosted ROM into its raw image', () => {
+    const rom = new Uint8Array([0xF3, 0xC3, 0xB0, 0x00]);
+    installFetch({
+      [`${ROM_BASE}sinclair/48.rom`]: { body: makeZip([{ name: 'SAM30-PLC.ROM', data: rom }]) },
+    });
+
+    const m = new ROMManager();
+    return m.fetchDefaultROM('48k', '48k').then(got => {
+      expect(got).not.toBeNull();
+      // The archive wrapper must be gone — the machine sees only the image.
+      expect(Array.from(got!.data)).toEqual([0xF3, 0xC3, 0xB0, 0x00]);
+      // ...and the unwrapped bytes are what get cached, not the archive.
+      expect(Array.from(idb.get('rom-48k')!)).toEqual([0xF3, 0xC3, 0xB0, 0x00]);
+    });
+  });
+
+  it('leaves a raw ROM untouched, even one that happens to start with 0x50 0x4B', async () => {
+    // The archive path is entered on the ZIP signature alone, so a raw image
+    // whose first two bytes collide with "PK" must still pass straight through.
+    const body = new Uint8Array([0x50, 0x4B, 0x00, 0x00, 0x11, 0x22]);
+    installFetch({ [`${ROM_BASE}sinclair/48.rom`]: { body } });
+
+    const m = new ROMManager();
+    const got = await m.fetchDefaultROM('48k', '48k');
+    expect(got).not.toBeNull();
+    expect(Array.from(got!.data)).toEqual([0x50, 0x4B, 0x00, 0x00, 0x11, 0x22]);
+  });
+
+  it('ignores a README packed alongside the ROM', async () => {
+    const rom = new Uint8Array([1, 2, 3]);
+    installFetch({
+      [`${ROM_BASE}sinclair/48.rom`]: {
+        body: makeZip([
+          { name: 'readme.txt', data: new TextEncoder().encode('licence blurb') },
+          { name: 'sam.rom', data: rom },
+        ]),
+      },
+    });
+
+    const m = new ROMManager();
+    const got = await m.fetchDefaultROM('48k', '48k');
+    expect(got).not.toBeNull();
+    expect(Array.from(got!.data)).toEqual([1, 2, 3]);
+  });
+
+  it('refuses an archive holding two ROMs rather than guessing', async () => {
+    installFetch({
+      [`${ROM_BASE}sinclair/48.rom`]: {
+        body: makeZip([
+          { name: 'a.rom', data: new Uint8Array([1]) },
+          { name: 'b.rom', data: new Uint8Array([2]) },
+        ]),
+      },
+    });
+
+    const status = vi.fn();
+    const m = new ROMManager();
+    expect(await m.fetchDefaultROM('48k', '48k', undefined, status)).toBeNull();
+    expect(status.mock.calls.at(-1)?.[0]).toMatch(/contains 2 ROMs/);
+  });
+
+  it('refuses an archive with no ROM image in it', async () => {
+    installFetch({
+      [`${ROM_BASE}sinclair/48.rom`]: {
+        body: makeZip([{ name: 'readme.txt', data: new TextEncoder().encode('nothing here') }]),
+      },
+    });
+
+    const status = vi.fn();
+    const m = new ROMManager();
+    expect(await m.fetchDefaultROM('48k', '48k', undefined, status)).toBeNull();
+    expect(status.mock.calls.at(-1)?.[0]).toMatch(/no ROM image/);
+  });
+
+  it('unwraps each page independently for a multi-page ROM set', async () => {
+    installFetch({
+      [`${ROM_BASE}sinclair/128-0.rom`]: { body: makeZip([{ name: 'p0.rom', data: new Uint8Array([0xAA]) }]) },
+      [`${ROM_BASE}sinclair/128-1.rom`]: { body: new Uint8Array([0xBB]) },
+    });
+
+    const m = new ROMManager();
+    const got = await m.fetchDefaultROM('128k', '128k');
+    expect(got).not.toBeNull();
+    // One page zipped, one raw — both land in the concatenated image in order.
+    expect(Array.from(got!.data)).toEqual([0xAA, 0xBB]);
+  });
+});
