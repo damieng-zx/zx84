@@ -4,7 +4,7 @@ import {
   scale, setScale, scalingMode, setScalingMode,
   borderSize, setBorderSize,
   renderer, webglAvailable, colorMap, setColorMap, scanlineAccuracy, setScanlineAccuracy,
-  cpcColorMap, setCpcColorMap, msxColorMap, setMsxColorMap,
+  cpcColorMap, setCpcColorMap, msxColorMap, setMsxColorMap, samColorMap, setSamColorMap,
   einsteinColorMap, setEinsteinColorMap,
   persistSetting, resetSettingsGroup,
 } from '@/store/settings.ts';
@@ -110,6 +110,17 @@ export function DisplayPane() {
             }}>
               <option value="pal">PAL</option>
               <option value="ntsc">NTSC</option>
+            </select>
+          </Match>
+          <Match when={machineCaps().colorMap === 'sam'}>
+            <select value={samColorMap()} onChange={(e) => {
+              const v = (e.target as HTMLSelectElement).value as 'linear' | 'measured';
+              setSamColorMap(v);
+              persistSetting('sam-color-map', v);
+              applyDisplaySettings();
+            }}>
+              <option value="linear">Linear</option>
+              <option value="measured">Measured</option>
             </select>
           </Match>
           <Match when={machineCaps().colorMap === 'einstein'}>

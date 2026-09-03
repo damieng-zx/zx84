@@ -37,6 +37,7 @@ const DEFAULTS = {
   'cpc-color-map':     'gate-array',
   'msx-color-map':     'pal',
   'einstein-color-map': 'accurate',
+  'sam-color-map':     'linear',
   'scanline-accuracy': 'high',
 
   // Sound
@@ -93,6 +94,7 @@ const DEFAULTS = {
   'interface1':     'off',
   'betadisk':       'off',
   'einstein-xtaldos': 'on',
+  'sam-contention':    'on',
   'mtx-cpm':        'off',
   'mtx-80-column':  'off',
   'mtx-512k-ram':   'off',
@@ -199,6 +201,10 @@ export const setCpcColorMap = _cpcColorMap[1];
 const _msxColorMap = /*@once*/ createRoot(() => createSignal(getSaved('msx-color-map', D('msx-color-map')) as 'pal' | 'ntsc'));
 export const msxColorMap = _msxColorMap[0];
 export const setMsxColorMap = _msxColorMap[1];
+
+const _samColorMap = /*@once*/ createRoot(() => createSignal(getSaved('sam-color-map', D('sam-color-map')) as 'linear' | 'measured'));
+export const samColorMap = _samColorMap[0];
+export const setSamColorMap = _samColorMap[1];
 
 const _einsteinColorMap = /*@once*/ createRoot(() => createSignal(getSaved('einstein-color-map', D('einstein-color-map')) as 'mame' | 'accurate' | 'naive'));
 export const einsteinColorMap = _einsteinColorMap[0];
@@ -398,6 +404,10 @@ const _cpcParados = /*@once*/ createRoot(() => createSignal(getSaved('cpc-parado
 export const cpcParados = _cpcParados[0];
 export const setCpcParados = _cpcParados[1];
 
+const _samContention = /*@once*/ createRoot(() => createSignal(getSaved('sam-contention', D('sam-contention')) === 'on'));
+export const samContention = _samContention[0];
+export const setSamContention = _samContention[1];
+
 const _einsteinXtalDos = /*@once*/ createRoot(() => createSignal(getSaved('einstein-xtaldos', D('einstein-xtaldos')) === 'on'));
 export const einsteinXtalDos = _einsteinXtalDos[0];
 export const setEinsteinXtalDos = _einsteinXtalDos[1];
@@ -495,6 +505,7 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'cpc-color-map',     set: setCpcColorMap,      type: 'string' },
     { key: 'msx-color-map',     set: setMsxColorMap,      type: 'string' },
     { key: 'einstein-color-map', set: setEinsteinColorMap, type: 'string' },
+    { key: 'sam-color-map',     set: setSamColorMap,      type: 'string' },
     { key: 'scanline-accuracy', set: setScanlineAccuracy, type: 'string' },
   ],
   monitor: [
@@ -559,6 +570,7 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'betadisk',       set: setBetaDiskEnabled,  type: 'bool' },
     { key: 'interface1',     set: setInterface1Enabled, type: 'bool' },
     { key: 'einstein-xtaldos', set: setEinsteinXtalDos, type: 'bool' },
+    { key: 'sam-contention',   set: setSamContention,   type: 'bool' },
     { key: 'mtx-cpm', set: setMtxCpm, type: 'bool' },
     { key: 'mtx-80-column', set: setMtx80Column, type: 'bool' },
     { key: 'mtx-512k-ram', set: setMtx512kRam, type: 'bool' },
