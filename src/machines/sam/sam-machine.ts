@@ -341,24 +341,28 @@ export class SamMachine extends BaseMachine implements Machine {
   stopTrace(): string { return ''; }
 
   /**
-   * Screen OCR — not implemented, and not a quick win.
+   * Screen OCR — not implemented yet, but a tractable piece of work.
    *
-   * Every other machine here OCRs a character grid: the VDP machines read
-   * character codes straight out of a name table, and the Spectrum matches
-   * 8x8 cells against a ROM font. The SAM does neither. Its BASIC screen is a
-   * plain bitmap (mode 4 at boot), and its font is PROPORTIONAL — measuring
-   * the boot text's ink runs gives starts at 26, 35, 41, 50, 58, 66... which
-   * is a mixture of 6, 8 and 9 pixel advances at phase 2 relative to the cell
-   * grid, so not one of 27 glyphs begins on an 8-pixel boundary.
+   * Unlike the VDP machines there is no name table to read character codes
+   * from: the SAM's BASIC screen is a plain bitmap (mode 4 at boot), so OCR
+   * means matching cells against the font, as the Spectrum's engine does.
    *
-   * Reading it back therefore needs variable-width glyph segmentation against
-   * a font table that is not stored as plain 8-byte bitmaps either (searching
-   * the ROM for the rendered glyphs finds nothing). That is a real piece of
-   * work rather than polish, so this reports honestly instead of returning
+   * Measured from a real LIST, the font is FIXED-WIDTH on an 8-pixel pitch.
+   * A line of `iiiiiiii` gives thirteen ink-run starts every 8 pixels apart
+   * (26, 34, 50, 58, 66, 82, 90, 98 ...; the 16s are spaces), all at a
+   * constant phase. Left bearings differ per glyph — an `m` run sits at
+   * phase 4 where digits and capitals sit at phase 2 — which is ordinary
+   * font behaviour and not proportional spacing.
+   *
+   * The font is NOT in ROM as plain 8-byte bitmaps; searching for rendered
+   * glyphs there finds nothing, while the same search hits in RAM (page 0,
+   * around 0x13d7), which fits SAM BASIC keeping a redefinable copy in RAM.
+   * So an engine needs to locate that table, then it is ordinary 8x8 cell
+   * matching. Until then this reports honestly rather than returning
    * plausible-looking nonsense.
    */
   ocrScreenForMcp(_mode: OcrGridName | 'auto' = 'auto'): string {
-    return '[sam] OCR unavailable: the SAM renders text as a bitmap in a '
-      + 'proportional font, so there is no character grid to read.';
+    return '[sam] OCR not implemented: the screen is a bitmap and the 8x8 '
+      + 'font table has still to be located in RAM.';
   }
 }
