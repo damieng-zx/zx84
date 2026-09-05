@@ -160,7 +160,7 @@ describe('SamMachine port decode', () => {
   });
 
   it('routes the external page registers to LEPR/HEPR', () => {
-    const m = machine('sam1m');
+    const m = machine();
     m.cpu.portOut!(0x0080, 0x11);
     m.cpu.portOut!(0x0081, 0x22);
     expect(m.memory.lepr).toBe(0x11);
@@ -282,6 +282,44 @@ describe('SamMachine interrupts', () => {
   });
 });
 
+describe('SamMachine activity counters', () => {
+  it('does not count a keyboard scan as a tape read', () => {
+    // Port 0xFE is the keyboard as well as the EAR line, and the ROM scans the
+    // matrix every frame. Counting those left the EAR LED — and the TEXT LED,
+    // which shares its latch — lit from boot to power-off.
+    const m = machine();
+    m.activity.tapeReads = 0;
+    for (let row = 0; row < 8; row++) m.cpu.portIn!(((~(1 << row)) & 0xFF) << 8 | 0xFE);
+    expect(m.activity.tapeReads).toBe(0);
+    m.destroy();
+  });
+});
+
+describe('SamMachine library auto-boot', () => {
+  /** F9 lives at row 2 bit 7, and only port 0xF9 can see it. */
+  const bootKeyDown = (m: SamMachine) =>
+    (m.keyboard.readHigh((~(1 << 2)) & 0xFF) & (1 << 7)) === 0;
+
+  it('holds the boot key down when armed', () => {
+    // The SAM has no key-wait to trap: it runs a RAM test for seconds after
+    // reset while scanning the keyboard, so the key is simply held until the
+    // ROM takes it.
+    const m = machine();
+    expect(bootKeyDown(m)).toBe(false);
+    m.armBootTrap('disk');
+    expect(bootKeyDown(m)).toBe(true);
+    m.destroy();
+  });
+
+  it('drops the boot key on reset, so it cannot survive into a game', () => {
+    const m = machine();
+    m.armBootTrap('disk');
+    m.reset();
+    expect(bootKeyDown(m)).toBe(false);
+    m.destroy();
+  });
+});
+
 describe('SamMachine memory regions and exports', () => {
   it('resolves the two ROM halves to their CPU addresses', () => {
     const m = machine();
@@ -302,7 +340,7 @@ describe('SamMachine memory regions and exports', () => {
   });
 
   it('sizes the RAM export by the fitted memory', () => {
-    for (const [model, kb] of [['sam256', 256], ['sam512', 512], ['sam1m', 512]] as const) {
+    for (const [model, kb] of [['sam256', 256], ['sam512', 512]] as const) {
       const m = machine(model);
       const e = m.ramExportBytes();
       expect(e.data.length).toBe(kb * 1024);

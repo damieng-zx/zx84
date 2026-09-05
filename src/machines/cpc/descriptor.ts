@@ -34,6 +34,7 @@ function cpcUi(model: MachineModel): MachineUiCapabilities {
     systemRomLabel: 'ROM',
     romPages: 0,
     beeper: false,
+    psgControls: ['stereo', 'filter', 'dc-block'],
     statusLeds: cpcStatusLeds(model),
     keyboardBus: 'ppi',
     // The GX4000 console has no cassette — drop the tape pane. Other CPC

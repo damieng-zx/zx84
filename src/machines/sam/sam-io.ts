@@ -25,8 +25,9 @@ import { SamDiskInterface } from './peripherals/sam-disk.ts';
 import {
   PORT_BORDER, PORT_CLUT, PORT_HEPR, PORT_HMPR, PORT_KEMPSTON, PORT_LEPR,
   PORT_LMPR, PORT_MIDI, PORT_SAA_LOW, PORT_STATUS, PORT_VMPR,
+  PORT_LPEN, PEN_PORT_MASK,
   BORDER_BEEP, BORDER_COLOUR_MASK, BORDER_MIC, BORDER_SOFF,
-  BORDER_EAR, BORDER_KEY_MASK, BORDER_SPEN,
+  BORDER_EAR, BORDER_KEY_MASK,
 } from './constants.ts';
 
 /**
@@ -172,16 +173,26 @@ export function wireSamPortIO(m: SamMachine): void {
       case PORT_HMPR: return m.memory.hmpr;
       case PORT_VMPR: return m.memory.vmpr;
 
+      case PORT_CLUT:
+        // 0xF8 is write-only as the CLUT; reading it gives a light-pen
+        // register, and bit 8 of the port picks which. The rest of the high
+        // byte is the CLUT index and carries no meaning on a read.
+        return (port & PEN_PORT_MASK) === PORT_LPEN
+          ? m.asic.lpen(cpu.tStates)
+          : m.asic.hpen(cpu.tStates);
+
       case PORT_BORDER: {
         m.activity.kbdReads++;
         // Catch the cassette up first, so a loader polling this port sees an
         // edge placed at the right T-state rather than one frame stale.
         m.advanceTapeTo();
         // Bits 0-4 keyboard, 5 light pen, 6 cassette EAR, 7 screen-off latch.
+        // No light pen is fitted, so bit 5 reads CLEAR — see BORDER_SPEN for
+        // why returning it set breaks the ROM's raster sync.
         const keys = m.readKeyboardLow(port >> 8) & BORDER_KEY_MASK;
         const ear = m.earBit ? BORDER_EAR : 0;
         const soff = m.screenOff ? BORDER_SOFF : 0;
-        return keys | BORDER_SPEN | ear | soff;
+        return keys | ear | soff;
       }
 
       default:

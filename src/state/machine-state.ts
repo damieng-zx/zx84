@@ -18,7 +18,7 @@ const KNOWN_MODELS: readonly MachineModel[] = [
   'einstein-tc01', 'einstein-256',
   'hx-10',
   'mtx500', 'mtx512', 'rs128',
-  'sam256', 'sam512', 'sam1m',
+  'sam256', 'sam512',
   'zx80', 'zx81',
 ];
 

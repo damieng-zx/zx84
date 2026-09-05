@@ -25,6 +25,8 @@ const MTX_UI: MachineUiCapabilities = {
   systemRomLabel: 'OS + BASIC + ASSEM + CP/M + FDX ROMs',
   romPages: 0,
   beeper: false,
+  // An SN76489, not an AY: it takes the anti-alias strategy and nothing else.
+  psgControls: ['filter'],
   statusLeds: ['kbd', 'load', 'dsk', 'psg', 'text'],
   keyboardBus: 'matrix',
   tape: 'instant',

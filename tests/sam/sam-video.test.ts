@@ -21,7 +21,8 @@ import { SamAsic } from '@/machines/sam/asic.ts';
 import { SamMemory } from '@/machines/sam/sam-memory.ts';
 import { createSamConfig } from '@/machines/sam/config.ts';
 import {
-  SAM_BORDER_LEFT, SAM_BORDER_TOP, SAM_CELL_PX, SAM_DISPLAY_LAST_LINE,
+  SAM_ASIC_CELL_OFFSET, SAM_BORDER_LEFT, SAM_BORDER_TOP, SAM_CELL_PX,
+  SAM_DISPLAY_LAST_LINE,
   SAM_PALETTE, SAM_SCREEN_HEIGHT, SAM_SCREEN_WIDTH, SAM_T_PER_CELL,
 } from '@/machines/sam/constants.ts';
 
@@ -310,15 +311,17 @@ describe('SamAsic border and blanking', () => {
 
 describe('SamAsic mid-line palette and border writes', () => {
   it('changes colour from the cell the write landed on, not the whole line', () => {
-    // A CLUT write timed 20 cells into the line must leave cells 0-19 alone.
+    // A CLUT write that lands on raster cell 20 must leave cells 0-19 alone.
     const r = rig(4);
     markClut(r.asic);
     for (let i = 0; i < 128; i++) r.vram(i, 0x00);   // whole line is CLUT 0
 
     const line = rasterOf(0);
     r.asic.beginLine(line, 0);
-    // Cell 20 is 8 cells into the display window (border occupies cells 0-7).
-    r.asic.writeClut(0, 0x7F, 20 * SAM_T_PER_CELL);
+    // The beam lags the CPU's line boundary by SAM_ASIC_CELL_OFFSET cells, so
+    // a write at CPU cell 28 is drawn at raster cell 20 — 12 cells into the
+    // display window, which occupies raster cells 8-39.
+    r.asic.writeClut(0, 0x7F, (20 + SAM_ASIC_CELL_OFFSET) * SAM_T_PER_CELL);
     r.asic.renderScanline(r.px, line);
     const row = r.px.subarray(line * SAM_SCREEN_WIDTH, (line + 1) * SAM_SCREEN_WIDTH);
 
@@ -335,7 +338,7 @@ describe('SamAsic mid-line palette and border writes', () => {
 
     const line = rasterOf(0);
     r.asic.beginLine(line, 0);
-    r.asic.writeBorder(9, false, 4 * SAM_T_PER_CELL);
+    r.asic.writeBorder(9, false, (4 + SAM_ASIC_CELL_OFFSET) * SAM_T_PER_CELL);
     r.asic.renderScanline(r.px, line);
     const row = r.px.subarray(line * SAM_SCREEN_WIDTH, (line + 1) * SAM_SCREEN_WIDTH);
 
@@ -352,6 +355,30 @@ describe('SamAsic mid-line palette and border writes', () => {
     r.asic.writeBorder(12, false, 0);
     r.asic.renderScanline(r.px, line);
     expect(r.px[line * SAM_SCREEN_WIDTH]).toBe(colour(12));
+  });
+
+  it('draws the beam one side border behind the CPU line boundary', () => {
+    // The whole point of SAM_ASIC_CELL_OFFSET: a write in the CPU line's first
+    // eight cells belongs to the tail of the raster line already drawn, so it
+    // colours this one from its very first cell; only past that does the split
+    // move right, one raster cell per CPU cell.
+    const r = rig(4);
+    markClut(r.asic);
+    r.asic.borderIndex = 1;
+    const line = rasterOf(0);
+
+    r.asic.beginLine(line, 0);
+    r.asic.writeBorder(12, false, SAM_ASIC_CELL_OFFSET * SAM_T_PER_CELL);
+    r.asic.renderScanline(r.px, line);
+    expect(r.px[line * SAM_SCREEN_WIDTH]).toBe(colour(12));
+
+    r.asic.borderIndex = 1;
+    r.asic.beginLine(line, 0);
+    r.asic.writeBorder(12, false, (SAM_ASIC_CELL_OFFSET + 3) * SAM_T_PER_CELL);
+    r.asic.renderScanline(r.px, line);
+    const row = r.px.subarray(line * SAM_SCREEN_WIDTH, (line + 1) * SAM_SCREEN_WIDTH);
+    expect(row[2 * SAM_CELL_PX]).toBe(colour(1));
+    expect(row[3 * SAM_CELL_PX]).toBe(colour(12));
   });
 
   it('clamps a write beyond the end of the line into the last cell', () => {
@@ -373,9 +400,9 @@ describe('SamAsic mid-line palette and border writes', () => {
     r.asic.borderIndex = 0;
     const line = rasterOf(0);
     r.asic.beginLine(line, 0);
-    r.asic.writeBorder(1, false, 2 * SAM_T_PER_CELL);
-    r.asic.writeBorder(2, false, 4 * SAM_T_PER_CELL);
-    r.asic.writeBorder(3, false, 6 * SAM_T_PER_CELL);
+    r.asic.writeBorder(1, false, (2 + SAM_ASIC_CELL_OFFSET) * SAM_T_PER_CELL);
+    r.asic.writeBorder(2, false, (4 + SAM_ASIC_CELL_OFFSET) * SAM_T_PER_CELL);
+    r.asic.writeBorder(3, false, (6 + SAM_ASIC_CELL_OFFSET) * SAM_T_PER_CELL);
     r.asic.renderScanline(r.px, line);
     const row = r.px.subarray(line * SAM_SCREEN_WIDTH, (line + 1) * SAM_SCREEN_WIDTH);
     expect(row[1 * SAM_CELL_PX]).toBe(colour(0));

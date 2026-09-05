@@ -26,11 +26,12 @@
 
 import type { SamMemory } from './sam-memory.ts';
 import {
-  SAM_CELLS_PER_LINE, SAM_CELL_PX, SAM_DISPLAY_CELLS, SAM_DISPLAY_FIRST_CELL,
-  SAM_DISPLAY_FIRST_LINE, SAM_DISPLAY_LAST_LINE, SAM_FRAME_INT_LINE,
-  SAM_INT_ACTIVE_T, SAM_PAGE_SIZE, SAM_PALETTE, SAM_SCREEN_HEIGHT,
-  SAM_SCREEN_WIDTH, SAM_T_PER_CELL,
-  HMPR_MD3COL_MASK, HMPR_MD3COL_SHIFT,
+  SAM_ASIC_CELL_OFFSET, SAM_CELLS_PER_LINE, SAM_CELL_PX, SAM_DISPLAY_CELLS,
+  SAM_DISPLAY_FIRST_CELL, SAM_DISPLAY_FIRST_LINE, SAM_DISPLAY_FIRST_T,
+  SAM_DISPLAY_HEIGHT, SAM_DISPLAY_LAST_LINE, SAM_FRAME_INT_LINE,
+  SAM_INT_ACTIVE_T, SAM_LINES_PER_FRAME, SAM_PAGE_SIZE, SAM_PALETTE,
+  SAM_SCREEN_HEIGHT, SAM_SCREEN_WIDTH, SAM_TOP_BORDER_LINES, SAM_T_PER_CELL,
+  HMPR_MD3COL_MASK, HMPR_MD3COL_SHIFT, LPEN_TXFMST,
   STATUS_IDLE, STATUS_INT_FRAME, STATUS_INT_LINE,
 } from './constants.ts';
 
@@ -66,6 +67,7 @@ export class SamAsic {
   private frames = 0;
 
   // ── Per-line latched state ────────────────────────────────────────────────
+  private lineNo = 0;
   private lineMode: 1 | 2 | 3 | 4 = 1;
   private linePageA: Uint8Array;
   private linePageB: Uint8Array;
@@ -135,11 +137,66 @@ export class SamAsic {
     this.lineIntUntil = -1;
   }
 
-  /** Record a mid-line register change at the cell it lands on. */
+  // ── Light-pen registers (reads of port 0xF8) ──────────────────────────────
+
+  /** Last HPEN value, held while the screen is off (the ASIC stops updating). */
+  private hpenLatch = SAM_DISPLAY_HEIGHT;
+
+  /**
+   * HPEN (`IN 0x01F8`) — which display line the beam is on, 0..191, or 192
+   * whenever it is outside the active display.
+   *
+   * This is the SAM's raster clock, and the ROM leans on it hard: its palette
+   * routine spins on `IN A,(&01F8)` until the value leaves the line it was
+   * given, then writes the CLUT in the first few T-states of the next line.
+   * Without it that routine never waits, and every raster split lands wherever
+   * the code happened to have got to — a smear rather than a band.
+   *
+   * The first display line only counts once the beam has passed the left
+   * border (`SAM_DISPLAY_FIRST_T`), matching SimCoupe's `update_hpen`.
+   */
+  hpen(tStates: number): number {
+    if (this.screenOff) return this.hpenLatch;
+    const line = this.lineNo;
+    const onDisplay = line >= SAM_DISPLAY_FIRST_LINE && line < SAM_DISPLAY_LAST_LINE
+      && (line !== SAM_DISPLAY_FIRST_LINE
+        || tStates - this.lineStartT >= SAM_DISPLAY_FIRST_T);
+    this.hpenLatch = onDisplay ? line - SAM_DISPLAY_FIRST_LINE : SAM_DISPLAY_HEIGHT;
+    return this.hpenLatch;
+  }
+
+  /**
+   * LPEN (`IN 0x00F8`) — the beam's horizontal position in bits 2-7, bit 1 the
+   * MIDI transmit status, bit 0 the colour bit the beam is currently over.
+   *
+   * TODO(verify): bit 0 should come from the pixel the beam is on, which needs
+   * the ASIC's four-byte fetch latch; the border's bit 0 is returned
+   * everywhere instead. Programs using LPEN for the horizontal position — its
+   * only common use — are unaffected.
+   */
+  lpen(tStates: number): number {
+    const lineCycle = tStates - this.lineStartT;
+    const onDisplay = !this.screenOff
+      && this.lineNo >= SAM_DISPLAY_FIRST_LINE && this.lineNo < SAM_DISPLAY_LAST_LINE
+      && lineCycle >= SAM_DISPLAY_FIRST_T;
+    const xpos = onDisplay ? (lineCycle - SAM_DISPLAY_FIRST_T) & 0xFC : 0;
+    return (xpos | (this.borderIndex & 1)) & ~LPEN_TXFMST & 0xFF;
+  }
+
+  /**
+   * Record a mid-line register change at the cell it lands on.
+   *
+   * The beam runs `SAM_ASIC_CELL_OFFSET` cells behind the CPU's line boundary,
+   * so a write at T lands at raster cell `(T - lineStart)/8 - 8`. A write in
+   * the first eight cells of the CPU's line therefore belongs to the tail of
+   * the *previous* raster line, which has already been drawn; clamping it to
+   * cell 0 is the same thing visually, because the change is then in force for
+   * the whole of the line about to be drawn.
+   */
   private note(target: number, value: number, tStates: number): void {
     this.midLineWrites++;
     if (this.journalCount >= JOURNAL_CAP) return;
-    let cell = ((tStates - this.lineStartT) / SAM_T_PER_CELL) | 0;
+    let cell = (((tStates - this.lineStartT) / SAM_T_PER_CELL) | 0) - SAM_ASIC_CELL_OFFSET;
     if (cell < 0) cell = 0;
     else if (cell >= SAM_CELLS_PER_LINE) cell = SAM_CELLS_PER_LINE - 1;
     const p = this.journalCount * 3;
@@ -183,29 +240,34 @@ export class SamAsic {
       this.status &= ~STATUS_INT_FRAME;
       this.frameIntUntil = tStates + SAM_INT_ACTIVE_T;
     }
-    if (this.lineReg >= 0 && next === this.lineInterruptRaster) {
+    const lineRaster = this.lineInterruptRaster;
+    if (lineRaster >= 0 && next === lineRaster) {
       this.status &= ~STATUS_INT_LINE;
       this.lineIntUntil = tStates + SAM_INT_ACTIVE_T;
     }
   }
 
   /**
-   * Raster line the programmed line interrupt fires on.
+   * Raster line the programmed line interrupt fires on, or -1 for never.
    *
-   * The LINE register is treated as a *display* line (0..191 from the top of
-   * the visible area). That is corroborated by the SAM's own ROM: its boot
-   * screen chains line interrupts at LINE = 11, 22, 33 … 165, repainting CLUT
-   * entry 0 in each handler, and the resulting colour bands land on exactly
-   * those display lines.
+   * LINE is counted in lines from the frame interrupt, one top border on — so
+   * 0..191 are the display lines, and the SAM's own boot screen chaining LINE =
+   * 11, 22, 33 … lands its colour bands on exactly those. Past the display,
+   * 192..243 reach the bottom border.
    *
-   * TODO(verify): what values >= 192 address is still unconfirmed. The ROM
-   * writes 255 to mean "no more this field" and relies on the frame handler
-   * re-arming before 48 + 255 = 303 is reached, so the distinction has not
-   * mattered yet — but a program that deliberately interrupts in the bottom
-   * border would tell us whether the register is display- or raster-based.
+   * From 244 up there is no raster left: the next frame interrupt arrives
+   * first, and its handler re-arms LINE before the old value could come due.
+   * That is not a curiosity — it is the SAM ROM's way of saying "no more
+   * interrupts this field", which it does by writing 255 whenever a
+   * raster-split table runs out. Firing anyway replays the table from the top,
+   * which is what used to leave the boot screen's colour bands painted across
+   * BASIC for the rest of the session.
    */
   private get lineInterruptRaster(): number {
-    return SAM_DISPLAY_FIRST_LINE + this.lineReg;
+    if (this.lineReg < 0) return -1;
+    const fromFrameInt = SAM_TOP_BORDER_LINES + this.lineReg;
+    if (fromFrameInt >= SAM_LINES_PER_FRAME) return -1;
+    return (SAM_FRAME_INT_LINE + fromFrameInt) % SAM_LINES_PER_FRAME;
   }
 
   // ── Frame / line rendering ────────────────────────────────────────────────
@@ -220,7 +282,8 @@ export class SamAsic {
    * journal. Called before the CPU runs the line, so the journal's cell
    * positions are measured from here.
    */
-  beginLine(_line: number, tStates: number): void {
+  beginLine(line: number, tStates: number): void {
+    this.lineNo = line;
     this.lineStartT = tStates;
     this.journalCount = 0;
 

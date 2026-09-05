@@ -25,19 +25,25 @@
  * absolute T-states, because the CPU overruns each line's budget slightly and
  * an absolute modulo would drift out of phase with the raster over a field.
  *
- * TODO(verify): several details are unconfirmed against the Technical Manual —
- * the exact character cell the display window starts on, whether mode 1's extra
- * border rule covers the even or the odd 8-cell groups, whether modes 3/4
- * (which fetch twice the data) stall differently again, and whether code
- * running from ROM is contended at all (it is treated here as uncontended).
- * The `sam-contention` setting exists so this can be switched off if it proves
- * wrong.
+ * TODO(verify): the line phase and the alternating mode 1 band now follow
+ * SimCoupe's contention tables, but two details remain unconfirmed against the
+ * Technical Manual — whether modes 3/4 (which fetch twice the data) stall
+ * differently again, and whether code running from ROM is contended at all (it
+ * is treated here as uncontended). Accuracy "Fast" turns the whole thing off if
+ * it proves wrong.
  */
 
 import {
-  SAM_DISPLAY_CELLS, SAM_DISPLAY_FIRST_CELL, SAM_DISPLAY_FIRST_LINE,
-  SAM_DISPLAY_LAST_LINE, SAM_T_PER_CELL,
+  SAM_DISPLAY_FIRST_LINE, SAM_DISPLAY_FIRST_T, SAM_DISPLAY_LAST_LINE,
+  SAM_T_PER_LINE,
 } from './constants.ts';
+
+/**
+ * Fine phase offset applied before the line is divided into slots — SimCoupe's
+ * `CPU_CYCLES_SCREEN_CONTENTION_OFFSET`, which it adds when building its
+ * contention tables.
+ */
+const CONTENTION_T_OFFSET = 4;
 
 /** Slot width over the border and off-screen: RAM one cycle in four. */
 const SLOT_BORDER = 4;
@@ -60,15 +66,20 @@ export class SamContention {
     this.mode1 = mode === 1;
   }
 
-  /** Slot width in T-states for a RAM access at `t`. */
+  /**
+   * Slot width in T-states for a RAM access at `t`.
+   *
+   * Measured in CPU time, the display fetch runs from `SAM_DISPLAY_FIRST_T` to
+   * the end of the line — two side borders in, because the beam itself lags the
+   * CPU's line boundary by one (see `SAM_ASIC_T_OFFSET`). Getting that phase
+   * wrong contends the wrong eight cells at each end of every display line.
+   */
   slotFor(t: number): number {
     if (!this.displayLine) return SLOT_BORDER;
-    const cell = ((t - this.lineStartT) / SAM_T_PER_CELL) | 0;
-    if (cell >= SAM_DISPLAY_FIRST_CELL && cell < SAM_DISPLAY_FIRST_CELL + SAM_DISPLAY_CELLS) {
-      return SLOT_DISPLAY;
-    }
-    // Mode 1's attribute fetch reaches into alternate 8-cell groups of border.
-    if (this.mode1 && ((cell >> 3) & 1) === 0) return SLOT_DISPLAY;
+    const lineCycle = (t - this.lineStartT + CONTENTION_T_OFFSET) % SAM_T_PER_LINE;
+    if (lineCycle >= SAM_DISPLAY_FIRST_T) return SLOT_DISPLAY;
+    // Mode 1's attribute fetch reaches into alternate 8-cell (64 T) groups.
+    if (this.mode1 && (lineCycle & 0x40) === 0) return SLOT_DISPLAY;
     return SLOT_BORDER;
   }
 

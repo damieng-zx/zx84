@@ -132,9 +132,12 @@ export interface Machine {
   bootRoms?(view: SettingsView): AuxRomRequest[];
   /** Arm the software library's one-click auto-boot trap: fire the loader once
    *  the freshly-reset ROM reaches its menu/editor key-wait loop. The machine
-   *  owns the trap address(es) for its own ROM family. Machines without a
-   *  ROM-loader auto-boot omit this (the shell keys off its presence). */
-  armBootTrap?(kind: 'menu' | 'rom48k'): void;
+   *  owns the trap address(es) for its own ROM family — or, for 'disk', its own
+   *  equivalent of holding the boot key down (the SAM has no key-wait to trap:
+   *  it scans the matrix from its interrupt handler throughout the power-on
+   *  RAM test). Machines without a ROM-loader auto-boot omit this (the shell
+   *  keys off its presence). */
+  armBootTrap?(kind: 'menu' | 'rom48k' | 'disk'): void;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -246,6 +249,9 @@ export type StatusLedId =
  * Everything here is presentation-facing but *machine-owned*: the machine knows
  * which of its features the UI should surface. Pure data (headless-safe).
  */
+/** A Sound-pane PSG-shaping control — see `MachineUiCapabilities.psgControls`. */
+export type PsgControl = 'stereo' | 'filter' | 'dc-block';
+
 export interface MachineUiCapabilities {
   /** Pane ids removed from the sidebar entirely for this machine. */
   readonly hiddenPanes: readonly string[];
@@ -255,8 +261,15 @@ export interface MachineUiCapabilities {
   readonly trace: boolean;
   /** Palette / colour-map family shown in the Display pane. */
   readonly colorMap: 'spectrum' | 'cpc' | 'msx' | 'einstein' | 'sam' | 'mono';
-  /** Whether the Accuracy drop-down applies (per-t-state scanline rendering). */
-  readonly accuracy: boolean;
+  /**
+   * Which Accuracy drop-down the Display pane offers, or false for none.
+   *
+   * 'scanline' is the Spectrum's per-t-state / per-line / per-cell renderer;
+   * 'contention' is the SAM's, whose ASIC always draws a whole line at a time
+   * and whose only accuracy step is whether memory slots are charged. Both
+   * write the same `scanline-accuracy` setting, so the control is one control.
+   */
+  readonly accuracy: false | 'scanline' | 'contention';
   /** Built-in floppy drives (A:/B:) are fitted. */
   readonly builtinDisk: boolean;
   /** Joystick pane applies. */
@@ -278,6 +291,24 @@ export interface MachineUiCapabilities {
   readonly romPages: 0 | 2 | 4;
   /** 1-bit beeper present (Sound-pane mixer + BEEP activity LED). */
   readonly beeper: boolean;
+  /**
+   * Which of the Sound pane's PSG-shaping controls apply to this machine.
+   *
+   * They are all AY-3-891x concepts and none of them is universal:
+   *
+   *   'stereo'   — the ACB/ABC channel layout. It exists because the AY's
+   *                three channels are MONO, so an emulator has to choose how
+   *                to pan them. A chip that is natively stereo has nothing to
+   *                pan: the SAM's SAA1099 gives each of its six channels its
+   *                own left and right amplitude register, and the program
+   *                decides the image.
+   *   'filter'   — the ultrasonic anti-alias strategy, which the MTX's
+   *                SN76489 shares even though it is not an AY.
+   *   'dc-block' — the DC blocking filter, AY-only.
+   *
+   * A machine with no PSG at all (ZX80/81) lists none of them.
+   */
+  readonly psgControls: readonly PsgControl[];
   /** Status-bar activity LEDs this machine exposes. Each machine lists only the
    *  indicators its hardware actually has *and* its frame probe drives, so the
    *  status bar can never show an LED for absent hardware (e.g. no AY/DISK on a

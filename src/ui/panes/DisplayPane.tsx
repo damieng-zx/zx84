@@ -145,11 +145,19 @@ export function DisplayPane() {
           const v = (e.target as HTMLSelectElement).value as 'high' | 'mid' | 'low';
           setScanlineAccuracy(v);
           persistSetting('scanline-accuracy', v);
-          applyDisplaySettings();   // machine re-reads its scanline setting
+          applyDisplaySettings();   // machine re-reads its accuracy setting
         }}>
-          <option value="high">High (per t-state)</option>
-          <option value="mid">Mid (per scanline)</option>
-          <option value="low">Low (per 8-scanlines/cell)</option>
+          <Show
+            when={machineCaps().accuracy === 'contention'}
+            fallback={<>
+              <option value="high">High (per t-state)</option>
+              <option value="mid">Mid (per scanline)</option>
+              <option value="low">Low (per 8-scanlines/cell)</option>
+            </>}
+          >
+            <option value="high">High (ASIC memory slots)</option>
+            <option value="low">Low (uncontended)</option>
+          </Show>
         </select>
       </div>
       </Show>

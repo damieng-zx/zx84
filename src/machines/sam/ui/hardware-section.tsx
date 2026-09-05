@@ -3,77 +3,58 @@
  *
  * This contribution may narrow to its own machine folder; the generic Hardware
  * pane stays machine-blind and loads it through the UI manifest.
+ *
+ * Only genuinely SAM-specific hardware belongs here. Contention is the Display
+ * pane's Accuracy drop-down and write-protect is the Drive pane's per-drive
+ * toggle — both shared with every other machine, and neither gets a second
+ * control here.
  */
 
+import { For } from 'solid-js';
 import { machine } from '@/shell/context.ts';
 import * as settings from '@/store/settings.ts';
+import { SAM_MAX_EXTERNAL_MB } from '../constants.ts';
+import { samExternalPages } from '../models.ts';
 import type { SamMachine } from '../sam-machine.ts';
 
 function activeSam(): SamMachine | null {
   return machine?.kind === 'sam' ? machine as unknown as SamMachine : null;
 }
 
+/** The sizes the megabyte interface was sold in, plus "not fitted". */
+const EXTERNAL_SIZES = Array.from(
+  { length: SAM_MAX_EXTERNAL_MB + 1 },
+  (_, mb) => ({ mb, label: mb === 0 ? 'None' : `${mb} MB` }),
+);
+
 export function SamHardwareSection() {
   return (
-    <>
-      <div class="multiface-row">
-        <label
-          class="mf-check"
-          title={'Round each instruction up to the ASIC\'s memory slot — 4 T-states '
-            + 'over the border, 8 over the display. Turn off for uncontended speed.'}
-        >
-          <input
-            type="checkbox"
-            checked={settings.samContention()}
-            onChange={(event) => {
-              const enabled = (event.target as HTMLInputElement).checked;
-              settings.setSamContention(enabled);
-              settings.persistSetting('sam-contention', enabled ? 'on' : 'off');
-              // Live: the quantiser is consulted per instruction, so this takes
-              // effect on the next one. No reset needed.
-              const sam = activeSam();
-              if (sam) sam.contention.enabled = enabled;
-            }}
-          />
-          Contention
-        </label>
-      </div>
-      <div class="multiface-row">
-        <label
-          class="mf-check"
-          title="Write-protect the disk in drive 1"
-        >
-          <input
-            type="checkbox"
-            checked={settings.samWriteProtect1()}
-            onChange={(event) => {
-              const on = (event.target as HTMLInputElement).checked;
-              settings.setSamWriteProtect1(on);
-              settings.persistSetting('sam-write-protect-1', on ? 'on' : 'off');
-              activeSam()?.disk.setWriteProtect(0, on);
-            }}
-          />
-          WP drive 1
-        </label>
-      </div>
-      <div class="multiface-row">
-        <label
-          class="mf-check"
-          title="Write-protect the disk in drive 2"
-        >
-          <input
-            type="checkbox"
-            checked={settings.samWriteProtect2()}
-            onChange={(event) => {
-              const on = (event.target as HTMLInputElement).checked;
-              settings.setSamWriteProtect2(on);
-              settings.persistSetting('sam-write-protect-2', on ? 'on' : 'off');
-              activeSam()?.disk.setWriteProtect(1, on);
-            }}
-          />
-          WP drive 2
-        </label>
-      </div>
-    </>
+    <div class="slider-row sam-ram-row">
+      <span
+        class="slider-label"
+        title={'RAM fitted to the external megabyte interface, reached through '
+          + 'the LEPR/HEPR page registers. None means no interface fitted, and '
+          + 'sections C/D read open bus when a program pages it in. Shrinking '
+          + 'discards whatever was in the pages that go away.'}
+      >
+        External RAM
+      </span>
+      <select
+        value={settings.samExternalRam()}
+        onChange={(event) => {
+          const mb = Number((event.target as HTMLSelectElement).value);
+          settings.setSamExternalRam(mb);
+          settings.persistSetting('sam-external-ram', String(mb));
+          // Live: the pages are allocated and re-paged on the spot, so no reset
+          // is needed — though a program already running will not notice memory
+          // appearing behind it.
+          activeSam()?.memory.setExternalPages(samExternalPages(mb));
+        }}
+      >
+        <For each={EXTERNAL_SIZES}>
+          {(size) => <option value={size.mb}>{size.label}</option>}
+        </For>
+      </select>
+    </div>
   );
 }

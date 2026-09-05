@@ -67,9 +67,61 @@ export const SAM_DISPLAY_FIRST_LINE = SAM_BORDER_TOP;                         //
 /** One past the last displayed raster line. */
 export const SAM_DISPLAY_LAST_LINE = SAM_DISPLAY_FIRST_LINE + SAM_DISPLAY_HEIGHT; // 240
 
-/** Raster line on which the frame interrupt is raised (first line after the
- *  display). */
-export const SAM_FRAME_INT_LINE = SAM_DISPLAY_LAST_LINE;                      // 240
+/**
+ * T-states between the CPU's line boundary and the raster's.
+ *
+ * The ASIC's beam runs one side border behind the frame counter the CPU's
+ * interrupts are measured against — SimCoupe calls this
+ * `CPU_CYCLES_ASIC_TO_FRAME_OFFSET` and derives it from
+ * `CPU_CYCLES_PER_SIDE_BORDER`, converting a CPU time to a raster position with
+ * `(cycles - offset)`. It matters for every mid-line register write: without it
+ * a palette change lands eight character cells too far right, which is exactly
+ * how far the ROM's boot-screen colour bands used to overshoot into the right
+ * border.
+ */
+export const SAM_ASIC_T_OFFSET = SAM_BORDER_LEFT / SAM_CELL_PX * SAM_T_PER_CELL; // 64
+
+/** Cells between the CPU's line boundary and the raster's (the above, in cells). */
+export const SAM_ASIC_CELL_OFFSET = SAM_ASIC_T_OFFSET / SAM_T_PER_CELL;          // 8
+
+/**
+ * T-state within a line at which the ASIC starts fetching display data.
+ *
+ * Two side borders' worth: the beam reaches the left edge of the display one
+ * border after the raster line starts, and the raster itself starts one border
+ * after the CPU's line boundary. Contention and the light-pen registers are
+ * both measured from here, in CPU time.
+ */
+export const SAM_DISPLAY_FIRST_T = 2 * SAM_ASIC_T_OFFSET;                        // 128
+
+/**
+ * Lines between the frame interrupt and the first displayed line, and between
+ * the last displayed line and the next frame interrupt.
+ *
+ * The frame interrupt is NOT the moment the display ends: SimCoupe's
+ * `TOP_BORDER_LINES` / `BOTTOM_BORDER_LINES` put 52 lines after the display and
+ * 68 before it. That split is load-bearing for the LINE register — see
+ * `lineInterruptRaster` — because it decides which LINE values still have a
+ * raster left to fire on before the next field re-arms them.
+ */
+export const SAM_TOP_BORDER_LINES = 68;
+export const SAM_BOTTOM_BORDER_LINES =
+  SAM_LINES_PER_FRAME - SAM_DISPLAY_HEIGHT - SAM_TOP_BORDER_LINES;             // 52
+
+/**
+ * How long the software library holds F9 down to boot a disk, in frames.
+ *
+ * The SAM's power-on RAM test runs for around two and a half seconds before
+ * the ROM acts on the key, and a slow or empty drive can push that out, so the
+ * ceiling is generous — it only matters when nothing boots at all.
+ */
+export const SAM_BOOT_KEY_FRAMES = 900;
+
+/** Raster line on which the frame interrupt is raised: one top border before
+ *  the display, which wraps round to the far side of the field. */
+export const SAM_FRAME_INT_LINE =
+  (SAM_DISPLAY_FIRST_LINE - SAM_TOP_BORDER_LINES + SAM_LINES_PER_FRAME)
+  % SAM_LINES_PER_FRAME;                                                       // 292
 
 /**
  * How long the ASIC holds /INT low, in T-states.
@@ -109,6 +161,17 @@ export const PORT_FLOPPY2_BASE = 0xF0;
  * easiest mistake to make here.
  */
 export const PORT_CLUT = 0xF8;
+/**
+ * Reading 0xF8 gives a light-pen register instead, and *bit 8 of the port
+ * address* picks which: 0x00F8 is LPEN (the beam's horizontal position),
+ * 0x01F8 is HPEN (the display line it is on). Mask with `PEN_PORT_MASK` — the
+ * rest of the high byte is the CLUT index and must be ignored on a read.
+ */
+export const PORT_LPEN = 0x00F8;
+export const PORT_HPEN = 0x01F8;
+export const PEN_PORT_MASK = 0x01FF;
+/** LPEN bit 1: MIDI transmit status. Nothing here drives it. */
+export const LPEN_TXFMST = 0x02;
 /** STATUS (read) / LINE interrupt register (write). */
 export const PORT_STATUS = 0xF9;
 /** Low memory page register. */
@@ -188,7 +251,15 @@ export const BORDER_BEEP = 0x10;
 export const BORDER_SOFF = 0x80;
 /** Keyboard bits returned by an `IN 0xFE`. */
 export const BORDER_KEY_MASK = 0x1F;
-/** Light-pen "screen pen" status. */
+/**
+ * Light-pen "screen pen" status.
+ *
+ * Read-only, and with no light pen fitted it reads back CLEAR. That is not a
+ * detail to shrug at: the ROM's raster-sync routine tests this bit and, when it
+ * is set, skips the HPEN wait loop entirely and writes the palette wherever the
+ * beam happens to be. Returning it set is what used to smear the boot screen's
+ * colour bands across the right border.
+ */
 export const BORDER_SPEN = 0x20;
 /** Cassette EAR input. */
 export const BORDER_EAR = 0x40;
@@ -201,8 +272,11 @@ export const SAM_PAGE_SIZE = 0x4000;
 /** Internal pages fitted, by model. */
 export const SAM_PAGES_256K = 16;
 export const SAM_PAGES_512K = 32;
-/** Pages reachable through the external megabyte interface (1 MB / 16 K). */
-export const SAM_EXTERNAL_PAGES = 64;
+/** 16K pages in one megabyte of external RAM. */
+export const SAM_EXTERNAL_PAGES_PER_MB = 64;
+/** Most external RAM the megabyte interface addresses: LEPR/HEPR are 8-bit
+ *  page registers, so 256 pages of 16K. SimCoupe's `MAX_EXTERNAL_MB`. */
+export const SAM_MAX_EXTERNAL_MB = 4;
 
 /** System ROM size — a single 32K EPROM, split into ROM 0 and ROM 1. */
 export const SAM_ROM_SIZE = 0x8000;

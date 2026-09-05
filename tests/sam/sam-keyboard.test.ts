@@ -18,12 +18,16 @@ import { SamJoystick } from '@/machines/sam/sam-joystick.ts';
 import { SamContention } from '@/machines/sam/contention.ts';
 import type { HostKeyEvent } from '@/machines/machine.ts';
 import {
-  SAM_DISPLAY_FIRST_CELL, SAM_DISPLAY_FIRST_LINE, SAM_DISPLAY_LAST_LINE,
+  SAM_DISPLAY_FIRST_LINE, SAM_DISPLAY_FIRST_T, SAM_DISPLAY_LAST_LINE,
   SAM_T_PER_CELL,
 } from '@/machines/sam/constants.ts';
 
 const ev = (code: string): HostKeyEvent =>
   ({ code, key: '', shift: false, ctrl: false, alt: false });
+
+/** A host event carrying the character a layout produced, as the browser does. */
+const chr = (key: string, code = 'Unmapped', shift = false): HostKeyEvent =>
+  ({ code, key, shift, ctrl: false, alt: false });
 
 /** Port high byte that selects exactly one row (active low). */
 const selectRow = (row: number) => (~(1 << row)) & 0xFF;
@@ -216,18 +220,20 @@ describe('SamContention', () => {
   });
 
   it('uses 8 T-state slots across the display window', () => {
+    // Measured in CPU time the fetch starts two side borders in and runs to
+    // the end of the line: the beam lags the CPU's line boundary by one border,
+    // so the raster's right border is already the next line's opening cells.
     const c = onDisplayLine();
-    const inWindow = SAM_DISPLAY_FIRST_CELL * SAM_T_PER_CELL;
-    expect(c.slotFor(inWindow)).toBe(8);
-    // ...and 4 in the border either side of it.
+    expect(c.slotFor(SAM_DISPLAY_FIRST_T)).toBe(8);
+    expect(c.slotFor(SAM_DISPLAY_FIRST_T - SAM_T_PER_CELL)).toBe(4);
+    expect(c.slotFor(47 * SAM_T_PER_CELL)).toBe(8);
     expect(c.slotFor(0)).toBe(4);
-    expect(c.slotFor((SAM_DISPLAY_FIRST_CELL + 32) * SAM_T_PER_CELL)).toBe(4);
   });
 
   it('treats the whole field as border when the screen is off', () => {
     const c = new SamContention();
     c.beginLine(SAM_DISPLAY_FIRST_LINE, 0, 4, true);
-    expect(c.slotFor(SAM_DISPLAY_FIRST_CELL * SAM_T_PER_CELL)).toBe(4);
+    expect(c.slotFor(SAM_DISPLAY_FIRST_T)).toBe(4);
   });
 
   it('rounds an instruction up to the slot, not each memory access', () => {
@@ -235,7 +241,7 @@ describe('SamContention', () => {
     // real code sees. Per *access* it would have cost around 21, a threefold
     // slowdown that no SAM exhibits.
     const c = onDisplayLine();
-    const t = SAM_DISPLAY_FIRST_CELL * SAM_T_PER_CELL;
+    const t = SAM_DISPLAY_FIRST_T;
     expect(c.instructionDelay(t, 7)).toBe(1);
     expect(c.instructionDelay(t, 4)).toBe(4);
     expect(c.instructionDelay(t, 8)).toBe(0);
@@ -252,7 +258,7 @@ describe('SamContention', () => {
   it('charges nothing when disabled', () => {
     const c = onDisplayLine();
     c.enabled = false;
-    expect(c.instructionDelay(SAM_DISPLAY_FIRST_CELL * SAM_T_PER_CELL, 7)).toBe(0);
+    expect(c.instructionDelay(SAM_DISPLAY_FIRST_T, 7)).toBe(0);
     expect(c.portDelay(1, 0xF8)).toBe(0);
   });
 
@@ -273,24 +279,24 @@ describe('SamContention', () => {
     const lineStart = 123_457;
     c.beginLine(SAM_DISPLAY_FIRST_LINE, lineStart, 4, false);
     expect(c.slotFor(lineStart)).toBe(4);
-    expect(c.slotFor(lineStart + SAM_DISPLAY_FIRST_CELL * SAM_T_PER_CELL)).toBe(8);
+    expect(c.slotFor(lineStart + SAM_DISPLAY_FIRST_T)).toBe(8);
   });
 
   it('extends the display rule into alternate border groups in mode 1', () => {
-    // The display window is cells 8-39, so the border cells are 0-7 (8-cell
-    // group 0, even) and 40-47 (group 5, odd). Mode 1 widens the slot on the
-    // even groups only.
-    const leftBorder = 0;
-    const rightBorder = 44 * SAM_T_PER_CELL;
+    // In CPU time the border is the line's first sixteen cells: group 0 (cells
+    // 0-7, the 0x40 bit clear) and group 1 (cells 8-15, set). Mode 1's
+    // attribute fetch widens the slot on group 0 only.
+    const firstGroup = 0;
+    const secondGroup = 12 * SAM_T_PER_CELL;
 
     const mode1 = onDisplayLine(1);
-    expect(mode1.slotFor(leftBorder)).toBe(8);
-    expect(mode1.slotFor(rightBorder)).toBe(4);
+    expect(mode1.slotFor(firstGroup)).toBe(8);
+    expect(mode1.slotFor(secondGroup)).toBe(4);
 
-    // Every other mode leaves both borders alone.
+    // Every other mode leaves both border groups alone.
     const mode4 = onDisplayLine(4);
-    expect(mode4.slotFor(leftBorder)).toBe(4);
-    expect(mode4.slotFor(rightBorder)).toBe(4);
+    expect(mode4.slotFor(firstGroup)).toBe(4);
+    expect(mode4.slotFor(secondGroup)).toBe(4);
   });
 });
 
@@ -307,19 +313,129 @@ describe('SamKeyboard punctuation', () => {
     expect(period.readHigh(selectRow(7))).toBe(0xE0 & ~(1 << 6));
   });
 
-  it('binds a host key to every punctuation position', () => {
-    // The nine slots columns 5-6 of rows 4-7 plus (6,7) are the SAM's
-    // dedicated punctuation and edit keys; none should be left dead.
+  it('reaches every punctuation position from a typed character', () => {
+    // Columns 5-6 of rows 4-7 are the SAM's dedicated punctuation keys, and
+    // each is reached by typing the character it prints -- whatever the host
+    // layout does to get there.
     const slots: [string, number, number][] = [
-      ['Minus', 4, 5], ['Equal', 4, 6],
-      ['BracketLeft', 5, 5], ['Quote', 5, 6],
-      ['Semicolon', 6, 5], ['BracketRight', 6, 6], ['Home', 6, 7],
-      ['Comma', 7, 5], ['Period', 7, 6],
+      ['-', 4, 5], ['+', 4, 6],
+      ['=', 5, 5], ['"', 5, 6],
+      [';', 6, 5], [':', 6, 6],
+      [',', 7, 5], ['.', 7, 6],
     ];
-    for (const [code, row, bit] of slots) {
+    for (const [key, row, bit] of slots) {
+      const k = new SamKeyboard();
+      expect(k.handleKeyEvent(chr(key), true)).toBe(true);
+      expect(k.readHigh(selectRow(row))).toBe(0xE0 & ~(1 << bit));
+      // Unshifted: nothing else in the matrix is disturbed.
+      expect(k.readLow(selectRow(0))).toBe(0x1F);
+    }
+  });
+
+  it('reaches EDIT and INV, which have no printable character', () => {
+    const edit = new SamKeyboard();
+    edit.handleKeyEvent(ev('Home'), true);
+    expect(edit.readHigh(selectRow(6))).toBe(0xE0 & ~(1 << 7));
+
+    const inv = new SamKeyboard();
+    inv.handleKeyEvent(ev('Insert'), true);
+    expect(inv.readHigh(selectRow(7))).toBe(0xE0 & ~(1 << 7));
+  });
+});
+
+describe('SamKeyboard F0-F9 keypad', () => {
+  const down = (k: SamKeyboard, row: number, bit: number) => bit < 5
+    ? (k.readLow(selectRow(row)) & (1 << bit)) === 0
+    : (k.readHigh(selectRow(row)) & (1 << bit)) === 0;
+
+  it('answers the function keys and the numeric keypad alike', () => {
+    // The SAM's F0-F9 are a keypad down the left of the machine; the host's
+    // function keys and its numeric keypad both reach them, whichever it has.
+    for (const code of ['F9', 'Numpad9']) {
       const k = new SamKeyboard();
       expect(k.handleKeyEvent(ev(code), true)).toBe(true);
-      expect(k.readHigh(selectRow(row))).toBe(0xE0 & ~(1 << bit));
+      expect(down(k, 2, 7)).toBe(true);
     }
+    for (const code of ['F10', 'Numpad0']) {
+      const k = new SamKeyboard();
+      k.handleKeyEvent(ev(code), true);
+      expect(down(k, 5, 7)).toBe(true);
+    }
+  });
+
+  it('keeps Ctrl and Alt on SYMBOL, so Alt+9 is still the |-chord', () => {
+    const k = new SamKeyboard();
+    k.handleKeyEvent(ev('AltLeft'), true);
+    k.handleKeyEvent(ev('Digit9'), true);
+    expect(down(k, 7, 1)).toBe(true);      // SYMBOL
+    expect(down(k, 4, 1)).toBe(true);      // 9
+  });
+});
+
+describe('SamKeyboard symbol chords', () => {
+  /** True when [row,bit] is currently held. */
+  const down = (k: SamKeyboard, row: number, bit: number) => bit < 5
+    ? (k.readLow(selectRow(row)) & (1 << bit)) === 0
+    : (k.readHigh(selectRow(row)) & (1 << bit)) === 0;
+
+  it('routes SYMBOL chords for the brackets the SAM has no keys for', () => {
+    const cases: [string, number, number][] = [
+      ['[', 2, 3], [']', 2, 4],       // SYMBOL + R / T
+      ['{', 1, 3], ['}', 1, 4],       // SYMBOL + F / G
+      ['<', 2, 0], ['>', 2, 1],       // SYMBOL + Q / W
+      ['?', 0, 2],                    // SYMBOL + X
+      ['^', 6, 4],                    // SYMBOL + H
+      ['|', 4, 1],                    // SYMBOL + 9
+    ];
+    for (const [key, row, bit] of cases) {
+      const k = new SamKeyboard();
+      expect(k.handleKeyEvent(chr(key), true)).toBe(true);
+      expect(down(k, 7, 1)).toBe(true);          // SYMBOL
+      expect(down(k, row, bit)).toBe(true);
+    }
+  });
+
+  it('hides the host Shift under a chord that does not want it', () => {
+    // A UK layout types `"` as Shift+2. That must arrive as the bare QUOTES
+    // key: leaving SHIFT down would make it `@` instead.
+    const k = new SamKeyboard();
+    k.handleKeyEvent(ev('ShiftLeft'), true);
+    k.handleKeyEvent(chr('"', 'Digit2', true), true);
+    expect(down(k, 5, 6)).toBe(true);            // QUOTES
+    expect(down(k, 0, 0)).toBe(false);           // SHIFT suppressed
+
+    // Releasing the chord while Shift is still held brings SHIFT back.
+    k.handleKeyEvent(chr('"', 'Digit2', true), false);
+    expect(down(k, 5, 6)).toBe(false);
+    expect(down(k, 0, 0)).toBe(true);
+  });
+
+  it('keeps SHIFT for a chord that needs it', () => {
+    const k = new SamKeyboard();
+    k.handleKeyEvent(chr('!', 'Digit1', true), true);
+    expect(down(k, 0, 0)).toBe(true);            // SHIFT
+    expect(down(k, 3, 0)).toBe(true);            // 1
+  });
+
+  it('releases the chord it pressed even if the host modifiers moved on', () => {
+    const k = new SamKeyboard();
+    k.handleKeyEvent(chr('{', 'BracketLeft', true), true);
+    expect(down(k, 7, 1)).toBe(true);
+    // The host reports the release with a different character (Shift let go
+    // first), but the release is keyed on the code, so the chord still lifts.
+    k.handleKeyEvent(chr('[', 'BracketLeft'), false);
+    expect(down(k, 7, 1)).toBe(false);
+    expect(down(k, 1, 3)).toBe(false);
+  });
+
+  it('leaves letters, digits and space to their physical positions', () => {
+    // A game reading the matrix wants Q where Q is, not wherever `q` prints.
+    const k = new SamKeyboard();
+    k.handleKeyEvent(chr('q', 'KeyQ'), true);
+    expect(down(k, 2, 0)).toBe(true);
+    k.handleKeyEvent(chr('7', 'Digit7'), true);
+    expect(down(k, 4, 3)).toBe(true);
+    k.handleKeyEvent(chr(' ', 'Space'), true);
+    expect(down(k, 7, 0)).toBe(true);
   });
 });

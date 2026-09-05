@@ -26,9 +26,9 @@ const SAM_UI: MachineUiCapabilities = {
   memoryLayout: true,
   trace: false,
   colorMap: 'sam',
-  // The Accuracy drop-down selects per-t-state ULA rendering, which the SAM's
-  // ASIC does not do. Its contention toggle lives in the Hardware pane instead.
-  accuracy: false,
+  // The SAM's ASIC does not render per t-state, so the Accuracy drop-down
+  // offers its own two steps: whether the ASIC's memory slots are charged.
+  accuracy: 'contention',
   builtinDisk: true,
   joystick: true,
   fixedJoystick: true,
@@ -38,7 +38,13 @@ const SAM_UI: MachineUiCapabilities = {
   // The two 16K halves are one physical EPROM, never independently overridden.
   romPages: 0,
   beeper: true,
-  statusLeds: ['kbd', 'kemp', 'ear', 'load', 'dsk', 'beep', 'psg', 'rainbow'],
+  // The SAA1099 is natively stereo — six channels, each with its own left
+  // and right amplitude — so there is no channel layout to choose, and the
+  // AY's filters are not its. Only the beeper/PSG mixer applies.
+  psgControls: [],
+  // 'text' is not only an indicator: it is the button that toggles screen
+  // OCR, so leaving it out hides the feature entirely.
+  statusLeds: ['kbd', 'kemp', 'ear', 'load', 'dsk', 'beep', 'psg', 'rainbow', 'text'],
   keyboardBus: 'ula',
   tape: 'deck',
   tapeSound: false,
@@ -49,7 +55,9 @@ const SAM_UI: MachineUiCapabilities = {
   zipPolicy: 'media',
   persistMedia: true,
   bootDisk: false,
-  library: false,
+  // ZXDB carries the SAM's own machine type, so the browser has a catalog of
+  // its own — see tools/build-sam-catalog.ts.
+  library: true,
   memoryRegions: [
     { value: 'sam-rom0', label: 'ROM 0 (0000-3FFF)' },
     { value: 'sam-rom1', label: 'ROM 1 (C000-FFFF)' },
@@ -84,7 +92,7 @@ export function samDescriptor(
 
 export const samEntry: MachineEntry = {
   kind: 'sam',
-  models: ['sam256', 'sam512', 'sam1m'],
+  models: ['sam256', 'sam512'],
   descriptor: samDescriptor,
   create(model: MachineModel, display: IScreenRenderer | null) {
     return new SamMachine(model as SamModel, display);

@@ -79,8 +79,10 @@ export class SamMemory implements IMachineMemory {
 
   /** Internal 16K pages (16 on a 256K machine, 32 on a 512K). */
   private readonly ram: Uint8Array[] = [];
-  /** External megabyte pages; empty unless the interface is fitted. */
-  private readonly ext: Uint8Array[] = [];
+  /** External megabyte-interface pages; empty unless the interface is fitted.
+   *  Sized by `setExternalPages`, not fixed at construction — the interface is
+   *  a box the user plugs in, so it comes and goes without a rebuild. */
+  private ext: Uint8Array[] = [];
 
   /** Low and high halves of the 32K system ROM. */
   private rom0: Uint8Array = new Uint8Array(SAM_PAGE_SIZE);
@@ -259,7 +261,7 @@ export class SamMemory implements IMachineMemory {
    *  interface isn't fitted. External RAM sits outside the ASIC's contention. */
   private mapExternal(section: number, page: number): void {
     this.sectionContended[section] = 0;
-    if (this.cfg.externalPages === 0) {
+    if (this.ext.length === 0) {
       this.ramPtr[section] = this.absent;
       this.readPtr[section] = this.absent;
       this.writePtr[section] = this.scratch;
@@ -267,7 +269,7 @@ export class SamMemory implements IMachineMemory {
       this.readOnly[section] = true;
       return;
     }
-    const p = page % this.cfg.externalPages;
+    const p = page % this.ext.length;
     this.ramPtr[section] = this.ext[p];
     this.readPtr[section] = this.ext[p];
     this.writePtr[section] = this.ext[p];
@@ -338,11 +340,27 @@ export class SamMemory implements IMachineMemory {
   /** How many internal 16K pages this model has fitted. */
   get internalPageCount(): number { return this.cfg.internalPages; }
   /** How many external megabyte pages are reachable (0 when not fitted). */
-  get externalPageCount(): number { return this.cfg.externalPages; }
+  get externalPageCount(): number { return this.ext.length; }
+
+  /**
+   * Fit, resize or remove the external megabyte interface's RAM.
+   *
+   * Growing keeps the pages already there and adds blank ones; shrinking drops
+   * the pages above the new size, and what was in them is gone. Both re-page
+   * immediately, because sections C and D may be looking at external memory
+   * right now and must not be left pointing at a discarded page.
+   */
+  setExternalPages(pages: number): void {
+    const want = Math.max(0, pages | 0);
+    if (want === this.ext.length) return;
+    while (this.ext.length < want) this.ext.push(new Uint8Array(SAM_PAGE_SIZE));
+    if (this.ext.length > want) this.ext = this.ext.slice(0, want);
+    this.applyPaging();
+  }
 
   /** Live view of one external megabyte page, for state serialisation. */
   externalPage(n: number): Uint8Array | null {
-    return this.cfg.externalPages === 0 ? null : this.ext[n % this.cfg.externalPages];
+    return this.ext.length === 0 ? null : this.ext[n % this.ext.length];
   }
 
   /** Every internal page concatenated — the RAM export. */

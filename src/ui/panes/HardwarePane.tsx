@@ -40,7 +40,6 @@ const MODEL_LABELS: Record<MachineModel, string> = {
   rs128: 'Memotech RS128',
   sam256: 'SAM Coupé 256K',
   sam512: 'SAM Coupé 512K',
-  sam1m: 'SAM Coupé 1MB',
 };
 
 const LOCALE_LABELS: Record<MachineLocale, string> = {
@@ -134,7 +133,6 @@ const MODEL_MENU: MenuItem[] = [
     children: [
       modelEntry('sam256'),
       modelEntry('sam512'),
-      modelEntry('sam1m'),
     ],
   },
 ];

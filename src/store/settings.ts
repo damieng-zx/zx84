@@ -94,9 +94,7 @@ const DEFAULTS = {
   'interface1':     'off',
   'betadisk':       'off',
   'einstein-xtaldos': 'on',
-  'sam-contention':    'on',
-  'sam-write-protect-1': 'off',
-  'sam-write-protect-2': 'off',
+  'sam-external-ram':  '0',
   'mtx-cpm':        'off',
   'mtx-80-column':  'off',
   'mtx-512k-ram':   'off',
@@ -406,17 +404,10 @@ const _cpcParados = /*@once*/ createRoot(() => createSignal(getSaved('cpc-parado
 export const cpcParados = _cpcParados[0];
 export const setCpcParados = _cpcParados[1];
 
-const _samWriteProtect1 = /*@once*/ createRoot(() => createSignal(getSaved('sam-write-protect-1', D('sam-write-protect-1')) === 'on'));
-export const samWriteProtect1 = _samWriteProtect1[0];
-export const setSamWriteProtect1 = _samWriteProtect1[1];
-
-const _samWriteProtect2 = /*@once*/ createRoot(() => createSignal(getSaved('sam-write-protect-2', D('sam-write-protect-2')) === 'on'));
-export const samWriteProtect2 = _samWriteProtect2[0];
-export const setSamWriteProtect2 = _samWriteProtect2[1];
-
-const _samContention = /*@once*/ createRoot(() => createSignal(getSaved('sam-contention', D('sam-contention')) === 'on'));
-export const samContention = _samContention[0];
-export const setSamContention = _samContention[1];
+/** Megabytes fitted to the external megabyte interface, 0-4. 0 = not fitted. */
+const _samExternalRam = /*@once*/ createRoot(() => createSignal(getSavedNumber('sam-external-ram', D('sam-external-ram'))));
+export const samExternalRam = _samExternalRam[0];
+export const setSamExternalRam = _samExternalRam[1];
 
 const _einsteinXtalDos = /*@once*/ createRoot(() => createSignal(getSaved('einstein-xtaldos', D('einstein-xtaldos')) === 'on'));
 export const einsteinXtalDos = _einsteinXtalDos[0];
@@ -580,9 +571,7 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'betadisk',       set: setBetaDiskEnabled,  type: 'bool' },
     { key: 'interface1',     set: setInterface1Enabled, type: 'bool' },
     { key: 'einstein-xtaldos', set: setEinsteinXtalDos, type: 'bool' },
-    { key: 'sam-contention',   set: setSamContention,   type: 'bool' },
-    { key: 'sam-write-protect-1', set: setSamWriteProtect1, type: 'bool' },
-    { key: 'sam-write-protect-2', set: setSamWriteProtect2, type: 'bool' },
+    { key: 'sam-external-ram', set: setSamExternalRam,  type: 'number' },
     { key: 'mtx-cpm', set: setMtxCpm, type: 'bool' },
     { key: 'mtx-80-column', set: setMtx80Column, type: 'bool' },
     { key: 'mtx-512k-ram', set: setMtx512kRam, type: 'bool' },

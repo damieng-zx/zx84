@@ -25,6 +25,8 @@ const UI: MachineUiCapabilities = {
   systemRomLabel: 'ROM',
   romPages: 0,
   beeper: false,
+  // No sound chip at all.
+  psgControls: [],
   // No sound chip, no disk, no joystick/mouse ports — only the keyboard and the
   // screen-OCR overlay have activity to show.
   statusLeds: ['kbd', 'text'],

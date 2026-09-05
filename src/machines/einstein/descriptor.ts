@@ -31,6 +31,7 @@ const EINSTEIN_UI: MachineUiCapabilities = {
   systemRomLabel: 'ROM',
   romPages: 0,
   beeper: true,
+  psgControls: ['stereo', 'filter', 'dc-block'],
   statusLeds: ['kbd', 'ay', 'dsk', 'text'],
   keyboardBus: 'ula',
   tapeSound: false,

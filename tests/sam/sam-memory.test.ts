@@ -28,6 +28,11 @@ function memory(model: SamModel = 'sam512'): SamMemory {
   return new SamMemory(createSamConfig(model));
 }
 
+/** A 512K machine with the megabyte interface fitted and filled. */
+function withExternal(megabytes = 1): SamMemory {
+  return new SamMemory(createSamConfig('sam512', megabytes));
+}
+
 /** A 32K ROM whose two halves are filled with distinguishable constants. */
 function markedRom(): Uint8Array {
   const rom = new Uint8Array(SAM_ROM_SIZE);
@@ -217,7 +222,7 @@ describe('SamMemory external megabyte interface (HMPR bit 7)', () => {
   });
 
   it('pages independent external pages into sections C and D via LEPR/HEPR', () => {
-    const m = memory('sam1m');
+    const m = withExternal();
     m.setHmpr(0x80);
 
     m.setLepr(3);
@@ -232,9 +237,35 @@ describe('SamMemory external megabyte interface (HMPR bit 7)', () => {
     expect(m.readByte(SECTION_D)).toBe(0x33);
   });
 
+  it('fits, resizes and removes external RAM without a rebuild', () => {
+    const m = memory('sam512');
+    expect(m.externalPageCount).toBe(0);
+
+    // Nothing fitted: the external window reads open bus and swallows writes.
+    m.setHmpr(0x80);
+    m.writeByte(SECTION_C, 0x5A);
+    expect(m.readByte(SECTION_C)).toBe(0xFF);
+
+    // Fit 2 MB and the same window is now RAM, re-paged on the spot.
+    m.setExternalPages(2 * 64);
+    expect(m.externalPageCount).toBe(128);
+    m.writeByte(SECTION_C, 0x5A);
+    expect(m.readByte(SECTION_C)).toBe(0x5A);
+
+    // Growing keeps what was already there.
+    m.setExternalPages(4 * 64);
+    expect(m.externalPageCount).toBe(256);
+    expect(m.readByte(SECTION_C)).toBe(0x5A);
+
+    // Removing it entirely puts open bus back.
+    m.setExternalPages(0);
+    expect(m.externalPageCount).toBe(0);
+    expect(m.readByte(SECTION_C)).toBe(0xFF);
+  });
+
   it('takes precedence over ROM 1 in section D', () => {
     // UpdatePaging tests HMPR_MCNTRL before LMPR_ROM1.
-    const m = memory('sam1m');
+    const m = withExternal();
     m.loadRom(markedRom());
     m.setLmpr(0x40);        // ask for ROM 1 over section D
     expect(m.readByte(SECTION_D)).toBe(0xB1);

@@ -16,7 +16,7 @@ import { isSamModel } from '@/machines/sam/models.ts';
 describe('SAM registry entry', () => {
   it('registers all three models under the sam kind', () => {
     expect(samEntry.kind).toBe('sam');
-    expect([...samEntry.models]).toEqual(['sam256', 'sam512', 'sam1m']);
+    expect([...samEntry.models]).toEqual(['sam256', 'sam512']);
     expect(entryForKind('sam')).toBe(samEntry);
     for (const model of samEntry.models) {
       expect(entryForModel(model)).toBe(samEntry);
@@ -35,7 +35,7 @@ describe('SAM registry entry', () => {
     // 32K EPROM, which is why ui.romPages is 0.
     expect(samEntry.romSources('sam512')).toHaveLength(1);
     // The three models share one ROM — the megabyte interface is not a ROM change.
-    expect(samEntry.romSources('sam256')).toEqual(samEntry.romSources('sam1m'));
+    expect(samEntry.romSources('sam256')).toEqual(samEntry.romSources('sam512'));
     expect(samEntry.romSources('sam256')).toEqual(samEntry.romSources('sam512'));
   });
 
@@ -47,7 +47,7 @@ describe('SAM registry entry', () => {
 describe('SAM system-ROM detection', () => {
   it('accepts a 32K image while a SAM is already selected', () => {
     expect(samEntry.detectModelForRom!(new Uint8Array(32768), 'sam256')).toBe('sam256');
-    expect(samEntry.detectModelForRom!(new Uint8Array(32768), 'sam1m')).toBe('sam1m');
+    expect(samEntry.detectModelForRom!(new Uint8Array(32768), 'sam512')).toBe('sam512');
   });
 
   it('rejects any image that is not exactly 32K', () => {
@@ -96,13 +96,16 @@ describe('SAM descriptor', () => {
     expect(d.ui.builtinDisk).toBe(true);
     expect(d.ui.cartridge).toBe(false);
     expect(d.ui.beeper).toBe(true);
+    // The SAA1099 is natively stereo and takes none of the AY's shaping, so
+    // the Sound pane offers only the beeper/PSG mixer.
+    expect(d.ui.psgControls).toEqual([]);
     expect(d.ui.tape).toBe('deck');
     expect(d.ui.keyboardBus).toBe('ula');
     // One physical 32K EPROM, so no independently-overridable ROM pages.
     expect(d.ui.romPages).toBe(0);
-    // The Accuracy drop-down means per-t-state ULA rendering, which the SAM
-    // has no equivalent of.
-    expect(d.ui.accuracy).toBe(false);
+    // The Accuracy drop-down applies, but as the SAM's own two-step version:
+    // the ASIC has no per-t-state renderer, only contention on or off.
+    expect(d.ui.accuracy).toBe('contention');
   });
 
   it('is construction-free and identical for every model', () => {

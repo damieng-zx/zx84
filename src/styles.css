@@ -399,7 +399,20 @@ body.msx-mode .section-label::after {
 
 .pane .slider-row { color: #333; }
 .pane .slider-row .slider-label { color: #555; }
-.pane .slider-row .slider-value { color: #555; }
+.pane /* The SAM's external-RAM row: "External RAM" is wider than the shared 72px
+   label column, and its values ("None", "1 MB") are short. Let the label size
+   itself and keep the select at its content width, or the label wraps onto two
+   lines and the collapsed select clips its own value. */
+.slider-row.sam-ram-row .slider-label {
+  width: auto;
+  white-space: nowrap;
+}
+
+.slider-row.sam-ram-row select {
+  flex: 0 0 auto;
+}
+
+.slider-row .slider-value { color: #555; }
 .pane input[type="range"] { background: #ccc; }
 
 .pane--mono {

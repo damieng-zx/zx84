@@ -143,7 +143,7 @@ export interface SamStateTarget {
 }
 
 /** Model ids, so a restore refuses state saved on differently-sized hardware. */
-const MODEL_ID: Record<string, number> = { sam256: 0, sam512: 1, sam1m: 2 };
+const MODEL_ID: Record<string, number> = { sam256: 0, sam512: 1 };
 
 function packedBlock(w: Writer, data: Uint8Array): void {
   const packed = pack(data);

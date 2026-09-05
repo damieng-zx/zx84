@@ -190,15 +190,17 @@ describe('SAM state round trip', () => {
     b.destroy();
   });
 
-  it('restores the external megabyte on a 1MB machine', async () => {
-    const a = machine('sam1m');
+  it('restores external RAM when the megabyte interface is fitted', async () => {
+    const a = machine();
+    a.memory.setExternalPages(64);
     a.memory.setHmpr(0x80);
     a.memory.setLepr(3);
     a.memory.writeByte(0x8000, 0x77);
     const blob = a.services.snapshots.saveSync()!;
     a.destroy();
 
-    const b = machine('sam1m');
+    const b = machine();
+    b.memory.setExternalPages(64);
     await b.services.snapshots.restoreSync(blob);
     expect(b.memory.readByte(0x8000)).toBe(0x77);
     b.destroy();

@@ -31,12 +31,13 @@ import { SamKeyboard } from './sam-keyboard.ts';
 import { SamJoystick } from './sam-joystick.ts';
 import { SamContention } from './contention.ts';
 import { SamDiskInterface } from './peripherals/sam-disk.ts';
-import { createSamConfig, type SamConfig } from './config.ts';
-import type { SamModel } from './models.ts';
+import { createSamConfig, samRamLabel, type SamConfig } from './config.ts';
+import { samExternalPages, type SamModel } from './models.ts';
 import { samDescriptor } from './descriptor.ts';
 import { createSamServices, type SamServices } from './services/index.ts';
 import { installSamMemoryHooks, wireSamPortIO } from './sam-io.ts';
 import {
+  SAM_BOOT_KEY_FRAMES,
   SAM_BORDER_LEFT, SAM_BORDER_TOP, SAM_CPU_CLOCK, SAM_LINES_PER_FRAME,
   SAM_SAA_CLOCK,
   SAM_PALETTES, SAM_SCREEN_HEIGHT, SAM_SCREEN_WIDTH,
@@ -154,17 +155,26 @@ export class SamMachine extends BaseMachine implements Machine {
       const delta = now - this.tapeLastAdvanceT;
       if (delta > 0) this.tape.advance(delta);
       this.earBit = this.tape.earBit;
+      // Counted only while the deck is actually running. Port 0xFE is the
+      // keyboard as well as the EAR line, and the ROM scans the matrix every
+      // frame — counting every read left the EAR LED (and the TEXT LED, which
+      // shares its latch) lit from boot to power-off.
+      this.activity.tapeReads++;
     }
     // The baseline moves on even while stopped or paused. Leaving it stale
     // would hand the deck the whole paused interval as a single delta on
     // resume, skipping the tape forward by however long the user waited.
     this.tapeLastAdvanceT = now;
-    this.activity.tapeReads++;
   }
 
   /** Ask for the frame buffer to be re-uploaded on the next display tick.
    *  Services use this after mutating machine state out-of-band. */
   requestRedraw(): void { this.needsDisplay = true; }
+
+  /** Memory fitted, as the Hardware pane shows it ("512K + 2MB external"). */
+  get ramLabel(): string {
+    return samRamLabel(this.config.internalPages, this.memory.externalPageCount);
+  }
 
   /** Screen-off latch, read back through port 0xFE. */
   get screenOff(): boolean { return this.asic.screenOff; }
@@ -176,10 +186,24 @@ export class SamMachine extends BaseMachine implements Machine {
   applySettings(view: SettingsView): void {
     const map = view.get('sam-color-map', 'linear') as SamColorMap;
     this.asic.palette = SAM_PALETTES[map] ?? SAM_PALETTES.linear;
-    this.contention.enabled = view.get('sam-contention', true);
-    this.disk.setWriteProtect(0, view.get('sam-write-protect-1', false));
-    this.disk.setWriteProtect(1, view.get('sam-write-protect-2', false));
+    // Accuracy is the Display pane's shared drop-down: on the SAM its only
+    // meaningful step is whether the ASIC's memory slots are charged at all,
+    // so "Low" runs uncontended and everything above it contends.
+    const accuracy = view.get('scanline-accuracy', 'high') as 'high' | 'mid' | 'low';
+    this.contention.enabled = accuracy !== 'low';
+    this.memory.setExternalPages(
+      samExternalPages(view.get('sam-external-ram', 0)),
+    );
+    // The Drive pane's per-drive write-protect, shared with every other
+    // machine that has built-in floppies.
+    this.disk.setWriteProtect(0, view.get('write-protect-a', false));
+    this.disk.setWriteProtect(1, view.get('write-protect-b', false));
     this.audio.setVolume(view.get('volume', 70) / 100);
+    // Beeper/PSG balance: the SAM is one of the few machines with both, so the
+    // Sound pane's Mixer slider has something to weigh.
+    const mix = view.get('ay-mix', 50) / 100;
+    this.mixer.beeperGain = Math.min(1, 2 * (1 - mix));
+    this.mixer.psgGain = Math.min(1, 2 * mix);
     this.needsDisplay = true;
   }
 
@@ -242,7 +266,37 @@ export class SamMachine extends BaseMachine implements Machine {
     this.audio.reset();
     this.mixer.reset();
     this.needsDisplay = true;
+    // `keyboard.reset()` above has already dropped any held boot key.
+    this.bootKeyFrames = 0;
     this.setStatus('Reset');
+  }
+
+  /**
+   * Frames of F9 left to hold for the library's one-click boot, or 0.
+   *
+   * The SAM has no key-wait loop to trap the way the Spectrum's menu does: it
+   * runs a five-second RAM test after reset and scans the keyboard from its
+   * frame interrupt throughout. So the boot key is simply held down until the
+   * ROM acts on it, which it announces by touching the floppy controller.
+   * The ceiling is a safety net for a drive with nothing bootable in it.
+   */
+  private bootKeyFrames = 0;
+
+  /** F9 on the SAM's keypad: row 2, bit 7 — the key that boots drive 1. */
+  private static readonly BOOT_KEY: readonly [number, number] = [2, 7];
+
+  /** Hold the boot key from the next frame on. The shell resets the machine
+   *  first, so this is armed against a cold start. */
+  armBootTrap(_kind: 'menu' | 'rom48k' | 'disk'): void {
+    this.bootKeyFrames = SAM_BOOT_KEY_FRAMES;
+    this.keyboard.setKey(SamMachine.BOOT_KEY[0], SamMachine.BOOT_KEY[1], true);
+  }
+
+  /** Let the boot key go, once. Safe to call when nothing is armed. */
+  private releaseBootKey(): void {
+    if (this.bootKeyFrames === 0) return;
+    this.bootKeyFrames = 0;
+    this.keyboard.setKey(SamMachine.BOOT_KEY[0], SamMachine.BOOT_KEY[1], false);
   }
 
   protected framePixels(): Uint8Array { return this._pixels; }
@@ -319,6 +373,13 @@ export class SamMachine extends BaseMachine implements Machine {
       if (broke) break;
 
       asic.endLine(line, cpu.tStates);
+    }
+
+    // The disk answering means the ROM has taken the boot key; anything longer
+    // means there was nothing to boot. Either way, stop holding it — a game
+    // that reads F9 for itself must not find it stuck down.
+    if (this.bootKeyFrames > 0 && (a.fdcAccesses > 0 || --this.bootKeyFrames === 0)) {
+      this.releaseBootKey();
     }
 
     this.needsDisplay = true;
