@@ -43,7 +43,7 @@ function isZipArchive(d: Uint8Array): boolean {
  * packed alongside the image is ignored. An archive holding more than one ROM
  * is ambiguous, and is rejected rather than guessed at.
  */
-async function unwrapRomArchive(data: Uint8Array, name: string): Promise<Uint8Array> {
+export async function unwrapRomArchive(data: Uint8Array, name: string): Promise<Uint8Array> {
   if (!isZipArchive(data)) return data;
   const entries = await unzip(data);
   if (entries.length === 0) throw new Error(`${name} contains no ROM image`);
