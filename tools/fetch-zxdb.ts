@@ -14,7 +14,13 @@
  * ZXDB ships a MySQL dump; we convert it on the fly (port of the transforms in
  * ZXDB's scripts/ZXDB_to_SQLite.py) and keep only these tables:
  */
-const WANTED = new Set(['entries', 'machinetypes', 'releases', 'publishers', 'labels', 'genretypes', 'downloads']);
+const WANTED = new Set([
+  'entries', 'machinetypes', 'releases', 'publishers', 'labels', 'genretypes', 'downloads',
+  // `members` + `tags` carry ZXDB's tag memberships, which build-zx8x-catalog
+  // reads for the ZX81 Enhanced Graphics flags. Without them that build dies
+  // with "SQL logic error" on a freshly fetched database.
+  'members', 'tags',
+]);
 
 import { DatabaseSync } from 'node:sqlite';
 import { createReadStream, readFileSync, writeFileSync, rmSync, existsSync, statSync } from 'node:fs';

@@ -12,6 +12,16 @@ const CHANGELOG: { version: string; items: string[] }[] = [
       'Generic memory layout pane and unified ROM catalog',
       'Panes menu organized into groups',
       'Hide accuracy options on machines that do not use them',
+      'Sound pane offers only the PSG options a machine actually reads — the SAM stereo SAA1099 has no AY channel layout to choose',
+      'SAM Coupé: type punctuation by character, so quotes, brackets and the SYMBOL chords all reach the right keys',
+      'SAM Coupé: light-pen registers, fixing the ragged right edge on raster-split borders',
+      'SAM Coupé: the boot screen colour bands now clear when you drop into BASIC',
+      'SAM Coupé software library from ZXDB, with genre and format filtering and native .ssx/.ss4/.scr screenshots',
+      'SAM Coupé: gzipped disk and tape images now mount, as SimCoupe does',
+      'SAM Coupé: disk images in a DSK container now mount instead of being refused as Amstrad disks',
+      'SAM Coupé: mounted disks show in the Drives pane, and the library Play button boots them',
+      'SAM Coupé: screen OCR is reachable from the TEXT indicator, and EAR no longer lights on every keyboard scan',
+      'SAM Coupé: external RAM is a 0-4MB slider rather than a separate 1MB model, and contention moved to the Display pane Accuracy setting',
     ]
   }, {
     version: '0.7.3',

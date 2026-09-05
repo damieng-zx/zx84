@@ -65,6 +65,8 @@ const CONTRIBUTIONS: Record<string, MachineUiContribution> = {
   sam: {
     HardwareSection: lazy(() =>
       import('@/machines/sam/ui/hardware-section.tsx').then(m => ({ default: m.SamHardwareSection }))),
+    LibraryBrowser: lazy(() =>
+      import('@/machines/sam/ui/LibraryBrowser.tsx').then(m => ({ default: m.SamLibraryBrowser }))),
   },
   zx8x: {
     HardwareSection: lazy(() =>
