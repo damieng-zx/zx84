@@ -12,9 +12,11 @@
  * Tape images are the Spectrum-referenced pulse formats SimCoupe also reads
  * through libspectrum: TAP, TZX and CSW. Snapshots are not fitted.
  *
- * Everything arrives through `gunzipped()` first, because a SAM image is very
- * often a gzip stream wearing a `.dsk` name — that is how ZXDB ships its whole
- * SAM library, and SimCoupe reads any stream through zlib for the same reason.
+ * Everything arrives through `unwrapped()` first, because a SAM image very
+ * often is not the thing its name claims. `.dsk` files in the wild turn out to
+ * be gzip streams (ZXDB's whole SAM library) or ZIP archives with the real
+ * image inside, sometimes both. SimCoupe reads any stream through zlib and
+ * opens archives the same way, so a file it loads must load here too.
  */
 
 import type {
@@ -26,25 +28,62 @@ import { parseCSW } from '@/media/tape/csw.ts';
 import type { SamMachine } from '../sam-machine.ts';
 import { isSad, parseSamMedia, type SamDiskService } from './disks.ts';
 import type { SamTapeService } from './tape.ts';
+import { unzip } from '@/media/zip.ts';
 
 const DISK_EXT = /\.(mgt|img|dsk|sad|hfe|scp)$/i;
 const TAPE_EXT = /\.(tap|tzx|csw)$/i;
 
 function fail(message: string): MountResult { return { ok: false, message }; }
 
-/**
- * Transparently expand a gzip stream.
- *
- * A SAM disk is routed by content, and a compressed one matches nothing: it is
- * not an HFE, not an SCP, not 819,200 bytes. So this runs before any sniffing,
- * on disks and tapes alike — the file keeps its `.dsk`/`.mgt` name either way,
- * so only the bytes change.
- */
-async function gunzipped(data: Uint8Array): Promise<Uint8Array> {
-  if (data.length < 2 || data[0] !== 0x1F || data[1] !== 0x8B) return data;
+/** ZIP local-file-header signature ("PK", 0x03, 0x04). */
+function isZip(d: Uint8Array): boolean {
+  return d.length > 4 && d[0] === 0x50 && d[1] === 0x4B && d[2] === 0x03 && d[3] === 0x04;
+}
+
+/** gzip magic. */
+function isGzip(d: Uint8Array): boolean {
+  return d.length > 2 && d[0] === 0x1F && d[1] === 0x8B;
+}
+
+async function gunzip(data: Uint8Array): Promise<Uint8Array> {
   const stream = new Blob([data as unknown as BlobPart]).stream()
     .pipeThrough(new DecompressionStream('gzip'));
   return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+/**
+ * Peel the wrappers off a SAM image, and report the name of what was inside.
+ *
+ * A SAM disk is routed by content, and a wrapped one matches nothing: it is
+ * not an HFE, not an SCP, not 819,200 bytes. Both wrappers are common enough
+ * that neither can be treated as a curiosity:
+ *
+ *   - gzip wearing a `.dsk` name — every disk in ZXDB's SAM library;
+ *   - a ZIP archive wearing a `.dsk` name, holding the real image. The shell
+ *     unwraps archives by EXTENSION, so one called `.dsk` sails straight past
+ *     it and arrives here still packed.
+ *
+ * They nest, so the ZIP is opened first and its contents checked for gzip.
+ * The inner name is returned because it, not the outer one, says what the
+ * bytes are — an archive may perfectly well be `game.dsk` holding `game.mgt`.
+ */
+async function unwrapped(
+  data: Uint8Array,
+  filename: string,
+): Promise<{ data: Uint8Array; filename: string }> {
+  let out = data;
+  let name = filename;
+  if (isZip(out)) {
+    const entries = await unzip(out);
+    if (entries.length === 0) throw new Error('no loadable file inside');
+    // Several entries is unusual here (the shell's picker handles the archives
+    // that announce themselves); prefer one this machine can actually mount.
+    const pick = entries.find(e => DISK_EXT.test(e.name) || TAPE_EXT.test(e.name)) ?? entries[0];
+    out = pick.data;
+    name = pick.name;
+  }
+  if (isGzip(out)) out = await gunzip(out);
+  return { data: out, filename: name };
 }
 
 export class SamMediaService implements MediaService {
@@ -59,8 +98,8 @@ export class SamMediaService implements MediaService {
       { ext: '.mgt', target: 'a' },
       { ext: '.img', target: 'a' },
       { ext: '.dsk', target: 'a' },
-      { ext: '.hfe', target: '1' },
-      { ext: '.scp', target: '1' },
+      { ext: '.hfe', target: 'a' },
+      { ext: '.scp', target: 'a' },
       { ext: '.tap', target: 'tape' },
       { ext: '.tzx', target: 'tape' },
       { ext: '.csw', target: 'tape' },
@@ -69,14 +108,15 @@ export class SamMediaService implements MediaService {
 
   async mount(
     rawData: Uint8Array,
-    filename: string,
+    rawName: string,
     target?: MediaTargetId,
   ): Promise<MountResult> {
     let data: Uint8Array;
+    let filename: string;
     try {
-      data = await gunzipped(rawData);
+      ({ data, filename } = await unwrapped(rawData, rawName));
     } catch (e) {
-      return fail(`Could not expand ${filename}: ${(e as Error).message}`);
+      return fail(`Could not expand ${rawName}: ${(e as Error).message}`);
     }
 
     // Cassette images: the same pulse-level formats the Spectrum uses, with

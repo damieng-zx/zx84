@@ -17,7 +17,7 @@ const CHANGELOG: { version: string; items: string[] }[] = [
       'SAM Coupé: light-pen registers, fixing the ragged right edge on raster-split borders',
       'SAM Coupé: the boot screen colour bands now clear when you drop into BASIC',
       'SAM Coupé software library from ZXDB, with genre and format filtering and native .ssx/.ss4/.scr screenshots',
-      'SAM Coupé: gzipped disk and tape images now mount, as SimCoupe does',
+      'SAM Coupé: gzipped and zipped disk images now mount whatever they are named, as SimCoupe does',
       'SAM Coupé: disk images in a DSK container now mount instead of being refused as Amstrad disks',
       'SAM Coupé: mounted disks show in the Drives pane, and the library Play button boots them',
       'SAM Coupé: screen OCR is reachable from the TEXT indicator, and EAR no longer lights on every keyboard scan',

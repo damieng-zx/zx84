@@ -167,6 +167,35 @@ describe('mounting what the library actually downloads', () => {
   // for the same reason. Without this the whole catalog is unmountable.
   const mgt = serializeMgt(blankMgtDisk(), 'mgt');
 
+  /** A one-entry ZIP holding `payload`, stored (method 0) so the fixture is
+   *  readable — `unzip` accepts stored and deflated alike. */
+  function zipOf(name: string, payload: Uint8Array): Uint8Array {
+    const nameBytes = new TextEncoder().encode(name);
+    const out = new Uint8Array(30 + nameBytes.length + payload.length
+      + 46 + nameBytes.length + 22);
+    const view = new DataView(out.buffer);
+    let at = 0;
+    const u32 = (v: number) => { view.setUint32(at, v, true); at += 4; };
+    const u16 = (v: number) => { view.setUint16(at, v, true); at += 2; };
+
+    u32(0x04034b50); u16(20); u16(0); u16(0); u16(0); u16(0);   // local header
+    u32(0); u32(payload.length); u32(payload.length);
+    u16(nameBytes.length); u16(0);
+    out.set(nameBytes, at); at += nameBytes.length;
+    out.set(payload, at); at += payload.length;
+
+    const central = at;
+    u32(0x02014b50); u16(20); u16(20); u16(0); u16(0); u16(0); u16(0);
+    u32(0); u32(payload.length); u32(payload.length);
+    u16(nameBytes.length); u16(0); u16(0); u16(0); u16(0); u32(0); u32(0);
+    out.set(nameBytes, at); at += nameBytes.length;
+
+    const end = at;
+    u32(0x06054b50); u16(0); u16(0); u16(1); u16(1);
+    u32(end - central); u32(central); u16(0);
+    return out.subarray(0, at);
+  }
+
   it('expands a gzipped disk image and mounts it', async () => {
     const machine = new SamMachine('sam512', null);
     const gz = new Uint8Array(gzipSync(Buffer.from(mgt)));
@@ -184,6 +213,36 @@ describe('mounting what the library actually downloads', () => {
     const machine = new SamMachine('sam512', null);
     const result = await machine.services.media.mount(mgt, 'Astroball.mgt');
     expect(result.ok).toBe(true);
+    machine.destroy();
+  });
+
+  it('opens a ZIP archive wearing a .dsk name', async () => {
+    // The shell unwraps archives by extension, so one called .dsk sails past
+    // it and arrives here still packed. SimCoupe opens these, so we must.
+    const machine = new SamMachine('sam512', null);
+    const result = await machine.services.media.mount(
+      zipOf('CaptainComic.dsk', mgt), 'CaptainComic.dsk');
+    expect(result.ok).toBe(true);
+    expect(machine.services.disks!.image('a')).not.toBeNull();
+    machine.destroy();
+  });
+
+  it('unwraps a gzip nested inside a ZIP, and takes the inner name', async () => {
+    const machine = new SamMachine('sam512', null);
+    const inner = new Uint8Array(gzipSync(Buffer.from(mgt)));
+    const result = await machine.services.media.mount(
+      zipOf('Game.mgt', inner), 'Game.dsk');
+    expect(result.ok).toBe(true);
+    expect(machine.services.disks!.drives[0].mediaName).toBe('Game.mgt');
+    machine.destroy();
+  });
+
+  it('reports an archive with nothing loadable in it', async () => {
+    const machine = new SamMachine('sam512', null);
+    const result = await machine.services.media.mount(
+      zipOf('readme.txt', new Uint8Array(16)), 'Game.dsk');
+    expect(result.ok).toBe(false);
+    expect(result.message).toMatch(/no loadable file/);
     machine.destroy();
   });
 
