@@ -11,7 +11,11 @@ function VarRow(props: { v: BasicVariable }) {
       <span class="var-name">{props.v.name}</span>
       <Switch>
         <Match when={props.v.kind === 'string'}>{' = "'}{props.v.value}{'"'}</Match>
-        <Match when={props.v.kind === 'array'}>{' '}<span style={{ color: '#888' }}>[array]</span></Match>
+        {/* A parser that can read the elements puts them in `detail`; one that
+            only knows the shape leaves it out and the marker stands in. */}
+        <Match when={props.v.kind === 'array'}>
+          {' '}<span style={{ color: '#888' }}>{props.v.detail || '[array]'}</span>
+        </Match>
         <Match when={props.v.kind === 'for-next'}>
           {' = '}{props.v.value}{' '}<span style={{ color: '#888' }}>{props.v.detail}</span>
         </Match>

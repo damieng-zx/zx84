@@ -77,7 +77,6 @@ function Detail(props: { game: Zx8xGame }) {
 export function Zx8xLibraryBrowser() {
   const [catalog, setCatalog] = createSignal<RawZx8xCatalog | null>(null);
   const [query, setQuery] = createSignal('');
-  const [loading, setLoading] = createSignal(true);
   const [error, setError] = createSignal('');
   const [loadingGame, setLoadingGame] = createSignal<Zx8xGame | null>(null);
   const [selected, setSelected] = createSignal<Zx8xGame | null>(null);
@@ -88,7 +87,6 @@ export function Zx8xLibraryBrowser() {
   onMount(async () => {
     try { setCatalog(await fetchZx8xCatalog()); }
     catch { setError('Could not load the ZX80/ZX81 software catalog.'); }
-    finally { setLoading(false); }
   });
 
   const games = createMemo(() => {
@@ -386,7 +384,6 @@ export function Zx8xLibraryBrowser() {
         </Show>
       </div>
       <Show when={error()}><div class="library-status library-error">{error()}</div></Show>
-      <Show when={loading()}><div class="library-status">Loading catalog…</div></Show>
       <Show when={catalog() && isActive()}>
         <div class="library-list">
           <For each={filtered()} fallback={<div class="library-status">No matches.</div>}>

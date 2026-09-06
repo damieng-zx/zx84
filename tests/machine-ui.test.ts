@@ -46,6 +46,7 @@ describe('machine-ui manifest', () => {
 
     expect(isLazyLoader(machineUi('msx').Keyboard)).toBe(true);
 
+
     expect(isLazyLoader(machineUi('zx8x').HardwareSection)).toBe(true);
     expect(isLazyLoader(machineUi('zx8x').LibraryBrowser)).toBe(true);
   });

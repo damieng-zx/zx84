@@ -1665,8 +1665,10 @@ describe('input wrappers (spectrum present)', () => {
   });
 
   it('updateMousePosition routes kempston vs amx', () => {
+    // Host deltas arrive raw; the Kempston mouse counts Y upwards, so the
+    // machine's own routing inverts it (the capture pane no longer does).
     emulator.updateMousePosition(1, 2, 'kempston');
-    expect(lastSpectrumStub!.kempstonMouse.updatePosition).toHaveBeenCalledWith(1, 2);
+    expect(lastSpectrumStub!.kempstonMouse.updatePosition).toHaveBeenCalledWith(1, -2);
     emulator.updateMousePosition(3, 4, 'amx');
     expect(lastSpectrumStub!.amxMouse.queueMovement).toHaveBeenCalledWith(3, 4);
     // null mode is a no-op

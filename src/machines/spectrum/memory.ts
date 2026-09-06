@@ -540,6 +540,10 @@ export class SpectrumMemory implements IMachineMemory {
     return this._ramBanks[n];
   }
 
+  /** Eight 16K banks, on every model — a 48K machine simply never pages the
+   *  ones its ULA cannot see. */
+  get ramBankCount(): number { return this._ramBanks.length; }
+
   /**
    * Load raw 48K RAM (49152 bytes) into banks 5, 2, 0 and update slots.
    * Used by snapshot loaders.

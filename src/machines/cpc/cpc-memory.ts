@@ -356,6 +356,9 @@ export class CpcMemory implements IMachineMemory {
     return this.ram[n] ?? this.ram[0];
   }
 
+  /** 64K models have four banks, 128K models eight, and so on. */
+  get ramBankCount(): number { return this.ram.length; }
+
   /** Lower (OS) ROM image — live 16KB view, for the debug/memory viewer. */
   getLowerRom(): Uint8Array {
     return this.lowerRom;

@@ -37,7 +37,9 @@ export class SpectrumInputService implements InputService {
       this.s.amxMouse.enabled = mode === 'amx';
     },
     motion: (dx, dy, mode) => {
-      if (mode === 'kempston') this.s.kempstonMouse.updatePosition(dx, dy);
+      // The Kempston mouse counts Y upwards, the AMX downwards — the sign
+      // belongs to the interface, not to the capture pane that feeds it.
+      if (mode === 'kempston') this.s.kempstonMouse.updatePosition(dx, -dy);
       else if (mode === 'amx') this.s.amxMouse.queueMovement(dx, dy);
     },
     button: (index, pressed, mode) => {

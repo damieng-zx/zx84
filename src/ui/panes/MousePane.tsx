@@ -1,4 +1,4 @@
-import { createSignal, onCleanup, Show } from 'solid-js';
+import { createSignal, For, onCleanup, Show } from 'solid-js';
 import { Pane } from '@/ui/components/Pane.tsx';
 import { setMouseMode, updateMousePosition, setMouseButton, type MouseMode } from '@/shell/media.ts';
 import { machineCaps } from '@/state/machine-caps.ts';
@@ -10,8 +10,9 @@ export function MousePane() {
 
   function onMouseMove(e: MouseEvent) {
     if (!activeMode) return;
-    const dy = activeMode === 'kempston' ? -e.movementY : e.movementY;
-    updateMousePosition(e.movementX, dy, activeMode);
+    // Raw host deltas: which way up an interface counts its Y is machine
+    // hardware, and each machine's `mice.motion` applies its own sign.
+    updateMousePosition(e.movementX, e.movementY, activeMode);
   }
 
   function onMouseDown(e: MouseEvent) {
@@ -65,18 +66,17 @@ export function MousePane() {
   }
 
   return (
-    <Pane id="mouse-panel" label="Mouse" visible={machineCaps().mouse}>
+    <Pane id="mouse-panel" label="Mouse" visible={machineCaps().mouseTypes.length > 0}>
       <div class="mouse-pane">
         <Show
           when={captured()}
           fallback={<>
             <div class="mouse-controls">
-              <button class="mouse-capture-btn" onClick={() => capture('kempston')}>
-                Kempston
-              </button>
-              <button class="mouse-capture-btn" onClick={() => capture('amx')}>
-                AMX
-              </button>
+              <For each={machineCaps().mouseTypes}>{(m) => (
+                <button class="mouse-capture-btn" onClick={() => capture(m.id)}>
+                  {m.label}
+                </button>
+              )}</For>
             </div>
             <Show when={hint()}>
               <div class="mouse-hint">{hint()}</div>
@@ -84,7 +84,7 @@ export function MousePane() {
           </>}
         >
           <div class="mouse-captured">
-            {captured() === 'kempston' ? 'Kempston' : 'AMX'} mouse captured<br />
+            {machineCaps().mouseTypes.find(m => m.id === captured())?.label ?? 'Mouse'} captured<br />
             press <b>ESC</b> to release
           </div>
         </Show>

@@ -28,12 +28,16 @@ function cpcUi(model: MachineModel): MachineUiCapabilities {
     builtinDisk: cpcHasDisk(model),
     joystick: true,
     fixedJoystick: true,
-    mouse: true,
+    mouseTypes: [
+      { id: 'kempston', label: 'Kempston' },
+      { id: 'amx', label: 'AMX' },
+    ],
     cartridge: cpcIsPlusClass(model),
     systemRomSlot: !cpcIsPlusClass(model),
     systemRomLabel: 'ROM',
     romPages: 0,
     beeper: false,
+    psgControls: ['stereo', 'filter', 'dc-block'],
     statusLeds: cpcStatusLeds(model),
     keyboardBus: 'ppi',
     // The GX4000 console has no cassette — drop the tape pane. Other CPC

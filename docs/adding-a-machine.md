@@ -55,8 +55,15 @@ reactive state — the MCP/Node/test builds import it). Provide:
 
 Fill in `descriptor.ui` (`MachineUiCapabilities`) honestly — those flags are how
 the generic panes adapt (`builtinDisk`, `cartridge`, `tape: 'deck' | 'instant'`,
-`colorMap`, `romPages`, `memoryRegions`, `hiddenPanes`, …). No pane should ever
-need to learn your `kind`.
+`colorMap`, `romPages`, `memoryRegions`, `hiddenPanes`, `mouseTypes`,
+`statusLeds`, …). No pane should ever need to learn your `kind`.
+
+A capability is a promise the machine has to keep, and
+`tests/machine-capabilities.test.ts` holds you to the ones that can be checked
+mechanically — every registered model at once. Declaring `mouseTypes` without
+an `InputService.mice` to route them, or a `statusLeds` entry your frame probe
+never drives, gives a pane that looks broken rather than absent; that test is
+what stops it shipping.
 
 ### 3. `services/` — the surface everything above binds to
 

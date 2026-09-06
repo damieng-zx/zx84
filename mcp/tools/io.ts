@@ -107,9 +107,10 @@ export function register(server: McpServer): void {
     { description: 'Type text through the active machine keyboard. Letters, digits, spaces, and backtick-delimited control names work on ZX80/ZX81; printable-symbol chords use Spectrum mappings.', inputSchema: { text: z.string().describe('Text to type, e.g. "LOAD \\"\\"`enter`" or "10 PRINT `shift`2`enter`"') } },
     async ({ text: str }) => {
       const spec = state.spec;
-      // Character-intent keyboards (MTX) map a typed character onto their own
-      // key layout, so we send the literal character rather than resolving a
-      // Spectrum symbol-shift chord that would land on the wrong MTX key.
+      // Character-intent keyboards map a typed character onto their own key
+      // layout, so we send the literal character rather than resolving a
+      // Spectrum symbol-shift chord that would land on the wrong key. The MTX
+      // has always worked this way.
       const charIntent = spec.kind === 'mtx';
 
       // Parse the string into actions: either code-based key names, or (for

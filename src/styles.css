@@ -399,7 +399,7 @@ body.msx-mode .section-label::after {
 
 .pane .slider-row { color: #333; }
 .pane .slider-row .slider-label { color: #555; }
-.pane .slider-row .slider-value { color: #555; }
+.slider-row .slider-value { color: #555; }
 .pane input[type="range"] { background: #ccc; }
 
 .pane--mono {
@@ -3280,3 +3280,4 @@ input[type="range"]::-moz-range-thumb {
 .hx10-key--space .hx10-key__main {
   display: none;
 }
+

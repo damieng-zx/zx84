@@ -135,7 +135,7 @@ function main(): void {
   const db = new DatabaseSync(DB_FILE, { readOnly: true });
 
   // Pre-flight: show the machine types we're matching so the operator can sanity
-  // check the LIKE filter (ZXDB has many Spectrum variants plus ZX80/81/SAM/etc).
+  // check the LIKE filter (ZXDB has many Spectrum variants plus ZX80/81/etc).
   const machines = db.prepare('SELECT text FROM machinetypes WHERE text LIKE ? ORDER BY id').all(MACHINE_LIKE) as { text: string }[];
   console.log(`machinetypes matching "${MACHINE_LIKE}": ${machines.map(m => m.text).join(', ') || '(none!)'}`);
 

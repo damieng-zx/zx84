@@ -27,7 +27,8 @@ export type EinsteinOcrGrid = '42x24';
 export type MsxOcrGrid = '40x24' | '32x24';
 
 /** Any grid label an OCR producer can stamp onto an OcrResult. */
-export type OcrGridName = SpectrumOcrGrid | CpcOcrGrid | EinsteinOcrGrid | MsxOcrGrid;
+export type OcrGridName =
+  SpectrumOcrGrid | CpcOcrGrid | EinsteinOcrGrid | MsxOcrGrid;
 
 /** A font source for OCR matching.
  *  `data` is always 768 bytes (96 chars × 8 bytes). For non-8-wide cells only

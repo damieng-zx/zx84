@@ -200,6 +200,7 @@ const _msxColorMap = /*@once*/ createRoot(() => createSignal(getSaved('msx-color
 export const msxColorMap = _msxColorMap[0];
 export const setMsxColorMap = _msxColorMap[1];
 
+
 const _einsteinColorMap = /*@once*/ createRoot(() => createSignal(getSaved('einstein-color-map', D('einstein-color-map')) as 'mame' | 'accurate' | 'naive'));
 export const einsteinColorMap = _einsteinColorMap[0];
 export const setEinsteinColorMap = _einsteinColorMap[1];
@@ -397,6 +398,8 @@ export const setMultifaceEnabled = _multifaceEnabled[1];
 const _cpcParados = /*@once*/ createRoot(() => createSignal(getSaved('cpc-parados', D('cpc-parados')) === 'on'));
 export const cpcParados = _cpcParados[0];
 export const setCpcParados = _cpcParados[1];
+
+/** Megabytes fitted to the external megabyte interface, 0-4. 0 = not fitted. */
 
 const _einsteinXtalDos = /*@once*/ createRoot(() => createSignal(getSaved('einstein-xtaldos', D('einstein-xtaldos')) === 'on'));
 export const einsteinXtalDos = _einsteinXtalDos[0];

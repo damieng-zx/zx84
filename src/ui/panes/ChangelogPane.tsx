@@ -12,6 +12,9 @@ const CHANGELOG: { version: string; items: string[] }[] = [
       'Generic memory layout pane and unified ROM catalog',
       'Panes menu organized into groups',
       'Hide accuracy options on machines that do not use them',
+      'Sound pane offers only the PSG options a machine actually reads',
+      'Mounted disks are restored after a page reload through each machine\'s own media routing',
+      'Mouse pane lists the interfaces the running machine actually has, instead of always offering Kempston and AMX',
     ]
   }, {
     version: '0.7.3',

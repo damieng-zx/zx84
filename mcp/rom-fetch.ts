@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { entryForModel } from '../src/machines/registry.ts';
 import type { MachineModel } from '../src/models.ts';
-import { resolveRomSource } from '../src/managers/rom-manager.ts';
+import { resolveRomSource, unwrapRomArchive } from '../src/managers/rom-manager.ts';
 import {
   BETADISK_ROM, IF1_ROM, PLUSD_ROM, VTX5000_ROM,
 } from '../src/machines/spectrum/aux-roms.ts';
@@ -14,13 +14,13 @@ async function fetchCached(source: string): Promise<Uint8Array> {
   const url = resolveRomSource(source);
   const filename = path.basename(new URL(url).pathname);
   const cachePath = path.join(CACHE_DIR, filename);
-  if (fs.existsSync(cachePath)) return new Uint8Array(fs.readFileSync(cachePath));
+  if (fs.existsSync(cachePath)) return unwrapRomArchive(new Uint8Array(fs.readFileSync(cachePath)), filename);
   const resp = await fetch(url);
   if (!resp.ok) throw new Error(`HTTP ${resp.status} fetching ${filename}`);
   const data = new Uint8Array(await resp.arrayBuffer());
   fs.mkdirSync(CACHE_DIR, { recursive: true });
   fs.writeFileSync(cachePath, data);
-  return data;
+  return unwrapRomArchive(data, filename);
 }
 
 export async function fetchROM(model: MachineModel): Promise<Uint8Array> {

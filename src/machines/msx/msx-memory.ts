@@ -194,6 +194,9 @@ export class MsxMemory implements IMachineMemory {
     return this.ram.subarray(base, base + PAGE_SIZE);
   }
 
+  /** A flat 64K of RAM in slot 2, presented as four 16K banks. */
+  readonly ramBankCount = 4;
+
   /** Fresh 64KB copy of the underlying RAM (slot 2), regardless of current
    *  slot paging — where a running program keeps its code/data. */
   ramSnapshot(): Uint8Array {
