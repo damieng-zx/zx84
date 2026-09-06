@@ -3407,19 +3407,27 @@ input[type="range"]::-moz-range-thumb {
  * carries a `\`, and it is printed like the `/ −` and `* +` caps beside it —
  * symbol at the top, legend along the bottom. Centring it put the two out of
  * step with each other on the same row.
+ *
+ * RETURN is excluded by name. It is a word cap with no symbol, so it matched
+ * this rule — and `:not(:has(…))` counts the specificity of its argument, so
+ * the rule outranked RETURN's own below and centred the legend in the whole
+ * L. That drops it across the join between the foot and the narrow upper part,
+ * where the notch clips its corner off.
  */
-.sam-key--word:not(:has(.sam-key__top)),
+.sam-key--word:not(:has(.sam-key__top)):not(.sam-key--return),
 .sam-key--up, .sam-key--down, .sam-key--left, .sam-key--right,
 .sam-key--period-keypad {
   justify-content: center;
   padding-bottom: 0;
 }
 
-/* RETURN's legend sits in the foot of the L, not the middle of the box. */
+/* RETURN's legend sits in the foot of the L, not the middle of the box: the
+   middle is the notched joint, and half of it would be cut away. Bottom
+   padding centres it on the foot, whose height is one cap. */
 .sam-key--return {
   align-items: flex-end;
   justify-content: flex-end;
-  padding: 0 calc(var(--sam-u) * 8) calc(var(--sam-u) * 10) 0;
+  padding: 0 calc(var(--sam-u) * 8) calc(var(--sam-u) * 14) 0;
 }
 /* The spacebar has no legend at all. */
 .sam-key--space .sam-key__main { display: none; }
