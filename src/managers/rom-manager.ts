@@ -79,6 +79,10 @@ function defaultRomLabel(key: string): string {
   if (model === 'hx-10') return 'Toshiba HX-10 (MSX BASIC 1.0)';
   if (model === 'zx80') return 'Sinclair ZX80 BASIC';
   if (model === 'zx81') return 'Sinclair ZX81 BASIC';
+  // Both SAM models run the same 32K EPROM, so the label names the ROM rather
+  // than the machine — "SAM512" told you which model you had picked, not which
+  // firmware was in it.
+  if (model === 'sam256' || model === 'sam512') return 'SAM 3.0 PLC';
   return `${key.toUpperCase()} (default)`;
 }
 

@@ -177,6 +177,17 @@ describe('ROMManager.persistROM / restoreROM', () => {
     expect(got?.isCustom).toBe(false);
   });
 
+  it('names the SAM ROM rather than the model that runs it', async () => {
+    // Both SAM models run the same 32K EPROM, so "SAM512" named the machine
+    // you picked rather than the firmware in it.
+    for (const key of ['sam256', 'sam512']) {
+      idb.set(`rom-${key}`, new Uint8Array([0xFF]));
+      const got = await new ROMManager().restoreROM(key);
+      expect(got?.label).toBe('SAM 3.0 PLC');
+      expect(got?.isCustom).toBe(false);
+    }
+  });
+
   it('restoreROM discards a stale default-shaped label and recomputes it fresh', async () => {
     // A label persisted by an older naming scheme (e.g. "16K (default)" before
     // 16K/48K were renamed to "Sinclair BASIC") must not survive — it's not a
