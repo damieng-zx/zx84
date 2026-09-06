@@ -26,7 +26,7 @@ const EINSTEIN_UI: MachineUiCapabilities = {
   builtinDisk: true,
   joystick: false,
   fixedJoystick: false,
-  mouse: false,
+  mouseTypes: [],
   cartridge: false,
   systemRomLabel: 'ROM',
   romPages: 0,

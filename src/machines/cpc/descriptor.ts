@@ -28,7 +28,10 @@ function cpcUi(model: MachineModel): MachineUiCapabilities {
     builtinDisk: cpcHasDisk(model),
     joystick: true,
     fixedJoystick: true,
-    mouse: true,
+    mouseTypes: [
+      { id: 'kempston', label: 'Kempston' },
+      { id: 'amx', label: 'AMX' },
+    ],
     cartridge: cpcIsPlusClass(model),
     systemRomSlot: !cpcIsPlusClass(model),
     systemRomLabel: 'ROM',

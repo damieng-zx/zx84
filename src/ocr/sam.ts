@@ -27,8 +27,14 @@
  * pixel indices do not.
  */
 
-/** Page and offset of SAM BASIC's font table, indexed by character code. */
-export const SAM_FONT_PAGE = 0;
+/**
+ * Power-on offset of SAM BASIC's font table within the system page.
+ *
+ * CHARS (0x5C36) points 256 bytes below CHR$ 0, and at power-on holds 0x5090 —
+ * this offset in the system page's 0x4000 window. The live value is followed
+ * instead, so a program that repoints the character set still transcribes;
+ * this is only the fallback for a CHARS that points somewhere unreachable.
+ */
 export const SAM_FONT_OFFSET = 0x1090;
 
 /** Glyph cell size, and the extra scanline of leading between text rows. */
@@ -120,7 +126,13 @@ export function samFontMap(font: Uint8Array): Map<string, string> | null {
   return distinct >= 40 ? map : null;
 }
 
-/** Maximal runs of scanlines carrying ink, used to find the text rows. */
+/**
+ * Maximal runs of scanlines carrying ink, used to find the text rows.
+ *
+ * Segmenting rather than stepping a fixed grid is what picks up the status
+ * line: SAM BASIC pins it to the bottom of the screen at y=183, which is not a
+ * multiple of the 9-pixel row pitch the upper window uses.
+ */
 function inkBands(read: PixelReader, width: number, paper: number, height: number): number[] {
   const rows: number[] = [];
   let runStart = -1;
@@ -159,6 +171,109 @@ export interface SamOcrResult {
 }
 
 /**
+ * Rows the TEXT overlay lays out over the 192-line display.
+ *
+ * The pitch is 9 — an 8-pixel glyph plus one of leading — so 21 whole rows
+ * fit. Transcription itself finds its rows by segmenting ink (see `inkBands`);
+ * this is only the grid the overlay's blank rows are counted against, so that
+ * a gap in the picture stays a gap in the text laid over it.
+ */
+export const SAM_TEXT_ROWS = 21;
+
+/** A cell-by-cell reading of the screen, before it is turned into text, HTML
+ *  or a blanking mask. Coordinates are in DISPLAY pixels (256 or 512 across),
+ *  not frame-buffer pixels — the caller scales. */
+export interface SamOcrCells {
+  /** Character columns (32 in modes 1/2/4, 64 in mode 3). */
+  readonly cols: number;
+  readonly rows: number;
+  /** Display-space width the cells were read from. */
+  readonly width: number;
+  /** Display y of each row's top scanline. */
+  readonly rowTops: readonly number[];
+  /** `cols*rows` transcribed characters; a space where nothing was inked. */
+  readonly chars: readonly string[];
+  /** `cols*rows` — true where a glyph was matched (and so may be blanked). */
+  readonly mask: boolean[];
+  /** Display-space sample of an inked pixel in each matched cell, or -1. */
+  readonly inkX: Int16Array;
+  readonly inkY: Int16Array;
+  /** Display-space sample of a paper pixel in each matched cell, or -1. */
+  readonly paperX: Int16Array;
+  readonly paperY: Int16Array;
+}
+
+/**
+ * Read the screen cell by cell.
+ *
+ * The colour of a cell is deliberately NOT decided here. Modes 1 and 2 carry
+ * their colours in an attribute area this reader never sees, and in every mode
+ * the ROM's wallpaper rewrites a palette entry mid-scanline, so the only
+ * honest answer to "what colour is this glyph" is the one already on the
+ * screen. Each matched cell therefore reports where to LOOK — one inked pixel
+ * and one paper pixel — and the caller samples its own frame buffer.
+ */
+export function samScreenCells(
+  vram: (offset: number) => number,
+  mode: 1 | 2 | 3 | 4,
+  font: Uint8Array,
+  height = 192,
+): SamOcrCells | null {
+  const map = samFontMap(font);
+  if (!map) return null;
+
+  const { read, width } = samPixelReader(vram, mode);
+  const paper = paperIndex(read, width, height);
+  const cols = Math.floor(width / CELL_W);
+  const rowTops = inkBands(read, width, paper, height);
+  const rows = rowTops.length;
+  const count = cols * rows;
+
+  const chars: string[] = new Array(count).fill(' ');
+  const mask: boolean[] = new Array(count).fill(false);
+  const inkX = new Int16Array(count).fill(-1);
+  const inkY = new Int16Array(count).fill(-1);
+  const paperX = new Int16Array(count).fill(-1);
+  const paperY = new Int16Array(count).fill(-1);
+
+  const glyph = new Uint8Array(CELL_H);
+  for (let row = 0; row < rows; row++) {
+    const top = rowTops[row];
+    for (let col = 0; col < cols; col++) {
+      const idx = row * cols + col;
+      const x0 = col * CELL_W;
+      let blank = true;
+      let ix = -1, iy = -1, px = -1, py = -1;
+      for (let r = 0; r < CELL_H; r++) {
+        let bits = 0;
+        for (let b = 0; b < CELL_W; b++) {
+          const x = x0 + b;
+          const y = top + r;
+          const on = read(x, y) !== paper;
+          bits = (bits << 1) | (on ? 1 : 0);
+          if (on) { if (ix < 0) { ix = x; iy = y; } } else if (px < 0) { px = x; py = y; }
+        }
+        glyph[r] = bits;
+        if (bits !== 0) blank = false;
+      }
+      if (blank) continue;
+      const ch = map.get(key(glyph));
+      chars[idx] = ch ?? '?';
+      // Only a recognised glyph is blanked out from under the overlay: an
+      // unmatched cell is graphics, and punching a hole in it would hide
+      // picture the overlay is not replacing.
+      if (ch !== undefined) {
+        mask[idx] = true;
+        inkX[idx] = ix; inkY[idx] = iy;
+        paperX[idx] = px; paperY[idx] = py;
+      }
+    }
+  }
+
+  return { cols, rows, width, rowTops, chars, mask, inkX, inkY, paperX, paperY };
+}
+
+/**
  * Transcribe the screen.
  *
  * `font` is the 8-bytes-per-character table, indexed by character code —
@@ -170,33 +285,14 @@ export function samScreenText(
   font: Uint8Array,
   height = 192,
 ): SamOcrResult | null {
-  const map = samFontMap(font);
-  if (!map) return null;
-
-  const { read, width } = samPixelReader(vram, mode);
-  const paper = paperIndex(read, width, height);
-  const cols = Math.floor(width / CELL_W);
+  const cells = samScreenCells(vram, mode, font, height);
+  if (!cells) return null;
 
   const lines: string[] = [];
-  for (const top of inkBands(read, width, paper, height)) {
-    let line = '';
-    for (let col = 0; col < cols; col++) {
-      const g = new Uint8Array(CELL_H);
-      let blank = true;
-      for (let r = 0; r < CELL_H; r++) {
-        let bits = 0;
-        for (let b = 0; b < CELL_W; b++) {
-          const on = read(col * CELL_W + b, top + r) !== paper;
-          bits = (bits << 1) | (on ? 1 : 0);
-        }
-        g[r] = bits;
-        if (bits !== 0) blank = false;
-      }
-      line += blank ? ' ' : (map.get(key(g)) ?? '?');
-    }
-    const trimmed = line.replace(/\s+$/, '');
-    if (trimmed) lines.push(trimmed);
+  for (let row = 0; row < cells.rows; row++) {
+    const from = row * cells.cols;
+    const line = cells.chars.slice(from, from + cells.cols).join('').replace(/\s+$/, '');
+    if (line) lines.push(line);
   }
-
   return { lines, text: lines.join('\n') };
 }

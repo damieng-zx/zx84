@@ -95,6 +95,7 @@ const DEFAULTS = {
   'betadisk':       'off',
   'einstein-xtaldos': 'on',
   'sam-external-ram':  '0',
+  'sam-mouse':      'on',
   'mtx-cpm':        'off',
   'mtx-80-column':  'off',
   'mtx-512k-ram':   'off',
@@ -409,6 +410,12 @@ const _samExternalRam = /*@once*/ createRoot(() => createSignal(getSavedNumber('
 export const samExternalRam = _samExternalRam[0];
 export const setSamExternalRam = _samExternalRam[1];
 
+/** MGT mouse plugged into the SAM's DIN port. It shares the keyboard port, so
+ *  an empty socket is a different read from a still mouse. */
+const _samMouse = /*@once*/ createRoot(() => createSignal(getSaved('sam-mouse', D('sam-mouse')) === 'on'));
+export const samMouse = _samMouse[0];
+export const setSamMouse = _samMouse[1];
+
 const _einsteinXtalDos = /*@once*/ createRoot(() => createSignal(getSaved('einstein-xtaldos', D('einstein-xtaldos')) === 'on'));
 export const einsteinXtalDos = _einsteinXtalDos[0];
 export const setEinsteinXtalDos = _einsteinXtalDos[1];
@@ -572,6 +579,7 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'interface1',     set: setInterface1Enabled, type: 'bool' },
     { key: 'einstein-xtaldos', set: setEinsteinXtalDos, type: 'bool' },
     { key: 'sam-external-ram', set: setSamExternalRam,  type: 'number' },
+    { key: 'sam-mouse',      set: setSamMouse,        type: 'bool' },
     { key: 'mtx-cpm', set: setMtxCpm, type: 'bool' },
     { key: 'mtx-80-column', set: setMtx80Column, type: 'bool' },
     { key: 'mtx-512k-ram', set: setMtx512kRam, type: 'bool' },

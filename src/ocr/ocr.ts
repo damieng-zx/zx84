@@ -26,8 +26,13 @@ export type EinsteinOcrGrid = '42x24';
 /** MSX text grids — SCREEN 0 is 40×24; SCREEN 1 is 32×24. */
 export type MsxOcrGrid = '40x24' | '32x24';
 
+/** SAM text grids. Rows are 9 pixels apart, so 21 fit the 192-line display;
+ *  the column count is the screen mode's (mode 3 is 512 pixels wide). */
+export type SamOcrGrid = '32x21' | '64x21';
+
 /** Any grid label an OCR producer can stamp onto an OcrResult. */
-export type OcrGridName = SpectrumOcrGrid | CpcOcrGrid | EinsteinOcrGrid | MsxOcrGrid;
+export type OcrGridName =
+  SpectrumOcrGrid | CpcOcrGrid | EinsteinOcrGrid | MsxOcrGrid | SamOcrGrid;
 
 /** A font source for OCR matching.
  *  `data` is always 768 bytes (96 chars × 8 bytes). For non-8-wide cells only

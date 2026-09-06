@@ -152,6 +152,8 @@ export class MtxMemory implements IMachineMemory {
     return this.ramBanks[n];
   }
 
+  get ramBankCount(): number { return this.ramBanks.length; }
+
   ramSnapshot(): Uint8Array {
     const out = new Uint8Array(this.ramBanks.length * BLOCK_SIZE);
     for (let i = 0; i < this.ramBanks.length; i++) out.set(this.ramBanks[i], i * BLOCK_SIZE);

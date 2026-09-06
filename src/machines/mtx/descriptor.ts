@@ -20,7 +20,7 @@ const MTX_UI: MachineUiCapabilities = {
   builtinDisk: true,
   joystick: true,
   fixedJoystick: true,
-  mouse: false,
+  mouseTypes: [],
   cartridge: true,
   systemRomLabel: 'OS + BASIC + ASSEM + CP/M + FDX ROMs',
   romPages: 0,

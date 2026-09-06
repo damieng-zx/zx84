@@ -22,13 +22,17 @@ import type {
   BorderMode, Machine, MachineDescriptor, MachineHost, MachineKind,
   MachineTraceMode, SettingsView,
 } from '@/machines/machine.ts';
-import type { OcrGridName } from '@/ocr/ocr.ts';
-import { samScreenText, SAM_FONT_PAGE, SAM_FONT_OFFSET } from '@/ocr/sam.ts';
+import type { OcrGridName, SamOcrGrid } from '@/ocr/ocr.ts';
+import {
+  samScreenCells, samScreenText, SAM_FONT_OFFSET, SAM_TEXT_ROWS,
+  type SamOcrCells,
+} from '@/ocr/sam.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
 import { SamMemory } from './sam-memory.ts';
 import { SamAsic } from './asic.ts';
 import { SamKeyboard } from './sam-keyboard.ts';
 import { SamJoystick } from './sam-joystick.ts';
+import { SamMouse } from './sam-mouse.ts';
 import { SamContention } from './contention.ts';
 import { SamDiskInterface } from './peripherals/sam-disk.ts';
 import { createSamConfig, samRamLabel, type SamConfig } from './config.ts';
@@ -38,12 +42,13 @@ import { createSamServices, type SamServices } from './services/index.ts';
 import { installSamMemoryHooks, wireSamPortIO } from './sam-io.ts';
 import {
   SAM_BOOT_KEY_FRAMES,
-  SAM_BORDER_LEFT, SAM_BORDER_TOP, SAM_CPU_CLOCK, SAM_LINES_PER_FRAME,
-  SAM_SAA_CLOCK,
+  SAM_BORDER_LEFT, SAM_BORDER_TOP, SAM_CPU_CLOCK, SAM_DISPLAY_WIDTH,
+  SAM_LINES_PER_FRAME, SAM_PAGE_SIZE, SAM_SAA_CLOCK,
   SAM_PALETTES, SAM_SCREEN_HEIGHT, SAM_SCREEN_WIDTH,
   SAM_T_PER_FRAME, SAM_T_PER_LINE,
   type SamColorMap,
 } from './constants.ts';
+import { SAM_CHARS_ADDR, SAM_SYSVAR_PAGE, SAM_SYSVAR_WINDOW } from './sysvars.ts';
 
 export class SamMachine extends BaseMachine implements Machine {
   protected get audioChip(): SAA1099 { return this.psg; }
@@ -61,6 +66,8 @@ export class SamMachine extends BaseMachine implements Machine {
   readonly asic: SamAsic;
   readonly keyboard = new SamKeyboard();
   readonly joystick = new SamJoystick();
+  /** MGT mouse on the 8-pin DIN port, read through `IN A,(&FFFE)`. */
+  readonly mouse = new SamMouse();
   /** The ASIC's RAM slot quantiser (see contention.ts). */
   readonly contention = new SamContention();
   readonly psg: SAA1099;
@@ -84,7 +91,7 @@ export class SamMachine extends BaseMachine implements Machine {
   /** Per-frame I/O activity, mapped onto the status-bar LEDs by the probe. */
   readonly activity = {
     kbdReads: 0, joystickReads: 0, beeperWrites: 0, psgWrites: 0,
-    fdcAccesses: 0, tapeReads: 0,
+    fdcAccesses: 0, tapeReads: 0, mouseReads: 0,
   };
 
   /** RGBA frame buffer plus a Uint32 view for fast ASIC writes. */
@@ -138,6 +145,16 @@ export class SamMachine extends BaseMachine implements Machine {
   readKeyboardHigh(rowSelect: number): number { return this.keyboard.readHigh(rowSelect); }
   /** Kempston joystick on port 0x1F. */
   readKempston(): number { return this.joystick.read(); }
+
+  /** MGT mouse, ANDed into the keyboard bits of `IN A,(&FFFE)` (RDMSEL). */
+  readMouse(tStates: number): number {
+    if (!this.mouse.enabled) return 0xFF;
+    const value = this.mouse.read(tStates);
+    // Only a read that continues a report counts as activity — see
+    // `SamMouse.sequential` for why the ROM's idle poll must not light the LED.
+    if (this.mouse.sequential) this.activity.mouseReads++;
+    return value;
+  }
 
   /** T-state the deck was last advanced to. */
   private tapeLastAdvanceT = 0;
@@ -194,6 +211,10 @@ export class SamMachine extends BaseMachine implements Machine {
     this.memory.setExternalPages(
       samExternalPages(view.get('sam-external-ram', 0)),
     );
+    // The MGT mouse shares the keyboard port, so an unplugged one is not the
+    // same as a still one: with nothing in the socket `IN A,(&FFFE)` reads as
+    // bare keyboard. The toggle is that socket.
+    this.mouse.enabled = view.get('sam-mouse', true);
     // The Drive pane's per-drive write-protect, shared with every other
     // machine that has built-in floppies.
     this.disk.setWriteProtect(0, view.get('write-protect-a', false));
@@ -257,6 +278,7 @@ export class SamMachine extends BaseMachine implements Machine {
     this.asic.reset();
     this.keyboard.reset();
     this.joystick.reset();
+    this.mouse.reset();
     this.psg.reset();
     this.disk.reset();
     this.tape.stopPlayback();
@@ -317,7 +339,7 @@ export class SamMachine extends BaseMachine implements Machine {
     const skipAudio = this.speedMultiplier !== 1;
     const a = this.activity;
     a.kbdReads = 0; a.joystickReads = 0; a.beeperWrites = 0;
-    a.psgWrites = 0; a.fdcAccesses = 0; a.tapeReads = 0;
+    a.psgWrites = 0; a.fdcAccesses = 0; a.tapeReads = 0; a.mouseReads = 0;
 
     asic.beginFrame();
     this.tapeLastAdvanceT = cpu.tStates;
@@ -411,19 +433,165 @@ export class SamMachine extends BaseMachine implements Machine {
    * `src/ocr/sam.ts` for the layout details, all measured rather than assumed.
    */
   ocrScreenForMcp(_mode: OcrGridName | 'auto' = 'auto'): string {
+    const result = samScreenText(this.ocrVram(), this.memory.videoMode, this.ocrFont());
+    if (!result) return SAM_OCR_UNAVAILABLE;
+    return `[${samGrid(this.memory.videoMode)}]\n${result.text}`;
+  }
+
+  /** Reader over the 24K display window the ASIC is currently fetching. */
+  private ocrVram(): (off: number) => number {
     const base = this.memory.videoBasePage;
     const pageA = this.memory.videoPage(base);
     const pageB = this.memory.videoPage(base + 1);
-    const vram = (off: number) => (off < 0x4000 ? pageA[off] : pageB[off - 0x4000]);
-
-    const fontPage = this.memory.getRamBank(SAM_FONT_PAGE);
-    const font = fontPage.subarray(SAM_FONT_OFFSET, SAM_FONT_OFFSET + 128 * 8);
-
-    const result = samScreenText(vram, this.memory.videoMode, font);
-    if (!result) {
-      return '[sam] OCR unavailable: no usable font table at the expected '
-        + 'address, so the screen cannot be transcribed.';
-    }
-    return result.text;
+    return (off: number) => (off < 0x4000 ? pageA[off] : pageB[off - 0x4000]);
   }
+
+  /**
+   * SAM BASIC's live character set.
+   *
+   * Taken from CHARS (SVAR &36, at 0x5C36 in the system page) rather than the
+   * fixed 0x5090 so a program that repoints the character set is still
+   * transcribed. CHARS points 256 bytes below CHR$ 0's definition, exactly as
+   * the Spectrum's does, and the pointer is a plain 16-bit address in the
+   * system page's own window at 0x4000.
+   */
+  private ocrFont(): Uint8Array {
+    const page = this.memory.getRamBank(SAM_SYSVAR_PAGE);
+    const lo = page[SAM_CHARS_ADDR - SAM_SYSVAR_WINDOW];
+    const hi = page[SAM_CHARS_ADDR - SAM_SYSVAR_WINDOW + 1];
+    const chars = (hi << 8) | lo;
+    // Fall back to the power-on address when CHARS points outside this page —
+    // a screen font living elsewhere is not something we can follow.
+    const offset = chars >= SAM_SYSVAR_WINDOW && chars < SAM_SYSVAR_WINDOW + SAM_PAGE_SIZE - 0x400
+      ? chars - SAM_SYSVAR_WINDOW
+      : SAM_FONT_OFFSET;
+    return page.subarray(offset, offset + 128 * 8);
+  }
+
+  /**
+   * Screen OCR for the TEXT overlay: the same transcription, plus the colours
+   * and cell rectangles the overlay needs.
+   *
+   * Colour is sampled from the RENDERED frame buffer rather than derived from
+   * the CLUT. Modes 1 and 2 keep their colours in an attribute area the OCR
+   * reader never touches, and in every mode the ROM's wallpaper rewrites a
+   * palette entry mid-scanline — so the only answer that matches what the user
+   * is looking at is the pixel that is already on screen.
+   */
+  ocrScreenStyled(): SamStyledOcr {
+    const mode = this.memory.videoMode;
+    const cells = samScreenCells(this.ocrVram(), mode, this.ocrFont());
+    if (!cells) {
+      return { text: '', html: '', grid: samGrid(mode), cells: null };
+    }
+
+    // Slot each detected row into the overlay's fixed 9-pixel grid so a blank
+    // band on screen stays a blank line in the overlay, instead of every line
+    // below it sliding up.
+    const rowOf = new Array<number>(cells.rows);
+    const taken = new Set<number>();
+    for (let r = 0; r < cells.rows; r++) {
+      let slot = Math.min(SAM_TEXT_ROWS - 1, Math.round(cells.rowTops[r] / 9));
+      while (slot < SAM_TEXT_ROWS - 1 && taken.has(slot)) slot++;
+      taken.add(slot);
+      rowOf[r] = slot;
+    }
+
+    const lines: string[] = new Array(SAM_TEXT_ROWS).fill('');
+    const htmlRows: string[] = new Array(SAM_TEXT_ROWS).fill('');
+    for (let r = 0; r < cells.rows; r++) {
+      let text = '';
+      let html = '';
+      let openHex = '';
+      for (let col = 0; col < cells.cols; col++) {
+        const idx = r * cells.cols + col;
+        const ch = cells.chars[idx];
+        text += ch;
+        if (ch === ' ') {
+          if (openHex) { html += '</span>'; openHex = ''; }
+          html += ' ';
+          continue;
+        }
+        const hex = this.pixelHex(cells.width, cells.inkX[idx], cells.inkY[idx]);
+        if (hex !== openHex) {
+          if (openHex) html += '</span>';
+          html += `<span style="color:${hex}">`;
+          openHex = hex;
+        }
+        html += ch === '<' ? '&lt;' : ch === '>' ? '&gt;' : ch === '&' ? '&amp;' : ch;
+      }
+      if (openHex) html += '</span>';
+      lines[rowOf[r]] = text.replace(/\s+$/, '');
+      htmlRows[rowOf[r]] = html;
+    }
+
+    return {
+      text: lines.join('\n').replace(/\n+$/, ''),
+      html: htmlRows.join('\n'),
+      grid: samGrid(mode),
+      cells,
+    };
+  }
+
+  /** CSS colour of the frame-buffer pixel under a display-space coordinate. */
+  private pixelHex(displayWidth: number, x: number, y: number): string {
+    if (x < 0 || y < 0) return '#ffffff';
+    const abgr = this._pixels32[this.bufferIndex(displayWidth, x, y)];
+    const r = abgr & 0xFF, g = (abgr >>> 8) & 0xFF, b = (abgr >>> 16) & 0xFF;
+    return '#' + ((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1);
+  }
+
+  /** Display-space (x,y) → index into the full-border frame buffer. */
+  private bufferIndex(displayWidth: number, x: number, y: number): number {
+    const scale = SAM_DISPLAY_WIDTH / displayWidth;
+    const bx = SAM_BORDER_LEFT + Math.round(x * scale);
+    const by = SAM_BORDER_TOP + y;
+    return by * SAM_SCREEN_WIDTH + bx;
+  }
+
+  /**
+   * Clear every transcribed cell to its own paper colour, so the overlay's
+   * text sits on a clean background instead of over the pixels it duplicates.
+   * Unmatched cells are left alone — those are graphics the overlay is not
+   * replacing.
+   */
+  blankCells(cells: SamOcrCells): void {
+    const scale = SAM_DISPLAY_WIDTH / cells.width;
+    const cellW = Math.round(8 * scale);
+    for (let r = 0; r < cells.rows; r++) {
+      const top = SAM_BORDER_TOP + cells.rowTops[r];
+      for (let col = 0; col < cells.cols; col++) {
+        const idx = r * cells.cols + col;
+        if (!cells.mask[idx]) continue;
+        const px = cells.paperX[idx];
+        const fill = px < 0
+          ? 0xFF000000
+          : this._pixels32[this.bufferIndex(cells.width, px, cells.paperY[idx])];
+        const x0 = SAM_BORDER_LEFT + Math.round(col * 8 * scale);
+        for (let y = 0; y < 8; y++) {
+          const base = (top + y) * SAM_SCREEN_WIDTH + x0;
+          this._pixels32.fill(fill, base, base + cellW);
+        }
+      }
+    }
+  }
+}
+
+/** Text grid label for a screen mode — mode 3 is 512 pixels across. */
+function samGrid(mode: 1 | 2 | 3 | 4): SamOcrGrid {
+  return mode === 3 ? '64x21' : '32x21';
+}
+
+/** Why OCR could not run. Shared by the MCP tool and the TEXT overlay. */
+export const SAM_OCR_UNAVAILABLE =
+  '[sam] OCR unavailable: no usable font table at the expected address, '
+  + 'so the screen cannot be transcribed.';
+
+/** Styled transcription: overlay text/HTML plus the cells to blank under it. */
+export interface SamStyledOcr {
+  readonly text: string;
+  readonly html: string;
+  readonly grid: SamOcrGrid;
+  /** null when no font was found and nothing was transcribed. */
+  readonly cells: SamOcrCells | null;
 }

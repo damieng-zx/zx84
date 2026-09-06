@@ -118,6 +118,17 @@ export class ROMManager {
     }
     if (!data) return null;
 
+    // A zipped image may have been cached before `fetchDefaultROM` learned to
+    // unwrap them, and a stale cache entry would otherwise brick that machine
+    // for good — the fetch path it needs is never reached, because there IS a
+    // stored ROM. Raw images are untouched: only PK-signed bytes take this
+    // branch.
+    try {
+      data = await unwrapRomArchive(data, key);
+    } catch {
+      return null;   // unusable archive: fall back to a fresh download
+    }
+
     // A stored label is only trusted when it's a real user-chosen custom name
     // (see setSystemRom). Anything shaped like a computed default label —
     // including stale text from an older naming scheme, e.g. "16K (default)"

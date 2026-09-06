@@ -105,6 +105,9 @@ export class EinsteinMemory implements IMachineMemory {
     return this.ram.subarray(base, base + 0x4000);
   }
 
+  /** A flat 64K of RAM, presented as four 16K banks. */
+  readonly ramBankCount = 4;
+
   reset(): void {
     this.ram.fill(0);
     this.romEnabled = true;

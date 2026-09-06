@@ -21,7 +21,13 @@ const CHANGELOG: { version: string; items: string[] }[] = [
       'SAM Coupé: disk images in a DSK container now mount instead of being refused as Amstrad disks',
       'SAM Coupé: mounted disks show in the Drives pane, and the library Play button boots them',
       'SAM Coupé: screen OCR is reachable from the TEXT indicator, and EAR no longer lights on every keyboard scan',
+      'SAM Coupé: the TEXT overlay now transcribes the screen in colour, following CHARS so a redefined character set still reads back',
+      'SAM Coupé: BASIC Listing and BASIC Variables panes, reading SAM BASIC\'s own tokens, page/offset pointers and letter-indexed variable chains',
+      'SAM Coupé: System Variables pane',
+      'SAM Coupé: MGT mouse on the DIN port, with a Hardware-pane toggle',
+      'SAM Coupé: RAINBOW now reports palette changes made while the display is drawn, instead of staying lit for the ROM\'s once-a-frame palette reload during blanking',
       'SAM Coupé: external RAM is a 0-4MB slider rather than a separate 1MB model, and contention moved to the Display pane Accuracy setting',
+      'Mouse pane lists the interfaces the running machine actually has, instead of always offering Kempston and AMX',
     ]
   }, {
     version: '0.7.3',

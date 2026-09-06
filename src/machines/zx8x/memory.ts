@@ -194,6 +194,9 @@ export class Zx8xMemory implements IMachineMemory {
     return this.ram.length === 0x4000 ? this.ram : this.ram.slice();
   }
 
+  /** One bank: the ZX80/81 has a single unpaged block of RAM. */
+  readonly ramBankCount = 1;
+
   ramSnapshot(): Uint8Array { return this.ram.slice(); }
 
   reset(): void {

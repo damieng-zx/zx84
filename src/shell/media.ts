@@ -292,15 +292,13 @@ export async function saveSnapshot(format: 'z80' | 'szx' = 'szx'): Promise<void>
 
   const wasPaused = emulationPaused();
   if (!wasPaused) machine.stop();
+  const model = currentModel() as SpectrumModel;
+  const filename = `zx84-${model.replace('+', 'plus')}.${format}`;
   try {
-    const model = currentModel() as SpectrumModel;
-    const data = await snapshots.save(format);
-    const filename = `zx84-${model.replace('+', 'plus')}.${format}`;
-    downloadFile(data, filename);
+    downloadFile(await snapshots.save(format), filename);
   } finally {
     if (!wasPaused) machine.start();
   }
-  const filename = `zx84-${currentModel().replace('+', 'plus')}.${format}`;
   setStatus(`Saved ${filename}`);
 }
 
@@ -793,7 +791,8 @@ export function joyPressForType(dir: string, pressed: boolean, mode: string, pla
   machine?.services.input.joystick?.press(dir, pressed, mode, player);
 }
 
-export type MouseMode = 'kempston' | 'amx' | null;
+/** The id of the captured mouse interface, from `ui.mouseTypes`, or null. */
+export type MouseMode = string | null;
 
 export function setMouseMode(mode: MouseMode): void {
   machine?.services.input.mice?.setMode(mode);

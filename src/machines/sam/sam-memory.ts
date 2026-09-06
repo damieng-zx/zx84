@@ -32,6 +32,7 @@
  *    RAM would make every SAM report a megabyte.
  */
 
+import type { SamPageReader } from '@/basic/sam-basic-parser.ts';
 import type { IMachineMemory } from '@/machines/machine.ts';
 import type { SamConfig } from './config.ts';
 import {
@@ -335,6 +336,27 @@ export class SamMemory implements IMachineMemory {
 
   getRamBank(n: number): Uint8Array {
     return this.ram[n] ?? this.ram[0];
+  }
+
+  /** Sixteen internal pages on a 256K machine, thirty-two on a 512K. External
+   *  megabyte-interface pages are reached through `externalPage`, not here. */
+  get ramBankCount(): number { return this.cfg.internalPages; }
+
+  /**
+   * A reader over PHYSICAL pages, for the tools that follow SAM BASIC's
+   * page/offset pointers.
+   *
+   * BASIC's own pointers name a page and an offset within it, and the program
+   * runs on past the end of one page into the next. Reading it through the
+   * CPU's 64K view would mean re-paging the machine underneath a debugger
+   * pane, so those readers work in page space instead. A page number past the
+   * fitted RAM reads as 0xFF — open bus, the same answer the CPU gets.
+   */
+  pageReader(): SamPageReader {
+    return (page, offset) => {
+      const bank = this.ram[page];
+      return bank ? bank[offset & (SAM_PAGE_SIZE - 1)] : 0xFF;
+    };
   }
 
   /** How many internal 16K pages this model has fitted. */

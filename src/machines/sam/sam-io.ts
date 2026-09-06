@@ -189,7 +189,13 @@ export function wireSamPortIO(m: SamMachine): void {
         // Bits 0-4 keyboard, 5 light pen, 6 cassette EAR, 7 screen-off latch.
         // No light pen is fitted, so bit 5 reads CLEAR — see BORDER_SPEN for
         // why returning it set breaks the ROM's raster sync.
-        const keys = m.readKeyboardLow(port >> 8) & BORDER_KEY_MASK;
+        let keys = m.readKeyboardLow(port >> 8) & BORDER_KEY_MASK;
+        // RDMSEL: with every address line above A7 high no keyboard row is
+        // selected, and the mouse interface answers on the same five bits.
+        // It is ANDed in, exactly as the two devices share the bus.
+        if ((port >> 8) === 0xFF) {
+          keys &= m.readMouse(cpu.tStates) & BORDER_KEY_MASK;
+        }
         const ear = m.earBit ? BORDER_EAR : 0;
         const soff = m.screenOff ? BORDER_SOFF : 0;
         return keys | ear | soff;

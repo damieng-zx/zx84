@@ -20,9 +20,9 @@ import {
 } from './constants.ts';
 
 const SAM_UI: MachineUiCapabilities = {
-  // No microdrives, no mouse (yet), no Sinclair sysvars, and the font pane's
-  // ROM-capture heuristic is Spectrum-specific.
-  hiddenPanes: ['microdrive-panel', 'mouse-panel', 'sysvar-panel', 'font-panel'],
+  // No microdrives, and the font pane's ROM-capture heuristic is
+  // Spectrum-specific (the SAM keeps its character set in RAM).
+  hiddenPanes: ['microdrive-panel', 'font-panel'],
   memoryLayout: true,
   trace: false,
   colorMap: 'sam',
@@ -32,7 +32,9 @@ const SAM_UI: MachineUiCapabilities = {
   builtinDisk: true,
   joystick: true,
   fixedJoystick: true,
-  mouse: false,
+  // The MGT mouse on the DIN port, read through the keyboard port. One
+  // interface, so the pane offers a single capture button.
+  mouseTypes: [{ id: 'sam', label: 'SAM Mouse' }],
   cartridge: false,
   systemRomLabel: 'SAM ROM',
   // The two 16K halves are one physical EPROM, never independently overridden.
@@ -44,7 +46,7 @@ const SAM_UI: MachineUiCapabilities = {
   psgControls: [],
   // 'text' is not only an indicator: it is the button that toggles screen
   // OCR, so leaving it out hides the feature entirely.
-  statusLeds: ['kbd', 'kemp', 'ear', 'load', 'dsk', 'beep', 'psg', 'rainbow', 'text'],
+  statusLeds: ['kbd', 'kemp', 'mouse', 'ear', 'load', 'dsk', 'beep', 'psg', 'rainbow', 'text'],
   keyboardBus: 'ula',
   tape: 'deck',
   tapeSound: false,

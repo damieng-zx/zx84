@@ -41,7 +41,10 @@ function spectrumUi(model: MachineModel): MachineUiCapabilities {
     builtinDisk: isPlus3(model),
     joystick: true,
     fixedJoystick: false,
-    mouse: true,
+    mouseTypes: [
+      { id: 'kempston', label: 'Kempston' },
+      { id: 'amx', label: 'AMX' },
+    ],
     cartridge: isInterface2Capable(model),
     systemRomLabel: 'ROM',
     romPages: romPageSlotCount(model),

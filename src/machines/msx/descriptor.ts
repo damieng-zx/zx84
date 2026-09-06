@@ -21,7 +21,7 @@ const MSX_UI: MachineUiCapabilities = {
   builtinDisk: false,
   joystick: true,
   fixedJoystick: true,
-  mouse: false,
+  mouseTypes: [],
   cartridge: true,
   systemRomLabel: 'System ROM',
   romPages: 0,

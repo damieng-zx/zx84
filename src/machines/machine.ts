@@ -58,6 +58,14 @@ export interface IMachineMemory extends ByteReader {
   snapshot(): Uint8Array;
   /** A specific 16KB physical RAM bank as a live view. */
   getRamBank(n: number): Uint8Array;
+  /** How many physical RAM banks `getRamBank` addresses.
+   *
+   *  Eight on a 128K Spectrum, four on an MSX, up to thirty-two on a 512K SAM.
+   *  Declared because every implementation coerces an out-of-range index to
+   *  *something* — hosts that let a user name a bank (the MCP memory tools)
+   *  need to know the real count so they can refuse rather than silently dump
+   *  the wrong bank. */
+  readonly ramBankCount: number;
   reset(): void;
 }
 
@@ -237,8 +245,11 @@ export type MemoryMapFlag = 'screen' | 'active';
  *  tips, signals) lives in `ui/components/status-leds.ts`; only the id union is
  *  declared here so machine descriptors stay headless-safe. A machine lists the
  *  ids it exposes via `MachineUiCapabilities.statusLeds`. */
-export type StatusLedId =
-  | 'kbd' | 'kemp' | 'mouse' | 'ear' | 'load' | 'dsk' | 'text' | 'rainbow' | 'beep' | 'ay' | 'psg';
+export const STATUS_LED_IDS = [
+  'kbd', 'kemp', 'mouse', 'ear', 'load', 'dsk', 'text', 'rainbow', 'beep', 'ay', 'psg',
+] as const;
+
+export type StatusLedId = typeof STATUS_LED_IDS[number];
 
 /**
  * Per-model UI capability flags, declared by each machine's descriptor. The
@@ -251,6 +262,13 @@ export type StatusLedId =
  */
 /** A Sound-pane PSG-shaping control — see `MachineUiCapabilities.psgControls`. */
 export type PsgControl = 'stereo' | 'filter' | 'dc-block';
+
+/** One mouse interface a machine offers — see `MachineUiCapabilities.mouseTypes`.
+ *  `id` is the mode string passed back through `InputService.mice`. */
+export interface MouseTypeInfo {
+  readonly id: string;
+  readonly label: string;
+}
 
 export interface MachineUiCapabilities {
   /** Pane ids removed from the sidebar entirely for this machine. */
@@ -276,8 +294,15 @@ export interface MachineUiCapabilities {
   readonly joystick: boolean;
   /** Joystick presents a single fixed interface (no type selector; F2 shown). */
   readonly fixedJoystick: boolean;
-  /** Mouse pane applies. */
-  readonly mouse: boolean;
+  /**
+   * Mouse interfaces this machine can drive, in the order the Mouse pane
+   * offers them; empty means no mouse pane.
+   *
+   * The ids are the same strings the machine's `InputService.mice` switches
+   * on, so declaring one it cannot drive gives a capture button that does
+   * nothing — this list and that switch are two halves of one contract.
+   */
+  readonly mouseTypes: readonly MouseTypeInfo[];
   /** Cartridge slot present (MSX slot / ZX Interface 2). */
   readonly cartridge: boolean;
   /** Label for the system-ROM slot in the ROM pane. */
@@ -756,13 +781,14 @@ export interface MouseSink {
 /** Host input delivery. Each machine maps host events onto its own keyboard
  *  matrix / joystick / mouse hardware — replacing the shell's per-machine
  *  dispatch ladder. */
-/** Mode-aware mouse routing (machines with both a Kempston and an AMX mouse).
- *  The pane owns which mode is active and passes it per event, exactly as the
- *  old shell helpers did. */
+/** Mode-aware mouse routing. The pane owns which interface is captured and
+ *  passes its id (one of `MachineUiCapabilities.mouseTypes`) per event; a
+ *  machine with a single mouse ignores it. Host deltas arrive raw — a machine
+ *  applies its own Y sign here, since that is hardware, not capture policy. */
 export interface MouseInput {
-  setMode(mode: 'kempston' | 'amx' | null): void;
-  motion(dx: number, dy: number, mode: 'kempston' | 'amx' | null): void;
-  button(index: number, pressed: boolean, mode: 'kempston' | 'amx' | null): void;
+  setMode(mode: string | null): void;
+  motion(dx: number, dy: number, mode: string | null): void;
+  button(index: number, pressed: boolean, mode: string | null): void;
 }
 
 /** Joystick delivery: direction/fire press mapped onto the machine's own

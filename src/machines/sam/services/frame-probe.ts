@@ -12,7 +12,10 @@
 
 import type {
   FrameIndicators, FramePaneProvider, FrameProbe, MemoryMapSlot, MemoryMapSnapshot,
+  TranscribeDriver,
 } from '@/machines/machine.ts';
+import type { OcrGridName } from '@/ocr/ocr.ts';
+import { parseSamBasic, parseSamBasicVariables } from '@/basic/sam-basic-parser.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import type { SamMachine } from '../sam-machine.ts';
 import type { SamSectionSource } from '../sam-memory.ts';
@@ -69,11 +72,51 @@ function samMemoryMap(m: SamMachine): MemoryMapSnapshot {
   };
 }
 
+/**
+ * TEXT-overlay driver.
+ *
+ * There is no state to activate: the SAM's transcription reads display memory
+ * afresh every frame, so turning the overlay on and off is only a matter of
+ * whether the bridge calls `run()`. The flag exists so the bridge can tell
+ * whether it still needs to deactivate.
+ */
+class SamTranscribeDriver implements TranscribeDriver {
+  private on = false;
+  constructor(private readonly m: SamMachine) {}
+
+  get active(): boolean { return this.on; }
+  activate(): void { this.on = true; }
+
+  deactivate(): void {
+    this.on = false;
+    // The blanked cells were painted into the frame buffer, so the picture
+    // underneath only comes back once the ASIC redraws it.
+    this.m.requestRedraw();
+  }
+
+  run(): { text: string; html: string; grid: OcrGridName } {
+    const m = this.m;
+    const result = m.ocrScreenStyled();
+    if (result.cells) {
+      m.blankCells(result.cells);
+      m.display?.updateTexture(m.pixels);
+    }
+    return { text: result.text, html: result.html, grid: result.grid };
+  }
+}
+
 export class SamFrameProbe implements FrameProbe {
   readonly panes: FramePaneProvider;
+  readonly transcribe: SamTranscribeDriver;
 
   constructor(private readonly m: SamMachine) {
-    this.panes = { memoryMap: () => samMemoryMap(m) };
+    this.transcribe = new SamTranscribeDriver(m);
+    this.panes = {
+      memoryMap: () => samMemoryMap(m),
+      hasSysvars: true,
+      basicListing: () => parseSamBasic(m.memory.pageReader()),
+      basicVars: () => parseSamBasicVariables(m.memory.pageReader()),
+    };
   }
 
   sample(out: FrameIndicators): void {
@@ -81,7 +124,7 @@ export class SamFrameProbe implements FrameProbe {
 
     out.keyboard = a.kbdReads;
     out.joystick = a.joystickReads;
-    out.mouse = 0;
+    out.mouse = a.mouseReads;
     out.tapeIn = a.tapeReads;
     out.tapeLoad = 0;
     out.beeper = a.beeperWrites;

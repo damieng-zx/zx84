@@ -20,7 +20,7 @@ const UI: MachineUiCapabilities = {
   builtinDisk: false,
   joystick: false,
   fixedJoystick: false,
-  mouse: false,
+  mouseTypes: [],
   cartridge: false,
   systemRomLabel: 'ROM',
   romPages: 0,
