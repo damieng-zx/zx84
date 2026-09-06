@@ -38,6 +38,7 @@ import { SamDiskInterface } from './peripherals/sam-disk.ts';
 import { createSamConfig, samRamLabel, type SamConfig } from './config.ts';
 import { samExternalPages, type SamModel } from './models.ts';
 import { samDescriptor } from './descriptor.ts';
+import { trapSamTapeLoad, SAM_TAPE_TRAP_PC } from './tape-loader.ts';
 import { createSamServices, type SamServices } from './services/index.ts';
 import { installSamMemoryHooks, wireSamPortIO } from './sam-io.ts';
 import {
@@ -92,6 +93,9 @@ export class SamMachine extends BaseMachine implements Machine {
   readonly activity = {
     kbdReads: 0, joystickReads: 0, beeperToggles: 0, psgWrites: 0,
     fdcAccesses: 0, tapeReads: 0, mouseReads: 0,
+    /** Times the ROM's cassette loader was entered. Drives the LOAD LED and
+     *  the "Fast ROM loading" announcement, exactly as on the Spectrum. */
+    tapeLoads: 0,
   };
 
   /** RGBA frame buffer plus a Uint32 view for fast ASIC writes. */
@@ -160,6 +164,44 @@ export class SamMachine extends BaseMachine implements Machine {
   /** T-state the deck was last advanced to. */
   private tapeLastAdvanceT = 0;
 
+  /** Instant tape loading through the ROM trap (Tape pane's "Fast ROM
+   *  loading"). Off, the real edge loop runs and a tape takes as long as it
+   *  did in 1990. */
+  tapeFastRom = true;
+
+  /**
+   * Run the machine flat out while a tape is being read (Tape pane's "Turbo
+   * while loading").
+   *
+   * The ROM trap only accelerates the ROM's own blocks. Most SAM tapes use
+   * them for a short bootstrap and then hand over to a custom turbo loader,
+   * which has to be executed for real — so without this the headline load is
+   * still a real-time one, however well the trap did on the first two blocks.
+   * Turbo runs that real code faster rather than faking it.
+   */
+  tapeTurbo = true;
+  private _tapeTurboActive = false;
+  private _tapeTurboCooldown = 0;
+
+  /** True while tape turbo is engaged — the Tape pane's TURBO lamp. */
+  get tapeTurboActive(): boolean { return this._tapeTurboActive; }
+
+  /**
+   * Port 0xFE reads in a frame that mean "a loader is sampling the tape".
+   *
+   * Measured on the stock ROM at 6 MHz: SAM BASIC's own keyboard scan reads
+   * the port about 420 times a frame with a tape merely running, while the
+   * ROM's edge loop and the custom loaders on SAMtape 2/3 read it 2000-2400
+   * times. Anywhere between the two separates them; halfway leaves margin on
+   * both sides. A loader has to poll fast enough to resolve its own pulses,
+   * so the gap is a property of the job rather than of these tapes.
+   */
+  private static readonly TAPE_POLLS_LOADING = 1000;
+
+  /** Frames of quiet before turbo lets go, so the gap between two blocks does
+   *  not drop the machine back to 1x and then straight up again. */
+  private static readonly TAPE_TURBO_COOLDOWN = 25;
+
   /**
    * Catch the cassette up to the current T-state and latch its EAR level.
    *
@@ -222,6 +264,8 @@ export class SamMachine extends BaseMachine implements Machine {
     const mix = view.get('ay-mix', 50) / 100;
     this.mixer.beeperGain = Math.min(1, 2 * (1 - mix));
     this.mixer.psgGain = Math.min(1, 2 * mix);
+    this.tapeFastRom = view.get('tape-instant-rom', true);
+    this.tapeTurbo = view.get('tape-turbo-load', true);
     this.needsDisplay = true;
   }
 
@@ -280,6 +324,8 @@ export class SamMachine extends BaseMachine implements Machine {
     this.disk.reset();
     this.tape.stopPlayback();
     this.tapeLastAdvanceT = 0;
+    this._tapeTurboActive = false;
+    this._tapeTurboCooldown = 0;
     this.beeperBit = 0;
     this.micBit = 0;
     this.audio.reset();
@@ -319,7 +365,7 @@ export class SamMachine extends BaseMachine implements Machine {
   }
 
   protected framePixels(): Uint8Array { return this._pixels; }
-  protected inTurbo(): boolean { return this.turbo; }
+  protected inTurbo(): boolean { return this.turbo || this._tapeTurboActive; }
 
   /**
    * Execute one PAL field: 312 scanlines of 384 T-states each.
@@ -333,10 +379,11 @@ export class SamMachine extends BaseMachine implements Machine {
     const asic = this.asic;
     const memory = this.memory;
     const contention = this.contention;
-    const skipAudio = this.speedMultiplier !== 1;
+    const skipAudio = this.speedMultiplier !== 1 || this._tapeTurboActive;
     const a = this.activity;
     a.kbdReads = 0; a.joystickReads = 0; a.beeperToggles = 0;
     a.psgWrites = 0; a.fdcAccesses = 0; a.tapeReads = 0; a.mouseReads = 0;
+    a.tapeLoads = 0;
 
     asic.beginFrame();
     this.tapeLastAdvanceT = cpu.tStates;
@@ -353,6 +400,33 @@ export class SamMachine extends BaseMachine implements Machine {
       while (cpu.tStates < lineEnd) {
         if (this.breakpoints.has(cpu.pc)) { this.breakpointHit = cpu.pc; broke = true; break; }
         if (this.onTrap !== null && this.onTrap(cpu.pc)) { broke = true; break; }
+
+        // The ROM's cassette loader, reached with its setup done and the
+        // device test already past — so this is a tape LOAD and not a network
+        // one (see tape-loader.ts). Gated on ROM 1 actually answering at
+        // C000, so a program with its own code at $E670 is not mistaken for
+        // the loader.
+        if (cpu.pc === SAM_TAPE_TRAP_PC && this.memory.isRom1Active()) {
+          this.activity.tapeLoads++;
+          // The deck mounts with its pause held so playback cannot race ahead
+          // of the machine; the ROM pulling on the tape is what releases it,
+          // this emulator's stand-in for pressing PLAY on the recorder. It has
+          // to happen whether or not the trap then fires: with fast loading
+          // off, and for the custom loader a tape chains after its ROM
+          // blocks, the real edge loop needs the deck actually running.
+          if (this.tape.loaded && this.tape.paused) {
+            this.tape.paused = false;
+            this.tapeLastAdvanceT = cpu.tStates;
+            if (!this.tape.playing) this.tape.startPlayback();
+          }
+          // A block the trap cannot match falls through to the real edge loop,
+          // which is what custom-speed tapes need.
+          if (this.tapeFastRom && this.tape.loaded && this.tape.hasRomBlock()
+              && trapSamTapeLoad(cpu, this.memory, this.tape)) {
+            this.tape.skipBlock();   // advance the player past the block we ate
+            continue;
+          }
+        }
 
         // Sample where this instruction is fetched from BEFORE stepping: after
         // the step `pc` is the *next* instruction's address, which may well sit
@@ -401,7 +475,44 @@ export class SamMachine extends BaseMachine implements Machine {
       this.releaseBootKey();
     }
 
+    this.updateTapeTurbo();
     this.needsDisplay = true;
+  }
+
+  /**
+   * Engage or release tape turbo for the frame just run.
+   *
+   * The test is simply how hard the tape port was hammered: a loader polls it
+   * at the pulse rate, and nothing else on the machine comes close (see
+   * TAPE_POLLS_LOADING). That covers a custom loader the same as the ROM's
+   * own edge loop, which is the point — the ROM's blocks are already instant,
+   * so turbo exists for the code the trap cannot touch.
+   *
+   * A paused deck reads zero polls, because `advanceTapeTo` only counts while
+   * the tape is genuinely running, so the user's pause releases turbo too.
+   */
+  private updateTapeTurbo(): void {
+    const loading = this.activity.tapeLoads > 0
+      || this.activity.tapeReads >= SamMachine.TAPE_POLLS_LOADING;
+    if (loading) {
+      this._tapeTurboActive = this.tapeTurbo;
+      this._tapeTurboCooldown = SamMachine.TAPE_TURBO_COOLDOWN;
+    } else if (this._tapeTurboCooldown > 0) {
+      if (--this._tapeTurboCooldown <= 0) this.releaseTapeTurbo();
+    } else if (this._tapeTurboActive) {
+      // Turbo outlived its cooldown — the tape was ejected or ran out
+      // mid-load. Let go now rather than waiting for a countdown that has
+      // already finished.
+      this.releaseTapeTurbo();
+    }
+  }
+
+  private releaseTapeTurbo(): void {
+    if (!this._tapeTurboActive) return;
+    this._tapeTurboActive = false;
+    // Frames run under turbo generate no samples, so the mixer is holding a
+    // stale accumulation that would click on the way back to 1x.
+    this.mixer.reset();
   }
 
   /** True while any interrupt source is asserted (status bits are active low). */

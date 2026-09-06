@@ -126,14 +126,14 @@ export class SamFrameProbe implements FrameProbe {
     out.joystick = a.joystickReads;
     out.mouse = a.mouseReads;
     out.tapeIn = a.tapeReads;
-    out.tapeLoad = 0;
+    out.tapeLoad = (this.m.tape.playing && !this.m.tape.paused) || a.tapeLoads > 0 ? 1 : 0;
     out.beeper = a.beeperToggles;
     out.psg = a.psgWrites > 5 ? 1 : 0;
     // Mid-frame palette and border writes are what drive the SAM's raster
     // colour effects, so they are what the "rainbow" indicator reports.
     out.videoFx = this.m.asic.midLineWrites;
     out.disk = a.fdcAccesses;
-    out.tapeTurbo = false;
+    out.tapeTurbo = this.m.tapeTurboActive;
 
     const tape = this.m.tape;
     out.tapeLoaded = tape.blocks.length > 0;
@@ -142,7 +142,12 @@ export class SamFrameProbe implements FrameProbe {
     out.tapeFinished = tape.finished;
     out.tapePosition = tape.position;
     out.casBlock = -1;
-    out.fastRomLoading = false;
+    // Same test as the Spectrum's: the deck is running and the ROM's own
+    // cassette loader has been entered this frame, so the trap is what is
+    // moving the tape along. It is what puts "Fast ROM loading" in the status
+    // bar, which is the only outward sign an instant load leaves.
+    const loadingNow = tape.blocks.length > 0 && tape.playing && !tape.paused && !tape.finished;
+    out.fastRomLoading = loadingNow && this.m.tapeFastRom && a.tapeLoads > 0;
     out.tracingActive = false;
 
     // Drive panel slots 0/1 are the two internal drives; 2/3 are absent.

@@ -11,7 +11,8 @@
 import { describe, expect, it } from 'vitest';
 import { SamMachine } from '@/machines/sam/sam-machine.ts';
 import { TAPE_REF_HZ } from '@/media/tape/tap.ts';
-import { SAM_CPU_CLOCK } from '@/machines/sam/constants.ts';
+import { LMPR_ROM1, SAM_CPU_CLOCK } from '@/machines/sam/constants.ts';
+import { SAM_TAPE_TRAP_PC } from '@/machines/sam/tape-loader.ts';
 
 function machine(): SamMachine {
   const m = new SamMachine('sam512', null);
@@ -119,6 +120,42 @@ describe('SAM cassette deck', () => {
     expect(m2.services.tape.loaded).toBe(true);
     expect(m2.services.tape.name).toBe('game.tap');
     m2.destroy();
+  });
+
+  /**
+   * The deck mounts with its pause held so playback cannot race ahead of the
+   * machine, and nothing but the ROM reaching its cassette loader releases it.
+   * Left held, a tape loads nothing at all with fast ROM loading turned off,
+   * and a custom loader chained after a tape's ROM blocks finds a stopped
+   * tape and strands itself.
+   */
+  it('releases the deck when the ROM reaches its cassette loader', async () => {
+    const m = machine();
+    await m.services.media.mount(tinyTap(), 'game.tap');
+    expect(m.tape.paused).toBe(true);
+
+    // Put the CPU on the loader with ROM 1 answering, and run the instruction.
+    m.memory.setLmpr(LMPR_ROM1);
+    m.cpu.pc = SAM_TAPE_TRAP_PC;
+    m.tapeFastRom = false;      // the release must not depend on the trap
+    m.tick();
+
+    expect(m.tape.paused).toBe(false);
+    expect(m.tape.playing).toBe(true);
+    expect(m.activity.tapeLoads).toBeGreaterThan(0);
+    m.destroy();
+  });
+
+  it('leaves the deck alone when ROM 1 is not the thing at C000', async () => {
+    // $E670 in a program's own code is not the ROM's loader.
+    const m = machine();
+    await m.services.media.mount(tinyTap(), 'game.tap');
+    m.memory.setLmpr(0);
+    m.cpu.pc = SAM_TAPE_TRAP_PC;
+    m.tick();
+    expect(m.tape.paused).toBe(true);
+    expect(m.activity.tapeLoads).toBe(0);
+    m.destroy();
   });
 
   it('has nothing to stash when no tape is mounted', () => {
@@ -233,6 +270,89 @@ describe('SAM cassette in the frame probe', () => {
     expect(out.tapePosition).toBe(0);
     // The SAM's deck is pulse-level, so the instant-cassette channel is unused.
     expect(out.casBlock).toBe(-1);
+    m.destroy();
+  });
+});
+
+/**
+ * Turbo while loading.
+ *
+ * The ROM trap only accelerates the ROM's own blocks, and most SAM tapes spend
+ * them on a short bootstrap before handing over to a custom loader that has to
+ * be executed for real. Turbo runs that code faster; without it the headline
+ * load is still a real-time one however well the trap did on the first two
+ * blocks.
+ *
+ * What engages it is simply how hard the tape port was hammered in the frame:
+ * a loader polls it at the pulse rate and nothing else on the machine gets
+ * close. These tests drive that for real — a tight `IN A,(&FE)` loop in RAM
+ * against an idle one — rather than poking the counter.
+ */
+describe('SAM tape turbo', () => {
+  /** Park a two-instruction loop at 0x8000 and point the CPU at it. */
+  function loopAt(m: SamMachine, ...bytes: number[]): void {
+    bytes.forEach((b, i) => m.memory.writeByte(0x8000 + i, b));
+    m.cpu.pc = 0x8000;
+  }
+  /** IN A,(&FE) / JR -4 — a loader sampling the tape. */
+  const POLL_LOOP = [0xDB, 0xFE, 0x18, 0xFC];
+  /** JR -2 — a program doing nothing with the tape at all. */
+  const IDLE_LOOP = [0x18, 0xFE];
+
+  async function loaded(): Promise<SamMachine> {
+    const m = machine();
+    await m.services.media.mount(tinyTap(), 'game.tap');
+    m.tape.paused = false;
+    m.tape.startPlayback();
+    return m;
+  }
+
+  it('engages while a loader is polling the tape port', async () => {
+    const m = await loaded();
+    expect(m.tapeTurboActive).toBe(false);
+    loopAt(m, ...POLL_LOOP);
+    m.tick();
+    expect(m.activity.tapeReads).toBeGreaterThan(1000);
+    expect(m.tapeTurboActive).toBe(true);
+    m.destroy();
+  });
+
+  it('lets go once the polling stops, after a cooldown', async () => {
+    const m = await loaded();
+    loopAt(m, ...POLL_LOOP);
+    m.tick();
+    expect(m.tapeTurboActive).toBe(true);
+
+    loopAt(m, ...IDLE_LOOP);
+    m.tick();
+    // Still held: the cooldown rides out the gap between two blocks rather
+    // than dropping to 1x and straight back up again.
+    expect(m.tapeTurboActive).toBe(true);
+    for (let f = 0; f < 30; f++) m.tick();
+    expect(m.tapeTurboActive).toBe(false);
+    m.destroy();
+  });
+
+  it('stays out of the way when the setting is off', async () => {
+    const m = await loaded();
+    m.tapeTurbo = false;
+    loopAt(m, ...POLL_LOOP);
+    m.tick();
+    expect(m.activity.tapeReads).toBeGreaterThan(1000);
+    expect(m.tapeTurboActive).toBe(false);
+    m.destroy();
+  });
+
+  /** A paused deck counts no polls, so the user's pause releases turbo — the
+   *  machine must not stay flat out because a program happens to read the
+   *  keyboard through the same port. */
+  it('does not engage on a paused deck', async () => {
+    const m = await loaded();
+    m.tape.paused = true;
+    loopAt(m, ...POLL_LOOP);
+    m.tick();
+    expect(m.activity.tapeReads).toBe(0);
+    expect(m.tapeTurboActive).toBe(false);
     m.destroy();
   });
 });

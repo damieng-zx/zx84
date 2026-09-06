@@ -152,6 +152,17 @@ export class SamMemory implements IMachineMemory {
     return index === 0 ? this.rom0 : this.rom1;
   }
 
+  /**
+   * True when ROM 1 is the thing answering at C000-FFFF.
+   *
+   * The tape trap needs it: an address in ROM 1 is only the ROM's tape loader
+   * while the ROM is actually there. External memory outranks ROM 1 in section
+   * D, so a megabyte interface paged in beats the LMPR bit.
+   */
+  isRom1Active(): boolean {
+    return (this.hmpr & HMPR_MCNTRL) === 0 && (this.lmpr & LMPR_ROM1) !== 0;
+  }
+
   // ── Paging ────────────────────────────────────────────────────────────────
 
   setLmpr(val: number): void { this.lmpr = val & 0xFF; this.applyPaging(); }
