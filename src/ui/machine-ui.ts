@@ -62,6 +62,16 @@ const CONTRIBUTIONS: Record<string, MachineUiContribution> = {
     HardwareSection: lazy(() =>
       import('@/machines/mtx/ui/hardware-section.tsx').then(m => ({ default: m.MtxHardwareSection }))),
   },
+  sam: {
+    HardwareSection: lazy(() =>
+      import('@/machines/sam/ui/hardware-section.tsx').then(m => ({ default: m.SamHardwareSection }))),
+    Keyboard: lazy(() =>
+      import('@/machines/sam/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
+    LibraryBrowser: lazy(() =>
+      import('@/machines/sam/ui/LibraryBrowser.tsx').then(m => ({ default: m.SamLibraryBrowser }))),
+    SysVars: lazy(() =>
+      import('@/machines/sam/ui/SysVars.tsx').then(m => ({ default: m.SamSysVars }))),
+  },
   zx8x: {
     HardwareSection: lazy(() =>
       import('@/machines/zx8x/ui/hardware-section.tsx').then(m => ({ default: m.Zx8xHardwareSection }))),
@@ -102,5 +112,10 @@ export const keyboardLabPresetLoaders: readonly KeyboardLabPresetLoader[] = [
     group: 'MSX',
     load: () => import('@/machines/msx/ui/keyboard/lab-preset.ts')
       .then((module) => module.hx10KeyboardLabPresets()),
+  },
+  {
+    group: 'MGT SAM Coupé',
+    load: () => import('@/machines/sam/ui/keyboard/lab-preset.ts')
+      .then((module) => module.samKeyboardLabPresets()),
   },
 ];

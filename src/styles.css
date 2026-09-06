@@ -399,7 +399,20 @@ body.msx-mode .section-label::after {
 
 .pane .slider-row { color: #333; }
 .pane .slider-row .slider-label { color: #555; }
-.pane .slider-row .slider-value { color: #555; }
+.pane /* The SAM's external-RAM row: "External RAM" is wider than the shared 72px
+   label column, and its values ("None", "1 MB") are short. Let the label size
+   itself and keep the select at its content width, or the label wraps onto two
+   lines and the collapsed select clips its own value. */
+.slider-row.sam-ram-row .slider-label {
+  width: auto;
+  white-space: nowrap;
+}
+
+.slider-row.sam-ram-row select {
+  flex: 0 0 auto;
+}
+
+.slider-row .slider-value { color: #555; }
 .pane input[type="range"] { background: #ccc; }
 
 .pane--mono {
@@ -3280,3 +3293,141 @@ input[type="range"]::-moz-range-thumb {
 .hx10-key--space .hx10-key__main {
   display: none;
 }
+
+/* ── MGT SAM Coupé keyboard ────────────────────────────────────────────────
+ *
+ * A cream case with two cap tones: light for the alphanumerics and function
+ * keys, a darker grey-beige for the modifiers and editing keys — the split the
+ * real machine uses. Legends are dark blue-grey, and a key's secondary symbol
+ * sits ABOVE its main one rather than beside it, as on the actual caps.
+ */
+.sam-keyboard {
+  --sam-u: var(--keyboard-scene-px);
+  overflow: hidden;
+  border: 1px solid #9b968c;
+  border-radius: calc(var(--sam-u) * 4);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.35), transparent 22%),
+    linear-gradient(180deg, #e8e3d6 0%, #ded8c9 60%, #cec7b6 100%);
+  box-shadow:
+    inset 0 calc(var(--sam-u) * 1) calc(var(--sam-u) * 4) rgba(255,255,255,0.5),
+    inset 0 calc(var(--sam-u) * -6) calc(var(--sam-u) * 14) rgba(0,0,0,0.14),
+    0 2px 5px rgba(0,0,0,0.4);
+  font-family: var(--font-ui);
+}
+
+.sam-badge {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  color: #3b4f92;
+  font-size: calc(var(--sam-u) * 11);
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: calc(var(--sam-u) * -0.5);
+}
+
+.sam-key {
+  --sam-cap-top: #efeade;
+  --sam-cap-mid: #e2dccd;
+  --sam-cap-bottom: #cbc4b2;
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* Alphanumeric legends hug the bottom of the cap; see `.sam-key__top`. */
+  justify-content: flex-end;
+  padding-bottom: calc(var(--sam-u) * 5);
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid #a8a294;
+  border-radius: calc(var(--sam-u) * 2);
+  background:
+    linear-gradient(135deg, rgba(255,255,255,0.5), transparent 24%),
+    linear-gradient(180deg,
+      var(--sam-cap-top) 0%,
+      var(--sam-cap-mid) 55%,
+      var(--sam-cap-bottom) 100%);
+  box-shadow:
+    inset calc(var(--sam-u) * 1) calc(var(--sam-u) * 1) 0 rgba(255,255,255,0.55),
+    inset calc(var(--sam-u) * -2) calc(var(--sam-u) * -3) calc(var(--sam-u) * 4) rgba(0,0,0,0.16),
+    0 calc(var(--sam-u) * 2) calc(var(--sam-u) * 2) rgba(0,0,0,0.32);
+  color: #2b2f38;
+  cursor: pointer;
+  user-select: none;
+  touch-action: none;
+  transition: filter 0.06s ease, transform 0.05s ease;
+}
+.sam-key:hover { filter: brightness(1.05); }
+.sam-key.pressed {
+  filter: brightness(0.9);
+  transform: translateY(calc(var(--sam-u) * 1.5));
+}
+
+/* Modifiers and editing keys: the darker grey-beige caps. */
+.sam-key--dark {
+  --sam-cap-top: #d8d2c4;
+  --sam-cap-mid: #c9c2b2;
+  --sam-cap-bottom: #b2ab9a;
+}
+
+.sam-key__main {
+  font-size: calc(var(--sam-u) * 13);
+  font-weight: 600;
+  line-height: 1;
+}
+/* Word legends (SHIFT, DELETE, RETURN) set small and letter-spaced. */
+.sam-key--word .sam-key__main {
+  font-size: calc(var(--sam-u) * 7);
+  font-weight: 700;
+  letter-spacing: calc(var(--sam-u) * 0.4);
+}
+/*
+ * The secondary symbol, printed above the main legend.
+ *
+ * Taken OUT OF FLOW deliberately. Every alphanumeric cap prints its main
+ * legend at the same size on the same baseline, whether or not a symbol is
+ * printed over it — `Q` and `E` sit level on the real machine even though only
+ * `Q` carries a `<`. Leaving the symbol in the flex column made the main
+ * legend's position depend on whether a neighbour happened to have one.
+ */
+.sam-key__top {
+  position: absolute;
+  top: calc(var(--sam-u) * 4);
+  font-size: calc(var(--sam-u) * 11);
+  font-weight: 600;
+  line-height: 1;
+  opacity: 0.82;
+}
+
+/*
+ * Word legends and the cursor cluster centre on their caps instead.
+ *
+ * Only a word WITHOUT a symbol above it, though: INV is a word cap that also
+ * carries a `\`, and it is printed like the `/ −` and `* +` caps beside it —
+ * symbol at the top, legend along the bottom. Centring it put the two out of
+ * step with each other on the same row.
+ *
+ * RETURN is excluded by name. It is a word cap with no symbol, so it matched
+ * this rule — and `:not(:has(…))` counts the specificity of its argument, so
+ * the rule outranked RETURN's own below and centred the legend in the whole
+ * L. That drops it across the join between the foot and the narrow upper part,
+ * where the notch clips its corner off.
+ */
+.sam-key--word:not(:has(.sam-key__top)):not(.sam-key--return),
+.sam-key--up, .sam-key--down, .sam-key--left, .sam-key--right,
+.sam-key--period-keypad {
+  justify-content: center;
+  padding-bottom: 0;
+}
+
+/* RETURN's legend sits in the foot of the L, not the middle of the box: the
+   middle is the notched joint, and half of it would be cut away. Bottom
+   padding centres it on the foot, whose height is one cap. */
+.sam-key--return {
+  align-items: flex-end;
+  justify-content: flex-end;
+  padding: 0 calc(var(--sam-u) * 8) calc(var(--sam-u) * 14) 0;
+}
+/* The spacebar has no legend at all. */
+.sam-key--space .sam-key__main { display: none; }

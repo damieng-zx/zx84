@@ -13,6 +13,7 @@ import type { MachineLocale } from '@/machines/machine.ts';
 import { dbSave, dbLoad, dbDelete } from '@/store/persistence.ts';
 import { BANK_SIZE } from '@/utils/bank-size.ts';
 import { entryForModel } from '@/machines/registry.ts';
+import { unzip } from '@/media/zip.ts';
 
 export const ROM_BASE = 'https://zx84files.bitsparse.com/roms/';
 
@@ -22,6 +23,34 @@ export const ROM_BASE = 'https://zx84files.bitsparse.com/roms/';
 export function resolveRomSource(source: string): string {
   if (source.includes('://')) return source;
   return `${ROM_BASE}${source}`;
+}
+
+/** ZIP local-file-header signature ("PK", 0x03, 0x04). */
+function isZipArchive(d: Uint8Array): boolean {
+  return d.length > 4 && d[0] === 0x50 && d[1] === 0x4B && d[2] === 0x03 && d[3] === 0x04;
+}
+
+/**
+ * Unwrap a ROM source that is hosted as a ZIP archive.
+ *
+ * Some ROM images are only distributed zipped (the SAM Coupe's is), and
+ * re-hosting an unpacked copy purely to satisfy the fetcher is busywork. Raw
+ * images stay the common case and pass through untouched — the archive path is
+ * entered only when the fetched bytes actually carry the ZIP signature, so no
+ * existing ROM source changes behaviour.
+ *
+ * `unzip` already filters to loadable extensions, so a README or licence file
+ * packed alongside the image is ignored. An archive holding more than one ROM
+ * is ambiguous, and is rejected rather than guessed at.
+ */
+export async function unwrapRomArchive(data: Uint8Array, name: string): Promise<Uint8Array> {
+  if (!isZipArchive(data)) return data;
+  const entries = await unzip(data);
+  if (entries.length === 0) throw new Error(`${name} contains no ROM image`);
+  if (entries.length > 1) {
+    throw new Error(`${name} contains ${entries.length} ROMs; expected exactly one`);
+  }
+  return entries[0].data;
 }
 
 export interface ROMEntry {
@@ -50,6 +79,10 @@ function defaultRomLabel(key: string): string {
   if (model === 'hx-10') return 'Toshiba HX-10 (MSX BASIC 1.0)';
   if (model === 'zx80') return 'Sinclair ZX80 BASIC';
   if (model === 'zx81') return 'Sinclair ZX81 BASIC';
+  // Both SAM models run the same 32K EPROM, so the label names the ROM rather
+  // than the machine — "SAM512" told you which model you had picked, not which
+  // firmware was in it.
+  if (model === 'sam256' || model === 'sam512') return 'SAM 3.0 PLC';
   return `${key.toUpperCase()} (default)`;
 }
 
@@ -89,6 +122,17 @@ export class ROMManager {
     }
     if (!data) return null;
 
+    // A zipped image may have been cached before `fetchDefaultROM` learned to
+    // unwrap them, and a stale cache entry would otherwise brick that machine
+    // for good — the fetch path it needs is never reached, because there IS a
+    // stored ROM. Raw images are untouched: only PK-signed bytes take this
+    // branch.
+    try {
+      data = await unwrapRomArchive(data, key);
+    } catch {
+      return null;   // unusable archive: fall back to a fresh download
+    }
+
     // A stored label is only trusted when it's a real user-chosen custom name
     // (see setSystemRom). Anything shaped like a computed default label —
     // including stale text from an older naming scheme, e.g. "16K (default)"
@@ -122,9 +166,10 @@ export class ROMManager {
     try {
       const pages = await Promise.all(urls.map(async source => {
         const url = resolveRomSource(source);
+        const name = url.split('/').pop() ?? source;
         const resp = await fetch(url);
-        if (!resp.ok) throw new Error(`HTTP ${resp.status} fetching ${url.split('/').pop()}`);
-        return new Uint8Array(await resp.arrayBuffer());
+        if (!resp.ok) throw new Error(`HTTP ${resp.status} fetching ${name}`);
+        return unwrapRomArchive(new Uint8Array(await resp.arrayBuffer()), name);
       }));
 
       // Concatenate pages into a single ROM image

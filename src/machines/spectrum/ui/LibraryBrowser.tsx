@@ -457,9 +457,6 @@ export function LibraryBrowser() {
       <Show when={libraryError()}>
         <div class="library-status library-error">{libraryError()}</div>
       </Show>
-      <Show when={libraryLoading()}>
-        <div class="library-status">Loading catalog…</div>
-      </Show>
 
       <Show when={catalog() && !libraryLoading() && isActive()}>
         <div class="library-list">

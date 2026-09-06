@@ -34,7 +34,8 @@ export class CpcInputService implements InputService {
       this.c.amxMouse.enabled = mode === 'amx';
     },
     motion: (dx, dy, mode) => {
-      if (mode === 'kempston') this.c.kempstonMouse.updatePosition(dx, dy);
+      // Host deltas arrive raw; the Kempston mouse counts Y upwards.
+      if (mode === 'kempston') this.c.kempstonMouse.updatePosition(dx, -dy);
       else if (mode === 'amx') this.c.amxMouse.queueMovement(dx, dy);
     },
     button: (index, pressed, mode) => {

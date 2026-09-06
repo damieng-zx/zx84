@@ -21,11 +21,12 @@ const MSX_UI: MachineUiCapabilities = {
   builtinDisk: false,
   joystick: true,
   fixedJoystick: true,
-  mouse: false,
+  mouseTypes: [],
   cartridge: true,
   systemRomLabel: 'System ROM',
   romPages: 0,
   beeper: true,
+  psgControls: ['stereo', 'filter', 'dc-block'],
   // PSG (AY-3-8910) sound, cassette load, keyboard and OCR. The MSX has no
   // Spectrum-style EAR/rainbow/Kempston activity to indicate.
   statusLeds: ['kbd', 'load', 'ay', 'text'],

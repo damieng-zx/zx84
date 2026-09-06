@@ -4,7 +4,7 @@ import {
   scale, setScale, scalingMode, setScalingMode,
   borderSize, setBorderSize,
   renderer, webglAvailable, colorMap, setColorMap, scanlineAccuracy, setScanlineAccuracy,
-  cpcColorMap, setCpcColorMap, msxColorMap, setMsxColorMap,
+  cpcColorMap, setCpcColorMap, msxColorMap, setMsxColorMap, samColorMap, setSamColorMap,
   einsteinColorMap, setEinsteinColorMap,
   persistSetting, resetSettingsGroup,
 } from '@/store/settings.ts';
@@ -112,6 +112,17 @@ export function DisplayPane() {
               <option value="ntsc">NTSC</option>
             </select>
           </Match>
+          <Match when={machineCaps().colorMap === 'sam'}>
+            <select value={samColorMap()} onChange={(e) => {
+              const v = (e.target as HTMLSelectElement).value as 'linear' | 'measured';
+              setSamColorMap(v);
+              persistSetting('sam-color-map', v);
+              applyDisplaySettings();
+            }}>
+              <option value="linear">Linear</option>
+              <option value="measured">Measured</option>
+            </select>
+          </Match>
           <Match when={machineCaps().colorMap === 'einstein'}>
             <select value={einsteinColorMap()} onChange={(e) => {
               const v = (e.target as HTMLSelectElement).value as 'mame' | 'accurate' | 'naive';
@@ -134,11 +145,19 @@ export function DisplayPane() {
           const v = (e.target as HTMLSelectElement).value as 'high' | 'mid' | 'low';
           setScanlineAccuracy(v);
           persistSetting('scanline-accuracy', v);
-          applyDisplaySettings();   // machine re-reads its scanline setting
+          applyDisplaySettings();   // machine re-reads its accuracy setting
         }}>
-          <option value="high">High (per t-state)</option>
-          <option value="mid">Mid (per scanline)</option>
-          <option value="low">Low (per 8-scanlines/cell)</option>
+          <Show
+            when={machineCaps().accuracy === 'contention'}
+            fallback={<>
+              <option value="high">High (per t-state)</option>
+              <option value="mid">Mid (per scanline)</option>
+              <option value="low">Low (per 8-scanlines/cell)</option>
+            </>}
+          >
+            <option value="high">High (ASIC memory slots)</option>
+            <option value="low">Low (uncontended)</option>
+          </Show>
         </select>
       </div>
       </Show>

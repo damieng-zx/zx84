@@ -4,17 +4,32 @@ import { hex16 as h16 } from '../../src/utils/hex.ts';
 import { state } from '../state.ts';
 import { parseAddr, formatHexDump, doFindBytes, text } from '../format.ts';
 
+/**
+ * Reject a bank the active machine has not got.
+ *
+ * Every machine's `getRamBank` coerces an out-of-range index to *something* —
+ * bank 0, an empty array, a wrapped index — so without this check asking a
+ * 256K SAM for bank 20 quietly dumps bank 0 and the answer looks real.
+ */
+function outOfRange(bank: number): string | null {
+  const count = state.spec.memory.ramBankCount;
+  if (bank < count) return null;
+  return `Bank ${bank} not available — ${state.model.toUpperCase()} has ${count} RAM bank${count === 1 ? '' : 's'} (0-${count - 1})`;
+}
+
 export function register(server: McpServer): void {
   server.registerTool(
     'read_memory',
-    { description: 'Hex dump of memory. Without bank: reads from the 64KB address space. With bank (0-7): reads from that 16KB RAM bank directly, address is offset within the bank.', inputSchema: {
+    { description: 'Hex dump of memory. Without bank: reads from the 64KB address space. With bank: reads from that 16KB RAM bank directly, address is offset within the bank. The bank count is the active machine\'s (8 on a 128K Spectrum, up to 32 on a 512K SAM Coupe).', inputSchema: {
       address: z.string().describe('Start address (hex, or offset within bank)'),
       length: z.number().int().positive().max(0x10000).default(64).describe('Number of bytes to dump'),
-      bank: z.number().int().min(0).max(7).optional().describe('RAM bank 0-7 (omit for flat 64KB address space)'),
+      bank: z.number().int().min(0).max(255).optional().describe('16KB RAM bank (omit for flat 64KB address space)'),
     } },
     async ({ address, length, bank }) => {
       const spec = state.spec;
       if (bank !== undefined) {
+        const oor = outOfRange(bank);
+        if (oor) return text(oor);
         const view = spec.memory.getRamBank(bank);
         if (!view) return text(`Bank ${bank} not available`);
         const offset = parseAddr(address) & 0x3FFF;
@@ -27,10 +42,10 @@ export function register(server: McpServer): void {
 
   server.registerTool(
     'write_memory',
-    { description: 'Write a hex byte sequence to memory. Without bank: writes to the 64KB address space. With bank (0-7): writes to that 16KB RAM bank directly, address is offset within the bank.', inputSchema: {
+    { description: 'Write a hex byte sequence to memory. Without bank: writes to the 64KB address space. With bank: writes to that 16KB RAM bank directly, address is offset within the bank.', inputSchema: {
       address: z.string().describe('Start address (hex, or offset within bank)'),
       hex_bytes: z.string().describe('Hex byte string to write, e.g. "CD0050FF"'),
-      bank: z.number().int().min(0).max(7).optional().describe('RAM bank 0-7 (omit for flat 64KB address space)'),
+      bank: z.number().int().min(0).max(255).optional().describe('16KB RAM bank (omit for flat 64KB address space)'),
     } },
     async ({ address, hex_bytes, bank }) => {
       const spec = state.spec;
@@ -38,6 +53,8 @@ export function register(server: McpServer): void {
       if (hex.length % 2 !== 0) return text('Hex string must have even length');
       const count = hex.length / 2;
       if (bank !== undefined) {
+        const oor = outOfRange(bank);
+        if (oor) return text(oor);
         const view = spec.memory.getRamBank(bank);
         if (!view) return text(`Bank ${bank} not available`);
         const offset = parseAddr(address) & 0x3FFF;

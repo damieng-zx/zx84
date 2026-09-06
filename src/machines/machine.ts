@@ -22,7 +22,7 @@ import type { MachineModel } from '@/models.ts';
 import type { OcrGridName, FontSource } from '@/ocr/ocr.ts';
 import type { BasicListingLine, BasicVariable } from '@/basic/types.ts';
 
-export type MachineKind = 'spectrum' | 'cpc' | 'einstein' | 'msx' | 'zx8x' | 'mtx';
+export type MachineKind = 'spectrum' | 'cpc' | 'einstein' | 'msx' | 'zx8x' | 'mtx' | 'sam';
 
 /** Keyboard/ROM locale for international machine variants.
  *  'uk' = default (English, no locale-specific ROM/keyboard). */
@@ -58,6 +58,14 @@ export interface IMachineMemory extends ByteReader {
   snapshot(): Uint8Array;
   /** A specific 16KB physical RAM bank as a live view. */
   getRamBank(n: number): Uint8Array;
+  /** How many physical RAM banks `getRamBank` addresses.
+   *
+   *  Eight on a 128K Spectrum, four on an MSX, up to thirty-two on a 512K SAM.
+   *  Declared because every implementation coerces an out-of-range index to
+   *  *something* — hosts that let a user name a bank (the MCP memory tools)
+   *  need to know the real count so they can refuse rather than silently dump
+   *  the wrong bank. */
+  readonly ramBankCount: number;
   reset(): void;
 }
 
@@ -132,9 +140,12 @@ export interface Machine {
   bootRoms?(view: SettingsView): AuxRomRequest[];
   /** Arm the software library's one-click auto-boot trap: fire the loader once
    *  the freshly-reset ROM reaches its menu/editor key-wait loop. The machine
-   *  owns the trap address(es) for its own ROM family. Machines without a
-   *  ROM-loader auto-boot omit this (the shell keys off its presence). */
-  armBootTrap?(kind: 'menu' | 'rom48k'): void;
+   *  owns the trap address(es) for its own ROM family — or, for 'disk', its own
+   *  equivalent of holding the boot key down (the SAM has no key-wait to trap:
+   *  it scans the matrix from its interrupt handler throughout the power-on
+   *  RAM test). Machines without a ROM-loader auto-boot omit this (the shell
+   *  keys off its presence). */
+  armBootTrap?(kind: 'menu' | 'rom48k' | 'disk'): void;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -234,8 +245,11 @@ export type MemoryMapFlag = 'screen' | 'active';
  *  tips, signals) lives in `ui/components/status-leds.ts`; only the id union is
  *  declared here so machine descriptors stay headless-safe. A machine lists the
  *  ids it exposes via `MachineUiCapabilities.statusLeds`. */
-export type StatusLedId =
-  | 'kbd' | 'kemp' | 'mouse' | 'ear' | 'load' | 'dsk' | 'text' | 'rainbow' | 'beep' | 'ay' | 'psg';
+export const STATUS_LED_IDS = [
+  'kbd', 'kemp', 'mouse', 'ear', 'load', 'dsk', 'text', 'rainbow', 'beep', 'ay', 'psg',
+] as const;
+
+export type StatusLedId = typeof STATUS_LED_IDS[number];
 
 /**
  * Per-model UI capability flags, declared by each machine's descriptor. The
@@ -246,6 +260,16 @@ export type StatusLedId =
  * Everything here is presentation-facing but *machine-owned*: the machine knows
  * which of its features the UI should surface. Pure data (headless-safe).
  */
+/** A Sound-pane PSG-shaping control — see `MachineUiCapabilities.psgControls`. */
+export type PsgControl = 'stereo' | 'filter' | 'dc-block';
+
+/** One mouse interface a machine offers — see `MachineUiCapabilities.mouseTypes`.
+ *  `id` is the mode string passed back through `InputService.mice`. */
+export interface MouseTypeInfo {
+  readonly id: string;
+  readonly label: string;
+}
+
 export interface MachineUiCapabilities {
   /** Pane ids removed from the sidebar entirely for this machine. */
   readonly hiddenPanes: readonly string[];
@@ -254,17 +278,31 @@ export interface MachineUiCapabilities {
   /** Execution-trace debugger control is available. */
   readonly trace: boolean;
   /** Palette / colour-map family shown in the Display pane. */
-  readonly colorMap: 'spectrum' | 'cpc' | 'msx' | 'einstein' | 'mono';
-  /** Whether the Accuracy drop-down applies (per-t-state scanline rendering). */
-  readonly accuracy: boolean;
+  readonly colorMap: 'spectrum' | 'cpc' | 'msx' | 'einstein' | 'sam' | 'mono';
+  /**
+   * Which Accuracy drop-down the Display pane offers, or false for none.
+   *
+   * 'scanline' is the Spectrum's per-t-state / per-line / per-cell renderer;
+   * 'contention' is the SAM's, whose ASIC always draws a whole line at a time
+   * and whose only accuracy step is whether memory slots are charged. Both
+   * write the same `scanline-accuracy` setting, so the control is one control.
+   */
+  readonly accuracy: false | 'scanline' | 'contention';
   /** Built-in floppy drives (A:/B:) are fitted. */
   readonly builtinDisk: boolean;
   /** Joystick pane applies. */
   readonly joystick: boolean;
   /** Joystick presents a single fixed interface (no type selector; F2 shown). */
   readonly fixedJoystick: boolean;
-  /** Mouse pane applies. */
-  readonly mouse: boolean;
+  /**
+   * Mouse interfaces this machine can drive, in the order the Mouse pane
+   * offers them; empty means no mouse pane.
+   *
+   * The ids are the same strings the machine's `InputService.mice` switches
+   * on, so declaring one it cannot drive gives a capture button that does
+   * nothing — this list and that switch are two halves of one contract.
+   */
+  readonly mouseTypes: readonly MouseTypeInfo[];
   /** Cartridge slot present (MSX slot / ZX Interface 2). */
   readonly cartridge: boolean;
   /** Label for the system-ROM slot in the ROM pane. */
@@ -278,6 +316,24 @@ export interface MachineUiCapabilities {
   readonly romPages: 0 | 2 | 4;
   /** 1-bit beeper present (Sound-pane mixer + BEEP activity LED). */
   readonly beeper: boolean;
+  /**
+   * Which of the Sound pane's PSG-shaping controls apply to this machine.
+   *
+   * They are all AY-3-891x concepts and none of them is universal:
+   *
+   *   'stereo'   — the ACB/ABC channel layout. It exists because the AY's
+   *                three channels are MONO, so an emulator has to choose how
+   *                to pan them. A chip that is natively stereo has nothing to
+   *                pan: the SAM's SAA1099 gives each of its six channels its
+   *                own left and right amplitude register, and the program
+   *                decides the image.
+   *   'filter'   — the ultrasonic anti-alias strategy, which the MTX's
+   *                SN76489 shares even though it is not an AY.
+   *   'dc-block' — the DC blocking filter, AY-only.
+   *
+   * A machine with no PSG at all (ZX80/81) lists none of them.
+   */
+  readonly psgControls: readonly PsgControl[];
   /** Status-bar activity LEDs this machine exposes. Each machine lists only the
    *  indicators its hardware actually has *and* its frame probe drives, so the
    *  status bar can never show an LED for absent hardware (e.g. no AY/DISK on a
@@ -725,13 +781,14 @@ export interface MouseSink {
 /** Host input delivery. Each machine maps host events onto its own keyboard
  *  matrix / joystick / mouse hardware — replacing the shell's per-machine
  *  dispatch ladder. */
-/** Mode-aware mouse routing (machines with both a Kempston and an AMX mouse).
- *  The pane owns which mode is active and passes it per event, exactly as the
- *  old shell helpers did. */
+/** Mode-aware mouse routing. The pane owns which interface is captured and
+ *  passes its id (one of `MachineUiCapabilities.mouseTypes`) per event; a
+ *  machine with a single mouse ignores it. Host deltas arrive raw — a machine
+ *  applies its own Y sign here, since that is hardware, not capture policy. */
 export interface MouseInput {
-  setMode(mode: 'kempston' | 'amx' | null): void;
-  motion(dx: number, dy: number, mode: 'kempston' | 'amx' | null): void;
-  button(index: number, pressed: boolean, mode: 'kempston' | 'amx' | null): void;
+  setMode(mode: string | null): void;
+  motion(dx: number, dy: number, mode: string | null): void;
+  button(index: number, pressed: boolean, mode: string | null): void;
 }
 
 /** Joystick delivery: direction/fire press mapped onto the machine's own

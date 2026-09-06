@@ -292,15 +292,13 @@ export async function saveSnapshot(format: 'z80' | 'szx' = 'szx'): Promise<void>
 
   const wasPaused = emulationPaused();
   if (!wasPaused) machine.stop();
+  const model = currentModel() as SpectrumModel;
+  const filename = `zx84-${model.replace('+', 'plus')}.${format}`;
   try {
-    const model = currentModel() as SpectrumModel;
-    const data = await snapshots.save(format);
-    const filename = `zx84-${model.replace('+', 'plus')}.${format}`;
-    downloadFile(data, filename);
+    downloadFile(await snapshots.save(format), filename);
   } finally {
     if (!wasPaused) machine.start();
   }
-  const filename = `zx84-${currentModel().replace('+', 'plus')}.${format}`;
   setStatus(`Saved ${filename}`);
 }
 
@@ -793,7 +791,8 @@ export function joyPressForType(dir: string, pressed: boolean, mode: string, pla
   machine?.services.input.joystick?.press(dir, pressed, mode, player);
 }
 
-export type MouseMode = 'kempston' | 'amx' | null;
+/** The id of the captured mouse interface, from `ui.mouseTypes`, or null. */
+export type MouseMode = string | null;
 
 export function setMouseMode(mode: MouseMode): void {
   machine?.services.input.mice?.setMode(mode);
@@ -866,6 +865,7 @@ export function restoreTapeForMachine(m: Machine): void {
 
 export async function restoreMedia(): Promise<void> {
   if (!machine) return;
+  const m = machine;
 
   // Restore the tape persisted for THIS platform (kept isolated per machine
   // kind). The machine's TapeService parses its own formats.
@@ -892,12 +892,22 @@ export async function restoreMedia(): Promise<void> {
     for (const unit of [0, 1]) {
       const disk = await restoreDisk(unit);
       if (!disk) continue;
+      const id = unit === 0 ? 'a' : 'b';
+      // Re-mount through the machine's OWN media service, exactly as a fresh
+      // load does. Parsing here instead meant a restore only understood the
+      // formats the generic detector knows — enough for a +3 .dsk, but not for
+      // a SAM disk, which is routed by content and routinely arrives gzipped
+      // or zipped inside a name that says `.dsk`. The machine is the declared
+      // owner of "what is this file and which drive does it belong in", and a
+      // reload has no business deciding that differently from a drag-drop.
+      let result: MountResult | null = null;
       try {
-        const image = parseFloppyImage(disk.data);
-        disks.insert(unit === 0 ? 'a' : 'b', image, disk.name);
-        if (unit === 0) { setCurrentDiskInfo(image); setCurrentDiskName(disk.name); }
-        else { setCurrentDiskInfoB(image); setCurrentDiskNameB(disk.name); }
+        result = await m.services.media.mount(disk.data, disk.name, id);
       } catch { /* ignore corrupt data */ }
+      if (machine !== m || !result?.ok || result.target !== id) continue;
+      const image = disks.image?.(id) ?? null;
+      if (unit === 0) { setCurrentDiskInfo(image); setCurrentDiskName(disk.name); }
+      else { setCurrentDiskInfoB(image); setCurrentDiskNameB(disk.name); }
     }
 
     // MGT +D drives C:/D: — only when the +D is fitted.

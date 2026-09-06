@@ -45,6 +45,9 @@ export function SoundPane() {
         <SliderRow label="Mixer" id="ay-mix" min={0} max={100} value={ayMix} endLabels={['Beep', 'AY']}
           onInput={(v) => { setAyMix(v); persistSetting('ay-mix', v); applyDisplaySettings(); }} />
       </Show>
+      {/* All three below are AY-3-891x shaping; a machine lists the ones it
+          actually reads, so nothing is offered that would do nothing. */}
+      <Show when={machineCaps().psgControls.includes('stereo')}>
       <div class="slider-row">
         <span class="slider-label">AY Channels</span>
         <select
@@ -60,6 +63,8 @@ export function SoundPane() {
           {STEREO_MODES.map(m => <option value={m.value}>{m.label}</option>)}
         </select>
       </div>
+      </Show>
+      <Show when={machineCaps().psgControls.includes('filter')}>
       <div class="slider-row">
         <span class="slider-label">Filter</span>
         <select
@@ -75,6 +80,8 @@ export function SoundPane() {
           {ANTIALIAS_MODES.map(m => <option value={m.value}>{m.label}</option>)}
         </select>
       </div>
+      </Show>
+      <Show when={machineCaps().psgControls.includes('dc-block')}>
       <div class="slider-row">
         <span class="slider-label">DC Blocking</span>
         <label class="toggle">
@@ -91,6 +98,7 @@ export function SoundPane() {
           />
         </label>
       </div>
+      </Show>
     </Pane>
   );
 }
