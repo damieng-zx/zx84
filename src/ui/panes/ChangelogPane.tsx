@@ -24,6 +24,7 @@ const CHANGELOG: { version: string; items: string[] }[] = [
       'SAM Coupé: the TEXT overlay now transcribes the screen in colour, following CHARS so a redefined character set still reads back, and takes its colours from the CLUT so it no longer flickers',
       'SAM Coupé: BASIC Listing and BASIC Variables panes, reading SAM BASIC\'s own tokens, page/offset pointers and letter-indexed variable chains',
       'SAM Coupé: System Variables pane',
+      'SAM Coupé: on-screen keyboard',
       'SAM Coupé: MGT mouse on the DIN port — always fitted, driven from the Mouse pane capture button',
       'SAM Coupé: VMPR reads back with its MIDI-receive bit set, so SAMPaint no longer resets the machine as it finishes loading',
       'Mounted disks are restored after a page reload through each machine\'s own media routing, so a SAM library disk comes back in the Drives pane',

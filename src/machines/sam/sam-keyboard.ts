@@ -189,6 +189,10 @@ export class SamKeyboard {
     this.active.clear();
   }
 
+  /** Live matrix rows, one byte each, a CLEAR bit meaning held. Read by the
+   *  on-screen keyboard so a physical keystroke lights its cap too. */
+  get rows(): Uint8Array { return this.matrix; }
+
   /** Press or release a matrix position directly (tests, on-screen keyboard). */
   setKey(row: number, bit: number, down: boolean): void {
     if (row < 0 || row >= ROWS || bit < 0 || bit >= BITS) return;

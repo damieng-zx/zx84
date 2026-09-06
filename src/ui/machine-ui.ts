@@ -65,6 +65,8 @@ const CONTRIBUTIONS: Record<string, MachineUiContribution> = {
   sam: {
     HardwareSection: lazy(() =>
       import('@/machines/sam/ui/hardware-section.tsx').then(m => ({ default: m.SamHardwareSection }))),
+    Keyboard: lazy(() =>
+      import('@/machines/sam/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
     LibraryBrowser: lazy(() =>
       import('@/machines/sam/ui/LibraryBrowser.tsx').then(m => ({ default: m.SamLibraryBrowser }))),
     SysVars: lazy(() =>
