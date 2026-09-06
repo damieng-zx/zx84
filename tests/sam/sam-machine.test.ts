@@ -121,6 +121,28 @@ describe('SamMachine port decode', () => {
     m.destroy();
   });
 
+  /**
+   * BEEP means the speaker moved, not that port 0xFE was written. That port is
+   * the border, the beeper and the cassette MIC line at once, and the ROM
+   * writes it on every auto-repeat of a held key (value 0x08 — MIC only, the
+   * beeper bit untouched), which lit the indicator for a keypress that makes
+   * no sound at all.
+   */
+  it('counts beeper toggles, not writes to the port they share', () => {
+    const m = machine();
+    m.cpu.portOut!(0x00FE, 0x08);          // MIC on, beeper untouched
+    m.cpu.portOut!(0x00FE, 0x00);          // MIC off, beeper still untouched
+    expect(m.activity.beeperToggles).toBe(0);
+
+    m.cpu.portOut!(0x00FE, 0x10);          // beeper high
+    expect(m.activity.beeperToggles).toBe(1);
+    m.cpu.portOut!(0x00FE, 0x18);          // still high, MIC added
+    expect(m.activity.beeperToggles).toBe(1);
+    m.cpu.portOut!(0x00FE, 0x08);          // beeper low again
+    expect(m.activity.beeperToggles).toBe(2);
+    m.destroy();
+  });
+
   it('takes the CLUT index from the port HIGH byte, not an index register', () => {
     // OUT (&03F8), A writes palette entry 3. This is the single easiest thing
     // to implement backwards, hence its own test.

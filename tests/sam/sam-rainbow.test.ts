@@ -74,6 +74,40 @@ describe('SamAsic.midLineWrites', () => {
     expect(a.midLineWrites).toBe(1);
   });
 
+  it('ignores a write that leaves the colour where it already was', () => {
+    const a = asic();
+    a.beginFrame();
+    a.beginLine(SAM_DISPLAY_FIRST_LINE + 10, 0);
+    a.writeClut(2, 0x40, atCell(SAM_DISPLAY_FIRST_CELL));
+    expect(a.midLineWrites).toBe(1);
+    a.writeClut(2, 0x40, atCell(SAM_DISPLAY_FIRST_CELL + 4));   // same value
+    expect(a.midLineWrites).toBe(1);
+  });
+
+  /**
+   * Port 0xFE is the border, the beeper and the cassette MIC line at once, and
+   * the ROM writes it on every auto-repeat of a held key with the border
+   * unchanged. Counting those lit RAINBOW for a keypress that draws nothing.
+   */
+  it('ignores a border write that does not move the border', () => {
+    const a = asic();
+    a.beginFrame();
+    a.beginLine(SAM_DISPLAY_FIRST_LINE + 10, 0);
+    a.writeBorder(0, false, atCell(SAM_DISPLAY_FIRST_CELL));
+    expect(a.midLineWrites).toBe(0);            // border was already 0
+    a.writeBorder(5, false, atCell(SAM_DISPLAY_FIRST_CELL + 2));
+    expect(a.midLineWrites).toBe(1);
+  });
+
+  it('still latches screen-off from a border write that changes nothing else', () => {
+    const a = asic();
+    a.beginFrame();
+    a.beginLine(SAM_DISPLAY_FIRST_LINE, 0);
+    a.writeBorder(0, true, 0);
+    expect(a.screenOff).toBe(true);
+    expect(a.midLineWrites).toBe(0);
+  });
+
   it('starts each frame from zero', () => {
     const a = asic();
     a.beginFrame();

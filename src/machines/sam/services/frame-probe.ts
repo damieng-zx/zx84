@@ -127,7 +127,7 @@ export class SamFrameProbe implements FrameProbe {
     out.mouse = a.mouseReads;
     out.tapeIn = a.tapeReads;
     out.tapeLoad = 0;
-    out.beeper = a.beeperWrites;
+    out.beeper = a.beeperToggles;
     out.psg = a.psgWrites > 5 ? 1 : 0;
     // Mid-frame palette and border writes are what drive the SAM's raster
     // colour effects, so they are what the "rainbow" indicator reports.

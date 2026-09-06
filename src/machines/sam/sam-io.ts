@@ -123,9 +123,15 @@ export function wireSamPortIO(m: SamMachine): void {
         const packed = value & BORDER_COLOUR_MASK;
         const index = (packed & 0x07) | ((packed & 0x20) >> 2);
         m.asic.writeBorder(index, (value & BORDER_SOFF) !== 0, cpu.tStates);
-        m.beeperBit = (value & BORDER_BEEP) ? 1 : 0;
+        const beep = (value & BORDER_BEEP) ? 1 : 0;
+        // The BEEP indicator means the speaker moved, not that this port was
+        // written. Port 0xFE carries the border and the cassette MIC line too,
+        // and the ROM writes it on every auto-repeat of a held key with the
+        // beeper bit untouched — which lit BEEP for a keypress that makes no
+        // sound at all.
+        if (beep !== m.beeperBit) m.activity.beeperToggles++;
+        m.beeperBit = beep;
         m.micBit = (value & BORDER_MIC) ? 1 : 0;
-        m.activity.beeperWrites++;
         return;
       }
 

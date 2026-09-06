@@ -90,7 +90,7 @@ export class SamMachine extends BaseMachine implements Machine {
 
   /** Per-frame I/O activity, mapped onto the status-bar LEDs by the probe. */
   readonly activity = {
-    kbdReads: 0, joystickReads: 0, beeperWrites: 0, psgWrites: 0,
+    kbdReads: 0, joystickReads: 0, beeperToggles: 0, psgWrites: 0,
     fdcAccesses: 0, tapeReads: 0, mouseReads: 0,
   };
 
@@ -335,7 +335,7 @@ export class SamMachine extends BaseMachine implements Machine {
     const contention = this.contention;
     const skipAudio = this.speedMultiplier !== 1;
     const a = this.activity;
-    a.kbdReads = 0; a.joystickReads = 0; a.beeperWrites = 0;
+    a.kbdReads = 0; a.joystickReads = 0; a.beeperToggles = 0;
     a.psgWrites = 0; a.fdcAccesses = 0; a.tapeReads = 0; a.mouseReads = 0;
 
     asic.beginFrame();

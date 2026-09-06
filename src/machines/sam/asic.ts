@@ -117,15 +117,29 @@ export class SamAsic {
   writeClut(index: number, value: number, tStates: number): void {
     const i = index & 0x0F;
     const v = value & 0x7F;
+    // Only a write that CHANGES the entry is a mid-line event. Re-writing the
+    // colour already in force alters nothing on the line being drawn, and
+    // journalling it would both waste a slot and light the raster indicator.
+    if (this.clut[i] === v) return;
     this.clut[i] = v;
     this.note(i, v, tStates);
   }
 
-  /** Latch the border colour index and the screen-off bit (port 0xFE). */
+  /**
+   * Latch the border colour index and the screen-off bit (port 0xFE).
+   *
+   * Port 0xFE is the border, the beeper and the cassette MIC line all at once,
+   * so most writes to it are not about the border at all: the ROM pokes it
+   * with an unchanged border colour on every auto-repeat of a held key. Only a
+   * write that moves the border is journalled — otherwise holding a key lights
+   * the raster indicator.
+   */
   writeBorder(index: number, screenOff: boolean, tStates: number): void {
-    this.borderIndex = index & 0x0F;
+    const next = index & 0x0F;
     this.screenOff = screenOff;
-    this.note(TARGET_BORDER, this.borderIndex, tStates);
+    if (this.borderIndex === next) return;
+    this.borderIndex = next;
+    this.note(TARGET_BORDER, next, tStates);
   }
 
   /**
