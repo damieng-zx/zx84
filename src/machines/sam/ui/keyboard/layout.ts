@@ -17,7 +17,9 @@
  * `CHAR_MAP` — no common host layout produces them.
  *
  * The count is a useful check: rows 0-7 hold eight keys each and row 8 holds
- * five, which is the 69 the Technical Manual quotes.
+ * five, which is the 69 the Technical Manual quotes. There are more CAPS than
+ * switches — SHIFT, SYMBOL and the full stop each have two — so the table is
+ * keyed by cap id and several ids share a cell.
  */
 
 /** A matrix position, as [row, bit]. */
@@ -118,6 +120,10 @@ export const SAM_KEYS: readonly SamKey[] = [
   { id: 'b', main: 'B', cell: [7, 4] },
   { id: 'comma', main: ',', cell: [7, 5] },
   { id: 'period', main: '.', cell: [7, 6] },
+  // The keypad's decimal point. It has no switch of its own — 69 keys is the
+  // whole matrix, and every position is already spoken for — so it shares the
+  // main full stop, the same way each SHIFT and SYMBOL pair shares one switch.
+  { id: 'period-keypad', main: '.', cell: [7, 6] },
   { id: 'inv', main: 'INV', top: '\\', cell: [7, 7] },
 
   // ── Row 8: CNTRL and the cursor cluster, reachable only when no other

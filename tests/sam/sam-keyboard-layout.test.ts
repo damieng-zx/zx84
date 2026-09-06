@@ -46,13 +46,20 @@ describe('SAM keyboard layout', () => {
     }
   });
 
-  it('gives the two shared caps the same cell as their partner', () => {
-    // SHIFT and SYMBOL each have a cap at both ends of their row, wired to one
-    // switch — pressing either has to light both.
+  it('gives each duplicated cap the same cell as its partner', () => {
+    // Three switches carry two caps: SHIFT and SYMBOL at both ends of their
+    // rows, and the full stop, which the keypad repeats. Pressing either cap
+    // has to light both.
     expect(SAM_KEY_INDEX.get('shift-right')!.cell)
       .toEqual(SAM_KEY_INDEX.get('shift')!.cell);
     expect(SAM_KEY_INDEX.get('symbol-right')!.cell)
       .toEqual(SAM_KEY_INDEX.get('symbol')!.cell);
+    expect(SAM_KEY_INDEX.get('period-keypad')!.cell)
+      .toEqual(SAM_KEY_INDEX.get('period')!.cell);
+  });
+
+  it('has three more caps than switches', () => {
+    expect(SAM_KEYS.length).toBe(TOTAL_KEYS + 3);
   });
 
   it('names every key once', () => {
@@ -110,6 +117,27 @@ describe('SAM keyboard layout', () => {
         expect(apart, `${placed[i].key.id} overlaps ${placed[j].key.id}`).toBe(true);
       }
     }
+  });
+
+  /**
+   * Every row is the same width, and the keypad butts straight up against it.
+   * Getting the first row's key count wrong (it has twelve unit keys, not
+   * thirteen) stretched every other row to match a column that is not there,
+   * and opened a channel of bare case in front of the function keys.
+   */
+  it('lines every row up and puts the keypad flush against them', () => {
+    const placed = placeSamKeys();
+    const rightEdge = (y: number) => Math.max(
+      ...placed.filter(p => p.box.y === y && p.box.x < 600)
+        .map(p => p.box.x + p.box.width));
+    const rows = [...new Set(placed.map(p => p.box.y))].sort((a, b) => a - b);
+    const edges = rows.map(rightEdge);
+    for (const edge of edges) expect(edge).toBe(edges[0]);
+
+    // The first keypad column starts one ordinary key gap after that edge.
+    const keypadLeft = Math.min(...placed
+      .filter(p => p.box.x > edges[0]).map(p => p.box.x));
+    expect(keypadLeft - edges[0]).toBeLessThanOrEqual(4);
   });
 
   it('cuts RETURN into an L rather than a rectangle', () => {

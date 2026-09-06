@@ -32,47 +32,59 @@ const CAP = 36;
 const LEFT = 16;
 const TOP = 16;
 
-/** Where the function/cursor cluster starts, in units from the left margin. */
-const CLUSTER = 17;
+/**
+ * Where the function/cursor cluster starts, in units.
+ *
+ * Flush against the main block: on the real machine DELETE and F7 are one
+ * ordinary key gap apart, not a separate island.
+ */
+const CLUSTER = 14.5;
 
-/** Main block rows, as [id, width in units]. */
+/** Main block rows, as [id, width in units].
+ *
+ * Widths are measured off a photograph: sampling a scanline across each row
+ * and reading the gaps between caps gives a pitch of about 42 pixels, against
+ * which ESC comes out at one unit, DELETE at one and a half, and both SHIFTs
+ * at about two and three quarters.
+ */
 type Row = readonly (readonly [string, number])[];
 
 const MAIN_ROWS: readonly Row[] = [
-  [['esc', 1.5], ['1', 1], ['2', 1], ['3', 1], ['4', 1], ['5', 1], ['6', 1],
+  [['esc', 1], ['1', 1], ['2', 1], ['3', 1], ['4', 1], ['5', 1], ['6', 1],
     ['7', 1], ['8', 1], ['9', 1], ['0', 1], ['minus', 1], ['plus', 1],
-    ['delete', 1.75]],
-  [['tab', 1.75], ['q', 1], ['w', 1], ['e', 1], ['r', 1], ['t', 1], ['y', 1],
+    ['delete', 1.5]],
+  [['tab', 1.5], ['q', 1], ['w', 1], ['e', 1], ['r', 1], ['t', 1], ['y', 1],
     ['u', 1], ['i', 1], ['o', 1], ['p', 1], ['equals', 1], ['quotes', 1]],
-  [['caps', 2], ['a', 1], ['s', 1], ['d', 1], ['f', 1], ['g', 1], ['h', 1],
+  [['caps', 1.75], ['a', 1], ['s', 1], ['d', 1], ['f', 1], ['g', 1], ['h', 1],
     ['j', 1], ['k', 1], ['l', 1], ['semicolon', 1], ['colon', 1]],
-  [['shift', 2.75], ['z', 1], ['x', 1], ['c', 1], ['v', 1], ['b', 1], ['n', 1],
-    ['m', 1], ['comma', 1], ['period', 1], ['inv', 1], ['shift-right', 3.5]],
-  [['symbol', 2], ['cntrl', 1.75], ['space', 8], ['edit', 2],
-    ['symbol-right', 2.5]],
+  [['shift', 2.25], ['z', 1], ['x', 1], ['c', 1], ['v', 1], ['b', 1], ['n', 1],
+    ['m', 1], ['comma', 1], ['period', 1], ['inv', 1], ['shift-right', 2.25]],
+  [['symbol', 2], ['cntrl', 1.75], ['space', 7], ['edit', 1.75],
+    ['symbol-right', 2]],
 ];
 
 /** The keypad to the right: three columns of function keys, then the cursors
- *  in an inverted T with the up key over the down key. */
+ *  in an inverted T. The up key sits over the down key, with the keypad's
+ *  decimal point beside it. */
 const CLUSTER_ROWS: readonly Row[] = [
   [['f7', 1], ['f8', 1], ['f9', 1]],
   [['f4', 1], ['f5', 1], ['f6', 1]],
   [['f1', 1], ['f2', 1], ['f3', 1]],
-  [['f0', 1], ['up', 1]],
+  [['f0', 1], ['up', 1], ['period-keypad', 1]],
   [['left', 1], ['down', 1], ['right', 1]],
 ];
 
 /**
  * RETURN's inverted-L.
  *
- * The foot starts where the A row's keys stop (13 units) and the upper part
- * where the `"` cap stops (13.75) — so the notch is exactly one cap wide and
- * the `"` key shows through it. Getting the notch wider leaves a slot of bare
- * case beside the quote key; narrower and RETURN paints over it.
+ * The foot starts where the A row's keys stop and the upper part where the `"`
+ * cap stops, so the notch is exactly one cap wide and the `"` key shows
+ * through it. Wider and there is a slot of bare case beside the quote key;
+ * narrower and RETURN paints over it.
  */
-const RETURN_LEFT = 13;
-const RETURN_UNITS = 3.25;
-const RETURN_NOTCH = 0.75 / RETURN_UNITS;   // 23.08%
+const RETURN_LEFT = 12.75;
+const RETURN_UNITS = 1.75;
+const RETURN_NOTCH = 0.75 / RETURN_UNITS;
 const RETURN_CLIP =
   `polygon(${(RETURN_NOTCH * 100).toFixed(2)}% 0, 100% 0, 100% 100%, 0 100%,`
   + ` 0 50%, ${(RETURN_NOTCH * 100).toFixed(2)}% 50%)`;
