@@ -3335,7 +3335,9 @@ input[type="range"]::-moz-range-thumb {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  /* Alphanumeric legends hug the bottom of the cap; see `.sam-key__top`. */
+  justify-content: flex-end;
+  padding-bottom: calc(var(--sam-u) * 5);
   gap: 0;
   overflow: hidden;
   border: 1px solid #a8a294;
@@ -3380,20 +3382,31 @@ input[type="range"]::-moz-range-thumb {
   font-weight: 700;
   letter-spacing: calc(var(--sam-u) * 0.4);
 }
-/* The secondary symbol, printed above the main legend. */
+/*
+ * The secondary symbol, printed above the main legend.
+ *
+ * Taken OUT OF FLOW deliberately. Every alphanumeric cap prints its main
+ * legend at the same size on the same baseline, whether or not a symbol is
+ * printed over it — `Q` and `E` sit level on the real machine even though only
+ * `Q` carries a `<`. Leaving the symbol in the flex column made the main
+ * legend's position depend on whether a neighbour happened to have one.
+ */
 .sam-key__top {
+  position: absolute;
+  top: calc(var(--sam-u) * 4);
   font-size: calc(var(--sam-u) * 9);
   font-weight: 600;
   line-height: 1;
   opacity: 0.82;
 }
-/* A cap with both legends stacks them; one with only a main centres it. */
-.sam-key:has(.sam-key__top) {
-  justify-content: space-evenly;
-  padding: calc(var(--sam-u) * 3) 0;
-}
-.sam-key:has(.sam-key__top) .sam-key__main {
-  font-size: calc(var(--sam-u) * 13);
+
+/* Word legends and the cursor cluster centre on their caps instead — only the
+ * alphanumerics of the main block sit on a shared baseline. */
+.sam-key--word,
+.sam-key--up, .sam-key--down, .sam-key--left, .sam-key--right,
+.sam-key--period-keypad {
+  justify-content: center;
+  padding-bottom: 0;
 }
 
 /* RETURN's legend sits in the foot of the L, not the middle of the box. */
