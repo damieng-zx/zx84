@@ -97,6 +97,27 @@ describe('SamMachine port decode', () => {
     const m = machine();
     m.cpu.portOut!(0x00FA, 0x25);
     expect(m.cpu.portIn!(0x00FA)).toBe(0x25);
+    m.cpu.portOut!(0x00FB, 0x25);
+    expect(m.cpu.portIn!(0x00FB)).toBe(0x25);
+    m.destroy();
+  });
+
+  /**
+   * VMPR's bit 7 is not part of the register: on a read it is the
+   * MIDI-receive status, and with no MIDI input it is always set.
+   *
+   * SAMPaint's boot program is why this has its own test. It checks the
+   * machine with `IF IN 252<>254 THEN CALL 0` straight after `SCREEN 1:
+   * MODE 4` — so returning the written 0x7E made the program reset the
+   * computer the instant it finished loading, which reads as a crash.
+   */
+  it('reads VMPR back with the MIDI-receive bit set', () => {
+    const m = machine();
+    m.cpu.portOut!(0x00FC, 0x7E);       // mode 4, screen page 30
+    expect(m.memory.vmpr).toBe(0x7E);   // the register itself is unchanged
+    expect(m.cpu.portIn!(0x00FC)).toBe(0xFE);
+    m.cpu.portOut!(0x00FC, 0x00);
+    expect(m.cpu.portIn!(0x00FC)).toBe(0x80);
     m.destroy();
   });
 

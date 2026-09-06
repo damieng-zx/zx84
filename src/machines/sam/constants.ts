@@ -222,6 +222,18 @@ export const HMPR_MCNTRL = 0x80;
 export const VMPR_PAGE_MASK = 0x1F;
 export const VMPR_MODE_MASK = 0x60;
 export const VMPR_MODE_SHIFT = 5;
+/**
+ * Bit 7 of VMPR is not part of the register: on a READ it is the MIDI-receive
+ * status, and it reads SET whenever no MIDI byte is waiting — which, with no
+ * MIDI input emulated, is always.
+ *
+ * This is not cosmetic. SAMPaint's boot program checks the machine with
+ * `IF IN 252<>254 THEN CALL 0` — read VMPR straight after `SCREEN 1: MODE 4`,
+ * and reset the computer unless it reads 0xFE. Returning the written 0x7E
+ * makes the program reset itself the moment it loads, which looks for all the
+ * world like a crash. SimCoupe ORs the same bit in (`VMPR_RXMIDI_MASK`).
+ */
+export const VMPR_RXMIDI = 0x80;
 
 // ── STATUS / LINE (0xF9) ────────────────────────────────────────────────────
 //

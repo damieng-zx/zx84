@@ -25,6 +25,7 @@ const CHANGELOG: { version: string; items: string[] }[] = [
       'SAM Coupé: BASIC Listing and BASIC Variables panes, reading SAM BASIC\'s own tokens, page/offset pointers and letter-indexed variable chains',
       'SAM Coupé: System Variables pane',
       'SAM Coupé: MGT mouse on the DIN port, with a Hardware-pane toggle',
+      'SAM Coupé: VMPR reads back with its MIDI-receive bit set, so SAMPaint no longer resets the machine as it finishes loading',
       'SAM Coupé: RAINBOW now reports palette changes made while the display is drawn, instead of staying lit for the ROM\'s once-a-frame palette reload during blanking',
       'SAM Coupé: external RAM is a 0-4MB slider rather than a separate 1MB model, and contention moved to the Display pane Accuracy setting',
       'Mouse pane lists the interfaces the running machine actually has, instead of always offering Kempston and AMX',

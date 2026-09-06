@@ -27,7 +27,7 @@ import {
   PORT_LMPR, PORT_MIDI, PORT_SAA_LOW, PORT_STATUS, PORT_VMPR,
   PORT_LPEN, PEN_PORT_MASK,
   BORDER_BEEP, BORDER_COLOUR_MASK, BORDER_MIC, BORDER_SOFF,
-  BORDER_EAR, BORDER_KEY_MASK,
+  BORDER_EAR, BORDER_KEY_MASK, VMPR_RXMIDI,
 } from './constants.ts';
 
 /**
@@ -171,7 +171,9 @@ export function wireSamPortIO(m: SamMachine): void {
 
       case PORT_LMPR: return m.memory.lmpr;
       case PORT_HMPR: return m.memory.hmpr;
-      case PORT_VMPR: return m.memory.vmpr;
+      // VMPR reads back with bit 7 set: that bit is the MIDI-receive status,
+      // not part of the register, and it is high while no byte is waiting.
+      case PORT_VMPR: return m.memory.vmpr | VMPR_RXMIDI;
 
       case PORT_CLUT:
         // 0xF8 is write-only as the CLUT; reading it gives a light-pen
