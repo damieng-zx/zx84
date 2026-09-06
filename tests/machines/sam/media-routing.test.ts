@@ -57,6 +57,13 @@ function sadImage(): Uint8Array {
   return out;
 }
 
+/** gzip a payload, as ZXDB's whole SAM disk library is served. */
+async function gzipped(data: Uint8Array): Promise<Uint8Array> {
+  const stream = new Blob([data as unknown as BlobPart]).stream()
+    .pipeThrough(new CompressionStream('gzip'));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
 describe('SAM MediaService routing', () => {
   it('mounts a raw 800K .dsk into drive A with SAM geometry', async () => {
     const m = machine();
@@ -135,6 +142,31 @@ describe('SAM MediaService routing', () => {
     const r = await m.services.media.mount(new Uint8Array(1024), 'game.sna');
     expect(r.ok).toBe(false);
     expect(r.message).toMatch(/\.mgt/);
+    m.destroy();
+  });
+
+  /**
+   * A reload has to route through this same service, not a generic floppy
+   * detector: the shell persists the bytes exactly as they arrived, and for
+   * the SAM those routinely are a gzip stream wearing a `.dsk` name. Restoring
+   * through a parser that only knows container formats dropped the disk on
+   * every refresh — the Drives pane came back empty.
+   */
+  it('re-mounts a gzipped .dsk, which is how a persisted library disk comes back', async () => {
+    const m = machine();
+    const result = await m.services.media.mount(await gzipped(raw800k()), 'SAMPaint.dsk', 'a');
+    expect(result.ok).toBe(true);
+    expect(result.target).toBe('a');
+    expect(m.services.disks.image('a')).not.toBeNull();
+    m.destroy();
+  });
+
+  it('re-mounts into drive B when that is where it was persisted from', async () => {
+    const m = machine();
+    const result = await m.services.media.mount(raw800k(), 'game.dsk', 'b');
+    expect(result.target).toBe('b');
+    expect(m.services.disks.image('b')).not.toBeNull();
+    expect(m.services.disks.image('a')).toBeNull();
     m.destroy();
   });
 
