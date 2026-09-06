@@ -59,8 +59,12 @@ const MAIN_ROWS: readonly Row[] = [
     ['j', 1], ['k', 1], ['l', 1], ['semicolon', 1], ['colon', 1]],
   [['shift', 2.25], ['z', 1], ['x', 1], ['c', 1], ['v', 1], ['b', 1], ['n', 1],
     ['m', 1], ['comma', 1], ['period', 1], ['inv', 1], ['shift-right', 2.25]],
-  [['symbol', 2], ['cntrl', 1.75], ['space', 7], ['edit', 1.75],
-    ['symbol-right', 2]],
+  // The bottom row is pinned to the row above it rather than measured on its
+  // own: SPACE starts where X starts and stops where the full stop stops, and
+  // SYMBOL is a CAPS-width cap, which leaves CNTRL to make up the difference.
+  // EDIT and the right SYMBOL mirror them, so the row closes flush.
+  [['symbol', 1.75], ['cntrl', 1.5], ['space', 8], ['edit', 1.5],
+    ['symbol-right', 1.75]],
 ];
 
 /** The keypad to the right: three columns of function keys, then the cursors
@@ -81,13 +85,24 @@ const CLUSTER_ROWS: readonly Row[] = [
  * cap stops, so the notch is exactly one cap wide and the `"` key shows
  * through it. Wider and there is a slot of bare case beside the quote key;
  * narrower and RETURN paints over it.
+ *
+ * The cap is one Q row plus one A row tall, top and bottom flush with the caps
+ * either side of it. The notch therefore cuts down a WHOLE row pitch, not half
+ * the box: that leaves the foot exactly one cap tall, and puts the gap between
+ * the two rows in the narrow upper part where the `"` cap needs it.
  */
 const RETURN_LEFT = 12.75;
 const RETURN_UNITS = 1.75;
-const RETURN_NOTCH = 0.75 / RETURN_UNITS;
+/** Where the `"` cap's right edge falls, in units — the notch stops there. */
+const RETURN_NOTCH_UNITS = 13.5 - RETURN_LEFT;
+const RETURN_WIDTH = RETURN_UNITS * PITCH - GAP;
+const RETURN_HEIGHT = ROW_PITCH + CAP;
+const pct = (n: number) => `${+(n * 100).toFixed(3)}%`;
+const NOTCH_X = pct(RETURN_NOTCH_UNITS * PITCH / RETURN_WIDTH);
+const NOTCH_Y = pct(ROW_PITCH / RETURN_HEIGHT);
 const RETURN_CLIP =
-  `polygon(${(RETURN_NOTCH * 100).toFixed(2)}% 0, 100% 0, 100% 100%, 0 100%,`
-  + ` 0 50%, ${(RETURN_NOTCH * 100).toFixed(2)}% 50%)`;
+  `polygon(${NOTCH_X} 0, 100% 0, 100% 100%, 0 100%,`
+  + ` 0 ${NOTCH_Y}, ${NOTCH_X} ${NOTCH_Y})`;
 
 export const SAM_SCENE = {
   width: LEFT * 2 + (CLUSTER + 3) * PITCH,
@@ -125,8 +140,8 @@ export function placeSamKeys(): PlacedSamKey[] {
   placed.push(place('return', {
     x: LEFT + RETURN_LEFT * PITCH,
     y: TOP + ROW_PITCH,
-    width: RETURN_UNITS * PITCH - GAP,
-    height: ROW_PITCH + CAP,
+    width: RETURN_WIDTH,
+    height: RETURN_HEIGHT,
   }, RETURN_CLIP));
 
   return placed;

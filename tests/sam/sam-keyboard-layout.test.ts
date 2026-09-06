@@ -27,6 +27,12 @@ function press(kb: SamKeyboard, code: string, key: string): [number, number] | n
   return null;
 }
 
+/** The corners of a `polygon()` clip path, as fractions of the cap. */
+function clipPoints(clip: string): number[][] {
+  return clip.replace(/^polygon\(|\)$/g, '').split(',')
+    .map(point => point.trim().split(/\s+/).map(v => parseFloat(v) / 100));
+}
+
 describe('SAM keyboard layout', () => {
   it('covers every matrix position exactly once', () => {
     const cells = new Set(SAM_KEYS.map(k => `${k.cell[0]},${k.cell[1]}`));
@@ -140,10 +146,65 @@ describe('SAM keyboard layout', () => {
     expect(keypadLeft - edges[0]).toBeLessThanOrEqual(4);
   });
 
+  /**
+   * The bottom row takes its measurements from the row above rather than from
+   * the photograph: SPACE runs from X's left edge to the full stop's right
+   * edge, and SYMBOL is a CAPS-width cap. Sized on their own the two rows
+   * drifted out of step with each other.
+   */
+  it('lines the space bar up with X and the full stop', () => {
+    const placed = placeSamKeys();
+    const at = (id: string) => placed.find(p => p.key.id === id)!.box;
+
+    expect(at('space').x).toBe(at('x').x);
+    expect(at('space').x + at('space').width)
+      .toBe(at('period').x + at('period').width);
+    expect(at('symbol').width).toBe(at('caps').width);
+    // EDIT picks up where the full stop leaves off, mirroring CNTRL.
+    expect(at('edit').x).toBe(at('period').x + at('period').width + 4);
+    expect(at('edit').width).toBe(at('cntrl').width);
+    expect(at('symbol-right').width).toBe(at('symbol').width);
+  });
+
   it('cuts RETURN into an L rather than a rectangle', () => {
     const ret = placeSamKeys().find(p => p.key.id === 'return')!;
     expect(ret.hitClip).toContain('polygon');
     // Two rows tall: the Q row and the A row.
     expect(ret.box.height).toBeGreaterThan(SAM_SCENE.height / 5);
+  });
+
+  /**
+   * RETURN is flush top and bottom with the caps either side of it, and the
+   * notch cuts down a whole row pitch rather than half the box — so the foot
+   * is exactly one cap tall and the gap between the two rows belongs to the
+   * narrow upper part, where the `"` cap needs it.
+   */
+  it('lines RETURN up with the rows it spans, and cuts one cap off the foot', () => {
+    const placed = placeSamKeys();
+    const ret = placed.find(p => p.key.id === 'return')!;
+    const q = placed.find(p => p.key.id === 'q')!;
+    const a = placed.find(p => p.key.id === 'a')!;
+
+    expect(ret.box.y).toBe(q.box.y);
+    expect(ret.box.y + ret.box.height).toBe(a.box.y + a.box.height);
+
+    const notchY = clipPoints(ret.hitClip!)[4][1];
+    // The clip path carries the cut as a rounded percentage, so compare to
+    // within a rendered pixel rather than exactly.
+    expect(ret.box.y + notchY * ret.box.height).toBeCloseTo(a.box.y, 2);
+    expect((1 - notchY) * ret.box.height).toBeCloseTo(a.box.height, 2);
+  });
+
+  /** The notch is exactly as wide as the `"` cap it makes room for: wider
+   *  leaves a slot of bare case beside the quote key, narrower paints over
+   *  it. */
+  it('stops the notch at the right edge of the `"` cap', () => {
+    const placed = placeSamKeys();
+    const ret = placed.find(p => p.key.id === 'return')!;
+    const quotes = placed.find(p => p.key.id === 'quotes')!;
+
+    const notchX = clipPoints(ret.hitClip!)[0][0];
+    expect(ret.box.x + notchX * ret.box.width)
+      .toBeCloseTo(quotes.box.x + quotes.box.width + 4, 2);
   });
 });
