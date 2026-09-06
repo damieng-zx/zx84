@@ -267,6 +267,7 @@ export function samScreenCells(
   const colourAt = samColourReader(vram, mode);
 
   const glyph = new Uint8Array(CELL_H);
+  const inverted = new Uint8Array(CELL_H);
   for (let row = 0; row < rows; row++) {
     const top = rowTops[row];
     for (let col = 0; col < cols; col++) {
@@ -288,15 +289,38 @@ export function samScreenCells(
         if (bits !== 0) blank = false;
       }
       if (blank) continue;
-      const ch = map.get(key(glyph));
+
+      // An INVERSE cell is the complement of its glyph, because "ink" here
+      // means "not the dominant colour" and inverse video swaps the two. SAM
+      // BASIC marks the current line with an inverse `>` (LNCUR), so without
+      // this the editor's own cursor transcribes as `?`.
+      //
+      // A cell that inverts to BLANK is not inverse text, it is a solid block
+      // of graphics; matching it as an inverse space would both mistranscribe
+      // it and let the overlay punch a hole in the picture.
+      let ch = map.get(key(glyph));
+      let inverse = false;
+      if (ch === undefined) {
+        let solid = true;
+        for (let r = 0; r < CELL_H; r++) {
+          inverted[r] = (~glyph[r]) & 0xFF;
+          if (inverted[r] !== 0) solid = false;
+        }
+        if (!solid) {
+          ch = map.get(key(inverted));
+          inverse = ch !== undefined;
+        }
+      }
       chars[idx] = ch ?? '?';
       // Only a recognised glyph is blanked out from under the overlay: an
       // unmatched cell is graphics, and punching a hole in it would hide
       // picture the overlay is not replacing.
       if (ch !== undefined) {
         mask[idx] = true;
-        ink[idx] = inkIdx;
-        paperOf[idx] = paperIdx;
+        // In an inverse cell the pixels that stood out from the page ARE the
+        // background, so the two colours change places.
+        ink[idx] = inverse ? paperIdx : inkIdx;
+        paperOf[idx] = inverse ? inkIdx : paperIdx;
       }
     }
   }

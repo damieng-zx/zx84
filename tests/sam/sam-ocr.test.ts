@@ -61,6 +61,57 @@ function screen(font: Uint8Array) {
   return { vram, write, mem };
 }
 
+/** Stamp a character INVERSE: the cell filled with ink, the glyph punched
+ *  out of it in paper — how SAM BASIC draws the current-line marker. */
+function writeInverse(mem: Uint8Array, font: Uint8Array, col: number, row: number, ch: string, ink = 15) {
+  const code = ch.charCodeAt(0);
+  for (let r = 0; r < CELL_H; r++) {
+    const bits = font[code * CELL_H + r];
+    for (let b = 0; b < 8; b++) {
+      const on = (bits & (0x80 >> b)) === 0;      // inverted
+      const x = col * 8 + b, y = row * ROW_PITCH + r;
+      const off = (y << 7) + (x >> 1);
+      const v = on ? ink : 0;
+      mem[off] = (x & 1) ? ((mem[off] & 0xF0) | v) : ((mem[off] & 0x0F) | (v << 4));
+    }
+  }
+}
+
+describe('SAM OCR inverse video', () => {
+  /**
+   * "Ink" here means "not the dominant colour", so an inverse cell arrives as
+   * the COMPLEMENT of its glyph and matches nothing in the font. SAM BASIC
+   * marks the current line of a listing with an inverse `>` (LNCUR), so
+   * without this the editor's own cursor transcribed as `?`.
+   */
+  it('reads an inverse character as itself', () => {
+    const font = toyFont();
+    const s = screen(font);
+    s.write(0, 0, '10');
+    writeInverse(s.mem, font, 2, 0, '>');
+    s.write(3, 0, 'PRINT');
+    expect(samScreenText(s.vram, 4, font)!.lines[0]).toBe('10>PRINT');
+  });
+
+  /**
+   * A cell that inverts to BLANK is a solid block of graphics, not inverse
+   * text. Matching it as an inverse space would mistranscribe it AND let the
+   * TEXT overlay punch a hole in the picture.
+   */
+  it('leaves a solid block alone rather than calling it an inverse space', () => {
+    const font = toyFont();
+    const s = screen(font);
+    for (let r = 0; r < CELL_H; r++) {
+      for (let b = 0; b < 8; b++) {
+        const x = b, y = r;
+        const off = (y << 7) + (x >> 1);
+        s.mem[off] = (x & 1) ? ((s.mem[off] & 0xF0) | 15) : ((s.mem[off] & 0x0F) | 0xF0);
+      }
+    }
+    expect(samScreenText(s.vram, 4, font)!.lines[0]).toBe('?');
+  });
+});
+
 describe('samFontMap', () => {
   it('rejects a table whose space glyph is not blank', () => {
     const font = toyFont();
