@@ -29,6 +29,8 @@
  * Variables" and "Major Pointers To BASIC's Memory Area".
  */
 
+import { resolveSamPointer } from '@/basic/sam-basic-parser.ts';
+
 /** The RAM page holding the system variables. */
 export const SAM_SYSVAR_PAGE = 0;
 
@@ -89,21 +91,19 @@ export interface SamPointer {
 }
 
 /**
- * Read a 3-byte BASIC pointer out of the system-variable page.
+ * Read a 3-byte BASIC pointer out of the system-variable page, or null when
+ * the ROM has not written one there.
  *
  * `sysvars` is RAM page 0 as a flat 16K array; `addr` is the documented
- * address in the 0x4000 window. The stored offset is 0x8000-based and may run
- * a whole page past its window, so the excess is folded into the page number —
- * the same adjustment the ROM makes when a line crosses from section C to D.
+ * address in the 0x4000 window. The 0x8000-based decoding — including what
+ * counts as "not a pointer" — lives in `resolveSamPointer`, so this and the
+ * BASIC walkers cannot disagree about it.
  */
-export function readSamPointer(sysvars: Uint8Array, addr: number): SamPointer {
+export function readSamPointer(sysvars: Uint8Array, addr: number): SamPointer | null {
   const at = addr - SAM_SYSVAR_WINDOW;
-  const page = sysvars[at] ?? 0;
   const raw = ((sysvars[at + 2] ?? 0) << 8) | (sysvars[at + 1] ?? 0);
-  let offset = raw - 0x8000;
-  let carry = 0;
-  while (offset >= 0x4000) { offset -= 0x4000; carry++; }
-  return { page: page + carry, offset, raw };
+  const p = resolveSamPointer(sysvars[at] ?? 0, raw);
+  return p && { page: p.page, offset: p.offset, raw };
 }
 
 /** Read a 16-bit little-endian sysvar. */

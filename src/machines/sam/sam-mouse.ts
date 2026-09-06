@@ -59,11 +59,6 @@ function clamp(v: number): number {
 }
 
 export class SamMouse {
-  /** Fitted flag — the Hardware pane's "Mouse" toggle. When clear the port
-   *  reads as bare keyboard, exactly as a SAM with nothing in the mouse
-   *  socket. */
-  enabled = true;
-
   /** Host movement owed to the driver but not yet reported. */
   private deltaX = 0;
   private deltaY = 0;
@@ -92,6 +87,7 @@ export class SamMouse {
     this.index = 0;
     this.lastReadT = 0;
     this.sequential = false;
+    this.reporting = false;
     this.buffer.fill(0);
     // The strobe pair is constant; everything else is filled in on latch.
     this.buffer[0] = 0xFF;
@@ -126,6 +122,17 @@ export class SamMouse {
   sequential = false;
 
   /**
+   * Whether the report being read carries anything at all.
+   *
+   * The interface is always plugged in, so the ROM's driver polls it every
+   * frame for ever — and lighting the MOUSE indicator off the reads alone
+   * would leave it on from boot to power-off, the same trap RAINBOW and EAR
+   * both fell into. A mouse nobody is moving reports no movement and no
+   * buttons, and that is not activity.
+   */
+  reporting = false;
+
+  /**
    * Serve one byte of the report.
    *
    * `tStates` is the CPU time of this read, used only for the restart gap.
@@ -133,8 +140,6 @@ export class SamMouse {
    * keyboard bits.
    */
   read(tStates: number): number {
-    if (!this.enabled) return 0xFF;
-
     // A pause long enough that the driver has plainly stopped reading puts the
     // sequence back to its strobe, so the next read starts a fresh report.
     const gap = tStates - this.lastReadT;
@@ -170,6 +175,7 @@ export class SamMouse {
     const y = clamp(this.deltaY);
     this.reportedX = x;
     this.reportedY = y;
+    this.reporting = x !== 0 || y !== 0 || this.buttons !== 0;
 
     // 12-bit two's complement, most significant nibble first.
     const x12 = x & 0xFFF;

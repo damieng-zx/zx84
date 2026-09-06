@@ -450,14 +450,29 @@ const SYSVAR_WINDOW = 0x4000;
 
 function pointer(read: SamPageReader, addr: number): SamBasicPointer | null {
   const at0 = addr - SYSVAR_WINDOW;
-  const page = read(SYSVAR_PAGE, at0);
-  const raw = (read(SYSVAR_PAGE, at0 + 2) << 8) | read(SYSVAR_PAGE, at0 + 1);
-  // A stored offset is 0x8000-based and "always less than 32K" (Technical
-  // Manual), so anything below 0x8000 is not a pointer yet. That is the state
-  // the whole system-variable page is in for the first few seconds after
-  // reset, while the ROM runs its RAM test: every byte reads zero, and taking
-  // it at face value aims the walkers at page 0 offset 0 and marches them
-  // through zeroed RAM inventing a variable every other byte.
+  return resolveSamPointer(
+    read(SYSVAR_PAGE, at0),
+    (read(SYSVAR_PAGE, at0 + 2) << 8) | read(SYSVAR_PAGE, at0 + 1),
+  );
+}
+
+/**
+ * Turn a stored 3-byte pointer into a page and an offset within it, or null
+ * when it is not a pointer at all.
+ *
+ * The stored offset is 0x8000-based and "always less than 32K" (Technical
+ * Manual), so anything below 0x8000 has not been written yet — which is the
+ * state of the whole system-variable page for the first few seconds after
+ * reset, while the ROM runs its RAM test, and of individual pointers the ROM
+ * has no use for yet. Subtracting anyway yields a negative offset, which is
+ * how a debug pane ends up printing `0:undefined`, and how a walker ends up
+ * marching through zeroed RAM inventing a variable every other byte.
+ *
+ * The offset is allowed to run past 0xBFFF into the next page's window, which
+ * is the same adjustment the ROM makes when a line crosses from section C to
+ * section D; the excess folds into the page number.
+ */
+export function resolveSamPointer(page: number, raw: number): SamBasicPointer | null {
   if (raw < 0x8000) return null;
   let offset = raw - 0x8000;
   let carry = 0;

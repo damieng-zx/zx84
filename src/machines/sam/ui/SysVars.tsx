@@ -40,8 +40,10 @@ function readVal(page: Uint8Array, def: SamSysVarDef): string {
 function value(page: Uint8Array, def: SamSysVarDef): string {
   switch (def.width) {
     case 'ptr': {
+      // Null means the ROM has not written this pointer yet — common on a
+      // fresh boot, and for the ones BASIC only sets while it is running.
       const p = readSamPointer(page, def.addr);
-      return `${p.page}:${HEX16[p.offset]}`;
+      return p ? `${p.page}:${HEX16[p.offset]}` : '—';
     }
     case 16:
       return HEX16[readSamWord(page, def.addr)];

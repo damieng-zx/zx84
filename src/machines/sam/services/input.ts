@@ -37,10 +37,20 @@ export class SamInputService implements InputService {
 
   readonly mouse: MouseSink | null = null;
 
-  /** One mouse, so the mode is ignored. The Y inversion lives here rather than
-   *  in the capture pane: which way up a mouse counts is machine hardware. */
+  /**
+   * One mouse, so there is nothing for the mode to select.
+   *
+   * The interface is always plugged in — a SAM's mouse port is on the back of
+   * every machine, and an idle mouse reports nothing, so nothing needs
+   * switching off. Capturing or releasing the pointer does restart the report
+   * though: whatever half-read sequence or stale movement was in flight
+   * belongs to the previous capture.
+   *
+   * The Y inversion lives here rather than in the capture pane, because which
+   * way up a mouse counts is machine hardware.
+   */
   readonly mice: MouseInput = {
-    setMode: () => { /* nothing to select — the SAM has one mouse port */ },
+    setMode: () => this.m.mouse.reset(),
     motion: (dx, dy) => this.m.mouse.motion(dx, dy),
     button: (index, pressed) => this.m.mouse.button(index, pressed),
   };

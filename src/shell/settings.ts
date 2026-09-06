@@ -49,7 +49,6 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'drive-b-force-ready': () => settings.driveBForceReady(),
   'einstein-xtaldos': () => settings.einsteinXtalDos(),
   'sam-external-ram': () => settings.samExternalRam(),
-  'sam-mouse': () => settings.samMouse(),
   'cpc-parados': () => settings.cpcParados(),
   'mtx-cpm': () => settings.mtxCpm(),
   'mtx-80-column': () => settings.mtx80Column(),

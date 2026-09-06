@@ -24,34 +24,6 @@ const EXTERNAL_SIZES = Array.from(
 
 export function SamHardwareSection() {
   return (
-    <>
-    <div class="slider-row">
-      <span
-        class="slider-label"
-        title={'MGT mouse plugged into the DIN port. It is read through the '
-          + 'keyboard port with no row selected, so an empty socket is a '
-          + 'different read from a still mouse — unplug it if a program '
-          + 'mistakes the mouse stream for keypresses.'}
-      >
-        Mouse
-      </span>
-      <label class="toggle">
-        <input
-          type="checkbox"
-          id="sam-mouse"
-          checked={settings.samMouse()}
-          onChange={(event) => {
-            const on = (event.target as HTMLInputElement).checked;
-            settings.setSamMouse(on);
-            settings.persistSetting('sam-mouse', on ? 'on' : 'off');
-            // Live: plugging the mouse in or out changes only what the next
-            // read of &FFFE answers, so no reset is needed.
-            const sam = activeSam();
-            if (sam) { sam.mouse.enabled = on; sam.mouse.reset(); }
-          }}
-        />
-      </label>
-    </div>
     <div class="slider-row sam-ram-row">
       <span
         class="slider-label"
@@ -79,6 +51,5 @@ export function SamHardwareSection() {
         </For>
       </select>
     </div>
-    </>
   );
 }

@@ -107,12 +107,28 @@ describe('SamMouse', () => {
     expect(r[10]).toBe(0xFF);
   });
 
-  it('reads as an empty socket when the interface is unplugged', () => {
+  it('reports nothing while nobody is touching it', () => {
+    // The interface is always plugged in and the ROM polls it every frame, so
+    // "is a report carrying anything" is what the MOUSE indicator keys off —
+    // reads alone would leave it lit from boot to power-off.
     const m = new SamMouse();
-    m.enabled = false;
-    m.motion(10, 10);
-    m.button(0, true);
-    expect(burst(m, 4)).toEqual([0xFF, 0xFF, 0xFF, 0xFF]);
+    burst(m, 9);
+    expect(m.reporting).toBe(false);
+
+    m.motion(1, 0);
+    burst(m, 9, 2_000_000);
+    expect(m.reporting).toBe(true);
+
+    // The movement was retired with the report, so the next one is idle again.
+    burst(m, 9, 3_000_000);
+    expect(m.reporting).toBe(false);
+  });
+
+  it('counts a held button as something to report', () => {
+    const m = new SamMouse();
+    m.button(1, true);
+    burst(m, 9);
+    expect(m.reporting).toBe(true);
   });
 
   it('drops held buttons and pending movement on reset', () => {

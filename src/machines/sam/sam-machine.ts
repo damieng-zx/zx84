@@ -148,11 +148,12 @@ export class SamMachine extends BaseMachine implements Machine {
 
   /** MGT mouse, ANDed into the keyboard bits of `IN A,(&FFFE)` (RDMSEL). */
   readMouse(tStates: number): number {
-    if (!this.mouse.enabled) return 0xFF;
     const value = this.mouse.read(tStates);
-    // Only a read that continues a report counts as activity — see
-    // `SamMouse.sequential` for why the ROM's idle poll must not light the LED.
-    if (this.mouse.sequential) this.activity.mouseReads++;
+    // Activity means a driver reading a report that actually carries
+    // something. The ROM polls this port every frame whether or not anyone is
+    // touching the mouse, so both halves are needed to keep the indicator from
+    // sticking on — see `SamMouse.sequential` and `SamMouse.reporting`.
+    if (this.mouse.sequential && this.mouse.reporting) this.activity.mouseReads++;
     return value;
   }
 
@@ -211,10 +212,6 @@ export class SamMachine extends BaseMachine implements Machine {
     this.memory.setExternalPages(
       samExternalPages(view.get('sam-external-ram', 0)),
     );
-    // The MGT mouse shares the keyboard port, so an unplugged one is not the
-    // same as a still one: with nothing in the socket `IN A,(&FFFE)` reads as
-    // bare keyboard. The toggle is that socket.
-    this.mouse.enabled = view.get('sam-mouse', true);
     // The Drive pane's per-drive write-protect, shared with every other
     // machine that has built-in floppies.
     this.disk.setWriteProtect(0, view.get('write-protect-a', false));
