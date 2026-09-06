@@ -77,6 +77,18 @@ function writeInverse(mem: Uint8Array, font: Uint8Array, col: number, row: numbe
   }
 }
 
+/** Fill one cell solid: an inverse SPACE, and equally a block of graphics —
+ *  the pixels alone cannot tell the two apart. */
+function writeSolid(mem: Uint8Array, col: number, row: number, ink = 15) {
+  for (let r = 0; r < CELL_H; r++) {
+    for (let b = 0; b < 8; b++) {
+      const x = col * 8 + b, y = row * ROW_PITCH + r;
+      const off = (y << 7) + (x >> 1);
+      mem[off] = (x & 1) ? ((mem[off] & 0xF0) | ink) : ((mem[off] & 0x0F) | (ink << 4));
+    }
+  }
+}
+
 describe('SAM OCR inverse video', () => {
   /**
    * "Ink" here means "not the dominant colour", so an inverse cell arrives as
@@ -101,14 +113,44 @@ describe('SAM OCR inverse video', () => {
   it('leaves a solid block alone rather than calling it an inverse space', () => {
     const font = toyFont();
     const s = screen(font);
-    for (let r = 0; r < CELL_H; r++) {
-      for (let b = 0; b < 8; b++) {
-        const x = b, y = r;
-        const off = (y << 7) + (x >> 1);
-        s.mem[off] = (x & 1) ? ((s.mem[off] & 0xF0) | 15) : ((s.mem[off] & 0x0F) | 0xF0);
-      }
-    }
+    writeSolid(s.mem, 0, 0);
     expect(samScreenText(s.vram, 4, font)!.lines[0]).toBe('?');
+  });
+
+  /**
+   * The same solid cell IS an inverse space when it sits in inverse text —
+   * which is the only thing that can tell them apart. Reading it as graphics
+   * turned every space inside a run of inverse text into a `?`.
+   */
+  it('reads a solid cell inside inverse text as its space', () => {
+    const font = toyFont();
+    const s = screen(font);
+    for (const [col, ch] of [[0, 'A'], [1, 'B'], [4, 'C'], [5, 'D']] as const) {
+      writeInverse(s.mem, font, col, 0, ch);
+    }
+    writeSolid(s.mem, 2, 0);
+    writeSolid(s.mem, 3, 0);
+    expect(samScreenText(s.vram, 4, font)!.lines[0]).toBe('AB  CD');
+  });
+
+  /** A run anchored only on its right still reads, so the sweep has to run
+   *  both ways. */
+  it('reads a solid cell that only has inverse text to its right', () => {
+    const font = toyFont();
+    const s = screen(font);
+    writeSolid(s.mem, 0, 0);
+    writeInverse(s.mem, font, 1, 0, 'X');
+    expect(samScreenText(s.vram, 4, font)!.lines[0]).toBe(' X');
+  });
+
+  /** Ordinary text next door is not enough: an inverse space is only a space
+   *  when the text it belongs to is itself inverse. */
+  it('still calls a solid block beside normal text graphics', () => {
+    const font = toyFont();
+    const s = screen(font);
+    s.write(0, 0, 'HI');
+    writeSolid(s.mem, 2, 0);
+    expect(samScreenText(s.vram, 4, font)!.lines[0]).toBe('HI?');
   });
 });
 

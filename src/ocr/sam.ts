@@ -268,8 +268,14 @@ export function samScreenCells(
 
   const glyph = new Uint8Array(CELL_H);
   const inverted = new Uint8Array(CELL_H);
+  // Per-row bookkeeping for the solid-cell pass below.
+  const isInverse: boolean[] = new Array(cols);
+  const isSolid: boolean[] = new Array(cols);
+  const solidColour = new Int16Array(cols);
   for (let row = 0; row < rows; row++) {
     const top = rowTops[row];
+    isInverse.fill(false);
+    isSolid.fill(false);
     for (let col = 0; col < cols; col++) {
       const idx = row * cols + col;
       const x0 = col * CELL_W;
@@ -294,10 +300,6 @@ export function samScreenCells(
       // means "not the dominant colour" and inverse video swaps the two. SAM
       // BASIC marks the current line with an inverse `>` (LNCUR), so without
       // this the editor's own cursor transcribes as `?`.
-      //
-      // A cell that inverts to BLANK is not inverse text, it is a solid block
-      // of graphics; matching it as an inverse space would both mistranscribe
-      // it and let the overlay punch a hole in the picture.
       let ch = map.get(key(glyph));
       let inverse = false;
       if (ch === undefined) {
@@ -306,10 +308,19 @@ export function samScreenCells(
           inverted[r] = (~glyph[r]) & 0xFF;
           if (inverted[r] !== 0) solid = false;
         }
-        if (!solid) {
-          ch = map.get(key(inverted));
-          inverse = ch !== undefined;
+        if (solid) {
+          // A cell that inverts to BLANK is ambiguous: it is either an inverse
+          // SPACE or a solid block of graphics, and the pixels cannot tell
+          // them apart. Leave it undecided and let the neighbour pass below
+          // settle it — calling it graphics outright transcribed every space
+          // inside a run of inverse text as `?`.
+          isSolid[col] = true;
+          solidColour[col] = inkIdx;
+          chars[idx] = '?';
+          continue;
         }
+        ch = map.get(key(inverted));
+        inverse = ch !== undefined;
       }
       chars[idx] = ch ?? '?';
       // Only a recognised glyph is blanked out from under the overlay: an
@@ -317,12 +328,38 @@ export function samScreenCells(
       // picture the overlay is not replacing.
       if (ch !== undefined) {
         mask[idx] = true;
+        isInverse[col] = inverse;
         // In an inverse cell the pixels that stood out from the page ARE the
         // background, so the two colours change places.
         ink[idx] = inverse ? paperIdx : inkIdx;
         paperOf[idx] = inverse ? inkIdx : paperIdx;
       }
     }
+
+    // A solid cell that TOUCHES inverse text is a space inside it, not a block
+    // of graphics. Sweeping both ways carries the verdict along a whole run of
+    // them, whichever end the inverse text sits at; a solid run with inverse
+    // text at neither end stays graphics and stays out of the overlay's way.
+    //
+    // Adopting one costs nothing on screen either way: the overlay blanks a
+    // cell to its OWN paper colour, and a solid cell's paper is the colour it
+    // was already painted.
+    for (let col = 1; col < cols; col++) adoptSolid(row, col, col - 1);
+    for (let col = cols - 2; col >= 0; col--) adoptSolid(row, col, col + 1);
+  }
+
+  /** Claim a solid cell as an inverse space when its neighbour is inverse. */
+  function adoptSolid(row: number, col: number, from: number): void {
+    if (!isSolid[col] || !isInverse[from]) return;
+    const idx = row * cols + col;
+    isSolid[col] = false;
+    isInverse[col] = true;
+    mask[idx] = true;
+    chars[idx] = ' ';
+    // Every pixel stood out from the page, so the whole cell is the character's
+    // background; a space has no ink to place.
+    ink[idx] = -1;
+    paperOf[idx] = solidColour[col];
   }
 
   return { cols, rows, width, rowTops, chars, mask, ink, paper: paperOf };
