@@ -129,7 +129,6 @@ function Detail(props: { game: SamGame; onPlay: (link: string) => void; busy: bo
 export function SamLibraryBrowser() {
   const [catalog, setCatalog] = createSignal<RawSamCatalog | null>(null);
   const [query, setQuery] = createSignal('');
-  const [loading, setLoading] = createSignal(true);
   const [error, setError] = createSignal('');
   const [loadingGame, setLoadingGame] = createSignal<SamGame | null>(null);
   const [selected, setSelected] = createSignal<SamGame | null>(null);
@@ -139,7 +138,6 @@ export function SamLibraryBrowser() {
   onMount(async () => {
     try { setCatalog(await fetchSamCatalog()); }
     catch { setError('Could not load the SAM Coupé software catalog.'); }
-    finally { setLoading(false); }
   });
 
   const games = createMemo(() => {
@@ -363,7 +361,6 @@ export function SamLibraryBrowser() {
         </Show>
       </div>
       <Show when={error()}><div class="library-status library-error">{error()}</div></Show>
-      <Show when={loading()}><div class="library-status">Loading catalog…</div></Show>
       <Show when={catalog() && isActive()}>
         <div class="library-list">
           <For each={filtered()} fallback={<div class="library-status">No matches.</div>}>
