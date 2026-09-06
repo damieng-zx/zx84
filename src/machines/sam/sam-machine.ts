@@ -469,11 +469,11 @@ export class SamMachine extends BaseMachine implements Machine {
    * Screen OCR for the TEXT overlay: the same transcription, plus the colours
    * and cell rectangles the overlay needs.
    *
-   * Colour is sampled from the RENDERED frame buffer rather than derived from
-   * the CLUT. Modes 1 and 2 keep their colours in an attribute area the OCR
-   * reader never touches, and in every mode the ROM's wallpaper rewrites a
-   * palette entry mid-scanline — so the only answer that matches what the user
-   * is looking at is the pixel that is already on screen.
+   * Colour comes from display memory and the CLUT, never from the rendered
+   * frame buffer. Sampling the buffer would mean reading back the cells this
+   * very driver blanked on its previous call whenever the machine had not
+   * redrawn in between — one rAF in six on a 50 Hz machine at 60 Hz, and every
+   * one while paused — which flashed the text black on black.
    */
   ocrScreenStyled(): SamStyledOcr {
     const mode = this.memory.videoMode;
@@ -509,7 +509,7 @@ export class SamMachine extends BaseMachine implements Machine {
           html += ' ';
           continue;
         }
-        const hex = this.pixelHex(cells.width, cells.inkX[idx], cells.inkY[idx]);
+        const hex = this.clutHex(cells.ink[idx]);
         if (hex !== openHex) {
           if (openHex) html += '</span>';
           html += `<span style="color:${hex}">`;
@@ -530,20 +530,17 @@ export class SamMachine extends BaseMachine implements Machine {
     };
   }
 
-  /** CSS colour of the frame-buffer pixel under a display-space coordinate. */
-  private pixelHex(displayWidth: number, x: number, y: number): string {
-    if (x < 0 || y < 0) return '#ffffff';
-    const abgr = this._pixels32[this.bufferIndex(displayWidth, x, y)];
-    const r = abgr & 0xFF, g = (abgr >>> 8) & 0xFF, b = (abgr >>> 16) & 0xFF;
-    return '#' + ((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1);
+  /** Packed ABGR a CLUT index resolves to through the active palette. */
+  private clutRgba(index: number): number {
+    return this.asic.palette[this.asic.clut[index & 0x0F] & 0x7F];
   }
 
-  /** Display-space (x,y) → index into the full-border frame buffer. */
-  private bufferIndex(displayWidth: number, x: number, y: number): number {
-    const scale = SAM_DISPLAY_WIDTH / displayWidth;
-    const bx = SAM_BORDER_LEFT + Math.round(x * scale);
-    const by = SAM_BORDER_TOP + y;
-    return by * SAM_SCREEN_WIDTH + bx;
+  /** CSS colour of a CLUT index, for the overlay's spans. */
+  private clutHex(index: number): string {
+    if (index < 0) return '#ffffff';
+    const abgr = this.clutRgba(index);
+    const r = abgr & 0xFF, g = (abgr >>> 8) & 0xFF, b = (abgr >>> 16) & 0xFF;
+    return '#' + ((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1);
   }
 
   /**
@@ -560,10 +557,8 @@ export class SamMachine extends BaseMachine implements Machine {
       for (let col = 0; col < cells.cols; col++) {
         const idx = r * cells.cols + col;
         if (!cells.mask[idx]) continue;
-        const px = cells.paperX[idx];
-        const fill = px < 0
-          ? 0xFF000000
-          : this._pixels32[this.bufferIndex(cells.width, px, cells.paperY[idx])];
+        const paper = cells.paper[idx];
+        const fill = paper < 0 ? 0xFF000000 : this.clutRgba(paper);
         const x0 = SAM_BORDER_LEFT + Math.round(col * 8 * scale);
         for (let y = 0; y < 8; y++) {
           const base = (top + y) * SAM_SCREEN_WIDTH + x0;

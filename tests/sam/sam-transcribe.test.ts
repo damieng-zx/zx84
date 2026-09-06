@@ -127,6 +127,48 @@ describe('SAM TEXT overlay', () => {
     }
   });
 
+  /**
+   * The overlay blanks the cells it transcribes, so a driver that took its
+   * colours from the rendered frame buffer would be reading back its own last
+   * blanking on any call where the machine had not redrawn in between. That is
+   * roughly one frame in six on a 50 Hz machine shown at 60 Hz, and every
+   * frame while paused — the text flashed black on black.
+   */
+  it('gives the same colours when nothing has been redrawn since the last run', () => {
+    const m = samShowing('HELLO');
+    try {
+      m.asic.writeClut(0, 0x00, 0);       // paper
+      m.asic.writeClut(15, 0x7F, 0);      // ink
+      m.tick();
+      const first = m.services.probe.transcribe.run();
+      const second = m.services.probe.transcribe.run();
+      const third = m.services.probe.transcribe.run();
+      expect(second.html).toBe(first.html);
+      expect(third.html).toBe(first.html);
+      // ...and the ink really is the ink colour, not the paper behind it.
+      expect(first.html).toContain('#ffffff');
+    } finally {
+      m.destroy();
+    }
+  });
+
+  it('holds steady frame after frame at the BASIC editor', () => {
+    const m = samShowing('READY');
+    try {
+      m.asic.writeClut(0, 0x00, 0);
+      m.asic.writeClut(15, 0x7F, 0);
+      const states = new Set<string>();
+      for (let f = 0; f < 20; f++) {
+        m.tick();
+        const r = m.services.probe.transcribe.run();
+        states.add(`${r.text}|${r.html}`);
+      }
+      expect(states.size).toBe(1);
+    } finally {
+      m.destroy();
+    }
+  });
+
   it('follows CHARS when a program repoints the character set', () => {
     const moved = 0x2000;
     expect(moved).not.toBe(SAM_FONT_OFFSET);

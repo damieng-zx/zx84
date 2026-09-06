@@ -21,7 +21,7 @@ const CHANGELOG: { version: string; items: string[] }[] = [
       'SAM Coupé: disk images in a DSK container now mount instead of being refused as Amstrad disks',
       'SAM Coupé: mounted disks show in the Drives pane, and the library Play button boots them',
       'SAM Coupé: screen OCR is reachable from the TEXT indicator, and EAR no longer lights on every keyboard scan',
-      'SAM Coupé: the TEXT overlay now transcribes the screen in colour, following CHARS so a redefined character set still reads back',
+      'SAM Coupé: the TEXT overlay now transcribes the screen in colour, following CHARS so a redefined character set still reads back, and takes its colours from the CLUT so it no longer flickers',
       'SAM Coupé: BASIC Listing and BASIC Variables panes, reading SAM BASIC\'s own tokens, page/offset pointers and letter-indexed variable chains',
       'SAM Coupé: System Variables pane',
       'SAM Coupé: MGT mouse on the DIN port — always fitted, driven from the Mouse pane capture button',

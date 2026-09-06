@@ -98,6 +98,39 @@ export function samPixelReader(
   }
 }
 
+/**
+ * Build a reader for the CLUT index a pixel is drawn through.
+ *
+ * In modes 3 and 4 the pixel value IS the CLUT index, so this is the pixel
+ * reader. Modes 1 and 2 are one bit per pixel through an attribute — ink in
+ * the low three bits, paper in the next three, and a shared BRIGHT that
+ * supplies bit 3 of the index — exactly as `SamAsic.plotAttrCell` decodes it.
+ *
+ * Colour is taken from DISPLAY MEMORY rather than from the rendered frame
+ * buffer for one blunt reason: the overlay blanks the cells it transcribes,
+ * so a driver that sampled the frame buffer would be reading its own last
+ * blanking whenever the machine had not redrawn in between. On a 50 Hz machine
+ * shown at 60 Hz that is roughly one frame in six, and the text flashed black
+ * on black.
+ */
+export function samColourReader(
+  vram: (offset: number) => number,
+  mode: 1 | 2 | 3 | 4,
+): PixelReader {
+  if (mode >= 3) return samPixelReader(vram, mode).read;
+  const attrOf = mode === 1
+    ? (x: number, y: number) => 6144 + ((y >> 3) << 5) + (x >> 3)
+    : (x: number, y: number) => 0x2000 + (y << 5) + (x >> 3);
+  const { read } = samPixelReader(vram, mode);
+  return (x, y) => {
+    const attr = vram(attrOf(x, y));
+    const bright = (attr & 0x40) >> 3;
+    return read(x, y)
+      ? (attr & 0x07) | bright
+      : ((attr >> 3) & 0x07) | bright;
+  };
+}
+
 /** A glyph bitmap keyed for lookup. */
 const key = (g: Uint8Array): string => g.join(',');
 
@@ -195,12 +228,10 @@ export interface SamOcrCells {
   readonly chars: readonly string[];
   /** `cols*rows` — true where a glyph was matched (and so may be blanked). */
   readonly mask: boolean[];
-  /** Display-space sample of an inked pixel in each matched cell, or -1. */
-  readonly inkX: Int16Array;
-  readonly inkY: Int16Array;
-  /** Display-space sample of a paper pixel in each matched cell, or -1. */
-  readonly paperX: Int16Array;
-  readonly paperY: Int16Array;
+  /** CLUT index the glyph is inked in, per matched cell, or -1. */
+  readonly ink: Int16Array;
+  /** CLUT index behind the glyph, per matched cell, or -1. */
+  readonly paper: Int16Array;
 }
 
 /**
@@ -231,10 +262,9 @@ export function samScreenCells(
 
   const chars: string[] = new Array(count).fill(' ');
   const mask: boolean[] = new Array(count).fill(false);
-  const inkX = new Int16Array(count).fill(-1);
-  const inkY = new Int16Array(count).fill(-1);
-  const paperX = new Int16Array(count).fill(-1);
-  const paperY = new Int16Array(count).fill(-1);
+  const ink = new Int16Array(count).fill(-1);
+  const paperOf = new Int16Array(count).fill(-1);
+  const colourAt = samColourReader(vram, mode);
 
   const glyph = new Uint8Array(CELL_H);
   for (let row = 0; row < rows; row++) {
@@ -243,7 +273,7 @@ export function samScreenCells(
       const idx = row * cols + col;
       const x0 = col * CELL_W;
       let blank = true;
-      let ix = -1, iy = -1, px = -1, py = -1;
+      let inkIdx = -1, paperIdx = -1;
       for (let r = 0; r < CELL_H; r++) {
         let bits = 0;
         for (let b = 0; b < CELL_W; b++) {
@@ -251,7 +281,8 @@ export function samScreenCells(
           const y = top + r;
           const on = read(x, y) !== paper;
           bits = (bits << 1) | (on ? 1 : 0);
-          if (on) { if (ix < 0) { ix = x; iy = y; } } else if (px < 0) { px = x; py = y; }
+          if (on) { if (inkIdx < 0) inkIdx = colourAt(x, y); }
+          else if (paperIdx < 0) paperIdx = colourAt(x, y);
         }
         glyph[r] = bits;
         if (bits !== 0) blank = false;
@@ -264,13 +295,13 @@ export function samScreenCells(
       // picture the overlay is not replacing.
       if (ch !== undefined) {
         mask[idx] = true;
-        inkX[idx] = ix; inkY[idx] = iy;
-        paperX[idx] = px; paperY[idx] = py;
+        ink[idx] = inkIdx;
+        paperOf[idx] = paperIdx;
       }
     }
   }
 
-  return { cols, rows, width, rowTops, chars, mask, inkX, inkY, paperX, paperY };
+  return { cols, rows, width, rowTops, chars, mask, ink, paper: paperOf };
 }
 
 /**
