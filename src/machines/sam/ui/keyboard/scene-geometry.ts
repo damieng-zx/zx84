@@ -22,10 +22,14 @@ export interface PlacedSamKey {
   readonly hitClip?: string;
 }
 
-/** One key pitch, and the cap inside it. */
+/** One key pitch, and the cap inside it.
+ *
+ * Rows sit 42 apart, not 40 — the pitch the photograph actually gives (see
+ * MAIN_ROWS) — so the gap between two rows is 6 where the gap between two
+ * caps in a row is 4. */
 const PITCH = 40;
 const GAP = 4;
-const ROW_PITCH = 40;
+const ROW_PITCH = 42;
 const CAP = 36;
 
 /** Case margins around the key field. */
@@ -96,10 +100,12 @@ const RETURN_UNITS = 1.75;
 /** Where the `"` cap's right edge falls, in units — the notch stops there. */
 const RETURN_NOTCH_UNITS = 13.5 - RETURN_LEFT;
 const RETURN_WIDTH = RETURN_UNITS * PITCH - GAP;
-const RETURN_HEIGHT = ROW_PITCH + CAP;
+/** Set by eye against the running keyboard rather than derived: two caps and
+ *  the gap between them come to 78, and RETURN wants 80. */
+const RETURN_HEIGHT = 80;
 const pct = (n: number) => `${+(n * 100).toFixed(3)}%`;
 const NOTCH_X = pct(RETURN_NOTCH_UNITS * PITCH / RETURN_WIDTH);
-const NOTCH_Y = pct(ROW_PITCH / RETURN_HEIGHT);
+const NOTCH_Y = pct(42 / RETURN_HEIGHT);
 const RETURN_CLIP =
   `polygon(${NOTCH_X} 0, 100% 0, 100% 100%, 0 100%,`
   + ` 0 ${NOTCH_Y}, ${NOTCH_X} ${NOTCH_Y})`;

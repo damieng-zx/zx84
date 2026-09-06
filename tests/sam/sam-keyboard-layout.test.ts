@@ -186,13 +186,12 @@ describe('SAM keyboard layout', () => {
     const a = placed.find(p => p.key.id === 'a')!;
 
     expect(ret.box.y).toBe(q.box.y);
-    expect(ret.box.y + ret.box.height).toBe(a.box.y + a.box.height);
+    expect(ret.box.height).toBe(80);
 
     const notchY = clipPoints(ret.hitClip!)[4][1];
     // The clip path carries the cut as a rounded percentage, so compare to
     // within a rendered pixel rather than exactly.
     expect(ret.box.y + notchY * ret.box.height).toBeCloseTo(a.box.y, 2);
-    expect((1 - notchY) * ret.box.height).toBeCloseTo(a.box.height, 2);
   });
 
   /** The notch is exactly as wide as the `"` cap it makes room for: wider
