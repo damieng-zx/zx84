@@ -113,4 +113,9 @@ export const keyboardLabPresetLoaders: readonly KeyboardLabPresetLoader[] = [
     load: () => import('@/machines/msx/ui/keyboard/lab-preset.ts')
       .then((module) => module.hx10KeyboardLabPresets()),
   },
+  {
+    group: 'MGT SAM Coupé',
+    load: () => import('@/machines/sam/ui/keyboard/lab-preset.ts')
+      .then((module) => module.samKeyboardLabPresets()),
+  },
 ];

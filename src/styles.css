@@ -3400,9 +3400,15 @@ input[type="range"]::-moz-range-thumb {
   opacity: 0.82;
 }
 
-/* Word legends and the cursor cluster centre on their caps instead — only the
- * alphanumerics of the main block sit on a shared baseline. */
-.sam-key--word,
+/*
+ * Word legends and the cursor cluster centre on their caps instead.
+ *
+ * Only a word WITHOUT a symbol above it, though: INV is a word cap that also
+ * carries a `\`, and it is printed like the `/ −` and `* +` caps beside it —
+ * symbol at the top, legend along the bottom. Centring it put the two out of
+ * step with each other on the same row.
+ */
+.sam-key--word:not(:has(.sam-key__top)),
 .sam-key--up, .sam-key--down, .sam-key--left, .sam-key--right,
 .sam-key--period-keypad {
   justify-content: center;
