@@ -83,7 +83,9 @@ export class SamAsic {
   /** Triples of (cell, target, value); `target` is a CLUT index or TARGET_BORDER. */
   private readonly journal = new Int32Array(JOURNAL_CAP * 3);
   private journalCount = 0;
-  /** Journal entries recorded this frame — drives the "rainbow" activity LED. */
+  /** Palette/border changes made this frame while the display was being drawn
+   *  — drives the "rainbow" activity LED. Changes during blanking are not
+   *  counted; see `note`. */
   midLineWrites = 0;
 
   constructor(private readonly memory: SamMemory) {
@@ -194,7 +196,23 @@ export class SamAsic {
    * the whole of the line about to be drawn.
    */
   private note(target: number, value: number, tStates: number): void {
-    this.midLineWrites++;
+    // Count it as a raster effect only if the beam was drawing at the time.
+    //
+    // The SAM ROM reloads its whole palette from the frame-interrupt handler
+    // every single frame, sixteen writes deep in vertical blanking (lines
+    // 293-294). Counting those lit the "rainbow" indicator from boot to
+    // power-off and left it lit — exactly the trap the EAR indicator fell into
+    // when it counted every keyboard scan. A palette or border change outside
+    // the displayed lines cannot split anything: there is nothing on screen
+    // yet for it to split.
+    //
+    // Note this is the *whole* displayed area, not just cells inside the 32
+    // that carry picture. The ROM's own wallpaper changes a palette entry at
+    // the START of each display line, and that is a rainbow: it is what makes
+    // the boot screen's colour bands.
+    if (this.lineNo >= SAM_DISPLAY_FIRST_LINE && this.lineNo < SAM_DISPLAY_LAST_LINE) {
+      this.midLineWrites++;
+    }
     if (this.journalCount >= JOURNAL_CAP) return;
     let cell = (((tStates - this.lineStartT) / SAM_T_PER_CELL) | 0) - SAM_ASIC_CELL_OFFSET;
     if (cell < 0) cell = 0;
