@@ -209,7 +209,7 @@ describe('parseSamStringVars', () => {
         0x00, 0x12, 0x00, ...data, 0xFF],
     });
     expect(parseSamStringVars(reader({ 0: p }), { page: 0, offset: 0x1000 }))
-      .toEqual([{ name: 'q(3)', kind: 'array' }]);
+      .toEqual([{ name: 'q(3)', kind: 'array', detail: '= 0, 0, 0' }]);
   });
 
   it('marks a string array with its $ and both bounds', () => {
@@ -219,7 +219,43 @@ describe('parseSamStringVars', () => {
         0x00, 0x0D, 0x00, ...data, 0xFF],
     });
     expect(parseSamStringVars(reader({ 0: p }), { page: 0, offset: 0x1000 }))
-      .toEqual([{ name: 'n$(2,4)', kind: 'array' }]);
+      .toEqual([{ name: 'n$(2,4)', kind: 'array', detail: '= "", ""' }]);
+  });
+
+  it('previews a numeric array\'s elements', () => {
+    // q(3) = 11, 9, 0 — three 5-byte values after the dimension header.
+    const data = [0x01, 0x03, 0x00,
+      0x00, 0x00, 0x0B, 0x00, 0x00,
+      0x00, 0x00, 0x09, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00];
+    const p = page({
+      0x1000: [0x21, 0x71, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x00, 0x12, 0x00, ...data, 0xFF],
+    });
+    expect(parseSamStringVars(reader({ 0: p }), { page: 0, offset: 0x1000 }))
+      .toEqual([{ name: 'q(3)', kind: 'array', detail: '= 11, 9, 0' }]);
+  });
+
+  it('reads a string array\'s LAST bound as the string length, not an axis', () => {
+    // n$(2,4) is two four-character strings — eight bytes — exactly as
+    // Sinclair BASIC declares them. Counting the 4 as an axis would report
+    // eight elements where there are two.
+    const text = [...'ab  cd  '].map(ch => ch.charCodeAt(0));
+    const data = [0x02, 0x02, 0x00, 0x04, 0x00, ...text];
+    const p = page({
+      0x1000: [0x41, 0x6E, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x00, 0x0D, 0x00, ...data, 0xFF],
+    });
+    expect(parseSamStringVars(reader({ 0: p }), { page: 0, offset: 0x1000 }))
+      .toEqual([{ name: 'n$(2,4)', kind: 'array', detail: '= "ab", "cd"' }]);
+  });
+
+  it('trails off rather than listing a large array in full', () => {
+    const data = [0x01, 0x28, 0x00, ...new Array(40 * 5).fill(0x00)];
+    const p = page({
+      0x1000: [0x21, 0x62, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x00, 0xCB, 0x00, ...data, 0xFF],
+    });
+    const [v] = parseSamStringVars(reader({ 0: p }), { page: 0, offset: 0x1000 });
+    expect(v.name).toBe('b(40)');
+    expect(v.detail).toBe('= 0, 0, 0, 0, 0, 0, 0, 0, …');
   });
 
   it('walks on to the entry after a string', () => {

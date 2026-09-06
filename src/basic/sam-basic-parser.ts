@@ -290,6 +290,50 @@ export function parseSamNumericVars(
 
 // ── Strings and arrays ──────────────────────────────────────────────────────
 
+/** Elements shown before the preview gives up and trails off. */
+const PREVIEW_ELEMENTS = 8;
+
+/**
+ * The first few elements of an array, for the variables pane.
+ *
+ * The two kinds are laid out differently, and the difference is the LAST
+ * bound. A numeric array is simply the product of its bounds, five bytes
+ * apiece. In a string array the final bound is the string LENGTH, not another
+ * axis — `DIM n$(2,4)` is two four-character strings, eight bytes in total,
+ * exactly as Sinclair BASIC declares them. Treating it as an eighth dimension
+ * reports eight elements where there are two.
+ *
+ * `from` is the offset of the element data within the entry (past the header,
+ * the dimension count and the bounds).
+ */
+function arrayPreview(
+  read: SamPageReader,
+  c: Cursor,
+  from: number,
+  bounds: number[],
+  stringArray: boolean,
+): string {
+  if (bounds.length === 0) return '';
+  const width = stringArray ? bounds[bounds.length - 1] : 5;
+  const axes = stringArray ? bounds.slice(0, -1) : bounds;
+  const count = axes.reduce((n, b) => n * b, 1);
+  if (count <= 0 || width <= 0) return '';
+
+  const shown = Math.min(count, PREVIEW_ELEMENTS);
+  const parts: string[] = [];
+  for (let i = 0; i < shown; i++) {
+    const at0 = from + i * width;
+    if (!stringArray) { parts.push(formatNumber(readFloat(read, c, at0))); continue; }
+    let text = '';
+    for (let b = 0; b < width; b++) {
+      const ch = at(read, c, at0 + b);
+      text += ch >= 0x20 && ch <= 0x7E ? String.fromCharCode(ch) : '.';
+    }
+    parts.push(`"${text.replace(/\s+$/, '')}"`);
+  }
+  return `= ${parts.join(', ')}${count > shown ? ', …' : ''}`;
+}
+
 /**
  * Walk the string and array area.
  *
@@ -339,7 +383,11 @@ export function parseSamStringVars(
           bounds.push(at(read, c, 15 + d * 2) | (at(read, c, 16 + d * 2) << 8));
         }
         const sub = bounds.length > 0 ? `(${bounds.join(',')})` : '()';
-        out.push({ name: `${name}${stringArray ? '$' : ''}${sub}`, kind: 'array' });
+        out.push({
+          name: `${name}${stringArray ? '$' : ''}${sub}`,
+          kind: 'array',
+          detail: arrayPreview(read, c, 15 + dims * 2, bounds, stringArray),
+        });
       } else {
         let text = '';
         const shown = Math.min(payload, 128);

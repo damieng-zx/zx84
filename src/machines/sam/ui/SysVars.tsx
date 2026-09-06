@@ -22,8 +22,22 @@ import {
 } from '../sysvars.ts';
 import { activeSam } from './active.ts';
 
-/** Format one system variable for display. */
+/**
+ * Width every value is padded to, so the two columns line up.
+ *
+ * Seven characters is what the widest form needs: a page/offset pointer on a
+ * 512K machine reads `31:3FFF`. The values here are four very different
+ * shapes — a 3-byte pointer, a word, a byte, a channel letter — and letting
+ * each take its natural width moves the second column from row to row.
+ */
+const VALUE_WIDTH = 7;
+
+/** Format one system variable for display, right-aligned in a fixed field. */
 function readVal(page: Uint8Array, def: SamSysVarDef): string {
+  return value(page, def).padStart(VALUE_WIDTH);
+}
+
+function value(page: Uint8Array, def: SamSysVarDef): string {
   switch (def.width) {
     case 'ptr': {
       const p = readSamPointer(page, def.addr);
@@ -33,10 +47,10 @@ function readVal(page: Uint8Array, def: SamSysVarDef): string {
       return HEX16[readSamWord(page, def.addr)];
     case 'char': {
       const v = readSamByte(page, def.addr);
-      return v >= 0x20 && v < 0x7F ? `     ${String.fromCharCode(v)}` : `    ${HEX8[v]}`;
+      return v >= 0x20 && v < 0x7F ? String.fromCharCode(v) : HEX8[v];
     }
     default:
-      return `    ${HEX8[readSamByte(page, def.addr)]}`;
+      return HEX8[readSamByte(page, def.addr)];
   }
 }
 
