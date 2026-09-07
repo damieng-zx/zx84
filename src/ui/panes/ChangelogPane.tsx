@@ -2,6 +2,29 @@ import { createSignal, Show } from 'solid-js';
 
 const CHANGELOG: { version: string; items: string[] }[] = [
   {
+    version: '0.8.0',
+    items: [
+      'Z80 fixes: EI chains, NMI, reset interrupt mode, Q register',
+      'AY-3-8912 register read-back and envelope fixes',
+      'Anti-aliasing modes for the MTX SN76489',
+      'Smoother audio when the buffer runs low',
+      'WD179x fixes: READ ADDRESS, multi-sector reads, weak sectors',
+      'uPD765A End-of-Cylinder and sector-size fixes',
+      'CPC fixes: Mode 3, ASIC unlock, DMA, sprites, .SNA',
+      'MSX slot layout and 48KB cartridge mapping fixes',
+      'V9938/TMS9918A sprite, palette and interrupt timing fixes',
+      'Einstein CTC timer prescaler fix',
+      'Spectrum fixes: SAVE audio, paging lock, 48K snapshots',
+      'TZX/CSW field layout and fast loader return fixes',
+      'Malformed tapes, disks and cartridges rejected instead of hanging',
+      'MTX fixes for absent FDX hardware and saved models',
+      'Disk loads keep the pause state and resume after a failed save',
+      'Mounted disks restored after a page reload',
+      'Sound and Mouse panes list only what the machine has',
+      'Fixed a WebGL renderer resource leak',
+      'MCP file access confined to the cache and workspace',
+    ]
+  }, {
     version: '0.7.4',
     items: [
       'Add Memotech MTX family support',
@@ -12,9 +35,6 @@ const CHANGELOG: { version: string; items: string[] }[] = [
       'Generic memory layout pane and unified ROM catalog',
       'Panes menu organized into groups',
       'Hide accuracy options on machines that do not use them',
-      'Sound pane offers only the PSG options a machine actually reads',
-      'Mounted disks are restored after a page reload through each machine\'s own media routing',
-      'Mouse pane lists the interfaces the running machine actually has, instead of always offering Kempston and AMX',
     ]
   }, {
     version: '0.7.3',
