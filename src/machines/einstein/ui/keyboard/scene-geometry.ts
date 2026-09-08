@@ -1,13 +1,13 @@
 /**
  * Fixed design-coordinate geometry traced from a UK Tatung Einstein TC-01.
  *
- * Every cap is 1u square except ENTER (1.8u) and the space bar (8u) — the deck
+ * Every cap is 1u square except ENTER (1.55u) and the space bar (8u) — the deck
  * has no other outsized keys. What gives the face its shape is the stagger: the
  * number row starts a quarter unit in, the Q row 0.35u beyond it, the A row a
  * further 0.2u and the Z row a further 0.55u — much deeper than a modern
- * keyboard. The eight function caps sit on the same pitch, starting above the
- * gap between 3 and 4, and the space bar runs from the left of X to the right
- * of the full stop.
+ * keyboard. The eight function caps sit on the same pitch, the row starting at
+ * the centre of the 3; ENTER and GRAPH finish flush; and the space bar runs
+ * from the left of X to the right of the full stop.
  */
 
 import type { SceneBox } from '@/ui/components/KeyboardScene.tsx';
@@ -48,8 +48,8 @@ function row(ids: readonly string[], x: number, y: number): void {
   ids.forEach((id, index) => put(id, x + index * PITCH, y));
 }
 
-// Function caps.
-row(['f0', 'f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7'], 164, FUNCTION_Y);
+// Function caps, the row starting at the centre of the 3.
+row(['f0', 'f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7'], 162, FUNCTION_Y);
 
 // Number row — BREAK ends 0.6u short of the rows below.
 row([
@@ -73,7 +73,7 @@ row([
   'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l',
   'semicolon', 'colon', 'right-arrow',
 ], 44, A_Y);
-put('enter', 564, A_Y, 68);
+put('enter', 564, A_Y, 58);
 
 // Z row, GRAPH flush with ENTER.
 row([
