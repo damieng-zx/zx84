@@ -47,8 +47,8 @@ describe('CPC 464 keyboard scene geometry', () => {
     ];
     const byId = (id: string) => all.find((key) => key.id === id)!;
 
-    expect(byId('caret')).toMatchObject({ main: '^', shift: '£', cell: [3, 0] });
-    expect(byId('at')).toMatchObject({ main: '@', shift: '|', cell: [3, 2] });
+    expect(byId('caret')).toMatchObject({ main: '↑', shift: '£', cell: [3, 0] });
+    expect(byId('at')).toMatchObject({ main: '@', shift: '¦', cell: [3, 2] });
     expect(byId('semicolon')).toMatchObject({ main: ';', shift: '+', cell: [3, 4] });
     expect(byId('colon')).toMatchObject({ main: ':', shift: '*', cell: [3, 5] });
     expect(byId('backslash')).toMatchObject({ main: '\\', shift: '`', cell: [2, 6] });

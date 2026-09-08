@@ -19,6 +19,7 @@ import type { PlacedCpcKey } from './scene-geometry.ts';
 import type { CpcKeyboardController } from './keyboard-common.tsx';
 import {
   cpcKeyMain,
+  cpcKeyShift,
   isCpc664BlueKey,
   type CpcKeyboardVariant,
 } from './variants.ts';
@@ -30,6 +31,9 @@ function CpcKey(props: {
 }) {
   const key = props.placed.key;
   const main = () => cpcKeyMain(key, props.variant);
+  const shift = () => cpcKeyShift(key, props.variant);
+  // Keypad caps print the function legend alone, with only the f italicised.
+  const fkey = () => main() === key.fn;
   const lines = () => main().split('\n');
   return (
     <SceneKey
@@ -52,14 +56,21 @@ function CpcKey(props: {
       onDown={() => props.keyboard.onDown(key.cell)}
       onUp={() => props.keyboard.onUp(key.cell)}
     >
-      <Show when={key.shift}>
-        <span class="cpc464-key__shift">{key.shift}</span>
+      <Show when={shift()}>
+        <span class="cpc464-key__shift">{shift()}</span>
       </Show>
-      <Show when={key.fn}>
+      <Show when={props.variant === 'cpc464' && key.fn}>
         <span class="cpc464-key__fn">{key.fn}</span>
       </Show>
       <span class="cpc464-key__main">
-        <For each={lines()}>{(line) => <span>{line || '\u00a0'}</span>}</For>
+        <Show
+          when={fkey()}
+          fallback={
+            <For each={lines()}>{(line) => <span>{line || '\u00a0'}</span>}</For>
+          }
+        >
+          <span><i>f</i>{main().slice(1)}</span>
+        </Show>
       </span>
     </SceneKey>
   );
@@ -89,22 +100,33 @@ function CpcClassicKeyboard(props: { variant: CpcKeyboardVariant }) {
           when={is6128()}
           fallback={
             <>
-              <SceneElement box={{ x: 18, y: 7, width: 180, height: 25 }} class="cpc464-brand">
+              {/* Recessed badge strip: ESC's left edge (8) to DEL's right edge
+                  (655), and the up-arrow's top down to the COPY row. */}
+              <Show when={is664()}>
+                <SceneElement
+                  box={{ x: 8, y: 9, width: 636.5, height: 38 }}
+                  class="cpc664-badge-panel"
+                />
+              </Show>
+              <SceneElement box={{ x: 18, y: 16, width: 180, height: 27 }} class="cpc464-brand">
                 AMSTRAD
               </SceneElement>
               <Show when={is664()}>
-                <SceneElement box={{ x: 112, y: 16, width: 245, height: 10 }} class="cpc664-tagline">
+                <SceneElement box={{ x: 140, y: 31, width: 245, height: 10 }} class="cpc664-tagline">
                   64K COLOUR PERSONAL COMPUTER
                 </SceneElement>
               </Show>
-              <SceneElement box={{ x: 412, y: 9, width: 228, height: 22 }} class="cpc464-model">
+              <SceneElement box={{ x: 401.5, y: 19, width: 228, height: 24 }} class="cpc464-model">
                 <span>CPC {modelName()}</span>
                 <i class="cpc464-colour-bars" />
                 <small>COLOUR</small>
               </SceneElement>
               <Show when={is664()}>
-                <SceneElement box={{ x: 645, y: 11, width: 18, height: 14 }} class="cpc664-leds">
-                  <i />
+                <SceneElement
+                  box={{ x: 549.5, y: 14, width: 80, height: 11 }}
+                  class="cpc664-power-led"
+                >
+                  <span>ON</span>
                   <i />
                 </SceneElement>
               </Show>

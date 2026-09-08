@@ -30,8 +30,10 @@ const GAP = 4;
 const CAP_HEIGHT = 34;
 const ROW_PITCH = 38;
 const MAIN_LEFT = 8;
-const MAIN_TOP = 42;
-const CLUSTER_LEFT = 680;
+// The main block sits one row lower than the keypad so the space-bar row and
+// the f0/f./ENTER row share a baseline, as on the real case.
+const MAIN_TOP = 80;
+const CLUSTER_LEFT = 669.5;
 
 export interface PlacedCpcKey {
   readonly key: CpcKeyDef;
@@ -41,6 +43,39 @@ export interface PlacedCpcKey {
 }
 
 const widthOf = (units = 1) => units * PITCH - GAP;
+
+const boxOf = (placed: readonly PlacedCpcKey[], id: string): SceneBox => {
+  const found = placed.find((item) => item.key.id === id);
+  if (!found) throw new Error(`CPC keyboard geometry is missing ${id}`);
+  return found.box;
+};
+
+const rightEdgeOf = (placed: readonly PlacedCpcKey[], id: string): number => {
+  const box = boxOf(placed, id);
+  return box.x + box.width;
+};
+
+const pct = (fraction: number) => `${Math.round(fraction * 1000) / 10}%`;
+
+/**
+ * ENTER is an inverted-L cap: the upper arm starts beside [ and the lower arm
+ * beside ], and both end on the right-hand control column.
+ */
+function shapeEnter(placed: PlacedCpcKey[]): void {
+  const index = placed.findIndex((item) => item.key.id === 'return');
+  const enter = placed[index];
+  if (!enter) throw new Error('CPC keyboard geometry is missing ENTER');
+  const left = rightEdgeOf(placed, 'open-bracket') + GAP;
+  const width = rightEdgeOf(placed, 'shift-right') - left;
+  const notch = pct((rightEdgeOf(placed, 'close-bracket') + GAP - left) / width);
+  const shoulder = pct(CAP_HEIGHT / enter.box.height);
+  placed[index] = {
+    ...enter,
+    box: { ...enter.box, x: left, width },
+    hitClip:
+      `polygon(0 0, 100% 0, 100% 100%, ${notch} 100%, ${notch} ${shoulder}, 0 ${shoulder})`,
+  };
+}
 
 export function placeCpc464Keys(): PlacedCpcKey[] {
   const placed: PlacedCpcKey[] = [];
@@ -62,6 +97,7 @@ export function placeCpc464Keys(): PlacedCpcKey[] {
       units += keyUnits;
     }
   });
+  shapeEnter(placed);
 
   const cursorCells = [
     [1, 0],
@@ -104,13 +140,27 @@ export function placeCpc464Keys(): PlacedCpcKey[] {
 
 /**
  * The CPC664 retained the 464 matrix and main-key geometry, but replaced the
- * five separated cursor caps with four individually spaced wedges around COPY.
+ * five separated cursor caps with four individually spaced wedges around COPY,
+ * and widened the space bar to span X..slash with a single-unit CTRL beside it.
  */
 export function placeCpc664Keys(): PlacedCpcKey[] {
   const base = placeCpc464Keys();
-  const rightShift = base.find((placed) => placed.key.id === 'shift-right');
-  if (!rightShift) throw new Error('CPC keyboard geometry is missing right SHIFT');
-  const controlRight = rightShift.box.x + rightShift.box.width;
+  const controlRight = rightEdgeOf(base, 'shift-right');
+
+  const spaceLeft = boxOf(base, 'x').x;
+  const spaceRight = rightEdgeOf(base, 'slash');
+  const bottomRow: Readonly<Record<string, Pick<PlacedCpcKey, 'box'>>> = {
+    space: {
+      box: {
+        ...boxOf(base, 'space'),
+        x: spaceLeft,
+        width: spaceRight - spaceLeft,
+      },
+    },
+    ctrl: {
+      box: { ...boxOf(base, 'ctrl'), x: spaceRight + GAP, width: widthOf() },
+    },
+  };
 
   const cursorFace: Readonly<Record<string, Pick<PlacedCpcKey, 'box' | 'hitClip'>>> = {
     'cursor-up': {
@@ -135,11 +185,11 @@ export function placeCpc664Keys(): PlacedCpcKey[] {
   };
 
   return base.map((placed) => {
-    const alignRight = placed.key.id === 'return' || placed.key.id === 'del';
+    const alignRight = placed.key.id === 'del';
     const adjusted = alignRight
       ? { ...placed, box: { ...placed.box, x: controlRight - placed.box.width } }
       : placed;
-    const face = cursorFace[placed.key.id];
+    const face = cursorFace[placed.key.id] ?? bottomRow[placed.key.id];
     return face ? { ...adjusted, ...face } : adjusted;
   });
 }
@@ -172,7 +222,7 @@ const CPC6128_MAIN_ROWS: readonly Cpc6128Row[] = [
     ['caps-lock', 1.75],
     ['a', 1], ['s', 1], ['d', 1], ['f', 1], ['g', 1], ['h', 1],
     ['j', 1], ['k', 1], ['l', 1],
-    ['semicolon', 1], ['colon', 1], ['close-bracket', 1],
+    ['colon', 1], ['semicolon', 1], ['close-bracket', 1],
   ],
   [
     ['shift-left', 2.25],

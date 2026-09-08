@@ -50,7 +50,8 @@ describe('CPC 6128 keyboard scene geometry', () => {
     expect(cpcKeyMain(key('return'), 'cpc6128')).toBe('RETURN');
     expect(cpcKeyMain(key('ctrl'), 'cpc6128')).toBe('CONTROL');
     expect(cpcKeyMain(key('f7'), 'cpc6128')).toBe('f7');
-    expect(cpcKeyMain(key('f7'), 'cpc664')).toBe('7');
+    expect(cpcKeyMain(key('f7'), 'cpc664')).toBe('f7');
+    expect(cpcKeyMain(key('f7'), 'cpc464')).toBe('7');
   });
 
   it('widens CAPS LOCK to stagger the A row without crowding RETURN', () => {
