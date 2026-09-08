@@ -77,7 +77,11 @@ export function Pane(props: PaneProps) {
         dragged = true;
         // Tear a docked pane out exactly where it stands, so it does not jump
         // out from under the pointer on the first move.
-        if (!float()) setPaneFloat(props.id, { x: rect.left, y: rect.top, width: rect.width });
+        if (!float()) {
+          setPaneFloat(props.id, {
+            x: rect.left, y: rect.top, width: rect.width, height: rect.height,
+          });
+        }
       }
       const maxX = window.innerWidth - KEEP_ON_SCREEN;
       const maxY = window.innerHeight - KEEP_ON_SCREEN;
@@ -117,8 +121,8 @@ export function Pane(props: PaneProps) {
     onCleanup(() => unregisterResetter(props.id));
   });
 
-  // Persist a floating pane's width as the user drags its resize corner. The
-  // observer writes back only a width it did not just receive, so setting the
+  // Persist a floating pane's box as the user drags its resize corner. The
+  // observer writes back only a size it did not just receive, so setting the
   // style from the stored value cannot feed itself.
   createEffect(() => {
     const pane = paneRef;
@@ -126,8 +130,15 @@ export function Pane(props: PaneProps) {
     const observer = new ResizeObserver(() => {
       const stored = float();
       if (!stored) return;
-      const width = Math.round(pane.getBoundingClientRect().width);
-      if (Math.abs(width - stored.width) >= 1) setPaneFloat(props.id, { width });
+      const rect = pane.getBoundingClientRect();
+      const width = Math.round(rect.width);
+      const height = Math.round(rect.height);
+      const patch: { width?: number; height?: number } = {};
+      if (Math.abs(width - stored.width) >= 1) patch.width = width;
+      if (Math.abs(height - stored.height) >= 1) patch.height = height;
+      if (patch.width !== undefined || patch.height !== undefined) {
+        setPaneFloat(props.id, patch);
+      }
     });
     observer.observe(pane);
     onCleanup(() => observer.disconnect());
@@ -139,6 +150,9 @@ export function Pane(props: PaneProps) {
       left: at ? `${at.x}px` : undefined,
       top: at ? `${at.y}px` : undefined,
       width: at ? `${at.width}px` : undefined,
+      // Cleared on docking, so the height the resize corner wrote inline does
+      // not follow the pane back into the layout.
+      height: at ? `${at.height}px` : undefined,
     };
   };
 
@@ -172,7 +186,9 @@ export function Pane(props: PaneProps) {
                 if (float() || !pane) dockPane(props.id);
                 else {
                   const rect = pane.getBoundingClientRect();
-                  setPaneFloat(props.id, { x: rect.left, y: rect.top, width: rect.width });
+                  setPaneFloat(props.id, {
+                    x: rect.left, y: rect.top, width: rect.width, height: rect.height,
+                  });
                 }
               }}
             >

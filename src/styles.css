@@ -308,13 +308,36 @@ body.msx-mode .section-label::after {
 .pane--floating {
   position: fixed;
   z-index: 1500;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
-  resize: horizontal;
+  resize: both;
   min-width: 260px;
   max-width: 100vw;
+  min-height: 120px;
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
 }
-.pane--floating > .section-label { cursor: move; }
+.pane--floating > .section-label { cursor: move; flex: none; }
+/* Hand the whole of a floating pane's height down to its content, so the face
+   inside can use what the resize corner gives it. */
+.pane--floating > .pane-content {
+  flex: 1;
+  min-height: 0;
+}
+/* Floating, the face is whatever size the pane is dragged to — the point of
+   resizing it — so the display scale stops being a ceiling. */
+.pane--floating .keyboard-scene {
+  --keyboard-scene-px: var(--keyboard-scene-fit);
+  --case-bleed: calc(50% - 50cqh) calc(50% - 50cqw);
+}
+.pane--floating .keyboard-scene-frame {
+  container-type: size;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
 
 /* Float / dock toggle, pinned to the right of the title bar. Scoped through
    .section-label so it outranks the shared .pane button chrome below. */
@@ -691,6 +714,12 @@ canvas {
   container-type: inline-size;
 }
 .keyboard-scene {
+  /* Docked, the face is drawn at the display scale and shrinks to fit a pane
+     narrower than that. The two candidate scales come in from KeyboardScene. */
+  --keyboard-scene-px: min(var(--keyboard-scene-natural), var(--keyboard-scene-fit));
+  /* How far each face's case backdrop bleeds past the scene box. `cqh` needs a
+     size container, which only a floating frame is, so docked it stays out. */
+  --case-bleed: 0 calc(50% - 50cqw);
   position: relative;
   width: calc(var(--keyboard-scene-px) * var(--keyboard-scene-width));
   height: calc(var(--keyboard-scene-px) * var(--keyboard-scene-height));
@@ -702,25 +731,34 @@ canvas {
 
 .kbd-bezel {
   position: relative;
-  /* 1u key width is tied to the display scale (1×/2×/3×): 14px × scale gives
-     the hand-tuned 42px at 3×, and the whole keyboard shrinks proportionally at
-     2×/1×. --u1 is a "design pixel": the value 1px had at the reference --ku of
-     42px, so every legend metric below stays its original number while scaling
-     with --ku as one block. */
-  --ku: calc(14px * var(--display-scale, 3));
-  --u1: calc(var(--ku) / 42);
-  /* Slightly mottled near-black rubber mat */
-  background:
-    radial-gradient(ellipse at 50% -10%, #34373c 0%, #202327 45%, #141619 100%);
+  /* --u1 is a "design pixel": the value 1px had at the reference 42px key, so
+     every legend metric below keeps its original number and scales with the
+     face as one block. It has to be the scale the *scene* is drawn at, not the
+     display-scale setting: the scene fits itself to the pane, so a face driven
+     by the setting alone keeps full-size legends on shrunken keys — and, in a
+     floating pane, small legends on enlarged ones. 1u is 42 design units, so
+     at the reference 3x this is the 42px it always was. */
+  --ku: calc(var(--keyboard-scene-px) * 42);
+  --u1: var(--keyboard-scene-px);
   padding: 0;
+}
+/* The scene keeps its fixed key coordinates; the case — here the mottled
+   near-black rubber mat and its edges — is painted by a full-bleed backdrop so
+   it fills the pane rather than a centred strip. Nothing may declare
+   `container-type` between here and .keyboard-scene-frame, or 50cqw stops
+   meaning the pane's width. */
+.kbd-bezel::before {
+  content: '';
+  position: absolute;
+  inset: var(--case-bleed);
   border-radius: calc(var(--u1) * 5);
   border: 1px solid #050608;
+  background:
+    radial-gradient(ellipse at 50% -10%, #34373c 0%, #202327 45%, #141619 100%);
   box-shadow:
     inset 0 1px 2px rgba(255, 255, 255, 0.05),
     inset 0 0 22px rgba(0, 0, 0, 0.55),
     0 2px 6px rgba(0, 0, 0, 0.4);
-  overflow: hidden;
-  container-type: inline-size;
 }
 
 /* ── Above-key legends ─────────────────────────────────────────────────── */
@@ -944,12 +982,23 @@ canvas {
      proportionally at 2×/1×. Every metric below keeps its original number as a
      calc(var(--pu1) * N) so the layout is identical at 3× and scales as one. */
   --pu1: var(--keyboard-scene-px);
-  background: linear-gradient(180deg, #26282c 0%, #1b1d20 100%);
+  --case: linear-gradient(180deg, #26282c 0%, #1b1d20 100%);
+  --case-border: #050608;
+  position: relative;
   padding: 0;
+}
+/* The scene keeps its fixed key coordinates, but the case — its colour, edges
+   and moulding — is painted by a full-bleed backdrop, so it fills the pane
+   rather than a centred strip. Nothing may declare `container-type` between
+   here and .keyboard-scene-frame or 50cqw stops meaning the pane's width. */
+.kbd-plus::before {
+  content: '';
+  position: absolute;
+  inset: var(--case-bleed);
+  border: 1px solid var(--case-border);
   border-radius: calc(var(--pu1) * 4);
-  border: 1px solid #050608;
+  background: var(--case);
   box-shadow: inset 0 0 16px rgba(0, 0, 0, 0.45);
-  container-type: inline-size;
 }
 
 /* Toastrack (+ / 128K): measured scene geometry keeps 1u keys square and
@@ -958,7 +1007,7 @@ canvas {
   /* Recessed groove lines (a 1px dark + 1px light bevel) moulded into the case
      in the 2px gaps between the five key rows, offset by the 6px top padding, as
      on the +2/+3. The keys sit on top, so a groove only shows through the gaps. */
-  background:
+  --case:
     linear-gradient(to bottom,
       transparent 0 calc(var(--pu1) * 52),    rgba(0, 0, 0, 0.45) calc(var(--pu1) * 52) calc(var(--pu1) * 53),    rgba(255, 255, 255, 0.06) calc(var(--pu1) * 53) calc(var(--pu1) * 54),
       transparent calc(var(--pu1) * 54) calc(var(--pu1) * 100),  rgba(0, 0, 0, 0.45) calc(var(--pu1) * 100) calc(var(--pu1) * 101),  rgba(255, 255, 255, 0.06) calc(var(--pu1) * 101) calc(var(--pu1) * 102),
@@ -1156,7 +1205,7 @@ canvas {
      the five key rows (row pitch = 46px key + 4px gap). They run the full width
      and are clipped at the case edges; the keys sit on top, so a groove only
      shows through the gaps. */
-  background:
+  --case:
     linear-gradient(to bottom,
       transparent 0 calc(var(--pu1) * 53),   var(--groove-d) calc(var(--pu1) * 53) calc(var(--pu1) * 55),   var(--groove-l) calc(var(--pu1) * 55) calc(var(--pu1) * 57),
       transparent calc(var(--pu1) * 57) calc(var(--pu1) * 103),  var(--groove-d) calc(var(--pu1) * 103) calc(var(--pu1) * 105),  var(--groove-l) calc(var(--pu1) * 105) calc(var(--pu1) * 107),
@@ -1164,7 +1213,6 @@ canvas {
       transparent calc(var(--pu1) * 157) calc(var(--pu1) * 203), var(--groove-d) calc(var(--pu1) * 203) calc(var(--pu1) * 205), var(--groove-l) calc(var(--pu1) * 205) calc(var(--pu1) * 207),
       transparent calc(var(--pu1) * 207)),
     linear-gradient(180deg, var(--case-top) 0%, var(--case-bottom) 100%);
-  border-color: var(--case-border);
 }
 /* Amstrad +2A / +3: the same sparse keyboard on a near-black case. */
 .kbd-plus--amstrad {
@@ -1229,9 +1277,18 @@ canvas {
   position: relative;
   --u1: var(--keyboard-scene-px);
   padding: 0;
+}
+/* The scene keeps its fixed key coordinates; the case — colour, edges and
+   moulding — is painted by a full-bleed backdrop so it fills the pane rather
+   than a centred strip. Nothing may declare `container-type` between here and
+   .keyboard-scene-frame, or 50cqw stops meaning the pane's width. */
+.zxk-bezel::before {
+  content: '';
+  position: absolute;
+  inset: var(--case-bleed);
   border-radius: calc(var(--u1) * 6);
-  overflow: hidden;
-  container-type: inline-size;
+  background: var(--case);
+  box-shadow: inset 0 0 26px rgba(0, 0, 0, 0.6), 0 2px 6px rgba(0, 0, 0, 0.45);
 }
 /* Case legends: keyword above, FUNCTION below — both white/yellow, left-aligned. */
 .zxk-above, .zxk-below {
@@ -1307,9 +1364,7 @@ canvas {
 
 /* ── ZX81 face: textured black case, flat silver caps, black glyphs, red legends */
 .zxk--zx81 {
-  background:
-    radial-gradient(ellipse at 50% -20%, #2a2b2d 0%, #161718 55%, #0b0c0d 100%);
-  box-shadow: inset 0 0 26px rgba(0, 0, 0, 0.6), 0 2px 6px rgba(0, 0, 0, 0.45);
+  --case: radial-gradient(ellipse at 50% -20%, #2a2b2d 0%, #161718 55%, #0b0c0d 100%);
 }
 .zxk--zx81 .zxk-above, .zxk--zx81 .zxk-below { color: #eaeaea; }
 /* Shorter caps bring the red shifted-function label down toward the glyph. */
@@ -1324,9 +1379,7 @@ canvas {
 
 /* ── ZX80 face: black case, flat deep-blue caps, white glyphs, yellow legends ── */
 .zxk--zx80 {
-  background:
-    radial-gradient(ellipse at 50% -20%, #232426 0%, #141516 55%, #090a0b 100%);
-  box-shadow: inset 0 0 26px rgba(0, 0, 0, 0.6), 0 2px 6px rgba(0, 0, 0, 0.45);
+  --case: radial-gradient(ellipse at 50% -20%, #232426 0%, #141516 55%, #090a0b 100%);
 }
 /* The ZX80 prints in a lighter, non-bold face. */
 .zxk--zx80 .zxk-above, .zxk--zx80 .zxk-below,
@@ -2743,7 +2796,7 @@ input[type="range"]::-moz-range-thumb {
 .cpc464-keyboard::before {
   content: '';
   position: absolute;
-  inset: 0 calc(50% - 50cqw);
+  inset: var(--case-bleed);
   border: 1px solid var(--cpc-case-border);
   border-radius: calc(var(--cpc-u) * 5);
   background: var(--cpc-case);
@@ -3124,7 +3177,18 @@ input[type="range"]::-moz-range-thumb {
    MSX control keys and the detached blue cursor cross. */
 .hx10-keyboard {
   --hx-u: var(--keyboard-scene-px);
-  overflow: hidden;
+  position: relative;
+  color: #242728;
+  font-family: Arial, Helvetica, sans-serif;
+}
+/* The scene keeps its fixed key coordinates; the case — colour, edges and
+   moulding — is painted by a full-bleed backdrop so it fills the pane rather
+   than a centred strip. Nothing may declare `container-type` between here and
+   .keyboard-scene-frame, or 50cqw stops meaning the pane's width. */
+.hx10-keyboard::before {
+  content: '';
+  position: absolute;
+  inset: var(--case-bleed);
   border: 1px solid #747777;
   border-radius: calc(var(--hx-u) * 5);
   background:
@@ -3134,8 +3198,6 @@ input[type="range"]::-moz-range-thumb {
     inset 0 calc(var(--hx-u) * 2) calc(var(--hx-u) * 4) rgba(255,255,255,0.55),
     inset 0 calc(var(--hx-u) * -4) calc(var(--hx-u) * 8) rgba(46,49,50,0.2),
     0 2px 5px rgba(0,0,0,0.5);
-  color: #242728;
-  font-family: Arial, Helvetica, sans-serif;
 }
 
 /* Power and caps lamps on the deck, beside F1 and CAPS. */
@@ -3277,12 +3339,20 @@ input[type="range"]::-moz-range-thumb {
 
 /* Tatung Einstein TC-01: neutral grey case, deeply stepped rows, light grey
    caps with dark grey modifiers, and the single red ENTER. */
-.tc01-keyboard-frame {
-  background: linear-gradient(180deg, #c9c9c9 0%, #b7b7b7 62%, #c5c5c5 100%);
-}
 .tc01-keyboard {
   --tc-u: var(--keyboard-scene-px);
-  overflow: hidden;
+  position: relative;
+  color: #212121;
+  font-family: Arial, Helvetica, sans-serif;
+}
+/* The scene keeps its fixed key coordinates; the case — colour, edges and
+   moulding — is painted by a full-bleed backdrop so it fills the pane rather
+   than a centred strip. Nothing may declare `container-type` between here and
+   .keyboard-scene-frame, or 50cqw stops meaning the pane's width. */
+.tc01-keyboard::before {
+  content: '';
+  position: absolute;
+  inset: var(--case-bleed);
   border: 1px solid #878787;
   border-radius: calc(var(--tc-u) * 5);
   background:
@@ -3292,8 +3362,6 @@ input[type="range"]::-moz-range-thumb {
     inset 0 calc(var(--tc-u) * 2) calc(var(--tc-u) * 4) rgba(255,255,255,0.45),
     inset 0 calc(var(--tc-u) * -4) calc(var(--tc-u) * 8) rgba(55,55,55,0.18),
     0 2px 5px rgba(0,0,0,0.5);
-  color: #212121;
-  font-family: Arial, Helvetica, sans-serif;
 }
 
 .tc01-key {
@@ -3411,15 +3479,21 @@ input[type="range"]::-moz-range-thumb {
 /* Tatung Einstein 256: charcoal case, light grey caps with dark grey
    modifiers, the L-shaped red ENTER, the printed function-legend card and the
    detached four-wedge cursor pad. */
-.e256-keyboard-frame,
-.e256-keyboard {
-  background: linear-gradient(180deg, #4a4b48 0%, #3a3b38 62%, #414240 100%);
-}
 .e256-keyboard {
   --e2-u: var(--keyboard-scene-px);
-  overflow: hidden;
+  position: relative;
   color: #e9e9e9;
   font-family: Arial, Helvetica, sans-serif;
+}
+/* The scene keeps its fixed key coordinates; the case — colour, edges and
+   moulding — is painted by a full-bleed backdrop so it fills the pane rather
+   than a centred strip. Nothing may declare `container-type` between here and
+   .keyboard-scene-frame, or 50cqw stops meaning the pane's width. */
+.e256-keyboard::before {
+  content: '';
+  position: absolute;
+  inset: var(--case-bleed);
+  background: linear-gradient(180deg, #4a4b48 0%, #3a3b38 62%, #414240 100%);
 }
 
 /* The BASIC command card, slipped under a clear holder above the F keys. */
@@ -3594,17 +3668,24 @@ input[type="range"]::-moz-range-thumb {
 
 /* Memotech MTX: near-black case, dark grey caps with white legends, the badge
    strip along the top and the keypad and function block in recessed wells. */
-.mtx-keyboard-frame,
-.mtx-keyboard {
-  background: linear-gradient(180deg, #343433 0%, #262625 60%, #2e2e2d 100%);
-}
 /* The badge's step shadow runs past the scene to the pane's edges, so the
    frame does the clipping rather than the scene. */
 .mtx-keyboard-frame { overflow: hidden; }
 .mtx-keyboard {
   --mtx-u: var(--keyboard-scene-px);
+  position: relative;
   color: #f0f0ee;
   font-family: Arial, Helvetica, sans-serif;
+}
+/* The scene keeps its fixed key coordinates; the case — colour, edges and
+   moulding — is painted by a full-bleed backdrop so it fills the pane rather
+   than a centred strip. Nothing may declare `container-type` between here and
+   .keyboard-scene-frame, or 50cqw stops meaning the pane's width. */
+.mtx-keyboard::before {
+  content: '';
+  position: absolute;
+  inset: var(--case-bleed);
+  background: linear-gradient(180deg, #343433 0%, #262625 60%, #2e2e2d 100%);
 }
 
 /* MEMOTECH ———— MTX512, the silk-screened strip above the deck. */
@@ -3744,7 +3825,17 @@ input[type="range"]::-moz-range-thumb {
  */
 .sam-keyboard {
   --sam-u: var(--keyboard-scene-px);
-  overflow: hidden;
+  position: relative;
+  font-family: var(--font-ui);
+}
+/* The scene keeps its fixed key coordinates; the case — colour, edges and
+   moulding — is painted by a full-bleed backdrop so it fills the pane rather
+   than a centred strip. Nothing may declare `container-type` between here and
+   .keyboard-scene-frame, or 50cqw stops meaning the pane's width. */
+.sam-keyboard::before {
+  content: '';
+  position: absolute;
+  inset: var(--case-bleed);
   border: 1px solid #9b968c;
   border-radius: calc(var(--sam-u) * 4);
   background:
@@ -3754,7 +3845,6 @@ input[type="range"]::-moz-range-thumb {
     inset 0 calc(var(--sam-u) * 1) calc(var(--sam-u) * 4) rgba(255,255,255,0.5),
     inset 0 calc(var(--sam-u) * -6) calc(var(--sam-u) * 14) rgba(0,0,0,0.14),
     0 2px 5px rgba(0,0,0,0.4);
-  font-family: var(--font-ui);
 }
 
 .sam-badge {
