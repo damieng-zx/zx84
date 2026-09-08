@@ -60,9 +60,12 @@ describe('CPC 6128 keyboard scene geometry', () => {
       placed.find((item) => item.key.id === id)!.box;
     const rightEdge = (id: string) => box(id).x + box(id).width;
 
+    const enter = placed.find((item) => item.key.id === 'return')!;
+    const notch = Number(/100% 100%, ([\d.]+)%/.exec(enter.hitClip ?? '')![1]);
+
     expect(box('caps-lock').width).toBeGreaterThan(box('tab').width);
     expect(box('a').x).toBeGreaterThan(box('q').x);
-    const returnStemLeft = box('return').x + box('return').width * 0.1515;
+    const returnStemLeft = enter.box.x + enter.box.width * (notch / 100);
     expect(rightEdge('close-bracket')).toBeLessThan(returnStemLeft);
     expect(returnStemLeft - rightEdge('close-bracket')).toBeCloseTo(4, 1);
   });

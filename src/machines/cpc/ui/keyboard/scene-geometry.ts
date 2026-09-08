@@ -207,7 +207,7 @@ type Cpc6128Row = readonly (readonly [id: string, units: number])[];
 
 const CPC6128_MAIN_ROWS: readonly Cpc6128Row[] = [
   [
-    ['esc', 1.25],
+    ['esc', 1],
     ['1', 1], ['2', 1], ['3', 1], ['4', 1], ['5', 1], ['6', 1],
     ['7', 1], ['8', 1], ['9', 1], ['0', 1],
     ['hyphen', 1], ['caret', 1], ['clr', 1], ['del', 1],
@@ -216,7 +216,7 @@ const CPC6128_MAIN_ROWS: readonly Cpc6128Row[] = [
     ['tab', 1.5],
     ['q', 1], ['w', 1], ['e', 1], ['r', 1], ['t', 1], ['y', 1],
     ['u', 1], ['i', 1], ['o', 1], ['p', 1], ['at', 1], ['open-bracket', 1],
-    ['return', 1.75],
+    ['return', 1.5],
   ],
   [
     ['caps-lock', 1.75],
@@ -228,13 +228,13 @@ const CPC6128_MAIN_ROWS: readonly Cpc6128Row[] = [
     ['shift-left', 2.25],
     ['z', 1], ['x', 1], ['c', 1], ['v', 1], ['b', 1], ['n', 1], ['m', 1],
     ['comma', 1], ['dot', 1], ['slash', 1], ['backslash', 1],
-    ['shift-right', 2],
+    ['shift-right', 1.75],
   ],
   [
     ['ctrl', 2.25],
     ['copy', 1.75],
-    ['space', 7.5],
-    ['numpad-enter', 3.75],
+    ['space', 8],
+    ['numpad-enter', 3],
   ],
 ] as const;
 
@@ -258,7 +258,7 @@ export function placeCpc6128Keys(): PlacedCpcKey[] {
   const rowPitch = 40;
   const left = 8;
   const top = 42;
-  const rightStartUnits = 15.25;
+  const rightStartUnits = 15;
 
   const placeRow = (row: Cpc6128Row, rowIndex: number, startUnits = 0) => {
     let units = startUnits;
@@ -274,9 +274,6 @@ export function placeCpc6128Keys(): PlacedCpcKey[] {
           width: keyUnits * pitch - gap,
           height: isReturn ? capHeight * 2 + rowPitch - capHeight : capHeight,
         },
-        hitClip: isReturn
-          ? 'polygon(0 0, 100% 0, 100% 100%, 15.15% 100%, 15.15% 47.37%, 0 47.37%)'
-          : undefined,
       });
       units += keyUnits;
     }
@@ -285,6 +282,21 @@ export function placeCpc6128Keys(): PlacedCpcKey[] {
   CPC6128_MAIN_ROWS.forEach((row, rowIndex) => placeRow(row, rowIndex));
   CPC6128_RIGHT_ROWS.forEach((row, rowIndex) =>
     placeRow(row, rowIndex, rightStartUnits));
+
+  // ENTER's lower arm starts beside ]: when the two caps already line up there
+  // is no notch to cut and the key is a plain two-row rectangle.
+  const index = placed.findIndex((item) => item.key.id === 'return');
+  const enter = placed[index];
+  const notch = (rightEdgeOf(placed, 'close-bracket') + gap - enter.box.x)
+    / enter.box.width;
+  if (notch > 0) {
+    const shoulder = pct(capHeight / enter.box.height);
+    placed[index] = {
+      ...enter,
+      hitClip:
+        `polygon(0 0, 100% 0, 100% 100%, ${pct(notch)} 100%, ${pct(notch)} ${shoulder}, 0 ${shoulder})`,
+    };
+  }
 
   return placed;
 }
