@@ -112,7 +112,7 @@ export function KeyboardPane() {
   const keys = () => placeZx8xRows(rows(), model());
   const kbd = useKeyboard();
   return (
-    <Pane id="keyboard-panel" label="Keyboard">
+    <Pane id="keyboard-panel" label="Keyboard" floatable>
       <KeyboardScene
         width={scene().width}
         height={scene().height}

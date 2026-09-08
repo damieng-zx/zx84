@@ -55,7 +55,7 @@ function Hx10Key(props: {
 export function KeyboardPane() {
   const keyboard = useHx10Keyboard();
   return (
-    <Pane id="keyboard-panel" label="Keyboard">
+    <Pane id="keyboard-panel" label="Keyboard" floatable>
       <KeyboardScene
         width={HX10_SCENE.width}
         height={HX10_SCENE.height}

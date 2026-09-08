@@ -45,7 +45,7 @@ export function KeyboardPane() {
   const keyboard = useSamKeyboard();
   const keys = placeSamKeys();
   return (
-    <Pane id="keyboard-panel" label="Keyboard">
+    <Pane id="keyboard-panel" label="Keyboard" floatable>
       <KeyboardScene
         width={SAM_SCENE.width}
         height={SAM_SCENE.height}

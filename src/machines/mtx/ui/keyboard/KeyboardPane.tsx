@@ -56,7 +56,7 @@ export function KeyboardPane() {
   const keyboard = useMtxKeyboard();
   const badge = () => BADGE_NAMES[currentModel()] ?? 'MTX';
   return (
-    <Pane id="keyboard-panel" label="Keyboard">
+    <Pane id="keyboard-panel" label="Keyboard" floatable>
       <KeyboardScene
         width={MTX_SCENE.width}
         height={MTX_SCENE.height}

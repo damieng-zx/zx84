@@ -244,3 +244,45 @@ describe('panes — movePaneTo', () => {
     expect(new Set(after)).toEqual(new Set(ids));
   });
 });
+
+describe('panes — floating', () => {
+  it('starts docked and floats where it is told, persisting the box', async () => {
+    const m = await freshImport();
+    expect(m.paneFloat('keyboard-panel')).toBeNull();
+
+    m.setPaneFloat('keyboard-panel', { x: 120, y: 60, width: 700 });
+    expect(m.paneFloat('keyboard-panel')).toEqual({ x: 120, y: 60, width: 700 });
+    expect(JSON.parse(storage.getItem('zx84-pane-floats')!))
+      .toEqual({ 'keyboard-panel': { x: 120, y: 60, width: 700 } });
+  });
+
+  it('patches one edge at a time, so a drag does not forget the width', async () => {
+    const m = await freshImport();
+    m.setPaneFloat('keyboard-panel', { x: 10, y: 10, width: 640 });
+    m.setPaneFloat('keyboard-panel', { x: 300 });
+    expect(m.paneFloat('keyboard-panel')).toEqual({ x: 300, y: 10, width: 640 });
+    m.setPaneFloat('keyboard-panel', { width: 800 });
+    expect(m.paneFloat('keyboard-panel')).toEqual({ x: 300, y: 10, width: 800 });
+  });
+
+  it('docking forgets the box, and docking twice is harmless', async () => {
+    const m = await freshImport();
+    m.setPaneFloat('keyboard-panel', { x: 5, y: 5, width: 500 });
+    m.dockPane('keyboard-panel');
+    expect(m.paneFloat('keyboard-panel')).toBeNull();
+    expect(JSON.parse(storage.getItem('zx84-pane-floats')!)).toEqual({});
+    m.dockPane('keyboard-panel');
+    expect(m.paneFloat('keyboard-panel')).toBeNull();
+  });
+
+  it('reloads a stored float, and shrugs off a corrupt one', async () => {
+    storage.setItem('zx84-pane-floats', JSON.stringify({ 'keyboard-panel': { x: 8, y: 9, width: 512 } }));
+    let m = await freshImport();
+    expect(m.paneFloat('keyboard-panel')).toEqual({ x: 8, y: 9, width: 512 });
+
+    vi.resetModules();
+    storage.setItem('zx84-pane-floats', '{ not json');
+    m = await freshImport();
+    expect(m.paneFloat('keyboard-panel')).toBeNull();
+  });
+});

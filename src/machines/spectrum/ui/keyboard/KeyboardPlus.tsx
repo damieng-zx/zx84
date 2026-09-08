@@ -351,7 +351,7 @@ export function KeyboardPlus(props: { sparse?: boolean; amstrad?: boolean }) {
     props.sparse ? plus2KeyWidth(key.variant, key.label, key.w ?? 1) : (key.w ?? 1);
   const keys = () => placeHardRows(rows(), face(), widthOf);
   return (
-    <Pane id="keyboard-panel" label="Keyboard">
+    <Pane id="keyboard-panel" label="Keyboard" floatable>
       <KeyboardScene
         width={metrics().width}
         height={metrics().height}
