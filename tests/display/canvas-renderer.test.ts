@@ -84,6 +84,7 @@ function installDom(dpr: number, makeOffscreen: () => StubCanvas = () => new Stu
 // ── Tests ────────────────────────────────────────────────────────────────
 
 import { CanvasRenderer } from '@/display/canvas-renderer.ts';
+import { cssDisplayScale } from '@/state/display-state.ts';
 
 let dom: { restore: () => void };
 beforeEach(() => { dom = installDom(1); });
@@ -284,6 +285,26 @@ describe('CanvasRenderer pixelAspectX (horizontal squeeze)', () => {
     // deviceScale=2 → backing 200×100, CSS 200×100 (square mapping).
     expect(canvas.style.width).toBe('200px');
     expect(canvas.style.height).toBe('100px');
+  });
+});
+
+describe('display scale on a high-DPI screen', () => {
+  it('hands the on-screen keyboards the CSS scale the canvas actually uses', () => {
+    // The regression this pins: `scale` counts physical pixels, so on a 2×
+    // display the canvas's CSS box is half the backing store. The keyboards
+    // size themselves from --display-scale, so that variable has to carry the
+    // same halved figure — it used to carry the raw setting, which left every
+    // cap and legend twice the size on a Retina Mac and correct at 1×.
+    dom.restore(); dom = installDom(2);
+    const canvas = new StubCanvas() as unknown as HTMLCanvasElement;
+    const r = new CanvasRenderer(canvas, 100, 50);
+    r.setScale(3);
+    expect(canvas.width).toBe(300);                 // still 3 physical px/pixel
+    expect(canvas.style.width).toBe('150px');       // but 1.5 CSS px/pixel
+    expect(cssDisplayScale(3, 2)).toBe(1.5);
+    expect(cssDisplayScale(3, 2) * 100).toBe(parseFloat(canvas.style.width));
+    // At 1× the two figures coincide, which is why this went unnoticed.
+    expect(cssDisplayScale(3, 1)).toBe(3);
   });
 });
 

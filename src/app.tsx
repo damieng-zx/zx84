@@ -3,6 +3,7 @@
  */
 
 import { onMount, onCleanup, createEffect, createSignal, Show, type JSX } from 'solid-js';
+import { cssDisplayScale } from '@/state/display-state.ts';
 import { Sidebar } from '@/ui/components/Sidebar.tsx';
 import { Screen } from '@/ui/components/Screen.tsx';
 import { StatusBar } from '@/ui/components/StatusBar.tsx';
@@ -179,8 +180,14 @@ export function App() {
   // Mirror the display scale (1×/2×/3×) into a CSS variable so the on-screen
   // keyboards size their key unit from the same mode as the screen canvas,
   // shrinking proportionally instead of breaking at narrower widths.
+  //
+  // The setting counts physical pixels, but CSS sizes the keyboards, so divide
+  // by the DPR exactly as the renderers do for the canvas's CSS box. Without
+  // that the two only agree on a 1× display: on a Retina Mac the canvas halves
+  // and the keyboards do not, leaving every cap and legend twice the size.
   createEffect(() => {
-    document.documentElement.style.setProperty('--display-scale', String(scale()));
+    document.documentElement.style.setProperty(
+      '--display-scale', String(cssDisplayScale(scale())));
   });
 
   // Init emulator on mount
