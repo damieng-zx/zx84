@@ -3559,9 +3559,11 @@ input[type="range"]::-moz-range-thumb {
 .mtx-keyboard {
   background: linear-gradient(180deg, #343433 0%, #262625 60%, #2e2e2d 100%);
 }
+/* The badge's step shadow runs past the scene to the pane's edges, so the
+   frame does the clipping rather than the scene. */
+.mtx-keyboard-frame { overflow: hidden; }
 .mtx-keyboard {
   --mtx-u: var(--keyboard-scene-px);
-  overflow: hidden;
   color: #f0f0ee;
   font-family: Arial, Helvetica, sans-serif;
 }
@@ -3577,24 +3579,26 @@ input[type="range"]::-moz-range-thumb {
   content: '';
   position: absolute;
   top: 100%;
-  left: calc(var(--mtx-u) * -10);
-  right: calc(var(--mtx-u) * -10);
+  left: -100%;
+  right: -100%;
   height: calc(var(--mtx-u) * 10);
   background: linear-gradient(180deg, rgba(0,0,0,0.55), transparent);
 }
 .mtx-badge__brand,
 .mtx-badge__model {
+  margin-bottom: calc(var(--mtx-u) * 3);
   color: #ececea;
   white-space: nowrap;
   line-height: 1;
   font-weight: 700;
   letter-spacing: calc(var(--mtx-u) * 0.8);
 }
-.mtx-badge__brand { font-size: calc(var(--mtx-u) * 11); }
-.mtx-badge__model { font-size: calc(var(--mtx-u) * 17); }
+.mtx-badge__brand { font-size: calc(var(--mtx-u) * 15); }
+.mtx-badge__model { font-size: calc(var(--mtx-u) * 23); }
 .mtx-badge__rule {
   flex: 1;
-  height: calc(var(--mtx-u) * 1.5);
+  margin-bottom: calc(var(--mtx-u) * 4);
+  height: calc(var(--mtx-u) * 2);
   background: #b8442a;
 }
 .mtx-badge__rule--tail { flex: 0 0 calc(var(--mtx-u) * 30); }
