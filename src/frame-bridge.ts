@@ -30,7 +30,7 @@ import {
   setCurrentDiskInfo, setCurrentDiskInfoB,
   setDriveCStatus, setDriveDStatus, setCurrentDiskInfoC, setCurrentDiskInfoD,
   setClockSpeedText,
-  setTapePosition, setCasPosition, tapePaused, setTapePaused, tapePlaying, setTapePlaying, transcribeMode, setTranscribeText, setTranscribeHtml, setTranscribeGrid,
+  setTapePosition, setCasPosition, tapePaused, setTapePaused, tapePlaying, setTapePlaying, transcribeMode, setTranscribeText, setTranscribeHtml, setTranscribeGrid, setTranscribeField,
   setLedKbd, setLedKemp, setLedEar, setLedLoad, setLedText,
   setLedBeep, setLedAy, setLedDsk, setLedRainbow, setLedMouse, setLedTapeTurbo,
   setStatus, setEmulationPaused, setTracing,
@@ -532,6 +532,7 @@ export function onFrame(): void {
         setTranscribeText(result.text);
         setTranscribeHtml(result.html);
         setTranscribeGrid(result.grid);
+        setTranscribeField(result.field ?? null);
       } else if (transcribe?.active) {
         transcribe.deactivate();
       }

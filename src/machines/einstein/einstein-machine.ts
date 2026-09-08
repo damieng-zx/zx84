@@ -384,18 +384,32 @@ export class EinsteinMachine extends BaseMachine implements Machine {
   }
 
   /**
+   * Where a `cols×rows` text grid lands in the framebuffer, in buffer pixels —
+   * the box `blankCells` paints into, and the one the TEXT overlay has to sit
+   * over. On the TC-01 cells are 6×8 at the active-area origin; on the 256 the
+   * GRAPHIC 2 field is pixel-doubled to 512 and vertically centred in the
+   * 212-line window, so each source cell spans 12×8 and the whole field starts
+   * ten lines down.
+   */
+  ocrFieldBox(cols: number, rows: number): { x: number; y: number; width: number; height: number } {
+    const cellW = this.vdp instanceof V9938 ? 12 : 6;
+    const yTop = this.vdp instanceof V9938
+      ? this._borderT + ((212 - this.vdp.visibleHeight) >> 1)
+      : this._borderT;
+    return { x: this._borderL, y: yTop, width: cols * cellW, height: rows * 8 };
+  }
+
+  /**
    * Blank the matched character cells in the framebuffer to their paper colour
    * so the crisp overlay glyphs replace the underlying bitmap. `mask` is
-   * row-major `cols×rows`. On the TC-01 cells are 6×8 at the active-area origin;
-   * on the 256 the GRAPHIC 2 field is pixel-doubled to 512 and vertically
-   * centred, so each source cell spans 12×8 screen pixels.
+   * row-major `cols×rows`; the cells are the ones `ocrFieldBox` describes.
    */
   blankCells(mask: boolean[], cols: number, rows: number, paper?: number[]): void {
     const cellH = 8;
     if (this.vdp instanceof V9938) {
       const pens = this.vdp.pens;
       const cellW = 12;   // 6 source px doubled
-      const yTop = this._borderT + ((212 - this.vdp.visibleHeight) >> 1);
+      const yTop = this.ocrFieldBox(cols, rows).y;
       for (let row = 0; row < rows; row++) {
         const y0 = yTop + row * cellH;
         if (y0 + cellH > this._screenH) break;

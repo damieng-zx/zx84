@@ -77,3 +77,16 @@ export const setTranscribeHtml = _transcribeHtml[1];
 const _transcribeGrid = createSignal<OcrGridName>('32x24');
 export const transcribeGrid = _transcribeGrid[0];
 export const setTranscribeGrid = _transcribeGrid[1];
+
+/** Where that grid sits in the framebuffer, when the machine says it is not
+ *  simply the active area (see TranscribeDriver.run). Buffer pixels. */
+type TranscribeField = { x: number; y: number; width: number; height: number };
+const sameField = (a: TranscribeField | null, b: TranscribeField | null) =>
+  a === b || (!!a && !!b
+    && a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height);
+// The driver hands back a fresh object every frame, so compare by value —
+// otherwise the overlay effect would re-render on every frame rather than only
+// when the text or its box actually moves.
+const _transcribeField = createSignal<TranscribeField | null>(null, { equals: sameField });
+export const transcribeField = _transcribeField[0];
+export const setTranscribeField = _transcribeField[1];
