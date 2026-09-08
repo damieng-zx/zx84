@@ -3,12 +3,11 @@
  *
  * Every cap is 1u square except ENTER (1.8u) and the space bar (8u) — the deck
  * has no other outsized keys. What gives the face its shape is the stagger: the
- * four typing rows step right by 0.6u, 0.8u and 1.6u, much deeper than a modern
- * keyboard, which lines the Q, A and Z rows up on a common right edge (cursor
- * cross, ENTER, GRAPH) with the number row's BREAK finishing short of it. The
- * eight function caps sit on the same pitch, starting above the gap between 3
- * and 4, and the space bar runs from the left of X to the right of the full
- * stop.
+ * number row starts a quarter unit in, the Q row 0.35u beyond it, the A row a
+ * further 0.2u and the Z row a further 0.55u — much deeper than a modern
+ * keyboard. The eight function caps sit on the same pitch, starting above the
+ * gap between 3 and 4, and the space bar runs from the left of X to the right
+ * of the full stop.
  */
 
 import type { SceneBox } from '@/ui/components/KeyboardScene.tsx';
@@ -58,7 +57,7 @@ row([
   '1', '2', '3', '4', '5', '6', '7', '8', '9', '0',
   'equal', 'up-arrow', 'double-bar',
   'break',
-], 12, NUMBER_Y);
+], 22, NUMBER_Y);
 
 // Q row, ending in the two twin-arrow cursor caps.
 row([
@@ -82,10 +81,10 @@ row([
   'z', 'x', 'c', 'v', 'b', 'n', 'm',
   'comma', 'period', 'slash',
   'shift-right', 'ins-del', 'graph',
-], 76, Z_Y);
+], 66, Z_Y);
 
 // The space bar spans X to the full stop.
-put('space', 156, SPACE_Y, 316);
+put('space', 146, SPACE_Y, 316);
 
 export function placeTc01Keys(): readonly PlacedTc01Key[] {
   return placed;
