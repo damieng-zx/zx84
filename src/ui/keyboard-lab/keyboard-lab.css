@@ -400,7 +400,7 @@ kbd {
 .lab-scene--tc01 {
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.15), transparent 18%),
-    linear-gradient(145deg, #d2cbbb, #b0a897);
+    linear-gradient(145deg, #cccccc, #a9a9a9);
 }
 
 .lab-scene--spectrum48 {

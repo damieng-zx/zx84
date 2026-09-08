@@ -1,6 +1,6 @@
 /**
  * Skeuomorphic UK Tatung Einstein TC-01 keyboard: the key deck alone, without
- * the cream case top that carried the drive bezel, lamps and badge.
+ * the case top that carried the drive bezel, lamps and badge.
  */
 
 import { For, Show } from 'solid-js';
