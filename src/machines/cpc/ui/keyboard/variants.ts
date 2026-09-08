@@ -24,13 +24,26 @@ const CPC664_BLUE_KEYS = new Set([
 ]);
 
 export function cpcKeyMain(key: CpcKeyDef, variant: CpcKeyboardVariant): string {
-  if (variant === 'cpc664' && key.id === 'return') return 'RETURN';
+  if (variant === 'cpc464') return key.main;
   if (variant === 'cpc6128') {
     if (key.id === 'return') return 'RETURN';
     if (key.id === 'ctrl') return 'CONTROL';
-    if (key.fn) return key.fn;
   }
+  // Both later machines printed the keypad caps as f0..f9 with no digits, but
+  // the dot cap carries a plain full stop; only the 464 had numeric legends.
+  if (key.fn && key.id !== 'fdot') return key.fn;
   return key.main;
+}
+
+/**
+ * The 664 dropped the 464's shifted ` legend from the backslash cap.
+ */
+export function cpcKeyShift(
+  key: CpcKeyDef,
+  variant: CpcKeyboardVariant,
+): string | undefined {
+  if (variant === 'cpc664' && key.id === 'backslash') return undefined;
+  return key.shift;
 }
 
 export function isCpc664BlueKey(key: CpcKeyDef): boolean {

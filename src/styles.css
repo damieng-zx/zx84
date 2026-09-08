@@ -2693,27 +2693,36 @@ input[type="range"]::-moz-range-thumb {
    controls, double-height ENTER, cursor diamond and function/numeric pad. */
 .cpc464-keyboard {
   --cpc-u: var(--keyboard-scene-px);
-  overflow: hidden;
-  border: 1px solid #111419;
-  border-radius: calc(var(--cpc-u) * 5);
-  background:
+  --cpc-case-border: #111419;
+  --cpc-case:
     linear-gradient(180deg, rgba(255,255,255,0.055), transparent 18%),
     radial-gradient(ellipse at 48% -20%, #414850 0%, #2d333a 52%, #20252b 100%);
+  font-family: var(--font-ui);
+}
+/* The scene keeps its fixed key coordinates, but the moulding is painted by a
+   full-bleed backdrop so the case fills the pane rather than a centred strip. */
+.cpc464-keyboard::before {
+  content: '';
+  position: absolute;
+  inset: 0 calc(50% - 50cqw);
+  border: 1px solid var(--cpc-case-border);
+  border-radius: calc(var(--cpc-u) * 5);
+  background: var(--cpc-case);
   box-shadow:
     inset 0 calc(var(--cpc-u) * 2) calc(var(--cpc-u) * 5) rgba(255,255,255,0.05),
     inset 0 calc(var(--cpc-u) * -8) calc(var(--cpc-u) * 18) rgba(0,0,0,0.38),
     0 2px 5px rgba(0,0,0,0.45);
-  font-family: var(--font-ui);
 }
 
 .cpc464-brand {
   display: flex;
   align-items: center;
   color: #d5d8d8;
-  font-size: calc(var(--cpc-u) * 17);
+  font-size: calc(var(--cpc-u) * 22);
   font-weight: 900;
-  font-style: italic;
   letter-spacing: calc(var(--cpc-u) * -1);
+  transform: scaleY(1.2);
+  transform-origin: left center;
   text-shadow: 0 1px #090b0d, 1px 0 rgba(255,255,255,0.18);
 }
 
@@ -2723,10 +2732,15 @@ input[type="range"]::-moz-range-thumb {
   justify-content: flex-end;
   gap: calc(var(--cpc-u) * 7);
   color: #cbd0d4;
-  font-size: calc(var(--cpc-u) * 16);
-  font-weight: 700;
+  font-size: calc(var(--cpc-u) * 21);
+  font-weight: 400;
   letter-spacing: calc(var(--cpc-u) * 1);
   text-shadow: 0 1px #121519;
+}
+.cpc464-model > span {
+  display: inline-block;
+  transform: scaleX(0.82);
+  transform-origin: right center;
 }
 .cpc464-model small {
   align-self: flex-end;
@@ -2735,15 +2749,23 @@ input[type="range"]::-moz-range-thumb {
   letter-spacing: 0;
 }
 .cpc464-colour-bars {
-  width: calc(var(--cpc-u) * 46);
-  height: calc(var(--cpc-u) * 12);
-  border: 1px solid rgba(230,230,230,0.65);
-  background: linear-gradient(90deg,
-    #e63d3d 0 25%,
-    #51bd58 25% 50%,
-    #4d72df 50% 75%,
-    #e7e7e7 75% 100%);
-  box-shadow: 0 1px 1px rgba(0,0,0,0.6);
+  --cpc-bars: linear-gradient(90deg,
+    #e63d3d 0 33.333%,
+    #51bd58 33.333% 66.667%,
+    #4d72df 66.667% 100%);
+  position: relative;
+  top: calc(var(--cpc-u) * 2);
+  width: calc(var(--cpc-u) * 34);
+  height: calc(var(--cpc-u) * 15);
+  /* A 1px plate in the CPC 664 legend colour surrounds and separates the six
+     blocks, so the gap between the stacked pairs matches the outer margin. */
+  border: 1px solid #cdd2d4;
+  background-color: #cdd2d4;
+  background-image: var(--cpc-bars), var(--cpc-bars);
+  background-repeat: no-repeat;
+  background-size: 100% calc(var(--cpc-u) * 5.5);
+  background-position: top, bottom;
+  filter: drop-shadow(0 1px 1px rgba(0,0,0,0.6));
 }
 
 .cpc464-key {
@@ -2797,26 +2819,38 @@ input[type="range"]::-moz-range-thumb {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: flex-end;
-  padding-bottom: calc(var(--cpc-u) * 4);
+  justify-content: center;
   font-size: calc(var(--cpc-u) * 17);
-  font-weight: 700;
+  font-weight: 500;
   line-height: 0.92;
   text-shadow: 0 1px rgba(0,0,0,0.65);
   pointer-events: none;
 }
+/* A cap printed with a shifted symbol stacks the pair at matching size and
+   weight, so the legend sits low and the symbol takes the space above it. */
+.cpc464-key:has(.cpc464-key__shift) .cpc464-key__main {
+  justify-content: flex-end;
+  padding-bottom: calc(var(--cpc-u) * 4);
+  font-size: calc(var(--cpc-u) * 13);
+}
 .cpc464-key__shift,
 .cpc464-key__fn {
   position: absolute;
-  top: calc(var(--cpc-u) * 3);
+  top: calc(var(--cpc-u) * 2);
   left: calc(var(--cpc-u) * 5);
   z-index: 1;
-  font-size: calc(var(--cpc-u) * 9);
-  font-weight: 700;
+  font-size: calc(var(--cpc-u) * 13);
+  font-weight: 500;
   line-height: 1;
   color: #f4f5f3;
   text-shadow: 0 1px rgba(0,0,0,0.65);
   pointer-events: none;
+}
+/* The shifted symbol is printed centred over the unshifted one, as on the cap. */
+.cpc464-key__shift {
+  left: 0;
+  right: 0;
+  text-align: center;
 }
 .cpc464-key__fn {
   font-size: calc(var(--cpc-u) * 7);
@@ -2833,7 +2867,6 @@ input[type="range"]::-moz-range-thumb {
 .cpc464-key--tall .cpc464-key__main {
   justify-content: center;
   padding: 0;
-  font-size: calc(var(--cpc-u) * 9);
 }
 .cpc464-key--cursor .cpc464-key__main {
   justify-content: center;
@@ -2843,9 +2876,9 @@ input[type="range"]::-moz-range-thumb {
 }
 .cpc464-key--cursor.cpc464-key--green .cpc464-key__main {
   font-size: calc(var(--cpc-u) * 7);
-  font-weight: 700;
 }
 .cpc464-key--numpad .cpc464-key__main {
+  justify-content: flex-end;
   padding-bottom: calc(var(--cpc-u) * 3);
   font-size: calc(var(--cpc-u) * 15);
 }
@@ -2853,8 +2886,8 @@ input[type="range"]::-moz-range-thumb {
 /* CPC 664: the same electrical keyboard in the short-lived cream/blue face.
    Four separately moulded arrow wedges surround a raised COPY cap. */
 .cpc664-keyboard {
-  border-color: #23282c;
-  background:
+  --cpc-case-border: #23282c;
+  --cpc-case:
     linear-gradient(180deg, rgba(255,255,255,0.06), transparent 20%),
     radial-gradient(ellipse at 48% -18%, #596066 0%, #3e454a 50%, #2a3035 100%);
 }
@@ -2870,15 +2903,31 @@ input[type="range"]::-moz-range-thumb {
   letter-spacing: calc(var(--cpc-u) * 0.45);
   text-shadow: 0 1px #20252a;
 }
+.cpc664-badge-panel {
+  border: 1px solid #171b1f;
+  border-radius: calc(var(--cpc-u) * 3);
+  background: linear-gradient(180deg, #464e55 0%, #383f45 100%);
+}
 .cpc664-keyboard .cpc464-model {
   color: #cdd2d4;
 }
-.cpc664-leds {
+.cpc664-leds,
+.cpc664-power-led {
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
-.cpc664-leds i {
+.cpc664-power-led {
+  justify-content: flex-end;
+  gap: calc(var(--cpc-u) * 4);
+  color: #c7cac8;
+  font-size: calc(var(--cpc-u) * 6);
+  font-weight: 700;
+  letter-spacing: calc(var(--cpc-u) * 0.4);
+  text-shadow: 0 1px #20252a;
+}
+.cpc664-leds i,
+.cpc664-power-led i {
   width: calc(var(--cpc-u) * 5);
   height: calc(var(--cpc-u) * 5);
   border: 1px solid #361519;
@@ -2907,8 +2956,20 @@ input[type="range"]::-moz-range-thumb {
 .cpc664-key .cpc464-key__main,
 .cpc664-key .cpc464-key__shift,
 .cpc664-key .cpc464-key__fn {
-  color: #20272d;
-  text-shadow: 0 1px rgba(255,255,255,0.72);
+  color: #000;
+  text-shadow: none;
+}
+
+.cpc664-key.cpc464-key--numpad .cpc464-key__main {
+  justify-content: center;
+  padding-bottom: 0;
+  font-size: calc(var(--cpc-u) * 13);
+}
+.cpc664-key.cpc664-key--fdot .cpc464-key__main {
+  font-size: calc(var(--cpc-u) * 17);
+}
+.cpc664-key.cpc664-key--numpad-enter .cpc464-key__main {
+  font-size: calc(var(--cpc-u) * 8);
 }
 
 .cpc664-key--cursor-up,
@@ -2929,8 +2990,8 @@ input[type="range"]::-moz-range-thumb {
 /* CPC 6128: compact five-row calculator keyboard with a flush right-hand
    function/cursor block and uniformly warm-grey caps. */
 .cpc6128-keyboard {
-  border-color: #171b1f;
-  background:
+  --cpc-case-border: #171b1f;
+  --cpc-case:
     repeating-linear-gradient(
       90deg,
       rgba(8,10,12,0.7) 0 calc(var(--cpc-u) * 4),
@@ -2974,13 +3035,6 @@ input[type="range"]::-moz-range-thumb {
   justify-content: center;
   padding: 0;
   font-size: calc(var(--cpc-u) * 15);
-}
-.cpc6128-key:has(.cpc464-key__shift) .cpc464-key__main {
-  justify-content: flex-end;
-  padding-bottom: calc(var(--cpc-u) * 3);
-}
-.cpc6128-key .cpc464-key__fn {
-  display: none;
 }
 .cpc6128-key.cpc464-key--word .cpc464-key__main,
 .cpc6128-key.cpc464-key--numpad .cpc464-key__main {
