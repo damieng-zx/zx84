@@ -2,10 +2,14 @@
  * Base pane component with 128K-style title bar, collapse/expand, and drag.
  *
  * A `floatable` pane can also be torn out of the layout by its title bar and
- * left free-floating over the app, where it can be resized and put back. The
- * keyboard is the pane that wants this: it is far wider than it is tall, so a
- * column is a poor place for it and its own scale is set by the width it is
- * given.
+ * left free-floating over the app. The keyboard is the pane that wants this:
+ * it is far wider than it is tall, so a column is a poor place for it and its
+ * own scale is set by the width it is given.
+ *
+ * Undocked it drops the pane chrome entirely — no title bar, no border — so
+ * what floats is the machine's case and nothing else. The case is then the
+ * drag handle (keys still type), the resize corner stays, and the dock button
+ * fades in over the top-right corner while the pointer is on it.
  */
 
 import type { JSX } from 'solid-js';
@@ -59,10 +63,26 @@ export function Pane(props: PaneProps) {
     }
   }
 
+  /** Drag from the title bar: how a docked pane is torn out of the layout. */
   function onLabelPointerDown(e: PointerEvent) {
     dragged = false;
     if (!props.floatable || e.button !== 0) return;
     if ((e.target as HTMLElement).closest('select, button')) return;
+    beginDrag(e);
+  }
+
+  /**
+   * Drag from the case: how an undocked pane is moved, now that it has no
+   * title bar to grab. Keys type and controls click; everything else is case.
+   */
+  function onPanePointerDown(e: PointerEvent) {
+    if (!props.floatable || !float() || e.button !== 0) return;
+    if ((e.target as HTMLElement).closest('.keyboard-scene__key, select, button')) return;
+    dragged = false;
+    beginDrag(e);
+  }
+
+  function beginDrag(e: PointerEvent) {
     const pane = paneRef;
     if (!pane) return;
     const rect = pane.getBoundingClientRect();
@@ -161,8 +181,15 @@ export function Pane(props: PaneProps) {
       <div
         id={props.id}
         ref={paneRef}
-        class={`pane${props.mono ? ' pane--mono' : ''}${collapsedPanes().has(props.id) ? ' collapsed' : ''}${float() ? ' pane--floating' : ''}`}
+        class={[
+          'pane',
+          props.mono ? 'pane--mono' : '',
+          collapsedPanes().has(props.id) ? 'collapsed' : '',
+          props.floatable ? 'pane--floatable' : '',
+          float() ? 'pane--floating' : '',
+        ].filter(Boolean).join(' ')}
         style={floatStyle()}
+        onPointerDown={onPanePointerDown}
       >
         <div
           class="section-label"
@@ -175,27 +202,27 @@ export function Pane(props: PaneProps) {
           </svg>
           {props.label}
           {props.labelExtra}
-          <Show when={props.floatable}>
-            <button
-              class="pane-dock"
-              title={float() ? 'Put back below the screen' : 'Float this pane'}
-              aria-label={float() ? 'Dock pane' : 'Float pane'}
-              onClick={(e) => {
-                e.stopPropagation();
-                const pane = paneRef;
-                if (float() || !pane) dockPane(props.id);
-                else {
-                  const rect = pane.getBoundingClientRect();
-                  setPaneFloat(props.id, {
-                    x: rect.left, y: rect.top, width: rect.width, height: rect.height,
-                  });
-                }
-              }}
-            >
-              {float() ? '⤡' : '⤢'}
-            </button>
-          </Show>
         </div>
+        <Show when={props.floatable}>
+          <button
+            class="pane-dock"
+            title={float() ? 'Put back below the screen' : 'Float this pane'}
+            aria-label={float() ? 'Dock pane' : 'Float pane'}
+            onClick={(e) => {
+              e.stopPropagation();
+              const pane = paneRef;
+              if (float() || !pane) dockPane(props.id);
+              else {
+                const rect = pane.getBoundingClientRect();
+                setPaneFloat(props.id, {
+                  x: rect.left, y: rect.top, width: rect.width, height: rect.height,
+                });
+              }
+            }}
+          >
+            {float() ? '⤡' : '⤢'}
+          </button>
+        </Show>
         <div class="pane-content">
           <div class="pane-content-inner">
             {props.children}
