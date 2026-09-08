@@ -141,6 +141,17 @@ describe('Einstein 256 registry entry', () => {
     expect(d.screen.width).toBe(576);
     expect(d.screen.height).toBe(240);
   });
+
+  it('halves the 256 pixel width, so its 256-mode screens are not stretched', () => {
+    const e256 = einsteinEntry.descriptor('einstein-256');
+    const tc01 = einsteinEntry.descriptor('einstein-tc01');
+    expect(e256.screen.pixelAspectX).toBe(0.5);
+    expect(tc01.screen.pixelAspectX).toBe(1);
+    // Both VDPs fill the same raster window, so a GRAPHIC 2 screen — which the
+    // 256 doubles into its 512-wide buffer — must present at the TC-01's width.
+    expect(e256.screen.activeWidth * e256.screen.pixelAspectX)
+      .toBe(tc01.screen.activeWidth * tc01.screen.pixelAspectX);
+  });
 });
 
 describe('Einstein 256 boot smoke', () => {
