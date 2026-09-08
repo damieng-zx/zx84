@@ -19,6 +19,7 @@ import type { PlacedCpcKey } from './scene-geometry.ts';
 import type { CpcKeyboardController } from './keyboard-common.tsx';
 import {
   cpcKeyMain,
+  cpcKeyShift,
   isCpc664BlueKey,
   type CpcKeyboardVariant,
 } from './variants.ts';
@@ -30,6 +31,7 @@ function CpcKey(props: {
 }) {
   const key = props.placed.key;
   const main = () => cpcKeyMain(key, props.variant);
+  const shift = () => cpcKeyShift(key, props.variant);
   // Keypad caps print the function legend alone, with only the f italicised.
   const fkey = () => main() === key.fn;
   const lines = () => main().split('\n');
@@ -54,8 +56,8 @@ function CpcKey(props: {
       onDown={() => props.keyboard.onDown(key.cell)}
       onUp={() => props.keyboard.onUp(key.cell)}
     >
-      <Show when={key.shift}>
-        <span class="cpc464-key__shift">{key.shift}</span>
+      <Show when={shift()}>
+        <span class="cpc464-key__shift">{shift()}</span>
       </Show>
       <span class="cpc464-key__main">
         <Show
@@ -122,17 +124,25 @@ function CpcClassicKeyboard(props: { variant: CpcKeyboardVariant }) {
             </>
           }
         >
-          <SceneElement box={{ x: 18, y: 7, width: 110, height: 25 }} class="cpc464-brand">
+          {/* The badge and lamp sat on removable legend plates. */}
+          <SceneElement box={{ x: 4, y: 10, width: 268, height: 22 }} class="cpc6128-plate" />
+          <SceneElement box={{ x: 656, y: 10, width: 72, height: 22 }} class="cpc6128-plate" />
+          <SceneElement box={{ x: 8, y: 7, width: 110, height: 25 }} class="cpc464-brand">
             AMSTRAD
           </SceneElement>
-          <SceneElement box={{ x: 116, y: 15, width: 270, height: 12 }} class="cpc6128-tagline">
-            128K COLOUR PERSONAL COMPUTER
+          <SceneElement box={{ x: 95, y: 14, width: 300, height: 16 }} class="cpc6128-tagline">
+            128K Colour Personal Computer
           </SceneElement>
-          <SceneElement box={{ x: 628, y: 10, width: 50, height: 14 }} class="cpc464-colour-bars" />
-          <SceneElement box={{ x: 690, y: 10, width: 18, height: 14 }} class="cpc664-leds">
+          <SceneElement box={{ x: 666, y: 15.75, width: 24, height: 10.5 }} class="cpc6128-colour-bars">
             <i />
             <i />
+            <i />
           </SceneElement>
+          <SceneElement box={{ x: 700, y: 14, width: 24, height: 16 }} class="cpc6128-power-led">
+            <span>ON</span>
+            <i />
+          </SceneElement>
+          <SceneElement box={{ x: 0, y: 33, width: 744, height: 9 }} class="cpc6128-header-edge" />
         </Show>
         <For each={keys()}>
           {(placed) => (

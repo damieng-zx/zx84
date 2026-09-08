@@ -2782,13 +2782,9 @@ input[type="range"]::-moz-range-thumb {
   border-radius: calc(var(--cpc-u) * 3);
   background: linear-gradient(180deg, #464e55 0%, #383f45 100%);
 }
-.cpc664-leds,
 .cpc464-power-led {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-}
-.cpc464-power-led {
   justify-content: flex-end;
   gap: calc(var(--cpc-u) * 4);
   color: #c7cac8;
@@ -2797,7 +2793,6 @@ input[type="range"]::-moz-range-thumb {
   letter-spacing: calc(var(--cpc-u) * 0.4);
   text-shadow: 0 1px #20252a;
 }
-.cpc664-leds i,
 .cpc464-power-led i {
   width: calc(var(--cpc-u) * 5);
   height: calc(var(--cpc-u) * 5);
@@ -2988,17 +2983,64 @@ input[type="range"]::-moz-range-thumb {
     radial-gradient(ellipse at 47% -20%, #53595e 0%, #3a4045 54%, #272d31 100%);
 }
 .cpc6128-keyboard .cpc464-brand {
-  color: #deddd5;
+  color: #fff;
   font-size: calc(var(--cpc-u) * 16);
+  text-shadow: none;
 }
 .cpc6128-tagline {
   display: flex;
   align-items: center;
-  color: #c8cac8;
-  font-size: calc(var(--cpc-u) * 8);
+  color: #fff;
+  font-size: calc(var(--cpc-u) * 11);
+  font-style: italic;
   font-weight: 650;
   letter-spacing: calc(var(--cpc-u) * 0.35);
   text-shadow: 0 1px #202428;
+}
+/* The 6128 badge is three slanted bars rather than the classic block plate.
+   Each bar is sheared on its own so none is clipped by the badge box. */
+.cpc6128-colour-bars {
+  display: flex;
+  gap: calc(var(--cpc-u) * 2);
+}
+.cpc6128-colour-bars i {
+  flex: 1;
+  transform: skewX(-45deg);
+}
+.cpc6128-colour-bars i:nth-child(1) { background: #e63d3d; }
+.cpc6128-colour-bars i:nth-child(2) { background: #51bd58; }
+.cpc6128-colour-bars i:nth-child(3) { background: #4d72df; }
+.cpc6128-plate {
+  border: 1px solid rgba(38,43,47,0.5);
+  border-radius: calc(var(--cpc-u) * 2);
+}
+/* A moulding step casting the badge area's shadow onto the keys below. The
+   scene box is only an anchor: the step spans the pane like the case backdrop. */
+.cpc6128-header-edge::before {
+  content: '';
+  position: absolute;
+  inset: 0 calc(50% - 50cqw);
+  border-top: 1px solid rgba(255,255,255,0.06);
+  background: linear-gradient(180deg, rgba(0,0,0,0.5), transparent);
+}
+/* A rectangular lamp under its ON legend. */
+.cpc6128-power-led {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: calc(var(--cpc-u) * 2);
+  color: #c8cac8;
+  font-size: calc(var(--cpc-u) * 6);
+  font-weight: 700;
+  letter-spacing: calc(var(--cpc-u) * 0.4);
+  text-shadow: 0 1px #202428;
+}
+.cpc6128-power-led i {
+  width: calc(var(--cpc-u) * 12);
+  height: calc(var(--cpc-u) * 4);
+  border: 1px solid #361519;
+  background: #ef4b58;
+  box-shadow: 0 0 calc(var(--cpc-u) * 4) rgba(239,75,88,0.75);
 }
 
 .cpc6128-key {
@@ -3015,22 +3057,21 @@ input[type="range"]::-moz-range-thumb {
 }
 .cpc6128-key .cpc464-key__main,
 .cpc6128-key .cpc464-key__shift {
-  color: #252a2d;
-  text-shadow: 0 1px rgba(255,255,255,0.76);
+  color: #000;
+  text-shadow: none;
 }
 .cpc6128-key .cpc464-key__main {
   justify-content: center;
   padding: 0;
   font-size: calc(var(--cpc-u) * 15);
 }
-.cpc6128-key.cpc464-key--word .cpc464-key__main,
-.cpc6128-key.cpc464-key--numpad .cpc464-key__main {
+.cpc6128-key.cpc464-key--word .cpc464-key__main {
   justify-content: center;
   padding: calc(var(--cpc-u) * 2);
   font-size: calc(var(--cpc-u) * 8);
 }
 .cpc6128-key--return .cpc464-key__main {
-  inset: 47.37% 0 0 15.15%;
+  inset: 47.37% 0 0 17.9%;
 }
 .cpc6128-key.cpc464-key--cursor .cpc464-key__main {
   font-size: calc(var(--cpc-u) * 17);

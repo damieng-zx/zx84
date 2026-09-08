@@ -8,6 +8,7 @@ import {
   CPC464_SCENE,
   placeCpc464Keys,
 } from '@/machines/cpc/ui/keyboard/scene-geometry.ts';
+import { cpcKeyShift } from '@/machines/cpc/ui/keyboard/variants.ts';
 
 describe('CPC 464 keyboard scene geometry', () => {
   it('places the real 74-key CPC 464 layout', () => {
@@ -52,8 +53,12 @@ describe('CPC 464 keyboard scene geometry', () => {
     expect(byId('semicolon')).toMatchObject({ main: ';', shift: '+', cell: [3, 4] });
     expect(byId('colon')).toMatchObject({ main: ':', shift: '*', cell: [3, 5] });
     expect(byId('backslash')).toMatchObject({ cell: [2, 6] });
-    for (const id of ['backslash', 'open-bracket', 'close-bracket']) {
-      expect(byId(id).shift, `${id} shift legend`).toBeUndefined();
+    expect(byId('backslash').shift, 'backslash shift legend').toBeUndefined();
+    // The braces are printed on the 6128 only.
+    for (const id of ['open-bracket', 'close-bracket']) {
+      expect(cpcKeyShift(byId(id), 'cpc464'), `${id} on the 464`).toBeUndefined();
+      expect(cpcKeyShift(byId(id), 'cpc664'), `${id} on the 664`).toBeUndefined();
+      expect(cpcKeyShift(byId(id), 'cpc6128'), `${id} on the 6128`).toBeDefined();
     }
   });
 });

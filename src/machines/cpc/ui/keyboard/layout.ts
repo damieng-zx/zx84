@@ -69,7 +69,7 @@ export const CPC_MAIN_ROWS: readonly CpcMainRow[] = [
       key('o', 'O', [4, 2]),
       key('p', 'P', [3, 3]),
       key('at', '@', [3, 2], '¦'),
-      key('open-bracket', '[', [2, 1]),
+      key('open-bracket', '[', [2, 1], '{'),
       { ...key('return', 'ENTER', [2, 2], undefined, 1.5, 'blue'), tall: true },
     ],
   },
@@ -87,7 +87,7 @@ export const CPC_MAIN_ROWS: readonly CpcMainRow[] = [
       key('l', 'L', [4, 4]),
       key('colon', ':', [3, 5], '*'),
       key('semicolon', ';', [3, 4], '+'),
-      key('close-bracket', ']', [2, 3]),
+      key('close-bracket', ']', [2, 3], '}'),
     ],
   },
   {
