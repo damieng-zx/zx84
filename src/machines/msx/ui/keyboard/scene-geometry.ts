@@ -63,7 +63,8 @@ put('esc', 13, ROW_TOP, 36);
 ].forEach((id, index) => put(id, 54 + index * PITCH, ROW_TOP, 36));
 put('bs', 574, ROW_TOP, 36);
 
-// Q row and the upper bar of the inverted-L RETURN.
+// Q row and the upper bar of RETURN, whose narrow lower stem is inset on both
+// sides so it sits directly over the pound cap two rows below.
 put('tab', 23, ROW_TOP + ROW_PITCH, 46);
 [
   'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p',
@@ -75,7 +76,7 @@ put(
   ROW_TOP + ROW_PITCH,
   57,
   78,
-  'polygon(0 0, 100% 0, 100% 100%, 18% 100%, 18% 48%, 0 48%)',
+  'polygon(0 0, 100% 0, 100% 48%, 80.7% 48%, 80.7% 100%, 17.5% 100%, 17.5% 48%, 0 48%)',
 );
 
 // A row.
