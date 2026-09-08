@@ -386,17 +386,24 @@ export class EinsteinMachine extends BaseMachine implements Machine {
   /**
    * Where a `cols×rows` text grid lands in the framebuffer, in buffer pixels —
    * the box `blankCells` paints into, and the one the TEXT overlay has to sit
-   * over. On the TC-01 cells are 6×8 at the active-area origin; on the 256 the
+   * over. On the TC-01 cells are 6×8 at the active-area origin. On the 256 the
    * GRAPHIC 2 field is pixel-doubled to 512 and vertically centred in the
-   * 212-line window, so each source cell spans 12×8 and the whole field starts
-   * ten lines down.
+   * 212-line window, so each source cell spans 12×8 and the field starts ten
+   * lines down; on top of that the V9938's R18 display adjust shifts the whole
+   * picture, and MOS 2.1 sets it — the text is painted six source pixels right
+   * of where its VRAM says, which is one whole character cell.
    */
   ocrFieldBox(cols: number, rows: number): { x: number; y: number; width: number; height: number } {
-    const cellW = this.vdp instanceof V9938 ? 12 : 6;
-    const yTop = this.vdp instanceof V9938
-      ? this._borderT + ((212 - this.vdp.visibleHeight) >> 1)
-      : this._borderT;
-    return { x: this._borderL, y: yTop, width: cols * cellW, height: rows * 8 };
+    if (!(this.vdp instanceof V9938)) {
+      return { x: this._borderL, y: this._borderT, width: cols * 6, height: rows * 8 };
+    }
+    const vdp = this.vdp;
+    return {
+      x: this._borderL + vdp.displayShiftX,
+      y: this._borderT + ((212 - vdp.visibleHeight) >> 1) + vdp.displayShiftY,
+      width: cols * 12,
+      height: rows * 8,
+    };
   }
 
   /**
@@ -409,13 +416,13 @@ export class EinsteinMachine extends BaseMachine implements Machine {
     if (this.vdp instanceof V9938) {
       const pens = this.vdp.pens;
       const cellW = 12;   // 6 source px doubled
-      const yTop = this.ocrFieldBox(cols, rows).y;
+      const field = this.ocrFieldBox(cols, rows);
       for (let row = 0; row < rows; row++) {
-        const y0 = yTop + row * cellH;
+        const y0 = field.y + row * cellH;
         if (y0 + cellH > this._screenH) break;
         for (let col = 0; col < cols; col++) {
           if (!mask[row * cols + col]) continue;
-          const x0 = this._borderL + col * cellW;
+          const x0 = field.x + col * cellW;
           if (x0 + cellW > this._screenW) continue;
           const fill = pens[(paper ? paper[row * cols + col] : 0) & 0x0F];
           for (let y = 0; y < cellH; y++) {
