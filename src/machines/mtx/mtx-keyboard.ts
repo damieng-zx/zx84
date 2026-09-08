@@ -99,6 +99,10 @@ export class MtxKeyboard {
   private driveMask = 0xFF;
   private readonly heldChars = new Map<string, CharKey>();
 
+  /** The eight drive lines' sense bits, active low, for the on-screen keyboard
+   *  to read key state from. Live buffer; callers copy what they keep. */
+  get rows(): Uint16Array { return this.matrix; }
+
   selectDrive(mask: number): void {
     this.driveMask = mask & 0xFF;
   }

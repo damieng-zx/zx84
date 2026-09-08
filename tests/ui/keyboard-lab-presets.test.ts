@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { cpcKeyboardLabPresets } from '@/machines/cpc/ui/keyboard/lab-preset.ts';
+import { mtxKeyboardLabPresets } from '@/machines/mtx/ui/keyboard/lab-preset.ts';
 import { einsteinKeyboardLabPresets } from '@/machines/einstein/ui/keyboard/lab-preset.ts';
 import { hx10KeyboardLabPresets } from '@/machines/msx/ui/keyboard/lab-preset.ts';
 import { spectrumKeyboardLabPresets } from '@/machines/spectrum/ui/keyboard/lab-preset.ts';
@@ -13,6 +14,7 @@ describe('keyboard lab presets', () => {
       ...cpcKeyboardLabPresets(),
       ...hx10KeyboardLabPresets(),
       ...einsteinKeyboardLabPresets(),
+      ...mtxKeyboardLabPresets(),
     ];
 
     expect(presets.map((preset) => preset.id)).toEqual([
@@ -29,9 +31,10 @@ describe('keyboard lab presets', () => {
       'toshiba-hx10',
       'einstein-tc01',
       'einstein-256',
+      'memotech-mtx',
     ]);
     expect(presets.map((preset) => preset.keys.length)).toEqual([
-      40, 58, 58, 58, 58, 40, 40, 74, 74, 74, 73, 67, 69,
+      40, 58, 58, 58, 58, 40, 40, 74, 74, 74, 73, 67, 69, 79,
     ]);
     for (const preset of presets) {
       expect(new Set(preset.keys.map((key) => key.id)).size).toBe(preset.keys.length);
@@ -62,6 +65,7 @@ describe('keyboard lab presets', () => {
       ...cpcKeyboardLabPresets(),
       ...hx10KeyboardLabPresets(),
       ...einsteinKeyboardLabPresets(),
+      ...mtxKeyboardLabPresets(),
     ];
 
     for (const preset of presets) {

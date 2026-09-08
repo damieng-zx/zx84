@@ -409,6 +409,10 @@ kbd {
     linear-gradient(145deg, #46484a, #303233);
 }
 
+.lab-scene--mtx {
+  background: linear-gradient(145deg, #343433, #262625);
+}
+
 .lab-scene--spectrum48 {
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 18%),

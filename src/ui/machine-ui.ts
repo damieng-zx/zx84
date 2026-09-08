@@ -63,6 +63,8 @@ const CONTRIBUTIONS: Record<string, MachineUiContribution> = {
   mtx: {
     HardwareSection: lazy(() =>
       import('@/machines/mtx/ui/hardware-section.tsx').then(m => ({ default: m.MtxHardwareSection }))),
+    Keyboard: lazy(() =>
+      import('@/machines/mtx/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
   },
   sam: {
     HardwareSection: lazy(() =>
@@ -119,6 +121,11 @@ export const keyboardLabPresetLoaders: readonly KeyboardLabPresetLoader[] = [
     group: 'Tatung Einstein',
     load: () => import('@/machines/einstein/ui/keyboard/lab-preset.ts')
       .then((module) => module.einsteinKeyboardLabPresets()),
+  },
+  {
+    group: 'Memotech MTX',
+    load: () => import('@/machines/mtx/ui/keyboard/lab-preset.ts')
+      .then((module) => module.mtxKeyboardLabPresets()),
   },
   {
     group: 'MGT SAM Coupé',
