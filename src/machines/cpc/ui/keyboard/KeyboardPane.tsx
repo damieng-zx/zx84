@@ -83,7 +83,7 @@ function CpcClassicKeyboard(props: { variant: CpcKeyboardVariant; name?: string 
   const scene = () => is6128() ? CPC6128_SCENE : is664() ? CPC664_SCENE : CPC464_SCENE;
   const keys = () => is6128() ? placeCpc6128Keys() : is664() ? placeCpc664Keys() : placeCpc464Keys();
   return (
-    <Pane id="keyboard-panel" label="Keyboard">
+    <Pane id="keyboard-panel" label="Keyboard" floatable>
       <KeyboardScene
         width={scene().width}
         height={scene().height}

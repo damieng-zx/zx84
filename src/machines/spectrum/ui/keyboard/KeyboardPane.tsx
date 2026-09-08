@@ -179,7 +179,7 @@ function KeyboardRubber() {
   const rows = () => buildKeyRows(machineDescriptor().locale);
   const keys = () => placeRubberRows(rows());
   return (
-    <Pane id="keyboard-panel" label="Keyboard">
+    <Pane id="keyboard-panel" label="Keyboard" floatable>
       <KeyboardScene
         width={RUBBER_SCENE.width}
         height={RUBBER_SCENE.height}

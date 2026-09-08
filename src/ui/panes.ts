@@ -9,10 +9,22 @@ export interface PanePosition {
   sidebar: 'left' | 'right';
 }
 
+/**
+ * Where a floating pane sits, in viewport pixels. Only the width is kept: a
+ * pane's height follows its content, and the one pane that floats — the
+ * keyboard — derives its own height from the width it is given.
+ */
+export interface PaneFloat {
+  x: number;
+  y: number;
+  width: number;
+}
+
 const ORDER_KEY = 'zx84-pane-order';
 const COLLAPSE_KEY = 'zx84-collapsed';
 const HIDDEN_KEY = 'zx84-panes-hidden';
 const LIBRARY_KEY = 'zx84-library-visible';
+const FLOAT_KEY = 'zx84-pane-floats';
 
 /**
  * Panes hidden from the sidebar by default — the developer/debugging panes.
@@ -179,6 +191,14 @@ function loadLibraryVisible(): boolean {
   return false;
 }
 
+function loadFloats(): Record<string, PaneFloat> {
+  try {
+    const raw = localStorage.getItem(FLOAT_KEY);
+    if (raw) return JSON.parse(raw) as Record<string, PaneFloat>;
+  } catch { /* */ }
+  return {};
+}
+
 // ── Signals ─────────────────────────────────────────────────────────────
 
 const _paneOrder = createSignal<PanePosition[]>(loadPaneOrder());
@@ -192,6 +212,10 @@ const _setCollapsedPanes = _collapsedPanes[1];
 const _userHiddenPanes = createSignal<Set<string>>(loadUserHidden());
 export const userHiddenPanes = _userHiddenPanes[0];
 const _setUserHiddenPanes = _userHiddenPanes[1];
+
+const _paneFloats = createSignal<Record<string, PaneFloat>>(loadFloats());
+export const paneFloats = _paneFloats[0];
+const _setPaneFloats = _paneFloats[1];
 
 const _libraryVisible = createSignal<boolean>(loadLibraryVisible());
 export const libraryVisible = _libraryVisible[0];
@@ -229,6 +253,30 @@ export function togglePaneVisibility(id: string): void {
   if (set.has(id)) set.delete(id); else set.add(id);
   _setUserHiddenPanes(set);
   try { localStorage.setItem(HIDDEN_KEY, JSON.stringify([...set])); } catch { /* */ }
+}
+
+/** Where a pane is floating, or null while it is docked in the layout. */
+export function paneFloat(id: string): PaneFloat | null {
+  return paneFloats()[id] ?? null;
+}
+
+function writeFloats(next: Record<string, PaneFloat>): void {
+  _setPaneFloats(next);
+  try { localStorage.setItem(FLOAT_KEY, JSON.stringify(next)); } catch { /* */ }
+}
+
+/** Tear a pane out of the layout, or move/resize one already floating. */
+export function setPaneFloat(id: string, patch: Partial<PaneFloat>): void {
+  const current = paneFloats()[id] ?? { x: 40, y: 40, width: 640 };
+  writeFloats({ ...paneFloats(), [id]: { ...current, ...patch } });
+}
+
+/** Put a floating pane back where it belongs in the layout. */
+export function dockPane(id: string): void {
+  if (!(id in paneFloats())) return;
+  const next = { ...paneFloats() };
+  delete next[id];
+  writeFloats(next);
 }
 
 /** Show/hide the Software Library pane (toggled from the Load/Save pane). */

@@ -120,7 +120,7 @@ function E256Keyboard() {
 
 export function KeyboardPane() {
   return (
-    <Pane id="keyboard-panel" label="Keyboard">
+    <Pane id="keyboard-panel" label="Keyboard" floatable>
       <Switch fallback={<Tc01Keyboard />}>
         <Match when={currentModel() === 'einstein-256'}>
           <E256Keyboard />
