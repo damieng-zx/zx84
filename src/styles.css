@@ -301,11 +301,19 @@ body.msx-mode .section-label::after {
 }
 
 /* ── Floating panes ────────────────────────────────────────────────────── */
-/* A pane torn out of the layout by its title bar. It sits over the app, is
-   dragged by that same title bar and resized by its bottom-right corner; the
-   height follows the content, because the pane that floats is the keyboard and
-   its height is a consequence of the width it is given. */
+/* A floatable pane anchors its own dock toggle. */
+.pane--floatable { position: relative; }
+
+/* Undocked, the pane drops its chrome: what floats is the machine's case and
+   nothing else. The case is the drag handle, the bottom-right corner resizes,
+   and the dock toggle fades in while the pointer is over it. */
+.pane--floating > .section-label { display: none; }
+/* The id selector below sets a dark pane base for the docked 48K; undocked
+   there is no pane to see, only the case. */
+#keyboard-panel.pane--floating { background: transparent; }
 .pane--floating {
+  background: transparent;
+  border: 0;
   position: fixed;
   z-index: 1500;
   display: flex;
@@ -317,7 +325,6 @@ body.msx-mode .section-label::after {
   min-height: 120px;
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
 }
-.pane--floating > .section-label { cursor: move; flex: none; }
 /* Hand the whole of a floating pane's height down to its content, so the face
    inside can use what the resize corner gives it. */
 .pane--floating > .pane-content {
@@ -339,16 +346,19 @@ body.msx-mode .section-label::after {
   justify-content: center;
 }
 
-/* Float / dock toggle, pinned to the right of the title bar. Scoped through
-   .section-label so it outranks the shared .pane button chrome below. */
-.section-label .pane-dock {
+/* Float / dock toggle, pinned to the pane's top-right corner. Scoped through
+   .pane so it outranks the shared .pane button chrome below. */
+.pane .pane-dock {
+  position: absolute;
+  top: 3px;
+  right: 4px;
+  z-index: 4;
   flex: none;
   width: auto;
-  margin-left: auto;
   border: 0;
   border-radius: 3px;
-  /* The title bar's rainbow sits behind the text at the right, which is where
-     this lands — a dark chip keeps the glyph legible over either. */
+  /* Docked this lands on the title bar's rainbow, undocked on the machine's
+     own case — a dark chip keeps the glyph legible over either. */
   background: rgba(0, 0, 0, 0.5);
   padding: 0 4px;
   color: #fff;
@@ -356,11 +366,16 @@ body.msx-mode .section-label::after {
   line-height: 1.4;
   cursor: pointer;
   opacity: 0.75;
+  transition: opacity 0.12s ease;
 }
-.section-label .pane-dock:hover {
+.pane .pane-dock:hover {
   background: rgba(255, 255, 255, 0.2);
   opacity: 1;
 }
+/* Undocked it stays out of the way until the pointer comes to the keyboard. */
+.pane--floating .pane-dock { opacity: 0; }
+.pane--floating:hover .pane-dock { opacity: 0.75; }
+.pane--floating .pane-dock:hover { opacity: 1; }
 
 /* ── Shared button system ─────────────────────────────────────────────── */
 .btn {
