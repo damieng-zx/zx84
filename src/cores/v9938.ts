@@ -489,6 +489,14 @@ export class V9938 {
     }
   }
 
+  /** Horizontal display adjust (R18 low nibble) in output pixels: the whole
+   *  picture is shifted right by this much, so anything positioned against the
+   *  framebuffer — a text overlay, cell blanking — has to shift with it. */
+  get displayShiftX(): number { return this.positionOffset(this.regs[18] & 0x0F) * 2; }
+
+  /** Vertical display adjust (R18 high nibble), in scanlines down. */
+  get displayShiftY(): number { return this.positionOffset(this.regs[18] >> 4); }
+
   private positionOffset(value: number): number {
     value &= 0x0F;
     return value < 8 ? -value : 16 - value;
