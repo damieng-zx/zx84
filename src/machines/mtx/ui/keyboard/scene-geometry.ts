@@ -6,14 +6,14 @@
  * staggers by the classic 0.5u / 0.25u / 0.5u, its leading modifiers all 1.5u
  * so ESC, CTRL, ALPHA LOCK and SHIFT step right with their rows; the number,
  * Q and A rows finish flush at 15u with BS, LINE FEED and RET. The numeric
- * keypad and the two-column function block stand off to the right on their own
- * recessed plates, their four rows sharing the main block's row lines.
+ * keypad and the two-column function block stand off to the right, their four
+ * rows sharing the main block's row lines.
  */
 
 import type { SceneBox } from '@/ui/components/KeyboardScene.tsx';
 import { MTX_KEY_INDEX, type MtxKeyDef } from './layout.ts';
 
-export const MTX_SCENE = { width: 866, height: 250, unit: 1 } as const;
+export const MTX_SCENE = { width: 854, height: 250, unit: 1 } as const;
 
 export interface PlacedMtxKey {
   readonly key: MtxKeyDef;
@@ -36,12 +36,7 @@ const u = (n: number) => 10 + n * PITCH;
 const w = (n: number) => n * PITCH - GAP;
 
 /** The badge strip above the deck: MEMOTECH, a rule, and the model name. */
-export const MTX_BADGE: SceneBox = { x: 10, y: 8, width: 846, height: 24 };
-/** The recessed plates the keypad and function block sit in. */
-export const MTX_KEYPAD_WELL: SceneBox =
-  { x: u(15.375), y: NUMBER_Y - 8, width: 3.25 * PITCH, height: 4 * PITCH + 10 };
-export const MTX_FUNCTION_WELL: SceneBox =
-  { x: u(18.875), y: NUMBER_Y - 8, width: 2.25 * PITCH, height: 4 * PITCH + 10 };
+export const MTX_BADGE: SceneBox = { x: 10, y: 8, width: 834, height: 24 };
 
 const placed: PlacedMtxKey[] = [];
 

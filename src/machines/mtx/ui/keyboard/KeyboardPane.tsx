@@ -12,8 +12,6 @@ import { useMtxKeyboard } from './keyboard-common.tsx';
 import type { MtxKeyboardController } from './keyboard-common.tsx';
 import {
   MTX_BADGE,
-  MTX_FUNCTION_WELL,
-  MTX_KEYPAD_WELL,
   MTX_SCENE,
   placeMtxKeys,
   type PlacedMtxKey,
@@ -73,9 +71,6 @@ export function KeyboardPane() {
           <span class="mtx-badge__model">{badge()}</span>
           <i class="mtx-badge__rule mtx-badge__rule--tail" />
         </SceneElement>
-        <SceneElement box={MTX_KEYPAD_WELL} class="mtx-well" />
-        <SceneElement box={MTX_FUNCTION_WELL} class="mtx-well" />
-
         <For each={placeMtxKeys()}>
           {(placed) => <MtxKey placed={placed} keyboard={keyboard} />}
         </For>

@@ -3569,15 +3569,26 @@ input[type="range"]::-moz-range-thumb {
 /* MEMOTECH ———— MTX512, the silk-screened strip above the deck. */
 .mtx-badge {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: calc(var(--mtx-u) * 8);
+}
+/* The case steps down below the badge, shadowing the deck beneath it. */
+.mtx-badge::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: calc(var(--mtx-u) * -10);
+  right: calc(var(--mtx-u) * -10);
+  height: calc(var(--mtx-u) * 10);
+  background: linear-gradient(180deg, rgba(0,0,0,0.55), transparent);
 }
 .mtx-badge__brand,
 .mtx-badge__model {
   color: #ececea;
   white-space: nowrap;
+  line-height: 1;
   font-weight: 700;
-  letter-spacing: calc(var(--mtx-u) * 2);
+  letter-spacing: calc(var(--mtx-u) * 0.8);
 }
 .mtx-badge__brand { font-size: calc(var(--mtx-u) * 11); }
 .mtx-badge__model { font-size: calc(var(--mtx-u) * 17); }
@@ -3587,13 +3598,6 @@ input[type="range"]::-moz-range-thumb {
   background: #b8442a;
 }
 .mtx-badge__rule--tail { flex: 0 0 calc(var(--mtx-u) * 30); }
-
-/* The moulded wells the keypad and function block sit in. */
-.mtx-well {
-  border-radius: calc(var(--mtx-u) * 2);
-  background: #131313;
-  box-shadow: inset 0 calc(var(--mtx-u) * 2) calc(var(--mtx-u) * 3) rgba(0,0,0,0.7);
-}
 
 .mtx-key {
   overflow: hidden;
@@ -3632,7 +3636,9 @@ input[type="range"]::-moz-range-thumb {
   font-size: calc(var(--mtx-u) * 15);
   font-weight: 700;
 }
-.mtx-key--shifted .mtx-key__main {
+.mtx-key--shifted .mtx-key__main,
+.mtx-key--0 .mtx-key__main,
+.mtx-key--underscore .mtx-key__main {
   justify-content: flex-end;
   padding-bottom: calc(var(--mtx-u) * 2);
   font-size: calc(var(--mtx-u) * 13);
@@ -3663,7 +3669,6 @@ input[type="range"]::-moz-range-thumb {
   left: calc(var(--mtx-u) * 3);
   right: auto;
   text-align: left;
-  font-size: calc(var(--mtx-u) * 13);
 }
 .mtx-key--pad-5 .mtx-key__main,
 .mtx-key--pad-1 .mtx-key__main,
