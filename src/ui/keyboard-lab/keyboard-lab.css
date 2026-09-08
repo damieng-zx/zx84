@@ -403,6 +403,12 @@ kbd {
     linear-gradient(145deg, #cccccc, #a9a9a9);
 }
 
+.lab-scene--e256 {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 18%),
+    linear-gradient(145deg, #46484a, #303233);
+}
+
 .lab-scene--spectrum48 {
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 18%),

@@ -92,3 +92,40 @@ describe('Einstein host key mapping', () => {
     expect(scan(kb, 2)).toBe(0xFF);
   });
 });
+
+describe('Einstein 256 host key mapping', () => {
+  let kb: EinsteinKeyboard;
+  beforeEach(() => { kb = new EinsteinKeyboard('einstein-256'); });
+
+  it('routes the four-wedge pad the way MOS 2.1 decodes it', () => {
+    // Down and right are the TC-01's own cursor cells, unshifted.
+    kb.handleKeyEvent('ArrowDown', true);
+    expect(scan(kb, 1)).toBe(0xFF & ~0x20);
+    kb.handleKeyEvent('ArrowDown', false);
+    kb.handleKeyEvent('ArrowRight', true);
+    expect(scan(kb, 2)).toBe(0xFF & ~0x20);
+    kb.handleKeyEvent('ArrowRight', false);
+
+    // Left has a cell of its own that the TC-01 never used.
+    kb.handleKeyEvent('ArrowLeft', true);
+    expect(scan(kb, 0)).toBe(0xFF & ~0x02);
+    expect(kb.statusByte() & 0xC0).toBe(0xC0);
+    kb.handleKeyEvent('ArrowLeft', false);
+
+    // Up has none, so it goes through CONTROL+K.
+    kb.handleKeyEvent('ArrowUp', true);
+    expect(scan(kb, 2)).toBe(0xFF & ~0x01);
+    expect(kb.statusByte() & 0x40).toBe(0);
+    kb.handleKeyEvent('ArrowUp', false);
+    expect(scan(kb, 2)).toBe(0xFF);
+    expect(kb.statusByte() & 0x40).toBe(0x40);
+  });
+
+  it('does not reach for SHIFT, which MOS 2.1 ignores on the cursor cells', () => {
+    for (const code of ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']) {
+      kb.handleKeyEvent(code, true);
+      expect(kb.statusByte() & 0x80, code).toBe(0x80);
+      kb.handleKeyEvent(code, false);
+    }
+  });
+});

@@ -118,7 +118,7 @@ export const keyboardLabPresetLoaders: readonly KeyboardLabPresetLoader[] = [
   {
     group: 'Tatung Einstein',
     load: () => import('@/machines/einstein/ui/keyboard/lab-preset.ts')
-      .then((module) => module.tc01KeyboardLabPresets()),
+      .then((module) => module.einsteinKeyboardLabPresets()),
   },
   {
     group: 'MGT SAM Coupé',
