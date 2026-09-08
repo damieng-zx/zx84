@@ -9,6 +9,23 @@ export interface PanePosition {
   sidebar: 'left' | 'right';
 }
 
+/**
+ * The browser's own resize grip in a floating pane's bottom-right corner. It
+ * has no element of its own to hit-test against, so its area is reserved by
+ * hand: a press inside it is the browser resizing, and must not also start a
+ * move, or the pane wanders off under the pointer as it grows.
+ */
+const RESIZE_GRIP = 18;
+
+/** Whether a point falls in the corner the browser resizes from. */
+export function inResizeGrip(
+  rect: { right: number; bottom: number },
+  x: number,
+  y: number,
+): boolean {
+  return x > rect.right - RESIZE_GRIP && y > rect.bottom - RESIZE_GRIP;
+}
+
 /** Where a floating pane sits, in viewport pixels. */
 export interface PaneFloat {
   x: number;

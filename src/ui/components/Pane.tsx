@@ -16,7 +16,7 @@ import type { JSX } from 'solid-js';
 import { Show, createEffect, onMount, onCleanup } from 'solid-js';
 import {
   collapsedPanes, toggleCollapsed, registerResetter, unregisterResetter,
-  paneFloat, setPaneFloat, dockPane,
+  paneFloat, setPaneFloat, dockPane, inResizeGrip,
 } from '@/ui/panes.ts';
 
 /** Keep at least this much of a floating pane reachable on screen. */
@@ -78,6 +78,8 @@ export function Pane(props: PaneProps) {
   function onPanePointerDown(e: PointerEvent) {
     if (!props.floatable || !float() || e.button !== 0) return;
     if ((e.target as HTMLElement).closest('.keyboard-scene__key, select, button')) return;
+    const pane = paneRef;
+    if (pane && inResizeGrip(pane.getBoundingClientRect(), e.clientX, e.clientY)) return;
     dragged = false;
     beginDrag(e);
   }
