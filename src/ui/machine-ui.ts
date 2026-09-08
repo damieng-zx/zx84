@@ -53,6 +53,8 @@ const CONTRIBUTIONS: Record<string, MachineUiContribution> = {
   einstein: {
     HardwareSection: lazy(() =>
       import('@/machines/einstein/ui/hardware-section.tsx').then(m => ({ default: m.EinsteinHardwareSection }))),
+    Keyboard: lazy(() =>
+      import('@/machines/einstein/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
   },
   msx: {
     Keyboard: lazy(() =>
@@ -112,6 +114,11 @@ export const keyboardLabPresetLoaders: readonly KeyboardLabPresetLoader[] = [
     group: 'MSX',
     load: () => import('@/machines/msx/ui/keyboard/lab-preset.ts')
       .then((module) => module.hx10KeyboardLabPresets()),
+  },
+  {
+    group: 'Tatung Einstein',
+    load: () => import('@/machines/einstein/ui/keyboard/lab-preset.ts')
+      .then((module) => module.tc01KeyboardLabPresets()),
   },
   {
     group: 'MGT SAM Coupé',
