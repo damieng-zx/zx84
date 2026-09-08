@@ -48,7 +48,11 @@ const EINSTEIN_UI: MachineUiCapabilities = {
 /** Descriptor for the Einstein — shared by the registry entry and the machine
  *  instance's own `descriptor` getter. Screen geometry is per-model: the
  *  TC-01's TMS9929A drives a 256×192 active area, the 256's V9938 a 512×212
- *  one. */
+ *  one. Both fill the same physical raster window, so the 256's buffer pixels
+ *  are half as wide — its 256-pixel modes (the GRAPHIC 2 the MOS boots in)
+ *  double into the buffer, exactly as the CPC and SAM do, and `pixelAspectX:
+ *  0.5` presents the 576-wide buffer at its true 288. Leaving it at 1 draws
+ *  every 256-mode screen stretched to twice its width. */
 export function einsteinDescriptor(model: MachineModel, locale: MachineLocale = 'uk'): MachineDescriptor {
   const is256 = model === 'einstein-256';
   return {
@@ -58,7 +62,7 @@ export function einsteinDescriptor(model: MachineModel, locale: MachineLocale = 
     cpuFamily: 'z80',
     screen: is256
       ? {
-        width: EINSTEIN_256_SCREEN_WIDTH, height: EINSTEIN_256_SCREEN_HEIGHT, pixelAspectX: 1,
+        width: EINSTEIN_256_SCREEN_WIDTH, height: EINSTEIN_256_SCREEN_HEIGHT, pixelAspectX: 0.5,
         activeWidth: 512, activeHeight: 212,
         borderLeft: EINSTEIN_256_BORDER_LEFT, borderTop: EINSTEIN_256_BORDER_TOP,
       }
