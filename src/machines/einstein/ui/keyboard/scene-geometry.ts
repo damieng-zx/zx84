@@ -3,11 +3,12 @@
  *
  * Every cap is 1u square except ENTER (1.55u) and the space bar (8u) — the deck
  * has no other outsized keys. What gives the face its shape is the stagger: the
- * number row sits at the deck's left margin, the Q row 0.6u in, the A row 0.8u
- * and the Z row 1.35u — much deeper than a modern keyboard. The eight function
- * caps sit on the same pitch, the row starting at the centre of the 3; ENTER
- * and GRAPH finish flush; and the space bar runs from the left of X to the
- * right of the full stop.
+ * number row starts 0.1u in, the Q row 0.6u, the A row 0.8u and the Z row
+ * 1.35u — much deeper than a modern keyboard, and enough that the gap between
+ * the 1 and the 2 falls over the centre of Q. The eight function caps sit on
+ * the same pitch, the row starting at the centre of the 3; ENTER and GRAPH
+ * finish flush; and the space bar runs from the left of X to the right of the
+ * full stop.
  */
 
 import type { SceneBox } from '@/ui/components/KeyboardScene.tsx';
@@ -49,7 +50,7 @@ function row(ids: readonly string[], x: number, y: number): void {
 }
 
 // Function caps, the row starting at the centre of the 3.
-row(['f0', 'f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7'], 152, FUNCTION_Y);
+row(['f0', 'f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7'], 156, FUNCTION_Y);
 
 // Number row — BREAK ends 0.6u short of the rows below.
 row([
@@ -57,7 +58,7 @@ row([
   '1', '2', '3', '4', '5', '6', '7', '8', '9', '0',
   'equal', 'up-arrow', 'double-bar',
   'break',
-], 12, NUMBER_Y);
+], 16, NUMBER_Y);
 
 // Q row, ending in the two twin-arrow cursor caps.
 row([
