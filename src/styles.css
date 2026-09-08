@@ -2768,6 +2768,45 @@ input[type="range"]::-moz-range-thumb {
   filter: drop-shadow(0 1px 1px rgba(0,0,0,0.6));
 }
 
+.cpc464-tagline {
+  display: flex;
+  align-items: center;
+  color: #c7cac8;
+  font-size: calc(var(--cpc-u) * 7);
+  font-weight: 600;
+  letter-spacing: calc(var(--cpc-u) * 0.45);
+  text-shadow: 0 1px #20252a;
+}
+.cpc464-badge-panel {
+  border: 1px solid #171b1f;
+  border-radius: calc(var(--cpc-u) * 3);
+  background: linear-gradient(180deg, #464e55 0%, #383f45 100%);
+}
+.cpc664-leds,
+.cpc464-power-led {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.cpc464-power-led {
+  justify-content: flex-end;
+  gap: calc(var(--cpc-u) * 4);
+  color: #c7cac8;
+  font-size: calc(var(--cpc-u) * 6);
+  font-weight: 700;
+  letter-spacing: calc(var(--cpc-u) * 0.4);
+  text-shadow: 0 1px #20252a;
+}
+.cpc664-leds i,
+.cpc464-power-led i {
+  width: calc(var(--cpc-u) * 5);
+  height: calc(var(--cpc-u) * 5);
+  border: 1px solid #361519;
+  border-radius: 50%;
+  background: #ef4b58;
+  box-shadow: 0 0 calc(var(--cpc-u) * 4) rgba(239,75,88,0.75);
+}
+
 .cpc464-key {
   --cpc-cap-top: #3f454c;
   --cpc-cap-mid: #282d33;
@@ -2833,28 +2872,20 @@ input[type="range"]::-moz-range-thumb {
   padding-bottom: calc(var(--cpc-u) * 4);
   font-size: calc(var(--cpc-u) * 13);
 }
-.cpc464-key__shift,
-.cpc464-key__fn {
+/* The shifted symbol is printed centred over the unshifted one, as on the cap. */
+.cpc464-key__shift {
   position: absolute;
   top: calc(var(--cpc-u) * 2);
-  left: calc(var(--cpc-u) * 5);
+  left: 0;
+  right: 0;
   z-index: 1;
+  text-align: center;
   font-size: calc(var(--cpc-u) * 13);
   font-weight: 500;
   line-height: 1;
   color: #f4f5f3;
   text-shadow: 0 1px rgba(0,0,0,0.65);
   pointer-events: none;
-}
-/* The shifted symbol is printed centred over the unshifted one, as on the cap. */
-.cpc464-key__shift {
-  left: 0;
-  right: 0;
-  text-align: center;
-}
-.cpc464-key__fn {
-  font-size: calc(var(--cpc-u) * 7);
-  color: #cfd4d7;
 }
 .cpc464-key--word .cpc464-key__main,
 .cpc464-key--numpad.cpc464-key--word .cpc464-key__main {
@@ -2877,11 +2908,6 @@ input[type="range"]::-moz-range-thumb {
 .cpc464-key--cursor.cpc464-key--green .cpc464-key__main {
   font-size: calc(var(--cpc-u) * 7);
 }
-.cpc464-key--numpad .cpc464-key__main {
-  justify-content: flex-end;
-  padding-bottom: calc(var(--cpc-u) * 3);
-  font-size: calc(var(--cpc-u) * 15);
-}
 
 /* CPC 664: the same electrical keyboard in the short-lived cream/blue face.
    Four separately moulded arrow wedges surround a raised COPY cap. */
@@ -2894,46 +2920,8 @@ input[type="range"]::-moz-range-thumb {
 .cpc664-keyboard .cpc464-brand {
   color: #e3e0d5;
 }
-.cpc664-tagline {
-  display: flex;
-  align-items: center;
-  color: #c7cac8;
-  font-size: calc(var(--cpc-u) * 7);
-  font-weight: 600;
-  letter-spacing: calc(var(--cpc-u) * 0.45);
-  text-shadow: 0 1px #20252a;
-}
-.cpc664-badge-panel {
-  border: 1px solid #171b1f;
-  border-radius: calc(var(--cpc-u) * 3);
-  background: linear-gradient(180deg, #464e55 0%, #383f45 100%);
-}
 .cpc664-keyboard .cpc464-model {
   color: #cdd2d4;
-}
-.cpc664-leds,
-.cpc664-power-led {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.cpc664-power-led {
-  justify-content: flex-end;
-  gap: calc(var(--cpc-u) * 4);
-  color: #c7cac8;
-  font-size: calc(var(--cpc-u) * 6);
-  font-weight: 700;
-  letter-spacing: calc(var(--cpc-u) * 0.4);
-  text-shadow: 0 1px #20252a;
-}
-.cpc664-leds i,
-.cpc664-power-led i {
-  width: calc(var(--cpc-u) * 5);
-  height: calc(var(--cpc-u) * 5);
-  border: 1px solid #361519;
-  border-radius: 50%;
-  background: #ef4b58;
-  box-shadow: 0 0 calc(var(--cpc-u) * 4) rgba(239,75,88,0.75);
 }
 
 .cpc664-key {
@@ -2954,8 +2942,7 @@ input[type="range"]::-moz-range-thumb {
   border-color: #4c6085;
 }
 .cpc664-key .cpc464-key__main,
-.cpc664-key .cpc464-key__shift,
-.cpc664-key .cpc464-key__fn {
+.cpc664-key .cpc464-key__shift {
   color: #000;
   text-shadow: none;
 }

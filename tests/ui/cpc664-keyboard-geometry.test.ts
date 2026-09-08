@@ -5,7 +5,6 @@ import {
 } from '@/machines/cpc/ui/keyboard/scene-geometry.ts';
 import {
   cpcKeyMain,
-  cpcKeyShift,
   isCpc664BlueKey,
 } from '@/machines/cpc/ui/keyboard/variants.ts';
 
@@ -86,15 +85,13 @@ describe('CPC 664 keyboard scene geometry', () => {
     }
   });
 
-  it('prints the keypad as f-legends and drops the backslash grave', () => {
+  it('prints the keypad as f-legends with a plain dot cap', () => {
     const placed = placeCpc664Keys();
     const byId = (id: string) => placed.find((item) => item.key.id === id)!.key;
 
     expect(cpcKeyMain(byId('f0'), 'cpc664')).toBe('f0');
+    expect(cpcKeyMain(byId('f0'), 'cpc464')).toBe('0');
     expect(cpcKeyMain(byId('fdot'), 'cpc664')).toBe('.');
-    expect(cpcKeyShift(byId('backslash'), 'cpc664')).toBeUndefined();
-    expect(cpcKeyShift(byId('backslash'), 'cpc464')).toBe('`');
-    expect(cpcKeyShift(byId('dot'), 'cpc664')).toBe('<');
   });
 
   it('uses the documented ENTER face and blue control set', () => {

@@ -77,6 +77,21 @@ function shapeEnter(placed: PlacedCpcKey[]): void {
   };
 }
 
+/**
+ * The space bar runs from X's left edge to slash's right edge, with a
+ * single-unit CTRL beside it.
+ */
+function shapeBottomRow(placed: PlacedCpcKey[]): void {
+  const left = boxOf(placed, 'x').x;
+  const right = rightEdgeOf(placed, 'slash');
+  const reshape = (id: string, box: Partial<SceneBox>) => {
+    const index = placed.findIndex((item) => item.key.id === id);
+    placed[index] = { ...placed[index], box: { ...placed[index].box, ...box } };
+  };
+  reshape('space', { x: left, width: right - left });
+  reshape('ctrl', { x: right + GAP, width: widthOf() });
+}
+
 export function placeCpc464Keys(): PlacedCpcKey[] {
   const placed: PlacedCpcKey[] = [];
 
@@ -98,6 +113,7 @@ export function placeCpc464Keys(): PlacedCpcKey[] {
     }
   });
   shapeEnter(placed);
+  shapeBottomRow(placed);
 
   const cursorCells = [
     [1, 0],
@@ -140,27 +156,11 @@ export function placeCpc464Keys(): PlacedCpcKey[] {
 
 /**
  * The CPC664 retained the 464 matrix and main-key geometry, but replaced the
- * five separated cursor caps with four individually spaced wedges around COPY,
- * and widened the space bar to span X..slash with a single-unit CTRL beside it.
+ * five separated cursor caps with four individually spaced wedges around COPY.
  */
 export function placeCpc664Keys(): PlacedCpcKey[] {
   const base = placeCpc464Keys();
   const controlRight = rightEdgeOf(base, 'shift-right');
-
-  const spaceLeft = boxOf(base, 'x').x;
-  const spaceRight = rightEdgeOf(base, 'slash');
-  const bottomRow: Readonly<Record<string, Pick<PlacedCpcKey, 'box'>>> = {
-    space: {
-      box: {
-        ...boxOf(base, 'space'),
-        x: spaceLeft,
-        width: spaceRight - spaceLeft,
-      },
-    },
-    ctrl: {
-      box: { ...boxOf(base, 'ctrl'), x: spaceRight + GAP, width: widthOf() },
-    },
-  };
 
   const cursorFace: Readonly<Record<string, Pick<PlacedCpcKey, 'box' | 'hitClip'>>> = {
     'cursor-up': {
@@ -189,7 +189,7 @@ export function placeCpc664Keys(): PlacedCpcKey[] {
     const adjusted = alignRight
       ? { ...placed, box: { ...placed.box, x: controlRight - placed.box.width } }
       : placed;
-    const face = cursorFace[placed.key.id] ?? bottomRow[placed.key.id];
+    const face = cursorFace[placed.key.id];
     return face ? { ...adjusted, ...face } : adjusted;
   });
 }

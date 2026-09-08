@@ -51,6 +51,9 @@ describe('CPC 464 keyboard scene geometry', () => {
     expect(byId('at')).toMatchObject({ main: '@', shift: '¦', cell: [3, 2] });
     expect(byId('semicolon')).toMatchObject({ main: ';', shift: '+', cell: [3, 4] });
     expect(byId('colon')).toMatchObject({ main: ':', shift: '*', cell: [3, 5] });
-    expect(byId('backslash')).toMatchObject({ main: '\\', shift: '`', cell: [2, 6] });
+    expect(byId('backslash')).toMatchObject({ cell: [2, 6] });
+    for (const id of ['backslash', 'open-bracket', 'close-bracket']) {
+      expect(byId(id).shift, `${id} shift legend`).toBeUndefined();
+    }
   });
 });
