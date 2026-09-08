@@ -118,10 +118,10 @@ export const HX10_KEYS: readonly Hx10KeyDef[] = [
   key('select', [7, 6], 'SELECT', undefined, 'dark', 'edit'),
   key('home', [8, 1], 'HOME', undefined, 'dark', 'edit'),
 
-  key('cursor-up', [8, 5], '↑', undefined, 'blue', 'cursor'),
-  key('cursor-left', [8, 4], '←', undefined, 'blue', 'cursor'),
-  key('cursor-right', [8, 7], '→', undefined, 'blue', 'cursor'),
-  key('cursor-down', [8, 6], '↓', undefined, 'blue', 'cursor'),
+  key('cursor-up', [8, 5], '⇧', undefined, 'blue', 'cursor'),
+  key('cursor-left', [8, 4], '⇦', undefined, 'blue', 'cursor'),
+  key('cursor-right', [8, 7], '⇨', undefined, 'blue', 'cursor'),
+  key('cursor-down', [8, 6], '⇩', undefined, 'blue', 'cursor'),
 ] as const;
 
 export const HX10_KEY_INDEX = new Map(
