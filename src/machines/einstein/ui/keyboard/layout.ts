@@ -67,7 +67,7 @@ export const TC01_KEYS: readonly Tc01KeyDef[] = [
   key('double-bar', [1, 6], '‖', '½'),
   key('break', [0, 0], 'BREAK', undefined, 'dark', 'modifier'),
 
-  key('ctl', [8, 6], 'CTL', undefined, 'dark', 'modifier'),
+  key('ctrl', [8, 6], 'CTRL', undefined, 'dark', 'modifier'),
   key('q', [5, 6], 'Q'),
   key('w', [5, 5], 'W'),
   key('e', [5, 4], 'E'),

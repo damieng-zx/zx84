@@ -1,19 +1,21 @@
 /**
  * Fixed design-coordinate geometry traced from a UK Tatung Einstein TC-01.
  *
- * Traced at a 40-unit key pitch from a straight-on measurement of the real key
- * deck: the four typing rows step right by 0.6u, 0.8u and 1.25u respectively —
- * a much deeper stagger than a modern keyboard — and each row's leading
- * modifier grows to fill the step, so ESC, CTL, ALPHA LOCK and SHIFT get wider
- * as you go down. The eight function caps sit on the same pitch, starting above
- * the gap between 3 and 4.
+ * Every cap is 1u square except ENTER (1.8u) and the space bar (8u) — the deck
+ * has no other outsized keys. What gives the face its shape is the stagger: the
+ * four typing rows step right by 0.6u, 0.8u and 1.6u, much deeper than a modern
+ * keyboard, which lines the Q, A and Z rows up on a common right edge (cursor
+ * cross, ENTER, GRAPH) with the number row's BREAK finishing short of it. The
+ * eight function caps sit on the same pitch, starting above the gap between 3
+ * and 4, and the space bar runs from the left of X to the right of the full
+ * stop.
  */
 
 import type { SceneBox } from '@/ui/components/KeyboardScene.tsx';
 import { TC01_KEY_INDEX, type Tc01KeyDef } from './layout.ts';
 
 export const TC01_SCENE = {
-  width: 648,
+  width: 644,
   height: 250,
   unit: 1,
 } as const;
@@ -25,62 +27,65 @@ export interface PlacedTc01Key {
 
 const placed: PlacedTc01Key[] = [];
 
-function put(id: string, x: number, y: number, width: number, height = 36): void {
-  const definition = TC01_KEY_INDEX.get(id);
-  if (!definition) throw new Error(`Unknown Einstein TC-01 key: ${id}`);
-  placed.push({ key: definition, box: { x, y, width, height } });
-}
-
-function row(ids: readonly string[], x: number, y: number, pitch = 40): void {
-  ids.forEach((id, index) => put(id, x + index * pitch, y, 36));
-}
-
+/** 1u: the cap pitch. Caps are CAP wide, leaving a GAP-wide channel between. */
 const PITCH = 40;
-const FUNCTION_Y = 6;
+const CAP = 36;
+
+const FUNCTION_Y = 4;
 const NUMBER_Y = 44;
 const Q_Y = 84;
 const A_Y = 124;
 const Z_Y = 164;
 const SPACE_Y = 204;
 
-// Function caps: eight low-profile keys, wider than they are apart.
-['f0', 'f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7']
-  .forEach((id, index) => put(id, 164 + index * PITCH, FUNCTION_Y, 38, 32));
+function put(id: string, x: number, y: number, width = CAP): void {
+  const definition = TC01_KEY_INDEX.get(id);
+  if (!definition) throw new Error(`Unknown Einstein TC-01 key: ${id}`);
+  placed.push({ key: definition, box: { x, y, width, height: CAP } });
+}
 
-// Number row.
-put('esc', 12, NUMBER_Y, 36);
+/** A run of 1u caps starting at `x`. */
+function row(ids: readonly string[], x: number, y: number): void {
+  ids.forEach((id, index) => put(id, x + index * PITCH, y));
+}
+
+// Function caps.
+row(['f0', 'f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7'], 164, FUNCTION_Y);
+
+// Number row — BREAK ends 0.6u short of the rows below.
 row([
+  'esc',
   '1', '2', '3', '4', '5', '6', '7', '8', '9', '0',
   'equal', 'up-arrow', 'double-bar',
-], 52, NUMBER_Y);
-put('break', 576, NUMBER_Y, 48);
+  'break',
+], 12, NUMBER_Y);
 
 // Q row, ending in the two twin-arrow cursor caps.
-put('ctl', 36, Q_Y, 36);
 row([
+  'ctrl',
   'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p',
-  'underscore', 'left-arrow', 'cursor-lr', 'cursor-ud',
-], 76, Q_Y);
+  'underscore', 'left-arrow',
+  'cursor-lr', 'cursor-ud',
+], 36, Q_Y);
 
-// A row, ending in the red ENTER.
-put('alpha-lock', 44, A_Y, 40);
+// A row: thirteen 1u caps and the 1.8u red ENTER, flush with the cursor cross.
 row([
+  'alpha-lock',
   'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l',
   'semicolon', 'colon', 'right-arrow',
-], 88, A_Y);
-put('enter', 568, A_Y, 64);
+], 44, A_Y);
+put('enter', 564, A_Y, 68);
 
-// Z row.
-put('shift-left', 62, Z_Y, 42);
+// Z row, GRAPH flush with ENTER.
 row([
-  'z', 'x', 'c', 'v', 'b', 'n', 'm', 'comma', 'period', 'slash',
-], 108, Z_Y);
-put('shift-right', 508, Z_Y, 42);
-put('ins-del', 554, Z_Y, 36);
-put('graph', 594, Z_Y, 40);
+  'shift-left',
+  'z', 'x', 'c', 'v', 'b', 'n', 'm',
+  'comma', 'period', 'slash',
+  'shift-right', 'ins-del', 'graph',
+], 76, Z_Y);
 
-// The space bar sits on its own row, offset left of the deck's centre.
-put('space', 144, SPACE_Y, 336);
+// The space bar spans X to the full stop.
+put('space', 156, SPACE_Y, 316);
 
 export function placeTc01Keys(): readonly PlacedTc01Key[] {
   return placed;
