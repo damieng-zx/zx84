@@ -130,7 +130,7 @@ export class EinsteinMachine extends BaseMachine implements Machine {
     // here). The machine chains channel 2's zero-count to channel 3's
     // trigger (zc2 → trg3); channel 3 is the periodic interrupt source (IM 2).
     this.ctc.zcHandlers[2] = () => this.ctc.trigger(3);
-    this.keyboard = new EinsteinKeyboard();
+    this.keyboard = new EinsteinKeyboard(model);
     // CDT/TZX pulse timings are 3.5MHz-referenced; scale to the 4MHz Z80.
     this.tape = new TapeDeck(EINSTEIN_CPU_CLOCK);
     this.tape.pulseScale = EINSTEIN_CPU_CLOCK / TAPE_REF_HZ;

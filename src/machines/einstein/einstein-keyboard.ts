@@ -10,14 +10,23 @@
  * SHIFT / CONTROL / GRAPH are NOT in this matrix — they (plus the joystick fire
  * buttons and printer status) are read from the I/O 0x20 status port instead.
  *
- * Matrix layout follows MAME's `einstein.cpp` matrix, corrected against MOS
- * 1.2's own key-decode table (three 8-byte rows per line — unshifted, shifted,
- * control — at ROM 0x10C5, LINE1 first). MAME names four separate cursor cells;
- * the real deck has only two cursor caps, each printing two arrows, and the ROM
- * agrees: [2,5] decodes to cursor-right unshifted / left (0x08) shifted, and
- * [1,5] to down (0x0A) / up (0x0B). The cells MAME calls LEFT, RIGHT and UP are
- * the ←, → and ↑ *character* caps ([1,3], [2,4], [3,6]), and its TAB cell is
- * the cursor-left/right cap — the Einstein has no TAB key.
+ * Matrix layout follows MAME's `einstein.cpp` matrix, corrected against each
+ * MOS's own key-decode table (three 8-byte rows per line — unshifted, shifted,
+ * control — at 0x10C5 in MOS 1.2 and 0x1687 in MOS 2.1, LINE1 first) and by
+ * sweeping every cell and modifier against both real ROMs.
+ *
+ * MAME names four separate cursor cells; the TC-01's deck has only two cursor
+ * caps, each printing two arrows, and MOS 1.2 agrees: [2,5] decodes to
+ * cursor-right unshifted and left (0x08) shifted, [1,5] to down (0x0A) and up
+ * (0x0B). The cells MAME calls LEFT, RIGHT and UP are the ←, → and ↑
+ * *character* caps ([1,3], [2,4], [3,6]), and its TAB cell is the cursor cap —
+ * the Einstein has no TAB key.
+ *
+ * The 256's four-wedge cursor pad works differently, and MOS 2.1 with it:
+ * shifted [1,5] and [2,5] decode to the same codes as unshifted, so SHIFT no
+ * longer picks a direction. Left moves to [0,1] — the cell MAME marks unused,
+ * and which the TC-01 has no key for — and nothing produces up on its own, so
+ * up goes through CONTROL+K, the only route to 0x0B in either ROM.
  *
  * The rest of the host-key map is best-effort by physical position (US layout).
  */
@@ -52,8 +61,7 @@ const KEY_MAP: Record<string, Cell> = {
   Space: [0, 6], Enter: [0, 5], Escape: [0, 7],
   Backspace: [3, 4], Delete: [3, 4],       // → INS DEL
   CapsLock: [0, 4],                          // ALPHA LOCK
-  // Cursor caps, unshifted halves (⇨ and ⇩); ⇦/⇧ are in SHIFTED_KEY_MAP
-  ArrowRight: [2, 5], ArrowDown: [1, 5],
+  // Cursor keys are per-model chords — see TC01_ARROWS / E256_ARROWS.
   // Punctuation (best-effort, US layout)
   Minus: [1, 4], Equal: [3, 5], Semicolon: [2, 2], Quote: [2, 3],
   Comma: [3, 0], Period: [3, 1], Slash: [3, 2], Backquote: [1, 6],
@@ -71,18 +79,36 @@ const KEY_MAP: Record<string, Cell> = {
   Pause: [0, 0],
 };
 
+const SHIFT_CELL: Cell = [STATUS_LINE, 7];
+const CONTROL_CELL: Cell = [STATUS_LINE, 6];
+
 /**
- * Host keys that reach their Einstein function only with SHIFT held: the two
- * cursor caps print ⇦ above ⇨ and ⇧ above ⇩, and the shifted half is the upper
- * legend. Pressing one of these asserts SHIFT in the status byte for as long as
- * it is held, on top of any SHIFT the user is holding themselves.
+ * Host cursor keys, as chords — see the file header. A chord's status-line cell
+ * asserts that modifier for as long as the host key is held, on top of any the
+ * user is holding themselves.
  */
-const SHIFTED_KEY_MAP: Record<string, Cell> = {
-  ArrowLeft: [2, 5],
-  ArrowUp: [1, 5],
+const TC01_ARROWS: Record<string, readonly Cell[]> = {
+  ArrowLeft: [SHIFT_CELL, [2, 5]],
+  ArrowRight: [[2, 5]],
+  ArrowUp: [SHIFT_CELL, [1, 5]],
+  ArrowDown: [[1, 5]],
+};
+
+const E256_ARROWS: Record<string, readonly Cell[]> = {
+  ArrowLeft: [[0, 1]],
+  ArrowRight: [[2, 5]],
+  ArrowUp: [CONTROL_CELL, [2, 0]],
+  ArrowDown: [[1, 5]],
 };
 
 export class EinsteinKeyboard {
+  /** The cursor-key chords for this model. */
+  private readonly arrows: Record<string, readonly Cell[]>;
+
+  constructor(model: string = 'einstein-tc01') {
+    this.arrows = model === 'einstein-256' ? E256_ARROWS : TC01_ARROWS;
+  }
+
   /** Per-row column state, active-low. 0xFF = all keys on that row released. */
   private readonly matrix = new Uint8Array(LINES).fill(0xFF);
 
@@ -99,9 +125,9 @@ export class EinsteinKeyboard {
   private fire1 = false;
   private fire2 = false;
 
-  /** Host codes from SHIFTED_KEY_MAP currently held — a set, not a count, so a
-   *  key's auto-repeat cannot leave SHIFT stuck on. */
-  private readonly forcedShift = new Set<string>();
+  /** Cursor keys currently held — a set, not a count, so a key's auto-repeat
+   *  cannot leave a chord's modifier stuck on. */
+  private readonly heldArrows = new Set<string>();
 
   /** ALPHA LOCK latch (Einstein 256): toggled by any port 0x22 access, read
    *  back via port 0x26 bit0 and mirrored on the keyboard LED. */
@@ -136,8 +162,8 @@ export class EinsteinKeyboard {
     if (this.fire1) v &= ~0x01;
     if (this.fire2) v &= ~0x02;
     if (this.graph) v &= ~0x20;
-    if (this.control) v &= ~0x40;
-    if (this.shift || this.forcedShift.size > 0) v &= ~0x80;
+    if (this.control || this.chordHolds(6)) v &= ~0x40;
+    if (this.shift || this.chordHolds(7)) v &= ~0x80;
     return v & 0xFF;
   }
 
@@ -161,17 +187,30 @@ export class EinsteinKeyboard {
       case 'ControlLeft': case 'ControlRight': this.control = pressed; return true;
       case 'AltLeft': case 'AltRight': this.graph = pressed; return true;
     }
-    const shifted = SHIFTED_KEY_MAP[code];
-    if (shifted) {
-      if (pressed) this.forcedShift.add(code);
-      else this.forcedShift.delete(code);
-      this.setKey(shifted[0], shifted[1], pressed);
+    const chord = this.arrows[code];
+    if (chord) {
+      if (pressed) this.heldArrows.add(code);
+      else this.heldArrows.delete(code);
+      for (const [line, bit] of chord) {
+        // The status-line cells are asserted by chordHolds, not the matrix.
+        if (line !== STATUS_LINE) this.setKey(line, bit, pressed);
+      }
       return true;
     }
     const cell = KEY_MAP[code];
     if (!cell) return false;
     this.setKey(cell[0], cell[1], pressed);
     return true;
+  }
+
+  /** Whether a held cursor key's chord asserts the given status-byte bit. */
+  private chordHolds(bit: number): boolean {
+    for (const code of this.heldArrows) {
+      for (const cell of this.arrows[code]) {
+        if (cell[0] === STATUS_LINE && cell[1] === bit) return true;
+      }
+    }
+    return false;
   }
 
   setJoystick(dir: 'fire1' | 'fire2', pressed: boolean): void {
@@ -198,7 +237,7 @@ export class EinsteinKeyboard {
     this.matrix.fill(0xFF);
     this.selectMask = 0xFF;
     this.shift = this.control = this.graph = false;
-    this.forcedShift.clear();
+    this.heldArrows.clear();
     this.fire1 = this.fire2 = false;
     this.alphaLock = true;
   }

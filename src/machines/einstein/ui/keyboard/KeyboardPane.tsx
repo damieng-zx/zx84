@@ -1,17 +1,32 @@
 /**
- * Skeuomorphic UK Tatung Einstein TC-01 keyboard: the key deck alone, without
- * the case top that carried the drive bezel, lamps and badge.
+ * Skeuomorphic UK Tatung Einstein keyboards: the key deck alone, without the
+ * case top that carried the drive bezel and badge.
  */
 
-import { For, Show } from 'solid-js';
+import { For, Match, Show, Switch } from 'solid-js';
 import { Pane } from '@/ui/components/Pane.tsx';
-import { KeyboardScene, SceneKey } from '@/ui/components/KeyboardScene.tsx';
-import { useTc01Keyboard } from './keyboard-common.tsx';
-import { TC01_SCENE, placeTc01Keys, type PlacedTc01Key } from './scene-geometry.ts';
+import { KeyboardScene, SceneElement, SceneKey } from '@/ui/components/KeyboardScene.tsx';
+import { currentModel } from '@/state/machine-state.ts';
+import { useEinsteinKeyboard } from './keyboard-common.tsx';
+import type { EinsteinKeyboardController } from './keyboard-common.tsx';
+import {
+  E256_ALPHA_LAMP,
+  E256_CURSOR_WELL,
+  E256_FUNCTION_LEGENDS,
+  E256_FUNCTION_STRIP,
+  E256_POWER_LABEL,
+  E256_POWER_LAMP,
+  E256_SCENE,
+  TC01_SCENE,
+  placeE256Keys,
+  placeTc01Keys,
+  type PlacedEinsteinKey,
+} from './scene-geometry.ts';
 
-function Tc01Key(props: {
-  placed: PlacedTc01Key;
-  keyboard: ReturnType<typeof useTc01Keyboard>;
+function EinsteinKey(props: {
+  placed: PlacedEinsteinKey;
+  keyboard: EinsteinKeyboardController;
+  prefix: string;
 }) {
   const key = props.placed.key;
   const lines = () => key.main.split('\n');
@@ -19,44 +34,93 @@ function Tc01Key(props: {
   return (
     <SceneKey
       box={props.placed.box}
+      hitClip={props.placed.hitClip}
       class={[
-        'tc01-key',
-        `tc01-key--${key.tone}`,
-        `tc01-key--${key.region}`,
-        `tc01-key--${key.id}`,
-        key.shift ? 'tc01-key--shifted' : '',
-        isWord ? 'tc01-key--word' : '',
+        `${props.prefix}-key`,
+        `${props.prefix}-key--${key.tone}`,
+        `${props.prefix}-key--${key.region}`,
+        `${props.prefix}-key--${key.id}`,
+        key.shift ? `${props.prefix}-key--shifted` : '',
+        isWord ? `${props.prefix}-key--word` : '',
       ].filter(Boolean).join(' ')}
-      pressed={props.keyboard.isDown(key.cell)}
+      pressed={props.keyboard.isDown(key.chord)}
       label={key.main.replace('\n', ' ') || 'SPACE'}
-      onDown={() => props.keyboard.onDown(key.cell)}
-      onUp={() => props.keyboard.onUp(key.cell)}
+      onDown={() => props.keyboard.onDown(key.chord)}
+      onUp={() => props.keyboard.onUp(key.chord)}
     >
       <Show when={key.shift}>
-        <span class="tc01-key__shift">{key.shift}</span>
+        <span class={`${props.prefix}-key__shift`}>{key.shift}</span>
       </Show>
-      <span class="tc01-key__main">
+      <span class={`${props.prefix}-key__main`}>
         <For each={lines()}>{(line) => <span>{line}</span>}</For>
       </span>
     </SceneKey>
   );
 }
 
+function Tc01Keyboard() {
+  const keyboard = useEinsteinKeyboard();
+  return (
+    <KeyboardScene
+      width={TC01_SCENE.width}
+      height={TC01_SCENE.height}
+      unit={TC01_SCENE.unit}
+      class="tc01-keyboard"
+      label="Tatung Einstein TC-01 keyboard"
+    >
+      <For each={placeTc01Keys()}>
+        {(placed) => (
+          <EinsteinKey placed={placed} keyboard={keyboard} prefix="tc01" />
+        )}
+      </For>
+    </KeyboardScene>
+  );
+}
+
+function E256Keyboard() {
+  const keyboard = useEinsteinKeyboard();
+  return (
+    <KeyboardScene
+      width={E256_SCENE.width}
+      height={E256_SCENE.height}
+      unit={E256_SCENE.unit}
+      class="e256-keyboard"
+      label="Tatung Einstein 256 keyboard"
+    >
+      {/* The printed card above the function keys, under its clear holder. */}
+      <SceneElement box={E256_FUNCTION_STRIP} class="e256-legend-card">
+        <For each={E256_FUNCTION_LEGENDS}>
+          {([upper, lower]) => (
+            <span class="e256-legend-cell">
+              <span>{upper}</span>
+              <span>{lower}</span>
+            </span>
+          )}
+        </For>
+      </SceneElement>
+      <SceneElement box={E256_POWER_LABEL} class="e256-power-label">POWER</SceneElement>
+      <SceneElement box={E256_POWER_LAMP} class="e256-power-lamp" />
+      <SceneElement box={E256_CURSOR_WELL} class="e256-cursor-well" />
+
+      <SceneElement box={E256_ALPHA_LAMP} class="e256-alpha-lamp" />
+
+      <For each={placeE256Keys()}>
+        {(placed) => (
+          <EinsteinKey placed={placed} keyboard={keyboard} prefix="e256" />
+        )}
+      </For>
+    </KeyboardScene>
+  );
+}
+
 export function KeyboardPane() {
-  const keyboard = useTc01Keyboard();
   return (
     <Pane id="keyboard-panel" label="Keyboard">
-      <KeyboardScene
-        width={TC01_SCENE.width}
-        height={TC01_SCENE.height}
-        unit={TC01_SCENE.unit}
-        class="tc01-keyboard"
-        label="Tatung Einstein TC-01 keyboard"
-      >
-        <For each={placeTc01Keys()}>
-          {(placed) => <Tc01Key placed={placed} keyboard={keyboard} />}
-        </For>
-      </KeyboardScene>
+      <Switch fallback={<Tc01Keyboard />}>
+        <Match when={currentModel() === 'einstein-256'}>
+          <E256Keyboard />
+        </Match>
+      </Switch>
     </Pane>
   );
 }
