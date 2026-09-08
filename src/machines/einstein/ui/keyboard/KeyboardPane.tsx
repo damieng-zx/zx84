@@ -68,7 +68,6 @@ function Tc01Keyboard() {
       height={TC01_SCENE.height}
       unit={TC01_SCENE.unit}
       class="tc01-keyboard"
-      frameClass="tc01-keyboard-frame"
       label="Tatung Einstein TC-01 keyboard"
     >
       <For each={placeTc01Keys()}>
@@ -88,7 +87,6 @@ function E256Keyboard() {
       height={E256_SCENE.height}
       unit={E256_SCENE.unit}
       class="e256-keyboard"
-      frameClass="e256-keyboard-frame"
       label="Tatung Einstein 256 keyboard"
     >
       {/* The printed card above the function keys, under its clear holder. */}

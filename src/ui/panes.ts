@@ -9,15 +9,12 @@ export interface PanePosition {
   sidebar: 'left' | 'right';
 }
 
-/**
- * Where a floating pane sits, in viewport pixels. Only the width is kept: a
- * pane's height follows its content, and the one pane that floats — the
- * keyboard — derives its own height from the width it is given.
- */
+/** Where a floating pane sits, in viewport pixels. */
 export interface PaneFloat {
   x: number;
   y: number;
   width: number;
+  height: number;
 }
 
 const ORDER_KEY = 'zx84-pane-order';
@@ -194,7 +191,17 @@ function loadLibraryVisible(): boolean {
 function loadFloats(): Record<string, PaneFloat> {
   try {
     const raw = localStorage.getItem(FLOAT_KEY);
-    if (raw) return JSON.parse(raw) as Record<string, PaneFloat>;
+    if (!raw) return {};
+    const saved = JSON.parse(raw) as Record<string, Partial<PaneFloat>>;
+    const floats: Record<string, PaneFloat> = {};
+    for (const [id, at] of Object.entries(saved)) {
+      // A float needs a whole box to place; anything short of one docks.
+      if (typeof at?.x === 'number' && typeof at.y === 'number'
+        && typeof at.width === 'number' && typeof at.height === 'number') {
+        floats[id] = { x: at.x, y: at.y, width: at.width, height: at.height };
+      }
+    }
+    return floats;
   } catch { /* */ }
   return {};
 }
@@ -267,7 +274,7 @@ function writeFloats(next: Record<string, PaneFloat>): void {
 
 /** Tear a pane out of the layout, or move/resize one already floating. */
 export function setPaneFloat(id: string, patch: Partial<PaneFloat>): void {
-  const current = paneFloats()[id] ?? { x: 40, y: 40, width: 640 };
+  const current = paneFloats()[id] ?? { x: 40, y: 40, width: 640, height: 260 };
   writeFloats({ ...paneFloats(), [id]: { ...current, ...patch } });
 }
 

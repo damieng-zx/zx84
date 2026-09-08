@@ -27,9 +27,12 @@ interface KeyboardSceneProps extends ParentProps {
   unit?: number;
   class?: string;
   classList?: Record<string, boolean | undefined>;
-  /** Class for the frame *around* the fixed-size scene. A face whose case
-   *  should reach the pane edges rather than stop at the scene box paints it
-   *  here as well. */
+  /**
+   * Class for the frame *around* the fixed-size scene. Faces paint their case
+   * on a full-bleed `::before` of the scene itself rather than here — see the
+   * `50cqw` backdrops in styles.css — so this is only for the rare thing that
+   * has to clip or measure against the pane, like the MTX's badge step.
+   */
   frameClass?: string;
   label: string;
 }
@@ -67,16 +70,23 @@ function boxStyle(box: SceneBox): JSX.CSSProperties {
 }
 
 export function KeyboardScene(props: KeyboardSceneProps) {
+  // The scale the display-scale setting asks for, and the largest the frame
+  // can actually take. Docked, the scene takes the smaller of the two; floating
+  // it takes the fit alone, so dragging the pane scales the face up as well as
+  // down (see `.pane--floating .keyboard-scene` in styles.css). `cqh` only
+  // means anything inside a size container, which is what a floating frame is;
+  // anywhere else it falls back to the viewport and never binds first.
   const naturalPx = () => `calc(1px * var(--display-scale, 3) / 3 * ${props.unit ?? 1})`;
-  const fittedPx = () =>
-    `min(${naturalPx()}, calc(100cqw / ${props.width}))`;
+  const fitPx = () =>
+    `min(calc(100cqw / ${props.width}), calc(100cqh / ${props.height}))`;
   return (
     <div class={`keyboard-scene-frame${props.frameClass ? ` ${props.frameClass}` : ''}`}>
       <div
         class={`keyboard-scene${props.class ? ` ${props.class}` : ''}`}
         classList={props.classList}
         style={{
-          '--keyboard-scene-px': fittedPx(),
+          '--keyboard-scene-natural': naturalPx(),
+          '--keyboard-scene-fit': fitPx(),
           '--keyboard-scene-width': `${props.width}`,
           '--keyboard-scene-height': `${props.height}`,
         }}
