@@ -2,11 +2,12 @@
  * Canvas wrapper for the emulator display + transcribe overlay.
  */
 
-import { createEffect, createSignal, onMount, onCleanup } from 'solid-js';
+import { createEffect } from 'solid-js';
 import { Toast } from '@/ui/components/Toast.tsx';
 import { machine } from '@/shell/context.ts';
 import { setCanvas } from '@/shell/lifecycle.ts';
 import { transcribeMode, transcribeHtml, transcribeGrid, transcribeField } from '@/state/activity-state.ts';
+import { devicePixelRatio } from '@/state/display-state.ts';
 import { machineDescriptor } from '@/state/machine-caps.ts';
 import { renderer, scale, borderSize, ocrFont, ocrLineHeight, ocrTracking, ocrOffsetX, ocrOffsetY, ocrScaleX, ocrScaleY } from '@/store/settings.ts';
 
@@ -20,21 +21,8 @@ export function Screen() {
   let overlayRef!: HTMLPreElement;
   let natSize = { w: 0, h: 0 };
 
-  // Track devicePixelRatio changes (browser zoom, OS scaling)
-  const [dpr, setDpr] = createSignal(window.devicePixelRatio || 1);
-  onMount(() => {
-    let cancel = false;
-    const watchDpr = () => {
-      if (cancel) return;
-      const mql = matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
-      mql.addEventListener('change', () => {
-        setDpr(window.devicePixelRatio || 1);
-        watchDpr();
-      }, { once: true });
-    };
-    watchDpr();
-    onCleanup(() => { cancel = true; });
-  });
+  // Browser zoom and OS scaling move this; the keyboards read the same signal.
+  const dpr = devicePixelRatio;
 
   // Re-apply scale when DPR changes
   createEffect(() => {
