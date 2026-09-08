@@ -21,10 +21,13 @@ export interface EinsteinKeyboardController {
   isDown(chord: readonly EinsteinCell[]): boolean;
   onDown(chord: readonly EinsteinCell[]): void;
   onUp(chord: readonly EinsteinCell[]): void;
+  /** The 256's ALPHA LOCK latch, for the lamp on its cap. */
+  alphaLock(): boolean;
 }
 
 export function useEinsteinKeyboard(): EinsteinKeyboardController {
   const [matrix, setMatrix] = createSignal<number[]>(released());
+  const [alphaLock, setAlphaLock] = createSignal(false);
   const held = new Set<string>();
   const keyboard = () => activeEinstein()?.keyboard ?? null;
   const idOf = ([line, bit]: EinsteinCell) => `${line},${bit}`;
@@ -66,6 +69,7 @@ export function useEinsteinKeyboard(): EinsteinKeyboardController {
           }
         }
         if (changed) setMatrix(Array.from(rows));
+        setAlphaLock(kb.alphaLockState);
       } else if (matrix().some((value) => value !== 0xff)) {
         setMatrix(released());
       }
@@ -85,5 +89,5 @@ export function useEinsteinKeyboard(): EinsteinKeyboardController {
     });
   });
 
-  return { isDown, onDown, onUp };
+  return { isDown, onDown, onUp, alphaLock };
 }

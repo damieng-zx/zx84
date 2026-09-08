@@ -27,6 +27,10 @@ interface KeyboardSceneProps extends ParentProps {
   unit?: number;
   class?: string;
   classList?: Record<string, boolean | undefined>;
+  /** Class for the frame *around* the fixed-size scene. A face whose case
+   *  should reach the pane edges rather than stop at the scene box paints it
+   *  here as well. */
+  frameClass?: string;
   label: string;
 }
 
@@ -67,7 +71,7 @@ export function KeyboardScene(props: KeyboardSceneProps) {
   const fittedPx = () =>
     `min(${naturalPx()}, calc(100cqw / ${props.width}))`;
   return (
-    <div class="keyboard-scene-frame">
+    <div class={`keyboard-scene-frame${props.frameClass ? ` ${props.frameClass}` : ''}`}>
       <div
         class={`keyboard-scene${props.class ? ` ${props.class}` : ''}`}
         classList={props.classList}

@@ -3238,6 +3238,9 @@ input[type="range"]::-moz-range-thumb {
 
 /* Tatung Einstein TC-01: neutral grey case, deeply stepped rows, light grey
    caps with dark grey modifiers, and the single red ENTER. */
+.tc01-keyboard-frame {
+  background: linear-gradient(180deg, #c9c9c9 0%, #b7b7b7 62%, #c5c5c5 100%);
+}
 .tc01-keyboard {
   --tc-u: var(--keyboard-scene-px);
   overflow: hidden;
@@ -3369,18 +3372,13 @@ input[type="range"]::-moz-range-thumb {
 /* Tatung Einstein 256: charcoal case, light grey caps with dark grey
    modifiers, the L-shaped red ENTER, the printed function-legend card and the
    detached four-wedge cursor pad. */
+.e256-keyboard-frame,
+.e256-keyboard {
+  background: linear-gradient(180deg, #4a4b48 0%, #3a3b38 62%, #414240 100%);
+}
 .e256-keyboard {
   --e2-u: var(--keyboard-scene-px);
   overflow: hidden;
-  border: 1px solid #1d1f20;
-  border-radius: calc(var(--e2-u) * 5);
-  background:
-    linear-gradient(160deg, rgba(255,255,255,0.12), transparent 24%),
-    linear-gradient(180deg, #46484a 0%, #35383a 60%, #3d4042 100%);
-  box-shadow:
-    inset 0 calc(var(--e2-u) * 2) calc(var(--e2-u) * 4) rgba(255,255,255,0.14),
-    inset 0 calc(var(--e2-u) * -4) calc(var(--e2-u) * 8) rgba(0,0,0,0.35),
-    0 2px 5px rgba(0,0,0,0.5);
   color: #e9e9e9;
   font-family: Arial, Helvetica, sans-serif;
 }
@@ -3393,12 +3391,14 @@ input[type="range"]::-moz-range-thumb {
   border-radius: calc(var(--e2-u) * 1.5);
   background: linear-gradient(180deg, #eceae4, #d5d3cd);
   color: #2a2a2a;
-  font-size: calc(var(--e2-u) * 7);
+  font-size: calc(var(--e2-u) * 6.5);
+  white-space: nowrap;
   line-height: 1.35;
 }
 .e256-legend-cell {
   display: flex;
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 0;
   flex-direction: column;
   align-items: center;
   justify-content: center;
@@ -3406,59 +3406,51 @@ input[type="range"]::-moz-range-thumb {
 }
 .e256-legend-cell:first-child { border-left: 0; }
 
-.e256-power-label {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #e4e4e4;
-  font-size: calc(var(--e2-u) * 8);
-  font-weight: 700;
-  letter-spacing: calc(var(--e2-u) * 0.4);
-}
-.e256-power-lamp {
-  border: 1px solid #202223;
-  border-radius: calc(var(--e2-u) * 1.5);
-  background:
-    radial-gradient(closest-side, #cfcfcf 0 38%, transparent 40%),
-    linear-gradient(180deg, #4c4f51, #303233);
-  box-shadow: inset 0 1px rgba(255,255,255,0.18);
-}
-/* ALPHA LOCK's lamp, moulded into the top of its own cap. */
-.e256-alpha-lamp {
-  z-index: 3;
+/* ALPHA LOCK's lamp, moulded into its own cap so it depresses with it. */
+.e256-key__lamp {
+  position: absolute;
+  top: calc(var(--e2-u) * 4);
+  left: calc(var(--e2-u) * 6);
+  width: calc(var(--e2-u) * 7);
+  height: calc(var(--e2-u) * 7);
   border-radius: 50%;
-  background: #8d3630;
-  box-shadow: inset 0 1px rgba(255,255,255,0.35);
+  background: #4a2a26;
+  box-shadow: inset 0 1px rgba(255,255,255,0.2);
+  pointer-events: none;
+}
+.e256-key__lamp.lit {
+  background: #e04a35;
+  box-shadow:
+    inset 0 1px rgba(255,255,255,0.45),
+    0 0 calc(var(--e2-u) * 4) rgba(224,74,53,0.75);
 }
 /* The moulded well the cursor wedges sit in. */
 .e256-cursor-well {
   border-radius: calc(var(--e2-u) * 2);
-  background: #232526;
+  background: #2e2f2c;
   box-shadow:
     inset 0 calc(var(--e2-u) * 2) calc(var(--e2-u) * 3) rgba(0,0,0,0.6),
     0 1px 0 rgba(255,255,255,0.08);
 }
 
 .e256-key {
-  --e2-cap-top: #dcdcdc;
-  --e2-cap-mid: #c6c6c6;
-  --e2-cap-bottom: #9d9d9d;
+  --e2-cap-top: #e6e1cf;
+  --e2-cap-mid: #d7d1bb;
+  --e2-cap-bottom: #b6b09a;
   overflow: hidden;
-  border: 1px solid #6d6d6d;
+  border: 1px solid #7e7867;
   border-radius: calc(var(--e2-u) * 1.5);
-  background:
-    linear-gradient(135deg, rgba(255,255,255,0.4), transparent 20%),
-    linear-gradient(
-      180deg,
-      var(--e2-cap-top) 0%,
-      var(--e2-cap-mid) 55%,
-      var(--e2-cap-bottom) 100%
-    );
+  background: linear-gradient(
+    180deg,
+    var(--e2-cap-top) 0%,
+    var(--e2-cap-mid) 55%,
+    var(--e2-cap-bottom) 100%
+  );
   box-shadow:
-    inset calc(var(--e2-u) * 2) calc(var(--e2-u) * 2) 0 rgba(255,255,255,0.4),
-    inset calc(var(--e2-u) * -3) calc(var(--e2-u) * -4) calc(var(--e2-u) * 5) rgba(0,0,0,0.26),
+    inset 0 calc(var(--e2-u) * 2) 0 rgba(255,255,255,0.4),
+    inset 0 calc(var(--e2-u) * -3) calc(var(--e2-u) * 4) rgba(0,0,0,0.22),
     0 calc(var(--e2-u) * 3) calc(var(--e2-u) * 2) rgba(0,0,0,0.55);
-  color: #202020;
+  color: #232019;
   cursor: pointer;
   user-select: none;
   touch-action: none;
@@ -3470,11 +3462,11 @@ input[type="range"]::-moz-range-thumb {
   transform: translateY(calc(var(--e2-u) * 1.5));
 }
 .e256-key--dark {
-  --e2-cap-top: #747677;
-  --e2-cap-mid: #5b5d5e;
-  --e2-cap-bottom: #3f4142;
-  border-color: #2a2c2d;
-  color: #f0f0f0;
+  --e2-cap-top: #4e4f4b;
+  --e2-cap-mid: #474845;
+  --e2-cap-bottom: #3d3e3b;
+  border-color: #262725;
+  color: #efefec;
 }
 .e256-key--red {
   --e2-cap-top: #e4594a;
@@ -3486,8 +3478,8 @@ input[type="range"]::-moz-range-thumb {
 /* The function strip is low-profile, so it sits flatter than the rest. */
 .e256-key--function {
   box-shadow:
-    inset calc(var(--e2-u) * 2) calc(var(--e2-u) * 2) 0 rgba(255,255,255,0.32),
-    inset calc(var(--e2-u) * -2) calc(var(--e2-u) * -3) calc(var(--e2-u) * 4) rgba(0,0,0,0.26),
+    inset 0 calc(var(--e2-u) * 2) 0 rgba(255,255,255,0.32),
+    inset 0 calc(var(--e2-u) * -2) calc(var(--e2-u) * 3) rgba(0,0,0,0.22),
     0 calc(var(--e2-u) * 2) calc(var(--e2-u) * 2) rgba(0,0,0,0.5);
 }
 
@@ -3530,11 +3522,6 @@ input[type="range"]::-moz-range-thumb {
   font-size: calc(var(--e2-u) * 9);
   font-weight: 400;
 }
-/* GRAPH is a 0.75u cap carrying a five-letter word. */
-.e256-key--graph .e256-key__main {
-  font-size: calc(var(--e2-u) * 6);
-  letter-spacing: 0;
-}
 /* ALPHA LOCK prints below its lamp, not across it. */
 .e256-key--alpha-lock .e256-key__main {
   justify-content: flex-end;
@@ -3550,9 +3537,7 @@ input[type="range"]::-moz-range-thumb {
 .e256-key--cursor {
   border: 0;
   border-radius: 0;
-  background:
-    linear-gradient(135deg, rgba(255,255,255,0.34), transparent 26%),
-    linear-gradient(180deg, #dcdcdc 0%, #c2c2c2 58%, #a5a5a5 100%);
+  background: linear-gradient(180deg, #e6e1cf 0%, #d2ccb6 58%, #b4ae98 100%);
   box-shadow: none;
   filter: drop-shadow(0 1px 1px rgba(0,0,0,0.45));
   color: #c1544a;
