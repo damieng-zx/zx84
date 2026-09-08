@@ -920,7 +920,20 @@ export interface TranscribeDriver {
   /** extraFonts: host-supplied user fonts (Spectrum font store); others ignore. */
   activate(extraFonts?: readonly FontSource[]): void;
   deactivate(): void;
-  run(): { text: string; html: string; grid: OcrGridName };
+  run(): {
+    text: string;
+    html: string;
+    grid: OcrGridName;
+    /**
+     * Where the transcribed text sits in the framebuffer, in buffer pixels.
+     * Omitted when the grid simply fills the descriptor's active area, which
+     * is the usual case; supplied when it does not — the Einstein 256 centres
+     * a 192-line GRAPHIC 2 field in its 212-line window, so an overlay
+     * stretched over the whole active area lands progressively lower than the
+     * text it is covering.
+     */
+    field?: { x: number; y: number; width: number; height: number };
+  };
 }
 
 export interface FrameProbe {

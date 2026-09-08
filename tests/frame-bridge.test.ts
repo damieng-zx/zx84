@@ -89,6 +89,7 @@ const { emu, settingsMock, panesMock } = vi.hoisted(() => ({
     setTranscribeText: vi.fn(),
     setTranscribeHtml: vi.fn(),
     setTranscribeGrid: vi.fn(),
+    setTranscribeField: vi.fn(),
     setLedKbd: vi.fn(),
     setLedKemp: vi.fn(),
     setLedEar: vi.fn(),

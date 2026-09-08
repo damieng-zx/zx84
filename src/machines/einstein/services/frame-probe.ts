@@ -10,7 +10,6 @@ import type {
   MemoryMapSnapshot,
 } from '@/machines/machine.ts';
 import type { EinsteinMachine } from '@/machines/einstein/einstein-machine.ts';
-import type { OcrGridName } from '@/ocr/ocr.ts';
 import { parseXtalBasic } from '@/basic/xtal-basic-parser.ts';
 
 /**
@@ -47,14 +46,14 @@ class EinsteinTranscribeDriver implements TranscribeDriver {
   get active(): boolean { return this.m.screenText.active; }
   activate(): void { this.m.screenText.activate(); }
   deactivate(): void { this.m.screenText.deactivate(); }
-  run(): { text: string; html: string; grid: OcrGridName } {
+  run() {
     const m = this.m;
     const result = m.ocrScreenStyled();
     if (result.mask.length > 0) {
       m.blankCells(result.mask, result.cols, result.rows, result.paper);
       if (m.display) m.display.updateTexture(m.pixels);
     }
-    return result;
+    return { ...result, field: m.ocrFieldBox(result.cols, result.rows) };
   }
 }
 

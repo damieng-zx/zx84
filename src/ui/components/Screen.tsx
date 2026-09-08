@@ -6,7 +6,7 @@ import { createEffect, createSignal, onMount, onCleanup } from 'solid-js';
 import { Toast } from '@/ui/components/Toast.tsx';
 import { machine } from '@/shell/context.ts';
 import { setCanvas } from '@/shell/lifecycle.ts';
-import { transcribeMode, transcribeHtml, transcribeGrid } from '@/state/activity-state.ts';
+import { transcribeMode, transcribeHtml, transcribeGrid, transcribeField } from '@/state/activity-state.ts';
 import { machineDescriptor } from '@/state/machine-caps.ts';
 import { renderer, scale, borderSize, ocrFont, ocrLineHeight, ocrTracking, ocrOffsetX, ocrOffsetY, ocrScaleX, ocrScaleY } from '@/store/settings.ts';
 
@@ -98,10 +98,17 @@ export function Screen() {
     const viewX = Math.round(geom.borderLeft * (1 - frac));
     const viewY = Math.round(geom.borderTop * (1 - frac));
     const pax = geom.pixelAspectX;
-    const originX = (geom.borderLeft - viewX) * effectiveScale * pax;
-    const originY = (geom.borderTop - viewY) * effectiveScale;
-    const targetW = geom.activeWidth * effectiveScale * pax;
-    const targetH = geom.activeHeight * effectiveScale;
+    // The text usually fills the active area, but a machine may report a
+    // smaller field — the Einstein 256 centres a 192-line grid in its 212-line
+    // window — and the overlay has to sit over that, not over the whole area.
+    const field = transcribeField() ?? {
+      x: geom.borderLeft, y: geom.borderTop,
+      width: geom.activeWidth, height: geom.activeHeight,
+    };
+    const originX = (field.x - viewX) * effectiveScale * pax;
+    const originY = (field.y - viewY) * effectiveScale;
+    const targetW = field.width * effectiveScale * pax;
+    const targetH = field.height * effectiveScale;
 
     // Apply font settings
     ov.style.fontFamily = ocrFont();
