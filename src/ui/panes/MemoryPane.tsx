@@ -33,8 +33,10 @@ const BUFFER_ROWS = 48;
 // ── Bytes per row per mode ──────────────────────────────────────────────
 //
 // 8 bytes/row for hex modes fits within the 272px sidebar without horizontal
-// scrolling (40 chars × ~6.2px/char ≈ 248px < 256px usable content width).
-// 32 bytes/row for ASCII-only fits too (38 chars).
+// scrolling: plain hex comes to 31 columns, and hex+ASCII to 32 with its pairs
+// packed. Spacing those pairs takes it to 40, which overruns the sidebar and
+// clipped the end of the ASCII column. 32 bytes/row for ASCII-only fits too
+// (38 chars).
 
 const BYTES_HEX   = 8;
 const BYTES_ASCII = 32;
@@ -115,8 +117,14 @@ function saveSetting(key: string, val: string): void {
 /**
  * Render a contiguous block of rows as a plain-text string.
  *
- * For hex modes the format is (8 bytes/row, gap after byte 3):
- *   0000: 00 01 02 03  04 05 06 07  ········
+ * Plain hex spaces the pairs out, with a wider gap at the half-way byte:
+ *   0000: 00 01 02 03  04 05 06 07
+ *
+ * Hex+ASCII packs them instead. Spaced pairs plus eight ASCII characters come
+ * to 40 columns, four more than the sidebar shows, so the last bytes of the
+ * ASCII column fell off the end; packed, the row is 32 and the whole of it
+ * fits:
+ *   0000: 0001020304050607  ········
  *
  * For ascii mode the format is (32 bytes/row):
  *   0000: ................................
@@ -145,15 +153,15 @@ function renderRows(
         line += o < data.length ? chars[data[o]] : ' ';
       }
     } else {
-      // Hex columns
+      // Hex columns, packed tight when an ASCII column has to fit beside them.
+      const packed = mode === 'hex+ascii';
       for (let b = 0; b < bpr; b++) {
         const o = off + b;
         line += o < data.length ? h2(data[o]) : '  ';
-        line += (mid > 0 && b === mid - 1) ? '  ' : ' '; // double space at mid
+        if (!packed) line += (mid > 0 && b === mid - 1) ? '  ' : ' '; // gap at mid
       }
-      // Optional ASCII column
-      if (mode === 'hex+ascii') {
-        line += ' ';
+      if (packed) {
+        line += '  ';
         for (let b = 0; b < bpr; b++) {
           const o = off + b;
           line += o < data.length ? chars[data[o]] : ' ';
