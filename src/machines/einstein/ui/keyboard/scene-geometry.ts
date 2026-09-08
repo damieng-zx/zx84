@@ -11,12 +11,12 @@
  * the left of X to the right of the full stop.
  *
  * 256: a squarer deck. The four modifier caps down the left edge share a common
- * left margin and grow instead of stepping (ESC 0.75u, CTRL 1.25u, ALPHA LOCK
- * 1.5u, SHIFT 2u), with the typing block above them staggered by the classic
- * 0.5u / 0.25u / 0.5u and every row finishing flush at 15.5u. The function keys
- * are a separate 1.25u-pitch strip under the printed legend card, ENTER is an
- * L across two rows, and the cursor keys are four wedges on a detached pad out
- * to the right of the deck.
+ * left margin and grow to meet their own row's first key (ESC 1u, CTRL 1.5u,
+ * ALPHA LOCK 1.75u, SHIFT 2.25u), the typing block staggering by the classic
+ * 0.5u / 0.25u / 0.5u, and every row finishes flush at 15.5u. The function keys
+ * are a separate 1.25u-pitch strip under a legend card cut to the same span,
+ * ENTER is an L across two rows, and the cursor keys are four wedges on a
+ * detached pad out to the right of the deck.
  */
 
 import type { SceneBox } from '@/ui/components/KeyboardScene.tsx';
@@ -27,7 +27,7 @@ import {
 } from './layout.ts';
 
 export const TC01_SCENE = { width: 644, height: 250, unit: 1 } as const;
-export const E256_SCENE = { width: 824, height: 304, unit: 1 } as const;
+export const E256_SCENE = { width: 784, height: 290, unit: 1 } as const;
 
 export interface PlacedEinsteinKey {
   readonly key: EinsteinKeyDef;
@@ -118,15 +118,11 @@ const u = (n: number) => 8 + n * PITCH;
 /** Cap width for a cell `n` units wide. */
 const w = (n: number) => n * PITCH - GAP;
 
+/** The legend card, flush with the function caps it labels. */
 export const E256_FUNCTION_STRIP: SceneBox =
-  { x: u(0.75), y: 6, width: w(10) + GAP, height: 27 };
-export const E256_POWER_LABEL: SceneBox = { x: 508, y: 8, width: 60, height: 12 };
-export const E256_POWER_LAMP: SceneBox = { x: 519, y: 26, width: 26, height: 22 };
+  { x: u(0.75), y: 6, width: w(10), height: 27 };
 /** The moulded recess the cursor wedges sit in. */
-export const E256_CURSOR_WELL: SceneBox = { x: u(17.5), y: 203, width: 100, height: 100 };
-/** The ALPHA LOCK lamp, moulded into the top of its own cap. */
-export const E256_ALPHA_LAMP: SceneBox = { x: 18, y: 167, width: 7, height: 7 };
-
+export const E256_CURSOR_WELL: SceneBox = { x: u(16.5), y: 183, width: 100, height: 100 };
 /** The eight legend pairs printed on the card above the function keys. */
 export const E256_FUNCTION_LEGENDS: readonly (readonly [string, string])[] = [
   ['RUN', 'DIR'], ['LIST', 'LOAD'], ['PRINT', 'SAVE'], ['RST:BCOL4', 'DISP'],
@@ -143,16 +139,16 @@ const e256 = builder(E256_KEY_INDEX);
     .forEach((id, i) => put(id, u(0.75 + i * 1.25), FUNCTION_Y, w(1.25), 26));
 
   // Number row.
-  put('esc', u(0), NUMBER_Y, w(0.75));
+  put('esc', u(0), NUMBER_Y);
   row([
     '1', '2', '3', '4', '5', '6', '7', '8', '9', '0',
     'equal', 'up-arrow', 'double-bar',
   ], u(1), NUMBER_Y);
-  put('break', u(14.25), NUMBER_Y, w(1.25));
+  put('break', u(14), NUMBER_Y, w(1.5));
 
   // Q row. ENTER is one L-shaped cap reaching up into it from the A row, so it
   // is placed with that row.
-  put('ctrl', u(0), Q_Y, w(1.25));
+  put('ctrl', u(0), Q_Y, w(1.5));
   row([
     'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p',
     'underscore', 'left-arrow',
@@ -160,7 +156,7 @@ const e256 = builder(E256_KEY_INDEX);
   put('ins-del', u(13.5), Q_Y);
 
   // A row.
-  put('alpha-lock', u(0), A_Y, w(1.5));
+  put('alpha-lock', u(0), A_Y, w(1.75));
   row([
     'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l',
     'semicolon', 'colon', 'right-arrow',
@@ -173,26 +169,26 @@ const e256 = builder(E256_KEY_INDEX);
   );
 
   // Z row.
-  put('shift-left', u(0), Z_Y, w(2));
+  put('shift-left', u(0), Z_Y, w(2.25));
   row([
     'z', 'x', 'c', 'v', 'b', 'n', 'm',
     'comma', 'period', 'slash',
   ], u(2.25), Z_Y);
   put('shift-right', u(12.25), Z_Y, w(2.25));
-  put('graph', u(14.75), Z_Y, w(0.75));
+  put('graph', u(14.5), Z_Y);
 
   // The space bar spans X to just short of the full stop.
   put('space', u(3.25), SPACE_Y, w(7.75));
 
   // Detached cursor pad: four triangular wedges cut from one square, each
   // clipped so it only takes the pointer events inside its own triangle.
-  const pad = { x: u(17.625), y: 208, size: 90 };
+  const pad = { x: u(16.625), y: 188, size: 90 };
   const wedge = (id: string, clip: string) =>
     put(id, pad.x, pad.y, pad.size, pad.size, clip);
-  wedge('cursor-up', 'polygon(3% 0, 97% 0, 50% 47%)');
-  wedge('cursor-right', 'polygon(100% 3%, 100% 97%, 53% 50%)');
-  wedge('cursor-down', 'polygon(97% 100%, 3% 100%, 50% 53%)');
-  wedge('cursor-left', 'polygon(0 97%, 0 3%, 47% 50%)');
+  wedge('cursor-up', 'polygon(2% 0, 98% 0, 50% 48%)');
+  wedge('cursor-right', 'polygon(100% 2%, 100% 98%, 52% 50%)');
+  wedge('cursor-down', 'polygon(98% 100%, 2% 100%, 50% 52%)');
+  wedge('cursor-left', 'polygon(0 98%, 0 2%, 48% 50%)');
 }
 
 export function placeE256Keys(): readonly PlacedEinsteinKey[] {

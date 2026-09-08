@@ -10,12 +10,9 @@ import { currentModel } from '@/state/machine-state.ts';
 import { useEinsteinKeyboard } from './keyboard-common.tsx';
 import type { EinsteinKeyboardController } from './keyboard-common.tsx';
 import {
-  E256_ALPHA_LAMP,
   E256_CURSOR_WELL,
   E256_FUNCTION_LEGENDS,
   E256_FUNCTION_STRIP,
-  E256_POWER_LABEL,
-  E256_POWER_LAMP,
   E256_SCENE,
   TC01_SCENE,
   placeE256Keys,
@@ -27,6 +24,8 @@ function EinsteinKey(props: {
   placed: PlacedEinsteinKey;
   keyboard: EinsteinKeyboardController;
   prefix: string;
+  /** Caps with a lamp moulded into them; it travels with the cap. */
+  lamp?: () => boolean;
 }) {
   const key = props.placed.key;
   const lines = () => key.main.split('\n');
@@ -48,6 +47,9 @@ function EinsteinKey(props: {
       onDown={() => props.keyboard.onDown(key.chord)}
       onUp={() => props.keyboard.onUp(key.chord)}
     >
+      <Show when={props.lamp}>
+        <i class={`${props.prefix}-key__lamp`} classList={{ lit: props.lamp?.() }} />
+      </Show>
       <Show when={key.shift}>
         <span class={`${props.prefix}-key__shift`}>{key.shift}</span>
       </Show>
@@ -66,6 +68,7 @@ function Tc01Keyboard() {
       height={TC01_SCENE.height}
       unit={TC01_SCENE.unit}
       class="tc01-keyboard"
+      frameClass="tc01-keyboard-frame"
       label="Tatung Einstein TC-01 keyboard"
     >
       <For each={placeTc01Keys()}>
@@ -85,6 +88,7 @@ function E256Keyboard() {
       height={E256_SCENE.height}
       unit={E256_SCENE.unit}
       class="e256-keyboard"
+      frameClass="e256-keyboard-frame"
       label="Tatung Einstein 256 keyboard"
     >
       {/* The printed card above the function keys, under its clear holder. */}
@@ -98,15 +102,16 @@ function E256Keyboard() {
           )}
         </For>
       </SceneElement>
-      <SceneElement box={E256_POWER_LABEL} class="e256-power-label">POWER</SceneElement>
-      <SceneElement box={E256_POWER_LAMP} class="e256-power-lamp" />
       <SceneElement box={E256_CURSOR_WELL} class="e256-cursor-well" />
-
-      <SceneElement box={E256_ALPHA_LAMP} class="e256-alpha-lamp" />
 
       <For each={placeE256Keys()}>
         {(placed) => (
-          <EinsteinKey placed={placed} keyboard={keyboard} prefix="e256" />
+          <EinsteinKey
+            placed={placed}
+            keyboard={keyboard}
+            prefix="e256"
+            lamp={placed.key.id === 'alpha-lock' ? keyboard.alphaLock : undefined}
+          />
         )}
       </For>
     </KeyboardScene>

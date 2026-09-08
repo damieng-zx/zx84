@@ -47,17 +47,25 @@ const key = (
   region: EinsteinKeyRegion = 'main',
 ): EinsteinKeyDef => ({ id, chord, main, shift, tone, region });
 
+/** What differs between the two decks, cap by cap. */
+interface DeckStyle {
+  /** The zero cap prints a slashed zero on the TC-01, a plain one on the 256. */
+  readonly zero: string;
+  readonly spaceTone: EinsteinKeyTone;
+  readonly functionTone: EinsteinKeyTone;
+}
+
 /** Everything both decks share, which is every cap but the cursor keys. */
-function commonKeys(zero: string, spaceTone: EinsteinKeyTone): readonly EinsteinKeyDef[] {
+function commonKeys({ zero, spaceTone, functionTone }: DeckStyle): readonly EinsteinKeyDef[] {
   return [
-    key('f0', [[0, 2]], 'F0', undefined, 'dark', 'function'),
-    key('f1', [[6, 7]], 'F1', undefined, 'dark', 'function'),
-    key('f2', [[5, 7]], 'F2', undefined, 'dark', 'function'),
-    key('f3', [[4, 7]], 'F3', undefined, 'dark', 'function'),
-    key('f4', [[3, 7]], 'F4', undefined, 'dark', 'function'),
-    key('f5', [[2, 7]], 'F5', undefined, 'dark', 'function'),
-    key('f6', [[7, 7]], 'F6', undefined, 'dark', 'function'),
-    key('f7', [[0, 3]], 'F7', undefined, 'dark', 'function'),
+    key('f0', [[0, 2]], 'F0', undefined, functionTone, 'function'),
+    key('f1', [[6, 7]], 'F1', undefined, functionTone, 'function'),
+    key('f2', [[5, 7]], 'F2', undefined, functionTone, 'function'),
+    key('f3', [[4, 7]], 'F3', undefined, functionTone, 'function'),
+    key('f4', [[3, 7]], 'F4', undefined, functionTone, 'function'),
+    key('f5', [[2, 7]], 'F5', undefined, functionTone, 'function'),
+    key('f6', [[7, 7]], 'F6', undefined, functionTone, 'function'),
+    key('f7', [[0, 3]], 'F7', undefined, functionTone, 'function'),
 
     key('esc', [[0, 7]], 'ESC', undefined, 'dark', 'modifier'),
     key('1', [[4, 6]], '1', '!'),
@@ -129,7 +137,7 @@ function commonKeys(zero: string, spaceTone: EinsteinKeyTone): readonly Einstein
  * [1,5] to 0x0A/0x0B).
  */
 export const TC01_KEYS: readonly EinsteinKeyDef[] = [
-  ...commonKeys('Ø', 'cream'),
+  ...commonKeys({ zero: 'Ø', spaceTone: 'cream', functionTone: 'dark' }),
   key('cursor-lr', [[2, 5]], '⇨', '⇦', 'dark', 'cursor'),
   key('cursor-ud', [[1, 5]], '⇩', '⇧', 'dark', 'cursor'),
 ];
@@ -144,11 +152,11 @@ export const TC01_KEYS: readonly EinsteinKeyDef[] = [
  * to 0x0B, so that is what the up wedge presses.
  */
 export const E256_KEYS: readonly EinsteinKeyDef[] = [
-  ...commonKeys('0', 'dark'),
-  key('cursor-up', [CONTROL, [2, 0]], '↑', undefined, 'cream', 'cursor'),
-  key('cursor-down', [[1, 5]], '↓', undefined, 'cream', 'cursor'),
-  key('cursor-left', [[0, 1]], '←', undefined, 'cream', 'cursor'),
-  key('cursor-right', [[2, 5]], '→', undefined, 'cream', 'cursor'),
+  ...commonKeys({ zero: '0', spaceTone: 'dark', functionTone: 'cream' }),
+  key('cursor-up', [CONTROL, [2, 0]], '⇧', undefined, 'cream', 'cursor'),
+  key('cursor-down', [[1, 5]], '⇩', undefined, 'cream', 'cursor'),
+  key('cursor-left', [[0, 1]], '⇦', undefined, 'cream', 'cursor'),
+  key('cursor-right', [[2, 5]], '⇨', undefined, 'cream', 'cursor'),
 ];
 
 const index = (keys: readonly EinsteinKeyDef[]) =>
