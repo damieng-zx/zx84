@@ -35,17 +35,6 @@ export function cpcKeyMain(key: CpcKeyDef, variant: CpcKeyboardVariant): string 
   return key.main;
 }
 
-/**
- * The 664 dropped the 464's shifted ` legend from the backslash cap.
- */
-export function cpcKeyShift(
-  key: CpcKeyDef,
-  variant: CpcKeyboardVariant,
-): string | undefined {
-  if (variant === 'cpc664' && key.id === 'backslash') return undefined;
-  return key.shift;
-}
-
 export function isCpc664BlueKey(key: CpcKeyDef): boolean {
   return CPC664_BLUE_KEYS.has(key.id);
 }
