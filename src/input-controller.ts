@@ -52,6 +52,23 @@ const BIND_HOLD_DURATION = 500;
 
 /** True when a keystroke is destined for a focused form field (search box,
  *  address input, …) and must NOT be hijacked by the emulator keyboard. */
+/**
+ * F1-F12 belong to the browser and the operating system — F5 reloads, F11 goes
+ * full screen, F12 opens the developer tools — and an emulator has no business
+ * taking them off the user. They are dropped before anything else looks at
+ * them, joystick bindings included, so nothing here ever calls preventDefault
+ * on one.
+ *
+ * Several machines do have function keys of their own (the Einstein's F0-F7,
+ * the MTX's F1-F8, the MSX's F1-F5, the SAM's F0-F9 keypad) and their matrices
+ * still carry them: press them on the on-screen keyboard, or on the SAM's
+ * numeric keypad, which maps to the same cells. Only this browser path refuses
+ * to forward them.
+ */
+function isHostFunctionKey(code: string): boolean {
+  return /^F([1-9]|1[0-2])$/.test(code);
+}
+
 function isEditableTarget(e: KeyboardEvent): boolean {
   const el = e.target as HTMLElement | null;
   if (!el) return false;
@@ -143,6 +160,7 @@ export class InputController {
     // Let keystrokes reach focused text fields (library search, address box, …)
     // instead of forwarding them to the emulated keyboard.
     if (isEditableTarget(e)) return;
+    if (isHostFunctionKey(e.code)) return;
     // Drop OS-generated auto-repeat keydowns. Each one would re-enter setKey()
     // and push pressCount / physicalShiftCount / cursorShiftCount past what
     // the single keyup can undo, leaving the key stuck pressed.
@@ -159,6 +177,7 @@ export class InputController {
 
   onKeyUp = (e: KeyboardEvent): void => {
     if (isEditableTarget(e)) return;
+    if (isHostFunctionKey(e.code)) return;
     const svc = machine?.services?.input;
     if (!svc) return;
     if (this.handleJoyKey(e, false)) { e.preventDefault(); return; }

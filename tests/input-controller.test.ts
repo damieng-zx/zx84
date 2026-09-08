@@ -238,6 +238,22 @@ describe('keyboard — onKeyDown', () => {
     expect(mockState.joyPressCalls).toHaveLength(0);
   });
 
+  it('never forwards a function key — the browser and OS own those', () => {
+    mockState.joyMapP1Mode = 'keys';
+    mockState.joyP1Type = 'kempston';
+    const ic = new InputController();
+    for (const code of ['F1', 'F5', 'F9', 'F11', 'F12']) {
+      const event = makeKey(code);
+      ic.onKeyDown(event);
+      ic.onKeyUp(event);
+      // Nothing reaches the machine, nothing reaches a joystick binding, and
+      // above all the default is left alone so F5 still reloads the page.
+      expect(mockState.handleKeyEventCalls, code).toHaveLength(0);
+      expect(mockState.joyPressCalls, code).toHaveLength(0);
+      expect(event.defaultPrevented, code).toBe(false);
+    }
+  });
+
   it('no-op when spectrum is not yet ready', () => {
     mockState.spectrumPresent = false;
     const ic = new InputController();
@@ -344,6 +360,22 @@ describe('keyboard — onBlur', () => {
     ic.onBlur();
     expect(mockState.keyboardResetCount).toBe(1);
     expect(mockState.joystickResetCount).toBe(1);
+  });
+
+  it('never forwards a function key — the browser and OS own those', () => {
+    mockState.joyMapP1Mode = 'keys';
+    mockState.joyP1Type = 'kempston';
+    const ic = new InputController();
+    for (const code of ['F1', 'F5', 'F9', 'F11', 'F12']) {
+      const event = makeKey(code);
+      ic.onKeyDown(event);
+      ic.onKeyUp(event);
+      // Nothing reaches the machine, nothing reaches a joystick binding, and
+      // above all the default is left alone so F5 still reloads the page.
+      expect(mockState.handleKeyEventCalls, code).toHaveLength(0);
+      expect(mockState.joyPressCalls, code).toHaveLength(0);
+      expect(event.defaultPrevented, code).toBe(false);
+    }
   });
 
   it('no-op when spectrum is not yet ready', () => {
