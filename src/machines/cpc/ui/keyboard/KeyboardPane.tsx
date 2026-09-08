@@ -73,11 +73,13 @@ function CpcKey(props: {
   );
 }
 
-function CpcClassicKeyboard(props: { variant: CpcKeyboardVariant }) {
+function CpcClassicKeyboard(props: { variant: CpcKeyboardVariant; name?: string }) {
   const keyboard = useCpcKeyboard();
   const is664 = () => props.variant === 'cpc664';
   const is6128 = () => props.variant === 'cpc6128';
-  const modelName = () => props.variant === 'cpc464' ? '464' : props.variant === 'cpc664' ? '664' : '6128';
+  const modelName = () =>
+    props.name ?? (props.variant === 'cpc464' ? '464'
+      : props.variant === 'cpc664' ? '664' : '6128');
   const scene = () => is6128() ? CPC6128_SCENE : is664() ? CPC664_SCENE : CPC464_SCENE;
   const keys = () => is6128() ? placeCpc6128Keys() : is664() ? placeCpc664Keys() : placeCpc464Keys();
   return (
@@ -165,6 +167,10 @@ export function KeyboardPane() {
       </Match>
       <Match when={currentModel() === 'cpc6128'}>
         <CpcClassicKeyboard variant="cpc6128" />
+      </Match>
+      {/* The Plus range kept the 6128 keyboard. */}
+      <Match when={currentModel() === 'cpc6128plus'}>
+        <CpcClassicKeyboard variant="cpc6128" name="6128 Plus" />
       </Match>
     </Switch>
   );
