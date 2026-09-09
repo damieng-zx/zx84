@@ -1,6 +1,6 @@
 /**
- * The Lynx's service surface. Tape, disks and snapshots are still null: the
- * cassette and the FD1793 land in the increments after the machine boots.
+ * The Lynx's service surface. Disks and snapshots are still null: the FD1793
+ * lands with the .ldf sector-dump parser.
  */
 
 import type { MachineHost, MachineServices } from '@/machines/machine.ts';
@@ -10,11 +10,12 @@ import { LynxInputService } from './input.ts';
 import { LynxRomService } from './roms.ts';
 import { LynxMediaService } from './media.ts';
 import { LynxFrameProbe } from './frame-probe.ts';
+import { LynxTapeService } from './tape.ts';
 
 export interface LynxServices extends MachineServices {
   readonly media: LynxMediaService;
   readonly roms: LynxRomService;
-  readonly tape: null;
+  readonly tape: LynxTapeService;
   readonly disks: null;
   readonly snapshots: null;
   readonly input: LynxInputService;
@@ -25,10 +26,11 @@ export function createLynxServices(
   m: LynxMachine,
   host: () => MachineHost | null,
 ): LynxServices {
+  const tape = new LynxTapeService(m);
   return {
-    media: new LynxMediaService(m),
+    media: new LynxMediaService(m, tape),
     roms: new LynxRomService(m, host),
-    tape: null,
+    tape,
     disks: null,
     snapshots: null,
     input: new LynxInputService(m),

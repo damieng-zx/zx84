@@ -16,6 +16,7 @@ import { WD179x } from '@/cores/wd179x.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
+import { TapeDeck, TAPE_REF_HZ } from '@/media/tape/tap.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type {
   BorderMode, Machine, MachineDescriptor, MachineHost, MachineKind, MachineTraceMode,
@@ -50,6 +51,10 @@ export class LynxMachine extends BaseMachine implements Machine {
   /** The disk interface is fitted on the 96K and 128K only. */
   readonly hasDisk: boolean;
 
+  /** The cassette deck. The Lynx has a real motor bit, so playback is gated on
+   *  the motor rather than on read cadence the way the CPC's has to be. */
+  readonly tape = new TapeDeck(LYNX_CPU_CLOCK);
+
   readonly mixer = new AudioMixer(LYNX_CPU_CLOCK);
   readonly audio = new Audio();
   display: IScreenRenderer | null;
@@ -60,6 +65,10 @@ export class LynxMachine extends BaseMachine implements Machine {
   dacLevel = 0;
   /** Port 0x80 as last written. */
   private port80 = 0;
+  /** CPU time the deck was last advanced to. */
+  private tapeLastAdvanceT = 0;
+  /** The motor relay, as port 0x80 last set it. */
+  private tapeMotorRunning = false;
 
   private host: MachineHost | null = null;
   private readonly _pixels32: Uint32Array;
@@ -75,6 +84,7 @@ export class LynxMachine extends BaseMachine implements Machine {
     this._pixels32 = this.video.pixels;
     this._pixels = new Uint8Array(this._pixels32.buffer);
 
+    this.tape.pulseScale = LYNX_CPU_CLOCK / TAPE_REF_HZ;
     this.cpu.read8 = (addr: number): number => this.memory.readByte(addr);
     this.cpu.write8 = (addr: number, v: number): void => this.memory.writeByte(addr, v);
     wireLynxPortIO(this);
@@ -124,6 +134,9 @@ export class LynxMachine extends BaseMachine implements Machine {
     this.fdc.reset();
     this.port80 = 0;
     this.dacLevel = 0;
+    this.tapeMotorRunning = false;
+    this.tapeLastAdvanceT = 0;
+    this.tape.paused = true;
   }
 
   // ── Port 0x80 and the cassette ─────────────────────────────────────────
@@ -133,6 +146,7 @@ export class LynxMachine extends BaseMachine implements Machine {
     this.port80 = value & 0xff;
     this.memory.setPort80(this.port80);
     this.video.altGreen = (this.port80 & 0x10) !== 0;
+    this.setTapeMotor(this.tapeMotorOn);
   }
 
   /** The motor bit is bit 1 on the 48K/96K and bit 3 on the 128K. */
@@ -140,10 +154,40 @@ export class LynxMachine extends BaseMachine implements Machine {
     return (this.port80 & (this.memory.is128k ? 0x08 : 0x02)) !== 0;
   }
 
-  /** Tape input — no deck is wired yet, so the line reads idle. */
-  cassetteInput(): boolean { return false; }
-  /** Tape output — dropped until the deck lands. */
-  cassetteOutput(_high: boolean): void { /* no deck yet */ }
+  /**
+   * Tape input, sampled by the ROM's bit-timing loop.
+   *
+   * The deck is advanced here rather than once a frame because the ROM measures
+   * the gap between edges: it has to see the level the tape is at *now*, at the
+   * T-state of this read, not where the tape was at the last frame boundary.
+   */
+  cassetteInput(): boolean {
+    if (!this.tape.playing || this.tape.paused) return false;
+    const now = this.cpu.tStates;
+    const gap = now - this.tapeLastAdvanceT;
+    this.tapeLastAdvanceT = now;
+    if (gap > 0) this.tape.advance(gap);
+    return this.tape.earBit !== 0;
+  }
+
+  /** Tape output. Saving to a wav is not something this emulator does, so the
+   *  bit is dropped — but it must not reach the DAC or the speaker screams
+   *  through every SAVE. */
+  cassetteOutput(_high: boolean): void { /* nothing records */ }
+
+  /** Start or stop the deck with the motor relay. */
+  private setTapeMotor(on: boolean): void {
+    if (on === this.tapeMotorRunning) return;
+    this.tapeMotorRunning = on;
+    if (!this.tape.loaded) return;
+    if (on) {
+      this.tapeLastAdvanceT = this.cpu.tStates;
+      if (!this.tape.playing) this.tape.startPlayback();
+      this.tape.paused = false;
+    } else {
+      this.tape.paused = true;
+    }
+  }
 
   // ── Debug SPI ──────────────────────────────────────────────────────────
 
