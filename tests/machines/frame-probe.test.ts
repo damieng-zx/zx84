@@ -14,6 +14,8 @@ import { Spectrum } from '@/machines/spectrum/spectrum.ts';
 import { MtxMachine } from '@/machines/mtx/mtx-machine.ts';
 import { CpcMachine } from '@/machines/cpc/cpc-machine.ts';
 import { EinsteinMachine } from '@/machines/einstein/einstein-machine.ts';
+import { SamMachine } from '@/machines/sam/sam-machine.ts';
+import type { WD179x } from '@/cores/wd179x.ts';
 import { DRIVE_PROFILE } from '@/media/floppy/floppy-sound.ts';
 import { serializeDSK } from '@/media/floppy/dsk.ts';
 import { blankMgtDisk } from '@/media/floppy/mgt-image.ts';
@@ -309,5 +311,87 @@ describe('CpcFrameProbe drive panel', () => {
     ind.formattedSlot = -1;                 // the bridge clears it each frame
     c.services.probe.frameTick(ind);
     expect(ind.formattedSlot).toBe(-1);     // latch consumed, not re-reported
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Post-FORMAT metadata refresh
+//
+// A completed WRITE TRACK leaves formattedUnit on the controller; the probe's
+// frameTick hands it to the bridge as formattedSlot, which re-detects the
+// image's geometry and republishes it to the drive panel. These drive a real
+// format through the controller rather than poking the latch.
+// ─────────────────────────────────────────────────────────────────────────
+
+/** Feed a WRITE TRACK's format stream: `count` ID fields (0xFE, C,H,R,N) each
+ *  followed by a data field (0xFB + payload). The core finalises the track
+ *  once it has the controller's configured sectors-per-track. */
+function formatTrack(wd: WD179x, count: number, n: number): void {
+  wd.writeCommand(0xF0);
+  for (let r = 1; r <= count; r++) {
+    wd.writeData(0xFE);
+    wd.writeData(0);      // C
+    wd.writeData(0);      // H
+    wd.writeData(r);      // R
+    wd.writeData(n);      // N
+    wd.writeData(0xFB);   // data address mark
+    for (let b = 0; b < (128 << n); b++) wd.writeData(r);
+  }
+}
+
+describe('post-FORMAT metadata refresh', () => {
+  it('MTX: a formatted FDX disk is republished to its panel slot', () => {
+    const m = new MtxMachine('mtx512', null);
+    m.reset();
+    const img = parseFloppyImage(serializeDSK(blankMgtDisk(40, 1)));
+    m.loadDisk(img, 0);
+    m.cpu.portOut(0x14, 0x1C);            // drive 0, side 0, motor on + ready
+    formatTrack(m.fdc, 16, 1);            // the FDX formats 16 sectors a track
+    expect(m.fdc.formattedUnit).toBe(0);
+
+    const ind = createFrameIndicators();
+    m.services.probe.frameTick!(ind);
+    expect(ind.formattedSlot).toBe(0);
+    expect(m.services.probe.diskImageForSlot?.(0)).toBe(img);
+    expect(m.fdc.formattedUnit).toBe(-1);  // consumed, so it cannot re-fire
+
+    ind.formattedSlot = -1;
+    m.services.probe.frameTick!(ind);
+    expect(ind.formattedSlot).toBe(-1);
+  });
+
+  it('Einstein: the same, through its WD1770', () => {
+    const m = new EinsteinMachine('einstein-tc01', null);
+    m.turbo = true;
+    m.reset();
+    const img = parseFloppyImage(serializeDSK(blankMgtDisk(40, 1)));
+    m.loadDisk(img, 0);
+    m.fdc.selectDrive(0);
+    m.fdc.setSide(0);
+    formatTrack(m.fdc, 10, 2);            // Xtal DOS: 10 × 512
+    expect(m.fdc.formattedUnit).toBe(0);
+
+    const ind = createFrameIndicators();
+    m.services.probe.frameTick!(ind);
+    expect(ind.formattedSlot).toBe(0);
+    expect(m.services.probe.diskImageForSlot?.(0)).toBe(img);
+    expect(m.fdc.formattedUnit).toBe(-1);
+  });
+
+  it('SAM: the slot is the drive, since each drive is its own controller', () => {
+    const m = new SamMachine('sam512', null);
+    const img = parseFloppyImage(serializeDSK(blankMgtDisk(80, 2)));
+    m.disk.insert(1, img);                // drive 2 → panel slot B:
+    const fdc = m.disk.fdc[1];
+    fdc.selectDrive(0);
+    fdc.setSide(0);
+    formatTrack(fdc, 10, 2);
+    expect(fdc.formattedUnit).toBe(0);    // the controller's own unit is 0
+
+    const ind = createFrameIndicators();
+    m.services.probe.frameTick!(ind);
+    expect(ind.formattedSlot).toBe(1);    // ...but it is drive 2 that formatted
+    expect(m.services.probe.diskImageForSlot?.(1)).toBe(img);
+    expect(fdc.formattedUnit).toBe(-1);
   });
 });
