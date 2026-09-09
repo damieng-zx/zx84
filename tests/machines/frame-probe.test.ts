@@ -11,6 +11,10 @@
 import { describe, it, expect } from 'vitest';
 import { createFrameIndicators } from '@/machines/machine.ts';
 import { Spectrum } from '@/machines/spectrum/spectrum.ts';
+import { MtxMachine } from '@/machines/mtx/mtx-machine.ts';
+import { CpcMachine } from '@/machines/cpc/cpc-machine.ts';
+import { EinsteinMachine } from '@/machines/einstein/einstein-machine.ts';
+import { DRIVE_PROFILE } from '@/media/floppy/floppy-sound.ts';
 import { serializeDSK } from '@/media/floppy/dsk.ts';
 import { blankMgtDisk } from '@/media/floppy/mgt-image.ts';
 import { parseFloppyImage } from '@/media/floppy/hfe.ts';
@@ -151,5 +155,159 @@ describe('SpectrumFrameProbe.sample', () => {
     ind.formattedSlot = -1;
     s.services.probe.frameTick(ind);
     expect(ind.formattedSlot).toBe(-1);    // one-shot: does not re-fire
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Drive-sound feed on the machines that were silent
+//
+// The synth is fed from floppySlot/Motor/Track/Profile alone: slot picks the
+// per-drive sound setting (and -1 means "no drive to hear"), profile picks
+// the drive the synth models. See media/floppy/floppy-sound.ts.
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('MtxFrameProbe drive-sound feed', () => {
+  function mtx(): MtxMachine {
+    const m = new MtxMachine('mtx512', null);
+    m.reset();
+    return m;
+  }
+
+  it('reports the FDX as 5.25", silent until the drive latch runs the motor', () => {
+    const m = mtx();
+    const ind = createFrameIndicators();
+    m.services.probe.sample(ind);
+    expect(ind.floppySlot).toBe(0);
+    expect(ind.floppyProfile).toBe(DRIVE_PROFILE.fiveAndAQuarterInch);
+    expect(ind.floppyMotor).toBe(false);
+  });
+
+  it('follows the port-14h latch: drive 1 selected, motor on', () => {
+    const m = mtx();
+    m.cpu.portOut(0x14, 0x1F);          // drive 1, side 1, motor on, DD
+    const ind = createFrameIndicators();
+    m.services.probe.sample(ind);
+    expect(ind.floppySlot).toBe(1);
+    expect(ind.floppyMotor).toBe(true);
+    expect(ind.floppyProfile).toBe(DRIVE_PROFILE.fiveAndAQuarterInch);
+  });
+
+  it('stays 5.25" for an 80-track image, where the capacity test would say 3.5"', () => {
+    const m = mtx();
+    m.loadDisk(parseFloppyImage(serializeDSK(blankMgtDisk(80, 2))), 0);
+    const ind = createFrameIndicators();
+    m.services.probe.sample(ind);
+    expect(ind.floppyProfile).toBe(DRIVE_PROFILE.fiveAndAQuarterInch);
+  });
+});
+
+describe('CpcFrameProbe drive-sound feed', () => {
+  it('6128: drive A is a 3" CF2 from a 180KB image', () => {
+    const c = new CpcMachine('cpc6128', null);
+    c.loadDisk(parseFloppyImage(serializeDSK(blankMgtDisk(40, 1))), 0);
+    const ind = createFrameIndicators();
+    c.services.probe.sample(ind);
+    expect(ind.floppySlot).toBe(0);
+    expect(ind.floppyProfile).toBe(DRIVE_PROFILE.threeInch);
+    expect(ind.floppyMotor).toBe(false);
+  });
+
+  it('6128: an 800KB image in the selected drive means a 3.5" was fitted', () => {
+    const c = new CpcMachine('cpc6128', null);
+    c.loadDisk(parseFloppyImage(serializeDSK(blankMgtDisk(80, 2))), 0);
+    const ind = createFrameIndicators();
+    c.services.probe.sample(ind);
+    expect(ind.floppyProfile).toBe(DRIVE_PROFILE.threeAndAHalfInch);
+  });
+
+  it('464: no drive fitted → no sound feed at all', () => {
+    const c = new CpcMachine('cpc464', null);
+    const ind = createFrameIndicators();
+    c.services.probe.sample(ind);
+    expect(ind.floppySlot).toBe(-1);
+    expect(ind.floppyProfile).toBe(DRIVE_PROFILE.keep);
+  });
+});
+
+describe('EinsteinFrameProbe drive-sound feed', () => {
+  it('feeds slot A as a 3" drive, tracking the WD1770 head and motor', () => {
+    const m = new EinsteinMachine('einstein-tc01', null);
+    m.turbo = true;
+    m.reset();
+    m.loadDisk(parseFloppyImage(serializeDSK(blankMgtDisk(40, 1))), 0);
+    const ind = createFrameIndicators();
+    m.services.probe.sample(ind);
+    expect(ind.floppySlot).toBe(0);
+    expect(ind.floppyProfile).toBe(DRIVE_PROFILE.threeInch);
+    expect(ind.floppyMotor).toBe(m.fdc.motorOn);
+    expect(ind.floppyTrack).toBe(m.fdc.getUnitTrack(0));
+  });
+});
+
+describe('CpcFrameProbe drive panel', () => {
+  function cpc6128(): CpcMachine {
+    const c = new CpcMachine('cpc6128', null);
+    c.loadDisk(parseFloppyImage(serializeDSK(blankMgtDisk(40, 1))), 0);
+    return c;
+  }
+
+  it('fills slots A:/B: from the uPD765A and leaves C:/D: absent', () => {
+    const c = cpc6128();
+    const ind = createFrameIndicators();
+    c.services.probe.sample(ind);
+    expect(ind.driveLed[0]).toBe(0);        // motor off → LED off
+    expect(ind.driveLed[1]).toBe(0);
+    expect(ind.driveLed[2]).toBe(-1);       // no +D/Beta on a CPC
+    expect(ind.driveLed[3]).toBe(-1);
+    expect(ind.driveSector[0]).toBe(-1);    // idle → '--'
+    expect(ind.driveDirty[0]).toBe(0);      // freshly inserted image
+  });
+
+  it('464: cassette only, so all four slots stay absent', () => {
+    const c = new CpcMachine('cpc464', null);
+    const ind = createFrameIndicators();
+    c.services.probe.sample(ind);
+    expect(Array.from(ind.driveLed)).toEqual([-1, -1, -1, -1]);
+  });
+
+  it('lights the motor LED on the selected drive alone', () => {
+    const c = cpc6128();
+    c.fdc.motorOn = true;
+    const ind = createFrameIndicators();
+    c.services.probe.sample(ind);
+    expect(ind.driveLed[0]).toBe(1);        // drive A selected at power-on
+    expect(ind.driveLed[1]).toBe(0);        // B: shares the motor line but is not selected
+  });
+
+  it('shows write then falls back to motor once the access latch decays', () => {
+    const c = cpc6128();
+    c.fdc.motorOn = true;
+    c.fdc.latchAccess(5, 0, true);          // as a BIOS-trap write leaves it
+    const ind = createFrameIndicators();
+
+    c.services.probe.sample(ind);
+    expect(ind.driveLed[0]).toBe(3);        // write
+    expect(ind.driveSector[0]).toBe(5);
+
+    // The latch runs 25 frames; frameTick is what decays it, and nothing else
+    // on the CPC ticks the FDC.
+    for (let i = 0; i < 25; i++) c.services.probe.frameTick(ind);
+    c.services.probe.sample(ind);
+    expect(ind.driveLed[0]).toBe(1);        // back to plain motor
+    expect(ind.driveSector[0]).toBe(-1);
+  });
+
+  it('publishes a completed FORMAT once, with the image behind the slot', () => {
+    const c = cpc6128();
+    const ind = createFrameIndicators();
+    c.fdc.formattedUnit = 0;
+
+    c.services.probe.frameTick(ind);
+    expect(ind.formattedSlot).toBe(0);
+    expect(c.services.probe.diskImageForSlot?.(0)).toBe(c.fdc.getDiskImage(0));
+
+    ind.formattedSlot = -1;                 // the bridge clears it each frame
+    c.services.probe.frameTick(ind);
+    expect(ind.formattedSlot).toBe(-1);     // latch consumed, not re-reported
   });
 });

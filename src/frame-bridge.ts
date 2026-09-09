@@ -22,6 +22,7 @@ import type { FontSource } from '@/ocr/ocr.ts';
 import { isCollapsed } from '@/ui/panes.ts';
 import * as settings from '@/store/settings.ts';
 import { refreshDiskMetadata } from '@/media/floppy/dsk.ts';
+import { driveTypeForProfile } from '@/media/floppy/floppy-sound.ts';
 import {
   machine, floppySound,
   emulationPaused, tracing,
@@ -379,8 +380,8 @@ function feedFloppySound(): void {
     // Attach to the machine's audio context if not already attached.
     const ctx = machine!.audioContext;
     if (!floppySound['ctx'] && ctx) floppySound.attach(ctx);
-    if (ind.floppyProfile === 1) floppySound.driveType = '3.5inch';
-    else if (ind.floppyProfile === 0) floppySound.driveType = '3inch';
+    const driveType = driveTypeForProfile(ind.floppyProfile);
+    if (driveType) floppySound.driveType = driveType;
     // Update motor state (this generates the sounds)
     floppySound.update(ind.floppyMotor, ind.floppyTrack);
   } else {

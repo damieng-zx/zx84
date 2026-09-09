@@ -1,16 +1,55 @@
 /**
  * Synthesised floppy drive soundscape.
  *
- * Two profiles:
+ * Three profiles:
  *  - "3inch" : Amstrad/Hitachi CF2 — clunky, resonant, pronounced engage click
  *  - "3.5inch": Sony/Alps 720K — smoother, higher-pitched, quieter seeks
+ *  - "5.25inch": half-height 40-track (Memotech FDX) — the loudest of the
+ *    three: an audible belt-driven spin-up and a band step that lands as a
+ *    low clack rather than a click
  *
  * Motor drone, step clicks, and seek-to-zero rattle — all generated
  * from Web Audio oscillators and noise bursts. Connects directly to
  * ctx.destination via its own GainNode (independent of emulated audio).
  */
 
-export type DriveType = '3inch' | '3.5inch';
+import type { DskImage } from '@/media/floppy/disk-image.ts';
+
+export type DriveType = '3inch' | '3.5inch' | '5.25inch';
+
+/** Wire form of DriveType on FrameIndicators.floppyProfile — a machine's frame
+ *  probe publishes a number, the bridge maps it back with driveTypeForProfile.
+ *  KEEP means "leave the synth on whatever profile it already has". */
+export const DRIVE_PROFILE = {
+  keep: -1,
+  threeInch: 0,
+  threeAndAHalfInch: 1,
+  fiveAndAQuarterInch: 2,
+} as const;
+
+const PROFILE_BY_CODE: Record<number, DriveType> = {
+  [DRIVE_PROFILE.threeInch]: '3inch',
+  [DRIVE_PROFILE.threeAndAHalfInch]: '3.5inch',
+  [DRIVE_PROFILE.fiveAndAQuarterInch]: '5.25inch',
+};
+
+/** Map a published profile code to a DriveType, or null for "keep the current
+ *  one" (-1, and any code this build does not know). */
+export function driveTypeForProfile(code: number): DriveType | null {
+  return PROFILE_BY_CODE[code] ?? null;
+}
+
+/** Pick 3" vs 3.5" from a mounted disk's capacity, for the machines that took
+ *  either — the +3 and the CPC shipped a 3" CF2 but were routinely fitted with
+ *  a 720K 3.5" B:. An empty drive keeps the synth's current profile. */
+export function profileForDisk(disk: DskImage | null | undefined): number {
+  if (!disk) return DRIVE_PROFILE.keep;
+  const t0 = disk.tracks[0]?.[0];
+  const spt = t0 ? t0.sectors.length : 0;
+  const secSize = t0?.sectors[0] ? (128 << t0.sectors[0].n) : 512;
+  const capacityKB = (disk.numSides * disk.numTracks * spt * secSize) / 1024;
+  return capacityKB > 500 ? DRIVE_PROFILE.threeAndAHalfInch : DRIVE_PROFILE.threeInch;
+}
 
 interface DriveProfile {
   motorHumFreq: number;
@@ -32,6 +71,15 @@ interface DriveProfile {
   stepDur: number;
   seekInterval: number;
   seekToZeroInterval: number;
+  /** Spin-up sweep: the hum starts here and rises to motorHumFreq over
+   *  motorRampUp. Omitted on the direct-drive 3"/3.5" units, which reach
+   *  speed too fast for the run-up to be heard. */
+  motorHumSpinUpFreq?: number;
+  /** Low body under each step, for a drive whose band stepper lands as a
+   *  clack rather than a click. Omitted = noise burst alone, as before. */
+  stepThumpFreq?: number;
+  stepThumpGain?: number;
+  stepThumpDur?: number;
 }
 
 const PROFILES: Record<DriveType, DriveProfile> = {
@@ -54,6 +102,20 @@ const PROFILES: Record<DriveType, DriveProfile> = {
     engageLatchFreq: 2800, engageLatchQ: 3, engageLatchGain: 0.25,
     stepFreq: 2200, stepQ: 3, stepGain: 0.5, stepDur: 0.015,
     seekInterval: 0.006, seekToZeroInterval: 0.005,
+  },
+  '5.25inch': {
+    // Half-height 40-track (Canon/Chinon, as fitted to the Memotech FDX) —
+    // a belt-driven spindle that takes a moment to reach 300rpm, and a band
+    // stepper heavy enough to shake the case on every track.
+    motorHumFreq: 72, motorHumGain: 0.09,
+    motorNoiseFreq: 110, motorNoiseQ: 2.5, motorNoiseGain: 0.13,
+    motorRampUp: 0.35, motorRampDown: 0.3,
+    motorHumSpinUpFreq: 42,
+    engageHpStart: 2200, engageHpEnd: 250, engageGain: 0.35,
+    engageLatchFreq: 900, engageLatchQ: 4, engageLatchGain: 0.4,
+    stepFreq: 700, stepQ: 1.6, stepGain: 0.9, stepDur: 0.045,
+    seekInterval: 0.012, seekToZeroInterval: 0.01,
+    stepThumpFreq: 90, stepThumpGain: 0.45, stepThumpDur: 0.06,
   },
 };
 
@@ -150,6 +212,12 @@ export class FloppySound {
     this.motorOsc = ctx.createOscillator();
     this.motorOsc.type = 'sine';
     this.motorOsc.frequency.value = P.motorHumFreq;
+    // A belt-driven spindle is heard reaching speed; schedule the run-up over
+    // the same window the gain envelope uses.
+    if (P.motorHumSpinUpFreq !== undefined) {
+      this.motorOsc.frequency.setValueAtTime(P.motorHumSpinUpFreq, now);
+      this.motorOsc.frequency.exponentialRampToValueAtTime(P.motorHumFreq, now + P.motorRampUp);
+    }
     const oscGain = ctx.createGain();
     oscGain.gain.value = P.motorHumGain;
     this.motorOsc.connect(oscGain);
@@ -295,6 +363,23 @@ export class FloppySound {
     env.connect(this.masterGain);
     src.start(t);
     src.stop(t + P.stepDur);
+
+    // Low body under the click — the mass of a band stepper hitting its stop.
+    if (P.stepThumpFreq === undefined) return;
+    const thumpDur = P.stepThumpDur ?? P.stepDur;
+    const thump = ctx.createOscillator();
+    thump.type = 'sine';
+    thump.frequency.setValueAtTime(P.stepThumpFreq, t);
+    thump.frequency.exponentialRampToValueAtTime(P.stepThumpFreq * 0.6, t + thumpDur);
+
+    const thumpEnv = ctx.createGain();
+    thumpEnv.gain.setValueAtTime(P.stepThumpGain ?? 0.4, t);
+    thumpEnv.gain.exponentialRampToValueAtTime(0.01, t + thumpDur);
+
+    thump.connect(thumpEnv);
+    thumpEnv.connect(this.masterGain);
+    thump.start(t);
+    thump.stop(t + thumpDur);
   }
 
   // ── Bounded multi-step click scheduler ──────────────────────────────
