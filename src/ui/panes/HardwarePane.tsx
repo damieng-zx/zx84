@@ -38,6 +38,9 @@ const MODEL_LABELS: Record<MachineModel, string> = {
   mtx500: 'Memotech MTX500',
   mtx512: 'Memotech MTX512',
   rs128: 'Memotech RS128',
+  lynx48: 'Camputers Lynx 48K',
+  lynx96: 'Camputers Lynx 96K',
+  lynx128: 'Camputers Lynx 128K',
   sam256: 'SAM Coupé 256K',
   sam512: 'SAM Coupé 512K',
 };
