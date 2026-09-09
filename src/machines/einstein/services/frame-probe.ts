@@ -11,6 +11,7 @@ import type {
 } from '@/machines/machine.ts';
 import type { EinsteinMachine } from '@/machines/einstein/einstein-machine.ts';
 import { parseXtalBasic } from '@/basic/xtal-basic-parser.ts';
+import { profileForDisk } from '@/media/floppy/floppy-sound.ts';
 
 /**
  * Build the Einstein memory-layout snapshot. The low 32KB is a ROM read-window
@@ -111,7 +112,13 @@ export class EinsteinFrameProbe implements FrameProbe {
 
     out.mdvCount = 0;
     out.mdvMotorMask = 0;
-    out.floppySlot = -1;
-    out.floppyProfile = -1;
+
+    // Drive-sound feed: the Einstein's drives are the same 3" units the CF2
+    // machines used, but a 720K image means a 3.5" drive was fitted in its
+    // place — the +3's capacity test, shared.
+    out.floppySlot = active === 0 ? 0 : 1;
+    out.floppyMotor = fdc.motorOn;
+    out.floppyTrack = fdc.getUnitTrack(active);
+    out.floppyProfile = profileForDisk(fdc.getDiskImage(active));
   }
 }
