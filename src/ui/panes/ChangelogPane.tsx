@@ -2,6 +2,16 @@ import { createSignal, Show } from 'solid-js';
 
 const CHANGELOG: { version: string; items: string[] }[] = [
   {
+    version: '0.8.1',
+    items: [
+      'Added all missing keyboards',
+      'Refined existing keyboards',
+      'Keyboards can be undocked to float, move and resize freely',
+      'Unmapped F-keys to prevent clash with OS/browser',
+      'Fixed Mac/Retina keyboard font sizing',
+      'Fixed the Einstein 256 display being drawn twice as wide',
+    ]
+  }, {
     version: '0.8.0',
     items: [
       'Add SAM Coupé support',
