@@ -138,6 +138,17 @@ export class MtxFrameProbe implements FrameProbe {
     out.floppyProfile = DRIVE_PROFILE.fiveAndAQuarterInch;
   }
 
+  /** The FDX ticks its own controller from runFrame, so the only per-UI-frame
+   *  bookkeeping left is consuming the format latch: a completed WRITE TRACK
+   *  re-detects the disk's metadata through the bridge. */
+  frameTick(out: FrameIndicators): void {
+    const fdc = this.machine.fdc;
+    if (fdc.formattedUnit >= 0) {
+      out.formattedSlot = fdc.formattedUnit;
+      fdc.formattedUnit = -1;
+    }
+  }
+
   diskImageForSlot(slot: number) {
     return slot < 2 ? this.machine.fdc.getDiskImage(slot) : null;
   }
