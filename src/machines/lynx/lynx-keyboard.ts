@@ -7,9 +7,12 @@
  * while the motor bit is set — which is why the read goes through the machine
  * rather than straight to this class.
  *
- * The matrix is MAME's `camplynx.cpp` LINE0-LINE9. The host map is by physical
- * position; the Lynx has no function keys, so nothing here competes with the
- * browser for F1-F12.
+ * The matrix is MAME's `camplynx.cpp` LINE0-LINE9, plus SHIFT LOCK at [0,3] —
+ * a cell MAME leaves unnamed and the MiSTer Lynx48 core identifies. Between
+ * them they account for every cap on the deck but BREAK, which is not a matrix
+ * key at all (it pulls the CPU's interrupt line), and for every cell but [9,4],
+ * which no cap reaches. The host map is by physical position; the Lynx has no
+ * function keys, so nothing here competes with the browser for F1-F12.
  */
 
 const LINES = 10;
@@ -40,7 +43,7 @@ const KEY_MAP: Record<string, Cell> = {
   Space: [4, 3], Enter: [9, 3], Backspace: [9, 0], Escape: [0, 6],
   ShiftLeft: [0, 7], ShiftRight: [0, 7],
   ControlLeft: [2, 6], ControlRight: [2, 6],
-  End: [9, 4],
+  CapsLock: [0, 3],
 
   // Cursor keys
   ArrowUp: [0, 4], ArrowDown: [0, 5], ArrowLeft: [9, 2], ArrowRight: [9, 5],

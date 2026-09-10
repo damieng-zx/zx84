@@ -55,6 +55,7 @@ describe('machine-ui manifest', () => {
     expect(isLazyLoader(machineUi('zx8x').LibraryBrowser)).toBe(true);
 
     expect(isLazyLoader(machineUi('lynx').HardwareSection)).toBe(true);
+    expect(isLazyLoader(machineUi('lynx').Keyboard)).toBe(true);
   });
 
   it('exposes only known contribution keys per kind', () => {

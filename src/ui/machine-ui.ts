@@ -79,6 +79,8 @@ const CONTRIBUTIONS: Record<string, MachineUiContribution> = {
   lynx: {
     HardwareSection: lazy(() =>
       import('@/machines/lynx/ui/hardware-section.tsx').then(m => ({ default: m.LynxHardwareSection }))),
+    Keyboard: lazy(() =>
+      import('@/machines/lynx/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
   },
   zx8x: {
     HardwareSection: lazy(() =>
@@ -135,5 +137,10 @@ export const keyboardLabPresetLoaders: readonly KeyboardLabPresetLoader[] = [
     group: 'MGT SAM Coupé',
     load: () => import('@/machines/sam/ui/keyboard/lab-preset.ts')
       .then((module) => module.samKeyboardLabPresets()),
+  },
+  {
+    group: 'Camputers Lynx',
+    load: () => import('@/machines/lynx/ui/keyboard/lab-preset.ts')
+      .then((module) => module.lynxKeyboardLabPresets()),
   },
 ];
