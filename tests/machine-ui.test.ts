@@ -22,7 +22,7 @@ function isLazyLoader(v: unknown): boolean {
 
 describe('machine-ui manifest', () => {
   it('gives every registered kind a (possibly empty) contribution object', () => {
-    for (const kind of ['spectrum', 'cpc', 'einstein', 'msx', 'mtx', 'zx8x', 'sam']) {
+    for (const kind of ['spectrum', 'cpc', 'einstein', 'msx', 'mtx', 'zx8x', 'sam', 'lynx']) {
       expect(machineUi(kind)).toBeTypeOf('object');
     }
     // Unknown kinds degrade to an empty contribution, never undefined.
@@ -53,11 +53,13 @@ describe('machine-ui manifest', () => {
 
     expect(isLazyLoader(machineUi('zx8x').HardwareSection)).toBe(true);
     expect(isLazyLoader(machineUi('zx8x').LibraryBrowser)).toBe(true);
+
+    expect(isLazyLoader(machineUi('lynx').HardwareSection)).toBe(true);
   });
 
   it('exposes only known contribution keys per kind', () => {
     const allowed = new Set(['HardwareSection', 'Keyboard', 'SysVars', 'LibraryBrowser', 'HuntFonts']);
-    for (const kind of ['spectrum', 'cpc', 'einstein', 'msx', 'mtx', 'zx8x', 'sam']) {
+    for (const kind of ['spectrum', 'cpc', 'einstein', 'msx', 'mtx', 'zx8x', 'sam', 'lynx']) {
       for (const key of Object.keys(machineUi(kind))) {
         expect(allowed.has(key)).toBe(true);
       }
@@ -70,7 +72,7 @@ describe('machine-ui manifest', () => {
     const hunt = machineUi('spectrum').HuntFonts;
     expect(typeof hunt).toBe('function');
     expect(isLazyLoader(hunt)).toBe(false);
-    for (const kind of ['cpc', 'einstein', 'msx', 'mtx', 'zx8x', 'sam']) {
+    for (const kind of ['cpc', 'einstein', 'msx', 'mtx', 'zx8x', 'sam', 'lynx']) {
       expect(machineUi(kind).HuntFonts).toBeUndefined();
     }
   });

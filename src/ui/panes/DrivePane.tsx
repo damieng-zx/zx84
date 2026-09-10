@@ -22,10 +22,10 @@ import {
   driveBForceReady, setDriveBForceReady,
   diskSoundC, setDiskSoundC, diskSoundD, setDiskSoundD,
   writeProtectC, setWriteProtectC, writeProtectD, setWriteProtectD,
-  plusDEnabled, betaDiskEnabled, tapeTurbo, setTapeTurbo,
+  plusDEnabled, betaDiskEnabled, lynxFdc, tapeTurbo, setTapeTurbo,
   persistSetting, resetSettingsGroup,
 } from '@/store/settings.ts';
-import { isPlusDCapable, isBetaDiskCapable } from '@/models.ts';
+import { isPlusDCapable, isBetaDiskCapable, isLynxModel } from '@/models.ts';
 import { machineCaps } from '@/state/machine-caps.ts';
 import { DISK_FORMATS, formatLabel, createBlankDisk } from '@/media/floppy/dsk.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
@@ -316,7 +316,10 @@ export function DrivePane() {
   // the same C/D drive-state signals; only the label and FDC differ.
   const betaDiskActive = () => betaDiskEnabled() && isBetaDiskCapable(currentModel());
   // Machines with a built-in floppy controller (Spectrum +3, disk CPCs, Einstein).
-  const builtinDisk = () => machineCaps().builtinDisk;
+  // The Lynx's FD1793 is a Hardware-pane toggle, so its drives only count when
+  // the interface is actually fitted.
+  const builtinDisk = () =>
+    machineCaps().builtinDisk && !(isLynxModel(currentModel()) && !lynxFdc());
   // The built-in drives' blank-disk menu is the machine's own disk format: the
   // Lynx accepts .ldf, everything else here uses the +3 DSK/HFE set.
   const builtinDiskItems = () =>

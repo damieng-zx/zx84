@@ -27,3 +27,24 @@ export function isLynx128(model: LynxModel): boolean { return model === 'lynx128
 
 /** A disk interface is fitted (the FD1793 and its DOS ROM). */
 export function lynxHasDisk(model: LynxModel): boolean { return model !== 'lynx48'; }
+
+// ── System-ROM slot geometry ───────────────────────────────────────────────
+//
+// Every Lynx ROM socket holds one 8K image. The 48K has two system images; the
+// 96K/128K add a third and, above it, the disk interface's DOS ROM — which the
+// Hardware pane's FD1793 toggle can remove.
+
+export const LYNX_ROM_SLOT_SIZE = 0x2000;
+
+const LYNX_SLOTS_48 = ['System 1', 'System 2'] as const;
+const LYNX_SLOTS_DISK = ['System 1', 'System 2', 'System 3', 'DOS ROM'] as const;
+
+/** The default title of every ROM socket this model has, in load order. */
+export function lynxRomSlotLabels(model: LynxModel): readonly string[] {
+  return lynxHasDisk(model) ? LYNX_SLOTS_DISK : LYNX_SLOTS_48;
+}
+
+/** The socket holding the DOS ROM, or -1 when the model has no disk interface. */
+export function lynxDosSlot(model: LynxModel): number {
+  return lynxHasDisk(model) ? LYNX_SLOTS_DISK.length - 1 : -1;
+}

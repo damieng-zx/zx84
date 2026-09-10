@@ -56,23 +56,33 @@ import {
 import {
   isMtxModel as isMtx, MTX_ROM_SLOT_SIZE, MTX_ROM_SLOT_LABELS,
 } from '@/machines/mtx/models.ts';
+import {
+  isLynxModel as isLynx, LYNX_ROM_SLOT_SIZE, lynxRomSlotLabels,
+} from '@/machines/lynx/models.ts';
 import { BANK_SIZE } from '@/utils/bank-size.ts';
 
 /** Number of independently-overridable system-ROM slots for a model
- *  (0 = one combined image). MTX → 5 (8K each); Spectrum → 0/2/4 (16K each). */
+ *  (0 = one combined image). MTX → 5, Lynx → 2/4 (8K each); Spectrum → 0/2/4
+ *  (16K each). */
 export function romPageSlotCount(model: MachineModel): number {
-  return isMtx(model) ? MTX_ROM_SLOT_LABELS.length : spectrumRomPageSlotCount(model);
+  if (isMtx(model)) return MTX_ROM_SLOT_LABELS.length;
+  if (isLynx(model)) return lynxRomSlotLabels(model).length;
+  return spectrumRomPageSlotCount(model);
 }
 
-/** Byte size of one system-ROM slot for a model — 8K on the MTX, 16K elsewhere.
- *  Used to splice per-slot overrides back onto the concatenated ROM image. */
+/** Byte size of one system-ROM slot for a model — 8K on the MTX and Lynx, 16K
+ *  elsewhere. Used to splice per-slot overrides back onto the concatenated ROM. */
 export function romSlotSize(model: MachineModel): number {
-  return isMtx(model) ? MTX_ROM_SLOT_SIZE : BANK_SIZE;
+  if (isMtx(model)) return MTX_ROM_SLOT_SIZE;
+  if (isLynx(model)) return LYNX_ROM_SLOT_SIZE;
+  return BANK_SIZE;
 }
 
 /** Label for a default (non-overridden) system-ROM slot of a multi-slot model. */
 export function defaultRomPageLabel(model: MachineModel, page: RomSlotIndex): string {
-  return isMtx(model) ? MTX_ROM_SLOT_LABELS[page] : spectrumDefaultRomPageLabel(model, page);
+  if (isMtx(model)) return MTX_ROM_SLOT_LABELS[page];
+  if (isLynx(model)) return lynxRomSlotLabels(model)[page] ?? '';
+  return spectrumDefaultRomPageLabel(model, page);
 }
 
 // ── The open union ─────────────────────────────────────────────────────────

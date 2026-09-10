@@ -52,8 +52,11 @@ export class LynxMachine extends BaseMachine implements Machine {
   readonly video: LynxVideo;
   /** FD1793 — a WD1793, so status bit 7 is NOT READY rather than MOTOR ON. */
   readonly fdc = new WD179x({ statusBit7: 'not-ready', formatSectorsPerTrack: 10 });
-  /** The disk interface is fitted on the 96K and 128K only. */
-  readonly hasDisk: boolean;
+  /** The model carries a disk interface (the 96K and 128K). */
+  readonly modelHasDisk: boolean;
+  /** The interface is fitted: the model has one *and* the Hardware toggle is
+   *  on. Drives the FDC ports, `.ldf` media, the DOS ROM and the Drive pane. */
+  hasDisk: boolean;
 
   /** The cassette deck. The Lynx has a real motor bit, so playback is gated on
    *  the motor rather than on read cadence the way the CPC's has to be. */
@@ -91,7 +94,8 @@ export class LynxMachine extends BaseMachine implements Machine {
   constructor(model: LynxModel, display: IScreenRenderer | null = null) {
     super();
     this.model = model;
-    this.hasDisk = lynxHasDisk(model);
+    this.modelHasDisk = lynxHasDisk(model);
+    this.hasDisk = this.modelHasDisk;
     this.display = display;
     this.memory = new LynxMemory(model);
     this.video = new LynxVideo(this.memory, this.crtc);
@@ -118,6 +122,7 @@ export class LynxMachine extends BaseMachine implements Machine {
   attachHost(host: MachineHost): void { this.host = host; }
   applySettings(view: SettingsView): void {
     this.tapeTurbo = view.get('tape-turbo-load', true);
+    this.hasDisk = this.modelHasDisk && view.get('lynx-fdc', true);
   }
   setBorderSize(_mode: BorderMode): void { /* the Lynx border is not croppable */ }
 
@@ -127,7 +132,7 @@ export class LynxMachine extends BaseMachine implements Machine {
    * lives at the top of bank 0 rather than following the others.
    */
   loadROM(data: Uint8Array): void {
-    const count = this.hasDisk ? 3 : 2;
+    const count = this.modelHasDisk ? 3 : 2;
     const images: Uint8Array[] = [];
     for (let i = 0; i < count; i++) {
       const at = i * LYNX_PAGE_SIZE;

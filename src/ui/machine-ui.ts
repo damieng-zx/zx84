@@ -76,6 +76,10 @@ const CONTRIBUTIONS: Record<string, MachineUiContribution> = {
     SysVars: lazy(() =>
       import('@/machines/sam/ui/SysVars.tsx').then(m => ({ default: m.SamSysVars }))),
   },
+  lynx: {
+    HardwareSection: lazy(() =>
+      import('@/machines/lynx/ui/hardware-section.tsx').then(m => ({ default: m.LynxHardwareSection }))),
+  },
   zx8x: {
     HardwareSection: lazy(() =>
       import('@/machines/zx8x/ui/hardware-section.tsx').then(m => ({ default: m.Zx8xHardwareSection }))),
