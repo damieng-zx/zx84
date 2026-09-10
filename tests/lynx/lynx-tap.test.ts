@@ -76,6 +76,21 @@ describe('Lynx .tap', () => {
     expect(blocks).toHaveLength(1);        // no name block to play
   });
 
+  it('tags the name and data blocks with the file identity the pane shows', () => {
+    const { blocks } = parseLynxTap(tap('INVADERS', 'M', [1, 2, 3]));
+    const name = blocks[0] as DataBlock;
+    const data = blocks[1] as DataBlock;
+    // 3 + 3 + 7 = 13 bytes for the 'M' entry; the name block leads the pair.
+    expect(name.file).toEqual({ name: 'INVADERS', type: 'M', typeName: 'CODE', command: 'MLOAD', size: 13, header: true });
+    expect(data.file).toEqual({ name: 'INVADERS', type: 'M', typeName: 'CODE', command: 'MLOAD', size: 13, header: false });
+  });
+
+  it('makes a nameless entry its own header', () => {
+    const block = parseLynxTap(tap(null, 'B', [1, 2, 3])).blocks[0] as DataBlock;
+    // 3 + 3 + 3 = 9 bytes for the 'B' entry.
+    expect(block.file).toEqual({ name: '', type: 'B', typeName: 'BASIC', command: 'LOAD', size: 9, header: true });
+  });
+
   it('puts the leader and sync byte back, which the file does not carry', () => {
     const { blocks } = parseLynxTap(tap('X', 'M', [1]));
     const name = blocks[0] as DataBlock;

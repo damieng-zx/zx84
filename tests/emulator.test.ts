@@ -1098,8 +1098,9 @@ describe('tape transport — boundary conditions', () => {
 
 // ── Cross-family tape independence (Spectrum ↔ CPC) ─────────────────────────
 // A tape loaded on one machine family must NOT appear on the other when the
-// model is switched; each family keeps its own deck. Within a family the tape
-// still carries across model switches.
+// model is switched; each family keeps its own deck. Within a family the tape's
+// blocks still carry across model switches, but the position always rewinds to
+// the start: the rebuilt machine boots from scratch.
 
 describe('tape independence across Spectrum/CPC model switch', () => {
   // These tests switch the (module-level) current model to a CPC and back.
@@ -1132,17 +1133,17 @@ describe('tape independence across Spectrum/CPC model switch', () => {
     // The Spectrum's own tape is restored — not the CPC one. (The deck is
     // restored from a copied block list, so compare by value, not identity.)
     expect(lastSpectrumStub!.tape.blocks).toStrictEqual(zxBlocks);
-    expect(lastSpectrumStub!.tape.position).toBe(1);
+    expect(lastSpectrumStub!.tape.position).toBe(0);   // rewound by the switch
     expect(emulator.tapeName()).toBe('zxgame.tap');
 
     // Switch back to the CPC: its own tape is restored, not the Spectrum's.
     await emulator.switchModel('cpc6128');
     expect(lastCpcStub!.tape.blocks).toStrictEqual(cpcBlocks);
-    expect(lastCpcStub!.tape.position).toBe(2);
+    expect(lastCpcStub!.tape.position).toBe(0);        // rewound by the switch
     expect(emulator.tapeName()).toBe('cpcgame.cdt');
   });
 
-  it('carries the tape across a same-family model switch (48K→128K)', async () => {
+  it('carries a same-family tape across a model switch but rewinds it', async () => {
     const blocks = [{ tag: 'same-family' }] as any[];
     const s = await setupSpectrum();
     s.tape.blocks = blocks;
@@ -1151,7 +1152,7 @@ describe('tape independence across Spectrum/CPC model switch', () => {
 
     await emulator.switchModel('48k');
     expect(lastSpectrumStub!.tape.blocks).toStrictEqual(blocks);
-    expect(lastSpectrumStub!.tape.position).toBe(3);
+    expect(lastSpectrumStub!.tape.position).toBe(0);
     expect(emulator.tapeName()).toBe('keep.tap');
   });
 });
@@ -1395,7 +1396,7 @@ describe('createMachine — feature branches', () => {
     }
   });
 
-  it('saved tape blocks are restored across rebuild', async () => {
+  it('saved tape blocks are restored at the start across rebuild', async () => {
     const s = await setupSpectrum();
     s.tape.blocks = [{ a: 1 }, { a: 2 }] as any;
     s.tape.position = 1;
@@ -1403,7 +1404,7 @@ describe('createMachine — feature branches', () => {
     emulator.setTapeName('SAVED.TAP');
     await emulator.createMachine();
     expect(lastSpectrumStub!.tape.blocks).toHaveLength(2);
-    expect(lastSpectrumStub!.tape.position).toBe(1);
+    expect(lastSpectrumStub!.tape.position).toBe(0);   // a rebuild rewinds
     expect(emulator.tapeLoaded()).toBe(true);
     expect(emulator.tapeName()).toBe('SAVED.TAP');
   });

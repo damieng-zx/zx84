@@ -35,6 +35,10 @@ import { createLynxServices, type LynxServices } from './services/index.ts';
  *  no PSG to keep in step with the sample rate. */
 const NO_PSG = { setSampleRate(_rate: number): void { /* no PSG fitted */ } };
 
+/** Frames of quiet before tape turbo lets go, so the gap between two blocks
+ *  does not drop the machine back to 1x and then straight up again. */
+const TAPE_TURBO_COOLDOWN = 25;
+
 export class LynxMachine extends BaseMachine implements Machine {
   readonly kind: MachineKind = 'lynx';
   readonly model: LynxModel;
@@ -60,6 +64,16 @@ export class LynxMachine extends BaseMachine implements Machine {
   display: IScreenRenderer | null;
 
   readonly activity = { kbdReads: 0, fdcAccesses: 0, casReads: 0 };
+
+  /** Turbo while loading: run uncapped while the ROM is reading the cassette.
+   *  The Lynx has a real motor relay, so the loading signal is the motor plus
+   *  cassette-port reads rather than a read-cadence guess. */
+  tapeTurbo = true;
+  private _tapeTurboActive = false;
+  private _tapeTurboCooldown = 0;
+
+  /** True while tape turbo is engaged — the Tape pane's TURBO lamp. */
+  get tapeTurboActive(): boolean { return this._tapeTurboActive; }
 
   /** Port 0x84's DAC value while the cassette motor is off. */
   dacLevel = 0;
@@ -102,7 +116,9 @@ export class LynxMachine extends BaseMachine implements Machine {
   get cpuClockHz(): number { return LYNX_CPU_CLOCK; }
 
   attachHost(host: MachineHost): void { this.host = host; }
-  applySettings(_view: SettingsView): void { /* nothing settings-driven yet */ }
+  applySettings(view: SettingsView): void {
+    this.tapeTurbo = view.get('tape-turbo-load', true);
+  }
   setBorderSize(_mode: BorderMode): void { /* the Lynx border is not croppable */ }
 
   /**
@@ -137,6 +153,8 @@ export class LynxMachine extends BaseMachine implements Machine {
     this.tapeMotorRunning = false;
     this.tapeLastAdvanceT = 0;
     this.tape.paused = true;
+    this._tapeTurboActive = false;
+    this._tapeTurboCooldown = 0;
   }
 
   // ── Port 0x80 and the cassette ─────────────────────────────────────────
@@ -211,10 +229,10 @@ export class LynxMachine extends BaseMachine implements Machine {
 
   protected get audioChip() { return NO_PSG; }
   protected framePixels(): Uint8Array { return this._pixels; }
-  protected inTurbo(): boolean { return this.turbo; }
+  protected inTurbo(): boolean { return this.turbo || this._tapeTurboActive; }
 
   protected runFrame(): void {
-    const skipAudio = this.speedMultiplier !== 1;
+    const skipAudio = this.speedMultiplier !== 1 || this._tapeTurboActive;
     this.activity.kbdReads = 0;
     this.activity.fdcAccesses = 0;
     this.activity.casReads = 0;
@@ -262,6 +280,38 @@ export class LynxMachine extends BaseMachine implements Machine {
     // the machine would never leave its initialisation loop.
     if (!broke && !interrupted) this.cpu.interrupt();
 
+    this.updateTapeTurbo();
     if (this.display) this.display.updateTexture(this._pixels);
+  }
+
+  /**
+   * Engage or release tape turbo for the frame just run.
+   *
+   * The Lynx's motor relay is the loading signal: the ROM spins the motor only
+   * while it is reading the cassette, and a read of the cassette port while the
+   * deck runs confirms it. That is exact where the CPC has to infer loading
+   * from read cadence. A paused deck or a stopped motor reads zero, so the
+   * user's pause and the end of the load release turbo too.
+   */
+  private updateTapeTurbo(): void {
+    const loading = this.tapeMotorOn && this.tape.playing && !this.tape.paused
+      && this.activity.casReads > 0;
+    if (loading) {
+      this._tapeTurboActive = this.tapeTurbo;
+      this._tapeTurboCooldown = TAPE_TURBO_COOLDOWN;
+    } else if (this._tapeTurboCooldown > 0) {
+      if (--this._tapeTurboCooldown <= 0) this.releaseTapeTurbo();
+    } else if (this._tapeTurboActive) {
+      // Turbo outlived its cooldown — the tape was ejected or ran out mid-load.
+      this.releaseTapeTurbo();
+    }
+  }
+
+  private releaseTapeTurbo(): void {
+    if (!this._tapeTurboActive) return;
+    this._tapeTurboActive = false;
+    // Frames run under turbo generate no samples, so the mixer holds a stale
+    // accumulation that would click on the way back to 1x.
+    this.mixer.reset();
   }
 }

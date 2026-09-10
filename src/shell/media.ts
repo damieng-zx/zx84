@@ -849,11 +849,15 @@ export function restoreTapeForMachine(m: Machine): void {
     setTurboMode(false);
   } else if (svc && stash?.state.blocks && stash.state.blocks.length > 0) {
     svc.restoreStash(stash.state, stash.name);
+    // A model change always rewinds: the rebuilt machine boots from scratch, so
+    // a tape carried across restarts at its first block rather than resuming
+    // mid-load against a loader that never queued it.
+    svc.seek(0);
     batch(() => {
       setTapeLoaded(true);
       setTapeName(stash.name);
       setTapeBlocks([...stash.state.blocks!]);
-      setTapePosition(stash.state.position ?? 0);
+      setTapePosition(0);
       setTapePaused(stash.state.paused ?? true);
       setTapePlaying(false);
       setTurboMode(false);

@@ -79,6 +79,13 @@ function entrySize(data: Uint8Array, at: number): number | null {
   }
 }
 
+/** The pane's type word for a Lynx file type, Spectrum-style. B is a BASIC
+ *  program, M is machine code (saved and loaded via the monitor's MLOAD); A is
+ *  the monitor's other data entry, which the Spectrum would call DATA. */
+function fileTypeName(type: LynxFileType): string {
+  return type === 'B' ? 'BASIC' : type === 'M' ? 'CODE' : 'DATA';
+}
+
 /** One pure-data block: a leader, the sync byte, then these bytes. */
 function block(payload: Uint8Array, bit0: number, bit1: number, pauseMs: number): DataBlock {
   const bytes = new Uint8Array(LEADER_BYTES + 1 + payload.length);
@@ -125,6 +132,7 @@ export function parseLynxTap(data: Uint8Array, sampleHz = LYNX_TAPE_HZ_48): Lynx
     if (at >= data.length) break;
 
     let name = '';
+    let nameBlock: DataBlock | null = null;
     if (data[at] === QUOTE) {
       const start = at++;
       while (at < data.length && data[at] !== QUOTE) {
@@ -133,7 +141,8 @@ export function parseLynxTap(data: Uint8Array, sampleHz = LYNX_TAPE_HZ_48): Lynx
       }
       if (at >= data.length) break;         // unterminated name: a truncated file
       at++;                                 // the closing quote
-      blocks.push(block(data.subarray(start, at), bit0, bit1, 200));
+      nameBlock = block(data.subarray(start, at), bit0, bit1, 200);
+      blocks.push(nameBlock);
     }
 
     const size = entrySize(data, at);
@@ -142,13 +151,21 @@ export function parseLynxTap(data: Uint8Array, sampleHz = LYNX_TAPE_HZ_48): Lynx
     at += size;
 
     const type = String.fromCharCode(bytes[0]) as LynxFileType;
-    entries.push({
-      name,
-      type,
-      command: type === 'M' ? 'MLOAD' : 'LOAD',
-      bytes,
-    });
-    blocks.push(block(bytes, bit0, bit1, 1000));
+    const command = type === 'M' ? 'MLOAD' : 'LOAD';
+    const typeName = fileTypeName(type);
+    const dataBlock = block(bytes, bit0, bit1, 1000);
+    // Tag both entries with the file identity the tape pane lists. The name
+    // block is the header the data block pairs with; an entry with no name is
+    // its own header so it still shows as a file rather than a byte count.
+    const file = { name, type, typeName, command, size: bytes.length };
+    if (nameBlock) {
+      nameBlock.file = { ...file, header: true };
+      dataBlock.file = { ...file, header: false };
+    } else {
+      dataBlock.file = { ...file, header: true };
+    }
+    entries.push({ name, type, command, bytes });
+    blocks.push(dataBlock);
 
     // Trailing padding belongs to no entry.
     while (at < data.length && data[at] === 0x00) at++;

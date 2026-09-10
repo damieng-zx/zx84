@@ -11,16 +11,13 @@
 import { createSignal } from 'solid-js';
 import type { MachineModel } from '@/models.ts';
 import type { MachineLocale, RomSlotInfo } from '@/machines/machine.ts';
+import { registry } from '@/machines/registry.ts';
 
-const KNOWN_MODELS: readonly MachineModel[] = [
-  '16k', '48k', '128k', '+2', '+2A', '+3',
-  'cpc6128', 'cpc464', 'cpc664', 'cpc6128plus', 'gx4000',
-  'einstein-tc01', 'einstein-256',
-  'hx-10',
-  'mtx500', 'mtx512', 'rs128',
-  'sam256', 'sam512',
-  'zx80', 'zx81',
-];
+/** Every model the parts catalog knows. Derived from the registry rather than
+ *  hand-listed: a new machine's models are then restorable the moment it is
+ *  registered, instead of silently falling back to the Spectrum default (which
+ *  is exactly what happened to the Lynx). */
+const KNOWN_MODELS: readonly MachineModel[] = registry.flatMap(entry => entry.models);
 
 export function isKnownModel(value: string): value is MachineModel {
   return (KNOWN_MODELS as readonly string[]).includes(value);

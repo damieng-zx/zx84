@@ -13,10 +13,29 @@
 
 // ── TapeBlock discriminated union ─────────────────────────────────────────
 
+/** File identity a format parser can attach to a data block for the tape pane
+ *  (the Lynx's quoted name entry and its typed data entry). Format-owned, so
+ *  the pane can show it without knowing which machine it came from. */
+export interface TapeFileInfo {
+  readonly name: string;
+  readonly type: string;
+  /** Friendly type word for the pane, Spectrum-style (Lynx: BASIC / CODE). */
+  readonly typeName: string;
+  /** The command that loads it (Lynx: LOAD / MLOAD). */
+  readonly command: string;
+  /** Payload size in bytes, as recorded by the format. */
+  readonly size: number;
+  /** True on the block that leads a pair (the name entry); the pane shows it
+   *  and hides the data block that follows when combining is on. */
+  readonly header: boolean;
+}
+
 export interface DataBlock {
   kind: 'data';
   flag: number;
   data: Uint8Array;
+  /** Optional file identity the tape pane shows in place of a raw byte count. */
+  file?: TapeFileInfo;
   pause: number;              // ms
   pilotPulse: number;         // T-states (0 for pure-data)
   syncPulse1: number;

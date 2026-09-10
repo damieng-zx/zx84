@@ -10,6 +10,8 @@
 import { describe, expect, it } from 'vitest';
 import { LynxMachine } from '@/machines/lynx/lynx-machine.ts';
 import type { LynxModel } from '@/machines/lynx/models.ts';
+import { stashOutgoingTape, restoreTapeForMachine } from '@/shell/media.ts';
+import { tapePosition } from '@/state/tape-state.ts';
 
 /** A minimal one-entry tape: "AB" as a machine-code file. */
 function tapeBytes(): Uint8Array {
@@ -127,5 +129,87 @@ describe('Lynx cassette', () => {
     fresh.services.tape.restoreStash(state!, 'test.tap');
     expect(fresh.services.tape.loaded).toBe(true);
     expect(fresh.services.tape.name).toBe('test.tap');
+  });
+
+  it('rewinds the tape to the start when the model changes', () => {
+    const before = machine('lynx48');
+    before.services.tape.mount(tapeBytes(), 'test.tap');
+    before.services.tape.seek(1);
+    expect(before.services.tape.position).toBe(1);
+
+    stashOutgoingTape(before);
+
+    const after = machine('lynx128');
+    restoreTapeForMachine(after);
+    expect(after.services.tape.loaded).toBe(true);
+    expect(after.services.tape.position).toBe(0);
+    expect(tapePosition()).toBe(0);
+  });
+});
+
+describe('Lynx tape turbo', () => {
+  /** Park a loop in user RAM and map it into slot 0 so the CPU runs it. */
+  function loopAt(m: LynxMachine, ...bytes: number[]): void {
+    // Read bank 1 (page 8) into slot 0 and keep bank 1 writable.
+    m.cpu.portOut(0x007f, 0x10);
+    bytes.forEach((b, i) => m.memory.writeByte(i, b));
+    m.cpu.pc = 0x0000;
+  }
+  /** IN A,(0x80) / JR -4 — a loader sampling the cassette port. */
+  const POLL_LOOP = [0xdb, 0x80, 0x18, 0xfc];
+  /** JR -2 — a program doing nothing with the tape. */
+  const IDLE_LOOP = [0x18, 0xfe];
+
+  /** A tape loaded and running with the motor relay on. */
+  function loaded(): LynxMachine {
+    const m = machine();
+    m.services.tape.mount(tapeBytes(), 'game.tap');
+    m.cpu.portOut(0x0080, 0x02);   // motor on, which unpauses the deck
+    return m;
+  }
+
+  it('engages while a loader polls the cassette port', () => {
+    const m = loaded();
+    expect(m.tapeTurboActive).toBe(false);
+    loopAt(m, ...POLL_LOOP);
+    m.tick();
+    expect(m.activity.casReads).toBeGreaterThan(0);
+    expect(m.tapeTurboActive).toBe(true);
+    m.destroy();
+  });
+
+  it('stays out of the way when the setting is off', () => {
+    const m = loaded();
+    m.tapeTurbo = false;
+    loopAt(m, ...POLL_LOOP);
+    m.tick();
+    expect(m.activity.casReads).toBeGreaterThan(0);
+    expect(m.tapeTurboActive).toBe(false);
+    m.destroy();
+  });
+
+  it('does not engage on a paused deck', () => {
+    const m = loaded();
+    m.tape.paused = true;
+    loopAt(m, ...POLL_LOOP);
+    m.tick();
+    expect(m.tapeTurboActive).toBe(false);
+    m.destroy();
+  });
+
+  it('lets go once the polling stops, after a cooldown', () => {
+    const m = loaded();
+    loopAt(m, ...POLL_LOOP);
+    m.tick();
+    expect(m.tapeTurboActive).toBe(true);
+
+    loopAt(m, ...IDLE_LOOP);
+    m.tick();
+    // Still held: the cooldown rides out the gap between two blocks rather
+    // than dropping to 1x and straight back up again.
+    expect(m.tapeTurboActive).toBe(true);
+    for (let f = 0; f < 30; f++) m.tick();
+    expect(m.tapeTurboActive).toBe(false);
+    m.destroy();
   });
 });

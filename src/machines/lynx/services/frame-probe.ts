@@ -69,7 +69,7 @@ export class LynxFrameProbe implements FrameProbe {
     out.videoFx = 0;
     out.disk = m.activity.fdcAccesses;
     const tape = m.tape;
-    out.tapeTurbo = false;
+    out.tapeTurbo = m.tapeTurboActive;
     out.tapeLoaded = tape.blocks.length > 0;
     out.tapePlaying = tape.playing && !tape.paused;
     out.tapePaused = tape.paused;
