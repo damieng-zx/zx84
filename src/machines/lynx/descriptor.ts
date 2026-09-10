@@ -30,6 +30,7 @@ function lynxUi(model: LynxModel): MachineUiCapabilities {
     // The 96K and 128K carry the FD1793 and its DOS ROM, so they show the
     // Drive pane; the 48K has neither.
     builtinDisk: disk,
+    builtinDrives: disk ? 4 : 2,
     joystick: false,
     fixedJoystick: false,
     mouseTypes: [],

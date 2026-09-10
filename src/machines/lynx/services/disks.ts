@@ -1,5 +1,5 @@
 /**
- * LynxDiskService — the two internal drives behind the FD1793.
+ * LynxDiskService — the four drives the FD1793 can address (A: to D:).
  *
  * Only the 96K and 128K carry the interface (the 48K has `hasDisk` false, and
  * its media service never routes a disk here). Media identity — the mounted
@@ -11,6 +11,11 @@ import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { serializeLdf } from '@/media/floppy/ldf-image.ts';
 import type { LynxMachine } from '../lynx-machine.ts';
 
+/** Drive ids, in FD1793 unit order — the generic 'a'/'b' spellings first so the
+ *  shell's built-in transport addresses them the same way as every machine. */
+const UNIT_IDS = ['a', 'b', 'c', 'd'] as const;
+const UNIT_LABELS = ['A:', 'B:', 'C:', 'D:'] as const;
+
 function baseName(name: string, fallback: string): string {
   return name.replace(/\.[^.]+$/, '') || fallback;
 }
@@ -21,19 +26,21 @@ export class LynxDiskService implements DiskService {
 
   constructor(private readonly m: LynxMachine) {}
 
-  /** The built-in drives are 'a' and 'b' to every generic consumer. */
+  /** A drive id to its unit: 'a'/'1' → 0 … 'd'/'4' → 3. */
   private static unitOf(id: string): number {
-    return id === 'b' || id === '2' ? 1 : 0;
+    const i = (UNIT_IDS as readonly string[]).indexOf(id);
+    if (i >= 0) return i;
+    const n = Number(id);
+    return Number.isInteger(n) && n >= 1 && n <= 4 ? n - 1 : 0;
   }
 
   get drives(): readonly DriveDescriptor[] {
     const fdc = this.m.fdc;
     const out: DriveDescriptor[] = [];
-    for (let u = 0; u < 2; u++) {
-      const id = u === 0 ? 'a' : 'b';
+    for (let u = 0; u < UNIT_IDS.length; u++) {
       out.push({
-        id,
-        label: `Drive ${u + 1}:`,
+        id: UNIT_IDS[u],
+        label: UNIT_LABELS[u],
         loaded: fdc.getDiskImage(u) !== null,
         mediaName: this.names.get(u) ?? '',
         writeProtected: fdc.writeProtect[u],

@@ -30,7 +30,7 @@ export function LynxHardwareSection() {
               void switchModel(currentModel());
             }}
           />
-          Disk interface (FD1793)
+          Floppy disks
         </label>
       </div>
     </Show>

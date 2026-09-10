@@ -176,7 +176,7 @@ function DiskInfo(props: {
 }
 
 function syncWriteProtect(unit: number, value: boolean): void {
-  machine?.services.disks?.setWriteProtect(unit === 0 ? 'a' : 'b', value);
+  machine?.services.disks?.setWriteProtect('abcd'[unit] ?? 'a', value);
 }
 
 function syncForceReady(unit: number, value: boolean): void {
@@ -320,6 +320,9 @@ export function DrivePane() {
   // the interface is actually fitted.
   const builtinDisk = () =>
     machineCaps().builtinDisk && !(isLynxModel(currentModel()) && !lynxFdc());
+  // The Lynx's FD1793 addresses four drives; everything else here has two.
+  const builtinFourDrives = () =>
+    builtinDisk() && (machineCaps().builtinDrives ?? 2) > 2;
   // The built-in drives' blank-disk menu is the machine's own disk format: the
   // Lynx accepts .ldf, everything else here uses the +3 DSK/HFE set.
   const builtinDiskItems = () =>
@@ -331,13 +334,16 @@ export function DrivePane() {
       // shared C:/D: signals. Guarded so empty drives don't fire a toast.
       if (currentDiskName()) ejectDisk(0);
       if (currentDiskNameB()) ejectDisk(1);
-      if (currentDiskNameC()) betaDiskActive() ? ejectBetaDiskDisk(0) : ejectPlusDDisk(0);
-      if (currentDiskNameD()) betaDiskActive() ? ejectBetaDiskDisk(1) : ejectPlusDDisk(1);
+      // C:/D: are the Lynx's third/fourth built-in drives, or the +D/Beta's
+      // shared pair — never both on one machine.
+      if (currentDiskNameC()) builtinFourDrives() ? ejectDisk(2) : (betaDiskActive() ? ejectBetaDiskDisk(0) : ejectPlusDDisk(0));
+      if (currentDiskNameD()) builtinFourDrives() ? ejectDisk(3) : (betaDiskActive() ? ejectBetaDiskDisk(1) : ejectPlusDDisk(1));
       resetSettingsGroup('drive');
       const disks = machine?.services.disks;
       if (disks) {
         disks.setWriteProtect('a', false); disks.setWriteProtect('b', false);
         disks.setForceReady?.('b', false);
+        if (builtinFourDrives()) { disks.setWriteProtect('c', false); disks.setWriteProtect('d', false); }
         disks.setWriteProtect('plusd:0', false); disks.setWriteProtect('plusd:1', false);
         disks.setWriteProtect('beta:0', false); disks.setWriteProtect('beta:1', false);
       }
@@ -405,6 +411,60 @@ export function DrivePane() {
             syncForceReady(1, driveBForceReady());
           }}
         />
+        <Show when={builtinFourDrives()}>
+          <DiskInfo
+            label="C:"
+            name={currentDiskNameC()}
+            diskInfo={currentDiskInfoC()}
+            status={driveCStatus()}
+            soundEnabled={diskSoundC()}
+            writeProtected={writeProtectC()}
+            showTurbo
+            newItems={builtinDiskItems()}
+            onNewDisk={(value) => {
+              const blank = blankForValue(value);
+              if (blank) insertBlankDisk(blank.image, blank.label, 2);
+            }}
+            onSave={() => saveDisk(2)}
+            onEject={() => ejectDisk(2)}
+            onInsert={() => handleInsertDisk(2)}
+            onToggleSound={() => {
+              setDiskSoundC(!diskSoundC());
+              persistSetting('disk-sound-c', diskSoundC() ? 'on' : 'off');
+            }}
+            onToggleWriteProtect={() => {
+              setWriteProtectC(!writeProtectC());
+              persistSetting('write-protect-c', writeProtectC() ? 'on' : 'off');
+              syncWriteProtect(2, writeProtectC());
+            }}
+          />
+          <DiskInfo
+            label="D:"
+            name={currentDiskNameD()}
+            diskInfo={currentDiskInfoD()}
+            status={driveDStatus()}
+            soundEnabled={diskSoundD()}
+            writeProtected={writeProtectD()}
+            showTurbo
+            newItems={builtinDiskItems()}
+            onNewDisk={(value) => {
+              const blank = blankForValue(value);
+              if (blank) insertBlankDisk(blank.image, blank.label, 3);
+            }}
+            onSave={() => saveDisk(3)}
+            onEject={() => ejectDisk(3)}
+            onInsert={() => handleInsertDisk(3)}
+            onToggleSound={() => {
+              setDiskSoundD(!diskSoundD());
+              persistSetting('disk-sound-d', diskSoundD() ? 'on' : 'off');
+            }}
+            onToggleWriteProtect={() => {
+              setWriteProtectD(!writeProtectD());
+              persistSetting('write-protect-d', writeProtectD() ? 'on' : 'off');
+              syncWriteProtect(3, writeProtectD());
+            }}
+          />
+        </Show>
       </Show>
       <Show when={plusDActive()}>
         <DiskInfo

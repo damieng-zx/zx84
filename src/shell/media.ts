@@ -183,19 +183,16 @@ async function reflectMount(
     unpause();
     persistLastFile(data, filename);
     persistTape(m.kind, data, filename);
-  } else if (target === 'a' || target === 'b') {
-    const u = target === 'a' ? 0 : 1;
-    const image = m.services.disks?.image?.(target) ?? null;
-    if (u === 0) {
-      // A real disk in drive 0 supersedes any hidden default boot disk.
-      bootDiskPhantom = false;
-      setCurrentDiskInfo(image); setCurrentDiskName(filename);
-    } else {
-      setCurrentDiskInfoB(image); setCurrentDiskNameB(filename);
-    }
+  } else if (DISK_UNITS.some(x => x.id === target)) {
+    const unit = DISK_UNITS.findIndex(x => x.id === target);
+    const u = DISK_UNITS[unit];
+    // A real disk in drive 0 supersedes any hidden default boot disk.
+    if (unit === 0) bootDiskPhantom = false;
+    u.setInfo(m.services.disks?.image?.(target) ?? null);
+    u.setName(filename);
     if (persistMedia) {
-      if (u === 0) persistLastFile(data, filename);
-      persistDisk(u, data, filename);
+      if (unit === 0) persistLastFile(data, filename);
+      persistDisk(unit, data, filename);
     }
   } else if (target.startsWith('plusd:')) {
     const u = Number(target.slice(6));
@@ -428,24 +425,34 @@ export async function saveTape(): Promise<void> {
   downloadFile(tape.data, tape.name);
 }
 
-// ── Disk transport (built-in drives A:/B:) ─────────────────────────────────
+// ── Disk transport (built-in drives A:..D:) ─────────────────────────────────
+
+/** Per-unit pane signals for the built-in drives, indexed by unit number. */
+interface DiskUnitSignals {
+  readonly id: string;
+  readonly setInfo: (v: DskImage | null) => void;
+  readonly name: () => string;
+  readonly setName: (v: string) => void;
+  readonly setSide?: (v: number) => void;
+}
+const DISK_UNITS: readonly DiskUnitSignals[] = [
+  { id: 'a', setInfo: setCurrentDiskInfo, name: currentDiskName, setName: setCurrentDiskName, setSide: setDiskSideA },
+  { id: 'b', setInfo: setCurrentDiskInfoB, name: currentDiskNameB, setName: setCurrentDiskNameB, setSide: setDiskSideB },
+  { id: 'c', setInfo: setCurrentDiskInfoC, name: currentDiskNameC, setName: setCurrentDiskNameC },
+  { id: 'd', setInfo: setCurrentDiskInfoD, name: currentDiskNameD, setName: setCurrentDiskNameD },
+];
 
 export function ejectDisk(unit: number = 0): void {
   const disks = machine?.services.disks;
-  if (!machine || !disks) return;
-  disks.eject(unit === 0 ? 'a' : 'b');
+  const u = DISK_UNITS[unit];
+  if (!machine || !disks || !u) return;
+  disks.eject(u.id);
   clearDisk(unit);
-  if (unit === 0) {
-    setCurrentDiskInfo(null);
-    setCurrentDiskName('');
-    setDiskInfoHtml('');
-    setDiskSideA(0);
-  } else {
-    setCurrentDiskInfoB(null);
-    setCurrentDiskNameB('');
-    setDiskSideB(0);
-  }
-  setStatus(`Disk ${unit === 0 ? 'A' : 'B'}: ejected`);
+  u.setInfo(null);
+  u.setName('');
+  u.setSide?.(0);
+  if (unit === 0) setDiskInfoHtml('');
+  setStatus(`Disk ${u.id.toUpperCase()}: ejected`);
   // Ejecting a real disk from drive 0 may re-expose the hidden boot disk.
   if (unit === 0 && machine.descriptor.ui.bootDisk) {
     bootDiskPhantom = false;
@@ -455,16 +462,12 @@ export function ejectDisk(unit: number = 0): void {
 
 export function insertBlankDisk(image: DskImage, name: string, unit: number): void {
   const disks = machine?.services.disks;
-  if (!machine || !disks) return;
-  disks.insert(unit === 0 ? 'a' : 'b', image, name);
-  if (unit === 0) {
-    bootDiskPhantom = false;   // a real disk now occupies drive 0
-    setCurrentDiskInfo(image);
-    setCurrentDiskName(name);
-  } else {
-    setCurrentDiskInfoB(image);
-    setCurrentDiskNameB(name);
-  }
+  const u = DISK_UNITS[unit];
+  if (!machine || !disks || !u) return;
+  disks.insert(u.id, image, name);
+  if (unit === 0) bootDiskPhantom = false;   // a real disk now occupies drive 0
+  u.setInfo(image);
+  u.setName(name);
 }
 
 // ── Hidden default boot disk ──────────────────────────────────────────────
@@ -554,20 +557,22 @@ export function setEinsteinXtalDosEnabled(on: boolean): void {
  */
 export function flipDisk(unit: number): void {
   const disks = machine?.services.disks;
-  if (!disks?.flipSide) return;
-  const newSide = disks.flipSide(unit === 0 ? 'a' : 'b');
+  const u = DISK_UNITS[unit];
+  if (!disks?.flipSide || !u) return;
+  const newSide = disks.flipSide(u.id);
   if (newSide === null) return;
-  if (unit === 0) setDiskSideA(newSide); else setDiskSideB(newSide);
-  setStatus(`Disk ${unit === 0 ? 'A' : 'B'}: flipped to Side ${newSide ? 'B' : 'A'}`);
+  u.setSide?.(newSide);
+  setStatus(`Disk ${u.id.toUpperCase()}: flipped to Side ${newSide ? 'B' : 'A'}`);
 }
 
 export function saveDisk(unit: number): void {
   const disks = machine?.services.disks;
-  if (!machine || !disks) return;
-  const saved = disks.save(unit === 0 ? 'a' : 'b');
-  if (!saved) { setStatus(`No disk in drive ${unit === 0 ? 'A' : 'B'}:`); return; }
+  const u = DISK_UNITS[unit];
+  if (!machine || !disks || !u) return;
+  const saved = disks.save(u.id);
+  if (!saved) { setStatus(`No disk in drive ${u.id.toUpperCase()}:`); return; }
   // Keep the pane's mounted name (the service falls back to a generic base).
-  const name = unit === 0 ? currentDiskName() : currentDiskNameB();
+  const name = u.name();
   const base = name.replace(/\.[^.]+$/, '');
   const ext = saved.name.slice(saved.name.lastIndexOf('.'));
   downloadFile(saved.data, base ? `${base}${ext}` : saved.name);
@@ -575,24 +580,21 @@ export function saveDisk(unit: number): void {
 
 export function loadDiskToUnit(data: Uint8Array, filename: string, unit: number): void {
   const disks = machine?.services.disks;
-  if (!machine || !disks) { setStatus('Load a ROM first'); return; }
-  const id = unit === 0 ? 'a' : 'b';
+  const u = DISK_UNITS[unit];
+  if (!machine || !disks || !u) { setStatus('Load a ROM first'); return; }
   const wasPaused = emulationPaused();
   machine.stop();
   try {
     const image = parseFloppyImage(data);
-    disks.insert(id, image, filename);
-    if (unit === 0) {
-      bootDiskPhantom = false;
-      setCurrentDiskInfo(image); setCurrentDiskName(filename);
-    } else {
-      setCurrentDiskInfoB(image); setCurrentDiskNameB(filename);
-    }
+    disks.insert(u.id, image, filename);
+    if (unit === 0) bootDiskPhantom = false;
+    u.setInfo(image);
+    u.setName(filename);
     if (machine.descriptor.ui.persistMedia) {
       if (unit === 0) persistLastFile(data, filename);
       persistDisk(unit, data, filename);
     }
-    setStatus(`Disk ${unit === 0 ? 'A' : 'B'}: loaded: ${filename}`);
+    setStatus(`Disk ${u.id.toUpperCase()}: loaded: ${filename}`);
   } catch (e) {
     setStatus(`Disk error: ${(e as Error).message}`);
   } finally {
@@ -895,10 +897,12 @@ export async function restoreMedia(): Promise<void> {
   // Restore disks into the built-in drives (uPD765A / WD1772 machines).
   const disks = machine.services.disks;
   if (disks) {
-    for (const unit of [0, 1]) {
+    for (let unit = 0; unit < (machine.descriptor.ui.builtinDrives ?? 2); unit++) {
+      const u = DISK_UNITS[unit];
+      if (!u) continue;
       const disk = await restoreDisk(unit);
       if (!disk) continue;
-      const id = unit === 0 ? 'a' : 'b';
+      const id = u.id;
       // Re-mount through the machine's OWN media service, exactly as a fresh
       // load does. Parsing here instead meant a restore only understood the
       // formats the generic detector knows — enough for a +3 .dsk, but not for
@@ -911,9 +915,8 @@ export async function restoreMedia(): Promise<void> {
         result = await m.services.media.mount(disk.data, disk.name, id);
       } catch { /* ignore corrupt data */ }
       if (machine !== m || !result?.ok || result.target !== id) continue;
-      const image = disks.image?.(id) ?? null;
-      if (unit === 0) { setCurrentDiskInfo(image); setCurrentDiskName(disk.name); }
-      else { setCurrentDiskInfoB(image); setCurrentDiskNameB(disk.name); }
+      u.setInfo(disks.image?.(id) ?? null);
+      u.setName(disk.name);
     }
 
     // MGT +D drives C:/D: — only when the +D is fitted.

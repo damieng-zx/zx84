@@ -187,16 +187,21 @@ function clearDiskSuffix(suffix: string): void {
   } catch { /* */ }
 }
 
+/** Built-in drive suffix for a unit: 0..3 → 'a'..'d'. */
+function diskSuffix(unit: number): string {
+  return 'abcd'[unit] ?? 'a';
+}
+
 export async function persistDisk(unit: number, data: Uint8Array, filename: string): Promise<void> {
-  return persistDiskSuffix(unit === 0 ? 'a' : 'b', data, filename);
+  return persistDiskSuffix(diskSuffix(unit), data, filename);
 }
 
 export async function restoreDisk(unit: number): Promise<{ data: Uint8Array; name: string } | null> {
-  return restoreDiskSuffix(unit === 0 ? 'a' : 'b');
+  return restoreDiskSuffix(diskSuffix(unit));
 }
 
 export function clearDisk(unit: number): void {
-  clearDiskSuffix(unit === 0 ? 'a' : 'b');
+  clearDiskSuffix(diskSuffix(unit));
 }
 
 // MGT +D drives C:/D: (WD1772 units 0/1) — separate keys from the main FDC.

@@ -14,6 +14,16 @@ import type { LynxMachine } from '../lynx-machine.ts';
 import type { LynxTapeService } from './tape.ts';
 import type { LynxDiskService } from './disks.ts';
 
+/** The drive id a mount target names: 'a'..'d' directly, a shell `unit:N`
+ *  (0-based), or 1..4 numerically. Defaults to A:. */
+function driveIdFor(target: MediaTargetId | undefined): string {
+  if (target && /^[a-d]$/.test(target)) return target;
+  const unit = /^unit:(\d+)$/.exec(target ?? '');
+  if (unit) return 'abcd'[Number(unit[1])] ?? 'a';
+  const n = Number(target);
+  return Number.isInteger(n) && n >= 1 && n <= 4 ? 'abcd'[n - 1] : 'a';
+}
+
 export class LynxMediaService implements MediaService {
   constructor(
     private readonly m: LynxMachine,
@@ -55,9 +65,9 @@ export class LynxMediaService implements MediaService {
           message: `${filename} is not a Lynx disk image (expected a 200K or 800K .ldf dump)`,
         };
       }
-      const id = target === 'b' || target === '2' ? 'b' : 'a';
+      const id = driveIdFor(target);
       this.disks.insert(id, image, filename);
-      return { ok: true, target: id, message: `Drive ${id === 'b' ? 2 : 1}: ${filename}` };
+      return { ok: true, target: id, message: `Drive ${id.toUpperCase()}: ${filename}` };
     }
 
     return { ok: false, message: 'The Lynx accepts .tap cassettes and .ldf disks' };

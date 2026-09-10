@@ -305,6 +305,9 @@ export interface MachineUiCapabilities {
   readonly accuracy: false | 'scanline' | 'contention';
   /** Built-in floppy drives (A:/B:) are fitted. */
   readonly builtinDisk: boolean;
+  /** Built-in drives fitted, A: onward — defaults to 2 when `builtinDisk`.
+   *  The Lynx's FD1793 addresses four. Peripheral drives are not counted. */
+  readonly builtinDrives?: number;
   /** Joystick pane applies. */
   readonly joystick: boolean;
   /** Joystick presents a single fixed interface (no type selector; F2 shown). */

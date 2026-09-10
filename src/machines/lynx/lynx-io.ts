@@ -112,7 +112,7 @@ function portOut(m: LynxMachine, port: number, value: number): void {
       if (!m.hasDisk) return;
       // d0,d1 drive, d2 side, d3 motor, d4 pages RAM over the DOS ROM.
       m.memory.setPort58(v);
-      m.fdc.currentDrive = v & 1;
+      m.fdc.currentDrive = v & 3;
       m.fdc.side = (v >> 2) & 1;
       m.fdc.motorOn = (v & 0x08) !== 0;
       return;

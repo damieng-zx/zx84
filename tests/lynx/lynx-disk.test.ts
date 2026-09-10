@@ -88,15 +88,44 @@ describe('Lynx disk media', () => {
   });
 });
 
+describe('Lynx four-drive FDC', () => {
+  it('exposes four built-in drives (A-D)', () => {
+    const m = new LynxMachine('lynx128', null);
+    expect(m.descriptor.ui.builtinDrives).toBe(4);
+    expect(m.services.disks.drives.map(d => d.id)).toEqual(['a', 'b', 'c', 'd']);
+    m.destroy();
+  });
+
+  it('selects all four units from the port 0x58 drive bits', () => {
+    const m = new LynxMachine('lynx128', null);
+    for (let u = 0; u < 4; u++) {
+      m.cpu.portOut(0x0058, u);
+      expect(m.fdc.currentDrive).toBe(u);
+    }
+    m.destroy();
+  });
+
+  it('mounts into drives C and D', async () => {
+    const m = new LynxMachine('lynx128', null);
+    const c = await m.services.media.mount(makeLdf(80, 2), 'c.ldf', 'c');
+    const d = await m.services.media.mount(makeLdf(40, 1), 'd.ldf', 'd');
+    expect(c.target).toBe('c');
+    expect(d.target).toBe('d');
+    expect(m.services.disks.drives[2].loaded).toBe(true);
+    expect(m.services.disks.drives[3].loaded).toBe(true);
+    m.destroy();
+  });
+});
+
 describe('Lynx drive panel feed', () => {
-  it('reports two drives and no microdrives on a disk model', () => {
+  it('reports four drives and no microdrives on a disk model', () => {
     const m = new LynxMachine('lynx128', null);
     const out = createFrameIndicators();
     m.services.probe.sample(out);
     expect(out.driveLed[0]).toBe(0);
     expect(out.driveLed[1]).toBe(0);
-    expect(out.driveLed[2]).toBe(-1);
-    expect(out.driveLed[3]).toBe(-1);
+    expect(out.driveLed[2]).toBe(0);
+    expect(out.driveLed[3]).toBe(0);
     expect(out.mdvCount).toBe(0);
     expect(out.floppySlot).toBe(0);        // the selected drive
     expect(out.floppyMotor).toBe(false);
