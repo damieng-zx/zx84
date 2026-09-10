@@ -5,8 +5,14 @@
 import type {
   FrameIndicators, FramePaneProvider, FrameProbe, MemoryMapSnapshot,
 } from '@/machines/machine.ts';
+import { DRIVE_PROFILE, fixedDrive } from '@/media/floppy/floppy-sound.ts';
 import { hex8 } from '@/utils/hex.ts';
 import type { LynxMachine } from '../lynx-machine.ts';
+
+/** Camputers shipped the Lynx with 5.25" drives. Its 200K format is the
+ *  40-track single-sided shape that suits; the 800K one is the same drive at
+ *  80 tracks, well past where a capacity test would call a drive 3.5". */
+const DRIVE = fixedDrive('5.25inch');
 
 /** What a page number means, for the memory-layout pane. Pages 0-7 are the
  *  ROM region, 8-15 user RAM, and the rest video or the 128K's extra RAM. */
@@ -96,10 +102,10 @@ export class LynxFrameProbe implements FrameProbe {
       out.floppySlot = fdc.currentDrive;
       out.floppyMotor = fdc.motorOn;
       out.floppyTrack = fdc.currentTrack;
-      out.floppyProfile = 1;
+      out.floppyProfile = DRIVE();
     } else {
       out.floppySlot = -1;
-      out.floppyProfile = -1;
+      out.floppyProfile = DRIVE_PROFILE.keep;
     }
   }
 

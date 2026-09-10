@@ -1,4 +1,5 @@
 import type { FrameIndicators, FramePaneProvider, FrameProbe, TranscribeDriver } from '@/machines/machine.ts';
+import { DRIVE_PROFILE } from '@/media/floppy/floppy-sound.ts';
 import type { Zx8xMachine } from '../zx8x-machine.ts';
 import { parseZx8xBasicProgram, parseZx8xBasicVariables } from '../basic.ts';
 
@@ -43,6 +44,6 @@ export class Zx8xFrameProbe implements FrameProbe {
     out.mdvCount = 0;
     out.mdvMotorMask = 0;
     out.floppySlot = -1;
-    out.floppyProfile = -1;
+    out.floppyProfile = DRIVE_PROFILE.keep;
   }
 }

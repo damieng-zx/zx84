@@ -224,7 +224,10 @@ vi.mock('@/display/webgl-renderer.ts', () => ({
   WebGLRenderer: function() { return {}; },
 }));
 
-vi.mock('@/media/floppy/floppy-sound.ts', () => ({
+vi.mock('@/media/floppy/floppy-sound.ts', async (importOriginal) => ({
+  // Only the synth needs stubbing (it reaches for Web Audio); the pure
+  // profile helpers stay real, so a new export cannot break this mock.
+  ...(await importOriginal<typeof import('@/media/floppy/floppy-sound.ts')>()),
   FloppySound: function() { return { reset: vi.fn(), destroy: vi.fn() }; },
 }));
 

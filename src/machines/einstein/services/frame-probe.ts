@@ -12,7 +12,11 @@ import type {
 } from '@/machines/machine.ts';
 import type { EinsteinMachine } from '@/machines/einstein/einstein-machine.ts';
 import { parseXtalBasic } from '@/basic/xtal-basic-parser.ts';
-import { profileForDisk } from '@/media/floppy/floppy-sound.ts';
+import { byCapacity } from '@/media/floppy/floppy-sound.ts';
+
+/** The Einstein's drives are the same 3" units the CF2 machines used, but a
+ *  720K image means a 3.5" was fitted in their place. */
+const DRIVE = byCapacity;
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 
 /**
@@ -115,13 +119,11 @@ export class EinsteinFrameProbe implements FrameProbe {
     out.mdvCount = 0;
     out.mdvMotorMask = 0;
 
-    // Drive-sound feed: the Einstein's drives are the same 3" units the CF2
-    // machines used, but a 720K image means a 3.5" drive was fitted in its
-    // place — the +3's capacity test, shared.
+    // Drive-sound feed: the selected drive is the one that can be heard.
     out.floppySlot = active === 0 ? 0 : 1;
     out.floppyMotor = fdc.motorOn;
     out.floppyTrack = fdc.getUnitTrack(active);
-    out.floppyProfile = profileForDisk(fdc.getDiskImage(active));
+    out.floppyProfile = DRIVE(fdc.getDiskImage(active));
   }
 
   /** A completed WRITE TRACK re-detects the disk's metadata through the
