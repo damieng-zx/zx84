@@ -2,7 +2,7 @@
  * Xtal BASIC (Tatung Einstein, xbas.com) listing parser tests.
  *
  * The byte layouts and the token table were reverse-engineered from a running
- * xbas.com RAM image; see docs/superpowers/specs/2026-07-20-einstein-xtal-basic-listing-design.md.
+ * xbas.com RAM image.
  *
  * Line record: [u16 length LE][u16 lineNumber LE][body...][0x00], where length
  * counts the whole record (length word through terminator). End of program is a

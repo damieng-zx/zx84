@@ -1,5 +1,5 @@
 /**
- * MSX registry entry — pure metadata + factory (re-architecture §3.5).
+ * MSX registry entry — pure metadata + factory.
  * Imported only by `machines/registry.ts`; must stay headless-safe.
  */
 

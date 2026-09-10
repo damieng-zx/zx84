@@ -1,5 +1,5 @@
 /**
- * Einstein registry entry — pure metadata + factory (re-architecture §3.5).
+ * Einstein registry entry — pure metadata + factory.
  * Imported only by `machines/registry.ts`; must stay headless-safe.
  */
 

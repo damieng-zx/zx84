@@ -7,7 +7,7 @@
  * machine internals only through `services` (§3.3) and the per-family debug
  * provider (`services.debug`, backed by `debug/<family>/`).
  *
- * Deliberate exceptions kept on the interface (see docs/re-architecture.md §6):
+ * Deliberate exceptions kept on the interface:
  *  - `memory` — the 64KB address-space view is a fundamental machine property
  *    (a 6502 machine has one too), used pervasively by hosts and debug tools.
  *  - breakpoint/watchpoint storage — generic across CPU families, and the
@@ -149,7 +149,7 @@ export interface Machine {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Machine SPI v2 (re-architecture Phase 2 — see docs/re-architecture.md §3.2-3.5)
+// Machine SPI v2
 //
 // The interfaces below are the *service* surface each machine will implement in
 // Phase 3: narrow management routines the UI, shell, and MCP bind to instead of

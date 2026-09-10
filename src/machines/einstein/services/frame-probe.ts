@@ -2,8 +2,7 @@
  * Einstein FrameProbe — keyboard/disk/PSG activity, the two WD1770 drive
  * panel slots, and the OCR text-overlay driver. The Einstein has no cassette
  * transport (its deck is inert) and ticks its own FDC inside runFrame, so its
- * frameTick only consumes the format latch. See docs/re-architecture.md
- * §3.3/§5 Phase 5.
+ * frameTick only consumes the format latch.
  */
 
 import type {

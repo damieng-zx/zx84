@@ -3,9 +3,9 @@
 ## Architecture
 
 The codebase is layered "machines as hardware, components as chips" — see
-`docs/re-architecture.md` for the full rationale and `docs/adding-a-machine.md`
-for the new-machine checklist. Dependencies point strictly downward and the
-boundaries are enforced mechanically (`npm run depcheck`, zero exceptions).
+`docs/adding-a-machine.md` for the new-machine checklist. Dependencies point
+strictly downward and the boundaries are enforced mechanically (`npm run
+depcheck`, zero exceptions).
 
 ### Layer map
 
@@ -74,7 +74,7 @@ boundaries are enforced mechanically (`npm run depcheck`, zero exceptions).
 ### Services model (UI binds to services, never machine kinds)
 
 Everything above the machine layer reaches machine internals through
-`machine.services` (§3.3 of the re-architecture) and the descriptor's static
+`machine.services` and the descriptor's static
 `ui` capabilities — never by narrowing to a concrete machine or testing
 `machine.kind`. A machine that lacks a piece of hardware returns `null` for that
 service (or omits an optional SPI hook) and the pane hides/disables itself. The
@@ -82,7 +82,7 @@ only concrete narrowings left are the two sanctioned seams: `mcp/concrete.ts`
 (bench-probe machine-specific MCP tools) and `machines/spectrum/ui/active.ts`
 (the Spectrum's own `ui/` contributions reaching their machine).
 
-### Hot-path rules (see re-architecture §6)
+### Hot-path rules
 
 - **Tiers 1–2 are untouchable** (per-t-state exec + memory access, per-scanline
   render). No interface sits between a machine and its chips, memory, or port

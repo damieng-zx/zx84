@@ -2,7 +2,7 @@
  * CPC FrameProbe — maps the CPC's per-frame activity counters and cassette
  * transport onto the generic FrameIndicators channels, and hosts the CPC's
  * pull-on-demand debug panes (memory layout, Locomotive BASIC) and the OCR
- * text-overlay driver. See docs/re-architecture.md §3.3/§5 Phase 5.
+ * text-overlay driver.
  *
  * The disk channels are the +3's, because the hardware is: the same uPD765A,
  * the same 3" CF2, so the drive panel, the drive-sound synth and the

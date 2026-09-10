@@ -1,7 +1,7 @@
 /**
  * Spectrum FrameProbe — maps the machine's per-frame activity counters,
  * transport state, and drive telemetry onto the generic FrameIndicators
- * channels (docs/re-architecture.md §3.3/§5 Phase 5).
+ * channels.
  *
  * `sample()` is a pure read on the hot once-per-rAF path: no allocation, no
  * machine mutation. Device bookkeeping that must run once per *UI* frame

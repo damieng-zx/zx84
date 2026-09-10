@@ -2,7 +2,7 @@
  * Spectrum MediaService routing — extension × peripheral-enable matrix.
  *
  * These expectations are the behaviour of the pre-service loadFile cascade
- * (emulator.ts) captured verbatim, per docs/re-architecture.md §8: the
+ * (emulator.ts) captured verbatim: the
  * .hfe/.scp precedence (Beta Disk → +D → uPD765A) and the IF2 capability
  * gating are load-bearing and must survive the routing's move into the
  * machine. Tests run headless against a real Spectrum (display = null).

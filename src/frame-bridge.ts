@@ -3,8 +3,7 @@
  *
  * The machine-specific per-frame bodies that used to live here (one per
  * machine, reaching into activity counters, FDC motors, tape decks and screen
- * OCR) moved into each machine's `services.probe` (Phase 5 of
- * docs/re-architecture.md). This file now:
+ * OCR) moved into each machine's `services.probe`. This file now:
  *   - calls `probe.sample()` into ONE preallocated FrameIndicators struct,
  *   - owns presentation policy: the 500ms LED latch, string formatting,
  *     signal diffing, pane-open gating and the turbo UI throttle,

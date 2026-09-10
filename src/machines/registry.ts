@@ -1,9 +1,9 @@
 /**
- * Machine registry — the parts catalog (re-architecture §3.5).
+ * Machine registry — the parts catalog.
  *
  * This file and `src/models.ts` are the ONLY places allowed to name every
  * machine. Everything else reaches machines through a `MachineEntry` looked up
- * here, or through the `Machine` interface. Adding machine #5 means: create
+ * here, or through the `Machine` interface. Adding a machine means: create
  * `src/machines/<name>/` with a `descriptor.ts`, add one import + one array
  * entry here, and extend the model union in `src/models.ts` — nothing else.
  *

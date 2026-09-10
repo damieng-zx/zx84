@@ -3,8 +3,7 @@
  *
  * Xtal BASIC is a disk-loaded interpreter (Crystal Research) — not a ROM BASIC —
  * so its format is undocumented publicly. The line-record layout and the token
- * table below were reverse-engineered from a running xbas.com RAM image; see
- * docs/superpowers/specs/2026-07-20-einstein-xtal-basic-listing-design.md.
+ * table below were reverse-engineered from a running xbas.com RAM image.
  *
  * Line record: [u16 length LE][u16 lineNumber LE][body...][0x00], where length
  * counts the whole record (length word through terminator). End of program is a
