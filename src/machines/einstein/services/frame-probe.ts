@@ -1,8 +1,9 @@
 /**
  * Einstein FrameProbe — keyboard/disk/PSG activity, the two WD1770 drive
  * panel slots, and the OCR text-overlay driver. The Einstein has no cassette
- * transport (its deck is inert) and ticks its own FDC inside runFrame, so
- * there is no frameTick here. See docs/re-architecture.md §3.3/§5 Phase 5.
+ * transport (its deck is inert) and ticks its own FDC inside runFrame, so its
+ * frameTick only consumes the format latch. See docs/re-architecture.md
+ * §3.3/§5 Phase 5.
  */
 
 import type {
@@ -11,6 +12,8 @@ import type {
 } from '@/machines/machine.ts';
 import type { EinsteinMachine } from '@/machines/einstein/einstein-machine.ts';
 import { parseXtalBasic } from '@/basic/xtal-basic-parser.ts';
+import { profileForDisk } from '@/media/floppy/floppy-sound.ts';
+import type { DskImage } from '@/media/floppy/disk-image.ts';
 
 /**
  * Build the Einstein memory-layout snapshot. The low 32KB is a ROM read-window
@@ -111,7 +114,28 @@ export class EinsteinFrameProbe implements FrameProbe {
 
     out.mdvCount = 0;
     out.mdvMotorMask = 0;
-    out.floppySlot = -1;
-    out.floppyProfile = -1;
+
+    // Drive-sound feed: the Einstein's drives are the same 3" units the CF2
+    // machines used, but a 720K image means a 3.5" drive was fitted in its
+    // place — the +3's capacity test, shared.
+    out.floppySlot = active === 0 ? 0 : 1;
+    out.floppyMotor = fdc.motorOn;
+    out.floppyTrack = fdc.getUnitTrack(active);
+    out.floppyProfile = profileForDisk(fdc.getDiskImage(active));
+  }
+
+  /** A completed WRITE TRACK re-detects the disk's metadata through the
+   *  bridge. The machine ticks the FDC itself, so that is all there is. */
+  frameTick(out: FrameIndicators): void {
+    const fdc = this.m.fdc;
+    if (fdc.formattedUnit >= 0) {
+      out.formattedSlot = fdc.formattedUnit;
+      fdc.formattedUnit = -1;
+    }
+  }
+
+  /** Live image in a drive panel slot, for the post-format metadata refresh. */
+  diskImageForSlot(slot: number): DskImage | null {
+    return slot < 2 ? this.m.fdc.getDiskImage(slot) : null;
   }
 }

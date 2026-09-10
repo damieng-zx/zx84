@@ -177,9 +177,20 @@ export class SamFrameProbe implements FrameProbe {
     out.floppyProfile = 1;
   }
 
-  /** Per-UI-frame device bookkeeping: the controllers' own frame ticks. */
-  frameTick(): void {
+  /** Per-UI-frame device bookkeeping: the controllers' own frame ticks, and
+   *  the format latch — a completed WRITE TRACK re-detects that disk's
+   *  metadata through the bridge. Each drive has its own controller, so the
+   *  slot is the drive, not the controller's unit. Two formats finishing in
+   *  one frame can only report one slot (as on the Spectrum); both latches
+   *  are still cleared, so neither re-fires next frame. */
+  frameTick(out: FrameIndicators): void {
     this.m.disk.frameTick();
+    for (let u = 0; u < 2; u++) {
+      const fdc = this.m.disk.fdc[u];
+      if (fdc.formattedUnit < 0) continue;
+      out.formattedSlot = u;
+      fdc.formattedUnit = -1;
+    }
   }
 
   /** Live image in a drive panel slot, for the post-format metadata refresh. */

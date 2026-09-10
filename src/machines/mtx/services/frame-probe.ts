@@ -3,6 +3,7 @@ import type {
 } from '@/machines/machine.ts';
 import type { OcrGridName } from '@/ocr/ocr.ts';
 import { parseMtxBasic } from '@/basic/mtx-basic-parser.ts';
+import { DRIVE_PROFILE } from '@/media/floppy/floppy-sound.ts';
 import type { MtxMachine } from '../mtx-machine.ts';
 import { hex8 } from '@/utils/hex.ts';
 
@@ -125,8 +126,27 @@ export class MtxFrameProbe implements FrameProbe {
     out.driveLed[2] = out.driveLed[3] = -1;
     out.mdvCount = 0;
     out.mdvMotorMask = 0;
-    out.floppySlot = -1;
-    out.floppyProfile = -1;
+
+    // Drive-sound feed: the FDX's drives are 5.25" half-height units, so the
+    // profile is fixed rather than read off the disk — an 80-track FDX image
+    // is well past the capacity where the +3/CPC test would call a drive 3.5".
+    // The motor lives in the FDX's own control latch (port 14h), not the
+    // WD179x, and the selected drive is the one that can be heard.
+    out.floppySlot = active;
+    out.floppyMotor = this.machine.fdx.motorOn;
+    out.floppyTrack = fdc.getUnitTrack(active);
+    out.floppyProfile = DRIVE_PROFILE.fiveAndAQuarterInch;
+  }
+
+  /** The FDX ticks its own controller from runFrame, so the only per-UI-frame
+   *  bookkeeping left is consuming the format latch: a completed WRITE TRACK
+   *  re-detects the disk's metadata through the bridge. */
+  frameTick(out: FrameIndicators): void {
+    const fdc = this.machine.fdc;
+    if (fdc.formattedUnit >= 0) {
+      out.formattedSlot = fdc.formattedUnit;
+      fdc.formattedUnit = -1;
+    }
   }
 
   diskImageForSlot(slot: number) {

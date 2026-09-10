@@ -15,7 +15,12 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { FloppySound } from '@/media/floppy/floppy-sound.ts';
+import {
+  FloppySound, DRIVE_PROFILE, driveTypeForProfile, profileForDisk,
+} from '@/media/floppy/floppy-sound.ts';
+import { serializeDSK } from '@/media/floppy/dsk.ts';
+import { blankMgtDisk } from '@/media/floppy/mgt-image.ts';
+import { parseFloppyImage } from '@/media/floppy/hfe.ts';
 
 // ─────────────────────────────────────────────────────────────────────────
 // Recording AudioContext mock
@@ -376,5 +381,102 @@ describe('FloppySound — regressions', () => {
     fs.update(true, 5);
     const motorOsc = ctx2.oscs.find(o => o.type === 'sine');
     expect(motorOsc).toBeDefined();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// 5.25" profile
+//
+// The half-height 5.25" (the Memotech FDX's drives) is the only profile with
+// the two optional parts of the model: a spin-up sweep on the motor hum, and
+// a low sine thump under each step click.
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('FloppySound — 5.25inch profile', () => {
+  beforeEach(() => {
+    fs.driveType = '5.25inch';
+    fs.attach(ctx as any);
+  });
+
+  it('sweeps the motor hum from 42 Hz up to 72 Hz over the spin-up window', () => {
+    fs.update(true, 0);
+    const hum = ctx.oscs.find(o => o.type === 'sine')!;
+    expect(hum.frequency.events).toContainEqual({ kind: 'set', v: 42, t: 0 });
+    const ramp = hum.frequency.events.find(e => e.kind === 'exp');
+    expect(ramp).toMatchObject({ v: 72, t: 0.35 });   // motorRampUp
+  });
+
+  it('steps land as a 700 Hz clack with a 90 Hz thump beneath', () => {
+    fs.update(true, 0);
+    const oscsBefore = ctx.oscs.length;
+    fs.update(true, 1);                                // one step
+
+    const clack = ctx.biquads.find(b => b.type === 'bandpass' && b.frequency.value === 700);
+    expect(clack).toBeDefined();
+    expect(clack!.Q.value).toBe(1.6);
+
+    const thump = ctx.oscs.slice(oscsBefore);
+    expect(thump).toHaveLength(1);
+    expect(thump[0].frequency.events[0]).toMatchObject({ kind: 'set', v: 90 });
+    expect(thump[0].stopped).toBeCloseTo(0.06, 6);     // stepThumpDur
+  });
+
+  it('a multi-step seek thumps once per track, at the 12ms 5.25 step rate', () => {
+    fs.update(true, 0);
+    const oscsBefore = ctx.oscs.length;
+    fs.update(true, 4);
+    const thumps = ctx.oscs.slice(oscsBefore);
+    expect(thumps).toHaveLength(4);
+    for (let i = 0; i < 4; i++) expect(thumps[i].started).toBeCloseTo(i * 0.012, 6);
+  });
+});
+
+describe('FloppySound — the 3"/3.5" profiles keep the plain step click', () => {
+  it('3inch adds no oscillator to a step (noise burst alone)', () => {
+    fs.attach(ctx as any);
+    fs.update(true, 0);
+    const oscsBefore = ctx.oscs.length;
+    fs.update(true, 3);
+    expect(ctx.oscs.length).toBe(oscsBefore);
+  });
+
+  it('3inch motor hum is a flat 120 Hz with no spin-up sweep', () => {
+    fs.attach(ctx as any);
+    fs.update(true, 0);
+    const hum = ctx.oscs.find(o => o.type === 'sine')!;
+    expect(hum.frequency.value).toBe(120);
+    expect(hum.frequency.events).toHaveLength(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Profile codes on the wire
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('driveTypeForProfile', () => {
+  it('maps the published codes to drive types', () => {
+    expect(driveTypeForProfile(DRIVE_PROFILE.threeInch)).toBe('3inch');
+    expect(driveTypeForProfile(DRIVE_PROFILE.threeAndAHalfInch)).toBe('3.5inch');
+    expect(driveTypeForProfile(DRIVE_PROFILE.fiveAndAQuarterInch)).toBe('5.25inch');
+  });
+
+  it('returns null for "keep the current profile" and for unknown codes', () => {
+    expect(driveTypeForProfile(DRIVE_PROFILE.keep)).toBeNull();
+    expect(driveTypeForProfile(99)).toBeNull();
+  });
+});
+
+describe('profileForDisk', () => {
+  const disk = (tracks: number, sides: number) =>
+    parseFloppyImage(serializeDSK(blankMgtDisk(tracks, sides)));
+
+  it('keeps the current profile when the drive is empty', () => {
+    expect(profileForDisk(null)).toBe(DRIVE_PROFILE.keep);
+    expect(profileForDisk(undefined)).toBe(DRIVE_PROFILE.keep);
+  });
+
+  it('calls a 180KB disk a 3" CF2 and an 800KB one a 3.5"', () => {
+    expect(profileForDisk(disk(40, 1))).toBe(DRIVE_PROFILE.threeInch);
+    expect(profileForDisk(disk(80, 2))).toBe(DRIVE_PROFILE.threeAndAHalfInch);
   });
 });

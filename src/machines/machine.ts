@@ -888,7 +888,8 @@ export interface FrameIndicators {
 
   /* Floppy drive-sound feed. floppySlot: A..D panel slot whose per-drive sound
    * setting gates the synth, -1 = no sound-capable drive path active.
-   * floppyProfile: 0 = 3" CF2, 1 = 3.5", -1 = keep the synth's current one. */
+   * floppyProfile: 0 = 3" CF2, 1 = 3.5", 2 = 5.25", -1 = keep the synth's
+   * current one (DRIVE_PROFILE in media/floppy/floppy-sound.ts). */
   floppySlot: number;
   floppyMotor: boolean;
   floppyTrack: number;
