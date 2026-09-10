@@ -47,6 +47,7 @@ export class LynxTapeService implements TapeService {
     this.m.tape.position = 0;
     this.m.tape.paused = true;
     this.m.tape.startPlayback();
+    this.m.resetTapeAdvance();
     this._entries = tape.entries;
     this._name = name;
     return true;
@@ -63,12 +64,13 @@ export class LynxTapeService implements TapeService {
   play(): void {
     this.m.tape.paused = false;
     this.m.tape.startPlayback();
+    this.m.resetTapeAdvance();
   }
 
   pause(): void { this.m.tape.paused = true; }
-  resume(): void { this.m.tape.paused = false; }
+  resume(): void { this.m.resetTapeAdvance(); this.m.tape.paused = false; }
   stop(): void { this.m.tape.stopPlayback(); }
-  rewind(): void { this.m.tape.rewind(); }
+  rewind(): void { this.m.tape.rewind(); this.m.resetTapeAdvance(); }
   seek(block: number): void { this.m.tape.position = block; }
 
   eject(): void {

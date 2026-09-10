@@ -198,6 +198,14 @@ export class LynxMachine extends BaseMachine implements Machine {
    *  through every SAVE. */
   cassetteOutput(_high: boolean): void { /* nothing records */ }
 
+  /**
+   * The deck (re)started — rewind, play, a fresh mount. The advance clock is
+   * re-based to now so the CPU time the deck spent stopped (which `cassetteInput`
+   * does not accumulate) cannot fast-forward it on the next read. Without this a
+   * rewind after the tape ran off the end jumps straight back to the end.
+   */
+  resetTapeAdvance(): void { this.tapeLastAdvanceT = this.cpu.tStates; }
+
   /** Start or stop the deck with the motor relay. */
   private setTapeMotor(on: boolean): void {
     if (on === this.tapeMotorRunning) return;

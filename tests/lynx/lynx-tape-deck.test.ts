@@ -131,6 +131,28 @@ describe('Lynx cassette', () => {
     expect(fresh.services.tape.name).toBe('test.tap');
   });
 
+  it('rewinds and restarts after the tape ran off the end', () => {
+    const m = machine();
+    m.services.tape.mount(tapeBytes(), 'test.tap');
+    motorOn(m, true);
+
+    // Run well past the end: the deck stops and its advance clock freezes.
+    for (let i = 0; i < 400000; i++) sampleAt(m, 2000);
+    expect(m.services.tape.playing).toBe(false);
+
+    m.services.tape.rewind();
+    m.services.tape.play();
+    expect(m.services.tape.position).toBe(0);
+
+    // The first reads must restart at the leader — not fast-forward by the
+    // whole idle time to the end of the tape.
+    const a = sampleAt(m, 0);
+    const b = sampleAt(m, 2000);
+    expect(b).not.toBe(a);
+    expect(m.services.tape.position).toBe(0);
+    m.destroy();
+  });
+
   it('rewinds the tape to the start when the model changes', () => {
     const before = machine('lynx48');
     before.services.tape.mount(tapeBytes(), 'test.tap');
