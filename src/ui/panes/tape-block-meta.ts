@@ -43,16 +43,18 @@ export function parseTapeBlockMeta(block: TapeBlock, index: number, blocks: Tape
       // carries its own identity, so show the name/type instead of a byte count.
       if (block.file) {
         const f = block.file;
-        const line = `${index}: ${f.name ? `${f.command} "${f.name}"` : f.command}`;
-        const detail = `${f.typeName} · ${f.size} bytes`;
         if (!f.header) {
-          // The data child hides behind its name header when combining.
+          // The data child hides behind its name header when combining. Left
+          // uncombined it is the raw data entry, not a second copy of the file
+          // line — matching the Spectrum's header/data split.
           const prev = blocks[index - 1];
           if (collapseBlocks && prev && prev.kind === 'data' && prev.file?.header) {
             return { line: '', detail: '', hidden: true, control: false, absorbsNext: false };
           }
-          return { line, detail, hidden: false, control: false, absorbsNext: false };
+          return { line: `${index}: Data ${f.size} bytes`, detail: timing, hidden: false, control: false, absorbsNext: false };
         }
+        const line = `${index}: ${f.name ? `${f.command} "${f.name}"` : f.command}`;
+        const detail = `${f.typeName} · ${f.size} bytes`;
         const next = blocks[index + 1];
         const hasChild = !!next && next.kind === 'data' && !!next.file && !next.file.header;
         return { line, detail, hidden: false, control: false, absorbsNext: !!(hasChild && collapseBlocks) };

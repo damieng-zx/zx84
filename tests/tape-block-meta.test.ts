@@ -36,10 +36,10 @@ describe('tape block meta — Lynx file entries', () => {
     expect(parseTapeBlockMeta(DATA, 1, [HEADER, DATA], true).hidden).toBe(true);
   });
 
-  it('keeps the data block listed when combining is off', () => {
+  it('lists the raw data block, not a second file line, when combining is off', () => {
     const meta = parseTapeBlockMeta(DATA, 1, [HEADER, DATA], false);
     expect(meta.hidden).toBe(false);
-    expect(meta.line).toBe('1: MLOAD "INVADERS"');
+    expect(meta.line).toBe('1: Data 12299 bytes');
   });
 
   it('shows a nameless entry as its own load line', () => {
