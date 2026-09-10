@@ -243,6 +243,10 @@ export class LynxMemory {
   /** The 64K the CPU can currently see, flattened. */
   snapshot(): Uint8Array { return this.readBlock(0, 0x10000); }
 
+  /** The whole physical RAM store, flattened — the raw `.bin` dump (256K on
+   *  the 48K/96K, 320K on the 128K, matching MAME's RAM device). */
+  ramSnapshot(): Uint8Array { return this.ram.slice(); }
+
   /** User RAM as 16K banks, starting at bank 1's first page. */
   getRamBank(n: number): Uint8Array {
     const bank = Math.min(Math.max(n, 0), this.ramBankCount - 1);

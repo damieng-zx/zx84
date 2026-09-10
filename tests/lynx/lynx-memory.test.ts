@@ -77,4 +77,14 @@ describe('Lynx memory banking', () => {
     mem.writeBankPort((0x20 | 0x0f) ^ 0x31);
     expect(mem.readByte(0xe000)).toBe(0xd0);
   });
+
+  it('dumps the whole physical RAM store for the raw .bin save', () => {
+    // MAME's RAM device: 256K on the 48K/96K, 320K on the 128K.
+    expect(mem.ramSnapshot().length).toBe(256 * 1024);
+    expect(new LynxMemory('lynx128').ramSnapshot().length).toBe(320 * 1024);
+    // A copy, not the live store: writing the dump must not touch the machine.
+    const dump = mem.ramSnapshot();
+    dump[BANK1] = 0x5a;
+    expect(mem.ram[BANK1]).not.toBe(0x5a);
+  });
 });

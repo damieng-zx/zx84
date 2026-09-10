@@ -269,10 +269,12 @@ function downloadFile(data: Uint8Array, filename: string): void {
 }
 
 /** Save the running CPC as a `.SNA` (v2 = flat, v3 = RLE-compressed). The
- *  Load/Save pane shows this menu only for `ui.saveMenu === 'cpc'`. */
+ *  Load/Save pane offers this only when the descriptor names the entry. */
 export function saveCpcSnapshot(version: 2 | 3): void {
   const m = machine;
-  const cpcSnapshots = m?.descriptor.ui.saveMenu === 'cpc' ? m.services.snapshots : null;
+  const cpcSnapshots = m?.descriptor.ui.saveMenu.includes('snapshot-sna-v2')
+    ? m.services.snapshots
+    : null;
   if (!m || !cpcSnapshots) { setStatus('No CPC running'); return; }
 
   const wasPaused = emulationPaused();

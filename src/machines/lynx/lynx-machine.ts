@@ -202,6 +202,11 @@ export class LynxMachine extends BaseMachine implements Machine {
     return 'OCR is not available on the Camputers Lynx yet';
   }
 
+  /** Raw RAM dump for the `.bin` save: the whole physical store. */
+  ramExportBytes(): { data: Uint8Array; filename: string } {
+    return { data: this.memory.ramSnapshot(), filename: `ram-${this.model}.bin` };
+  }
+
   // ── Frame ──────────────────────────────────────────────────────────────
 
   protected get audioChip() { return NO_PSG; }

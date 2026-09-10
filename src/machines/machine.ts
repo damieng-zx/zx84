@@ -270,6 +270,21 @@ export interface MouseTypeInfo {
   readonly label: string;
 }
 
+/**
+ * One entry in the Load/Save pane's Save menu. A machine lists exactly the
+ * artifacts it can write and the pane renders the list verbatim, so a machine
+ * that cannot produce a `.z80`/`.scr`/`.bin` simply does not name one. The
+ * capability test holds each entry against the service that has to honour it.
+ */
+export type SaveMenuItem =
+  | 'snapshot-szx'
+  | 'snapshot-z80'
+  | 'snapshot-sna-v2'
+  | 'snapshot-sna-v3'
+  | 'screenshot-png'
+  | 'screen-scr'
+  | 'ram-bin';
+
 export interface MachineUiCapabilities {
   /** Pane ids removed from the sidebar entirely for this machine. */
   readonly hiddenPanes: readonly string[];
@@ -348,8 +363,8 @@ export interface MachineUiCapabilities {
   readonly tapeSound: boolean;
   /** Extensions the tape loader accepts (Load picker). */
   readonly tapeExtensions: readonly string[];
-  /** Save / snapshot menu family in the Load/Save pane. */
-  readonly saveMenu: 'spectrum' | 'cpc' | 'vdp';
+  /** Save-menu entries in the Load/Save pane, in display order. */
+  readonly saveMenu: readonly SaveMenuItem[];
   /** How .zip archives are handled by the Load path: offer every entry
    *  ('all'), only entries matching accepts() ('media'), or reject ('none'). */
   readonly zipPolicy: 'all' | 'media' | 'none';

@@ -129,10 +129,10 @@ describe('isSamModel', () => {
 
 describe('SAM save menu', () => {
   it('offers no snapshot format, because the SAM has none implemented', () => {
-    // 'vdp' is the Save menu's no-snapshot arm (screenshot / screen / RAM).
-    // 'spectrum' would offer .szx and .z80 entries that cannot be produced,
-    // and the SAM has no snapshot service to answer them.
-    expect(samDescriptor('sam512').ui.saveMenu).toBe('vdp');
+    // Screenshot / screen / RAM only: naming a snapshot entry would offer a
+    // save the SAM has no service to produce.
+    expect(samDescriptor('sam512').ui.saveMenu)
+      .toEqual(['screenshot-png', 'screen-scr', 'ram-bin']);
   });
 
   it('has the exports that save menu actually needs', async () => {

@@ -46,7 +46,8 @@ function lynxUi(model: LynxModel): MachineUiCapabilities {
     tape: 'deck',
     tapeSound: false,
     tapeExtensions: ['.tap', '.zip'],
-    saveMenu: 'spectrum',
+    // No snapshot or screen-dump service, but a raw RAM dump is universal.
+    saveMenu: ['screenshot-png', 'ram-bin'],
     zipPolicy: 'media',
     persistMedia: false,
     bootDisk: false,
