@@ -1,5 +1,5 @@
 /**
- * Assembles the MSX's service surface (§3.3 of docs/re-architecture.md).
+ * Assembles the MSX's service surface.
  * The HX-10 has no floppy drive and no snapshot format, so `disks` and
  * `snapshots` are null.
  */

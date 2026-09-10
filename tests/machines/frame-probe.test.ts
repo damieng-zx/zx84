@@ -1,5 +1,5 @@
 /**
- * FrameProbe contract tests (re-architecture Phase 5, §6 performance rules).
+ * FrameProbe contract tests (the once-per-rAF performance rules).
  *
  * The probe's sample() runs once per rAF into ONE shared FrameIndicators
  * struct and must not allocate: the preallocated typed arrays must be

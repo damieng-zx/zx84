@@ -1,5 +1,5 @@
 /**
- * Assembles the Spectrum's service surface (§3.3 of docs/re-architecture.md).
+ * Assembles the Spectrum's service surface.
  * Constructed once per machine; the shell/MCP reach machine internals only
  * through these.
  */

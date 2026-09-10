@@ -1,5 +1,5 @@
 /**
- * Assembles the CPC's service surface (§3.3 of docs/re-architecture.md).
+ * Assembles the CPC's service surface.
  * Constructed once per machine; the shell/MCP reach machine internals only
  * through these.
  */

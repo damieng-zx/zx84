@@ -1,6 +1,6 @@
 /**
  * Concrete-machine access for MCP tools — THE single sanctioned module that
- * narrows the machine-blind handle to a concrete class (re-architecture §3.7).
+ * narrows the machine-blind handle to a concrete class.
  *
  * The generic debug tools (registers, stepping, memory, trace, breakpoints) go
  * through `state.spec.services.debug`; the tools here are genuinely machine-

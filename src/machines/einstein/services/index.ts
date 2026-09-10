@@ -1,5 +1,5 @@
 /**
- * Assembles the Einstein's service surface (§3.3 of docs/re-architecture.md).
+ * Assembles the Einstein's service surface.
  * The Einstein has no cassette (its deck is inert) and no snapshot format, so
  * `tape` and `snapshots` are null.
  */

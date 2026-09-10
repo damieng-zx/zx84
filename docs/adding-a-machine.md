@@ -1,7 +1,7 @@
 # Adding a machine
 
-This is the definition-of-done checklist for the "machines as hardware" layout
-(see `docs/re-architecture.md`). Adding machine #5 — including a 6502-based one —
+This is the definition-of-done checklist for the "machines as hardware" layout.
+Adding a machine — including a 6502-based one —
 touches **only** a new `src/machines/<name>/` folder, one line each in
 `registry.ts` and `models.ts`, optional `ui/` contributions, and an optional new
 `debug-<family>/` module. **Nothing else in the tree changes.** If you find
