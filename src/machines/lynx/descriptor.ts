@@ -27,10 +27,9 @@ function lynxUi(model: LynxModel): MachineUiCapabilities {
     // The display is composed a whole scanline at a time under the 6845, with
     // no per-t-state effects to model.
     accuracy: false,
-    // The FD1793 answers the bus so the ROM's probe behaves, but no drives are
-    // fitted until the .ldf increment — and a machine that claims built-in
-    // drives has to hand the Drive pane a disk service to address them.
-    builtinDisk: false,
+    // The 96K and 128K carry the FD1793 and its DOS ROM, so they show the
+    // Drive pane; the 48K has neither.
+    builtinDisk: disk,
     joystick: false,
     fixedJoystick: false,
     mouseTypes: [],
@@ -41,7 +40,7 @@ function lynxUi(model: LynxModel): MachineUiCapabilities {
     // and the same activity LED.
     beeper: true,
     psgControls: [],
-    statusLeds: ['kbd', 'load'],
+    statusLeds: disk ? ['kbd', 'load', 'dsk'] : ['kbd', 'load'],
     keyboardBus: 'matrix',
     tape: 'deck',
     tapeSound: false,
@@ -49,7 +48,7 @@ function lynxUi(model: LynxModel): MachineUiCapabilities {
     // No snapshot or screen-dump service, but a raw RAM dump is universal.
     saveMenu: ['screenshot-png', 'ram-bin'],
     zipPolicy: 'media',
-    persistMedia: false,
+    persistMedia: disk,
     bootDisk: false,
     library: false,
     memoryRegions: [

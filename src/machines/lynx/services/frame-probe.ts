@@ -91,8 +91,26 @@ export class LynxFrameProbe implements FrameProbe {
     }
     out.mdvCount = 0;
     out.mdvMotorMask = 0;
-    out.floppySlot = -1;
-    out.floppyProfile = -1;
+    if (m.hasDisk) {
+      // Floppy sound follows the selected drive, as on the Spectrum.
+      out.floppySlot = fdc.currentDrive === 0 ? 0 : 1;
+      out.floppyMotor = fdc.motorOn;
+      out.floppyTrack = fdc.currentTrack;
+      out.floppyProfile = 1;
+    } else {
+      out.floppySlot = -1;
+      out.floppyProfile = -1;
+    }
+  }
+
+  /** Decay the FDC's UI latches and surface a completed format. */
+  frameTick(out: FrameIndicators): void {
+    const fdc = this.machine.fdc;
+    fdc.tickFrame();
+    if (fdc.formattedUnit >= 0) {
+      out.formattedSlot = fdc.formattedUnit;
+      fdc.formattedUnit = -1;
+    }
   }
 
   diskImageForSlot(slot: number) {

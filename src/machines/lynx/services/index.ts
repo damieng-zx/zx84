@@ -1,6 +1,6 @@
 /**
- * The Lynx's service surface. Disks and snapshots are still null: the FD1793
- * lands with the .ldf sector-dump parser.
+ * The Lynx's service surface. Snapshots are still null; the FD1793 disk
+ * service is present on every model but inert on the 48K (`hasDisk` false).
  */
 
 import type { MachineHost, MachineServices } from '@/machines/machine.ts';
@@ -11,12 +11,13 @@ import { LynxRomService } from './roms.ts';
 import { LynxMediaService } from './media.ts';
 import { LynxFrameProbe } from './frame-probe.ts';
 import { LynxTapeService } from './tape.ts';
+import { LynxDiskService } from './disks.ts';
 
 export interface LynxServices extends MachineServices {
   readonly media: LynxMediaService;
   readonly roms: LynxRomService;
   readonly tape: LynxTapeService;
-  readonly disks: null;
+  readonly disks: LynxDiskService;
   readonly snapshots: null;
   readonly input: LynxInputService;
   readonly probe: LynxFrameProbe;
@@ -27,11 +28,12 @@ export function createLynxServices(
   host: () => MachineHost | null,
 ): LynxServices {
   const tape = new LynxTapeService(m);
+  const disks = new LynxDiskService(m);
   return {
-    media: new LynxMediaService(m, tape),
+    media: new LynxMediaService(m, disks, tape),
     roms: new LynxRomService(m, host),
     tape,
-    disks: null,
+    disks,
     snapshots: null,
     input: new LynxInputService(m),
     probe: new LynxFrameProbe(m),

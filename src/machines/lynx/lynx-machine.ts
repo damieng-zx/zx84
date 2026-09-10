@@ -24,7 +24,7 @@ import type {
 } from '@/machines/machine.ts';
 import { LYNX_CPU_CLOCK, LYNX_PAGE_SIZE, LYNX_T_PER_FRAME } from './constants.ts';
 import { lynxHasDisk, type LynxModel } from './models.ts';
-import { LynxMemory } from './lynx-memory.ts';
+import { LynxMemory, DOS_ROM_OFFSET } from './lynx-memory.ts';
 import { LynxKeyboard } from './lynx-keyboard.ts';
 import { LynxVideo } from './lynx-video.ts';
 import { wireLynxPortIO } from './lynx-io.ts';
@@ -223,6 +223,15 @@ export class LynxMachine extends BaseMachine implements Machine {
   /** Raw RAM dump for the `.bin` save: the whole physical store. */
   ramExportBytes(): { data: Uint8Array; filename: string } {
     return { data: this.memory.ramSnapshot(), filename: `ram-${this.model}.bin` };
+  }
+
+  /** Memory-pane ROM regions: the DOS ROM the disk interface splices into
+   *  bank 0's top page. */
+  resolveMemoryRegion(value: string): { data: Uint8Array; baseAddr: number } | null {
+    if (value === 'rom-dos' && this.hasDisk) {
+      return { data: this.memory.dosRom, baseAddr: DOS_ROM_OFFSET };
+    }
+    return null;
   }
 
   // ── Frame ──────────────────────────────────────────────────────────────

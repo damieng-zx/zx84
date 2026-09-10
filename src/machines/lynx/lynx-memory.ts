@@ -232,6 +232,11 @@ export class LynxMemory {
   /** The write enables, for the memory pane. */
   get writeEnables(): number { return this.wbyte; }
 
+  /** The 8K DOS ROM image, for the Memory pane's `rom-dos` region. */
+  get dosRom(): Uint8Array {
+    return this.ram.subarray(DOS_ROM_OFFSET, DOS_ROM_OFFSET + LYNX_PAGE_SIZE);
+  }
+
   // ── IMachineMemory ─────────────────────────────────────────────────────
 
   readBlock(addr: number, len: number): Uint8Array {

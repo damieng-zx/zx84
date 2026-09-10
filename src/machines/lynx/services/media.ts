@@ -1,34 +1,36 @@
 /**
  * LynxMediaService — what a dropped file means on this machine.
  *
- * Cassettes mount. Disks do not yet: `.ldf` is a headerless raw sector dump
- * for the FD1793 and lands with the disk increment, so it says so plainly
- * rather than mounting something that would not load.
+ * Cassettes mount, and on the 96K/128K so do raw `.ldf` disk dumps. The 48K has
+ * no disk interface, so `.ldf` is refused rather than mounted into nothing.
  */
 
 import type {
   MediaService, MediaTargetId, MediaTypeDescriptor, MountResult,
 } from '@/machines/machine.ts';
 import { isLynxTap } from '@/media/tape/lynx-tap.ts';
+import { parseLdf } from '@/media/floppy/ldf-image.ts';
 import type { LynxMachine } from '../lynx-machine.ts';
 import type { LynxTapeService } from './tape.ts';
+import type { LynxDiskService } from './disks.ts';
 
 export class LynxMediaService implements MediaService {
   constructor(
     private readonly m: LynxMachine,
+    private readonly disks: LynxDiskService,
     private readonly tape: LynxTapeService,
   ) {}
 
   accepts(): MediaTypeDescriptor[] {
-    return this.m.hasDisk
-      ? [{ ext: '.tap', target: 'tape' }, { ext: '.ldf', target: 'a' }]
-      : [{ ext: '.tap', target: 'tape' }];
+    const out: MediaTypeDescriptor[] = [{ ext: '.tap', target: 'tape' }];
+    if (this.m.hasDisk) out.push({ ext: '.ldf', target: 'a' });
+    return out;
   }
 
   async mount(
     data: Uint8Array,
     filename: string,
-    _target?: MediaTargetId,
+    target?: MediaTargetId,
   ): Promise<MountResult> {
     if (/\.tap$/i.test(filename)) {
       // The extension is shared with the ZX Spectrum's unrelated .tap, so say
@@ -41,14 +43,23 @@ export class LynxMediaService implements MediaService {
       }
       return { ok: true, target: 'tape', message: `Cassette: ${filename} — type ${this.loadHint()}` };
     }
+
     if (/\.ldf$/i.test(filename)) {
-      return {
-        ok: false,
-        message: this.m.hasDisk
-          ? 'Lynx disk support is not fitted yet'
-          : 'The Lynx 48K has no disk interface',
-      };
+      if (!this.m.hasDisk) {
+        return { ok: false, message: 'The Lynx 48K has no disk interface' };
+      }
+      const image = parseLdf(data);
+      if (!image) {
+        return {
+          ok: false,
+          message: `${filename} is not a Lynx disk image (expected a 200K or 800K .ldf dump)`,
+        };
+      }
+      const id = target === 'b' || target === '2' ? 'b' : 'a';
+      this.disks.insert(id, image, filename);
+      return { ok: true, target: id, message: `Drive ${id === 'b' ? 2 : 1}: ${filename}` };
     }
+
     return { ok: false, message: 'The Lynx accepts .tap cassettes and .ldf disks' };
   }
 
