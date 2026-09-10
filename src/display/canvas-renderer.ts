@@ -64,6 +64,11 @@ export class CanvasRenderer implements IScreenRenderer {
     this.canvas.height = h;
     this.canvas.style.width = (w / dpr * this.pixelAspectX) + 'px';
     this.canvas.style.height = (h / dpr) + 'px';
+    // The CSS box squeezes non-square pixels horizontally, so the compositor
+    // scales the backing store on that axis. `image-rendering: pixelated`
+    // there drops every other source pixel at 1x (missing columns); let the
+    // compositor filter it instead. Vertical is always 1:1.
+    this.canvas.style.imageRendering = this.pixelAspectX < 1 ? 'auto' : '';
     this.ctx.imageSmoothingEnabled = false;
   }
 

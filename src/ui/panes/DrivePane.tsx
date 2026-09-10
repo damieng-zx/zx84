@@ -22,14 +22,15 @@ import {
   driveBForceReady, setDriveBForceReady,
   diskSoundC, setDiskSoundC, diskSoundD, setDiskSoundD,
   writeProtectC, setWriteProtectC, writeProtectD, setWriteProtectD,
-  plusDEnabled, betaDiskEnabled, tapeTurbo, setTapeTurbo,
+  plusDEnabled, betaDiskEnabled, lynxFdc, tapeTurbo, setTapeTurbo,
   persistSetting, resetSettingsGroup,
 } from '@/store/settings.ts';
-import { isPlusDCapable, isBetaDiskCapable } from '@/models.ts';
+import { isPlusDCapable, isBetaDiskCapable, isLynxModel } from '@/models.ts';
 import { machineCaps } from '@/state/machine-caps.ts';
 import { DISK_FORMATS, formatLabel, createBlankDisk } from '@/media/floppy/dsk.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { createBlankHfe } from '@/media/floppy/hfe.ts';
+import { blankLdfDisk } from '@/media/floppy/ldf-image.ts';
 import type { DriveStatus } from '@/state/disk-state.ts';
 import { openFile } from '@/ui/file-picker.ts';
 
@@ -175,7 +176,7 @@ function DiskInfo(props: {
 }
 
 function syncWriteProtect(unit: number, value: boolean): void {
-  machine?.services.disks?.setWriteProtect(unit === 0 ? 'a' : 'b', value);
+  machine?.services.disks?.setWriteProtect('abcd'[unit] ?? 'a', value);
 }
 
 function syncForceReady(unit: number, value: boolean): void {
@@ -199,6 +200,36 @@ function blankForNewDiskValue(value: string): { image: DskImage; label: string }
   const fmt = DISK_FORMATS[parseInt(value.slice(4))];
   if (!fmt) return null;
   return { image: hfe ? createBlankHfe(fmt) : createBlankDisk(fmt), label: formatLabel(fmt) };
+}
+
+// The Lynx saves raw .ldf sector dumps, so its built-in drives offer blank
+// Lynx disks instead of the +3 DSK/HFE set. Both geometries are 10 × 512-byte
+// sectors; the 200K is single sided 40 track, the 800K double sided 80 track.
+const LYNX_GEOMETRIES = [
+  { label: 'Blank 800K DS/80T', tracks: 80, sides: 2 },
+  { label: 'Blank 200K SS/40T', tracks: 40, sides: 1 },
+];
+const LYNX_NEW_ITEMS = [
+  { value: 'ldf', label: 'LDF image', children: LYNX_GEOMETRIES.map((g, i) => ({ value: `ldf-${i}`, label: g.label })) },
+];
+
+/** Resolve an `ldf-N` menu value to its geometry, or null for any other value. */
+function lynxBlankForValue(value: string): { tracks: number; sides: number } | null {
+  if (!value.startsWith('ldf-')) return null;
+  const g = LYNX_GEOMETRIES[parseInt(value.slice(4))];
+  return g ? { tracks: g.tracks, sides: g.sides } : null;
+}
+
+/** Blank image for a built-in drive's "New disk" menu, whichever format it is. */
+function blankForValue(value: string): { image: DskImage; label: string } | null {
+  const ldf = lynxBlankForValue(value);
+  if (ldf) {
+    return {
+      image: blankLdfDisk(ldf.tracks, ldf.sides),
+      label: `Blank ${ldf.tracks === 40 ? '200K' : '800K'}`,
+    };
+  }
+  return blankForNewDiskValue(value);
 }
 
 // Blank +D geometries (all 10 × 512-byte sectors), offered as a plain MGT image
@@ -285,7 +316,17 @@ export function DrivePane() {
   // the same C/D drive-state signals; only the label and FDC differ.
   const betaDiskActive = () => betaDiskEnabled() && isBetaDiskCapable(currentModel());
   // Machines with a built-in floppy controller (Spectrum +3, disk CPCs, Einstein).
-  const builtinDisk = () => machineCaps().builtinDisk;
+  // The Lynx's FD1793 is a Hardware-pane toggle, so its drives only count when
+  // the interface is actually fitted.
+  const builtinDisk = () =>
+    machineCaps().builtinDisk && !(isLynxModel(currentModel()) && !lynxFdc());
+  // The Lynx's FD1793 addresses four drives; everything else here has two.
+  const builtinFourDrives = () =>
+    builtinDisk() && (machineCaps().builtinDrives ?? 2) > 2;
+  // The built-in drives' blank-disk menu is the machine's own disk format: the
+  // Lynx accepts .ldf, everything else here uses the +3 DSK/HFE set.
+  const builtinDiskItems = () =>
+    machine?.services.media.accepts().some(t => t.ext === '.ldf') ? LYNX_NEW_ITEMS : PLUS3_NEW_ITEMS;
 
   return (
     <Pane id="drive-panel" label="Drives" mono visible={builtinDisk() || plusDActive() || betaDiskActive()} onResetSettings={() => {
@@ -293,13 +334,16 @@ export function DrivePane() {
       // shared C:/D: signals. Guarded so empty drives don't fire a toast.
       if (currentDiskName()) ejectDisk(0);
       if (currentDiskNameB()) ejectDisk(1);
-      if (currentDiskNameC()) betaDiskActive() ? ejectBetaDiskDisk(0) : ejectPlusDDisk(0);
-      if (currentDiskNameD()) betaDiskActive() ? ejectBetaDiskDisk(1) : ejectPlusDDisk(1);
+      // C:/D: are the Lynx's third/fourth built-in drives, or the +D/Beta's
+      // shared pair — never both on one machine.
+      if (currentDiskNameC()) builtinFourDrives() ? ejectDisk(2) : (betaDiskActive() ? ejectBetaDiskDisk(0) : ejectPlusDDisk(0));
+      if (currentDiskNameD()) builtinFourDrives() ? ejectDisk(3) : (betaDiskActive() ? ejectBetaDiskDisk(1) : ejectPlusDDisk(1));
       resetSettingsGroup('drive');
       const disks = machine?.services.disks;
       if (disks) {
         disks.setWriteProtect('a', false); disks.setWriteProtect('b', false);
         disks.setForceReady?.('b', false);
+        if (builtinFourDrives()) { disks.setWriteProtect('c', false); disks.setWriteProtect('d', false); }
         disks.setWriteProtect('plusd:0', false); disks.setWriteProtect('plusd:1', false);
         disks.setWriteProtect('beta:0', false); disks.setWriteProtect('beta:1', false);
       }
@@ -315,9 +359,9 @@ export function DrivePane() {
           side={diskSideA()}
           onFlip={() => flipDisk(0)}
           showTurbo
-          newItems={PLUS3_NEW_ITEMS}
+          newItems={builtinDiskItems()}
           onNewDisk={(value) => {
-            const blank = blankForNewDiskValue(value);
+            const blank = blankForValue(value);
             if (blank) insertBlankDisk(blank.image, blank.label, 0);
           }}
           onSave={() => saveDisk(0)}
@@ -344,9 +388,9 @@ export function DrivePane() {
           side={diskSideB()}
           onFlip={() => flipDisk(1)}
           showTurbo
-          newItems={PLUS3_NEW_ITEMS}
+          newItems={builtinDiskItems()}
           onNewDisk={(value) => {
-            const blank = blankForNewDiskValue(value);
+            const blank = blankForValue(value);
             if (blank) insertBlankDisk(blank.image, blank.label, 1);
           }}
           onSave={() => saveDisk(1)}
@@ -367,6 +411,60 @@ export function DrivePane() {
             syncForceReady(1, driveBForceReady());
           }}
         />
+        <Show when={builtinFourDrives()}>
+          <DiskInfo
+            label="C:"
+            name={currentDiskNameC()}
+            diskInfo={currentDiskInfoC()}
+            status={driveCStatus()}
+            soundEnabled={diskSoundC()}
+            writeProtected={writeProtectC()}
+            showTurbo
+            newItems={builtinDiskItems()}
+            onNewDisk={(value) => {
+              const blank = blankForValue(value);
+              if (blank) insertBlankDisk(blank.image, blank.label, 2);
+            }}
+            onSave={() => saveDisk(2)}
+            onEject={() => ejectDisk(2)}
+            onInsert={() => handleInsertDisk(2)}
+            onToggleSound={() => {
+              setDiskSoundC(!diskSoundC());
+              persistSetting('disk-sound-c', diskSoundC() ? 'on' : 'off');
+            }}
+            onToggleWriteProtect={() => {
+              setWriteProtectC(!writeProtectC());
+              persistSetting('write-protect-c', writeProtectC() ? 'on' : 'off');
+              syncWriteProtect(2, writeProtectC());
+            }}
+          />
+          <DiskInfo
+            label="D:"
+            name={currentDiskNameD()}
+            diskInfo={currentDiskInfoD()}
+            status={driveDStatus()}
+            soundEnabled={diskSoundD()}
+            writeProtected={writeProtectD()}
+            showTurbo
+            newItems={builtinDiskItems()}
+            onNewDisk={(value) => {
+              const blank = blankForValue(value);
+              if (blank) insertBlankDisk(blank.image, blank.label, 3);
+            }}
+            onSave={() => saveDisk(3)}
+            onEject={() => ejectDisk(3)}
+            onInsert={() => handleInsertDisk(3)}
+            onToggleSound={() => {
+              setDiskSoundD(!diskSoundD());
+              persistSetting('disk-sound-d', diskSoundD() ? 'on' : 'off');
+            }}
+            onToggleWriteProtect={() => {
+              setWriteProtectD(!writeProtectD());
+              persistSetting('write-protect-d', writeProtectD() ? 'on' : 'off');
+              syncWriteProtect(3, writeProtectD());
+            }}
+          />
+        </Show>
       </Show>
       <Show when={plusDActive()}>
         <DiskInfo

@@ -413,6 +413,12 @@ kbd {
   background: linear-gradient(145deg, #343433, #262625);
 }
 
+.lab-scene--lynx {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.18), transparent 18%),
+    linear-gradient(145deg, #adaea7, #8b8c86);
+}
+
 .lab-scene--spectrum48 {
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 18%),

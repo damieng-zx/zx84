@@ -57,6 +57,24 @@ describe('machine-state — model load/save', () => {
     }
   });
 
+  it('accepts every model the registry registers', async () => {
+    const { registry } = await import('@/machines/registry.ts');
+    const m = await freshImport();
+    for (const entry of registry) {
+      for (const model of entry.models) {
+        expect(m.isKnownModel(model), model).toBe(true);
+      }
+    }
+  });
+
+  it('restores a saved Lynx model instead of falling back to the Spectrum', async () => {
+    storage.setItem('zx84-model', 'lynx128');
+    const m = await freshImport();
+    expect(m.currentModel()).toBe('lynx128');
+    // A known model must not be treated as corrupt and cleared.
+    expect(storage.getItem('zx84-model')).toBe('lynx128');
+  });
+
   it('migrates legacy "+2a" to "+2A" and writes it back to storage', async () => {
     storage.setItem('zx84-model', '+2a');
     const m = await freshImport();

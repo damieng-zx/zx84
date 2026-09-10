@@ -45,7 +45,7 @@ function cpcUi(model: MachineModel): MachineUiCapabilities {
     tape: cpcHasTape(model) ? 'deck' : undefined,
     tapeSound: false,
     tapeExtensions: cpcHasTape(model) ? ['.cdt', '.tzx', '.tap', '.zip'] : [],
-    saveMenu: 'cpc',
+    saveMenu: ['snapshot-sna-v2', 'snapshot-sna-v3', 'screenshot-png', 'screen-scr', 'ram-bin'],
     zipPolicy: 'none',
     persistMedia: false,
     bootDisk: false,

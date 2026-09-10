@@ -66,6 +66,20 @@ const CONTRIBUTIONS: Record<string, MachineUiContribution> = {
     Keyboard: lazy(() =>
       import('@/machines/mtx/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
   },
+  lynx: {
+    HardwareSection: lazy(() =>
+      import('@/machines/lynx/ui/hardware-section.tsx').then(m => ({ default: m.LynxHardwareSection }))),
+    Keyboard: lazy(() =>
+      import('@/machines/lynx/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
+  },
+  zx8x: {
+    HardwareSection: lazy(() =>
+      import('@/machines/zx8x/ui/hardware-section.tsx').then(m => ({ default: m.Zx8xHardwareSection }))),
+    Keyboard: lazy(() =>
+      import('@/machines/zx8x/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
+    LibraryBrowser: lazy(() =>
+      import('@/machines/zx8x/ui/LibraryBrowser.tsx').then(m => ({ default: m.Zx8xLibraryBrowser }))),
+  },
 };
 
 /** The UI contributions for a machine kind (empty object when none registered). */
@@ -108,5 +122,10 @@ export const keyboardLabPresetLoaders: readonly KeyboardLabPresetLoader[] = [
     group: 'Memotech MTX',
     load: () => import('@/machines/mtx/ui/keyboard/lab-preset.ts')
       .then((module) => module.mtxKeyboardLabPresets()),
+  },
+  {
+    group: 'Camputers Lynx',
+    load: () => import('@/machines/lynx/ui/keyboard/lab-preset.ts')
+      .then((module) => module.lynxKeyboardLabPresets()),
   },
 ];

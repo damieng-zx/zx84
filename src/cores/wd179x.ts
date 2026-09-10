@@ -95,7 +95,7 @@ export class WD179x {
   motorOn = false;
   private stepDir = 1; // +1 toward higher-numbered tracks
   /** Physical head position per drive (independent of the single track reg). */
-  private headTrack = [0, 0];
+  private headTrack = [0, 0, 0, 0];
   /** True when the last command was Type I or Force Interrupt — i.e. status
    *  bit 1 means INDEX (not DRQ). Gates the synthesised index pulse. */
   private typeICmd = true;
@@ -111,15 +111,15 @@ export class WD179x {
   private busyDoneStatus = 0;
 
   // ── Disk images ───────────────────────────────────────────────────────
-  protected disks: (DskImage | null)[] = [null, null];
+  protected disks: (DskImage | null)[] = [null, null, null, null];
   /** Per-drive write-protect (software tab). */
-  writeProtect = [false, false];
+  writeProtect = [false, false, false, false];
   /** Per-drive force-ready override and flippy-disk side selection. Present for
    *  parity with the uPD765A so both FDCs satisfy the shared `Machine.fdc`
    *  surface; inert on the WD179x (its drives are always ready when a disk is
    *  present and images are not treated as flippy). */
-  forceReady = [false, false];
-  flipSide = [0, 0];
+  forceReady = [false, false, false, false];
+  flipSide = [0, 0, 0, 0];
   /** Optional command-log sink (parity with the uPD765A's `logFn` so the MCP
    *  fdc-log tool can attach through the shared `Machine.fdc`). Unused by the
    *  WD179x today; wired when Einstein/+D/Beta FDC logging is added. */
@@ -186,7 +186,7 @@ export class WD179x {
     this.side = 0;
     this.motorOn = false;
     this.stepDir = 1;
-    this.headTrack = [0, 0];
+    this.headTrack = [0, 0, 0, 0];
     this.typeICmd = true;
     this.indexCounter = 0;
     this.buffer = null;
@@ -211,26 +211,27 @@ export class WD179x {
    * write or format mutates the image, cleared on insert/eject and on save.
    * Drives the Save button's "unsaved changes" indicator in the UI.
    */
-  dirty = [false, false];
+  dirty = [false, false, false, false];
 
   // ── Disk management ───────────────────────────────────────────────────
-  insertDisk(image: DskImage, unit = 0): void { this.disks[unit & 1] = image; this.dirty[unit & 1] = false; }
-  ejectDisk(unit = 0): void { this.disks[unit & 1] = null; this.dirty[unit & 1] = false; }
-  getDiskImage(unit: number): DskImage | null { return this.disks[unit & 1]; }
+  // The FD179x drives two select lines, so four units (A-D).
+  insertDisk(image: DskImage, unit = 0): void { this.disks[unit & 3] = image; this.dirty[unit & 3] = false; }
+  ejectDisk(unit = 0): void { this.disks[unit & 3] = null; this.dirty[unit & 3] = false; }
+  getDiskImage(unit: number): DskImage | null { return this.disks[unit & 3]; }
 
   /** True if the disk in `unit` has unsaved writes since insert/save. */
-  isDirty(unit: number): boolean { return this.dirty[unit & 1]; }
+  isDirty(unit: number): boolean { return this.dirty[unit & 3]; }
 
   /** Clear the dirty flag — called once the modified image has been saved. */
-  clearDirty(unit: number): void { this.dirty[unit & 1] = false; }
+  clearDirty(unit: number): void { this.dirty[unit & 3] = false; }
 
-  selectDrive(unit: number): void { this.currentDrive = unit & 1; }
+  selectDrive(unit: number): void { this.currentDrive = unit & 3; }
   setSide(side: number): void { this.side = side & 1; }
 
   // ── State getters (for the UI / floppy sound) ─────────────────────────
   get currentUnit(): number { return this.currentDrive; }
   get currentTrack(): number { return this.headTrack[this.currentDrive]; }
-  getUnitTrack(unit: number): number { return this.headTrack[unit & 1]; }
+  getUnitTrack(unit: number): number { return this.headTrack[unit & 3]; }
   get currentSector(): number {
     if (this.buffer) return this.sectorReg;
     return this.latchFrames > 0 ? this.latchSector : 0;

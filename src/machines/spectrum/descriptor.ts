@@ -55,7 +55,7 @@ function spectrumUi(model: MachineModel): MachineUiCapabilities {
     tape: 'deck',
     tapeSound: true,
     tapeExtensions: ['.tap', '.tzx', '.csw', '.zip'],
-    saveMenu: 'spectrum',
+    saveMenu: ['snapshot-szx', 'snapshot-z80', 'screenshot-png', 'screen-scr', 'ram-bin'],
     zipPolicy: 'all',
     persistMedia: true,
     bootDisk: false,

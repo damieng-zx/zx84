@@ -20,6 +20,13 @@ import type { WD179x } from '@/cores/wd179x.ts';
 import type { UPD765A } from '@/cores/upd765a.ts';
 import type { FontSource, OcrGridName } from '@/ocr/ocr.ts';
 import { isPlus2AClass } from '@/machines/spectrum/models.ts';
+import { DRIVE_PROFILE, byCapacity, fixedDrive } from '@/media/floppy/floppy-sound.ts';
+
+/** Two disk interfaces, two drives to declare. The +3's built-in unit is a 3"
+ *  CF2 but was routinely fitted with a 720K 3.5", so it follows the disk; the
+ *  +D always used 3.5" drives, and the Beta shares its sound model. */
+const FDC_DRIVE = byCapacity;
+const WD_DRIVE = fixedDrive('3.5inch');
 import { SPECIAL_MODES } from '@/machines/spectrum/memory.ts';
 import { parseBasicProgram, parseBasicVariables } from '@/basic/sinclair-basic-parser';
 import { hex8 } from '@/utils/hex.ts';
@@ -211,27 +218,17 @@ export class SpectrumFrameProbe implements FrameProbe {
     // ── Floppy drive-sound feed (the +3 uPD765A, or the +D/Beta WD) ──
     // Slot picks the per-drive sound setting: 0/1 = A/B (+3), 2/3 = C/D (WD).
     out.floppySlot = -1;
-    out.floppyProfile = -1;
+    out.floppyProfile = DRIVE_PROFILE.keep;
     if (v.hasFDC) {
       out.floppySlot = s.fdc.currentUnit === 0 ? 0 : 1;
       out.floppyMotor = s.fdc.motorOn;
       out.floppyTrack = s.fdc.currentTrack;
-      // 3" CF2 vs 3.5" picked from the mounted disk's capacity; keep the
-      // synth's current profile when the drive is empty (as before).
-      const disk = s.fdc.getDiskImage(s.fdc.currentUnit);
-      if (disk) {
-        const t0 = disk.tracks[0]?.[0];
-        const spt = t0 ? t0.sectors.length : 0;
-        const secSize = t0?.sectors[0] ? (128 << t0.sectors[0].n) : 512;
-        const capacityKB = (disk.numSides * disk.numTracks * spt * secSize) / 1024;
-        out.floppyProfile = capacityKB > 500 ? 1 : 0;
-      }
+      out.floppyProfile = FDC_DRIVE(s.fdc.getDiskImage(s.fdc.currentUnit));
     } else if (wd) {
-      // The +D always used 3.5" drives; the Beta shares the same sound model.
       out.floppySlot = wd.currentUnit === 0 ? 2 : 3;
       out.floppyMotor = wd.motorOn;
       out.floppyTrack = wd.currentTrack;
-      out.floppyProfile = 1;
+      out.floppyProfile = WD_DRIVE();
     }
   }
 

@@ -39,9 +39,37 @@ export function driveTypeForProfile(code: number): DriveType | null {
   return PROFILE_BY_CODE[code] ?? null;
 }
 
+/**
+ * What a drive path sounds like, as its machine declares it.
+ *
+ * Most machines only ever shipped one kind of drive and say so once with
+ * `fixedDrive`; a few were routinely re-fitted and follow whatever disk is in
+ * the drive being heard (`byCapacity`). A machine with more than one disk
+ * interface declares one of these per interface, not per machine — the
+ * Spectrum's +3 controller adapts while its +D/Beta path is always 3.5".
+ *
+ * Called once per frame from a probe's `sample()`, so it allocates nothing:
+ * `fixedDrive` closes over its code when the probe's module is first loaded.
+ */
+export type DriveSound = (disk?: DskImage | null) => number;
+
+const PROFILE_FOR_TYPE: Record<DriveType, number> = {
+  '3inch': DRIVE_PROFILE.threeInch,
+  '3.5inch': DRIVE_PROFILE.threeAndAHalfInch,
+  '5.25inch': DRIVE_PROFILE.fiveAndAQuarterInch,
+};
+
+/** A machine whose drives are always the same units, whatever is in them. */
+export function fixedDrive(type: DriveType): DriveSound {
+  const code = PROFILE_FOR_TYPE[type];
+  return () => code;
+}
+
 /** Pick 3" vs 3.5" from a mounted disk's capacity, for the machines that took
  *  either — the +3 and the CPC shipped a 3" CF2 but were routinely fitted with
  *  a 720K 3.5" B:. An empty drive keeps the synth's current profile. */
+export const byCapacity: DriveSound = profileForDisk;
+
 export function profileForDisk(disk: DskImage | null | undefined): number {
   if (!disk) return DRIVE_PROFILE.keep;
   const t0 = disk.tracks[0]?.[0];

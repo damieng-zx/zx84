@@ -13,6 +13,20 @@ export function tapeBlockInfo(b: TapeBlock, index: number): TapeBlockInfo {
   let label: string;
   switch (b.kind) {
     case 'data':
+      // A format-tagged file entry (the Lynx's name + typed data pair) lists as
+      // the load line rather than a bare byte count.
+      if (b.file) {
+        const f = b.file;
+        return {
+          index,
+          label: f.name ? `${f.command} "${f.name}"` : f.command,
+          kind: b.source,
+          detail: `${f.typeName} · ${f.size} bytes`,
+          name: f.name,
+          type: f.type,
+          size: f.size,
+        };
+      }
       label = `${b.flag === 0x00 ? 'Header' : 'Data'} (${b.data.length} bytes)`;
       break;
     case 'group-start': label = b.name; break;

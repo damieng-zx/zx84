@@ -16,7 +16,8 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
-  FloppySound, DRIVE_PROFILE, driveTypeForProfile, profileForDisk,
+  FloppySound, DRIVE_PROFILE, byCapacity, driveTypeForProfile, fixedDrive,
+  profileForDisk,
 } from '@/media/floppy/floppy-sound.ts';
 import { serializeDSK } from '@/media/floppy/dsk.ts';
 import { blankMgtDisk } from '@/media/floppy/mgt-image.ts';
@@ -478,5 +479,41 @@ describe('profileForDisk', () => {
   it('calls a 180KB disk a 3" CF2 and an 800KB one a 3.5"', () => {
     expect(profileForDisk(disk(40, 1))).toBe(DRIVE_PROFILE.threeInch);
     expect(profileForDisk(disk(80, 2))).toBe(DRIVE_PROFILE.threeAndAHalfInch);
+  });
+});
+
+describe('a machine’s declared drive', () => {
+  const disk = (tracks: number, sides: number) =>
+    parseFloppyImage(serializeDSK(blankMgtDisk(tracks, sides)));
+
+  it('gives a fixed drive the same profile whatever is in it', () => {
+    const drive = fixedDrive('5.25inch');
+    // The 80x2 image is the one that trips the capacity test into saying 3.5":
+    // a fixed drive has to ignore it.
+    expect(drive()).toBe(DRIVE_PROFILE.fiveAndAQuarterInch);
+    expect(drive(null)).toBe(DRIVE_PROFILE.fiveAndAQuarterInch);
+    expect(drive(disk(40, 1))).toBe(DRIVE_PROFILE.fiveAndAQuarterInch);
+    expect(drive(disk(80, 2))).toBe(DRIVE_PROFILE.fiveAndAQuarterInch);
+  });
+
+  it('covers every drive type it can be asked for', () => {
+    expect(fixedDrive('3inch')()).toBe(DRIVE_PROFILE.threeInch);
+    expect(fixedDrive('3.5inch')()).toBe(DRIVE_PROFILE.threeAndAHalfInch);
+    expect(fixedDrive('5.25inch')()).toBe(DRIVE_PROFILE.fiveAndAQuarterInch);
+  });
+
+  it('lets an adaptable drive follow the disk', () => {
+    expect(byCapacity(disk(40, 1))).toBe(DRIVE_PROFILE.threeInch);
+    expect(byCapacity(disk(80, 2))).toBe(DRIVE_PROFILE.threeAndAHalfInch);
+    expect(byCapacity(null)).toBe(DRIVE_PROFILE.keep);
+  });
+
+  it('allocates nothing per call, so sample() can call it every frame', () => {
+    // The closure is built once, at declaration; calling it must not rebuild
+    // anything, so two calls return the identical primitive and the factory is
+    // never re-entered.
+    const drive = fixedDrive('3inch');
+    expect(drive()).toBe(drive());
+    expect(fixedDrive('3inch')).not.toBe(drive);
   });
 });

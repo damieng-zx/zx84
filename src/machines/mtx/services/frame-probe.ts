@@ -3,9 +3,13 @@ import type {
 } from '@/machines/machine.ts';
 import type { OcrGridName } from '@/ocr/ocr.ts';
 import { parseMtxBasic } from '@/basic/mtx-basic-parser.ts';
-import { DRIVE_PROFILE } from '@/media/floppy/floppy-sound.ts';
+import { fixedDrive } from '@/media/floppy/floppy-sound.ts';
 import type { MtxMachine } from '../mtx-machine.ts';
 import { hex8 } from '@/utils/hex.ts';
+
+/** The FDX's drives are 5.25" half-height units, fixed: an 80-track FDX image
+ *  is well past the capacity where the +3/CPC test would call a drive 3.5". */
+const DRIVE = fixedDrive('5.25inch');
 
 /** Friendly name for an MTX switchable ROM page index. Pages 2,3,6,7 are
  *  normally empty (0xFF); page 2 is the ROM-pack (cartridge) slot. */
@@ -135,7 +139,7 @@ export class MtxFrameProbe implements FrameProbe {
     out.floppySlot = active;
     out.floppyMotor = this.machine.fdx.motorOn;
     out.floppyTrack = fdc.getUnitTrack(active);
-    out.floppyProfile = DRIVE_PROFILE.fiveAndAQuarterInch;
+    out.floppyProfile = DRIVE();
   }
 
   /** The FDX ticks its own controller from runFrame, so the only per-UI-frame

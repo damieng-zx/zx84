@@ -9,6 +9,7 @@ import type {
   FrameIndicators, FramePaneProvider, FrameProbe, TranscribeDriver,
   MemoryMapSnapshot,
 } from '@/machines/machine.ts';
+import { DRIVE_PROFILE } from '@/media/floppy/floppy-sound.ts';
 import type { MsxMachine } from '@/machines/msx/msx-machine.ts';
 import type { OcrGridName } from '@/ocr/ocr.ts';
 import { parseMsxBasic, parseMsxBasicVariables } from '@/basic/msx-basic-parser.ts';
@@ -107,6 +108,6 @@ export class MsxFrameProbe implements FrameProbe {
     out.mdvCount = 0;
     out.mdvMotorMask = 0;
     out.floppySlot = -1;
-    out.floppyProfile = -1;
+    out.floppyProfile = DRIVE_PROFILE.keep;
   }
 }
