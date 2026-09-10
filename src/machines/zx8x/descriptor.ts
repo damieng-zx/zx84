@@ -34,7 +34,7 @@ const UI: MachineUiCapabilities = {
   tape: 'instant',
   tapeExtensions: ['.o', '.80', '.p', '.81', '.p81', '.zip'],
   tapeSound: false,
-  saveMenu: 'vdp',
+  saveMenu: ['screenshot-png', 'screen-scr', 'ram-bin'],
   zipPolicy: 'media',
   persistMedia: false,
   bootDisk: false,

@@ -14,6 +14,10 @@ import type {
   FrameIndicators, FramePaneProvider, FrameProbe, MemoryMapSlot, MemoryMapSnapshot,
   TranscribeDriver,
 } from '@/machines/machine.ts';
+import { fixedDrive } from '@/media/floppy/floppy-sound.ts';
+
+/** The SAM shipped 3.5" drives throughout. */
+const DRIVE = fixedDrive('3.5inch');
 import type { OcrGridName } from '@/ocr/ocr.ts';
 import { parseSamBasic, parseSamBasicVariables } from '@/basic/sam-basic-parser.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
@@ -170,11 +174,11 @@ export class SamFrameProbe implements FrameProbe {
     out.mdvCount = 0;
     out.mdvMotorMask = 0;
 
-    // Drive-sound feed: the SAM's drives are 3.5" (profile 1).
+    // Drive-sound feed: the SAM's drives are 3.5".
     out.floppySlot = soundSlot;
     out.floppyMotor = soundSlot >= 0;
     out.floppyTrack = soundSlot >= 0 ? disk.track(soundSlot) : 0;
-    out.floppyProfile = 1;
+    out.floppyProfile = DRIVE();
   }
 
   /** Per-UI-frame device bookkeeping: the controllers' own frame ticks, and

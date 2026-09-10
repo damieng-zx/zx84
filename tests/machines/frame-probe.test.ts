@@ -14,6 +14,7 @@ import { Spectrum } from '@/machines/spectrum/spectrum.ts';
 import { MtxMachine } from '@/machines/mtx/mtx-machine.ts';
 import { CpcMachine } from '@/machines/cpc/cpc-machine.ts';
 import { EinsteinMachine } from '@/machines/einstein/einstein-machine.ts';
+import { LynxMachine } from '@/machines/lynx/lynx-machine.ts';
 import { SamMachine } from '@/machines/sam/sam-machine.ts';
 import type { WD179x } from '@/cores/wd179x.ts';
 import { DRIVE_PROFILE } from '@/media/floppy/floppy-sound.ts';
@@ -243,6 +244,42 @@ describe('EinsteinFrameProbe drive-sound feed', () => {
     expect(ind.floppyProfile).toBe(DRIVE_PROFILE.threeInch);
     expect(ind.floppyMotor).toBe(m.fdc.motorOn);
     expect(ind.floppyTrack).toBe(m.fdc.getUnitTrack(0));
+  });
+});
+
+describe('LynxFrameProbe drive-sound feed', () => {
+  const SPT = 10, SB = 512;
+  /** A raw .ldf of the given geometry — the format carries no header. */
+  const ldf = (tracks: number, sides: number) =>
+    new Uint8Array(tracks * sides * SPT * SB);
+
+  it('reports Camputers’ 5.25" drives on the models that have the interface', () => {
+    const m = new LynxMachine('lynx128', null);
+    const ind = createFrameIndicators();
+    m.services.probe.sample(ind);
+    expect(ind.floppySlot).toBe(0);
+    expect(ind.floppyProfile).toBe(DRIVE_PROFILE.fiveAndAQuarterInch);
+    expect(ind.floppyMotor).toBe(false);
+    m.destroy();
+  });
+
+  it('stays 5.25" for an 800K image, where the capacity test would say 3.5"', async () => {
+    const m = new LynxMachine('lynx128', null);
+    await m.services.media.mount(ldf(80, 2), 'big.ldf');
+    const ind = createFrameIndicators();
+    m.services.probe.sample(ind);
+    expect(ind.floppyProfile).toBe(DRIVE_PROFILE.fiveAndAQuarterInch);
+    m.destroy();
+  });
+
+  it('publishes no drive at all on the 48K, which has no interface', () => {
+    const m = new LynxMachine('lynx48', null);
+    const ind = createFrameIndicators();
+    m.services.probe.sample(ind);
+    expect(ind.floppySlot).toBe(-1);
+    // Not a profile of its own: the synth keeps whatever it last had.
+    expect(ind.floppyProfile).toBe(DRIVE_PROFILE.keep);
+    m.destroy();
   });
 });
 

@@ -34,7 +34,7 @@ const MSX_UI: MachineUiCapabilities = {
   tape: 'instant',
   tapeSound: true,
   tapeExtensions: ['.cas', '.zip'],
-  saveMenu: 'vdp',
+  saveMenu: ['screenshot-png', 'screen-scr', 'ram-bin'],
   zipPolicy: 'media',
   persistMedia: false,
   bootDisk: false,

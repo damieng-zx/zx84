@@ -32,7 +32,7 @@ const MTX_UI: MachineUiCapabilities = {
   tape: 'instant',
   tapeSound: false,
   tapeExtensions: ['.mtx', '.zip'],
-  saveMenu: 'vdp',
+  saveMenu: ['screenshot-png', 'screen-scr', 'ram-bin'],
   zipPolicy: 'media',
   persistMedia: false,
   bootDisk: true,

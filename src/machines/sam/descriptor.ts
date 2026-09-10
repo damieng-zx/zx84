@@ -51,9 +51,9 @@ const SAM_UI: MachineUiCapabilities = {
   tape: 'deck',
   tapeSound: false,
   tapeExtensions: ['.tap', '.tzx', '.csw', '.zip'],
-  // The no-snapshot arm of the Save menu: screenshot, screen and RAM only.
-  // 'spectrum' would offer .szx/.z80 saves this machine cannot produce.
-  saveMenu: 'vdp',
+  // No snapshot interchange format: screenshot, screen and RAM only. Naming a
+  // .szx/.z80 entry would offer saves this machine cannot produce.
+  saveMenu: ['screenshot-png', 'screen-scr', 'ram-bin'],
   zipPolicy: 'media',
   persistMedia: true,
   bootDisk: false,

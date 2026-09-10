@@ -17,7 +17,11 @@ import type { CpcMachine } from '@/machines/cpc/cpc-machine.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import type { OcrGridName } from '@/ocr/ocr.ts';
 import { parseLocomotiveBasic, parseLocomotiveVariables } from '@/basic/cpc-basic-parser.ts';
-import { DRIVE_PROFILE, profileForDisk } from '@/media/floppy/floppy-sound.ts';
+import { DRIVE_PROFILE, byCapacity } from '@/media/floppy/floppy-sound.ts';
+
+/** The built-in unit is a 3" CF2, but a 720K image in either drive means a
+ *  3.5" was fitted alongside it — the +3's case, and its test. */
+const DRIVE = byCapacity;
 import { cpcHasDisk } from '@/machines/cpc/models.ts';
 import { hex16 } from '@/utils/hex.ts';
 
@@ -155,14 +159,12 @@ export class CpcFrameProbe implements FrameProbe {
       out.driveDirty[unit] = fdc.isDirty(unit) ? 1 : 0;
     }
 
-    // Drive-sound feed: the built-in unit is a 3" CF2, but a 720K image in
-    // either drive means a 3.5" was fitted alongside it — the +3's capacity
-    // test, shared.
+    // Drive-sound feed: the selected drive is the one that can be heard.
     const heard = active === 0 ? 0 : 1;
     out.floppySlot = heard;
     out.floppyMotor = fdc.motorOn;
     out.floppyTrack = fdc.getUnitTrack(heard);
-    out.floppyProfile = profileForDisk(fdc.getDiskImage(heard));
+    out.floppyProfile = DRIVE(fdc.getDiskImage(heard));
   }
 
   frameTick(out: FrameIndicators): void {

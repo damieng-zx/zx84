@@ -22,7 +22,7 @@ import type { MachineModel } from '@/models.ts';
 import type { OcrGridName, FontSource } from '@/ocr/ocr.ts';
 import type { BasicListingLine, BasicVariable } from '@/basic/types.ts';
 
-export type MachineKind = 'spectrum' | 'cpc' | 'einstein' | 'msx' | 'zx8x' | 'mtx' | 'sam';
+export type MachineKind = 'spectrum' | 'cpc' | 'einstein' | 'msx' | 'zx8x' | 'mtx' | 'sam' | 'lynx';
 
 /** Keyboard/ROM locale for international machine variants.
  *  'uk' = default (English, no locale-specific ROM/keyboard). */
@@ -270,6 +270,21 @@ export interface MouseTypeInfo {
   readonly label: string;
 }
 
+/**
+ * One entry in the Load/Save pane's Save menu. A machine lists exactly the
+ * artifacts it can write and the pane renders the list verbatim, so a machine
+ * that cannot produce a `.z80`/`.scr`/`.bin` simply does not name one. The
+ * capability test holds each entry against the service that has to honour it.
+ */
+export type SaveMenuItem =
+  | 'snapshot-szx'
+  | 'snapshot-z80'
+  | 'snapshot-sna-v2'
+  | 'snapshot-sna-v3'
+  | 'screenshot-png'
+  | 'screen-scr'
+  | 'ram-bin';
+
 export interface MachineUiCapabilities {
   /** Pane ids removed from the sidebar entirely for this machine. */
   readonly hiddenPanes: readonly string[];
@@ -290,6 +305,9 @@ export interface MachineUiCapabilities {
   readonly accuracy: false | 'scanline' | 'contention';
   /** Built-in floppy drives (A:/B:) are fitted. */
   readonly builtinDisk: boolean;
+  /** Built-in drives fitted, A: onward — defaults to 2 when `builtinDisk`.
+   *  The Lynx's FD1793 addresses four. Peripheral drives are not counted. */
+  readonly builtinDrives?: number;
   /** Joystick pane applies. */
   readonly joystick: boolean;
   /** Joystick presents a single fixed interface (no type selector; F2 shown). */
@@ -348,8 +366,8 @@ export interface MachineUiCapabilities {
   readonly tapeSound: boolean;
   /** Extensions the tape loader accepts (Load picker). */
   readonly tapeExtensions: readonly string[];
-  /** Save / snapshot menu family in the Load/Save pane. */
-  readonly saveMenu: 'spectrum' | 'cpc' | 'vdp';
+  /** Save-menu entries in the Load/Save pane, in display order. */
+  readonly saveMenu: readonly SaveMenuItem[];
   /** How .zip archives are handled by the Load path: offer every entry
    *  ('all'), only entries matching accepts() ('media'), or reject ('none'). */
   readonly zipPolicy: 'all' | 'media' | 'none';

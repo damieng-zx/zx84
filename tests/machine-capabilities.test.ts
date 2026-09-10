@@ -15,10 +15,18 @@
 
 import { describe, expect, it } from 'vitest';
 import { registry } from '@/machines/registry.ts';
-import { STATUS_LED_IDS } from '@/machines/machine.ts';
+import { STATUS_LED_IDS, type SaveMenuItem } from '@/machines/machine.ts';
 
 /** Every (entry, model) pair the registry knows about. */
 const ALL = registry.flatMap(entry => entry.models.map(model => ({ entry, model })));
+
+/** Snapshot Save-menu entries → the format the snapshot service must save. */
+const SNAPSHOT_FORMAT: Partial<Record<SaveMenuItem, string>> = {
+  'snapshot-szx': '.szx',
+  'snapshot-z80': '.z80',
+  'snapshot-sna-v2': '.sna',
+  'snapshot-sna-v3': '.sna',
+};
 
 /** Build a machine headlessly — no renderer, no ROM. */
 function build(entry: (typeof registry)[number], model: (typeof ALL)[number]['model']) {
@@ -82,6 +90,45 @@ describe('machine capabilities', () => {
         expect(disks).not.toBeNull();
         // The Drive pane addresses the built-ins as 'a' and 'b'.
         expect(disks!.drives.some(d => d.id === 'a')).toBe(true);
+      } finally {
+        machine.destroy();
+      }
+    },
+  );
+
+  it.each(ALL.map(a => [a.model, a] as const))(
+    '%s backs every Save-menu entry with a service that can produce it',
+    (_model, { entry, model }) => {
+      const machine = build(entry, model);
+      try {
+        for (const item of entry.descriptor(model).ui.saveMenu) {
+          const ext = SNAPSHOT_FORMAT[item];
+          if (ext) {
+            const snapshots = machine.services.snapshots;
+            expect(snapshots, `${item} needs a snapshot service`).not.toBeNull();
+            const fmt = snapshots!.formats().find(f => f.ext === ext);
+            expect(fmt?.canSave, `${item} needs a saveable ${ext}`).toBe(true);
+          } else if (item === 'screen-scr') {
+            expect(machine.services.debug.screenExport(), 'screen-scr needs screenExport')
+              .not.toBeNull();
+          } else if (item === 'ram-bin') {
+            expect(machine.services.debug.ramExport(), 'ram-bin needs ramExport')
+              .not.toBeNull();
+          }
+        }
+      } finally {
+        machine.destroy();
+      }
+    },
+  );
+
+  it.each(ALL.map(a => [a.model, a] as const))(
+    '%s always offers a raw RAM dump (.bin)',
+    (_model, { entry, model }) => {
+      const machine = build(entry, model);
+      try {
+        expect(entry.descriptor(model).ui.saveMenu).toContain('ram-bin');
+        expect(machine.services.debug.ramExport()).not.toBeNull();
       } finally {
         machine.destroy();
       }
