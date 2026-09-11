@@ -489,6 +489,11 @@ body.msx-mode .section-label::after {
   flex: 0 0 auto;
 }
 
+/* The Jupiter Ace's RAM row spans both columns of the Hardware options grid. */
+.slider-row.ace-ram-row {
+  grid-column: 1 / -1;
+}
+
 .slider-row .slider-value { color: #555; }
 .pane input[type="range"] { background: #ccc; }
 
@@ -740,6 +745,12 @@ canvas {
   height: calc(var(--keyboard-scene-px) * var(--keyboard-scene-height));
   margin-inline: auto;
   flex: none;
+}
+/* Opt-in (KeyboardScene `fill`): docked, the face fills the pane's width rather
+   than stopping at the display scale. `cqh` falls back to the viewport outside
+   a size container, so the face still never grows taller than the window. */
+.keyboard-scene--fill {
+  --keyboard-scene-px: var(--keyboard-scene-fit);
 }
 .keyboard-scene__item { pointer-events: none; }
 .keyboard-scene__key { position: absolute; }
@@ -1420,6 +1431,130 @@ canvas {
   top: calc(var(--u1) * 3); bottom: auto; right: calc(var(--u1) * 3.5);
 }
 .zxk--zx80 .zxk-block rect { fill: #f2c53d; }
+
+/* ── Jupiter Ace keyboard ──────────────────────────────────────────────────
+   The Spectrum 48K's layout on the Ace's own case: white plastic, "very dark
+   brown" moulded-rubber keys "with characters marked in white" (Micro Choice,
+   Winter 1983). Each cap prints its glyph bottom-left and its SYMBOL SHIFT
+   character top-right; digit keys add a block swatch bottom-right, and their
+   SHIFT functions sit on the case below. */
+.acek-bezel {
+  position: relative;
+  --u1: var(--keyboard-scene-px);
+  padding: 0;
+}
+/* Full-bleed case backdrop (see .kbd-bezel::before): nothing may declare
+   `container-type` between here and .keyboard-scene-frame. */
+.acek-bezel::before {
+  content: '';
+  position: absolute;
+  inset: var(--case-bleed);
+  border-radius: calc(var(--u1) * 5);
+  background: linear-gradient(180deg, #f5f3ee 0%, #ebe8e1 60%, #dedad1 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    inset 0 -2px 8px rgba(0, 0, 0, 0.12),
+    0 2px 6px rgba(0, 0, 0, 0.35);
+}
+/* SHIFT functions below the digit keys — dark print on the white case. */
+.acek-below {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: calc(var(--u1) * 1);
+  text-align: center;
+  font-size: calc(var(--u1) * 6);
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: 0.1px;
+  color: #1c1a18;
+  white-space: pre-line;
+  overflow: visible;
+}
+.acek-below--arrow {
+  padding-top: 0;
+  font-size: calc(var(--u1) * 13);
+  font-weight: 400;
+  line-height: 1;
+}
+
+.acek-key {
+  position: relative;
+  border-radius: calc(var(--u1) * 4);
+  background: linear-gradient(177deg, #4a3a31 0%, #3a2d26 40%, #281f1a 100%);
+  border: 1px solid #140f0c;
+  color: #f4f1ec;
+  cursor: pointer;
+  user-select: none;
+  touch-action: none;
+  font-family: var(--font-ui);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    inset 0 -3px 4px rgba(0, 0, 0, 0.45),
+    0 1px 2px rgba(0, 0, 0, 0.45);
+  transition: background 0.08s ease, box-shadow 0.05s ease, transform 0.05s ease;
+}
+.acek-key:hover {
+  background: linear-gradient(177deg, #56443a 0%, #45362e 40%, #31261f 100%);
+}
+.acek-key:active,
+.acek-key.pressed {
+  background: linear-gradient(177deg, #231b16 0%, #1a1411 100%);
+  box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.7);
+  transform: translateY(1px);
+}
+
+/* Main glyph — bottom-left of the cap, clear of the symbol above it; shares
+   its baseline with the digit keys' block swatch. */
+.acek-main {
+  position: absolute;
+  left: calc(var(--u1) * 4);
+  bottom: calc(var(--u1) * 4);
+  font-size: calc(var(--u1) * 13);
+  font-weight: 700;
+  line-height: 1;
+}
+/* Block-graphics swatch — bottom-right of a digit key, level with the glyph.
+   Lit quadrants print white (as on screen); the rest shows the key through. */
+.acek-block {
+  position: absolute;
+  right: calc(var(--u1) * 4);
+  bottom: calc(var(--u1) * 4);
+  width: calc(var(--u1) * 10);
+  height: calc(var(--u1) * 10);
+  border: 1px solid #f4f1ec;
+}
+.acek-block rect { fill: #f4f1ec; }
+/* SYMBOL SHIFT character — top-right, level with the main glyph. */
+.acek-sym {
+  position: absolute;
+  top: calc(var(--u1) * 1);
+  right: calc(var(--u1) * 4);
+  font-size: calc(var(--u1) * 8);
+  font-weight: 700;
+  line-height: calc(var(--u1) * 13);
+}
+
+/* Special keys (SHIFT / SYMBOL SHIFT / ENTER / BREAK SPACE). */
+.acek-special {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.15;
+  font-size: calc(var(--u1) * 6.5);
+  font-weight: 700;
+  letter-spacing: 0.1px;
+}
+.acek-special--biglast span:first-child {
+  font-size: calc(var(--u1) * 6);
+  font-weight: 600;
+}
+.acek-special--biglast span:last-child {
+  font-size: calc(var(--u1) * 10);
+}
 
 /* Mouse pane */
 .mouse-pane { display: flex; flex-direction: column; gap: 6px; }

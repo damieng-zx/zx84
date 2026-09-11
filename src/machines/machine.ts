@@ -22,7 +22,7 @@ import type { MachineModel } from '@/models.ts';
 import type { OcrGridName, FontSource } from '@/ocr/ocr.ts';
 import type { BasicListingLine, BasicVariable } from '@/basic/types.ts';
 
-export type MachineKind = 'spectrum' | 'cpc' | 'einstein' | 'msx' | 'zx8x' | 'mtx' | 'sam' | 'lynx';
+export type MachineKind = 'spectrum' | 'cpc' | 'einstein' | 'msx' | 'zx8x' | 'mtx' | 'sam' | 'lynx' | 'jupiter-ace';
 
 /** Keyboard/ROM locale for international machine variants.
  *  'uk' = default (English, no locale-specific ROM/keyboard). */
@@ -362,6 +362,10 @@ export interface MachineUiCapabilities {
   /** Tape transport: 'deck' (pulse-level block list) or 'instant' (logical image).
    *  Omitted when the model has no cassette hardware (e.g. the GX4000 console). */
   readonly tape?: 'deck' | 'instant';
+  /** The machine traps its ROM's tape-load routine (the "Fast ROM loading"
+   *  toggle does something). Omitted when there is no trap — the Tape pane
+   *  then hides the toggle instead of offering a dead control. */
+  readonly fastRomLoading?: boolean;
   /** Loading-sound toggle applies (AY-audible tape loading). */
   readonly tapeSound: boolean;
   /** Extensions the tape loader accepts (Load picker). */

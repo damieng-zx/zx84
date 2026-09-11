@@ -106,6 +106,7 @@ const DEFAULTS = {
   'zx81-wrx-hires': 'off',
   'zx81-memotech-hrg': 'off',
   'zx81-quicksilva-hrg': 'off',
+  'ace-ram-pack':  '48k',
 } as const;
 
 type SettingKey = keyof typeof DEFAULTS;
@@ -458,6 +459,12 @@ const _zx81QuickSilvaHrg = /*@once*/ createRoot(() => createSignal(getSaved('zx8
 export const zx81QuickSilvaHrg = _zx81QuickSilvaHrg[0];
 export const setZx81QuickSilvaHrg = _zx81QuickSilvaHrg[1];
 
+/** Jupiter Ace RAM pack: 'none' (stock 3K), '16k' (16K pack, 19K total) or
+ *  '48k' (48K pack, 51K total). The 48K pack is the default. */
+const _aceRamPack = /*@once*/ createRoot(() => createSignal(getSaved('ace-ram-pack', D('ace-ram-pack')) as 'none' | '16k' | '48k'));
+export const aceRamPack = _aceRamPack[0];
+export const setAceRamPack = _aceRamPack[1];
+
 const _vtx5000Enabled = /*@once*/ createRoot(() => createSignal(getSaved('vtx5000', D('vtx5000')) === 'on'));
 export const vtx5000Enabled = _vtx5000Enabled[0];
 export const setVtx5000Enabled = _vtx5000Enabled[1];
@@ -588,6 +595,7 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'zx81-wrx-hires', set: setZx81WrxHires, type: 'bool' },
     { key: 'zx81-memotech-hrg', set: setZx81MemotechHrg, type: 'bool' },
     { key: 'zx81-quicksilva-hrg', set: setZx81QuickSilvaHrg, type: 'bool' },
+    { key: 'ace-ram-pack', set: setAceRamPack, type: 'string' },
   ],
   font: [
     { key: 'font', set: setFontName, type: 'string' },

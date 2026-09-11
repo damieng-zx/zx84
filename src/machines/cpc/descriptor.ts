@@ -43,6 +43,8 @@ function cpcUi(model: MachineModel): MachineUiCapabilities {
     // The GX4000 console has no cassette — drop the tape pane. Other CPC
     // models drive the deck through PPI Port B.
     tape: cpcHasTape(model) ? 'deck' : undefined,
+    // The CPC firmware's tape-read routine is trapped (see cpc-machine.ts).
+    fastRomLoading: cpcHasTape(model),
     tapeSound: false,
     tapeExtensions: cpcHasTape(model) ? ['.cdt', '.tzx', '.tap', '.zip'] : [],
     saveMenu: ['snapshot-sna-v2', 'snapshot-sna-v3', 'screenshot-png', 'screen-scr', 'ram-bin'],

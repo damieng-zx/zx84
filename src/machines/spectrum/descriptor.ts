@@ -53,6 +53,8 @@ function spectrumUi(model: MachineModel): MachineUiCapabilities {
     statusLeds: spectrumStatusLeds(model),
     keyboardBus: 'ula',
     tape: 'deck',
+    // LD-BYTES is trapped at LD-START when the 48K BASIC owns slot 0.
+    fastRomLoading: true,
     tapeSound: true,
     tapeExtensions: ['.tap', '.tzx', '.csw', '.zip'],
     saveMenu: ['snapshot-szx', 'snapshot-z80', 'screenshot-png', 'screen-scr', 'ram-bin'],

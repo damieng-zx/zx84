@@ -49,6 +49,8 @@ const SAM_UI: MachineUiCapabilities = {
   statusLeds: ['kbd', 'kemp', 'mouse', 'ear', 'load', 'dsk', 'beep', 'psg', 'rainbow', 'text'],
   keyboardBus: 'ula',
   tape: 'deck',
+  // The SAM ROM's tape-read routine is trapped (see sam-machine.ts).
+  fastRomLoading: true,
   tapeSound: false,
   tapeExtensions: ['.tap', '.tzx', '.csw', '.zip'],
   // No snapshot interchange format: screenshot, screen and RAM only. Naming a
