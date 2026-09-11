@@ -246,8 +246,15 @@ export abstract class BaseMachine {
     const audioPacing = multiplier === 1
       && this.audio.ctx !== null && this.audio.ctx.state === 'running';
     const perFrame = samplesPerFrame(this.audio.sampleRate);
-    const targetSamples = perFrame * TARGET_BUFFER_FRAMES;
-    const lowWaterSamples = perFrame * LOW_BUFFER_FRAMES;
+    // The fallback consumes 4096 samples in one main-thread callback, unlike
+    // the worklet's 128-sample quanta. Keep a full callback plus pacing slack
+    // queued, and leave room for the final frame's overshoot in the ring.
+    const blockSize = this.audio.outputBlockSize;
+    const targetSamples = Math.min(
+      this.audio.bufferCapacity - perFrame,
+      Math.max(perFrame * TARGET_BUFFER_FRAMES, blockSize + perFrame * 2),
+    );
+    const lowWaterSamples = Math.min(targetSamples, Math.max(perFrame * LOW_BUFFER_FRAMES, blockSize));
     const maxFrames = Math.max(2, Math.ceil(multiplier * 2));
 
     let framesRun = 0;

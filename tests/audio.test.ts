@@ -17,6 +17,9 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { BaseMachine } from '@/machines/base-machine.ts';
+import { Audio } from '@/audio.ts';
+import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 
 const RING_SIZE = 8192;
 
@@ -255,6 +258,52 @@ describe('machine audio gesture unlock', () => {
     m.destroy();
     m.initAudio();
     expect(m.audio.ctx).toBeNull();
+  });
+});
+
+/** Deterministic 50Hz source: exercises the real driver and ring together. */
+class PacedAudioMachine extends BaseMachine {
+  audio = new Audio();
+  mixer = new AudioMixer(3_500_000);
+  display = null;
+  frames = 0;
+  protected audioChip = { setSampleRate() {} };
+  protected framePixels() { return new Uint8Array(0); }
+  protected inTurbo() { return false; }
+  protected runFrame() {
+    this.frames++;
+    for (let i = 0; i < this.audio.sampleRate / 50; i++) this.audio.pushSample(0.5, 0.5);
+  }
+  pace(now: number) { this.runPacedFrames(now); }
+}
+
+describe('driver audio back-pressure', () => {
+  it.each([44100, 48000])('feeds every 4096-sample fallback callback at %i Hz', async (sampleRate) => {
+    workletNodeShouldThrow = true;
+    (globalThis as any).AudioContext = function () {
+      currentCtx = new MockCtx({ sampleRate });
+      return currentCtx;
+    } as any;
+    const m = new PacedAudioMachine();
+    await m.audio.init();
+    const callback = currentCtx!.scriptProcessors[0].onaudioprocess!;
+    const period = 4096 / sampleRate * 1000;
+    // Simulate two seconds of 60Hz rendering and real-sized audio callbacks;
+    // this is a finite event schedule, with no timers or wall-clock waiting.
+    const events = [
+      ...Array.from({ length: 121 }, (_, i) => ({ time: i * 1000 / 60, audio: false })),
+      ...Array.from({ length: Math.floor(2000 / period) }, (_, i) => ({ time: (i + 1) * period, audio: true })),
+    ].sort((a, b) => a.time - b.time);
+    for (const event of events) {
+      if (!event.audio) { m.pace(event.time); continue; }
+      const output = [new Float32Array(4096), new Float32Array(4096)];
+      callback({ outputBuffer: { getChannelData: (ch: number) => output[ch] } } as unknown as AudioProcessingEvent);
+      expect(output[0].every(sample => sample === 0.5), `underrun at ${event.time}ms`).toBe(true);
+    }
+    // 100 frames of elapsed emulation, plus a small prefilled audio lead.
+    expect(m.frames).toBeGreaterThanOrEqual(100);
+    expect(m.frames).toBeLessThanOrEqual(108);
+    m.destroy();
   });
 });
 

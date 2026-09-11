@@ -199,6 +199,12 @@ export class Audio {
     return ringBuffered(this.ring);
   }
 
+  /** Samples consumed together by the active output backend. */
+  get outputBlockSize(): number { return this.processor?.bufferSize ?? 128; }
+
+  /** One ring slot is reserved to distinguish full from empty. */
+  get bufferCapacity(): number { return RING_SIZE - 1; }
+
   setVolume(v: number): void {
     if (!Number.isFinite(v)) return;       // ignore NaN / ±Infinity
     const clamped = Math.max(0, Math.min(1, v));
