@@ -6,11 +6,7 @@
 
 import type { Machine, MachineHost } from '@/machines/machine.ts';
 import { entryForModel } from '@/machines/registry.ts';
-import {
-  type MachineModel,
-  romPageSlotCount,
-  romSlotSize,
-} from '@/models.ts';
+import type { MachineModel } from '@/models.ts';
 import { FloppySound } from '@/media/floppy/floppy-sound.ts';
 import type { RomPage } from '@/managers/rom-manager.ts';
 import { type TraceMode } from '@/managers/debug-manager.ts';
@@ -39,6 +35,7 @@ import {
 } from '@/shell/context.ts';
 import {
   persistROM, restoreROM, fetchDefaultROM, ensure128kROM, updateRomPaneInfo, fulfillAuxRoms,
+  assembleSystemRom,
 } from '@/shell/rom.ts';
 import {
   stashOutgoingTape, restoreTapeForMachine, restoreMedia,
@@ -414,24 +411,8 @@ export async function switchModel(model: MachineModel): Promise<void> {
   if (generation !== modelSwitchGeneration || currentModel() !== model) return;
 
   if (entry) {
-    let data = entry.data;
-    const pageCount = romPageSlotCount(romModel);
-    if (pageCount > 0) {
-      // Splice any per-slot overrides onto the base image, without mutating the
-      // cached default. Slot stride is model-specific (Spectrum 16K × 2/4;
-      // MTX 8K × 5) — the concatenation order matches the machine's ROM layout.
-      const slotSize = romSlotSize(romModel);
-      const pages = await Promise.all(
-        Array.from({ length: pageCount }, (_, page) => romManager.restoreROMPage(key, page as RomPage))
-      );
-      if (generation !== modelSwitchGeneration || currentModel() !== model) return;
-      if (pages.some(p => p !== null)) {
-        data = new Uint8Array(entry.data);
-        pages.forEach((p, page) => {
-          if (p) data.set(p.data.subarray(0, slotSize), page * slotSize);
-        });
-      }
-    }
+    const data = await assembleSystemRom(entry.data, romModel, key);
+    if (generation !== modelSwitchGeneration || currentModel() !== model) return;
     setRomData(data);
     setRomStatus('');
   } else {
@@ -487,7 +468,9 @@ export async function init(): Promise<void> {
 
   if (generation !== modelSwitchGeneration || currentModel() !== model) return;
   if (entry) {
-    setRomData(entry.data);
+    const data = await assembleSystemRom(entry.data, romModel, key);
+    if (generation !== modelSwitchGeneration || currentModel() !== model) return;
+    setRomData(data);
     setRomStatus('');
     await createMachine();
     if (generation !== modelSwitchGeneration || currentModel() !== model) return;
