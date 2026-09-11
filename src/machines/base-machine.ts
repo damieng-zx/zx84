@@ -105,11 +105,13 @@ export abstract class BaseMachine {
   /** Live AudioContext once audio is initialised (drive-sound synth attach). */
   get audioContext(): AudioContext | null { return this.audio.ctx; }
 
-  /** Unlock the AudioContext on the first user gesture without starting the
+  /** Unlock the AudioContext on a user gesture without starting the
    *  frame loop (browsers require a gesture before audio may run). No-op once
    *  audio is already running. */
   initAudio(): void {
-    if (!this.audio.running) void this.audio.init();
+    // Audio.running means the output pipeline exists, not that autoplay has
+    // allowed its context to run. init() resumes an existing suspended context.
+    if (!this.destroyed && this.audio.ctx?.state !== 'running') void this.audio.init();
   }
 
   setSpeedMultiplier(multiplier: number | null): void {
