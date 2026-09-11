@@ -3,11 +3,16 @@
  * lib/formats/ace_tap.cpp).
  *
  * An Ace .tap is a sequence of [len16][bytes] chunks — but unlike a Spectrum
- * TAP, chunks carry NO flag byte and NO checksum byte. The block type is
- * implied by the chunk length: 0x001A (26) = header, anything else = data.
- * The flag the ROM receives is synthesized from that (0x00 for a header,
- * 0xFF for data), followed by the chunk bytes verbatim. The last chunk byte
- * is the loader's checksum, part of the received stream.
+ * TAP, chunks carry NO flag byte of their own. The block type is implied by
+ * the chunk length (0x001A = header) AND by position: a file is always a
+ * header followed by its data, so the chunk after a header is that data
+ * whatever its length. A 25-byte payload plus its checksum is itself a
+ * 0x001A chunk, and calling that one a header (as MAME's ace_tap.cpp
+ * length-only rule does) hands the ROM a 0x00 flag where it wants 0xFF: it
+ * fails the flag test at 0x18DC and goes back to hunting for a header, so
+ * the load stalls. The flag is synthesized from the decision (0x00 header,
+ * 0xFF data) and the chunk bytes follow verbatim, the last of them being the
+ * loader's checksum, part of the received stream.
  *
  * Header payload (25 bytes + trailing checksum = the 26-byte chunk):
  *
@@ -108,6 +113,8 @@ export function parseAceTapeHeader(data: Uint8Array): AceTapeFile | null {
 export function parseAceTap(fileData: Uint8Array): TapeBlock[] {
   const blocks: TapeBlock[] = [];
   let offset = 0;
+  /** The chunk right after a header is that file's data, whatever its size. */
+  let expectData: boolean = false;
   while (offset + 2 <= fileData.length) {
     const chunkLen = fileData[offset] | (fileData[offset + 1] << 8);
     offset += 2;
@@ -115,7 +122,8 @@ export function parseAceTap(fileData: Uint8Array): TapeBlock[] {
     const chunk = fileData.slice(offset, offset + chunkLen);
     offset += chunkLen;
 
-    const isHeader = chunkLen === ACE_TAPE_HEADER_CHUNK;
+    const isHeader: boolean = !expectData && chunkLen === ACE_TAPE_HEADER_CHUNK;
+    expectData = isHeader;
     const flag = isHeader ? 0x00 : 0xFF;
     const rawBytes = new Uint8Array(chunkLen + 1);
     rawBytes[0] = flag;

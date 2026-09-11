@@ -126,6 +126,29 @@ describe('parseAceTap — the flag-less chunk container', () => {
     expect(Math.round(d.bit1Pulse * scale)).toBe(1591);
   });
 
+  it('treats the chunk after a header as data even when it is 26 bytes long', () => {
+    // A 25-byte payload plus its checksum is a 0x001A chunk, the same length
+    // as a header. Ace files are header-then-data pairs, so this is the data:
+    // flag it 0x00 and the ROM, waiting with C = 0xFF, fails the flag test at
+    // 0x18DC and goes back to hunting for a header that never comes.
+    const blocks = parseAceTap(tap([
+      aceHeader({ type: 0, name: 'X', length: 25, start: 15441 }),
+      new Uint8Array(ACE_TAPE_HEADER_CHUNK).fill(7),
+    ]));
+    expect(blocks.length).toBe(2);
+    expect((blocks[0] as DataBlock).flag).toBe(0x00);
+    const data = blocks[1] as DataBlock;
+    expect(data.flag).toBe(0xFF);
+    expect(data.rawBytes?.[0]).toBe(0xFF);
+    expect(data.pilotCount).toBe(1024);   // the short data-block pilot
+  });
+
+  it('starts a fresh pair on the chunk after the data block', () => {
+    const header = aceHeader({ type: 0, name: 'A', length: 2, start: 15441 });
+    const blocks = parseAceTap(tap([header, Uint8Array.from([1, 2, 3]), header]));
+    expect(blocks.map(b => (b as DataBlock).flag)).toEqual([0x00, 0xFF, 0x00]);
+  });
+
   it('stops cleanly on a truncated chunk', () => {
     const good = tap([aceHeader({ type: 0, name: 'OK', length: 1, start: 15441 })]);
     const blocks = parseAceTap(new Uint8Array([...good, 0x05, 0x00, 1, 2]));
