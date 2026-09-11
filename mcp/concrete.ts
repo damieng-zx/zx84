@@ -118,24 +118,30 @@ export async function applyHeadlessKnobs(machine: Machine, options: InitMachineO
     // Cheap scanline rendering — the MCP framebuffer is only read on demand.
     (machine as unknown as { scanlineAccuracy: string }).scanlineAccuracy = 'low';
   }
+  // Every machine gets a SettingsView and its prepare() hook, not just the
+  // zx8x: a machine that never sees one keeps whatever its constructor left.
+  // The Jupiter Ace boots with no RAM pack that way, and since its FORTH ROM
+  // probes the expansion once at boot to set RAMTOP, nothing real will load
+  // afterwards. Unknown keys fall back, so each machine still chooses its own
+  // defaults — the same ones the browser shell's settings view supplies.
+  const view = {
+    get<T>(key: string, fallback: T): T {
+      if (key === 'zx8x-16k-ram') return zx8x16k as T;
+      if (key === 'zx81-udg-ram') return zx81Udg as T;
+      if (key === 'zx81-udg128-ram') return zx81Udg128 as T;
+      if (key === 'zx81-wrx-hires') return zx81Wrx as T;
+      if (key === 'zx81-memotech-hrg') return zx81Memotech as T;
+      if (key === 'zx81-quicksilva-hrg') return zx81QuickSilva as T;
+      return fallback;
+    },
+  };
+  machine.applySettings(view);
+  for (const request of machine.prepare?.(view) ?? []) {
+    const response = await fetch(request.source);
+    if (!response.ok) throw new Error(`${request.failMsg}: HTTP ${response.status}`);
+    request.apply(new Uint8Array(await response.arrayBuffer()));
+  }
   if (machine.kind === 'zx8x') {
-    const view = {
-      get<T>(key: string, fallback: T): T {
-        if (key === 'zx8x-16k-ram') return zx8x16k as T;
-        if (key === 'zx81-udg-ram') return zx81Udg as T;
-        if (key === 'zx81-udg128-ram') return zx81Udg128 as T;
-        if (key === 'zx81-wrx-hires') return zx81Wrx as T;
-        if (key === 'zx81-memotech-hrg') return zx81Memotech as T;
-        if (key === 'zx81-quicksilva-hrg') return zx81QuickSilva as T;
-        return fallback;
-      },
-    };
-    machine.applySettings(view);
-    for (const request of machine.prepare?.(view) ?? []) {
-      const response = await fetch(request.source);
-      if (!response.ok) throw new Error(`${request.failMsg}: HTTP ${response.status}`);
-      request.apply(new Uint8Array(await response.arrayBuffer()));
-    }
     const hires = machine.model === 'zx81'
       ? ` HIRES=${zx81QuickSilva ? 'QuickSilva' : zx81Memotech ? 'Memotech'
         : zx81Wrx ? 'WRX' : zx81Udg128 ? 'UDG-128' : zx81Udg ? 'UDG' : 'off'}`
