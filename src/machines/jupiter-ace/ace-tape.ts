@@ -25,7 +25,11 @@
  *          + XOR (7) + INC L (4) + JR NZ (12) + JR NZ (12) per OUT at
  *          0x183B; 8192 of them per header, 1024 per data block
  *   sync   601T (0x1845's DJNZ×43) then 791T (0x184C's DJNZ×59)
- *   bit 0  two 795T half-cycles    bit 1  two 1585T half-cycles
+ *   bit 0  two ~801T half-cycles   bit 1  two ~1591T half-cycles — the
+ *          0x185C loop: DJNZ×58 (749) + 12T when the carry is clear, or
+ *          + JR NC (7) + LD B,3D (7) + DJNZ×61 (788) when it is set. The
+ *          halves alternate 801T/802T as B drops by one between bits, so
+ *          the deck plays the 801T/1591T representative of each.
  *
  * TWO edges per bit, exactly like the Spectrum: the loader's per-bit
  * measurement at 0x18FC calls 0x1911, which times one edge and then falls
@@ -36,7 +40,7 @@
  * filter at 0x18BA never accepts its 256 cycles.
  *
  * In the deck's 3.5MHz-referenced units these sit within a few T of the
- * Spectrum's own standard timings (2166/647/852/856/1707 against
+ * Spectrum's own standard timings (2166/647/852/863/1713 against
  * 2168/667/735/855/1710) — the two tape interfaces share a designer.
  * MAME's ace_tap.cpp waveform (27/27, 8/11, 10/11 and 21/22 samples at
  * 44.1kHz) is the same geometry.
@@ -60,8 +64,8 @@ const ref = (aceT: number): number => Math.round(aceT * (3_500_000 / 3_250_000))
 const ACE_PILOT_PULSE = ref(2011);   // 2166 → 2011T played
 const ACE_SYNC_1 = ref(601);         // 647 → 601T
 const ACE_SYNC_2 = ref(791);         // 852 → 791T
-const ACE_BIT_0 = ref(795);          // 856 → 795T
-const ACE_BIT_1 = ref(1585);         // 1707 → 1585T
+const ACE_BIT_0 = ref(801);          // 863 → 802T
+const ACE_BIT_1 = ref(1591);         // 1713 → 1591T
 /** Pilot edges the SAVE routine emits: 0x2000 per header, 0x400 per data
  *  block (the INC L / INC H loop at 0x183F, one OUT per iteration). */
 const ACE_PILOT_HEADER = 8192;

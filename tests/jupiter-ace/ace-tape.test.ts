@@ -113,8 +113,8 @@ describe('parseAceTap — the flag-less chunk container', () => {
     expect(h.pilotPulse).toBe(2166);
     expect(h.syncPulse1).toBe(647);
     expect(h.syncPulse2).toBe(852);
-    expect(d.bit0Pulse).toBe(856);
-    expect(d.bit1Pulse).toBe(1707);
+    expect(d.bit0Pulse).toBe(863);
+    expect(d.bit1Pulse).toBe(1713);
     expect(h.pilotCount).toBe(8192);
     expect(d.pilotCount).toBe(1024);
     // Through the deck's pulseScale these land back on the ROM's own widths.
@@ -122,14 +122,117 @@ describe('parseAceTap — the flag-less chunk container', () => {
     expect(Math.round(h.pilotPulse * scale)).toBe(2011);
     expect(Math.round(h.syncPulse1 * scale)).toBe(601);
     expect(Math.round(h.syncPulse2 * scale)).toBe(791);
-    expect(Math.round(d.bit0Pulse * scale)).toBe(795);
-    expect(Math.round(d.bit1Pulse * scale)).toBe(1585);
+    expect(Math.round(d.bit0Pulse * scale)).toBe(801);
+    expect(Math.round(d.bit1Pulse * scale)).toBe(1591);
   });
 
   it('stops cleanly on a truncated chunk', () => {
     const good = tap([aceHeader({ type: 0, name: 'OK', length: 1, start: 15441 })]);
     const blocks = parseAceTap(new Uint8Array([...good, 0x05, 0x00, 1, 2]));
     expect(blocks.length).toBe(1);   // the trailing chunk claims 5 bytes, 2 remain
+  });
+});
+
+describe('tape widths derived from the ROM SAVE routine (0x1820-0x189A)', () => {
+  /** DJNZ costs 13T per taken iteration and 8T on the final one. */
+  const djnz = (count: number): number => (count - 1) * 13 + 8;
+  const scale = 3_250_000 / 3_500_000;
+  const played = (refT: number): number => Math.round(refT * scale);
+
+  const blocks = parseAceTap(new Uint8Array([
+    ACE_TAPE_HEADER_CHUNK, 0, ...aceHeader({ type: 0, name: 'A', length: 1, start: 15441 }),
+    2, 0, 1, 0xAA,
+  ]));
+  const header = blocks[0] as DataBlock;
+  const data = blocks[1] as DataBlock;
+
+  it('pilot: the 0x1837 loop is 2011T per edge, 0x2000 / 0x400 edges long', () => {
+    // LD B,97 (7) + DJNZ×0x97 + OUT (11) + XOR 08 (7) + INC L (4)
+    // + JR NZ to 0x1843 (12) + JR NZ back to 0x1837 (12).
+    const pilotEdge = 7 + djnz(0x97) + 11 + 7 + 4 + 12 + 12;
+    expect(pilotEdge).toBe(2011);
+    expect(played(header.pilotPulse)).toBe(pilotEdge);
+    // HL counts up to zero from 0xE000 for a header, 0xFC00 for a data block.
+    expect(header.pilotCount).toBe(0x10000 - 0xE000);
+    expect(data.pilotCount).toBe(0x10000 - 0xFC00);
+  });
+
+  it('sync: 601T from the 0x1845 delay, then 791T from the 0x184C delay', () => {
+    // Pilot-loop tail (XOR 7 + INC L 4 + JR NZ 7 + INC H 4 + JR NZ 7 = 29)
+    // + LD B,2B (7) + DJNZ×0x2B + OUT (11).
+    const sync1 = 29 + 7 + djnz(0x2B) + 11;
+    // LD L,C (4) + LD BC,3B08 (10) + DJNZ×0x3B + LD A,C (4) + OUT (11).
+    const sync2 = 4 + 10 + djnz(0x3B) + 4 + 11;
+    expect(sync1).toBe(601);
+    expect(sync2).toBe(791);
+    expect(played(header.syncPulse1)).toBe(sync1);
+    expect(played(header.syncPulse2)).toBe(sync2);
+  });
+
+  it("bits: the 0x185C loop gives ~801T for a '0' and ~1591T for a '1'", () => {
+    // Between two OUTs: LD B,3A (7) + JP NZ (10) + LD A,C (4) + BIT 7,B (8)
+    // + DJNZ×0x3A + OUT (11), plus the carry-set detour for a '1'
+    // (JR NC not taken 7 + LD B,3D 7 + DJNZ×0x3D).
+    const common = 7 + 10 + 4 + 8 + djnz(0x3A) + 11;
+    const bit0 = common + 12;                          // JR NC taken
+    const bit1 = common + 7 + 7 + djnz(0x3D);
+    expect(bit0).toBe(801);
+    expect(bit1).toBe(1591);
+    // A 3.5MHz-referenced round trip costs at most a T either way.
+    expect(Math.abs(played(data.bit0Pulse) - bit0)).toBeLessThanOrEqual(1);
+    expect(Math.abs(played(data.bit1Pulse) - bit1)).toBeLessThanOrEqual(1);
+  });
+});
+
+describe('played widths against the ROM loader filters (0x18A7-0x192C)', () => {
+  // The sampler at 0x1915 polls the EAR every 59T (INC B, RET Z, LD A,7F,
+  // IN, RRA, RET NC, XOR C, AND 10, JR Z) after a ~326T settle delay, with B
+  // counting one per poll and a wrap to zero meaning "timed out". 0x1911
+  // measures a whole CYCLE by calling 0x1915 twice and letting it fall
+  // through, so the pilot filter (B based 0xB8, accept > 0xDF) and the
+  // per-bit read (B based 0xC7, a 1 when > 0xE2) both span two edges; only
+  // the sync search at 0x18C7 measures a single edge (B based 0xCF, exit
+  // when <= 0xD8).
+  const PASS_T = 59;
+  const bAfter = (base: number, spanT: number, overheadT: number): number =>
+    base + Math.floor((spanT - overheadT) / PASS_T);
+  // The fixed work around the poll loop is ~790T per cycle and ~400T per
+  // single edge; assert the classification over a generous range of it
+  // rather than pinning a figure that hand-counting could get slightly off.
+  const CYCLE_OVERHEAD = [700, 750, 800, 850, 900];
+  const EDGE_OVERHEAD = [350, 400, 450];
+
+  it('a 2011T pilot cycle is counted as pilot and never wraps B', () => {
+    for (const overhead of CYCLE_OVERHEAD) {
+      const b = bAfter(0xB8, 2 * 2011, overhead);
+      expect(b).toBeGreaterThan(0xDF);
+      expect(b).toBeLessThan(0x100);
+    }
+  });
+
+  it('sync1 ends the pilot search but a pilot edge does not', () => {
+    for (const overhead of EDGE_OVERHEAD) {
+      expect(bAfter(0xCF, 601, overhead)).toBeLessThanOrEqual(0xD8);
+      expect(bAfter(0xCF, 2011, overhead)).toBeGreaterThan(0xD8);
+    }
+  });
+
+  it("reads a '0' cycle as 0 and a '1' cycle as 1, with margin", () => {
+    for (const overhead of CYCLE_OVERHEAD) {
+      expect(bAfter(0xC7, 2 * 801, overhead)).toBeLessThanOrEqual(0xE2 - 2);
+      const one = bAfter(0xC7, 2 * 1591, overhead);
+      expect(one).toBeGreaterThanOrEqual(0xE2 + 3);
+      expect(one).toBeLessThan(0x100);
+    }
+  });
+
+  it('a one-edge-per-bit waveform overflows B and never loads', () => {
+    // Why the deck must not play a bit as a single wide pulse: two 2900T
+    // edges make a 5800T cycle, which runs B past 0xFF from its 0xB8 base,
+    // so 0x18BA times out instead of counting its 256 pilot cycles.
+    for (const overhead of CYCLE_OVERHEAD) {
+      expect(bAfter(0xB8, 2 * 2900, overhead)).toBeGreaterThanOrEqual(0x100);
+    }
   });
 });
 

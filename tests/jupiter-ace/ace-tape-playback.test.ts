@@ -10,7 +10,8 @@
  *                     + DJNZ×43 (42×13+8) + OUT (11)                  = 601T
  *   sync 2            LD L,C (4) + LD BC,3B08 (10) + DJNZ×59 (58×13+8)
  *                     + LD A,C (4) + OUT (11)                         = 791T
- *   bit 0 / bit 1     two equal half-cycles of 795T / 1585T
+ *   bit 0 / bit 1     two equal half-cycles of ~801T / ~1591T (the 0x185C
+ *                     loop, with the carry-set detour through 0x1860)
  *   pilot edges       8192 per header block, 1024 per data block
  *
  * Two edges per bit is what the loader demands: its per-bit measurement at
@@ -27,8 +28,8 @@ import { ACE_CPU_CLOCK } from '@/machines/jupiter-ace/constants.ts';
 const PILOT_T = 2011;
 const SYNC1_T = 601;
 const SYNC2_T = 791;
-const BIT0_T = 795;
-const BIT1_T = 1585;
+const BIT0_T = 801;
+const BIT1_T = 1591;
 const PILOT_EDGES_HEADER = 8192;
 const PILOT_EDGES_DATA = 1024;
 
