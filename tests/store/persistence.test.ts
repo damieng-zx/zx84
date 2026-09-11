@@ -349,6 +349,43 @@ describe('persistTape / restoreTape / clearTape', () => {
 // ─────────────────────────────────────────────────────────────────────────
 
 describe('persistDisk / restoreDisk / clearDisk', () => {
+  it('isolates all built-in drives from other families and the +D', async () => {
+    const p = await load();
+    await p.persistDisk(0, new Uint8Array([1]), 'spectrum.dsk', 'spectrum');
+    await p.persistDisk(0, new Uint8Array([3]), 'lynx.ldf', 'lynx');
+    await p.persistDisk(2, new Uint8Array([4]), 'lynx-c.ldf', 'lynx');
+    await p.persistPlusDDisk(0, new Uint8Array([5]), 'plusd.mgt');
+    expect((await p.restoreDisk(0, 'spectrum'))?.data).toEqual(new Uint8Array([1]));
+    expect((await p.restoreDisk(0, 'lynx'))?.data).toEqual(new Uint8Array([3]));
+    expect((await p.restoreDisk(2, 'lynx'))?.data).toEqual(new Uint8Array([4]));
+    expect((await p.restorePlusDDisk(0))?.data).toEqual(new Uint8Array([5]));
+  });
+
+  it('migrates Lynx C without claiming the +D image in D', async () => {
+    const p = await load();
+    storage.setItem('zx84-disk-c-file', 'lynx.ldf');
+    memDB.store.set('disk-c-file', new Uint8Array([3]));
+    await p.persistPlusDDisk(1, new Uint8Array([4]), 'plusd.mgt');
+    await p.migrateDiskStorage();
+    expect((await p.restoreDisk(2, 'lynx'))?.data).toEqual(new Uint8Array([3]));
+    expect(await p.restorePlusDDisk(0)).toBeNull();
+    expect((await p.restorePlusDDisk(1))?.name).toBe('plusd.mgt');
+  });
+
+  it('keeps the legacy image when migration fails and preserves newer mounted media', async () => {
+    const p = await load();
+    storage.setItem('zx84-disk-a-file', 'lynx.ldf');
+    memDB.store.set('disk-a-file', new Uint8Array([1]));
+    memDB.failPutKey = 'disk-lynx-builtin-a-file';
+    await p.migrateDiskStorage();
+    expect(storage.getItem('zx84-disk-a-file')).toBe('lynx.ldf');
+    memDB.failPutKey = null;
+    await p.persistDisk(0, new Uint8Array([9]), 'new.ldf', 'lynx');
+    await p.migrateDiskStorage();
+    expect((await p.restoreDisk(0, 'lynx'))?.data).toEqual(new Uint8Array([9]));
+    expect(storage.getItem('zx84-disk-a-file')).toBeNull();
+  });
+
   it('unit 0 and unit 1 use distinct keys (suffix a vs b)', async () => {
     const p = await load();
     await p.persistDisk(0, new Uint8Array([1]), 'A.dsk');

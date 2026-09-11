@@ -15,7 +15,7 @@ import { FloppySound } from '@/media/floppy/floppy-sound.ts';
 import type { RomPage } from '@/managers/rom-manager.ts';
 import { type TraceMode } from '@/managers/debug-manager.ts';
 import * as settings from '@/store/settings.ts';
-import { clearLastFile } from '@/store/persistence.ts';
+import { clearLastFile, migrateDiskStorage } from '@/store/persistence.ts';
 import { decideFocusPause } from '@/focus-pause.ts';
 import {
   currentModel, setCurrentModel, saveModel, emulationPaused, setEmulationPaused,
@@ -462,6 +462,7 @@ export function setCanvas(el: HTMLCanvasElement): void {
 // ── Init ────────────────────────────────────────────────────────────────
 
 export async function init(): Promise<void> {
+  await migrateDiskStorage();
   const model = currentModel();
   const locale = currentLocale();
 
