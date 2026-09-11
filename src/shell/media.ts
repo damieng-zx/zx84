@@ -192,7 +192,7 @@ async function reflectMount(
     u.setName(filename);
     if (persistMedia) {
       if (unit === 0) persistLastFile(data, filename);
-      persistDisk(unit, data, filename);
+      persistDisk(unit, data, filename, m.kind);
     }
   } else if (target.startsWith('plusd:')) {
     const u = Number(target.slice(6));
@@ -447,7 +447,7 @@ export function ejectDisk(unit: number = 0): void {
   const u = DISK_UNITS[unit];
   if (!machine || !disks || !u) return;
   disks.eject(u.id);
-  clearDisk(unit);
+  clearDisk(unit, machine.kind);
   u.setInfo(null);
   u.setName('');
   u.setSide?.(0);
@@ -592,7 +592,7 @@ export function loadDiskToUnit(data: Uint8Array, filename: string, unit: number)
     u.setName(filename);
     if (machine.descriptor.ui.persistMedia) {
       if (unit === 0) persistLastFile(data, filename);
-      persistDisk(unit, data, filename);
+      persistDisk(unit, data, filename, machine.kind);
     }
     setStatus(`Disk ${u.id.toUpperCase()}: loaded: ${filename}`);
   } catch (e) {
@@ -900,7 +900,7 @@ export async function restoreMedia(): Promise<void> {
     for (let unit = 0; unit < (machine.descriptor.ui.builtinDrives ?? 2); unit++) {
       const u = DISK_UNITS[unit];
       if (!u) continue;
-      const disk = await restoreDisk(unit);
+      const disk = await restoreDisk(unit, m.kind);
       if (!disk) continue;
       const id = u.id;
       // Re-mount through the machine's OWN media service, exactly as a fresh

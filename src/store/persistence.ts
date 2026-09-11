@@ -187,21 +187,61 @@ function clearDiskSuffix(suffix: string): void {
   } catch { /* */ }
 }
 
-/** Built-in drive suffix for a unit: 0..3 → 'a'..'d'. */
-function diskSuffix(unit: number): string {
-  return 'abcd'[unit] ?? 'a';
+/** The Spectrum's original A/B keys remain its own; other motherboards have
+ *  separate built-in drives, including the Lynx's C/D (never the +D's C/D). */
+function diskSuffix(unit: number, kind: string): string {
+  const letter = 'abcd'[unit] ?? 'a';
+  return kind === 'spectrum' && unit < 2 ? letter : `${kind}-builtin-${letter}`;
 }
 
-export async function persistDisk(unit: number, data: Uint8Array, filename: string): Promise<void> {
-  return persistDiskSuffix(diskSuffix(unit), data, filename);
+export async function persistDisk(unit: number, data: Uint8Array, filename: string, kind = 'spectrum'): Promise<void> {
+  return persistDiskSuffix(diskSuffix(unit, kind), data, filename);
 }
 
-export async function restoreDisk(unit: number): Promise<{ data: Uint8Array; name: string } | null> {
-  return restoreDiskSuffix(diskSuffix(unit));
+export async function restoreDisk(unit: number, kind = 'spectrum'): Promise<{ data: Uint8Array; name: string } | null> {
+  return restoreDiskSuffix(diskSuffix(unit, kind));
 }
 
-export function clearDisk(unit: number): void {
-  clearDiskSuffix(diskSuffix(unit));
+export function clearDisk(unit: number, kind = 'spectrum'): void {
+  clearDiskSuffix(diskSuffix(unit, kind));
+}
+
+/** Move pre-isolation SAM/Lynx images out of the Spectrum's historical keys.
+ *  Run at startup before any mounts. LDF and raw MGT/IMG identify their owner;
+ *  ambiguous DSK/HFE/SCP images use the last saved model (Spectrum by default).
+ *  Legacy records have no owner metadata, so earlier overwritten images cannot
+ *  be recovered. A failed migration keeps the original available for retry. */
+export async function migrateDiskStorage(): Promise<void> {
+  if (getSaved('disk-storage-version', '') === '2') return;
+  const lastModel = getSaved('model', '128k');
+  let complete = true;
+  for (let unit = 0; unit < 4; unit++) {
+    const legacy = 'abcd'[unit];
+    const name = getSaved(`disk-${legacy}-file`, '');
+    if (!name) continue;
+    let data: Uint8Array | null;
+    try { data = await dbLoad(`disk-${legacy}-file`); }
+    catch { complete = false; continue; }
+    if (!data?.length) continue;
+    const saved = { name, data };
+    const kind = /\.ldf$/i.test(saved.name) ? 'lynx'
+      : unit < 2 && (/\.(mgt|img)$/i.test(saved.name)
+        || (saved.data[0] === 0x1F && saved.data[1] === 0x8B)
+        || /^sam(256|512)$/.test(lastModel)) ? 'sam' : null;
+    if (!kind) continue;
+    const suffix = diskSuffix(unit, kind);
+    try {
+      // Never replace an image already saved by this version.
+      if (localStorage.getItem(`zx84-disk-${suffix}-file`) === null) {
+        await dbSave(`disk-${suffix}-file`, saved.data);
+        localStorage.setItem(`zx84-disk-${suffix}-file`, saved.name);
+      }
+      localStorage.removeItem(`zx84-disk-${legacy}-file`);
+    } catch { complete = false; /* retain the legacy record until migration succeeds */ }
+  }
+  // A/B remain live Spectrum keys: never reclassify future Spectrum mounts
+  // just because the last-used machine later changes to a SAM.
+  if (complete) setSaved('disk-storage-version', '2');
 }
 
 // MGT +D drives C:/D: (WD1772 units 0/1) — separate keys from the main FDC.

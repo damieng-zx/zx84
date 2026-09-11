@@ -348,6 +348,7 @@ vi.mock('@/store/settings.ts', () => ({
 }));
 
 vi.mock('@/store/persistence.ts', () => ({
+  migrateDiskStorage: vi.fn(async () => {}),
   clearLastFile:   vi.fn(),
   restoreTape:     vi.fn(async () => null),
   restoreDisk:     vi.fn(async () => null),
