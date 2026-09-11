@@ -97,7 +97,9 @@ export function App() {
     document.addEventListener('keydown', inputController.onKeyDown);
     document.addEventListener('keyup', inputController.onKeyUp);
     window.addEventListener('blur', inputController.onBlur);
-    document.addEventListener('click', initAudio, { once: true });
+    // An early click can precede ROM loading, and a model switch creates a new
+    // context. Keep the idempotent unlock available for subsequent gestures.
+    document.addEventListener('click', initAudio);
 
     // Auto-pause emulation when the tab is hidden or the window loses focus.
     // A single handler covers both "tab hidden" (visibilitychange) and "window

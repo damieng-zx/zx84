@@ -234,6 +234,30 @@ describe('Audio.init — ScriptProcessor fallback (no SharedArrayBuffer)', () =>
   });
 });
 
+describe('machine audio gesture unlock', () => {
+  it('resumes an autoplay-suspended context even though its output pipeline is initialized', async () => {
+    const { Zx8xMachine } = await import('@/machines/zx8x/zx8x-machine.ts');
+    (globalThis as any).AudioContext = function () {
+      currentCtx = new MockCtx();
+      currentCtx.state = 'suspended';
+      return currentCtx;
+    } as any;
+    const m = new Zx8xMachine('zx80', null);
+    await m.start();
+    const ctx = currentCtx!;
+    expect(m.audio.running).toBe(true);
+    expect(ctx.state).toBe('suspended');
+    m.initAudio();
+    expect(ctx.resumeCount).toBe(1);
+    expect(ctx.state).toBe('running');
+    m.initAudio();
+    expect(ctx.resumeCount).toBe(1);
+    m.destroy();
+    m.initAudio();
+    expect(m.audio.ctx).toBeNull();
+  });
+});
+
 // ─────────────────────────────────────────────────────────────────────────
 // pushSample / bufferedSamples — worklet path
 // ─────────────────────────────────────────────────────────────────────────
