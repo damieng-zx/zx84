@@ -70,11 +70,12 @@ async function gunzip(data: Uint8Array): Promise<Uint8Array> {
 async function unwrapped(
   data: Uint8Array,
   filename: string,
+  exts: readonly string[],
 ): Promise<{ data: Uint8Array; filename: string }> {
   let out = data;
   let name = filename;
   if (isZip(out)) {
-    const entries = await unzip(out);
+    const entries = await unzip(out, exts);
     if (entries.length === 0) throw new Error('no loadable file inside');
     // Several entries is unusual here (the shell's picker handles the archives
     // that announce themselves); prefer one this machine can actually mount.
@@ -114,7 +115,7 @@ export class SamMediaService implements MediaService {
     let data: Uint8Array;
     let filename: string;
     try {
-      ({ data, filename } = await unwrapped(rawData, rawName));
+      ({ data, filename } = await unwrapped(rawData, rawName, this.accepts().map(t => t.ext)));
     } catch (e) {
       return fail(`Could not expand ${rawName}: ${(e as Error).message}`);
     }
