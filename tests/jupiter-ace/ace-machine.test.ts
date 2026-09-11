@@ -216,6 +216,21 @@ describe('JupiterAceMachine — RAM pack option', () => {
     expect(m.ramExportBytes().data.length).toBe(0xC00 + 0xC000);
     m.destroy();
   });
+
+  it('re-pumping the settings does not wipe the pack', () => {
+    // Every pane change pushes a fresh SettingsView through applySettings —
+    // the volume slider does it on each drag step. Anything the user has
+    // loaded into the pack has to survive that.
+    const packView = (pack: string) => ({
+      get<T>(key: string, fallback: T): T { return key === 'ace-ram-pack' ? (pack as T) : fallback; },
+    });
+    const m = machine();
+    m.prepare!(packView('48k'));
+    m.memory.writeByte(0x8000, 0x42);
+    m.applySettings(packView('48k'));
+    expect(m.memory.readByte(0x8000)).toBe(0x42);
+    m.destroy();
+  });
 });
 
 describe('JupiterAceMachine — tape turbo', () => {

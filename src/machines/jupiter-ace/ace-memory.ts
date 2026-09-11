@@ -38,9 +38,21 @@ export class AceMemory implements IMachineMemory {
 
   /** Fit a RAM pack: 16K maps 0x4000-0x7FFF, 48K maps 0x4000-0xFFFF,
    *  0 removes any pack. The FORTH ROM probes the pack at boot and moves
-   *  RAMTOP up by itself — no further coaxing needed. */
+   *  RAMTOP up by itself — no further coaxing needed.
+   *
+   *  Re-fitting the pack already in place is a no-op. The shell's settings
+   *  pump re-applies every machine setting whenever any pane changes one —
+   *  the volume slider fires it on each drag step — and handing back a fresh
+   *  zeroed array there would wipe whatever the user had loaded into the
+   *  pack. A genuine size change keeps what still fits; swapping a pack
+   *  rebuilds the machine anyway (the Hardware pane calls switchModel). */
   setRamPack(kb: AceRamPackKB): void {
-    this.expansion = kb > 0 ? new Uint8Array(kb * 1024) : null;
+    if (kb === this.ramPackKB) return;
+    const next = kb > 0 ? new Uint8Array(kb * 1024) : null;
+    if (next !== null && this.expansion !== null) {
+      next.set(this.expansion.subarray(0, Math.min(next.length, this.expansion.length)));
+    }
+    this.expansion = next;
   }
 
   /** Size of the fitted RAM pack in KB (0 = none). */

@@ -160,6 +160,31 @@ describe('AceMemory — RAM packs', () => {
     expect(mem.readByte(0x4000)).toBe(0x00);
   });
 
+  it('re-fitting the pack already in place leaves its contents alone', () => {
+    // The settings pump re-applies every machine setting on any pane change,
+    // so this runs on each volume-slider step. A dictionary loaded from tape
+    // grows from 0x3C51 up into the pack, and must survive.
+    const mem = new AceMemory();
+    mem.setRamPack(48);
+    mem.writeByte(0x8000, 0x42);
+    mem.setRamPack(48);
+    expect(mem.readByte(0x8000)).toBe(0x42);
+  });
+
+  it('changing the pack size keeps whatever still fits', () => {
+    const mem = new AceMemory();
+    mem.setRamPack(16);
+    mem.writeByte(0x4000, 0x42);
+    mem.setRamPack(48);
+    expect(mem.ramPackKB).toBe(48);
+    expect(mem.readByte(0x4000)).toBe(0x42);
+    // Shrinking drops what no longer fits, but keeps the rest.
+    mem.writeByte(0x8000, 0x24);
+    mem.setRamPack(16);
+    expect(mem.readByte(0x4000)).toBe(0x42);
+    expect(mem.readByte(0x8000)).toBe(0xFF);
+  });
+
   it('snapshot() and ramSnapshot() include the pack when fitted', () => {
     const mem = new AceMemory();
     mem.setRamPack(16);
