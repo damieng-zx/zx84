@@ -14,6 +14,14 @@ import { serializeDSK } from '@/media/floppy/dsk.ts';
 import { blankMgtDisk } from '@/media/floppy/mgt-image.ts';
 
 describe('BaseMachine.start() headless (no AudioContext / rAF)', () => {
+  it('cannot restart a destroyed machine from a late async continuation', async () => {
+    const m = new Zx8xMachine('zx80', null);
+    await m.start();
+    m.destroy();
+    await m.start();
+    expect((m as unknown as { running: boolean }).running).toBe(false);
+  });
+
   it('resolves, marks running, and schedules no frame loop', async () => {
     // Sanity: the test env really is headless — no stubs anywhere.
     expect(typeof AudioContext).toBe('undefined');

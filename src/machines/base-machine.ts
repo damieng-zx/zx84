@@ -79,6 +79,7 @@ export abstract class BaseMachine {
   protected running = false;
   protected starting = false;
   protected startGen = 0;
+  private destroyed = false;
   protected rafId = 0;
   /** Turbo pump: drives turbo execution off a MessageChannel postMessage loop
    *  instead of rAF, so it isn't capped at the vsync rate nor penalised for
@@ -122,7 +123,7 @@ export abstract class BaseMachine {
   // ── Lifecycle ────────────────────────────────────────────────────────────
 
   async start(): Promise<void> {
-    if (this.running || this.starting) return;
+    if (this.destroyed || this.running || this.starting) return;
     this.starting = true;
     const gen = ++this.startGen;
 
@@ -156,6 +157,7 @@ export abstract class BaseMachine {
   }
 
   destroy(): void {
+    this.destroyed = true;
     this.stop();
     if (this.rafId) { cancelAnimationFrame(this.rafId); this.rafId = 0; }
     if (this.turboChannel) {

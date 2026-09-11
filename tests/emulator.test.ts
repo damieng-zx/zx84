@@ -401,6 +401,7 @@ vi.mock('@/media/floppy/dsk.ts', () => ({
 // ── Imports ──────────────────────────────────────────────────────────────
 
 import * as emulator from '@/emulator.ts';
+import { romData, setRomData } from '@/shell/context.ts';
 import * as settings from '@/store/settings.ts';
 import * as persistence from '@/store/persistence.ts';
 import * as szx from '@/machines/spectrum/snapshots/szx.ts';
@@ -629,6 +630,59 @@ describe('effectiveROMModel — +3 always uses the +2A (v4.1) ROM set', () => {
 
 describe('switchModel — stale ROM loads', () => {
   beforeEach(() => { emulator.setCanvas(fakeCanvas); });
+
+  it('abandons a destroyed build waiting for a peripheral ROM', async () => {
+    let resolveAux!: (data: Uint8Array) => void;
+    vi.mocked(persistence.dbLoad).mockReturnValueOnce(new Promise(resolve => { resolveAux = resolve; }));
+    vi.mocked(settings.vtx5000Enabled).mockReturnValue(true);
+    setCurrentModel('48k');
+    setRomData(new Uint8Array(16384).fill(0x11));
+    const oldBuild = emulator.createMachine();
+    const old = lastSpectrumStub!;
+    vi.mocked(settings.vtx5000Enabled).mockReturnValue(false);
+    const newRom = new Uint8Array(32768).fill(0x22);
+    getRomManager().restoreROM.mockResolvedValue({ data: newRom, label: 'new' });
+    await emulator.switchModel('128k');
+    const current = lastSpectrumStub!;
+    emulator.setCurrentDiskName('current.dsk');
+    resolveAux(new Uint8Array(8192));
+    await oldBuild;
+    expect(old.destroy).toHaveBeenCalledOnce();
+    expect(old.vtx5000.loadROM).not.toHaveBeenCalled();
+    expect(old.loadROM).not.toHaveBeenCalled();
+    expect(old.start).not.toHaveBeenCalled();
+    expect(emulator.machine).toBe(current);
+    expect(emulator.currentDiskName()).toBe('current.dsk');
+  });
+
+  it('does not publish stale ROM data when page overrides finish late', async () => {
+    let entered!: () => void;
+    const loading = new Promise<void>(resolve => { entered = resolve; });
+    let resolvePage!: (page: null) => void;
+    getRomManager().restoreROMPage.mockImplementationOnce(() => {
+      entered();
+      return new Promise(resolve => { resolvePage = resolve; });
+    });
+    getRomManager().restoreROM.mockResolvedValue({ data: new Uint8Array(32768), label: 'old' });
+    const oldSwitch = emulator.switchModel('128k');
+    await loading;
+    const latest = new Uint8Array(16384).fill(0x77);
+    getRomManager().restoreROM.mockResolvedValue({ data: latest, label: 'latest' });
+    await emulator.switchModel('48k');
+    resolvePage(null);
+    await oldSwitch;
+    expect(romData).toBe(latest);
+  });
+
+  it('teardown invalidates a pending system ROM fetch', async () => {
+    let resolveRom!: (entry: unknown) => void;
+    getRomManager().restoreROM.mockReturnValueOnce(new Promise(resolve => { resolveRom = resolve; }));
+    const pending = emulator.switchModel('48k');
+    emulator.destroy();
+    resolveRom({ data: new Uint8Array(16384), label: 'late' });
+    await pending;
+    expect(emulator.machine).toBeNull();
+  });
 
   it('does not let an older ROM request rebuild over the latest model', async () => {
     let resolveOld!: (entry: unknown) => void;
