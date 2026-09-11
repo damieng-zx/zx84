@@ -1629,6 +1629,15 @@ describe('media wrappers', () => {
     expect(s.start).not.toHaveBeenCalled();
   });
 
+  it('the Drive pane loadFile path keeps the pause signal and execution aligned', async () => {
+    const s = await setupSpectrum();
+    emulator.setEmulationPaused(true);
+    s.start.mockClear();
+    await emulator.loadFile(new Uint8Array(10), 'paused.dsk', 1);
+    expect(s.start).not.toHaveBeenCalled();
+    expect(emulator.emulationPaused()).toBe(true);
+  });
+
   it('insertBlankDisk(unit=0) updates disk A signals', async () => {
     await setupSpectrum();
     const img = { tracks: [] } as any;

@@ -152,7 +152,6 @@ export class SamMediaService implements MediaService {
     }
 
     const id = target === 'b' || target === '2' || target === 'unit:1' ? 'b' : 'a';
-    this.m.stop();
     try {
       const image = parseSamMedia(data, filename);
       if (!image) {
@@ -166,8 +165,6 @@ export class SamMediaService implements MediaService {
       };
     } catch (e) {
       return fail(`Disk error: ${(e as Error).message}`);
-    } finally {
-      this.m.start();
     }
   }
 }

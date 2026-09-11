@@ -87,15 +87,12 @@ export class CpcMediaService implements MediaService {
     // Disk images into the uPD765A.
     if (/\.(dsk|hfe|scp)$/i.test(filename)) {
       const unit = CpcMediaService.unitOf(target);
-      c.stop();
       try {
         const image = parseFloppyImage(data);
         this.disks.insert(unit === 0 ? 'a' : 'b', image, filename);
         return { ok: true, target: unit === 0 ? 'a' : 'b', message: `Disk ${unit === 0 ? 'A' : 'B'}: loaded: ${filename}` };
       } catch (e) {
         return fail(`DSK error: ${(e as Error).message}`);
-      } finally {
-        c.start();
       }
     }
 

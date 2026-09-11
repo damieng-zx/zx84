@@ -626,15 +626,10 @@ export function loadPlusDDisk(data: Uint8Array, filename: string, unit: number):
     return;
   }
   if (!image) { setStatus(`Not a recognised +D image: ${filename}`); return; }
-  machine.stop();
-  try {
-    machine.services.disks!.insert(`plusd:${unit}`, image, filename);
-    setPlusDDiskState(unit, image, filename);
-    persistPlusDDisk(unit, data, filename);
-    setStatus(`+D disk ${unit === 0 ? 'C' : 'D'}: loaded: ${filename}`);
-  } finally {
-    machine.start();
-  }
+  machine.services.disks!.insert(`plusd:${unit}`, image, filename);
+  setPlusDDiskState(unit, image, filename);
+  persistPlusDDisk(unit, data, filename);
+  setStatus(`+D disk ${unit === 0 ? 'C' : 'D'}: loaded: ${filename}`);
 }
 
 export function ejectPlusDDisk(unit: number): void {
@@ -687,15 +682,10 @@ export function loadBetaDiskDisk(data: Uint8Array, filename: string, unit: numbe
     return;
   }
   if (!image) { setStatus(`Not a recognised Beta Disk image: ${filename}`); return; }
-  machine.stop();
-  try {
-    machine.services.disks!.insert(`beta:${unit}`, image, filename);
-    setPlusDDiskState(unit, image, filename);
-    persistBetaDiskDisk(unit, data, filename);
-    setStatus(`Beta Disk ${unit === 0 ? 'A' : 'B'}: loaded: ${filename}`);
-  } finally {
-    machine.start();
-  }
+  machine.services.disks!.insert(`beta:${unit}`, image, filename);
+  setPlusDDiskState(unit, image, filename);
+  persistBetaDiskDisk(unit, data, filename);
+  setStatus(`Beta Disk ${unit === 0 ? 'A' : 'B'}: loaded: ${filename}`);
 }
 
 export function ejectBetaDiskDisk(unit: number): void {
