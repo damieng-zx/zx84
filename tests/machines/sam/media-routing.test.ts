@@ -119,13 +119,15 @@ describe('SAM MediaService routing', () => {
     m.destroy();
   });
 
-  it('targets drive 2 when asked', async () => {
+  it.each(['b', '2', 'unit:1'])('targets drive 2 via %s without replacing drive 1', async (target) => {
     const m = machine();
-    const r = await m.services.media.mount(raw800k(), 'game.mgt', 'b');
+    const original = blankMgtDisk(40, 1);
+    m.services.disks.insert('a', original, 'original.mgt');
+    const r = await m.services.media.mount(raw800k(), 'game.mgt', target);
     expect(r.ok).toBe(true);
     expect(r.target).toBe('b');
     expect(m.services.disks.image('b')).not.toBeNull();
-    expect(m.services.disks.image('a')).toBeNull();
+    expect(m.services.disks.image('a')).toBe(original);
     m.destroy();
   });
 

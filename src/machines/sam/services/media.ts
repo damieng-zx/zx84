@@ -151,7 +151,7 @@ export class SamMediaService implements MediaService {
       return fail('SAD (.sad) images are not supported yet — convert to .mgt');
     }
 
-    const id = target === 'b' || target === '2' ? 'b' : 'a';
+    const id = target === 'b' || target === '2' || target === 'unit:1' ? 'b' : 'a';
     this.m.stop();
     try {
       const image = parseSamMedia(data, filename);
