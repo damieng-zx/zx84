@@ -402,6 +402,7 @@ vi.mock('@/media/floppy/dsk.ts', () => ({
 
 import * as emulator from '@/emulator.ts';
 import { romData, setRomData } from '@/shell/context.ts';
+import { assembleSystemRom } from '@/shell/rom.ts';
 import * as settings from '@/store/settings.ts';
 import * as persistence from '@/store/persistence.ts';
 import * as szx from '@/machines/spectrum/snapshots/szx.ts';
@@ -2035,6 +2036,45 @@ describe('misc setters', () => {
 
 describe('init / restoreMedia', () => {
   beforeEach(() => { emulator.setCanvas(fakeCanvas); });
+
+  it.each([
+    ['128k', '128k', 32768, 1],
+    ['+3', '+2A', 65536, 3],
+  ] as const)('init restores the last ROM-page override on %s', async (model, key, size, page) => {
+    setCurrentModel(model);
+    const base = new Uint8Array(size).fill(0x11);
+    const custom = new Uint8Array(16384).fill(0x99);
+    getRomManager().restoreROM.mockResolvedValueOnce({ data: base, label: 'default' });
+    getRomManager().restoreROMPage.mockImplementation(async (_key: string, slot: number) =>
+      slot === page ? { data: custom, label: 'custom' } : null);
+    try {
+      await emulator.init();
+      const installed = lastSpectrumStub!.loadROM.mock.calls[0][0] as Uint8Array;
+      expect(installed[page * 16384 - 1]).toBe(0x11);
+      expect(installed[page * 16384]).toBe(0x99);
+      expect(installed[size - 1]).toBe(0x99);
+      expect(base[size - 1]).toBe(0x11);
+      expect(getRomManager().restoreROMPage).toHaveBeenCalledWith(key, page);
+    } finally {
+      getRomManager().restoreROMPage.mockResolvedValue(null);
+      setCurrentModel('128k');
+    }
+  });
+
+  it('assembles MTX overrides at 8K socket boundaries', async () => {
+    const base = new Uint8Array(5 * 8192).fill(0x11);
+    getRomManager().restoreROMPage.mockImplementation(async (_key: string, page: number) =>
+      page === 4 ? { data: new Uint8Array(8192).fill(0x44), label: 'disk ROM' } : null);
+    try {
+      const installed = await assembleSystemRom(base, 'mtx512', 'mtx512');
+      expect(installed[32767]).toBe(0x11);
+      expect(installed[32768]).toBe(0x44);
+      expect(installed[40959]).toBe(0x44);
+      expect(base[32768]).toBe(0x11);
+    } finally {
+      getRomManager().restoreROMPage.mockResolvedValue(null);
+    }
+  });
 
   it('init: with cached ROM creates machine and restores media', async () => {
     getRomManager().restoreROM.mockResolvedValueOnce({ data: new Uint8Array(16384), label: '48k' });

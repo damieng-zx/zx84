@@ -48,6 +48,24 @@ export async function fetchDefaultROM(model: MachineModel, key: string, locale?:
   return await romManager.fetchDefaultROM(model, key, locale, setStatus);
 }
 
+/** Assemble the ROM installed on every boot path, including browser startup.
+ *  Overrides are separate stored chips: never mutate the cached base image.
+ *  Slot stride is model-specific (Spectrum 16K; MTX 8K). */
+export async function assembleSystemRom(data: Uint8Array, model: MachineModel, key: string): Promise<Uint8Array> {
+  const pageCount = romPageSlotCount(model);
+  if (pageCount === 0) return data;
+  const pages = await Promise.all(
+    Array.from({ length: pageCount }, (_, page) => romManager.restoreROMPage(key, page as RomPage)),
+  );
+  if (!pages.some(p => p !== null)) return data;
+  const result = new Uint8Array(data);
+  const slotSize = romSlotSize(model);
+  pages.forEach((p, page) => {
+    if (p) result.set(p.data.subarray(0, slotSize), page * slotSize);
+  });
+  return result;
+}
+
 // ── System ROM + MSX cartridge (ROM pane) ─────────────────────────────────
 
 /** Refresh the ROM-pane signals from the current machine's ROM slots and any
@@ -178,8 +196,9 @@ export async function ensure128kROM(): Promise<boolean> {
     const key = effectiveROMKey(model, locale);
     const entry = await restoreROM(key);
     if (entry) {
+      const data = await assembleSystemRom(entry.data, model, key);
       setCurrentModel(model);
-      setRomData(entry.data);
+      setRomData(data);
       setRomStatus('');
       await createMachine();
       return machine !== null;
