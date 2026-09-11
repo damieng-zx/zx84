@@ -39,17 +39,13 @@ export class EinsteinMediaService implements MediaService {
     if (!/\.(dsk|hfe|scp)$/i.test(filename)) {
       return fail('Einstein accepts .dsk, .hfe, .scp and .zip disk images');
     }
-    const e = this.e;
     const unit = EinsteinMediaService.unitOf(target);
-    e.stop();
     try {
       const image = parseFloppyImage(data);
       this.disks.insert(unit === 0 ? 'a' : 'b', image, filename);
       return { ok: true, target: unit === 0 ? 'a' : 'b', message: `Drive ${unit}: loaded: ${filename}` };
     } catch (err) {
       return fail(`DSK error: ${(err as Error).message}`);
-    } finally {
-      e.start();
     }
   }
 }

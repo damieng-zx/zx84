@@ -121,17 +121,14 @@ export class SpectrumMediaService implements MediaService {
     // +3 internal drives (uPD765A).
     if (ext === 'dsk' || ext === 'hfe' || ext === 'scp') {
       const unit = target === 'b' ? 1 : SpectrumMediaService.unitOf(target, 'fdc:', 0);
-      // Stop the frame loop before swapping the image so the FDC can't be
-      // mid-operation when its disk is replaced.
-      s.stop();
+      // Parsing and insertion are synchronous: the frame loop cannot interleave
+      // with this swap. Leave the user's running/paused state untouched.
       try {
         const image = parseFloppyImage(data);
         this.disks.insert(unit === 0 ? 'a' : 'b', image, filename);
         return { ok: true, target: unit === 0 ? 'a' : 'b', message: `Disk ${unit === 0 ? 'A' : 'B'}: loaded: ${filename}` };
       } catch (e) {
         return fail(`DSK error: ${(e as Error).message}`);
-      } finally {
-        s.start();
       }
     }
 
@@ -156,13 +153,8 @@ export class SpectrumMediaService implements MediaService {
       return fail(`Beta Disk error: ${(e as Error).message}`);
     }
     if (!image) return fail(`Not a recognised Beta Disk image: ${filename}`);
-    s.stop();
-    try {
-      this.disks.insert(`beta:${unit}`, image, filename);
-      return { ok: true, target: `beta:${unit}`, message: `Beta Disk ${unit === 0 ? 'A' : 'B'}: loaded: ${filename}` };
-    } finally {
-      s.start();
-    }
+    this.disks.insert(`beta:${unit}`, image, filename);
+    return { ok: true, target: `beta:${unit}`, message: `Beta Disk ${unit === 0 ? 'A' : 'B'}: loaded: ${filename}` };
   }
 
   private mountPlusD(data: Uint8Array, filename: string, target?: MediaTargetId): MountResult {
@@ -176,12 +168,7 @@ export class SpectrumMediaService implements MediaService {
       return fail(`+D disk error: ${(e as Error).message}`);
     }
     if (!image) return fail(`Not a recognised +D image: ${filename}`);
-    s.stop();
-    try {
-      this.disks.insert(`plusd:${unit}`, image, filename);
-      return { ok: true, target: `plusd:${unit}`, message: `+D disk ${unit === 0 ? 'C' : 'D'}: loaded: ${filename}` };
-    } finally {
-      s.start();
-    }
+    this.disks.insert(`plusd:${unit}`, image, filename);
+    return { ok: true, target: `plusd:${unit}`, message: `+D disk ${unit === 0 ? 'C' : 'D'}: loaded: ${filename}` };
   }
 }
