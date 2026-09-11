@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { deflateRawSync } from 'node:zlib';
 import { unzip } from '@/media/zip.ts';
+import { LynxMachine } from '@/machines/lynx/lynx-machine.ts';
 
 // ── Low-level ZIP helpers (used by both buildZip and hand-rolled tests) ────
 
@@ -174,6 +175,27 @@ function bytes(...values: number[]): Uint8Array {
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────
+
+describe('zipped Lynx disks', () => {
+  it.each([0, 8] as const)('loads an LDF from a ZIP using method %i', async (method) => {
+    // The 200K LDF layout is 40 cylinders × 1 side × 10 sectors × 512 bytes.
+    const disk = new Uint8Array(204800).fill(0xE5);
+    const zip = buildZip([
+      { name: 'README.txt', data: bytes(1) },
+      { name: 'disks/GAME.LDF', data: disk, method },
+    ]);
+    const entries = await unzip(zip);
+    expect(entries.map(e => e.name)).toEqual(['disks/GAME.LDF']);
+    const m = new LynxMachine('lynx96', null);
+    try {
+      const result = await m.services.media.mount(entries[0].data, entries[0].name, 'b');
+      expect(result).toMatchObject({ ok: true, target: 'b' });
+      expect(m.services.disks?.save('b')?.data).toEqual(disk);
+    } finally {
+      m.destroy();
+    }
+  });
+});
 
 describe('unzip — error handling', () => {
   it('rejects a buffer with no EOCD signature', async () => {
