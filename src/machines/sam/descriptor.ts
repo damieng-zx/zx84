@@ -40,6 +40,8 @@ const SAM_UI: MachineUiCapabilities = {
   // The two 16K halves are one physical EPROM, never independently overridden.
   romPages: 0,
   beeper: true,
+  // sam-machine.ts reads 'ay-mix' to balance the SAA1099 against the beeper.
+  psgMixer: true,
   // The SAA1099 is natively stereo — six channels, each with its own left
   // and right amplitude — so there is no channel layout to choose, and the
   // AY's filters are not its. Only the beeper/PSG mixer applies.

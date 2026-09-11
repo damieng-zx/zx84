@@ -332,8 +332,15 @@ export interface MachineUiCapabilities {
   readonly systemRomSlot?: boolean;
   /** Independently-overridable 16K system ROM pages (0 = single image). */
   readonly romPages: 0 | 2 | 4;
-  /** 1-bit beeper present (Sound-pane mixer + BEEP activity LED). */
+  /** 1-bit beeper present (the BEEP activity LED, and the beeper side of the
+   *  Sound-pane mixer). */
   readonly beeper: boolean;
+  /** The Beep↔PSG balance slider applies: the machine has both a beeper and
+   *  a PSG to balance, and reads 'ay-mix' in applySettings. Omitted where the
+   *  balance is fixed — a buzzer-only machine (the Ace, the Lynx) has nothing
+   *  to weigh it against, and the MSX and Einstein never read the setting —
+   *  so the pane hides a slider that would do nothing. */
+  readonly psgMixer?: boolean;
   /**
    * Which of the Sound pane's PSG-shaping controls apply to this machine.
    *
