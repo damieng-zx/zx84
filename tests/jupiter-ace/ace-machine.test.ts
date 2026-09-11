@@ -80,14 +80,26 @@ describe('JupiterAceMachine — ULA port 0xFE', () => {
     m.destroy();
   });
 
-  it('OUT bit 4 drives the buzzer, bit 3 the MIC/save output', () => {
+  it('any OUT sets the buzzer and any IN clears it, whatever the data', () => {
+    // The buzzer is a flip-flop on the bus access, not a data bit: the ROM's
+    // BEEP loop writes A = D (its own countdown's high byte) and gets a tone
+    // purely from alternating OUT and IN.
     const m = machine();
-    m.cpu.portOutHandler!(0xFE, 0x10);
+    m.cpu.portOutHandler!(0xFE, 0x00);   // no bit 4, no bit 3
     expect(m.ula.buzzerBit).toBe(1);
     expect(m.ula.micBit).toBe(0);
-    m.cpu.portOutHandler!(0xFE, 0x08);
+    m.cpu.portInHandler!(0xFEFE);
     expect(m.ula.buzzerBit).toBe(0);
+    m.destroy();
+  });
+
+  it('OUT bit 3 drives the MIC/save output', () => {
+    // The SAVE routine shapes the tape waveform by writing 0x00 / 0x08.
+    const m = machine();
+    m.cpu.portOutHandler!(0xFE, 0x08);
     expect(m.ula.micBit).toBe(1);
+    m.cpu.portOutHandler!(0xFE, 0x00);
+    expect(m.ula.micBit).toBe(0);
     m.destroy();
   });
 });

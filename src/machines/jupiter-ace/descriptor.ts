@@ -31,7 +31,7 @@ const ACE_UI: MachineUiCapabilities = {
   cartridge: false,
   systemRomLabel: 'ROM',
   romPages: 0,
-  // The Ace's only sound is the ULA buzzer (the keypress beep).
+  // The Ace's only sound is the ULA buzzer (the FORTH BEEP word).
   beeper: true,
   psgControls: [],
   // Buzzer, keyboard and the cassette port have activity to show. No OCR

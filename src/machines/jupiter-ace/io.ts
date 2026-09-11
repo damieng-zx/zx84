@@ -63,12 +63,13 @@ export function wireAcePortIO(m: JupiterAceMachine): void {
 
     // ULA port: any port with bit 0 = 0.
     if ((port & 0x01) === 0) {
-      const newBuzzerBit = (val >> 4) & 1;
-      if (newBuzzerBit !== s.mixer.prevBeeperBit) {
-        s.activity.beeperToggled = true;
-        s.mixer.prevBeeperBit = newBuzzerBit;
-      }
+      // The write sets the buzzer flip-flop; the level is the ULA's, not a
+      // bit of the data byte (see AceUla).
       s.ula.writePort(val);
+      if (s.ula.buzzerBit !== s.mixer.prevBeeperBit) {
+        s.activity.beeperToggled = true;
+        s.mixer.prevBeeperBit = s.ula.buzzerBit;
+      }
     }
   };
 
@@ -97,6 +98,11 @@ export function wireAcePortIO(m: JupiterAceMachine): void {
       }
     }
     const val = s.ula.readPort((port >> 8) & 0xFF);
+    // The read cleared the buzzer flip-flop — the other half of the beep.
+    if (s.ula.buzzerBit !== s.mixer.prevBeeperBit) {
+      s.activity.beeperToggled = true;
+      s.mixer.prevBeeperBit = s.ula.buzzerBit;
+    }
     if (s.portWatchpoints.size > 0 && s.portWatchpoints.has(port & 0xFFFF) && s.portWatchHit === null) {
       s.portWatchHit = { port: port & 0xFFFF, value: val, dir: 'in' };
     }

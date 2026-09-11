@@ -6,10 +6,11 @@
  * 8×5 keyboard scan and a cassette port, all on ULA port 0xFE. The ULA pulls
  * /INT low once per frame (50 Hz), serviced in interrupt mode 1 by the ROM.
  *
- * The Ace's only sound hardware is a piezo buzzer driven by bit 4 of the ULA
- * port (the ROM beeps on keypresses); it is mixed through the shared beeper
- * path. There is no disk, no cartridge and no snapshot format — `disks` and
- * `snapshots` are null.
+ * The Ace's only sound hardware is a piezo buzzer: a flip-flop set by any
+ * write to the ULA port and cleared by any read, which the FORTH BEEP word
+ * (0x0BA0) alternates to make a tone — there is no automatic key click. It
+ * is mixed through the shared beeper path. There is no disk, no cartridge
+ * and no snapshot format — `disks` and `snapshots` are null.
  */
 
 import { Z80 } from '@/cores/z80.ts';
