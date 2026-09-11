@@ -209,8 +209,9 @@ const FAIL_SETTERS: Record<string, (msg: string) => void> = {
 
 /** Fetch (IndexedDB-cached, CDN on miss) and wire in one peripheral ROM.
  *  Returns true on success. */
-export async function loadAuxRom(r: AuxRomRequest): Promise<boolean> {
+export async function loadAuxRom(r: AuxRomRequest, isCurrent: () => boolean = () => true): Promise<boolean> {
   let data = await dbLoad(r.cacheKey);
+  if (!isCurrent()) return false;
   if (!data) {
     try {
       setStatus(r.fetchingMsg);
@@ -219,12 +220,14 @@ export async function loadAuxRom(r: AuxRomRequest): Promise<boolean> {
       data = new Uint8Array(await resp.arrayBuffer());
       await dbSave(r.cacheKey, data);
     } catch (err) {
+      if (!isCurrent()) return false;
       console.warn(`Failed to fetch ${r.failId} ROM:`, err);
       setStatus(r.failMsg);
       FAIL_SETTERS[r.failId]?.(r.failMsg);
       return false;
     }
   }
+  if (!isCurrent()) return false;
   r.apply(data);
   setStatus(r.loadedMsg(data.length));
   FAIL_SETTERS[r.failId]?.('');
@@ -237,9 +240,10 @@ export async function loadAuxRom(r: AuxRomRequest): Promise<boolean> {
  * machine is reset); the rest are fired and forgotten (Multiface is paged only
  * on its button press).
  */
-export async function fulfillAuxRoms(requests: AuxRomRequest[]): Promise<void> {
+export async function fulfillAuxRoms(requests: AuxRomRequest[], isCurrent: () => boolean = () => true): Promise<void> {
   for (const r of requests) {
-    if (r.awaitLoad) await loadAuxRom(r);
-    else loadAuxRom(r).catch(err => console.warn('Aux ROM load failed:', err));
+    if (!isCurrent()) return;
+    if (r.awaitLoad) await loadAuxRom(r, isCurrent);
+    else loadAuxRom(r, isCurrent).catch(err => console.warn('Aux ROM load failed:', err));
   }
 }

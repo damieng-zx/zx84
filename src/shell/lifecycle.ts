@@ -114,8 +114,13 @@ function buildMachineHost(): MachineHost {
 
 // ── Machine construction ─────────────────────────────────────────────────
 
+let machineBuildGeneration = 0;
+
 export async function createMachine(): Promise<boolean> {
   if (!canvasEl) return false;
+  const generation = ++machineBuildGeneration;
+  const selection = modelSwitchGeneration;
+  const systemRom = romData;
 
   // Stash the outgoing machine's tape under its own platform kind so tapes for
   // different systems stay independent (see stashOutgoingTape).
@@ -134,6 +139,8 @@ export async function createMachine(): Promise<boolean> {
   const display = canvasEl ? createDisplay(canvasEl, w, h) : null;
   const built = entry.create(model, display);
   setMachine(built);
+  const isCurrent = () => machine === built && generation === machineBuildGeneration
+    && selection === modelSwitchGeneration && model === currentModel() && locale === currentLocale();
   applySpeedMultiplier(built, SPEED_MULTIPLIERS[speedStep()] ?? 1);
   built.attachHost?.(buildMachineHost());
   resetBootDiskPhantom();   // fresh FDC on the new machine
@@ -150,22 +157,25 @@ export async function createMachine(): Promise<boolean> {
   // so they are paged when the machine boots. Which peripherals, which ROMs, and
   // the enable/mutual-exclusion rules all live in the machine's prepare() hook;
   // the shell only fulfils the returned ROM requests.
-  await fulfillAuxRoms(built.prepare?.(view) ?? []);
+  await fulfillAuxRoms(built.prepare?.(view) ?? [], isCurrent);
+  if (!isCurrent()) return false;
 
   let refreshRestored = false;
   // Machines with no on-board ROM (CPC Plus / GX4000) have empty romData — they
   // boot from the cartridge slot (applyBootCartridge, below) instead.
-  if (romData && romData.length > 0) {
-    built.services.roms.installSystemRom(romData);
+  if (systemRom && systemRom.length > 0) {
+    built.services.roms.installSystemRom(systemRom);
     built.reset();
 
     // Post-reset ROM overlays (CPC ParaDOS in upper-ROM 7) — applied after the
     // firmware ROM set is in place, on machine build only.
-    await fulfillAuxRoms(built.bootRoms?.(view) ?? []);
+    await fulfillAuxRoms(built.bootRoms?.(view) ?? [], isCurrent);
+    if (!isCurrent()) return false;
 
     // Refresh-state restore needs a machine that can serialise synchronously
     // (SnapshotService.saveSync — the Spectrum). CPC/others start fresh.
-    if (built.services.snapshots?.saveSync) refreshRestored = await restoreRefreshState();
+    if (built.services.snapshots?.saveSync) refreshRestored = await restoreRefreshState(isCurrent);
+    if (!isCurrent()) return false;
     if (!refreshRestored) {
       built.start();
     }
@@ -197,6 +207,7 @@ export async function createMachine(): Promise<boolean> {
   // cartridge, or hidden-mount the default firmware cartridge. This is the
   // Plus's only boot path (no on-board system ROM), so it is awaited.
   await applyBootCartridge();
+  if (!isCurrent()) return false;
 
   // Refresh the ROM pane (system ROM label/size; a fresh machine has no cart).
   updateRomPaneInfo();
@@ -413,6 +424,7 @@ export async function switchModel(model: MachineModel): Promise<void> {
       const pages = await Promise.all(
         Array.from({ length: pageCount }, (_, page) => romManager.restoreROMPage(key, page as RomPage))
       );
+      if (generation !== modelSwitchGeneration || currentModel() !== model) return;
       if (pages.some(p => p !== null)) {
         data = new Uint8Array(entry.data);
         pages.forEach((p, page) => {
@@ -462,7 +474,9 @@ export function setCanvas(el: HTMLCanvasElement): void {
 // ── Init ────────────────────────────────────────────────────────────────
 
 export async function init(): Promise<void> {
+  const generation = ++modelSwitchGeneration;
   await migrateDiskStorage();
+  if (generation !== modelSwitchGeneration) return;
   const model = currentModel();
   const locale = currentLocale();
 
@@ -471,10 +485,12 @@ export async function init(): Promise<void> {
   let entry = await restoreROM(key);
   if (!entry) entry = await fetchDefaultROM(romModel, key, locale);
 
+  if (generation !== modelSwitchGeneration || currentModel() !== model) return;
   if (entry) {
     setRomData(entry.data);
     setRomStatus('');
     await createMachine();
+    if (generation !== modelSwitchGeneration || currentModel() !== model) return;
 
     // Always re-mount persisted media. The refresh SZX snapshot restored by
     // createMachine() captures RAM/CPU/AY state but NOT the mounted disk and
@@ -528,7 +544,7 @@ export function saveRefreshState(): void {
   }
 }
 
-export async function restoreRefreshState(): Promise<boolean> {
+export async function restoreRefreshState(isCurrent: () => boolean = () => true): Promise<boolean> {
   try {
     const raw = localStorage.getItem(REFRESH_STATE_KEY);
     if (!raw) return false;
@@ -553,6 +569,7 @@ export async function restoreRefreshState(): Promise<boolean> {
     if (!snapshots?.restoreSync || !romData) return false;
 
     const ok = await snapshots.restoreSync(data);
+    if (!isCurrent()) return false;
     if (!ok) { localStorage.removeItem(REFRESH_STATE_KEY); return false; }
 
     localStorage.removeItem(REFRESH_STATE_KEY);
@@ -560,6 +577,7 @@ export async function restoreRefreshState(): Promise<boolean> {
     setStatus('Refresh: State restored');
     return true;
   } catch (err) {
+    if (!isCurrent()) return false;
     console.warn('Failed to restore refresh state:', err);
     localStorage.removeItem(REFRESH_STATE_KEY);
     return false;
@@ -569,6 +587,8 @@ export async function restoreRefreshState(): Promise<boolean> {
 // ── Teardown ────────────────────────────────────────────────────────────
 
 export function destroy(): void {
+  ++machineBuildGeneration;
+  ++modelSwitchGeneration;
   floppySound?.destroy();
   setFloppySound(null);
   if (machine) {
