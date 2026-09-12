@@ -78,7 +78,8 @@ const STATUS_SHIFT_LOCK = 0x40;
 const UPDATE_TOGGLE = 0x40;       // &3FFF b6
 
 /** Where a key sits in the matrix, as [byte index from &3FF0, bit number]. */
-type Cell = readonly [number, number];
+export type PcwCell = readonly [byte: number, bit: number];
+type Cell = PcwCell;
 
 /** Host `KeyboardEvent.code` to matrix position. */
 const KEY_MAP: Record<string, Cell> = {
@@ -128,12 +129,24 @@ const KEY_MAP: Record<string, Cell> = {
   NumpadSubtract: [0xA, 3], AltLeft: [0xA, 1], AltRight: [0xA, 1], F6: [0xA, 0],
 };
 
+/** SHIFT LOCK, which latches rather than reporting a held key. */
+const SHIFT_LOCK: Cell = [0x8, 6];
+
+/** Matrix bytes that carry key bits. The last four are links and flags, which
+ *  `refreshStatus` owns. */
+const KEY_BYTES = 0x0C;
+
 export class PcwKeyboard {
   /** The 16 bytes the gate array writes to &3FF0-&3FFF of block 3. */
   readonly matrix = new Uint8Array(PCW_KEYBOARD_BYTES);
 
   /** Host keys currently held, so a repeat event cannot double-release. */
   private readonly held = new Set<string>();
+
+  /** Cells held by the on-screen keyboard, as `byte * 8 + bit`. Kept apart from
+   *  `held` so a pointer press and a host key on the same cap cannot release
+   *  each other's bit. */
+  private readonly pointerHeld = new Set<number>();
 
   /** SHIFT LOCK is a latching key on the PCW; the host's Caps Lock toggles it. */
   shiftLock = false;
@@ -143,7 +156,39 @@ export class PcwKeyboard {
   private updateToggle = false;
 
   /** True while any mapped key is held — the status bar's keyboard LED. */
-  get anyKeyDown(): boolean { return this.held.size > 0; }
+  get anyKeyDown(): boolean {
+    return this.held.size > 0 || this.pointerHeld.size > 0;
+  }
+
+  /** True while `cell` is pressed, whoever pressed it. */
+  isCellDown([byte, bit]: Cell): boolean {
+    return ((this.matrix[byte] >> bit) & 1) === (PRESSED_SETS_BIT ? 1 : 0);
+  }
+
+  /**
+   * Press or release one matrix cell directly.
+   *
+   * The on-screen keyboard's route in: half the caps on a PCW deck — COPY,
+   * PASTE, EXCH FIND, the f-keys — are not host keys at all, so they can never
+   * arrive as a `HostKeyEvent`. SHIFT LOCK latches here exactly as it does for
+   * the host's Caps Lock.
+   */
+  setCell([byte, bit]: Cell, down: boolean): void {
+    if (byte < 0 || byte >= KEY_BYTES) return;
+    const id = byte * 8 + bit;
+    if (this.pointerHeld.has(id) === down) return;
+    if (down) this.pointerHeld.add(id);
+    else this.pointerHeld.delete(id);
+
+    const mask = 1 << bit;
+    if (down === PRESSED_SETS_BIT) this.matrix[byte] |= mask;
+    else this.matrix[byte] &= ~mask;
+
+    if (down && byte === SHIFT_LOCK[0] && bit === SHIFT_LOCK[1]) {
+      this.shiftLock = !this.shiftLock;
+    }
+    this.refreshStatus();
+  }
 
   constructor() {
     this.reset();
@@ -151,6 +196,7 @@ export class PcwKeyboard {
 
   reset(): void {
     this.held.clear();
+    this.pointerHeld.clear();
     this.shiftLock = false;
     this.matrix.fill(IDLE_BYTE);
     this.refreshStatus();
