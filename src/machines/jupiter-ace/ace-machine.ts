@@ -123,6 +123,17 @@ export class JupiterAceMachine extends BaseMachine implements Machine {
     installAceMemoryHooks(this);
     wireAcePortIO(this);
 
+    this.tape.onPlayStateChange = () => {
+      // Any transport boundary invalidates the detector's run of in-shape
+      // reads: without this a stop/start straddles the counters and the next
+      // poll continues a run that began before the tape moved.
+      this.loaderDetector.onTapePlayStateChange();
+      // The port handler clears tapeActive on its next read anyway (it calls
+      // advanceTapeTo first), but clear it here too so nothing can sample a
+      // stale EAR level between the stop and that read.
+      if (!this.tape.playing || this.tape.paused) this.ula.tapeActive = false;
+    };
+
     this.services = createAceServices(this);
   }
 

@@ -309,6 +309,30 @@ describe('JupiterAceMachine — loader-detector auto-start', () => {
     };
   }
 
+  it('tells the loader detector about every transport change', () => {
+    const m = machine();
+    let changes = 0;
+    m.loaderDetector.onTapePlayStateChange = () => { changes++; };
+    m.tape.blocks = [deckBlock()];
+    m.tape.startPlayback();
+    expect(changes).toBe(1);
+    m.tape.stopPlayback();
+    expect(changes).toBe(2);
+    m.destroy();
+  });
+
+  it('clears the ULA tape input when the deck stops', () => {
+    const m = machine();
+    m.tape.blocks = [deckBlock()];
+    m.tape.startPlayback();
+    m.ula.tapeActive = true;
+    m.ula.tapeEarBit = 1;
+    m.tape.stopPlayback();
+    // Nothing may sample a stale EAR level after the deck has stopped.
+    expect(m.ula.tapeActive).toBe(false);
+    m.destroy();
+  });
+
   it('starts the deck from the current T-state, not the top of the frame', () => {
     const m = machine();
     m.tape.blocks = [deckBlock()];
