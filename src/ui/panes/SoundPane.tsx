@@ -40,8 +40,10 @@ export function SoundPane() {
     }}>
       <SliderRow label="Volume" id="volume" min={0} max={100} value={volume}
         onInput={(v) => { setVolume(v); persistSetting('volume', v); applyDisplaySettings(); }} />
-      {/* Beeper↔AY balance — machines with a 1-bit beeper; the CPC has none. */}
-      <Show when={machineCaps().beeper}>
+      {/* Beeper↔PSG balance — only where the machine actually mixes the two
+          and reads the setting. A buzzer-only machine like the Ace has no PSG
+          to weigh against, so the slider would move nothing. */}
+      <Show when={machineCaps().psgMixer}>
         <SliderRow label="Mixer" id="ay-mix" min={0} max={100} value={ayMix} endLabels={['Beep', 'AY']}
           onInput={(v) => { setAyMix(v); persistSetting('ay-mix', v); applyDisplaySettings(); }} />
       </Show>

@@ -50,3 +50,36 @@ describe('tape block meta — Lynx file entries', () => {
     expect(meta.absorbsNext).toBe(false);
   });
 });
+
+describe('tape block meta — Jupiter Ace entries carry no quotes', () => {
+  // The Ace's LOAD takes the name bare and compares it literally, so this row
+  // is read off the pane and typed verbatim: quotes shown here get typed too,
+  // and the ROM rejects them.
+  const ACE_HEADER = fileBlock({
+    name: 'TUTTUT', type: 'Dictionary', typeName: 'Dictionary',
+    command: 'LOAD', quoted: false, size: 11997, header: true,
+  });
+  const ACE_DATA = fileBlock({
+    name: 'TUTTUT', type: 'Dictionary', typeName: 'Dictionary',
+    command: 'LOAD', quoted: false, size: 11997, header: false,
+  });
+
+  it('shows the load line without quotes', () => {
+    const meta = parseTapeBlockMeta(ACE_HEADER, 0, [ACE_HEADER, ACE_DATA], false);
+    expect(meta.line).toBe('0: LOAD TUTTUT');
+    expect(meta.detail).toBe('Dictionary · 11997 bytes');
+  });
+
+  it('shows a bytes file as an unquoted BLOAD', () => {
+    const bytes = fileBlock({
+      name: 'CODE', type: 'Bytes', typeName: 'Bytes',
+      command: 'BLOAD', quoted: false, size: 300, header: true,
+    });
+    expect(parseTapeBlockMeta(bytes, 0, [bytes], false).line).toBe('0: BLOAD CODE');
+  });
+
+  it('leaves a format that wants quotes quoted', () => {
+    // The flag is per-format, not a global style change: the Lynx keeps its.
+    expect(parseTapeBlockMeta(HEADER, 0, [HEADER, DATA], false).line).toBe('0: MLOAD "INVADERS"');
+  });
+});

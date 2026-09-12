@@ -3,7 +3,7 @@ import { Pane } from '@/ui/components/Pane.tsx';
 import { HiOutlineFolderOpen, HiOutlineArrowDownTray, HiOutlineRectangleStack } from 'solid-icons/hi';
 import {
   loadFile, loadableExtensions, saveSnapshot, saveCpcSnapshot, saveScreenshot,
-  saveRAM,
+  saveRAM, saveRecordedTape,
 } from '@/shell/media.ts';
 import type { SaveMenuItem } from '@/machines/machine.ts';
 import { machineCaps, machineKind } from '@/state/machine-caps.ts';
@@ -20,6 +20,7 @@ const SAVE_ITEMS: Record<SaveMenuItem, { label: string; run: () => void }> = {
   'screenshot-png': { label: 'Screenshot (.png)', run: () => saveScreenshot('png') },
   'screen-scr': { label: 'Screen (.scr)', run: () => saveScreenshot('scr') },
   'ram-bin': { label: 'RAM (.bin)', run: () => saveRAM() },
+  'tape-tap': { label: 'Saved tape (.tap)', run: () => saveRecordedTape() },
 };
 
 const saveMenu = () => machineCaps().saveMenu;

@@ -114,6 +114,13 @@ describe('machine capabilities', () => {
           } else if (item === 'ram-bin') {
             expect(machine.services.debug.ramExport(), 'ram-bin needs ramExport')
               .not.toBeNull();
+          } else if (item === 'tape-tap') {
+            // Naming the entry promises a tape service that records what the
+            // machine writes to its cassette port; the menu calls this.
+            const tape = machine.services.tape;
+            expect(tape, 'tape-tap needs a tape service').not.toBeNull();
+            expect(typeof tape!.recordedBytes, 'tape-tap needs recordedBytes')
+              .toBe('function');
           }
         }
       } finally {

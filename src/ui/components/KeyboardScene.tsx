@@ -34,6 +34,11 @@ interface KeyboardSceneProps extends ParentProps {
    * has to clip or measure against the pane, like the MTX's badge step.
    */
   frameClass?: string;
+  /**
+   * Docked, fill the pane's width instead of stopping at the display-scale
+   * size (still bounded by the viewport height). Floating always fills.
+   */
+  fill?: boolean;
   label: string;
 }
 
@@ -71,8 +76,9 @@ function boxStyle(box: SceneBox): JSX.CSSProperties {
 
 export function KeyboardScene(props: KeyboardSceneProps) {
   // The scale the display-scale setting asks for, and the largest the frame
-  // can actually take. Docked, the scene takes the smaller of the two; floating
-  // it takes the fit alone, so dragging the pane scales the face up as well as
+  // can actually take. Docked, the scene takes the smaller of the two (or the
+  // fit alone with `fill`); floating it takes the fit alone, so dragging the
+  // pane scales the face up as well as
   // down (see `.pane--floating .keyboard-scene` in styles.css). `cqh` only
   // means anything inside a size container, which is what a floating frame is;
   // anywhere else it falls back to the viewport and never binds first.
@@ -82,7 +88,7 @@ export function KeyboardScene(props: KeyboardSceneProps) {
   return (
     <div class={`keyboard-scene-frame${props.frameClass ? ` ${props.frameClass}` : ''}`}>
       <div
-        class={`keyboard-scene${props.class ? ` ${props.class}` : ''}`}
+        class={`keyboard-scene${props.fill ? ' keyboard-scene--fill' : ''}${props.class ? ` ${props.class}` : ''}`}
         classList={props.classList}
         style={{
           '--keyboard-scene-natural': naturalPx(),

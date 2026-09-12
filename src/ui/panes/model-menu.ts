@@ -37,6 +37,7 @@ export const MODEL_LABELS: Record<MachineModel, string> = {
   lynx48: 'Camputers Lynx 48K',
   lynx96: 'Camputers Lynx 96K',
   lynx128: 'Camputers Lynx 128K',
+  'jupiter-ace': 'Jupiter Ace',
 };
 
 export const LOCALE_LABELS: Record<MachineLocale, string> = {
@@ -131,6 +132,13 @@ export const MODEL_MENU: MenuItem[] = [
       modelEntry('lynx48'),
       modelEntry('lynx96'),
       modelEntry('lynx128'),
+    ],
+  },
+  {
+    value: 'jupiter',
+    label: 'Jupiter Cantab',
+    children: [
+      modelEntry('jupiter-ace'),
     ],
   },
 ];

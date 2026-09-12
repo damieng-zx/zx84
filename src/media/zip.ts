@@ -2,6 +2,11 @@
  * ZIP archive parser.
  * Extracts snapshot, tape, disk, and cartridge entries from ZIP files.
  * Uses browser DecompressionStream('deflate-raw') for inflate — no runtime deps.
+ *
+ * Callers that know their machine pass its MediaService's declared extensions
+ * to unzip() so a new machine format can never drift from this parser; the
+ * default catalog below only serves machine-agnostic callers (ROM archives,
+ * generic MCP listing).
  */
 
 export interface ZipEntry {
@@ -9,15 +14,27 @@ export interface ZipEntry {
   data: Uint8Array;
 }
 
-// Every extension any platform's loadFile()/zip re-dispatch can act on:
-// snapshots (sna/z80/szx/sp), Spectrum tapes (tap/tzx/csw), CPC tape (cdt),
-// disk images (dsk/hfe/scp/ldf), MSX cartridge/cassette (rom/cas), Beta Disk
-// (trd/scl), MGT +D (mgt/img), Interface 1 microdrive (mdr/mdv), and
-// ZX80/ZX81 program images (o/80/p/81/p81).
-const LOADABLE_EXTS = /\.(sna|z80|szx|sp|tap|tzx|csw|cdt|dsk|hfe|scp|ldf|rom|cas|mtx|trd|scl|mgt|img|mdr|mdv|o|80|p|81|p81)$/i;
+// Fallback catalog: every extension any platform's loadFile()/zip re-dispatch
+// can act on — snapshots (sna/z80/szx/sp), Spectrum tapes (tap/tzx/csw), CPC
+// tape (cdt), disk images (dsk/hfe/scp/ldf), MSX cartridge/cassette (rom/cas),
+// CPC+ cartridge (cpr), Memotech MTX (mtx/mfloppy*), Beta Disk (trd/scl),
+// MGT +D (mgt/img), Interface 1 microdrive (mdr/mdv), and ZX80/ZX81 program
+// images (o/80/p/81/p81).
+const LOADABLE_EXTS = [
+  '.sna', '.z80', '.szx', '.sp',
+  '.tap', '.tzx', '.csw', '.cdt',
+  '.dsk', '.hfe', '.scp', '.ldf',
+  '.rom', '.cas', '.cpr',
+  '.mtx', '.mfloppy', '.mfloppy-03', '.mfloppy-07',
+  '.trd', '.scl', '.mgt', '.img', '.mdr', '.mdv',
+  '.o', '.80', '.p', '.81', '.p81',
+];
 
-/** Parse a ZIP archive and return entries with loadable extensions. */
-export async function unzip(data: Uint8Array): Promise<ZipEntry[]> {
+/** Parse a ZIP archive and return entries whose extension is in `exts`
+ *  (compared case-insensitively). Defaults to the catalog of every known
+ *  machine format. */
+export async function unzip(data: Uint8Array, exts: readonly string[] = LOADABLE_EXTS): Promise<ZipEntry[]> {
+  const lowerExts = exts.map(e => e.toLowerCase());
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
 
   // ── 1. Find End-of-Central-Directory record ──────────────────────────
@@ -72,7 +89,8 @@ export async function unzip(data: Uint8Array): Promise<ZipEntry[]> {
     // Skip directories and unsupported compression methods
     if (name.endsWith('/')) continue;
     if (method !== 0 && method !== 8) continue;
-    if (!LOADABLE_EXTS.test(name)) continue;
+    const lowerName = name.toLowerCase();
+    if (!lowerExts.some(ext => lowerName.endsWith(ext))) continue;
 
     entries.push({ name, method, compressedSize, uncompressedSize, localHeaderOffset });
   }

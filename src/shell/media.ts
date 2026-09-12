@@ -225,8 +225,10 @@ async function reflectMount(
 }
 
 /** Unwrap a .zip and re-dispatch its (relevant) contents through loadFile. The
- *  machine's zip policy decides: offer every entry ('all'), only entries its
- *  MediaService accepts ('media'), or reject archives outright ('none'). */
+ *  archive is filtered by the machine's own MediaService declaration, so a
+ *  format the machine accepts can never be dropped by the ZIP parser; the zip
+ *  policy decides: offer every accepted entry ('all'), mount the first
+ *  accepted entry ('media'), or reject archives outright ('none'). */
 async function handleZip(data: Uint8Array, unit?: number): Promise<void> {
   if (!machine) return;
   const policy = machine.descriptor.ui.zipPolicy;
@@ -236,19 +238,16 @@ async function handleZip(data: Uint8Array, unit?: number): Promise<void> {
     return;
   }
   let entries;
-  try { entries = await unzip(data); } catch (e) { setStatus(`ZIP error: ${(e as Error).message}`); return; }
-  const candidates = policy === 'media'
-    ? entries.filter(e => accepted.some(ext => e.name.toLowerCase().endsWith(ext)))
-    : entries;
-  if (candidates.length === 0) {
+  try { entries = await unzip(data, accepted); } catch (e) { setStatus(`ZIP error: ${(e as Error).message}`); return; }
+  if (entries.length === 0) {
     setStatus(policy === 'media' ? `ZIP has no loadable media (${accepted.join('/')})` : 'ZIP is empty');
     return;
   }
-  let picked = candidates[0];
-  if (candidates.length > 1) {
-    const name = await showFilePicker(candidates.map(m => m.name));
+  let picked = entries[0];
+  if (entries.length > 1) {
+    const name = await showFilePicker(entries.map(m => m.name));
     if (!name) { setStatus('No file selected'); return; }
-    picked = candidates.find(m => m.name === name)!;
+    picked = entries.find(m => m.name === name)!;
   }
   await loadFile(picked.data, picked.name, unit);   // re-dispatch the extracted image
 }
@@ -323,6 +322,17 @@ export function saveScreenshot(format: 'png' | 'scr'): void {
       setStatus('Saved screen.png');
     });
   }
+}
+
+/** Download what the machine has SAVEd to its cassette port. Offered only
+ *  where the descriptor names 'tape-tap'; the machine owns what it recorded
+ *  and what to call it. */
+export function saveRecordedTape(): void {
+  if (!machine) { setStatus('No machine running'); return; }
+  const recorded = machine.services.tape?.recordedBytes?.() ?? null;
+  if (!recorded) { setStatus('Nothing has been saved to tape yet'); return; }
+  downloadFile(recorded.data, recorded.filename);
+  setStatus(`Saved ${recorded.filename}`);
 }
 
 export function saveRAM(): void {
