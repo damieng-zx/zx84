@@ -50,6 +50,7 @@ Load by picker or drag-and-drop. ZIP archives are unpacked and routed to compati
 | Memotech MTX | ROM packs: `.rom`; logical cassettes: `.mtx`; FDX/SDX Type 03/07 disks: `.mfloppy`, `.mfloppy-03`, `.mfloppy-07` |
 | SAM Coupé | Disks: `.mgt`, `.img`, `.dsk`, `.hfe`, `.scp`; tapes: `.tap`, `.tzx`, `.csw` |
 | Camputers Lynx | Cassettes: `.tap`; disks: `.ldf` on the 96K/128K |
+| Amstrad PCW | Disks: `.dsk`, `.td0`, `.hfe`, `.scp` |
 
 The tape deck provides block navigation, transport controls, fast ROM loading, turbo loading, loading sound where applicable, and original-media download. The disk UI supports drive selection, write protection, disk sounds, changed-image saving, blank image creation, and flippy disks.
 
