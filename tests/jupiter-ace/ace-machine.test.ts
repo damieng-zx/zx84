@@ -300,6 +300,50 @@ describe('JupiterAceMachine — tape turbo', () => {
   });
 });
 
+describe('JupiterAceMachine — the /INT window', () => {
+  /**
+   * A ROM that masks interrupts, burns `nops` × 4T, then re-enables them —
+   * the shape any DI stretch makes. It spins on a JR -2 afterwards so
+   * execution can never fall through to 0x0038 and fake a serviced interrupt.
+   */
+  function romWithDiStretch(nops: number): Uint8Array {
+    const rom = new Uint8Array(0x2000);
+    let p = 0x0100;
+    rom[p++] = 0xED; rom[p++] = 0x56;                 // IM 1
+    rom[p++] = 0xF3;                                  // DI
+    for (let i = 0; i < nops; i++) rom[p++] = 0x00;   // NOP (4T each)
+    rom[p++] = 0xFB;                                  // EI
+    rom[p++] = 0x18; rom[p++] = 0xFE;                 // JR -2
+    return rom;
+  }
+
+  /** Did the frame's interrupt reach the IM 1 vector at 0x0038? */
+  function servicedInterrupt(nops: number): boolean {
+    const m = machine();
+    m.loadROM(romWithDiStretch(nops));
+    m.reset();
+    m.cpu.pc = 0x0100;
+    let serviced = false;
+    m.onTrap = (pc: number) => { if (pc === 0x0038) serviced = true; return false; };
+    m.tick();
+    m.destroy();
+    return serviced;
+  }
+
+  it('serves the interrupt after a DI stretch far longer than a 26T pulse', () => {
+    // 200 NOPs = 800T of masked interrupts before EI. The ULA holds /INT low
+    // across the eight sync scanlines (1664T), so this is still served —
+    // under the old 26T pulse it was lost until the next field.
+    expect(servicedInterrupt(200)).toBe(true);
+  });
+
+  it('loses the interrupt once the CPU masks it past the whole window', () => {
+    // 500 NOPs = 2000T, past 1664T: /INT has been released, so this field's
+    // interrupt is gone rather than being held pending forever.
+    expect(servicedInterrupt(500)).toBe(false);
+  });
+});
+
 describe('JupiterAceMachine — loader-detector auto-start', () => {
   /** A deck block so the tape has something to play. */
   function deckBlock(): TapeBlock {

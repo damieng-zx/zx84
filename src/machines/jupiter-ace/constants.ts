@@ -48,9 +48,15 @@ export const ACE_BORDER_TOP = 24;
 export const ACE_SCREEN_WIDTH = 320;
 export const ACE_SCREEN_HEIGHT = 240;
 
-/** The ULA holds /INT low for this many T-states each frame (Spectrum-style
- *  pulse; one interrupt per frame, lost if the CPU is masking them). */
-export const ACE_INT_LENGTH_T = 26;
+/** How long the ULA holds /INT low each frame. Not the Spectrum's brief
+ *  pulse: the Ace asserts it for the eight scanlines of vertical sync (MAME
+ *  raises the IRQ at line 31×8 = 248 and clears it at 32×8 = 256), so
+ *  8 × 208T. A CPU that is masking interrupts therefore has a whole 1664T to
+ *  re-enable them and still take the frame's interrupt — at 26T a DI stretch
+ *  of more than a few instructions silently lost it until the next field.
+ *  Still one interrupt per frame here: the pulse is a deadline, not a level
+ *  the CPU can re-trigger on. */
+export const ACE_INT_LENGTH_T = 8 * ACE_T_PER_LINE;
 
 /** ROM space: 8KB of FORTH ROM at 0x0000. */
 export const ACE_ROM_SIZE = 0x2000;
