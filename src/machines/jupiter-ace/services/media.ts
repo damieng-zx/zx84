@@ -52,7 +52,13 @@ export class AceMediaService implements MediaService {
       // hunts forever. mountBlocks has just tagged the pairs, so name the
       // first file exactly as stored rather than making the user guess.
       const lead = blocks.find(b => b.kind === 'data' && (b as DataBlock).file?.header) as DataBlock | undefined;
-      const hint = lead?.file ? ` — type: ${lead.file.command} ${lead.file.name}` : '';
+      const file = lead?.file;
+      // Loading is two steps on the Ace and neither takes quotes: LOAD <name>
+      // pulls the dictionary in, then typing the word itself runs it (tut-tut
+      // loads as TUTTUT and runs as tuttut). A bytes file only loads — there
+      // is no word to run afterwards.
+      const runStep = file?.command === 'LOAD' ? ` ${file.name} ↵` : '';
+      const hint = file ? ` — type: ${file.command} ${file.name} ↵${runStep}` : '';
       return { ok: true, target: 'tape', message: `Tape loaded: ${filename}${hint}` };
     }
 
