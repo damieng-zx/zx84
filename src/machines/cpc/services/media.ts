@@ -49,16 +49,16 @@ export class CpcMediaService implements MediaService {
 
     // Cassettes: CDT/TZX (same container) or TAP.
     if (/\.(cdt|tzx|tap)$/i.test(filename)) {
-      c.stop();
+      // No stop/start pair — see the Spectrum's tape mount: parse and swap are
+      // synchronous, and starting on the failure path restarted a machine the
+      // user had paused, since the shell returns early on !ok.
       let blocks: TapeBlock[];
       try {
         blocks = /\.tap$/i.test(filename) ? c.tape.parseTAP(data) : parseTZX(data);
       } catch (e) {
-        c.start();
         return fail(`Error: ${(e as Error).message}`);
       }
       this.tape.mountBlocks(blocks, filename);
-      c.start();
       return { ok: true, target: 'tape', message: `Tape loaded: ${filename}` };
     }
 
