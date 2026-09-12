@@ -299,6 +299,37 @@ describe('JupiterAceMachine — tape turbo', () => {
   });
 });
 
+describe('JupiterAceMachine — loader-detector auto-start', () => {
+  /** A deck block so the tape has something to play. */
+  function deckBlock(): TapeBlock {
+    return {
+      kind: 'data', flag: 0xFF, data: new Uint8Array(64),
+      pause: 1000, pilotPulse: 2166, syncPulse1: 647, syncPulse2: 852,
+      bit0Pulse: 863, bit1Pulse: 1713, pilotCount: 1024, usedBits: 8, source: 'tap',
+    };
+  }
+
+  it('starts the deck from the current T-state, not the top of the frame', () => {
+    const m = machine();
+    m.tape.blocks = [deckBlock()];
+    m.tape.startPlayback();
+    m.tape.paused = true;        // mounted: motor running, pause held
+    // runFrame stamps tapeLastAdvanceT at the top of each frame, and nothing
+    // advances the deck while it is paused — so by mid-frame it is stale.
+    m.cpu.tStates = 60_000;
+    m.tapeLastAdvanceT = 0;
+    // The ROM's edge loop polls ~59T apart with B counting through.
+    for (let i = 0; i < 12 && m.tape.paused; i++) {
+      m.cpu.tStates += 59;
+      m.cpu.b = (m.cpu.b - 1) & 0xFF;
+      m.cpu.portInHandler!(0xFEFE);
+    }
+    expect(m.tape.paused).toBe(false);                   // the detector started it
+    expect(m.tapeLastAdvanceT).toBe(m.cpu.tStates);      // no frame of catch-up
+    m.destroy();
+  });
+});
+
 describe('JupiterAceMachine — debug surface', () => {
   it('reads the screen file back as text via the MCP ocr hook', () => {
     const m = machine();
