@@ -260,7 +260,7 @@ describe('played widths against the ROM loader filters (0x18A7-0x192C)', () => {
 });
 
 describe('tagAceTapeFiles', () => {
-  it('tags a header/data pair as LOAD "name" with the data child hidden behind it', () => {
+  it('tags a header/data pair as an unquoted LOAD name, data child behind it', () => {
     const blocks: TapeBlock[] = [
       dataBlock(0x00, aceHeader({ type: 0, name: 'HELLO', length: 100, start: 15441 })),
       dataBlock(0xFF, new Uint8Array(101)),
@@ -269,7 +269,8 @@ describe('tagAceTapeFiles', () => {
     const lead = (blocks[0] as DataBlock).file;
     expect(lead).toEqual({
       name: 'HELLO', type: 'Dictionary', typeName: 'Dictionary',
-      command: 'LOAD', size: 100, header: true,
+      // quoted: false — the Ace's LOAD takes the name bare.
+      command: 'LOAD', quoted: false, size: 100, header: true,
     });
     const child = (blocks[1] as DataBlock).file;
     expect(child?.header).toBe(false);
@@ -332,7 +333,9 @@ describe('AceTapeService — mountBytes tags Ace pairs end to end', () => {
 
     // The pane's combined row comes from the shared TapeBlockInfo mapping.
     const info = m.services.tape.blocks[0];
-    expect(info.label).toBe('LOAD "DEMO"');
+    // No quotes: the Ace's LOAD takes a bare name, and the pane is read off
+    // and typed verbatim.
+    expect(info.label).toBe('LOAD DEMO');
     expect(info.detail).toBe('Dictionary · 3 bytes');
     // The raw blocks carry the pair markers for the combine view.
     expect((m.tape.blocks[0] as DataBlock).file?.header).toBe(true);

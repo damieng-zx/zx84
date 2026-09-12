@@ -23,6 +23,11 @@ export interface TapeFileInfo {
   readonly typeName: string;
   /** The command that loads it (Lynx: LOAD / MLOAD). */
   readonly command: string;
+  /** Whether that command quotes the name, as the pane renders it: LOAD "name"
+   *  (the Lynx) or a bare LOAD name (the Jupiter Ace, whose ROM takes the name
+   *  unquoted — typing the quotes there is a syntax error). Quoted when
+   *  omitted, which is what every format but the Ace wants. */
+  readonly quoted?: boolean;
   /** Payload size in bytes, as recorded by the format. */
   readonly size: number;
   /** True on the block that leads a pair (the name entry); the pane shows it

@@ -164,6 +164,9 @@ export function tagAceTapeFiles(blocks: TapeBlock[]): void {
       type: typeName,
       typeName,
       command,
+      // The Ace's LOAD takes the name unquoted — the pane is where you read
+      // it off before typing it, so it must not show quotes you'd then type.
+      quoted: false,
       size: header.length,
       header: true,
     };
