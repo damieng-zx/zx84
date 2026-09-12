@@ -36,6 +36,10 @@ export class SpectrumMediaService implements MediaService {
 
   accepts(): MediaTypeDescriptor[] {
     const s = this.s;
+    // Declares everything mount() can route. WD-family peripheral images
+    // (trd/scl/mgt/img/hfe/scp) are listed for every model: mount() targets
+    // whichever interface is enabled and names the missing Hardware toggle
+    // when none is, so gating them here would only hide the error that helps.
     const out: MediaTypeDescriptor[] = [
       { ext: '.sna', target: 'snapshot' },
       { ext: '.z80', target: 'snapshot' },
@@ -43,9 +47,16 @@ export class SpectrumMediaService implements MediaService {
       { ext: '.sp', target: 'snapshot' },
       { ext: '.tap', target: 'tape' },
       { ext: '.tzx', target: 'tape' },
+      { ext: '.cdt', target: 'tape' },
       { ext: '.csw', target: 'tape' },
+      { ext: '.trd', target: 'a' },
+      { ext: '.scl', target: 'a' },
+      { ext: '.mgt', target: 'a' },
+      { ext: '.img', target: 'a' },
+      { ext: '.hfe', target: 'a' },
+      { ext: '.scp', target: 'a' },
     ];
-    if (s.variant.hasFDC) out.push({ ext: '.dsk', target: 'a' }, { ext: '.hfe', target: 'a' });
+    if (s.variant.hasFDC) out.push({ ext: '.dsk', target: 'a' });
     if (isInterface1Capable(s.model)) out.push({ ext: '.mdr', target: 'mdv:0' }, { ext: '.mdv', target: 'mdv:0' });
     if (isInterface2Capable(s.model)) out.push({ ext: '.rom', target: 'cartridge' });
     return out;

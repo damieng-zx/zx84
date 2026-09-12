@@ -22,7 +22,7 @@ import type { MachineModel } from '@/models.ts';
 import type { OcrGridName, FontSource } from '@/ocr/ocr.ts';
 import type { BasicListingLine, BasicVariable } from '@/basic/types.ts';
 
-export type MachineKind = 'spectrum' | 'cpc' | 'einstein' | 'msx' | 'zx8x' | 'mtx' | 'sam' | 'lynx';
+export type MachineKind = 'spectrum' | 'cpc' | 'einstein' | 'msx' | 'zx8x' | 'mtx' | 'sam' | 'lynx' | 'jupiter-ace';
 
 /** Keyboard/ROM locale for international machine variants.
  *  'uk' = default (English, no locale-specific ROM/keyboard). */
@@ -277,6 +277,8 @@ export interface MouseTypeInfo {
  * capability test holds each entry against the service that has to honour it.
  */
 export type SaveMenuItem =
+  /** Whatever the machine has written to its cassette port, as a .tap. */
+  | 'tape-tap'
   | 'snapshot-szx'
   | 'snapshot-z80'
   | 'snapshot-sna-v2'
@@ -332,8 +334,15 @@ export interface MachineUiCapabilities {
   readonly systemRomSlot?: boolean;
   /** Independently-overridable 16K system ROM pages (0 = single image). */
   readonly romPages: 0 | 2 | 4;
-  /** 1-bit beeper present (Sound-pane mixer + BEEP activity LED). */
+  /** 1-bit beeper present (the BEEP activity LED, and the beeper side of the
+   *  Sound-pane mixer). */
   readonly beeper: boolean;
+  /** The Beep↔PSG balance slider applies: the machine has both a beeper and
+   *  a PSG to balance, and reads 'ay-mix' in applySettings. Omitted where the
+   *  balance is fixed — a buzzer-only machine (the Ace, the Lynx) has nothing
+   *  to weigh it against, and the MSX and Einstein never read the setting —
+   *  so the pane hides a slider that would do nothing. */
+  readonly psgMixer?: boolean;
   /**
    * Which of the Sound pane's PSG-shaping controls apply to this machine.
    *
@@ -362,6 +371,10 @@ export interface MachineUiCapabilities {
   /** Tape transport: 'deck' (pulse-level block list) or 'instant' (logical image).
    *  Omitted when the model has no cassette hardware (e.g. the GX4000 console). */
   readonly tape?: 'deck' | 'instant';
+  /** The machine traps its ROM's tape-load routine (the "Fast ROM loading"
+   *  toggle does something). Omitted when there is no trap — the Tape pane
+   *  then hides the toggle instead of offering a dead control. */
+  readonly fastRomLoading?: boolean;
   /** Loading-sound toggle applies (AY-audible tape loading). */
   readonly tapeSound: boolean;
   /** Extensions the tape loader accepts (Load picker). */
@@ -552,6 +565,10 @@ export interface TapeService {
   rewind(): void;
   seek(block: number): void;
   eject(): void;
+  /** Bytes the machine has written to its cassette port since the last reset,
+   *  for the Save menu's 'tape-tap' entry, or null when it has saved nothing.
+   *  Omitted by machines that do not record what they save. */
+  recordedBytes?(): { data: Uint8Array; filename: string } | null;
 }
 
 export interface DriveDescriptor {

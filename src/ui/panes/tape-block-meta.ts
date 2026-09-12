@@ -53,7 +53,11 @@ export function parseTapeBlockMeta(block: TapeBlock, index: number, blocks: Tape
           }
           return { line: `${index}: Data ${f.size} bytes`, detail: timing, hidden: false, control: false, absorbsNext: false };
         }
-        const line = `${index}: ${f.name ? `${f.command} "${f.name}"` : f.command}`;
+        // Most formats quote the name (LOAD "name"); the Ace's LOAD takes it
+        // bare, and the row is read off and typed verbatim, so quotes there
+        // would be typed too — and rejected.
+        const named = f.quoted === false ? f.name : `"${f.name}"`;
+        const line = `${index}: ${f.name ? `${f.command} ${named}` : f.command}`;
         const detail = `${f.typeName} · ${f.size} bytes`;
         const next = blocks[index + 1];
         const hasChild = !!next && next.kind === 'data' && !!next.file && !next.file.header;

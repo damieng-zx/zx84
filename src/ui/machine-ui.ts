@@ -90,6 +90,12 @@ const CONTRIBUTIONS: Record<string, MachineUiContribution> = {
     LibraryBrowser: lazy(() =>
       import('@/machines/zx8x/ui/LibraryBrowser.tsx').then(m => ({ default: m.Zx8xLibraryBrowser }))),
   },
+  'jupiter-ace': {
+    HardwareSection: lazy(() =>
+      import('@/machines/jupiter-ace/ui/hardware-section.tsx').then(m => ({ default: m.AceHardwareSection }))),
+    Keyboard: lazy(() =>
+      import('@/machines/jupiter-ace/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
+  },
 };
 
 /** The UI contributions for a machine kind (empty object when none registered). */
@@ -142,5 +148,10 @@ export const keyboardLabPresetLoaders: readonly KeyboardLabPresetLoader[] = [
     group: 'Camputers Lynx',
     load: () => import('@/machines/lynx/ui/keyboard/lab-preset.ts')
       .then((module) => module.lynxKeyboardLabPresets()),
+  },
+  {
+    group: 'Jupiter Cantab',
+    load: () => import('@/machines/jupiter-ace/ui/keyboard/lab-preset.ts')
+      .then((module) => module.aceKeyboardLabPresets()),
   },
 ];

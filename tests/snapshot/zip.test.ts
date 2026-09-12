@@ -308,11 +308,11 @@ describe('unzip — filtering', () => {
     expect(out.map(e => e.name)).toEqual(names);
   });
 
-  it('accepts cartridge and peripheral-format extensions (rom/cas/hfe/scp/trd/scl/mgt/img/mdr/mdv/cdt)', async () => {
+  it('accepts cartridge and peripheral-format extensions (rom/cas/cpr/hfe/scp/trd/scl/mgt/img/mdr/mdv/cdt/mfloppy)', async () => {
     const names = [
-      'cart.rom', 'game.cas', 'disk.hfe', 'disk.SCP',
+      'cart.rom', 'game.cas', 'cart.cpr', 'disk.hfe', 'disk.SCP',
       'disk.trd', 'disk.scl', 'disk.mgt', 'disk.img',
-      'tape.mdr', 'tape.MDV', 'tape.cdt',
+      'tape.mdr', 'tape.MDV', 'tape.cdt', 'mtx.mfloppy',
     ];
     const zip = buildZip(names.map(n => ({ name: n, data: bytes(0xFF) })));
     const out = await unzip(zip);
@@ -354,6 +354,39 @@ describe('unzip — filtering', () => {
 
     const out = await unzip(zip);
     expect(out.map(e => e.name)).toEqual(['a.sna']);
+  });
+});
+
+describe('unzip — caller-supplied extension filter', () => {
+  it('keeps only entries matching the supplied extensions', async () => {
+    const zip = buildZip([
+      { name: 'game.ldf', data: bytes(1) },
+      { name: 'readme.txt', data: bytes(2) },
+      { name: 'other.dsk', data: bytes(3) },
+    ]);
+    const out = await unzip(zip, ['.ldf']);
+    expect(out.map(e => e.name)).toEqual(['game.ldf']);
+  });
+
+  it('matches supplied extensions case-insensitively', async () => {
+    const zip = buildZip([{ name: 'GAME.LDF', data: bytes(1) }]);
+    const out = await unzip(zip, ['.ldf']);
+    expect(out.map(e => e.name)).toEqual(['GAME.LDF']);
+  });
+
+  it('accepts extensions outside the default catalog (machine-declared formats cannot drift)', async () => {
+    const zip = buildZip([
+      { name: 'game.foo', data: bytes(1) },
+      { name: 'game.sna', data: bytes(2) },
+    ]);
+    const out = await unzip(zip, ['.foo']);
+    expect(out.map(e => e.name)).toEqual(['game.foo']);
+  });
+
+  it('an empty extension list rejects every entry', async () => {
+    const zip = buildZip([{ name: 'game.sna', data: bytes(1) }]);
+    const out = await unzip(zip, []);
+    expect(out).toEqual([]);
   });
 });
 

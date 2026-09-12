@@ -74,7 +74,9 @@ export function TapePane() {
             { value: 'auto-rewind', label: 'Auto-rewind', checked: tapeAutoRewind() },
             { value: 'collapse-blocks', label: 'Combine paired blocks', checked: tapeCollapseBlocks() },
             { value: '__sep1', label: '', separator: true },
-            { value: 'fast-rom', label: 'Fast ROM loading', checked: tapeFastRom() },
+            // Only machines that actually trap their ROM's tape-read routine
+            // offer fast loading; the toggle would be dead elsewhere.
+            ...(machineCaps().fastRomLoading ? [{ value: 'fast-rom', label: 'Fast ROM loading', checked: tapeFastRom() }] : []),
             { value: 'turbo', label: 'Turbo while loading', checked: tapeTurbo() },
           ]}
           onSelect={(value) => {

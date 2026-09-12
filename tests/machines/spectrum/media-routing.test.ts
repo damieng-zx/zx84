@@ -194,10 +194,13 @@ describe('Spectrum MediaService routing', () => {
     expect(r.message).toMatch(/Unknown file type: \.xyz/);
   });
 
-  it('accepts() varies with model capability: +3 offers .dsk, 48K offers .rom/.mdr instead', () => {
+  it('accepts() declares every format mount() routes: WD peripherals on all models, .dsk only with a +3 FDC', () => {
     const exts48 = machine('48k').services.media.accepts().map(t => t.ext);
     expect(exts48).toContain('.rom');
     expect(exts48).toContain('.mdr');
+    for (const ext of ['.cdt', '.trd', '.scl', '.mgt', '.img', '.hfe', '.scp']) {
+      expect(exts48).toContain(ext);
+    }
     expect(exts48).not.toContain('.dsk');
 
     const exts3 = machine('+3').services.media.accepts().map(t => t.ext);

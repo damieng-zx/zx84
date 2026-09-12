@@ -59,6 +59,7 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'zx81-wrx-hires': () => settings.zx81WrxHires(),
   'zx81-memotech-hrg': () => settings.zx81MemotechHrg(),
   'zx81-quicksilva-hrg': () => settings.zx81QuickSilvaHrg(),
+  'ace-ram-pack': () => settings.aceRamPack(),
 };
 
 export function buildSettingsView(): SettingsView {

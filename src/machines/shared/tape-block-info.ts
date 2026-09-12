@@ -19,7 +19,9 @@ export function tapeBlockInfo(b: TapeBlock, index: number): TapeBlockInfo {
         const f = b.file;
         return {
           index,
-          label: f.name ? `${f.command} "${f.name}"` : f.command,
+          label: f.name
+            ? (f.quoted === false ? `${f.command} ${f.name}` : `${f.command} "${f.name}"`)
+            : f.command,
           kind: b.source,
           detail: `${f.typeName} · ${f.size} bytes`,
           name: f.name,

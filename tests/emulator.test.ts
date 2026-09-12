@@ -211,6 +211,7 @@ vi.mock('@/machines/cpc/cpc-machine.ts', () => ({
 vi.mock('@/display/canvas-renderer.ts', () => ({
   CanvasRenderer: function() {
     return {
+      resize: vi.fn(), setViewport: vi.fn(),
       setScale: vi.fn(), setBrightness: vi.fn(), setContrast: vi.fn(),
       setSaturation: vi.fn(), setGamma: vi.fn(),
       setSmoothing: vi.fn(), setCurvature: vi.fn(), setScanlines: vi.fn(),

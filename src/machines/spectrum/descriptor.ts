@@ -49,10 +49,14 @@ function spectrumUi(model: MachineModel): MachineUiCapabilities {
     systemRomLabel: 'ROM',
     romPages: romPageSlotCount(model),
     beeper: true,
+    // spectrum.ts reads 'ay-mix' to balance the 128K AY against the beeper.
+    psgMixer: true,
     psgControls: ['stereo', 'filter', 'dc-block'],
     statusLeds: spectrumStatusLeds(model),
     keyboardBus: 'ula',
     tape: 'deck',
+    // LD-BYTES is trapped at LD-START when the 48K BASIC owns slot 0.
+    fastRomLoading: true,
     tapeSound: true,
     tapeExtensions: ['.tap', '.tzx', '.csw', '.zip'],
     saveMenu: ['snapshot-szx', 'snapshot-z80', 'screenshot-png', 'screen-scr', 'ram-bin'],
