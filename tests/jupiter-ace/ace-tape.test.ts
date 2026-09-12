@@ -339,4 +339,23 @@ describe('AceTapeService — mountBytes tags Ace pairs end to end', () => {
     expect((m.tape.blocks[1] as DataBlock).file?.header).toBe(false);
     m.destroy();
   });
+
+  it('the mount message names the exact word to type', async () => {
+    // The Ace compares tape filenames literally, so a user who cannot see the
+    // stored name has no way to type it: "MiXeD" must come back verbatim.
+    const m = machine();
+    const header = aceHeader({ type: 0, name: 'MiXeD', length: 3, start: 15441 });
+    const result = await m.services.media.mount(tap([header, Uint8Array.from([1, 2, 3, 0x55])]), 'demo.tap');
+    expect(result.ok).toBe(true);
+    expect(result.message).toContain('LOAD MiXeD');
+    m.destroy();
+  });
+
+  it('a bytes file is announced as BLOAD', async () => {
+    const m = machine();
+    const header = aceHeader({ type: 32, name: 'CODE', length: 3, start: 16384 });
+    const result = await m.services.media.mount(tap([header, Uint8Array.from([1, 2, 3, 0x55])]), 'code.tap');
+    expect(result.message).toContain('BLOAD CODE');
+    m.destroy();
+  });
 });

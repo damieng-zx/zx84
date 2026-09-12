@@ -8,7 +8,7 @@
 
 import type { MediaService, MediaTypeDescriptor, MediaTargetId, MountResult } from '@/machines/machine.ts';
 import type { JupiterAceMachine } from '../ace-machine.ts';
-import type { TapeBlock } from '@/media/tape/tap.ts';
+import type { DataBlock, TapeBlock } from '@/media/tape/tap.ts';
 import { parseTZX } from '@/media/tape/tzx.ts';
 import { parseCSW } from '@/media/tape/csw.ts';
 import { parseAceTap } from '../ace-tape.ts';
@@ -47,7 +47,13 @@ export class AceMediaService implements MediaService {
       }
       this.tape.mountBlocks(blocks, filename);
       this.m.start();
-      return { ok: true, target: 'tape', message: `Tape loaded: ${filename}` };
+      // Unlike a Spectrum's LOAD "", the Ace's LOAD takes the name unquoted
+      // and compares it literally — wrong case and it prints "Dict:" then
+      // hunts forever. mountBlocks has just tagged the pairs, so name the
+      // first file exactly as stored rather than making the user guess.
+      const lead = blocks.find(b => b.kind === 'data' && (b as DataBlock).file?.header) as DataBlock | undefined;
+      const hint = lead?.file ? ` — type: ${lead.file.command} ${lead.file.name}` : '';
+      return { ok: true, target: 'tape', message: `Tape loaded: ${filename}${hint}` };
     }
 
     return fail('The Jupiter Ace accepts .tap, .tzx, .cdt and .csw cassettes (or a .zip of one)');
