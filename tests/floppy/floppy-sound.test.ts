@@ -12,6 +12,9 @@
  *       seekToZero), not queue an unbounded number of buffer sources.
  *   (3) destroy() must clear prevMotor/prevTrack so a fresh attach()
  *       starts from a clean slate.
+ *
+ * plus silence(), which is what the drive-sound switch calls when it is
+ * turned off part way through a seek.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -515,5 +518,71 @@ describe('a machine’s declared drive', () => {
     const drive = fixedDrive('3inch');
     expect(drive()).toBe(drive());
     expect(fixedDrive('3inch')).not.toBe(drive);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// silence() — the drive-sound switch going off
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('FloppySound — silence()', () => {
+  it('does not throw before attach()', () => {
+    expect(() => fs.silence()).not.toThrow();
+  });
+
+  it('cuts the master bus, so clicks already queued ahead never sound', () => {
+    fs.attach(ctx as any);
+    const master = ctx.gains[0];
+    fs.update(true, 40);
+    fs.update(true, 0);            // seek to zero — 40 clicks queued into the future
+    const queued = ctx.bufSrcs.filter(b => (b.started ?? 0) > ctx.currentTime);
+    expect(queued.length).toBeGreaterThan(1);
+    expect(queued.every(b => b.connected.length > 0)).toBe(true);
+
+    fs.silence();
+
+    // Every queued click feeds the old master, directly or through its envelope,
+    // and that is what has been cut off from the destination.
+    expect(master.gain.value).toBe(0);
+    expect(master.disconnectCount).toBeGreaterThan(0);
+  });
+
+  it('leaves a working bus behind, so switching back on is heard again', () => {
+    fs.attach(ctx as any);
+    const master = ctx.gains[0];
+    fs.update(true, 0);
+    fs.silence();
+
+    const fresh = ctx.gains[ctx.gains.length - 1];
+    expect(fresh).not.toBe(master);
+    expect(fresh.gain.value).toBe(0.4);
+    expect(fresh.connected[0]).toBe(ctx.destination);
+
+    const before = ctx.oscs.length;
+    fs.update(true, 0);            // motor edge again: silence() cleared prevMotor
+    expect(ctx.oscs.length).toBeGreaterThan(before);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// reset(track) — keeping the head position while the sound is off
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('FloppySound — reset(track)', () => {
+  it('seeds the head position, so switching back on does not replay the seek', () => {
+    fs.attach(ctx as any);
+    fs.reset(30);                  // sound was off while the drive seeked to 30
+    const before = ctx.bufSrcs.length;
+    fs.update(true, 30);           // switched back on, still at track 30
+    // The motor engage click is allowed; a 30-step seek is not.
+    expect(ctx.bufSrcs.length - before).toBeLessThan(5);
+  });
+
+  it('still defaults to track 0, as the machine-reset callers expect', () => {
+    fs.attach(ctx as any);
+    fs.reset();
+    const before = ctx.bufSrcs.length;
+    fs.update(true, 30);
+    expect(ctx.bufSrcs.length - before).toBeGreaterThan(20);
   });
 });
