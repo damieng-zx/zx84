@@ -354,6 +354,30 @@ describe('AceTapeService — mountBytes tags Ace pairs end to end', () => {
     m.destroy();
   });
 
+  it('a failed mount leaves a paused machine paused', async () => {
+    // The shell bails out on !ok without unpausing, so a machine started here
+    // would run on behind the user's back.
+    const m = machine();
+    let starts = 0;
+    m.start = async () => { starts++; };
+    const result = await m.services.media.mount(Uint8Array.from([1, 2, 3]), 'broken.tzx');
+    expect(result.ok).toBe(false);
+    expect(starts).toBe(0);
+    m.destroy();
+  });
+
+  it('a successful mount does not start the machine either', async () => {
+    // Resuming after a mount is the shell's call, not the media service's.
+    const m = machine();
+    let starts = 0;
+    m.start = async () => { starts++; };
+    const header = aceHeader({ type: 0, name: 'DEMO', length: 3, start: 15441 });
+    const result = await m.services.media.mount(tap([header, Uint8Array.from([1, 2, 3, 0x55])]), 'demo.tap');
+    expect(result.ok).toBe(true);
+    expect(starts).toBe(0);
+    m.destroy();
+  });
+
   it('a bytes file is announced as BLOAD', async () => {
     const m = machine();
     const header = aceHeader({ type: 32, name: 'CODE', length: 3, start: 16384 });

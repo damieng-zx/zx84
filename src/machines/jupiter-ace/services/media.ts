@@ -2,12 +2,11 @@
  * Ace MediaService — the machine's own file routing: TAP/TZX/CDT/CSW cassettes
  * played back through the pulse deck. ZIP unwrapping stays a shell concern.
  *
- * The service mutates the machine only. Signals, persistence and machine
- * restart stay shell reflection, keyed off MountResult.target.
+ * The service mutates the deck only. Signals, persistence and whether the
+ * machine runs afterwards stay shell reflection, keyed off MountResult.target.
  */
 
 import type { MediaService, MediaTypeDescriptor, MediaTargetId, MountResult } from '@/machines/machine.ts';
-import type { JupiterAceMachine } from '../ace-machine.ts';
 import type { DataBlock, TapeBlock } from '@/media/tape/tap.ts';
 import { parseTZX } from '@/media/tape/tzx.ts';
 import { parseCSW } from '@/media/tape/csw.ts';
@@ -17,10 +16,9 @@ import type { AceTapeService } from './tape.ts';
 function fail(message: string): MountResult { return { ok: false, message }; }
 
 export class AceMediaService implements MediaService {
-  constructor(
-    private readonly m: JupiterAceMachine,
-    private readonly tape: AceTapeService,
-  ) {}
+  // The deck is the only thing this service touches; starting and stopping the
+  // machine belongs to the shell (see mount).
+  constructor(private readonly tape: AceTapeService) {}
 
   accepts(): MediaTypeDescriptor[] {
     return [
@@ -34,19 +32,21 @@ export class AceMediaService implements MediaService {
   async mount(data: Uint8Array, filename: string, _target?: MediaTargetId): Promise<MountResult> {
     const ext = filename.toLowerCase().split('.').pop();
     if (ext === 'tap' || ext === 'tzx' || ext === 'cdt' || ext === 'csw') {
-      // Stop the machine first to prevent the frame loop from interfering.
-      this.m.stop();
+      // No stop/start pair: parsing allocates and mountBlocks swaps the block
+      // list in one synchronous step, so the frame loop has nothing to trip
+      // over (same reasoning as the disk mounts). Starting here was worse than
+      // redundant — the failure path below ran it too, so a tape that would
+      // not parse quietly restarted a machine the user had paused, and the
+      // shell never unpauses for a failed mount. Pause policy is the shell's.
       let blocks: TapeBlock[];
       try {
         if (ext === 'tzx' || ext === 'cdt') blocks = parseTZX(data);
         else if (ext === 'csw') blocks = await parseCSW(data);
         else blocks = parseAceTap(data);   // Ace chunks are flag-less — NOT parseTAP
       } catch (e) {
-        this.m.start();
         return fail(`Error: ${(e as Error).message}`);
       }
       this.tape.mountBlocks(blocks, filename);
-      this.m.start();
       // Unlike a Spectrum's LOAD "", the Ace's LOAD takes the name unquoted
       // and compares it literally — wrong case and it prints "Dict:" then
       // hunts forever. mountBlocks has just tagged the pairs, so name the

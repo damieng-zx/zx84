@@ -27,7 +27,7 @@ export function createAceServices(m: JupiterAceMachine): AceServices {
   const host = () => m.host;
   const tape = new AceTapeService(m);
   const roms = new AceRomService(m, host);
-  const media = new AceMediaService(m, tape);
+  const media = new AceMediaService(tape);
   return {
     media, roms, tape, disks: null, snapshots: null,
     input: new AceInputService(m),
