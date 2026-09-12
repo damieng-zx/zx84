@@ -133,14 +133,15 @@ Tests must be written critically against a known-correct specification, not as a
 
 ### Branch management
 
-- **`main` is the integration branch.** All PRs branch from and merge into `main`.
-  There is no long-lived `dev` branch. Merges to `main` do **not** deploy;
+- **`dev` is the long-lived integration branch.** All PRs branch from and merge
+  into `dev`. `main` tracks released code — the release commit lands there, and
+  `dev` runs ahead of it between releases. Neither merge deploys by itself;
   production is cut by pushing a `vX.Y.Z` tag (see [Releasing](#releasing) below).
-- **Starting new work: sync `main`, then create a sibling worktree from its tip.**
-  First bring `main` up to date (`git fetch origin && git checkout main && git pull`),
+- **Starting new work: sync `dev`, then create a sibling worktree from its tip.**
+  First bring `dev` up to date (`git fetch origin && git checkout dev && git pull`),
   then create a new sibling worktree branched off the freshly-synced tip
-  (`git worktree add ../<branch> -b <branch> main`). Never edit or commit in the
-  shared working tree, and never base work off `dev`.
+  (`git worktree add ../<branch> -b <branch> dev`). Never edit or commit in the
+  shared working tree.
 - **Branch naming** mirrors the Conventional Commit types (`feat:`, `fix:`, …).
   `<name>` is short kebab-case (e.g. `feature/tape-fast-load`, `fix/gx4000-palette`):
 
@@ -159,8 +160,8 @@ Production is **tag-driven**. Cloudflare no longer auto-deploys `main`; instead,
 pushing a `vX.Y.Z` git tag triggers the `Deploy to Cloudflare` GitHub Action
 (`.github/workflows/deploy.yml`), which builds that exact commit and runs
 `wrangler deploy`. **The most recently pushed release tag is what Cloudflare
-serves.** `main` is a pure integration branch — merges to it never touch
-production.
+serves.** Merging to `dev` or `main` never touches production by itself — only
+a pushed tag does.
 
 The app version lives in **two** places that must stay in sync:
 
