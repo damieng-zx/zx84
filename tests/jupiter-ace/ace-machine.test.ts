@@ -21,7 +21,8 @@ describe('JupiterAceMachine — construction', () => {
   it('exposes Ace geometry, clock and a deck-backed tape with no disk/snapshot', () => {
     const m = machine();
     expect(m.kind).toBe('jupiter-ace');
-    expect(m.tStatesPerFrame).toBe(65_000);
+    // 312 scanlines of 208T: the field's real length, not 3.25MHz/50Hz.
+    expect(m.tStatesPerFrame).toBe(64_896);
     expect(m.cpuClockHz).toBe(3_250_000);
     expect(m.frameWidth).toBe(320);
     expect(m.frameHeight).toBe(240);

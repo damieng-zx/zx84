@@ -21,14 +21,21 @@
 /** Z80 clock (Hz) — 6.5 MHz crystal / 2. */
 export const ACE_CPU_CLOCK = 3_250_000;
 
-/** PAL field rate. */
+/** Nominal PAL field rate. The field the ULA actually draws is 312 × 208T,
+ *  which at 3.25 MHz comes out at 50.08 Hz — see ACE_T_PER_FRAME below. */
 export const ACE_FRAME_HZ = 50;
 
-/** Nominal T-states per frame (3.25 MHz / 50 Hz). */
-export const ACE_T_PER_FRAME = Math.round(ACE_CPU_CLOCK / ACE_FRAME_HZ);
-
-/** PAL scanlines per field (the CPU budget is 65000T; 312 × 208.33T). */
+/** PAL scanlines per field. */
 export const ACE_LINES_PER_FRAME = 312;
+
+/** T-states per scanline: the 6.5 MHz dot clock draws 416 pixels a line, and
+ *  the CPU runs at half that (MAME's screen.set_raw(6.5_MHz, 416, …, 312)). */
+export const ACE_T_PER_LINE = 208;
+
+/** T-states per frame — the field's real length, 312 × 208T = 64896T, not the
+ *  3.25MHz/50Hz round number. The difference is 104T a frame (0.16%), and the
+ *  field rate that follows is 50.08 Hz, as on the hardware. */
+export const ACE_T_PER_FRAME = ACE_LINES_PER_FRAME * ACE_T_PER_LINE;
 
 /** Active display lines (24 character rows × 8 scanlines). */
 export const ACE_ACTIVE_LINES = 192;

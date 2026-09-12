@@ -95,7 +95,7 @@ export function wireAcePortIO(m: JupiterAceMachine): void {
         // Nothing advanced the deck while it was paused, and tapeLastAdvanceT
         // still reads the top of this frame — so measure the next advance from
         // now. Left stale it hands the deck a whole frame of catch-up at once
-        // (~65000T, some 30 pilot edges) the moment the loader resumes.
+        // (64896T, some 30 pilot edges) the moment the loader resumes.
         s.tapeLastAdvanceT = s.cpu.tStates;
         s.activity.loaderDetected = true;
       } else if (event === 'stop') {
