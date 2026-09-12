@@ -354,6 +354,17 @@ describe('AceTapeService — mountBytes tags Ace pairs end to end', () => {
     m.destroy();
   });
 
+  it('offers the same extensions the Load picker does, and no .cdt', async () => {
+    // .cdt is the Amstrad CPC's container; no Ace tape ever shipped in one,
+    // and the descriptor never offered it either.
+    const m = machine();
+    expect(m.services.media.accepts().map(a => a.ext)).toEqual(['.tap', '.tzx', '.csw']);
+    expect(m.descriptor.ui.tapeExtensions).toEqual(['.tap', '.tzx', '.csw', '.zip']);
+    const result = await m.services.media.mount(new Uint8Array(8), 'game.cdt');
+    expect(result.ok).toBe(false);
+    m.destroy();
+  });
+
   it('a failed mount leaves a paused machine paused', async () => {
     // The shell bails out on !ok without unpausing, so a machine started here
     // would run on behind the user's back.

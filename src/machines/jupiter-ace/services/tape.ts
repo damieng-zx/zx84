@@ -87,7 +87,7 @@ export class AceTapeService implements TapeService {
     let blocks: TapeBlock[];
     try {
       const ext = name.toLowerCase().split('.').pop();
-      blocks = ext === 'tzx' || ext === 'cdt' ? parseTZX(data)
+      blocks = ext === 'tzx' ? parseTZX(data)
         : ext === 'csw' ? await parseCSW(data)
         : parseAceTap(data);
     } catch {

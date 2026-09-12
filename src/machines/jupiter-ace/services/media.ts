@@ -1,5 +1,5 @@
 /**
- * Ace MediaService — the machine's own file routing: TAP/TZX/CDT/CSW cassettes
+ * Ace MediaService — the machine's own file routing: TAP/TZX/CSW cassettes
  * played back through the pulse deck. ZIP unwrapping stays a shell concern.
  *
  * The service mutates the deck only. Signals, persistence and whether the
@@ -22,16 +22,17 @@ export class AceMediaService implements MediaService {
 
   accepts(): MediaTypeDescriptor[] {
     return [
+      // Must agree with the descriptor's tapeExtensions, which is what the
+      // Load picker offers. No .cdt: that is the Amstrad CPC's container.
       { ext: '.tap', target: 'tape' },
       { ext: '.tzx', target: 'tape' },
-      { ext: '.cdt', target: 'tape' },
       { ext: '.csw', target: 'tape' },
     ];
   }
 
   async mount(data: Uint8Array, filename: string, _target?: MediaTargetId): Promise<MountResult> {
     const ext = filename.toLowerCase().split('.').pop();
-    if (ext === 'tap' || ext === 'tzx' || ext === 'cdt' || ext === 'csw') {
+    if (ext === 'tap' || ext === 'tzx' || ext === 'csw') {
       // No stop/start pair: parsing allocates and mountBlocks swaps the block
       // list in one synchronous step, so the frame loop has nothing to trip
       // over (same reasoning as the disk mounts). Starting here was worse than
@@ -40,7 +41,7 @@ export class AceMediaService implements MediaService {
       // shell never unpauses for a failed mount. Pause policy is the shell's.
       let blocks: TapeBlock[];
       try {
-        if (ext === 'tzx' || ext === 'cdt') blocks = parseTZX(data);
+        if (ext === 'tzx') blocks = parseTZX(data);
         else if (ext === 'csw') blocks = await parseCSW(data);
         else blocks = parseAceTap(data);   // Ace chunks are flag-less — NOT parseTAP
       } catch (e) {
@@ -62,6 +63,6 @@ export class AceMediaService implements MediaService {
       return { ok: true, target: 'tape', message: `Tape loaded: ${filename}${hint}` };
     }
 
-    return fail('The Jupiter Ace accepts .tap, .tzx, .cdt and .csw cassettes (or a .zip of one)');
+    return fail('The Jupiter Ace accepts .tap, .tzx and .csw cassettes (or a .zip of one)');
   }
 }
