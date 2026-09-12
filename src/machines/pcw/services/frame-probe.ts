@@ -12,9 +12,11 @@ import type {
 } from '@/machines/machine.ts';
 import type { OcrGridName } from '@/ocr/ocr.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
+import { fixedDrive, type DriveSound } from '@/media/floppy/floppy-sound.ts';
 import { hex8 } from '@/utils/hex.ts';
 import type { PcwMachine } from '../pcw-machine.ts';
 import { PCW_KEYBOARD_BLOCK } from '../constants.ts';
+import { pcwDriveType } from '../models.ts';
 
 /** Build the PCW memory-layout snapshot. Reads and writes can address
  *  different physical blocks (ports &F0-&F3 bit 7 clear), so both are shown. */
@@ -84,10 +86,14 @@ class PcwTranscribeDriver implements TranscribeDriver {
 export class PcwFrameProbe implements FrameProbe {
   readonly panes: FramePaneProvider;
   readonly transcribe: PcwTranscribeDriver;
+  /** Fixed per model: the 8000s and the 9512 are 3" CF2, the 9256 is 3.5".
+   *  Closed over once here so `sample()` still allocates nothing. */
+  private readonly drive: DriveSound;
 
   constructor(private readonly m: PcwMachine) {
     this.transcribe = new PcwTranscribeDriver(m);
     this.panes = { memoryMap: () => pcwMemoryMap(m) };
+    this.drive = fixedDrive(pcwDriveType(m.model));
   }
 
   sample(out: FrameIndicators): void {
@@ -135,12 +141,12 @@ export class PcwFrameProbe implements FrameProbe {
     out.mdvCount = 0;
     out.mdvMotorMask = 0;
 
-    // Drive-sound feed: the PCW's drives are 3" CF2 (profile 0), the same
-    // mechanism as the +3's.
+    // Drive-sound feed. A PCW was never re-fitted in the field the way a +3 or
+    // a CPC was, so the mechanism follows the model, not the disc in it.
     out.floppySlot = soundSlot;
     out.floppyMotor = soundSlot >= 0;
     out.floppyTrack = soundSlot >= 0 ? fdc.getUnitTrack(soundSlot) : 0;
-    out.floppyProfile = 0;
+    out.floppyProfile = this.drive();
   }
 
   frameTick(): void {

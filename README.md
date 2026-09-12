@@ -18,6 +18,7 @@ ZX84 is an old-computer emulator with machine-specific hardware models, browser-
 | Memotech MTX | MTX500, MTX512, RS128 | Z80, TMS9929A VDP, Z80 CTC, SN76489A, twin matrix-wired joysticks, ROM extension card, FDX/SDX WD179x disk interface, optional 6845 80-column display |
 | MGT SAM Coupé | 256K, 512K | Z80B, MGT ASIC video, SAA1099 stereo sound, WD1772 floppy, cassette, MGT mouse, optional external megabyte RAM |
 | Camputers Lynx | 48K, 96K, 128K | Z80A, 6845 CRTC video, DAC sound, cassette, FD1793 floppy on 96K/128K |
+| Amstrad PCW | 8256, 8512, 9512, 9256 | Z80A, gate array (roller-RAM bitmap video, 300Hz timer, FDC interrupt routing), beeper, uPD765A, memory-mapped keyboard, no ROM — boots from disc |
 
 ## Features
 

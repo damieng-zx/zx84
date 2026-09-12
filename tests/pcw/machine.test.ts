@@ -9,6 +9,9 @@
 import { describe, expect, it } from 'vitest';
 import { PcwMachine } from '@/machines/pcw/pcw-machine.ts';
 import { pcwEntry } from '@/machines/pcw/descriptor.ts';
+import {
+  pcwDefaultPhosphor, pcwDriveType, pcwHasDoubleSidedDriveA,
+} from '@/machines/pcw/models.ts';
 import { entryForKind, entryForModel } from '@/machines/registry.ts';
 import type { DskImage, DskSector, DskTrack } from '@/media/floppy/disk-image.ts';
 import {
@@ -36,9 +39,9 @@ function bootDisk(marker = 0xAA): DskImage {
 }
 
 describe('PCW registry entry', () => {
-  it('registers all three models under the pcw kind, with no system ROM', () => {
+  it('registers every model under the pcw kind, with no system ROM', () => {
     expect(pcwEntry.kind).toBe('pcw');
-    expect([...pcwEntry.models]).toEqual(['pcw8256', 'pcw8512', 'pcw9512']);
+    expect([...pcwEntry.models]).toEqual(['pcw8256', 'pcw8512', 'pcw9512', 'pcw9256']);
     expect(entryForKind('pcw')).toBe(pcwEntry);
     for (const model of pcwEntry.models) expect(entryForModel(model)).toBe(pcwEntry);
     // The PCW has no ROM at all — it boots from disc.
@@ -49,14 +52,18 @@ describe('PCW registry entry', () => {
     const m8256 = new PcwMachine('pcw8256');
     const m8512 = new PcwMachine('pcw8512');
     const m9512 = new PcwMachine('pcw9512');
+    const m9256 = new PcwMachine('pcw9256');
     expect(m8256.memory.blockCount).toBe(16);   // 256K
     expect(m8512.memory.blockCount).toBe(32);   // 512K
     expect(m9512.memory.blockCount).toBe(32);
+    expect(m9256.memory.blockCount).toBe(16);   // the budget 9000 kept 256K
     expect(m8256.config.drives).toBe(1);
     expect(m8512.config.drives).toBe(2);        // only the 8512 had two
     expect(m9512.config.drives).toBe(1);
+    expect(m9256.config.drives).toBe(1);
     expect(m9512.config.printer).toBe('daisywheel');
     expect(m8256.config.printer).toBe('matrix');
+    expect(m9256.config.printer).toBe('matrix'); // the 9256 went back to it
   });
 });
 
@@ -180,5 +187,28 @@ describe('PCW booting', () => {
     const m = new PcwMachine('pcw8256');
     expect(m.booted).toBe(false);
     expect(() => m.tick()).not.toThrow();
+  });
+});
+
+describe('PCW drives and monitor per model', () => {
+  it('gives drive A the right mechanism and the synth the right profile', () => {
+    // The 8256's A: is the single-sided 180K CF2; the 9512 got a double-sided
+    // 720K CF2, and the 1991 9256 is where the range moved to 3.5".
+    expect(pcwHasDoubleSidedDriveA('pcw8256')).toBe(false);
+    expect(pcwHasDoubleSidedDriveA('pcw8512')).toBe(false);
+    expect(pcwHasDoubleSidedDriveA('pcw9512')).toBe(true);
+    expect(pcwHasDoubleSidedDriveA('pcw9256')).toBe(true);
+
+    expect(pcwDriveType('pcw8256')).toBe('3inch');
+    expect(pcwDriveType('pcw8512')).toBe('3inch');
+    expect(pcwDriveType('pcw9512')).toBe('3inch');
+    expect(pcwDriveType('pcw9256')).toBe('3.5inch');
+  });
+
+  it('paints white phosphor on the 9512 alone', () => {
+    expect(pcwDefaultPhosphor('pcw9512')).toBe('white');
+    for (const model of ['pcw8256', 'pcw8512', 'pcw9256'] as const) {
+      expect(pcwDefaultPhosphor(model)).toBe('green');
+    }
   });
 });

@@ -83,7 +83,7 @@ export function pcwDescriptor(
 
 export const pcwEntry: MachineEntry = {
   kind: 'pcw',
-  models: ['pcw8256', 'pcw8512', 'pcw9512'],
+  models: ['pcw8256', 'pcw8512', 'pcw9512', 'pcw9256'],
   descriptor: pcwDescriptor,
   create(model: MachineModel, display: IScreenRenderer | null) {
     return new PcwMachine(model as PcwModel, display);
