@@ -42,7 +42,8 @@ const ACE_UI: MachineUiCapabilities = {
   // EAR input is not wired to the buzzer — the tape is silent while loading.
   tapeSound: false,
   tapeExtensions: ['.tap', '.tzx', '.csw', '.zip'],
-  saveMenu: ['screenshot-png', 'ram-bin'],
+  // 'tape-tap' downloads whatever the machine has SAVEd to the cassette port.
+  saveMenu: ['tape-tap', 'screenshot-png', 'ram-bin'],
   zipPolicy: 'media',
   persistMedia: true,
   bootDisk: false,

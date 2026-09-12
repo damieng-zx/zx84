@@ -324,6 +324,17 @@ export function saveScreenshot(format: 'png' | 'scr'): void {
   }
 }
 
+/** Download what the machine has SAVEd to its cassette port. Offered only
+ *  where the descriptor names 'tape-tap'; the machine owns what it recorded
+ *  and what to call it. */
+export function saveRecordedTape(): void {
+  if (!machine) { setStatus('No machine running'); return; }
+  const recorded = machine.services.tape?.recordedBytes?.() ?? null;
+  if (!recorded) { setStatus('Nothing has been saved to tape yet'); return; }
+  downloadFile(recorded.data, recorded.filename);
+  setStatus(`Saved ${recorded.filename}`);
+}
+
 export function saveRAM(): void {
   if (!machine) { setStatus('No machine running'); return; }
 

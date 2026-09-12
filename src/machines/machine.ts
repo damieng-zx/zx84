@@ -277,6 +277,8 @@ export interface MouseTypeInfo {
  * capability test holds each entry against the service that has to honour it.
  */
 export type SaveMenuItem =
+  /** Whatever the machine has written to its cassette port, as a .tap. */
+  | 'tape-tap'
   | 'snapshot-szx'
   | 'snapshot-z80'
   | 'snapshot-sna-v2'
@@ -563,6 +565,10 @@ export interface TapeService {
   rewind(): void;
   seek(block: number): void;
   eject(): void;
+  /** Bytes the machine has written to its cassette port since the last reset,
+   *  for the Save menu's 'tape-tap' entry, or null when it has saved nothing.
+   *  Omitted by machines that do not record what they save. */
+  recordedBytes?(): { data: Uint8Array; filename: string } | null;
 }
 
 export interface DriveDescriptor {

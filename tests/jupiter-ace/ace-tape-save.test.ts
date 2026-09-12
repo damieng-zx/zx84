@@ -14,6 +14,7 @@ import {
   AceTapeRecorder, decodeAceSaveBlocks, decodeAceSaveToTap,
 } from '@/machines/jupiter-ace/ace-tape-save.ts';
 import { parseAceTap, ACE_TAPE_HEADER_CHUNK } from '@/machines/jupiter-ace/ace-tape.ts';
+import { JupiterAceMachine } from '@/machines/jupiter-ace/ace-machine.ts';
 import type { DataBlock } from '@/media/tape/tap.ts';
 
 const PILOT_T = 2011;
@@ -82,6 +83,56 @@ describe('AceTapeRecorder', () => {
     r.reset();
     expect(r.edges).toEqual([]);
     expect(r.hasRecording).toBe(false);
+  });
+});
+
+describe('AceTapeService.recordedBytes', () => {
+  function machine(): JupiterAceMachine {
+    const m = new JupiterAceMachine('jupiter-ace', null);
+    m.start = async () => {};   // headless: no AudioContext / rAF
+    return m;
+  }
+
+  /** Drive an edge stream into the recorder the way the port handler does. */
+  function feed(m: JupiterAceMachine, edges: number[]): void {
+    let t = 0;
+    let level = 1;
+    m.tapeRecorder.observe(level, t);   // the first transition starts the clock
+    for (const width of edges) {
+      t += width;
+      level ^= 1;
+      m.tapeRecorder.observe(level, t);
+    }
+  }
+
+  it('is null until the machine has written to the cassette port', () => {
+    const m = machine();
+    expect(m.services.tape.recordedBytes()).toBeNull();
+    m.destroy();
+  });
+
+  it('hands back a .tap named after the file the machine saved', () => {
+    const m = machine();
+    const header = aceHeaderChunk('MiXeD', 4);
+    feed(m, [
+      ...blockEdges(0x00, header, 8192),
+      ...blockEdges(0xFF, [1, 2, 3, 4, 1 ^ 2 ^ 3 ^ 4], 1024),
+    ]);
+    const saved = m.services.tape.recordedBytes();
+    expect(saved).not.toBeNull();
+    // Named exactly as stored — the Ace's own LOAD compares it literally.
+    expect(saved!.filename).toBe('MiXeD.tap');
+    const parsed = parseAceTap(saved!.data);
+    expect(parsed.length).toBe(2);
+    expect((parsed[0] as DataBlock).flag).toBe(0x00);
+    expect((parsed[1] as DataBlock).flag).toBe(0xFF);
+    m.destroy();
+  });
+
+  it('is offered by the descriptor as a Save-menu entry', () => {
+    const m = machine();
+    expect(m.descriptor.ui.saveMenu).toContain('tape-tap');
+    m.destroy();
   });
 });
 

@@ -6,11 +6,12 @@
  */
 
 import type { TapeBlockInfo, TapeService, TapeStashState } from '@/machines/machine.ts';
-import type { TapeBlock } from '@/media/tape/tap.ts';
+import type { DataBlock, TapeBlock } from '@/media/tape/tap.ts';
 import { parseTZX } from '@/media/tape/tzx.ts';
 import { parseCSW } from '@/media/tape/csw.ts';
 import { tapeBlockInfo } from '@/machines/shared/tape-block-info.ts';
-import { parseAceTap, tagAceTapeFiles } from '../ace-tape.ts';
+import { parseAceTap, parseAceTapeHeader, tagAceTapeFiles } from '../ace-tape.ts';
+import { decodeAceSaveToTap } from '../ace-tape-save.ts';
 import type { JupiterAceMachine } from '../ace-machine.ts';
 
 export class AceTapeService implements TapeService {
@@ -99,6 +100,21 @@ export class AceTapeService implements TapeService {
     this.m.tape.paused = true;
     this._name = name;
     return true;
+  }
+
+  /** What the machine has SAVEd since the last reset, as .tap bytes, or null
+   *  when nothing has been written to the cassette port. The ROM's own SAVE
+   *  routine drives the MIC line and the recorder times it — see
+   *  ace-tape-save.ts — so this is whatever the machine actually wrote,
+   *  including from a program of the user's own. */
+  recordedBytes(): { data: Uint8Array; filename: string } | null {
+    const data = decodeAceSaveToTap(this.m.tapeRecorder.edges);
+    if (!data) return null;
+    // Name it after the first file on it, as the Ace itself would.
+    const blocks = parseAceTap(data);
+    const header = blocks.find(b => b.kind === 'data' && (b as DataBlock).flag === 0x00) as DataBlock | undefined;
+    const name = header ? parseAceTapeHeader(header.data)?.name ?? '' : '';
+    return { data, filename: `${name || 'jupiter-ace'}.tap` };
   }
 
   stashState(): TapeStashState | null {
