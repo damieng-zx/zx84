@@ -70,6 +70,9 @@ export function wireAcePortIO(m: JupiterAceMachine): void {
         s.activity.beeperToggled = true;
         s.mixer.prevBeeperBit = s.ula.buzzerBit;
       }
+      // Bit 3 is the cassette output: time its transitions so a SAVE can be
+      // recovered afterwards (see ace-tape-save.ts).
+      s.tapeRecorder.observe(s.ula.micBit, s.cpu.tStates);
     }
   };
 
@@ -103,6 +106,8 @@ export function wireAcePortIO(m: JupiterAceMachine): void {
       }
     }
     const val = s.ula.readPort((port >> 8) & 0xFF);
+    // The read drops MIC as well; only an actual change counts as an edge.
+    s.tapeRecorder.observe(s.ula.micBit, s.cpu.tStates);
     // The read cleared the buzzer flip-flop — the other half of the beep.
     if (s.ula.buzzerBit !== s.mixer.prevBeeperBit) {
       s.activity.beeperToggled = true;

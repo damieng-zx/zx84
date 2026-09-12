@@ -29,6 +29,7 @@ import { createAceServices, type AceServices } from './services/index.ts';
 import type { JupiterAceModel } from './models.ts';
 import { AceMemory, type AceRamPackKB } from './ace-memory.ts';
 import { AceKeyboard } from './keyboard.ts';
+import { AceTapeRecorder } from './ace-tape-save.ts';
 import { AceUla } from './ula.ts';
 import { installAceMemoryHooks, wireAcePortIO } from './io.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
@@ -72,6 +73,9 @@ export class JupiterAceMachine extends BaseMachine implements Machine {
   readonly ula: AceUla;
   /** Pulse-level cassette deck (TAP/TZX/CSW), EAR bit sampled on port 0xFE. */
   readonly tape: TapeDeck;
+  /** The other direction: times the MIC line so a SAVE can be recovered as a
+   *  .tap. The ROM's own SAVE routine drives it — nothing is trapped. */
+  readonly tapeRecorder = new AceTapeRecorder();
   readonly loaderDetector = new LoaderDetector();
   /** T-state of the last deck advance, for sub-instruction tape catch-up. */
   tapeLastAdvanceT = 0;
@@ -236,6 +240,7 @@ export class JupiterAceMachine extends BaseMachine implements Machine {
     this.ula.tapeActive = false;
     this.ula.micBit = 0;
     this.ula.buzzerBit = 0;
+    this.tapeRecorder.reset();
     this.tapeTurboActive = false;
     this.tapeTurboCooldown = 0;
     this.mixer.prevBeeperBit = 0;
