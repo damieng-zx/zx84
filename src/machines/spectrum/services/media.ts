@@ -113,19 +113,21 @@ export class SpectrumMediaService implements MediaService {
 
     // Cassettes: TAP/TZX/CDT (same container) or CSW.
     if (ext === 'tap' || ext === 'tzx' || ext === 'cdt' || ext === 'csw') {
-      // Stop the machine first to prevent the frame loop from interfering.
-      s.stop();
+      // No stop/start pair: parsing allocates and mountBlocks swaps the block
+      // list in one synchronous step, so the frame loop cannot interleave with
+      // it — the same reasoning as the disk path below. Starting here was
+      // worse than redundant, because the failure path ran it too: the shell
+      // returns early on !ok without unpausing, so a tape that would not parse
+      // quietly restarted a machine the user had deliberately paused.
       let blocks: TapeBlock[];
       try {
         if (ext === 'tzx' || ext === 'cdt') blocks = parseTZX(data);
         else if (ext === 'csw') blocks = await parseCSW(data);
         else blocks = s.tape.parseTAP(data);
       } catch (e) {
-        s.start();
         return fail(`Error: ${(e as Error).message}`);
       }
       this.tape.mountBlocks(blocks, filename);
-      s.start();
       return { ok: true, target: 'tape', message: `Tape loaded: ${filename}` };
     }
 

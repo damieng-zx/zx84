@@ -123,7 +123,10 @@ export class SamMediaService implements MediaService {
     // Cassette images: the same pulse-level formats the Spectrum uses, with
     // their 3.5 MHz-referenced pulse lengths scaled to the SAM's 6 MHz clock.
     if (TAPE_EXT.test(filename)) {
-      this.m.stop();
+      // No stop/start pair — see the Spectrum's tape mount. Here it was a
+      // finally, so the restart was unconditional: a tape that would not parse
+      // returned fail() through it and restarted a machine the user had
+      // paused, which the shell never undoes because it bails on !ok.
       let blocks: TapeBlock[];
       try {
         const ext = filename.toLowerCase().split('.').pop();
@@ -132,8 +135,6 @@ export class SamMediaService implements MediaService {
           : this.m.tape.parseTAP(data);
       } catch (e) {
         return fail(`Tape error: ${(e as Error).message}`);
-      } finally {
-        this.m.start();
       }
       if (blocks.length === 0) return fail(`No tape blocks in ${filename}`);
       this.tape.mountBlocks(blocks, filename);
