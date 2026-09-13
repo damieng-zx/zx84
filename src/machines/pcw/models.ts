@@ -59,6 +59,15 @@ export function pcwPrinter(model: PcwModel): 'matrix' | 'daisywheel' {
   return model === 'pcw9512' ? 'daisywheel' : 'matrix';
 }
 
+/**
+ * True for the redesigned deck the 9000s carry: the function keys paired down
+ * the left and the numeric pad off on its own to the right, with case showing
+ * between the blocks. The 8000s put both in one slab along the top right.
+ */
+export function pcwHasNineSeriesDeck(model: PcwModel): boolean {
+  return model === 'pcw9512' || model === 'pcw9256';
+}
+
 /** The 9512 shipped with a paper-white monitor; every other PCW was green. */
 export function pcwDefaultPhosphor(model: PcwModel): 'green' | 'white' {
   return model === 'pcw9512' ? 'white' : 'green';

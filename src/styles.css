@@ -4303,26 +4303,52 @@ input[type="range"]::-moz-range-thumb {
     linear-gradient(180deg, #e6e0cf 0%, #ddd6c3 60%, #cbc4b0 100%);
 }
 
-/* The AMSTRAD plate: a dark strip with the brand set solid and the rest in
-   italic, exactly as it is screened on the case. */
+/* The AMSTRAD plate: a dark strip with the brand set large and upright and the
+   rest in italic, exactly as it is screened on the case. Both sit on one
+   baseline, so the padding rather than centring places the line: the brand's
+   line box is 20u of the plate's 34u, leaving 7u above it. */
 .pcw-badge {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: calc(var(--pcw-u) * 5);
-  padding: 0 calc(var(--pcw-u) * 6);
+  padding: calc(var(--pcw-u) * 7) calc(var(--pcw-u) * 6) 0;
   border-radius: calc(var(--pcw-u) * 1.5);
-  background: linear-gradient(180deg, #4a4a48 0%, #353532 60%, #2c2c2a 100%);
   color: #f2efe8;
   box-shadow: 0 calc(var(--pcw-u) * 1) calc(var(--pcw-u) * 2) rgba(0,0,0,0.35);
   overflow: hidden;
 }
+/* The 8000s screen the whole plate dark. */
+.pcw-badge--8 {
+  background: linear-gradient(180deg, #4a4a48 0%, #353532 60%, #2c2c2a 100%);
+}
+/* The 9000s' runs the width of the deck in grey, with AMSTRAD boxed in at the
+   left and the model number in red at the right. */
+.pcw-badge--9 {
+  background: linear-gradient(180deg, #9aa0a9 0%, #878d97 60%, #767c86 100%);
+}
+.pcw-badge--9 .pcw-badge__brand {
+  padding: calc(var(--pcw-u) * 2) calc(var(--pcw-u) * 3) calc(var(--pcw-u) * 3);
+  border-radius: calc(var(--pcw-u) * 1);
+  background: #24262b;
+}
+/* Pushed to the far end of the plate, and set solid: PCW red, the number white. */
+.pcw-badge__plate {
+  margin-left: auto;
+  flex: none;
+  line-height: 1;
+  font-size: calc(var(--pcw-u) * 17);
+  font-weight: 800;
+  letter-spacing: calc(var(--pcw-u) * -0.4);
+}
+.pcw-badge__plate b { color: #d4283c; font-weight: 800; }
 .pcw-badge__brand {
   flex: none;
   line-height: 1;
-  font-size: calc(var(--pcw-u) * 15);
+  font-family: 'Arial Narrow', 'Helvetica Neue Condensed', Arial, sans-serif;
+  font-stretch: condensed;
+  font-size: calc(var(--pcw-u) * 20);
   font-weight: 800;
-  font-style: italic;
-  letter-spacing: calc(var(--pcw-u) * -0.3);
+  letter-spacing: calc(var(--pcw-u) * -0.6);
 }
 .pcw-badge__model {
   line-height: 1;
@@ -4332,6 +4358,25 @@ input[type="range"]::-moz-range-thumb {
   white-space: nowrap;
 }
 .pcw-badge__model b { font-weight: 800; }
+
+/* The case steps down between the plate and the deck. The step runs the full
+   width of the pane, so it rides the same full-bleed inset as the case itself —
+   `inset` first for the left and right bleed, then top/bottom for the band. */
+.pcw-keyboard::after {
+  content: '';
+  position: absolute;
+  inset: var(--case-bleed);
+  top: calc(var(--pcw-u) * 54);
+  bottom: auto;
+  height: calc(var(--pcw-u) * 10);
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    rgba(255,255,255,0.35) 0,
+    rgba(0,0,0,0.38) calc(var(--pcw-u) * 1),
+    rgba(0,0,0,0.14) 40%,
+    transparent 100%);
+}
 
 /* One well for the whole deck: no row is narrower than another, so there is no
    staircase to draw. */
@@ -4468,12 +4513,31 @@ input[type="range"]::-moz-range-thumb {
 /* The four caps whose upper legend is an arrow print it full size. */
 .pcw-key--pad5 .pcw-key__fn,
 .pcw-key--pad1 .pcw-key__fn,
-.pcw-key--pad2 .pcw-key__fn,
 .pcw-key--pad3 .pcw-key__fn,
 .pcw-key--pad-dot .pcw-key__fn {
   top: calc(var(--pcw-u) * 5);
   font-size: calc(var(--pcw-u) * 13);
 }
+/* Pad 2 prints the page symbol, not a legend: a rounded square ruled into an
+   even 4x4 grid. Five lines each way, so the tile period is a quarter of what
+   is left once one line's width is taken out — a plain 25% period would leave
+   the last cell short by that width. */
+.pcw-keyboard--8 .pcw-key--pad2 .pcw-key__fn > span { display: none; }
+.pcw-keyboard--8 .pcw-key--pad2 .pcw-key__fn::before {
+  --grid: calc(var(--pcw-u) * 14);
+  --rule: calc(var(--pcw-u) * 1.2);
+  --tile: calc((var(--grid) - var(--rule)) / 4);
+  content: '';
+  width: var(--grid);
+  height: var(--grid);
+  border-radius: calc(var(--pcw-u) * 1.5);
+  background:
+    repeating-linear-gradient(to right,
+      currentColor 0 var(--rule), transparent var(--rule) var(--tile)),
+    repeating-linear-gradient(to bottom,
+      currentColor 0 var(--rule), transparent var(--rule) var(--tile));
+}
+
 /* The two boxed caps either side of the bar, and the bar itself. */
 .pcw-key--box-plus .pcw-key__main,
 .pcw-key--box-minus .pcw-key__main {

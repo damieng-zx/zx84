@@ -16,7 +16,7 @@ import { describe, expect, it } from 'vitest';
 import { PcwKeyboard, type PcwCell } from '@/machines/pcw/pcw-keyboard.ts';
 import { PCW_KEYS, PCW_KEY_INDEX } from '@/machines/pcw/ui/keyboard/layout.ts';
 import {
-  PCW_SCENE, PCW_WELL, placePcwKeys,
+  PCW9_SCENE, PCW9_WELLS, PCW_SCENE, PCW_WELL, placePcw9Keys, placePcwKeys,
 } from '@/machines/pcw/ui/keyboard/scene-geometry.ts';
 
 /** Cells with a cap on them, `byte: bits`. &3FF9 keeps only b7 (DEL<); the
@@ -260,5 +260,95 @@ describe('PCW keyboard geometry', () => {
     const footLeft = box.x + box.width * Number(step![1]) / 100;
     const hash = placed.find((p) => p.key.id === 'hash')!.box;
     expect(footLeft).toBeGreaterThanOrEqual(hash.x + hash.width);
+  });
+});
+
+/**
+ * The 9512/9256 deck. It carries the same 82 caps as the 8256's, so the tests
+ * that matter are that none of them went missing in the rearrangement, that
+ * the blocks really are separated by case, and that every cap landed in a well.
+ */
+describe('PCW 9000-series keyboard geometry', () => {
+  const placed = placePcw9Keys();
+  const CAP_1U = 37;
+  /** A cap is one column left of the next: the blocks are further apart. */
+  const BLOCK_GAP = 40;
+
+  it('places the same 82 caps as the 8000s, each inside the scene', () => {
+    expect(placed.map((p) => p.key.id).sort())
+      .toEqual(placePcwKeys().map((p) => p.key.id).sort());
+    for (const { key, box } of placed) {
+      expect(box.x, key.id).toBeGreaterThanOrEqual(0);
+      expect(box.y, key.id).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width, key.id).toBeLessThanOrEqual(PCW9_SCENE.width);
+      expect(box.y + box.height, key.id).toBeLessThanOrEqual(PCW9_SCENE.height);
+    }
+  });
+
+  it('has no cap under 1u, and only RETURN taller than one', () => {
+    for (const { key, box } of placed) {
+      expect(box.width, key.id).toBeGreaterThanOrEqual(CAP_1U);
+      expect(box.height, key.id).toBe(key.id === 'return' ? 77 : CAP_1U);
+    }
+  });
+
+  it('overlaps no two caps', () => {
+    const boxes = placed.filter((p) => !p.hitClip);
+    for (let i = 0; i < boxes.length; i++) {
+      for (let j = i + 1; j < boxes.length; j++) {
+        const a = boxes[i].box;
+        const b = boxes[j].box;
+        const apart = a.x + a.width <= b.x || b.x + b.width <= a.x
+          || a.y + a.height <= b.y || b.y + b.height <= a.y;
+        expect(apart, `${boxes[i].key.id} overlaps ${boxes[j].key.id}`).toBe(true);
+      }
+    }
+  });
+
+  it('stands the function keys and the pad clear of the typewriter block', () => {
+    const span = (ids: readonly string[]) => {
+      const boxes = ids.map((id) => placed.find((p) => p.key.id === id)!.box);
+      return {
+        left: Math.min(...boxes.map((b) => b.x)),
+        right: Math.max(...boxes.map((b) => b.x + b.width)),
+      };
+    };
+    const left = span(['f8-f7', 'f2-f1', 'can', 'ptr', 'alt', 'extra',
+      'box-plus', 'box-minus']);
+    const main = span(['stop', 'tab', 'shift-lock', 'shift-left', 'space',
+      'return', 'shift-right', 'exit', 'del-left']);
+    const pad = span(['cut', 'copy', 'paste', 'pad7', 'pad0', 'pad-enter']);
+
+    expect(main.left - left.right).toBeGreaterThanOrEqual(BLOCK_GAP);
+    expect(pad.left - main.right).toBeGreaterThanOrEqual(BLOCK_GAP);
+  });
+
+  it('drops every cap into one of the wells', () => {
+    for (const { key, box } of placed) {
+      const held = PCW9_WELLS.some((well) => box.x > well.x
+        && box.y > well.y
+        && box.x + box.width < well.x + well.width
+        && box.y + box.height < well.y + well.height);
+      expect(held, key.id).toBe(true);
+    }
+    for (const well of PCW9_WELLS) {
+      expect(well.x).toBeGreaterThanOrEqual(0);
+      expect(well.x + well.width).toBeLessThanOrEqual(PCW9_SCENE.width);
+      expect(well.y + well.height).toBeLessThanOrEqual(PCW9_SCENE.height);
+    }
+  });
+
+  it('laps the middle well rectangles, so the step shows no seam', () => {
+    // They are drawn with a 2-unit corner radius; anything less than that much
+    // overlap and the rounded corners would bite into the join.
+    const [, upper, lower] = PCW9_WELLS;
+    expect(upper.y + upper.height - lower.y).toBeGreaterThanOrEqual(4);
+    expect(lower.x).toBeGreaterThan(upper.x);
+    expect(lower.x + lower.width).toBeLessThan(upper.x + upper.width);
+  });
+
+  it('prints SPCHK on the pad 2 cap, not the 8000s page symbol', () => {
+    expect(placed.find((p) => p.key.id === 'pad2')!.key.fn).toBe('SPCHK');
+    expect(placePcwKeys().find((p) => p.key.id === 'pad2')!.key.fn).not.toBe('SPCHK');
   });
 });

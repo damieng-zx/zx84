@@ -15,9 +15,10 @@
  * Plus, and `< §` types `§` — the caps are LocoScript's, and CP/M's own
  * translation table does what it likes with them.
  *
- * The 9512's deck is a different, XT-style arrangement with the function keys
- * down the left. It is not traced here, so a 9512 shows the 8256 deck; the
- * 9256, which kept the 8256 layout, is right either way.
+ * Both PCW decks carry these same 82 caps on the same matrix: the 9000s moved
+ * the blocks about rather than changing what is printed on them. Where they
+ * sit is `scene-geometry.ts`, which also carries the one legend that does
+ * differ between the two.
  */
 
 import type { PcwCell } from '@/machines/pcw/pcw-keyboard.ts';
@@ -152,6 +153,8 @@ export const PCW_KEYS: readonly PcwKeyDef[] = [
 
   key('f4-f3', [0x0, 0], 'f3', 'f4', 'fn'),
   pad('pad1', [0x1, 7], '1', '←'),
+  // The 8000s print a ruled square here, drawn in CSS rather than set from a
+  // glyph; the 9000s print SPCHK. `▒` is the nearest stand-in for the square.
   pad('pad2', [0x0, 7], '2', '▒'),
   pad('pad3', [0x0, 6], '3', '→'),
 

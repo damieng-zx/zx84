@@ -42,8 +42,8 @@ export const MODEL_LABELS: Record<MachineModel, string> = {
   'jupiter-ace': 'Jupiter Ace',
   pcw8256: 'PCW 8256',
   pcw8512: 'PCW 8512',
-  pcw9512: 'PCW 9512',
   pcw9256: 'PCW 9256',
+  pcw9512: 'PCW 9512',
 };
 
 export const LOCALE_LABELS: Record<MachineLocale, string> = {
@@ -107,8 +107,8 @@ export const MODEL_MENU: MenuItem[] = [
       modelEntry('gx4000'),
       modelEntry('pcw8256'),
       modelEntry('pcw8512'),
-      modelEntry('pcw9512'),
       modelEntry('pcw9256'),
+      modelEntry('pcw9512'),
     ],
   },
   {
