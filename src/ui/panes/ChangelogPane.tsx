@@ -2,6 +2,21 @@ import { createSignal, Show } from 'solid-js';
 
 const CHANGELOG: { version: string; items: string[] }[] = [
   {
+    version: '0.8.2',
+    items: [
+      'Add Camputers Lynx 48K, 96K and 128K support',
+      'Add Jupiter Ace support',
+      'Add Amstrad PCW 8256/8512/9512/9256 support',
+      'Drive sounds for the MTX, CPC and Einstein',
+      'Formatting a disk now updates its geometry on the MTX, Einstein and SAM',
+      'Fixed SAM drive B insertion from the Drives pane',
+      'Each machine keeps its own persisted disks',
+      'Custom ROM pages restored when the app starts',
+      'Fixed machine switches racing asynchronous ROM loads',
+      'Audio resumes on a user gesture and buffers enough for the fallback path',
+      'Mounting a tape or disk no longer restarts or unpauses the machine',
+    ]
+  }, {
     version: '0.8.1',
     items: [
       'Added all missing keyboards',
