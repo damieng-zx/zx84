@@ -27,6 +27,7 @@ import { parseDSK, createBlankDisk, type DiskFormat } from './dsk.ts';
 import type { DskImage, DskSector, DskTrack, HfeBitstream, HfeSectorLayout } from './disk-image.ts';
 import { detectDiskFormat, detectProtection, isFlippyDisk } from './disk-detect.ts';
 import { isScp, parseSCP } from './scp.ts';
+import { isTd0, parseTd0 } from './td0.ts';
 
 // ── Signatures ───────────────────────────────────────────────────────────────
 
@@ -311,6 +312,7 @@ export function parseHFE(data: Uint8Array): DskImage {
 export function parseFloppyImage(data: Uint8Array): DskImage {
   if (isHFE(data)) return parseHFE(data);
   if (isScp(data)) return parseSCP(data);
+  if (isTd0(data)) return parseTd0(data);
   return parseDSK(data);
 }
 

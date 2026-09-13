@@ -200,11 +200,41 @@ export class FloppySound {
     this.prevTrack = track;
   }
 
-  /** Reset previous state to avoid false triggers after machine reset. */
-  reset(): void {
+  /** Reset previous state to avoid false triggers after machine reset.
+   *
+   *  `track` seeds the head position the next update() compares against. Pass
+   *  the drive's current track while the sound is switched off, so switching it
+   *  back on mid-disc does not hear the whole seek from track 0 at once. */
+  reset(track = 0): void {
     this.stopMotor();
     this.prevMotor = false;
-    this.prevTrack = 0;
+    this.prevTrack = track;
+  }
+
+  /**
+   * Cut everything that is sounding or queued, now.
+   *
+   * A seek is scheduled as one buffer source per step, started at a time up to
+   * ~0.8s in the future, so stopping the motor leaves the rest of the seek to
+   * rattle on. There is nothing to chase them with individually — instead the
+   * bus they all feed is disconnected and replaced, which silences the ones
+   * already playing and the ones not yet started in one go. The orphaned nodes
+   * run out into nothing and are collected.
+   *
+   * Used when the drive-sound switch is turned off: the switch means silence
+   * immediately, not "silence once this seek finishes".
+   */
+  silence(): void {
+    this.reset();
+    if (!this.ctx || !this.masterGain) return;
+    const ctx = this.ctx;
+    const old = this.masterGain;
+    old.gain.cancelScheduledValues(ctx.currentTime);
+    old.gain.setValueAtTime(0, ctx.currentTime);
+    old.disconnect();
+    this.masterGain = ctx.createGain();
+    this.masterGain.gain.value = 0.4;
+    this.masterGain.connect(ctx.destination);
   }
 
   destroy(): void {

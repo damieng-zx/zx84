@@ -630,6 +630,47 @@ describe('effectiveROMModel — +3 always uses the +2A (v4.1) ROM set', () => {
   });
 });
 
+describe('switchModel — built-in discs across a family', () => {
+  beforeEach(() => { emulator.setCanvas(fakeCanvas); });
+
+  /** A one-sector disc, enough for the drive to report something mounted. */
+  function disc() {
+    const data = new Uint8Array(512);
+    const sectors = [{ c: 0, h: 0, r: 1, n: 2, st1: 0, st2: 0, data }];
+    const track = { sectors, sectorMap: new Map([[1, 0]]), gap3: 82, filler: 0xE5 };
+    return {
+      format: 'standard' as const, numTracks: 40, numSides: 1,
+      tracks: [[track]], diskFormat: 'PCW', protection: '',
+    };
+  }
+
+  async function pcwWithDisc() {
+    await emulator.switchModel('pcw8256');
+    emulator.machine!.services.disks!.insert('a', disc(), 'boot.dsk');
+    expect(emulator.machine!.services.disks!.image!('a')).not.toBeNull();
+  }
+
+  it('keeps drive A when switching within the family', async () => {
+    await pcwWithDisc();
+    await emulator.switchModel('pcw8512');
+    expect(emulator.machine!.model).toBe('pcw8512');
+    expect(emulator.machine!.services.disks!.image!('a')).not.toBeNull();
+  });
+
+  it('keeps it switching back down again', async () => {
+    await pcwWithDisc();
+    await emulator.switchModel('pcw8512');
+    await emulator.switchModel('pcw8256');
+    expect(emulator.machine!.services.disks!.image!('a')).not.toBeNull();
+  });
+
+  it('does not carry a disc into a different machine', async () => {
+    await pcwWithDisc();
+    await emulator.switchModel('cpc6128');
+    expect(emulator.machine!.services.disks?.image?.('a') ?? null).toBeNull();
+  });
+});
+
 describe('switchModel — stale ROM loads', () => {
   beforeEach(() => { emulator.setCanvas(fakeCanvas); });
 

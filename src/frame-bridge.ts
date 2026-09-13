@@ -364,6 +364,10 @@ function checkBreakpoint(): void {
   }
 }
 
+/** Whether the last frame's slot had its drive sound switched on, so the frame
+ *  it goes off can be told from every frame after it. */
+let floppySoundOn = false;
+
 /** Feed the floppy drive-sound synth from the latest sample (every rAF, like
  *  the old direct FDC reads — spin-downs stay live under turbo). */
 function feedFloppySound(): void {
@@ -384,9 +388,15 @@ function feedFloppySound(): void {
     // Update motor state (this generates the sounds)
     floppySound.update(ind.floppyMotor, ind.floppyTrack);
   } else {
-    // Stop any running motor sound when disabled
-    floppySound.reset();
+    // Switching the sound off means silence now, so the first frame with it off
+    // cuts the seek clicks already queued ahead of the playhead as well as the
+    // motor. Afterwards there is nothing left to cut, and the per-frame job is
+    // just to keep the head position current: without that, switching back on
+    // over a disk parked at track 30 would hear the seek there all at once.
+    if (floppySoundOn) floppySound.silence();
+    floppySound.reset(ind.floppyTrack);
   }
+  floppySoundOn = soundOn;
 }
 
 export function onFrame(): void {

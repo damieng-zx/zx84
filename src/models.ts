@@ -21,6 +21,7 @@ export type { Zx8xModel } from '@/machines/zx8x/models.ts';
 export type { MtxModel } from '@/machines/mtx/models.ts';
 export type { LynxModel } from '@/machines/lynx/models.ts';
 export type { JupiterAceModel } from '@/machines/jupiter-ace/models.ts';
+export type { PcwModel } from '@/machines/pcw/models.ts';
 
 // ── Per-family classification helpers (re-exported from each machine folder) ─
 export {
@@ -41,6 +42,7 @@ export { isZx8xModel } from '@/machines/zx8x/models.ts';
 export { isMtxModel } from '@/machines/mtx/models.ts';
 export { isLynxModel } from '@/machines/lynx/models.ts';
 export { isJupiterAceModel } from '@/machines/jupiter-ace/models.ts';
+export { isPcwModel } from '@/machines/pcw/models.ts';
 
 // ── System-ROM slot geometry (dispatches per family) ───────────────────────
 //
@@ -94,6 +96,7 @@ import type { Zx8xModel } from '@/machines/zx8x/models.ts';
 import type { MtxModel } from '@/machines/mtx/models.ts';
 import type { LynxModel } from '@/machines/lynx/models.ts';
 import type { JupiterAceModel } from '@/machines/jupiter-ace/models.ts';
+import type { PcwModel } from '@/machines/pcw/models.ts';
 
 /** Any machine ZX84 can emulate. */
 export type MachineModel =
@@ -104,4 +107,5 @@ export type MachineModel =
   | Zx8xModel
   | MtxModel
   | LynxModel
-  | JupiterAceModel;
+  | JupiterAceModel
+  | PcwModel;

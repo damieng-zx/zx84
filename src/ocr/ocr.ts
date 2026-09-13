@@ -26,9 +26,12 @@ export type EinsteinOcrGrid = '42x24';
 /** MSX text grids — SCREEN 0 is 40×24; SCREEN 1 is 32×24. */
 export type MsxOcrGrid = '40x24' | '32x24';
 
+/** PCW text grid — the 720x256 bitmap cut into 8x8 cells. */
+export type PcwOcrGrid = '90x32';
+
 /** Any grid label an OCR producer can stamp onto an OcrResult. */
 export type OcrGridName =
-  SpectrumOcrGrid | CpcOcrGrid | EinsteinOcrGrid | MsxOcrGrid;
+  SpectrumOcrGrid | CpcOcrGrid | EinsteinOcrGrid | MsxOcrGrid | PcwOcrGrid;
 
 /** A font source for OCR matching.
  *  `data` is always 768 bytes (96 chars × 8 bytes). For non-8-wide cells only

@@ -22,6 +22,7 @@ import { zx8xEntry } from '@/machines/zx8x/descriptor.ts';
 import { mtxEntry } from '@/machines/mtx/descriptor.ts';
 import { lynxEntry } from '@/machines/lynx/descriptor.ts';
 import { aceEntry } from '@/machines/jupiter-ace/descriptor.ts';
+import { pcwEntry } from '@/machines/pcw/descriptor.ts';
 
 export const registry: readonly MachineEntry[] = [
   spectrumEntry,
@@ -32,6 +33,7 @@ export const registry: readonly MachineEntry[] = [
   mtxEntry,
   lynxEntry,
   aceEntry,
+  pcwEntry,
 ];
 
 /** The registry entry owning `model`. Throws on an unknown model — every
