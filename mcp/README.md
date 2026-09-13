@@ -28,8 +28,9 @@ npm run mcp -- --model 48k
 Supported startup models are derived from the machine registry and include
 `zx80`, `zx81`, `16k`, `48k`, `128k`, `+2`, `+2A`, `+3`, `cpc464`, `cpc664`,
 `cpc6128`, `cpc6128plus`, `gx4000`, `einstein-tc01`, `einstein-256`, `hx-10`,
-`mtx500`, `mtx512`, `rs128`, `sam256`, `sam512`, `lynx48`, `lynx96`, and
-`lynx128`. The default is `48k`.
+`mtx500`, `mtx512`, `rs128`, `sam256`, `sam512`, `lynx48`, `lynx96`,
+`lynx128`, `jupiter-ace`, `pcw8256`, `pcw8512`, `pcw9512`, and `pcw9256`. The
+default is `48k`.
 System ROM pages come from the machine registry, are fetched through the shared
 ROM source loader, and are cached under `mcp/.cache/`.
 
@@ -44,19 +45,22 @@ Some tools are intentionally hardware-specific:
 - Spectrum: tape/snapshot loading (auto-enabling the +D / Interface 1 / Beta
   Disk ROMs), ZXTL/full/port-I/O tracing, library loading, Multiface, VTX-5000,
   +D, Beta Disk, microdrives, and +3 boot helpers.
-- CPC, MSX, MTX, Einstein, SAM, Lynx, ZX80/ZX81: media loads route through the
-  machine's own `MediaService` (CPC `.dsk/.hfe/.scp/.cdt/.sna/.cpr`, MSX
-  `.rom/.cas`, MTX `.rom/.mtx/.mfloppy`, Einstein `.dsk/.hfe/.scp`, SAM
-  `.mgt/.img/.dsk/.hfe/.scp` and `.tap/.tzx/.csw`, Lynx `.tap` cassettes and
-  `.ldf` disks, and ZX80/ZX81 program files). CPC adds built-in uPD765A disk
-  inspection, CPC OCR, and PNG screenshots.
+- CPC, MSX, MTX, Einstein, SAM, Lynx, Jupiter Ace, PCW, ZX80/ZX81: media loads
+  route through the machine's own `MediaService` (CPC
+  `.dsk/.hfe/.scp/.cdt/.sna/.cpr`, MSX `.rom/.cas`, MTX `.rom/.mtx/.mfloppy`,
+  Einstein `.dsk/.hfe/.scp`, SAM `.mgt/.img/.dsk/.hfe/.scp` and `.tap/.tzx/.csw`,
+  Lynx `.tap` cassettes and `.ldf` disks, Jupiter Ace `.tap/.tzx/.csw` cassettes,
+  PCW `.dsk/.td0/.hfe/.scp` discs, and ZX80/ZX81 program files). CPC adds
+  built-in uPD765A disk inspection, CPC OCR, and PNG screenshots.
 - ZX80/ZX81 additionally: model-constrained ZXDB library loading, 1KB/16KB
   RAM selection, ZX81 UDG and WRX hi-res hardware selection, and display-file
   OCR.
 - MTX additionally: the FDX 80-column display, 512 KiB RAM expansion, and CP/M
   system profile.
-- MSX/MTX/Einstein/SAM/Lynx media capabilities are exposed exactly where their
-  machine services support them.
+- PCW additionally: it has no system ROM, so nothing is fetched at startup —
+  boot it by loading a CP/M+ or LocoScript disc into drive A.
+- MSX/MTX/Einstein/SAM/Lynx/Jupiter Ace/PCW media capabilities are exposed
+  exactly where their machine services support them.
 
 Use `model` to switch machines. Switching always creates a fresh machine.
 

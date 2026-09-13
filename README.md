@@ -1,6 +1,6 @@
 # ZX84
 
-**A browser emulator for the Sinclair ZX80, ZX81 and ZX Spectrum, Amstrad CPC (including the Plus range), Tatung Einstein, MSX, Memotech MTX, SAM Coupé, and Camputers Lynx, with an MCP server for automated testing.**
+**A browser emulator for the Sinclair ZX80, ZX81 and ZX Spectrum, Amstrad CPC (including the Plus range) and PCW, Tatung Einstein, MSX, Memotech MTX, SAM Coupé, Camputers Lynx, and Jupiter Ace, with an MCP server for automated testing.**
 
 https://zx84.envytech.workers.dev
 
@@ -10,15 +10,16 @@ ZX84 is an old-computer emulator with machine-specific hardware models, browser-
 
 | Family | Models | Core Hardware |
 | --- | --- | --- |
-| Sinclair ZX Spectrum | 16K, 48K, 128K, +2, +2A, +3 | Z80, ULA or Amstrad gate array, beeper, AY on 128K-class models, uPD765A on +3 |
-| Sinclair ZX80 / ZX81 | ZX80, ZX81, optional 16KB RAM pack | Z80, software-generated monochrome display, keyboard matrix, `.o` / `.p` program images |
-| Amstrad CPC | CPC 464, CPC 664, CPC 6128, 6128 Plus, GX4000 | Z80, gate array or Plus ASIC, 6845 CRTC, AY-3-891x, 8255 PPI, uPD765A on 664/6128, cartridge on Plus models |
-| Tatung Einstein | TC-01, 256 | Z80, TMS9929A (TC-01) or V9938 (256) VDP, AY-3-8910, Z80 CTC, WD1770 |
-| MSX | Toshiba HX-10 | Z80, TMS9929A VDP, AY-3-8910, 8255 PPI, cartridge slot |
-| Memotech MTX | MTX500, MTX512, RS128 | Z80, TMS9929A VDP, Z80 CTC, SN76489A, twin matrix-wired joysticks, ROM extension card, FDX/SDX WD179x disk interface, optional 6845 80-column display |
-| MGT SAM Coupé | 256K, 512K | Z80B, MGT ASIC video, SAA1099 stereo sound, WD1772 floppy, cassette, MGT mouse, optional external megabyte RAM |
-| Camputers Lynx | 48K, 96K, 128K | Z80A, 6845 CRTC video, DAC sound, cassette, FD1793 floppy on 96K/128K |
-| Amstrad PCW | 8256, 8512, 9512, 9256 | Z80A, gate array (roller-RAM bitmap video, 300Hz timer, FDC interrupt routing), beeper, uPD765A, memory-mapped keyboard, no ROM — boots from disc |
+| Sinclair ZX Spectrum | 16K, 48K, 128K, +2, +2A, +3 | ULA or Amstrad gate array, beeper, AY on 128K-class models, uPD765A on +3 |
+| Sinclair ZX80 / ZX81 | ZX80, ZX81, optional 16KB RAM pack | Software-generated monochrome display, keyboard matrix, `.o` / `.p` program images |
+| Amstrad CPC | CPC 464, CPC 664, CPC 6128, 6128 Plus, GX4000 | Gate array or Plus ASIC, 6845 CRTC, AY-3-891x, 8255 PPI, uPD765A on 664/6128, cartridge on Plus models |
+| Tatung Einstein | TC-01, 256 | TMS9929A (TC-01) or V9938 (256) VDP, AY-3-8910, Z80 CTC, WD1770 |
+| MSX | Toshiba HX-10 | TMS9929A VDP, AY-3-8910, 8255 PPI, cartridge slot |
+| Memotech MTX | MTX500, MTX512, RS128 | TMS9929A VDP, Z80 CTC, SN76489A, twin matrix-wired joysticks, ROM extension card, FDX/SDX WD179x disk interface, optional 6845 80-column display |
+| MGT SAM Coupé | 256K, 512K | MGT ASIC video, SAA1099 stereo sound, WD1772 floppy, cassette, MGT mouse, optional external megabyte RAM |
+| Camputers Lynx | 48K, 96K, 128K | 6845 CRTC video, DAC sound, cassette, FD1793 floppy on 96K/128K |
+| Jupiter Ace | Jupiter Ace | Jupiter Cantab ULA (32×24 monochrome text display), piezo buzzer, cassette port, optional 16K or 48K RAM pack, FORTH in ROM |
+| Amstrad PCW | 8256, 8512, 9512, 9256 | Gate array (roller-RAM bitmap video, 300Hz timer, FDC interrupt routing), beeper, uPD765A, memory-mapped keyboard, no ROM — boots from disc |
 
 ## Features
 
@@ -34,6 +35,8 @@ ZX84 is an old-computer emulator with machine-specific hardware models, browser-
 - The bundled MTX CP/M profile installs the native SIDISC module and exposes fitted expansion RAM as an empty 512 KiB type-51 drive F:.
 - SAM Coupé MGT ASIC display modes, SAA1099 stereo sound, MGT mouse, cassette, and WD1772 floppy support, with an optional external megabyte RAM interface.
 - Camputers Lynx 6845 CRTC display, DAC sound, cassette loading, and the FD1793 floppy interface on the 96K and 128K.
+- Jupiter Ace ULA text display, buzzer sound, ROM-verified cassette loading and saving, and optional 16K or 48K RAM packs.
+- Amstrad PCW gate array with roller-RAM bitmap video, 300 Hz timer, FDC interrupt routing, memory-mapped keyboard, beeper, and uPD765A discs; the PCW has no ROM and boots CP/M+ or LocoScript from the disc in drive A.
 
 Spectrum ROM-overlay peripherals are model-dependent. Interface 1, MGT +D, and Beta Disk are mutually exclusive; Beta Disk takes precedence when enabled.
 
@@ -51,6 +54,7 @@ Load by picker or drag-and-drop. ZIP archives are unpacked and routed to compati
 | Memotech MTX | ROM packs: `.rom`; logical cassettes: `.mtx`; FDX/SDX Type 03/07 disks: `.mfloppy`, `.mfloppy-03`, `.mfloppy-07` |
 | SAM Coupé | Disks: `.mgt`, `.img`, `.dsk`, `.hfe`, `.scp`; tapes: `.tap`, `.tzx`, `.csw` |
 | Camputers Lynx | Cassettes: `.tap`; disks: `.ldf` on the 96K/128K |
+| Jupiter Ace | Cassettes: `.tap`, `.tzx`, `.csw` |
 | Amstrad PCW | Disks: `.dsk`, `.td0`, `.hfe`, `.scp` |
 
 The tape deck provides block navigation, transport controls, fast ROM loading, turbo loading, loading sound where applicable, and original-media download. The disk UI supports drive selection, write protection, disk sounds, changed-image saving, blank image creation, and flippy disks.
@@ -98,7 +102,7 @@ extension.
 
 ## MCP Server
 
-The included stdio MCP server drives **every registered machine** — Spectrum, ZX80/ZX81, CPC (including the Plus range), Einstein, MSX, MTX, SAM Coupé, and Camputers Lynx — for automated testing and reverse engineering. Generic tools work through the `Machine` SPI; hardware-specific tools cover Spectrum peripherals and tracing, MTX expansions, CPC/uPD765A disk inspection, ZX81 hi-res hardware, and per-machine media mounting.
+The included stdio MCP server drives **every registered machine** — Spectrum, ZX80/ZX81, CPC (including the Plus range), Einstein, MSX, MTX, SAM Coupé, Camputers Lynx, Jupiter Ace, and Amstrad PCW — for automated testing and reverse engineering. Generic tools work through the `Machine` SPI; hardware-specific tools cover Spectrum peripherals and tracing, MTX expansions, CPC/uPD765A disk inspection, ZX81 hi-res hardware, and per-machine media mounting.
 
 See [`mcp/README.md`](mcp/README.md) for setup, the complete tool reference, and workflows.
 
@@ -123,7 +127,7 @@ npm run mcp           # start the MCP server
 
 ## Current Scope
 
-Hardware and media support varies by machine and model. In particular, the HX-10 has no floppy controller, the Lynx 48K has no disk interface, and some Einstein and CPC subsystems remain incomplete.
+Hardware and media support varies by machine and model. In particular, the HX-10 has no floppy controller, the Lynx 48K and the Jupiter Ace have no disk interface, the PCW ships no ROM and needs a user-supplied CP/M+ or LocoScript boot disc, and some Einstein and CPC subsystems remain incomplete.
 
 ## License
 
@@ -131,4 +135,4 @@ Hardware and media support varies by machine and model. In particular, the HX-10
 
 ## Acknowledgments
 
-Built with inspiration from the ZX Spectrum, CPC, Einstein, MSX, MTX, SAM Coupé, and Camputers Lynx communities and their hardware documentation.
+Built with inspiration from the ZX Spectrum, CPC, PCW, Einstein, MSX, MTX, SAM Coupé, Camputers Lynx, and Jupiter Ace communities and their hardware documentation.
