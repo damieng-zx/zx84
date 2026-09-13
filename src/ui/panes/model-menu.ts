@@ -40,6 +40,10 @@ export const MODEL_LABELS: Record<MachineModel, string> = {
   sam256: 'SAM Coupé 256K',
   sam512: 'SAM Coupé 512K',
   'jupiter-ace': 'Jupiter Ace',
+  pcw8256: 'PCW 8256',
+  pcw8512: 'PCW 8512',
+  pcw9256: 'PCW 9256',
+  pcw9512: 'PCW 9512',
 };
 
 export const LOCALE_LABELS: Record<MachineLocale, string> = {
@@ -101,6 +105,10 @@ export const MODEL_MENU: MenuItem[] = [
       modelEntry('cpc6128'),
       modelEntry('cpc6128plus'),
       modelEntry('gx4000'),
+      modelEntry('pcw8256'),
+      modelEntry('pcw8512'),
+      modelEntry('pcw9256'),
+      modelEntry('pcw9512'),
     ],
   },
   {

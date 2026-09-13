@@ -53,6 +53,8 @@ const ST0_INVALID  = 0x80;
 const ST0_SEEK_END = 0x20;
 /** Drive not ready */
 const ST0_NOT_READY = 0x08;
+/** Equipment check: a recalibrate found no track-0 signal (no drive there) */
+const ST0_EQUIP_CHECK = 0x10;
 
 // ── Phase enum ──────────────────────────────────────────────────────────
 
@@ -103,6 +105,8 @@ export class UPD765A {
   private intPending = false;
   private intST0 = 0;
   private intPCN = 0;
+  /** Specify's ND bit: the CPU moves the data, so INT marks every byte. */
+  private nonDma = false;
 
   // ── Per-drive state ─────────────────────────────────────────────────
 
@@ -129,6 +133,24 @@ export class UPD765A {
    * Used to keep the +3 ROM from remapping B: to a swap-A on boot.
    */
   forceReady = [false, false];
+
+  /**
+   * Per-drive "a drive is physically wired to this select line".
+   *
+   * Both are connected by default, which is what the +3 and CPC present (an
+   * empty second drive is still a drive, and an empty one that must look ready
+   * is what `forceReady` is for). A machine sold with one mechanism — the PCW
+   * 8256 and 9512 — clears the second, and then RECALIBRATE and SEEK on it fail
+   * with an equipment check (ST0 IC=01, EC set) rather than quietly succeeding,
+   * which is what a select line with nothing on it does.
+   *
+   * It also takes the drive out of Sense Drive Status, which is what PCW CP/M
+   * Plus counts for its "n disc drives" banner: a cleared line always reports
+   * not-ready, so an 8256 says one drive whatever is going on, while an 8512
+   * says two — but only with a disc in B:, since ready here means a disc is
+   * loaded (`forceReady` is the opt-out).
+   */
+  connected = [true, true];
 
   /**
    * Set to the unit number (0/1) when FORMAT_TRACK finishes; cleared by the
@@ -256,7 +278,138 @@ export class UPD765A {
   /** Filler byte from FORMAT_TRACK command */
   private exFiller = 0;
 
+  /**
+   * State of the TC (Terminal Count) input pin.
+   *
+   * The +3 and CPC leave TC unconnected and let transfers run to EOT, but the
+   * Amstrad PCW drives it from its gate array (port &F8 commands 5 and 6) and
+   * its BIOS relies on it to stop a transfer exactly where it wants.
+   */
+  private tc = false;
+
+  /**
+   * The pending result was an End-of-Cylinder termination and nothing else —
+   * see the second half of `setTerminalCount`.
+   */
+  private resEotOnly = false;
+
   // ── Public API ─────────────────────────────────────────────────────
+
+  /**
+   * Drive the TC pin.
+   *
+   * A rising edge during the execution phase ends the transfer there and moves
+   * the controller to the result phase, as running off EOT would. A partly
+   * filled write sector is still committed: the real device writes the rest of
+   * the sector out regardless, and the untransferred tail of the buffer is zero
+   * here.
+   *
+   * **The last sector of a track.** A machine that drives TC asserts it just
+   * *after* reading the final data byte — the PCW's BIOS does exactly that,
+   * one sector at a time. This core decides at buffer exhaustion whether the
+   * transfer ran past EOT, which is a moment too early: it has already latched
+   * the End-of-Cylinder result (ST0 IC=01, ST1 EN) by the time TC arrives, and
+   * the PCW reads that as a disc error on every ninth sector. On real hardware
+   * EN is set only when the controller actually *attempts* the sector beyond
+   * the last one, which a TC in that window prevents.
+   *
+   * So a rising TC in the result phase, before the CPU has taken a single
+   * result byte, rewrites an End-of-Cylinder-only result into the normal
+   * termination hardware would have produced, and reports the CHRN of the
+   * sector last transferred (with R incremented, per the datasheet) rather than
+   * the "continue on the next cylinder" rollover. Results with any other flag
+   * set — CRC, control mark, overrun, not-ready — are left exactly as they are:
+   * TC does not make a failed read succeed.
+   *
+   * Machines that never drive TC (the +3, the CPC) cannot reach this path at
+   * all, so their End-of-Cylinder behaviour, which several copy protections
+   * depend on, is untouched.
+   */
+  setTerminalCount(on: boolean): void {
+    const rising = on && !this.tc;
+    this.tc = on;
+    if (!rising) return;
+
+    if (this.phase === Phase.Execution) {
+      if (this.exFormatting) {
+        this.finishFormat();
+      } else {
+        if (this.exWriting && this.exPos > 0) this.writeBackSector();
+        this.finishExecution();
+      }
+      return;
+    }
+
+    if (this.phase === Phase.Result && this.resPos === 0 && this.resEotOnly) {
+      this.resBuf[0] &= ~ST0_ABNORMAL;
+      this.resBuf[1] &= ~0x80;   // ST1 EN (End of Cylinder)
+      this.resBuf[3] = this.exC;
+      this.resBuf[5] = this.exR;
+      this.resEotOnly = false;
+      this.log('  ← TC before result read: End-of-Cylinder rewritten as normal '
+        + `termination, C=${this.exC} R=${this.exR}`);
+    }
+  }
+
+  /**
+   * The controller's INT output.
+   *
+   * High while a seek/recalibrate result is waiting to be collected by Sense
+   * Interrupt Status, or while result bytes are pending. Machines that route
+   * the FDC to the CPU's /INT or /NMI (the PCW does both, selectably) sample
+   * this; the +3 and CPC poll the main status register instead and never read
+   * it.
+   *
+   * In non-DMA mode (Specify's ND bit) it is also high through the execution
+   * phase, where the controller asks for each byte of the transfer on INT
+   * instead of on DRQ. The PCW's BIOS drives its sector transfers from exactly
+   * that: it routes the FDC to /NMI, and the NMI handler is what reads the
+   * sector. With INT quiet until the result phase there is no NMI, the handler
+   * never runs, and the transfer never happens.
+   *
+   * Held down for `intResponseTicks` after a command is accepted — see there.
+   */
+  get interruptLine(): boolean {
+    if (this.intCountdown > 0) return false;
+    if (this.phase === Phase.Execution) return this.nonDma;
+    return this.intPending || this.phase === Phase.Result;
+  }
+
+  /**
+   * How long the controller takes to answer a command with INT, in whatever
+   * tick the host charges through `tickIntResponse` (0 = instantly, which is
+   * what every polling machine wants).
+   *
+   * Commands complete in zero emulated time here: the result bytes are ready
+   * the instant the last parameter byte is written. A machine that polls the
+   * main status register cannot tell, but one that waits on INT can, and the
+   * PCW's BIOS does. It arms its wait *after* writing the last parameter byte:
+   *
+   *     LD (HL),0        ; clear the semaphore the disc process will wait on
+   *     CALL sendbyte    ; last parameter — the real FDC now starts working
+   *     CALL wait        ; DI, then block on the semaphore
+   *
+   * An INT arriving in the ~26us between those two calls is serviced by the
+   * 300Hz interrupt handler, which finds the semaphore still clear, reads the
+   * result bytes into its "nobody asked for this" scratch buffer and signals
+   * nothing. The disc process then blocks for good, and CP/M Plus stops dead
+   * after its banner with no A> prompt. On real hardware the window is safe
+   * because no uPD765A command — least of all Read ID, which waits for an
+   * address mark to come round — can possibly have finished 26us later.
+   *
+   * Only the INT line is held back. The result bytes stay readable immediately,
+   * so the polling machines behave exactly as they did.
+   */
+  intResponseTicks = 0;
+
+  /** Host ticks still to elapse before INT may rise. */
+  private intCountdown = 0;
+
+  /** Charge one host tick against the command-response time. The PCW calls this
+   *  once per scan line, which is also how often it samples the line. */
+  tickIntResponse(): void {
+    if (this.intCountdown > 0) this.intCountdown--;
+  }
 
   /** Expose disk image for BIOS trap handler (drive A: only for compatibility). */
   get diskImage(): DskImage | null { return this.disks[0]; }
@@ -715,6 +868,13 @@ export class UPD765A {
       this.log(`  ⚠ CRC/Error flags present in result!`);
     }
     this.result([st0, st1, this.exST2, resultC, this.exH, resultR, this.exN]);
+
+    // Arm the TC rewrite (see setTerminalCount): this result is an
+    // End-of-Cylinder termination and nothing else went wrong, so a TC that
+    // arrives before the CPU has read a result byte means the transfer was
+    // stopped rather than run off the end.
+    this.resEotOnly = this.exHitEOT && !this.exAbnormal
+      && (st1 & ~0x80) === 0 && this.exST2 === 0;
   }
 
   // ── Command dispatch ───────────────────────────────────────────────
@@ -722,6 +882,9 @@ export class UPD765A {
   private exec(): void {
     const cmd = this.cmdBuf[0] & 0x1F;
     const cmdName = this.getCommandName(cmd);
+    // The controller has only just been told what to do; nothing it raises can
+    // be seen on INT until it has had time to do it (see intResponseTicks).
+    this.intCountdown = this.intResponseTicks;
     this.log(`CMD: ${cmdName} (0x${cmd.toString(16).padStart(2, '0').toUpperCase()})`,
              `params=[${this.cmdBuf.slice(1).map(b => '0x' + b.toString(16).padStart(2, '0')).join(', ')}]`);
 
@@ -772,7 +935,12 @@ export class UPD765A {
 
   /** Specify — set mechanical timing. No result phase. */
   private cmdSpecify(): void {
-    // Parameters accepted and discarded — we don't model mechanical timing
+    // Step rate, head load and head unload times are mechanical timing, which
+    // we don't model — but ND, the bottom bit of the second byte, is not
+    // timing. It says no DMA controller is fitted and the CPU will fetch each
+    // byte itself, which changes what the INT pin does during the execution
+    // phase. See `interruptLine`.
+    this.nonDma = (this.cmdBuf[2] & 0x01) !== 0;
     this.phase = Phase.Idle;
   }
 
@@ -782,9 +950,12 @@ export class UPD765A {
     const head = (this.cmdBuf[1] >> 2) & 1;
     // ST3: track 0 if pcn==0, two-side=1
     const phys = this.physUnit(unit);
-    let st3 = unit | (head << 2) | 0x08; // bit 3 = two-side (unit kept for ST3 drive bits)
+    // bit 3 = two-side. An absent drive reports neither that nor ready.
+    let st3 = unit | (head << 2) | (this.connected[phys] ? 0x08 : 0);
     if (this.pcn[phys] === 0) st3 |= 0x10; // Track 0
-    if (this.disks[phys] || this.forceReady[phys]) st3 |= 0x20; // bit 5 = ready
+    if (this.connected[phys] && (this.disks[phys] || this.forceReady[phys])) {
+      st3 |= 0x20; // bit 5 = ready
+    }
     if (this.writeProtect[phys]) st3 |= 0x40; // bit 6 = write protected
     this.result([st3]);
   }
@@ -802,6 +973,16 @@ export class UPD765A {
   /** Recalibrate — seek to track 0. Generates interrupt. */
   private cmdRecalibrate(): void {
     const unit = this.cmdBuf[1] & 0x03;
+    // No drive on this select line: the head never reports track 0, so the
+    // command ends with an equipment check. This is how software counts drives.
+    if (!this.connected[this.physUnit(unit)]) {
+      this.log(`  → Unit=${unit} recalibrate: no drive connected`);
+      this.intPending = true;
+      this.intST0 = ST0_SEEK_END | ST0_ABNORMAL | ST0_EQUIP_CHECK | unit;
+      this.intPCN = this.pcn[this.physUnit(unit)];
+      this.phase = Phase.Idle;
+      return;
+    }
     this.log(`  → Unit=${unit} recalibrating to track 0`);
     this.pcn[this.physUnit(unit)] = 0;
     this.intPending = true;
@@ -818,6 +999,14 @@ export class UPD765A {
   private cmdSeek(): void {
     const unit = this.cmdBuf[1] & 0x03;
     const ncn = this.cmdBuf[2];
+    if (!this.connected[this.physUnit(unit)]) {
+      this.log(`  → Unit=${unit} seek: no drive connected`);
+      this.intPending = true;
+      this.intST0 = ST0_SEEK_END | ST0_ABNORMAL | ST0_EQUIP_CHECK | unit;
+      this.intPCN = this.pcn[this.physUnit(unit)];
+      this.phase = Phase.Idle;
+      return;
+    }
     this.log(`  → Unit=${unit} seeking to cylinder ${ncn}`);
     this.pcn[this.physUnit(unit)] = ncn;
     this.intPending = true;
@@ -1281,6 +1470,9 @@ export class UPD765A {
     this.resBuf = bytes;
     this.resPos = 0;
     this.phase = bytes.length > 0 ? Phase.Result : Phase.Idle;
+    // Only finishExecution's End-of-Cylinder path re-arms this (see
+    // setTerminalCount); every other command's result clears it.
+    this.resEotOnly = false;
   }
 
   reset(): void {
@@ -1290,10 +1482,13 @@ export class UPD765A {
     this.resBuf = [];
     this.resPos = 0;
     this.intPending = false;
+    this.intCountdown = 0;
+    this.nonDma = false;
     this.intST0 = 0;
     this.intPCN = 0;
     this.pcn = [0, 0];
     this.motorOn = false;
+    this.tc = false;
     this.exBuf = new Uint8Array(0);
     this.exPos = 0;
     this.exWriting = false;

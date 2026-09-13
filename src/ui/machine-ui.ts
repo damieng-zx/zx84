@@ -96,6 +96,10 @@ const CONTRIBUTIONS: Record<string, MachineUiContribution> = {
     Keyboard: lazy(() =>
       import('@/machines/jupiter-ace/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
   },
+  pcw: {
+    Keyboard: lazy(() =>
+      import('@/machines/pcw/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
+  },
 };
 
 /** The UI contributions for a machine kind (empty object when none registered). */
@@ -153,5 +157,10 @@ export const keyboardLabPresetLoaders: readonly KeyboardLabPresetLoader[] = [
     group: 'Jupiter Cantab',
     load: () => import('@/machines/jupiter-ace/ui/keyboard/lab-preset.ts')
       .then((module) => module.aceKeyboardLabPresets()),
+  },
+  {
+    group: 'Amstrad PCW',
+    load: () => import('@/machines/pcw/ui/keyboard/lab-preset.ts')
+      .then((module) => module.pcwKeyboardLabPresets()),
   },
 ];

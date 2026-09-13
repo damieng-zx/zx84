@@ -452,6 +452,49 @@ const DISK_UNITS: readonly DiskUnitSignals[] = [
   { id: 'd', setInfo: setCurrentDiskInfoD, name: currentDiskNameD, setName: setCurrentDiskNameD },
 ];
 
+/** One built-in drive's contents, carried across a machine rebuild. */
+export interface CarriedDisk {
+  readonly id: string;
+  readonly image: DskImage;
+  readonly name: string;
+}
+
+/**
+ * Snapshot the built-in drives so a model switch can put them back.
+ *
+ * Switching *within* a family is the same discs in the same drives — a PCW8256
+ * and a PCW8512 differ in RAM and drive count, not in what a disc is — and
+ * ejecting them is never what was meant. Switching to another machine is a
+ * different story, so the caller restores only when the kind is unchanged.
+ */
+export function captureBuiltinDisks(): CarriedDisk[] {
+  const disks = machine?.services.disks;
+  if (!disks) return [];
+  const out: CarriedDisk[] = [];
+  for (const u of DISK_UNITS) {
+    if (!disks.drives.some(d => d.id === u.id)) continue;
+    const image = disks.image?.(u.id) ?? null;
+    if (!image) continue;
+    out.push({ id: u.id, image, name: u.name() });
+  }
+  return out;
+}
+
+/** Put `carried` back into the rebuilt machine's drives, and back on the pane.
+ *  Drives the new model has not got (the 8512's B: on an 8256) are dropped. */
+export function restoreBuiltinDisks(carried: readonly CarriedDisk[]): void {
+  const disks = machine?.services.disks;
+  if (!disks) return;
+  for (const c of carried) {
+    if (!disks.drives.some(d => d.id === c.id)) continue;
+    const u = DISK_UNITS.find(x => x.id === c.id);
+    if (!u) continue;
+    disks.insert(c.id, c.image, c.name);
+    u.setInfo(disks.image?.(c.id) ?? null);
+    u.setName(c.name);
+  }
+}
+
 export function ejectDisk(unit: number = 0): void {
   const disks = machine?.services.disks;
   const u = DISK_UNITS[unit];

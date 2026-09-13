@@ -16,14 +16,14 @@ export interface ZipEntry {
 
 // Fallback catalog: every extension any platform's loadFile()/zip re-dispatch
 // can act on — snapshots (sna/z80/szx/sp), Spectrum tapes (tap/tzx/csw), CPC
-// tape (cdt), disk images (dsk/hfe/scp/ldf), MSX cartridge/cassette (rom/cas),
+// tape (cdt), disk images (dsk/hfe/scp/ldf/td0), MSX cartridge/cassette (rom/cas),
 // CPC+ cartridge (cpr), Memotech MTX (mtx/mfloppy*), Beta Disk (trd/scl),
 // MGT +D (mgt/img), Interface 1 microdrive (mdr/mdv), and ZX80/ZX81 program
 // images (o/80/p/81/p81).
 const LOADABLE_EXTS = [
   '.sna', '.z80', '.szx', '.sp',
   '.tap', '.tzx', '.csw', '.cdt',
-  '.dsk', '.hfe', '.scp', '.ldf',
+  '.dsk', '.hfe', '.scp', '.ldf', '.td0',
   '.rom', '.cas', '.cpr',
   '.mtx', '.mfloppy', '.mfloppy-03', '.mfloppy-07',
   '.trd', '.scl', '.mgt', '.img', '.mdr', '.mdv',

@@ -30,9 +30,12 @@ export type MsxOcrGrid = '40x24' | '32x24';
  *  the column count is the screen mode's (mode 3 is 512 pixels wide). */
 export type SamOcrGrid = '32x21' | '64x21';
 
+/** PCW text grid — the 720x256 bitmap cut into 8x8 cells. */
+export type PcwOcrGrid = '90x32';
+
 /** Any grid label an OCR producer can stamp onto an OcrResult. */
 export type OcrGridName =
-  SpectrumOcrGrid | CpcOcrGrid | EinsteinOcrGrid | MsxOcrGrid | SamOcrGrid;
+  SpectrumOcrGrid | CpcOcrGrid | EinsteinOcrGrid | MsxOcrGrid | SamOcrGrid | PcwOcrGrid;
 
 /** A font source for OCR matching.
  *  `data` is always 768 bytes (96 chars × 8 bytes). For non-8-wide cells only

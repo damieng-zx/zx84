@@ -41,6 +41,7 @@ import {
   stashOutgoingTape, restoreTapeForMachine, restoreMedia,
   applyBootDisk, resetBootDiskPhantom,
   applyBootCartridge,
+  captureBuiltinDisks, restoreBuiltinDisks,
 } from '@/shell/media.ts';
 import { applyDisplaySettings, buildSettingsView } from '@/shell/settings.ts';
 
@@ -394,6 +395,12 @@ export async function switchModel(model: MachineModel): Promise<void> {
   // The +D/Beta are model-independent peripherals: preserve any mounted disks
   // across the rebuild so a model switch doesn't leave the new controller empty.
   const disksSvc = machine?.services.disks;
+  // Built-in drives survive a switch *within* a family (a PCW8256 to a
+  // PCW8512, a SAM 256 to a 512, a CPC 464 to a 6128): same discs, same
+  // drives. A switch to another machine gets a clean set, since its controller
+  // and disc formats are unrelated.
+  const previousKind = machine?.kind ?? null;
+  const carriedBuiltin = captureBuiltinDisks();
   const carriedPlusD = disksSvc?.drives.some(d => d.id === 'plusd:0')
     ? [disksSvc.image?.('plusd:0') ?? null, disksSvc.image?.('plusd:1') ?? null]
     : null;
@@ -424,6 +431,8 @@ export async function switchModel(model: MachineModel): Promise<void> {
   await createMachine();
 
   if (generation !== modelSwitchGeneration || currentModel() !== model) return;
+
+  if (previousKind && machine?.kind === previousKind) restoreBuiltinDisks(carriedBuiltin);
 
   const newDisks = machine?.services.disks;
   if (carriedPlusD && newDisks?.drives.some(d => d.id === 'plusd:0')) {
