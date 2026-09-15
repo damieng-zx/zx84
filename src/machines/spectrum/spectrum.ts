@@ -341,8 +341,8 @@ export class Spectrum extends BaseMachine implements Machine {
   /** Nominal CPU clock (48K 3.5 MHz, 128K family 3.5469 MHz). */
   get cpuClockHz(): number { return this.tape.cpuClock; }
 
-  /** `.scr` export: the 6912-byte display file in bank 5. */
-  screenExportBytes(): Uint8Array { return this.memory.getRamBank(5).slice(0, 6912); }
+  /** `.scr` export: the 6912-byte display file from the currently displayed bank. */
+  screenExportBytes(): Uint8Array { return this.memory.screenBank.slice(0, 6912); }
 
   /** RAM export: 0x4000-0xFFFF, or all 64K under +2A/+3 special paging. */
   ramExportBytes(): { data: Uint8Array; filename: string } {
