@@ -1,6 +1,7 @@
 import type {
   BootDiskRequest, DiskService, DriveDescriptor, DriveMedia,
 } from '@/machines/machine.ts';
+import { serializeHFE } from '@/media/floppy/hfe.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { parseMtxMfloppy, serializeMtxMfloppy } from '@/media/floppy/mtx-mfloppy.ts';
 import type { MtxMachine } from '../mtx-machine.ts';
@@ -73,9 +74,9 @@ export class MtxDiskService implements DiskService {
     const unit = id === 'b' ? 1 : 0;
     const image = this.machine.fdc.getDiskImage(unit);
     if (!image) return null;
-    const extension = image.numTracks === 40 ? '.mfloppy-03' : '.mfloppy';
+    const extension = image.bitstream ? '.hfe' : image.numTracks === 40 ? '.mfloppy-03' : '.mfloppy';
     const result = {
-      data: serializeMtxMfloppy(image),
+      data: image.bitstream ? serializeHFE(image) : serializeMtxMfloppy(image),
       name: `${baseName(this.names.get(id) ?? '')}${extension}`,
     };
     this.machine.fdc.clearDirty(unit);
