@@ -212,13 +212,13 @@ describe('TMS9918A sprites', () => {
     expect(vdp.readStatus() & 0x20).toBe(0);
   });
 
-  it('a transparent (colour 0) sprite neither draws nor triggers coincidence', () => {
+  it('a transparent sprite does not draw but still triggers coincidence', () => {
     setSprite(0, 10, 0);  // transparent
     setSprite(1, 10, 8);  // opaque, same position
     terminate(2);
     vdp.renderScanline(px, 0, 0);
     for (let i = 0; i < 8; i++) expect(px[10 + i]).toBe(vdp.palette[8]); // only sprite 1 drawn
-    expect(vdp.readStatus() & 0x20).toBe(0); // no collision — sprite 0 never drew a pixel
+    expect(vdp.readStatus() & 0x20).toBe(0x20); // TI manual 2.3.2 includes transparent colours
   });
 
   it('a 5th sprite on the same line sets the fifth-sprite status flag and number', () => {

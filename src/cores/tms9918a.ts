@@ -451,7 +451,7 @@ export class Tms9918a {
       const colByte = this.vram[a + 3];
       const ci = colByte & 0x0F;
       const ec = (colByte & 0x80) !== 0 ? -32 : 0;
-      if (ci === 0) continue;         // transparent sprite draws nothing
+      // Colour zero suppresses drawing, but still participates in coincidence (TI manual 2.3.2).
       const colour = this.palette[ci];
 
       const patRow = (dy / mag) | 0;  // 0..dim-1
@@ -470,7 +470,7 @@ export class Tms9918a {
           if (x < 0 || x >= VDP_WIDTH) continue;
           if (line[x] & 0x02) this.status |= ST_COINC;
           line[x] |= 0x02;
-          if (!(line[x] & 0x01)) {
+          if (ci !== 0 && !(line[x] & 0x01)) {
             px[rowStart + x] = colour;
             line[x] |= 0x01;
           }
