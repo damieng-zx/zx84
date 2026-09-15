@@ -4,7 +4,7 @@ Z80.prototype.executeCB = function (this: Z80): void {
   // Inlined fetch8 (CB M1 read, +3T)
   const op = this.read8(this.pc);
   this.pc = (this.pc + 1) & 0xFFFF;
-  this.tStates += 3;
+  this.tStates += 3 + this.m1WaitStates;
   this.tStates += 1;             // +1T (M1 refresh — never contended)
   this.r = (this.r & 0x80) | ((this.r + 1) & 0x7F);
 

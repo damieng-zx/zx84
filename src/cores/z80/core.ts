@@ -62,6 +62,10 @@ export class Z80 {
   /** EI delay: interrupts suppressed for one instruction after EI. */
   eiDelay = false;
 
+  /** Board-inserted waits per opcode M1 fetch, including HALT and prefixes.
+   *  Wiring configuration survives reset; ordinary memory cycles are unaffected. */
+  m1WaitStates = 0;
+
   // T-state counter
   tStates = 0;
 
@@ -395,7 +399,7 @@ export class Z80 {
       // azesmbog's ULA128 test runs with I=0xFE and contended bank 7 paged
       // at 0xC000 — probing IR here breaks its hardware-calibrated timing.
       this.read8(this.pc);
-      this.tStates += 3;              // M1 fetch cycle
+      this.tStates += 3 + this.m1WaitStates; // M1 fetch cycle
       this.tStates += 1;              // M1 refresh cycle
       this.r = (this.r & 0x80) | ((this.r + 1) & 0x7F);
       return;
@@ -406,7 +410,7 @@ export class Z80 {
     // Inlined fetch8 (M1 opcode read, +3T)
     const opcode = this.read8(this.pc);
     this.pc = (this.pc + 1) & 0xFFFF;
-    this.tStates += 3;
+    this.tStates += 3 + this.m1WaitStates;
     this.tStates += 1;                 // +1T (M1 refresh cycle — never contended)
     this.r = (this.r & 0x80) | ((this.r + 1) & 0x7F);
 

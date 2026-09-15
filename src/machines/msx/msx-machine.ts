@@ -99,6 +99,7 @@ export class MsxMachine extends BaseMachine implements Machine {
     this.model = model;
     this.config = createMsxConfig(model);
     this.cpu = new Z80();
+    this.cpu.m1WaitStates = 1; // MSX adds one WAIT clock to each opcode fetch.
     this.memory = new MsxMemory();
     this.ay = new AY3891x(MSX_PSG_CLOCK, 48000, 'ABC');
     this.vdp = new Tms9918a();
