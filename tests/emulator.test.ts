@@ -1,3 +1,4 @@
+import { Blob as NodeBlob } from 'node:buffer';
 /**
  * emulator.ts — orchestration tests.
  *
@@ -2449,5 +2450,27 @@ describe('createDisplay — WebGL constructor throw triggers Canvas fallback', (
     const ok = await emulator.restoreRefreshState();
     expect(ok).toBe(false);
     expect(removeItem).toHaveBeenCalled();
+  });
+});
+
+
+describe('tape download byte range', () => {
+  it('saves only the tape view, excluding its surrounding ZIP buffer', async () => {
+    await setupSpectrum();
+    const archive = new Uint8Array([0x50, 0x4b, 2, 0, 255, 255, 0x50, 0x4b]);
+    vi.mocked(persistence.restoreTape).mockResolvedValueOnce({
+      data: structuredClone(archive.subarray(2, 6)), name: 'demo.tap',
+    });
+    const anchor = { href: '', download: '', click: vi.fn() };
+    (globalThis as any).document = { createElement: vi.fn(() => anchor) };
+    (globalThis as any).Blob = NodeBlob;
+    let downloaded: InstanceType<typeof NodeBlob> | undefined;
+    (globalThis as any).URL = {
+      createObjectURL: (blob: InstanceType<typeof NodeBlob>) => { downloaded = blob; return 'blob:tape'; },
+      revokeObjectURL: vi.fn(),
+    };
+    await emulator.saveTape();
+    expect(new Uint8Array(await downloaded!.arrayBuffer())).toEqual(new Uint8Array([2, 0, 255, 255]));
+    expect(anchor.download).toBe('demo.tap');
   });
 });

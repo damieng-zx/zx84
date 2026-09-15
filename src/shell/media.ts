@@ -255,7 +255,7 @@ async function handleZip(data: Uint8Array, unit?: number): Promise<void> {
 // ── Download / save ────────────────────────────────────────────────────────
 
 function downloadFile(data: Uint8Array, filename: string): void {
-  const blob = new Blob([data.buffer as ArrayBuffer], { type: 'application/octet-stream' });
+  const blob = new Blob([data as BlobPart], { type: 'application/octet-stream' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
