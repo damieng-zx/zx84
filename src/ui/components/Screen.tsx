@@ -2,7 +2,8 @@
  * Canvas wrapper for the emulator display + transcribe overlay.
  */
 
-import { createEffect } from 'solid-js';
+import { createEffect, onCleanup } from 'solid-js';
+import { createOverlayLayout } from './overlay-layout.ts';
 import { Toast } from '@/ui/components/Toast.tsx';
 import { machine } from '@/shell/context.ts';
 import { setCanvas } from '@/shell/lifecycle.ts';
@@ -19,7 +20,8 @@ const OCR_BASE_FONT_PX = 16;
 export function Screen() {
   let canvasRef!: HTMLCanvasElement;
   let overlayRef!: HTMLPreElement;
-  let natSize = { w: 0, h: 0 };
+  const overlayLayout = createOverlayLayout();
+  onCleanup(() => overlayLayout.cancel());
 
   // Browser zoom and OS scaling move this; the keyboards read the same signal.
   const dpr = devicePixelRatio;
@@ -43,23 +45,13 @@ export function Screen() {
   });
 
 
-  // When font settings or the transcribe grid change, force re-measure
-  // (the grid changes the natural width — e.g. 32 vs 51 chars wide).
-  createEffect(() => {
-    ocrFont(); ocrLineHeight(); ocrTracking(); ocrScaleX(); ocrScaleY();
-    transcribeGrid();
-    document.fonts.ready.then(() => {
-      natSize = { w: 0, h: 0 };
-    });
-  });
-
   // Position the overlay and scale it to cover the active display area (256×192
   // on the Spectrum, 640×200 on the CPC).
   createEffect(() => {
     const mode = transcribeMode();
-    ocrFont(); // Track font changes to trigger re-measure
+    transcribeGrid(); // Grid changes require fresh dimensions even if text is unchanged.
     if (mode === 'off') {
-      natSize = { w: 0, h: 0 };
+      overlayLayout.cancel();
       return;
     }
     if (!machine || !overlayRef || !canvasRef) return;
@@ -109,23 +101,10 @@ export function Screen() {
     ov.style.top = (originY + ocrOffsetY()) + 'px';
     ov.innerHTML = html;
 
-    // When font changes, force re-measure
-    if (!natSize.w) {
-      // Wait a tick to ensure font is rendered before measuring
-      requestAnimationFrame(() => {
-        if (!html || html.length < 32) return;
-        ov.style.transform = 'none';
-        natSize.w = ov.scrollWidth || 1;
-        natSize.h = ov.scrollHeight || 1;
-        const sx = (targetW / natSize.w) * (ocrScaleX() / 100);
-        const sy = (targetH / natSize.h) * (ocrScaleY() / 100);
-        ov.style.transform = `scale(${sx},${sy})`;
-      });
-    } else if (natSize.w) {
-      const sx = (targetW / natSize.w) * (ocrScaleX() / 100);
-      const sy = (targetH / natSize.h) * (ocrScaleY() / 100);
-      ov.style.transform = `scale(${sx},${sy})`;
-    }
+    overlayLayout.update(
+      ov, OCR_BASE_FONT_PX + 'px ' + ocrFont(),
+      targetW * ocrScaleX() / 100, targetH * ocrScaleY() / 100,
+    );
   });
 
   return (
