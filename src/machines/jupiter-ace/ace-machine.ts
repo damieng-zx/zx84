@@ -32,6 +32,8 @@ import { AceKeyboard } from './keyboard.ts';
 import { AceTapeRecorder } from './ace-tape-save.ts';
 import { AceUla } from './ula.ts';
 import { installAceMemoryHooks, wireAcePortIO } from './io.ts';
+import type { OcrGridName, OcrResult } from '@/ocr/ocr.ts';
+import { aceOcrResult, aceScreenCells, aceScreenText } from '@/ocr/jupiter-ace.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
 import {
   ACE_CPU_CLOCK, ACE_T_PER_FRAME, ACE_LINES_PER_FRAME, ACE_ACTIVE_LINES,
@@ -412,18 +414,41 @@ export class JupiterAceMachine extends BaseMachine implements Machine {
 
   stopTrace(): string { return ''; }
 
-  /** MCP `ocr` tool: the 32×24 screen file read as text (printable ASCII
-   *  only — the block-graphics codes render as spaces). */
-  ocrScreenForMcp(): string {
+  // ── Screen OCR ─────────────────────────────────────────────────────────────
+  //
+  // The Ace keeps character codes in its screen file, so there is nothing to
+  // recognise — the text reads straight out of video RAM, and a program that
+  // redefines the character RAM does not change what the codes say. See
+  // `ocr/jupiter-ace.ts`.
+
+  /** MCP `ocr` tool: the 32×24 screen file read as text. */
+  ocrScreenForMcp(_mode: OcrGridName | 'auto' = 'auto'): string {
+    return `[32x24]
+${aceScreenText(this.memory.getVram())}`;
+  }
+
+  /** The same transcription, shaped for the TEXT overlay: the full untrimmed
+   *  grid, with inverse-video cells marked so they paint the right way round. */
+  ocrScreenStyled(): OcrResult {
+    return aceOcrResult(aceScreenCells(this.memory.getVram()));
+  }
+
+  /** Blank the cells the overlay has taken over, so the characters underneath
+   *  do not show through it. An inverse cell keeps its black ground. */
+  blankTextCells(result: OcrResult): void {
     const vram = this.memory.getVram();
-    let out = '';
-    for (let row = 0; row < 24; row++) {
-      for (let col = 0; col < 32; col++) {
-        const chr = vram[row * 32 + col] & 0x7F;
-        out += chr >= 0x20 && chr < 0x7F ? String.fromCharCode(chr) : ' ';
+    for (let row = 0; row < result.rows; row++) {
+      for (let col = 0; col < result.cols; col++) {
+        if (!result.mask[row * result.cols + col]) continue;
+        const colour = (vram[row * 32 + col] & 0x80) !== 0 ? INK : PAPER;
+        for (let line = 0; line < 8; line++) {
+          const start = (ACE_BORDER_TOP + row * 8 + line) * ACE_SCREEN_WIDTH
+            + ACE_BORDER_LEFT + col * 8;
+          this._pixels32.fill(colour, start, start + 8);
+        }
       }
-      out = out.replace(/\s+$/, '') + '\n';
     }
-    return out;
+    this.display?.updateTexture(this._pixels);
   }
 }
+
