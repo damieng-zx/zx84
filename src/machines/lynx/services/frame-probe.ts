@@ -4,7 +4,9 @@
 
 import type {
   FrameIndicators, FramePaneProvider, FrameProbe, MemoryMapSnapshot,
+  TranscribeDriver,
 } from '@/machines/machine.ts';
+import type { OcrGridName } from '@/ocr/ocr.ts';
 import { DRIVE_PROFILE, fixedDrive } from '@/media/floppy/floppy-sound.ts';
 import { hex8 } from '@/utils/hex.ts';
 import type { LynxMachine } from '../lynx-machine.ts';
@@ -57,11 +59,41 @@ function lynxMemoryMap(m: LynxMachine): MemoryMapSnapshot {
   };
 }
 
+/**
+ * TEXT-overlay driver.
+ *
+ * Nothing to set up: the Lynx's transcription re-reads the picture every
+ * frame, so the flag only records whether the bridge still owes a deactivate.
+ */
+class LynxTranscribeDriver implements TranscribeDriver {
+  private on = false;
+  constructor(private readonly m: LynxMachine) {}
+
+  get active(): boolean { return this.on; }
+  activate(): void { this.on = true; }
+
+  /** The blanked cells were painted into the frame buffer, so the picture
+   *  underneath only returns once the next frame redraws it. */
+  deactivate(): void { this.on = false; }
+
+  run() {
+    const result = this.m.ocrScreenStyled();
+    if (result === null) return { text: '', html: '', grid: '40x24' as OcrGridName };
+    this.m.blankTextCells(result);
+    return {
+      text: result.text, html: result.html, grid: result.grid,
+      field: this.m.ocrFieldBox(),
+    };
+  }
+}
+
 export class LynxFrameProbe implements FrameProbe {
   readonly panes: FramePaneProvider;
+  readonly transcribe: LynxTranscribeDriver;
 
   constructor(private readonly machine: LynxMachine) {
     this.panes = { memoryMap: () => lynxMemoryMap(this.machine) };
+    this.transcribe = new LynxTranscribeDriver(machine);
   }
 
   sample(out: FrameIndicators): void {

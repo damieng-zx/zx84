@@ -34,9 +34,9 @@ const ACE_UI: MachineUiCapabilities = {
   // The Ace's only sound is the ULA buzzer (the FORTH BEEP word).
   beeper: true,
   psgControls: [],
-  // Buzzer, keyboard and the cassette port have activity to show. No OCR
-  // overlay yet, so no 'text' LED.
-  statusLeds: ['kbd', 'ear', 'load', 'beep'],
+  // Buzzer, keyboard and the cassette port have activity to show; 'text'
+  // toggles the screen-file transcription overlay.
+  statusLeds: ['kbd', 'ear', 'load', 'beep', 'text'],
   keyboardBus: 'ula',
   tape: 'deck',
   // EAR input is not wired to the buzzer — the tape is silent while loading.

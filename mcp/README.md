@@ -59,6 +59,9 @@ Some tools are intentionally hardware-specific:
   system profile.
 - PCW additionally: it has no system ROM, so nothing is fetched at startup —
   boot it by loading a CP/M+ or LocoScript disc into drive A.
+- Lynx `ocr` reads the 40-column grid on the 48K/96K and the 128K's 80-column
+  one, matching the bitmap against the character set in the machine's own ROM;
+  a replaced system ROM without that table is reported rather than guessed at.
 - MSX/MTX/Einstein/SAM/Lynx/Jupiter Ace/PCW media capabilities are exposed
   exactly where their machine services support them.
 
@@ -143,7 +146,7 @@ refused.
 | `stop_trace` | | Stop tracing. Large full/port-I/O traces are written to a file. |
 | `trace_read` | `from`, `to` | Read stored ZXTL trace lines. |
 | `frame_trace` | | Spectrum-only one-frame instruction/contention/VRAM trace written to a file. |
-| `ocr` | `mode` (optional) | Read screen text through the active machine OCR engine. ZX80/ZX81 return their 32×24 display-file text. |
+| `ocr` | `mode` (optional) | Read screen text through the active machine OCR engine. The first line names the grid. ZX80/ZX81 and the Jupiter Ace return their 32×24 screen file as text; the Lynx and the PCW have no character memory, so theirs is matched against the ROM character set and says so when the font is not where the stock ROM keeps it. |
 
 ### Disk Inspection And Protection
 

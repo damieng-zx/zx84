@@ -92,6 +92,7 @@ extension.
 - Pause, frame stepping, step into/over/out, breakpoints, run-to-cursor, disassembly, registers, memory views, and clipboard export.
 - Spectrum and Einstein tracing: full execution, port I/O, and ZXTrace. Spectrum traces coalesce repeated loops.
 - Spectrum-specific BASIC, BASIC variables, system variables, font, memory-bank, screen-text, and OCR tools.
+- Screen transcription (the TEXT overlay and the MCP `ocr` tool) on every machine with an OCR engine. The Lynx and the PCW have no character memory, so their text is recovered by matching the picture against the character set; the Jupiter Ace and the ZX80/ZX81 read theirs straight out of the screen file.
 - Customizable pane ordering, placement, visibility, collapse state, and persistent per-pane settings.
 
 ### Saving, Library, And Persistence

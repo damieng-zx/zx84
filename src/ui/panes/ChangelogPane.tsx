@@ -15,6 +15,7 @@ const CHANGELOG: { version: string; items: string[] }[] = [
       'Fixed machine switches racing asynchronous ROM loads',
       'Audio resumes on a user gesture and buffers enough for the fallback path',
       'Mounting a tape or disk no longer restarts or unpauses the machine',
+      'Screen text and the TEXT overlay on the Camputers Lynx and Jupiter Ace',
     ]
   }, {
     version: '0.8.1',

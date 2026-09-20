@@ -41,7 +41,7 @@ function lynxUi(model: LynxModel): MachineUiCapabilities {
     // and the same activity LED.
     beeper: true,
     psgControls: [],
-    statusLeds: disk ? ['kbd', 'load', 'dsk'] : ['kbd', 'load'],
+    statusLeds: disk ? ['kbd', 'load', 'dsk', 'text'] : ['kbd', 'load', 'text'],
     keyboardBus: 'matrix',
     tape: 'deck',
     tapeSound: false,

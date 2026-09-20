@@ -33,9 +33,17 @@ export type SamOcrGrid = '32x21' | '64x21';
 /** PCW text grid — the 720x256 bitmap cut into 8x8 cells. */
 export type PcwOcrGrid = '90x32';
 
+/** Lynx text grids — 6x10 cells across the active area. The 48K/96K fit 40
+ *  columns in 256 pixels; the 128K's 512-pixel display fits 80. */
+export type LynxOcrGrid = '40x24' | '80x24';
+
+/** Jupiter Ace text grid — the 32x24 screen file, one byte per cell. */
+export type AceOcrGrid = '32x24';
+
 /** Any grid label an OCR producer can stamp onto an OcrResult. */
 export type OcrGridName =
-  SpectrumOcrGrid | CpcOcrGrid | EinsteinOcrGrid | MsxOcrGrid | SamOcrGrid | PcwOcrGrid;
+  SpectrumOcrGrid | CpcOcrGrid | EinsteinOcrGrid | MsxOcrGrid | SamOcrGrid | PcwOcrGrid
+  | LynxOcrGrid | AceOcrGrid;
 
 /** A font source for OCR matching.
  *  `data` is always 768 bytes (96 chars × 8 bytes). For non-8-wide cells only

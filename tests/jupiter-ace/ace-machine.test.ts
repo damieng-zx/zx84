@@ -47,7 +47,7 @@ describe('JupiterAceMachine — construction', () => {
     expect(d.ui.tape).toBe('deck');
     expect(d.ui.beeper).toBe(true);
     expect(d.ui.mouseTypes).toEqual([]);
-    expect(d.ui.statusLeds).toEqual(['kbd', 'ear', 'load', 'beep']);
+    expect(d.ui.statusLeds).toEqual(['kbd', 'ear', 'load', 'beep', 'text']);
     m.destroy();
   });
 });
@@ -406,7 +406,9 @@ describe('JupiterAceMachine — debug surface', () => {
     const hello = 'OK';
     for (let i = 0; i < hello.length; i++) vram[i] = hello.charCodeAt(i);
     const text = m.ocrScreenForMcp();
-    expect(text.split('\n')[0]).toBe(hello);
+    // The first line names the grid, as every machine's ocr hook does.
+    expect(text.split('\n')[0]).toBe('[32x24]');
+    expect(text.split('\n')[1]).toBe(hello);
     m.destroy();
   });
 

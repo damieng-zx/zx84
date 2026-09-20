@@ -6,8 +6,9 @@
 
 import type {
   FrameIndicators, FramePaneProvider, FrameProbe,
-  MemoryMapSnapshot, MemoryMapSlot,
+  MemoryMapSnapshot, MemoryMapSlot, TranscribeDriver,
 } from '@/machines/machine.ts';
+import type { OcrGridName } from '@/ocr/ocr.ts';
 import { DRIVE_PROFILE } from '@/media/floppy/floppy-sound.ts';
 import type { JupiterAceMachine } from '../ace-machine.ts';
 
@@ -26,13 +27,39 @@ function aceMemoryMap(m: JupiterAceMachine): MemoryMapSnapshot | null {
   return { slots, registers: [] };
 }
 
+/**
+ * TEXT-overlay driver.
+ *
+ * Nothing to set up: the screen file is re-read every frame, so the flag only
+ * records whether the bridge still owes a deactivate.
+ */
+class AceTranscribeDriver implements TranscribeDriver {
+  private on = false;
+  constructor(private readonly m: JupiterAceMachine) {}
+
+  get active(): boolean { return this.on; }
+  activate(): void { this.on = true; }
+
+  /** The blanked cells were painted into the frame buffer, so the characters
+   *  underneath only return once the ULA redraws them next frame. */
+  deactivate(): void { this.on = false; }
+
+  run(): { text: string; html: string; grid: OcrGridName } {
+    const result = this.m.ocrScreenStyled();
+    this.m.blankTextCells(result);
+    return { text: result.text, html: result.html, grid: result.grid };
+  }
+}
+
 export class AceFrameProbe implements FrameProbe {
   readonly panes: FramePaneProvider;
+  readonly transcribe: AceTranscribeDriver;
 
   constructor(private readonly m: JupiterAceMachine) {
     this.panes = {
       memoryMap: () => aceMemoryMap(m),
     };
+    this.transcribe = new AceTranscribeDriver(m);
   }
 
   sample(out: FrameIndicators): void {

@@ -22,7 +22,17 @@ import type {
   BorderMode, Machine, MachineDescriptor, MachineHost, MachineKind, MachineTraceMode,
   SettingsView,
 } from '@/machines/machine.ts';
-import { LYNX_CPU_CLOCK, LYNX_PAGE_SIZE, LYNX_T_PER_FRAME } from './constants.ts';
+import {
+  LYNX_BORDER_TOP, LYNX_CPU_CLOCK, LYNX_PAGE_SIZE, LYNX_PALETTE, LYNX_T_PER_FRAME,
+} from './constants.ts';
+import type { OcrResult } from '@/ocr/ocr.ts';
+import {
+  LYNX_CELL_HEIGHT, LYNX_CELL_WIDTH, LYNX_FONT_BYTES,
+  LYNX_FONT_OFFSET_128, LYNX_FONT_OFFSET_48,
+  LYNX_GEOMETRY_40, LYNX_GEOMETRY_80,
+  lynxOcrResult, lynxScreenCells, lynxScreenText,
+  type LynxOcrGeometry, type LynxPixelReader,
+} from '@/ocr/lynx.ts';
 import { lynxHasDisk, type LynxModel } from './models.ts';
 import { LynxMemory, DOS_ROM_OFFSET } from './lynx-memory.ts';
 import { LynxKeyboard } from './lynx-keyboard.ts';
@@ -30,6 +40,12 @@ import { LynxVideo } from './lynx-video.ts';
 import { wireLynxPortIO } from './lynx-io.ts';
 import { lynxDescriptor } from './descriptor.ts';
 import { createLynxServices, type LynxServices } from './services/index.ts';
+
+/** Said when the character set is not where the stock ROM keeps it — a
+ *  replaced system ROM. Better than transcribing a screenful of nonsense. */
+const OCR_UNAVAILABLE =
+  '[lynx] OCR unavailable: no character set at the usual address, so the '
+  + 'screen cannot be transcribed.';
 
 /** The Lynx's only audio is a DAC on the mixer's beeper channel, so there is
  *  no PSG to keep in step with the sample rate. */
@@ -227,10 +243,92 @@ export class LynxMachine extends BaseMachine implements Machine {
   startTrace(_mode: MachineTraceMode = 'full'): void { /* not yet */ }
   stopTrace(): string { return ''; }
 
-  /** The Lynx screen is a bitmap with no character grid behind it, so OCR
-   *  needs a font match against the ROM's character set — a later increment. */
+  // ── Screen OCR ─────────────────────────────────────────────────────────
+  //
+  // The Lynx screen is a bitmap with no character grid behind it, so text is
+  // recovered by cutting the picture into the ROM font's 6x10 cells and
+  // matching each one. The font lives in the first ROM image, which sits at
+  // the bottom of bank 0.
+
+  /** The ROM's character set, as loaded. Bank 0 holds ROM image 0 at 0. */
+  private get ocrFont(): Uint8Array {
+    const at = this.memory.is128k ? LYNX_FONT_OFFSET_128 : LYNX_FONT_OFFSET_48;
+    return this.memory.ram.subarray(at, at + LYNX_FONT_BYTES);
+  }
+
+  /** The text grid this model's display carries. */
+  private get ocrGeometry(): LynxOcrGeometry {
+    return this.memory.is128k ? LYNX_GEOMETRY_80 : LYNX_GEOMETRY_40;
+  }
+
+  /** Active-area pixel -> palette index, by matching the composited colour
+   *  back to the palette. The renderer has already done the plane compositing,
+   *  so OCR reads the same picture the user is looking at. */
+  private get ocrReader(): LynxPixelReader {
+    const geo = this.video.geometry;
+    const px = this.video.pixels;
+    const left = geo.borderLeft, top = LYNX_BORDER_TOP, width = geo.width;
+    return (x: number, y: number): number => {
+      const colour = px[(top + y) * width + left + x] >>> 0;
+      for (let pen = 0; pen < 8; pen++) if (LYNX_PALETTE[pen] === colour) return pen;
+      return 0;
+    };
+  }
+
   ocrScreenForMcp(): string {
-    return 'OCR is not available on the Camputers Lynx yet';
+    const text = lynxScreenText(this.ocrReader, this.ocrFont, this.ocrGeometry);
+    if (text === null) return OCR_UNAVAILABLE;
+    const geo = this.ocrGeometry;
+    return `[${geo.grid}]
+${text}`;
+  }
+
+  /** The same transcription, shaped for the TEXT overlay. */
+  ocrScreenStyled(): OcrResult | null {
+    const geo = this.ocrGeometry;
+    const cells = lynxScreenCells(this.ocrReader, this.ocrFont, geo);
+    if (!cells) return null;
+    return lynxOcrResult(cells, LYNX_PALETTE, geo.grid);
+  }
+
+  /**
+   * Where the text grid sits in the frame buffer, in buffer pixels.
+   *
+   * The Lynx's grid does not fill the active area — it is inset by a few
+   * pixels and leaves a margin at the right and bottom — so the overlay has to
+   * be told, or it stretches its rows across the whole picture and drifts out
+   * of step with the text underneath.
+   */
+  ocrFieldBox(): { x: number; y: number; width: number; height: number } {
+    const geo = this.ocrGeometry;
+    return {
+      x: this.video.geometry.borderLeft + geo.originX,
+      y: LYNX_BORDER_TOP + geo.originY,
+      width: geo.cols * LYNX_CELL_WIDTH,
+      height: geo.rows * LYNX_CELL_HEIGHT,
+    };
+  }
+
+  /** Blank the cells the overlay has taken over, so the text underneath does
+   *  not show through it. Matched cells go to their own background colour. */
+  blankTextCells(result: OcrResult): void {
+    const geo = this.video.geometry;
+    const px = this.video.pixels;
+    const paper = result.paper;
+    for (let row = 0; row < result.rows; row++) {
+      for (let col = 0; col < result.cols; col++) {
+        const idx = row * result.cols + col;
+        if (!result.mask[idx]) continue;
+        const colour = LYNX_PALETTE[(paper ? paper[idx] : 0) & 7];
+        const x0 = geo.borderLeft + this.ocrGeometry.originX + col * LYNX_CELL_WIDTH;
+        const y0 = LYNX_BORDER_TOP + this.ocrGeometry.originY + row * LYNX_CELL_HEIGHT;
+        for (let line = 0; line < LYNX_CELL_HEIGHT; line++) {
+          const start = (y0 + line) * geo.width + x0;
+          px.fill(colour, start, start + LYNX_CELL_WIDTH);
+        }
+      }
+    }
+    this.display?.updateTexture(this.pixels);
   }
 
   /** Raw RAM dump for the `.bin` save: the whole physical store. */
