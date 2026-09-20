@@ -32,7 +32,7 @@ ZX84 is an old-computer emulator with machine-specific hardware models, browser-
 - HX-10 cartridge loading and BIOS-level `.cas` cassette loading.
 - MTX CP/M 2.2 boot through the real FDX hardware using a hosted Type 07 system disk.
 - MTX logical cassette loading, banked ROM packs, FDX/SDX Type 03 and Type 07 floppy mounting, optional 512 KiB RAM expansion, and optional 80×24 colour display.
-- The bundled MTX CP/M profile installs the native SIDISC module and exposes fitted expansion RAM as an empty 512 KiB type-51 drive F:.
+- The bundled MTX CP/M profile installs the native SIDISC module and exposes fitted expansion RAM as an empty type-43 SiDisc drive F:.
 - SAM Coupé MGT ASIC display modes, SAA1099 stereo sound, MGT mouse, cassette, and WD1772 floppy support, with an optional external megabyte RAM interface.
 - Camputers Lynx 6845 CRTC display, DAC sound, cassette loading, and the FD1793 floppy interface on the 96K and 128K.
 - Jupiter Ace ULA text display, buzzer sound, ROM-verified cassette loading and saving, and optional 16K or 48K RAM packs.

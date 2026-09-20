@@ -1,19 +1,19 @@
 import type {
   BootDiskRequest, DiskService, DriveDescriptor, DriveMedia,
 } from '@/machines/machine.ts';
-import { serializeHFE } from '@/media/floppy/hfe.ts';
+import { parseFloppyImage, serializeHFE } from '@/media/floppy/hfe.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
-import { parseMtxMfloppy, serializeMtxMfloppy } from '@/media/floppy/mtx-mfloppy.ts';
+import { serializeMtxMfloppy } from '@/media/floppy/mtx-mfloppy.ts';
 import type { MtxMachine } from '../mtx-machine.ts';
 
 const CPM_STARTUP_OFFSET = 0x10;
 const CPM_STARTUP_END = 0x40;
-const DEFAULT_STARTUP = 'CONFIG\r';
-const RAM_DISK_STARTUP = 'SIDISC\rCONFIG F:51\r';
+const DEFAULT_STARTUP = 'CONFIG B:07\r';
+const RAM_DISK_STARTUP = 'CONFIG B:07\rSIDISC\rCONFIG F:43\r';
 
 const CPM_SYSTEM_DISK = {
-  source: 'https://zx84files.bitsparse.com/library/memotech/andy_sys.mfloppy',
-  cacheKey: 'disk-mtx-cpm-type07',
+  source: 'https://zx84files.bitsparse.com/media/memotech/Dave07Sys.hfe',
+  cacheKey: 'disk-mtx-cpm-dave07',
 };
 
 function writeStartup(target: Uint8Array, ramDisk: boolean): void {
@@ -25,9 +25,13 @@ function writeStartup(target: Uint8Array, ramDisk: boolean): void {
 }
 
 export function parseMtxCpmSystemDisk(data: Uint8Array, ramDisk: boolean): DskImage {
-  const patched = data.slice();
-  writeStartup(patched, ramDisk);
-  return parseMtxMfloppy(patched);
+  // The system disk is an HFE bitstream, so its boot-sector startup command is
+  // patched in the decoded sector — the same place the RAM-disk toggle writes —
+  // rather than in the raw file bytes.
+  const image = parseFloppyImage(data);
+  const boot = image.tracks[0]?.[0]?.sectors[0]?.data;
+  if (boot) writeStartup(boot, ramDisk);
+  return image;
 }
 
 function baseName(name: string): string {
