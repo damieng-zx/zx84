@@ -5,6 +5,16 @@ import {
   MTX_TYPE07_SIZE,
   parseMtxMfloppy,
 } from '@/media/floppy/mtx-mfloppy.ts';
+import { attachHfeBitstream, serializeHFE } from '@/media/floppy/hfe.ts';
+
+/** The hosted CP/M system disk is an HFE, so the boot-disk tests feed one in. */
+function systemDiskHfe(firstByte = 0): Uint8Array {
+  const raw = new Uint8Array(MTX_TYPE07_SIZE);
+  raw[0] = firstByte;
+  const image = parseMtxMfloppy(raw);
+  attachHfeBitstream(image);
+  return serializeHFE(image);
+}
 
 function machine(): MtxMachine {
   const m = new MtxMachine('mtx512', null);
@@ -100,13 +110,11 @@ describe('Memotech FDX/SDX disk expansion', () => {
     m.setCpmSystemEnabled(true);
     const request = m.services.disks.bootDisk;
     expect(request?.source).toBe(
-      'https://zx84files.bitsparse.com/library/memotech/andy_sys.mfloppy',
+      'https://zx84files.bitsparse.com/media/memotech/Dave07Sys.hfe',
     );
-    expect(request?.cacheKey).toBe('disk-mtx-cpm-type07');
+    expect(request?.cacheKey).toBe('disk-mtx-cpm-dave07');
 
-    const raw = new Uint8Array(MTX_TYPE07_SIZE);
-    raw[0] = 0xA5;
-    m.services.disks.insert('a', request!.parse(raw), '');
+    m.services.disks.insert('a', request!.parse(systemDiskHfe(0xA5)), '');
 
     expect(m.services.disks.drives[0]).toMatchObject({
       id: 'a',
@@ -117,21 +125,22 @@ describe('Memotech FDX/SDX disk expansion', () => {
     expect(m.fdc.getDiskImage(0)?.tracks[0][0]?.sectors[0].data[0]).toBe(0xA5);
   });
 
-  it('boots the hidden CP/M disk with a type-51 RAM disc when 512 KiB is fitted', () => {
+  it('boots the hidden CP/M disk with a type-43 SiDisc drive when 512 KiB is fitted', () => {
     const m = machine();
     m.set512kRamEnabled(true);
     m.setCpmSystemEnabled(true);
     const request = m.services.disks.bootDisk!;
-    const image = request.parse(new Uint8Array(MTX_TYPE07_SIZE));
+    const image = request.parse(systemDiskHfe());
     if (image instanceof Uint8Array) throw new Error('Expected parsed MTX floppy image');
-    const startup = image.tracks[0][0]!.sectors[0].data.subarray(0x10, 0x25);
+    const startup = image.tracks[0][0]!.sectors[0].data.subarray(0x10, 0x30);
 
-    expect(new TextDecoder().decode(startup)).toBe('SIDISC\rCONFIG F:51\r\0\0');
+    expect(new TextDecoder().decode(startup))
+      .toBe('CONFIG B:07\rSIDISC\rCONFIG F:43\r\0');
     m.services.disks.insert('a', image, '');
 
     m.set512kRamEnabled(false);
-    const restored = image.tracks[0][0]!.sectors[0].data.subarray(0x10, 0x18);
-    expect(new TextDecoder().decode(restored)).toBe('CONFIG\r\0');
+    const restored = image.tracks[0][0]!.sectors[0].data.subarray(0x10, 0x1D);
+    expect(new TextDecoder().decode(restored)).toBe('CONFIG B:07\r\0');
   });
 
   it('does not rewrite startup commands on an explicitly mounted disk', () => {
