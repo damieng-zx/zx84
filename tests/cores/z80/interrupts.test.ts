@@ -266,3 +266,38 @@ describe('Z80 — NMOS LD A,I / LD A,R P/V quirk', () => {
     expect(h.cpu.f & F_PV).toBe(F_PV);
   });
 });
+
+describe('Z80 — board M1 wait states stretch interrupt acknowledge cycles', () => {
+  // INTA (M1 + IORQ) and the NMI response are M1 cycles, so a WAIT generator
+  // keyed on /M1 (MSX: +1T per M1) stretches them exactly like an opcode
+  // fetch. Base timings (Zilog UM0080): IM 0/1 13T, IM 2 19T, NMI 11T.
+  for (const [im, base] of [[0, 13], [1, 13], [2, 19]] as const) {
+    it(`IM ${im} acknowledge takes ${base} + 1 T with one M1 wait state`, () => {
+      const h = newCpu();
+      h.cpu.m1WaitStates = 1;
+      h.cpu.iff1 = true; h.cpu.im = im; h.cpu.sp = 0xC010;
+      const t0 = h.cpu.tStates;
+      expect(h.cpu.interrupt()).toBe(base + 1);
+      expect(h.cpu.tStates - t0).toBe(base + 1);
+    });
+  }
+
+  it('the extra wait lands in the acknowledge, before the PC push', () => {
+    const h = newCpu();
+    h.cpu.m1WaitStates = 1;
+    h.cpu.iff1 = true; h.cpu.im = 1; h.cpu.sp = 0xC010;
+    const writes: number[] = [];
+    const orig = h.cpu.write8;
+    h.cpu.write8 = (a, v) => { writes.push(h.cpu.tStates); orig(a, v); };
+    h.cpu.interrupt();
+    expect(writes).toEqual([8, 11]); // push at T+7/T+10 shifted by the wait
+  });
+
+  it('NMI acknowledge takes 11 + 1 T with one M1 wait state', () => {
+    const h = newCpu();
+    h.cpu.m1WaitStates = 1;
+    h.cpu.sp = 0xC010;
+    h.cpu.nmi();
+    expect(h.cpu.tStates).toBe(12);
+  });
+});
