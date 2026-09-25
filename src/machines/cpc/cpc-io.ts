@@ -7,7 +7,7 @@
  *   - CRTC 6845                 A14=0,A13=1   (&BCxx–&BFxx, fn = A9:A8)
  *   - ROM select                A13=0         (&DFxx, write)
  *   - 8255 PPI                  A11=0         (&F4xx–&F7xx, port = A9:A8)
- *   - uPD765A FDC               A10=0         (&FA7E motor / &FB7E/7F)
+ *   - uPD765A FDC               A10=0,A7=0    (&FA7E motor / &FB7E/7F)
  *
  * The AY-3-8912 is reached *through* the PPI: data on Port A, function on Port
  * C bits 6/7 (BDIR/BC1). The keyboard sits on the AY's I/O port A and is
@@ -268,13 +268,15 @@ export function wireCpcPortIO(m: CpcMachine): void {
       }
     }
 
-    // FDC (only with a disk interface fitted): A10=0
-    if (hasFdc && (port & 0x0400) === 0) {
-      if ((port & 0x0100) !== 0) {       // A8=1 → &FB7F data
+    // FDC (only with a disk interface fitted): A10=0, A7=0. A8=0 → motor
+    // control (&FA7E); A8=1, A0=1 → data (&FB7F). &FB7E (A0=0) is the
+    // read-only main status register, so a write there does nothing.
+    if (hasFdc && (port & 0x0480) === 0) {
+      if ((port & 0x0100) === 0) {
+        fdc.motorOn = (val & 0x01) !== 0;
+      } else if ((port & 0x0001) !== 0) {
         fdc.writeData(val);
         m.activity.fdcAccesses++;
-      } else {                           // A8=0 → motor control (&FA7E)
-        fdc.motorOn = (val & 0x01) !== 0;
       }
     }
   };
@@ -340,9 +342,9 @@ export function wireCpcPortIO(m: CpcMachine): void {
       }
     }
 
-    // FDC (only with a disk interface fitted): A10=0, A8=1 → &FB7E status /
-    // &FB7F data. Without one the bus floats (0xFF).
-    if (hasFdc && (port & 0x0500) === 0x0100) {
+    // FDC (only with a disk interface fitted): A10=0, A8=1, A7=0 →
+    // &FB7E status / &FB7F data. Without one the bus floats (0xFF).
+    if (hasFdc && (port & 0x0580) === 0x0100) {
       if (port & 1) { m.activity.fdcAccesses++; return fdc.readData(); }
       return fdc.readStatus();
     }
