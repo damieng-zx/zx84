@@ -124,6 +124,7 @@ export async function loadFileInto(spec: Spectrum, source: string, diskUnit: num
     spec.reset();
     const result = loadZ80(data, spec.cpu, spec.memory);
     spec.ula.borderColor = result.borderColor;
+    if (result.frameTStates !== undefined) spec.resumeAtFrameOffset(result.frameTStates);
     return `Z80 loaded: ${filename} (${result.is128K ? '128K' : '48K'}) PC=${h16(spec.cpu.pc)}`;
   } else if (ext === '.szx') {
     // Auto-detect model from SZX header byte 6 (machine ID).
@@ -154,6 +155,7 @@ export async function loadFileInto(spec: Spectrum, source: string, diskUnit: num
       spec.memory.applyBanking();
     }
     spec.ula.borderColor = result.borderColor;
+    spec.resumeAtFrameOffset(spec.cpu.tStates); // dwCyclesStart
     return `SZX loaded: ${filename} (${szxModel}) PC=${h16(spec.cpu.pc)}`;
   }
   return `Unsupported file type: ${ext}`;
