@@ -1,7 +1,7 @@
 /**
  * LynxMachine — the Camputers Lynx motherboard.
  *
- * A Z80A at 4MHz, a Motorola 6845 sequencing the raster over three one-bit
+ * A Z80 at 4MHz (6MHz on the 128K), a Motorola 6845 sequencing the raster over three one-bit
  * colour planes, a ten-line keyboard read through the address bus, an 8-bit
  * sound DAC on port 0x84 and, on the 96K/128K, an FD1793 floppy controller —
  * which is a WD1793, so the existing WD179x core covers it.
@@ -23,7 +23,7 @@ import type {
   SettingsView,
 } from '@/machines/machine.ts';
 import {
-  LYNX_BORDER_TOP, LYNX_CPU_CLOCK, LYNX_PAGE_SIZE, LYNX_PALETTE, LYNX_T_PER_FRAME,
+  LYNX_BORDER_TOP, LYNX_PAGE_SIZE, LYNX_PALETTE, lynxTStatesPerFrame,
 } from './constants.ts';
 import type { OcrResult } from '@/ocr/ocr.ts';
 import {
@@ -33,7 +33,7 @@ import {
   lynxOcrResult, lynxScreenCells, lynxScreenText,
   type LynxOcrGeometry, type LynxPixelReader,
 } from '@/ocr/lynx.ts';
-import { lynxHasDisk, type LynxModel } from './models.ts';
+import { lynxCpuClock, lynxHasDisk, type LynxModel } from './models.ts';
 import { LynxMemory, DOS_ROM_OFFSET } from './lynx-memory.ts';
 import { LynxKeyboard } from './lynx-keyboard.ts';
 import { LynxVideo } from './lynx-video.ts';
@@ -58,6 +58,9 @@ const TAPE_TURBO_COOLDOWN = 25;
 export class LynxMachine extends BaseMachine implements Machine {
   readonly kind: MachineKind = 'lynx';
   readonly model: LynxModel;
+  /** Z80 clock: 4MHz on the 48K/96K, 6MHz on the 128K. */
+  readonly clock: number;
+  private readonly tPerFrame: number;
 
   readonly services: LynxServices;
 
@@ -76,9 +79,9 @@ export class LynxMachine extends BaseMachine implements Machine {
 
   /** The cassette deck. The Lynx has a real motor bit, so playback is gated on
    *  the motor rather than on read cadence the way the CPC's has to be. */
-  readonly tape = new TapeDeck(LYNX_CPU_CLOCK);
+  readonly tape: TapeDeck;
 
-  readonly mixer = new AudioMixer(LYNX_CPU_CLOCK);
+  readonly mixer: AudioMixer;
   readonly audio = new Audio();
   display: IScreenRenderer | null;
 
@@ -110,6 +113,10 @@ export class LynxMachine extends BaseMachine implements Machine {
   constructor(model: LynxModel, display: IScreenRenderer | null = null) {
     super();
     this.model = model;
+    this.clock = lynxCpuClock(model);
+    this.tPerFrame = lynxTStatesPerFrame(this.clock);
+    this.tape = new TapeDeck(this.clock);
+    this.mixer = new AudioMixer(this.clock);
     this.modelHasDisk = lynxHasDisk(model);
     this.hasDisk = this.modelHasDisk;
     this.display = display;
@@ -118,7 +125,7 @@ export class LynxMachine extends BaseMachine implements Machine {
     this._pixels32 = this.video.pixels;
     this._pixels = new Uint8Array(this._pixels32.buffer);
 
-    this.tape.pulseScale = LYNX_CPU_CLOCK / TAPE_REF_HZ;
+    this.tape.pulseScale = this.clock / TAPE_REF_HZ;
     this.cpu.read8 = (addr: number): number => this.memory.readByte(addr);
     this.cpu.write8 = (addr: number, v: number): void => this.memory.writeByte(addr, v);
     wireLynxPortIO(this);
@@ -132,8 +139,8 @@ export class LynxMachine extends BaseMachine implements Machine {
   get pixels(): Uint8Array { return this._pixels; }
   get frameWidth(): number { return this.video.geometry.width; }
   get frameHeight(): number { return this.video.geometry.height; }
-  get tStatesPerFrame(): number { return LYNX_T_PER_FRAME; }
-  get cpuClockHz(): number { return LYNX_CPU_CLOCK; }
+  get tStatesPerFrame(): number { return this.tPerFrame; }
+  get cpuClockHz(): number { return this.clock; }
 
   attachHost(host: MachineHost): void { this.host = host; }
   applySettings(view: SettingsView): void {
@@ -363,7 +370,7 @@ ${text}`;
     // many lines it has been programmed for, so an unusual R4/R9 stretches or
     // squeezes the raster rather than losing lines off the bottom.
     const lines = this.crtc.linesPerFrame();
-    const tPerLine = LYNX_T_PER_FRAME / lines;
+    const tPerLine = this.tPerFrame / lines;
     let lineEnd = this.cpu.tStates;
     let lastAudioT = this.cpu.tStates;
     let broke = false;
