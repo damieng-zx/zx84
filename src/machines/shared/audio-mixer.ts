@@ -75,6 +75,15 @@ export class AudioMixer {
     this.beeperTStatesAccum += elapsed;
   }
 
+  /** Accumulate an analogue speaker level (0..1) for the given elapsed
+   *  T-states. For outputs that are a weighted mix of several digital lines
+   *  (e.g. the Spectrum ULA's EAR + MIC resistor network) rather than a
+   *  single 0/1 beeper bit. */
+  accumulateLevel(level: number, elapsed: number): void {
+    this.beeperAccum += level * elapsed;
+    this.beeperTStatesAccum += elapsed;
+  }
+
   /** Generate audio samples when enough T-states have accumulated. */
   generateSamples(audio: Audio, psg: StereoAudioSource | null, psgEnabled: boolean): void {
     while (this.beeperTStatesAccum >= this.tStatesPerSample) {

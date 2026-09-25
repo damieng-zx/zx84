@@ -117,6 +117,15 @@ describe('AudioMixer — accumulate', () => {
     expect((m as any).beeperAccum).toBe(20);
     expect(m.beeperTStatesAccum).toBe(30);
   });
+  it('accumulateLevel weights by a fractional level without masking', () => {
+    const m = new AudioMixer(3_500_000);
+    m.init(44_100);
+    m.accumulateLevel(0.1, 10);  // 1
+    m.accumulateLevel(1, 20);    // 20
+    m.accumulateLevel(0, 30);    // 0
+    expect((m as any).beeperAccum).toBeCloseTo(21, 9);
+    expect(m.beeperTStatesAccum).toBe(60);
+  });
 });
 
 // ── Sample generation: thresholding ────────────────────────────────────────
