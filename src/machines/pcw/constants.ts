@@ -15,8 +15,7 @@ export const PCW_DISPLAY_WIDTH = 720;
 export const PCW_DISPLAY_HEIGHT = 256;
 
 /** Border around the active area. The PCW has no programmable border colour —
- *  this is the black surround the monitor shows, and it is what port &F6's
- *  vertical-position adjustment slides the picture around inside. */
+ *  this is the black surround the monitor shows. */
 export const PCW_BORDER_LEFT = 24;
 export const PCW_BORDER_TOP = 16;
 
@@ -111,7 +110,7 @@ export const PORT_BANK2 = 0xF2;    // block at 8000
 export const PORT_BANK3 = 0xF3;    // block at C000
 export const PORT_MEMCTL = 0xF4;   // out: read-follows-write; in: status, clears counter
 export const PORT_ROLLER = 0xF5;   // out: roller RAM base
-export const PORT_VERTICAL = 0xF6; // out: vertical screen position
+export const PORT_VERTICAL = 0xF6; // out: roller RAM start entry (screen scroll)
 export const PORT_VIDEO = 0xF7;    // out: screen enable / reverse video
 export const PORT_SYSTEM = 0xF8;   // out: command; in: status
 export const PORT_PRINTER_DATA = 0xFC;

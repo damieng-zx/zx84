@@ -115,7 +115,7 @@ export function wirePcwPortIO(m: PcwMachine): void {
       case PORT_MEMCTL: m.memory.setMemCtl(value); return;
 
       case PORT_ROLLER: m.asic.rollerBase = value; return;
-      case PORT_VERTICAL: m.asic.verticalPos = value; return;
+      case PORT_VERTICAL: m.asic.rollerOffset = value; return;
       case PORT_VIDEO: m.asic.videoCtl = value; return;
 
       case PORT_SYSTEM: m.systemCommand(value); return;

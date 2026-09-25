@@ -94,7 +94,7 @@ describe('PCW port decode', () => {
     m.cpu.portOut(0xF6, 0x03);
     m.cpu.portOut(0xF7, 0xC0);
     expect(m.asic.rollerAddress).toBe(0xB600);
-    expect(m.asic.verticalPos).toBe(3);
+    expect(m.asic.rollerOffset).toBe(3);
     expect(m.asic.videoCtl).toBe(0xC0);
   });
 

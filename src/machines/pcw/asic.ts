@@ -57,8 +57,11 @@ export class PcwAsic {
 
   /** Port &F5: roller RAM base. b7-5 block, b4-0 offset in 512-byte units. */
   rollerBase = 0;
-  /** Port &F6: vertical position of the picture on the monitor. */
-  verticalPos = 0;
+  /** Port &F6: the roller RAM entry the picture starts at. Scan line `n`
+   *  reads entry (rollerOffset + n) & 255, wrapping within the 512-byte table
+   *  (MAME pcw_v.cpp: roller_ram_offs = offset << 1, += 2, &= 511). This is
+   *  how the PCW scrolls the whole screen — it does not shift the raster. */
+  rollerOffset = 0;
   /** Port &F7: b6 screen enable, b7 reverse video. */
   videoCtl = PCW_VIDEO_ENABLE;
   /** Port &F8 commands 7/8 — screen on/off for external video. ANDed with the
@@ -90,7 +93,7 @@ export class PcwAsic {
 
   reset(): void {
     this.rollerBase = 0;
-    this.verticalPos = 0;
+    this.rollerOffset = 0;
     this.videoCtl = PCW_VIDEO_ENABLE;
     this.screenEnabled = true;
     this.timerPending = false;
@@ -185,12 +188,11 @@ export class PcwAsic {
    *
    * Roller RAM is read live, one entry per line, so software that rewrites it
    * mid-frame — which is how the PCW scrolls — takes effect immediately. The
-   * entry pair wraps within its own 16K block.
+   * walk starts at entry `rollerOffset` (port &F6) and wraps within the
+   * 512-byte, 256-entry table (the table base is 512-byte aligned).
    */
   lineAddress(line: number): number {
-    const base = this.rollerAddress;
-    const offset = (base & 0x3FFF) + (line & 0xFF) * 2;
-    const addr = (base & ~0x3FFF) | (offset & 0x3FFF);
+    const addr = this.rollerAddress + (((this.rollerOffset + line) & 0xFF) << 1);
     const entry = this.mem.videoByte(addr) | (this.mem.videoByte(addr + 1) << 8);
     return rollerEntryAddress(entry);
   }
@@ -212,7 +214,7 @@ export class PcwAsic {
   renderScanline(pixels: Uint32Array, line: number): void {
     if (line >= PCW_DISPLAY_HEIGHT) return;
 
-    const row = PCW_BORDER_TOP + this.verticalPos + line;
+    const row = PCW_BORDER_TOP + line;
     if (row < 0 || row >= PCW_SCREEN_HEIGHT) return;
 
     const mem = this.mem;
