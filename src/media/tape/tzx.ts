@@ -4,7 +4,8 @@
  * Parses TZX files into a TapeBlock[] array using the discriminated union
  * type system. All meaningful block types are extracted: data blocks (0x10,
  * 0x11, 0x14), pure tone (0x12), pulse sequence (0x13), direct recording
- * (0x15), pause/stop (0x20), groups (0x21/22), loops (0x24/25), stop-if-48k
+ * (0x15), CSW recording (0x18), generalized data (0x19, expanded to pulse
+ * sequences), pause/stop (0x20), groups (0x21/22), loops (0x24/25), stop-if-48k
  * (0x2A), set signal level (0x2B), text (0x30), and archive info (0x32).
  * Loops are expanded at parse time.
  */
@@ -134,6 +135,138 @@ function extractDataBlock(
     usedBits,
     source,
   };
+}
+
+/** Ceiling on pulses a single 0x19 block may expand to. PRLE repetitions
+ *  (up to 65535 each) multiply, so a tiny hostile block could otherwise
+ *  describe billions of pulses. Real generalized blocks stay far below this. */
+const MAX_GENERALIZED_PULSES = 1 << 24;
+
+interface GdbSymbol { flags: number; pulses: number[]; }
+
+/**
+ * Expand a TZX 1.20 0x19 Generalized Data Block into the deck's existing
+ * pulse primitives.
+ *
+ * The block describes its waveform as symbols: each symbol is a short list of
+ * pulse lengths (a zero length ends the list early) plus a flag saying what
+ * happens at the START of its first pulse — 0 an edge, 1 no edge (the level
+ * carries on), 2 force low, 3 force high. Every later pulse in the symbol
+ * starts with an edge. The pilot/sync stream is a run-length list of
+ * (symbol, repetitions) pairs; the data stream packs ceil(log2(ASD)) bits per
+ * symbol, MSB first.
+ *
+ * The deck plays a Pulse Sequence as "hold for the length, then toggle", so an
+ * edge at the start of TZX pulse k is the deck's toggle at the end of pulse
+ * k-1, and — exactly as for 0x12/0x13 — the leading edge of the block's very
+ * first pulse is the one the previous block already ended with. So:
+ *   - an edge (flag 0) is a plain pulse;
+ *   - no edge (flag 1) folds the pulse into the previous one;
+ *   - a forced level is compared with the tracked level and becomes one of
+ *     the above; until the level is first known (it depends on earlier
+ *     blocks), the pulses so far are flushed and a Set Signal Level block
+ *     pins it. That happens at most once per block.
+ * The block's pause becomes a trailing Pause block.
+ */
+function parseGeneralizedData(d: Uint8Array, body: number, blockLen: number): TapeBlock[] {
+  const end = body + blockLen;
+  const need = (at: number): void => {
+    if (at > end) throw new Error('Truncated TZX generalized data block');
+  };
+  need(body + 14);
+  const pause = read16(d, body);
+  const totp = read32(d, body + 2);
+  const npp = d[body + 6];
+  const asp = d[body + 7] || 256;
+  const totd = read32(d, body + 8);
+  const npd = d[body + 12];
+  const asd = d[body + 13] || 256;
+  let p = body + 14;
+
+  const readTable = (count: number, maxPulses: number): GdbSymbol[] => {
+    const table: GdbSymbol[] = [];
+    const size = 1 + 2 * maxPulses;
+    need(p + count * size);
+    for (let s = 0; s < count; s++, p += size) {
+      const pulses: number[] = [];
+      for (let i = 0; i < maxPulses; i++) {
+        const len = read16(d, p + 1 + i * 2);
+        if (len === 0) break;
+        pulses.push(len);
+      }
+      table.push({ flags: d[p] & 0x03, pulses });
+    }
+    return table;
+  };
+
+  const out: TapeBlock[] = [];
+  let pending: number[] = [];
+  let started = false;     // any pulse emitted yet in this block
+  let known = false;       // absolute level established by a forced symbol
+  let level = 0;           // level during the last pending pulse (when known)
+  let total = 0;
+
+  const flush = (): void => {
+    if (pending.length > 0) out.push({ kind: 'pulses', lengths: pending });
+    pending = [];
+  };
+
+  const emitSymbol = (sym: GdbSymbol): void => {
+    for (let i = 0; i < sym.pulses.length; i++) {
+      if (++total > MAX_GENERALIZED_PULSES) throw new Error('TZX generalized data block too large');
+      const len = sym.pulses[i];
+      let edge = i === 0 ? sym.flags : 0;
+      if (edge >= 2 && known) edge = (edge - 2) === level ? 1 : 0;
+      if (edge >= 2) {
+        // First forced level in the block: pin it absolutely.
+        flush();
+        level = edge - 2;
+        known = true;
+        out.push({ kind: 'set-level', level });
+        pending.push(len);
+      } else if (!started) {
+        pending.push(len);   // leading edge belongs to the previous block
+      } else if (edge === 1) {
+        pending[pending.length - 1] += len;
+      } else {
+        pending.push(len);
+        level ^= 1;
+      }
+      started = true;
+    }
+  };
+
+  if (totp > 0) {
+    const pilot = readTable(asp, npp);
+    need(p + totp * 3);
+    for (let i = 0; i < totp; i++, p += 3) {
+      const sym = pilot[d[p]];
+      if (!sym) throw new Error('TZX generalized data block: pilot symbol out of range');
+      const reps = read16(d, p + 1);
+      for (let r = 0; r < reps; r++) emitSymbol(sym);
+    }
+  }
+
+  if (totd > 0) {
+    const data = readTable(asd, npd);
+    let nb = 0;
+    while ((1 << nb) < asd) nb++;
+    need(p + Math.ceil(nb * totd / 8));
+    let bit = 0;
+    for (let i = 0; i < totd; i++) {
+      let idx = 0;
+      for (let b = 0; b < nb; b++, bit++) {
+        idx = (idx << 1) | ((d[p + (bit >> 3)] >> (7 - (bit & 7))) & 1);
+      }
+      const sym = data[idx];
+      if (!sym) throw new Error('TZX generalized data block: data symbol out of range');
+      emitSymbol(sym);
+    }
+  }
+
+  flush();
+  if (pause > 0) out.push({ kind: 'pause', duration: pause });
+  return out;
 }
 
 export function parseTZX(fileData: Uint8Array): TapeBlock[] {
@@ -304,7 +437,8 @@ export function parseTZX(fileData: Uint8Array): TapeBlock[] {
         if (pause > 0) blocks.push({ kind: 'pause', duration: pause });
         break;
       }
-      case 0x19: // Generalized Data Block (skipped)
+      case 0x19: // Generalized Data Block
+        for (const blk of parseGeneralizedData(fileData, o + 4, read32(fileData, o))) blocks.push(blk);
         break;
       case 0x20: { // Pause / Stop the tape
         const duration = read16(fileData, o);
