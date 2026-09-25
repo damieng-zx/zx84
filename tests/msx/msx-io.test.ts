@@ -58,6 +58,17 @@ describe('MsxPpi', () => {
     expect(ppi.readB()).toBe(0xFF);    // nothing on row 0
   });
 
+  it('a control-port mode-set clears the port A and C output latches', () => {
+    kbd.handleKeyEvent('Space', true); // SPACE = row 8, bit 0
+    ppi.writeA(0xAA);
+    ppi.writeC(0x88);                  // row 8, key-click bit set
+    ppi.writeControl(0x82);            // MSX mode: A out, B in, C out
+    expect(ppi.readA()).toBe(0x00);
+    expect(mem.getPrimarySlot()).toBe(0x00);
+    expect(ppi.readC()).toBe(0x00);
+    expect(ppi.readB()).toBe(0xFF);    // row 0 selected again: no SPACE
+  });
+
   it('reset returns slots and row select to 0', () => {
     ppi.writeA(0xFF);
     ppi.writeC(0x0A);
