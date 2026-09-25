@@ -822,7 +822,7 @@ export class Spectrum extends BaseMachine implements Machine {
       if (skipAudio) {
         this.mixer.beeperTStatesAccum = 0;
       } else {
-        this.mixer.accumulate(this.ula.getAudioEarBit(this.tapeSoundEnabled), elapsed);
+        this.mixer.accumulateLevel(this.ula.getAudioLevel(this.tapeSoundEnabled), elapsed);
         this.mixer.generateSamples(this.audio, this.ay, this.variant.hasAY);
       }
     }

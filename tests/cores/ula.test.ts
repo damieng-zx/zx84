@@ -153,7 +153,7 @@ describe('Port 0xFE — write (output latch)', () => {
 
   // Documentation: Issue 3 boards (and 128K) — bit 3 is the MIC output (used
   // for tape SAVE). It's captured into micBit and mixed into the audible
-  // output (see the getAudioEarBit suite), but is NOT reflected back on bit 6
+  // output (see the getAudioLevel suite), but is NOT reflected back on bit 6
   // of the read port when no tape is playing — that's the Issue 2 ULA's
   // behaviour, which stays unmodelled (see the "Issue 2 vs Issue 3" suite
   // below).
@@ -535,52 +535,65 @@ describe('Border modes', () => {
 // Audio EAR routing
 // ─────────────────────────────────────────────────────────────────────────
 
-describe('getAudioEarBit — beeper / tape routing', () => {
+describe('getAudioLevel — EAR/MIC speaker mix and tape routing', () => {
   let ula: ULA;
   beforeEach(() => { ula = makeUla().ula; });
 
-  it('without tape, returns the beeper bit', () => {
+  // Issue 3 ULA speaker-pin voltages: none 0.39V, MIC 0.73V, EAR 3.66V,
+  // both 3.79V. Normalised to 0..1 over the 0.39V..3.79V span.
+  const MIC_ONLY = (0.73 - 0.39) / 3.4; // 0.1
+  const EAR_ONLY = (3.66 - 0.39) / 3.4; // ~0.962
+
+  it('silent when neither EAR nor MIC is set', () => {
     ula.writePort(0x00);
-    expect(ula.getAudioEarBit(true)).toBe(0);
+    expect(ula.getAudioLevel(true)).toBe(0);
+  });
+
+  it('EAR alone drives the speaker near full scale', () => {
     ula.writePort(0x10);
-    expect(ula.getAudioEarBit(true)).toBe(1);
+    expect(ula.getAudioLevel(true)).toBeCloseTo(EAR_ONLY, 6);
+  });
+
+  it('ROM BEEPER pattern (MIC held at 1, EAR toggled) produces a large swing', () => {
+    // The 48K ROM BEEPER routine ORs $08 into the port value and XORs $10,
+    // so MIC stays 1 while EAR toggles. An OR of the two bits would be a
+    // constant 1 — silence. The weighted mix must swing by ~0.9.
+    ula.writePort(0x08);
+    const low = ula.getAudioLevel(true);
+    ula.writePort(0x18);
+    const high = ula.getAudioLevel(true);
+    expect(low).toBeCloseTo(MIC_ONLY, 6);
+    expect(high).toBe(1);
+    expect(high - low).toBeGreaterThan(0.85);
+  });
+
+  it('MIC alone (bit 3) is audible but quiet — SAVE audio', () => {
+    ula.writePort(0x08); // MIC=1, EAR=0
+    expect(ula.micBit).toBe(1);
+    expect(ula.getAudioLevel(true)).toBeCloseTo(MIC_ONLY, 6);
   });
 
   it('with tape active + sound enabled, returns the tape signal', () => {
     ula.writePort(0x10); // beeper=1
     ula.tapeActive = true;
     ula.tapeEarBit = 0;
-    expect(ula.getAudioEarBit(true)).toBe(0); // tape wins
+    expect(ula.getAudioLevel(true)).toBe(0); // tape wins
+    ula.tapeEarBit = 1;
+    expect(ula.getAudioLevel(true)).toBe(1);
   });
 
-  it('with tape active but sound disabled, falls back to beeper', () => {
+  it('with tape active but sound disabled, falls back to the EAR/MIC mix', () => {
     ula.writePort(0x10);
     ula.tapeActive = true;
     ula.tapeEarBit = 0;
-    expect(ula.getAudioEarBit(false)).toBe(1); // beeper still audible
-  });
-
-  it('MIC alone (bit 3) is audible without EAR — SAVE audio', () => {
-    // Real hardware drives the speaker from both MIC and EAR through their
-    // own resistor paths; MIC-only output (as during tape SAVE) must not
-    // be silent just because the beeper (EAR) bit is 0.
-    ula.writePort(0x08); // MIC=1, EAR=0
-    expect(ula.micBit).toBe(1);
-    expect(ula.getAudioEarBit(true)).toBe(1);
-  });
-
-  it('MIC and EAR combine (OR), neither masks the other', () => {
-    ula.writePort(0x18); // MIC=1, EAR=1
-    expect(ula.getAudioEarBit(true)).toBe(1);
-    ula.writePort(0x00); // both clear
-    expect(ula.getAudioEarBit(true)).toBe(0);
+    expect(ula.getAudioLevel(false)).toBeCloseTo(EAR_ONLY, 6);
   });
 
   it('during tape playback, MIC does not leak into the tape signal', () => {
     ula.writePort(0x08); // MIC=1
     ula.tapeActive = true;
     ula.tapeEarBit = 0;
-    expect(ula.getAudioEarBit(true)).toBe(0); // tape signal wins, not MIC
+    expect(ula.getAudioLevel(true)).toBe(0); // tape signal wins, not MIC
   });
 });
 
