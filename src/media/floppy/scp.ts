@@ -112,42 +112,59 @@ function estimateCellTicks(flux: number[], resTicks: number): number {
 }
 
 /** Merge per-revolution decodes of one physical track into a single DskTrack,
- *  attaching weak `copies[]` for any sector whose data varies across reads. */
+ *  attaching weak `copies[]` for any sector whose data varies across reads.
+ *
+ *  Sectors are matched across revolutions by their whole ID (C, H, R, N) and
+ *  their occurrence of that ID within the revolution — not by R alone, which
+ *  would fold two physically distinct sectors that share an R (a common
+ *  protection layout) into one fake weak sector.
+ *
+ *  Weakness is judged only between readings that agree on CRC health. When at
+ *  least one revolution read the sector with a good data CRC, the bad-CRC
+ *  readings are just misreads of a sound sector and are ignored; the sector is
+ *  weak only if good readings disagree. When every reading failed its CRC (a
+ *  weak-bit protection sector), the differing bad readings are the weak copies. */
 function mergeRevolutions(tracks: DskTrack[]): DskTrack | null {
   const good = tracks.filter((t): t is DskTrack => t !== null);
   if (good.length === 0) return null;
 
-  // Union of every sector R seen, in first-seen physical order.
-  const order: number[] = [];
-  const byR = new Map<number, DskSector[]>();
+  // Union of every sector key seen, in first-seen physical order.
+  const order: string[] = [];
+  const byKey = new Map<string, DskSector[]>();
   for (const t of good) {
+    const seenInRev = new Map<string, number>();
     for (const s of t.sectors) {
-      if (!byR.has(s.r)) { byR.set(s.r, []); order.push(s.r); }
-      byR.get(s.r)!.push(s);
+      const id = `${s.c},${s.h},${s.r},${s.n}`;
+      const k = seenInRev.get(id) ?? 0;
+      seenInRev.set(id, k + 1);
+      const key = `${id}#${k}`;
+      if (!byKey.has(key)) { byKey.set(key, []); order.push(key); }
+      byKey.get(key)!.push(s);
     }
   }
 
+  const crcOk = (s: DskSector): boolean => (s.st1 & 0x20) === 0 && (s.st2 & 0x20) === 0;
   const sectors: DskSector[] = [];
   const sectorMap = new Map<number, number>();
-  for (const r of order) {
-    const reads = byR.get(r)!;
-    // Prefer a good-CRC reading as the primary; else the first.
-    const primary = reads.find(s => (s.st1 & 0x20) === 0 && (s.st2 & 0x20) === 0) ?? reads[0];
-    const distinct = new Set(reads.map(s => bytesKey(s.data)));
+  for (const key of order) {
+    const all = byKey.get(key)!;
+    const goodReads = all.filter(crcOk);
+    const reads = goodReads.length > 0 ? goodReads : all;
+    const primary = reads[0];
     const sector: DskSector = { ...primary, data: primary.data };
-    if (distinct.size > 1) {
+    const seen = new Set<string>();
+    const copies: Uint8Array[] = [];
+    for (const s of reads) {
+      const k = bytesKey(s.data);
+      if (!seen.has(k)) { seen.add(k); copies.push(s.data); }
+    }
+    if (copies.length > 1) {
       // Weak/fuzzy sector: keep every distinct reading for the FDC to pick from.
-      const seen = new Set<string>();
-      const copies: Uint8Array[] = [];
-      for (const s of reads) {
-        const k = bytesKey(s.data);
-        if (!seen.has(k)) { seen.add(k); copies.push(s.data); }
-      }
       sector.copies = copies;
       sector.st2 |= 0x20; // ST2 DD — flag as a weak/data-varying sector
     }
     const idx = sectors.push(sector) - 1;
-    if (!sectorMap.has(r)) sectorMap.set(r, idx);
+    if (!sectorMap.has(sector.r)) sectorMap.set(sector.r, idx);
   }
   return { sectors, sectorMap, gap3: good[0].gap3, filler: good[0].filler };
 }
