@@ -86,8 +86,11 @@ export async function unzip(data: Uint8Array, exts: readonly string[] = LOADABLE
 
     pos += 46 + nameLen + extraLen + commentLen;
 
-    // Skip directories and unsupported compression methods
+    // Skip directories, encrypted entries (general-purpose flag bit 0 — we
+    // can't decrypt them, but the rest of the archive is still readable) and
+    // unsupported compression methods.
     if (name.endsWith('/')) continue;
+    if (gpFlag & 0x0001) continue;
     if (method !== 0 && method !== 8) continue;
     const lowerName = name.toLowerCase();
     if (!lowerExts.some(ext => lowerName.endsWith(ext))) continue;
