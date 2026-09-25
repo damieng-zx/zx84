@@ -434,17 +434,18 @@ export class Tms9918a {
     line.fill(0);
 
     let visible = 0;
+    let lastChecked = 31;             // no terminator: all 32 were checked
     for (let s = 0; s < 32; s++) {
       const a = (attrBase + s * 4) & VRAM_MASK;
       let sy = this.vram[a];
-      if (sy === 0xD0) break;         // terminator: no more sprites
+      if (sy === 0xD0) { lastChecked = s; break; } // terminator: no more sprites
       // Sprite Y is "one less than the top row"; 0xE0..0xFF wraps above the top.
       sy = (sy + 1) & 0xFF;
       if (sy >= 0xE1) sy -= 256;
       const dy = y - sy;
       if (dy < 0 || dy >= height) continue;
 
-      if (++visible > 4) { this.setFifthSprite(s); break; }
+      if (++visible > 4) { this.setFifthSprite(s); return; }
 
       const sx0 = this.vram[a + 1];
       const patternIdx = this.vram[a + 2];
@@ -476,6 +477,12 @@ export class Tms9918a {
           }
         }
       }
+    }
+    // No fifth sprite on this line: S0 bits 0-4 hold the number of the last
+    // sprite checked — the Y=0xD0 terminator, or 31 (TMS9918A data manual;
+    // openMSX SpriteChecker). Only while 5S (and, as for 5S, F) is clear.
+    if ((this.status & (ST_5S | ST_INT)) === 0) {
+      this.status = (this.status & 0xE0) | lastChecked;
     }
   }
 

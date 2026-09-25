@@ -230,6 +230,23 @@ describe('TMS9918A sprites', () => {
     expect(st & 0x1F).toBe(4); // number of the first sprite over the limit
   });
 
+  it('without a 5th sprite, S0 bits 0-4 hold the terminator sprite number', () => {
+    setSprite(0, 10, 2);
+    setSprite(1, 40, 2);
+    terminate(7);
+    for (let n = 2; n < 7; n++) vdp.vram[ATTR_BASE + n * 4] = 0x80; // off this line
+    vdp.renderScanline(px, 0, 0);
+    const st = vdp.readStatus();
+    expect(st & 0x40).toBe(0);
+    expect(st & 0x1F).toBe(7);
+  });
+
+  it('without a terminator or 5th sprite, S0 bits 0-4 read 31', () => {
+    for (let n = 0; n < 32; n++) vdp.vram[ATTR_BASE + n * 4] = 0x80; // none on line 0
+    vdp.renderScanline(px, 0, 0);
+    expect(vdp.readStatus() & 0x1F).toBe(31);
+  });
+
   it('a transparent sprite still counts toward the 4-per-line / 5th-sprite limit', () => {
     setSprite(0, 0, 0);   // transparent, still occupies a slot
     for (let n = 1; n < 5; n++) setSprite(n, n * 20, 2);
