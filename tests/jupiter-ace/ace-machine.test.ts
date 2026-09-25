@@ -302,15 +302,23 @@ describe('JupiterAceMachine — tape turbo', () => {
 
 describe('JupiterAceMachine — the /INT window', () => {
   /**
-   * A ROM that masks interrupts, burns `nops` × 4T, then re-enables them —
-   * the shape any DI stretch makes. It spins on a JR -2 afterwards so
-   * execution can never fall through to 0x0038 and fake a serviced interrupt.
+   * A ROM that masks interrupts until the ULA asserts /INT, burns `nops` × 4T
+   * more, then re-enables them — the shape any DI stretch makes. /INT goes
+   * low when the active area ends, 192 × 208T = 39936T into the field, so a
+   * 1536 × 26T countdown (plus 22T of set-up) masks right up to it. It spins
+   * on a JR -2 afterwards so execution can never fall through to 0x0038 and
+   * fake a serviced interrupt.
    */
   function romWithDiStretch(nops: number): Uint8Array {
     const rom = new Uint8Array(0x2000);
     let p = 0x0100;
-    rom[p++] = 0xED; rom[p++] = 0x56;                 // IM 1
-    rom[p++] = 0xF3;                                  // DI
+    rom[p++] = 0xED; rom[p++] = 0x56;                 // IM 1          8T
+    rom[p++] = 0xF3;                                  // DI            4T
+    rom[p++] = 0x01; rom[p++] = 0x00; rom[p++] = 0x06; // LD BC,1536  10T
+    rom[p++] = 0x0B;                                  // DEC BC        6T
+    rom[p++] = 0x78;                                  // LD A,B        4T
+    rom[p++] = 0xB1;                                  // OR C          4T
+    rom[p++] = 0x20; rom[p++] = 0xFB;                 // JR NZ,-5  12T/7T
     for (let i = 0; i < nops; i++) rom[p++] = 0x00;   // NOP (4T each)
     rom[p++] = 0xFB;                                  // EI
     rom[p++] = 0x18; rom[p++] = 0xFE;                 // JR -2
@@ -341,6 +349,26 @@ describe('JupiterAceMachine — the /INT window', () => {
     // 500 NOPs = 2000T, past 1664T: /INT has been released, so this field's
     // interrupt is gone rather than being held pending forever.
     expect(servicedInterrupt(500)).toBe(false);
+  });
+
+  it('asserts /INT after the 192 active scanlines, not at the top of the field', () => {
+    // MAME raises the Ace IRQ at scanline 248, right below its 56..247 display
+    // window: the frame interrupt follows the active area.
+    const m = machine();
+    const rom = new Uint8Array(0x2000);
+    rom.set([0xED, 0x56, 0xFB, 0x18, 0xFE], 0x0100);   // IM 1; EI; JR -2
+    m.loadROM(rom);
+    m.reset();
+    m.cpu.pc = 0x0100;
+    let takenAt = -1;
+    const start = m.cpu.tStates;
+    m.onTrap = (pc: number) => { if (pc === 0x0038 && takenAt < 0) takenAt = m.cpu.tStates - start; return false; };
+    m.tick();
+    m.destroy();
+    // Line 192 starts at 39936T; the JR in flight (12T) and IM 1 ack (13T)
+    // bound how late the vector can be reached.
+    expect(takenAt).toBeGreaterThanOrEqual(39_936);
+    expect(takenAt).toBeLessThanOrEqual(39_936 + 12 + 13);
   });
 });
 

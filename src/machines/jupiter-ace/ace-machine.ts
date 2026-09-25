@@ -260,9 +260,12 @@ export class JupiterAceMachine extends BaseMachine implements Machine {
   protected inTurbo(): boolean { return this.turbo || this.tapeTurboActive; }
 
   /**
-   * Execute one PAL field. Runs the CPU scanline by scanline; renders the 192
-   * active lines; the ULA's /INT pulse is asserted at the top of the frame and
-   * serviced in interrupt mode 1 (RST 38h).
+   * Execute one PAL field. Runs the CPU scanline by scanline from the first
+   * active line; renders the 192 active lines; the ULA's /INT pulse is
+   * asserted during vertical sync just after the active area (MAME: scanline
+   * 248, immediately below its 56..247 display window) and serviced in
+   * interrupt mode 1 (RST 38h). The ROM's frame work therefore runs in the
+   * blanking interval, not racing the beam down the screen.
    */
   protected runFrame(): void {
     // Apply any deferred combo keys (modifier was pressed last frame).
@@ -280,11 +283,12 @@ export class JupiterAceMachine extends BaseMachine implements Machine {
     // Paper fills the whole buffer — the Ace border is always paper-white.
     this._pixels32.fill(PAPER);
 
-    // The ULA holds /INT low for ACE_INT_LENGTH_T each frame. If the CPU is
-    // masking interrupts (DI), the pulse is lost until the next frame; a retry
-    // within the window covers EI's one-instruction delay and HALT wake-up.
-    let intPending = this.cpu.interrupt() === 0;
-    const intWindowEnd = this.cpu.tStates + ACE_INT_LENGTH_T;
+    // The ULA holds /INT low for ACE_INT_LENGTH_T each frame, starting when
+    // the active area ends. If the CPU is masking interrupts (DI), the pulse
+    // is lost until the next frame; a retry within the window covers EI's
+    // one-instruction delay and HALT wake-up.
+    let intPending = false;
+    let intWindowEnd = 0;
 
     const skipAudio = this.speedMultiplier !== 1 || this.tapeTurboActive;
 
@@ -295,6 +299,10 @@ export class JupiterAceMachine extends BaseMachine implements Machine {
 
     for (let line = 0; line < LINES_PER_FRAME; line++) {
       lineEnd += tPerLine;
+      if (line === ACTIVE_LINES) {
+        intPending = this.cpu.interrupt() === 0;
+        intWindowEnd = this.cpu.tStates + ACE_INT_LENGTH_T;
+      }
 
       while (this.cpu.tStates < lineEnd) {
         if (this.breakpoints.size > 0 && this.breakpoints.has(this.cpu.pc)) {
