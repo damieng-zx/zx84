@@ -1785,3 +1785,61 @@ describe('Spectrum.resumeAtFrameOffset', () => {
     expect(s.cpu.sp).not.toBe(0xFF00);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// Beam flush before shadow-screen changes
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('Spectrum — beam flush before displayed-screen changes (128K)', () => {
+  function spy(s: Spectrum): { n: number } {
+    const c = { n: 0 };
+    (s as any).flushBeam = () => { c.n++; };
+    return c;
+  }
+
+  it('flushes before a 7FFD write that flips the displayed screen (bit 3)', () => {
+    const s = makeMachine('128k');
+    const c = spy(s);
+    s.cpu.portOut(0x7FFD, 0x08);
+    expect(c.n).toBe(1);
+  });
+
+  it('does not flush for a 7FFD write that leaves bit 3 unchanged', () => {
+    const s = makeMachine('128k');
+    const c = spy(s);
+    s.cpu.portOut(0x7FFD, 0x03);
+    expect(c.n).toBe(0);
+  });
+
+  it('flushes before a write to 0xC000 while bank 7 is paged there and displayed', () => {
+    const s = makeMachine('128k');
+    s.cpu.portOut(0x7FFD, 0x0F); // bank 7 at 0xC000, shadow screen shown
+    const c = spy(s);
+    s.cpu.write8(0xC000, 0xAA);
+    expect(c.n).toBe(1);
+  });
+
+  it('does not flush for a 0xC000 write when bank 7 is paged but not displayed', () => {
+    const s = makeMachine('128k');
+    s.cpu.portOut(0x7FFD, 0x07);
+    const c = spy(s);
+    s.cpu.write8(0xC000, 0xAA);
+    expect(c.n).toBe(0);
+  });
+
+  it('flushes for a 0xC000 write when bank 5 is paged there (aliased normal screen)', () => {
+    const s = makeMachine('128k');
+    s.cpu.portOut(0x7FFD, 0x05);
+    const c = spy(s);
+    s.cpu.write8(0xC000, 0xAA);
+    expect(c.n).toBe(1);
+  });
+
+  it('no flush for a 0x4000 write while the shadow screen (bank 7) is displayed', () => {
+    const s = makeMachine('128k');
+    s.cpu.portOut(0x7FFD, 0x08);
+    const c = spy(s);
+    s.cpu.write8(0x4000, 0xAA);
+    expect(c.n).toBe(0);
+  });
+});

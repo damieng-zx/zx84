@@ -841,3 +841,38 @@ describe('SpectrumMemory — bankSwitch1FFD on non-+3 machine', () => {
     expect(mem.specialPaging).toBe(false);
   });
 });
+
+describe('SpectrumMemory — slotIsScreen (displayed-bank write tracking)', () => {
+  function mem128(): SpectrumMemory {
+    const m = new SpectrumMemory('128k');
+    m.loadROM(new Uint8Array(32768));
+    return m;
+  }
+
+  it('48K: only the 0x4000 slot (bank 5) is screen', () => {
+    const m = new SpectrumMemory('48k');
+    expect(Array.from(m.slotIsScreen)).toEqual([0, 1, 0, 0]);
+  });
+
+  it('128K: bank 7 paged at 0xC000 is screen only while 7FFD bit 3 shows it', () => {
+    const m = mem128();
+    m.bankSwitch(0x07);            // bank 7 at 0xC000, normal screen (bank 5)
+    expect(Array.from(m.slotIsScreen)).toEqual([0, 1, 0, 0]);
+    m.bankSwitch(0x0F);            // bank 7 at 0xC000, shadow screen shown
+    expect(Array.from(m.slotIsScreen)).toEqual([0, 0, 0, 1]);
+  });
+
+  it('128K: bank 5 paged at 0xC000 aliases the normal screen', () => {
+    const m = mem128();
+    m.bankSwitch(0x05);
+    expect(Array.from(m.slotIsScreen)).toEqual([0, 1, 0, 1]);
+  });
+
+  it('applyBanking after a direct port7FFD poke (snapshot load) refreshes it', () => {
+    const m = mem128();
+    m.port7FFD = 0x0F;
+    m.currentBank = 7;
+    m.applyBanking();
+    expect(Array.from(m.slotIsScreen)).toEqual([0, 0, 0, 1]);
+  });
+});
