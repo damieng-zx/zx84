@@ -50,8 +50,22 @@ export async function unzip(data: Uint8Array, exts: readonly string[] = LOADABLE
   if (eocdOffset === -1) throw new Error('Not a valid ZIP file (EOCD not found)');
 
   // ── 2. Read EOCD fields ──────────────────────────────────────────────
-  const totalEntries = view.getUint16(eocdOffset + 10, true);
-  const cdOffset = view.getUint32(eocdOffset + 16, true);
+  let totalEntries = view.getUint16(eocdOffset + 10, true);
+  let cdOffset = view.getUint32(eocdOffset + 16, true);
+
+  // Zip64 (APPNOTE 4.3.14–4.3.15): a field that overflowed is set to all-ones
+  // and the real value lives in the Zip64 EOCD record, located through the
+  // 20-byte Zip64 EOCD locator that sits immediately before the EOCD.
+  const locator = eocdOffset - 20;
+  if (locator >= 0 && view.getUint32(locator, true) === 0x07064b50) {
+    const rec = readUint64(view, locator + 8);
+    if (rec + 56 <= data.length && view.getUint32(rec, true) === 0x06064b50) {
+      totalEntries = readUint64(view, rec + 32);
+      cdOffset = readUint64(view, rec + 48);
+    } else if (totalEntries === 0xFFFF || cdOffset === 0xFFFFFFFF) {
+      throw new Error('Not a valid ZIP file (Zip64 EOCD record not found)');
+    }
+  }
 
   // ── 3. Walk Central Directory ────────────────────────────────────────
   const cdSig = 0x02014b50;
@@ -73,12 +87,31 @@ export async function unzip(data: Uint8Array, exts: readonly string[] = LOADABLE
 
     const gpFlag = view.getUint16(pos + 8, true);
     const method = view.getUint16(pos + 10, true);
-    const compressedSize = view.getUint32(pos + 20, true);
-    const uncompressedSize = view.getUint32(pos + 24, true);
+    let compressedSize = view.getUint32(pos + 20, true);
+    let uncompressedSize = view.getUint32(pos + 24, true);
     const nameLen = view.getUint16(pos + 28, true);
     const extraLen = view.getUint16(pos + 30, true);
     const commentLen = view.getUint16(pos + 32, true);
-    const localHeaderOffset = view.getUint32(pos + 42, true);
+    let localHeaderOffset = view.getUint32(pos + 42, true);
+
+    // Zip64 extended information extra field (header ID 0x0001, APPNOTE
+    // 4.5.3): holds, in this order, only those of uncompressed size,
+    // compressed size and local header offset whose 32-bit field is
+    // all-ones.
+    const extraEnd = Math.min(pos + 46 + nameLen + extraLen, data.length);
+    for (let x = pos + 46 + nameLen; x + 4 <= extraEnd;) {
+      const id = view.getUint16(x, true);
+      const size = view.getUint16(x + 2, true);
+      if (id === 0x0001) {
+        let f = x + 4;
+        const end = Math.min(f + size, extraEnd);
+        if (uncompressedSize === 0xFFFFFFFF && f + 8 <= end) { uncompressedSize = readUint64(view, f); f += 8; }
+        if (compressedSize === 0xFFFFFFFF && f + 8 <= end) { compressedSize = readUint64(view, f); f += 8; }
+        if (localHeaderOffset === 0xFFFFFFFF && f + 8 <= end) { localHeaderOffset = readUint64(view, f); }
+        break;
+      }
+      x += 4 + size;
+    }
 
     const nameBytes = data.subarray(pos + 46, pos + 46 + nameLen);
     // APPNOTE 4.4.4: names are UTF-8 when flag bit 11 is set, otherwise IBM
@@ -128,6 +161,13 @@ export async function unzip(data: Uint8Array, exts: readonly string[] = LOADABLE
   }
 
   return results;
+}
+
+/** Little-endian 64-bit value as a Number. Offsets and sizes beyond 2^53
+ *  can't index a Uint8Array anyway, so the precision loss is moot — an
+ *  out-of-range value simply fails the bounds checks that follow. */
+function readUint64(view: DataView, offset: number): number {
+  return view.getUint32(offset, true) + view.getUint32(offset + 4, true) * 0x1_0000_0000;
 }
 
 /** IBM code page 437, bytes 0x80..0xFF (0x00..0x7F match ASCII). */
