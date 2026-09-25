@@ -96,6 +96,23 @@ describe('AceKeyboard — symbol characters', () => {
     expect(kb.readHalfRows(0x7F)).toBe(0x1D); // M: row 7 bit 1
   });
 
+  // ROM SYMBOL SHIFT table (0x03C6): each of these is SYM + the key shown.
+  // SHIFT + those keys is DELETE LINE, CAPS LOCK, … — never the symbol.
+  const SYMBOLS: [string, number, number][] = [
+    ['!', 0xF7, 0x1E], ['@', 0xF7, 0x1D], ['#', 0xF7, 0x1B], ['$', 0xF7, 0x17], ['%', 0xF7, 0x0F],
+    ['_', 0xEF, 0x1E], [')', 0xEF, 0x1D], ['(', 0xEF, 0x1B], ["'", 0xEF, 0x17], ['&', 0xEF, 0x0F],
+    ['"', 0xDF, 0x1E],
+  ];
+  for (const [ch, half, bits] of SYMBOLS) {
+    it(`'${ch}' from a non-digit host key is SYMBOL SHIFT + its key, with host Shift suppressed`, () => {
+      const kb = new AceKeyboard();
+      kb.handleKeyEvent('ShiftLeft', true);        // e.g. US Shift+' for '"'
+      kb.handleKeyEvent('Quote', true, ch);
+      expect(kb.readHalfRows(0xFE)).toBe(0x1D);   // SYM only — SHIFT released
+      expect(kb.readHalfRows(half)).toBe(bits);
+    });
+  }
+
   it("Shift+digit types the Ace's shifted character (SHIFT + key, not a symbol combo)", () => {
     const kb = new AceKeyboard();
     // With Shift held, host '!' (Shift+1) must reach the Ace as CS + 1 — the
