@@ -40,17 +40,15 @@ export class Zx8xMediaService implements MediaService {
     if (payload.length > this.machine.memory.ramSize - (address - 0x4000)) {
       return { ok: false, message: `${filename} needs 16KB RAM` };
     }
-    if (this.machine.model === 'zx81') {
-      const isP81 = /\.p81$/i.test(filename);
-      const name = (isP81 ? p81Name(data) : null) ?? programNameFromFilename(filename);
-      // A LOAD already waiting for the tape reads this program in, whatever
-      // name it asked for: the user is pressing PLAY on it.
-      if (this.machine.awaitingTapeLoad) {
-        this.machine.tapeShelf.cue(name, payload.slice());
-        return { ok: true, target: 'program', message: `Tape playing: ${filename}` };
-      }
-      this.machine.tapeShelf.insert(name, payload.slice(), true);
+    const isP81 = /\.p81$/i.test(filename);
+    const name = (isP81 ? p81Name(data) : null) ?? programNameFromFilename(filename);
+    // A LOAD already waiting for the tape reads this program in, whatever
+    // name it asked for: the user is pressing PLAY on it.
+    if (this.machine.awaitingTapeLoad) {
+      this.machine.tapeShelf.cue(name, payload.slice());
+      return { ok: true, target: 'program', message: `Tape playing: ${filename}` };
     }
+    this.machine.tapeShelf.insert(name, payload.slice(), true);
     this.machine.loadProgram(payload, address);
     return { ok: true, target: 'program', message: `Program loaded: ${filename}` };
   }

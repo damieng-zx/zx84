@@ -103,6 +103,57 @@ describe('ZX81 cassette LOAD/SAVE traps', () => {
   });
 });
 
+describe('ZX80 cassette LOAD/SAVE traps', () => {
+  /** The ZX80 ROM's SAVE ($01B6), LOAD/SAVE end test ($01F8), LOAD ($0206) and
+   *  bit-wait ($0222) sequences; a NOP at the editor re-entry ($0283). */
+  function zx80Machine(pc: number): Zx8xMachine {
+    const rom = new Uint8Array(0x1000);
+    rom.set([0xd1, 0x11, 0xcb, 0x12], 0x01b6);
+    rom.set([0x23, 0xeb, 0x2a, 0x0a, 0x40, 0x37, 0xed, 0x52, 0xeb, 0xd0, 0xe1, 0xc3, 0x83, 0x02], 0x01f8);
+    rom.set([0xd1, 0x11, 0x12, 0x57, 0x3e, 0x7f], 0x0206);
+    rom.set([0x3e, 0x7f, 0xdb, 0xfe, 0x1f, 0x30, 0x24], 0x0222);
+    const machine = new Zx8xMachine('zx80');
+    machine.loadROM(rom);
+    machine.cpu.pc = pc;
+    machine.cpu.sp = 0x43f0;
+    machine.breakpoints.add(0x0284);
+    return machine;
+  }
+
+  it('LOAD reads the next program into $4000 onward and re-enters the editor', () => {
+    const machine = zx80Machine(0x0207);
+    machine.tapeShelf.insert('GAME', new Uint8Array([4, 5, 6]), false);
+    machine.tick();
+    expect(machine.breakpointHit).toBe(0x0284);
+    expect(ramFrom(machine, 0x4000, 3)).toEqual([4, 5, 6]);
+  });
+
+  it('SAVE captures $4000 up to but excluding E_LINE ($400A)', () => {
+    const machine = zx80Machine(0x01b7);
+    for (let i = 0; i < 16; i++) machine.memory.writeByte(0x4000 + i, 0x30 + i);
+    machine.memory.writeByte(0x400a, 0x0c);   // E_LINE = $400C: 12 bytes
+    machine.memory.writeByte(0x400b, 0x40);
+    machine.tick();
+    expect(machine.breakpointHit).toBe(0x0284);
+    const saved = machine.tapeShelf.list();
+    expect(saved).toHaveLength(1);
+    expect(Array.from(saved[0].data)).toEqual([0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x0c, 0x40]);
+  });
+
+  it('a bare LOAD after SAVE reads the program just saved', () => {
+    const machine = zx80Machine(0x01b7);
+    machine.memory.writeByte(0x400a, 0x0b);
+    machine.memory.writeByte(0x400b, 0x40);
+    machine.tick();
+    const saved = Array.from(machine.tapeShelf.list()[0].data);
+    for (let i = 0; i < 11; i++) machine.memory.writeByte(0x4000 + i, 0);
+    machine.cpu.pc = 0x0207;
+    machine.tick();
+    expect(machine.breakpointHit).toBe(0x0284);
+    expect(ramFrom(machine, 0x4000, 11)).toEqual(saved);
+  });
+});
+
 describe('ZX81 tape names', () => {
   it('decodes the ZX81 character set, ignoring the inverse bit', () => {
     // 0x0B '"', 0x0D '$', 0x1C '0', 0x25 '9', 0x26 'A', 0x3F 'Z', 0x1B '.'
