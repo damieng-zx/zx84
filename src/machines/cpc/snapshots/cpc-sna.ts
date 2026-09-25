@@ -313,7 +313,11 @@ export function applyCpcSna(data: Uint8Array, m: CpcMachine): void {
   });
 
   // CRTC: 18 registers (0x43–0x54) then the selected register index (0x42).
-  for (let i = 0; i < 18; i++) m.crtc.regs[i] = data[0x43 + i];
+  // R0–R15 go through the chip's write path so each keeps only its
+  // implemented bits; R16/R17 (light pen, CPU read-only) are set directly.
+  for (let i = 0; i < 16; i++) { m.crtc.selectRegister(i); m.crtc.writeRegister(data[0x43 + i]); }
+  m.crtc.regs[16] = data[0x43 + 16] & 0x3F;
+  m.crtc.regs[17] = data[0x43 + 17];
   m.crtc.selectRegister(data[0x42]);
 
   // PPI 8255: port A/C latches + control (port B at 0x57 is input-only).

@@ -45,7 +45,9 @@ function seedState(m: CpcMachine): void {
   m.memory.selectUpperRom(7);
 
   // CRTC: distinctive registers + a selected register.
-  for (let i = 0; i < 18; i++) m.crtc.regs[i] = (i * 3 + 5) & 0xFF;
+  // Through the chip's write path, so the reference holds only the bits a
+  // real 6845 implements (e.g. R9 is 5-bit).
+  for (let i = 0; i < 16; i++) { m.crtc.selectRegister(i); m.crtc.writeRegister((i * 3 + 5) & 0xFF); }
   m.crtc.selectRegister(9);
 
   // PPI latches.

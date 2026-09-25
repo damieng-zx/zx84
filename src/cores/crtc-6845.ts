@@ -43,7 +43,18 @@ export class Crtc6845 {
   readonly regs = new Uint8Array(18);
   private selected = 0;
 
-  constructor(private readonly type: 0 | 1 | 2 | 3 | 4 = 0) {}
+  /** Implemented bits per register: R4/R6/R7/R10 are 7-bit, R5/R9/R11 5-bit,
+   *  R12/R14 6-bit. On types 1/2 the VSYNC width is fixed at 16 lines, so only
+   *  R3's HSYNC nibble exists (a 0 VSYNC field reads as the 16-line default). */
+  private readonly writeMask: Uint8Array;
+
+  constructor(private readonly type: 0 | 1 | 2 | 3 | 4 = 0) {
+    this.writeMask = Uint8Array.from([
+      0xFF, 0xFF, 0xFF, type === 1 || type === 2 ? 0x0F : 0xFF,
+      0x7F, 0x1F, 0x7F, 0x7F, 0xFF, 0x1F, 0x7F, 0x1F,
+      0x3F, 0xFF, 0x3F, 0xFF, 0x3F, 0xFF,
+    ]);
+  }
 
   /** True while the CRTC is asserting VSYNC (polled via PPI Port B bit 0). */
   vsyncActive = false;
@@ -68,10 +79,13 @@ export class Crtc6845 {
     // latched by the light-pen strobe, not writable by the CPU. Nothing here
     // models a light pen, so they simply never change.
     if (this.selected === R_LIGHT_PEN_H || this.selected === R_LIGHT_PEN_L) return;
-    if (this.selected < 18) this.regs[this.selected] = val & 0xFF;
+    if (this.selected < 18) this.regs[this.selected] = val & this.writeMask[this.selected];
   }
 
   readRegister(): number {
+    // R12/R13 (display start) are write-only on the UM6845R (type 1) and
+    // MC6845 (type 2); R14–R17 read back on every type.
+    if ((this.selected === 12 || this.selected === 13) && (this.type === 1 || this.type === 2)) return 0;
     if (this.selected >= 12 && this.selected <= 17) return this.regs[this.selected];
     if (this.type === 1 && (this.selected === 10 || this.selected === 11)) {
       return this.regs[this.selected];
