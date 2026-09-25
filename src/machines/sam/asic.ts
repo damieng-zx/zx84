@@ -31,7 +31,7 @@ import {
   SAM_DISPLAY_HEIGHT, SAM_DISPLAY_LAST_LINE, SAM_FRAME_INT_LINE,
   SAM_INT_ACTIVE_T, SAM_LINES_PER_FRAME, SAM_PAGE_SIZE, SAM_PALETTE,
   SAM_SCREEN_HEIGHT, SAM_SCREEN_WIDTH, SAM_TOP_BORDER_LINES, SAM_T_PER_CELL,
-  HMPR_MD3COL_MASK, HMPR_MD3COL_SHIFT, LPEN_TXFMST,
+  LPEN_TXFMST,
   STATUS_IDLE, STATUS_INT_FRAME, STATUS_INT_LINE,
 } from './constants.ts';
 
@@ -72,7 +72,6 @@ export class SamAsic {
   private linePageA: Uint8Array;
   private linePageB: Uint8Array;
   private lineBorder = 0;
-  private lineMd3Border = 0;
   private lineScreenOff = false;
   private lineStartT = 0;
   private lineFlash = false;
@@ -326,7 +325,6 @@ export class SamAsic {
     this.linePageB = mem.videoPage(base + 1);
     this.lineBorder = this.borderIndex;
     this.lineScreenOff = this.screenOff;
-    this.lineMd3Border = (mem.hmpr & HMPR_MD3COL_MASK) >> HMPR_MD3COL_SHIFT;
     this.lineFlash = (this.frames & FLASH_FRAMES) !== 0;
 
     const pal = this.palette;
@@ -354,10 +352,9 @@ export class SamAsic {
     const y = line - SAM_DISPLAY_FIRST_LINE;
     const mode = this.lineMode;
 
-    // In mode 3 the border colour comes from HMPR's MD3COL field rather than
-    // the port 0xFE latch. TODO(verify) against the Technical Manual — the
-    // three other modes certainly use the port.
-    let borderIdx = mode === 3 ? this.lineMd3Border : this.lineBorder;
+    // The border is the port 0xFE colour in every mode. HMPR's MD3COL bits
+    // only feed the mode-3 pixel CLUT lookup (see `cellMode3`).
+    let borderIdx = this.lineBorder;
     let borderRgba = this.clutLut[borderIdx];
 
     let j = 0;
@@ -369,7 +366,7 @@ export class SamAsic {
         const target = this.journal[j * 3 + 1];
         const value = this.journal[j * 3 + 2];
         if (target === TARGET_BORDER) {
-          borderIdx = mode === 3 ? this.lineMd3Border : value;
+          borderIdx = value;
         } else {
           this.clutLut[target] = this.palette[value & 0x7F];
         }

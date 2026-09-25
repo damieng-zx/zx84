@@ -288,6 +288,32 @@ describe('SamAsic border and blanking', () => {
     }
   });
 
+  it('takes the mode 3 border from port 0xFE, not HMPR MD3COL', () => {
+    // MD3COL (HMPR bits 5-6) only supplies CLUT index bits 2-3 for mode 3
+    // PIXELS; the border is the port 0xFE colour in every mode.
+    const r = rig(3);
+    markClut(r.asic);
+    r.memory.setHmpr(0x60);            // MD3COL = 3
+    r.asic.borderIndex = 9;
+    const row = r.draw(0);
+    expect(row[SAM_BORDER_LEFT - 1]).toBe(colour(9));
+    expect(row[SAM_BORDER_LEFT + 512]).toBe(colour(9));
+  });
+
+  it('applies a mid-line border write in mode 3', () => {
+    const r = rig(3);
+    markClut(r.asic);
+    r.memory.setHmpr(0x40);            // MD3COL = 2, must not matter
+    r.asic.borderIndex = 1;
+    const line = SAM_BORDER_TOP - 1;   // a pure border line
+    r.asic.beginLine(line, 0);
+    r.asic.writeBorder(11, false, (SAM_ASIC_CELL_OFFSET + 20) * SAM_T_PER_CELL);
+    r.asic.renderScanline(r.px, line);
+    const row = r.px.subarray(line * SAM_SCREEN_WIDTH, (line + 1) * SAM_SCREEN_WIDTH);
+    expect(row[19 * SAM_CELL_PX]).toBe(colour(1));
+    expect(row[20 * SAM_CELL_PX]).toBe(colour(11));
+  });
+
   it('blanks the display to the border when SOFF is set', () => {
     const r = rig(4);
     markClut(r.asic);
