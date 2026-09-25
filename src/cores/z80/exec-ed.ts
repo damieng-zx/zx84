@@ -117,6 +117,7 @@ Z80.prototype.executeED = function (this: Z80): void {
             this.a = this.i;
             this.f = (this.f & 0x01) | SZ[this.a] | (this.iff2 ? 0x04 : 0);
             this._qReg = this.f;
+            this.ldAirPv = true;
             break;
           case 3:
             // LD A,R: 9T. Auto: 8T
@@ -124,6 +125,7 @@ Z80.prototype.executeED = function (this: Z80): void {
             this.a = this.r;
             this.f = (this.f & 0x01) | SZ[this.a] | (this.iff2 ? 0x04 : 0);
             this._qReg = this.f;
+            this.ldAirPv = true;
             break;
           case 4: {
             // RRD: 18T, read@T+8, write@T+15. Auto: 8T
