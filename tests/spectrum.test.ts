@@ -1749,3 +1749,39 @@ describe('Spectrum — border colour changes land on 8-pixel (4T) boundaries', (
     expect(px[10]).toBe(cyan);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// Mid-frame resume (SZX dwCyclesStart / .z80 T-state counter)
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('Spectrum.resumeAtFrameOffset', () => {
+  it('resuming 1000T into the frame does not take an INT until the frame boundary', () => {
+    // A snapshot taken 1000T after the INT must see its next INT
+    // tpf - 1000 T-states later, not immediately on load.
+    const s = makeMachine('48k');
+    loadProgram(s, 0x18, 0xFE);   // JR -2
+    s.cpu.im = 1;
+    s.cpu.iff1 = s.cpu.iff2 = true;
+    s.cpu.tStates = 1000;         // as loaded from dwCyclesStart
+    s.resumeAtFrameOffset(1000);
+    s.tick();
+    expect(s.cpu.sp).toBe(0xFF00);             // no INT pushed a return address
+    expect(s.contention.frameStartTStates).toBe(0);
+    // The frame ended at the original boundary: 69888 - 1000 T-states run.
+    expect(s.cpu.tStates).toBeGreaterThanOrEqual(69888);
+    expect(s.cpu.tStates).toBeLessThan(69888 + 12);
+    s.tick();                                  // next frame: INT fires
+    expect(s.cpu.sp).toBe(0xFEFE);
+  });
+
+  it('a resume offset still inside the INT window takes the INT at once', () => {
+    const s = makeMachine('48k');
+    loadProgram(s, 0x18, 0xFE);
+    s.cpu.im = 1;
+    s.cpu.iff1 = s.cpu.iff2 = true;
+    s.cpu.tStates = 10;           // 48K INT is held for 32T
+    s.resumeAtFrameOffset(10);
+    s.tick();
+    expect(s.cpu.sp).not.toBe(0xFF00);
+  });
+});

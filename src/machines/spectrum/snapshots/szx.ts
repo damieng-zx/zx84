@@ -277,6 +277,9 @@ function parseZ80R(data: Uint8Array, o: number, cpu: Z80): void {
 
   cpu.im = data[o + 28] & 0x03;
 
+  // T-states since the frame's INT. The caller must resume the machine at
+  // this frame offset (Spectrum.resumeAtFrameOffset) so the next INT lands
+  // tpf - dwCyclesStart later rather than immediately.
   const dwCyclesStart = r32(data, o + 29);
   cpu.tStates = dwCyclesStart;
 

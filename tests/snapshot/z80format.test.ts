@@ -1710,3 +1710,31 @@ describe('Z80 format — 128K/+2 snapshot on a +2A/+3 (no 1FFD in source)', () =
     expect(mem.currentROM).toBe(0);
   });
 });
+
+describe('Z80 format — v3 T-state counter (bytes 55-57)', () => {
+  // 48K: tpf 69888, quarter 17472. hi counts quarters mod 4 (3 just after
+  // INT); low counts down from quarter-1 within each quarter.
+  it('saves t=0 as low=17471, hi=3', () => {
+    const saved = saveZ80(new Z80(), makeMemory48k(), 0, false, undefined, undefined, 0);
+    expect(r16(saved, 55)).toBe(17471);
+    expect(saved[57]).toBe(3);
+  });
+
+  it('saves t=17477 (5T into quarter 1) as low=17466, hi=0', () => {
+    const saved = saveZ80(new Z80(), makeMemory48k(), 0, false, undefined, undefined, 17477);
+    expect(r16(saved, 55)).toBe(17466);
+    expect(saved[57]).toBe(0);
+  });
+
+  it('loads the frame position back from the counter', () => {
+    const saved = saveZ80(new Z80(), makeMemory48k(), 0, false, undefined, undefined, 17477);
+    saved[55] = 17466 & 0xFF; saved[56] = 17466 >> 8; saved[57] = 0; // explicit
+    const result = loadZ80(saved, new Z80(), makeMemory48k());
+    expect(result.frameTStates).toBe(17477);
+  });
+
+  it('128K: round-trips a late-frame position (tpf 70908)', () => {
+    const saved = saveZ80(new Z80(), makeMemory128k(), 0, true, undefined, undefined, 70000);
+    expect(loadZ80(saved, new Z80(), makeMemory128k()).frameTStates).toBe(70000);
+  });
+});
