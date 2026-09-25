@@ -1416,9 +1416,24 @@ export class UPD765A {
     disk.numTracks = Math.max(disk.numTracks, cyl + 1);
     // Honour the flippy side offset so a format while "Side B" is loaded writes
     // to the image's second side, matching what getTrack() reads back.
-    const side = Math.min(head + this.flipSide[physU], disk.numSides - 1);
-    disk.tracks[cyl][side] = { sectors, sectorMap, gap3: gpl, filler };
-    this.dirty[physU] = true;
+    const side = head + this.flipSide[physU];
+    if (side <= 1) {
+      // Formatting head 1 of a single-sided image lays down a genuinely new
+      // side-1 track: grow the image to two sides rather than overwriting side
+      // 0, which a real double-sided drive would never touch.
+      if (side >= disk.numSides) {
+        disk.numSides = side + 1;
+        for (const row of disk.tracks) {
+          while (row.length < disk.numSides) row.push(null);
+        }
+      }
+      disk.tracks[cyl][side] = { sectors, sectorMap, gap3: gpl, filler };
+      this.dirty[physU] = true;
+    } else {
+      // Head 1 of a flipped flippy disk: there is no third side to store it on
+      // (and getTrack() would never read it back) — leave the image untouched.
+      this.log(`  ✗ Format of head ${head} on flipped side has no image side to land on`);
+    }
 
     this.log(`  ✓ Formatted cyl=${cyl} head=${head}: ${sc} sectors, last R=${lastR}`);
 

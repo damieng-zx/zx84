@@ -1309,3 +1309,29 @@ describe('uPD765A — FORMAT_TRACK beyond the end of the image', () => {
     expect(reparsed.tracks[2][0]!.sectors[0]).toMatchObject({ c: 2, h: 0, r: 0xC1, n: 2 });
   });
 });
+
+describe('uPD765A — FORMAT_TRACK head 1 on a single-sided image', () => {
+  it('grows the image to two sides and leaves side 0 intact', async () => {
+    const { serializeDSK, parseDSK } = await import('@/media/floppy/dsk.ts');
+    const d = new Driver();
+    const img = makeStdImage();            // single-sided; side 0 sector 0xC1 filled 0x10
+    d.fdc.insertDisk(img, 0);
+    // FORMAT_TRACK unit 0, HDS=1 (0x04): one sector C=0 H=1 R=1 N=2, fill 0x99
+    [0x0D, 0x04, 2, 1, 0x2A, 0x99].forEach(b => d.fdc.writeData(b));
+    d.drainWriteExecution([0, 1, 1, 2]);
+
+    expect(img.numSides).toBe(2);
+    // Side 0 is untouched: still nine sectors, 0xC1 still holds its fill
+    expect(img.tracks[0][0]!.sectors.length).toBe(9);
+    expect(img.tracks[0][0]!.sectors[0].data[0]).toBe(0x10);
+    // The new side-1 track holds exactly what was formatted
+    expect(img.tracks[0][1]!.sectors[0]).toMatchObject({ c: 0, h: 1, r: 1, n: 2 });
+    // Every other cylinder row has a (null) side-1 slot too
+    expect(img.tracks[1].length).toBe(2);
+
+    const re = parseDSK(serializeDSK(img));
+    expect(re.numSides).toBe(2);
+    expect(re.tracks[0][0]!.sectors.length).toBe(9);
+    expect(re.tracks[0][1]!.sectors[0].data[0]).toBe(0x99);
+  });
+});
