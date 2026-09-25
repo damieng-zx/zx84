@@ -7,6 +7,8 @@ const INT_ENABLE = 0x80;
 const COUNTER_MODE = 0x40;
 const PRESCALE_256 = 0x20;
 const TC_FOLLOWS = 0x04;
+const TIMER_TRIGGER = 0x08;
+const RESET = 0x02;
 
 describe('Z80 CTC counter mode', () => {
   let ctc: Z80Ctc;
@@ -62,5 +64,52 @@ describe('Z80 CTC interrupt vector', () => {
     expect(ctc.pendingVector()).toBe(0xF8 | (2 << 1)); // 0xFC
     ctc.acknowledge();
     expect(ctc.interruptPending).toBe(false);
+  });
+});
+
+describe('Z80 CTC time-constant reload', () => {
+  it('lets a running channel finish its count before a new constant applies', () => {
+    const ctc = new Z80Ctc();
+    ctc.write(1, CONTROL | COUNTER_MODE | TC_FOLLOWS);
+    ctc.write(1, 5);
+    ctc.trigger(1);                           // 5 -> 4
+    ctc.write(1, CONTROL | COUNTER_MODE | TC_FOLLOWS); // no reset: still running
+    ctc.write(1, 20);
+    expect(ctc.read(1)).toBe(4);              // current count undisturbed
+    for (let i = 0; i < 4; i++) ctc.trigger(1); // 4 -> 0: reload
+    expect(ctc.read(1)).toBe(20);             // new constant taken at zero
+  });
+
+  it('loads the constant immediately after a software reset', () => {
+    const ctc = new Z80Ctc();
+    ctc.write(1, CONTROL | COUNTER_MODE | TC_FOLLOWS);
+    ctc.write(1, 5);
+    ctc.trigger(1);
+    ctc.write(1, CONTROL | COUNTER_MODE | RESET | TC_FOLLOWS);
+    ctc.write(1, 9);
+    expect(ctc.read(1)).toBe(9);
+  });
+});
+
+describe('Z80 CTC timer trigger (bit 3)', () => {
+  it('holds a triggered timer until a CLK/TRG edge, then times normally', () => {
+    const ctc = new Z80Ctc();
+    ctc.write(0, CONTROL | INT_ENABLE | TIMER_TRIGGER | TC_FOLLOWS); // /16
+    ctc.write(0, 1);
+    ctc.addCycles(64);
+    expect(ctc.interruptPending).toBe(false); // not started yet
+    ctc.trigger(0);                           // start edge
+    ctc.addCycles(15);
+    expect(ctc.interruptPending).toBe(false);
+    ctc.addCycles(1);                         // 16 cycles -> zero count
+    expect(ctc.interruptPending).toBe(true);
+  });
+
+  it('starts an untriggered timer on the time-constant load', () => {
+    const ctc = new Z80Ctc();
+    ctc.write(0, CONTROL | INT_ENABLE | TC_FOLLOWS);
+    ctc.write(0, 1);
+    ctc.addCycles(16);
+    expect(ctc.interruptPending).toBe(true);
   });
 });

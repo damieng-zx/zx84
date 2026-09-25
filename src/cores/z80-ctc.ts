@@ -21,7 +21,8 @@ const NUM_CHANNELS = 4;
 const CW_INT_ENABLE = 0x80;
 const CW_COUNTER_MODE = 0x40;   // 1 = counter, 0 = timer
 const CW_PRESCALE_256 = 0x20;   // timer prescaler: 1 = /256, 0 = /16
-// bit4 clock/trigger edge, bit3 timer trigger source — not modelled in detail
+// bit4 selects the CLK/TRG active edge — trigger() models an active edge.
+const CW_TIMER_TRIGGER = 0x08;  // timer mode: 1 = start on CLK/TRG edge, 0 = on TC load
 const CW_TC_FOLLOWS = 0x04;     // next byte is the time constant
 const CW_RESET = 0x02;          // software reset (stop) this channel
 const CW_CONTROL = 0x01;        // 1 = control word, 0 = vector/time-constant
@@ -31,6 +32,7 @@ interface Channel {
   timeConstant: number;   // 0 means 256
   counter: number;        // live down-counter
   running: boolean;
+  awaitingTrigger: boolean; // timer loaded, waiting for a CLK/TRG edge to start
   tcFollows: boolean;     // expecting a time-constant byte next
   intPending: boolean;
   prescaleCount: number;  // timer sub-count within the prescaler window
@@ -65,7 +67,7 @@ export class Z80Ctc {
     for (let i = 0; i < NUM_CHANNELS; i++) {
       this.ch.push({
         control: 0, timeConstant: 0, counter: 0, running: false,
-        tcFollows: false, intPending: false, prescaleCount: 0,
+        awaitingTrigger: false, tcFollows: false, intPending: false, prescaleCount: 0,
       });
     }
   }
@@ -79,15 +81,23 @@ export class Z80Ctc {
       // This byte is the time constant.
       ch.tcFollows = false;
       ch.timeConstant = val;
+      // A running channel finishes its current count and picks up the new
+      // constant at the next zero count (Zilog CTC manual). Only the first
+      // load after a reset loads the down-counter and starts the channel.
+      if (ch.running || ch.awaitingTrigger) return;
       ch.counter = val === 0 ? 256 : val;
       ch.prescaleCount = 0;
-      ch.running = true;
+      if ((ch.control & (CW_COUNTER_MODE | CW_TIMER_TRIGGER)) === CW_TIMER_TRIGGER) {
+        ch.awaitingTrigger = true;   // timer starts on the next CLK/TRG edge
+      } else {
+        ch.running = true;
+      }
       return;
     }
 
     if (val & CW_CONTROL) {
       ch.control = val;
-      if (val & CW_RESET) ch.running = false;
+      if (val & CW_RESET) { ch.running = false; ch.awaitingTrigger = false; }
       ch.tcFollows = (val & CW_TC_FOLLOWS) !== 0;
       if (!ch.tcFollows && (val & CW_RESET)) ch.intPending = false;
       return;
@@ -102,9 +112,15 @@ export class Z80Ctc {
     return this.ch[c & 3].counter & 0xFF;
   }
 
-  /** External CLK/TRG pulse for channel `c` (counter mode). */
+  /** External CLK/TRG active edge for channel `c`: decrements a counter-mode
+   *  channel, or starts a timer-mode channel loaded with bit 3 set. */
   trigger(c: number): void {
     const ch = this.ch[c & 3];
+    if (ch.awaitingTrigger) {
+      ch.awaitingTrigger = false;
+      ch.running = true;
+      return;
+    }
     if (!ch.running || (ch.control & CW_COUNTER_MODE) === 0) return;
     this.decrement(ch, c & 3);
   }
@@ -166,7 +182,7 @@ export class Z80Ctc {
   reset(): void {
     for (const ch of this.ch) {
       ch.control = 0; ch.timeConstant = 0; ch.counter = 0; ch.running = false;
-      ch.tcFollows = false; ch.intPending = false; ch.prescaleCount = 0;
+      ch.awaitingTrigger = false; ch.tcFollows = false; ch.intPending = false; ch.prescaleCount = 0;
     }
     this.vectorBase = 0;
     this.clockAccum = 0;
