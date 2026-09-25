@@ -281,6 +281,72 @@ describe('CPC .SNA RLE codec (via the format)', () => {
   });
 });
 
+/** A hand-built v3 header (no encoder involved): signature, version 3, the
+ *  given CPC type byte and memory-dump size in KB. */
+function v3Header(typeByte: number, dumpKB: number): Uint8Array {
+  const h = new Uint8Array(256);
+  h.set([0x4D, 0x56, 0x20, 0x2D, 0x20, 0x53, 0x4E, 0x41], 0);   // "MV - SNA"
+  h[0x10] = 3;
+  h[0x6B] = dumpKB & 0xFF; h[0x6C] = dumpKB >> 8;
+  h[0x6D] = typeByte;
+  return h;
+}
+
+function chunk(id: string, body: Uint8Array): Uint8Array {
+  const out = new Uint8Array(8 + body.length);
+  for (let i = 0; i < 4; i++) out[i] = id.charCodeAt(i);
+  out[4] = body.length & 0xFF; out[5] = (body.length >> 8) & 0xFF;
+  out[6] = (body.length >> 16) & 0xFF; out[7] = (body.length >>> 24) & 0xFF;
+  out.set(body, 8);
+  return out;
+}
+
+function join(parts: Uint8Array[]): Uint8Array {
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+  let o = 0;
+  for (const p of parts) { out.set(p, o); o += p.length; }
+  return out;
+}
+
+describe('CPC .SNA v3 flat memory dump + chunks', () => {
+  // cpcwiki SNA format: in v3 the flat dump (size at 0x6B–0x6C, KB) still
+  // follows the header; chunks come after the dump. MEMn chunks are only
+  // used by writers that set the dump size to 0.
+  it('loads a v3 file whose memory is a 128K flat dump', () => {
+    const dump = new Uint8Array(128 * 1024);
+    for (let b = 0; b < 8; b++) dump.fill(0x10 + b, b * SLOT, (b + 1) * SLOT);
+    const data = join([v3Header(2, 128), dump]);
+    const m = new CpcMachine('cpc6128', null);
+    applyCpcSna(data, m);
+    for (let b = 0; b < 8; b++) {
+      expect(m.memory.getRamBank(b)[0], `bank ${b} first byte`).toBe(0x10 + b);
+      expect(m.memory.getRamBank(b)[SLOT - 1], `bank ${b} last byte`).toBe(0x10 + b);
+    }
+  });
+
+  it('parses chunks that follow a flat dump (not from offset 0x100)', () => {
+    // A 64K dump, then an unknown chunk, then a MEM1 chunk (bank 4-7 data).
+    const dump = new Uint8Array(64 * 1024).fill(0x33);
+    const mem1 = new Uint8Array(0x10000).fill(0x77);
+    const data = join([v3Header(2, 64), dump, chunk('XYZW', new Uint8Array(5)), chunk('MEM1', mem1)]);
+    const m = new CpcMachine('cpc6128', null);
+    applyCpcSna(data, m);
+    expect(m.memory.getRamBank(0)[0]).toBe(0x33);
+    expect(m.memory.getRamBank(3)[SLOT - 1]).toBe(0x33);
+    expect(m.memory.getRamBank(4)[0]).toBe(0x77);
+    expect(m.memory.getRamBank(7)[SLOT - 1]).toBe(0x77);
+  });
+
+  it('a MEM1 chunk on a 64K machine does not alias onto base RAM', () => {
+    const mem0 = new Uint8Array(0x10000).fill(0x11);
+    const mem1 = new Uint8Array(0x10000).fill(0x99);
+    const data = join([v3Header(0, 0), chunk('MEM0', mem0), chunk('MEM1', mem1)]);
+    const m = new CpcMachine('cpc464', null);
+    applyCpcSna(data, m);
+    for (let b = 0; b < 4; b++) expect(m.memory.getRamBank(b)[0], `bank ${b}`).toBe(0x11);
+  });
+});
+
 describe('readCpcSnaModel', () => {
   it('reports model + version from the header', () => {
     const v3 = saveCpcSna(new CpcMachine('cpc6128', null), 3);

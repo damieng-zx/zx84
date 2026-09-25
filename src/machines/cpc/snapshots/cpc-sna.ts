@@ -6,8 +6,10 @@
  *
  *   - v1: 64K/128K memory dumped flat right after the header.
  *   - v2: adds a CPC-type byte (0x6D); memory still flat.
- *   - v3: memory moved into "MEM0".."MEM8" chunks (64K each) after the header,
- *     each optionally RLE-compressed; plus optional device chunks we skip.
+ *   - v3: the flat dump (sized by 0x6B–0x6C) is followed by optional chunks.
+ *     WinAPE-style writers set the dump size to 0 and carry memory in
+ *     "MEM0".."MEM8" chunks (64K each, optionally RLE-compressed); others
+ *     (e.g. CPCEMU-lineage v3 writers) keep the flat dump. Unknown chunks skip.
  *
  * Save writes v2 (flat, uncompressed) or v3 (RLE-compressed MEM chunks). Unlike
  * the Spectrum loaders, this works on the whole CpcMachine: a CPC snapshot spans
@@ -152,9 +154,12 @@ function rleEncode(block: Uint8Array): Uint8Array {
 
 // ── Memory image ────────────────────────────────────────────────────────────
 
-/** Write `block` (up to 64K) into the four RAM banks starting at `baseBank`. */
+/** Write `block` (up to 64K) into the four RAM banks starting at `baseBank`.
+ *  Banks the machine does not have are skipped (getRamBank would otherwise
+ *  alias them onto bank 0 and clobber base RAM). */
 function applyBlock(m: CpcMachine, baseBank: number, block: Uint8Array): void {
   for (let s = 0; s < 4; s++) {
+    if (baseBank + s >= m.memory.ramBankCount) break;
     const bank = m.memory.getRamBank(baseBank + s);
     bank.set(block.subarray(s * SLOT_SIZE, (s + 1) * SLOT_SIZE));
   }
@@ -169,22 +174,32 @@ function readBlock(m: CpcMachine, baseBank: number): Uint8Array {
   return block;
 }
 
-/** Apply v1/v2 flat memory (banks in physical order right after the header). */
-function applyFlatMemory(m: CpcMachine, data: Uint8Array, banks: number): void {
+/** Memory dump size in bytes, from the header's KB count (0x6B–0x6C). */
+function dumpBytes(data: Uint8Array): number {
+  return (data[0x6B] | (data[0x6C] << 8)) * 1024;
+}
+
+/** Apply the flat memory dump that follows the header (every version): banks
+ *  in physical order, base 64K first. Banks beyond the machine's RAM (or past
+ *  the end of a truncated file) are skipped. */
+function applyFlatMemory(m: CpcMachine, data: Uint8Array, bytes: number): void {
+  const banks = Math.min(Math.ceil(bytes / SLOT_SIZE), m.memory.ramBankCount);
   for (let bank = 0; bank < banks; bank++) {
     const off = HEADER_SIZE + bank * SLOT_SIZE;
     if (off >= data.length) break;
-    m.memory.getRamBank(bank).set(data.subarray(off, off + SLOT_SIZE));
+    const end = Math.min(off + SLOT_SIZE, HEADER_SIZE + bytes);
+    m.memory.getRamBank(bank).set(data.subarray(off, end));
   }
 }
 
-/** Apply v3 chunked memory ("MEM0".."MEM8", each a 64K block) and any Plus
- *  "ASIC" extension chunk. */
-function applyChunkedMemory(m: CpcMachine, data: Uint8Array): void {
-  let p = HEADER_SIZE;
+/** Apply the v3 chunks that follow the flat memory dump: "MEM0".."MEM8"
+ *  (each a 64K block, used when the dump size is 0) and any Plus "ASIC"
+ *  extension chunk. */
+function applyChunks(m: CpcMachine, data: Uint8Array, start: number): void {
+  let p = start;
   while (p + 8 <= data.length) {
     const id = String.fromCharCode(data[p], data[p + 1], data[p + 2], data[p + 3]);
-    const len = data[p + 4] | (data[p + 5] << 8) | (data[p + 6] << 16) | (data[p + 7] << 24);
+    const len = (data[p + 4] | (data[p + 5] << 8) | (data[p + 6] << 16) | (data[p + 7] << 24)) >>> 0;
     p += 8;
     const body = data.subarray(p, p + len);
     p += len;
@@ -309,9 +324,18 @@ export function applyCpcSna(data: Uint8Array, m: CpcMachine): void {
   m.ay.setRegisters(data.subarray(0x5B, 0x5B + 16));
   m.ay.selectedReg = data[0x5A] & 0x0F;
 
-  // Memory image.
-  if (version >= 3) applyChunkedMemory(m, data);
-  else applyFlatMemory(m, data, banksFor(m.model));
+  // Memory image. Every version carries a flat dump sized by 0x6B–0x6C right
+  // after the header (v1 CPCEMU files may leave the size at 0; assume the
+  // model's full RAM then). In v3 the chunks follow that dump — a writer that
+  // uses "MEMn" chunks sets the dump size to 0 so they start at 0x100.
+  if (version >= 3) {
+    const bytes = dumpBytes(data);
+    applyFlatMemory(m, data, bytes);
+    applyChunks(m, data, HEADER_SIZE + bytes);
+  } else {
+    const bytes = dumpBytes(data) || banksFor(m.model) * SLOT_SIZE;
+    applyFlatMemory(m, data, bytes);
+  }
 }
 
 // ── Save ─────────────────────────────────────────────────────────────────────
