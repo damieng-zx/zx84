@@ -108,7 +108,7 @@ export class CpcMachine extends BaseMachine implements Machine {
   }
 
   /** HSYNCs remaining until the post-VSYNC interrupt re-sync fires (0 = idle). */
-  private vsyncResyncCountdown = 0;
+  vsyncResyncCountdown = 0;
 
   // ── Cassette ─────────────────────────────────────────────────────────
   /** Cassette motor state, driven by PPI Port C bit 4. Tracked for the UI only.

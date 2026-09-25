@@ -328,6 +328,17 @@ export function applyCpcSna(data: Uint8Array, m: CpcMachine): void {
   m.ay.setRegisters(data.subarray(0x5B, 0x5B + 16));
   m.ay.selectedReg = data[0x5A] & 0x0F;
 
+  // v3 Gate Array interrupt state: the HSYNC-after-VSYNC delay counter (0xB2),
+  // the 52-line interrupt counter (0xB3) and the pending request (0xB4). The
+  // CRTC's internal counters (0xA9–0xB1) are not restored: the frame loop
+  // restarts the CRTC raster at each host frame, so it can only resume at a
+  // frame boundary (which is where this emulator's own saves are taken).
+  if (version >= 3) {
+    m.gateArray.rasterCount = Math.min(data[0xB3], 51);
+    m.gateArray.interruptRequested = data[0xB4] !== 0;
+    m.vsyncResyncCountdown = resyncCountdownOf(data[0xB2]);
+  }
+
   // Memory image. Every version carries a flat dump sized by 0x6B–0x6C right
   // after the header (v1 CPCEMU files may leave the size at 0; assume the
   // model's full RAM then). In v3 the chunks follow that dump — a writer that
@@ -340,6 +351,23 @@ export function applyCpcSna(data: Uint8Array, m: CpcMachine): void {
     const bytes = dumpBytes(data) || banksFor(m.model) * SLOT_SIZE;
     applyFlatMemory(m, data, bytes);
   }
+}
+
+/** The .SNA "GA vsync delay counter" counts HSYNCs since VSYNC began (1 or 2
+ *  while active, 0 idle); the machine counts down the HSYNCs still to come
+ *  before the re-sync fires on the 2nd one. 1 → 2 to go, 2 → 1 to go. */
+function resyncCountdownOf(snaCount: number): number {
+  return snaCount === 1 || snaCount === 2 ? 3 - snaCount : 0;
+}
+
+function snaResyncCountOf(countdown: number): number {
+  return countdown === 1 || countdown === 2 ? 3 - countdown : 0;
+}
+
+/** .SNA v3 CRTC type byte (0xA4): 0 = HD6845S/UM6845, 1 = UM6845R, 2 = MC6845,
+ *  3 = the CPC+ ASIC's 6845 (our type 4). */
+function snaCrtcTypeOf(type: number): number {
+  return type === 4 ? 3 : type === 3 ? 4 : type;
 }
 
 // ── Save ─────────────────────────────────────────────────────────────────────
@@ -417,6 +445,11 @@ export function saveCpcSna(m: CpcMachine, version: 2 | 3): Uint8Array {
   header[0x6D] = typeByteOf(m.model);
 
   if (version >= 3) {
+    // v3 device state: CRTC type and the Gate Array interrupt counters.
+    header[0xA4] = snaCrtcTypeOf(m.config.crtcType);
+    header[0xB2] = snaResyncCountOf(m.vsyncResyncCountdown);
+    header[0xB3] = m.gateArray.rasterCount & 0x3F;
+    header[0xB4] = m.gateArray.interruptRequested ? 1 : 0;
     // v3: memory size 0 in the header; memory follows as MEM chunks.
     header[0x6B] = 0; header[0x6C] = 0;
     const parts: Uint8Array[] = [header];
