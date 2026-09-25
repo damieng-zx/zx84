@@ -217,7 +217,14 @@ export class TapeDeck {
       const blockLen = fileData[offset] | (fileData[offset + 1] << 8);
       offset += 2;
 
-      if (blockLen < 2 || offset + blockLen > fileData.length) break;
+      if (offset + blockLen > fileData.length) break;
+      // A 0- or 1-byte block cannot hold a flag and a checksum, so it is not
+      // loadable — but its length field is still valid framing. Step over its
+      // bytes and keep reading rather than discarding the rest of the tape.
+      if (blockLen < 2) {
+        offset += blockLen;
+        continue;
+      }
 
       const flag = fileData[offset];
       // Payload is everything between flag and checksum
