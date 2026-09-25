@@ -349,6 +349,50 @@ describe('CPC .SNA v3 flat memory dump + chunks', () => {
   });
 });
 
+describe('CPC .SNA v3 Gate Array interrupt state', () => {
+  // cpcwiki SNA v3: 0xB2 GA vsync delay counter (HSYNCs since VSYNC start,
+  // 0 = inactive), 0xB3 GA interrupt scanline counter (0–51), 0xB4 interrupt
+  // request flag.
+  it('restores the 52-line counter and a pending interrupt from 0xB3/0xB4', () => {
+    const data = join([v3Header(2, 0)]);
+    data[0xB3] = 37;
+    data[0xB4] = 1;
+    const m = new CpcMachine('cpc6128', null);
+    applyCpcSna(data, m);
+    expect(m.gateArray.rasterCount).toBe(37);
+    expect(m.gateArray.interruptRequested).toBe(true);
+  });
+
+  it('maps the vsync delay counter to HSYNCs remaining before re-sync', () => {
+    const m = new CpcMachine('cpc6128', null);
+    const data = v3Header(2, 0);
+    data[0xB2] = 1;                       // just started: both HSYNCs to come
+    applyCpcSna(data, m);
+    expect(m.vsyncResyncCountdown).toBe(2);
+    data[0xB2] = 2;
+    applyCpcSna(data, m);
+    expect(m.vsyncResyncCountdown).toBe(1);
+    data[0xB2] = 0;
+    applyCpcSna(data, m);
+    expect(m.vsyncResyncCountdown).toBe(0);
+  });
+
+  it('round-trips the counters through a v3 save', () => {
+    const ref = new CpcMachine('cpc6128', null);
+    ref.gateArray.rasterCount = 23;
+    ref.gateArray.interruptRequested = true;
+    ref.vsyncResyncCountdown = 1;
+    const data = saveCpcSna(ref, 3);
+    expect(data[0xB3]).toBe(23);
+    expect(data[0xB4]).toBe(1);
+    const m = new CpcMachine('cpc6128', null);
+    applyCpcSna(data, m);
+    expect(m.gateArray.rasterCount).toBe(23);
+    expect(m.gateArray.interruptRequested).toBe(true);
+    expect(m.vsyncResyncCountdown).toBe(1);
+  });
+});
+
 describe('readCpcSnaModel', () => {
   it('reports model + version from the header', () => {
     const v3 = saveCpcSna(new CpcMachine('cpc6128', null), 3);
