@@ -1713,3 +1713,39 @@ describe('Spectrum — EI interrupt shadow', () => {
     expect((hi << 8) | lo).toBe(0xC002);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// Border latch granularity (high accuracy)
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('Spectrum — border colour changes land on 8-pixel (4T) boundaries', () => {
+  it('a mid-character border change recolours from the start of that 8px cell', () => {
+    // The ULA latches the border colour once per 8-pixel character period,
+    // so an OUT at 5T into a line (pixel 10) must not produce a 2px-resolution
+    // edge at x=10: the new colour takes the whole 8..15 cell.
+    const s = makeMachine('48k');
+    const a = s as any;
+    a._scanAcc = 2;
+    const ula = s.ula;
+    const tpl = s.contention.timing.tStatesPerLine;
+    a.totalRenderLines = 1;
+    a.nextRenderLine = 0;   // top border line — pure border, no display cells
+    a.nextPixelX = 0;
+    a.nextDisplayCol = 0;
+    a.nextRenderT = 1000;
+
+    ula.borderColor = 2;
+    s.cpu.tStates = 1000 + 5; // beam at pixel 10
+    s.flushBeam();            // port handler flushes before the colour change
+    ula.borderColor = 5;
+    s.cpu.tStates = 1000 + tpl;
+    s.flushBeam();
+
+    const px = (ula as any).pixels32 as Uint32Array;
+    const red = ula.palette[2], cyan = ula.palette[5];
+    expect(px[7]).toBe(red);
+    expect(px[8]).toBe(cyan);
+    expect(px[9]).toBe(cyan);
+    expect(px[10]).toBe(cyan);
+  });
+});
