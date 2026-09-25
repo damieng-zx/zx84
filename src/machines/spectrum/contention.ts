@@ -200,8 +200,11 @@ export class Contention {
    * During active display, this is a pixel byte or attribute byte.
    * Outside active display, returns 0xFF.
    * @param screenBank 16KB bank array for the current screen (bank 5 or 7).
+   * @param latched Amstrad gate array (+2A/+3) behaviour: the data bus holds
+   *   the last byte the gate array fetched, so the idle half of each 8T block
+   *   reads the preceding attribute byte instead of 0xFF.
    */
-  floatingBusRead(cpuTStates: number, screenBank: Uint8Array): number {
+  floatingBusRead(cpuTStates: number, screenBank: Uint8Array, latched = false): number {
     const t = this.timing;
     const frameTStates = cpuTStates - this.frameStartTStates;
     const offset = frameTStates - t.contentionStart + t.floatingBusAdjust;
@@ -217,8 +220,11 @@ export class Contention {
     // then releases the bus for the remaining 4 T-states (reads as 0xFF).
     // Addresses from vramBitmapAddr/vramAttrAddr are 64K-space; subtract 0x4000
     // because screenBank is indexed from 0 within the 16KB bank.
-    const phase = col & 7;
-    if (phase >= 4) return 0xFF;  // bus idle half of the block
+    let phase = col & 7;
+    if (phase >= 4) {
+      if (!latched) return 0xFF;  // bus idle half of the block
+      phase = 3;                  // gate array: last fetch (attr n+1) latched
+    }
     const charCol = ((col >> 3) << 1) | (phase >> 1);
 
     if (phase & 1) {

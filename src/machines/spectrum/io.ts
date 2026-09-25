@@ -352,8 +352,17 @@ export function wirePortIO(s: Spectrum): void {
     }
 
     // Unattached port — Ferranti ULA models float the bus to whatever the
-    // ULA is fetching; the Amstrad gate array (+2A/+3) drives it to 0xFF.
-    if (!v.hasFloatingBus) return 0xFF;
-    return s.contention.floatingBusRead(s.cpu.tStates, s.memory.screenBank);
+    // ULA is fetching.
+    if (v.hasFloatingBus) {
+      return s.contention.floatingBusRead(s.cpu.tStates, s.memory.screenBank);
+    }
+    // Amstrad gate array (+2A/+3): only ports of the form 0000 xxxx xxxx xx01
+    // see the gate array's last-fetched byte, and only while 7FFD paging is
+    // unlocked; everything else is pulled up to 0xFF. (Arkanoid's IN 0xFF is
+    // outside that decode, hence its hang on a real +3.)
+    if (v.hasGateArrayFloatingBus && (port & 0xF003) === 0x0001 && !s.memory.pagingLocked) {
+      return s.contention.floatingBusRead(s.cpu.tStates, s.memory.screenBank, true);
+    }
+    return 0xFF;
   }
 }
