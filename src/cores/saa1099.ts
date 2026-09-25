@@ -47,37 +47,32 @@
 const NOISE_TAP_A = 0x20000;
 const NOISE_TAP_B = 0x00400;
 
-/** Envelope resolution: 16 steps at 4-bit, 8 at 3-bit. */
-const ENV_STEPS = 16;
+/** Envelope table length: steps run 0..63, then loop over 32..63. */
+const ENV_STEPS = 64;
 
 /**
- * The eight envelope shapes, as amplitude factors 0-15 across 16 steps.
- *
- * TODO(verify): the shapes themselves are the documented set (zero, maximum,
- * decay, triangular, attack, each in single and repeating form), but the exact
- * step-by-step curve and the point at which a "single" envelope latches off
- * have not been checked against hardware. Tone and noise generation — which is
- * what nearly all SAM software uses — do not depend on this table.
+ * The eight envelope shapes as 64-step amplitude tables (MAME `envelope`).
+ * A "single" shape ends in zeros, so looping over its second half holds it
+ * silent; a repetitive one repeats its 16- or 32-step cycle. The triangle is
+ * a full 0..15, 15..0 ramp — 32 steps per cycle, the peak held for two.
  */
-const ENVELOPE_SHAPES: readonly (readonly number[])[] = (() => {
-  const down = Array.from({ length: ENV_STEPS }, (_, i) => 15 - i);
-  const up = Array.from({ length: ENV_STEPS }, (_, i) => i);
-  const zero = Array.from({ length: ENV_STEPS }, () => 0);
-  const max = Array.from({ length: ENV_STEPS }, () => 15);
+const ENVELOPE_SHAPES: readonly Uint8Array[] = (() => {
+  const up = Array.from({ length: 16 }, (_, i) => i);
+  const down = up.map(v => 15 - v);
+  const zero = Array<number>(16).fill(0);
+  const max = Array<number>(16).fill(15);
+  const tri = [...up, ...down];
   return [
-    zero,   // 0: zero amplitude
-    max,    // 1: maximum amplitude
-    down,   // 2: single decay      (holds at 0 after one pass)
-    down,   // 3: repetitive decay
-    up.concat(down).filter((_, i) => i % 2 === 0),   // 4: single triangular
-    up.concat(down).filter((_, i) => i % 2 === 0),   // 5: repetitive triangular
-    up,     // 6: single attack     (holds at 0 after one pass)
-    up,     // 7: repetitive attack
-  ];
+    [...zero, ...zero, ...zero, ...zero],   // 0: zero amplitude
+    [...max, ...max, ...max, ...max],       // 1: maximum amplitude
+    [...down, ...zero, ...zero, ...zero],   // 2: single decay
+    [...down, ...down, ...down, ...down],   // 3: repetitive decay
+    [...tri, ...zero, ...zero],             // 4: single triangular
+    [...tri, ...tri],                       // 5: repetitive triangular
+    [...up, ...zero, ...zero, ...zero],     // 6: single attack
+    [...up, ...up, ...up, ...up],           // 7: repetitive attack
+  ].map(a => Uint8Array.from(a));
 })();
-
-/** Shapes 2, 4 and 6 run once and then stay silent until retriggered. */
-const SINGLE_SHOT = [false, false, true, false, true, false, true, false];
 
 interface Channel {
   /** Frequency register, 0x00-0xFF. */
@@ -105,15 +100,14 @@ interface Noise {
 interface Envelope {
   enabled: boolean;
   shape: number;
-  /** True for 3-bit resolution (the LSB of the step is masked off). */
+  /** True for 3-bit resolution (the LSB of the output level is masked off). */
   threeBit: boolean;
   /** True when clocked externally by a write to the control register. */
   externalClock: boolean;
   /** True when the right channel mirrors the left. */
   reverseRight: boolean;
+  /** Position in the 64-step shape table. */
   step: number;
-  /** Set once a single-shot shape has completed its pass. */
-  finished: boolean;
 }
 
 export class SAA1099 {
@@ -153,7 +147,7 @@ export class SAA1099 {
       this.noise.push({ counter: 0, period: 256, slavedTo: -1, lfsr: 0xFFFFFFFF });
       this.envelopes.push({
         enabled: false, shape: 0, threeBit: false, externalClock: false,
-        reverseRight: false, step: 0, finished: false,
+        reverseRight: false, step: 0,
       });
     }
     this.setSampleRate(sampleRate);
@@ -179,7 +173,7 @@ export class SAA1099 {
     for (const e of this.envelopes) {
       e.enabled = false; e.shape = 0; e.threeBit = false;
       e.externalClock = false; e.reverseRight = false;
-      e.step = 0; e.finished = false;
+      e.step = 0;
     }
     this.regFile.fill(0);
     this.soundEnabled = false;
@@ -258,7 +252,6 @@ export class SAA1099 {
         // Every control write restarts the envelope. The external clock is the
         // ADDRESS strobe (see `writeAddress`), not this data write.
         e.step = 0;
-        e.finished = false;
         return;
       }
 
@@ -268,7 +261,7 @@ export class SAA1099 {
           // Synchronise and reset every generator.
           for (const c of this.channels) { c.counter = 0; c.level = 0; }
           for (const n of this.noise) { n.counter = 0; n.lfsr = 0xFFFFFFFF; }
-          for (const e of this.envelopes) { e.step = 0; e.finished = false; }
+          for (const e of this.envelopes) e.step = 0;
         }
         return;
 
@@ -297,18 +290,11 @@ export class SAA1099 {
     return (511 - c.frequency) << (8 - c.octave);
   }
 
+  /** Advance an envelope one step: 0..63, then loop over 32..63 (MAME). */
   private stepEnvelope(gen: number): void {
     const e = this.envelopes[gen];
-    if (!e.enabled || e.finished) return;
-    e.step++;
-    if (e.step >= ENV_STEPS) {
-      if (SINGLE_SHOT[e.shape]) {
-        e.step = ENV_STEPS - 1;
-        e.finished = true;
-      } else {
-        e.step = 0;
-      }
-    }
+    if (!e.enabled) return;
+    e.step = ((e.step + 1) & (ENV_STEPS - 1)) | (e.step & 0x20);
   }
 
   /** Envelope amplitude factor 0-15 for a generator, or 15 when it is off.
@@ -316,13 +302,11 @@ export class SAA1099 {
   envelopeFactor(gen: number, right: boolean): number {
     const e = this.envelopes[gen];
     if (!e.enabled) return 15;
-    let step = e.step;
-    // 3-bit resolution simply drops the least significant step bit.
-    if (e.threeBit) step &= ~1;
-    let level = ENVELOPE_SHAPES[e.shape][step];
-    if (e.finished && SINGLE_SHOT[e.shape]) level = 0;
-    if (right && e.reverseRight) level = 15 - level;
-    return level;
+    const level = ENVELOPE_SHAPES[e.shape][e.step];
+    // The right channel's inversion is taken from the full 4-bit level; 3-bit
+    // resolution then drops the LSB of whichever level is output.
+    const out = right && e.reverseRight ? 15 - level : level;
+    return e.threeBit ? out & 0x0E : out;
   }
 
   /** Advance every generator by `ticks` chip clocks. */

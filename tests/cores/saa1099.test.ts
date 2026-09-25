@@ -325,3 +325,62 @@ describe('SAA1099 externally clocked envelope', () => {
     expect(s.envelopeFactor(1, false)).toBe(0);  // tone-clocked: untouched
   });
 });
+
+describe('SAA1099 envelope shapes and resolution', () => {
+  // Envelope 0 on the external clock, so each address strobe is one step.
+  const EXT = 0x80 | 0x20;
+  const shape = (n: number) => n << 1;
+
+  /** Level after each of `n` steps, starting with the level at step 0. */
+  function levels(s: SAA1099, n: number, right = false): number[] {
+    const out = [s.envelopeFactor(0, right)];
+    for (let i = 1; i < n; i++) {
+      s.writeAddress(0x18);
+      out.push(s.envelopeFactor(0, right));
+    }
+    return out;
+  }
+
+  const ramp = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+  const fall = [15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0];
+
+  it('runs the repetitive triangle as a 32-step 0..15, 15..0 cycle', () => {
+    const s = chip();
+    s.writeRegister(0x18, EXT | shape(5));
+    const cycle = [...ramp, ...fall];
+    // Three full cycles: through the 64-step table and into its 32..63 loop.
+    expect(levels(s, 96)).toEqual([...cycle, ...cycle, ...cycle]);
+  });
+
+  it('runs the single triangle once, then holds at zero', () => {
+    const s = chip();
+    s.writeRegister(0x18, EXT | shape(4));
+    expect(levels(s, 100)).toEqual([...ramp, ...fall, ...Array(68).fill(0)]);
+  });
+
+  it('holds a single decay at zero after its pass', () => {
+    const s = chip();
+    s.writeRegister(0x18, EXT | shape(2));
+    expect(levels(s, 80)).toEqual([...fall, ...Array(64).fill(0)]);
+  });
+
+  it('drops the LSB of the output level at 3-bit resolution', () => {
+    // Repetitive attack, 3-bit: 0,0,2,2,4,4 … 14,14.
+    const s = chip();
+    s.writeRegister(0x18, EXT | 0x10 | shape(7));
+    expect(levels(s, 16)).toEqual([0, 0, 2, 2, 4, 4, 6, 6, 8, 8, 10, 10, 12, 12, 14, 14]);
+  });
+
+  it('inverts the right channel before masking at 3-bit resolution', () => {
+    // Right = (15 - level) & 0x0E: 15,14,13,12 … -> 14,14,12,12 … 0,0.
+    const s = chip();
+    s.writeRegister(0x18, EXT | 0x10 | shape(7) | 0x01);
+    expect(levels(s, 16, true)).toEqual([14, 14, 12, 12, 10, 10, 8, 8, 6, 6, 4, 4, 2, 2, 0, 0]);
+  });
+
+  it('inverts the right channel at 4-bit resolution', () => {
+    const s = chip();
+    s.writeRegister(0x18, EXT | shape(7) | 0x01);
+    expect(levels(s, 16, true)).toEqual(fall);
+  });
+});
