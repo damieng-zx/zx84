@@ -137,8 +137,8 @@ describe('Einstein CTC→IM2 interrupt path', () => {
   it('the timer prescaler runs off the undivided 4MHz CPU clock, not a halved 2MHz', () => {
     // Regression pin: the CTC device clock that drives the timer-mode
     // prescaler is the full CPU clock (MAME's XTAL/2 wiring only affects
-    // channels 0-2's external CLK/TRG pins, which nothing here drives — see
-    // Z80Ctc.inputClockDivide). A wrongly halved clock doubles every timer
+    // channels 0-2's external CLK/TRG pins — see Z80Ctc.inputClockDivide).
+    // A wrongly halved clock doubles every timer
     // period; this checks the exact undivided underflow point.
     const m = machine();
     m.reset();
@@ -148,6 +148,22 @@ describe('Einstein CTC→IM2 interrupt path', () => {
     m.ctc.addCycles(4079);
     expect(m.ctc.interruptPending).toBe(false);
     m.ctc.addCycles(1);
+    expect(m.ctc.interruptPending).toBe(true);
+  });
+});
+
+describe('Einstein CTC CLK/TRG0-2', () => {
+  it('clocks counter-mode channels 0-2 from the 2MHz system clock', () => {
+    const m = machine();
+    const rom = new Uint8Array(0x2000);
+    rom[0] = 0xF3; rom[1] = 0x76;            // DI ; HALT
+    m.loadROM(rom);
+    m.reset();
+    // Channel 2: counter mode, interrupt enabled, TC = 200. One PAL field
+    // is ~80000 T = ~40000 edges at 2MHz, far more than 200.
+    m.cpu.portOut(0x2A, 0x01 | 0x40 | 0x80 | 0x04);
+    m.cpu.portOut(0x2A, 200);
+    m.tick();
     expect(m.ctc.interruptPending).toBe(true);
   });
 });

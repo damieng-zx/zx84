@@ -125,6 +125,26 @@ export class Z80Ctc {
     this.decrement(ch, c & 3);
   }
 
+  /** Deliver `edges` CLK/TRG active edges to channel `c` in one call — for a
+   *  pin driven by a free-running clock (the Einstein's 2 MHz on TRG0-2),
+   *  where per-edge trigger() calls would be wasteful. */
+  triggerEdges(c: number, edges: number): void {
+    if (edges <= 0) return;
+    const ch = this.ch[c & 3];
+    if (ch.awaitingTrigger) {
+      ch.awaitingTrigger = false;
+      ch.running = true;
+      return;   // started a timer; further edges do not affect it
+    }
+    if (!ch.running || (ch.control & CW_COUNTER_MODE) === 0) return;
+    while (edges > 0) {
+      const step = Math.min(edges, ch.counter - 1);
+      ch.counter -= step;
+      edges -= step;
+      if (edges > 0) { this.decrement(ch, c & 3); edges--; }
+    }
+  }
+
   /** Advance timer-mode channels by `cycles` CPU T-states (scaled down to the
    *  CTC clock pin by inputClockDivide). Counter-mode channels advance only on
    *  external triggers / chained ZC pulses, not here. */

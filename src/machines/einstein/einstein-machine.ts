@@ -67,6 +67,8 @@ export class EinsteinMachine extends BaseMachine implements Machine {
   /** Video chip: TMS9929A on the TC-01, V9938 on the Einstein 256. */
   readonly vdp: Tms9918a | V9938;
   readonly ctc: Z80Ctc;
+  /** Leftover CPU T-state (0/1) toward the next 2MHz CLK/TRG0-2 edge. */
+  private ctcTrgPhase = 0;
   readonly keyboard: EinsteinKeyboard;
   readonly tape: TapeDeck;
   readonly mixer: AudioMixer;
@@ -121,10 +123,10 @@ export class EinsteinMachine extends BaseMachine implements Machine {
     this.fdc.pulseBusy = true;
     this.vdp = this.config.vdp === 'v9938' ? new V9938() : new Tms9918a();
     this.ctc = new Z80Ctc();
-    // MAME wires the Einstein's Z80CTC device to XTAL/2 (4MHz CPU / 2), but
-    // that's the frequency on channels 0–2's external CLK/TRG *pins* — which
-    // nothing here drives, since the Einstein doesn't use CTC counter mode.
-    // The CTC's own device clock, which drives the timer-mode prescaler for
+    // Channels 0–2's external CLK/TRG pins are driven by the 2MHz system
+    // clock (CPU clock / 2, MAME's ctc_trigger_callback) — delivered in bulk
+    // from the run loop via triggerEdges (see ctcTrgPhase). Ch0/ch1 are the
+    // 8251 baud-rate generators. The CTC's own device clock, which drives the timer-mode prescaler for
     // every channel, is the full undivided 4MHz CPU clock (Z80Ctc's default
     // inputClockDivide of 1 is already correct for that — do not halve it
     // here). The machine chains channel 2's zero-count to channel 3's
@@ -235,6 +237,7 @@ export class EinsteinMachine extends BaseMachine implements Machine {
     this.fdc.reset();
     this.vdp.reset();
     this.ctc.reset();
+    this.ctcTrgPhase = 0;
     this.memory.reset();
     this.keyboard.reset();
     this.audio.reset();
@@ -294,7 +297,19 @@ export class EinsteinMachine extends BaseMachine implements Machine {
 
         // Advance CTC timers by the elapsed T-states.
         const dt = this.cpu.tStates - lastCtcT;
-        if (dt > 0) { this.ctc.addCycles(dt); lastCtcT = this.cpu.tStates; }
+        if (dt > 0) {
+          this.ctc.addCycles(dt);
+          lastCtcT = this.cpu.tStates;
+          // 2MHz CLK/TRG0-2: one active edge per two CPU T-states.
+          const trg = this.ctcTrgPhase + dt;
+          const edges = trg >> 1;
+          this.ctcTrgPhase = trg & 1;
+          if (edges > 0) {
+            this.ctc.triggerEdges(0, edges);
+            this.ctc.triggerEdges(1, edges);
+            this.ctc.triggerEdges(2, edges);
+          }
+        }
 
         // Service a pending IM 2 interrupt from the CTC.
         if (this.ctc.interruptPending && this.cpu.iff1 && !this.cpu.eiDelay) {
