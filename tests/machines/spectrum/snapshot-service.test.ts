@@ -148,7 +148,7 @@ describe('SpectrumSnapshotService — SZX paging', () => {
 
   it('128K SZX on a +2A applies the 4-ROM math: (1FFD bit2 << 1) | (7FFD bit4)', async () => {
     const s = machine('+2A');
-    loadSZX.mockResolvedValue({ is128K: true, borderColor: 0, port7FFD: 0x10, port1FFD: 0x05 });
+    loadSZX.mockResolvedValue({ is128K: true, borderColor: 0, port7FFD: 0x10, port1FFD: 0x05, sourceHas1FFD: true });
     const { svc } = svcOf(s, true);
     await svc.apply(new Uint8Array(), 'a.szx');
     expect(s.memory.port1FFD).toBe(0x05);
@@ -166,6 +166,16 @@ describe('SpectrumSnapshotService — SP paging', () => {
     expect(s.memory.port7FFD).toBe(0x23);
     expect(s.memory.currentBank).toBe(3);
     expect(s.ula.flashState).toBe(true);
+  });
+
+  it('128K SP on a +2A maps 7FFD bit 4 (48K ROM) to ROM 3 via 1FFD bit 2', async () => {
+    // .sp carries no 1FFD; on the 4-ROM +2A the 48K BASIC ROM is page 3.
+    const s = machine('+2A');
+    loadSP.mockReturnValue({ is128K: true, borderColor: 0, flashState: false, port7FFD: 0x10 });
+    const { svc } = svcOf(s, true);
+    await svc.apply(new Uint8Array(), 'a.sp');
+    expect(s.memory.currentROM).toBe(3);
+    expect(s.memory.port1FFD & 0x04).toBe(0x04);
   });
 });
 
