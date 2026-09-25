@@ -247,6 +247,46 @@ describe('CRTC 6845 — frame restart & rupture', () => {
     expect(c.currentLine().ra).toBe(0);
   });
 
+  it('R9 written below the live raster counter runs RA on to 31 and wraps', () => {
+    // Equality compare: RA=5 with R9 now 2 never matches until RA wraps
+    // 31 → 0 and counts back up to 2. Lines from RA=5: 6..31 (26), 0,1,2 (3),
+    // then the row ends → 30 advances to reach the next row's RA=0.
+    const c = new Crtc6845(0);
+    programStandard(c);
+    c.beginFrame();
+    for (let i = 0; i < 5; i++) c.advanceLine();
+    expect(c.currentLine().ra).toBe(5);
+    setReg(c, R_MAX_RASTER, 2);
+    c.advanceLine();
+    expect(c.currentLine().ra).toBe(6);            // did not end the row
+    for (let i = 0; i < 25; i++) c.advanceLine();
+    expect(c.currentLine().ra).toBe(31);
+    c.advanceLine();
+    expect(c.currentLine().ra).toBe(0);            // 5-bit wrap, same row
+    expect(c.currentLine().maRow).toBe(0);
+    for (let i = 0; i < 3; i++) c.advanceLine();   // RA 1, 2, then row end
+    expect(c.currentLine().ra).toBe(0);
+    expect(c.currentLine().maRow).toBe(40);        // next character row
+  });
+
+  it('R4 written below the live row counter runs VCC on to 127 and wraps', () => {
+    const c = new Crtc6845(0);
+    programStandard(c);
+    setReg(c, R_MAX_RASTER, 0);                    // one scanline per row
+    setReg(c, R_HORIZ_DISPLAYED, 1);               // MA row = VCC (mod wrap)
+    c.beginFrame();
+    for (let i = 0; i < 20; i++) c.advanceLine();  // VCC = 20
+    setReg(c, R_VERT_TOTAL, 10);                   // below the live VCC
+    // 20 → 127 is 107 rows, wrap to 0, then 0 → 10 and the restart after row 10:
+    // no restart for 107 + 1 + 10 lines, restart on the next one.
+    for (let i = 0; i < 118; i++) {
+      c.advanceLine();
+      expect(c.currentLine().maRow, `line ${i}`).toBe((21 + i) & 0x3FFF);
+    }
+    c.advanceLine();
+    expect(c.currentLine().maRow).toBe(0);         // restarted from R12/R13 = 0
+  });
+
   it('latches R12/R13 at the restart, not per scanline (static base is unchanged)', () => {
     const c = new Crtc6845(0);
     programStandard(c);
