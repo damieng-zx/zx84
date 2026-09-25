@@ -145,7 +145,7 @@ describe('TapeDeck — direct block playback', () => {
     expect(deck.playing).toBe(false);
   });
 
-  it('enters PAUSE with earBit=0 when pause > 0', () => {
+  it('holds the last sample level for 1ms of its pause, then drops low', () => {
     const block: DirectBlock = {
       kind: 'direct',
       tStatesPerSample: 10,
@@ -155,12 +155,17 @@ describe('TapeDeck — direct block playback', () => {
     };
     const deck = deckWith(block);
     deck.startPlayback();
-    // Consume the byte (8 samples × 10 = 80 T).
+    // Consume the byte (8 samples × 10 = 80 T). The last sample was high;
+    // TZX requires >= 1ms (3500 T) of it before the pause goes low.
     deck.advance(80);
+    expect(deck.earBit).toBe(1);
+    deck.advance(3499);
+    expect(deck.earBit).toBe(1);
+    deck.advance(1);
     expect(deck.earBit).toBe(0);
     expect(deck.playing).toBe(true);
     // 100ms × 3.5MHz = 350_000 T.  Just before, still in pause.
-    deck.advance(349_000);
+    deck.advance(349_000 - 3500);
     expect(deck.playing).toBe(true);
     deck.advance(2_000);
     // Past the pause → no further blocks → IDLE / not playing.
@@ -279,6 +284,40 @@ describe('TapeDeck — pause block playback', () => {
     deck.paused = false;
     deck.advance(1);
     expect(deck.paused).toBe(false);
+    expect((deck as any).playbackIdx).toBe(2);
+  });
+
+  it('holds the level left by a preceding pulse sequence for 1ms before going low', () => {
+    // TZX 1.20: the last edge must be followed by >= 1ms of that level
+    // before a pause goes low. One 100T pulse toggles 0 → 1; the 10ms pause
+    // (35000 T) must keep it high for 3500 T.
+    const deck = deckWith(
+      { kind: 'pulses', lengths: [100] } as PulsesBlock,
+      { kind: 'pause', duration: 10 } as PauseBlock,
+    );
+    deck.startPlayback();
+    deck.advance(100);
+    expect(deck.earBit).toBe(1);
+    deck.advance(3499);
+    expect(deck.earBit).toBe(1);
+    deck.advance(1);
+    expect(deck.earBit).toBe(0);
+    expect(deck.playing).toBe(true); // pause still running
+  });
+
+  it('drops a pause shorter than 1ms low only as it ends', () => {
+    // 0.5ms = 1750 T < 1ms: hold high for all of it, low at the end.
+    const deck = deckWith(
+      { kind: 'pulses', lengths: [100] } as PulsesBlock,
+      { kind: 'pause', duration: 0.5 } as PauseBlock,
+      { kind: 'tone', pulseLen: 5000, count: 1 } as ToneBlock,
+    );
+    deck.startPlayback();
+    deck.advance(100);
+    deck.advance(1749);
+    expect(deck.earBit).toBe(1);
+    deck.advance(1);
+    expect(deck.earBit).toBe(0);
     expect((deck as any).playbackIdx).toBe(2);
   });
 
@@ -683,21 +722,21 @@ describe('TapeDeck.skipBlock()', () => {
     expect((deck as any).playbackIdx).toBe(0);
   });
 
-  it('schedules no edge drop when the pause is shorter than the 1ms hold', () => {
-    // A pause shorter than the 1ms hold-high window has no room for the drop:
-    // pauseFlipAt stays -1 and the line holds high for the whole gap.
-    // 0.2ms × 3.5MHz = 700 T < 3500 T.
+  it('holds a pause shorter than 1ms high throughout, going low only as it ends', () => {
+    // TZX: hold the last level >= 1ms, and a pause always ends low. A pause
+    // shorter than the hold keeps the level for its whole length and drops
+    // it as it expires. 0.2ms × 3.5MHz = 700 T < 3500 T.
     const deck = deckWith(makeData(0xFF, [1], { pause: 0.2 }), makeData(0xFF, [2]));
     deck.nextDataBlock();
     deck.skipBlock();
     expect(deck.earBit).toBe(1);
-    expect((deck as any).pauseFlipAt).toBe(-1);
-    // Still inside the short pause — line never dropped.
+    // Still inside the short pause — line not yet dropped.
     deck.advance(699);
     expect(deck.earBit).toBe(1);
     expect((deck as any).playbackIdx).toBe(0);
-    // Pause elapses → playback advances to the next block.
-    deck.advance(2);
+    // Pause elapses → level low, playback advances to the next block.
+    deck.advance(1);
+    expect(deck.earBit).toBe(0);
     expect((deck as any).playbackIdx).toBe(1);
   });
 });
@@ -1241,7 +1280,7 @@ describe('TapeDeck — earBit reset by stopPlayback', () => {
 // ── Direct block transition into PAUSE on last byte with pause > 0 ──────────
 
 describe('TapeDeck — direct block last-byte → PAUSE with non-zero pause', () => {
-  it('enters PAUSE with cpuClock-scaled pauseRemaining and earBit=0', () => {
+  it('enters PAUSE with cpuClock-scaled pauseRemaining, holding the last level', () => {
     const block: DirectBlock = {
       kind: 'direct', tStatesPerSample: 10, pause: 2, usedBits: 8,
       data: new Uint8Array([0xFF]),
@@ -1250,7 +1289,7 @@ describe('TapeDeck — direct block last-byte → PAUSE with non-zero pause', ()
     deck.startPlayback();
     deck.advance(80); // exhaust the byte
     expect((deck as any).phase).toBe(5 /* PAUSE */);
-    expect(deck.earBit).toBe(0);
+    expect(deck.earBit).toBe(1);
     // 2ms × 3.5MHz = 7000T.
     expect((deck as any).pauseRemaining).toBe(7000);
   });
