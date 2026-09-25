@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { deflateSync } from 'node:zlib';
 import { parseTZX } from '@/media/tape/tzx.ts';
 import type {
   TapeBlock,
@@ -465,6 +466,24 @@ describe('TZX — 0x18 CSW Recording / 0x19 Generalized Data', () => {
     const body = [...w16(100), ...w24(0), 1, ...w32(2), 10, 20];
     const bad = tzx(header(), [0x18, ...w32(body.length), ...body]);
     expect(() => parseTZX(bad)).toThrow('zero sample rate');
+  });
+
+  it('decodes a Z-RLE (compression 2) embedded CSW recording', () => {
+    // RLE stream: 10 samples, 200 samples, then an escaped 1000-sample pulse.
+    // At 44.1kHz a sample is 3.5e6/44100 T-states, so the expected pulses are
+    // round(10*79.365…)=794, round(200*79.365…)=15873, round(1000*79.365…)=79365.
+    const rle = [10, 200, 0, ...w32(1000)];
+    const z = Array.from(deflateSync(new Uint8Array(rle)));
+    const body = [...w16(0), ...w24(44100), 2, ...w32(3), ...z];
+    const blocks = parseTZX(tzx(header(), [0x18, ...w32(body.length), ...body]));
+    expect(blocks.length).toBe(1);
+    expect(Array.from((blocks[0] as CswBlock).pulses)).toEqual([794, 15873, 79365]);
+  });
+
+  it('rejects an unknown embedded CSW compression type', () => {
+    const body = [...w16(0), ...w24(44100), 3, ...w32(1), 10];
+    expect(() => parseTZX(tzx(header(), [0x18, ...w32(body.length), ...body])))
+      .toThrow('Unsupported embedded TZX CSW compression type 3');
   });
 
   it('skips a 0x19 block via its dword length and continues parsing', () => {
