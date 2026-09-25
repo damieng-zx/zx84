@@ -28,7 +28,24 @@ function parseTrack(data: Uint8Array, trackOffset: number, trackSize: number, is
   const magic = asciiAt(data, trackOffset, 12);
   if (!magic.startsWith('Track-Info')) return null;
 
+  // Track-Info "sector size" (N). In the standard format this — not each
+  // sector's own ID N — is the size every sector's data is stored at: the
+  // CPCEMU spec lays a standard track out as equal-sized sectors, which is why
+  // EXTENDED had to add a per-sector data length for protections whose ID N
+  // lies about the real size.
+  const trackN = data[trackOffset + 0x14];
   const sectorCount = data[trackOffset + 0x15];
+  const sizeOf = (n: number): number => (n <= 5 ? (128 << n) : n === 6 ? 6144 : 0);
+  // Tolerance for writers that leave the Track-Info N unset: if the sectors'
+  // own N sizes exactly fill the declared track area and the Track-Info N
+  // does not, the per-sector sizes are what was actually written.
+  let useTrackN = true;
+  if (!isExtended) {
+    const area = trackSize - 0x100;
+    let perSector = 0;
+    for (let i = 0; i < sectorCount; i++) perSector += sizeOf(data[trackOffset + 0x18 + i * 8 + 3]);
+    if (perSector === area && sectorCount * sizeOf(trackN) !== area) useTrackN = false;
+  }
   const gap3 = data[trackOffset + 0x16];
   const filler = data[trackOffset + 0x17];
 
@@ -47,9 +64,9 @@ function parseTrack(data: Uint8Array, trackOffset: number, trackSize: number, is
     const st2 = data[sibOffset + 5];
     const sibDataLen = u16LE(data, sibOffset + 6);
 
-    // Actual stored size: extended format uses SIB dataLen, standard uses 128 << N.
-    // N=6 is deliberately 6144, NOT the nominal 128 << 6 = 8192: these images
-    // come off 3" Hitachi DD drives whose tracks hold ~6.25 KB in total, so an
+    // Actual stored size: extended format uses SIB dataLen, standard uses
+    // 128 << the Track-Info N (see trackN above). N=6 is deliberately 6144,
+    // NOT the nominal 128 << 6 = 8192: these images come off 3" Hitachi DD drives whose tracks hold ~6.25 KB in total, so an
     // 8 KB sector can never physically exist on this media. Giant-sector
     // protections (Hexagon/Speedlock et al) recorded 6144 bytes under N=6.
     // N >= 7 is treated as absent (0).
@@ -57,7 +74,7 @@ function parseTrack(data: Uint8Array, trackOffset: number, trackSize: number, is
     if (isExtended && sibDataLen > 0) {
       actualSize = sibDataLen;
     } else {
-      actualSize = n <= 5 ? (128 << n) : n === 6 ? 6144 : 0;
+      actualSize = sizeOf(isExtended || !useTrackN ? n : trackN);
     }
 
     // Extract sector data, handling truncated files gracefully
