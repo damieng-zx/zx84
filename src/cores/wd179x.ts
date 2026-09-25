@@ -389,12 +389,22 @@ export class WD179x {
     if (this.headTrack[this.currentDrive] === 0) s |= ST_TRACK0;
     if (this.writeProtect[this.currentDrive]) s |= ST_WRITEPROT;
     if (cmd & 0x04) {
-      // V (verify, bit 2): read the first ID field encountered on the
-      // destination track and compare its cylinder against the Track
-      // Register. A mismatch (or no ID field at all) is a seek error —
-      // shares ST_RNF's bit, reinterpreted for Type I status.
-      const sec = this.locateTrack()?.sectors[0];
-      if (!sec || sec.c !== this.trackReg) s |= ST_RNF;
+      // V (verify, bit 2): the controller reads ID fields on the destination
+      // track until one's track number matches the Track Register with a good
+      // CRC — any ID on the track will do, not just the first. An ID that
+      // matches but fails its CRC sets CRC ERROR and the search carries on.
+      // Finding no good match (or no ID field at all) within the revolution
+      // limit is a seek error — shares ST_RNF's bit in Type I status.
+      let verified = false;
+      let crcMatch = false;
+      for (const sec of this.locateTrack()?.sectors ?? []) {
+        if (sec.c !== this.trackReg) continue;
+        // DSK convention: ST1 DE without ST2 DD is an ID-field CRC error.
+        if ((sec.st1 & 0x20) && !(sec.st2 & 0x20)) { crcMatch = true; continue; }
+        verified = true;
+        break;
+      }
+      if (!verified) s |= ST_RNF | (crcMatch ? ST_CRCERR : 0);
     }
     if (this.pulseBusy) {
       // Hold BUSY for a few reads (see BUSY_PULSE_READS) so a "wait for BUSY set"
