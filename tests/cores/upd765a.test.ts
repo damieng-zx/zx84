@@ -1285,3 +1285,27 @@ describe('uPD765A — hostile N codes do not throw', () => {
     expect(run).not.toThrow();
   });
 });
+
+describe('uPD765A — FORMAT_TRACK beyond the end of the image', () => {
+  it('a track formatted past numTracks can be read back and survives serializeDSK', async () => {
+    const { serializeDSK, parseDSK } = await import('@/media/floppy/dsk.ts');
+    const d = new Driver();
+    const img = makeStdImage();            // 2 cylinders (0, 1), single-sided
+    d.fdc.insertDisk(img, 0);
+    d.command(0x0F, 0x00, 2);              // seek to cylinder 2 — past the image end
+    d.command(0x08);
+    [0x0D, 0x00, 2, 1, 0x2A, 0x66].forEach(b => d.fdc.writeData(b));
+    d.drainWriteExecution([2, 0, 0xC1, 2]);
+
+    expect(img.numTracks).toBe(3);         // geometry grew to include cylinder 2
+    [0x06, 0x00, 2, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    const { data, result } = d.drainReadExecution();
+    expect(result[1] & 0x04).toBe(0);      // no ND: the sector is found
+    expect(data.length).toBe(512);
+    expect(data.every(b => b === 0x66)).toBe(true);
+
+    const reparsed = parseDSK(serializeDSK(img));
+    expect(reparsed.numTracks).toBe(3);
+    expect(reparsed.tracks[2][0]!.sectors[0]).toMatchObject({ c: 2, h: 0, r: 0xC1, n: 2 });
+  });
+});

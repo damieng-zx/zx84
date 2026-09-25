@@ -1410,6 +1410,10 @@ export class UPD765A {
     while (disk.tracks.length <= cyl) {
       disk.tracks.push(Array.from({ length: disk.numSides }, () => null));
     }
+    // The image now physically holds this cylinder: grow the geometry with it,
+    // or getTrack() rejects the freshly formatted track (cyl >= numTracks) and
+    // serializeDSK() — which walks numTracks — drops it on save.
+    disk.numTracks = Math.max(disk.numTracks, cyl + 1);
     // Honour the flippy side offset so a format while "Side B" is loaded writes
     // to the image's second side, matching what getTrack() reads back.
     const side = Math.min(head + this.flipSide[physU], disk.numSides - 1);
