@@ -56,6 +56,9 @@ const ST0_NOT_READY = 0x08;
 /** Equipment check: a recalibrate found no track-0 signal (no drive there) */
 const ST0_EQUIP_CHECK = 0x10;
 
+/** ST1 Missing Address Mark: no ID address mark found within two index pulses */
+const ST1_MISSING_AM = 0x01;
+
 // ── Phase enum ──────────────────────────────────────────────────────────
 
 const enum Phase { Idle, Command, Execution, Result }
@@ -1031,6 +1034,24 @@ export class UPD765A {
   }
 
   /**
+   * Result for a command that finds no ID field to work with.
+   *
+   * With no disk in the drive (or no drive on the select line) the drive is
+   * not ready: IC=01 + NR, and ST1/ST2 stay clear because the controller never
+   * got as far as reading. A ready drive whose track is unformatted — missing
+   * from the image, beyond its end, or carrying no sectors — is a different
+   * failure: the controller spins through two index pulses without ever seeing
+   * an ID address mark and ends with IC=01 and ST1 MA (Missing Address Mark).
+   */
+  private noTrackResult(unit: number, head: number, c: number, h: number, r: number, n: number): number[] {
+    const phys = this.physUnit(unit);
+    if (!this.disks[phys] || !this.connected[phys]) {
+      return [ST0_ABNORMAL | ST0_NOT_READY | (head << 2) | unit, 0x00, 0x00, c, h, r, n];
+    }
+    return [ST0_ABNORMAL | (head << 2) | unit, ST1_MISSING_AM, 0x00, c, h, r, n];
+  }
+
+  /**
    * Compute the ST1/ST2 a sector contributes to a read result, and whether it
    * is an abnormal (unreadable) termination. Shared by cmdReadWrite (the first
    * sector) and advanceSector (every subsequent sector) so a multi-sector read
@@ -1132,12 +1153,9 @@ export class UPD765A {
 
     const track = this.getTrack(unit, head);
 
-    if (!track) {
-      // No disk or no track — abnormal termination (NR detected before execution,
-      // so ST1/ST2 must be 0x00; MA flag only valid after attempting a read)
+    if (!track || track.sectors.length === 0) {
       this.log(`  ✗ No disk or track not found (C=${c}, H=${h})`);
-      const st0 = ST0_ABNORMAL | ST0_NOT_READY | (head << 2) | unit;
-      this.result([st0, 0x00, 0x00, c, h, r, n]);
+      this.result(this.noTrackResult(unit, head, c, h, r, n));
       return;
     }
 
@@ -1237,10 +1255,8 @@ export class UPD765A {
     const track = this.getTrack(unit, head);
 
     if (!track || track.sectors.length === 0) {
-      // No disk or empty track — NR before execution, ST1/ST2=0
       this.log(`  ✗ No disk or empty track`);
-      const st0 = ST0_ABNORMAL | ST0_NOT_READY | (head << 2) | unit;
-      this.result([st0, 0x00, 0x00, c, h, r, n]);
+      this.result(this.noTrackResult(unit, head, c, h, r, n));
       return;
     }
 
@@ -1302,10 +1318,8 @@ export class UPD765A {
     const track = this.getTrack(unit, head);
 
     if (!track || track.sectors.length === 0) {
-      // No disk or empty track — NR before execution, ST1/ST2=0
       this.log(`  ✗ No disk or empty track for Read ID`);
-      const st0 = ST0_ABNORMAL | ST0_NOT_READY | (head << 2) | unit;
-      this.result([st0, 0x00, 0x00, 0, 0, 0, 0]);
+      this.result(this.noTrackResult(unit, head, 0, 0, 0, 0));
       return;
     }
 
