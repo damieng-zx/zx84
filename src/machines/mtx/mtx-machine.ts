@@ -66,6 +66,9 @@ export class MtxMachine extends BaseMachine implements Machine {
 
   /** Last byte written to the physical cassette output port. */
   tapeOutput = 0;
+  /** Port 6's sound latch: OUT (6) only fills it; a read of port 3 strobes
+   *  it into the SN76489 (MAME mtx.cpp sound_lach_w / sound_strobe_r). */
+  soundLatch = 0;
   /** Logical `.mtx` stream served through the ROM tape routine. */
   readonly cassette = new MtxCassette();
   readonly activity = { kbdReads: 0, psgWrites: 0, casReads: 0, fdcAccesses: 0 };
@@ -227,6 +230,7 @@ export class MtxMachine extends BaseMachine implements Machine {
     this.audio.reset();
     this.mixer.reset();
     this.tapeOutput = 0;
+    this.soundLatch = 0;
     this.needsDisplay = true;
     this.setStatus('Reset');
   }

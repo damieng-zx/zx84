@@ -59,7 +59,9 @@ export function wireMtxPortIO(m: MtxMachine): void {
       case 0x02: m.vdp.writeControl(value); break;
       case 0x03: m.tapeOutput = value; break;
       case 0x05: m.keyboard.selectDrive(value); break;
-      case 0x06: m.psg.write(value); m.activity.psgWrites++; break;
+      // The SN76489 is not on the data bus: OUT (6) loads a latch that a
+      // read of port 3 then strobes into the chip.
+      case 0x06: m.soundLatch = value; break;
       case 0x08:
       case 0x09:
       case 0x0A:
@@ -100,9 +102,13 @@ export function wireMtxPortIO(m: MtxMachine): void {
     switch (port & 0xFF) {
       case 0x01: return m.vdp.readData();
       case 0x02: return m.vdp.readStatus();
-      // With no readable device on port 3, the bus returns the low port byte.
-      // Pothole Pete relies on IN A,(3) producing 3.
-      case 0x03: return 0x03;
+      // A read of port 3 strobes the sound latch into the SN76489. Nothing
+      // drives the data bus, which returns the low port byte: Pothole Pete
+      // relies on IN A,(3) producing 3.
+      case 0x03:
+        m.psg.write(m.soundLatch);
+        m.activity.psgWrites++;
+        return 0x03;
       case 0x05: m.activity.kbdReads++; return m.keyboard.readSenseLow();
       case 0x06: m.activity.kbdReads++; return m.keyboard.readSenseHigh();
       case 0x08:

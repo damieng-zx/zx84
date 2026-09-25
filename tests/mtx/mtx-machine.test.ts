@@ -130,11 +130,19 @@ describe('MTX motherboard I/O', () => {
     expect(m.cpu.portIn(0x06)).toBe(0x03);
   });
 
-  it('routes PSG writes through port 6', () => {
+  it('latches PSG data on OUT (6) and writes it to the chip on a read of port 3', () => {
+    // MAME mtx.cpp: port 6 write = sound_lach_w, port 3 read = sound_strobe_r.
     const m = machine();
 
     m.cpu.portOut(0x06, 0x85);
+    m.cpu.portOut(0x06, 0x2A);                 // overwrites the latch: 0x85 is lost
+    expect(m.activity.psgWrites).toBe(0);
+    expect(m.psg.tonePeriod[0]).toBe(0);
+
+    m.cpu.portOut(0x06, 0x85);
+    expect(m.cpu.portIn(0x03)).toBe(0x03);     // strobe: latch/tone 0, low nibble 5
     m.cpu.portOut(0x06, 0x2A);
+    m.cpu.portIn(0x03);                        // data byte: high six bits 0x2A
 
     expect(m.psg.tonePeriod[0]).toBe(0x2A5);
     expect(m.activity.psgWrites).toBe(2);
