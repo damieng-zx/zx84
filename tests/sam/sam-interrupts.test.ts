@@ -117,26 +117,17 @@ describe('SamAsic line interrupt', () => {
     expect(runField(a)).toEqual([SAM_DISPLAY_FIRST_LINE, SAM_FRAME_INT_LINE]);
   });
 
-  it('reaches the bottom border for LINE past the display', () => {
-    // 192 is the first line below the picture; 243 the last one with any
-    // raster left before the frame interrupt re-arms the register.
-    const first = asic();
-    first.setLineInterrupt(192);
-    expect(runField(first)).toEqual([SAM_DISPLAY_LAST_LINE, SAM_FRAME_INT_LINE]);
-
-    // 243 lands on the line immediately before the frame interrupt, so /INT is
-    // still being held for it when the frame source raises a line later —
-    // one transition, not two.
-    const last = asic();
-    last.setLineInterrupt(243);
-    expect(runField(last)).toEqual([SAM_FRAME_INT_LINE - 1]);
+  it('fires on the last display line for LINE = 191', () => {
+    const a = asic();
+    a.setLineInterrupt(191);
+    expect(runField(a)).toEqual([SAM_DISPLAY_LAST_LINE - 1, SAM_FRAME_INT_LINE]);
   });
 
-  it('never fires for a LINE with no raster left, which is how the ROM says stop', () => {
-    // The SAM ROM writes 255 when a raster-split table runs out. Firing anyway
-    // replays the table, which is what left the boot screen's colour bands
-    // painted over BASIC.
-    for (const line of [244, 255]) {
+  it('never fires for LINE >= 192, which disables the line interrupt', () => {
+    // Technical Manual: values 192-255 disable it. The SAM ROM writes 255 when
+    // a raster-split table runs out; firing anyway replays the table, which is
+    // what left the boot screen's colour bands painted over BASIC.
+    for (const line of [192, 200, 243, 244, 255]) {
       const a = asic();
       a.setLineInterrupt(line);
       expect(runField(a)).toEqual([SAM_FRAME_INT_LINE]);   // frame only

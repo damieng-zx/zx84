@@ -295,22 +295,18 @@ export class SamAsic {
    *
    * LINE is counted in lines from the frame interrupt, one top border on — so
    * 0..191 are the display lines, and the SAM's own boot screen chaining LINE =
-   * 11, 22, 33 … lands its colour bands on exactly those. Past the display,
-   * 192..243 reach the bottom border.
+   * 11, 22, 33 … lands its colour bands on exactly those.
    *
-   * From 244 up there is no raster left: the next frame interrupt arrives
-   * first, and its handler re-arms LINE before the old value could come due.
-   * That is not a curiosity — it is the SAM ROM's way of saying "no more
-   * interrupts this field", which it does by writing 255 whenever a
-   * raster-split table runs out. Firing anyway replays the table from the top,
+   * Any value from 192 up disables the line interrupt (Technical Manual;
+   * SimCoupe arms it only for `line < GFX_SCREEN_LINES`). The SAM ROM relies on
+   * this: it writes 255 whenever a raster-split table runs out, meaning "no
+   * more interrupts this field". Firing anyway replays the table from the top,
    * which is what used to leave the boot screen's colour bands painted across
    * BASIC for the rest of the session.
    */
   private get lineInterruptRaster(): number {
-    if (this.lineReg < 0) return -1;
-    const fromFrameInt = SAM_TOP_BORDER_LINES + this.lineReg;
-    if (fromFrameInt >= SAM_LINES_PER_FRAME) return -1;
-    return (SAM_FRAME_INT_LINE + fromFrameInt) % SAM_LINES_PER_FRAME;
+    if (this.lineReg < 0 || this.lineReg >= SAM_DISPLAY_HEIGHT) return -1;
+    return (SAM_FRAME_INT_LINE + SAM_TOP_BORDER_LINES + this.lineReg) % SAM_LINES_PER_FRAME;
   }
 
   // ── Frame / line rendering ────────────────────────────────────────────────
