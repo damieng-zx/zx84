@@ -41,6 +41,9 @@ const JOURNAL_CAP = 96;
 /** Journal target meaning "the border" rather than a CLUT entry. */
 const TARGET_BORDER = 16;
 
+/** Mode 3 pixel value -> CLUT index bits 0-1: the middle two are swapped. */
+const MODE3_SWAP = new Uint8Array([0, 2, 1, 3]);
+
 /** Frames per FLASH half-period in modes 1 and 2 (as the Spectrum). */
 const FLASH_FRAMES = 16;
 
@@ -439,17 +442,21 @@ export class SamAsic {
   /** Mode 3 — 512x192, 2 bits per pixel, 128 bytes per line. Each byte is four
    *  pixels, most-significant pair leftmost. The pixel supplies CLUT index
    *  bits 0-1 and HMPR's MD3COL field bits 2-3, so four consecutive entries
-   *  are reachable at a time. */
+   *  are reachable at a time.
+   *
+   *  The ASIC wires the pixel's two bits to the CLUT index crossed over, so
+   *  pixel values 1 and 2 select entries 2 and 1: 00->0, 01->2, 10->1, 11->3
+   *  (SimCoupe's `mode3clut`, "note: swapped entries", and `Mode3Clut`). */
   private cellMode3(px: Uint32Array, x: number, y: number, col: number): void {
     const lut = this.clutLut;
     const hi = this.lineMd3Clut;
     const off = (y << 7) + (col << 2);
     for (let i = 0; i < 4; i++) {
       const b = this.fetch(off + i);
-      px[x] = lut[hi | ((b >> 6) & 3)];
-      px[x + 1] = lut[hi | ((b >> 4) & 3)];
-      px[x + 2] = lut[hi | ((b >> 2) & 3)];
-      px[x + 3] = lut[hi | (b & 3)];
+      px[x] = lut[hi | MODE3_SWAP[(b >> 6) & 3]];
+      px[x + 1] = lut[hi | MODE3_SWAP[(b >> 4) & 3]];
+      px[x + 2] = lut[hi | MODE3_SWAP[(b >> 2) & 3]];
+      px[x + 3] = lut[hi | MODE3_SWAP[b & 3]];
       x += 4;
     }
   }

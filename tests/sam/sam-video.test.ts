@@ -8,7 +8,8 @@
  *                    + 768 attributes at +6144, one per 8x8 cell
  *   Mode 2  256x192  6144 bitmap, LINEAR (y*32 + col)
  *                    + 6144 attributes at +0x2000, one per cell PER SCANLINE
- *   Mode 3  512x192  2 bits/pixel, 128 bytes/line, MSB pair leftmost, CLUT 0-3
+ *   Mode 3  512x192  2 bits/pixel, 128 bytes/line, MSB pair leftmost; pixel
+ *                    values 0,1,2,3 select CLUT 0,2,1,3 (+ MD3COL << 2)
  *   Mode 4  256x192  4 bits/pixel, 128 bytes/line, high nibble leftmost
  *
  * The frame buffer is 768 px wide and sampled at mode 3's resolution, so one
@@ -167,14 +168,26 @@ describe('SamAsic mode 2 (linear bitmap, per-scanline attributes)', () => {
 
 describe('SamAsic mode 3 (512x192, 2bpp)', () => {
   it('unpacks four pixels per byte, most-significant pair first', () => {
-    // 0xE4 = 11 10 01 00 -> CLUT 3, 2, 1, 0 across four adjacent pixels.
+    // Values 0 and 3 are unaffected by the 1<->2 swap, so this isolates the
+    // pixel order from the CLUT mapping.
+    const r = rig(3);
+    markClut(r.asic);
+    r.vram(0, 0x03);               // 00 00 00 11 -> only pixel 3 is value 3
+    const row = r.draw(0);
+    expect(r.at(row, 0)).toBe(colour(0));
+    expect(r.at(row, 2)).toBe(colour(0));
+    expect(r.at(row, 3)).toBe(colour(3));
+  });
+
+  it('swaps pixel values 1 and 2 on the way to the CLUT', () => {
+    // 0xE4 = 11 10 01 00 -> values 3, 2, 1, 0 -> CLUT 3, 1, 2, 0.
     const r = rig(3);
     markClut(r.asic);
     r.vram(0, 0xE4);
     const row = r.draw(0);
     expect(r.at(row, 0)).toBe(colour(3));
-    expect(r.at(row, 1)).toBe(colour(2));
-    expect(r.at(row, 2)).toBe(colour(1));
+    expect(r.at(row, 1)).toBe(colour(1));
+    expect(r.at(row, 2)).toBe(colour(2));
     expect(r.at(row, 3)).toBe(colour(0));
   });
 
@@ -200,12 +213,12 @@ describe('SamAsic mode 3 (512x192, 2bpp)', () => {
     // four pixel values onto CLUT 8-11; MD3COL = 3 onto 12-15.
     const r = rig(3);
     markClut(r.asic);
-    r.vram(0, 0xE4);               // pixels 3, 2, 1, 0
+    r.vram(0, 0xE4);               // values 3, 2, 1, 0 -> low bits 3, 1, 2, 0
     r.memory.setHmpr(0x40);
     let row = r.draw(0);
     expect(r.at(row, 0)).toBe(colour(11));
-    expect(r.at(row, 1)).toBe(colour(10));
-    expect(r.at(row, 2)).toBe(colour(9));
+    expect(r.at(row, 1)).toBe(colour(9));
+    expect(r.at(row, 2)).toBe(colour(10));
     expect(r.at(row, 3)).toBe(colour(8));
 
     r.memory.setHmpr(0x60 | 0x1F); // page bits must not leak into the index
@@ -217,13 +230,13 @@ describe('SamAsic mode 3 (512x192, 2bpp)', () => {
   it('latches MD3COL at the start of the line', () => {
     const r = rig(3);
     markClut(r.asic);
-    r.vram(0, 0x40);               // pixel 0 = 1
-    r.memory.setHmpr(0x20);        // MD3COL = 1 -> CLUT 5
+    r.vram(0, 0xC0);               // pixel 0 = 3
+    r.memory.setHmpr(0x20);        // MD3COL = 1 -> CLUT 7
     const line = rasterOf(0);
     r.asic.beginLine(line, 0);
     r.memory.setHmpr(0x00);        // changed mid-line: next line only
     r.asic.renderScanline(r.px, line);
-    expect(r.px[line * SAM_SCREEN_WIDTH + SAM_BORDER_LEFT]).toBe(colour(5));
+    expect(r.px[line * SAM_SCREEN_WIDTH + SAM_BORDER_LEFT]).toBe(colour(7));
   });
 
   it('spans the 24K page pair, reaching into the second page', () => {

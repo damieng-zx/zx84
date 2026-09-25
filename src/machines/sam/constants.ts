@@ -211,7 +211,7 @@ export const LMPR_WPROT = 0x80;
 
 /** Page selected into section C, and (page+1) into section D. */
 export const HMPR_PAGE_MASK = 0x1F;
-/** MD3COL: mode 3 pixel CLUT index bits 2-3 (index = ((hmpr & 0x60) >> 3) | pixel). */
+/** MD3COL: mode 3 pixel CLUT index bits 2-3 (index = ((hmpr & 0x60) >> 3) | pixel, pixel 1/2 swapped). */
 export const HMPR_MD3COL_MASK = 0x60;
 export const HMPR_MD3COL_SHIFT = 5;
 /** Set = sections C/D come from the external megabyte interface. */
