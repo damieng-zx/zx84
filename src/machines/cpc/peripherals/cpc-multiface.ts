@@ -25,6 +25,7 @@
 
 import type { Z80 } from '@/cores/z80.ts';
 import type { CpcMemory } from '@/machines/cpc/cpc-memory.ts';
+import { cpcMemCycleStart } from '@/machines/cpc/wait-states.ts';
 
 const ROM_SIZE = 8192;
 
@@ -98,6 +99,9 @@ export class CpcMultiface {
   pressButton(memory: CpcMemory, cpu: Z80): void {
     if (!this.enabled || !this.romLoaded) return;
     this.pageIn(memory);
+    // The NMI acknowledge is an opcode-fetch (MREQ) cycle, so the Gate
+    // Array's /WAIT lines it up with the 1µs grid like any M1.
+    cpu.tStates = cpcMemCycleStart(cpu.tStates);
     cpu.nmi();
   }
 

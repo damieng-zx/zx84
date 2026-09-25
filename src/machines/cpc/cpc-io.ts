@@ -18,6 +18,7 @@ import type { CpcMachine } from '@/machines/cpc/cpc-machine.ts';
 import type { AY3891x } from '@/cores/ay-3-8910.ts';
 import type { CpcKeyboard } from '@/machines/cpc/cpc-keyboard.ts';
 import type { Asic } from '@/machines/cpc/asic.ts';
+import { cpcMemCycleStart, cpcIoOutStart, cpcIoInSample } from '@/machines/cpc/wait-states.ts';
 
 /** Manufacturer code reported on PPI Port B bits 1–3 (7 = Amstrad). */
 const MANUFACTURER_AMSTRAD = 7;
@@ -156,7 +157,8 @@ export class Ppi8255 {
   }
 }
 
-/** Install CPU memory read/write hooks (no contention in Phase 1). */
+/** Install CPU memory read/write hooks. Every memory cycle is held by the
+ *  Gate Array's /WAIT until it lines up with the 1µs grid (wait-states.ts). */
 export function installCpcMemoryHooks(m: CpcMachine): void {
   const memory = m.memory;
   const cpu = m.cpu;
@@ -166,6 +168,7 @@ export function installCpcMemoryHooks(m: CpcMachine): void {
   const asic = m.config.isPlus ? (m.gateArray as unknown as Asic) : null;
 
   cpu.read8 = (addr: number): number => {
+    cpu.tStates = cpcMemCycleStart(cpu.tStates);
     addr &= 0xFFFF;
     const val = memory.readByte(addr);
     if (m.memWatchpoints.length > 0 && m.memWatchHit === null) {
@@ -180,6 +183,7 @@ export function installCpcMemoryHooks(m: CpcMachine): void {
   };
 
   cpu.write8 = (addr: number, val: number): void => {
+    cpu.tStates = cpcMemCycleStart(cpu.tStates);
     addr &= 0xFFFF;
     // Plus ASIC register window intercepts slot 1 writes for side-effects.
     // The underlying storage write still happens through writePtr[1] →
@@ -200,8 +204,8 @@ export function installCpcMemoryHooks(m: CpcMachine): void {
     }
   };
 
-  // The CPC stretches every access to a 1µs boundary; that wait-state model is
-  // a later accuracy refinement. No internal-bus contention for now.
+  // Internal (non-MREQ) cycles are never stretched by /WAIT — only the bus
+  // cycles above and the port hooks in wireCpcPortIO are.
   cpu._contendAccurate = () => {};
   cpu.contend = () => {};
 }
@@ -221,6 +225,7 @@ export function wireCpcPortIO(m: CpcMachine): void {
   const asic = m.config.isPlus ? (ga as unknown as Asic) : null;
 
   cpu.portOut = (port: number, val: number): void => {
+    cpu.tStates = cpcIoOutStart(cpu.tStates);
     port &= 0xFFFF;
     if (m.portWatchpoints.size > 0 && m.portWatchpoints.has(port) && m.portWatchHit === null) {
       m.portWatchHit = { port, value: val, dir: 'out' };
@@ -282,6 +287,7 @@ export function wireCpcPortIO(m: CpcMachine): void {
   };
 
   cpu.portIn = (port: number): number => {
+    cpu.tStates = cpcIoInSample(cpu.tStates);
     port &= 0xFFFF;
     const val = dispatchIn(port);
     if (m.portWatchpoints.size > 0 && m.portWatchpoints.has(port) && m.portWatchHit === null) {

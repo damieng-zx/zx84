@@ -41,6 +41,7 @@ import { KempstonMouse } from '@/machines/shared/kempston-mouse.ts';
 import { CpcAmxMouse } from '@/machines/cpc/peripherals/cpc-amx-mouse.ts';
 import { trapCpcCasRead } from '@/machines/cpc/cpc-tape-loader.ts';
 import { createCpcConfig, type CpcConfig } from '@/machines/cpc/config.ts';
+import { cpcAcknowledgeInterrupt } from '@/machines/cpc/wait-states.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
 import {
   CPC_AY_CLOCK, CPC_CPU_CLOCK, CPC_T_PER_CHAR,
@@ -458,7 +459,13 @@ export class CpcMachine extends BaseMachine implements Machine {
     // up to stay centred rather than overflowing the bottom edge — e.g. the
     // Crazy Cars II title, whose ground was clipped off the bottom.
     const displayTop = (CPC_SCREEN_HEIGHT - crtc.displayedLines()) >> 1;
-    let lineEnd = this.cpu.tStates;
+    // Frames run back to back on the 1µs grid: start where the previous frame
+    // was scheduled to end (the last instruction's overshoot belongs to this
+    // frame), falling back to "now" rounded down to a µs after a reset, a
+    // breakpoint stop, or a snapshot load moved the clock.
+    const now = this.cpu.tStates;
+    let lineEnd = this.nextFrameT;
+    if (lineEnd < 0 || now < lineEnd || now - lineEnd >= lineT) lineEnd = now - (now & 3);
     this.lastAudioT = this.cpu.tStates;
     let broke = false;
 
@@ -506,6 +513,8 @@ export class CpcMachine extends BaseMachine implements Machine {
       if (crtc.vsyncStart) this.vsyncResyncCountdown = 2;
     }
 
+    this.nextFrameT = broke ? -1 : lineEnd;
+
     // Safety: once the tape is fully read, drop out of load-turbo even if the
     // program never polls Port B again (the cadence exit relies on such polls).
     if (this.tapeLoadingActive && (this.tape.finished || !this.tape.playing)) {
@@ -514,6 +523,10 @@ export class CpcMachine extends BaseMachine implements Machine {
 
     this.needsDisplay = true;
   }
+
+  /** T-state the next frame starts at (the previous frame's scheduled end),
+   *  or -1 to start at the current T-state. */
+  private nextFrameT = -1;
 
   /** T-state of the last audio mix step within the current frame. */
   private lastAudioT = 0;
@@ -556,10 +569,11 @@ export class CpcMachine extends BaseMachine implements Machine {
       if (ga.interruptRequested && this.cpu.iff1 && !this.cpu.eiDelay) {
         // Plus IM 2: the ASIC supplies a vector byte encoding the interrupt
         // source (raster > DMA2 > DMA1 > DMA0). Non-Plus / non-IM-2 paths
-        // fall through to the plain INT ack (RST 38h on IM 1).
-        const t = (plusActive && this.cpu.im === 2)
-          ? this.cpu.interruptWithVector(asic!.consumeInterruptVector())
-          : this.cpu.interrupt();
+        // fall through to the plain INT ack (RST 38h on IM 1). The ack is
+        // held by the Gate Array's /WAIT like any bus cycle (IM 1 = 5µs, or
+        // 4µs straight after an instruction ending in internal cycles).
+        const t = cpcAcknowledgeInterrupt(this.cpu,
+          (plusActive && this.cpu.im === 2) ? asic!.consumeInterruptVector() : -1);
         if (t > 0) ga.acknowledgeInterrupt();
       }
 
