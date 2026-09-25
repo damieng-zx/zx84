@@ -213,6 +213,8 @@ export function wireCpcPortIO(m: CpcMachine): void {
   const ga = m.gateArray;
   const memory = m.memory;
   const fdc = m.fdc;
+  // 464 / GX4000: no uPD765A on the bus (a DDI-1 is not modelled).
+  const hasFdc = m.config.hasFDC;
   // Plus ASIC: present on cpc6128plus / gx4000. Used to snoop the CRTC
   // register-select writes for the unlock sequence (every other Plus feature
   // is reached through CPU memory writes once the ASIC window is paged in).
@@ -266,8 +268,8 @@ export function wireCpcPortIO(m: CpcMachine): void {
       }
     }
 
-    // FDC: A10=0
-    if ((port & 0x0400) === 0) {
+    // FDC (only with a disk interface fitted): A10=0
+    if (hasFdc && (port & 0x0400) === 0) {
       if ((port & 0x0100) !== 0) {       // A8=1 → &FB7F data
         fdc.writeData(val);
         m.activity.fdcAccesses++;
@@ -338,8 +340,9 @@ export function wireCpcPortIO(m: CpcMachine): void {
       }
     }
 
-    // FDC: A10=0, A8=1 → &FB7E status / &FB7F data
-    if ((port & 0x0500) === 0x0100) {
+    // FDC (only with a disk interface fitted): A10=0, A8=1 → &FB7E status /
+    // &FB7F data. Without one the bus floats (0xFF).
+    if (hasFdc && (port & 0x0500) === 0x0100) {
       if (port & 1) { m.activity.fdcAccesses++; return fdc.readData(); }
       return fdc.readStatus();
     }
