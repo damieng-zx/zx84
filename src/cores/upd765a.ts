@@ -105,9 +105,14 @@ export class UPD765A {
 
   // ── Interrupt latch (consumed by Sense Interrupt Status) ────────────
 
-  private intPending = false;
-  private intST0 = 0;
-  private intPCN = 0;
+  /**
+   * Seek-end interrupt status waiting per logical unit (0-3): the ST0 and PCN
+   * that Sense Interrupt Status will hand back, or null. Each drive seeks
+   * independently and keeps its own result until it is collected, so after
+   * seeking two drives the CPU issues Sense Interrupt Status twice and gets
+   * one drive's result each time.
+   */
+  private seekInt: ({ st0: number; pcn: number } | null)[] = [null, null, null, null];
   /** Specify's ND bit: the CPU moves the data, so INT marks every byte. */
   private nonDma = false;
 
@@ -388,7 +393,9 @@ export class UPD765A {
   get interruptLine(): boolean {
     if (this.intCountdown > 0) return false;
     if (this.phase === Phase.Execution) return this.nonDma;
-    return this.intPending || this.phase === Phase.Result;
+    const si = this.seekInt;
+    return si[0] !== null || si[1] !== null || si[2] !== null || si[3] !== null
+      || this.phase === Phase.Result;
   }
 
   /**
@@ -1022,9 +1029,11 @@ export class UPD765A {
 
   /** Sense Interrupt Status — return latched interrupt info. */
   private cmdSenseInt(): void {
-    if (this.intPending) {
-      this.intPending = false;
-      this.result([this.intST0, this.intPCN]);
+    const unit = this.seekInt.findIndex(p => p !== null);
+    if (unit >= 0) {
+      const { st0, pcn } = this.seekInt[unit]!;
+      this.seekInt[unit] = null;
+      this.result([st0, pcn]);
     } else {
       this.result([ST0_INVALID]);
     }
@@ -1037,21 +1046,20 @@ export class UPD765A {
     // command ends with an equipment check. This is how software counts drives.
     if (!this.connected[this.physUnit(unit)]) {
       this.log(`  → Unit=${unit} recalibrate: no drive connected`);
-      this.intPending = true;
-      this.intST0 = ST0_SEEK_END | ST0_ABNORMAL | ST0_EQUIP_CHECK | unit;
-      this.intPCN = this.pcn[this.physUnit(unit)];
+      this.seekInt[unit] = {
+        st0: ST0_SEEK_END | ST0_ABNORMAL | ST0_EQUIP_CHECK | unit,
+        pcn: this.pcn[this.physUnit(unit)],
+      };
       this.phase = Phase.Idle;
       return;
     }
     this.log(`  → Unit=${unit} recalibrating to track 0`);
     this.pcn[this.physUnit(unit)] = 0;
-    this.intPending = true;
     // HD (ST0 bit 2) is intentionally 0 here — the seek-complete ST0 reports
     // head 0 regardless of the command's HDS bit (matches +3 hardware; SEEK and
     // RECALIBRATE both behave this way). The HDS is not latched into the seek
     // interrupt status.
-    this.intST0 = ST0_SEEK_END | unit;
-    this.intPCN = 0;
+    this.seekInt[unit] = { st0: ST0_SEEK_END | unit, pcn: 0 };
     this.phase = Phase.Idle;
   }
 
@@ -1061,20 +1069,19 @@ export class UPD765A {
     const ncn = this.cmdBuf[2];
     if (!this.connected[this.physUnit(unit)]) {
       this.log(`  → Unit=${unit} seek: no drive connected`);
-      this.intPending = true;
-      this.intST0 = ST0_SEEK_END | ST0_ABNORMAL | ST0_EQUIP_CHECK | unit;
-      this.intPCN = this.pcn[this.physUnit(unit)];
+      this.seekInt[unit] = {
+        st0: ST0_SEEK_END | ST0_ABNORMAL | ST0_EQUIP_CHECK | unit,
+        pcn: this.pcn[this.physUnit(unit)],
+      };
       this.phase = Phase.Idle;
       return;
     }
     this.log(`  → Unit=${unit} seeking to cylinder ${ncn}`);
     this.pcn[this.physUnit(unit)] = ncn;
-    this.intPending = true;
     // HD (ST0 bit 2) stays 0 even when the command's HDS bit selects side 1 —
     // the seek-complete ST0 reports head 0 regardless (matches +3 hardware; see
     // cmdRecalibrate). Software polls SE + unit after a seek, never HD.
-    this.intST0 = ST0_SEEK_END | unit;
-    this.intPCN = ncn;
+    this.seekInt[unit] = { st0: ST0_SEEK_END | unit, pcn: ncn };
     this.phase = Phase.Idle;
   }
 
@@ -1613,11 +1620,9 @@ export class UPD765A {
     this.cmdExpected = 0;
     this.resBuf = [];
     this.resPos = 0;
-    this.intPending = false;
+    this.seekInt = [null, null, null, null];
     this.intCountdown = 0;
     this.nonDma = false;
-    this.intST0 = 0;
-    this.intPCN = 0;
     this.pcn = [0, 0];
     this.motorOn = false;
     this.tc = false;

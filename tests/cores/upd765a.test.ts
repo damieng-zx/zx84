@@ -1589,3 +1589,34 @@ describe('uPD765A — MT End-of-Cylinder result under TC', () => {
     expect(result.slice(3, 6)).toEqual([0, 1, 1]);  // C=0 H=1 R=1: no rollover
   });
 });
+
+describe('uPD765A — seek-end interrupts are held per drive', () => {
+  it('two seeks give two Sense Interrupt Status results, one per drive', () => {
+    const d = new Driver();
+    d.command(0x0F, 0x00, 5);   // SEEK unit 0 → 5
+    d.command(0x0F, 0x01, 9);   // SEEK unit 1 → 9
+    const a = d.command(0x08);
+    const b = d.command(0x08);
+    const got = [a, b].sort((x, y) => (x[0] & 3) - (y[0] & 3));
+    expect(got).toEqual([[ST0_SEEK_END | 0, 5], [ST0_SEEK_END | 1, 9]]);
+    expect(d.command(0x08)).toEqual([ST0_INVALID]);   // nothing left
+  });
+
+  it('INT stays high until the last drive\'s seek result is collected', () => {
+    const d = new Driver();
+    d.command(0x07, 0x00);      // RECALIBRATE unit 0
+    d.command(0x0F, 0x01, 3);   // SEEK unit 1
+    d.command(0x08);
+    expect(d.fdc.interruptLine).toBe(true);
+    d.command(0x08);
+    expect(d.fdc.interruptLine).toBe(false);
+  });
+
+  it('a second seek on the same drive replaces that drive\'s pending result', () => {
+    const d = new Driver();
+    d.command(0x0F, 0x00, 5);
+    d.command(0x0F, 0x00, 7);
+    expect(d.command(0x08)).toEqual([ST0_SEEK_END, 7]);
+    expect(d.command(0x08)).toEqual([ST0_INVALID]);
+  });
+});
