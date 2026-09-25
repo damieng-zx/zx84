@@ -528,7 +528,14 @@ export class WD179x {
   }
 
   private finishWrite(): void {
-    if (this.multi && this.advanceSector(true)) return;
+    if (this.multi) {
+      if (this.advanceSector(true)) return;
+      // As for a multi-sector read: the controller searches for R+1's ID
+      // field and, not finding it, ends the command in RECORD NOT FOUND.
+      this.buffer = null;
+      this.statusReg = this.base() | ST_RNF;
+      return;
+    }
     this.buffer = null;
     this.statusReg = this.base();
   }
