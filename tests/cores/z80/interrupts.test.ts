@@ -227,3 +227,42 @@ describe('Z80 — interruptWithVector _pendingVector handling', () => {
     expect(cpu._pendingVector).toBe(0xFF);
   });
 });
+
+describe('Z80 — NMOS LD A,I / LD A,R P/V quirk', () => {
+  // Sean Young, "The Undocumented Z80 Documented" §5.3: on NMOS parts, if an
+  // interrupt is accepted directly after LD A,I or LD A,R, the P/V flag reads
+  // 0 even though IFF2 was 1 when the instruction ran.
+  const F_PV = 0x04;
+
+  for (const [name, op] of [['LD A,I', 0x57], ['LD A,R', 0x5F]] as const) {
+    it(`${name} followed immediately by an accepted INT leaves P/V = 0`, () => {
+      const h = newCpu();
+      h.cpu.iff1 = true; h.cpu.iff2 = true; h.cpu.im = 1;
+      h.cpu.i = 0x80; h.cpu.sp = 0xC010;
+      load(h.mem, 0, 0xED, op);
+      step(h);
+      expect(h.cpu.f & F_PV).toBe(F_PV); // copied from IFF2 = 1
+      expect(h.cpu.interrupt()).toBeGreaterThan(0);
+      expect(h.cpu.f & F_PV).toBe(0);
+    });
+  }
+
+  it('an INT accepted one instruction later leaves the LD A,I P/V intact', () => {
+    const h = newCpu();
+    h.cpu.iff1 = true; h.cpu.iff2 = true; h.cpu.im = 1;
+    h.cpu.sp = 0xC010;
+    load(h.mem, 0, 0xED, 0x57, 0x00); // LD A,I ; NOP
+    step(h, 2);
+    h.cpu.interrupt();
+    expect(h.cpu.f & F_PV).toBe(F_PV);
+  });
+
+  it('a blocked INT (IFF1 = 0) after LD A,I does not touch P/V', () => {
+    const h = newCpu();
+    h.cpu.iff1 = false; h.cpu.iff2 = true; h.cpu.im = 1;
+    load(h.mem, 0, 0xED, 0x57);
+    step(h);
+    expect(h.cpu.interrupt()).toBe(0);
+    expect(h.cpu.f & F_PV).toBe(F_PV);
+  });
+});

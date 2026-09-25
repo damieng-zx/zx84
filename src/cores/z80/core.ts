@@ -61,6 +61,11 @@ export class Z80 {
   halted = false;
   /** EI delay: interrupts suppressed for one instruction after EI. */
   eiDelay = false;
+  /** Set by LD A,I / LD A,R; cleared before every instruction. NMOS quirk:
+   *  if a maskable interrupt is accepted straight after either one, the P/V
+   *  flag it copied from IFF2 reads 0 — the IFF2 read lands late enough that
+   *  the acknowledge's IFF reset beats it. */
+  ldAirPv = false;
 
   /** Board-inserted waits per opcode M1 fetch, including HALT and prefixes.
    *  Wiring configuration survives reset; ordinary memory cycles are unaffected. */
@@ -135,6 +140,7 @@ export class Z80 {
     this.im = 0;
     this.halted = false;
     this.eiDelay = false;
+    this.ldAirPv = false;
 
     this.memptr = 0;
     this._qReg = 0;
@@ -213,6 +219,8 @@ export class Z80 {
     this.halted = false;
     this.iff1 = false;
     this.iff2 = false;
+    // NMOS LD A,I / LD A,R quirk: accepted right after one → P/V reads 0.
+    if (this.ldAirPv) { this.f &= ~0x04; this.ldAirPv = false; }
     // INT acknowledge is an M1 cycle — R increments like any opcode fetch.
     this.r = (this.r & 0x80) | ((this.r + 1) & 0x7F);
     // The ack cycle doesn't touch flags, so it's a "Q=0" step for the Q
@@ -392,6 +400,7 @@ export class Z80 {
     // HALT re-fetch) and letting EI's own opcode handler set it again —
     // nothing reads eiDelay mid-instruction, only between step() calls.
     this.eiDelay = false;
+    this.ldAirPv = false;
     if (this.halted) {
       // HALT repeats a NOP-like M1 fetch from PC — apply contention.
       // No contention probe during the T3-T4 refresh: the ULA only stalls
