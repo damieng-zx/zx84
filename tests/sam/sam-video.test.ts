@@ -195,6 +195,37 @@ describe('SamAsic mode 3 (512x192, 2bpp)', () => {
     expect(r.at(r.draw(0), 0)).toBe(colour(0));
   });
 
+  it('takes CLUT index bits 2-3 from HMPR MD3COL (bits 5-6)', () => {
+    // index = ((hmpr & 0x60) >> 3) | pixel. MD3COL = 2 (hmpr 0x40) moves the
+    // four pixel values onto CLUT 8-11; MD3COL = 3 onto 12-15.
+    const r = rig(3);
+    markClut(r.asic);
+    r.vram(0, 0xE4);               // pixels 3, 2, 1, 0
+    r.memory.setHmpr(0x40);
+    let row = r.draw(0);
+    expect(r.at(row, 0)).toBe(colour(11));
+    expect(r.at(row, 1)).toBe(colour(10));
+    expect(r.at(row, 2)).toBe(colour(9));
+    expect(r.at(row, 3)).toBe(colour(8));
+
+    r.memory.setHmpr(0x60 | 0x1F); // page bits must not leak into the index
+    row = r.draw(0);
+    expect(r.at(row, 0)).toBe(colour(15));
+    expect(r.at(row, 3)).toBe(colour(12));
+  });
+
+  it('latches MD3COL at the start of the line', () => {
+    const r = rig(3);
+    markClut(r.asic);
+    r.vram(0, 0x40);               // pixel 0 = 1
+    r.memory.setHmpr(0x20);        // MD3COL = 1 -> CLUT 5
+    const line = rasterOf(0);
+    r.asic.beginLine(line, 0);
+    r.memory.setHmpr(0x00);        // changed mid-line: next line only
+    r.asic.renderScanline(r.px, line);
+    expect(r.px[line * SAM_SCREEN_WIDTH + SAM_BORDER_LEFT]).toBe(colour(5));
+  });
+
   it('spans the 24K page pair, reaching into the second page', () => {
     // Screen line 130 starts at 130*128 = 16640, i.e. 256 bytes into page 2.
     const r = rig(3);

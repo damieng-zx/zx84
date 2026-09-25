@@ -31,7 +31,7 @@ import {
   SAM_DISPLAY_HEIGHT, SAM_DISPLAY_LAST_LINE, SAM_FRAME_INT_LINE,
   SAM_INT_ACTIVE_T, SAM_LINES_PER_FRAME, SAM_PAGE_SIZE, SAM_PALETTE,
   SAM_SCREEN_HEIGHT, SAM_SCREEN_WIDTH, SAM_TOP_BORDER_LINES, SAM_T_PER_CELL,
-  LPEN_TXFMST,
+  HMPR_MD3COL_MASK, LPEN_TXFMST,
   STATUS_IDLE, STATUS_INT_FRAME, STATUS_INT_LINE,
 } from './constants.ts';
 
@@ -72,6 +72,8 @@ export class SamAsic {
   private linePageA: Uint8Array;
   private linePageB: Uint8Array;
   private lineBorder = 0;
+  /** Mode 3 CLUT index bits 2-3, from HMPR MD3COL (bits 5-6). */
+  private lineMd3Clut = 0;
   private lineScreenOff = false;
   private lineStartT = 0;
   private lineFlash = false;
@@ -325,6 +327,7 @@ export class SamAsic {
     this.linePageB = mem.videoPage(base + 1);
     this.lineBorder = this.borderIndex;
     this.lineScreenOff = this.screenOff;
+    this.lineMd3Clut = (mem.hmpr & HMPR_MD3COL_MASK) >> 3;
     this.lineFlash = (this.frames & FLASH_FRAMES) !== 0;
 
     const pal = this.palette;
@@ -428,16 +431,19 @@ export class SamAsic {
   }
 
   /** Mode 3 — 512x192, 2 bits per pixel, 128 bytes per line. Each byte is four
-   *  pixels, most-significant pair leftmost. Only CLUT entries 0-3 are used. */
+   *  pixels, most-significant pair leftmost. The pixel supplies CLUT index
+   *  bits 0-1 and HMPR's MD3COL field bits 2-3, so four consecutive entries
+   *  are reachable at a time. */
   private cellMode3(px: Uint32Array, x: number, y: number, col: number): void {
     const lut = this.clutLut;
+    const hi = this.lineMd3Clut;
     const off = (y << 7) + (col << 2);
     for (let i = 0; i < 4; i++) {
       const b = this.fetch(off + i);
-      px[x] = lut[(b >> 6) & 3];
-      px[x + 1] = lut[(b >> 4) & 3];
-      px[x + 2] = lut[(b >> 2) & 3];
-      px[x + 3] = lut[b & 3];
+      px[x] = lut[hi | ((b >> 6) & 3)];
+      px[x + 1] = lut[hi | ((b >> 4) & 3)];
+      px[x + 2] = lut[hi | ((b >> 2) & 3)];
+      px[x + 3] = lut[hi | (b & 3)];
       x += 4;
     }
   }
