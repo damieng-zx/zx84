@@ -231,6 +231,57 @@ describe('TapeDeck — pause block playback', () => {
     expect((deck as any).playbackIdx).toBe(0); // never started the tone
   });
 
+  it('resumes at the block after a stop once `paused` is cleared', () => {
+    // Every resume path (loader detector, tape service resume(), motor
+    // relays) only clears `paused` while `playing` stays true.
+    const stop: PauseBlock = { kind: 'pause', duration: 0 };
+    const pulses: PulsesBlock = { kind: 'pulses', lengths: [100, 100] };
+    const deck = deckWith(stop, pulses);
+    deck.startPlayback();
+    expect(deck.paused).toBe(true);
+    deck.paused = false;
+    const start = deck.earBit;
+    deck.advance(100);
+    expect(deck.earBit).toBe(start ^ 1);
+    deck.advance(100);
+    expect(deck.earBit).toBe(start);
+    expect(deck.playing).toBe(false); // tape played to its end
+  });
+
+  it('resumes after a stop reached mid-tape by playback', () => {
+    const deck = deckWith(
+      { kind: 'pulses', lengths: [50] } as PulsesBlock,
+      { kind: 'pause', duration: 0 } as PauseBlock,
+      { kind: 'pulses', lengths: [70, 70] } as PulsesBlock,
+    );
+    deck.startPlayback();
+    deck.advance(50);            // first edge, then the stop block
+    expect(deck.paused).toBe(true);
+    const level = deck.earBit;
+    deck.paused = false;
+    deck.advance(70);
+    expect(deck.earBit).toBe(level ^ 1);
+    expect((deck as any).playbackIdx).toBe(2);
+  });
+
+  it('a stop found by peekDataBlock is resumed from the block after it, not re-hit', () => {
+    // ROM-trap path: the deck is still replaying block 0's trailing pause when
+    // the trap's peek consumes the stop. Resuming must not replay the stop.
+    const deck = deckWith(
+      makeData(0xFF, [1], { pause: 1000 }),
+      { kind: 'pause', duration: 0 } as PauseBlock,
+      { kind: 'tone', pulseLen: 100, count: 5 } as ToneBlock,
+    );
+    deck.nextDataBlock();
+    deck.skipBlock();                       // replaying block 0's pause
+    expect(deck.peekDataBlock()).toBeNull(); // hits the stop
+    expect(deck.paused).toBe(true);
+    deck.paused = false;
+    deck.advance(1);
+    expect(deck.paused).toBe(false);
+    expect((deck as any).playbackIdx).toBe(2);
+  });
+
   it('duration>0 elapses then advances to next block (uses cpuClock)', () => {
     const pause: PauseBlock = { kind: 'pause', duration: 10 }; // 10ms
     const tone: ToneBlock = { kind: 'tone', pulseLen: 100, count: 1 };
@@ -296,6 +347,16 @@ describe('TapeDeck — stop-if-48k block', () => {
     deck.startPlayback();
     expect(deck.paused).toBe(true);
     expect(deck.position).toBe(1);
+  });
+
+  it('resumes at the following block once `paused` is cleared', () => {
+    const stop: StopIf48KBlock = { kind: 'stop-if-48k' };
+    const tone: ToneBlock = { kind: 'tone', pulseLen: 100, count: 3 };
+    const deck = deckWith(stop, tone);
+    deck.is48K = true;
+    deck.startPlayback();
+    deck.paused = false;
+    expect(countEdges(deck, 300)).toBe(3);
   });
 
   it('is a no-op on a 128K-class machine', () => {

@@ -150,6 +150,10 @@ export class TapeDeck {
   onPlayStateChange: (() => void) | null = null;
 
   private phase: TapePhase = TapePhase.IDLE;
+
+  /** Set while the deck is parked idle by a stop-the-tape block, awaiting a
+   *  resume (see stopTape / advance). */
+  private stopped = false;
   private playbackIdx = -1;
 
   /** Pilot tone pulses remaining */
@@ -298,8 +302,7 @@ export class TapeDeck {
       // Pause: duration=0 means "stop tape"
       if (block.kind === 'pause') {
         if (block.duration === 0) {
-          this.paused = true;
-          this.position++;
+          this.stopTape(this.position + 1);
           return null;
         }
         // Non-zero pause: skip (ROM trap bypasses inter-block gaps)
@@ -310,8 +313,7 @@ export class TapeDeck {
       // Stop if 48K
       if (block.kind === 'stop-if-48k') {
         if (this.is48K) {
-          this.paused = true;
-          this.position++;
+          this.stopTape(this.position + 1);
           return null;
         }
         this.position++;
@@ -448,7 +450,17 @@ export class TapeDeck {
    * Toggles earBit at pulse boundaries.
    */
   advance(tStates: number): void {
-    if (!this.playing || this.paused || this.phase === TapePhase.IDLE) return;
+    if (!this.playing || this.paused) return;
+    if (this.phase === TapePhase.IDLE) {
+      // A stop-the-tape block parked the deck idle but still `playing`.
+      // Every resume path — the loader detector, the tape services'
+      // resume(), the machines' motor relays — only clears `paused`, so
+      // pick up at the block after the stop here.
+      if (!this.stopped) return;
+      this.stopped = false;
+      this.beginBlock(this.position);
+      if (!this.playing || this.paused || this.phase === TapePhase.IDLE) return;
+    }
 
     if (this.phase === TapePhase.PAUSE) {
       this.pauseRemaining -= tStates;
@@ -484,6 +496,7 @@ export class TapeDeck {
   // ── Internal playback mechanics ───────────────────────────────────────
 
   private beginBlock(idx: number): void {
+    this.stopped = false;
     while (idx < this.blocks.length) {
       this.playbackIdx = idx;
       this.tInPulse = 0;
@@ -529,9 +542,7 @@ export class TapeDeck {
 
         case 'pause':
           if (block.duration === 0) {
-            this.paused = true;
-            this.position = idx + 1;
-            this.phase = TapePhase.IDLE;
+            this.stopTape(idx + 1);
             return;
           }
           this.position = idx + 1;
@@ -558,8 +569,7 @@ export class TapeDeck {
         case 'stop-if-48k':
           this.position = idx + 1;
           if (this.is48K) {
-            this.paused = true;
-            this.phase = TapePhase.IDLE;
+            this.stopTape(idx + 1);
             return;
           }
           idx++;
@@ -579,6 +589,17 @@ export class TapeDeck {
     this.playing = false;
     this.rawData = null;
     this.directData = null;
+  }
+
+  /** "Stop the tape" (a zero-length Pause, or Stop-if-48K on a 48K machine):
+   *  pause the deck and park it idle with `position` at the following block,
+   *  so whatever resumes it — clearing `paused` is enough, see advance() —
+   *  continues from there rather than from a half-played earlier block. */
+  private stopTape(nextIdx: number): void {
+    this.stopped = true;
+    this.paused = true;
+    this.position = nextIdx;
+    this.phase = TapePhase.IDLE;
   }
 
   private beginDataBlock(block: DataBlock): void {
