@@ -223,6 +223,8 @@ export class UPD765A {
    * result contract (see the "single-sector protection mode" test).
    */
   private exNormalEOT = false;
+  /** MT=1 read/write ran off EOT on head 1: result is C+1, H^1, R=1. */
+  private exMTEOT = false;
   /**
    * MT (Multi-Track) bit from the command. When set, reaching EOT on the
    * starting head continues the same command on the other side of the cylinder
@@ -357,6 +359,7 @@ export class UPD765A {
       this.resBuf[0] &= ~ST0_ABNORMAL;
       this.resBuf[1] &= ~0x80;   // ST1 EN (End of Cylinder)
       this.resBuf[3] = this.exC;
+      this.resBuf[4] = this.exH;
       this.resBuf[5] = this.exR;
       this.resEotOnly = false;
       this.log('  ← TC before result read: End-of-Cylinder rewritten as normal '
@@ -699,11 +702,14 @@ export class UPD765A {
       this.exHitEOT = true;
       // Datasheet End-of-Cylinder result rewrite (C+1, R=1) applies here —
       // this is a genuine search exhaustion, not the copy-protection
-      // exSingleSector short-circuit. Scoped to MT=0 only (see exNormalEOT);
-      // the MT=1 case immediately above either continues on side 1 (returns
-      // before reaching here) or falls through when no side-1 track exists,
-      // whose exact result-register rewrite isn't verified here.
+      // exSingleSector short-circuit. For MT=0 it is C+1, R=1 (exNormalEOT).
+      // For MT=1 the datasheet's result table gives C+1, H complemented, R=1
+      // once the second head (HD=1) runs off EOT — the side switch above has
+      // already happened by then. MT=1 falling through on head 0 (no side-1
+      // track to continue onto) keeps the sector's own CHRN: that case never
+      // occurs on real two-sided hardware and its result isn't verified.
       if (!this.exMT) this.exNormalEOT = true;
+      else if (this.exHead === 1) this.exMTEOT = true;
       return false;
     }
 
@@ -910,16 +916,18 @@ export class UPD765A {
     // applied to the exSingleSector copy-protection short-circuit (see
     // exNormalEOT) — that path's result CHRN is a verified protection
     // contract and must keep reporting the sector actually read.
-    const resultC = this.exNormalEOT ? (this.exC + 1) & 0xFF : this.exC;
-    const resultR = this.exNormalEOT ? 1 : this.exR;
+    const rollover = this.exNormalEOT || this.exMTEOT;
+    const resultC = rollover ? (this.exC + 1) & 0xFF : this.exC;
+    const resultH = this.exMTEOT ? this.exH ^ 1 : this.exH;
+    const resultR = rollover ? 1 : this.exR;
 
     // Return actual ST1 and ST2 from the sector (preserves CRC errors!)
     // Speedlock checks for intentional CRC errors - must not "fix" them!
-    this.log(`  ← Result: ST0=0x${st0.toString(16).padStart(2, '0')} ST1=0x${st1.toString(16).padStart(2, '0')} ST2=0x${this.exST2.toString(16).padStart(2, '0')} C=${resultC} H=${this.exH} R=${resultR} N=${this.exN}`);
+    this.log(`  ← Result: ST0=0x${st0.toString(16).padStart(2, '0')} ST1=0x${st1.toString(16).padStart(2, '0')} ST2=0x${this.exST2.toString(16).padStart(2, '0')} C=${resultC} H=${resultH} R=${resultR} N=${this.exN}`);
     if ((st1 & ~0x80) || this.exST2) {
       this.log(`  ⚠ CRC/Error flags present in result!`);
     }
-    this.result([st0, st1, this.exST2, resultC, this.exH, resultR, this.exN]);
+    this.result([st0, st1, this.exST2, resultC, resultH, resultR, this.exN]);
 
     // Arm the TC rewrite (see setTerminalCount): this result is an
     // End-of-Cylinder termination and nothing else went wrong, so a TC that
@@ -1281,6 +1289,7 @@ export class UPD765A {
     this.exEOT = eot;
     this.exHitEOT = false;
     this.exNormalEOT = false;
+    this.exMTEOT = false;
     this.exMT = mt;
     this.exAbnormal = false;
     this.exTrack = track;
@@ -1380,6 +1389,7 @@ export class UPD765A {
     this.exEOT = eot;
     this.exHitEOT = false;
     this.exNormalEOT = false;
+    this.exMTEOT = false;
     this.exAbnormal = false;
     this.exTrack = track;
     this.exWriting = false;
@@ -1468,6 +1478,7 @@ export class UPD765A {
     this.exWriting   = true;
     this.exHitEOT    = false;
     this.exNormalEOT = false;
+    this.exMTEOT = false;
     this.exST1       = 0;
     this.exST2       = 0;
     // Receive SC×4 bytes from CPU: one (C, H, R, N) tuple per sector
