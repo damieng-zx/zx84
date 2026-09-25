@@ -242,8 +242,11 @@ export function wireEinsteinPortIO(m: EinsteinMachine): void {
         return 0xFF;
       case 0x38: // Einstein 256 pseudo-ADC: joystick centred.
         if (is256) return 0x7F;
+        // TC-01 ADC0844 (0x38–0x3F): no analogue joystick attached, so every
+        // channel converts a centred stick — mid-scale, as MAME's analogue
+        // ports default to 0x80.
         m.boardIntPending &= ~EINSTEIN_INT_ADC;     // ADC0844 /RD clears INTR
-        return 0xFF;
+        return 0x80;
       default:   // 8251 data, PIO, ADC, unmapped
         return 0xFF;
     }
