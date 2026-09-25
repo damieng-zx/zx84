@@ -315,3 +315,34 @@ describe('Z80 — IM 2 uses the full data-bus vector byte', () => {
     expect(h.cpu.pc).toBe(0x4433);
   });
 });
+
+describe('Z80 — RETI bus notification (onReti)', () => {
+  // Only ED 4D is RETI; ED 45/55/5D/65/6D/75/7D are all RETN (Zilog Z80 CPU
+  // User Manual; Sean Young, "The Undocumented Z80 Documented" §5.3).
+  // Daisy-chained peripherals decode ED 4D to clear their under-service latch.
+  it('ED 4D calls onReti once and returns to the popped address', () => {
+    const h = newCpu();
+    let calls = 0;
+    h.cpu.onReti = () => { calls++; };
+    h.cpu.sp = 0xC000;
+    h.mem[0xC000] = 0x34; h.mem[0xC001] = 0x12;
+    load(h.mem, 0, 0xED, 0x4D);
+    step(h);
+    expect(calls).toBe(1);
+    expect(h.cpu.pc).toBe(0x1234);
+  });
+
+  for (const op of [0x45, 0x55, 0x5D, 0x65, 0x6D, 0x75, 0x7D]) {
+    it(`ED ${op.toString(16).toUpperCase()} (RETN) does not call onReti`, () => {
+      const h = newCpu();
+      let calls = 0;
+      h.cpu.onReti = () => { calls++; };
+      h.cpu.sp = 0xC000;
+      h.mem[0xC000] = 0x34; h.mem[0xC001] = 0x12;
+      load(h.mem, 0, 0xED, op);
+      step(h);
+      expect(calls).toBe(0);
+      expect(h.cpu.pc).toBe(0x1234);
+    });
+  }
+});
