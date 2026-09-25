@@ -132,3 +132,52 @@ describe('parseSCP weak-sector detection across revolutions', () => {
     expect(s2.data.every(b => b === 0x55)).toBe(true);
   });
 });
+
+describe('parseSCP revolution merge keys on the whole ID', () => {
+  function trackOf(ids: { c: number; r: number; fill: number }[]): DskTrack {
+    const s: DskSector[] = ids.map(x => ({
+      c: x.c, h: 0, r: x.r, n: 2, st1: 0, st2: 0, data: new Uint8Array(512).fill(x.fill),
+    }));
+    return { sectors: s, sectorMap: new Map(), gap3: 0x52, filler: 0xE5 };
+  }
+
+  it('two sectors sharing R on the same track stay two stable sectors', () => {
+    const t = trackOf([{ c: 0, r: 1, fill: 0x11 }, { c: 5, r: 1, fill: 0x22 }]);
+    const img = parseSCP(buildScp([fluxFor(t), fluxFor(t)]));
+    const dec = img.tracks[0]![0]!;
+    expect(dec.sectors.length).toBe(2);
+    expect(dec.sectors.map(s => s.c)).toEqual([0, 5]);
+    expect(dec.sectors.map(s => s.data[0])).toEqual([0x11, 0x22]);
+    expect(dec.sectors.every(s => s.copies === undefined && (s.st2 & 0x20) === 0)).toBe(true);
+  });
+
+  it('a bad-CRC misread in one revolution does not make a good sector weak', () => {
+    const t = trackOf([{ c: 0, r: 1, fill: 0x11 }]);
+    const clean = encodeHfeTrack(t)!;
+    // Corrupt one data cell of the payload in a second revolution: the stored
+    // CRC no longer matches, so that revolution reads the sector with DE/DD.
+    const bad = new Uint8Array(clean.cells);
+    const bit = clean.layout[0].dataBit + 1;       // first data cell of byte 0
+    bad[bit >> 3] |= 1 << (bit & 7);
+    const img = parseSCP(buildScp([cellsToFlux(clean.cells), cellsToFlux(bad)]));
+    const s = img.tracks[0]![0]!.sectors[0];
+    expect(s.copies).toBeUndefined();
+    expect(s.st1 & 0x20).toBe(0);
+    expect(s.st2 & 0x20).toBe(0);
+    expect(s.data.every(b => b === 0x11)).toBe(true);
+  });
+
+  it('a sector that fails its CRC on every revolution with differing data is weak', () => {
+    const t = trackOf([{ c: 0, r: 1, fill: 0x11 }]);
+    const clean = encodeHfeTrack(t)!;
+    const revs = [1, 3].map(off => {
+      const c = new Uint8Array(clean.cells);
+      const bit = clean.layout[0].dataBit + off;
+      c[bit >> 3] |= 1 << (bit & 7);
+      return cellsToFlux(c);
+    });
+    const s = parseSCP(buildScp(revs)).tracks[0]![0]!.sectors[0];
+    expect(s.copies?.length).toBe(2);
+    expect(s.st2 & 0x20).toBe(0x20);
+  });
+});
