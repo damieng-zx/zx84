@@ -108,6 +108,11 @@ const enum TapePhase {
   DIRECT,
 }
 
+/** Phases timed as edge-terminated pulses (pulseLen / tInPulse). */
+function isPulsePhase(phase: TapePhase): boolean {
+  return phase !== TapePhase.IDLE && phase !== TapePhase.PAUSE && phase !== TapePhase.DIRECT;
+}
+
 export class TapeDeck {
   blocks: TapeBlock[] = [];
   position = 0;
@@ -459,34 +464,46 @@ export class TapeDeck {
       if (!this.playing || this.paused || this.phase === TapePhase.IDLE) return;
     }
 
-    if (this.phase === TapePhase.PAUSE) {
-      this.pauseRemaining -= tStates;
-      if (this.pauseFlipAt > 0) {
-        this.pauseFlipAt -= tStates;
-        if (this.pauseFlipAt <= 0) {
-          this.earBit = 0;
-          this.pauseFlipAt = -1;
+    // Feed the T-states through as many pulses, samples, pauses and blocks as
+    // they cover. Whatever a finishing element overshoots by is carried into
+    // the next one, so block boundaries never lose (or add) time.
+    let t = tStates;
+    while (t > 0 && this.playing && !this.paused) {
+      if ((this.phase as TapePhase) === TapePhase.IDLE) return;
+
+      if (this.phase === TapePhase.PAUSE) {
+        if (this.pauseFlipAt > 0) {
+          this.pauseFlipAt -= t;
+          if (this.pauseFlipAt <= 0) {
+            this.earBit = 0;
+            this.pauseFlipAt = -1;
+          }
         }
-      }
-      if (this.pauseRemaining <= 0) {
+        this.pauseRemaining -= t;
+        if (this.pauseRemaining > 0) return;
+        t = -this.pauseRemaining;
+        this.pauseRemaining = 0;
         this.beginBlock(this.playbackIdx + 1);
+        continue;
       }
-      return;
-    }
 
-    if (this.phase === TapePhase.DIRECT) {
-      this.advanceDirect(tStates);
-      return;
-    }
+      if (this.phase === TapePhase.DIRECT) {
+        t = this.advanceDirect(t);
+        continue;
+      }
 
-    this.tInPulse += tStates;
-    while (this.tInPulse >= this.pulseLen &&
-           (this.phase as number) !== TapePhase.IDLE &&
-           (this.phase as number) !== TapePhase.PAUSE &&
-           (this.phase as number) !== TapePhase.DIRECT) {
-      this.tInPulse -= this.pulseLen;
-      this.earBit ^= 1;
-      this.advancePulse();
+      this.tInPulse += t;
+      while (this.tInPulse >= this.pulseLen && isPulsePhase(this.phase)) {
+        const carry = this.tInPulse - this.pulseLen;
+        this.earBit ^= 1;
+        this.advancePulse();      // may begin the next block (zeroing tInPulse)
+        this.tInPulse = carry;
+      }
+      if (isPulsePhase(this.phase)) return;
+      // The block ended into a pause, a direct recording, a stop or the end
+      // of the tape: hand the overshoot on to it.
+      t = this.tInPulse;
+      this.tInPulse = 0;
     }
   }
 
@@ -641,7 +658,9 @@ export class TapeDeck {
     this.earBit = (block.data[0] >> 7) & 1;
   }
 
-  private advanceDirect(tStates: number): void {
+  /** Play direct-recording samples; returns the T-states left over once the
+   *  block ends (0 while it is still playing). */
+  private advanceDirect(tStates: number): number {
     this.tInPulse += tStates;
     while (this.tInPulse >= this.directTStatesPerSample) {
       this.tInPulse -= this.directTStatesPerSample;
@@ -657,12 +676,14 @@ export class TapeDeck {
         // pause=0) and its fresh data must not be nulled afterwards.
         this.position = this.playbackIdx + 1;
         this.directData = null;
+        const leftover = this.tInPulse;
+        this.tInPulse = 0;
         if (this.directPauseMs > 0) {
           this.startPause(Math.round(this.directPauseMs * this.cpuClock / 1000));
         } else {
           this.beginBlock(this.playbackIdx + 1);
         }
-        return;
+        return leftover;
       }
 
       if (this.directBitIdx < 0) {
@@ -677,6 +698,7 @@ export class TapeDeck {
       // Set EAR absolutely (not toggle)
       this.earBit = (this.directData![this.directByteIdx] >> this.directBitIdx) & 1;
     }
+    return 0;
   }
 
   private advancePulse(): void {
@@ -778,8 +800,13 @@ export class TapeDeck {
     if (this.pauseRemaining < flipAt && !this.hasFollowingBlock()) {
       this.pauseRemaining = flipAt;
     }
-    if (this.pauseRemaining > 0) this.startPause(this.pauseRemaining);
-    else this.pauseFlipAt = -1;
+    if (this.pauseRemaining > 0) {
+      this.startPause(this.pauseRemaining);
+    } else {
+      // No pause: the next block starts right on this block's last edge.
+      this.pauseFlipAt = -1;
+      this.beginBlock(this.playbackIdx + 1);
+    }
   }
 
   /**
