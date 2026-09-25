@@ -338,3 +338,50 @@ describe('createBlankHfe — brand-new blank HFE', () => {
     expect(Array.from(s.data)).toEqual(Array.from(newData));  // read back exactly
   });
 });
+
+describe('decodeHfeTrack — data field straddling the index', () => {
+  it('recovers a sector whose ID is before the index and data field after it', () => {
+    // Lay the revolution out so the index falls in sector 2's gap 2: the
+    // stream opens with sector 2's data field and ends with its ID field.
+    const d1 = Array.from({ length: 512 }, (_, i) => i & 0xFF);
+    const d2 = Array.from({ length: 512 }, (_, i) => (i * 3) & 0xFF);
+    const w = new MfmWriter();
+    w.fill(10, 0x4E);                         // tail of sector 2's gap 2
+    w.fill(12, 0x00); w.a1(); w.a1(); w.a1(); w.byte(0xFB);
+    w.bytes(d2);
+    const dc2 = crc16([0xA1, 0xA1, 0xA1, 0xFB, ...d2]);
+    w.byte(dc2 >> 8); w.byte(dc2 & 0xFF);
+    w.fill(40, 0x4E);
+    writeSector(w, { c: 0, h: 0, r: 1, n: 2, data: d1 });
+    // Sector 2's ID field, then the first part of its gap 2 up to the index
+    w.fill(12, 0x00); w.a1(); w.a1(); w.a1(); w.byte(0xFE);
+    w.bytes([0, 0, 2, 2]);
+    const ic = crc16([0xA1, 0xA1, 0xA1, 0xFE, 0, 0, 2, 2]);
+    w.byte(ic >> 8); w.byte(ic & 0xFF);
+    w.fill(12, 0x4E);
+    expect(w.cells.length % 8).toBe(0);       // whole bytes, so no pad cells at the wrap
+    const cells = new Uint8Array(w.cells.length / 8);
+    for (let i = 0; i < w.cells.length; i++) if (w.cells[i]) cells[i >> 3] |= 1 << (i & 7);
+
+    const t = decodeHfeTrack(cells)!;
+    expect(t.sectors.map(s => s.r)).toEqual([1, 2]);
+    const s2 = t.sectors[1];
+    expect(s2.st1 & 0x20).toBe(0);            // good CRC
+    expect(Array.from(s2.data)).toEqual(d2);
+  });
+
+  it('an ID at the end of the track with no data field anywhere is still dropped', () => {
+    const w = new MfmWriter();
+    w.fill(60, 0x4E);
+    writeSector(w, { c: 0, h: 0, r: 1, n: 1, data: new Array(256).fill(0x11) });
+    w.fill(12, 0x00); w.a1(); w.a1(); w.a1(); w.byte(0xFE);
+    w.bytes([0, 0, 2, 1]);
+    const ic = crc16([0xA1, 0xA1, 0xA1, 0xFE, 0, 0, 2, 1]);
+    w.byte(ic >> 8); w.byte(ic & 0xFF);
+    w.fill(30, 0x4E);
+    const cells = new Uint8Array(Math.ceil(w.cells.length / 8));
+    for (let i = 0; i < w.cells.length; i++) if (w.cells[i]) cells[i >> 3] |= 1 << (i & 7);
+    const t = decodeHfeTrack(cells)!;
+    expect(t.sectors.map(s => s.r)).toEqual([1]);
+  });
+});

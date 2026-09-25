@@ -150,6 +150,14 @@ function extractSide(data: Uint8Array, start: number, trackLen: number, side: nu
 const MAX_SECTOR_BYTES = 16384;
 
 /**
+ * How far past the index the scan follows an ID field whose data field hasn't
+ * been seen yet (in cells). The data mark trails its ID by gap 2 + the sync
+ * run + the A1s (~38 bytes on a standard track); 64 bytes leaves headroom for
+ * a stretched gap 2 without reaching into the track's first real sector.
+ */
+const WRAP_SEARCH_CELLS = 64 * 16;
+
+/**
  * Decode one side's MFM bit-cell stream into a DskTrack, or null if nothing
  * decodable (unformatted / FM / empty) was found. The stream is treated as a
  * circular track, matching hardware and HxC's own reader.
@@ -164,9 +172,12 @@ export function decodeHfeTrack(cells: Uint8Array, layoutOut?: HfeSectorLayout[])
   // Pending ID address field awaiting its matching data field.
   let pending: { c: number; h: number; r: number; n: number } | null = null;
 
-  // Scan one full revolution for address-mark syncs.
+  // Scan one full revolution for address-mark syncs. If the revolution ends
+  // between an ID field and its data field — the last sector's data straddles
+  // the index — keep following the circular track past the index to pick that
+  // data field up rather than dropping the sector.
   let p = 0;
-  while (p < nbits) {
+  while (p < nbits || (pending !== null && p < nbits + WRAP_SEARCH_CELLS)) {
     // Lock onto an A1 sync, then consume the run of A1s (1..3) so the address
     // mark is read whatever the preamble length.
     if (!isSyncAt(cells, p, nbits)) {
@@ -179,6 +190,9 @@ export function decodeHfeTrack(cells: Uint8Array, layoutOut?: HfeSectorLayout[])
     const body = q + 16; // first field byte after the A1 run + mark
 
     if (mark === 0xFE) {
+      // Past the index, the next ID is the track's first sector coming round
+      // again: the pending ID never had a data field.
+      if (p >= nbits) break;
       // ID address field: C H R N CRChi CRClo.
       const c = decodeByte(cells, body, nbits);
       const h = decodeByte(cells, body + 16, nbits);
