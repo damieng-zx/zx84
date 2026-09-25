@@ -98,6 +98,43 @@ describe('Einstein I/O port decode', () => {
   });
 });
 
+describe('Einstein I/O mirrors (MAME einstein_io)', () => {
+  let m: EinsteinMachine;
+  beforeEach(() => { m = machine(); m.reset(); });
+
+  it('decodes only A0 on the TC-01 VDP: 0x0A is data, 0x0F is control', () => {
+    m.cpu.portOut(0x0F, 0x00);
+    m.cpu.portOut(0x0D, 0x40);                // write setup, address 0
+    m.cpu.portOut(0x0A, 0x5A);                // data via a mirror
+    expect(m.vdp.vram[0]).toBe(0x5A);
+    m.cpu.portOut(0x0B, 0x42);
+    m.cpu.portOut(0x0F, 0x80 | 7);            // R7 via a mirror
+    expect(m.vdp.regs[7]).toBe(0x42);
+  });
+
+  it('mirrors the WD1770 at 0x1C-0x1F', () => {
+    m.cpu.portOut(0x1D, 0x27);                // track register via mirror
+    expect(m.cpu.portIn(0x19)).toBe(0x27);
+    m.cpu.portOut(0x1E, 0x05);                // sector register via mirror
+    expect(m.cpu.portIn(0x1A)).toBe(0x05);
+  });
+
+  it('mirrors the AY at 0x06/0x07', () => {
+    m.cpu.portOut(0x06, 8);                   // select R8 (volume A)
+    m.cpu.portOut(0x07, 0x0C);
+    m.cpu.portOut(0x02, 8);
+    expect(m.cpu.portIn(0x02)).toBe(0x0C);
+  });
+
+  it('resets the PSG on a port 0x00 access', () => {
+    m.cpu.portOut(0x02, 8);
+    m.cpu.portOut(0x03, 0x0C);
+    m.cpu.portOut(0x00, 0x00);
+    m.cpu.portOut(0x02, 8);
+    expect(m.cpu.portIn(0x02)).toBe(0x00);
+  });
+});
+
 describe('Einstein CTC→IM2 interrupt path', () => {
   it('services a CTC timer interrupt through the ISR during a frame', () => {
     const m = machine();

@@ -5,10 +5,15 @@
  * into 8-port blocks (address lines A3–A5 select the block, A0–A2 the register
  * within it; A8–A15 are ignored, so every port mirrors throughout I/O space):
  *
- *   0x00–07  reset strobe (0/1) + AY-3-8910 (0x02 addr/data-r, 0x03 data-w)
- *   0x08–0F  TMS9929A VDP (0x08 VRAM data, 0x09 control/status)
- *   0x10–17  Intel 8251 USART (stubbed)
- *   0x18–1F  WD1770 FDC (0x18 cmd/status, 0x19 track, 0x1A sector, 0x1B data)
+ *   0x00–07  PSG reset strobe (0/1) + AY-3-8910 (0x02 addr/data-r, 0x03
+ *            data-w); A2 ignored, so 0x04–07 mirror 0x00–03
+ *   0x08–0F  TMS9929A VDP (0x08 VRAM data, 0x09 control/status); only A0
+ *            decoded, so even ports are data and odd ports control
+ *   0x10–17  Intel 8251 USART (stubbed; A0 decoded)
+ *   0x18–1F  WD1770 FDC (0x18 cmd/status, 0x19 track, 0x1A sector, 0x1B
+ *            data); A2 ignored, so 0x1C–1F mirror 0x18–1B
+ *
+ * Mirrors follow MAME's einstein_io map (mirror 0xff04 / 0xff06).
  *   0x20–27  keyboard status/int-mask (0x20), ADC mask (0x21), drive select
  *            (0x23), ROM/RAM overlay toggle (0x24), fire mask (0x25)
  *   0x28–2F  Z80 CTC (channels 0–3)
@@ -109,9 +114,11 @@ export function wireEinsteinPortIO(m: EinsteinMachine): void {
     const p = port & 0x3F;
     const reg = p & 0x07;
     switch (p & 0x38) {
-      case 0x00: // AY-3-8910
-        if (reg === 2) ay.selectRegister(val);
-        else if (reg === 3) {
+      case 0x00: { // PSG reset strobe + AY-3-8910 (A2 ignored)
+        const r = reg & 3;
+        if (r < 2) { resetPsg(); break; }   // 0x00/0x01: reset the PSG
+        if (r === 2) ay.selectRegister(val);
+        else {
           ay.writeRegister(ay.selectedReg, val);
           // Count only sound-register writes (0–13) for the AY LED — registers
           // 14/15 are the I/O ports used for the keyboard scan every frame.
@@ -119,6 +126,7 @@ export function wireEinsteinPortIO(m: EinsteinMachine): void {
           if (ay.selectedReg === AY_PORT_A) kbd.selectRows(val);
         }
         break;
+      }
       case 0x08: // VDP
         if (is256) {
           // V9938: 0x08 VRAM data, 0x09 control/status, 0x0A palette,
@@ -128,15 +136,16 @@ export function wireEinsteinPortIO(m: EinsteinMachine): void {
           else if (r === 1) vdp.writeControl(val);
           else if (r === 2) (vdp as V9938).writePalette(val);
           else (vdp as V9938).writeRegister(val);
-        } else {
-          if (reg === 0) vdp.writeData(val); else vdp.writeControl(val);
-        }
+        } else if (reg & 1) vdp.writeControl(val);
+        else vdp.writeData(val);
         break;
-      case 0x18: // WD1770 FDC
-        if (reg === 0) fdc.writeCommand(val);
-        else if (reg === 1) fdc.writeTrack(val);
-        else if (reg === 2) fdc.writeSectorReg(val);
+      case 0x18: { // WD1770 FDC (A2 ignored)
+        const r = reg & 3;
+        if (r === 0) fdc.writeCommand(val);
+        else if (r === 1) fdc.writeTrack(val);
+        else if (r === 2) fdc.writeSectorReg(val);
         else { fdc.writeData(val); m.activity.fdcAccesses++; }
+      }
         break;
       case 0x20: // control latches
         if (reg === 4) memory.toggleRom();          // 0x24 ROM/RAM toggle
@@ -162,6 +171,13 @@ export function wireEinsteinPortIO(m: EinsteinMachine): void {
     }
   };
 
+  /** Port 0x00/0x01 strobe (MAME reset_r/reset_w): resets the AY, which
+   *  returns its I/O port A to input — no keyboard lines driven low. */
+  function resetPsg(): void {
+    ay.reset();
+    kbd.selectRows(0xFF);
+  }
+
   function setIntMask(bit: number, val: number): void {
     if (val & 0x01) m.boardIntMask &= ~bit;
     else m.boardIntMask |= bit;
@@ -181,8 +197,9 @@ export function wireEinsteinPortIO(m: EinsteinMachine): void {
     const p = port & 0x3F;
     const reg = p & 0x07;
     switch (p & 0x38) {
-      case 0x00: // AY data read (keyboard on port B)
-        if (reg === 2) {
+      case 0x00: // PSG reset strobe / AY data read (keyboard on port B)
+        if ((reg & 3) < 2) { resetPsg(); return 0xFF; }
+        if ((reg & 3) === 2) {
           if (ay.selectedReg === AY_PORT_B) { m.activity.kbdReads++; return kbd.readColumns(); }
           return ay.readRegister(ay.selectedReg);
         }
@@ -195,13 +212,13 @@ export function wireEinsteinPortIO(m: EinsteinMachine): void {
           if (r === 1) return vdp.readStatus();
           return 0xFF;
         }
-        return reg === 0 ? vdp.readData() : vdp.readStatus();
+        return (reg & 1) ? vdp.readStatus() : vdp.readData();
       case 0x10: // 8251 USART: report Tx ready / empty, no Rx.
-        return reg === 1 ? 0x05 : 0x00;
-      case 0x18: // WD1770 FDC
-        if (reg === 0) return fdc.readStatus();
-        if (reg === 1) return fdc.readTrack();
-        if (reg === 2) return fdc.readSectorReg();
+        return (reg & 1) ? 0x05 : 0x00;
+      case 0x18: // WD1770 FDC (A2 ignored)
+        if ((reg & 3) === 0) return fdc.readStatus();
+        if ((reg & 3) === 1) return fdc.readTrack();
+        if ((reg & 3) === 2) return fdc.readSectorReg();
         m.activity.fdcAccesses++;
         return fdc.readData();
       case 0x20:
