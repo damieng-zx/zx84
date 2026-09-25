@@ -81,8 +81,11 @@ export async function unzip(data: Uint8Array, exts: readonly string[] = LOADABLE
     const localHeaderOffset = view.getUint32(pos + 42, true);
 
     const nameBytes = data.subarray(pos + 46, pos + 46 + nameLen);
+    // APPNOTE 4.4.4: names are UTF-8 when flag bit 11 is set, otherwise IBM
+    // code page 437 (which the WHATWG TextDecoder does not offer — its
+    // 'ascii' label is really windows-1252).
     const isUTF8 = (gpFlag & (1 << 11)) !== 0;
-    const name = new TextDecoder(isUTF8 ? 'utf-8' : 'ascii').decode(nameBytes);
+    const name = isUTF8 ? new TextDecoder('utf-8').decode(nameBytes) : decodeCp437(nameBytes);
 
     pos += 46 + nameLen + extraLen + commentLen;
 
@@ -125,6 +128,21 @@ export async function unzip(data: Uint8Array, exts: readonly string[] = LOADABLE
   }
 
   return results;
+}
+
+/** IBM code page 437, bytes 0x80..0xFF (0x00..0x7F match ASCII). */
+const CP437_HIGH =
+  'ÇüéâäàåçêëèïîìÄÅÉæÆôöòûùÿÖÜ¢£¥₧ƒáíóúñÑªº¿⌐¬½¼¡«»' +
+  '░▒▓│┤╡╢╖╕╣║╗╝╜╛┐└┴┬├─┼╞╟╚╔╩╦╠═╬╧╨╤╥╙╘╒╓╫╪┘┌█▄▌▐▀' +
+  'αßΓπΣσµτΦΘΩδ∞φε∩≡±≥≤⌠⌡÷≈°∙·√ⁿ²■\u00A0';
+
+function decodeCp437(bytes: Uint8Array): string {
+  let s = '';
+  for (let i = 0; i < bytes.length; i++) {
+    const b = bytes[i];
+    s += b < 0x80 ? String.fromCharCode(b) : CP437_HIGH[b - 0x80];
+  }
+  return s;
 }
 
 /** Hard cap on a single inflated entry. No legitimate emulator file comes
