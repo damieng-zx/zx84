@@ -275,7 +275,8 @@ export interface MouseTypeInfo {
  * capability test holds each entry against the service that has to honour it.
  */
 export type SaveMenuItem =
-  /** Whatever the machine has written to its cassette port, as a .tap. */
+  /** Whatever the machine has written to its cassette port, in the machine's
+   *  own tape format (.tap on the Ace, .cas on the MSX). */
   | 'tape-tap'
   | 'snapshot-szx'
   | 'snapshot-z80'
