@@ -304,9 +304,11 @@ export class Z80 {
     this.tStates += 3;       // total = 5 + 3 + 3 = 11T
   }
 
-  /** Fire an IM 2 interrupt with a specific vector byte (for peripheral devices like Z80 PIO). */
+  /** Fire an IM 2 interrupt with a specific vector byte (for peripheral devices like Z80 PIO).
+   *  The full data-bus byte forms the table index — the Z80 does not force bit 0
+   *  low; Zilog peripherals just happen to supply even vectors. */
   interruptWithVector(vector: number): number {
-    this._pendingVector = vector & 0xFE; // PIO vectors are always even
+    this._pendingVector = vector & 0xFF;
     return this.interrupt();
   }
 

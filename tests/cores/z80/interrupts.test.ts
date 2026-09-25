@@ -301,3 +301,17 @@ describe('Z80 — board M1 wait states stretch interrupt acknowledge cycles', ()
     expect(h.cpu.tStates).toBe(12);
   });
 });
+
+describe('Z80 — IM 2 uses the full data-bus vector byte', () => {
+  it('an odd vector indexes the table at I:vector without clearing bit 0', () => {
+    // The Z80 forms the IM 2 table address from I and the whole byte it reads
+    // off the bus (Zilog UM0080 notes only that Zilog peripherals supply even
+    // vectors) — the frame-interrupt 0xFF case already relies on bit 0 = 1.
+    const h = newCpu();
+    h.cpu.im = 2; h.cpu.iff1 = true; h.cpu.i = 0x80; h.cpu.sp = 0xC010;
+    load(h.mem, 0x8010, 0x11, 0x22); // I:0x10 → 0x2211
+    load(h.mem, 0x8011, 0x33, 0x44); // I:0x11 → 0x4433
+    expect(h.cpu.interruptWithVector(0x11)).toBe(19);
+    expect(h.cpu.pc).toBe(0x4433);
+  });
+});
