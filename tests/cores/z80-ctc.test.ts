@@ -113,3 +113,16 @@ describe('Z80 CTC timer trigger (bit 3)', () => {
     expect(ctc.interruptPending).toBe(true);
   });
 });
+
+describe('Z80 CTC bulk trigger edges', () => {
+  it('counts a burst of edges exactly, reloading and interrupting at each zero', () => {
+    const ctc = new Z80Ctc();
+    let ints = 0;
+    ctc.onInterrupt = () => { ints++; };
+    ctc.write(1, CONTROL | COUNTER_MODE | INT_ENABLE | TC_FOLLOWS);
+    ctc.write(1, 10);
+    ctc.triggerEdges(1, 25);                  // zero at edges 10 and 20
+    expect(ints).toBe(2);
+    expect(ctc.read(1)).toBe(5);              // 10 - 5 remaining edges
+  });
+});
