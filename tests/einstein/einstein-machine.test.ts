@@ -126,6 +126,11 @@ describe('Einstein I/O mirrors (MAME einstein_io)', () => {
     expect(m.cpu.portIn(0x02)).toBe(0x0C);
   });
 
+  it('reads a centred joystick from the TC-01 ADC0844 at 0x38-0x3F', () => {
+    expect(m.cpu.portIn(0x38)).toBe(0x80);
+    expect(m.cpu.portIn(0x3F)).toBe(0x80);
+  });
+
   it('resets the PSG on a port 0x00 access', () => {
     m.cpu.portOut(0x02, 8);
     m.cpu.portOut(0x03, 0x0C);
