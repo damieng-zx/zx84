@@ -18,10 +18,10 @@ import { hex8 } from '@/utils/hex.ts';
 /** Label the source paged into one MSX 16KB page given its primary slot number.
  *  slot 0 = internal ROM (BIOS+BASIC, pages 0-1 only), slot 1 = cartridge,
  *  slot 2 = 64KB RAM, slot 3 = rear expansion connector (unmodelled, empty). */
-function msxSlotLabel(slot: number, page: number, hasCart: boolean): { read: string } {
+function msxSlotLabel(slot: number, page: number, cartHere: boolean): { read: string } {
   switch (slot) {
     case 0: return { read: page < 2 ? 'ROM' : '(empty)' };
-    case 1: return { read: hasCart ? 'Cartridge' : '(empty)' };
+    case 1: return { read: cartHere ? 'Cartridge' : '(empty)' };
     case 2: return { read: 'RAM' };
     case 3: return { read: '(empty)' };
     default: return { read: '?' };
@@ -33,12 +33,11 @@ function msxSlotLabel(slot: number, page: number, hasCart: boolean): { read: str
 function msxMemoryMap(m: MsxMachine): MemoryMapSnapshot | null {
   const mem = m.memory;
   const primary = mem.getPrimarySlot();
-  const hasCart = mem.hasCartridge;
   const ranges = ['0000-3FFF', '4000-7FFF', '8000-BFFF', 'C000-FFFF'];
 
   const slots = ranges.map((range, page) => {
     const slot = (primary >> (page * 2)) & 3;
-    const label = msxSlotLabel(slot, page, hasCart);
+    const label = msxSlotLabel(slot, page, mem.cartCoversPage(page));
     return { range, ...label };
   });
 
