@@ -980,7 +980,13 @@ export class Spectrum extends BaseMachine implements Machine {
       const lineRelT = t - this.nextRenderT;
       if (lineRelT < 0) break;
 
-      const beamX = Math.min(w, lineRelT << 1); // 2 pixels per T-state
+      // 2 pixels per T-state, floored to an 8-pixel (4T) boundary: the ULA
+      // / gate array latches the border colour once per 8-pixel character
+      // period, so a border OUT takes effect at a character boundary, never
+      // mid-character. Line start is displayOrigin - borderLeft/2 and
+      // borderLeft is a multiple of 8, so these boundaries line up with the
+      // display cells. Display-cell emission is unaffected (it uses >> 3).
+      const beamX = Math.min(w, (lineRelT << 1) & ~7);
       if (beamX <= this.nextPixelX) break;
 
       // Display cell range visible up to the beam.
