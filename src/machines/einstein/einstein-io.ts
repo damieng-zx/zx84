@@ -22,6 +22,9 @@
 
 import type { EinsteinMachine } from '@/machines/einstein/einstein-machine.ts';
 import { V9938 } from '@/cores/v9938.ts';
+import {
+  EINSTEIN_INT_KEY, EINSTEIN_INT_ADC, EINSTEIN_INT_FIRE, EINSTEIN_ADC_CONVERSION_T,
+} from '@/machines/einstein/constants.ts';
 
 /** AY register 14 = I/O port A (keyboard row select). */
 const AY_PORT_A = 14;
@@ -139,7 +142,11 @@ export function wireEinsteinPortIO(m: EinsteinMachine): void {
         if (reg === 4) memory.toggleRom();          // 0x24 ROM/RAM toggle
         else if (reg === 3) setDriveSelect(m, val); // 0x23 drive select
         else if (reg === 2 && is256) kbd.toggleAlphaLock(); // 0x22 ALPHA LOCK (256)
-        // reg 0/1/5 = keyboard/ADC/fire interrupt masks — not modelled.
+        // 0x20/0x21/0x25 = keyboard/ADC/fire interrupt masks: bit0 set
+        // disables the source (MAME kybint_msk_w/adcint_msk_w/fire_int_msk_w).
+        else if (reg === 0) setIntMask(EINSTEIN_INT_KEY, val);
+        else if (reg === 1) setIntMask(EINSTEIN_INT_ADC, val);
+        else if (reg === 5) setIntMask(EINSTEIN_INT_FIRE, val);
         break;
       case 0x28: // Z80 CTC
         ctc.write(reg, val);
@@ -147,9 +154,18 @@ export function wireEinsteinPortIO(m: EinsteinMachine): void {
       case 0x30: // Einstein 256: port A = printer data low nibble + strobe;
         //          0x31 = port A interrupt mask. Not modelled (no printer).
         break;
-      // 0x10 (8251), 0x38 (ADC / pseudo-ADC): no-op for now.
+      case 0x38: // ADC0844 (TC-01): a write starts a conversion; INTR
+        //          asserts when it completes (ADC interrupt source).
+        if (!is256) m.adcDoneAt = m.cpu.tStates + EINSTEIN_ADC_CONVERSION_T;
+        break;
+      // 0x10 (8251): no-op for now.
     }
   };
+
+  function setIntMask(bit: number, val: number): void {
+    if (val & 0x01) m.boardIntMask &= ~bit;
+    else m.boardIntMask |= bit;
+  }
 
   cpu.portIn = (port: number): number => {
     port &= 0xFFFF;
@@ -189,7 +205,10 @@ export function wireEinsteinPortIO(m: EinsteinMachine): void {
         m.activity.fdcAccesses++;
         return fdc.readData();
       case 0x20:
-        if (reg === 0) return kbd.statusByte();      // 0x20 keyboard status
+        if (reg === 0) {                             // 0x20 keyboard status
+          m.boardIntPending &= ~EINSTEIN_INT_KEY;    // reading clears key INT
+          return kbd.statusByte();
+        }
         if (reg === 4) { memory.toggleRom(); return 0xFF; } // 0x24 also toggles on read
         if (is256 && reg === 2) { kbd.toggleAlphaLock(); return 0xFF; } // 0x22 toggles on read too
         if (is256 && reg === 6) return systemStatus(m); // 0x26 system status (256)
@@ -205,7 +224,9 @@ export function wireEinsteinPortIO(m: EinsteinMachine): void {
         }
         return 0xFF;
       case 0x38: // Einstein 256 pseudo-ADC: joystick centred.
-        return is256 ? 0x7F : 0xFF;
+        if (is256) return 0x7F;
+        m.boardIntPending &= ~EINSTEIN_INT_ADC;     // ADC0844 /RD clears INTR
+        return 0xFF;
       default:   // 8251 data, PIO, ADC, unmapped
         return 0xFF;
     }

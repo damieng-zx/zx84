@@ -168,6 +168,94 @@ describe('Einstein CTC CLK/TRG0-2', () => {
   });
 });
 
+describe('Einstein keyboard / ADC / fire interrupts', () => {
+  /** ROM: IM 2, I = 0, EI, spin. Vectors 0xF7/0xFB/0xFD point to ISRs that
+   *  record their id at 0x8000 and count at 0x8001, then (for the keyboard
+   *  and ADC) read the source's port to clear it, EI, RETI. */
+  function boot(): EinsteinMachine {
+    const m = machine();
+    const rom = new Uint8Array(0x2000);
+    let p = 0;
+    for (const b of [0xED, 0x5E, 0x3E, 0x00, 0xED, 0x47, 0xFB, 0x18, 0xFE]) rom[p++] = b;
+    const isr = (vector: number, at: number, id: number, clearPort: number | null) => {
+      rom[vector] = at & 0xFF; rom[vector + 1] = at >> 8;
+      const code = [0x3E, id, 0x32, 0x00, 0x80,        // LD A,id ; LD (8000),A
+        0x21, 0x01, 0x80, 0x34];                         // LD HL,8001 ; INC (HL)
+      if (clearPort !== null) code.push(0xDB, clearPort); // IN A,(port)
+      code.push(0xFB, 0xED, 0x4D);                       // EI ; RETI
+      rom.set(code, at);
+    };
+    isr(0xF7, 0x0200, 1, 0x20);
+    isr(0xFB, 0x0300, 2, 0x38);
+    isr(0xFD, 0x0400, 3, null);
+    m.loadROM(rom);
+    m.reset();
+    return m;
+  }
+  const ram = (m: EinsteinMachine, a: number) => m.memory.ramSnapshot()[a];
+
+  it('keeps the keyboard interrupt masked at reset', () => {
+    const m = boot();
+    m.keyboard.handleKeyEvent('KeyA', true);
+    m.cpu.portOut(0x02, 14); m.cpu.portOut(0x03, 0x00); // scan every line
+    m.tick(); m.tick();
+    expect(ram(m, 0x8001)).toBe(0);
+  });
+
+  it('raises the keyboard interrupt (vector 0xF7) once enabled via port 0x20', () => {
+    const m = boot();
+    m.keyboard.handleKeyEvent('KeyA', true);
+    m.cpu.portOut(0x02, 14); m.cpu.portOut(0x03, 0x00);
+    m.cpu.portOut(0x20, 0x00);                // bit0 clear = enabled
+    m.tick(); m.tick();
+    expect(ram(m, 0x8000)).toBe(1);
+    // Held once per 50Hz scan and cleared by the ISR's port-0x20 read, so
+    // two frames yield at most two entries, not a storm.
+    expect(ram(m, 0x8001)).toBeGreaterThanOrEqual(1);
+    expect(ram(m, 0x8001)).toBeLessThanOrEqual(2);
+  });
+
+  it('clears a pending keyboard interrupt when port 0x20 is read', () => {
+    const m = machine();
+    m.reset();
+    m.boardIntPending = 0x01;
+    m.cpu.portIn(0x20);
+    expect(m.boardIntPending & 0x01).toBe(0);
+  });
+
+  it('raises the ADC interrupt (vector 0xFB) after a conversion is started', () => {
+    const m = boot();
+    m.cpu.portOut(0x21, 0x00);                // ADC interrupt enabled
+    m.cpu.portOut(0x38, 0x00);                // start conversion
+    m.tick();
+    expect(ram(m, 0x8000)).toBe(2);
+    expect(ram(m, 0x8001)).toBe(1);           // cleared by the ISR's read
+  });
+
+  it('raises the fire interrupt (vector 0xFD) and clears it on acknowledge', () => {
+    const m = boot();
+    m.keyboard.setJoystick('fire1', true);
+    m.cpu.portOut(0x25, 0x00);                // fire interrupt enabled
+    m.tick();                                  // scan at end of frame
+    m.keyboard.setJoystick('fire1', false);   // so no re-raise at next scan
+    m.tick();                                  // serviced during this one
+    expect(ram(m, 0x8000)).toBe(3);
+    expect(ram(m, 0x8001)).toBe(1);           // acknowledge cleared it
+    expect(m.boardIntPending & 0x04).toBe(0);
+  });
+
+  it('prioritises the keyboard over the fire button', () => {
+    const m = boot();
+    m.boardIntMask = 0x07;
+    m.boardIntPending = 0x05;                  // keyboard + fire
+    m.tick();
+    // Keyboard went first, then fire; the last writer is fire (3) only if
+    // keyboard was taken first — check the count and final id.
+    expect(ram(m, 0x8001)).toBe(2);
+    expect(ram(m, 0x8000)).toBe(3);
+  });
+});
+
 describe('Einstein runFrame smoke', () => {
   it('renders a frame without throwing and fills the backdrop', () => {
     const m = machine();
