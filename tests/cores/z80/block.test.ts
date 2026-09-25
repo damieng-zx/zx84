@@ -396,3 +396,59 @@ describe('Z80 — IN r,(C) — all target registers and flag behaviour', () => {
     expect(h.cpu.f & F_H).toBe(0);
   });
 });
+
+describe('Z80 — block repeat internal cycles contend the address just accessed', () => {
+  // WoS / Sean Young contention tables: the repeat M-cycle's 5 internal
+  // T-states keep the address of the memory access that preceded them on the
+  // bus — HL is only stepped afterwards. (LDIR's DE cycles work the same way.)
+  //   CPIR/CPDR: pc:4, pc+1:4, hl:3, hl:1x5, [hl:1x5]
+  //   INIR/INDR: pc:4, pc+1:4, ir:1, IO, hl:3, [hl:1x5]
+  function probe(h: Harness): number[] {
+    const probes: number[] = [];
+    h.cpu.contend = (addr) => { probes.push(addr); };
+    return probes;
+  }
+
+  it('CPIR (repeating) contends HL itself for all 10 internal cycles, not HL+1', () => {
+    const h = newCpu();
+    h.cpu.hl = 0x4000; h.cpu.bc = 0x0002; h.cpu.a = 0x55;
+    h.mem[0x4000] = 0x00; // no match → repeats
+    load(h.mem, 0, 0xED, 0xB1); // CPIR
+    const probes = probe(h);
+    step(h);
+    expect(probes).toEqual(Array(10).fill(0x4000));
+    expect(h.cpu.tStates).toBe(21);
+  });
+
+  it('CPDR (repeating) contends HL itself for all 10 internal cycles, not HL-1', () => {
+    const h = newCpu();
+    h.cpu.hl = 0x4000; h.cpu.bc = 0x0002; h.cpu.a = 0x55;
+    h.mem[0x4000] = 0x00;
+    load(h.mem, 0, 0xED, 0xB9); // CPDR
+    const probes = probe(h);
+    step(h);
+    expect(probes).toEqual(Array(10).fill(0x4000));
+  });
+
+  it('INIR (repeating) contends IR once then HL itself for the 5 repeat cycles, not HL+1', () => {
+    const h = newCpu();
+    h.cpu.i = 0x3F; h.cpu.r = 0x00;
+    h.cpu.hl = 0x4000; h.cpu.bc = 0x02FE;
+    load(h.mem, 0, 0xED, 0xB2); // INIR
+    const probes = probe(h);
+    step(h);
+    // R has been bumped twice by the ED + B2 M1 fetches when the IR cycle runs.
+    expect(probes).toEqual([0x3F02, 0x4000, 0x4000, 0x4000, 0x4000, 0x4000]);
+    expect(h.cpu.tStates).toBe(21);
+  });
+
+  it('INDR (repeating) contends HL itself for the 5 repeat cycles, not HL-1', () => {
+    const h = newCpu();
+    h.cpu.i = 0x3F; h.cpu.r = 0x00;
+    h.cpu.hl = 0x4000; h.cpu.bc = 0x02FE;
+    load(h.mem, 0, 0xED, 0xBA); // INDR
+    const probes = probe(h);
+    step(h);
+    expect(probes.slice(1)).toEqual(Array(5).fill(0x4000));
+  });
+});
