@@ -690,8 +690,9 @@ export class V9938 {
     for (let col = 0; col < 32; col++) {
       const code = vram[(nameBase + col) % VRAM_SIZE];
       const colByte = vram[(patBase + code * 8 + seg) % VRAM_SIZE];
-      const left = this.pens[colByte >> 4];
-      const right = this.pens[colByte & 0x0F];
+      // Colour 0 is transparent (shows the backdrop) unless R8 TP is set.
+      const left = this.palettePen(colByte >> 4);
+      const right = this.palettePen(colByte & 0x0F);
       for (let b = 0; b < 8; b++) px[x++] = left;
       for (let b = 0; b < 8; b++) px[x++] = right;
     }
