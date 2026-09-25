@@ -60,6 +60,9 @@ export class Zx8xMachine extends BaseMachine implements Machine {
   private memotechMode = 0;
   private quickSilvaMode = false;
   private m1ReadPending = false;
+  /** Set when the CPU fetched an opcode from the A15-high display echo, i.e.
+   *  the ULA actually generated a picture this frame. */
+  private displayFetched = false;
   private readonly pseudoHiresRow = new Uint8Array(PSEUDO_HIRES_ROW_BYTES);
   private readonly pseudoHiresBuilding = new Uint8Array(PSEUDO_HIRES_ROW_BYTES * PSEUDO_HIRES_MAX_ROWS);
   private readonly pseudoHiresFrame = new Uint8Array(PSEUDO_HIRES_ROW_BYTES * PSEUDO_HIRES_MAX_ROWS);
@@ -122,7 +125,10 @@ export class Zx8xMachine extends BaseMachine implements Machine {
         : this.memory.readByte(addr);
       // During an opcode fetch from the echoed display file the ULA presents a
       // NOP for a character byte; a 0x76 line terminator remains HALT.
-      if (m1 && addr >= 0x8000 && (value & 0x40) === 0) value = 0x00;
+      if (m1 && addr >= 0x8000) {
+        this.displayFetched = true;
+        if ((value & 0x40) === 0) value = 0x00;
+      }
       if (this.memWatchpoints.length && this.memWatchHit === null) {
         for (const wp of this.memWatchpoints) if ((wp.mode === 'read' || wp.mode === 'rw') && addr >= wp.start && addr <= wp.end) {
           this.memWatchHit = { addr, value, dir: 'read' }; break;
@@ -347,6 +353,7 @@ export class Zx8xMachine extends BaseMachine implements Machine {
       if (broke) break;
     }
     this.renderCurrentVideo();
+    this.displayFetched = false;
     this.needsDisplay = true;
   }
 
@@ -642,11 +649,16 @@ export class Zx8xMachine extends BaseMachine implements Machine {
   }
 
   /** Render software-generated pixels in either ZX81 mode. Ordinary display-
-   * file video is available only in SLOW; FAST leaves the active area blank. */
+   * file video appears only when the CPU actually executed the display file
+   * this frame: always in SLOW, and in FAST only while the ROM runs its
+   * display loop (awaiting a key, PAUSE). Frames spent computing in FAST
+   * produce no picture. Without a display pass, SLOW (CDFLAG bit 7) still
+   * renders so a render outside a frame (program load) is not blanked. */
   private renderCurrentVideo(): void {
     if (this.renderMemotechHrg() || this.renderQuickSilvaHrg()) return;
     if (this.renderPseudoHires()) return;
-    if (this.model === 'zx81' && (this.memory.readByte(ZX81_CDFLAG) & 0x80) === 0) {
+    if (this.model === 'zx81' && !this.displayFetched
+        && (this.memory.readByte(ZX81_CDFLAG) & 0x80) === 0) {
       this.frame32.fill(WHITE);
       return;
     }

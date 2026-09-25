@@ -55,3 +55,34 @@ describe('ZX81 A6-driven maskable interrupt', () => {
     expect(machine.cpu.tStates).toBe(53);
   });
 });
+
+describe('ZX81 FAST-mode picture', () => {
+  function fastMachine(code: number[]): Zx8xMachine {
+    const machine = new Zx8xMachine('zx81');
+    machine.loadROM(romWith(code));
+    // D_FILE -> $40FF: leading NEWLINE, then an inverse space and NEWLINE.
+    machine.memory.writeByte(0x400c, 0xff);
+    machine.memory.writeByte(0x400d, 0x40);
+    machine.memory.writeByte(0x40ff, 0x76);
+    machine.memory.writeByte(0x4100, 0x80);
+    machine.memory.writeByte(0x4101, 0x76);
+    machine.memory.writeByte(0x403b, 0x00); // CDFLAG: FAST
+    return machine;
+  }
+
+  it('shows the display file on frames where the ROM executed it', () => {
+    // FAST mode still runs the display while awaiting a key or in PAUSE.
+    const machine = fastMachine([
+      0x21, 0x00, 0xc1, // LD HL,$C100 (display echo)
+      0xe9,             // JP (HL)
+    ]);
+    machine.tick();
+    expect(machine.screenExportBytes()[0]).toBe(0xff);
+  });
+
+  it('is blank on frames spent computing', () => {
+    const machine = fastMachine([0x18, 0xfe]); // JR $ (never reaches the display)
+    machine.tick();
+    expect(machine.screenExportBytes()[0]).toBe(0x00);
+  });
+});
