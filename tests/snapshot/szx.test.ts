@@ -1017,8 +1017,30 @@ describe('SZX — 128K full round-trip', () => {
 // ── applySZXPaging — shared paging restore (resume + file-load) ─────────────
 
 describe('SZX — applySZXPaging', () => {
-  const result128 = (port7FFD: number, port1FFD = 0) => ({
-    is128K: true, borderColor: 0, port7FFD, port1FFD,
+  const result128 = (port7FFD: number, port1FFD = 0, sourceHas1FFD = true) => ({
+    is128K: true, borderColor: 0, port7FFD, port1FFD, sourceHas1FFD,
+  });
+
+  it('128K/+2 source on a +2A/+3: 7FFD bit 4 = 1 pages ROM 3 (48K BASIC)', () => {
+    // The 128K has no 1FFD; its bit 4 = 1 means the 48K ROM, which on the
+    // +3 is page 3 (1FFD bit 2 = 1). Without mapping, ROM 1 (syntax) pages.
+    const mem = makeMemoryPlus3();
+    applySZXPaging(mem, true, result128(0x10, 0x00, false));
+    expect(mem.currentROM).toBe(3);
+    expect(mem.port1FFD & 0x04).toBe(0x04);
+  });
+
+  it('128K/+2 source on a +2A/+3: 7FFD bit 4 = 0 pages ROM 0', () => {
+    const mem = makeMemoryPlus3();
+    applySZXPaging(mem, true, result128(0x00, 0x00, false));
+    expect(mem.currentROM).toBe(0);
+  });
+
+  it('loadSZX flags 128K (ID 2) and +2 (ID 3) as lacking 1FFD, +2A/+3 (4/5) as having it', async () => {
+    expect((await loadSZX(buildSZX(2, []), new Z80(), makeMemoryPlus3())).sourceHas1FFD).toBe(false);
+    expect((await loadSZX(buildSZX(3, []), new Z80(), makeMemoryPlus3())).sourceHas1FFD).toBe(false);
+    expect((await loadSZX(buildSZX(4, []), new Z80(), makeMemoryPlus3())).sourceHas1FFD).toBe(true);
+    expect((await loadSZX(buildSZX(5, []), new Z80(), makeMemoryPlus3())).sourceHas1FFD).toBe(true);
   });
 
   it('+2A/+3: ROM page combines 1FFD bit 2 (high) and 7FFD bit 4 (low)', () => {
@@ -1069,7 +1091,7 @@ describe('SZX — applySZXPaging', () => {
   it('is a no-op for a 48K (non-128K) result', () => {
     const mem = makeMemory48k();
     const before = mem.currentROM;
-    applySZXPaging(mem, false, { is128K: false, borderColor: 0, port7FFD: 0xFF, port1FFD: 0xFF });
+    applySZXPaging(mem, false, { is128K: false, borderColor: 0, port7FFD: 0xFF, port1FFD: 0xFF, sourceHas1FFD: false });
     expect(mem.currentROM).toBe(before);
   });
 });

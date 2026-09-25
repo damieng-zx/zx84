@@ -121,6 +121,8 @@ export class SpectrumSnapshotService implements SnapshotService {
           s.memory.currentROM = (result.port7FFD >> 4) & 1;
           s.memory.pagingLocked = (result.port7FFD & 0x20) !== 0;
           s.memory.applyBanking();
+          // .sp carries no 1FFD (128K/+2 paging only): map for +2A/+3.
+          s.memory.selectSnapshot128KRom();
         } else if (is128kClass(model)) {
           s.memory.selectSnapshot48KRom();
         }
