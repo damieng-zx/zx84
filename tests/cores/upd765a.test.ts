@@ -1406,3 +1406,70 @@ describe('uPD765A — ready drive, unformatted track: Missing Address Mark, not 
     expect(r[1]).toBe(0x00);
   });
 });
+
+describe('uPD765A — sector search compares C and H as well as R', () => {
+  function driverWith(sectors: DskSector[]): Driver {
+    const d = new Driver();
+    const im = makeImage();
+    im.tracks[0][0] = makeTrack(sectors);
+    d.fdc.insertDisk(im, 0);
+    return d;
+  }
+
+  it('a matching R with the wrong cylinder is No Data with ST2 WC', () => {
+    const d = driverWith([makeSector(5, 0, 0xC1, 2, 0xAA)]);
+    const r = d.command(0x06, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF);
+    expect(r[0]).toBe(0x40);          // IC=01
+    expect(r[1]).toBe(0x04);          // ST1 ND
+    expect(r[2]).toBe(0x10);          // ST2 WC
+  });
+
+  it('an ID cylinder of 0xFF sets BC rather than WC', () => {
+    const d = driverWith([makeSector(0xFF, 0, 0xC1, 2, 0xAA)]);
+    const r = d.command(0x06, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF);
+    expect(r[1]).toBe(0x04);
+    expect(r[2]).toBe(0x02);          // ST2 BC
+  });
+
+  it('a matching R with the wrong head number is No Data', () => {
+    const d = driverWith([makeSector(0, 1, 0xC1, 2, 0xAA)]);
+    const r = d.command(0x06, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF);
+    expect(r[0]).toBe(0x40);
+    expect(r[1]).toBe(0x04);
+    expect(r[2]).toBe(0x00);          // cylinder matched — no WC
+  });
+
+  it('duplicate R: the sector whose full ID matches is read, not the first R', () => {
+    const d = driverWith([
+      makeSector(9, 0, 0xC1, 2, 0x11),   // same R, other cylinder — first physically
+      makeSector(0, 0, 0xC1, 2, 0x22),   // the one the command asks for
+    ]);
+    [0x06, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    const { data } = d.drainReadExecution();
+    expect(data.length).toBe(512);
+    expect(data[0]).toBe(0x22);
+  });
+
+  it('duplicate R: a write lands in the sector whose full ID matches', () => {
+    const a = makeSector(9, 0, 0xC1, 2, 0x11);
+    const b = makeSector(0, 0, 0xC1, 2, 0x22);
+    const d = driverWith([a, b]);
+    [0x05, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(x => d.fdc.writeData(x));
+    d.drainWriteExecution(new Uint8Array(512).fill(0x77));
+    expect(a.data[0]).toBe(0x11);     // untouched
+    expect(b.data[0]).toBe(0x77);
+  });
+
+  it('a multi-sector read stops with ND at an R+1 whose cylinder differs', () => {
+    const d = driverWith([
+      makeSector(0, 0, 0xC1, 2, 0x11),
+      makeSector(3, 0, 0xC2, 2, 0x22),   // R matches the next step, C does not
+    ]);
+    [0x06, 0x00, 0, 0, 0xC1, 2, 0xC2, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    const { data, result } = d.drainReadExecution();
+    expect(data.length).toBe(512);    // only 0xC1
+    expect(result[0] & 0x40).toBe(0x40);
+    expect(result[1] & 0x04).toBe(0x04);
+    expect(result[2] & 0x10).toBe(0x10);
+  });
+});
