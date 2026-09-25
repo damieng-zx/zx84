@@ -35,6 +35,14 @@ export interface WD179xOptions {
   readonly statusBit7: 'motor-on' | 'not-ready';
   /** Sectors a WRITE TRACK command lays down before completing. */
   readonly formatSectorsPerTrack: number;
+  /**
+   * Type II side compare (command bits C = 1, S = 3). Only the FD1791/1793
+   * have it; on the WD1770/1772 those bits mean P (write precompensation
+   * disable) and h (spin-up disable) and there is no side comparison at all.
+   * Defaults to on for the NOT READY (1793-family) parts and off for the
+   * MOTOR ON (1770/1772) parts.
+   */
+  readonly sideCompare?: boolean;
 }
 
 // ── Status register bits ────────────────────────────────────────────────────
@@ -75,10 +83,12 @@ const BUSY_PULSE_READS = 4;
 export class WD179x {
   private readonly statusBit7Mode: WD179xOptions['statusBit7'];
   private readonly formatSectorsPerTrack: number;
+  private readonly hasSideCompare: boolean;
 
   constructor(options: WD179xOptions) {
     this.statusBit7Mode = options.statusBit7;
     this.formatSectorsPerTrack = options.formatSectorsPerTrack;
+    this.hasSideCompare = options.sideCompare ?? options.statusBit7 === 'not-ready';
   }
 
   // ── Registers ─────────────────────────────────────────────────────────
@@ -327,15 +337,16 @@ export class WD179x {
       case 0x2: case 0x3: this.step(cmd, 0); break;
       case 0x4: case 0x5: this.step(cmd, +1); break;
       case 0x6: case 0x7: this.step(cmd, -1); break;
-      // bit 3 (S) selects the side to compare for, bit 1 (C) enables the
-      // comparison — see findSector.
+      // 1793 family: bit 3 (S) selects the side to compare for, bit 1 (C)
+      // enables the comparison — see findSector. The 1770/1772 have no side
+      // compare (those bits are P and h there), see hasSideCompare.
       case 0x8: case 0x9:
-        this.readSectorCmd(hi === 0x9, (cmd & 0x02) !== 0, (cmd >> 3) & 1);
+        this.readSectorCmd(hi === 0x9, this.hasSideCompare && (cmd & 0x02) !== 0, (cmd >> 3) & 1);
         break;
       // bit 0 (a0) selects the address mark the sector is written with:
       // 0 = FB (normal data), 1 = F8 (deleted data).
       case 0xA: case 0xB:
-        this.writeSectorCmd(hi === 0xB, (cmd & 0x01) !== 0, (cmd & 0x02) !== 0, (cmd >> 3) & 1);
+        this.writeSectorCmd(hi === 0xB, (cmd & 0x01) !== 0, this.hasSideCompare && (cmd & 0x02) !== 0, (cmd >> 3) & 1);
         break;
       case 0xC: this.readAddress(); break;
       case 0xD: this.forceInterrupt(); break;
