@@ -43,7 +43,9 @@ function msxMemoryMap(m: MsxMachine): MemoryMapSnapshot | null {
 
   return {
     slots,
-    registers: [{ name: 'Port A8', value: hex8(primary) }],
+    registers: mem.cartridgeMapper === 'plain'
+      ? [{ name: 'Port A8', value: hex8(primary) }]
+      : [{ name: 'Port A8', value: hex8(primary) }, { name: 'Mapper', value: mem.cartridgeMapper }],
   };
 }
 
