@@ -1881,3 +1881,18 @@ describe('Spectrum — tape restart does not hand the deck stale T-states', () =
     expect((s as any).tapeLastAdvanceT).toBe(50000);
   });
 });
+
+describe('Spectrum — tape pulse scaling to the CPU clock', () => {
+  // TZX timings are T-states of a 3.5MHz reference clock.
+  it('48K (3.5MHz) plays pulses unscaled', () => {
+    expect(makeMachine('48k').tape.pulseScale).toBe(1);
+  });
+
+  it('128K (3.5469MHz) scales pulses by 3546900 / 3500000', () => {
+    expect(makeMachine('128k').tape.pulseScale).toBeCloseTo(3_546_900 / 3_500_000, 9);
+  });
+
+  it('+3 (3.5469MHz) scales pulses too', () => {
+    expect(makeMachine('+3').tape.pulseScale).toBeCloseTo(1.0134, 4);
+  });
+});
