@@ -346,6 +346,20 @@ describe('V9938 text-mode rendering', () => {
     expect(line[16]).toBe(v.pens[15]);
   });
 
+  it('shows the R7 backdrop for a multicolour block of colour 0', () => {
+    setReg(v, 1, 0x48);                      // BL + M2 -> multicolour
+    setReg(v, 4, 0x01);                      // pattern (colour) table at 0800h
+    setReg(v, 7, 0x07);                      // backdrop = pens[7]
+    v.vram[0] = 0;                           // name 0
+    v.vram[0x800] = 0x05;                    // left block colour 0, right 5
+    v.renderScanline(line, 0, 0);
+    expect(line[0]).toBe(v.pens[7]);         // transparent -> backdrop
+    expect(line[8]).toBe(v.pens[5]);
+    setReg(v, 8, 0x20);                      // TP set -> colour 0 opaque
+    v.renderScanline(line, 0, 0);
+    expect(line[0]).toBe(v.pens[0]);
+  });
+
   it('shows literal pens[0] for a foreground colour index of 0 when TP is set', () => {
     setReg(v, 1, 0x50);
     setReg(v, 0, 0x04);
