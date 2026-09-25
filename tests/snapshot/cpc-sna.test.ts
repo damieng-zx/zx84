@@ -393,6 +393,63 @@ describe('CPC .SNA v3 Gate Array interrupt state', () => {
   });
 });
 
+describe('CPC .SNA v3 "CPC+" chunk (Plus ASIC state)', () => {
+  function plusChunkBody(): Uint8Array {
+    const b = new Uint8Array(0x8F8);
+    b[0x000] = 0x73;                 // sprite 0 pixels (0,0)=7, (1,0)=3
+    b[0x800] = 0x34; b[0x801] = 0x01; // sprite 0 X = 0x134
+    b[0x802] = 0x20; b[0x803] = 0x00; // sprite 0 Y = 0x20
+    b[0x804] = 0x05;                 // sprite 0 mag x1/x1
+    b[0x880] = 0x12; b[0x881] = 0x04; // pen 0: R=1 B=2, G=4
+    b[0x8C0] = 0x80;                 // PRI scanline 128
+    b[0x8C1] = 0x10;                 // split line 16
+    b[0x8C2] = 0x30; b[0x8C3] = 0x40; // split address &3040
+    b[0x8C4] = 0x95;                 // extend border, vscroll 1, hscroll 5
+    b[0x8C5] = 0xF1;                 // vector (low 3 bits ignored)
+    b[0x8D0] = 0x34; b[0x8D1] = 0x12; // DMA0 address &1234
+    b[0x8D2] = 0x02;                 // DMA0 prescaler 2
+    b[0x8DF] = 0x01;                 // DMA0 enabled
+    b[0x8E0 + 4] = 0x03;             // DMA0 pause count 3
+    b[0x8F6] = 1;                    // unlocked
+    return b;
+  }
+
+  it('restores sprites, palette, scroll/split/PRI and DMA from a CPC+ chunk', () => {
+    const data = join([v3Header(4, 0), chunk('MEM0', new Uint8Array(0x10000)),
+                       chunk('MEM1', new Uint8Array(0x10000)), chunk('CPC+', plusChunkBody())]);
+    const m = new CpcMachine('cpc6128plus', null);
+    applyCpcSna(data, m);
+    const asic = m.gateArray as Asic;
+    expect(asic.locked).toBe(false);
+    expect(asic.registerPage[0x0000]).toBe(7);
+    expect(asic.registerPage[0x0001]).toBe(3);
+    expect(asic.registerPage[0x2000]).toBe(0x34);
+    expect(asic.registerPage[0x2001]).toBe(0x01);
+    expect(asic.registerPage[0x2004]).toBe(0x05);
+    // 4-bit channels scale ×17 into ABGR: R=0x11, G=0x44, B=0x22.
+    expect(asic.asicPalette[0] >>> 0).toBe(0xFF224411);
+    expect(asic.interruptSl).toBe(128);
+    expect(asic.splitSl).toBe(16);
+    expect(asic.splitAddr).toBe(0x3040);
+    expect(asic.extendBorder).toBe(true);
+    expect(asic.vscroll).toBe(1);
+    expect(asic.hscroll).toBe(5);
+    expect(asic.interruptVector).toBe(0xF0);
+    const dma = (asic as unknown as { dma: { source: number; prescaler: number; pauseTicks: number; enabled: boolean }[] }).dma;
+    expect(dma[0].source).toBe(0x1234);
+    expect(dma[0].prescaler).toBe(2);
+    expect(dma[0].enabled).toBe(true);
+    expect(dma[0].pauseTicks).toBe(3 * 3);   // pause count × (prescaler + 1)
+    expect(dma[1].enabled).toBe(false);
+  });
+
+  it('ignores a CPC+ chunk on a non-Plus machine', () => {
+    const data = join([v3Header(2, 0), chunk('CPC+', plusChunkBody())]);
+    const m = new CpcMachine('cpc6128', null);
+    expect(() => applyCpcSna(data, m)).not.toThrow();
+  });
+});
+
 describe('readCpcSnaModel', () => {
   it('reports model + version from the header', () => {
     const v3 = saveCpcSna(new CpcMachine('cpc6128', null), 3);
