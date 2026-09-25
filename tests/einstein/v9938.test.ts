@@ -566,14 +566,28 @@ describe('V9938 command processor', () => {
     expect(v.readStatus()).toBe(0x0C);
   });
 
-  it('honours HMMC transfer-ready handshakes', () => {
-    setReg(v, 40, 4); setReg(v, 42, 1);
+  it('honours HMMC transfer-ready handshakes, R44 at start is byte one', () => {
+    setReg(v, 40, 6); setReg(v, 42, 1);   // NX = 6 dots = 3 bytes
+    setReg(v, 44, 0x12);                  // first byte is preloaded in CLR
     setReg(v, 46, 0xF0);
-    expect(status2() & 0x81).toBe(0x81);   // TR + CE
-    setReg(v, 44, 0x12);
-    expect(status2() & 0x81).toBe(0x81);
+    expect(v.vram[0]).toBe(0x12);         // written as the command starts
+    expect(status2() & 0x81).toBe(0x81);  // TR + CE: waiting for byte 2
     setReg(v, 44, 0x34);
-    expect(Array.from(v.vram.slice(0, 2))).toEqual([0x12, 0x34]);
+    expect(status2() & 0x81).toBe(0x81);
+    setReg(v, 44, 0x56);
+    expect(Array.from(v.vram.slice(0, 3))).toEqual([0x12, 0x34, 0x56]);
+    expect(status2() & 0x81).toBe(0);
+  });
+
+  it('LMMC takes its first pixel from R44 at command start', () => {
+    setReg(v, 36, 0); setReg(v, 38, 0);
+    setReg(v, 40, 2); setReg(v, 42, 1);   // NX = 2 pixels
+    setReg(v, 44, 0x07);
+    setReg(v, 46, 0xB0);                  // LMMC, IMP
+    expect(v.vram[0] >> 4).toBe(0x7);     // left pixel of byte 0 already set
+    expect(status2() & 0x81).toBe(0x81);
+    setReg(v, 44, 0x03);
+    expect(v.vram[0]).toBe(0x73);
     expect(status2() & 0x81).toBe(0);
   });
 
