@@ -52,8 +52,8 @@ export class Crtc6845 {
   vsyncStart = false;
 
   // ── Per-frame raster counters ──────────────────────────────────────────
-  private vcc = 0;          // character-row counter (0–R4)
-  private ra = 0;           // raster within row (0–R9)
+  private vcc = 0;          // character-row counter (7-bit, matched against R4)
+  private ra = 0;           // raster within row (5-bit, matched against R9)
   private maRow = 0;        // memory address at start of current row
   private vsyncLeft = 0;    // remaining VSYNC scanlines
   private vtaLeft = 0;      // remaining vertical-total-adjust (R5) scanlines
@@ -192,21 +192,24 @@ export class Crtc6845 {
       return;
     }
 
-    // Advance raster / character row.
-    if (this.ra >= this.regs[R_MAX_RASTER]) {
-      // End of a character row. R4 (vertical total) is re-read here, so reducing
-      // it mid-frame restarts the frame early — the basis of rupture.
-      if (this.vcc >= this.regs[R_VERT_TOTAL]) {
+    // Advance raster / character row. The 6845 compares its counters for
+    // *equality* with R9/R4: a register written below the live counter is
+    // missed, so the counter runs on to its width (RA 5-bit, VCC 7-bit) and
+    // wraps before it can match again.
+    if (this.ra === this.regs[R_MAX_RASTER]) {
+      // End of a character row. R4 (vertical total) is re-read here, so setting
+      // it to the current row mid-frame restarts the frame early — rupture.
+      if (this.vcc === this.regs[R_VERT_TOTAL]) {
         const adjust = this.regs[R_VERT_ADJUST];
         if (adjust > 0) this.vtaLeft = adjust;   // run R5 adjust lines, then restart
         else this.restartFrame();
       } else {
         this.ra = 0;
-        this.vcc++;
+        this.vcc = (this.vcc + 1) & 0x7F;
         this.maRow = (this.maRow + this.regs[R_HORIZ_DISPLAYED]) & 0x3FFF;
       }
     } else {
-      this.ra++;
+      this.ra = (this.ra + 1) & 0x1F;
     }
   }
 
