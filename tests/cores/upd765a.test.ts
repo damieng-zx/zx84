@@ -1620,3 +1620,18 @@ describe('uPD765A — seek-end interrupts are held per drive', () => {
     expect(d.command(0x08)).toEqual([ST0_INVALID]);
   });
 });
+
+describe('uPD765A — FORMAT_TRACK sizes data fields by the command N', () => {
+  it('an ID tuple claiming N=6 under a command N=1 gets a 256-byte data field', () => {
+    const d = new Driver();
+    const img = makeStdImage();
+    d.fdc.insertDisk(img, 0);
+    // FORMAT_TRACK N=1 (256 bytes) SC=2; the tuples claim N=6 and N=1
+    [0x0D, 0x00, 1, 2, 0x2A, 0xE5].forEach(b => d.fdc.writeData(b));
+    d.drainWriteExecution([0, 0, 1, 6, 0, 0, 2, 1]);
+    const tr = img.tracks[0][0]!;
+    expect(tr.sectors[0].n).toBe(6);             // ID field records what the CPU sent
+    expect(tr.sectors[0].data.length).toBe(256);  // data field is the command's size
+    expect(tr.sectors[1].data.length).toBe(256);
+  });
+});

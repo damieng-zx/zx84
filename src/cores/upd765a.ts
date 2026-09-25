@@ -1520,7 +1520,10 @@ export class UPD765A {
       const h = buf[i * 4 + 1];
       const r = buf[i * 4 + 2];
       const n = buf[i * 4 + 3];
-      const data = new Uint8Array(sectorXferSize(n)).fill(filler);
+      // The data field laid down is sized by the command's N; the N in each
+      // CPU-supplied tuple is only what gets recorded in the ID field (which
+      // is how protections format sectors whose ID claims another size).
+      const data = new Uint8Array(sectorXferSize(this.exN)).fill(filler);
       sectors.push({ c, h, r, n, st1: 0, st2: 0, data });
       sectorMap.set(r, i);
       lastR = r;
