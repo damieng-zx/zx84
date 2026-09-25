@@ -10,6 +10,10 @@
  */
 
 import type { TapeBlock, DataBlock } from '@/media/tape/tap.ts';
+import { inflateZlibSync } from '@/media/tape/inflate.ts';
+
+/** Ceiling on a decompressed Z-RLE CSW stream inside a TZX 0x18 block. */
+const MAX_ZRLE_BYTES = 64 * 1024 * 1024;
 
 const TZX_MAGIC = [0x5A, 0x58, 0x54, 0x61, 0x70, 0x65, 0x21, 0x1A]; // "ZXTape!\x1A"
 
@@ -262,29 +266,35 @@ export function parseTZX(fileData: Uint8Array): TapeBlock[] {
         const sampleRate = read24(fileData, body + 2);
         const compression = fileData[body + 5];
         const pulseCount = read32(fileData, body + 6);
-        if (compression !== 1) {
+        if (compression !== 1 && compression !== 2) {
           throw new Error(`Unsupported embedded TZX CSW compression type ${compression}`);
         }
-        const rleStart = body + 10;
-        const rleEnd = body + blockLen;
+        if (sampleRate === 0) throw new Error('Embedded TZX CSW has a zero sample rate');
+        // 1 = RLE; 2 = Z-RLE, the same RLE stream zlib-compressed. Each RLE
+        // item is at most 5 bytes, so the decompressed stream for pulseCount
+        // pulses can never legitimately exceed pulseCount * 5 bytes — cap the
+        // inflate there (and at 64MB) so a hostile stream cannot balloon.
+        const rle = compression === 1
+          ? fileData.subarray(body + 10, body + blockLen)
+          : inflateZlibSync(fileData.subarray(body + 10, body + blockLen),
+            Math.min(pulseCount * 5, MAX_ZRLE_BYTES));
         // Validate before allocating: a zero sample rate would poison every
         // pulse with NaN/Infinity, and each RLE item produces at most one
         // pulse from at least one byte — so a header claiming more pulses
         // than there are RLE bytes is corrupt. Bounded by the RLE length,
         // the allocation can never blow up on a hostile header value.
-        if (sampleRate === 0) throw new Error('Embedded TZX CSW has a zero sample rate');
-        if (pulseCount > rleEnd - rleStart) {
+        if (pulseCount > rle.length) {
           throw new Error('Truncated embedded TZX CSW recording');
         }
         const pulses = new Uint32Array(pulseCount);
         let pulse = 0;
-        for (let p = rleStart; p < rleEnd && pulse < pulseCount;) {
-          const length = fileData[p++];
+        for (let p = 0; p < rle.length && pulse < pulseCount;) {
+          const length = rle[p++];
           if (length !== 0) {
             pulses[pulse++] = Math.max(1, Math.round(length * 3_500_000 / sampleRate));
           } else {
-            if (p + 4 > rleEnd) throw new Error('Truncated embedded TZX CSW pulse');
-            const samples = read32(fileData, p);
+            if (p + 4 > rle.length) throw new Error('Truncated embedded TZX CSW pulse');
+            const samples = read32(rle, p);
             p += 4;
             pulses[pulse++] = Math.max(1, Math.round(samples * 3_500_000 / sampleRate));
           }
