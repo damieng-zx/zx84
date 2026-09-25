@@ -1473,3 +1473,64 @@ describe('uPD765A — sector search compares C and H as well as R', () => {
     expect(result[2] & 0x10).toBe(0x10);
   });
 });
+
+describe('uPD765A — writes lay down a new data mark and a good CRC', () => {
+  function driverWith(sector: DskSector): Driver {
+    const d = new Driver();
+    const im = makeImage();
+    im.tracks[0][0] = makeTrack([sector]);
+    d.fdc.insertDisk(im, 0);
+    return d;
+  }
+  const payload = new Uint8Array(512).fill(0x3C);
+
+  it('WRITE_DATA over a deleted-data sector leaves a normal mark', () => {
+    const s = makeSector(0, 0, 0xC1, 2, 0x00, 0, 0x40);
+    const d = driverWith(s);
+    [0x05, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    d.drainWriteExecution(payload);
+    expect(s.st2 & 0x40).toBe(0);
+    [0x06, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    const { result } = d.drainReadExecution();
+    expect(result[2]).toBe(0x00);     // READ_DATA over it: mark matches, no CM
+  });
+
+  it('WRITE_DELETED over a normal sector leaves a deleted-data mark', () => {
+    const s = makeSector(0, 0, 0xC1, 2, 0x00);
+    const d = driverWith(s);
+    [0x09, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    d.drainWriteExecution(payload);
+    expect(s.st2 & 0x40).toBe(0x40);
+    [0x0C, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    const { result } = d.drainReadExecution();
+    expect(result[2]).toBe(0x00);     // READ_DELETED over it: mark matches, no CM
+  });
+
+  it('rewriting a data-CRC-error sector clears DE and DD', () => {
+    const s = makeSector(0, 0, 0xC1, 2, 0x00, 0x20, 0x20);
+    const d = driverWith(s);
+    [0x05, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    d.drainWriteExecution(payload);
+    expect(s.st1).toBe(0);
+    expect(s.st2).toBe(0);
+    [0x06, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    const { data, result } = d.drainReadExecution();
+    expect(data.every(b => b === 0x3C)).toBe(true);  // not randomised as weak any more
+    expect(result[2]).toBe(0x00);
+  });
+
+  it('an ID-field CRC error (DE without DD) is left alone by a data write', () => {
+    const s = makeSector(0, 0, 0xC1, 2, 0x00, 0x20, 0x00);
+    const d = driverWith(s);
+    [0x05, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    d.drainWriteExecution(payload);
+    expect(s.st1 & 0x20).toBe(0x20);
+  });
+
+  it('a WRITE_DATA result never reports CM for the mark it overwrote', () => {
+    const d = driverWith(makeSector(0, 0, 0xC1, 2, 0x00, 0, 0x40));
+    [0x05, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    const r = d.drainWriteExecution(payload);
+    expect(r[2] & 0x40).toBe(0);
+  });
+});

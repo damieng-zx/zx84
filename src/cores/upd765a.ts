@@ -827,6 +827,17 @@ export class UPD765A {
     // Writing destroys the v5 weak-bit state: subsequent reads must
     // return the freshly-written data, not random older copies.
     sector.copies = undefined;
+    // A write lays down a fresh data address mark and data field with a good
+    // CRC, so the sector's stored data-field state changes with it: the mark
+    // becomes whatever the command writes (FB for WRITE DATA, F8 for WRITE
+    // DELETED DATA), and any old data CRC error (ST2 DD with ST1 DE) or
+    // missing data mark (ST2 MD with ST1 MA) is gone. An ID-field CRC error
+    // (ST1 DE without ST2 DD) belongs to the ID, which a write doesn't touch.
+    const dataFieldBad = (sector.st2 & 0x21) !== 0;
+    let st2 = sector.st2 & ~(0x40 | 0x20 | 0x01);
+    if (this.exCmd === CMD_WRITE_DELETED) st2 |= 0x40;
+    sector.st2 = st2;
+    if (dataFieldBad) sector.st1 &= ~(0x20 | 0x01);
     this.dirty[this.physUnit(this.exUnit)] = true;
   }
 
@@ -1105,9 +1116,14 @@ export class UPD765A {
     }
     let st1 = undersized ? 0 : storedSt1;
     let st2 = undersized ? 0 : sector.st2;
-    if (!undersized) {
+    if (cmd === CMD_WRITE_DATA || cmd === CMD_WRITE_DELETED) {
+      // Control Mark is a read-side flag: it reports a data address mark that
+      // didn't match what a read expected. A write lays the mark down rather
+      // than reading it, so the old mark is never compared and CM stays clear.
+      st2 &= ~0x40;
+    } else if (!undersized) {
       const sectorHasDDAM = !!(sector.st2 & 0x40);
-      const cmdExpectsDDAM = (cmd === CMD_READ_DELETED || cmd === CMD_WRITE_DELETED);
+      const cmdExpectsDDAM = cmd === CMD_READ_DELETED;
       if (sectorHasDDAM === cmdExpectsDDAM) st2 &= ~0x40; // mark matches — clear CM
       else st2 |= 0x40;                                    // mismatch — set CM
     }
