@@ -301,3 +301,25 @@ describe('WD1772 SEEK steps relative to the Track Register', () => {
     expect(wd.getUnitTrack(0)).toBe(3);
   });
 });
+
+describe('WD1772 has no side compare', () => {
+  it('bits 1 and 3 of READ SECTOR (P/h on the 1772) do not reject a side-0 ID', () => {
+    const wd = wd1772();
+    wd.insertDisk(makeImage(), 0);      // sectors stored with h=0
+    wd.selectDrive(0);
+    wd.setSide(0);
+    wd.writeSectorReg(1);
+    wd.writeCommand(0x8A);              // on a 1793 this would compare for side 1
+    expect(wd.readStatus() & ST_RNF).toBe(0);
+    expect(wd.readData()).toBe(0xAB);
+  });
+
+  it('bits 1 and 3 of WRITE SECTOR do not reject a side-0 ID either', () => {
+    const wd = wd1772();
+    wd.insertDisk(makeImage(), 0);
+    wd.selectDrive(0);
+    wd.writeSectorReg(1);
+    wd.writeCommand(0xAA);
+    expect(wd.readStatus() & ST_RNF).toBe(0);
+  });
+});
