@@ -61,6 +61,50 @@ export function guessCartBase(rom: Uint8Array): number {
   return 0x4000;
 }
 
+/** How slot 1 decodes the cartridge: a plain ROM, or one of the common
+ *  mega-ROM bank mappers (openMSX RomAscii8kB/RomAscii16kB/RomKonami/
+ *  RomKonamiSCC). SCC sound is not modelled — only its bank switching. */
+export type MsxMapper = 'plain' | 'ascii8' | 'ascii16' | 'konami' | 'konami-scc';
+
+/**
+ * Guess a mega-ROM's mapper the way openMSX's RomFactory does: games switch
+ * banks with `LD (nnnn),A` (opcode 0x32), so count those stores to each
+ * mapper's register addresses and pick the most-hit mapper. Ties go to
+ * Konami SCC, then Konami, ASCII16, ASCII8; ASCII8's count is docked by one
+ * as in openMSX, and a ROM with no hits at all falls back to ASCII8 (the
+ * nearest supported layout to openMSX's generic 8KB mapper).
+ */
+export function guessMegaRomMapper(rom: Uint8Array): Exclude<MsxMapper, 'plain'> {
+  let ascii8 = 0, ascii16 = 0, konami = 0, konamiScc = 0;
+  for (let i = 0; i + 3 < rom.length; i++) {
+    if (rom[i] !== 0x32) continue;
+    switch (rom[i + 1] | (rom[i + 2] << 8)) {
+      case 0x5000: case 0x9000: case 0xB000: konamiScc++; break;
+      case 0x4000: case 0x8000: case 0xA000: konami++; break;
+      case 0x6800: case 0x7800: ascii8++; break;
+      case 0x6000: konami++; ascii8++; ascii16++; break;
+      case 0x7000: konamiScc++; ascii8++; ascii16++; break;
+      case 0x77FF: ascii16++; break;
+    }
+  }
+  if (ascii8 > 0) ascii8--;
+  let best: Exclude<MsxMapper, 'plain'> = 'ascii8';
+  let bestCount = ascii8;
+  const rivals = [['ascii16', ascii16], ['konami', konami], ['konami-scc', konamiScc]] as const;
+  for (const [type, count] of rivals) {
+    if (count > 0 && count >= bestCount) { best = type; bestCount = count; }
+  }
+  return best;
+}
+
+/** Whether an image needs a mega-ROM mapper: anything over 64KB, or a 64KB
+ *  image that starts with an "AB" header (openMSX: a header-less 64KB image
+ *  is a plain ROM filling all four pages). */
+export function isMegaRom(rom: Uint8Array): boolean {
+  if (rom.length > 0x10000) return true;
+  return rom.length === 0x10000 && rom[0] === 0x41 && rom[1] === 0x42;
+}
+
 export class MsxMemory implements IMachineMemory {
   /** Internal ROM: BIOS + MSX BASIC, mapped in slot 0 pages 0–1. */
   private rom = new Uint8Array(ROM_SIZE);
@@ -77,6 +121,16 @@ export class MsxMemory implements IMachineMemory {
   /** Per-8KB-segment views of the cartridge as it appears in slot 1 (null =
    *  the cartridge doesn't decode that segment). */
   private readonly cartSeg: (Uint8Array | null)[] = new Array(SEGS).fill(null);
+
+  /** The cartridge's mapper, and (for mega-ROMs) its image padded to whole
+   *  8KB blocks plus the bank-number mask (next power of two, minus one). */
+  private mapper: MsxMapper = 'plain';
+  private cartImage = new Uint8Array(0);
+  private cartBlocks8 = 0;
+  private cartMask8 = 0;
+  /** Segments where a CPU write reaches the mapper's bank registers (slot 1
+   *  selected there and a mega-ROM mounted). */
+  private readonly mapperSeg = new Uint8Array(SEGS);
 
   /** Per-segment read source (8KB view) or null when unmapped (reads 0xFF). */
   private readonly readPtr: (Uint8Array | null)[] = new Array(SEGS).fill(null);
@@ -106,10 +160,14 @@ export class MsxMemory implements IMachineMemory {
   /** Live 32KB view of the internal ROM (debug/memory viewer). */
   getRom(): Uint8Array { return this.rom; }
 
-  /** Mount a cartridge ROM into slot 1, placed by its header. A reset
-   *  afterwards lets the BIOS slot scan find and auto-run it. */
-  insertCartridge(data: Uint8Array): void {
+  /** Mount a cartridge ROM into slot 1: a mega-ROM gets its mapper
+   *  (`mapper`, else guessed from the code), a plain ROM is placed by its
+   *  header. A reset afterwards lets the BIOS slot scan find and auto-run it. */
+  insertCartridge(data: Uint8Array, mapper?: MsxMapper): void {
     this.cartRom = data.length > 0 ? data : null;
+    if (this.cartRom === null) this.mapper = 'plain';
+    else if (mapper !== undefined) this.mapper = mapper;
+    else this.mapper = isMegaRom(this.cartRom) ? guessMegaRomMapper(this.cartRom) : 'plain';
     this.buildCartViews();
     this.rebuild();
   }
@@ -117,12 +175,15 @@ export class MsxMemory implements IMachineMemory {
   /** Remove any mounted cartridge from slot 1. */
   removeCartridge(): void {
     this.cartRom = null;
+    this.mapper = 'plain';
     this.buildCartViews();
     this.rebuild();
   }
 
   get hasCartridge(): boolean { return this.cartRom !== null; }
   get cartridgeSize(): number { return this.cartRom?.length ?? 0; }
+  /** The mounted cartridge's mapper ('plain' when none or unbanked). */
+  get cartridgeMapper(): MsxMapper { return this.mapper; }
 
   /** Whether the cartridge decodes any part of 16KB page `page` (0–3). */
   cartCoversPage(page: number): boolean {
@@ -139,6 +200,7 @@ export class MsxMemory implements IMachineMemory {
     this.cartSeg.fill(null);
     const rom = this.cartRom;
     if (!rom) return;
+    if (this.mapper !== 'plain') { this.buildMegaRom(rom); return; }
     const size = rom.length;
     const base = size >= 0x10000 ? 0 : guessCartBase(rom);
     const pages = Math.min(Math.ceil(size / PAGE_SIZE), 4 - (base >> 14));
@@ -151,12 +213,96 @@ export class MsxMemory implements IMachineMemory {
     }
   }
 
+  /** Pad a mega-ROM to whole 8KB blocks and power it up with its mapper's
+   *  reset banking. */
+  private buildMegaRom(rom: Uint8Array): void {
+    const blocks = Math.ceil(rom.length / SEG_SIZE);
+    this.cartImage = new Uint8Array(blocks * SEG_SIZE).fill(0xFF);
+    this.cartImage.set(rom);
+    this.cartBlocks8 = blocks;
+    let pow = 1;
+    while (pow < blocks) pow <<= 1;
+    this.cartMask8 = pow - 1;
+    this.resetMapper();
+  }
+
+  /** 8KB block `n` (already masked) of the mega-ROM, or null past its end. */
+  private block8(n: number): Uint8Array | null {
+    return n < this.cartBlocks8 ? this.cartImage.subarray(n * SEG_SIZE, (n + 1) * SEG_SIZE) : null;
+  }
+
+  /** Map 8KB bank `bank` at segment `seg` (bank masked to the ROM size). */
+  private setBank8(seg: number, bank: number): void {
+    this.cartSeg[seg] = this.block8(bank & this.cartMask8);
+  }
+
+  /** Map 16KB bank `bank` at segments `seg`/`seg+1` (ASCII16). */
+  private setBank16(seg: number, bank: number): void {
+    const n = (bank & (this.cartMask8 >> 1)) * 2;
+    this.cartSeg[seg] = this.block8(n);
+    this.cartSeg[seg + 1] = this.block8(n + 1);
+  }
+
+  /** Power-on banking. Every mapper decodes 0x4000–0xBFFF only; pages 0 and
+   *  3 are unmapped (openMSX). */
+  private resetMapper(): void {
+    this.cartSeg.fill(null);
+    switch (this.mapper) {
+      case 'ascii8':
+        for (let seg = 2; seg < 6; seg++) this.setBank8(seg, 0);
+        break;
+      case 'ascii16':
+        this.setBank16(2, 0);
+        this.setBank16(4, 0);
+        break;
+      case 'konami':
+      case 'konami-scc':
+        for (let seg = 2; seg < 6; seg++) this.setBank8(seg, seg - 2);
+        break;
+      case 'plain':
+        break;
+    }
+  }
+
+  /** A CPU write into slot 1 of a mega-ROM: decode the bank registers. */
+  private mapperWrite(addr: number, val: number): void {
+    switch (this.mapper) {
+      case 'ascii8':
+        // 0x6000/0x6800/0x7000/0x7800 (2KB windows) → banks at 0x4000–0xA000.
+        if (addr < 0x6000 || addr >= 0x8000) return;
+        this.setBank8(2 + ((addr >> 11) & 3), val);
+        break;
+      case 'ascii16':
+        // 0x6000–0x67FF → the 0x4000 bank; 0x7000–0x77FF → the 0x8000 bank.
+        if (addr < 0x6000 || addr >= 0x7800 || (addr & 0x0800)) return;
+        this.setBank16((addr & 0x1000) ? 4 : 2, val);
+        break;
+      case 'konami':
+        // 0x4000–0x5FFF is fixed to bank 0; a write anywhere in 0x6000–
+        // 0xBFFF selects the bank for that 8KB segment.
+        if (addr < 0x6000 || addr >= 0xC000) return;
+        this.setBank8(addr >> 13, val);
+        break;
+      case 'konami-scc':
+        // 0x5000/0x7000/0x9000/0xB000 (2KB windows) → banks at 0x4000–0xA000.
+        if (addr < 0x5000 || addr >= 0xC000 || (addr & 0x1800) !== 0x1000) return;
+        this.setBank8(addr >> 13, val);
+        break;
+      case 'plain':
+        return;
+    }
+    this.rebuild();
+  }
+
   /** Rebuild the per-segment read/write views from the slot register. */
   private rebuild(): void {
+    const mega = this.mapper !== 'plain' ? 1 : 0;
     for (let seg = 0; seg < SEGS; seg++) {
       const page = seg >> 1;
       const slot = (this.primarySlot >> (page * 2)) & 3;
       const off = seg * SEG_SIZE;
+      // A mega-ROM's bank registers catch CPU writes anywhere in slot 1.
+      this.mapperSeg[seg] = slot === 1 ? mega : 0;
       if (slot === 0) {
         // Slot 0: ROM in pages 0–1 (read-only), empty above.
         this.readPtr[seg] = page < 2 ? this.rom.subarray(off, off + SEG_SIZE) : null;
@@ -188,8 +334,10 @@ export class MsxMemory implements IMachineMemory {
 
   writeByte(addr: number, val: number): void {
     addr &= 0xFFFF;
-    const ptr = this.writePtr[addr >> 13];
+    const seg = addr >> 13;
+    const ptr = this.writePtr[seg];
     if (ptr) ptr[addr & 0x1FFF] = val & 0xFF;
+    else if (this.mapperSeg[seg]) this.mapperWrite(addr, val & 0xFF);
   }
 
   readBlock(addr: number, len: number): Uint8Array {
@@ -226,6 +374,7 @@ export class MsxMemory implements IMachineMemory {
   reset(): void {
     this.ram.fill(0);
     this.primarySlot = 0;
+    if (this.mapper !== 'plain') this.resetMapper();   // /RESET reaches the cart
     this.rebuild();
   }
 }
