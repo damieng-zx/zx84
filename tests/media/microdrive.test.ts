@@ -50,4 +50,27 @@ describe('parseMdrBlocks', () => {
       { name: 'SCREEN', type: 'Bytes', bytes: 6912, records: 1, sectors: [0], loadAddress: 16384, autorunLine: null },
     ]);
   });
+
+  it('lists a PRINT (OPEN#) file whose records have RECFLG bit 2 reset', () => {
+    // IF1 RECFLG: bit 2 reset marks a PRINT-type data file, not a free record.
+    // Its first record is raw stream text, never a type/length header.
+    const text = [0, 0x10, 0x00, 0x00, 0x80, 0, 0, 5, 0]; // looks like a header
+    const first = record('NOTES', 0, 0x00, 512, text);
+    const last = record('NOTES', 1, 0x02, 20);
+    const image = new Uint8Array(SECTOR_BYTES * 2);
+    image.set(first, 0);
+    image.set(last, SECTOR_BYTES);
+
+    expect(parseMdrBlocks(image)).toEqual([
+      { name: 'NOTES', type: 'Data', bytes: 532, records: 2, sectors: [0, 1], loadAddress: null, autorunLine: null },
+    ]);
+  });
+
+  it('treats any autostart line with bit 15 set as "no auto-run", not only 0x8000', () => {
+    // The tape ROM only sets the high byte to 0x80, leaving the low byte as-is.
+    const header = [0, 0x10, 0x00, 0, 0, 0x10, 0x00, 0x37, 0x80];
+    const image = record('PROG', 0, 0x06, 512, header);
+
+    expect(parseMdrBlocks(image)[0].autorunLine).toBeNull();
+  });
 });
