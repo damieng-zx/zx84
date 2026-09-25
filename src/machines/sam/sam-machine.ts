@@ -395,7 +395,7 @@ export class SamMachine extends BaseMachine implements Machine {
     for (let line = 0; line < SAM_LINES_PER_FRAME; line++) {
       lineEnd += SAM_T_PER_LINE;
       asic.beginLine(line, cpu.tStates);
-      contention.beginLine(line, cpu.tStates, memory.videoMode, asic.screenOff);
+      contention.beginLine(line, cpu.tStates, memory.videoMode, asic.displayBlanked);
 
       while (cpu.tStates < lineEnd) {
         if (this.breakpoints.has(cpu.pc)) { this.breakpointHit = cpu.pc; broke = true; break; }

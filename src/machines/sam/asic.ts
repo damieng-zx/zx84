@@ -51,7 +51,8 @@ export class SamAsic {
   palette: Uint32Array = SAM_PALETTE;
   /** CLUT index driving the border, from port 0xFE. */
   borderIndex = 0;
-  /** Screen-off latch (port 0xFE bit 7): blanks the display to the border. */
+  /** Screen-off latch (port 0xFE bit 7). Only blanks the display in modes 3
+   *  and 4 — see `displayBlanked`. Reads back through port 0xFE regardless. */
   screenOff = false;
 
   /** Active-low interrupt status (port 0xF9). A CLEAR bit means pending. */
@@ -154,6 +155,15 @@ export class SamAsic {
     this.lineIntUntil = -1;
   }
 
+  /**
+   * True when SOFF is actually blanking the display: the latch only takes
+   * effect in modes 3 and 4 (SimCoupe's `IsScreenOff`). In modes 1 and 2 the
+   * ASIC keeps fetching and drawing, so contention and HPEN are unaffected.
+   */
+  get displayBlanked(): boolean {
+    return this.screenOff && this.memory.videoMode >= 3;
+  }
+
   // ── Light-pen registers (reads of port 0xF8) ──────────────────────────────
 
   /** Last HPEN value, held while the screen is off (the ASIC stops updating). */
@@ -173,7 +183,7 @@ export class SamAsic {
    * border (`SAM_DISPLAY_FIRST_T`), matching SimCoupe's `update_hpen`.
    */
   hpen(tStates: number): number {
-    if (this.screenOff) return this.hpenLatch;
+    if (this.displayBlanked) return this.hpenLatch;
     const line = this.lineNo;
     const onDisplay = line >= SAM_DISPLAY_FIRST_LINE && line < SAM_DISPLAY_LAST_LINE
       && (line !== SAM_DISPLAY_FIRST_LINE
@@ -193,7 +203,7 @@ export class SamAsic {
    */
   lpen(tStates: number): number {
     const lineCycle = tStates - this.lineStartT;
-    const onDisplay = !this.screenOff
+    const onDisplay = !this.displayBlanked
       && this.lineNo >= SAM_DISPLAY_FIRST_LINE && this.lineNo < SAM_DISPLAY_LAST_LINE
       && lineCycle >= SAM_DISPLAY_FIRST_T;
     const xpos = onDisplay ? (lineCycle - SAM_DISPLAY_FIRST_T) & 0xFC : 0;
@@ -326,7 +336,7 @@ export class SamAsic {
     this.linePageA = mem.videoPage(base);
     this.linePageB = mem.videoPage(base + 1);
     this.lineBorder = this.borderIndex;
-    this.lineScreenOff = this.screenOff;
+    this.lineScreenOff = this.displayBlanked;
     this.lineMd3Clut = (mem.hmpr & HMPR_MD3COL_MASK) >> 3;
     this.lineFlash = (this.frames & FLASH_FRAMES) !== 0;
 

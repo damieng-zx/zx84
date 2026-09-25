@@ -356,6 +356,46 @@ describe('SamAsic border and blanking', () => {
     expect(r.at(r.draw(0), 0)).toBe(colour(2));
   });
 
+  it('ignores SOFF in modes 1 and 2 — the display keeps drawing', () => {
+    // SOFF only blanks the screen in modes 3 and 4.
+    for (const mode of [1, 2] as const) {
+      const r = rig(mode);
+      markClut(r.asic);
+      r.vram(0, 0x80);                                 // leftmost pixel set
+      r.vram(mode === 1 ? 6144 : 0x2000, 0x03);        // ink 3, paper 0
+      r.asic.borderIndex = 2;
+      r.asic.screenOff = true;
+      expect(r.at(r.draw(0), 0)).toBe(colour(3));
+    }
+  });
+
+  it('blanks in mode 3 as well as mode 4', () => {
+    const r = rig(3);
+    markClut(r.asic);
+    r.vram(0, 0xC0);
+    r.asic.borderIndex = 2;
+    r.asic.screenOff = true;
+    expect(r.at(r.draw(0), 0)).toBe(colour(2));
+  });
+
+  it('keeps HPEN tracking the beam with SOFF set in mode 1', () => {
+    const r = rig(1);
+    r.asic.screenOff = true;
+    r.asic.beginLine(SAM_BORDER_TOP + 10, 0);
+    expect(r.asic.hpen(1000)).toBe(10);
+    r.asic.beginLine(SAM_BORDER_TOP + 11, 0);
+    expect(r.asic.hpen(1000)).toBe(11);
+  });
+
+  it('holds HPEN with SOFF set in mode 4', () => {
+    const r = rig(4);
+    r.asic.beginLine(SAM_BORDER_TOP + 10, 0);
+    expect(r.asic.hpen(1000)).toBe(10);
+    r.asic.screenOff = true;
+    r.asic.beginLine(SAM_BORDER_TOP + 11, 0);
+    expect(r.asic.hpen(1000)).toBe(10);
+  });
+
   it('never writes outside the frame buffer', () => {
     const r = rig(4);
     r.asic.beginLine(SAM_SCREEN_HEIGHT, 0);
