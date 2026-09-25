@@ -263,6 +263,11 @@ export function wirePortIO(s: Spectrum): void {
         if (event === 'start') {
           s.tape.paused = false;
           if (!s.tape.playing) s.tape.startPlayback();
+          // Nothing advanced the deck while it was paused, and
+          // tapeLastAdvanceT still reads the top of this frame — measure the
+          // next advance from now, or the deck gets up to a frame of
+          // catch-up (tens of pilot edges) the moment the loader resumes.
+          s.resetTapeAdvance();
           s.activity.loaderDetected = true;
         } else if (event === 'stop') {
           s.tape.paused = true;
