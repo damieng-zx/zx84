@@ -385,3 +385,66 @@ describe('decodeHfeTrack — data field straddling the index', () => {
     expect(t.sectors.map(s => s.r)).toEqual([1]);
   });
 });
+
+describe('serializeHFE — tracks re-formatted in the emulator', () => {
+  const base = (): DskImage => parseHFE(buildHFE([packSide([
+    { c: 0, h: 0, r: 1, n: 2, data: new Array(512).fill(0x11) },
+    { c: 0, h: 0, r: 2, n: 2, data: new Array(512).fill(0x22) },
+  ])], 1));
+
+  it('a track with new IDs and sizes is re-encoded with its new layout', async () => {
+    const { UPD765A } = await import('@/cores/upd765a.ts');
+    const img = base();
+    const fdc = new UPD765A();
+    fdc.insertDisk(img, 0);
+    // FORMAT_TRACK N=1 SC=3 GPL=0x2A fill 0x5A, IDs R=0x41..0x43
+    [0x0D, 0x00, 1, 3, 0x2A, 0x5A].forEach(b => fdc.writeData(b));
+    [0, 0, 0x41, 1, 0, 0, 0x42, 1, 0, 0, 0x43, 1].forEach(b => fdc.writeData(b));
+
+    const round = parseHFE(serializeHFE(img)).tracks[0]![0]!;
+    expect(round.sectors.map(s => [s.r, s.n, s.data.length])).toEqual([
+      [0x41, 1, 256], [0x42, 1, 256], [0x43, 1, 256],
+    ]);
+    expect(round.sectors.every(s => s.st1 === 0 && s.st2 === 0)).toBe(true);
+    expect(round.sectors[0].data.every(b => b === 0x5A)).toBe(true);
+  });
+
+  it('a cylinder formatted past the end of the image is written out', async () => {
+    const { UPD765A } = await import('@/cores/upd765a.ts');
+    const img = base();
+    const fdc = new UPD765A();
+    fdc.insertDisk(img, 0);
+    [0x0F, 0x00, 1].forEach(b => fdc.writeData(b));   // seek to cylinder 1
+    fdc.writeData(0x08); fdc.readData(); fdc.readData();
+    [0x0D, 0x00, 2, 1, 0x2A, 0x77].forEach(b => fdc.writeData(b));
+    [1, 0, 1, 2].forEach(b => fdc.writeData(b));
+
+    const round = parseHFE(serializeHFE(img));
+    expect(round.numTracks).toBe(2);
+    expect(round.tracks[1]![0]!.sectors[0]).toMatchObject({ c: 1, h: 0, r: 1, n: 2 });
+    expect(round.tracks[0]![0]!.sectors.map(s => s.r)).toEqual([1, 2]);   // untouched
+  });
+
+  it('a sector rewritten as deleted data keeps its deleted mark', () => {
+    const img = base();
+    img.tracks[0]![0]!.sectors[0].st2 |= 0x40;        // as WRITE DELETED DATA leaves it
+    const round = parseHFE(serializeHFE(img)).tracks[0]![0]!;
+    expect(round.sectors[0].st2 & 0x40).toBe(0x40);
+    expect(round.sectors[0].st1 & 0x20).toBe(0);       // good CRC over the new mark
+    expect(round.sectors[0].data.every(b => b === 0x11)).toBe(true);
+    expect(round.sectors[1].st2).toBe(0);
+  });
+});
+
+describe('serializeHFE — rewriting a bad-CRC field with the same bytes', () => {
+  it('lays down a good CRC once the image holds the sector as good', () => {
+    const data = new Array(512).fill(0x33);
+    const img = parseHFE(buildHFE([packSide([{ c: 0, h: 0, r: 1, n: 2, data, corruptData: true }])], 1));
+    const s = img.tracks[0]![0]!.sectors[0];
+    expect(s.st2 & 0x20).toBe(0x20);
+    s.st1 = 0; s.st2 = 0;                              // as a WRITE DATA of the same bytes leaves it
+    const round = parseHFE(serializeHFE(img)).tracks[0]![0]!.sectors[0];
+    expect(round.st1 | round.st2).toBe(0);
+    expect(Array.from(round.data)).toEqual(data);
+  });
+});
