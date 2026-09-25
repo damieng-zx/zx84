@@ -899,7 +899,13 @@ export class V9938 {
     this.status[2] = (this.status[2] | S2_CE) & ~S2_TR;
 
     if (code === 0x0A) this.prepareCpuRead();
-    else if (code === 0x0B || code === 0x0F) this.status[2] |= S2_TR;
+    else if (code === 0x0B || code === 0x0F) {
+      // LMMC/HMMC: the value already sitting in R44 (CLR) when R46 is
+      // written is the first byte transferred (MSX2 Technical Handbook,
+      // openMSX CmdEngine). The CPU then supplies bytes 2..n via R44.
+      this.status[2] |= S2_TR;
+      this.consumeCpuWrite(this.regs[44]);
+    }
   }
 
   private abortCommand(): void {
