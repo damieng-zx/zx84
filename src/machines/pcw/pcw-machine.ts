@@ -47,8 +47,7 @@ import { installPcwMemoryHooks, wirePcwPortIO } from './pcw-io.ts';
 import { bootFailureMessage, loadBootSector } from './bootstrap.ts';
 import {
   PCW_BOOT_ENTRY_ADDR, PCW_BOOT_LOAD_ADDR, PCW_BORDER_LEFT, PCW_BORDER_TOP,
-  PCW_CPU_CLOCK, PCW_FDC_INT_RESPONSE_LINES,
-  PCW_KEYBOARD_BLOCK, PCW_KEYBOARD_OFFSET, PCW_LINES_PER_FRAME,
+  PCW_CPU_CLOCK, PCW_FDC_INT_RESPONSE_LINES, PCW_LINES_PER_FRAME,
   PCW_PHOSPHORS, PCW_SCREEN_HEIGHT, PCW_SCREEN_WIDTH, PCW_T_PER_FRAME,
   PCW_T_PER_LINE, PCW_TIMER_PULSE_T, PcwCommand,
 } from './constants.ts';
@@ -132,6 +131,9 @@ export class PcwMachine extends BaseMachine implements Machine {
     // rather than polling the status register, so it is the only one that can
     // tell the controller answers instantly. Give it a response time.
     this.fdc.intResponseTicks = PCW_FDC_INT_RESPONSE_LINES;
+
+    // The gate array presents the keyboard matrix at &3FF0-&3FFF of block 3.
+    this.memory.attachKeyboard(this.keyboard.matrix);
 
     installPcwMemoryHooks(this);
     wirePcwPortIO(this);
@@ -404,10 +406,10 @@ export class PcwMachine extends BaseMachine implements Machine {
     return false;
   }
 
-  /** Copy the keyboard matrix into physical block 3, as the gate array's DMA
-   *  does. Counts as keyboard activity only while a key is actually held. */
+  /** One keyboard transmission (the matrix itself is read live through the
+   *  block-3 overlay). Counts as keyboard activity only while a key is held. */
   private scanKeyboard(): void {
-    this.keyboard.writeInto(this.memory.getRamBank(PCW_KEYBOARD_BLOCK), PCW_KEYBOARD_OFFSET);
+    this.keyboard.scan();
     if (this.keyboard.anyKeyDown) this.activity.kbdReads++;
   }
 
