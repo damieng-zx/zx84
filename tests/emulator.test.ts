@@ -89,7 +89,7 @@ function makeSpectrumStub(model: unknown = '128k') {
     kind: 'spectrum' as const,
     model: model as any,
     loadROM: vi.fn(), reset: vi.fn(), start: vi.fn(), stop: vi.fn(), destroy: vi.fn(),
-    resumeAtFrameOffset: vi.fn(),
+    resetTapeAdvance: vi.fn(), resumeAtFrameOffset: vi.fn(),
     initAudio() { if (!s.audio.running) s.audio.init(); },
     tick: vi.fn(), startTrace: vi.fn(), stopTrace: vi.fn(() => ''),
     onStatus: null as any, onFrame: null as any,

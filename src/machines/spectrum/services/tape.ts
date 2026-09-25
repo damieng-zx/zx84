@@ -56,6 +56,7 @@ export class SpectrumTapeService implements TapeService {
     this.s.loaderDetector.userOverride = false;
     this.s.tape.paused = false;
     this.s.tape.startPlayback();
+    this.s.resetTapeAdvance();
   }
 
   pause(): void {
@@ -68,6 +69,7 @@ export class SpectrumTapeService implements TapeService {
     // current block from its pilot tone.
     this.s.tape.paused = false;
     this.s.loaderDetector.userOverride = false;
+    this.s.resetTapeAdvance();
   }
 
   stop(): void {

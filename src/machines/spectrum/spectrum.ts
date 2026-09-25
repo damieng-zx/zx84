@@ -423,6 +423,10 @@ export class Spectrum extends BaseMachine implements Machine {
    * Called from the port-in handler (for sub-instruction accuracy) and from
    * the main loop (to catch up after each instruction).
    */
+  /** Measure the next tape advance from now. Call when the deck (re)starts
+   *  so it isn't handed the T-states that elapsed while it was stopped. */
+  resetTapeAdvance(): void { this.tapeLastAdvanceT = this.cpu.tStates; }
+
   advanceTapeTo(): void {
     if (!this.tape.playing || this.tape.paused) {
       this.ula.tapeActive = false;

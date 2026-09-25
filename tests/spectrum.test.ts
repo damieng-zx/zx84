@@ -1843,3 +1843,41 @@ describe('Spectrum — beam flush before displayed-screen changes (128K)', () =>
     expect(c.n).toBe(0);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// Tape advance rebasing on (re)start
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('Spectrum — tape restart does not hand the deck stale T-states', () => {
+  // Minimal standard-ROM header block: flag 0x00 + 17 bytes + checksum.
+  function tap(): Uint8Array {
+    const body = new Uint8Array(19);
+    const out = new Uint8Array(2 + body.length);
+    out[0] = body.length; out[1] = 0;
+    out.set(body, 2);
+    return out;
+  }
+
+  it('loader-detector auto-start measures the next advance from the IN, not frame top', () => {
+    const s = makeMachine('48k');
+    s.loadTAP(tap());
+    s.tape.paused = true;
+    (s as any).tapeLastAdvanceT = 0;   // stamped at the top of the frame
+    s.cpu.tStates = 40000;             // loader starts polling mid-frame
+    (s.loaderDetector as any).onULARead = () => 'start';
+    s.cpu.portIn(0xFFFE);
+    // Without the rebase the deck would receive all 40000T at once.
+    expect((s as any).tapeLastAdvanceT).toBe(s.cpu.tStates);
+  });
+
+  it('tape service resume() rebases the advance point', async () => {
+    const { createSpectrumServices } = await import('@/machines/spectrum/services/index.ts');
+    const s = makeMachine('48k');
+    s.loadTAP(tap());
+    s.tape.paused = true;
+    (s as any).tapeLastAdvanceT = 0;
+    s.cpu.tStates = 50000;
+    createSpectrumServices(s).tape.resume();
+    expect((s as any).tapeLastAdvanceT).toBe(50000);
+  });
+});
