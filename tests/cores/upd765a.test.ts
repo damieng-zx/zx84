@@ -857,10 +857,12 @@ describe('uPD765A — command flag bits (MT/SK modelled; MF unmodelled)', () => 
     expect(data.length).toBe(1024);
     expect(data[0]).toBe(0x10);
     expect(data[512]).toBe(0x80);
-    // Result reflects the last sector read — head advanced to 1, EN asserted.
-    expect(result[4]).toBe(1);          // H result byte advanced to side 1
+    // Finished on head 1, EN asserted.
     expect(result[0] & 0x04).toBe(0x04); // ST0 head bit (HD) = 1
     expect(result[1] & 0x80).toBe(0x80); // ST1.EN — End of Cylinder at side-1 EOT
+    // Datasheet result table, MT=1 HD=1, final sector = EOT: C+1, H
+    // complemented (1 → 0), R=01.
+    expect(result.slice(3, 6)).toEqual([1, 0, 1]);
   });
 
   it('MT restarts the sector count at sector 1 on the new side, not the command\'s starting R', () => {
@@ -886,9 +888,10 @@ describe('uPD765A — command flag bits (MT/SK modelled; MF unmodelled)', () => 
     expect(data[0]).toBe(0x10);
     expect([data[512], data[1024], data[1536], data[2048], data[2560]])
       .toEqual([0x81, 0x82, 0x83, 0x84, 0x85]);
-    expect(result[4]).toBe(1);          // last read was side 1
-    expect(result[5]).toBe(5);          // R result byte — finished at sector 5
+    expect(result[0] & 0x04).toBe(0x04); // last read was side 1 (HD=1)
     expect(result[1] & 0x80).toBe(0x80); // ST1.EN at side-1 EOT
+    // MT=1 HD=1 at EOT: C+1, H complemented, R=01 (datasheet result table).
+    expect(result.slice(3, 6)).toEqual([1, 0, 1]);
   });
 
   it('MT on a single-sided disk terminates at EOT (no side-1 track)', () => {
@@ -1568,5 +1571,21 @@ describe('uPD765A — N=0 transfers DTL bytes', () => {
     const { d } = driverWithN0();
     [0x06, 0x00, 0, 0, 1, 0, 1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
     expect(d.drainReadExecution().data.length).toBe(128);
+  });
+});
+
+describe('uPD765A — MT End-of-Cylinder result under TC', () => {
+  it('a TC after the last side-1 byte reports the sector read, H not complemented', () => {
+    const d = new Driver();
+    const img = makeImage({ numTracks: 1, numSides: 2 });
+    img.tracks[0][0] = makeTrack([makeSector(0, 0, 1, 2, 0x10)]);
+    img.tracks[0][1] = makeTrack([makeSector(0, 1, 1, 2, 0x80)]);
+    d.fdc.insertDisk(img, 0);
+    [0x86, 0x00, 0, 0, 1, 2, 1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    for (let i = 0; i < 1024; i++) d.fdc.readData();
+    d.fdc.setTerminalCount(true);
+    const result = d.drainResult();
+    expect(result[0] & 0xC0).toBe(0x00);           // normal termination
+    expect(result.slice(3, 6)).toEqual([0, 1, 1]);  // C=0 H=1 R=1: no rollover
   });
 });
