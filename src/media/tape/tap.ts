@@ -419,12 +419,9 @@ export class TapeDeck {
       // TZX end-of-block edge some loaders watch for). playbackIdx points at
       // the consumed block so the pause's expiry advances to position.
       this.playbackIdx = this.position - 1;
-      this.phase = TapePhase.PAUSE;
       this.tInPulse = 0;
       this.earBit = 1;
-      this.pauseRemaining = Math.round(pauseMs * this.cpuClock / 1000);
-      const flipAt = this.oneMs();
-      this.pauseFlipAt = this.pauseRemaining > flipAt ? flipAt : -1;
+      this.startPause(Math.round(pauseMs * this.cpuClock / 1000));
     } else {
       // position was already advanced by nextDataBlock()
       this.beginBlock(this.position);
@@ -545,10 +542,10 @@ export class TapeDeck {
             this.stopTape(idx + 1);
             return;
           }
+          // Hold the level the previous block's last edge left (at least
+          // 1ms) before going low — see startPause.
           this.position = idx + 1;
-          this.phase = TapePhase.PAUSE;
-          this.earBit = 0;
-          this.pauseRemaining = Math.round(block.duration * this.cpuClock / 1000);
+          this.startPause(Math.round(block.duration * this.cpuClock / 1000));
           return;
 
         case 'direct':
@@ -661,9 +658,7 @@ export class TapeDeck {
         this.position = this.playbackIdx + 1;
         this.directData = null;
         if (this.directPauseMs > 0) {
-          this.phase = TapePhase.PAUSE;
-          this.earBit = 0;
-          this.pauseRemaining = Math.round(this.directPauseMs * this.cpuClock / 1000);
+          this.startPause(Math.round(this.directPauseMs * this.cpuClock / 1000));
         } else {
           this.beginBlock(this.playbackIdx + 1);
         }
@@ -764,12 +759,9 @@ export class TapeDeck {
   private enterPause(): void {
     this.phase = TapePhase.PAUSE;
     this.position = this.playbackIdx + 1;
-    // pauseRemaining was set by beginDataBlock from block.pause (ms→T).
-    // Schedule the mid-pause EAR drop. TZX 1.20 (Pause block notes, which
-    // also apply to a data block's own pause): "to ensure that the last edge
-    // produced is properly finished there should be at least 1 ms. pause of
-    // the opposite level and only after that the pulse should go to 'low'".
-    // 1ms is real time, so it comes from the CPU clock, not pulseScale.
+    // pauseRemaining was set by beginDataBlock from block.pause (ms→T);
+    // startPause schedules the 1ms-hold-then-low drop. 1ms is real time, so
+    // it comes from the CPU clock, not pulseScale.
     const flipAt = this.oneMs();
 
     // A custom loader reading the FINAL bit of a block needs one more edge
@@ -786,7 +778,23 @@ export class TapeDeck {
     if (this.pauseRemaining < flipAt && !this.hasFollowingBlock()) {
       this.pauseRemaining = flipAt;
     }
-    this.pauseFlipAt = this.pauseRemaining >= flipAt ? flipAt : -1;
+    if (this.pauseRemaining > 0) this.startPause(this.pauseRemaining);
+    else this.pauseFlipAt = -1;
+  }
+
+  /**
+   * Enter a pause of `tStates` (> 0). TZX 1.20, Pause block notes — which
+   * also cover a data block's or Direct Recording's own trailing pause: "To
+   * ensure that the last edge produced is properly finished there should be
+   * at least 1 ms. pause of the opposite level and only after that the pulse
+   * should go to 'low'. At the end of a 'Pause' block the 'current pulse
+   * level' is low." So the level the last edge left is held for 1ms (or the
+   * whole pause, if shorter) and then dropped low.
+   */
+  private startPause(tStates: number): void {
+    this.phase = TapePhase.PAUSE;
+    this.pauseRemaining = tStates;
+    this.pauseFlipAt = Math.min(this.oneMs(), tStates);
   }
 
   /** 1ms in CPU T-states — the TZX hold before a pause drops the level low. */
