@@ -248,6 +248,8 @@ export class UPD765A {
   private exH = 0;
   private exN = 0;
   private exCmdN = 0;    // N from the command (may differ from sector ID's N)
+  /** DTL from the command: the transfer length when the command's N is 0. */
+  private exDTL = 0xFF;
   /** Cylinder the ID search must match (the command's C). */
   private exCmdC = 0;
   /** Head the ID search must match: the command's H, complemented after an MT
@@ -680,8 +682,8 @@ export class UPD765A {
           const s = found1.sector;
           this.exSector = s;
           this.exBuf = this.exWriting
-            ? new Uint8Array(sectorXferSize(this.exCmdN))
-            : this.prepareReadBuffer(s);
+            ? new Uint8Array(this.cmdXferSize())
+            : this.readBufferFor(s);
           this.exPos = 0;
           this.exC = s.c;
           this.exH = s.h;
@@ -723,10 +725,10 @@ export class UPD765A {
     const sector = found.sector;
     this.exSector = sector;
     if (this.exWriting) {
-      this.exBuf = new Uint8Array(sectorXferSize(this.exCmdN));
+      this.exBuf = new Uint8Array(this.cmdXferSize());
       this.exPos = 0;
     } else {
-      this.exBuf = this.prepareReadBuffer(sector);
+      this.exBuf = this.readBufferFor(sector);
       this.exPos = 0;
     }
 
@@ -741,6 +743,26 @@ export class UPD765A {
     if (flags.abnormal) this.exAbnormal = true;
 
     return true;
+  }
+
+  /**
+   * Bytes a write command transfers per sector: 128 << N, except that N=0
+   * makes DTL the data length (uPD765A datasheet: "When N is defined as 00,
+   * DTL defines the data length"). A DTL of 0 or above 128 means the whole
+   * 128-byte sector.
+   */
+  private cmdXferSize(): number {
+    if (this.exCmdN !== 0) return sectorXferSize(this.exCmdN);
+    const dtl = this.exDTL;
+    return dtl === 0 || dtl > 128 ? 128 : dtl;
+  }
+
+  /** Read buffer for a sector, cut to DTL bytes when the command's N is 0. */
+  private readBufferFor(sector: DskSector): Uint8Array {
+    const buf = this.prepareReadBuffer(sector);
+    if (this.exCmdN !== 0) return buf;
+    const len = this.cmdXferSize();
+    return buf.length > len ? buf.subarray(0, len) : buf;
   }
 
   /**
@@ -823,7 +845,12 @@ export class UPD765A {
     // protection sectors).  Using .set() would throw RangeError when exBuf is
     // larger, or leave stale tail bytes when smaller.  Replacing the array
     // ensures read-back via prepareReadBuffer() sees exactly what was written.
-    sector.data = new Uint8Array(this.exBuf);
+    // N=0 with DTL < 128 transfers only DTL bytes; the controller fills the
+    // rest of the 128-byte data field with zeros.
+    const written = this.exCmdN === 0 && this.exBuf.length < 128
+      ? (() => { const b = new Uint8Array(128); b.set(this.exBuf); return b; })()
+      : new Uint8Array(this.exBuf);
+    sector.data = written;
     // Writing destroys the v5 weak-bit state: subsequent reads must
     // return the freshly-written data, not random older copies.
     sector.copies = undefined;
@@ -1268,13 +1295,14 @@ export class UPD765A {
     this.latchFrames = 25; // ~0.5s at 50fps
 
     this.exCmdN = n;  // Command N — controls transfer size (may differ from sector ID N)
+    this.exDTL = this.cmdBuf[8];
     this.exCmd = cmd; // for command-relative CM in advanceSector
 
     if (isWrite) {
-      this.exBuf = new Uint8Array(sectorXferSize(n));
+      this.exBuf = new Uint8Array(this.cmdXferSize());
       this.exPos = 0;
     } else {
-      this.exBuf = this.prepareReadBuffer(sector);
+      this.exBuf = this.readBufferFor(sector);
       this.exPos = 0;
     }
 

@@ -1534,3 +1534,39 @@ describe('uPD765A — writes lay down a new data mark and a good CRC', () => {
     expect(r[2] & 0x40).toBe(0);
   });
 });
+
+describe('uPD765A — N=0 transfers DTL bytes', () => {
+  function driverWithN0(): { d: Driver; s: DskSector } {
+    const d = new Driver();
+    const data = new Uint8Array(128);
+    for (let i = 0; i < 128; i++) data[i] = i + 1;
+    const s: DskSector = { c: 0, h: 0, r: 1, n: 0, st1: 0, st2: 0, data };
+    const im = makeImage();
+    im.tracks[0][0] = makeTrack([s]);
+    d.fdc.insertDisk(im, 0);
+    return { d, s };
+  }
+
+  it('READ_DATA with N=0, DTL=16 transfers only the first 16 bytes', () => {
+    const { d } = driverWithN0();
+    [0x06, 0x00, 0, 0, 1, 0, 1, 0x2A, 16].forEach(b => d.fdc.writeData(b));
+    const { data } = d.drainReadExecution();
+    expect(data).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+  });
+
+  it('WRITE_DATA with N=0, DTL=4 takes 4 bytes and zero-fills the rest of the sector', () => {
+    const { d, s } = driverWithN0();
+    [0x05, 0x00, 0, 0, 1, 0, 1, 0x2A, 4].forEach(b => d.fdc.writeData(b));
+    const r = d.drainWriteExecution([0xA1, 0xA2, 0xA3, 0xA4]);
+    expect(r.length).toBe(7);          // the command completed after 4 bytes
+    expect(s.data.length).toBe(128);
+    expect(Array.from(s.data.subarray(0, 5))).toEqual([0xA1, 0xA2, 0xA3, 0xA4, 0x00]);
+    expect(s.data.subarray(4).every(b => b === 0)).toBe(true);
+  });
+
+  it('N=0 with DTL above 128 transfers the whole 128-byte sector', () => {
+    const { d } = driverWithN0();
+    [0x06, 0x00, 0, 0, 1, 0, 1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    expect(d.drainReadExecution().data.length).toBe(128);
+  });
+});
