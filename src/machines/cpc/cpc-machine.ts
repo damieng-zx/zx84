@@ -39,7 +39,8 @@ import { Ppi8255, installCpcMemoryHooks, wireCpcPortIO } from '@/machines/cpc/cp
 import { CpcMultiface } from '@/machines/cpc/peripherals/cpc-multiface.ts';
 import { KempstonMouse } from '@/machines/shared/kempston-mouse.ts';
 import { CpcAmxMouse } from '@/machines/cpc/peripherals/cpc-amx-mouse.ts';
-import { trapCpcCasRead } from '@/machines/cpc/cpc-tape-loader.ts';
+import { trapCpcCasRead, scanCpcCasRead } from '@/machines/cpc/cpc-tape-loader.ts';
+import type { CpcCasReadRoutine, CpcCasReadRequest } from '@/machines/cpc/cpc-tape-loader.ts';
 import { createCpcConfig, type CpcConfig } from '@/machines/cpc/config.ts';
 import { cpcAcknowledgeInterrupt } from '@/machines/cpc/wait-states.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
@@ -123,11 +124,13 @@ export class CpcMachine extends BaseMachine implements Machine {
   tapeLoadingActive = false;
   /** Fast ROM loading: whether the CAS READ instant-load trap is armed (Stage B). */
   tapeFastRom = true;
-  /** Address of the firmware's internal cassette block-read routine, located by
-   *  signature scan of the lower OS ROM. -2 = not yet scanned, -1 = not found
-   *  (instant load disabled, pulse loading only). Set lazily and re-scanned when
-   *  ROMs change. See scanCasReadRoutine. */
-  private casReadAddr = -2;
+  /** The firmware's CAS READ routine, located by signature scan of the lower OS
+   *  ROM. undefined = not yet scanned, null = not found (instant load disabled,
+   *  pulse loading only). Re-scanned when ROMs change. See scanCpcCasRead. */
+  private casRead: CpcCasReadRoutine | null | undefined = undefined;
+  /** The CAS READ request captured at the routine's entry, consumed when the
+   *  firmware reaches the routine's sync/record-read block. */
+  private casReadReq: CpcCasReadRequest | null = null;
   /** Auto-accelerate while the cassette is being read (the CPC reads at real
    *  tape speed, so without this a game takes minutes to load). */
   tapeTurbo = true;
@@ -283,35 +286,13 @@ export class CpcMachine extends BaseMachine implements Machine {
     // cartridge path; anything else is the classic three-ROM image.
     if (isCpr(data)) {
       this.memory.loadCartridge(parseCpr(data));
-      this.casReadAddr = -2;   // force a re-scan against the new lower ROM
+      this.casRead = undefined;   // force a re-scan against the new lower ROM
       this.setStatus('Cartridge firmware loaded');
       return;
     }
     this.memory.loadROM(data);
-    this.casReadAddr = -2;   // force a re-scan against the new lower ROM
+    this.casRead = undefined;   // force a re-scan against the new lower ROM
     this.setStatus('ROM loaded');
-  }
-
-  /**
-   * Locate the firmware's internal cassette block-read routine in the lower OS
-   * ROM — the routine `CAS IN CHAR` refills its buffer through, which a normal
-   * `RUN"` reaches without ever touching the &BCA1 jumpblock. Matched by a
-   * version-independent opcode anchor at the routine head:
-   *   LD (nn),A ; DEC DE ; INC E ; PUSH HL ; PUSH DE ; CALL nn
-   *   32 .. ..   1b        1c      e5        d5        cd .. ..
-   * This is unique in the os464 (entry 0x2873), os664 and os6128 (0x29e3) ROMs.
-   * Returns the entry address (== ROM offset; the lower ROM maps at 0x0000), or
-   * -1 if not found (e.g. a non-standard ROM) — leaving pulse loading in charge.
-   */
-  private scanCasReadRoutine(): number {
-    const rom = this.memory.getLowerRom();
-    for (let i = 0; i + 8 < rom.length; i++) {
-      if (rom[i] === 0x32 && rom[i + 3] === 0x1b && rom[i + 4] === 0x1c &&
-          rom[i + 5] === 0xe5 && rom[i + 6] === 0xd5 && rom[i + 7] === 0xcd) {
-        return i;
-      }
-    }
-    return -1;
   }
 
   /** Insert a parsed DSK image into a drive (uPD765A is shared with the +3). */
@@ -543,21 +524,28 @@ export class CpcMachine extends BaseMachine implements Machine {
       if (this.onTrap !== null && this.onTrap(this.cpu.pc)) return true;
 
       // CAS READ instant-load. A normal BASIC `RUN"` reaches the firmware's
-      // cassette block-read routine INTERNALLY (CAS IN CHAR refilling its 2K
-      // buffer); it never goes through the &BCA1 RAM jumpblock, which is only
-      // hit by an explicit `CALL &BCA1`. So we trap the internal routine
-      // itself, located by signature scan (entry contract A=sync, HL=dest,
-      // DE=len). On any CRC mismatch the trap declines and the real routine
-      // pulse-loads the block. In practice only the file HEADER instant-loads;
-      // the following data block drifts past on pulse before its CAS READ and
-      // the trap declines, so bulk data is pulse-loaded via tapeTurbo — see the
-      // SCOPE note in cpc-tape-loader.ts.
+      // CAS READ routine internally (CAS IN CHAR refilling its 2K buffer), not
+      // through the &BCA1 jumpblock, so we trap the ROM routine itself, located
+      // by signature scan. The request (A=sync, HL=dest, DE=len) is captured at
+      // its entry; the firmware's own setup (sync stash, motor on, PPI) then
+      // runs, and at the sync/record-read block the trap delivers the CRC-
+      // checked block and resumes at the teardown. On any mismatch it declines
+      // and the real routine pulse-loads the block. See cpc-tape-loader.ts.
       if (this.tapeFastRom) {
-        if (this.casReadAddr === -2) this.casReadAddr = this.scanCasReadRoutine();
-        if (this.casReadAddr >= 0 && this.cpu.pc === this.casReadAddr &&
-            this.tape.loaded && this.tape.hasRomBlock()) {
-          if (this.tape.paused) { this.tape.paused = false; this.tape.startPlayback(); }
-          if (trapCpcCasRead(this, this.casReadAddr)) this.activity.tapeReads++;  // instant load → TAPE LED
+        if (this.casRead === undefined) this.casRead = scanCpcCasRead(this.memory.getLowerRom());
+        const cr = this.casRead;
+        if (cr !== null && this.memory.lowerRomAtZero) {
+          const pc = this.cpu.pc;
+          if (pc === cr.readEntry) {
+            this.casReadReq = { dest: this.cpu.hl, len: this.cpu.de, sync: this.cpu.a & 0xFF };
+          } else if (pc === cr.common && this.casReadReq !== null) {
+            const req = this.casReadReq;
+            this.casReadReq = null;
+            if (this.cpu.hl === cr.storeByte && this.tape.loaded && this.tape.hasRomBlock()) {
+              if (this.tape.paused) { this.tape.paused = false; this.tape.startPlayback(); }
+              if (trapCpcCasRead(this, req, cr.tail)) this.activity.tapeReads++;  // instant load → TAPE LED
+            }
+          }
         }
       }
 

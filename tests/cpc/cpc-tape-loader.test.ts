@@ -8,18 +8,19 @@
  * at pulse level. These tests build blocks in the on-tape layout with an
  * independent CRC implementation, never the code under test.
  *
- * On success the trap does NOT RET straight to the caller — it hands control to
- * the firmware routine's own teardown tail (entry + 0x0D, the motor-off / PPI
- * restore), leaving SP untouched (the routine balances its own pushes before
- * that point) and setting the post-read register state (IX = buffer, carry =
- * success). The teardown must run or the cassette hardware is left mis-set.
+ * The trap runs at the CAS READ routine's sync/record-read block (after the
+ * firmware's own setup) with the request captured at its entry. On success it
+ * does NOT RET straight to the caller — it jumps to the routine's teardown tail
+ * (`POP DE` of the saved motor state, PPI restore, motor restore, RET), leaving
+ * SP untouched and the record reader's success result in A/F (A = 0, carry and
+ * zero set). The teardown must run or the cassette hardware is left mis-set.
  */
-const ENTRY = 0x2900;            // pretend block-read routine entry
-const TEARDOWN = ENTRY + 0x0D;   // where the trap resumes
+const TEARDOWN = 0x29D0;         // pretend teardown tail (os6128's address)
 
 import { describe, it, expect } from 'vitest';
 import { CpcMachine } from '@/machines/cpc/cpc-machine.ts';
 import { trapCpcCasRead } from '@/machines/cpc/cpc-tape-loader.ts';
+import type { CpcCasReadRequest } from '@/machines/cpc/cpc-tape-loader.ts';
 import { Z80 } from '@/cores/z80.ts';
 import type { DataBlock } from '@/media/tape/tap.ts';
 
@@ -77,18 +78,24 @@ function arm(m: CpcMachine, block: DataBlock, dest: number, len: number, sync: n
   m.memory.writeByte(0x8001, (ret >> 8) & 0xFF);
 }
 
+/** The request the machine captures at the CAS READ entry. */
+function req(m: CpcMachine): CpcCasReadRequest {
+  return { dest: m.cpu.hl, len: m.cpu.de, sync: m.cpu.a };
+}
+
 describe('CPC CAS READ trap — successful load', () => {
   it('delivers a single-record data block and resumes in the teardown tail', () => {
     const m = new CpcMachine('cpc6128', null);
     const data = payload(64);
     arm(m, tapeBlock(buildRaw(0x16, data)), 0x4000, 64, 0x16, 0x1234);
 
-    expect(trapCpcCasRead(m, ENTRY)).toBe(true);
+    expect(trapCpcCasRead(m, req(m), TEARDOWN)).toBe(true);
     for (let i = 0; i < 64; i++) expect(m.memory.readByte(0x4000 + i)).toBe(data[i]);
     expect(m.cpu.pc).toBe(TEARDOWN);        // resumes in the firmware teardown
     expect(m.cpu.sp).toBe(0x8000);          // SP untouched (routine RETs to caller)
-    expect(m.cpu.ix).toBe(0x4000);          // IX = buffer, as POP IX would leave it
+    expect(m.cpu.a).toBe(0);                // the record reader's success result
     expect(m.cpu.getFlag(Z80.FLAG_C)).toBe(true);
+    expect(m.cpu.getFlag(Z80.FLAG_Z)).toBe(true);
     expect(m.tape.position).toBe(1);        // block consumed
   });
 
@@ -96,7 +103,7 @@ describe('CPC CAS READ trap — successful load', () => {
     const m = new CpcMachine('cpc6128', null);
     const data = payload(40);
     arm(m, tapeBlock(buildRaw(0x2C, data)), 0x5000, 40, 0x2C, 0xC000);
-    expect(trapCpcCasRead(m, ENTRY)).toBe(true);
+    expect(trapCpcCasRead(m, req(m), TEARDOWN)).toBe(true);
     for (let i = 0; i < 40; i++) expect(m.memory.readByte(0x5000 + i)).toBe(data[i]);
   });
 
@@ -104,7 +111,7 @@ describe('CPC CAS READ trap — successful load', () => {
     const m = new CpcMachine('cpc6128', null);
     const data = payload(300);
     arm(m, tapeBlock(buildRaw(0x16, data)), 0x4000, 300, 0x16, 0x1234);
-    expect(trapCpcCasRead(m, ENTRY)).toBe(true);
+    expect(trapCpcCasRead(m, req(m), TEARDOWN)).toBe(true);
     for (let i = 0; i < 300; i++) expect(m.memory.readByte(0x4000 + i)).toBe(data[i]);
   });
 });
@@ -118,7 +125,7 @@ describe('CPC CAS READ trap — declines safely (pulse-level fallback)', () => {
     m.cpu.pc = 0x9999;                       // sentinel
     m.memory.writeByte(0x4000, 0xEE);
 
-    expect(trapCpcCasRead(m, ENTRY)).toBe(false);
+    expect(trapCpcCasRead(m, req(m), TEARDOWN)).toBe(false);
     expect(m.cpu.pc).toBe(0x9999);          // PC unchanged
     expect(m.memory.readByte(0x4000)).toBe(0xEE); // RAM untouched
     expect(m.tape.position).toBe(0);        // block not consumed
@@ -128,7 +135,7 @@ describe('CPC CAS READ trap — declines safely (pulse-level fallback)', () => {
     const m = new CpcMachine('cpc6128', null);
     arm(m, tapeBlock(buildRaw(0x16, payload(64))), 0x4000, 64, 0x2C, 0x1234);
     m.cpu.pc = 0x9999;
-    expect(trapCpcCasRead(m, ENTRY)).toBe(false);
+    expect(trapCpcCasRead(m, req(m), TEARDOWN)).toBe(false);
     expect(m.cpu.pc).toBe(0x9999);
   });
 
@@ -137,6 +144,6 @@ describe('CPC CAS READ trap — declines safely (pulse-level fallback)', () => {
     const block = tapeBlock(buildRaw(0x16, payload(64)));
     delete block.rawBytes;                   // e.g. a Spectrum-parsed block
     arm(m, block, 0x4000, 64, 0x16, 0x1234);
-    expect(trapCpcCasRead(m, ENTRY)).toBe(false);
+    expect(trapCpcCasRead(m, req(m), TEARDOWN)).toBe(false);
   });
 });
