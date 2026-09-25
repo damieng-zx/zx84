@@ -3,7 +3,7 @@
  * no line-select register, so the line rides in A8-A11 of a read at port 0x80.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { LynxMachine } from '@/machines/lynx/lynx-machine.ts';
 import type { LynxModel } from '@/machines/lynx/models.ts';
 
@@ -41,6 +41,17 @@ describe('Lynx port I/O', () => {
     expect(m.tapeMotorOn).toBe(true);
     m.cpu.portOut(0x0084, 0x7f);
     expect(m.dacLevel).toBe(0x5a);             // held: that write went to tape
+  });
+
+  it('puts the 48K cassette input on bit 0 of keyboard line 0 only', () => {
+    // MAME camplynx.cpp port80_r: the tape replaces bit 0 of line 0 while the
+    // motor runs; every other line still reads its own keys.
+    const m = machine();
+    vi.spyOn(m, 'cassetteInput').mockReturnValue(true);   // tape level high
+    m.cpu.portOut(0x0080, 0x02);               // 48K motor bit
+    expect(m.cpu.portIn(0x0080) & 0x01).toBe(0);
+    expect(m.cpu.portIn(0x0380)).toBe(0xff);   // line 3: no key, no tape
+    expect(m.cpu.portIn(0x0980)).toBe(0xff);
   });
 
   it('moves the 128K motor bit, and gives it its own cassette-in port', () => {

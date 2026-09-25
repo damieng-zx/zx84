@@ -35,7 +35,7 @@ function portIn(m: LynxMachine, port: number): number {
     const line = (port >> 8) & 0x0f;
     m.activity.kbdReads++;
     let data = m.keyboard.read(line);
-    if (!m.memory.is128k && m.tapeMotorOn) {
+    if (line === 0 && !m.memory.is128k && m.tapeMotorOn) {
       m.activity.casReads++;
       data = (data & 0xfe) | (m.cassetteInput() ? 0 : 1);
     }
