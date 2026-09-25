@@ -36,3 +36,33 @@ describe('CPC FDC ports without a disk interface', () => {
     expect(m.fdc.motorOn).toBe(true);
   });
 });
+
+describe('CPC FDC address decode (A7 must be 0)', () => {
+  it('OUT &F8FF (peripheral reset, A7=1) does not touch the drive motor', () => {
+    const m = new CpcMachine('cpc6128', null);
+    m.cpu.portOut(0xFA7E, 0x01);
+    expect(m.fdc.motorOn).toBe(true);
+    m.cpu.portOut(0xF8FF, 0x00);             // A10=0, A8=0 but A7=1
+    expect(m.fdc.motorOn).toBe(true);
+  });
+
+  it('a write to &FB7E (read-only status) is not fed to the data register', () => {
+    const m = new CpcMachine('cpc6128', null);
+    let dataWrites = 0;
+    m.fdc.writeData = () => { dataWrites++; };
+    m.cpu.portOut(0xFB7E, 0x08);
+    expect(dataWrites).toBe(0);
+    m.cpu.portOut(0xFB7F, 0x08);             // the data port still works
+    expect(dataWrites).toBe(1);
+  });
+
+  it('reads with A7=1 do not reach the FDC', () => {
+    const m = new CpcMachine('cpc6128', null);
+    let dataReads = 0;
+    m.fdc.readData = () => { dataReads++; return 0x00; };
+    m.cpu.portIn(0xFBFF);                    // A10=0, A8=1, A0=1 but A7=1
+    expect(dataReads).toBe(0);
+    m.cpu.portIn(0xFB7F);
+    expect(dataReads).toBe(1);
+  });
+});
