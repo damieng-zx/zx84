@@ -1738,3 +1738,59 @@ describe('Z80 format — v3 T-state counter (bytes 55-57)', () => {
     expect(loadZ80(saved, new Z80(), makeMemory128k()).frameTStates).toBe(70000);
   });
 });
+
+describe('Z80 format — hardware mode classification (WoS spec byte 34/37)', () => {
+  function v3(hwMode: number, byte37 = 0): Uint8Array {
+    // 30-byte header (PC=0 → v2/v3) + 54-byte v3 extended header, no blocks.
+    const d = new Uint8Array(30 + 2 + 54);
+    d[30] = 54; d[31] = 0;
+    d[34] = hwMode;
+    d[37] = byte37;
+    return d;
+  }
+
+  it('v3 hwMode 14 (TC2048) is 48K-class, not 128K', () => {
+    expect(loadZ80(v3(14), makeCpu(), makeMemory48k()).is128K).toBe(false);
+  });
+
+  it('v3 hwMode 15 (TC2068) and 128 (TS2068) are 48K-class', () => {
+    expect(loadZ80(v3(15), makeCpu(), makeMemory48k()).is128K).toBe(false);
+    expect(loadZ80(v3(128), makeCpu(), makeMemory48k()).is128K).toBe(false);
+  });
+
+  it('v3 hwMode 11 (Didaktik-Kompakt) is 48K-class', () => {
+    expect(loadZ80(v3(11), makeCpu(), makeMemory48k()).is128K).toBe(false);
+  });
+
+  it('v3 hwMode 12 (+2) and 13 (+2A) are 128K-class', () => {
+    expect(loadZ80(v3(12), makeCpu(), makeMemory128k()).is128K).toBe(true);
+    expect(loadZ80(v3(13), makeCpu(), makeMemory128k()).is128K).toBe(true);
+  });
+
+  it('modify-hardware flag (byte 37 bit 7): 48K → 16K, 128K → +2, +3 → +2A', () => {
+    expect(loadZ80(v3(0, 0x80), makeCpu(), makeMemory48k()).sourceModel).toBe('16k');
+    expect(loadZ80(v3(0), makeCpu(), makeMemory48k()).sourceModel).toBe('48k');
+    expect(loadZ80(v3(4, 0x80), makeCpu(), makeMemory128k()).sourceModel).toBe('+2');
+    expect(loadZ80(v3(4), makeCpu(), makeMemory128k()).sourceModel).toBe('128k');
+    expect(loadZ80(v3(7, 0x80), makeCpu(), makeMemory128k()).sourceModel).toBe('+2A');
+    expect(loadZ80(v3(7), makeCpu(), makeMemory128k()).sourceModel).toBe('+3');
+  });
+
+  it('saveZ80 writes hwMode 13 for a +2A, 7 for a +3, 12 for a +2', () => {
+    const plus3Mem = () => {
+      const m = new SpectrumMemory('+3', { hasBanking: true, romPageCount: 4 });
+      m.loadROM(new Uint8Array(4 * 16384));
+      return m;
+    };
+    expect(saveZ80(new Z80(), plus3Mem(), 0, true, undefined, undefined, 0, '+2A')[34]).toBe(13);
+    expect(saveZ80(new Z80(), plus3Mem(), 0, true, undefined, undefined, 0, '+3')[34]).toBe(7);
+    expect(saveZ80(new Z80(), makeMemory128k(), 0, true, undefined, undefined, 0, '+2')[34]).toBe(12);
+    expect(saveZ80(new Z80(), makeMemory128k(), 0, true, undefined, undefined, 0, '128k')[34]).toBe(4);
+  });
+
+  it('saveZ80 marks a 16K machine with hwMode 0 + the modify flag', () => {
+    const saved = saveZ80(new Z80(), makeMemory48k(), 0, false, undefined, undefined, 0, '16k');
+    expect(saved[34]).toBe(0);
+    expect(saved[37] & 0x80).toBe(0x80);
+  });
+});

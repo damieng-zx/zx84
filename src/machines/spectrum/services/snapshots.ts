@@ -157,7 +157,7 @@ export class SpectrumSnapshotService implements SnapshotService {
     }
     if (ext === 'z80' || ext === '.z80') {
       return saveZ80(s.cpu, s.memory, s.ula.borderColor, s.variant.hasBanking, s.ay.getRegisters(), s.ay.selectedReg,
-        s.cpu.tStates - this.currentFrameStart());
+        s.cpu.tStates - this.currentFrameStart(), s.model as SpectrumModel);
     }
     throw new Error(`Unsupported snapshot save format: ${ext}`);
   }

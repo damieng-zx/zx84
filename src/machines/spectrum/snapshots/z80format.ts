@@ -16,6 +16,7 @@
 
 import { Z80 } from '@/cores/z80.ts';
 import { SpectrumMemory } from '@/machines/spectrum/memory.ts';
+import type { SpectrumModel } from '@/models.ts';
 
 export interface Z80Result {
   is128K: boolean;
@@ -31,6 +32,10 @@ export interface Z80Result {
   /** T-states since the start of the frame (last INT), from the v3 T-state
    *  counter (bytes 55-57). Absent for v1/v2 files. */
   frameTStates?: number;
+  /** Source machine decoded from the hardware mode and the "modify hardware"
+   *  flag (byte 37 bit 7: 48K→16K, 128K→+2, +3→+2A). Null for hardware this
+   *  emulator has no model for (SamRam, Pentagon, Scorpion, Timex, ...). */
+  sourceModel?: SpectrumModel | null;
 }
 
 // ── Header parsing helpers ─────────────────────────────────────────────────
@@ -166,14 +171,37 @@ function detectVersion(data: Uint8Array): { version: number; extHeaderLen: numbe
 
 // ── Hardware mode → is128K ─────────────────────────────────────────────────
 
+// Byte 34 (WoS .z80 spec):
+//   value  v2            v3
+//   0      48K           48K
+//   1      48K+IF1       48K+IF1
+//   2      SamRam        SamRam
+//   3      128K          48K+MGT
+//   4      128K+IF1      128K
+//   5      -             128K+IF1
+//   6      -             128K+MGT
+//   both:  7 = +3, 8 = +3 (XZX-Pro mistake), 9 = Pentagon 128, 10 = Scorpion
+//          256, 11 = Didaktik-Kompakt, 12 = +2, 13 = +2A, 14 = TC2048,
+//          15 = TC2068, 128 = TS2068.
+// Didaktik-Kompakt and the Timex machines are 48K-class (no 7FFD paging).
+
 function is128KHardware(hwMode: number, version: number): boolean {
-  if (version === 2) {
-    // v2: 0=48K, 1=48K+IF1, 2=SamRam, 3=128K, 4=128K+IF1
-    return hwMode >= 3;
+  if (hwMode <= 6) return version === 2 ? hwMode >= 3 : hwMode >= 4;
+  return hwMode === 7 || hwMode === 8 || hwMode === 9 || hwMode === 10
+    || hwMode === 12 || hwMode === 13;
+}
+
+/** Map hardware mode + "modify hardware" flag to an emulated model. */
+function sourceModelOf(hwMode: number, version: number, modify: boolean): SpectrumModel | null {
+  if (hwMode === 7 || hwMode === 8) return modify ? '+2A' : '+3';
+  if (hwMode === 13) return '+2A';
+  if (hwMode === 12) return '+2';
+  if (hwMode <= 6) {
+    const is128 = version === 2 ? hwMode >= 3 : hwMode >= 4;
+    if (!is128) return hwMode === 2 ? null : modify ? '16k' : '48k';
+    return modify ? '+2' : '128k';
   }
-  // v3: 0=48K, 1=48K+IF1, 2=SamRam, 3=48K+MGT,
-  //     4=128K, 5=128K+IF1, 6=128K+MGT, 7=+3, ...
-  return hwMode >= 4;
+  return null;
 }
 
 // ── Main loader ────────────────────────────────────────────────────────────
@@ -260,6 +288,8 @@ export function loadZ80(
 
   const hwMode = data[extBase + 2];
   const is128K = is128KHardware(hwMode, version);
+  // Byte 37 bit 7: "modify hardware" (48K→16K, 128K→+2, +3→+2A).
+  const sourceModel = sourceModelOf(hwMode, version, (data[extBase + 5] & 0x80) !== 0);
 
   // Port 0x7FFD (128K paging) — byte 35 (extBase+3)
   const port7FFD = is128K ? data[extBase + 3] : 0;
@@ -328,7 +358,7 @@ export function loadZ80(
       memory.currentROM = (port7FFD >> 4) & 1;
       memory.applyBanking();
       memory.selectSnapshot128KRom();
-      return { is128K: true, port7FFD, borderColor, ayRegs, ayCurrentReg, port1FFD, frameTStates };
+      return { is128K: true, port7FFD, borderColor, ayRegs, ayCurrentReg, port1FFD, frameTStates, sourceModel };
     }
     if (memory.romPages.length === 4 && port1FFD !== undefined) {
       // +2A/+3: ROM = bit 2 of 1FFD (high) | bit 4 of 7FFD (low); special
@@ -343,7 +373,7 @@ export function loadZ80(
     }
     memory.applyBanking();
 
-    return { is128K: true, port7FFD, borderColor, ayRegs, ayCurrentReg, port1FFD, frameTStates };
+    return { is128K: true, port7FFD, borderColor, ayRegs, ayCurrentReg, port1FFD, frameTStates, sourceModel };
   } else {
     // ── 48K: load paged blocks into 48K address space ────────────────────
 
@@ -373,7 +403,7 @@ export function loadZ80(
     }
 
     memory.load48KRAM(ram);
-    return { is128K: false, port7FFD: 0, borderColor, ayRegs, ayCurrentReg, frameTStates };
+    return { is128K: false, port7FFD: 0, borderColor, ayRegs, ayCurrentReg, frameTStates, sourceModel };
   }
 }
 
@@ -460,6 +490,9 @@ export function saveZ80(
   ayCurrentReg?: number,
   /** T-states since the last INT, for the v3 T-state counter. */
   frameTStates = 0,
+  /** Emulated model, for the hardware mode byte. When omitted the mode is
+   *  inferred from the memory layout (4 ROMs → +3, banked → 128K, else 48K). */
+  model?: SpectrumModel,
 ): Uint8Array {
   // ── 30-byte common header ──────────────────────────────────────────────
 
@@ -515,7 +548,12 @@ export function saveZ80(
 
   // Byte 4 (extBase+2): hardware mode
   // v3 hardware modes: 0=48K, 1=48K+IF1, 3=48K+MGT, 4=128K, 5=128K+IF1, 7=+3, 9=Pentagon, 12=+2, 13=+2A
-  const hwMode = is128K ? (isPlus2A3 ? 7 : 4) : 0; // 7 = +3, 4 = 128K, 0 = 48K
+  let hwMode: number;
+  if (!is128K) hwMode = 0;                         // 48K (16K: + modify flag)
+  else if (model === '+2A') hwMode = 13;
+  else if (model === '+2') hwMode = 12;
+  else if (model === '+3' || (model === undefined && isPlus2A3)) hwMode = 7;
+  else hwMode = 4;                                 // 128K
   extHeader[4] = hwMode;
 
   // Byte 5 (extBase+3): port 0x7FFD value (128K paging)
@@ -524,8 +562,9 @@ export function saveZ80(
   // Byte 6 (extBase+4): interface 1 ROM paged (0 = no)
   extHeader[6] = 0;
 
-  // Byte 7 (extBase+5): hardware modify flags (0 = emulate, 1 = modify)
-  extHeader[7] = 0;
+  // Byte 7 (extBase+5): bit 7 = "modify hardware" (48K→16K here). The +2 and
+  // +2A have their own hwMode values, so only the 16K needs the flag.
+  extHeader[7] = model === '16k' ? 0x80 : 0;
 
   // Byte 8 (extBase+6): last OUT to port 0xFFFD (AY selected register)
   extHeader[8] = ayCurrentReg ?? 0;
