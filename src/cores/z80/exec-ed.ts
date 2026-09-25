@@ -198,10 +198,11 @@ Z80.prototype.executeED = function (this: Z80): void {
 
       case 1: {
         // CPI/CPD/CPIR/CPDR: read@T+8. Auto: 8T
-        const val = this.read8(this.hl);
+        const addr = this.hl;
+        const val = this.read8(addr);
         this.tStates += 3;  // read cycle
         // 5 internal processing cycles at HL (before inc/dec)
-        contendN(this, this.hl, 5);
+        contendN(this, addr, 5);
 
         const result = (this.a - val) & 0xFF;
         const h = ((this.a ^ val ^ result) & 0x10);
@@ -227,8 +228,9 @@ Z80.prototype.executeED = function (this: Z80): void {
         this._qReg = this.f;
 
         if ((y === 6 || y === 7) && this.bc !== 0 && result !== 0) {
-          // CPIR/CPDR: 5 more internal cycles at HL (already incremented)
-          contendN(this, this.hl, 5);
+          // CPIR/CPDR: 5 more internal cycles at the HL just read — the
+          // register step is not visible on the address bus until after them.
+          contendN(this, addr, 5);
           this.pc = (this.pc - 2) & 0xFFFF;
           // Repeating: Y,X from PCH (same rule as the LDIR/INIR/OTIR repeat paths)
           this.f = (this.f & ~0x28) | ((this.pc >> 8) & 0x28);
@@ -242,12 +244,13 @@ Z80.prototype.executeED = function (this: Z80): void {
         // INI/IND/INIR/INDR: I/O@T+9, write@T+13. Auto: 8T
         this.contend(this.ir); this.tStates += 1;  // internal at IR
         const bcBeforeDec = this.bc;
+        const addr = this.hl;
         // IORQ cycle T+9..T+12: tick 3T before portIn so the sample lands
         // late in the cycle (IN A,(n) convention).
         this.tStates += 3;
         const val = this.portIn(this.bc);
         this.tStates += 1;
-        this.write8(this.hl, val);
+        this.write8(addr, val);
         this.tStates += 3;   // write completion (T+13..15) — must precede the 5 internal cycles
         this.b = (this.b - 1) & 0xFF;
 
@@ -301,8 +304,9 @@ Z80.prototype.executeED = function (this: Z80): void {
           }
           this.f = f;
           this.memptr = (this.pc + 1) & 0xFFFF;  // During repeat: MEMPTR = PC + 1
-          // 5 internal cycles at HL (already incremented): T+16..20, INIR/INDR 21T total
-          contendN(this, this.hl, 5);
+          // 5 internal cycles at the HL just written (not the stepped value):
+          // T+16..20, INIR/INDR 21T total
+          contendN(this, addr, 5);
         } else {
           // INI/IND or INIR/INDR final (B==0): Y,X from B; standard PF
           let par = p;
