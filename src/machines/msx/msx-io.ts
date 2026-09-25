@@ -23,8 +23,8 @@ import type { MsxKeyboard } from '@/machines/msx/msx-keyboard.ts';
  *
  * Port A (output) is the primary-slot select register, fed straight to the
  * memory pager. Port C (output) carries the keyboard row select in its low
- * nibble; the high nibble drives the CAPS LED, key-click and cassette
- * motor/output, which we latch but don't act on (cassette is a follow-up).
+ * nibble; the high nibble drives the cassette motor/output, the CAPS LED and
+ * the key click (bit 7 — fed to the sound output, see keyClick).
  * Port B (input) returns the selected keyboard row's columns. The control port
  * does standard 8255 mode-set / bit-set-reset (BSR) on port C.
  */
@@ -57,6 +57,10 @@ export class MsxPpi {
 
   /** Port C read: output latch reads back. */
   readC(): number { return this.portC; }
+
+  /** Port C bit 7: the key-click output, summed into the sound output as a
+   *  1-bit level (the BIOS toggles it on each key press). */
+  get keyClick(): number { return this.portC >> 7; }
 
   /** Control port write (0xAB): mode-set (bit7=1) or bit-set-reset on port C. */
   writeControl(val: number): void {
