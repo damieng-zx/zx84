@@ -104,6 +104,8 @@ export class MtxMachine extends BaseMachine implements Machine {
     this.model = model;
     this.memory = new MtxMemory(model);
     this.display = display ?? null;
+    // The CTC is the only daisy-chain device: RETI clears its IUS latch.
+    this.cpu.onReti = () => this.ctc.reti();
 
     this.mixer.beeperGain = 0;
     this.mixer.psgGain = 1;

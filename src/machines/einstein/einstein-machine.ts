@@ -144,6 +144,10 @@ export class EinsteinMachine extends BaseMachine implements Machine {
     // here). The machine chains channel 2's zero-count to channel 3's
     // trigger (zc2 → trg3); channel 3 is the periodic interrupt source (IM 2).
     this.ctc.zcHandlers[2] = () => this.ctc.trigger(3);
+    // The CTC heads the daisy chain and decodes RETI to leave service. The
+    // board sources below it (MAME einstein.cpp's daisy devices) have no
+    // under-service latch of their own, so they only watch the CTC's IEO.
+    this.cpu.onReti = () => this.ctc.reti();
     this.keyboard = new EinsteinKeyboard(model);
     // CDT/TZX pulse timings are 3.5MHz-referenced; scale to the 4MHz Z80.
     this.tape = new TapeDeck(EINSTEIN_CPU_CLOCK);
@@ -337,8 +341,9 @@ export class EinsteinMachine extends BaseMachine implements Machine {
           this.adcDoneAt = -1;
           this.boardIntPending |= EINSTEIN_INT_ADC;
         }
+        // Inhibited while a CTC channel is under service (IEO low until RETI).
         const board = this.boardIntPending & this.boardIntMask;
-        if (board !== 0 && this.cpu.iff1 && !this.cpu.eiDelay) {
+        if (board !== 0 && this.cpu.iff1 && !this.cpu.eiDelay && this.ctc.ieo) {
           const vec = (board & EINSTEIN_INT_KEY) ? EINSTEIN_KEY_INT_VECTOR
             : (board & EINSTEIN_INT_ADC) ? EINSTEIN_ADC_INT_VECTOR
             : EINSTEIN_FIRE_INT_VECTOR;
@@ -349,7 +354,8 @@ export class EinsteinMachine extends BaseMachine implements Machine {
 
         // Einstein 256: the V9938's INT output sits on the daisy chain
         // (vector 0xFE), maskable via port 0x80.
-        if (is256 && this.vdpIntEnabled && vdp.interruptPending() && this.cpu.iff1 && !this.cpu.eiDelay) {
+        if (is256 && this.vdpIntEnabled && vdp.interruptPending() && this.cpu.iff1 && !this.cpu.eiDelay
+          && this.ctc.ieo) {
           // Accepting the interrupt does not clear the V9938's F flag or INT
           // output; hardware holds both until the handler reads S0.
           this.cpu.interruptWithVector(EINSTEIN_256_VDP_INT_VECTOR);

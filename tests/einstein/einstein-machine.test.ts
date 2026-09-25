@@ -311,3 +311,42 @@ describe('Einstein runFrame smoke', () => {
     expect(m.pixels[3]).toBe(0xFF); // alpha of the first pixel
   });
 });
+
+describe('Einstein daisy chain: CTC IEO gates the board interrupts', () => {
+  // Zilog daisy chain: once the CPU acknowledges a CTC channel, the CTC holds
+  // IEO low until it sees RETI (ED 4D), so a lower-priority device (here the
+  // ADC, below the CTC) cannot interrupt even if the ISR re-enables
+  // interrupts with EI. RETN does not end the CTC's service.
+  /** CTC ch0 ISR: log 0xC0, start an ADC conversion, EI, spin ~650T (well
+   *  past the ADC's 160T conversion), log 0xC1, then `ret` (RETI or RETN).
+   *  ADC ISR: log 0xAD, read port 0x38 to clear it, EI, RETI. */
+  function run(ret: number): number[] {
+    const m = machine();
+    const rom = new Uint8Array(0x2000);
+    const log = (id: number) => [0x2A, 0x02, 0x80, 0x36, id, 0x23, 0x22, 0x02, 0x80];
+    rom.set([0xED, 0x5E, 0x3E, 0x00, 0xED, 0x47,      // IM 2 ; LD A,0 ; LD I,A
+      0x21, 0x10, 0x80, 0x22, 0x02, 0x80,             // LD HL,8010 ; LD (8002),HL
+      0xFB, 0x18, 0xFE], 0);                          // EI ; JR $
+    rom[0x40] = 0x00; rom[0x41] = 0x01;               // CTC ch0 vector -> 0x0100
+    rom.set([...log(0xC0), 0xD3, 0x38, 0xFB, 0x06, 50, 0x10, 0xFE,
+      ...log(0xC1), 0xED, ret], 0x0100);
+    rom[0xFB] = 0x00; rom[0xFC] = 0x02;               // ADC vector -> 0x0200
+    rom.set([...log(0xAD), 0xDB, 0x38, 0xFB, 0xED, 0x4D], 0x0200);
+    m.loadROM(rom);
+    m.reset();
+    m.cpu.portOut(0x21, 0x00);                        // ADC interrupt enabled
+    m.cpu.portOut(0x28, 0x40);                        // CTC vector base 0x40
+    m.cpu.portOut(0x28, 0x01 | 0x80 | 0x04);          // ch0 timer, int, /16, TC follows
+    m.cpu.portOut(0x28, 0xFF);                        // 4080T period
+    m.tick();
+    return Array.from(m.memory.ramSnapshot().subarray(0x8010, 0x8016));
+  }
+
+  it('holds the ADC off until the CTC ISR executes RETI, despite EI', () => {
+    expect(run(0x4D).slice(0, 3)).toEqual([0xC0, 0xC1, 0xAD]);
+  });
+
+  it('RETN leaves the CTC under service, so nothing below it (or itself) interrupts again', () => {
+    expect(run(0x45)).toEqual([0xC0, 0xC1, 0, 0, 0, 0]);
+  });
+});

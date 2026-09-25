@@ -222,3 +222,20 @@ describe('MTX VDP interrupt into CTC channel 0', () => {
     expect(trigger.mock.calls.filter(([c]) => c === 0)).toHaveLength(1);
   });
 });
+
+describe('MTX CTC RETI wiring', () => {
+  it('a RETI executed by the CPU ends the CTC channel under service', () => {
+    const m = machine();
+    m.ctc.write(0, 0x01 | 0x40 | 0x80 | 0x04);  // ch0: counter, int, TC follows
+    m.ctc.write(0, 1);
+    m.ctc.trigger(0);
+    m.ctc.acknowledge();
+    expect(m.ctc.ieo).toBe(false);
+    m.cpu.sp = 0xC000;
+    m.cpu.pc = 0xC100;
+    m.memory.writeByte(0xC100, 0xED);
+    m.memory.writeByte(0xC101, 0x4D);             // RETI
+    m.cpu.step();
+    expect(m.ctc.ieo).toBe(true);
+  });
+});
