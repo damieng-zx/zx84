@@ -509,6 +509,7 @@ export class Spectrum extends BaseMachine implements Machine {
     this.betaDisk.reset();
     this.loaderDetector.reset();
     this.contention.frameStartTStates = 0;
+    this._resumeFrameOffset = -1;
     this.needsDisplay = true;
     this.setStatus('Reset');
   }
@@ -584,6 +585,19 @@ export class Spectrum extends BaseMachine implements Machine {
     }
   }
 
+  /** Frame offset (T-states since the last INT) to resume at on the next
+   *  runFrame, or -1. Set by snapshot loads that record frame position. */
+  private _resumeFrameOffset = -1;
+
+  /** Make the next frame resume mid-frame: `frameOffset` T-states have
+   *  already elapsed since the INT, so the frame started in the past and the
+   *  next INT comes tpf - frameOffset T-states from now (the INT only fires
+   *  at once if the offset is still inside the INT window). */
+  resumeAtFrameOffset(frameOffset: number): void {
+    const tpf = this.contention.timing.tStatesPerFrame;
+    this._resumeFrameOffset = ((frameOffset % tpf) + tpf) % tpf;
+  }
+
   protected runFrame(): void {
     // Apply any deferred combo keys (modifier was pressed last frame).
     this.keyboard.processPending();
@@ -601,8 +615,14 @@ export class Spectrum extends BaseMachine implements Machine {
     const idealStart = this.contention.frameStartTStates + tpf;
     // Use ideal boundary if the CPU has reached it (normal case).
     // Otherwise re-sync to current tStates (first frame, snapshot load, reset).
-    this.contention.frameStartTStates =
-      idealStart <= this.cpu.tStates ? idealStart : this.cpu.tStates;
+    const resumeOffset = this._resumeFrameOffset;
+    if (resumeOffset >= 0) {
+      this._resumeFrameOffset = -1;
+      this.contention.frameStartTStates = this.cpu.tStates - resumeOffset;
+    } else {
+      this.contention.frameStartTStates =
+        idealStart <= this.cpu.tStates ? idealStart : this.cpu.tStates;
+    }
     const frameStart = this.contention.frameStartTStates;
     this.tapeLastAdvanceT = this.cpu.tStates;
     const frameEnd = frameStart + tpf;
@@ -613,11 +633,12 @@ export class Spectrum extends BaseMachine implements Machine {
     //   48K: 32T, 128K/+2: 36T, +2A/+3: 32T
     // If IFF1 is false (DI), the interrupt stays pending until EI re-enables it,
     // but only within the INT window — after that, it's lost until the next frame.
-    let intT = this.cpu.interrupt();
+    // A mid-frame resume past the INT window must not take an interrupt now.
+    let intT = this.cpu.tStates < intWindowEnd ? this.cpu.interrupt() : 0;
     // intT === 0 means the ack didn't take this attempt — could be DI (iff1=false)
     // OR EI delay (eiDelay=true at the frame edge). Either way the INT line is still
     // held LOW for the model's int window; retry until it fires or the window closes.
-    let intPending = intT === 0;
+    let intPending = intT === 0 && this.cpu.tStates < intWindowEnd;
 
     // AMX mouse: drain queued movement steps as PIO interrupts spread across frame
     if (this.amxMouse.enabled && (this.amxMouse.pendingX !== 0 || this.amxMouse.pendingY !== 0)) {

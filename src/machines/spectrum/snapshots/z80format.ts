@@ -28,6 +28,9 @@ export interface Z80Result {
   /** Last OUT to port 0x1FFD (+2A/+3 special paging), present only in the
    *  55-byte v3 extended header. Caller applies it only on +2A/+3-class models. */
   port1FFD?: number;
+  /** T-states since the start of the frame (last INT), from the v3 T-state
+   *  counter (bytes 55-57). Absent for v1/v2 files. */
+  frameTStates?: number;
 }
 
 // ── Header parsing helpers ─────────────────────────────────────────────────
@@ -277,6 +280,20 @@ export function loadZ80(
     ? data[extBase + 54]
     : undefined;
 
+  // v3 T-state counter (bytes 55-57 = extBase+23..25). The high byte counts
+  // quarter-frames modulo 4 (3 just after the INT); within each quarter the
+  // 16-bit low counter counts down from quarter-1. So:
+  //   t = ((hi + 1) % 4 + 1) * quarter - (low + 1)
+  let frameTStates: number | undefined;
+  if (version === 3 && data.length > extBase + 25) {
+    const tpf = hwMode === 9 ? 71680 : is128K ? 70908 : 69888;
+    const quarter = tpf / 4;
+    const low = r16(data, extBase + 23);
+    const hi = data[extBase + 25] & 3;
+    const t = ((hi + 1) % 4 + 1) * quarter - (low + 1);
+    if (t >= 0 && t < tpf) frameTStates = t;
+  }
+
   // Data blocks start after the extended header
   const dataStart = 32 + extHeaderLen;
   let offset = dataStart;
@@ -311,7 +328,7 @@ export function loadZ80(
       memory.currentROM = (port7FFD >> 4) & 1;
       memory.applyBanking();
       memory.selectSnapshot128KRom();
-      return { is128K: true, port7FFD, borderColor, ayRegs, ayCurrentReg, port1FFD };
+      return { is128K: true, port7FFD, borderColor, ayRegs, ayCurrentReg, port1FFD, frameTStates };
     }
     if (memory.romPages.length === 4 && port1FFD !== undefined) {
       // +2A/+3: ROM = bit 2 of 1FFD (high) | bit 4 of 7FFD (low); special
@@ -326,7 +343,7 @@ export function loadZ80(
     }
     memory.applyBanking();
 
-    return { is128K: true, port7FFD, borderColor, ayRegs, ayCurrentReg, port1FFD };
+    return { is128K: true, port7FFD, borderColor, ayRegs, ayCurrentReg, port1FFD, frameTStates };
   } else {
     // ── 48K: load paged blocks into 48K address space ────────────────────
 
@@ -356,7 +373,7 @@ export function loadZ80(
     }
 
     memory.load48KRAM(ram);
-    return { is128K: false, port7FFD: 0, borderColor, ayRegs, ayCurrentReg };
+    return { is128K: false, port7FFD: 0, borderColor, ayRegs, ayCurrentReg, frameTStates };
   }
 }
 
@@ -440,7 +457,9 @@ export function saveZ80(
   borderColor: number,
   is128K: boolean,
   ayRegs?: Uint8Array,
-  ayCurrentReg?: number
+  ayCurrentReg?: number,
+  /** T-states since the last INT, for the v3 T-state counter. */
+  frameTStates = 0,
 ): Uint8Array {
   // ── 30-byte common header ──────────────────────────────────────────────
 
@@ -521,6 +540,16 @@ export function saveZ80(
   // Remaining reserved bytes, up to (but excluding) the optional 1FFD byte.
   for (let i = 25; i < 2 + extHeaderLen - (isPlus2A3 ? 1 : 0); i++) {
     extHeader[i] = 0;
+  }
+
+  // Bytes 25-27 (file bytes 55-57): T-state counter — low counts down within
+  // each quarter frame, high counts quarters mod 4 (3 just after the INT).
+  {
+    const tpf = is128K ? 70908 : 69888;
+    const quarter = tpf / 4;
+    const t = ((frameTStates % tpf) + tpf) % tpf;
+    w16(extHeader, 25, quarter - (t % quarter) - 1);
+    extHeader[27] = (Math.floor(t / quarter) + 3) % 4;
   }
 
   if (isPlus2A3) {
