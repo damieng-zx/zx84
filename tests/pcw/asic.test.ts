@@ -120,11 +120,11 @@ describe('interrupt cadence', () => {
     expect(asic.status & 0x0F).toBe(0);
   });
 
-  it('drops /INT when the CPU takes the interrupt, leaving the count alone', () => {
+  it('drops /INT when the timer pulse ends, leaving the count alone', () => {
     const { asic } = build();
     asic.beginLine(258);
     expect(asic.intPending).toBe(true);
-    asic.acknowledgeTimer();
+    asic.endTimerPulse();
     expect(asic.intPending).toBe(false);
     expect(asic.status & 0x0F).toBe(1);
   });

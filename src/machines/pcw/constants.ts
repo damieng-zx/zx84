@@ -53,6 +53,14 @@ export const PCW_INT_LINE_SPACING = 52;
 export const PCW_FIRST_INT_LINE = PCW_DISPLAY_HEIGHT + 2; // 258
 export const PCW_INTS_PER_FRAME = PCW_LINES_PER_FRAME / PCW_INT_LINE_SPACING; // 6
 
+/**
+ * The 300Hz timer *pulses* /INT for about 100us rather than holding it until
+ * the CPU responds (MAME pcw.cpp: timer_irq_flag set, cleared by a 100us pulse
+ * timer). A tick that lands while interrupts are disabled is therefore only
+ * recorded in the &F4 counter. 100us at the effective clock = 340 T-states.
+ */
+export const PCW_TIMER_PULSE_T = Math.round(100e-6 * PCW_CPU_CLOCK);
+
 // ── Memory ──────────────────────────────────────────────────────────────────
 
 /** One paging block: the PCW pages 16K at a time, four blocks to the 64K map. */
