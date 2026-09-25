@@ -230,23 +230,26 @@ export class Z80 {
     // was taken, rather than seeing a non-flag-touching step in between.
     this._prevQ = this._qReg;
     this._qReg = 0;
+    // The acknowledge is an M1 cycle (M1 + IORQ), so board WAIT logic keyed
+    // on /M1 (e.g. MSX's +1T) stretches it just like an opcode fetch.
+    const w = this.m1WaitStates;
 
     switch (this.im) {
       case 0:
         // IM 0: RST 38h on Spectrum. 13T: ack(7T), push@T+7/T+10
-        this.tStates += 7;
+        this.tStates += 7 + w;
         this.push16(this.pc);
         this.memptr = this.pc = 0x0038;
         this.tStates += 3;
-        return 13;
+        return 13 + w;
 
       case 1:
         // IM 1: RST 38h. 13T: ack(7T), push@T+7/T+10
-        this.tStates += 7;
+        this.tStates += 7 + w;
         this.push16(this.pc);
         this.memptr = this.pc = 0x0038;
         this.tStates += 3;
-        return 13;
+        return 13 + w;
 
       case 2: {
         // IM 2: vectored interrupt. 19T: ack(7T), push@T+7/T+10, read@T+13/T+16
@@ -255,20 +258,20 @@ export class Z80 {
         // supply their own vector byte via interruptWithVector().
         const vectorAddr = ((this.i << 8) | (this._pendingVector & 0xFF)) & 0xFFFF;
         this._pendingVector = 0xFF;
-        this.tStates += 7;
+        this.tStates += 7 + w;
         this.push16(this.pc);
         this.tStates += 3;
         this.memptr = this.pc = this.read16(vectorAddr);
         this.tStates += 3;
-        return 19;
+        return 19 + w;
       }
 
       default:
-        this.tStates += 7;
+        this.tStates += 7 + w;
         this.push16(this.pc);
         this.memptr = this.pc = 0x0038;
         this.tStates += 3;
-        return 13;
+        return 13 + w;
     }
   }
 
@@ -295,7 +298,7 @@ export class Z80 {
     // whatever ran before the NMI.
     this._prevQ = this._qReg;
     this._qReg = 0;
-    this.tStates += 5;       // NMI acknowledge: 5T
+    this.tStates += 5 + this.m1WaitStates;  // NMI acknowledge: 5T (an M1 cycle) + board M1 waits
     this.push16(this.pc);    // push PC: 2×3T (inside push16's write16)
     this.memptr = this.pc = 0x0066;
     this.tStates += 3;       // total = 5 + 3 + 3 = 11T
