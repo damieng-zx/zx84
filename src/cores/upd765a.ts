@@ -248,6 +248,14 @@ export class UPD765A {
   private exH = 0;
   private exN = 0;
   private exCmdN = 0;    // N from the command (may differ from sector ID's N)
+  /** Cylinder the ID search must match (the command's C). */
+  private exCmdC = 0;
+  /** Head the ID search must match: the command's H, complemented after an MT
+   *  switch to side 1 (the controller flips H in its ID register there). */
+  private exCmdH = 0;
+  /** The exact sector being transferred — the one a write lands in, which may
+   *  not be sectorMap's pick on a track with duplicate R values. */
+  private exSector: DskSector | null = null;
   private exCmd = 0;     // Masked command (READ_DATA vs READ_DELETED) — for command-relative CM
   /** Reference to current track for write-back */
   private exTrack: DskTrack | null = null;
@@ -662,12 +670,15 @@ export class UPD765A {
         // not the command's original starting R — the two only coincide by
         // accident on disks that happen to start numbering at 1. SK applies
         // here too: skip forward past any mark-mismatched sector 1.
-        const found1 = side1 ? this.findSectorForCommand(side1, 1, this.exEOT, this.exCmd) : null;
+        const side1H = this.exCmdH ^ 1;
+        const found1 = side1 ? this.findSectorForCommand(side1, 1, this.exEOT, this.exCmd, this.exCmdC, side1H) : null;
         if (side1 && found1) {
           this.exHead = 1;
+          this.exCmdH = side1H;
           this.exTrack = side1;
           this.exR = found1.r;
           const s = found1.sector;
+          this.exSector = s;
           this.exBuf = this.exWriting
             ? new Uint8Array(sectorXferSize(this.exCmdN))
             : this.prepareReadBuffer(s);
@@ -699,16 +710,18 @@ export class UPD765A {
 
     // SK (Skip): search forward from here for a mark-matching sector rather
     // than accepting whatever's at exR outright (see findSectorForCommand).
-    const found = this.findSectorForCommand(track, this.exR, this.exEOT, this.exCmd);
+    const found = this.findSectorForCommand(track, this.exR, this.exEOT, this.exCmd, this.exCmdC, this.exCmdH);
     if (!found) {
       this.exR--;
       this.exST1 |= 0x04;
+      this.exST2 |= this.wrongCylinderBits(track, this.exCmdC);
       this.exAbnormal = true;
       return false;
     }
     this.exR = found.r;
 
     const sector = found.sector;
+    this.exSector = sector;
     if (this.exWriting) {
       this.exBuf = new Uint8Array(sectorXferSize(this.exCmdN));
       this.exPos = 0;
@@ -803,19 +816,17 @@ export class UPD765A {
 
   /** Write the execution buffer back into the current sector's data. */
   private writeBackSector(): void {
-    const track = this.exTrack;
-    if (!track) return;
-    const idx = track.sectorMap.get(this.exR);
-    if (idx === undefined) return;
+    const sector = this.exSector;
+    if (!sector) return;
     // Replace the sector's data array entirely.  The write buffer is sized by
     // the command's N parameter, which may differ from the sector ID's N (e.g.
     // protection sectors).  Using .set() would throw RangeError when exBuf is
     // larger, or leave stale tail bytes when smaller.  Replacing the array
     // ensures read-back via prepareReadBuffer() sees exactly what was written.
-    track.sectors[idx].data = new Uint8Array(this.exBuf);
+    sector.data = new Uint8Array(this.exBuf);
     // Writing destroys the v5 weak-bit state: subsequent reads must
     // return the freshly-written data, not random older copies.
-    track.sectors[idx].copies = undefined;
+    sector.copies = undefined;
     this.dirty[this.physUnit(this.exUnit)] = true;
   }
 
@@ -1112,6 +1123,36 @@ export class UPD765A {
   }
 
   /**
+   * The first ID field in physical order whose C, H and R all match what the
+   * controller is looking for. The uPD765A compares the whole ID register, not
+   * just R: a sector with the right R but another cylinder or head number is
+   * passed over, and on a track carrying duplicate R values the one whose ID
+   * matches is the one found.
+   *
+   * N is deliberately not compared. The undersized-sector handling in
+   * sectorReadFlags (DSK dumps of protection sectors whose ID N is smaller
+   * than the command N) depends on those sectors still being found.
+   */
+  private findId(track: DskTrack, c: number, h: number, r: number): DskSector | null {
+    for (const s of track.sectors) {
+      if (s.r === r && s.c === c && s.h === h) return s;
+    }
+    return null;
+  }
+
+  /**
+   * ST2 bits for a No Data termination: WC when an ID field on the track holds
+   * a cylinder other than the one searched for, BC when that cylinder is 0xFF.
+   */
+  private wrongCylinderBits(track: DskTrack, c: number): number {
+    let bits = 0;
+    for (const s of track.sectors) {
+      if (s.c !== c) bits |= s.c === 0xFF ? 0x02 : 0x10;
+    }
+    return bits;
+  }
+
+  /**
    * Find the sector to read starting at R, honouring SK (Skip). With SK=0
    * (default), the sector at R is returned regardless of mark match — a
    * mismatch there is reported and terminates the command elsewhere (see
@@ -1119,13 +1160,12 @@ export class UPD765A {
    * skipped over (not returned, not a termination point) and the search
    * continues at R+1 up to EOT. Returns null if no usable sector is found.
    */
-  private findSectorForCommand(track: DskTrack, startR: number, eot: number, cmd: number)
+  private findSectorForCommand(track: DskTrack, startR: number, eot: number, cmd: number, c: number, h: number)
       : { r: number; sector: DskSector } | null {
     let r = startR;
     for (;;) {
-      const idx = track.sectorMap.get(r);
-      if (idx === undefined) return null;
-      const sector = track.sectors[idx];
+      const sector = this.findId(track, c, h, r);
+      if (!sector) return null;
       if (!this.exSK || !this.markMismatches(sector, cmd)) return { r, sector };
       if (r >= eot) return null;
       r++;
@@ -1161,12 +1201,13 @@ export class UPD765A {
 
     // Find starting sector by R value — skipping mark-mismatched sectors
     // first if SK is set (see findSectorForCommand).
-    const found = this.findSectorForCommand(track, r, eot, cmd);
+    const found = this.findSectorForCommand(track, r, eot, cmd, c, h);
     if (!found) {
-      // Sector not found — No Data
-      this.log(`  ✗ Sector R=${r} not found on track`);
+      // Sector not found — No Data, plus WC/BC if the track's IDs carry
+      // another cylinder number.
+      this.log(`  ✗ Sector C=${c} H=${h} R=${r} not found on track`);
       const st0 = ST0_ABNORMAL | (head << 2) | unit;
-      this.result([st0, 0x04, 0x00, c, h, r, n]); // ST1=ND (bit 2)
+      this.result([st0, 0x04, this.wrongCylinderBits(track, c), c, h, r, n]); // ST1=ND (bit 2)
       return;
     }
     const { r: foundR, sector } = found;
@@ -1191,6 +1232,9 @@ export class UPD765A {
     this.exH = sector.h;
     this.exN = sector.n;  // From sector ID (may differ from command N)
     this.exR = foundR;
+    this.exSector = sector;
+    this.exCmdC = c;
+    this.exCmdH = h;
     this.exEOT = eot;
     this.exHitEOT = false;
     this.exNormalEOT = false;
@@ -1528,6 +1572,7 @@ export class UPD765A {
     this.exReadTrack = false;
     this.exFormatting = false;
     this.exTrack = null;
+    this.exSector = null;
     this.exST1 = 0;
     this.exST2 = 0;
     this.latchR = 0;
