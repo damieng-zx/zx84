@@ -204,10 +204,6 @@ function block28Select(offsets: number[]): number[] {
   const entries = [offsets.length, ...offsets.flatMap((offset) => [...w16(offset), 0])];
   return [0x28, ...w16(entries.length), ...entries];
 }
-/** 0x19 Generalized Data Block — same shape for skipping purposes. */
-function block19(bodyBytes: number[]): number[] {
-  return [0x19, ...w32(bodyBytes.length), ...bodyBytes];
-}
 
 // ── Header / magic ─────────────────────────────────────────────────────────
 
@@ -444,7 +440,7 @@ describe('TZX — zero pulse lengths are clamped to 1 T-state', () => {
 
 // ── Block 0x18 / 0x19 (CSW and Generalized) ────────────────────────────────
 
-describe('TZX — 0x18 CSW Recording / 0x19 Generalized Data', () => {
+describe('TZX — 0x18 CSW Recording', () => {
   it('decodes an embedded CSW recording and continues parsing', () => {
     const data = tzx(header(), block18([10, 20], 0), block20(100));
     const blocks = parseTZX(data);
@@ -485,13 +481,112 @@ describe('TZX — 0x18 CSW Recording / 0x19 Generalized Data', () => {
     expect(() => parseTZX(tzx(header(), [0x18, ...w32(body.length), ...body])))
       .toThrow('Unsupported embedded TZX CSW compression type 3');
   });
+});
 
-  it('skips a 0x19 block via its dword length and continues parsing', () => {
-    const body = new Array(500).fill(0xFF);
-    const data = tzx(header(), block19(body), block20(50));
+// ── Block 0x19 (Generalized Data) ──────────────────────────────────────────
+
+/** A symbol definition: flag byte + maxPulses WORDs (zero-padded). */
+function symdef(flags: number, pulses: number[], maxPulses: number): number[] {
+  const out = [flags];
+  for (let i = 0; i < maxPulses; i++) out.push(...w16(pulses[i] ?? 0));
+  return out;
+}
+
+/** Build a 0x19 block from its parts. Tables/streams are omitted when the
+ *  corresponding total is zero, as the spec requires. */
+function gdb(opts: {
+  pause?: number;
+  npp?: number; pilotTable?: number[][]; prle?: [number, number][];
+  npd?: number; asd?: number; dataTable?: number[][]; totd?: number; stream?: number[];
+}): number[] {
+  const { pause = 0, npp = 0, pilotTable = [], prle = [], npd = 0, dataTable = [], totd = 0, stream = [] } = opts;
+  const asd = opts.asd ?? dataTable.length;
+  const body = [
+    ...w16(pause),
+    ...w32(prle.length), npp, pilotTable.length & 0xFF,
+    ...w32(totd), npd, asd & 0xFF,
+    ...pilotTable.flat(),
+    ...prle.flatMap(([sym, reps]) => [sym, ...w16(reps)]),
+    ...dataTable.flat(),
+    ...stream,
+  ];
+  return [0x19, ...w32(body.length), ...body];
+}
+
+describe('TZX — 0x19 Generalized Data Block', () => {
+  it('expands a ROM-style pilot/sync + data block into one edge-per-pulse sequence', () => {
+    // Pilot table: s0 = one 2168T pulse, s1 = the 667T+735T sync pair.
+    // PRLE: 3 × s0, 1 × s1. Data table (2 symbols, 1 bit each): bit 0 =
+    // 855T+855T, bit 1 = 1710T+1710T. Data byte 0b0110_0000, 4 symbols →
+    // bits 0,1,1,0. Every symbol flag is 0 (start with an edge).
+    const data = tzx(header(), gdb({
+      pause: 1000,
+      npp: 2, pilotTable: [symdef(0, [2168], 2), symdef(0, [667, 735], 2)], prle: [[0, 3], [1, 1]],
+      npd: 2, dataTable: [symdef(0, [855, 855], 2), symdef(0, [1710, 1710], 2)], totd: 4, stream: [0b0110_0000],
+    }), block20(50));
     const blocks = parseTZX(data);
-    expect(blocks.length).toBe(1);
-    expect(blocks[0].kind).toBe('pause');
+    expect(blocks).toEqual([
+      { kind: 'pulses', lengths: [2168, 2168, 2168, 667, 735, 855, 855, 1710, 1710, 1710, 1710, 855, 855] },
+      { kind: 'pause', duration: 1000 },
+      { kind: 'pause', duration: 50 },
+    ]);
+  });
+
+  it('folds a no-edge (flag 1) symbol into the previous pulse', () => {
+    const data = tzx(header(), gdb({
+      npp: 1, pilotTable: [symdef(0, [1000], 1), symdef(1, [500], 1)], prle: [[0, 2], [1, 1]],
+    }));
+    expect(parseTZX(data)).toEqual([{ kind: 'pulses', lengths: [1000, 1500] }]);
+  });
+
+  it('pins the first forced level, then resolves later forced levels against it', () => {
+    // Symbols: s0 = edge,100 · s1 = force high,200,300 · s2 = force high,400 ·
+    // s3 = force low,50. Sequence s0 s1 s2 s0 s3:
+    //   100 (level unknown) | force high → 200 high, edge → 300 low |
+    //   force high from low → edge, 400 high | edge → 100 low |
+    //   force low while already low → no edge, folds into the 100 → 150.
+    const data = tzx(header(), gdb({
+      npp: 2,
+      pilotTable: [symdef(0, [100], 2), symdef(3, [200, 300], 2), symdef(3, [400], 2), symdef(2, [50], 2)],
+      prle: [[0, 1], [1, 1], [2, 1], [0, 1], [3, 1]],
+    }));
+    expect(parseTZX(data)).toEqual([
+      { kind: 'pulses', lengths: [100] },
+      { kind: 'set-level', level: 1 },
+      { kind: 'pulses', lengths: [200, 300, 400, 150] },
+    ]);
+  });
+
+  it('unpacks multi-bit data symbols MSB-first across byte boundaries', () => {
+    // ASD=5 → ceil(log2 5) = 3 bits per symbol. Symbols 4,1,2 pack as
+    // 100 001 010 → 0b10000101, 0b0_0000000.
+    const table = [0, 1, 2, 3, 4].map((i) => symdef(0, [(i + 1) * 100], 1));
+    const data = tzx(header(), gdb({ npd: 1, dataTable: table, totd: 3, stream: [0x85, 0x00] }));
+    expect(parseTZX(data)).toEqual([{ kind: 'pulses', lengths: [500, 200, 300] }]);
+  });
+
+  it('treats ASD=0 as a 256-symbol alphabet (8 bits per symbol)', () => {
+    const table = Array.from({ length: 256 }, (_, i) => symdef(0, [i + 1], 1));
+    const data = tzx(header(), gdb({ npd: 1, asd: 0, dataTable: table, totd: 2, stream: [0xFF, 0x07] }));
+    expect(parseTZX(data)).toEqual([{ kind: 'pulses', lengths: [256, 8] }]);
+  });
+
+  it('ends a symbol at its first zero-length pulse', () => {
+    const data = tzx(header(), gdb({ npp: 3, pilotTable: [symdef(0, [700, 0, 999], 3)], prle: [[0, 2]] }));
+    expect(parseTZX(data)).toEqual([{ kind: 'pulses', lengths: [700, 700] }]);
+  });
+
+  it('rejects a data symbol index outside the alphabet', () => {
+    // ASD=3 → 2 bits; index 3 (0b11) is out of range.
+    const table = [0, 1, 2].map(() => symdef(0, [100], 1));
+    const data = tzx(header(), gdb({ npd: 1, dataTable: table, totd: 1, stream: [0xC0] }));
+    expect(() => parseTZX(data)).toThrow(/data symbol out of range/);
+  });
+
+  it('rejects a data stream shorter than TOTD symbols need', () => {
+    const table = [symdef(0, [100], 1), symdef(0, [200], 1)];
+    const data = tzx(header(), gdb({ npd: 1, dataTable: table, totd: 9, stream: [0xFF] }));
+    expect(() => parseTZX(data)).toThrow(/Truncated TZX generalized data block/);
   });
 });
 
