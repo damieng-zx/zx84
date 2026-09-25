@@ -62,4 +62,14 @@ export class MsxTapeService implements TapeService {
   seek(_block: number): void {}
 
   eject(): void { this.m.cassette.eject(); }
+
+  /** What the machine has saved through the BIOS (CSAVE/BSAVE"CAS:"/SAVE
+   *  "CAS:") since the last reset, as a .cas image. */
+  recordedBytes(): { data: Uint8Array; filename: string } | null {
+    const data = this.m.cassette.recorded();
+    if (!data) return null;
+    const first = parseCasBlocks(data).find(b => b.name);
+    const stem = (first?.name ?? '').trim().replace(/[^A-Za-z0-9_.-]/g, '_');
+    return { data, filename: `${stem || 'msx'}.cas` };
+  }
 }

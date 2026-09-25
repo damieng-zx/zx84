@@ -7,6 +7,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { MsxCassette, parseCasBlocks } from '@/machines/msx/msx-tape.ts';
+import { MsxMachine } from '@/machines/msx/msx-machine.ts';
 
 const ID = [0x1F, 0xA6, 0xDE, 0xBA, 0xCC, 0x13, 0x7D, 0x74];
 
@@ -100,5 +101,53 @@ describe('MsxCassette', () => {
     cas.eject();
     expect(cas.loaded).toBe(false);
     expect(cas.readByte()).toBe(-1);
+  });
+});
+
+describe('MSX cassette save (TAPOON/TAPOUT traps)', () => {
+  /** ROM: page RAM into pages 2-3, then TAPOON + two TAPOUTs, a second
+   *  TAPOON + one TAPOUT, then HALT. */
+  function saveProgram(): Uint8Array {
+    const rom = new Uint8Array(0x8000);
+    rom.set([
+      0xF3,                   // DI
+      0x3E, 0xA0, 0xD3, 0xA8, // LD A,A0h ; OUT (A8h),A  (pages 2-3 = RAM)
+      0x31, 0x00, 0xF0,       // LD SP,F000h
+      0xAF, 0xCD, 0xEA, 0x00, // XOR A ; CALL TAPOON
+      0x3E, 0xD3, 0xCD, 0xED, 0x00, // LD A,D3h ; CALL TAPOUT
+      0x3E, 0x42, 0xCD, 0xED, 0x00, // LD A,42h ; CALL TAPOUT
+      0xAF, 0xCD, 0xEA, 0x00, // XOR A ; CALL TAPOON
+      0x3E, 0x99, 0xCD, 0xED, 0x00, // LD A,99h ; CALL TAPOUT
+      0x76,                   // HALT
+    ]);
+    rom[0xEA] = 0xC9; rom[0xED] = 0xC9;  // RETs, never reached if trapped
+    return rom;
+  }
+
+  it('records saved blocks as a .cas stream with aligned sync IDs', () => {
+    const m = new MsxMachine('hx-10');
+    try {
+      m.loadROM(saveProgram());
+      m.reset();
+      m.tick();
+      expect(Array.from(m.cassette.recorded() ?? [])).toEqual([
+        ...ID, 0xD3, 0x42,
+        0, 0, 0, 0, 0, 0,     // pad to the next 8-byte boundary
+        ...ID, 0x99,
+      ]);
+      expect(m.services.tape.recordedBytes?.()?.filename).toBe('msx.cas');
+    } finally { m.destroy(); }
+  });
+
+  it('reports nothing saved after a reset', () => {
+    const m = new MsxMachine('hx-10');
+    try {
+      m.loadROM(saveProgram());
+      m.reset();
+      m.tick();
+      m.reset();
+      expect(m.cassette.recorded()).toBeNull();
+      expect(m.services.tape.recordedBytes?.()).toBeNull();
+    } finally { m.destroy(); }
   });
 });
