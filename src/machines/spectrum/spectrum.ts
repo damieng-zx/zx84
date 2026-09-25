@@ -17,7 +17,7 @@ import { ULA, PALETTES, type BorderMode } from '@/machines/spectrum/ula.ts';
 import { SpectrumKeyboard } from '@/machines/spectrum/keyboard.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import { Audio } from '@/audio.ts';
-import { TapeDeck } from '@/media/tape/tap.ts';
+import { TapeDeck, TAPE_REF_HZ } from '@/media/tape/tap.ts';
 import { UPD765A } from '@/cores/upd765a.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { Contention } from '@/machines/spectrum/contention.ts';
@@ -287,6 +287,9 @@ export class Spectrum extends BaseMachine implements Machine {
     this.contention = new Contention(this.variant, this.memory);
     this.mixer = new AudioMixer(this.contention.timing.cpuClock);
     this.tape = new TapeDeck(this.variant.timing.cpuClock);
+    // TZX/TAP pulse lengths are 3.5MHz T-states; the 128K-class clock is
+    // 3.5469MHz, so scale them to keep real-time pulse durations (1 on 48K).
+    this.tape.pulseScale = this.variant.timing.cpuClock / TAPE_REF_HZ;
     this.tape.is48K = this.variant.is48K;
     this.fdc = new UPD765A();
     this.trace = new SpectrumTrace(this);
