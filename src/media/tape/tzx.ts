@@ -61,6 +61,8 @@ function nextBlockOffset(d: Uint8Array, start: number): number {
     case 0x13: return p + 1 + d[p] * 2;
     case 0x14: return p + 10 + read24(d, p + 7);
     case 0x15: return p + 8 + read24(d, p + 5);
+    case 0x16: // deprecated C64 ROM type data — DWORD length (excl. itself)
+    case 0x17: // deprecated C64 turbo data — DWORD length (excl. itself)
     case 0x18:
     case 0x19:
     case 0x2B: return p + 4 + read32(d, p);
@@ -78,9 +80,14 @@ function nextBlockOffset(d: Uint8Array, start: number): number {
     case 0x31: return p + 2 + d[p + 1];
     case 0x32: return p + 2 + read16(d, p);
     case 0x33: return p + 1 + d[p] * 3;
+    case 0x34: return p + 8;                          // deprecated Emulation Info
     case 0x35: return p + 20 + read32(d, p + 16);
+    case 0x40: return p + 4 + read24(d, p + 1);       // deprecated Snapshot
     case 0x5A: return p + 9;
-    default: throw new Error(`Unknown TZX block type 0x${id.toString(16).padStart(2, '0')} at offset ${start}`);
+    // TZX 1.10+: every block ID not defined by the spec is followed by a DWORD
+    // length (not counting itself), so a reader can step over IDs it does not
+    // know instead of rejecting the tape.
+    default: return p + 4 + read32(d, p);
   }
 }
 
@@ -405,8 +412,8 @@ export function parseTZX(fileData: Uint8Array): TapeBlock[] {
         break;
       case 0x5A: // Glue block (skipped)
         break;
-      default:
-        throw new Error(`Unknown TZX block type 0x${id.toString(16).padStart(2, '0')} at offset ${blockStart}`);
+      default: // Deprecated (0x16/0x17/0x34/0x40) and unknown blocks: skipped
+        break;
     }
 
     // Advance past this block with the same offset arithmetic the up-front
