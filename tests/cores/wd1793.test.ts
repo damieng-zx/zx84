@@ -457,3 +457,29 @@ describe('WD1793 Type I verify searches every ID on the track', () => {
     expect(wd.readStatus() & (ST_RNF | ST_CRCERR)).toBe(0);
   });
 });
+
+describe('WD1793 multi-sector WRITE termination', () => {
+  it('ends in RECORD NOT FOUND once R+1 is absent, after writing the last sector', () => {
+    const wd = wd1793();
+    const img = trdImage();             // sectors 1..16
+    wd.insertDisk(img, 0);
+    wd.selectDrive(0);
+    wd.writeSectorReg(16);
+    wd.writeCommand(0xB0);              // WRITE SECTOR, multi
+    for (let i = 0; i < 256; i++) wd.writeData(0x5A);
+    const status = wd.readStatus();
+    expect(status & ST_BUSY).toBe(0);
+    expect(status & ST_RNF).toBe(ST_RNF);
+    expect(img.tracks[0][0]!.sectors[15].data.every(b => b === 0x5A)).toBe(true);
+  });
+
+  it('a single-sector write still ends cleanly', () => {
+    const wd = wd1793();
+    wd.insertDisk(trdImage(), 0);
+    wd.selectDrive(0);
+    wd.writeSectorReg(16);
+    wd.writeCommand(CMD_WRITE);
+    for (let i = 0; i < 256; i++) wd.writeData(0x5A);
+    expect(wd.readStatus() & (ST_BUSY | ST_RNF)).toBe(0);
+  });
+});
