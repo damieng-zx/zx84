@@ -62,8 +62,13 @@ export class MsxPpi {
   writeControl(val: number): void {
     val &= 0xFF;
     if (val & 0x80) {
-      // Mode-set: the MSX uses the fixed configuration (A/C-hi out, B/C-lo in),
-      // so there is nothing to reconfigure — just accept the write.
+      // Mode-set: the MSX always uses the same port directions, so there is
+      // nothing to reconfigure — but on the 8255 any mode write clears every
+      // output latch (Intel 8255A datasheet), so slots and row go to 0.
+      this.portA = 0;
+      this.portC = 0;
+      this.memory.setPrimarySlots(0);
+      this.keyboard.selectRow(0);
     } else {
       // BSR: bit3–1 select a port-C bit, bit0 sets (1) or resets (0) it.
       const bit = (val >> 1) & 7;
