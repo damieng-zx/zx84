@@ -45,6 +45,8 @@ import {
   EINSTEIN_256_SCREEN_WIDTH, EINSTEIN_256_SCREEN_HEIGHT,
   EINSTEIN_256_BORDER_LEFT, EINSTEIN_256_BORDER_TOP,
   EINSTEIN_256_VDP_INT_VECTOR,
+  EINSTEIN_INT_KEY, EINSTEIN_INT_ADC, EINSTEIN_INT_FIRE,
+  EINSTEIN_KEY_INT_VECTOR, EINSTEIN_ADC_INT_VECTOR, EINSTEIN_FIRE_INT_VECTOR,
 } from '@/machines/einstein/constants.ts';
 
 /** PAL scanlines per field. */
@@ -78,6 +80,16 @@ export class EinsteinMachine extends BaseMachine implements Machine {
   /** Einstein 256: the V9938's daisy-chain interrupt can be masked off via
    *  port 0x80 (bit0 set = disabled). Enabled at reset. */
   vdpIntEnabled = true;
+
+  /** Keyboard / ADC / fire interrupt requests (EINSTEIN_INT_* bits). The
+   *  keyboard request is held until port 0x20 is read, the ADC's until
+   *  port 0x38 is read; fire is cleared when acknowledged. */
+  boardIntPending = 0;
+  /** Enabled sources — ports 0x20/0x21/0x25 bit0 clear = enabled. All
+   *  masked at reset. */
+  boardIntMask = 0;
+  /** T-state at which an ADC conversion completes (INTR), or -1. */
+  adcDoneAt = -1;
 
   /** Per-frame I/O activity for the status-bar LEDs. */
   readonly activity = { kbdReads: 0, fdcAccesses: 0, tapeReads: 0, ayWrites: 0 };
@@ -243,6 +255,9 @@ export class EinsteinMachine extends BaseMachine implements Machine {
     this.audio.reset();
     this.mixer.reset();
     this.vdpIntEnabled = true;
+    this.boardIntPending = 0;
+    this.boardIntMask = 0;
+    this.adcDoneAt = -1;
     this.needsDisplay = true;
     this.setStatus('Reset');
   }
@@ -317,6 +332,21 @@ export class EinsteinMachine extends BaseMachine implements Machine {
           if (vec >= 0 && this.cpu.interruptWithVector(vec) > 0) this.ctc.acknowledge();
         }
 
+        // Keyboard → ADC → fire, below the CTC (and the unmodelled PIO).
+        if (this.adcDoneAt >= 0 && this.cpu.tStates >= this.adcDoneAt) {
+          this.adcDoneAt = -1;
+          this.boardIntPending |= EINSTEIN_INT_ADC;
+        }
+        const board = this.boardIntPending & this.boardIntMask;
+        if (board !== 0 && this.cpu.iff1 && !this.cpu.eiDelay) {
+          const vec = (board & EINSTEIN_INT_KEY) ? EINSTEIN_KEY_INT_VECTOR
+            : (board & EINSTEIN_INT_ADC) ? EINSTEIN_ADC_INT_VECTOR
+            : EINSTEIN_FIRE_INT_VECTOR;
+          if (this.cpu.interruptWithVector(vec) > 0 && vec === EINSTEIN_FIRE_INT_VECTOR) {
+            this.boardIntPending &= ~EINSTEIN_INT_FIRE;
+          }
+        }
+
         // Einstein 256: the V9938's INT output sits on the daisy chain
         // (vector 0xFE), maskable via port 0x80.
         if (is256 && this.vdpIntEnabled && vdp.interruptPending() && this.cpu.iff1 && !this.cpu.eiDelay) {
@@ -355,8 +385,17 @@ export class EinsteinMachine extends BaseMachine implements Machine {
       }
     }
 
+    this.scanBoardInterrupts();
     this.fdc.tickFrame();   // motor spin-down / display-latch decay
     this.needsDisplay = true;
+  }
+
+  /** The 50Hz keyboard scan (MAME keyboard_timer_callback): a key down on
+   *  any line selected through AY port A raises the keyboard interrupt; a
+   *  held joystick fire button raises the fire interrupt. */
+  scanBoardInterrupts(): void {
+    if (this.keyboard.readColumns() !== 0xFF) this.boardIntPending |= EINSTEIN_INT_KEY;
+    if ((this.keyboard.statusByte() & 0x03) !== 0x03) this.boardIntPending |= EINSTEIN_INT_FIRE;
   }
 
   // ── Machine: debug helpers ───────────────────────────────────────────
