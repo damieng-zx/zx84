@@ -89,8 +89,9 @@ const KEY_MAP: Record<string, KeyMapping | ComboMapping> = {
   'Backspace':    [{ row: 0, bit: 0 }, { row: 4, bit: 0 }],  // SHIFT + 0 (DELETE)
   'Delete':       [{ row: 0, bit: 0 }, { row: 4, bit: 0 }],  // SHIFT + 0 (DELETE)
   'ArrowLeft':    [{ row: 0, bit: 0 }, { row: 3, bit: 4 }],  // SHIFT + 5
-  'ArrowDown':    [{ row: 0, bit: 0 }, { row: 4, bit: 4 }],  // SHIFT + 6
-  'ArrowUp':      [{ row: 0, bit: 0 }, { row: 4, bit: 3 }],  // SHIFT + 7
+  // Unlike the Spectrum, the Ace's SHIFT+6 is cursor UP and SHIFT+7 DOWN.
+  'ArrowUp':      [{ row: 0, bit: 0 }, { row: 4, bit: 4 }],  // SHIFT + 6
+  'ArrowDown':    [{ row: 0, bit: 0 }, { row: 4, bit: 3 }],  // SHIFT + 7
   'ArrowRight':   [{ row: 0, bit: 0 }, { row: 4, bit: 2 }],  // SHIFT + 8
   'CapsLock':     [{ row: 0, bit: 0 }, { row: 3, bit: 1 }],  // SHIFT + 2 (CAPS LOCK)
   'Escape':       [{ row: 0, bit: 0 }, { row: 7, bit: 0 }],  // SHIFT + SPACE (BREAK)
