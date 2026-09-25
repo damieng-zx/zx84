@@ -47,7 +47,8 @@ export class Crtc6845 {
 
   /** True while the CRTC is asserting VSYNC (polled via PPI Port B bit 0). */
   vsyncActive = false;
-  /** True for the single scanline on which VSYNC begins (for interrupt resync). */
+  /** True for the single scanline on which VSYNC begins (for interrupt resync).
+   *  Set by `advanceLine()` (or `beginFrame()`) on entry to that scanline. */
   vsyncStart = false;
 
   // ── Per-frame raster counters ──────────────────────────────────────────
@@ -111,7 +112,9 @@ export class Crtc6845 {
     this.ra = 0;
     this.vtaLeft = 0;
     this.maRow = this.displayStart;
-    // Leave vsync state to carry naturally across the boundary.
+    // Leave vsync state to carry naturally across the boundary, but a frame
+    // that starts on row R7 (R7 = 0) begins its VSYNC on this very line.
+    this.checkVsyncOnset();
   }
 
   /** Restart the CRTC's internal frame: reset the row/raster counters and reload
@@ -127,6 +130,36 @@ export class Crtc6845 {
     this.maRow = this.displayStart;
   }
 
+  /** VSYNC begins at the start of the first raster of character row R7 — so the
+   *  onset scanline itself (VCC = R7, RA = 0) already reads VSYNC high. Tested
+   *  on entry to each new scanline (not after drawing it). */
+  private checkVsyncOnset(): void {
+    if (this.vsyncActive || this.vtaLeft > 0) return;
+    if (this.vcc !== this.regs[R_VSYNC_POS] || this.ra !== 0) return;
+    let width = this.regs[R_SYNC_WIDTHS] >> 4;
+    if (width === 0) width = 16; // 0 means 16 lines on type 0/1
+    this.vsyncActive = true;
+    this.vsyncStart = true;
+    this.vsyncLeft = width;
+  }
+
+  /**
+   * Character position within the scanline (0..charsPerLine) at which HSYNC
+   * *ends* — the edge the CPC Gate Array counts for its raster interrupt
+   * (MAME amstrad: "the gate array reacts to de-assertion of the hsync 6845
+   * line"). HSYNC starts at R2 and lasts R3 bits 3-0 characters (0 → 16). A
+   * sync that would fall outside the line (R2 beyond R0, or still running past
+   * the end of the line) is reported at the end of the line, so the host keeps
+   * one HSYNC per scanline.
+   */
+  hsyncEndChar(): number {
+    const chars = this.charsPerLine();
+    const start = this.regs[R_HSYNC_POS];
+    const width = (this.regs[R_SYNC_WIDTHS] & 0x0F) || 16;
+    const end = start + width;
+    return start < chars && end <= chars ? end : chars;
+  }
+
   /** State of the scanline about to be drawn. */
   currentLine(): CrtcLine {
     return {
@@ -137,25 +170,21 @@ export class Crtc6845 {
     };
   }
 
-  /** Advance to the next scanline, updating VCC/RA/MA and VSYNC. */
+  /** Advance to the next scanline, updating VCC/RA/MA and VSYNC. After this,
+   *  `vsyncStart` is true iff VSYNC begins on the scanline just entered. */
   advanceLine(): void {
     this.vsyncStart = false;
 
-    // VSYNC begins at the first raster of character row R7.
-    if (this.vcc === this.regs[R_VSYNC_POS] && this.ra === 0 && !this.vsyncActive) {
-      let width = this.regs[R_SYNC_WIDTHS] >> 4;
-      if (width === 0) width = 16; // 0 means 16 lines on type 0/1
-      this.vsyncActive = true;
-      this.vsyncStart = true;
-      this.vsyncLeft = width;
-    }
-    else if (this.vsyncActive) {
-      // Count down only on lines *after* onset, so a width of N holds VSYNC for
-      // exactly N scanlines (the onset line is the first of the N).
-      this.vsyncLeft--;
-      if (this.vsyncLeft <= 0) this.vsyncActive = false;
-    }
+    // The scanline just finished was one of the N VSYNC lines (the onset line
+    // counts as the first), so a width of N holds VSYNC for exactly N lines.
+    if (this.vsyncActive && --this.vsyncLeft <= 0) this.vsyncActive = false;
 
+    this.stepCounters();
+    this.checkVsyncOnset();
+  }
+
+  /** Move the raster/row counters on by one scanline. */
+  private stepCounters(): void {
     // Vertical-total-adjust: R5 extra scanlines follow the last character row,
     // then the frame restarts.
     if (this.vtaLeft > 0) {

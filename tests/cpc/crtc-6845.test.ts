@@ -146,31 +146,53 @@ describe('CRTC 6845 — raster sequencing', () => {
     expect(c.currentLine().ra).toBe(0);
   });
 
-  it('asserts VSYNC at the first scanline of character row R7', () => {
+  it('asserts VSYNC on the first scanline of character row R7 itself', () => {
+    // 6845: VSYNC rises at the start of the raster where VCC = R7, RA = 0, so
+    // PPI port B bit 0 must already read 1 while that scanline runs.
     const c = new Crtc6845(0);
     programStandard(c);                    // R7=30, R9=7 → row 30 at scanline 240
     c.beginFrame();
-    for (let line = 0; line < 240; line++) {
-      expect(c.vsyncActive).toBe(false);   // scanlines 0..239 are display/border
+    for (let line = 0; line < 239; line++) {
       c.advanceLine();
+      expect(c.vsyncActive, `scanline ${line + 1}`).toBe(false);
     }
-    expect(c.vsyncActive).toBe(false);     // at scanline 240, before the check
-    c.advanceLine();                       // advancing out of (vcc=30, ra=0)
+    c.advanceLine();                       // enter scanline 240 (vcc=30, ra=0)
+    expect(c.currentLine().ra).toBe(0);
     expect(c.vsyncActive).toBe(true);
     expect(c.vsyncStart).toBe(true);       // the single onset scanline
+    c.advanceLine();                       // scanline 241
+    expect(c.vsyncStart).toBe(false);
+    expect(c.vsyncActive).toBe(true);
   });
 
-  it('holds VSYNC for the width programmed in R3 (type-1 honours the nibble)', () => {
-    const c = new Crtc6845(1);             // UM6845R honours R3 high nibble
+  it('holds VSYNC for exactly the R3 high-nibble width, scanlines 240..247', () => {
+    const c = new Crtc6845(0);
     programStandard(c);                    // R3=0x8E → VSYNC width 8 lines
     c.beginFrame();
-    for (let i = 0; i < 240; i++) c.advanceLine();
-    let active = 0;
-    for (let i = 0; i < 24; i++) {         // sweep well past the sync window
+    const active: number[] = [];
+    for (let line = 0; line < 312; line++) {
+      if (c.vsyncActive) active.push(line);
       c.advanceLine();
-      if (c.vsyncActive) active++;
     }
-    expect(active).toBe(8);                // exactly 8 scanlines of VSYNC
+    expect(active).toEqual([240, 241, 242, 243, 244, 245, 246, 247]);
+  });
+
+  it('starts VSYNC on the first scanline of the frame when R7 = 0', () => {
+    const c = new Crtc6845(0);
+    programStandard(c);
+    setReg(c, R_VSYNC_POS, 0);
+    c.beginFrame();
+    expect(c.vsyncActive).toBe(true);
+    expect(c.vsyncStart).toBe(true);
+  });
+
+  it('places the HSYNC trailing edge at R2 + HSYNC width characters', () => {
+    const c = new Crtc6845(0);
+    programStandard(c);                    // R3 low nibble = 14
+    setReg(c, 2, 46);                      // standard R2
+    expect(c.hsyncEndChar()).toBe(60);     // 46 + 14
+    setReg(c, 2, 70);                      // R2 past R0: clamped to line end
+    expect(c.hsyncEndChar()).toBe(64);
   });
 });
 
