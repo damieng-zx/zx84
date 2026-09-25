@@ -90,3 +90,115 @@ describe('unzip — CP437 names', () => {
     expect(entries[0].name).toBe('A .TAP');
   });
 });
+
+// ── Zip64 ──────────────────────────────────────────────────────────────────
+
+function u64(v: number): number[] {
+  const lo = v >>> 0;
+  const hi = Math.floor(v / 0x1_0000_0000);
+  return [lo & 0xFF, (lo >>> 8) & 0xFF, (lo >>> 16) & 0xFF, lo >>> 24,
+    hi & 0xFF, (hi >>> 8) & 0xFF, (hi >>> 16) & 0xFF, hi >>> 24];
+}
+
+/**
+ * A Zip64 archive of stored entries: each central-directory entry's 32-bit
+ * fields listed in `overflow` are set to 0xFFFFFFFF and the real values are
+ * carried in a Zip64 extra field (in APPNOTE order); the EOCD's entry count
+ * and CD offset are all-ones, with the real values in a Zip64 EOCD record
+ * found via the locator.
+ */
+function buildZip64(
+  entries: { name: string; data: Uint8Array }[],
+  overflow: ('uncompressed' | 'compressed' | 'offset')[],
+): Uint8Array {
+  const local: Uint8Array[] = [];
+  const central: Uint8Array[] = [];
+  let pos = 0;
+  for (const e of entries) {
+    const name = ascii(e.name);
+    const lh = new Uint8Array(30 + name.length);
+    const lv = new DataView(lh.buffer);
+    lv.setUint32(0, 0x04034b50, true);
+    lv.setUint32(18, e.data.length, true);
+    lv.setUint32(22, e.data.length, true);
+    lv.setUint16(26, name.length, true);
+    lh.set(name, 30);
+
+    const zip64: number[] = [];
+    if (overflow.includes('uncompressed')) zip64.push(...u64(e.data.length));
+    if (overflow.includes('compressed')) zip64.push(...u64(e.data.length));
+    if (overflow.includes('offset')) zip64.push(...u64(pos));
+    // An unrelated extra field first, so the parser must walk the list.
+    const extra = [0x55, 0x54, 1, 0, 0x00, 0x01, 0x00, zip64.length, 0, ...zip64];
+
+    const cd = new Uint8Array(46 + name.length + extra.length);
+    const cv = new DataView(cd.buffer);
+    cv.setUint32(0, 0x02014b50, true);
+    cv.setUint32(20, overflow.includes('compressed') ? 0xFFFFFFFF : e.data.length, true);
+    cv.setUint32(24, overflow.includes('uncompressed') ? 0xFFFFFFFF : e.data.length, true);
+    cv.setUint16(28, name.length, true);
+    cv.setUint16(30, extra.length, true);
+    cv.setUint32(42, overflow.includes('offset') ? 0xFFFFFFFF : pos, true);
+    cd.set(name, 46);
+    cd.set(extra, 46 + name.length);
+
+    local.push(lh, e.data);
+    central.push(cd);
+    pos += lh.length + e.data.length;
+  }
+  const cdBytes = concat(...central);
+  const cdOffset = pos;
+  const recOffset = cdOffset + cdBytes.length;
+
+  const rec = new Uint8Array(56);
+  const rv = new DataView(rec.buffer);
+  rv.setUint32(0, 0x06064b50, true);
+  rec.set(u64(44), 4);                 // size of the remaining record
+  rec.set(u64(entries.length), 24);    // entries on this disk
+  rec.set(u64(entries.length), 32);    // total entries
+  rec.set(u64(cdBytes.length), 40);
+  rec.set(u64(cdOffset), 48);
+
+  const loc = new Uint8Array(20);
+  const lcv = new DataView(loc.buffer);
+  lcv.setUint32(0, 0x07064b50, true);
+  loc.set(u64(recOffset), 8);
+  lcv.setUint32(16, 1, true);
+
+  const eocd = new Uint8Array(22);
+  const ev = new DataView(eocd.buffer);
+  ev.setUint32(0, 0x06054b50, true);
+  ev.setUint16(8, 0xFFFF, true);
+  ev.setUint16(10, 0xFFFF, true);
+  ev.setUint32(12, 0xFFFFFFFF, true);
+  ev.setUint32(16, 0xFFFFFFFF, true);
+  return concat(...local, cdBytes, rec, loc, eocd);
+}
+
+describe('unzip — Zip64', () => {
+  it('reads entries through the Zip64 EOCD record and extra-field sizes', async () => {
+    const zip = buildZip64([
+      { name: 'A.TAP', data: new Uint8Array([1, 2, 3]) },
+      { name: 'B.TZX', data: new Uint8Array([4, 5]) },
+    ], ['uncompressed', 'compressed', 'offset']);
+    const entries = await unzip(zip);
+    expect(entries.map((e) => [e.name, Array.from(e.data)])).toEqual([
+      ['A.TAP', [1, 2, 3]],
+      ['B.TZX', [4, 5]],
+    ]);
+  });
+
+  it('reads only the overflowed fields from the Zip64 extra field (offset alone)', async () => {
+    // Only the local header offset overflowed: the extra field holds just
+    // that one 8-byte value, which must not be mistaken for a size.
+    const zip = buildZip64([
+      { name: 'X.TAP', data: new Uint8Array([9, 8, 7, 6]) },
+      { name: 'Y.TAP', data: new Uint8Array([5]) },
+    ], ['offset']);
+    const entries = await unzip(zip);
+    expect(entries.map((e) => [e.name, Array.from(e.data)])).toEqual([
+      ['X.TAP', [9, 8, 7, 6]],
+      ['Y.TAP', [5]],
+    ]);
+  });
+});
