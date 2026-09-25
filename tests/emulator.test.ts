@@ -79,7 +79,7 @@ function makeSpectrumStub(model: unknown = '128k') {
                     loadMDR: vi.fn(), toMDR: vi.fn(() => new Uint8Array(0)),
                     format: vi.fn(), eject: vi.fn(), inserted: false, writeProtected: false })) },
     mixer: { beeperGain: 1, ayGain: 0 },
-    contention: { frameStartTStates: 0 },
+    contention: { frameStartTStates: 0, timing: { tStatesPerFrame: 70908 } },
     breakpoints: new Set<number>(),
     audio: { running: false, init: vi.fn(), setVolume: vi.fn() },
     display: null as any,
@@ -89,6 +89,7 @@ function makeSpectrumStub(model: unknown = '128k') {
     kind: 'spectrum' as const,
     model: model as any,
     loadROM: vi.fn(), reset: vi.fn(), start: vi.fn(), stop: vi.fn(), destroy: vi.fn(),
+    resumeAtFrameOffset: vi.fn(),
     initAudio() { if (!s.audio.running) s.audio.init(); },
     tick: vi.fn(), startTrace: vi.fn(), stopTrace: vi.fn(() => ''),
     onStatus: null as any, onFrame: null as any,
@@ -2286,7 +2287,7 @@ describe('saveRefreshState / restoreRefreshState — happy paths', () => {
       setItem: vi.fn(), removeItem: vi.fn(),
     };
     vi.mocked(szx.loadSZX).mockResolvedValueOnce({
-      is128K: true, borderColor: 0, port7FFD: 0x37, port1FFD: 0x01,
+      is128K: true, borderColor: 0, port7FFD: 0x37, port1FFD: 0x01, sourceHas1FFD: true,
       ayRegs: new Uint8Array(16), ayCurrentReg: 7,
     } as any);
     const ok = await emulator.restoreRefreshState();
