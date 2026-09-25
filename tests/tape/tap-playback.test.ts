@@ -663,29 +663,30 @@ describe('TapeDeck.skipBlock()', () => {
     expect(deck.playing).toBe(false);
   });
 
-  it('holds the line high, then drops it to 0 at the TZX §3.5 end-of-block edge', () => {
+  it('holds the line high, then drops it to 0 after 1ms (TZX pause rule)', () => {
     // The replayed pause must reproduce the edge a loader keys off: hold the
-    // last level high, then drop to 0 after 945 T (Speedlock 7's "block done"
-    // signal). The test deck runs at pulseScale 1, so scale(945) === 945.
+    // last level for 1ms, then drop to 0 (Speedlock 7's "block done" signal).
+    // TZX 1.20: "at least 1 ms. pause of the opposite level and only after
+    // that the pulse should go to 'low'". 1ms at 3.5MHz = 3500 T.
     const deck = deckWith(makeData(0xFF, [1], { pause: 1000 }), makeData(0xFF, [2]));
     deck.nextDataBlock();
     deck.skipBlock();
     // Held high on entry to the pause.
     expect(deck.earBit).toBe(1);
     // One T-state short of the flip point — still high.
-    deck.advance(944);
+    deck.advance(3499);
     expect(deck.earBit).toBe(1);
-    // Crossing 945 T drops the line to 0, while the long pause is still
+    // Crossing 3500 T drops the line to 0, while the long pause is still
     // running out (not yet advanced off the consumed block).
     deck.advance(2);
     expect(deck.earBit).toBe(0);
     expect((deck as any).playbackIdx).toBe(0);
   });
 
-  it('schedules no edge drop when the pause is shorter than the 945 T hold', () => {
-    // A pause shorter than the §3.5 hold-high window has no room for the drop:
+  it('schedules no edge drop when the pause is shorter than the 1ms hold', () => {
+    // A pause shorter than the 1ms hold-high window has no room for the drop:
     // pauseFlipAt stays -1 and the line holds high for the whole gap.
-    // 0.2ms × 3.5MHz = 700 T < 945 T.
+    // 0.2ms × 3.5MHz = 700 T < 3500 T.
     const deck = deckWith(makeData(0xFF, [1], { pause: 0.2 }), makeData(0xFF, [2]));
     deck.nextDataBlock();
     deck.skipBlock();
@@ -941,14 +942,14 @@ describe('TapeDeck — large advance() spanning phases', () => {
     const totalT = 10 * 2 + 10 + 10 + 3 * 8 * 2 * 10;
     deck.advance(totalT);
     // Now in PAUSE phase. Even though block.pause=0, this is the last block on
-    // the tape, so enterPause holds a ~945T terminating pause to emit a final
+    // the tape, so enterPause holds a 1ms terminating pause to emit a final
     // edge for the loader (see the terminating-edge regression test below). It
     // is therefore NOT finished after a single tiny advance.
     expect((deck as any).phase).toBe(5); // TapePhase.PAUSE
     deck.advance(1);
     expect(deck.playing).toBe(true);
-    // Elapsing the terminating pause finishes the tape.
-    deck.advance(945);
+    // Elapsing the terminating pause (1ms = 3500T) finishes the tape.
+    deck.advance(3499);
     expect(deck.playing).toBe(false);
   });
 });
@@ -975,11 +976,12 @@ describe('TapeDeck — terminating edge at end of tape', () => {
     deck.advance(8 * 2 * 10);
     expect((deck as any).phase).toBe(5); // PAUSE — NOT finished despite pause=0
 
-    // The terminating pause is ~945T and ends with a low-flip edge. Mid-way the
-    // tape is still playing; only after the flip does it finish at level low.
-    deck.advance(1);
+    // The terminating pause is 1ms (3500T) and ends with a low-flip edge.
+    // Mid-way the tape is still playing; only after the flip does it finish
+    // at level low.
+    deck.advance(3498);
     expect(deck.playing).toBe(true);
-    deck.advance(945);
+    deck.advance(2);
     expect(deck.playing).toBe(false);
     expect(deck.earBit).toBe(0); // terminating edge drove the level low
   });
@@ -997,7 +999,7 @@ describe('TapeDeck — terminating edge at end of tape', () => {
     deck.advance(8 * 2 * 10); // finish the data block
     deck.advance(1);          // one tick must cross straight into the tone
     expect((deck as any).playbackIdx).toBe(1);
-    expect((deck as any).phase).toBe(6); // TapePhase.TONE — no 945T stall
+    expect((deck as any).phase).toBe(6); // TapePhase.TONE — no 1ms stall
   });
 });
 
@@ -1258,12 +1260,12 @@ describe('TapeDeck — direct block last-byte → PAUSE with non-zero pause', ()
 
 describe('TapeDeck — data block pause: mid-flip decrement leaves flip pending', () => {
   it('pauseFlipAt decrements without firing the earBit drop until it reaches 0', () => {
-    // pause=1ms = 3500T at 3.5MHz. enterPause schedules pauseFlipAt=945
-    // (since 3500 > 945). Stepping fewer than 945T must decrement but not
-    // yet zero out — this exercises the `pauseFlipAt > 0 && <= 0` else path.
+    // pause=2ms = 7000T at 3.5MHz. enterPause schedules pauseFlipAt=3500
+    // (1ms). Stepping fewer than 3500T must decrement but not yet zero out —
+    // this exercises the `pauseFlipAt > 0 && <= 0` else path.
     const block = makeData(0xFF, [0xFF], {
       pilotCount: 1, pilotPulse: 10, syncPulse1: 10, syncPulse2: 10,
-      bit0Pulse: 10, bit1Pulse: 10, pause: 1,
+      bit0Pulse: 10, bit1Pulse: 10, pause: 2,
     });
     const deck = deckWith(block);
     deck.startPlayback();
@@ -1272,18 +1274,31 @@ describe('TapeDeck — data block pause: mid-flip decrement leaves flip pending'
     // rawData = [0xFF, 0xFF, 0x00] = 3 bytes = 24 bits × 2 × 10T = 480T.
     deck.advance(10 + 10 + 10 + 480);
     expect((deck as any).phase).toBe(5 /* PAUSE */);
-    expect((deck as any).pauseFlipAt).toBe(945);
-    const earBeforeFlip = deck.earBit;
+    expect((deck as any).pauseFlipAt).toBe(3500);
+    // 1 pilot + 2 sync + 48 data edges = 51 toggles from 0 → high.
+    expect(deck.earBit).toBe(1);
 
     // Step 100T into the pause — flip should NOT yet have happened.
     deck.advance(100);
-    expect((deck as any).pauseFlipAt).toBe(845);
-    expect(deck.earBit).toBe(earBeforeFlip);
+    expect((deck as any).pauseFlipAt).toBe(3400);
+    expect(deck.earBit).toBe(1);
 
     // Step past the flip threshold; flip fires, pauseFlipAt resets to -1.
-    deck.advance(900);
+    deck.advance(3400);
     expect((deck as any).pauseFlipAt).toBe(-1);
     expect(deck.earBit).toBe(0);
+  });
+
+  it('times the 1ms hold from the CPU clock, not the 3.5MHz pulse scale', () => {
+    // A 128K deck: 3.5469MHz CPU, pulses scaled from the 3.5MHz reference.
+    // 1ms is round(3_546_900 / 1000) = 3547 CPU T-states.
+    const deck = deckWith(makeData(0xFF, [1], { pause: 100 }));
+    deck.cpuClock = 3_546_900;
+    deck.pulseScale = 3_546_900 / 3_500_000;
+    // Enter the pause directly via the ROM-trap path (holds the line high).
+    deck.nextDataBlock();
+    deck.skipBlock();
+    expect((deck as any).pauseFlipAt).toBe(3547);
   });
 });
 

@@ -415,15 +415,15 @@ export class TapeDeck {
     const consumed = this.blocks[this.position - 1];
     const pauseMs = consumed && consumed.kind === 'data' ? consumed.pause : 0;
     if (pauseMs > 0) {
-      // Mirror enterPause: hold the line high, then drop to 0 partway in (the
-      // TZX §3.5 end-of-block edge some loaders watch for). playbackIdx points
-      // at the consumed block so the pause's expiry advances to position.
+      // Mirror enterPause: hold the line high, then drop to 0 after 1ms (the
+      // TZX end-of-block edge some loaders watch for). playbackIdx points at
+      // the consumed block so the pause's expiry advances to position.
       this.playbackIdx = this.position - 1;
       this.phase = TapePhase.PAUSE;
       this.tInPulse = 0;
       this.earBit = 1;
       this.pauseRemaining = Math.round(pauseMs * this.cpuClock / 1000);
-      const flipAt = this.scale(945);
+      const flipAt = this.oneMs();
       this.pauseFlipAt = this.pauseRemaining > flipAt ? flipAt : -1;
     } else {
       // position was already advanced by nextDataBlock()
@@ -765,13 +765,12 @@ export class TapeDeck {
     this.phase = TapePhase.PAUSE;
     this.position = this.playbackIdx + 1;
     // pauseRemaining was set by beginDataBlock from block.pause (ms→T).
-    // Schedule the mid-pause EAR flip per TZX §3.5: hold for ~1ms then
-    // flip to opposite level. The 945T figure matches FUSE — about a
-    // quarter of a frame, long enough that real loaders see the last
-    // edge before the level changes, short enough that the flip arrives
-    // well within any reasonable pause. The 945T figure is 3.5MHz-referenced,
-    // so scale it like any pulse length.
-    const flipAt = this.scale(945);
+    // Schedule the mid-pause EAR drop. TZX 1.20 (Pause block notes, which
+    // also apply to a data block's own pause): "to ensure that the last edge
+    // produced is properly finished there should be at least 1 ms. pause of
+    // the opposite level and only after that the pulse should go to 'low'".
+    // 1ms is real time, so it comes from the CPU clock, not pulseScale.
+    const flipAt = this.oneMs();
 
     // A custom loader reading the FINAL bit of a block needs one more edge
     // after the last data pulse to terminate its pulse-timing loop. Mid-tape
@@ -788,6 +787,11 @@ export class TapeDeck {
       this.pauseRemaining = flipAt;
     }
     this.pauseFlipAt = this.pauseRemaining >= flipAt ? flipAt : -1;
+  }
+
+  /** 1ms in CPU T-states — the TZX hold before a pause drops the level low. */
+  private oneMs(): number {
+    return Math.round(this.cpuClock / 1000);
   }
 
   /** True if any block follows the one currently playing (so the loader will
