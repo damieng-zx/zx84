@@ -1,8 +1,9 @@
 /**
- * The ZX81's cassette, modelled as the programs the user has mounted.
+ * The ZX81/ZX80 cassette, modelled as the programs the user has mounted.
  *
- * A .p image is exactly what the ROM's SAVE writes after the name: RAM from
- * VERSN ($4009) up to, not including, E_LINE. Rather than synthesise the
+ * A .p image is exactly what the ZX81 ROM's SAVE writes after the name: RAM
+ * from VERSN ($4009) up to, not including, E_LINE. A ZX80 .o is the same from
+ * $4000, with no name. Rather than synthesise the
  * waveform, the machine traps the ROM's LOAD and SAVE command routines and
  * moves those bytes directly (see Zx8xMachine.serviceTapeTrap).
  *
@@ -29,7 +30,7 @@ export function zx81NameToAscii(codes: ArrayLike<number>): string {
 /** Normalise a host filename or tape name for comparison: drop any extension
  *  and directory, upper-case, and trim surrounding spaces. */
 export function programNameFromFilename(filename: string): string {
-  const base = filename.replace(/^.*[\\/]/, '').replace(/\.(p|81|p81)$/i, '');
+  const base = filename.replace(/^.*[\\/]/, '').replace(/\.(p|81|p81|o|80)$/i, '');
   return base.toUpperCase().trim();
 }
 
@@ -56,9 +57,10 @@ export class Zx81TapeShelf {
     this.cued = this.programs[this.programs.length - 1];
   }
 
-  /** Record a SAVE: a later LOAD of the same name finds it. */
+  /** Record a SAVE, left unplayed as if the tape were rewound over it: a later
+   *  LOAD of its name, or a bare LOAD with nothing else queued, reads it. */
   record(name: string, data: Uint8Array): void {
-    this.insert(name, data, true);
+    this.insert(name, data, false);
   }
 
   /** The program a LOAD with this name (null for LOAD "") would read. */
