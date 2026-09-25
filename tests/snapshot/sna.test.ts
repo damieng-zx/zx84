@@ -1073,3 +1073,36 @@ describe('SNA — byte-identity round-trip', () => {
     }
   });
 });
+
+describe('SNA — 128K snapshot on a +2A/+3 (4 ROM pages)', () => {
+  function makeMemoryPlus3(): SpectrumMemory {
+    const mem = new SpectrumMemory('+3', { hasBanking: true, romPageCount: 4 });
+    mem.loadROM(new Uint8Array(4 * 16384));
+    return mem;
+  }
+  const banks = () => Array.from({ length: 8 }, () => new Uint8Array(16384));
+
+  it('7FFD bit 4 = 1 (128K 48K-BASIC ROM) pages +3 ROM 3, not the syntax ROM 1', () => {
+    // A 128K/+2 has no 1FFD; its 7FFD bit 4 selects the 48K ROM. On a +3 the
+    // 48K ROM is page 3 = 1FFD bit 2 : 7FFD bit 4, so bit 2 must be set too.
+    const mem = makeMemoryPlus3();
+    loadSNA(buildSNA128K(makeCpu(), banks(), 0x10, 0), new Z80(), mem);
+    expect(mem.currentROM).toBe(3);
+    expect(mem.port1FFD & 0x04).toBe(0x04);
+    expect(mem.specialPaging).toBe(false);
+  });
+
+  it('7FFD bit 4 = 0 (128K editor ROM) pages +3 ROM 0', () => {
+    const mem = makeMemoryPlus3();
+    loadSNA(buildSNA128K(makeCpu(), banks(), 0x03, 0), new Z80(), mem);
+    expect(mem.currentROM).toBe(0);
+    expect(mem.port1FFD & 0x04).toBe(0);
+  });
+
+  it('plain 128K target is unaffected (7FFD bit 4 = 1 → ROM 1)', () => {
+    const mem = makeMemory128k();
+    loadSNA(buildSNA128K(makeCpu(), banks(), 0x10, 0), new Z80(), mem);
+    expect(mem.currentROM).toBe(1);
+    expect(mem.port1FFD).toBe(0);
+  });
+});

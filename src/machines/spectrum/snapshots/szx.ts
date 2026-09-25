@@ -20,6 +20,10 @@ export interface SZXResult {
   is128K: boolean;
   port7FFD: number;
   port1FFD: number;
+  /** Source machine had a 0x1FFD register (+2A/+2B, +3, +3e). False for a
+   *  128K/+2/Pentagon-class snapshot, whose ROM select must be mapped onto a
+   *  4-ROM target (see SpectrumMemory.selectSnapshot128KRom). */
+  sourceHas1FFD: boolean;
   borderColor: number;
   ayRegs?: Uint8Array;
   ayCurrentReg?: number;
@@ -140,6 +144,7 @@ export async function loadSZX(
     is128K,
     port7FFD: 0,
     port1FFD: 0,
+    sourceHas1FFD: machineId === 4 || machineId === 5 || machineId === 6,
     borderColor: 7,
   };
 
@@ -203,6 +208,11 @@ export function applySZXPaging(memory: SpectrumMemory, hasSpecialPaging: boolean
   memory.port7FFD = result.port7FFD;
   memory.currentBank = result.port7FFD & 0x07;
   memory.pagingLocked = (result.port7FFD & 0x20) !== 0;
+  if (hasSpecialPaging && !result.sourceHas1FFD) {
+    memory.applyBanking();
+    memory.selectSnapshot128KRom();
+    return;
+  }
   if (hasSpecialPaging) {
     memory.port1FFD = result.port1FFD;
     memory.specialPaging = (result.port1FFD & 1) !== 0;

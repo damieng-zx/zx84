@@ -1687,3 +1687,26 @@ describe('Z80 v3 decompression — edge cases', () => {
     expect(mem.getRamBank(1)[0]).toBe(0);          // truncated block 2 skipped
   });
 });
+
+describe('Z80 format — 128K/+2 snapshot on a +2A/+3 (no 1FFD in source)', () => {
+  function makeMemoryPlus3(): SpectrumMemory {
+    const mem = new SpectrumMemory('+3', { hasBanking: true, romPageCount: 4 });
+    mem.loadROM(new Uint8Array(4 * 16384));
+    return mem;
+  }
+
+  it('v2 hwMode 3 (128K) with 7FFD bit 4 set pages +3 ROM 3 (48K BASIC)', () => {
+    const file = buildV2(makeCpu(), [], 3, 0x10, 0);
+    const mem = makeMemoryPlus3();
+    loadZ80(file, new Z80(), mem);
+    expect(mem.currentROM).toBe(3);
+    expect(mem.port1FFD & 0x04).toBe(0x04);
+  });
+
+  it('v2 hwMode 3 (128K) with 7FFD bit 4 clear pages +3 ROM 0', () => {
+    const file = buildV2(makeCpu(), [], 3, 0x00, 0);
+    const mem = makeMemoryPlus3();
+    loadZ80(file, new Z80(), mem);
+    expect(mem.currentROM).toBe(0);
+  });
+});
