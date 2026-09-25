@@ -210,6 +210,8 @@ function applyChunks(m: CpcMachine, data: Uint8Array, start: number): void {
       applyBlock(m, baseBank, block);
     } else if (id === 'ASIC' && cpcIsPlusClass(m.model)) {
       applyAsicChunk(m.gateArray as Asic, body);
+    } else if (id === 'CPC+' && cpcIsPlusClass(m.model)) {
+      applyCpcPlusChunk(m.gateArray as Asic, body);
     }
     // Other unknown chunks (CRTC/FDC/tape device state we don't model) are
     // skipped, matching the standard SNA chunk-skip behaviour.
@@ -243,6 +245,68 @@ function applyAsicChunk(asic: Asic, body: Uint8Array): void {
   if (body.length >= ASIC_CHUNK_DMA_OFF + ASIC_CHUNK_DMA_BYTES) {
     asic.restoreDmaState(body.subarray(ASIC_CHUNK_DMA_OFF, ASIC_CHUNK_DMA_OFF + ASIC_CHUNK_DMA_BYTES));
   }
+}
+
+/**
+ * Apply the standard "CPC+" chunk (WinAPE and other v3 writers; layout per the
+ * SNA v3 spec / cpcwiki). Offsets within the chunk body:
+ *   000–7FF  sprite bitmaps, two 4-bit pixels per byte (bits 7–4 first) → &4000
+ *   800–87F  16 × 8-byte sprite attributes (X 2, Y 2, mag 1, 3 unused) → &6000
+ *   880–8BF  32 × 2-byte palette                                       → &6400
+ *   8C0–8C5  PRI, split line, split address (hi, lo), scroll, vector   → &6800
+ *   8C8–8CF  analogue inputs                                           → &6808
+ *   8D0–8DB  3 × 4-byte DMA channel attributes (addr 2, prescaler 1)   → &6C00
+ *   8DF      DMA control/status                                        → &6C0F
+ *   8E0–8F4  3 × 7-byte DMA internals (loop count 2, loop addr 2,
+ *            pause count 2, pause prescaler count 1)
+ *   8F5      last RMR2 (gate array A0) value; 8F6 lock (1 = unlocked)
+ * Registers go through the ASIC's own write decode so derived state (palette,
+ * scroll, split, DMA sources) is rebuilt exactly as a live write would.
+ */
+function applyCpcPlusChunk(asic: Asic, body: Uint8Array): void {
+  if (body.length < 0x8F7) return;
+  const unlocked = body[0x8F6] !== 0;
+  const page = new Uint8Array(0x4000);
+  for (let i = 0; i < 0x800; i++) {
+    page[i * 2] = body[i] >> 4;
+    page[i * 2 + 1] = body[i] & 0x0F;
+  }
+  for (let spr = 0; spr < 16; spr++) {
+    for (let k = 0; k < 5; k++) page[0x2000 + spr * 8 + k] = body[0x800 + spr * 8 + k];
+  }
+  for (let i = 0; i < 8; i++) page[0x2808 + i] = body[0x8C8 + i];
+  asic.restoreCoreState(!unlocked, page, asic.asicPalette);
+
+  for (let i = 0; i < 64; i++) asic.cpuWrite(0x2400 + i, body[0x880 + i]);
+  for (let i = 0; i < 6; i++) asic.cpuWrite(0x2800 + i, body[0x8C0 + i]);
+  for (let c = 0; c < 3; c++) {
+    for (let k = 0; k < 3; k++) asic.cpuWrite(0x2C00 + c * 4 + k, body[0x8D0 + c * 4 + k]);
+  }
+
+  // DMA dynamic state, in captureDmaState() layout (pause ticks 2, loops 1,
+  // loop address 2, enabled 1, int pending 1). The pause is kept as a count
+  // of HSYNC ticks, so the spec's pause count scales by the prescaler.
+  const dcsr = body[0x8DF];
+  const dma = new Uint8Array(21);
+  for (let c = 0; c < 3; c++) {
+    const src = 0x8E0 + c * 7;
+    const prescaler = body[0x8D0 + c * 4 + 2];
+    const pause = (body[src + 4] | (body[src + 5] << 8)) & 0x0FFF;
+    const ticks = pause * (prescaler + 1);
+    const o = c * 7;
+    dma[o] = ticks & 0xFF;
+    dma[o + 1] = (ticks >> 8) & 0xFF;
+    dma[o + 2] = body[src];                       // loop count (≤ 0x7FF, low byte kept)
+    dma[o + 3] = body[src + 2];
+    dma[o + 4] = body[src + 3];
+    dma[o + 5] = (dcsr >> c) & 1;
+    dma[o + 6] = (dcsr >> (4 + c)) & 1;
+  }
+  asic.restoreDmaState(dma);
+
+  // RMR2 (only meaningful — and only decoded — while unlocked).
+  const rmr2 = body[0x8F5];
+  if (unlocked && (rmr2 & 0xE0) === 0xA0) asic.write(rmr2);
 }
 
 /** Serialise the ASIC chunk body for saveCpcSna. */
