@@ -102,6 +102,52 @@ describe('CRTC 6845 — register access', () => {
     expect(t1.readRegister()).toBe(0x55); // UM6845R (type 1): readable
   });
 
+  it('keeps only the implemented bits of each register', () => {
+    // 6845: R4/R6/R7/R10 7-bit, R5/R9/R11 5-bit, R12/R14 6-bit.
+    const c = new Crtc6845(0);
+    const widths: [number, number][] = [
+      [4, 0x7F], [5, 0x1F], [6, 0x7F], [7, 0x7F], [9, 0x1F],
+      [10, 0x7F], [11, 0x1F], [12, 0x3F], [14, 0x3F],
+      [0, 0xFF], [1, 0xFF], [2, 0xFF], [13, 0xFF], [15, 0xFF],
+    ];
+    for (const [r, mask] of widths) {
+      setReg(c, r, 0xFF);
+      expect(c.regs[r], `R${r}`).toBe(mask);
+    }
+  });
+
+  it('R14 reads back 6-bit; R12/R13 are write-only on types 1 and 2', () => {
+    const t0 = new Crtc6845(0);
+    setReg(t0, 14, 0xFF);
+    t0.selectRegister(14);
+    expect(t0.readRegister()).toBe(0x3F);
+    setReg(t0, 12, 0x30);
+    t0.selectRegister(12);
+    expect(t0.readRegister()).toBe(0x30);  // readable on type 0
+    for (const type of [1, 2] as const) {
+      const c = new Crtc6845(type);
+      setReg(c, 12, 0x30);
+      setReg(c, 13, 0x42);
+      c.selectRegister(12);
+      expect(c.readRegister(), `type ${type} R12`).toBe(0);
+      c.selectRegister(13);
+      expect(c.readRegister(), `type ${type} R13`).toBe(0);
+      expect(c.displayStart).toBe(0x3042); // still drives the display
+    }
+  });
+
+  it('fixes VSYNC at 16 lines on a type-1 CRTC (R3 high nibble ignored)', () => {
+    const c = new Crtc6845(1);
+    programStandard(c);                    // R3=0x8E: type 0 would give 8
+    c.beginFrame();
+    let active = 0;
+    for (let line = 0; line < 312; line++) {
+      if (c.vsyncActive) active++;
+      c.advanceLine();
+    }
+    expect(active).toBe(16);
+  });
+
   it('masks the register select to 5 bits', () => {
     const c = new Crtc6845(0);
     setReg(c, R_DISPLAY_START_L, 0x12);   // R13
