@@ -79,9 +79,58 @@ describe('SN76489', () => {
   });
 });
 
+describe('SN76489 tone counter', () => {
+  // clock/16 == sample rate, so each generateSample() is exactly one tick.
+  const CLOCK = 1_600_000;
+  const RATE = 100_000;
+
+  function make(variant: 'ti-15bit' | 'sega' | 'mtx'): Sn76489 {
+    const psg = new Sn76489(CLOCK, RATE, variant);
+    psg.setDcBlocking(false);
+    psg.write(0x90); // channel 0 full volume; others stay muted
+    return psg;
+  }
+
+  /** Ticks until channel 0's output next changes (-1 if it never does). */
+  function ticksToToggle(psg: Sn76489, cap = 5000): number {
+    const start = psg.rawSample();
+    for (let n = 1; n <= cap; n++) {
+      if (psg.generateSample() !== start) return n;
+    }
+    return -1;
+  }
+
+  it('keeps counting when the period is rewritten mid-count', () => {
+    const psg = make('ti-15bit');
+    psg.write(0x8A); psg.write(0x00);         // period 10
+    ticksToToggle(psg);                       // drain the reset count
+    expect(ticksToToggle(psg)).toBe(10);      // steady state: 10 ticks
+    // We sit on the toggle tick of a fresh 10-tick count. Advance 4.
+    for (let i = 0; i < 4; i++) psg.generateSample();
+    psg.write(0x8F); psg.write(0x03);         // period 0x3F (63)
+    // The running count finishes (6 ticks left) before 63 takes effect.
+    expect(ticksToToggle(psg)).toBe(6);
+    expect(ticksToToggle(psg)).toBe(63);
+  });
+
+  it('treats a TI period of 0 as 0x400, not a constant level', () => {
+    const psg = make('ti-15bit');
+    psg.write(0x80); psg.write(0x00);         // period 0
+    ticksToToggle(psg);
+    expect(ticksToToggle(psg)).toBe(0x400);
+  });
+
+  it('holds the Sega PSG output constant for period 1', () => {
+    const psg = make('sega');
+    psg.write(0x81); psg.write(0x00);
+    psg.generateSample();                     // output settles high
+    expect(ticksToToggle(psg)).toBe(-1);
+  });
+});
+
 describe('SN76489 — ultrasonic anti-aliasing', () => {
-  // 'mtx' lets channels toggle right down to period 1 (unlike 'ti-15bit',
-  // which treats period <=1 as constant on real hardware) — the case that
+  // 'mtx' lets channels toggle right down to period 1 (unlike 'sega',
+  // whose integrated PSG holds periods <=1 constant) — the case that
   // actually needs anti-aliasing, since the MTX drives the chip directly.
   const CLOCK = 4_000_000;
   const SAMPLE_RATE = 48_000;
@@ -108,7 +157,7 @@ describe('SN76489 — ultrasonic anti-aliasing', () => {
     setTone(psg, 0, period);
     psg.write(0x90); // channel 0 attenuation = 0 (full volume)
     // A new period only takes effect once the running count (0x400 ticks
-    // from reset) expires � skip past it so we measure the programmed tone.
+    // from reset) expires — skip past it so we measure the programmed tone.
     collect(psg, Math.ceil(0x400 * 16 * SAMPLE_RATE / CLOCK) + 1);
     return psg;
   }

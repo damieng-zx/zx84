@@ -284,7 +284,7 @@ export class Sn76489 {
 
   private effectiveTonePeriod(channel: number): number {
     // The discrete TI parts (SN76489AN, and MEMU's MTX model) treat a
-    // programmed zero as a 0x400 period — the 10-bit counter wraps.
+    // programmed zero as a 0x400 period â€” the 10-bit counter wraps.
     if (this.variant !== 'sega' && this.tonePeriod[channel] === 0) return 0x400;
     return Math.max(this.tonePeriod[channel], 1);
   }
