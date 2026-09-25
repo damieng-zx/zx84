@@ -113,7 +113,8 @@ export class MsxMachine extends BaseMachine implements Machine {
     this.tape = new TapeDeck(MSX_CPU_CLOCK);
     this.audio = new Audio();
     this.mixer = new AudioMixer(MSX_CPU_CLOCK);
-    this.mixer.beeperGain = 0;   // AY/PSG only, no beeper
+    // The 1-bit "beeper" path carries the PPI port C bit 7 key click.
+    this.mixer.beeperGain = 0.5;
     this.mixer.ayGain = 1;
     this.display = display ?? null;
 
@@ -299,7 +300,7 @@ export class MsxMachine extends BaseMachine implements Machine {
         if (!skipAudio) {
           const elapsed = this.cpu.tStates - lastAudioT;
           if (elapsed > 0) {
-            this.mixer.accumulate(0, elapsed);
+            this.mixer.accumulate(this.ppi.keyClick, elapsed);
             this.mixer.generateSamples(this.audio, this.ay, true);
             lastAudioT = this.cpu.tStates;
           }
