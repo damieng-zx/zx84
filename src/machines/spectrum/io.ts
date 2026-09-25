@@ -55,7 +55,10 @@ export function installMemoryHooks(s: Spectrum): void {
   } : () => {};
   cpu.contend = cpu._contendAccurate;
 
-  const vramFlushEnd = v.vramFlushEnd;
+  // Bytes of the displayed bank that affect rendering on this model
+  // (bitmap+attrs on 48K, bitmap only elsewhere), as an offset within the bank.
+  const vramFlushLen = v.vramFlushEnd - 0x4000;
+  const slotIsScreen = memory.slotIsScreen;
 
   cpu.write8 = (addr: number, val: number): void => {
     addr &= 0xFFFF;
@@ -84,7 +87,10 @@ export function installMemoryHooks(s: Spectrum): void {
     // 16K Spectrum: upper 32KB is unpopulated. Drop writes so the shared
     // open-bus buffer stays all-0xFF for reads.
     if (memory.is16K && addr >= 0x8000) return;
-    if (addr >= 0x4000 && addr < vramFlushEnd) {
+    // Flush before any write into the displayed bank — through 0x4000, or
+    // through 0xC000 when bank 7 (shadow screen, shown) or bank 5 is paged
+    // there — so already-passed beam positions keep the old data.
+    if (slotIsScreen[addr >>> 14] !== 0 && (addr & 0x3FFF) < vramFlushLen) {
       s.flushBeam();
     }
     if (addr >= 0x5800 && addr < 0x5B00) s.activity.attrWrites++;
@@ -167,6 +173,8 @@ export function wirePortIO(s: Spectrum): void {
     // 128K bank switching: port 0x7FFD
     if (v.hasBanking) {
       if (v.decodes7FFD(port)) {
+        // Screen flip (bit 3): render up to the beam with the old screen first.
+        if (((val ^ s.memory.port7FFD) & 0x08) !== 0 && !s.memory.pagingLocked) s.flushBeam();
         s.memory.bankSwitch(val, s.hasSlot0Overlay);
       }
 
