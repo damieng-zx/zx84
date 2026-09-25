@@ -255,13 +255,52 @@ describe('Unattached port IN — floating bus vs Amstrad gate array', () => {
     expect(val).toBe(0x42);
   });
 
-  it('+2A/+3 (Amstrad gate array): unattached port always reads 0xFF, never the floating bus', () => {
+  it('+2A/+3: a port outside 0000 xxxx xxxx xx01 (e.g. 0x00FF) reads 0xFF, not the bus', () => {
+    // Arkanoid's IN 0xFF has A1=1, outside the gate array's floating-bus
+    // decode — the reason it hangs on a real +3.
     const s = makeMachine('+3');
     expect(s.variant.hasFloatingBus).toBe(false);
     s.contention.frameStartTStates = 0;
-    s.memory.screenBank[0] = 0x42; // would be read as a live pixel byte on Ferranti
-    s.cpu.tStates = 14364; // mid-display for +2A/+3 timing
+    s.memory.screenBank[0] = 0x42;
+    s.cpu.tStates = 14360; // offset 0 of the display fetch (+1 adjust)
     expect(s.cpu.portIn(0x00FF) & 0xFF).toBe(0xFF);
+  });
+
+  it('+2A/+3: port 0x0FFD (0000 xxxx xxxx xx01) reads the gate array fetch during display', () => {
+    const s = makeMachine('+2A');
+    s.contention.frameStartTStates = 0;
+    s.memory.screenBank[0] = 0x42;       // pixel byte, line 0 col 0
+    s.memory.screenBank[0x1800] = 0x47;  // attr col 0
+    s.memory.screenBank[0x1801] = 0x48;  // attr col 1
+    // +2A timing: contentionStart=14361, adjust +1 → offset 0 at T=14360.
+    s.cpu.tStates = 14360;
+    expect(s.cpu.portIn(0x0FFD) & 0xFF).toBe(0x42);
+    s.cpu.tStates = 14361;
+    expect(s.cpu.portIn(0x0FFD) & 0xFF).toBe(0x47);
+  });
+
+  it('+2A/+3: idle half of the 8T block returns the last fetched byte, not 0xFF', () => {
+    const s = makeMachine('+2A');
+    s.contention.frameStartTStates = 0;
+    s.memory.screenBank[0x1801] = 0x48;  // attr col 1 — last fetch of the block
+    s.cpu.tStates = 14360 + 5;           // phase 5: gate array not fetching
+    expect(s.cpu.portIn(0x0FFD) & 0xFF).toBe(0x48);
+  });
+
+  it('+2A/+3: border time reads 0xFF on the floating-bus port', () => {
+    const s = makeMachine('+2A');
+    s.contention.frameStartTStates = 0;
+    s.cpu.tStates = 1000; // top border
+    expect(s.cpu.portIn(0x0FFD) & 0xFF).toBe(0xFF);
+  });
+
+  it('+2A/+3: locked paging (7FFD bit 5) disables the floating bus', () => {
+    const s = makeMachine('+2A');
+    s.contention.frameStartTStates = 0;
+    s.memory.screenBank[0] = 0x42;
+    s.cpu.portOut(0x7FFD, 0x20);         // lock paging
+    s.cpu.tStates = 14360;
+    expect(s.cpu.portIn(0x0FFD) & 0xFF).toBe(0xFF);
   });
 });
 

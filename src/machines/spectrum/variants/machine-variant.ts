@@ -34,9 +34,14 @@ export interface MachineVariant {
 
   /** True on Ferranti ULA models (48K/16K/128K/+2): unattached ports return
    *  whatever the ULA is currently fetching from VRAM. False on the Amstrad
-   *  gate array (+2A/+3), which drives unattached ports to 0xFF instead —
-   *  the reason Arkanoid hangs when run on a real +3. */
+   *  gate array (+2A/+3), whose narrower floating bus is described by
+   *  hasGateArrayFloatingBus. */
   readonly hasFloatingBus: boolean;
+
+  /** True on the Amstrad gate array (+2A/+3): ports of the form
+   *  0000 xxxx xxxx xx01 read the gate array's last-fetched display byte
+   *  (0xFF outside the display fetch) while 7FFD paging is unlocked. */
+  readonly hasGateArrayFloatingBus: boolean;
 
   /** True if the given address is in ULA-contended memory.
    *  `bank` is the actual RAM bank at the address from memory.bankAt(),

@@ -20,6 +20,7 @@ export function createFerranti128K(model: '128k' | '+2'): MachineVariant {
     contentionPattern: CONTENTION_FERRANTI,
     hasIOContention: true,
     hasFloatingBus: true,
+    hasGateArrayFloatingBus: false,
 
     isContended(_addr: number, bank: number): boolean {
       // Odd banks (1,3,5,7) share the upper RAM chip with the ULA.
