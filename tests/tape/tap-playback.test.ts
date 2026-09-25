@@ -1354,3 +1354,72 @@ describe('TAP parser — exact-fit final block', () => {
   });
 });
 
+
+// ── Overshoot carried across block boundaries ───────────────────────────────
+//
+// advance() is called with arbitrary T-state deltas. Whatever a finishing
+// pulse, sample or pause overshoots by has already elapsed on the tape and
+// must count toward the next block — otherwise every block boundary silently
+// stretches the tape by up to one advance() step.
+
+describe('TapeDeck — overshoot carried across block boundaries', () => {
+  it('carries the overshoot of a pulse block into the next pulse block', () => {
+    const deck = deckWith(
+      { kind: 'pulses', lengths: [100] } as PulsesBlock,
+      { kind: 'tone', pulseLen: 50, count: 2 } as ToneBlock,
+    );
+    deck.startPlayback();
+    deck.advance(130);                     // edge at 100, 30 T into the tone
+    expect((deck as any).playbackIdx).toBe(1);
+    expect(deck.tStatesToNextEdge()).toBe(20);
+  });
+
+  it('carries the overshoot of a pause block into the next block', () => {
+    const deck = deckWith(
+      { kind: 'pause', duration: 1 } as PauseBlock,   // 3500 T
+      { kind: 'pulses', lengths: [100] } as PulsesBlock,
+    );
+    deck.startPlayback();
+    deck.advance(3550);
+    expect((deck as any).playbackIdx).toBe(1);
+    expect(deck.tStatesToNextEdge()).toBe(50);
+  });
+
+  it('carries the trailing-pause overshoot of a data block into the next block', () => {
+    const block = makeData(0xFF, [0x00], {
+      pilotCount: 1, pilotPulse: 10, syncPulse1: 10, syncPulse2: 10,
+      bit0Pulse: 10, bit1Pulse: 10, pause: 1,
+    });
+    const deck = deckWith(block, { kind: 'tone', pulseLen: 100, count: 1 } as ToneBlock);
+    deck.startPlayback();
+    // pilot + 2 sync + 3 bytes × 16 half-pulses of 10 T = 510 T, then 3500 T.
+    deck.advance(510 + 3500 + 40);
+    expect((deck as any).playbackIdx).toBe(1);
+    expect(deck.tStatesToNextEdge()).toBe(60);
+  });
+
+  it('carries the overshoot of a direct recording into the next block', () => {
+    const direct: DirectBlock = {
+      kind: 'direct', tStatesPerSample: 10, pause: 0, usedBits: 8, data: new Uint8Array([0xAA]),
+    };
+    const deck = deckWith(direct, { kind: 'pulses', lengths: [100] } as PulsesBlock);
+    deck.startPlayback();
+    deck.advance(80 + 30);                 // 8 samples, then 30 T into the pulse
+    expect((deck as any).playbackIdx).toBe(1);
+    expect(deck.tStatesToNextEdge()).toBe(70);
+  });
+
+  it('carries overshoot through a pulse block into a following pause', () => {
+    // One 100 T pulse, then a 1 ms pause (3500 T). 3600 T in total brings
+    // the pause exactly to its end: the next block is playing.
+    const deck = deckWith(
+      { kind: 'pulses', lengths: [100] } as PulsesBlock,
+      { kind: 'pause', duration: 1 } as PauseBlock,
+      { kind: 'tone', pulseLen: 1000, count: 1 } as ToneBlock,
+    );
+    deck.startPlayback();
+    deck.advance(3600);
+    expect((deck as any).playbackIdx).toBe(2);
+    expect(deck.tStatesToNextEdge()).toBe(1000);
+  });
+});
