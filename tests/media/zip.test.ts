@@ -74,3 +74,19 @@ describe('unzip — encrypted entries', () => {
     expect(Array.from(entries[0].data)).toEqual([1, 2, 3]);
   });
 });
+
+describe('unzip — CP437 names', () => {
+  it('decodes a name without the UTF-8 flag as IBM code page 437', async () => {
+    // CP437: 0x81 = ü, 0x9A = Ü, 0xE1 = ß, 0xB0 = ░. (windows-1252 would
+    // give U+0081, š, á and °.)
+    const name = new Uint8Array([...ascii('M'), 0x81, 0x9A, 0xE1, 0xB0, ...ascii('.TAP')]);
+    const entries = await unzip(buildZip([{ name, data: new Uint8Array([7]) }]));
+    expect(entries.map((e) => e.name)).toEqual(['MüÜß░.TAP']);
+  });
+
+  it('decodes the last CP437 code point (0xFF) as a no-break space', async () => {
+    const name = new Uint8Array([...ascii('A'), 0xFF, ...ascii('.TAP')]);
+    const entries = await unzip(buildZip([{ name, data: new Uint8Array([7]) }]));
+    expect(entries[0].name).toBe('A .TAP');
+  });
+});
