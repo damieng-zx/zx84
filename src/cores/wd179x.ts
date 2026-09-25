@@ -352,10 +352,20 @@ export class WD179x {
   }
 
   private seek(cmd: number): void {
-    // The track register is 8-bit on real hardware; values beyond the drive's
-    // cylinder count simply miss on the next data command (RNF).
+    // Datasheet: SEEK assumes the Track Register holds the head's current
+    // position and issues step pulses — updating TR each time — until TR
+    // equals the Data Register. So the head physically moves DR − TR tracks
+    // from wherever it really is. When TR and the head agree that lands on
+    // DR; when a STEP without 'u' has desynced them (see findSector), the
+    // offset survives the seek, exactly as on hardware. The head can't be
+    // stepped out past the track-0 stop. The track register is 8-bit; values
+    // beyond the drive's cylinder count simply miss on the next data
+    // command (RNF).
     const target = this.dataReg & 0xFF;
-    this.headTrack[this.currentDrive] = target;
+    const delta = target - this.trackReg;
+    if (delta !== 0) this.stepDir = delta > 0 ? 1 : -1;
+    const cur = this.headTrack[this.currentDrive];
+    this.headTrack[this.currentDrive] = Math.min(0xFF, Math.max(0, cur + delta));
     this.trackReg = target;
     this.endTypeI(cmd);
   }
