@@ -297,12 +297,17 @@ describe('CpcMemory on a 64KB machine (464/664)', () => {
     expect(mem.getRamBank(4)).toBe(mem.getRamBank(0));
   });
 
-  it('wraps expansion RAM-config banks into the base 64KB (no banks 4-7)', () => {
-    const mem = new CpcMemory(createCpcConfig('cpc464'));
-    // RAM config 2 selects [4,5,6,7] on a 6128; with only 4 banks each wraps
-    // mod 4, so a 64KB machine sees the base banks instead.
-    mem.setRamConfig(2);
-    expect(mem.pagingState().slotBanks).toEqual([0, 1, 2, 3]);
+  it('ignores every RAM-config command (the 464/664 have no banking PAL)', () => {
+    // On a 6128, config 3 maps [0,3,2,7] and config 4 maps [0,4,2,3]; the 64KB
+    // machines have no PAL decoding &7F C0-FF at all, so the map never moves.
+    for (const model of ['cpc464', 'cpc664'] as const) {
+      const mem = new CpcMemory(createCpcConfig(model));
+      for (let cfg = 0xC0; cfg <= 0xFF; cfg++) {
+        mem.setRamConfig(cfg);
+        expect(mem.pagingState().slotBanks, `${model} &${cfg.toString(16)}`).toEqual([0, 1, 2, 3]);
+      }
+      expect(mem.pagingState().ramConfig).toBe(0);
+    }
   });
 
   it('boots the 464 ROM set with no AMSDOS (upper ROM 7 absent)', () => {
