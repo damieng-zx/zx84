@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { entryForModel } from '@/machines/registry.ts';
 import { MtxMachine } from '@/machines/mtx/mtx-machine.ts';
 
@@ -186,5 +186,39 @@ describe('MTX MCP screen OCR', () => {
 
     expect(rows).toHaveLength(24);
     expect(rows[23]).toBe(' Ready');
+  });
+});
+
+describe('MTX VDP interrupt into CTC channel 0', () => {
+  // The TMS9929A's /INT is a level (F AND IE) on CTC channel 0's CLK/TRG. The
+  // CTC counts edges, so a flag nobody clears cannot count twice.
+  function withVdpIe(m: MtxMachine): void {
+    m.cpu.portOut(0x02, 0x20);   // R1 = IE
+    m.cpu.portOut(0x02, 0x81);
+  }
+
+  it('triggers once per assertion, not once per frame while F stays set', () => {
+    const m = machine();
+    withVdpIe(m);
+    const trigger = vi.spyOn(m.ctc, 'trigger');
+    m.tick(); m.tick(); m.tick();                  // nothing reads the status
+    expect(trigger.mock.calls.filter(([c]) => c === 0)).toHaveLength(1);
+  });
+
+  it('triggers again each frame once the status read clears F', () => {
+    const m = machine();
+    withVdpIe(m);
+    const trigger = vi.spyOn(m.ctc, 'trigger');
+    for (let i = 0; i < 3; i++) { m.tick(); m.cpu.portIn(0x02); }
+    expect(trigger.mock.calls.filter(([c]) => c === 0)).toHaveLength(3);
+  });
+
+  it('makes an edge when IE is set while F is already pending', () => {
+    const m = machine();                            // IE clear: F sets silently
+    const trigger = vi.spyOn(m.ctc, 'trigger');
+    m.tick();
+    expect(trigger).not.toHaveBeenCalled();
+    withVdpIe(m);
+    expect(trigger.mock.calls.filter(([c]) => c === 0)).toHaveLength(1);
   });
 });

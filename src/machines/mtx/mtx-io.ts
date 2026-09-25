@@ -56,7 +56,7 @@ export function wireMtxPortIO(m: MtxMachine): void {
     switch (port & 0xFF) {
       case 0x00: m.memory.setPageRegister(value); break;
       case 0x01: m.vdp.writeData(value); break;
-      case 0x02: m.vdp.writeControl(value); break;
+      case 0x02: m.vdp.writeControl(value); m.sampleVdpInt(); break;
       case 0x03: m.tapeOutput = value; break;
       case 0x05: m.keyboard.selectDrive(value); break;
       // The SN76489 is not on the data bus: OUT (6) loads a latch that a
@@ -101,7 +101,11 @@ export function wireMtxPortIO(m: MtxMachine): void {
   function dispatchIn(port: number): number {
     switch (port & 0xFF) {
       case 0x01: return m.vdp.readData();
-      case 0x02: return m.vdp.readStatus();
+      case 0x02: {
+        const status = m.vdp.readStatus();
+        m.sampleVdpInt();
+        return status;
+      }
       // A read of port 3 strobes the sound latch into the SN76489. Nothing
       // drives the data bus, which returns the low port byte: Pothole Pete
       // relies on IN A,(3) producing 3.

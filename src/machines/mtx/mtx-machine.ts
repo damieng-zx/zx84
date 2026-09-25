@@ -69,6 +69,9 @@ export class MtxMachine extends BaseMachine implements Machine {
   /** Port 6's sound latch: OUT (6) only fills it; a read of port 3 strobes
    *  it into the SN76489 (MAME mtx.cpp sound_lach_w / sound_strobe_r). */
   soundLatch = 0;
+  /** The VDP /INT line as last sampled (true = asserted). CTC channel 0
+   *  counts its falling edges, not frames. */
+  private vdpIntAsserted = false;
   /** Logical `.mtx` stream served through the ROM tape routine. */
   readonly cassette = new MtxCassette();
   readonly activity = { kbdReads: 0, psgWrites: 0, casReads: 0, fdcAccesses: 0 };
@@ -217,6 +220,19 @@ export class MtxMachine extends BaseMachine implements Machine {
     this.setStatus(`512 KiB RAM expansion ${enabled ? 'enabled' : 'disabled'} (${ramKib} KiB total)`);
   }
 
+  /**
+   * Re-sample the VDP's /INT output, a level (F AND IE) wired to CTC channel
+   * 0's CLK/TRG: only its assertion is an edge. Called wherever F or IE can
+   * change — the frame flag, a status read (clears F), a control write (IE).
+   * While F stays set because nobody read the status, later frames make no
+   * new edge; setting IE with F already pending makes one.
+   */
+  sampleVdpInt(): void {
+    const asserted = this.vdp.interruptPending();
+    if (asserted && !this.vdpIntAsserted) this.ctc.trigger(0);
+    this.vdpIntAsserted = asserted;
+  }
+
   reset(): void {
     this.stop();
     this.cpu.reset();
@@ -231,6 +247,7 @@ export class MtxMachine extends BaseMachine implements Machine {
     this.mixer.reset();
     this.tapeOutput = 0;
     this.soundLatch = 0;
+    this.vdpIntAsserted = false;
     this.needsDisplay = true;
     this.setStatus('Reset');
   }
@@ -353,7 +370,7 @@ export class MtxMachine extends BaseMachine implements Machine {
       } else if (line === MTX_ACTIVE_LINES) {
         // VDP INT is wired to CTC channel 0's trigger, not directly to /INT.
         this.vdp.raiseFrameInterrupt();
-        if (this.vdp.interruptPending()) this.ctc.trigger(0);
+        this.sampleVdpInt();
       }
     }
 
