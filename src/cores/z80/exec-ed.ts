@@ -87,6 +87,10 @@ Z80.prototype.executeED = function (this: Z80): void {
         this.memptr = this.pc = this.pop16();  // RETI/RETN: MEMPTR = PC = target
         this.iff1 = this.iff2;  // Restore interrupt state
         this.tStates += 3;
+        // ED 4D (y = 1) is RETI; every other ED x5/xD is RETN (Zilog Z80 CPU
+        // User Manual / Sean Young "Undocumented Z80"). Zilog-family
+        // peripherals decode ED 4D on the data bus to unwind the daisy chain.
+        if (y === 1 && this.onReti !== null) this.onReti();
         break;
 
       case 6:

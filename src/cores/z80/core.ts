@@ -67,6 +67,12 @@ export class Z80 {
    *  the acknowledge's IFF reset beats it. */
   ldAirPv = false;
 
+  /** Called after RETI (ED 4D) executes, for daisy-chained IM 2 peripherals
+   *  (Z80 CTC/PIO/SIO) that watch the bus for RETI to clear their
+   *  interrupt-under-service latch. Not called for RETN or its ED mirrors.
+   *  Wiring configuration: survives reset. */
+  onReti: (() => void) | null = null;
+
   /** Board-inserted waits per opcode M1 fetch, including HALT and prefixes.
    *  Wiring configuration survives reset; ordinary memory cycles are unaffected. */
   m1WaitStates = 0;
