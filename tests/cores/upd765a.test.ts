@@ -1335,3 +1335,74 @@ describe('uPD765A — FORMAT_TRACK head 1 on a single-sided image', () => {
     expect(re.tracks[0][1]!.sectors[0].data[0]).toBe(0x99);
   });
 });
+
+describe('uPD765A — ready drive, unformatted track: Missing Address Mark, not Not Ready', () => {
+  // A disk is in the drive, so it is ready; the controller simply finds no ID
+  // address mark within two index pulses → IC=01, ST1 MA (bit 0), NR clear.
+  function readyWithBlankCyl1(): Driver {
+    const d = new Driver();
+    const img = makeImage({ numTracks: 2, numSides: 1 });
+    img.tracks[0][0] = makePlus3Track(0, 0);   // cylinder 1 left unformatted (null)
+    d.fdc.insertDisk(img, 0);
+    d.command(0x0F, 0x00, 1);                  // seek to the blank cylinder
+    d.command(0x08);
+    return d;
+  }
+
+  it('READ_DATA on a null track reports MA', () => {
+    const r = readyWithBlankCyl1().command(0x06, 0x00, 1, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF);
+    expect(r[0]).toBe(0x40);   // IC=01, NR clear, head 0 unit 0
+    expect(r[1]).toBe(0x01);   // ST1 MA
+  });
+
+  it('READ_DATA beyond the last cylinder of the image reports MA', () => {
+    const d = readyWithBlankCyl1();
+    d.command(0x0F, 0x00, 30);
+    d.command(0x08);
+    const r = d.command(0x06, 0x00, 30, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF);
+    expect(r[0]).toBe(0x40);
+    expect(r[1]).toBe(0x01);
+  });
+
+  it('READ_DATA on a track with no sectors reports MA (not ND)', () => {
+    const d = new Driver();
+    const img = makeImage();
+    img.tracks[0][0] = makeTrack([]);
+    d.fdc.insertDisk(img, 0);
+    const r = d.command(0x06, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF);
+    expect(r[0]).toBe(0x40);
+    expect(r[1]).toBe(0x01);
+  });
+
+  it('WRITE_DATA on a null track reports MA', () => {
+    const r = readyWithBlankCyl1().command(0x05, 0x00, 1, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF);
+    expect(r[0]).toBe(0x40);
+    expect(r[1]).toBe(0x01);
+  });
+
+  it('READ_ID on a null track reports MA', () => {
+    const r = readyWithBlankCyl1().command(0x4A, 0x00);
+    expect(r[0]).toBe(0x40);
+    expect(r[1]).toBe(0x01);
+  });
+
+  it('READ_TRACK on a null track reports MA', () => {
+    const r = readyWithBlankCyl1().command(0x42, 0x00, 1, 0, 1, 2, 9, 0x2A, 0xFF);
+    expect(r[0]).toBe(0x40);
+    expect(r[1]).toBe(0x01);
+  });
+
+  it('head 1 of a single-sided image reports MA on a ready drive', () => {
+    const d = new Driver();
+    d.fdc.insertDisk(makeStdImage(), 0);
+    const r = d.command(0x06, 0x04, 0, 1, 0xC1, 2, 0xC1, 0x2A, 0xFF);
+    expect(r[0]).toBe(0x44);   // IC=01, HD=1
+    expect(r[1]).toBe(0x01);
+  });
+
+  it('an empty drive still reports Not Ready with ST1 clear', () => {
+    const r = new Driver().command(0x06, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF);
+    expect(r[0]).toBe(0x48);
+    expect(r[1]).toBe(0x00);
+  });
+});
