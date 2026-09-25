@@ -370,6 +370,12 @@ export class CpcMemory implements IMachineMemory {
     return this.lowerRom;
   }
 
+  /** True when the lower (OS) ROM is paged in at 0x0000, i.e. a PC in
+   *  0x0000-0x3FFF is executing firmware rather than RAM. */
+  get lowerRomAtZero(): boolean {
+    return this.lowerRomEnabled && this.lowerRomSlot === 0;
+  }
+
   /** Upper ROM image by select index (0 = BASIC, 7 = AMSDOS), or undefined if
    *  no ROM occupies that slot. Live 16KB view, for the debug/memory viewer. */
   getUpperRom(n: number): Uint8Array | undefined {

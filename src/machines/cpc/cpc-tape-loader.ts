@@ -1,10 +1,11 @@
 /**
  * CAS READ instant-load trap for the Amstrad CPC.
  *
- * The CPC firmware loads cassette data through the cassette-manager routine
- * reached via the &BCA1 jumpblock (CAS READ — "read one block"). Like the
- * Spectrum's LD-BYTES trap, we intercept that routine and deliver the next
- * CDT block's bytes straight into RAM, skipping the real edge-sampling loop.
+ * The CPC firmware loads cassette data through CAS READ ("read one block",
+ * also reached via the &BCA1 jumpblock). A normal BASIC `RUN"` calls the ROM
+ * routine directly from the cassette manager, so we trap the ROM routine itself
+ * (located by signature scan) and deliver the next CDT block's bytes straight
+ * into RAM, skipping the bit-level edge-sampling read.
  *
  * Entry contract (CAS READ): HL = destination, DE = byte count, A = sync char
  * (&2C header / &16 data). Exit: carry = success, A = error code on failure.
@@ -12,24 +13,13 @@
  * SAFETY: the trap is CRC-gated. It only commits when the bytes it extracts
  * pass the on-tape CRC check, so it can never deliver corrupt data. On ANY
  * mismatch (sync byte wrong, block too short, CRC fail, unrecognised layout)
- * it returns false WITHOUT touching CPU or tape state, and the caller lets the
- * real firmware routine run — which loads the same block at pulse level (the
- * always-correct path). Custom loaders never call CAS READ, so they too fall
- * through to pulse playback untouched.
+ * it returns false WITHOUT touching CPU or tape state, and the real firmware
+ * routine loads the same block at pulse level (the always-correct path).
+ * Custom loaders never call CAS READ, so they fall through to pulse playback.
  *
- * VERIFIED (real 2048.cdt + real os6128 firmware, 2026-06-09): the on-tape record
- * layout and CRC convention are correct — the trap extracts real header/data
- * records cleanly (pulled the real "2048" filename + full 2K data records).
- *
- * SCOPE — headers only, in practice: only the 64-byte file HEADER is instant-
- * loaded. Making the header instant shifts the firmware's cassette timing, so the
- * following data block pulse-plays out during the firmware's between-read
- * housekeeping; by the time its own CAS READ is reached the tape has drifted a
- * block and the trap declines on the sync mismatch. Bulk file DATA therefore
- * still loads at pulse level, accelerated by `tapeTurbo` (whole-machine speed-up
- * while loading). A true data instant-load needs the pulse engine and the trap to
- * share tape position without starving the firmware's inter-block edge sync — a
- * deeper rework, not yet done. See the cpc-tape-firmware-read project note.
+ * VERIFIED on os464, os664 and os6128 with real CDTs (1942, 180, 10th Frame,
+ * 1943, 2048, 3D Starstrike): every CAS READ returns the same result and the
+ * same bytes with the trap on as with it off (pulse loading), headers and data.
  */
 
 import { Z80 } from '@/cores/z80.ts';
@@ -105,40 +95,79 @@ function extractBlock(b: Uint8Array, sync: number, len: number): Uint8Array | nu
 }
 
 /**
- * Offset from the read-block routine's entry to its hardware-teardown tail.
- * The routine is, in every CPC OS ROM (os464/os664/os6128):
- *   +0  LD (nn),A      ; stash sync
- *   +3  DEC DE / INC E ; page-adjust the count
- *   +5  PUSH HL / PUSH DE
- *   +7  CALL <reader>  ; the slow bit-level read we skip
- *   +A  POP DE / POP IX
- *   +D  CALL <teardown>; motor off + PPI/PSG restore   ← we resume here
- *   ... OUTs ... RET
- * Resuming at +D (after the POPs, with SP already back at the caller's return)
- * lets the firmware run its own teardown and RET, so the cassette hardware is
- * left in the state the caller expects. Skipping it (RETting straight to the
- * caller) leaves the PPI mis-configured and the next firmware op fails.
+ * The firmware's CAS READ routine, located by signature scan of the lower OS ROM.
+ * Its shape is identical in os464 (entry 0x2836), os664 and os6128 (0x29A6):
+ *
+ *   readEntry:  CALL setup        ; LD (sync),A / sound + motor on / PPI setup, RET
+ *               PUSH AF           ; previous motor state
+ *               LD HL,storeByte   ; per-byte action: store at (IX)
+ *               JR common
+ *   ...
+ *   common:     PUSH HL
+ *               CALL syncOnLeader ; measure the leader, match the sync byte
+ *               POP HL
+ *               CALL C,readRecords; the bit-level record read into (IX)
+ *   tail:       POP DE            ; D = previous motor state
+ *               PUSH AF           ; the read's result
+ *               ... PPI restore, EI, motor restore ...
+ *               POP AF / RET
+ *
+ * `setup` is shared with CAS WRITE and CAS CHECK, and it only prepares the
+ * hardware: the bit-level read happens back in the caller, after `setup` RETs.
+ * So the trap must replace the `common` → `tail` span, not the setup routine.
  */
-const TEARDOWN_OFFSET = 0x0D;
-
-/** Replicate the routine's `DEC DE ; INC E` so the value its `POP DE` restores
- *  (the count register the caller sees on return) matches the real firmware. */
-function countAfterRead(de: number): number {
-  const dec = (de - 1) & 0xFFFF;
-  return (dec & 0xFF00) | ((dec + 1) & 0xFF);   // INC E affects E only
+export interface CpcCasReadRoutine {
+  /** CAS READ entry (A = sync, HL = dest, DE = length). */
+  readEntry: number;
+  /** The read/verify shared sync+record-read block. */
+  common: number;
+  /** The per-byte store routine the read path passes in HL (tells READ from CHECK). */
+  storeByte: number;
+  /** The `POP DE` that starts the PPI/motor teardown — where the trap resumes. */
+  tail: number;
 }
 
 /**
- * Attempt an instant CAS READ at the firmware block-read routine `entryAddr`
- * (located by signature scan). Returns true if it committed (bytes copied, tape
- * advanced, control handed to the routine's teardown tail), false to fall
- * through to the real routine (pulse-level loading).
+ * Locate CAS READ in the lower OS ROM. Anchored on the setup routine head
+ *   LD (nn),A ; DEC DE ; INC E ; PUSH HL ; PUSH DE ; CALL nn
+ * then on its READ caller `CALL setup ; PUSH AF ; LD HL,nn ; JR e`, and the
+ * `PUSH HL ; CALL nn ; POP HL ; CALL C,nn ; POP DE` block the JR lands on.
+ * Returns null if any piece is missing (a non-standard ROM) — pulse loading only.
  */
-export function trapCpcCasRead(m: CpcMachine, entryAddr: number): boolean {
+export function scanCpcCasRead(rom: Uint8Array): CpcCasReadRoutine | null {
+  let setup = -1;
+  for (let i = 0; i + 8 < rom.length; i++) {
+    if (rom[i] === 0x32 && rom[i + 3] === 0x1b && rom[i + 4] === 0x1c &&
+        rom[i + 5] === 0xe5 && rom[i + 6] === 0xd5 && rom[i + 7] === 0xcd) { setup = i; break; }
+  }
+  if (setup < 0) return null;
+  for (let i = 0; i + 9 < rom.length; i++) {
+    if (rom[i] !== 0xcd || rom[i + 1] !== (setup & 0xFF) || rom[i + 2] !== (setup >> 8) ||
+        rom[i + 3] !== 0xf5 || rom[i + 4] !== 0x21 || rom[i + 7] !== 0x18) continue;
+    const common = i + 9 + ((rom[i + 8] << 24) >> 24);
+    if (common < 0 || common + 9 > rom.length) continue;
+    if (rom[common] !== 0xe5 || rom[common + 1] !== 0xcd || rom[common + 4] !== 0xe1 ||
+        rom[common + 5] !== 0xdc || rom[common + 8] !== 0xd1) continue;
+    return { readEntry: i, common, storeByte: rom[i + 5] | (rom[i + 6] << 8), tail: common + 8 };
+  }
+  return null;
+}
+
+/** A CAS READ request captured at the routine's entry. */
+export interface CpcCasReadRequest { dest: number; len: number; sync: number; }
+
+/**
+ * Attempt an instant CAS READ. Called at the routine's `common` block (after the
+ * firmware's own setup has run: sync stashed, motor on, PPI configured) with the
+ * request captured at its entry. On success the bytes are in RAM, the block is
+ * consumed, and PC is at `tail` with the firmware's success result (A = 0,
+ * carry + zero set — what the record reader returns after a good CRC), so the
+ * firmware's own teardown restores the PPI and motor and RETs to the caller.
+ * Returns false WITHOUT touching CPU, RAM or tape to let the real read run.
+ */
+export function trapCpcCasRead(m: CpcMachine, req: CpcCasReadRequest, tail: number): boolean {
   const cpu = m.cpu;
-  const dest = cpu.hl;
-  const len = cpu.de;
-  const sync = cpu.a & 0xFF;
+  const { dest, len, sync } = req;
   if (len <= 0) return false;
   if (sync !== HEADER_SYNC && sync !== DATA_SYNC) return false;
 
@@ -148,20 +177,13 @@ export function trapCpcCasRead(m: CpcMachine, entryAddr: number): boolean {
   const out = extractBlock(block.rawBytes, sync, len);
   if (!out) return false;                          // unrecognised/failed CRC → pulse fallback
 
-  // Commit: copy to RAM, consume the block.
   for (let i = 0; i < len; i++) m.memory.writeByte((dest + i) & 0xFFFF, out[i]);
   m.tape.nextDataBlock();
   m.tape.skipBlock();
 
-  // Resume in the routine's teardown tail with the post-read register state the
-  // firmware would have (IX = buffer, DE = the page-adjusted count its POP DE
-  // restores, carry = success). SP is untouched: at the entry it already points
-  // at the caller's return, and the routine balances its own pushes before the
-  // teardown, so the firmware's closing RET returns to the caller.
-  cpu.ix = dest;
-  cpu.de = countAfterRead(len);
-  cpu.setFlag(Z80.FLAG_C, true);   // success
-  cpu.setFlag(Z80.FLAG_Z, false);  // not ESC-aborted
-  cpu.pc = (entryAddr + TEARDOWN_OFFSET) & 0xFFFF;
+  cpu.a = 0;
+  cpu.setFlag(Z80.FLAG_C, true);
+  cpu.setFlag(Z80.FLAG_Z, true);
+  cpu.pc = tail & 0xFFFF;
   return true;
 }
