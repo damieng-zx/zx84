@@ -328,7 +328,15 @@ export class Zx8xMachine extends BaseMachine implements Machine {
         // and re-arms eiDelay per-instruction (see core.ts), so a plain
         // post-step check is enough here.
         this.cpu.step();
-        if (this.cpu.halted && this.cpu.pc >= 0xc000 && this.cpu.iff1 && !this.cpu.eiDelay) this.cpu.interrupt();
+        // /INT is wired to A6. During each M1 refresh the low address byte
+        // carries R, so the line is low when the instruction's final refresh
+        // address (R before its increment) has bit 6 clear. The ROM loads R
+        // so this happens exactly 207T after each scanline starts, however
+        // short the (collapsed) display row is — the CPU just HALTs until
+        // then. The Z80 samples the level at the end of every instruction.
+        // (R-1 is the last refresh for every instruction except LD R,A, which
+        // software always follows with EI, whose one-instruction delay hides it.)
+        if (this.cpu.iff1 && !this.cpu.eiDelay && ((this.cpu.r - 1) & 0x40) === 0) this.cpu.interrupt();
         const elapsed = this.cpu.tStates - lastAudio;
         if (!this.turbo && elapsed > 0) {
           this.mixer.accumulate(0, elapsed);
