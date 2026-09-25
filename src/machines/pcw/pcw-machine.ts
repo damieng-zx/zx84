@@ -50,7 +50,7 @@ import {
   PCW_CPU_CLOCK, PCW_FDC_INT_RESPONSE_LINES,
   PCW_KEYBOARD_BLOCK, PCW_KEYBOARD_OFFSET, PCW_LINES_PER_FRAME,
   PCW_PHOSPHORS, PCW_SCREEN_HEIGHT, PCW_SCREEN_WIDTH, PCW_T_PER_FRAME,
-  PCW_T_PER_LINE, PcwCommand,
+  PCW_T_PER_LINE, PCW_TIMER_PULSE_T, PcwCommand,
 } from './constants.ts';
 
 /** The PCW has no sound chip; the mixer only ever sees the beeper bit. */
@@ -87,6 +87,10 @@ export class PcwMachine extends BaseMachine implements Machine {
   private rebootRequested = false;
   /** Edge state for the FDC's /NMI routing, so a held line fires once. */
   private lastNmiLine = false;
+  /** T-state at which the current 300Hz timer pulse on /INT ends. */
+  private timerPulseEnd = 0;
+  /** T-state of the last audio mix step. */
+  private lastAudioT = 0;
 
   /** Per-frame I/O activity, mapped onto the status-bar LEDs by the probe. */
   readonly activity = {
@@ -306,9 +310,10 @@ export class PcwMachine extends BaseMachine implements Machine {
   /**
    * Execute one PAL field: 312 scan lines of 218 T-states.
    *
-   * Per scan line: advance the gate array (which raises the 300Hz timer
-   * interrupt on the six lines that carry one), run the CPU to the end of the
-   * line, then draw the line.
+   * Per scan line: advance the gate array (which starts the 300Hz timer
+   * pulse on the six lines that carry one), run the CPU to the end of the
+   * line — dropping the ~100us pulse partway through the next line — then draw
+   * the line.
    */
   protected runFrame(): void {
     const cpu = this.cpu;
@@ -320,18 +325,22 @@ export class PcwMachine extends BaseMachine implements Machine {
     asic.beginFrame(this._pixels32);
 
     let lineEnd = cpu.tStates;
-    let lastAudioT = cpu.tStates;
+    this.lastAudioT = cpu.tStates;
     let broke = false;
 
     for (let line = 0; line < PCW_LINES_PER_FRAME; line++) {
+      const lineStart = lineEnd;
       lineEnd += PCW_T_PER_LINE;
       asic.beginLine(line);
 
-      // The gate array scans the keyboard into block 3 continuously, "even when
-      // interrupts are disabled". Refreshing it on the interrupt lines gives
-      // software a matrix at most one 300Hz tick old, which is as fresh as the
-      // real DMA ever is.
-      if (PcwAsic.isInterruptLine(line)) this.scanKeyboard();
+      if (PcwAsic.isInterruptLine(line)) {
+        this.timerPulseEnd = lineStart + PCW_TIMER_PULSE_T;
+        // The gate array scans the keyboard into block 3 continuously, "even
+        // when interrupts are disabled". Refreshing it on the interrupt lines
+        // gives software a matrix at most one 300Hz tick old, which is as
+        // fresh as the real DMA ever is.
+        this.scanKeyboard();
+      }
 
       // The FDC's interrupt line is sampled per scan line: 64us of latency on a
       // signal the BIOS reaches through an interrupt handler is immaterial, and
@@ -341,32 +350,12 @@ export class PcwMachine extends BaseMachine implements Machine {
       this.fdc.tickIntResponse();
       asic.fdcInt = this.fdc.interruptLine;
 
-      while (cpu.tStates < lineEnd) {
-        if (this.breakpoints.has(cpu.pc)) { this.breakpointHit = cpu.pc; broke = true; break; }
-        if (this.onTrap !== null && this.onTrap(cpu.pc)) { broke = true; break; }
-
-        cpu.step();
-
-        // /NMI is edge triggered, so it fires once per rising edge of the FDC's
-        // interrupt line however long that line stays up.
-        const nmiLine = asic.nmiPending;
-        if (nmiLine && !this.lastNmiLine) cpu.nmi();
-        this.lastNmiLine = nmiLine;
-
-        if (asic.intPending && cpu.iff1 && !cpu.eiDelay) {
-          cpu.interrupt();
-          asic.acknowledgeTimer();
-        }
-
-        if (!skipAudio) {
-          const elapsed = cpu.tStates - lastAudioT;
-          if (elapsed > 0) {
-            this.mixer.accumulate(this.beeperBit, elapsed);
-            this.mixer.generateSamples(this.audio, null, false);
-            lastAudioT = cpu.tStates;
-          }
-        }
+      // End the timer pulse where it falls inside this line.
+      if (asic.timerPending && this.timerPulseEnd < lineEnd) {
+        broke = this.runCpuUntil(this.timerPulseEnd, skipAudio);
+        if (!broke) asic.endTimerPulse();
       }
+      if (!broke) broke = this.runCpuUntil(lineEnd, skipAudio);
 
       // Draw the line even when execution broke inside it, so a breakpoint
       // leaves a coherent partial frame rather than a torn one.
@@ -380,6 +369,39 @@ export class PcwMachine extends BaseMachine implements Machine {
       this.rebootRequested = false;
       this.reset();
     }
+  }
+
+  /** Run the CPU until `until` T-states, servicing /NMI, /INT and audio.
+   *  Returns true if a breakpoint or trap stopped execution. */
+  private runCpuUntil(until: number, skipAudio: boolean): boolean {
+    const cpu = this.cpu;
+    const asic = this.asic;
+    while (cpu.tStates < until) {
+      if (this.breakpoints.has(cpu.pc)) { this.breakpointHit = cpu.pc; return true; }
+      if (this.onTrap !== null && this.onTrap(cpu.pc)) return true;
+
+      cpu.step();
+
+      // /NMI is edge triggered, so it fires once per rising edge of the FDC's
+      // interrupt line however long that line stays up.
+      const nmiLine = asic.nmiPending;
+      if (nmiLine && !this.lastNmiLine) cpu.nmi();
+      this.lastNmiLine = nmiLine;
+
+      // /INT is level-sensitive: the timer pulse (and a routed FDC interrupt)
+      // stay asserted whether or not the CPU takes them.
+      if (asic.intPending && cpu.iff1 && !cpu.eiDelay) cpu.interrupt();
+
+      if (!skipAudio) {
+        const elapsed = cpu.tStates - this.lastAudioT;
+        if (elapsed > 0) {
+          this.mixer.accumulate(this.beeperBit, elapsed);
+          this.mixer.generateSamples(this.audio, null, false);
+          this.lastAudioT = cpu.tStates;
+        }
+      }
+    }
+    return false;
   }
 
   /** Copy the keyboard matrix into physical block 3, as the gate array's DMA

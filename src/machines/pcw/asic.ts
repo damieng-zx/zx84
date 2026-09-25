@@ -74,7 +74,8 @@ export class PcwAsic {
 
   // ── Interrupt state ───────────────────────────────────────────────────────
 
-  /** The 300Hz timer interrupt is asserted and not yet taken. */
+  /** The 300Hz timer is pulsing /INT (for ~100us; the machine ends the pulse
+   *  — see PCW_TIMER_PULSE_T). Taking the interrupt does not clear it. */
   timerPending = false;
   /** b3-0 of the status byte: timer interrupts since the counter was last read
    *  through port &F4. Saturates at 15 — it is 4 bits wide. */
@@ -128,9 +129,9 @@ export class PcwAsic {
     }
   }
 
-  /** The CPU has taken the timer interrupt; drop /INT. The counter is NOT
-   *  cleared here — only reading port &F4 does that. */
-  acknowledgeTimer(): void {
+  /** The ~100us timer pulse is over; drop /INT. The counter is NOT cleared
+   *  here — only reading port &F4 does that. */
+  endTimerPulse(): void {
     this.timerPending = false;
   }
 
