@@ -9,10 +9,15 @@
  * the machine calls {@link trigger} once per frame; timer-mode channels are
  * advanced by {@link addCycles} from the CPU's elapsed T-states.
  *
- * This is a pragmatic model: it implements the control-word protocol, both
- * modes, per-channel vectors and channel-priority interrupt selection. It does
- * not model the RETI daisy-chain unwind (an interrupt is cleared on acknowledge),
- * which is sufficient for a periodic tick where each ISR returns before the next.
+ * Interrupts follow the Z80-family daisy chain (Zilog Z80 CTC Technical
+ * Manual, "Interrupt Operation"): channel 0 has the highest priority. When a
+ * channel's interrupt is acknowledged its pending flag clears and its
+ * interrupt-under-service (IUS) latch sets; while any channel is under service
+ * it and every lower-priority channel are inhibited from requesting (a
+ * higher-priority channel may still nest), and the CTC's IEO is held low so
+ * downstream daisy-chain devices are inhibited too. The CPU's RETI (ED 4D) —
+ * delivered via {@link reti} — clears the highest-priority channel under
+ * service. RETN does not unwind the chain.
  */
 
 const NUM_CHANNELS = 4;
@@ -35,6 +40,7 @@ interface Channel {
   awaitingTrigger: boolean; // timer loaded, waiting for a CLK/TRG edge to start
   tcFollows: boolean;     // expecting a time-constant byte next
   intPending: boolean;
+  inService: boolean;     // IUS: acknowledged, awaiting RETI
   prescaleCount: number;  // timer sub-count within the prescaler window
 }
 
@@ -67,7 +73,8 @@ export class Z80Ctc {
     for (let i = 0; i < NUM_CHANNELS; i++) {
       this.ch.push({
         control: 0, timeConstant: 0, counter: 0, running: false,
-        awaitingTrigger: false, tcFollows: false, intPending: false, prescaleCount: 0,
+        awaitingTrigger: false, tcFollows: false, intPending: false, inService: false,
+        prescaleCount: 0,
       });
     }
   }
@@ -179,30 +186,60 @@ export class Z80Ctc {
     }
   }
 
-  /** True if any channel has an interrupt pending. */
-  get interruptPending(): boolean {
-    return this.ch.some(ch => ch.intPending);
-  }
-
-  /** IM 2 vector for the highest-priority pending channel, or -1 if none. */
-  pendingVector(): number {
+  /** The channel driving /INT: the highest-priority pending channel with no
+   *  channel of higher-or-equal priority under service, or -1. */
+  private requestingChannel(): number {
     for (let c = 0; c < NUM_CHANNELS; c++) {
-      if (this.ch[c].intPending) return (this.vectorBase & 0xF8) | (c << 1);
+      const ch = this.ch[c];
+      if (ch.inService) return -1;
+      if (ch.intPending) return c;
     }
     return -1;
   }
 
-  /** Acknowledge (clear) the highest-priority pending interrupt. */
+  /** True if the CTC is asserting /INT — a pending channel not inhibited by
+   *  a higher-or-equal priority channel under service. */
+  get interruptPending(): boolean {
+    return this.requestingChannel() >= 0;
+  }
+
+  /** Daisy-chain IEO: false while any channel is under service (awaiting
+   *  RETI), which inhibits every lower-priority device on the chain. (A
+   *  CTC channel that is merely pending also outranks downstream devices;
+   *  hosts model that by polling the CTC first.) */
+  get ieo(): boolean {
+    const ch = this.ch;
+    return !(ch[0].inService || ch[1].inService || ch[2].inService || ch[3].inService);
+  }
+
+  /** IM 2 vector for the requesting channel, or -1 if none. */
+  pendingVector(): number {
+    const c = this.requestingChannel();
+    return c < 0 ? -1 : (this.vectorBase & 0xF8) | (c << 1);
+  }
+
+  /** Interrupt acknowledge: the requesting channel's pending flag clears and
+   *  it goes under service until the next RETI. */
   acknowledge(): void {
+    const c = this.requestingChannel();
+    if (c < 0) return;
+    this.ch[c].intPending = false;
+    this.ch[c].inService = true;
+  }
+
+  /** RETI (ED 4D) seen on the bus: the highest-priority channel under
+   *  service returns to normal. Wire to Z80.onReti. */
+  reti(): void {
     for (let c = 0; c < NUM_CHANNELS; c++) {
-      if (this.ch[c].intPending) { this.ch[c].intPending = false; return; }
+      if (this.ch[c].inService) { this.ch[c].inService = false; return; }
     }
   }
 
   reset(): void {
     for (const ch of this.ch) {
       ch.control = 0; ch.timeConstant = 0; ch.counter = 0; ch.running = false;
-      ch.awaitingTrigger = false; ch.tcFollows = false; ch.intPending = false; ch.prescaleCount = 0;
+      ch.awaitingTrigger = false; ch.tcFollows = false; ch.intPending = false; ch.inService = false;
+      ch.prescaleCount = 0;
     }
     this.vectorBase = 0;
     this.clockAccum = 0;
