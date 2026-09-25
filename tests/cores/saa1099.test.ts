@@ -284,3 +284,44 @@ describe('SAA1099 sample rate', () => {
     expect(() => swing(s, 100)).not.toThrow();
   });
 });
+
+describe('SAA1099 externally clocked envelope', () => {
+  // Control byte: bit 7 enable, bit 5 external clock, bits 3-1 shape, bit 0
+  // reverse right. Shape 7 is the repetitive attack 0,1,2 … 15.
+  const ATTACK_EXT = 0x80 | 0x20 | (7 << 1);   // 0xAE
+  const ATTACK_INT = 0x80 | (7 << 1);          // 0x8E
+
+  it('is clocked by selecting register 0x18 or 0x19 on the address port', () => {
+    const s = chip();
+    s.writeAddress(0x18);
+    s.writeData(ATTACK_EXT);
+    expect(s.envelopeFactor(0, false)).toBe(0);
+    s.writeAddress(0x18);
+    expect(s.envelopeFactor(0, false)).toBe(1);
+    s.writeAddress(0x19);                       // either envelope address strobes
+    expect(s.envelopeFactor(0, false)).toBe(2);
+    s.writeAddress(0x08);                       // any other register does not
+    expect(s.envelopeFactor(0, false)).toBe(2);
+  });
+
+  it('restarts on a data write to its control register rather than stepping', () => {
+    const s = chip();
+    s.writeRegister(0x18, ATTACK_EXT);
+    s.writeAddress(0x18);
+    s.writeAddress(0x18);
+    s.writeAddress(0x18);
+    expect(s.envelopeFactor(0, false)).toBe(3);
+    s.writeData(ATTACK_EXT);                    // address is still 0x18
+    expect(s.envelopeFactor(0, false)).toBe(0);
+  });
+
+  it('clocks both external envelopes on one strobe, but not an internal one', () => {
+    const s = chip();
+    s.writeRegister(0x18, ATTACK_EXT);
+    s.writeRegister(0x19, ATTACK_INT);
+    s.writeAddress(0x19);
+    s.writeAddress(0x19);
+    expect(s.envelopeFactor(0, false)).toBe(2);
+    expect(s.envelopeFactor(1, false)).toBe(0);  // tone-clocked: untouched
+  });
+});

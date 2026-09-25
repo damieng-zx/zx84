@@ -189,8 +189,21 @@ export class SAA1099 {
 
   // ── Bus interface ─────────────────────────────────────────────────────────
 
-  /** Select a register (SAM port 0x01FF). */
-  writeAddress(value: number): void { this.address = value & 0x1F; }
+  /**
+   * Select a register (SAM port 0x01FF).
+   *
+   * Selecting 0x18 or 0x19 is also the strobe for an externally clocked
+   * envelope: it advances every envelope generator whose control register has
+   * the external-clock bit set (MAME `control_w`). The data write that follows
+   * then resets that envelope's step, as any control write does.
+   */
+  writeAddress(value: number): void {
+    this.address = value & 0x1F;
+    if (this.address === 0x18 || this.address === 0x19) {
+      if (this.envelopes[0].externalClock) this.stepEnvelope(0);
+      if (this.envelopes[1].externalClock) this.stepEnvelope(1);
+    }
+  }
 
   /** Write the selected register (SAM port 0x00FF). */
   writeData(value: number): void { this.writeRegister(this.address, value); }
@@ -237,20 +250,15 @@ export class SAA1099 {
 
       case 0x18: case 0x19: {
         const e = this.envelopes[reg - 0x18];
-        const wasEnabled = e.enabled;
         e.reverseRight = (v & 0x01) !== 0;
         e.shape = (v >> 1) & 0x07;
         e.threeBit = (v & 0x10) !== 0;
         e.externalClock = (v & 0x20) !== 0;
         e.enabled = (v & 0x80) !== 0;
-        // A write restarts the envelope, and doubles as the external clock
-        // when that mode is selected.
-        if (!wasEnabled || !e.externalClock) {
-          e.step = 0;
-          e.finished = false;
-        } else {
-          this.stepEnvelope(reg - 0x18);
-        }
+        // Every control write restarts the envelope. The external clock is the
+        // ADDRESS strobe (see `writeAddress`), not this data write.
+        e.step = 0;
+        e.finished = false;
         return;
       }
 
@@ -303,8 +311,9 @@ export class SAA1099 {
     }
   }
 
-  /** Envelope amplitude factor 0-15 for a generator, or 15 when it is off. */
-  private envelopeFactor(gen: number, right: boolean): number {
+  /** Envelope amplitude factor 0-15 for a generator, or 15 when it is off.
+   *  Public for tests. */
+  envelopeFactor(gen: number, right: boolean): number {
     const e = this.envelopes[gen];
     if (!e.enabled) return 15;
     let step = e.step;
