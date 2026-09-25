@@ -107,6 +107,9 @@ describe('SN76489 â€” ultrasonic anti-aliasing', () => {
     psg.antialias = mode;
     setTone(psg, 0, period);
     psg.write(0x90); // channel 0 attenuation = 0 (full volume)
+    // A new period only takes effect once the running count (0x400 ticks
+    // from reset) expires — skip past it so we measure the programmed tone.
+    collect(psg, Math.ceil(0x400 * 16 * SAMPLE_RATE / CLOCK) + 1);
     return psg;
   }
 
