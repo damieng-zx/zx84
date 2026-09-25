@@ -801,10 +801,33 @@ describe('TZX — 0x33 Hardware Type / 0x35 Custom Info / 0x5A Glue', () => {
 
 // ── Unknown block IDs ──────────────────────────────────────────────────────
 
-describe('TZX — unknown block IDs', () => {
-  it('throws on an unrecognised block id', () => {
-    const data = tzx(header(), [0xEE]);
-    expect(() => parseTZX(data)).toThrow(/Unknown TZX block type/);
+describe('TZX — unknown and deprecated block IDs', () => {
+  it('skips an unrecognised block id via the DWORD length that follows it (TZX 1.10+)', () => {
+    // Body bytes include 0x20 so a parser that failed to honour the length
+    // would misread them as a Pause block.
+    const data = tzx(header(), [0xEE, ...w32(3), 0x20, 0x34, 0x12], block20(42));
+    const blocks = parseTZX(data);
+    expect(blocks).toEqual([{ kind: 'pause', duration: 42 }]);
+  });
+
+  it('rejects an unknown block whose DWORD length runs past the end of the file', () => {
+    const data = tzx(header(), [0xEE, ...w32(100), 1, 2, 3]);
+    expect(() => parseTZX(data)).toThrow('Truncated TZX block');
+  });
+
+  it('skips deprecated 0x16 / 0x17 C64 blocks via their DWORD length', () => {
+    const data = tzx(header(), [0x16, ...w32(2), 0x20, 0x20], [0x17, ...w32(1), 0x20], block20(5));
+    expect(parseTZX(data)).toEqual([{ kind: 'pause', duration: 5 }]);
+  });
+
+  it('skips a deprecated 0x34 Emulation Info block (fixed 8 bytes)', () => {
+    const data = tzx(header(), [0x34, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20], block20(6));
+    expect(parseTZX(data)).toEqual([{ kind: 'pause', duration: 6 }]);
+  });
+
+  it('skips a deprecated 0x40 Snapshot block (type byte + 24-bit length)', () => {
+    const data = tzx(header(), [0x40, 0x00, ...w24(4), 0x20, 0x20, 0x20, 0x20], block20(7));
+    expect(parseTZX(data)).toEqual([{ kind: 'pause', duration: 7 }]);
   });
 });
 
