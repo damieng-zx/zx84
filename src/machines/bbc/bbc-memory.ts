@@ -82,9 +82,18 @@ export class BbcMemory implements IMachineMemory {
     if (data.length >= BBC_ROM_SIZE * 2) this.roms[0x0F].set(data.subarray(BBC_ROM_SIZE, BBC_ROM_SIZE * 2));
   }
 
-  /** Install a sideways ROM into a socket. */
+  /** Install a sideways ROM into a socket. An 8K image (e.g. Acorn DFS 1.20)
+   *  ignores the socket's A13, so it mirrors across both halves of the 16K
+   *  window; a 16K image fills the socket directly. */
   loadSidewaysRom(socket: number, data: Uint8Array): void {
-    this.roms[socket & 0x0F].set(data.subarray(0, BBC_ROM_SIZE));
+    const dst = this.roms[socket & 0x0F];
+    dst.fill(0);
+    if (data.length <= BBC_ROM_SIZE / 2) {
+      dst.set(data, 0);
+      dst.set(data, BBC_ROM_SIZE / 2);
+    } else {
+      dst.set(data.subarray(0, BBC_ROM_SIZE));
+    }
   }
 
   reset(): void {

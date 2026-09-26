@@ -54,7 +54,7 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'mtx-cpm': () => settings.mtxCpm(),
   'mtx-80-column': () => settings.mtx80Column(),
   'mtx-512k-ram': () => settings.mtx512kRam(),
-  'bbc-dfs-enabled': () => settings.bbcDfs(),
+  'bbc-disk-system': () => settings.bbcDiskSystem(),
   'zx8x-16k-ram': () => settings.zx8x16kRam(),
   'zx81-udg-ram': () => settings.zx81UdgRam(),
   'zx81-udg128-ram': () => settings.zx81Udg128Ram(),

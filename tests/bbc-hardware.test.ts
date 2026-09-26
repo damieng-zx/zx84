@@ -326,6 +326,21 @@ describe('bbc — bitmap modes', () => {
     }
   });
 
+  it('aliases the whole 0xFE20-0xFE2F window to the two ULA registers', () => {
+    const m = makeBbc();
+    try {
+      // Only A0 selects control (even) vs palette (odd); the rest of the nibble
+      // is not decoded — Acorn DFS probes 0xFE28/0xFE29 with a write/read-back.
+      m.memory.writeByte(0xFE2E, 0x4b);   // even -> control register
+      m.memory.writeByte(0xFE2F, 0x07);   // odd  -> palette register
+      expect(m.memory.readByte(0xFE20)).toBe(0x4b);
+      expect(m.memory.readByte(0xFE29)).toBe(0x07);
+      expect(m.memory.readByte(0xFE21)).toBe(0x07);
+    } finally {
+      m.destroy();
+    }
+  });
+
   /** Physical colour index at framebuffer (x, y), recovered from the RGBA. */
   function physAt(m: BbcMachine, x: number, y: number): number {
     const i = (y * 640 + x) * 4;

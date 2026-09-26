@@ -429,6 +429,9 @@ export interface RomHostOps {
   /** Cached override metadata (null = default in use). */
   cached(): { label: string; size: number; isCustom: boolean } | null;
   cachedPage(page: number): { label: string; size: number } | null;
+  /** Sideways/aux ROM socket overrides (the BBC's sixteen banks). */
+  persistSideways(index: number, data: Uint8Array, label: string): Promise<void>;
+  clearSideways(index: number): Promise<void>;
   /** Rebuild the machine so the new ROM takes effect. Destroys this machine. */
   rebuild(): Promise<void>;
 }
@@ -635,6 +638,23 @@ export interface RomSlotInfo {
   readonly overridden: boolean;
 }
 
+/**
+ * A named auxiliary ROM socket besides the system ROM — the BBC's sixteen
+ * sideways banks, each independently loadable. The machine reports the socket
+ * layout and any image it loads itself (the disc-interface ROM); the shell
+ * layers the stored user overrides on top (see RomService.sidewaysSlots).
+ */
+export interface SidewaysRomSlot {
+  readonly index: number;
+  /** Fixed socket name shown as the row title. */
+  readonly title: string;
+  /** Image currently in the socket (a machine-loaded default), or ''. */
+  readonly label: string;
+  readonly size: number;
+  /** A user-supplied image is stored for this socket (filled by the shell). */
+  readonly overridden: boolean;
+}
+
 export interface CartridgeSlot {
   /** Mounted cartridge name, '' when empty. */
   readonly name: string;
@@ -652,6 +672,16 @@ export interface RomService {
   resetSystemRom(page?: number): Promise<void>;
   /** The machine's cartridge slot (MSX slot, ZX Interface 2), or null. */
   readonly cartridge: CartridgeSlot | null;
+
+  /** Named auxiliary ROM sockets besides the system ROM (the BBC's sixteen
+   *  sideways banks). Absent/empty on machines without any. */
+  readonly sidewaysSlots?: readonly SidewaysRomSlot[];
+  /** Build-time install of a sideways socket image (no persistence/rebuild). */
+  installSidewaysRom?(index: number, data: Uint8Array): void;
+  /** Persist a user image into a socket and rebuild. */
+  setSidewaysRom?(index: number, data: Uint8Array, label: string): Promise<void>;
+  /** Drop a socket's stored override and rebuild (back to the default). */
+  resetSidewaysRom?(index: number): Promise<void>;
 }
 
 export interface SnapshotApplyResult {

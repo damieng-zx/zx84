@@ -22,10 +22,10 @@ import {
   driveBForceReady, setDriveBForceReady,
   diskSoundC, setDiskSoundC, diskSoundD, setDiskSoundD,
   writeProtectC, setWriteProtectC, writeProtectD, setWriteProtectD,
-  plusDEnabled, betaDiskEnabled, lynxFdc, tapeTurbo, setTapeTurbo,
+  plusDEnabled, betaDiskEnabled, lynxFdc, bbcDiskSystem, tapeTurbo, setTapeTurbo,
   persistSetting, resetSettingsGroup,
 } from '@/store/settings.ts';
-import { isPlusDCapable, isBetaDiskCapable, isLynxModel } from '@/models.ts';
+import { isPlusDCapable, isBetaDiskCapable, isLynxModel, isBbcModel } from '@/models.ts';
 import { machineCaps } from '@/state/machine-caps.ts';
 import { DISK_FORMATS, formatLabel, createBlankDisk } from '@/media/floppy/dsk.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
@@ -317,9 +317,12 @@ export function DrivePane() {
   const betaDiskActive = () => betaDiskEnabled() && isBetaDiskCapable(currentModel());
   // Machines with a built-in floppy controller (Spectrum +3, disk CPCs, Einstein).
   // The Lynx's FD1793 is a Hardware-pane toggle, so its drives only count when
-  // the interface is actually fitted.
+  // the interface is actually fitted; likewise the BBC's disc interface can be
+  // set to "none".
   const builtinDisk = () =>
-    machineCaps().builtinDisk && !(isLynxModel(currentModel()) && !lynxFdc());
+    machineCaps().builtinDisk
+    && !(isLynxModel(currentModel()) && !lynxFdc())
+    && !(isBbcModel(currentModel()) && bbcDiskSystem() === 'none');
   // The Lynx's FD1793 addresses four drives; everything else here has two.
   const builtinFourDrives = () =>
     builtinDisk() && (machineCaps().builtinDrives ?? 2) > 2;

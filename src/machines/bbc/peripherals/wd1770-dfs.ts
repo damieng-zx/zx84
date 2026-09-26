@@ -9,14 +9,30 @@
 
 import { WD179x } from '@/cores/wd179x.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
+import type { BbcDiscController } from './disc-controller.ts';
 
 const CTRL_DRIVE_MASK = 0x03;
 const CTRL_SIDE = 0x04;
 const CTRL_RESET = 0x20;
 
-export class BbcDfs1770 {
+export class BbcDfs1770 implements BbcDiscController {
   readonly fdc = new WD179x({ statusBit7: 'motor-on', formatSectorsPerTrack: 10 });
   control = 0;
+
+  reset(): void {
+    this.control = 0;
+    this.fdc.reset();
+  }
+
+  /** Frame-probe indicators (delegated to the WD179x). */
+  get motorOn(): boolean { return this.fdc.motorOn; }
+  get isExecuting(): boolean { return this.fdc.isExecuting; }
+  get isWriting(): boolean { return this.fdc.isWriting; }
+  get currentDrive(): number { return this.fdc.currentDrive; }
+  get currentSector(): number { return this.fdc.currentSector; }
+  getUnitTrack(unit: number): number { return this.fdc.getUnitTrack(unit); }
+  get formattedUnit(): number { return this.fdc.formattedUnit; }
+  set formattedUnit(unit: number) { this.fdc.formattedUnit = unit; }
 
   read(addr: number): number {
     switch (addr & 0xFF) {

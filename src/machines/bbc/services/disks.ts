@@ -7,7 +7,8 @@ function baseName(name: string): string {
   return name.replace(/\.[^.]+$/, '') || 'disk';
 }
 
-/** The two physical DFS drives (0 and 1) backed by the 1770 controller. */
+/** The two physical DFS drives (0 and 1) backed by whichever disc controller
+ *  (8271 or 1770) the machine has fitted. */
 export class BbcDiskService implements DiskService {
   private readonly names = new Map<string, string>();
 
@@ -16,27 +17,29 @@ export class BbcDiskService implements DiskService {
   private unit(id: string): number { return id === 'b' ? 1 : 0; }
 
   get drives(): readonly DriveDescriptor[] {
-    if (!this.machine.dfsEnabled) return [];
+    if (!this.machine.disc) return [];
     return [this.describe('a', 'Drive 0', 0), this.describe('b', 'Drive 1', 1)];
   }
 
   insert(id: string, media: DriveMedia, name: string): void {
-    this.machine.fdc1770.insertDisk(media as DskImage, this.unit(id));
+    this.machine.disc?.insertDisk(media as DskImage, this.unit(id));
     this.names.set(id, name);
   }
 
   eject(id: string): void {
-    this.machine.fdc1770.ejectDisk(this.unit(id));
+    this.machine.disc?.ejectDisk(this.unit(id));
     this.names.delete(id);
   }
 
   save(id: string): { data: Uint8Array; name: string } | null {
+    const disc = this.machine.disc;
+    if (!disc) return null;
     const unit = this.unit(id);
-    const image = this.machine.fdc1770.getDiskImage(unit);
+    const image = disc.getDiskImage(unit);
     if (!image) return null;
     const doubleSided = image.numSides === 2;
     const data = serializeSsd(image, doubleSided);
-    this.machine.fdc1770.clearDirty(unit);
+    disc.clearDirty(unit);
     return {
       data,
       name: `${baseName(this.names.get(id) ?? '')}${doubleSided ? '.dsd' : '.ssd'}`,
@@ -44,22 +47,23 @@ export class BbcDiskService implements DiskService {
   }
 
   setWriteProtect(id: string, on: boolean): void {
-    this.machine.fdc1770.writeProtect[this.unit(id)] = on;
+    const disc = this.machine.disc;
+    if (disc) disc.writeProtect[this.unit(id)] = on;
   }
 
   image(id: string): DskImage | null {
-    return this.machine.fdc1770.getDiskImage(this.unit(id));
+    return this.machine.disc?.getDiskImage(this.unit(id)) ?? null;
   }
 
   private describe(id: string, label: string, unit: number): DriveDescriptor {
-    const fdc = this.machine.fdc1770;
+    const disc = this.machine.disc;
     return {
       id,
       label,
-      loaded: fdc.getDiskImage(unit) !== null,
+      loaded: disc !== null && disc.getDiskImage(unit) !== null,
       mediaName: this.names.get(id) ?? '',
-      writeProtected: fdc.writeProtect[unit],
-      motorOn: fdc.fdc.motorOn && fdc.fdc.currentDrive === unit,
+      writeProtected: disc ? disc.writeProtect[unit] : false,
+      motorOn: disc !== null && disc.motorOn && disc.currentDrive === unit,
     };
   }
 }

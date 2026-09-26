@@ -19,11 +19,13 @@ import type { IScreenRenderer } from '@/display/renderer.ts';
 import type {
   AuxRomRequest, BorderMode, Machine, MachineDescriptor, MachineHost, MachineKind, SettingsView,
 } from '@/machines/machine.ts';
-import type { BbcModel } from './models.ts';
+import type { BbcModel, BbcDiskSystem } from './models.ts';
 import { BbcMemory } from './bbc-memory.ts';
 import { BbcKeyboard } from './bbc-keyboard.ts';
 import { BbcVideo } from './bbc-video.ts';
 import { BbcDfs1770 } from './peripherals/wd1770-dfs.ts';
+import { BbcAcornDfs } from './peripherals/acorn-8271-dfs.ts';
+import type { BbcDiscController } from './peripherals/disc-controller.ts';
 import { wireBbcIo } from './bbc-io.ts';
 import { bbcDescriptor } from './descriptor.ts';
 import { createBbcServices, type BbcServices } from './services/index.ts';
@@ -59,6 +61,7 @@ export class BbcMachine extends BaseMachine implements Machine {
   readonly crtc = new Crtc6845(0);
   readonly video = new BbcVideo();
   readonly fdc1770 = new BbcDfs1770();
+  readonly acorn8271 = new BbcAcornDfs(() => this.cpu.nmi());
   readonly psg = new Sn76489(BBC_SOUND_CLOCK, 48_000, 'ti-15bit');
   readonly mixer = new AudioMixer(BBC_CPU_CLOCK);
   readonly audio = new Audio();
@@ -76,8 +79,14 @@ export class BbcMachine extends BaseMachine implements Machine {
   /** Per-frame activity counters for the frame probe. */
   readonly activity = { psgWrites: 0 };
 
-  /** Whether the Acorn 1770 DFS interface (ROM + drives) is fitted. */
-  dfsEnabled = true;
+  /** Which disc interface (if any) is fitted. */
+  diskSystem: BbcDiskSystem = '1770';
+
+  /** The fitted disc controller, or null when no disc interface is present. */
+  get disc(): BbcDiscController | null {
+    if (this.diskSystem === 'none') return null;
+    return this.diskSystem === 'acorn' ? this.acorn8271 : this.fdc1770;
+  }
 
   private borderMode: BorderMode = 2;
   private viaAccum = 0;
@@ -117,30 +126,36 @@ export class BbcMachine extends BaseMachine implements Machine {
     this.memory.loadSidewaysRom(socket, data);
   }
 
-  /** Fit the Acorn 1770 DFS ROM into socket 13 (IC88) before reset. */
+  /** Fit the selected disc interface's ROM into socket 13 (IC88) before reset.
+   *  The 8271 interface uses the DNFS ROM (Acorn DFS 1.20 + NFS 3.60), which
+   *  falls back to DFS when no Econet hardware is present. */
   prepare(view: SettingsView): AuxRomRequest[] {
-    this.dfsEnabled = view.get('bbc-dfs-enabled', true);
-    if (!this.dfsEnabled) return [];
+    this.setDiskSystem(view.get<BbcDiskSystem>('bbc-disk-system', '1770'));
+    if (this.diskSystem === 'none') return [];
+    const acorn = this.diskSystem === 'acorn';
     return [{
-      cacheKey: 'bbc-dfs-226',
-      source: 'bbc/dfs-2.26.rom',
-      fetchingMsg: 'Fetching BBC 1770 DFS ROM…',
-      loadedMsg: (bytes) => `BBC 1770 DFS ROM loaded (${bytes} bytes)`,
-      failMsg: 'Failed to load the BBC 1770 DFS ROM',
+      cacheKey: acorn ? 'bbc-dnfs-120' : 'bbc-dfs-226',
+      source: acorn ? 'bbc/dnfs.rom' : 'bbc/dfs-2.26.rom',
+      fetchingMsg: `Fetching BBC ${acorn ? 'DNFS' : '1770 DFS'} ROM…`,
+      loadedMsg: (bytes) => `BBC ${acorn ? 'DNFS (DFS 1.20 + NFS)' : '1770 DFS'} ROM loaded (${bytes} bytes)`,
+      failMsg: `Failed to load the BBC ${acorn ? 'DNFS' : '1770 DFS'} ROM`,
       failId: 'bbc-dfs',
       apply: (data) => this.loadSidewaysRom(13, data),
       awaitLoad: true,
     }];
   }
 
-  /** Fit or remove the DFS interface. The ROM is loaded at build time, so a
+  /** Fit or remove a disc interface. The ROM is loaded at build time, so a
    *  change takes effect on the next rebuild (the hardware pane does this). */
-  setDfsEnabled(enabled: boolean): void {
-    if (!enabled && this.dfsEnabled) {
+  setDiskSystem(system: BbcDiskSystem): void {
+    if (system !== this.diskSystem) {
+      // A different interface is being fitted: drop the old one's media.
       this.fdc1770.ejectDisk(0);
       this.fdc1770.ejectDisk(1);
+      this.acorn8271.ejectDisk(0);
+      this.acorn8271.ejectDisk(1);
     }
-    this.dfsEnabled = enabled;
+    this.diskSystem = system;
   }
 
   applySettings(view: SettingsView): void {
@@ -149,7 +164,7 @@ export class BbcMachine extends BaseMachine implements Machine {
     // AY-family PSGs; the strategies are equivalent (see Sn76489AntialiasMode).
     this.psg.antialias = view.get<Sn76489AntialiasMode>('ay-antialias', 'mute');
     this.video.paletteMode = view.get<'pal' | 'measured'>('bbc-color-map', 'pal');
-    this.dfsEnabled = view.get('bbc-dfs-enabled', true);
+    this.diskSystem = view.get<BbcDiskSystem>('bbc-disk-system', '1770');
   }
 
   setBorderSize(mode: BorderMode): void {
@@ -171,7 +186,8 @@ export class BbcMachine extends BaseMachine implements Machine {
     this.memory.reset();
     this.crtc.reset();
     this.video.reset();
-    this.fdc1770.fdc.reset();
+    this.fdc1770.reset();
+    this.acorn8271.reset();
     this.sysVia.reset();
     this.userVia.reset();
     // Park the active-low handshake lines high so their active edge is a
@@ -254,7 +270,7 @@ export class BbcMachine extends BaseMachine implements Machine {
     }
 
     this.video.render(this);
-    this.fdc1770.tickFrame();
+    this.disc?.tickFrame();
     this.needsDisplay = true;
   }
 

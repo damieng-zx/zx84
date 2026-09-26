@@ -91,14 +91,62 @@ describe('bbc 1770 interface', () => {
     }
   });
 
-  it('hides the drives when the DFS interface is disabled', () => {
+  it('hides the drives when no disc interface is fitted', () => {
     const m = new BbcMachine('bbc-b', null);
     try {
       expect(m.services.disks!.drives.length).toBe(2);
-      m.setDfsEnabled(false);
+      m.setDiskSystem('none');
       expect(m.services.disks!.drives.length).toBe(0);
-      m.setDfsEnabled(true);
+      m.setDiskSystem('1770');
       expect(m.services.disks!.drives.length).toBe(2);
+    } finally {
+      m.destroy();
+    }
+  });
+
+  it('exposes the disc-interface ROM as socket 13 when a controller is fitted', () => {
+    const m = new BbcMachine('bbc-b', null);
+    try {
+      const slots = m.services.roms.sidewaysSlots!;
+      expect(slots.length).toBe(16);
+      expect(slots[13].title).toBe('Disc interface ROM');
+      expect(slots[13].label).toBe('Acorn 1770 DFS');
+      m.setDiskSystem('acorn');
+      expect(m.services.roms.sidewaysSlots![13].label).toBe('Acorn DFS (8271)');
+      m.setDiskSystem('none');
+      expect(m.services.roms.sidewaysSlots![13].label).toBe('');
+    } finally {
+      m.destroy();
+    }
+  });
+
+  it('mirrors an 8K sideways ROM across both halves of the 16K socket', () => {
+    const m = new BbcMachine('bbc-b', null);
+    try {
+      const rom = Uint8Array.from({ length: 0x2000 }, (_, i) => (i * 7) & 0xFF);
+      m.services.roms.installSidewaysRom!(2, rom);
+      const socket = m.memory.roms[2];
+      expect(socket.length).toBe(0x4000);
+      expect(socket[0x0000]).toBe(0x00);
+      expect(socket[0x0001]).toBe(0x07);
+      // The second half repeats the image (A13 not connected on an 8K part).
+      expect(Array.from(socket.subarray(0x2000, 0x2004))).toEqual(Array.from(socket.subarray(0, 4)));
+    } finally {
+      m.destroy();
+    }
+  });
+
+  it('routes the floppy window to the 8271 when it is the selected controller', () => {
+    const m = new BbcMachine('bbc-b', null);
+    try {
+      m.setDiskSystem('acorn');
+      // READ DRIVE STATUS takes no parameters, so it completes immediately:
+      // the status register shows result-ready (0x10) but, being a simple
+      // command, no interrupt (0x08).
+      m.memory.writeByte(0xFE80, 0x2c);
+      expect(m.memory.readByte(0xFE80) & 0x18).toBe(0x10);
+      m.memory.readByte(0xFE81);                       // consume the result
+      expect(m.memory.readByte(0xFE80) & 0x18).toBe(0);
     } finally {
       m.destroy();
     }

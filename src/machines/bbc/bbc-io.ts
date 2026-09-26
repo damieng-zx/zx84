@@ -13,7 +13,7 @@
  *   0xFE30         ROM select latch
  *   0xFE40-0xFE5F  System VIA
  *   0xFE60-0xFE7F  User VIA
- *   0xFE80-0xFE9F  floppy controller (WD1770)
+ *   0xFE80-0xFE9F  floppy controller (8271 or WD1770, whichever is fitted)
  *   0xFEA0-0xFEBF  Econet
  *   0xFEC0-0xFEDF  uPD7002 ADC
  *   0xFEE0-0xFEFF  Tube ULA
@@ -67,10 +67,13 @@ export function readBbcIo(m: BbcMachine, addr: number): number {
   if (a === 0xFE08) return 0x02;                 // ACIA status: TDRE set
   if (a === 0xFE09) return 0xFF;                 // ACIA data
   if (a === 0xFE10) return 0x00;                 // serial ULA (write-only)
-  if (a === 0xFE20) return m.videoUlaControl;
-  if (a === 0xFE21) return m.videoPaletteRegister;
+  // Video ULA: A0 selects control (0) / palette (1); the whole 0xFE20-0xFE2F
+  // block aliases to those two registers (Acorn DFS 1.20 probes 0xFE29).
+  if ((a & 0xFFF0) === 0xFE20) return (a & 1) ? m.videoPaletteRegister : m.videoUlaControl;
   if (a === 0xFE30) return m.memory.romsel;
-  if (a === 0xFE80 || (a >= 0xFE84 && a <= 0xFE87)) return m.fdc1770.read(a);
+  // The floppy window hosts either controller (8271: FE80-FE84; WD1770: FE80
+  // + FE84-FE87); each claims its own registers and floats the rest high.
+  if (a >= 0xFE80 && a <= 0xFE87) return m.disc ? m.disc.read(a) : 0xFF;
   // The Tube ULA is absent: the MOS's presence test ($DB3D) reads 0xFE E0 and
   // requires bit 0 clear, so a no-Tube bus reads 0x00 rather than 0xFF.
   if (a >= 0xFEE0) return 0x00;
@@ -84,6 +87,29 @@ export function writeBbcIo(m: BbcMachine, addr: number, val: number): void {
     case 0xFE00:
       if (a === 0xFE00) m.crtc.selectRegister(v);
       else if (a === 0xFE01) m.crtc.writeRegister(v);
+      return;
+    case 0xFE20:
+      // Video ULA block: A0 selects control (0) / palette (1); 0xFE20-0xFE2F
+      // all alias to the two registers.
+      if ((a & 1) === 0) {
+        m.videoUlaControl = v;
+      } else {
+        m.videoPaletteRegister = v;
+        // Bottom four bits are the physical colour EOR 7. The logical-colour
+        // field depends on the mode's colour count, which follows the chars-per-
+        // line bits and the clock: high clock gives 2/4/16 colours for 80/40/20
+        // columns; low clock gives 2 colours except 20-column (4 colours).
+        const physical = (v & 0x0F) ^ 7;
+        const cpl = (m.videoUlaControl >> 2) & 3;   // 3=80, 2=40, 1=20 cols
+        const highClock = (m.videoUlaControl & 0x10) !== 0;
+        const colours = highClock ? (cpl === 3 ? 2 : cpl === 2 ? 4 : 16)
+          : (cpl === 1 ? 4 : 2);
+        let logical: number;
+        if (colours === 2) logical = (v >> 7) & 1;
+        else if (colours === 4) logical = (((v >> 7) & 1) << 1) | ((v >> 5) & 1);
+        else logical = (v >> 4) & 0x0F;
+        m.palette[logical & 0x0F] = physical;
+      }
       return;
     case 0xFE40:
     case 0xFE50:
@@ -99,28 +125,9 @@ export function writeBbcIo(m: BbcMachine, addr: number, val: number): void {
     case 0xFE08: m.aciaControl = v; return;
     case 0xFE09: return;                         // ACIA data (transmit)
     case 0xFE10: m.serialUlaControl = v; return;
-    case 0xFE20: m.videoUlaControl = v; return;
-    case 0xFE21: {
-      m.videoPaletteRegister = v;
-      // Bottom four bits are the physical colour EOR 7. The logical-colour
-      // field depends on the mode's colour count, which follows the chars-per-
-      // line bits and the clock: high clock gives 2/4/16 colours for 80/40/20
-      // columns; low clock gives 2 colours except 20-column (4 colours).
-      const physical = (v & 0x0F) ^ 7;
-      const cpl = (m.videoUlaControl >> 2) & 3;   // 3=80, 2=40, 1=20 cols
-      const highClock = (m.videoUlaControl & 0x10) !== 0;
-      const colours = highClock ? (cpl === 3 ? 2 : cpl === 2 ? 4 : 16)
-        : (cpl === 1 ? 4 : 2);
-      let logical: number;
-      if (colours === 2) logical = (v >> 7) & 1;
-      else if (colours === 4) logical = (((v >> 7) & 1) << 1) | ((v >> 5) & 1);
-      else logical = (v >> 4) & 0x0F;
-      m.palette[logical & 0x0F] = physical;
-      return;
-    }
     case 0xFE30: m.memory.romsel = v & 0x0F; return;
     default:
-      if (a === 0xFE80 || (a >= 0xFE84 && a <= 0xFE87)) { m.fdc1770.write(a, v); return; }
+      if (a >= 0xFE80 && a <= 0xFE87) { m.disc?.write(a, v); return; }
       return;                                    // Econet/ADC/Tube: ignored
   }
 }

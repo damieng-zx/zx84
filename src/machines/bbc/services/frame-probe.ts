@@ -32,33 +32,33 @@ export class BbcFrameProbe implements FrameProbe {
     out.mdvCount = 0;
     out.mdvMotorMask = 0;
 
-    const fdc = this.machine.fdc1770.fdc;
-    out.disk = fdc.motorOn ? (fdc.isExecuting ? 2 : 1) : 0;
-    const active = fdc.currentDrive;
+    const fdc = this.machine.disc;
+    out.disk = fdc && fdc.motorOn ? (fdc.isExecuting ? 2 : 1) : 0;
+    const active = fdc ? fdc.currentDrive : -1;
     for (let unit = 0; unit < 2; unit++) {
-      if (!fdc.motorOn || unit !== active) out.driveLed[unit] = 0;
+      if (!fdc || !fdc.motorOn || unit !== active) out.driveLed[unit] = 0;
       else out.driveLed[unit] = fdc.isExecuting ? (fdc.isWriting ? 3 : 2) : 1;
-      out.driveTrack[unit] = fdc.getUnitTrack(unit);
-      out.driveSector[unit] = fdc.isExecuting && unit === active ? fdc.currentSector : -1;
-      out.driveDirty[unit] = fdc.isDirty(unit) ? 1 : 0;
+      out.driveTrack[unit] = fdc ? fdc.getUnitTrack(unit) : 0;
+      out.driveSector[unit] = fdc && fdc.isExecuting && unit === active ? fdc.currentSector : -1;
+      out.driveDirty[unit] = fdc && fdc.isDirty(unit) ? 1 : 0;
     }
     out.driveLed[2] = out.driveLed[3] = -1;
 
-    out.floppySlot = active < 2 ? active : -1;
-    out.floppyMotor = fdc.motorOn;
-    out.floppyTrack = fdc.getUnitTrack(active);
+    out.floppySlot = active >= 0 && active < 2 ? active : -1;
+    out.floppyMotor = fdc ? fdc.motorOn : false;
+    out.floppyTrack = fdc ? fdc.getUnitTrack(active) : 0;
     out.floppyProfile = DRIVE();
   }
 
   frameTick(out: FrameIndicators): void {
-    const fdc = this.machine.fdc1770.fdc;
-    if (fdc.formattedUnit >= 0) {
+    const fdc = this.machine.disc;
+    if (fdc && fdc.formattedUnit >= 0) {
       out.formattedSlot = fdc.formattedUnit;
       fdc.formattedUnit = -1;
     }
   }
 
   diskImageForSlot(slot: number): DskImage | null {
-    return slot < 2 ? this.machine.fdc1770.getDiskImage(slot) : null;
+    return slot < 2 ? this.machine.disc?.getDiskImage(slot) ?? null : null;
   }
 }

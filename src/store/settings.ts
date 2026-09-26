@@ -100,7 +100,7 @@ const DEFAULTS = {
   'mtx-80-column':  'off',
   'mtx-512k-ram':   'off',
   'mtx-floppy':     'on',
-  'bbc-dfs-enabled': 'on',
+  'bbc-disk-system': '1770',
   'lynx-fdc':       'on',
   'zx8x-16k-ram':  'off',
   'zx81-udg-ram':  'off',
@@ -437,9 +437,10 @@ const _bbcColorMap = /*@once*/ createRoot(() => createSignal(getSaved('bbc-color
 export const bbcColorMap = _bbcColorMap[0];
 export const setBbcColorMap = _bbcColorMap[1];
 
-const _bbcDfs = /*@once*/ createRoot(() => createSignal(getSaved('bbc-dfs-enabled', D('bbc-dfs-enabled')) === 'on'));
-export const bbcDfs = _bbcDfs[0];
-export const setBbcDfs = _bbcDfs[1];
+const _bbcDiskSystem = /*@once*/ createRoot(() => createSignal(
+  getSaved('bbc-disk-system', D('bbc-disk-system')) as 'none' | 'acorn' | '1770'));
+export const bbcDiskSystem = _bbcDiskSystem[0];
+export const setBbcDiskSystem = _bbcDiskSystem[1];
 
 const _lynxFdc = /*@once*/ createRoot(() => createSignal(getSaved('lynx-fdc', D('lynx-fdc')) === 'on'));
 export const lynxFdc = _lynxFdc[0];
@@ -599,7 +600,7 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'mtx-80-column', set: setMtx80Column, type: 'bool' },
     { key: 'mtx-512k-ram', set: setMtx512kRam, type: 'bool' },
     { key: 'mtx-floppy', set: setMtxFloppy, type: 'bool' },
-    { key: 'bbc-dfs-enabled', set: setBbcDfs, type: 'bool' },
+    { key: 'bbc-disk-system', set: setBbcDiskSystem, type: 'string' },
     { key: 'lynx-fdc', set: setLynxFdc, type: 'bool' },
     { key: 'zx8x-16k-ram', set: setZx8x16kRam, type: 'bool' },
     { key: 'zx81-udg-ram', set: setZx81UdgRam, type: 'bool' },
