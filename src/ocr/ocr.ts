@@ -40,10 +40,13 @@ export type LynxOcrGrid = '40x24' | '80x24';
 /** Jupiter Ace text grid — the 32x24 screen file, one byte per cell. */
 export type AceOcrGrid = '32x24';
 
+/** BBC Micro Mode 7 teletext grid — 40×25 SAA5050 cells. */
+export type BbcOcrGrid = '40x25';
+
 /** Any grid label an OCR producer can stamp onto an OcrResult. */
 export type OcrGridName =
   SpectrumOcrGrid | CpcOcrGrid | EinsteinOcrGrid | MsxOcrGrid | SamOcrGrid | PcwOcrGrid
-  | LynxOcrGrid | AceOcrGrid;
+  | LynxOcrGrid | AceOcrGrid | BbcOcrGrid;
 
 /** A font source for OCR matching.
  *  `data` is always 768 bytes (96 chars × 8 bytes). For non-8-wide cells only

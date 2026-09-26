@@ -494,6 +494,11 @@ body.msx-mode .section-label::after {
   grid-column: 1 / -1;
 }
 
+/* The BBC's disc-system selector likewise spans the full options width. */
+.slider-row.bbc-disk-row {
+  grid-column: 1 / -1;
+}
+
 .slider-row .slider-value { color: #555; }
 .pane input[type="range"] { background: #ccc; }
 

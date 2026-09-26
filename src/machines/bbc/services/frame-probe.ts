@@ -1,13 +1,58 @@
-import type { FrameIndicators, FrameProbe } from '@/machines/machine.ts';
+import type {
+  FrameIndicators, FrameProbe, FramePaneProvider, TranscribeDriver,
+} from '@/machines/machine.ts';
 import { fixedDrive } from '@/media/floppy/floppy-sound.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
+import { parseBbcBasic } from '@/basic/bbc-basic-parser.ts';
+import {
+  BBC_MODE7_COLS, BBC_MODE7_ROWS, BBC_MODE7_CELL_W, BBC_MODE7_CELL_H,
+  BBC_MODE7_ORIGIN_X, BBC_MODE7_ORIGIN_Y,
+} from '@/ocr/bbc.ts';
 import type { BbcMachine } from '../bbc-machine.ts';
 
-/** BBC DFS drives are 3.5" 80-track units (an SSD is 80 tracks). */
-const DRIVE = fixedDrive('3.5inch');
+/** BBC DFS drives are 5.25" 40/80-track units (Acorn's standard upgrade). */
+const DRIVE = fixedDrive('5.25inch');
+
+/** Where the 40×25 Mode 7 teletext window sits in the 640×512 framebuffer. */
+const MODE7_FIELD = {
+  x: BBC_MODE7_ORIGIN_X,
+  y: BBC_MODE7_ORIGIN_Y,
+  width: BBC_MODE7_COLS * BBC_MODE7_CELL_W,
+  height: BBC_MODE7_ROWS * BBC_MODE7_CELL_H,
+};
+
+class BbcTranscribeDriver implements TranscribeDriver {
+  constructor(private readonly m: BbcMachine) {}
+  get active(): boolean { return this.m.screenText.active; }
+  activate(): void { this.m.screenText.activate(); }
+  deactivate(): void { this.m.screenText.deactivate(); }
+  run() {
+    const m = this.m;
+    const result = m.ocrScreenStyled();
+    if (result.mask.length > 0) {
+      m.blankCells(result.mask, result.cols, result.rows, result.paper);
+      if (m.display) m.display.updateTexture(m.pixels);
+    }
+    // Mode 7's 40×25 grid fills its centred teletext window, not the whole
+    // 640×512 framebuffer, so the overlay is anchored to that box.
+    return {
+      text: result.text, html: result.html, grid: result.grid,
+      field: MODE7_FIELD,
+    };
+  }
+}
 
 export class BbcFrameProbe implements FrameProbe {
-  constructor(private readonly machine: BbcMachine) {}
+  readonly panes: FramePaneProvider;
+  readonly transcribe: BbcTranscribeDriver;
+
+  constructor(private readonly machine: BbcMachine) {
+    this.transcribe = new BbcTranscribeDriver(machine);
+    this.panes = {
+      // The tokenised BBC BASIC program lives in main RAM from PAGE.
+      basicListing: () => parseBbcBasic(machine.memory.ram),
+    };
+  }
 
   /** Pure read — overwrite every channel this machine owns so no stale value
    *  from a previous frame leaks through. Allocates nothing. */

@@ -27,7 +27,7 @@ const DISK_OPTIONS: readonly { value: BbcDiskSystem; label: string; title: strin
 
 export function BbcHardwareSection() {
   return (
-    <div class="slider-row">
+    <div class="slider-row bbc-disk-row">
       <span
         class="slider-label"
         title={'Which floppy disc interface is fitted — the original Intel 8271 Acorn DFS, '

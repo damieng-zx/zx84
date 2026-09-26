@@ -79,6 +79,12 @@ export class BbcVideo {
     return this.paletteMode === 'measured' ? MEASURED_PALETTE32 : PAL_PALETTE32;
   }
 
+  /** The active 8-entry physical palette (packed ABGR) for the current mode.
+   *  Exposed so Mode 7 text OCR can blank matched cells to their paper colour. */
+  activePalette(): Uint32Array {
+    return this.pal();
+  }
+
   reset(): void {
     this.saa.reset();
     this.pixels32.fill(0xFF000000);

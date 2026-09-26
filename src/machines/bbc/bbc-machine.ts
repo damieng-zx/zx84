@@ -19,6 +19,11 @@ import type { IScreenRenderer } from '@/display/renderer.ts';
 import type {
   AuxRomRequest, BorderMode, Machine, MachineDescriptor, MachineHost, MachineKind, SettingsView,
 } from '@/machines/machine.ts';
+import type { OcrResult } from '@/ocr/ocr.ts';
+import {
+  BbcScreenText, BBC_MODE7_CELL_H, BBC_MODE7_CELL_W,
+  BBC_MODE7_ORIGIN_X, BBC_MODE7_ORIGIN_Y,
+} from '@/ocr/bbc.ts';
 import type { BbcModel, BbcDiskSystem } from './models.ts';
 import { BbcMemory } from './bbc-memory.ts';
 import { BbcKeyboard } from './bbc-keyboard.ts';
@@ -75,6 +80,8 @@ export class BbcMachine extends BaseMachine implements Machine {
   aciaControl = 0;
   /** Logical -> physical colour map (identity until the OS writes the palette). */
   readonly palette = Uint8Array.from({ length: 16 }, (_, i) => i);
+  /** Mode 7 teletext OCR engine, driven by the TEXT status-icon overlay. */
+  readonly screenText = new BbcScreenText();
 
   /** Per-frame activity counters for the frame probe. */
   readonly activity = { psgWrites: 0 };
@@ -281,5 +288,60 @@ export class BbcMachine extends BaseMachine implements Machine {
 
   startTrace(_mode = 'full'): void {}
   stopTrace(): string { return ''; }
-  ocrScreenForMcp(_mode?: string): string { return ''; }
+
+  /** True while the Video ULA is in teletext (Mode 7). */
+  private isMode7(): boolean { return (this.videoUlaControl & 0x02) !== 0; }
+
+  /** Mode 7 screen text for the MCP `ocr` tool. Bitmap modes 0-6 draw 8×8 OS
+   *  font glyphs and are not transcribed yet, so they report an empty screen. */
+  ocrScreenForMcp(_mode?: string): string {
+    if (!this.isMode7()) return '';
+    return this.screenText.ocr({
+      ram: this.memory.ram,
+      displayStart: this.crtc.displayStart,
+      stride: this.crtc.regs[1],
+      palette: this.video.activePalette(),
+    });
+  }
+
+  /** Styled Mode 7 OCR (text + coloured HTML + match mask) for the TEXT
+   *  overlay. Returns an empty match set in the bitmap modes. */
+  ocrScreenStyled(): OcrResult {
+    if (!this.isMode7()) {
+      return {
+        text: '', html: '', mask: [], paper: [],
+        grid: '40x25',
+        cellWidth: BBC_MODE7_CELL_W, cellHeight: BBC_MODE7_CELL_H, cols: 0, rows: 0,
+      };
+    }
+    return this.screenText.ocrStyled({
+      ram: this.memory.ram,
+      displayStart: this.crtc.displayStart,
+      stride: this.crtc.regs[1],
+      palette: this.video.activePalette(),
+    });
+  }
+
+  /** Blank the matched character cells in the framebuffer to their paper colour
+   *  so the crisp overlay glyphs replace the underlying teletext bitmap. `mask`
+   *  is row-major `cols×rows` over the Mode 7 window. */
+  blankCells(mask: boolean[], cols: number, rows: number, paper?: number[]): void {
+    const px = new Uint32Array(this.video.pixels.buffer);
+    const pal = this.video.activePalette();
+    const w = this.frameWidth;
+    for (let row = 0; row < rows; row++) {
+      const y0 = BBC_MODE7_ORIGIN_Y + row * BBC_MODE7_CELL_H;
+      if (y0 + BBC_MODE7_CELL_H > this.frameHeight) break;
+      for (let col = 0; col < cols; col++) {
+        if (!mask[row * cols + col]) continue;
+        const x0 = BBC_MODE7_ORIGIN_X + col * BBC_MODE7_CELL_W;
+        if (x0 + BBC_MODE7_CELL_W > w) continue;
+        const fill = pal[(paper ? paper[row * cols + col] : 0) & 7];
+        for (let y = 0; y < BBC_MODE7_CELL_H; y++) {
+          const base = (y0 + y) * w + x0;
+          px.fill(fill, base, base + BBC_MODE7_CELL_W);
+        }
+      }
+    }
+  }
 }
