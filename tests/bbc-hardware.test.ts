@@ -110,10 +110,11 @@ describe('bbc — sheila IO decode', () => {
   it('stores the video ULA control and maps palette writes (physical EOR 7)', () => {
     const m = makeBbc();
     try {
-      m.memory.writeByte(0xFE20, 0x4B);
-      expect(m.videoUlaControl).toBe(0x4B);
-      // Logical colour 1 -> physical 5 EOR 7 = 2.
-      m.memory.writeByte(0xFE21, 0x15);
+      m.memory.writeByte(0xFE20, 0x9C);   // mode 0: 2 colours
+      expect(m.videoUlaControl).toBe(0x9C);
+      m.memory.writeByte(0xFE21, 0x07);   // bit 7 clear -> logical 0, physical 7 EOR 7 = 0
+      m.memory.writeByte(0xFE21, 0x85);   // bit 7 set   -> logical 1, physical 5 EOR 7 = 2
+      expect(m.palette[0]).toBe(0);
       expect(m.palette[1]).toBe(2);
     } finally {
       m.destroy();
@@ -255,6 +256,71 @@ describe('bbc — sound', () => {
       m.sysVia.ddra = 0xFF;
       m.memory.writeByte(0xFE4F, 0x8F);
       expect(m.activity.psgWrites).toBe(0);
+    } finally {
+      m.destroy();
+    }
+  });
+});
+
+describe('bbc — bitmap modes', () => {
+  /** Point the CRTC at a Mode 4 screen at RAM 0x5800 and set a 2-colour palette. */
+  function setupMode4(m: BbcMachine): void {
+    m.videoUlaControl = 0x89;   // 40 cols, low clock -> mode 4 (2 colours)
+    m.crtc.regs[1] = 40;        // MA units per line
+    m.crtc.regs[6] = 32;        // character rows
+    m.crtc.regs[12] = 0x0B;     // display start 0xB00 -> 0x5800
+    m.crtc.regs[13] = 0x00;
+    m.palette[0] = 0;
+    m.palette[1] = 7;
+  }
+
+  const firstY = (512 - 256) / 2;   // 256-line mode centred in the 512 buffer
+
+  function rowOn(m: BbcMachine, y: number, x0: number, x1: number): number {
+    let n = 0;
+    for (let x = x0; x < x1; x++) {
+      const i = (y * 640 + x) * 4;
+      if (m.pixels[i] | m.pixels[i + 1] | m.pixels[i + 2]) n++;
+    }
+    return n;
+  }
+
+  it('renders each scanline from its cell-major byte', () => {
+    const m = makeBbc();
+    try {
+      setupMode4(m);
+      m.memory.ram[0x5800] = 0xFF;   // cell 0, scanline 0: all 8 pixels lit
+      m.video.render(m);
+      // A 320-wide mode is doubled to 640, so the 8-pixel cell covers x 0-15.
+      expect(rowOn(m, firstY, 0, 16)).toBe(16);
+      // Scanline 1 lives in the NEXT byte, not the next 40-pixel run.
+      expect(rowOn(m, firstY + 1, 0, 16)).toBe(0);
+    } finally {
+      m.destroy();
+    }
+  });
+
+  it('steps the row address by R1, not by a linear scanline width', () => {
+    const m = makeBbc();
+    try {
+      setupMode4(m);
+      m.memory.ram[0x5808] = 0xFF;   // second cell's scanline 0
+      m.video.render(m);
+      expect(rowOn(m, firstY, 0, 16)).toBe(0);
+      expect(rowOn(m, firstY, 16, 32)).toBe(16);
+    } finally {
+      m.destroy();
+    }
+  });
+
+  it('decodes the 2-colour ULA palette field', () => {
+    const m = makeBbc();
+    try {
+      m.memory.writeByte(0xFE20, 0x89);   // mode 4: 2 colours
+      m.memory.writeByte(0xFE21, 0x07);   // bit 7 = 0 -> logical 0, physical 0
+      m.memory.writeByte(0xFE21, 0x80);   // bit 7 = 1 -> logical 1, physical 7
+      expect(m.palette[0]).toBe(0);
+      expect(m.palette[1]).toBe(7);
     } finally {
       m.destroy();
     }

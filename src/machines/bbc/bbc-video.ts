@@ -29,22 +29,30 @@ interface BitmapMode {
   readonly bpp: 1 | 2 | 4;
   /** Active pixel width (640, 320 or 160). */
   readonly width: number;
-  /** Bytes fetched per scanline. */
-  readonly lineBytes: number;
-  /** 200-line text modes (3 and 6) sit centred in the 256-line buffer. */
+  /** 200-line text modes (3 and 6) sit centred in the taller buffer. */
   readonly lines: 200 | 256;
 }
 
 function bitmapMode(mode: number): BitmapMode {
   switch (mode) {
-    case 0: return { bpp: 1, width: 640, lineBytes: 80, lines: 256 };
-    case 1: return { bpp: 2, width: 320, lineBytes: 80, lines: 256 };
-    case 2: return { bpp: 4, width: 160, lineBytes: 80, lines: 256 };
-    case 3: return { bpp: 1, width: 640, lineBytes: 80, lines: 200 };
-    case 4: return { bpp: 1, width: 320, lineBytes: 40, lines: 256 };
-    case 5: return { bpp: 2, width: 160, lineBytes: 40, lines: 256 };
-    default: return { bpp: 1, width: 320, lineBytes: 40, lines: 200 };
+    case 0: return { bpp: 1, width: 640, lines: 256 };
+    case 1: return { bpp: 2, width: 320, lines: 256 };
+    case 2: return { bpp: 4, width: 160, lines: 256 };
+    case 3: return { bpp: 1, width: 640, lines: 200 };
+    case 4: return { bpp: 1, width: 320, lines: 256 };
+    case 5: return { bpp: 2, width: 160, lines: 256 };
+    default: return { bpp: 1, width: 320, lines: 200 };
   }
+}
+
+/** Hardware-scroll wrap amount subtracted from the address once it overruns
+ *  0x7FFF, selected by the IC32 C0/C1 outputs (see the BeebWiki address
+ *  translation table). */
+function wrapSubtract(c0: number, c1: number): number {
+  if (c1 && c0) return 0x2800;   // modes 4,5
+  if (c1) return 0x5000;         // modes 0,1,2
+  if (c0) return 0x2000;         // mode 6
+  return 0x4000;                 // mode 3
 }
 
 /** Teletext address translation from the 6845 MA (bit 11 selects the 0x7C00
@@ -155,41 +163,45 @@ export class BbcVideo {
     const info = bitmapMode(mode);
     const scale = W / info.width;
     const yOff = (H - info.lines) >> 1;
-    const r9 = m.crtc.regs[9];
-    const r6 = Math.min(m.crtc.regs[6], Math.floor(info.lines / (r9 + 1)));
+    const r1 = m.crtc.regs[1];            // MA units per displayed line
+    const r6 = m.crtc.regs[6];            // character rows displayed
     const start = m.crtc.displayStart;
-    const rowStride = (r9 + 1) * info.lineBytes;
+    const sub = wrapSubtract(m.ic32.c0, m.ic32.c1);
+    const pal = this.pal();
 
+    // Hi-res address translation: each 6845 MA unit is one byte-wide column of
+    // eight scanlines, so the byte for a cell is (MA << 3) | RA, wrapped if the
+    // ROM address overruns the top of RAM.
     for (let row = 0; row < r6; row++) {
-      for (let ra = 0; ra <= r9; ra++) {
-        const y = yOff + row * (r9 + 1) + ra;
+      const maRow = start + row * r1;
+      const yRow = yOff + row * 8;
+      for (let ra = 0; ra < 8; ra++) {
+        const y = yRow + ra;
         if (y < 0 || y >= H) continue;
-        const lineAddr = (start + row * rowStride + ra * info.lineBytes) & 0x7FFF;
-        let x = 0;
         const out = y * W;
-        for (let bi = 0; bi < info.lineBytes && x < info.width; bi++) {
-          const byte = m.memory.ram[(lineAddr + bi) & 0x7FFF];
+        let x = 0;
+        for (let p = 0; p < r1 && x < info.width; p++) {
+          const ma = maRow + p;
+          let addr = ((ma & 0x1FFF) << 3) | ra;
+          if (ma & 0x1000) addr = (addr - sub) & 0x7FFF;
+          const byte = m.memory.ram[addr & 0x7FFF];
           if (info.bpp === 1) {
-            for (let k = 7; k >= 0; k--) {
-              this.putPixels(out, x++, m.palette[(byte >> k) & 1], scale, flash);
-            }
+            for (let k = 7; k >= 0; k--) this.putPixels(out, x++, m.palette[(byte >> k) & 1], scale, flash, pal);
           } else if (info.bpp === 2) {
-            for (let k = 6; k >= 0; k -= 2) {
-              this.putPixels(out, x++, m.palette[(byte >> k) & 3], scale, flash);
-            }
+            for (let k = 6; k >= 0; k -= 2) this.putPixels(out, x++, m.palette[(byte >> k) & 3], scale, flash, pal);
           } else {
-            for (let k = 4; k >= 0; k -= 4) {
-              this.putPixels(out, x++, m.palette[(byte >> k) & 0x0F], scale, flash);
-            }
+            for (let k = 4; k >= 0; k -= 4) this.putPixels(out, x++, m.palette[(byte >> k) & 0x0F], scale, flash, pal);
           }
         }
       }
     }
   }
 
-  private putPixels(out: number, x: number, phys: number, scale: number, flash: boolean): void {
+  private putPixels(
+    out: number, x: number, phys: number, scale: number, flash: boolean, pal: Uint32Array,
+  ): void {
     const colour = flash && phys >= 8 ? (phys & 7) ^ 7 : phys & 7;  // flashing inverts
-    const c = this.pal()[colour];
+    const c = pal[colour];
     const px = Math.round(x * scale);
     for (let i = 0; i < scale; i++) this.pixels32[out + px + i] = c;
   }

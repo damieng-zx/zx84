@@ -100,11 +100,24 @@ export function writeBbcIo(m: BbcMachine, addr: number, val: number): void {
     case 0xFE09: return;                         // ACIA data (transmit)
     case 0xFE10: m.serialUlaControl = v; return;
     case 0xFE20: m.videoUlaControl = v; return;
-    case 0xFE21:
+    case 0xFE21: {
       m.videoPaletteRegister = v;
-      // Bottom four bits are the physical colour EOR 7.
-      m.palette[(v >> 4) & 0x0F] = (v & 0x0F) ^ 7;
+      // Bottom four bits are the physical colour EOR 7. The logical-colour
+      // field depends on the mode's colour count, which follows the chars-per-
+      // line bits and the clock: high clock gives 2/4/16 colours for 80/40/20
+      // columns; low clock gives 2 colours except 20-column (4 colours).
+      const physical = (v & 0x0F) ^ 7;
+      const cpl = (m.videoUlaControl >> 2) & 3;   // 3=80, 2=40, 1=20 cols
+      const highClock = (m.videoUlaControl & 0x10) !== 0;
+      const colours = highClock ? (cpl === 3 ? 2 : cpl === 2 ? 4 : 16)
+        : (cpl === 1 ? 4 : 2);
+      let logical: number;
+      if (colours === 2) logical = (v >> 7) & 1;
+      else if (colours === 4) logical = (((v >> 7) & 1) << 1) | ((v >> 5) & 1);
+      else logical = (v >> 4) & 0x0F;
+      m.palette[logical & 0x0F] = physical;
       return;
+    }
     case 0xFE30: m.memory.romsel = v & 0x0F; return;
     default:
       if (a === 0xFE80 || (a >= 0xFE84 && a <= 0xFE87)) { m.fdc1770.write(a, v); return; }
