@@ -2033,12 +2033,24 @@ input[type="range"]::-moz-range-thumb {
   white-space: pre;
   overflow-y: auto;
   max-height: 400px;
+  /* One variable per row, two aligned columns: the name (sized to the longest)
+     and the value. The row is `display: contents` so both cells are direct
+     grid items and the "=" lines up down the pane — like the register panel. */
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  column-gap: 6px;
+  align-items: baseline;
 }
+
+#basic-vars-output .basic-var-row { display: contents; }
 
 #basic-vars-output .var-name {
   color: #6cf;
   font-weight: bold;
+  text-align: right;
 }
+
+#basic-vars-output .var-detail { color: #888; }
 
 /* Memory bank pane */
 

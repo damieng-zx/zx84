@@ -31,7 +31,7 @@
  * forms the de-tokeniser needs to render the pseudo-variables.
  */
 
-import type { BasicListingLine } from './types.ts';
+import type { BasicListingLine, BasicVariable } from './types.ts';
 
 /** Tokenised line-number reference; followed by three encoded bytes. */
 const LINE_REF_TOKEN = 0x8D;
@@ -199,5 +199,238 @@ export function parseBbcBasic(ram: Uint8Array): BasicListingLine[] {
     out.push({ lineNumber, text: detokenize(ram, o + 3, o + len - 1) });
     o += len;
   }
+  return out;
+}
+
+// ── Variables ───────────────────────────────────────────────────────────────
+//
+// The dynamic variables live in a heap that grows upward from `LOMEM` (normally
+// equal to `TOP`, the end of the program) to `VARTOP`. The interpreter holds
+// both in zero page: LOMEM at &00/&01 and VARTOP at &02/&03.
+//
+// The heap is not a flat list. A table of 64 little-endian word pointers sits
+// at &0480-&04FF, one per possible initial character: the slot for character
+// `c` is at `&0400 + 2·c`. Each heap entry's first two bytes link it to the
+// next entry whose name shares that initial character (0 = end of chain); the
+// first character itself is implied by the table slot and is not stored.
+//
+// An entry at its link address `p` is:
+//
+//     [link:2] [name…] [&00] [value…]
+//
+// The stored name is everything after the first character and is terminated by
+// a &00 (NOT a high-bit-set final character — that convention belongs to names
+// inside the tokenised program text). The value depends on the name's suffix:
+//
+//     float   no suffix            5 bytes: exponent, then 4 mantissa bytes
+//     int     `%`                  4 bytes, signed, little-endian
+//     string  `$`                  4-byte descriptor [start:2][max:1][len:1];
+//                                  the characters live at `start`, which may
+//                                  have been relocated to the top of the heap
+//     array   name ends with `(`   [ndimOffset:1][dim:2 × ndims][elements…],
+//                                  ndimOffset = 1 + 2·ndims and each stored dim
+//                                  is the subscript + 1 (arrays are 0…N)
+//
+// The single-letter integer variables A%…Z% are the "resident integer
+// variables": they are not heap entries at all but live in 4-byte slots at
+// &0404 (A%) … &0468 (Z%), surviving RUN and NEW. We list the non-zero ones so
+// an ordinary `B%=42` is visible. @% (&0400) is the PRINT-formatting pseudo-
+// variable and is not user data, so it is omitted.
+//
+// FOR loops keep the loop variable as an ordinary variable; the control record
+// sits on a fixed stack of ten 15-byte frames at &0500, bounded by the FOR
+// stack pointer in zero page &26. A frame is:
+//
+//     [varAddr:2] [type:1] [step:5] [limit:5] [bodyAddr:2]
+//
+// where type 5 selects 5-byte floats for step/limit and any other value uses a
+// 4-byte integer. We pair each live frame with its variable (by value address)
+// and report it as a `for-next` entry.
+
+/** Zero-page pointers into the BASIC workspace, from the BASIC II source. */
+const ZP_LOMEM = 0x00;
+const ZP_VARTOP = 0x02;
+const ZP_FORSTP = 0x26;
+
+/** Base of the per-initial-character chain table; the slot for character `c`
+ *  is at `VAR_TABLE_BASE + 2·c`, so &40-&7F covers &0480-&04FF. */
+const VAR_TABLE_BASE = 0x0400;
+const VAR_TABLE_FIRST = 0x40;
+const VAR_TABLE_LAST = 0x7F;
+
+/** Resident integer variables: 4 bytes each; A% is index 1, Z% index 26. */
+const RESIDENT_BASE = 0x0400;
+const RESIDENT_A = 1;
+const RESIDENT_Z = 26;
+
+/** FOR-loop control frames: fixed stack at &0500, 15 bytes each, 10 max. */
+const FOR_STACK_BASE = 0x0500;
+const FOR_FRAME = 15;
+const FOR_MAX = 10;
+/** Type byte in a FOR frame selecting floating-point step/limit. */
+const FOR_TYPE_FLOAT = 0x05;
+
+/** Lowest address a BASIC variable heap can start at (below is workspace). */
+const LOWEST_HEAP = 0x0400;
+
+/** Safety cap on entries walked, matching the other variable parsers. */
+const MAX_VARS = 2000;
+
+const word = (ram: Uint8Array, a: number): number => ram[a] | (ram[a + 1] << 8);
+
+/** Signed 32-bit little-endian read. */
+function readS32(ram: Uint8Array, a: number): number {
+  const v = (ram[a] | (ram[a + 1] << 8) | (ram[a + 2] << 16) | (ram[a + 3] << 24)) >>> 0;
+  return v >= 0x80000000 ? v - 0x100000000 : v;
+}
+
+/** Tidy decimal for a computed value, trimmed to BASIC's ~9 significant
+ *  figures so binary fractions don't print float noise. */
+function formatNumber(value: number): string {
+  if (!Number.isFinite(value)) return String(value);
+  return parseFloat(value.toPrecision(9)).toString();
+}
+
+/**
+ * Decode a 5-byte BASIC II float at `a`: exponent first, then four mantissa
+ * bytes in sign-and-magnitude order (MSB first). Restoring the implied leading
+ * 1 gives a binary fraction in [0.5, 1); the value is fraction·2^(exp−128).
+ * An exponent of zero means an integer held directly in the mantissa.
+ */
+function decodeBbcFloat(ram: Uint8Array, a: number): string {
+  const exp = ram[a];
+  if (exp === 0) return String(readS32(ram, a + 1));
+  const m1 = ram[a + 1];
+  const mantissa = ((m1 | 0x80) * 0x1000000) + (ram[a + 2] << 16) + (ram[a + 3] << 8) + ram[a + 4];
+  const sign = (m1 & 0x80) !== 0 ? -1 : 1;
+  return formatNumber(sign * mantissa * Math.pow(2, exp - 160));
+}
+
+/** Read a &00-terminated name remainder starting at `a`. Returns the name and
+ *  the offset just past the terminator (the first value byte), or null when no
+ *  terminator appears within `end`. */
+function readVarName(ram: Uint8Array, a: number, end: number): { name: string; next: number } | null {
+  let name = '';
+  for (let i = a; i < end && name.length <= 255; i++) {
+    const b = ram[i];
+    if (b === 0) return { name, next: i + 1 };
+    name += String.fromCharCode(b);
+  }
+  return null;
+}
+
+/** Decode a step/limit operand from a FOR frame of the given type. */
+function decodeForOperand(ram: Uint8Array, a: number, type: number): string {
+  return type === FOR_TYPE_FLOAT ? decodeBbcFloat(ram, a) : String(readS32(ram, a));
+}
+
+/** Collect the value addresses of every live FOR loop variable. The caller
+ *  uses these both to name the frames and to suppress the duplicate plain
+ *  entry for the same variable. */
+function activeForVarAddrs(ram: Uint8Array): Set<number> {
+  const addrs = new Set<number>();
+  const forStp = ram[ZP_FORSTP];
+  const frames = Math.min(Math.floor(forStp / FOR_FRAME), FOR_MAX);
+  for (let i = 0; i < frames; i++) addrs.add(word(ram, FOR_STACK_BASE + i * FOR_FRAME));
+  return addrs;
+}
+
+/** Emit the resident integer variables (A%…Z%, non-zero) and record every
+ *  resident slot in `valueNames` so a FOR frame can name its variable. */
+function parseResidentIntegers(
+  ram: Uint8Array,
+  out: BasicVariable[],
+  valueNames: Map<number, string>,
+  forAddrs: Set<number>,
+): void {
+  for (let index = RESIDENT_A; index <= RESIDENT_Z; index++) {
+    const addr = RESIDENT_BASE + index * 4;
+    const name = String.fromCharCode(0x40 + index) + '%';
+    valueNames.set(addr, name);
+    const value = readS32(ram, addr);
+    if (value !== 0 && !forAddrs.has(addr)) out.push({ name, kind: 'number', value: String(value) });
+  }
+}
+
+/**
+ * Parse a BBC BASIC II variable heap from a 32KB RAM image (addresses ==
+ * indices, i.e. `BbcMemory.ram`). Returns the resident integer variables first,
+ * then heap variables in chain order, then live FOR loops. Returns [] when RAM
+ * does not hold a plausible BASIC workspace.
+ */
+export function parseBbcBasicVariables(ram: Uint8Array): BasicVariable[] {
+  if (ram.length < 0x8000) return [];
+  const lomem = word(ram, ZP_LOMEM);
+  const vartop = word(ram, ZP_VARTOP);
+  if (lomem < LOWEST_HEAP || lomem > vartop || vartop > ram.length) return [];
+
+  const forAddrs = activeForVarAddrs(ram);
+  const valueNames = new Map<number, string>();
+  const out: BasicVariable[] = [];
+  parseResidentIntegers(ram, out, valueNames, forAddrs);
+
+  for (let code = VAR_TABLE_FIRST; code <= VAR_TABLE_LAST; code++) {
+    let p = word(ram, VAR_TABLE_BASE + code * 2);
+    const visited = new Set<number>();
+    let guard = 0;
+    while (p !== 0 && guard++ < MAX_VARS && !visited.has(p)) {
+      if (p < lomem || p + 2 > vartop) break;
+      visited.add(p);
+      const link = word(ram, p);
+      const read = readVarName(ram, p + 2, vartop);
+      if (!read) break;
+
+      const name = String.fromCharCode(code) + read.name;
+      const valueAddr = read.next;
+      const isArray = name.endsWith('(');
+      const suffix = isArray ? name[name.length - 2] : name[name.length - 1];
+
+      if (isArray) {
+        const ndimOffset = valueAddr < vartop ? ram[valueAddr] : 0;
+        const ndims = (ndimOffset - 1) / 2;
+        if (ndimOffset < 3 || (ndimOffset & 1) === 0 || valueAddr + ndimOffset > vartop) break;
+        const dims: number[] = [];
+        for (let d = 0; d < ndims; d++) dims.push(Math.max(0, word(ram, valueAddr + 1 + d * 2) - 1));
+        out.push({ name: `${name.slice(0, -1)}(${dims.join(',')})`, kind: 'array' });
+      } else if (suffix === '$') {
+        if (valueAddr + 4 > vartop) break;
+        const start = word(ram, valueAddr);
+        const len = ram[valueAddr + 3];
+        let text = '';
+        if (start >= lomem && start + len <= vartop) {
+          for (let i = 0; i < len; i++) text += String.fromCharCode(ram[start + i]);
+        }
+        if (!forAddrs.has(valueAddr)) out.push({ name, kind: 'string', value: text });
+      } else if (suffix === '%') {
+        if (valueAddr + 4 > vartop) break;
+        valueNames.set(valueAddr, name);
+        if (!forAddrs.has(valueAddr)) out.push({ name, kind: 'number', value: String(readS32(ram, valueAddr)) });
+      } else {
+        if (valueAddr + 5 > vartop) break;
+        valueNames.set(valueAddr, name);
+        if (!forAddrs.has(valueAddr)) out.push({ name, kind: 'number', value: decodeBbcFloat(ram, valueAddr) });
+      }
+
+      p = link;
+    }
+  }
+
+  // Live FOR loops, named via the variable they control.
+  const forStp = ram[ZP_FORSTP];
+  const frames = Math.min(Math.floor(forStp / FOR_FRAME), FOR_MAX);
+  for (let i = 0; i < frames; i++) {
+    const base = FOR_STACK_BASE + i * FOR_FRAME;
+    const varAddr = word(ram, base);
+    const name = valueNames.get(varAddr);
+    if (!name) continue;
+    const type = ram[base + 2];
+    out.push({
+      name,
+      kind: 'for-next',
+      value: decodeForOperand(ram, varAddr, type),
+      detail: `TO ${decodeForOperand(ram, base + 8, type)} STEP ${decodeForOperand(ram, base + 3, type)}`,
+    });
+  }
+
   return out;
 }

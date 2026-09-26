@@ -3,7 +3,7 @@ import type {
 } from '@/machines/machine.ts';
 import { fixedDrive } from '@/media/floppy/floppy-sound.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
-import { parseBbcBasic } from '@/basic/bbc-basic-parser.ts';
+import { parseBbcBasic, parseBbcBasicVariables } from '@/basic/bbc-basic-parser.ts';
 import {
   BBC_MODE7_COLS, BBC_MODE7_ROWS, BBC_MODE7_CELL_W, BBC_MODE7_CELL_H,
   BBC_MODE7_ORIGIN_X, BBC_MODE7_ORIGIN_Y,
@@ -51,6 +51,8 @@ export class BbcFrameProbe implements FrameProbe {
     this.panes = {
       // The tokenised BBC BASIC program lives in main RAM from PAGE.
       basicListing: () => parseBbcBasic(machine.memory.ram),
+      // Variables live in the heap above TOP plus the resident A%-Z%.
+      basicVars: () => parseBbcBasicVariables(machine.memory.ram),
     };
   }
 
