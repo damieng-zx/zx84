@@ -103,10 +103,10 @@ describe('i8271 read/write', () => {
     // own size code N=1 gives the 256-byte length).
     send(fdc, 0x12, 0x00, 0x03, 0x21);
     expect(fdc.read(0) & I8271Status.BSY).toBe(I8271Status.BSY);
-    expect(fdc.read(0) & I8271Status.DRQ).toBe(I8271Status.DRQ);
 
     const got: number[] = [];
     for (let i = 0; i < SECTOR; i++) {
+      done(fdc);   // the byte is offered on the disc clock, not instantly
       expect(fdc.read(0) & I8271Status.DRQ).toBe(I8271Status.DRQ);
       got.push(fdc.readData());
     }
@@ -123,7 +123,8 @@ describe('i8271 read/write', () => {
     send(fdc, 0x13, 0x00, 0x00, 0x22); // size code 1, count 2, from sector 0
     const got: number[] = [];
     for (let i = 0; i < SECTOR * 2; i++) {
-      while ((fdc.read(0) & I8271Status.DRQ) === 0) { /* wait for data */ }
+      done(fdc);
+      expect(fdc.read(0) & I8271Status.DRQ).toBe(I8271Status.DRQ);
       got.push(fdc.readData());
     }
     expect(got[0]).toBe(0x11);      // track 0, sector 0
@@ -137,7 +138,7 @@ describe('i8271 read/write', () => {
     expect(fdc.isDirty(0)).toBe(false);
 
     send(fdc, 0x0a, 0x00, 0x02); // WRITE DATA SINGLE to track 0, sector 2
-    for (let i = 0; i < SECTOR; i++) fdc.writeData((0xa0 + i) & 0xff);
+    for (let i = 0; i < SECTOR; i++) { done(fdc); fdc.writeData((0xa0 + i) & 0xff); }
     done(fdc);
     expect(fdc.read(1)).toBe(I8271Result.NONE);
 
@@ -200,8 +201,10 @@ describe('i8271 interrupt', () => {
     selectDrive0Side0(fdc);
 
     send(fdc, 0x12, 0x00, 0x03);
+    done(fdc);
     expect(events.at(-1)).toBe(true); // first data byte is requested
     fdc.readData();
+    done(fdc);
     expect(events.at(-1)).toBe(true); // next byte is requested
   });
 });

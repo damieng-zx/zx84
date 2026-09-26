@@ -56,6 +56,11 @@ const PHASE_BUSY   = 4;
  *  and interrupt appear. Mirrors BeebEm's short `SetTrigger` delay. */
 const COMPLETION_CYCLES = 50;
 
+/** Cycles between successive data-register bytes of a transfer (BeebEm's
+ *  TIMEBETWEENBYTES). Each tick offers the next byte and re-raises the
+ *  interrupt, so the DFS's per-byte NMI handler advances its byte counter. */
+const BYTE_CYCLES = 80;
+
 // ── Result/error codes (MAME error enum) — the DFS tests these ──────────────
 const ERR_NONE  = 0x00; // success
 const ERR_ICRC  = 0x0c; // ID field CRC error
@@ -204,6 +209,8 @@ export class I8271 {
   private delay = 0;
   /** Completion queued by a command, applied when `delay` hits zero. */
   private pending: { kind: 'result'; rr: number; interrupt: boolean } | { kind: 'idle' } | null = null;
+  /** Cycles until the next EXEC byte is offered/consumed (0 when mid-transfer). */
+  private byteDelay = 0;
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -236,6 +243,7 @@ export class I8271 {
     this.transferUnit = 0;
     this.delay = 0;
     this.pending = null;
+    this.byteDelay = 0;
     this.irq = false;
     // Deliberately do NOT drop disks or the dirty flags — a reset is not an eject.
     if (wasIrq) this.options.onInterrupt?.(false);
@@ -243,14 +251,26 @@ export class I8271 {
 
   /** Advance the deferred-completion timer by `cycles` (1 MHz disc clock). */
   tick(cycles: number): void {
-    if (this.pending === null) return;
-    this.delay -= cycles;
-    if (this.delay > 0) return;
-    const p = this.pending;
-    this.pending = null;
-    this.delay = 0;
-    if (p.kind === 'result') this.finishResultNow(p.rr, p.interrupt);
-    else this.finishIdleNow();
+    if (this.pending !== null) {
+      this.delay -= cycles;
+      if (this.delay > 0) return;
+      const p = this.pending;
+      this.pending = null;
+      this.delay = 0;
+      if (p.kind === 'result') this.finishResultNow(p.rr, p.interrupt);
+      else this.finishIdleNow();
+      return;
+    }
+    // Per-byte transfer cadence: offer the next byte once its delay expires,
+    // and complete once the last one has been serviced.
+    if (this.phase === PHASE_EXEC && this.buffer !== null && this.byteDelay > 0) {
+      this.byteDelay -= cycles;
+      if (this.byteDelay > 0) return;
+      this.byteDelay = 0;
+      if (this.bufPos < this.buffer.length) this.setDrq(true);
+      else if (this.writing) this.completeWrite();
+      else this.completeTransfer();
+    }
   }
 
   /** No-op frame hook — provided so the machine can pump the chip per frame. */
@@ -305,24 +325,22 @@ export class I8271 {
 
   /** FE84 data register — services the active EXEC transfer. */
   readData(): number {
-    if (this.phase !== PHASE_EXEC || this.buffer === null || this.writing) {
+    if (this.phase !== PHASE_EXEC || this.buffer === null || this.writing || !this.drq) {
       return this.dataReg;
     }
     this.setDrq(false);
     const value = this.buffer[this.bufPos++];
     this.dataReg = value;
-    if (this.bufPos < this.buffer.length) this.setDrq(true);
-    else this.completeTransfer();
+    this.byteDelay = BYTE_CYCLES;   // offer the next byte later
     return value;
   }
 
   writeData(value: number): void {
     this.dataReg = value & 0xff;
-    if (this.phase !== PHASE_EXEC || this.buffer === null || !this.writing) return;
+    if (this.phase !== PHASE_EXEC || this.buffer === null || !this.writing || !this.drq) return;
     this.setDrq(false);
     this.buffer[this.bufPos++] = value & 0xff;
-    if (this.bufPos < this.buffer.length) this.setDrq(true);
-    else this.completeWrite();
+    this.byteDelay = BYTE_CYCLES;   // take the next byte later
   }
 
   // ── Status / interrupt plumbing ───────────────────────────────────────────
@@ -543,7 +561,7 @@ export class I8271 {
     this.bufPos = 0;
     this.writing = false;
     this.phase = PHASE_EXEC;
-    this.setDrq(true);
+    this.byteDelay = BYTE_CYCLES;
   }
 
   private beginWrite(multi: boolean): void {
@@ -566,7 +584,7 @@ export class I8271 {
     this.bufPos = 0;
     this.writing = true;
     this.phase = PHASE_EXEC;
-    this.setDrq(true);
+    this.byteDelay = BYTE_CYCLES;
   }
 
   private beginVerify(multi: boolean): void {
@@ -598,7 +616,7 @@ export class I8271 {
     this.bufPos = 0;
     this.writing = false;
     this.phase = PHASE_EXEC;
-    this.setDrq(true);
+    this.byteDelay = BYTE_CYCLES;
   }
 
   private completeTransfer(): void {
