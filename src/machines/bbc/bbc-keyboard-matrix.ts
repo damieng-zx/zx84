@@ -39,3 +39,35 @@ export const BBC_KEY_MATRIX: Record<string, readonly [number, number]> = {
   ControlLeft: [1, 0], ControlRight: [1, 0],
   CapsLock: [0, 4], ShiftLock: [0, 5],
 };
+
+/**
+ * Printable character -> the host key (and whether shift is needed) that
+ * produces it on the BBC's own layout. The BBC's shifted symbols differ from a
+ * PC's (the BBC's `*` is Shift+`:` key, its `_`/`£` has a dedicated key, the
+ * number row is `! " # $ % & ' ( )`), so routing by the produced character lets
+ * PC users type BBC symbols without relearning the layout. Letters are handled
+ * positionally (case comes from the machine's CAPS LOCK state).
+ */
+export const BBC_CHAR_KEYS: Record<string, { code: string; shift: boolean }> = {
+  '0': { code: 'Digit0', shift: false },
+  '1': { code: 'Digit1', shift: false }, '!': { code: 'Digit1', shift: true },
+  '2': { code: 'Digit2', shift: false }, '"': { code: 'Digit2', shift: true },
+  '3': { code: 'Digit3', shift: false }, '4': { code: 'Digit4', shift: false },
+  '$': { code: 'Digit4', shift: true },
+  '5': { code: 'Digit5', shift: false }, '%': { code: 'Digit5', shift: true },
+  '6': { code: 'Digit6', shift: false }, '&': { code: 'Digit6', shift: true },
+  '7': { code: 'Digit7', shift: false }, "'": { code: 'Digit7', shift: true },
+  '8': { code: 'Digit8', shift: false }, '(': { code: 'Digit8', shift: true },
+  '9': { code: 'Digit9', shift: false }, ')': { code: 'Digit9', shift: true },
+  '-': { code: 'Minus', shift: false }, '=': { code: 'Minus', shift: true },
+  ';': { code: 'Semicolon', shift: false }, '+': { code: 'Semicolon', shift: true },
+  ':': { code: 'Apostrophe', shift: false }, '*': { code: 'Apostrophe', shift: true },
+  '[': { code: 'BracketLeft', shift: false }, '{': { code: 'BracketLeft', shift: true },
+  ']': { code: 'BracketRight', shift: false }, '}': { code: 'BracketRight', shift: true },
+  ',': { code: 'Comma', shift: false }, '<': { code: 'Comma', shift: true },
+  '.': { code: 'Period', shift: false }, '>': { code: 'Period', shift: true },
+  '/': { code: 'Slash', shift: false }, '?': { code: 'Slash', shift: true },
+  '\\': { code: 'Backslash', shift: false }, '|': { code: 'Backslash', shift: true },
+  '^': { code: 'Backquote', shift: false }, '~': { code: 'Backquote', shift: true },
+  ' ': { code: 'Space', shift: false },
+};

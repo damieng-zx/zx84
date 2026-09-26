@@ -122,7 +122,7 @@ export function wireBbcIo(m: BbcMachine): void {
   // writing port A selects a matrix cell, and the keyboard asserts CA2 when
   // that cell is pressed — this is what the MOS's manual scan tests.
   m.sysVia.onPortAWrite = (value, ddr) => {
-    if (m.ic32.soundEnabled) m.psg.write(value);
+    if (m.ic32.soundEnabled) { m.psg.write(value); m.activity.psgWrites++; }
     if ((ddr & 0x80) === 0) {
       m.sysVia.setCA2(m.keyboard.anyInColumn(value & 0x0F));
     }

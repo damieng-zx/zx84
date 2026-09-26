@@ -35,7 +35,7 @@ const BBC_UI: MachineUiCapabilities = {
   romPages: 0,
   beeper: false,
   psgControls: [],
-  statusLeds: ['kbd', 'dsk', 'text'],
+  statusLeds: ['kbd', 'dsk', 'psg', 'text'],
   keyboardBus: 'matrix',
   tapeSound: false,
   tapeExtensions: [],

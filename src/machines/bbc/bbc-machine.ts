@@ -11,7 +11,7 @@
 import { M6502 } from '@/cores/m6502.ts';
 import { M6522 } from '@/cores/m6522.ts';
 import { Crtc6845 } from '@/cores/crtc-6845.ts';
-import { Sn76489 } from '@/cores/sn76489.ts';
+import { Sn76489, type Sn76489AntialiasMode } from '@/cores/sn76489.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
@@ -73,6 +73,9 @@ export class BbcMachine extends BaseMachine implements Machine {
   /** Logical -> physical colour map (identity until the OS writes the palette). */
   readonly palette = Uint8Array.from({ length: 16 }, (_, i) => i);
 
+  /** Per-frame activity counters for the frame probe. */
+  readonly activity = { psgWrites: 0 };
+
   private borderMode: BorderMode = 2;
   private viaAccum = 0;
   private prevVsync = false;
@@ -92,6 +95,9 @@ export class BbcMachine extends BaseMachine implements Machine {
     this.display = display ?? null;
     this.cpu.read = (addr) => this.memory.readByte(addr);
     this.cpu.write = (addr, val) => this.memory.writeByte(addr, val);
+    // PSG-only machine: no beeper to balance against the SN76489.
+    this.mixer.beeperGain = 0;
+    this.mixer.psgGain = 1;
     wireBbcIo(this);
     this.services = createBbcServices(this);
   }
@@ -124,6 +130,9 @@ export class BbcMachine extends BaseMachine implements Machine {
 
   applySettings(view: SettingsView): void {
     this.audio.setVolume(view.get('volume', 70) / 100);
+    // The SN76489 shares the Sound panel's anti-alias strategy control with the
+    // AY-family PSGs; the strategies are equivalent (see Sn76489AntialiasMode).
+    this.psg.antialias = view.get<Sn76489AntialiasMode>('ay-antialias', 'mute');
   }
 
   setBorderSize(mode: BorderMode): void {
@@ -161,6 +170,7 @@ export class BbcMachine extends BaseMachine implements Machine {
     for (let i = 0; i < 16; i++) this.palette[i] = i;
     this.viaAccum = 0;
     this.prevVsync = false;
+    this.activity.psgWrites = 0;
     this.psg.reset();
     this.audio.reset();
     this.mixer.reset();
@@ -186,8 +196,11 @@ export class BbcMachine extends BaseMachine implements Machine {
 
   protected runFrame(): void {
     const cyclesPerLine = BBC_TSTATES_PER_FRAME / LINES_PER_FRAME;
+    const skipAudio = this.speedMultiplier !== 1;
+    this.activity.psgWrites = 0;
     this.crtc.beginFrame();
     let lineEnd = this.cpu.tStates;
+    let lastAudioT = this.cpu.tStates;
 
     for (let line = 0; line < LINES_PER_FRAME; line++) {
       lineEnd += cyclesPerLine;
@@ -204,6 +217,15 @@ export class BbcMachine extends BaseMachine implements Machine {
         const before = this.cpu.tStates;
         this.cpu.step();
         this.tickChips(this.cpu.tStates - before);
+
+        if (!skipAudio) {
+          const audioElapsed = this.cpu.tStates - lastAudioT;
+          if (audioElapsed > 0) {
+            this.mixer.accumulate(0, audioElapsed);
+            this.mixer.generateSamples(this.audio, this.psg, true);
+            lastAudioT = this.cpu.tStates;
+          }
+        }
       }
       this.crtc.advanceLine();
       if (this.crtc.vsyncStart) {

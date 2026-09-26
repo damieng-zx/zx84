@@ -18,7 +18,7 @@ export class BbcFrameProbe implements FrameProbe {
     out.tapeIn = 0;
     out.tapeLoad = 0;
     out.beeper = 0;
-    out.psg = 0;
+    out.psg = this.machine.activity.psgWrites;
     out.videoFx = 0;
     out.tapeTurbo = false;
     out.tapeLoaded = false;

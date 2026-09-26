@@ -177,6 +177,25 @@ describe('bbc — keyboard', () => {
     }
   });
 
+  it('routes symbols by the produced character (BBC layout)', () => {
+    const m = makeBbc();
+    try {
+      // Host Shift+8 yields '*' but the BBC's '*' is Shift on its ':' key.
+      m.services.input.keyDown({ code: 'Digit8', key: '*', shift: true, ctrl: false, alt: false });
+      expect(m.keyboard.isDown(8, 4)).toBe(true);   // the BBC '*'/':' key
+      expect(m.keyboard.isDown(0, 0)).toBe(true);   // SHIFT asserted
+      expect(m.keyboard.isDown(5, 1)).toBe(false);  // not the '8' key
+      m.services.input.keyUp({ code: 'Digit8', key: '*', shift: true, ctrl: false, alt: false });
+
+      // Host '8' still lands on the BBC '8' key, unshifted.
+      m.services.input.keyDown({ code: 'Digit8', key: '8', shift: false, ctrl: false, alt: false });
+      expect(m.keyboard.isDown(5, 1)).toBe(true);
+      expect(m.keyboard.isDown(0, 0)).toBe(false);
+    } finally {
+      m.destroy();
+    }
+  });
+
   it('exposes the fitted option links on row 0', () => {
     const m = makeBbc();
     try {
@@ -197,6 +216,31 @@ describe('bbc — keyboard', () => {
       expect(m.keyboard.isDown(1, 0)).toBe(false);
       expect(m.keyboard.anyInColumn(1)).toBe(true);
       expect(m.keyboard.anyInColumn(0)).toBe(false);
+    } finally {
+      m.destroy();
+    }
+  });
+});
+
+describe('bbc — sound', () => {
+  it('routes System VIA port A writes to the SN76489 when enabled', () => {
+    const m = makeBbc();
+    try {
+      writeIc32(m, 0x00, 0x0F);   // IC32 latch 0 = 0 -> sound chip enabled
+      m.sysVia.ddra = 0xFF;       // all port A bits outputs (slow sound bus)
+      m.memory.writeByte(0xFE4F, 0x8F);
+      expect(m.activity.psgWrites).toBe(1);
+    } finally {
+      m.destroy();
+    }
+  });
+
+  it('does not write the SN76489 while sound is disabled', () => {
+    const m = makeBbc();
+    try {
+      m.sysVia.ddra = 0xFF;
+      m.memory.writeByte(0xFE4F, 0x8F);
+      expect(m.activity.psgWrites).toBe(0);
     } finally {
       m.destroy();
     }
