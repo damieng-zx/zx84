@@ -168,6 +168,7 @@ export class BbcVideo {
     const start = m.crtc.displayStart;
     const sub = wrapSubtract(m.ic32.c0, m.ic32.c1);
     const pal = this.pal();
+    const n = 8 / info.bpp;               // pixels per byte
 
     // Hi-res address translation: each 6845 MA unit is one byte-wide column of
     // eight scanlines, so the byte for a cell is (MA << 3) | RA, wrapped if the
@@ -185,12 +186,15 @@ export class BbcVideo {
           let addr = ((ma & 0x1FFF) << 3) | ra;
           if (ma & 0x1000) addr = (addr - sub) & 0x7FFF;
           const byte = m.memory.ram[addr & 0x7FFF];
-          if (info.bpp === 1) {
-            for (let k = 7; k >= 0; k--) this.putPixels(out, x++, m.palette[(byte >> k) & 1], scale, flash, pal);
-          } else if (info.bpp === 2) {
-            for (let k = 6; k >= 0; k -= 2) this.putPixels(out, x++, m.palette[(byte >> k) & 3], scale, flash, pal);
-          } else {
-            for (let k = 4; k >= 0; k -= 4) this.putPixels(out, x++, m.palette[(byte >> k) & 0x0F], scale, flash, pal);
+          // The ULA interleaves the pixel bits across the byte rather than
+          // packing them contiguously: the top `bpp` bits of the byte are the
+          // most-significant bits of the `n` pixels, then the next group, etc.
+          for (let i = 0; i < n && x < info.width; i++) {
+            let v = 0;
+            for (let j = 0; j < info.bpp; j++) {
+              v = (v << 1) | ((byte >> ((info.bpp - 1 - j) * n + (n - 1 - i))) & 1);
+            }
+            this.putPixels(out, x++, m.palette[v], scale, flash, pal);
           }
         }
       }

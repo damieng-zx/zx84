@@ -325,6 +325,68 @@ describe('bbc — bitmap modes', () => {
       m.destroy();
     }
   });
+
+  /** Physical colour index at framebuffer (x, y), recovered from the RGBA. */
+  function physAt(m: BbcMachine, x: number, y: number): number {
+    const i = (y * 640 + x) * 4;
+    const pal = [
+      [0, 0, 0], [255, 0, 0], [0, 255, 0], [255, 255, 0],
+      [0, 0, 255], [255, 0, 255], [0, 255, 255], [255, 255, 255],
+    ];
+    for (let k = 0; k < 8; k++) {
+      if (m.pixels[i] === pal[k][0] && m.pixels[i + 1] === pal[k][1] && m.pixels[i + 2] === pal[k][2]) return k;
+    }
+    return -1;
+  }
+
+  it('unpacks 2bpp pixels by interleaving the bits across the byte', () => {
+    const m = makeBbc();
+    try {
+      // Mode 1: high clock, 40 columns -> 2bpp, 320px (scale 2).
+      m.videoUlaControl = 0x18;
+      m.crtc.regs[1] = 40;
+      m.crtc.regs[6] = 32;
+      m.crtc.regs[12] = 0x0B;     // display start 0xB00 -> 0x5800
+      m.crtc.regs[13] = 0x00;
+      for (let i = 0; i < 4; i++) m.palette[i] = i;
+      // Byte 0b01100101: pixel bits are B7+B3, B6+B2, B5+B1, B4+B0.
+      m.memory.ram[0x5800] = 0b01100101;
+      m.video.render(m);
+      const y = firstY;
+      // Expected physical colours 0,3,2,1 — each pixel doubled to scale 2.
+      expect([physAt(m, 0, y), physAt(m, 1, y), physAt(m, 2, y), physAt(m, 3, y)])
+        .toEqual([0, 0, 3, 3]);
+      expect([physAt(m, 4, y), physAt(m, 5, y), physAt(m, 6, y), physAt(m, 7, y)])
+        .toEqual([2, 2, 1, 1]);
+    } finally {
+      m.destroy();
+    }
+  });
+
+  it('unpacks 4bpp pixels by interleaving the bits across the byte', () => {
+    const m = makeBbc();
+    try {
+      // Mode 2: high clock, 20 columns -> 4bpp, 160px (scale 4).
+      m.videoUlaControl = 0x14;
+      m.crtc.regs[1] = 40;
+      m.crtc.regs[6] = 32;
+      m.crtc.regs[12] = 0x0B;
+      m.crtc.regs[13] = 0x00;
+      for (let i = 0; i < 16; i++) m.palette[i] = i % 8;
+      m.palette[10] = 6;   // distinguish the two decodes: 6 (cyan) vs 1 (red)
+      m.palette[1] = 3;    //                                    3 (yellow)
+      // Byte 0b10001001: pixel 0 = B7 B5 B3 B1 = 1010 = 10; pixel 1 = B6 B4 B2 B0 = 0001 = 1.
+      m.memory.ram[0x5800] = 0b10001001;
+      m.video.render(m);
+      const y = firstY;
+      expect(physAt(m, 0, y)).toBe(6);   // logical 10 -> palette 6
+      expect(physAt(m, 3, y)).toBe(6);
+      expect(physAt(m, 4, y)).toBe(3);   // logical 1 -> palette 3
+      expect(physAt(m, 7, y)).toBe(3);
+    } finally {
+      m.destroy();
+    }
+  });
 });
 
 function nonBlackPixels(m: BbcMachine): number {
