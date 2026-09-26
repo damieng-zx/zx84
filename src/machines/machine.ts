@@ -295,7 +295,7 @@ export interface MachineUiCapabilities {
   /** Execution-trace debugger control is available. */
   readonly trace: boolean;
   /** Palette / colour-map family shown in the Display pane. */
-  readonly colorMap: 'spectrum' | 'cpc' | 'msx' | 'einstein' | 'sam' | 'mono';
+  readonly colorMap: 'spectrum' | 'cpc' | 'msx' | 'einstein' | 'sam' | 'bbc' | 'mono';
   /**
    * Which Accuracy drop-down the Display pane offers, or false for none.
    *
@@ -396,7 +396,7 @@ export interface MachineUiCapabilities {
   /** ROM regions the Memory pane's region picker offers (besides mapped/banks). */
   readonly memoryRegions: readonly MemoryRegionInfo[];
   /** ASCII glyph table the Memory pane renders with. */
-  readonly charset: 'spectrum' | 'cpc';
+  readonly charset: 'spectrum' | 'cpc' | 'bbc';
 }
 
 /**

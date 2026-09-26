@@ -16,6 +16,7 @@ export class BbcDiskService implements DiskService {
   private unit(id: string): number { return id === 'b' ? 1 : 0; }
 
   get drives(): readonly DriveDescriptor[] {
+    if (!this.machine.dfsEnabled) return [];
     return [this.describe('a', 'Drive 0', 0), this.describe('b', 'Drive 1', 1)];
   }
 

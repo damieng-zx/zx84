@@ -14,10 +14,15 @@ import type { BbcMachine } from './bbc-machine.ts';
 const W = BBC_SCREEN_WIDTH;
 const H = BBC_SCREEN_HEIGHT;
 
-/** Physical BBC colours 0-7 as packed little-endian RGBA. */
-const PALETTE32 = Uint32Array.from([
+/** Physical BBC colours 0-7 as packed little-endian RGBA. 'pal' is fully
+ *  saturated; 'measured' uses the muted levels a real PAL receiver produced. */
+const PAL_PALETTE32 = Uint32Array.from([
   0xFF000000, 0xFF0000FF, 0xFF00FF00, 0xFF00FFFF,
   0xFFFF0000, 0xFFFF00FF, 0xFFFFFF00, 0xFFFFFFFF,
+]);
+const MEASURED_PALETTE32 = Uint32Array.from([
+  0xFF000000, 0xFF0000C0, 0xFF00C000, 0xFF00C0C0,
+  0xFFC00000, 0xFFC000C0, 0xFFC0C000, 0xFFE0E0E0,
 ]);
 
 interface BitmapMode {
@@ -59,6 +64,12 @@ export class BbcVideo {
   private readonly rowBytes = new Uint8Array(40);
   /** Toogled every ~32 frames while the ULA flash bit is set. */
   flashPhase = false;
+  /** Palette family from the display setting. */
+  paletteMode: 'pal' | 'measured' = 'pal';
+
+  private pal(): Uint32Array {
+    return this.paletteMode === 'measured' ? MEASURED_PALETTE32 : PAL_PALETTE32;
+  }
 
   reset(): void {
     this.saa.reset();
@@ -103,6 +114,7 @@ export class BbcVideo {
     // The 6845 advances its row address by R1 (horizontal displayed), which is
     // 40 in Mode 7 — not R0+1 (the 64-character horizontal total).
     const stride = m.crtc.regs[1] || cols;
+    const pal = this.pal();
 
     // The SAA5050's colour/graphics state carries across rows within a field
     // but is re-initialised at the start of each field (frame).
@@ -120,8 +132,8 @@ export class BbcVideo {
         const cell = this.cells[c];
         const fg = flash ? cell.bg : cell.fg;
         const bg = flash ? cell.fg : cell.bg;
-        const fgCol = PALETTE32[fg & 7];
-        const bgCol = PALETTE32[bg & 7];
+        const fgCol = pal[fg & 7];
+        const bgCol = pal[bg & 7];
         const x0 = xBase + c * cw;
         for (let y = 0; y < ch; y++) {
           const py = y0 + y;
@@ -176,9 +188,8 @@ export class BbcVideo {
   }
 
   private putPixels(out: number, x: number, phys: number, scale: number, flash: boolean): void {
-    let colour = phys & 7;
-    if (flash && phys >= 8) colour ^= 7;         // flashing colours invert
-    const c = PALETTE32[colour];
+    const colour = flash && phys >= 8 ? (phys & 7) ^ 7 : phys & 7;  // flashing inverts
+    const c = this.pal()[colour];
     const px = Math.round(x * scale);
     for (let i = 0; i < scale; i++) this.pixels32[out + px + i] = c;
   }

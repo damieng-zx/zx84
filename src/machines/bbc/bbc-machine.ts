@@ -76,6 +76,9 @@ export class BbcMachine extends BaseMachine implements Machine {
   /** Per-frame activity counters for the frame probe. */
   readonly activity = { psgWrites: 0 };
 
+  /** Whether the Acorn 1770 DFS interface (ROM + drives) is fitted. */
+  dfsEnabled = true;
+
   private borderMode: BorderMode = 2;
   private viaAccum = 0;
   private prevVsync = false;
@@ -115,7 +118,9 @@ export class BbcMachine extends BaseMachine implements Machine {
   }
 
   /** Fit the Acorn 1770 DFS ROM into socket 13 (IC88) before reset. */
-  prepare(_view: SettingsView): AuxRomRequest[] {
+  prepare(view: SettingsView): AuxRomRequest[] {
+    this.dfsEnabled = view.get('bbc-dfs-enabled', true);
+    if (!this.dfsEnabled) return [];
     return [{
       cacheKey: 'bbc-dfs-226',
       source: 'bbc/dfs-2.26.rom',
@@ -128,11 +133,23 @@ export class BbcMachine extends BaseMachine implements Machine {
     }];
   }
 
+  /** Fit or remove the DFS interface. The ROM is loaded at build time, so a
+   *  change takes effect on the next rebuild (the hardware pane does this). */
+  setDfsEnabled(enabled: boolean): void {
+    if (!enabled && this.dfsEnabled) {
+      this.fdc1770.ejectDisk(0);
+      this.fdc1770.ejectDisk(1);
+    }
+    this.dfsEnabled = enabled;
+  }
+
   applySettings(view: SettingsView): void {
     this.audio.setVolume(view.get('volume', 70) / 100);
     // The SN76489 shares the Sound panel's anti-alias strategy control with the
     // AY-family PSGs; the strategies are equivalent (see Sn76489AntialiasMode).
     this.psg.antialias = view.get<Sn76489AntialiasMode>('ay-antialias', 'mute');
+    this.video.paletteMode = view.get<'pal' | 'measured'>('bbc-color-map', 'pal');
+    this.dfsEnabled = view.get('bbc-dfs-enabled', true);
   }
 
   setBorderSize(mode: BorderMode): void {

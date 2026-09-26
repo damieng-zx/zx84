@@ -21,9 +21,8 @@ const BBC_UI: MachineUiCapabilities = {
   ],
   memoryLayout: false,
   trace: false,
-  // Mode 7 / ULA palette control arrives with the video stages; 'mono' hides
-  // the Color-map dropdown until there is a palette family to choose.
-  colorMap: 'mono',
+  // Mode 7 / ULA palette control; 'bbc' selects the BBC palette family.
+  colorMap: 'bbc',
   accuracy: false,
   builtinDisk: true,
   builtinDrives: 2,
@@ -45,7 +44,7 @@ const BBC_UI: MachineUiCapabilities = {
   bootDisk: false,
   library: false,
   memoryRegions: [],
-  charset: 'spectrum',
+  charset: 'bbc',
 };
 
 export function bbcDescriptor(

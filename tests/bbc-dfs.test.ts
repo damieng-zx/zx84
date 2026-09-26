@@ -90,4 +90,17 @@ describe('bbc 1770 interface', () => {
       m.destroy();
     }
   });
+
+  it('hides the drives when the DFS interface is disabled', () => {
+    const m = new BbcMachine('bbc-b', null);
+    try {
+      expect(m.services.disks!.drives.length).toBe(2);
+      m.setDfsEnabled(false);
+      expect(m.services.disks!.drives.length).toBe(0);
+      m.setDfsEnabled(true);
+      expect(m.services.disks!.drives.length).toBe(2);
+    } finally {
+      m.destroy();
+    }
+  });
 });

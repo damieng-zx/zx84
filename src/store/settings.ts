@@ -38,6 +38,7 @@ const DEFAULTS = {
   'msx-color-map':     'pal',
   'einstein-color-map': 'accurate',
   'sam-color-map':     'linear',
+  'bbc-color-map':     'pal',
   'scanline-accuracy': 'high',
 
   // Sound
@@ -99,6 +100,7 @@ const DEFAULTS = {
   'mtx-80-column':  'off',
   'mtx-512k-ram':   'off',
   'mtx-floppy':     'on',
+  'bbc-dfs-enabled': 'on',
   'lynx-fdc':       'on',
   'zx8x-16k-ram':  'off',
   'zx81-udg-ram':  'off',
@@ -431,6 +433,14 @@ const _mtxFloppy = /*@once*/ createRoot(() => createSignal(getSaved('mtx-floppy'
 export const mtxFloppy = _mtxFloppy[0];
 export const setMtxFloppy = _mtxFloppy[1];
 
+const _bbcColorMap = /*@once*/ createRoot(() => createSignal(getSaved('bbc-color-map', D('bbc-color-map')) as 'pal' | 'measured'));
+export const bbcColorMap = _bbcColorMap[0];
+export const setBbcColorMap = _bbcColorMap[1];
+
+const _bbcDfs = /*@once*/ createRoot(() => createSignal(getSaved('bbc-dfs-enabled', D('bbc-dfs-enabled')) === 'on'));
+export const bbcDfs = _bbcDfs[0];
+export const setBbcDfs = _bbcDfs[1];
+
 const _lynxFdc = /*@once*/ createRoot(() => createSignal(getSaved('lynx-fdc', D('lynx-fdc')) === 'on'));
 export const lynxFdc = _lynxFdc[0];
 export const setLynxFdc = _lynxFdc[1];
@@ -519,6 +529,7 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'msx-color-map',     set: setMsxColorMap,      type: 'string' },
     { key: 'einstein-color-map', set: setEinsteinColorMap, type: 'string' },
     { key: 'sam-color-map',     set: setSamColorMap,      type: 'string' },
+    { key: 'bbc-color-map',     set: setBbcColorMap,      type: 'string' },
     { key: 'scanline-accuracy', set: setScanlineAccuracy, type: 'string' },
   ],
   monitor: [
@@ -588,6 +599,7 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'mtx-80-column', set: setMtx80Column, type: 'bool' },
     { key: 'mtx-512k-ram', set: setMtx512kRam, type: 'bool' },
     { key: 'mtx-floppy', set: setMtxFloppy, type: 'bool' },
+    { key: 'bbc-dfs-enabled', set: setBbcDfs, type: 'bool' },
     { key: 'lynx-fdc', set: setLynxFdc, type: 'bool' },
     { key: 'zx8x-16k-ram', set: setZx8x16kRam, type: 'bool' },
     { key: 'zx81-udg-ram', set: setZx81UdgRam, type: 'bool' },

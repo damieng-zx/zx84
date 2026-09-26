@@ -207,6 +207,20 @@ describe('bbc — keyboard', () => {
     }
   });
 
+  it('sets cells directly for the on-screen keyboard', () => {
+    const m = makeBbc();
+    try {
+      m.keyboard.setCell(1, 4, true);
+      expect(m.keyboard.isPressed(1, 4)).toBe(true);
+      expect(m.keyboard.isDown(1, 4)).toBe(true);
+      expect(m.keyboard.anyInColumn(1)).toBe(true);
+      m.keyboard.setCell(1, 4, false);
+      expect(m.keyboard.isPressed(1, 4)).toBe(false);
+    } finally {
+      m.destroy();
+    }
+  });
+
   it('asserts CA2 for a column holding any pressed key', () => {
     const m = makeBbc();
     try {
