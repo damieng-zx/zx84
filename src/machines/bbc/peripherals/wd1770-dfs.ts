@@ -1,0 +1,58 @@
+/**
+ * Acorn 1770 disc interface (the Model B 1770 DFS upgrade).
+ *
+ * The WD1770 is mapped — as on the BBC B+ — at &FE84-&FE87 (status/command,
+ * track, sector, data) with the drive-control latch at &FE80. The control
+ * latch selects the drive (bits 0-1), the head (bit 2), density (bit 3) and
+ * resets the controller (bit 5).
+ */
+
+import { WD179x } from '@/cores/wd179x.ts';
+import type { DskImage } from '@/media/floppy/disk-image.ts';
+
+const CTRL_DRIVE_MASK = 0x03;
+const CTRL_SIDE = 0x04;
+const CTRL_RESET = 0x20;
+
+export class BbcDfs1770 {
+  readonly fdc = new WD179x({ statusBit7: 'motor-on', formatSectorsPerTrack: 10 });
+  control = 0;
+
+  read(addr: number): number {
+    switch (addr & 0xFF) {
+      case 0x80: return this.control;
+      case 0x84: return this.fdc.readStatus();
+      case 0x85: return this.fdc.readTrack();
+      case 0x86: return this.fdc.readSectorReg();
+      case 0x87: return this.fdc.readData();
+      default: return 0xFF;
+    }
+  }
+
+  write(addr: number, val: number): void {
+    switch (addr & 0xFF) {
+      case 0x80: this.writeControl(val); return;
+      case 0x84: this.fdc.writeCommand(val); return;
+      case 0x85: this.fdc.writeTrack(val); return;
+      case 0x86: this.fdc.writeSectorReg(val); return;
+      case 0x87: this.fdc.writeData(val); return;
+      default: return;
+    }
+  }
+
+  private writeControl(val: number): void {
+    this.control = val;
+    if (val & CTRL_RESET) this.fdc.reset();
+    this.fdc.selectDrive(val & CTRL_DRIVE_MASK);
+    this.fdc.setSide((val & CTRL_SIDE) ? 1 : 0);
+  }
+
+  tickFrame(): void { this.fdc.tickFrame(); }
+
+  insertDisk(image: DskImage, unit = 0): void { this.fdc.insertDisk(image, unit); }
+  ejectDisk(unit = 0): void { this.fdc.ejectDisk(unit); }
+  getDiskImage(unit: number): DskImage | null { return this.fdc.getDiskImage(unit); }
+  isDirty(unit: number): boolean { return this.fdc.isDirty(unit); }
+  clearDirty(unit: number): void { this.fdc.clearDirty(unit); }
+  get writeProtect(): boolean[] { return this.fdc.writeProtect; }
+}

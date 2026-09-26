@@ -23,6 +23,7 @@ export type { LynxModel } from '@/machines/lynx/models.ts';
 export type { SamModel } from '@/machines/sam/models.ts';
 export type { JupiterAceModel } from '@/machines/jupiter-ace/models.ts';
 export type { PcwModel } from '@/machines/pcw/models.ts';
+export type { BbcModel } from '@/machines/bbc/models.ts';
 
 // ── Per-family classification helpers (re-exported from each machine folder) ─
 export {
@@ -45,6 +46,7 @@ export { isLynxModel } from '@/machines/lynx/models.ts';
 export { isSamModel } from '@/machines/sam/models.ts';
 export { isJupiterAceModel } from '@/machines/jupiter-ace/models.ts';
 export { isPcwModel } from '@/machines/pcw/models.ts';
+export { isBbcModel } from '@/machines/bbc/models.ts';
 
 // ── System-ROM slot geometry (dispatches per family) ───────────────────────
 //
@@ -100,6 +102,7 @@ import type { LynxModel } from '@/machines/lynx/models.ts';
 import type { SamModel } from '@/machines/sam/models.ts';
 import type { JupiterAceModel } from '@/machines/jupiter-ace/models.ts';
 import type { PcwModel } from '@/machines/pcw/models.ts';
+import type { BbcModel } from '@/machines/bbc/models.ts';
 
 /** Any machine ZX84 can emulate. */
 export type MachineModel =
@@ -112,4 +115,5 @@ export type MachineModel =
   | LynxModel
   | SamModel
   | JupiterAceModel
-  | PcwModel;
+  | PcwModel
+  | BbcModel;
