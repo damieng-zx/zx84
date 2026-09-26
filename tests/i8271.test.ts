@@ -30,6 +30,10 @@ function send(fdc: I8271, cmd: number, ...params: number[]): void {
   for (const p of params) fdc.write(1, p);
 }
 
+/** Advance the 1 MHz disc clock past a command's completion delay so its
+ *  result/interrupt has appeared (long commands hold BUSY first). */
+function done(fdc: I8271): void { fdc.tick(200); }
+
 /** WRITE SPECIAL REGISTER 0x17 — set MODER (0xC1 = no-DMA, DRQ/NMI enabled). */
 function setModer(fdc: I8271, value: number): void {
   send(fdc, 0x3a, 0x17, value);
@@ -73,6 +77,7 @@ describe('i8271 registers', () => {
   it('stores the PCN and returns it from READ SPECIAL REGISTER', () => {
     const { fdc } = makeReadyDrive0();
     send(fdc, 0x29, 0x07); // SEEK (drive 0) to track 7
+    done(fdc);
     expect(fdc.read(1)).toBe(I8271Result.NONE);
 
     send(fdc, 0x3d, 0x12); // READ SPECIAL REGISTER: PCN drive 0
@@ -108,6 +113,7 @@ describe('i8271 read/write', () => {
     expect(got[0]).toBe(0);
     expect(got[1]).toBe(1);
     expect(got[255]).toBe(0xff);
+    done(fdc);
     expect(fdc.read(1)).toBe(I8271Result.NONE);
   });
 
@@ -122,6 +128,7 @@ describe('i8271 read/write', () => {
     }
     expect(got[0]).toBe(0x11);      // track 0, sector 0
     expect(got[SECTOR]).toBe(0x22); // track 0, sector 1
+    done(fdc);
     expect(fdc.read(1)).toBe(I8271Result.NONE);
   });
 
@@ -131,6 +138,7 @@ describe('i8271 read/write', () => {
 
     send(fdc, 0x0a, 0x00, 0x02); // WRITE DATA SINGLE to track 0, sector 2
     for (let i = 0; i < SECTOR; i++) fdc.writeData((0xa0 + i) & 0xff);
+    done(fdc);
     expect(fdc.read(1)).toBe(I8271Result.NONE);
 
     const sector = image.tracks[0]![0]!.sectors[2];
@@ -146,12 +154,14 @@ describe('i8271 read/write', () => {
   it('returns NOT FOUND for a sector number the track does not contain', () => {
     const { fdc } = makeReadyDrive0();
     send(fdc, 0x12, 0x00, 0x63); // sector 99 does not exist
+    done(fdc);
     expect(fdc.read(1)).toBe(I8271Result.NF);
   });
 
   it('returns NOT READY when the drive has no disk', () => {
     const fdc = new I8271();
     send(fdc, 0x12, 0x00, 0x03);
+    done(fdc);
     expect(fdc.read(1)).toBe(I8271Result.NR);
   });
 
@@ -161,6 +171,7 @@ describe('i8271 read/write', () => {
     const before = image.tracks[0]![0]!.sectors[2].data[0];
 
     send(fdc, 0x0a, 0x00, 0x02);
+    done(fdc);
     expect(fdc.read(1)).toBe(I8271Result.WP);
     expect(fdc.isDirty(0)).toBe(false);
     expect(image.tracks[0]![0]!.sectors[2].data[0]).toBe(before);
@@ -174,6 +185,7 @@ describe('i8271 interrupt', () => {
     fdc.insertDisk(parseSsd(makeSsd(), false), 0);
 
     send(fdc, 0x29, 0x05); // SEEK completes and raises the interrupt
+    done(fdc);
     expect(events.at(-1)).toBe(true);
 
     fdc.read(1); // reading the result releases it
@@ -200,6 +212,7 @@ describe('i8271 format', () => {
     const track = image.tracks[0]![0]!;
     // FORMAT TRACK: track, GAP3, size/count, GAP5, GAP1.
     send(fdc, 0x23, 0x00, 0x15, 0x2a, 0x00, 0x10);
+    done(fdc);
     expect(fdc.read(1)).toBe(I8271Result.NONE);
     for (const sec of track.sectors) {
       expect(sec.data[0]).toBe(0xe5);

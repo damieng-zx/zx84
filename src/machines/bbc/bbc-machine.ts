@@ -223,6 +223,7 @@ export class BbcMachine extends BaseMachine implements Machine {
     if (viaCycles > 0) {
       this.sysVia.addCycles(viaCycles);
       this.userVia.addCycles(viaCycles);
+      this.disc?.tick(viaCycles);   // 1 MHz disc controller clock
     }
     this.cpu.setIRQ(this.sysVia.irq || this.userVia.irq);
   }

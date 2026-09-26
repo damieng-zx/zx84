@@ -24,6 +24,9 @@ export class BbcDfs1770 implements BbcDiscController {
     this.fdc.reset();
   }
 
+  /** The WD179x model is command-synchronous — no completion timer to pump. */
+  tick(_cycles: number): void {}
+
   /** Frame-probe indicators (delegated to the WD179x). */
   get motorOn(): boolean { return this.fdc.motorOn; }
   get isExecuting(): boolean { return this.fdc.isExecuting; }

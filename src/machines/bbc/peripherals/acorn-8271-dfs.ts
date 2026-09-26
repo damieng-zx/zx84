@@ -36,6 +36,7 @@ export class BbcAcornDfs implements BbcDiscController {
   }
 
   reset(): void { this.fdc.reset(); }
+  tick(cycles: number): void { this.fdc.tick(cycles); }
   tickFrame(): void { this.fdc.tickFrame(); }
 
   insertDisk(image: DskImage, unit: number): void { this.fdc.insertDisk(image, unit); }

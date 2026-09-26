@@ -47,6 +47,14 @@ const PHASE_IDLE   = 0;
 const PHASE_CMD    = 1;
 const PHASE_EXEC   = 2;
 const PHASE_RESULT = 3;
+/** A command has finished but the chip holds BUSY until the completion timer
+ *  expires (BeebEm `SetTrigger`): the result/interrupt appears a few cycles
+ *  later, not the instant the last parameter is written. */
+const PHASE_BUSY   = 4;
+
+/** Cycles (1 MHz disc clock) a completed command holds BUSY before its result
+ *  and interrupt appear. Mirrors BeebEm's short `SetTrigger` delay. */
+const COMPLETION_CYCLES = 50;
 
 // ── Result/error codes (MAME error enum) — the DFS tests these ──────────────
 const ERR_NONE  = 0x00; // success
@@ -191,6 +199,12 @@ export class I8271 {
   private targetSectors: DskSector[] = [];
   private transferUnit = 0;
 
+  // ── Deferred completion ───────────────────────────────────────────────────
+  /** Cycles (1 MHz) left before the pending completion is applied. */
+  private delay = 0;
+  /** Completion queued by a command, applied when `delay` hits zero. */
+  private pending: { kind: 'result'; rr: number; interrupt: boolean } | { kind: 'idle' } | null = null;
+
   // ── Lifecycle ─────────────────────────────────────────────────────────────
 
   reset(): void {
@@ -220,9 +234,23 @@ export class I8271 {
     this.writing = false;
     this.targetSectors = [];
     this.transferUnit = 0;
+    this.delay = 0;
+    this.pending = null;
     this.irq = false;
     // Deliberately do NOT drop disks or the dirty flags — a reset is not an eject.
     if (wasIrq) this.options.onInterrupt?.(false);
+  }
+
+  /** Advance the deferred-completion timer by `cycles` (1 MHz disc clock). */
+  tick(cycles: number): void {
+    if (this.pending === null) return;
+    this.delay -= cycles;
+    if (this.delay > 0) return;
+    const p = this.pending;
+    this.pending = null;
+    this.delay = 0;
+    if (p.kind === 'result') this.finishResultNow(p.rr, p.interrupt);
+    else this.finishIdleNow();
   }
 
   /** No-op frame hook — provided so the machine can pump the chip per frame. */
@@ -309,6 +337,9 @@ export class I8271 {
         s |= SR_BSY;
         // MAME only exposes DRQ when MODER bit 0 (no-DMA) is set.
         if ((this.moder & MODER_NO_DMA) !== 0 && this.drq) s |= SR_DRQ;
+        break;
+      case PHASE_BUSY:
+        s |= SR_BSY;
         break;
       case PHASE_RESULT:
         s |= SR_RF;
@@ -401,21 +432,41 @@ export class I8271 {
 
   // ── Result helpers ────────────────────────────────────────────────────────
 
-  /** Complete a command with a result byte: enter RESULT and raise the IRQ.
-   *  The "simple" commands (READ DRIVE STATUS, READ SPECIAL REGISTER) return a
-   *  result WITHOUT interrupting — only Seek/Read/Write/Verify/Format/ReadID
-   *  pull the NMI line (see BeebEm's `DoReadDriveStatusCommand` vs
-   *  `ReadInterrupt`/`DoSeekInt`). */
-  private finishResult(rr: number, interrupt = true): void {
+  /** Complete a command with a result byte. The "long" commands (Seek, Read,
+   *  Write, Verify, Format, Read ID) hold the chip busy for a short delay and
+   *  then raise the interrupt (BeebEm's `SetTrigger`); the "simple" commands
+   *  (READ DRIVE STATUS, READ SPECIAL REGISTER) return a result immediately and
+   *  WITHOUT interrupting, so pass `interrupt = false, cycles = 0`. */
+  private finishResult(rr: number, interrupt = true, cycles = COMPLETION_CYCLES): void {
     this.setDrq(false);
+    if (cycles > 0) {
+      this.pending = { kind: 'result', rr: rr & 0xff, interrupt };
+      this.delay = cycles;
+      this.phase = PHASE_BUSY;
+      return;
+    }
+    this.finishResultNow(rr, interrupt);
+  }
+
+  private finishResultNow(rr: number, interrupt: boolean): void {
     this.rr = rr & 0xff;
     this.phase = PHASE_RESULT;
     this.setIrq(interrupt);
   }
 
   /** Finish a command that produces no result (SPECIFY / WRITE SPECIAL). */
-  private finishIdle(): void {
+  private finishIdle(cycles = 0): void {
     this.setDrq(false);
+    if (cycles > 0) {
+      this.pending = { kind: 'idle' };
+      this.delay = cycles;
+      this.phase = PHASE_BUSY;
+      return;
+    }
+    this.finishIdleNow();
+  }
+
+  private finishIdleNow(): void {
     this.motorOn = false;
     this.phase = PHASE_IDLE;
   }
@@ -611,7 +662,7 @@ export class I8271 {
     if (this.pcn[unit] === 0) driveIn |= DS_TRACK0;
     if (this.writeProtect[unit]) driveIn |= DS_WRITEPROT;
 
-    this.finishResult(driveIn, false); // simple command — no interrupt
+    this.finishResult(driveIn, false, 0); // simple command — no interrupt, no delay
   }
 
   // ── SPECIFY / SPECIAL REGISTERS ───────────────────────────────────────────
@@ -672,6 +723,6 @@ export class I8271 {
       case REG_DRIVE_OUT: this.rr = ((this.command[0] & OPORT_SELECT_MASK) | this.oport) & 0xff; break;
       default: this.rr = 0; break;
     }
-    this.finishResult(this.rr, false); // simple command — no interrupt
+    this.finishResult(this.rr, false, 0); // simple command — no interrupt, no delay
   }
 }

@@ -16,6 +16,8 @@ export interface BbcDiscController {
   write(addr: number, val: number): void;
   /** Full controller reset (register/file state, not the mounted media). */
   reset(): void;
+  /** Advance by `cycles` at the 1 MHz disc clock (command-completion timers). */
+  tick(cycles: number): void;
   /** Per-frame pump (motor timers, index pulses). */
   tickFrame(): void;
 
