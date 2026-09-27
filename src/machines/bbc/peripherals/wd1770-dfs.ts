@@ -2,30 +2,47 @@
  * Acorn 1770 disc interface (the Model B 1770 DFS upgrade).
  *
  * The WD1770 is mapped — as on the BBC B+ — at &FE84-&FE87 (status/command,
- * track, sector, data) with the drive-control latch at &FE80. The control
- * latch selects the drive (bits 0-1), the head (bit 2), density (bit 3) and
- * resets the controller (bit 5).
+ * track, sector, data) with the drive-control latch at &FE80. The latch is a
+ * write-only register (a 74LS173/174) whose outputs drive the drive/side/
+ * density/reset lines; reads float high. Bit 1 selects drive 1 (else drive 0),
+ * bit 2 the head, bit 3 the density, and bit 5 the controller reset — active
+ * low, matching the /MR input it drives.
  */
 
 import { WD179x } from '@/cores/wd179x.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import type { BbcDiscController } from './disc-controller.ts';
 
-const CTRL_DRIVE_MASK = 0x03;
+const CTRL_DRIVE1 = 0x02;
 const CTRL_SIDE = 0x04;
 const CTRL_RESET = 0x20;
 
 export class BbcDfs1770 implements BbcDiscController {
-  readonly fdc = new WD179x({ statusBit7: 'motor-on', formatSectorsPerTrack: 10 });
+  readonly fdc: WD179x;
   control = 0;
+  /** True while the control latch is holding the controller in reset. */
+  private resetting = false;
+
+  constructor(onInterrupt?: (asserted: boolean) => void) {
+    // The Acorn 1770 interface wires the controller's DRQ/completion to the
+    // CPU's NMI line: the DFS transfers each byte from an NMI handler (the
+    // same per-byte handshake the 8271 uses), so the core must offer the bytes
+    // on the disc clock rather than synchronously.
+    this.fdc = new WD179x({
+      statusBit7: 'motor-on',
+      formatSectorsPerTrack: 10,
+      onInterrupt,
+    });
+  }
 
   reset(): void {
     this.control = 0;
+    this.resetting = false;
     this.fdc.reset();
   }
 
-  /** The WD179x model is command-synchronous — no completion timer to pump. */
-  tick(_cycles: number): void {}
+  /** Advance the per-byte transfer cadence at the 1 MHz disc clock. */
+  tick(cycles: number): void { this.fdc.tick(cycles); }
 
   /** Frame-probe indicators (delegated to the WD179x). */
   get motorOn(): boolean { return this.fdc.motorOn; }
@@ -39,7 +56,10 @@ export class BbcDfs1770 implements BbcDiscController {
 
   read(addr: number): number {
     switch (addr & 0xFF) {
-      case 0x80: return this.control;
+      // The drive-control latch is write-only: its outputs drive the disc
+      // lines, not the data bus, so reads float high. Acorn DFS's presence
+      // probe reads it and requires a bit set, so it must not echo the value.
+      case 0x80: return 0xFF;
       case 0x84: return this.fdc.readStatus();
       case 0x85: return this.fdc.readTrack();
       case 0x86: return this.fdc.readSectorReg();
@@ -61,8 +81,13 @@ export class BbcDfs1770 implements BbcDiscController {
 
   private writeControl(val: number): void {
     this.control = val;
-    if (val & CTRL_RESET) this.fdc.reset();
-    this.fdc.selectDrive(val & CTRL_DRIVE_MASK);
+    // Reset is active low; only a fresh assertion (high->low) resets the chip.
+    const resetBit = (val & CTRL_RESET) !== 0;
+    if (!resetBit && !this.resetting) this.fdc.reset();
+    this.resetting = !resetBit;
+    // Bit 1 selects drive 1, otherwise drive 0 (the Acorn board derives DS1 as
+    // the inverse of DS0, so the two bits are not a binary drive number).
+    this.fdc.selectDrive((val & CTRL_DRIVE1) ? 1 : 0);
     this.fdc.setSide((val & CTRL_SIDE) ? 1 : 0);
   }
 

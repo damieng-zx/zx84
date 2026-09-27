@@ -65,7 +65,7 @@ export class BbcMachine extends BaseMachine implements Machine {
   readonly userVia = new M6522();
   readonly crtc = new Crtc6845(0);
   readonly video = new BbcVideo();
-  readonly fdc1770 = new BbcDfs1770();
+  readonly fdc1770 = new BbcDfs1770((asserted) => { if (asserted) this.cpu.nmi(); });
   readonly acorn8271 = new BbcAcornDfs(() => this.cpu.nmi());
   readonly psg = new Sn76489(BBC_SOUND_CLOCK, 48_000, 'ti-15bit');
   readonly mixer = new AudioMixer(BBC_CPU_CLOCK);

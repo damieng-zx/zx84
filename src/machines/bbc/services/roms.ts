@@ -44,20 +44,27 @@ export class BbcRomService implements RomService {
 
   /** All sixteen sideways banks. The disc-interface ROM and BASIC are the
    *  machine-loaded defaults; the rest start empty until a user image is
-   *  stored (the shell marks those overridden). */
+   *  stored (the shell marks those overridden). The two default ROMs are
+   *  listed first so they aren't buried among the empty sockets. */
   get sidewaysSlots(): readonly SidewaysRomSlot[] {
     const disc = this.discLabel();
-    const slots: SidewaysRomSlot[] = [];
+    // Disc-interface ROM (when fitted) then the language ROM, then the rest
+    // in socket order.
+    const order: number[] = [];
+    if (disc) order.push(DISC_SOCKET);
+    order.push(BASIC_SOCKET);
     for (let index = 0; index < SOCKETS; index++) {
-      if (index === DISC_SOCKET && disc) {
-        slots.push({ index, title: 'Disc interface ROM', label: disc, size: BBC_ROM_SIZE, overridden: false });
-      } else if (index === BASIC_SOCKET) {
-        slots.push({ index, title: 'Language ROM (BASIC)', label: 'BASIC', size: BBC_ROM_SIZE, overridden: false });
-      } else {
-        slots.push({ index, title: `ROM socket ${index}`, label: '', size: 0, overridden: false });
-      }
+      if (!order.includes(index)) order.push(index);
     }
-    return slots;
+    return order.map((index): SidewaysRomSlot => {
+      if (index === DISC_SOCKET && disc) {
+        return { index, title: 'Disc interface ROM', label: disc, size: BBC_ROM_SIZE, overridden: false };
+      }
+      if (index === BASIC_SOCKET) {
+        return { index, title: 'Language ROM (BASIC)', label: 'BASIC', size: BBC_ROM_SIZE, overridden: false };
+      }
+      return { index, title: `ROM socket ${index}`, label: '', size: 0, overridden: false };
+    });
   }
 
   installSidewaysRom(index: number, data: Uint8Array): void {

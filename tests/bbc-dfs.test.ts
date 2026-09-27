@@ -5,6 +5,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { BbcMachine } from '@/machines/bbc/bbc-machine.ts';
+import { BbcDfs1770 } from '@/machines/bbc/peripherals/wd1770-dfs.ts';
 import { parseSsd, serializeSsd, SSD_TRACK_BYTES } from '@/media/floppy/ssd.ts';
 
 const SECTOR = 256;
@@ -109,12 +110,19 @@ describe('bbc 1770 interface', () => {
     try {
       const slots = m.services.roms.sidewaysSlots!;
       expect(slots.length).toBe(16);
-      expect(slots[13].title).toBe('Disc interface ROM');
-      expect(slots[13].label).toBe('Acorn 1770 DFS');
+      // The disc-interface ROM and language ROM are listed first.
+      expect(slots[0].index).toBe(13);
+      expect(slots[0].title).toBe('Disc interface ROM');
+      expect(slots[0].label).toBe('Acorn 1770 DFS');
+      expect(slots[1].index).toBe(15);
+      expect(slots[1].title).toBe('Language ROM (BASIC)');
+      const at13 = () => m.services.roms.sidewaysSlots!.find(s => s.index === 13)!;
       m.setDiskSystem('acorn');
-      expect(m.services.roms.sidewaysSlots![13].label).toBe('Acorn DFS (8271)');
+      expect(at13().label).toBe('Acorn DFS (8271)');
       m.setDiskSystem('none');
-      expect(m.services.roms.sidewaysSlots![13].label).toBe('');
+      expect(at13().label).toBe('');
+      // With no disc interface fitted the language ROM still leads.
+      expect(m.services.roms.sidewaysSlots![0].index).toBe(15);
     } finally {
       m.destroy();
     }
@@ -150,5 +158,81 @@ describe('bbc 1770 interface', () => {
     } finally {
       m.destroy();
     }
+  });
+});
+
+/**
+ * The Acorn 1770 disc interface wires the controller's DRQ and command
+ * completion to the CPU's NMI line; Acorn DFS transfers each sector byte from
+ * an NMI handler. These tests pin that handshake at the peripheral boundary.
+ */
+describe('bbc 1770 Acorn NMI handshake', () => {
+  function disc(nmis: number[]): BbcDfs1770 {
+    return new BbcDfs1770((asserted) => { if (asserted) nmis.push(1); });
+  }
+
+  it('floats the write-only drive-control latch high (DFS presence probe)', () => {
+    const d = disc([]);
+    expect(d.read(0x80)).toBe(0xFF);
+    d.write(0x80, 0x25);                 // a real write must not echo back
+    expect(d.read(0x80)).toBe(0xFF);
+  });
+
+  it('selects the drive from bit 1 of the control latch', () => {
+    const d = disc([]);
+    d.write(0x80, 0x29);                 // bit 1 clear -> drive 0
+    expect(d.currentDrive).toBe(0);
+    d.write(0x80, 0x2A);                 // bit 1 set -> drive 1
+    expect(d.currentDrive).toBe(1);
+  });
+
+  it('resets the controller while the latch reset bit is held low', () => {
+    const d = disc([]);
+    d.write(0x80, 0x20);                 // reset released (active low)
+    d.write(0x85, 0x2A);
+    expect(d.read(0x85)).toBe(0x2A);
+    d.write(0x80, 0x00);                 // assert reset
+    expect(d.read(0x85)).toBe(0x00);
+    d.write(0x85, 0x2A);
+    d.write(0x80, 0x20);                 // release; must not reset again
+    expect(d.read(0x85)).toBe(0x2A);
+  });
+
+  it('raises an NMI for every transferred byte, then one on completion', () => {
+    const nmis: number[] = [];
+    const d = disc(nmis);
+    d.insertDisk(parseSsd(makeSsdPattern(), false), 0);
+    d.write(0x80, 0x20);                 // drive 0, side 0, reset released
+    d.write(0x85, 0x00);                 // track 0
+    d.write(0x86, 0x03);                 // sector 3
+    d.write(0x84, 0x80);                 // READ SECTOR
+    // The first byte is offered on the disc clock, so no edge has fired yet.
+    expect(nmis.length).toBe(0);
+    d.tick(0x1000);
+    expect(nmis.length).toBe(1);
+
+    const got: number[] = [];
+    for (let i = 0; i < SECTOR; i++) {
+      expect(d.read(0x84) & 0x03).toBe(0x03);   // BUSY | DRQ while transferring
+      got.push(d.read(0x87));
+      d.tick(0x1000);
+    }
+    expect(got[0]).toBe(0);              // makeSsdPattern: sector 3 byte i = i
+    expect(got[255]).toBe(255);
+    // One edge per byte plus one completion edge.
+    expect(nmis.length).toBe(SECTOR + 1);
+    expect(d.read(0x84) & 0x01).toBe(0); // BUSY clear after completion
+  });
+
+  it('raises a completion NMI for a Type I command', () => {
+    const nmis: number[] = [];
+    const d = disc(nmis);
+    d.insertDisk(parseSsd(makeSsdPattern(), false), 0);
+    d.write(0x80, 0x20);
+    d.write(0x84, 0x00);                 // RESTORE
+    expect(nmis.length).toBe(0);         // the edge is raised on the disc clock
+    d.tick(0x1000);
+    expect(nmis.length).toBe(1);
+    expect(d.read(0x84) & 0x01).toBe(0); // not busy
   });
 });
