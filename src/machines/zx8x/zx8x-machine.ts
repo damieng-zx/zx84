@@ -13,6 +13,7 @@ import { Zx8xMemory } from './memory.ts';
 import { Zx8xKeyboard } from './keyboard.ts';
 import { zx8xDescriptor } from './descriptor.ts';
 import { Zx8xScreenText } from './screen-text.ts';
+import { Zx81TapeShelf, zx81NameToAscii } from './tape-shelf.ts';
 import { createZx8xServices, type Zx8xServices } from './services/index.ts';
 import {
   ZX8X_ACTIVE_HEIGHT, ZX8X_ACTIVE_WIDTH, ZX8X_BORDER_LEFT, ZX8X_BORDER_TOP,
@@ -31,6 +32,66 @@ const PSEUDO_HIRES_SYNC_MAX_AGE_T = 207;
 const PSEUDO_HIRES_FRAME_GAP_T = 512;
 const PSEUDO_HIRES_TIMEOUT_T = ZX8X_T_PER_FRAME * 2;
 const ZX81_CDFLAG = 0x403b;
+/**
+ * Where each ROM's cassette routines sit. Both save RAM from `base` up to, not
+ * including, E_LINE, and both finish through the same end test (LOAD/SAVE),
+ * which drops its own return address and continues at `resume`.
+ */
+interface TapeRomMap {
+  /** SAVE, stack as the end test leaves it (ZX81: after NAME, DE -> name). */
+  readonly save: number;
+  /** LOAD's first instruction after setup (ZX81: after NAME; D bit 7 = ""). */
+  readonly load: number;
+  /** A point LOAD keeps returning to while no signal arrives. */
+  readonly loadWait: number;
+  /** LOAD's code range, to tell that the ROM is waiting for a tape. */
+  readonly loadFrom: number;
+  readonly loadTo: number;
+  /** Where the LOAD/SAVE end test continues. */
+  readonly resume: number;
+  /** First byte on tape, and the E_LINE system variable ending the image. */
+  readonly base: number;
+  readonly eLine: number;
+  /** ZX81 programs carry a name; the ZX80 LOADs whatever comes next. */
+  readonly named: boolean;
+  /** Byte sequences identifying the stock routines, so a replaced ROM is
+   *  never trapped. */
+  readonly signature: readonly (readonly [number, readonly number[]])[];
+}
+
+const ZX81_TAPE: TapeRomMap = {
+  save: 0x02fb,      // SAVE: `EX DE,HL`, just after NAME (JR C rejects "")
+  load: 0x0347,      // NEXT-PROG: `CALL IN-BYTE`, just after RL D / RRC D
+  loadWait: 0x0366,  // IN-NAME, re-entered after every IN-BYTE timeout
+  loadFrom: 0x0340, loadTo: 0x03a8,
+  resume: 0x0207,    // SLOW/FAST
+  base: 0x4009,      // VERSN
+  eLine: 0x4014,
+  named: true,
+  signature: [
+    [0x0340, [0xcd, 0xa8, 0x03, 0xcb, 0x12, 0xcb, 0x0a, 0xcd, 0x4c, 0x03]],
+    [0x0364, [0x62, 0x6b, 0xcd, 0x4c, 0x03]],
+    [0x02f6, [0xcd, 0xa8, 0x03, 0x38, 0xf9, 0xeb]],
+    [0x0207, [0x21, 0x3b, 0x40]],
+  ],
+};
+
+const ZX80_TAPE: TapeRomMap = {
+  save: 0x01b7,      // SAVE, after POP DE dropped the command's return
+  load: 0x0207,      // LOAD, after POP DE: the wait for silence
+  loadWait: 0x0222,  // the wait for a bit's first edge
+  loadFrom: 0x0206, loadTo: 0x0256,
+  resume: 0x0283,    // `JP 0283` at 0x0203, the end test's exit
+  base: 0x4000,
+  eLine: 0x400a,
+  named: false,
+  signature: [
+    [0x01b6, [0xd1, 0x11, 0xcb, 0x12]],
+    [0x01f8, [0x23, 0xeb, 0x2a, 0x0a, 0x40, 0x37, 0xed, 0x52, 0xeb, 0xd0, 0xe1, 0xc3, 0x83, 0x02]],
+    [0x0206, [0xd1, 0x11, 0x12, 0x57, 0x3e, 0x7f]],
+    [0x0222, [0x3e, 0x7f, 0xdb, 0xfe, 0x1f, 0x30, 0x24]],
+  ],
+};
 const MEMOTECH_DFILE = 0x407b;
 const MEMOTECH_ROW_BYTES = 33;
 const MEMOTECH_PIXEL_BYTES = 31;
@@ -51,6 +112,8 @@ export class Zx8xMachine extends BaseMachine implements Machine {
   readonly mixer = new AudioMixer(ZX8X_CPU_CLOCK);
   readonly services: Zx8xServices;
   readonly activity = { kbdReads: 0 };
+  /** Programs mounted (or SAVEd) this session, read by the ROM's LOAD. */
+  readonly tapeShelf = new Zx81TapeShelf();
   host: MachineHost | null = null;
   display: IScreenRenderer | null;
 
@@ -60,6 +123,12 @@ export class Zx8xMachine extends BaseMachine implements Machine {
   private memotechMode = 0;
   private quickSilvaMode = false;
   private m1ReadPending = false;
+  /** Set when the CPU fetched an opcode from the A15-high display echo, i.e.
+   *  the ULA actually generated a picture this frame. */
+  private displayFetched = false;
+  /** The ROM carries the stock LOAD/SAVE routines we trap (null = none). */
+  private tapeRom: TapeRomMap | null = null;
+  private lastTapeStatus = '';
   private readonly pseudoHiresRow = new Uint8Array(PSEUDO_HIRES_ROW_BYTES);
   private readonly pseudoHiresBuilding = new Uint8Array(PSEUDO_HIRES_ROW_BYTES * PSEUDO_HIRES_MAX_ROWS);
   private readonly pseudoHiresFrame = new Uint8Array(PSEUDO_HIRES_ROW_BYTES * PSEUDO_HIRES_MAX_ROWS);
@@ -122,7 +191,10 @@ export class Zx8xMachine extends BaseMachine implements Machine {
         : this.memory.readByte(addr);
       // During an opcode fetch from the echoed display file the ULA presents a
       // NOP for a character byte; a 0x76 line terminator remains HALT.
-      if (m1 && addr >= 0x8000 && (value & 0x40) === 0) value = 0x00;
+      if (m1 && addr >= 0x8000) {
+        this.displayFetched = true;
+        if ((value & 0x40) === 0) value = 0x00;
+      }
       if (this.memWatchpoints.length && this.memWatchHit === null) {
         for (const wp of this.memWatchpoints) if ((wp.mode === 'read' || wp.mode === 'rw') && addr >= wp.start && addr <= wp.end) {
           this.memWatchHit = { addr, value, dir: 'read' }; break;
@@ -177,7 +249,75 @@ export class Zx8xMachine extends BaseMachine implements Machine {
     };
   }
 
-  loadROM(data: Uint8Array): void { this.memory.loadROM(data); }
+  loadROM(data: Uint8Array): void {
+    this.memory.loadROM(data);
+    const map = this.model === 'zx81' ? ZX81_TAPE : ZX80_TAPE;
+    const stock = map.signature.every(([addr, bytes]) => bytes.every((b, i) => data[addr + i] === b));
+    this.tapeRom = stock ? map : null;
+  }
+
+  /** True while the ROM's LOAD is waiting for a tape signal: a program mounted
+   *  now is what the user is playing into it. */
+  get awaitingTapeLoad(): boolean {
+    const map = this.tapeRom;
+    return map !== null && this.cpu.pc >= map.loadFrom && this.cpu.pc < map.loadTo;
+  }
+
+  private tapeStatus(msg: string): void {
+    if (msg === this.lastTapeStatus) return;
+    this.lastTapeStatus = msg;
+    this.host?.setStatus(msg);
+  }
+
+  /** Read the NAME routine's result: a ZX81-coded string whose last character
+   *  has bit 7 set. */
+  private readTapeName(addr: number): string {
+    const codes: number[] = [];
+    for (let i = 0; i < 128; i++) {
+      const code = this.memory.readByte((addr + i) & 0xffff);
+      codes.push(code);
+      if (code & 0x80) break;
+    }
+    return zx81NameToAscii(codes).trim();
+  }
+
+  /** Replace the ROM's cassette byte loops with a direct transfer of the
+   *  program image; on completion resume where LOAD/SAVE's end test goes (its
+   *  own return address already dropped: the ZX81's SLOW/FAST then returns
+   *  from the command, the ZX80 re-enters its editor). */
+  private serviceTapeTrap(map: TapeRomMap, pc: number): void {
+    if (pc === map.save) {
+      const name = map.named ? this.readTapeName((this.cpu.d << 8) | this.cpu.e) : 'PROGRAM';
+      const end = this.read16(map.eLine);
+      if (end <= map.base || end > 0x8000) return;
+      const data = new Uint8Array(end - map.base);
+      for (let i = 0; i < data.length; i++) data[i] = this.memory.readByte(map.base + i);
+      this.tapeShelf.record(name, data);
+      this.cpu.pc = map.resume;
+      this.lastTapeStatus = '';
+      this.tapeStatus(map.named ? `Saved "${name}" (${data.length} bytes)` : `Saved program (${data.length} bytes)`);
+      return;
+    }
+    // ZX81: D bit 7 marks LOAD "" (see LOAD at $0340: RL D / RRC D).
+    const name = !map.named || (this.cpu.d & 0x80)
+      ? null
+      : this.readTapeName(((this.cpu.d & 0x7f) << 8) | this.cpu.e);
+    const program = this.tapeShelf.take(name);
+    const label = !map.named ? 'LOAD' : name === null ? 'LOAD ""' : `LOAD "${name}"`;
+    if (!program) {
+      const ext = map.named ? '.p' : '.o';
+      this.tapeStatus(`${label}: waiting for tape - mount a ${ext} file (SPACE to break)`);
+      return;
+    }
+    if (program.data.length > this.memory.ramSize - (map.base - 0x4000)) {
+      this.tapeStatus(`${program.name} needs 16KB RAM`);
+      return;
+    }
+    for (let i = 0; i < program.data.length; i++) this.memory.writeByte(map.base + i, program.data[i]);
+    this.cpu.pc = map.resume;
+    this.lastTapeStatus = '';
+    this.tapeStatus(`Loaded "${program.name}" (${program.data.length} bytes)`);
+  }
 
   applySettings(view: SettingsView): void {
     this.memory.set16kExpansion(view.get('zx8x-16k-ram', false));
@@ -324,11 +464,24 @@ export class Zx8xMachine extends BaseMachine implements Machine {
       while (this.cpu.tStates < lineEnd) {
         if (this.breakpoints.has(this.cpu.pc)) { this.breakpointHit = this.cpu.pc; broke = true; break; }
         if (this.onTrap?.(this.cpu.pc)) { broke = true; break; }
+        const tapeRom = this.tapeRom;
+        if (tapeRom !== null) {
+          const pc = this.cpu.pc;
+          if (pc === tapeRom.load || pc === tapeRom.loadWait || pc === tapeRom.save) this.serviceTapeTrap(tapeRom, pc);
+        }
         // EI suppresses interrupts for one instruction; step() itself resets
         // and re-arms eiDelay per-instruction (see core.ts), so a plain
         // post-step check is enough here.
         this.cpu.step();
-        if (this.cpu.halted && this.cpu.pc >= 0xc000 && this.cpu.iff1 && !this.cpu.eiDelay) this.cpu.interrupt();
+        // /INT is wired to A6. During each M1 refresh the low address byte
+        // carries R, so the line is low when the instruction's final refresh
+        // address (R before its increment) has bit 6 clear. The ROM loads R
+        // so this happens exactly 207T after each scanline starts, however
+        // short the (collapsed) display row is — the CPU just HALTs until
+        // then. The Z80 samples the level at the end of every instruction.
+        // (R-1 is the last refresh for every instruction except LD R,A, which
+        // software always follows with EI, whose one-instruction delay hides it.)
+        if (this.cpu.iff1 && !this.cpu.eiDelay && ((this.cpu.r - 1) & 0x40) === 0) this.cpu.interrupt();
         const elapsed = this.cpu.tStates - lastAudio;
         if (!this.turbo && elapsed > 0) {
           this.mixer.accumulate(0, elapsed);
@@ -339,6 +492,7 @@ export class Zx8xMachine extends BaseMachine implements Machine {
       if (broke) break;
     }
     this.renderCurrentVideo();
+    this.displayFetched = false;
     this.needsDisplay = true;
   }
 
@@ -634,11 +788,16 @@ export class Zx8xMachine extends BaseMachine implements Machine {
   }
 
   /** Render software-generated pixels in either ZX81 mode. Ordinary display-
-   * file video is available only in SLOW; FAST leaves the active area blank. */
+   * file video appears only when the CPU actually executed the display file
+   * this frame: always in SLOW, and in FAST only while the ROM runs its
+   * display loop (awaiting a key, PAUSE). Frames spent computing in FAST
+   * produce no picture. Without a display pass, SLOW (CDFLAG bit 7) still
+   * renders so a render outside a frame (program load) is not blanked. */
   private renderCurrentVideo(): void {
     if (this.renderMemotechHrg() || this.renderQuickSilvaHrg()) return;
     if (this.renderPseudoHires()) return;
-    if (this.model === 'zx81' && (this.memory.readByte(ZX81_CDFLAG) & 0x80) === 0) {
+    if (this.model === 'zx81' && !this.displayFetched
+        && (this.memory.readByte(ZX81_CDFLAG) & 0x80) === 0) {
       this.frame32.fill(WHITE);
       return;
     }

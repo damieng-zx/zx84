@@ -112,3 +112,41 @@ describe('PCW memory paging', () => {
     expect(m.videoByte(2 * 0x4000 + 0x3600)).toBe(0x7E);
   });
 });
+
+describe('keyboard matrix overlay on block 3', () => {
+  // MAME pcw.cpp: whenever physical block 3 is paged in for reading, CPU reads
+  // of its &3FF0-&3FFF go to the keyboard handler; writes land in RAM.
+  function withKeyboard(): { mem: PcwMemory; matrix: Uint8Array } {
+    const mem = new PcwMemory(createPcwConfig('pcw8256'));
+    const matrix = new Uint8Array(16);
+    mem.attachKeyboard(matrix);
+    return { mem, matrix };
+  }
+
+  it('reads the live matrix at &3FF0-&3FFF of block 3 (reset map: &C000 block)', () => {
+    const { mem, matrix } = withKeyboard();
+    matrix[8] = 0x08;                       // &3FF8
+    expect(mem.readByte(0xFFF8)).toBe(0x08); // block 3 is at &C000 after reset
+    matrix[8] = 0x00;
+    expect(mem.readByte(0xFFF8)).toBe(0x00); // live, no scan needed
+  });
+
+  it('lets writes reach the RAM underneath without changing what reads see', () => {
+    const { mem, matrix } = withKeyboard();
+    matrix[0] = 0x01;
+    mem.writeByte(0xFFF0, 0x5A);
+    expect(mem.getRamBank(3)[0x3FF0]).toBe(0x5A);
+    expect(mem.readByte(0xFFF0)).toBe(0x01);
+    expect(mem.readByte(0xFFEF)).toBe(0x00); // below &3FF0 is plain RAM
+  });
+
+  it('follows block 3 wherever it is paged, and nowhere else', () => {
+    const { mem, matrix } = withKeyboard();
+    matrix[0] = 0x77;
+    mem.setBank(1, 0x83);                    // block 3 also at &4000
+    expect(mem.readByte(0x7FF0)).toBe(0x77);
+    mem.setBank(3, 0x84);                    // &C000 now block 4
+    mem.getRamBank(4)[0x3FF0] = 0x11;
+    expect(mem.readByte(0xFFF0)).toBe(0x11);
+  });
+});

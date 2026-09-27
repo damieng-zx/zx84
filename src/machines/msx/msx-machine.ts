@@ -31,7 +31,7 @@ import { createMsxServices, type MsxServices } from '@/machines/msx/services/ind
 import type { MsxModel } from '@/models.ts';
 import type { OcrGridName, OcrResult } from '@/ocr/ocr.ts';
 import { MsxScreenText, msxTextGrid } from '@/ocr/msx.ts';
-import { MsxCassette, MSX_TAPION, MSX_TAPIN } from '@/machines/msx/msx-tape.ts';
+import { MsxCassette, MSX_TAPION, MSX_TAPIN, MSX_TAPOON, MSX_TAPOUT } from '@/machines/msx/msx-tape.ts';
 import { MsxMemory } from '@/machines/msx/msx-memory.ts';
 import { MsxKeyboard } from '@/machines/msx/msx-keyboard.ts';
 import { MsxJoystick } from '@/machines/msx/msx-joystick.ts';
@@ -113,7 +113,8 @@ export class MsxMachine extends BaseMachine implements Machine {
     this.tape = new TapeDeck(MSX_CPU_CLOCK);
     this.audio = new Audio();
     this.mixer = new AudioMixer(MSX_CPU_CLOCK);
-    this.mixer.beeperGain = 0;   // AY/PSG only, no beeper
+    // The 1-bit "beeper" path carries the PPI port C bit 7 key click.
+    this.mixer.beeperGain = 0.5;
     this.mixer.ayGain = 1;
     this.display = display ?? null;
 
@@ -213,6 +214,20 @@ export class MsxMachine extends BaseMachine implements Machine {
     this.retFromTrap();
   }
 
+  /** TAPOON: begin a saved block (sync ID); CY clear = success. */
+  private trapTapoon(): void {
+    this.cassette.beginRecordBlock();
+    this.cpu.setFlag(Z80.FLAG_C, false);
+    this.retFromTrap();
+  }
+
+  /** TAPOUT: save the byte in A; CY clear = success. */
+  private trapTapout(): void {
+    this.cassette.recordByte(this.cpu.a);
+    this.cpu.setFlag(Z80.FLAG_C, false);
+    this.retFromTrap();
+  }
+
   setBorderSize(mode: BorderMode): void {
     // The VDP always renders into the full framebuffer with the active area
     // centred; cropping is a pure display concern.
@@ -239,6 +254,7 @@ export class MsxMachine extends BaseMachine implements Machine {
     this.keyboard.reset();
     this.joystick.reset();
     this.ppi.reset();
+    this.cassette.clearRecording();
     this.audio.reset();
     this.mixer.reset();
     this.needsDisplay = true;
@@ -277,11 +293,17 @@ export class MsxMachine extends BaseMachine implements Machine {
         if (this.breakpoints.has(this.cpu.pc)) { this.breakpointHit = this.cpu.pc; broke = true; break; }
         if (this.onTrap !== null && this.onTrap(this.cpu.pc)) { broke = true; break; }
 
-        // Cassette instant-load: intercept the BIOS TAPION/TAPIN routines while a
-        // .cas is mounted and the BIOS ROM is paged into page 0.
-        if (this.cassette.loaded && (this.memory.getPrimarySlot() & 0x03) === 0) {
-          if (this.cpu.pc === MSX_TAPION) { this.trapTapion(); continue; }
-          if (this.cpu.pc === MSX_TAPIN) { this.trapTapin(); continue; }
+        // Cassette: intercept the BIOS routines while the BIOS ROM is paged
+        // into page 0 — TAPION/TAPIN serve a mounted .cas instantly, and
+        // TAPOON/TAPOUT record whatever is saved. All sit in 0x00E0–0x00EF.
+        if ((this.cpu.pc & 0xFFF0) === 0x00E0 && (this.memory.getPrimarySlot() & 0x03) === 0) {
+          const pc = this.cpu.pc;
+          if (this.cassette.loaded) {
+            if (pc === MSX_TAPION) { this.trapTapion(); continue; }
+            if (pc === MSX_TAPIN) { this.trapTapin(); continue; }
+          }
+          if (pc === MSX_TAPOON) { this.trapTapoon(); continue; }
+          if (pc === MSX_TAPOUT) { this.trapTapout(); continue; }
         }
 
         // EI suppresses interrupts for one instruction; step() itself resets
@@ -299,7 +321,7 @@ export class MsxMachine extends BaseMachine implements Machine {
         if (!skipAudio) {
           const elapsed = this.cpu.tStates - lastAudioT;
           if (elapsed > 0) {
-            this.mixer.accumulate(0, elapsed);
+            this.mixer.accumulate(this.ppi.keyClick, elapsed);
             this.mixer.generateSamples(this.audio, this.ay, true);
             lastAudioT = this.cpu.tStates;
           }

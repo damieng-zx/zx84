@@ -94,7 +94,7 @@ describe('PCW port decode', () => {
     m.cpu.portOut(0xF6, 0x03);
     m.cpu.portOut(0xF7, 0xC0);
     expect(m.asic.rollerAddress).toBe(0xB600);
-    expect(m.asic.verticalPos).toBe(3);
+    expect(m.asic.rollerOffset).toBe(3);
     expect(m.asic.videoCtl).toBe(0xC0);
   });
 
@@ -210,5 +210,46 @@ describe('PCW drives and monitor per model', () => {
     for (const model of ['pcw8256', 'pcw8512', 'pcw9256'] as const) {
       expect(pcwDefaultPhosphor(model)).toBe('green');
     }
+  });
+});
+
+describe('PCW 300Hz timer pulse', () => {
+  // MAME pcw.cpp: the timer sets timer_irq_flag and a 100us pulse timer clears
+  // it; the CPU taking the interrupt does not. 100us at 3.4MHz = 340 T-states.
+  // The CPU runs NOPs from zeroed RAM with interrupts off until `enableAt`
+  // T-states into the frame; the first timer line of the field is 50.
+  function firstInterrupt(enableAt: number): { at: number; count: number } {
+    const m = new PcwMachine('pcw8256');
+    m.cpu.iff1 = m.cpu.iff2 = false;
+    const t0 = m.cpu.tStates;
+    let at = -1;
+    let count = 0;
+    const interrupt = m.cpu.interrupt.bind(m.cpu);
+    m.cpu.interrupt = () => {
+      if (at < 0) { at = m.cpu.tStates - t0; count = m.asic.status & 0x0F; }
+      return interrupt();
+    };
+    m.onTrap = () => {
+      if (!m.cpu.iff1 && m.cpu.tStates - t0 >= enableAt) m.cpu.iff1 = m.cpu.iff2 = true;
+      return false;
+    };
+    m.tick();
+    return { at, count };
+  }
+
+  const LINE_50 = 50 * 218;
+
+  it('is taken when interrupts are enabled within the ~100us pulse', () => {
+    const { at } = firstInterrupt(LINE_50 + 300);
+    expect(at).toBeGreaterThanOrEqual(LINE_50 + 300);
+    expect(at).toBeLessThan(LINE_50 + 340);
+  });
+
+  it('is lost (only counted) when interrupts stay disabled past the pulse', () => {
+    const { at, count } = firstInterrupt(LINE_50 + 400);
+    // Not taken at line 50; the next pulse is line 102.
+    expect(at).toBeGreaterThanOrEqual(102 * 218);
+    expect(at).toBeLessThan(102 * 218 + 340);
+    expect(count).toBe(2);                    // both ticks are in the &F4 counter
   });
 });

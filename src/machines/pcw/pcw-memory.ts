@@ -28,7 +28,8 @@ import type { IMachineMemory } from '@/machines/machine.ts';
 import type { PcwConfig } from './config.ts';
 import {
   PCW_BANK_BLOCK_MASK, PCW_BANK_READ_SHIFT, PCW_BANK_SINGLE, PCW_BANK_WRITE_MASK,
-  PCW_BLOCK_SIZE, PCW_RESET_BLOCKS, PCW_VIDEO_ADDRESS_MASK,
+  PCW_BLOCK_SIZE, PCW_KEYBOARD_BLOCK, PCW_KEYBOARD_OFFSET, PCW_RESET_BLOCKS,
+  PCW_VIDEO_ADDRESS_MASK,
 } from './constants.ts';
 
 /**
@@ -74,6 +75,13 @@ export class PcwMemory implements IMachineMemory {
   /** Raw &F4 value: which blocks have reads forced to follow writes. */
   memctl = 0;
 
+  /** The live keyboard matrix, overlaid on CPU reads of &3FF0-&3FFF within
+   *  physical block 3 (MAME pcw.cpp installs a read handler there whenever
+   *  block 3 is paged in for reading). Writes still reach RAM underneath. */
+  private keyboardMatrix: Uint8Array | null = null;
+  /** Bit n set when Z80 block n currently reads physical block 3. */
+  private keyboardSlots = 0;
+
   constructor(cfg: PcwConfig) {
     this.cfg = cfg;
     for (let i = 0; i < cfg.blocks; i++) this.ram.push(new Uint8Array(PCW_BLOCK_SIZE));
@@ -114,6 +122,7 @@ export class PcwMemory implements IMachineMemory {
   }
 
   private applyPaging(): void {
+    let keyboardSlots = 0;
     for (let block = 0; block < 4; block++) {
       const value = this.banks[block];
 
@@ -136,7 +145,14 @@ export class PcwMemory implements IMachineMemory {
       this.readPtr[block] = this.ram[readPhys];
       this.writePtr[block] = this.ram[writePhys];
       this.sources[block] = { read: readPhys, write: writePhys };
+      if (readPhys === PCW_KEYBOARD_BLOCK) keyboardSlots |= 1 << block;
     }
+    this.keyboardSlots = keyboardSlots;
+  }
+
+  /** Wire the keyboard matrix the gate array presents at block 3's &3FF0. */
+  attachKeyboard(matrix: Uint8Array): void {
+    this.keyboardMatrix = matrix;
   }
 
   // ── Video fetch ───────────────────────────────────────────────────────────
@@ -156,7 +172,14 @@ export class PcwMemory implements IMachineMemory {
 
   readByte(addr: number): number {
     addr &= 0xFFFF;
-    return this.readPtr[addr >>> 14][addr & 0x3FFF];
+    const offset = addr & 0x3FFF;
+    // One compare on the common path: only the top 16 bytes of a block can be
+    // the keyboard, and only when that Z80 block reads physical block 3.
+    if (offset >= PCW_KEYBOARD_OFFSET && (this.keyboardSlots & (1 << (addr >>> 14))) !== 0 &&
+        this.keyboardMatrix !== null) {
+      return this.keyboardMatrix[offset - PCW_KEYBOARD_OFFSET];
+    }
+    return this.readPtr[addr >>> 14][offset];
   }
 
   writeByte(addr: number, val: number): void {

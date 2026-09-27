@@ -90,12 +90,15 @@ export class CpcMemory implements IMachineMemory {
   private asicPage: Uint8Array | null = null;
 
   private readonly ramBanks: number;
+  /** True when RAM beyond the base 64K exists to bank (6128, Plus, GX4000). */
+  private readonly hasBanking: boolean;
   /** Cached at construction — drives the Plus ROM-select logical-to-physical
    *  translation in `selectUpperRom`. */
   private readonly isPlus: boolean;
 
   constructor(cfg: CpcConfig) {
     this.ramBanks = cfg.ramBanks;
+    this.hasBanking = cfg.ramBanks > 4;
     this.isPlus = cfg.isPlus;
     this.ram = [];
     for (let i = 0; i < cfg.ramBanks; i++) this.ram.push(new Uint8Array(SLOT_SIZE));
@@ -248,8 +251,11 @@ export class CpcMemory implements IMachineMemory {
     if (this.upperRomEnabled) this.applyMapping();
   }
 
-  /** Gate-Array %11xxxxxx command — RAM bank configuration. */
+  /** Gate-Array %11xxxxxx command — RAM bank configuration. The 64K 464/664
+   *  have no banking PAL (and no expansion RAM is modelled), so the command
+   *  has no effect there: the base 64K stays mapped 0-1-2-3. */
   setRamConfig(val: number): void {
+    if (!this.hasBanking) return;
     const config = val & 0x07;
     const block = (val >> 3) & 0x07;
     if (config === this.ramConfig && block === this.ram64kBlock) return;
@@ -364,6 +370,12 @@ export class CpcMemory implements IMachineMemory {
     return this.lowerRom;
   }
 
+  /** True when the lower (OS) ROM is paged in at 0x0000, i.e. a PC in
+   *  0x0000-0x3FFF is executing firmware rather than RAM. */
+  get lowerRomAtZero(): boolean {
+    return this.lowerRomEnabled && this.lowerRomSlot === 0;
+  }
+
   /** Upper ROM image by select index (0 = BASIC, 7 = AMSDOS), or undefined if
    *  no ROM occupies that slot. Live 16KB view, for the debug/memory viewer. */
   getUpperRom(n: number): Uint8Array | undefined {
@@ -412,8 +424,8 @@ export class CpcMemory implements IMachineMemory {
     upperRomEnabled: boolean;
     selectedUpperRom: number;
   }): void {
-    this.ramConfig = state.ramConfig & 0x07;
-    this.ram64kBlock = state.ram64kBlock & 0x07;
+    this.ramConfig = this.hasBanking ? state.ramConfig & 0x07 : 0;
+    this.ram64kBlock = this.hasBanking ? state.ram64kBlock & 0x07 : 0;
     this.lowerRomEnabled = state.lowerRomEnabled;
     this.upperRomEnabled = state.upperRomEnabled;
     this.selectUpperRom(state.selectedUpperRom);

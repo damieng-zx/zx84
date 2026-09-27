@@ -64,6 +64,21 @@ describe('AceKeyboard — combos', () => {
     expect(kb.readHalfRows(0xF7)).toBe(0x0F);
   });
 
+  it('ArrowUp is SHIFT + 6 and ArrowDown SHIFT + 7 (the Ace reverses the Spectrum)', () => {
+    // Booting the ROM, SHIFT+6 moves the input cursor up a line and SHIFT+7
+    // down: its SHIFT decode table (0x039E) gives 6 -> 0x07, 7 -> 0x09.
+    const up = new AceKeyboard();
+    up.handleKeyEvent('ArrowUp', true);
+    up.processPending();
+    expect(up.readHalfRows(0xFE)).toBe(0x1E);
+    expect(up.readHalfRows(0xEF)).toBe(0x0F); // 6: row 4 bit 4
+    const down = new AceKeyboard();
+    down.handleKeyEvent('ArrowDown', true);
+    down.processPending();
+    expect(down.readHalfRows(0xFE)).toBe(0x1E);
+    expect(down.readHalfRows(0xEF)).toBe(0x17); // 7: row 4 bit 3
+  });
+
   it('releasing the combo releases both keys', () => {
     const kb = new AceKeyboard();
     kb.handleKeyEvent('ArrowLeft', true);
@@ -95,6 +110,23 @@ describe('AceKeyboard — symbol characters', () => {
     expect(kb.readHalfRows(0xFE)).toBe(0x1D);
     expect(kb.readHalfRows(0x7F)).toBe(0x1D); // M: row 7 bit 1
   });
+
+  // ROM SYMBOL SHIFT table (0x03C6): each of these is SYM + the key shown.
+  // SHIFT + those keys is DELETE LINE, CAPS LOCK, … — never the symbol.
+  const SYMBOLS: [string, number, number][] = [
+    ['!', 0xF7, 0x1E], ['@', 0xF7, 0x1D], ['#', 0xF7, 0x1B], ['$', 0xF7, 0x17], ['%', 0xF7, 0x0F],
+    ['_', 0xEF, 0x1E], [')', 0xEF, 0x1D], ['(', 0xEF, 0x1B], ["'", 0xEF, 0x17], ['&', 0xEF, 0x0F],
+    ['"', 0xDF, 0x1E],
+  ];
+  for (const [ch, half, bits] of SYMBOLS) {
+    it(`'${ch}' from a non-digit host key is SYMBOL SHIFT + its key, with host Shift suppressed`, () => {
+      const kb = new AceKeyboard();
+      kb.handleKeyEvent('ShiftLeft', true);        // e.g. US Shift+' for '"'
+      kb.handleKeyEvent('Quote', true, ch);
+      expect(kb.readHalfRows(0xFE)).toBe(0x1D);   // SYM only — SHIFT released
+      expect(kb.readHalfRows(half)).toBe(bits);
+    });
+  }
 
   it("Shift+digit types the Ace's shifted character (SHIFT + key, not a symbol combo)", () => {
     const kb = new AceKeyboard();

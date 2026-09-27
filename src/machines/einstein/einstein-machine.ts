@@ -45,6 +45,8 @@ import {
   EINSTEIN_256_SCREEN_WIDTH, EINSTEIN_256_SCREEN_HEIGHT,
   EINSTEIN_256_BORDER_LEFT, EINSTEIN_256_BORDER_TOP,
   EINSTEIN_256_VDP_INT_VECTOR,
+  EINSTEIN_INT_KEY, EINSTEIN_INT_ADC, EINSTEIN_INT_FIRE,
+  EINSTEIN_KEY_INT_VECTOR, EINSTEIN_ADC_INT_VECTOR, EINSTEIN_FIRE_INT_VECTOR,
 } from '@/machines/einstein/constants.ts';
 
 /** PAL scanlines per field. */
@@ -67,6 +69,8 @@ export class EinsteinMachine extends BaseMachine implements Machine {
   /** Video chip: TMS9929A on the TC-01, V9938 on the Einstein 256. */
   readonly vdp: Tms9918a | V9938;
   readonly ctc: Z80Ctc;
+  /** Leftover CPU T-state (0/1) toward the next 2MHz CLK/TRG0-2 edge. */
+  private ctcTrgPhase = 0;
   readonly keyboard: EinsteinKeyboard;
   readonly tape: TapeDeck;
   readonly mixer: AudioMixer;
@@ -76,6 +80,16 @@ export class EinsteinMachine extends BaseMachine implements Machine {
   /** Einstein 256: the V9938's daisy-chain interrupt can be masked off via
    *  port 0x80 (bit0 set = disabled). Enabled at reset. */
   vdpIntEnabled = true;
+
+  /** Keyboard / ADC / fire interrupt requests (EINSTEIN_INT_* bits). The
+   *  keyboard request is held until port 0x20 is read, the ADC's until
+   *  port 0x38 is read; fire is cleared when acknowledged. */
+  boardIntPending = 0;
+  /** Enabled sources — ports 0x20/0x21/0x25 bit0 clear = enabled. All
+   *  masked at reset. */
+  boardIntMask = 0;
+  /** T-state at which an ADC conversion completes (INTR), or -1. */
+  adcDoneAt = -1;
 
   /** Per-frame I/O activity for the status-bar LEDs. */
   readonly activity = { kbdReads: 0, fdcAccesses: 0, tapeReads: 0, ayWrites: 0 };
@@ -121,15 +135,19 @@ export class EinsteinMachine extends BaseMachine implements Machine {
     this.fdc.pulseBusy = true;
     this.vdp = this.config.vdp === 'v9938' ? new V9938() : new Tms9918a();
     this.ctc = new Z80Ctc();
-    // MAME wires the Einstein's Z80CTC device to XTAL/2 (4MHz CPU / 2), but
-    // that's the frequency on channels 0–2's external CLK/TRG *pins* — which
-    // nothing here drives, since the Einstein doesn't use CTC counter mode.
-    // The CTC's own device clock, which drives the timer-mode prescaler for
+    // Channels 0–2's external CLK/TRG pins are driven by the 2MHz system
+    // clock (CPU clock / 2, MAME's ctc_trigger_callback) — delivered in bulk
+    // from the run loop via triggerEdges (see ctcTrgPhase). Ch0/ch1 are the
+    // 8251 baud-rate generators. The CTC's own device clock, which drives the timer-mode prescaler for
     // every channel, is the full undivided 4MHz CPU clock (Z80Ctc's default
     // inputClockDivide of 1 is already correct for that — do not halve it
     // here). The machine chains channel 2's zero-count to channel 3's
     // trigger (zc2 → trg3); channel 3 is the periodic interrupt source (IM 2).
     this.ctc.zcHandlers[2] = () => this.ctc.trigger(3);
+    // The CTC heads the daisy chain and decodes RETI to leave service. The
+    // board sources below it (MAME einstein.cpp's daisy devices) have no
+    // under-service latch of their own, so they only watch the CTC's IEO.
+    this.cpu.onReti = () => this.ctc.reti();
     this.keyboard = new EinsteinKeyboard(model);
     // CDT/TZX pulse timings are 3.5MHz-referenced; scale to the 4MHz Z80.
     this.tape = new TapeDeck(EINSTEIN_CPU_CLOCK);
@@ -235,11 +253,15 @@ export class EinsteinMachine extends BaseMachine implements Machine {
     this.fdc.reset();
     this.vdp.reset();
     this.ctc.reset();
+    this.ctcTrgPhase = 0;
     this.memory.reset();
     this.keyboard.reset();
     this.audio.reset();
     this.mixer.reset();
     this.vdpIntEnabled = true;
+    this.boardIntPending = 0;
+    this.boardIntMask = 0;
+    this.adcDoneAt = -1;
     this.needsDisplay = true;
     this.setStatus('Reset');
   }
@@ -294,7 +316,19 @@ export class EinsteinMachine extends BaseMachine implements Machine {
 
         // Advance CTC timers by the elapsed T-states.
         const dt = this.cpu.tStates - lastCtcT;
-        if (dt > 0) { this.ctc.addCycles(dt); lastCtcT = this.cpu.tStates; }
+        if (dt > 0) {
+          this.ctc.addCycles(dt);
+          lastCtcT = this.cpu.tStates;
+          // 2MHz CLK/TRG0-2: one active edge per two CPU T-states.
+          const trg = this.ctcTrgPhase + dt;
+          const edges = trg >> 1;
+          this.ctcTrgPhase = trg & 1;
+          if (edges > 0) {
+            this.ctc.triggerEdges(0, edges);
+            this.ctc.triggerEdges(1, edges);
+            this.ctc.triggerEdges(2, edges);
+          }
+        }
 
         // Service a pending IM 2 interrupt from the CTC.
         if (this.ctc.interruptPending && this.cpu.iff1 && !this.cpu.eiDelay) {
@@ -302,9 +336,26 @@ export class EinsteinMachine extends BaseMachine implements Machine {
           if (vec >= 0 && this.cpu.interruptWithVector(vec) > 0) this.ctc.acknowledge();
         }
 
+        // Keyboard → ADC → fire, below the CTC (and the unmodelled PIO).
+        if (this.adcDoneAt >= 0 && this.cpu.tStates >= this.adcDoneAt) {
+          this.adcDoneAt = -1;
+          this.boardIntPending |= EINSTEIN_INT_ADC;
+        }
+        // Inhibited while a CTC channel is under service (IEO low until RETI).
+        const board = this.boardIntPending & this.boardIntMask;
+        if (board !== 0 && this.cpu.iff1 && !this.cpu.eiDelay && this.ctc.ieo) {
+          const vec = (board & EINSTEIN_INT_KEY) ? EINSTEIN_KEY_INT_VECTOR
+            : (board & EINSTEIN_INT_ADC) ? EINSTEIN_ADC_INT_VECTOR
+            : EINSTEIN_FIRE_INT_VECTOR;
+          if (this.cpu.interruptWithVector(vec) > 0 && vec === EINSTEIN_FIRE_INT_VECTOR) {
+            this.boardIntPending &= ~EINSTEIN_INT_FIRE;
+          }
+        }
+
         // Einstein 256: the V9938's INT output sits on the daisy chain
         // (vector 0xFE), maskable via port 0x80.
-        if (is256 && this.vdpIntEnabled && vdp.interruptPending() && this.cpu.iff1 && !this.cpu.eiDelay) {
+        if (is256 && this.vdpIntEnabled && vdp.interruptPending() && this.cpu.iff1 && !this.cpu.eiDelay
+          && this.ctc.ieo) {
           // Accepting the interrupt does not clear the V9938's F flag or INT
           // output; hardware holds both until the handler reads S0.
           this.cpu.interruptWithVector(EINSTEIN_256_VDP_INT_VECTOR);
@@ -340,8 +391,17 @@ export class EinsteinMachine extends BaseMachine implements Machine {
       }
     }
 
+    this.scanBoardInterrupts();
     this.fdc.tickFrame();   // motor spin-down / display-latch decay
     this.needsDisplay = true;
+  }
+
+  /** The 50Hz keyboard scan (MAME keyboard_timer_callback): a key down on
+   *  any line selected through AY port A raises the keyboard interrupt; a
+   *  held joystick fire button raises the fire interrupt. */
+  scanBoardInterrupts(): void {
+    if (this.keyboard.readColumns() !== 0xFF) this.boardIntPending |= EINSTEIN_INT_KEY;
+    if ((this.keyboard.statusByte() & 0x03) !== 0x03) this.boardIntPending |= EINSTEIN_INT_FIRE;
   }
 
   // ── Machine: debug helpers ───────────────────────────────────────────

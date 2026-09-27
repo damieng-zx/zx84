@@ -1483,3 +1483,38 @@ describe('createBlankDisk — +3DOS specification block', () => {
   });
 });
 
+
+describe('parseDSK — standard format sizes sector data by the Track-Info N', () => {
+  it('a sector whose ID claims N=6 still occupies the track N (512 bytes) of data', () => {
+    const d1 = new Uint8Array(512).fill(0x11);
+    const d2 = new Uint8Array(512).fill(0x22);
+    const buf = buildStandardDSK({
+      numTracks: 1, numSides: 1, trackSize: 0x100 + 2 * 512,
+      tracks: [{ cyl: 0, side: 0, sectors: [{ r: 1, n: 2, data: d1 }, { r: 2, n: 2, data: d2 }] }],
+    });
+    // Make the first sector's ID claim N=6 (a protection-style size lie); the
+    // Track-Info N at 0x14 stays 2, so its data is still stored as 512 bytes.
+    buf[0x100 + 0x18 + 3] = 6;
+    const t = parseDSK(buf).tracks[0][0]!;
+    expect(t.sectors[0].n).toBe(6);              // the ID keeps its own N
+    expect(t.sectors[0].data.length).toBe(512);
+    expect(t.sectors[0].data.every(b => b === 0x11)).toBe(true);
+    expect(t.sectors[1].data.every(b => b === 0x22)).toBe(true);  // no desync
+  });
+});
+
+describe('parseDSK — standard format with an unset Track-Info N', () => {
+  it('falls back to the sector N sizes when they exactly fill the track', () => {
+    const buf = buildStandardDSK({
+      numTracks: 1, numSides: 1, trackSize: 0x100 + 2 * 512,
+      tracks: [{ cyl: 0, side: 0, sectors: [
+        { r: 1, n: 2, data: new Uint8Array(512).fill(0x11) },
+        { r: 2, n: 2, data: new Uint8Array(512).fill(0x22) },
+      ] }],
+    });
+    buf[0x100 + 0x14] = 0;                       // Track-Info N left unset
+    const t = parseDSK(buf).tracks[0][0]!;
+    expect(t.sectors.map(s => s.data.length)).toEqual([512, 512]);
+    expect(t.sectors[1].data[0]).toBe(0x22);
+  });
+});

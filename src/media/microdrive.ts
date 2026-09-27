@@ -53,10 +53,15 @@ export function parseMdrBlocks(data: Uint8Array): MdrBlock[] {
 
   for (let sector = 0; sector < sectors; sector++) {
     const record = sector * SECTOR_BYTES + RECORD_OFFSET;
+    // Record descriptor (IF1): RECFLG (bit 0 always 0 for a record, bit 1 set
+    // on a file's last record, bit 2 RESET for a PRINT/OPEN# data file),
+    // RECNUM, RECLEN (bytes used, 0..512), RECNAM. Bit 2 is a file-type
+    // marker, not an "in use" flag — occupancy is judged by RECLEN: a free
+    // (formatted, never written) record has RECLEN 0.
     const flags = data[record];
     const length = Math.min(data[record + 2] | (data[record + 3] << 8), RECORD_DATA_BYTES);
-    // Bit 2 marks an occupied record. Empty formatted sectors have no content.
-    if ((flags & 0x04) === 0 || length === 0) continue;
+    if (length === 0) continue;
+    const printFile = (flags & 0x04) === 0;
 
     const name = readName(data, record + 4) || '(unnamed)';
     let block = blocks.get(name);
@@ -68,8 +73,9 @@ export function parseMdrBlocks(data: Uint8Array): MdrBlock[] {
     block.records++;
     block.sectors.push(sector);
 
-    // Record zero begins a Spectrum file with a compact type/length header.
-    if (data[record + 1] === 0 && length >= 9) {
+    // Record zero of a SAVE* file begins with a compact type/length header.
+    // PRINT files are raw stream data with no header.
+    if (!printFile && data[record + 1] === 0 && length >= 9) {
       const header = record + RECORD_OFFSET;
       const type = data[header];
       if (FILE_TYPES[type]) {
@@ -77,8 +83,10 @@ export function parseMdrBlocks(data: Uint8Array): MdrBlock[] {
         block.declaredBytes = data[header + 1] | (data[header + 2] << 8);
         if (type === 3) block.loadAddress = data[header + 3] | (data[header + 4] << 8);
         if (type === 0) {
+          // As on tape, a line with bit 15 set (0x8000..0xFFFF) means
+          // "no auto-run" — the ROM only ever sets the high byte's top bit.
           const line = data[header + 7] | (data[header + 8] << 8);
-          block.autorunLine = line === 0x8000 ? null : line;
+          block.autorunLine = line & 0x8000 ? null : line;
         }
       }
     }

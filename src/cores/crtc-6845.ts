@@ -43,16 +43,28 @@ export class Crtc6845 {
   readonly regs = new Uint8Array(18);
   private selected = 0;
 
-  constructor(private readonly type: 0 | 1 | 2 | 3 | 4 = 0) {}
+  /** Implemented bits per register: R4/R6/R7/R10 are 7-bit, R5/R9/R11 5-bit,
+   *  R12/R14 6-bit. On types 1/2 the VSYNC width is fixed at 16 lines, so only
+   *  R3's HSYNC nibble exists (a 0 VSYNC field reads as the 16-line default). */
+  private readonly writeMask: Uint8Array;
+
+  constructor(private readonly type: 0 | 1 | 2 | 3 | 4 = 0) {
+    this.writeMask = Uint8Array.from([
+      0xFF, 0xFF, 0xFF, type === 1 || type === 2 ? 0x0F : 0xFF,
+      0x7F, 0x1F, 0x7F, 0x7F, 0xFF, 0x1F, 0x7F, 0x1F,
+      0x3F, 0xFF, 0x3F, 0xFF, 0x3F, 0xFF,
+    ]);
+  }
 
   /** True while the CRTC is asserting VSYNC (polled via PPI Port B bit 0). */
   vsyncActive = false;
-  /** True for the single scanline on which VSYNC begins (for interrupt resync). */
+  /** True for the single scanline on which VSYNC begins (for interrupt resync).
+   *  Set by `advanceLine()` (or `beginFrame()`) on entry to that scanline. */
   vsyncStart = false;
 
   // ── Per-frame raster counters ──────────────────────────────────────────
-  private vcc = 0;          // character-row counter (0–R4)
-  private ra = 0;           // raster within row (0–R9)
+  private vcc = 0;          // character-row counter (7-bit, matched against R4)
+  private ra = 0;           // raster within row (5-bit, matched against R9)
   private maRow = 0;        // memory address at start of current row
   private vsyncLeft = 0;    // remaining VSYNC scanlines
   private vtaLeft = 0;      // remaining vertical-total-adjust (R5) scanlines
@@ -67,10 +79,13 @@ export class Crtc6845 {
     // latched by the light-pen strobe, not writable by the CPU. Nothing here
     // models a light pen, so they simply never change.
     if (this.selected === R_LIGHT_PEN_H || this.selected === R_LIGHT_PEN_L) return;
-    if (this.selected < 18) this.regs[this.selected] = val & 0xFF;
+    if (this.selected < 18) this.regs[this.selected] = val & this.writeMask[this.selected];
   }
 
   readRegister(): number {
+    // R12/R13 (display start) are write-only on the UM6845R (type 1) and
+    // MC6845 (type 2); R14–R17 read back on every type.
+    if ((this.selected === 12 || this.selected === 13) && (this.type === 1 || this.type === 2)) return 0;
     if (this.selected >= 12 && this.selected <= 17) return this.regs[this.selected];
     if (this.type === 1 && (this.selected === 10 || this.selected === 11)) {
       return this.regs[this.selected];
@@ -111,7 +126,9 @@ export class Crtc6845 {
     this.ra = 0;
     this.vtaLeft = 0;
     this.maRow = this.displayStart;
-    // Leave vsync state to carry naturally across the boundary.
+    // Leave vsync state to carry naturally across the boundary, but a frame
+    // that starts on row R7 (R7 = 0) begins its VSYNC on this very line.
+    this.checkVsyncOnset();
   }
 
   /** Restart the CRTC's internal frame: reset the row/raster counters and reload
@@ -127,6 +144,36 @@ export class Crtc6845 {
     this.maRow = this.displayStart;
   }
 
+  /** VSYNC begins at the start of the first raster of character row R7 — so the
+   *  onset scanline itself (VCC = R7, RA = 0) already reads VSYNC high. Tested
+   *  on entry to each new scanline (not after drawing it). */
+  private checkVsyncOnset(): void {
+    if (this.vsyncActive || this.vtaLeft > 0) return;
+    if (this.vcc !== this.regs[R_VSYNC_POS] || this.ra !== 0) return;
+    let width = this.regs[R_SYNC_WIDTHS] >> 4;
+    if (width === 0) width = 16; // 0 means 16 lines on type 0/1
+    this.vsyncActive = true;
+    this.vsyncStart = true;
+    this.vsyncLeft = width;
+  }
+
+  /**
+   * Character position within the scanline (0..charsPerLine) at which HSYNC
+   * *ends* — the edge the CPC Gate Array counts for its raster interrupt
+   * (MAME amstrad: "the gate array reacts to de-assertion of the hsync 6845
+   * line"). HSYNC starts at R2 and lasts R3 bits 3-0 characters (0 → 16). A
+   * sync that would fall outside the line (R2 beyond R0, or still running past
+   * the end of the line) is reported at the end of the line, so the host keeps
+   * one HSYNC per scanline.
+   */
+  hsyncEndChar(): number {
+    const chars = this.charsPerLine();
+    const start = this.regs[R_HSYNC_POS];
+    const width = (this.regs[R_SYNC_WIDTHS] & 0x0F) || 16;
+    const end = start + width;
+    return start < chars && end <= chars ? end : chars;
+  }
+
   /** State of the scanline about to be drawn. */
   currentLine(): CrtcLine {
     return {
@@ -137,25 +184,21 @@ export class Crtc6845 {
     };
   }
 
-  /** Advance to the next scanline, updating VCC/RA/MA and VSYNC. */
+  /** Advance to the next scanline, updating VCC/RA/MA and VSYNC. After this,
+   *  `vsyncStart` is true iff VSYNC begins on the scanline just entered. */
   advanceLine(): void {
     this.vsyncStart = false;
 
-    // VSYNC begins at the first raster of character row R7.
-    if (this.vcc === this.regs[R_VSYNC_POS] && this.ra === 0 && !this.vsyncActive) {
-      let width = this.regs[R_SYNC_WIDTHS] >> 4;
-      if (width === 0) width = 16; // 0 means 16 lines on type 0/1
-      this.vsyncActive = true;
-      this.vsyncStart = true;
-      this.vsyncLeft = width;
-    }
-    else if (this.vsyncActive) {
-      // Count down only on lines *after* onset, so a width of N holds VSYNC for
-      // exactly N scanlines (the onset line is the first of the N).
-      this.vsyncLeft--;
-      if (this.vsyncLeft <= 0) this.vsyncActive = false;
-    }
+    // The scanline just finished was one of the N VSYNC lines (the onset line
+    // counts as the first), so a width of N holds VSYNC for exactly N lines.
+    if (this.vsyncActive && --this.vsyncLeft <= 0) this.vsyncActive = false;
 
+    this.stepCounters();
+    this.checkVsyncOnset();
+  }
+
+  /** Move the raster/row counters on by one scanline. */
+  private stepCounters(): void {
     // Vertical-total-adjust: R5 extra scanlines follow the last character row,
     // then the frame restarts.
     if (this.vtaLeft > 0) {
@@ -163,21 +206,24 @@ export class Crtc6845 {
       return;
     }
 
-    // Advance raster / character row.
-    if (this.ra >= this.regs[R_MAX_RASTER]) {
-      // End of a character row. R4 (vertical total) is re-read here, so reducing
-      // it mid-frame restarts the frame early — the basis of rupture.
-      if (this.vcc >= this.regs[R_VERT_TOTAL]) {
+    // Advance raster / character row. The 6845 compares its counters for
+    // *equality* with R9/R4: a register written below the live counter is
+    // missed, so the counter runs on to its width (RA 5-bit, VCC 7-bit) and
+    // wraps before it can match again.
+    if (this.ra === this.regs[R_MAX_RASTER]) {
+      // End of a character row. R4 (vertical total) is re-read here, so setting
+      // it to the current row mid-frame restarts the frame early — rupture.
+      if (this.vcc === this.regs[R_VERT_TOTAL]) {
         const adjust = this.regs[R_VERT_ADJUST];
         if (adjust > 0) this.vtaLeft = adjust;   // run R5 adjust lines, then restart
         else this.restartFrame();
       } else {
         this.ra = 0;
-        this.vcc++;
+        this.vcc = (this.vcc + 1) & 0x7F;
         this.maRow = (this.maRow + this.regs[R_HORIZ_DISPLAYED]) & 0x3FFF;
       }
     } else {
-      this.ra++;
+      this.ra = (this.ra + 1) & 0x1F;
     }
   }
 

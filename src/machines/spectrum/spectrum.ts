@@ -17,7 +17,7 @@ import { ULA, PALETTES, type BorderMode } from '@/machines/spectrum/ula.ts';
 import { SpectrumKeyboard } from '@/machines/spectrum/keyboard.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import { Audio } from '@/audio.ts';
-import { TapeDeck } from '@/media/tape/tap.ts';
+import { TapeDeck, TAPE_REF_HZ } from '@/media/tape/tap.ts';
 import { UPD765A } from '@/cores/upd765a.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { Contention } from '@/machines/spectrum/contention.ts';
@@ -287,6 +287,9 @@ export class Spectrum extends BaseMachine implements Machine {
     this.contention = new Contention(this.variant, this.memory);
     this.mixer = new AudioMixer(this.contention.timing.cpuClock);
     this.tape = new TapeDeck(this.variant.timing.cpuClock);
+    // TZX/TAP pulse lengths are 3.5MHz T-states; the 128K-class clock is
+    // 3.5469MHz, so scale them to keep real-time pulse durations (1 on 48K).
+    this.tape.pulseScale = this.variant.timing.cpuClock / TAPE_REF_HZ;
     this.tape.is48K = this.variant.is48K;
     this.fdc = new UPD765A();
     this.trace = new SpectrumTrace(this);
@@ -423,6 +426,10 @@ export class Spectrum extends BaseMachine implements Machine {
    * Called from the port-in handler (for sub-instruction accuracy) and from
    * the main loop (to catch up after each instruction).
    */
+  /** Measure the next tape advance from now. Call when the deck (re)starts
+   *  so it isn't handed the T-states that elapsed while it was stopped. */
+  resetTapeAdvance(): void { this.tapeLastAdvanceT = this.cpu.tStates; }
+
   advanceTapeTo(): void {
     if (!this.tape.playing || this.tape.paused) {
       this.ula.tapeActive = false;
@@ -509,6 +516,7 @@ export class Spectrum extends BaseMachine implements Machine {
     this.betaDisk.reset();
     this.loaderDetector.reset();
     this.contention.frameStartTStates = 0;
+    this._resumeFrameOffset = -1;
     this.needsDisplay = true;
     this.setStatus('Reset');
   }
@@ -584,6 +592,19 @@ export class Spectrum extends BaseMachine implements Machine {
     }
   }
 
+  /** Frame offset (T-states since the last INT) to resume at on the next
+   *  runFrame, or -1. Set by snapshot loads that record frame position. */
+  private _resumeFrameOffset = -1;
+
+  /** Make the next frame resume mid-frame: `frameOffset` T-states have
+   *  already elapsed since the INT, so the frame started in the past and the
+   *  next INT comes tpf - frameOffset T-states from now (the INT only fires
+   *  at once if the offset is still inside the INT window). */
+  resumeAtFrameOffset(frameOffset: number): void {
+    const tpf = this.contention.timing.tStatesPerFrame;
+    this._resumeFrameOffset = ((frameOffset % tpf) + tpf) % tpf;
+  }
+
   protected runFrame(): void {
     // Apply any deferred combo keys (modifier was pressed last frame).
     this.keyboard.processPending();
@@ -601,8 +622,14 @@ export class Spectrum extends BaseMachine implements Machine {
     const idealStart = this.contention.frameStartTStates + tpf;
     // Use ideal boundary if the CPU has reached it (normal case).
     // Otherwise re-sync to current tStates (first frame, snapshot load, reset).
-    this.contention.frameStartTStates =
-      idealStart <= this.cpu.tStates ? idealStart : this.cpu.tStates;
+    const resumeOffset = this._resumeFrameOffset;
+    if (resumeOffset >= 0) {
+      this._resumeFrameOffset = -1;
+      this.contention.frameStartTStates = this.cpu.tStates - resumeOffset;
+    } else {
+      this.contention.frameStartTStates =
+        idealStart <= this.cpu.tStates ? idealStart : this.cpu.tStates;
+    }
     const frameStart = this.contention.frameStartTStates;
     this.tapeLastAdvanceT = this.cpu.tStates;
     const frameEnd = frameStart + tpf;
@@ -613,11 +640,12 @@ export class Spectrum extends BaseMachine implements Machine {
     //   48K: 32T, 128K/+2: 36T, +2A/+3: 32T
     // If IFF1 is false (DI), the interrupt stays pending until EI re-enables it,
     // but only within the INT window — after that, it's lost until the next frame.
-    let intT = this.cpu.interrupt();
+    // A mid-frame resume past the INT window must not take an interrupt now.
+    let intT = this.cpu.tStates < intWindowEnd ? this.cpu.interrupt() : 0;
     // intT === 0 means the ack didn't take this attempt — could be DI (iff1=false)
     // OR EI delay (eiDelay=true at the frame edge). Either way the INT line is still
     // held LOW for the model's int window; retry until it fires or the window closes.
-    let intPending = intT === 0;
+    let intPending = intT === 0 && this.cpu.tStates < intWindowEnd;
 
     // AMX mouse: drain queued movement steps as PIO interrupts spread across frame
     if (this.amxMouse.enabled && (this.amxMouse.pendingX !== 0 || this.amxMouse.pendingY !== 0)) {
@@ -822,7 +850,7 @@ export class Spectrum extends BaseMachine implements Machine {
       if (skipAudio) {
         this.mixer.beeperTStatesAccum = 0;
       } else {
-        this.mixer.accumulate(this.ula.getAudioEarBit(this.tapeSoundEnabled), elapsed);
+        this.mixer.accumulateLevel(this.ula.getAudioLevel(this.tapeSoundEnabled), elapsed);
         this.mixer.generateSamples(this.audio, this.ay, this.variant.hasAY);
       }
     }
@@ -980,7 +1008,13 @@ export class Spectrum extends BaseMachine implements Machine {
       const lineRelT = t - this.nextRenderT;
       if (lineRelT < 0) break;
 
-      const beamX = Math.min(w, lineRelT << 1); // 2 pixels per T-state
+      // 2 pixels per T-state, floored to an 8-pixel (4T) boundary: the ULA
+      // / gate array latches the border colour once per 8-pixel character
+      // period, so a border OUT takes effect at a character boundary, never
+      // mid-character. Line start is displayOrigin - borderLeft/2 and
+      // borderLeft is a multiple of 8, so these boundaries line up with the
+      // display cells. Display-cell emission is unaffected (it uses >> 3).
+      const beamX = Math.min(w, (lineRelT << 1) & ~7);
       if (beamX <= this.nextPixelX) break;
 
       // Display cell range visible up to the beam.

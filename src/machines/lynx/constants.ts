@@ -1,19 +1,26 @@
 /**
  * Camputers Lynx hardware constants.
  *
- * A 1983 British home computer: Z80A at 4MHz with a Motorola 6845 sequencing
+ * A 1983 British home computer: a Z80 at 4MHz (6MHz on the 128K) with a Motorola 6845 sequencing
  * the raster over three one-bit-per-pixel colour planes. Facts here are from
  * MAME's `camputers/camplynx.cpp`, the only detailed public description of the
  * machine's banking and video.
  */
 
-/** Z80A. */
-export const LYNX_CPU_CLOCK = 4_000_000;
+/** Z80 clock, from the 24MHz crystal: /6 on the 48K and 96K (a Z80A at
+ *  4MHz), /4 on the 128K (6MHz) — MAME camplynx.cpp. */
+export const LYNX_CPU_CLOCK_48 = 4_000_000;
+export const LYNX_CPU_CLOCK_128 = 6_000_000;
 
 /** 50Hz PAL frame. */
 export const LYNX_FRAME_HZ = 50;
 export const LYNX_LINES_PER_FRAME = 312;
-export const LYNX_T_PER_FRAME = LYNX_CPU_CLOCK / LYNX_FRAME_HZ;   // 80000
+
+/** T-states in one 50Hz frame at the given clock (80000 at 4MHz, 120000 at
+ *  6MHz). */
+export function lynxTStatesPerFrame(clock: number): number {
+  return clock / LYNX_FRAME_HZ;
+}
 
 /**
  * Active display. The 48K and 96K run the 6845 at 32 columns of 8 pixels for

@@ -227,3 +227,122 @@ describe('Z80 — interruptWithVector _pendingVector handling', () => {
     expect(cpu._pendingVector).toBe(0xFF);
   });
 });
+
+describe('Z80 — NMOS LD A,I / LD A,R P/V quirk', () => {
+  // Sean Young, "The Undocumented Z80 Documented" §5.3: on NMOS parts, if an
+  // interrupt is accepted directly after LD A,I or LD A,R, the P/V flag reads
+  // 0 even though IFF2 was 1 when the instruction ran.
+  const F_PV = 0x04;
+
+  for (const [name, op] of [['LD A,I', 0x57], ['LD A,R', 0x5F]] as const) {
+    it(`${name} followed immediately by an accepted INT leaves P/V = 0`, () => {
+      const h = newCpu();
+      h.cpu.iff1 = true; h.cpu.iff2 = true; h.cpu.im = 1;
+      h.cpu.i = 0x80; h.cpu.sp = 0xC010;
+      load(h.mem, 0, 0xED, op);
+      step(h);
+      expect(h.cpu.f & F_PV).toBe(F_PV); // copied from IFF2 = 1
+      expect(h.cpu.interrupt()).toBeGreaterThan(0);
+      expect(h.cpu.f & F_PV).toBe(0);
+    });
+  }
+
+  it('an INT accepted one instruction later leaves the LD A,I P/V intact', () => {
+    const h = newCpu();
+    h.cpu.iff1 = true; h.cpu.iff2 = true; h.cpu.im = 1;
+    h.cpu.sp = 0xC010;
+    load(h.mem, 0, 0xED, 0x57, 0x00); // LD A,I ; NOP
+    step(h, 2);
+    h.cpu.interrupt();
+    expect(h.cpu.f & F_PV).toBe(F_PV);
+  });
+
+  it('a blocked INT (IFF1 = 0) after LD A,I does not touch P/V', () => {
+    const h = newCpu();
+    h.cpu.iff1 = false; h.cpu.iff2 = true; h.cpu.im = 1;
+    load(h.mem, 0, 0xED, 0x57);
+    step(h);
+    expect(h.cpu.interrupt()).toBe(0);
+    expect(h.cpu.f & F_PV).toBe(F_PV);
+  });
+});
+
+describe('Z80 — board M1 wait states stretch interrupt acknowledge cycles', () => {
+  // INTA (M1 + IORQ) and the NMI response are M1 cycles, so a WAIT generator
+  // keyed on /M1 (MSX: +1T per M1) stretches them exactly like an opcode
+  // fetch. Base timings (Zilog UM0080): IM 0/1 13T, IM 2 19T, NMI 11T.
+  for (const [im, base] of [[0, 13], [1, 13], [2, 19]] as const) {
+    it(`IM ${im} acknowledge takes ${base} + 1 T with one M1 wait state`, () => {
+      const h = newCpu();
+      h.cpu.m1WaitStates = 1;
+      h.cpu.iff1 = true; h.cpu.im = im; h.cpu.sp = 0xC010;
+      const t0 = h.cpu.tStates;
+      expect(h.cpu.interrupt()).toBe(base + 1);
+      expect(h.cpu.tStates - t0).toBe(base + 1);
+    });
+  }
+
+  it('the extra wait lands in the acknowledge, before the PC push', () => {
+    const h = newCpu();
+    h.cpu.m1WaitStates = 1;
+    h.cpu.iff1 = true; h.cpu.im = 1; h.cpu.sp = 0xC010;
+    const writes: number[] = [];
+    const orig = h.cpu.write8;
+    h.cpu.write8 = (a, v) => { writes.push(h.cpu.tStates); orig(a, v); };
+    h.cpu.interrupt();
+    expect(writes).toEqual([8, 11]); // push at T+7/T+10 shifted by the wait
+  });
+
+  it('NMI acknowledge takes 11 + 1 T with one M1 wait state', () => {
+    const h = newCpu();
+    h.cpu.m1WaitStates = 1;
+    h.cpu.sp = 0xC010;
+    h.cpu.nmi();
+    expect(h.cpu.tStates).toBe(12);
+  });
+});
+
+describe('Z80 — IM 2 uses the full data-bus vector byte', () => {
+  it('an odd vector indexes the table at I:vector without clearing bit 0', () => {
+    // The Z80 forms the IM 2 table address from I and the whole byte it reads
+    // off the bus (Zilog UM0080 notes only that Zilog peripherals supply even
+    // vectors) — the frame-interrupt 0xFF case already relies on bit 0 = 1.
+    const h = newCpu();
+    h.cpu.im = 2; h.cpu.iff1 = true; h.cpu.i = 0x80; h.cpu.sp = 0xC010;
+    load(h.mem, 0x8010, 0x11, 0x22); // I:0x10 → 0x2211
+    load(h.mem, 0x8011, 0x33, 0x44); // I:0x11 → 0x4433
+    expect(h.cpu.interruptWithVector(0x11)).toBe(19);
+    expect(h.cpu.pc).toBe(0x4433);
+  });
+});
+
+describe('Z80 — RETI bus notification (onReti)', () => {
+  // Only ED 4D is RETI; ED 45/55/5D/65/6D/75/7D are all RETN (Zilog Z80 CPU
+  // User Manual; Sean Young, "The Undocumented Z80 Documented" §5.3).
+  // Daisy-chained peripherals decode ED 4D to clear their under-service latch.
+  it('ED 4D calls onReti once and returns to the popped address', () => {
+    const h = newCpu();
+    let calls = 0;
+    h.cpu.onReti = () => { calls++; };
+    h.cpu.sp = 0xC000;
+    h.mem[0xC000] = 0x34; h.mem[0xC001] = 0x12;
+    load(h.mem, 0, 0xED, 0x4D);
+    step(h);
+    expect(calls).toBe(1);
+    expect(h.cpu.pc).toBe(0x1234);
+  });
+
+  for (const op of [0x45, 0x55, 0x5D, 0x65, 0x6D, 0x75, 0x7D]) {
+    it(`ED ${op.toString(16).toUpperCase()} (RETN) does not call onReti`, () => {
+      const h = newCpu();
+      let calls = 0;
+      h.cpu.onReti = () => { calls++; };
+      h.cpu.sp = 0xC000;
+      h.mem[0xC000] = 0x34; h.mem[0xC001] = 0x12;
+      load(h.mem, 0, 0xED, op);
+      step(h);
+      expect(calls).toBe(0);
+      expect(h.cpu.pc).toBe(0x1234);
+    });
+  }
+});

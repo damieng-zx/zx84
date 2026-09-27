@@ -414,3 +414,72 @@ describe('WD1793 Type I verify (V bit)', () => {
     expect(wd.readStatus() & ST_RNF).toBe(0);
   });
 });
+
+describe('WD1793 Type I verify searches every ID on the track', () => {
+  const CMD_SEEK_V = 0x14;
+  function imageOf(sectors: DskSector[]): DskImage {
+    const sectorMap = new Map<number, number>();
+    sectors.forEach((s, i) => sectorMap.set(s.r, i));
+    return {
+      format: 'standard', numTracks: 1, numSides: 1, diskFormat: '', protection: '',
+      tracks: [[{ sectors, sectorMap, gap3: 0x2A, filler: 0 }]],
+    };
+  }
+  const sec = (c: number, r: number, st1 = 0, st2 = 0): DskSector =>
+    ({ c, h: 0, r, n: 1, st1, st2, data: new Uint8Array(256) });
+
+  it('verifies when a later ID field matches even though the first does not', () => {
+    const wd = wd1793();
+    wd.insertDisk(imageOf([sec(7, 1), sec(0, 2)]), 0);
+    wd.selectDrive(0);
+    wd.writeData(0);
+    wd.writeCommand(CMD_SEEK_V);
+    expect(wd.readStatus() & ST_RNF).toBe(0);
+  });
+
+  it('a matching ID with an ID CRC error does not verify, and flags CRC ERROR', () => {
+    const wd = wd1793();
+    wd.insertDisk(imageOf([sec(0, 1, 0x20, 0x00)]), 0);
+    wd.selectDrive(0);
+    wd.writeData(0);
+    wd.writeCommand(CMD_SEEK_V);
+    const st = wd.readStatus();
+    expect(st & ST_RNF).toBe(ST_RNF);
+    expect(st & ST_CRCERR).toBe(ST_CRCERR);
+  });
+
+  it('a data CRC error (DE with DD) does not spoil the ID field', () => {
+    const wd = wd1793();
+    wd.insertDisk(imageOf([sec(0, 1, 0x20, 0x20)]), 0);
+    wd.selectDrive(0);
+    wd.writeData(0);
+    wd.writeCommand(CMD_SEEK_V);
+    expect(wd.readStatus() & (ST_RNF | ST_CRCERR)).toBe(0);
+  });
+});
+
+describe('WD1793 multi-sector WRITE termination', () => {
+  it('ends in RECORD NOT FOUND once R+1 is absent, after writing the last sector', () => {
+    const wd = wd1793();
+    const img = trdImage();             // sectors 1..16
+    wd.insertDisk(img, 0);
+    wd.selectDrive(0);
+    wd.writeSectorReg(16);
+    wd.writeCommand(0xB0);              // WRITE SECTOR, multi
+    for (let i = 0; i < 256; i++) wd.writeData(0x5A);
+    const status = wd.readStatus();
+    expect(status & ST_BUSY).toBe(0);
+    expect(status & ST_RNF).toBe(ST_RNF);
+    expect(img.tracks[0][0]!.sectors[15].data.every(b => b === 0x5A)).toBe(true);
+  });
+
+  it('a single-sector write still ends cleanly', () => {
+    const wd = wd1793();
+    wd.insertDisk(trdImage(), 0);
+    wd.selectDrive(0);
+    wd.writeSectorReg(16);
+    wd.writeCommand(CMD_WRITE);
+    for (let i = 0; i < 256; i++) wd.writeData(0x5A);
+    expect(wd.readStatus() & (ST_BUSY | ST_RNF)).toBe(0);
+  });
+});

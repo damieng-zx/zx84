@@ -20,7 +20,7 @@ const SAVE_ITEMS: Record<SaveMenuItem, { label: string; run: () => void }> = {
   'screenshot-png': { label: 'Screenshot (.png)', run: () => saveScreenshot('png') },
   'screen-scr': { label: 'Screen (.scr)', run: () => saveScreenshot('scr') },
   'ram-bin': { label: 'RAM (.bin)', run: () => saveRAM() },
-  'tape-tap': { label: 'Saved tape (.tap)', run: () => saveRecordedTape() },
+  'tape-tap': { label: 'Saved tape', run: () => saveRecordedTape() },
 };
 
 const saveMenu = () => machineCaps().saveMenu;

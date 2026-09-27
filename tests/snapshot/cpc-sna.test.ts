@@ -45,7 +45,9 @@ function seedState(m: CpcMachine): void {
   m.memory.selectUpperRom(7);
 
   // CRTC: distinctive registers + a selected register.
-  for (let i = 0; i < 18; i++) m.crtc.regs[i] = (i * 3 + 5) & 0xFF;
+  // Through the chip's write path, so the reference holds only the bits a
+  // real 6845 implements (e.g. R9 is 5-bit).
+  for (let i = 0; i < 16; i++) { m.crtc.selectRegister(i); m.crtc.writeRegister((i * 3 + 5) & 0xFF); }
   m.crtc.selectRegister(9);
 
   // PPI latches.
@@ -278,6 +280,173 @@ describe('CPC .SNA RLE codec (via the format)', () => {
     const v3 = saveCpcSna(ref, 3);
     expect(v2.length).toBe(256 + 8 * SLOT);
     expect(v3.length).toBeLessThan(v2.length);
+  });
+});
+
+/** A hand-built v3 header (no encoder involved): signature, version 3, the
+ *  given CPC type byte and memory-dump size in KB. */
+function v3Header(typeByte: number, dumpKB: number): Uint8Array {
+  const h = new Uint8Array(256);
+  h.set([0x4D, 0x56, 0x20, 0x2D, 0x20, 0x53, 0x4E, 0x41], 0);   // "MV - SNA"
+  h[0x10] = 3;
+  h[0x6B] = dumpKB & 0xFF; h[0x6C] = dumpKB >> 8;
+  h[0x6D] = typeByte;
+  return h;
+}
+
+function chunk(id: string, body: Uint8Array): Uint8Array {
+  const out = new Uint8Array(8 + body.length);
+  for (let i = 0; i < 4; i++) out[i] = id.charCodeAt(i);
+  out[4] = body.length & 0xFF; out[5] = (body.length >> 8) & 0xFF;
+  out[6] = (body.length >> 16) & 0xFF; out[7] = (body.length >>> 24) & 0xFF;
+  out.set(body, 8);
+  return out;
+}
+
+function join(parts: Uint8Array[]): Uint8Array {
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+  let o = 0;
+  for (const p of parts) { out.set(p, o); o += p.length; }
+  return out;
+}
+
+describe('CPC .SNA v3 flat memory dump + chunks', () => {
+  // cpcwiki SNA format: in v3 the flat dump (size at 0x6B–0x6C, KB) still
+  // follows the header; chunks come after the dump. MEMn chunks are only
+  // used by writers that set the dump size to 0.
+  it('loads a v3 file whose memory is a 128K flat dump', () => {
+    const dump = new Uint8Array(128 * 1024);
+    for (let b = 0; b < 8; b++) dump.fill(0x10 + b, b * SLOT, (b + 1) * SLOT);
+    const data = join([v3Header(2, 128), dump]);
+    const m = new CpcMachine('cpc6128', null);
+    applyCpcSna(data, m);
+    for (let b = 0; b < 8; b++) {
+      expect(m.memory.getRamBank(b)[0], `bank ${b} first byte`).toBe(0x10 + b);
+      expect(m.memory.getRamBank(b)[SLOT - 1], `bank ${b} last byte`).toBe(0x10 + b);
+    }
+  });
+
+  it('parses chunks that follow a flat dump (not from offset 0x100)', () => {
+    // A 64K dump, then an unknown chunk, then a MEM1 chunk (bank 4-7 data).
+    const dump = new Uint8Array(64 * 1024).fill(0x33);
+    const mem1 = new Uint8Array(0x10000).fill(0x77);
+    const data = join([v3Header(2, 64), dump, chunk('XYZW', new Uint8Array(5)), chunk('MEM1', mem1)]);
+    const m = new CpcMachine('cpc6128', null);
+    applyCpcSna(data, m);
+    expect(m.memory.getRamBank(0)[0]).toBe(0x33);
+    expect(m.memory.getRamBank(3)[SLOT - 1]).toBe(0x33);
+    expect(m.memory.getRamBank(4)[0]).toBe(0x77);
+    expect(m.memory.getRamBank(7)[SLOT - 1]).toBe(0x77);
+  });
+
+  it('a MEM1 chunk on a 64K machine does not alias onto base RAM', () => {
+    const mem0 = new Uint8Array(0x10000).fill(0x11);
+    const mem1 = new Uint8Array(0x10000).fill(0x99);
+    const data = join([v3Header(0, 0), chunk('MEM0', mem0), chunk('MEM1', mem1)]);
+    const m = new CpcMachine('cpc464', null);
+    applyCpcSna(data, m);
+    for (let b = 0; b < 4; b++) expect(m.memory.getRamBank(b)[0], `bank ${b}`).toBe(0x11);
+  });
+});
+
+describe('CPC .SNA v3 Gate Array interrupt state', () => {
+  // cpcwiki SNA v3: 0xB2 GA vsync delay counter (HSYNCs since VSYNC start,
+  // 0 = inactive), 0xB3 GA interrupt scanline counter (0–51), 0xB4 interrupt
+  // request flag.
+  it('restores the 52-line counter and a pending interrupt from 0xB3/0xB4', () => {
+    const data = join([v3Header(2, 0)]);
+    data[0xB3] = 37;
+    data[0xB4] = 1;
+    const m = new CpcMachine('cpc6128', null);
+    applyCpcSna(data, m);
+    expect(m.gateArray.rasterCount).toBe(37);
+    expect(m.gateArray.interruptRequested).toBe(true);
+  });
+
+  it('maps the vsync delay counter to HSYNCs remaining before re-sync', () => {
+    const m = new CpcMachine('cpc6128', null);
+    const data = v3Header(2, 0);
+    data[0xB2] = 1;                       // just started: both HSYNCs to come
+    applyCpcSna(data, m);
+    expect(m.vsyncResyncCountdown).toBe(2);
+    data[0xB2] = 2;
+    applyCpcSna(data, m);
+    expect(m.vsyncResyncCountdown).toBe(1);
+    data[0xB2] = 0;
+    applyCpcSna(data, m);
+    expect(m.vsyncResyncCountdown).toBe(0);
+  });
+
+  it('round-trips the counters through a v3 save', () => {
+    const ref = new CpcMachine('cpc6128', null);
+    ref.gateArray.rasterCount = 23;
+    ref.gateArray.interruptRequested = true;
+    ref.vsyncResyncCountdown = 1;
+    const data = saveCpcSna(ref, 3);
+    expect(data[0xB3]).toBe(23);
+    expect(data[0xB4]).toBe(1);
+    const m = new CpcMachine('cpc6128', null);
+    applyCpcSna(data, m);
+    expect(m.gateArray.rasterCount).toBe(23);
+    expect(m.gateArray.interruptRequested).toBe(true);
+    expect(m.vsyncResyncCountdown).toBe(1);
+  });
+});
+
+describe('CPC .SNA v3 "CPC+" chunk (Plus ASIC state)', () => {
+  function plusChunkBody(): Uint8Array {
+    const b = new Uint8Array(0x8F8);
+    b[0x000] = 0x73;                 // sprite 0 pixels (0,0)=7, (1,0)=3
+    b[0x800] = 0x34; b[0x801] = 0x01; // sprite 0 X = 0x134
+    b[0x802] = 0x20; b[0x803] = 0x00; // sprite 0 Y = 0x20
+    b[0x804] = 0x05;                 // sprite 0 mag x1/x1
+    b[0x880] = 0x12; b[0x881] = 0x04; // pen 0: R=1 B=2, G=4
+    b[0x8C0] = 0x80;                 // PRI scanline 128
+    b[0x8C1] = 0x10;                 // split line 16
+    b[0x8C2] = 0x30; b[0x8C3] = 0x40; // split address &3040
+    b[0x8C4] = 0x95;                 // extend border, vscroll 1, hscroll 5
+    b[0x8C5] = 0xF1;                 // vector (low 3 bits ignored)
+    b[0x8D0] = 0x34; b[0x8D1] = 0x12; // DMA0 address &1234
+    b[0x8D2] = 0x02;                 // DMA0 prescaler 2
+    b[0x8DF] = 0x01;                 // DMA0 enabled
+    b[0x8E0 + 4] = 0x03;             // DMA0 pause count 3
+    b[0x8F6] = 1;                    // unlocked
+    return b;
+  }
+
+  it('restores sprites, palette, scroll/split/PRI and DMA from a CPC+ chunk', () => {
+    const data = join([v3Header(4, 0), chunk('MEM0', new Uint8Array(0x10000)),
+                       chunk('MEM1', new Uint8Array(0x10000)), chunk('CPC+', plusChunkBody())]);
+    const m = new CpcMachine('cpc6128plus', null);
+    applyCpcSna(data, m);
+    const asic = m.gateArray as Asic;
+    expect(asic.locked).toBe(false);
+    expect(asic.registerPage[0x0000]).toBe(7);
+    expect(asic.registerPage[0x0001]).toBe(3);
+    expect(asic.registerPage[0x2000]).toBe(0x34);
+    expect(asic.registerPage[0x2001]).toBe(0x01);
+    expect(asic.registerPage[0x2004]).toBe(0x05);
+    // 4-bit channels scale ×17 into ABGR: R=0x11, G=0x44, B=0x22.
+    expect(asic.asicPalette[0] >>> 0).toBe(0xFF224411);
+    expect(asic.interruptSl).toBe(128);
+    expect(asic.splitSl).toBe(16);
+    expect(asic.splitAddr).toBe(0x3040);
+    expect(asic.extendBorder).toBe(true);
+    expect(asic.vscroll).toBe(1);
+    expect(asic.hscroll).toBe(5);
+    expect(asic.interruptVector).toBe(0xF0);
+    const dma = (asic as unknown as { dma: { source: number; prescaler: number; pauseTicks: number; enabled: boolean }[] }).dma;
+    expect(dma[0].source).toBe(0x1234);
+    expect(dma[0].prescaler).toBe(2);
+    expect(dma[0].enabled).toBe(true);
+    expect(dma[0].pauseTicks).toBe(3 * 3);   // pause count × (prescaler + 1)
+    expect(dma[1].enabled).toBe(false);
+  });
+
+  it('ignores a CPC+ chunk on a non-Plus machine', () => {
+    const data = join([v3Header(2, 0), chunk('CPC+', plusChunkBody())]);
+    const m = new CpcMachine('cpc6128', null);
+    expect(() => applyCpcSna(data, m)).not.toThrow();
   });
 });
 

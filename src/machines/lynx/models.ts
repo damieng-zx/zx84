@@ -8,6 +8,7 @@
  */
 
 import type { MachineModel } from '@/models.ts';
+import { LYNX_CPU_CLOCK_48, LYNX_CPU_CLOCK_128 } from './constants.ts';
 
 export type LynxModel = 'lynx48' | 'lynx96' | 'lynx128';
 
@@ -24,6 +25,11 @@ export function lynxRamSize(model: LynxModel): number {
 /** The 128K is the odd board out — nearly every hardware difference keys off
  *  this rather than off the model name. */
 export function isLynx128(model: LynxModel): boolean { return model === 'lynx128'; }
+
+/** Z80 clock: 24MHz / 6 on the 48K and 96K, 24MHz / 4 on the 128K. */
+export function lynxCpuClock(model: LynxModel): number {
+  return isLynx128(model) ? LYNX_CPU_CLOCK_128 : LYNX_CPU_CLOCK_48;
+}
 
 /** A disk interface is fitted (the FD1793 and its DOS ROM). */
 export function lynxHasDisk(model: LynxModel): boolean { return model !== 'lynx48'; }

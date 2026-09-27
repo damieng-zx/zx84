@@ -31,7 +31,7 @@ import {
   SAM_DISPLAY_HEIGHT, SAM_DISPLAY_LAST_LINE, SAM_FRAME_INT_LINE,
   SAM_INT_ACTIVE_T, SAM_LINES_PER_FRAME, SAM_PAGE_SIZE, SAM_PALETTE,
   SAM_SCREEN_HEIGHT, SAM_SCREEN_WIDTH, SAM_TOP_BORDER_LINES, SAM_T_PER_CELL,
-  HMPR_MD3COL_MASK, HMPR_MD3COL_SHIFT, LPEN_TXFMST,
+  HMPR_MD3COL_MASK, LPEN_TXFMST,
   STATUS_IDLE, STATUS_INT_FRAME, STATUS_INT_LINE,
 } from './constants.ts';
 
@@ -40,6 +40,9 @@ import {
 const JOURNAL_CAP = 96;
 /** Journal target meaning "the border" rather than a CLUT entry. */
 const TARGET_BORDER = 16;
+
+/** Mode 3 pixel value -> CLUT index bits 0-1: the middle two are swapped. */
+const MODE3_SWAP = new Uint8Array([0, 2, 1, 3]);
 
 /** Frames per FLASH half-period in modes 1 and 2 (as the Spectrum). */
 const FLASH_FRAMES = 16;
@@ -51,7 +54,8 @@ export class SamAsic {
   palette: Uint32Array = SAM_PALETTE;
   /** CLUT index driving the border, from port 0xFE. */
   borderIndex = 0;
-  /** Screen-off latch (port 0xFE bit 7): blanks the display to the border. */
+  /** Screen-off latch (port 0xFE bit 7). Only blanks the display in modes 3
+   *  and 4 — see `displayBlanked`. Reads back through port 0xFE regardless. */
   screenOff = false;
 
   /** Active-low interrupt status (port 0xF9). A CLEAR bit means pending. */
@@ -72,7 +76,8 @@ export class SamAsic {
   private linePageA: Uint8Array;
   private linePageB: Uint8Array;
   private lineBorder = 0;
-  private lineMd3Border = 0;
+  /** Mode 3 CLUT index bits 2-3, from HMPR MD3COL (bits 5-6). */
+  private lineMd3Clut = 0;
   private lineScreenOff = false;
   private lineStartT = 0;
   private lineFlash = false;
@@ -153,6 +158,15 @@ export class SamAsic {
     this.lineIntUntil = -1;
   }
 
+  /**
+   * True when SOFF is actually blanking the display: the latch only takes
+   * effect in modes 3 and 4 (SimCoupe's `IsScreenOff`). In modes 1 and 2 the
+   * ASIC keeps fetching and drawing, so contention and HPEN are unaffected.
+   */
+  get displayBlanked(): boolean {
+    return this.screenOff && this.memory.videoMode >= 3;
+  }
+
   // ── Light-pen registers (reads of port 0xF8) ──────────────────────────────
 
   /** Last HPEN value, held while the screen is off (the ASIC stops updating). */
@@ -172,7 +186,7 @@ export class SamAsic {
    * border (`SAM_DISPLAY_FIRST_T`), matching SimCoupe's `update_hpen`.
    */
   hpen(tStates: number): number {
-    if (this.screenOff) return this.hpenLatch;
+    if (this.displayBlanked) return this.hpenLatch;
     const line = this.lineNo;
     const onDisplay = line >= SAM_DISPLAY_FIRST_LINE && line < SAM_DISPLAY_LAST_LINE
       && (line !== SAM_DISPLAY_FIRST_LINE
@@ -192,7 +206,7 @@ export class SamAsic {
    */
   lpen(tStates: number): number {
     const lineCycle = tStates - this.lineStartT;
-    const onDisplay = !this.screenOff
+    const onDisplay = !this.displayBlanked
       && this.lineNo >= SAM_DISPLAY_FIRST_LINE && this.lineNo < SAM_DISPLAY_LAST_LINE
       && lineCycle >= SAM_DISPLAY_FIRST_T;
     const xpos = onDisplay ? (lineCycle - SAM_DISPLAY_FIRST_T) & 0xFC : 0;
@@ -284,22 +298,18 @@ export class SamAsic {
    *
    * LINE is counted in lines from the frame interrupt, one top border on — so
    * 0..191 are the display lines, and the SAM's own boot screen chaining LINE =
-   * 11, 22, 33 … lands its colour bands on exactly those. Past the display,
-   * 192..243 reach the bottom border.
+   * 11, 22, 33 … lands its colour bands on exactly those.
    *
-   * From 244 up there is no raster left: the next frame interrupt arrives
-   * first, and its handler re-arms LINE before the old value could come due.
-   * That is not a curiosity — it is the SAM ROM's way of saying "no more
-   * interrupts this field", which it does by writing 255 whenever a
-   * raster-split table runs out. Firing anyway replays the table from the top,
+   * Any value from 192 up disables the line interrupt (Technical Manual;
+   * SimCoupe arms it only for `line < GFX_SCREEN_LINES`). The SAM ROM relies on
+   * this: it writes 255 whenever a raster-split table runs out, meaning "no
+   * more interrupts this field". Firing anyway replays the table from the top,
    * which is what used to leave the boot screen's colour bands painted across
    * BASIC for the rest of the session.
    */
   private get lineInterruptRaster(): number {
-    if (this.lineReg < 0) return -1;
-    const fromFrameInt = SAM_TOP_BORDER_LINES + this.lineReg;
-    if (fromFrameInt >= SAM_LINES_PER_FRAME) return -1;
-    return (SAM_FRAME_INT_LINE + fromFrameInt) % SAM_LINES_PER_FRAME;
+    if (this.lineReg < 0 || this.lineReg >= SAM_DISPLAY_HEIGHT) return -1;
+    return (SAM_FRAME_INT_LINE + SAM_TOP_BORDER_LINES + this.lineReg) % SAM_LINES_PER_FRAME;
   }
 
   // ── Frame / line rendering ────────────────────────────────────────────────
@@ -325,8 +335,8 @@ export class SamAsic {
     this.linePageA = mem.videoPage(base);
     this.linePageB = mem.videoPage(base + 1);
     this.lineBorder = this.borderIndex;
-    this.lineScreenOff = this.screenOff;
-    this.lineMd3Border = (mem.hmpr & HMPR_MD3COL_MASK) >> HMPR_MD3COL_SHIFT;
+    this.lineScreenOff = this.displayBlanked;
+    this.lineMd3Clut = (mem.hmpr & HMPR_MD3COL_MASK) >> 3;
     this.lineFlash = (this.frames & FLASH_FRAMES) !== 0;
 
     const pal = this.palette;
@@ -354,10 +364,9 @@ export class SamAsic {
     const y = line - SAM_DISPLAY_FIRST_LINE;
     const mode = this.lineMode;
 
-    // In mode 3 the border colour comes from HMPR's MD3COL field rather than
-    // the port 0xFE latch. TODO(verify) against the Technical Manual — the
-    // three other modes certainly use the port.
-    let borderIdx = mode === 3 ? this.lineMd3Border : this.lineBorder;
+    // The border is the port 0xFE colour in every mode. HMPR's MD3COL bits
+    // only feed the mode-3 pixel CLUT lookup (see `cellMode3`).
+    let borderIdx = this.lineBorder;
     let borderRgba = this.clutLut[borderIdx];
 
     let j = 0;
@@ -369,7 +378,7 @@ export class SamAsic {
         const target = this.journal[j * 3 + 1];
         const value = this.journal[j * 3 + 2];
         if (target === TARGET_BORDER) {
-          borderIdx = mode === 3 ? this.lineMd3Border : value;
+          borderIdx = value;
         } else {
           this.clutLut[target] = this.palette[value & 0x7F];
         }
@@ -431,16 +440,23 @@ export class SamAsic {
   }
 
   /** Mode 3 — 512x192, 2 bits per pixel, 128 bytes per line. Each byte is four
-   *  pixels, most-significant pair leftmost. Only CLUT entries 0-3 are used. */
+   *  pixels, most-significant pair leftmost. The pixel supplies CLUT index
+   *  bits 0-1 and HMPR's MD3COL field bits 2-3, so four consecutive entries
+   *  are reachable at a time.
+   *
+   *  The ASIC wires the pixel's two bits to the CLUT index crossed over, so
+   *  pixel values 1 and 2 select entries 2 and 1: 00->0, 01->2, 10->1, 11->3
+   *  (SimCoupe's `mode3clut`, "note: swapped entries", and `Mode3Clut`). */
   private cellMode3(px: Uint32Array, x: number, y: number, col: number): void {
     const lut = this.clutLut;
+    const hi = this.lineMd3Clut;
     const off = (y << 7) + (col << 2);
     for (let i = 0; i < 4; i++) {
       const b = this.fetch(off + i);
-      px[x] = lut[(b >> 6) & 3];
-      px[x + 1] = lut[(b >> 4) & 3];
-      px[x + 2] = lut[(b >> 2) & 3];
-      px[x + 3] = lut[b & 3];
+      px[x] = lut[hi | MODE3_SWAP[(b >> 6) & 3]];
+      px[x + 1] = lut[hi | MODE3_SWAP[(b >> 4) & 3]];
+      px[x + 2] = lut[hi | MODE3_SWAP[(b >> 2) & 3]];
+      px[x + 3] = lut[hi | MODE3_SWAP[b & 3]];
       x += 4;
     }
   }

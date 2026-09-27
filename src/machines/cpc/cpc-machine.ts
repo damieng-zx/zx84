@@ -39,8 +39,10 @@ import { Ppi8255, installCpcMemoryHooks, wireCpcPortIO } from '@/machines/cpc/cp
 import { CpcMultiface } from '@/machines/cpc/peripherals/cpc-multiface.ts';
 import { KempstonMouse } from '@/machines/shared/kempston-mouse.ts';
 import { CpcAmxMouse } from '@/machines/cpc/peripherals/cpc-amx-mouse.ts';
-import { trapCpcCasRead } from '@/machines/cpc/cpc-tape-loader.ts';
+import { trapCpcCasRead, scanCpcCasRead } from '@/machines/cpc/cpc-tape-loader.ts';
+import type { CpcCasReadRoutine, CpcCasReadRequest } from '@/machines/cpc/cpc-tape-loader.ts';
 import { createCpcConfig, type CpcConfig } from '@/machines/cpc/config.ts';
+import { cpcAcknowledgeInterrupt } from '@/machines/cpc/wait-states.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
 import {
   CPC_AY_CLOCK, CPC_CPU_CLOCK, CPC_T_PER_CHAR,
@@ -107,8 +109,8 @@ export class CpcMachine extends BaseMachine implements Machine {
     return this.crtc.linesPerFrame() * this.crtc.charsPerLine() * CPC_T_PER_CHAR;
   }
 
-  /** Scanlines remaining until the post-VSYNC interrupt re-sync fires. */
-  private vsyncResyncCountdown = 0;
+  /** HSYNCs remaining until the post-VSYNC interrupt re-sync fires (0 = idle). */
+  vsyncResyncCountdown = 0;
 
   // ── Cassette ─────────────────────────────────────────────────────────
   /** Cassette motor state, driven by PPI Port C bit 4. Tracked for the UI only.
@@ -122,11 +124,13 @@ export class CpcMachine extends BaseMachine implements Machine {
   tapeLoadingActive = false;
   /** Fast ROM loading: whether the CAS READ instant-load trap is armed (Stage B). */
   tapeFastRom = true;
-  /** Address of the firmware's internal cassette block-read routine, located by
-   *  signature scan of the lower OS ROM. -2 = not yet scanned, -1 = not found
-   *  (instant load disabled, pulse loading only). Set lazily and re-scanned when
-   *  ROMs change. See scanCasReadRoutine. */
-  private casReadAddr = -2;
+  /** The firmware's CAS READ routine, located by signature scan of the lower OS
+   *  ROM. undefined = not yet scanned, null = not found (instant load disabled,
+   *  pulse loading only). Re-scanned when ROMs change. See scanCpcCasRead. */
+  private casRead: CpcCasReadRoutine | null | undefined = undefined;
+  /** The CAS READ request captured at the routine's entry, consumed when the
+   *  firmware reaches the routine's sync/record-read block. */
+  private casReadReq: CpcCasReadRequest | null = null;
   /** Auto-accelerate while the cassette is being read (the CPC reads at real
    *  tape speed, so without this a game takes minutes to load). */
   tapeTurbo = true;
@@ -282,35 +286,13 @@ export class CpcMachine extends BaseMachine implements Machine {
     // cartridge path; anything else is the classic three-ROM image.
     if (isCpr(data)) {
       this.memory.loadCartridge(parseCpr(data));
-      this.casReadAddr = -2;   // force a re-scan against the new lower ROM
+      this.casRead = undefined;   // force a re-scan against the new lower ROM
       this.setStatus('Cartridge firmware loaded');
       return;
     }
     this.memory.loadROM(data);
-    this.casReadAddr = -2;   // force a re-scan against the new lower ROM
+    this.casRead = undefined;   // force a re-scan against the new lower ROM
     this.setStatus('ROM loaded');
-  }
-
-  /**
-   * Locate the firmware's internal cassette block-read routine in the lower OS
-   * ROM — the routine `CAS IN CHAR` refills its buffer through, which a normal
-   * `RUN"` reaches without ever touching the &BCA1 jumpblock. Matched by a
-   * version-independent opcode anchor at the routine head:
-   *   LD (nn),A ; DEC DE ; INC E ; PUSH HL ; PUSH DE ; CALL nn
-   *   32 .. ..   1b        1c      e5        d5        cd .. ..
-   * This is unique in the os464 (entry 0x2873), os664 and os6128 (0x29e3) ROMs.
-   * Returns the entry address (== ROM offset; the lower ROM maps at 0x0000), or
-   * -1 if not found (e.g. a non-standard ROM) — leaving pulse loading in charge.
-   */
-  private scanCasReadRoutine(): number {
-    const rom = this.memory.getLowerRom();
-    for (let i = 0; i + 8 < rom.length; i++) {
-      if (rom[i] === 0x32 && rom[i + 3] === 0x1b && rom[i + 4] === 0x1c &&
-          rom[i + 5] === 0xe5 && rom[i + 6] === 0xd5 && rom[i + 7] === 0xcd) {
-        return i;
-      }
-    }
-    return -1;
   }
 
   /** Insert a parsed DSK image into a drive (uPD765A is shared with the +3). */
@@ -429,9 +411,10 @@ export class CpcMachine extends BaseMachine implements Machine {
 
   /**
    * Execute one frame, rendering scanline by scanline. For each CRTC scanline:
-   * run the CPU for that line's worth of T-states (servicing the Gate-Array
-   * raster interrupt), then draw the line from the current CRTC/Gate-Array
-   * state — so mid-frame mode/palette/scroll changes take effect per line.
+   * run the CPU up to the end of HSYNC, draw the line from the current
+   * CRTC/Gate-Array state and clock the Gate Array's HSYNC (raster interrupt
+   * counter, mode latch), then run the rest of the line — so mid-frame
+   * mode/palette/scroll changes take effect per line.
    */
   protected runFrame(): void {
     const crtc = this.crtc;
@@ -457,66 +440,33 @@ export class CpcMachine extends BaseMachine implements Machine {
     // up to stay centred rather than overflowing the bottom edge — e.g. the
     // Crazy Cars II title, whose ground was clipped off the bottom.
     const displayTop = (CPC_SCREEN_HEIGHT - crtc.displayedLines()) >> 1;
-    let lineEnd = this.cpu.tStates;
-    let lastAudioT = this.cpu.tStates;
+    // Frames run back to back on the 1µs grid: start where the previous frame
+    // was scheduled to end (the last instruction's overshoot belongs to this
+    // frame), falling back to "now" rounded down to a µs after a reset, a
+    // breakpoint stop, or a snapshot load moved the clock.
+    const now = this.cpu.tStates;
+    let lineEnd = this.nextFrameT;
+    if (lineEnd < 0 || now < lineEnd || now - lineEnd >= lineT) lineEnd = now - (now & 3);
+    this.lastAudioT = this.cpu.tStates;
     let broke = false;
 
+    // VSYNC can begin on the frame's first scanline (R7 = 0).
+    if (crtc.vsyncStart) this.vsyncResyncCountdown = 2;
+
     for (let line = 0; line < totalLines; line++) {
+      const lineStart = lineEnd;
       lineEnd += lineT;
+      // The Gate Array counts the falling edge of the CRTC's HSYNC (R2 + width
+      // characters into the line), not the end of the scanline.
+      const hsyncAt = lineStart + crtc.hsyncEndChar() * CPC_T_PER_CHAR;
 
-      // Run the CPU up to the end of this scanline.
-      while (this.cpu.tStates < lineEnd) {
-        if (this.breakpoints.has(this.cpu.pc)) { this.breakpointHit = this.cpu.pc; broke = true; break; }
-        if (this.onTrap !== null && this.onTrap(this.cpu.pc)) { broke = true; break; }
-
-        // CAS READ instant-load. A normal BASIC `RUN"` reaches the firmware's
-        // cassette block-read routine INTERNALLY (CAS IN CHAR refilling its 2K
-        // buffer); it never goes through the &BCA1 RAM jumpblock, which is only
-        // hit by an explicit `CALL &BCA1`. So we trap the internal routine
-        // itself, located by signature scan (entry contract A=sync, HL=dest,
-        // DE=len). On any CRC mismatch the trap declines and the real routine
-        // pulse-loads the block. In practice only the file HEADER instant-loads;
-        // the following data block drifts past on pulse before its CAS READ and
-        // the trap declines, so bulk data is pulse-loaded via tapeTurbo — see the
-        // SCOPE note in cpc-tape-loader.ts.
-        if (this.tapeFastRom) {
-          if (this.casReadAddr === -2) this.casReadAddr = this.scanCasReadRoutine();
-          if (this.casReadAddr >= 0 && this.cpu.pc === this.casReadAddr &&
-              this.tape.loaded && this.tape.hasRomBlock()) {
-            if (this.tape.paused) { this.tape.paused = false; this.tape.startPlayback(); }
-            if (trapCpcCasRead(this, this.casReadAddr)) this.activity.tapeReads++;  // instant load → TAPE LED
-          }
-        }
-
-        // EI suppresses interrupts for one instruction; step() itself resets
-        // and re-arms eiDelay per-instruction (see core.ts), so a plain
-        // post-step check is enough here.
-        this.cpu.step();
-
-        if (ga.interruptRequested && this.cpu.iff1 && !this.cpu.eiDelay) {
-          // Plus IM 2: the ASIC supplies a vector byte encoding the interrupt
-          // source (raster > DMA2 > DMA1 > DMA0). Non-Plus / non-IM-2 paths
-          // fall through to the plain INT ack (RST 38h on IM 1).
-          const t = (plusActive && this.cpu.im === 2)
-            ? this.cpu.interruptWithVector(asic!.consumeInterruptVector())
-            : this.cpu.interrupt();
-          if (t > 0) ga.acknowledgeInterrupt();
-        }
-
-        if (!skipAudio) {
-          const elapsed = this.cpu.tStates - lastAudioT;
-          if (elapsed > 0) {
-            this.mixer.accumulate(0, elapsed);
-            this.mixer.generateSamples(this.audio, this.ay, true);
-            lastAudioT = this.cpu.tStates;
-          }
-        }
-      }
+      // Run the CPU up to the end of HSYNC.
+      broke = this.runCpuUntil(hsyncAt, plusActive, asic, skipAudio);
       if (broke) break;
 
-      // Draw this scanline, then advance the raster. On a Plus model the ASIC
-      // applies scroll + split-screen to the CRTC line before the GA renders
-      // it, and composites sprites on top of the rendered output.
+      // The display portion of the line (chars 0..R1) precedes HSYNC, so draw
+      // it now. On a Plus model the ASIC applies scroll + split-screen to the
+      // CRTC line before the GA renders it, and composites sprites on top.
       let lineState = crtc.currentLine();
       if (plusActive) {
         lineState = asic!.applyScrollAndSplit(lineState);
@@ -531,15 +481,20 @@ export class CpcMachine extends BaseMachine implements Machine {
       // instruction (LOAD/PAUSE/REPEAT/LOOP/INT/STOP) — driving the AY for
       // sample playback without burning CPU time on tight timing loops.
       if (plusActive) asic!.dmaCycle();
-      crtc.advanceLine();
-
-      // Post-VSYNC interrupt re-sync, two lines after VSYNC onset.
-      if (crtc.vsyncStart) {
-        this.vsyncResyncCountdown = 2;
-      } else if (this.vsyncResyncCountdown > 0 && --this.vsyncResyncCountdown === 0) {
+      // Post-VSYNC interrupt re-sync on the 2nd HSYNC after VSYNC onset (the
+      // onset line's own HSYNC is the 1st).
+      if (this.vsyncResyncCountdown > 0 && --this.vsyncResyncCountdown === 0) {
         ga.onVSyncResync();
       }
+
+      // Run the rest of the scanline, then advance the raster.
+      broke = this.runCpuUntil(lineEnd, plusActive, asic, skipAudio);
+      if (broke) break;
+      crtc.advanceLine();
+      if (crtc.vsyncStart) this.vsyncResyncCountdown = 2;
     }
+
+    this.nextFrameT = broke ? -1 : lineEnd;
 
     // Safety: once the tape is fully read, drop out of load-turbo even if the
     // program never polls Port B again (the cadence exit relies on such polls).
@@ -548,6 +503,78 @@ export class CpcMachine extends BaseMachine implements Machine {
     }
 
     this.needsDisplay = true;
+  }
+
+  /** T-state the next frame starts at (the previous frame's scheduled end),
+   *  or -1 to start at the current T-state. */
+  private nextFrameT = -1;
+
+  /** T-state of the last audio mix step within the current frame. */
+  private lastAudioT = 0;
+
+  /**
+   * Run the CPU until `until` T-states, servicing the Gate-Array/ASIC
+   * interrupt, the CAS READ instant-load trap, and audio mixing. Returns true
+   * if a breakpoint or trap stopped execution.
+   */
+  private runCpuUntil(until: number, plusActive: boolean, asic: Asic | null, skipAudio: boolean): boolean {
+    const ga = this.gateArray;
+    while (this.cpu.tStates < until) {
+      if (this.breakpoints.has(this.cpu.pc)) { this.breakpointHit = this.cpu.pc; return true; }
+      if (this.onTrap !== null && this.onTrap(this.cpu.pc)) return true;
+
+      // CAS READ instant-load. A normal BASIC `RUN"` reaches the firmware's
+      // CAS READ routine internally (CAS IN CHAR refilling its 2K buffer), not
+      // through the &BCA1 jumpblock, so we trap the ROM routine itself, located
+      // by signature scan. The request (A=sync, HL=dest, DE=len) is captured at
+      // its entry; the firmware's own setup (sync stash, motor on, PPI) then
+      // runs, and at the sync/record-read block the trap delivers the CRC-
+      // checked block and resumes at the teardown. On any mismatch it declines
+      // and the real routine pulse-loads the block. See cpc-tape-loader.ts.
+      if (this.tapeFastRom) {
+        if (this.casRead === undefined) this.casRead = scanCpcCasRead(this.memory.getLowerRom());
+        const cr = this.casRead;
+        if (cr !== null && this.memory.lowerRomAtZero) {
+          const pc = this.cpu.pc;
+          if (pc === cr.readEntry) {
+            this.casReadReq = { dest: this.cpu.hl, len: this.cpu.de, sync: this.cpu.a & 0xFF };
+          } else if (pc === cr.common && this.casReadReq !== null) {
+            const req = this.casReadReq;
+            this.casReadReq = null;
+            if (this.cpu.hl === cr.storeByte && this.tape.loaded && this.tape.hasRomBlock()) {
+              if (this.tape.paused) { this.tape.paused = false; this.tape.startPlayback(); }
+              if (trapCpcCasRead(this, req, cr.tail)) this.activity.tapeReads++;  // instant load → TAPE LED
+            }
+          }
+        }
+      }
+
+      // EI suppresses interrupts for one instruction; step() itself resets
+      // and re-arms eiDelay per-instruction (see core.ts), so a plain
+      // post-step check is enough here.
+      this.cpu.step();
+
+      if (ga.interruptRequested && this.cpu.iff1 && !this.cpu.eiDelay) {
+        // Plus IM 2: the ASIC supplies a vector byte encoding the interrupt
+        // source (raster > DMA2 > DMA1 > DMA0). Non-Plus / non-IM-2 paths
+        // fall through to the plain INT ack (RST 38h on IM 1). The ack is
+        // held by the Gate Array's /WAIT like any bus cycle (IM 1 = 5µs, or
+        // 4µs straight after an instruction ending in internal cycles).
+        const t = cpcAcknowledgeInterrupt(this.cpu,
+          (plusActive && this.cpu.im === 2) ? asic!.consumeInterruptVector() : -1);
+        if (t > 0) ga.acknowledgeInterrupt();
+      }
+
+      if (!skipAudio) {
+        const elapsed = this.cpu.tStates - this.lastAudioT;
+        if (elapsed > 0) {
+          this.mixer.accumulate(0, elapsed);
+          this.mixer.generateSamples(this.audio, this.ay, true);
+          this.lastAudioT = this.cpu.tStates;
+        }
+      }
+    }
+    return false;
   }
 
   // ── Machine: debug helpers ───────────────────────────────────────────

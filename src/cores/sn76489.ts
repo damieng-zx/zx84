@@ -145,7 +145,8 @@ export class Sn76489 {
       const channel = this.latchedRegister >> 1;
       this.tonePeriod[channel] =
         (this.tonePeriod[channel] & 0x00F) | ((value & 0x3F) << 4);
-      this.reloadToneCounter(channel);
+      // No counter reload: the running divider finishes its current count
+      // and only picks up the new period when it next reaches zero.
     } else {
       this.writeLatchedData(value & 0x0F, false);
     }
@@ -282,17 +283,16 @@ export class Sn76489 {
   }
 
   private effectiveTonePeriod(channel: number): number {
-    // MEMU models the MTX's programmed zero as the undocumented 0x400 period.
-    if (this.variant === 'mtx' && this.tonePeriod[channel] === 0) return 0x400;
+    // The discrete TI parts (SN76489AN, and MEMU's MTX model) treat a
+    // programmed zero as a 0x400 period — the 10-bit counter wraps.
+    if (this.variant !== 'sega' && this.tonePeriod[channel] === 0) return 0x400;
     return Math.max(this.tonePeriod[channel], 1);
   }
 
+  /** Sega's integrated PSG holds the tone output high for periods 0 and 1
+   *  (used for PCM playback); the discrete TI chips keep toggling. */
   private toneIsConstant(channel: number): boolean {
-    return this.variant !== 'mtx' && this.tonePeriod[channel] <= 1;
-  }
-
-  private reloadToneCounter(channel: number): void {
-    this.toneCounter[channel] = this.effectiveTonePeriod(channel);
+    return this.variant === 'sega' && this.tonePeriod[channel] <= 1;
   }
 
   private noiseResetValue(): number {
@@ -320,7 +320,6 @@ export class Sn76489 {
       const channel = this.latchedRegister >> 1;
       this.tonePeriod[channel] =
         (this.tonePeriod[channel] & 0x3F0) | (data & 0x0F);
-      this.reloadToneCounter(channel);
     }
   }
 

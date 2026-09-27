@@ -9,6 +9,11 @@
  *   TAPION (0x00E1) — "read until a header is found". Returns CY set on failure.
  *                     We skip to the next 8-byte ID and position just past it.
  *   TAPIN  (0x00E4) — "read one byte". Returns the byte in A, CY set at EOF.
+ *   TAPOON (0x00EA) — "start writing a block": we emit the 8-byte sync ID.
+ *   TAPOUT (0x00ED) — "write one byte" from A. Both return CY clear.
+ *
+ * Saved bytes collect in a separate recording (see recorded()), offered by
+ * the Save menu as a .cas file.
  *
  * The BIOS caller (CLOAD/BLOAD, or a program CALLing the routines) drives the
  * byte counts, so we just serve the stream sequentially. Custom turbo loaders
@@ -24,6 +29,8 @@ import { CAS_HEADER } from '@/media/tape/cas.ts';
 /** BIOS main-ROM cassette entry points (jump-table addresses). */
 export const MSX_TAPION = 0x00E1;
 export const MSX_TAPIN = 0x00E4;
+export const MSX_TAPOON = 0x00EA;
+export const MSX_TAPOUT = 0x00ED;
 
 // The `.cas` block parser + types are media-layer format code; re-exported so
 // existing machine-side imports keep working.
@@ -37,6 +44,11 @@ export class MsxCassette {
 
   /** Byte offsets of each block's sync ID, in order (one per CasBlock). */
   private syncOffsets: number[] = [];
+
+  /** What the machine has saved (TAPOON/TAPOUT) since the last reset, as a
+   *  growing .cas byte stream. */
+  private rec = new Uint8Array(0x1000);
+  private recLen = 0;
 
   /** Mount a `.cas` image and rewind to the start. */
   mount(data: Uint8Array, name = ''): void {
@@ -91,6 +103,34 @@ export class MsxCassette {
     this.pos = this.data.length;
     return false;
   }
+
+  /**
+   * TAPOON: start a saved block. Pad the stream with zeros to an 8-byte
+   * boundary and write the sync ID, as .cas requires (the long/short leader
+   * choice has no byte-level representation).
+   */
+  beginRecordBlock(): void {
+    while (this.recLen & 7) this.recordByte(0x00);
+    for (const b of CAS_HEADER) this.recordByte(b);
+  }
+
+  /** TAPOUT: append one saved byte. */
+  recordByte(b: number): void {
+    if (this.recLen === this.rec.length) {
+      const grown = new Uint8Array(this.rec.length * 2);
+      grown.set(this.rec);
+      this.rec = grown;
+    }
+    this.rec[this.recLen++] = b & 0xFF;
+  }
+
+  /** The saved .cas stream, or null if nothing has been saved. */
+  recorded(): Uint8Array | null {
+    return this.recLen > 0 ? this.rec.slice(0, this.recLen) : null;
+  }
+
+  /** Forget everything saved (machine reset). */
+  clearRecording(): void { this.recLen = 0; }
 
   /**
    * TAPIN: return the next byte of the current block, or -1 at end of stream.

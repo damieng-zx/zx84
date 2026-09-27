@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { entryForModel } from '@/machines/registry.ts';
 import { MtxMachine } from '@/machines/mtx/mtx-machine.ts';
 
@@ -130,11 +130,19 @@ describe('MTX motherboard I/O', () => {
     expect(m.cpu.portIn(0x06)).toBe(0x03);
   });
 
-  it('routes PSG writes through port 6', () => {
+  it('latches PSG data on OUT (6) and writes it to the chip on a read of port 3', () => {
+    // MAME mtx.cpp: port 6 write = sound_lach_w, port 3 read = sound_strobe_r.
     const m = machine();
 
     m.cpu.portOut(0x06, 0x85);
+    m.cpu.portOut(0x06, 0x2A);                 // overwrites the latch: 0x85 is lost
+    expect(m.activity.psgWrites).toBe(0);
+    expect(m.psg.tonePeriod[0]).toBe(0);
+
+    m.cpu.portOut(0x06, 0x85);
+    expect(m.cpu.portIn(0x03)).toBe(0x03);     // strobe: latch/tone 0, low nibble 5
     m.cpu.portOut(0x06, 0x2A);
+    m.cpu.portIn(0x03);                        // data byte: high six bits 0x2A
 
     expect(m.psg.tonePeriod[0]).toBe(0x2A5);
     expect(m.activity.psgWrites).toBe(2);
@@ -178,5 +186,56 @@ describe('MTX MCP screen OCR', () => {
 
     expect(rows).toHaveLength(24);
     expect(rows[23]).toBe(' Ready');
+  });
+});
+
+describe('MTX VDP interrupt into CTC channel 0', () => {
+  // The TMS9929A's /INT is a level (F AND IE) on CTC channel 0's CLK/TRG. The
+  // CTC counts edges, so a flag nobody clears cannot count twice.
+  function withVdpIe(m: MtxMachine): void {
+    m.cpu.portOut(0x02, 0x20);   // R1 = IE
+    m.cpu.portOut(0x02, 0x81);
+  }
+
+  it('triggers once per assertion, not once per frame while F stays set', () => {
+    const m = machine();
+    withVdpIe(m);
+    const trigger = vi.spyOn(m.ctc, 'trigger');
+    m.tick(); m.tick(); m.tick();                  // nothing reads the status
+    expect(trigger.mock.calls.filter(([c]) => c === 0)).toHaveLength(1);
+  });
+
+  it('triggers again each frame once the status read clears F', () => {
+    const m = machine();
+    withVdpIe(m);
+    const trigger = vi.spyOn(m.ctc, 'trigger');
+    for (let i = 0; i < 3; i++) { m.tick(); m.cpu.portIn(0x02); }
+    expect(trigger.mock.calls.filter(([c]) => c === 0)).toHaveLength(3);
+  });
+
+  it('makes an edge when IE is set while F is already pending', () => {
+    const m = machine();                            // IE clear: F sets silently
+    const trigger = vi.spyOn(m.ctc, 'trigger');
+    m.tick();
+    expect(trigger).not.toHaveBeenCalled();
+    withVdpIe(m);
+    expect(trigger.mock.calls.filter(([c]) => c === 0)).toHaveLength(1);
+  });
+});
+
+describe('MTX CTC RETI wiring', () => {
+  it('a RETI executed by the CPU ends the CTC channel under service', () => {
+    const m = machine();
+    m.ctc.write(0, 0x01 | 0x40 | 0x80 | 0x04);  // ch0: counter, int, TC follows
+    m.ctc.write(0, 1);
+    m.ctc.trigger(0);
+    m.ctc.acknowledge();
+    expect(m.ctc.ieo).toBe(false);
+    m.cpu.sp = 0xC000;
+    m.cpu.pc = 0xC100;
+    m.memory.writeByte(0xC100, 0xED);
+    m.memory.writeByte(0xC101, 0x4D);             // RETI
+    m.cpu.step();
+    expect(m.ctc.ieo).toBe(true);
   });
 });

@@ -7,7 +7,7 @@
  *   - CRTC 6845                 A14=0,A13=1   (&BCxx–&BFxx, fn = A9:A8)
  *   - ROM select                A13=0         (&DFxx, write)
  *   - 8255 PPI                  A11=0         (&F4xx–&F7xx, port = A9:A8)
- *   - uPD765A FDC               A10=0         (&FA7E motor / &FB7E/7F)
+ *   - uPD765A FDC               A10=0,A7=0    (&FA7E motor / &FB7E/7F)
  *
  * The AY-3-8912 is reached *through* the PPI: data on Port A, function on Port
  * C bits 6/7 (BDIR/BC1). The keyboard sits on the AY's I/O port A and is
@@ -18,6 +18,7 @@ import type { CpcMachine } from '@/machines/cpc/cpc-machine.ts';
 import type { AY3891x } from '@/cores/ay-3-8910.ts';
 import type { CpcKeyboard } from '@/machines/cpc/cpc-keyboard.ts';
 import type { Asic } from '@/machines/cpc/asic.ts';
+import { cpcMemCycleStart, cpcIoOutStart, cpcIoInSample } from '@/machines/cpc/wait-states.ts';
 
 /** Manufacturer code reported on PPI Port B bits 1–3 (7 = Amstrad). */
 const MANUFACTURER_AMSTRAD = 7;
@@ -156,7 +157,8 @@ export class Ppi8255 {
   }
 }
 
-/** Install CPU memory read/write hooks (no contention in Phase 1). */
+/** Install CPU memory read/write hooks. Every memory cycle is held by the
+ *  Gate Array's /WAIT until it lines up with the 1µs grid (wait-states.ts). */
 export function installCpcMemoryHooks(m: CpcMachine): void {
   const memory = m.memory;
   const cpu = m.cpu;
@@ -166,6 +168,7 @@ export function installCpcMemoryHooks(m: CpcMachine): void {
   const asic = m.config.isPlus ? (m.gateArray as unknown as Asic) : null;
 
   cpu.read8 = (addr: number): number => {
+    cpu.tStates = cpcMemCycleStart(cpu.tStates);
     addr &= 0xFFFF;
     const val = memory.readByte(addr);
     if (m.memWatchpoints.length > 0 && m.memWatchHit === null) {
@@ -180,6 +183,7 @@ export function installCpcMemoryHooks(m: CpcMachine): void {
   };
 
   cpu.write8 = (addr: number, val: number): void => {
+    cpu.tStates = cpcMemCycleStart(cpu.tStates);
     addr &= 0xFFFF;
     // Plus ASIC register window intercepts slot 1 writes for side-effects.
     // The underlying storage write still happens through writePtr[1] →
@@ -200,8 +204,8 @@ export function installCpcMemoryHooks(m: CpcMachine): void {
     }
   };
 
-  // The CPC stretches every access to a 1µs boundary; that wait-state model is
-  // a later accuracy refinement. No internal-bus contention for now.
+  // Internal (non-MREQ) cycles are never stretched by /WAIT — only the bus
+  // cycles above and the port hooks in wireCpcPortIO are.
   cpu._contendAccurate = () => {};
   cpu.contend = () => {};
 }
@@ -213,12 +217,15 @@ export function wireCpcPortIO(m: CpcMachine): void {
   const ga = m.gateArray;
   const memory = m.memory;
   const fdc = m.fdc;
+  // 464 / GX4000: no uPD765A on the bus (a DDI-1 is not modelled).
+  const hasFdc = m.config.hasFDC;
   // Plus ASIC: present on cpc6128plus / gx4000. Used to snoop the CRTC
   // register-select writes for the unlock sequence (every other Plus feature
   // is reached through CPU memory writes once the ASIC window is paged in).
   const asic = m.config.isPlus ? (ga as unknown as Asic) : null;
 
   cpu.portOut = (port: number, val: number): void => {
+    cpu.tStates = cpcIoOutStart(cpu.tStates);
     port &= 0xFFFF;
     if (m.portWatchpoints.size > 0 && m.portWatchpoints.has(port) && m.portWatchHit === null) {
       m.portWatchHit = { port, value: val, dir: 'out' };
@@ -266,18 +273,21 @@ export function wireCpcPortIO(m: CpcMachine): void {
       }
     }
 
-    // FDC: A10=0
-    if ((port & 0x0400) === 0) {
-      if ((port & 0x0100) !== 0) {       // A8=1 → &FB7F data
+    // FDC (only with a disk interface fitted): A10=0, A7=0. A8=0 → motor
+    // control (&FA7E); A8=1, A0=1 → data (&FB7F). &FB7E (A0=0) is the
+    // read-only main status register, so a write there does nothing.
+    if (hasFdc && (port & 0x0480) === 0) {
+      if ((port & 0x0100) === 0) {
+        fdc.motorOn = (val & 0x01) !== 0;
+      } else if ((port & 0x0001) !== 0) {
         fdc.writeData(val);
         m.activity.fdcAccesses++;
-      } else {                           // A8=0 → motor control (&FA7E)
-        fdc.motorOn = (val & 0x01) !== 0;
       }
     }
   };
 
   cpu.portIn = (port: number): number => {
+    cpu.tStates = cpcIoInSample(cpu.tStates);
     port &= 0xFFFF;
     const val = dispatchIn(port);
     if (m.portWatchpoints.size > 0 && m.portWatchpoints.has(port) && m.portWatchHit === null) {
@@ -338,8 +348,9 @@ export function wireCpcPortIO(m: CpcMachine): void {
       }
     }
 
-    // FDC: A10=0, A8=1 → &FB7E status / &FB7F data
-    if ((port & 0x0500) === 0x0100) {
+    // FDC (only with a disk interface fitted): A10=0, A8=1, A7=0 →
+    // &FB7E status / &FB7F data. Without one the bus floats (0xFF).
+    if (hasFdc && (port & 0x0580) === 0x0100) {
       if (port & 1) { m.activity.fdcAccesses++; return fdc.readData(); }
       return fdc.readStatus();
     }

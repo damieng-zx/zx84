@@ -36,6 +36,14 @@ export interface WD179xOptions {
   /** Sectors a WRITE TRACK command lays down before completing. */
   readonly formatSectorsPerTrack: number;
   /**
+   * Type II side compare (command bits C = 1, S = 3). Only the FD1791/1793
+   * have it; on the WD1770/1772 those bits mean P (write precompensation
+   * disable) and h (spin-up disable) and there is no side comparison at all.
+   * Defaults to on for the NOT READY (1793-family) parts and off for the
+   * MOTOR ON (1770/1772) parts.
+   */
+  readonly sideCompare?: boolean;
+  /**
    * Interrupt output. On the Acorn 1770 disc interface the controller's DRQ
    * (and command completion) are wired to the CPU's NMI line, and the DFS
    * transfers each byte from an NMI handler — the same per-byte handshake the
@@ -92,11 +100,13 @@ const BYTE_CYCLES = 80;
 export class WD179x {
   private readonly statusBit7Mode: WD179xOptions['statusBit7'];
   private readonly formatSectorsPerTrack: number;
+  private readonly hasSideCompare: boolean;
   private readonly onInterrupt?: (asserted: boolean) => void;
 
   constructor(options: WD179xOptions) {
     this.statusBit7Mode = options.statusBit7;
     this.formatSectorsPerTrack = options.formatSectorsPerTrack;
+    this.hasSideCompare = options.sideCompare ?? options.statusBit7 === 'not-ready';
     this.onInterrupt = options.onInterrupt;
   }
 
@@ -436,15 +446,16 @@ export class WD179x {
       case 0x2: case 0x3: this.step(cmd, 0); break;
       case 0x4: case 0x5: this.step(cmd, +1); break;
       case 0x6: case 0x7: this.step(cmd, -1); break;
-      // bit 3 (S) selects the side to compare for, bit 1 (C) enables the
-      // comparison — see findSector.
+      // 1793 family: bit 3 (S) selects the side to compare for, bit 1 (C)
+      // enables the comparison — see findSector. The 1770/1772 have no side
+      // compare (those bits are P and h there), see hasSideCompare.
       case 0x8: case 0x9:
-        this.readSectorCmd(hi === 0x9, (cmd & 0x02) !== 0, (cmd >> 3) & 1);
+        this.readSectorCmd(hi === 0x9, this.hasSideCompare && (cmd & 0x02) !== 0, (cmd >> 3) & 1);
         break;
       // bit 0 (a0) selects the address mark the sector is written with:
       // 0 = FB (normal data), 1 = F8 (deleted data).
       case 0xA: case 0xB:
-        this.writeSectorCmd(hi === 0xB, (cmd & 0x01) !== 0, (cmd & 0x02) !== 0, (cmd >> 3) & 1);
+        this.writeSectorCmd(hi === 0xB, (cmd & 0x01) !== 0, this.hasSideCompare && (cmd & 0x02) !== 0, (cmd >> 3) & 1);
         break;
       case 0xC: this.readAddress(); break;
       case 0xD: this.forceInterrupt(); break;
@@ -461,10 +472,20 @@ export class WD179x {
   }
 
   private seek(cmd: number): void {
-    // The track register is 8-bit on real hardware; values beyond the drive's
-    // cylinder count simply miss on the next data command (RNF).
+    // Datasheet: SEEK assumes the Track Register holds the head's current
+    // position and issues step pulses — updating TR each time — until TR
+    // equals the Data Register. So the head physically moves DR − TR tracks
+    // from wherever it really is. When TR and the head agree that lands on
+    // DR; when a STEP without 'u' has desynced them (see findSector), the
+    // offset survives the seek, exactly as on hardware. The head can't be
+    // stepped out past the track-0 stop. The track register is 8-bit; values
+    // beyond the drive's cylinder count simply miss on the next data
+    // command (RNF).
     const target = this.dataReg & 0xFF;
-    this.headTrack[this.currentDrive] = target;
+    const delta = target - this.trackReg;
+    if (delta !== 0) this.stepDir = delta > 0 ? 1 : -1;
+    const cur = this.headTrack[this.currentDrive];
+    this.headTrack[this.currentDrive] = Math.min(0xFF, Math.max(0, cur + delta));
     this.trackReg = target;
     this.endTypeI(cmd);
   }
@@ -488,12 +509,22 @@ export class WD179x {
     if (this.headTrack[this.currentDrive] === 0) s |= ST_TRACK0;
     if (this.writeProtect[this.currentDrive]) s |= ST_WRITEPROT;
     if (cmd & 0x04) {
-      // V (verify, bit 2): read the first ID field encountered on the
-      // destination track and compare its cylinder against the Track
-      // Register. A mismatch (or no ID field at all) is a seek error —
-      // shares ST_RNF's bit, reinterpreted for Type I status.
-      const sec = this.locateTrack()?.sectors[0];
-      if (!sec || sec.c !== this.trackReg) s |= ST_RNF;
+      // V (verify, bit 2): the controller reads ID fields on the destination
+      // track until one's track number matches the Track Register with a good
+      // CRC — any ID on the track will do, not just the first. An ID that
+      // matches but fails its CRC sets CRC ERROR and the search carries on.
+      // Finding no good match (or no ID field at all) within the revolution
+      // limit is a seek error — shares ST_RNF's bit in Type I status.
+      let verified = false;
+      let crcMatch = false;
+      for (const sec of this.locateTrack()?.sectors ?? []) {
+        if (sec.c !== this.trackReg) continue;
+        // DSK convention: ST1 DE without ST2 DD is an ID-field CRC error.
+        if ((sec.st1 & 0x20) && !(sec.st2 & 0x20)) { crcMatch = true; continue; }
+        verified = true;
+        break;
+      }
+      if (!verified) s |= ST_RNF | (crcMatch ? ST_CRCERR : 0);
     }
     if (this.pulseBusy) {
       // Hold BUSY for a few reads (see BUSY_PULSE_READS) so a "wait for BUSY set"
@@ -630,8 +661,16 @@ export class WD179x {
   }
 
   private completeWrite(): void {
-    if (this.multi && this.advanceSector(true)) {
-      if (this.interruptDriven) this.scheduleByte('next');
+    if (this.multi) {
+      if (this.advanceSector(true)) {
+        if (this.interruptDriven) this.scheduleByte('next');
+        return;
+      }
+      // As for a multi-sector read: the controller searches for R+1's ID
+      // field and, not finding it, ends the command in RECORD NOT FOUND.
+      this.buffer = null;
+      this.statusReg = this.base() | ST_RNF;
+      this.setCompletion(true);
       return;
     }
     this.buffer = null;

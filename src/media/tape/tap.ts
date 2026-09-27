@@ -108,6 +108,11 @@ const enum TapePhase {
   DIRECT,
 }
 
+/** Phases timed as edge-terminated pulses (pulseLen / tInPulse). */
+function isPulsePhase(phase: TapePhase): boolean {
+  return phase !== TapePhase.IDLE && phase !== TapePhase.PAUSE && phase !== TapePhase.DIRECT;
+}
+
 export class TapeDeck {
   blocks: TapeBlock[] = [];
   position = 0;
@@ -150,6 +155,10 @@ export class TapeDeck {
   onPlayStateChange: (() => void) | null = null;
 
   private phase: TapePhase = TapePhase.IDLE;
+
+  /** Set while the deck is parked idle by a stop-the-tape block, awaiting a
+   *  resume (see stopTape / advance). */
+  private stopped = false;
   private playbackIdx = -1;
 
   /** Pilot tone pulses remaining */
@@ -217,7 +226,14 @@ export class TapeDeck {
       const blockLen = fileData[offset] | (fileData[offset + 1] << 8);
       offset += 2;
 
-      if (blockLen < 2 || offset + blockLen > fileData.length) break;
+      if (offset + blockLen > fileData.length) break;
+      // A 0- or 1-byte block cannot hold a flag and a checksum, so it is not
+      // loadable — but its length field is still valid framing. Step over its
+      // bytes and keep reading rather than discarding the rest of the tape.
+      if (blockLen < 2) {
+        offset += blockLen;
+        continue;
+      }
 
       const flag = fileData[offset];
       // Payload is everything between flag and checksum
@@ -291,8 +307,7 @@ export class TapeDeck {
       // Pause: duration=0 means "stop tape"
       if (block.kind === 'pause') {
         if (block.duration === 0) {
-          this.paused = true;
-          this.position++;
+          this.stopTape(this.position + 1);
           return null;
         }
         // Non-zero pause: skip (ROM trap bypasses inter-block gaps)
@@ -303,8 +318,7 @@ export class TapeDeck {
       // Stop if 48K
       if (block.kind === 'stop-if-48k') {
         if (this.is48K) {
-          this.paused = true;
-          this.position++;
+          this.stopTape(this.position + 1);
           return null;
         }
         this.position++;
@@ -406,16 +420,13 @@ export class TapeDeck {
     const consumed = this.blocks[this.position - 1];
     const pauseMs = consumed && consumed.kind === 'data' ? consumed.pause : 0;
     if (pauseMs > 0) {
-      // Mirror enterPause: hold the line high, then drop to 0 partway in (the
-      // TZX §3.5 end-of-block edge some loaders watch for). playbackIdx points
-      // at the consumed block so the pause's expiry advances to position.
+      // Mirror enterPause: hold the line high, then drop to 0 after 1ms (the
+      // TZX end-of-block edge some loaders watch for). playbackIdx points at
+      // the consumed block so the pause's expiry advances to position.
       this.playbackIdx = this.position - 1;
-      this.phase = TapePhase.PAUSE;
       this.tInPulse = 0;
       this.earBit = 1;
-      this.pauseRemaining = Math.round(pauseMs * this.cpuClock / 1000);
-      const flipAt = this.scale(945);
-      this.pauseFlipAt = this.pauseRemaining > flipAt ? flipAt : -1;
+      this.startPause(Math.round(pauseMs * this.cpuClock / 1000));
     } else {
       // position was already advanced by nextDataBlock()
       this.beginBlock(this.position);
@@ -441,42 +452,65 @@ export class TapeDeck {
    * Toggles earBit at pulse boundaries.
    */
   advance(tStates: number): void {
-    if (!this.playing || this.paused || this.phase === TapePhase.IDLE) return;
+    if (!this.playing || this.paused) return;
+    if (this.phase === TapePhase.IDLE) {
+      // A stop-the-tape block parked the deck idle but still `playing`.
+      // Every resume path — the loader detector, the tape services'
+      // resume(), the machines' motor relays — only clears `paused`, so
+      // pick up at the block after the stop here.
+      if (!this.stopped) return;
+      this.stopped = false;
+      this.beginBlock(this.position);
+      if (!this.playing || this.paused || this.phase === TapePhase.IDLE) return;
+    }
 
-    if (this.phase === TapePhase.PAUSE) {
-      this.pauseRemaining -= tStates;
-      if (this.pauseFlipAt > 0) {
-        this.pauseFlipAt -= tStates;
-        if (this.pauseFlipAt <= 0) {
-          this.earBit = 0;
-          this.pauseFlipAt = -1;
+    // Feed the T-states through as many pulses, samples, pauses and blocks as
+    // they cover. Whatever a finishing element overshoots by is carried into
+    // the next one, so block boundaries never lose (or add) time.
+    let t = tStates;
+    while (t > 0 && this.playing && !this.paused) {
+      if ((this.phase as TapePhase) === TapePhase.IDLE) return;
+
+      if (this.phase === TapePhase.PAUSE) {
+        if (this.pauseFlipAt > 0) {
+          this.pauseFlipAt -= t;
+          if (this.pauseFlipAt <= 0) {
+            this.earBit = 0;
+            this.pauseFlipAt = -1;
+          }
         }
-      }
-      if (this.pauseRemaining <= 0) {
+        this.pauseRemaining -= t;
+        if (this.pauseRemaining > 0) return;
+        t = -this.pauseRemaining;
+        this.pauseRemaining = 0;
         this.beginBlock(this.playbackIdx + 1);
+        continue;
       }
-      return;
-    }
 
-    if (this.phase === TapePhase.DIRECT) {
-      this.advanceDirect(tStates);
-      return;
-    }
+      if (this.phase === TapePhase.DIRECT) {
+        t = this.advanceDirect(t);
+        continue;
+      }
 
-    this.tInPulse += tStates;
-    while (this.tInPulse >= this.pulseLen &&
-           (this.phase as number) !== TapePhase.IDLE &&
-           (this.phase as number) !== TapePhase.PAUSE &&
-           (this.phase as number) !== TapePhase.DIRECT) {
-      this.tInPulse -= this.pulseLen;
-      this.earBit ^= 1;
-      this.advancePulse();
+      this.tInPulse += t;
+      while (this.tInPulse >= this.pulseLen && isPulsePhase(this.phase)) {
+        const carry = this.tInPulse - this.pulseLen;
+        this.earBit ^= 1;
+        this.advancePulse();      // may begin the next block (zeroing tInPulse)
+        this.tInPulse = carry;
+      }
+      if (isPulsePhase(this.phase)) return;
+      // The block ended into a pause, a direct recording, a stop or the end
+      // of the tape: hand the overshoot on to it.
+      t = this.tInPulse;
+      this.tInPulse = 0;
     }
   }
 
   // ── Internal playback mechanics ───────────────────────────────────────
 
   private beginBlock(idx: number): void {
+    this.stopped = false;
     while (idx < this.blocks.length) {
       this.playbackIdx = idx;
       this.tInPulse = 0;
@@ -522,15 +556,13 @@ export class TapeDeck {
 
         case 'pause':
           if (block.duration === 0) {
-            this.paused = true;
-            this.position = idx + 1;
-            this.phase = TapePhase.IDLE;
+            this.stopTape(idx + 1);
             return;
           }
+          // Hold the level the previous block's last edge left (at least
+          // 1ms) before going low — see startPause.
           this.position = idx + 1;
-          this.phase = TapePhase.PAUSE;
-          this.earBit = 0;
-          this.pauseRemaining = Math.round(block.duration * this.cpuClock / 1000);
+          this.startPause(Math.round(block.duration * this.cpuClock / 1000));
           return;
 
         case 'direct':
@@ -551,8 +583,7 @@ export class TapeDeck {
         case 'stop-if-48k':
           this.position = idx + 1;
           if (this.is48K) {
-            this.paused = true;
-            this.phase = TapePhase.IDLE;
+            this.stopTape(idx + 1);
             return;
           }
           idx++;
@@ -572,6 +603,17 @@ export class TapeDeck {
     this.playing = false;
     this.rawData = null;
     this.directData = null;
+  }
+
+  /** "Stop the tape" (a zero-length Pause, or Stop-if-48K on a 48K machine):
+   *  pause the deck and park it idle with `position` at the following block,
+   *  so whatever resumes it — clearing `paused` is enough, see advance() —
+   *  continues from there rather than from a half-played earlier block. */
+  private stopTape(nextIdx: number): void {
+    this.stopped = true;
+    this.paused = true;
+    this.position = nextIdx;
+    this.phase = TapePhase.IDLE;
   }
 
   private beginDataBlock(block: DataBlock): void {
@@ -616,7 +658,9 @@ export class TapeDeck {
     this.earBit = (block.data[0] >> 7) & 1;
   }
 
-  private advanceDirect(tStates: number): void {
+  /** Play direct-recording samples; returns the T-states left over once the
+   *  block ends (0 while it is still playing). */
+  private advanceDirect(tStates: number): number {
     this.tInPulse += tStates;
     while (this.tInPulse >= this.directTStatesPerSample) {
       this.tInPulse -= this.directTStatesPerSample;
@@ -632,14 +676,14 @@ export class TapeDeck {
         // pause=0) and its fresh data must not be nulled afterwards.
         this.position = this.playbackIdx + 1;
         this.directData = null;
+        const leftover = this.tInPulse;
+        this.tInPulse = 0;
         if (this.directPauseMs > 0) {
-          this.phase = TapePhase.PAUSE;
-          this.earBit = 0;
-          this.pauseRemaining = Math.round(this.directPauseMs * this.cpuClock / 1000);
+          this.startPause(Math.round(this.directPauseMs * this.cpuClock / 1000));
         } else {
           this.beginBlock(this.playbackIdx + 1);
         }
-        return;
+        return leftover;
       }
 
       if (this.directBitIdx < 0) {
@@ -654,6 +698,7 @@ export class TapeDeck {
       // Set EAR absolutely (not toggle)
       this.earBit = (this.directData![this.directByteIdx] >> this.directBitIdx) & 1;
     }
+    return 0;
   }
 
   private advancePulse(): void {
@@ -736,14 +781,10 @@ export class TapeDeck {
   private enterPause(): void {
     this.phase = TapePhase.PAUSE;
     this.position = this.playbackIdx + 1;
-    // pauseRemaining was set by beginDataBlock from block.pause (ms→T).
-    // Schedule the mid-pause EAR flip per TZX §3.5: hold for ~1ms then
-    // flip to opposite level. The 945T figure matches FUSE — about a
-    // quarter of a frame, long enough that real loaders see the last
-    // edge before the level changes, short enough that the flip arrives
-    // well within any reasonable pause. The 945T figure is 3.5MHz-referenced,
-    // so scale it like any pulse length.
-    const flipAt = this.scale(945);
+    // pauseRemaining was set by beginDataBlock from block.pause (ms→T);
+    // startPause schedules the 1ms-hold-then-low drop. 1ms is real time, so
+    // it comes from the CPU clock, not pulseScale.
+    const flipAt = this.oneMs();
 
     // A custom loader reading the FINAL bit of a block needs one more edge
     // after the last data pulse to terminate its pulse-timing loop. Mid-tape
@@ -759,7 +800,33 @@ export class TapeDeck {
     if (this.pauseRemaining < flipAt && !this.hasFollowingBlock()) {
       this.pauseRemaining = flipAt;
     }
-    this.pauseFlipAt = this.pauseRemaining >= flipAt ? flipAt : -1;
+    if (this.pauseRemaining > 0) {
+      this.startPause(this.pauseRemaining);
+    } else {
+      // No pause: the next block starts right on this block's last edge.
+      this.pauseFlipAt = -1;
+      this.beginBlock(this.playbackIdx + 1);
+    }
+  }
+
+  /**
+   * Enter a pause of `tStates` (> 0). TZX 1.20, Pause block notes — which
+   * also cover a data block's or Direct Recording's own trailing pause: "To
+   * ensure that the last edge produced is properly finished there should be
+   * at least 1 ms. pause of the opposite level and only after that the pulse
+   * should go to 'low'. At the end of a 'Pause' block the 'current pulse
+   * level' is low." So the level the last edge left is held for 1ms (or the
+   * whole pause, if shorter) and then dropped low.
+   */
+  private startPause(tStates: number): void {
+    this.phase = TapePhase.PAUSE;
+    this.pauseRemaining = tStates;
+    this.pauseFlipAt = Math.min(this.oneMs(), tStates);
+  }
+
+  /** 1ms in CPU T-states — the TZX hold before a pause drops the level low. */
+  private oneMs(): number {
+    return Math.round(this.cpuClock / 1000);
   }
 
   /** True if any block follows the one currently playing (so the loader will

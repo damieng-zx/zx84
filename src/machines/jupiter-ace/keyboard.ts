@@ -89,32 +89,32 @@ const KEY_MAP: Record<string, KeyMapping | ComboMapping> = {
   'Backspace':    [{ row: 0, bit: 0 }, { row: 4, bit: 0 }],  // SHIFT + 0 (DELETE)
   'Delete':       [{ row: 0, bit: 0 }, { row: 4, bit: 0 }],  // SHIFT + 0 (DELETE)
   'ArrowLeft':    [{ row: 0, bit: 0 }, { row: 3, bit: 4 }],  // SHIFT + 5
-  'ArrowDown':    [{ row: 0, bit: 0 }, { row: 4, bit: 4 }],  // SHIFT + 6
-  'ArrowUp':      [{ row: 0, bit: 0 }, { row: 4, bit: 3 }],  // SHIFT + 7
+  // Unlike the Spectrum, the Ace's SHIFT+6 is cursor UP and SHIFT+7 DOWN.
+  'ArrowUp':      [{ row: 0, bit: 0 }, { row: 4, bit: 4 }],  // SHIFT + 6
+  'ArrowDown':    [{ row: 0, bit: 0 }, { row: 4, bit: 3 }],  // SHIFT + 7
   'ArrowRight':   [{ row: 0, bit: 0 }, { row: 4, bit: 2 }],  // SHIFT + 8
   'CapsLock':     [{ row: 0, bit: 0 }, { row: 3, bit: 1 }],  // SHIFT + 2 (CAPS LOCK)
   'Escape':       [{ row: 0, bit: 0 }, { row: 7, bit: 0 }],  // SHIFT + SPACE (BREAK)
 };
 
-// Symbol character → Ace key combo. The Ace's symbol characters (SHIFT for the
-// shifted digits, SYMBOL SHIFT + key for everything else).
+// Symbol character → Ace key combo. Every printable symbol is SYMBOL SHIFT +
+// key — the ROM's SYMBOL SHIFT decode table at 0x03C6. SHIFT + digit is not a
+// symbol on the Ace: its SHIFT table (0x039E) gives the editing controls
+// (DELETE LINE, CAPS LOCK, INVERSE VIDEO, cursor keys, GRAPHICS, DELETE).
 const SS: KeyMapping = { row: 0, bit: 1 };  // Symbol Shift
-const CS: KeyMapping = { row: 0, bit: 0 };  // Caps Shift
 
 const CHAR_MAP: Record<string, ComboMapping> = {
-  // SHIFT + digit characters (match the Ace's shifted digits)
-  '!':  [CS, { row: 3, bit: 0 }],
-  '@':  [CS, { row: 3, bit: 1 }],
-  '#':  [CS, { row: 3, bit: 2 }],
-  '$':  [CS, { row: 3, bit: 3 }],
-  '%':  [CS, { row: 3, bit: 4 }],
-  '&':  [CS, { row: 4, bit: 4 }],
-  "'":  [CS, { row: 4, bit: 3 }],
-  '(':  [CS, { row: 4, bit: 2 }],
-  ')':  [CS, { row: 4, bit: 1 }],
-  '_':  [CS, { row: 4, bit: 0 }],
-  '"':  [CS, { row: 5, bit: 0 }],  // SHIFT + P
-  // SYMBOL SHIFT + key characters
+  '!':  [SS, { row: 3, bit: 0 }],  // SYM + 1
+  '@':  [SS, { row: 3, bit: 1 }],  // SYM + 2
+  '#':  [SS, { row: 3, bit: 2 }],  // SYM + 3
+  '$':  [SS, { row: 3, bit: 3 }],  // SYM + 4
+  '%':  [SS, { row: 3, bit: 4 }],  // SYM + 5
+  '&':  [SS, { row: 4, bit: 4 }],  // SYM + 6
+  "'":  [SS, { row: 4, bit: 3 }],  // SYM + 7
+  '(':  [SS, { row: 4, bit: 2 }],  // SYM + 8
+  ')':  [SS, { row: 4, bit: 1 }],  // SYM + 9
+  '_':  [SS, { row: 4, bit: 0 }],  // SYM + 0
+  '"':  [SS, { row: 5, bit: 0 }],  // SYM + P
   ':':  [SS, { row: 0, bit: 2 }],  // SYM + Z
   '?':  [SS, { row: 0, bit: 4 }],  // SYM + C
   '~':  [SS, { row: 1, bit: 0 }],  // SYM + A

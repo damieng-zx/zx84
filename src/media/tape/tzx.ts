@@ -4,12 +4,17 @@
  * Parses TZX files into a TapeBlock[] array using the discriminated union
  * type system. All meaningful block types are extracted: data blocks (0x10,
  * 0x11, 0x14), pure tone (0x12), pulse sequence (0x13), direct recording
- * (0x15), pause/stop (0x20), groups (0x21/22), loops (0x24/25), stop-if-48k
+ * (0x15), CSW recording (0x18), generalized data (0x19, expanded to pulse
+ * sequences), pause/stop (0x20), groups (0x21/22), loops (0x24/25), stop-if-48k
  * (0x2A), set signal level (0x2B), text (0x30), and archive info (0x32).
  * Loops are expanded at parse time.
  */
 
 import type { TapeBlock, DataBlock } from '@/media/tape/tap.ts';
+import { inflateZlibSync } from '@/media/tape/inflate.ts';
+
+/** Ceiling on a decompressed Z-RLE CSW stream inside a TZX 0x18 block. */
+const MAX_ZRLE_BYTES = 64 * 1024 * 1024;
 
 const TZX_MAGIC = [0x5A, 0x58, 0x54, 0x61, 0x70, 0x65, 0x21, 0x1A]; // "ZXTape!\x1A"
 
@@ -61,6 +66,8 @@ function nextBlockOffset(d: Uint8Array, start: number): number {
     case 0x13: return p + 1 + d[p] * 2;
     case 0x14: return p + 10 + read24(d, p + 7);
     case 0x15: return p + 8 + read24(d, p + 5);
+    case 0x16: // deprecated C64 ROM type data — DWORD length (excl. itself)
+    case 0x17: // deprecated C64 turbo data — DWORD length (excl. itself)
     case 0x18:
     case 0x19:
     case 0x2B: return p + 4 + read32(d, p);
@@ -78,9 +85,14 @@ function nextBlockOffset(d: Uint8Array, start: number): number {
     case 0x31: return p + 2 + d[p + 1];
     case 0x32: return p + 2 + read16(d, p);
     case 0x33: return p + 1 + d[p] * 3;
+    case 0x34: return p + 8;                          // deprecated Emulation Info
     case 0x35: return p + 20 + read32(d, p + 16);
+    case 0x40: return p + 4 + read24(d, p + 1);       // deprecated Snapshot
     case 0x5A: return p + 9;
-    default: throw new Error(`Unknown TZX block type 0x${id.toString(16).padStart(2, '0')} at offset ${start}`);
+    // TZX 1.10+: every block ID not defined by the spec is followed by a DWORD
+    // length (not counting itself), so a reader can step over IDs it does not
+    // know instead of rejecting the tape.
+    default: return p + 4 + read32(d, p);
   }
 }
 
@@ -123,6 +135,138 @@ function extractDataBlock(
     usedBits,
     source,
   };
+}
+
+/** Ceiling on pulses a single 0x19 block may expand to. PRLE repetitions
+ *  (up to 65535 each) multiply, so a tiny hostile block could otherwise
+ *  describe billions of pulses. Real generalized blocks stay far below this. */
+const MAX_GENERALIZED_PULSES = 1 << 24;
+
+interface GdbSymbol { flags: number; pulses: number[]; }
+
+/**
+ * Expand a TZX 1.20 0x19 Generalized Data Block into the deck's existing
+ * pulse primitives.
+ *
+ * The block describes its waveform as symbols: each symbol is a short list of
+ * pulse lengths (a zero length ends the list early) plus a flag saying what
+ * happens at the START of its first pulse — 0 an edge, 1 no edge (the level
+ * carries on), 2 force low, 3 force high. Every later pulse in the symbol
+ * starts with an edge. The pilot/sync stream is a run-length list of
+ * (symbol, repetitions) pairs; the data stream packs ceil(log2(ASD)) bits per
+ * symbol, MSB first.
+ *
+ * The deck plays a Pulse Sequence as "hold for the length, then toggle", so an
+ * edge at the start of TZX pulse k is the deck's toggle at the end of pulse
+ * k-1, and — exactly as for 0x12/0x13 — the leading edge of the block's very
+ * first pulse is the one the previous block already ended with. So:
+ *   - an edge (flag 0) is a plain pulse;
+ *   - no edge (flag 1) folds the pulse into the previous one;
+ *   - a forced level is compared with the tracked level and becomes one of
+ *     the above; until the level is first known (it depends on earlier
+ *     blocks), the pulses so far are flushed and a Set Signal Level block
+ *     pins it. That happens at most once per block.
+ * The block's pause becomes a trailing Pause block.
+ */
+function parseGeneralizedData(d: Uint8Array, body: number, blockLen: number): TapeBlock[] {
+  const end = body + blockLen;
+  const need = (at: number): void => {
+    if (at > end) throw new Error('Truncated TZX generalized data block');
+  };
+  need(body + 14);
+  const pause = read16(d, body);
+  const totp = read32(d, body + 2);
+  const npp = d[body + 6];
+  const asp = d[body + 7] || 256;
+  const totd = read32(d, body + 8);
+  const npd = d[body + 12];
+  const asd = d[body + 13] || 256;
+  let p = body + 14;
+
+  const readTable = (count: number, maxPulses: number): GdbSymbol[] => {
+    const table: GdbSymbol[] = [];
+    const size = 1 + 2 * maxPulses;
+    need(p + count * size);
+    for (let s = 0; s < count; s++, p += size) {
+      const pulses: number[] = [];
+      for (let i = 0; i < maxPulses; i++) {
+        const len = read16(d, p + 1 + i * 2);
+        if (len === 0) break;
+        pulses.push(len);
+      }
+      table.push({ flags: d[p] & 0x03, pulses });
+    }
+    return table;
+  };
+
+  const out: TapeBlock[] = [];
+  let pending: number[] = [];
+  let started = false;     // any pulse emitted yet in this block
+  let known = false;       // absolute level established by a forced symbol
+  let level = 0;           // level during the last pending pulse (when known)
+  let total = 0;
+
+  const flush = (): void => {
+    if (pending.length > 0) out.push({ kind: 'pulses', lengths: pending });
+    pending = [];
+  };
+
+  const emitSymbol = (sym: GdbSymbol): void => {
+    for (let i = 0; i < sym.pulses.length; i++) {
+      if (++total > MAX_GENERALIZED_PULSES) throw new Error('TZX generalized data block too large');
+      const len = sym.pulses[i];
+      let edge = i === 0 ? sym.flags : 0;
+      if (edge >= 2 && known) edge = (edge - 2) === level ? 1 : 0;
+      if (edge >= 2) {
+        // First forced level in the block: pin it absolutely.
+        flush();
+        level = edge - 2;
+        known = true;
+        out.push({ kind: 'set-level', level });
+        pending.push(len);
+      } else if (!started) {
+        pending.push(len);   // leading edge belongs to the previous block
+      } else if (edge === 1) {
+        pending[pending.length - 1] += len;
+      } else {
+        pending.push(len);
+        level ^= 1;
+      }
+      started = true;
+    }
+  };
+
+  if (totp > 0) {
+    const pilot = readTable(asp, npp);
+    need(p + totp * 3);
+    for (let i = 0; i < totp; i++, p += 3) {
+      const sym = pilot[d[p]];
+      if (!sym) throw new Error('TZX generalized data block: pilot symbol out of range');
+      const reps = read16(d, p + 1);
+      for (let r = 0; r < reps; r++) emitSymbol(sym);
+    }
+  }
+
+  if (totd > 0) {
+    const data = readTable(asd, npd);
+    let nb = 0;
+    while ((1 << nb) < asd) nb++;
+    need(p + Math.ceil(nb * totd / 8));
+    let bit = 0;
+    for (let i = 0; i < totd; i++) {
+      let idx = 0;
+      for (let b = 0; b < nb; b++, bit++) {
+        idx = (idx << 1) | ((d[p + (bit >> 3)] >> (7 - (bit & 7))) & 1);
+      }
+      const sym = data[idx];
+      if (!sym) throw new Error('TZX generalized data block: data symbol out of range');
+      emitSymbol(sym);
+    }
+  }
+
+  flush();
+  if (pause > 0) out.push({ kind: 'pause', duration: pause });
+  return out;
 }
 
 export function parseTZX(fileData: Uint8Array): TapeBlock[] {
@@ -255,29 +399,35 @@ export function parseTZX(fileData: Uint8Array): TapeBlock[] {
         const sampleRate = read24(fileData, body + 2);
         const compression = fileData[body + 5];
         const pulseCount = read32(fileData, body + 6);
-        if (compression !== 1) {
+        if (compression !== 1 && compression !== 2) {
           throw new Error(`Unsupported embedded TZX CSW compression type ${compression}`);
         }
-        const rleStart = body + 10;
-        const rleEnd = body + blockLen;
+        if (sampleRate === 0) throw new Error('Embedded TZX CSW has a zero sample rate');
+        // 1 = RLE; 2 = Z-RLE, the same RLE stream zlib-compressed. Each RLE
+        // item is at most 5 bytes, so the decompressed stream for pulseCount
+        // pulses can never legitimately exceed pulseCount * 5 bytes — cap the
+        // inflate there (and at 64MB) so a hostile stream cannot balloon.
+        const rle = compression === 1
+          ? fileData.subarray(body + 10, body + blockLen)
+          : inflateZlibSync(fileData.subarray(body + 10, body + blockLen),
+            Math.min(pulseCount * 5, MAX_ZRLE_BYTES));
         // Validate before allocating: a zero sample rate would poison every
         // pulse with NaN/Infinity, and each RLE item produces at most one
         // pulse from at least one byte — so a header claiming more pulses
         // than there are RLE bytes is corrupt. Bounded by the RLE length,
         // the allocation can never blow up on a hostile header value.
-        if (sampleRate === 0) throw new Error('Embedded TZX CSW has a zero sample rate');
-        if (pulseCount > rleEnd - rleStart) {
+        if (pulseCount > rle.length) {
           throw new Error('Truncated embedded TZX CSW recording');
         }
         const pulses = new Uint32Array(pulseCount);
         let pulse = 0;
-        for (let p = rleStart; p < rleEnd && pulse < pulseCount;) {
-          const length = fileData[p++];
+        for (let p = 0; p < rle.length && pulse < pulseCount;) {
+          const length = rle[p++];
           if (length !== 0) {
             pulses[pulse++] = Math.max(1, Math.round(length * 3_500_000 / sampleRate));
           } else {
-            if (p + 4 > rleEnd) throw new Error('Truncated embedded TZX CSW pulse');
-            const samples = read32(fileData, p);
+            if (p + 4 > rle.length) throw new Error('Truncated embedded TZX CSW pulse');
+            const samples = read32(rle, p);
             p += 4;
             pulses[pulse++] = Math.max(1, Math.round(samples * 3_500_000 / sampleRate));
           }
@@ -287,7 +437,8 @@ export function parseTZX(fileData: Uint8Array): TapeBlock[] {
         if (pause > 0) blocks.push({ kind: 'pause', duration: pause });
         break;
       }
-      case 0x19: // Generalized Data Block (skipped)
+      case 0x19: // Generalized Data Block
+        for (const blk of parseGeneralizedData(fileData, o + 4, read32(fileData, o))) blocks.push(blk);
         break;
       case 0x20: { // Pause / Stop the tape
         const duration = read16(fileData, o);
@@ -405,8 +556,8 @@ export function parseTZX(fileData: Uint8Array): TapeBlock[] {
         break;
       case 0x5A: // Glue block (skipped)
         break;
-      default:
-        throw new Error(`Unknown TZX block type 0x${id.toString(16).padStart(2, '0')} at offset ${blockStart}`);
+      default: // Deprecated (0x16/0x17/0x34/0x40) and unknown blocks: skipped
+        break;
     }
 
     // Advance past this block with the same offset arithmetic the up-front

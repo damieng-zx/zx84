@@ -6,8 +6,10 @@
  *
  *   - v1: 64K/128K memory dumped flat right after the header.
  *   - v2: adds a CPC-type byte (0x6D); memory still flat.
- *   - v3: memory moved into "MEM0".."MEM8" chunks (64K each) after the header,
- *     each optionally RLE-compressed; plus optional device chunks we skip.
+ *   - v3: the flat dump (sized by 0x6B–0x6C) is followed by optional chunks.
+ *     WinAPE-style writers set the dump size to 0 and carry memory in
+ *     "MEM0".."MEM8" chunks (64K each, optionally RLE-compressed); others
+ *     (e.g. CPCEMU-lineage v3 writers) keep the flat dump. Unknown chunks skip.
  *
  * Save writes v2 (flat, uncompressed) or v3 (RLE-compressed MEM chunks). Unlike
  * the Spectrum loaders, this works on the whole CpcMachine: a CPC snapshot spans
@@ -152,9 +154,12 @@ function rleEncode(block: Uint8Array): Uint8Array {
 
 // ── Memory image ────────────────────────────────────────────────────────────
 
-/** Write `block` (up to 64K) into the four RAM banks starting at `baseBank`. */
+/** Write `block` (up to 64K) into the four RAM banks starting at `baseBank`.
+ *  Banks the machine does not have are skipped (getRamBank would otherwise
+ *  alias them onto bank 0 and clobber base RAM). */
 function applyBlock(m: CpcMachine, baseBank: number, block: Uint8Array): void {
   for (let s = 0; s < 4; s++) {
+    if (baseBank + s >= m.memory.ramBankCount) break;
     const bank = m.memory.getRamBank(baseBank + s);
     bank.set(block.subarray(s * SLOT_SIZE, (s + 1) * SLOT_SIZE));
   }
@@ -169,22 +174,32 @@ function readBlock(m: CpcMachine, baseBank: number): Uint8Array {
   return block;
 }
 
-/** Apply v1/v2 flat memory (banks in physical order right after the header). */
-function applyFlatMemory(m: CpcMachine, data: Uint8Array, banks: number): void {
+/** Memory dump size in bytes, from the header's KB count (0x6B–0x6C). */
+function dumpBytes(data: Uint8Array): number {
+  return (data[0x6B] | (data[0x6C] << 8)) * 1024;
+}
+
+/** Apply the flat memory dump that follows the header (every version): banks
+ *  in physical order, base 64K first. Banks beyond the machine's RAM (or past
+ *  the end of a truncated file) are skipped. */
+function applyFlatMemory(m: CpcMachine, data: Uint8Array, bytes: number): void {
+  const banks = Math.min(Math.ceil(bytes / SLOT_SIZE), m.memory.ramBankCount);
   for (let bank = 0; bank < banks; bank++) {
     const off = HEADER_SIZE + bank * SLOT_SIZE;
     if (off >= data.length) break;
-    m.memory.getRamBank(bank).set(data.subarray(off, off + SLOT_SIZE));
+    const end = Math.min(off + SLOT_SIZE, HEADER_SIZE + bytes);
+    m.memory.getRamBank(bank).set(data.subarray(off, end));
   }
 }
 
-/** Apply v3 chunked memory ("MEM0".."MEM8", each a 64K block) and any Plus
- *  "ASIC" extension chunk. */
-function applyChunkedMemory(m: CpcMachine, data: Uint8Array): void {
-  let p = HEADER_SIZE;
+/** Apply the v3 chunks that follow the flat memory dump: "MEM0".."MEM8"
+ *  (each a 64K block, used when the dump size is 0) and any Plus "ASIC"
+ *  extension chunk. */
+function applyChunks(m: CpcMachine, data: Uint8Array, start: number): void {
+  let p = start;
   while (p + 8 <= data.length) {
     const id = String.fromCharCode(data[p], data[p + 1], data[p + 2], data[p + 3]);
-    const len = data[p + 4] | (data[p + 5] << 8) | (data[p + 6] << 16) | (data[p + 7] << 24);
+    const len = (data[p + 4] | (data[p + 5] << 8) | (data[p + 6] << 16) | (data[p + 7] << 24)) >>> 0;
     p += 8;
     const body = data.subarray(p, p + len);
     p += len;
@@ -195,6 +210,8 @@ function applyChunkedMemory(m: CpcMachine, data: Uint8Array): void {
       applyBlock(m, baseBank, block);
     } else if (id === 'ASIC' && cpcIsPlusClass(m.model)) {
       applyAsicChunk(m.gateArray as Asic, body);
+    } else if (id === 'CPC+' && cpcIsPlusClass(m.model)) {
+      applyCpcPlusChunk(m.gateArray as Asic, body);
     }
     // Other unknown chunks (CRTC/FDC/tape device state we don't model) are
     // skipped, matching the standard SNA chunk-skip behaviour.
@@ -228,6 +245,68 @@ function applyAsicChunk(asic: Asic, body: Uint8Array): void {
   if (body.length >= ASIC_CHUNK_DMA_OFF + ASIC_CHUNK_DMA_BYTES) {
     asic.restoreDmaState(body.subarray(ASIC_CHUNK_DMA_OFF, ASIC_CHUNK_DMA_OFF + ASIC_CHUNK_DMA_BYTES));
   }
+}
+
+/**
+ * Apply the standard "CPC+" chunk (WinAPE and other v3 writers; layout per the
+ * SNA v3 spec / cpcwiki). Offsets within the chunk body:
+ *   000–7FF  sprite bitmaps, two 4-bit pixels per byte (bits 7–4 first) → &4000
+ *   800–87F  16 × 8-byte sprite attributes (X 2, Y 2, mag 1, 3 unused) → &6000
+ *   880–8BF  32 × 2-byte palette                                       → &6400
+ *   8C0–8C5  PRI, split line, split address (hi, lo), scroll, vector   → &6800
+ *   8C8–8CF  analogue inputs                                           → &6808
+ *   8D0–8DB  3 × 4-byte DMA channel attributes (addr 2, prescaler 1)   → &6C00
+ *   8DF      DMA control/status                                        → &6C0F
+ *   8E0–8F4  3 × 7-byte DMA internals (loop count 2, loop addr 2,
+ *            pause count 2, pause prescaler count 1)
+ *   8F5      last RMR2 (gate array A0) value; 8F6 lock (1 = unlocked)
+ * Registers go through the ASIC's own write decode so derived state (palette,
+ * scroll, split, DMA sources) is rebuilt exactly as a live write would.
+ */
+function applyCpcPlusChunk(asic: Asic, body: Uint8Array): void {
+  if (body.length < 0x8F7) return;
+  const unlocked = body[0x8F6] !== 0;
+  const page = new Uint8Array(0x4000);
+  for (let i = 0; i < 0x800; i++) {
+    page[i * 2] = body[i] >> 4;
+    page[i * 2 + 1] = body[i] & 0x0F;
+  }
+  for (let spr = 0; spr < 16; spr++) {
+    for (let k = 0; k < 5; k++) page[0x2000 + spr * 8 + k] = body[0x800 + spr * 8 + k];
+  }
+  for (let i = 0; i < 8; i++) page[0x2808 + i] = body[0x8C8 + i];
+  asic.restoreCoreState(!unlocked, page, asic.asicPalette);
+
+  for (let i = 0; i < 64; i++) asic.cpuWrite(0x2400 + i, body[0x880 + i]);
+  for (let i = 0; i < 6; i++) asic.cpuWrite(0x2800 + i, body[0x8C0 + i]);
+  for (let c = 0; c < 3; c++) {
+    for (let k = 0; k < 3; k++) asic.cpuWrite(0x2C00 + c * 4 + k, body[0x8D0 + c * 4 + k]);
+  }
+
+  // DMA dynamic state, in captureDmaState() layout (pause ticks 2, loops 1,
+  // loop address 2, enabled 1, int pending 1). The pause is kept as a count
+  // of HSYNC ticks, so the spec's pause count scales by the prescaler.
+  const dcsr = body[0x8DF];
+  const dma = new Uint8Array(21);
+  for (let c = 0; c < 3; c++) {
+    const src = 0x8E0 + c * 7;
+    const prescaler = body[0x8D0 + c * 4 + 2];
+    const pause = (body[src + 4] | (body[src + 5] << 8)) & 0x0FFF;
+    const ticks = pause * (prescaler + 1);
+    const o = c * 7;
+    dma[o] = ticks & 0xFF;
+    dma[o + 1] = (ticks >> 8) & 0xFF;
+    dma[o + 2] = body[src];                       // loop count (≤ 0x7FF, low byte kept)
+    dma[o + 3] = body[src + 2];
+    dma[o + 4] = body[src + 3];
+    dma[o + 5] = (dcsr >> c) & 1;
+    dma[o + 6] = (dcsr >> (4 + c)) & 1;
+  }
+  asic.restoreDmaState(dma);
+
+  // RMR2 (only meaningful — and only decoded — while unlocked).
+  const rmr2 = body[0x8F5];
+  if (unlocked && (rmr2 & 0xE0) === 0xA0) asic.write(rmr2);
 }
 
 /** Serialise the ASIC chunk body for saveCpcSna. */
@@ -298,7 +377,11 @@ export function applyCpcSna(data: Uint8Array, m: CpcMachine): void {
   });
 
   // CRTC: 18 registers (0x43–0x54) then the selected register index (0x42).
-  for (let i = 0; i < 18; i++) m.crtc.regs[i] = data[0x43 + i];
+  // R0–R15 go through the chip's write path so each keeps only its
+  // implemented bits; R16/R17 (light pen, CPU read-only) are set directly.
+  for (let i = 0; i < 16; i++) { m.crtc.selectRegister(i); m.crtc.writeRegister(data[0x43 + i]); }
+  m.crtc.regs[16] = data[0x43 + 16] & 0x3F;
+  m.crtc.regs[17] = data[0x43 + 17];
   m.crtc.selectRegister(data[0x42]);
 
   // PPI 8255: port A/C latches + control (port B at 0x57 is input-only).
@@ -309,9 +392,46 @@ export function applyCpcSna(data: Uint8Array, m: CpcMachine): void {
   m.ay.setRegisters(data.subarray(0x5B, 0x5B + 16));
   m.ay.selectedReg = data[0x5A] & 0x0F;
 
-  // Memory image.
-  if (version >= 3) applyChunkedMemory(m, data);
-  else applyFlatMemory(m, data, banksFor(m.model));
+  // v3 Gate Array interrupt state: the HSYNC-after-VSYNC delay counter (0xB2),
+  // the 52-line interrupt counter (0xB3) and the pending request (0xB4). The
+  // CRTC's internal counters (0xA9–0xB1) are not restored: the frame loop
+  // restarts the CRTC raster at each host frame, so it can only resume at a
+  // frame boundary (which is where this emulator's own saves are taken).
+  if (version >= 3) {
+    m.gateArray.rasterCount = Math.min(data[0xB3], 51);
+    m.gateArray.interruptRequested = data[0xB4] !== 0;
+    m.vsyncResyncCountdown = resyncCountdownOf(data[0xB2]);
+  }
+
+  // Memory image. Every version carries a flat dump sized by 0x6B–0x6C right
+  // after the header (v1 CPCEMU files may leave the size at 0; assume the
+  // model's full RAM then). In v3 the chunks follow that dump — a writer that
+  // uses "MEMn" chunks sets the dump size to 0 so they start at 0x100.
+  if (version >= 3) {
+    const bytes = dumpBytes(data);
+    applyFlatMemory(m, data, bytes);
+    applyChunks(m, data, HEADER_SIZE + bytes);
+  } else {
+    const bytes = dumpBytes(data) || banksFor(m.model) * SLOT_SIZE;
+    applyFlatMemory(m, data, bytes);
+  }
+}
+
+/** The .SNA "GA vsync delay counter" counts HSYNCs since VSYNC began (1 or 2
+ *  while active, 0 idle); the machine counts down the HSYNCs still to come
+ *  before the re-sync fires on the 2nd one. 1 → 2 to go, 2 → 1 to go. */
+function resyncCountdownOf(snaCount: number): number {
+  return snaCount === 1 || snaCount === 2 ? 3 - snaCount : 0;
+}
+
+function snaResyncCountOf(countdown: number): number {
+  return countdown === 1 || countdown === 2 ? 3 - countdown : 0;
+}
+
+/** .SNA v3 CRTC type byte (0xA4): 0 = HD6845S/UM6845, 1 = UM6845R, 2 = MC6845,
+ *  3 = the CPC+ ASIC's 6845 (our type 4). */
+function snaCrtcTypeOf(type: number): number {
+  return type === 4 ? 3 : type === 3 ? 4 : type;
 }
 
 // ── Save ─────────────────────────────────────────────────────────────────────
@@ -389,6 +509,11 @@ export function saveCpcSna(m: CpcMachine, version: 2 | 3): Uint8Array {
   header[0x6D] = typeByteOf(m.model);
 
   if (version >= 3) {
+    // v3 device state: CRTC type and the Gate Array interrupt counters.
+    header[0xA4] = snaCrtcTypeOf(m.config.crtcType);
+    header[0xB2] = snaResyncCountOf(m.vsyncResyncCountdown);
+    header[0xB3] = m.gateArray.rasterCount & 0x3F;
+    header[0xB4] = m.gateArray.interruptRequested ? 1 : 0;
     // v3: memory size 0 in the header; memory follows as MEM chunks.
     header[0x6B] = 0; header[0x6C] = 0;
     const parts: Uint8Array[] = [header];

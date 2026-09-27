@@ -267,3 +267,59 @@ describe('WD1772 drive/side selection', () => {
     expect(wd.readData()).toBe(0x22);
   });
 });
+
+describe('WD1772 SEEK steps relative to the Track Register', () => {
+  it('moves the head DR − TR tracks, keeping a STEP-without-u offset', () => {
+    const wd = wd1772();
+    wd.writeData(10);
+    wd.writeCommand(CMD_SEEK);          // head 10, TR 10
+    wd.writeCommand(0x40);              // STEP IN, u=0: head 11, TR still 10
+    expect(wd.getUnitTrack(0)).toBe(11);
+    expect(wd.trackReg).toBe(10);
+    wd.writeData(20);
+    wd.writeCommand(CMD_SEEK);          // 10 steps in from head 11
+    expect(wd.trackReg).toBe(20);
+    expect(wd.getUnitTrack(0)).toBe(21);
+  });
+
+  it('a seek whose TR is ahead of the head stops at the track-0 stop', () => {
+    const wd = wd1772();
+    wd.trackReg = 5;                    // head really at 0
+    wd.writeData(0);
+    wd.writeCommand(CMD_SEEK);          // 5 steps out from track 0
+    expect(wd.getUnitTrack(0)).toBe(0);
+    expect(wd.trackReg).toBe(0);
+  });
+
+  it('a seek sets the direction a following STEP uses', () => {
+    const wd = wd1772();
+    wd.writeData(10);
+    wd.writeCommand(CMD_SEEK);          // stepping in
+    wd.writeData(4);
+    wd.writeCommand(CMD_SEEK);          // stepping out
+    wd.writeCommand(0x20);              // STEP (same direction), u=0
+    expect(wd.getUnitTrack(0)).toBe(3);
+  });
+});
+
+describe('WD1772 has no side compare', () => {
+  it('bits 1 and 3 of READ SECTOR (P/h on the 1772) do not reject a side-0 ID', () => {
+    const wd = wd1772();
+    wd.insertDisk(makeImage(), 0);      // sectors stored with h=0
+    wd.selectDrive(0);
+    wd.setSide(0);
+    wd.writeSectorReg(1);
+    wd.writeCommand(0x8A);              // on a 1793 this would compare for side 1
+    expect(wd.readStatus() & ST_RNF).toBe(0);
+    expect(wd.readData()).toBe(0xAB);
+  });
+
+  it('bits 1 and 3 of WRITE SECTOR do not reject a side-0 ID either', () => {
+    const wd = wd1772();
+    wd.insertDisk(makeImage(), 0);
+    wd.selectDrive(0);
+    wd.writeSectorReg(1);
+    wd.writeCommand(0xAA);
+    expect(wd.readStatus() & ST_RNF).toBe(0);
+  });
+});

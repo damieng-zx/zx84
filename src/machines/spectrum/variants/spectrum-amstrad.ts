@@ -22,6 +22,7 @@ export function createAmstrad(model: '+2A' | '+3'): MachineVariant {
     contentionPattern: CONTENTION_AMSTRAD,
     hasIOContention: false,
     hasFloatingBus: false,
+    hasGateArrayFloatingBus: true,
 
     isContended(_addr: number, bank: number): boolean {
       // Banks 4-7 are on the upper RAM chip shared with the gate array.

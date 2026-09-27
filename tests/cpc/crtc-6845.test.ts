@@ -102,6 +102,52 @@ describe('CRTC 6845 — register access', () => {
     expect(t1.readRegister()).toBe(0x55); // UM6845R (type 1): readable
   });
 
+  it('keeps only the implemented bits of each register', () => {
+    // 6845: R4/R6/R7/R10 7-bit, R5/R9/R11 5-bit, R12/R14 6-bit.
+    const c = new Crtc6845(0);
+    const widths: [number, number][] = [
+      [4, 0x7F], [5, 0x1F], [6, 0x7F], [7, 0x7F], [9, 0x1F],
+      [10, 0x7F], [11, 0x1F], [12, 0x3F], [14, 0x3F],
+      [0, 0xFF], [1, 0xFF], [2, 0xFF], [13, 0xFF], [15, 0xFF],
+    ];
+    for (const [r, mask] of widths) {
+      setReg(c, r, 0xFF);
+      expect(c.regs[r], `R${r}`).toBe(mask);
+    }
+  });
+
+  it('R14 reads back 6-bit; R12/R13 are write-only on types 1 and 2', () => {
+    const t0 = new Crtc6845(0);
+    setReg(t0, 14, 0xFF);
+    t0.selectRegister(14);
+    expect(t0.readRegister()).toBe(0x3F);
+    setReg(t0, 12, 0x30);
+    t0.selectRegister(12);
+    expect(t0.readRegister()).toBe(0x30);  // readable on type 0
+    for (const type of [1, 2] as const) {
+      const c = new Crtc6845(type);
+      setReg(c, 12, 0x30);
+      setReg(c, 13, 0x42);
+      c.selectRegister(12);
+      expect(c.readRegister(), `type ${type} R12`).toBe(0);
+      c.selectRegister(13);
+      expect(c.readRegister(), `type ${type} R13`).toBe(0);
+      expect(c.displayStart).toBe(0x3042); // still drives the display
+    }
+  });
+
+  it('fixes VSYNC at 16 lines on a type-1 CRTC (R3 high nibble ignored)', () => {
+    const c = new Crtc6845(1);
+    programStandard(c);                    // R3=0x8E: type 0 would give 8
+    c.beginFrame();
+    let active = 0;
+    for (let line = 0; line < 312; line++) {
+      if (c.vsyncActive) active++;
+      c.advanceLine();
+    }
+    expect(active).toBe(16);
+  });
+
   it('masks the register select to 5 bits', () => {
     const c = new Crtc6845(0);
     setReg(c, R_DISPLAY_START_L, 0x12);   // R13
@@ -146,31 +192,53 @@ describe('CRTC 6845 — raster sequencing', () => {
     expect(c.currentLine().ra).toBe(0);
   });
 
-  it('asserts VSYNC at the first scanline of character row R7', () => {
+  it('asserts VSYNC on the first scanline of character row R7 itself', () => {
+    // 6845: VSYNC rises at the start of the raster where VCC = R7, RA = 0, so
+    // PPI port B bit 0 must already read 1 while that scanline runs.
     const c = new Crtc6845(0);
     programStandard(c);                    // R7=30, R9=7 → row 30 at scanline 240
     c.beginFrame();
-    for (let line = 0; line < 240; line++) {
-      expect(c.vsyncActive).toBe(false);   // scanlines 0..239 are display/border
+    for (let line = 0; line < 239; line++) {
       c.advanceLine();
+      expect(c.vsyncActive, `scanline ${line + 1}`).toBe(false);
     }
-    expect(c.vsyncActive).toBe(false);     // at scanline 240, before the check
-    c.advanceLine();                       // advancing out of (vcc=30, ra=0)
+    c.advanceLine();                       // enter scanline 240 (vcc=30, ra=0)
+    expect(c.currentLine().ra).toBe(0);
     expect(c.vsyncActive).toBe(true);
     expect(c.vsyncStart).toBe(true);       // the single onset scanline
+    c.advanceLine();                       // scanline 241
+    expect(c.vsyncStart).toBe(false);
+    expect(c.vsyncActive).toBe(true);
   });
 
-  it('holds VSYNC for the width programmed in R3 (type-1 honours the nibble)', () => {
-    const c = new Crtc6845(1);             // UM6845R honours R3 high nibble
+  it('holds VSYNC for exactly the R3 high-nibble width, scanlines 240..247', () => {
+    const c = new Crtc6845(0);
     programStandard(c);                    // R3=0x8E → VSYNC width 8 lines
     c.beginFrame();
-    for (let i = 0; i < 240; i++) c.advanceLine();
-    let active = 0;
-    for (let i = 0; i < 24; i++) {         // sweep well past the sync window
+    const active: number[] = [];
+    for (let line = 0; line < 312; line++) {
+      if (c.vsyncActive) active.push(line);
       c.advanceLine();
-      if (c.vsyncActive) active++;
     }
-    expect(active).toBe(8);                // exactly 8 scanlines of VSYNC
+    expect(active).toEqual([240, 241, 242, 243, 244, 245, 246, 247]);
+  });
+
+  it('starts VSYNC on the first scanline of the frame when R7 = 0', () => {
+    const c = new Crtc6845(0);
+    programStandard(c);
+    setReg(c, R_VSYNC_POS, 0);
+    c.beginFrame();
+    expect(c.vsyncActive).toBe(true);
+    expect(c.vsyncStart).toBe(true);
+  });
+
+  it('places the HSYNC trailing edge at R2 + HSYNC width characters', () => {
+    const c = new Crtc6845(0);
+    programStandard(c);                    // R3 low nibble = 14
+    setReg(c, 2, 46);                      // standard R2
+    expect(c.hsyncEndChar()).toBe(60);     // 46 + 14
+    setReg(c, 2, 70);                      // R2 past R0: clamped to line end
+    expect(c.hsyncEndChar()).toBe(64);
   });
 });
 
@@ -223,6 +291,46 @@ describe('CRTC 6845 — frame restart & rupture', () => {
     for (let i = 0; i < 8; i++) c.advanceLine();    // finish row 10 → restart
     expect(c.currentLine().maRow).toBe(0x0000);     // lines below use the new base
     expect(c.currentLine().ra).toBe(0);
+  });
+
+  it('R9 written below the live raster counter runs RA on to 31 and wraps', () => {
+    // Equality compare: RA=5 with R9 now 2 never matches until RA wraps
+    // 31 → 0 and counts back up to 2. Lines from RA=5: 6..31 (26), 0,1,2 (3),
+    // then the row ends → 30 advances to reach the next row's RA=0.
+    const c = new Crtc6845(0);
+    programStandard(c);
+    c.beginFrame();
+    for (let i = 0; i < 5; i++) c.advanceLine();
+    expect(c.currentLine().ra).toBe(5);
+    setReg(c, R_MAX_RASTER, 2);
+    c.advanceLine();
+    expect(c.currentLine().ra).toBe(6);            // did not end the row
+    for (let i = 0; i < 25; i++) c.advanceLine();
+    expect(c.currentLine().ra).toBe(31);
+    c.advanceLine();
+    expect(c.currentLine().ra).toBe(0);            // 5-bit wrap, same row
+    expect(c.currentLine().maRow).toBe(0);
+    for (let i = 0; i < 3; i++) c.advanceLine();   // RA 1, 2, then row end
+    expect(c.currentLine().ra).toBe(0);
+    expect(c.currentLine().maRow).toBe(40);        // next character row
+  });
+
+  it('R4 written below the live row counter runs VCC on to 127 and wraps', () => {
+    const c = new Crtc6845(0);
+    programStandard(c);
+    setReg(c, R_MAX_RASTER, 0);                    // one scanline per row
+    setReg(c, R_HORIZ_DISPLAYED, 1);               // MA row = VCC (mod wrap)
+    c.beginFrame();
+    for (let i = 0; i < 20; i++) c.advanceLine();  // VCC = 20
+    setReg(c, R_VERT_TOTAL, 10);                   // below the live VCC
+    // 20 → 127 is 107 rows, wrap to 0, then 0 → 10 and the restart after row 10:
+    // no restart for 107 + 1 + 10 lines, restart on the next one.
+    for (let i = 0; i < 118; i++) {
+      c.advanceLine();
+      expect(c.currentLine().maRow, `line ${i}`).toBe((21 + i) & 0x3FFF);
+    }
+    c.advanceLine();
+    expect(c.currentLine().maRow).toBe(0);         // restarted from R12/R13 = 0
   });
 
   it('latches R12/R13 at the restart, not per scanline (static base is unchanged)', () => {

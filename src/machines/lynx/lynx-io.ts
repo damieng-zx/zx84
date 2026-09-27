@@ -21,8 +21,19 @@ import type { LynxMachine } from './lynx-machine.ts';
 
 /** Wire the machine's port handlers onto its CPU. Hot path: direct closures. */
 export function wireLynxPortIO(m: LynxMachine): void {
-  m.cpu.portInHandler = (port: number): number => portIn(m, port);
-  m.cpu.portOutHandler = (port: number, value: number): void => portOut(m, port, value);
+  m.cpu.portInHandler = (port: number): number => {
+    const value = portIn(m, port);
+    if (m.portWatchpoints.size > 0 && m.portWatchHit === null && m.portWatchpoints.has(port & 0xffff)) {
+      m.portWatchHit = { port: port & 0xffff, value, dir: 'in' };
+    }
+    return value;
+  };
+  m.cpu.portOutHandler = (port: number, value: number): void => {
+    if (m.portWatchpoints.size > 0 && m.portWatchHit === null && m.portWatchpoints.has(port & 0xffff)) {
+      m.portWatchHit = { port: port & 0xffff, value: value & 0xff, dir: 'out' };
+    }
+    portOut(m, port, value);
+  };
 }
 
 function portIn(m: LynxMachine, port: number): number {
@@ -35,7 +46,7 @@ function portIn(m: LynxMachine, port: number): number {
     const line = (port >> 8) & 0x0f;
     m.activity.kbdReads++;
     let data = m.keyboard.read(line);
-    if (!m.memory.is128k && m.tapeMotorOn) {
+    if (line === 0 && !m.memory.is128k && m.tapeMotorOn) {
       m.activity.casReads++;
       data = (data & 0xfe) | (m.cassetteInput() ? 0 : 1);
     }

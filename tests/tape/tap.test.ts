@@ -170,6 +170,23 @@ describe('TAP — block length field', () => {
     expect(deck.parseTAP(tap)).toEqual([]);
   });
 
+  it('skips a zero-length block and keeps parsing the blocks after it', () => {
+    const tap = concat(new Uint8Array([0x00, 0x00]), buildBlock(0xFF, [0xAA, 0xBB]));
+    const blocks = new TapeDeck(3_500_000).parseTAP(tap);
+    expect(blocks.length).toBe(1);
+    expect(Array.from((blocks[0] as DataBlock).data)).toEqual([0xAA, 0xBB]);
+  });
+
+  it('skips the single byte of a 1-byte block and keeps parsing after it', () => {
+    // Length 1, then one stray byte (0x02 — which would misread as a length
+    // field if the parser failed to step over it), then a real block.
+    const tap = concat(new Uint8Array([0x01, 0x00, 0x02]), buildBlock(0x00, [0x11]));
+    const blocks = new TapeDeck(3_500_000).parseTAP(tap);
+    expect(blocks.length).toBe(1);
+    expect((blocks[0] as DataBlock).flag).toBe(0x00);
+    expect(Array.from((blocks[0] as DataBlock).data)).toEqual([0x11]);
+  });
+
   it('stops at a truncated length field (1 byte remaining)', () => {
     const valid = buildBlock(0xFF, [0xAA, 0xBB]);
     const tap = concat(valid, new Uint8Array([0x10])); // one stray byte

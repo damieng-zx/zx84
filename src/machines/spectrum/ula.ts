@@ -15,6 +15,15 @@ export interface KeyMatrixSource {
   readHalfRows(addrHigh: number): number;
 }
 
+/** Normalised speaker level indexed by (EAR << 1) | MIC, from the Issue 3
+ *  ULA pin voltages 0.39 / 0.73 / 3.66 / 3.79 V mapped onto 0..1. */
+const ULA_SPEAKER_LEVEL = new Float64Array([
+  0,
+  (0.73 - 0.39) / (3.79 - 0.39),
+  (3.66 - 0.39) / (3.79 - 0.39),
+  1,
+]);
+
 // ── Display geometry ────────────────────────────────────────────────────
 /** Active display width in pixels. */
 export const DISPLAY_WIDTH = 256;
@@ -106,7 +115,7 @@ export class ULA {
 
   /** MIC state (bit 3 of port 0xFE) — the tape SAVE output. Real hardware
    *  drives the speaker from both this and beeperBit through their own
-   *  resistor paths; see getAudioEarBit. */
+   *  resistor paths; see getAudioLevel. */
   micBit = 0;
 
   /** Tape EAR bit (0 or 1), set by the tape player */
@@ -159,7 +168,7 @@ export class ULA {
   /**
    * Write to port 0xFE.
    * Bits 0-2: border color
-   * Bit 3: MIC (tape SAVE output — also audible, see getAudioEarBit)
+   * Bit 3: MIC (tape SAVE output — also audible, see getAudioLevel)
    * Bit 4: EAR (beeper)
    */
   writePort(val: number): void {
@@ -186,16 +195,18 @@ export class ULA {
   }
 
   /**
-   * Get the effective EAR bit for audio output.
+   * Get the speaker level (0..1) for audio output.
    * During tape playback (with sound enabled), this is the tape signal;
-   * otherwise it's the beeper OR'd with MIC — real hardware drives the
-   * speaker from both bit 3 (MIC) and bit 4 (EAR) through their own
-   * resistor paths, so MIC-only output (SAVE, or games that toggle MIC
-   * instead of EAR for an effect) is audible too, not silent.
+   * otherwise it's the ULA's analogue EAR/MIC mix. The ULA drives the
+   * speaker from bit 4 (EAR) and bit 3 (MIC) through different resistor
+   * paths, so the pin voltage is a weighted sum rather than an OR — Issue 3
+   * measurements: none 0.39V, MIC 0.73V, EAR 3.66V, both 3.79V. The 48K ROM
+   * BEEPER holds MIC=1 and toggles only EAR, so an OR would be a constant 1
+   * (silence); MIC-only output (SAVE) is audible but quiet.
    */
-  getAudioEarBit(tapeSoundEnabled: boolean): number {
+  getAudioLevel(tapeSoundEnabled: boolean): number {
     if (this.tapeActive && tapeSoundEnabled) return this.tapeEarBit;
-    return this.beeperBit | this.micBit;
+    return ULA_SPEAKER_LEVEL[(this.beeperBit << 1) | this.micBit];
   }
 
   /**

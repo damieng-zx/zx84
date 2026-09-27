@@ -690,8 +690,9 @@ export class V9938 {
     for (let col = 0; col < 32; col++) {
       const code = vram[(nameBase + col) % VRAM_SIZE];
       const colByte = vram[(patBase + code * 8 + seg) % VRAM_SIZE];
-      const left = this.pens[colByte >> 4];
-      const right = this.pens[colByte & 0x0F];
+      // Colour 0 is transparent (shows the backdrop) unless R8 TP is set.
+      const left = this.palettePen(colByte >> 4);
+      const right = this.palettePen(colByte & 0x0F);
       for (let b = 0; b < 8; b++) px[x++] = left;
       for (let b = 0; b < 8; b++) px[x++] = right;
     }
@@ -899,7 +900,13 @@ export class V9938 {
     this.status[2] = (this.status[2] | S2_CE) & ~S2_TR;
 
     if (code === 0x0A) this.prepareCpuRead();
-    else if (code === 0x0B || code === 0x0F) this.status[2] |= S2_TR;
+    else if (code === 0x0B || code === 0x0F) {
+      // LMMC/HMMC: the value already sitting in R44 (CLR) when R46 is
+      // written is the first byte transferred (MSX2 Technical Handbook,
+      // openMSX CmdEngine). The CPU then supplies bytes 2..n via R44.
+      this.status[2] |= S2_TR;
+      this.consumeCpuWrite(this.regs[44]);
+    }
   }
 
   private abortCommand(): void {

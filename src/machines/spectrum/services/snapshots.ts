@@ -77,6 +77,7 @@ export class SpectrumSnapshotService implements SnapshotService {
           s.ay.setRegisters(result.ayRegs);
           if (result.ayCurrentReg !== undefined) s.ay.selectedReg = result.ayCurrentReg;
         }
+        if (result.frameTStates !== undefined) s.resumeAtFrameOffset(result.frameTStates);
         s.start();
         return { ok: true, message: `Loaded ${result.is128K ? '128K' : '48K'} .z80: ${filename}` };
       }
@@ -100,6 +101,7 @@ export class SpectrumSnapshotService implements SnapshotService {
           s.ay.setRegisters(result.ayRegs);
           if (result.ayCurrentReg !== undefined) s.ay.selectedReg = result.ayCurrentReg;
         }
+        s.resumeAtFrameOffset(s.cpu.tStates); // dwCyclesStart
         s.start();
         return { ok: true, message: `Loaded ${result.is128K ? '128K' : '48K'} .szx: ${filename}` };
       }
@@ -121,6 +123,8 @@ export class SpectrumSnapshotService implements SnapshotService {
           s.memory.currentROM = (result.port7FFD >> 4) & 1;
           s.memory.pagingLocked = (result.port7FFD & 0x20) !== 0;
           s.memory.applyBanking();
+          // .sp carries no 1FFD (128K/+2 paging only): map for +2A/+3.
+          s.memory.selectSnapshot128KRom();
         } else if (is128kClass(model)) {
           s.memory.selectSnapshot48KRom();
         }
@@ -136,13 +140,24 @@ export class SpectrumSnapshotService implements SnapshotService {
     }
   }
 
+  /** T-state at which the current frame's INT fired. Saves normally happen
+   *  between runFrame calls, when cpu.tStates has already passed the frame end
+   *  and the next frame (INT) starts at frameStart + tpf. */
+  private currentFrameStart(): number {
+    const s = this.s;
+    const fs = s.contention.frameStartTStates;
+    const tpf = s.contention.timing.tStatesPerFrame;
+    return s.cpu.tStates - fs >= tpf ? fs + tpf : fs;
+  }
+
   async save(ext: string): Promise<Uint8Array> {
     const s = this.s;
     if (ext === 'szx' || ext === '.szx') {
-      return saveSZX(s.cpu, s.memory, s.ula.borderColor, s.model, s.contention.frameStartTStates, s.ay.getRegisters(), s.ay.selectedReg);
+      return saveSZX(s.cpu, s.memory, s.ula.borderColor, s.model, this.currentFrameStart(), s.ay.getRegisters(), s.ay.selectedReg);
     }
     if (ext === 'z80' || ext === '.z80') {
-      return saveZ80(s.cpu, s.memory, s.ula.borderColor, s.variant.hasBanking, s.ay.getRegisters(), s.ay.selectedReg);
+      return saveZ80(s.cpu, s.memory, s.ula.borderColor, s.variant.hasBanking, s.ay.getRegisters(), s.ay.selectedReg,
+        s.cpu.tStates - this.currentFrameStart(), s.model as SpectrumModel);
     }
     throw new Error(`Unsupported snapshot save format: ${ext}`);
   }
@@ -152,7 +167,7 @@ export class SpectrumSnapshotService implements SnapshotService {
     const s = this.s;
     return saveSZXSync(
       s.cpu, s.memory, s.ula.borderColor, s.model as SpectrumModel,
-      s.contention.frameStartTStates, s.ay.getRegisters(), s.ay.selectedReg,
+      this.currentFrameStart(), s.ay.getRegisters(), s.ay.selectedReg,
     );
   }
 
@@ -170,6 +185,7 @@ export class SpectrumSnapshotService implements SnapshotService {
       s.ay.setRegisters(result.ayRegs);
       if (result.ayCurrentReg !== undefined) s.ay.selectedReg = result.ayCurrentReg;
     }
+    s.resumeAtFrameOffset(s.cpu.tStates); // dwCyclesStart
     s.start();
     return true;
   }

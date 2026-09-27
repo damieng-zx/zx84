@@ -56,6 +56,9 @@ const ST0_NOT_READY = 0x08;
 /** Equipment check: a recalibrate found no track-0 signal (no drive there) */
 const ST0_EQUIP_CHECK = 0x10;
 
+/** ST1 Missing Address Mark: no ID address mark found within two index pulses */
+const ST1_MISSING_AM = 0x01;
+
 // ── Phase enum ──────────────────────────────────────────────────────────
 
 const enum Phase { Idle, Command, Execution, Result }
@@ -102,9 +105,14 @@ export class UPD765A {
 
   // ── Interrupt latch (consumed by Sense Interrupt Status) ────────────
 
-  private intPending = false;
-  private intST0 = 0;
-  private intPCN = 0;
+  /**
+   * Seek-end interrupt status waiting per logical unit (0-3): the ST0 and PCN
+   * that Sense Interrupt Status will hand back, or null. Each drive seeks
+   * independently and keeps its own result until it is collected, so after
+   * seeking two drives the CPU issues Sense Interrupt Status twice and gets
+   * one drive's result each time.
+   */
+  private seekInt: ({ st0: number; pcn: number } | null)[] = [null, null, null, null];
   /** Specify's ND bit: the CPU moves the data, so INT marks every byte. */
   private nonDma = false;
 
@@ -220,6 +228,8 @@ export class UPD765A {
    * result contract (see the "single-sector protection mode" test).
    */
   private exNormalEOT = false;
+  /** MT=1 read/write ran off EOT on head 1: result is C+1, H^1, R=1. */
+  private exMTEOT = false;
   /**
    * MT (Multi-Track) bit from the command. When set, reaching EOT on the
    * starting head continues the same command on the other side of the cylinder
@@ -245,6 +255,16 @@ export class UPD765A {
   private exH = 0;
   private exN = 0;
   private exCmdN = 0;    // N from the command (may differ from sector ID's N)
+  /** DTL from the command: the transfer length when the command's N is 0. */
+  private exDTL = 0xFF;
+  /** Cylinder the ID search must match (the command's C). */
+  private exCmdC = 0;
+  /** Head the ID search must match: the command's H, complemented after an MT
+   *  switch to side 1 (the controller flips H in its ID register there). */
+  private exCmdH = 0;
+  /** The exact sector being transferred — the one a write lands in, which may
+   *  not be sectorMap's pick on a track with duplicate R values. */
+  private exSector: DskSector | null = null;
   private exCmd = 0;     // Masked command (READ_DATA vs READ_DELETED) — for command-relative CM
   /** Reference to current track for write-back */
   private exTrack: DskTrack | null = null;
@@ -344,6 +364,7 @@ export class UPD765A {
       this.resBuf[0] &= ~ST0_ABNORMAL;
       this.resBuf[1] &= ~0x80;   // ST1 EN (End of Cylinder)
       this.resBuf[3] = this.exC;
+      this.resBuf[4] = this.exH;
       this.resBuf[5] = this.exR;
       this.resEotOnly = false;
       this.log('  ← TC before result read: End-of-Cylinder rewritten as normal '
@@ -372,7 +393,9 @@ export class UPD765A {
   get interruptLine(): boolean {
     if (this.intCountdown > 0) return false;
     if (this.phase === Phase.Execution) return this.nonDma;
-    return this.intPending || this.phase === Phase.Result;
+    const si = this.seekInt;
+    return si[0] !== null || si[1] !== null || si[2] !== null || si[3] !== null
+      || this.phase === Phase.Result;
   }
 
   /**
@@ -659,15 +682,18 @@ export class UPD765A {
         // not the command's original starting R — the two only coincide by
         // accident on disks that happen to start numbering at 1. SK applies
         // here too: skip forward past any mark-mismatched sector 1.
-        const found1 = side1 ? this.findSectorForCommand(side1, 1, this.exEOT, this.exCmd) : null;
+        const side1H = this.exCmdH ^ 1;
+        const found1 = side1 ? this.findSectorForCommand(side1, 1, this.exEOT, this.exCmd, this.exCmdC, side1H) : null;
         if (side1 && found1) {
           this.exHead = 1;
+          this.exCmdH = side1H;
           this.exTrack = side1;
           this.exR = found1.r;
           const s = found1.sector;
+          this.exSector = s;
           this.exBuf = this.exWriting
-            ? new Uint8Array(sectorXferSize(this.exCmdN))
-            : this.prepareReadBuffer(s);
+            ? new Uint8Array(this.cmdXferSize())
+            : this.readBufferFor(s);
           this.exPos = 0;
           this.exC = s.c;
           this.exH = s.h;
@@ -683,11 +709,14 @@ export class UPD765A {
       this.exHitEOT = true;
       // Datasheet End-of-Cylinder result rewrite (C+1, R=1) applies here —
       // this is a genuine search exhaustion, not the copy-protection
-      // exSingleSector short-circuit. Scoped to MT=0 only (see exNormalEOT);
-      // the MT=1 case immediately above either continues on side 1 (returns
-      // before reaching here) or falls through when no side-1 track exists,
-      // whose exact result-register rewrite isn't verified here.
+      // exSingleSector short-circuit. For MT=0 it is C+1, R=1 (exNormalEOT).
+      // For MT=1 the datasheet's result table gives C+1, H complemented, R=1
+      // once the second head (HD=1) runs off EOT — the side switch above has
+      // already happened by then. MT=1 falling through on head 0 (no side-1
+      // track to continue onto) keeps the sector's own CHRN: that case never
+      // occurs on real two-sided hardware and its result isn't verified.
       if (!this.exMT) this.exNormalEOT = true;
+      else if (this.exHead === 1) this.exMTEOT = true;
       return false;
     }
 
@@ -696,21 +725,23 @@ export class UPD765A {
 
     // SK (Skip): search forward from here for a mark-matching sector rather
     // than accepting whatever's at exR outright (see findSectorForCommand).
-    const found = this.findSectorForCommand(track, this.exR, this.exEOT, this.exCmd);
+    const found = this.findSectorForCommand(track, this.exR, this.exEOT, this.exCmd, this.exCmdC, this.exCmdH);
     if (!found) {
       this.exR--;
       this.exST1 |= 0x04;
+      this.exST2 |= this.wrongCylinderBits(track, this.exCmdC);
       this.exAbnormal = true;
       return false;
     }
     this.exR = found.r;
 
     const sector = found.sector;
+    this.exSector = sector;
     if (this.exWriting) {
-      this.exBuf = new Uint8Array(sectorXferSize(this.exCmdN));
+      this.exBuf = new Uint8Array(this.cmdXferSize());
       this.exPos = 0;
     } else {
-      this.exBuf = this.prepareReadBuffer(sector);
+      this.exBuf = this.readBufferFor(sector);
       this.exPos = 0;
     }
 
@@ -725,6 +756,26 @@ export class UPD765A {
     if (flags.abnormal) this.exAbnormal = true;
 
     return true;
+  }
+
+  /**
+   * Bytes a write command transfers per sector: 128 << N, except that N=0
+   * makes DTL the data length (uPD765A datasheet: "When N is defined as 00,
+   * DTL defines the data length"). A DTL of 0 or above 128 means the whole
+   * 128-byte sector.
+   */
+  private cmdXferSize(): number {
+    if (this.exCmdN !== 0) return sectorXferSize(this.exCmdN);
+    const dtl = this.exDTL;
+    return dtl === 0 || dtl > 128 ? 128 : dtl;
+  }
+
+  /** Read buffer for a sector, cut to DTL bytes when the command's N is 0. */
+  private readBufferFor(sector: DskSector): Uint8Array {
+    const buf = this.prepareReadBuffer(sector);
+    if (this.exCmdN !== 0) return buf;
+    const len = this.cmdXferSize();
+    return buf.length > len ? buf.subarray(0, len) : buf;
   }
 
   /**
@@ -800,19 +851,33 @@ export class UPD765A {
 
   /** Write the execution buffer back into the current sector's data. */
   private writeBackSector(): void {
-    const track = this.exTrack;
-    if (!track) return;
-    const idx = track.sectorMap.get(this.exR);
-    if (idx === undefined) return;
+    const sector = this.exSector;
+    if (!sector) return;
     // Replace the sector's data array entirely.  The write buffer is sized by
     // the command's N parameter, which may differ from the sector ID's N (e.g.
     // protection sectors).  Using .set() would throw RangeError when exBuf is
     // larger, or leave stale tail bytes when smaller.  Replacing the array
     // ensures read-back via prepareReadBuffer() sees exactly what was written.
-    track.sectors[idx].data = new Uint8Array(this.exBuf);
+    // N=0 with DTL < 128 transfers only DTL bytes; the controller fills the
+    // rest of the 128-byte data field with zeros.
+    const written = this.exCmdN === 0 && this.exBuf.length < 128
+      ? (() => { const b = new Uint8Array(128); b.set(this.exBuf); return b; })()
+      : new Uint8Array(this.exBuf);
+    sector.data = written;
     // Writing destroys the v5 weak-bit state: subsequent reads must
     // return the freshly-written data, not random older copies.
-    track.sectors[idx].copies = undefined;
+    sector.copies = undefined;
+    // A write lays down a fresh data address mark and data field with a good
+    // CRC, so the sector's stored data-field state changes with it: the mark
+    // becomes whatever the command writes (FB for WRITE DATA, F8 for WRITE
+    // DELETED DATA), and any old data CRC error (ST2 DD with ST1 DE) or
+    // missing data mark (ST2 MD with ST1 MA) is gone. An ID-field CRC error
+    // (ST1 DE without ST2 DD) belongs to the ID, which a write doesn't touch.
+    const dataFieldBad = (sector.st2 & 0x21) !== 0;
+    let st2 = sector.st2 & ~(0x40 | 0x20 | 0x01);
+    if (this.exCmd === CMD_WRITE_DELETED) st2 |= 0x40;
+    sector.st2 = st2;
+    if (dataFieldBad) sector.st1 &= ~(0x20 | 0x01);
     this.dirty[this.physUnit(this.exUnit)] = true;
   }
 
@@ -858,16 +923,18 @@ export class UPD765A {
     // applied to the exSingleSector copy-protection short-circuit (see
     // exNormalEOT) — that path's result CHRN is a verified protection
     // contract and must keep reporting the sector actually read.
-    const resultC = this.exNormalEOT ? (this.exC + 1) & 0xFF : this.exC;
-    const resultR = this.exNormalEOT ? 1 : this.exR;
+    const rollover = this.exNormalEOT || this.exMTEOT;
+    const resultC = rollover ? (this.exC + 1) & 0xFF : this.exC;
+    const resultH = this.exMTEOT ? this.exH ^ 1 : this.exH;
+    const resultR = rollover ? 1 : this.exR;
 
     // Return actual ST1 and ST2 from the sector (preserves CRC errors!)
     // Speedlock checks for intentional CRC errors - must not "fix" them!
-    this.log(`  ← Result: ST0=0x${st0.toString(16).padStart(2, '0')} ST1=0x${st1.toString(16).padStart(2, '0')} ST2=0x${this.exST2.toString(16).padStart(2, '0')} C=${resultC} H=${this.exH} R=${resultR} N=${this.exN}`);
+    this.log(`  ← Result: ST0=0x${st0.toString(16).padStart(2, '0')} ST1=0x${st1.toString(16).padStart(2, '0')} ST2=0x${this.exST2.toString(16).padStart(2, '0')} C=${resultC} H=${resultH} R=${resultR} N=${this.exN}`);
     if ((st1 & ~0x80) || this.exST2) {
       this.log(`  ⚠ CRC/Error flags present in result!`);
     }
-    this.result([st0, st1, this.exST2, resultC, this.exH, resultR, this.exN]);
+    this.result([st0, st1, this.exST2, resultC, resultH, resultR, this.exN]);
 
     // Arm the TC rewrite (see setTerminalCount): this result is an
     // End-of-Cylinder termination and nothing else went wrong, so a TC that
@@ -962,9 +1029,11 @@ export class UPD765A {
 
   /** Sense Interrupt Status — return latched interrupt info. */
   private cmdSenseInt(): void {
-    if (this.intPending) {
-      this.intPending = false;
-      this.result([this.intST0, this.intPCN]);
+    const unit = this.seekInt.findIndex(p => p !== null);
+    if (unit >= 0) {
+      const { st0, pcn } = this.seekInt[unit]!;
+      this.seekInt[unit] = null;
+      this.result([st0, pcn]);
     } else {
       this.result([ST0_INVALID]);
     }
@@ -977,21 +1046,20 @@ export class UPD765A {
     // command ends with an equipment check. This is how software counts drives.
     if (!this.connected[this.physUnit(unit)]) {
       this.log(`  → Unit=${unit} recalibrate: no drive connected`);
-      this.intPending = true;
-      this.intST0 = ST0_SEEK_END | ST0_ABNORMAL | ST0_EQUIP_CHECK | unit;
-      this.intPCN = this.pcn[this.physUnit(unit)];
+      this.seekInt[unit] = {
+        st0: ST0_SEEK_END | ST0_ABNORMAL | ST0_EQUIP_CHECK | unit,
+        pcn: this.pcn[this.physUnit(unit)],
+      };
       this.phase = Phase.Idle;
       return;
     }
     this.log(`  → Unit=${unit} recalibrating to track 0`);
     this.pcn[this.physUnit(unit)] = 0;
-    this.intPending = true;
     // HD (ST0 bit 2) is intentionally 0 here — the seek-complete ST0 reports
     // head 0 regardless of the command's HDS bit (matches +3 hardware; SEEK and
     // RECALIBRATE both behave this way). The HDS is not latched into the seek
     // interrupt status.
-    this.intST0 = ST0_SEEK_END | unit;
-    this.intPCN = 0;
+    this.seekInt[unit] = { st0: ST0_SEEK_END | unit, pcn: 0 };
     this.phase = Phase.Idle;
   }
 
@@ -1001,20 +1069,19 @@ export class UPD765A {
     const ncn = this.cmdBuf[2];
     if (!this.connected[this.physUnit(unit)]) {
       this.log(`  → Unit=${unit} seek: no drive connected`);
-      this.intPending = true;
-      this.intST0 = ST0_SEEK_END | ST0_ABNORMAL | ST0_EQUIP_CHECK | unit;
-      this.intPCN = this.pcn[this.physUnit(unit)];
+      this.seekInt[unit] = {
+        st0: ST0_SEEK_END | ST0_ABNORMAL | ST0_EQUIP_CHECK | unit,
+        pcn: this.pcn[this.physUnit(unit)],
+      };
       this.phase = Phase.Idle;
       return;
     }
     this.log(`  → Unit=${unit} seeking to cylinder ${ncn}`);
     this.pcn[this.physUnit(unit)] = ncn;
-    this.intPending = true;
     // HD (ST0 bit 2) stays 0 even when the command's HDS bit selects side 1 —
     // the seek-complete ST0 reports head 0 regardless (matches +3 hardware; see
     // cmdRecalibrate). Software polls SE + unit after a seek, never HD.
-    this.intST0 = ST0_SEEK_END | unit;
-    this.intPCN = ncn;
+    this.seekInt[unit] = { st0: ST0_SEEK_END | unit, pcn: ncn };
     this.phase = Phase.Idle;
   }
 
@@ -1028,6 +1095,24 @@ export class UPD765A {
     const side = head + this.flipSide[phys];
     if (side >= disk.numSides) return null;
     return disk.tracks[cyl][side];
+  }
+
+  /**
+   * Result for a command that finds no ID field to work with.
+   *
+   * With no disk in the drive (or no drive on the select line) the drive is
+   * not ready: IC=01 + NR, and ST1/ST2 stay clear because the controller never
+   * got as far as reading. A ready drive whose track is unformatted — missing
+   * from the image, beyond its end, or carrying no sectors — is a different
+   * failure: the controller spins through two index pulses without ever seeing
+   * an ID address mark and ends with IC=01 and ST1 MA (Missing Address Mark).
+   */
+  private noTrackResult(unit: number, head: number, c: number, h: number, r: number, n: number): number[] {
+    const phys = this.physUnit(unit);
+    if (!this.disks[phys] || !this.connected[phys]) {
+      return [ST0_ABNORMAL | ST0_NOT_READY | (head << 2) | unit, 0x00, 0x00, c, h, r, n];
+    }
+    return [ST0_ABNORMAL | (head << 2) | unit, ST1_MISSING_AM, 0x00, c, h, r, n];
   }
 
   /**
@@ -1073,9 +1158,14 @@ export class UPD765A {
     }
     let st1 = undersized ? 0 : storedSt1;
     let st2 = undersized ? 0 : sector.st2;
-    if (!undersized) {
+    if (cmd === CMD_WRITE_DATA || cmd === CMD_WRITE_DELETED) {
+      // Control Mark is a read-side flag: it reports a data address mark that
+      // didn't match what a read expected. A write lays the mark down rather
+      // than reading it, so the old mark is never compared and CM stays clear.
+      st2 &= ~0x40;
+    } else if (!undersized) {
       const sectorHasDDAM = !!(sector.st2 & 0x40);
-      const cmdExpectsDDAM = (cmd === CMD_READ_DELETED || cmd === CMD_WRITE_DELETED);
+      const cmdExpectsDDAM = cmd === CMD_READ_DELETED;
       if (sectorHasDDAM === cmdExpectsDDAM) st2 &= ~0x40; // mark matches — clear CM
       else st2 |= 0x40;                                    // mismatch — set CM
     }
@@ -1091,6 +1181,36 @@ export class UPD765A {
   }
 
   /**
+   * The first ID field in physical order whose C, H and R all match what the
+   * controller is looking for. The uPD765A compares the whole ID register, not
+   * just R: a sector with the right R but another cylinder or head number is
+   * passed over, and on a track carrying duplicate R values the one whose ID
+   * matches is the one found.
+   *
+   * N is deliberately not compared. The undersized-sector handling in
+   * sectorReadFlags (DSK dumps of protection sectors whose ID N is smaller
+   * than the command N) depends on those sectors still being found.
+   */
+  private findId(track: DskTrack, c: number, h: number, r: number): DskSector | null {
+    for (const s of track.sectors) {
+      if (s.r === r && s.c === c && s.h === h) return s;
+    }
+    return null;
+  }
+
+  /**
+   * ST2 bits for a No Data termination: WC when an ID field on the track holds
+   * a cylinder other than the one searched for, BC when that cylinder is 0xFF.
+   */
+  private wrongCylinderBits(track: DskTrack, c: number): number {
+    let bits = 0;
+    for (const s of track.sectors) {
+      if (s.c !== c) bits |= s.c === 0xFF ? 0x02 : 0x10;
+    }
+    return bits;
+  }
+
+  /**
    * Find the sector to read starting at R, honouring SK (Skip). With SK=0
    * (default), the sector at R is returned regardless of mark match — a
    * mismatch there is reported and terminates the command elsewhere (see
@@ -1098,13 +1218,12 @@ export class UPD765A {
    * skipped over (not returned, not a termination point) and the search
    * continues at R+1 up to EOT. Returns null if no usable sector is found.
    */
-  private findSectorForCommand(track: DskTrack, startR: number, eot: number, cmd: number)
+  private findSectorForCommand(track: DskTrack, startR: number, eot: number, cmd: number, c: number, h: number)
       : { r: number; sector: DskSector } | null {
     let r = startR;
     for (;;) {
-      const idx = track.sectorMap.get(r);
-      if (idx === undefined) return null;
-      const sector = track.sectors[idx];
+      const sector = this.findId(track, c, h, r);
+      if (!sector) return null;
       if (!this.exSK || !this.markMismatches(sector, cmd)) return { r, sector };
       if (r >= eot) return null;
       r++;
@@ -1132,23 +1251,21 @@ export class UPD765A {
 
     const track = this.getTrack(unit, head);
 
-    if (!track) {
-      // No disk or no track — abnormal termination (NR detected before execution,
-      // so ST1/ST2 must be 0x00; MA flag only valid after attempting a read)
+    if (!track || track.sectors.length === 0) {
       this.log(`  ✗ No disk or track not found (C=${c}, H=${h})`);
-      const st0 = ST0_ABNORMAL | ST0_NOT_READY | (head << 2) | unit;
-      this.result([st0, 0x00, 0x00, c, h, r, n]);
+      this.result(this.noTrackResult(unit, head, c, h, r, n));
       return;
     }
 
     // Find starting sector by R value — skipping mark-mismatched sectors
     // first if SK is set (see findSectorForCommand).
-    const found = this.findSectorForCommand(track, r, eot, cmd);
+    const found = this.findSectorForCommand(track, r, eot, cmd, c, h);
     if (!found) {
-      // Sector not found — No Data
-      this.log(`  ✗ Sector R=${r} not found on track`);
+      // Sector not found — No Data, plus WC/BC if the track's IDs carry
+      // another cylinder number.
+      this.log(`  ✗ Sector C=${c} H=${h} R=${r} not found on track`);
       const st0 = ST0_ABNORMAL | (head << 2) | unit;
-      this.result([st0, 0x04, 0x00, c, h, r, n]); // ST1=ND (bit 2)
+      this.result([st0, 0x04, this.wrongCylinderBits(track, c), c, h, r, n]); // ST1=ND (bit 2)
       return;
     }
     const { r: foundR, sector } = found;
@@ -1173,9 +1290,13 @@ export class UPD765A {
     this.exH = sector.h;
     this.exN = sector.n;  // From sector ID (may differ from command N)
     this.exR = foundR;
+    this.exSector = sector;
+    this.exCmdC = c;
+    this.exCmdH = h;
     this.exEOT = eot;
     this.exHitEOT = false;
     this.exNormalEOT = false;
+    this.exMTEOT = false;
     this.exMT = mt;
     this.exAbnormal = false;
     this.exTrack = track;
@@ -1190,13 +1311,14 @@ export class UPD765A {
     this.latchFrames = 25; // ~0.5s at 50fps
 
     this.exCmdN = n;  // Command N — controls transfer size (may differ from sector ID N)
+    this.exDTL = this.cmdBuf[8];
     this.exCmd = cmd; // for command-relative CM in advanceSector
 
     if (isWrite) {
-      this.exBuf = new Uint8Array(sectorXferSize(n));
+      this.exBuf = new Uint8Array(this.cmdXferSize());
       this.exPos = 0;
     } else {
-      this.exBuf = this.prepareReadBuffer(sector);
+      this.exBuf = this.readBufferFor(sector);
       this.exPos = 0;
     }
 
@@ -1237,10 +1359,8 @@ export class UPD765A {
     const track = this.getTrack(unit, head);
 
     if (!track || track.sectors.length === 0) {
-      // No disk or empty track — NR before execution, ST1/ST2=0
       this.log(`  ✗ No disk or empty track`);
-      const st0 = ST0_ABNORMAL | ST0_NOT_READY | (head << 2) | unit;
-      this.result([st0, 0x00, 0x00, c, h, r, n]);
+      this.result(this.noTrackResult(unit, head, c, h, r, n));
       return;
     }
 
@@ -1276,6 +1396,7 @@ export class UPD765A {
     this.exEOT = eot;
     this.exHitEOT = false;
     this.exNormalEOT = false;
+    this.exMTEOT = false;
     this.exAbnormal = false;
     this.exTrack = track;
     this.exWriting = false;
@@ -1302,10 +1423,8 @@ export class UPD765A {
     const track = this.getTrack(unit, head);
 
     if (!track || track.sectors.length === 0) {
-      // No disk or empty track — NR before execution, ST1/ST2=0
       this.log(`  ✗ No disk or empty track for Read ID`);
-      const st0 = ST0_ABNORMAL | ST0_NOT_READY | (head << 2) | unit;
-      this.result([st0, 0x00, 0x00, 0, 0, 0, 0]);
+      this.result(this.noTrackResult(unit, head, 0, 0, 0, 0));
       return;
     }
 
@@ -1366,6 +1485,7 @@ export class UPD765A {
     this.exWriting   = true;
     this.exHitEOT    = false;
     this.exNormalEOT = false;
+    this.exMTEOT = false;
     this.exST1       = 0;
     this.exST2       = 0;
     // Receive SC×4 bytes from CPU: one (C, H, R, N) tuple per sector
@@ -1400,7 +1520,10 @@ export class UPD765A {
       const h = buf[i * 4 + 1];
       const r = buf[i * 4 + 2];
       const n = buf[i * 4 + 3];
-      const data = new Uint8Array(sectorXferSize(n)).fill(filler);
+      // The data field laid down is sized by the command's N; the N in each
+      // CPU-supplied tuple is only what gets recorded in the ID field (which
+      // is how protections format sectors whose ID claims another size).
+      const data = new Uint8Array(sectorXferSize(this.exN)).fill(filler);
       sectors.push({ c, h, r, n, st1: 0, st2: 0, data });
       sectorMap.set(r, i);
       lastR = r;
@@ -1410,11 +1533,30 @@ export class UPD765A {
     while (disk.tracks.length <= cyl) {
       disk.tracks.push(Array.from({ length: disk.numSides }, () => null));
     }
+    // The image now physically holds this cylinder: grow the geometry with it,
+    // or getTrack() rejects the freshly formatted track (cyl >= numTracks) and
+    // serializeDSK() — which walks numTracks — drops it on save.
+    disk.numTracks = Math.max(disk.numTracks, cyl + 1);
     // Honour the flippy side offset so a format while "Side B" is loaded writes
     // to the image's second side, matching what getTrack() reads back.
-    const side = Math.min(head + this.flipSide[physU], disk.numSides - 1);
-    disk.tracks[cyl][side] = { sectors, sectorMap, gap3: gpl, filler };
-    this.dirty[physU] = true;
+    const side = head + this.flipSide[physU];
+    if (side <= 1) {
+      // Formatting head 1 of a single-sided image lays down a genuinely new
+      // side-1 track: grow the image to two sides rather than overwriting side
+      // 0, which a real double-sided drive would never touch.
+      if (side >= disk.numSides) {
+        disk.numSides = side + 1;
+        for (const row of disk.tracks) {
+          while (row.length < disk.numSides) row.push(null);
+        }
+      }
+      disk.tracks[cyl][side] = { sectors, sectorMap, gap3: gpl, filler };
+      this.dirty[physU] = true;
+    } else {
+      // Head 1 of a flipped flippy disk: there is no third side to store it on
+      // (and getTrack() would never read it back) — leave the image untouched.
+      this.log(`  ✗ Format of head ${head} on flipped side has no image side to land on`);
+    }
 
     this.log(`  ✓ Formatted cyl=${cyl} head=${head}: ${sc} sectors, last R=${lastR}`);
 
@@ -1481,11 +1623,9 @@ export class UPD765A {
     this.cmdExpected = 0;
     this.resBuf = [];
     this.resPos = 0;
-    this.intPending = false;
+    this.seekInt = [null, null, null, null];
     this.intCountdown = 0;
     this.nonDma = false;
-    this.intST0 = 0;
-    this.intPCN = 0;
     this.pcn = [0, 0];
     this.motorOn = false;
     this.tc = false;
@@ -1495,6 +1635,7 @@ export class UPD765A {
     this.exReadTrack = false;
     this.exFormatting = false;
     this.exTrack = null;
+    this.exSector = null;
     this.exST1 = 0;
     this.exST2 = 0;
     this.latchR = 0;

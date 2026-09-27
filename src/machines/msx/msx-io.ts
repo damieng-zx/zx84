@@ -23,8 +23,8 @@ import type { MsxKeyboard } from '@/machines/msx/msx-keyboard.ts';
  *
  * Port A (output) is the primary-slot select register, fed straight to the
  * memory pager. Port C (output) carries the keyboard row select in its low
- * nibble; the high nibble drives the CAPS LED, key-click and cassette
- * motor/output, which we latch but don't act on (cassette is a follow-up).
+ * nibble; the high nibble drives the cassette motor/output, the CAPS LED and
+ * the key click (bit 7 — fed to the sound output, see keyClick).
  * Port B (input) returns the selected keyboard row's columns. The control port
  * does standard 8255 mode-set / bit-set-reset (BSR) on port C.
  */
@@ -58,12 +58,21 @@ export class MsxPpi {
   /** Port C read: output latch reads back. */
   readC(): number { return this.portC; }
 
+  /** Port C bit 7: the key-click output, summed into the sound output as a
+   *  1-bit level (the BIOS toggles it on each key press). */
+  get keyClick(): number { return this.portC >> 7; }
+
   /** Control port write (0xAB): mode-set (bit7=1) or bit-set-reset on port C. */
   writeControl(val: number): void {
     val &= 0xFF;
     if (val & 0x80) {
-      // Mode-set: the MSX uses the fixed configuration (A/C-hi out, B/C-lo in),
-      // so there is nothing to reconfigure — just accept the write.
+      // Mode-set: the MSX always uses the same port directions, so there is
+      // nothing to reconfigure — but on the 8255 any mode write clears every
+      // output latch (Intel 8255A datasheet), so slots and row go to 0.
+      this.portA = 0;
+      this.portC = 0;
+      this.memory.setPrimarySlots(0);
+      this.keyboard.selectRow(0);
     } else {
       // BSR: bit3–1 select a port-C bit, bit0 sets (1) or resets (0) it.
       const bit = (val >> 1) & 7;

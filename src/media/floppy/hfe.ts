@@ -150,6 +150,14 @@ function extractSide(data: Uint8Array, start: number, trackLen: number, side: nu
 const MAX_SECTOR_BYTES = 16384;
 
 /**
+ * How far past the index the scan follows an ID field whose data field hasn't
+ * been seen yet (in cells). The data mark trails its ID by gap 2 + the sync
+ * run + the A1s (~38 bytes on a standard track); 64 bytes leaves headroom for
+ * a stretched gap 2 without reaching into the track's first real sector.
+ */
+const WRAP_SEARCH_CELLS = 64 * 16;
+
+/**
  * Decode one side's MFM bit-cell stream into a DskTrack, or null if nothing
  * decodable (unformatted / FM / empty) was found. The stream is treated as a
  * circular track, matching hardware and HxC's own reader.
@@ -164,9 +172,12 @@ export function decodeHfeTrack(cells: Uint8Array, layoutOut?: HfeSectorLayout[])
   // Pending ID address field awaiting its matching data field.
   let pending: { c: number; h: number; r: number; n: number } | null = null;
 
-  // Scan one full revolution for address-mark syncs.
+  // Scan one full revolution for address-mark syncs. If the revolution ends
+  // between an ID field and its data field — the last sector's data straddles
+  // the index — keep following the circular track past the index to pick that
+  // data field up rather than dropping the sector.
   let p = 0;
-  while (p < nbits) {
+  while (p < nbits || (pending !== null && p < nbits + WRAP_SEARCH_CELLS)) {
     // Lock onto an A1 sync, then consume the run of A1s (1..3) so the address
     // mark is read whatever the preamble length.
     if (!isSyncAt(cells, p, nbits)) {
@@ -179,6 +190,9 @@ export function decodeHfeTrack(cells: Uint8Array, layoutOut?: HfeSectorLayout[])
     const body = q + 16; // first field byte after the A1 run + mark
 
     if (mark === 0xFE) {
+      // Past the index, the next ID is the track's first sector coming round
+      // again: the pending ID never had a data field.
+      if (p >= nbits) break;
       // ID address field: C H R N CRChi CRClo.
       const c = decodeByte(cells, body, nbits);
       const h = decodeByte(cells, body + 16, nbits);
@@ -338,14 +352,18 @@ function fieldMatches(cells: Uint8Array, L: HfeSectorLayout, cur: Uint8Array, nb
  * Re-encode a data field (payload + CRC) in place over its original cells. The
  * clock of the first bit follows from the mark's last data cell, and the region
  * length ((len+2)×16 cells) is unchanged, so surrounding gaps/marks stay intact.
+ * When `mark` differs from the field's recorded mark (a write that changed the
+ * sector between normal and deleted data), the mark byte is rewritten too.
  */
-function patchField(cells: Uint8Array, L: HfeSectorLayout, cur: Uint8Array, nbits: number): void {
+function patchField(cells: Uint8Array, L: HfeSectorLayout, cur: Uint8Array, nbits: number, mark = L.mark): void {
   const bytes = new Uint8Array(L.len);
   for (let i = 0; i < L.len; i++) bytes[i] = i < cur.length ? cur[i] : 0;
-  const crc = crc16([0xA1, 0xA1, 0xA1, L.mark, ...bytes]);
+  const crc = crc16([0xA1, 0xA1, 0xA1, mark, ...bytes]);
 
-  let prev = readBit(cells, L.dataBit - 1, nbits); // last data cell of the mark byte
-  let pos = L.dataBit;
+  const rewriteMark = mark !== L.mark;
+  // Start at the mark byte (after the A1 sync's last data cell) or at the data.
+  let pos = rewriteMark ? L.dataBit - 16 : L.dataBit;
+  let prev = readBit(cells, pos - 1, nbits);
   const writeByte = (v: number): void => {
     for (let i = 7; i >= 0; i--) {
       const d = (v >> i) & 1;
@@ -356,9 +374,21 @@ function patchField(cells: Uint8Array, L: HfeSectorLayout, cur: Uint8Array, nbit
       prev = d;
     }
   };
+  if (rewriteMark) writeByte(mark);
   for (const b of bytes) writeByte(b);
   writeByte(crc >> 8);
   writeByte(crc & 0xFF);
+}
+
+/** True if the sector IDs decoded from a side's cells are exactly the ones the
+ *  image's track now holds, in order — i.e. nothing has re-formatted it. */
+function sameIdLayout(decoded: DskTrack | null, track: DskTrack): boolean {
+  if (!decoded || decoded.sectors.length !== track.sectors.length) return false;
+  for (let i = 0; i < track.sectors.length; i++) {
+    const a = decoded.sectors[i], b = track.sectors[i];
+    if (a.c !== b.c || a.h !== b.h || a.r !== b.r || a.n !== b.n) return false;
+  }
+  return true;
 }
 
 /** Assemble an HFE v1 image from per-track side cell streams (side 0 / side 1
@@ -408,9 +438,18 @@ function packHFE(sides: (Uint8Array | null)[][], numTracks: number, numSides: nu
 
 /**
  * Serialize an HFE-sourced {@link DskImage} back to HFE v1 bytes. Only sectors
- * whose data actually changed (a write) are re-encoded into a copy of the
- * retained bitstream; every unwritten field — including protection tracks with
- * odd gaps, non-standard marks or deliberately bad CRCs — is preserved verbatim.
+ * whose data (or data mark) actually changed (a write) are re-encoded into a
+ * copy of the retained bitstream; every unwritten field — including protection
+ * tracks with odd gaps, non-standard marks or deliberately bad CRCs — is
+ * preserved verbatim.
+ *
+ * A track whose sector IDs no longer match its retained cells has been
+ * re-formatted in the emulator (new IDs, sizes or sector count), or is a
+ * cylinder/side the image didn't originally have. Patching data fields into
+ * the old layout would lose the format, so such a track is MFM-encoded afresh
+ * from its sectors (gaps, syncs, marks and CRCs), as the controller would have
+ * laid it down.
+ *
  * Throws if the image has no retained bitstream (i.e. it wasn't loaded from HFE).
  */
 export function serializeHFE(image: DskImage): Uint8Array {
@@ -422,17 +461,29 @@ export function serializeHFE(image: DskImage): Uint8Array {
   for (let t = 0; t < numTracks; t++) {
     const row: (Uint8Array | null)[] = new Array(numSides).fill(null);
     for (let s = 0; s < numSides; s++) {
-      const cells = bs.cells[t]?.[s];
+      const cells = bs.cells[t]?.[s] ?? null;
+      const track = image.tracks[t]?.[s] ?? null;
+      const layout: HfeSectorLayout[] = [];
+      const decoded = cells ? decodeHfeTrack(cells, layout) : null;
+      if (track && track.sectors.length > 0 && !sameIdLayout(decoded, track)) {
+        row[s] = encodeHfeTrack(track)?.cells ?? null;
+        continue;
+      }
       if (!cells) continue;
       const out = new Uint8Array(cells);          // patch a copy, leave the mount intact
       const nbits = out.length * 8;
-      const layout = bs.layout[t]?.[s];
-      const track = image.tracks[t]?.[s];
-      if (layout && track) {
-        const count = Math.min(layout.length, track.sectors.length);
-        for (let i = 0; i < count; i++) {
-          const cur = track.sectors[i].data;
-          if (!fieldMatches(out, layout[i], cur, nbits)) patchField(out, layout[i], cur, nbits);
+      if (track && decoded) {
+        for (let i = 0; i < track.sectors.length; i++) {
+          const want = track.sectors[i];
+          const cur = want.data;
+          const wantMark = (want.st2 & 0x40) ? 0xF8 : 0xFB;
+          // A field on disk with a bad CRC that the image now holds as good
+          // (the sector was rewritten with identical bytes) still needs the
+          // fresh CRC laid down.
+          const crcFixed = (decoded.sectors[i].st2 & 0x20) !== 0 && (want.st2 & 0x20) === 0;
+          if (!fieldMatches(out, layout[i], cur, nbits) || wantMark !== layout[i].mark || crcFixed) {
+            patchField(out, layout[i], cur, nbits, wantMark);
+          }
         }
       }
       row[s] = out;
@@ -540,11 +591,14 @@ export function encodeHfeTrack(track: DskTrack): { cells: Uint8Array; layout: Hf
     w.fill(0x4E, GAP2);
     w.fill(0x00, SYNC);
     for (let i = 0; i < 3; i++) w.raw16(MFM_SYNC_A1);
-    const mark = 0xFB; // blank disks carry only normal (non-deleted) data marks
+    // The sector's own mark (deleted data for ST2 CM) and CRC health (a
+    // deliberately bad CRC for ST2 DD) carry over; a blank disk has neither.
+    const mark = (sec.st2 & 0x40) ? 0xF8 : 0xFB;
     w.byte(mark);
     const dataBit = w.pos;
     for (const b of sec.data) w.byte(b);
-    const dataCrc = crc16([0xA1, 0xA1, 0xA1, mark, ...sec.data]);
+    let dataCrc = crc16([0xA1, 0xA1, 0xA1, mark, ...sec.data]);
+    if (sec.st2 & 0x20) dataCrc ^= 0xFFFF;
     w.byte(dataCrc >> 8); w.byte(dataCrc & 0xFF);
     layout.push({ dataBit, len: sec.data.length, mark });
 

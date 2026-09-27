@@ -46,3 +46,19 @@ export const EINSTEIN_256_SCREEN_HEIGHT = 212 + EINSTEIN_256_BORDER_TOP * 2;   /
 
 /** The V9938's IM 2 interrupt vector on the Einstein 256 daisy chain. */
 export const EINSTEIN_256_VDP_INT_VECTOR = 0xFE;
+
+/** Board interrupt sources below the CTC and PIO on the daisy chain, in
+ *  priority order (MAME einstein.cpp): keyboard → ADC → fire. Each has a
+ *  pending bit and a mask bit in EinsteinMachine.boardIntPending/Mask. */
+export const EINSTEIN_INT_KEY = 0x01;
+export const EINSTEIN_INT_ADC = 0x02;
+export const EINSTEIN_INT_FIRE = 0x04;
+
+/** IM 2 vectors the board drives for those sources (MAME's daisy devices):
+ *  one data line pulled low per source, as for the 256's VDP (0xFE). */
+export const EINSTEIN_KEY_INT_VECTOR = 0xF7;
+export const EINSTEIN_ADC_INT_VECTOR = 0xFB;
+export const EINSTEIN_FIRE_INT_VECTOR = 0xFD;
+
+/** ADC0844 conversion time (~40µs at 4MHz) before INTR asserts. */
+export const EINSTEIN_ADC_CONVERSION_T = 160;

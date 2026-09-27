@@ -15,8 +15,7 @@ export const PCW_DISPLAY_WIDTH = 720;
 export const PCW_DISPLAY_HEIGHT = 256;
 
 /** Border around the active area. The PCW has no programmable border colour —
- *  this is the black surround the monitor shows, and it is what port &F6's
- *  vertical-position adjustment slides the picture around inside. */
+ *  this is the black surround the monitor shows. */
 export const PCW_BORDER_LEFT = 24;
 export const PCW_BORDER_TOP = 16;
 
@@ -53,6 +52,14 @@ export const PCW_T_PER_FRAME = PCW_T_PER_LINE * PCW_LINES_PER_FRAME; // 68016
 export const PCW_INT_LINE_SPACING = 52;
 export const PCW_FIRST_INT_LINE = PCW_DISPLAY_HEIGHT + 2; // 258
 export const PCW_INTS_PER_FRAME = PCW_LINES_PER_FRAME / PCW_INT_LINE_SPACING; // 6
+
+/**
+ * The 300Hz timer *pulses* /INT for about 100us rather than holding it until
+ * the CPU responds (MAME pcw.cpp: timer_irq_flag set, cleared by a 100us pulse
+ * timer). A tick that lands while interrupts are disabled is therefore only
+ * recorded in the &F4 counter. 100us at the effective clock = 340 T-states.
+ */
+export const PCW_TIMER_PULSE_T = Math.round(100e-6 * PCW_CPU_CLOCK);
 
 // ── Memory ──────────────────────────────────────────────────────────────────
 
@@ -111,7 +118,7 @@ export const PORT_BANK2 = 0xF2;    // block at 8000
 export const PORT_BANK3 = 0xF3;    // block at C000
 export const PORT_MEMCTL = 0xF4;   // out: read-follows-write; in: status, clears counter
 export const PORT_ROLLER = 0xF5;   // out: roller RAM base
-export const PORT_VERTICAL = 0xF6; // out: vertical screen position
+export const PORT_VERTICAL = 0xF6; // out: roller RAM start entry (screen scroll)
 export const PORT_VIDEO = 0xF7;    // out: screen enable / reverse video
 export const PORT_SYSTEM = 0xF8;   // out: command; in: status
 export const PORT_PRINTER_DATA = 0xFC;

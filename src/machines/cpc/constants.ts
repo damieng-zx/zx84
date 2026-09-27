@@ -28,7 +28,7 @@ export const CPC_AY_CLOCK = 1_000_000;
  *  here — the firmware reaches its block-read routine internally (CAS IN CHAR
  *  refilling its buffer), and this RAM jumpblock entry is only executed by an
  *  explicit `CALL &BCA1`. The instant-load trap therefore targets the internal
- *  routine, located by signature scan (see CpcMachine.scanCasReadRoutine), not
+ *  routine, located by signature scan (see scanCpcCasRead in cpc-tape-loader.ts), not
  *  this address. Kept for reference/documentation. */
 export const CPC_CAS_READ_JUMP = 0xBCA1;
 

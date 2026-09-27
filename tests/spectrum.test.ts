@@ -1713,3 +1713,186 @@ describe('Spectrum — EI interrupt shadow', () => {
     expect((hi << 8) | lo).toBe(0xC002);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// Border latch granularity (high accuracy)
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('Spectrum — border colour changes land on 8-pixel (4T) boundaries', () => {
+  it('a mid-character border change recolours from the start of that 8px cell', () => {
+    // The ULA latches the border colour once per 8-pixel character period,
+    // so an OUT at 5T into a line (pixel 10) must not produce a 2px-resolution
+    // edge at x=10: the new colour takes the whole 8..15 cell.
+    const s = makeMachine('48k');
+    const a = s as any;
+    a._scanAcc = 2;
+    const ula = s.ula;
+    const tpl = s.contention.timing.tStatesPerLine;
+    a.totalRenderLines = 1;
+    a.nextRenderLine = 0;   // top border line — pure border, no display cells
+    a.nextPixelX = 0;
+    a.nextDisplayCol = 0;
+    a.nextRenderT = 1000;
+
+    ula.borderColor = 2;
+    s.cpu.tStates = 1000 + 5; // beam at pixel 10
+    s.flushBeam();            // port handler flushes before the colour change
+    ula.borderColor = 5;
+    s.cpu.tStates = 1000 + tpl;
+    s.flushBeam();
+
+    const px = (ula as any).pixels32 as Uint32Array;
+    const red = ula.palette[2], cyan = ula.palette[5];
+    expect(px[7]).toBe(red);
+    expect(px[8]).toBe(cyan);
+    expect(px[9]).toBe(cyan);
+    expect(px[10]).toBe(cyan);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Mid-frame resume (SZX dwCyclesStart / .z80 T-state counter)
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('Spectrum.resumeAtFrameOffset', () => {
+  it('resuming 1000T into the frame does not take an INT until the frame boundary', () => {
+    // A snapshot taken 1000T after the INT must see its next INT
+    // tpf - 1000 T-states later, not immediately on load.
+    const s = makeMachine('48k');
+    loadProgram(s, 0x18, 0xFE);   // JR -2
+    s.cpu.im = 1;
+    s.cpu.iff1 = s.cpu.iff2 = true;
+    s.cpu.tStates = 1000;         // as loaded from dwCyclesStart
+    s.resumeAtFrameOffset(1000);
+    s.tick();
+    expect(s.cpu.sp).toBe(0xFF00);             // no INT pushed a return address
+    expect(s.contention.frameStartTStates).toBe(0);
+    // The frame ended at the original boundary: 69888 - 1000 T-states run.
+    expect(s.cpu.tStates).toBeGreaterThanOrEqual(69888);
+    expect(s.cpu.tStates).toBeLessThan(69888 + 12);
+    s.tick();                                  // next frame: INT fires
+    expect(s.cpu.sp).toBe(0xFEFE);
+  });
+
+  it('a resume offset still inside the INT window takes the INT at once', () => {
+    const s = makeMachine('48k');
+    loadProgram(s, 0x18, 0xFE);
+    s.cpu.im = 1;
+    s.cpu.iff1 = s.cpu.iff2 = true;
+    s.cpu.tStates = 10;           // 48K INT is held for 32T
+    s.resumeAtFrameOffset(10);
+    s.tick();
+    expect(s.cpu.sp).not.toBe(0xFF00);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Beam flush before shadow-screen changes
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('Spectrum — beam flush before displayed-screen changes (128K)', () => {
+  function spy(s: Spectrum): { n: number } {
+    const c = { n: 0 };
+    (s as any).flushBeam = () => { c.n++; };
+    return c;
+  }
+
+  it('flushes before a 7FFD write that flips the displayed screen (bit 3)', () => {
+    const s = makeMachine('128k');
+    const c = spy(s);
+    s.cpu.portOut(0x7FFD, 0x08);
+    expect(c.n).toBe(1);
+  });
+
+  it('does not flush for a 7FFD write that leaves bit 3 unchanged', () => {
+    const s = makeMachine('128k');
+    const c = spy(s);
+    s.cpu.portOut(0x7FFD, 0x03);
+    expect(c.n).toBe(0);
+  });
+
+  it('flushes before a write to 0xC000 while bank 7 is paged there and displayed', () => {
+    const s = makeMachine('128k');
+    s.cpu.portOut(0x7FFD, 0x0F); // bank 7 at 0xC000, shadow screen shown
+    const c = spy(s);
+    s.cpu.write8(0xC000, 0xAA);
+    expect(c.n).toBe(1);
+  });
+
+  it('does not flush for a 0xC000 write when bank 7 is paged but not displayed', () => {
+    const s = makeMachine('128k');
+    s.cpu.portOut(0x7FFD, 0x07);
+    const c = spy(s);
+    s.cpu.write8(0xC000, 0xAA);
+    expect(c.n).toBe(0);
+  });
+
+  it('flushes for a 0xC000 write when bank 5 is paged there (aliased normal screen)', () => {
+    const s = makeMachine('128k');
+    s.cpu.portOut(0x7FFD, 0x05);
+    const c = spy(s);
+    s.cpu.write8(0xC000, 0xAA);
+    expect(c.n).toBe(1);
+  });
+
+  it('no flush for a 0x4000 write while the shadow screen (bank 7) is displayed', () => {
+    const s = makeMachine('128k');
+    s.cpu.portOut(0x7FFD, 0x08);
+    const c = spy(s);
+    s.cpu.write8(0x4000, 0xAA);
+    expect(c.n).toBe(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Tape advance rebasing on (re)start
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('Spectrum — tape restart does not hand the deck stale T-states', () => {
+  // Minimal standard-ROM header block: flag 0x00 + 17 bytes + checksum.
+  function tap(): Uint8Array {
+    const body = new Uint8Array(19);
+    const out = new Uint8Array(2 + body.length);
+    out[0] = body.length; out[1] = 0;
+    out.set(body, 2);
+    return out;
+  }
+
+  it('loader-detector auto-start measures the next advance from the IN, not frame top', () => {
+    const s = makeMachine('48k');
+    s.loadTAP(tap());
+    s.tape.paused = true;
+    (s as any).tapeLastAdvanceT = 0;   // stamped at the top of the frame
+    s.cpu.tStates = 40000;             // loader starts polling mid-frame
+    (s.loaderDetector as any).onULARead = () => 'start';
+    s.cpu.portIn(0xFFFE);
+    // Without the rebase the deck would receive all 40000T at once.
+    expect((s as any).tapeLastAdvanceT).toBe(s.cpu.tStates);
+  });
+
+  it('tape service resume() rebases the advance point', async () => {
+    const { createSpectrumServices } = await import('@/machines/spectrum/services/index.ts');
+    const s = makeMachine('48k');
+    s.loadTAP(tap());
+    s.tape.paused = true;
+    (s as any).tapeLastAdvanceT = 0;
+    s.cpu.tStates = 50000;
+    createSpectrumServices(s).tape.resume();
+    expect((s as any).tapeLastAdvanceT).toBe(50000);
+  });
+});
+
+describe('Spectrum — tape pulse scaling to the CPU clock', () => {
+  // TZX timings are T-states of a 3.5MHz reference clock.
+  it('48K (3.5MHz) plays pulses unscaled', () => {
+    expect(makeMachine('48k').tape.pulseScale).toBe(1);
+  });
+
+  it('128K (3.5469MHz) scales pulses by 3546900 / 3500000', () => {
+    expect(makeMachine('128k').tape.pulseScale).toBeCloseTo(3_546_900 / 3_500_000, 9);
+  });
+
+  it('+3 (3.5469MHz) scales pulses too', () => {
+    expect(makeMachine('+3').tape.pulseScale).toBeCloseTo(1.0134, 4);
+  });
+});

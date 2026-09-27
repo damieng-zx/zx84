@@ -56,6 +56,40 @@ describe('roller RAM decoding', () => {
   });
 });
 
+describe('roller RAM start offset (port &F6)', () => {
+  // MAME pcw_v.cpp: roller_ram_offs = offset << 1, then += 2 and &= 511 per
+  // line — &F6 picks the table entry line 0 reads, wrapping in 512 bytes.
+  it('starts the walk at entry &F6 and wraps within the 512-byte table', () => {
+    const { mem, asic } = build();
+    asic.rollerBase = 0x5B;                 // table at &B600 (bank 2, &3600)
+    const bank = mem.getRamBank(2);
+    const put = (entry: number, value: number): void => {
+      bank[0x3600 + entry * 2] = value & 0xFF;
+      bank[0x3600 + entry * 2 + 1] = value >> 8;
+    };
+    put(5, 0x2000);                          // → &4000
+    put(255, 0x2C98);                        // → &5930
+    put(0, 0x2008);                          // → &4010
+    asic.rollerOffset = 5;
+    expect(asic.lineAddress(0)).toBe(0x4000);        // entry 5
+    asic.rollerOffset = 250;
+    expect(asic.lineAddress(5)).toBe(0x5930);        // entry 255
+    expect(asic.lineAddress(6)).toBe(0x4010);        // wraps to entry 0, not &B800
+  });
+
+  it('does not move the picture on the monitor', () => {
+    const { mem, asic } = build();
+    asic.rollerBase = 0x5B;
+    const bank = mem.getRamBank(2);
+    for (let e = 0; e < 256; e++) { bank[0x3600 + e * 2] = 0; bank[0x3600 + e * 2 + 1] = 0x20; }
+    mem.getRamBank(1)[0] = 0xFF;             // &4000: 8 ink pixels
+    asic.rollerOffset = 3;
+    const buf = new Uint32Array(PCW_SCREEN_WIDTH * PCW_SCREEN_HEIGHT);
+    asic.renderScanline(buf, 0);
+    expect(buf[PCW_BORDER_TOP * PCW_SCREEN_WIDTH + PCW_BORDER_LEFT]).toBe(asic.ink >>> 0);
+  });
+});
+
 describe('interrupt cadence', () => {
   it('fires six times a field, two lines into flyback and every 52 after', () => {
     const lines: number[] = [];
@@ -86,11 +120,11 @@ describe('interrupt cadence', () => {
     expect(asic.status & 0x0F).toBe(0);
   });
 
-  it('drops /INT when the CPU takes the interrupt, leaving the count alone', () => {
+  it('drops /INT when the timer pulse ends, leaving the count alone', () => {
     const { asic } = build();
     asic.beginLine(258);
     expect(asic.intPending).toBe(true);
-    asic.acknowledgeTimer();
+    asic.endTimerPulse();
     expect(asic.intPending).toBe(false);
     expect(asic.status & 0x0F).toBe(1);
   });

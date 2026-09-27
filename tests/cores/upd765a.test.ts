@@ -857,10 +857,12 @@ describe('uPD765A — command flag bits (MT/SK modelled; MF unmodelled)', () => 
     expect(data.length).toBe(1024);
     expect(data[0]).toBe(0x10);
     expect(data[512]).toBe(0x80);
-    // Result reflects the last sector read — head advanced to 1, EN asserted.
-    expect(result[4]).toBe(1);          // H result byte advanced to side 1
+    // Finished on head 1, EN asserted.
     expect(result[0] & 0x04).toBe(0x04); // ST0 head bit (HD) = 1
     expect(result[1] & 0x80).toBe(0x80); // ST1.EN — End of Cylinder at side-1 EOT
+    // Datasheet result table, MT=1 HD=1, final sector = EOT: C+1, H
+    // complemented (1 → 0), R=01.
+    expect(result.slice(3, 6)).toEqual([1, 0, 1]);
   });
 
   it('MT restarts the sector count at sector 1 on the new side, not the command\'s starting R', () => {
@@ -886,9 +888,10 @@ describe('uPD765A — command flag bits (MT/SK modelled; MF unmodelled)', () => 
     expect(data[0]).toBe(0x10);
     expect([data[512], data[1024], data[1536], data[2048], data[2560]])
       .toEqual([0x81, 0x82, 0x83, 0x84, 0x85]);
-    expect(result[4]).toBe(1);          // last read was side 1
-    expect(result[5]).toBe(5);          // R result byte — finished at sector 5
+    expect(result[0] & 0x04).toBe(0x04); // last read was side 1 (HD=1)
     expect(result[1] & 0x80).toBe(0x80); // ST1.EN at side-1 EOT
+    // MT=1 HD=1 at EOT: C+1, H complemented, R=01 (datasheet result table).
+    expect(result.slice(3, 6)).toEqual([1, 0, 1]);
   });
 
   it('MT on a single-sided disk terminates at EOT (no side-1 track)', () => {
@@ -1283,5 +1286,352 @@ describe('uPD765A — hostile N codes do not throw', () => {
     d.fdc.insertDisk(im, 0);
     const run = () => { [0x06, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b)); };
     expect(run).not.toThrow();
+  });
+});
+
+describe('uPD765A — FORMAT_TRACK beyond the end of the image', () => {
+  it('a track formatted past numTracks can be read back and survives serializeDSK', async () => {
+    const { serializeDSK, parseDSK } = await import('@/media/floppy/dsk.ts');
+    const d = new Driver();
+    const img = makeStdImage();            // 2 cylinders (0, 1), single-sided
+    d.fdc.insertDisk(img, 0);
+    d.command(0x0F, 0x00, 2);              // seek to cylinder 2 — past the image end
+    d.command(0x08);
+    [0x0D, 0x00, 2, 1, 0x2A, 0x66].forEach(b => d.fdc.writeData(b));
+    d.drainWriteExecution([2, 0, 0xC1, 2]);
+
+    expect(img.numTracks).toBe(3);         // geometry grew to include cylinder 2
+    [0x06, 0x00, 2, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    const { data, result } = d.drainReadExecution();
+    expect(result[1] & 0x04).toBe(0);      // no ND: the sector is found
+    expect(data.length).toBe(512);
+    expect(data.every(b => b === 0x66)).toBe(true);
+
+    const reparsed = parseDSK(serializeDSK(img));
+    expect(reparsed.numTracks).toBe(3);
+    expect(reparsed.tracks[2][0]!.sectors[0]).toMatchObject({ c: 2, h: 0, r: 0xC1, n: 2 });
+  });
+});
+
+describe('uPD765A — FORMAT_TRACK head 1 on a single-sided image', () => {
+  it('grows the image to two sides and leaves side 0 intact', async () => {
+    const { serializeDSK, parseDSK } = await import('@/media/floppy/dsk.ts');
+    const d = new Driver();
+    const img = makeStdImage();            // single-sided; side 0 sector 0xC1 filled 0x10
+    d.fdc.insertDisk(img, 0);
+    // FORMAT_TRACK unit 0, HDS=1 (0x04): one sector C=0 H=1 R=1 N=2, fill 0x99
+    [0x0D, 0x04, 2, 1, 0x2A, 0x99].forEach(b => d.fdc.writeData(b));
+    d.drainWriteExecution([0, 1, 1, 2]);
+
+    expect(img.numSides).toBe(2);
+    // Side 0 is untouched: still nine sectors, 0xC1 still holds its fill
+    expect(img.tracks[0][0]!.sectors.length).toBe(9);
+    expect(img.tracks[0][0]!.sectors[0].data[0]).toBe(0x10);
+    // The new side-1 track holds exactly what was formatted
+    expect(img.tracks[0][1]!.sectors[0]).toMatchObject({ c: 0, h: 1, r: 1, n: 2 });
+    // Every other cylinder row has a (null) side-1 slot too
+    expect(img.tracks[1].length).toBe(2);
+
+    const re = parseDSK(serializeDSK(img));
+    expect(re.numSides).toBe(2);
+    expect(re.tracks[0][0]!.sectors.length).toBe(9);
+    expect(re.tracks[0][1]!.sectors[0].data[0]).toBe(0x99);
+  });
+});
+
+describe('uPD765A — ready drive, unformatted track: Missing Address Mark, not Not Ready', () => {
+  // A disk is in the drive, so it is ready; the controller simply finds no ID
+  // address mark within two index pulses → IC=01, ST1 MA (bit 0), NR clear.
+  function readyWithBlankCyl1(): Driver {
+    const d = new Driver();
+    const img = makeImage({ numTracks: 2, numSides: 1 });
+    img.tracks[0][0] = makePlus3Track(0, 0);   // cylinder 1 left unformatted (null)
+    d.fdc.insertDisk(img, 0);
+    d.command(0x0F, 0x00, 1);                  // seek to the blank cylinder
+    d.command(0x08);
+    return d;
+  }
+
+  it('READ_DATA on a null track reports MA', () => {
+    const r = readyWithBlankCyl1().command(0x06, 0x00, 1, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF);
+    expect(r[0]).toBe(0x40);   // IC=01, NR clear, head 0 unit 0
+    expect(r[1]).toBe(0x01);   // ST1 MA
+  });
+
+  it('READ_DATA beyond the last cylinder of the image reports MA', () => {
+    const d = readyWithBlankCyl1();
+    d.command(0x0F, 0x00, 30);
+    d.command(0x08);
+    const r = d.command(0x06, 0x00, 30, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF);
+    expect(r[0]).toBe(0x40);
+    expect(r[1]).toBe(0x01);
+  });
+
+  it('READ_DATA on a track with no sectors reports MA (not ND)', () => {
+    const d = new Driver();
+    const img = makeImage();
+    img.tracks[0][0] = makeTrack([]);
+    d.fdc.insertDisk(img, 0);
+    const r = d.command(0x06, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF);
+    expect(r[0]).toBe(0x40);
+    expect(r[1]).toBe(0x01);
+  });
+
+  it('WRITE_DATA on a null track reports MA', () => {
+    const r = readyWithBlankCyl1().command(0x05, 0x00, 1, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF);
+    expect(r[0]).toBe(0x40);
+    expect(r[1]).toBe(0x01);
+  });
+
+  it('READ_ID on a null track reports MA', () => {
+    const r = readyWithBlankCyl1().command(0x4A, 0x00);
+    expect(r[0]).toBe(0x40);
+    expect(r[1]).toBe(0x01);
+  });
+
+  it('READ_TRACK on a null track reports MA', () => {
+    const r = readyWithBlankCyl1().command(0x42, 0x00, 1, 0, 1, 2, 9, 0x2A, 0xFF);
+    expect(r[0]).toBe(0x40);
+    expect(r[1]).toBe(0x01);
+  });
+
+  it('head 1 of a single-sided image reports MA on a ready drive', () => {
+    const d = new Driver();
+    d.fdc.insertDisk(makeStdImage(), 0);
+    const r = d.command(0x06, 0x04, 0, 1, 0xC1, 2, 0xC1, 0x2A, 0xFF);
+    expect(r[0]).toBe(0x44);   // IC=01, HD=1
+    expect(r[1]).toBe(0x01);
+  });
+
+  it('an empty drive still reports Not Ready with ST1 clear', () => {
+    const r = new Driver().command(0x06, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF);
+    expect(r[0]).toBe(0x48);
+    expect(r[1]).toBe(0x00);
+  });
+});
+
+describe('uPD765A — sector search compares C and H as well as R', () => {
+  function driverWith(sectors: DskSector[]): Driver {
+    const d = new Driver();
+    const im = makeImage();
+    im.tracks[0][0] = makeTrack(sectors);
+    d.fdc.insertDisk(im, 0);
+    return d;
+  }
+
+  it('a matching R with the wrong cylinder is No Data with ST2 WC', () => {
+    const d = driverWith([makeSector(5, 0, 0xC1, 2, 0xAA)]);
+    const r = d.command(0x06, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF);
+    expect(r[0]).toBe(0x40);          // IC=01
+    expect(r[1]).toBe(0x04);          // ST1 ND
+    expect(r[2]).toBe(0x10);          // ST2 WC
+  });
+
+  it('an ID cylinder of 0xFF sets BC rather than WC', () => {
+    const d = driverWith([makeSector(0xFF, 0, 0xC1, 2, 0xAA)]);
+    const r = d.command(0x06, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF);
+    expect(r[1]).toBe(0x04);
+    expect(r[2]).toBe(0x02);          // ST2 BC
+  });
+
+  it('a matching R with the wrong head number is No Data', () => {
+    const d = driverWith([makeSector(0, 1, 0xC1, 2, 0xAA)]);
+    const r = d.command(0x06, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF);
+    expect(r[0]).toBe(0x40);
+    expect(r[1]).toBe(0x04);
+    expect(r[2]).toBe(0x00);          // cylinder matched — no WC
+  });
+
+  it('duplicate R: the sector whose full ID matches is read, not the first R', () => {
+    const d = driverWith([
+      makeSector(9, 0, 0xC1, 2, 0x11),   // same R, other cylinder — first physically
+      makeSector(0, 0, 0xC1, 2, 0x22),   // the one the command asks for
+    ]);
+    [0x06, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    const { data } = d.drainReadExecution();
+    expect(data.length).toBe(512);
+    expect(data[0]).toBe(0x22);
+  });
+
+  it('duplicate R: a write lands in the sector whose full ID matches', () => {
+    const a = makeSector(9, 0, 0xC1, 2, 0x11);
+    const b = makeSector(0, 0, 0xC1, 2, 0x22);
+    const d = driverWith([a, b]);
+    [0x05, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(x => d.fdc.writeData(x));
+    d.drainWriteExecution(new Uint8Array(512).fill(0x77));
+    expect(a.data[0]).toBe(0x11);     // untouched
+    expect(b.data[0]).toBe(0x77);
+  });
+
+  it('a multi-sector read stops with ND at an R+1 whose cylinder differs', () => {
+    const d = driverWith([
+      makeSector(0, 0, 0xC1, 2, 0x11),
+      makeSector(3, 0, 0xC2, 2, 0x22),   // R matches the next step, C does not
+    ]);
+    [0x06, 0x00, 0, 0, 0xC1, 2, 0xC2, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    const { data, result } = d.drainReadExecution();
+    expect(data.length).toBe(512);    // only 0xC1
+    expect(result[0] & 0x40).toBe(0x40);
+    expect(result[1] & 0x04).toBe(0x04);
+    expect(result[2] & 0x10).toBe(0x10);
+  });
+});
+
+describe('uPD765A — writes lay down a new data mark and a good CRC', () => {
+  function driverWith(sector: DskSector): Driver {
+    const d = new Driver();
+    const im = makeImage();
+    im.tracks[0][0] = makeTrack([sector]);
+    d.fdc.insertDisk(im, 0);
+    return d;
+  }
+  const payload = new Uint8Array(512).fill(0x3C);
+
+  it('WRITE_DATA over a deleted-data sector leaves a normal mark', () => {
+    const s = makeSector(0, 0, 0xC1, 2, 0x00, 0, 0x40);
+    const d = driverWith(s);
+    [0x05, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    d.drainWriteExecution(payload);
+    expect(s.st2 & 0x40).toBe(0);
+    [0x06, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    const { result } = d.drainReadExecution();
+    expect(result[2]).toBe(0x00);     // READ_DATA over it: mark matches, no CM
+  });
+
+  it('WRITE_DELETED over a normal sector leaves a deleted-data mark', () => {
+    const s = makeSector(0, 0, 0xC1, 2, 0x00);
+    const d = driverWith(s);
+    [0x09, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    d.drainWriteExecution(payload);
+    expect(s.st2 & 0x40).toBe(0x40);
+    [0x0C, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    const { result } = d.drainReadExecution();
+    expect(result[2]).toBe(0x00);     // READ_DELETED over it: mark matches, no CM
+  });
+
+  it('rewriting a data-CRC-error sector clears DE and DD', () => {
+    const s = makeSector(0, 0, 0xC1, 2, 0x00, 0x20, 0x20);
+    const d = driverWith(s);
+    [0x05, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    d.drainWriteExecution(payload);
+    expect(s.st1).toBe(0);
+    expect(s.st2).toBe(0);
+    [0x06, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    const { data, result } = d.drainReadExecution();
+    expect(data.every(b => b === 0x3C)).toBe(true);  // not randomised as weak any more
+    expect(result[2]).toBe(0x00);
+  });
+
+  it('an ID-field CRC error (DE without DD) is left alone by a data write', () => {
+    const s = makeSector(0, 0, 0xC1, 2, 0x00, 0x20, 0x00);
+    const d = driverWith(s);
+    [0x05, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    d.drainWriteExecution(payload);
+    expect(s.st1 & 0x20).toBe(0x20);
+  });
+
+  it('a WRITE_DATA result never reports CM for the mark it overwrote', () => {
+    const d = driverWith(makeSector(0, 0, 0xC1, 2, 0x00, 0, 0x40));
+    [0x05, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    const r = d.drainWriteExecution(payload);
+    expect(r[2] & 0x40).toBe(0);
+  });
+});
+
+describe('uPD765A — N=0 transfers DTL bytes', () => {
+  function driverWithN0(): { d: Driver; s: DskSector } {
+    const d = new Driver();
+    const data = new Uint8Array(128);
+    for (let i = 0; i < 128; i++) data[i] = i + 1;
+    const s: DskSector = { c: 0, h: 0, r: 1, n: 0, st1: 0, st2: 0, data };
+    const im = makeImage();
+    im.tracks[0][0] = makeTrack([s]);
+    d.fdc.insertDisk(im, 0);
+    return { d, s };
+  }
+
+  it('READ_DATA with N=0, DTL=16 transfers only the first 16 bytes', () => {
+    const { d } = driverWithN0();
+    [0x06, 0x00, 0, 0, 1, 0, 1, 0x2A, 16].forEach(b => d.fdc.writeData(b));
+    const { data } = d.drainReadExecution();
+    expect(data).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+  });
+
+  it('WRITE_DATA with N=0, DTL=4 takes 4 bytes and zero-fills the rest of the sector', () => {
+    const { d, s } = driverWithN0();
+    [0x05, 0x00, 0, 0, 1, 0, 1, 0x2A, 4].forEach(b => d.fdc.writeData(b));
+    const r = d.drainWriteExecution([0xA1, 0xA2, 0xA3, 0xA4]);
+    expect(r.length).toBe(7);          // the command completed after 4 bytes
+    expect(s.data.length).toBe(128);
+    expect(Array.from(s.data.subarray(0, 5))).toEqual([0xA1, 0xA2, 0xA3, 0xA4, 0x00]);
+    expect(s.data.subarray(4).every(b => b === 0)).toBe(true);
+  });
+
+  it('N=0 with DTL above 128 transfers the whole 128-byte sector', () => {
+    const { d } = driverWithN0();
+    [0x06, 0x00, 0, 0, 1, 0, 1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    expect(d.drainReadExecution().data.length).toBe(128);
+  });
+});
+
+describe('uPD765A — MT End-of-Cylinder result under TC', () => {
+  it('a TC after the last side-1 byte reports the sector read, H not complemented', () => {
+    const d = new Driver();
+    const img = makeImage({ numTracks: 1, numSides: 2 });
+    img.tracks[0][0] = makeTrack([makeSector(0, 0, 1, 2, 0x10)]);
+    img.tracks[0][1] = makeTrack([makeSector(0, 1, 1, 2, 0x80)]);
+    d.fdc.insertDisk(img, 0);
+    [0x86, 0x00, 0, 0, 1, 2, 1, 0x2A, 0xFF].forEach(b => d.fdc.writeData(b));
+    for (let i = 0; i < 1024; i++) d.fdc.readData();
+    d.fdc.setTerminalCount(true);
+    const result = d.drainResult();
+    expect(result[0] & 0xC0).toBe(0x00);           // normal termination
+    expect(result.slice(3, 6)).toEqual([0, 1, 1]);  // C=0 H=1 R=1: no rollover
+  });
+});
+
+describe('uPD765A — seek-end interrupts are held per drive', () => {
+  it('two seeks give two Sense Interrupt Status results, one per drive', () => {
+    const d = new Driver();
+    d.command(0x0F, 0x00, 5);   // SEEK unit 0 → 5
+    d.command(0x0F, 0x01, 9);   // SEEK unit 1 → 9
+    const a = d.command(0x08);
+    const b = d.command(0x08);
+    const got = [a, b].sort((x, y) => (x[0] & 3) - (y[0] & 3));
+    expect(got).toEqual([[ST0_SEEK_END | 0, 5], [ST0_SEEK_END | 1, 9]]);
+    expect(d.command(0x08)).toEqual([ST0_INVALID]);   // nothing left
+  });
+
+  it('INT stays high until the last drive\'s seek result is collected', () => {
+    const d = new Driver();
+    d.command(0x07, 0x00);      // RECALIBRATE unit 0
+    d.command(0x0F, 0x01, 3);   // SEEK unit 1
+    d.command(0x08);
+    expect(d.fdc.interruptLine).toBe(true);
+    d.command(0x08);
+    expect(d.fdc.interruptLine).toBe(false);
+  });
+
+  it('a second seek on the same drive replaces that drive\'s pending result', () => {
+    const d = new Driver();
+    d.command(0x0F, 0x00, 5);
+    d.command(0x0F, 0x00, 7);
+    expect(d.command(0x08)).toEqual([ST0_SEEK_END, 7]);
+    expect(d.command(0x08)).toEqual([ST0_INVALID]);
+  });
+});
+
+describe('uPD765A — FORMAT_TRACK sizes data fields by the command N', () => {
+  it('an ID tuple claiming N=6 under a command N=1 gets a 256-byte data field', () => {
+    const d = new Driver();
+    const img = makeStdImage();
+    d.fdc.insertDisk(img, 0);
+    // FORMAT_TRACK N=1 (256 bytes) SC=2; the tuples claim N=6 and N=1
+    [0x0D, 0x00, 1, 2, 0x2A, 0xE5].forEach(b => d.fdc.writeData(b));
+    d.drainWriteExecution([0, 0, 1, 6, 0, 0, 2, 1]);
+    const tr = img.tracks[0][0]!;
+    expect(tr.sectors[0].n).toBe(6);             // ID field records what the CPU sent
+    expect(tr.sectors[0].data.length).toBe(256);  // data field is the command's size
+    expect(tr.sectors[1].data.length).toBe(256);
   });
 });

@@ -238,15 +238,19 @@ export class PcwKeyboard {
   }
 
   /**
-   * Copy the matrix into physical block 3, which is what the gate array's DMA
-   * does. Called once per scan by the machine, so software reading &3FF0 sees
-   * a fresh matrix whether or not interrupts are enabled.
+   * One keyboard-to-PCW transmission. &3FFF b6 flips with every one — that
+   * alternation is how software sees a live keyboard. The matrix itself is
+   * read live: the memory overlays it on block 3's &3FF0-&3FFF.
    */
-  writeInto(block3: Uint8Array, offset: number): void {
-    // Each copy is one transmission from keyboard to PCW, and &3FFF b6 flips
-    // with every one — that alternation is how software sees a live keyboard.
+  scan(): void {
     this.updateToggle = !this.updateToggle;
     this.refreshStatus();
+  }
+
+  /** Scan, then copy the matrix into a block buffer at `offset` (a snapshot
+   *  of what CPU reads of &3FF0-&3FFF see). */
+  writeInto(block3: Uint8Array, offset: number): void {
+    this.scan();
     block3.set(this.matrix, offset);
   }
 }

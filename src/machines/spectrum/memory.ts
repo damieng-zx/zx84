@@ -56,6 +56,13 @@ export class SpectrumMemory implements IMachineMemory {
    *  external overlay (not flushed back on switch). */
   private _slotBank = new Int8Array(4).fill(-1);
 
+  /** Per-slot flag: 1 when the slot maps the RAM bank currently being
+   *  displayed (bank 5, or bank 7 when 7FFD bit 3 is set). The write8 hot
+   *  path uses it to flush the beam before any write to screen memory,
+   *  whichever window (0x4000, or 0xC000 with bank 5/7 paged) it goes
+   *  through. Stable reference; kept in sync with slots and port7FFD. */
+  readonly slotIsScreen = new Uint8Array(4);
+
   /** Per-slot alias index for write-through. When two slots map the same RAM
    *  bank (e.g. currentBank=5 puts bank 5 into both slot 1 and slot 3),
    *  writes through one slot must reflect in the other — real hardware sees
@@ -248,6 +255,7 @@ export class SpectrumMemory implements IMachineMemory {
    *  slot 3 with whichever of slots 1 or 2 matches currentBank), so a
    *  simple pairwise scan is exact. */
   private _refreshAliases(): void {
+    this._refreshScreenSlots();
     this.slotAlias.fill(-1);
     for (let i = 0; i < 4; i++) {
       const bank = this._slotBank[i];
@@ -260,6 +268,12 @@ export class SpectrumMemory implements IMachineMemory {
         }
       }
     }
+  }
+
+  /** Recompute slotIsScreen from _slotBank and the 7FFD screen bit. */
+  private _refreshScreenSlots(): void {
+    const screen = (this.port7FFD & 0x08) ? 7 : 5;
+    for (let i = 0; i < 4; i++) this.slotIsScreen[i] = this._slotBank[i] === screen ? 1 : 0;
   }
 
   /** Swap the bank mapped in `slot` to a new RAM bank, flushing old to cold
@@ -316,6 +330,7 @@ export class SpectrumMemory implements IMachineMemory {
         this._switchRam(3, this.currentBank);
       }
     }
+    this._refreshScreenSlots();
     if (this.onSlotsChanged !== null) this.onSlotsChanged();
   }
 
@@ -389,6 +404,7 @@ export class SpectrumMemory implements IMachineMemory {
       this.currentBank = newBank;
       this.currentROM = newROM;
       if (val & 0x20) this.pagingLocked = true;
+      this._refreshScreenSlots();
       return;
     }
     this._switchRam(3, newBank);
@@ -404,6 +420,7 @@ export class SpectrumMemory implements IMachineMemory {
     this.currentBank = newBank;
     this.currentROM = newROM;
     if (val & 0x20) this.pagingLocked = true;
+    this._refreshScreenSlots();
     if (this.onSlotsChanged !== null) this.onSlotsChanged();
   }
 
@@ -478,6 +495,25 @@ export class SpectrumMemory implements IMachineMemory {
     this.port7FFD = (this.port7FFD & ~0x30) | 0x10 | 0x20;
     if (this.romPages.length === 4) this.port1FFD |= 0x04;
     this.pagingLocked = true;
+    this.applyBanking();
+  }
+
+  /**
+   * Map a 128K/+2 snapshot's ROM select onto a 4-ROM (+2A/+3) machine.
+   *
+   * The 128K/+2 has no 0x1FFD: 7FFD bit 4 alone picks the editor ROM (0) or
+   * the 48K BASIC ROM (1). On the +2A/+3 the ROM page is 1FFD bit 2 (high) :
+   * 7FFD bit 4 (low), so with 1FFD = 0 bit 4 would page ROM 1 (the +3 syntax
+   * ROM) where the snapshot expects 48K BASIC. Mirror 7FFD bit 4 into 1FFD
+   * bit 2 so bit 4 = 1 pages ROM 3 (48K BASIC) and bit 4 = 0 pages ROM 0 (the
+   * editor). Call after port7FFD is set. No-op on 2-ROM machines.
+   */
+  selectSnapshot128KRom(): void {
+    if (this.romPages.length !== 4) return;
+    const bit4 = (this.port7FFD >> 4) & 1;
+    this.port1FFD = bit4 << 2;
+    this.specialPaging = false;
+    this.currentROM = bit4 ? 3 : 0;
     this.applyBanking();
   }
 

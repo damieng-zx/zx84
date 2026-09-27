@@ -92,6 +92,8 @@ export function loadSNA(
     memory.currentROM = (port7FFD >> 4) & 1;
     memory.pagingLocked = (port7FFD & 0x20) !== 0;
     memory.applyBanking();
+    // .sna is a 128K/+2 format (no 1FFD): on a +2A/+3 map its ROM select.
+    memory.selectSnapshot128KRom();
 
     // PC from extended header
     cpu.pc = data[49179] | (data[49180] << 8);

@@ -8,7 +8,8 @@
  *                    + 768 attributes at +6144, one per 8x8 cell
  *   Mode 2  256x192  6144 bitmap, LINEAR (y*32 + col)
  *                    + 6144 attributes at +0x2000, one per cell PER SCANLINE
- *   Mode 3  512x192  2 bits/pixel, 128 bytes/line, MSB pair leftmost, CLUT 0-3
+ *   Mode 3  512x192  2 bits/pixel, 128 bytes/line, MSB pair leftmost; pixel
+ *                    values 0,1,2,3 select CLUT 0,2,1,3 (+ MD3COL << 2)
  *   Mode 4  256x192  4 bits/pixel, 128 bytes/line, high nibble leftmost
  *
  * The frame buffer is 768 px wide and sampled at mode 3's resolution, so one
@@ -167,14 +168,26 @@ describe('SamAsic mode 2 (linear bitmap, per-scanline attributes)', () => {
 
 describe('SamAsic mode 3 (512x192, 2bpp)', () => {
   it('unpacks four pixels per byte, most-significant pair first', () => {
-    // 0xE4 = 11 10 01 00 -> CLUT 3, 2, 1, 0 across four adjacent pixels.
+    // Values 0 and 3 are unaffected by the 1<->2 swap, so this isolates the
+    // pixel order from the CLUT mapping.
+    const r = rig(3);
+    markClut(r.asic);
+    r.vram(0, 0x03);               // 00 00 00 11 -> only pixel 3 is value 3
+    const row = r.draw(0);
+    expect(r.at(row, 0)).toBe(colour(0));
+    expect(r.at(row, 2)).toBe(colour(0));
+    expect(r.at(row, 3)).toBe(colour(3));
+  });
+
+  it('swaps pixel values 1 and 2 on the way to the CLUT', () => {
+    // 0xE4 = 11 10 01 00 -> values 3, 2, 1, 0 -> CLUT 3, 1, 2, 0.
     const r = rig(3);
     markClut(r.asic);
     r.vram(0, 0xE4);
     const row = r.draw(0);
     expect(r.at(row, 0)).toBe(colour(3));
-    expect(r.at(row, 1)).toBe(colour(2));
-    expect(r.at(row, 2)).toBe(colour(1));
+    expect(r.at(row, 1)).toBe(colour(1));
+    expect(r.at(row, 2)).toBe(colour(2));
     expect(r.at(row, 3)).toBe(colour(0));
   });
 
@@ -193,6 +206,37 @@ describe('SamAsic mode 3 (512x192, 2bpp)', () => {
     r.vram(128, 0xC0);             // start of screen line 1
     expect(r.at(r.draw(1), 0)).toBe(colour(3));
     expect(r.at(r.draw(0), 0)).toBe(colour(0));
+  });
+
+  it('takes CLUT index bits 2-3 from HMPR MD3COL (bits 5-6)', () => {
+    // index = ((hmpr & 0x60) >> 3) | pixel. MD3COL = 2 (hmpr 0x40) moves the
+    // four pixel values onto CLUT 8-11; MD3COL = 3 onto 12-15.
+    const r = rig(3);
+    markClut(r.asic);
+    r.vram(0, 0xE4);               // values 3, 2, 1, 0 -> low bits 3, 1, 2, 0
+    r.memory.setHmpr(0x40);
+    let row = r.draw(0);
+    expect(r.at(row, 0)).toBe(colour(11));
+    expect(r.at(row, 1)).toBe(colour(9));
+    expect(r.at(row, 2)).toBe(colour(10));
+    expect(r.at(row, 3)).toBe(colour(8));
+
+    r.memory.setHmpr(0x60 | 0x1F); // page bits must not leak into the index
+    row = r.draw(0);
+    expect(r.at(row, 0)).toBe(colour(15));
+    expect(r.at(row, 3)).toBe(colour(12));
+  });
+
+  it('latches MD3COL at the start of the line', () => {
+    const r = rig(3);
+    markClut(r.asic);
+    r.vram(0, 0xC0);               // pixel 0 = 3
+    r.memory.setHmpr(0x20);        // MD3COL = 1 -> CLUT 7
+    const line = rasterOf(0);
+    r.asic.beginLine(line, 0);
+    r.memory.setHmpr(0x00);        // changed mid-line: next line only
+    r.asic.renderScanline(r.px, line);
+    expect(r.px[line * SAM_SCREEN_WIDTH + SAM_BORDER_LEFT]).toBe(colour(7));
   });
 
   it('spans the 24K page pair, reaching into the second page', () => {
@@ -288,6 +332,32 @@ describe('SamAsic border and blanking', () => {
     }
   });
 
+  it('takes the mode 3 border from port 0xFE, not HMPR MD3COL', () => {
+    // MD3COL (HMPR bits 5-6) only supplies CLUT index bits 2-3 for mode 3
+    // PIXELS; the border is the port 0xFE colour in every mode.
+    const r = rig(3);
+    markClut(r.asic);
+    r.memory.setHmpr(0x60);            // MD3COL = 3
+    r.asic.borderIndex = 9;
+    const row = r.draw(0);
+    expect(row[SAM_BORDER_LEFT - 1]).toBe(colour(9));
+    expect(row[SAM_BORDER_LEFT + 512]).toBe(colour(9));
+  });
+
+  it('applies a mid-line border write in mode 3', () => {
+    const r = rig(3);
+    markClut(r.asic);
+    r.memory.setHmpr(0x40);            // MD3COL = 2, must not matter
+    r.asic.borderIndex = 1;
+    const line = SAM_BORDER_TOP - 1;   // a pure border line
+    r.asic.beginLine(line, 0);
+    r.asic.writeBorder(11, false, (SAM_ASIC_CELL_OFFSET + 20) * SAM_T_PER_CELL);
+    r.asic.renderScanline(r.px, line);
+    const row = r.px.subarray(line * SAM_SCREEN_WIDTH, (line + 1) * SAM_SCREEN_WIDTH);
+    expect(row[19 * SAM_CELL_PX]).toBe(colour(1));
+    expect(row[20 * SAM_CELL_PX]).toBe(colour(11));
+  });
+
   it('blanks the display to the border when SOFF is set', () => {
     const r = rig(4);
     markClut(r.asic);
@@ -297,6 +367,46 @@ describe('SamAsic border and blanking', () => {
 
     r.asic.screenOff = true;
     expect(r.at(r.draw(0), 0)).toBe(colour(2));
+  });
+
+  it('ignores SOFF in modes 1 and 2 — the display keeps drawing', () => {
+    // SOFF only blanks the screen in modes 3 and 4.
+    for (const mode of [1, 2] as const) {
+      const r = rig(mode);
+      markClut(r.asic);
+      r.vram(0, 0x80);                                 // leftmost pixel set
+      r.vram(mode === 1 ? 6144 : 0x2000, 0x03);        // ink 3, paper 0
+      r.asic.borderIndex = 2;
+      r.asic.screenOff = true;
+      expect(r.at(r.draw(0), 0)).toBe(colour(3));
+    }
+  });
+
+  it('blanks in mode 3 as well as mode 4', () => {
+    const r = rig(3);
+    markClut(r.asic);
+    r.vram(0, 0xC0);
+    r.asic.borderIndex = 2;
+    r.asic.screenOff = true;
+    expect(r.at(r.draw(0), 0)).toBe(colour(2));
+  });
+
+  it('keeps HPEN tracking the beam with SOFF set in mode 1', () => {
+    const r = rig(1);
+    r.asic.screenOff = true;
+    r.asic.beginLine(SAM_BORDER_TOP + 10, 0);
+    expect(r.asic.hpen(1000)).toBe(10);
+    r.asic.beginLine(SAM_BORDER_TOP + 11, 0);
+    expect(r.asic.hpen(1000)).toBe(11);
+  });
+
+  it('holds HPEN with SOFF set in mode 4', () => {
+    const r = rig(4);
+    r.asic.beginLine(SAM_BORDER_TOP + 10, 0);
+    expect(r.asic.hpen(1000)).toBe(10);
+    r.asic.screenOff = true;
+    r.asic.beginLine(SAM_BORDER_TOP + 11, 0);
+    expect(r.asic.hpen(1000)).toBe(10);
   });
 
   it('never writes outside the frame buffer', () => {

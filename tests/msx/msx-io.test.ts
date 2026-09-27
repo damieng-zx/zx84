@@ -9,6 +9,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { MsxMemory } from '@/machines/msx/msx-memory.ts';
 import { MsxKeyboard } from '@/machines/msx/msx-keyboard.ts';
 import { MsxPpi } from '@/machines/msx/msx-io.ts';
+import { MsxMachine } from '@/machines/msx/msx-machine.ts';
 
 describe('MsxPpi', () => {
   let mem: MsxMemory;
@@ -58,6 +59,17 @@ describe('MsxPpi', () => {
     expect(ppi.readB()).toBe(0xFF);    // nothing on row 0
   });
 
+  it('a control-port mode-set clears the port A and C output latches', () => {
+    kbd.handleKeyEvent('Space', true); // SPACE = row 8, bit 0
+    ppi.writeA(0xAA);
+    ppi.writeC(0x88);                  // row 8, key-click bit set
+    ppi.writeControl(0x82);            // MSX mode: A out, B in, C out
+    expect(ppi.readA()).toBe(0x00);
+    expect(mem.getPrimarySlot()).toBe(0x00);
+    expect(ppi.readC()).toBe(0x00);
+    expect(ppi.readB()).toBe(0xFF);    // row 0 selected again: no SPACE
+  });
+
   it('reset returns slots and row select to 0', () => {
     ppi.writeA(0xFF);
     ppi.writeC(0x0A);
@@ -65,5 +77,40 @@ describe('MsxPpi', () => {
     expect(ppi.readA()).toBe(0x00);
     expect(ppi.readC()).toBe(0x00);
     expect(mem.getPrimarySlot()).toBe(0x00);
+  });
+});
+
+describe('MSX key click', () => {
+  it('exposes port C bit 7 as the key-click level (write and BSR)', () => {
+    const mem = new MsxMemory();
+    const ppi = new MsxPpi(mem, new MsxKeyboard());
+    ppi.writeC(0x7F);
+    expect(ppi.keyClick).toBe(0);
+    ppi.writeC(0x80);
+    expect(ppi.keyClick).toBe(1);
+    ppi.writeControl(0x0E);            // BSR: reset bit 7
+    expect(ppi.keyClick).toBe(0);
+    ppi.writeControl(0x0F);            // BSR: set bit 7
+    expect(ppi.keyClick).toBe(1);
+  });
+
+  it('feeds the key-click level into the 1-bit sound path', () => {
+    const m = new MsxMachine('hx-10');
+    try {
+      const rom = new Uint8Array(0x8000);
+      // DI ; LD A,80h ; OUT (0AAh),A ; JR $
+      rom.set([0xF3, 0x3E, 0x80, 0xD3, 0xAA, 0x18, 0xFE]);
+      m.loadROM(rom);
+      m.reset();
+      let high = 0;
+      const orig = m.mixer.accumulate.bind(m.mixer);
+      m.mixer.accumulate = (bit: number, elapsed: number) => {
+        if (bit) high += elapsed;
+        orig(bit, elapsed);
+      };
+      m.tick();
+      expect(high).toBeGreaterThan(0);
+      expect(m.mixer.beeperGain).toBeGreaterThan(0);
+    } finally { m.destroy(); }
   });
 });

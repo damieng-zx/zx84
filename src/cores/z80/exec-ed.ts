@@ -87,6 +87,10 @@ Z80.prototype.executeED = function (this: Z80): void {
         this.memptr = this.pc = this.pop16();  // RETI/RETN: MEMPTR = PC = target
         this.iff1 = this.iff2;  // Restore interrupt state
         this.tStates += 3;
+        // ED 4D (y = 1) is RETI; every other ED x5/xD is RETN (Zilog Z80 CPU
+        // User Manual / Sean Young "Undocumented Z80"). Zilog-family
+        // peripherals decode ED 4D on the data bus to unwind the daisy chain.
+        if (y === 1 && this.onReti !== null) this.onReti();
         break;
 
       case 6:
@@ -117,6 +121,7 @@ Z80.prototype.executeED = function (this: Z80): void {
             this.a = this.i;
             this.f = (this.f & 0x01) | SZ[this.a] | (this.iff2 ? 0x04 : 0);
             this._qReg = this.f;
+            this.ldAirPv = true;
             break;
           case 3:
             // LD A,R: 9T. Auto: 8T
@@ -124,6 +129,7 @@ Z80.prototype.executeED = function (this: Z80): void {
             this.a = this.r;
             this.f = (this.f & 0x01) | SZ[this.a] | (this.iff2 ? 0x04 : 0);
             this._qReg = this.f;
+            this.ldAirPv = true;
             break;
           case 4: {
             // RRD: 18T, read@T+8, write@T+15. Auto: 8T
@@ -198,10 +204,11 @@ Z80.prototype.executeED = function (this: Z80): void {
 
       case 1: {
         // CPI/CPD/CPIR/CPDR: read@T+8. Auto: 8T
-        const val = this.read8(this.hl);
+        const addr = this.hl;
+        const val = this.read8(addr);
         this.tStates += 3;  // read cycle
         // 5 internal processing cycles at HL (before inc/dec)
-        contendN(this, this.hl, 5);
+        contendN(this, addr, 5);
 
         const result = (this.a - val) & 0xFF;
         const h = ((this.a ^ val ^ result) & 0x10);
@@ -227,8 +234,9 @@ Z80.prototype.executeED = function (this: Z80): void {
         this._qReg = this.f;
 
         if ((y === 6 || y === 7) && this.bc !== 0 && result !== 0) {
-          // CPIR/CPDR: 5 more internal cycles at HL (already incremented)
-          contendN(this, this.hl, 5);
+          // CPIR/CPDR: 5 more internal cycles at the HL just read — the
+          // register step is not visible on the address bus until after them.
+          contendN(this, addr, 5);
           this.pc = (this.pc - 2) & 0xFFFF;
           // Repeating: Y,X from PCH (same rule as the LDIR/INIR/OTIR repeat paths)
           this.f = (this.f & ~0x28) | ((this.pc >> 8) & 0x28);
@@ -242,12 +250,13 @@ Z80.prototype.executeED = function (this: Z80): void {
         // INI/IND/INIR/INDR: I/O@T+9, write@T+13. Auto: 8T
         this.contend(this.ir); this.tStates += 1;  // internal at IR
         const bcBeforeDec = this.bc;
+        const addr = this.hl;
         // IORQ cycle T+9..T+12: tick 3T before portIn so the sample lands
         // late in the cycle (IN A,(n) convention).
         this.tStates += 3;
         const val = this.portIn(this.bc);
         this.tStates += 1;
-        this.write8(this.hl, val);
+        this.write8(addr, val);
         this.tStates += 3;   // write completion (T+13..15) — must precede the 5 internal cycles
         this.b = (this.b - 1) & 0xFF;
 
@@ -301,8 +310,9 @@ Z80.prototype.executeED = function (this: Z80): void {
           }
           this.f = f;
           this.memptr = (this.pc + 1) & 0xFFFF;  // During repeat: MEMPTR = PC + 1
-          // 5 internal cycles at HL (already incremented): T+16..20, INIR/INDR 21T total
-          contendN(this, this.hl, 5);
+          // 5 internal cycles at the HL just written (not the stepped value):
+          // T+16..20, INIR/INDR 21T total
+          contendN(this, addr, 5);
         } else {
           // INI/IND or INIR/INDR final (B==0): Y,X from B; standard PF
           let par = p;

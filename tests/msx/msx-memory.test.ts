@@ -119,9 +119,8 @@ describe('MsxMemory slot paging', () => {
     expect(mem.readByte(0x8000)).toBe(0x22);
   });
 
-  it('maps a 48KB cartridge across pages 1–3 (0x4000–0xFFFF), never page 0', () => {
-    // MSX cartridges decode from 0x4000 up — mapping page 0 would shadow the
-    // BIOS ROM and strand the cart's last 16KB above 0xBFFF.
+  it('maps a header-less 48KB image across pages 1–3 (0x4000–0xFFFF)', () => {
+    // With no "AB" header to place it, an image defaults to 0x4000 upward.
     const cart = new Uint8Array(0xC000);
     cart[0x0000] = 0xA1;   // → 0x4000
     cart[0x4000] = 0xB2;   // → 0x8000
@@ -134,6 +133,51 @@ describe('MsxMemory slot paging', () => {
     // Slot 1 covers no page 0 view: selecting it there reads open bus.
     mem.setPrimarySlots(0x01);   // page 0 → slot 1
     expect(mem.readByte(0x0000)).toBe(0xFF);
+  });
+
+  it('lays a 48KB image with its AB header at offset 0x4000 at 0x0000–0xBFFF', () => {
+    const cart = new Uint8Array(0xC000);
+    cart[0x0000] = 0xA1;                         // → 0x0000
+    cart[0x4000] = 0x41; cart[0x4001] = 0x42;    // "AB" at file offset 0x4000
+    cart[0x4002] = 0x10; cart[0x4003] = 0x40;    // INIT = 0x4010
+    cart[0x8000] = 0xC3;                         // → 0x8000
+    mem.insertCartridge(cart);
+    mem.setPrimarySlots(0x55);                   // every page → slot 1
+    expect(mem.readByte(0x0000)).toBe(0xA1);
+    expect(mem.readByte(0x4000)).toBe(0x41);
+    expect(mem.readByte(0x8000)).toBe(0xC3);
+    expect(mem.readByte(0xC000)).toBe(0xFF);     // nothing above 0xBFFF
+  });
+
+  it('places a BASIC cartridge (INIT 0, TEXT 0x8010) at 0x8000', () => {
+    const cart = new Uint8Array(0x4000);
+    cart[0x0000] = 0x41; cart[0x0001] = 0x42;    // "AB"
+    cart[0x0008] = 0x10; cart[0x0009] = 0x80;    // TEXT = 0x8010
+    mem.insertCartridge(cart);
+    mem.setPrimarySlots(0x14);                   // pages 1–2 → slot 1
+    expect(mem.readByte(0x4000)).toBe(0xFF);     // not at 0x4000
+    expect(mem.readByte(0x8000)).toBe(0x41);
+  });
+
+  it('places a 16KB cartridge with INIT in page 1 at 0x4000', () => {
+    const cart = new Uint8Array(0x4000);
+    cart[0x0000] = 0x41; cart[0x0001] = 0x42;
+    cart[0x0002] = 0x10; cart[0x0003] = 0x40;    // INIT = 0x4010
+    mem.insertCartridge(cart);
+    mem.setPrimarySlots(0x14);
+    expect(mem.readByte(0x4000)).toBe(0x41);
+    expect(mem.readByte(0x8000)).toBe(0xFF);
+  });
+
+  it('mirrors an 8KB cartridge across its 16KB page', () => {
+    const cart = new Uint8Array(0x2000);
+    cart[0x0000] = 0x41; cart[0x0001] = 0x42;
+    cart[0x0002] = 0x10; cart[0x0003] = 0x40;
+    cart[0x1FFF] = 0x5E;
+    mem.insertCartridge(cart);
+    mem.setPrimarySlots(0x04);
+    expect(mem.readByte(0x6000)).toBe(0x41);
+    expect(mem.readByte(0x7FFF)).toBe(0x5E);
   });
 
   it('keeps the cartridge across a reset (so the BIOS slot scan can boot it)', () => {
