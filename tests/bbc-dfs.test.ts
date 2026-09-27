@@ -159,6 +159,43 @@ describe('bbc 1770 interface', () => {
       m.destroy();
     }
   });
+
+  it('reads a file sector across a track boundary after a STEP (Citadel 2 layout)', () => {
+    // Citadel 2's `CitBits` file runs from LBA 137 to 142, so the DFS reads
+    // track 13 sectors 7-9 and then STEPs onto track 14 to read sectors 0-2.
+    // Pin that sequence: the track register must follow the head so the ID
+    // search accepts track 14's sectors.
+    const m = new BbcMachine('bbc-b', null);
+    try {
+      const ssd = new Uint8Array(SSD_TRACK_BYTES * 80);
+      for (let t = 0; t < 80; t++) {
+        for (let r = 0; r < SPT; r++) {
+          for (let b = 0; b < SECTOR; b++) {
+            ssd[t * SSD_TRACK_BYTES + r * SECTOR + b] = (t * SPT + r + b) & 0xff;
+          }
+        }
+      }
+      m.fdc1770.insertDisk(parseSsd(ssd, false), 0);
+      m.memory.writeByte(0xFE80, 0x20);      // drive 0, side 0, reset released
+      m.memory.writeByte(0xFE87, 13);        // SEEK target
+      m.memory.writeByte(0xFE84, 0x10);      // SEEK
+      expect(m.memory.readByte(0xFE85)).toBe(13);
+      m.memory.writeByte(0xFE86, 9);
+      m.memory.writeByte(0xFE84, 0x80);      // READ SECTOR track 13 sector 9
+      for (let i = 0; i < SECTOR; i++) m.memory.readByte(0xFE87);
+      m.fdc1770.tick(0x1000);                // completion edge on the disc clock
+      m.memory.writeByte(0xFE84, 0x50);      // STEP IN with track-register update
+      expect(m.memory.readByte(0xFE85)).toBe(14);
+      m.memory.writeByte(0xFE86, 2);
+      m.memory.writeByte(0xFE84, 0x80);      // READ SECTOR track 14 sector 2
+      const got: number[] = [];
+      for (let i = 0; i < SECTOR; i++) got.push(m.memory.readByte(0xFE87));
+      expect(got[0]).toBe((14 * SPT + 2) & 0xff);
+      expect(got[SECTOR - 1]).toBe((14 * SPT + 2 + SECTOR - 1) & 0xff);
+    } finally {
+      m.destroy();
+    }
+  });
 });
 
 /**
