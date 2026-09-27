@@ -11,7 +11,7 @@
 import { M6502 } from '@/cores/m6502.ts';
 import { M6522 } from '@/cores/m6522.ts';
 import { Crtc6845 } from '@/cores/crtc-6845.ts';
-import { Sn76489, type Sn76489AntialiasMode } from '@/cores/sn76489.ts';
+import { Sn76489, type Sn76489AntialiasMode, type Sn76489StereoMode } from '@/cores/sn76489.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
@@ -176,12 +176,13 @@ export class BbcMachine extends BaseMachine implements Machine {
     // The SN76489 shares the Sound panel's anti-alias strategy control with the
     // AY-family PSGs; the strategies are equivalent (see Sn76489AntialiasMode).
     this.psg.antialias = view.get<Sn76489AntialiasMode>('ay-antialias', 'mute');
+    this.psg.setStereoMode(view.get<Sn76489StereoMode>('sn-stereo', 'MONO'));
     this.video.paletteMode = view.get<'pal' | 'measured'>('bbc-color-map', 'pal');
     this.diskSystem = view.get<BbcDiskSystem>('bbc-disk-system', '1770');
   }
 
   /** The border is always black and fully rendered; the setting crops it:
-   *  Normal shows it all, Small half, None just the 640×512 picture. */
+   *  Normal shows it all, Small half, None just the 640×256 picture. */
   setBorderSize(mode: BorderMode): void {
     const frac = mode === 2 ? 1 : mode === 1 ? 0.5 : 0;
     const cropX = Math.round(BBC_BORDER_LEFT * (1 - frac));
@@ -332,8 +333,8 @@ export class BbcMachine extends BaseMachine implements Machine {
 
   /** Where the current mode's character grid sits in the frame buffer. In the
    *  bitmap modes a character is 8 pixels of the mode across the 640-pixel
-   *  picture, and its 8 glyph lines are doubled (16 buffer lines) within a row
-   *  pitch of R9+1 scanlines (10 in the gapped modes 3 and 6). */
+   *  picture, and its 8 glyph lines sit in a row pitch of R9+1 scanlines (10
+   *  in the gapped modes 3 and 6). */
   textLayout(): {
     cols: number; rows: number; x: number; y: number;
     cellW: number; cellH: number; glyphH: number;
@@ -348,12 +349,12 @@ export class BbcMachine extends BaseMachine implements Machine {
     const { bpp } = bitmapMode(this.video.screenMode(this));
     const cols = Math.max(1, bbcBitmapCols(this.crtc.regs[1], bpp));
     const rows = this.crtc.regs[6];
-    const cellH = ((this.crtc.regs[9] & 0x1F) + 1) * 2;
+    const cellH = (this.crtc.regs[9] & 0x1F) + 1;
     return {
       cols, rows,
       x: BBC_BORDER_LEFT,
       y: BBC_BORDER_TOP + ((BBC_ACTIVE_HEIGHT - rows * cellH) >> 1),
-      cellW: BBC_ACTIVE_WIDTH / cols, cellH, glyphH: 16,
+      cellW: BBC_ACTIVE_WIDTH / cols, cellH, glyphH: 8,
     };
   }
 

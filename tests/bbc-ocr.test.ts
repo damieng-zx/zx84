@@ -168,9 +168,10 @@ describe('BbcFrameProbe transcribe driver', () => {
       const result = transcribe.run();
       expect(result.grid).toBe('40x25');
       expect(result.text.split('\n')[0].startsWith('HELLO')).toBe(true);
-      // The 480×500 teletext box centred in the 640×512 picture, inside the border.
+      // The 480×250 teletext box (40×25 cells of 12×10) centred in the
+      // 640×256 picture, inside the border.
       expect(result.field).toEqual({
-        x: BBC_BORDER_LEFT + 80, y: BBC_BORDER_TOP + 6, width: 480, height: 500,
+        x: BBC_BORDER_LEFT + 80, y: BBC_BORDER_TOP + 3, width: 480, height: 250,
       });
       transcribe.deactivate();
       expect(transcribe.active).toBe(false);
@@ -264,9 +265,9 @@ describe('BBC bitmap-mode OCR', () => {
       m.memory.ram.set(GLYPH_H, 0x5800);
       const result = m.services.probe.transcribe.run();
       expect(result.grid).toBe('40x32');
-      // 32 rows of 8 doubled scanlines fill the whole 640×512 picture.
+      // 32 rows of 8 scanlines fill the whole 640×256 picture.
       expect(result.field).toEqual({
-        x: BBC_BORDER_LEFT, y: BBC_BORDER_TOP, width: 640, height: 512,
+        x: BBC_BORDER_LEFT, y: BBC_BORDER_TOP, width: 640, height: 256,
       });
     } finally {
       m.destroy();

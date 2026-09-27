@@ -30,13 +30,14 @@ import type { BbcOcrGrid, OcrGridName, OcrResult } from './ocr.ts';
 /** Mode 7 teletext window, in display bytes. */
 export const BBC_MODE7_COLS = 40;
 export const BBC_MODE7_ROWS = 25;
-/** One SAA5050 cell, already doubled to 12×20 pixels by the chip core. */
+/** One SAA5050 cell in the frame buffer: 12 pixels by 10 scanlines (the
+ *  core's rounded 12×20 cell, its interlaced half-line pairs blended). */
 export const BBC_MODE7_CELL_W = 12;
-export const BBC_MODE7_CELL_H = 20;
-/** Top-left of the teletext window within the 640×512 active picture — the
+export const BBC_MODE7_CELL_H = 10;
+/** Top-left of the teletext window within the 640×256 active picture — the
  *  same centring `BbcVideo.renderTeletext` uses (the machine adds its border). */
 export const BBC_MODE7_ORIGIN_X = (640 - BBC_MODE7_COLS * BBC_MODE7_CELL_W) >> 1;
-export const BBC_MODE7_ORIGIN_Y = (512 - BBC_MODE7_ROWS * BBC_MODE7_CELL_H) >> 1;
+export const BBC_MODE7_ORIGIN_Y = (256 - BBC_MODE7_ROWS * BBC_MODE7_CELL_H) >> 1;
 /** Grid label stamped on the result. */
 export const BBC_MODE7_GRID: OcrGridName = '40x25';
 

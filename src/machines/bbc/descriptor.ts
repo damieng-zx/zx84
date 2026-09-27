@@ -36,7 +36,7 @@ const BBC_UI: MachineUiCapabilities = {
   systemRomLabel: 'OS + BASIC ROMs',
   romPages: 0,
   beeper: false,
-  psgControls: [],
+  psgControls: ['sn-stereo', 'filter'],
   statusLeds: ['kbd', 'dsk', 'psg', 'text'],
   keyboardBus: 'matrix',
   tapeSound: false,
@@ -62,8 +62,10 @@ export function bbcDescriptor(
     screen: {
       width: BBC_SCREEN_WIDTH,
       height: BBC_SCREEN_HEIGHT,
-      // Square-ish pixels: the 640x512 picture presents as 4:3 like the BBC.
-      pixelAspectX: 1,
+      // One buffer line per scanline and 640 pixels across, so a buffer pixel
+      // is half as wide as it is tall: show it at half width (1x = 384×288),
+      // like the CPC, which shares the 6845 and PAL timing.
+      pixelAspectX: 0.5,
       activeWidth: BBC_ACTIVE_WIDTH,
       activeHeight: BBC_ACTIVE_HEIGHT,
       borderLeft: BBC_BORDER_LEFT,

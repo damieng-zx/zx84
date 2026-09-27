@@ -24,8 +24,8 @@ function BbcLeds(props: { keyboard: BbcKeyboardController }) {
       <For each={LEDS}>
         {(led) => (
           <span class="bbc-led">
-            <i classList={{ 'bbc-led--on': props.keyboard.ledOn(led.id) }} />
             <For each={led.label.split(' ')}>{(line) => <span>{line}</span>}</For>
+            <i classList={{ 'bbc-led--on': props.keyboard.ledOn(led.id) }} />
           </span>
         )}
       </For>

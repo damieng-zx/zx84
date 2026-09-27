@@ -10,15 +10,16 @@ export const BBC_SOUND_CLOCK = 4_000_000;
 /** 50 Hz PAL frame. */
 export const BBC_TSTATES_PER_FRAME = BBC_CPU_CLOCK / 50;
 
-/** Active picture area in the frame buffer. Modes 0–6 are 640×256 with each
- *  scanline drawn twice; Mode 7's teletext cells are doubled to 12×20
- *  (480×500) and centred. */
+/** Active picture area in the frame buffer: one buffer line per TV scanline,
+ *  640 pixels across (Mode 0's pixel clock). Modes 0–6 are 640×256; Mode 7's
+ *  40×25 teletext cells are 12 pixels by 10 lines (480×250), centred, each
+ *  line blending the SAA5050's two interlaced half-lines. */
 export const BBC_ACTIVE_WIDTH = 640;
-export const BBC_ACTIVE_HEIGHT = 512;
+export const BBC_ACTIVE_HEIGHT = 256;
 /** The (always black) border around it at the Normal border setting: 64
- *  pixels each side and 16 TV lines (32 buffer lines) top and bottom. */
+ *  pixels each side and 16 lines top and bottom. */
 export const BBC_BORDER_LEFT = 64;
-export const BBC_BORDER_TOP = 32;
+export const BBC_BORDER_TOP = 16;
 /** Full-border frame buffer. */
 export const BBC_SCREEN_WIDTH = BBC_ACTIVE_WIDTH + BBC_BORDER_LEFT * 2;
 export const BBC_SCREEN_HEIGHT = BBC_ACTIVE_HEIGHT + BBC_BORDER_TOP * 2;

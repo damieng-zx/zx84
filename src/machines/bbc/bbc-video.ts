@@ -1,8 +1,10 @@
 /**
  * BBC Micro video output.
  *
- * Mode 7 is rendered by the SAA5050 teletext generator (6×10 cells, doubled to
- * 12×20 in the 640×512 picture). Modes 0-6 are rendered from the 6845's
+ * Mode 7 is rendered by the SAA5050 teletext generator: its rounded 12×20
+ * cells are two interlaced fields of 10 lines, so each buffer line blends the
+ * pair (50% where only one half-line is lit), as the eye does on a TV. Modes
+ * 0-6 are rendered from the 6845's
  * MA through the video ULA's bit-depth/palette mapping. Both read display RAM
  * directly; the machine owns the frame timing.
  */
@@ -119,8 +121,8 @@ export class BbcVideo {
   private renderTeletext(m: BbcMachine, flash: boolean): void {
     const cols = 40;
     const rows = 25;
-    const cw = 12;       // SAA5050 cell, already doubled to 12×20 by the core
-    const ch = 20;
+    const cw = 12;       // SAA5050 cell: 12×20 from the core (rounded) ...
+    const ch = 10;       // ... shown as 10 scanlines, each a half-line pair
     const xBase = BBC_BORDER_LEFT + ((BBC_ACTIVE_WIDTH - cols * cw) >> 1);
     const yBase = BBC_BORDER_TOP + ((BBC_ACTIVE_HEIGHT - rows * ch) >> 1);
     const start = m.crtc.displayStart;
@@ -147,17 +149,22 @@ export class BbcVideo {
         const bg = flash ? cell.fg : cell.bg;
         const fgCol = pal[fg & 7];
         const bgCol = pal[bg & 7];
+        // 50/50 mix of the two (per 8-bit channel, alpha kept opaque).
+        const midCol = ((((fgCol & 0xFEFEFE) >>> 1) + ((bgCol & 0xFEFEFE) >>> 1)) | 0xFF000000) >>> 0;
         const x0 = xBase + c * cw;
         for (let y = 0; y < ch; y++) {
           const py = y0 + y;
           if (py < 0 || py >= H) continue;
-          const row = cell.pixels[y];
+          const even = cell.pixels[y * 2];
+          const odd = cell.pixels[y * 2 + 1];
           const out = py * W;
           for (let x = 0; x < cw; x++) {
             const px = x0 + x;
             if (px < 0 || px >= W) continue;
-            const bit = (row >> x) & 1;   // 12-bit row; bit 0 = leftmost
-            this.pixels32[out + px] = bit ? fgCol : bgCol;
+            // 12-bit rows; bit 0 = leftmost. Lit in both half-lines = ink,
+            // in one = the half-tone that carries the character rounding.
+            const lit = ((even >> x) & 1) + ((odd >> x) & 1);
+            this.pixels32[out + px] = lit === 2 ? fgCol : lit === 1 ? midCol : bgCol;
           }
         }
       }
@@ -172,9 +179,7 @@ export class BbcVideo {
     // Scanlines per character row: 8, or 10 in the gapped text modes 3 and 6,
     // whose last two lines (RA bit 3 set) the ULA blanks.
     const lpr = (m.crtc.regs[9] & 0x1F) + 1;
-    // The buffer has two lines per TV scanline (Mode 7's interlaced teletext
-    // needs 512), so each bitmap scanline is drawn twice.
-    const yOff = BBC_BORDER_TOP + ((BBC_ACTIVE_HEIGHT - r6 * lpr * 2) >> 1);
+    const yOff = BBC_BORDER_TOP + ((BBC_ACTIVE_HEIGHT - r6 * lpr) >> 1);
     const start = m.crtc.displayStart;
     const sub = wrapSubtract(m.ic32.c0, m.ic32.c1);
     const pal = this.pal();
@@ -186,8 +191,8 @@ export class BbcVideo {
     for (let row = 0; row < r6; row++) {
       const maRow = start + row * r1;
       for (let ra = 0; ra < Math.min(lpr, 8); ra++) {
-        const y = yOff + (row * lpr + ra) * 2;
-        if (y < 0 || y + 1 >= H) continue;
+        const y = yOff + row * lpr + ra;
+        if (y < 0 || y >= H) continue;
         const out = y * W;
         let x = 0;
         for (let p = 0; p < r1 && x < info.width; p++) {
@@ -206,7 +211,6 @@ export class BbcVideo {
             this.putPixels(out, x++, m.palette[v], scale, flash, pal);
           }
         }
-        this.pixels32.copyWithin(out + W, out, out + W);
       }
     }
   }

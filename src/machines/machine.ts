@@ -261,7 +261,7 @@ export type StatusLedId = typeof STATUS_LED_IDS[number];
  * which of its features the UI should surface. Pure data (headless-safe).
  */
 /** A Sound-pane PSG-shaping control — see `MachineUiCapabilities.psgControls`. */
-export type PsgControl = 'stereo' | 'filter' | 'dc-block';
+export type PsgControl = 'stereo' | 'sn-stereo' | 'filter' | 'dc-block';
 
 /** One mouse interface a machine offers — see `MachineUiCapabilities.mouseTypes`.
  *  `id` is the mode string passed back through `InputService.mice`. */

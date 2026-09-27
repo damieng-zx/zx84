@@ -276,6 +276,45 @@ describe('bbc — sound', () => {
   });
 });
 
+describe('bbc — Mode 7 at one line per scanline', () => {
+  /** RGB at picture (x, y) — the helpers above add the border. */
+  function rgbAt(m: BbcMachine, x: number, y: number): [number, number, number] {
+    const i = ((y + BBC_BORDER_TOP) * BBC_SCREEN_WIDTH + x + BBC_BORDER_LEFT) * 4;
+    return [m.pixels[i], m.pixels[i + 1], m.pixels[i + 2]];
+  }
+
+  it('blends each half-line pair: both lit = ink, one = 50%, none = paper', () => {
+    const m = makeBbc();
+    try {
+      m.videoUlaControl = 0x02;           // teletext
+      m.crtc.regs[1] = 40;
+      m.crtc.regs[12] = 0x28;             // MA 0x2800 -> RAM 0x7C00
+      m.crtc.regs[13] = 0x00;
+      // Draw from the real SAA5050 rows for 'A' (white on black) so the
+      // expectation comes from the glyph, not from the renderer under test.
+      m.memory.ram[0x7C00] = 0x41;
+      const saa = new Saa5050();
+      const cells = createSaa5050Cells(1);
+      saa.renderRow(Uint8Array.of(0x41), 1, cells);
+      const rows = cells[0].pixels;
+      m.video.render(m);
+      const x0 = 80, y0 = 3;              // the 480×250 box centred in 640×256
+      let seenHalf = false;
+      for (let y = 0; y < 10; y++) {
+        for (let x = 0; x < 12; x++) {
+          const lit = ((rows[y * 2] >> x) & 1) + ((rows[y * 2 + 1] >> x) & 1);
+          const want = lit === 2 ? 255 : lit === 1 ? 127 : 0;
+          if (lit === 1) seenHalf = true;
+          expect(rgbAt(m, x0 + x, y0 + y)).toEqual([want, want, want]);
+        }
+      }
+      expect(seenHalf).toBe(true);        // 'A' has rounded (half-lit) pixels
+    } finally {
+      m.destroy();
+    }
+  });
+});
+
 describe('bbc — bitmap modes', () => {
   /** Point the CRTC at a Mode 4 screen at RAM 0x5800 and set a 2-colour palette. */
   function setupMode4(m: BbcMachine): void {
@@ -289,8 +328,9 @@ describe('bbc — bitmap modes', () => {
     m.palette[1] = 7;
   }
 
-  // 32 rows x 8 scanlines, each drawn twice, exactly fill the 512-line picture.
-  // Coordinates below are within the picture; the helpers add the border.
+  // 32 rows x 8 scanlines exactly fill the 256-line picture, one buffer line
+  // per scanline. Coordinates below are within the picture; the helpers add
+  // the border.
   const firstY = 0;
 
   function rowOn(m: BbcMachine, y: number, x0: number, x1: number): number {
@@ -310,10 +350,8 @@ describe('bbc — bitmap modes', () => {
       m.video.render(m);
       // A 320-wide mode is doubled to 640, so the 8-pixel cell covers x 0-15.
       expect(rowOn(m, firstY, 0, 16)).toBe(16);
-      // Each scanline is doubled into the 512-line buffer.
-      expect(rowOn(m, firstY + 1, 0, 16)).toBe(16);
       // Scanline 1 lives in the NEXT byte, not the next 40-pixel run.
-      expect(rowOn(m, firstY + 2, 0, 16)).toBe(0);
+      expect(rowOn(m, firstY + 1, 0, 16)).toBe(0);
     } finally {
       m.destroy();
     }
@@ -328,13 +366,13 @@ describe('bbc — bitmap modes', () => {
       // Fill the whole first row so every scanline 0-7 is lit.
       for (let i = 0; i < 40 * 8; i++) m.memory.ram[0x5800 + i] = 0xFF;
       m.video.render(m);
-      // 250 scanlines doubled = 500 lines, centred: 6 lines of border on top.
-      const top = (512 - 500) / 2;
+      // 25 rows x 10 = 250 scanlines, centred in 256: 3 lines of margin on top.
+      const top = (256 - 250) / 2;
       expect(rowOn(m, top - 1, 0, 16)).toBe(0);
       expect(rowOn(m, top, 0, 16)).toBe(16);
-      expect(rowOn(m, top + 15, 0, 16)).toBe(16);   // scanline 7, second copy
-      expect(rowOn(m, top + 16, 0, 16)).toBe(0);    // scanline 8: gap
-      expect(rowOn(m, top + 19, 0, 16)).toBe(0);    // scanline 9: gap
+      expect(rowOn(m, top + 7, 0, 16)).toBe(16);    // scanline 7
+      expect(rowOn(m, top + 8, 0, 16)).toBe(0);     // scanline 8: gap
+      expect(rowOn(m, top + 9, 0, 16)).toBe(0);     // scanline 9: gap
     } finally {
       m.destroy();
     }

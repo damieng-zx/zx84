@@ -26,7 +26,7 @@ const MTX_UI: MachineUiCapabilities = {
   romPages: 0,
   beeper: false,
   // An SN76489, not an AY: it takes the anti-alias strategy and nothing else.
-  psgControls: ['filter'],
+  psgControls: ['sn-stereo', 'filter'],
   statusLeds: ['kbd', 'load', 'dsk', 'psg', 'text'],
   keyboardBus: 'matrix',
   tape: 'instant',

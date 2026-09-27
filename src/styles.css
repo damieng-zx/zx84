@@ -4665,7 +4665,7 @@ input[type="range"]::-moz-range-thumb {
 .bbc-led i {
   width: calc(var(--bbc-u) * 8);
   height: calc(var(--bbc-u) * 5);
-  margin-bottom: calc(var(--bbc-u) * 1.5);
+  margin-top: calc(var(--bbc-u) * 1.5);
   border-radius: calc(var(--bbc-u) * 1.5);
   background: #4a1510;
   box-shadow: inset 0 0 calc(var(--bbc-u) * 1) rgba(0,0,0,0.6);

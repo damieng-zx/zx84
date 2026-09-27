@@ -45,6 +45,8 @@ const DEFAULTS = {
   'volume':       '70',
   'ay-mix':       '50',
   'ay-stereo':    'ABC',
+  // SN76489 tone-channel split; the chip is mono, so that is the default.
+  'sn-stereo':    'MONO',
   'ay-dc-block':  'on',
   'ay-antialias': 'mute',
 
@@ -231,6 +233,10 @@ export const setAyMix = _ayMix[1];
 const _ayStereo = /*@once*/ createRoot(() => createSignal(getSaved('ay-stereo', D('ay-stereo'))));
 export const ayStereo = _ayStereo[0];
 export const setAyStereo = _ayStereo[1];
+
+const _snStereo = /*@once*/ createRoot(() => createSignal(getSaved('sn-stereo', D('sn-stereo'))));
+export const snStereo = _snStereo[0];
+export const setSnStereo = _snStereo[1];
 
 const _ayDcBlock = /*@once*/ createRoot(() => createSignal(getSaved('ay-dc-block', D('ay-dc-block')) === 'on'));
 export const ayDcBlock = _ayDcBlock[0];
@@ -551,6 +557,7 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'volume',      set: setVolume,     type: 'number' },
     { key: 'ay-mix',      set: setAyMix,      type: 'number' },
     { key: 'ay-stereo',   set: setAyStereo,   type: 'string' },
+    { key: 'sn-stereo',   set: setSnStereo,   type: 'string' },
     { key: 'ay-dc-block', set: setAyDcBlock,  type: 'bool' },
     { key: 'ay-antialias', set: setAyAntialias, type: 'string' },
   ],

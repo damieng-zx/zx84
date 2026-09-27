@@ -35,6 +35,8 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   // AY/PSG shaping. Every machine carries an AY-family PSG except the MTX
   // (SN76489), which reuses these same keys — see Sn76489AntialiasMode.
   'ay-stereo': () => settings.ayStereo(),
+  // The SN76489's tone-channel split (BBC Micro, MTX) — mono by default.
+  'sn-stereo': () => settings.snStereo(),
   'ay-dc-block': () => settings.ayDcBlock(),
   'ay-antialias': () => settings.ayAntialias(),
   // Peripheral enablement + write-protects read by each machine's prepare() hook.
