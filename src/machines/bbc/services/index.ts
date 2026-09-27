@@ -21,7 +21,7 @@ export function createBbcServices(machine: BbcMachine): BbcServices {
   const roms = new BbcRomService(machine, () => machine.host);
   const disks = new BbcDiskService(machine);
   return {
-    media: new BbcMediaService(disks),
+    media: new BbcMediaService(machine, disks),
     roms,
     tape: null,
     disks,

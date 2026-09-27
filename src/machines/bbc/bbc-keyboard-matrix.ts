@@ -38,6 +38,9 @@ export const BBC_KEY_MATRIX: Record<string, readonly [number, number]> = {
   ShiftLeft: [0, 0], ShiftRight: [0, 0],
   ControlLeft: [1, 0], ControlRight: [1, 0],
   CapsLock: [0, 4], ShiftLock: [0, 5],
+
+  // BBC-only caps with no PC counterpart, reached through BBC_CHAR_KEYS.
+  BbcAt: [7, 4], BbcUnderscore: [8, 2],
 };
 
 /**
@@ -69,5 +72,7 @@ export const BBC_CHAR_KEYS: Record<string, { code: string; shift: boolean }> = {
   '/': { code: 'Slash', shift: false }, '?': { code: 'Slash', shift: true },
   '\\': { code: 'Backslash', shift: false }, '|': { code: 'Backslash', shift: true },
   '^': { code: 'Backquote', shift: false }, '~': { code: 'Backquote', shift: true },
+  '@': { code: 'BbcAt', shift: false },
+  '_': { code: 'BbcUnderscore', shift: false }, '£': { code: 'BbcUnderscore', shift: true },
   ' ': { code: 'Space', shift: false },
 };

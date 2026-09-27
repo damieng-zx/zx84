@@ -4,22 +4,10 @@ import type {
 import { fixedDrive } from '@/media/floppy/floppy-sound.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { parseBbcBasic, parseBbcBasicVariables } from '@/basic/bbc-basic-parser.ts';
-import {
-  BBC_MODE7_COLS, BBC_MODE7_ROWS, BBC_MODE7_CELL_W, BBC_MODE7_CELL_H,
-  BBC_MODE7_ORIGIN_X, BBC_MODE7_ORIGIN_Y,
-} from '@/ocr/bbc.ts';
 import type { BbcMachine } from '../bbc-machine.ts';
 
 /** BBC DFS drives are 5.25" 40/80-track units (Acorn's standard upgrade). */
 const DRIVE = fixedDrive('5.25inch');
-
-/** Where the 40×25 Mode 7 teletext window sits in the 640×512 framebuffer. */
-const MODE7_FIELD = {
-  x: BBC_MODE7_ORIGIN_X,
-  y: BBC_MODE7_ORIGIN_Y,
-  width: BBC_MODE7_COLS * BBC_MODE7_CELL_W,
-  height: BBC_MODE7_ROWS * BBC_MODE7_CELL_H,
-};
 
 class BbcTranscribeDriver implements TranscribeDriver {
   constructor(private readonly m: BbcMachine) {}
@@ -33,11 +21,13 @@ class BbcTranscribeDriver implements TranscribeDriver {
       m.blankCells(result.mask, result.cols, result.rows, result.paper);
       if (m.display) m.display.updateTexture(m.pixels);
     }
-    // Mode 7's 40×25 grid fills its centred teletext window, not the whole
-    // 640×512 framebuffer, so the overlay is anchored to that box.
+    // The grid fills the mode's text window (Mode 7's centred teletext box,
+    // or the bitmap modes' rows), not the whole bordered buffer, so the
+    // overlay is anchored to that box.
+    const g = m.textLayout();
     return {
       text: result.text, html: result.html, grid: result.grid,
-      field: MODE7_FIELD,
+      field: { x: g.x, y: g.y, width: g.cols * g.cellW, height: g.rows * g.cellH },
     };
   }
 }

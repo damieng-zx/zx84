@@ -14,11 +14,12 @@ import type { CpuFamily } from '@/machines/machine.ts';
 import { machineCpuFamily } from '@/state/machine-caps.ts';
 import { Z80Registers } from './registers/Z80Registers.tsx';
 import { GenericRegisters } from './registers/GenericRegisters.tsx';
+import { M6502Registers } from './registers/M6502Registers.tsx';
 
 /** Exhaustive over CpuFamily on purpose: adding a family is a decision here. */
 const PANELS: Record<CpuFamily, Component> = {
   z80: Z80Registers,
-  m6502: GenericRegisters,
+  m6502: M6502Registers,
 };
 
 export function Registers() {

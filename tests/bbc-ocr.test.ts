@@ -12,6 +12,13 @@ import {
   BbcScreenText, BBC_MODE7_COLS, BBC_MODE7_ROWS,
   BBC_MODE7_ORIGIN_X, BBC_MODE7_ORIGIN_Y,
 } from '@/ocr/bbc.ts';
+import {
+  BBC_BORDER_LEFT, BBC_BORDER_TOP, BBC_SCREEN_WIDTH,
+} from '@/machines/bbc/constants.ts';
+
+/** Byte offset of active-picture pixel (x, y) in the bordered frame buffer. */
+const at = (x: number, y: number): number =>
+  ((y + BBC_BORDER_TOP) * BBC_SCREEN_WIDTH + x + BBC_BORDER_LEFT) * 4;
 
 const DISPLAY_START = 0x7C00;
 /** For MA 0x7C00 the teletext translation is the identity. */
@@ -138,10 +145,10 @@ describe('BbcMachine Mode 7 OCR wiring', () => {
       const result = m.ocrScreenStyled();
       m.pixels.fill(0xFF);                        // paint the whole buffer white
       m.blankCells(result.mask, result.cols, result.rows, result.paper);
-      const px = (BBC_MODE7_ORIGIN_Y * 640 + BBC_MODE7_ORIGIN_X) * 4;
+      const px = at(BBC_MODE7_ORIGIN_X, BBC_MODE7_ORIGIN_Y);
       expect([m.pixels[px], m.pixels[px + 1], m.pixels[px + 2], m.pixels[px + 3]])
         .toEqual([0, 0, 0, 255]);                 // black, per paper pen 0
-      const next = (BBC_MODE7_ORIGIN_Y * 640 + BBC_MODE7_ORIGIN_X + 12) * 4;
+      const next = at(BBC_MODE7_ORIGIN_X + 12, BBC_MODE7_ORIGIN_Y);
       expect(m.pixels[next]).toBe(0xFF);          // the space cell is untouched
     } finally {
       m.destroy();
@@ -161,7 +168,10 @@ describe('BbcFrameProbe transcribe driver', () => {
       const result = transcribe.run();
       expect(result.grid).toBe('40x25');
       expect(result.text.split('\n')[0].startsWith('HELLO')).toBe(true);
-      expect(result.field).toEqual({ x: 80, y: 6, width: 480, height: 500 });
+      // The 480×500 teletext box centred in the 640×512 picture, inside the border.
+      expect(result.field).toEqual({
+        x: BBC_BORDER_LEFT + 80, y: BBC_BORDER_TOP + 6, width: 480, height: 500,
+      });
       transcribe.deactivate();
       expect(transcribe.active).toBe(false);
     } finally {
@@ -177,6 +187,87 @@ describe('BbcFrameProbe transcribe driver', () => {
       m.memory.ram.set([0x0D, 0x00, 0x0A, 0x07, 0xF1, 0x20, 0x31, 0x0D, 0xFF], 0x0E00);
       expect(m.services.probe.panes?.basicListing?.())
         .toEqual([{ lineNumber: 10, text: 'PRINT 1' }]);
+    } finally {
+      m.destroy();
+    }
+  });
+});
+describe('BBC bitmap-mode OCR', () => {
+  /** An 'H' as the MOS draws it (MSB = leftmost pixel). */
+  const GLYPH_H = [0x66, 0x66, 0x66, 0x7E, 0x66, 0x66, 0x66, 0x00];
+
+  /** Mode 4 (1bpp, 40 columns) at 0x5800 with a font holding only 'H'. */
+  function makeBitmap(): BbcMachine {
+    const m = new BbcMachine('bbc-b', null);
+    m.videoUlaControl = 0x88;       // low clock, 40 cols -> mode 4
+    m.crtc.regs[1] = 40;
+    m.crtc.regs[6] = 32;
+    m.crtc.regs[9] = 7;
+    m.crtc.regs[12] = 0x0B;         // 0xB00 << 3 = 0x5800
+    m.crtc.regs[13] = 0x00;
+    m.palette[0] = 0;
+    m.palette[1] = 7;
+    m.memory.osRom.fill(0, 0, 768);
+    m.memory.osRom.set(GLYPH_H, ('H'.charCodeAt(0) - 32) * 8);
+    return m;
+  }
+
+  it('matches a cell against the MOS font', () => {
+    const m = makeBitmap();
+    try {
+      m.memory.ram.set(GLYPH_H, 0x5800);            // cell (0,0): 8 bytes, one per scanline
+      const r = m.ocrScreenStyled();
+      expect(r.cols).toBe(40);
+      expect(r.rows).toBe(32);
+      expect(r.text.startsWith('H ')).toBe(true);
+      expect(r.mask[0]).toBe(true);
+      expect(r.mask[1]).toBe(false);
+    } finally {
+      m.destroy();
+    }
+  });
+
+  it('reads inverse video (ink and paper swapped)', () => {
+    const m = makeBitmap();
+    try {
+      m.memory.ram.set(GLYPH_H.map(b => b ^ 0xFF), 0x5808);   // cell (1,0), inverted
+      const r = m.ocrScreenStyled();
+      expect(r.text[1]).toBe('H');
+      expect(r.paper?.[1]).toBe(7);                  // white paper (logical 1)
+    } finally {
+      m.destroy();
+    }
+  });
+
+  it('decodes a 2bpp cell across its two interleaved bytes', () => {
+    const m = makeBitmap();
+    try {
+      m.videoUlaControl = 0x18;       // high clock, 40 cols -> mode 1 (2bpp, 40 chars)
+      m.crtc.regs[1] = 80;            // 80 display bytes per scanline row
+      // Draw 'H' in logical colour 2 (high bit only): for the left 4 pixels the
+      // high bits are the byte's top nibble, so each glyph nibble goes there.
+      for (let ra = 0; ra < 8; ra++) {
+        m.memory.ram[0x5800 + ra] = GLYPH_H[ra] & 0xF0;          // pixels 0-3
+        m.memory.ram[0x5808 + ra] = (GLYPH_H[ra] << 4) & 0xF0;   // pixels 4-7
+      }
+      const r = m.ocrScreenStyled();
+      expect(r.cols).toBe(40);
+      expect(r.text[0]).toBe('H');
+    } finally {
+      m.destroy();
+    }
+  });
+
+  it('anchors the overlay to the bitmap rows inside the border', () => {
+    const m = makeBitmap();
+    try {
+      m.memory.ram.set(GLYPH_H, 0x5800);
+      const result = m.services.probe.transcribe.run();
+      expect(result.grid).toBe('40x32');
+      // 32 rows of 8 doubled scanlines fill the whole 640×512 picture.
+      expect(result.field).toEqual({
+        x: BBC_BORDER_LEFT, y: BBC_BORDER_TOP, width: 640, height: 512,
+      });
     } finally {
       m.destroy();
     }

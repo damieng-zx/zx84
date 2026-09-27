@@ -2,13 +2,16 @@
  * BBC Micro video output.
  *
  * Mode 7 is rendered by the SAA5050 teletext generator (6×10 cells, doubled to
- * 12 pixels wide in the 640×256 buffer). Modes 0-6 are rendered from the 6845's
+ * 12×20 in the 640×512 picture). Modes 0-6 are rendered from the 6845's
  * MA through the video ULA's bit-depth/palette mapping. Both read display RAM
  * directly; the machine owns the frame timing.
  */
 
 import { Saa5050, createSaa5050Cells, type Saa5050Cell } from '@/cores/saa5050.ts';
-import { BBC_SCREEN_HEIGHT, BBC_SCREEN_WIDTH } from './constants.ts';
+import {
+  BBC_ACTIVE_HEIGHT, BBC_ACTIVE_WIDTH, BBC_BORDER_LEFT, BBC_BORDER_TOP,
+  BBC_SCREEN_HEIGHT, BBC_SCREEN_WIDTH,
+} from './constants.ts';
 import type { BbcMachine } from './bbc-machine.ts';
 
 const W = BBC_SCREEN_WIDTH;
@@ -25,30 +28,26 @@ const MEASURED_PALETTE32 = Uint32Array.from([
   0xFFC00000, 0xFFC000C0, 0xFFC0C000, 0xFFE0E0E0,
 ]);
 
-interface BitmapMode {
+export interface BitmapMode {
   readonly bpp: 1 | 2 | 4;
   /** Active pixel width (640, 320 or 160). */
   readonly width: number;
-  /** 200-line text modes (3 and 6) sit centred in the taller buffer. */
-  readonly lines: 200 | 256;
 }
 
-function bitmapMode(mode: number): BitmapMode {
+export function bitmapMode(mode: number): BitmapMode {
   switch (mode) {
-    case 0: return { bpp: 1, width: 640, lines: 256 };
-    case 1: return { bpp: 2, width: 320, lines: 256 };
-    case 2: return { bpp: 4, width: 160, lines: 256 };
-    case 3: return { bpp: 1, width: 640, lines: 200 };
-    case 4: return { bpp: 1, width: 320, lines: 256 };
-    case 5: return { bpp: 2, width: 160, lines: 256 };
-    default: return { bpp: 1, width: 320, lines: 200 };
+    case 0: case 3: return { bpp: 1, width: 640 };
+    case 1: return { bpp: 2, width: 320 };
+    case 2: return { bpp: 4, width: 160 };
+    case 5: return { bpp: 2, width: 160 };
+    default: return { bpp: 1, width: 320 };   // modes 4 and 6
   }
 }
 
 /** Hardware-scroll wrap amount subtracted from the address once it overruns
  *  0x7FFF, selected by the IC32 C0/C1 outputs (see the BeebWiki address
  *  translation table). */
-function wrapSubtract(c0: number, c1: number): number {
+export function wrapSubtract(c0: number, c1: number): number {
   if (c1 && c0) return 0x2800;   // modes 4,5
   if (c1) return 0x5000;         // modes 0,1,2
   if (c0) return 0x2000;         // mode 6
@@ -92,7 +91,7 @@ export class BbcVideo {
   }
 
   /** Derive the BBC screen mode from the Video ULA control register + CRTC. */
-  private mode(m: BbcMachine): number {
+  screenMode(m: BbcMachine): number {
     const ctrl = m.videoUlaControl;
     if (ctrl & 0x02) return 7;                 // teletext select
     const cpl = (ctrl >> 2) & 3;               // 0=10, 1=20, 2=40, 3=80 cols
@@ -110,7 +109,7 @@ export class BbcVideo {
   }
 
   render(m: BbcMachine): void {
-    const mode = this.mode(m);
+    const mode = this.screenMode(m);
     const flash = (m.videoUlaControl & 0x01) !== 0 && this.flashPhase;
     this.pixels32.fill(0xFF000000);
     if (mode === 7) this.renderTeletext(m, flash);
@@ -122,8 +121,8 @@ export class BbcVideo {
     const rows = 25;
     const cw = 12;       // SAA5050 cell, already doubled to 12×20 by the core
     const ch = 20;
-    const xBase = (W - cols * cw) >> 1;
-    const yBase = (H - rows * ch) >> 1;
+    const xBase = BBC_BORDER_LEFT + ((BBC_ACTIVE_WIDTH - cols * cw) >> 1);
+    const yBase = BBC_BORDER_TOP + ((BBC_ACTIVE_HEIGHT - rows * ch) >> 1);
     const start = m.crtc.displayStart;
     // The 6845 advances its row address by R1 (horizontal displayed), which is
     // 40 in Mode 7 — not R0+1 (the 64-character horizontal total).
@@ -167,10 +166,15 @@ export class BbcVideo {
 
   private renderBitmap(m: BbcMachine, mode: number, flash: boolean): void {
     const info = bitmapMode(mode);
-    const scale = W / info.width;
-    const yOff = (H - info.lines) >> 1;
+    const scale = BBC_ACTIVE_WIDTH / info.width;
     const r1 = m.crtc.regs[1];            // MA units per displayed line
     const r6 = m.crtc.regs[6];            // character rows displayed
+    // Scanlines per character row: 8, or 10 in the gapped text modes 3 and 6,
+    // whose last two lines (RA bit 3 set) the ULA blanks.
+    const lpr = (m.crtc.regs[9] & 0x1F) + 1;
+    // The buffer has two lines per TV scanline (Mode 7's interlaced teletext
+    // needs 512), so each bitmap scanline is drawn twice.
+    const yOff = BBC_BORDER_TOP + ((BBC_ACTIVE_HEIGHT - r6 * lpr * 2) >> 1);
     const start = m.crtc.displayStart;
     const sub = wrapSubtract(m.ic32.c0, m.ic32.c1);
     const pal = this.pal();
@@ -181,10 +185,9 @@ export class BbcVideo {
     // ROM address overruns the top of RAM.
     for (let row = 0; row < r6; row++) {
       const maRow = start + row * r1;
-      const yRow = yOff + row * 8;
-      for (let ra = 0; ra < 8; ra++) {
-        const y = yRow + ra;
-        if (y < 0 || y >= H) continue;
+      for (let ra = 0; ra < Math.min(lpr, 8); ra++) {
+        const y = yOff + (row * lpr + ra) * 2;
+        if (y < 0 || y + 1 >= H) continue;
         const out = y * W;
         let x = 0;
         for (let p = 0; p < r1 && x < info.width; p++) {
@@ -203,6 +206,7 @@ export class BbcVideo {
             this.putPixels(out, x++, m.palette[v], scale, flash, pal);
           }
         }
+        this.pixels32.copyWithin(out + W, out, out + W);
       }
     }
   }
@@ -212,7 +216,7 @@ export class BbcVideo {
   ): void {
     const colour = flash && phys >= 8 ? (phys & 7) ^ 7 : phys & 7;  // flashing inverts
     const c = pal[colour];
-    const px = Math.round(x * scale);
+    const px = BBC_BORDER_LEFT + Math.round(x * scale);
     for (let i = 0; i < scale; i++) this.pixels32[out + px + i] = c;
   }
 }

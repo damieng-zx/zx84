@@ -40,8 +40,9 @@ export type LynxOcrGrid = '40x24' | '80x24';
 /** Jupiter Ace text grid — the 32x24 screen file, one byte per cell. */
 export type AceOcrGrid = '32x24';
 
-/** BBC Micro Mode 7 teletext grid — 40×25 SAA5050 cells. */
-export type BbcOcrGrid = '40x25';
+/** BBC Micro grids: Mode 7 teletext is 40×25; the bitmap modes are 20/40/80
+ *  columns by 32 rows, or 25 rows in the gapped text modes 3 and 6. */
+export type BbcOcrGrid = `${20 | 40 | 80}x${25 | 32}`;
 
 /** Any grid label an OCR producer can stamp onto an OcrResult. */
 export type OcrGridName =

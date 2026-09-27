@@ -7,7 +7,8 @@
  * key is its own cap. BREAK has no matrix cell (it resets the machine).
  */
 
-export type BbcKeyRegion = 'alpha' | 'number' | 'function' | 'edit' | 'mod';
+/** Cap colour: black by default, red function keys, dark green COPY/cursors. */
+export type BbcKeyRegion = 'function' | 'cursor';
 
 export interface BbcKeyDef {
   readonly id: string;
@@ -21,8 +22,7 @@ export interface BbcKeyDef {
 }
 
 export const BBC_KEYS: readonly BbcKeyDef[] = [
-  // Function strip (red caps on the real machine).
-  { id: 'break', cell: null, main: 'BREAK', region: 'function' },
+  // Function strip (red caps on the real machine), then the black BREAK.
   { id: 'f0', cell: [0, 2], main: 'f0', region: 'function' },
   { id: 'f1', cell: [1, 7], main: 'f1', region: 'function' },
   { id: 'f2', cell: [2, 7], main: 'f2', region: 'function' },
@@ -33,8 +33,10 @@ export const BBC_KEYS: readonly BbcKeyDef[] = [
   { id: 'f7', cell: [6, 1], main: 'f7', region: 'function' },
   { id: 'f8', cell: [6, 7], main: 'f8', region: 'function' },
   { id: 'f9', cell: [7, 7], main: 'f9', region: 'function' },
+  { id: 'break', cell: null, main: 'BREAK' },
 
   // Number row.
+  { id: 'escape', cell: [0, 7], main: 'ESCAPE' },
   { id: '1', cell: [0, 3], main: '1', shift: '!' },
   { id: '2', cell: [1, 3], main: '2', shift: '"' },
   { id: '3', cell: [1, 1], main: '3', shift: '#' },
@@ -47,10 +49,12 @@ export const BBC_KEYS: readonly BbcKeyDef[] = [
   { id: '0', cell: [7, 2], main: '0' },
   { id: 'minus', cell: [7, 1], main: '-', shift: '=' },
   { id: 'caret', cell: [8, 1], main: '^', shift: '~' },
-  { id: 'pound', cell: [8, 2], main: '_', shift: '£' },
   { id: 'backslash', cell: [8, 7], main: '\\', shift: '|' },
+  { id: 'left', cell: [9, 1], main: '←', region: 'cursor' },
+  { id: 'right', cell: [9, 7], main: '→', region: 'cursor' },
 
   // Q row.
+  { id: 'tab', cell: [0, 6], main: 'TAB' },
   { id: 'q', cell: [0, 1], main: 'Q' },
   { id: 'w', cell: [1, 2], main: 'W' },
   { id: 'e', cell: [2, 2], main: 'E' },
@@ -61,11 +65,15 @@ export const BBC_KEYS: readonly BbcKeyDef[] = [
   { id: 'i', cell: [5, 2], main: 'I' },
   { id: 'o', cell: [6, 3], main: 'O' },
   { id: 'p', cell: [7, 3], main: 'P' },
+  { id: 'at', cell: [7, 4], main: '@' },
   { id: 'bracket-left', cell: [8, 3], main: '[', shift: '{' },
-  { id: 'bracket-right', cell: [8, 5], main: ']', shift: '}' },
+  { id: 'pound', cell: [8, 2], main: '_', shift: '£' },
+  { id: 'up', cell: [9, 3], main: '↑', region: 'cursor' },
+  { id: 'down', cell: [9, 2], main: '↓', region: 'cursor' },
 
   // A row.
-  { id: 'caps', cell: [0, 4], main: 'CAPS\nLOCK', region: 'mod' },
+  { id: 'caps', cell: [0, 4], main: 'CAPS\nLOCK' },
+  { id: 'ctrl', cell: [1, 0], main: 'CTRL' },
   { id: 'a', cell: [1, 4], main: 'A' },
   { id: 's', cell: [1, 5], main: 'S' },
   { id: 'd', cell: [2, 3], main: 'D' },
@@ -77,10 +85,12 @@ export const BBC_KEYS: readonly BbcKeyDef[] = [
   { id: 'l', cell: [6, 5], main: 'L' },
   { id: 'semicolon', cell: [7, 5], main: ';', shift: '+' },
   { id: 'colon', cell: [8, 4], main: ':', shift: '*' },
-  { id: 'at', cell: [7, 4], main: '@' },
+  { id: 'bracket-right', cell: [8, 5], main: ']', shift: '}' },
+  { id: 'return', cell: [9, 4], main: 'RETURN' },
 
   // Z row.
-  { id: 'shift-lock', cell: [0, 5], main: 'SHIFT\nLOCK', region: 'mod' },
+  { id: 'shift-lock', cell: [0, 5], main: 'SHIFT\nLOCK' },
+  { id: 'shift-left', cell: [0, 0], main: 'SHIFT' },
   { id: 'z', cell: [1, 6], main: 'Z' },
   { id: 'x', cell: [2, 4], main: 'X' },
   { id: 'c', cell: [2, 5], main: 'C' },
@@ -91,19 +101,12 @@ export const BBC_KEYS: readonly BbcKeyDef[] = [
   { id: 'comma', cell: [6, 6], main: ',', shift: '<' },
   { id: 'period', cell: [7, 6], main: '.', shift: '>' },
   { id: 'slash', cell: [8, 6], main: '/', shift: '?' },
-  { id: 'shift-left', cell: [0, 0], main: 'SHIFT', region: 'mod' },
-  { id: 'shift-right', cell: [0, 0], main: 'SHIFT', region: 'mod' },
-  { id: 'ctrl', cell: [1, 0], main: 'CTRL', region: 'mod' },
-  { id: 'space', cell: [2, 6], main: 'SPACE', region: 'mod' },
+  { id: 'shift-right', cell: [0, 0], main: 'SHIFT' },
+  { id: 'delete', cell: [9, 5], main: 'DELETE' },
+  { id: 'copy', cell: [9, 6], main: 'COPY', region: 'cursor' },
 
-  // Edit / cursor block.
-  { id: 'return', cell: [9, 4], main: 'RETURN', region: 'edit' },
-  { id: 'delete', cell: [9, 5], main: 'DELETE', region: 'edit' },
-  { id: 'copy', cell: [9, 6], main: 'COPY', region: 'edit' },
-  { id: 'left', cell: [9, 1], main: '←', region: 'edit' },
-  { id: 'down', cell: [9, 2], main: '↓', region: 'edit' },
-  { id: 'up', cell: [9, 3], main: '↑', region: 'edit' },
-  { id: 'right', cell: [9, 7], main: '→', region: 'edit' },
+  // Space bar (a plain black bar on the Model B).
+  { id: 'space', cell: [2, 6], main: '' },
 ];
 
 export const BBC_KEY_INDEX: ReadonlyMap<string, BbcKeyDef> =

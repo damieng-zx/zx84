@@ -12,7 +12,10 @@ import type {
 import type { MachineModel } from '@/models.ts';
 import type { BbcModel } from './models.ts';
 import { BbcMachine } from './bbc-machine.ts';
-import { BBC_SCREEN_HEIGHT, BBC_SCREEN_WIDTH } from './constants.ts';
+import {
+  BBC_ACTIVE_HEIGHT, BBC_ACTIVE_WIDTH, BBC_BORDER_LEFT, BBC_BORDER_TOP,
+  BBC_SCREEN_HEIGHT, BBC_SCREEN_WIDTH,
+} from './constants.ts';
 
 const BBC_UI: MachineUiCapabilities = {
   hiddenPanes: [
@@ -59,12 +62,12 @@ export function bbcDescriptor(
     screen: {
       width: BBC_SCREEN_WIDTH,
       height: BBC_SCREEN_HEIGHT,
-      // Square-ish pixels: the 640x512 buffer presents as 4:3 like the BBC.
+      // Square-ish pixels: the 640x512 picture presents as 4:3 like the BBC.
       pixelAspectX: 1,
-      activeWidth: BBC_SCREEN_WIDTH,
-      activeHeight: BBC_SCREEN_HEIGHT,
-      borderLeft: 0,
-      borderTop: 0,
+      activeWidth: BBC_ACTIVE_WIDTH,
+      activeHeight: BBC_ACTIVE_HEIGHT,
+      borderLeft: BBC_BORDER_LEFT,
+      borderTop: BBC_BORDER_TOP,
     },
     ui: BBC_UI,
   };

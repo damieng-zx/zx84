@@ -6,7 +6,7 @@
 import { describe, it, expect } from 'vitest';
 import { BbcMachine } from '@/machines/bbc/bbc-machine.ts';
 import { BbcDfs1770 } from '@/machines/bbc/peripherals/wd1770-dfs.ts';
-import { parseSsd, serializeSsd, SSD_TRACK_BYTES } from '@/media/floppy/ssd.ts';
+import { blankSsd, parseSsd, serializeSsd, SSD_TRACK_BYTES } from '@/media/floppy/ssd.ts';
 
 const SECTOR = 256;
 const SPT = 10;
@@ -38,6 +38,44 @@ describe('ssd codec', () => {
     expect(img.numSides).toBe(2);
     expect(img.tracks[0]![0]!.sectors[0].data[0]).toBe(0x11);
     expect(img.tracks[0]![1]!.sectors[0].data[0]).toBe(0x22);
+  });
+
+  it('keeps the partial final track of a truncated image', () => {
+    // 12 whole tracks plus 3 sectors of track 12 (sector 2 starts with 0x5C).
+    const data = new Uint8Array(SSD_TRACK_BYTES * 12 + 3 * SECTOR);
+    data[SSD_TRACK_BYTES * 12 + 2 * SECTOR] = 0x5C;
+    const img = parseSsd(data, false);
+    expect(img.tracks[12]?.[0]?.sectors[2].data[0]).toBe(0x5C);
+    // The missing sectors of that track still exist (read as filler).
+    expect(img.tracks[12]?.[0]?.sectors.length).toBe(SPT);
+  });
+
+  it('pads a truncated image to the 80 tracks its catalogue declares', () => {
+    const data = new Uint8Array(SSD_TRACK_BYTES * 14);
+    data[SECTOR + 6] = 0x03;              // 0x320 = 800 sectors = 80 tracks
+    data[SECTOR + 7] = 0x20;
+    const img = parseSsd(data, false);
+    expect(img.numTracks).toBe(80);
+    expect(img.tracks[79]?.[0]?.sectors.length).toBe(SPT);
+  });
+
+  it('pads a short image with a 40-track catalogue to 40 tracks', () => {
+    const data = new Uint8Array(SSD_TRACK_BYTES * 3);
+    data[SECTOR + 6] = 0x01;              // 0x190 = 400 sectors = 40 tracks
+    data[SECTOR + 7] = 0x90;
+    expect(parseSsd(data, false).numTracks).toBe(40);
+  });
+
+  it('formats a blank disc with an empty catalogue declaring every sector', () => {
+    const img = blankSsd(80, false);
+    expect(img.numTracks).toBe(80);
+    const cat1 = img.tracks[0]![0]!.sectors[1].data;
+    expect(cat1[5]).toBe(0);              // no files
+    expect(((cat1[6] & 3) << 8) | cat1[7]).toBe(800);
+    const ds = blankSsd(40, true);
+    expect(ds.numSides).toBe(2);
+    const side1 = ds.tracks[0]![1]!.sectors[1].data;
+    expect(((side1[6] & 3) << 8) | side1[7]).toBe(400);
   });
 
   it('round-trips through serialize', () => {

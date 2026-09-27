@@ -20,9 +20,11 @@ export class BbcKeyboard {
   private readonly cells = new Set<number>();
 
   /** Fitted keyboard option links (row 0, columns 2-9; bit 0 = column 2). The
-   *  MOS reads these at power-on to pick the default screen mode and boot
-   *  options. 0x1F is the standard Model B/DFS configuration (boots in Mode 7). */
-  links = 0x1F;
+   *  MOS reads these at power-on into the *FX255 startup byte, inverted and
+   *  bit-reversed (column 9 = bit 0). None fitted gives &FF — Mode 7, and
+   *  SHIFT+BREAK auto-boots the disc — the standard Model B configuration.
+   *  (0x1F would read as &07: a plain BREAK boots, SHIFT+BREAK doesn't.) */
+  links = 0x00;
 
   /** Press/release a raw matrix cell — used by the on-screen keyboard. */
   setCell(column: number, row: number, down: boolean): void {

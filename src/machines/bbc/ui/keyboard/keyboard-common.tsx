@@ -8,14 +8,21 @@ import { BBC_KEYS, type BbcKeyDef } from './layout.ts';
 
 const cellId = (column: number, row: number): number => (column << 3) | row;
 
+export type BbcLed = 'motor' | 'caps' | 'shift';
+
 export interface BbcKeyboardController {
   isDown(key: BbcKeyDef): boolean;
   onDown(key: BbcKeyDef): void;
   onUp(key: BbcKeyDef): void;
+  /** Whether an indicator lamp (cassette motor / CAPS LOCK / SHIFT LOCK) is lit. */
+  ledOn(led: BbcLed): boolean;
 }
 
 export function useBbcKeyboard(): BbcKeyboardController {
   const [pressed, setPressed] = createSignal<ReadonlySet<number>>(new Set());
+  const [capsLed, setCapsLed] = createSignal(false);
+  const [shiftLed, setShiftLed] = createSignal(false);
+  const [motorLed, setMotorLed] = createSignal(false);
   const held = new Set<number>();
   const keyboard = () => activeBbc()?.keyboard ?? null;
 
@@ -29,6 +36,9 @@ export function useBbcKeyboard(): BbcKeyboardController {
     if (held.has(id)) return;
     held.add(id);
     kb.setCell(key.cell[0], key.cell[1], true);
+    // Raise the keyboard interrupt (CA2) as a host key press does — the MOS
+    // only scans the matrix after it, so without this clicks go unseen.
+    activeBbc()?.keyboardActivity();
   };
 
   const onUp = (key: BbcKeyDef): void => {
@@ -37,12 +47,18 @@ export function useBbcKeyboard(): BbcKeyboardController {
     const id = cellId(key.cell[0], key.cell[1]);
     if (!held.delete(id) || !kb) return;
     kb.setCell(key.cell[0], key.cell[1], false);
+    activeBbc()?.keyboardActivity();
   };
 
   onMount(() => {
     let raf = 0;
     const tick = () => {
       const kb = keyboard();
+      const bbc = activeBbc();
+      setCapsLed(bbc?.ic32.capsLock ?? false);
+      setShiftLed(bbc?.ic32.shiftLock ?? false);
+      // Serial ULA control bit 7 switches the cassette motor relay (and lamp).
+      setMotorLed(((bbc?.serialUlaControl ?? 0) & 0x80) !== 0);
       const next = new Set<number>();
       if (kb) {
         for (const key of BBC_KEYS) {
@@ -66,5 +82,8 @@ export function useBbcKeyboard(): BbcKeyboardController {
     });
   });
 
-  return { isDown, onDown, onUp };
+  const ledOn = (led: BbcLed): boolean =>
+    led === 'caps' ? capsLed() : led === 'shift' ? shiftLed() : motorLed();
+
+  return { isDown, onDown, onUp, ledOn };
 }

@@ -11,6 +11,9 @@ import { Saa5050, createSaa5050Cells } from '@/cores/saa5050.ts';
 import { SAA5050_FONT, SAA5050_GLYPH_ROWS } from '@/cores/saa5050-font.ts';
 import { BbcMachine } from '@/machines/bbc/bbc-machine.ts';
 import { writeIc32 } from '@/machines/bbc/bbc-io.ts';
+import {
+  BBC_BORDER_LEFT, BBC_BORDER_TOP, BBC_SCREEN_WIDTH,
+} from '@/machines/bbc/constants.ts';
 
 function makeBbc(): BbcMachine {
   return new BbcMachine('bbc-b', null);
@@ -200,9 +203,14 @@ describe('bbc — keyboard', () => {
   it('exposes the fitted option links on row 0', () => {
     const m = makeBbc();
     try {
-      // Default 0x1F: link bit 0 (column 2) fitted, bit 7 (column 9) open.
+      // A stock Model B has no links fitted (*FX255 reads &FF: Mode 7, and
+      // SHIFT+BREAK boots), so row 0 columns 2-9 read open.
+      for (let col = 2; col <= 9; col++) expect(m.keyboard.isDown(col, 0)).toBe(false);
+      // Link bit 0 is column 2, bit 7 column 9.
+      m.keyboard.links = 0x81;
       expect(m.keyboard.isDown(2, 0)).toBe(true);
-      expect(m.keyboard.isDown(9, 0)).toBe(false);
+      expect(m.keyboard.isDown(3, 0)).toBe(false);
+      expect(m.keyboard.isDown(9, 0)).toBe(true);
     } finally {
       m.destroy();
     }
@@ -238,13 +246,19 @@ describe('bbc — keyboard', () => {
 });
 
 describe('bbc — sound', () => {
-  it('routes System VIA port A writes to the SN76489 when enabled', () => {
+  it('latches the port A byte into the SN76489 when IC32 latch 0 strobes /WE', () => {
     const m = makeBbc();
     try {
-      writeIc32(m, 0x00, 0x0F);   // IC32 latch 0 = 0 -> sound chip enabled
-      m.sysVia.ddra = 0xFF;       // all port A bits outputs (slow sound bus)
+      const written: number[] = [];
+      const write = m.psg.write.bind(m.psg);
+      m.psg.write = (v: number) => { written.push(v); write(v); };
+      // The MOS sequence: byte onto the slow bus first, then /WE low, then high.
+      m.sysVia.ddra = 0xFF;             // all port A bits outputs (slow bus)
       m.memory.writeByte(0xFE4F, 0x8F);
-      expect(m.activity.psgWrites).toBe(1);
+      expect(written).toEqual([]);      // not yet strobed
+      writeIc32(m, 0x00, 0x0F);         // latch 0 = 0 -> /WE low
+      writeIc32(m, 0x08, 0x0F);         // latch 0 = 1 -> /WE high
+      expect(written).toEqual([0x8F]);
     } finally {
       m.destroy();
     }
@@ -268,18 +282,21 @@ describe('bbc — bitmap modes', () => {
     m.videoUlaControl = 0x89;   // 40 cols, low clock -> mode 4 (2 colours)
     m.crtc.regs[1] = 40;        // MA units per line
     m.crtc.regs[6] = 32;        // character rows
+    m.crtc.regs[9] = 7;         // 8 scanlines per character row
     m.crtc.regs[12] = 0x0B;     // display start 0xB00 -> 0x5800
     m.crtc.regs[13] = 0x00;
     m.palette[0] = 0;
     m.palette[1] = 7;
   }
 
-  const firstY = (512 - 256) / 2;   // 256-line mode centred in the 512 buffer
+  // 32 rows x 8 scanlines, each drawn twice, exactly fill the 512-line picture.
+  // Coordinates below are within the picture; the helpers add the border.
+  const firstY = 0;
 
   function rowOn(m: BbcMachine, y: number, x0: number, x1: number): number {
     let n = 0;
     for (let x = x0; x < x1; x++) {
-      const i = (y * 640 + x) * 4;
+      const i = ((y + BBC_BORDER_TOP) * BBC_SCREEN_WIDTH + x + BBC_BORDER_LEFT) * 4;
       if (m.pixels[i] | m.pixels[i + 1] | m.pixels[i + 2]) n++;
     }
     return n;
@@ -293,8 +310,31 @@ describe('bbc — bitmap modes', () => {
       m.video.render(m);
       // A 320-wide mode is doubled to 640, so the 8-pixel cell covers x 0-15.
       expect(rowOn(m, firstY, 0, 16)).toBe(16);
+      // Each scanline is doubled into the 512-line buffer.
+      expect(rowOn(m, firstY + 1, 0, 16)).toBe(16);
       // Scanline 1 lives in the NEXT byte, not the next 40-pixel run.
-      expect(rowOn(m, firstY + 1, 0, 16)).toBe(0);
+      expect(rowOn(m, firstY + 2, 0, 16)).toBe(0);
+    } finally {
+      m.destroy();
+    }
+  });
+
+  it('blanks the two gap scanlines of a 10-line text-mode row (modes 3/6)', () => {
+    const m = makeBbc();
+    try {
+      setupMode4(m);
+      m.crtc.regs[6] = 25;        // 25 rows ...
+      m.crtc.regs[9] = 9;         // ... of 10 scanlines (8 lit + 2 blank)
+      // Fill the whole first row so every scanline 0-7 is lit.
+      for (let i = 0; i < 40 * 8; i++) m.memory.ram[0x5800 + i] = 0xFF;
+      m.video.render(m);
+      // 250 scanlines doubled = 500 lines, centred: 6 lines of border on top.
+      const top = (512 - 500) / 2;
+      expect(rowOn(m, top - 1, 0, 16)).toBe(0);
+      expect(rowOn(m, top, 0, 16)).toBe(16);
+      expect(rowOn(m, top + 15, 0, 16)).toBe(16);   // scanline 7, second copy
+      expect(rowOn(m, top + 16, 0, 16)).toBe(0);    // scanline 8: gap
+      expect(rowOn(m, top + 19, 0, 16)).toBe(0);    // scanline 9: gap
     } finally {
       m.destroy();
     }
@@ -343,7 +383,7 @@ describe('bbc — bitmap modes', () => {
 
   /** Physical colour index at framebuffer (x, y), recovered from the RGBA. */
   function physAt(m: BbcMachine, x: number, y: number): number {
-    const i = (y * 640 + x) * 4;
+    const i = ((y + BBC_BORDER_TOP) * BBC_SCREEN_WIDTH + x + BBC_BORDER_LEFT) * 4;
     const pal = [
       [0, 0, 0], [255, 0, 0], [0, 255, 0], [255, 255, 0],
       [0, 0, 255], [255, 0, 255], [0, 255, 255], [255, 255, 255],
@@ -361,6 +401,7 @@ describe('bbc — bitmap modes', () => {
       m.videoUlaControl = 0x18;
       m.crtc.regs[1] = 40;
       m.crtc.regs[6] = 32;
+      m.crtc.regs[9] = 7;
       m.crtc.regs[12] = 0x0B;     // display start 0xB00 -> 0x5800
       m.crtc.regs[13] = 0x00;
       for (let i = 0; i < 4; i++) m.palette[i] = i;
@@ -385,6 +426,7 @@ describe('bbc — bitmap modes', () => {
       m.videoUlaControl = 0x14;
       m.crtc.regs[1] = 40;
       m.crtc.regs[6] = 32;
+      m.crtc.regs[9] = 7;
       m.crtc.regs[12] = 0x0B;
       m.crtc.regs[13] = 0x00;
       for (let i = 0; i < 16; i++) m.palette[i] = i % 8;

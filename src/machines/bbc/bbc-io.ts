@@ -29,7 +29,15 @@ export function writeIc32(m: BbcMachine, value: number, ddr: number): void {
   const latch = v & 7;
   const data = (v >> 3) & 1;
   switch (latch) {
-    case 0: m.ic32.soundEnabled = data === 0; break;
+    case 0: {
+      // /WE of the SN76489 (active low). The MOS puts the byte on the slow
+      // data bus (System VIA port A) first, then pulses this line low: the
+      // chip latches whatever port A is driving on the falling edge.
+      const enable = data === 0;
+      if (enable && !m.ic32.soundEnabled) writeSound(m, slowBusValue(m));
+      m.ic32.soundEnabled = enable;
+      break;
+    }
     case 1: case 2: break;                       // speech processor
     case 3: m.ic32.keyboardScan = data === 1; break;
     case 4: m.ic32.c0 = data; break;
@@ -37,6 +45,17 @@ export function writeIc32(m: BbcMachine, value: number, ddr: number): void {
     case 6: m.ic32.capsLock = data === 0; break;
     case 7: m.ic32.shiftLock = data === 0; break;
   }
+}
+
+/** The byte System VIA port A drives onto the slow data bus (undriven bits
+ *  are pulled high). */
+function slowBusValue(m: BbcMachine): number {
+  return (m.sysVia.ora & m.sysVia.ddra) | (~m.sysVia.ddra & 0xFF);
+}
+
+function writeSound(m: BbcMachine, value: number): void {
+  m.psg.write(value);
+  m.activity.psgWrites++;
 }
 
 /** System VIA port A bit 7 as seen by the keyboard interrogate routine: high
@@ -137,12 +156,13 @@ export function wireBbcIo(m: BbcMachine): void {
   m.memory.ioRead = (addr) => readBbcIo(m, addr);
   m.memory.ioWrite = (addr, val) => writeBbcIo(m, addr, val);
 
-  // System VIA port A is the slow bus: sound writes go to the SN76489 when the
-  // IC32 latch has the sound chip enabled. In keyboard mode (DDRA bit 7 clear)
+  // System VIA port A is the slow bus: sound bytes reach the SN76489 when
+  // IC32 latch 0 strobes its /WE (see writeIc32). In keyboard mode (DDRA bit 7 clear)
   // writing port A selects a matrix cell, and the keyboard asserts CA2 when
   // that cell is pressed — this is what the MOS's manual scan tests.
   m.sysVia.onPortAWrite = (value, ddr) => {
-    if (m.ic32.soundEnabled) { m.psg.write(value); m.activity.psgWrites++; }
+    // With /WE already held low the chip follows the bus as it changes.
+    if (m.ic32.soundEnabled) writeSound(m, (value & ddr) | (~ddr & 0xFF));
     if ((ddr & 0x80) === 0) {
       m.sysVia.setCA2(m.keyboard.anyInColumn(value & 0x0F));
     }

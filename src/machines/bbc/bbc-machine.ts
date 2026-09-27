@@ -21,13 +21,14 @@ import type {
 } from '@/machines/machine.ts';
 import type { OcrResult } from '@/ocr/ocr.ts';
 import {
-  BbcScreenText, BBC_MODE7_CELL_H, BBC_MODE7_CELL_W,
-  BBC_MODE7_ORIGIN_X, BBC_MODE7_ORIGIN_Y,
+  BbcScreenText, BBC_FONT_BYTES, BBC_MODE7_CELL_H, BBC_MODE7_CELL_W, BBC_MODE7_COLS,
+  BBC_MODE7_ORIGIN_X, BBC_MODE7_ORIGIN_Y, BBC_MODE7_ROWS, bbcBitmapCols, ocrBbcBitmap,
+  type BbcBitmapOcrInput,
 } from '@/ocr/bbc.ts';
 import type { BbcModel, BbcDiskSystem } from './models.ts';
 import { BbcMemory } from './bbc-memory.ts';
 import { BbcKeyboard } from './bbc-keyboard.ts';
-import { BbcVideo } from './bbc-video.ts';
+import { BbcVideo, bitmapMode, wrapSubtract } from './bbc-video.ts';
 import { BbcDfs1770 } from './peripherals/wd1770-dfs.ts';
 import { BbcAcornDfs } from './peripherals/acorn-8271-dfs.ts';
 import type { BbcDiscController } from './peripherals/disc-controller.ts';
@@ -35,12 +36,16 @@ import { wireBbcIo } from './bbc-io.ts';
 import { bbcDescriptor } from './descriptor.ts';
 import { createBbcServices, type BbcServices } from './services/index.ts';
 import {
+  BBC_ACTIVE_HEIGHT, BBC_ACTIVE_WIDTH, BBC_BORDER_LEFT, BBC_BORDER_TOP,
   BBC_CPU_CLOCK, BBC_SCREEN_HEIGHT, BBC_SCREEN_WIDTH, BBC_SOUND_CLOCK,
   BBC_TSTATES_PER_FRAME,
 } from './constants.ts';
 
 /** PAL scanlines per frame. */
 const LINES_PER_FRAME = 312;
+/** How long a SHIFT+BREAK holds SHIFT — the MOS samples it early in its reset
+ *  sequence; half a second covers it with margin, like a real key press. */
+const BOOT_SHIFT_FRAMES = 25;
 
 /** IC32 addressable-latch outputs (active levels per the MOS docs). */
 export interface BbcIc32 {
@@ -95,7 +100,8 @@ export class BbcMachine extends BaseMachine implements Machine {
     return this.diskSystem === 'acorn' ? this.acorn8271 : this.fdc1770;
   }
 
-  private borderMode: BorderMode = 2;
+  /** Frames left holding SHIFT for a SHIFT+BREAK disc boot. */
+  private bootShiftFrames = 0;
   private viaAccum = 0;
   private prevVsync = false;
 
@@ -174,10 +180,15 @@ export class BbcMachine extends BaseMachine implements Machine {
     this.diskSystem = view.get<BbcDiskSystem>('bbc-disk-system', '1770');
   }
 
+  /** The border is always black and fully rendered; the setting crops it:
+   *  Normal shows it all, Small half, None just the 640×512 picture. */
   setBorderSize(mode: BorderMode): void {
-    this.borderMode = mode;
-    void this.borderMode;
-    this.display?.setViewport(0, 0, BBC_SCREEN_WIDTH, BBC_SCREEN_HEIGHT);
+    const frac = mode === 2 ? 1 : mode === 1 ? 0.5 : 0;
+    const cropX = Math.round(BBC_BORDER_LEFT * (1 - frac));
+    const cropY = Math.round(BBC_BORDER_TOP * (1 - frac));
+    this.display?.setViewport(
+      cropX, cropY, BBC_SCREEN_WIDTH - cropX * 2, BBC_SCREEN_HEIGHT - cropY * 2,
+    );
   }
 
   /** A key changed: pulse CA2 (keyboard) when auto-scan is enabled. */
@@ -189,6 +200,31 @@ export class BbcMachine extends BaseMachine implements Machine {
 
   reset(): void {
     this.stop();
+    this.resetHardware();
+    this.setStatus('Reset');
+  }
+
+  /** SHIFT+BREAK: reset and hold SHIFT while the MOS starts up, so the DFS
+   *  auto-boots the disc in drive 0 (its !BOOT file, per the boot option).
+   *  Safe while running: it only touches the hardware between frames. */
+  bootDisc(): void {
+    this.resetHardware();
+    this.holdShiftForBoot();
+    this.setStatus('SHIFT+BREAK: booting drive 0');
+  }
+
+  /** Library one-click play: the shell has just reset the machine. */
+  armBootTrap(kind: 'menu' | 'rom48k' | 'disk'): void {
+    if (kind === 'disk') this.holdShiftForBoot();
+  }
+
+  private holdShiftForBoot(): void {
+    this.keyboard.setCell(0, 0, true);
+    this.bootShiftFrames = BOOT_SHIFT_FRAMES;
+  }
+
+  private resetHardware(): void {
+    this.bootShiftFrames = 0;
     this.cpu.reset();
     this.memory.reset();
     this.crtc.reset();
@@ -215,7 +251,6 @@ export class BbcMachine extends BaseMachine implements Machine {
     this.audio.reset();
     this.mixer.reset();
     this.needsDisplay = true;
-    this.setStatus('Reset');
   }
 
   protected framePixels(): Uint8Array { return this.video.pixels; }
@@ -279,6 +314,9 @@ export class BbcMachine extends BaseMachine implements Machine {
 
     this.video.render(this);
     this.disc?.tickFrame();
+    if (this.bootShiftFrames > 0 && --this.bootShiftFrames === 0) {
+      this.keyboard.setCell(0, 0, false);
+    }
     this.needsDisplay = true;
   }
 
@@ -292,10 +330,56 @@ export class BbcMachine extends BaseMachine implements Machine {
   /** True while the Video ULA is in teletext (Mode 7). */
   private isMode7(): boolean { return (this.videoUlaControl & 0x02) !== 0; }
 
-  /** Mode 7 screen text for the MCP `ocr` tool. Bitmap modes 0-6 draw 8×8 OS
-   *  font glyphs and are not transcribed yet, so they report an empty screen. */
+  /** Where the current mode's character grid sits in the frame buffer. In the
+   *  bitmap modes a character is 8 pixels of the mode across the 640-pixel
+   *  picture, and its 8 glyph lines are doubled (16 buffer lines) within a row
+   *  pitch of R9+1 scanlines (10 in the gapped modes 3 and 6). */
+  textLayout(): {
+    cols: number; rows: number; x: number; y: number;
+    cellW: number; cellH: number; glyphH: number;
+  } {
+    if (this.isMode7()) {
+      return {
+        cols: BBC_MODE7_COLS, rows: BBC_MODE7_ROWS,
+        x: BBC_BORDER_LEFT + BBC_MODE7_ORIGIN_X, y: BBC_BORDER_TOP + BBC_MODE7_ORIGIN_Y,
+        cellW: BBC_MODE7_CELL_W, cellH: BBC_MODE7_CELL_H, glyphH: BBC_MODE7_CELL_H,
+      };
+    }
+    const { bpp } = bitmapMode(this.video.screenMode(this));
+    const cols = Math.max(1, bbcBitmapCols(this.crtc.regs[1], bpp));
+    const rows = this.crtc.regs[6];
+    const cellH = ((this.crtc.regs[9] & 0x1F) + 1) * 2;
+    return {
+      cols, rows,
+      x: BBC_BORDER_LEFT,
+      y: BBC_BORDER_TOP + ((BBC_ACTIVE_HEIGHT - rows * cellH) >> 1),
+      cellW: BBC_ACTIVE_WIDTH / cols, cellH, glyphH: 16,
+    };
+  }
+
+  /** Bitmap-mode OCR input: the display plus the MOS font from the OS ROM. */
+  private bitmapOcrInput(): BbcBitmapOcrInput {
+    return {
+      ram: this.memory.ram,
+      displayStart: this.crtc.displayStart,
+      stride: this.crtc.regs[1],
+      rows: this.crtc.regs[6],
+      bpp: bitmapMode(this.video.screenMode(this)).bpp,
+      wrapSubtract: wrapSubtract(this.ic32.c0, this.ic32.c1),
+      font: this.memory.osRom.subarray(0, BBC_FONT_BYTES),
+      logicalToPhysical: this.palette,
+      palette: this.video.activePalette(),
+    };
+  }
+
+  /** Screen text for the MCP `ocr` tool: Mode 7 is read from the teletext
+   *  bytes, the bitmap modes are matched against the MOS font. */
   ocrScreenForMcp(_mode?: string): string {
-    if (!this.isMode7()) return '';
+    if (!this.isMode7()) {
+      const rows = ocrBbcBitmap(this.bitmapOcrInput()).text.split('\n').map(r => r.replace(/\s+$/, ''));
+      while (rows.length > 0 && rows[rows.length - 1] === '') rows.pop();
+      return rows.join('\n');
+    }
     return this.screenText.ocr({
       ram: this.memory.ram,
       displayStart: this.crtc.displayStart,
@@ -304,16 +388,9 @@ export class BbcMachine extends BaseMachine implements Machine {
     });
   }
 
-  /** Styled Mode 7 OCR (text + coloured HTML + match mask) for the TEXT
-   *  overlay. Returns an empty match set in the bitmap modes. */
+  /** Styled OCR (text + coloured HTML + match mask + paper) for the TEXT overlay. */
   ocrScreenStyled(): OcrResult {
-    if (!this.isMode7()) {
-      return {
-        text: '', html: '', mask: [], paper: [],
-        grid: '40x25',
-        cellWidth: BBC_MODE7_CELL_W, cellHeight: BBC_MODE7_CELL_H, cols: 0, rows: 0,
-      };
-    }
+    if (!this.isMode7()) return ocrBbcBitmap(this.bitmapOcrInput());
     return this.screenText.ocrStyled({
       ram: this.memory.ram,
       displayStart: this.crtc.displayStart,
@@ -322,24 +399,26 @@ export class BbcMachine extends BaseMachine implements Machine {
     });
   }
 
-  /** Blank the matched character cells in the framebuffer to their paper colour
-   *  so the crisp overlay glyphs replace the underlying teletext bitmap. `mask`
-   *  is row-major `cols×rows` over the Mode 7 window. */
+  /** Blank the matched character cells in the framebuffer to their (physical)
+   *  paper colour so the crisp overlay glyphs replace the bitmap underneath.
+   *  `mask` is row-major `cols×rows` over the current mode's text grid. */
   blankCells(mask: boolean[], cols: number, rows: number, paper?: number[]): void {
     const px = new Uint32Array(this.video.pixels.buffer);
     const pal = this.video.activePalette();
     const w = this.frameWidth;
+    const g = this.textLayout();
+    const cw = Math.round(g.cellW);
     for (let row = 0; row < rows; row++) {
-      const y0 = BBC_MODE7_ORIGIN_Y + row * BBC_MODE7_CELL_H;
-      if (y0 + BBC_MODE7_CELL_H > this.frameHeight) break;
+      const y0 = g.y + row * g.cellH;
+      if (y0 < 0 || y0 + g.glyphH > this.frameHeight) continue;
       for (let col = 0; col < cols; col++) {
         if (!mask[row * cols + col]) continue;
-        const x0 = BBC_MODE7_ORIGIN_X + col * BBC_MODE7_CELL_W;
-        if (x0 + BBC_MODE7_CELL_W > w) continue;
+        const x0 = g.x + Math.round(col * g.cellW);
+        if (x0 + cw > w) continue;
         const fill = pal[(paper ? paper[row * cols + col] : 0) & 7];
-        for (let y = 0; y < BBC_MODE7_CELL_H; y++) {
+        for (let y = 0; y < g.glyphH; y++) {
           const base = (y0 + y) * w + x0;
-          px.fill(fill, base, base + BBC_MODE7_CELL_W);
+          px.fill(fill, base, base + cw);
         }
       }
     }

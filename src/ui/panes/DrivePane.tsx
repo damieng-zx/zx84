@@ -31,6 +31,7 @@ import { DISK_FORMATS, formatLabel, createBlankDisk } from '@/media/floppy/dsk.t
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { createBlankHfe } from '@/media/floppy/hfe.ts';
 import { blankLdfDisk } from '@/media/floppy/ldf-image.ts';
+import { blankSsd } from '@/media/floppy/ssd.ts';
 import type { DriveStatus } from '@/state/disk-state.ts';
 import { openFile } from '@/ui/file-picker.ts';
 
@@ -213,6 +214,18 @@ const LYNX_NEW_ITEMS = [
   { value: 'ldf', label: 'LDF image', children: LYNX_GEOMETRIES.map((g, i) => ({ value: `ldf-${i}`, label: g.label })) },
 ];
 
+// The BBC saves raw Acorn DFS sector dumps (10 × 256-byte sectors), so its
+// drives offer blank DFS discs: .ssd single sided, .dsd double sided.
+const DFS_GEOMETRIES = [
+  { label: 'Blank 100K SS/40T', tracks: 40, sides: 1 },
+  { label: 'Blank 200K SS/80T', tracks: 80, sides: 1 },
+  { label: 'Blank 200K DS/40T', tracks: 40, sides: 2 },
+  { label: 'Blank 400K DS/80T', tracks: 80, sides: 2 },
+] as const;
+const DFS_NEW_ITEMS = [
+  { value: 'dfs', label: 'DFS image', children: DFS_GEOMETRIES.map((g, i) => ({ value: `dfs-${i}`, label: g.label })) },
+];
+
 /** Resolve an `ldf-N` menu value to its geometry, or null for any other value. */
 function lynxBlankForValue(value: string): { tracks: number; sides: number } | null {
   if (!value.startsWith('ldf-')) return null;
@@ -228,6 +241,10 @@ function blankForValue(value: string): { image: DskImage; label: string } | null
       image: blankLdfDisk(ldf.tracks, ldf.sides),
       label: `Blank ${ldf.tracks === 40 ? '200K' : '800K'}`,
     };
+  }
+  if (value.startsWith('dfs-')) {
+    const g = DFS_GEOMETRIES[parseInt(value.slice(4))];
+    return g ? { image: blankSsd(g.tracks, g.sides === 2), label: g.label } : null;
   }
   return blankForNewDiskValue(value);
 }
@@ -327,9 +344,13 @@ export function DrivePane() {
   const builtinFourDrives = () =>
     builtinDisk() && (machineCaps().builtinDrives ?? 2) > 2;
   // The built-in drives' blank-disk menu is the machine's own disk format: the
-  // Lynx accepts .ldf, everything else here uses the +3 DSK/HFE set.
-  const builtinDiskItems = () =>
-    machine?.services.media.accepts().some(t => t.ext === '.ldf') ? LYNX_NEW_ITEMS : PLUS3_NEW_ITEMS;
+  // Lynx accepts .ldf, the BBC .ssd, everything else here uses the +3 DSK/HFE set.
+  const builtinDiskItems = () => {
+    const accepts = machine?.services.media.accepts() ?? [];
+    if (accepts.some(t => t.ext === '.ldf')) return LYNX_NEW_ITEMS;
+    if (accepts.some(t => t.ext === '.ssd')) return DFS_NEW_ITEMS;
+    return PLUS3_NEW_ITEMS;
+  };
 
   return (
     <Pane id="drive-panel" label="Drives" mono visible={builtinDisk() || plusDActive() || betaDiskActive()} onResetSettings={() => {
