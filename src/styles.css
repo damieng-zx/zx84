@@ -257,9 +257,10 @@ body.cpc-mode .section-label::after {
   );
 }
 
-/* Einstein/MSX mode: no rainbow — neither machine has a Sinclair heritage. */
+/* Einstein/MSX/BBC mode: no rainbow — none of them has a Sinclair heritage. */
 body.einstein-mode .section-label::after,
-body.msx-mode .section-label::after {
+body.msx-mode .section-label::after,
+body.bbc-mode .section-label::after {
   content: none;
 }
 
@@ -478,6 +479,11 @@ body.msx-mode .section-label::after {
 .pane .slider-row .slider-label { color: #555; }
 /* The Jupiter Ace's RAM row spans both columns of the Hardware options grid. */
 .slider-row.ace-ram-row {
+  grid-column: 1 / -1;
+}
+
+/* The BBC's disc-system selector likewise spans the full options width. */
+.slider-row.bbc-disk-row {
   grid-column: 1 / -1;
 }
 
@@ -2015,12 +2021,24 @@ input[type="range"]::-moz-range-thumb {
   white-space: pre;
   overflow-y: auto;
   max-height: 400px;
+  /* One variable per row, two aligned columns: the name (sized to the longest)
+     and the value. The row is `display: contents` so both cells are direct
+     grid items and the "=" lines up down the pane — like the register panel. */
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  column-gap: 6px;
+  align-items: baseline;
 }
+
+#basic-vars-output .basic-var-row { display: contents; }
 
 #basic-vars-output .var-name {
   color: #6cf;
   font-weight: bold;
+  text-align: right;
 }
+
+#basic-vars-output .var-detail { color: #888; }
 
 /* Memory bank pane */
 
@@ -4385,3 +4403,114 @@ input[type="range"]::-moz-range-thumb {
   font-weight: 400;
 }
 .pcw-key--space .pcw-key__main { display: none; }
+
+/* ── BBC Micro Model B keyboard ─────────────────────────────────────────── */
+
+.bbc-keyboard {
+  --bbc-u: var(--keyboard-scene-px);
+  position: relative;
+  color: #f2f2f0;
+  font-family: Arial, Helvetica, sans-serif;
+}
+/* The keys sit in the machine's black recess; the backdrop is full-bleed so it
+   fills the pane rather than a centred strip. Nothing may declare
+   `container-type` between here and .keyboard-scene-frame, or 50cqw stops
+   meaning the pane's width. */
+.bbc-keyboard::before {
+  content: '';
+  position: absolute;
+  inset: var(--case-bleed);
+  background: linear-gradient(180deg, #1c1b19 0%, #141412 100%);
+}
+/* Caps sit edge to edge; each is a black moulding with a lighter top face. */
+.bbc-key {
+  overflow: hidden;
+  border: 1px solid #000;
+  border-radius: calc(var(--bbc-u) * 6);
+  background: linear-gradient(180deg, #3a3835 0%, #262422 55%, #181715 100%);
+  box-shadow:
+    inset 0 calc(var(--bbc-u) * 1.5) 0 rgba(255,255,255,0.12),
+    inset 0 calc(var(--bbc-u) * -2) calc(var(--bbc-u) * 3) rgba(0,0,0,0.5);
+  color: #f4f4f2;
+  cursor: pointer;
+  user-select: none;
+  touch-action: none;
+  transition: filter 0.06s ease, transform 0.05s ease;
+}
+/* The red function keys f0-f9. */
+.bbc-key--function {
+  background: linear-gradient(180deg, #e0562f 0%, #c23b1c 55%, #962a13 100%);
+  color: #fff;
+}
+/* COPY and the cursor keys are a very dark olive. */
+.bbc-key--cursor {
+  background: linear-gradient(180deg, #3d3f22 0%, #2c2e17 55%, #1d1e0e 100%);
+  color: #f4f4f2;
+}
+.bbc-key:hover { filter: brightness(1.15); }
+.bbc-key.pressed {
+  filter: brightness(0.7);
+  transform: translateY(calc(var(--bbc-u) * 1.5));
+}
+
+.bbc-key__main,
+.bbc-key__shift { position: absolute; pointer-events: none; }
+.bbc-key__main {
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.02;
+  font-size: calc(var(--bbc-u) * 15);
+  font-weight: 700;
+}
+/* A cap with one legend (the letters, 0, @, the arrows) prints it large. */
+.bbc-key--single .bbc-key__main { font-size: calc(var(--bbc-u) * 20); }
+.bbc-key--shifted .bbc-key__main {
+  justify-content: flex-end;
+  padding-bottom: calc(var(--bbc-u) * 3);
+  font-size: calc(var(--bbc-u) * 14);
+}
+.bbc-key__shift {
+  top: calc(var(--bbc-u) * 3);
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: calc(var(--bbc-u) * 13);
+  font-weight: 700;
+}
+.bbc-key--word .bbc-key__main {
+  font-size: calc(var(--bbc-u) * 7.5);
+  letter-spacing: calc(var(--bbc-u) * 0.3);
+}
+.bbc-key--function .bbc-key__main { font-size: calc(var(--bbc-u) * 13); }
+/* Cassette motor, CAPS LOCK and SHIFT LOCK lamps beside the space bar. */
+.bbc-leds {
+  display: flex;
+  align-items: center;
+  justify-content: space-evenly;
+  color: #c9c6bd;
+  font-size: calc(var(--bbc-u) * 5.5);
+  font-weight: 700;
+  letter-spacing: calc(var(--bbc-u) * 0.3);
+}
+.bbc-led {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(var(--bbc-u) * 1);
+  line-height: 1.1;
+}
+.bbc-led i {
+  width: calc(var(--bbc-u) * 8);
+  height: calc(var(--bbc-u) * 5);
+  margin-top: calc(var(--bbc-u) * 1.5);
+  border-radius: calc(var(--bbc-u) * 1.5);
+  background: #4a1510;
+  box-shadow: inset 0 0 calc(var(--bbc-u) * 1) rgba(0,0,0,0.6);
+}
+.bbc-led i.bbc-led--on {
+  background: #ff3b24;
+  box-shadow: 0 0 calc(var(--bbc-u) * 5) rgba(255,70,40,0.85);
+}

@@ -92,6 +92,18 @@ const CPC_CHARS: string[] = (() => {
   return t;
 })();
 
+// ── BBC Micro → Unicode character table ──────────────────────────────────
+//
+// The BBC's printable range is ASCII; only the backtick slot differs (the MOS
+// defines CHR$(96) as the pound sign).
+
+const BBC_CHARS: string[] = (() => {
+  const t = new Array<string>(256).fill('·');
+  for (let i = 0x20; i <= 0x7E; i++) t[i] = String.fromCharCode(i);
+  t[0x60] = '£';
+  return t;
+})();
+
 // ── Hex formatting helpers ───────────────────────────────────────────────
 
 const HEX = '0123456789ABCDEF';
@@ -190,7 +202,10 @@ export function MemoryPane() {
   let goInputEl!: HTMLInputElement;
 
   /** ASCII glyph table for the active machine. */
-  const chars = (): string[] => machineCaps().charset === 'cpc' ? CPC_CHARS : SPECTRUM_CHARS;
+  const chars = (): string[] => {
+    const charset = machineCaps().charset;
+    return charset === 'cpc' ? CPC_CHARS : charset === 'bbc' ? BBC_CHARS : SPECTRUM_CHARS;
+  };
 
   function bpr(): number { return mode() === 'ascii' ? BYTES_ASCII : BYTES_HEX; }
 

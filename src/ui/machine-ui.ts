@@ -90,6 +90,12 @@ const CONTRIBUTIONS: Record<string, MachineUiContribution> = {
     Keyboard: lazy(() =>
       import('@/machines/pcw/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
   },
+  bbc: {
+    HardwareSection: lazy(() =>
+      import('@/machines/bbc/ui/hardware-section.tsx').then(m => ({ default: m.BbcHardwareSection }))),
+    Keyboard: lazy(() =>
+      import('@/machines/bbc/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
+  },
 };
 
 /** The UI contributions for a machine kind (empty object when none registered). */

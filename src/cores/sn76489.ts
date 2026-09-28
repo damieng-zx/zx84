@@ -14,6 +14,26 @@
 
 export type Sn76489Variant = 'ti-15bit' | 'sega' | 'mtx';
 
+/**
+ * Stereo placement of the three tone channels, named left-centre-right (the
+ * same set the AY offers). The chip itself is mono — 'MONO' is the hardware —
+ * so the split is a presentation choice. The noise channel stays centred.
+ */
+export type Sn76489StereoMode = 'MONO' | 'ABC' | 'ACB' | 'BAC' | 'BCA' | 'CAB' | 'CBA';
+
+/** Left/right weight of each tone channel (A, B, C) for a stereo mode: the
+ *  first-named channel is hard left, the second centred, the third hard right. */
+function panWeights(mode: Sn76489StereoMode): { left: Float64Array; right: Float64Array } {
+  const left = new Float64Array(3);
+  const right = new Float64Array(3);
+  if (mode === 'MONO') return { left: left.fill(0.5), right: right.fill(0.5) };
+  const ch = (letter: string) => letter.charCodeAt(0) - 65;
+  left[ch(mode[0])] = 1;
+  left[ch(mode[1])] = 0.5; right[ch(mode[1])] = 0.5;
+  right[ch(mode[2])] = 1;
+  return { left, right };
+}
+
 export interface StereoPsgSample {
   left: number;
   right: number;
@@ -71,6 +91,15 @@ export class Sn76489 {
   private lpAlpha: number;
   private lpOutput = 0;
 
+  /** Tone-channel stereo placement (see Sn76489StereoMode). */
+  private stereoMode: Sn76489StereoMode = 'MONO';
+  private pan = panWeights('MONO');
+  /** Per-side AC-coupling and low-pass state for the stereo path. */
+  private readonly dcPrevLR = new Float64Array(2);
+  private readonly dcOutLR = new Float64Array(2);
+  private readonly lpOutLR = new Float64Array(2);
+  private readonly stereoOut: StereoPsgSample = { left: 0, right: 0 };
+
   // 'mute' anti-alias threshold: any tone period at or above this value
   // produces a frequency at or above Nyquist for the current sample rate —
   // still ultrasonic on real hardware, but aliasing down into the audible
@@ -106,6 +135,15 @@ export class Sn76489 {
     this.muteThresholdPeriod = Math.floor(this.clockHz / (16 * this.sampleRate));
   }
 
+  setStereoMode(mode: Sn76489StereoMode): void {
+    if (mode === this.stereoMode) return;
+    this.stereoMode = mode;
+    this.pan = panWeights(mode);
+    this.dcPrevLR.fill(0);
+    this.dcOutLR.fill(0);
+    this.lpOutLR.fill(0);
+  }
+
   /** Disable only for deterministic raw-waveform conformance tests. */
   setDcBlocking(enabled: boolean): void {
     this.dcBlocking = enabled;
@@ -128,6 +166,9 @@ export class Sn76489 {
     this.dcPrevious = 0;
     this.dcOutput = 0;
     this.lpOutput = 0;
+    this.dcPrevLR.fill(0);
+    this.dcOutLR.fill(0);
+    this.lpOutLR.fill(0);
   }
 
   /** Write one byte to the PSG data bus. */
@@ -152,26 +193,48 @@ export class Sn76489 {
     }
   }
 
+  /** Signed output of tone channel `channel` (±its volume). */
+  private toneLevel(channel: number): number {
+    const level = SN76489_VOLUME_TABLE[this.attenuation[channel]];
+    // 'mute' anti-alias: a tone at or above Nyquist for the current sample
+    // rate (see muteThresholdPeriod) is ultrasonic and inaudible on real
+    // hardware. Force the tone gate high so the channel contributes a
+    // steady level (DC, removed by AC coupling) instead of a tone that
+    // would alias down into an audible whine. This only reshapes the
+    // output stage — the tone/noise generators still clock at full rate,
+    // so noise-mode-3's sync off channel 2 is unaffected.
+    const ultrasonic = this.antialias === 'mute'
+      && this.effectiveTonePeriod(channel) <= this.muteThresholdPeriod;
+    const toneOut = ultrasonic ? 1 : this.toneOutput[channel];
+    return toneOut ? level : -level;
+  }
+
+  private noiseLevel(): number {
+    const level = SN76489_VOLUME_TABLE[this.attenuation[3]];
+    return this.noiseOutput ? level : -level;
+  }
+
   /** Current mono output before AC coupling, normalised to approximately ±1. */
   rawSample(): number {
     let mixed = 0;
-    for (let channel = 0; channel < 3; channel++) {
-      const level = SN76489_VOLUME_TABLE[this.attenuation[channel]];
-      // 'mute' anti-alias: a tone at or above Nyquist for the current sample
-      // rate (see muteThresholdPeriod) is ultrasonic and inaudible on real
-      // hardware. Force the tone gate high so the channel contributes a
-      // steady level (DC, removed by AC coupling) instead of a tone that
-      // would alias down into an audible whine. This only reshapes the
-      // output stage — the tone/noise generators still clock at full rate,
-      // so noise-mode-3's sync off channel 2 is unaffected.
-      const ultrasonic = this.antialias === 'mute'
-        && this.effectiveTonePeriod(channel) <= this.muteThresholdPeriod;
-      const toneOut = ultrasonic ? 1 : this.toneOutput[channel];
-      mixed += toneOut ? level : -level;
-    }
-    const noiseLevel = SN76489_VOLUME_TABLE[this.attenuation[3]];
-    mixed += this.noiseOutput ? noiseLevel : -noiseLevel;
+    for (let channel = 0; channel < 3; channel++) mixed += this.toneLevel(channel);
+    mixed += this.noiseLevel();
     return mixed * 0.25;
+  }
+
+  /** Current stereo output before AC coupling, into `stereoOut`. Each side
+   *  sums to at most two full channels (hard + half centre + half noise), so
+   *  halving keeps it at approximately ±1 like the mono mix. */
+  private rawStereo(out: StereoPsgSample): void {
+    const noiseHalf = this.noiseLevel() * 0.5;
+    let l = noiseHalf, r = noiseHalf;
+    for (let channel = 0; channel < 3; channel++) {
+      const v = this.toneLevel(channel);
+      l += v * this.pan.left[channel];
+      r += v * this.pan.right[channel];
+    }
+    out.left = l * 0.5;
+    out.right = r * 0.5;
   }
 
   /** Advance the chip by one host audio sample and return mono output. */
@@ -212,10 +275,57 @@ export class Sn76489 {
     return raw;
   }
 
-  /** The physical chip is mono; duplicate its output for the stereo mixer. */
+  /** Advance by one host sample and return left/right output. In 'MONO' (the
+   *  hardware) the mono output is duplicated; otherwise the tone channels are
+   *  panned per the stereo mode, each side AC-coupled and filtered on its own. */
   generateSampleStereo(): StereoPsgSample {
-    const sample = this.generateSample();
-    return { left: sample, right: sample };
+    const out = this.stereoOut;
+    if (this.stereoMode === 'MONO') {
+      const sample = this.generateSample();
+      out.left = sample;
+      out.right = sample;
+      return out;
+    }
+
+    this.cycleFraction += this.clockHz / (this.sampleRate * 16);
+    const ticks = Math.floor(this.cycleFraction);
+    this.cycleFraction -= ticks;
+
+    let l: number, r: number;
+    if (this.antialias === 'box' && ticks > 0) {
+      let accL = 0, accR = 0;
+      for (let i = 0; i < ticks; i++) {
+        this.advanceTicks(1);
+        this.rawStereo(out);
+        accL += out.left;
+        accR += out.right;
+      }
+      l = accL / ticks;
+      r = accR / ticks;
+    } else {
+      if (ticks > 0) this.advanceTicks(ticks);
+      this.rawStereo(out);
+      l = out.left;
+      r = out.right;
+    }
+
+    if (this.dcBlocking) {
+      this.dcOutLR[0] = this.dcAlpha * (this.dcOutLR[0] + l - this.dcPrevLR[0]);
+      this.dcPrevLR[0] = l;
+      l = this.dcOutLR[0];
+      this.dcOutLR[1] = this.dcAlpha * (this.dcOutLR[1] + r - this.dcPrevLR[1]);
+      this.dcPrevLR[1] = r;
+      r = this.dcOutLR[1];
+    }
+    if (this.antialias === 'lowpass') {
+      this.lpOutLR[0] += this.lpAlpha * (l - this.lpOutLR[0]);
+      this.lpOutLR[1] += this.lpAlpha * (r - this.lpOutLR[1]);
+      l = this.lpOutLR[0];
+      r = this.lpOutLR[1];
+    }
+    out.left = l;
+    out.right = r;
+    return out;
   }
 
   private advanceTicks(ticks: number): void {

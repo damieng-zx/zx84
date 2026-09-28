@@ -43,6 +43,14 @@ export interface WD179xOptions {
    * MOTOR ON (1770/1772) parts.
    */
   readonly sideCompare?: boolean;
+  /**
+   * Interrupt output. On the Acorn 1770 disc interface the controller's DRQ
+   * (and command completion) are wired to the CPU's NMI line, and the DFS
+   * transfers each byte from an NMI handler — the same per-byte handshake the
+   * 8271 uses. Rising edges only; other hosts (Beta Disk, +D, Einstein) poll
+   * the status register and leave this unset.
+   */
+  readonly onInterrupt?: (asserted: boolean) => void;
 }
 
 // ── Status register bits ────────────────────────────────────────────────────
@@ -80,15 +88,26 @@ const INDEX_WIDTH = 4;
  *  vs any driver's completion timeout. */
 const BUSY_PULSE_READS = 4;
 
+/**
+ * Cycles (1 MHz disc clock) between successive bytes of an interrupt-driven
+ * transfer. A host that reads each byte from its NMI handler (the Acorn 1770
+ * DFS) must finish the handler before the next byte is offered, or the next
+ * edge would nest inside it — so the byte is offered from `tick`, not
+ * synchronously from the data-register read.
+ */
+const BYTE_CYCLES = 80;
+
 export class WD179x {
   private readonly statusBit7Mode: WD179xOptions['statusBit7'];
   private readonly formatSectorsPerTrack: number;
   private readonly hasSideCompare: boolean;
+  private readonly onInterrupt?: (asserted: boolean) => void;
 
   constructor(options: WD179xOptions) {
     this.statusBit7Mode = options.statusBit7;
     this.formatSectorsPerTrack = options.formatSectorsPerTrack;
     this.hasSideCompare = options.sideCompare ?? options.statusBit7 === 'not-ready';
+    this.onInterrupt = options.onInterrupt;
   }
 
   // ── Registers ─────────────────────────────────────────────────────────
@@ -172,6 +191,19 @@ export class WD179x {
    *  see readAddress. */
   private addressRotation = 0;
 
+  // ── Interrupt line (Acorn 1770: DRQ/completion wired to the CPU NMI) ──
+  /** A command has completed; cleared when the status register is read. */
+  private completionIrq = false;
+  /** A data byte is ready (read) or wanted (write) at the data register. */
+  private dataRequest = false;
+  /** The level last presented to the host, so we only signal transitions. */
+  private irqLevel = false;
+  /** Cycles until the next byte of an interrupt-driven transfer is offered. */
+  private byteDelay = 0;
+  /** What to do when that delay expires — offer the next byte, or signal a
+   *  completion (including one for a command that failed immediately). */
+  private afterByte: 'none' | 'next' | 'readDone' | 'writeDone' | 'formatDone' | 'complete' = 'none';
+
   // ── Write-track (format) parser state ─────────────────────────────────
   private formatting = false;
   private fmtState: 'idle' | 'id' | 'data' = 'idle';
@@ -214,6 +246,13 @@ export class WD179x {
     this.latchFrames = 0;
     this.motorFrames = 0;
     this.busyCountdown = 0;
+    const wasIrq = this.irqLevel;
+    this.completionIrq = false;
+    this.dataRequest = false;
+    this.irqLevel = false;
+    this.byteDelay = 0;
+    this.afterByte = 'none';
+    if (wasIrq) this.onInterrupt?.(false);
   }
 
   /**
@@ -265,12 +304,75 @@ export class WD179x {
     if (this.motorFrames > 0 && --this.motorFrames === 0) this.motorOn = false;
   }
 
+  // ── Interrupt line (Acorn 1770 NMI) ───────────────────────────────────
+  // Only engaged when the host supplied `onInterrupt`; the polled hosts keep
+  // the original synchronous transfer model untouched.
+
+  /** True when the host drives the data handshake from the interrupt line. */
+  private get interruptDriven(): boolean { return this.onInterrupt !== undefined; }
+
+  private setCompletion(state: boolean): void {
+    if (state === this.completionIrq) return;
+    this.completionIrq = state;
+    this.updateInterrupt();
+  }
+
+  private setDataRequest(state: boolean): void {
+    if (state === this.dataRequest) return;
+    this.dataRequest = state;
+    this.updateInterrupt();
+  }
+
+  private updateInterrupt(): void {
+    const level = this.completionIrq || this.dataRequest;
+    if (level === this.irqLevel) return;
+    this.irqLevel = level;
+    this.onInterrupt?.(level);
+  }
+
+  /** Offer a transfer byte (or finish) after a short delay, so the host's NMI
+   *  handler for the previous byte has returned before the next edge. */
+  private scheduleByte(after: 'next' | 'readDone' | 'writeDone' | 'formatDone'): void {
+    this.setDataRequest(false);
+    this.byteDelay = BYTE_CYCLES;
+    this.afterByte = after;
+  }
+
+  /** Raise the completion edge after a delay, so the code that issued the
+   *  command finishes before its NMI handler runs — as on real hardware,
+   *  where even an immediately-failing command takes some time to complete. */
+  private scheduleCompletion(): void {
+    this.setDataRequest(false);
+    this.byteDelay = BYTE_CYCLES;
+    this.afterByte = 'complete';
+  }
+
+  /** Advance the per-byte transfer cadence (called at the 1 MHz disc clock). */
+  tick(cycles: number): void {
+    if (this.byteDelay <= 0) return;
+    this.byteDelay -= cycles;
+    if (this.byteDelay > 0) return;
+    this.byteDelay = 0;
+    const after = this.afterByte;
+    this.afterByte = 'none';
+    switch (after) {
+      case 'next': this.setDataRequest(true); break;
+      case 'readDone': this.completeRead(); break;
+      case 'writeDone': this.completeWrite(); break;
+      case 'formatDone': this.applyFormat(); break;
+      case 'complete': this.setCompletion(true); break;
+    }
+  }
+
   // ── Register reads (status/track/sector/data ports) ───────────────────
 
   /** Status register. In Type I status, synthesise the INDEX pulse (bit 1)
    *  when a disk is present and spinning so the ROM's index-edge detector sees
    *  the 0→1 transition it needs. */
   readStatus(): number {
+    // Reading the status acknowledges a completed command (the host's NMI
+    // handler clears the completion edge here).
+    if (this.completionIrq) this.setCompletion(false);
     // Type I BUSY pulse: hold BUSY set for the first few reads after the command,
     // then reveal the completed status (see endTypeI / pulseBusy).
     if (this.busyCountdown > 0) {
@@ -294,6 +396,7 @@ export class WD179x {
       const v = this.buffer[this.bufPos++];
       this.dataReg = v;
       if (this.bufPos >= this.buffer.length) this.finishRead();
+      else if (this.interruptDriven) this.scheduleByte('next');
       return v;
     }
     return this.dataReg;
@@ -312,6 +415,7 @@ export class WD179x {
     if (this.buffer !== null && this.writing) {
       this.buffer[this.bufPos++] = v;
       if (this.bufPos >= this.buffer.length) this.finishWrite();
+      else if (this.interruptDriven) this.scheduleByte('next');
     }
   }
 
@@ -328,6 +432,11 @@ export class WD179x {
     this.motorOn = true;
     this.motorFrames = MOTOR_FRAMES;
     this.busyCountdown = 0; // drop any pending Type I BUSY pulse from a prior cmd
+    // A new command supersedes any pending completion or in-flight byte offer.
+    this.byteDelay = 0;
+    this.afterByte = 'none';
+    this.setDataRequest(false);
+    this.setCompletion(false);
     // Type I (0x0-0x7) and Force Interrupt (0xD) leave the controller in Type I
     // status, where bit 1 = INDEX. Everything else is Type II/III (bit 1 = DRQ).
     this.typeICmd = hi <= 0x7 || hi === 0xD;
@@ -425,6 +534,9 @@ export class WD179x {
       this.statusReg = s | ST_BUSY;
     } else {
       this.statusReg = s; // BUSY cleared — completes instantly (legacy model)
+      // The host's NMI handler clears its busy flag when it sees the command
+      // complete, so signal a completion edge here too.
+      if (this.interruptDriven) this.scheduleCompletion();
     }
   }
 
@@ -436,6 +548,13 @@ export class WD179x {
   }
 
   private base(): number { return this.statusBit7(); }
+
+  /** Complete a command that failed before any transfer with `status`,
+   *  raising the completion interrupt so an NMI-driven host stops waiting. */
+  private failCommand(status: number): void {
+    this.statusReg = this.base() | status;
+    if (this.interruptDriven) this.scheduleCompletion();
+  }
 
   /** Record-type (deleted-data mark, bit 5) and CRC-error (bit 3) status
    *  bits for a Type II READ of `sec` — see ST_RECTYPE/ST_CRCERR. */
@@ -468,11 +587,11 @@ export class WD179x {
 
   private readSectorCmd(multi: boolean, sideCompare: boolean, sideExpected: number): void {
     const track = this.locateTrack();
-    if (!track) { this.statusReg = this.base() | ST_RNF; return; }
+    if (!track) { this.failCommand(ST_RNF); return; }
     this.sideCompare = sideCompare;
     this.sideExpected = sideExpected;
     const sec = this.findSector(track, sideCompare, sideExpected);
-    if (!sec) { this.statusReg = this.base() | ST_RNF; return; }
+    if (!sec) { this.failCommand(ST_RNF); return; }
     this.buffer = this.readCopy(sec);
     this.bufPos = 0;
     this.writing = false;
@@ -481,19 +600,17 @@ export class WD179x {
     this.recFlags = this.recordFlags(sec);
     this.statusReg = this.base() | ST_BUSY | ST_DRQ | this.recFlags;
     this.latch(false);
+    if (this.interruptDriven) this.scheduleByte('next');
   }
 
   private writeSectorCmd(multi: boolean, deleted: boolean, sideCompare: boolean, sideExpected: number): void {
-    if (this.writeProtect[this.currentDrive]) {
-      this.statusReg = this.base() | ST_WRITEPROT;
-      return;
-    }
+    if (this.writeProtect[this.currentDrive]) { this.failCommand(ST_WRITEPROT); return; }
     const track = this.locateTrack();
-    if (!track) { this.statusReg = this.base() | ST_RNF; return; }
+    if (!track) { this.failCommand(ST_RNF); return; }
     this.sideCompare = sideCompare;
     this.sideExpected = sideExpected;
     const sec = this.findSector(track, sideCompare, sideExpected);
-    if (!sec) { this.statusReg = this.base() | ST_RNF; return; }
+    if (!sec) { this.failCommand(ST_RNF); return; }
     // a0 selects the address mark laid down with the sector (FB/F8) — see
     // writeDeleted. Applied up front: the mark precedes the data field on
     // the physical track, and multi-sector writes reuse the same mark.
@@ -511,33 +628,54 @@ export class WD179x {
     this.dirty[this.currentDrive] = true;
     this.statusReg = this.base() | ST_BUSY | ST_DRQ;
     this.latch(true);
+    if (this.interruptDriven) this.scheduleByte('next');
   }
 
   private finishRead(): void {
+    if (this.interruptDriven) { this.scheduleByte('readDone'); return; }
+    this.completeRead();
+  }
+
+  private completeRead(): void {
     if (this.multi) {
-      if (this.advanceSector(false)) return;
+      if (this.advanceSector(false)) {
+        if (this.interruptDriven) this.scheduleByte('next');
+        return;
+      }
       // Hardware keeps searching for R+1's ID field for up to a full disk
       // revolution; failing to find it ends the command in RECORD NOT
       // FOUND, not a silent stop.
       this.buffer = null;
       this.statusReg = this.base() | ST_RNF;
+      this.setCompletion(true);
       return;
     }
     this.buffer = null;
     this.statusReg = this.base() | this.recFlags;
+    this.setCompletion(true);
   }
 
   private finishWrite(): void {
+    if (this.interruptDriven) { this.scheduleByte('writeDone'); return; }
+    this.completeWrite();
+  }
+
+  private completeWrite(): void {
     if (this.multi) {
-      if (this.advanceSector(true)) return;
+      if (this.advanceSector(true)) {
+        if (this.interruptDriven) this.scheduleByte('next');
+        return;
+      }
       // As for a multi-sector read: the controller searches for R+1's ID
       // field and, not finding it, ends the command in RECORD NOT FOUND.
       this.buffer = null;
       this.statusReg = this.base() | ST_RNF;
+      this.setCompletion(true);
       return;
     }
     this.buffer = null;
     this.statusReg = this.base();
+    this.setCompletion(true);
   }
 
   /** Multi-sector continuation: bump R and load the next sector if present. */
@@ -572,10 +710,7 @@ export class WD179x {
   // ── Type III: Read address / Read track / Write track ─────────────────
   private readAddress(): void {
     const track = this.locateTrack();
-    if (!track || track.sectors.length === 0) {
-      this.statusReg = this.base() | ST_RNF;
-      return;
-    }
+    if (!track || track.sectors.length === 0) { this.failCommand(ST_RNF); return; }
     // Real hardware returns whichever ID field the head next encounters as
     // the disk spins, not always the first one on the track — repeated
     // READ ADDRESS calls walk the track sequentially and wrap at the index
@@ -591,6 +726,7 @@ export class WD179x {
     this.multi = false;
     this.sectorReg = sec.c; // datasheet: track value lands in the sector reg
     this.statusReg = this.base() | ST_BUSY | ST_DRQ;
+    if (this.interruptDriven) this.scheduleByte('next');
   }
 
   private readTrackCmd(): void {
@@ -600,7 +736,7 @@ export class WD179x {
     // byte. Report RNF instead, matching readAddress's existing convention
     // for the same "track present but nothing on it" case.
     const track = this.locateTrack();
-    if (!track || track.sectors.length === 0) { this.statusReg = this.base() | ST_RNF; return; }
+    if (!track || track.sectors.length === 0) { this.failCommand(ST_RNF); return; }
     const total = track.sectors.reduce((n, s) => n + s.data.length, 0);
     const buf = new Uint8Array(total);
     let off = 0;
@@ -610,13 +746,11 @@ export class WD179x {
     this.writing = false;
     this.multi = false;
     this.statusReg = this.base() | ST_BUSY | ST_DRQ;
+    if (this.interruptDriven) this.scheduleByte('next');
   }
 
   private writeTrackCmd(): void {
-    if (this.writeProtect[this.currentDrive]) {
-      this.statusReg = this.base() | ST_WRITEPROT;
-      return;
-    }
+    if (this.writeProtect[this.currentDrive]) { this.failCommand(ST_WRITEPROT); return; }
     // Begin parsing the MFM byte stream the CPU writes (ID marks 0xFE, data
     // marks 0xFB/0xF8, CRC request 0xF7). We rebuild standard sectors from it.
     this.formatting = true;
@@ -626,6 +760,7 @@ export class WD179x {
     this.fmtPending = null;
     this.fmtBytesLeft = 8192; // budget so a malformed stream still terminates
     this.statusReg = this.base() | ST_BUSY | ST_DRQ;
+    if (this.interruptDriven) this.scheduleByte('next');
   }
 
   private formatByte(b: number): void {
@@ -662,9 +797,18 @@ export class WD179x {
         }
         break;
     }
+    // Request the next byte unless a finish was scheduled above.
+    if (this.formatting && this.afterByte === 'none' && this.interruptDriven) {
+      this.scheduleByte('next');
+    }
   }
 
   private finishFormat(): void {
+    if (this.interruptDriven) { this.scheduleByte('formatDone'); return; }
+    this.applyFormat();
+  }
+
+  private applyFormat(): void {
     this.formatting = false;
     const disk = this.disks[this.currentDrive];
     const cyl = this.headTrack[this.currentDrive];
@@ -683,16 +827,22 @@ export class WD179x {
     }
     this.buffer = null;
     this.statusReg = this.base();
+    this.setCompletion(true);
   }
 
   // ── Type IV: Force interrupt ──────────────────────────────────────────
   private forceInterrupt(): void {
     this.buffer = null;
     this.formatting = false;
+    this.byteDelay = 0;
+    this.afterByte = 'none';
+    this.setDataRequest(false);
+    this.setCompletion(false);
     let s = this.base();
     if (this.headTrack[this.currentDrive] === 0) s |= ST_TRACK0;
     if (this.writeProtect[this.currentDrive]) s |= ST_WRITEPROT;
     this.statusReg = s; // BUSY cleared
+    if (this.interruptDriven) this.scheduleCompletion();
   }
 
   private latch(writing: boolean): void {

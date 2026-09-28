@@ -338,4 +338,49 @@ export class ROMManager {
     try { localStorage.removeItem(`zx84-rom-label-${key}-page${page}`); } catch { /* */ }
     try { await dbDelete(`rom-${key}-page${page}`); } catch { /* non-fatal */ }
   }
+
+  // ── Sideways / auxiliary ROM socket overrides (the BBC's sixteen banks) ────
+  //
+  // Each socket is an independent 16K image, stored per socket, sitting on top
+  // of whatever the machine loads itself (the disc-interface ROM, BASIC). The
+  // machine owns the socket layout; the shell owns this storage.
+
+  private sidewaysCache: Record<string, ROMEntry> = {};
+
+  private sidewaysKey(key: string, index: number): string {
+    return `rom-${key}-sideways-${index}`;
+  }
+
+  async persistSidewaysRom(key: string, index: number, data: Uint8Array, label: string): Promise<void> {
+    const bytes = data.subarray(0, BANK_SIZE);
+    await dbSave(this.sidewaysKey(key, index), bytes);
+    this.sidewaysCache[`${key}:${index}`] = { data: bytes, label, isCustom: true };
+    try { localStorage.setItem(`zx84-rom-label-${key}-sideways-${index}`, label); } catch { /* */ }
+  }
+
+  async restoreSidewaysRom(key: string, index: number): Promise<ROMEntry | null> {
+    const ck = `${key}:${index}`;
+    if (this.sidewaysCache[ck]) return this.sidewaysCache[ck];
+    let data: Uint8Array | null;
+    try {
+      data = await dbLoad(this.sidewaysKey(key, index));
+    } catch {
+      return null;
+    }
+    if (!data) return null;
+    const label = localStorage.getItem(`zx84-rom-label-${key}-sideways-${index}`) || 'custom';
+    this.sidewaysCache[ck] = { data, label, isCustom: true };
+    return this.sidewaysCache[ck];
+  }
+
+  /** Get a cached sideways socket override without touching IndexedDB. */
+  getCachedSidewaysRom(key: string, index: number): ROMEntry | null {
+    return this.sidewaysCache[`${key}:${index}`] || null;
+  }
+
+  async clearSidewaysRom(key: string, index: number): Promise<void> {
+    delete this.sidewaysCache[`${key}:${index}`];
+    try { localStorage.removeItem(`zx84-rom-label-${key}-sideways-${index}`); } catch { /* */ }
+    try { await dbDelete(this.sidewaysKey(key, index)); } catch { /* non-fatal */ }
+  }
 }

@@ -22,7 +22,7 @@ import type { MachineModel } from '@/models.ts';
 import type { OcrGridName, FontSource } from '@/ocr/ocr.ts';
 import type { BasicListingLine, BasicVariable } from '@/basic/types.ts';
 
-export type MachineKind = 'spectrum' | 'cpc' | 'einstein' | 'msx' | 'zx8x' | 'mtx' | 'lynx' | 'jupiter-ace' | 'pcw';
+export type MachineKind = 'spectrum' | 'cpc' | 'einstein' | 'msx' | 'zx8x' | 'mtx' | 'lynx' | 'jupiter-ace' | 'pcw' | 'bbc';
 
 /** Keyboard/ROM locale for international machine variants.
  *  'uk' = default (English, no locale-specific ROM/keyboard). */
@@ -259,7 +259,7 @@ export type StatusLedId = typeof STATUS_LED_IDS[number];
  * which of its features the UI should surface. Pure data (headless-safe).
  */
 /** A Sound-pane PSG-shaping control — see `MachineUiCapabilities.psgControls`. */
-export type PsgControl = 'stereo' | 'filter' | 'dc-block';
+export type PsgControl = 'stereo' | 'sn-stereo' | 'filter' | 'dc-block';
 
 /** One mouse interface a machine offers — see `MachineUiCapabilities.mouseTypes`.
  *  `id` is the mode string passed back through `InputService.mice`. */
@@ -294,7 +294,7 @@ export interface MachineUiCapabilities {
   /** Execution-trace debugger control is available. */
   readonly trace: boolean;
   /** Palette / colour-map family shown in the Display pane. */
-  readonly colorMap: 'spectrum' | 'cpc' | 'msx' | 'einstein' | 'mono';
+  readonly colorMap: 'spectrum' | 'cpc' | 'msx' | 'einstein' | 'bbc' | 'mono';
   /**
    * Which Accuracy drop-down the Display pane offers, or false for none.
    *
@@ -394,7 +394,7 @@ export interface MachineUiCapabilities {
   /** ROM regions the Memory pane's region picker offers (besides mapped/banks). */
   readonly memoryRegions: readonly MemoryRegionInfo[];
   /** ASCII glyph table the Memory pane renders with. */
-  readonly charset: 'spectrum' | 'cpc';
+  readonly charset: 'spectrum' | 'cpc' | 'bbc';
 }
 
 /**
@@ -427,6 +427,9 @@ export interface RomHostOps {
   /** Cached override metadata (null = default in use). */
   cached(): { label: string; size: number; isCustom: boolean } | null;
   cachedPage(page: number): { label: string; size: number } | null;
+  /** Sideways/aux ROM socket overrides (the BBC's sixteen banks). */
+  persistSideways(index: number, data: Uint8Array, label: string): Promise<void>;
+  clearSideways(index: number): Promise<void>;
   /** Rebuild the machine so the new ROM takes effect. Destroys this machine. */
   rebuild(): Promise<void>;
 }
@@ -633,6 +636,23 @@ export interface RomSlotInfo {
   readonly overridden: boolean;
 }
 
+/**
+ * A named auxiliary ROM socket besides the system ROM — the BBC's sixteen
+ * sideways banks, each independently loadable. The machine reports the socket
+ * layout and any image it loads itself (the disc-interface ROM); the shell
+ * layers the stored user overrides on top (see RomService.sidewaysSlots).
+ */
+export interface SidewaysRomSlot {
+  readonly index: number;
+  /** Fixed socket name shown as the row title. */
+  readonly title: string;
+  /** Image currently in the socket (a machine-loaded default), or ''. */
+  readonly label: string;
+  readonly size: number;
+  /** A user-supplied image is stored for this socket (filled by the shell). */
+  readonly overridden: boolean;
+}
+
 export interface CartridgeSlot {
   /** Mounted cartridge name, '' when empty. */
   readonly name: string;
@@ -650,6 +670,16 @@ export interface RomService {
   resetSystemRom(page?: number): Promise<void>;
   /** The machine's cartridge slot (MSX slot, ZX Interface 2), or null. */
   readonly cartridge: CartridgeSlot | null;
+
+  /** Named auxiliary ROM sockets besides the system ROM (the BBC's sixteen
+   *  sideways banks). Absent/empty on machines without any. */
+  readonly sidewaysSlots?: readonly SidewaysRomSlot[];
+  /** Build-time install of a sideways socket image (no persistence/rebuild). */
+  installSidewaysRom?(index: number, data: Uint8Array): void;
+  /** Persist a user image into a socket and rebuild. */
+  setSidewaysRom?(index: number, data: Uint8Array, label: string): Promise<void>;
+  /** Drop a socket's stored override and rebuild (back to the default). */
+  resetSidewaysRom?(index: number): Promise<void>;
 }
 
 export interface SnapshotApplyResult {
