@@ -43,6 +43,39 @@ function loadSavedModel(): MachineModel | null {
   return null;
 }
 
+/**
+ * Resolve a `?model=` (or `?machine=`) URL value to a known model. Matching is
+ * case-insensitive; `plus` stands in for `+` (`plus2a` → `+2A`), and a leading
+ * space is read back as `+` because an unencoded `+` in a query string decodes
+ * to a space.
+ */
+export function parseUrlModel(search: string): MachineModel | null {
+  const params = new URLSearchParams(search);
+  const raw = (params.get('model') ?? params.get('machine'))?.replace(/^ /, '+').trim();
+  if (!raw) return null;
+  const wanted = raw.toLowerCase().replace(/^plus/, '+');
+  return KNOWN_MODELS.find(m => m.toLowerCase() === wanted) ?? null;
+}
+
+/** Apply a `?model=` URL override once at startup: it wins over the saved model,
+ *  is persisted like a menu choice, and is then stripped from the address bar so
+ *  a later refresh keeps whatever machine the user switched to. */
+function consumeUrlModel(): MachineModel | null {
+  if (typeof window === 'undefined') return null;
+  const model = parseUrlModel(window.location.search);
+  try {
+    const url = new URL(window.location.href);
+    if (url.searchParams.has('model') || url.searchParams.has('machine')) {
+      if (!model) console.warn(`Unknown URL model "${url.searchParams.get('model') ?? url.searchParams.get('machine')}"`);
+      url.searchParams.delete('model');
+      url.searchParams.delete('machine');
+      history.replaceState(history.state, '', url.href);
+    }
+  } catch { /* */ }
+  if (model) saveModel(model);
+  return model;
+}
+
 export function saveModel(model: MachineModel): void {
   try {
     localStorage.setItem('zx84-model', model);
@@ -77,7 +110,7 @@ export const sidewaysRomSlots = _sidewaysRomSlots[0];
 export const setSidewaysRomSlots = _sidewaysRomSlots[1];
 
 // Model selection
-const _currentModel = createSignal<MachineModel>(loadSavedModel() ?? '128k');
+const _currentModel = createSignal<MachineModel>(consumeUrlModel() ?? loadSavedModel() ?? '128k');
 export const currentModel = _currentModel[0];
 export const setCurrentModel = _currentModel[1];
 

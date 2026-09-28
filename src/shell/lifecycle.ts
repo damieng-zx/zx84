@@ -554,7 +554,9 @@ export async function restoreRefreshState(isCurrent: () => boolean = () => true)
     const age = Date.now() - state.timestamp;
 
     // Only restore if less than 60 seconds old (avoid restoring stale state)
-    if (age > 60000) {
+    // Only restore into the machine it was taken from — a `?model=` URL can
+    // boot a different model than the one that was running before the reload.
+    if (age > 60000 || state.model !== currentModel()) {
       localStorage.removeItem(REFRESH_STATE_KEY);
       return false;
     }
