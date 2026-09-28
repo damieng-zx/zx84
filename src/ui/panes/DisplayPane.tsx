@@ -5,7 +5,7 @@ import {
   borderSize, setBorderSize,
   renderer, webglAvailable, colorMap, setColorMap, scanlineAccuracy, setScanlineAccuracy,
   cpcColorMap, setCpcColorMap, msxColorMap, setMsxColorMap, samColorMap, setSamColorMap,
-  einsteinColorMap, setEinsteinColorMap,
+  einsteinColorMap, setEinsteinColorMap, bbcColorMap, setBbcColorMap,
   persistSetting, resetSettingsGroup,
 } from '@/store/settings.ts';
 import { machine } from '@/shell/context.ts';
@@ -133,6 +133,17 @@ export function DisplayPane() {
               <option value="mame">MAME</option>
               <option value="accurate">Accurate</option>
               <option value="naive">Naive</option>
+            </select>
+          </Match>
+          <Match when={machineCaps().colorMap === 'bbc'}>
+            <select value={bbcColorMap()} onChange={(e) => {
+              const v = (e.target as HTMLSelectElement).value as 'pal' | 'measured';
+              setBbcColorMap(v);
+              persistSetting('bbc-color-map', v);
+              applyDisplaySettings();
+            }}>
+              <option value="pal">PAL</option>
+              <option value="measured">Measured</option>
             </select>
           </Match>
         </Switch>

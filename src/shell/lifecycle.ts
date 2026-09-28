@@ -35,7 +35,7 @@ import {
 } from '@/shell/context.ts';
 import {
   persistROM, restoreROM, fetchDefaultROM, ensure128kROM, updateRomPaneInfo, fulfillAuxRoms,
-  assembleSystemRom,
+  assembleSystemRom, applySidewaysRomOverrides,
 } from '@/shell/rom.ts';
 import {
   stashOutgoingTape, restoreTapeForMachine, restoreMedia,
@@ -97,6 +97,8 @@ function buildMachineHost(): MachineHost {
       clearFull: () => romManager.clearROM(effectiveROMKey(currentModel(), currentLocale())),
       persistPage: (page, data, label) => romManager.persistROMPage(effectiveROMKey(currentModel(), currentLocale()), page as RomPage, data, label),
       clearPage: (page) => romManager.clearROMPage(effectiveROMKey(currentModel(), currentLocale()), page as RomPage),
+      persistSideways: (index, data, label) => romManager.persistSidewaysRom(effectiveROMKey(currentModel(), currentLocale()), index, data, label),
+      clearSideways: (index) => romManager.clearSidewaysRom(effectiveROMKey(currentModel(), currentLocale()), index),
       cached: () => {
         const e = romManager.getCached(effectiveROMKey(currentModel(), currentLocale()));
         return e ? { label: e.label, size: e.data.length, isCustom: e.isCustom } : null;
@@ -163,6 +165,13 @@ export async function createMachine(): Promise<boolean> {
   // boot from the cartridge slot (applyBootCartridge, below) instead.
   if (systemRom && systemRom.length > 0) {
     built.services.roms.installSystemRom(systemRom);
+
+    // Persisted sideways-socket overrides go on after the system ROM so an
+    // override of the language socket still wins; before reset so the chips
+    // are present when the machine boots.
+    await applySidewaysRomOverrides(built, isCurrent);
+    if (!isCurrent()) return false;
+
     built.reset();
 
     // Post-reset ROM overlays (CPC ParaDOS in upper-ROM 7) — applied after the

@@ -10,7 +10,7 @@
  */
 
 import { Z80 } from '@/cores/z80.ts';
-import { Sn76489, type Sn76489AntialiasMode } from '@/cores/sn76489.ts';
+import { Sn76489, type Sn76489AntialiasMode, type Sn76489StereoMode } from '@/cores/sn76489.ts';
 import { Tms9918a, MSX_PALETTES } from '@/cores/tms9918a.ts';
 import { Z80Ctc } from '@/cores/z80-ctc.ts';
 import { Audio } from '@/audio.ts';
@@ -152,6 +152,7 @@ export class MtxMachine extends BaseMachine implements Machine {
     // SN76489 instead of the AY-family PSG the setting is named after, but
     // the anti-alias strategies (see Sn76489AntialiasMode) are equivalent.
     this.psg.antialias = view.get<Sn76489AntialiasMode>('ay-antialias', 'mute');
+    this.psg.setStereoMode(view.get<Sn76489StereoMode>('sn-stereo', 'MONO'));
     this.column80Requested = view.get('mtx-80-column', false);
     this.floppyRequested = view.get('mtx-floppy', true);
     this.set512kRamEnabled(view.get('mtx-512k-ram', false));

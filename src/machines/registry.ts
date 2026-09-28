@@ -24,6 +24,7 @@ import { samEntry } from '@/machines/sam/descriptor.ts';
 import { lynxEntry } from '@/machines/lynx/descriptor.ts';
 import { aceEntry } from '@/machines/jupiter-ace/descriptor.ts';
 import { pcwEntry } from '@/machines/pcw/descriptor.ts';
+import { bbcEntry } from '@/machines/bbc/descriptor.ts';
 
 export const registry: readonly MachineEntry[] = [
   spectrumEntry,
@@ -36,6 +37,7 @@ export const registry: readonly MachineEntry[] = [
   lynxEntry,
   aceEntry,
   pcwEntry,
+  bbcEntry,
 ];
 
 /** The registry entry owning `model`. Throws on an unknown model — every

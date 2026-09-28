@@ -5,6 +5,7 @@ import {
   volume, setVolume,
   ayMix, setAyMix,
   ayStereo, setAyStereo,
+  snStereo, setSnStereo,
   ayDcBlock, setAyDcBlock,
   ayAntialias, setAyAntialias,
   persistSetting, resetSettingsGroup,
@@ -59,6 +60,25 @@ export function SoundPane() {
             const mode = (e.target as HTMLSelectElement).value as AYStereoMode;
             setAyStereo(mode);
             persistSetting('ay-stereo', mode);
+            applyDisplaySettings();
+          }}
+        >
+          {STEREO_MODES.map(m => <option value={m.value}>{m.label}</option>)}
+        </select>
+      </div>
+      </Show>
+      {/* The SN76489 is mono on the real machines, so its split has its own
+          setting (default Mono) rather than inheriting the AY's ABC. */}
+      <Show when={machineCaps().psgControls.includes('sn-stereo')}>
+      <div class="slider-row">
+        <span class="slider-label">PSG Channels</span>
+        <select
+          id="sn-stereo-select"
+          value={snStereo()}
+          onChange={(e) => {
+            const mode = (e.target as HTMLSelectElement).value;
+            setSnStereo(mode);
+            persistSetting('sn-stereo', mode);
             applyDisplaySettings();
           }}
         >

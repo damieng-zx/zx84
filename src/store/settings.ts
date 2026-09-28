@@ -38,12 +38,15 @@ const DEFAULTS = {
   'msx-color-map':     'pal',
   'einstein-color-map': 'accurate',
   'sam-color-map':     'linear',
+  'bbc-color-map':     'pal',
   'scanline-accuracy': 'high',
 
   // Sound
   'volume':       '70',
   'ay-mix':       '50',
   'ay-stereo':    'ABC',
+  // SN76489 tone-channel split; the chip is mono, so that is the default.
+  'sn-stereo':    'MONO',
   'ay-dc-block':  'on',
   'ay-antialias': 'mute',
 
@@ -99,6 +102,7 @@ const DEFAULTS = {
   'mtx-80-column':  'off',
   'mtx-512k-ram':   'off',
   'mtx-floppy':     'on',
+  'bbc-disk-system': '1770',
   'lynx-fdc':       'on',
   'zx8x-16k-ram':  'off',
   'zx81-udg-ram':  'off',
@@ -229,6 +233,10 @@ export const setAyMix = _ayMix[1];
 const _ayStereo = /*@once*/ createRoot(() => createSignal(getSaved('ay-stereo', D('ay-stereo'))));
 export const ayStereo = _ayStereo[0];
 export const setAyStereo = _ayStereo[1];
+
+const _snStereo = /*@once*/ createRoot(() => createSignal(getSaved('sn-stereo', D('sn-stereo'))));
+export const snStereo = _snStereo[0];
+export const setSnStereo = _snStereo[1];
 
 const _ayDcBlock = /*@once*/ createRoot(() => createSignal(getSaved('ay-dc-block', D('ay-dc-block')) === 'on'));
 export const ayDcBlock = _ayDcBlock[0];
@@ -431,6 +439,15 @@ const _mtxFloppy = /*@once*/ createRoot(() => createSignal(getSaved('mtx-floppy'
 export const mtxFloppy = _mtxFloppy[0];
 export const setMtxFloppy = _mtxFloppy[1];
 
+const _bbcColorMap = /*@once*/ createRoot(() => createSignal(getSaved('bbc-color-map', D('bbc-color-map')) as 'pal' | 'measured'));
+export const bbcColorMap = _bbcColorMap[0];
+export const setBbcColorMap = _bbcColorMap[1];
+
+const _bbcDiskSystem = /*@once*/ createRoot(() => createSignal(
+  getSaved('bbc-disk-system', D('bbc-disk-system')) as 'none' | 'acorn' | '1770'));
+export const bbcDiskSystem = _bbcDiskSystem[0];
+export const setBbcDiskSystem = _bbcDiskSystem[1];
+
 const _lynxFdc = /*@once*/ createRoot(() => createSignal(getSaved('lynx-fdc', D('lynx-fdc')) === 'on'));
 export const lynxFdc = _lynxFdc[0];
 export const setLynxFdc = _lynxFdc[1];
@@ -519,6 +536,7 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'msx-color-map',     set: setMsxColorMap,      type: 'string' },
     { key: 'einstein-color-map', set: setEinsteinColorMap, type: 'string' },
     { key: 'sam-color-map',     set: setSamColorMap,      type: 'string' },
+    { key: 'bbc-color-map',     set: setBbcColorMap,      type: 'string' },
     { key: 'scanline-accuracy', set: setScanlineAccuracy, type: 'string' },
   ],
   monitor: [
@@ -539,6 +557,7 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'volume',      set: setVolume,     type: 'number' },
     { key: 'ay-mix',      set: setAyMix,      type: 'number' },
     { key: 'ay-stereo',   set: setAyStereo,   type: 'string' },
+    { key: 'sn-stereo',   set: setSnStereo,   type: 'string' },
     { key: 'ay-dc-block', set: setAyDcBlock,  type: 'bool' },
     { key: 'ay-antialias', set: setAyAntialias, type: 'string' },
   ],
@@ -588,6 +607,7 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'mtx-80-column', set: setMtx80Column, type: 'bool' },
     { key: 'mtx-512k-ram', set: setMtx512kRam, type: 'bool' },
     { key: 'mtx-floppy', set: setMtxFloppy, type: 'bool' },
+    { key: 'bbc-disk-system', set: setBbcDiskSystem, type: 'string' },
     { key: 'lynx-fdc', set: setLynxFdc, type: 'bool' },
     { key: 'zx8x-16k-ram', set: setZx8x16kRam, type: 'bool' },
     { key: 'zx81-udg-ram', set: setZx81UdgRam, type: 'bool' },

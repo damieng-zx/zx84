@@ -10,7 +10,7 @@
 
 import { createSignal } from 'solid-js';
 import type { MachineModel } from '@/models.ts';
-import type { MachineLocale, RomSlotInfo } from '@/machines/machine.ts';
+import type { MachineLocale, RomSlotInfo, SidewaysRomSlot } from '@/machines/machine.ts';
 import { registry } from '@/machines/registry.ts';
 
 /** Every model the parts catalog knows. Derived from the registry rather than
@@ -69,6 +69,12 @@ export const setRomSlots = _romSlots[1];
 const _cartridgeName = createSignal('');
 export const cartridgeName = _cartridgeName[0];
 export const setCartridgeName = _cartridgeName[1];
+
+// Auxiliary/sideways ROM sockets (the BBC's sixteen banks), for the ROM pane.
+// Populated from machine.services.roms.sidewaysSlots + the stored overrides.
+const _sidewaysRomSlots = createSignal<readonly SidewaysRomSlot[]>([]);
+export const sidewaysRomSlots = _sidewaysRomSlots[0];
+export const setSidewaysRomSlots = _sidewaysRomSlots[1];
 
 // Model selection
 const _currentModel = createSignal<MachineModel>(loadSavedModel() ?? '128k');

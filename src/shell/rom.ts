@@ -20,6 +20,7 @@ import {
   currentModel as currentModelValue, currentLocale as currentLocaleValue,
   setCurrentModel, saveModel,
   setRomSlots,
+  setSidewaysRomSlots,
   setCartridgeName,
   setMultifaceRomFailed, setVtx5000RomFailed, setParadosRomFailed,
   setPlusDRomFailed, setInterface1RomFailed, setBetaDiskRomFailed,
@@ -75,6 +76,55 @@ export async function assembleSystemRom(data: Uint8Array, model: MachineModel, k
 export function updateRomPaneInfo(): void {
   setRomSlots(machine?.services.roms.systemSlots ?? []);
   setCartridgeName(machine?.services.roms.cartridge?.name ?? '');
+
+  // Sideways/aux sockets: the machine reports the socket layout and any image
+  // it loads itself; a stored user override replaces the label/size and marks
+  // the row overridden.
+  const key = effectiveROMKey(currentModelValue(), currentLocaleValue());
+  const slots = machine?.services.roms.sidewaysSlots ?? [];
+  setSidewaysRomSlots(slots.map(s => {
+    const stored = romManager.getCachedSidewaysRom(key, s.index);
+    return stored
+      ? { ...s, label: stored.label, size: stored.data.length, overridden: true }
+      : s;
+  }));
+}
+
+/**
+ * Install every stored sideways-socket override onto a freshly built machine,
+ * before it resets. The machine declares its sockets via RomService; the shell
+ * supplies the persisted images. Called from createMachine() after the system
+ * ROM is in place so an override of the language socket still wins.
+ */
+export async function applySidewaysRomOverrides(
+  target: { services: { roms: { sidewaysSlots?: readonly { index: number }[]; installSidewaysRom?: (index: number, data: Uint8Array) => void } } },
+  isCurrent: () => boolean = () => true,
+): Promise<void> {
+  const svc = target.services.roms;
+  if (!svc.installSidewaysRom || !svc.sidewaysSlots?.length) return;
+  const key = effectiveROMKey(currentModelValue(), currentLocaleValue());
+  for (const slot of svc.sidewaysSlots) {
+    const entry = await romManager.restoreSidewaysRom(key, slot.index);
+    if (!isCurrent()) return;
+    if (entry) svc.installSidewaysRom(slot.index, entry.data);
+  }
+}
+
+/** Load a user image into a sideways socket and rebuild (persisted per socket,
+ *  per model). Reverts to the machine's default when the override is cleared. */
+export async function setSidewaysRom(index: number, data: Uint8Array, label: string): Promise<void> {
+  if (machine) { await machine.services.roms.setSidewaysRom?.(index, data, label); return; }
+  const key = effectiveROMKey(currentModelValue(), currentLocaleValue());
+  await romManager.persistSidewaysRom(key, index, data, label);
+  await switchModel(currentModelValue());
+}
+
+/** Drop a sideways socket's override and rebuild. */
+export async function resetSidewaysRom(index: number): Promise<void> {
+  if (machine) { await machine.services.roms.resetSidewaysRom?.(index); return; }
+  const key = effectiveROMKey(currentModelValue(), currentLocaleValue());
+  await romManager.clearSidewaysRom(key, index);
+  await switchModel(currentModelValue());
 }
 
 /** Replace the current machine's system ROM (BIOS) with a user-supplied image

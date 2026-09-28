@@ -37,12 +37,19 @@ export function GenericRegisters() {
     let pcSlot!: Text, spSlot!: Text, tpfSlot!: Text, iffSlot!: Text, imSlot!: Text, haltSlot!: Text;
     let pPC = -1, pSP = -1, pTPF = '', pIFF = '', pIM = '', pHALT = '';
 
+    // PC and SP are drawn on their own line below, so the family may also list
+    // them among its registers (the Z80 and 6502 services both do) — drop them
+    // here to avoid showing each twice.
+    const listed = (snap: RegisterSnapshot) =>
+      snap.regs.filter(r => !/^(?:PC|SP)$/i.test(r.name));
+
     function build(snap: RegisterSnapshot) {
-      const width = Math.max(...snap.regs.map(r => r.name.length), 3);
-      snap.regs.forEach((r, i) => {
+      const regs = listed(snap);
+      const width = Math.max(...regs.map(r => r.name.length), 3);
+      regs.forEach((r, i) => {
         const slot = makeSlot();
         regSlots.push({ slot, width: r.width, prev: -1 });
-        const last = i === snap.regs.length - 1;
+        const last = i === regs.length - 1;
         pre.append(
           makeLabel(r.name.padEnd(width), `${r.name} (${r.width}-bit)`), t(' '), slot,
           t(i % PER_ROW === PER_ROW - 1 || last ? '\n' : '   '),
@@ -72,7 +79,7 @@ export function GenericRegisters() {
       const snap = machine.services.debug.regs();
       if (!built) { build(snap); built = true; }
 
-      snap.regs.forEach((r, i) => {
+      listed(snap).forEach((r, i) => {
         const s = regSlots[i];
         if (!s) return;
         s.prev = s.width === 16 ? set16(s.slot, r.value, s.prev) : set8(s.slot, r.value, s.prev);

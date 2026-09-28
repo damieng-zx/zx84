@@ -2,9 +2,10 @@ import { For, Show, type JSX } from 'solid-js';
 import { Pane } from '@/ui/components/Pane.tsx';
 import {
   setSystemRom, resetSystemRom, setSystemRomPage, resetSystemRomPage,
+  setSidewaysRom, resetSidewaysRom,
 } from '@/shell/rom.ts';
 import { loadFile, ejectCartridge } from '@/shell/media.ts';
-import { romSlots, cartridgeName, currentModel } from '@/state/machine-state.ts';
+import { romSlots, sidewaysRomSlots, cartridgeName, currentModel } from '@/state/machine-state.ts';
 import { isMtxModel } from '@/models.ts';
 import { mtxFloppy, mtxCpm } from '@/store/settings.ts';
 import { machineCaps } from '@/state/machine-caps.ts';
@@ -99,6 +100,16 @@ export function RomPane(): JSX.Element {
     await loadFile(results[0].data, results[0].name);   // routes .rom/.cpr → cartridge
   }
 
+  async function loadSideways(index: number): Promise<void> {
+    const results = await openFile({ id: 'zx84-sideways-rom', extensions: ['.rom', '.bin'] });
+    if (!results) return;
+    await setSidewaysRom(index, results[0].data, results[0].name);
+  }
+
+  async function ejectSideways(index: number): Promise<void> {
+    await resetSidewaysRom(index);
+  }
+
   const showCartridgeSlot = (): boolean => machineCaps().cartridge;
   // On the Plus range the cartridge IS the boot source — no separate on-board
   // ROM to upload, so the system-ROM socket is suppressed to avoid showing two
@@ -120,7 +131,7 @@ export function RomPane(): JSX.Element {
     <Pane
       id="rom-panel"
       label="ROM / Carts"
-      visible={showCartridgeSlot() || slots().length > 0}
+      visible={showCartridgeSlot() || slots().length > 0 || sidewaysRomSlots().length > 0}
     >
       <div class="rom-grid">
         <Show when={showSystemRomSlot()}>
@@ -154,6 +165,23 @@ export function RomPane(): JSX.Element {
           />
         </Show>
       </div>
+      <Show when={sidewaysRomSlots().length > 0}>
+        <div class="rom-grid">
+          <For each={sidewaysRomSlots()}>
+            {(s) => (
+              <Slot
+                label={s.title}
+                text={slotText(s)}
+                placeholder="(empty)"
+                ejectable={s.overridden}
+                ejectTitle={`Revert ${s.title} to its default`}
+                onLoad={() => loadSideways(s.index)}
+                onEject={() => ejectSideways(s.index)}
+              />
+            )}
+          </For>
+        </div>
+      </Show>
     </Pane>
   );
 }

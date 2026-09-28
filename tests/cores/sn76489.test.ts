@@ -79,6 +79,49 @@ describe('SN76489', () => {
   });
 });
 
+describe('SN76489 stereo split', () => {
+  /** A PSG with only the given register byte's channel at full volume. */
+  function solo(attenuationLatch: number, mode: Parameters<Sn76489['setStereoMode']>[0]) {
+    const psg = new Sn76489(4_000_000, 48_000);
+    psg.setDcBlocking(false);      // raw levels, so silence reads as exactly 0
+    psg.setStereoMode(mode);
+    psg.write(attenuationLatch);   // e.g. 0x90 = channel A attenuation 0 (full)
+    return psg.generateSampleStereo();
+  }
+
+  it('puts the first-named channel hard left (ABC: A left)', () => {
+    const s = solo(0x90, 'ABC');
+    expect(s.left).not.toBe(0);
+    expect(s.right).toBeCloseTo(0, 12);
+  });
+
+  it('puts the last-named channel hard right (CBA: A right)', () => {
+    const s = solo(0x90, 'CBA');
+    expect(s.left).toBeCloseTo(0, 12);
+    expect(s.right).not.toBe(0);
+  });
+
+  it('centres the middle-named channel equally (ABC: B centre)', () => {
+    const s = solo(0xB0, 'ABC');
+    expect(s.left).not.toBe(0);
+    expect(s.left).toBe(s.right);
+  });
+
+  it('always centres the noise channel', () => {
+    const s = solo(0xF0, 'ACB');   // 0xF0 = noise attenuation 0
+    expect(s.left).not.toBe(0);
+    expect(s.left).toBe(s.right);
+  });
+
+  it('keeps a single hard-panned channel at the mono mix level per side', () => {
+    // Mono: one full channel is 1/4 of the four-channel mix. Stereo: hard-left
+    // weight 1 of a side's 2-channel budget is 1/2 — twice as loud on its side.
+    const mono = solo(0x90, 'MONO');
+    const left = solo(0x90, 'ABC');
+    expect(Math.abs(left.left)).toBeCloseTo(Math.abs(mono.left) * 2, 10);
+  });
+});
+
 describe('SN76489 tone counter', () => {
   // clock/16 == sample rate, so each generateSample() is exactly one tick.
   const CLOCK = 1_600_000;
