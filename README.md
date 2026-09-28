@@ -71,6 +71,15 @@ are supported. Cross-origin hosts must permit browser CORS access, and the URL
 path or `Content-Disposition` response header must supply a recognised filename
 extension.
 
+The starting machine can be chosen with `?model=` (alias `?machine=`), e.g.
+`?model=cpc6128&disk0=...`. It takes precedence over the last-used machine,
+becomes the new saved choice, and is removed from the address bar once applied.
+Values are case-insensitive; write `+` models as `plus2a`/`plus3` or `%2B3`.
+Known models: `16k` `48k` `128k` `+2` `+2A` `+3` `zx80` `zx81` `jupiter-ace`
+`cpc464` `cpc664` `cpc6128` `cpc6128plus` `gx4000` `pcw8256` `pcw8512`
+`pcw9256` `pcw9512` `einstein-tc01` `einstein-256` `hx-10` `mtx500` `mtx512`
+`rs128` `lynx48` `lynx96` `lynx128` `bbc-b`.
+
 ### Display And Audio
 
 - WebGL CRT renderer with a Canvas fallback.
