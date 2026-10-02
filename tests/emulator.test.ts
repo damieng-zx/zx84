@@ -2204,7 +2204,7 @@ describe('init / restoreMedia', () => {
     getRomManager().restoreROM.mockResolvedValueOnce({ data: new Uint8Array(16384), label: '48k' });
     (globalThis as any).localStorage = {
       getItem: vi.fn((k: string) => k === 'zx84-refresh-state'
-        ? JSON.stringify({ snapshot: btoa('xx'), model: '48k', timestamp: Date.now() })
+        ? JSON.stringify({ snapshot: btoa('xx'), model: currentModel(), timestamp: Date.now() })
         : null),
       setItem: vi.fn(), removeItem: vi.fn(),
     };
@@ -2282,7 +2282,7 @@ describe('saveRefreshState / restoreRefreshState — happy paths', () => {
     s.variant.hasSpecialPaging = true;
     (globalThis as any).localStorage = {
       getItem: vi.fn(() => JSON.stringify({
-        snapshot: btoa('xx'), model: '128k', timestamp: Date.now() - 500,
+        snapshot: btoa('xx'), model: '48k', timestamp: Date.now() - 500,
       })),
       setItem: vi.fn(), removeItem: vi.fn(),
     };

@@ -1,6 +1,6 @@
 # ZX84
 
-**A browser emulator for the Sinclair ZX80, ZX81 and ZX Spectrum, Amstrad CPC (including the Plus range) and PCW, Tatung Einstein, MSX, Memotech MTX, SAM Coupé, Camputers Lynx, and Jupiter Ace, with an MCP server for automated testing.**
+**A browser emulator for the Sinclair ZX80, ZX81 and ZX Spectrum, Amstrad CPC (including the Plus range) and PCW, Tatung Einstein, MSX, Memotech MTX, SAM Coupé, Camputers Lynx, Jupiter Ace, and Acorn BBC Micro, with an MCP server for automated testing.**
 
 https://zx84.envytech.workers.dev
 
@@ -19,6 +19,7 @@ ZX84 is an old-computer emulator with machine-specific hardware models, browser-
 | MGT SAM Coupé | 256K, 512K | MGT ASIC video, SAA1099 stereo sound, WD1772 floppy, cassette, MGT mouse, optional external megabyte RAM |
 | Camputers Lynx | 48K, 96K, 128K | 6845 CRTC video, DAC sound, cassette, FD1793 floppy on 96K/128K |
 | Jupiter Ace | Jupiter Ace | Jupiter Cantab ULA (32×24 monochrome text display), piezo buzzer, cassette port, optional 16K or 48K RAM pack, FORTH in ROM |
+| Acorn BBC Micro | Model B | MOS 6502, 6522 VIAs, 6845 CRTC with video ULA and SAA5050 teletext (Mode 7), SN76489 sound, Acorn 8271 or WD1770 DFS disc interface |
 | Amstrad PCW | 8256, 8512, 9512, 9256 | Gate array (roller-RAM bitmap video, 300Hz timer, FDC interrupt routing), beeper, uPD765A, memory-mapped keyboard, no ROM — boots from disc |
 
 ## Features
@@ -36,6 +37,7 @@ ZX84 is an old-computer emulator with machine-specific hardware models, browser-
 - SAM Coupé MGT ASIC display modes, SAA1099 stereo sound, MGT mouse, cassette, and WD1772 floppy support, with an optional external megabyte RAM interface.
 - Camputers Lynx 6845 CRTC display, DAC sound, cassette loading, and the FD1793 floppy interface on the 96K and 128K.
 - Jupiter Ace ULA text display, buzzer sound, ROM-verified cassette loading and saving, and optional 16K or 48K RAM packs.
+- Acorn BBC Micro Model B booting the real MOS and BASIC ROMs: Mode 7 teletext and bitmap modes 0-6, SN76489 stereo sound, keyboard option links, and DFS discs on either the Acorn 8271 or the WD1770 interface.
 - Amstrad PCW gate array with roller-RAM bitmap video, 300 Hz timer, FDC interrupt routing, memory-mapped keyboard, beeper, and uPD765A discs; the PCW has no ROM and boots CP/M+ or LocoScript from the disc in drive A.
 
 Spectrum ROM-overlay peripherals are model-dependent. Interface 1, MGT +D, and Beta Disk are mutually exclusive; Beta Disk takes precedence when enabled.
@@ -55,6 +57,7 @@ Load by picker or drag-and-drop. ZIP archives are unpacked and routed to compati
 | SAM Coupé | Disks: `.mgt`, `.img`, `.dsk`, `.hfe`, `.scp`; tapes: `.tap`, `.tzx`, `.csw` |
 | Camputers Lynx | Cassettes: `.tap`; disks: `.ldf` on the 96K/128K |
 | Jupiter Ace | Cassettes: `.tap`, `.tzx`, `.csw` |
+| Acorn BBC Micro | Disks: `.ssd`, `.dsd`, `.img` |
 | Amstrad PCW | Disks: `.dsk`, `.td0`, `.hfe`, `.scp` |
 
 The tape deck provides block navigation, transport controls, fast ROM loading, turbo loading, loading sound where applicable, and original-media download. The disk UI supports drive selection, write protection, disk sounds, changed-image saving, blank image creation, and flippy disks.
@@ -101,7 +104,7 @@ Known models: `16k` `48k` `128k` `+2` `+2A` `+3` `zx80` `zx81` `jupiter-ace`
 - Pause, frame stepping, step into/over/out, breakpoints, run-to-cursor, disassembly, registers, memory views, and clipboard export.
 - Spectrum and Einstein tracing: full execution, port I/O, and ZXTrace. Spectrum traces coalesce repeated loops.
 - Spectrum-specific BASIC, BASIC variables, system variables, font, memory-bank, screen-text, and OCR tools.
-- Screen transcription (the TEXT overlay and the MCP `ocr` tool) on every machine with an OCR engine. The Lynx and the PCW have no character memory, so their text is recovered by matching the picture against the character set; the Jupiter Ace and the ZX80/ZX81 read theirs straight out of the screen file.
+- Screen transcription (the TEXT overlay and the MCP `ocr` tool) on every machine with an OCR engine. The Lynx and the PCW have no character memory, so their text is recovered by matching the picture against the character set; the Jupiter Ace, the ZX80/ZX81 and BBC Mode 7 read theirs straight out of the screen file.
 - Customizable pane ordering, placement, visibility, collapse state, and persistent per-pane settings.
 
 ### Saving, Library, And Persistence
@@ -112,7 +115,7 @@ Known models: `16k` `48k` `128k` `+2` `+2A` `+3` `zx80` `zx81` `jupiter-ace`
 
 ## MCP Server
 
-The included stdio MCP server drives **every registered machine** — Spectrum, ZX80/ZX81, CPC (including the Plus range), Einstein, MSX, MTX, SAM Coupé, Camputers Lynx, Jupiter Ace, and Amstrad PCW — for automated testing and reverse engineering. Generic tools work through the `Machine` SPI; hardware-specific tools cover Spectrum peripherals and tracing, MTX expansions, CPC/uPD765A disk inspection, ZX81 hi-res hardware, and per-machine media mounting.
+The included stdio MCP server drives **every registered machine** — Spectrum, ZX80/ZX81, CPC (including the Plus range), Einstein, MSX, MTX, SAM Coupé, Camputers Lynx, Jupiter Ace, Amstrad PCW, and BBC Micro — for automated testing and reverse engineering. Generic tools work through the `Machine` SPI; hardware-specific tools cover Spectrum peripherals and tracing, MTX expansions, CPC/uPD765A disk inspection, ZX81 hi-res hardware, and per-machine media mounting.
 
 See [`mcp/README.md`](mcp/README.md) for setup, the complete tool reference, and workflows.
 

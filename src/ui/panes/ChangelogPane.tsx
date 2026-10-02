@@ -2,6 +2,24 @@ import { createSignal, Show } from 'solid-js';
 
 const CHANGELOG: { version: string; items: string[] }[] = [
   {
+    version: '0.9.0',
+    items: [
+      'Add BBC Micro Model B support',
+      'Choose the startup machine with a ?model= URL parameter',
+      'LOAD and SAVE on the ZX80 and ZX81, and cassette save on the MSX',
+      'ASCII8, ASCII16 and Konami MSX mega-ROM mappers',
+      'Read zip64 archives; encrypted and unknown zip entries are skipped',
+      'TZX generalized data and z-rle CSW blocks; unknown TZX blocks skipped',
+      'HFE disks on Memotech drives',
+      'uPD765A, WD179x and HFE/SCP fixes: formatting, ID matching, seek and write handling',
+      'Tape timing fixes: pause edges, block boundaries, 128K clock scaling',
+      'Z80 fixes: RETI daisy-chain notification, IM 2 vector, interrupt flags after LD A,I',
+      'CPC timing, VSYNC and CRTC fixes; CPC+ state loaded from v3 .SNA',
+      'SAM, MSX, Einstein, PCW, Lynx and Jupiter Ace hardware fixes',
+      'Resume .z80 and .szx snapshots at their saved frame position',
+      'SAA1099 and SN76489 audio fixes',
+    ]
+  }, {
     version: '0.8.2',
     items: [
       'Add Camputers Lynx 48K, 96K and 128K support',
