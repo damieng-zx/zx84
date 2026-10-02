@@ -54,5 +54,10 @@ function makeLayout(hires: boolean): BbcLayout {
 export const BBC_LAYOUT_1X: BbcLayout = makeLayout(false);
 export const BBC_LAYOUT_HIRES: BbcLayout = makeLayout(true);
 
-/** The display scale from which the hi-res layout is used. */
-export const BBC_HIRES_MIN_SCALE = 2;
+/** The hi-res layout draws two buffer lines per scanline, so it is shown at
+ *  half the display scale: scale 2 is the same size as 1x at 2x, with the full
+ *  detail. It is used at even scales from 2 (so the halving is pixel-exact);
+ *  odd scales keep the 1x layout at an integer multiple. */
+export function bbcLayoutForScale(scale: number): BbcLayout {
+  return scale >= 2 && scale % 2 === 0 ? BBC_LAYOUT_HIRES : BBC_LAYOUT_1X;
+}

@@ -36,8 +36,8 @@ import { wireBbcIo } from './bbc-io.ts';
 import { bbcDescriptor } from './descriptor.ts';
 import { createBbcServices, type BbcServices } from './services/index.ts';
 import {
-  BBC_ACTIVE_WIDTH, BBC_BORDER_LEFT, BBC_CPU_CLOCK, BBC_HIRES_MIN_SCALE,
-  BBC_LAYOUT_1X, BBC_LAYOUT_HIRES, BBC_SCREEN_WIDTH, BBC_SOUND_CLOCK,
+  BBC_ACTIVE_WIDTH, BBC_BORDER_LEFT, BBC_CPU_CLOCK, bbcLayoutForScale,
+  BBC_SCREEN_WIDTH, BBC_SOUND_CLOCK,
   BBC_TSTATES_PER_FRAME,
 } from './constants.ts';
 
@@ -186,17 +186,17 @@ export class BbcMachine extends BaseMachine implements Machine {
     if (this.syncLayoutToScale() && this.video) this.video.render(this);
   }
 
-  /** Use the hi-res layout (full-detail Mode 7, doubled scanlines, 4:3) from
-   *  2x display scale up and the one-line-per-scanline layout at 1x. Resizes
-   *  the display and tells the shell its screen geometry changed. Returns
-   *  whether the layout changed. */
+  /** Use the hi-res layout (full-detail Mode 7, doubled scanlines, 4:3, shown
+   *  at half the display scale) at even scales from 2x and the one-line-per-
+   *  scanline layout otherwise. Resizes the display and tells the shell its
+   *  screen geometry changed. Returns whether the layout changed. */
   private syncLayoutToScale(): boolean {
-    const want = (this.display?.scale ?? 1) >= BBC_HIRES_MIN_SCALE
-      ? BBC_LAYOUT_HIRES : BBC_LAYOUT_1X;
+    const want = bbcLayoutForScale(this.display?.scale ?? 1);
     if (want === this.video.layout) return false;
     this.video.setLayout(want);
     this.display?.resize(this.frameWidth, this.frameHeight);
     this.display?.setPixelAspectX(want.pixelAspectX);
+    this.display?.setOversample(want.vscale);
     this.setBorderSize(this.borderMode);
     this.onScreenChange?.();
     this.needsDisplay = true;

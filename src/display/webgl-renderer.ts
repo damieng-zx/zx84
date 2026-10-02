@@ -276,6 +276,7 @@ export class WebGLRenderer implements IScreenRenderer {
   // resolution). The CPC frame buffer is 2× oversampled horizontally, so it is
   // displayed at half width to restore a ~4:3 pixel aspect.
   private pixelAspectX: number;
+  private oversample = 1;
 
   // Pass 1 (upscale) — one program per scaling algorithm
   private upscalePrograms: WebGLProgram[] = [];
@@ -581,9 +582,9 @@ export class WebGLRenderer implements IScreenRenderer {
     // multiple (the old `round(scale·dpr)`) broke this — at 125% it made the
     // steps jump 1,3,4,5 and any non-integer result blurred the pixels. The CRT
     // scanline/mask shader's period (u_scale) is exactly this integer multiple.
-    this.deviceScale = this.scale;
-    const w = this.viewW * this.deviceScale;
-    const h = this.viewH * this.deviceScale;
+    this.deviceScale = this.scale / this.oversample;
+    const w = Math.round(this.viewW * this.deviceScale);
+    const h = Math.round(this.viewH * this.deviceScale);
 
     this.canvas.width = w;
     this.canvas.height = h;
@@ -602,6 +603,11 @@ export class WebGLRenderer implements IScreenRenderer {
 
     // Canvas resize invalidates GL state; defer full restore to next draw
     this.glDirty = true;
+  }
+
+  setOversample(n: number): void {
+    this.oversample = Math.max(1, n);
+    this.applyScale();
   }
 
   setPixelAspectX(v: number): void {

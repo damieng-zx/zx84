@@ -188,6 +188,9 @@ export interface MachineDescriptor {
     readonly width: number;
     readonly height: number;
     readonly pixelAspectX: number;
+    /** Buffer lines per displayed line at scale 1 (default 1); see
+     *  `IScreenRenderer.setOversample`. */
+    readonly oversample?: number;
     /** Active display area (the 256×192 Spectrum window, 640×200 CPC, …). */
     readonly activeWidth: number;
     readonly activeHeight: number;

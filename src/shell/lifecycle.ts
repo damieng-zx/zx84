@@ -470,6 +470,8 @@ export function setCanvas(el: HTMLCanvasElement): void {
     machine.display = createDisplay(
       el, machine.frameWidth, machine.frameHeight, machine.descriptor.screen.pixelAspectX,
     );
+    const oversample = machine.descriptor.screen.oversample ?? 1;
+    if (oversample > 1) machine.display.setOversample(oversample);
     applyDisplaySettings();
   }
 }
