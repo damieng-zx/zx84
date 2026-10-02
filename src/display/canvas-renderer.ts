@@ -21,6 +21,7 @@ export class CanvasRenderer implements IScreenRenderer {
   private viewH: number;
   // Horizontal squeeze applied to CSS width only — see WebGLRenderer.
   private pixelAspectX: number;
+  private oversample = 1;
   private ctx: CanvasRenderingContext2D;
   private offscreen: HTMLCanvasElement;
   private offCtx: CanvasRenderingContext2D;
@@ -58,8 +59,9 @@ export class CanvasRenderer implements IScreenRenderer {
     // backing device pixels map 1:1 onto physical pixels. Folding DPR into the
     // multiple (the old `round(scale·dpr)`) broke this — at 125% it made the
     // steps jump 1,3,4,5 and any non-integer result blurred the pixels.
-    const w = this.viewW * this.scale;
-    const h = this.viewH * this.scale;
+    const s = this.scale / this.oversample;
+    const w = Math.round(this.viewW * s);
+    const h = Math.round(this.viewH * s);
     this.canvas.width = w;
     this.canvas.height = h;
     this.canvas.style.width = (w / dpr * this.pixelAspectX) + 'px';
@@ -107,6 +109,11 @@ export class CanvasRenderer implements IScreenRenderer {
     this.viewY = y;
     this.viewW = w;
     this.viewH = h;
+    this.applyScale();
+  }
+
+  setOversample(n: number): void {
+    this.oversample = Math.max(1, n);
     this.applyScale();
   }
 

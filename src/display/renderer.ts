@@ -14,6 +14,11 @@ export interface IScreenRenderer {
   /** Width of a buffer pixel relative to its height (see the descriptor);
    *  a machine whose geometry changes at runtime updates it. */
   setPixelAspectX(v: number): void;
+  /** Buffer pixels per displayed pixel at scale 1, vertically (default 1). A
+   *  buffer drawn at two lines per scanline sets 2 so the display scale still
+   *  means "N× the normal picture"; the scale must then be a multiple of it
+   *  to stay pixel-exact. */
+  setOversample(n: number): void;
   setSmoothing(v: number): void;
   setCurvature(v: number): void;
   setScanlines(v: number): void;

@@ -322,11 +322,15 @@ describe('bbc — layout follows the display scale', () => {
 
   /** A display stub that records the calls the machine makes. */
   function makeDisplay(scale: number) {
-    const calls = { resize: [] as number[][], aspect: [] as number[], viewport: [] as number[][] };
+    const calls = {
+      resize: [] as number[][], aspect: [] as number[], oversample: [] as number[],
+      viewport: [] as number[][],
+    };
     const d = {
       scale,
       resize: (w: number, h: number) => { calls.resize.push([w, h]); },
       setPixelAspectX: (v: number) => { calls.aspect.push(v); },
+      setOversample: (n: number) => { calls.oversample.push(n); },
       setViewport: (x: number, y: number, w: number, h: number) => { calls.viewport.push([x, y, w, h]); },
       updateTexture: () => {},
     } as unknown as IScreenRenderer;
@@ -370,6 +374,10 @@ describe('bbc — layout follows the display scale', () => {
       expect(m.pixels.length).toBe(BBC_SCREEN_WIDTH * 576 * 4);
       expect(calls.resize).toEqual([[BBC_SCREEN_WIDTH, 576]]);
       expect(calls.aspect).toEqual([1]);               // square pixels, 4:3
+      // Two lines per scanline: shown at half the scale, so UI 2x is the same
+      // size as the 1x layout at 2x (not twice that).
+      expect(calls.oversample).toEqual([2]);
+      expect(m.descriptor.screen.oversample).toBe(2);
       expect(m.descriptor.screen).toMatchObject({
         height: 576, activeHeight: 512, borderTop: 32, pixelAspectX: 1,
       });
@@ -379,6 +387,7 @@ describe('bbc — layout follows the display scale', () => {
       m.applySettings(view);
       expect(m.frameHeight).toBe(288);
       expect(calls.aspect).toEqual([1, 0.5]);
+      expect(calls.oversample).toEqual([2, 1]);
       expect(notified).toBe(2);
 
       // No change, no churn.
@@ -390,8 +399,20 @@ describe('bbc — layout follows the display scale', () => {
     }
   });
 
+  it('uses the hi-res layout only at even scales, so the halving is pixel-exact', () => {
+    for (const [scale, height] of [[1, 288], [2, 576], [3, 288], [4, 576], [5, 288], [6, 576]]) {
+      const m = new BbcMachine('bbc-b', makeDisplay(scale).d);
+      try {
+        m.applySettings(view);
+        expect(m.frameHeight, `scale ${scale}`).toBe(height);
+      } finally {
+        m.destroy();
+      }
+    }
+  });
+
   it('crops the border to the layout at 2x (None shows the 640x512 picture)', () => {
-    const { d, calls } = makeDisplay(3);
+    const { d, calls } = makeDisplay(2);
     const m = new BbcMachine('bbc-b', d);
     try {
       m.applySettings(view);

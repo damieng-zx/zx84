@@ -67,6 +67,7 @@ export function bbcDescriptor(
       // 384×288), like the CPC, which shares the 6845 and PAL timing. From 2x
       // the buffer has two lines per scanline and pixels are square (4:3).
       pixelAspectX: layout.pixelAspectX,
+      oversample: layout.vscale,
       activeWidth: BBC_ACTIVE_WIDTH,
       activeHeight: layout.activeHeight,
       borderLeft: BBC_BORDER_LEFT,

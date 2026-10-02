@@ -66,14 +66,14 @@ export function Screen() {
     // active area measures `scale / dpr` CSS pixels per source pixel. The overlay
     // is positioned in CSS pixels, so it must use that same factor to stay
     // aligned with the canvas at fractional DPRs.
-    const effectiveScale = scl / curDpr;
+    const geom = machineScreen();
+    const effectiveScale = scl / (geom.oversample ?? 1) / curDpr;
 
     // Overlay geometry is machine-agnostic: the descriptor gives the active
     // area's size, its full-border offset, and the horizontal pixel aspect. The
     // border-size setting crops the displayed viewport uniformly (None=0,
     // Small=½, Normal=full border); a buffer point (bx,by) lands at
     // ((bx-viewX)·scale·pax, (by-viewY)·scale) in CSS.
-    const geom = machineScreen();
     const frac = bs === 2 ? 1 : bs === 1 ? 0.5 : 0;
     const viewX = Math.round(geom.borderLeft * (1 - frac));
     const viewY = Math.round(geom.borderTop * (1 - frac));
