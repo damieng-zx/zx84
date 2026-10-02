@@ -11,7 +11,7 @@ depcheck`, zero exceptions).
 
 - `src/cores/` — **commodity silicon only**: chips that shipped in more than one
   machine (Z80, AY-3-891x, TMS9918A, CRTC 6845, uPD765A, WD179x/1772/1793, Z80
-  CTC, i8255). Pure — imports only other cores, `src/media/` *types*, `src/utils/`.
+  CTC, i8255, MOS 6502, 6522 VIA, Intel 8271, SAA5050). Pure — imports only other cores, `src/media/` *types*, `src/utils/`.
   Custom silicon that only ever existed in one machine (the Spectrum's Ferranti
   ULA, the CPC's Amstrad gate array, the microdrive) is **not** here — it lives
   in that machine's folder.
@@ -57,7 +57,8 @@ depcheck`, zero exceptions).
 - `src/debug/` — machine-agnostic debug tools (BASIC parser) plus per-CPU-family
   debug substrate in `src/debug/<family>/`
   (`z80/`: `disasm.ts` disassembler + `service.ts` `Z80DebugService`/`z80Cpu()`,
-  step-over/out logic, register surface — shared by every Z80 machine). A
+  step-over/out logic, register surface — shared by every Z80 machine;
+  `m6502/`: the same for the 6502 — used by the BBC Micro). A
   machine may import its *family* module — that's substrate, not another
   machine. Imports only cores, utils, and machine SPI *types*. These tools take
   `Uint8Array`, not `ByteReader`.
