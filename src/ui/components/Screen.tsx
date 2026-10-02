@@ -9,7 +9,7 @@ import { machine } from '@/shell/context.ts';
 import { setCanvas } from '@/shell/lifecycle.ts';
 import { transcribeMode, transcribeHtml, transcribeGrid, transcribeField } from '@/state/activity-state.ts';
 import { devicePixelRatio } from '@/state/display-state.ts';
-import { machineDescriptor } from '@/state/machine-caps.ts';
+import { machineScreen } from '@/state/machine-caps.ts';
 import { renderer, scale, borderSize, ocrFont, ocrLineHeight, ocrTracking, ocrOffsetX, ocrOffsetY, ocrScaleX, ocrScaleY } from '@/store/settings.ts';
 
 // Base font size for the overlay before auto-scaling. The overlay is always
@@ -73,7 +73,7 @@ export function Screen() {
     // border-size setting crops the displayed viewport uniformly (None=0,
     // Small=½, Normal=full border); a buffer point (bx,by) lands at
     // ((bx-viewX)·scale·pax, (by-viewY)·scale) in CSS.
-    const geom = machineDescriptor().screen;
+    const geom = machineScreen();
     const frac = bs === 2 ? 1 : bs === 1 ? 0.5 : 0;
     const viewX = Math.round(geom.borderLeft * (1 - frac));
     const viewY = Math.round(geom.borderTop * (1 - frac));

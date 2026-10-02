@@ -13,8 +13,7 @@ import type { MachineModel } from '@/models.ts';
 import type { BbcModel } from './models.ts';
 import { BbcMachine } from './bbc-machine.ts';
 import {
-  BBC_ACTIVE_HEIGHT, BBC_ACTIVE_WIDTH, BBC_BORDER_LEFT, BBC_BORDER_TOP,
-  BBC_SCREEN_HEIGHT, BBC_SCREEN_WIDTH,
+  BBC_ACTIVE_WIDTH, BBC_BORDER_LEFT, BBC_LAYOUT_1X, BBC_SCREEN_WIDTH, type BbcLayout,
 } from './constants.ts';
 
 const BBC_UI: MachineUiCapabilities = {
@@ -53,6 +52,7 @@ const BBC_UI: MachineUiCapabilities = {
 export function bbcDescriptor(
   model: MachineModel,
   locale: MachineLocale = 'uk',
+  layout: BbcLayout = BBC_LAYOUT_1X,
 ): MachineDescriptor {
   return {
     kind: 'bbc',
@@ -61,15 +61,16 @@ export function bbcDescriptor(
     cpuFamily: 'm6502',
     screen: {
       width: BBC_SCREEN_WIDTH,
-      height: BBC_SCREEN_HEIGHT,
-      // One buffer line per scanline and 640 pixels across, so a buffer pixel
-      // is half as wide as it is tall: show it at half width (1x = 384×288),
-      // like the CPC, which shares the 6845 and PAL timing.
-      pixelAspectX: 0.5,
+      height: layout.screenHeight,
+      // At 1x: one buffer line per scanline and 640 pixels across, so a buffer
+      // pixel is half as wide as it is tall: show it at half width (1x =
+      // 384×288), like the CPC, which shares the 6845 and PAL timing. From 2x
+      // the buffer has two lines per scanline and pixels are square (4:3).
+      pixelAspectX: layout.pixelAspectX,
       activeWidth: BBC_ACTIVE_WIDTH,
-      activeHeight: BBC_ACTIVE_HEIGHT,
+      activeHeight: layout.activeHeight,
       borderLeft: BBC_BORDER_LEFT,
-      borderTop: BBC_BORDER_TOP,
+      borderTop: layout.borderTop,
     },
     ui: BBC_UI,
   };

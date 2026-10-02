@@ -11,6 +11,9 @@ export interface IScreenRenderer {
    *  scaled to fill the canvas — used for CPC border cropping. */
   setViewport(x: number, y: number, w: number, h: number): void;
   setScale(scale: number): void;
+  /** Width of a buffer pixel relative to its height (see the descriptor);
+   *  a machine whose geometry changes at runtime updates it. */
+  setPixelAspectX(v: number): void;
   setSmoothing(v: number): void;
   setCurvature(v: number): void;
   setScanlines(v: number): void;

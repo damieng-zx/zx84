@@ -23,3 +23,36 @@ export const BBC_BORDER_TOP = 16;
 /** Full-border frame buffer. */
 export const BBC_SCREEN_WIDTH = BBC_ACTIVE_WIDTH + BBC_BORDER_LEFT * 2;
 export const BBC_SCREEN_HEIGHT = BBC_ACTIVE_HEIGHT + BBC_BORDER_TOP * 2;
+
+/** Frame-buffer layout. At 1x the buffer is one line per TV scanline (256-line
+ *  picture) shown at half width, so 1x really is 1x; Mode 7's interlaced
+ *  half-lines are blended to fit. From 2x up there is room for the full
+ *  detail: a 512-line picture with each scanline drawn twice and Mode 7's
+ *  20 rounded lines per row drawn as the SAA5050 produces them, shown at full
+ *  width (4:3). */
+export interface BbcLayout {
+  readonly hires: boolean;
+  /** Buffer lines per TV scanline. */
+  readonly vscale: 1 | 2;
+  readonly activeHeight: number;
+  readonly borderTop: number;
+  readonly screenHeight: number;
+  readonly pixelAspectX: number;
+}
+
+function makeLayout(hires: boolean): BbcLayout {
+  const vscale = hires ? 2 : 1;
+  const activeHeight = BBC_ACTIVE_HEIGHT * vscale;
+  const borderTop = BBC_BORDER_TOP * vscale;
+  return {
+    hires, vscale, activeHeight, borderTop,
+    screenHeight: activeHeight + borderTop * 2,
+    pixelAspectX: hires ? 1 : 0.5,
+  };
+}
+
+export const BBC_LAYOUT_1X: BbcLayout = makeLayout(false);
+export const BBC_LAYOUT_HIRES: BbcLayout = makeLayout(true);
+
+/** The display scale from which the hi-res layout is used. */
+export const BBC_HIRES_MIN_SCALE = 2;

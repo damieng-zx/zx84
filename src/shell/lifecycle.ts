@@ -15,7 +15,7 @@ import { clearLastFile, migrateDiskStorage } from '@/store/persistence.ts';
 import { decideFocusPause } from '@/focus-pause.ts';
 import {
   currentModel, setCurrentModel, saveModel, emulationPaused, setEmulationPaused,
-  speedStep, setSpeedStep, setTurboMode, currentLocale,
+  speedStep, setSpeedStep, setTurboMode, currentLocale, setScreenGeometry,
 } from '@/state/machine-state.ts';
 import {
   setDisasmText, setSysvarHtml, setBasicListing, setBasicVars, setTracing,
@@ -146,6 +146,8 @@ export async function createMachine(): Promise<boolean> {
   resetBootDiskPhantom();   // fresh FDC on the new machine
   built.onStatus = (msg: string) => setStatus(msg);
   built.onFrame = onFrame;
+  setScreenGeometry(null);
+  built.onScreenChange = () => setScreenGeometry(built.descriptor.screen);
   applyDisplaySettings();
   resetSpeedTracking();
   resetLedActivity();   // drop any LED hold state carried over from a prior machine
@@ -465,7 +467,9 @@ export function setCanvas(el: HTMLCanvasElement): void {
     machine.display?.dispose?.({ loseContext: true });
     // The machine reports its live frame-buffer geometry (the Spectrum's
     // shrinks with the border-size setting).
-    machine.display = createDisplay(el, machine.frameWidth, machine.frameHeight);
+    machine.display = createDisplay(
+      el, machine.frameWidth, machine.frameHeight, machine.descriptor.screen.pixelAspectX,
+    );
     applyDisplaySettings();
   }
 }

@@ -76,11 +76,15 @@ export function effectiveROMKey(model: MachineModel, locale?: MachineLocale): st
 
 // ── Display ──────────────────────────────────────────────────────────────
 
-export function createDisplay(el: HTMLCanvasElement, w: number, h: number) {
+export function createDisplay(
+  el: HTMLCanvasElement, w: number, h: number, liveAspectX?: number,
+) {
   // Pixel aspect is machine metadata (the CPC's buffer is 2× oversampled
-  // horizontally and displays at half width to restore ~4:3).
+  // horizontally and displays at half width to restore ~4:3). A machine that
+  // changes geometry at runtime passes its current aspect.
   const model = currentModel();
-  const pixelAspectX = entryForModel(model).descriptor(model).screen.pixelAspectX;
+  const pixelAspectX = liveAspectX
+    ?? entryForModel(model).descriptor(model).screen.pixelAspectX;
   if (settings.renderer() === 'webgl' && settings.webglAvailable()) {
     try {
       return new WebGLRenderer(el, w, h, pixelAspectX);

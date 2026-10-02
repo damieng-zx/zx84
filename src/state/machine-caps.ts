@@ -19,13 +19,19 @@
 
 import { entryForModel } from '@/machines/registry.ts';
 import type { CpuFamily, MachineDescriptor, MachineUiCapabilities } from '@/machines/machine.ts';
-import { currentModel, currentLocale } from '@/state/machine-state.ts';
+import { currentModel, currentLocale, screenGeometry } from '@/state/machine-state.ts';
 
 /** The active model's full descriptor (reactive on `currentModel` + `currentLocale`). */
 export function machineDescriptor(): MachineDescriptor {
   const model = currentModel();
   const locale = currentLocale();
   return entryForModel(model).descriptor(model, locale);
+}
+
+/** The active machine's screen geometry: what it last published when its frame
+ *  buffer changed at runtime, else the descriptor's. */
+export function machineScreen(): MachineDescriptor['screen'] {
+  return screenGeometry() ?? machineDescriptor().screen;
 }
 
 /** The active model's UI capabilities (reactive on `currentModel`). */

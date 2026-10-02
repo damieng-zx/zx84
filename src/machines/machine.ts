@@ -120,6 +120,9 @@ export interface Machine {
   onTrap: ((pc: number) => boolean) | null;
   onStatus: ((msg: string) => void) | null;
   onFrame: (() => void) | null;
+  /** Fired when the machine changes its frame-buffer geometry at runtime (so
+   *  `descriptor.screen` differs from before); the shell republishes it. */
+  onScreenChange?: (() => void) | null;
 
   // ── SPI v2 ───────────────────────────────────────────────────────────
   /** Static metadata for this machine+model (also available construction-free
