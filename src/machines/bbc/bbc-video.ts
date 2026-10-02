@@ -1,23 +1,23 @@
 /**
  * BBC Micro video output.
  *
- * Mode 7 is rendered by the SAA5050 teletext generator: its rounded 12×20
- * cells are two interlaced fields of 10 lines, so each buffer line blends the
- * pair (50% where only one half-line is lit), as the eye does on a TV. Modes
- * 0-6 are rendered from the 6845's
- * MA through the video ULA's bit-depth/palette mapping. Both read display RAM
- * directly; the machine owns the frame timing.
+ * Mode 7 is rendered by the SAA5050 teletext generator. Its rounded 12×20
+ * cells are two interlaced fields of 10 lines. At 1x each buffer line blends
+ * the pair (50% where only one half-line is lit), as the eye does on a TV; in
+ * the hi-res layout (2x and up) all 20 rounded lines are drawn as the chip
+ * makes them and the bitmap scanlines are doubled. Modes 0-6 are rendered
+ * from the 6845's MA through the video ULA's bit-depth/palette mapping. Both
+ * read display RAM directly; the machine owns the frame timing.
  */
 
 import { Saa5050, createSaa5050Cells, type Saa5050Cell } from '@/cores/saa5050.ts';
 import {
-  BBC_ACTIVE_HEIGHT, BBC_ACTIVE_WIDTH, BBC_BORDER_LEFT, BBC_BORDER_TOP,
-  BBC_SCREEN_HEIGHT, BBC_SCREEN_WIDTH,
+  BBC_ACTIVE_WIDTH, BBC_BORDER_LEFT, BBC_LAYOUT_1X, BBC_LAYOUT_HIRES, BBC_SCREEN_WIDTH,
+  type BbcLayout,
 } from './constants.ts';
 import type { BbcMachine } from './bbc-machine.ts';
 
 const W = BBC_SCREEN_WIDTH;
-const H = BBC_SCREEN_HEIGHT;
 
 /** Physical BBC colours 0-7 as packed little-endian RGBA. 'pal' is fully
  *  saturated; 'measured' uses the muted levels a real PAL receiver produced. */
@@ -64,9 +64,23 @@ function teletextAddr(ma: number): number {
 
 export class BbcVideo {
   readonly width = W;
-  readonly height = H;
-  readonly pixels = new Uint8Array(W * H * 4);
-  private readonly pixels32 = new Uint32Array(this.pixels.buffer);
+  /** Current frame-buffer layout; see `setLayout`. */
+  layout: BbcLayout = BBC_LAYOUT_1X;
+  /** Backing store sized for the tallest layout; `pixels` is the live view. */
+  private readonly store = new Uint8Array(W * BBC_LAYOUT_HIRES.screenHeight * 4);
+  pixels: Uint8Array = this.store.subarray(0, W * this.layout.screenHeight * 4);
+  private pixels32 = new Uint32Array(this.store.buffer, 0, W * this.layout.screenHeight);
+
+  get height(): number { return this.layout.screenHeight; }
+
+  /** Switch the buffer between the 1x and hi-res layouts (clears the frame). */
+  setLayout(layout: BbcLayout): void {
+    if (layout === this.layout) return;
+    this.layout = layout;
+    this.pixels = this.store.subarray(0, W * layout.screenHeight * 4);
+    this.pixels32 = new Uint32Array(this.store.buffer, 0, W * layout.screenHeight);
+    this.pixels32.fill(0xFF000000);
+  }
 
   private readonly saa = new Saa5050();
   private readonly cells: Saa5050Cell[] = createSaa5050Cells(40);
@@ -122,9 +136,12 @@ export class BbcVideo {
     const cols = 40;
     const rows = 25;
     const cw = 12;       // SAA5050 cell: 12×20 from the core (rounded) ...
-    const ch = 10;       // ... shown as 10 scanlines, each a half-line pair
+    const { hires, vscale, borderTop, activeHeight, screenHeight: H } = this.layout;
+    // ... shown as 10 scanlines, each a half-line pair, or at 2x and up as the
+    // full 20 lines.
+    const ch = 10 * vscale;
     const xBase = BBC_BORDER_LEFT + ((BBC_ACTIVE_WIDTH - cols * cw) >> 1);
-    const yBase = BBC_BORDER_TOP + ((BBC_ACTIVE_HEIGHT - rows * ch) >> 1);
+    const yBase = borderTop + ((activeHeight - rows * ch) >> 1);
     const start = m.crtc.displayStart;
     // The 6845 advances its row address by R1 (horizontal displayed), which is
     // 40 in Mode 7 — not R0+1 (the 64-character horizontal total).
@@ -155,9 +172,19 @@ export class BbcVideo {
         for (let y = 0; y < ch; y++) {
           const py = y0 + y;
           if (py < 0 || py >= H) continue;
+          const out = py * W;
+          if (hires) {
+            // The chip's own rounded line: ink or paper, no blending.
+            const row = cell.pixels[y];
+            for (let x = 0; x < cw; x++) {
+              const px = x0 + x;
+              if (px < 0 || px >= W) continue;
+              this.pixels32[out + px] = ((row >> x) & 1) ? fgCol : bgCol;
+            }
+            continue;
+          }
           const even = cell.pixels[y * 2];
           const odd = cell.pixels[y * 2 + 1];
-          const out = py * W;
           for (let x = 0; x < cw; x++) {
             const px = x0 + x;
             if (px < 0 || px >= W) continue;
@@ -179,7 +206,9 @@ export class BbcVideo {
     // Scanlines per character row: 8, or 10 in the gapped text modes 3 and 6,
     // whose last two lines (RA bit 3 set) the ULA blanks.
     const lpr = (m.crtc.regs[9] & 0x1F) + 1;
-    const yOff = BBC_BORDER_TOP + ((BBC_ACTIVE_HEIGHT - r6 * lpr) >> 1);
+    const { vscale, borderTop, activeHeight, screenHeight: H } = this.layout;
+    // At 2x and up each scanline is drawn twice.
+    const yOff = borderTop + ((activeHeight - r6 * lpr * vscale) >> 1);
     const start = m.crtc.displayStart;
     const sub = wrapSubtract(m.ic32.c0, m.ic32.c1);
     const pal = this.pal();
@@ -191,8 +220,8 @@ export class BbcVideo {
     for (let row = 0; row < r6; row++) {
       const maRow = start + row * r1;
       for (let ra = 0; ra < Math.min(lpr, 8); ra++) {
-        const y = yOff + row * lpr + ra;
-        if (y < 0 || y >= H) continue;
+        const y = yOff + (row * lpr + ra) * vscale;
+        if (y < 0 || y + vscale > H) continue;
         const out = y * W;
         let x = 0;
         for (let p = 0; p < r1 && x < info.width; p++) {
@@ -211,6 +240,7 @@ export class BbcVideo {
             this.putPixels(out, x++, m.palette[v], scale, flash, pal);
           }
         }
+        if (vscale === 2) this.pixels32.copyWithin(out + W, out, out + W);
       }
     }
   }

@@ -70,6 +70,7 @@ export abstract class BaseMachine {
   onTrap: ((pc: number) => boolean) | null = null;
   onStatus: ((msg: string) => void) | null = null;
   onFrame: (() => void) | null = null;
+  onScreenChange: (() => void) | null = null;
 
   // ── Frame-loop / lifecycle state ─────────────────────────────────────────
   /** Turbo mode: run as many frames as fit in the per-rAF budget. */

@@ -14,6 +14,8 @@ import { writeIc32 } from '@/machines/bbc/bbc-io.ts';
 import {
   BBC_BORDER_LEFT, BBC_BORDER_TOP, BBC_SCREEN_WIDTH,
 } from '@/machines/bbc/constants.ts';
+import type { IScreenRenderer } from '@/display/renderer.ts';
+import type { SettingsView } from '@/machines/machine.ts';
 
 function makeBbc(): BbcMachine {
   return new BbcMachine('bbc-b', null);
@@ -309,6 +311,159 @@ describe('bbc — Mode 7 at one line per scanline', () => {
         }
       }
       expect(seenHalf).toBe(true);        // 'A' has rounded (half-lit) pixels
+    } finally {
+      m.destroy();
+    }
+  });
+});
+
+describe('bbc — layout follows the display scale', () => {
+  const view: SettingsView = { get: <T>(_k: string, fallback: T) => fallback };
+
+  /** A display stub that records the calls the machine makes. */
+  function makeDisplay(scale: number) {
+    const calls = { resize: [] as number[][], aspect: [] as number[], viewport: [] as number[][] };
+    const d = {
+      scale,
+      resize: (w: number, h: number) => { calls.resize.push([w, h]); },
+      setPixelAspectX: (v: number) => { calls.aspect.push(v); },
+      setViewport: (x: number, y: number, w: number, h: number) => { calls.viewport.push([x, y, w, h]); },
+      updateTexture: () => {},
+    } as unknown as IScreenRenderer;
+    return { d, calls };
+  }
+
+  function mode7(m: BbcMachine, ch: number): void {
+    m.videoUlaControl = 0x02;
+    m.crtc.regs[1] = 40;
+    m.crtc.regs[12] = 0x28;
+    m.crtc.regs[13] = 0x00;
+    m.memory.ram[0x7C00] = ch;
+  }
+
+  /** RGB at picture (x, y) for a buffer whose border is `top` lines deep. */
+  function rgbAt(m: BbcMachine, x: number, y: number, top: number): [number, number, number] {
+    const i = ((y + top) * BBC_SCREEN_WIDTH + x + BBC_BORDER_LEFT) * 4;
+    return [m.pixels[i], m.pixels[i + 1], m.pixels[i + 2]];
+  }
+
+  it('stays one line per scanline at 1x', () => {
+    const m = new BbcMachine('bbc-b', makeDisplay(1).d);
+    try {
+      m.applySettings(view);
+      expect(m.frameHeight).toBe(288);
+      expect(m.descriptor.screen.pixelAspectX).toBe(0.5);
+      expect(m.pixels.length).toBe(BBC_SCREEN_WIDTH * 288 * 4);
+    } finally {
+      m.destroy();
+    }
+  });
+
+  it('switches to the 512-line picture at 2x and back at 1x, telling the shell', () => {
+    const { d, calls } = makeDisplay(2);
+    const m = new BbcMachine('bbc-b', d);
+    let notified = 0;
+    m.onScreenChange = () => { notified++; };
+    try {
+      m.applySettings(view);
+      expect(m.frameHeight).toBe(576);                 // 512 + 2 x 32 border
+      expect(m.pixels.length).toBe(BBC_SCREEN_WIDTH * 576 * 4);
+      expect(calls.resize).toEqual([[BBC_SCREEN_WIDTH, 576]]);
+      expect(calls.aspect).toEqual([1]);               // square pixels, 4:3
+      expect(m.descriptor.screen).toMatchObject({
+        height: 576, activeHeight: 512, borderTop: 32, pixelAspectX: 1,
+      });
+      expect(notified).toBe(1);
+
+      (d as { scale: number }).scale = 1;
+      m.applySettings(view);
+      expect(m.frameHeight).toBe(288);
+      expect(calls.aspect).toEqual([1, 0.5]);
+      expect(notified).toBe(2);
+
+      // No change, no churn.
+      m.applySettings(view);
+      expect(calls.resize.length).toBe(2);
+      expect(notified).toBe(2);
+    } finally {
+      m.destroy();
+    }
+  });
+
+  it('crops the border to the layout at 2x (None shows the 640x512 picture)', () => {
+    const { d, calls } = makeDisplay(3);
+    const m = new BbcMachine('bbc-b', d);
+    try {
+      m.applySettings(view);
+      m.setBorderSize(0);
+      expect(calls.viewport.at(-1)).toEqual([BBC_BORDER_LEFT, 32, 640, 512]);
+    } finally {
+      m.destroy();
+    }
+  });
+
+  it('draws all 20 rounded teletext lines unblended at 2x', () => {
+    const m = new BbcMachine('bbc-b', makeDisplay(2).d);
+    try {
+      m.applySettings(view);
+      mode7(m, 0x41);                                  // 'A', white on black
+      const rows = saaRow(0x41)[0].pixels;             // the chip's own 12x20 cell
+      m.video.render(m);
+      const x0 = 80, y0 = 6;                           // 480x500 box centred in 640x512
+      let seenHalfDot = false;
+      for (let y = 0; y < 20; y++) {
+        for (let x = 0; x < 12; x++) {
+          const want = (rows[y] >> x) & 1 ? 255 : 0;
+          expect(rgbAt(m, x0 + x, y0 + y, 32)).toEqual([want, want, want]);
+          if (want && !((rows[y ^ 1] >> x) & 1)) seenHalfDot = true;
+        }
+      }
+      // 'A' has character-rounding dots that are lit in only one of a line pair;
+      // at 2x they are full ink, not the 50% grey the 1x blend gives them.
+      expect(seenHalfDot).toBe(true);
+    } finally {
+      m.destroy();
+    }
+  });
+
+  it('moves the text grid with the layout so the overlay stays aligned', () => {
+    const { d } = makeDisplay(2);
+    const m = new BbcMachine('bbc-b', d);
+    try {
+      mode7(m, 0x41);
+      m.applySettings(view);
+      // 25 rows x 20 lines = 500, centred in the 512-line picture: 6 lines down.
+      expect(m.textLayout()).toMatchObject({
+        x: BBC_BORDER_LEFT + 80, y: 32 + 6, cellW: 12, cellH: 20, glyphH: 20,
+      });
+      (d as { scale: number }).scale = 1;
+      m.applySettings(view);
+      expect(m.textLayout()).toMatchObject({
+        x: BBC_BORDER_LEFT + 80, y: BBC_BORDER_TOP + 3, cellW: 12, cellH: 10, glyphH: 10,
+      });
+    } finally {
+      m.destroy();
+    }
+  });
+
+  it('draws each bitmap scanline twice at 2x', () => {
+    const m = new BbcMachine('bbc-b', makeDisplay(2).d);
+    try {
+      m.applySettings(view);
+      m.videoUlaControl = 0x89;                        // Mode 4: 40 columns, 1bpp, low clock
+      m.crtc.regs[1] = 40;
+      m.crtc.regs[6] = 32;
+      m.crtc.regs[9] = 7;
+      m.crtc.regs[12] = 0x0B;                          // MA 0x0B00 -> RAM 0x5800
+      m.crtc.regs[13] = 0x00;
+      m.palette[0] = 0;
+      m.palette[1] = 7;
+      m.memory.ram[0x5800] = 0xFF;                     // scanline 0 of the first cell
+      m.video.render(m);
+      const lit = (y: number) => rgbAt(m, 0, y, 32)[0];
+      expect(lit(0)).toBe(255);
+      expect(lit(1)).toBe(255);                        // the copy
+      expect(lit(2)).toBe(0);                          // scanline 1 is a different byte
     } finally {
       m.destroy();
     }

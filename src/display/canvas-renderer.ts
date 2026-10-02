@@ -110,6 +110,11 @@ export class CanvasRenderer implements IScreenRenderer {
     this.applyScale();
   }
 
+  setPixelAspectX(v: number): void {
+    this.pixelAspectX = v;
+    this.applyScale();
+  }
+
   setScale(scale: number): void {
     this.scale = Math.max(1, Math.round(scale));
     this.applyScale();

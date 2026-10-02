@@ -10,7 +10,7 @@
 
 import { createSignal } from 'solid-js';
 import type { MachineModel } from '@/models.ts';
-import type { MachineLocale, RomSlotInfo, SidewaysRomSlot } from '@/machines/machine.ts';
+import type { MachineDescriptor, MachineLocale, RomSlotInfo, SidewaysRomSlot } from '@/machines/machine.ts';
 import { registry } from '@/machines/registry.ts';
 
 /** Every model the parts catalog knows. Derived from the registry rather than
@@ -113,6 +113,12 @@ export const setSidewaysRomSlots = _sidewaysRomSlots[1];
 const _currentModel = createSignal<MachineModel>(consumeUrlModel() ?? loadSavedModel() ?? '128k');
 export const currentModel = _currentModel[0];
 export const setCurrentModel = _currentModel[1];
+
+// Screen geometry a machine published after changing its frame buffer at
+// runtime (e.g. the BBC Micro's 1x/hi-res layouts). Null = use the descriptor's.
+const _screenGeometry = createSignal<MachineDescriptor['screen'] | null>(null);
+export const screenGeometry = _screenGeometry[0];
+export const setScreenGeometry = _screenGeometry[1];
 
 // Locale selection (keyboard / ROM region)
 function loadSavedLocale(): MachineLocale {

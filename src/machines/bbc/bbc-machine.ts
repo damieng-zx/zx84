@@ -22,7 +22,7 @@ import type {
 import type { OcrResult } from '@/ocr/ocr.ts';
 import {
   BbcScreenText, BBC_FONT_BYTES, BBC_MODE7_CELL_H, BBC_MODE7_CELL_W, BBC_MODE7_COLS,
-  BBC_MODE7_ORIGIN_X, BBC_MODE7_ORIGIN_Y, BBC_MODE7_ROWS, bbcBitmapCols, ocrBbcBitmap,
+  BBC_MODE7_ORIGIN_X, BBC_MODE7_ROWS, bbcBitmapCols, ocrBbcBitmap,
   type BbcBitmapOcrInput,
 } from '@/ocr/bbc.ts';
 import type { BbcModel, BbcDiskSystem } from './models.ts';
@@ -36,8 +36,8 @@ import { wireBbcIo } from './bbc-io.ts';
 import { bbcDescriptor } from './descriptor.ts';
 import { createBbcServices, type BbcServices } from './services/index.ts';
 import {
-  BBC_ACTIVE_HEIGHT, BBC_ACTIVE_WIDTH, BBC_BORDER_LEFT, BBC_BORDER_TOP,
-  BBC_CPU_CLOCK, BBC_SCREEN_HEIGHT, BBC_SCREEN_WIDTH, BBC_SOUND_CLOCK,
+  BBC_ACTIVE_WIDTH, BBC_BORDER_LEFT, BBC_CPU_CLOCK, BBC_HIRES_MIN_SCALE,
+  BBC_LAYOUT_1X, BBC_LAYOUT_HIRES, BBC_SCREEN_WIDTH, BBC_SOUND_CLOCK,
   BBC_TSTATES_PER_FRAME,
 } from './constants.ts';
 
@@ -102,15 +102,18 @@ export class BbcMachine extends BaseMachine implements Machine {
 
   /** Frames left holding SHIFT for a SHIFT+BREAK disc boot. */
   private bootShiftFrames = 0;
+  private borderMode: BorderMode = 2;
   private viaAccum = 0;
   private prevVsync = false;
 
   protected get audioChip(): Sn76489 { return this.psg; }
 
-  get descriptor(): MachineDescriptor { return bbcDescriptor(this.model); }
+  get descriptor(): MachineDescriptor {
+    return bbcDescriptor(this.model, 'uk', this.video.layout);
+  }
   get pixels(): Uint8Array { return this.video.pixels; }
   get frameWidth(): number { return BBC_SCREEN_WIDTH; }
-  get frameHeight(): number { return BBC_SCREEN_HEIGHT; }
+  get frameHeight(): number { return this.video.layout.screenHeight; }
   get tStatesPerFrame(): number { return BBC_TSTATES_PER_FRAME; }
   get cpuClockHz(): number { return BBC_CPU_CLOCK; }
 
@@ -179,16 +182,37 @@ export class BbcMachine extends BaseMachine implements Machine {
     this.psg.setStereoMode(view.get<Sn76489StereoMode>('sn-stereo', 'MONO'));
     this.video.paletteMode = view.get<'pal' | 'measured'>('bbc-color-map', 'pal');
     this.diskSystem = view.get<BbcDiskSystem>('bbc-disk-system', '1770');
+    // A scale change while paused has no frame to pick it up.
+    if (this.syncLayoutToScale() && this.video) this.video.render(this);
+  }
+
+  /** Use the hi-res layout (full-detail Mode 7, doubled scanlines, 4:3) from
+   *  2x display scale up and the one-line-per-scanline layout at 1x. Resizes
+   *  the display and tells the shell its screen geometry changed. Returns
+   *  whether the layout changed. */
+  private syncLayoutToScale(): boolean {
+    const want = (this.display?.scale ?? 1) >= BBC_HIRES_MIN_SCALE
+      ? BBC_LAYOUT_HIRES : BBC_LAYOUT_1X;
+    if (want === this.video.layout) return false;
+    this.video.setLayout(want);
+    this.display?.resize(this.frameWidth, this.frameHeight);
+    this.display?.setPixelAspectX(want.pixelAspectX);
+    this.setBorderSize(this.borderMode);
+    this.onScreenChange?.();
+    this.needsDisplay = true;
+    return true;
   }
 
   /** The border is always black and fully rendered; the setting crops it:
    *  Normal shows it all, Small half, None just the 640×256 picture. */
   setBorderSize(mode: BorderMode): void {
+    this.borderMode = mode;
+    const { borderTop, screenHeight } = this.video.layout;
     const frac = mode === 2 ? 1 : mode === 1 ? 0.5 : 0;
     const cropX = Math.round(BBC_BORDER_LEFT * (1 - frac));
-    const cropY = Math.round(BBC_BORDER_TOP * (1 - frac));
+    const cropY = Math.round(borderTop * (1 - frac));
     this.display?.setViewport(
-      cropX, cropY, BBC_SCREEN_WIDTH - cropX * 2, BBC_SCREEN_HEIGHT - cropY * 2,
+      cropX, cropY, BBC_SCREEN_WIDTH - cropX * 2, screenHeight - cropY * 2,
     );
   }
 
@@ -313,6 +337,7 @@ export class BbcMachine extends BaseMachine implements Machine {
       this.prevVsync = this.crtc.vsyncActive;
     }
 
+    this.syncLayoutToScale();
     this.video.render(this);
     this.disc?.tickFrame();
     if (this.bootShiftFrames > 0 && --this.bootShiftFrames === 0) {
@@ -339,22 +364,25 @@ export class BbcMachine extends BaseMachine implements Machine {
     cols: number; rows: number; x: number; y: number;
     cellW: number; cellH: number; glyphH: number;
   } {
+    const { vscale, borderTop, activeHeight } = this.video.layout;
     if (this.isMode7()) {
+      const cellH = BBC_MODE7_CELL_H * vscale;
       return {
         cols: BBC_MODE7_COLS, rows: BBC_MODE7_ROWS,
-        x: BBC_BORDER_LEFT + BBC_MODE7_ORIGIN_X, y: BBC_BORDER_TOP + BBC_MODE7_ORIGIN_Y,
-        cellW: BBC_MODE7_CELL_W, cellH: BBC_MODE7_CELL_H, glyphH: BBC_MODE7_CELL_H,
+        x: BBC_BORDER_LEFT + BBC_MODE7_ORIGIN_X,
+        y: borderTop + ((activeHeight - BBC_MODE7_ROWS * cellH) >> 1),
+        cellW: BBC_MODE7_CELL_W, cellH, glyphH: cellH,
       };
     }
     const { bpp } = bitmapMode(this.video.screenMode(this));
     const cols = Math.max(1, bbcBitmapCols(this.crtc.regs[1], bpp));
     const rows = this.crtc.regs[6];
-    const cellH = (this.crtc.regs[9] & 0x1F) + 1;
+    const cellH = ((this.crtc.regs[9] & 0x1F) + 1) * vscale;
     return {
       cols, rows,
       x: BBC_BORDER_LEFT,
-      y: BBC_BORDER_TOP + ((BBC_ACTIVE_HEIGHT - rows * cellH) >> 1),
-      cellW: BBC_ACTIVE_WIDTH / cols, cellH, glyphH: 8,
+      y: borderTop + ((activeHeight - rows * cellH) >> 1),
+      cellW: BBC_ACTIVE_WIDTH / cols, cellH, glyphH: 8 * vscale,
     };
   }
 

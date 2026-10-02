@@ -604,6 +604,11 @@ export class WebGLRenderer implements IScreenRenderer {
     this.glDirty = true;
   }
 
+  setPixelAspectX(v: number): void {
+    this.pixelAspectX = v;
+    this.applyScale();
+  }
+
   setScale(scale: number): void {
     this.scale = Math.max(1, Math.round(scale));
     this.applyScale();
