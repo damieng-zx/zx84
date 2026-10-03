@@ -256,9 +256,9 @@ function makeRenderer(w = 352, h = 288, glOpts?: MockGLOptions) {
 // ── Construction ─────────────────────────────────────────────────────────
 
 describe('WebGLRenderer construction', () => {
-  it('builds 7 programs (6 upscale + 1 CRT)', () => {
+  it('builds 8 programs (7 upscale + 1 CRT)', () => {
     const { mock } = makeRenderer();
-    expect(mock.programs).toHaveLength(7);
+    expect(mock.programs).toHaveLength(8);
   });
 
   it('sets default state: scale=2, nearest mode, all CRT effects off/neutral', () => {
@@ -325,7 +325,7 @@ describe('WebGLRenderer setters — clamping', () => {
     const { r, mock } = makeRenderer();
     r.setCurvature(-1);
     r.updateTexture(new Uint8Array(352 * 288 * 4));
-    const u = mock.programs[6].uniforms.get('u_curvature')!;
+    const u = mock.programs[7].uniforms.get('u_curvature')!;
     expect(u.lastValue).toBe(0);
     r.setCurvature(99);
     r.updateTexture(new Uint8Array(352 * 288 * 4));
@@ -336,87 +336,87 @@ describe('WebGLRenderer setters — clamping', () => {
     const { r, mock } = makeRenderer();
     r.setScanlines(2);
     r.updateTexture(new Uint8Array(352 * 288 * 4));
-    expect(mock.programs[6].uniforms.get('u_scanlines')!.lastValue).toBe(1);
+    expect(mock.programs[7].uniforms.get('u_scanlines')!.lastValue).toBe(1);
   });
 
   it('setDotPitch clamps to 1..4', () => {
     const { r, mock } = makeRenderer();
     r.setDotPitch(0);
     r.updateTexture(new Uint8Array(352 * 288 * 4));
-    expect(mock.programs[6].uniforms.get('u_dotPitch')!.lastValue).toBe(1);
+    expect(mock.programs[7].uniforms.get('u_dotPitch')!.lastValue).toBe(1);
     r.setDotPitch(99);
     r.updateTexture(new Uint8Array(352 * 288 * 4));
-    expect(mock.programs[6].uniforms.get('u_dotPitch')!.lastValue).toBe(4);
+    expect(mock.programs[7].uniforms.get('u_dotPitch')!.lastValue).toBe(4);
   });
 
   it('setBrightness clamps to -1..1', () => {
     const { r, mock } = makeRenderer();
     r.setBrightness(-99);
     r.updateTexture(new Uint8Array(352 * 288 * 4));
-    expect(mock.programs[6].uniforms.get('u_brightness')!.lastValue).toBe(-1);
+    expect(mock.programs[7].uniforms.get('u_brightness')!.lastValue).toBe(-1);
     r.setBrightness(99);
     r.updateTexture(new Uint8Array(352 * 288 * 4));
-    expect(mock.programs[6].uniforms.get('u_brightness')!.lastValue).toBe(1);
+    expect(mock.programs[7].uniforms.get('u_brightness')!.lastValue).toBe(1);
   });
 
   it('setContrast clamps to 0..2', () => {
     const { r, mock } = makeRenderer();
     r.setContrast(-1);
     r.updateTexture(new Uint8Array(352 * 288 * 4));
-    expect(mock.programs[6].uniforms.get('u_contrast')!.lastValue).toBe(0);
+    expect(mock.programs[7].uniforms.get('u_contrast')!.lastValue).toBe(0);
     r.setContrast(99);
     r.updateTexture(new Uint8Array(352 * 288 * 4));
-    expect(mock.programs[6].uniforms.get('u_contrast')!.lastValue).toBe(2);
+    expect(mock.programs[7].uniforms.get('u_contrast')!.lastValue).toBe(2);
   });
 
   it('setSaturation clamps to 0..2', () => {
     const { r, mock } = makeRenderer();
     r.setSaturation(-1);
     r.updateTexture(new Uint8Array(352 * 288 * 4));
-    expect(mock.programs[6].uniforms.get('u_saturation')!.lastValue).toBe(0);
+    expect(mock.programs[7].uniforms.get('u_saturation')!.lastValue).toBe(0);
     r.setSaturation(99);
     r.updateTexture(new Uint8Array(352 * 288 * 4));
-    expect(mock.programs[6].uniforms.get('u_saturation')!.lastValue).toBe(2);
+    expect(mock.programs[7].uniforms.get('u_saturation')!.lastValue).toBe(2);
   });
 
   it('setGamma clamps to 0.25..4', () => {
     const { r, mock } = makeRenderer();
     r.setGamma(-1);
     r.updateTexture(new Uint8Array(352 * 288 * 4));
-    expect(mock.programs[6].uniforms.get('u_gamma')!.lastValue).toBe(0.25);
+    expect(mock.programs[7].uniforms.get('u_gamma')!.lastValue).toBe(0.25);
     r.setGamma(99);
     r.updateTexture(new Uint8Array(352 * 288 * 4));
-    expect(mock.programs[6].uniforms.get('u_gamma')!.lastValue).toBe(4);
+    expect(mock.programs[7].uniforms.get('u_gamma')!.lastValue).toBe(4);
   });
 
   it('setNoise clamps to 0..1', () => {
     const { r, mock } = makeRenderer();
     r.setNoise(99);
     r.updateTexture(new Uint8Array(352 * 288 * 4));
-    expect(mock.programs[6].uniforms.get('u_noise')!.lastValue).toBe(1);
+    expect(mock.programs[7].uniforms.get('u_noise')!.lastValue).toBe(1);
   });
 
   it('setMaskType clamps to 0..5 and coerces to integer', () => {
     const { r, mock } = makeRenderer();
     r.setMaskType(99);
     r.updateTexture(new Uint8Array(352 * 288 * 4));
-    expect(mock.programs[6].uniforms.get('u_maskType')!.lastValue).toBe(5);
+    expect(mock.programs[7].uniforms.get('u_maskType')!.lastValue).toBe(5);
     r.setMaskType(-3);
     r.updateTexture(new Uint8Array(352 * 288 * 4));
-    expect(mock.programs[6].uniforms.get('u_maskType')!.lastValue).toBe(0);
+    expect(mock.programs[7].uniforms.get('u_maskType')!.lastValue).toBe(0);
     r.setMaskType(2.9);
     r.updateTexture(new Uint8Array(352 * 288 * 4));
-    expect(mock.programs[6].uniforms.get('u_maskType')!.lastValue).toBe(2);
+    expect(mock.programs[7].uniforms.get('u_maskType')!.lastValue).toBe(2);
   });
 
   it('setCurvatureMode clamps to 0..1 and coerces to integer', () => {
     const { r, mock } = makeRenderer();
     r.setCurvatureMode(99);
     r.updateTexture(new Uint8Array(352 * 288 * 4));
-    expect(mock.programs[6].uniforms.get('u_curvatureMode')!.lastValue).toBe(1);
+    expect(mock.programs[7].uniforms.get('u_curvatureMode')!.lastValue).toBe(1);
     r.setCurvatureMode(-5);
     r.updateTexture(new Uint8Array(352 * 288 * 4));
-    expect(mock.programs[6].uniforms.get('u_curvatureMode')!.lastValue).toBe(0);
+    expect(mock.programs[7].uniforms.get('u_curvatureMode')!.lastValue).toBe(0);
   });
 });
 
@@ -431,33 +431,45 @@ describe('WebGLRenderer setScalingMode', () => {
 
     r.setScalingMode(99);
     r.updateTexture(new Uint8Array(352 * 288 * 4));
-    expect(mock.drawCalls[2].program).toBe(mock.programs[5]); // last upscale
+    expect(mock.drawCalls[2].program).toBe(mock.programs[6]); // last upscale
 
     r.setScalingMode(2.9);
     r.updateTexture(new Uint8Array(352 * 288 * 4));
     expect(mock.drawCalls[4].program).toBe(mock.programs[2]); // int-coerced to 2
   });
 
+  it('SAA5050 mode (6) is its own program and is told how many source rows an output pixel covers', () => {
+    const { r, mock } = makeRenderer();
+    r.setScale(3);
+    r.setScalingMode(6);
+    r.updateTexture(new Uint8Array(352 * 288 * 4));
+    expect(mock.drawCalls[0].program).toBe(mock.programs[6]);
+    const writes = mock.programs[6].uniformLog.filter(u => u.name === 'u_rowsPerPx');
+    expect(writes.at(-1)!.value).toBeCloseTo(1 / 3, 6);   // 3 output rows per source row
+    // The other upscalers have no such uniform and are left alone.
+    expect(mock.programs[0].uniformLog.some(u => u.name === 'u_rowsPerPx')).toBe(false);
+  });
+
   it('does not mark dirty when mode is unchanged (avoids redundant uniform writes)', () => {
     const { r, mock } = makeRenderer();
     // First draw consumes the initial dirty flag
     r.updateTexture(new Uint8Array(352 * 288 * 4));
-    const beforeCount = mock.programs[6].uniformLog.length;
+    const beforeCount = mock.programs[7].uniformLog.length;
     // Same mode (0) — should NOT re-mark dirty
     r.setScalingMode(0);
     r.updateTexture(new Uint8Array(352 * 288 * 4));
     // CRT program should not have received another bulk uniform write
-    const afterCount = mock.programs[6].uniformLog.length;
+    const afterCount = mock.programs[7].uniformLog.length;
     expect(afterCount).toBe(beforeCount); // no extra uniforms (noise was 0, not re-pushed)
   });
 
   it('marks dirty when mode actually changes', () => {
     const { r, mock } = makeRenderer();
     r.updateTexture(new Uint8Array(352 * 288 * 4));
-    const before = mock.programs[6].uniformLog.length;
+    const before = mock.programs[7].uniformLog.length;
     r.setScalingMode(2);
     r.updateTexture(new Uint8Array(352 * 288 * 4));
-    expect(mock.programs[6].uniformLog.length).toBeGreaterThan(before);
+    expect(mock.programs[7].uniformLog.length).toBeGreaterThan(before);
   });
 });
 
@@ -473,7 +485,7 @@ describe('WebGLRenderer updateTexture pipeline', () => {
     expect(mock.drawCalls[0].program).toBe(mock.programs[0]);
     // Pass 2: null framebuffer (screen), program is CRT
     expect(mock.drawCalls[1].framebuffer).toBeNull();
-    expect(mock.drawCalls[1].program).toBe(mock.programs[6]);
+    expect(mock.drawCalls[1].program).toBe(mock.programs[7]);
     // Both viewports cover the full backing buffer (704×576 at scale=2)
     expect(mock.drawCalls[0].viewport).toEqual([0, 0, 704, 576]);
     expect(mock.drawCalls[1].viewport).toEqual([0, 0, 704, 576]);
@@ -492,11 +504,11 @@ describe('WebGLRenderer updateTexture pipeline', () => {
   it('writes pass-2 bulk uniforms only when dirty', () => {
     const { r, mock } = makeRenderer();
     r.updateTexture(new Uint8Array(352 * 288 * 4)); // dirty
-    const first = mock.programs[6].uniformLog.filter(u => u.name === 'u_resolution').length;
+    const first = mock.programs[7].uniformLog.filter(u => u.name === 'u_resolution').length;
     expect(first).toBe(1);
     r.updateTexture(new Uint8Array(352 * 288 * 4)); // not dirty
     r.updateTexture(new Uint8Array(352 * 288 * 4)); // not dirty
-    const second = mock.programs[6].uniformLog.filter(u => u.name === 'u_resolution').length;
+    const second = mock.programs[7].uniformLog.filter(u => u.name === 'u_resolution').length;
     expect(second).toBe(1); // still 1
   });
 });
@@ -510,8 +522,8 @@ describe('WebGLRenderer noise uniform — leakage check', () => {
     r.updateTexture(new Uint8Array(352 * 288 * 4));
     r.updateTexture(new Uint8Array(352 * 288 * 4));
     r.updateTexture(new Uint8Array(352 * 288 * 4));
-    const noiseWrites = mock.programs[6].uniformLog.filter(u => u.name === 'u_noise');
-    const frameWrites = mock.programs[6].uniformLog.filter(u => u.name === 'u_frame');
+    const noiseWrites = mock.programs[7].uniformLog.filter(u => u.name === 'u_noise');
+    const frameWrites = mock.programs[7].uniformLog.filter(u => u.name === 'u_frame');
     expect(noiseWrites.length).toBe(3);
     expect(frameWrites.length).toBe(3);
     expect(noiseWrites.every(w => w.value === 0.5)).toBe(true);
@@ -527,7 +539,7 @@ describe('WebGLRenderer noise uniform — leakage check', () => {
     r.updateTexture(new Uint8Array(352 * 288 * 4));
     r.setNoise(0); // re-arms dirty
     r.updateTexture(new Uint8Array(352 * 288 * 4));
-    const writes = mock.programs[6].uniformLog.filter(u => u.name === 'u_noise');
+    const writes = mock.programs[7].uniformLog.filter(u => u.name === 'u_noise');
     // Last write must be 0, not 0.7
     expect(writes[writes.length - 1].value).toBe(0);
   });
@@ -537,7 +549,7 @@ describe('WebGLRenderer noise uniform — leakage check', () => {
     r.updateTexture(new Uint8Array(352 * 288 * 4)); // dirty: u_noise=0 written
     r.updateTexture(new Uint8Array(352 * 288 * 4)); // clean: no write
     r.updateTexture(new Uint8Array(352 * 288 * 4)); // clean: no write
-    const writes = mock.programs[6].uniformLog.filter(u => u.name === 'u_noise');
+    const writes = mock.programs[7].uniformLog.filter(u => u.name === 'u_noise');
     expect(writes.length).toBe(1);
   });
 });
@@ -661,7 +673,7 @@ describe('WebGLRenderer frame counter', () => {
     (r as any).frameCount = 0x7FFFFFFE;
     r.updateTexture(new Uint8Array(352 * 288 * 4));
     r.updateTexture(new Uint8Array(352 * 288 * 4));
-    const frameWrites = mock.programs[6].uniformLog.filter(u => u.name === 'u_frame');
+    const frameWrites = mock.programs[7].uniformLog.filter(u => u.name === 'u_frame');
     const last = frameWrites[frameWrites.length - 1].value as number;
     // After two increments from 0x7FFFFFFE: 0x7FFFFFFF, then wrap to 0
     // The renderer pushes the PRE-increment frame counter, so:

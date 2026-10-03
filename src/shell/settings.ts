@@ -7,6 +7,7 @@
 
 import type { SettingsView } from '@/machines/machine.ts';
 import * as settings from '@/store/settings.ts';
+import { SCALING_MODE_SAA5050 } from '@/display/scaling-modes.ts';
 import { machine } from '@/shell/context.ts';
 
 /**
@@ -57,6 +58,9 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'mtx-80-column': () => settings.mtx80Column(),
   'mtx-512k-ram': () => settings.mtx512kRam(),
   'bbc-disk-system': () => settings.bbcDiskSystem(),
+  // True while the SAA5050 upscaler is selected: machines that draw teletext
+  // then supply the raw, unrounded dots for it to round.
+  'saa-scaler': () => settings.scalingMode() === SCALING_MODE_SAA5050,
   'zx8x-16k-ram': () => settings.zx8x16kRam(),
   'zx81-udg-ram': () => settings.zx81UdgRam(),
   'zx81-udg128-ram': () => settings.zx81Udg128Ram(),

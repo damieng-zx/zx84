@@ -467,6 +467,34 @@ describe('bbc — layout follows the display scale', () => {
     }
   });
 
+  it('supplies raw, unrounded dots in the 1x layout when the SAA5050 upscaler is on', () => {
+    const saaView: SettingsView = {
+      get: <T>(k: string, fallback: T) => (k === 'saa-scaler' ? true as T : fallback),
+    };
+    const { d } = makeDisplay(2);                      // even scale: would be hi-res otherwise
+    const m = new BbcMachine('bbc-b', d);
+    try {
+      m.applySettings(saaView);
+      expect(m.frameHeight).toBe(288);                 // stays the 1x layout at any scale
+      mode7(m, 0x41);                                  // 'A'
+      m.video.render(m);
+      // Expected from the font itself: each glyph row of 5 dots is doubled to 10
+      // pixels, with the dot columns offset one dot into the 6-dot cell and no
+      // rounding, one buffer line per glyph row.
+      const base = (0x41 - 0x20) * SAA5050_GLYPH_ROWS;
+      const x0 = 80, y0 = 3;
+      for (let r = 0; r < SAA5050_GLYPH_ROWS; r++) {
+        const bits = SAA5050_FONT[base + r] & 0x1F;
+        for (let x = 0; x < 12; x++) {
+          const want = (x < 10 && (bits >> (x >> 1)) & 1) ? 255 : 0;
+          expect(rgbAt(m, x0 + x, y0 + r, 16), `row ${r} x ${x}`).toEqual([want, want, want]);
+        }
+      }
+    } finally {
+      m.destroy();
+    }
+  });
+
   it('draws each bitmap scanline twice at 2x', () => {
     const m = new BbcMachine('bbc-b', makeDisplay(2).d);
     try {

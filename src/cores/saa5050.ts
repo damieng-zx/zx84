@@ -34,6 +34,9 @@ export class Saa5050 {
   private separated = false;
   private hold = false;
   private holdChar = 0x20;
+  /** Apply the character rounding. Off emits the plain doubled dots, for a
+   *  display stage that does the rounding itself (the SAA5050 upscaler). */
+  rounding = true;
   /** Reused 6x10 mosaic scratch (6-bit rows). */
   private readonly mosaic6 = new Uint8Array(10);
 
@@ -89,7 +92,7 @@ export class Saa5050 {
     for (let ra = 0; ra < 20; ra++) {
       const a = Saa5050.expand5(row(ra >> 1));
       const b = Saa5050.expand5(row((ra + ((ra & 1) ? 1 : -1)) >> 1));
-      pixels[ra] = Saa5050.characterRounding(a, b) & 0xFFF;
+      pixels[ra] = (this.rounding ? Saa5050.characterRounding(a, b) : a) & 0xFFF;
     }
   }
 

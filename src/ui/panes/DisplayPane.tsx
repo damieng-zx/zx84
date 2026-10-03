@@ -12,6 +12,7 @@ import { machine } from '@/shell/context.ts';
 import { switchRenderer } from '@/shell/media.ts';
 import { applyDisplaySettings } from '@/shell/settings.ts';
 import { machineCaps } from '@/state/machine-caps.ts';
+import { SCALING_MODE_SAA5050 } from '@/display/scaling-modes.ts';
 
 // Scaling algorithms and their native scale factors.
 // The algorithm IS the scaler — it takes 1x source pixels and produces
@@ -24,6 +25,7 @@ const SCALING_ALGOS: { mode: number; label: string; nativeScale: number }[] = [
   { mode: 3,  label: 'HQ4x',            nativeScale: 4 },
   { mode: 4,  label: 'xBR-lv2',         nativeScale: 0 },  // any scale
   { mode: 5,  label: 'xBR-lv3',         nativeScale: 0 },  // any scale
+  { mode: SCALING_MODE_SAA5050, label: 'SAA5050 rounding', nativeScale: 0 },  // any scale
 ];
 
 export function DisplayPane() {
@@ -192,6 +194,8 @@ export function DisplayPane() {
           setScalingMode(v);
           if (machine) machine.display!.setScalingMode(v);
           persistSetting('scaling-mode', v);
+          // Machines that supply the raw source for this upscaler need to know.
+          applyDisplaySettings();
         }}>
           <For each={availableAlgos()}>
             {(a) => <option value={a.mode}>{a.label}</option>}
