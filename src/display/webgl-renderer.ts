@@ -15,6 +15,7 @@ import hq3xLutUrl from '@/display/shaders/hq3x-lut.png';  // 256×144 RGBA LUT f
 import hq4xLutUrl from '@/display/shaders/hq4x-lut.png';  // 256×256 RGBA LUT for HQ4x blend weights
 import { FRAG_HQ2X, FRAG_HQ3X, FRAG_HQ4X } from '@/display/shaders/hqx.ts';
 import { FRAG_XBR_LV2, FRAG_XBR_LV3 } from '@/display/shaders/xbr.ts';
+import { FRAG_SAA5050 } from '@/display/shaders/saa5050.ts';
 import { UPSCALE_HEAD } from '@/display/shaders/upscale-head.ts';
 
 const VERT_SRC = `
@@ -65,6 +66,7 @@ const UPSCALE_SHADERS = [
   FRAG_HQ4X,       // 3: HQ4x
   FRAG_XBR_LV2,    // 4: xBR-lv2
   FRAG_XBR_LV3,    // 5: xBR-lv3
+  FRAG_SAA5050,    // 6: SAA5050 character rounding (SCALING_MODE_SAA5050)
 ];
 
 // ── Pass 2: CRT effects (curvature, scanlines, dot mask, brightness) ──
@@ -280,7 +282,7 @@ export class WebGLRenderer implements IScreenRenderer {
 
   // Pass 1 (upscale) — one program per scaling algorithm
   private upscalePrograms: WebGLProgram[] = [];
-  private upscaleUniforms: { texSize: WebGLUniformLocation | null; smoothing: WebGLUniformLocation | null; lut: WebGLUniformLocation | null }[] = [];
+  private upscaleUniforms: { texSize: WebGLUniformLocation | null; smoothing: WebGLUniformLocation | null; lut: WebGLUniformLocation | null; rowsPerPx: WebGLUniformLocation | null }[] = [];
   private scalingMode = 0;
   private lutTextures: (WebGLTexture | null)[] = [];  // per-mode LUT textures
   private fbo: WebGLFramebuffer;
@@ -370,6 +372,7 @@ export class WebGLRenderer implements IScreenRenderer {
         texSize: gl.getUniformLocation(prog, 'u_texSize'),
         smoothing: gl.getUniformLocation(prog, 'u_smoothing'),
         lut: gl.getUniformLocation(prog, 'u_lut'),
+        rowsPerPx: gl.getUniformLocation(prog, 'u_rowsPerPx'),
       });
     }
 
@@ -728,6 +731,7 @@ export class WebGLRenderer implements IScreenRenderer {
       gl.uniform2f(unis.texSize, this.width, this.height);
     }
     gl.uniform1f(unis.smoothing, this.smoothing);
+    if (unis.rowsPerPx !== null) gl.uniform1f(unis.rowsPerPx, this.viewH / h);
     // Bind LUT texture for HQx modes
     const lutTex = this.lutTextures[this.scalingMode];
     if (unis.lut !== null && lutTex) {

@@ -87,6 +87,9 @@ export class BbcVideo {
   private readonly rowBytes = new Uint8Array(40);
   /** Toogled every ~32 frames while the ULA flash bit is set. */
   flashPhase = false;
+  /** Draw Mode 7 as the plain dots, one line per glyph row, leaving the
+   *  character rounding and smoothing to the SAA5050 upscaler. */
+  rawTeletext = false;
   /** Palette family from the display setting. */
   paletteMode: 'pal' | 'measured' = 'pal';
 
@@ -151,6 +154,7 @@ export class BbcVideo {
     // The SAA5050's colour/graphics state carries across rows within a field
     // but is re-initialised at the start of each field (frame).
     this.saa.reset();
+    this.saa.rounding = !this.rawTeletext;
 
     for (let r = 0; r < rows; r++) {
       const maRow = start + r * stride;
@@ -184,7 +188,8 @@ export class BbcVideo {
             continue;
           }
           const even = cell.pixels[y * 2];
-          const odd = cell.pixels[y * 2 + 1];
+          // Unrounded, both half-lines are the same dot row: draw it as is.
+          const odd = this.rawTeletext ? even : cell.pixels[y * 2 + 1];
           for (let x = 0; x < cw; x++) {
             const px = x0 + x;
             if (px < 0 || px >= W) continue;

@@ -36,7 +36,7 @@ import { wireBbcIo } from './bbc-io.ts';
 import { bbcDescriptor } from './descriptor.ts';
 import { createBbcServices, type BbcServices } from './services/index.ts';
 import {
-  BBC_ACTIVE_WIDTH, BBC_BORDER_LEFT, BBC_CPU_CLOCK, bbcLayoutForScale,
+  BBC_ACTIVE_WIDTH, BBC_BORDER_LEFT, BBC_CPU_CLOCK, BBC_LAYOUT_1X, bbcLayoutForScale,
   BBC_SCREEN_WIDTH, BBC_SOUND_CLOCK,
   BBC_TSTATES_PER_FRAME,
 } from './constants.ts';
@@ -182,8 +182,13 @@ export class BbcMachine extends BaseMachine implements Machine {
     this.psg.setStereoMode(view.get<Sn76489StereoMode>('sn-stereo', 'MONO'));
     this.video.paletteMode = view.get<'pal' | 'measured'>('bbc-color-map', 'pal');
     this.diskSystem = view.get<BbcDiskSystem>('bbc-disk-system', '1770');
+    // With the SAA5050 upscaler the display rounds and smooths the teletext
+    // itself, at any scale, so give it the plain dots in the 1x layout.
+    const raw = view.get('saa-scaler', false);
+    const rawChanged = raw !== this.video.rawTeletext;
+    this.video.rawTeletext = raw;
     // A scale change while paused has no frame to pick it up.
-    if (this.syncLayoutToScale() && this.video) this.video.render(this);
+    if (this.syncLayoutToScale() || rawChanged) this.video.render(this);
   }
 
   /** Use the hi-res layout (full-detail Mode 7, doubled scanlines, 4:3, shown
@@ -191,7 +196,8 @@ export class BbcMachine extends BaseMachine implements Machine {
    *  scanline layout otherwise. Resizes the display and tells the shell its
    *  screen geometry changed. Returns whether the layout changed. */
   private syncLayoutToScale(): boolean {
-    const want = bbcLayoutForScale(this.display?.scale ?? 1);
+    const want = this.video.rawTeletext
+      ? BBC_LAYOUT_1X : bbcLayoutForScale(this.display?.scale ?? 1);
     if (want === this.video.layout) return false;
     this.video.setLayout(want);
     this.display?.resize(this.frameWidth, this.frameHeight);
