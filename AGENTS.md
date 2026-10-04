@@ -1,5 +1,7 @@
 # ZX84 — Codex Guidelines
 
+You may learn how old hardware works from other open source emulators. You may not copy code from them.
+
 ## Architecture
 
 The codebase is layered "machines as hardware, components as chips" — see
