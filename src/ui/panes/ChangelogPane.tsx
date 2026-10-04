@@ -2,6 +2,12 @@ import { createSignal, Show } from 'solid-js';
 
 const CHANGELOG: { version: string; items: string[] }[] = [
   {
+    version: '0.9.1',
+    items: [
+      'Removed SAM Coupe support',
+      'Credits & acknowledgements overhaul',
+    ]
+  }, {
     version: '0.9.0',
     items: [
       'Add BBC Micro Model B support',
