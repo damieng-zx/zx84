@@ -145,6 +145,17 @@ Hardware and media support varies by machine and model. In particular, the HX-10
 
 ## Acknowledgments
 
-Software library metadata comes from [ZXDB](https://github.com/zxdb/ZXDB) by Einar Saukas and contributors, an open database of ZX Spectrum and related software; the catalogs zx84 builds from it are derived from ZXDB and are meant to stay open. Third-party code and data used in zx84, with their licences, are listed in [THIRD_PARTY.md](./THIRD_PARTY.md).
+zx84 stands on decades of work by people who documented, emulated and preserved these machines, and who have shared that work freely. Particular thanks to:
 
-Built with inspiration from the ZX Spectrum, CPC, PCW, Einstein, MSX, MTX, Camputers Lynx, and Jupiter Ace communities and their hardware documentation.
+- **Simon Owen**, for SimCoupe and for his many years of work on SAM Coupé emulation, documentation and tools.
+- **Philip Kendall** and the **Fuse and libspectrum contributors**, for Fuse, one of the most accurate and best-documented Spectrum emulators, and for the libspectrum file-format library.
+- **John Elliott**, for JOYCE, LibDsk and his many emulators, tools and documents on the Amstrad PCW, CPC and disk formats.
+- **Andy Key**, for MEMU and the Memotech MTX community resources, including his transcription of the FDX 80-column character font used in zx84.
+- **Ben Harris**, for the Bedstead font, which carries the SAA5050 teletext glyphs.
+- **Einar Saukas** and the contributors to [ZXDB](https://github.com/zxdb/ZXDB), the open database that powers the software library. The catalogs zx84 builds from it are derived from ZXDB and are meant to stay open.
+- **Hyllian**, for the xBR scaling shaders.
+- **The MAME team**, **the openMSX team** and the authors of Arnold, Caprice32, BeebEm, beebjit, HxC and the other open-source emulators and tools whose published behaviour and documentation taught us how the hardware works.
+- **Sean Young**, **Cliff Lawson**, **Jacob Nevins**, the **Grimware** and **CPCWiki** contributors, and the many people who wrote hardware references, ROM disassemblies and technical notes.
+- The ZX Spectrum, CPC, PCW, Einstein, MSX, MTX, Camputers Lynx, Jupiter Ace, SAM Coupé and BBC Micro communities, whose documentation, emulators and tools keep these machines alive.
+
+Third-party code and data used in zx84, with their licences, are listed in [THIRD_PARTY.md](./THIRD_PARTY.md).
