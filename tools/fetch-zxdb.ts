@@ -11,8 +11,10 @@
  * built-in `node:sqlite` (Node ≥ 22.5). The companion `npm run catalog:json`
  * (tools/build-catalog.ts) reads the SQLite this writes.
  *
- * ZXDB ships a MySQL dump; we convert it on the fly (port of the transforms in
- * ZXDB's scripts/ZXDB_to_SQLite.py) and keep only these tables:
+ * ZXDB ships a MySQL dump; we convert it on the fly (a port of the transforms in
+ * scripts/ZXDB_to_SQLite.py from https://github.com/zxdb/ZXDB, which carries no
+ * licence file) and keep only these tables. ZXDB is the work of Einar Saukas
+ * and its contributors; see THIRD_PARTY.md:
  */
 const WANTED = new Set([
   'entries', 'machinetypes', 'releases', 'publishers', 'labels', 'genretypes', 'downloads',

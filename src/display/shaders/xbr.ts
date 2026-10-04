@@ -1,6 +1,36 @@
 // ── xBR shaders — Hyllian's xBR algorithm ──
 //
-// Ported from gizmo98/common-shaders (Hyllian, MIT license).
+// Ported from Hyllian's xBR-lv2 and xBR-lv3 shaders as distributed in
+// libretro/common-shaders (xbr/shaders/xbr-lv2.cg, xbr-lv3.cg). Their MIT
+// licence requires the notice below to travel with the code:
+//
+//   Hyllian's xBR-lv2 Shader
+//   Copyright (C) 2011-2016 Hyllian - sergiogdb@gmail.com
+//   (xBR-lv3: Copyright (C) 2011-2015 Hyllian - sergiogdb@gmail.com)
+//
+//   Permission is hereby granted, free of charge, to any person obtaining a
+//   copy of this software and associated documentation files (the "Software"),
+//   to deal in the Software without restriction, including without limitation
+//   the rights to use, copy, modify, merge, publish, distribute, sublicense,
+//   and/or sell copies of the Software, and to permit persons to whom the
+//   Software is furnished to do so, subject to the following conditions:
+//
+//   The above copyright notice and this permission notice shall be included in
+//   all copies or substantial portions of the Software.
+//
+//   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+//   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+//   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+//   AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+//   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+//   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+//   DEALINGS IN THE SOFTWARE.
+//
+//   Incorporates some of the ideas from SABR shader. Thanks to Joshua Street.
+//
+// Adapted for this renderer: taps are computed in the fragment shader, the
+// scale is fixed, and the corner modes are fixed (lv2 CORNER_A, lv3 CORNER_C).
+//
 // Uses a 5×5 (21-pixel) neighborhood.  All 4 corners are processed
 // simultaneously via vec4 swizzle rotations.
 //

@@ -5,9 +5,11 @@
  * significant bits (bit 0 = leftmost dot). The SAA5050 places these in a 6x10
  * character rectangle; the BBC's video hardware then doubles each dot (12x20).
  *
- * Transcribed from the SAA5050 datasheet character set (via bjh21's Bedstead,
- * whose English glyphs were checked against a real chip). Character rounding
- * (the chip's diagonal smoothing) is not applied.
+ * Derived from Ben Harris's Bedstead (https://bjh21.me.uk/bedstead/, CC0-1.0):
+ * the 5x9 dot patterns are Bedstead's glyph table with the bit order
+ * reversed (bit 0 = leftmost dot). The shapes follow the Mullard SAA5050
+ * character set; see THIRD_PARTY.md. Character rounding (the chip's diagonal
+ * smoothing) is not applied.
  */
 
 export const SAA5050_FONT: Uint8Array = Uint8Array.from([

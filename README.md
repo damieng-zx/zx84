@@ -145,4 +145,6 @@ Hardware and media support varies by machine and model. In particular, the HX-10
 
 ## Acknowledgments
 
+Software library metadata comes from [ZXDB](https://github.com/zxdb/ZXDB) by Einar Saukas and contributors, an open database of ZX Spectrum and related software; the catalogs zx84 builds from it are derived from ZXDB and are meant to stay open. Third-party code and data used in zx84, with their licences, are listed in [THIRD_PARTY.md](./THIRD_PARTY.md).
+
 Built with inspiration from the ZX Spectrum, CPC, PCW, Einstein, MSX, MTX, Camputers Lynx, and Jupiter Ace communities and their hardware documentation.

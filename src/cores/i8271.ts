@@ -22,9 +22,13 @@
  * same structure the uPD765A and WD179x cores use), so SSD/DSD/DSK geometry
  * and sector write-back are shared with the rest of the emulator.
  *
- * Semantics follow MAME's `i8271` device (`i8271.cpp`), cross-checked against
- * beebjit's `intel_fdc.c` for the BBC register wiring, the drive-status bit
- * layout and the drive/side-select bits in the drive-output (oport) register.
+ * Semantics follow MAME's `i8271` device (`i8271.cpp`) — status and error
+ * names and values, the command-parameter table and the SPECIFY/mode handling
+ * are adapted from it. MAME's i8271 is BSD-3-Clause, copyright Carl and
+ * Olivier Galibert; see THIRD_PARTY.md for the notice. Register wiring, the
+ * drive-status bit layout and the drive/side-select bits in the drive-output
+ * (oport) register were checked against beebjit's `intel_fdc.c` as a
+ * reference only; no beebjit code is used.
  */
 
 import type { DskImage, DskSector } from '@/media/floppy/disk-image.ts';
