@@ -160,8 +160,7 @@ export class Crtc6845 {
   /**
    * Character position within the scanline (0..charsPerLine) at which HSYNC
    * *ends* — the edge the CPC Gate Array counts for its raster interrupt
-   * (MAME amstrad: "the gate array reacts to de-assertion of the hsync 6845
-   * line"). HSYNC starts at R2 and lasts R3 bits 3-0 characters (0 → 16). A
+   * (the Gate Array counts the falling edge of the 6845's HSYNC output). HSYNC starts at R2 and lasts R3 bits 3-0 characters (0 → 16). A
    * sync that would fall outside the line (R2 beyond R0, or still running past
    * the end of the line) is reported at the end of the line, so the host keeps
    * one HSYNC per scanline.

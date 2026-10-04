@@ -31,7 +31,8 @@ const packRgb = (hex: number): number =>
 
 /**
  * The 15 TMS9918A colours + transparent (index 0). RGB values are the widely
- * used measured-TMS9918A set (Sean Young). Index 0 (transparent) is stored as
+ * used set computed from the chip's luma/chroma voltages — the TMS9928A palette in
+ * MAME's tms9928a.cpp (BSD-3-Clause; see THIRD_PARTY.md). Index 0 (transparent) is stored as
  * black but is never drawn directly — a transparent pixel shows the backdrop.
  */
 export const TMS9918_PALETTE: Uint32Array = Uint32Array.from([
@@ -58,8 +59,8 @@ export const TMS9918_PALETTE: Uint32Array = Uint32Array.from([
  *  subcarrier phase from the field rate. */
 export type MsxColorMap = 'pal' | 'ntsc';
 
-/** MSX1 (V9938/TMS9918A family) colour tables, measured RGB per the openMSX
- *  project's PAL/NTSC reference values. Index 0 (transparent) shown as black,
+/** MSX1 (V9938/TMS9918A family) colour tables: RGB approximations of the
+ *  PAL/NTSC output (the exact source of these values is not recorded). Index 0 (transparent) shown as black,
  *  matching {@link TMS9918_PALETTE}. */
 export const MSX_PALETTES: Record<MsxColorMap, Uint32Array> = {
   ntsc: Uint32Array.from([
@@ -102,9 +103,9 @@ export const MSX_PALETTES: Record<MsxColorMap, Uint32Array> = {
 
 /** Einstein colour map selection — three independently-sourced reference
  *  palettes for the TC-01's TMS9929A (PAL):
- *   - `mame`     — MAME's tms9928a.cpp idealized RGB table.
- *   - `accurate` — measured RGB per the openMSX project's PAL reference
- *                  values (identical to {@link MSX_PALETTES}'s `pal` — same
+ *   - `mame`     — an idealized RGB table labelled as MAME's (its exact
+ *                  source has not been traced to the current MAME code).
+ *   - `accurate` — approximated PAL RGB values (identical to {@link MSX_PALETTES}'s `pal` — same
  *                  TMS9929A chip). The most accurate to real hardware.
  *   - `naive`    — the common "bit-shifted" approximation (each colour bit
  *                  expanded to 0x00/0x33/0xCC/0xFF) seen in simpler emulators. */
@@ -480,7 +481,7 @@ export class Tms9918a {
     }
     // No fifth sprite on this line: S0 bits 0-4 hold the number of the last
     // sprite checked — the Y=0xD0 terminator, or 31 (TMS9918A data manual;
-    // openMSX SpriteChecker). Only while 5S (and, as for 5S, F) is clear.
+    // same behaviour seen in openMSX's SpriteChecker). Only while 5S (and, as for 5S, F) is clear.
     if ((this.status & (ST_5S | ST_INT)) === 0) {
       this.status = (this.status & 0xE0) | lastChecked;
     }

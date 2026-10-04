@@ -22,7 +22,8 @@
  * machine's hot path.
  *
  * Reference: Yamaha V9938 MSX-VIDEO Technical Data Book; MAME's
- * devices/video/v9938.cpp for the port semantics and mode-bit table.
+ * devices/video/v9938.cpp (BSD-3-Clause; see THIRD_PARTY.md) for the port
+ * semantics, register masks, reset palette and mode-bit table.
  */
 
 /** Active line width — all modes render into a 512-pixel line (the 256-px
@@ -902,8 +903,8 @@ export class V9938 {
     if (code === 0x0A) this.prepareCpuRead();
     else if (code === 0x0B || code === 0x0F) {
       // LMMC/HMMC: the value already sitting in R44 (CLR) when R46 is
-      // written is the first byte transferred (MSX2 Technical Handbook,
-      // openMSX CmdEngine). The CPU then supplies bytes 2..n via R44.
+      // written is the first byte transferred (MSX2 Technical Handbook;
+      // same behaviour seen in openMSX's CmdEngine). The CPU then supplies bytes 2..n via R44.
       this.status[2] |= S2_TR;
       this.consumeCpuWrite(this.regs[44]);
     }

@@ -40,17 +40,43 @@ THE SOFTWARE.
 Incorporates some of the ideas from SABR shader. Thanks to Joshua Street.
 ```
 
-## MAME Intel 8271 device — BSD-3-Clause
+## MAME (BSD-3-Clause files) — adapted code and data
 
-`src/cores/i8271.ts` adapts the structure, status/error names and values,
-command-parameter table and SPECIFY/mode handling of MAME's
-`src/devices/machine/i8271.cpp` and `i8271.h`
-(license:BSD-3-Clause, copyright-holders:Carl, Olivier Galibert).
+zx84 adapts the following from MAME source files that carry
+`license:BSD-3-Clause`. The notice below applies to each.
+
+- **Intel 8271** — `src/cores/i8271.ts`: structure, field and method names,
+  status/error names and values, the status/result/command/parameter register
+  logic, the command-parameter table and the SPECIFY and special-register
+  handling, from `src/devices/machine/i8271.cpp` and `i8271.h`
+  (copyright-holders: Carl, Olivier Galibert).
+- **Yamaha V9938** — `src/cores/v9938.ts`: the register write masks, the
+  power-on palette, the Graphic 7 sprite colour table, the screen-mode table,
+  the reset status values and the register/port handling, from
+  `src/devices/video/v9938.cpp` and `v9938.h`
+  (copyright-holders: Aaron Giles, Nathan Woods).
+- **TMS9928A palette** — `src/cores/tms9918a.ts` (`TMS9918_PALETTE`): the
+  15-colour RGB table from `src/devices/video/tms9928a.cpp`
+  (copyright-holders: Sean Young, Nathan Woods, Aaron Giles, Wilbert Pol, hap;
+  the table is R. Nabet's computation recorded in that file).
+- **Camputers Lynx** — `src/machines/lynx/` (`lynx-memory.ts` banking
+  tables and port decode, `lynx-keyboard.ts` and the keyboard layout's
+  matrix, `lynx-video.ts` addressing, `lynx-io.ts`) and
+  `src/media/tape/lynx-tap.ts` (tape format constants): from
+  `src/mame/camputers/camplynx.cpp` (copyright-holders: Robbbert) and
+  `src/lib/formats/camplynx_cas.cpp` (copyright-holders: Robbbert,
+  Nigel Barnes).
+- **Jupiter Ace and Memotech MTX** — the Ace keyboard matrix and frame
+  interrupt timing, and the MTX sound-latch arrangement, were taken from
+  `src/mame/cantab/jupace.cpp` (copyright-holders: Curt Coder, Robbbert),
+  `src/lib/formats/ace_tap.cpp` (copyright-holders: Wilbert Pol) and
+  `src/mame/memotech/mtx.cpp` / `mtx_m.cpp` (copyright-holders: Lee Ward,
+  Dirk Best, Curt Coder).
 
 ```
 BSD 3-Clause License
 
-Copyright (c) Carl, Olivier Galibert and the MAME contributors
+Copyright (c) the copyright-holders named above for each file
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
@@ -77,6 +103,13 @@ CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
+
+## MAME (GPL-2.0+ files) — studied for behaviour only
+
+MAME's Tatung Einstein, Amstrad CPC and Amstrad PCW drivers are GPL-2.0+. They
+were read to learn how the hardware behaves; no code from them is used in zx84
+(some comments mention them as behaviour references, and the Einstein keyboard
+matrix agrees with MAME's, verified against the real ROMs).
 
 ## Bedstead — CC0-1.0
 

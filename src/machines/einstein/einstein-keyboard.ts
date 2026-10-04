@@ -10,10 +10,11 @@
  * SHIFT / CONTROL / GRAPH are NOT in this matrix — they (plus the joystick fire
  * buttons and printer status) are read from the I/O 0x20 status port instead.
  *
- * Matrix layout follows MAME's `einstein.cpp` matrix, corrected against each
+ * Matrix layout verified against each
  * MOS's own key-decode table (three 8-byte rows per line — unshifted, shifted,
  * control — at 0x10C5 in MOS 1.2 and 0x1687 in MOS 2.1, LINE1 first) and by
- * sweeping every cell and modifier against both real ROMs.
+ * sweeping every cell and modifier against both real ROMs. It agrees with MAME's `einstein.cpp` matrix except
+ * where noted below; no MAME code was used (that driver is GPL-2.0+).
  *
  * MAME names four separate cursor cells; the TC-01's deck has only two cursor
  * caps, each printing two arrows, and MOS 1.2 agrees: [2,5] decodes to

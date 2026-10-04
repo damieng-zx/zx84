@@ -28,7 +28,9 @@
  * Olivier Galibert; see THIRD_PARTY.md for the notice. Register wiring, the
  * drive-status bit layout and the drive/side-select bits in the drive-output
  * (oport) register were checked against beebjit's `intel_fdc.c` as a
- * reference only; no beebjit code is used.
+ * reference only; no beebjit code is used. Command timing (the busy delay and
+ * per-byte cadence) and the sector-not-found code 0x1e are values observed in
+ * BeebEm's behaviour; no BeebEm code is used.
  */
 
 import type { DskImage, DskSector } from '@/media/floppy/disk-image.ts';
@@ -52,16 +54,16 @@ const PHASE_CMD    = 1;
 const PHASE_EXEC   = 2;
 const PHASE_RESULT = 3;
 /** A command has finished but the chip holds BUSY until the completion timer
- *  expires (BeebEm `SetTrigger`): the result/interrupt appears a few cycles
+ *  expires (a delay observed in BeebEm): the result/interrupt appears a few cycles
  *  later, not the instant the last parameter is written. */
 const PHASE_BUSY   = 4;
 
 /** Cycles (1 MHz disc clock) a completed command holds BUSY before its result
- *  and interrupt appear. Mirrors BeebEm's short `SetTrigger` delay. */
+ *  and interrupt appear. Mirrors the short delay observed in BeebEm. */
 const COMPLETION_CYCLES = 50;
 
-/** Cycles between successive data-register bytes of a transfer (BeebEm's
- *  TIMEBETWEENBYTES). Each tick offers the next byte and re-raises the
+/** Cycles between successive data-register bytes of a transfer (the
+ *  per-byte spacing observed in BeebEm). Each tick offers the next byte and re-raises the
  *  interrupt, so the DFS's per-byte NMI handler advances its byte counter. */
 const BYTE_CYCLES = 80;
 
@@ -72,7 +74,7 @@ const ERR_DCRC  = 0x0e; // data field CRC error
 const ERR_NR    = 0x10; // drive not ready
 const ERR_WP    = 0x12; // write protected
 const ERR_T0NF  = 0x14; // track 0 not found
-const ERR_NF    = 0x1e; // record (sector) not found (BeebEm's code)
+const ERR_NF    = 0x1e; // record (sector) not found (the code BeebEm reports)
 
 /** Status-register bit values, exported for tests and the BBC peripheral. */
 export const I8271Status = {
@@ -85,7 +87,7 @@ export const I8271Result = {
   NR: ERR_NR, WP: ERR_WP, T0NF: ERR_T0NF, NF: ERR_NF,
 } as const;
 
-// ── READ DRIVE STATUS result bits (BeebEm `DoReadDriveStatusCommand`) ───────
+// ── READ DRIVE STATUS result bits (as BeebEm reports them) ───────
 // Result = 0x80 | (drive1 selected) | (drive0 selected) | (track0) | (wp).
 // The "selected" bits double as the per-drive ready flags the DFS tests
 // (drive 0 ready == 0x04), so a selected drive always reads ready.
@@ -456,7 +458,7 @@ export class I8271 {
 
   /** Complete a command with a result byte. The "long" commands (Seek, Read,
    *  Write, Verify, Format, Read ID) hold the chip busy for a short delay and
-   *  then raise the interrupt (BeebEm's `SetTrigger`); the "simple" commands
+   *  then raise the interrupt (as BeebEm does); the "simple" commands
    *  (READ DRIVE STATUS, READ SPECIAL REGISTER) return a result immediately and
    *  WITHOUT interrupting, so pass `interrupt = false, cycles = 0`. */
   private finishResult(rr: number, interrupt = true, cycles = COMPLETION_CYCLES): void {

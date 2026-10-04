@@ -67,7 +67,7 @@ export class MtxMachine extends BaseMachine implements Machine {
   /** Last byte written to the physical cassette output port. */
   tapeOutput = 0;
   /** Port 6's sound latch: OUT (6) only fills it; a read of port 3 strobes
-   *  it into the SN76489 (MAME mtx.cpp sound_lach_w / sound_strobe_r). */
+   *  it into the SN76489 (the SN76489 is not on the data bus, so the board latches the byte first). */
   soundLatch = 0;
   /** The VDP /INT line as last sampled (true = asserted). CTC channel 0
    *  counts its falling edges, not frames. */

@@ -368,7 +368,7 @@ export class Asic extends GateArray {
    *   0x4 (0x400x) — Control group: bit 0 = LOOP, bit 4 = INT, bit 5 = STOP.
    *                   Sub-bits can be OR'd (e.g. 0x4030 = INT|STOP).
    *
-   * Source: Arnold V spec (Issue 1.4) + CPCWiki DMA sound + MAME amstrad.
+   * Source: Arnold V spec (Issue 1.4) + CPCWiki DMA sound.
    * The prescaler would divide the tick rate further on real hardware;
    * Phase 5 leaves it unused (treat each tick as one HSYNC).
    */
@@ -546,8 +546,8 @@ export class Asic extends GateArray {
   onHSync(): void {
     this.mode = this.pendingMode;
     this.rasterCount++;
-    // NB: `frameLine` is incremented at the END of this method (matching MAME's
-    // `vpos++` after the PRI comparison). Incrementing it up-front fired the PRI
+    // NB: `frameLine` is incremented at the END of this method (after the PRI
+    // comparison). Incrementing it up-front fired the PRI
     // one scanline early — before the coincident 52-wrap had reset rasterCount —
     // so the PRI's bit-5 clear (below) hit rasterCount=51 instead of 0 and
     // subtracted 32, shifting the counter and making the game miss VSYNC every
@@ -560,7 +560,7 @@ export class Asic extends GateArray {
     // reset rasterCount while PRI was armed, so a stale count fired a spurious
     // mid-screen interrupt the moment PRI went back to 0 — desyncing games that
     // toggle PRI every frame, which flickered every other frame.)
-    // Source: MAME amstrad_plus_hsync_changed / Arnold ASIC_HSync.
+    // Source: Arnold V spec / CPCWiki Plus ASIC documentation.
     if (this.rasterCount >= 52) {
       this.rasterCount = 0;
       if (this.locked || this.interruptSl === 0) this.interruptRequested = true;
@@ -583,8 +583,8 @@ export class Asic extends GateArray {
    * VSYNC re-sync of the HSync interrupt counter. The counter always resets to
    * 0 a couple of lines after VSYNC (keeping interrupts phase-locked to the
    * display), but the interrupt it would raise is suppressed while a Plus
-   * raster interrupt is armed — matching the 52-line path above. Source: MAME
-   * (`hsync_after_vsync_counter`, gated by `pri == 0 || !enabled`).
+   * raster interrupt is armed — matching the 52-line path above. Source:
+   * Arnold V spec / CPCWiki (gated by `pri == 0 || !enabled`).
    */
   onVSyncResync(): void {
     const wouldInterrupt = this.rasterCount >= 32;

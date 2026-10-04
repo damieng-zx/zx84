@@ -401,7 +401,8 @@ export class JupiterAceMachine extends BaseMachine implements Machine {
     let out = outY * ACE_SCREEN_WIDTH + ACE_BORDER_LEFT;
     for (let col = 0; col < 32; col++) {
       const chr = vram[row + col];
-      const gfx = chars[((chr & 0x7F) << 3) | ra] ^ (chr & 0x80 ? 0xFF : 0);
+      const glyphRow = chars[((chr & 0x7F) << 3) | ra];
+      const gfx = (chr & 0x80) ? (~glyphRow & 0xFF) : glyphRow;   // bit 7 = inverse video
       this._pixels32[out] = (gfx & 0x80) ? INK : PAPER;
       this._pixels32[out + 1] = (gfx & 0x40) ? INK : PAPER;
       this._pixels32[out + 2] = (gfx & 0x20) ? INK : PAPER;

@@ -6,7 +6,7 @@
 */
 
 // AY-3-8910 DAC voltage levels (5-bit register, 32 entries) — measured
-// values matching MAME's AY-3-8910 table. Despite the register being 5
+// values (the "Hacker Kay" AY-3-8910 levels). Despite the register being 5
 // bits, the DAC ladder only produces 16 distinguishable voltages:
 // consecutive pairs read the same level (0/1 → same, 2/3 → same, etc.).
 // ~3 dB per 4-bit step.
