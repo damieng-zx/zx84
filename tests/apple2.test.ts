@@ -278,6 +278,30 @@ describe('apple2-plus video addressing', () => {
     }
   });
 
+  it('PAL colour is stable from line to line', () => {
+    // PAL's per-line V inversion is undone by the decoder, so identical
+    // scanlines of a coloured pattern must decode identically — no striping —
+    // and the pattern must still carry colour (not collapse to grey).
+    const m = make();
+    try {
+      m.charset.load(new Uint8Array(2048));
+      for (const base of [0x2000, 0x2400, 0x2800]) {        // hires lines 0, 1, 2
+        for (let i = 0; i < 40; i++) m.memory.ram[base + i] = (i & 1) ? 0x55 : 0x2A;
+      }
+      m.video.render(view(m, 'pal', { hires: true }));
+      const sample = (line: number) => {
+        const at = ((24 + line) * APPLE2_SCREEN_WIDTH + 32 + 140) * 4;
+        return [m.pixels[at], m.pixels[at + 1], m.pixels[at + 2]];
+      };
+      expect(sample(1)).toEqual(sample(0));
+      expect(sample(2)).toEqual(sample(0));
+      const [r, g, b] = sample(1);
+      expect(Math.max(r, g, b) - Math.min(r, g, b)).toBeGreaterThan(40);
+    } finally {
+      m.destroy();
+    }
+  });
+
   it('renders the green screen in phosphor green', () => {
     const m = make();
     try {

@@ -188,7 +188,6 @@ export class Apple2Video {
       return;
     }
     const pal = s.mode === 'pal';
-    const odd = (y & 1) === 1;
     const delayLine = pal && y - 1 === this.prevLine;
     for (let x = 0; x < ACTIVE_W; x++) {
       let mean = 0;
@@ -200,12 +199,15 @@ export class Apple2Video {
         if (this.quarter[xx]) { re += v * this.cosH[xx]; im += v * this.sinH[xx]; }
         else { re += v * this.cosN[xx]; im += v * this.sinN[xx]; }
       }
-      // PAL's V switch inverts the Q axis on alternate lines; a real decoder
-      // undoes that and averages with the delayed line to cancel phase error.
-      if (pal && odd) im = -im;
+      // PAL flips the V axis on alternate lines at the encoder and the decoder
+      // flips it back, so a clean signal needs no net inversion here. What is
+      // left of the delay-line decoder is the average with the previous line's
+      // chroma — taken from the raw (pre-average) value so it is a one-line
+      // delay, not a recursive filter.
+      const rawRe = re, rawIm = im;
       if (delayLine) { re = (re + this.prevRe[x]) / 2; im = (im + this.prevIm[x]) / 2; }
-      this.prevRe[x] = re;
-      this.prevIm[x] = im;
+      this.prevRe[x] = rawRe;
+      this.prevIm[x] = rawIm;
 
       const mag = Math.sqrt(re * re + im * im);
       const sat = mag >= FULL_CHROMA ? 1 : mag / FULL_CHROMA;
