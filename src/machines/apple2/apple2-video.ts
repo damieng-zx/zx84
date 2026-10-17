@@ -190,6 +190,20 @@ export class Apple2Video {
     const pal = s.mode === 'pal';
     const delayLine = pal && y - 1 === this.prevLine;
     for (let x = 0; x < ACTIVE_W; x++) {
+      // Most of a screen is flat black or white: a window of identical dots has
+      // no chroma, so skip the demodulation (and the sqrt/atan2) for it. The PAL
+      // delay line still needs the full path while the line above has chroma here.
+      const first = this.level[clampIndex(x + KERNEL_OFF)];
+      let flat = true;
+      for (let k = 1; k < KERNEL.length; k++) {
+        if (this.level[clampIndex(x + k + KERNEL_OFF)] !== first) { flat = false; break; }
+      }
+      if (flat && !(delayLine && (this.prevRe[x] !== 0 || this.prevIm[x] !== 0))) {
+        px[out + x] = first > 0.5 ? WHITE : BLACK;
+        this.prevRe[x] = 0;
+        this.prevIm[x] = 0;
+        continue;
+      }
       let mean = 0;
       for (let k = 0; k < KERNEL.length; k++) mean += KERNEL[k] * this.level[clampIndex(x + k + KERNEL_OFF)];
       let re = 0, im = 0;

@@ -357,6 +357,27 @@ describe('apple2-plus video addressing', () => {
     }
   });
 
+  it('flat text areas are pure black/white in the composite modes', () => {
+    // Runs of identical dots carry no chroma, so an inverse (all-lit) cell is
+    // exactly white in its interior and the blank cell beside it exactly black.
+    const m = make();
+    try {
+      m.charset.load(new Uint8Array(2048));
+      m.memory.ram[0x400] = 0x00;     // inverse blank: every dot lit
+      m.memory.ram[0x401] = 0x80;     // normal blank: every dot dark
+      m.memory.ram[0x402] = 0x80;
+      for (const mode of ['ntsc', 'pal'] as const) {
+        m.video.render(view(m, mode, { textMode: true }));
+        const at = (x: number, y: number) => (y * APPLE2_SCREEN_WIDTH + x) * 4;
+        const lit = at(32 + 3, 24 + 3), dark = at(32 + 14 + 3, 24 + 3);   // cell 2, clear of the lit edge
+        expect([m.pixels[lit], m.pixels[lit + 1], m.pixels[lit + 2]], mode).toEqual([255, 255, 255]);
+        expect([m.pixels[dark], m.pixels[dark + 1], m.pixels[dark + 2]], mode).toEqual([0, 0, 0]);
+      }
+    } finally {
+      m.destroy();
+    }
+  });
+
   it('renders the green screen in phosphor green', () => {
     const m = make();
     try {
