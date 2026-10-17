@@ -82,6 +82,8 @@ const KERNEL = [1, 2, 3, 4, 4, 3, 2, 1].map(v => v / 20);
 const KERNEL_OFF = -4;
 /** Chroma magnitude of a fully alternating pattern (the saturation reference). */
 const FULL_CHROMA = 0.5;
+/** Fraction of full chroma below which a pixel is treated as colourless. */
+const CHROMA_KNEE = 0.15;
 
 /** Subcarrier phase advanced per pixel: NTSC's dot clock is twice the
  *  subcarrier (180°), PAL's 7.125 MHz is not (≈224°). */
@@ -229,8 +231,19 @@ export class Apple2Video {
       this.prevIm[x] = rawIm;
 
       const mag = Math.sqrt(re * re + im * im);
-      const sat = mag >= FULL_CHROMA ? 1 : mag / FULL_CHROMA;
-      const lum = mean * 255;
+      // Soft knee: the chroma kernel's tails leave a faint residue (a tenth or
+      // two of full chroma) several dots from any edge, which reads as a pale
+      // echo beside text on a light ground. A decoder's colour killer discards
+      // chroma that weak; real colour (alternating patterns, a stroke's fringe)
+      // sits well above it.
+      const raw = mag >= FULL_CHROMA ? 1 : mag / FULL_CHROMA;
+      const sat = raw <= CHROMA_KNEE ? 0 : (raw - CHROMA_KNEE) / (1 - CHROMA_KNEE);
+      // Luma keeps nearly the full dot bandwidth: a real decoder only notches
+      // out the subcarrier. [1 2 1]/4 is exactly that notch at NTSC's dot rate
+      // (a period-2 pattern averages to a half), so glyph and hires edges stay
+      // crisp while the wide kernel above is used for chroma alone.
+      const lum = 255 * (0.25 * this.level[clampIndex(x - 1)] + 0.5 * this.level[x]
+        + 0.25 * this.level[clampIndex(x + 1)]);
       let r = lum, g = lum, b = lum;
       if (sat > 0) {
         // Hue wheel: 0° green, 90° orange, 180° violet, 270° blue.
@@ -240,9 +253,14 @@ export class Apple2Video {
         const i1 = (i0 + 1) & 3;
         const f = t - Math.floor(t);
         const a = HUE_RGB[i0], c = HUE_RGB[i1];
-        const hr = a[0] + (c[0] - a[0]) * f;
-        const hg = a[1] + (c[1] - a[1]) * f;
-        const hb = a[2] + (c[2] - a[2]) * f;
+        // The chroma kernel is wider than the sharp luma, so its tails reach
+        // dots that are dark. Scale the hue by the local luma (a full-chroma
+        // alternating pattern sits at one half) so colour never glows where the
+        // picture is black: no coloured echo beside a stroke.
+        const gain = lum >= 127.5 ? 1 : lum / 127.5;
+        const hr = (a[0] + (c[0] - a[0]) * f) * gain;
+        const hg = (a[1] + (c[1] - a[1]) * f) * gain;
+        const hb = (a[2] + (c[2] - a[2]) * f) * gain;
         r += (hr - r) * sat;
         g += (hg - g) * sat;
         b += (hb - b) * sat;
