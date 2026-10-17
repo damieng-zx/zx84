@@ -21,6 +21,11 @@
  *  - `pal`       the same decoder against the PAL dot-clock/subcarrier ratio
  *                (so patterns land on different hues) with PAL's per-line V
  *                switch and one-line chroma delay.
+ *
+ * Text goes through the same 1-bit path, so in the composite modes glyph edges
+ * pick up colour fringes, as they do on a colour monitor. Lores is drawn from a
+ * fixed 16-colour table in both composite modes: its colours come from the
+ * video generator's own phase table, not from decoding a 1-bit stream.
  */
 
 import {
