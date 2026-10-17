@@ -27,7 +27,7 @@ import {
 import { Apple2Memory } from './apple2-memory.ts';
 import { Apple2Keyboard } from './apple2-keyboard.ts';
 import { Apple2Charset } from './apple2-charset.ts';
-import { Apple2Video, type Apple2VideoState } from './apple2-video.ts';
+import { Apple2Video, type Apple2VideoMode, type Apple2VideoState } from './apple2-video.ts';
 import { Apple2Cassette } from './apple2-cassette.ts';
 import { Disk2 } from './peripherals/disk2.ts';
 import { apple2Descriptor } from './descriptor.ts';
@@ -86,7 +86,7 @@ export class Apple2Machine extends BaseMachine implements Machine {
   private readonly videoState: Apple2VideoState = {
     ram: this.memory.ram,
     textMode: true, mixed: false, page2: false, hires: false,
-    charset: this.charset, flashPhase: false,
+    charset: this.charset, flashPhase: false, mode: 'ntsc',
   };
 
   constructor(model: Apple2Model, display?: IScreenRenderer | null) {
@@ -137,6 +137,13 @@ export class Apple2Machine extends BaseMachine implements Machine {
 
   applySettings(view: SettingsView): void {
     this.audio.setVolume(view.get('volume', 70) / 100);
+    const mode = view.get<Apple2VideoMode>('apple2-video', 'ntsc');
+    if (mode !== this.videoState.mode) {
+      this.videoState.mode = mode;
+      // A frame may be paused; repaint so the change shows immediately.
+      this.video.render(this.videoState);
+      this.needsDisplay = true;
+    }
   }
 
   // ── Frame probe / status inputs ────────────────────────────────────────

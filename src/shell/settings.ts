@@ -25,6 +25,7 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'msx-color-map': () => settings.msxColorMap(),
   'einstein-color-map': () => settings.einsteinColorMap(),
   'bbc-color-map': () => settings.bbcColorMap(),
+  'apple2-video': () => settings.apple2Video(),
   'scanline-accuracy': () => settings.scanlineAccuracy(),
   'volume': () => settings.volume(),
   'ay-mix': () => settings.ayMix(),

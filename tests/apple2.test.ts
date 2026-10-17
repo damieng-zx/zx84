@@ -11,6 +11,7 @@ import { apple2Entry } from '@/machines/apple2/descriptor.ts';
 import { Disk2 } from '@/machines/apple2/peripherals/disk2.ts';
 import { apple2KeyByte } from '@/machines/apple2/apple2-keyboard.ts';
 import { hiresRowBase, textRowBase } from '@/machines/apple2/apple2-video.ts';
+import type { Apple2VideoMode, Apple2VideoState } from '@/machines/apple2/apple2-video.ts';
 import { apple2Char, ocrApple2Text } from '@/ocr/apple2.ts';
 import { parseApple2Disk } from '@/media/floppy/apple2.ts';
 import {
@@ -186,6 +187,13 @@ describe('apple2-plus keyboard mapping', () => {
 });
 
 describe('apple2-plus video addressing', () => {
+  const view = (
+    m: Apple2Machine, mode: Apple2VideoMode, over: Partial<Apple2VideoState> = {},
+  ): Apple2VideoState => ({
+    ram: m.memory.ram, textMode: false, mixed: false, page2: false,
+    hires: false, charset: m.charset, flashPhase: false, mode, ...over,
+  });
+
   it('walks text/lores rows in the interleaved order', () => {
     // Row 0 at $400; row 1 is +$80; row 8 wraps to the next 40-byte block.
     expect(textRowBase('page1', 0)).toBe(0x400);
@@ -207,10 +215,7 @@ describe('apple2-plus video addressing', () => {
     try {
       m.charset.load(new Uint8Array(2048));
       m.memory.ram[0x400] = 0x0F;   // low nibble F (white) top, high 0 (black) bottom
-      m.video.render({
-        ram: m.memory.ram, textMode: false, mixed: false, page2: false,
-        hires: false, charset: m.charset, flashPhase: false,
-      });
+      m.video.render(view(m, 'mono'));
       const red = (x: number, y: number) => m.pixels[(y * APPLE2_SCREEN_WIDTH + x) * 4];
       expect(red(34, 24)).toBe(0xFF);   // top block, white pen
       expect(red(34, 28)).toBe(0x00);   // bottom block, black pen
@@ -226,19 +231,64 @@ describe('apple2-plus video addressing', () => {
     const m = make();
     try {
       m.charset.load(new Uint8Array(2048));
-      const render = () => m.video.render({
-        ram: m.memory.ram, textMode: false, mixed: false, page2: false,
-        hires: true, charset: m.charset, flashPhase: false,
-      });
       const red = (x: number) => m.pixels[(24 * APPLE2_SCREEN_WIDTH + x) * 4];
+      expect(m.memory.ram[0x2000] ?? 0).toBe(0);
       m.memory.ram[0x2000] = 0x01;   // bit 0 set -> the leftmost pixel lights
-      render();
-      expect(red(32)).toBe(0x11);    // green: the lit pixel starts here
-      expect(red(33)).toBe(0xFF);    // violet: its trailing fringe
+      m.video.render(view(m, 'mono', { hires: true }));
+      expect(red(32)).toBe(0xFF);
+      expect(red(38)).toBe(0x00);
       m.memory.ram[0x2000] = 0x40;   // bit 6 set -> the byte's rightmost pixel
-      render();
-      expect(red(38)).toBe(0x11);    // green at x = 6
-      expect(red(32)).toBe(0x00);    // nothing at the left
+      m.video.render(view(m, 'mono', { hires: true }));
+      expect(red(38)).toBe(0xFF);
+      expect(red(32)).toBe(0x00);
+    } finally {
+      m.destroy();
+    }
+  });
+
+  it('decodes composite colour: alternating bytes make a solid line', () => {
+    // A byte is seven dots — 3.5 chroma cycles — so the phase slips 180° at
+    // every byte boundary. A single repeated byte therefore beats green/violet
+    // per byte; the documented recipe for a solid line is to alternate the
+    // pair. "$2A $55 $2A $55" is 14 green pixels.
+    const m = make();
+    try {
+      m.charset.load(new Uint8Array(2048));
+      const fill = (b0: number | null, b1 = 0) => {
+        for (let i = 0; i < 40; i++) m.memory.ram[0x2000 + i] = b0 === null ? b1 : ((i & 1) ? b1 : b0);
+        m.video.render(view(m, 'ntsc', { hires: true }));
+      };
+      const sample = (x: number) => {
+        const at = (24 * APPLE2_SCREEN_WIDTH + 32 + x) * 4;
+        return [m.pixels[at], m.pixels[at + 1], m.pixels[at + 2]];
+      };
+      fill(0x2A, 0x55);
+      for (const x of [20, 60, 100, 140, 180]) {
+        const [r, g, b] = sample(x);
+        expect(g, `green at ${x}`).toBeGreaterThan(180);
+        expect(r, `green at ${x}`).toBeLessThan(60);
+        expect(b, `green at ${x}`).toBeLessThan(60);
+      }
+      fill(null, 0x7F);                                   // white is phase-free
+      expect(sample(140).every(v => v > 240)).toBe(true);
+      fill(null, 0x00);                                   // so is black
+      expect(sample(140)).toEqual([0, 0, 0]);
+    } finally {
+      m.destroy();
+    }
+  });
+
+  it('renders the green screen in phosphor green', () => {
+    const m = make();
+    try {
+      m.charset.load(new Uint8Array(2048));
+      for (let i = 0; i < 40; i++) m.memory.ram[0x2000 + i] = 0x7F;   // solid line
+      const at = (24 * APPLE2_SCREEN_WIDTH + 32 + 140) * 4;
+      const rgb = () => [m.pixels[at], m.pixels[at + 1], m.pixels[at + 2]];
+      m.video.render(view(m, 'mono', { hires: true }));
+      expect(rgb()).toEqual([0xFF, 0xFF, 0xFF]);
+      m.video.render(view(m, 'green', { hires: true }));
+      expect(rgb()).toEqual([0x33, 0xFF, 0x33]);
     } finally {
       m.destroy();
     }
@@ -253,10 +303,7 @@ describe('apple2-plus video addressing', () => {
       m.charset.load(font);
       const render = (byte: number, flashPhase: boolean) => {
         m.memory.ram[0x400] = byte;
-        m.video.render({
-          ram: m.memory.ram, textMode: true, mixed: false, page2: false,
-          hires: false, charset: m.charset, flashPhase,
-        });
+        m.video.render(view(m, 'mono', { textMode: true, flashPhase }));
         let lit = 0;
         for (let y = 24; y < 32; y++) {
           for (let x = 32; x < 39; x++) if (m.pixels[(y * APPLE2_SCREEN_WIDTH + x) * 4] > 0x40) lit++;

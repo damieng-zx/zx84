@@ -38,6 +38,7 @@ const DEFAULTS = {
   'msx-color-map':     'pal',
   'einstein-color-map': 'accurate',
   'bbc-color-map':     'pal',
+  'apple2-video':      'ntsc',
   'scanline-accuracy': 'high',
 
   // Sound
@@ -435,6 +436,11 @@ const _bbcColorMap = /*@once*/ createRoot(() => createSignal(getSaved('bbc-color
 export const bbcColorMap = _bbcColorMap[0];
 export const setBbcColorMap = _bbcColorMap[1];
 
+const _apple2Video = /*@once*/ createRoot(() => createSignal(
+  getSaved('apple2-video', D('apple2-video')) as 'mono' | 'green' | 'ntsc' | 'pal'));
+export const apple2Video = _apple2Video[0];
+export const setApple2Video = _apple2Video[1];
+
 const _bbcDiskSystem = /*@once*/ createRoot(() => createSignal(
   getSaved('bbc-disk-system', D('bbc-disk-system')) as 'none' | 'acorn' | '1770'));
 export const bbcDiskSystem = _bbcDiskSystem[0];
@@ -528,6 +534,7 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'msx-color-map',     set: setMsxColorMap,      type: 'string' },
     { key: 'einstein-color-map', set: setEinsteinColorMap, type: 'string' },
     { key: 'bbc-color-map',     set: setBbcColorMap,      type: 'string' },
+    { key: 'apple2-video',      set: setApple2Video,      type: 'string' },
     { key: 'scanline-accuracy', set: setScanlineAccuracy, type: 'string' },
   ],
   monitor: [

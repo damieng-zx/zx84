@@ -24,8 +24,7 @@ const APPLE2_UI: MachineUiCapabilities = {
   ],
   memoryLayout: false,
   trace: false,
-  // NTSC in colour; the fixed artefact palette is not user-selectable.
-  colorMap: 'mono',
+  colorMap: 'apple2',
   accuracy: false,
   builtinDisk: true,
   builtinDrives: 2,
