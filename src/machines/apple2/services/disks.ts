@@ -1,6 +1,8 @@
 import type { DiskService, DriveDescriptor, DriveMedia } from '@/machines/machine.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
-import { parseApple2Disk, serializeApple2Disk, type Apple2DiskOrder } from '@/media/floppy/apple2.ts';
+import {
+  detectApple2DiskOrder, parseApple2Disk, serializeApple2Disk, type Apple2DiskOrder,
+} from '@/media/floppy/apple2.ts';
 import type { Apple2Machine } from '../apple2-machine.ts';
 
 function baseName(name: string): string {
@@ -51,8 +53,9 @@ export class Apple2DiskService implements DiskService {
 
   /** Load a raw sector image into a drive (used by the media service). */
   mountImage(id: string, data: Uint8Array, name: string): void {
-    const order: Apple2DiskOrder = /\.po$/i.test(name) ? 'prodos' : 'dos';
+    const order = detectApple2DiskOrder(data, name);
     this.insert(id, parseApple2Disk(data, order), name);
+    this.order.set(id, order);     // insert() only knows the name; this saw the bytes
   }
 
   private describe(id: string, label: string, unit: number): DriveDescriptor {

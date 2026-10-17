@@ -12,7 +12,8 @@ import { describe, expect, it } from 'vitest';
 import {
   APPLE2_SECTOR_SIZE, APPLE2_SECTORS_PER_TRACK, DOS_SKEW, GCR_WRITE_TABLE,
   decodeSector6and2, decodeTrack, encodeSector6and2, encodeTrack,
-  fourAndFour, fourAndFourDecode, gcr6, gcrRead, parseApple2Disk, serializeApple2Disk,
+  detectApple2DiskOrder, fourAndFour, fourAndFourDecode, gcr6, gcrRead, parseApple2Disk,
+  serializeApple2Disk,
 } from '@/media/floppy/apple2.ts';
 
 describe('GCR 6-and-2 code table', () => {
@@ -142,5 +143,29 @@ describe('DOS image round-trip', () => {
     const image = parseApple2Disk(raw, 'prodos');
     expect(image.tracks[0]![0]!.sectorMap.get(0)).toBe(0);
     expect(image.tracks[0]![0]!.sectors[0].data[0]).toBe(0x11);
+  });
+});
+
+describe('sector order detection', () => {
+  const IMAGE = 35 * 16 * 256;
+  const prodos = () => {
+    const raw = new Uint8Array(IMAGE);
+    raw.set([0x00, 0x00, 0x03, 0x00, 0xF5], 0x400);   // block 2: volume directory key block
+    return raw;
+  };
+
+  it('trusts the .po and .do extensions', () => {
+    expect(detectApple2DiskOrder(new Uint8Array(IMAGE), 'a.po')).toBe('prodos');
+    expect(detectApple2DiskOrder(prodos(), 'a.do')).toBe('dos');
+  });
+
+  it('recognises a ProDOS volume header in a .dsk', () => {
+    expect(detectApple2DiskOrder(prodos(), 'game.dsk')).toBe('prodos');
+  });
+
+  it('treats a .dsk without the header as DOS 3.3', () => {
+    const raw = new Uint8Array(IMAGE);
+    raw[0x11000 + 3] = 0x03;                          // DOS VTOC release byte
+    expect(detectApple2DiskOrder(raw, 'game.dsk')).toBe('dos');
   });
 });

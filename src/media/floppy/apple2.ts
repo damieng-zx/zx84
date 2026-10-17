@@ -235,6 +235,24 @@ function trackCountFor(length: number): number {
   return Math.floor(length / (APPLE2_SECTOR_SIZE * APPLE2_SECTORS_PER_TRACK));
 }
 
+/**
+ * Pick the sector order of a raw 140K image. `.po` is ProDOS order and `.do`
+ * DOS order by definition; `.dsk` is ambiguous in the wild, so it is sniffed
+ * for the ProDOS volume directory header. That header (previous block 0, next
+ * block 3, storage type $F) sits in block 2 - file offset $400 in a ProDOS-order
+ * image, but track 0 sector 4 (boot code) in a DOS-order one, where the DOS VTOC
+ * is at $11000 instead - so the signature does not occur in a DOS-order disk.
+ */
+export function detectApple2DiskOrder(data: Uint8Array, name: string): Apple2DiskOrder {
+  if (/\.po$/i.test(name)) return 'prodos';
+  if (/\.do$/i.test(name)) return 'dos';
+  const isProdosVolumeHeader = data.length > 0x405
+    && data[0x400] === 0x00 && data[0x401] === 0x00
+    && data[0x402] === 0x03 && data[0x403] === 0x00
+    && (data[0x404] >> 4) === 0xF;
+  return isProdosVolumeHeader ? 'prodos' : 'dos';
+}
+
 /** Build a `DskImage` from a raw `.dsk`/`.do`/`.po` image. */
 export function parseApple2Disk(data: Uint8Array, order: Apple2DiskOrder): DskImage {
   if (!isApple2DiskLength(data.length)) {

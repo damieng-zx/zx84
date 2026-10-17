@@ -535,6 +535,24 @@ describe('apple2-plus Disk II controller', () => {
   });
 });
 
+describe('apple2-plus disk mounting', () => {
+  it('mounts a ProDOS-order .dsk in ProDOS sector order', async () => {
+    const m = make();
+    try {
+      const raw = new Uint8Array(35 * 16 * 256);
+      raw.set([0x00, 0x00, 0x03, 0x00, 0xF5], 0x400);   // ProDOS volume directory header
+      raw[256] = 0xA5;                                    // file sector 1 of track 0
+      const res = await m.services.media.mount(raw, 'prodos-game.dsk', 'a');
+      expect(res.ok).toBe(true);
+      // ProDOS order: physical sector 1 is file sector 1 (DOS order would put
+      // file sector 7 there, since DOS_SKEW[1] = 7).
+      expect(m.services.disks.image('a')!.tracks[0][0]!.sectors[1].data[0]).toBe(0xA5);
+    } finally {
+      m.destroy();
+    }
+  });
+});
+
 describe('apple2-plus boot smoke', () => {
   it('cold-resets: clears the ROM warm-start vector so a disc can re-boot', () => {
     const m = make();
