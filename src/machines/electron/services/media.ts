@@ -64,13 +64,11 @@ export class ElectronMediaService implements MediaService {
       };
     }
     if (/\.rom$/i.test(filename)) {
-      if (!this.machine.plus1Fitted) {
+      const slot = this.machine.services.roms.cartridge;
+      if (!slot) {
         return { ok: false, message: 'Fit the Plus 1 in the Hardware pane to use cartridges' };
       }
-      this.machine.stop();
-      this.machine.insertCartridge(data, filename);
-      this.machine.reset();
-      this.machine.bootWithShift();
+      slot.insert(data, filename);
       return { ok: true, target: 'cartridge', message: `Cartridge: ${filename} (SHIFT+BREAK)` };
     }
     return { ok: false, message: 'The Electron accepts .uef/.csw tapes, .adf/.adl discs and .rom cartridges' };
