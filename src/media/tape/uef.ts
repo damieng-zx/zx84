@@ -312,8 +312,16 @@ export class UefRecorder {
     this.baud = UEF_DEFAULT_BAUD;
   }
 
+  /** The motor relay switched. The tape stands still while it is off, so a
+   *  byte after a stop is measured from the restart, not from the last byte. */
   motor(on: boolean, cycle: number): void {
-    if (on) { if (this.motorOnAt < 0) this.motorOnAt = cycle; } else { this.motorOnAt = -1; }
+    if (on) {
+      if (this.motorOnAt < 0) { this.motorOnAt = cycle; this.lastEnd = -1; }
+    } else {
+      this.flushData();
+      this.motorOnAt = -1;
+      this.lastEnd = -1;
+    }
   }
 
   /** The machine is transmitting at `baud`; a change is recorded as chunk 0117. */

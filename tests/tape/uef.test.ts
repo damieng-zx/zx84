@@ -206,4 +206,22 @@ describe('UefRecorder', () => {
     expect(view.getUint16(offs[1], true)).toBe(1200);
     expect(view.getUint16(offs[3], true)).toBe(2400);
   });
+
+  it('does not count time with the motor off as carrier', () => {
+    const CPU = 2_000_000, frame = CPU / 120;
+    const rec = new UefRecorder(CPU);
+    rec.motor(true, 0);
+    rec.byte(0x41, 0);
+    rec.motor(false, frame);
+    rec.motor(true, CPU * 20);                        // 20 s later
+    rec.byte(0x42, CPU * 20);
+    const uef = rec.toUef()!;
+    const view = new DataView(uef.buffer, uef.byteOffset, uef.byteLength);
+    const ids: number[] = [];
+    for (let pos = 12; pos < uef.length;) {
+      ids.push(view.getUint16(pos, true));
+      pos += 6 + view.getUint32(pos + 2, true);
+    }
+    expect(ids).toEqual([0x0000, 0x0100, 0x0100]);
+  });
 });
