@@ -144,10 +144,6 @@ npm run build         # production build
 npm run mcp           # start the MCP server
 ```
 
-## Current Scope
-
-Hardware and media support varies by machine and model. In particular, the HX-10 needs its floppy interface fitting in the Hardware pane and a user-hosted Disk BASIC ROM (`msx/msx1_disk-basic.rom`), the Lynx 48K and the Jupiter Ace have no disk interface, the PCW ships no ROM and needs a user-supplied CP/M+ or LocoScript boot disc, and some Einstein and CPC subsystems remain incomplete.
-
 ## License
 
 [MIT](LICENSE)
