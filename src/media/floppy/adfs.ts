@@ -95,8 +95,10 @@ export function parseAdfs(data: Uint8Array, doubleSided = false): DskImage {
  *  so a blank image is simply filler-filled and unformatted as far as the
  *  filing system is concerned. */
 export function blankAdfs(tracks: 40 | 80, doubleSided: boolean): DskImage {
+  // ADFS has no 40-track double-sided format (S is one side, L is 80 x 2).
+  if (tracks === 40 && doubleSided) throw new Error('ADFS has no 40-track double-sided format');
   const sides = doubleSided ? 2 : 1;
-  return parseAdfs(new Uint8Array(tracks * sides * ADFS_TRACK_BYTES).fill(FILLER));
+  return parseAdfs(new Uint8Array(tracks * sides * ADFS_TRACK_BYTES).fill(FILLER), doubleSided);
 }
 
 export function serializeAdfs(image: DskImage): Uint8Array {

@@ -98,5 +98,12 @@ describe('ADFS serialisation', () => {
     const l = blankAdfs(80, true);
     expect(serializeAdfs(l).length).toBe(640 * 1024);
     expect(serializeAdfs(blankAdfs(40, false)).length).toBe(40 * ADFS_TRACK_BYTES);
+    const m = blankAdfs(80, false);
+    expect([m.numTracks, m.numSides]).toEqual([80, 1]);
+    expect(blankAdfs(80, true).numSides).toBe(2);
+  });
+
+  it('refuses a 40-track double-sided blank rather than building an 80-track one', () => {
+    expect(() => blankAdfs(40, true)).toThrow();
   });
 });
