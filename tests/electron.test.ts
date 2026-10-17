@@ -85,6 +85,12 @@ describe('Electron memory map', () => {
     m.destroy();
   });
 
+  it('refuses a system ROM shorter than BASIC + OS rather than half-loading it', () => {
+    const m = machine();
+    expect(() => m.loadROM(new Uint8Array(0x4000))).toThrow(/too small/);
+    m.destroy();
+  });
+
   it('shows BASIC in pages 10 and 11, nothing (&FF) in an empty page, and an installed ROM', () => {
     const m = machine();
     m.memory.basicRom[0x123] = 0x77;

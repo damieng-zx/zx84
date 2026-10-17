@@ -117,10 +117,11 @@ export class ElectronMemory implements IMachineMemory {
   /** Load a 32K system image: BASIC (16K) followed by the OS (16K), the layout of
    *  the Electron's single mask ROM. */
   loadRom(data: Uint8Array): void {
-    if (data.length >= ELECTRON_ROM_SIZE) this.basicRom.set(data.subarray(0, ELECTRON_ROM_SIZE));
-    if (data.length >= ELECTRON_ROM_SIZE * 2) {
-      this.osRom.set(data.subarray(ELECTRON_ROM_SIZE, ELECTRON_ROM_SIZE * 2));
+    if (data.length < ELECTRON_ROM_SIZE * 2) {
+      throw new Error(`Electron ROM too small: ${data.length} bytes (need 32KB: BASIC then OS)`);
     }
+    this.basicRom.set(data.subarray(0, ELECTRON_ROM_SIZE));
+    this.osRom.set(data.subarray(ELECTRON_ROM_SIZE, ELECTRON_ROM_SIZE * 2));
   }
 
   /** A 16K window image of `data`: a ROM smaller than the window (4K, 8K) has
