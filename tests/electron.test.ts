@@ -253,6 +253,18 @@ describe('Electron ULA interrupts', () => {
     m.destroy();
   });
 
+  it('leaves the power-on flag and keyboard activity alone when inspected through peek/readBlock', () => {
+    const m = machine();
+    expect(m.memory.peekByte(0xFE00)).toBe(0xFF);
+    m.memory.readBlock(0xFE00, 16);
+    expect(m.memory.readByte(0xFE00) & 0x02).toBe(0x02);     // still flagged for the OS
+    m.memory.romPage = 8;
+    m.keyboard.reads = 0;
+    m.memory.readBlock(0x8000, 0x100);
+    expect(m.keyboard.reads).toBe(0);
+    m.destroy();
+  });
+
   it('raises the 50 Hz RTC interrupt only when enabled, and clears it through FE05 bit 5', () => {
     const m = machine();
     m.tick();

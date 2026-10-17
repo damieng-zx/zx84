@@ -43,6 +43,8 @@ export class ElectronMemory implements IMachineMemory {
   ioWrite: (addr: number, val: number) => void = () => {};
   /** Keyboard read: the pressed bits of every column whose address line is low. */
   kbdRead: (addr: number) => number = () => 0;
+  /** The same without bus-activity side effects, for the debugger. */
+  kbdPeek: (addr: number) => number = () => 0;
 
   get ramBankCount(): number { return 2; }
 
@@ -52,10 +54,10 @@ export class ElectronMemory implements IMachineMemory {
   }
 
   /** The byte the paged window shows at `addr` (0x8000-0xBFFF). */
-  private pagedRead(addr: number): number {
+  private pagedRead(addr: number, peek = false): number {
     const page = this.romPage;
     if (page === ELECTRON_KEYBOARD_PAGE || page === ELECTRON_KEYBOARD_PAGE + 1) {
-      return this.kbdRead(addr) & 0x0F;
+      return (peek ? this.kbdPeek(addr) : this.kbdRead(addr)) & 0x0F;
     }
     if (page === ELECTRON_BASIC_PAGE || page === ELECTRON_BASIC_PAGE + 1) {
       return this.basicRom[addr & 0x3FFF];
@@ -79,16 +81,27 @@ export class ElectronMemory implements IMachineMemory {
     // Everywhere else is ROM: writes are ignored.
   }
 
+  /** Read without side effects, for the debugger and MCP tools: the ULA's
+   *  registers clear flags when read (the power-on-reset bit, the tape data
+   *  register), so the hardware window reads as floating high instead. */
+  peekByte(addr: number): number {
+    addr &= 0xFFFF;
+    if (addr < 0x8000) return this.ram[addr];
+    if (addr < 0xC000) return this.pagedRead(addr, true);
+    if (addr >= 0xFC00 && addr < 0xFF00) return 0xFF;
+    return this.osRom[addr & 0x3FFF];
+  }
+
   readBlock(addr: number, len: number): Uint8Array {
     const out = new Uint8Array(len);
-    for (let i = 0; i < len; i++) out[i] = this.readByte((addr + i) & 0xFFFF);
+    for (let i = 0; i < len; i++) out[i] = this.peekByte((addr + i) & 0xFFFF);
     return out;
   }
 
   snapshot(): Uint8Array {
     const out = new Uint8Array(0x10000);
     out.set(this.ram, 0x0000);
-    for (let a = 0x8000; a < 0xC000; a++) out[a] = this.pagedRead(a);
+    for (let a = 0x8000; a < 0xC000; a++) out[a] = this.pagedRead(a, true);
     out.set(this.osRom, 0xC000);
     return out;
   }

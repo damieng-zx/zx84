@@ -56,6 +56,11 @@ export class ElectronKeyboard {
   /** The pressed bits of every column whose address line in `addr` is low. */
   read(addr: number): number {
     this.reads++;
+    return this.peek(addr);
+  }
+
+  /** `read` without counting it as bus activity, for the debugger. */
+  peek(addr: number): number {
     let data = 0;
     for (let col = 0; col < 14; col++) {
       if (((addr >> col) & 1) === 0) data |= this.columns[col];

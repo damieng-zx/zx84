@@ -52,6 +52,10 @@ export interface ByteReader {
  */
 export interface IMachineMemory extends ByteReader {
   readByte(addr: number): number;
+  /** Read for inspection only (debugger, MCP): never disturbs read-sensitive
+   *  hardware. Machines whose IO has read side effects provide it; the rest
+   *  fall back to `readByte`. */
+  peekByte?(addr: number): number;
   writeByte(addr: number, val: number): void;
   readBlock(addr: number, len: number): Uint8Array;
   /** Fresh 64KB copy of the current paged address space (debug/snapshot). */

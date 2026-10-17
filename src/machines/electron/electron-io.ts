@@ -38,4 +38,5 @@ export function wireElectronIo(m: ElectronMachine): void {
   m.memory.ioRead = (addr) => readElectronIo(m, addr);
   m.memory.ioWrite = (addr, val) => writeElectronIo(m, addr, val);
   m.memory.kbdRead = (addr) => m.keyboard.read(addr);
+  m.memory.kbdPeek = (addr) => m.keyboard.peek(addr);
 }
