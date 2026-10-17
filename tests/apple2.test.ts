@@ -207,6 +207,21 @@ describe('apple2-plus cassette deck', () => {
   });
 });
 
+describe('apple2-plus game port', () => {
+  it('reads the pushbuttons as released (bit 7 clear)', () => {
+    // A pushbutton input is high only while its switch is closed; with nothing
+    // attached $C061-$C063 must not read as a held button.
+    const m = make();
+    try {
+      for (const addr of [0xC061, 0xC062, 0xC063]) {
+        expect(m.memory.readByte(addr) & 0x80, `$${addr.toString(16)}`).toBe(0);
+      }
+    } finally {
+      m.destroy();
+    }
+  });
+});
+
 describe('apple2-plus keyboard mapping', () => {
   it('encodes the classic II+ shift pairs and control chars', () => {
     expect(apple2KeyByte(key('KeyA', 'a'))).toBe(0x41);           // upper-case only

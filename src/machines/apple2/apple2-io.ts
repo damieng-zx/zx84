@@ -55,7 +55,7 @@ export function readApple2Io(m: Apple2Machine, addr: number): number {
   if (off <= 0x6F) {
     switch (off & 0x0F) {
       case 0x00: return m.cassetteInputBit ? 0x80 : 0x00;
-      case 0x01: case 0x02: case 0x03: return 0x80;   // pushbuttons open
+      case 0x01: case 0x02: case 0x03: return 0x00;   // pushbuttons read high only while pressed
       default: return 0x00;                            // paddles / trigger
     }
   }
