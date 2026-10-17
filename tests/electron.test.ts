@@ -150,6 +150,26 @@ describe('Electron keyboard', () => {
     m.destroy();
   });
 
+  it('passes host SHIFT to non-character keys but not to typed characters', () => {
+    const m = machine();
+    const shifted = (code: string, k: string) => ({ ...key(code, k), shift: true });
+    m.services.input.keyDown(shifted('ArrowLeft', 'ArrowLeft'));
+    expect(readColumn(m, 1) & 0x0F).toBe(0x01);             // left: column 1, row 0
+    expect(readColumn(m, 13) & 0x08).toBe(0x08);            // SHIFT: column 13, row 3
+    m.services.input.keyUp(shifted('ArrowLeft', 'ArrowLeft'));
+    expect(readColumn(m, 13)).toBe(0);
+    m.services.input.keyDown(shifted('Backslash', '~'));    // '~' is CTRL+left, already complete
+    expect(readColumn(m, 13) & 0x0F).toBe(0x04);            // CTRL only, no SHIFT
+    m.destroy();
+  });
+
+  it('Shift+BREAK resets and holds SHIFT', () => {
+    const m = machine();
+    m.services.input.keyDown({ ...key('Pause'), shift: true });
+    expect(readColumn(m, 13) & 0x08).toBe(0x08);
+    m.destroy();
+  });
+
   it('ORs together every column whose address line is low', () => {
     const m = machine();
     m.services.input.keyDown(key('KeyQ', 'q'));             // column 12, row 1

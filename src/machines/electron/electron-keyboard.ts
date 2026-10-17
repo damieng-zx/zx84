@@ -91,11 +91,15 @@ export class ElectronKeyboard {
         return cells;
       }
     }
+    // Typed characters carry their own shift (above), so the host SHIFT key has
+    // no cell of its own; it is passed on only to keys that aren't characters
+    // (cursors, COPY, DELETE, RETURN, f-keys), which the machine shifts itself.
+    const shifted = event.shift ? [cell('shift')] : [];
     const fn = ELK_FUNCTION_KEYS[event.code];
-    if (fn) return [cell(fn), cell('func')];
+    if (fn) return [cell(fn), cell('func'), ...shifted];
     if (event.code === 'ShiftLeft' || event.code === 'ShiftRight') return null;
     const name = ELK_CODE_KEYS[event.code];
-    return name ? [cell(name)] : null;
+    return name ? [cell(name), ...shifted] : null;
   }
 
   handleEvent(event: HostKeyEvent, down: boolean): boolean {

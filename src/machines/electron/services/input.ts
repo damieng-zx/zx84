@@ -5,9 +5,10 @@ export class ElectronInputService implements InputService {
   constructor(private readonly machine: ElectronMachine) {}
 
   keyDown(event: HostKeyEvent): boolean {
-    // The BREAK key has no matrix cell: it resets the CPU.
+    // The BREAK key has no matrix cell: it resets the CPU. With SHIFT held
+    // the OS also boots a disc or cartridge.
     if (event.code === 'Pause' || event.code === 'F12') {
-      this.machine.breakReset();
+      if (event.shift) this.machine.bootWithShift(); else this.machine.breakReset();
       return true;
     }
     return this.machine.keyboard.handleEvent(event, true);
