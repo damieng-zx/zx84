@@ -56,6 +56,8 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'mtx-80-column': () => settings.mtx80Column(),
   'mtx-512k-ram': () => settings.mtx512kRam(),
   'bbc-disk-system': () => settings.bbcDiskSystem(),
+  'electron-plus1': () => settings.electronPlus1(),
+  'electron-plus3': () => settings.electronPlus3(),
   // True while the SAA5050 upscaler is selected: machines that draw teletext
   // then supply the raw, unrounded dots for it to round.
   'saa-scaler': () => settings.scalingMode() === SCALING_MODE_SAA5050,
@@ -67,6 +69,15 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'zx81-quicksilva-hrg': () => settings.zx81QuickSilvaHrg(),
   'ace-ram-pack': () => settings.aceRamPack(),
 };
+
+/** Whether a boolean setting is on, reactively (call inside a tracking scope).
+ *  Gates a machine capability on a user-fitted peripheral — see
+ *  `MachineUiCapabilities.requires`. A missing gate is open. */
+export function settingEnabled(key: string | undefined): boolean {
+  if (!key) return true;
+  const getter = SETTING_GETTERS[key];
+  return getter ? Boolean(getter()) : true;
+}
 
 export function buildSettingsView(): SettingsView {
   return {

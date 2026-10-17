@@ -21,6 +21,7 @@ export const R_VERT_TOTAL = 4;
 export const R_VERT_ADJUST = 5;
 export const R_VERT_DISPLAYED = 6;
 export const R_VSYNC_POS = 7;
+export const R_INTERLACE = 8;
 export const R_MAX_RASTER = 9;
 export const R_DISPLAY_START_H = 12;
 export const R_DISPLAY_START_L = 13;
@@ -107,9 +108,21 @@ export class Crtc6845 {
     return n >= 16 && n <= 128 ? n : 64;
   }
 
-  /** Total scanlines this frame ((R4+1)·(R9+1)+R5), clamped while unprogrammed. */
+  /** Interlace sync-and-video (R8 bits 1:0 = 11): the raster address steps by
+   *  two within a field, so R9 is the last even raster and a character row is
+   *  only (R9/2)+1 scanlines of the field — the BBC's Mode 7 (R9=18) is ten.
+   *  The other interlace mode, sync only, scans like a normal frame. */
+  get interlaceVideo(): boolean { return (this.regs[R_INTERLACE] & 3) === 3; }
+
+  /** Scanlines per character row within a field. */
+  private get rowLines(): number {
+    const r9 = this.regs[R_MAX_RASTER];
+    return this.interlaceVideo ? (r9 >> 1) + 1 : r9 + 1;
+  }
+
+  /** Total scanlines this frame ((R4+1)·rows+R5), clamped while unprogrammed. */
   linesPerFrame(): number {
-    const n = (this.regs[R_VERT_TOTAL] + 1) * (this.regs[R_MAX_RASTER] + 1) + this.regs[R_VERT_ADJUST];
+    const n = (this.regs[R_VERT_TOTAL] + 1) * this.rowLines + this.regs[R_VERT_ADJUST];
     return n >= 32 && n <= 400 ? n : 312;
   }
 
@@ -117,7 +130,7 @@ export class Crtc6845 {
    *  standard 25-row display is 200 lines; overscan games use more. Clamped to a
    *  sane range while the registers are still being programmed (fallback 200). */
   displayedLines(): number {
-    const n = this.regs[R_VERT_DISPLAYED] * (this.regs[R_MAX_RASTER] + 1);
+    const n = this.regs[R_VERT_DISPLAYED] * this.rowLines;
     return n >= 8 && n <= 400 ? n : 200;
   }
 
@@ -222,7 +235,7 @@ export class Crtc6845 {
         this.maRow = (this.maRow + this.regs[R_HORIZ_DISPLAYED]) & 0x3FFF;
       }
     } else {
-      this.ra = (this.ra + 1) & 0x1F;
+      this.ra = (this.ra + (this.interlaceVideo ? 2 : 1)) & 0x1F;
     }
   }
 

@@ -90,7 +90,11 @@ export function parseTapeBlockMeta(block: TapeBlock, index: number, blocks: Tape
     }
     case 'tone': return { line: `${index}: Pure Tone`, detail: `${block.pulseLen}T × ${block.count} pulses`, hidden: false, control: true, absorbsNext: false };
     case 'pulses': return { line: `${index}: Pulse Sequence`, detail: `${block.lengths.length} pulses`, hidden: false, control: true, absorbsNext: false };
-    case 'csw': return { line: `${index}: CSW Recording`, detail: `${block.pulses.length} pulses`, hidden: false, control: true, absorbsNext: false };
+    case 'csw':
+      if (block.label) {
+        return { line: `${index}: ${block.label}`, detail: block.detail ?? '', hidden: false, control: block.role !== 'data', absorbsNext: false };
+      }
+      return { line: `${index}: CSW Recording`, detail: `${block.pulses.length} pulses`, hidden: false, control: true, absorbsNext: false };
     case 'direct': return { line: `${index}: Direct Recording`, detail: `${block.tStatesPerSample}T/sample, ${block.data.length} bytes, pause=${block.pause}ms`, hidden: false, control: true, absorbsNext: false };
     case 'pause': return { line: block.duration === 0 ? `${index}: Stop the tape` : `${index}: Pause ${block.duration}ms`, detail: '', hidden: false, control: true, absorbsNext: false };
     case 'set-level': return { line: `${index}: Set Level ${block.level}`, detail: '', hidden: false, control: true, absorbsNext: false };

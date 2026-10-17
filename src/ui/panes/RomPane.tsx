@@ -11,6 +11,7 @@ import { mtxFloppy, mtxCpm } from '@/store/settings.ts';
 import { machineCaps } from '@/state/machine-caps.ts';
 import type { RomPage } from '@/managers/rom-manager.ts';
 import { openFile } from '@/ui/file-picker.ts';
+import { settingEnabled } from '@/shell/settings.ts';
 
 /** Format a byte count as a compact KB/byte string. */
 function fmtSize(n: number): string {
@@ -110,7 +111,8 @@ export function RomPane(): JSX.Element {
     await resetSidewaysRom(index);
   }
 
-  const showCartridgeSlot = (): boolean => machineCaps().cartridge;
+  const showCartridgeSlot = (): boolean =>
+    machineCaps().cartridge && settingEnabled(machineCaps().requires?.cartridge);
   // On the Plus range the cartridge IS the boot source — no separate on-board
   // ROM to upload, so the system-ROM socket is suppressed to avoid showing two
   // competing cartridge entries.

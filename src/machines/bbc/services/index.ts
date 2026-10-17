@@ -6,11 +6,12 @@ import { BbcInputService } from './input.ts';
 import { BbcMediaService } from './media.ts';
 import { BbcRomService } from './roms.ts';
 import { BbcDiskService } from './disks.ts';
+import { AcornTapeService } from '@/machines/shared/acorn-tape-service.ts';
 
 export interface BbcServices extends MachineServices {
   readonly media: BbcMediaService;
   readonly roms: BbcRomService;
-  readonly tape: null;
+  readonly tape: AcornTapeService;
   readonly disks: BbcDiskService;
   readonly snapshots: null;
   readonly input: BbcInputService;
@@ -20,10 +21,11 @@ export interface BbcServices extends MachineServices {
 export function createBbcServices(machine: BbcMachine): BbcServices {
   const roms = new BbcRomService(machine, () => machine.host);
   const disks = new BbcDiskService(machine);
+  const tape = new AcornTapeService(machine.cassette, 'bbc-tape.uef');
   return {
-    media: new BbcMediaService(machine, disks),
+    media: new BbcMediaService(machine, disks, tape),
     roms,
-    tape: null,
+    tape,
     disks,
     snapshots: null,
     input: new BbcInputService(machine),

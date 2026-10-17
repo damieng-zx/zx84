@@ -12,6 +12,8 @@ import { M6502 } from '@/cores/m6502.ts';
 import { M6522 } from '@/cores/m6522.ts';
 import { Crtc6845 } from '@/cores/crtc-6845.ts';
 import { Sn76489, type Sn76489AntialiasMode, type Sn76489StereoMode } from '@/cores/sn76489.ts';
+import { Mc6850 } from '@/cores/mc6850.ts';
+import { CassetteDrive } from '@/machines/shared/cassette-drive.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
@@ -40,6 +42,10 @@ import {
   BBC_SCREEN_WIDTH, BBC_SOUND_CLOCK,
   BBC_TSTATES_PER_FRAME,
 } from './constants.ts';
+
+/** Serial ULA baud-rate codes (bits 0-2 transmit, 3-5 receive). The cassette
+ *  runs at 1200 or 300 baud; RS423 defaults to 9600 (code 4, hence 0x64). */
+const SERIAL_BAUD = [19200, 1200, 4800, 150, 9600, 300, 2400, 75] as const;
 
 /** PAL scanlines per frame. */
 const LINES_PER_FRAME = 312;
@@ -72,6 +78,10 @@ export class BbcMachine extends BaseMachine implements Machine {
   readonly video = new BbcVideo();
   readonly fdc1770 = new BbcDfs1770((asserted) => { if (asserted) this.cpu.nmi(); });
   readonly acorn8271 = new BbcAcornDfs(() => this.cpu.nmi());
+  /** The 6850 ACIA behind the serial ULA: RS423 or, here, the cassette port. */
+  readonly acia = new Mc6850();
+  /** Cassette deck, tone decoder and recorder wired to the serial ULA. */
+  readonly cassette = new CassetteDrive(BBC_CPU_CLOCK);
   readonly psg = new Sn76489(BBC_SOUND_CLOCK, 48_000, 'ti-15bit');
   readonly mixer = new AudioMixer(BBC_CPU_CLOCK);
   readonly audio = new Audio();
@@ -82,7 +92,6 @@ export class BbcMachine extends BaseMachine implements Machine {
   videoUlaControl = 0;
   videoPaletteRegister = 0;
   serialUlaControl = 0;
-  aciaControl = 0;
   /** Logical -> physical colour map (identity until the OS writes the palette). */
   readonly palette = Uint8Array.from({ length: 16 }, (_, i) => i);
   /** Mode 7 teletext OCR engine, driven by the TEXT status-icon overlay. */
@@ -105,6 +114,8 @@ export class BbcMachine extends BaseMachine implements Machine {
   private borderMode: BorderMode = 2;
   private viaAccum = 0;
   private prevVsync = false;
+  /** Run flat out while the tape is being read ('tape-turbo-load'). */
+  private tapeTurboEnabled = true;
 
   protected get audioChip(): Sn76489 { return this.psg; }
 
@@ -127,6 +138,13 @@ export class BbcMachine extends BaseMachine implements Machine {
     this.mixer.beeperGain = 0;
     this.mixer.psgGain = 1;
     wireBbcIo(this);
+    this.acia.onTxByte = (value, startCycle) => {
+      // Only the cassette port records; RS423 output goes nowhere.
+      if ((this.serialUlaControl & 0x40) === 0 && this.cassette.motor) {
+        this.cassette.recorder.setBaud(Math.round(this.acia.txBaud(BBC_CPU_CLOCK)));
+        this.cassette.recorder.byte(value, startCycle);
+      }
+    };
     this.services = createBbcServices(this);
   }
 
@@ -182,6 +200,7 @@ export class BbcMachine extends BaseMachine implements Machine {
     this.psg.setStereoMode(view.get<Sn76489StereoMode>('sn-stereo', 'MONO'));
     this.video.paletteMode = view.get<'pal' | 'measured'>('bbc-color-map', 'pal');
     this.diskSystem = view.get<BbcDiskSystem>('bbc-disk-system', '1770');
+    this.tapeTurboEnabled = view.get('tape-turbo-load', true);
     // With the SAA5050 upscaler the display rounds and smooths the teletext
     // itself, at any scale, so give it the plain dots in the 1x layout.
     const raw = view.get('saa-scaler', false);
@@ -271,8 +290,9 @@ export class BbcMachine extends BaseMachine implements Machine {
     this.ic32 = { soundEnabled: false, keyboardScan: false, c0: 0, c1: 0, capsLock: false, shiftLock: false };
     this.videoUlaControl = 0;
     this.videoPaletteRegister = 0;
-    this.serialUlaControl = 0;
-    this.aciaControl = 0;
+    this.acia.reset();
+    this.cassette.reset();
+    this.writeSerialUla(0);
     this.palette.fill(0);
     for (let i = 0; i < 16; i++) this.palette[i] = i;
     this.viaAccum = 0;
@@ -285,7 +305,44 @@ export class BbcMachine extends BaseMachine implements Machine {
   }
 
   protected framePixels(): Uint8Array { return this.video.pixels; }
-  protected inTurbo(): boolean { return this.turbo; }
+  protected inTurbo(): boolean { return this.turbo || this.cassette.turboActive; }
+
+  /** Serial ULA (0xFE10): bits 0-2 transmit and 3-5 receive baud rate, bit 6
+   *  selects RS423 (1) or cassette (0), bit 7 is the cassette motor relay. */
+  writeSerialUla(value: number): void {
+    this.serialUlaControl = value & 0xFF;
+    this.cassette.setMotor((value & 0x80) !== 0, this.cpu.tStates);
+    this.updateAciaClock();
+    this.updateSerialInputs();
+  }
+
+  /** The serial ULA divides its 1.2288 MHz-derived clock into 64× the chosen
+   *  baud rate for the ACIA; the ACIA's own ÷1/16/64 setting then picks the
+   *  real bit rate from that. */
+  updateAciaClock(): void {
+    const div = this.acia.clockDivide / 64;
+    const v = this.serialUlaControl;
+    const tx = SERIAL_BAUD[v & 7];
+    // On RS423 the receive rate has its own field; on the cassette port the
+    // MOS leaves it at 19200 and the ACIA takes both clocks from the transmit
+    // rate (it writes &85 — 300 baud ×4 from the ACIA's ÷16 — for 1200 baud).
+    const rx = (v & 0x40) === 0 ? tx : SERIAL_BAUD[(v >> 3) & 7];
+    this.acia.txBitCycles = (BBC_CPU_CLOCK / tx) * div;
+    this.acia.rxBitCycles = (BBC_CPU_CLOCK / rx) * div;
+  }
+
+  /** Point the ACIA's receive line and carrier-detect pin at the cassette
+   *  demodulator (cassette mode) or leave them idle (RS423, nothing attached). */
+  private updateSerialInputs(): void {
+    if ((this.serialUlaControl & 0x40) === 0) {
+      const f = this.cassette.fsk;
+      this.acia.setRxLine(f.level, f.levelSince, f.startLevel);
+      this.acia.setDcd(f.carrier);
+    } else {
+      this.acia.setRxLine(1, 0);
+      this.acia.setDcd(false);
+    }
+  }
 
   /** Advance the 1 MHz devices (VIAs) by the CPU cycles just executed and
    *  propagate their interrupt line to the CPU. */
@@ -298,12 +355,16 @@ export class BbcMachine extends BaseMachine implements Machine {
       this.userVia.addCycles(viaCycles);
       this.disc?.tick(viaCycles);   // 1 MHz disc controller clock
     }
-    this.cpu.setIRQ(this.sysVia.irq || this.userVia.irq);
+    const now = this.cpu.tStates;
+    this.cassette.step(elapsed, now);
+    this.updateSerialInputs();
+    this.acia.tick(now);
+    this.cpu.setIRQ(this.sysVia.irq || this.userVia.irq || this.acia.irq);
   }
 
   protected runFrame(): void {
     const cyclesPerLine = BBC_TSTATES_PER_FRAME / LINES_PER_FRAME;
-    const skipAudio = this.speedMultiplier !== 1;
+    const skipAudio = this.speedMultiplier !== 1 || this.cassette.turboActive;
     this.activity.psgWrites = 0;
     this.crtc.beginFrame();
     let lineEnd = this.cpu.tStates;
@@ -346,6 +407,7 @@ export class BbcMachine extends BaseMachine implements Machine {
     this.syncLayoutToScale();
     this.video.render(this);
     this.disc?.tickFrame();
+    this.cassette.frameTick(this.tapeTurboEnabled);
     if (this.bootShiftFrames > 0 && --this.bootShiftFrames === 0) {
       this.keyboard.setCell(0, 0, false);
     }

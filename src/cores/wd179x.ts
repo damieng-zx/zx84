@@ -356,7 +356,10 @@ export class WD179x {
     const after = this.afterByte;
     this.afterByte = 'none';
     switch (after) {
-      case 'next': this.setDataRequest(true); break;
+      case 'next':
+        if (!this.typeICmd && (this.statusReg & ST_BUSY) !== 0) this.statusReg |= ST_DRQ;
+        this.setDataRequest(true);
+        break;
       case 'readDone': this.completeRead(); break;
       case 'writeDone': this.completeWrite(); break;
       case 'formatDone': this.applyFormat(); break;
@@ -395,6 +398,11 @@ export class WD179x {
     if (this.buffer !== null && !this.writing) {
       const v = this.buffer[this.bufPos++];
       this.dataReg = v;
+      // The status register's DRQ bit follows the data-request line: it drops
+      // once the byte is taken and returns when the next is offered, so a host
+      // that polls the status (the Electron's ADFS) sees the same handshake an
+      // NMI handler gets from the interrupt edge.
+      if (this.interruptDriven) this.statusReg &= ~ST_DRQ;
       if (this.bufPos >= this.buffer.length) this.finishRead();
       else if (this.interruptDriven) this.scheduleByte('next');
       return v;
@@ -414,6 +422,7 @@ export class WD179x {
     if (this.formatting) { this.formatByte(v); return; }
     if (this.buffer !== null && this.writing) {
       this.buffer[this.bufPos++] = v;
+      if (this.interruptDriven) this.statusReg &= ~ST_DRQ;
       if (this.bufPos >= this.buffer.length) this.finishWrite();
       else if (this.interruptDriven) this.scheduleByte('next');
     }

@@ -33,6 +33,18 @@ function build(entry: (typeof registry)[number], model: (typeof ALL)[number]['mo
   return entry.create(model, null);
 }
 
+/** Build a machine with the Hardware-pane peripherals named in `keys` switched on
+ *  (what the shell does through prepare() before the machine is used). */
+function buildWith(
+  entry: (typeof registry)[number], model: (typeof ALL)[number]['model'], keys: string[],
+) {
+  const machine = build(entry, model);
+  machine.prepare?.({
+    get: <T>(key: string, fallback: T): T => (keys.includes(key) ? (true as T) : fallback),
+  });
+  return machine;
+}
+
 describe('machine capabilities', () => {
   it('covers every registered model', () => {
     expect(ALL.length).toBeGreaterThan(0);
@@ -83,7 +95,9 @@ describe('machine capabilities', () => {
     '%s backs built-in drives with a disk service that has them',
     (_model, { entry, model }) => {
       const caps = entry.descriptor(model).ui;
-      const machine = build(entry, model);
+      // A drive capability gated on a Hardware-pane setting only holds with it on.
+      const gate = caps.requires?.builtinDisk;
+      const machine = buildWith(entry, model, gate ? [gate] : []);
       try {
         if (!caps.builtinDisk) return;
         const disks = machine.services.disks;
@@ -92,6 +106,34 @@ describe('machine capabilities', () => {
         expect(disks!.drives.some(d => d.id === 'a')).toBe(true);
       } finally {
         machine.destroy();
+      }
+    },
+  );
+
+  it.each(ALL.map(a => [a.model, a] as const))(
+    '%s hides gated drives and cartridge slot until their peripheral is fitted',
+    (_model, { entry, model }) => {
+      const caps = entry.descriptor(model).ui;
+      const diskGate = caps.requires?.builtinDisk;
+      const cartGate = caps.requires?.cartridge;
+      if (!diskGate && !cartGate) return;
+      const bare = build(entry, model);
+      const fitted = buildWith(entry, model, [diskGate, cartGate].filter((k): k is string => !!k));
+      try {
+        // The gate must name a setting the shell can read back.
+        for (const g of [diskGate, cartGate]) if (g) expect(g).toMatch(/^[a-z0-9-]+$/);
+        if (diskGate) {
+          expect(bare.services.disks?.drives ?? []).toHaveLength(0);
+          expect(fitted.services.disks?.drives.length ?? 0).toBeGreaterThan(0);
+        }
+        if (cartGate) {
+          expect(caps.cartridge).toBe(true);
+          expect(bare.services.roms.cartridge).toBeNull();
+          expect(fitted.services.roms.cartridge).not.toBeNull();
+        }
+      } finally {
+        bare.destroy();
+        fitted.destroy();
       }
     },
   );

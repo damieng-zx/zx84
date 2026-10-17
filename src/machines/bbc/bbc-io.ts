@@ -7,8 +7,8 @@
  *
  * Address map (from the MOS Memory Mapped IO chapter):
  *   0xFE00/0xFE01  CRTC address/data
- *   0xFE08/0xFE09  ACIA 6850 status/data
- *   0xFE10         serial ULA
+ *   0xFE08-0xFE0F  ACIA 6850 status/data (A0 selects; mirrored)
+ *   0xFE10-0xFE1F  serial ULA
  *   0xFE20/0xFE21  Video ULA control / palette
  *   0xFE30         ROM select latch
  *   0xFE40-0xFE5F  System VIA
@@ -71,7 +71,7 @@ export function keyboardPortAInput(m: BbcMachine): number {
 export function readBbcIo(m: BbcMachine, addr: number): number {
   const a = addr & 0xFFFF;
   switch (a & 0xFFF0) {
-    case 0xFE00: return m.crtc.readStatus();
+    case 0xFE00: return (a & 8) ? m.acia.read(a & 1) : m.crtc.readStatus();
     case 0xFE40:
       m.sysVia.portAInput = keyboardPortAInput(m);
       return m.sysVia.read(a & 0x0F);
@@ -83,9 +83,7 @@ export function readBbcIo(m: BbcMachine, addr: number): number {
       return m.userVia.read(a & 0x0F);
     default: break;
   }
-  if (a === 0xFE08) return 0x02;                 // ACIA status: TDRE set
-  if (a === 0xFE09) return 0xFF;                 // ACIA data
-  if (a === 0xFE10) return 0x00;                 // serial ULA (write-only)
+  if ((a & 0xFFF0) === 0xFE10) return 0x00;      // serial ULA (write-only)
   // Video ULA: A0 selects control (0) / palette (1); the whole 0xFE20-0xFE2F
   // block aliases to those two registers (Acorn DFS 1.20 probes 0xFE29).
   if ((a & 0xFFF0) === 0xFE20) return (a & 1) ? m.videoPaletteRegister : m.videoUlaControl;
@@ -104,8 +102,11 @@ export function writeBbcIo(m: BbcMachine, addr: number, val: number): void {
   const v = val & 0xFF;
   switch (a & 0xFFF0) {
     case 0xFE00:
-      if (a === 0xFE00) m.crtc.selectRegister(v);
-      else if (a === 0xFE01) m.crtc.writeRegister(v);
+      if (a & 8) {
+        m.acia.write(a & 1, v);
+        if ((a & 1) === 0) m.updateAciaClock();    // ÷1/÷16/÷64 may have changed
+      } else if ((a & 1) === 0) m.crtc.selectRegister(v);
+      else m.crtc.writeRegister(v);
       return;
     case 0xFE20:
       // Video ULA block: A0 selects control (0) / palette (1); 0xFE20-0xFE2F
@@ -140,10 +141,8 @@ export function writeBbcIo(m: BbcMachine, addr: number, val: number): void {
       return;
     default: break;
   }
+  if ((a & 0xFFF0) === 0xFE10) { m.writeSerialUla(v); return; }
   switch (a) {
-    case 0xFE08: m.aciaControl = v; return;
-    case 0xFE09: return;                         // ACIA data (transmit)
-    case 0xFE10: m.serialUlaControl = v; return;
     case 0xFE30: m.memory.romsel = v & 0x0F; return;
     default:
       if (a >= 0xFE80 && a <= 0xFE87) { m.disc?.write(a, v); return; }
