@@ -13,10 +13,10 @@ import type { CassetteDrive } from './cassette-drive.ts';
 
 export const ACORN_TAPE_EXTENSIONS = ['.uef', '.csw'] as const;
 
-/** Parse a UEF or CSW image (by content, falling back to the extension). */
-export async function parseAcornTape(data: Uint8Array, name: string): Promise<TapeBlock[]> {
-  const uef = looksLikeUef(data) && !/\.csw$/i.test(name);
-  return uef ? parseUEF(data) : parseCSW(data);
+/** Parse a UEF or CSW image. The content decides, not the file name: a UEF
+ *  signature (or gzip wrapper) is UEF, anything else is tried as CSW. */
+export async function parseAcornTape(data: Uint8Array): Promise<TapeBlock[]> {
+  return looksLikeUef(data) ? parseUEF(data) : parseCSW(data);
 }
 
 export class AcornTapeService implements TapeService {
@@ -38,7 +38,7 @@ export class AcornTapeService implements TapeService {
   async mountBytes(data: Uint8Array, name: string): Promise<boolean> {
     let blocks: TapeBlock[];
     try {
-      blocks = await parseAcornTape(data, name);
+      blocks = await parseAcornTape(data);
     } catch {
       return false;
     }

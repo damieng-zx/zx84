@@ -12,6 +12,7 @@ import {
 } from '@/media/tape/uef.ts';
 import { TapeDeck, TAPE_REF_HZ, type CswBlock, type TapeBlock } from '@/media/tape/tap.ts';
 import { CassetteFsk } from '@/machines/shared/cassette-fsk.ts';
+import { parseAcornTape } from '@/machines/shared/acorn-tape-service.ts';
 import { AsyncSerialReceiver } from '@/utils/async-serial-rx.ts';
 
 const chunk = (id: number, ...data: number[]): UefChunk => ({ id, data: Uint8Array.from(data) });
@@ -223,5 +224,14 @@ describe('UefRecorder', () => {
       pos += 6 + view.getUint32(pos + 2, true);
     }
     expect(ids).toEqual([0x0000, 0x0100, 0x0100]);
+  });
+});
+
+describe('parseAcornTape', () => {
+  it('chooses UEF or CSW by content, whatever the file is called', async () => {
+    const uef = buildUef([chunk(0x0110, 0x10, 0x00)]);
+    expect((await parseAcornTape(uef)).length).toBeGreaterThan(0);
+    expect((await parseAcornTape(new Uint8Array(gzipSync(uef)))).length).toBeGreaterThan(0);
+    await expect(parseAcornTape(new Uint8Array(40))).rejects.toThrow();   // neither UEF nor CSW
   });
 });
