@@ -78,10 +78,15 @@ export class Disk2 {
     this.wrote[unit] = false;
     this.halfTrack[unit] = 0;
     this.phase[unit] = 0;
-    this.symbol = 0;
-    this.shiftReg = 0;
-    this.bitPos = 0;
-    this.rebase();
+    // The rotation state is the card's shared data path: only restart it when
+    // the mounted drive is the one under the head, so mounting the other drive
+    // mid-transfer doesn't drop a half-read byte.
+    if (unit === this.currentDrive) {
+      this.symbol = 0;
+      this.shiftReg = 0;
+      this.bitPos = 0;
+      this.rebase();
+    }
   }
 
   ejectDisk(unit: number): void {

@@ -510,6 +510,29 @@ describe('apple2-plus Disk II controller', () => {
     for (let i = 0; i < 48; i++) expect(got[i], `sync ${i}`).toBe(0xFF);
     expect(got.slice(48, 51)).toEqual([0xD5, 0xAA, 0x96]);
   });
+
+  it('mounting the other drive mid-read does not disturb the active stream', () => {
+    const raw = new Uint8Array(35 * 16 * 256);
+    const stream = (insertOtherAt: number | null): number[] => {
+      let cycles = 0;
+      const d = new Disk2(() => cycles);
+      d.insertDisk(parseApple2Disk(raw, 'dos'), 0);
+      d.read(0x09);                         // motor on
+      d.read(0x0A);                         // drive 1
+      const got: number[] = [];
+      while (got.length < 120) {
+        if (got.length === insertOtherAt) {
+          d.insertDisk(parseApple2Disk(raw, 'dos'), 1);   // drive 2, drive 1 still selected
+          insertOtherAt = null;
+        }
+        cycles += 8;
+        const b = d.read(0x0C);
+        if (b !== 0) got.push(b);
+      }
+      return got;
+    };
+    expect(stream(60)).toEqual(stream(null));
+  });
 });
 
 describe('apple2-plus boot smoke', () => {
