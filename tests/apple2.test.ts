@@ -9,6 +9,7 @@ import { describe, it, expect } from 'vitest';
 import { Apple2Machine } from '@/machines/apple2/apple2-machine.ts';
 import { apple2Entry } from '@/machines/apple2/descriptor.ts';
 import { Disk2 } from '@/machines/apple2/peripherals/disk2.ts';
+import { Apple2Cassette } from '@/machines/apple2/apple2-cassette.ts';
 import { apple2KeyByte } from '@/machines/apple2/apple2-keyboard.ts';
 import { hiresRowBase, textRowBase } from '@/machines/apple2/apple2-video.ts';
 import type { Apple2VideoMode, Apple2VideoState } from '@/machines/apple2/apple2-video.ts';
@@ -164,6 +165,45 @@ describe('apple2-plus soft switches', () => {
     } finally {
       m.destroy();
     }
+  });
+});
+
+/** A mono 8-bit PCM WAVE of `samples` bytes at `rate` Hz, alternating +/- each sample. */
+function squareWav(rate: number, samples: number): Uint8Array {
+  const out = new Uint8Array(44 + samples);
+  const v = new DataView(out.buffer);
+  const tag = (at: number, t: string) => { for (let i = 0; i < 4; i++) out[at + i] = t.charCodeAt(i); };
+  tag(0, 'RIFF'); v.setUint32(4, 36 + samples, true); tag(8, 'WAVE');
+  tag(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, rate, true); v.setUint32(28, rate, true); v.setUint16(32, 1, true); v.setUint16(34, 8, true);
+  tag(36, 'data'); v.setUint32(40, samples, true);
+  for (let i = 0; i < samples; i++) out[44 + i] = (i & 1) ? 0x20 : 0xE0;
+  return out;
+}
+
+describe('apple2-plus cassette deck', () => {
+  it('plays from the start of the recording whenever play is pressed', () => {
+    // The deck is driven off the machine's absolute clock; pressing play 10 s
+    // into the session must start at 0 s of the tape, not 10 s into it.
+    const deck = new Apple2Cassette();
+    expect(deck.mountWav(squareWav(1000, 1000), 'tone.wav')).toBe(true);
+    deck.advanceTo(10);                       // machine has been running, tape stopped
+    expect(deck.progress).toBe(0);
+    deck.playing = true;
+    deck.advanceTo(10.1);                     // 0.1 s of a 1 s recording
+    expect(deck.progress).toBeCloseTo(0.1, 2);
+  });
+
+  it('does not run on while paused', () => {
+    const deck = new Apple2Cassette();
+    deck.mountWav(squareWav(1000, 1000), 'tone.wav');
+    deck.playing = true;
+    deck.advanceTo(0.1);
+    deck.playing = false;
+    deck.advanceTo(0.5);                      // paused for 0.4 s
+    deck.playing = true;
+    deck.advanceTo(0.6);
+    expect(deck.progress).toBeCloseTo(0.2, 2);
   });
 });
 
