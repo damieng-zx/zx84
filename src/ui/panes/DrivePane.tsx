@@ -32,8 +32,10 @@ import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { createBlankHfe } from '@/media/floppy/hfe.ts';
 import { blankLdfDisk } from '@/media/floppy/ldf-image.ts';
 import { blankSsd } from '@/media/floppy/ssd.ts';
+import { blankAdfs } from '@/media/floppy/adfs.ts';
 import type { DriveStatus } from '@/state/disk-state.ts';
 import { openFile } from '@/ui/file-picker.ts';
+import { settingEnabled } from '@/shell/settings.ts';
 
 const LED_COLORS: Record<DriveStatus['led'], string> = {
   off:   '#111',
@@ -222,6 +224,16 @@ const DFS_GEOMETRIES = [
   { label: 'Blank 200K DS/40T', tracks: 40, sides: 2 },
   { label: 'Blank 400K DS/80T', tracks: 80, sides: 2 },
 ] as const;
+// The Electron's Plus 3 saves raw ADFS sector dumps (16 x 256-byte sectors):
+// .ads 160K S, .adm 320K M and .adl 640K L.
+const ADFS_GEOMETRIES = [
+  { label: 'Blank 640K DS/80T (L)', tracks: 80, sides: 2 },
+  { label: 'Blank 320K SS/80T (M)', tracks: 80, sides: 1 },
+  { label: 'Blank 160K SS/40T (S)', tracks: 40, sides: 1 },
+] as const;
+const ADFS_NEW_ITEMS = [
+  { value: 'adfs', label: 'ADFS image', children: ADFS_GEOMETRIES.map((g, i) => ({ value: `adfs-${i}`, label: g.label })) },
+];
 const DFS_NEW_ITEMS = [
   { value: 'dfs', label: 'DFS image', children: DFS_GEOMETRIES.map((g, i) => ({ value: `dfs-${i}`, label: g.label })) },
 ];
@@ -241,6 +253,10 @@ function blankForValue(value: string): { image: DskImage; label: string } | null
       image: blankLdfDisk(ldf.tracks, ldf.sides),
       label: `Blank ${ldf.tracks === 40 ? '200K' : '800K'}`,
     };
+  }
+  if (value.startsWith('adfs-')) {
+    const g = ADFS_GEOMETRIES[parseInt(value.slice(5))];
+    return g ? { image: blankAdfs(g.tracks, g.sides === 2), label: g.label } : null;
   }
   if (value.startsWith('dfs-')) {
     const g = DFS_GEOMETRIES[parseInt(value.slice(4))];
@@ -338,6 +354,7 @@ export function DrivePane() {
   // set to "none".
   const builtinDisk = () =>
     machineCaps().builtinDisk
+    && settingEnabled(machineCaps().requires?.builtinDisk)
     && !(isLynxModel(currentModel()) && !lynxFdc())
     && !(isBbcModel(currentModel()) && bbcDiskSystem() === 'none');
   // The Lynx's FD1793 addresses four drives; everything else here has two.
@@ -349,6 +366,7 @@ export function DrivePane() {
     const accepts = machine?.services.media.accepts() ?? [];
     if (accepts.some(t => t.ext === '.ldf')) return LYNX_NEW_ITEMS;
     if (accepts.some(t => t.ext === '.ssd')) return DFS_NEW_ITEMS;
+    if (accepts.some(t => t.ext === '.adl')) return ADFS_NEW_ITEMS;
     return PLUS3_NEW_ITEMS;
   };
 

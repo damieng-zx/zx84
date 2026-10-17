@@ -101,6 +101,8 @@ const DEFAULTS = {
   'mtx-512k-ram':   'off',
   'mtx-floppy':     'on',
   'bbc-disk-system': '1770',
+  'electron-plus1': 'off',
+  'electron-plus3': 'off',
   'lynx-fdc':       'on',
   'zx8x-16k-ram':  'off',
   'zx81-udg-ram':  'off',
@@ -440,6 +442,14 @@ const _bbcDiskSystem = /*@once*/ createRoot(() => createSignal(
 export const bbcDiskSystem = _bbcDiskSystem[0];
 export const setBbcDiskSystem = _bbcDiskSystem[1];
 
+const _electronPlus1 = /*@once*/ createRoot(() => createSignal(getSaved('electron-plus1', D('electron-plus1')) === 'on'));
+export const electronPlus1 = _electronPlus1[0];
+export const setElectronPlus1 = _electronPlus1[1];
+
+const _electronPlus3 = /*@once*/ createRoot(() => createSignal(getSaved('electron-plus3', D('electron-plus3')) === 'on'));
+export const electronPlus3 = _electronPlus3[0];
+export const setElectronPlus3 = _electronPlus3[1];
+
 const _lynxFdc = /*@once*/ createRoot(() => createSignal(getSaved('lynx-fdc', D('lynx-fdc')) === 'on'));
 export const lynxFdc = _lynxFdc[0];
 export const setLynxFdc = _lynxFdc[1];
@@ -598,6 +608,8 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'mtx-512k-ram', set: setMtx512kRam, type: 'bool' },
     { key: 'mtx-floppy', set: setMtxFloppy, type: 'bool' },
     { key: 'bbc-disk-system', set: setBbcDiskSystem, type: 'string' },
+    { key: 'electron-plus1', set: setElectronPlus1, type: 'bool' },
+    { key: 'electron-plus3', set: setElectronPlus3, type: 'bool' },
     { key: 'lynx-fdc', set: setLynxFdc, type: 'bool' },
     { key: 'zx8x-16k-ram', set: setZx8x16kRam, type: 'bool' },
     { key: 'zx81-udg-ram', set: setZx81UdgRam, type: 'bool' },

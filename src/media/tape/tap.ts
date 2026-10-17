@@ -65,7 +65,15 @@ export interface PulsesBlock   { kind: 'pulses'; lengths: number[]; }
 /** A raw square-wave capture (CSW): pulse durations in 3.5MHz-referenced
  *  T-states, each toggling the EAR level. Replayed through the same PULSES
  *  phase as a Pulse Sequence block, just over a packed Uint32Array. */
-export interface CswBlock      { kind: 'csw'; pulses: Uint32Array; }
+export interface CswBlock      {
+  kind: 'csw';
+  pulses: Uint32Array;
+  /** What a format that builds its pulses from higher-level chunks (UEF) knows
+   *  about this run, so the pane can name it instead of calling it a recording. */
+  role?: 'data' | 'tone';
+  label?: string;
+  detail?: string;
+}
 export interface PauseBlock    { kind: 'pause'; duration: number; }  // 0 = stop tape
 export interface DirectBlock   { kind: 'direct'; tStatesPerSample: number; pause: number; usedBits: number; data: Uint8Array; }
 export interface SetLevelBlock { kind: 'set-level'; level: number; }

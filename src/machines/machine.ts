@@ -22,7 +22,7 @@ import type { MachineModel } from '@/models.ts';
 import type { OcrGridName, FontSource } from '@/ocr/ocr.ts';
 import type { BasicListingLine, BasicVariable } from '@/basic/types.ts';
 
-export type MachineKind = 'spectrum' | 'cpc' | 'einstein' | 'msx' | 'zx8x' | 'mtx' | 'lynx' | 'jupiter-ace' | 'pcw' | 'bbc';
+export type MachineKind = 'spectrum' | 'cpc' | 'einstein' | 'msx' | 'zx8x' | 'mtx' | 'lynx' | 'jupiter-ace' | 'pcw' | 'bbc' | 'electron';
 
 /** Keyboard/ROM locale for international machine variants.
  *  'uk' = default (English, no locale-specific ROM/keyboard). */
@@ -312,6 +312,15 @@ export interface MachineUiCapabilities {
   readonly accuracy: false | 'scanline' | 'contention';
   /** Built-in floppy drives (A:/B:) are fitted. */
   readonly builtinDisk: boolean;
+  /** Boolean Hardware-pane settings (SettingsView keys) a capability depends
+   *  on, for peripherals fitted by the user: the capability only applies while
+   *  its setting is on. The machine still declares the capability statically
+   *  (descriptors are pure functions of the model); the generic panes consult
+   *  the setting so they show nothing for hardware that isn't fitted. */
+  readonly requires?: {
+    readonly builtinDisk?: string;
+    readonly cartridge?: string;
+  };
   /** Built-in drives fitted, A: onward — defaults to 2 when `builtinDisk`.
    *  The Lynx's FD1793 addresses four. Peripheral drives are not counted. */
   readonly builtinDrives?: number;
