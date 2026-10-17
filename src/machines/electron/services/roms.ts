@@ -7,18 +7,18 @@ import { ELECTRON_ROM_SIZE } from '../models.ts';
 /** What the Electron's paged ROM windows are for, by page. Pages 8-11 (the
  *  keyboard and BASIC) are not sockets. */
 const PAGE_TITLES: Record<number, string> = {
-  0: 'Page 0 — expansion socket SK2',
-  1: 'Page 1 — expansion socket SK2',
-  2: 'Page 2 — expansion socket SK1',
-  3: 'Page 3 — expansion socket SK1',
-  4: 'Page 4 — disc interface',
-  5: 'Page 5 — user ROM',
-  6: 'Page 6 — user ROM',
-  7: 'Page 7 — modem interface',
-  12: 'Page 12 — expansion OS (Plus 1)',
-  13: 'Page 13 — high-priority expansion slot',
-  14: 'Page 14 — Econet',
-  15: 'Page 15 — reserved',
+  0: 'Page 0: socket SK2',
+  1: 'Page 1: socket SK2',
+  2: 'Page 2: socket SK1',
+  3: 'Page 3: socket SK1',
+  4: 'Page 4: disc interface',
+  5: 'Page 5: user ROM',
+  6: 'Page 6: user ROM',
+  7: 'Page 7: modem interface',
+  12: 'Page 12: OS (Plus 1)',
+  13: 'Page 13: high-priority',
+  14: 'Page 14: Econet',
+  15: 'Page 15: reserved',
 };
 const PAGES = [0, 1, 2, 3, 4, 5, 6, 7, 12, 13, 14, 15];
 

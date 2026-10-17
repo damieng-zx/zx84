@@ -43,7 +43,7 @@ export const MODEL_LABELS: Record<MachineModel, string> = {
   pcw9256: 'PCW 9256',
   pcw9512: 'PCW 9512',
   'bbc-b': 'BBC Micro Model B',
-  electron: 'Acorn Electron',
+  electron: 'Electron',
 };
 
 export const LOCALE_LABELS: Record<MachineLocale, string> = {
