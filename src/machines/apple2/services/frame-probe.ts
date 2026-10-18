@@ -45,7 +45,9 @@ export class Apple2FrameProbe implements FrameProbe {
 
   /** Pure read — overwrite every channel this machine owns, allocating nothing. */
   sample(out: FrameIndicators): void {
-    out.keyboard = this.machine.keyboard.anyPressed ? 1 : 0;
+    // The KEY LED shows the program polling the keyboard port, not a key being
+    // held down (that is the host's business, not the machine's).
+    out.keyboard = this.machine.activity.kbdReads;
     out.joystick = 0;
     out.mouse = 0;
     out.tapeIn = this.machine.cassette.playing ? 1 : 0;

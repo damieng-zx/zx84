@@ -9,6 +9,7 @@ import { describe, it, expect } from 'vitest';
 import { Apple2Machine } from '@/machines/apple2/apple2-machine.ts';
 import { apple2Entry } from '@/machines/apple2/descriptor.ts';
 import { Disk2 } from '@/machines/apple2/peripherals/disk2.ts';
+import { createFrameIndicators } from '@/machines/machine.ts';
 import { Apple2Cassette } from '@/machines/apple2/apple2-cassette.ts';
 import { apple2KeyByte } from '@/machines/apple2/apple2-keyboard.ts';
 import { hiresRowBase, textRowBase } from '@/machines/apple2/apple2-video.ts';
@@ -216,6 +217,41 @@ describe('apple2-plus game port', () => {
       for (const addr of [0xC061, 0xC062, 0xC063]) {
         expect(m.memory.readByte(addr) & 0x80, `$${addr.toString(16)}`).toBe(0);
       }
+    } finally {
+      m.destroy();
+    }
+  });
+});
+
+describe('apple2-plus KEY indicator', () => {
+  const keyLed = (m: Apple2Machine): number => {
+    const out = createFrameIndicators();
+    m.services.probe.sample(out);
+    return out.keyboard;
+  };
+
+  it('lights when the program polls the keyboard port, not when a key is pressed', () => {
+    const m = make();
+    try {
+      expect(keyLed(m)).toBe(0);
+      m.keyboard.setKey(0x41, true);                 // a key goes down; nothing has looked yet
+      expect(keyLed(m)).toBe(0);
+      m.memory.readByte(0xC000);                     // the program polls $C000
+      expect(keyLed(m)).toBeGreaterThan(0);
+    } finally {
+      m.destroy();
+    }
+  });
+
+  it('clears with the next frame when nothing polls', () => {
+    const m = make();
+    try {
+      m.loadROM(makeRom());                          // loops on $10 without touching the keyboard
+      m.reset();
+      m.memory.readByte(0xC000);
+      expect(keyLed(m)).toBeGreaterThan(0);
+      m.tick();
+      expect(keyLed(m)).toBe(0);
     } finally {
       m.destroy();
     }

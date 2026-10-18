@@ -71,8 +71,9 @@ export class Apple2Machine extends BaseMachine implements Machine {
   flashPhase = false;
   private flashFrame = 0;
 
-  /** Per-frame activity for the frame probe. */
-  readonly activity = { beeperToggled: false, cassetteToggles: 0 };
+  /** Per-frame activity for the frame probe. `kbdReads` counts polls of the
+   *  keyboard data port ($C000), which is what the KEY indicator shows. */
+  readonly activity = { beeperToggled: false, cassetteToggles: 0, kbdReads: 0 };
 
   protected get audioChip(): Apple2Speaker { return this.speaker; }
 
@@ -218,6 +219,7 @@ export class Apple2Machine extends BaseMachine implements Machine {
     this.speaker.level = 0;
     this.activity.beeperToggled = false;
     this.activity.cassetteToggles = 0;
+    this.activity.kbdReads = 0;
     this.mixer.reset();
     this.video.reset();
     this.needsDisplay = true;
@@ -230,6 +232,7 @@ export class Apple2Machine extends BaseMachine implements Machine {
     const endT = this.cpu.tStates + APPLE2_TSTATES_PER_FRAME;
     const skipAudio = this.speedMultiplier !== 1;
     this.activity.beeperToggled = false;
+    this.activity.kbdReads = 0;
 
     while (this.cpu.tStates < endT) {
       if (this.breakpoints.has(this.cpu.pc)) {

@@ -33,7 +33,9 @@ export function readApple2Io(m: Apple2Machine, addr: number): number {
   const off = addr & 0xFF;
 
   if (off <= 0x0F) {
-    return off === 0x00 ? m.keyboard.readData() : 0x00;
+    if (off !== 0x00) return 0x00;
+    m.activity.kbdReads++;
+    return m.keyboard.readData();
   }
   if (off <= 0x1F) {
     switch (off) {
