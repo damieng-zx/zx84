@@ -1,5 +1,7 @@
 # ZX84
 
+<img src="public/mascot.svg" align="right" width="100" height="140" alt="Blip, the ZX84 robot mascot">
+
 **A browser emulator for the Sinclair ZX80, ZX81 and ZX Spectrum, Amstrad CPC (including the Plus range) and PCW, Tatung Einstein, MSX, Memotech MTX, Camputers Lynx, Jupiter Ace, Acorn BBC Micro and Electron, the Apple II family, and the Enterprise 64/128, with an MCP server for automated testing.**
 
 https://zx84.envytech.workers.dev
@@ -102,15 +104,11 @@ Known models: `16k` `48k` `128k` `+2` `+2A` `+3` `zx80` `zx81` `jupiter-ace`
 - Web Audio output with AudioWorklet and SharedArrayBuffer paths where available, plus a ScriptProcessor fallback.
 - Master volume, beeper-to-AY mix, AY stereo placement, DC blocking, and ultrasonic-tone filtering.
 
-### Input And Development Tools
+### Input And Interface
 
 - Keyboard mapping, configurable two-player joystick mappings, physical gamepads, and touch/mouse D-pads.
 - Spectrum joystick interfaces: Kempston, Cursor, Sinclair 1, and Sinclair 2.
 - Kempston and AMX mouse modes on supported machines.
-- Pause, frame stepping, step into/over/out, breakpoints, run-to-cursor, disassembly, registers, memory views, and clipboard export.
-- Spectrum and Einstein tracing: full execution, port I/O, and ZXTrace. Spectrum traces coalesce repeated loops.
-- Spectrum-specific BASIC, BASIC variables, system variables, font, memory-bank, screen-text, and OCR tools.
-- Screen transcription (the TEXT overlay and the MCP `ocr` tool) on every machine with an OCR engine. The Lynx and the PCW have no character memory, so their text is recovered by matching the picture against the character set; the Jupiter Ace, the ZX80/ZX81 and BBC Mode 7 read theirs straight out of the screen file.
 - Customizable pane ordering, placement, visibility, collapse state, and persistent per-pane settings.
 
 ### Saving, Library, And Persistence
@@ -119,30 +117,12 @@ Known models: `16k` `48k` `128k` `+2` `+2A` `+3` `zx80` `zx81` `jupiter-ace`
 - Persist settings, pane layout, custom ROMs and fonts, and supported media in browser storage.
 - Spectrum and ZX80/ZX81 software libraries with ZXDB-derived search, screenshots, automatic model selection, and cached catalog data.
 
-## MCP Server
+## Development
 
-The included stdio MCP server drives **every registered machine** — Spectrum, ZX80/ZX81, CPC (including the Plus range), Einstein, MSX, MTX, Camputers Lynx, Jupiter Ace, Amstrad PCW, BBC Micro, Electron and Enterprise — for automated testing and reverse engineering. Generic tools work through the `Machine` SPI; hardware-specific tools cover Spectrum peripherals and tracing, MTX expansions, CPC/uPD765A disk inspection, ZX81 hi-res hardware, and per-machine media mounting.
+ZX84 is written in TypeScript with SolidJS and Vite, and runs entirely in the browser. Each machine is assembled from shared chip cores — Z80 and 6502 CPUs, video chips, sound chips and disk controllers — behind a common machine interface. That same interface powers the built-in developer tools: a debugger with breakpoints and stepping on every machine, memory and paging views, and, depending on the machine, BASIC listings, system variables, instruction tracing and screen-text extraction. It also powers a headless MCP server, so any machine can be driven by scripts and AI assistants for automated testing and reverse engineering.
 
-See [`mcp/README.md`](mcp/README.md) for setup, the complete tool reference, and workflows.
-
-## Getting Started
-
-```bash
-npm install
-npm run dev
-```
-
-Open `http://localhost:5174`, choose a machine in the Hardware pane, then load compatible ROMs and media. The hosted version supplies the standard machine ROM sets; local builds can load replacement ROM images from the ROM pane.
-
-Useful commands:
-
-```bash
-npm test              # full Vitest suite
-npx tsc --noEmit      # type-check without output
-npm run depcheck      # enforce architecture boundaries
-npm run build         # production build
-npm run mcp           # start the MCP server
-```
+- **[Developer tools](docs/developer-tools.md)** — a guided tour of the debugger, memory, BASIC and tracing tools, with screenshots, and everything you need to build, test and contribute to ZX84.
+- **[MCP server](mcp/README.md)** — set up the headless server and drive any machine from an MCP client: run, step and set breakpoints and watchpoints, read and write memory, load media, read the screen as text, and inspect disks.
 
 ## License
 
