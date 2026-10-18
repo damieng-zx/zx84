@@ -303,6 +303,42 @@ export function parseApple2Disk(data: Uint8Array, order: Apple2DiskOrder): DskIm
   };
 }
 
+/** Volume number a DOS 3.3 disk is formatted with when it does not say. */
+export const APPLE2_DEFAULT_VOLUME = 254;
+
+/**
+ * The volume number the address fields should carry. A sector image does not
+ * record it, yet DOS 3.3's RWTS rejects a disk whose volume differs from the
+ * one it was asked for - and boot code does ask for a specific one (the Eamon
+ * disks are volume 61, Sierra's 254). Two places say what the disk expects:
+ *
+ *  1. The boot-time IOB in the DOS image on tracks 0-2 (`01 60 01 VV tt ss FB B7`:
+ *     table type, slot 6, drive 1, volume, track, sector, then the DCT
+ *     pointer to $B7FB). A non-zero VV is what the loader will demand.
+ *  2. Failing that, the DOS 3.3 VTOC (track 17, sector 0, byte 6), recognised by
+ *     its catalog link and DOS release byte.
+ *
+ * Anything else, including ProDOS disks, keeps the default.
+ */
+export function apple2VolumeNumber(image: DskImage): number {
+  for (let t = 0; t < 3; t++) {
+    for (const sector of image.tracks[t]?.[0]?.sectors ?? []) {
+      const d = sector.data;
+      for (let i = 0; i + 8 <= d.length; i++) {
+        if (d[i] === 0x01 && d[i + 1] === 0x60 && d[i + 2] === 0x01
+          && d[i + 6] === 0xFB && d[i + 7] === 0xB7 && d[i + 3] >= 1 && d[i + 3] <= 254) {
+          return d[i + 3];
+        }
+      }
+    }
+  }
+  const vtoc = image.tracks[17]?.[0]?.sectors.find(s => s.r === 0)?.data;
+  if (!vtoc || vtoc.length < 7) return APPLE2_DEFAULT_VOLUME;
+  const looksLikeVtoc = vtoc[1] === 17 && vtoc[3] >= 1 && vtoc[3] <= 4;
+  const volume = vtoc[6];
+  return looksLikeVtoc && volume >= 1 && volume <= 254 ? volume : APPLE2_DEFAULT_VOLUME;
+}
+
 /** Serialize a `DskImage` back to a raw sector image in the given order. */
 export function serializeApple2Disk(image: DskImage, order: Apple2DiskOrder): Uint8Array {
   const out = new Uint8Array(image.numTracks * APPLE2_SECTORS_PER_TRACK * APPLE2_SECTOR_SIZE);

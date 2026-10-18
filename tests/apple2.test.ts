@@ -585,6 +585,23 @@ describe('apple2-plus Disk II controller', () => {
     expect(d.motorOn).toBe(true);
   });
 
+  it('writes the disk volume number into the address fields', () => {
+    // DOS 3.3 RWTS rejects a disk whose address-field volume is not the one it
+    // asked for (volume mismatch), so a volume-61 disk must present volume 61.
+    const raw = new Uint8Array(35 * 16 * 256);
+    const vtoc = 17 * 4096;
+    raw[vtoc + 1] = 17; raw[vtoc + 3] = 3; raw[vtoc + 6] = 61;
+    let cycles = 0;
+    const d = new Disk2(() => cycles);
+    d.insertDisk(parseApple2Disk(raw, 'dos'), 0);
+    d.read(0x09); d.read(0x0A);
+    const got: number[] = [];
+    while (got.length < 70) { cycles += 8; const b = d.read(0x0C); if (b !== 0) got.push(b); }
+    const at = got.findIndex((b, i) => b === 0xD5 && got[i + 1] === 0xAA && got[i + 2] === 0x96);
+    // 4-and-4: volume byte pair follows the prologue.
+    expect(((got[at + 3] << 1) | 1) & got[at + 4]).toBe(61);
+  });
+
   it('mounting the other drive mid-read does not disturb the active stream', () => {
     const raw = new Uint8Array(35 * 16 * 256);
     const stream = (insertOtherAt: number | null): number[] => {

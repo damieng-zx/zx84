@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest';
 import {
   APPLE2_SECTOR_SIZE, APPLE2_SECTORS_PER_TRACK, DOS_SKEW, GCR_WRITE_TABLE,
   decodeSector6and2, decodeTrack, encodeSector6and2, encodeTrack,
-  detectApple2DiskOrder, fourAndFour, fourAndFourDecode, gcr6, gcrRead, parseApple2Disk,
+  apple2VolumeNumber, detectApple2DiskOrder, fourAndFour, fourAndFourDecode, gcr6, gcrRead, parseApple2Disk,
   serializeApple2Disk,
 } from '@/media/floppy/apple2.ts';
 
@@ -188,3 +188,34 @@ describe('sector order detection', () => {
   });
 });
 
+describe('disk volume number', () => {
+  const withVtoc = (volume: number, release = 3) => {
+    const raw = new Uint8Array(35 * 4096);
+    const at = 17 * 4096;                        // track 17, sector 0 (DOS order: file sector 0)
+    raw[at + 1] = 17; raw[at + 2] = 15; raw[at + 3] = release; raw[at + 6] = volume;
+    return parseApple2Disk(raw, 'dos');
+  };
+
+  it('is read from the DOS 3.3 VTOC', () => {
+    expect(apple2VolumeNumber(withVtoc(61))).toBe(61);
+    expect(apple2VolumeNumber(withVtoc(1))).toBe(1);
+  });
+
+  it('prefers the volume the DOS boot IOB asks for', () => {
+    // Dark Crystal's VTOC byte says 6 but its loader requests volume 254.
+    const raw = new Uint8Array(35 * 4096);
+    const at = 17 * 4096;
+    raw[at + 1] = 17; raw[at + 3] = 3; raw[at + 6] = 6;
+    // Boot IOB in a track 0 sector (file sector 3 = physical 3 in DOS order is irrelevant: any track 0-2 sector).
+    raw.set([0x01, 0x60, 0x01, 0xFE, 0x02, 0x04, 0xFB, 0xB7, 0x00, 0xB5], 0x2E8);
+    expect(apple2VolumeNumber(parseApple2Disk(raw, 'dos'))).toBe(254);
+    raw.set([0x01, 0x60, 0x01, 0x3D, 0x02, 0x04, 0xFB, 0xB7], 0x2E8);
+    expect(apple2VolumeNumber(parseApple2Disk(raw, 'dos'))).toBe(61);
+  });
+
+  it('defaults to 254 without a recognisable VTOC', () => {
+    expect(apple2VolumeNumber(parseApple2Disk(new Uint8Array(35 * 4096), 'dos'))).toBe(254);
+    expect(apple2VolumeNumber(withVtoc(61, 9))).toBe(254);    // not a DOS release byte
+    expect(apple2VolumeNumber(withVtoc(0))).toBe(254);        // 0 means "any"
+  });
+});

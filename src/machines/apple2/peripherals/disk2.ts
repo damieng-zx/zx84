@@ -29,7 +29,8 @@
 
 import type { DskImage, DskTrack } from '@/media/floppy/disk-image.ts';
 import {
-  APPLE2_SECTORS_PER_TRACK, APPLE2_TRACK_NIBBLES, decodeTrack, encodeTrack,
+  APPLE2_DEFAULT_VOLUME, APPLE2_SECTORS_PER_TRACK, APPLE2_TRACK_NIBBLES, apple2VolumeNumber,
+  decodeTrack, encodeTrack,
 } from '@/media/floppy/apple2.ts';
 import { APPLE2_CPU_CLOCK } from '../constants.ts';
 
@@ -57,6 +58,8 @@ export class Disk2 {
   private readonly dirtyTracks: Set<number>[] = [new Set(), new Set()];
   private readonly wrote = [false, false];
   readonly writeProtect = [false, false];
+  /** Address-field volume number per drive (from the disk's VTOC when it has one). */
+  private readonly volume = [APPLE2_DEFAULT_VOLUME, APPLE2_DEFAULT_VOLUME];
 
   /** Per-drive head position, in half-track steps (two steps = one track). */
   private readonly halfTrack = [0, 0];
@@ -81,6 +84,7 @@ export class Disk2 {
 
   insertDisk(image: DskImage, unit: number): void {
     this.images[unit] = image;
+    this.volume[unit] = apple2VolumeNumber(image);
     this.encoded[unit] = [];
     this.dirtyTracks[unit].clear();
     this.wrote[unit] = false;
@@ -269,7 +273,7 @@ export class Disk2 {
     if (track) return track;
     const dsk = image.tracks[trackIndex]?.[0] ?? null;
     if (!dsk) return null;
-    track = encodeTrack(this.sectorsOf(dsk), trackIndex, 254);
+    track = encodeTrack(this.sectorsOf(dsk), trackIndex, this.volume[unit]);
     this.encoded[unit][trackIndex] = track;
     return track;
   }
