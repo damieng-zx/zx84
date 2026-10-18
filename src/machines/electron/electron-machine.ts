@@ -117,8 +117,17 @@ export class ElectronMachine extends BaseMachine implements Machine {
     super();
     this.model = model;
     this.display = display ?? null;
-    this.cpu.read = (addr) => { this.contend(addr); return this.memory.readByte(addr); };
-    this.cpu.write = (addr, val) => { this.contend(addr); this.memory.writeByte(addr, val); };
+    this.cpu.read = (addr) => {
+      this.contend(addr);
+      const value = this.memory.readByte(addr);
+      if (this.memWatchpoints.length > 0 && this.memWatchHit === null) this.recordMemWatch(addr & 0xFFFF, value, 'read');
+      return value;
+    };
+    this.cpu.write = (addr, val) => {
+      this.contend(addr);
+      this.memory.writeByte(addr, val);
+      if (this.memWatchpoints.length > 0 && this.memWatchHit === null) this.recordMemWatch(addr & 0xFFFF, val & 0xFF, 'write');
+    };
     // Beeper-only machine: nothing to balance against.
     this.mixer.beeperGain = 1;
     this.mixer.psgGain = 0;
@@ -316,6 +325,7 @@ export class ElectronMachine extends BaseMachine implements Machine {
     const skipAudio = this.speedMultiplier !== 1 || this.cassette.turboActive;
     const cpu = this.cpu;
     const ula = this.ula;
+    const watchActive = this.memWatchpoints.length > 0;
     this.activity.beeperToggles = 0;
     ula.startFrame();
     let lineEnd = cpu.tStates;
@@ -360,6 +370,11 @@ export class ElectronMachine extends BaseMachine implements Machine {
             this.prevSound = ula.soundLevel;
             this.activity.beeperToggles++;
           }
+        }
+        // Stop on the instruction that tripped a memory watchpoint.
+        if (watchActive && this.memWatchHit !== null) {
+          this.needsDisplay = true;
+          return;
         }
       }
       if (line < PICTURE_LINES) {

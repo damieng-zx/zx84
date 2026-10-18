@@ -37,7 +37,7 @@ describe('Pentagon 512 — RAM size and page number', () => {
     expect(machine('pentagon512').memory.ramBankCount).toBe(32);
     expect(machine('pentagon128').memory.ramBankCount).toBe(8);
     expect(machine('pentagon1024').memory.ramBankCount).toBe(64);
-    expect(machine('128k').memory.ramBankCount).toBe(8);
+    expect(machine('zx128k').memory.ramBankCount).toBe(8);
   });
 
   it('forms the page from D0-D2, D6 (bit 3) and D7 (bit 4)', () => {

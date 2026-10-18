@@ -297,7 +297,7 @@ up where you left off.
 | `npx tsc --noEmit` | Type-check |
 | `npm run depcheck` | Enforce the architecture boundaries in `.dependency-cruiser.cjs` |
 | `npm run build` | Type-check and build for production |
-| `npm run mcp` | Start the MCP server (`npm run mcp -- --model 128k` to pick a machine) |
+| `npm run mcp` | Start the MCP server (`npm run mcp -- --model zx128k` to pick a machine) |
 | `npm run mascot` | Regenerate the favicon and mascot images from `tools/build-mascot.ts` |
 | `npm run catalog:db`, `catalog:json`, `catalog:zx8x` | Rebuild the software-library catalogs from ZXDB |
 
@@ -316,7 +316,7 @@ undo, JSON import and TypeScript export. It is not part of production builds.
   and branching conventions. Read this first.
 - [`docs/adding-a-machine.md`](adding-a-machine.md) — how a new machine plugs
   in, and what a new CPU family needs for the debugger.
-- [`docs/timings.md`](timings.md) and
-  [`docs/timing-comparison.md`](timing-comparison.md) — timing references.
+- [`docs/timing-comparison.md`](timing-comparison.md) — how zx84's Spectrum
+  timing compares with a published reference.
 - [`mcp/README.md`](../mcp/README.md) — the MCP server's setup and tool
   reference.

@@ -3,18 +3,18 @@ import { SpectrumMemory } from '@/machines/spectrum/memory.ts';
 
 describe('SpectrumMemory — construction', () => {
   it('creates 48K memory without banking', () => {
-    const mem = new SpectrumMemory('48k');
+    const mem = new SpectrumMemory('zx48k');
     expect(mem.is128K).toBe(false);
     expect(mem.is16K).toBe(false);
   });
 
   it('creates 128K memory with banking', () => {
-    const mem = new SpectrumMemory('128k');
+    const mem = new SpectrumMemory('zx128k');
     expect(mem.is128K).toBe(true);
   });
 
   it('creates 16K memory', () => {
-    const mem = new SpectrumMemory('16k');
+    const mem = new SpectrumMemory('zx16k');
     expect(mem.is16K).toBe(true);
     expect(mem.is128K).toBe(false);
   });
@@ -22,20 +22,20 @@ describe('SpectrumMemory — construction', () => {
 
 describe('SpectrumMemory — read/write', () => {
   it('reads 0xFF from uninitialized memory', () => {
-    const mem = new SpectrumMemory('48k');
+    const mem = new SpectrumMemory('zx48k');
     mem.loadROM(new Uint8Array(16384));
     expect(mem.readByte(0x0000)).toBe(0);
   });
 
   it('round-trips a byte through RAM', () => {
-    const mem = new SpectrumMemory('48k');
+    const mem = new SpectrumMemory('zx48k');
     mem.loadROM(new Uint8Array(16384));
     mem.writeByte(0x4000, 0x42);
     expect(mem.readByte(0x4000)).toBe(0x42);
   });
 
   it('round-trips bytes across slot boundaries', () => {
-    const mem = new SpectrumMemory('48k');
+    const mem = new SpectrumMemory('zx48k');
     mem.loadROM(new Uint8Array(16384));
     mem.writeByte(0x3FFF, 0xAA);
     mem.writeByte(0x4000, 0xBB);
@@ -44,14 +44,14 @@ describe('SpectrumMemory — read/write', () => {
   });
 
   it('reads 0xFF from unpopulated slots on 16K model', () => {
-    const mem = new SpectrumMemory('16k');
+    const mem = new SpectrumMemory('zx16k');
     mem.loadROM(new Uint8Array(16384));
     expect(mem.readByte(0x8000)).toBe(0xFF);
     expect(mem.readByte(0xC000)).toBe(0xFF);
   });
 
   it('writes to unpopulated slots modify the open-bus buffer directly', () => {
-    const mem = new SpectrumMemory('16k');
+    const mem = new SpectrumMemory('zx16k');
     mem.loadROM(new Uint8Array(16384));
     mem.writeByte(0x8000, 0x42);
     expect(mem.readByte(0x8000)).toBe(0x42);
@@ -60,7 +60,7 @@ describe('SpectrumMemory — read/write', () => {
 
 describe('SpectrumMemory — readBlock', () => {
   it('reads a contiguous block', () => {
-    const mem = new SpectrumMemory('48k');
+    const mem = new SpectrumMemory('zx48k');
     mem.loadROM(new Uint8Array(16384));
     mem.writeByte(0x4000, 0x11);
     mem.writeByte(0x4001, 0x22);
@@ -72,7 +72,7 @@ describe('SpectrumMemory — readBlock', () => {
 
 describe('SpectrumMemory — ROM loading', () => {
   it('loads 16KB ROM for 48K', () => {
-    const mem = new SpectrumMemory('48k');
+    const mem = new SpectrumMemory('zx48k');
     const rom = new Uint8Array(16384);
     rom[0] = 0xF3;
     mem.loadROM(rom);
@@ -80,7 +80,7 @@ describe('SpectrumMemory — ROM loading', () => {
   });
 
   it('loads 32KB ROM for 128K', () => {
-    const mem = new SpectrumMemory('128k');
+    const mem = new SpectrumMemory('zx128k');
     const rom = new Uint8Array(32768);
     rom[0] = 0xF3;
     rom[16384] = 0xCD;
@@ -93,7 +93,7 @@ describe('SpectrumMemory — ROM loading', () => {
 
 describe('SpectrumMemory — bank switching (128K)', () => {
   it('switches RAM banks at 0xC000', () => {
-    const mem = new SpectrumMemory('128k');
+    const mem = new SpectrumMemory('zx128k');
     mem.loadROM(new Uint8Array(32768));
 
     mem.getRamBank(0)[0] = 0xAA;
@@ -108,7 +108,7 @@ describe('SpectrumMemory — bank switching (128K)', () => {
   });
 
   it('switches ROM pages', () => {
-    const mem = new SpectrumMemory('128k');
+    const mem = new SpectrumMemory('zx128k');
     const rom = new Uint8Array(32768);
     rom[0] = 0x01;
     rom[16384] = 0x02;
@@ -122,7 +122,7 @@ describe('SpectrumMemory — bank switching (128K)', () => {
   });
 
   it('locks paging when bit 5 is set', () => {
-    const mem = new SpectrumMemory('128k');
+    const mem = new SpectrumMemory('zx128k');
     mem.loadROM(new Uint8Array(32768));
 
     mem.bankSwitch(0x20);
@@ -134,7 +134,7 @@ describe('SpectrumMemory — bank switching (128K)', () => {
   });
 
   it('does not switch banks on 48K model', () => {
-    const mem = new SpectrumMemory('48k');
+    const mem = new SpectrumMemory('zx48k');
     mem.loadROM(new Uint8Array(16384));
     mem.bankSwitch(0x07);
     expect(mem.currentBank).toBe(0);
@@ -143,7 +143,7 @@ describe('SpectrumMemory — bank switching (128K)', () => {
 
 describe('SpectrumMemory — special paging (+2A/+3)', () => {
   it('enters special paging mode via bankSwitch1FFD', () => {
-    const mem = new SpectrumMemory('+3', { hasBanking: true, romPageCount: 4 });
+    const mem = new SpectrumMemory('zx128kplus3', { hasBanking: true, romPageCount: 4 });
     mem.loadROM(new Uint8Array(65536));
 
     mem.bankSwitch1FFD(0x01);
@@ -151,7 +151,7 @@ describe('SpectrumMemory — special paging (+2A/+3)', () => {
   });
 
   it('maps all-RAM configuration 0 (banks 0,1,2,3)', () => {
-    const mem = new SpectrumMemory('+3', { hasBanking: true, romPageCount: 4 });
+    const mem = new SpectrumMemory('zx128kplus3', { hasBanking: true, romPageCount: 4 });
     mem.loadROM(new Uint8Array(65536));
 
     mem.getRamBank(0)[0] = 0x00;
@@ -169,7 +169,7 @@ describe('SpectrumMemory — special paging (+2A/+3)', () => {
   });
 
   it('leaves special paging when bit 0 cleared', () => {
-    const mem = new SpectrumMemory('+3', { hasBanking: true, romPageCount: 4 });
+    const mem = new SpectrumMemory('zx128kplus3', { hasBanking: true, romPageCount: 4 });
     mem.loadROM(new Uint8Array(65536));
 
     mem.bankSwitch1FFD(0x01);
@@ -182,7 +182,7 @@ describe('SpectrumMemory — special paging (+2A/+3)', () => {
 
 describe('SpectrumMemory — slot 0 overlay', () => {
   it('setSlot0 overlays slot 0 with the supplied buffer', () => {
-    const mem = new SpectrumMemory('48k');
+    const mem = new SpectrumMemory('zx48k');
     const rom = new Uint8Array(16384);
     rom[0] = 0xAA;
     mem.loadROM(rom);
@@ -195,7 +195,7 @@ describe('SpectrumMemory — slot 0 overlay', () => {
   });
 
   it('restoreSlot0 reverts to ROM', () => {
-    const mem = new SpectrumMemory('48k');
+    const mem = new SpectrumMemory('zx48k');
     const rom = new Uint8Array(16384);
     rom[0] = 0xAA;
     mem.loadROM(rom);
@@ -209,14 +209,14 @@ describe('SpectrumMemory — slot 0 overlay', () => {
 
 describe('SpectrumMemory — snapshot', () => {
   it('snapshot returns 64KB view', () => {
-    const mem = new SpectrumMemory('48k');
+    const mem = new SpectrumMemory('zx48k');
     mem.loadROM(new Uint8Array(16384));
     const snap = mem.snapshot();
     expect(snap.length).toBe(65536);
   });
 
   it('load48KRAM loads 49152 bytes into correct banks', () => {
-    const mem = new SpectrumMemory('48k');
+    const mem = new SpectrumMemory('zx48k');
     const data = new Uint8Array(49152);
     data[0] = 0x11;
     data[16384] = 0x22;
@@ -231,7 +231,7 @@ describe('SpectrumMemory — snapshot', () => {
 
 describe('SpectrumMemory — reset', () => {
   it('clears all RAM and resets paging state', () => {
-    const mem = new SpectrumMemory('128k');
+    const mem = new SpectrumMemory('zx128k');
     mem.loadROM(new Uint8Array(32768));
     mem.writeByte(0x4000, 0x42);
     mem.bankSwitch(0x07);
@@ -247,7 +247,7 @@ describe('SpectrumMemory — reset', () => {
 
 describe('SpectrumMemory — bankAt', () => {
   it('returns correct bank indices for 48K', () => {
-    const mem = new SpectrumMemory('48k');
+    const mem = new SpectrumMemory('zx48k');
     mem.loadROM(new Uint8Array(16384));
 
     expect(mem.bankAt(0x0000)).toBe(-1);
@@ -257,7 +257,7 @@ describe('SpectrumMemory — bankAt', () => {
   });
 
   it('returns correct bank indices after bank switch', () => {
-    const mem = new SpectrumMemory('128k');
+    const mem = new SpectrumMemory('zx128k');
     mem.loadROM(new Uint8Array(32768));
 
     mem.bankSwitch(0x07);
@@ -267,7 +267,7 @@ describe('SpectrumMemory — bankAt', () => {
   });
 
   it('returns correct banks in special paging mode 0 (banks 0,1,2,3)', () => {
-    const mem = new SpectrumMemory('+3', { hasBanking: true, romPageCount: 4 });
+    const mem = new SpectrumMemory('zx128kplus3', { hasBanking: true, romPageCount: 4 });
     mem.loadROM(new Uint8Array(65536));
     mem.bankSwitch1FFD(0x01); // mode 0: [0,1,2,3]
 
@@ -278,7 +278,7 @@ describe('SpectrumMemory — bankAt', () => {
   });
 
   it('returns correct banks in special paging mode 1 (banks 4,5,6,7)', () => {
-    const mem = new SpectrumMemory('+3', { hasBanking: true, romPageCount: 4 });
+    const mem = new SpectrumMemory('zx128kplus3', { hasBanking: true, romPageCount: 4 });
     mem.loadROM(new Uint8Array(65536));
     mem.bankSwitch1FFD(0x03); // mode 1: [4,5,6,7]
 
@@ -294,34 +294,34 @@ describe('SpectrumMemory — isBasicRomActive', () => {
     // BUG: currentROM stays 0 but romPages.length is 2 (Math.max(2,1)),
     // so currentROM === romPages.length-1 evaluates to 0===1 = false.
     // The 48K machine has exactly one ROM and it is always the BASIC ROM.
-    const mem = new SpectrumMemory('48k');
+    const mem = new SpectrumMemory('zx48k');
     mem.loadROM(new Uint8Array(16384));
     expect(mem.isBasicRomActive()).toBe(true);
   });
 
   it('returns false for 48K when externalRomPaged', () => {
-    const mem = new SpectrumMemory('48k');
+    const mem = new SpectrumMemory('zx48k');
     mem.loadROM(new Uint8Array(16384));
     mem.externalRomPaged = true;
     expect(mem.isBasicRomActive()).toBe(false);
   });
 
   it('returns false for 128K when 128K editor ROM (page 0) is active by default', () => {
-    const mem = new SpectrumMemory('128k');
+    const mem = new SpectrumMemory('zx128k');
     mem.loadROM(new Uint8Array(32768));
     // Default: currentROM=0 (128K editor), BASIC ROM is page 1
     expect(mem.isBasicRomActive()).toBe(false);
   });
 
   it('returns true for 128K when 48K BASIC ROM (page 1) is selected', () => {
-    const mem = new SpectrumMemory('128k');
+    const mem = new SpectrumMemory('zx128k');
     mem.loadROM(new Uint8Array(32768));
     mem.bankSwitch(0x10); // bit 4 selects ROM page 1
     expect(mem.isBasicRomActive()).toBe(true);
   });
 
   it('returns true for +2A/+3 when 48K BASIC ROM (page 3) is selected', () => {
-    const mem = new SpectrumMemory('+3', { hasBanking: true, romPageCount: 4 });
+    const mem = new SpectrumMemory('zx128kplus3', { hasBanking: true, romPageCount: 4 });
     mem.loadROM(new Uint8Array(65536));
     // ROM 3 = bit2(1FFD)=1, bit4(7FFD)=1 → port1FFD=0x04, port7FFD=0x10
     mem.bankSwitch(0x10);        // bit4=1: ROM select bit0=1
@@ -330,14 +330,14 @@ describe('SpectrumMemory — isBasicRomActive', () => {
   });
 
   it('returns false for +2A/+3 when ROM 0 (128K editor) is selected', () => {
-    const mem = new SpectrumMemory('+3', { hasBanking: true, romPageCount: 4 });
+    const mem = new SpectrumMemory('zx128kplus3', { hasBanking: true, romPageCount: 4 });
     mem.loadROM(new Uint8Array(65536));
     // Default: both bits 0 → ROM 0
     expect(mem.isBasicRomActive()).toBe(false);
   });
 
   it('returns false when specialPaging is active', () => {
-    const mem = new SpectrumMemory('+3', { hasBanking: true, romPageCount: 4 });
+    const mem = new SpectrumMemory('zx128kplus3', { hasBanking: true, romPageCount: 4 });
     mem.loadROM(new Uint8Array(65536));
     mem.bankSwitch1FFD(0x01); // bit 0 = specialPaging
     expect(mem.isBasicRomActive()).toBe(false);
@@ -346,14 +346,14 @@ describe('SpectrumMemory — isBasicRomActive', () => {
 
 describe('SpectrumMemory — screenBank', () => {
   it('returns bank 5 by default (port7FFD bit 3 = 0)', () => {
-    const mem = new SpectrumMemory('128k');
+    const mem = new SpectrumMemory('zx128k');
     mem.loadROM(new Uint8Array(32768));
     mem.getRamBank(5)[42] = 0x77;
     expect(mem.screenBank[42]).toBe(0x77);
   });
 
   it('returns bank 7 when port7FFD bit 3 is set', () => {
-    const mem = new SpectrumMemory('128k');
+    const mem = new SpectrumMemory('zx128k');
     mem.loadROM(new Uint8Array(32768));
     mem.getRamBank(7)[42] = 0x88;
     mem.bankSwitch(0x08); // bit 3 = shadow screen in bank 7
@@ -361,7 +361,7 @@ describe('SpectrumMemory — screenBank', () => {
   });
 
   it('screenBank reflects live RAM bank data', () => {
-    const mem = new SpectrumMemory('128k');
+    const mem = new SpectrumMemory('zx128k');
     mem.loadROM(new Uint8Array(32768));
     mem.getRamBank(5)[0] = 0xDE;
     expect(mem.screenBank[0]).toBe(0xDE);
@@ -373,20 +373,20 @@ describe('SpectrumMemory — screenBank', () => {
 
 describe('SpectrumMemory — slot0Bank', () => {
   it('returns -1 in normal (non-special) paging mode', () => {
-    const mem = new SpectrumMemory('128k');
+    const mem = new SpectrumMemory('zx128k');
     mem.loadROM(new Uint8Array(32768));
     expect(mem.slot0Bank).toBe(-1);
   });
 
   it('returns bank 0 in special paging mode 0', () => {
-    const mem = new SpectrumMemory('+3', { hasBanking: true, romPageCount: 4 });
+    const mem = new SpectrumMemory('zx128kplus3', { hasBanking: true, romPageCount: 4 });
     mem.loadROM(new Uint8Array(65536));
     mem.bankSwitch1FFD(0x01); // mode 0 → [0,1,2,3]
     expect(mem.slot0Bank).toBe(0);
   });
 
   it('returns bank 4 in special paging mode 1', () => {
-    const mem = new SpectrumMemory('+3', { hasBanking: true, romPageCount: 4 });
+    const mem = new SpectrumMemory('zx128kplus3', { hasBanking: true, romPageCount: 4 });
     mem.loadROM(new Uint8Array(65536));
     mem.bankSwitch1FFD(0x03); // mode 1 → [4,5,6,7]
     expect(mem.slot0Bank).toBe(4);
@@ -395,7 +395,7 @@ describe('SpectrumMemory — slot0Bank', () => {
 
 describe('SpectrumMemory — special paging modes', () => {
   function makePlus3(): SpectrumMemory {
-    const mem = new SpectrumMemory('+3', { hasBanking: true, romPageCount: 4 });
+    const mem = new SpectrumMemory('zx128kplus3', { hasBanking: true, romPageCount: 4 });
     mem.loadROM(new Uint8Array(65536));
     for (let i = 0; i < 8; i++) mem.getRamBank(i).fill(i);
     mem.applyBanking();
@@ -461,7 +461,7 @@ describe('SpectrumMemory — special paging modes', () => {
 
 describe('SpectrumMemory — +2A/+3 ROM selection', () => {
   it('selects ROM from combined 7FFD bit4 and 1FFD bit2', () => {
-    const mem = new SpectrumMemory('+3', { hasBanking: true, romPageCount: 4 });
+    const mem = new SpectrumMemory('zx128kplus3', { hasBanking: true, romPageCount: 4 });
     const rom = new Uint8Array(65536);
     for (let p = 0; p < 4; p++) rom[p * 16384] = p; // page tag at offset 0
     mem.loadROM(rom);
@@ -489,7 +489,7 @@ describe('SpectrumMemory — +2A/+3 ROM selection', () => {
 
 describe('SpectrumMemory — externalRomPaged', () => {
   it('bankSwitch does not update slot 0 when externalRomPaged', () => {
-    const mem = new SpectrumMemory('128k');
+    const mem = new SpectrumMemory('zx128k');
     const rom = new Uint8Array(32768);
     rom[0] = 0xAA;
     mem.loadROM(rom);
@@ -503,7 +503,7 @@ describe('SpectrumMemory — externalRomPaged', () => {
   });
 
   it('bankSwitch1FFD does not update slot 0 when externalRomPaged', () => {
-    const mem = new SpectrumMemory('+3', { hasBanking: true, romPageCount: 4 });
+    const mem = new SpectrumMemory('zx128kplus3', { hasBanking: true, romPageCount: 4 });
     mem.loadROM(new Uint8Array(65536));
     const overlay = new Uint8Array(16384).fill(0xCC);
     mem.setSlot0(overlay);
@@ -514,7 +514,7 @@ describe('SpectrumMemory — externalRomPaged', () => {
   });
 
   it('restoreSlot0 is a no-op when externalRomPaged', () => {
-    const mem = new SpectrumMemory('48k');
+    const mem = new SpectrumMemory('zx48k');
     const rom = new Uint8Array(16384).fill(0x01);
     mem.loadROM(rom);
     mem.externalRomPaged = true;
@@ -527,7 +527,7 @@ describe('SpectrumMemory — externalRomPaged', () => {
 
 describe('SpectrumMemory — restoreSlot0', () => {
   it('restores to correct ROM page after bankSwitch changes ROM', () => {
-    const mem = new SpectrumMemory('128k');
+    const mem = new SpectrumMemory('zx128k');
     const rom = new Uint8Array(32768);
     rom[0] = 0x01;       // page 0
     rom[16384] = 0x02;   // page 1
@@ -539,7 +539,7 @@ describe('SpectrumMemory — restoreSlot0', () => {
   });
 
   it('restores to special paging bank when specialPaging active', () => {
-    const mem = new SpectrumMemory('+3', { hasBanking: true, romPageCount: 4 });
+    const mem = new SpectrumMemory('zx128kplus3', { hasBanking: true, romPageCount: 4 });
     mem.loadROM(new Uint8Array(65536));
     mem.getRamBank(0).fill(0xAA);
     mem.applyBanking();
@@ -552,7 +552,7 @@ describe('SpectrumMemory — restoreSlot0', () => {
 
 describe('SpectrumMemory — skipSlot0', () => {
   it('bankSwitch with skipSlot0=true does not change ROM in slot 0', () => {
-    const mem = new SpectrumMemory('128k');
+    const mem = new SpectrumMemory('zx128k');
     const rom = new Uint8Array(32768);
     rom[0] = 0x01;
     mem.loadROM(rom);
@@ -562,7 +562,7 @@ describe('SpectrumMemory — skipSlot0', () => {
   });
 
   it('bankSwitch1FFD with skipSlot0=true does not change slot 0 in special paging', () => {
-    const mem = new SpectrumMemory('+3', { hasBanking: true, romPageCount: 4 });
+    const mem = new SpectrumMemory('zx128kplus3', { hasBanking: true, romPageCount: 4 });
     const rom = new Uint8Array(65536);
     rom[0] = 0xDE;
     mem.loadROM(rom);
@@ -574,7 +574,7 @@ describe('SpectrumMemory — skipSlot0', () => {
 
 describe('SpectrumMemory — ROM loading edge cases', () => {
   it('loadROM 64KB for +2A/+3 loads all 4 ROM pages', () => {
-    const mem = new SpectrumMemory('+3', { hasBanking: true, romPageCount: 4 });
+    const mem = new SpectrumMemory('zx128kplus3', { hasBanking: true, romPageCount: 4 });
     const rom = new Uint8Array(65536);
     for (let p = 0; p < 4; p++) rom[p * 16384] = 0x10 + p;
     mem.loadROM(rom);
@@ -593,7 +593,7 @@ describe('SpectrumMemory — ROM loading edge cases', () => {
   });
 
   it('loadROM 16KB for 48K is readable at 0x0000', () => {
-    const mem = new SpectrumMemory('48k');
+    const mem = new SpectrumMemory('zx48k');
     const rom = new Uint8Array(16384);
     rom[100] = 0x42;
     mem.loadROM(rom);
@@ -603,7 +603,7 @@ describe('SpectrumMemory — ROM loading edge cases', () => {
 
 describe('SpectrumMemory — setBankFromSnapshot and flushBanks', () => {
   it('setBankFromSnapshot writes data into the correct RAM bank', () => {
-    const mem = new SpectrumMemory('128k');
+    const mem = new SpectrumMemory('zx128k');
     mem.loadROM(new Uint8Array(32768));
 
     const data = new Uint8Array(16384).fill(0x55);
@@ -613,7 +613,7 @@ describe('SpectrumMemory — setBankFromSnapshot and flushBanks', () => {
   });
 
   it('setBankFromSnapshot only writes up to 16384 bytes', () => {
-    const mem = new SpectrumMemory('128k');
+    const mem = new SpectrumMemory('zx128k');
     const data = new Uint8Array(20000).fill(0xAA);
     mem.setBankFromSnapshot(3, data);
     expect(mem.getRamBank(3)[0]).toBe(0xAA);
@@ -621,7 +621,7 @@ describe('SpectrumMemory — setBankFromSnapshot and flushBanks', () => {
   });
 
   it('flushBanks returns all 8 banks', () => {
-    const mem = new SpectrumMemory('128k');
+    const mem = new SpectrumMemory('zx128k');
     for (let i = 0; i < 8; i++) mem.setBankFromSnapshot(i, new Uint8Array(16384).fill(i + 1));
     const banks = mem.flushBanks();
     expect(banks.length).toBe(8);
@@ -631,7 +631,7 @@ describe('SpectrumMemory — setBankFromSnapshot and flushBanks', () => {
   });
 
   it('flushBanks returns live references (no copy)', () => {
-    const mem = new SpectrumMemory('128k');
+    const mem = new SpectrumMemory('zx128k');
     const banks = mem.flushBanks();
     mem.getRamBank(2)[0] = 0x77;
     expect(banks[2][0]).toBe(0x77);
@@ -640,7 +640,7 @@ describe('SpectrumMemory — setBankFromSnapshot and flushBanks', () => {
 
 describe('SpectrumMemory — readBlock wrap-around', () => {
   it('wraps around 0xFFFF boundary', () => {
-    const mem = new SpectrumMemory('48k');
+    const mem = new SpectrumMemory('zx48k');
     mem.loadROM(new Uint8Array(16384).fill(0x01)); // ROM first
     mem.writeByte(0xFFFF, 0xAA);
     // 0x0000 is in ROM — read via readByte to check
@@ -652,7 +652,7 @@ describe('SpectrumMemory — readBlock wrap-around', () => {
 
 describe('SpectrumMemory — writeByte value masking', () => {
   it('masks values larger than 0xFF', () => {
-    const mem = new SpectrumMemory('48k');
+    const mem = new SpectrumMemory('zx48k');
     mem.loadROM(new Uint8Array(16384));
     mem.writeByte(0x4000, 0x1FF); // should store 0xFF
     expect(mem.readByte(0x4000)).toBe(0xFF);
@@ -664,7 +664,7 @@ describe('SpectrumMemory — bank aliasing (currentBank matches a static slot)',
   it('currentBank=5 aliases bank 5 into slot 1 and slot 3: a write at one slot is visible at the other', () => {
     // Real hardware: bank 5 is one physical RAM chip; both 0x4000 and 0xC000
     // windows access it. A write to 0xC000 must appear at 0x4000.
-    const mem = new SpectrumMemory('128k');
+    const mem = new SpectrumMemory('zx128k');
     mem.loadROM(new Uint8Array(32768));
     mem.bankSwitch(0x05); // currentBank = 5 → slot 3 mirrors slot 1
     mem.writeByte(0xC100, 0x42);
@@ -674,7 +674,7 @@ describe('SpectrumMemory — bank aliasing (currentBank matches a static slot)',
   });
 
   it('currentBank=2 aliases bank 2 into slot 2 and slot 3', () => {
-    const mem = new SpectrumMemory('128k');
+    const mem = new SpectrumMemory('zx128k');
     mem.loadROM(new Uint8Array(32768));
     mem.bankSwitch(0x02);
     mem.writeByte(0xC300, 0x55);
@@ -684,7 +684,7 @@ describe('SpectrumMemory — bank aliasing (currentBank matches a static slot)',
   });
 
   it('breaking the alias (switching to a different bank) leaves the previously-aliased slot intact', () => {
-    const mem = new SpectrumMemory('128k');
+    const mem = new SpectrumMemory('zx128k');
     mem.loadROM(new Uint8Array(32768));
     mem.bankSwitch(0x05);          // alias: slots 1+3 → bank 5
     mem.writeByte(0xC000, 0x77);    // write-through: 0x4000 also = 0x77
@@ -693,7 +693,7 @@ describe('SpectrumMemory — bank aliasing (currentBank matches a static slot)',
   });
 
   it('snapshot save sees the same data via either aliased slot', () => {
-    const mem = new SpectrumMemory('128k');
+    const mem = new SpectrumMemory('zx128k');
     mem.loadROM(new Uint8Array(32768));
     mem.bankSwitch(0x05);
     mem.writeByte(0x4500, 0xCD); // via slot 1
@@ -704,7 +704,7 @@ describe('SpectrumMemory — bank aliasing (currentBank matches a static slot)',
 
 describe('SpectrumMemory — paging lock', () => {
   it('bankSwitch1FFD also respects pagingLocked', () => {
-    const mem = new SpectrumMemory('+3', { hasBanking: true, romPageCount: 4 });
+    const mem = new SpectrumMemory('zx128kplus3', { hasBanking: true, romPageCount: 4 });
     mem.loadROM(new Uint8Array(65536));
     mem.bankSwitch(0x20); // lock paging
     expect(mem.pagingLocked).toBe(true);
@@ -713,7 +713,7 @@ describe('SpectrumMemory — paging lock', () => {
   });
 
   it('bankSwitch does nothing on 48K model (no banking)', () => {
-    const mem = new SpectrumMemory('48k');
+    const mem = new SpectrumMemory('zx48k');
     mem.loadROM(new Uint8Array(16384));
     mem.bankSwitch(0x20); // should be ignored
     expect(mem.pagingLocked).toBe(false);
@@ -725,7 +725,7 @@ describe('SpectrumMemory — applyBanking in special paging mode', () => {
   it('applyBanking while specialPaging remaps all four slots from SPECIAL_MODES', () => {
     // updateSlots() has a specialPaging branch only reachable via applyBanking/loadROM
     // (bankSwitch1FFD sets slots directly; reset() clears specialPaging first)
-    const mem = new SpectrumMemory('+3', { hasBanking: true, romPageCount: 4 });
+    const mem = new SpectrumMemory('zx128kplus3', { hasBanking: true, romPageCount: 4 });
     mem.loadROM(new Uint8Array(65536));
     for (let i = 0; i < 8; i++) mem.getRamBank(i).fill(i);
     mem.bankSwitch1FFD(0x01); // mode 0: [0,1,2,3]
@@ -740,7 +740,7 @@ describe('SpectrumMemory — applyBanking in special paging mode', () => {
 
   it('applyBanking while specialPaging and externalRomPaged leaves slot 0 unchanged', () => {
     // Covers the !externalRomPaged guard inside the specialPaging branch of updateSlots
-    const mem = new SpectrumMemory('+3', { hasBanking: true, romPageCount: 4 });
+    const mem = new SpectrumMemory('zx128kplus3', { hasBanking: true, romPageCount: 4 });
     mem.loadROM(new Uint8Array(65536));
     for (let i = 0; i < 8; i++) mem.getRamBank(i).fill(i);
     mem.bankSwitch1FFD(0x01); // mode 0: [0,1,2,3]
@@ -754,7 +754,7 @@ describe('SpectrumMemory — applyBanking in special paging mode', () => {
 
   it('applyBanking with externalRomPaged in non-special mode leaves slot 0 unchanged', () => {
     // Covers the !externalRomPaged guard in the else branch of updateSlots
-    const mem = new SpectrumMemory('128k');
+    const mem = new SpectrumMemory('zx128k');
     const rom = new Uint8Array(32768);
     rom[0] = 0x01;
     mem.loadROM(rom);
@@ -771,7 +771,7 @@ describe('SpectrumMemory — loadROM edge cases', () => {
   it('loadROM with 16KB data on 128K machine stores to page 1 only', () => {
     // The else-if(>= 16384) branch with is128K=true skips setting romPages[0].
     // Default slot 0 → romPages[0] (currentROM=0), so the data ends up only in page 1.
-    const mem = new SpectrumMemory('128k');
+    const mem = new SpectrumMemory('zx128k');
     const rom = new Uint8Array(16384);
     rom[0] = 0x42;
     mem.loadROM(rom);
@@ -784,7 +784,7 @@ describe('SpectrumMemory — loadROM edge cases', () => {
 
   it('loadROM with data shorter than 16KB is a no-op', () => {
     // All three else-if conditions fail when data < 16KB — nothing is written
-    const mem = new SpectrumMemory('48k');
+    const mem = new SpectrumMemory('zx48k');
     mem.loadROM(new Uint8Array(16384).fill(0xAA)); // establish known ROM state
     mem.loadROM(new Uint8Array(100));               // too short — must not change pages
     expect(mem.readByte(0x0000)).toBe(0xAA);        // page 1 unchanged
@@ -794,7 +794,7 @@ describe('SpectrumMemory — loadROM edge cases', () => {
 describe('SpectrumMemory — bankSwitch locking while in special paging', () => {
   it('bankSwitch with bit 5 set while in special paging locks paging', () => {
     // Line 260: pagingLocked path inside the specialPaging branch of bankSwitch
-    const mem = new SpectrumMemory('+3', { hasBanking: true, romPageCount: 4 });
+    const mem = new SpectrumMemory('zx128kplus3', { hasBanking: true, romPageCount: 4 });
     mem.loadROM(new Uint8Array(65536));
     mem.bankSwitch1FFD(0x01); // enter special paging
     expect(mem.specialPaging).toBe(true);
@@ -810,7 +810,7 @@ describe('SpectrumMemory — bankSwitch locking while in special paging', () => 
 describe('SpectrumMemory — bankSwitch1FFD on non-+3 machine', () => {
   it('bankSwitch1FFD on 128K machine (2 ROM pages) does not update currentROM', () => {
     // Line 283: romPages.length !== 4 branch — currentROM update is gated on 4-page machines
-    const mem = new SpectrumMemory('128k');
+    const mem = new SpectrumMemory('zx128k');
     mem.loadROM(new Uint8Array(32768));
     const romBefore = mem.currentROM;
     mem.bankSwitch1FFD(0x04); // bit 2 set — only relevant on +3
@@ -819,7 +819,7 @@ describe('SpectrumMemory — bankSwitch1FFD on non-+3 machine', () => {
 
   it('bankSwitch1FFD non-special exit restores slot 0 to ROM', () => {
     // Line 296: !skipSlot0 && !externalRomPaged path in normal-paging exit of bankSwitch1FFD
-    const mem = new SpectrumMemory('+3', { hasBanking: true, romPageCount: 4 });
+    const mem = new SpectrumMemory('zx128kplus3', { hasBanking: true, romPageCount: 4 });
     const rom = new Uint8Array(65536);
     rom[0] = 0x99;
     mem.loadROM(rom);
@@ -829,7 +829,7 @@ describe('SpectrumMemory — bankSwitch1FFD on non-+3 machine', () => {
 
   it('bankSwitch1FFD with skipSlot0=true in non-special exit does not change slot 0', () => {
     // Covers the false branch of !skipSlot0 at line 296 (else clause of bankSwitch1FFD)
-    const mem = new SpectrumMemory('+3', { hasBanking: true, romPageCount: 4 });
+    const mem = new SpectrumMemory('zx128kplus3', { hasBanking: true, romPageCount: 4 });
     const rom = new Uint8Array(65536);
     rom[0] = 0x55;
     mem.loadROM(rom);
@@ -844,13 +844,13 @@ describe('SpectrumMemory — bankSwitch1FFD on non-+3 machine', () => {
 
 describe('SpectrumMemory — slotIsScreen (displayed-bank write tracking)', () => {
   function mem128(): SpectrumMemory {
-    const m = new SpectrumMemory('128k');
+    const m = new SpectrumMemory('zx128k');
     m.loadROM(new Uint8Array(32768));
     return m;
   }
 
   it('48K: only the 0x4000 slot (bank 5) is screen', () => {
-    const m = new SpectrumMemory('48k');
+    const m = new SpectrumMemory('zx48k');
     expect(Array.from(m.slotIsScreen)).toEqual([0, 1, 0, 0]);
   });
 

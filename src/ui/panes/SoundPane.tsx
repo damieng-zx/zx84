@@ -45,7 +45,7 @@ export function SoundPane() {
           and reads the setting. A buzzer-only machine like the Ace has no PSG
           to weigh against, so the slider would move nothing. */}
       <Show when={machineCaps().psgMixer}>
-        <SliderRow label="Mixer" id="ay-mix" min={0} max={100} value={ayMix} endLabels={['Beep', 'AY']}
+        <SliderRow label="Mixer" id="ay-mix" min={0} max={100} value={ayMix} endLabels={['Beep', machineCaps().soundChip ?? 'PSG']}
           onInput={(v) => { setAyMix(v); persistSetting('ay-mix', v); applyDisplaySettings(); }} />
       </Show>
       {/* All three below are AY-3-891x shaping; a machine lists the ones it

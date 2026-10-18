@@ -42,19 +42,19 @@ function makeCpu(): Z80 {
 }
 
 function makeMemory48k(): SpectrumMemory {
-  const mem = new SpectrumMemory('48k');
+  const mem = new SpectrumMemory('zx48k');
   mem.loadROM(new Uint8Array(16384));
   return mem;
 }
 
 function makeMemory128k(): SpectrumMemory {
-  const mem = new SpectrumMemory('128k');
+  const mem = new SpectrumMemory('zx128k');
   mem.loadROM(new Uint8Array(16384));
   return mem;
 }
 
 function makeMemoryPlus3(): SpectrumMemory {
-  const mem = new SpectrumMemory('+3', { hasBanking: true, romPageCount: 4 });
+  const mem = new SpectrumMemory('zx128kplus3', { hasBanking: true, romPageCount: 4 });
   mem.loadROM(new Uint8Array(65536)); // +3 has 4 × 16KB ROM pages
   return mem;
 }
@@ -676,7 +676,7 @@ describe('SZX — save header', () => {
   it('writes ZXST magic', async () => {
     const cpu = new Z80();
     const mem = makeMemory48k();
-    const saved = await saveSZX(cpu, mem, 0, '48k', 0);
+    const saved = await saveSZX(cpu, mem, 0, 'zx48k', 0);
 
     expect(saved[0]).toBe(0x5A);
     expect(saved[1]).toBe(0x58);
@@ -687,14 +687,14 @@ describe('SZX — save header', () => {
   it('writes version 1.4', async () => {
     const cpu = new Z80();
     const mem = makeMemory48k();
-    const saved = await saveSZX(cpu, mem, 0, '48k', 0);
+    const saved = await saveSZX(cpu, mem, 0, 'zx48k', 0);
 
     expect(saved[4]).toBe(1);
     expect(saved[5]).toBe(4);
   });
 
   it('writes correct machine ID for each model', async () => {
-    const models: SpectrumModel[] = ['16k', '48k', '128k', '+2', '+2A', '+3'];
+    const models: SpectrumModel[] = ['zx16k', 'zx48k', 'zx128k', 'zx128kplus2', 'zx128kplus2a', 'zx128kplus3'];
     const expected = [0, 1, 2, 3, 4, 5];
 
     for (let i = 0; i < models.length; i++) {
@@ -709,7 +709,7 @@ describe('SZX — save header', () => {
   it('sets flags byte to 0', async () => {
     const cpu = new Z80();
     const mem = makeMemory48k();
-    const saved = await saveSZX(cpu, mem, 0, '48k', 0);
+    const saved = await saveSZX(cpu, mem, 0, 'zx48k', 0);
     expect(saved[7]).toBe(0);
   });
 });
@@ -720,7 +720,7 @@ describe('SZX — save Z80R block', () => {
   it('writes all registers correctly', async () => {
     const cpu = makeCpu();
     const mem = makeMemory48k();
-    const saved = await saveSZX(cpu, mem, 0, '48k', 0);
+    const saved = await saveSZX(cpu, mem, 0, 'zx48k', 0);
 
     const cpu2 = new Z80();
     await loadSZX(saved, cpu2, makeMemory48k());
@@ -756,7 +756,7 @@ describe('SZX — save Z80R block', () => {
     const cpu = makeCpu();
     cpu.halted = true;
     const mem = makeMemory48k();
-    const saved = await saveSZX(cpu, mem, 0, '48k', 0);
+    const saved = await saveSZX(cpu, mem, 0, 'zx48k', 0);
 
     const cpu2 = new Z80();
     await loadSZX(saved, cpu2, makeMemory48k());
@@ -767,7 +767,7 @@ describe('SZX — save Z80R block', () => {
     const cpu = makeCpu();
     cpu.tStates = 50000;
     const mem = makeMemory48k();
-    const saved = await saveSZX(cpu, mem, 0, '48k', 40000);
+    const saved = await saveSZX(cpu, mem, 0, 'zx48k', 40000);
 
     const cpu2 = new Z80();
     await loadSZX(saved, cpu2, makeMemory48k());
@@ -781,7 +781,7 @@ describe('SZX — save SPCR block', () => {
   it('writes border color', async () => {
     const cpu = new Z80();
     const mem = makeMemory48k();
-    const saved = await saveSZX(cpu, mem, 6, '48k', 0);
+    const saved = await saveSZX(cpu, mem, 6, 'zx48k', 0);
 
     const result = await loadSZX(saved, new Z80(), makeMemory48k());
     expect(result.borderColor).toBe(6);
@@ -791,7 +791,7 @@ describe('SZX — save SPCR block', () => {
     for (let bc = 0; bc < 8; bc++) {
       const cpu = new Z80();
       const mem = makeMemory48k();
-      const saved = await saveSZX(cpu, mem, bc, '48k', 0);
+      const saved = await saveSZX(cpu, mem, bc, 'zx48k', 0);
       const result = await loadSZX(saved, new Z80(), makeMemory48k());
       expect(result.borderColor).toBe(bc);
     }
@@ -803,7 +803,7 @@ describe('SZX — save SPCR block', () => {
     mem.port7FFD = 0x17;
     mem.currentBank = 7;
     mem.applyBanking();
-    const saved = await saveSZX(cpu, mem, 0, '128k', 0);
+    const saved = await saveSZX(cpu, mem, 0, 'zx128k', 0);
 
     const result = await loadSZX(saved, new Z80(), makeMemory128k());
     expect(result.port7FFD).toBe(0x17);
@@ -813,7 +813,7 @@ describe('SZX — save SPCR block', () => {
     const cpu = new Z80();
     const mem = makeMemory128k();
     mem.port1FFD = 0x04;
-    const saved = await saveSZX(cpu, mem, 0, '128k', 0);
+    const saved = await saveSZX(cpu, mem, 0, 'zx128k', 0);
 
     const result = await loadSZX(saved, new Z80(), makeMemory128k());
     expect(result.port1FFD).toBe(0x04);
@@ -826,7 +826,7 @@ describe('SZX — save RAMP blocks', () => {
   it('writes 3 pages for 48K (banks 0, 2, 5)', async () => {
     const cpu = new Z80();
     const mem = makeMemory48k();
-    const saved = await saveSZX(cpu, mem, 0, '48k', 0);
+    const saved = await saveSZX(cpu, mem, 0, 'zx48k', 0);
 
     const cpu2 = new Z80();
     const mem2 = makeMemory48k();
@@ -849,7 +849,7 @@ describe('SZX — save RAMP blocks', () => {
   it('writes 8 pages for 128K', async () => {
     const cpu = new Z80();
     const mem = makeMemory128k();
-    const saved = await saveSZX(cpu, mem, 0, '128k', 0);
+    const saved = await saveSZX(cpu, mem, 0, 'zx128k', 0);
 
     const pageNumbers: number[] = [];
     let offset = 8;
@@ -867,9 +867,9 @@ describe('SZX — save RAMP blocks', () => {
 
   it('writes 1 page for 16K (bank 5)', async () => {
     const cpu = new Z80();
-    const mem = new SpectrumMemory('16k');
+    const mem = new SpectrumMemory('zx16k');
     mem.loadROM(new Uint8Array(16384));
-    const saved = await saveSZX(cpu, mem, 0, '16k', 0);
+    const saved = await saveSZX(cpu, mem, 0, 'zx16k', 0);
 
     const pageNumbers: number[] = [];
     let offset = 8;
@@ -889,7 +889,7 @@ describe('SZX — save RAMP blocks', () => {
     const cpu = new Z80();
     const mem = makeMemory48k();
     mem.getRamBank(5).fill(0x00);
-    const saved = await saveSZX(cpu, mem, 0, '48k', 0);
+    const saved = await saveSZX(cpu, mem, 0, 'zx48k', 0);
 
     let offset = 8;
     while (offset + 8 <= saved.length) {
@@ -913,7 +913,7 @@ describe('SZX — save AY block', () => {
   it('omits AY block when no AY regs provided', async () => {
     const cpu = new Z80();
     const mem = makeMemory48k();
-    const saved = await saveSZX(cpu, mem, 0, '48k', 0);
+    const saved = await saveSZX(cpu, mem, 0, 'zx48k', 0);
 
     let hasAY = false;
     let offset = 8;
@@ -932,7 +932,7 @@ describe('SZX — save AY block', () => {
     const ayRegs = new Uint8Array(16);
     for (let i = 0; i < 16; i++) ayRegs[i] = i * 2;
 
-    const saved = await saveSZX(cpu, mem, 0, '48k', 0, ayRegs, 5);
+    const saved = await saveSZX(cpu, mem, 0, 'zx48k', 0, ayRegs, 5);
     const result = await loadSZX(saved, new Z80(), makeMemory48k());
 
     expect(result.ayCurrentReg).toBe(5);
@@ -957,7 +957,7 @@ describe('SZX — 48K full round-trip', () => {
       bank0[i] = (i * 7 + 3) & 0xFF;
     }
 
-    const saved = await saveSZX(cpu, mem, 4, '48k', 0);
+    const saved = await saveSZX(cpu, mem, 4, 'zx48k', 0);
     const cpu2 = new Z80();
     const mem2 = makeMemory48k();
     const result = await loadSZX(saved, cpu2, mem2);
@@ -986,7 +986,7 @@ describe('SZX — 128K full round-trip', () => {
       }
     }
 
-    const saved = await saveSZX(cpu, mem, 2, '128k', 0);
+    const saved = await saveSZX(cpu, mem, 2, 'zx128k', 0);
     const cpu2 = new Z80();
     const mem2 = makeMemory128k();
     const result = await loadSZX(saved, cpu2, mem2);
@@ -1008,7 +1008,7 @@ describe('SZX — 128K full round-trip', () => {
     mem.currentBank = 0x0B & 0x07; // bank index is bits 0-2 of port7FFD
     mem.applyBanking();
 
-    const saved = await saveSZX(cpu, mem, 0, '128k', 0);
+    const saved = await saveSZX(cpu, mem, 0, 'zx128k', 0);
     const result = await loadSZX(saved, new Z80(), makeMemory128k());
     expect(result.port7FFD).toBe(0x0B);
   });
@@ -1109,7 +1109,7 @@ describe('SZX — saveSZXSync (uncompressed, no CompressionStream)', () => {
       }
     }
 
-    const saved = saveSZXSync(cpu, mem, 2, '128k', 0); // synchronous — no await
+    const saved = saveSZXSync(cpu, mem, 2, 'zx128k', 0); // synchronous — no await
     const mem2 = makeMemory128k();
     const result = await loadSZX(saved, new Z80(), mem2);
     expect(result.is128K).toBe(true);
@@ -1123,7 +1123,7 @@ describe('SZX — saveSZXSync (uncompressed, no CompressionStream)', () => {
   });
 
   it('writes RAMP blocks uncompressed (wFlags bit 0 clear, full 16KB payload)', () => {
-    const saved = saveSZXSync(makeCpu(), makeMemory128k(), 0, '128k', 0);
+    const saved = saveSZXSync(makeCpu(), makeMemory128k(), 0, 'zx128k', 0);
     // Walk the block list and confirm every RAMP is raw and full-sized.
     let offset = 8; // past header
     let ramps = 0;
@@ -1148,7 +1148,7 @@ describe('SZX — saveSZXSync (uncompressed, no CompressionStream)', () => {
     cpu.iff2 = true;
     cpu.i = 0xFE;
     cpu.halted = true;
-    const saved = saveSZXSync(cpu, makeMemory128k(), 0, '128k', 0);
+    const saved = saveSZXSync(cpu, makeMemory128k(), 0, 'zx128k', 0);
 
     const cpu2 = new Z80();
     await loadSZX(saved, cpu2, makeMemory128k());
@@ -1278,12 +1278,12 @@ describe('SZX — RAMP wFlags bit 0 = ZXSTRF_COMPRESSED only', () => {
 describe('SZX — 16K full round-trip', () => {
   it('saves and loads only bank 5 for 16K machines', async () => {
     const cpu = makeCpu();
-    const mem = new SpectrumMemory('16k');
+    const mem = new SpectrumMemory('zx16k');
     mem.loadROM(new Uint8Array(16384));
     const bank5 = mem.getRamBank(5);
     for (let i = 0; i < 16384; i++) bank5[i] = (i * 13 + 7) & 0xFF;
 
-    const saved = await saveSZX(cpu, mem, 1, '16k', 0);
+    const saved = await saveSZX(cpu, mem, 1, 'zx16k', 0);
     expect(saved[6]).toBe(0); // machine ID = 16K
 
     // Exactly one RAMP block, for page 5.
@@ -1303,7 +1303,7 @@ describe('SZX — 16K full round-trip', () => {
     expect(rampPage).toBe(5);
 
     const cpu2 = new Z80();
-    const mem2 = new SpectrumMemory('16k');
+    const mem2 = new SpectrumMemory('zx16k');
     mem2.loadROM(new Uint8Array(16384));
     const result = await loadSZX(saved, cpu2, mem2);
     expect(result.is128K).toBe(false);
@@ -1329,11 +1329,11 @@ describe('SZX — byte-identity round-trip', () => {
       mem.getRamBank(0)[i] = (i * 7 + 3) & 0xFF;
     }
 
-    const saved1 = await saveSZX(cpu, mem, 4, '48k', 0);
+    const saved1 = await saveSZX(cpu, mem, 4, 'zx48k', 0);
     const cpu2 = new Z80();
     const mem2 = makeMemory48k();
     await loadSZX(saved1, cpu2, mem2);
-    const saved2 = await saveSZX(cpu2, mem2, 4, '48k', 0);
+    const saved2 = await saveSZX(cpu2, mem2, 4, 'zx48k', 0);
 
     expect(saved2.length).toBe(saved1.length);
     for (let i = 0; i < saved1.length; i++) {
@@ -1354,7 +1354,7 @@ describe('SZX — byte-identity round-trip', () => {
     mem.currentBank = 3;
     mem.applyBanking();
 
-    const saved1 = await saveSZX(cpu, mem, 2, '128k', 0);
+    const saved1 = await saveSZX(cpu, mem, 2, 'zx128k', 0);
     const cpu2 = new Z80();
     const mem2 = makeMemory128k();
     // Unlike the .z80 and .sna loaders, loadSZX returns port7FFD/port1FFD
@@ -1366,7 +1366,7 @@ describe('SZX — byte-identity round-trip', () => {
     mem2.port1FFD = r.port1FFD;
     mem2.currentBank = r.port7FFD & 0x07;
     mem2.applyBanking();
-    const saved2 = await saveSZX(cpu2, mem2, 2, '128k', 0);
+    const saved2 = await saveSZX(cpu2, mem2, 2, 'zx128k', 0);
 
     expect(saved2.length).toBe(saved1.length);
     for (let i = 0; i < saved1.length; i++) {
@@ -1391,7 +1391,7 @@ describe('SZX — save uncompressed fallback when deflate does not shrink', () =
       bank5[i] = Number((s >> 33n) & 0xFFn);
     }
 
-    const saved = await saveSZX(cpu, mem, 0, '48k', 0);
+    const saved = await saveSZX(cpu, mem, 0, 'zx48k', 0);
 
     // Walk SZX blocks until we find the RAMP block for page 5.
     let off = 8;
@@ -1428,7 +1428,7 @@ describe('SZX — Z80R block iff1/iff2 byte encoding', () => {
     const cpu = new Z80();
     cpu.iff1 = iff1;
     cpu.iff2 = iff2;
-    const saved = await saveSZX(cpu, makeMemory48k(), 0, '48k', 0);
+    const saved = await saveSZX(cpu, makeMemory48k(), 0, 'zx48k', 0);
 
     // Z80R block sits immediately after the 8-byte SZX header + 8-byte block
     // header. Fields 26 and 27 inside the payload are chIff1 and chIff2.
@@ -1450,7 +1450,7 @@ describe('SZX — save AY block without an explicit current register', () => {
     for (let i = 0; i < 16; i++) ayRegs[i] = i + 0x10;
 
     // Pass ayRegs but no ayCurrentReg — exercises the `?? 0` branch.
-    const saved = await saveSZX(cpu, makeMemory48k(), 0, '48k', 0, ayRegs);
+    const saved = await saveSZX(cpu, makeMemory48k(), 0, 'zx48k', 0, ayRegs);
 
     // Locate the AY block and inspect chCurrentRegister.
     let off = 8;

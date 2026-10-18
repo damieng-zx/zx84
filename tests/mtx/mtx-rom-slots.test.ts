@@ -25,15 +25,15 @@ describe('MTX ROM slot layout', () => {
   });
 
   it('leaves the Spectrum 16K slot geometry unchanged', () => {
-    expect(romSlotSize('128k')).toBe(16384);
-    expect(romSlotSize('+3')).toBe(16384);
-    expect(romPageSlotCount('128k')).toBe(2);
-    expect(romPageSlotCount('+3')).toBe(4);
-    expect(defaultRomPageLabel('+3', 2)).toBe('+3DOS');
+    expect(romSlotSize('zx128k')).toBe(16384);
+    expect(romSlotSize('zx128kplus3')).toBe(16384);
+    expect(romPageSlotCount('zx128k')).toBe(2);
+    expect(romPageSlotCount('zx128kplus3')).toBe(4);
+    expect(defaultRomPageLabel('zx128kplus3', 2)).toBe('+3DOS');
   });
 
   it('reports a single combined slot for machines without ROM pages', () => {
-    expect(romPageSlotCount('48k')).toBe(0);
-    expect(romSlotSize('48k')).toBe(16384);
+    expect(romPageSlotCount('zx48k')).toBe(0);
+    expect(romSlotSize('zx48k')).toBe(16384);
   });
 });

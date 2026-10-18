@@ -38,7 +38,7 @@ function mdrBytes(): Uint8Array {
 const sna48 = () => new Uint8Array(49179);
 const sna128 = () => new Uint8Array(131103);
 
-function machine(model: '48k' | '+3' = '48k'): Spectrum {
+function machine(model: 'zx48k' | 'zx128kplus3' = 'zx48k'): Spectrum {
   const s = new Spectrum(model, null);
   // Headless: the mounts call start()/stop() around device swaps (as the
   // shell paths always did); a real start() would touch AudioContext/rAF.
@@ -71,7 +71,7 @@ describe('Spectrum MediaService routing', () => {
   });
 
   it('.dsk on a +3 mounts in the uPD765A (drive A by default, B via unit hint)', async () => {
-    const s = machine('+3');
+    const s = machine('zx128kplus3');
     const a = await s.services.media.mount(dskBytes(), 'game.dsk');
     expect(a.ok).toBe(true);
     expect(a.target).toBe('a');
@@ -82,7 +82,7 @@ describe('Spectrum MediaService routing', () => {
   });
 
   it('.dsk on a 48K still parses into the (unused) uPD765A — pre-service quirk preserved', async () => {
-    const s = machine('48k');
+    const s = machine('zx48k');
     const r = await s.services.media.mount(dskBytes(), 'game.dsk');
     expect(r.ok).toBe(true);
     expect(r.target).toBe('a');
@@ -128,7 +128,7 @@ describe('Spectrum MediaService routing', () => {
   });
 
   it('.hfe on a +3 falls through to the uPD765A (never the +D)', async () => {
-    const s = machine('+3');
+    const s = machine('zx128kplus3');
     const r = await s.services.media.mount(hfeBytes(), 'flux.hfe');
     expect(r.target).toBe('a');
     expect(s.fdc.getDiskImage(0)).not.toBeNull();
@@ -146,20 +146,20 @@ describe('Spectrum MediaService routing', () => {
   });
 
   it('.rom inserts an IF2 cartridge on a 48K, is unknown on a +3', async () => {
-    const s48 = machine('48k');
+    const s48 = machine('zx48k');
     const r48 = await s48.services.media.mount(new Uint8Array(16384), 'game.rom');
     expect(r48.ok).toBe(true);
     expect(r48.target).toBe('cartridge');
     expect(s48.interface2.name).toBe('game.rom');
 
-    const s3 = machine('+3');
+    const s3 = machine('zx128kplus3');
     const r3 = await s3.services.media.mount(new Uint8Array(16384), 'game.rom');
     expect(r3.ok).toBe(false);
     expect(r3.message).toMatch(/Unknown file type/);
   });
 
   it('48K .sna applies directly (no model upgrade)', async () => {
-    const s = machine('48k');
+    const s = machine('zx48k');
     const { host, calls } = hostStub(true);
     s.attachHost(host);
     const r = await s.services.media.mount(sna48(), 'game.sna');
@@ -169,17 +169,17 @@ describe('Spectrum MediaService routing', () => {
   });
 
   it('128K .sna on a 48K asks the host for a 128K model and flags a replay', async () => {
-    const s = machine('48k');
+    const s = machine('zx48k');
     const { host, calls } = hostStub(true);
     s.attachHost(host);
     const r = await s.services.media.mount(sna128(), 'game128.sna');
-    expect(calls).toEqual([{ model: '128k', reason: expect.stringContaining('game128.sna') }]);
+    expect(calls).toEqual([{ model: 'zx128k', reason: expect.stringContaining('game128.sna') }]);
     expect(r.ok).toBe(true);
     expect(r.replay).toBe(true);
   });
 
   it('128K .sna on a 48K fails cleanly when the host declines the upgrade', async () => {
-    const s = machine('48k');
+    const s = machine('zx48k');
     const { host } = hostStub(false);
     s.attachHost(host);
     const r = await s.services.media.mount(sna128(), 'game128.sna');
@@ -195,7 +195,7 @@ describe('Spectrum MediaService routing', () => {
   });
 
   it('accepts() declares every format mount() routes: WD peripherals on all models, .dsk only with a +3 FDC', () => {
-    const exts48 = machine('48k').services.media.accepts().map(t => t.ext);
+    const exts48 = machine('zx48k').services.media.accepts().map(t => t.ext);
     expect(exts48).toContain('.rom');
     expect(exts48).toContain('.mdr');
     for (const ext of ['.cdt', '.trd', '.scl', '.mgt', '.img', '.hfe', '.scp']) {
@@ -203,7 +203,7 @@ describe('Spectrum MediaService routing', () => {
     }
     expect(exts48).not.toContain('.dsk');
 
-    const exts3 = machine('+3').services.media.accepts().map(t => t.ext);
+    const exts3 = machine('zx128kplus3').services.media.accepts().map(t => t.ext);
     expect(exts3).toContain('.dsk');
     expect(exts3).toContain('.hfe');
     expect(exts3).not.toContain('.rom');

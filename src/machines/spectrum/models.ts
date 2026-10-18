@@ -8,11 +8,29 @@
 
 import type { MachineModel } from '@/models.ts';
 
-export type SpectrumModel = '16k' | '48k' | '128k' | '+2' | '+2A' | '+3' | 'pentagon128' | 'pentagon512' | 'pentagon1024' | 'scorpion256';
+export type SpectrumModel = 'zx16k' | 'zx48k' | 'zx128k' | 'zx128kplus2' | 'zx128kplus2a' | 'zx128kplus3'
+  | 'pentagon128' | 'pentagon512' | 'pentagon1024' | 'scorpion256';
+
+/** The ids the Spectrum models carried before they were unified under a `zx`
+ *  prefix, paired with their current id. Saved settings, stored ROM overrides
+ *  and old `?model=` links still use these, so they are migrated rather than
+ *  dropped. Exact case: they are also the old storage-key spellings. */
+export const LEGACY_SPECTRUM_IDS: readonly (readonly [legacy: string, current: SpectrumModel])[] = [
+  ['16k', 'zx16k'], ['48k', 'zx48k'], ['128k', 'zx128k'],
+  ['+2', 'zx128kplus2'], ['+2A', 'zx128kplus2a'], ['+3', 'zx128kplus3'],
+];
+
+/** Resolve a legacy Spectrum id (`48k`, `+2A`, URL spellings `plus2a`, any
+ *  case) to its current id, or null when `raw` is not a legacy id. */
+export function legacySpectrumModel(raw: string): SpectrumModel | null {
+  const wanted = raw.trim().toLowerCase().replace(/^plus/, '+');
+  return LEGACY_SPECTRUM_IDS.find(([legacy]) => legacy.toLowerCase() === wanted)?.[1] ?? null;
+}
 
 /** Returns true for any 128K-class Spectrum (128K, +2, +2A, +3, the Pentagons, the Scorpion). */
 export function is128kClass(m: MachineModel): boolean {
-  return m === '128k' || m === '+2' || m === '+2A' || m === '+3' || isPentagonClass(m) || isScorpionClass(m);
+  return m === 'zx128k' || m === 'zx128kplus2' || m === 'zx128kplus2a' || m === 'zx128kplus3'
+    || isPentagonClass(m) || isScorpionClass(m);
 }
 
 /** Returns true for the Pentagon family of Russian 128K clones: no contention,
@@ -53,13 +71,13 @@ export function hasBuiltinBetaDisk(m: MachineModel): boolean { return isPentagon
 export function betaRomInSystemRom(m: MachineModel): boolean { return isScorpionClass(m); }
 
 /** Returns true for the issue 1/2 16K Spectrum (no upper 32KB of RAM). */
-export function is16K(m: MachineModel): boolean { return m === '16k'; }
+export function is16K(m: MachineModel): boolean { return m === 'zx16k'; }
 
 /** Returns true for +2A/+3 class (Amstrad gate array with 0x1FFD port, 4 ROM pages). */
-export function isPlus2AClass(m: MachineModel): boolean { return m === '+2A' || m === '+3'; }
+export function isPlus2AClass(m: MachineModel): boolean { return m === 'zx128kplus2a' || m === 'zx128kplus3'; }
 
 /** Returns true for +3 (has uPD765A FDC). */
-export function isPlus3(m: MachineModel): boolean { return m === '+3'; }
+export function isPlus3(m: MachineModel): boolean { return m === 'zx128kplus3'; }
 
 /**
  * Returns true for models the MGT +D interface can attach to: the plain
@@ -67,7 +85,7 @@ export function isPlus3(m: MachineModel): boolean { return m === '+3'; }
  * (Amstrad special paging conflicts, and they already have a built-in FDC).
  */
 export function isPlusDCapable(m: MachineModel): boolean {
-  return m === '48k' || m === '128k' || m === '+2';
+  return m === 'zx48k' || m === 'zx128k' || m === 'zx128kplus2';
 }
 
 /**
@@ -76,7 +94,7 @@ export function isPlusDCapable(m: MachineModel): boolean {
  * connector the IF1 is not electrically compatible with.
  */
 export function isInterface1Capable(m: MachineModel): boolean {
-  return m === '48k' || m === '128k' || m === '+2';
+  return m === 'zx48k' || m === 'zx128k' || m === 'zx128kplus2';
 }
 
 /**
@@ -87,7 +105,7 @@ export function isInterface1Capable(m: MachineModel): boolean {
  * on a 48K.
  */
 export function isBetaDiskCapable(m: MachineModel): boolean {
-  return m === '48k' || m === '128k' || m === '+2' || hasBuiltinBetaDisk(m);
+  return m === 'zx48k' || m === 'zx128k' || m === 'zx128kplus2' || hasBuiltinBetaDisk(m);
 }
 
 /**
@@ -103,8 +121,8 @@ export function isBetaDiskCapable(m: MachineModel): boolean {
  *  - every other model → 0 (single combined "System ROM" slot).
  */
 export function romPageSlotCount(m: MachineModel): 0 | 2 | 4 {
-  if (m === '128k' || m === '+2' || isPentagonClass(m)) return 2;
-  if (m === '+2A' || m === '+3' || isScorpionClass(m)) return 4;
+  if (m === 'zx128k' || m === 'zx128kplus2' || isPentagonClass(m)) return 2;
+  if (m === 'zx128kplus2a' || m === 'zx128kplus3' || isScorpionClass(m)) return 4;
   return 0;
 }
 
@@ -115,7 +133,7 @@ export function romPageSlotCount(m: MachineModel): 0 | 2 | 4 {
  * real Interface 2 predates the 128K and was only ever sold for the 16K/48K.
  */
 export function isInterface2Capable(m: MachineModel): boolean {
-  return m === '16k' || m === '48k';
+  return m === 'zx16k' || m === 'zx48k';
 }
 
 /** A system-ROM slot index within a multi-slot model. 0-3 index the Spectrum's
@@ -141,8 +159,8 @@ const SCORPION_PAGE_NAMES = ['Scorpion 128K', '48K BASIC', 'Service Monitor', 'T
  *  - +2A/+3: the four real ROM names (editor, syntax checker, +3DOS, 48K
  *    BASIC) — same for both, since the +2A reuses the +3's ROM set. */
 export function defaultRomPageLabel(model: MachineModel, page: RomPage): string {
-  if (model === '+2A' || model === '+3') return PLUS3_PAGE_NAMES[page];
+  if (model === 'zx128kplus2a' || model === 'zx128kplus3') return PLUS3_PAGE_NAMES[page];
   if (isScorpionClass(model)) return SCORPION_PAGE_NAMES[page];
-  const maker = model === '+2' ? 'Amstrad' : isPentagonClass(model) ? 'Pentagon' : 'Sinclair';
+  const maker = model === 'zx128kplus2' ? 'Amstrad' : isPentagonClass(model) ? 'Pentagon' : 'Sinclair';
   return page === 0 ? `${maker} 128K BASIC` : `${maker} 48K BASIC`;
 }

@@ -26,7 +26,7 @@ function spectrumMemoryRegions(model: MachineModel): MemoryRegionInfo[] {
 
 function spectrumStatusLeds(model: MachineModel): StatusLedId[] {
   const leds: StatusLedId[] = ['kbd', 'kemp', 'mouse', 'ear', 'load', 'text', 'rainbow', 'beep'];
-  if (is128kClass(model)) leds.push('ay');
+  if (is128kClass(model)) leds.push('chip');
   if (isPlus3(model)) leds.push('dsk');
   return leds;
 }
@@ -50,7 +50,8 @@ function spectrumUi(model: MachineModel): MachineUiCapabilities {
     romPages: romPageSlotCount(model),
     beeper: true,
     // spectrum.ts reads 'ay-mix' to balance the 128K AY against the beeper.
-    psgMixer: true,
+    psgMixer: is128kClass(model),
+    soundChip: is128kClass(model) ? 'AY-3-8912' : undefined,
     psgControls: ['stereo', 'filter', 'dc-block'],
     statusLeds: spectrumStatusLeds(model),
     keyboardBus: 'ula',
@@ -89,12 +90,12 @@ function romKey(model: SpectrumModel, locale?: MachineLocale): string {
 // Falls back to UK when a locale ROM is not registered.
 const ROM_SOURCES: Record<string, string[]> = {
   // ── UK defaults ──────────────────────────────────────────────────────────
-  '16k':  ['sinclair/48.rom'],
-  '48k':  ['sinclair/48.rom'],
-  '128k': ['sinclair/128-0.rom', 'sinclair/128-1.rom'],
-  '+2':   ['sinclair/plus2-0.rom', 'sinclair/plus2-1.rom'],
-  '+2A':  ['sinclair/plus3-41-0.rom', 'sinclair/plus3-41-1.rom', 'sinclair/plus3-41-2.rom', 'sinclair/plus3-41-3.rom'],
-  '+3':   ['sinclair/plus3-0.rom', 'sinclair/plus3-1.rom', 'sinclair/plus3-2.rom', 'sinclair/plus3-3.rom'],
+  'zx16k':  ['sinclair/48.rom'],
+  'zx48k':  ['sinclair/48.rom'],
+  'zx128k': ['sinclair/128-0.rom', 'sinclair/128-1.rom'],
+  'zx128kplus2':   ['sinclair/plus2-0.rom', 'sinclair/plus2-1.rom'],
+  'zx128kplus2a':  ['sinclair/plus3-41-0.rom', 'sinclair/plus3-41-1.rom', 'sinclair/plus3-41-2.rom', 'sinclair/plus3-41-3.rom'],
+  'zx128kplus3':   ['sinclair/plus3-0.rom', 'sinclair/plus3-1.rom', 'sinclair/plus3-2.rom', 'sinclair/plus3-3.rom'],
 
   // ── Russian clones ───────────────────────────────────────────────────────
   // The Pentagon 128's system ROM is the Sinclair 128K ROM pair (menu + 48K
@@ -110,15 +111,15 @@ const ROM_SOURCES: Record<string, string[]> = {
   scorpion256: ['clones/scorpion-zs256-v25c.rom'],
 
   // ── Spanish (Investrónica) ───────────────────────────────────────────────
-  '48k-es':  ['sinclair/48-es.rom'],
-  '128k-es': ['sinclair/128-0-es.rom', 'sinclair/128-1-es.rom'],
-  '+2-es':   ['sinclair/plus2-0-es.rom', 'sinclair/plus2-1-es.rom'],
-  '+2A-es':  ['sinclair/plus3-0-es.rom', 'sinclair/plus3-1-es.rom', 'sinclair/plus3-2-es.rom', 'sinclair/plus3-3-es.rom'],
-  '+3-es':   ['sinclair/plus3-0-es.rom', 'sinclair/plus3-1-es.rom', 'sinclair/plus3-2-es.rom', 'sinclair/plus3-3-es.rom'],
+  'zx48k-es':  ['sinclair/48-es.rom'],
+  'zx128k-es': ['sinclair/128-0-es.rom', 'sinclair/128-1-es.rom'],
+  'zx128kplus2-es':   ['sinclair/plus2-0-es.rom', 'sinclair/plus2-1-es.rom'],
+  'zx128kplus2a-es':  ['sinclair/plus3-0-es.rom', 'sinclair/plus3-1-es.rom', 'sinclair/plus3-2-es.rom', 'sinclair/plus3-3-es.rom'],
+  'zx128kplus3-es':   ['sinclair/plus3-0-es.rom', 'sinclair/plus3-1-es.rom', 'sinclair/plus3-2-es.rom', 'sinclair/plus3-3-es.rom'],
 
   // ── French ───────────────────────────────────────────────────────────────
-  '128k-fr': ['sinclair/128-0-fr.rom', 'sinclair/128-1-fr.rom'],
-  '+2-fr':   ['sinclair/plus2-0-fr.rom', 'sinclair/plus2-1-fr.rom'],
+  'zx128k-fr': ['sinclair/128-0-fr.rom', 'sinclair/128-1-fr.rom'],
+  'zx128kplus2-fr':   ['sinclair/plus2-0-fr.rom', 'sinclair/plus2-1-fr.rom'],
 };
 
 /** Descriptor for one Spectrum model — shared by the registry entry and the
@@ -140,7 +141,7 @@ export function spectrumDescriptor(model: MachineModel, locale: MachineLocale = 
 
 export const spectrumEntry: MachineEntry = {
   kind: 'spectrum',
-  models: ['16k', '48k', '128k', '+2', '+2A', '+3', 'pentagon128', 'pentagon512', 'pentagon1024', 'scorpion256'],
+  models: ['zx16k', 'zx48k', 'zx128k', 'zx128kplus2', 'zx128kplus2a', 'zx128kplus3', 'pentagon128', 'pentagon512', 'pentagon1024', 'scorpion256'],
   descriptor: spectrumDescriptor,
   create(model: MachineModel, display: IScreenRenderer | null) {
     return new Spectrum(model as SpectrumModel, display);
@@ -154,10 +155,10 @@ export const spectrumEntry: MachineEntry = {
    *  falls back to a 128K base), keeping the current model when its class
    *  already matches the image size. Ported verbatim from the shell's applyROM. */
   detectModelForRom(data: Uint8Array, current: MachineModel): MachineModel | null {
-    const cur: SpectrumModel = isCpcModel(current) ? '128k' : current as SpectrumModel;
-    if (data.length >= 65536) return isPlus2AClass(cur) || isScorpionClass(cur) ? cur : '+2A';
-    if (data.length >= 32768) return is128kClass(cur) ? cur : '128k';
-    if (data.length >= 16384) return '48k';
+    const cur: SpectrumModel = isCpcModel(current) ? 'zx128k' : current as SpectrumModel;
+    if (data.length >= 65536) return isPlus2AClass(cur) || isScorpionClass(cur) ? cur : 'zx128kplus2a';
+    if (data.length >= 32768) return is128kClass(cur) ? cur : 'zx128k';
+    if (data.length >= 16384) return 'zx48k';
     return null;   // too small to be a system ROM
   },
 };

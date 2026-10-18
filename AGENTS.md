@@ -213,7 +213,7 @@ npm run deploy:catalog
 
 - **Memory access layer**: only the Z80 execution path uses `readByte`/`writeByte`. Debug tools (`src/debug/`), UI components, and snapshot code use `Uint8Array` directly — either a `snapshot()` or a specific bank array. Don't add `ByteReader` parameters to debug tool functions.
 
-- **Contention models differ**: Ferranti ULA (48K/128K/+2) vs Amstrad gate array (+2A/+3) have different contention patterns, different contended banks, and different IO contention rules. Check `machines/spectrum/contention.ts` and `timings.md` before touching timing-sensitive code.
+- **Contention models differ**: Ferranti ULA (48K/128K/+2) vs Amstrad gate array (+2A/+3) have different contention patterns, different contended banks, and different IO contention rules. Check `machines/spectrum/contention.ts` before touching timing-sensitive code.
 
 - **Port decode is hot**: `machines/spectrum/io.ts` (and each machine's `io.ts`) wires CPU port I/O to the cores as an ordered if-chain whose early returns prevent double-decode. It's a tier-1 hot path — no interfaces, no logic changes beyond the wiring.
 

@@ -36,12 +36,12 @@ export function findPlus3MenuWait(rom0: Uint8Array): number {
 /** Trap PC for `model`: the +2A/+3 menu wait found in the installed ROM 0,
  *  the 128K/+2 menu wait, or the 48K editor's WAIT-KEY. */
 export function bootWaitPc(model: SpectrumModel, rom0: Uint8Array): number {
-  if (model === '+2A' || model === '+3') {
+  if (model === 'zx128kplus2a' || model === 'zx128kplus3') {
     const pc = findPlus3MenuWait(rom0);
     return pc >= 0 ? pc : PLUS3_MENU_WAIT_V41;
   }
   // 128K/+2 menu wait. The Pentagons and the Scorpion run the same 128K menu ROM 0
   // (their ROM 0 is byte-identical here), so the same address applies.
-  if (model === '128k' || model === '+2' || isPentagonClass(model) || isScorpionClass(model)) return 0x0E65;
+  if (model === 'zx128k' || model === 'zx128kplus2' || isPentagonClass(model) || isScorpionClass(model)) return 0x0E65;
   return 0x15DE;                                           // 48K editor WAIT-KEY
 }

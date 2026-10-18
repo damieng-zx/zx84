@@ -123,7 +123,7 @@ describe('Pentagon 128 — built-in Beta Disk', () => {
   });
 
   it('no Sinclair model has a built-in Beta Disk', () => {
-    for (const m of ['16k', '48k', '128k', '+2', '+2A', '+3'] as const) {
+    for (const m of ['zx16k', 'zx48k', 'zx128k', 'zx128kplus2', 'zx128kplus2a', 'zx128kplus3'] as const) {
       expect(hasBuiltinBetaDisk(m)).toBe(false);
     }
   });
@@ -146,7 +146,7 @@ describe('Pentagon 128 — built-in Beta Disk', () => {
   });
 
   it('does not fit a Beta Disk to a plain 128K unless asked', () => {
-    const s = new Spectrum('128k', null);
+    const s = new Spectrum('zx128k', null);
     buildSpectrumAuxRoms(s, settings({}));
     expect(s.betaDisk.enabled).toBe(false);
   });

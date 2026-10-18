@@ -11,7 +11,7 @@ import { FloppySound } from '@/media/floppy/floppy-sound.ts';
 import type { RomPage } from '@/managers/rom-manager.ts';
 import { type TraceMode } from '@/managers/debug-manager.ts';
 import * as settings from '@/store/settings.ts';
-import { clearLastFile, migrateDiskStorage } from '@/store/persistence.ts';
+import { clearLastFile, migrateDiskStorage, migrateModelIds } from '@/store/persistence.ts';
 import { decideFocusPause } from '@/focus-pause.ts';
 import {
   currentModel, setCurrentModel, saveModel, emulationPaused, setEmulationPaused,
@@ -80,7 +80,7 @@ function buildMachineHost(): MachineHost {
   return {
     setStatus,
     async requestModel(model, _reason) {
-      if (model === '128k') {
+      if (model === 'zx128k') {
         // Any 128K-class machine with a restorable ROM satisfies a 128K
         // snapshot — same fallback chain ensure128kROM always used.
         return await ensure128kROM();
@@ -481,6 +481,7 @@ export function setCanvas(el: HTMLCanvasElement): void {
 export async function init(): Promise<void> {
   const generation = ++modelSwitchGeneration;
   await migrateDiskStorage();
+  await migrateModelIds();
   if (generation !== modelSwitchGeneration) return;
   const model = currentModel();
   const locale = currentLocale();

@@ -10,6 +10,7 @@
 
 import { createSignal } from 'solid-js';
 import type { MachineModel } from '@/models.ts';
+import { LEGACY_SPECTRUM_IDS, legacySpectrumModel } from '@/models.ts';
 import type { MachineDescriptor, MachineLocale, RomSlotInfo, SidewaysRomSlot } from '@/machines/machine.ts';
 import { registry } from '@/machines/registry.ts';
 
@@ -27,9 +28,12 @@ function loadSavedModel(): MachineModel | null {
   try {
     const raw = localStorage.getItem('zx84-model');
     if (raw === null) return null;
-    // Legacy migrations: pre-2026-05 builds stored '+2a' lower-case, and the
-    // Einstein TC-01 was 'einstein' before it was renamed 'einstein-tc01'.
-    const val = raw === '+2a' ? '+2A' : raw === 'einstein' ? 'einstein-tc01' : raw;
+    // Legacy migrations: the Spectrum models were '48k', '+2A' (once '+2a'), …
+    // before they were unified as 'zx48k' etc., and the Einstein TC-01 was
+    // 'einstein' before it was renamed 'einstein-tc01'.
+    // (Stored values are matched exactly; the lower-case '+2a' predates even that.)
+    const legacy = LEGACY_SPECTRUM_IDS.find(([id]) => id === raw || (id === '+2A' && raw === '+2a'))?.[1];
+    const val = legacy ?? (raw === 'einstein' ? 'einstein-tc01' : raw);
     if (isKnownModel(val)) {
       if (val !== raw) {
         try { localStorage.setItem('zx84-model', val); } catch { /* */ }
@@ -45,16 +49,16 @@ function loadSavedModel(): MachineModel | null {
 
 /**
  * Resolve a `?model=` (or `?machine=`) URL value to a known model. Matching is
- * case-insensitive; `plus` stands in for `+` (`plus2a` → `+2A`), and a leading
- * space is read back as `+` because an unencoded `+` in a query string decodes
- * to a space.
+ * case-insensitive. The Spectrum's old ids (`48k`, `+2A`, `plus2a`, …) still
+ * resolve so existing links keep working; a leading space is read back as `+`
+ * because an unencoded `+` in a query string decodes to a space.
  */
 export function parseUrlModel(search: string): MachineModel | null {
   const params = new URLSearchParams(search);
   const raw = (params.get('model') ?? params.get('machine'))?.replace(/^ /, '+').trim();
   if (!raw) return null;
-  const wanted = raw.toLowerCase().replace(/^plus/, '+');
-  return KNOWN_MODELS.find(m => m.toLowerCase() === wanted) ?? null;
+  const wanted = raw.toLowerCase();
+  return KNOWN_MODELS.find(m => m.toLowerCase() === wanted) ?? legacySpectrumModel(raw);
 }
 
 /** Apply a `?model=` URL override once at startup: it wins over the saved model,
@@ -110,7 +114,7 @@ export const sidewaysRomSlots = _sidewaysRomSlots[0];
 export const setSidewaysRomSlots = _sidewaysRomSlots[1];
 
 // Model selection
-const _currentModel = createSignal<MachineModel>(consumeUrlModel() ?? loadSavedModel() ?? '128k');
+const _currentModel = createSignal<MachineModel>(consumeUrlModel() ?? loadSavedModel() ?? 'zx128k');
 export const currentModel = _currentModel[0];
 export const setCurrentModel = _currentModel[1];
 

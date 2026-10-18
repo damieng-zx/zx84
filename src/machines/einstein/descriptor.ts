@@ -21,7 +21,7 @@ const EINSTEIN_UI: MachineUiCapabilities = {
   // system-variables view either.
   hiddenPanes: ['tape-panel', 'sysvar-panel'],
   memoryLayout: true,
-  trace: true,
+  trace: false,
   colorMap: 'einstein',
   accuracy: false,
   builtinDisk: true,
@@ -33,7 +33,8 @@ const EINSTEIN_UI: MachineUiCapabilities = {
   romPages: 0,
   beeper: true,
   psgControls: ['stereo', 'filter', 'dc-block'],
-  statusLeds: ['kbd', 'ay', 'dsk', 'text'],
+  soundChip: 'AY-3-8910',
+  statusLeds: ['kbd', 'chip', 'dsk', 'text'],
   keyboardBus: 'ula',
   tapeSound: false,
   tapeExtensions: [],

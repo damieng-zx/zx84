@@ -337,10 +337,10 @@ describe('Scorpion — snapshots (SZX)', () => {
 
 describe('AY clock of the clones', () => {
   it('is 1.75 MHz (3.5 MHz CPU / 2) on the Pentagons and the Scorpion, 1.7734 MHz on a Sinclair 128K', () => {
-    const clock = (m: 'pentagon128' | 'pentagon512' | 'pentagon1024' | 'scorpion256' | '128k') =>
+    const clock = (m: 'pentagon128' | 'pentagon512' | 'pentagon1024' | 'scorpion256' | 'zx128k') =>
       (new Spectrum(m, null).ay as unknown as { chipFreq: number }).chipFreq;
     for (const m of ['pentagon128', 'pentagon512', 'pentagon1024', 'scorpion256'] as const) expect(clock(m)).toBe(1_750_000);
-    expect(clock('128k')).toBe(1_773_400);
+    expect(clock('zx128k')).toBe(1_773_400);
   });
 });
 
@@ -367,6 +367,6 @@ describe('Scorpion — registry and menu', () => {
   it('a 64K ROM dropped on the ROM pane keeps the Scorpion model', () => {
     const entry = entryForModel('scorpion256');
     expect(entry.detectModelForRom?.(new Uint8Array(65536), 'scorpion256')).toBe('scorpion256');
-    expect(entry.detectModelForRom?.(new Uint8Array(65536), '128k')).toBe('+2A');
+    expect(entry.detectModelForRom?.(new Uint8Array(65536), 'zx128k')).toBe('zx128kplus2a');
   });
 });

@@ -16,7 +16,7 @@ const MSX_UI: MachineUiCapabilities = {
   // No system-variables view (only the Spectrum contributes one).
   hiddenPanes: ['sysvar-panel'],
   memoryLayout: true,
-  trace: true,
+  trace: false,
   colorMap: 'msx',
   accuracy: false,
   // The floppy interface is a Hardware-pane option: the Drives pane shows only
@@ -32,7 +32,8 @@ const MSX_UI: MachineUiCapabilities = {
   psgControls: ['stereo', 'filter', 'dc-block'],
   // PSG (AY-3-8910) sound, cassette load, keyboard and OCR. The MSX has no
   // Spectrum-style EAR/rainbow/Kempston activity to indicate.
-  statusLeds: ['kbd', 'load', 'ay', 'text'],
+  soundChip: 'AY-3-8910',
+  statusLeds: ['kbd', 'load', 'chip', 'text'],
   keyboardBus: 'ula',
   tape: 'instant',
   tapeSound: true,

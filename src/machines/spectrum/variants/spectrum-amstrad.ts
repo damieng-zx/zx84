@@ -9,15 +9,12 @@ import type { MachineVariant } from './machine-variant.ts';
 /** Amstrad gate array contention pattern: 1,0,7,6,5,4,3,2 */
 const CONTENTION_AMSTRAD = new Uint8Array([1, 0, 7, 6, 5, 4, 3, 2]);
 
-export function createAmstrad(model: '+2A' | '+3'): MachineVariant {
-  const hasFDC = model === '+3';
+export function createAmstrad(model: 'zx128kplus2a' | 'zx128kplus3'): MachineVariant {
+  const hasFDC = model === 'zx128kplus3';
 
   return Object.freeze({
     model: model as SpectrumModel,
     timing: TIMING_PLUS2A,
-
-    cellRenderOffset: 0 as const,
-    vramFlushEnd: 0x5800,
 
     contentionPattern: CONTENTION_AMSTRAD,
     hasIOContention: false,

@@ -13,7 +13,7 @@ import {
 const MTX_UI: MachineUiCapabilities = {
   hiddenPanes: ['microdrive-panel', 'mouse-panel', 'sysvar-panel'],
   memoryLayout: true,
-  trace: true,
+  trace: false,
   colorMap: 'msx',
   // VDP-based scanline rendering — no per-t-state Accuracy dropdown (as MSX).
   accuracy: false,
@@ -27,7 +27,8 @@ const MTX_UI: MachineUiCapabilities = {
   beeper: false,
   // An SN76489, not an AY: it takes the anti-alias strategy and nothing else.
   psgControls: ['sn-stereo', 'filter'],
-  statusLeds: ['kbd', 'load', 'dsk', 'psg', 'text'],
+  soundChip: 'SN76489',
+  statusLeds: ['kbd', 'load', 'dsk', 'chip', 'text'],
   keyboardBus: 'matrix',
   tape: 'instant',
   tapeSound: false,

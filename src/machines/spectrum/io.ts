@@ -55,9 +55,12 @@ export function installMemoryHooks(s: Spectrum): void {
   } : () => {};
   cpu.contend = cpu._contendAccurate;
 
-  // Bytes of the displayed bank that affect rendering on this model
-  // (bitmap+attrs on 48K, bitmap only elsewhere), as an offset within the bank.
-  const vramFlushLen = v.vramFlushEnd - 0x4000;
+  // Bytes of the displayed bank that affect rendering (bitmap + attributes),
+  // as an offset within the bank. Every model needs the attributes too: a
+  // multicolour engine rewrites a cell's attribute right after the ULA has
+  // fetched it, and without the flush the lazy renderer would draw the line
+  // just fetched with the next line's colours.
+  const vramFlushLen = 0x1B00;
   const slotIsScreen = memory.slotIsScreen;
 
   cpu.write8 = (addr: number, val: number): void => {
@@ -89,7 +92,7 @@ export function installMemoryHooks(s: Spectrum): void {
     if (memory.is16K && addr >= 0x8000) return;
     // Flush before any write into the displayed bank — through 0x4000, or
     // through 0xC000 when bank 7 (shadow screen, shown) or bank 5 is paged
-    // there — so already-passed beam positions keep the old data.
+    // there — so already-fetched beam positions keep the old data.
     if (slotIsScreen[addr >>> 14] !== 0 && (addr & 0x3FFF) < vramFlushLen) {
       s.flushBeam();
     }

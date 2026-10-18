@@ -254,7 +254,7 @@ export type MemoryMapFlag = 'screen' | 'active';
  *  declared here so machine descriptors stay headless-safe. A machine lists the
  *  ids it exposes via `MachineUiCapabilities.statusLeds`. */
 export const STATUS_LED_IDS = [
-  'kbd', 'kemp', 'mouse', 'ear', 'load', 'dsk', 'text', 'rainbow', 'beep', 'ay', 'psg',
+  'kbd', 'kemp', 'mouse', 'ear', 'load', 'dsk', 'text', 'rainbow', 'beep', 'chip',
 ] as const;
 
 export type StatusLedId = typeof STATUS_LED_IDS[number];
@@ -361,6 +361,11 @@ export interface MachineUiCapabilities {
    *  to weigh it against, and the MSX and Einstein never read the setting —
    *  so the pane hides a slider that would do nothing. */
   readonly psgMixer?: boolean;
+  /** Name of the machine's sound chip (`AY-3-8912`, `SN76489`, …) — the label
+   *  of the status-bar sound LED and the sound side of the Sound-pane mixer.
+   *  Omitted where the machine has only a beeper; such a machine must not list
+   *  the 'chip' LED. */
+  readonly soundChip?: string;
   /**
    * Which of the Sound pane's PSG-shaping controls apply to this machine.
    *

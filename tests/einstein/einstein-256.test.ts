@@ -123,7 +123,7 @@ describe('Einstein 256 registry entry', () => {
     expect(einsteinEntry.detectModelForRom?.(new Uint8Array(0x2000), 'einstein-256')).toBe('einstein-tc01');
     expect(einsteinEntry.detectModelForRom?.(new Uint8Array(0x1000), 'einstein-tc01')).toBeNull();
     // 8/16KB collide with Spectrum ROMs — don't steal them from other machines.
-    expect(einsteinEntry.detectModelForRom?.(new Uint8Array(0x4000), '48k')).toBeNull();
+    expect(einsteinEntry.detectModelForRom?.(new Uint8Array(0x4000), 'zx48k')).toBeNull();
     expect(einsteinEntry.detectModelForRom?.(new Uint8Array(0x2000), 'hx-10')).toBeNull();
   });
 

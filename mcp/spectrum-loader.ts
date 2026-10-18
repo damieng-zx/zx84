@@ -130,9 +130,10 @@ export async function loadFileInto(spec: Spectrum, source: string, diskUnit: num
     // Auto-detect model from SZX header byte 6 (machine ID).
     // Must switch before loading so memory.is128K is set correctly and ROM pages are right.
     const SZX_ID_MODEL: Record<number, SpectrumModel> = {
-      0: '16k', 1: '48k', 2: '128k', 3: '+2', 4: '+2A', 5: '+3', 6: '+3', 7: 'pentagon128', 10: 'scorpion256', 13: 'pentagon512', 14: 'pentagon1024',
+      0: 'zx16k', 1: 'zx48k', 2: 'zx128k', 3: 'zx128kplus2', 4: 'zx128kplus2a', 5: 'zx128kplus3', 6: 'zx128kplus3',
+      7: 'pentagon128', 10: 'scorpion256', 13: 'pentagon512', 14: 'pentagon1024',
     };
-    const szxModel: SpectrumModel = (data.length >= 7 ? SZX_ID_MODEL[data[6]] : undefined) ?? '48k';
+    const szxModel: SpectrumModel = (data.length >= 7 ? SZX_ID_MODEL[data[6]] : undefined) ?? 'zx48k';
     if (szxModel !== state.model) {
       await initMachine(szxModel);
       spec = activeSpectrum()!; // szxModel is always a Spectrum model
@@ -144,7 +145,7 @@ export async function loadFileInto(spec: Spectrum, source: string, diskUnit: num
       // The same paging restore the app uses (direct property assignment + applyBanking,
       // NOT bankSwitch(), whose slot-diffing won't re-populate fixed slots), which also
       // handles the Pentagon 1024's EFF7 and the Scorpion's 1FFD.
-      applySZXPaging(spec.memory, szxModel === '+2A' || szxModel === '+3', result);
+      applySZXPaging(spec.memory, szxModel === 'zx128kplus2a' || szxModel === 'zx128kplus3', result);
     }
     spec.ula.borderColor = result.borderColor;
     spec.resumeAtFrameOffset(spec.cpu.tStates); // dwCyclesStart

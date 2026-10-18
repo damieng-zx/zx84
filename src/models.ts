@@ -41,6 +41,8 @@ export {
   hasBuiltinBetaDisk,
   betaRomInSystemRom,
   isInterface2Capable,
+  LEGACY_SPECTRUM_IDS,
+  legacySpectrumModel,
   type RomPage,
 } from '@/machines/spectrum/models.ts';
 export { isCpcModel, cpcHasDisk, cpcHasTape, cpcIsPlusClass } from '@/machines/cpc/models.ts';

@@ -59,7 +59,7 @@ const { emu, settingsMock, panesMock } = vi.hoisted(() => ({
     // `machine` for the (machine-agnostic) clock-speed readout, so mirror it.
     get machine() { return this.spectrum; },
     floppySound: null as any,
-    currentModel: vi.fn(() => '48k' as const),
+    currentModel: vi.fn(() => 'zx48k' as const),
     emulationPaused: vi.fn(() => false),
     tracing: vi.fn(() => false),
     tapePaused: vi.fn(() => false),
@@ -262,7 +262,7 @@ describe('saveFontStore / loadFontStore', () => {
 
 function makeSpectrumWithSnap(snap: Uint8Array): MockSpectrum {
   const s: any = {
-    model: '48k',
+    model: 'zx48k',
     memory: { snapshot: () => snap },
     cpu: { tStates: 0, pc: 0 },
     variant: { hasBanking: false, hasFDC: false, hasAY: false },
@@ -589,7 +589,7 @@ function makeSpectrumWithFDC(fdcOpts?: Parameters<typeof makeFdcMock>[0]): Retur
 // ── memoryMap content ────────────────────────────────────────────────────
 
 describe('memoryMap (via updateRegsOnce)', () => {
-  function make128K(memOverrides: Record<string, unknown> = {}, model: string = '128k') {
+  function make128K(memOverrides: Record<string, unknown> = {}, model: string = 'zx128k') {
     emu.currentModel.mockReturnValue(model as any);
     const snap = new Uint8Array(0x10000);
     const s = makeSpectrumWithSnap(snap)!;
@@ -614,7 +614,7 @@ describe('memoryMap (via updateRegsOnce)', () => {
   const hasFlag = (range: string, flag: string): boolean => slotFlags(range)?.includes(flag) ?? false;
   const regVal = (name: string): string | undefined => lastMap().registers.find((r: any) => r.name === name)?.value;
 
-  afterEach(() => { emu.currentModel.mockReturnValue('48k' as any); });
+  afterEach(() => { emu.currentModel.mockReturnValue('zx48k' as any); });
 
   it('48K: setMemoryMap is not called when hasBanking is false', () => {
     const snap = new Uint8Array(0x10000);
@@ -664,19 +664,19 @@ describe('memoryMap (via updateRegsOnce)', () => {
   });
 
   it('+2A normal paging shows "ROM Page N"', () => {
-    emu.spectrum = make128K({ currentROM: 2, specialPaging: false }, '+2A');
+    emu.spectrum = make128K({ currentROM: 2, specialPaging: false }, 'zx128kplus2a');
     updateRegsOnce();
     expect(slotRead('0000-3FFF')).toBe('ROM Page 2');
   });
 
   it('+2A registers include 1FFD', () => {
-    emu.spectrum = make128K({ port7FFD: 0x10, port1FFD: 0x04, specialPaging: false }, '+2A');
+    emu.spectrum = make128K({ port7FFD: 0x10, port1FFD: 0x04, specialPaging: false }, 'zx128kplus2a');
     updateRegsOnce();
     expect(regVal('1FFD')).toBeDefined();
   });
 
   it('+2A special paging mode 0 → banks 0,1,2,3', () => {
-    emu.spectrum = make128K({ specialPaging: true, port1FFD: 0x00 }, '+2A');
+    emu.spectrum = make128K({ specialPaging: true, port1FFD: 0x00 }, 'zx128kplus2a');
     updateRegsOnce();
     expect(slotRead('0000-3FFF')).toBe('RAM Bank 0');
     expect(slotRead('4000-7FFF')).toBe('RAM Bank 1');
@@ -685,7 +685,7 @@ describe('memoryMap (via updateRegsOnce)', () => {
   });
 
   it('+2A special paging mode 1 → banks 4,5,6,7', () => {
-    emu.spectrum = make128K({ specialPaging: true, port1FFD: 0x02 }, '+2A');
+    emu.spectrum = make128K({ specialPaging: true, port1FFD: 0x02 }, 'zx128kplus2a');
     updateRegsOnce();
     expect(slotRead('0000-3FFF')).toBe('RAM Bank 4');
     expect(slotRead('4000-7FFF')).toBe('RAM Bank 5');
@@ -694,14 +694,14 @@ describe('memoryMap (via updateRegsOnce)', () => {
   });
 
   it('+2A special paging mode 2 → banks 4,5,6,3', () => {
-    emu.spectrum = make128K({ specialPaging: true, port1FFD: 0x04 }, '+2A');
+    emu.spectrum = make128K({ specialPaging: true, port1FFD: 0x04 }, 'zx128kplus2a');
     updateRegsOnce();
     expect(slotRead('0000-3FFF')).toBe('RAM Bank 4');
     expect(slotRead('C000-FFFF')).toBe('RAM Bank 3');
   });
 
   it('+2A special paging mode 3 → banks 4,7,6,3', () => {
-    emu.spectrum = make128K({ specialPaging: true, port1FFD: 0x06 }, '+2A');
+    emu.spectrum = make128K({ specialPaging: true, port1FFD: 0x06 }, 'zx128kplus2a');
     updateRegsOnce();
     expect(slotRead('0000-3FFF')).toBe('RAM Bank 4');
     expect(slotRead('4000-7FFF')).toBe('RAM Bank 7');

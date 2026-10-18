@@ -12,7 +12,7 @@ import { CpcMachine } from './cpc-machine.ts';
 import { CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT, CPC_BORDER_LEFT, CPC_BORDER_TOP } from './constants.ts';
 
 function cpcStatusLeds(model: MachineModel): StatusLedId[] {
-  const leds: StatusLedId[] = ['kbd', 'mouse', 'text', 'ay'];
+  const leds: StatusLedId[] = ['kbd', 'mouse', 'text', 'chip'];
   if (cpcHasTape(model)) leds.push('load');
   if (cpcHasDisk(model)) leds.push('dsk');
   return leds;
@@ -37,6 +37,7 @@ function cpcUi(model: MachineModel): MachineUiCapabilities {
     systemRomLabel: 'ROM',
     romPages: 0,
     beeper: false,
+    soundChip: 'AY-3-8912',
     psgControls: ['stereo', 'filter', 'dc-block'],
     statusLeds: cpcStatusLeds(model),
     keyboardBus: 'ppi',

@@ -45,8 +45,8 @@ export function plus2KeepsRed(red: string | undefined): boolean {
  * 48K and 128K modes.
  */
 export function sparseKeyboardFace(model: MachineModel): 'grey2' | 'amstrad' | null {
-  if (model === '+2') return 'grey2';
-  if (model === '+2A' || model === '+3') return 'amstrad';
+  if (model === 'zx128kplus2') return 'grey2';
+  if (model === 'zx128kplus2a' || model === 'zx128kplus3') return 'amstrad';
   return null;
 }
 

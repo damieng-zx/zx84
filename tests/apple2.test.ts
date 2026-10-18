@@ -248,6 +248,22 @@ describe('apple2 hardware options', () => {
     } finally { m.destroy(); }
   });
 
+  it('routes unit:N mount targets to drive N+1 (unit 1 is the second drive)', async () => {
+    // The Drive pane and the MCP `load` tool address drives as `unit:N`, counting
+    // from 0; unit 1 must land in drive 2 and leave drive 1 alone.
+    const { m } = prepared({});
+    try {
+      const raw = new Uint8Array(35 * 16 * 256);
+      const second = await m.services.media.mount(raw, 'two.dsk', 'unit:1');
+      expect(second.ok).toBe(true);
+      expect(m.services.disks.drives.map(d => d.loaded)).toEqual([false, true]);
+      expect(m.services.disks.drives[1].mediaName).toBe('two.dsk');
+      const first = await m.services.media.mount(raw, 'one.dsk', 'unit:0');
+      expect(first.ok).toBe(true);
+      expect(m.services.disks.drives.map(d => d.mediaName)).toEqual(['one.dsk', 'two.dsk']);
+    } finally { m.destroy(); }
+  });
+
   it('attaches one or two drives', () => {
     expect(prepared({ 'apple2-drives': '1' }).m.services.disks.drives.map(d => d.id)).toEqual(['a']);
     const { m } = prepared({ 'apple2-drives': '2' });

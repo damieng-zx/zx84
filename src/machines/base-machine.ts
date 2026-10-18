@@ -67,6 +67,17 @@ export abstract class BaseMachine {
   portWatchHit: { port: number; value: number; dir: 'in' | 'out' } | null = null;
   memWatchpoints: { start: number; end: number; mode: 'read' | 'write' | 'rw' }[] = [];
   memWatchHit: { addr: number; value: number; dir: 'read' | 'write' } | null = null;
+  /** Record the first access that falls in a memory watchpoint. Machines call
+   *  this only while `memWatchpoints` is non-empty, so the bus pays nothing
+   *  when none are set. */
+  protected recordMemWatch(addr: number, value: number, dir: 'read' | 'write'): void {
+    for (const wp of this.memWatchpoints) {
+      if ((wp.mode === dir || wp.mode === 'rw') && addr >= wp.start && addr <= wp.end) {
+        this.memWatchHit = { addr, value, dir };
+        return;
+      }
+    }
+  }
   onTrap: ((pc: number) => boolean) | null = null;
   onStatus: ((msg: string) => void) | null = null;
   onFrame: (() => void) | null = null;

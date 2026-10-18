@@ -56,7 +56,7 @@ export function setRomStatus(msg: string): void { setRomStatusText(msg); }
  * the two is the FDC; upload a v4.0 image via the ROM pane if one is needed.
  */
 export function effectiveROMModel(model: MachineModel): MachineModel {
-  return model === '+3' ? '+2A' : model;
+  return model === 'zx128kplus3' ? 'zx128kplus2a' : model;
 }
 
 /**

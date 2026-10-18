@@ -14,7 +14,7 @@ const ZX81_ROM = 'sinclair/zx81-v2.rom';
 const UI: MachineUiCapabilities = {
   hiddenPanes: ['drive-panel', 'microdrive-panel', 'tape-panel', 'sound-panel', 'joystick-panel', 'mouse-panel', 'font-panel', 'sysvar-panel', 'banks-panel'],
   memoryLayout: false,
-  trace: true,
+  trace: false,
   colorMap: 'mono',
   accuracy: false,
   builtinDisk: false,

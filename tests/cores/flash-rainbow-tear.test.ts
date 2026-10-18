@@ -24,7 +24,7 @@ function tagRom(): Uint8Array {
 
 describe('progressive renderer — left-edge cell boundary', () => {
   it('draws display col 0 when a render chunk ends exactly on borderLeft', () => {
-    const s = new Spectrum('48k', null);
+    const s = new Spectrum('zx48k', null);
     s.loadROM(tagRom());
     const ula = s.ula;
 
