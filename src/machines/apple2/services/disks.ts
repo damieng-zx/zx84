@@ -59,7 +59,7 @@ export class Apple2DiskService implements DiskService {
   mountImage(id: string, data: Uint8Array, name: string): void {
     if (!this.machine.options.disk2) throw new Error('no Disk II controller is fitted');
     if (!this.drives.some(drive => drive.id === id)) throw new Error('that drive is not fitted');
-    const order = detectApple2DiskOrder(data, name);
+    const order = detectApple2DiskOrder(data);
     this.insert(id, parseApple2Disk(data, order), name);
     this.order.set(id, order);     // insert() only knows the name; this saw the bytes
   }

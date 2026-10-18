@@ -10,7 +10,7 @@
 
 import { describe, expect, it } from 'vitest';
 import {
-  APPLE2_SECTOR_SIZE, APPLE2_SECTORS_PER_TRACK, DOS_SKEW, GCR_WRITE_TABLE,
+  APPLE2_SECTOR_SIZE, APPLE2_SECTORS_PER_TRACK, DOS_SKEW, GCR_WRITE_TABLE, PRODOS_SKEW,
   decodeSector6and2, decodeTrack, encodeSector6and2, encodeTrack,
   apple2VolumeNumber, detectApple2DiskOrder, fourAndFour, fourAndFourDecode, gcr6, gcrRead, parseApple2Disk,
   serializeApple2Disk, unwrapApple2Image,
@@ -137,12 +137,22 @@ describe('DOS image round-trip', () => {
     expect(back).toEqual(raw);
   });
 
-  it('reads ProDOS order as physical order', () => {
+  it('skews ProDOS logical sectors onto physical sectors', () => {
+    // ProDOS block 0 is physical sectors 0 and 2, block 1 is 4 and 6, ... block 4
+    // is 1 and 3: the 256-byte file sector n sits at physical sector PRODOS_SKEW^-1[n].
+    expect(PRODOS_SKEW[2]).toBe(1);   // physical 2 holds file sector 1 (block 0's second half)
+    expect(PRODOS_SKEW[4]).toBe(2);   // physical 4 holds file sector 2 (block 1's first half)
+    expect(PRODOS_SKEW[1]).toBe(8);   // physical 1 holds file sector 8 (block 4's first half)
     const raw = new Uint8Array(35 * APPLE2_SECTORS_PER_TRACK * APPLE2_SECTOR_SIZE);
-    raw[0] = 0x11;
+    raw[0] = 0x11;                            // file sector 0 -> physical 0
+    raw[APPLE2_SECTOR_SIZE] = 0x22;           // file sector 1 -> physical 2
+    raw[8 * APPLE2_SECTOR_SIZE] = 0x33;       // file sector 8 -> physical 1
     const image = parseApple2Disk(raw, 'prodos');
-    expect(image.tracks[0]![0]!.sectorMap.get(0)).toBe(0);
-    expect(image.tracks[0]![0]!.sectors[0].data[0]).toBe(0x11);
+    const sector = (phys: number) => image.tracks[0]![0]!.sectors[image.tracks[0]![0]!.sectorMap.get(phys)!];
+    expect(sector(0).data[0]).toBe(0x11);
+    expect(sector(2).data[0]).toBe(0x22);
+    expect(sector(1).data[0]).toBe(0x33);
+    expect(serializeApple2Disk(image, 'prodos')).toEqual(raw);
   });
 });
 
@@ -208,19 +218,48 @@ describe('sector order detection', () => {
     return raw;
   };
 
-  it('trusts the .po and .do extensions', () => {
-    expect(detectApple2DiskOrder(new Uint8Array(IMAGE), 'a.po')).toBe('prodos');
-    expect(detectApple2DiskOrder(prodos(), 'a.do')).toBe('dos');
+  /** A DOS 3.3 disk's VTOC and catalog chain (sectors 15 down to 1), laid out
+   *  in the given file order. */
+  const dosCatalog = (order: 'dos' | 'prodos') => {
+    const raw = new Uint8Array(IMAGE);
+    // Catalog links are DOS logical sectors; where one sits in the file depends on the order.
+    const dosPhysical = (l: number) => (DOS_SKEW as readonly number[]).indexOf(l);
+    const at = (s: number) => 17 * 4096 + (order === 'dos' ? s : PRODOS_SKEW[dosPhysical(s)]) * 256;
+    raw[at(0) + 1] = 17; raw[at(0) + 2] = 15; raw[at(0) + 3] = 3;
+    for (let s = 15; s >= 1; s--) {
+      raw[at(s) + 1] = s > 1 ? 17 : 0;
+      raw[at(s) + 2] = s > 1 ? s - 1 : 0;
+    }
+    return raw;
+  };
+
+  it('recognises a ProDOS volume header', () => {
+    expect(detectApple2DiskOrder(prodos())).toBe('prodos');
   });
 
-  it('recognises a ProDOS volume header in a .dsk', () => {
-    expect(detectApple2DiskOrder(prodos(), 'game.dsk')).toBe('prodos');
+  it('reads an image with no ProDOS header or catalog as DOS order', () => {
+    // Custom-format boot disks (and plenty of mislabelled DOS dumps) carry the
+    // .po extension without being ProDOS volumes; they boot with the DOS skew.
+    expect(detectApple2DiskOrder(new Uint8Array(IMAGE))).toBe('dos');
   });
 
-  it('treats a .dsk without the header as DOS 3.3', () => {
+  it('decides a DOS 3.3 disk by which skew makes its catalog chain readable', () => {
+    expect(detectApple2DiskOrder(dosCatalog('dos'))).toBe('dos');
+    expect(detectApple2DiskOrder(dosCatalog('prodos'))).toBe('prodos');
+  });
+
+  it('is not swayed by a catalog that was edited away from the canonical chain', () => {
+    // Cracked disks sometimes re-link the catalog (15 -> 14 -> 7 -> end). Only
+    // the standard downward chain counts as evidence, so this stays DOS order.
+    const raw = dosCatalog('dos');
+    raw[17 * 4096 + 14 * 256 + 2] = 7;          // logical sector 14 is file sector 14 in DOS order
+    expect(detectApple2DiskOrder(raw)).toBe('dos');
+  });
+
+  it('treats an image with only a VTOC release byte as DOS 3.3', () => {
     const raw = new Uint8Array(IMAGE);
     raw[0x11000 + 3] = 0x03;                          // DOS VTOC release byte
-    expect(detectApple2DiskOrder(raw, 'game.dsk')).toBe('dos');
+    expect(detectApple2DiskOrder(raw)).toBe('dos');
   });
 });
 

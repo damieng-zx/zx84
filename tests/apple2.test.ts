@@ -1112,9 +1112,9 @@ describe('apple2-plus disk mounting', () => {
       raw[256] = 0xA5;                                    // file sector 1 of track 0
       const res = await m.services.media.mount(raw, 'prodos-game.dsk', 'a');
       expect(res.ok).toBe(true);
-      // ProDOS order: physical sector 1 is file sector 1 (DOS order would put
-      // file sector 7 there, since DOS_SKEW[1] = 7).
-      expect(m.services.disks.image('a')!.tracks[0][0]!.sectors[1].data[0]).toBe(0xA5);
+      // ProDOS order: file sector 1 is the second half of block 0, physical
+      // sector 2 (DOS order would put it at physical 13, since DOS_SKEW[13] = 1).
+      expect(m.services.disks.image('a')!.tracks[0][0]!.sectors[2].data[0]).toBe(0xA5);
     } finally {
       m.destroy();
     }

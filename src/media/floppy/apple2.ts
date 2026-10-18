@@ -34,6 +34,20 @@ export const DOS_SKEW = [
   0xB, 0x3, 0xA, 0x2, 0x9, 0x1, 0x8, 0xF,
 ] as const;
 
+/** ProDOS physical -> logical sector map: `PRODOS_SKEW[physical]` is the index of
+ *  the 256-byte file sector stored in that physical sector, so ProDOS block 0 is
+ *  physical sectors 0 and 2, block 1 is 4 and 6, and so on (CiderPress's
+ *  ProDOS-order table). A `.po` image lists the sectors in this logical order. */
+export const PRODOS_SKEW = [
+  0x0, 0x8, 0x1, 0x9, 0x2, 0xA, 0x3, 0xB,
+  0x4, 0xC, 0x5, 0xD, 0x6, 0xE, 0x7, 0xF,
+] as const;
+
+/** Index, within a track's 16 file sectors, of the sector stored at `phys`. */
+function fileSectorFor(order: Apple2DiskOrder, phys: number): number {
+  return order === 'dos' ? DOS_SKEW[phys] : PRODOS_SKEW[phys];
+}
+
 /**
  * The 64 disk bytes ("GCR codes") a 6-bit value is written as. The rule is the
  * one the Disk II boot ROM itself applies when it builds its decode table: a
@@ -272,23 +286,68 @@ export function isApple2DiskLength(length: number): boolean {
   return apple2ImageLength(length) !== null;
 }
 
-/**
- * Pick the sector order of a raw 140K image. `.po` is ProDOS order and `.do`
- * DOS order by definition; `.dsk` is ambiguous in the wild, so it is sniffed
- * for the ProDOS volume directory header. That header (previous block 0, next
- * block 3, storage type $F) sits in block 2 - file offset $400 in a ProDOS-order
- * image, but track 0 sector 4 (boot code) in a DOS-order one, where the DOS VTOC
- * is at $11000 instead - so the signature does not occur in a DOS-order disk.
- */
-export function detectApple2DiskOrder(data: Uint8Array, name: string): Apple2DiskOrder {
-  data = unwrapApple2Image(data);
-  if (/\.po$/i.test(name)) return 'prodos';
-  if (/\.do$/i.test(name)) return 'dos';
-  const isProdosVolumeHeader = data.length > 0x405
+/** A ProDOS volume directory key block (previous 0, next 3, storage type $F) at
+ *  block 2: file offset $400 in a ProDOS-order image. In a DOS-order one that
+ *  offset is track 0 sector 4 (boot code), so the signature does not occur there. */
+function hasProdosVolumeHeader(data: Uint8Array): boolean {
+  return data.length > 0x405
     && data[0x400] === 0x00 && data[0x401] === 0x00
     && data[0x402] === 0x03 && data[0x403] === 0x00
     && (data[0x404] >> 4) === 0xF;
-  return isProdosVolumeHeader ? 'prodos' : 'dos';
+}
+
+/** DOS 3.3 logical sector -> physical sector: the inverse of {@link DOS_SKEW}. */
+const DOS_PHYSICAL: readonly number[] = (() => {
+  const inv = new Array<number>(APPLE2_SECTORS_PER_TRACK).fill(0);
+  DOS_SKEW.forEach((logical, physical) => { inv[logical] = physical; });
+  return inv;
+})();
+
+/** Length of the DOS 3.3 catalog sector chain (track 17) that is readable when
+ *  the image is taken in `order`. The VTOC at track 17 sector 0 names the first
+ *  catalog sector and every link is a *DOS logical* sector number, so the file
+ *  position of the next sector depends on the order: the logical index itself in
+ *  a DOS-order image, but the ProDOS position of that logical sector's physical
+ *  sector in a ProDOS-order one. DOS builds the chain strictly downward (15 -> 14
+ *  -> ... -> 1 -> 0/0), so only that canonical link counts: the right order
+ *  walks the whole catalog while the wrong one breaks at the second hop, and an
+ *  odd cracked catalog cannot tip the decision. */
+function catalogChainLength(data: Uint8Array, order: Apple2DiskOrder): number {
+  const track = 17 * TRACK_BYTES;
+  if (data.length < track + TRACK_BYTES || data[track + 1] !== 17) return 0;
+  let sector = data[track + 2];
+  let length = 0;
+  while (sector > 0 && sector < APPLE2_SECTORS_PER_TRACK) {
+    const index = order === 'dos' ? sector : PRODOS_SKEW[DOS_PHYSICAL[sector]];
+    const at = track + index * APPLE2_SECTOR_SIZE;
+    length++;
+    const nextTrack = data[at + 1], nextSector = data[at + 2];
+    if (nextTrack === 0 && nextSector === 0) break;           // end of chain
+    if (nextTrack !== 17 || nextSector !== sector - 1) break;  // not the canonical link
+    sector = nextSector;
+  }
+  return length;
+}
+
+/**
+ * Pick the sector order of a raw 140K image from its contents.
+ *
+ * The extension is only a hint: `.po` files in the wild are frequently DOS-order
+ * dumps and `.do` ones ProDOS-order, so no extension is trusted. Evidence, in order:
+ *
+ *  1. A ProDOS volume header at block 2 means ProDOS order.
+ *  2. A DOS 3.3 catalog chain that only reads cleanly under one skew decides it.
+ *  3. Otherwise DOS order - custom-format boot disks (Origin, Broderbund, ...)
+ *     labelled `.po` boot with the DOS skew, and ProDOS-format ones carry the
+ *     header caught by step 2.
+ */
+export function detectApple2DiskOrder(data: Uint8Array): Apple2DiskOrder {
+  data = unwrapApple2Image(data);
+  if (hasProdosVolumeHeader(data)) return 'prodos';
+  const dos = catalogChainLength(data, 'dos');
+  const prodos = catalogChainLength(data, 'prodos');
+  if (prodos > dos) return 'prodos';
+  return 'dos';
 }
 
 /** Build a `DskImage` from a raw `.dsk`/`.do`/`.po` image. */
@@ -310,7 +369,7 @@ export function parseApple2Disk(data: Uint8Array, order: Apple2DiskOrder): DskIm
     const sectorMap = new Map<number, number>();
     const trackBase = t * APPLE2_SECTORS_PER_TRACK * APPLE2_SECTOR_SIZE;
     for (let phys = 0; phys < APPLE2_SECTORS_PER_TRACK; phys++) {
-      const fileIndex = order === 'dos' ? DOS_SKEW[phys] : phys;
+      const fileIndex = fileSectorFor(order, phys);
       const off = trackBase + fileIndex * APPLE2_SECTOR_SIZE;
       sectorMap.set(phys, sectors.length);
       sectors.push({
@@ -376,7 +435,7 @@ export function serializeApple2Disk(image: DskImage, order: Apple2DiskOrder): Ui
     for (const sector of track.sectors) {
       const phys = sector.r;
       if (phys < 0 || phys >= APPLE2_SECTORS_PER_TRACK) continue;
-      const fileIndex = order === 'dos' ? DOS_SKEW[phys] : phys;
+      const fileIndex = fileSectorFor(order, phys);
       const off = trackBase + fileIndex * APPLE2_SECTOR_SIZE;
       out.set(sector.data.subarray(0, APPLE2_SECTOR_SIZE), off);
     }
