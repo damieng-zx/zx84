@@ -263,25 +263,46 @@ export function register(server: McpServer): void {
   server.registerTool(
     'screenshot',
     {
-      description: 'Capture the active machine display as a PNG file and return the file path.',
+      description: 'Capture the active machine display as a PNG file and return the file path. '
+        + 'By default this is the frame exactly as the video hardware drew it, scanline by scanline, '
+        + 'so border, rainbow and multicolour effects show. Stopped mid-frame, rows below the beam '
+        + 'are still the previous frame. Spectrum only: source="vram" instead redraws the whole '
+        + 'screen from screen memory as it is right now (one border colour, no raster effects), '
+        + 'useful straight after a snapshot load or write_memory.',
       inputSchema: {
         file: z.string().optional().describe('Output PNG path (default: <mcp cache>/screenshot.png)'),
+        source: z.enum(['frame', 'vram']).default('frame')
+          .describe('"frame" (default): the last frame as drawn. "vram": redraw from screen memory now (Spectrum only).'),
       },
     },
-    async ({ file }) => {
+    async ({ file, source }) => {
       let rgba: Uint8Array;
       let width: number;
       let height: number;
+      let note = '';
 
       const spec = activeSpectrum();
       if (spec) {
-        // Re-render from the active screen bank: the headless run may have skipped
-        // the bulk frame render, so the pixel buffer can be stale.
-        spec.ula.renderFrame(spec.memory.screenBank, 0x4000);
         rgba = spec.ula.pixels;
+        if (source === 'vram') {
+          // renderFrame draws into the live frame buffer; put the drawn frame
+          // back afterwards so a later "frame" capture still sees it.
+          const drawn = rgba.slice();
+          spec.ula.renderFrame(spec.memory.screenBank, 0x4000);
+          rgba = rgba.slice();
+          spec.ula.pixels.set(drawn);
+          note = ', redrawn from screen memory';
+        } else {
+          const frameT = spec.cpu.tStates - spec.contention.frameStartTStates;
+          const { tStatesPerFrame, tStatesPerLine } = spec.contention.timing;
+          if (frameT < tStatesPerFrame) {
+            note = `, mid-frame at frame line ${Math.floor(frameT / tStatesPerLine)}: rows below the beam are the previous frame`;
+          }
+        }
         width = spec.ula.screenWidth;
         height = spec.ula.screenHeight;
       } else {
+        if (source === 'vram') return text('source="vram" is only supported on the Spectrum.');
         rgba = state.spec.pixels;
         width = state.spec.frameWidth;
         height = state.spec.frameHeight;
@@ -296,7 +317,7 @@ export function register(server: McpServer): void {
       const png = encodePNG(rgba, width, height);
       fs.mkdirSync(path.dirname(out), { recursive: true });
       fs.writeFileSync(out, png);
-      return text(`Screenshot saved: ${out} (${width}×${height}, ${png.length} bytes)`);
+      return text(`Screenshot saved: ${out} (${width}×${height}, ${png.length} bytes${note})`);
     },
   );
 

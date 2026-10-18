@@ -114,10 +114,6 @@ export async function applyHeadlessKnobs(machine: Machine, options: InitMachineO
   zx81Wrx = requested === 'wrx';
   zx81Memotech = requested === 'memotech';
   zx81QuickSilva = requested === 'quicksilva';
-  if (machine.kind === 'spectrum') {
-    // Cheap scanline rendering — the MCP framebuffer is only read on demand.
-    (machine as unknown as { scanlineAccuracy: string }).scanlineAccuracy = 'low';
-  }
   // Every machine gets a SettingsView and its prepare() hook, not just the
   // zx8x: a machine that never sees one keeps whatever its constructor left.
   // The Jupiter Ace boots with no RAM pack that way, and since its FORTH ROM
