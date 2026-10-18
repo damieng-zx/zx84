@@ -333,7 +333,7 @@ export function resetMachine(): void {
  * address for its own ROM family (Machine.armBootTrap); machines without a
  * ROM-loader auto-boot leave the method unimplemented and this is a no-op.
  */
-export function autoBootLoad(method: 'menu' | 'rom48k' | 'disk'): void {
+export function autoBootLoad(method: 'menu' | 'rom48k' | 'disk' | 'trdos'): void {
   resetMachine();
   machine?.armBootTrap?.(method);
 }

@@ -260,3 +260,78 @@ describe('Pentagon 512/1024 — snapshots (SZX)', () => {
     expect(ui('pentagon512')).toContain('snapshot-szx');
   });
 });
+
+describe('Pentagon 1024 — RAM at 0x0000 (EFF7 bit 3)', () => {
+  it('maps writable RAM bank 0 over the ROM while bit 3 is set, and restores the ROM when it clears', () => {
+    const s = machine('pentagon1024');
+    expect(s.memory.readByte(0x0000)).toBe(0xA0);          // ROM 0 after reset
+    s.cpu.portOut(0xEFF7, 0x08);
+    expect(s.memory.ramAtZero).toBe(true);
+    expect(s.memory.getRamBank(0)[0]).toBe(0x00);
+    expect(s.memory.readByte(0x0000)).toBe(0x00);          // RAM, not the ROM byte
+    s.cpu.write8(0x0000, 0x5A);                            // writable
+    s.cpu.write8(0x3FFF, 0xA5);
+    expect(s.memory.readByte(0x0000)).toBe(0x5A);
+    s.cpu.portOut(0xEFF7, 0x00);
+    expect(s.memory.ramAtZero).toBe(false);
+    expect(s.memory.readByte(0x0000)).toBe(0xA0);          // ROM back, writes ignored there
+    s.cpu.write8(0x0000, 0x11);
+    expect(s.memory.readByte(0x0000)).toBe(0xA0);
+    expect(s.memory.getRamBank(0)[0]).toBe(0x5A);          // the RAM kept what was written
+    expect(s.memory.getRamBank(0)[0x3FFF]).toBe(0xA5);
+  });
+
+  it('shares bank 0 with the 0xC000 window when 7FFD selects page 0', () => {
+    const s = machine('pentagon1024');
+    s.cpu.portOut(0xEFF7, 0x08);
+    s.cpu.write8(0x0010, 0x77);
+    expect(s.memory.readByte(0xC010)).toBe(0x77);
+  });
+
+  it('is independent of EFF7 bit 2 and does not disturb the 1MB page', () => {
+    const s = machine('pentagon1024');
+    tagBanks(s);
+    s.cpu.portOut(0x7FFD, 0xE3);                           // page 59
+    s.cpu.portOut(0xEFF7, 0x08);
+    expect(s.memory.currentBank).toBe(59);
+    expect(s.memory.readByte(0xC000)).toBe(0x40 + 59);
+    s.cpu.portOut(0xEFF7, 0x0C);                           // + 128K mode: page 3
+    expect(s.memory.ramAtZero).toBe(true);
+    expect(s.memory.currentBank).toBe(3);
+  });
+
+  it('keeps the ROM paging bit of 7FFD working underneath, and returns the selected ROM', () => {
+    const s = machine('pentagon1024');
+    s.cpu.portOut(0xEFF7, 0x08);
+    s.cpu.portOut(0x7FFD, 0x10);                           // ROM 1 selected, hidden
+    expect(s.memory.readByte(0x0000)).toBe(0x00);
+    s.cpu.portOut(0xEFF7, 0x00);
+    expect(s.memory.readByte(0x0000)).toBe(0xA1);
+  });
+
+  it('is cleared by reset', () => {
+    const s = machine('pentagon1024');
+    s.cpu.portOut(0xEFF7, 0x08);
+    s.reset();
+    expect(s.memory.ramAtZero).toBe(false);
+    expect(s.memory.portEFF7).toBe(0);
+    expect(s.memory.readByte(0x0000)).toBe(0xA0);
+  });
+
+  it('is not offered on the 512, where EFF7 is not decoded', () => {
+    const s = machine('pentagon512');
+    s.cpu.portOut(0xEFF7, 0x08);
+    expect(s.memory.ramAtZero).toBe(false);
+  });
+
+  it('survives an SZX round trip through the byte shared with 1FFD', async () => {
+    const a = machine('pentagon1024');
+    a.cpu.portOut(0xEFF7, 0x08);
+    a.cpu.write8(0x0020, 0x6C);
+    const szx = saveSZXSync(a.cpu, a.memory, 0, 'pentagon1024', 0);
+    const b = machine('pentagon1024');
+    applySZXPaging(b.memory, false, await loadSZX(szx, b.cpu, b.memory));
+    expect(b.memory.ramAtZero).toBe(true);
+    expect(b.memory.readByte(0x0020)).toBe(0x6C);
+  });
+});

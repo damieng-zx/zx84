@@ -224,8 +224,9 @@ export interface LoadPlan {
   // loader, mount a ZX Interface 2 cartridge (self-boots on reset, no loader
   // kick), or — for a snapshot — nothing (it restores running state itself).
   // 'peripheral' mounts the disk/cartridge and resets, leaving the user at the
-  // machine's own prompt (G+DOS, TR-DOS, or BASIC for an Interface 1).
-  boot: 'menu' | 'rom48k' | 'snapshot' | 'rom' | 'peripheral';
+  // machine's own prompt (G+DOS, or BASIC for an Interface 1). 'trdos' mounts a
+  // Beta Disk and types RANDOMIZE USR 15616 and RUN to boot it.
+  boot: 'menu' | 'rom48k' | 'snapshot' | 'rom' | 'peripheral' | 'trdos';
 }
 
 /** A Beta Disk (TR-DOS) image runs on the Pentagon/Scorpion, which have the
@@ -236,7 +237,7 @@ function betaPlan(game: Game, current: MachineModel): LoadPlan | null {
   const target: SpectrumModel = hasBuiltinBetaDisk(current)
     ? current as SpectrumModel
     : game.clones === CLONE_SCORPION ? 'scorpion256' : 'pentagon128';
-  return { target, link: game.betaDisk, kind: 'beta-disk', boot: 'peripheral' };
+  return { target, link: game.betaDisk, kind: 'beta-disk', boot: 'trdos' };
 }
 
 /** Select a specific requested media format while preserving the current model

@@ -15,6 +15,7 @@ import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Spectrum } from '@/machines/spectrum/spectrum.ts';
+import { blankTrdDisk } from '@/media/floppy/trd-image.ts';
 import { bootWaitPc, findPlus3MenuWait } from '@/machines/spectrum/boot-trap.ts';
 
 const CACHE = resolve(__dirname, '../../../mcp/.cache');
@@ -52,6 +53,72 @@ describe('bootWaitPc', () => {
     expect(bootWaitPc('zx128kplus2', blank)).toBe(0x0E65);
     expect(bootWaitPc('zx48k', blank)).toBe(0x15DE);
     expect(bootWaitPc('zx16k', blank)).toBe(0x15DE);
+    expect(bootWaitPc('pentagon128', blank)).toBe(0x0E65);
+  });
+
+  it('finds the Scorpion menu wait by its byte pattern, and falls back to the v2.5c address', () => {
+    // The ZS-256 menu spins on the same PUSH HL / BIT 5,(HL) loop as the +3.
+    const rom0 = new Uint8Array(0x4000);
+    rom0.set(MENU_WAIT, 0x367F);
+    expect(bootWaitPc('scorpion256', rom0)).toBe(0x3683);
+    rom0.fill(0);
+    rom0.set(MENU_WAIT, 0x2000);
+    expect(bootWaitPc('scorpion256', rom0)).toBe(0x2004);
+    expect(bootWaitPc('scorpion256', blank)).toBe(0x3683);
+  });
+
+  it('follows a Pentagon-branded ROM, whose menu waits in the +3-style loop', () => {
+    const rom0 = new Uint8Array(0x4000);
+    rom0.set(MENU_WAIT, 0x367F);
+    expect(bootWaitPc('pentagon128', rom0)).toBe(0x3683);
+    expect(bootWaitPc('pentagon512', rom0)).toBe(0x3683);
+    expect(bootWaitPc('pentagon1024', blank)).toBe(0x0E65);
+  });
+});
+
+describe('armBootTrap("trdos")', () => {
+  it('waits at the 128K menu first on a Pentagon, then at the 48K editor', () => {
+    const spec = new Spectrum('pentagon128', null);
+    spec.armBootTrap('trdos');
+    expect(spec.bootTrapKind).toBe('trdos-menu');
+    expect(spec.bootTrapPc).toBe(0x0E65);
+  });
+
+  it('goes straight to the editor on a machine with no menu', () => {
+    const spec = new Spectrum('zx48k', null);
+    spec.armBootTrap('trdos');
+    expect(spec.bootTrapKind).toBe('trdos-run');
+    expect(spec.bootTrapPc).toBe(0x15DE);
+  });
+
+  it('is cleared by reset', () => {
+    const spec = new Spectrum('pentagon128', null);
+    spec.armBootTrap('trdos');
+    spec.reset();
+    expect(spec.bootTrapPc).toBe(-1);
+    expect(spec.bootTrapKind).toBe('menu');
+  });
+});
+
+describe.skipIf(!have(['128-0.rom', '128-1.rom', 'trdos.rom']))('TR-DOS auto-boot against the real ROMs', () => {
+  it('Pentagon: picks 48 BASIC, enters TR-DOS with USR 15616 and runs from the disk', () => {
+    const spec = new Spectrum('pentagon128', null);
+    spec.loadROM(romSet(['128-0.rom', '128-1.rom']));
+    spec.betaDisk.loadROM(new Uint8Array(readFileSync(resolve(CACHE, 'trdos.rom'))));
+    spec.betaDisk.enabled = true;
+    spec.loadBetaDiskDisk(blankTrdDisk(80, 2), 0);
+    spec.reset();
+    let pageIns = 0;
+    const pageIn = spec.betaDisk.pageIn.bind(spec.betaDisk);
+    spec.betaDisk.pageIn = (m) => { if (!spec.betaDisk.pagedIn) pageIns++; pageIn(m); };
+    spec.armBootTrap('trdos');
+    // The sequence arrives in two stages: the menu trap hands over to the editor trap.
+    for (let f = 0; f < 150 && spec.bootTrapKind === 'trdos-menu'; f++) spec.runUntil(1);
+    expect(spec.bootTrapKind).toBe('trdos-run');
+    for (let f = 0; f < 600; f++) spec.runUntil(1);
+    expect(spec.bootTrapPc).toBe(-1);                       // the editor trap fired
+    expect(spec.memory.currentROM).toBe(1);                 // 48 BASIC was chosen
+    expect(pageIns).toBeGreaterThanOrEqual(2);              // USR 15616, then RUN
   });
 });
 

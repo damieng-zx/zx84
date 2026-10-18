@@ -84,8 +84,9 @@ export class SpectrumMemory implements IMachineMemory {
 
   /** Last value written to port 0xEFF7 (Pentagon 1024 only). Bit 2 set = plain
    *  128K mode (D5/D6/D7 of 7FFD stop extending the page number); clear = the
-   *  full 1MB. Bit 3 (RAM at 0x0000), the turbo bit and the video-mode bits are
-   *  latched here but have no effect yet. Cleared by reset. */
+   *  full 1MB. Bit 3 maps writable RAM bank 0 over 0x0000 (ramAtZero). The turbo
+   *  bit and the video-mode bits are latched here but have no effect yet.
+   *  Cleared by reset. */
   portEFF7 = 0;
 
   /** How 7FFD (and, on the Scorpion, 1FFD) form the RAM and ROM page numbers. */
@@ -502,11 +503,15 @@ export class SpectrumMemory implements IMachineMemory {
 
   /**
    * Handle port 0xEFF7 write (Pentagon 1024). Flipping bit 2 changes how the
-   * latched 7FFD value is read, so the page at 0xC000 is re-derived from it.
+   * latched 7FFD value is read, so the page at 0xC000 is re-derived from it;
+   * bit 3 maps writable RAM bank 0 over 0x0000 in place of the ROM.
+   * @param skipSlot0 Pass true when Multiface/VTX overlay occupies slot 0.
    */
-  writeEFF7(val: number): void {
+  writeEFF7(val: number, skipSlot0 = false): void {
     this.portEFF7 = val & 0xFF;
-    if (this.scheme !== 'pentagon1024' || this.specialPaging) return;
+    if (this.scheme !== 'pentagon1024') return;
+    this.setRamAtZero((val & 0x08) !== 0, skipSlot0);
+    if (this.specialPaging) return;
     const bank = this.bankFor7FFD(this.port7FFD);
     if (bank !== this.currentBank) {
       this._switchRam(3, bank);
@@ -514,6 +519,23 @@ export class SpectrumMemory implements IMachineMemory {
       this._refreshScreenSlots();
       if (this.onSlotsChanged !== null) this.onSlotsChanged();
     }
+  }
+
+  /** Map writable RAM bank 0 over 0x0000 (true) or the current ROM page back in
+   *  (false). Shared by the Scorpion's 1FFD D0 and the 1024's EFF7 bit 3. */
+  private setRamAtZero(on: boolean, skipSlot0: boolean): void {
+    const was = this.ramAtZero;
+    this.ramAtZero = on;
+    if (on === was || skipSlot0 || this.externalRomPaged) return;
+    if (on) {
+      this._switchRam(0, 0);
+    } else {
+      this._flushSlot(0);
+      this.flat.set(this.romPages[this.currentROM].subarray(0, BANK_SIZE), 0);
+      this._slotBank[0] = -1;
+      this._refreshAliases();
+    }
+    if (this.onSlotsChanged !== null) this.onSlotsChanged();
   }
 
   /**

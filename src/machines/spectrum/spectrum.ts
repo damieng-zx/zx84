@@ -77,6 +77,12 @@ const K_ENTER: readonly [number, number] = [6, 0];
 const K_J: readonly [number, number] = [6, 3];     // LOAD keyword in K-mode
 const K_SYM: readonly [number, number] = [7, 1];   // SYMBOL SHIFT
 const K_P: readonly [number, number] = [5, 0];     // P (with SYM = ")
+const K_CAPS: readonly [number, number] = [0, 0];  // CAPS SHIFT (with SYM = extended mode)
+const K_R: readonly [number, number] = [2, 3];     // RUN keyword in K-mode
+const K_T: readonly [number, number] = [2, 4];     // RANDOMIZE keyword in K-mode
+const K_L: readonly [number, number] = [6, 1];     // USR in extended mode
+const K_6: readonly [number, number] = [4, 4];     // 6 (with CAPS = cursor down)
+const K_DIGIT: readonly (readonly [number, number])[] = [[4, 0], [3, 0], [3, 1], [3, 2], [3, 3], [3, 4], [4, 4], [4, 3], [4, 2], [4, 1]];
 
 /** 128K/+2/+2A/+3 boot menu: hold ENTER on the default "Loader" option. The
  *  menu ignores input for ~100 frames while it draws, so the hold must be long. */
@@ -99,6 +105,48 @@ function load48kSequence(): BootKeyStep[] {
     { keys: [K_SYM, K_P], frames: HOLD },   // "
     { keys: [], frames: GAP },
     { keys: [K_ENTER], frames: HOLD },      // ENTER → run LOAD
+  ];
+}
+
+/** 128K menu: cursor down (CAPS + 6) three times from "Tape Loader" past "128
+ *  BASIC" and "Calculator" to "48 BASIC", then ENTER. That pages the 48K ROM and
+ *  shows its editor; TR-DOS only traps in while that ROM is live. */
+function menu48BasicSequence(): BootKeyStep[] {
+  const HOLD = 5, GAP = 15;
+  const down: BootKeyStep[] = [{ keys: [K_CAPS, K_6], frames: HOLD }, { keys: [], frames: GAP }];
+  return [{ keys: [], frames: 30 }, ...down, ...down, ...down, { keys: [K_ENTER], frames: HOLD }];
+}
+
+/** 48K editor: `RANDOMIZE USR 15616` + ENTER enters TR-DOS, then, once it has
+ *  initialised the drive, `RUN` + ENTER loads and runs the disk's boot file.
+ *  RANDOMIZE is key T, USR is key L in extended mode (CAPS + SYMBOL SHIFT held
+ *  together, then released) and the digits type literally. */
+function trdosRunSequence(): BootKeyStep[] {
+  const HOLD = 5, GAP = 5, TRDOS_INIT = 100;
+  const digits = [...'15616'].map(c => ({ keys: [K_DIGIT[+c]], frames: HOLD }));
+  const steps: BootKeyStep[] = [
+    { keys: [K_T], frames: HOLD },               // RANDOMIZE
+    { keys: [], frames: GAP },
+    { keys: [K_CAPS, K_SYM], frames: HOLD },     // extended mode
+    { keys: [], frames: GAP },
+    { keys: [K_L], frames: HOLD },               // USR
+    { keys: [], frames: GAP },
+  ];
+  digits.forEach(d => { steps.push(d, { keys: [], frames: GAP }); });
+  steps.push({ keys: [K_ENTER], frames: HOLD }, { keys: [], frames: TRDOS_INIT });
+  steps.push({ keys: [K_R], frames: HOLD }, { keys: [], frames: GAP }, { keys: [K_ENTER], frames: HOLD });
+  return steps;
+}
+
+/** Scorpion menu: ENTER takes the default "128 TR-DOS" entry, which starts
+ *  TR-DOS under 128 BASIC; once it is up, `RUN` + ENTER boots the disk. */
+function scorpionTrdosSequence(): BootKeyStep[] {
+  const HOLD = 5, GAP = 5, TRDOS_INIT = 150;
+  return [
+    { keys: [], frames: 30 },
+    { keys: [K_ENTER], frames: HOLD },
+    { keys: [], frames: TRDOS_INIT },
+    { keys: [K_R], frames: HOLD }, { keys: [], frames: GAP }, { keys: [K_ENTER], frames: HOLD },
   ];
 }
 
@@ -247,7 +295,7 @@ export class Spectrum extends BaseMachine implements Machine {
    *  (A cold jump to LD-BYTES doesn't work: it loads one block to undefined
    *  IX/DE/A' and never runs the BASIC loader, so we drive the real keyboard.) */
   bootTrapPc = -1;
-  bootTrapKind: 'menu' | 'rom48k' = 'menu';
+  bootTrapKind: 'menu' | 'rom48k' | 'trdos-menu' | 'trdos-run' = 'menu';
   /** Remaining auto-boot keystroke steps; each holds a key set for `frames`
    *  frames (an empty key set is a release gap so the ROM sees distinct keys). */
   private bootKeySteps: BootKeyStep[] = [];
@@ -258,8 +306,17 @@ export class Spectrum extends BaseMachine implements Machine {
    *  trap PC is the ROM's menu/editor key-wait loop — a Spectrum-family address
    *  (see boot-trap.ts; the +2A/+3 one is found in the installed ROM 0), so it
    *  lives here, not the shell.
-   *  'menu' holds Enter on the 128K boot menu; 'rom48k' types LOAD "" on 48K. */
-  armBootTrap(kind: 'menu' | 'rom48k'): void {
+   *  'menu' holds Enter on the 128K boot menu; 'rom48k' types LOAD "" on 48K;
+   *  'trdos' boots the Beta Disk in drive A: the Scorpion's menu starts TR-DOS
+   *  itself, elsewhere it picks 48 BASIC from the 128K menu (when there is one)
+   *  and types RANDOMIZE USR 15616; then RUN. */
+  armBootTrap(kind: 'menu' | 'rom48k' | 'trdos'): void {
+    if (kind === 'trdos') {
+      const hasMenu = !this.variant.is48K;
+      this.bootTrapKind = hasMenu ? 'trdos-menu' : 'trdos-run';
+      this.bootTrapPc = hasMenu ? bootWaitPc(this.model, this.memory.romPages[0]) : 0x15DE;
+      return;
+    }
     this.bootTrapKind = kind;
     this.bootTrapPc = bootWaitPc(this.model, this.memory.romPages[0]);
   }
@@ -739,9 +796,21 @@ export class Spectrum extends BaseMachine implements Machine {
       // One-shot auto-boot trap (software-library play): the ROM has reached its
       // menu / 48K editor key-wait loop, so queue the loader keystrokes and
       // disarm. setKey is the same matrix path the joystick uses.
-      if (this.bootTrapPc >= 0 && this.cpu.pc === this.bootTrapPc) {
+      if (this.bootTrapPc >= 0 && this.cpu.pc === this.bootTrapPc &&
+          (this.bootTrapKind !== 'trdos-run' || this.memory.isBasicRomActive())) {
         this.bootTrapPc = -1;          // one-shot
-        this.bootKeySteps = this.bootTrapKind === 'rom48k' ? load48kSequence() : menuEnterSequence();
+        switch (this.bootTrapKind) {
+          case 'rom48k': this.bootKeySteps = load48kSequence(); break;
+          case 'trdos-menu':
+            if (isScorpionClass(this.model)) { this.bootKeySteps = scorpionTrdosSequence(); break; }
+            // Second stage: the editor's key-wait once 48 BASIC is paged in.
+            this.bootKeySteps = menu48BasicSequence();
+            this.bootTrapKind = 'trdos-run';
+            this.bootTrapPc = 0x15DE;
+            break;
+          case 'trdos-run': this.bootKeySteps = trdosRunSequence(); break;
+          default: this.bootKeySteps = menuEnterSequence();
+        }
         this.advanceBootStep();        // press the first step now
       }
 

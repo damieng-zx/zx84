@@ -255,7 +255,7 @@ describe('library media selection', () => {
     const beta = mk({ t: 'Demo', b: '/pub/d.trd.zip', c: CLONE_PENTAGON });
     const betaScorpion = mk({ t: 'Scorp', b: '/pub/s.trd.zip', c: CLONE_SCORPION });
     const tapeAndBeta = mk({ t: 'TB', k: '/pub/128.tzx.zip', b: '/pub/d.trd.zip', c: CLONE_PENTAGON });
-    const plan = (link: string, target: string) => ({ target, link, kind: 'beta-disk', boot: 'peripheral' });
+    const plan = (link: string, target: string) => ({ target, link, kind: 'beta-disk', boot: 'trdos' });
 
     it('stays on the current clone', () => {
       expect(planLoad(beta, 'pentagon512')).toEqual(plan('/pub/d.trd.zip', 'pentagon512'));

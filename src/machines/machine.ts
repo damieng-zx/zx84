@@ -150,7 +150,7 @@ export interface Machine {
    *  owns the trap address(es) for its own ROM family — or, for 'disk', its own
    *  equivalent of holding the boot key down. Machines without a ROM-loader
    *  auto-boot omit this (the shell keys off its presence). */
-  armBootTrap?(kind: 'menu' | 'rom48k' | 'disk'): void;
+  armBootTrap?(kind: 'menu' | 'rom48k' | 'disk' | 'trdos'): void;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

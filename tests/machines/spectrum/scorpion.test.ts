@@ -14,6 +14,9 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { blankTrdDisk } from '@/media/floppy/trd-image.ts';
 import { Spectrum } from '@/machines/spectrum/spectrum.ts';
 import { buildSpectrumAuxRoms } from '@/machines/spectrum/aux-roms.ts';
 import { loadSZX, saveSZXSync, applySZXPaging } from '@/machines/spectrum/snapshots/szx.ts';
@@ -345,11 +348,32 @@ describe('AY clock of the clones', () => {
 });
 
 describe('Library auto-boot trap for the clones', () => {
-  it('waits at the 128K menu key-wait (their ROM 0 is the 128K menu ROM), not the 48K editor', () => {
+  it('waits at the Sinclair 128K menu key-wait on the Pentagons, not the 48K editor', () => {
     const rom0 = new Uint8Array(16384);
-    for (const m of ['pentagon128', 'pentagon512', 'pentagon1024', 'scorpion256'] as const) {
+    for (const m of ['pentagon128', 'pentagon512', 'pentagon1024'] as const) {
       expect(bootWaitPc(m, rom0)).toBe(0x0E65);
     }
+  });
+
+  it('waits in the +3-style PUSH HL / BIT 5,(HL) loop at 0x3683 on the Scorpion, whose menu ROM is its own', () => {
+    expect(bootWaitPc('scorpion256', new Uint8Array(16384))).toBe(0x3683);
+  });
+
+  const scorpionRom = resolve(__dirname, '../../../mcp/.cache/scorpion-zs256-v25c.rom');
+  it.skipIf(!existsSync(scorpionRom))('real ZS-256 v2.5c ROM: the menu reaches the trap, and "trdos" enters TR-DOS and runs', () => {
+    const s = new Spectrum('scorpion256', null);
+    s.loadROM(new Uint8Array(readFileSync(scorpionRom)));
+    s.betaDisk.enabled = true;                // fitted on the board; its BIOS polls the FDC at boot
+    s.loadBetaDiskDisk(blankTrdDisk(80, 2), 0);
+    s.reset();
+    let pageIns = 0;
+    const pageIn = s.betaDisk.pageIn.bind(s.betaDisk);
+    s.betaDisk.pageIn = (m) => { if (!s.betaDisk.pagedIn) pageIns++; pageIn(m); };
+    s.armBootTrap('trdos');
+    expect(s.bootTrapPc).toBe(0x3683);
+    for (let f = 0; f < 600; f++) s.runUntil(1);
+    expect(s.bootTrapPc).toBe(-1);            // the menu's key-wait ran
+    expect(pageIns).toBeGreaterThanOrEqual(1); // RUN went through TR-DOS
   });
 });
 

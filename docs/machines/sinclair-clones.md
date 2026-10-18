@@ -49,7 +49,7 @@ keeps the Scorpion model when it is already selected.
 | ULA (display, border, beeper, keyboard) | all | ✅ | Spectrum ULA with **no memory or I/O contention** and no floating bus |
 | 7FFD paging | all | ✅ | Pentagon 128: loose decode (A15, A1 low). 1024: A15=0, A14=1, A1=0. Scorpion: A15=0, A14=1, A5=1, A1=0, A0=1 |
 | Extended RAM | 512, 1024, Scorpion | ✅ | See Models; the page at 0xC000 is re-derived whenever EFF7 or 1FFD changes |
-| EFF7 control port | 1024 | ◐ | Bit 2 (128K / 1 MB) emulated; bit 3 (RAM at 0x0000), turbo and video bits are latched only |
+| EFF7 control port | 1024 | ◐ | Bit 2 (128K / 1 MB) and bit 3 (writable RAM bank 0 over 0x0000, ROM hidden) emulated; the turbo and video bits are latched only |
 | 1FFD paging | Scorpion | ✅ | D0 maps writable RAM bank 0 over 0x0000; D1 selects the service ROM (page 2) whatever 7FFD D4 says; D4 is RAM page bit 3 |
 | AY-3-8912 | all | ✅ | Clocked at 1.75 MHz (CPU clock ÷ 2), not the Sinclair 128K's 1.7734 MHz |
 | Beta Disk / TR-DOS | all | ✅ | WD1793, drives A:/B:. Always fitted, so the Hardware-pane toggle is hidden. The Scorpion takes TR-DOS from ROM page 3 and also exposes the FDC ports while its service ROM is selected |
@@ -82,7 +82,7 @@ they overlay the same slot as the built-in Beta Disk.
 | --- | --- | --- |
 | Timing | ◐ | Frame lengths as above. The Pentagon first-pixel offset (17,988) and the Scorpion's (14,344) are figures taken from references and are not hardware-verified |
 | Fast ROM loading | ✅ | Active when the 48K BASIC ROM is paged in (ROM page 1 on the Scorpion) |
-| Software library | ◐ | The catalog carries ZXDB's Pentagon and Scorpion titles, with their TR-DOS images (`.trd`/`.scl`) as a Beta Disk format. On a clone the Machine filter gains a Pentagon or Scorpion option (it matches the titles ZXDB tags for that machine and every TR-DOS image). Tapes auto-load through the menu; a TR-DOS disk is mounted and the machine reset, but you start it yourself from TR-DOS (`RANDOMIZE USR 15616`, then `RUN`) |
+| Software library | ◐ | The catalog carries ZXDB's Pentagon and Scorpion titles, with their TR-DOS images (`.trd`/`.scl`) as a Beta Disk format. On a clone the Machine filter gains a Pentagon or Scorpion option (it matches the titles ZXDB tags for that machine and every TR-DOS image). Tapes auto-load through the menu. A TR-DOS disk is mounted, the machine reset and the disk booted: on a Pentagon the menu's "48 BASIC" is picked and `RANDOMIZE USR 15616` then `RUN` typed; on the Scorpion the default "128 TR-DOS" entry is taken and `RUN` typed. A disk with no `boot` file stops at TR-DOS's "NO FILE" |
 
 ---
 
@@ -100,13 +100,13 @@ they overlay the same slot as the built-in Beta Disk.
 | Issue | Affects | Severity | Notes |
 | --- | --- | --- | --- |
 | The Scorpion TURBO+ v2.92 / v2.95 ROMs hang on the menu's "128 TR-DOS" entry | Scorpion with those ROMs | medium | The service-ROM BIOS polls the FDC status for bits 7–5 after a Read Address; the cause is not understood. The v2.5c ROM that zx84 hosts works |
-| The Pentagon 128 ROM is the Sinclair 128K pair, not a Pentagon ROM | Pentagons | low | The banner and menu say Sinclair; software compatibility is unaffected |
+| The Pentagon 128 ROM is the Sinclair 128K pair, not a Pentagon ROM | Pentagons | low | The banner and menu say Sinclair; software compatibility is unaffected. A Pentagon-branded 128 ROM (with its TR-DOS menu entry) dropped on the ROM pane works, including the library auto-boot, which finds its menu wait by byte pattern; zx84 does not host one |
 
 ## Not emulated
 
 - **The Scorpion's "even M1" rule.** On the real board an opcode fetch from RAM that would start on an odd T-state takes one extra wait. Tight RAM loops run slightly faster here.
 - **Scorpion turbo (7 MHz), the #FF attribute floating bus and the NMI service monitor.**
-- **Pentagon 1024 EFF7 bit 3** (RAM at 0x0000), turbo and the extra video modes.
+- **Pentagon 1024 turbo and the extra video modes** (EFF7 bits other than 2 and 3).
 - **Other clones** (ATM Turbo, Profi, TS-Conf, Leningrad, Kay).
 
 ## Faithful quirks

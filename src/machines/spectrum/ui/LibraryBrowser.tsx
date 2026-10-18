@@ -393,7 +393,8 @@ export function LibraryBrowser() {
       // neither needs a loader kick, and neither should eject a mounted disk.
       const isSnapshot = plan.boot === 'snapshot';
       const isRom = plan.boot === 'rom';
-      const isPeripheral = plan.boot === 'peripheral';
+      // A Beta disk is a peripheral mount too; it differs only in being booted.
+      const isPeripheral = plan.boot === 'peripheral' || plan.boot === 'trdos';
       // A tape-only game on a +3/+2A must not find a disk in A: — the boot
       // menu's Loader boots the disk in preference to the tape. Eject any
       // mounted disk so the Loader falls through to the cassette loader.
@@ -412,10 +413,10 @@ export function LibraryBrowser() {
       // manager's default "…loaded" message.
       const source = plan.kind === 'plus3-disk' ? '+3 disk' : plan.kind === 'mgt-disk' ? 'MGT disk' : plan.kind === 'beta-disk' ? 'Beta disk' : plan.kind;
       setStatus(`Loaded ${source} ${basename(plan.link)}`);
-      // G+DOS boots from the mounted disk after reset; a Beta disk waits in
-      // drive A for TR-DOS (RANDOMIZE USR 15616, then RUN); Interface 1
-      // cartridges remain mounted for the program's own LOAD * command.
-      if (!remountOnly && (plan.kind === 'mgt-disk' || plan.kind === 'beta-disk')) resetMachine();
+      // G+DOS boots from the mounted disk after reset; a Beta disk is booted by
+      // typing RANDOMIZE USR 15616 and RUN once the editor is up (autoBootLoad);
+      // Interface 1 cartridges remain mounted for the program's own LOAD * command.
+      if (!remountOnly && plan.kind === 'mgt-disk') resetMachine();
       if (!remountOnly && plan.boot !== 'snapshot' && plan.boot !== 'rom' && plan.boot !== 'peripheral') autoBootLoad(plan.boot);
     } catch (err) {
       console.warn(`Failed to load "${game.title}":`, err);

@@ -212,7 +212,10 @@ export function applySZXPaging(memory: SpectrumMemory, hasSpecialPaging: boolean
   if (!result.is128K) return;
   // The 1024's EFF7 shares the 1FFD byte and decides how 7FFD is read, so it
   // must be restored first. A no-op latch on every other machine.
-  if (memory.scheme === 'pentagon1024') memory.portEFF7 = result.port1FFD;
+  if (memory.scheme === 'pentagon1024') {
+    memory.portEFF7 = result.port1FFD;
+    memory.ramAtZero = (result.port1FFD & 0x08) !== 0;
+  }
   if (memory.scheme === 'scorpion') {
     // 1FFD carries RAM-at-0000, the ROM page's high bit and RAM page bit 3, and
     // must be latched first because it feeds the page 7FFD selects.
