@@ -90,15 +90,53 @@ export function apple2eKeyByte(event: HostKeyEvent, capsLock: boolean): number |
   return null;
 }
 
+/**
+ * The ][/][+ encoder's byte for a keycap, for the on-screen keyboard (the host
+ * mapping above follows the PC's own shift pairs instead). `face` is the cap's
+ * id: a DOM key code where one fits, or `colon` for the `: *` cap the PC lacks.
+ *
+ * SHIFT only changes the symbol caps and three letters — N ^, M ], P @ — and
+ * CTRL only the letters (Apple II Reference Manual, keyboard code table).
+ */
+export function apple2FaceByte(face: string, shift: boolean, ctrl: boolean): number | null {
+  const letter = letterCode(face);
+  if (letter !== null) {
+    const shifted = shift ? (II_SHIFTED_LETTERS[face] ?? letter) : letter;
+    return ctrl ? shifted & 0x1F : shifted;
+  }
+  const pair = II_FACES[face];
+  if (pair) return shift ? pair[1] : pair[0];
+  return null;
+}
+
+const II_SHIFTED_LETTERS: Record<string, number> = { KeyN: 0x5E, KeyM: 0x5D, KeyP: 0x40 };
+
+/** Unshifted / shifted byte for each non-letter ][ cap. */
+const II_FACES: Record<string, [number, number]> = {
+  Digit1: [0x31, 0x21], Digit2: [0x32, 0x22], Digit3: [0x33, 0x23],
+  Digit4: [0x34, 0x24], Digit5: [0x35, 0x25], Digit6: [0x36, 0x26],
+  Digit7: [0x37, 0x27], Digit8: [0x38, 0x28], Digit9: [0x39, 0x29],
+  Digit0: [0x30, 0x30],
+  colon: [0x3A, 0x2A], Minus: [0x2D, 0x3D], Semicolon: [0x3B, 0x2B],
+  Comma: [0x2C, 0x3C], Period: [0x2E, 0x3E], Slash: [0x2F, 0x3F],
+  Escape: [0x1B, 0x1B], Enter: [0x0D, 0x0D], Space: [0x20, 0x20],
+  ArrowLeft: [0x08, 0x08], ArrowRight: [0x15, 0x15],
+};
+
+/** Host modifier codes, and the //e's Apple keys on the two Alts. */
+const MODIFIERS = new Set([
+  'ShiftLeft', 'ShiftRight', 'ControlLeft', 'ControlRight',
+  'AltLeft', 'AltRight', 'MetaLeft', 'MetaRight',
+]);
+
+/** A held modifier: in `held`, but latches no byte. */
+const NO_BYTE = -1;
+
 export class Apple2Keyboard {
   /** The //e: full ASCII, CAPS LOCK, Apple keys. */
   private readonly iie: boolean;
   /** //e CAPS LOCK (down at power-on, like a lock left pressed). */
   private capsLock = true;
-  /** //e Open-Apple / Solid-Apple / SHIFT, read back as buttons 0, 1 and 2. */
-  private openApple = false;
-  private solidApple = false;
-  private shift = false;
 
   constructor(iie = false) { this.iie = iie; }
 
@@ -106,48 +144,65 @@ export class Apple2Keyboard {
   private latch = 0;
   /** Keyboard strobe: a key is waiting to be read (and not yet cleared). */
   private strobe = false;
-  /** Pressed key bytes (for the activity LED and on-screen keyboard). */
-  private readonly pressed = new Set<number>();
+  /**
+   * Keys held down, by physical key (a DOM key code, or an on-screen cap's id),
+   * with the byte each latched — so a key releases what it pressed even if a
+   * modifier changed meanwhile, and the on-screen keyboard can light the cap.
+   */
+  private readonly held = new Map<string, number>();
 
-  /** Press/release a raw encoder byte — used by the on-screen keyboard. */
+  /** Press/release a raw encoder byte (tests, scripted input). */
   setKey(code: number, down: boolean): void {
-    if (down) { this.latch = code & 0xFF; this.strobe = true; this.pressed.add(code & 0xFF); }
-    else this.pressed.delete(code & 0xFF);
+    this.pressFace(`byte:${code & 0xFF}`, code, down);
   }
+
+  /** Press/release a physical key that latches `code` (null for a modifier). */
+  pressFace(id: string, code: number | null, down: boolean): void {
+    if (!down) { this.held.delete(id); return; }
+    if (code === null) { this.held.set(id, NO_BYTE); return; }
+    this.latch = code & 0xFF;
+    this.strobe = true;
+    this.held.set(id, code & 0xFF);
+  }
+
+  /** Whether a physical key (DOM code or on-screen cap id) is held. */
+  isHeld(id: string): boolean { return this.held.has(id); }
+
+  get shiftHeld(): boolean { return this.held.has('ShiftLeft') || this.held.has('ShiftRight'); }
+  get ctrlHeld(): boolean { return this.held.has('ControlLeft') || this.held.has('ControlRight'); }
+
+  /** The //e's CAPS LOCK latch. */
+  get capsLocked(): boolean { return this.capsLock; }
+  toggleCapsLock(): void { this.capsLock = !this.capsLock; }
 
   /** Game-port push buttons 0-2: Open-Apple, Solid-Apple, SHIFT (the //e only). */
   button(n: number): boolean {
     if (!this.iie) return false;
-    return n === 0 ? this.openApple : n === 1 ? this.solidApple : this.shift;
+    return n === 0 ? this.held.has('AltLeft') : n === 1 ? this.held.has('AltRight') : this.shiftHeld;
   }
+
+  /** The ][ REPT key: latch the last key again, as its repeat oscillator does. */
+  repeat(): void { this.strobe = true; }
 
   handleEvent(event: HostKeyEvent, down: boolean): boolean {
-    if (this.iie) return this.handleIieEvent(event, down);
-    // Modifiers themselves are not keys on the Apple II.
-    if (event.code === 'ShiftLeft' || event.code === 'ShiftRight'
-      || event.code === 'ControlLeft' || event.code === 'ControlRight'
-      || event.code === 'AltLeft' || event.code === 'AltRight'
-      || event.code === 'MetaLeft' || event.code === 'MetaRight') return false;
-    const byte = apple2KeyByte(event);
-    if (byte === null) return false;
-    this.setKey(byte, down);
-    return true;
-  }
-
-  private handleIieEvent(event: HostKeyEvent, down: boolean): boolean {
-    switch (event.code) {
-      case 'AltLeft': this.openApple = down; return true;
-      case 'AltRight': this.solidApple = down; return true;
-      case 'ShiftLeft': case 'ShiftRight': this.shift = down; return false;
-      case 'CapsLock':
-        if (down) this.capsLock = !this.capsLock;
-        return true;
-      default: break;
+    if (!down && this.held.has(event.code)) {
+      const byte = this.held.get(event.code)!;
+      this.held.delete(event.code);
+      return byte !== NO_BYTE || (this.iie && event.code.startsWith('Alt'));
     }
-    if (event.code.startsWith('Control') || event.code.startsWith('Meta')) return false;
-    const byte = apple2eKeyByte(event, this.capsLock);
+    if (MODIFIERS.has(event.code)) {
+      // Tracked for SHIFT/CTRL state and the on-screen keyboard; only the //e's
+      // Apple keys are hardware of their own (the game-port buttons).
+      this.pressFace(event.code, null, down);
+      return this.iie && event.code.startsWith('Alt');
+    }
+    if (this.iie && event.code === 'CapsLock') {
+      if (down) this.toggleCapsLock();
+      return true;
+    }
+    const byte = this.iie ? apple2eKeyByte(event, this.capsLock) : apple2KeyByte(event);
     if (byte === null) return false;
-    this.setKey(byte, down);
+    if (down) this.pressFace(event.code, byte, true);
     return true;
   }
 
@@ -159,7 +214,11 @@ export class Apple2Keyboard {
   /** A read or write of $C010 clears the strobe. */
   clearStrobe(): void { this.strobe = false; }
 
-  get anyPressed(): boolean { return this.pressed.size > 0; }
+  /** Any key that latches a byte is down (the //e's $C010 bit 7). */
+  get anyPressed(): boolean {
+    for (const byte of this.held.values()) if (byte !== NO_BYTE) return true;
+    return false;
+  }
   get strobeActive(): boolean { return this.strobe; }
 
   /** The last key's code without the strobe (the //e's $C010 read-back). */
@@ -168,9 +227,6 @@ export class Apple2Keyboard {
   reset(): void {
     this.latch = 0;
     this.strobe = false;
-    this.pressed.clear();
-    this.openApple = false;
-    this.solidApple = false;
-    this.shift = false;
+    this.held.clear();
   }
 }

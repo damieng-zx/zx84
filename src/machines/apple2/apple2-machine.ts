@@ -278,6 +278,19 @@ export class Apple2Machine extends BaseMachine implements Machine {
     this.setStatus('Boot: drive 1');
   }
 
+  /** The keyboard's RESET key: the 6502's RESET line, not a power cycle. RAM
+   *  survives and the ROM's reset handler decides what happens next — the ][
+   *  drops into the Monitor, an Autostart ROM follows its warm-start vector, and
+   *  the //e reboots if Open-Apple is held too. The //e and //c keyboards only
+   *  pass RESET through with CTRL held. Returns whether it reached the CPU. */
+  pressResetKey(): boolean {
+    if (this.modelInfo.iie && !this.keyboard.ctrlHeld) return false;
+    this.cpu.reset();
+    this.memory.reset();
+    this.cpu.setIRQ(false);
+    return true;
+  }
+
   /** Library one-click play: the shell has already reset the machine. */
   armBootTrap(kind: 'menu' | 'rom48k' | 'disk'): void {
     if (kind === 'disk') this.bootDisc();
