@@ -10,21 +10,23 @@ ZX84 is an old-computer emulator with machine-specific hardware models, browser-
 
 ## Supported Machines
 
-| Family | Models | Core Hardware |
+Each machine has its own sheet covering its models, built-in hardware, peripherals, media formats, tools and known issues.
+
+| Machine | Models | CPU |
 | --- | --- | --- |
-| Sinclair ZX Spectrum | 16K, 48K, 128K, +2, +2A, +3 | ULA or Amstrad gate array, beeper, AY on 128K-class models, uPD765A on +3 |
-| Sinclair ZX80 / ZX81 | ZX80, ZX81, optional 16KB RAM pack | Software-generated monochrome display, keyboard matrix, `.o` / `.p` program images |
-| Amstrad CPC | CPC 464, CPC 664, CPC 6128, 6128 Plus, GX4000 | Gate array or Plus ASIC, 6845 CRTC, AY-3-891x, 8255 PPI, uPD765A on 664/6128, cartridge on Plus models |
-| Tatung Einstein | TC-01, 256 | TMS9929A (TC-01) or V9938 (256) VDP, AY-3-8910, Z80 CTC, WD1770 |
-| MSX | Toshiba HX-10 | TMS9929A VDP, AY-3-8910, 8255 PPI, cartridge slot, optional WD2793 floppy disk interface |
-| Memotech MTX | MTX500, MTX512, RS128 | TMS9929A VDP, Z80 CTC, SN76489A, twin matrix-wired joysticks, ROM extension card, FDX/SDX WD179x disk interface, optional 6845 80-column display |
-| Camputers Lynx | 48K, 96K, 128K | 6845 CRTC video, DAC sound, cassette, FD1793 floppy on 96K/128K |
-| Jupiter Ace | Jupiter Ace | Jupiter Cantab ULA (32×24 monochrome text display), piezo buzzer, cassette port, optional 16K or 48K RAM pack, FORTH in ROM |
-| Acorn BBC Micro | Model B | MOS 6502, 6522 VIAs, 6845 CRTC with video ULA and SAA5050 teletext (Mode 7), SN76489 sound, 6850 ACIA with the serial ULA's cassette interface, Acorn 8271 or WD1770 DFS disc interface |
-| Acorn Electron | Electron | MOS 6502, the single ULA (modes 0-6 video, RAM arbitration, ROM paging, keyboard, 1-bit sound, 1200-baud cassette); optional Plus 1 (cartridge slots, analogue and printer ports) and Plus 3 (WD1770 + ADFS disc interface) |
-| Apple II | Apple ][, Apple ][+, Apple //e (unenhanced and Enhanced), Apple //c | MOS 6502 (65C02 on the Enhanced //e and //c), Integer BASIC or Applesoft, Autostart Monitor, composite NTSC/PAL video (text, lores, hires; //e 80-column text, double hi-res and MouseText), Disk ][ with 6-and-2 GCR, 16K language card, //e MMU with 64K auxiliary RAM, optional Videx Videoterm 80-column card, Mockingboard (2 × AY-3-8910), paddles and joystick |
-| Enterprise | 64, 128 | Nick (line-parameter-table video, 2-256 colours), Dave (4MB segment paging, 3 tone + noise stereo sound, interrupts), EXOS; optional EXDOS card (WD1770) |
-| Amstrad PCW | 8256, 8512, 9512, 9256 | Gate array (roller-RAM bitmap video, 300Hz timer, FDC interrupt routing), beeper, uPD765A, memory-mapped keyboard, no ROM — boots from disc |
+| [Sinclair ZX Spectrum](docs/machines/zx-spectrum.md) | 16K, 48K, 128K, +2, +2A, +3 | Z80 |
+| [Sinclair ZX80 / ZX81](docs/machines/zx80-zx81.md) | ZX80, ZX81 | Z80 |
+| [Amstrad CPC](docs/machines/amstrad-cpc.md) | CPC 464, CPC 664, CPC 6128, 6128 Plus, GX4000 | Z80 |
+| [Amstrad PCW](docs/machines/amstrad-pcw.md) | 8256, 8512, 9256, 9512 | Z80 |
+| [Tatung Einstein](docs/machines/tatung-einstein.md) | TC-01, 256 | Z80 |
+| [MSX](docs/machines/msx.md) | Toshiba HX-10 | Z80 |
+| [Memotech MTX](docs/machines/memotech-mtx.md) | MTX500, MTX512, RS128 | Z80 |
+| [Camputers Lynx](docs/machines/camputers-lynx.md) | 48K, 96K, 128K | Z80 |
+| [Jupiter Ace](docs/machines/jupiter-ace.md) | Jupiter Ace | Z80 |
+| [Enterprise](docs/machines/enterprise.md) | 64, 128 | Z80 |
+| [Acorn BBC Micro](docs/machines/bbc-micro.md) | Model B | 6502 |
+| [Acorn Electron](docs/machines/acorn-electron.md) | Electron | 6502 |
+| [Apple II](docs/machines/apple-ii.md) | Apple ][, ][+, //e, Enhanced //e, //c | 6502 / 65C02 |
 
 ## Features
 
