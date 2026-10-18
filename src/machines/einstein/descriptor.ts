@@ -21,7 +21,7 @@ const EINSTEIN_UI: MachineUiCapabilities = {
   // system-variables view either.
   hiddenPanes: ['tape-panel', 'sysvar-panel'],
   memoryLayout: true,
-  trace: true,
+  trace: false,
   colorMap: 'einstein',
   accuracy: false,
   builtinDisk: true,

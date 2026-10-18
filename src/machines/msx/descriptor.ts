@@ -16,7 +16,7 @@ const MSX_UI: MachineUiCapabilities = {
   // No system-variables view (only the Spectrum contributes one).
   hiddenPanes: ['sysvar-panel'],
   memoryLayout: true,
-  trace: true,
+  trace: false,
   colorMap: 'msx',
   accuracy: false,
   // The floppy interface is a Hardware-pane option: the Drives pane shows only
