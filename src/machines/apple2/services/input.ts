@@ -1,4 +1,4 @@
-import type { HostKeyEvent, InputService, MouseSink } from '@/machines/machine.ts';
+import type { HostKeyEvent, InputService, JoystickInput, MouseSink } from '@/machines/machine.ts';
 import type { Apple2Machine } from '../apple2-machine.ts';
 
 export class Apple2InputService implements InputService {
@@ -12,7 +12,15 @@ export class Apple2InputService implements InputService {
     return this.machine.keyboard.handleEvent(event, false);
   }
 
-  releaseAll(): void { this.machine.keyboard.reset(); }
+  releaseAll(): void {
+    this.machine.keyboard.reset();
+    this.machine.paddles.reset();
+  }
+
+  /** Digital joystick presses drive the paddles: an axis goes to its extreme. */
+  readonly joystick: JoystickInput = {
+    press: (dir, pressed, _mode, player) => this.machine.paddles.press(dir, pressed, player),
+  };
 
   readonly mouse: MouseSink | null = null;
 }

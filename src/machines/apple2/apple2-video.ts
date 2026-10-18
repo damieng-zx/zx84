@@ -29,15 +29,18 @@
  */
 
 import {
-  APPLE2_BORDER_LEFT, APPLE2_BORDER_TOP, APPLE2_SCREEN_WIDTH, APPLE2_SCREEN_HEIGHT,
+  APPLE2_ACTIVE_WIDTH, APPLE2_BORDER_LEFT, APPLE2_BORDER_TOP, APPLE2_NARROW_WIDTH,
+  APPLE2_SCREEN_WIDTH, APPLE2_SCREEN_HEIGHT,
 } from './constants.ts';
-import type { Apple2Charset } from './apple2-charset.ts';
+import type { Apple2Font } from './apple2-charset.ts';
+import { VIDEX_CELL_HEIGHT, VIDEX_COLS, VIDEX_ROWS, type VidexView } from './peripherals/videx.ts';
 
 const W = APPLE2_SCREEN_WIDTH;
 const H = APPLE2_SCREEN_HEIGHT;
 const ACTIVE_X = APPLE2_BORDER_LEFT;
 const ACTIVE_Y = APPLE2_BORDER_TOP;
-const ACTIVE_W = 280;
+const FULL_W = APPLE2_ACTIVE_WIDTH;            // dots per line at the 14 MHz dot clock
+const ACTIVE_W = APPLE2_NARROW_WIDTH;     // source dots per line (each drawn twice)
 
 const BLACK = 0xFF000000;
 const WHITE = 0xFFFFFFFF;
@@ -85,10 +88,20 @@ const FULL_CHROMA = 0.5;
 /** Fraction of full chroma below which a pixel is treated as colourless. */
 const CHROMA_KNEE = 0.15;
 
+/** Chroma / luminance averaging kernel at the full 560-dot rate: the same
+ *  triangle, twice as wide because each dot is half as long. Sixteen taps is a
+ *  whole number of subcarrier cycles (four dots each), so a period-4 pattern —
+ *  a double hi-res colour — averages cleanly. */
+const KERNEL_FULL = [1, 2, 3, 4, 5, 6, 7, 8, 8, 7, 6, 5, 4, 3, 2, 1].map(v => v / 72);
+const KERNEL_FULL_OFF = -8;
+
 /** Subcarrier phase advanced per pixel: NTSC's dot clock is twice the
  *  subcarrier (180°), PAL's 7.125 MHz is not (≈224°). */
 const NTSC_PHASE_PER_PIXEL = Math.PI;
 const PAL_PHASE_PER_PIXEL = 2 * Math.PI * (4.43361875 / 7.125);
+/** The same at the 14 MHz dot clock: NTSC is exactly a quarter cycle per dot. */
+const NTSC_PHASE_PER_DOT = Math.PI / 2;
+const PAL_PHASE_PER_DOT = 2 * Math.PI * (4.43361875 / 14.25);
 
 export type Apple2VideoMode = 'mono' | 'green' | 'ntsc' | 'pal';
 
@@ -110,9 +123,18 @@ export interface Apple2VideoState {
   mixed: boolean;
   page2: boolean;
   hires: boolean;
-  charset: Apple2Charset;
+  charset: Apple2Font;
   flashPhase: boolean;
   mode: Apple2VideoMode;
+  /** IIe: auxiliary RAM (null or absent without the 80-column card / on a ][+). */
+  aux?: Uint8Array | null;
+  /** IIe: 80-column text, and double hi-res when `dhires` is also set. */
+  col80?: boolean;
+  dhires?: boolean;
+  /** IIe: the alternate character set (lowercase, no flashing). */
+  altCharset?: boolean;
+  /** A Videx Videoterm card's display, which replaces the Apple's own when active. */
+  videx?: VidexView | null;
 }
 
 function pack(r: number, g: number, b: number): number {
@@ -136,6 +158,14 @@ export class Apple2Video {
   private readonly prevRe = new Float32Array(ACTIVE_W);
   private readonly prevIm = new Float32Array(ACTIVE_W);
   private prevLine = -2;
+
+  /** One 560-dot source line (80-column text, double hi-res). */
+  private readonly dots = new Float32Array(FULL_W);
+  private tableMode560: Apple2VideoMode | null = null;
+  private cos560 = new Float32Array(FULL_W);
+  private sin560 = new Float32Array(FULL_W);
+  private dotOffset = 0;
+  private fullChroma560 = 0.5;
 
   /** Subcarrier reference tables for the active mode (rebuilt on a change). */
   private tableMode: Apple2VideoMode | null = null;
@@ -172,17 +202,23 @@ export class Apple2Video {
     const px = this.pixels32;
     px.fill(BLACK);
     this.prevLine = -2;
+    if (s.videx?.active) {
+      this.videxText(s, s.videx);
+      return;
+    }
     if (s.mode === 'ntsc' || s.mode === 'pal') this.ensureTables(s.mode);
     if (s.textMode) {
       this.textRows(s, 0, 24);
       return;
     }
-    if (s.hires) this.hires(s);
-    else this.lores(s);
+    if (s.hires) {
+      if (s.col80 && s.dhires) this.doubleHires(s);
+      else this.hires(s);
+    } else this.lores(s);
     if (s.mixed) this.textRows(s, 20, 24);
   }
 
-  /** Paint one 280-pixel 1-bit source line at buffer row `y`. */
+  /** Paint one 280-dot 1-bit source line at buffer row `y`, each dot as two pixels. */
   private paintLine(s: Apple2VideoState, y: number): void {
     const out = (ACTIVE_Y + y) * W + ACTIVE_X;
     const px = this.pixels32;
@@ -190,7 +226,7 @@ export class Apple2Video {
       const green = s.mode === 'green';
       for (let x = 0; x < ACTIVE_W; x++) {
         const y8 = this.level[x] > 0.5 ? 255 : 0;
-        px[out + x] = green ? tintGreen(y8) : (y8 ? WHITE : BLACK);
+        px[out + 2 * x] = px[out + 2 * x + 1] = green ? tintGreen(y8) : (y8 ? WHITE : BLACK);
       }
       return;
     }
@@ -206,7 +242,7 @@ export class Apple2Video {
         if (this.level[clampIndex(x + k + KERNEL_OFF)] !== first) { flat = false; break; }
       }
       if (flat && !(delayLine && (this.prevRe[x] !== 0 || this.prevIm[x] !== 0))) {
-        px[out + x] = first > 0.5 ? WHITE : BLACK;
+        px[out + 2 * x] = px[out + 2 * x + 1] = first > 0.5 ? WHITE : BLACK;
         this.prevRe[x] = 0;
         this.prevIm[x] = 0;
         continue;
@@ -223,7 +259,7 @@ export class Apple2Video {
       // PAL flips the V axis on alternate lines at the encoder and the decoder
       // flips it back, so a clean signal needs no net inversion here. What is
       // left of the delay-line decoder is the average with the previous line's
-      // chroma � taken from the raw (pre-average) value so it is a one-line
+      // chroma — taken from the raw (pre-average) value so it is a one-line
       // delay, not a recursive filter.
       const rawRe = re, rawIm = im;
       if (delayLine) { re = (re + this.prevRe[x]) / 2; im = (im + this.prevIm[x]) / 2; }
@@ -265,34 +301,174 @@ export class Apple2Video {
         g += (hg - g) * sat;
         b += (hb - b) * sat;
       }
-      px[out + x] = pack(r < 0 ? 0 : r > 255 ? 255 : r | 0,
+      px[out + 2 * x] = px[out + 2 * x + 1] = pack(r < 0 ? 0 : r > 255 ? 255 : r | 0,
         g < 0 ? 0 : g > 255 ? 255 : g | 0,
         b < 0 ? 0 : b > 255 ? 255 : b | 0);
     }
     this.prevLine = y;
   }
 
+  private ensureTables560(mode: Apple2VideoMode): void {
+    if (this.tableMode560 === mode) return;
+    const step = mode === 'pal' ? PAL_PHASE_PER_DOT : NTSC_PHASE_PER_DOT;
+    // A dot pair at the start of the line is what a lit 280-dot pixel is, so
+    // colours line up with hi-res: the group's chroma sits half a dot late.
+    this.dotOffset = step / 2;
+    for (let x = 0; x < FULL_W; x++) {
+      this.cos560[x] = Math.cos(step * x);
+      this.sin560[x] = Math.sin(step * x);
+    }
+    // The saturation reference: the chroma of a fully saturated pattern (two
+    // dots lit, two dark) in the middle of the line.
+    let mean = 0;
+    const probe = (x: number): number => ((x >> 1) & 1 ? 0 : 1);
+    const mid = FULL_W / 2;
+    for (let k = 0; k < KERNEL_FULL.length; k++) mean += KERNEL_FULL[k] * probe(mid + k + KERNEL_FULL_OFF);
+    let re = 0, im = 0;
+    for (let k = 0; k < KERNEL_FULL.length; k++) {
+      const xx = mid + k + KERNEL_FULL_OFF;
+      const v = (probe(xx) - mean) * KERNEL_FULL[k];
+      re += v * this.cos560[xx];
+      im += v * this.sin560[xx];
+    }
+    this.fullChroma560 = Math.sqrt(re * re + im * im) || 0.5;
+    this.tableMode560 = mode;
+  }
+
+  /**
+   * Paint one 560-dot source line at buffer row `y`. `graphics` lines (double
+   * hi-res) are decoded for colour in the composite modes; text is not — the
+   * colour burst is off for IIe text — so it is plain white on black there.
+   */
+  private paintDots(s: Apple2VideoState, y: number, graphics: boolean): void {
+    const out = (ACTIVE_Y + y) * W + ACTIVE_X;
+    const px = this.pixels32;
+    const colour = graphics && (s.mode === 'ntsc' || s.mode === 'pal');
+    if (!colour) {
+      const green = s.mode === 'green';
+      const on = green ? tintGreen(255) : WHITE;
+      for (let x = 0; x < FULL_W; x++) px[out + x] = this.dots[x] > 0.5 ? on : BLACK;
+      return;
+    }
+    this.ensureTables560(s.mode);
+    const last = FULL_W - 1;
+    const at = (x: number): number => this.dots[x < 0 ? 0 : x > last ? last : x];
+    for (let x = 0; x < FULL_W; x++) {
+      const first = at(x + KERNEL_FULL_OFF);
+      let flat = true;
+      for (let k = 1; k < KERNEL_FULL.length; k++) {
+        if (at(x + k + KERNEL_FULL_OFF) !== first) { flat = false; break; }
+      }
+      if (flat) { px[out + x] = first > 0.5 ? WHITE : BLACK; continue; }
+      let mean = 0;
+      for (let k = 0; k < KERNEL_FULL.length; k++) mean += KERNEL_FULL[k] * at(x + k + KERNEL_FULL_OFF);
+      let re = 0, im = 0;
+      for (let k = 0; k < KERNEL_FULL.length; k++) {
+        const xx = x + k + KERNEL_FULL_OFF;
+        const v = (at(xx) - mean) * KERNEL_FULL[k];
+        const ci = xx < 0 ? 0 : xx > last ? last : xx;
+        re += v * this.cos560[ci];
+        im += v * this.sin560[ci];
+      }
+      const mag = Math.sqrt(re * re + im * im);
+      const raw = mag >= this.fullChroma560 ? 1 : mag / this.fullChroma560;
+      const sat = raw <= CHROMA_KNEE ? 0 : (raw - CHROMA_KNEE) / (1 - CHROMA_KNEE);
+      const lum = 255 * mean;
+      let r = lum, g = lum, b = lum;
+      if (sat > 0) {
+        let t = (Math.atan2(im, re) - this.dotOffset) / (Math.PI / 2);
+        t = ((t % 4) + 4) % 4;
+        const i0 = Math.floor(t) & 3;
+        const i1 = (i0 + 1) & 3;
+        const f = t - Math.floor(t);
+        const a = HUE_RGB[i0], c = HUE_RGB[i1];
+        const gain = lum >= 127.5 ? 1 : lum / 127.5;
+        r += ((a[0] + (c[0] - a[0]) * f) * gain - r) * sat;
+        g += ((a[1] + (c[1] - a[1]) * f) * gain - g) * sat;
+        b += ((a[2] + (c[2] - a[2]) * f) * gain - b) * sat;
+      }
+      px[out + x] = pack(r < 0 ? 0 : r > 255 ? 255 : r | 0,
+        g < 0 ? 0 : g > 255 ? 255 : g | 0,
+        b < 0 ? 0 : b > 255 ? 255 : b | 0);
+    }
+  }
+
+  /**
+   * Double hi-res: 560 dots across, two bytes per 14-dot cell — auxiliary RAM
+   * first, then main, seven dots each with bit 0 leftmost. The colour is the
+   * pattern of every four dots.
+   */
+  private doubleHires(s: Apple2VideoState): void {
+    const page = s.page2 ? 'page2' : 'page1';
+    const aux = s.aux ?? null;
+    for (let y = 0; y < 192; y++) {
+      const addr = hiresRowBase(page, y);
+      for (let col = 0; col < 40; col++) {
+        const a = aux ? aux[(addr + col) & 0xFFFF] : 0;
+        const m = s.ram[(addr + col) & 0xFFFF];
+        for (let i = 0; i < 7; i++) {
+          this.dots[col * 14 + i] = (a >> i) & 1;
+          this.dots[col * 14 + 7 + i] = (m >> i) & 1;
+        }
+      }
+      this.paintDots(s, y, true);
+    }
+  }
+
+  /**
+   * The Videx Videoterm's output: 80 by 24 characters of seven dots by nine scan
+   * lines, centred in the frame, in white (or phosphor green). A character code's
+   * top bit is inverse video; the cursor inverts its scan lines, steady or at the
+   * flash rate.
+   */
+  private videxText(s: Apple2VideoState, v: VidexView): void {
+    const px = this.pixels32;
+    const lit = s.mode === 'green' ? tintGreen(255) : WHITE;
+    const top = ((H - VIDEX_ROWS * VIDEX_CELL_HEIGHT) >> 1);
+    const cursorShown = v.cursorMode === 0 || ((v.cursorMode & 2) !== 0 && s.flashPhase);
+    for (let row = 0; row < VIDEX_ROWS; row++) {
+      for (let line = 0; line < VIDEX_CELL_HEIGHT; line++) {
+        const out = (top + row * VIDEX_CELL_HEIGHT + line) * W + ACTIVE_X;
+        for (let col = 0; col < VIDEX_COLS; col++) {
+          const addr = (v.start + row * VIDEX_COLS + col) & 0x7FF;
+          const code = v.ram[addr];
+          let bits = v.font[((code & 0x7F) << 4) | line] ?? 0;
+          if (code & 0x80) bits = ~bits;
+          if (cursorShown && addr === v.cursor && line >= v.cursorStart && line <= v.cursorEnd) bits = ~bits;
+          const x = out + col * 7;
+          for (let d = 0; d < 7; d++) px[x + d] = (bits >> (7 - d)) & 1 ? lit : BLACK;
+        }
+      }
+    }
+  }
+
   /** Text rows [start, end) — glyphs into the 1-bit line path. */
   private textRows(s: Apple2VideoState, start: number, end: number): void {
     const page = s.page2 ? 'page2' : 'page1';
+    const alt = !!s.altCharset;
+    const wide = !!s.col80;
     for (let row = start; row < end; row++) {
       const addr = textRowBase(page, row);
       const y0 = row * 8;
-      // Attributes are in the top two bits: $80-$FF normal, $40-$7F flashing
-      // (alternating normal/inverse), $00-$3F inverse. The glyph is the low six.
       for (let r = 0; r < 8; r++) {
-        for (let col = 0; col < 40; col++) {
-          const b = s.ram[(addr + col) & 0xFFFF];
-          const hi = b & 0xC0;
-          const inverse = hi === 0x00 || (hi === 0x40 && s.flashPhase);
-          const bits = s.charset.glyphRow(b & 0x3F, r);
-          for (let x = 0; x < 7; x++) {
-            const on = (bits >> (6 - x)) & 1;
-            this.level[col * 7 + x] = (on ^ (inverse ? 1 : 0)) ? 1 : 0;
+        if (wide) {
+          // 80 columns: even columns come from auxiliary RAM, odd from main.
+          for (let col = 0; col < 80; col++) {
+            const bank = (col & 1) === 0 ? (s.aux ?? null) : s.ram;
+            const b = bank ? bank[(addr + (col >> 1)) & 0xFFFF] : 0xA0;
+            const bits = s.charset.glyph(b, r, s.flashPhase, alt);
+            for (let x = 0; x < 7; x++) this.dots[col * 7 + x] = (bits >> (6 - x)) & 1;
           }
+          this.paintDots(s, y0 + r, false);
+        } else {
+          for (let col = 0; col < 40; col++) {
+            const b = s.ram[(addr + col) & 0xFFFF];
+            const bits = s.charset.glyph(b, r, s.flashPhase, alt);
+            for (let x = 0; x < 7; x++) this.level[col * 7 + x] = (bits >> (6 - x)) & 1;
+          }
+          this.quarter.fill(0);
+          this.paintLine(s, y0 + r);
         }
-        this.quarter.fill(0);
-        this.paintLine(s, y0 + r);
       }
     }
   }
@@ -310,10 +486,10 @@ export class Apple2Video {
       for (let col = 0; col < 40; col++) {
         const b = s.ram[(addr + col) & 0xFFFF];
         const colour = pal[(high ? (b >> 4) : b) & 0x0F];
-        const x0 = ACTIVE_X + col * 7;
+        const x0 = ACTIVE_X + col * 14;
         for (let y = 0; y < 4; y++) {
           const out = (y0 + y) * W;
-          px.fill(colour, out + x0, out + x0 + 7);
+          px.fill(colour, out + x0, out + x0 + 14);
         }
       }
     }

@@ -14,6 +14,7 @@
  */
 
 import type { IMachineMemory } from '@/machines/machine.ts';
+import type { Apple2Card } from './cards.ts';
 import { APPLE2_ROM_SIZE } from './models.ts';
 
 const RAM_SIZE = 0xC000;
@@ -27,6 +28,10 @@ export class Apple2Memory implements IMachineMemory {
   readonly rom = new Uint8Array(APPLE2_ROM_SIZE);
   /** Peripheral-card ROM per slot (index 1-7; slot 0 is the language card). */
   readonly slotRom: (Uint8Array | null)[] = new Array<Uint8Array | null>(8).fill(null);
+  /** Cards that answer their `$CNxx` page and `$C800` area themselves (see cards.ts). */
+  readonly cards: (Apple2Card | null)[] = new Array<Apple2Card | null>(8).fill(null);
+  /** Slot whose expansion area currently owns `$C800-$CFFF`; 0 for none. */
+  protected expansionOwner = 0;
 
   /**
    * Language card: 16K of RAM that overlays the system ROM at $D000-$FFFF —
@@ -34,10 +39,20 @@ export class Apple2Memory implements IMachineMemory {
    * as bank 1 (4K), bank 2 (4K), then the common 8K.
    */
   readonly lcRam = new Uint8Array(0x4000);
-  private lcRead = false;       // reads at $D000+ come from the card's RAM
-  private lcWrite = false;      // writes at $D000+ land in the card's RAM
-  private lcBank2 = true;       // $D000-$DFFF window shows bank 2
-  private lcPrewrite = false;   // the first of the two reads that enable writing
+  protected lcRead = false;       // reads at $D000+ come from the card's RAM
+  protected lcWrite = false;      // writes at $D000+ land in the card's RAM
+  protected lcBank2 = true;       // $D000-$DFFF window shows bank 2
+  protected lcPrewrite = false;   // the first of the two reads that enable writing
+  /** Whether the card is fitted; without it the switches do nothing. */
+  languageCard = true;
+
+  /** Whether $D000-$FFFF currently reads the language card's RAM (status reads). */
+  get lcReadsRam(): boolean { return this.lcRead; }
+  /** Whether the $D000 window shows bank 2 (status reads). */
+  get lcBank2Selected(): boolean { return this.lcBank2; }
+
+  /** Auxiliary RAM, or null on machines without it. Only the IIe has any. */
+  readonly aux: Uint8Array | null = null;
 
   /** $C0xx switch/slot hook; returns -1 for an address it does not claim. */
   ioRead: (addr: number) => number = () => -1;
@@ -58,17 +73,52 @@ export class Apple2Memory implements IMachineMemory {
       const v = this.ioRead(addr);
       return v >= 0 ? v & 0xFF : 0xFF;
     }
-    if (addr < 0xC800) {
-      const rom = this.slotRom[(addr >> 8) & 0x07];
-      return rom ? rom[addr & 0xFF] : 0xFF;
-    }
-    if (addr < 0xD000) return 0xFF;                 // expansion ROM: none fitted
+    if (addr < 0xD000) return this.cxPeripheralRead(addr, true);
     if (this.lcRead) return this.lcRam[this.lcIndex(addr)];
     return this.rom[addr - ROM_BASE];
   }
 
+  /**
+   * `$C100-$CFFF` as the peripheral cards present it: a card's own page if it
+   * answers there, else the slot ROM image; and `$C800-$CFFF` from whichever card
+   * owns the expansion area. `latch` is false for a side-effect-free peek.
+   */
+  protected cxPeripheralRead(addr: number, latch: boolean): number {
+    if (addr < 0xC800) {
+      const slot = (addr >> 8) & 7;
+      const card = this.cards[slot];
+      if (card && latch) {
+        if (card.hasExpansion) this.expansionOwner = slot;
+        const v = card.pageRead ? card.pageRead(addr & 0xFF) : -1;
+        if (v >= 0) return v & 0xFF;
+      }
+      const rom = this.slotRom[slot];
+      return rom ? rom[addr & 0xFF] : 0xFF;
+    }
+    const card = this.expansionOwner ? this.cards[this.expansionOwner] : null;
+    let v = -1;
+    if (card?.expansionRead && latch) v = card.expansionRead(addr - 0xC800);
+    if (addr === 0xCFFF && latch) this.expansionOwner = 0;
+    return v >= 0 ? v & 0xFF : 0xFF;
+  }
+
+  protected cxPeripheralWrite(addr: number, val: number): void {
+    if (addr < 0xC800) {
+      const slot = (addr >> 8) & 7;
+      const card = this.cards[slot];
+      if (card) {
+        if (card.hasExpansion) this.expansionOwner = slot;
+        card.pageWrite?.(addr & 0xFF, val);
+      }
+      return;
+    }
+    const card = this.expansionOwner ? this.cards[this.expansionOwner] : null;
+    card?.expansionWrite?.(addr - 0xC800, val);
+    if (addr === 0xCFFF) this.expansionOwner = 0;
+  }
+
   /** Offset into {@link lcRam} for an address at or above $D000. */
-  private lcIndex(addr: number): number {
+  protected lcIndex(addr: number): number {
     if (addr >= 0xE000) return 0x2000 + (addr - 0xE000);
     return (this.lcBank2 ? 0x1000 : 0x0000) + (addr - 0xD000);
   }
@@ -81,6 +131,7 @@ export class Apple2Memory implements IMachineMemory {
    * consecutive *reads*; a write access in between starts the count again.
    */
   lcAccess(n: number, isRead: boolean): void {
+    if (!this.languageCard) return;
     n &= 0x0F;
     this.lcBank2 = (n & 8) === 0;
     const mode = n & 3;
@@ -100,6 +151,7 @@ export class Apple2Memory implements IMachineMemory {
     addr &= 0xFFFF;
     if (addr < 0xC000) { this.ram[addr] = val & 0xFF; return; }
     if (addr < 0xC100) { this.ioWrite(addr, val & 0xFF); return; }
+    if (addr < 0xD000) { this.cxPeripheralWrite(addr, val & 0xFF); return; }
     // Slot ROM, expansion ROM and system ROM ignore writes; the language card's
     // RAM, when write-enabled, takes them whichever side is being read.
     if (addr >= ROM_BASE && this.lcWrite) this.lcRam[this.lcIndex(addr)] = val & 0xFF;
@@ -120,7 +172,7 @@ export class Apple2Memory implements IMachineMemory {
       const rom = this.slotRom[slot];
       if (rom) out.set(rom, 0xC000 + slot * 0x100);
     }
-    out.fill(0xFF, 0xC800, 0xD000);
+    for (let a = 0xC800; a < 0xD000; a++) out[a] = 0xFF;
     out.set(this.rom, ROM_BASE);
     if (this.lcRead) {
       out.set(this.lcRam.subarray(this.lcBank2 ? 0x1000 : 0x0000, (this.lcBank2 ? 0x1000 : 0x0000) + 0x1000), 0xD000);
@@ -153,6 +205,8 @@ export class Apple2Memory implements IMachineMemory {
    *  card ROMs — the ROM's cold start clears only the few bytes it needs — but
    *  puts the language card back to reading ROM with writes protected. */
   reset(): void {
+    this.expansionOwner = 0;
+    for (const card of this.cards) card?.reset?.();
     this.lcRead = false;
     this.lcWrite = false;
     this.lcBank2 = true;

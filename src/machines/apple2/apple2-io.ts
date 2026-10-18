@@ -7,6 +7,7 @@
  *   0xC030         speaker toggle
  *   0xC050-0xC057  display switches (text/mixed/page2/lores-hires)
  *   0xC060         cassette input (bit 7); 0xC061-0xC063 pushbuttons
+ *   0xC064-0xC067  paddle timers (bit 7);  0xC070 paddle trigger
  *   0xC080-0xC08F  slot 0 I/O — the language card's bank/ROM switches
  *   0xC0E0-0xC0EF  slot 6 I/O — the Disk II controller
  *
@@ -56,18 +57,21 @@ export function readApple2Io(m: Apple2Machine, addr: number): number {
   if (off <= 0x57) { applyVideoSwitch(m, off - 0x50); return 0x00; }
   if (off <= 0x5F) return 0x00;
   if (off <= 0x6F) {
-    switch (off & 0x0F) {
+    switch (off & 0x07) {
       case 0x00: return m.cassetteInputBit ? 0x80 : 0x00;
-      case 0x01: case 0x02: case 0x03: return 0x00;   // pushbuttons read high only while pressed
-      default: return 0x00;                            // paddles / trigger
+      case 0x01: case 0x02: case 0x03:                 // pushbuttons read high only while pressed
+        return m.paddles.button((off & 0x07) - 1) ? 0x80 : 0x00;
+      default:                                         // paddle timers
+        return m.paddles.timerHigh((off & 0x07) - 4, m.cpu.tStates) ? 0x80 : 0x00;
     }
   }
-  if (off <= 0x7F) return 0x00;
+  if (off <= 0x7F) { m.paddles.trigger(m.cpu.tStates); return 0x00; }
   if (off <= 0x8F) { m.memory.lcAccess(off, true); return 0xFF; }   // slot 0: language card
 
   const slot = (off >> 4) & 0x07;
-  if (slot === DISK2_SLOT) return m.disk2.read(off & 0x0F);
-  return 0xFF;
+  if (slot === DISK2_SLOT && m.options.disk2) return m.disk2.read(off & 0x0F);
+  const card = m.memory.cards[slot];
+  return card?.ioRead ? card.ioRead(off & 0x0F) & 0xFF : 0xFF;
 }
 
 export function writeApple2Io(m: Apple2Machine, addr: number, val: number): void {
@@ -79,11 +83,12 @@ export function writeApple2Io(m: Apple2Machine, addr: number, val: number): void
   if (off === 0x30) { m.toggleSpeaker(); return; }
   if (off <= 0x4F) return;
   if (off <= 0x57) { applyVideoSwitch(m, off - 0x50); return; }
-  if (off <= 0x7F) return;
+  if (off <= 0x7F) { if (off >= 0x70) m.paddles.trigger(m.cpu.tStates); return; }
   if (off <= 0x8F) { m.memory.lcAccess(off, false); return; }
 
   const slot = (off >> 4) & 0x07;
-  if (slot === DISK2_SLOT) m.disk2.write(off & 0x0F, val);
+  if (slot === DISK2_SLOT && m.options.disk2) m.disk2.write(off & 0x0F, val);
+  else m.memory.cards[slot]?.ioWrite?.(off & 0x0F, val);
 }
 
 /** Install the IO hooks on the machine's memory bus. Idempotent. */

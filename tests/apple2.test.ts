@@ -17,7 +17,7 @@ import type { Apple2VideoMode, Apple2VideoState } from '@/machines/apple2/apple2
 import { apple2Char, ocrApple2Text } from '@/ocr/apple2.ts';
 import { parseApple2Disk } from '@/media/floppy/apple2.ts';
 import {
-  APPLE2_SCREEN_HEIGHT, APPLE2_SCREEN_WIDTH,
+  APPLE2_BORDER_LEFT, APPLE2_BORDER_TOP, APPLE2_SCREEN_HEIGHT, APPLE2_SCREEN_WIDTH,
 } from '@/machines/apple2/constants.ts';
 import type { HostKeyEvent } from '@/machines/machine.ts';
 
@@ -25,6 +25,11 @@ const key = (code: string, k: string, shift = false): HostKeyEvent =>
   ({ code, key: k, shift, ctrl: false, alt: false });
 
 function make(): Apple2Machine { return new Apple2Machine('apple2-plus', null); }
+
+/** Byte offset in the frame of narrow-mode dot `x` on picture line `y`. The 280-dot
+ *  modes are drawn pixel-doubled, so a dot's first pixel is at 2x. */
+const dotAt = (x: number, y: number): number =>
+  ((APPLE2_BORDER_TOP + y) * APPLE2_SCREEN_WIDTH + APPLE2_BORDER_LEFT + 2 * x) * 4;
 
 /** A 12K system ROM that stores $42 at $10 and loops. */
 function makeRom(): Uint8Array {
@@ -208,6 +213,99 @@ describe('apple2-plus cassette deck', () => {
   });
 });
 
+describe('apple2 hardware options', () => {
+  const settingsView = (values: Record<string, unknown>) =>
+    ({ get: (key: string, fallback: unknown) => (key in values ? values[key] : fallback) }) as never;
+  const prepared = (values: Record<string, unknown>, model: 'apple2' | 'apple2-plus' = 'apple2-plus') => {
+    const m = new Apple2Machine(model, null);
+    const requests = m.prepare(settingsView(values));
+    return { m, requests };
+  };
+
+  it('fits the Disk II and language card by default', () => {
+    const { m, requests } = prepared({});
+    try {
+      expect(requests.map(r => r.cacheKey)).toContain('apple2-disk2-rom');
+      expect(m.services.disks.drives.map(d => d.id)).toEqual(['a', 'b']);
+    } finally { m.destroy(); }
+  });
+
+  it('leaves the Disk II out: no card ROM, no drives, no slot-6 I/O', () => {
+    const { m, requests } = prepared({ 'apple2-disk2': false });
+    try {
+      expect(requests.map(r => r.cacheKey)).not.toContain('apple2-disk2-rom');
+      expect(m.services.disks.drives).toEqual([]);
+      expect(m.memory.readByte(0xC0EC)).toBe(0xFF);          // an empty slot floats high
+      expect(m.disk2.motorOn).toBe(false);
+    } finally { m.destroy(); }
+  });
+
+  it('refuses to mount a disk when no controller is fitted', async () => {
+    const { m } = prepared({ 'apple2-disk2': false });
+    try {
+      const res = await m.services.media.mount(new Uint8Array(35 * 4096), 'x.dsk', 'a');
+      expect(res.ok).toBe(false);
+    } finally { m.destroy(); }
+  });
+
+  it('attaches one or two drives', () => {
+    expect(prepared({ 'apple2-drives': '1' }).m.services.disks.drives.map(d => d.id)).toEqual(['a']);
+    const { m } = prepared({ 'apple2-drives': '2' });
+    try {
+      expect(m.services.disks.drives.map(d => d.id)).toEqual(['a', 'b']);
+    } finally { m.destroy(); }
+  });
+
+  it('only switches the language card in when it is fitted', () => {
+    const rom = new Uint8Array(0x3000).fill(0xEA);
+    for (const fitted of [true, false]) {
+      const { m } = prepared({ 'apple2-langcard': fitted });
+      try {
+        m.memory.loadRom(rom);
+        m.memory.readByte(0xC083); m.memory.readByte(0xC083);   // read RAM, write enabled
+        m.memory.writeByte(0xD000, 0x42);
+        expect(m.memory.readByte(0xD000), `fitted=${fitted}`).toBe(fitted ? 0x42 : 0xEA);
+      } finally { m.destroy(); }
+    }
+  });
+});
+
+describe('apple ][ (original)', () => {
+  it('is registered alongside the ][+', () => {
+    expect(apple2Entry.models).toEqual(['apple2', 'apple2-plus', 'apple2e']);
+    expect(apple2Entry.romSources('apple2')).toEqual(['apple2/apple2.rom']);
+    expect(apple2Entry.romSources('apple2-plus')).toEqual(['apple2/apple2plus.rom']);
+  });
+
+  it('boots a disk by jumping to the Disk II boot ROM, as C600G would', () => {
+    // The original Monitor has no Autostart: a reset lands in the Monitor, not
+    // in a slot scan, so booting from the media menu must do the typing itself.
+    const m = new Apple2Machine('apple2', null);
+    try {
+      m.bootDisc();
+      expect(m.cpu.pc).toBe(0xC600);
+    } finally { m.destroy(); }
+  });
+
+  it('lets the ][+ Autostart ROM do the booting instead', () => {
+    const m = new Apple2Machine('apple2-plus', null);
+    try {
+      m.loadROM(makeRom());
+      m.bootDisc();
+      expect(m.cpu.pc).toBe(0xD000);          // straight to the reset vector in ROM
+    } finally { m.destroy(); }
+  });
+
+  it('does not touch the warm-start vector the Autostart ROM would use', () => {
+    const m = new Apple2Machine('apple2', null);
+    try {
+      m.memory.ram[0x3F2] = 0x12;
+      m.reset();
+      expect(m.memory.ram[0x3F2]).toBe(0x12);
+    } finally { m.destroy(); }
+  });
+});
+
 describe('apple2-plus language card', () => {
   const rd = (m: Apple2Machine, a: number) => m.memory.readByte(a);
   const wr = (m: Apple2Machine, a: number, v: number) => m.memory.writeByte(a, v);
@@ -272,6 +370,286 @@ describe('apple2-plus language card', () => {
       expect(rd(m, 0xD800)).toBe(0xEA);
       rd(m, 0xC080);
       expect(rd(m, 0xD800)).toBe(0x77);
+    } finally { m.destroy(); }
+  });
+});
+
+describe('apple2 Videx Videoterm', () => {
+  const fitted = (model: 'apple2' | 'apple2-plus' = 'apple2-plus') => {
+    const m = new Apple2Machine(model, null);
+    const requests = m.prepare({ get: (key: string, fallback: unknown) => (key === 'apple2-80col' ? true : fallback) } as never);
+    return { m, requests };
+  };
+  const crtc = (m: Apple2Machine, reg: number, value: number) => {
+    m.memory.writeByte(0xC0B0, reg);                  // address register
+    m.memory.writeByte(0xC0B1, value);                // data register
+  };
+  const dotAt = (m: Apple2Machine, x: number, y: number): number => {
+    const at = (y * APPLE2_SCREEN_WIDTH + APPLE2_BORDER_LEFT + x) * 4;
+    return m.pixels[at];
+  };
+
+  it('is fitted in slot 3 on the ][ and ][+ and asks for its ROMs', () => {
+    for (const model of ['apple2', 'apple2-plus'] as const) {
+      const { m, requests } = fitted(model);
+      try {
+        expect(m.memory.cards[3]).toBe(m.videx);
+        expect(requests.map(r => r.cacheKey)).toEqual(expect.arrayContaining(['apple2-videx-rom', 'apple2-videx-chargen']));
+      } finally { m.destroy(); }
+    }
+    const plain = new Apple2Machine('apple2-plus', null);
+    plain.prepare({ get: (_k: string, f: unknown) => f } as never);
+    try { expect(plain.videx).toBeNull(); } finally { plain.destroy(); }
+  });
+
+  it('serves its firmware at $C3xx and, once selected, at $C800', () => {
+    const { m } = fitted();
+    try {
+      m.videx!.loadRom(new Uint8Array(0x400).map((_, i) => i & 0xFF));
+      expect(m.memory.readByte(0xC800)).toBe(0xFF);   // nothing owns $C800 yet
+      expect(m.memory.readByte(0xC305)).toBe(0x05);   // the card's page
+      expect(m.memory.readByte(0xC8F0)).toBe(0xF0);   // now selected: firmware ROM
+      expect(m.memory.readByte(0xCBFF)).toBe(0xFF);   // last byte of the 1K image (0x3FF & 0xFF)
+      m.memory.readByte(0xCFFF);                      // releases the area
+      expect(m.memory.readByte(0xC8F0)).toBe(0xFF);
+    } finally { m.destroy(); }
+  });
+
+  it('shows a 512-byte window onto its 2K RAM, bank chosen by the address bits', () => {
+    const { m } = fitted();
+    try {
+      m.memory.readByte(0xC300);                      // select the card's expansion area
+      m.memory.readByte(0xC0B0);                      // bank 0
+      m.memory.writeByte(0xCC00, 0x11);
+      m.memory.readByte(0xC0B4);                      // bank 1 (address bit 2)
+      m.memory.writeByte(0xCC00, 0x22);
+      m.memory.readByte(0xC0BC);                      // bank 3
+      m.memory.writeByte(0xCDFF, 0x33);
+      expect(m.videx!.ram[0x000]).toBe(0x11);
+      expect(m.videx!.ram[0x200]).toBe(0x22);
+      expect(m.videx!.ram[0x600 + 0x1FF]).toBe(0x33);
+      m.memory.readByte(0xC0B0);
+      expect(m.memory.readByte(0xCC00)).toBe(0x11);
+    } finally { m.destroy(); }
+  });
+
+  it('shows its own output only once the firmware has programmed 80 columns', () => {
+    const { m } = fitted();
+    try {
+      expect(m.videx!.view.active).toBe(false);
+      crtc(m, 1, 80);                                 // R1: horizontal displayed
+      expect(m.videx!.view.active).toBe(true);
+      crtc(m, 12, 0x01); crtc(m, 13, 0x40);           // start address
+      crtc(m, 14, 0x00); crtc(m, 15, 0x02);           // cursor
+      expect(m.videx!.view.start).toBe(0x140);
+      expect(m.videx!.view.cursor).toBe(2);
+      m.reset();
+      expect(m.videx!.view.active).toBe(false);
+    } finally { m.destroy(); }
+  });
+
+  it('draws 80 columns of 7 by 9 characters with inverse video and a cursor', () => {
+    const { m } = fitted();
+    try {
+      const font = new Uint8Array(0x800);
+      for (let r = 0; r < 9; r++) font['A'.charCodeAt(0) * 16 + r] = 0x80;   // leftmost dot of every row
+      m.videx!.loadFont(font);
+      m.videx!.ram[0] = 0x41;                         // 'A'
+      m.videx!.ram[1] = 0xC1;                         // inverse 'A'
+      crtc(m, 1, 80);
+      crtc(m, 10, 0x00 | 0x20);                       // cursor hidden
+      m.video.render({
+        ram: m.memory.ram, textMode: true, mixed: false, page2: false, hires: false,
+        charset: m.charset, flashPhase: false, mode: 'mono', videx: m.videx!.view,
+      } as never);
+      const top = (240 - 24 * 9) >> 1;
+      expect(dotAt(m, 0, top)).toBe(0xFF);            // 'A': leftmost dot lit
+      expect(dotAt(m, 1, top)).toBe(0x00);
+      expect(dotAt(m, 7, top)).toBe(0x00);            // inverse 'A': leftmost dark, the rest lit
+      expect(dotAt(m, 8, top)).toBe(0xFF);
+      expect(dotAt(m, 7 * 79, top + 9 * 23)).toBe(0x00);   // blank cell at the end (code 0, font row 0)
+    } finally { m.destroy(); }
+  });
+
+  it('reads its screen for OCR', () => {
+    const { m } = fitted();
+    try {
+      m.videx!.ram[0] = 0x48; m.videx!.ram[1] = 0x49;      // "HI"
+      crtc(m, 1, 80);
+      const text = m.ocrScreenForMcp();
+      expect(text.split('\n')[0]).toBe('HI');
+    } finally { m.destroy(); }
+  });
+});
+
+describe('apple2 Mockingboard', () => {
+  const fitted = () => {
+    const m = new Apple2Machine('apple2-plus', null);
+    m.prepare({ get: (key: string, fallback: unknown) => (key === 'apple2-mockingboard' ? true : fallback) } as never);
+    return m;
+  };
+  /** One AY bus cycle through VIA `via` (0 = $C400, 1 = $C480): latch the register, then write it. */
+  const ayWrite = (m: Apple2Machine, via: 0 | 1, reg: number, value: number) => {
+    const base = 0xC400 + via * 0x80;
+    m.memory.writeByte(base + 0x02, 0x07);          // DDRB: BC1, BDIR, RESET are outputs
+    m.memory.writeByte(base + 0x03, 0xFF);          // DDRA: the data bus
+    m.memory.writeByte(base + 0x01, reg);           // register number on the bus
+    m.memory.writeByte(base + 0x00, 0x07);          // BDIR=1 BC1=1: latch address
+    m.memory.writeByte(base + 0x00, 0x04);          // inactive
+    m.memory.writeByte(base + 0x01, value);
+    m.memory.writeByte(base + 0x00, 0x06);          // BDIR=1 BC1=0: write
+    m.memory.writeByte(base + 0x00, 0x04);
+  };
+
+  it('is only present when the option fits it', () => {
+    const plain = new Apple2Machine('apple2-plus', null);
+    plain.prepare({ get: (_k: string, f: unknown) => f } as never);
+    try { expect(plain.mockingboard).toBeNull(); } finally { plain.destroy(); }
+    const m = fitted();
+    try {
+      expect(m.mockingboard).not.toBeNull();
+      expect(m.memory.cards[4]).toBe(m.mockingboard);
+    } finally { m.destroy(); }
+  });
+
+  it('programs each AY through its own VIA', () => {
+    const m = fitted();
+    try {
+      ayWrite(m, 0, 0, 0x34);                        // first AY, tone A fine
+      ayWrite(m, 1, 0, 0x56);                        // second AY at $C480
+      expect(m.mockingboard!.ay[0].getRegisters()[0]).toBe(0x34);
+      expect(m.mockingboard!.ay[1].getRegisters()[0]).toBe(0x56);
+    } finally { m.destroy(); }
+  });
+
+  it('reads an AY register back over the bus', () => {
+    const m = fitted();
+    try {
+      ayWrite(m, 0, 7, 0x38);
+      m.memory.writeByte(0xC403, 0x00);              // port A becomes an input
+      m.memory.writeByte(0xC401, 0x00);
+      m.memory.writeByte(0xC400, 0x07);              // latch register 7 (port A still driving 0..)
+      m.memory.writeByte(0xC403, 0xFF);
+      m.memory.writeByte(0xC401, 0x07);
+      m.memory.writeByte(0xC400, 0x07);
+      m.memory.writeByte(0xC400, 0x04);
+      m.memory.writeByte(0xC403, 0x00);              // release the data bus
+      m.memory.writeByte(0xC400, 0x05);              // BDIR=0 BC1=1: the chip drives the bus
+      expect(m.memory.readByte(0xC401)).toBe(0x38);
+    } finally { m.destroy(); }
+  });
+
+  it('resets the AY when the reset line goes low', () => {
+    const m = fitted();
+    try {
+      ayWrite(m, 0, 8, 0x0F);
+      expect(m.mockingboard!.ay[0].getRegisters()[8]).toBe(0x0F);
+      m.memory.writeByte(0xC400, 0x00);              // RESET pin low
+      expect(m.mockingboard!.ay[0].getRegisters()[8]).toBe(0);
+    } finally { m.destroy(); }
+  });
+
+  it('raises IRQ from a VIA timer and clears it when the timer is read', () => {
+    const m = fitted();
+    try {
+      m.memory.writeByte(0xC40E, 0xC0);              // IER: enable T1
+      m.memory.writeByte(0xC404, 0x10);              // T1 latch low
+      m.memory.writeByte(0xC405, 0x00);              // T1 high: start counting 16 cycles
+      expect(m.mockingboard!.irq).toBe(false);
+      m.mockingboard!.tick(40);
+      expect(m.mockingboard!.irq).toBe(true);
+      m.memory.readByte(0xC404);                     // reading T1 low acknowledges
+      expect(m.mockingboard!.irq).toBe(false);
+    } finally { m.destroy(); }
+  });
+
+  it('plays the first AY on the left channel and the second on the right', () => {
+    const m = fitted();
+    try {
+      ayWrite(m, 0, 0, 0x20); ayWrite(m, 0, 1, 0x00);   // tone A period
+      ayWrite(m, 0, 7, 0x3E);                           // tone A on, noise off
+      ayWrite(m, 0, 8, 0x0F);                           // full volume
+      let left = 0, right = 0;
+      for (let i = 0; i < 2000; i++) {
+        const s = m.mockingboard!.generateSampleStereo();
+        left += Math.abs(s.left); right += Math.abs(s.right);
+      }
+      expect(left).toBeGreaterThan(10);
+      expect(right).toBe(0);
+    } finally { m.destroy(); }
+  });
+});
+
+describe('apple2 paddles and joystick', () => {
+  /** How many counts a PREAD loop would measure for paddle `n`. */
+  const measure = (m: Apple2Machine, n: number): number => {
+    m.memory.readByte(0xC070);                       // trigger the timers
+    let counts = 0;
+    for (;;) {
+      if ((m.memory.readByte(0xC064 + n) & 0x80) === 0) return counts;
+      m.cpu.tStates += 11;                           // one pass of the ROM's PREAD loop
+      if (++counts > 300) return counts;
+    }
+  };
+
+  it('times a centred paddle at about half scale', () => {
+    const m = make();
+    try {
+      const counts = measure(m, 0);
+      expect(counts).toBeGreaterThan(125);
+      expect(counts).toBeLessThan(131);
+    } finally { m.destroy(); }
+  });
+
+  it('moves with a joystick: left/right and up/down drive the two axes to the ends', () => {
+    const m = make();
+    try {
+      const joy = m.services.input.joystick!;
+      joy.press('left', true, 'fixed', 0);
+      expect(measure(m, 0)).toBeLessThan(5);
+      joy.press('left', false, 'fixed', 0);
+      joy.press('right', true, 'fixed', 0);
+      expect(measure(m, 0)).toBeGreaterThan(250);
+      joy.press('right', false, 'fixed', 0);
+      joy.press('down', true, 'fixed', 0);
+      expect(measure(m, 1)).toBeGreaterThan(250);      // Y is the second paddle
+      expect(measure(m, 0)).toBeGreaterThan(125);      // X stayed centred
+      joy.press('down', false, 'fixed', 0);
+      joy.press('up', true, 'fixed', 0);
+      expect(measure(m, 1)).toBeLessThan(5);
+    } finally { m.destroy(); }
+  });
+
+  it('puts player two on paddles 2 and 3', () => {
+    const m = make();
+    try {
+      m.services.input.joystick!.press('right', true, 'fixed', 1);
+      expect(measure(m, 2)).toBeGreaterThan(250);
+      expect(measure(m, 0)).toBeLessThan(131);
+    } finally { m.destroy(); }
+  });
+
+  it('reads the fire buttons as push buttons 0-2', () => {
+    const m = make();
+    try {
+      const joy = m.services.input.joystick!;
+      joy.press('fire', true, 'fixed', 0);
+      expect(m.memory.readByte(0xC061) & 0x80).toBe(0x80);
+      expect(m.memory.readByte(0xC062) & 0x80).toBe(0);
+      joy.press('fire2', true, 'fixed', 0);
+      expect(m.memory.readByte(0xC062) & 0x80).toBe(0x80);
+      m.services.input.releaseAll();
+      expect(m.memory.readByte(0xC061) & 0x80).toBe(0);
+    } finally { m.destroy(); }
+  });
+
+  it('reads full scale and no buttons when nothing is plugged in', () => {
+    const m = new Apple2Machine('apple2-plus', null);
+    m.prepare({ get: (key: string, fallback: unknown) => (key === 'apple2-joystick' ? false : fallback) } as never);
+    try {
+      m.services.input.joystick!.press('fire', true, 'fixed', 0);
+      expect(m.memory.readByte(0xC061) & 0x80).toBe(0);
+      expect(measure(m, 0)).toBeGreaterThan(250);
     } finally { m.destroy(); }
   });
 });
@@ -375,9 +753,9 @@ describe('apple2-plus video addressing', () => {
       m.charset.load(new Uint8Array(2048));
       m.memory.ram[0x400] = 0x0F;   // low nibble F (white) top, high 0 (black) bottom
       m.video.render(view(m, 'mono'));
-      const red = (x: number, y: number) => m.pixels[(y * APPLE2_SCREEN_WIDTH + x) * 4];
-      expect(red(34, 24)).toBe(0xFF);   // top block, white pen
-      expect(red(34, 28)).toBe(0x00);   // bottom block, black pen
+      const red = (x: number, y: number) => m.pixels[dotAt(x, y)];
+      expect(red(2, 0)).toBe(0xFF);   // top block, white pen
+      expect(red(2, 4)).toBe(0x00);   // bottom block, black pen
     } finally {
       m.destroy();
     }
@@ -390,16 +768,31 @@ describe('apple2-plus video addressing', () => {
     const m = make();
     try {
       m.charset.load(new Uint8Array(2048));
-      const red = (x: number) => m.pixels[(24 * APPLE2_SCREEN_WIDTH + x) * 4];
+      const red = (x: number) => m.pixels[dotAt(x, 0)];
       expect(m.memory.ram[0x2000] ?? 0).toBe(0);
       m.memory.ram[0x2000] = 0x01;   // bit 0 set -> the leftmost pixel lights
       m.video.render(view(m, 'mono', { hires: true }));
-      expect(red(32)).toBe(0xFF);
-      expect(red(38)).toBe(0x00);
+      expect(red(0)).toBe(0xFF);
+      expect(red(6)).toBe(0x00);
       m.memory.ram[0x2000] = 0x40;   // bit 6 set -> the byte's rightmost pixel
       m.video.render(view(m, 'mono', { hires: true }));
-      expect(red(38)).toBe(0xFF);
-      expect(red(32)).toBe(0x00);
+      expect(red(6)).toBe(0xFF);
+      expect(red(0)).toBe(0x00);
+    } finally {
+      m.destroy();
+    }
+  });
+
+  it('draws each 280-dot pixel as two frame pixels', () => {
+    // The frame is 560 wide so 80-column text and double hi-res fit; the narrow
+    // modes are doubled horizontally, so one lit dot is exactly two lit pixels.
+    const m = make();
+    try {
+      m.charset.load(new Uint8Array(2048));
+      m.memory.ram[0x2000] = 0x02;                       // dot 1 only
+      m.video.render(view(m, 'mono', { hires: true }));
+      const lit = (x: number) => m.pixels[dotAt(0, 0) + x * 4] === 0xFF;
+      expect([0, 1, 2, 3, 4, 5].map(lit)).toEqual([false, false, true, true, false, false]);
     } finally {
       m.destroy();
     }
@@ -418,7 +811,7 @@ describe('apple2-plus video addressing', () => {
         m.video.render(view(m, 'ntsc', { hires: true }));
       };
       const sample = (x: number) => {
-        const at = (24 * APPLE2_SCREEN_WIDTH + 32 + x) * 4;
+        const at = dotAt(x, 0);
         return [m.pixels[at], m.pixels[at + 1], m.pixels[at + 2]];
       };
       fill(0x2A, 0x55);
@@ -439,7 +832,7 @@ describe('apple2-plus video addressing', () => {
 
   it('PAL colour is stable from line to line', () => {
     // PAL's per-line V inversion is undone by the decoder, so identical
-    // scanlines of a coloured pattern must decode identically — no striping —
+    // scanlines of a coloured pattern must decode identically â€” no striping â€”
     // and the pattern must still carry colour (not collapse to grey).
     const m = make();
     try {
@@ -449,7 +842,7 @@ describe('apple2-plus video addressing', () => {
       }
       m.video.render(view(m, 'pal', { hires: true }));
       const sample = (line: number) => {
-        const at = ((24 + line) * APPLE2_SCREEN_WIDTH + 32 + 140) * 4;
+        const at = dotAt(140, line);
         return [m.pixels[at], m.pixels[at + 1], m.pixels[at + 2]];
       };
       expect(sample(1)).toEqual(sample(0));
@@ -472,8 +865,7 @@ describe('apple2-plus video addressing', () => {
       m.memory.ram[0x402] = 0x80;
       for (const mode of ['ntsc', 'pal'] as const) {
         m.video.render(view(m, mode, { textMode: true }));
-        const at = (x: number, y: number) => (y * APPLE2_SCREEN_WIDTH + x) * 4;
-        const lit = at(32 + 3, 24 + 3), dark = at(32 + 14 + 3, 24 + 3);   // cell 2, clear of the lit edge
+        const lit = dotAt(3, 3), dark = dotAt(14 + 3, 3);   // cell 2, clear of the lit edge
         expect([m.pixels[lit], m.pixels[lit + 1], m.pixels[lit + 2]], mode).toEqual([255, 255, 255]);
         expect([m.pixels[dark], m.pixels[dark + 1], m.pixels[dark + 2]], mode).toEqual([0, 0, 0]);
       }
@@ -487,7 +879,7 @@ describe('apple2-plus video addressing', () => {
     try {
       m.charset.load(new Uint8Array(2048));
       for (let i = 0; i < 40; i++) m.memory.ram[0x2000 + i] = 0x7F;   // solid line
-      const at = (24 * APPLE2_SCREEN_WIDTH + 32 + 140) * 4;
+      const at = dotAt(140, 0);
       const rgb = () => [m.pixels[at], m.pixels[at + 1], m.pixels[at + 2]];
       m.video.render(view(m, 'mono', { hires: true }));
       expect(rgb()).toEqual([0xFF, 0xFF, 0xFF]);
@@ -509,8 +901,8 @@ describe('apple2-plus video addressing', () => {
         m.memory.ram[0x400] = byte;
         m.video.render(view(m, 'mono', { textMode: true, flashPhase }));
         let lit = 0;
-        for (let y = 24; y < 32; y++) {
-          for (let x = 32; x < 39; x++) if (m.pixels[(y * APPLE2_SCREEN_WIDTH + x) * 4] > 0x40) lit++;
+        for (let y = 0; y < 8; y++) {
+          for (let x = 0; x < 7; x++) if (m.pixels[dotAt(x, y)] > 0x40) lit++;
         }
         return lit;
       };

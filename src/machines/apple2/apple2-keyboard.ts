@@ -7,7 +7,9 @@
  * mapping turns a key event straight into the byte the encoder would produce —
  * shifted symbols included, since the encoder, not software, resolves SHIFT.
  *
- * The II+ keyboard is upper-case only, so letters always produce $41-$5A.
+ * The II+ keyboard is upper-case only, so letters always produce $41-$5A. The
+ * //e's is full ASCII with a locking CAPS LOCK, and adds the two Apple keys that
+ * read as game-port buttons.
  */
 
 import type { HostKeyEvent } from '@/machines/machine.ts';
@@ -60,7 +62,46 @@ export function apple2KeyByte(event: HostKeyEvent): number | null {
   return null;
 }
 
+/**
+ * The byte a //e keyboard would produce, or null for a key we don't map.
+ *
+ * Printable keys give the character the host layout typed, so punctuation is
+ * right on any layout. `capsLock` is the //e's own locking key: with it down
+ * letters are upper case whether or not SHIFT is held.
+ */
+export function apple2eKeyByte(event: HostKeyEvent, capsLock: boolean): number | null {
+  const letter = letterCode(event.code);
+  if (event.ctrl) {
+    if (letter !== null) return letter & 0x1F;
+    if (event.code === 'BracketLeft') return 0x1B;
+    if (event.code === 'Backslash') return 0x1C;
+    if (event.code === 'BracketRight') return 0x1D;
+    if (event.shift && event.code === 'Digit6') return 0x1E;
+    if (event.shift && event.code === 'Minus') return 0x1F;
+    if (event.shift && event.code === 'Digit2') return 0x00;
+  }
+  const named = NAMED_KEYS[event.code];
+  if (named !== undefined) return named;
+  if (letter !== null) return (event.shift || capsLock) ? letter : letter + 0x20;
+  const ch = event.key.length === 1 ? event.key.charCodeAt(0) : 0;
+  if (ch >= 0x20 && ch < 0x7F) return ch;
+  const punctuation = CHAR_KEYS[event.code];
+  if (punctuation) return event.shift ? punctuation[1] : punctuation[0];
+  return null;
+}
+
 export class Apple2Keyboard {
+  /** The //e: full ASCII, CAPS LOCK, Apple keys. */
+  private readonly iie: boolean;
+  /** //e CAPS LOCK (down at power-on, like a lock left pressed). */
+  private capsLock = true;
+  /** //e Open-Apple / Solid-Apple / SHIFT, read back as buttons 0, 1 and 2. */
+  private openApple = false;
+  private solidApple = false;
+  private shift = false;
+
+  constructor(iie = false) { this.iie = iie; }
+
   /** Last latched key byte. */
   private latch = 0;
   /** Keyboard strobe: a key is waiting to be read (and not yet cleared). */
@@ -74,13 +115,37 @@ export class Apple2Keyboard {
     else this.pressed.delete(code & 0xFF);
   }
 
+  /** Game-port push buttons 0-2: Open-Apple, Solid-Apple, SHIFT (the //e only). */
+  button(n: number): boolean {
+    if (!this.iie) return false;
+    return n === 0 ? this.openApple : n === 1 ? this.solidApple : this.shift;
+  }
+
   handleEvent(event: HostKeyEvent, down: boolean): boolean {
+    if (this.iie) return this.handleIieEvent(event, down);
     // Modifiers themselves are not keys on the Apple II.
     if (event.code === 'ShiftLeft' || event.code === 'ShiftRight'
       || event.code === 'ControlLeft' || event.code === 'ControlRight'
       || event.code === 'AltLeft' || event.code === 'AltRight'
       || event.code === 'MetaLeft' || event.code === 'MetaRight') return false;
     const byte = apple2KeyByte(event);
+    if (byte === null) return false;
+    this.setKey(byte, down);
+    return true;
+  }
+
+  private handleIieEvent(event: HostKeyEvent, down: boolean): boolean {
+    switch (event.code) {
+      case 'AltLeft': this.openApple = down; return true;
+      case 'AltRight': this.solidApple = down; return true;
+      case 'ShiftLeft': case 'ShiftRight': this.shift = down; return false;
+      case 'CapsLock':
+        if (down) this.capsLock = !this.capsLock;
+        return true;
+      default: break;
+    }
+    if (event.code.startsWith('Control') || event.code.startsWith('Meta')) return false;
+    const byte = apple2eKeyByte(event, this.capsLock);
     if (byte === null) return false;
     this.setKey(byte, down);
     return true;
@@ -97,9 +162,15 @@ export class Apple2Keyboard {
   get anyPressed(): boolean { return this.pressed.size > 0; }
   get strobeActive(): boolean { return this.strobe; }
 
+  /** The last key's code without the strobe (the //e's $C010 read-back). */
+  get lastKey(): number { return this.latch & 0x7F; }
+
   reset(): void {
     this.latch = 0;
     this.strobe = false;
     this.pressed.clear();
+    this.openApple = false;
+    this.solidApple = false;
+    this.shift = false;
   }
 }

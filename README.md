@@ -1,6 +1,6 @@
 # ZX84
 
-**A browser emulator for the Sinclair ZX80, ZX81 and ZX Spectrum, Amstrad CPC (including the Plus range) and PCW, Tatung Einstein, MSX, Memotech MTX, Camputers Lynx, Jupiter Ace, and Acorn BBC Micro, with an MCP server for automated testing.**
+**A browser emulator for the Sinclair ZX80, ZX81 and ZX Spectrum, Amstrad CPC (including the Plus range) and PCW, Tatung Einstein, MSX, Memotech MTX, Camputers Lynx, Jupiter Ace, Acorn BBC Micro, and Apple II family, with an MCP server for automated testing.**
 
 https://zx84.envytech.workers.dev
 
@@ -19,6 +19,7 @@ ZX84 is an old-computer emulator with machine-specific hardware models, browser-
 | Camputers Lynx | 48K, 96K, 128K | 6845 CRTC video, DAC sound, cassette, FD1793 floppy on 96K/128K |
 | Jupiter Ace | Jupiter Ace | Jupiter Cantab ULA (32×24 monochrome text display), piezo buzzer, cassette port, optional 16K or 48K RAM pack, FORTH in ROM |
 | Acorn BBC Micro | Model B | MOS 6502, 6522 VIAs, 6845 CRTC with video ULA and SAA5050 teletext (Mode 7), SN76489 sound, Acorn 8271 or WD1770 DFS disc interface |
+| Apple II | Apple ][, Apple ][+, Apple //e (unenhanced) | MOS 6502, Integer BASIC or Applesoft, Autostart Monitor, composite NTSC/PAL video (text, lores, hires; //e 80-column text and double hi-res), Disk ][ with 6-and-2 GCR, 16K language card, //e MMU with 64K auxiliary RAM, optional Videx Videoterm 80-column card, Mockingboard (2 × AY-3-8910), paddles and joystick |
 | Amstrad PCW | 8256, 8512, 9512, 9256 | Gate array (roller-RAM bitmap video, 300Hz timer, FDC interrupt routing), beeper, uPD765A, memory-mapped keyboard, no ROM — boots from disc |
 
 ## Features
@@ -36,6 +37,7 @@ ZX84 is an old-computer emulator with machine-specific hardware models, browser-
 - Camputers Lynx 6845 CRTC display, DAC sound, cassette loading, and the FD1793 floppy interface on the 96K and 128K.
 - Jupiter Ace ULA text display, buzzer sound, ROM-verified cassette loading and saving, and optional 16K or 48K RAM packs.
 - Acorn BBC Micro Model B booting the real MOS and BASIC ROMs: Mode 7 teletext and bitmap modes 0-6, SN76489 stereo sound, keyboard option links, and DFS discs on either the Acorn 8271 or the WD1770 interface.
+- Apple II family: a bit-level Disk ][ controller (DOS 3.3 and ProDOS sector images, `.wav` cassette), composite NTSC/PAL or monochrome/green display, a 16K language card, the //e's MMU and 64K auxiliary RAM with 80-column text and double hi-res, and expansion cards chosen in the Hardware pane: the Disk ][ controller (one or two drives), a Videx Videoterm 80-column card on the ][ and ][+, a Mockingboard, and paddles or a joystick.
 - Amstrad PCW gate array with roller-RAM bitmap video, 300 Hz timer, FDC interrupt routing, memory-mapped keyboard, beeper, and uPD765A discs; the PCW has no ROM and boots CP/M+ or LocoScript from the disc in drive A.
 
 Spectrum ROM-overlay peripherals are model-dependent. Interface 1, MGT +D, and Beta Disk are mutually exclusive; Beta Disk takes precedence when enabled.
@@ -55,6 +57,7 @@ Load by picker or drag-and-drop. ZIP archives are unpacked and routed to compati
 | Camputers Lynx | Cassettes: `.tap`; disks: `.ldf` on the 96K/128K |
 | Jupiter Ace | Cassettes: `.tap`, `.tzx`, `.csw` |
 | Acorn BBC Micro | Disks: `.ssd`, `.dsd`, `.img` |
+| Apple II | Disks: `.dsk`, `.do`, `.po` (sector order detected, MacBinary headers read through); cassettes: `.wav` |
 | Amstrad PCW | Disks: `.dsk`, `.td0`, `.hfe`, `.scp` |
 
 The tape deck provides block navigation, transport controls, fast ROM loading, turbo loading, loading sound where applicable, and original-media download. The disk UI supports drive selection, write protection, disk sounds, changed-image saving, blank image creation, and flippy disks.
@@ -81,7 +84,7 @@ Values are case-insensitive; write `+` models as `plus2a`/`plus3` or `%2B3`.
 Known models: `16k` `48k` `128k` `+2` `+2A` `+3` `zx80` `zx81` `jupiter-ace`
 `cpc464` `cpc664` `cpc6128` `cpc6128plus` `gx4000` `pcw8256` `pcw8512`
 `pcw9256` `pcw9512` `einstein-tc01` `einstein-256` `hx-10` `mtx500` `mtx512`
-`rs128` `lynx48` `lynx96` `lynx128` `bbc-b`.
+`rs128` `lynx48` `lynx96` `lynx128` `bbc-b` `apple2` `apple2-plus` `apple2e`.
 
 ### Display And Audio
 

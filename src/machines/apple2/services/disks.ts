@@ -18,8 +18,12 @@ export class Apple2DiskService implements DiskService {
 
   private unit(id: string): number { return id === 'b' ? 1 : 0; }
 
+  /** The drives on the controller; none at all when the card is not fitted. */
   get drives(): readonly DriveDescriptor[] {
-    return [this.describe('a', 'Drive 1', 0), this.describe('b', 'Drive 2', 1)];
+    const { disk2, drives } = this.machine.options;
+    if (!disk2) return [];
+    const all = [this.describe('a', 'Drive 1', 0), this.describe('b', 'Drive 2', 1)];
+    return all.slice(0, drives);
   }
 
   insert(id: string, media: DriveMedia, name: string): void {
@@ -53,6 +57,8 @@ export class Apple2DiskService implements DiskService {
 
   /** Load a raw sector image into a drive (used by the media service). */
   mountImage(id: string, data: Uint8Array, name: string): void {
+    if (!this.machine.options.disk2) throw new Error('no Disk II controller is fitted');
+    if (!this.drives.some(drive => drive.id === id)) throw new Error('that drive is not fitted');
     const order = detectApple2DiskOrder(data, name);
     this.insert(id, parseApple2Disk(data, order), name);
     this.order.set(id, order);     // insert() only knows the name; this saw the bytes

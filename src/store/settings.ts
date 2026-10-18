@@ -103,6 +103,13 @@ const DEFAULTS = {
   'mtx-floppy':     'on',
   'bbc-disk-system': '1770',
   'lynx-fdc':       'on',
+  'apple2-disk2':   'on',
+  'apple2-drives':  '2',
+  'apple2-langcard': 'on',
+  'apple2-joystick': 'on',
+  'apple2-mockingboard': 'off',
+  'apple2-80col':   'off',
+  'apple2e-80col':  'on',
   'zx8x-16k-ram':  'off',
   'zx81-udg-ram':  'off',
   'zx81-udg128-ram': 'off',
@@ -424,6 +431,34 @@ const _mtx80Column = /*@once*/ createRoot(() => createSignal(getSaved('mtx-80-co
 export const mtx80Column = _mtx80Column[0];
 export const setMtx80Column = _mtx80Column[1];
 
+const _apple2Disk2 = /*@once*/ createRoot(() => createSignal(getSaved('apple2-disk2', D('apple2-disk2')) === 'on'));
+export const apple2Disk2 = _apple2Disk2[0];
+export const setApple2Disk2 = _apple2Disk2[1];
+
+const _apple2Drives = /*@once*/ createRoot(() => createSignal(getSaved('apple2-drives', D('apple2-drives')) as '1' | '2'));
+export const apple2Drives = _apple2Drives[0];
+export const setApple2Drives = _apple2Drives[1];
+
+const _apple2LangCard = /*@once*/ createRoot(() => createSignal(getSaved('apple2-langcard', D('apple2-langcard')) === 'on'));
+export const apple2LangCard = _apple2LangCard[0];
+export const setApple2LangCard = _apple2LangCard[1];
+
+const _apple2Joystick = /*@once*/ createRoot(() => createSignal(getSaved('apple2-joystick', D('apple2-joystick')) === 'on'));
+export const apple2Joystick = _apple2Joystick[0];
+export const setApple2Joystick = _apple2Joystick[1];
+
+const _apple2Mockingboard = /*@once*/ createRoot(() => createSignal(getSaved('apple2-mockingboard', D('apple2-mockingboard')) === 'on'));
+export const apple2Mockingboard = _apple2Mockingboard[0];
+export const setApple2Mockingboard = _apple2Mockingboard[1];
+
+const _apple2EightyCol = /*@once*/ createRoot(() => createSignal(getSaved('apple2-80col', D('apple2-80col')) === 'on'));
+export const apple2EightyCol = _apple2EightyCol[0];
+export const setApple2EightyCol = _apple2EightyCol[1];
+
+const _apple2eEightyCol = /*@once*/ createRoot(() => createSignal(getSaved('apple2e-80col', D('apple2e-80col')) === 'on'));
+export const apple2eEightyCol = _apple2eEightyCol[0];
+export const setApple2eEightyCol = _apple2eEightyCol[1];
+
 const _mtx512kRam = /*@once*/ createRoot(() => createSignal(getSaved('mtx-512k-ram', D('mtx-512k-ram')) === 'on'));
 export const mtx512kRam = _mtx512kRam[0];
 export const setMtx512kRam = _mtx512kRam[1];
@@ -606,6 +641,13 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'mtx-floppy', set: setMtxFloppy, type: 'bool' },
     { key: 'bbc-disk-system', set: setBbcDiskSystem, type: 'string' },
     { key: 'lynx-fdc', set: setLynxFdc, type: 'bool' },
+    { key: 'apple2-disk2', set: setApple2Disk2, type: 'bool' },
+    { key: 'apple2-drives', set: setApple2Drives, type: 'string' },
+    { key: 'apple2-langcard', set: setApple2LangCard, type: 'bool' },
+    { key: 'apple2-joystick', set: setApple2Joystick, type: 'bool' },
+    { key: 'apple2-mockingboard', set: setApple2Mockingboard, type: 'bool' },
+    { key: 'apple2-80col', set: setApple2EightyCol, type: 'bool' },
+    { key: 'apple2e-80col', set: setApple2eEightyCol, type: 'bool' },
     { key: 'zx8x-16k-ram', set: setZx8x16kRam, type: 'bool' },
     { key: 'zx81-udg-ram', set: setZx81UdgRam, type: 'bool' },
     { key: 'zx81-udg128-ram', set: setZx81Udg128Ram, type: 'bool' },
