@@ -102,6 +102,15 @@ describe('machine capabilities', () => {
         if (!caps.builtinDisk) return;
         const disks = machine.services.disks;
         expect(disks).not.toBeNull();
+        // A controller that is a Hardware-pane option (the MSX disk interface)
+        // lists no drives until it is fitted; the pane hides itself meanwhile.
+        // Fitting it through the machine's own prepare() hook must produce them.
+        if (!disks!.drives.some(d => d.id === 'a') && machine.prepare) {
+          const reqs = machine.prepare({
+            get: <T,>(_key: string, fallback: T): T => (typeof fallback === 'boolean' ? true : fallback) as T,
+          });
+          for (const r of reqs) r.apply(new Uint8Array(0x4000));
+        }
         // The Drive pane addresses the built-ins as 'a' and 'b'.
         expect(disks!.drives.some(d => d.id === 'a')).toBe(true);
       } finally {

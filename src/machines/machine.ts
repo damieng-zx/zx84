@@ -22,7 +22,7 @@ import type { MachineModel } from '@/models.ts';
 import type { OcrGridName, FontSource } from '@/ocr/ocr.ts';
 import type { BasicListingLine, BasicVariable } from '@/basic/types.ts';
 
-export type MachineKind = 'spectrum' | 'cpc' | 'einstein' | 'msx' | 'zx8x' | 'mtx' | 'lynx' | 'jupiter-ace' | 'pcw' | 'bbc' | 'electron' | 'enterprise';
+export type MachineKind = 'spectrum' | 'cpc' | 'einstein' | 'msx' | 'zx8x' | 'mtx' | 'lynx' | 'jupiter-ace' | 'pcw' | 'bbc' | 'electron' | 'apple2' | 'enterprise';
 
 /** Keyboard/ROM locale for international machine variants.
  *  'uk' = default (English, no locale-specific ROM/keyboard). */
@@ -304,7 +304,7 @@ export interface MachineUiCapabilities {
   /** Execution-trace debugger control is available. */
   readonly trace: boolean;
   /** Palette / colour-map family shown in the Display pane. */
-  readonly colorMap: 'spectrum' | 'cpc' | 'msx' | 'einstein' | 'bbc' | 'mono';
+  readonly colorMap: 'spectrum' | 'cpc' | 'msx' | 'einstein' | 'bbc' | 'apple2' | 'mono';
   /**
    * Which Accuracy drop-down the Display pane offers, or false for none.
    *
@@ -413,7 +413,7 @@ export interface MachineUiCapabilities {
   /** ROM regions the Memory pane's region picker offers (besides mapped/banks). */
   readonly memoryRegions: readonly MemoryRegionInfo[];
   /** ASCII glyph table the Memory pane renders with. */
-  readonly charset: 'spectrum' | 'cpc' | 'bbc';
+  readonly charset: 'spectrum' | 'cpc' | 'bbc' | 'apple2';
 }
 
 /**

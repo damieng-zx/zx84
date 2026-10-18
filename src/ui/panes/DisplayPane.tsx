@@ -6,6 +6,7 @@ import {
   renderer, webglAvailable, colorMap, setColorMap, scanlineAccuracy, setScanlineAccuracy,
   cpcColorMap, setCpcColorMap, msxColorMap, setMsxColorMap,
   einsteinColorMap, setEinsteinColorMap, bbcColorMap, setBbcColorMap,
+  apple2Video, setApple2Video,
   persistSetting, resetSettingsGroup,
 } from '@/store/settings.ts';
 import { machine } from '@/shell/context.ts';
@@ -135,6 +136,19 @@ export function DisplayPane() {
             }}>
               <option value="pal">PAL</option>
               <option value="measured">Measured</option>
+            </select>
+          </Match>
+          <Match when={machineCaps().colorMap === 'apple2'}>
+            <select value={apple2Video()} onChange={(e) => {
+              const v = (e.target as HTMLSelectElement).value as 'mono' | 'green' | 'ntsc' | 'pal';
+              setApple2Video(v);
+              persistSetting('apple2-video', v);
+              applyDisplaySettings();
+            }}>
+              <option value="mono">Monochrome</option>
+              <option value="green">Green screen</option>
+              <option value="ntsc">Composite NTSC</option>
+              <option value="pal">Composite PAL</option>
             </select>
           </Match>
         </Switch>

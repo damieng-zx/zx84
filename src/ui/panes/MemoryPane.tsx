@@ -104,6 +104,21 @@ const BBC_CHARS: string[] = (() => {
   return t;
 })();
 
+// ── Apple II → Unicode character table ───────────────────────────────────
+//
+// The Apple II character order runs '@A-Z[\]^_' for codes $00-$1F and ASCII
+// space…'?' for $20-$3F; bits 6 and 7 are the flash and inverse-video flags,
+// so every byte displays the glyph its low six bits name.
+
+const APPLE2_CHARS: string[] = (() => {
+  const t = new Array<string>(256).fill('·');
+  for (let b = 0; b <= 0xFF; b++) {
+    const g = b & 0x3F;
+    t[b] = g < 0x20 ? String.fromCharCode(g + 0x40) : String.fromCharCode(g);
+  }
+  return t;
+})();
+
 // ── Hex formatting helpers ───────────────────────────────────────────────
 
 const HEX = '0123456789ABCDEF';
@@ -204,7 +219,10 @@ export function MemoryPane() {
   /** ASCII glyph table for the active machine. */
   const chars = (): string[] => {
     const charset = machineCaps().charset;
-    return charset === 'cpc' ? CPC_CHARS : charset === 'bbc' ? BBC_CHARS : SPECTRUM_CHARS;
+    if (charset === 'cpc') return CPC_CHARS;
+    if (charset === 'bbc') return BBC_CHARS;
+    if (charset === 'apple2') return APPLE2_CHARS;
+    return SPECTRUM_CHARS;
   };
 
   function bpr(): number { return mode() === 'ascii' ? BYTES_ASCII : BYTES_HEX; }

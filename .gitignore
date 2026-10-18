@@ -26,6 +26,9 @@ tools/ZXDB_mysql.sql.zip
 tools/zxdb.sqlite
 tools/out/
 
+# Machine-local diagnostic tests (hard-coded paths, no assertions)
+*.local.test.ts
+
 # Vite / Wrangler local config
 *.local
 .wrangler

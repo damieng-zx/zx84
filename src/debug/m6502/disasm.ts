@@ -3,7 +3,9 @@
  *
  * Covers the official instruction set plus the stable undocumented opcodes
  * (SLO/RLA/SRE/RRA/SAX/LAX/DCP/ISC/ANC/ALR/ARR/AXS and the NOP family). The
- * unstable undocumented opcodes render as `???`.
+ * unstable undocumented opcodes render as `???`. With `cmos` set the 65C02 table
+ * is used instead: its added instructions, and NOPs in place of the undocumented
+ * NMOS opcodes.
  *
  * Mnemonic text uses marker bytes to tag operand types for colorized display,
  * matching the Z80 disassembler:
@@ -25,7 +27,8 @@ type Mode =
   | 'imp' | 'acc' | 'imm'
   | 'zp' | 'zpx' | 'zpy'
   | 'abs' | 'abx' | 'aby'
-  | 'ind' | 'inx' | 'iny' | 'rel';
+  | 'ind' | 'inx' | 'iny' | 'rel'
+  | 'izp' | 'iax';
 
 function val(s: string): string { return `\x01${s}\x01`; }
 function adr(s: string): string { return `\x02${s}\x02`; }
@@ -98,16 +101,55 @@ const OPS: readonly (readonly [string, Mode])[] = [
   ['NOP', 'abx'], ['SBC', 'abx'], ['INC', 'abx'], ['ISC', 'abx'],
 ];
 
-const TERMINAL = new Set(['JMP', 'RTS', 'RTI', 'BRK']);
+const TERMINAL = new Set(['JMP', 'RTS', 'RTI', 'BRK', 'BRA']);
 
-export function disasmOne(mem: Uint8Array, addr: number): DisasmLine {
+type Op = readonly [string, Mode];
+
+const OFFICIAL = new Set([
+  'BRK', 'ORA', 'ASL', 'PHP', 'BPL', 'CLC', 'JSR', 'AND', 'BIT', 'ROL', 'PLP', 'BMI', 'SEC', 'RTI',
+  'EOR', 'LSR', 'PHA', 'JMP', 'BVC', 'CLI', 'RTS', 'ADC', 'ROR', 'PLA', 'BVS', 'SEI', 'STA', 'STY',
+  'STX', 'DEY', 'TXA', 'BCC', 'TYA', 'TXS', 'LDY', 'LDA', 'LDX', 'TAY', 'TAX', 'BCS', 'CLV', 'TSX',
+  'CPY', 'CMP', 'DEC', 'INY', 'DEX', 'BNE', 'CLD', 'CPX', 'SBC', 'INC', 'INX', 'NOP', 'BEQ', 'SED',
+]);
+
+/** What a 65C02 makes of an opcode that is undocumented on the NMOS part. */
+function cmosNop(op: number): Op {
+  const lo = op & 0x0F;
+  if (lo === 0x3 || lo === 0x7 || lo === 0xB || lo === 0xF) return ['NOP', 'imp'];
+  if (op === 0x44) return ['NOP', 'zp'];
+  if (op === 0x54 || op === 0xD4 || op === 0xF4) return ['NOP', 'zpx'];
+  if (op === 0x5C || op === 0xDC || op === 0xFC) return ['NOP', 'abs'];
+  return ['NOP', 'imm'];                                   // the x2 family
+}
+
+/** The 65C02 additions, over the NMOS table. */
+const CMOS_ADDED: Readonly<Record<number, Op>> = {
+  0x04: ['TSB', 'zp'], 0x0C: ['TSB', 'abs'], 0x14: ['TRB', 'zp'], 0x1C: ['TRB', 'abs'],
+  0x12: ['ORA', 'izp'], 0x32: ['AND', 'izp'], 0x52: ['EOR', 'izp'], 0x72: ['ADC', 'izp'],
+  0x92: ['STA', 'izp'], 0xB2: ['LDA', 'izp'], 0xD2: ['CMP', 'izp'], 0xF2: ['SBC', 'izp'],
+  0x1A: ['INC', 'acc'], 0x3A: ['DEC', 'acc'],
+  0x34: ['BIT', 'zpx'], 0x3C: ['BIT', 'abx'], 0x89: ['BIT', 'imm'],
+  0x5A: ['PHY', 'imp'], 0x7A: ['PLY', 'imp'], 0xDA: ['PHX', 'imp'], 0xFA: ['PLX', 'imp'],
+  0x64: ['STZ', 'zp'], 0x74: ['STZ', 'zpx'], 0x9C: ['STZ', 'abs'], 0x9E: ['STZ', 'abx'],
+  0x7C: ['JMP', 'iax'], 0x80: ['BRA', 'rel'],
+};
+
+const CMOS_OPS: readonly Op[] = OPS.map((entry, op) => {
+  const added = CMOS_ADDED[op];
+  if (added) return added;
+  const [mnem] = entry;
+  const documented = OFFICIAL.has(mnem) && (mnem !== 'NOP' || op === 0xEA) && op !== 0xEB;
+  return documented ? entry : cmosNop(op);
+});
+
+export function disasmOne(mem: Uint8Array, addr: number, cmos = false): DisasmLine {
   const start = addr & 0xFFFF;
   let p = start;
   const rd = (): number => { const v = mem[p & 0xFFFF]; p = (p + 1) & 0xFFFF; return v; };
   const rd16 = (): number => { const lo = rd(); return lo | (rd() << 8); };
 
   const op = rd();
-  const [mnem, mode] = OPS[op];
+  const [mnem, mode] = (cmos ? CMOS_OPS : OPS)[op];
   let text: string;
 
   switch (mode) {
@@ -123,6 +165,8 @@ export function disasmOne(mem: Uint8Array, addr: number): DisasmLine {
     case 'ind': text = `${mnem} (${adr(h16(rd16()))})`; break;
     case 'inx': text = `${mnem} (${adr(h8(rd()))},X)`; break;
     case 'iny': text = `${mnem} (${adr(h8(rd()))}),Y`; break;
+    case 'izp': text = `${mnem} (${adr(h8(rd()))})`; break;
+    case 'iax': text = `${mnem} (${adr(h16(rd16()))},X)`; break;
     case 'rel': {
       const off = rd();
       const target = (p + signed8(off)) & 0xFFFF;
@@ -140,11 +184,11 @@ export function disasmOne(mem: Uint8Array, addr: number): DisasmLine {
   };
 }
 
-export function disassemble(mem: Uint8Array, startAddr: number, maxLines = 24): DisasmLine[] {
+export function disassemble(mem: Uint8Array, startAddr: number, maxLines = 24, cmos = false): DisasmLine[] {
   const lines: DisasmLine[] = [];
   let addr = startAddr & 0xFFFF;
   for (let i = 0; i < maxLines; i++) {
-    const line = disasmOne(mem, addr);
+    const line = disasmOne(mem, addr, cmos);
     lines.push(line);
     addr = (addr + line.length) & 0xFFFF;
     if (line.isTerminal) break;
@@ -154,11 +198,11 @@ export function disassemble(mem: Uint8Array, startAddr: number, maxLines = 24): 
 
 /** 6502 instructions are 1–3 bytes; step back up to 2 bytes to land on PC. */
 export function disassembleAroundPC(
-  mem: Uint8Array, pc: number, totalLines = 24, before = 6,
+  mem: Uint8Array, pc: number, totalLines = 24, before = 6, cmos = false,
 ): DisasmLine[] {
   for (let offset = 1; offset <= 2; offset++) {
     const start = (pc - offset) & 0xFFFF;
-    const lines = disassemble(mem, start, totalLines + 4);
+    const lines = disassemble(mem, start, totalLines + 4, cmos);
     const idx = lines.findIndex(l => l.addr === pc);
     if (idx >= 0 && idx <= before) {
       const targetIdx = Math.min(before, idx, Math.max(0, totalLines - 1));
@@ -166,7 +210,7 @@ export function disassembleAroundPC(
       return lines.slice(startIdx, startIdx + totalLines);
     }
   }
-  return disassemble(mem, pc, totalLines);
+  return disassemble(mem, pc, totalLines, cmos);
 }
 
 function colorize(text: string): string {

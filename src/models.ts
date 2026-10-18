@@ -24,6 +24,7 @@ export type { JupiterAceModel } from '@/machines/jupiter-ace/models.ts';
 export type { PcwModel } from '@/machines/pcw/models.ts';
 export type { BbcModel } from '@/machines/bbc/models.ts';
 export type { ElectronModel } from '@/machines/electron/models.ts';
+export type { Apple2Model } from '@/machines/apple2/models.ts';
 export type { EnterpriseModel } from '@/machines/enterprise/models.ts';
 
 // ── Per-family classification helpers (re-exported from each machine folder) ─
@@ -48,6 +49,7 @@ export { isJupiterAceModel } from '@/machines/jupiter-ace/models.ts';
 export { isPcwModel } from '@/machines/pcw/models.ts';
 export { isBbcModel } from '@/machines/bbc/models.ts';
 export { isElectronModel } from '@/machines/electron/models.ts';
+export { isApple2Model } from '@/machines/apple2/models.ts';
 export { isEnterpriseModel } from '@/machines/enterprise/models.ts';
 
 // ── System-ROM slot geometry (dispatches per family) ───────────────────────
@@ -105,6 +107,7 @@ import type { JupiterAceModel } from '@/machines/jupiter-ace/models.ts';
 import type { PcwModel } from '@/machines/pcw/models.ts';
 import type { BbcModel } from '@/machines/bbc/models.ts';
 import type { ElectronModel } from '@/machines/electron/models.ts';
+import type { Apple2Model } from '@/machines/apple2/models.ts';
 import type { EnterpriseModel } from '@/machines/enterprise/models.ts';
 
 /** Any machine ZX84 can emulate. */
@@ -120,4 +123,5 @@ export type MachineModel =
   | PcwModel
   | BbcModel
   | ElectronModel
+  | Apple2Model
   | EnterpriseModel;

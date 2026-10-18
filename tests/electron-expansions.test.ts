@@ -10,6 +10,7 @@
 import { describe, it, expect } from 'vitest';
 import { ElectronMachine } from '@/machines/electron/electron-machine.ts';
 import { parseAdfs } from '@/media/floppy/adfs.ts';
+import { blankSsd, serializeSsd } from '@/media/floppy/ssd.ts';
 
 function makeRom(): Uint8Array {
   const rom = new Uint8Array(0x8000);
@@ -19,10 +20,10 @@ function makeRom(): Uint8Array {
   return rom;
 }
 
-function machine(plus1 = false, plus3 = false): ElectronMachine {
+function machine(plus1 = false, plus3 = false, dfs = false): ElectronMachine {
   const m = new ElectronMachine('electron', null);
   m.loadROM(makeRom());
-  m.setExpansions(plus1, plus3);
+  m.setExpansions(plus1, plus3, dfs);
   m.reset();
   return m;
 }
@@ -116,6 +117,70 @@ describe('Plus 1', () => {
     expect(ok).toMatchObject({ ok: true, target: 'cartridge' });
     expect(fitted.cartridgeName).toBe('c.rom');
     fitted.destroy();
+  });
+
+  describe('two-file cartridges (Name_1.rom + Name_2.rom)', () => {
+    const half = (fill: number): Uint8Array => new Uint8Array(0x4000).fill(fill);
+    const bank = (m: ElectronMachine, page: number): number => {
+      m.memory.romPage = page;
+      return m.memory.readByte(0x8000);
+    };
+
+    it('joins _1 and _2 into lower and upper banks, in either order', async () => {
+      for (const order of [[1, 2], [2, 1]] as const) {
+        const m = machine(true);
+        for (const n of order) {
+          const r = await m.services.media.mount(half(n === 1 ? 0xA1 : 0xB2), `Doom_${n}.rom`);
+          expect(r.ok).toBe(true);
+        }
+        expect(bank(m, 2)).toBe(0xA1);
+        expect(bank(m, 3)).toBe(0xB2);
+        m.destroy();
+      }
+    });
+
+    it('leaves a lone half mirrored across both banks', async () => {
+      const m = machine(true);
+      await m.services.media.mount(half(0xB2), 'Doom_2.rom');
+      expect(bank(m, 2)).toBe(0xB2);
+      expect(bank(m, 3)).toBe(0xB2);
+      m.destroy();
+    });
+
+    it('does not join halves of different cartridges', async () => {
+      const m = machine(true);
+      await m.services.media.mount(half(0xA1), 'Doom_1.rom');
+      await m.services.media.mount(half(0xB2), 'Other_2.rom');
+      expect(bank(m, 2)).toBe(0xB2);
+      expect(bank(m, 3)).toBe(0xB2);
+      m.destroy();
+    });
+
+    it('does not join once the first half has been ejected or replaced', async () => {
+      const m = machine(true);
+      await m.services.media.mount(half(0xA1), 'Doom_1.rom');
+      m.services.roms.cartridge!.eject();
+      await m.services.media.mount(half(0xB2), 'Doom_2.rom');
+      expect(bank(m, 2)).toBe(0xB2);
+      expect(bank(m, 3)).toBe(0xB2);
+
+      await m.services.media.mount(half(0xA1), 'Doom_1.rom');
+      await m.services.media.mount(half(0xCC), 'plain.rom');
+      await m.services.media.mount(half(0xB2), 'Doom_2.rom');
+      expect(bank(m, 2)).toBe(0xB2);
+      m.destroy();
+    });
+
+    it('treats a full 32K _1 image as a cartridge in its own right', async () => {
+      const m = machine(true);
+      const full = new Uint8Array(0x8000);
+      full.fill(0x11, 0, 0x4000); full.fill(0x22, 0x4000);
+      await m.services.media.mount(full, 'Big_1.rom');
+      await m.services.media.mount(half(0x33), 'Big_2.rom');
+      expect(bank(m, 2)).toBe(0x33);
+      expect(bank(m, 3)).toBe(0x33);
+      m.destroy();
+    });
   });
 
   it('boots a cartridge with SHIFT held, releasing it after the OS has had time to look', () => {
@@ -277,5 +342,104 @@ describe('Plus 3', () => {
     expect(m.prepare(view(['electron-plus1', 'electron-plus3'])).map(r => r.source))
       .toEqual(['electron/plus1.rom', 'electron/plus3.rom']);
     m.destroy();
+  });
+});
+
+describe('Plus 3 with the ACP 1770 DFS', () => {
+  const rom = (fill: number): Uint8Array => new Uint8Array(0x4000).fill(fill);
+  const romAt = (m: ElectronMachine, page: number): number => {
+    m.memory.romPage = page;
+    return m.memory.readByte(0x8000);
+  };
+
+  it('puts the DFS ROM in ROM 0 and leaves the ADFS page empty', () => {
+    const m = machine(false, true, true);
+    m.installDfsRom(rom(0xD5));
+    expect(romAt(m, 0)).toBe(0xD5);        // the ROM pages ROM 0 back in with STA &FE05 = &80
+    expect(romAt(m, 4)).toBe(0xFF);
+    m.destroy();
+  });
+
+  it('puts the ADFS ROM in page 4 and leaves ROM 0 empty when DFS is off', () => {
+    const m = machine(false, true, false);
+    m.installPlus3Rom(rom(0xA1));
+    expect(romAt(m, 4)).toBe(0xA1);
+    expect(romAt(m, 0)).toBe(0xFF);
+    m.destroy();
+  });
+
+  it('removes whichever filing system ROM is not selected, and both without the Plus 3', () => {
+    const m = machine(false, true, true);
+    m.installDfsRom(rom(0xD5));
+    m.setExpansions(false, true, false);
+    expect(romAt(m, 0)).toBe(0xFF);
+    m.installDfsRom(rom(0xD5));
+    m.setExpansions(false, false, true);   // DFS needs the Plus 3's interface
+    expect(m.dfsFitted).toBe(false);
+    expect(romAt(m, 0)).toBe(0xFF);
+    m.destroy();
+  });
+
+  it('asks for the DFS ROM instead of the ADFS ROM, and only with the Plus 3 fitted', () => {
+    const m = new ElectronMachine('electron', null);
+    const view = (on: string[]) => ({ get: <T,>(k: string, f: T): T => (on.includes(k) ? (true as T) : f) });
+    expect(m.prepare(view(['electron-plus3', 'electron-dfs'])).map(r => r.source)).toEqual(['electron/dfs.rom']);
+    expect(m.prepare(view(['electron-dfs']))).toEqual([]);
+    m.destroy();
+  });
+
+  it('takes .ssd/.dsd discs and refuses ADFS ones, boots with SHIFT+BREAK', async () => {
+    const m = machine(false, true, true);
+    expect(m.services.media.accepts().map(t => t.ext)).toEqual(expect.arrayContaining(['.ssd', '.dsd']));
+    expect(m.services.media.accepts().map(t => t.ext)).not.toContain('.adl');
+    const refused = await m.services.media.mount(labelled(2560), 'x.adl');
+    expect(refused.ok).toBe(false);
+    expect(refused.message).toMatch(/ADFS/);
+    const ok = await m.services.media.mount(serializeSsd(blankSsd(40, false), false), 'a.ssd');
+    expect(ok).toMatchObject({ ok: true, target: 'a' });
+    expect(m.keyboard.isPressed(13, 3)).toBe(true);
+    m.destroy();
+  });
+
+  it('refuses .ssd while the Plus 3 runs ADFS', async () => {
+    const m = machine(false, true, false);
+    expect(m.services.media.accepts().map(t => t.ext)).not.toContain('.ssd');
+    const refused = await m.services.media.mount(new Uint8Array(102400), 'a.ssd');
+    expect(refused.ok).toBe(false);
+    expect(refused.message).toMatch(/DFS/);
+    m.destroy();
+  });
+
+  it('keeps a double-sided .dsd double-sided and saves DFS discs as .ssd/.dsd', async () => {
+    const m = machine(false, true, true);
+    // Interleaved sides: track 0 side 0, track 0 side 1, track 1 side 0 ...
+    const dsd = new Uint8Array(2 * 40 * 2560);
+    for (let t = 0; t < 40; t++) {
+      dsd.fill(0x10 + (t & 0x0F), t * 2 * 2560, t * 2 * 2560 + 2560);        // side 0
+      dsd.fill(0x80 + (t & 0x0F), t * 2 * 2560 + 2560, (t + 1) * 2 * 2560);  // side 1
+    }
+    await m.services.media.mount(dsd, 'two.dsd');
+    const image = m.services.disks.image('a')!;
+    expect(image.numSides).toBe(2);
+    expect(image.tracks[3][0]!.sectors[0].data[0]).toBe(0x13);
+    expect(image.tracks[3][1]!.sectors[0].data[0]).toBe(0x83);
+    const saved = m.services.disks.save('a')!;
+    expect(saved.name).toBe('two.dsd');
+    expect(Array.from(saved.data)).toEqual(Array.from(dsd));
+
+    await m.services.media.mount(serializeSsd(blankSsd(40, false), false), 'one.ssd');
+    expect(m.services.disks.save('a')!.name).toBe('one.ssd');
+    m.destroy();
+  });
+
+  it('tells the controller a formatted track is 10 sectors for DFS and 16 for ADFS', () => {
+    const fmt = (m: ElectronMachine): number =>
+      (m.plus3.fdc as unknown as { formatSectorsPerTrack: number }).formatSectorsPerTrack;
+    const dfs = machine(false, true, true);
+    expect(fmt(dfs)).toBe(10);
+    dfs.destroy();
+    const adfs = machine(false, true, false);
+    expect(fmt(adfs)).toBe(16);
+    adfs.destroy();
   });
 });

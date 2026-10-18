@@ -24,7 +24,7 @@ import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { disasmOne, type DisasmLine } from '@/debug/z80/disasm.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
-import type { Machine, MachineHost, MachineKind, MachineDescriptor, BorderMode, MachineTraceMode, SettingsView } from '@/machines/machine.ts';
+import type { AuxRomRequest, Machine, MachineHost, MachineKind, MachineDescriptor, BorderMode, MachineTraceMode, SettingsView } from '@/machines/machine.ts';
 import { applyAySettings } from '@/machines/shared/ay-settings.ts';
 import { msxDescriptor } from '@/machines/msx/descriptor.ts';
 import { createMsxServices, type MsxServices } from '@/machines/msx/services/index.ts';
@@ -35,6 +35,8 @@ import { MsxCassette, MSX_TAPION, MSX_TAPIN, MSX_TAPOON, MSX_TAPOUT } from '@/ma
 import { MsxMemory } from '@/machines/msx/msx-memory.ts';
 import { MsxKeyboard } from '@/machines/msx/msx-keyboard.ts';
 import { MsxJoystick } from '@/machines/msx/msx-joystick.ts';
+import { MsxDiskInterface } from '@/machines/msx/peripherals/disk-interface.ts';
+import { msxDiskAuxRom } from '@/machines/msx/aux-roms.ts';
 import { MsxPpi, installMsxMemoryHooks, wireMsxPortIO } from '@/machines/msx/msx-io.ts';
 import { createMsxConfig, type MsxConfig } from '@/machines/msx/config.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
@@ -66,9 +68,12 @@ export class MsxMachine extends BaseMachine implements Machine {
   readonly keyboard: MsxKeyboard;
   readonly joystick: MsxJoystick;
   readonly ppi: MsxPpi;
-  /** The HX-10 has no floppy controller; this inert WD1772 exists only to
-   *  satisfy the shared `Machine.fdc` type — it is never wired to any port. */
-  readonly fdc: WD179x;
+  /** The optional floppy disk interface (slot 3): WD2793 + Disk BASIC ROM. */
+  readonly diskIf = new MsxDiskInterface();
+  /** Its controller, as the shared `Machine.fdc` surface (inert until fitted). */
+  readonly fdc: WD179x = this.diskIf.fdc;
+  /** Disk interface fitted (needs its Disk BASIC ROM loaded as well). */
+  floppyEnabled = false;
   /** Inert cassette deck (interface requirement; cassette is a follow-up). */
   readonly tape: TapeDeck;
   readonly mixer: AudioMixer;
@@ -76,7 +81,7 @@ export class MsxMachine extends BaseMachine implements Machine {
   display: IScreenRenderer | null;
 
   /** Per-frame I/O activity for the status-bar LEDs / tape progress. */
-  readonly activity = { kbdReads: 0, ayWrites: 0, casReads: 0 };
+  readonly activity = { kbdReads: 0, ayWrites: 0, casReads: 0, fdcAccesses: 0 };
 
   /** Screen-text OCR engine for the MCP `ocr` tool and the TEXT overlay. */
   readonly screenText = new MsxScreenText();
@@ -106,10 +111,6 @@ export class MsxMachine extends BaseMachine implements Machine {
     this.keyboard = new MsxKeyboard();
     this.joystick = new MsxJoystick();
     this.ppi = new MsxPpi(this.memory, this.keyboard);
-    this.fdc = new WD179x({
-      statusBit7: 'motor-on',
-      formatSectorsPerTrack: 10,
-    });
     this.tape = new TapeDeck(MSX_CPU_CLOCK);
     this.audio = new Audio();
     this.mixer = new AudioMixer(MSX_CPU_CLOCK);
@@ -146,6 +147,15 @@ export class MsxMachine extends BaseMachine implements Machine {
     this.vdp.palette = MSX_PALETTES[view.get('msx-color-map', 'pal') as keyof typeof MSX_PALETTES];
     this.audio.setVolume(view.get('volume', 70) / 100);
     applyAySettings(this.ay, view);
+    // The Hardware pane's "reset settings" turns the option off underneath a
+    // fitted card: take it out and cold-start, since Disk BASIC's hooks into
+    // slot 3 must not outlive it. (Fitting is prepare()'s job — it has the ROM.)
+    if (this.floppyEnabled && !view.get('msx-floppy', false)) {
+      const wasRunning = this.running;
+      this.setFloppyEnabled(false);
+      this.reset();
+      if (wasRunning) void this.start();
+    }
   }
 
   // ── Machine: lifecycle ───────────────────────────────────────────────
@@ -155,9 +165,41 @@ export class MsxMachine extends BaseMachine implements Machine {
     this.setStatus('ROM loaded');
   }
 
-  /** The HX-10 has no disk drive; accept the call so the media layer stays
-   *  uniform, but there is nowhere to insert it. */
-  loadDisk(_image: DskImage, _unit = 0): void {}
+  /** Insert a disk into drive `unit` (0 = A:, 1 = B:) of the disk interface. */
+  loadDisk(image: DskImage, unit = 0): void {
+    this.fdc.insertDisk(image, unit);
+  }
+
+  /** Install the Disk BASIC ROM and (re)map slot 3. */
+  loadDiskRom(data: Uint8Array): void {
+    this.diskIf.loadROM(data);
+    this.syncDiskSlot();
+  }
+
+  /** Fit or remove the floppy disk interface. Removing it ejects both drives. */
+  setFloppyEnabled(enabled: boolean): void {
+    if (!enabled && this.floppyEnabled) {
+      this.fdc.ejectDisk(0);
+      this.fdc.ejectDisk(1);
+    }
+    this.floppyEnabled = enabled;
+    this.syncDiskSlot();
+  }
+
+  /** The card only appears in slot 3 once it is enabled *and* has its ROM —
+   *  without the ROM there is nothing for the BIOS slot scan to find. */
+  private syncDiskSlot(): void {
+    this.memory.setDiskInterface(this.floppyEnabled && this.diskIf.romLoaded ? this.diskIf : null);
+  }
+
+  /** Configure the fitted disk interface from settings; the Disk BASIC ROM it
+   *  needs is returned for the shell to fetch before the machine is reset. */
+  prepare(view: SettingsView): AuxRomRequest[] {
+    this.fdc.writeProtect[0] = view.get('write-protect-a', false);
+    this.fdc.writeProtect[1] = view.get('write-protect-b', false);
+    this.setFloppyEnabled(view.get('msx-floppy', false));
+    return this.floppyEnabled && !this.diskIf.romLoaded ? [msxDiskAuxRom(this)] : [];
+  }
 
   /** Mount a `.cas` cassette image (served instantly via BIOS TAPION/TAPIN). */
   mountCas(data: Uint8Array, name = ''): void {
@@ -181,6 +223,7 @@ export class MsxMachine extends BaseMachine implements Machine {
   /** Resolve the Memory-pane ROM region: the 32KB internal ROM at &0000. */
   resolveMemoryRegion(value: string): { data: Uint8Array; baseAddr: number } | null {
     if (value === 'rom0') return { data: this.memory.getRom(), baseAddr: 0x0000 };
+    if (value === 'rom-disk' && this.diskIf.romLoaded) return { data: this.diskIf.getRom(), baseAddr: 0x4000 };
     return null;
   }
 
@@ -254,6 +297,7 @@ export class MsxMachine extends BaseMachine implements Machine {
     this.keyboard.reset();
     this.joystick.reset();
     this.ppi.reset();
+    this.diskIf.reset();
     this.cassette.clearRecording();
     this.audio.reset();
     this.mixer.reset();
@@ -277,6 +321,7 @@ export class MsxMachine extends BaseMachine implements Machine {
     this.activity.kbdReads = 0;
     this.activity.ayWrites = 0;
     this.activity.casReads = 0;
+    this.diskIf.accesses = 0;
 
     // Fill the whole buffer (incl. border) with the current backdrop.
     this._pixels32.fill(this.vdp.backdrop());
@@ -338,6 +383,8 @@ export class MsxMachine extends BaseMachine implements Machine {
       }
     }
 
+    this.activity.fdcAccesses = this.diskIf.accesses;
+    this.diskIf.tickFrame();
     this.needsDisplay = true;
   }
 
@@ -345,7 +392,7 @@ export class MsxMachine extends BaseMachine implements Machine {
 
   disasmAt(pc: number): DisasmLine {
     const buf = new Uint8Array(8);
-    for (let i = 0; i < 8; i++) buf[i] = this.memory.readByte((pc + i) & 0xFFFF);
+    for (let i = 0; i < 8; i++) buf[i] = this.memory.peekByte((pc + i) & 0xFFFF);
     return { ...disasmOne(buf, 0), addr: pc };
   }
 
