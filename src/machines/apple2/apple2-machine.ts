@@ -207,7 +207,8 @@ export class Apple2Machine extends BaseMachine implements Machine {
       });
     }
     requests.push({
-      cacheKey: 'apple2-chargen',
+      // The cache is keyed by this alone, and the models have different glyph ROMs.
+      cacheKey: `apple2-chargen:${this.modelInfo.charsetSource}`,
       source: this.modelInfo.charsetSource,
       fetchingMsg: 'Fetching Apple II character generator ROM…',
       loadedMsg: (bytes) => `Character generator loaded (${bytes} bytes)`,

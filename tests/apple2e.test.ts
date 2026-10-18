@@ -51,7 +51,7 @@ describe('apple //e registration', () => {
     try {
       expect(m.isIie).toBe(true);
       const requests = m.prepare(view());
-      expect(requests.find(r => r.cacheKey === 'apple2-chargen')?.source).toBe('apple2/apple2e-video.rom');
+      expect(requests.find(r => r.failId === 'apple2-chargen')?.source).toBe('apple2/apple2e-video.rom');
     } finally { m.destroy(); }
   });
 });

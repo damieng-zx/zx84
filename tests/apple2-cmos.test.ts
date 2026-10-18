@@ -130,6 +130,22 @@ describe('Enhanced //e character set: MouseText', () => {
   });
 });
 
+describe('character ROM cache', () => {
+  it('keys each glyph ROM by its own file, so switching models never reuses another set', () => {
+    const keys = new Map<string, string>();
+    for (const model of ['apple2', 'apple2-plus', 'apple2e', 'apple2e-enhanced', 'apple2c'] as const) {
+      const m = new Apple2Machine(model, null);
+      try {
+        const req = m.prepare(view()).find(r => r.failId === 'apple2-chargen')!;
+        const clash = keys.get(req.cacheKey);
+        if (clash !== undefined) expect(clash).toBe(req.source);       // same key only for the same file
+        keys.set(req.cacheKey, req.source);
+      } finally { m.destroy(); }
+    }
+    expect(new Set(keys.values()).size).toBe(keys.size);
+  });
+});
+
 describe('Apple //c', () => {
   const makeC = (settings: Record<string, unknown> = {}) => {
     const m = new Apple2Machine('apple2c', null);
@@ -149,7 +165,7 @@ describe('Apple //c', () => {
       expect(m.mmu.auxFitted).toBe(true);
       expect(m.mockingboard).toBeNull();
       // The disk firmware is inside the system ROM, so no controller ROM is fetched.
-      expect(requests.map(r => r.cacheKey)).toEqual(['apple2-chargen']);
+      expect(requests.map(r => r.failId)).toEqual(['apple2-chargen']);
     } finally { m.destroy(); }
   });
 
