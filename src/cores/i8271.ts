@@ -180,6 +180,11 @@ export class I8271 {
   /** Per-unit write-protect tab. Public so the disk UI can toggle it. */
   readonly writeProtect: boolean[] = [false, false];
 
+  /** Per-unit "a drive is wired to this select line". A single-drive machine
+   *  clears unit 1, and READ DRIVE STATUS then reports it neither ready nor at
+   *  track 0 — which is how the DFS decides it has one drive, not two. */
+  readonly connected: boolean[] = [true, true];
+
   /** Selected side (0/1) — from the drive-output register's side bit. */
   private side = 0;
   /** Last selected unit — for the activity LED / status readout. */
@@ -681,9 +686,9 @@ export class I8271 {
     this.currentDrive = unit;
 
     let driveIn = DS_ALWAYS;
-    if (sel1) driveIn |= DS_DRIVE1;
-    if (sel0) driveIn |= DS_DRIVE0;
-    if (this.pcn[unit] === 0) driveIn |= DS_TRACK0;
+    if (sel1 && this.connected[1]) driveIn |= DS_DRIVE1;
+    if (sel0 && this.connected[0]) driveIn |= DS_DRIVE0;
+    if (this.connected[unit] && this.pcn[unit] === 0) driveIn |= DS_TRACK0;
     if (this.writeProtect[unit]) driveIn |= DS_WRITEPROT;
 
     this.finishResult(driveIn, false, 0); // simple command — no interrupt, no delay

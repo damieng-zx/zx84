@@ -168,6 +168,11 @@ export class WD179x {
    *  surface; inert on the WD179x (its drives are always ready when a disk is
    *  present and images are not treated as flippy). */
   forceReady = [false, false, false, false];
+  /** Per-drive "a drive is wired to this select line". A machine fitted with
+   *  fewer drives than the chip can address clears the rest: with nothing on the
+   *  line TR00 never asserts, so RESTORE and SEEK end in a seek error, and
+   *  the 1793's READY line stays low. */
+  connected = [true, true, true, true];
   flipSide = [0, 0, 0, 0];
   /** Optional command-log sink (parity with the uPD765A's `logFn` so the MCP
    *  fdc-log tool can attach through the shared `Machine.fdc`). Unused by the
@@ -179,7 +184,7 @@ export class WD179x {
   private statusBit7(): number {
     return this.statusBit7Mode === 'motor-on'
       ? (this.motorOn ? ST_BIT7 : 0)
-      : (this.disks[this.currentDrive] === null ? ST_BIT7 : 0);
+      : (this.disks[this.currentDrive] === null || !this.connected[this.currentDrive] ? ST_BIT7 : 0);
   }
 
   /**
@@ -537,9 +542,11 @@ export class WD179x {
   private endTypeI(cmd: number): void {
     let s = ST_RECTYPE; // head loaded / spin-up complete
     s |= this.statusBit7();
-    if (this.headTrack[this.currentDrive] === 0) s |= ST_TRACK0;
+    const wired = this.connected[this.currentDrive];
+    if (wired && this.headTrack[this.currentDrive] === 0) s |= ST_TRACK0;
     if (this.writeProtect[this.currentDrive]) s |= ST_WRITEPROT;
-    if (cmd & 0x04) {
+    if (!wired) s |= ST_RNF;       // seek error: the head never finds TR00 or an ID
+    if (wired && (cmd & 0x04)) {
       // V (verify, bit 2): the controller reads ID fields on the destination
       // track until one's track number matches the Track Register with a good
       // CRC — any ID on the track will do, not just the first. An ID that
