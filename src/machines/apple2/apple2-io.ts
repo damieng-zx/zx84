@@ -7,6 +7,7 @@
  *   0xC030         speaker toggle
  *   0xC050-0xC057  display switches (text/mixed/page2/lores-hires)
  *   0xC060         cassette input (bit 7); 0xC061-0xC063 pushbuttons
+ *   0xC080-0xC08F  slot 0 I/O — the language card's bank/ROM switches
  *   0xC0E0-0xC0EF  slot 6 I/O — the Disk II controller
  *
  * Every one of these responds to both reads and writes (the switch is tripped
@@ -62,7 +63,7 @@ export function readApple2Io(m: Apple2Machine, addr: number): number {
     }
   }
   if (off <= 0x7F) return 0x00;
-  if (off <= 0x8F) return 0xFF;                        // slot 0 (language card, absent)
+  if (off <= 0x8F) { m.memory.lcAccess(off, true); return 0xFF; }   // slot 0: language card
 
   const slot = (off >> 4) & 0x07;
   if (slot === DISK2_SLOT) return m.disk2.read(off & 0x0F);
@@ -79,7 +80,7 @@ export function writeApple2Io(m: Apple2Machine, addr: number, val: number): void
   if (off <= 0x4F) return;
   if (off <= 0x57) { applyVideoSwitch(m, off - 0x50); return; }
   if (off <= 0x7F) return;
-  if (off <= 0x8F) return;
+  if (off <= 0x8F) { m.memory.lcAccess(off, false); return; }
 
   const slot = (off >> 4) & 0x07;
   if (slot === DISK2_SLOT) m.disk2.write(off & 0x0F, val);

@@ -208,6 +208,74 @@ describe('apple2-plus cassette deck', () => {
   });
 });
 
+describe('apple2-plus language card', () => {
+  const rd = (m: Apple2Machine, a: number) => m.memory.readByte(a);
+  const wr = (m: Apple2Machine, a: number, v: number) => m.memory.writeByte(a, v);
+  const machineWithRom = (): Apple2Machine => {
+    const m = make();
+    const rom = new Uint8Array(0x3000).fill(0xEA);   // ROM reads as $EA everywhere
+    m.memory.loadRom(rom);
+    return m;
+  };
+
+  it('reads the system ROM and ignores writes until the card is switched in', () => {
+    const m = machineWithRom();
+    try {
+      wr(m, 0xD000, 0x55);
+      expect(rd(m, 0xD000)).toBe(0xEA);
+      expect(rd(m, 0xFFFF)).toBe(0xEA);
+    } finally { m.destroy(); }
+  });
+
+  it('needs two consecutive reads of an odd switch to enable writing', () => {
+    const m = machineWithRom();
+    try {
+      rd(m, 0xC081);                                  // one read: not enough
+      wr(m, 0xE000, 0x66);
+      rd(m, 0xC080);                                  // read RAM, write protected
+      expect(rd(m, 0xE000)).toBe(0x00);               // the write was ignored
+      rd(m, 0xC081); wr(m, 0xC081, 0);                // a write access restarts the count
+      rd(m, 0xC081);
+      wr(m, 0xE000, 0x66);
+      rd(m, 0xC080);
+      expect(rd(m, 0xE000)).toBe(0x00);
+      rd(m, 0xC081); rd(m, 0xC081);                   // now properly enabled
+      wr(m, 0xE000, 0x66);
+      expect(rd(m, 0xE000)).toBe(0xEA);               // $C081 still reads ROM
+      rd(m, 0xC080);
+      expect(rd(m, 0xE000)).toBe(0x66);
+    } finally { m.destroy(); }
+  });
+
+  it('has two $D000 banks sharing one $E000 area', () => {
+    const m = machineWithRom();
+    try {
+      rd(m, 0xC083); rd(m, 0xC083);                   // bank 2, read+write
+      wr(m, 0xD000, 0x22); wr(m, 0xE123, 0x99);
+      rd(m, 0xC08B); rd(m, 0xC08B);                   // bank 1, read+write
+      wr(m, 0xD000, 0x11);
+      expect(rd(m, 0xD000)).toBe(0x11);
+      expect(rd(m, 0xE123)).toBe(0x99);               // common to both banks
+      rd(m, 0xC080);                                  // bank 2
+      expect(rd(m, 0xD000)).toBe(0x22);
+      rd(m, 0xC088);                                  // bank 1
+      expect(rd(m, 0xD000)).toBe(0x11);
+    } finally { m.destroy(); }
+  });
+
+  it('goes back to reading ROM on reset but keeps the RAM contents', () => {
+    const m = machineWithRom();
+    try {
+      rd(m, 0xC083); rd(m, 0xC083);
+      wr(m, 0xD800, 0x77);
+      m.reset();
+      expect(rd(m, 0xD800)).toBe(0xEA);
+      rd(m, 0xC080);
+      expect(rd(m, 0xD800)).toBe(0x77);
+    } finally { m.destroy(); }
+  });
+});
+
 describe('apple2-plus game port', () => {
   it('reads the pushbuttons as released (bit 7 clear)', () => {
     // A pushbutton input is high only while its switch is closed; with nothing
