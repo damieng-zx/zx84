@@ -87,8 +87,8 @@ export function clearGenreFilter(): void {
 // ── Format / machine filters (persisted) ────────────────────────────────────
 // Each set is ORed internally; the browser combines non-empty sets with AND.
 
-const ALL_FORMATS: LibraryFormat[] = ['tape', 'plus3-disk', 'mgt-disk', 'snapshot', 'rom', 'microdrive'];
-const ALL_MACHINES: LibraryMachine[] = ['16', '48', '128', '+3'];
+const ALL_FORMATS: LibraryFormat[] = ['tape', 'plus3-disk', 'mgt-disk', 'beta-disk', 'snapshot', 'rom', 'microdrive'];
+const ALL_MACHINES: LibraryMachine[] = ['16', '48', '128', '+3', 'pentagon', 'scorpion'];
 
 const FORMAT_FILTER_KEY = 'zx84-library-media-formats';
 const MACHINE_FILTER_KEY = 'zx84-library-machines';
@@ -143,12 +143,13 @@ export function toggleMachineFilter(machine: LibraryMachine): void {
   persistFilter(MACHINE_FILTER_KEY, s);
 }
 
-/** Parent "Machine" click: clear all machines if every one is already on,
- * otherwise select them all. */
-export function toggleMachineGroup(): void {
+/** Parent "Machine" click over the options currently offered (the Pentagon and
+ *  Scorpion ones only appear on those models): clear them all if every one is
+ *  already on, otherwise select them all. */
+export function toggleMachineGroup(offered: readonly LibraryMachine[]): void {
   const s = new Set(machineFilter());
-  const allOn = ALL_MACHINES.every(m => s.has(m));
-  for (const m of ALL_MACHINES) { if (allOn) s.delete(m); else s.add(m); }
+  const allOn = offered.every(m => s.has(m));
+  for (const m of offered) { if (allOn) s.delete(m); else s.add(m); }
   setMachineFilter(s);
   persistFilter(MACHINE_FILTER_KEY, s);
 }

@@ -82,7 +82,7 @@ they overlay the same slot as the built-in Beta Disk.
 | --- | --- | --- |
 | Timing | ◐ | Frame lengths as above. The Pentagon first-pixel offset (17,988) and the Scorpion's (14,344) are figures taken from references and are not hardware-verified |
 | Fast ROM loading | ✅ | Active when the 48K BASIC ROM is paged in (ROM page 1 on the Scorpion) |
-| Software library | ◐ | The one-click menu auto-boot trap is armed for these models, but the library catalog does not target them |
+| Software library | ◐ | The catalog carries ZXDB's Pentagon and Scorpion titles, with their TR-DOS images (`.trd`/`.scl`) as a Beta Disk format. On a clone the Machine filter gains a Pentagon or Scorpion option (it matches the titles ZXDB tags for that machine and every TR-DOS image). Tapes auto-load through the menu; a TR-DOS disk is mounted and the machine reset, but you start it yourself from TR-DOS (`RANDOMIZE USR 15616`, then `RUN`) |
 
 ---
 
