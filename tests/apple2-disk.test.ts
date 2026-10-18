@@ -146,6 +146,24 @@ describe('DOS image round-trip', () => {
   });
 });
 
+describe('image length tolerance', () => {
+  it('trims stray trailing bytes and pads a slightly short image', () => {
+    for (const size of [35 * 4096 + 3, 35 * 4096 + 256, 35 * 4096 - 2, 35 * 4096 - 645]) {
+      const raw = new Uint8Array(size);
+      raw[0] = 0x5A;
+      const image = parseApple2Disk(raw, 'dos');
+      expect(image.numTracks, `${size} bytes`).toBe(35);
+      // Physical sector 0 of track 0 is DOS file sector 0, so the marker survives.
+      expect(image.tracks[0][0]!.sectors[0].data[0]).toBe(0x5A);
+    }
+  });
+
+  it('still rejects data that is not close to a whole number of tracks', () => {
+    expect(() => parseApple2Disk(new Uint8Array(35 * 4096 + 2000), 'dos')).toThrow(/Not an Apple II disk/);
+    expect(() => parseApple2Disk(new Uint8Array(100), 'dos')).toThrow(/Not an Apple II disk/);
+  });
+});
+
 describe('sector order detection', () => {
   const IMAGE = 35 * 16 * 256;
   const prodos = () => {
@@ -169,3 +187,4 @@ describe('sector order detection', () => {
     expect(detectApple2DiskOrder(raw, 'game.dsk')).toBe('dos');
   });
 });
+

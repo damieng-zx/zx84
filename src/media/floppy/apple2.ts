@@ -227,12 +227,24 @@ function isDataPrologue(nibbles: Uint8Array, p: number, n: number): boolean {
 
 export type Apple2DiskOrder = 'dos' | 'prodos';
 
-export function isApple2DiskLength(length: number): boolean {
-  return length > 0 && length % (APPLE2_SECTOR_SIZE * APPLE2_SECTORS_PER_TRACK) === 0;
+const TRACK_BYTES = APPLE2_SECTOR_SIZE * APPLE2_SECTORS_PER_TRACK;
+
+/**
+ * The whole-track length a raw image represents, or null if it is not a sector
+ * image at all. Images in the wild often carry a few stray bytes (a trailing
+ * header or checksum, a short final sector) around the real 140K, so a length
+ * within a sector or so of a whole number of tracks is accepted and trimmed or
+ * padded to it; anything further off is not treated as a disk.
+ */
+export function apple2ImageLength(length: number): number | null {
+  if (length <= 0) return null;
+  const tracks = Math.round(length / TRACK_BYTES);
+  if (tracks < 1) return null;
+  return Math.abs(length - tracks * TRACK_BYTES) < 1024 ? tracks * TRACK_BYTES : null;
 }
 
-function trackCountFor(length: number): number {
-  return Math.floor(length / (APPLE2_SECTOR_SIZE * APPLE2_SECTORS_PER_TRACK));
+export function isApple2DiskLength(length: number): boolean {
+  return apple2ImageLength(length) !== null;
 }
 
 /**
@@ -255,10 +267,16 @@ export function detectApple2DiskOrder(data: Uint8Array, name: string): Apple2Dis
 
 /** Build a `DskImage` from a raw `.dsk`/`.do`/`.po` image. */
 export function parseApple2Disk(data: Uint8Array, order: Apple2DiskOrder): DskImage {
-  if (!isApple2DiskLength(data.length)) {
+  const length = apple2ImageLength(data.length);
+  if (length === null) {
     throw new Error(`Not an Apple II disk image (${data.length} bytes)`);
   }
-  const numTracks = trackCountFor(data.length);
+  if (data.length !== length) {
+    const fixed = new Uint8Array(length);          // zero-pads a short image
+    fixed.set(data.subarray(0, length));
+    data = fixed;
+  }
+  const numTracks = length / TRACK_BYTES;
   const tracks: (DskTrack | null)[][] = [];
   for (let t = 0; t < numTracks; t++) {
     const sectors: DskSector[] = [];
