@@ -236,7 +236,7 @@ export function register(server: McpServer): void {
         fs.writeFileSync(tmp, data);
         lines.push(await loadFileInto(activeSpectrum()!, tmp, 0));
       } else {
-        lines.push(mountAndArm(activeSpectrum()!, data, innerName, plan.boot, plan.target));
+        lines.push(mountAndArm(activeSpectrum()!, data, innerName, plan.boot));
       }
 
       // 7. With a frame budget, run the loader to a pass/fail verdict (tape/disk)

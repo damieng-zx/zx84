@@ -45,6 +45,7 @@ import { spectrumDescriptor } from '@/machines/spectrum/descriptor.ts';
 import { buildSpectrumAuxRoms } from '@/machines/spectrum/aux-roms.ts';
 import { createSpectrumServices, type SpectrumServices } from '@/machines/spectrum/services/index.ts';
 import { SpectrumTrace } from '@/machines/spectrum/trace.ts';
+import { bootWaitPc } from '@/machines/spectrum/boot-trap.ts';
 
 // Re-export model type and helpers from their canonical home (models.ts)
 // so existing imports from '@/machines/spectrum/spectrum.ts' continue to work.
@@ -253,14 +254,12 @@ export class Spectrum extends BaseMachine implements Machine {
 
   /** Arm the software library's one-click auto-boot trap after a reset. The
    *  trap PC is the ROM's menu/editor key-wait loop — a Spectrum-family address
-   *  (found by tracing each model's key-wait), so it lives here, not the shell.
+   *  (see boot-trap.ts; the +2A/+3 one is found in the installed ROM 0), so it
+   *  lives here, not the shell.
    *  'menu' holds Enter on the 128K boot menu; 'rom48k' types LOAD "" on 48K. */
   armBootTrap(kind: 'menu' | 'rom48k'): void {
     this.bootTrapKind = kind;
-    const m = this.model;
-    this.bootTrapPc = (m === '+2A' || m === '+3') ? 0x1875   // +2A/+3 menu wait
-      : (m === '128k' || m === '+2') ? 0x0E65               // 128K/+2 menu wait
-      : 0x15DE;                                             // 48K editor WAIT-KEY
+    this.bootTrapPc = bootWaitPc(this.model, this.memory.romPages[0]);
   }
 
   // The debug surface (breakpoints / port + memory watchpoints / onTrap /

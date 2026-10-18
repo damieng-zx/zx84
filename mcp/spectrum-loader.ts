@@ -162,16 +162,6 @@ export async function loadFileInto(spec: Spectrum, source: string, diskUnit: num
 }
 
 /**
- * PC of the ROM key-wait loop where the app's one-shot auto-boot trap injects
- * the loader keystrokes. Mirrors emulator.ts `bootWaitPc`.
- */
-export function bootWaitPc(model: SpectrumModel): number {
-  if (model === '+2A' || model === '+3') return 0x1875;   // +2A/+3 menu wait loop
-  if (model === '128k' || model === '+2') return 0x0E65;  // 128K/+2 menu wait loop
-  return 0x15DE;                                           // 48K editor WAIT-KEY
-}
-
-/**
  * Mount a library tape/disk/ROM cartridge's inner bytes. Tapes/disks arm the
  * app's one-shot auto-boot trap, reproducing the exact sequence of
  * emulator.ts `autoBootLoad` + media-manager mounts: put the media on the
@@ -183,7 +173,7 @@ export function bootWaitPc(model: SpectrumModel): number {
  */
 export function mountAndArm(
   spec: Spectrum, data: Uint8Array, innerName: string,
-  boot: 'menu' | 'rom48k' | 'rom', model: SpectrumModel,
+  boot: 'menu' | 'rom48k' | 'rom',
 ): string {
   const ext = path.extname(innerName).toLowerCase();
 
@@ -218,10 +208,10 @@ export function mountAndArm(
 
   // autoBootLoad: reset, then arm the one-shot trap at the ROM key-wait loop.
   // (reset() preserves the mounted tape/disk and clears bootTrap*, so the trap
-  // must be armed *after* it.)
+  // must be armed *after* it.) armBootTrap is the app's own call, so the trap
+  // PC tracks the installed ROM revision.
   spec.reset();
-  spec.bootTrapKind = boot;
-  spec.bootTrapPc = bootWaitPc(model);
+  spec.armBootTrap(boot);
   return `Mounted ${mounted}; armed '${boot}' boot trap at PC=${h16(spec.bootTrapPc)}`;
 }
 
