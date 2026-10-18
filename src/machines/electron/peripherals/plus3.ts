@@ -26,7 +26,14 @@ const CTRL_RESET = 0x20;
 export const PLUS3_ROM_PAGE = 4;
 /** Where the ACP 1770 DFS ROM goes in place of ADFS. Every DFS ROM for this
  *  interface ends its calls with `LDA #&80 : STA &FE05`, which pages ROM 0 back
- *  in, so it only keeps running when it is itself ROM 0. */
+ *  in, so it only keeps running when it is itself ROM 0.
+ *
+ *  Known limit: this DFS holds its catalogue and state in main RAM at
+ *  &0E00-&0FFF (PAGE &1900). A title that loads a file over that range and then
+ *  uses the disc again fails ("Sector not found at :F", "File not found",
+ *  "Channel"); about a quarter of the Electron .ssd collection does. Those discs
+ *  were made for a DFS with workspace off the main bus (likely the Slogger
+ *  Pegasus 400, whose extra hardware is not emulated). */
 export const DFS_ROM_PAGE = 0;
 
 export class ElectronPlus3 {

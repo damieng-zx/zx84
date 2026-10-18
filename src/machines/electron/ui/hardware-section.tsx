@@ -54,7 +54,9 @@ export function ElectronHardwareSection() {
         <label
           class="mf-check"
           title={'Swap the ADFS ROM on the Plus 3 for the ACP 1770 DFS, so the drives read Acorn DFS '
-            + 'discs (.ssd, .dsd) instead of ADFS ones; SHIFT+BREAK boots drive 0.'}
+            + 'discs (.ssd, .dsd) instead of ADFS ones; SHIFT+BREAK boots drive 0. This DFS keeps its '
+            + 'workspace in RAM at &0E00-&0FFF, so titles that load over that range and then use the '
+            + 'disc again (made for other interfaces) can fail.'}
         >
           <input
             type="checkbox"
