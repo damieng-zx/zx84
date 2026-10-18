@@ -1994,6 +1994,22 @@ input[type="range"]::-moz-range-thumb {
 
 #regs-output .reg-name { color: #999; }
 
+/* Click-to-edit values and flags; live only while paused (.regs-editable). */
+#regs-output.regs-editable .reg-val,
+#regs-output.regs-editable .reg-toggle { cursor: pointer; }
+#regs-output.regs-editable .reg-val:hover { background: rgba(0, 102, 204, 0.15); }
+#regs-output.regs-editable .reg-toggle:hover { background: rgba(0, 102, 204, 0.15); }
+
+#regs-output .reg-val input {
+  font: inherit;
+  color: #000;
+  background: #fff;
+  border: 0;
+  outline: 1px solid #06c;
+  margin: 0;
+  padding: 0;
+}
+
 /* System variables pane */
 
 #sysvar-output {
@@ -2875,6 +2891,38 @@ input[type="range"]::-moz-range-thumb {
   border: 1px solid #ddd;
   border-radius: 4px;
   background: #fff;
+}
+
+.mem-scroll.mem-editable { cursor: text; }
+
+.mem-scroll:focus { outline: none; }
+
+/* The byte being edited: sits over the dump, so clicks fall through to it. */
+.mem-cursor {
+  display: none;
+  position: absolute;
+  height: 15px; /* ROW_H */
+  background: rgba(0, 102, 204, 0.3);
+  outline: 1px solid #06c;
+  pointer-events: none;
+}
+
+.mem-rom-write {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.mem-note {
+  padding: 3px 6px;
+  font-family: var(--font-ui);
+  font-size: 0.7rem;
+  background: #fff4d6;
+  color: #5c4500;
+  border-top: 1px solid #e6cf8a;
+  border-bottom: 1px solid #e6cf8a;
 }
 
 .mem-scroll pre {

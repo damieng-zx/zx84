@@ -61,6 +61,15 @@ The Debugger pane works on every machine, Z80 and 6502 alike.
 - **6502:** A, X, Y, P, PC and SP, cycles per frame, and the Sign, Overflow,
   Decimal, IRQ-disable, Zero and Carry flags.
 
+**Editing registers.** While paused, click a register value to edit it in place
+as hex: Enter commits, Esc (or clicking away) cancels. Click a flag to toggle
+it. On the Z80 this covers every pair including the shadow set, IX, IY, SP, PC,
+IR (I and R together) and the interrupt mode, and clicking **EI**/**DI** flips
+the interrupt enable. On the 6502 it covers A, X, Y, P, SP and PC. The
+disassembly, sysvars and BASIC panes redraw straight away, so changing PC moves
+the disassembly with it. Registers are read-only while the machine is running,
+since a write would race the frame loop.
+
 **Toolbar**, left to right:
 
 | Button | Action |
@@ -92,9 +101,8 @@ table on the Enhanced //e and //c.
   address.
 
 Breakpoints trigger on execution only. The browser debugger is deliberately
-lightweight: registers and memory are read-only, and it always follows PC. For
-memory and port watchpoints, register and memory writes, symbol files or
-breakpoints at arbitrary addresses, use the [MCP server](../mcp/README.md).
+lightweight: it always follows PC. For memory and port watchpoints, symbol files
+or breakpoints at arbitrary addresses, use the [MCP server](../mcp/README.md).
 
 **Copying CPU state.** The clipboard button copies a snapshot of the CPU as
 text: registers, flags and the next 16 disassembled instructions. It works while
@@ -136,6 +144,23 @@ The Memory pane shows any part of the machine's memory:
 The view refreshes twice a second while running and holds still while paused
 or while you have text selected, so you can copy from it. The region and mode
 are remembered.
+
+**Editing memory.** While paused, in Hex or Hex+ASCII mode, click a byte to
+overtype it. Type hex digits (the first replaces the high digit, the second the
+low one, then the cursor moves to the next byte); the arrow keys move around and
+Esc stops editing. In Hex+ASCII mode Tab swaps between the hex and ASCII
+columns, and typing a character in the ASCII column writes its code. Writes go
+through the selected region:
+
+- **Mapped:** the same write the CPU would make, so a write to ROM is ignored
+  and paged memory lands in whichever bank is currently mapped. On the BBC
+  Micro, Electron and Apple II a mapped write can reach a hardware register and
+  trigger its side effects; the pane warns you.
+- **RAM bank:** written directly into that bank, wherever it is paged.
+- **ROM regions:** read-only until you tick the **ROM** box beside the picker.
+
+The disassembly, sysvars and BASIC panes refresh after each write. Editing is
+unavailable while the machine is running.
 
 <br clear="right">
 

@@ -145,6 +145,16 @@ export class Z80DebugService implements DebugService {
       case 'PC': cpu.pc = value & 0xFFFF; break;
       case 'IX': cpu.ix = value & 0xFFFF; break;
       case 'IY': cpu.iy = value & 0xFFFF; break;
+      case 'I':  cpu.i  = value & 0xFF; break;
+      case 'R':  cpu.r  = value & 0xFF; break;
+      case "AF'": cpu.a_ = (value >> 8) & 0xFF; cpu.f_ = value & 0xFF; break;
+      case "BC'": cpu.b_ = (value >> 8) & 0xFF; cpu.c_ = value & 0xFF; break;
+      case "DE'": cpu.d_ = (value >> 8) & 0xFF; cpu.e_ = value & 0xFF; break;
+      case "HL'": cpu.h_ = (value >> 8) & 0xFF; cpu.l_ = value & 0xFF; break;
+      // Interrupt mode is 0-2 (the mode-3 encoding is not a Z80 state); the
+      // enable flip-flops move together, as EI/DI do.
+      case 'IM': if (value > 2) return false; cpu.im = value; break;
+      case 'IFF': cpu.iff1 = cpu.iff2 = value !== 0; break;
       default: return false;
     }
     return true;

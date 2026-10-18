@@ -51,6 +51,7 @@ const BBC_UI: MachineUiCapabilities = {
   library: false,
   memoryRegions: [],
   charset: 'bbc',
+  memoryMappedIo: true,
 };
 
 export function bbcDescriptor(

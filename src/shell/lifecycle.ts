@@ -310,6 +310,27 @@ export function stepFrame(): void {
   debugManager.stepFrame(machine, updateRegsOnce);
 }
 
+// ── Editing CPU state while paused ──────────────────────────────────────
+
+/** Redraw every paused-state debug view (registers, disassembly, sysvars, BASIC,
+ *  memory map) after something outside the frame loop changed the machine. */
+export function refreshDebugViews(): void {
+  updateRegsOnce();
+}
+
+/**
+ * Poke a CPU register from the Debugger pane. Refuses while running — a write
+ * would race the frame loop — and returns false for an unknown register name.
+ * Shares `DebugService.setReg` with the MCP `set_register` tool, so the browser
+ * and MCP behave the same.
+ */
+export function pokeRegister(name: string, value: number): boolean {
+  if (!machine || !emulationPaused()) return false;
+  const ok = machine.services.debug.setReg(name, value);
+  if (ok) updateRegsOnce();
+  return ok;
+}
+
 // ── Reset / boot ──────────────────────────────────────────────────────────
 
 export function resetMachine(): void {
