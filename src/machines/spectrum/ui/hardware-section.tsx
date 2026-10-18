@@ -18,7 +18,7 @@ import { activeSpectrum } from '@/machines/spectrum/ui/active.ts';
 import {
   loadMultifaceROM, loadVTX5000ROM, loadPlusDROM, loadInterface1ROM, loadBetaDiskROM, triggerNMI,
 } from '@/machines/spectrum/ui/hardware-actions.ts';
-import { isPlusDCapable, isInterface1Capable, isBetaDiskCapable, type SpectrumModel } from '@/machines/spectrum/models.ts';
+import { isPlusDCapable, isInterface1Capable, isBetaDiskCapable, hasBuiltinBetaDisk, type SpectrumModel } from '@/machines/spectrum/models.ts';
 import { variantForModel, variantLabel } from '@/machines/spectrum/peripherals/multiface.ts';
 import * as settings from '@/store/settings.ts';
 
@@ -154,7 +154,7 @@ export function SpectrumHardwareSection() {
           </label>
         </div>
       </Show>
-      <Show when={isBetaDiskCapable(currentModel())}>
+      <Show when={isBetaDiskCapable(currentModel()) && !hasBuiltinBetaDisk(currentModel())}>
         <div class="multiface-row">
           <label
             class={`mf-check${betaDiskRomFailed() ? ' rom-failed' : ''}`}

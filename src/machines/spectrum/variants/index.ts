@@ -8,6 +8,7 @@ import { spectrum48K } from './spectrum-48k.ts';
 import { spectrum16K } from './spectrum-16k.ts';
 import { createFerranti128K } from './spectrum-ferranti.ts';
 import { createAmstrad } from './spectrum-amstrad.ts';
+import { spectrumPentagon } from './spectrum-pentagon.ts';
 
 export type { MachineVariant } from './machine-variant.ts';
 
@@ -19,5 +20,6 @@ export function createVariant(model: SpectrumModel): MachineVariant {
     case '+2':   return createFerranti128K('+2');
     case '+2A':  return createAmstrad('+2A');
     case '+3':   return createAmstrad('+3');
+    case 'pentagon128': return spectrumPentagon;
   }
 }

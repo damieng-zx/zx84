@@ -21,6 +21,7 @@ export const MODEL_LABELS: Record<MachineModel, string> = {
   '+2': 'ZX Spectrum +2',
   '+2A': 'ZX Spectrum +2A',
   '+3': 'ZX Spectrum +3',
+  pentagon128: 'Pentagon 128',
   zx80: 'ZX80',
   zx81: 'ZX81',
   cpc464: 'CPC 464',
@@ -101,6 +102,13 @@ export const MODEL_MENU: MenuItem[] = [
       modelEntry('+2'),
       modelEntry('+2A'),
       modelEntry('+3'),
+    ],
+  },
+  {
+    value: 'sinclair-clones',
+    label: 'Sinclair Clones',
+    children: [
+      modelEntry('pentagon128'),
     ],
   },
   {

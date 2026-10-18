@@ -36,6 +36,8 @@ export {
   isPlusDCapable,
   isInterface1Capable,
   isBetaDiskCapable,
+  isPentagonClass,
+  hasBuiltinBetaDisk,
   isInterface2Capable,
   type RomPage,
 } from '@/machines/spectrum/models.ts';

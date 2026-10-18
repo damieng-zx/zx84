@@ -25,7 +25,7 @@ import {
   plusDEnabled, betaDiskEnabled, lynxFdc, bbcDiskSystem, msxFloppy, apple2Disk2, tapeTurbo, setTapeTurbo,
   persistSetting, resetSettingsGroup,
 } from '@/store/settings.ts';
-import { isPlusDCapable, isBetaDiskCapable, isLynxModel, isBbcModel, isMsxModel, isApple2Model } from '@/models.ts';
+import { isPlusDCapable, isBetaDiskCapable, hasBuiltinBetaDisk, isLynxModel, isBbcModel, isMsxModel, isApple2Model } from '@/models.ts';
 import { machineCaps } from '@/state/machine-caps.ts';
 import { DISK_FORMATS, formatLabel, createBlankDisk } from '@/media/floppy/dsk.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
@@ -376,7 +376,7 @@ export function DrivePane() {
   const plusDActive = () => plusDEnabled() && isPlusDCapable(currentModel());
   // The Beta Disk (drives A:/B:) is mutually exclusive with the +D and reuses
   // the same C/D drive-state signals; only the label and FDC differ.
-  const betaDiskActive = () => betaDiskEnabled() && isBetaDiskCapable(currentModel());
+  const betaDiskActive = () => (betaDiskEnabled() || hasBuiltinBetaDisk(currentModel())) && isBetaDiskCapable(currentModel());
   // Machines with a built-in floppy controller (Spectrum +3, disk CPCs, Einstein).
   // The Lynx's FD1793 is a Hardware-pane toggle, so its drives only count when
   // the interface is actually fitted; likewise the BBC's disc interface can be

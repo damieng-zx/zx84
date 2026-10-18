@@ -8,12 +8,20 @@
 
 import type { MachineModel } from '@/models.ts';
 
-export type SpectrumModel = '16k' | '48k' | '128k' | '+2' | '+2A' | '+3';
+export type SpectrumModel = '16k' | '48k' | '128k' | '+2' | '+2A' | '+3' | 'pentagon128';
 
-/** Returns true for any 128K-class Spectrum (128K, +2, +2A, +3). */
+/** Returns true for any 128K-class Spectrum (128K, +2, +2A, +3, Pentagon 128). */
 export function is128kClass(m: MachineModel): boolean {
-  return m === '128k' || m === '+2' || m === '+2A' || m === '+3';
+  return m === '128k' || m === '+2' || m === '+2A' || m === '+3' || isPentagonClass(m);
 }
+
+/** Returns true for the Pentagon family of Russian 128K clones: no contention,
+ *  no floating bus, 71680 T-state frame, and a Beta Disk built in. */
+export function isPentagonClass(m: MachineModel): boolean { return m === 'pentagon128'; }
+
+/** Returns true for models that ship with a Beta Disk (TR-DOS) interface fitted
+ *  on the board, so it is always present rather than a Hardware-pane option. */
+export function hasBuiltinBetaDisk(m: MachineModel): boolean { return isPentagonClass(m); }
 
 /** Returns true for the issue 1/2 16K Spectrum (no upper 32KB of RAM). */
 export function is16K(m: MachineModel): boolean { return m === '16k'; }
@@ -45,11 +53,12 @@ export function isInterface1Capable(m: MachineModel): boolean {
 /**
  * Returns true for models the Beta Disk interface (TR-DOS) can attach to: the
  * Ferranti-ULA 48K/128K/+2. Excluded: the 16K and the Amstrad +2A/+3 (which
- * already have a built-in FDC and use special paging). The classic setup is a
- * Beta Disk on a 48K.
+ * already have a built-in FDC and use special paging) and the Pentagon, which
+ * has one built in (see hasBuiltinBetaDisk). The classic setup is a Beta Disk
+ * on a 48K.
  */
 export function isBetaDiskCapable(m: MachineModel): boolean {
-  return m === '48k' || m === '128k' || m === '+2';
+  return m === '48k' || m === '128k' || m === '+2' || hasBuiltinBetaDisk(m);
 }
 
 /**
@@ -65,7 +74,7 @@ export function isBetaDiskCapable(m: MachineModel): boolean {
  *  - every other model → 0 (single combined "System ROM" slot).
  */
 export function romPageSlotCount(m: MachineModel): 0 | 2 | 4 {
-  if (m === '128k' || m === '+2') return 2;
+  if (m === '128k' || m === '+2' || isPentagonClass(m)) return 2;
   if (m === '+2A' || m === '+3') return 4;
   return 0;
 }
@@ -99,6 +108,6 @@ const PLUS3_PAGE_NAMES = ['128K Editor', '128K Syntax Checker', '+3DOS', '48K BA
  *    BASIC) — same for both, since the +2A reuses the +3's ROM set. */
 export function defaultRomPageLabel(model: MachineModel, page: RomPage): string {
   if (model === '+2A' || model === '+3') return PLUS3_PAGE_NAMES[page];
-  const maker = model === '+2' ? 'Amstrad' : 'Sinclair';
+  const maker = model === '+2' ? 'Amstrad' : isPentagonClass(model) ? 'Pentagon' : 'Sinclair';
   return page === 0 ? `${maker} 128K BASIC` : `${maker} 48K BASIC`;
 }

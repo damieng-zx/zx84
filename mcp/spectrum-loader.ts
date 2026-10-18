@@ -130,7 +130,7 @@ export async function loadFileInto(spec: Spectrum, source: string, diskUnit: num
     // Auto-detect model from SZX header byte 6 (machine ID).
     // Must switch before loading so memory.is128K is set correctly and ROM pages are right.
     const SZX_ID_MODEL: Record<number, SpectrumModel> = {
-      0: '16k', 1: '48k', 2: '128k', 3: '+2', 4: '+2A', 5: '+3', 6: '+3',
+      0: '16k', 1: '48k', 2: '128k', 3: '+2', 4: '+2A', 5: '+3', 6: '+3', 7: 'pentagon128',
     };
     const szxModel: SpectrumModel = (data.length >= 7 ? SZX_ID_MODEL[data[6]] : undefined) ?? '48k';
     if (szxModel !== state.model) {

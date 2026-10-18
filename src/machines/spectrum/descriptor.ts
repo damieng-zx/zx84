@@ -92,6 +92,12 @@ const ROM_SOURCES: Record<string, string[]> = {
   '+2A':  ['sinclair/plus3-41-0.rom', 'sinclair/plus3-41-1.rom', 'sinclair/plus3-41-2.rom', 'sinclair/plus3-41-3.rom'],
   '+3':   ['sinclair/plus3-0.rom', 'sinclair/plus3-1.rom', 'sinclair/plus3-2.rom', 'sinclair/plus3-3.rom'],
 
+  // ── Russian clones ───────────────────────────────────────────────────────
+  // The Pentagon 128's system ROM is the Sinclair 128K ROM pair (menu + 48K
+  // BASIC); TR-DOS comes from the built-in Beta Disk's own ROM. A dedicated
+  // Pentagon-branded ROM can replace these once one is hosted.
+  pentagon128: ['sinclair/128-0.rom', 'sinclair/128-1.rom'],
+
   // ── Spanish (Investrónica) ───────────────────────────────────────────────
   '48k-es':  ['sinclair/48-es.rom'],
   '128k-es': ['sinclair/128-0-es.rom', 'sinclair/128-1-es.rom'],
@@ -123,7 +129,7 @@ export function spectrumDescriptor(model: MachineModel, locale: MachineLocale = 
 
 export const spectrumEntry: MachineEntry = {
   kind: 'spectrum',
-  models: ['16k', '48k', '128k', '+2', '+2A', '+3'],
+  models: ['16k', '48k', '128k', '+2', '+2A', '+3', 'pentagon128'],
   descriptor: spectrumDescriptor,
   create(model: MachineModel, display: IScreenRenderer | null) {
     return new Spectrum(model as SpectrumModel, display);

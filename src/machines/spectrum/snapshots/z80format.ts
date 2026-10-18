@@ -196,6 +196,7 @@ function sourceModelOf(hwMode: number, version: number, modify: boolean): Spectr
   if (hwMode === 7 || hwMode === 8) return modify ? '+2A' : '+3';
   if (hwMode === 13) return '+2A';
   if (hwMode === 12) return '+2';
+  if (hwMode === 9) return 'pentagon128';
   if (hwMode <= 6) {
     const is128 = version === 2 ? hwMode >= 3 : hwMode >= 4;
     if (!is128) return hwMode === 2 ? null : modify ? '16k' : '48k';
@@ -552,6 +553,7 @@ export function saveZ80(
   if (!is128K) hwMode = 0;                         // 48K (16K: + modify flag)
   else if (model === '+2A') hwMode = 13;
   else if (model === '+2') hwMode = 12;
+  else if (model === 'pentagon128') hwMode = 9;
   else if (model === '+3' || (model === undefined && isPlus2A3)) hwMode = 7;
   else hwMode = 4;                                 // 128K
   extHeader[4] = hwMode;

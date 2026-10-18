@@ -101,7 +101,7 @@ async function inflate(compressed: Uint8Array): Promise<Uint8Array> {
 
 // ── Machine ID mapping ──────────────────────────────────────────────────
 
-/** SZX machine ID: 0=16K, 1=48K, 2=128K, 3=+2, 4=+2A/+2B, 5=+3, 6=+3e */
+/** SZX machine ID: 0=16K, 1=48K, 2=128K, 3=+2, 4=+2A/+2B, 5=+3, 6=+3e, 7=Pentagon 128 */
 const MODEL_TO_MACHINE_ID: Record<SpectrumModel, number> = {
   '16k': 0,
   '48k': 1,
@@ -109,6 +109,7 @@ const MODEL_TO_MACHINE_ID: Record<SpectrumModel, number> = {
   '+2': 3,
   '+2A': 4,
   '+3': 5,
+  pentagon128: 7,
 };
 
 function machineIs128K(machineId: number): boolean {
