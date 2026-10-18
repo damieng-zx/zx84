@@ -142,6 +142,7 @@ Disc saves from the Drives pane keep the format family: ADFS discs save as `.adl
 | Software library | ✗ | Not offered |
 | Machine-specific panes | ✅ | Hardware-pane section (Plus 1, Plus 3, DFS); on-screen Electron keyboard with BREAK, cassette-motor and caps-lock lamps; Tape, Drives (Plus 3 only) and ROM panes. Hidden: microdrive, mouse, joystick, system variables, font and banks panes |
 | MCP tools | ◐ | The generic tools: `model`, `run`, `step_frame`, `step`, `registers`, `set_register`, `read_memory`, `write_memory`, `find`, `disassemble`, `breakpoint` and its delete, `memory_watchpoint` and its delete, `trap` family, `reset_trap`, `key`, `type`, `load`, `eject`, `screenshot`, `ocr`, `symbols`, `symbols_load`. No Electron-specific tool exists, and the MCP has no way to fit the Plus 1, Plus 3 or DFS (they default to off), so `.adf`/`.adl`/`.ssd`/`.rom` loads are refused there; tapes load. `trace` declines and `save` writes Spectrum snapshots only |
+| Drive count | ✅ | Plus 3 drives: one or two. Pick **Drive count** in drive 0's options menu in the Drives pane. The choice is saved, rebuilds the machine, and with one drive the WD1770 sees nothing on the second select line (seek error, not ready) |
 
 ---
 

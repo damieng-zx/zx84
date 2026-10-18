@@ -137,6 +137,7 @@ RAM `.bin` (all RAM blocks, named like `mtx512-ram-576k.bin`).
 | On-screen keyboard | ✅ | MTX layout with keypad, function keys and the shifted legends; also a keyboard-lab preset |
 | Status LEDs | ✅ | Keyboard, load, disk, sound chip and TEXT |
 | MCP tools | ✅ | All generic tools (`load`, `eject`, `key`, `type`, `ocr`, `screenshot`, `model`, debugger and watchpoint tools), plus `mtx80column`, `mtx512kram` and `mtxcpm` (each `on` / `off` / `status`). `mtx512kram` resets the machine; `mtxcpm on` fetches the system disk if needed, mounts it in Drive B: and resets, and refuses on an MTX500 |
+| Drive count | ✅ | One or two FDX drives (B: and C:), from **Drive count** in the first drive's options menu; saved, rebuilds the machine. The FDX status latch's fixed drive-configuration bit (port 14h bit 3) does not follow the count |
 
 ---
 

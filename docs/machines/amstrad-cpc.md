@@ -168,6 +168,7 @@ beneath the ROM overlays).
 | On-screen keyboard | ✅ | Separate layouts for the 464, 664 and 6128; the 6128 Plus reuses the 6128 layout. None for the GX4000 |
 | Machine-specific panes | ✅ | Hardware pane: Multiface Two with STOP button, ParaDOS. Drives pane (disk models), tape pane (tape models), cartridge slot (Plus models), Mouse pane (Kempston / AMX) |
 | MCP tools | ✅ | Generic tools plus `load` / `eject` (tape, drives A:/B:), `ocr`, `screenshot`, and the uPD765A inspectors `disk_geometry`, `track_geometry`, `sector_read`, `weak`, `fdc_log`. `key` accepts `f0`–`f9` for the keypad. These decline on a CPC: `multiface`, `vtx5000`, `plusd`, `betadisk`, `disk_boot`, `disk_trace`, `save` (SZX only), `frame_trace`, `trace` |
+| Drive count | ✅ | Disk models: one or two drives, chosen from **Drive count** in drive A's options menu. Saved per machine; rebuilds the machine. With one drive the uPD765A reports unit 1 not connected (equipment check on seek, not ready) |
 
 ---
 

@@ -165,6 +165,7 @@ Drives pane.
 | Boot disk helper | ✗ | `bootDisk: false`; disc boot is the automatic SHIFT+BREAK on mount |
 | Machine-specific panes | ✅ | On-screen BBC keyboard with function-key strip, working BREAK key and lamps; Hardware-pane Disk system selector; Display-pane colour map; Sound-pane stereo and filter controls |
 | MCP tools | ✅ | Generic: `run`, `step`, `step_frame`, `continue`, `registers`, `set_register`, `read_memory`, `write_memory`, `find`, `disassemble`, `breakpoint`, `delete_breakpoint`, `memory_watchpoint`, `delete_memory_watchpoint`, `symbols`, `symbols_load`, `key`, `type`, `ocr`, `screenshot`, `load` (`.ssd/.dsd/.img` disks and `.uef/.csw` tapes), `eject` (tape or disk), `model`. `port_in` and `port_out` report that the machine has no I/O port space (hardware is memory-mapped). The Spectrum- and CPC-specific disk, FDC, Multiface and trace tools do not apply, and `save` (SZX snapshot) is Spectrum-only |
+| Drive count | ✅ | One or two drives, from **Drive count** in drive 0's options menu; saved, rebuilds the machine. With one drive the 8271 reports drive 1 neither ready nor at track 0 (as the DFS expects), and the 1770 ends a restore on it with a seek error |
 
 ---
 

@@ -124,6 +124,7 @@ screen-dump format.
 | Hardware pane | ✅ | "Floppy disks" checkbox (96K, 128K) |
 | Status bar | ✅ | Keyboard, load and TEXT indicators, plus a disk indicator on 96K/128K |
 | MCP tools | ✅ | All generic tools (`run`, `step`, `registers`, `read_memory`, breakpoints, watchpoints, traps, `key`, `type`, `load`, `eject`, `screenshot`, `ocr`, …). No machine-specific tools; `trace`, `save` (SZX) and the +3/CPC disk-inspection tools do not apply |
+| Drive count | ✅ | One to four drives on the FD1793, from **Drive count** in drive A's options menu; saved, rebuilds the machine. Unconnected units give a seek error and stay not-ready |
 
 Host keyboard: mapped by physical key position; the Lynx has no function keys.
 Esc → ESC, Backspace → DELETE, Caps Lock → SHIFT LOCK, either Shift or Control

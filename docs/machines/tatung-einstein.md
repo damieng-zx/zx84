@@ -127,6 +127,7 @@ full 64 KB of underlying RAM, ignoring the ROM overlay).
 | Host keyboard | ✅ | Physical-position mapping, US layout (best-effort for punctuation). Alt is GRAPH, CapsLock is ALPHA LOCK, F1–F8 are F0–F7, Pause is BREAK, Backspace and Delete are INS DEL. Cursor keys are model-specific chords: TC-01 holds SHIFT for left and up; on the 256 left has its own cell and up is CONTROL+K |
 | Status LEDs | ✅ | Keyboard, sound chip (AY-3-8910), disk and TEXT |
 | MCP tools | ✅ | Generic tools only (run, step, registers, memory, breakpoints and watchpoints, ports, `key`, `type`, `load` with `drive`, `eject`, `screenshot`, `ocr`, `model`). No Einstein-specific tools. `trace`, `save` (Spectrum snapshot), the uPD765A inspection tools (`disk_geometry`, `track_geometry`, `sector_read`, `weak`) and the Spectrum/CPC disk helpers do not apply; `fdc_log` stays empty because the WD1770 core does not write to the log |
+| Drive count | ✅ | One or two drives, from **Drive count** in drive A's options menu; saved, rebuilds the machine. Unconnected units give a seek error |
 
 ---
 

@@ -132,6 +132,7 @@ Disk images load into drive A: unless the target is drive B:. Blank disks can be
 | ROM / Carts pane | ✅ | System ROM replacement and cartridge insert/eject |
 | Drives pane | ✅ | Shown only while the floppy interface is fitted |
 | MCP tools | ✅ | Generic tools (execution, registers, memory, breakpoints and watchpoints, ports, `key`, `type`, `load`, `eject`, `screenshot`, `ocr`, `model`), plus `msxdisk` (`on`, `off`, `status`) to fit or remove the floppy interface. The `trace`, `save` (SZX), and +3/CPC disk-inspection tools (`disk_geometry`, `track_geometry`, `sector_read`, `weak`) do not apply to this machine |
+| Drive count | ✅ | One or two drives on the floppy interface, from **Drive count** in drive A's options menu; saved, rebuilds the machine. Unconnected units give a seek error and stay not-ready |
 
 ---
 

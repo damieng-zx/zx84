@@ -80,7 +80,7 @@ carry over.
 
 | Peripheral | Type | Models | Status | Notes |
 | --- | --- | --- | --- | --- |
-| Disk ][ controller (slot 6) with 1 or 2 drives | Disk | `apple2`, `apple2-plus`, `apple2e`, `apple2e-enhanced` (optional, on by default); `apple2c` (built in) | ✅ | Bit-level: stepper phases with half-track positioning, motor with about 1 second of spin-down, 6-and-2 GCR shift register, write-protect sense, write support. The //c offers "Internal drive" or "Internal + external drive" |
+| Disk ][ controller (slot 6) with 1 or 2 drives | Disk | `apple2`, `apple2-plus`, `apple2e`, `apple2e-enhanced` (optional, on by default); `apple2c` (built in) | ✅ | Bit-level: stepper phases with half-track positioning, motor with about 1 second of spin-down, 6-and-2 GCR shift register, write-protect sense, write support. One or two drives, chosen from the Drives pane's **Drive count** menu (rebuilds the machine); the //c's second drive is its external one |
 | Language card (slot 0) | RAM | `apple2`, `apple2-plus` | ✅ | On by default; checkbox in the Hardware pane. Built in on the //e family |
 | Videx Videoterm (slot 3) | 80-column video | `apple2`, `apple2-plus` | ✅ | 6845 CRTC, 2 KB card RAM behind a 512-byte window at `$CC00`, 1 KB firmware, 2 KB character ROM. 80 × 24 characters of 7 × 9 dots with inverse video and a cursor, shown once `PR#3` has programmed 80 columns |
 | Extended 80-column card (64 KB) | RAM / video | `apple2e`, `apple2e-enhanced` | ✅ | On by default. Provides auxiliary RAM for 80-column text, double hi-res and 128 KB software; built in on the //c |
@@ -90,7 +90,7 @@ carry over.
 **Combination rules:** each card has a fixed slot (language card 0, Videx 3,
 Mockingboard 4, Disk ][ 6), so cards never conflict. The Videx card is offered
 only on the ][ and ][+; the extended 80-column card only on the //e and Enhanced
-//e. On the //c the Hardware pane offers only the drive count and paddles; Disk
+//e. On the //c the Hardware pane offers only paddles; Disk
 ][, 80-column hardware, auxiliary RAM and the language card are forced on and the
 Mockingboard forced off. On the //e family `$C300` shows the built-in 80-column
 firmware unless SLOTC3ROM selects slot 3.
@@ -154,6 +154,7 @@ downloads the modified image. Mounted tapes and disks are restored after a reloa
 | On-screen keyboard | ✅ | Three layouts (][/][+, //e, //c) with RESET, REPT (][ family), CAPS LOCK and Open/Solid-Apple. Modifiers latch for one keystroke so CTRL-RESET is clickable. The //c's 80/40 and keyboard switches and lamps are drawn but not wired |
 | Hidden panes | ✅ | Microdrive, mouse, system-variable, font, banks and BASIC panes are not shown |
 | MCP tools | ◐ | Generic: `model`, `run`, `step_frame`, `step`, `continue`, `registers`, `set_register`, `read_memory`, `write_memory`, `find`, `disassemble`, `breakpoint`, `delete_breakpoint`, `memory_watchpoint`, `delete_memory_watchpoint`, `trap`, `trap_delete`, `trap_log`, `trap_respond`, `key`, `type`, `load` (with `drive`), `eject`, `screenshot`, `ocr`, `symbols`, `symbols_load`. `port_in` and `port_out` decline (no I/O port space). `save` is Spectrum-only. No machine-specific tools |
+| Drive count | ✅ | One or two drives on the Disk ][ controller, from **Drive count** in drive 1's options menu; saved, rebuilds the machine |
 
 ---
 

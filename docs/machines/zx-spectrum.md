@@ -145,6 +145,7 @@ screen dump, RAM `.bin`.
 | Software library | ✅ | ZXDB-derived search with screenshots; picks the right model automatically |
 | On-screen keyboard | ✅ | 48K rubber-key and +2/+3 layouts |
 | MCP tools | ✅ | All generic tools, plus `multiface`, `vtx5000`, `plusd`, `betadisk`, `disk_trace`, `fdc_log`, `sector_read`, `track_geometry`, `disk_geometry`, `weak`, `frame_trace`, `reset_trap` |
+| Drive count | ✅ | +3 internal drives, and the +D and Beta Disk pairs: one or two, from **Drive count** in the first drive's options menu; saved, rebuilds the machine. Unconnected units give a seek error (WD179x) or equipment check (uPD765A) |
 
 ---
 

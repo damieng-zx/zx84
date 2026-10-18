@@ -139,6 +139,7 @@ Blank disks can be created in the Drives pane: 720 KB double-sided 80-track or
 | Host keyboard | ✅ | Positional UK-style mapping onto the matrix; Alt is the Enterprise ALT key, Home is HOLD, Pause/End is STOP, Insert/Delete/Backspace map to INS/DEL/ERASE |
 | Hidden panes | — | Tape, microdrive, mouse, joystick and system-variables panes are hidden |
 | MCP tools | ✅ | Generic execution, register, memory, disassembly, breakpoint/watchpoint, trap, port, `key`, `type`, `ocr`, `screenshot`, `load` and `eject` tools. `type` presses characters on the typer's layer rather than by key name. No Enterprise-specific tools: the disk inspection tools (`disk_geometry`, `track_geometry`, `sector_read`, `weak`, `fdc_log`) only attach to the Spectrum +3 and CPC controllers, and nothing in the MCP toggles the EXDOS card |
+| Drive count | ✅ | One to four EXDOS drives, from **Drive count** in drive A's options menu; saved, rebuilds the machine. Unconnected units give a seek error |
 
 ---
 

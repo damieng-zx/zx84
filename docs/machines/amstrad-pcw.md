@@ -121,6 +121,7 @@ offered). Mounted discs are persisted across reloads.
 | On-screen keyboard | ✅ | 82 caps on the keyboard matrix; the 8256/8512 slab layout, or the 9512/9256 three-block layout. Caps with no host key (COPY, PASTE, EXCH, function keys) are clickable. Included in the keyboard lab presets |
 | Host keyboard | ✅ | Letters, digits, punctuation, numeric pad, F2/F4/F6/F8, Escape (STOP), Caps Lock (SHIFT LOCK, latching), Control (ALT), Alt (EXTRA), Backspace (DEL←), Delete, Tab, Enter |
 | MCP tools | ✅ | Generic tools: `model`, `load` (`.dsk`/`.td0`/`.hfe`/`.scp`, drive 0/A or 1/B), `eject`, `run`, `step`, `registers`, `read_memory`, `write_memory`, `disassemble`, breakpoints and watchpoints, `port_in`, `port_out`, `key`, `type`, `ocr`, `screenshot`, `fdc_log`. No PCW-specific tool. `save` (SZX), `disk_boot`, `disk_trace`, `frame_trace`, and the sector-level tools `weak`, `disk_geometry`, `track_geometry`, `sector_read` do not apply to the PCW. `trace` has no effect |
+| Drive count | ✅ | Up to the model's own drives (one on the 8256, 9256 and 9512; two on the 8512). **Drive count** in drive A's options menu can lower an 8512 to one; saved, rebuilds the machine |
 
 ---
 
