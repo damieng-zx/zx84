@@ -33,23 +33,18 @@ Each machine has its own sheet covering its models, built-in hardware, periphera
 
 ### Hardware And Peripherals
 
-- Spectrum ULA timing, floating bus, contention, 128K paging, AY sound, and +3 floppy support.
-- Spectrum peripherals: Multiface 1/128/3, Interface 2 cartridges, VTX-5000 Viewdata modem, ZX Interface 1 with up to eight Microdrives, MGT +D, and Beta Disk/TR-DOS (built in on the Pentagon and Scorpion clones).
-- CPC cassette support, disk-capable 664/6128 models, Multiface Two, optional ParaDOS ROM, and the Plus ASIC (sprites, soft scroll, split-screen, DMA sound) on the 6128 Plus and GX4000.
-- Einstein disk mounting, optional Xtal DOS boot-disk behavior, and the Einstein 256's V9938 VDP with 512×212 display modes.
-- HX-10 cartridge loading, BIOS-level `.cas` cassette loading, and an optional memory-mapped WD2793 floppy disk interface (two 3.5" drives, Disk BASIC ROM in slot 3) taking raw `.dsk`/`.img`, `.dmk`, `.hfe`, `.scp`, `.td0` and extended-DSK images.
-- MTX CP/M 2.2 boot through the real FDX hardware using a hosted Type 07 system disk.
-- MTX logical cassette loading, banked ROM packs, FDX/SDX Type 03 and Type 07 floppy mounting, optional 512 KiB RAM expansion, and optional 80×24 colour display.
-- The bundled MTX CP/M profile installs the native SIDISC module and exposes fitted expansion RAM as an empty type-43 SiDisc drive F:.
-- Camputers Lynx 6845 CRTC display, DAC sound, cassette loading, and the FD1793 floppy interface on the 96K and 128K.
-- Jupiter Ace ULA text display, buzzer sound, ROM-verified cassette loading and saving, and optional 16K or 48K RAM packs.
-- Acorn BBC Micro Model B booting the real MOS and BASIC ROMs: Mode 7 teletext and bitmap modes 0-6, SN76489 stereo sound, keyboard option links, and DFS discs on either the Acorn 8271 or the WD1770 interface, and cassettes (`.uef`, `.csw`) played at the pulse level through the 6850 ACIA with tape-turbo loading.
-- Acorn Electron booting the real OS and BASIC ROMs: the ULA's display modes 0-6 drawn a scanline at a time (so mid-frame mode and palette changes show), its RAM-contention timing, keyboard, sound, and 1200-baud cassettes (`.uef`, `.csw`) read and written through the ULA with tape-turbo loading. The Hardware pane fits a Plus 1 (ROM cartridges, booted with SHIFT+BREAK) and a Plus 3 (ADFS discs on a WD1770).
-- Apple II family: a 6502 core with a CMOS 65C02 variant for the Enhanced //e and //c, a bit-level Disk ][ controller (DOS 3.3 and ProDOS sector images, `.wav` cassette), composite NTSC/PAL or monochrome/green display, a 16K language card, the //e's MMU and 64K auxiliary RAM with 80-column text and double hi-res, and expansion cards chosen in the Hardware pane: the Disk ][ controller (one or two drives), a Videx Videoterm 80-column card on the ][ and ][+, a Mockingboard, and paddles or a joystick. The //c is a slotless 128K machine with the disk drive and 80 columns built in.
-- Enterprise 64/128 booting EXOS and IS-BASIC: Nick's line parameter table drawn a scanline at a time in every video mode (pixel, low-res pixel, attribute, three character modes; 2 to 256 colours), Dave's segment paging, interrupts, wait states and stereo sound. Programs (`.com`, `.bas`, and multi-file sets in a `.zip`) load through an emulated FILE: device and run automatically; the Hardware pane fits the EXDOS card for `.img` disks (EXDOS 1.3 on a WD1770), and the ROM pane has four extension-ROM sockets for EPDOS, ZozoTools and the like.
-- Amstrad PCW gate array with roller-RAM bitmap video, 300 Hz timer, FDC interrupt routing, memory-mapped keyboard, beeper, and uPD765A discs; the PCW has no ROM and boots CP/M+ or LocoScript from the disc in drive A.
+- Broad hardware support: shared CPU, video, sound and disk-controller cores, with each model's built-in hardware (memory paging, video chips, sound chips) emulated.
+- Peripherals and expansions: floppy and microdrive interfaces, cartridge ports, cassette decks, joystick and mouse interfaces, memory expansions and other add-ons, fitted from the Hardware pane where the machine supports them.
+- Real firmware: machines boot their own ROMs, which you supply, with custom ROMs selectable.
 
-Spectrum ROM-overlay peripherals are model-dependent. Interface 1, MGT +D, and Beta Disk are mutually exclusive; Beta Disk takes precedence when enabled.
+See the [machine sheets](#supported-machines) for each machine's models, hardware, peripherals and media.
+
+### Inspection And Tools
+
+- Debugger with breakpoints, watchpoints and stepping on every machine, plus memory and paging views, disassembly, and instruction tracing.
+- OCR: screen text can be read back as text, on screen and through the MCP server.
+- Machine-aware BASIC listings and system-variable views where applicable.
+- A headless MCP server for scripted and AI-driven testing.
 
 ### Media
 
@@ -100,7 +95,7 @@ Known models: `zx16k` `zx48k` `zx128k` `zx128kplus2` `zx128kplus2a` `zx128kplus3
 
 ### Display And Audio
 
-- WebGL CRT renderer with a Canvas fallback.
+- WebGL CRT shader renderer with a Canvas fallback.
 - Integer scaling plus HQx and xBR upscalers.
 - Scanline accuracy controls, Spectrum rainbow rendering, selectable palettes, border cropping, and CPC pixel-aspect correction.
 - CRT controls for brightness, contrast, saturation, gamma, scanlines, softness, noise, dot pitch, curvature, masks, and monitor presets.
