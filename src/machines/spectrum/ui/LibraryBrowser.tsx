@@ -6,6 +6,7 @@ import { switchModel, autoBootLoad, resetMachine } from '@/shell/lifecycle.ts';
 import { setStatus } from '@/shell/context.ts';
 import * as settings from '@/store/settings.ts';
 import { currentModel, cartridgeName } from '@/state/machine-state.ts';
+import { isPentagonClass, isScorpionClass, type MachineModel } from '@/models.ts';
 import { tapeName } from '@/state/tape-state.ts';
 import { currentDiskName } from '@/state/disk-state.ts';
 import {
@@ -26,6 +27,7 @@ const FORMAT_OPTIONS: { format: LibraryFormat; label: string }[] = [
   { format: 'tape', label: 'Tape' },
   { format: 'plus3-disk', label: '+3 Disk' },
   { format: 'mgt-disk', label: 'MGT Disk' },
+  { format: 'beta-disk', label: 'Beta Disk' },
   { format: 'snapshot', label: 'Snapshot' },
   { format: 'rom', label: 'ROM' },
   { format: 'microdrive', label: 'Microdrive' },
@@ -37,6 +39,16 @@ const MACHINE_OPTIONS: { machine: LibraryMachine; label: string }[] = [
   { machine: '128', label: '128K' },
   { machine: '+3', label: '+3' },
 ];
+
+/** The Machine filter options on offer: the four Sinclair ones always, plus
+ *  Pentagon / Scorpion while running that clone (or while one is still ticked, so
+ *  a persisted choice can always be unticked after switching away). */
+function machineOptions(model: MachineModel, selected: ReadonlySet<LibraryMachine>): { machine: LibraryMachine; label: string }[] {
+  const options = [...MACHINE_OPTIONS];
+  if (isPentagonClass(model) || selected.has('pentagon')) options.push({ machine: 'pentagon', label: 'Pentagon' });
+  if (isScorpionClass(model) || selected.has('scorpion')) options.push({ machine: 'scorpion', label: 'Scorpion' });
+  return options;
+}
 
 /** Fetch the first URL that returns 2xx; falls through to the next on error. */
 async function fetchFirst(urls: string[]): Promise<Uint8Array> {
@@ -192,10 +204,11 @@ export function LibraryBrowser() {
     }));
     const reqOn = FORMAT_OPTIONS.filter(o => fmt.has(o.format)).length;
     const selectedMachines = machineFilter();
-    const machineChildren: MenuItem[] = MACHINE_OPTIONS.map(o => ({
+    const machines = machineOptions(currentModel(), selectedMachines);
+    const machineChildren: MenuItem[] = machines.map(o => ({
       value: `machine:${o.machine}`, label: o.label, checked: selectedMachines.has(o.machine),
     }));
-    const machineOn = MACHINE_OPTIONS.filter(o => selectedMachines.has(o.machine)).length;
+    const machineOn = machines.filter(o => selectedMachines.has(o.machine)).length;
     const head: MenuItem[] = [
       {
         value: 'fmtgrp', label: 'Format',
@@ -205,8 +218,8 @@ export function LibraryBrowser() {
       },
       {
         value: 'machinegrp', label: 'Machine',
-        checked: machineOn === MACHINE_OPTIONS.length,
-        indeterminate: machineOn > 0 && machineOn < MACHINE_OPTIONS.length,
+        checked: machineOn === machines.length,
+        indeterminate: machineOn > 0 && machineOn < machines.length,
         children: machineChildren,
       },
       { value: '_sep', label: '', separator: true },
@@ -300,7 +313,7 @@ export function LibraryBrowser() {
   function onFilterSelect(value: string) {
     if (value === 'fmtgrp') { toggleFormatGroup(); return; }
     if (value.startsWith('fmt:')) { toggleFormatFilter(value.slice(4) as LibraryFormat); return; }
-    if (value === 'machinegrp') { toggleMachineGroup(); return; }
+    if (value === 'machinegrp') { toggleMachineGroup(machineOptions(currentModel(), machineFilter()).map(o => o.machine)); return; }
     if (value.startsWith('machine:')) { toggleMachineFilter(value.slice(8) as LibraryMachine); return; }
     if (value.startsWith('g:')) { toggleGenreFilter(value.slice(2)); return; }
     const cat = catalog();
@@ -397,11 +410,12 @@ export function LibraryBrowser() {
       }
       // Report the mounted media by kind and filename, overriding the media
       // manager's default "…loaded" message.
-      const source = plan.kind === 'plus3-disk' ? '+3 disk' : plan.kind === 'mgt-disk' ? 'MGT disk' : plan.kind;
+      const source = plan.kind === 'plus3-disk' ? '+3 disk' : plan.kind === 'mgt-disk' ? 'MGT disk' : plan.kind === 'beta-disk' ? 'Beta disk' : plan.kind;
       setStatus(`Loaded ${source} ${basename(plan.link)}`);
-      // G+DOS boots from the mounted disk after reset; Interface 1 cartridges
-      // remain mounted for the program's own LOAD * command.
-      if (!remountOnly && plan.kind === 'mgt-disk') resetMachine();
+      // G+DOS boots from the mounted disk after reset; a Beta disk waits in
+      // drive A for TR-DOS (RANDOMIZE USR 15616, then RUN); Interface 1
+      // cartridges remain mounted for the program's own LOAD * command.
+      if (!remountOnly && (plan.kind === 'mgt-disk' || plan.kind === 'beta-disk')) resetMachine();
       if (!remountOnly && plan.boot !== 'snapshot' && plan.boot !== 'rom' && plan.boot !== 'peripheral') autoBootLoad(plan.boot);
     } catch (err) {
       console.warn(`Failed to load "${game.title}":`, err);

@@ -157,14 +157,14 @@ Drives pane.
 
 | Tool | Status | Notes |
 | --- | --- | --- |
-| Debugger (breakpoints, stepping, disassembly) | ✅ | Shared 6502 debug service ([`src/debug/m6502/`](../../src/debug/m6502/)): A, X, Y, P, SP, PC, flags N V D I Z C; step into, step over (JSR), step out; 6502 disassembly. The memory pane shows RAM as two 16 KB banks. The banks, system-variables and font panes are hidden |
+| Debugger (breakpoints, stepping, disassembly) | ✅ | Shared 6502 debug service ([`src/debug/m6502/`](../../src/debug/m6502/)): A, X, Y, P, SP, PC, flags N V D I Z C; memory watchpoints (read, write or either; the frame stops after the accessing instruction); step into, step over (JSR), step out; 6502 disassembly. The memory pane shows RAM as two 16 KB banks. The banks, system-variables and font panes are hidden |
 | Trace | ✗ | `startTrace`/`stopTrace` are no-ops and the descriptor has tracing off |
 | Screen OCR / TEXT overlay | ✅ | Mode 7 is read directly from the 40 × 25 teletext bytes (control codes blank, mosaics blank, flash bit dropped); bitmap modes are matched against the MOS font from the OS ROM, including inverse video and multi-colour cells. Overlay blanks the matched cells in the framebuffer |
 | BASIC tools | ✅ | BBC BASIC II listing and variables panes read the tokenised program from RAM |
 | Software library | ✗ | `library: false` |
 | Boot disk helper | ✗ | `bootDisk: false`; disc boot is the automatic SHIFT+BREAK on mount |
 | Machine-specific panes | ✅ | On-screen BBC keyboard with function-key strip, working BREAK key and lamps; Hardware-pane Disk system selector; Display-pane colour map; Sound-pane stereo and filter controls |
-| MCP tools | ✅ | Generic: `run`, `step`, `step_frame`, `continue`, `registers`, `set_register`, `read_memory`, `write_memory`, `find`, `disassemble`, `breakpoint`, `delete_breakpoint`, `symbols`, `symbols_load`, `key`, `type`, `ocr`, `screenshot`, `load` (`.ssd/.dsd/.img` disks and `.uef/.csw` tapes), `eject` (tape or disk), `model`. `port_in` and `port_out` report that the machine has no I/O port space (hardware is memory-mapped). The Spectrum- and CPC-specific disk, FDC, Multiface and trace tools do not apply, and `save` (SZX snapshot) is Spectrum-only |
+| MCP tools | ✅ | Generic: `run`, `step`, `step_frame`, `continue`, `registers`, `set_register`, `read_memory`, `write_memory`, `find`, `disassemble`, `breakpoint`, `delete_breakpoint`, `memory_watchpoint`, `delete_memory_watchpoint`, `symbols`, `symbols_load`, `key`, `type`, `ocr`, `screenshot`, `load` (`.ssd/.dsd/.img` disks and `.uef/.csw` tapes), `eject` (tape or disk), `model`. `port_in` and `port_out` report that the machine has no I/O port space (hardware is memory-mapped). The Spectrum- and CPC-specific disk, FDC, Multiface and trace tools do not apply, and `save` (SZX snapshot) is Spectrum-only |
 
 ---
 
@@ -173,7 +173,6 @@ Drives pane.
 | Issue | Affects | Severity | Notes |
 | --- | --- | --- | --- |
 | Flashing colours never flash | Modes 0–6 flashing palette entries; Mode 7 when the ULA flash bit is set | low | `BbcVideo.flashPhase` is documented as "toggled every ~32 frames" but is only ever assigned `false` (in `bbc-video.ts`), so the flash swap in `render()` never takes effect |
-| Memory watchpoints never fire | Model B | low | The `memory_watchpoint` tool accepts them, but nothing under `src/machines/bbc/` reads `memWatchpoints`, so the frame loop never checks them |
 
 ## Not emulated
 

@@ -13,10 +13,13 @@
  * size/row summary. `deploy:catalog` then publishes it to the host referenced by
  * DEFAULT_CATALOG_URL in src/library/catalog.ts.
  *
- * Scope: ZX-Spectrum entries marked Available that have a playable tape
- * (.tzx/.tap), +3 disk (.dsk), MGT +D disk (.mgt/.img), microdrive
- * (.mdr/.mdv), snapshot, or ROM cartridge (.rom, ZX Interface 2, 16K/48K
- * only) download, excluding x-rated entries (entries.is_xrated).
+ * Scope: ZX-Spectrum, Pentagon 128 and Scorpion entries marked Available that
+ * have a playable tape (.tzx/.tap), +3 disk (.dsk), MGT +D disk (.mgt/.img),
+ * microdrive (.mdr/.mdv), snapshot, ROM cartridge (.rom, ZX Interface 2,
+ * 16K/48K only) or Beta Disk (.trd/.scl) download, excluding x-rated entries
+ * (entries.is_xrated). A .trd/.scl is kept only when the entry or the download
+ * itself is tagged Pentagon or Scorpion: ZXDB files hundreds of unrelated
+ * Russian disk dumps under plain 48K/128K, which are not the clones' titles.
  * Books/hardware/magazines fall out naturally — they have no such download.
  * The compact schema matches
  * RawCatalog/RawGame in src/library/catalog.ts (short keys; genre & publisher
@@ -42,12 +45,18 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const DB_FILE = resolve(HERE, arg('file', 'zxdb.sqlite'));
 // Which machine family to include (matched with SQL LIKE against machinetypes.text).
 const MACHINE_LIKE = arg('machine', 'ZX-Spectrum%');
+// ZXDB machinetype ids of the Russian clones, included alongside the family above.
+const MT_PENTAGON = 14;
+const MT_SCORPION = 15;
+// RawGame.c bits: which clone(s) the entry (or one of its files) is tagged for.
+const CLONE_PENTAGON = 1;
+const CLONE_SCORPION = 2;
 const OUT_DIR = resolve(HERE, 'out');
 
 // ── Row shapes ────────────────────────────────────────────────────────────
 
-interface MetaRow { id: number; title: string; year: number | null; genre: string | null; publisher: string | null; }
-interface DownRow { id: number; link: string; ft: number; mt: number | null; rel: number | null; lang: string | null; }
+interface MetaRow { id: number; title: string; year: number | null; genre: string | null; publisher: string | null; mt: number | null; }
+interface DownRow { id: number; link: string; ft: number; mt: number | null; emt: number | null; rel: number | null; lang: string | null; }
 
 // Compact output schema — keep in sync with src/library/catalog.ts. Each media
 // format retains one preferred file for its native machine class.
@@ -59,6 +68,8 @@ interface RawGame {
   f?: string;                 // 48K tape (.tzx preferred)
   k?: string;                 // 128K tape
   d?: string;                 // +3 disk (side A / disk 1 when multi-side)
+  b?: string;                 // Beta Disk image (.trd preferred, else .scl): Pentagon/Scorpion
+  c?: number;                 // clone tags, bitmask: 1 = Pentagon, 2 = Scorpion
   ds?: [string, string][];    // extra disk sides: [file_link, label]
   m?: string; mk?: string;    // MGT +D disk (48K / 128K class)
   u?: string; uk?: string;    // Interface 1 microdrive (48K / 128K class)
@@ -73,11 +84,12 @@ interface RawCatalog { genres: string[]; publishers: string[]; games: RawGame[];
  * Native model bucket from ZXDB's machinetype_id. The 16K/48K dual remains in
  * the 16K slot: it can run on either 16K or 48K, and compatibility expansion is
  * handled by the client. Untagged downloads stay in the conservative 48K slot.
+ * The Pentagon and Scorpion are 128K-class machines.
  */
 function nativeBucket(mt: number | null | undefined): '16' | '48' | '128' {
   switch (mt) {
     case 1: case 2: return '16';
-    case 4: case 5: case 7: case 8: case 9: case 10: case 27: return '128';
+    case 4: case 5: case 7: case 8: case 9: case 10: case 14: case 15: case 27: return '128';
     default: return '48';
   }
 }
@@ -136,40 +148,42 @@ function main(): void {
 
   // Pre-flight: show the machine types we're matching so the operator can sanity
   // check the LIKE filter (ZXDB has many Spectrum variants plus ZX80/81/etc).
-  const machines = db.prepare('SELECT text FROM machinetypes WHERE text LIKE ? ORDER BY id').all(MACHINE_LIKE) as { text: string }[];
+  const machines = db.prepare('SELECT text FROM machinetypes WHERE text LIKE ? OR id IN (?, ?) ORDER BY id').all(MACHINE_LIKE, MT_PENTAGON, MT_SCORPION) as { text: string }[];
   console.log(`machinetypes matching "${MACHINE_LIKE}": ${machines.map(m => m.text).join(', ') || '(none!)'}`);
 
   // Entry metadata: original release (release_seq 0), first publisher, genre.
   const meta = db.prepare(
     `SELECT e.id AS id, e.title AS title, r.release_year AS year,
-            g.text AS genre, l.name AS publisher
+            g.text AS genre, l.name AS publisher, e.machinetype_id AS mt
        FROM entries e
-       JOIN machinetypes m   ON m.id = e.machinetype_id AND m.text LIKE ?
+       JOIN machinetypes m   ON m.id = e.machinetype_id AND (m.text LIKE ? OR m.id IN (?, ?))
   LEFT JOIN releases r        ON r.entry_id = e.id AND r.release_seq = 0
   LEFT JOIN publishers p      ON p.entry_id = e.id AND p.release_seq = 0 AND p.publisher_seq = 1
   LEFT JOIN labels l          ON l.id = p.label_id
   LEFT JOIN genretypes g      ON g.id = e.genretype_id
       WHERE e.availabletype_id = 'A'
         AND e.is_xrated = 0`,
-  ).all(MACHINE_LIKE) as unknown as MetaRow[];
+  ).all(MACHINE_LIKE, MT_PENTAGON, MT_SCORPION) as unknown as MetaRow[];
 
   // Candidate downloads: tape images (filetype 8: .tzx/.tap), +3 disk images
   // (filetype 11: .dsk), MGT +D images (.mgt/.img), Interface 1 microdrives
-  // (.mdr/.mdv), ROM cartridges (filetype 17: .rom, for the ZX Interface 2 —
+  // (.mdr/.mdv), Beta Disk images (.trd/.scl — narrowed to the clones in JS
+  // below), ROM cartridges (filetype 17: .rom, for the ZX Interface 2 —
   // 16K/48K only), and screen images (filetype 1 = loading, 2 = running) —
   // either a native .scr dump or a raster .gif/.png/.jpg. SQLite has no built-in
   // REGEXP, so match by suffix with LOWER()+LIKE. One entry may have several
   // — we dedupe in JS below.
   const downs = db.prepare(
-    `SELECT d.entry_id AS id, d.file_link AS link, d.filetype_id AS ft, d.machinetype_id AS mt, d.release_seq AS rel, d.language_id AS lang
+    `SELECT d.entry_id AS id, d.file_link AS link, d.filetype_id AS ft, d.machinetype_id AS mt, e.machinetype_id AS emt, d.release_seq AS rel, d.language_id AS lang
        FROM downloads d
        JOIN entries e        ON e.id = d.entry_id
-       JOIN machinetypes m   ON m.id = e.machinetype_id AND m.text LIKE ?
+       JOIN machinetypes m   ON m.id = e.machinetype_id AND (m.text LIKE ? OR m.id IN (?, ?))
       WHERE e.availabletype_id = 'A'
         AND ( (d.filetype_id = 8  AND (LOWER(d.file_link) LIKE '%.tzx.zip' OR LOWER(d.file_link) LIKE '%.tap.zip'))
             OR (d.filetype_id = 11 AND LOWER(d.file_link) LIKE '%.dsk.zip')
             OR LOWER(d.file_link) LIKE '%.mgt.zip' OR LOWER(d.file_link) LIKE '%.img.zip'
             OR LOWER(d.file_link) LIKE '%.mdr.zip' OR LOWER(d.file_link) LIKE '%.mdv.zip'
+            OR LOWER(d.file_link) LIKE '%.trd.zip' OR LOWER(d.file_link) LIKE '%.scl.zip'
            OR (d.filetype_id = 17 AND LOWER(d.file_link) LIKE '%.rom.zip')
            OR (d.filetype_id IN (1, 2) AND (LOWER(d.file_link) LIKE '%.scr'
                 OR LOWER(d.file_link) LIKE '%.gif' OR LOWER(d.file_link) LIKE '%.png'
@@ -177,7 +191,7 @@ function main(): void {
            OR LOWER(d.file_link) LIKE '%.szx' OR LOWER(d.file_link) LIKE '%.szx.zip'
            OR LOWER(d.file_link) LIKE '%.z80' OR LOWER(d.file_link) LIKE '%.z80.zip'
            OR LOWER(d.file_link) LIKE '%.sna' OR LOWER(d.file_link) LIKE '%.sna.zip' )`,
-  ).all(MACHINE_LIKE) as unknown as DownRow[];
+  ).all(MACHINE_LIKE, MT_PENTAGON, MT_SCORPION) as unknown as DownRow[];
 
   db.close();
 
@@ -195,7 +209,8 @@ function main(): void {
     tape16?: Pick; tape48?: Pick; tape128?: Pick;
     disks: { link: string; rel: number; en: boolean }[];
     mgt48?: Pick; mgt128?: Pick; microdrive48?: Pick; microdrive128?: Pick;
-    snap16?: Pick; snap48?: Pick; snap128?: Pick; rom?: Pick;
+    snap16?: Pick; snap48?: Pick; snap128?: Pick; rom?: Pick; beta?: Pick;
+    clones: number;
     screen?: string; screenScore?: number;
   }
   const better = (en: boolean, rel: number, rank: number, cur?: Pick) => {
@@ -208,12 +223,26 @@ function main(): void {
   const files = new Map<number, Slot>();
   for (const d of downs) {
     let slot = files.get(d.id);
-    if (!slot) { slot = { disks: [] }; files.set(d.id, slot); }
+    if (!slot) { slot = { disks: [], clones: 0 }; files.set(d.id, slot); }
     const l = d.link.toLowerCase();
     const rel = d.rel ?? 999;
     const en = d.lang === 'en';
     const snap = snapRank(l);
     const b = nativeBucket(d.mt);
+    if (l.endsWith('.trd.zip') || l.endsWith('.scl.zip')) {
+      // Beta Disk images are kept only for the clones (see the scope note above).
+      const tag = d.mt === MT_PENTAGON || d.emt === MT_PENTAGON ? CLONE_PENTAGON
+        : d.mt === MT_SCORPION || d.emt === MT_SCORPION ? CLONE_SCORPION : 0;
+      if (tag) {
+        slot.clones |= tag;
+        const rank = l.endsWith('.trd.zip') ? 1 : 0;
+        if (better(en, rel, rank, slot.beta)) slot.beta = { link: d.link, en, rel, rank };
+      }
+      continue;
+    }
+    // A file tagged for a clone marks its entry even when the entry itself is plain 48K/128K.
+    if (d.mt === MT_PENTAGON) slot.clones |= CLONE_PENTAGON;
+    else if (d.mt === MT_SCORPION) slot.clones |= CLONE_SCORPION;
     if (l.endsWith('.dsk.zip')) {
       slot.disks.push({ link: d.link, rel, en });
     } else if (l.endsWith('.tzx.zip') || l.endsWith('.tap.zip')) {
@@ -276,7 +305,7 @@ function main(): void {
     const f = files.get(row.id);
     if (!f) continue;
     const { d, ds } = resolveDisks(f.disks);
-    const hasMedia = !!(f.tape16 || f.tape48 || f.tape128 || d || f.mgt48 || f.mgt128 || f.microdrive48 || f.microdrive128);
+    const hasMedia = !!(f.tape16 || f.tape48 || f.tape128 || d || f.beta || f.mgt48 || f.mgt128 || f.microdrive48 || f.microdrive128);
     const hasRom = !!f.rom;
     const hasSnap = !!(f.snap16 || f.snap48 || f.snap128);
     if (!hasMedia && !hasRom && !hasSnap) continue;      // no playable file → skip
@@ -291,6 +320,7 @@ function main(): void {
     if (f.tape128) g.k = f.tape128.link;
     if (d) g.d = d;
     if (ds) g.ds = ds;
+    if (f.beta) g.b = f.beta.link;
     if (f.mgt48) g.m = f.mgt48.link;
     if (f.mgt128) g.mk = f.mgt128.link;
     if (f.microdrive48) g.u = f.microdrive48.link;
@@ -300,6 +330,8 @@ function main(): void {
     if (f.snap48) g.n = f.snap48.link;
     if (f.snap128) g.nk = f.snap128.link;
     if (f.screen) g.s = f.screen;
+    const clones = f.clones | (row.mt === MT_PENTAGON ? CLONE_PENTAGON : row.mt === MT_SCORPION ? CLONE_SCORPION : 0);
+    if (clones) g.c = clones;
     games.push(g);
   }
 
@@ -326,6 +358,7 @@ function main(): void {
   console.log(`+3 disks: ${games.filter(g => g.d).length}   MGT 48/128: ${games.filter(g => g.m).length} / ${games.filter(g => g.mk).length}   microdrive 48/128: ${games.filter(g => g.u).length} / ${games.filter(g => g.uk).length}`);
   console.log(`snapshots 16/48/128: ${games.filter(g => g.n16).length} / ${games.filter(g => g.n).length} / ${games.filter(g => g.nk).length}   multi-side: ${games.filter(g => g.ds).length}`);
   console.log(`ROM cartridges: ${games.filter(g => g.r).length}`);
+  console.log(`Beta disks: ${games.filter(g => g.b).length}   Pentagon-tagged: ${games.filter(g => (g.c ?? 0) & CLONE_PENTAGON).length}   Scorpion-tagged: ${games.filter(g => (g.c ?? 0) & CLONE_SCORPION).length}`);
   console.log(`genres:     ${genres.length}   publishers: ${publishers.length}`);
   console.log(`raw JSON:   ${mb(json.length)} MB`);
   console.log(`gzipped:    ${mb(gz.length)} MB`);

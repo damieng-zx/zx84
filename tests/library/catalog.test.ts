@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { fileUrls, basename, shortPublisher, resolveGame, planLoad, hasFormat, availableFormats, supportsMachine, parseLibraryQuery, type RawCatalog } from '@/library/catalog.ts';
+import { fileUrls, basename, shortPublisher, resolveGame, planLoad, hasFormat, availableFormats, supportsMachine, parseLibraryQuery, CLONE_PENTAGON, CLONE_SCORPION, type RawCatalog } from '@/library/catalog.ts';
 
 const CDN = 'https://zx84files.bitsparse.com/library';
 const PROXY = 'https://zxfileserver.envytech.workers.dev';
@@ -132,7 +132,7 @@ describe('resolveGame', () => {
     expect(g).toEqual({
       id: 7, title: 'Jetpac', year: 1983, genre: 'Arcade: Action', publisher: 'Ultimate',
       tape16: '/pub/a16.tzx.zip', tape48: '/pub/a.tzx.zip', tape128: '/pub/a128.tzx.zip', plus3Disk: '/pub/a.dsk.zip',
-      diskSides: [], mgt48: '/pub/a.mgt.zip', mgt128: '/pub/a128.mgt.zip', microdrive48: '/pub/a.mdr.zip', microdrive128: '/pub/a128.mdr.zip',
+      diskSides: [], betaDisk: '', clones: 0, mgt48: '/pub/a.mgt.zip', mgt128: '/pub/a128.mgt.zip', microdrive48: '/pub/a.mdr.zip', microdrive128: '/pub/a128.mdr.zip',
       snap16: '/pub/a16.szx.zip', snap48: '/pub/a.z80.zip', snap128: '/pub/a128.szx.zip', screen: '/pub/a.scr', rom: '',
     });
   });
@@ -140,6 +140,12 @@ describe('resolveGame', () => {
   it('exposes the ROM cartridge slot', () => {
     const g = resolveGame({ i: 8, t: 'Chess', r: '/pub/chess.rom.zip' }, cat);
     expect(g.rom).toBe('/pub/chess.rom.zip');
+  });
+
+  it('exposes the Beta Disk slot and the clone tags', () => {
+    const g = resolveGame({ i: 10, t: 'Demo', b: '/pub/d.trd.zip', c: CLONE_PENTAGON | CLONE_SCORPION }, cat);
+    expect(g.betaDisk).toBe('/pub/d.trd.zip');
+    expect(g.clones).toBe(3);
   });
 
   it('exposes snapshot slots', () => {
@@ -243,6 +249,46 @@ describe('library media selection', () => {
 
   it('a ROM cartridge takes priority over a tape/disk on the same entry', () => {
     expect(planLoad(romAndTapeAndDisk, 'zx128kplus3')).toEqual({ target: 'zx48k', link: '/pub/x.rom.zip', kind: 'rom', boot: 'rom' });
+  });
+
+  describe('Beta Disk (Pentagon / Scorpion)', () => {
+    const beta = mk({ t: 'Demo', b: '/pub/d.trd.zip', c: CLONE_PENTAGON });
+    const betaScorpion = mk({ t: 'Scorp', b: '/pub/s.trd.zip', c: CLONE_SCORPION });
+    const tapeAndBeta = mk({ t: 'TB', k: '/pub/128.tzx.zip', b: '/pub/d.trd.zip', c: CLONE_PENTAGON });
+    const plan = (link: string, target: string) => ({ target, link, kind: 'beta-disk', boot: 'peripheral' });
+
+    it('stays on the current clone', () => {
+      expect(planLoad(beta, 'pentagon512')).toEqual(plan('/pub/d.trd.zip', 'pentagon512'));
+      expect(planLoad(beta, 'scorpion256')).toEqual(plan('/pub/d.trd.zip', 'scorpion256'));
+    });
+
+    it('switches a Sinclair model to the clone ZXDB tags it for', () => {
+      expect(planLoad(beta, 'zx48k')).toEqual(plan('/pub/d.trd.zip', 'pentagon128'));
+      expect(planLoad(beta, 'zx128kplus3')).toEqual(plan('/pub/d.trd.zip', 'pentagon128'));
+      expect(planLoad(betaScorpion, 'zx48k')).toEqual(plan('/pub/s.trd.zip', 'scorpion256'));
+    });
+
+    it('prefers a tape on a clone (it auto-loads) and the disk when asked for the format', () => {
+      expect(planLoad(tapeAndBeta, 'pentagon128')).toEqual({ target: 'pentagon128', link: '/pub/128.tzx.zip', kind: 'tape', boot: 'menu' });
+      expect(planLoad(tapeAndBeta, 'pentagon128', ['beta-disk'])).toEqual(plan('/pub/d.trd.zip', 'pentagon128'));
+    });
+
+    it('a clone prefers its own TR-DOS disk over a +3 disk or peripheral media', () => {
+      const betaAndMgt = mk({ t: 'BM', b: '/pub/d.trd.zip', m: '/pub/x.mgt.zip', c: CLONE_PENTAGON });
+      expect(planLoad(betaAndMgt, 'pentagon128')).toEqual(plan('/pub/d.trd.zip', 'pentagon128'));
+    });
+
+    it('filters: Pentagon/Scorpion match their tags and every TR-DOS image', () => {
+      const pentagonTape = mk({ t: 'PT', k: '/pub/p.tzx.zip', c: CLONE_PENTAGON });
+      expect(supportsMachine(pentagonTape, 'pentagon')).toBe(true);
+      expect(supportsMachine(pentagonTape, 'scorpion')).toBe(false);
+      expect(supportsMachine(beta, 'pentagon')).toBe(true);
+      expect(supportsMachine(beta, 'scorpion')).toBe(true);
+      expect(supportsMachine(tape128, 'pentagon')).toBe(false);
+      expect(supportsMachine(tape128, 'scorpion')).toBe(false);
+      expect(hasFormat(beta, 'beta-disk')).toBe(true);
+      expect(hasFormat(tape128, 'beta-disk')).toBe(false);
+    });
   });
 
   it('keeps formats independent and expands each one to compatible machines', () => {

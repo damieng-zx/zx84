@@ -18,6 +18,7 @@ import type { MtxMachine } from '../src/machines/mtx/mtx-machine.ts';
 import type { UPD765A } from '../src/cores/upd765a.ts';
 import type { Machine } from '../src/machines/machine.ts';
 import { state, type InitMachineOptions } from './state.ts';
+import { fetchRomSource } from './rom-fetch.ts';
 
 function narrow<T>(kind: Machine['kind']): T | null {
   const m: Machine | undefined = state.spec;
@@ -133,9 +134,13 @@ export async function applyHeadlessKnobs(machine: Machine, options: InitMachineO
   };
   machine.applySettings(view);
   for (const request of machine.prepare?.(view) ?? []) {
-    const response = await fetch(request.source);
-    if (!response.ok) throw new Error(`${request.failMsg}: HTTP ${response.status}`);
-    request.apply(new Uint8Array(await response.arrayBuffer()));
+    let rom: Uint8Array;
+    try {
+      rom = await fetchRomSource(request.source);
+    } catch (error) {
+      throw new Error(`${request.failMsg}: ${(error as Error).message}`);
+    }
+    request.apply(rom);
   }
   if (machine.kind === 'zx8x') {
     const hires = machine.model === 'zx81'

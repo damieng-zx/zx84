@@ -101,7 +101,8 @@ async function inflate(compressed: Uint8Array): Promise<Uint8Array> {
 
 // ── Machine ID mapping ──────────────────────────────────────────────────
 
-/** SZX machine ID: 0=16K, 1=48K, 2=128K, 3=+2, 4=+2A/+2B, 5=+3, 6=+3e */
+/** SZX machine ID: 0=16K, 1=48K, 2=128K, 3=+2, 4=+2A/+2B, 5=+3, 6=+3e, 7=Pentagon 128,
+ *  10=Scorpion ZS-256, 13=Pentagon 512, 14=Pentagon 1024 */
 const MODEL_TO_MACHINE_ID: Record<SpectrumModel, number> = {
   'zx16k': 0,
   'zx48k': 1,
@@ -109,6 +110,10 @@ const MODEL_TO_MACHINE_ID: Record<SpectrumModel, number> = {
   'zx128kplus2': 3,
   'zx128kplus2a': 4,
   'zx128kplus3': 5,
+  pentagon128: 7,
+  pentagon512: 13,
+  pentagon1024: 14,
+  scorpion256: 10,
 };
 
 function machineIs128K(machineId: number): boolean {
@@ -205,9 +210,20 @@ export async function loadSZX(
  */
 export function applySZXPaging(memory: SpectrumMemory, hasSpecialPaging: boolean, result: SZXResult): void {
   if (!result.is128K) return;
-  memory.port7FFD = result.port7FFD;
-  memory.currentBank = result.port7FFD & 0x07;
-  memory.pagingLocked = (result.port7FFD & 0x20) !== 0;
+  // The 1024's EFF7 shares the 1FFD byte and decides how 7FFD is read, so it
+  // must be restored first. A no-op latch on every other machine.
+  if (memory.scheme === 'pentagon1024') memory.portEFF7 = result.port1FFD;
+  if (memory.scheme === 'scorpion') {
+    // 1FFD carries RAM-at-0000, the ROM page's high bit and RAM page bit 3, and
+    // must be latched first because it feeds the page 7FFD selects.
+    memory.port1FFD = result.port1FFD;
+    memory.ramAtZero = (result.port1FFD & 0x01) !== 0;
+    memory.latch7FFD(result.port7FFD);
+    memory.currentROM = memory.romIndexFor(result.port7FFD, result.port1FFD);
+    memory.applyBanking();
+    return;
+  }
+  memory.latch7FFD(result.port7FFD);
   if (hasSpecialPaging && !result.sourceHas1FFD) {
     memory.applyBanking();
     memory.selectSnapshot128KRom();
@@ -309,7 +325,7 @@ async function parseRAMP(
   const pageDataStart = blockStart + 3;
   const pageDataLen = dwSize - 3;
 
-  if (chPageNo >= 8) return; // invalid bank number
+  if (chPageNo >= memory.ramBankCount) return; // invalid bank number
 
   if (wFlags & 1) {
     // Compressed (zlib/deflate)
@@ -368,9 +384,10 @@ interface SZXPage { page: number; data: Uint8Array; compressed: boolean; }
 
 /** RAM bank numbers a snapshot of this memory must include. */
 function snapshotPages(memory: SpectrumMemory): number[] {
-  // For 48K, pages 0, 2, 5 are used. For 16K, only page 5. For 128K, all 8.
+  // For 48K, pages 0, 2, 5 are used. For 16K, only page 5. For 128K, all 8
+  // (32 on the Pentagon 512, 64 on the 1024).
   return memory.is128K
-    ? [0, 1, 2, 3, 4, 5, 6, 7]
+    ? Array.from({ length: memory.ramBankCount }, (_, i) => i)
     : memory.is16K
       ? [5]
       : [0, 2, 5];
@@ -468,7 +485,7 @@ function assembleSZX(cpu: Z80, memory: SpectrumMemory, borderColor: number, mode
   offset = writeBlockHeader(data, offset, 'SPCR', 8);
   data[offset++] = borderColor & 0x07;  // chBorder
   data[offset++] = memory.port7FFD;     // ch7ffd
-  data[offset++] = memory.port1FFD;     // ch1ffd
+  data[offset++] = memory.scheme === 'pentagon1024' ? memory.portEFF7 : memory.port1FFD; // ch1ffd / chEff7
   data[offset++] = borderColor & 0x07;  // chFe (bits 0-2 = border)
   w32(data, offset, 0);                 // chReserved (4 bytes, must be 0)
   offset += 4;

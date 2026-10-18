@@ -12,6 +12,7 @@
  */
 
 import type { SpectrumModel } from './models.ts';
+import { isPentagonClass, isScorpionClass } from './models.ts';
 
 /** PUSH HL; LD HL,0x5C3B; BIT 5,(HL); JR Z,-4 — the +2A/+3 menu key-wait. */
 const PLUS3_MENU_WAIT = [0xE5, 0x21, 0x3B, 0x5C, 0xCB, 0x6E, 0x28, 0xFC];
@@ -39,6 +40,8 @@ export function bootWaitPc(model: SpectrumModel, rom0: Uint8Array): number {
     const pc = findPlus3MenuWait(rom0);
     return pc >= 0 ? pc : PLUS3_MENU_WAIT_V41;
   }
-  if (model === 'zx128k' || model === 'zx128kplus2') return 0x0E65;  // 128K/+2 menu wait
+  // 128K/+2 menu wait. The Pentagons and the Scorpion run the same 128K menu ROM 0
+  // (their ROM 0 is byte-identical here), so the same address applies.
+  if (model === 'zx128k' || model === 'zx128kplus2' || isPentagonClass(model) || isScorpionClass(model)) return 0x0E65;
   return 0x15DE;                                           // 48K editor WAIT-KEY
 }

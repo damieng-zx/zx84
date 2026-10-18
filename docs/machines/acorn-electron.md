@@ -135,13 +135,13 @@ Disc saves from the Drives pane keep the format family: ADFS discs save as `.adl
 
 | Tool | Status | Notes |
 | --- | --- | --- |
-| Debugger (breakpoints, stepping, disassembly) | ✅ | 6502 registers, disassembly, step into/over/out, PC breakpoints and traps. Memory views cover the two 16 KB RAM banks. Memory and port watchpoints can be set in the MCP but the Electron frame loop does not check them (it has no I/O port space) |
+| Debugger (breakpoints, stepping, disassembly) | ✅ | 6502 registers, disassembly, step into/over/out, PC breakpoints and traps. Memory views cover the two 16 KB RAM banks. Memory watchpoints (read, write or either) stop the frame after the accessing instruction; there are no port watchpoints because the machine has no I/O port space |
 | Trace | ✗ | Declared off; the trace calls do nothing |
 | Screen OCR / TEXT overlay | ✅ | Matches the 8 × 8 glyphs in every mode against the OS font found in the OS ROM, in normal and inverse video, with paper and ink colours; the MCP `ocr` tool returns the text |
 | BASIC tools | ✅ | BASIC listing and BASIC variables panes read the tokenised program from `PAGE` |
 | Software library | ✗ | Not offered |
 | Machine-specific panes | ✅ | Hardware-pane section (Plus 1, Plus 3, DFS); on-screen Electron keyboard with BREAK, cassette-motor and caps-lock lamps; Tape, Drives (Plus 3 only) and ROM panes. Hidden: microdrive, mouse, joystick, system variables, font and banks panes |
-| MCP tools | ◐ | The generic tools: `model`, `run`, `step_frame`, `step`, `registers`, `set_register`, `read_memory`, `write_memory`, `find`, `disassemble`, `breakpoint` and its delete, `trap` family, `reset_trap`, `key`, `type`, `load`, `eject`, `screenshot`, `ocr`, `symbols`, `symbols_load`. No Electron-specific tool exists, and the MCP has no way to fit the Plus 1, Plus 3 or DFS (they default to off), so `.adf`/`.adl`/`.ssd`/`.rom` loads are refused there; tapes load. `trace` declines and `save` writes Spectrum snapshots only |
+| MCP tools | ◐ | The generic tools: `model`, `run`, `step_frame`, `step`, `registers`, `set_register`, `read_memory`, `write_memory`, `find`, `disassemble`, `breakpoint` and its delete, `memory_watchpoint` and its delete, `trap` family, `reset_trap`, `key`, `type`, `load`, `eject`, `screenshot`, `ocr`, `symbols`, `symbols_load`. No Electron-specific tool exists, and the MCP has no way to fit the Plus 1, Plus 3 or DFS (they default to off), so `.adf`/`.adl`/`.ssd`/`.rom` loads are refused there; tapes load. `trace` declines and `save` writes Spectrum snapshots only |
 
 ---
 
@@ -150,7 +150,6 @@ Disc saves from the Drives pane keep the format family: ADFS discs save as `.adl
 | Issue | Affects | Severity | Notes |
 | --- | --- | --- | --- |
 | ACP 1770 DFS keeps its workspace in main RAM | Plus 3 in DFS mode | medium | The DFS holds its catalogue and state at `&0E00`–`&0FFF` (`PAGE` `&1900`). A title that loads a file over that range and then uses the disc again fails ("Sector not found at :F", "File not found", "Channel"); the source comment puts this at about a quarter of the Electron `.ssd` collection. Those discs were made for a DFS with workspace off the main bus (the comment suspects the Slogger Pegasus 400, whose extra hardware is not emulated). Evidence: the "Known limit" comment in `peripherals/plus3.ts` and the DFS option's Hardware-pane tooltip |
-| Memory watchpoints never fire | Electron | low | The `memory_watchpoint` tool accepts them, but nothing under `src/machines/electron/` reads `memWatchpoints`, so the frame loop never checks them |
 
 ## Not emulated
 

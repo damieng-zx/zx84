@@ -117,7 +117,7 @@ Disk images load into drive A: unless the target is drive B:. Blank disks can be
 | Tool | Status | Notes |
 | --- | --- | --- |
 | Debugger | ✅ | Shared Z80 debugger: breakpoints, stepping, disassembly, registers, memory and port watchpoints |
-| Trace | ✗ | The trace entry points are no-ops on this machine |
+| Trace | ✗ | Not offered: the descriptor has tracing off and the MCP `trace` tool declines on every machine except the Spectrum |
 | Screen OCR / TEXT overlay | ✅ | Reads the VDP name table directly in SCREEN 0 (40×24) and SCREEN 1 (32×24); other modes return a note |
 | BASIC tools | ✅ | MSX BASIC listing and variables, parsed from the BASIC work area in RAM |
 | Memory Layout pane | ✅ | Shows what each 16 KB page selects (ROM, cartridge, RAM, Disk ROM, empty), the PPI port A value, and the active cartridge mapper |
@@ -131,9 +131,7 @@ Disk images load into drive A: unless the target is drive B:. Blank disks can be
 
 ## Known issues
 
-| Issue | Affects | Severity | Notes |
-| --- | --- | --- | --- |
-| Trace control does nothing | Toshiba HX-10 | low | The descriptor sets `trace: true`, so the Disassembly pane shows the trace menu, but `startTrace()` is an empty method and `stopTrace()` returns an empty string. The MCP `trace` tool declines on every machine except the Spectrum |
+None known.
 
 ## Not emulated
 
@@ -146,7 +144,7 @@ Disk images load into drive A: unless the target is drive B:. Blank disks can be
 - **1.44 MB high-density disks.** Rejected with an error (MSX1 interfaces are double density).
 - **HFE v3 images.** Rejected with an error.
 - **Snapshots.** There is no snapshot format or service.
-- **Execution trace.** The trace entry points do nothing.
+- **Execution trace.** Only the Spectrum has a trace engine; the trace menu is not offered here.
 - **Numeric keypad hardware.** The HX-10 keyboard has none, so the on-screen keyboard has no keypad; host Numpad keys still map to matrix rows 9–10.
 
 ## Faithful quirks

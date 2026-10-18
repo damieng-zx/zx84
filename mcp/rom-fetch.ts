@@ -24,6 +24,12 @@ async function fetchCached(source: string): Promise<Uint8Array> {
   return unwrapRomArchive(data, filename);
 }
 
+/** Fetch a machine-requested ROM source (a relative ROM-host path or a full URL)
+ *  through the same resolve + on-disk cache as the system ROMs. */
+export function fetchRomSource(source: string): Promise<Uint8Array> {
+  return fetchCached(source);
+}
+
 export async function fetchROM(model: MachineModel): Promise<Uint8Array> {
   const sources = entryForModel(model).romSources(model);
   const parts = await Promise.all(sources.map(fetchCached));

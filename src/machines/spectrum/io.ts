@@ -83,7 +83,7 @@ export function installMemoryHooks(s: Spectrum): void {
         return; // IF2 cartridge ROM (0x0000-0x3FFF) — all ROM, no /WR line at the cart slot
       } else if (s.vtx5000.enabled && s.vtx5000.vtxRomPaged && addr >= 0x2000) {
         // VTX-5000: 0x2000-0x3FFF is RAM — allow through
-      } else if (!memory.specialPaging) {
+      } else if (!memory.specialPaging && !memory.ramAtZero) {
         return; // Normal ROM — discard
       }
     }
@@ -180,6 +180,9 @@ export function wirePortIO(s: Spectrum): void {
         if (((val ^ s.memory.port7FFD) & 0x08) !== 0 && !s.memory.pagingLocked) s.flushBeam();
         s.memory.bankSwitch(val, s.hasSlot0Overlay);
       }
+
+      // Pentagon 1024: port 0xEFF7 (128K / 1MB mode gate, ROM-as-RAM, turbo, video).
+      if (v.decodesEFF7(port)) s.memory.writeEFF7(val);
 
       // +2A: port 0x1FFD. Once paging is locked (7FFD bit 5), hardware
       // freezes the whole register — the motor bit lives in the same port,

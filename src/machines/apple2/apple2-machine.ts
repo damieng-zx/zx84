@@ -130,8 +130,15 @@ export class Apple2Machine extends BaseMachine implements Machine {
       textMode: true, mixed: false, page2: false, hires: false,
       charset: this.charset, flashPhase: false, mode: 'ntsc',
     };
-    this.cpu.read = (addr) => this.memory.readByte(addr);
-    this.cpu.write = (addr, val) => this.memory.writeByte(addr, val);
+    this.cpu.read = (addr) => {
+      const value = this.memory.readByte(addr);
+      if (this.memWatchpoints.length > 0 && this.memWatchHit === null) this.recordMemWatch(addr & 0xFFFF, value, 'read');
+      return value;
+    };
+    this.cpu.write = (addr, val) => {
+      this.memory.writeByte(addr, val);
+      if (this.memWatchpoints.length > 0 && this.memWatchHit === null) this.recordMemWatch(addr & 0xFFFF, val & 0xFF, 'write');
+    };
     this.mixer.beeperGain = 1;
     this.mixer.psgGain = 0;
     if (this.modelInfo.iie) wireApple2eIo(this);
@@ -339,6 +346,7 @@ export class Apple2Machine extends BaseMachine implements Machine {
     const endT = this.cpu.tStates + APPLE2_TSTATES_PER_FRAME;
     const skipAudio = this.speedMultiplier !== 1;
     const board = this.mockingboard;
+    const watchActive = this.memWatchpoints.length > 0;
     this.activity.beeperToggled = false;
     this.activity.kbdReads = 0;
 
@@ -362,6 +370,11 @@ export class Apple2Machine extends BaseMachine implements Machine {
       if (!skipAudio) {
         this.mixer.accumulateLevel(this.speaker.level, elapsed);
         this.mixer.generateSamples(this.audio, board, board !== null);
+      }
+      // Stop on the instruction that tripped a memory watchpoint.
+      if (watchActive && this.memWatchHit !== null) {
+        this.needsDisplay = true;
+        return;
       }
     }
 

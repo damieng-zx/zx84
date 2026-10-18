@@ -60,6 +60,7 @@ const AY_CLOCK = 1773400;        // ~1.77 MHz
 const NOOP_CONTEND = (_addr: number): void => {};
 
 import type { SpectrumModel } from '@/models.ts';
+import { betaRomInSystemRom, isScorpionClass } from '@/machines/spectrum/models.ts';
 import { IOActivity } from '@/machines/spectrum/activity.ts';
 
 // Re-export IOActivity from its neutral home so existing imports from
@@ -276,8 +277,11 @@ export class Spectrum extends BaseMachine implements Machine {
     this.audio = new Audio();
     // Initial AY rate tracks the Audio default; start() updates it once the
     // AudioContext reports its real platform rate.
-    this.ay = new AY3891x(AY_CLOCK, this.audio.sampleRate, 'ABC');
+    this.ay = new AY3891x(this.variant.ayClock ?? AY_CLOCK, this.audio.sampleRate, 'ABC');
     this.contention = new Contention(this.variant, this.memory);
+    // The Scorpion's service ROM (page 2) talks to the FDC itself, so the Beta
+    // ports are live whenever it is selected, not only while TR-DOS is trapped in.
+    if (isScorpionClass(model)) this.betaDisk.portGate = () => this.memory.currentROM === 2;
     this.mixer = new AudioMixer(this.contention.timing.cpuClock);
     this.tape = new TapeDeck(this.variant.timing.cpuClock);
     // TZX/TAP pulse lengths are 3.5MHz T-states; the 128K-class clock is
@@ -436,9 +440,13 @@ export class Spectrum extends BaseMachine implements Machine {
 
   loadROM(data: Uint8Array): void {
     this.memory.loadROM(data);
+    // The Scorpion's TR-DOS is page 3 of its own 64K ROM, not a separate image.
+    if (betaRomInSystemRom(this.model) && data.length >= 4 * 16384) {
+      this.betaDisk.loadROM(data.subarray(3 * 16384, 4 * 16384));
+    }
     if (this.vtx5000.enabled && this.vtx5000.romLoaded) {
       if (this.memory.is128K) {
-        this.memory.currentROM = this.memory.romPages.length === 4 ? 3 : 1;
+        this.memory.currentROM = this.memory.basicRomPage;
       }
       this.vtx5000.applyROM(this.memory);
       this.memory.externalRomPaged = true;
@@ -475,7 +483,7 @@ export class Spectrum extends BaseMachine implements Machine {
     this.vtx5000.reset();
     if (this.vtx5000.enabled && this.vtx5000.romLoaded) {
       if (this.memory.is128K) {
-        this.memory.currentROM = this.memory.romPages.length === 4 ? 3 : 1;
+        this.memory.currentROM = this.memory.basicRomPage;
       }
       this.vtx5000.applyROM(this.memory);
       this.memory.externalRomPaged = true;

@@ -35,6 +35,7 @@ export function createFerranti128K(model: 'zx128k' | 'zx128kplus2'): MachineVari
     // 128K/+2 loose decode: (port & 0x8002) === 0
     decodes7FFD(port: number): boolean { return (port & 0x8002) === 0; },
     decodes1FFD(_port: number): boolean { return false; },
+    decodesEFF7(_port: number): boolean { return false; },
     decodesFDCData(_port: number): boolean { return false; },
     decodesFDCStatus(_port: number): boolean { return false; },
   });
