@@ -42,13 +42,13 @@ async function freshImport() {
 describe('machine-state — model load/save', () => {
   it('defaults to 128k when nothing is stored', async () => {
     const m = await freshImport();
-    expect(m.currentModel()).toBe('128k');
+    expect(m.currentModel()).toBe('zx128k');
     // Default should not leak back into storage — the module reads, not writes.
     expect(storage.getItem('zx84-model')).toBeNull();
   });
 
   it('accepts every valid SpectrumModel string on load', async () => {
-    for (const model of ['16k', '48k', '128k', '+2', '+2A', '+3']) {
+    for (const model of ['zx16k', 'zx48k', 'zx128k', 'zx128kplus2', 'zx128kplus2a', 'zx128kplus3']) {
       storage.clear();
       storage.setItem('zx84-model', model);
       vi.resetModules();
@@ -75,17 +75,32 @@ describe('machine-state — model load/save', () => {
     expect(storage.getItem('zx84-model')).toBe('lynx128');
   });
 
-  it('migrates legacy "+2a" to "+2A" and writes it back to storage', async () => {
+  it('migrates legacy "+2a" to "zx128kplus2a" and writes it back to storage', async () => {
     storage.setItem('zx84-model', '+2a');
     const m = await freshImport();
-    expect(m.currentModel()).toBe('+2A');
-    expect(storage.getItem('zx84-model')).toBe('+2A');
+    expect(m.currentModel()).toBe('zx128kplus2a');
+    expect(storage.getItem('zx84-model')).toBe('zx128kplus2a');
+  });
+
+  it('migrates every pre-unification Spectrum id and writes the new id back to storage', async () => {
+    const legacy: [string, string][] = [
+      ['16k', 'zx16k'], ['48k', 'zx48k'], ['128k', 'zx128k'],
+      ['+2', 'zx128kplus2'], ['+2A', 'zx128kplus2a'], ['+3', 'zx128kplus3'],
+    ];
+    for (const [old, current] of legacy) {
+      storage.clear();
+      storage.setItem('zx84-model', old);
+      vi.resetModules();
+      const m = await freshImport();
+      expect(m.currentModel(), old).toBe(current);
+      expect(storage.getItem('zx84-model'), old).toBe(current);
+    }
   });
 
   it('rejects unknown values and falls back to default 128k', async () => {
     storage.setItem('zx84-model', 'pentagon');
     const m = await freshImport();
-    expect(m.currentModel()).toBe('128k');
+    expect(m.currentModel()).toBe('zx128k');
   });
 
   it('is case-sensitive on load (rejects "48K", "+3 ", etc.)', async () => {
@@ -94,7 +109,7 @@ describe('machine-state — model load/save', () => {
       storage.setItem('zx84-model', bad);
       vi.resetModules();
       const m = await freshImport();
-      expect(m.currentModel()).toBe('128k');
+      expect(m.currentModel()).toBe('zx128k');
     }
   });
 
@@ -106,16 +121,16 @@ describe('machine-state — model load/save', () => {
 
   it('saveModel writes the model under "zx84-model"', async () => {
     const m = await freshImport();
-    m.saveModel('+3');
-    expect(storage.getItem('zx84-model')).toBe('+3');
-    m.saveModel('48k');
-    expect(storage.getItem('zx84-model')).toBe('48k');
+    m.saveModel('zx128kplus3');
+    expect(storage.getItem('zx84-model')).toBe('zx128kplus3');
+    m.saveModel('zx48k');
+    expect(storage.getItem('zx84-model')).toBe('zx48k');
   });
 
   it('saveModel swallows localStorage exceptions (e.g. quota)', async () => {
     const m = await freshImport();
     storage.throwOnSet = true;
-    expect(() => m.saveModel('+3')).not.toThrow();
+    expect(() => m.saveModel('zx128kplus3')).not.toThrow();
   });
 
   it('load swallows localStorage exceptions and falls back to default', async () => {
@@ -125,7 +140,7 @@ describe('machine-state — model load/save', () => {
       setItem: () => {},
     };
     const m = await freshImport();
-    expect(m.currentModel()).toBe('128k');
+    expect(m.currentModel()).toBe('zx128k');
   });
 
   it('survives the absence of localStorage entirely', async () => {
@@ -133,9 +148,9 @@ describe('machine-state — model load/save', () => {
     // loadSavedModel references localStorage inside a try/catch, so a missing
     // global should be treated the same as a thrown access error.
     const m = await freshImport();
-    expect(m.currentModel()).toBe('128k');
+    expect(m.currentModel()).toBe('zx128k');
     // saveModel must also not throw in this environment.
-    expect(() => m.saveModel('48k')).not.toThrow();
+    expect(() => m.saveModel('zx48k')).not.toThrow();
   });
 });
 

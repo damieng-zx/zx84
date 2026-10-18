@@ -19,12 +19,12 @@ import { SpectrumMemory } from '@/machines/spectrum/memory.ts';
 
 describe('multiface — variantForModel / variantLabel / romFilename', () => {
   it('variantForModel dispatches on model class', () => {
-    expect(variantForModel('16k')).toBe('MF1');
-    expect(variantForModel('48k')).toBe('MF1');
-    expect(variantForModel('128k')).toBe('MF128');
-    expect(variantForModel('+2')).toBe('MF128');
-    expect(variantForModel('+2A')).toBe('MF3');
-    expect(variantForModel('+3')).toBe('MF3');
+    expect(variantForModel('zx16k')).toBe('MF1');
+    expect(variantForModel('zx48k')).toBe('MF1');
+    expect(variantForModel('zx128k')).toBe('MF128');
+    expect(variantForModel('zx128kplus2')).toBe('MF128');
+    expect(variantForModel('zx128kplus2a')).toBe('MF3');
+    expect(variantForModel('zx128kplus3')).toBe('MF3');
   });
 
   it('variantLabel gives the human-readable name', () => {
@@ -120,7 +120,7 @@ describe('multiface — loadROM', () => {
 
 describe('multiface — pageIn / pageOut overlay', () => {
   function makeMem(): SpectrumMemory {
-    return new SpectrumMemory('48k');
+    return new SpectrumMemory('zx48k');
   }
 
   it('pageIn replaces slot 0 with [ROM | RAM] overlay; pageOut restores it', () => {
@@ -204,7 +204,7 @@ describe('multiface — pageIn / pageOut overlay', () => {
 describe('multiface — pressButton', () => {
   it('does nothing when disabled or ROM not loaded (no NMI, no page-in)', () => {
     const mf = new Multiface();
-    const mem = new SpectrumMemory('48k');
+    const mem = new SpectrumMemory('zx48k');
     let nmiCalls = 0;
     const fakeCpu = { nmi: () => { nmiCalls++; } } as any;
 
@@ -228,7 +228,7 @@ describe('multiface — pressButton', () => {
     mf.enabled = true;
     mf.mfRom.fill(0x77);
     mf.romLoaded = true;
-    const mem = new SpectrumMemory('48k');
+    const mem = new SpectrumMemory('zx48k');
     let nmiCalls = 0;
     const fakeCpu = { nmi: () => { nmiCalls++; } } as any;
 
@@ -249,7 +249,7 @@ describe('multiface — pressButton', () => {
     mf.enabled = true;
     mf.mfRom.fill(0x77);
     mf.romLoaded = true;
-    const mem = new SpectrumMemory('48k');
+    const mem = new SpectrumMemory('zx48k');
     let nmiCalls = 0;
     const fakeCpu = { nmi: () => { nmiCalls++; } } as any;
 
@@ -272,7 +272,7 @@ describe('multiface — armed latch (MF128/MF3 button-arming)', () => {
     const mf = new Multiface();
     mf.enabled = true;
     mf.romLoaded = true;
-    const mem = new SpectrumMemory('128k');
+    const mem = new SpectrumMemory('zx128k');
     const fakeCpu = { nmi: () => {} } as any;
     expect(mf.armed).toBe(false);
     mf.pressButton(mem, fakeCpu);
@@ -288,7 +288,7 @@ describe('multiface — armed latch (MF128/MF3 button-arming)', () => {
     const mf = new Multiface();
     mf.enabled = true;
     mf.romLoaded = true;
-    const mem = new SpectrumMemory('128k');
+    const mem = new SpectrumMemory('zx128k');
     const fakeCpu = { nmi: () => {} } as any;
     mf.pressButton(mem, fakeCpu);
     mf.pageOut(mem);
@@ -300,7 +300,7 @@ describe('multiface — armed latch (MF128/MF3 button-arming)', () => {
 
   it('pressButton is a no-op (does not arm) when disabled or ROM not loaded', () => {
     const mf = new Multiface();
-    const mem = new SpectrumMemory('128k');
+    const mem = new SpectrumMemory('zx128k');
     const fakeCpu = { nmi: () => {} } as any;
 
     mf.enabled = false;

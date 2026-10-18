@@ -8,16 +8,16 @@ import { serializeDSK } from '@/media/floppy/dsk.ts';
 
 const dsk = () => serializeDSK(blankMgtDisk(40, 1));
 const cases = [
-  { name: '+3', create: () => new Spectrum('+3', null), bytes: dsk, ext: 'dsk' },
+  { name: 'zx128kplus3', create: () => new Spectrum('zx128kplus3', null), bytes: dsk, ext: 'dsk' },
   { name: 'CPC', create: () => new CpcMachine('cpc6128', null), bytes: dsk, ext: 'dsk' },
   { name: 'Einstein', create: () => new EinsteinMachine('einstein-tc01', null), bytes: dsk, ext: 'dsk' },
   {
     name: '+D', ext: 'mgt', bytes: () => serializeMgt(blankMgtDisk(80, 2), 'mgt'),
-    create: () => { const s = new Spectrum('48k', null); s.mgtPlusD.enabled = true; return s; },
+    create: () => { const s = new Spectrum('zx48k', null); s.mgtPlusD.enabled = true; return s; },
   },
   {
     name: 'Beta Disk', ext: 'trd', bytes: () => serializeTrd(blankTrdDisk(80, 2)),
-    create: () => { const s = new Spectrum('48k', null); s.betaDisk.enabled = true; return s; },
+    create: () => { const s = new Spectrum('zx48k', null); s.betaDisk.enabled = true; return s; },
   },
 ];
 

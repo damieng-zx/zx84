@@ -297,7 +297,7 @@ up where you left off.
 | `npx tsc --noEmit` | Type-check |
 | `npm run depcheck` | Enforce the architecture boundaries in `.dependency-cruiser.cjs` |
 | `npm run build` | Type-check and build for production |
-| `npm run mcp` | Start the MCP server (`npm run mcp -- --model 128k` to pick a machine) |
+| `npm run mcp` | Start the MCP server (`npm run mcp -- --model zx128k` to pick a machine) |
 | `npm run mascot` | Regenerate the favicon and mascot images from `tools/build-mascot.ts` |
 | `npm run catalog:db`, `catalog:json`, `catalog:zx8x` | Rebuild the software-library catalogs from ZXDB |
 

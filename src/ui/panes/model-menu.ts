@@ -15,12 +15,12 @@ import type { MachineModel } from '@/models.ts';
 
 /** Full name shown on the model box once selected — keyed by model value. */
 export const MODEL_LABELS: Record<MachineModel, string> = {
-  '16k': 'ZX Spectrum 16K',
-  '48k': 'ZX Spectrum 48K',
-  '128k': 'ZX Spectrum 128K',
-  '+2': 'ZX Spectrum +2',
-  '+2A': 'ZX Spectrum +2A',
-  '+3': 'ZX Spectrum +3',
+  'zx16k': 'ZX Spectrum 16K',
+  'zx48k': 'ZX Spectrum 48K',
+  'zx128k': 'ZX Spectrum 128K',
+  'zx128kplus2': 'ZX Spectrum +2',
+  'zx128kplus2a': 'ZX Spectrum +2A',
+  'zx128kplus3': 'ZX Spectrum +3',
   zx80: 'ZX80',
   zx81: 'ZX81',
   cpc464: 'CPC 464',
@@ -63,11 +63,11 @@ export const LOCALE_LABELS: Record<MachineLocale, string> = {
 
 /** Models that have locale-specific ROM variants, and which locales. */
 export const MODEL_LOCALES: Partial<Record<MachineModel, MachineLocale[]>> = {
-  '48k': ['es'],
-  '128k': ['fr', 'es'],
-  '+2': ['fr', 'es'],
-  '+2A': ['es'],
-  '+3': ['es'],
+  'zx48k': ['es'],
+  'zx128k': ['fr', 'es'],
+  'zx128kplus2': ['fr', 'es'],
+  'zx128kplus2a': ['es'],
+  'zx128kplus3': ['es'],
   cpc464: ['fr', 'es'],
   cpc6128: ['fr'],
 };
@@ -97,12 +97,12 @@ export const MODEL_MENU: MenuItem[] = [
     children: [
       modelEntry('zx80'),
       modelEntry('zx81'),
-      modelEntry('16k'),
-      modelEntry('48k'),
-      modelEntry('128k'),
-      modelEntry('+2'),
-      modelEntry('+2A'),
-      modelEntry('+3'),
+      modelEntry('zx16k'),
+      modelEntry('zx48k'),
+      modelEntry('zx128k'),
+      modelEntry('zx128kplus2'),
+      modelEntry('zx128kplus2a'),
+      modelEntry('zx128kplus3'),
     ],
   },
   {

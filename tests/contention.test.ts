@@ -28,14 +28,14 @@ import { vramBitmapAddr, vramAttrAddr } from '@/machines/spectrum/ula.ts';
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────
 
-function newContention(model: '48k' | '128k' | '+2A'): {
+function newContention(model: 'zx48k' | 'zx128k' | 'zx128kplus2a'): {
   c: Contention; mem: SpectrumMemory; bank: (n: number) => Uint8Array;
 } {
-  const variant = model === '48k'
+  const variant = model === 'zx48k'
     ? spectrum48K
-    : model === '128k'
-      ? createFerranti128K('128k')
-      : createAmstrad('+2A');
+    : model === 'zx128k'
+      ? createFerranti128K('zx128k')
+      : createAmstrad('zx128kplus2a');
   const mem = new SpectrumMemory(
     model as any,
     { hasBanking: variant.hasBanking, romPageCount: variant.romPageCount, is16K: false },
@@ -100,12 +100,12 @@ describe('Contention pattern arrays — documented values', () => {
   it('48K / 128K Ferranti pattern is [6, 5, 4, 3, 2, 1, 0, 0]', () => {
     expect(Array.from(spectrum48K.contentionPattern))
       .toEqual([6, 5, 4, 3, 2, 1, 0, 0]);
-    expect(Array.from(createFerranti128K('128k').contentionPattern))
+    expect(Array.from(createFerranti128K('zx128k').contentionPattern))
       .toEqual([6, 5, 4, 3, 2, 1, 0, 0]);
   });
 
   it('+2A/+3 Amstrad pattern is [1, 0, 7, 6, 5, 4, 3, 2] (shifted by 1 from Ferranti)', () => {
-    expect(Array.from(createAmstrad('+2A').contentionPattern))
+    expect(Array.from(createAmstrad('zx128kplus2a').contentionPattern))
       .toEqual([1, 0, 7, 6, 5, 4, 3, 2]);
   });
 
@@ -121,7 +121,7 @@ describe('Contention pattern arrays — documented values', () => {
 
 describe('isContended (memory map) — 48K', () => {
   it('only 0x4000-0x7FFF is contended; ROM and 0x8000-0xFFFF are not', () => {
-    const { c } = newContention('48k');
+    const { c } = newContention('zx48k');
     expect(c.isContended(0x0000)).toBe(false); // ROM
     expect(c.isContended(0x3FFF)).toBe(false);
     expect(c.isContended(0x4000)).toBe(true);
@@ -133,7 +133,7 @@ describe('isContended (memory map) — 48K', () => {
 });
 
 describe('isContended — 128K Ferranti (odd RAM banks 1,3,5,7)', () => {
-  const { c, mem } = newContention('128k');
+  const { c, mem } = newContention('zx128k');
 
   it('slot 0 (ROM) is never contended', () => {
     expect(c.isContended(0x0000)).toBe(false);
@@ -160,7 +160,7 @@ describe('isContended — 128K Ferranti (odd RAM banks 1,3,5,7)', () => {
 });
 
 describe('isContended — +2A/+3 Amstrad (banks 4-7 are contended, by physical RAM chip)', () => {
-  const { c, mem } = newContention('+2A');
+  const { c, mem } = newContention('zx128kplus2a');
 
   it('ROM is uncontended', () => {
     expect(c.isContended(0x0000)).toBe(false);
@@ -188,18 +188,18 @@ describe('isContended — +2A/+3 Amstrad (banks 4-7 are contended, by physical R
 
 describe('contentionDelay — Ferranti 48K', () => {
   it('returns 0 before contentionStart (no display fetch yet)', () => {
-    const { c } = newContention('48k');
+    const { c } = newContention('zx48k');
     expect(c.contentionDelay(0)).toBe(0);
     expect(c.contentionDelay(14334)).toBe(0);
   });
 
   it('at T=14335 (first contended T), delay = pattern[0] = 6', () => {
-    const { c } = newContention('48k');
+    const { c } = newContention('zx48k');
     expect(c.contentionDelay(14335)).toBe(6);
   });
 
   it('walks the pattern across the first 8 T-states of line 0', () => {
-    const { c } = newContention('48k');
+    const { c } = newContention('zx48k');
     const expected = [6, 5, 4, 3, 2, 1, 0, 0];
     for (let i = 0; i < 8; i++) {
       expect(c.contentionDelay(14335 + i)).toBe(expected[i]);
@@ -207,7 +207,7 @@ describe('contentionDelay — Ferranti 48K', () => {
   });
 
   it('pattern repeats every 8 T-states for the 128 fetch T-states of the line', () => {
-    const { c } = newContention('48k');
+    const { c } = newContention('zx48k');
     for (let cell = 0; cell < 16; cell++) {
       expect(c.contentionDelay(14335 + cell * 8 + 0)).toBe(6);
       expect(c.contentionDelay(14335 + cell * 8 + 7)).toBe(0);
@@ -215,18 +215,18 @@ describe('contentionDelay — Ferranti 48K', () => {
   });
 
   it('returns 0 once the line passes col 128 (border/blanking)', () => {
-    const { c } = newContention('48k');
+    const { c } = newContention('zx48k');
     expect(c.contentionDelay(14335 + 128)).toBe(0);
     expect(c.contentionDelay(14335 + 223)).toBe(0);
   });
 
   it('line 1 starts at T = 14335 + 224', () => {
-    const { c } = newContention('48k');
+    const { c } = newContention('zx48k');
     expect(c.contentionDelay(14335 + 224)).toBe(6);
   });
 
   it('after line 191 (last display line) — no further contention', () => {
-    const { c } = newContention('48k');
+    const { c } = newContention('zx48k');
     const lastLineStart = 14335 + 191 * 224;
     expect(c.contentionDelay(lastLineStart)).toBe(6); // last contended line
     expect(c.contentionDelay(lastLineStart + 224)).toBe(0); // next line is border
@@ -235,12 +235,12 @@ describe('contentionDelay — Ferranti 48K', () => {
 
 describe('contentionDelay — +2A/+3 Amstrad', () => {
   it('pattern starts with 1 not 6 at the first contended T', () => {
-    const { c } = newContention('+2A');
+    const { c } = newContention('zx128kplus2a');
     expect(c.contentionDelay(14361)).toBe(1);
   });
 
   it('full pattern at the first cell is [1, 0, 7, 6, 5, 4, 3, 2]', () => {
-    const { c } = newContention('+2A');
+    const { c } = newContention('zx128kplus2a');
     const expected = [1, 0, 7, 6, 5, 4, 3, 2];
     for (let i = 0; i < 8; i++) {
       expect(c.contentionDelay(14361 + i)).toBe(expected[i]);
@@ -248,7 +248,7 @@ describe('contentionDelay — +2A/+3 Amstrad', () => {
   });
 
   it('next line (228T later) restarts the pattern', () => {
-    const { c } = newContention('+2A');
+    const { c } = newContention('zx128kplus2a');
     expect(c.contentionDelay(14361 + 228)).toBe(1);
   });
 });
@@ -273,7 +273,7 @@ describe('I/O contention — Ferranti 4-case rule at beam where pattern[col0]=6'
   it('Case 1 (contended addr + ULA port, A0=0): adds 6 T-states at beam 14335', () => {
     // δ(14335)=6, then advance 1; δ(14335+6+1=14342)=pattern[col 7]=0
     // total extra = 6 + 0 = 6
-    const { c } = newContention('48k');
+    const { c } = newContention('zx48k');
     expect(ioDelta(c, 0x4000, 14335)).toBe(6);
   });
 
@@ -281,18 +281,18 @@ describe('I/O contention — Ferranti 4-case rule at beam where pattern[col0]=6'
     // δ(14335)=6, advance 1 → 14342; δ=0, advance 1 → 14343
     // δ(14343)=pattern[col 8 → col 0]=6, advance 1 → 14350; δ=0; advance ‑3
     // Net extras: 6 + 0 + 6 + 0 = 12
-    const { c } = newContention('48k');
+    const { c } = newContention('zx48k');
     expect(ioDelta(c, 0x4001, 14335)).toBe(12);
   });
 
   it('Case 3 (non-contended addr + ULA port): adds 5 T-states at beam 14335', () => {
     // N:1 → advance 1, then C:3 samples at 14336 → δ=5; net extra = 5
-    const { c } = newContention('48k');
+    const { c } = newContention('zx48k');
     expect(ioDelta(c, 0x0000, 14335)).toBe(5);
   });
 
   it('Case 4 (non-contended addr + non-ULA port): adds 0 T-states', () => {
-    const { c } = newContention('48k');
+    const { c } = newContention('zx48k');
     expect(ioDelta(c, 0x0001, 14335)).toBe(0);
   });
 
@@ -301,7 +301,7 @@ describe('I/O contention — Ferranti 4-case rule at beam where pattern[col0]=6'
     // the range 0xc000 to 0xffff if a contended memory page is currently
     // paged in." At beam 14361 (col 0, δ=6) a contended non-ULA port adds
     // 6+0+6+0 = 12; with an uncontended bank paged it must add 0.
-    const { c, mem } = newContention('128k');
+    const { c, mem } = newContention('zx128k');
     mem.bankSwitch(1); // odd bank 1 → 0xC000 contended
     expect(ioDelta(c, 0xC001, 14361)).toBe(12); // non-ULA: C:1 ×4
     expect(ioDelta(c, 0xC0FE, 14361)).toBe(6);  // ULA (A0=0): C:1, C:3
@@ -316,7 +316,7 @@ describe('I/O contention — Ferranti 4-case rule at beam where pattern[col0]=6'
     // cycle began at 14335, calling at 14338 with offset 3, must add exactly
     // what an OUT calling at 14335 adds: δ(14335)=6. Without the anchor the
     // probe would land on pattern[3]=3 — so this fails if the offset is lost.
-    const { c } = newContention('48k');
+    const { c } = newContention('zx48k');
     expect(ioDelta(c, 0x4000, 14335)).toBe(6);
     const fake = { tStates: 14338 };
     c.applyIOContention(0x4000, fake, 3);
@@ -324,7 +324,7 @@ describe('I/O contention — Ferranti 4-case rule at beam where pattern[col0]=6'
   });
 
   it('all four cases add 0 outside contention window (before frame T=14335)', () => {
-    const { c } = newContention('48k');
+    const { c } = newContention('zx48k');
     expect(ioDelta(c, 0x4000, 0)).toBe(0);
     expect(ioDelta(c, 0x4001, 0)).toBe(0);
     expect(ioDelta(c, 0x0000, 0)).toBe(0);
@@ -337,7 +337,7 @@ describe('I/O contention — +2A/+3 Amstrad has NO IO contention', () => {
   // active. IO cycles (IORQ) do not assert MREQ, so contention does not apply.
   // Every port access takes a flat 4T regardless of the beam position.
   it('contended-class address + ULA port still adds 0 at the heaviest beam', () => {
-    const { c } = newContention('+2A');
+    const { c } = newContention('zx128kplus2a');
     expect(ioDelta(c, 0x4000, 14361)).toBe(0);
     expect(ioDelta(c, 0x4001, 14361)).toBe(0);
     expect(ioDelta(c, 0x0000, 14361)).toBe(0);
@@ -350,7 +350,7 @@ describe('I/O contention — +2A/+3 Amstrad has NO IO contention', () => {
 
 describe('Floating bus — 48K (Ferranti)', () => {
   it('returns 0xFF before display fetch begins', () => {
-    const { c, bank } = newContention('48k');
+    const { c, bank } = newContention('zx48k');
     // Screen bank for 48K is bank 5 (which lives at 0x4000-0x7FFF logically)
     // We'll fill bank 5 with a recognisable pattern.
     bank(5).fill(0xAA);
@@ -359,7 +359,7 @@ describe('Floating bus — 48K (Ferranti)', () => {
   });
 
   it('returns 0xFF after the 192 display lines complete', () => {
-    const { c, bank } = newContention('48k');
+    const { c, bank } = newContention('zx48k');
     bank(5).fill(0xAA);
     // With 48K floatingBusAdjust = -1, the first T at which (offset/224)|0 >= 192
     // is contentionStart + 1 + 192*224 = 57345.
@@ -374,7 +374,7 @@ describe('Floating bus — 48K (Ferranti)', () => {
     // "Floating bus"): in each 8T block the ULA fetches two character
     // columns in the first 4 T-states, then releases the bus for 4 T-states.
     // 48K floatingBusAdjust = -1, so offset 0 lands at T = 14336.
-    const { c, bank } = newContention('48k');
+    const { c, bank } = newContention('zx48k');
     const screen = bank(5);
     screen[vramBitmapAddr(0) - 0x4000 + 0] = 0x42; // pixel col 0
     screen[vramAttrAddr(0, 0) - 0x4000] = 0x47;    // attr col 0
@@ -391,7 +391,7 @@ describe('Floating bus — 48K (Ferranti)', () => {
   });
 
   it('reads progress across columns through one scanline', () => {
-    const { c, bank } = newContention('48k');
+    const { c, bank } = newContention('zx48k');
     const screen = bank(5);
     // Different value in each column's pixel byte
     for (let col = 0; col < 32; col++) {
@@ -409,7 +409,7 @@ describe('Floating bus — 48K (Ferranti)', () => {
     // 48K fetch window in absolute T is documented as 14336..14463 inclusive
     // (the 128 fetch T-states). After 14463 the beam crosses into the right
     // border and no more bus fetches occur until the next line.
-    const { c, bank } = newContention('48k');
+    const { c, bank } = newContention('zx48k');
     bank(5).fill(0x99);
     expect(c.floatingBusRead(14464, bank(5))).toBe(0xFF);
     expect(c.floatingBusRead(14500, bank(5))).toBe(0xFF);
@@ -420,7 +420,7 @@ describe('Floating bus — 128K/+2A use positive adjustment (+1)', () => {
   // 128K and +2A both report bus values one T-state earlier in the cycle
   // because the bus pipeline delay is opposite to 48K.
   it('128K: at T = contentionStart + 1, the previous beam slot has already advanced past col 0', () => {
-    const { c, bank } = newContention('128k');
+    const { c, bank } = newContention('zx128k');
     // 128K's screen bank is also bank 5 by default
     const screen = bank(5);
     const pixelAddr = vramBitmapAddr(0) - 0x4000;
@@ -439,7 +439,7 @@ describe('Floating bus — 128K/+2A use positive adjustment (+1)', () => {
 
 describe('frameStartTStates anchors all relative timing', () => {
   it('shifting frameStartTStates moves the contention window with it', () => {
-    const { c } = newContention('48k');
+    const { c } = newContention('zx48k');
     c.frameStartTStates = 1_000_000;
     // Same relative T = 14335 from the new frame start
     expect(c.contentionDelay(1_000_000 + 14335)).toBe(6);

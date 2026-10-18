@@ -9,7 +9,7 @@ import type { MachineVariant } from './machine-variant.ts';
 /** Ferranti ULA contention pattern: 6,5,4,3,2,1,0,0 */
 const CONTENTION_FERRANTI = new Uint8Array([6, 5, 4, 3, 2, 1, 0, 0]);
 
-export function createFerranti128K(model: '128k' | '+2'): MachineVariant {
+export function createFerranti128K(model: 'zx128k' | 'zx128kplus2'): MachineVariant {
   return Object.freeze({
     model: model as SpectrumModel,
     timing: TIMING_128K,

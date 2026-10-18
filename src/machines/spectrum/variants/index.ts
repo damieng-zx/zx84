@@ -13,11 +13,11 @@ export type { MachineVariant } from './machine-variant.ts';
 
 export function createVariant(model: SpectrumModel): MachineVariant {
   switch (model) {
-    case '16k':  return spectrum16K;
-    case '48k':  return spectrum48K;
-    case '128k': return createFerranti128K('128k');
-    case '+2':   return createFerranti128K('+2');
-    case '+2A':  return createAmstrad('+2A');
-    case '+3':   return createAmstrad('+3');
+    case 'zx16k':  return spectrum16K;
+    case 'zx48k':  return spectrum48K;
+    case 'zx128k': return createFerranti128K('zx128k');
+    case 'zx128kplus2':   return createFerranti128K('zx128kplus2');
+    case 'zx128kplus2a':  return createAmstrad('zx128kplus2a');
+    case 'zx128kplus3':   return createAmstrad('zx128kplus3');
   }
 }

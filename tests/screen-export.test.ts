@@ -3,7 +3,7 @@ import { Spectrum } from '@/machines/spectrum/spectrum.ts';
 
 describe('Spectrum screen export', () => {
   it('exports bank 7 when shadow display is selected, then bank 5 when restored', () => {
-    const m = new Spectrum('128k');
+    const m = new Spectrum('zx128k');
     try {
       m.memory.getRamBank(5).fill(0x55);
       m.memory.getRamBank(7).fill(0xaa);

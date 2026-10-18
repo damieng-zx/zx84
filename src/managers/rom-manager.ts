@@ -72,16 +72,23 @@ import type { RomPage } from '@/models.ts';
  *  back to a generic "<MODEL> (default)" otherwise. Always computed fresh
  *  (never persisted verbatim — see restoreROM) so a naming change here takes
  *  effect immediately, without a stale string surviving in localStorage. */
+/** Short display names for the Spectrum model ids, for the generic default label. */
+const SPECTRUM_SHORT_NAMES: Record<string, string> = {
+  zx128k: '128K', zx128kplus2: '+2', zx128kplus2a: '+2A', zx128kplus3: '+3',
+};
+
 function defaultRomLabel(key: string): string {
   // Strip locale suffix to get the base model for display
   const model = key.split('-')[0].toLowerCase();
-  if (model === '16k' || model === '48k') return 'Sinclair BASIC';
+  if (model === 'zx16k' || model === 'zx48k') return 'Sinclair BASIC';
   if (model === 'hx-10') return 'Toshiba HX-10 (MSX BASIC 1.0)';
   if (model === 'hb-55') return 'Sony HB-55 (MSX BASIC 1.0, Japanese)';
   if (model === 'hb-55p') return 'Sony HB-55P (MSX BASIC 1.0)';
   if (model === 'zx80') return 'Sinclair ZX80 BASIC';
   if (model === 'zx81') return 'Sinclair ZX81 BASIC';
-  return `${key.toUpperCase()} (default)`;
+  const [base, ...suffix] = key.split('-');
+  const name = SPECTRUM_SHORT_NAMES[base.toLowerCase()] ?? base.toUpperCase();
+  return `${[name, ...suffix.map(p => p.toUpperCase())].join('-')} (default)`;
 }
 
 export class ROMManager {

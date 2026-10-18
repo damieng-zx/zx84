@@ -30,23 +30,23 @@ describe('status-bar LED declarations', () => {
   });
 
   it('Spectrum shows AY only on 128K-class models', () => {
-    expect(leds('16k')).not.toContain('chip');
-    expect(leds('48k')).not.toContain('chip');
-    expect(leds('128k')).toContain('chip');
-    expect(leds('+2')).toContain('chip');
-    expect(leds('+2A')).toContain('chip');
-    expect(leds('+3')).toContain('chip');
+    expect(leds('zx16k')).not.toContain('chip');
+    expect(leds('zx48k')).not.toContain('chip');
+    expect(leds('zx128k')).toContain('chip');
+    expect(leds('zx128kplus2')).toContain('chip');
+    expect(leds('zx128kplus2a')).toContain('chip');
+    expect(leds('zx128kplus3')).toContain('chip');
   });
 
   it('Spectrum shows the DISK indicator only on the +3', () => {
-    expect(leds('48k')).not.toContain('dsk');
-    expect(leds('128k')).not.toContain('dsk');
-    expect(leds('+3')).toContain('dsk');
+    expect(leds('zx48k')).not.toContain('dsk');
+    expect(leds('zx128k')).not.toContain('dsk');
+    expect(leds('zx128kplus3')).toContain('dsk');
   });
 
   it('every Spectrum keeps its Kempston/EAR/rainbow/beep indicators', () => {
     for (const led of ['kemp', 'ear', 'rainbow', 'beep'] as const) {
-      expect(leds('48k')).toContain(led);
+      expect(leds('zx48k')).toContain(led);
     }
   });
 
@@ -75,12 +75,12 @@ describe('status-bar LED declarations', () => {
 
   it('the sound-chip LED is named after its chip', () => {
     const chip = (m: MachineModel) => entryForModel(m).descriptor(m).ui.soundChip;
-    expect(chip('128k')).toBe('AY-3-8912');
+    expect(chip('zx128k')).toBe('AY-3-8912');
     expect(chip('cpc6128')).toBe('AY-3-8912');
     expect(chip('hx-10')).toBe('AY-3-8910');
     expect(chip('einstein-tc01')).toBe('AY-3-8910');
-    expect(chip('48k')).toBeUndefined();
-    for (const m of ['16k', '48k', '128k', '+3', 'cpc6128', 'hx-10', 'einstein-tc01'] as const) {
+    expect(chip('zx48k')).toBeUndefined();
+    for (const m of ['zx16k', 'zx48k', 'zx128k', 'zx128kplus3', 'cpc6128', 'hx-10', 'einstein-tc01'] as const) {
       const ui = entryForModel(m).descriptor(m).ui;
       expect(ui.statusLeds.includes('chip')).toBe(ui.soundChip !== undefined);
     }

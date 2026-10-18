@@ -130,9 +130,9 @@ export async function loadFileInto(spec: Spectrum, source: string, diskUnit: num
     // Auto-detect model from SZX header byte 6 (machine ID).
     // Must switch before loading so memory.is128K is set correctly and ROM pages are right.
     const SZX_ID_MODEL: Record<number, SpectrumModel> = {
-      0: '16k', 1: '48k', 2: '128k', 3: '+2', 4: '+2A', 5: '+3', 6: '+3',
+      0: 'zx16k', 1: 'zx48k', 2: 'zx128k', 3: 'zx128kplus2', 4: 'zx128kplus2a', 5: 'zx128kplus3', 6: 'zx128kplus3',
     };
-    const szxModel: SpectrumModel = (data.length >= 7 ? SZX_ID_MODEL[data[6]] : undefined) ?? '48k';
+    const szxModel: SpectrumModel = (data.length >= 7 ? SZX_ID_MODEL[data[6]] : undefined) ?? 'zx48k';
     if (szxModel !== state.model) {
       await initMachine(szxModel);
       spec = activeSpectrum()!; // szxModel is always a Spectrum model
@@ -149,7 +149,7 @@ export async function loadFileInto(spec: Spectrum, source: string, diskUnit: num
       spec.memory.pagingLocked  = (result.port7FFD & 0x20) !== 0;
       spec.memory.specialPaging = (result.port1FFD & 1) !== 0;
       // +2A/+3 ROM index uses bits from both ports; others use only 7FFD bit 4
-      spec.memory.currentROM = (szxModel === '+2A' || szxModel === '+3')
+      spec.memory.currentROM = (szxModel === 'zx128kplus2a' || szxModel === 'zx128kplus3')
         ? (((result.port1FFD >> 2) & 1) << 1) | ((result.port7FFD >> 4) & 1)
         : (result.port7FFD >> 4) & 1;
       spec.memory.applyBanking();

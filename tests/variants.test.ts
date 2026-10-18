@@ -38,8 +38,8 @@ describe('variants — contention pattern', () => {
     const ferranti: MachineVariant[] = [
       spectrum16K,
       spectrum48K,
-      createFerranti128K('128k'),
-      createFerranti128K('+2'),
+      createFerranti128K('zx128k'),
+      createFerranti128K('zx128kplus2'),
     ];
     for (const v of ferranti) {
       expect(Array.from(v.contentionPattern)).toEqual(FERRANTI_PATTERN);
@@ -47,13 +47,13 @@ describe('variants — contention pattern', () => {
   });
 
   it('Amstrad gate array (+2A/+3) uses 1,0,7,6,5,4,3,2', () => {
-    for (const v of [createAmstrad('+2A'), createAmstrad('+3')]) {
+    for (const v of [createAmstrad('zx128kplus2a'), createAmstrad('zx128kplus3')]) {
       expect(Array.from(v.contentionPattern)).toEqual(AMSTRAD_PATTERN);
     }
   });
 
   it('contention patterns are length-8 Uint8Arrays', () => {
-    for (const m of ['16k', '48k', '128k', '+2', '+2A', '+3'] as const) {
+    for (const m of ['zx16k', 'zx48k', 'zx128k', 'zx128kplus2', 'zx128kplus2a', 'zx128kplus3'] as const) {
       const v = createVariant(m);
       expect(v.contentionPattern).toBeInstanceOf(Uint8Array);
       expect(v.contentionPattern.length).toBe(8);
@@ -90,7 +90,7 @@ describe('variants — isContended', () => {
   });
 
   it('128K/+2 (Ferranti): odd RAM banks (1,3,5,7) are contended, address is irrelevant', () => {
-    for (const v of [createFerranti128K('128k'), createFerranti128K('+2')]) {
+    for (const v of [createFerranti128K('zx128k'), createFerranti128K('zx128kplus2')]) {
       for (const bank of [1, 3, 5, 7]) {
         expect(v.isContended(0x0000, bank)).toBe(true);
         expect(v.isContended(0xC000, bank)).toBe(true);
@@ -106,7 +106,7 @@ describe('variants — isContended', () => {
   });
 
   it('+2A/+3 (Amstrad): banks 4-7 are contended, banks 0-3 are not', () => {
-    for (const v of [createAmstrad('+2A'), createAmstrad('+3')]) {
+    for (const v of [createAmstrad('zx128kplus2a'), createAmstrad('zx128kplus3')]) {
       for (const bank of [4, 5, 6, 7]) {
         expect(v.isContended(0x0000, bank)).toBe(true);
         expect(v.isContended(0xC000, bank)).toBe(true);
@@ -126,13 +126,13 @@ describe('variants — isContended', () => {
 
 describe('variants — hasIOContention', () => {
   it('Ferranti variants enable four-case IO contention', () => {
-    for (const v of [spectrum16K, spectrum48K, createFerranti128K('128k'), createFerranti128K('+2')]) {
+    for (const v of [spectrum16K, spectrum48K, createFerranti128K('zx128k'), createFerranti128K('zx128kplus2')]) {
       expect(v.hasIOContention).toBe(true);
     }
   });
   it('Amstrad variants disable IO contention (single MREQ-free check)', () => {
-    expect(createAmstrad('+2A').hasIOContention).toBe(false);
-    expect(createAmstrad('+3').hasIOContention).toBe(false);
+    expect(createAmstrad('zx128kplus2a').hasIOContention).toBe(false);
+    expect(createAmstrad('zx128kplus3').hasIOContention).toBe(false);
   });
 });
 
@@ -145,12 +145,12 @@ describe('variants — capability flags', () => {
     'hasAY' | 'hasBanking' | 'hasFDC' | 'hasSpecialPaging' | 'romPageCount' | 'is48K'>;
 
   const expected: Record<string, Caps> = {
-    '16k':  { hasAY: false, hasBanking: false, hasFDC: false, hasSpecialPaging: false, romPageCount: 1, is48K: true  },
-    '48k':  { hasAY: false, hasBanking: false, hasFDC: false, hasSpecialPaging: false, romPageCount: 1, is48K: true  },
-    '128k': { hasAY: true,  hasBanking: true,  hasFDC: false, hasSpecialPaging: false, romPageCount: 2, is48K: false },
-    '+2':   { hasAY: true,  hasBanking: true,  hasFDC: false, hasSpecialPaging: false, romPageCount: 2, is48K: false },
-    '+2A':  { hasAY: true,  hasBanking: true,  hasFDC: false, hasSpecialPaging: true,  romPageCount: 4, is48K: false },
-    '+3':   { hasAY: true,  hasBanking: true,  hasFDC: true,  hasSpecialPaging: true,  romPageCount: 4, is48K: false },
+    'zx16k':  { hasAY: false, hasBanking: false, hasFDC: false, hasSpecialPaging: false, romPageCount: 1, is48K: true  },
+    'zx48k':  { hasAY: false, hasBanking: false, hasFDC: false, hasSpecialPaging: false, romPageCount: 1, is48K: true  },
+    'zx128k': { hasAY: true,  hasBanking: true,  hasFDC: false, hasSpecialPaging: false, romPageCount: 2, is48K: false },
+    'zx128kplus2':   { hasAY: true,  hasBanking: true,  hasFDC: false, hasSpecialPaging: false, romPageCount: 2, is48K: false },
+    'zx128kplus2a':  { hasAY: true,  hasBanking: true,  hasFDC: false, hasSpecialPaging: true,  romPageCount: 4, is48K: false },
+    'zx128kplus3':   { hasAY: true,  hasBanking: true,  hasFDC: true,  hasSpecialPaging: true,  romPageCount: 4, is48K: false },
   };
 
   it.each(Object.keys(expected))('%s has the expected capability set', (model) => {
@@ -175,12 +175,12 @@ describe('variants — timing tables', () => {
     expect(spectrum48K.timing).toBe(TIMING_48K);
   });
   it('128K/+2 use TIMING_128K', () => {
-    expect(createFerranti128K('128k').timing).toBe(TIMING_128K);
-    expect(createFerranti128K('+2').timing).toBe(TIMING_128K);
+    expect(createFerranti128K('zx128k').timing).toBe(TIMING_128K);
+    expect(createFerranti128K('zx128kplus2').timing).toBe(TIMING_128K);
   });
   it('+2A/+3 use TIMING_PLUS2A', () => {
-    expect(createAmstrad('+2A').timing).toBe(TIMING_PLUS2A);
-    expect(createAmstrad('+3').timing).toBe(TIMING_PLUS2A);
+    expect(createAmstrad('zx128kplus2a').timing).toBe(TIMING_PLUS2A);
+    expect(createAmstrad('zx128kplus3').timing).toBe(TIMING_PLUS2A);
   });
 });
 
@@ -202,7 +202,7 @@ describe('variants — port decode', () => {
   });
 
   describe('128K/+2 loose decode: (port & 0x8002) === 0', () => {
-    const v = createFerranti128K('128k');
+    const v = createFerranti128K('zx128k');
 
     it('canonical 0x7FFD is recognised', () => {
       expect(v.decodes7FFD(0x7FFD)).toBe(true);
@@ -230,7 +230,7 @@ describe('variants — port decode', () => {
     });
 
     it('+2 behaves identically to 128K for port decode', () => {
-      const v2 = createFerranti128K('+2');
+      const v2 = createFerranti128K('zx128kplus2');
       for (const port of [0x7FFD, 0x0000, 0x1FFD, 0x7FFF, 0xFFFD]) {
         expect(v2.decodes7FFD(port)).toBe(v.decodes7FFD(port));
       }
@@ -238,7 +238,7 @@ describe('variants — port decode', () => {
   });
 
   describe('+2A strict decode: distinct masks per port', () => {
-    const v = createAmstrad('+2A');
+    const v = createAmstrad('zx128kplus2a');
 
     it('0x7FFD requires (port & 0xC002) === 0x4000', () => {
       expect(v.decodes7FFD(0x7FFD)).toBe(true);
@@ -274,7 +274,7 @@ describe('variants — port decode', () => {
   });
 
   describe('+3 adds FDC data port', () => {
-    const v = createAmstrad('+3');
+    const v = createAmstrad('zx128kplus3');
 
     it('0x3FFD (FDC data) requires (port & 0xF002) === 0x3000', () => {
       expect(v.decodesFDCData(0x3FFD)).toBe(true);
@@ -299,7 +299,7 @@ describe('variants — port decode', () => {
   });
 
   it('+3 decodes each canonical port to exactly one peripheral', () => {
-    const v = createAmstrad('+3');
+    const v = createAmstrad('zx128kplus3');
     for (const port of [0x7FFD, 0x1FFD, 0x2FFD, 0x3FFD]) {
       const hits =
         (v.decodes7FFD(port) ? 1 : 0) +
@@ -311,7 +311,7 @@ describe('variants — port decode', () => {
   });
 
   it('+2A: no canonical port decodes to more than one peripheral (FDC data unfitted)', () => {
-    const v = createAmstrad('+2A');
+    const v = createAmstrad('zx128kplus2a');
     for (const port of [0x7FFD, 0x1FFD, 0x2FFD, 0x3FFD]) {
       const hits =
         (v.decodes7FFD(port) ? 1 : 0) +
@@ -331,28 +331,28 @@ describe('variants — port decode', () => {
 
 describe('variants — factory and identity', () => {
   it('createVariant dispatches to the right family', () => {
-    expect(createVariant('16k')).toBe(spectrum16K);
-    expect(createVariant('48k')).toBe(spectrum48K);
-    expect(createVariant('128k').model).toBe('128k');
-    expect(createVariant('+2').model).toBe('+2');
-    expect(createVariant('+2A').model).toBe('+2A');
-    expect(createVariant('+3').model).toBe('+3');
+    expect(createVariant('zx16k')).toBe(spectrum16K);
+    expect(createVariant('zx48k')).toBe(spectrum48K);
+    expect(createVariant('zx128k').model).toBe('zx128k');
+    expect(createVariant('zx128kplus2').model).toBe('zx128kplus2');
+    expect(createVariant('zx128kplus2a').model).toBe('zx128kplus2a');
+    expect(createVariant('zx128kplus3').model).toBe('zx128kplus3');
   });
 
   it('16K and 48K are singletons — same object reference every call', () => {
-    expect(createVariant('16k')).toBe(createVariant('16k'));
-    expect(createVariant('48k')).toBe(createVariant('48k'));
+    expect(createVariant('zx16k')).toBe(createVariant('zx16k'));
+    expect(createVariant('zx48k')).toBe(createVariant('zx48k'));
   });
 
   it('128K/+2/+2A/+3 factories return a fresh object each call (not singletons)', () => {
-    expect(createFerranti128K('128k')).not.toBe(createFerranti128K('128k'));
-    expect(createFerranti128K('+2')).not.toBe(createFerranti128K('+2'));
-    expect(createAmstrad('+2A')).not.toBe(createAmstrad('+2A'));
-    expect(createAmstrad('+3')).not.toBe(createAmstrad('+3'));
+    expect(createFerranti128K('zx128k')).not.toBe(createFerranti128K('zx128k'));
+    expect(createFerranti128K('zx128kplus2')).not.toBe(createFerranti128K('zx128kplus2'));
+    expect(createAmstrad('zx128kplus2a')).not.toBe(createAmstrad('zx128kplus2a'));
+    expect(createAmstrad('zx128kplus3')).not.toBe(createAmstrad('zx128kplus3'));
   });
 
   it('variant objects are frozen (defensive immutability)', () => {
-    for (const m of ['16k', '48k', '128k', '+2', '+2A', '+3'] as const) {
+    for (const m of ['zx16k', 'zx48k', 'zx128k', 'zx128kplus2', 'zx128kplus2a', 'zx128kplus3'] as const) {
       const v = createVariant(m);
       expect(Object.isFrozen(v)).toBe(true);
       expect(() => { (v as any).hasFDC = !v.hasFDC; }).toThrow();
@@ -360,7 +360,7 @@ describe('variants — factory and identity', () => {
   });
 
   it('each variant reports its own model', () => {
-    for (const m of ['16k', '48k', '128k', '+2', '+2A', '+3'] as const) {
+    for (const m of ['zx16k', 'zx48k', 'zx128k', 'zx128kplus2', 'zx128kplus2a', 'zx128kplus3'] as const) {
       expect(createVariant(m).model).toBe(m);
     }
   });
@@ -377,7 +377,7 @@ describe('variants — port decode exhaustive sweep', () => {
    * overlap and a write would corrupt two registers simultaneously.
    */
   it('+3: no port decodes to more than one peripheral across all 65536 ports', () => {
-    const v = createAmstrad('+3');
+    const v = createAmstrad('zx128kplus3');
     let maxHits = 0;
     for (let port = 0; port <= 0xFFFF; port++) {
       const hits =
@@ -391,7 +391,7 @@ describe('variants — port decode exhaustive sweep', () => {
   });
 
   it('+2A: no port decodes to more than one peripheral across all 65536 ports', () => {
-    const v = createAmstrad('+2A');
+    const v = createAmstrad('zx128kplus2a');
     let maxHits = 0;
     for (let port = 0; port <= 0xFFFF; port++) {
       const hits =
@@ -405,7 +405,7 @@ describe('variants — port decode exhaustive sweep', () => {
   });
 
   it('+3: exactly 8192 ports decode as 7FFD (A15=0, A14=1, A1=0)', () => {
-    const v = createAmstrad('+3');
+    const v = createAmstrad('zx128kplus3');
     let count = 0;
     for (let port = 0; port <= 0xFFFF; port++) {
       if (v.decodes7FFD(port)) count++;
@@ -414,7 +414,7 @@ describe('variants — port decode exhaustive sweep', () => {
   });
 
   it('128K/+2: exactly 16384 ports decode as 7FFD (A15=0, A1=0 — loose decode)', () => {
-    for (const m of ['128k', '+2'] as const) {
+    for (const m of ['zx128k', 'zx128kplus2'] as const) {
       const v = createFerranti128K(m);
       let count = 0;
       for (let port = 0; port <= 0xFFFF; port++) {
@@ -425,7 +425,7 @@ describe('variants — port decode exhaustive sweep', () => {
   });
 
   it('128K/+2: 7FFD is the only decode that ever fires — 1FFD/FDC always false', () => {
-    for (const m of ['128k', '+2'] as const) {
+    for (const m of ['zx128k', 'zx128kplus2'] as const) {
       const v = createFerranti128K(m);
       let any1FFD = false, anyFDCData = false, anyFDCStatus = false;
       for (let port = 0; port <= 0xFFFF; port++) {
@@ -450,13 +450,13 @@ describe('variants — AY port decode independence', () => {
   // Neither must accidentally decode as a banking or FDC port.
 
   it('AY ports 0xBFFD/0xFFFD do not decode as 7FFD on 128K (bit 15 set rejects them)', () => {
-    const v = createFerranti128K('128k');
+    const v = createFerranti128K('zx128k');
     expect(v.decodes7FFD(0xBFFD)).toBe(false); // AY data write
     expect(v.decodes7FFD(0xFFFD)).toBe(false); // AY register select
   });
 
   it('AY ports 0xBFFD/0xFFFD do not decode as any banking or FDC port on +3', () => {
-    const v = createAmstrad('+3');
+    const v = createAmstrad('zx128kplus3');
     for (const port of [0xBFFD, 0xFFFD]) {
       expect(v.decodes7FFD(port)).toBe(false);
       expect(v.decodes1FFD(port)).toBe(false);
@@ -467,14 +467,14 @@ describe('variants — AY port decode independence', () => {
 
   it('ULA port 0x00FE has bit 1 set — does NOT alias as 7FFD on 128K', () => {
     // 0xFE = 11111110₂, bit 1 = 1 → mask (port & 0x8002) === 0x0002 ≠ 0
-    const v = createFerranti128K('128k');
+    const v = createFerranti128K('zx128k');
     expect(v.decodes7FFD(0x00FE)).toBe(false);
   });
 
   it('port 0x00FC (ULA read with A1=0) IS the notorious 7FFD alias on 128K', () => {
     // 0xFC = 11111100₂, bit 1 = 0, bit 15 = 0 → qualifies as the loose 7FFD decode.
     // This is a documented 128K hardware quirk, not a bug.
-    const v = createFerranti128K('128k');
+    const v = createFerranti128K('zx128k');
     expect(v.decodes7FFD(0x00FC)).toBe(true);
   });
 });
@@ -485,7 +485,7 @@ describe('variants — AY port decode independence', () => {
 
 describe('variants — isContended address/bank independence', () => {
   it('Ferranti 128K: contention depends only on bank parity, address is truly irrelevant', () => {
-    const v = createFerranti128K('128k');
+    const v = createFerranti128K('zx128k');
     // Odd bank contended at every address slot (ROM slot, VRAM slot, high RAM)
     for (const addr of [0x0000, 0x4000, 0x8000, 0xC000]) {
       expect(v.isContended(addr, 1)).toBe(true);
@@ -502,7 +502,7 @@ describe('variants — isContended address/bank independence', () => {
   });
 
   it('Amstrad +2A/+3: contention depends only on bank ≥ 4, address is truly irrelevant', () => {
-    for (const v of [createAmstrad('+2A'), createAmstrad('+3')]) {
+    for (const v of [createAmstrad('zx128kplus2a'), createAmstrad('zx128kplus3')]) {
       // Bank 3 (highest uncontended) and bank 4 (lowest contended) at the same address
       for (const addr of [0x0000, 0x4000, 0x8000, 0xC000]) {
         expect(v.isContended(addr, 3)).toBe(false); // boundary: just below contended range
@@ -536,8 +536,8 @@ describe('variants — isContended address/bank independence', () => {
 // ─────────────────────────────────────────────────────────────────────────
 
 describe('variants — +2A vs +3 differ only on FDC', () => {
-  const v2A = createAmstrad('+2A');
-  const vP3 = createAmstrad('+3');
+  const v2A = createAmstrad('zx128kplus2a');
+  const vP3 = createAmstrad('zx128kplus3');
 
   it('+3 has FDC, +2A does not', () => {
     expect(v2A.hasFDC).toBe(false);
@@ -578,8 +578,8 @@ describe('variants — +2A vs +3 differ only on FDC', () => {
 // ─────────────────────────────────────────────────────────────────────────
 
 describe('variants — 128K vs +2 are symmetric', () => {
-  const v128 = createFerranti128K('128k');
-  const vP2  = createFerranti128K('+2');
+  const v128 = createFerranti128K('zx128k');
+  const vP2  = createFerranti128K('zx128kplus2');
 
   it('all non-model properties are identical', () => {
     expect(v128.timing).toBe(vP2.timing);

@@ -267,7 +267,7 @@ export class Spectrum extends BaseMachine implements Machine {
     this.memory = new SpectrumMemory(model, {
       hasBanking: this.variant.hasBanking,
       romPageCount: this.variant.romPageCount,
-      is16K: model === '16k',
+      is16K: model === 'zx16k',
     });
     this.cpu = new Z80();
     this.keyboard = new SpectrumKeyboard();

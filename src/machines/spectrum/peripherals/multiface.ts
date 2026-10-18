@@ -14,8 +14,8 @@ import type { SpectrumMemory } from '@/machines/spectrum/memory.ts';
 export type MultifaceVariant = 'MF1' | 'MF128' | 'MF3';
 
 export function variantForModel(model: SpectrumModel): MultifaceVariant {
-  if (model === '16k' || model === '48k') return 'MF1';
-  if (model === '+2A' || model === '+3') return 'MF3';
+  if (model === 'zx16k' || model === 'zx48k') return 'MF1';
+  if (model === 'zx128kplus2a' || model === 'zx128kplus3') return 'MF3';
   return 'MF128';
 }
 

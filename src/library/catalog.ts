@@ -221,34 +221,34 @@ function planFormat(game: Game, current: MachineModel, format: LibraryFormat): L
   const peripheral = (kind: 'mgt-disk' | 'microdrive', link48: string, link128: string): LoadPlan | null => {
     const peripheralName = kind === 'mgt-disk' ? 'plusd' : 'interface1';
     if (is128kClass(current) && !isPlus3(current)) {
-      const target = current === '+2A' ? '128k' : current as SpectrumModel;
+      const target = current === 'zx128kplus2a' ? 'zx128k' : current as SpectrumModel;
       if (link128 || link48) return { target, link: link128 || link48, kind, peripheral: peripheralName, boot: 'peripheral' };
     }
-    if (link48) return { target: '48k', link: link48, kind, peripheral: peripheralName, boot: 'peripheral' };
-    if (link128) return { target: '128k', link: link128, kind, peripheral: peripheralName, boot: 'peripheral' };
+    if (link48) return { target: 'zx48k', link: link48, kind, peripheral: peripheralName, boot: 'peripheral' };
+    if (link128) return { target: 'zx128k', link: link128, kind, peripheral: peripheralName, boot: 'peripheral' };
     return null;
   };
 
   switch (format) {
     case 'tape':
       if (isPlus3(current)) {
-        if (tape128 || tape48 || tape16) return { target: '+3', link: tape128 || tape48 || tape16, kind: 'tape', boot: 'menu' };
+        if (tape128 || tape48 || tape16) return { target: 'zx128kplus3', link: tape128 || tape48 || tape16, kind: 'tape', boot: 'menu' };
       } else if (is128kClass(current)) {
         if (tape128 || tape48 || tape16) return { target: current as SpectrumModel, link: tape128 || tape48 || tape16, kind: 'tape', boot: 'menu' };
-      } else if (current === '16k' && tape16) {
-        return { target: '16k', link: tape16, kind: 'tape', boot: 'rom48k' };
+      } else if (current === 'zx16k' && tape16) {
+        return { target: 'zx16k', link: tape16, kind: 'tape', boot: 'rom48k' };
       }
-      if (tape48 || tape16) return { target: '48k', link: tape48 || tape16, kind: 'tape', boot: 'rom48k' };
-      if (tape128) return { target: '128k', link: tape128, kind: 'tape', boot: 'menu' };
+      if (tape48 || tape16) return { target: 'zx48k', link: tape48 || tape16, kind: 'tape', boot: 'rom48k' };
+      if (tape128) return { target: 'zx128k', link: tape128, kind: 'tape', boot: 'menu' };
       return null;
     case 'plus3-disk':
-      return plus3Disk ? { target: '+3', link: plus3Disk, kind: 'plus3-disk', boot: 'menu' } : null;
+      return plus3Disk ? { target: 'zx128kplus3', link: plus3Disk, kind: 'plus3-disk', boot: 'menu' } : null;
     case 'mgt-disk': return peripheral('mgt-disk', mgt48, mgt128);
     case 'snapshot':
-      if (snap128) return { target: '128k', link: snap128, kind: 'snapshot', boot: 'snapshot' };
-      if (snap48) return { target: '48k', link: snap48, kind: 'snapshot', boot: 'snapshot' };
-      return snap16 ? { target: '16k', link: snap16, kind: 'snapshot', boot: 'snapshot' } : null;
-    case 'rom': return rom ? { target: current === '16k' ? '16k' : '48k', link: rom, kind: 'rom', boot: 'rom' } : null;
+      if (snap128) return { target: 'zx128k', link: snap128, kind: 'snapshot', boot: 'snapshot' };
+      if (snap48) return { target: 'zx48k', link: snap48, kind: 'snapshot', boot: 'snapshot' };
+      return snap16 ? { target: 'zx16k', link: snap16, kind: 'snapshot', boot: 'snapshot' } : null;
+    case 'rom': return rom ? { target: current === 'zx16k' ? 'zx16k' : 'zx48k', link: rom, kind: 'rom', boot: 'rom' } : null;
     case 'microdrive': return peripheral('microdrive', microdrive48, microdrive128);
   }
 }
@@ -273,36 +273,36 @@ export function planLoad(game: Game, current: MachineModel, preferredFormats: It
     if (preferred) return preferred;
   }
   const { tape16, tape48, tape128, plus3Disk, mgt48, mgt128, microdrive48, microdrive128, snap16, snap48, snap128, rom } = game;
-  if (rom) return { target: current === '16k' ? '16k' : '48k', link: rom, kind: 'rom', boot: 'rom' };
+  if (rom) return { target: current === 'zx16k' ? 'zx16k' : 'zx48k', link: rom, kind: 'rom', boot: 'rom' };
   const anyTape = tape128 || tape48 || tape16;
 
   if (isPlus3(current)) {
-    if (plus3Disk) return { target: '+3', link: plus3Disk, kind: 'plus3-disk', boot: 'menu' };
-    if (anyTape) return { target: '+3', link: anyTape, kind: 'tape', boot: 'menu' };
+    if (plus3Disk) return { target: 'zx128kplus3', link: plus3Disk, kind: 'plus3-disk', boot: 'menu' };
+    if (anyTape) return { target: 'zx128kplus3', link: anyTape, kind: 'tape', boot: 'menu' };
   } else if (is128kClass(current)) {   // 128 / +2 / +2A (not +3, handled above)
     if (anyTape) return { target: current as SpectrumModel, link: anyTape, kind: 'tape', boot: 'menu' };
     // The +2A is 128K-class but its Amstrad edge connector cannot host the +D
     // or Interface 1. Use a plain 128K model when a peripheral is needed.
-    const peripheralTarget = current === '128k' || current === '+2' ? current as SpectrumModel : '128k';
+    const peripheralTarget = current === 'zx128k' || current === 'zx128kplus2' ? current as SpectrumModel : 'zx128k';
     if (mgt128 || mgt48) return { target: peripheralTarget, link: mgt128 || mgt48, kind: 'mgt-disk', peripheral: 'plusd', boot: 'peripheral' };
     if (microdrive128 || microdrive48) return { target: peripheralTarget, link: microdrive128 || microdrive48, kind: 'microdrive', peripheral: 'interface1', boot: 'peripheral' };
-    if (plus3Disk) return { target: '+3', link: plus3Disk, kind: 'plus3-disk', boot: 'menu' };
+    if (plus3Disk) return { target: 'zx128kplus3', link: plus3Disk, kind: 'plus3-disk', boot: 'menu' };
   } else {
-    const is16 = current === '16k';
-    if (is16 && tape16) return { target: '16k', link: tape16, kind: 'tape', boot: 'rom48k' };
-    if (!is16 && tape48) return { target: '48k', link: tape48, kind: 'tape', boot: 'rom48k' };
-    if (tape16) return { target: '48k', link: tape16, kind: 'tape', boot: 'rom48k' };
-    if (tape48) return { target: '48k', link: tape48, kind: 'tape', boot: 'rom48k' };
-    if (mgt48) return { target: '48k', link: mgt48, kind: 'mgt-disk', peripheral: 'plusd', boot: 'peripheral' };
-    if (microdrive48) return { target: '48k', link: microdrive48, kind: 'microdrive', peripheral: 'interface1', boot: 'peripheral' };
-    if (tape128) return { target: '128k', link: tape128, kind: 'tape', boot: 'menu' };
-    if (mgt128) return { target: '128k', link: mgt128, kind: 'mgt-disk', peripheral: 'plusd', boot: 'peripheral' };
-    if (microdrive128) return { target: '128k', link: microdrive128, kind: 'microdrive', peripheral: 'interface1', boot: 'peripheral' };
-    if (plus3Disk) return { target: '+3', link: plus3Disk, kind: 'plus3-disk', boot: 'menu' };
+    const is16 = current === 'zx16k';
+    if (is16 && tape16) return { target: 'zx16k', link: tape16, kind: 'tape', boot: 'rom48k' };
+    if (!is16 && tape48) return { target: 'zx48k', link: tape48, kind: 'tape', boot: 'rom48k' };
+    if (tape16) return { target: 'zx48k', link: tape16, kind: 'tape', boot: 'rom48k' };
+    if (tape48) return { target: 'zx48k', link: tape48, kind: 'tape', boot: 'rom48k' };
+    if (mgt48) return { target: 'zx48k', link: mgt48, kind: 'mgt-disk', peripheral: 'plusd', boot: 'peripheral' };
+    if (microdrive48) return { target: 'zx48k', link: microdrive48, kind: 'microdrive', peripheral: 'interface1', boot: 'peripheral' };
+    if (tape128) return { target: 'zx128k', link: tape128, kind: 'tape', boot: 'menu' };
+    if (mgt128) return { target: 'zx128k', link: mgt128, kind: 'mgt-disk', peripheral: 'plusd', boot: 'peripheral' };
+    if (microdrive128) return { target: 'zx128k', link: microdrive128, kind: 'microdrive', peripheral: 'interface1', boot: 'peripheral' };
+    if (plus3Disk) return { target: 'zx128kplus3', link: plus3Disk, kind: 'plus3-disk', boot: 'menu' };
   }
-  if (snap128) return { target: '128k', link: snap128, kind: 'snapshot', boot: 'snapshot' };
-  if (snap48) return { target: '48k', link: snap48, kind: 'snapshot', boot: 'snapshot' };
-  if (snap16) return { target: '16k', link: snap16, kind: 'snapshot', boot: 'snapshot' };
+  if (snap128) return { target: 'zx128k', link: snap128, kind: 'snapshot', boot: 'snapshot' };
+  if (snap48) return { target: 'zx48k', link: snap48, kind: 'snapshot', boot: 'snapshot' };
+  if (snap16) return { target: 'zx16k', link: snap16, kind: 'snapshot', boot: 'snapshot' };
   return null;
 }
 

@@ -41,7 +41,7 @@ describe('Interface2 — insert/eject', () => {
 describe('Interface2 — applyROM (slot-0 overlay)', () => {
   let mem: SpectrumMemory;
   beforeEach(() => {
-    mem = new SpectrumMemory('48k');
+    mem = new SpectrumMemory('zx48k');
     mem.loadROM(new Uint8Array(16384).fill(0x5A)); // recognisable Spectrum ROM
   });
 

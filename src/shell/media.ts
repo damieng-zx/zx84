@@ -300,7 +300,7 @@ export async function saveSnapshot(format: 'z80' | 'szx' = 'szx'): Promise<void>
   const wasPaused = emulationPaused();
   if (!wasPaused) machine.stop();
   const model = currentModel() as SpectrumModel;
-  const filename = `zx84-${model.replace('+', 'plus')}.${format}`;
+  const filename = `zx84-${model}.${format}`;
   try {
     downloadFile(await snapshots.save(format), filename);
   } finally {
