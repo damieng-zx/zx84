@@ -55,6 +55,7 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'mtx-cpm': () => settings.mtxCpm(),
   'mtx-80-column': () => settings.mtx80Column(),
   'mtx-512k-ram': () => settings.mtx512kRam(),
+  'msx-floppy': () => settings.msxFloppy(),
   'bbc-disk-system': () => settings.bbcDiskSystem(),
   // True while the SAA5050 upscaler is selected: machines that draw teletext
   // then supply the raw, unrounded dots for it to round.
