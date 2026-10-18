@@ -16,6 +16,7 @@
 import { describe, expect, it } from 'vitest';
 import { registry } from '@/machines/registry.ts';
 import { STATUS_LED_IDS, type SaveMenuItem } from '@/machines/machine.ts';
+import { machineUi } from '@/ui/machine-ui.ts';
 
 /** Every (entry, model) pair the registry knows about. */
 const ALL = registry.flatMap(entry => entry.models.map(model => ({ entry, model })));
@@ -201,6 +202,16 @@ describe('machine capabilities', () => {
       // two is stale, and the pane silently wins.
       if (caps.hiddenPanes.includes('mouse-panel')) expect(caps.mouseTypes).toEqual([]);
       if (caps.hiddenPanes.includes('banks-panel')) expect(caps.memoryLayout).toBe(false);
+    },
+  );
+
+  it.each(ALL.map(a => [a.model, a] as const))(
+    '%s shows the System Variables pane only when it has a view for it',
+    (_model, { entry, model }) => {
+      // The pane body is the machine's SysVars contribution; without one it
+      // renders empty, which looks broken rather than absent.
+      const hasView = machineUi(entry.kind).SysVars !== undefined;
+      expect(entry.descriptor(model).ui.hiddenPanes.includes('sysvar-panel')).toBe(!hasView);
     },
   );
 });

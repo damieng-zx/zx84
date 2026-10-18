@@ -17,8 +17,9 @@ import {
 const EINSTEIN_UI: MachineUiCapabilities = {
   // The Einstein is disk-only: it has no cassette transport (the deck is inert,
   // no tape service, no tape port I/O — see services/index.ts + frame-probe.ts),
-  // so the tape pane is hidden and no tape media is advertised.
-  hiddenPanes: ['tape-panel'],
+  // so the tape pane is hidden and no tape media is advertised. It has no
+  // system-variables view either.
+  hiddenPanes: ['tape-panel', 'sysvar-panel'],
   memoryLayout: true,
   trace: true,
   colorMap: 'einstein',

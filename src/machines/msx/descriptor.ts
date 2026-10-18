@@ -13,7 +13,8 @@ import {
 } from './constants.ts';
 
 const MSX_UI: MachineUiCapabilities = {
-  hiddenPanes: [],
+  // No system-variables view (only the Spectrum contributes one).
+  hiddenPanes: ['sysvar-panel'],
   memoryLayout: true,
   trace: true,
   colorMap: 'msx',
