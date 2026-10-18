@@ -59,6 +59,9 @@ export class BetaDisk {
   readonly fdc = new WD179x({
     statusBit7: 'not-ready',
     formatSectorsPerTrack: 16,
+    // TR-DOS can issue a command word of 0xFF (WRITE TRACK) without ever
+    // servicing DRQ and relies on the chip's LOST DATA termination to finish it.
+    lostDataPolls: 8,
   });
 
   reset(): void {

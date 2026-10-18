@@ -51,6 +51,16 @@ export interface WD179xOptions {
    * the status register and leave this unset.
    */
   readonly onInterrupt?: (asserted: boolean) => void;
+  /**
+   * Lost-data timeout for the polled hosts, in status/line polls. A Write
+   * Sector or Write Track command raises DRQ for its first byte; on real silicon
+   * the CPU must load it within a few byte times or the command terminates with
+   * LOST DATA and INTRQ (nothing is written). The polled model has no byte
+   * clock, so the number of times the host looks at the status register or the
+   * DRQ/INTRQ lines without servicing DRQ stands in for elapsed time. Unset (the
+   * default) keeps the controller waiting for the CPU indefinitely.
+   */
+  readonly lostDataPolls?: number;
 }
 
 // ── Status register bits ────────────────────────────────────────────────────
@@ -61,6 +71,7 @@ const ST_BUSY      = 0x01; // all commands: command in progress
 const ST_DRQ       = 0x02; // Type II/III: data register needs service
 const ST_INDEX     = 0x02; // Type I: index pulse (same bit as DRQ)
 const ST_TRACK0    = 0x04; // Type I: head over track 0
+const ST_LOSTDATA  = 0x04; // Type II/III: CPU did not service DRQ in time
 const ST_CRCERR    = 0x08; // Type II/III: CRC error (ID or data field)
 const ST_RNF       = 0x10; // Type II/III: record not found / Type I: seek error (V=1 verify mismatch)
 const ST_RECTYPE   = 0x20; // Type II read: record type (1 = deleted-data mark) / Type I: head loaded
@@ -102,6 +113,11 @@ export class WD179x {
   private formatSectorsPerTrack: number;
   private readonly hasSideCompare: boolean;
   private readonly onInterrupt?: (asserted: boolean) => void;
+  private readonly lostDataPolls: number;
+  /** A write command has raised DRQ and the first byte has not arrived yet. */
+  private awaitingFirstByte = false;
+  /** Polls seen since the write command's DRQ went up (see lostDataPolls). */
+  private idlePolls = 0;
 
   /** Change how many sectors a WRITE TRACK lays down (the disc format in use). */
   setFormatSectorsPerTrack(count: number): void { this.formatSectorsPerTrack = count; }
@@ -111,6 +127,7 @@ export class WD179x {
     this.formatSectorsPerTrack = options.formatSectorsPerTrack;
     this.hasSideCompare = options.sideCompare ?? options.statusBit7 === 'not-ready';
     this.onInterrupt = options.onInterrupt;
+    this.lostDataPolls = options.lostDataPolls ?? 0;
   }
 
   // ── Registers ─────────────────────────────────────────────────────────
@@ -297,9 +314,9 @@ export class WD179x {
   // ── Interrupt / data-request lines (read by the Beta system port) ─────
   /** INTRQ — asserted when a command has completed (BUSY clear). Our transfers
    *  finish synchronously, so "not BUSY" is the completion signal TR-DOS polls. */
-  get intrq(): boolean { return (this.statusReg & ST_BUSY) === 0; }
+  get intrq(): boolean { this.pollForLostData(); return (this.statusReg & ST_BUSY) === 0; }
   /** DRQ — the data register needs servicing during a Type II/III transfer. */
-  get drq(): boolean { return !this.typeICmd && (this.statusReg & ST_DRQ) !== 0; }
+  get drq(): boolean { this.pollForLostData(); return !this.typeICmd && (this.statusReg & ST_DRQ) !== 0; }
 
   /** Decay the display latches and spin the motor down when idle. */
   tickFrame(): void {
@@ -376,6 +393,7 @@ export class WD179x {
    *  when a disk is present and spinning so the ROM's index-edge detector sees
    *  the 0→1 transition it needs. */
   readStatus(): number {
+    this.pollForLostData();
     // Reading the status acknowledges a completed command (the host's NMI
     // handler clears the completion edge here).
     if (this.completionIrq) this.setCompletion(false);
@@ -422,6 +440,7 @@ export class WD179x {
   writeData(v: number): void {
     v &= 0xFF;
     this.dataReg = v;
+    this.awaitingFirstByte = false;
     if (this.formatting) { this.formatByte(v); return; }
     if (this.buffer !== null && this.writing) {
       this.buffer[this.bufPos++] = v;
@@ -563,6 +582,25 @@ export class WD179x {
 
   /** Complete a command that failed before any transfer with `status`,
    *  raising the completion interrupt so an NMI-driven host stops waiting. */
+  /** Called whenever the host looks at the controller (status register, or the
+   *  DRQ/INTRQ lines). Enough looks without the first write byte arriving means
+   *  the CPU missed the DRQ window: terminate with LOST DATA + INTRQ. */
+  pollForLostData(): void {
+    if (!this.awaitingFirstByte || this.lostDataPolls <= 0) return;
+    if (++this.idlePolls < this.lostDataPolls) return;
+    this.awaitingFirstByte = false;
+    this.formatting = false;
+    this.writing = false;
+    this.buffer = null;
+    this.statusReg = this.base() | ST_LOSTDATA;
+  }
+
+  /** Begin the lost-data window for a write command that has just raised DRQ. */
+  private awaitFirstByte(): void {
+    this.awaitingFirstByte = true;
+    this.idlePolls = 0;
+  }
+
   private failCommand(status: number): void {
     this.statusReg = this.base() | status;
     if (this.interruptDriven) this.scheduleCompletion();
@@ -640,6 +678,7 @@ export class WD179x {
     this.dirty[this.currentDrive] = true;
     this.statusReg = this.base() | ST_BUSY | ST_DRQ;
     this.latch(true);
+    this.awaitFirstByte();
     if (this.interruptDriven) this.scheduleByte('next');
   }
 
@@ -772,6 +811,7 @@ export class WD179x {
     this.fmtPending = null;
     this.fmtBytesLeft = 8192; // budget so a malformed stream still terminates
     this.statusReg = this.base() | ST_BUSY | ST_DRQ;
+    this.awaitFirstByte();
     if (this.interruptDriven) this.scheduleByte('next');
   }
 

@@ -483,3 +483,94 @@ describe('WD1793 multi-sector WRITE termination', () => {
     expect(wd.readStatus() & (ST_BUSY | ST_RNF)).toBe(0);
   });
 });
+
+// WD1793 datasheet, Write Track / Write Sector: the first data byte must be
+// loaded within a few byte times of DRQ. If the CPU does not, LOST DATA (status
+// bit 2) is set, INTRQ is raised and the command terminates with nothing
+// written. TR-DOS relies on this: with its step-rate register holding a BASIC
+// token it issues a seek-style command word of 0xFF — which decodes as WRITE
+// TRACK — and simply waits for INTRQ, never servicing DRQ.
+describe('WD1793 LOST DATA on an unserviced write command', () => {
+  const ST_DRQ = 0x02;
+  const ST_LOST = 0x04;
+  const lossy = () => new WD179x({ statusBit7: 'not-ready', formatSectorsPerTrack: 16, lostDataPolls: 8 });
+  const poll = (wd: WD179x, n: number) => { for (let i = 0; i < n; i++) wd.readStatus(); };
+
+  it('terminates WRITE TRACK (including the 0xFF command word) with LOST DATA and INTRQ', () => {
+    for (const cmd of [CMD_WRITETRACK, 0xF4, 0xFF]) {
+      const wd = lossy();
+      wd.insertDisk(trdImage(), 0);
+      wd.selectDrive(0);
+      wd.writeCommand(cmd);
+      expect(wd.drq).toBe(true);        // DRQ is offered first...
+      expect(wd.intrq).toBe(false);
+      poll(wd, 64);                     // ...and never serviced
+      const status = wd.readStatus();
+      expect(status & ST_BUSY).toBe(0);
+      expect(status & ST_LOST).toBe(ST_LOST);
+      expect(wd.intrq).toBe(true);
+      expect(wd.drq).toBe(false);
+    }
+  });
+
+  it('leaves the disk untouched when WRITE TRACK is abandoned', () => {
+    const wd = lossy();
+    const img = trdImage(0xAB);
+    wd.insertDisk(img, 0);
+    wd.selectDrive(0);
+    wd.writeCommand(0xFF);
+    poll(wd, 64);
+    expect(img.tracks[0][0]!.sectors).toHaveLength(16);
+    expect(img.tracks[0][0]!.sectors.every(s => s.data.every(b => b === 0xAB))).toBe(true);
+  });
+
+  it('terminates WRITE SECTOR with LOST DATA and writes nothing', () => {
+    const wd = lossy();
+    const img = trdImage(0xAB);
+    wd.insertDisk(img, 0);
+    wd.selectDrive(0);
+    wd.writeSectorReg(1);
+    wd.writeCommand(CMD_WRITE);
+    poll(wd, 64);
+    const status = wd.readStatus();
+    expect(status & ST_BUSY).toBe(0);
+    expect(status & ST_LOST).toBe(ST_LOST);
+    expect(img.tracks[0][0]!.sectors[0].data.every(b => b === 0xAB)).toBe(true);
+  });
+
+  it('does not abort while the first byte is still within its window', () => {
+    const wd = lossy();
+    wd.insertDisk(trdImage(), 0);
+    wd.selectDrive(0);
+    wd.writeSectorReg(1);
+    wd.writeCommand(CMD_WRITE);
+    poll(wd, 1);
+    expect(wd.readStatus() & ST_DRQ).toBe(ST_DRQ);
+    expect(wd.intrq).toBe(false);
+  });
+
+  it('lets a CPU that services DRQ promptly finish the write, however long it takes', () => {
+    const wd = lossy();
+    const img = trdImage(0xAB);
+    wd.insertDisk(img, 0);
+    wd.selectDrive(0);
+    wd.writeSectorReg(1);
+    wd.writeCommand(CMD_WRITE);
+    poll(wd, 2);                        // a couple of polls, then the first byte arrives
+    wd.writeData(0x5A);
+    poll(wd, 200);                      // slow remainder must not trip the timeout
+    for (let i = 1; i < 256; i++) wd.writeData(0x5A);
+    expect(wd.readStatus() & (ST_BUSY | ST_LOST)).toBe(0);
+    expect(img.tracks[0][0]!.sectors[0].data.every(b => b === 0x5A)).toBe(true);
+  });
+
+  it('is off by default, so other WD179x hosts keep waiting for the CPU', () => {
+    const wd = wd1793();
+    wd.insertDisk(trdImage(), 0);
+    wd.selectDrive(0);
+    wd.writeCommand(CMD_WRITETRACK);
+    poll(wd, 1000);
+    expect(wd.readStatus() & ST_BUSY).toBe(ST_BUSY);
+    expect(wd.drq).toBe(true);
+  });
+});
