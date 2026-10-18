@@ -53,8 +53,19 @@ export interface Apple2OcrInput {
   readonly altCharset?: boolean;
   /** A //e: decode with the //e's character set. */
   readonly iie?: boolean;
+  /** An Enhanced //e: its alternate set shows MouseText (not letters) for $40-$5F. */
+  readonly mouseText?: boolean;
   /** A Videx Videoterm's screen: `ram` is the card's RAM, read as 80 columns from `start`. */
   readonly videx?: { readonly start: number };
+  /** Colour the overlay draws text in (CSS); inverse-video cells swap it with black. */
+  readonly ink?: string;
+}
+
+/** Whether a screen byte is drawn in inverse video (flashing characters count as normal). */
+function isInverse(byte: number, input: Apple2OcrInput): boolean {
+  if (input.videx) return (byte & 0x80) !== 0;
+  if (input.iie && input.altCharset) return byte < 0x40 || (byte >= 0x60 && byte < 0x80);
+  return byte < 0x40;
 }
 
 function escape(ch: string): string {
@@ -68,6 +79,7 @@ export function ocrApple2Text(input: Apple2OcrInput): OcrResult {
   const paper: number[] = new Array(cols * APPLE2_OCR_ROWS).fill(0);
   const textLines: string[] = [];
   const htmlLines: string[] = [];
+  const ink = input.ink ?? '#ffffff';
   const decode = (byte: number): string => {
     if (input.videx) return byte < 0x20 ? ' ' : String.fromCharCode(byte);
     return input.iie ? apple2eChar(byte, !!input.altCharset) : apple2Char(byte);
@@ -83,20 +95,28 @@ export function ocrApple2Text(input: Apple2OcrInput): OcrResult {
       if (!inText) { text += ' '; html += '<span> </span>'; continue; }
       let byte: number;
       if (input.videx) {
-        byte = input.ram[(addr + c) & 0x7FF] & 0x7F;           // 7-bit ASCII; bit 7 is inverse
+        byte = input.ram[(addr + c) & 0x7FF];
       } else if (input.col80) {
         const bank = (c & 1) === 0 ? (input.aux ?? null) : input.ram;
         byte = bank ? bank[(addr + (c >> 1)) & 0xFFFF] : 0xA0;
       } else {
         byte = input.ram[(addr + c) & 0xFFFF];
       }
-      const ch = decode(byte);
+      if (input.mouseText && input.altCharset && byte >= 0x40 && byte < 0x60) {
+        // A MouseText symbol has no character to offer: leave its cell unmasked.
+        text += ' ';
+        html += '<span> </span>';
+        continue;
+      }
+      const ch = decode(input.videx ? byte & 0x7F : byte);
       mask[row * cols + c] = true;
       text += ch;
-      html += `<span>${escape(ch)}</span>`;
+      html += isInverse(byte, input)
+        ? `<span style="color:#000;background:${ink}">${escape(ch)}</span>`
+        : `<span>${escape(ch)}</span>`;
     }
     textLines.push(text);
-    htmlLines.push(`<div>${html}</div>`);
+    htmlLines.push(`<div style="color:${ink}">${html}</div>`);
   }
 
   return {

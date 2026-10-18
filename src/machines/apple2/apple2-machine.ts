@@ -1,7 +1,7 @@
 /**
- * Apple II / II Plus motherboard.
+ * Apple II / II Plus / //e motherboard.
  *
- * A 1.0227 MHz 6502 with 48K RAM, a 12K system ROM (Applesoft + Monitor), the
+ * A 1.0227 MHz 6502 (a 65C02 on the Enhanced //e) with 48K RAM, a 12K system ROM (Applesoft + Monitor), the
  * $C0xx soft switches, NTSC video (text / lores / hires), a 1-bit speaker, a
  * cassette port, and a Disk II controller card in slot 6. There are no on-board
  * interrupts: the frame loop just runs the CPU for a frame's worth of cycles and
@@ -9,6 +9,7 @@
  */
 
 import { M6502 } from '@/cores/m6502.ts';
+import { M65C02 } from '@/cores/m65c02.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
@@ -22,7 +23,7 @@ import type { Apple2Model } from './models.ts';
 import { APPLE2_ROM_SIZE, apple2ModelInfo, type Apple2ModelInfo } from './models.ts';
 import { APPLE2_DEFAULT_OPTIONS, readApple2Options, type Apple2Options } from './options.ts';
 import {
-  APPLE2_ACTIVE_WIDTH, APPLE2_BORDER_LEFT, APPLE2_BORDER_TOP, APPLE2_CPU_CLOCK, APPLE2_SCREEN_HEIGHT,
+  APPLE2_ACTIVE_HEIGHT, APPLE2_ACTIVE_WIDTH, APPLE2_BORDER_LEFT, APPLE2_BORDER_TOP, APPLE2_CPU_CLOCK, APPLE2_SCREEN_HEIGHT,
   APPLE2_SCREEN_WIDTH, APPLE2_TSTATES_PER_FRAME, APPLE2_VBL_LINE, APPLE2_CYCLES_PER_LINE,
 } from './constants.ts';
 import { Apple2Memory } from './apple2-memory.ts';
@@ -63,7 +64,8 @@ export class Apple2Machine extends BaseMachine implements Machine {
   host: MachineHost | null = null;
   readonly services: Apple2Services;
 
-  readonly cpu = new M6502();
+  /** An NMOS 6502, or on the Enhanced //e a CMOS 65C02. */
+  readonly cpu: M6502;
   readonly memory: Apple2Memory;
   readonly keyboard: Apple2Keyboard;
   readonly paddles = new Apple2Paddles();
@@ -118,6 +120,7 @@ export class Apple2Machine extends BaseMachine implements Machine {
     super();
     this.model = model;
     this.modelInfo = apple2ModelInfo(model);
+    this.cpu = this.modelInfo.cmos ? new M65C02() : new M6502();
     this.display = display ?? null;
     this.memory = this.modelInfo.iie ? new Apple2eMemory() : new Apple2Memory();
     this.keyboard = new Apple2Keyboard(this.modelInfo.iie);
@@ -162,9 +165,14 @@ export class Apple2Machine extends BaseMachine implements Machine {
       this.mockingboard = board;
       this.mixer.psgGain = 1;
     }
-    if (this.modelInfo.iie) this.mmu.auxFitted = this.options.eightyColumn;
+    if (this.modelInfo.iie) {
+      this.mmu.auxFitted = this.options.eightyColumn;
+      this.mmu.slotless = this.modelInfo.iic;
+      this.mmu.intcxrom = this.modelInfo.iic;
+    }
     const requests: AuxRomRequest[] = [];
-    if (this.options.disk2) {
+    // The //c has its own disk firmware inside the system ROM.
+    if (this.options.disk2 && !this.modelInfo.iic) {
       requests.push({
         cacheKey: 'apple2-disk2-rom',
         source: 'apple2/disk2.rom',
@@ -397,24 +405,39 @@ export class Apple2Machine extends BaseMachine implements Machine {
 
   private ocrInput(): Parameters<typeof ocrApple2Text>[0] {
     const videx = this.videx?.view;
+    const ink = this.videoState.mode === 'green' ? '#33ff66' : '#ffffff';
     if (videx?.active) {
       return {
         ram: videx.ram, page2: false, textRows: { first: 0, last: 23 },
-        videx: { start: videx.start },
+        videx: { start: videx.start }, ink,
       };
     }
     if (!this.modelInfo.iie) {
-      return { ram: this.memory.ram, page2: this.page2, textRows: this.ocrTextRows() };
+      return { ram: this.memory.ram, page2: this.page2, textRows: this.ocrTextRows(), ink };
     }
     const mmu = this.mmu;
     return {
+      ink,
       ram: mmu.ram, aux: mmu.auxFitted ? mmu.aux : null,
       page2: this.page2 && !mmu.store80, textRows: this.ocrTextRows(),
-      col80: this.col80, altCharset: this.altCharset, iie: true,
+      col80: this.col80, altCharset: this.altCharset, iie: true, mouseText: this.modelInfo.cmos,
     };
   }
 
   /** Blank matched 40×24 (or 80×24) cells to black so the crisp overlay replaces them. */
+  /** Where the TEXT overlay's grid sits in the frame: the Videx card's 216-line
+   *  display is centred, the Apple's own text fills the 192-line active area. */
+  get textField(): { x: number; y: number; width: number; height: number } {
+    if (this.videx?.view.active) {
+      const height = 24 * 9;
+      return { x: APPLE2_BORDER_LEFT, y: (APPLE2_SCREEN_HEIGHT - height) >> 1, width: APPLE2_ACTIVE_WIDTH, height };
+    }
+    return {
+      x: APPLE2_BORDER_LEFT, y: APPLE2_BORDER_TOP,
+      width: APPLE2_ACTIVE_WIDTH, height: APPLE2_ACTIVE_HEIGHT,
+    };
+  }
+
   blankCells(mask: boolean[], cols: number, rows: number, _paper?: number[]): void {
     const px = new Uint32Array(this.video.pixels.buffer);
     const w = APPLE2_SCREEN_WIDTH;

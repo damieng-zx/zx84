@@ -36,7 +36,7 @@ const APPLE2_UI: MachineUiCapabilities = {
   romPages: 0,
   beeper: true,
   psgControls: [],
-  statusLeds: ['kbd', 'dsk', 'beep'],
+  statusLeds: ['kbd', 'dsk', 'beep', 'text'],
   keyboardBus: 'matrix',
   tape: 'deck',
   tapeSound: false,
@@ -74,7 +74,7 @@ export function apple2Descriptor(
 
 export const apple2Entry: MachineEntry = {
   kind: 'apple2',
-  models: ['apple2', 'apple2-plus', 'apple2e'],
+  models: ['apple2', 'apple2-plus', 'apple2e', 'apple2e-enhanced', 'apple2c'],
   descriptor: apple2Descriptor,
   create(model: MachineModel, display: IScreenRenderer | null) {
     return new Apple2Machine(model as Apple2Model, display);

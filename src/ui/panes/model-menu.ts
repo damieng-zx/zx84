@@ -46,6 +46,8 @@ export const MODEL_LABELS: Record<MachineModel, string> = {
   apple2: 'Apple ][',
   'apple2-plus': 'Apple ][+',
   apple2e: 'Apple //e',
+  'apple2e-enhanced': 'Apple //e Enhanced',
+  apple2c: 'Apple //c',
 };
 
 export const LOCALE_LABELS: Record<MachineLocale, string> = {
@@ -167,6 +169,8 @@ export const MODEL_MENU: MenuItem[] = [
       modelEntry('apple2'),
       modelEntry('apple2-plus'),
       modelEntry('apple2e'),
+      modelEntry('apple2e-enhanced'),
+      modelEntry('apple2c'),
     ],
   },
 ];

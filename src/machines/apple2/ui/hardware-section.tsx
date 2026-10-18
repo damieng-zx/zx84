@@ -10,15 +10,18 @@ import { Show } from 'solid-js';
 import { currentModel } from '@/state/machine-state.ts';
 import { switchModel } from '@/shell/lifecycle.ts';
 import * as settings from '@/store/settings.ts';
+import { apple2ModelInfo } from '../models.ts';
 
 function rebuild(): void {
   void switchModel(currentModel());
 }
 
 export function Apple2HardwareSection() {
+  const iic = () => apple2ModelInfo(currentModel()).iic;
   return (
     <>
       <div class="multiface-row">
+        <Show when={!iic()}>
         <label
           class="mf-check"
           title="Fit the Disk ][ controller card in slot 6, with its drives"
@@ -35,8 +38,9 @@ export function Apple2HardwareSection() {
           />
           Disk ][ controller
         </label>
+        </Show>
         <select
-          disabled={!settings.apple2Disk2()}
+          disabled={!iic() && !settings.apple2Disk2()}
           value={settings.apple2Drives()}
           title="Drives attached to the Disk ][ controller"
           onChange={(event) => {
@@ -46,8 +50,8 @@ export function Apple2HardwareSection() {
             rebuild();
           }}
         >
-          <option value="1">1 drive</option>
-          <option value="2">2 drives</option>
+          <option value="1">{iic() ? 'Internal drive' : '1 drive'}</option>
+          <option value="2">{iic() ? 'Internal + external drive' : '2 drives'}</option>
         </select>
       </div>
       <div class="multiface-row">
@@ -68,6 +72,7 @@ export function Apple2HardwareSection() {
           Paddles / joystick
         </label>
       </div>
+      <Show when={!iic()}>
       <div class="multiface-row">
         <label
           class="mf-check"
@@ -86,7 +91,8 @@ export function Apple2HardwareSection() {
           Mockingboard (slot 4)
         </label>
       </div>
-      <Show when={currentModel() === 'apple2e'}>
+      </Show>
+      <Show when={apple2ModelInfo(currentModel()).iie && !iic()}>
         <div class="multiface-row">
           <label
             class="mf-check"
@@ -106,7 +112,7 @@ export function Apple2HardwareSection() {
           </label>
         </div>
       </Show>
-      <Show when={currentModel() !== 'apple2e'}>
+      <Show when={!apple2ModelInfo(currentModel()).iie}>
       <div class="multiface-row">
         <label
           class="mf-check"

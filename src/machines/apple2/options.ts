@@ -7,7 +7,7 @@
  */
 
 import type { SettingsView } from '@/machines/machine.ts';
-import type { Apple2Model } from './models.ts';
+import { apple2ModelInfo, type Apple2Model } from './models.ts';
 
 export interface Apple2Options {
   /** The Disk II controller card in slot 6, with its drives. */
@@ -36,15 +36,16 @@ export const APPLE2_DEFAULT_OPTIONS: Apple2Options = {
 };
 
 export function readApple2Options(view: SettingsView, model: Apple2Model): Apple2Options {
-  const iie = model === 'apple2e';
+  const { iie, iic } = apple2ModelInfo(model);
   return {
-    disk2: view.get('apple2-disk2', APPLE2_DEFAULT_OPTIONS.disk2),
+    // The //c's drive controller and 80-column hardware are part of the machine.
+    disk2: iic || view.get('apple2-disk2', APPLE2_DEFAULT_OPTIONS.disk2),
     drives: view.get<string>('apple2-drives', '2') === '1' ? 1 : 2,
     languageCard: iie || view.get('apple2-langcard', APPLE2_DEFAULT_OPTIONS.languageCard),
     // The //e is normally fitted with the extended card; the ][ family has to be
     // given a Videx card.
-    eightyColumn: iie ? view.get('apple2e-80col', true) : view.get('apple2-80col', false),
+    eightyColumn: iic || (iie ? view.get('apple2e-80col', true) : view.get('apple2-80col', false)),
     joystick: view.get('apple2-joystick', APPLE2_DEFAULT_OPTIONS.joystick),
-    mockingboard: view.get('apple2-mockingboard', APPLE2_DEFAULT_OPTIONS.mockingboard),
+    mockingboard: !iic && view.get('apple2-mockingboard', APPLE2_DEFAULT_OPTIONS.mockingboard),
   };
 }

@@ -3,7 +3,6 @@ import type {
 } from '@/machines/machine.ts';
 import { fixedDrive } from '@/media/floppy/floppy-sound.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
-import { APPLE2_ACTIVE_HEIGHT, APPLE2_ACTIVE_WIDTH, APPLE2_BORDER_LEFT, APPLE2_BORDER_TOP } from '../constants.ts';
 import type { Apple2Machine } from '../apple2-machine.ts';
 
 /** 5.25" drive (the Disk II's only media). */
@@ -27,10 +26,7 @@ class Apple2TranscribeDriver implements TranscribeDriver {
       text: result.text,
       html: result.html,
       grid: result.grid,
-      field: {
-        x: APPLE2_BORDER_LEFT, y: APPLE2_BORDER_TOP,
-        width: APPLE2_ACTIVE_WIDTH, height: APPLE2_ACTIVE_HEIGHT,
-      },
+      field: m.textField,
     };
   }
 }

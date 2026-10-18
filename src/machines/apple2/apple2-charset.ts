@@ -101,7 +101,9 @@ export class Apple2eCharset implements Apple2Font {
     if (!altCharset) {
       if ((code & 0xC0) === 0x40) {
         flashing = true;
-        if (code >= 0x60) romCode = code - 0x40;       // flashing symbols, not lowercase
+        // Flashing characters are the inverse set's glyphs; the Enhanced ROM puts
+        // MouseText where the unenhanced one repeated them at $40-$5F.
+        romCode = code - 0x40;
       } else if (code >= 0xE0) {
         romCode = code - 0x20;                         // lowercase codes show as upper case
       }

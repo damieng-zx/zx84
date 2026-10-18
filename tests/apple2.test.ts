@@ -272,7 +272,7 @@ describe('apple2 hardware options', () => {
 
 describe('apple ][ (original)', () => {
   it('is registered alongside the ][+', () => {
-    expect(apple2Entry.models).toEqual(['apple2', 'apple2-plus', 'apple2e']);
+    expect(apple2Entry.models).toEqual(['apple2', 'apple2-plus', 'apple2e', 'apple2e-enhanced', 'apple2c']);
     expect(apple2Entry.romSources('apple2')).toEqual(['apple2/apple2.rom']);
     expect(apple2Entry.romSources('apple2-plus')).toEqual(['apple2/apple2plus.rom']);
   });
@@ -948,6 +948,23 @@ describe('apple2-plus OCR', () => {
     expect(rows[20][0]).toBe('B');
     expect(r.mask[0]).toBe(false);
     expect(r.mask[20 * 40]).toBe(true);
+  });
+
+  it('draws inverse-video cells as swapped colours and normal ones in the ink colour', () => {
+    const ram = new Uint8Array(0x10000);
+    ram[0x400] = 0x01;                 // inverse 'A'
+    ram[0x401] = 0xC1;                 // normal 'A'
+    const r = ocrApple2Text({ ram, page2: false, textRows: { first: 0, last: 23 }, ink: '#33ff66' });
+    expect(r.html).toContain('<div style="color:#33ff66">');
+    expect(r.html).toContain('<span style="color:#000;background:#33ff66">A</span><span>A</span>');
+  });
+
+  it('offers the TEXT overlay and places it over the screen it describes', () => {
+    const m = make();
+    try {
+      expect(m.descriptor.ui.statusLeds).toContain('text');
+      expect(m.textField.height).toBe(192);
+    } finally { m.destroy(); }
   });
 });
 

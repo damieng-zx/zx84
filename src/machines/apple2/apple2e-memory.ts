@@ -28,6 +28,9 @@ export class Apple2eMemory extends Apple2Memory {
   private readonly intRom = new Uint8Array(0x1000);
   /** Whether the auxiliary RAM is fitted. */
   auxFitted = false;
+  /** A //c: there are no slots, so $C100-$CFFF is always the internal ROM and
+   *  INTCXROM/SLOTC3ROM do nothing. */
+  slotless = false;
 
   // The MMU soft switches ($C000-$C00B writes, read back at $C011-$C018).
   store80 = false;
@@ -167,9 +170,9 @@ export class Apple2eMemory extends Apple2Memory {
       case 0: this.store80 = on; return true;
       case 1: this.ramrd = on; return true;
       case 2: this.ramwrt = on; return true;
-      case 3: this.intcxrom = on; return true;
+      case 3: this.intcxrom = on || this.slotless; return true;
       case 4: this.altzp = on; return true;
-      case 5: this.slotc3rom = on; return true;
+      case 5: this.slotc3rom = on && !this.slotless; return true;
       default: return false;
     }
   }
@@ -179,7 +182,7 @@ export class Apple2eMemory extends Apple2Memory {
     this.store80 = false;
     this.ramrd = false;
     this.ramwrt = false;
-    this.intcxrom = false;
+    this.intcxrom = this.slotless;
     this.altzp = false;
     this.slotc3rom = false;
     this.intc8rom = false;
