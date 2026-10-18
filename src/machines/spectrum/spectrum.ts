@@ -621,14 +621,17 @@ export class Spectrum extends BaseMachine implements Machine {
     const tpf = this.contention.timing.tStatesPerFrame;
     const idealStart = this.contention.frameStartTStates + tpf;
     // Use ideal boundary if the CPU has reached it (normal case).
-    // Otherwise re-sync to current tStates (first frame, snapshot load, reset).
+    // If the current frame was stopped by the debugger, retain its boundary.
+    // Re-syncing to cpu.tStates here would assert a fresh INT on every resume,
+    // even inside an ISR whose page helper has re-enabled interrupts.
+    // Reset starts at zero; snapshot loads provide _resumeFrameOffset below.
     const resumeOffset = this._resumeFrameOffset;
     if (resumeOffset >= 0) {
       this._resumeFrameOffset = -1;
       this.contention.frameStartTStates = this.cpu.tStates - resumeOffset;
     } else {
       this.contention.frameStartTStates =
-        idealStart <= this.cpu.tStates ? idealStart : this.cpu.tStates;
+        idealStart <= this.cpu.tStates ? idealStart : this.contention.frameStartTStates;
     }
     const frameStart = this.contention.frameStartTStates;
     this.tapeLastAdvanceT = this.cpu.tStates;

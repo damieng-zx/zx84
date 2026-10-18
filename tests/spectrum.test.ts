@@ -57,6 +57,32 @@ function loadProgram(s: Spectrum, ...bytes: number[]): void {
   s.cpu.sp = 0xFF00;
 }
 
+describe('debugger mid-frame resume timing', () => {
+  it.each(['breakpoint', 'watchpoint'] as const)(
+    'does not start a new INT window after a %s',
+    (kind) => {
+      const s = makeMachine('128k');
+      // EI; NOP; JP C005; INC A; JR C005. First INT window expires before EI is run.
+      loadProgram(s, 0xFB, 0, 0xC3, 5, 0xC0, 0x3C, 0x18, 0xFD);
+      s.cpu.tStates = 1000;
+      s.resumeAtFrameOffset(1000);
+      if (kind === 'breakpoint') s.breakpoints.add(0xC006);
+      else s.memWatchpoints.push({ start: 0xC005, end: 0xC005, mode: 'read' });
+      s.runUntil(1);
+      s.breakpoints.clear();
+      s.memWatchpoints.length = 0;
+      // A breakpoint resume with IFF1 set must keep the same physical frame.
+      const interruptedSP = s.cpu.sp;
+      s.breakpoints.add(0xC006);
+      s.services.debug.stepOne();
+      s.runUntil(1);
+      expect(s.cpu.sp).toBe(interruptedSP);
+      expect(s.cpu.pc).toBe(0xC006);
+      expect(s.contention.frameStartTStates).toBe(0);
+    },
+  );
+});
+
 // ─────────────────────────────────────────────────────────────────────────
 // IOActivity
 // ─────────────────────────────────────────────────────────────────────────
