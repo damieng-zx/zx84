@@ -77,6 +77,8 @@ function defaultRomLabel(key: string): string {
   const model = key.split('-')[0].toLowerCase();
   if (model === '16k' || model === '48k') return 'Sinclair BASIC';
   if (model === 'hx-10') return 'Toshiba HX-10 (MSX BASIC 1.0)';
+  if (model === 'hb-55') return 'Sony HB-55 (MSX BASIC 1.0, Japanese)';
+  if (model === 'hb-55p') return 'Sony HB-55P (MSX BASIC 1.0)';
   if (model === 'zx80') return 'Sinclair ZX80 BASIC';
   if (model === 'zx81') return 'Sinclair ZX81 BASIC';
   return `${key.toUpperCase()} (default)`;

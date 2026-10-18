@@ -6,7 +6,8 @@
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type { MachineDescriptor, MachineEntry, MachineLocale, MachineUiCapabilities } from '@/machines/machine.ts';
 import type { MachineModel } from '@/models.ts';
-import type { MsxModel } from './models.ts';
+import { isMsxModel, type MsxModel } from './models.ts';
+import { createMsxConfig } from './config.ts';
 import { MsxMachine } from './msx-machine.ts';
 import {
   MSX_SCREEN_WIDTH, MSX_SCREEN_HEIGHT, MSX_BORDER_LEFT, MSX_BORDER_TOP,
@@ -46,12 +47,13 @@ const MSX_UI: MachineUiCapabilities = {
   library: false,
   memoryRegions: [
     { value: 'rom0', label: 'ROM 0' },
+    { value: 'rom-firmware', label: 'Data Bank ROM' },
     { value: 'rom-disk', label: 'Disk ROM' },
   ],
   charset: 'spectrum',
 };
 
-/** Descriptor for the HX-10 — shared by the registry entry and the machine
+/** Descriptor for an MSX model — shared by the registry entry and the machine
  *  instance's own `descriptor` getter. */
 export function msxDescriptor(model: MachineModel, locale: MachineLocale = 'uk'): MachineDescriptor {
   return {
@@ -70,12 +72,12 @@ export function msxDescriptor(model: MachineModel, locale: MachineLocale = 'uk')
 
 export const msxEntry: MachineEntry = {
   kind: 'msx',
-  models: ['hx-10'],
+  models: ['hx-10', 'hb-55', 'hb-55p'],
   descriptor: msxDescriptor,
   create(model: MachineModel, display: IScreenRenderer | null) {
     return new MsxMachine(model as MsxModel, display);
   },
-  romSources(_model?: MachineModel, _locale?: MachineLocale) {
-    return ['msx/hx-10_basic-bios1.rom'];
+  romSources(model?: MachineModel, _locale?: MachineLocale) {
+    return [createMsxConfig(model !== undefined && isMsxModel(model) ? model : 'hx-10').biosSource];
   },
 };

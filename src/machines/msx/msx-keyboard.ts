@@ -1,5 +1,7 @@
 /**
- * MsxKeyboard — MSX1 keyboard matrix (Toshiba HX-10, international layout).
+ * MsxKeyboard — MSX1 keyboard matrix (Toshiba HX-10 international layout; the Sony
+ * HB-55's JIS layout uses the same matrix — only the legends and the BIOS key
+ * table differ, and the かな key is the CODE key).
  *
  * The MSX matrix is 11 rows × 8 columns, scanned through the 8255 PPI (NOT the
  * AY, unlike the Tatung Einstein): the BIOS writes the row number 0–10 to the
@@ -54,6 +56,7 @@ const KEY_MAP: Record<string, Cell> = {
   AltLeft: [6, 2],   // GRAPH
   CapsLock: [6, 3],
   AltRight: [6, 4],  // CODE
+  KanaMode: [6, 4],  // Japanese models: the かな key is the CODE key (kana lock)
   // Function keys
   F1: [6, 5], F2: [6, 6], F3: [6, 7], F4: [7, 0], F5: [7, 1],
   // Whitespace / control / editing

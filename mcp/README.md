@@ -27,7 +27,7 @@ npm run mcp -- --model 48k
 
 Supported startup models are derived from the machine registry and include
 `zx80`, `zx81`, `16k`, `48k`, `128k`, `+2`, `+2A`, `+3`, `cpc464`, `cpc664`,
-`cpc6128`, `cpc6128plus`, `gx4000`, `einstein-tc01`, `einstein-256`, `hx-10`,
+`cpc6128`, `cpc6128plus`, `gx4000`, `einstein-tc01`, `einstein-256`, `hx-10`, `hb-55`, `hb-55p`,
 `mtx500`, `mtx512`, `rs128`, `lynx48`, `lynx96`,
 `lynx128`, `jupiter-ace`, `pcw8256`, `pcw8512`, `pcw9512`, `pcw9256`, `bbc-b`, and `electron`. The
 default is `48k`.

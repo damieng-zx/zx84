@@ -19,15 +19,21 @@ import { hex8 } from '@/utils/hex.ts';
 const DRIVE = fixedDrive('3.5inch');
 
 /** Label the source paged into one MSX 16KB page given its primary slot number.
- *  slot 0 = internal ROM (BIOS+BASIC, pages 0-1 only), slot 1 = cartridge,
- *  slot 2 = 64KB RAM, slot 3 = rear expansion connector (the floppy disk
- *  interface's Disk BASIC ROM in page 1 when fitted, else empty). */
-function msxSlotLabel(slot: number, page: number, cartHere: boolean, diskHere: boolean): { read: string } {
+ *  slot 0 = internal ROM (BIOS+BASIC, pages 0-1 only; the HB-55 adds its Data
+ *  Bank ROM in page 2), slot 1 = cartridge, slot 3 = rear expansion connector
+ *  (the floppy disk interface's Disk BASIC ROM in page 1 when fitted, else
+ *  empty). The on-board RAM is in slot 2 on the HX-10 and slot 0 page 3 on the
+ *  HB-55 — the memory object knows which. */
+function msxSlotLabel(m: MsxMachine, slot: number, page: number): { read: string } {
+  const mem = m.memory;
+  if (mem.ramCoversPage(slot, page)) return { read: 'RAM' };
   switch (slot) {
-    case 0: return { read: page < 2 ? 'ROM' : '(empty)' };
-    case 1: return { read: cartHere ? 'Cartridge' : '(empty)' };
-    case 2: return { read: 'RAM' };
-    case 3: return { read: page === 1 && diskHere ? 'Disk ROM' : '(empty)' };
+    case 0:
+      if (page < 2) return { read: 'ROM' };
+      return { read: mem.firmwareCoversPage(slot, page) ? 'Data Bank ROM' : '(empty)' };
+    case 1: return { read: mem.cartCoversPage(page) ? 'Cartridge' : '(empty)' };
+    case 2: return { read: '(empty)' };
+    case 3: return { read: page === 1 && mem.hasDiskInterface ? 'Disk ROM' : '(empty)' };
     default: return { read: '?' };
   }
 }
@@ -41,7 +47,7 @@ function msxMemoryMap(m: MsxMachine): MemoryMapSnapshot | null {
 
   const slots = ranges.map((range, page) => {
     const slot = (primary >> (page * 2)) & 3;
-    const label = msxSlotLabel(slot, page, mem.cartCoversPage(page), mem.hasDiskInterface);
+    const label = msxSlotLabel(m, slot, page);
     return { range, ...label };
   });
 
