@@ -45,11 +45,6 @@ Incorporates some of the ideas from SABR shader. Thanks to Joshua Street.
 zx84 adapts the following from MAME source files that carry
 `license:BSD-3-Clause`. The notice below applies to each.
 
-- **Intel 8271** — `src/cores/i8271.ts`: structure, field and method names,
-  status/error names and values, the status/result/command/parameter register
-  logic, the command-parameter table and the SPECIFY and special-register
-  handling, from `src/devices/machine/i8271.cpp` and `i8271.h`
-  (copyright-holders: Carl, Olivier Galibert).
 - **Yamaha V9938** — `src/cores/v9938.ts`: the register write masks, the
   power-on palette, the Graphic 7 sprite colour table, the screen-mode table,
   the reset status values and the register/port handling, from

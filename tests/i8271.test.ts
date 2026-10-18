@@ -1,11 +1,11 @@
 /**
  * Intel 8271 FDC core tests.
  *
- * Expectations are derived from the 8271 datasheet as modelled by MAME's
- * `i8271` device, cross-checked against beebjit's `intel_fdc.c` (which mirrors
- * the BBC Model B wiring and the Acorn DFS programming sequence). Disk images
- * are built with the real SSD codec so geometry and byte layout are the same
- * ones DFS 1.20 will see.
+ * Each test drives the chip the way Acorn DFS does: a command byte to the
+ * command register, its parameters to the parameter register, then data through
+ * the data port and a result read at the end. Read, write and verify commands
+ * take three parameters (track, sector, size/count). Disk images are built with
+ * the real SSD codec so geometry and byte layout are the ones DFS 1.20 sees.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -30,9 +30,9 @@ function send(fdc: I8271, cmd: number, ...params: number[]): void {
   for (const p of params) fdc.write(1, p);
 }
 
-/** Advance the 1 MHz disc clock past a command's completion delay so its
- *  result/interrupt has appeared (long commands hold BUSY first). */
-function done(fdc: I8271): void { fdc.tick(200); }
+/** Advance the 1 MHz disc clock far enough for the next step of a command (a
+ *  data byte becoming ready, or the busy delay before the result) to happen. */
+function done(fdc: I8271): void { for (let i = 0; i < 3; i++) fdc.tick(200); }
 
 /** WRITE SPECIAL REGISTER 0x17 — set MODER (0xC1 = no-DMA, DRQ/NMI enabled). */
 function setModer(fdc: I8271, value: number): void {
@@ -95,12 +95,10 @@ describe('i8271 registers', () => {
 });
 
 describe('i8271 read/write', () => {
-  it('reads a 256-byte sector via READ DATA SINGLE and ends with result 0', () => {
+  it('reads a 256-byte sector with READ DATA and ends with result 0', () => {
     const { fdc } = makeReadyDrive0();
 
-    // READ DATA SINGLE (0x12) takes cylinder + sector. The trailing 0x21 is
-    // written while EXEC is already running and must be ignored (the sector's
-    // own size code N=1 gives the 256-byte length).
+    // Track 0, sector 3, size code 1 (256 bytes) x 1 sector.
     send(fdc, 0x12, 0x00, 0x03, 0x21);
     expect(fdc.read(0) & I8271Status.BSY).toBe(I8271Status.BSY);
 
@@ -117,7 +115,7 @@ describe('i8271 read/write', () => {
     expect(fdc.read(1)).toBe(I8271Result.NONE);
   });
 
-  it('reads consecutive sectors for READ DATA MULTI using the count field', () => {
+  it('reads consecutive sectors when the count field is above one', () => {
     const { fdc } = makeReadyDrive0();
 
     send(fdc, 0x13, 0x00, 0x00, 0x22); // size code 1, count 2, from sector 0
@@ -137,7 +135,7 @@ describe('i8271 read/write', () => {
     const { fdc, image } = makeReadyDrive0();
     expect(fdc.isDirty(0)).toBe(false);
 
-    send(fdc, 0x0a, 0x00, 0x02); // WRITE DATA SINGLE to track 0, sector 2
+    send(fdc, 0x0a, 0x00, 0x02, 0x21); // WRITE DATA to track 0, sector 2
     for (let i = 0; i < SECTOR; i++) { done(fdc); fdc.writeData((0xa0 + i) & 0xff); }
     done(fdc);
     expect(fdc.read(1)).toBe(I8271Result.NONE);
@@ -154,14 +152,14 @@ describe('i8271 read/write', () => {
 
   it('returns NOT FOUND for a sector number the track does not contain', () => {
     const { fdc } = makeReadyDrive0();
-    send(fdc, 0x12, 0x00, 0x63); // sector 99 does not exist
+    send(fdc, 0x12, 0x00, 0x63, 0x21); // sector 99 does not exist
     done(fdc);
     expect(fdc.read(1)).toBe(I8271Result.NF);
   });
 
   it('returns NOT READY when the drive has no disk', () => {
     const fdc = new I8271();
-    send(fdc, 0x12, 0x00, 0x03);
+    send(fdc, 0x12, 0x00, 0x03, 0x21);
     done(fdc);
     expect(fdc.read(1)).toBe(I8271Result.NR);
   });
@@ -171,7 +169,7 @@ describe('i8271 read/write', () => {
     fdc.writeProtect[0] = true;
     const before = image.tracks[0]![0]!.sectors[2].data[0];
 
-    send(fdc, 0x0a, 0x00, 0x02);
+    send(fdc, 0x0a, 0x00, 0x02, 0x21);
     done(fdc);
     expect(fdc.read(1)).toBe(I8271Result.WP);
     expect(fdc.isDirty(0)).toBe(false);
@@ -200,7 +198,7 @@ describe('i8271 interrupt', () => {
     setModer(fdc, 0xc1);
     selectDrive0Side0(fdc);
 
-    send(fdc, 0x12, 0x00, 0x03);
+    send(fdc, 0x12, 0x00, 0x03, 0x21);
     done(fdc);
     expect(events.at(-1)).toBe(true); // first data byte is requested
     fdc.readData();
@@ -222,5 +220,52 @@ describe('i8271 format', () => {
       expect(sec.data[SECTOR - 1]).toBe(0xe5);
     }
     expect(fdc.isDirty(0)).toBe(true);
+  });
+});
+
+describe('i8271 other commands', () => {
+  it('returns C, H, R, N for each sector header requested by READ ID', () => {
+    const { fdc } = makeReadyDrive0();
+    send(fdc, 0x1b, 0x00, 0x00, 0x22); // two headers from track 0
+    const got: number[] = [];
+    for (let i = 0; i < 8; i++) { done(fdc); got.push(fdc.readData()); }
+    done(fdc);
+    expect(got.slice(0, 4)).toEqual([0, 0, 0, 1]);   // track 0, side 0, sector 0, 256 bytes
+    expect(got.slice(4, 8)).toEqual([0, 0, 1, 1]);   // then sector 1
+    expect(fdc.read(1)).toBe(I8271Result.NONE);
+  });
+
+  it('verifies a sector run without raising a data request', () => {
+    const { fdc } = makeReadyDrive0();
+    send(fdc, 0x1f, 0x00, 0x00, 0x23);
+    done(fdc);
+    expect(fdc.read(0) & I8271Status.DRQ).toBe(0);
+    expect(fdc.read(1)).toBe(I8271Result.NONE);
+  });
+
+  it('ignores a command byte it does not recognise', () => {
+    const fdc = new I8271();
+    fdc.write(0, 0x01);
+    expect(fdc.read(0)).toBe(0);
+  });
+
+  it('ignores a new command while one is still running', () => {
+    const { fdc } = makeReadyDrive0();
+    send(fdc, 0x29, 0x05);                 // SEEK, now busy
+    send(fdc, 0x29, 0x09);                 // refused
+    done(fdc);
+    expect(fdc.read(1)).toBe(I8271Result.NONE);
+    send(fdc, 0x3d, 0x12);
+    expect(fdc.read(1)).toBe(0x05);
+  });
+
+  it('keeps inserted disks across a reset but returns the head to track 0', () => {
+    const { fdc } = makeReadyDrive0();
+    send(fdc, 0x29, 0x05);
+    done(fdc);
+    fdc.read(1);
+    fdc.write(2, 1);                       // reset
+    expect(fdc.getDiskImage(0)).not.toBeNull();
+    expect(fdc.getUnitTrack(0)).toBe(0);
   });
 });
