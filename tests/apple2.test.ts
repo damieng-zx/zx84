@@ -547,6 +547,44 @@ describe('apple2-plus Disk II controller', () => {
     expect(got.slice(48, 51)).toEqual([0xD5, 0xAA, 0x96]);
   });
 
+  it('keeps spinning for about a second after the motor is switched off', () => {
+    // The controller card's one-shot timer holds the drive on after $C0E8.
+    // Loaders that switch the motor off between sectors then test for rotation
+    // (two reads of the data register that differ) expect to still see it.
+    let cycles = 0;
+    const d = new Disk2(() => cycles);
+    d.insertDisk(parseApple2Disk(new Uint8Array(35 * 16 * 256), 'dos'), 0);
+    d.read(0x09);                           // motor on
+    d.read(0x0A);                           // drive 1
+    d.read(0x08);                           // motor off
+    expect(d.motorOn).toBe(true);           // still coasting
+
+    const sees = (): number => {            // distinct values over a stretch of reads
+      const seen = new Set<number>();
+      for (let i = 0; i < 64; i++) { cycles += 21; seen.add(d.read(0x0C)); }
+      return seen.size;
+    };
+    cycles += 500_000;                      // half a second later
+    expect(d.motorOn).toBe(true);
+    expect(sees()).toBeGreaterThan(1);      // the disk is still turning
+
+    cycles += 700_000;                      // past the one-second delay
+    expect(d.motorOn).toBe(false);
+    expect(sees()).toBe(1);                 // stopped: the data register is dead
+  });
+
+  it('switching the motor back on cancels a pending spin-down', () => {
+    let cycles = 0;
+    const d = new Disk2(() => cycles);
+    d.insertDisk(parseApple2Disk(new Uint8Array(35 * 16 * 256), 'dos'), 0);
+    d.read(0x09);
+    d.read(0x08);
+    cycles += 500_000;
+    d.read(0x09);                           // back on before the timer ran out
+    cycles += 2_000_000;
+    expect(d.motorOn).toBe(true);
+  });
+
   it('mounting the other drive mid-read does not disturb the active stream', () => {
     const raw = new Uint8Array(35 * 16 * 256);
     const stream = (insertOtherAt: number | null): number[] => {

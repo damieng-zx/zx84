@@ -35,6 +35,11 @@ import { APPLE2_CPU_CLOCK } from '../constants.ts';
 
 const MOTOR_OFF = 0x08;
 const MOTOR_ON = 0x09;
+/** The controller card keeps the drive running for about a second after a
+ *  motor-off access (a one-shot timer on the card), so the disk is still
+ *  rotating when a following read begins. Loaders that switch the motor off
+ *  between sectors and then test for rotation depend on it. */
+const MOTOR_OFF_DELAY_CYCLES = APPLE2_CPU_CLOCK;
 const DRIVE1 = 0x0A;
 const DRIVE2 = 0x0B;
 const Q6_ON = 0x0D;
@@ -57,7 +62,10 @@ export class Disk2 {
   private readonly halfTrack = [0, 0];
   private readonly phase = [0, 0];
   private currentDrive = 0;
+  /** Motor state as commanded by $C0E8/$C0E9. */
   private motor = false;
+  /** CPU cycle at which a commanded motor-off takes effect; -1 = none pending. */
+  private motorOffAt = -1;
 
   // Shift-register / rotation state (shared: the card has one data path).
   private bitPos = 0;
@@ -95,7 +103,7 @@ export class Disk2 {
     this.dirtyTracks[unit].clear();
     this.wrote[unit] = false;
     this.writeProtect[unit] = false;
-    if (this.currentDrive === unit) this.motor = false;
+    if (this.currentDrive === unit) { this.motor = false; this.motorOffAt = -1; }
   }
 
   getDiskImage(unit: number): DskImage | null { return this.images[unit]; }
@@ -110,6 +118,7 @@ export class Disk2 {
 
   reset(): void {
     this.motor = false;
+    this.motorOffAt = -1;
     this.currentDrive = 0;
     this.halfTrack[0] = this.halfTrack[1] = 0;
     this.phase[0] = this.phase[1] = 0;
@@ -126,6 +135,22 @@ export class Disk2 {
   private rebase(): void {
     this.lastCycles = this.cpuCycles();
     this.cyclesAccum = 0;
+  }
+
+  /** Whether the drive is physically rotating: commanded on, or commanded off
+   *  but still inside the card's spin-down delay. */
+  private get spinning(): boolean {
+    if (!this.motor) return false;
+    if (this.motorOffAt >= 0) {
+      const now = this.cpuCycles();
+      // A CPU reset rewinds the cycle count; treat that as the delay expiring.
+      if (now >= this.motorOffAt || now < this.motorOffAt - MOTOR_OFF_DELAY_CYCLES) {
+        this.motor = false;
+        this.motorOffAt = -1;
+        return false;
+      }
+    }
+    return true;
   }
 
   // ── Switch decode ──────────────────────────────────────────────────────
@@ -156,8 +181,10 @@ export class Disk2 {
       return;
     }
     switch (offset) {
-      case MOTOR_OFF: this.motor = false; break;
-      case MOTOR_ON: this.motor = true; break;
+      case MOTOR_OFF:
+        if (this.motor && this.motorOffAt < 0) this.motorOffAt = this.cpuCycles() + MOTOR_OFF_DELAY_CYCLES;
+        break;
+      case MOTOR_ON: this.motor = true; this.motorOffAt = -1; break;
       case DRIVE1: this.currentDrive = 0; break;
       case DRIVE2: this.currentDrive = 1; break;
       default: break;
@@ -192,7 +219,7 @@ export class Disk2 {
    *  the last read (capped at one byte's worth, so no byte is ever skipped) and
    *  returns the latched byte once — 0 while no byte has completed. */
   private readData(): number {
-    if (this.motor && this.images[this.currentDrive]) {
+    if (this.spinning && this.images[this.currentDrive]) {
       const now = this.cpuCycles();
       let elapsed = now - this.lastCycles;
       if (elapsed < 0) elapsed = 0;              // CPU reset rewinds tStates
@@ -219,7 +246,7 @@ export class Disk2 {
 
   private writeByte(val: number): void {
     const unit = this.currentDrive;
-    if (!this.motor || !this.images[unit] || this.writeProtect[unit]) return;
+    if (!this.spinning || !this.images[unit] || this.writeProtect[unit]) return;
     const trackIndex = this.trackIndex(unit);
     const track = this.nibbles(unit, trackIndex);
     if (!track) return;
@@ -278,7 +305,7 @@ export class Disk2 {
   // ── Frame-probe indicators ─────────────────────────────────────────────
 
   get motorOn(): boolean {
-    return this.motor && this.images[this.currentDrive] !== null;
+    return this.spinning && this.images[this.currentDrive] !== null;
   }
   get isExecuting(): boolean { return this.motorOn; }
   get isWriting(): boolean { return this.q7 && this.motorOn; }
