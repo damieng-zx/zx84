@@ -56,6 +56,12 @@ export class BetaDisk {
   /** Last value written to the system register (port 0xFF). */
   systemReg = 0;
 
+  /** Extra condition under which the FDC ports are live even though the TR-DOS
+   *  overlay is not paged in. The Scorpion's service ROM (page 2) drives the
+   *  controller directly, so its machine sets this to "service ROM selected".
+   *  Null on every other machine, keeping matchPort a single flag test. */
+  portGate: (() => boolean) | null = null;
+
   readonly fdc = new WD179x({
     statusBit7: 'not-ready',
     formatSectorsPerTrack: 16,
@@ -110,7 +116,7 @@ export class BetaDisk {
 
   // ── Port decode (active only while paged in) ──────────────────────────
   matchPort(port: number): boolean {
-    if (!this.pagedIn) return false;
+    if (!this.pagedIn && (this.portGate === null || !this.portGate())) return false;
     switch (port & 0xFF) {
       case PORT_STATUS_CMD: case PORT_TRACK: case PORT_SECTOR:
       case PORT_DATA: case PORT_SYSTEM:

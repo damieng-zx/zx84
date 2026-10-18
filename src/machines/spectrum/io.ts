@@ -80,7 +80,7 @@ export function installMemoryHooks(s: Spectrum): void {
         return; // IF2 cartridge ROM (0x0000-0x3FFF) — all ROM, no /WR line at the cart slot
       } else if (s.vtx5000.enabled && s.vtx5000.vtxRomPaged && addr >= 0x2000) {
         // VTX-5000: 0x2000-0x3FFF is RAM — allow through
-      } else if (!memory.specialPaging) {
+      } else if (!memory.specialPaging && !memory.ramAtZero) {
         return; // Normal ROM — discard
       }
     }

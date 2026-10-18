@@ -102,7 +102,7 @@ async function inflate(compressed: Uint8Array): Promise<Uint8Array> {
 // ── Machine ID mapping ──────────────────────────────────────────────────
 
 /** SZX machine ID: 0=16K, 1=48K, 2=128K, 3=+2, 4=+2A/+2B, 5=+3, 6=+3e, 7=Pentagon 128,
- *  13=Pentagon 512, 14=Pentagon 1024 */
+ *  10=Scorpion ZS-256, 13=Pentagon 512, 14=Pentagon 1024 */
 const MODEL_TO_MACHINE_ID: Record<SpectrumModel, number> = {
   '16k': 0,
   '48k': 1,
@@ -113,6 +113,7 @@ const MODEL_TO_MACHINE_ID: Record<SpectrumModel, number> = {
   pentagon128: 7,
   pentagon512: 13,
   pentagon1024: 14,
+  scorpion256: 10,
 };
 
 function machineIs128K(machineId: number): boolean {
@@ -212,6 +213,16 @@ export function applySZXPaging(memory: SpectrumMemory, hasSpecialPaging: boolean
   // The 1024's EFF7 shares the 1FFD byte and decides how 7FFD is read, so it
   // must be restored first. A no-op latch on every other machine.
   if (memory.scheme === 'pentagon1024') memory.portEFF7 = result.port1FFD;
+  if (memory.scheme === 'scorpion') {
+    // 1FFD carries RAM-at-0000, the ROM page's high bit and RAM page bit 3, and
+    // must be latched first because it feeds the page 7FFD selects.
+    memory.port1FFD = result.port1FFD;
+    memory.ramAtZero = (result.port1FFD & 0x01) !== 0;
+    memory.latch7FFD(result.port7FFD);
+    memory.currentROM = memory.romIndexFor(result.port7FFD, result.port1FFD);
+    memory.applyBanking();
+    return;
+  }
   memory.latch7FFD(result.port7FFD);
   if (hasSpecialPaging && !result.sourceHas1FFD) {
     memory.applyBanking();

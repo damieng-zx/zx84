@@ -88,8 +88,12 @@ export class SpectrumMemory implements IMachineMemory {
    *  latched here but have no effect yet. Cleared by reset. */
   portEFF7 = 0;
 
-  /** How 7FFD forms the RAM page number on this machine. */
+  /** How 7FFD (and, on the Scorpion, 1FFD) form the RAM and ROM page numbers. */
   readonly scheme: PagingScheme;
+
+  /** True while slot 0 maps RAM bank 0 instead of ROM and is writable: Scorpion
+   *  1FFD bit 0. (The +2A's all-RAM special paging is tracked separately.) */
+  ramAtZero = false;
 
   /** Whether paging is locked (bit 5 of 0x7FFD) */
   pagingLocked = false;
@@ -190,9 +194,31 @@ export class SpectrumMemory implements IMachineMemory {
    * external ROM (Multiface, VTX-5000) has been paged into slot 0.
    */
   isBasicRomActive(): boolean {
-    if (this.specialPaging || this.externalRomPaged) return false;
+    if (this.specialPaging || this.externalRomPaged || this.ramAtZero) return false;
     if (!this.is128K) return true;
-    return this.currentROM === this.romPages.length - 1;
+    return this.currentROM === this.basicRomPage;
+  }
+
+  /** Index of the 48K BASIC ROM page: the last page on every machine except the
+   *  Scorpion, whose 64K ROM is 128K menu / 48K BASIC / service monitor / TR-DOS. */
+  get basicRomPage(): number {
+    return this.scheme === 'scorpion' ? 1 : this.romPages.length - 1;
+  }
+
+  /** True for the +2A/+3 style of four 16K ROM pages (1FFD bit 2 | 7FFD bit 4);
+   *  the Scorpion also has four pages but selects them with 1FFD bit 1. */
+  get hasPlus2ARoms(): boolean {
+    return this.romPages.length === 4 && this.scheme !== 'scorpion';
+  }
+
+  /** ROM page selected by a 7FFD / 1FFD pair on this machine. */
+  romIndexFor(val7FFD: number, val1FFD: number): number {
+    // Scorpion: 1FFD D1 selects the service ROM (page 2) whatever 7FFD D4 says,
+    // otherwise 7FFD D4 picks the 128K menu (0) or 48K BASIC (1). TR-DOS (page 3)
+    // is not port-selected: the Beta Disk's M1 trap maps it in.
+    if (this.scheme === 'scorpion') return (val1FFD & 0x02) !== 0 ? 2 : (val7FFD >> 4) & 1;
+    if (this.romPages.length === 4) return (((val1FFD >> 2) & 1) << 1) | ((val7FFD >> 4) & 1);
+    return (val7FFD >> 4) & 1;
   }
 
   // ── Screen bank ───────────────────────────────────────────────────────
@@ -239,6 +265,8 @@ export class SpectrumMemory implements IMachineMemory {
     if (this.specialPaging) {
       const bank = SPECIAL_MODES[(this.port1FFD >> 1) & 3][0];
       this._loadSlot(0, this._ramBanks[bank], bank);
+    } else if (this.ramAtZero) {
+      this._loadSlot(0, this._ramBanks[0], 0);
     } else {
       this._loadSlot(0, this.romPages[this.currentROM], -1);
     }
@@ -323,9 +351,13 @@ export class SpectrumMemory implements IMachineMemory {
       this._switchRam(3, banks[3]);
     } else {
       if (!this.externalRomPaged) {
-        this._flushSlot(0);
-        const rom = this.is128K ? this.romPages[this.currentROM] : this.romPages[1];
-        this._loadSlot(0, rom, -1);
+        if (this.ramAtZero) {
+          this._switchRam(0, 0);
+        } else {
+          this._flushSlot(0);
+          const rom = this.is128K ? this.romPages[this.currentROM] : this.romPages[1];
+          this._loadSlot(0, rom, -1);
+        }
       }
       this._switchRam(1, 5);
       if (this.is16K) {
@@ -358,6 +390,7 @@ export class SpectrumMemory implements IMachineMemory {
     this.currentBank = 0;
     this.currentROM = 0;
     this.specialPaging = false;
+    this.ramAtZero = false;
     this.externalRomPaged = false;
     // Force-reload all slots (mark unmapped so _switchRam's same-bank
     // shortcut doesn't fire on a live region that no longer matches cold).
@@ -404,12 +437,7 @@ export class SpectrumMemory implements IMachineMemory {
 
     const newBank = this.bankFor7FFD(val);
 
-    let newROM: number;
-    if (this.romPages.length === 4) {
-      newROM = (((this.port1FFD >> 2) & 1) << 1) | ((val >> 4) & 1);
-    } else {
-      newROM = (val >> 4) & 1;
-    }
+    const newROM = this.romIndexFor(val, this.port1FFD);
 
     if (this.specialPaging) {
       // In special paging, 0x7FFD only latches — does not change slots.
@@ -421,7 +449,7 @@ export class SpectrumMemory implements IMachineMemory {
       return;
     }
     this._switchRam(3, newBank);
-    if (!skipSlot0 && !this.externalRomPaged && newROM !== this.currentROM) {
+    if (!skipSlot0 && !this.externalRomPaged && !this.ramAtZero && newROM !== this.currentROM) {
       // Slot 0 was ROM (or this method only runs when slot 0 is ROM here);
       // overwrite with new ROM image without flushing (ROM isn't dirtied).
       this.flat.set(this.romPages[newROM].subarray(0, BANK_SIZE), 0);
@@ -449,6 +477,9 @@ export class SpectrumMemory implements IMachineMemory {
         return (this.portEFF7 & 0x04) !== 0
           ? val & 0x07
           : (val & 0x07) | ((val & 0xC0) >> 3) | (val & 0x20);
+      case 'scorpion':
+        // 1FFD D4 is page bit 3, giving 16 banks (256K).
+        return (val & 0x07) | ((this.port1FFD & 0x10) >> 1);
       default:
         return val & 0x07;
     }
@@ -492,6 +523,8 @@ export class SpectrumMemory implements IMachineMemory {
   bankSwitch1FFD(val: number, skipSlot0 = false): void {
     if (!this.is128K || this.pagingLocked) return;
 
+    if (this.scheme === 'scorpion') { this.bankSwitchScorpion1FFD(val, skipSlot0); return; }
+
     this.port1FFD = val;
     const wasSpecial = this.specialPaging;
     this.specialPaging = (val & 1) !== 0;
@@ -518,6 +551,33 @@ export class SpectrumMemory implements IMachineMemory {
       this._switchRam(2, 2);
       this._switchRam(3, this.currentBank);
     }
+    if (this.onSlotsChanged !== null) this.onSlotsChanged();
+  }
+
+  /**
+   * Scorpion port 1FFD: D0 maps RAM bank 0 over 0x0000-0x3FFF (and makes it
+   * writable), D1 selects the service ROM (page 2), D4 is bit 3 of the RAM page
+   * at 0xC000. 7FFD D4 chooses between the 128K menu and 48K BASIC ROMs.
+   */
+  private bankSwitchScorpion1FFD(val: number, skipSlot0: boolean): void {
+    this.port1FFD = val;
+    const wasRam0 = this.ramAtZero;
+    this.ramAtZero = (val & 0x01) !== 0;
+    this.currentROM = this.romIndexFor(this.port7FFD, val);
+    if (!skipSlot0 && !this.externalRomPaged) {
+      if (this.ramAtZero) {
+        this._switchRam(0, 0);
+      } else {
+        if (wasRam0) this._flushSlot(0);
+        this.flat.set(this.romPages[this.currentROM].subarray(0, BANK_SIZE), 0);
+        this._slotBank[0] = -1;
+        this._refreshAliases();
+      }
+    }
+    const bank = this.bankFor7FFD(this.port7FFD);
+    this._switchRam(3, bank);
+    this.currentBank = bank;
+    this._refreshScreenSlots();
     if (this.onSlotsChanged !== null) this.onSlotsChanged();
   }
 
@@ -552,9 +612,10 @@ export class SpectrumMemory implements IMachineMemory {
    */
   selectSnapshot48KRom(): void {
     if (!this.is128K) return;
-    this.currentROM = this.romPages.length - 1;
+    this.currentROM = this.basicRomPage;
     this.port7FFD = (this.port7FFD & ~0x30) | 0x10 | 0x20;
-    if (this.romPages.length === 4) this.port1FFD |= 0x04;
+    if (this.scheme === 'scorpion') this.port1FFD &= ~0x02;   // 1FFD D1 clear: 48K BASIC, not the service ROM
+    else if (this.romPages.length === 4) this.port1FFD |= 0x04;
     this.pagingLocked = true;
     this.applyBanking();
   }
@@ -570,7 +631,7 @@ export class SpectrumMemory implements IMachineMemory {
    * editor). Call after port7FFD is set. No-op on 2-ROM machines.
    */
   selectSnapshot128KRom(): void {
-    if (this.romPages.length !== 4) return;
+    if (!this.hasPlus2ARoms) return;
     const bit4 = (this.port7FFD >> 4) & 1;
     this.port1FFD = bit4 << 2;
     this.specialPaging = false;

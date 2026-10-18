@@ -14,7 +14,7 @@ import * as path from 'node:path';
 import type { Spectrum, SpectrumModel } from '../src/machines/spectrum/spectrum.ts';
 import { loadSNA } from '../src/machines/spectrum/snapshots/sna.ts';
 import { loadZ80 } from '../src/machines/spectrum/snapshots/z80format.ts';
-import { loadSZX } from '../src/machines/spectrum/snapshots/szx.ts';
+import { loadSZX, applySZXPaging } from '../src/machines/spectrum/snapshots/szx.ts';
 import { parseFloppyImage } from '../src/media/floppy/hfe.ts';
 import { parseMgt, mgtExtFromName } from '../src/media/floppy/mgt-image.ts';
 import { parseTrd } from '../src/media/floppy/trd-image.ts';
@@ -130,7 +130,7 @@ export async function loadFileInto(spec: Spectrum, source: string, diskUnit: num
     // Auto-detect model from SZX header byte 6 (machine ID).
     // Must switch before loading so memory.is128K is set correctly and ROM pages are right.
     const SZX_ID_MODEL: Record<number, SpectrumModel> = {
-      0: '16k', 1: '48k', 2: '128k', 3: '+2', 4: '+2A', 5: '+3', 6: '+3', 7: 'pentagon128', 13: 'pentagon512', 14: 'pentagon1024',
+      0: '16k', 1: '48k', 2: '128k', 3: '+2', 4: '+2A', 5: '+3', 6: '+3', 7: 'pentagon128', 10: 'scorpion256', 13: 'pentagon512', 14: 'pentagon1024',
     };
     const szxModel: SpectrumModel = (data.length >= 7 ? SZX_ID_MODEL[data[6]] : undefined) ?? '48k';
     if (szxModel !== state.model) {
@@ -141,18 +141,10 @@ export async function loadFileInto(spec: Spectrum, source: string, diskUnit: num
     }
     const result = await loadSZX(data, spec.cpu, spec.memory);
     if (result.is128K) {
-      // Use direct property assignment + applyBanking() — NOT bankSwitch().
-      // bankSwitch() uses slot-diffing and won't re-populate fixed slots (bank5/bank2).
-      spec.memory.port7FFD    = result.port7FFD;
-      spec.memory.port1FFD    = result.port1FFD;
-      spec.memory.currentBank = result.port7FFD & 0x07;
-      spec.memory.pagingLocked  = (result.port7FFD & 0x20) !== 0;
-      spec.memory.specialPaging = (result.port1FFD & 1) !== 0;
-      // +2A/+3 ROM index uses bits from both ports; others use only 7FFD bit 4
-      spec.memory.currentROM = (szxModel === '+2A' || szxModel === '+3')
-        ? (((result.port1FFD >> 2) & 1) << 1) | ((result.port7FFD >> 4) & 1)
-        : (result.port7FFD >> 4) & 1;
-      spec.memory.applyBanking();
+      // The same paging restore the app uses (direct property assignment + applyBanking,
+      // NOT bankSwitch(), whose slot-diffing won't re-populate fixed slots), which also
+      // handles the Pentagon 1024's EFF7 and the Scorpion's 1FFD.
+      applySZXPaging(spec.memory, szxModel === '+2A' || szxModel === '+3', result);
     }
     spec.ula.borderColor = result.borderColor;
     spec.resumeAtFrameOffset(spec.cpu.tStates); // dwCyclesStart

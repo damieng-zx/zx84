@@ -9,7 +9,7 @@ import type { StatusLedId } from '@/machines/machine.ts';
 import type { MachineModel } from '@/models.ts';
 import { isCpcModel } from '@/models.ts';
 import type { SpectrumModel } from './models.ts';
-import { is128kClass, isPlus2AClass, isPlus3, isInterface2Capable, romPageSlotCount, ramBankCountFor } from './models.ts';
+import { is128kClass, isPlus2AClass, isScorpionClass, isPlus3, isInterface2Capable, romPageSlotCount, ramBankCountFor } from './models.ts';
 import { Spectrum } from './spectrum.ts';
 import { SCREEN_WIDTH, SCREEN_HEIGHT } from './ula.ts';
 
@@ -20,7 +20,7 @@ const SPECTRUM_BORDER = 48;
 
 /** ROM regions the Memory pane offers: one entry per 16K system-ROM page. */
 function spectrumMemoryRegions(model: MachineModel): MemoryRegionInfo[] {
-  const romCount = isPlus2AClass(model) ? 4 : is128kClass(model) ? 2 : 1;
+  const romCount = isPlus2AClass(model) || isScorpionClass(model) ? 4 : is128kClass(model) ? 2 : 1;
   return Array.from({ length: romCount }, (_, i) => ({ value: `rom${i}`, label: `ROM ${i}` }));
 }
 
@@ -59,7 +59,8 @@ function spectrumUi(model: MachineModel): MachineUiCapabilities {
     fastRomLoading: true,
     tapeSound: true,
     tapeExtensions: ['.tap', '.tzx', '.csw', '.zip'],
-    // .z80 holds at most 128K of RAM, so the Pentagon 512/1024 save only as .szx.
+    // .z80 holds at most 128K of RAM (and has no Scorpion paging), so the
+    // Pentagon 512/1024 and the Scorpion save only as .szx.
     saveMenu: ramBankCountFor(model) > 8
       ? ['snapshot-szx', 'screenshot-png', 'screen-scr', 'ram-bin']
       : ['snapshot-szx', 'snapshot-z80', 'screenshot-png', 'screen-scr', 'ram-bin'],
@@ -102,6 +103,11 @@ const ROM_SOURCES: Record<string, string[]> = {
   pentagon128: ['sinclair/128-0.rom', 'sinclair/128-1.rom'],
   pentagon512: ['sinclair/128-0.rom', 'sinclair/128-1.rom'],
   pentagon1024: ['sinclair/128-0.rom', 'sinclair/128-1.rom'],
+  // Scorpion ZS-256: one 64K ROM = Scorpion 128K menu / 48K BASIC / service
+  // ROM / TR-DOS 5.03 (ZS-256 "Yellow" v2.5c). Must be uploaded to the ROM host.
+  // The TURBO+ v2.92/2.95 BIOS also boots but its "128 TR-DOS" entry polls FDC
+  // behaviour that is not modelled, so v2.5c is the reference image.
+  scorpion256: ['scorpion/zs256-v25c.rom'],
 
   // ── Spanish (Investrónica) ───────────────────────────────────────────────
   '48k-es':  ['sinclair/48-es.rom'],
@@ -134,7 +140,7 @@ export function spectrumDescriptor(model: MachineModel, locale: MachineLocale = 
 
 export const spectrumEntry: MachineEntry = {
   kind: 'spectrum',
-  models: ['16k', '48k', '128k', '+2', '+2A', '+3', 'pentagon128', 'pentagon512', 'pentagon1024'],
+  models: ['16k', '48k', '128k', '+2', '+2A', '+3', 'pentagon128', 'pentagon512', 'pentagon1024', 'scorpion256'],
   descriptor: spectrumDescriptor,
   create(model: MachineModel, display: IScreenRenderer | null) {
     return new Spectrum(model as SpectrumModel, display);
@@ -149,7 +155,7 @@ export const spectrumEntry: MachineEntry = {
    *  already matches the image size. Ported verbatim from the shell's applyROM. */
   detectModelForRom(data: Uint8Array, current: MachineModel): MachineModel | null {
     const cur: SpectrumModel = isCpcModel(current) ? '128k' : current as SpectrumModel;
-    if (data.length >= 65536) return isPlus2AClass(cur) ? cur : '+2A';
+    if (data.length >= 65536) return isPlus2AClass(cur) || isScorpionClass(cur) ? cur : '+2A';
     if (data.length >= 32768) return is128kClass(cur) ? cur : '128k';
     if (data.length >= 16384) return '48k';
     return null;   // too small to be a system ROM

@@ -8,11 +8,11 @@
 
 import type { MachineModel } from '@/models.ts';
 
-export type SpectrumModel = '16k' | '48k' | '128k' | '+2' | '+2A' | '+3' | 'pentagon128' | 'pentagon512' | 'pentagon1024';
+export type SpectrumModel = '16k' | '48k' | '128k' | '+2' | '+2A' | '+3' | 'pentagon128' | 'pentagon512' | 'pentagon1024' | 'scorpion256';
 
-/** Returns true for any 128K-class Spectrum (128K, +2, +2A, +3, Pentagon 128). */
+/** Returns true for any 128K-class Spectrum (128K, +2, +2A, +3, the Pentagons, the Scorpion). */
 export function is128kClass(m: MachineModel): boolean {
-  return m === '128k' || m === '+2' || m === '+2A' || m === '+3' || isPentagonClass(m);
+  return m === '128k' || m === '+2' || m === '+2A' || m === '+3' || isPentagonClass(m) || isScorpionClass(m);
 }
 
 /** Returns true for the Pentagon family of Russian 128K clones: no contention,
@@ -21,23 +21,36 @@ export function isPentagonClass(m: MachineModel): boolean {
   return m === 'pentagon128' || m === 'pentagon512' || m === 'pentagon1024';
 }
 
-/** How 7FFD forms the RAM page number: the plain 128K uses D0-D2 only; the
- *  Pentagon 512 adds D6/D7 as page bits 3/4; the 1024 also takes D5 as page
- *  bit 5 while port EFF7 bit 2 is clear. */
-export type PagingScheme = 'standard' | 'pentagon512' | 'pentagon1024';
+/** Returns true for the Scorpion ZS-256: 256K RAM, a 64K ROM that holds TR-DOS and
+ *  a service monitor, port 1FFD paging, no contention, and a Beta Disk built in. */
+export function isScorpionClass(m: MachineModel): boolean { return m === 'scorpion256'; }
+
+/** How 7FFD (and 1FFD) form the RAM page number and ROM page: the plain 128K uses
+ *  7FFD D0-D2 only; the Pentagon 512 adds D6/D7 as page bits 3/4; the 1024 also
+ *  takes D5 as page bit 5 while port EFF7 bit 2 is clear; the Scorpion takes
+ *  page bit 3 from 1FFD D4 and the service-ROM select from 1FFD D1. */
+export type PagingScheme = 'standard' | 'pentagon512' | 'pentagon1024' | 'scorpion';
 
 export function pagingScheme(m: MachineModel): PagingScheme {
-  return m === 'pentagon512' ? 'pentagon512' : m === 'pentagon1024' ? 'pentagon1024' : 'standard';
+  return m === 'pentagon512' ? 'pentagon512'
+    : m === 'pentagon1024' ? 'pentagon1024'
+      : m === 'scorpion256' ? 'scorpion'
+        : 'standard';
 }
 
-/** Number of 16K RAM banks fitted: 8 (128K), 32 (Pentagon 512), 64 (Pentagon 1024). */
+/** Number of 16K RAM banks fitted: 8 (128K), 16 (Scorpion 256K), 32 (Pentagon 512),
+ *  64 (Pentagon 1024). */
 export function ramBankCountFor(m: MachineModel): number {
-  return m === 'pentagon512' ? 32 : m === 'pentagon1024' ? 64 : 8;
+  return m === 'pentagon512' ? 32 : m === 'pentagon1024' ? 64 : m === 'scorpion256' ? 16 : 8;
 }
 
 /** Returns true for models that ship with a Beta Disk (TR-DOS) interface fitted
  *  on the board, so it is always present rather than a Hardware-pane option. */
-export function hasBuiltinBetaDisk(m: MachineModel): boolean { return isPentagonClass(m); }
+export function hasBuiltinBetaDisk(m: MachineModel): boolean { return isPentagonClass(m) || isScorpionClass(m); }
+
+/** Returns true when the built-in Beta Disk's TR-DOS is a page of the machine's
+ *  own system ROM (the Scorpion's ROM page 3) rather than a separate ROM image. */
+export function betaRomInSystemRom(m: MachineModel): boolean { return isScorpionClass(m); }
 
 /** Returns true for the issue 1/2 16K Spectrum (no upper 32KB of RAM). */
 export function is16K(m: MachineModel): boolean { return m === '16k'; }
@@ -91,7 +104,7 @@ export function isBetaDiskCapable(m: MachineModel): boolean {
  */
 export function romPageSlotCount(m: MachineModel): 0 | 2 | 4 {
   if (m === '128k' || m === '+2' || isPentagonClass(m)) return 2;
-  if (m === '+2A' || m === '+3') return 4;
+  if (m === '+2A' || m === '+3' || isScorpionClass(m)) return 4;
   return 0;
 }
 
@@ -114,6 +127,11 @@ export type RomPage = 0 | 1 | 2 | 3 | 4;
  *  romPageSlotCount and the 1FFD/7FFD ROM-select bit table in memory.ts. */
 const PLUS3_PAGE_NAMES = ['128K Editor', '128K Syntax Checker', '+3DOS', '48K BASIC'];
 
+/** Scorpion ZS-256 page names, in page-index order (contents from the v2.92 ROM
+ *  image). Pages 0/1 are chosen by 7FFD D4, page 2 by 1FFD D1; page 3 (TR-DOS) is
+ *  mapped in by the Beta Disk's automatic paging, not by a port. */
+const SCORPION_PAGE_NAMES = ['Scorpion 128K', '48K BASIC', 'Service Monitor', 'TR-DOS'];
+
 /** Label for a default (non-overridden) 16K page of a multi-page model
  *  (128K/+2/+2A/+3 — see romPageSlotCount).
  *  - 128K/+2: page 0 the 128K editor/menu ROM, page 1 the 48K-compatible
@@ -124,6 +142,7 @@ const PLUS3_PAGE_NAMES = ['128K Editor', '128K Syntax Checker', '+3DOS', '48K BA
  *    BASIC) — same for both, since the +2A reuses the +3's ROM set. */
 export function defaultRomPageLabel(model: MachineModel, page: RomPage): string {
   if (model === '+2A' || model === '+3') return PLUS3_PAGE_NAMES[page];
+  if (isScorpionClass(model)) return SCORPION_PAGE_NAMES[page];
   const maker = model === '+2' ? 'Amstrad' : isPentagonClass(model) ? 'Pentagon' : 'Sinclair';
   return page === 0 ? `${maker} 128K BASIC` : `${maker} 48K BASIC`;
 }

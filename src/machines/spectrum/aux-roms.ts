@@ -15,7 +15,7 @@
 import type { AuxRomRequest, SettingsView } from '@/machines/machine.ts';
 import type { Spectrum } from '@/machines/spectrum/spectrum.ts';
 import type { SpectrumModel } from '@/machines/spectrum/models.ts';
-import { isPlusDCapable, isInterface1Capable, isBetaDiskCapable, hasBuiltinBetaDisk } from '@/machines/spectrum/models.ts';
+import { isPlusDCapable, isInterface1Capable, isBetaDiskCapable, hasBuiltinBetaDisk, betaRomInSystemRom } from '@/machines/spectrum/models.ts';
 import { variantForModel, variantLabel, romFilename } from '@/machines/spectrum/peripherals/multiface.ts';
 
 export const VTX5000_ROM = 'sinclair/vtx5000-3-1.rom';
@@ -117,7 +117,8 @@ export function buildSpectrumAuxRoms(m: Spectrum, view: SettingsView): AuxRomReq
   if (m.betaDisk.enabled) {
     m.betaDisk.fdc.writeProtect[0] = view.get('write-protect-c', false);
     m.betaDisk.fdc.writeProtect[1] = view.get('write-protect-d', false);
-    reqs.push(betaAuxRom(m));
+    // A Scorpion's TR-DOS comes out of its system ROM (see Spectrum.loadROM).
+    if (!betaRomInSystemRom(model)) reqs.push(betaAuxRom(m));
   }
 
   return reqs;

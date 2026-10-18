@@ -98,6 +98,24 @@ export const TIMING_PENTAGON: MachineTiming = {
   floatingBusAdjust: 0,
 };
 
+/**
+ * Scorpion ZS-256: a 3.5 MHz Z80 on the 48K's 224 T-state line and 312-line
+ * frame (69888 T-states), with no ULA memory contention.
+ * The first-pixel offset (14344) is the figure one Scorpion reference gives
+ * (+9 T-states over the 48K's 14335); an emulator source quotes 14364, so it is
+ * not hardware-verified. The Scorpion's "even M1" rule (an M1 fetch from RAM that
+ * would start on an odd T-state takes one extra wait) is NOT modelled.
+ */
+export const TIMING_SCORPION: MachineTiming = {
+  cpuClock: Z80_CLOCK_48K,
+  tStatesPerFrame: TSTATES_PER_FRAME_48K,   // 224 x 312
+  tStatesPerLine: 224,
+  contentionStart: 14344,   // nothing is contended; kept for the shared maths
+  displayOrigin: 14344,
+  intLength: 32,
+  floatingBusAdjust: 0,
+};
+
 export class Contention {
   readonly timing: MachineTiming;
   private variant: MachineVariant;
