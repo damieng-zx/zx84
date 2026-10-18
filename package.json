@@ -16,6 +16,7 @@
     "deploy:catalog:zx8x": "wrangler r2 object put zx84/library/zx8x-catalog.json.gz --file tools/out/zx8x-catalog.json.gz --content-type application/gzip --cache-control public,max-age=31536000,immutable --remote && wrangler r2 object put zx84/library/zx8x-catalog-version.json --file tools/out/zx8x-catalog-version.json --content-type application/json --cache-control no-cache --remote",
     "deploy:catalog": "npm run deploy:catalog:spectrum && npm run deploy:catalog:zx8x",
     "deploy": "npm run build && wrangler deploy",
+    "mascot": "tsx tools/build-mascot.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"

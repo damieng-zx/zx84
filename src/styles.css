@@ -88,6 +88,17 @@ body {
   color: #fff;
 }
 
+/* Blip, the mascot, pinned to the left of the logo bar (mirrors the "⋮" menu
+   on the right). 32px = 2× its 16px grid, so the pixels stay square. */
+.logo-mascot {
+  position: absolute;
+  left: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  image-rendering: pixelated;
+  pointer-events: none;
+}
+
 /* "⋮" app-menu button, pinned to the right of the logo bar (old version slot).
    Uses the shared .btn style; this positions it and stops it inheriting the
    bold, letter-spaced typography of the .logo heading it sits inside. */

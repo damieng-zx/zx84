@@ -205,7 +205,7 @@ export function App() {
         <div id="toolbar">
           <h1>
             <span class="logo-stripe" />
-            <span class="logo">ZX<span class="logo-num">84</span><sup class="logo-version" onClick={(e) => { e.stopPropagation(); toggleChangelog(); }}>v{__APP_VERSION__}</sup><AppMenu /></span>
+            <span class="logo"><img class="logo-mascot" src="/favicon.svg" alt="" width="32" height="32" />ZX<span class="logo-num">84</span><sup class="logo-version" onClick={(e) => { e.stopPropagation(); toggleChangelog(); }}>v{__APP_VERSION__}</sup><AppMenu /></span>
             <span class="logo-stripe" />
           </h1>
           <ChangelogOverlay />
