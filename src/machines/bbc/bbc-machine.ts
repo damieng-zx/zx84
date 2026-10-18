@@ -132,8 +132,15 @@ export class BbcMachine extends BaseMachine implements Machine {
     super();
     this.model = model;
     this.display = display ?? null;
-    this.cpu.read = (addr) => this.memory.readByte(addr);
-    this.cpu.write = (addr, val) => this.memory.writeByte(addr, val);
+    this.cpu.read = (addr) => {
+      const value = this.memory.readByte(addr);
+      if (this.memWatchpoints.length > 0 && this.memWatchHit === null) this.recordMemWatch(addr & 0xFFFF, value, 'read');
+      return value;
+    };
+    this.cpu.write = (addr, val) => {
+      this.memory.writeByte(addr, val);
+      if (this.memWatchpoints.length > 0 && this.memWatchHit === null) this.recordMemWatch(addr & 0xFFFF, val & 0xFF, 'write');
+    };
     // PSG-only machine: no beeper to balance against the SN76489.
     this.mixer.beeperGain = 0;
     this.mixer.psgGain = 1;
@@ -365,6 +372,7 @@ export class BbcMachine extends BaseMachine implements Machine {
   protected runFrame(): void {
     const cyclesPerLine = BBC_TSTATES_PER_FRAME / LINES_PER_FRAME;
     const skipAudio = this.speedMultiplier !== 1 || this.cassette.turboActive;
+    const watchActive = this.memWatchpoints.length > 0;
     this.activity.psgWrites = 0;
     this.crtc.beginFrame();
     let lineEnd = this.cpu.tStates;
@@ -393,6 +401,11 @@ export class BbcMachine extends BaseMachine implements Machine {
             this.mixer.generateSamples(this.audio, this.psg, true);
             lastAudioT = this.cpu.tStates;
           }
+        }
+        // Stop on the instruction that tripped a memory watchpoint.
+        if (watchActive && this.memWatchHit !== null) {
+          this.needsDisplay = true;
+          return;
         }
       }
       this.crtc.advanceLine();
