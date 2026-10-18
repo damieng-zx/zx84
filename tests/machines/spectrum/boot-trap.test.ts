@@ -43,26 +43,26 @@ describe('bootWaitPc', () => {
   const blank = new Uint8Array(0x4000);
 
   it('falls back to the v4.1 address on a +2A/+3 ROM 0 without the loop', () => {
-    expect(bootWaitPc('+2A', blank)).toBe(0x187A);
-    expect(bootWaitPc('+3', blank)).toBe(0x187A);
+    expect(bootWaitPc('zx128kplus2a', blank)).toBe(0x187A);
+    expect(bootWaitPc('zx128kplus3', blank)).toBe(0x187A);
   });
 
   it('keeps the 128K/+2 menu wait and the 48K WAIT-KEY', () => {
-    expect(bootWaitPc('128k', blank)).toBe(0x0E65);
-    expect(bootWaitPc('+2', blank)).toBe(0x0E65);
-    expect(bootWaitPc('48k', blank)).toBe(0x15DE);
-    expect(bootWaitPc('16k', blank)).toBe(0x15DE);
+    expect(bootWaitPc('zx128k', blank)).toBe(0x0E65);
+    expect(bootWaitPc('zx128kplus2', blank)).toBe(0x0E65);
+    expect(bootWaitPc('zx48k', blank)).toBe(0x15DE);
+    expect(bootWaitPc('zx16k', blank)).toBe(0x15DE);
   });
 });
 
-const SETS: { name: string; model: '+2A' | '+3'; roms: string[]; pc: number }[] = [
-  { name: 'v4.0 (plus3-*.rom)', model: '+3',
+const SETS: { name: string; model: 'zx128kplus2a' | 'zx128kplus3'; roms: string[]; pc: number }[] = [
+  { name: 'v4.0 (plus3-*.rom)', model: 'zx128kplus3',
     roms: ['plus3-0.rom', 'plus3-1.rom', 'plus3-2.rom', 'plus3-3.rom'], pc: 0x1875 },
-  { name: 'v4.1 (plus3-41-*.rom)', model: '+2A',
+  { name: 'v4.1 (plus3-41-*.rom)', model: 'zx128kplus2a',
     roms: ['plus3-41-0.rom', 'plus3-41-1.rom', 'plus3-41-2.rom', 'plus3-41-3.rom'], pc: 0x187A },
-  { name: 'v4.1 on a +3 (the app aliases +3 ROMs to +2A)', model: '+3',
+  { name: 'v4.1 on a +3 (the app aliases +3 ROMs to +2A)', model: 'zx128kplus3',
     roms: ['plus3-41-0.rom', 'plus3-41-1.rom', 'plus3-41-2.rom', 'plus3-41-3.rom'], pc: 0x187A },
-  { name: 'Spanish (plus3-*-es.rom)', model: '+2A',
+  { name: 'Spanish (plus3-*-es.rom)', model: 'zx128kplus2a',
     roms: ['plus3-0-es.rom', 'plus3-1-es.rom', 'plus3-2-es.rom', 'plus3-3-es.rom'], pc: 0x1891 },
 ];
 

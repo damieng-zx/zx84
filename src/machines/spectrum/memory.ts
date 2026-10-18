@@ -108,8 +108,8 @@ export class SpectrumMemory implements IMachineMemory {
   onSlotsChanged: (() => void) | null = null;
 
   constructor(model: SpectrumModel, opts?: { hasBanking?: boolean; romPageCount?: number; is16K?: boolean }) {
-    this.is128K = opts?.hasBanking ?? (model !== '48k' && model !== '16k');
-    this.is16K = opts?.is16K ?? (model === '16k');
+    this.is128K = opts?.hasBanking ?? (model !== 'zx48k' && model !== 'zx16k');
+    this.is16K = opts?.is16K ?? (model === 'zx16k');
 
     // Create 8 RAM banks (cold storage)
     this._ramBanks = [];

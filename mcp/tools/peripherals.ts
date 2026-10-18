@@ -90,7 +90,7 @@ export function register(server: McpServer): void {
       }
 
       // action === 'on'
-      if (spec.model !== '48k') return text('VTX-5000 only supported on 48K model. Use model tool to switch.');
+      if (spec.model !== 'zx48k') return text('VTX-5000 only supported on 48K model. Use model tool to switch.');
       vtx.enabled = true;
       if (!vtx.romLoaded) {
         try {
@@ -136,7 +136,7 @@ export function register(server: McpServer): void {
       }
 
       // action === 'on'
-      if (!isPlusDCapable(spec.model)) return text(`+D supported on 48k/128k/+2 only (current: ${spec.model}). Use the model tool to switch.`);
+      if (!isPlusDCapable(spec.model)) return text(`+D supported on zx48k/zx128k/zx128kplus2 only (current: ${spec.model}). Use the model tool to switch.`);
       pd.enabled = true;
       if (!pd.romLoaded) {
         try {
@@ -179,7 +179,7 @@ export function register(server: McpServer): void {
       }
 
       // action === 'on'
-      if (!isBetaDiskCapable(spec.model)) return text(`Beta Disk supported on 48k/128k/+2 only (current: ${spec.model}). Use the model tool to switch.`);
+      if (!isBetaDiskCapable(spec.model)) return text(`Beta Disk supported on zx48k/zx128k/zx128kplus2 only (current: ${spec.model}). Use the model tool to switch.`);
       // Mutually exclusive with the +D / Interface 1 (all overlay slot 0).
       if (spec.mgtPlusD.pagedIn) spec.mgtPlusD.pageOut(spec.memory);
       spec.mgtPlusD.enabled = false;

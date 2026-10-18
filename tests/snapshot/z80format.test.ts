@@ -37,13 +37,13 @@ function makeCpu(): Z80 {
 }
 
 function makeMemory48k(): SpectrumMemory {
-  const mem = new SpectrumMemory('48k');
+  const mem = new SpectrumMemory('zx48k');
   mem.loadROM(new Uint8Array(16384));
   return mem;
 }
 
 function makeMemory128k(): SpectrumMemory {
-  const mem = new SpectrumMemory('128k');
+  const mem = new SpectrumMemory('zx128k');
   mem.loadROM(new Uint8Array(16384));
   return mem;
 }
@@ -1076,7 +1076,7 @@ describe('Z80 format — AY sound chip state', () => {
 
 describe('Z80 format — +2A/+3 special paging (port 0x1FFD)', () => {
   function makeMemoryPlus3(): SpectrumMemory {
-    const mem = new SpectrumMemory('+3', { hasBanking: true, romPageCount: 4 });
+    const mem = new SpectrumMemory('zx128kplus3', { hasBanking: true, romPageCount: 4 });
     mem.loadROM(new Uint8Array(4 * 16384));
     return mem;
   }
@@ -1361,8 +1361,8 @@ describe('Z80 format — v2 paged-block loading', () => {
 describe('Z80 format — extended v3 hardware modes', () => {
   it.each([
     [9,  '128K (Pentagon)'],
-    [12, '+2'],
-    [13, '+2A'],
+    [12, 'zx128kplus2'],
+    [13, 'zx128kplus2a'],
   ])('v3 mode %i (%s) is treated as 128K-class', (mode) => {
     const cpu = makeCpu();
     const banks: { pageId: number; data: Uint8Array }[] = [];
@@ -1690,7 +1690,7 @@ describe('Z80 v3 decompression — edge cases', () => {
 
 describe('Z80 format — 128K/+2 snapshot on a +2A/+3 (no 1FFD in source)', () => {
   function makeMemoryPlus3(): SpectrumMemory {
-    const mem = new SpectrumMemory('+3', { hasBanking: true, romPageCount: 4 });
+    const mem = new SpectrumMemory('zx128kplus3', { hasBanking: true, romPageCount: 4 });
     mem.loadROM(new Uint8Array(4 * 16384));
     return mem;
   }
@@ -1768,28 +1768,28 @@ describe('Z80 format — hardware mode classification (WoS spec byte 34/37)', ()
   });
 
   it('modify-hardware flag (byte 37 bit 7): 48K → 16K, 128K → +2, +3 → +2A', () => {
-    expect(loadZ80(v3(0, 0x80), makeCpu(), makeMemory48k()).sourceModel).toBe('16k');
-    expect(loadZ80(v3(0), makeCpu(), makeMemory48k()).sourceModel).toBe('48k');
-    expect(loadZ80(v3(4, 0x80), makeCpu(), makeMemory128k()).sourceModel).toBe('+2');
-    expect(loadZ80(v3(4), makeCpu(), makeMemory128k()).sourceModel).toBe('128k');
-    expect(loadZ80(v3(7, 0x80), makeCpu(), makeMemory128k()).sourceModel).toBe('+2A');
-    expect(loadZ80(v3(7), makeCpu(), makeMemory128k()).sourceModel).toBe('+3');
+    expect(loadZ80(v3(0, 0x80), makeCpu(), makeMemory48k()).sourceModel).toBe('zx16k');
+    expect(loadZ80(v3(0), makeCpu(), makeMemory48k()).sourceModel).toBe('zx48k');
+    expect(loadZ80(v3(4, 0x80), makeCpu(), makeMemory128k()).sourceModel).toBe('zx128kplus2');
+    expect(loadZ80(v3(4), makeCpu(), makeMemory128k()).sourceModel).toBe('zx128k');
+    expect(loadZ80(v3(7, 0x80), makeCpu(), makeMemory128k()).sourceModel).toBe('zx128kplus2a');
+    expect(loadZ80(v3(7), makeCpu(), makeMemory128k()).sourceModel).toBe('zx128kplus3');
   });
 
   it('saveZ80 writes hwMode 13 for a +2A, 7 for a +3, 12 for a +2', () => {
     const plus3Mem = () => {
-      const m = new SpectrumMemory('+3', { hasBanking: true, romPageCount: 4 });
+      const m = new SpectrumMemory('zx128kplus3', { hasBanking: true, romPageCount: 4 });
       m.loadROM(new Uint8Array(4 * 16384));
       return m;
     };
-    expect(saveZ80(new Z80(), plus3Mem(), 0, true, undefined, undefined, 0, '+2A')[34]).toBe(13);
-    expect(saveZ80(new Z80(), plus3Mem(), 0, true, undefined, undefined, 0, '+3')[34]).toBe(7);
-    expect(saveZ80(new Z80(), makeMemory128k(), 0, true, undefined, undefined, 0, '+2')[34]).toBe(12);
-    expect(saveZ80(new Z80(), makeMemory128k(), 0, true, undefined, undefined, 0, '128k')[34]).toBe(4);
+    expect(saveZ80(new Z80(), plus3Mem(), 0, true, undefined, undefined, 0, 'zx128kplus2a')[34]).toBe(13);
+    expect(saveZ80(new Z80(), plus3Mem(), 0, true, undefined, undefined, 0, 'zx128kplus3')[34]).toBe(7);
+    expect(saveZ80(new Z80(), makeMemory128k(), 0, true, undefined, undefined, 0, 'zx128kplus2')[34]).toBe(12);
+    expect(saveZ80(new Z80(), makeMemory128k(), 0, true, undefined, undefined, 0, 'zx128k')[34]).toBe(4);
   });
 
   it('saveZ80 marks a 16K machine with hwMode 0 + the modify flag', () => {
-    const saved = saveZ80(new Z80(), makeMemory48k(), 0, false, undefined, undefined, 0, '16k');
+    const saved = saveZ80(new Z80(), makeMemory48k(), 0, false, undefined, undefined, 0, 'zx16k');
     expect(saved[34]).toBe(0);
     expect(saved[37] & 0x80).toBe(0x80);
   });

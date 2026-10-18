@@ -11,7 +11,7 @@ input add-ons.
 | **Released** | 1982–1987 |
 | **CPU** | Zilog Z80A — 3.5 MHz (16K/48K), 3.5469 MHz (128K-class) |
 | **zx84 kind** | `spectrum` — [`src/machines/spectrum/`](../../src/machines/spectrum/) |
-| **Model ids** | `16k` `48k` `128k` `+2` `+2A` `+3` — the MCP `model` target and `?model=` value (in a URL write `+` as `plus` or `%2B`: `?model=plus2a`) |
+| **Model ids** | `zx16k` `zx48k` `zx128k` `zx128kplus2` `zx128kplus2a` `zx128kplus3` — the MCP `model` target and `?model=` value. The earlier ids (`48k`, `128k`, `+2`, `+2A`, `+3`, URL spelling `plus2a`) still work in a URL and for `--model` |
 | **Accuracy** | Per-T-state CPU and contention; scanline display with mid-line (rainbow) rendering |
 | **Status** | Mature — passes azesmbog's ULA timing tests on 48K, 128K and +3 |
 
@@ -23,12 +23,12 @@ input add-ons.
 
 | Model | Year | RAM | ROM | Video | Sound | Storage | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 16K (`16k`) | 1982 | 16 KB | 16 KB | Ferranti ULA | Beeper | Cassette | Upper 32 KB unfitted: reads 0xFF, writes dropped |
-| 48K (`48k`) | 1982 | 48 KB | 16 KB | Ferranti ULA | Beeper | Cassette | 224 T/line × 312 lines = 69,888 T/frame |
-| 128K (`128k`) | 1985 | 128 KB | 32 KB (2 pages) | Ferranti ULA | Beeper + AY-3-8912 | Cassette | 7FFD paging; 228 T/line × 311 lines = 70,908 T/frame |
-| +2 (`+2`) | 1986 | 128 KB | 32 KB (2 pages) | Ferranti ULA | Beeper + AY-3-8912 | Built-in cassette | Same board design as the 128K, Amstrad ROM |
-| +2A (`+2A`) | 1987 | 128 KB | 64 KB (4 pages) | Amstrad gate array | Beeper + AY-3-8912 | Built-in cassette | 1FFD paging incl. special all-RAM modes |
-| +3 (`+3`) | 1987 | 128 KB | 64 KB (4 pages) | Amstrad gate array | Beeper + AY-3-8912 | 3" floppy (uPD765A) + cassette | +3DOS v4.1 |
+| 16K (`zx16k`) | 1982 | 16 KB | 16 KB | Ferranti ULA | Beeper | Cassette | Upper 32 KB unfitted: reads 0xFF, writes dropped |
+| 48K (`zx48k`) | 1982 | 48 KB | 16 KB | Ferranti ULA | Beeper | Cassette | 224 T/line × 312 lines = 69,888 T/frame |
+| 128K (`zx128k`) | 1985 | 128 KB | 32 KB (2 pages) | Ferranti ULA | Beeper + AY-3-8912 | Cassette | 7FFD paging; 228 T/line × 311 lines = 70,908 T/frame |
+| +2 (`zx128kplus2`) | 1986 | 128 KB | 32 KB (2 pages) | Ferranti ULA | Beeper + AY-3-8912 | Built-in cassette | Same board design as the 128K, Amstrad ROM |
+| +2A (`zx128kplus2a`) | 1987 | 128 KB | 64 KB (4 pages) | Amstrad gate array | Beeper + AY-3-8912 | Built-in cassette | 1FFD paging incl. special all-RAM modes |
+| +3 (`zx128kplus3`) | 1987 | 128 KB | 64 KB (4 pages) | Amstrad gate array | Beeper + AY-3-8912 | 3" floppy (uPD765A) + cassette | +3DOS v4.1 |
 
 ### ROM sets
 

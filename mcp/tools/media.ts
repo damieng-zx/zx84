@@ -334,8 +334,8 @@ export function register(server: McpServer): void {
       if (activeCpc()) return text('disk_boot is +3-specific. On the CPC, use load to mount a .dsk, then type RUN"DISC or |CPM.');
       const lines: string[] = [];
       if (file) {
-        if (state.model !== '+3') {
-          lines.push(await initMachine('+3'));
+        if (state.model !== 'zx128kplus3') {
+          lines.push(await initMachine('zx128kplus3'));
         } else {
           state.spec.reset();
           lines.push('Machine reset (+3)');
@@ -346,7 +346,7 @@ export function register(server: McpServer): void {
           return text(lines.join('\n'));
         }
       } else {
-        if (state.model !== '+3') return text('disk_boot requires +3 model. Use model tool to switch, or pass a file path.');
+        if (state.model !== 'zx128kplus3') return text('disk_boot requires +3 model. Use model tool to switch, or pass a file path.');
         if (!activeFdc()!.getDiskImage(0)) return text('No disk in drive A:. Use load tool first, or pass a file path.');
       }
       const spec = activeSpectrum()!;
@@ -368,8 +368,8 @@ export function register(server: McpServer): void {
     async ({ file }) => {
       if (activeCpc()) return text('disk_trace is a +3 copy-protection helper, not applicable to the CPC.');
       const lines: string[] = [];
-      if (state.model !== '+3') {
-        lines.push(await initMachine('+3'));
+      if (state.model !== 'zx128kplus3') {
+        lines.push(await initMachine('zx128kplus3'));
       } else {
         state.spec.reset();
         lines.push('Machine reset (+3)');

@@ -22,15 +22,16 @@ The project `.mcp.json` already registers the server:
 Run it directly with:
 
 ```text
-npm run mcp -- --model 48k
+npm run mcp -- --model zx48k
 ```
 
 Supported startup models are derived from the machine registry and include
-`zx80`, `zx81`, `16k`, `48k`, `128k`, `+2`, `+2A`, `+3`, `cpc464`, `cpc664`,
+`zx80`, `zx81`, `zx16k`, `zx48k`, `zx128k`, `zx128kplus2`, `zx128kplus2a`, `zx128kplus3`, `cpc464`, `cpc664`,
 `cpc6128`, `cpc6128plus`, `gx4000`, `einstein-tc01`, `einstein-256`, `hx-10`,
 `mtx500`, `mtx512`, `rs128`, `lynx48`, `lynx96`,
 `lynx128`, `jupiter-ace`, `pcw8256`, `pcw8512`, `pcw9512`, `pcw9256`, `bbc-b`, and `electron`. The
-default is `48k`.
+default is `zx48k`. The Spectrum's earlier ids (`48k`, `128k`, `+2`, `+2A`, `+3`) are still
+accepted by `--model`; the `model` tool takes the current ids only.
 System ROM pages come from the machine registry, are fetched through the shared
 ROM source loader, and are cached under `mcp/.cache/`.
 

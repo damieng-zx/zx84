@@ -2,6 +2,8 @@
  * IndexedDB + localStorage helpers for ROM/file persistence.
  */
 
+import { LEGACY_SPECTRUM_IDS } from '@/models.ts';
+
 const DB_NAME = 'zx84';
 const DB_VERSION = 1;
 const STORE_NAME = 'roms';
@@ -236,6 +238,41 @@ export async function migrateDiskStorage(): Promise<void> {
     } catch { complete = false; /* retain the legacy record until migration succeeds */ }
   }
   if (complete) setSaved('disk-storage-version', '2');
+}
+
+/** The Spectrum's model ids were unified under a `zx` prefix ('48k' → 'zx48k',
+ *  '+2A' → 'zx128kplus2a'). Stored ROM overrides are keyed by model id — the
+ *  IndexedDB image `rom-<id>[-<locale>][-page<n>]` and its localStorage label
+ *  `zx84-rom-label-<same key>` — so move them to the new ids once, at startup
+ *  before any ROM is restored. A key already present under the new id is never
+ *  overwritten, and an old key is only removed once its copy has succeeded;
+ *  a failed step leaves the old record in place and the migration retries on
+ *  the next start. */
+export async function migrateModelIds(): Promise<void> {
+  if (getSaved('model-ids-version', '') === '2') return;
+  let complete = true;
+  for (const [legacy, current] of LEGACY_SPECTRUM_IDS) {
+    for (const locale of ['', '-es', '-fr']) {
+      for (const page of ['', '-page0', '-page1', '-page2', '-page3']) {
+        const tail = `${locale}${page}`;
+        try {
+          const data = await dbLoad(`rom-${legacy}${tail}`);
+          if (data) {
+            if (!(await dbLoad(`rom-${current}${tail}`))) await dbSave(`rom-${current}${tail}`, data);
+            await dbDelete(`rom-${legacy}${tail}`);
+          }
+          const label = localStorage.getItem(`zx84-rom-label-${legacy}${tail}`);
+          if (label !== null) {
+            if (localStorage.getItem(`zx84-rom-label-${current}${tail}`) === null) {
+              localStorage.setItem(`zx84-rom-label-${current}${tail}`, label);
+            }
+            localStorage.removeItem(`zx84-rom-label-${legacy}${tail}`);
+          }
+        } catch { complete = false; }
+      }
+    }
+  }
+  if (complete) setSaved('model-ids-version', '2');
 }
 
 // MGT +D drives C:/D: (WD1772 units 0/1) — separate keys from the main FDC.

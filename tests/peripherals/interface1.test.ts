@@ -55,7 +55,7 @@ describe('Interface1 — port decode', () => {
 
 describe('Interface1 — shadow ROM paging', () => {
   function makeMem(): SpectrumMemory {
-    const mem = new SpectrumMemory('48k');
+    const mem = new SpectrumMemory('zx48k');
     mem.romPages[0].fill(0x99);            // whole Spectrum ROM = 0x99
     mem.romPages[0][0x0000] = 0xAA;        // a low-half marker
     mem.romPages[0][0x2000] = 0xC3;        // an upper-half marker

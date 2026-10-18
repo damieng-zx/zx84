@@ -90,8 +90,9 @@ extension.
 The starting machine can be chosen with `?model=` (alias `?machine=`), e.g.
 `?model=cpc6128&disk0=...`. It takes precedence over the last-used machine,
 becomes the new saved choice, and is removed from the address bar once applied.
-Values are case-insensitive; write `+` models as `plus2a`/`plus3` or `%2B3`.
-Known models: `16k` `48k` `128k` `+2` `+2A` `+3` `zx80` `zx81` `jupiter-ace`
+Values are case-insensitive, and the same ids drive the MCP server's `model`
+tool. The Spectrum's earlier ids (`48k`, `+3`, `plus2a`, …) still work in URLs.
+Known models: `zx16k` `zx48k` `zx128k` `zx128kplus2` `zx128kplus2a` `zx128kplus3` `zx80` `zx81` `jupiter-ace`
 `cpc464` `cpc664` `cpc6128` `cpc6128plus` `gx4000` `pcw8256` `pcw8512`
 `pcw9256` `pcw9512` `einstein-tc01` `einstein-256` `hx-10` `mtx500` `mtx512`
 `rs128` `lynx48` `lynx96` `lynx128` `bbc-b` `electron` `apple2` `apple2-plus` `apple2e` `apple2e-enhanced` `apple2c` `ep64` `ep128`.

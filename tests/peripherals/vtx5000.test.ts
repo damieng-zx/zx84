@@ -78,7 +78,7 @@ describe('VTX5000 — applyROM (slot-0 overlay)', () => {
     return r;
   }
   beforeEach(() => {
-    mem = new SpectrumMemory('48k');
+    mem = new SpectrumMemory('zx48k');
     mem.loadROM(makeSpectrumRom());
     v = new VTX5000();
   });

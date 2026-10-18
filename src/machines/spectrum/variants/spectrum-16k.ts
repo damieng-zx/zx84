@@ -14,7 +14,7 @@ import type { MachineVariant } from './machine-variant.ts';
 const CONTENTION_FERRANTI = new Uint8Array([6, 5, 4, 3, 2, 1, 0, 0]);
 
 export const spectrum16K: MachineVariant = Object.freeze({
-  model: '16k' as const,
+  model: 'zx16k' as const,
   timing: TIMING_48K,
 
   contentionPattern: CONTENTION_FERRANTI,

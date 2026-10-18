@@ -8,7 +8,7 @@
 | **Released** | <Year range across the models below> |
 | **CPU** | <CPU and clock(s)> |
 | **zx84 kind** | `<machine kind>` — [`src/machines/<name>/`](../../src/machines/<name>/) |
-| **Model ids** | `<id>` `<id>` … — exactly the registry ids: the MCP `model` target and the `?model=` value (note any URL spelling quirk, e.g. `+` as `plus`) |
+| **Model ids** | `<id>` `<id>` … — exactly the registry ids: the MCP `model` target and the `?model=` value |
 | **Accuracy** | <cycle / scanline / frame, from `descriptor.ui.accuracy`> |
 | **Status** | <one line: e.g. "Mature — passes the reference timing tests"> |
 

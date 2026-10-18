@@ -59,20 +59,20 @@ describe('PLUS2_KEYWORDS — the only BASIC keywords left on the caps', () => {
 
 describe('sparseKeyboardFace — which sparse face a model uses', () => {
   it('grey for the +2', () => {
-    expect(sparseKeyboardFace('+2')).toBe('grey2');
+    expect(sparseKeyboardFace('zx128kplus2')).toBe('grey2');
   });
 
   it('near-black (amstrad) for the +2A and +3', () => {
-    expect(sparseKeyboardFace('+2A')).toBe('amstrad');
-    expect(sparseKeyboardFace('+3')).toBe('amstrad');
+    expect(sparseKeyboardFace('zx128kplus2a')).toBe('amstrad');
+    expect(sparseKeyboardFace('zx128kplus3')).toBe('amstrad');
   });
 
   it('no sparse face for the 128K (it keeps the full toastrack legends)', () => {
-    expect(sparseKeyboardFace('128k')).toBe(null);
+    expect(sparseKeyboardFace('zx128k')).toBe(null);
   });
 
   it('no sparse face for 48K (handled by the rubber keyboard, not this path)', () => {
-    expect(sparseKeyboardFace('48k')).toBe(null);
+    expect(sparseKeyboardFace('zx48k')).toBe(null);
   });
 });
 

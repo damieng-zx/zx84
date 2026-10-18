@@ -182,67 +182,67 @@ describe('library media selection', () => {
   const romAndTapeAndDisk = mk({ t: 'RTD', f: '/pub/48.tzx.zip', d: '/pub/x.dsk.zip', r: '/pub/x.rom.zip' });
 
   it('16K: a 16K tape stays on 16K and a 48K tape upgrades', () => {
-    expect(planLoad(tape16, '16k')).toEqual({ target: '16k', link: '/pub/16.tzx.zip', kind: 'tape', boot: 'rom48k' });
-    expect(planLoad(tape48, '16k')).toEqual({ target: '48k', link: '/pub/48.tzx.zip', kind: 'tape', boot: 'rom48k' });
+    expect(planLoad(tape16, 'zx16k')).toEqual({ target: 'zx16k', link: '/pub/16.tzx.zip', kind: 'tape', boot: 'rom48k' });
+    expect(planLoad(tape48, 'zx16k')).toEqual({ target: 'zx48k', link: '/pub/48.tzx.zip', kind: 'tape', boot: 'rom48k' });
   });
 
   it('48K: a 48 tape jumps the ROM loader, staying on 48K', () => {
-    expect(planLoad(tape48, '48k')).toEqual({ target: '48k', link: '/pub/48.tzx.zip', kind: 'tape', boot: 'rom48k' });
+    expect(planLoad(tape48, 'zx48k')).toEqual({ target: 'zx48k', link: '/pub/48.tzx.zip', kind: 'tape', boot: 'rom48k' });
   });
 
   it('48K: a 128-only tape upgrades to 128K and a +3 disk upgrades to +3', () => {
-    expect(planLoad(tape128, '48k')).toEqual({ target: '128k', link: '/pub/128.tzx.zip', kind: 'tape', boot: 'menu' });
-    expect(planLoad(diskOnly, '48k')).toEqual({ target: '+3', link: '/pub/x.dsk.zip', kind: 'plus3-disk', boot: 'menu' });
+    expect(planLoad(tape128, 'zx48k')).toEqual({ target: 'zx128k', link: '/pub/128.tzx.zip', kind: 'tape', boot: 'menu' });
+    expect(planLoad(diskOnly, 'zx48k')).toEqual({ target: 'zx128kplus3', link: '/pub/x.dsk.zip', kind: 'plus3-disk', boot: 'menu' });
   });
 
   it('128K: a tape stays on the current machine, preferring the 128K tape', () => {
-    expect(planLoad(bothTapes, '+2A')).toEqual({ target: '+2A', link: '/pub/128.tzx.zip', kind: 'tape', boot: 'menu' });
+    expect(planLoad(bothTapes, 'zx128kplus2a')).toEqual({ target: 'zx128kplus2a', link: '/pub/128.tzx.zip', kind: 'tape', boot: 'menu' });
   });
 
   it('128K: a disk-only game upgrades to +3', () => {
-    expect(planLoad(diskOnly, '128k')).toEqual({ target: '+3', link: '/pub/x.dsk.zip', kind: 'plus3-disk', boot: 'menu' });
+    expect(planLoad(diskOnly, 'zx128k')).toEqual({ target: 'zx128kplus3', link: '/pub/x.dsk.zip', kind: 'plus3-disk', boot: 'menu' });
   });
 
   it('+3: prefers the disk over the tape', () => {
-    expect(planLoad(tapeAndDisk, '+3')).toEqual({ target: '+3', link: '/pub/x.dsk.zip', kind: 'plus3-disk', boot: 'menu' });
+    expect(planLoad(tapeAndDisk, 'zx128kplus3')).toEqual({ target: 'zx128kplus3', link: '/pub/x.dsk.zip', kind: 'plus3-disk', boot: 'menu' });
   });
 
   it('+3: a tape-only game still loads via the menu', () => {
-    expect(planLoad(tape48, '+3')).toEqual({ target: '+3', link: '/pub/48.tzx.zip', kind: 'tape', boot: 'menu' });
+    expect(planLoad(tape48, 'zx128kplus3')).toEqual({ target: 'zx128kplus3', link: '/pub/48.tzx.zip', kind: 'tape', boot: 'menu' });
   });
 
   it('returns null when the game has no playable file at all', () => {
-    expect(planLoad(mk({ t: 'None' }), '48k')).toBeNull();
+    expect(planLoad(mk({ t: 'None' }), 'zx48k')).toBeNull();
   });
 
   it('snapshot-only: falls back to the snapshot on its native model, boot snapshot', () => {
-    expect(planLoad(snap16Only, '16k')).toEqual({ target: '16k', link: '/pub/s16.szx.zip', kind: 'snapshot', boot: 'snapshot' });
-    expect(planLoad(snap48Only, '48k')).toEqual({ target: '48k', link: '/pub/s.z80.zip', kind: 'snapshot', boot: 'snapshot' });
-    expect(planLoad(snap128Only, '48k')).toEqual({ target: '128k', link: '/pub/s128.szx.zip', kind: 'snapshot', boot: 'snapshot' });
+    expect(planLoad(snap16Only, 'zx16k')).toEqual({ target: 'zx16k', link: '/pub/s16.szx.zip', kind: 'snapshot', boot: 'snapshot' });
+    expect(planLoad(snap48Only, 'zx48k')).toEqual({ target: 'zx48k', link: '/pub/s.z80.zip', kind: 'snapshot', boot: 'snapshot' });
+    expect(planLoad(snap128Only, 'zx48k')).toEqual({ target: 'zx128k', link: '/pub/s128.szx.zip', kind: 'snapshot', boot: 'snapshot' });
     // Even on a +3, a snapshot-only game loads its snapshot directly.
-    expect(planLoad(snap48Only, '+3')).toEqual({ target: '48k', link: '/pub/s.z80.zip', kind: 'snapshot', boot: 'snapshot' });
+    expect(planLoad(snap48Only, 'zx128kplus3')).toEqual({ target: 'zx48k', link: '/pub/s.z80.zip', kind: 'snapshot', boot: 'snapshot' });
   });
 
   it('selects MGT +D and microdrive media with their required peripheral', () => {
-    expect(planLoad(mgt, '48k')).toEqual({ target: '48k', link: '/pub/x.mgt.zip', kind: 'mgt-disk', peripheral: 'plusd', boot: 'peripheral' });
-    expect(planLoad(microdrive, '128k')).toEqual({ target: '128k', link: '/pub/x.mdv.zip', kind: 'microdrive', peripheral: 'interface1', boot: 'peripheral' });
-    expect(planLoad(mgt, '+2A')).toEqual({ target: '128k', link: '/pub/x.mgt.zip', kind: 'mgt-disk', peripheral: 'plusd', boot: 'peripheral' });
+    expect(planLoad(mgt, 'zx48k')).toEqual({ target: 'zx48k', link: '/pub/x.mgt.zip', kind: 'mgt-disk', peripheral: 'plusd', boot: 'peripheral' });
+    expect(planLoad(microdrive, 'zx128k')).toEqual({ target: 'zx128k', link: '/pub/x.mdv.zip', kind: 'microdrive', peripheral: 'interface1', boot: 'peripheral' });
+    expect(planLoad(mgt, 'zx128kplus2a')).toEqual({ target: 'zx128k', link: '/pub/x.mgt.zip', kind: 'mgt-disk', peripheral: 'plusd', boot: 'peripheral' });
   });
 
   it('honours the selected format over the default current-machine preference', () => {
     const tapeAndMicrodrive = mk({ t: 'TMD', f: '/pub/tape.tzx.zip', u: '/pub/cart.mdr.zip' });
-    expect(planLoad(tapeAndMicrodrive, '48k')).toEqual({ target: '48k', link: '/pub/tape.tzx.zip', kind: 'tape', boot: 'rom48k' });
-    expect(planLoad(tapeAndMicrodrive, '48k', ['microdrive'])).toEqual({ target: '48k', link: '/pub/cart.mdr.zip', kind: 'microdrive', peripheral: 'interface1', boot: 'peripheral' });
+    expect(planLoad(tapeAndMicrodrive, 'zx48k')).toEqual({ target: 'zx48k', link: '/pub/tape.tzx.zip', kind: 'tape', boot: 'rom48k' });
+    expect(planLoad(tapeAndMicrodrive, 'zx48k', ['microdrive'])).toEqual({ target: 'zx48k', link: '/pub/cart.mdr.zip', kind: 'microdrive', peripheral: 'interface1', boot: 'peripheral' });
   });
 
   it('a ROM cartridge always wins — switches down to 48K even from a +3', () => {
-    expect(planLoad(romOnly, '16k')).toEqual({ target: '16k', link: '/pub/x.rom.zip', kind: 'rom', boot: 'rom' });
-    expect(planLoad(romOnly, '+3')).toEqual({ target: '48k', link: '/pub/x.rom.zip', kind: 'rom', boot: 'rom' });
-    expect(planLoad(romOnly, '128k')).toEqual({ target: '48k', link: '/pub/x.rom.zip', kind: 'rom', boot: 'rom' });
+    expect(planLoad(romOnly, 'zx16k')).toEqual({ target: 'zx16k', link: '/pub/x.rom.zip', kind: 'rom', boot: 'rom' });
+    expect(planLoad(romOnly, 'zx128kplus3')).toEqual({ target: 'zx48k', link: '/pub/x.rom.zip', kind: 'rom', boot: 'rom' });
+    expect(planLoad(romOnly, 'zx128k')).toEqual({ target: 'zx48k', link: '/pub/x.rom.zip', kind: 'rom', boot: 'rom' });
   });
 
   it('a ROM cartridge takes priority over a tape/disk on the same entry', () => {
-    expect(planLoad(romAndTapeAndDisk, '+3')).toEqual({ target: '48k', link: '/pub/x.rom.zip', kind: 'rom', boot: 'rom' });
+    expect(planLoad(romAndTapeAndDisk, 'zx128kplus3')).toEqual({ target: 'zx48k', link: '/pub/x.rom.zip', kind: 'rom', boot: 'rom' });
   });
 
   it('keeps formats independent and expands each one to compatible machines', () => {

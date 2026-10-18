@@ -33,7 +33,7 @@ import { Spectrum } from '@/machines/spectrum/spectrum.ts';
 import { SpectrumSnapshotService } from '@/machines/spectrum/services/snapshots.ts';
 import type { MachineHost } from '@/machines/machine.ts';
 
-function machine(model: '48k' | '128k' | '+2A' = '48k'): Spectrum {
+function machine(model: 'zx48k' | 'zx128k' | 'zx128kplus2a' = 'zx48k'): Spectrum {
   const s = new Spectrum(model, null);
   s.start = async () => {};   // headless: no AudioContext / rAF
   return s;
@@ -53,7 +53,7 @@ beforeEach(() => vi.clearAllMocks());
 
 describe('SpectrumSnapshotService — SNA', () => {
   it('48K SNA applies directly, sets the border, no host upgrade', async () => {
-    const s = machine('48k');
+    const s = machine('zx48k');
     loadSNA.mockReturnValue({ is128K: false, borderColor: 3 });
     const { svc, calls } = svcOf(s, true);
     const r = await svc.apply(new Uint8Array(49179), 'g.sna');
@@ -65,17 +65,17 @@ describe('SpectrumSnapshotService — SNA', () => {
   });
 
   it('128K SNA (> 49179) on a 48K asks the host and flags needsReplay (no load yet)', async () => {
-    const s = machine('48k');
+    const s = machine('zx48k');
     const { svc, calls } = svcOf(s, true);
     const r = await svc.apply(new Uint8Array(49180), 'g.sna');
-    expect(calls).toEqual([{ model: '128k', reason: expect.stringContaining('g.sna') }]);
+    expect(calls).toEqual([{ model: 'zx128k', reason: expect.stringContaining('g.sna') }]);
     expect(r.ok).toBe(true);
     expect(r.needsReplay).toBe(true);
     expect(loadSNA).not.toHaveBeenCalled();   // the replay loads into the new machine
   });
 
   it('the 49179-byte boundary is the 48K path (NOT > 49179)', async () => {
-    const s = machine('48k');
+    const s = machine('zx48k');
     loadSNA.mockReturnValue({ is128K: false, borderColor: 0 });
     const { svc, calls } = svcOf(s, true);
     await svc.apply(new Uint8Array(49179), 'a.sna');
@@ -83,7 +83,7 @@ describe('SpectrumSnapshotService — SNA', () => {
   });
 
   it('128K SNA on a 48K reports cleanly when the host declines', async () => {
-    const s = machine('48k');
+    const s = machine('zx48k');
     const { svc } = svcOf(s, false);
     const r = await svc.apply(new Uint8Array(49180), 'g.sna');
     expect(r.ok).toBe(false);
@@ -93,7 +93,7 @@ describe('SpectrumSnapshotService — SNA', () => {
 
 describe('SpectrumSnapshotService — Z80', () => {
   it('48K Z80 on a 48K: one load, no upgrade', async () => {
-    const s = machine('48k');
+    const s = machine('zx48k');
     loadZ80.mockReturnValue({ is128K: false, borderColor: 1 });
     const { svc, calls } = svcOf(s, true);
     const r = await svc.apply(new Uint8Array(), 'a.z80');
@@ -103,16 +103,16 @@ describe('SpectrumSnapshotService — Z80', () => {
   });
 
   it('128K Z80 on a 48K upgrades → needsReplay (host granted)', async () => {
-    const s = machine('48k');
+    const s = machine('zx48k');
     loadZ80.mockReturnValue({ is128K: true, borderColor: 0 });
     const { svc, calls } = svcOf(s, true);
     const r = await svc.apply(new Uint8Array(), 'a.z80');
-    expect(calls).toEqual([{ model: '128k', reason: expect.stringContaining('a.z80') }]);
+    expect(calls).toEqual([{ model: 'zx128k', reason: expect.stringContaining('a.z80') }]);
     expect(r.needsReplay).toBe(true);
   });
 
   it('128K Z80 on a 48K with a declined upgrade aborts and restarts the machine', async () => {
-    const s = machine('48k');
+    const s = machine('zx48k');
     const startSpy = vi.spyOn(s, 'start');
     loadZ80.mockReturnValue({ is128K: true, borderColor: 0 });
     const { svc } = svcOf(s, false);
@@ -123,7 +123,7 @@ describe('SpectrumSnapshotService — Z80', () => {
   });
 
   it('restores AY state (registers + selected reg) when present', async () => {
-    const s = machine('48k');
+    const s = machine('zx48k');
     const regs = new Uint8Array(16).fill(9);
     loadZ80.mockReturnValue({ is128K: false, borderColor: 0, ayRegs: regs, ayCurrentReg: 7 });
     const setRegs = vi.spyOn(s.ay, 'setRegisters');
@@ -136,7 +136,7 @@ describe('SpectrumSnapshotService — Z80', () => {
 
 describe('SpectrumSnapshotService — SZX paging', () => {
   it('128K SZX on a 128K applies port7FFD paging + ROM bit', async () => {
-    const s = machine('128k');
+    const s = machine('zx128k');
     loadSZX.mockResolvedValue({ is128K: true, borderColor: 0, port7FFD: 0x37, port1FFD: 0 });
     const { svc } = svcOf(s, true);
     await svc.apply(new Uint8Array(), 'a.szx');
@@ -147,7 +147,7 @@ describe('SpectrumSnapshotService — SZX paging', () => {
   });
 
   it('128K SZX on a +2A applies the 4-ROM math: (1FFD bit2 << 1) | (7FFD bit4)', async () => {
-    const s = machine('+2A');
+    const s = machine('zx128kplus2a');
     loadSZX.mockResolvedValue({ is128K: true, borderColor: 0, port7FFD: 0x10, port1FFD: 0x05, sourceHas1FFD: true });
     const { svc } = svcOf(s, true);
     await svc.apply(new Uint8Array(), 'a.szx');
@@ -159,7 +159,7 @@ describe('SpectrumSnapshotService — SZX paging', () => {
 
 describe('SpectrumSnapshotService — SP paging', () => {
   it('128K SP on a 128K applies port7FFD + flashState', async () => {
-    const s = machine('128k');
+    const s = machine('zx128k');
     loadSP.mockReturnValue({ is128K: true, borderColor: 2, flashState: true, port7FFD: 0x23 });
     const { svc } = svcOf(s, true);
     await svc.apply(new Uint8Array(), 'a.sp');
@@ -170,7 +170,7 @@ describe('SpectrumSnapshotService — SP paging', () => {
 
   it('128K SP on a +2A maps 7FFD bit 4 (48K ROM) to ROM 3 via 1FFD bit 2', async () => {
     // .sp carries no 1FFD; on the 4-ROM +2A the 48K BASIC ROM is page 3.
-    const s = machine('+2A');
+    const s = machine('zx128kplus2a');
     loadSP.mockReturnValue({ is128K: true, borderColor: 0, flashState: false, port7FFD: 0x10 });
     const { svc } = svcOf(s, true);
     await svc.apply(new Uint8Array(), 'a.sp');
@@ -188,7 +188,7 @@ describe('SpectrumSnapshotService — 48K snapshot on a 128K-class machine', () 
   // 7FFD=0x30 (+ 1FFD bit 2 on 4-ROM machines).
 
   it('48K SNA on a 128K selects ROM 1 and locks paging', async () => {
-    const s = machine('128k');
+    const s = machine('zx128k');
     loadSNA.mockReturnValue({ is128K: false, borderColor: 0 });
     const { svc } = svcOf(s, true);
     await svc.apply(new Uint8Array(49179), 'g.sna');
@@ -198,7 +198,7 @@ describe('SpectrumSnapshotService — 48K snapshot on a 128K-class machine', () 
   });
 
   it('48K SNA on a +2A selects ROM 3 (last romPages entry) via 1FFD bit 2', async () => {
-    const s = machine('+2A');
+    const s = machine('zx128kplus2a');
     loadSNA.mockReturnValue({ is128K: false, borderColor: 0 });
     const { svc } = svcOf(s, true);
     await svc.apply(new Uint8Array(49179), 'g.sna');
@@ -208,7 +208,7 @@ describe('SpectrumSnapshotService — 48K snapshot on a 128K-class machine', () 
   });
 
   it('48K Z80 on a 128K selects ROM 1 and locks paging', async () => {
-    const s = machine('128k');
+    const s = machine('zx128k');
     loadZ80.mockReturnValue({ is128K: false, borderColor: 0 });
     const { svc } = svcOf(s, true);
     await svc.apply(new Uint8Array(), 'a.z80');
@@ -217,7 +217,7 @@ describe('SpectrumSnapshotService — 48K snapshot on a 128K-class machine', () 
   });
 
   it('48K SZX on a 128K selects ROM 1 and locks paging', async () => {
-    const s = machine('128k');
+    const s = machine('zx128k');
     loadSZX.mockResolvedValue({ is128K: false, borderColor: 0, port7FFD: 0, port1FFD: 0 });
     const { svc } = svcOf(s, true);
     await svc.apply(new Uint8Array(), 'a.szx');
@@ -226,7 +226,7 @@ describe('SpectrumSnapshotService — 48K snapshot on a 128K-class machine', () 
   });
 
   it('48K SP on a 128K selects ROM 1 and locks paging', async () => {
-    const s = machine('128k');
+    const s = machine('zx128k');
     loadSP.mockReturnValue({ is128K: false, borderColor: 0, flashState: false });
     const { svc } = svcOf(s, true);
     await svc.apply(new Uint8Array(), 'a.sp');
@@ -235,7 +235,7 @@ describe('SpectrumSnapshotService — 48K snapshot on a 128K-class machine', () 
   });
 
   it('does NOT touch ROM selection on a plain 48K machine', async () => {
-    const s = machine('48k');
+    const s = machine('zx48k');
     loadSNA.mockReturnValue({ is128K: false, borderColor: 0 });
     const { svc } = svcOf(s, true);
     await svc.apply(new Uint8Array(49179), 'g.sna');
@@ -245,7 +245,7 @@ describe('SpectrumSnapshotService — 48K snapshot on a 128K-class machine', () 
 
 describe('SpectrumSnapshotService — errors', () => {
   it('a parser throw surfaces as ok:false + an error message', async () => {
-    const s = machine('48k');
+    const s = machine('zx48k');
     loadSNA.mockImplementation(() => { throw new Error('bad header'); });
     const { svc } = svcOf(s, true);
     const r = await svc.apply(new Uint8Array(49179), 'g.sna');
@@ -254,7 +254,7 @@ describe('SpectrumSnapshotService — errors', () => {
   });
 
   it('an unknown extension is rejected', async () => {
-    const s = machine('48k');
+    const s = machine('zx48k');
     const { svc } = svcOf(s, true);
     const r = await svc.apply(new Uint8Array(), 'a.bin');
     expect(r.ok).toBe(false);

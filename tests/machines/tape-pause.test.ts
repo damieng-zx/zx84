@@ -19,7 +19,7 @@ const spectrumTap = () => new Uint8Array([0x03, 0x00, 0xFF, 0x01, 0xFE]);
 const aceTap = () => new Uint8Array([0x02, 0x00, 0x01, 0x02]);
 
 const cases = [
-  { name: 'Spectrum', create: () => new Spectrum('48k', null), bytes: spectrumTap },
+  { name: 'Spectrum', create: () => new Spectrum('zx48k', null), bytes: spectrumTap },
   { name: 'CPC', create: () => new CpcMachine('cpc6128', null), bytes: spectrumTap },
   { name: 'Jupiter Ace', create: () => new JupiterAceMachine('jupiter-ace', null), bytes: aceTap },
 ];
