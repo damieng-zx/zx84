@@ -9,7 +9,7 @@ import type { StatusLedId } from '@/machines/machine.ts';
 import type { MachineModel } from '@/models.ts';
 import { isCpcModel } from '@/models.ts';
 import type { SpectrumModel } from './models.ts';
-import { is128kClass, isPlus2AClass, isPlus3, isInterface2Capable, romPageSlotCount } from './models.ts';
+import { is128kClass, isPlus2AClass, isPlus3, isInterface2Capable, romPageSlotCount, ramBankCountFor } from './models.ts';
 import { Spectrum } from './spectrum.ts';
 import { SCREEN_WIDTH, SCREEN_HEIGHT } from './ula.ts';
 
@@ -59,7 +59,10 @@ function spectrumUi(model: MachineModel): MachineUiCapabilities {
     fastRomLoading: true,
     tapeSound: true,
     tapeExtensions: ['.tap', '.tzx', '.csw', '.zip'],
-    saveMenu: ['snapshot-szx', 'snapshot-z80', 'screenshot-png', 'screen-scr', 'ram-bin'],
+    // .z80 holds at most 128K of RAM, so the Pentagon 512/1024 save only as .szx.
+    saveMenu: ramBankCountFor(model) > 8
+      ? ['snapshot-szx', 'screenshot-png', 'screen-scr', 'ram-bin']
+      : ['snapshot-szx', 'snapshot-z80', 'screenshot-png', 'screen-scr', 'ram-bin'],
     zipPolicy: 'all',
     persistMedia: true,
     bootDisk: false,
@@ -97,6 +100,8 @@ const ROM_SOURCES: Record<string, string[]> = {
   // BASIC); TR-DOS comes from the built-in Beta Disk's own ROM. A dedicated
   // Pentagon-branded ROM can replace these once one is hosted.
   pentagon128: ['sinclair/128-0.rom', 'sinclair/128-1.rom'],
+  pentagon512: ['sinclair/128-0.rom', 'sinclair/128-1.rom'],
+  pentagon1024: ['sinclair/128-0.rom', 'sinclair/128-1.rom'],
 
   // ── Spanish (Investrónica) ───────────────────────────────────────────────
   '48k-es':  ['sinclair/48-es.rom'],
@@ -129,7 +134,7 @@ export function spectrumDescriptor(model: MachineModel, locale: MachineLocale = 
 
 export const spectrumEntry: MachineEntry = {
   kind: 'spectrum',
-  models: ['16k', '48k', '128k', '+2', '+2A', '+3', 'pentagon128'],
+  models: ['16k', '48k', '128k', '+2', '+2A', '+3', 'pentagon128', 'pentagon512', 'pentagon1024'],
   descriptor: spectrumDescriptor,
   create(model: MachineModel, display: IScreenRenderer | null) {
     return new Spectrum(model as SpectrumModel, display);

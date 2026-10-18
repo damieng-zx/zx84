@@ -34,6 +34,7 @@ export const spectrum48K: MachineVariant = Object.freeze({
 
   decodes7FFD(_port: number): boolean { return false; },
   decodes1FFD(_port: number): boolean { return false; },
+  decodesEFF7(_port: number): boolean { return false; },
   decodesFDCData(_port: number): boolean { return false; },
   decodesFDCStatus(_port: number): boolean { return false; },
 });

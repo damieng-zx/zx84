@@ -178,6 +178,9 @@ export function wirePortIO(s: Spectrum): void {
         s.memory.bankSwitch(val, s.hasSlot0Overlay);
       }
 
+      // Pentagon 1024: port 0xEFF7 (128K / 1MB mode gate, ROM-as-RAM, turbo, video).
+      if (v.decodesEFF7(port)) s.memory.writeEFF7(val);
+
       // +2A: port 0x1FFD. Once paging is locked (7FFD bit 5), hardware
       // freezes the whole register — the motor bit lives in the same port,
       // so it must be ignored too, not just the paging-related bits that

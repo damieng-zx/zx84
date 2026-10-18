@@ -8,7 +8,7 @@
 
 import type { MachineModel } from '@/models.ts';
 
-export type SpectrumModel = '16k' | '48k' | '128k' | '+2' | '+2A' | '+3' | 'pentagon128';
+export type SpectrumModel = '16k' | '48k' | '128k' | '+2' | '+2A' | '+3' | 'pentagon128' | 'pentagon512' | 'pentagon1024';
 
 /** Returns true for any 128K-class Spectrum (128K, +2, +2A, +3, Pentagon 128). */
 export function is128kClass(m: MachineModel): boolean {
@@ -17,7 +17,23 @@ export function is128kClass(m: MachineModel): boolean {
 
 /** Returns true for the Pentagon family of Russian 128K clones: no contention,
  *  no floating bus, 71680 T-state frame, and a Beta Disk built in. */
-export function isPentagonClass(m: MachineModel): boolean { return m === 'pentagon128'; }
+export function isPentagonClass(m: MachineModel): boolean {
+  return m === 'pentagon128' || m === 'pentagon512' || m === 'pentagon1024';
+}
+
+/** How 7FFD forms the RAM page number: the plain 128K uses D0-D2 only; the
+ *  Pentagon 512 adds D6/D7 as page bits 3/4; the 1024 also takes D5 as page
+ *  bit 5 while port EFF7 bit 2 is clear. */
+export type PagingScheme = 'standard' | 'pentagon512' | 'pentagon1024';
+
+export function pagingScheme(m: MachineModel): PagingScheme {
+  return m === 'pentagon512' ? 'pentagon512' : m === 'pentagon1024' ? 'pentagon1024' : 'standard';
+}
+
+/** Number of 16K RAM banks fitted: 8 (128K), 32 (Pentagon 512), 64 (Pentagon 1024). */
+export function ramBankCountFor(m: MachineModel): number {
+  return m === 'pentagon512' ? 32 : m === 'pentagon1024' ? 64 : 8;
+}
 
 /** Returns true for models that ship with a Beta Disk (TR-DOS) interface fitted
  *  on the board, so it is always present rather than a Hardware-pane option. */

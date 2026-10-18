@@ -18,6 +18,7 @@
  */
 
 import type { SpectrumModel } from '@/models.ts';
+import { pagingScheme, ramBankCountFor, type PagingScheme } from '@/machines/spectrum/models.ts';
 import type { IMachineMemory } from '@/machines/machine.ts';
 import { BANK_SIZE } from '@/utils/bank-size.ts';
 
@@ -43,7 +44,7 @@ export class SpectrumMemory implements IMachineMemory {
    *  Hot-path callers (io-ports.ts) capture this once and index directly. */
   readonly flat = new Uint8Array(0x10000);
 
-  /** 8 × 16KB cold storage for unmapped RAM banks. When a bank is currently
+  /** 16KB cold storage (8 banks; 32 on the Pentagon 512, 64 on the 1024) for unmapped RAM banks. When a bank is currently
    *  mapped (`_slotBank[s] === n`), the live data lives in flat — this array
    *  is stale until the bank is flushed back on switch. Use `getRamBank()`
    *  for an always-correct accessor. */
@@ -81,6 +82,15 @@ export class SpectrumMemory implements IMachineMemory {
   /** Current port 0x1FFD value (+2A only) */
   port1FFD = 0;
 
+  /** Last value written to port 0xEFF7 (Pentagon 1024 only). Bit 2 set = plain
+   *  128K mode (D5/D6/D7 of 7FFD stop extending the page number); clear = the
+   *  full 1MB. Bit 3 (RAM at 0x0000), the turbo bit and the video-mode bits are
+   *  latched here but have no effect yet. Cleared by reset. */
+  portEFF7 = 0;
+
+  /** How 7FFD forms the RAM page number on this machine. */
+  readonly scheme: PagingScheme;
+
   /** Whether paging is locked (bit 5 of 0x7FFD) */
   pagingLocked = false;
 
@@ -107,13 +117,15 @@ export class SpectrumMemory implements IMachineMemory {
    *  Contention slot mask) can refresh. Null when no listener is wired. */
   onSlotsChanged: (() => void) | null = null;
 
-  constructor(model: SpectrumModel, opts?: { hasBanking?: boolean; romPageCount?: number; is16K?: boolean }) {
+  constructor(model: SpectrumModel, opts?: { hasBanking?: boolean; romPageCount?: number; is16K?: boolean; ramBankCount?: number }) {
     this.is128K = opts?.hasBanking ?? (model !== '48k' && model !== '16k');
     this.is16K = opts?.is16K ?? (model === '16k');
+    this.scheme = pagingScheme(model);
 
-    // Create 8 RAM banks (cold storage)
+    // Create the RAM banks (cold storage)
     this._ramBanks = [];
-    for (let i = 0; i < 8; i++) {
+    const bankCount = opts?.ramBankCount ?? ramBankCountFor(model);
+    for (let i = 0; i < bankCount; i++) {
       this._ramBanks.push(new Uint8Array(BANK_SIZE));
     }
 
@@ -341,6 +353,7 @@ export class SpectrumMemory implements IMachineMemory {
     this.flat.fill(0);
     this.port7FFD = 0;
     this.port1FFD = 0;
+    this.portEFF7 = 0;
     this.pagingLocked = false;
     this.currentBank = 0;
     this.currentROM = 0;
@@ -389,7 +402,7 @@ export class SpectrumMemory implements IMachineMemory {
   bankSwitch(val: number, skipSlot0 = false): void {
     if (!this.is128K || this.pagingLocked) return;
 
-    const newBank = val & 0x07;
+    const newBank = this.bankFor7FFD(val);
 
     let newROM: number;
     if (this.romPages.length === 4) {
@@ -403,7 +416,7 @@ export class SpectrumMemory implements IMachineMemory {
       this.port7FFD = val;
       this.currentBank = newBank;
       this.currentROM = newROM;
-      if (val & 0x20) this.pagingLocked = true;
+      if (this.locksPaging(val)) this.pagingLocked = true;
       this._refreshScreenSlots();
       return;
     }
@@ -419,9 +432,57 @@ export class SpectrumMemory implements IMachineMemory {
     this.port7FFD = val;
     this.currentBank = newBank;
     this.currentROM = newROM;
-    if (val & 0x20) this.pagingLocked = true;
+    if (this.locksPaging(val)) this.pagingLocked = true;
     this._refreshScreenSlots();
     if (this.onSlotsChanged !== null) this.onSlotsChanged();
+  }
+
+  /** RAM page selected at 0xC000 by a 7FFD value, on this machine.
+   *  Pentagon 512: D0-D2 | D6<<3 | D7<<3 (pages 0-31). Pentagon 1024 in 1MB mode
+   *  (EFF7 bit 2 clear) adds D5 as page bit 5 (pages 0-63); with EFF7 bit 2 set
+   *  it behaves as a 128K. */
+  bankFor7FFD(val: number): number {
+    switch (this.scheme) {
+      case 'pentagon512':
+        return (val & 0x07) | ((val & 0xC0) >> 3);
+      case 'pentagon1024':
+        return (this.portEFF7 & 0x04) !== 0
+          ? val & 0x07
+          : (val & 0x07) | ((val & 0xC0) >> 3) | (val & 0x20);
+      default:
+        return val & 0x07;
+    }
+  }
+
+  /** Whether a 7FFD write with D5 set locks paging until reset. On the 1024 in
+   *  1MB mode D5 is a page bit instead, so it cannot lock. */
+  locksPaging(val: number): boolean {
+    if ((val & 0x20) === 0) return false;
+    return !(this.scheme === 'pentagon1024' && (this.portEFF7 & 0x04) === 0);
+  }
+
+  /** Latch a 7FFD value read back from a snapshot: the register, the page it
+   *  selects at 0xC000 and the paging lock. Slots are remapped by applyBanking. */
+  latch7FFD(val: number): void {
+    this.port7FFD = val;
+    this.currentBank = this.bankFor7FFD(val);
+    this.pagingLocked = this.locksPaging(val);
+  }
+
+  /**
+   * Handle port 0xEFF7 write (Pentagon 1024). Flipping bit 2 changes how the
+   * latched 7FFD value is read, so the page at 0xC000 is re-derived from it.
+   */
+  writeEFF7(val: number): void {
+    this.portEFF7 = val & 0xFF;
+    if (this.scheme !== 'pentagon1024' || this.specialPaging) return;
+    const bank = this.bankFor7FFD(this.port7FFD);
+    if (bank !== this.currentBank) {
+      this._switchRam(3, bank);
+      this.currentBank = bank;
+      this._refreshScreenSlots();
+      if (this.onSlotsChanged !== null) this.onSlotsChanged();
+    }
   }
 
   /**
@@ -518,13 +579,13 @@ export class SpectrumMemory implements IMachineMemory {
   }
 
   /**
-   * Return all 8 RAM banks for serialisation. Returns live views (subarrays
+   * Return every RAM bank (8, or 32/64 on the Pentagon 512/1024) for serialisation. Returns live views (subarrays
    * of flat for mapped banks; cold storage otherwise) so post-call writes
    * through getRamBank reflect in the returned references.
    */
   flushBanks(): readonly Uint8Array[] {
     const result: Uint8Array[] = [];
-    for (let n = 0; n < 8; n++) result.push(this.getRamBank(n));
+    for (let n = 0; n < this._ramBanks.length; n++) result.push(this.getRamBank(n));
     return result;
   }
 
@@ -576,8 +637,8 @@ export class SpectrumMemory implements IMachineMemory {
     return this._ramBanks[n];
   }
 
-  /** Eight 16K banks, on every model — a 48K machine simply never pages the
-   *  ones its ULA cannot see. */
+  /** 16K RAM banks fitted: eight on every Sinclair model (a 48K machine simply
+   *  never pages the ones its ULA cannot see), 32/64 on the Pentagon 512/1024. */
   get ramBankCount(): number { return this._ramBanks.length; }
 
   /**

@@ -42,6 +42,7 @@ export function createAmstrad(model: '+2A' | '+3'): MachineVariant {
     decodes7FFD(port: number): boolean { return (port & 0xC002) === 0x4000; },
     // +2A: (port & 0xF002) === 0x1000
     decodes1FFD(port: number): boolean { return (port & 0xF002) === 0x1000; },
+    decodesEFF7(_port: number): boolean { return false; },
     // FDC data: (port & 0xF002) === 0x3000
     decodesFDCData(port: number): boolean { return hasFDC && (port & 0xF002) === 0x3000; },
     // FDC status: (port & 0xF002) === 0x2000

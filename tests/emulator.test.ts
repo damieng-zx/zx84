@@ -48,6 +48,11 @@ function makeSpectrumStub(model: unknown = '128k') {
       specialPaging: false, port7FFD: 0, port1FFD: 0,
       currentBank: 0, currentROM: 0, pagingLocked: false,
       applyBanking: vi.fn(), slot0Bank: 0,
+      // Plain-128K behaviour of SpectrumMemory.latch7FFD (see tests/pentagon-paging for the clones).
+      scheme: 'standard', portEFF7: 0,
+      latch7FFD(this: { port7FFD: number; currentBank: number; pagingLocked: boolean }, val: number) {
+        this.port7FFD = val; this.currentBank = val & 7; this.pagingLocked = (val & 0x20) !== 0;
+      },
     },
     tape: {
       blocks: [] as unknown[], position: 0, paused: true, playing: false, loaded: false,

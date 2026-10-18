@@ -65,6 +65,9 @@ export interface MachineVariant {
   /** True if this port address decodes as 0x1FFD (+2A special paging). */
   decodes1FFD(port: number): boolean;
 
+  /** True if this port address decodes as 0xEFF7 (Pentagon 1024 control port). */
+  decodesEFF7(port: number): boolean;
+
   /** True if this port address decodes as FDC data (0x3FFD). */
   decodesFDCData(port: number): boolean;
 

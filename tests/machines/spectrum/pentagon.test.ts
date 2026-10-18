@@ -160,7 +160,7 @@ describe('Pentagon 128 — registry and menu', () => {
   it('is listed under a Sinclair Clones group, not under Sinclair', () => {
     const clones = MODEL_MENU.find(g => g.label === 'Sinclair Clones');
     expect(clones).toBeDefined();
-    expect((clones!.children ?? []).map(i => i.value)).toEqual(['pentagon128']);
+    expect((clones!.children ?? []).map(i => i.value)).toEqual(['pentagon128', 'pentagon512', 'pentagon1024']);
     const sinclair = MODEL_MENU.find(g => g.label === 'Sinclair');
     expect((sinclair!.children ?? []).map(i => i.value)).not.toContain('pentagon128');
     expect(menuModels()).toContain('pentagon128');
