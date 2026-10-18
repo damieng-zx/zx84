@@ -4,9 +4,9 @@ import { variantForModel, variantLabel } from '../../src/machines/spectrum/perip
 import { isPlusDCapable, isBetaDiskCapable } from '../../src/models.ts';
 import { hex8 as h8, hex16 as h16 } from '../../src/utils/hex.ts';
 import { state } from '../state.ts';
-import { activeMtx, activeSpectrum } from '../concrete.ts';
+import { activeMsx, activeMtx, activeSpectrum } from '../concrete.ts';
 import { text } from '../format.ts';
-import { fetchMFRom, fetchVTXRom, fetchPlusDRom, fetchBetaDiskRom } from '../rom-fetch.ts';
+import { fetchMFRom, fetchVTXRom, fetchPlusDRom, fetchBetaDiskRom, fetchMsxDiskRom } from '../rom-fetch.ts';
 
 export function register(server: McpServer): void {
   server.registerTool(
@@ -200,6 +200,48 @@ export function register(server: McpServer): void {
         `Beta Disk enabled (TR-DOS ROM ${bd.rom.length} bytes). Machine reset.\n` +
         `Enter TR-DOS with: RANDOMIZE USR 15616\n` +
         `pagedIn=${bd.pagedIn}  PC=${h16(spec.cpu.pc)}`
+      );
+    },
+  );
+
+  server.registerTool(
+    'msxdisk',
+    {
+      description: 'Fit, remove, or inspect the MSX floppy disk interface (WD2793 + Disk BASIC ROM in slot 3, drives A:/B:). Fitting it loads the Disk BASIC ROM and resets the machine so the BIOS finds it; mount disks with the load tool.',
+      inputSchema: {
+        action: z.enum(['on', 'off', 'status']).describe('Action to perform'),
+      },
+    },
+    async ({ action }) => {
+      const msx = activeMsx();
+      if (!msx) return text('The floppy disk interface is an MSX peripheral.');
+      const di = msx.diskIf;
+      if (action === 'status') {
+        const drive = (u: number) => msx.fdc.getDiskImage(u) ? 'disk' : 'empty';
+        return text(
+          `MSX disk interface: ${msx.floppyEnabled ? 'ON' : 'OFF'}  romLoaded=${di.romLoaded}` +
+          (di.romLoaded ? ` (${di.romSize} bytes, ${di.layout} layout)` : '') + '\n' +
+          `A: ${drive(0)}  B: ${drive(1)}  selected=${di.selectedDrive} motor=${di.motorOn}  ` +
+          `fdc track=${msx.fdc.getUnitTrack(di.selectedDrive)}`,
+        );
+      }
+      if (action === 'off') {
+        msx.setFloppyEnabled(false);
+        msx.reset();
+        return text('MSX disk interface removed. Machine reset.');
+      }
+      if (!di.romLoaded) {
+        try {
+          msx.loadDiskRom(await fetchMsxDiskRom());
+        } catch (err) {
+          return text(`Failed to load the MSX Disk BASIC ROM: ${err}`);
+        }
+      }
+      msx.setFloppyEnabled(true);
+      msx.reset();
+      return text(
+        `MSX disk interface fitted (Disk BASIC ROM ${di.romSize} bytes, ${di.layout} register layout). Machine reset.\n` +
+        `PC=${h16(msx.cpu.pc)}`,
       );
     },
   );

@@ -23,7 +23,7 @@ import {
   setSidewaysRomSlots,
   setCartridgeName,
   setMultifaceRomFailed, setVtx5000RomFailed, setParadosRomFailed,
-  setPlusDRomFailed, setInterface1RomFailed, setBetaDiskRomFailed,
+  setPlusDRomFailed, setInterface1RomFailed, setBetaDiskRomFailed, setMsxDiskRomFailed,
 } from '@/state/machine-state.ts';
 import {
   romManager, machine, setRomData,
@@ -274,6 +274,7 @@ const FAIL_SETTERS: Record<string, (msg: string) => void> = {
   betadisk: setBetaDiskRomFailed,
   interface1: setInterface1RomFailed,
   parados: setParadosRomFailed,
+  msxdisk: setMsxDiskRomFailed,
 };
 
 /** Fetch (IndexedDB-cached, CDN on miss) and wire in one peripheral ROM.

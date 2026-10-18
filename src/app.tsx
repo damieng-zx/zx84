@@ -177,7 +177,7 @@ export function App() {
     document.body.classList.toggle('cpc-mode', kind === 'cpc');
     document.body.classList.toggle('einstein-mode', kind === 'einstein');
     document.body.classList.toggle('msx-mode', kind === 'msx');
-    document.body.classList.toggle('bbc-mode', kind === 'bbc');
+    document.body.classList.toggle('bbc-mode', kind === 'bbc' || kind === 'electron');
     document.body.classList.toggle('apple2-mode', kind === 'apple2');
   });
 

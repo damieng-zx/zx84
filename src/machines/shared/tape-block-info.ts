@@ -31,6 +31,10 @@ export function tapeBlockInfo(b: TapeBlock, index: number): TapeBlockInfo {
       }
       label = `${b.flag === 0x00 ? 'Header' : 'Data'} (${b.data.length} bytes)`;
       break;
+    case 'csw':
+      if (b.label) return { index, label: b.label, kind: b.role ?? 'csw', detail: b.detail };
+      label = b.kind;
+      break;
     case 'group-start': label = b.name; break;
     case 'text': label = b.text; break;
     case 'pause': label = `Pause ${b.duration}ms`; break;

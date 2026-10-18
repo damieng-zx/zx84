@@ -36,7 +36,7 @@ export function register(server: McpServer): void {
         const len = Math.min(length, 0x4000 - offset);
         return text(`Bank ${bank}, offset ${h16(offset)}:\n${formatHexDump(a => view[a] ?? 0xFF, offset, len)}`);
       }
-      return text(formatHexDump(addr => spec.memory.readByte(addr), parseAddr(address), length));
+      return text(formatHexDump(addr => spec.memory.peekByte?.(addr) ?? spec.memory.readByte(addr), parseAddr(address), length));
     },
   );
 
@@ -84,7 +84,7 @@ export function register(server: McpServer): void {
       if (hex.length % 2 !== 0) return text('Hex string must have even length');
       const needle = new Uint8Array(hex.length / 2);
       for (let i = 0; i < needle.length; i++) needle[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-      return text(doFindBytes(addr => spec.memory.readByte(addr), needle));
+      return text(doFindBytes(addr => spec.memory.peekByte?.(addr) ?? spec.memory.readByte(addr), needle));
     },
   );
 

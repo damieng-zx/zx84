@@ -5,6 +5,7 @@ describe('startup URL model parameter', () => {
   it('resolves known models case-insensitively', () => {
     expect(parseUrlModel('?model=cpc6128')).toBe('cpc6128');
     expect(parseUrlModel('?model=BBC-B')).toBe('bbc-b');
+    expect(parseUrlModel('?model=Electron')).toBe('electron');
     expect(parseUrlModel('?machine=48K')).toBe('48k');
   });
 

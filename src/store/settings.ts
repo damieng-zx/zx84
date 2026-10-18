@@ -101,7 +101,10 @@ const DEFAULTS = {
   'mtx-80-column':  'off',
   'mtx-512k-ram':   'off',
   'mtx-floppy':     'on',
+  'msx-floppy':     'off',
   'bbc-disk-system': '1770',
+  'electron-plus1': 'off',
+  'electron-plus3': 'off',
   'lynx-fdc':       'on',
   'apple2-disk2':   'on',
   'apple2-drives':  '2',
@@ -467,6 +470,10 @@ const _mtxFloppy = /*@once*/ createRoot(() => createSignal(getSaved('mtx-floppy'
 export const mtxFloppy = _mtxFloppy[0];
 export const setMtxFloppy = _mtxFloppy[1];
 
+const _msxFloppy = /*@once*/ createRoot(() => createSignal(getSaved('msx-floppy', D('msx-floppy')) === 'on'));
+export const msxFloppy = _msxFloppy[0];
+export const setMsxFloppy = _msxFloppy[1];
+
 const _bbcColorMap = /*@once*/ createRoot(() => createSignal(getSaved('bbc-color-map', D('bbc-color-map')) as 'pal' | 'measured'));
 export const bbcColorMap = _bbcColorMap[0];
 export const setBbcColorMap = _bbcColorMap[1];
@@ -480,6 +487,14 @@ const _bbcDiskSystem = /*@once*/ createRoot(() => createSignal(
   getSaved('bbc-disk-system', D('bbc-disk-system')) as 'none' | 'acorn' | '1770'));
 export const bbcDiskSystem = _bbcDiskSystem[0];
 export const setBbcDiskSystem = _bbcDiskSystem[1];
+
+const _electronPlus1 = /*@once*/ createRoot(() => createSignal(getSaved('electron-plus1', D('electron-plus1')) === 'on'));
+export const electronPlus1 = _electronPlus1[0];
+export const setElectronPlus1 = _electronPlus1[1];
+
+const _electronPlus3 = /*@once*/ createRoot(() => createSignal(getSaved('electron-plus3', D('electron-plus3')) === 'on'));
+export const electronPlus3 = _electronPlus3[0];
+export const setElectronPlus3 = _electronPlus3[1];
 
 const _lynxFdc = /*@once*/ createRoot(() => createSignal(getSaved('lynx-fdc', D('lynx-fdc')) === 'on'));
 export const lynxFdc = _lynxFdc[0];
@@ -639,7 +654,10 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'mtx-80-column', set: setMtx80Column, type: 'bool' },
     { key: 'mtx-512k-ram', set: setMtx512kRam, type: 'bool' },
     { key: 'mtx-floppy', set: setMtxFloppy, type: 'bool' },
+    { key: 'msx-floppy', set: setMsxFloppy, type: 'bool' },
     { key: 'bbc-disk-system', set: setBbcDiskSystem, type: 'string' },
+    { key: 'electron-plus1', set: setElectronPlus1, type: 'bool' },
+    { key: 'electron-plus3', set: setElectronPlus3, type: 'bool' },
     { key: 'lynx-fdc', set: setLynxFdc, type: 'bool' },
     { key: 'apple2-disk2', set: setApple2Disk2, type: 'bool' },
     { key: 'apple2-drives', set: setApple2Drives, type: 'string' },

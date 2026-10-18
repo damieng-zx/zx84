@@ -3,6 +3,8 @@
  * emulator.loadFile asMsx branch: `.rom` cartridges (auto-booted) and `.cas`
  * cassettes (BIOS-trap load); everything else refused. ZIP unwrapping stays a
  * shell concern. Tests run headless against a real MsxMachine (display = null).
+ * Disk images are accepted only while the optional floppy interface is fitted
+ * (see tests/msx/msx-disk-interface.test.ts).
  */
 
 import { describe, it, expect } from 'vitest';
@@ -44,17 +46,24 @@ describe('MSX MediaService routing', () => {
     expect(exts).toEqual(['.rom', '.cas']);
   });
 
-  it('has a cartridge slot but no disk or snapshot service', () => {
+  it('has a cartridge slot, no snapshot service and no drives until the disk interface is fitted', () => {
     const m = machine();
     expect(m.services.roms.cartridge).not.toBeNull();
-    expect(m.services.disks).toBeNull();
+    expect(m.services.disks.drives).toEqual([]);
     expect(m.services.snapshots).toBeNull();
   });
 
   it('unknown extensions are refused with the MSX media list', async () => {
     const m = machine();
-    const r = await m.services.media.mount(new Uint8Array(4), 'game.dsk');
+    const r = await m.services.media.mount(new Uint8Array(4), 'game.xyz');
     expect(r.ok).toBe(false);
     expect(r.message).toMatch(/MSX accepts/);
+  });
+
+  it('a disk image is refused, pointing at the Hardware pane, while no interface is fitted', async () => {
+    const m = machine();
+    const r = await m.services.media.mount(new Uint8Array(368640), 'game.dsk');
+    expect(r.ok).toBe(false);
+    expect(r.message).toMatch(/disk interface/i);
   });
 });

@@ -43,6 +43,7 @@ export const MODEL_LABELS: Record<MachineModel, string> = {
   pcw9256: 'PCW 9256',
   pcw9512: 'PCW 9512',
   'bbc-b': 'BBC Micro Model B',
+  electron: 'Electron',
   apple2: 'Apple ][',
   'apple2-plus': 'Apple ][+',
   apple2e: 'Apple //e',
@@ -160,6 +161,7 @@ export const MODEL_MENU: MenuItem[] = [
     label: 'Acorn',
     children: [
       modelEntry('bbc-b'),
+      modelEntry('electron'),
     ],
   },
   {

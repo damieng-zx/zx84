@@ -29,7 +29,7 @@ Supported startup models are derived from the machine registry and include
 `zx80`, `zx81`, `16k`, `48k`, `128k`, `+2`, `+2A`, `+3`, `cpc464`, `cpc664`,
 `cpc6128`, `cpc6128plus`, `gx4000`, `einstein-tc01`, `einstein-256`, `hx-10`,
 `mtx500`, `mtx512`, `rs128`, `lynx48`, `lynx96`,
-`lynx128`, `jupiter-ace`, `pcw8256`, `pcw8512`, `pcw9512`, `pcw9256`, and `bbc-b`. The
+`lynx128`, `jupiter-ace`, `pcw8256`, `pcw8512`, `pcw9512`, `pcw9256`, `bbc-b`, and `electron`. The
 default is `48k`.
 System ROM pages come from the machine registry, are fetched through the shared
 ROM source loader, and are cached under `mcp/.cache/`.
@@ -45,12 +45,12 @@ Some tools are intentionally hardware-specific:
 - Spectrum: tape/snapshot loading (auto-enabling the +D / Interface 1 / Beta
   Disk ROMs), ZXTL/full/port-I/O tracing, library loading, Multiface, VTX-5000,
   +D, Beta Disk, microdrives, and +3 boot helpers.
-- CPC, MSX, MTX, Einstein, Lynx, Jupiter Ace, PCW, BBC, ZX80/ZX81: media loads
+- CPC, MSX, MTX, Einstein, Lynx, Jupiter Ace, PCW, BBC, Electron, ZX80/ZX81: media loads
   route through the machine's own `MediaService` (CPC
-  `.dsk/.hfe/.scp/.cdt/.sna/.cpr`, MSX `.rom/.cas`, MTX `.rom/.mtx/.mfloppy`,
+  `.dsk/.hfe/.scp/.cdt/.sna/.cpr`, MSX `.rom/.cas` plus `.dsk/.img/.dmk/.hfe/.scp/.td0/.edsk` once the disk interface is fitted, MTX `.rom/.mtx/.mfloppy`,
   Einstein `.dsk/.hfe/.scp`,
   Lynx `.tap` cassettes and `.ldf` disks, Jupiter Ace `.tap/.tzx/.csw` cassettes,
-  PCW `.dsk/.td0/.hfe/.scp` discs, BBC `.ssd/.dsd/.img` discs, and ZX80/ZX81 program files). CPC adds
+  PCW `.dsk/.td0/.hfe/.scp` discs, BBC `.ssd/.dsd/.img` discs and `.uef/.csw` tapes, Electron `.uef/.csw` tapes, `.adf/.adl/.ads/.adm` discs (Plus 3) and `.rom` cartridges (Plus 1), and ZX80/ZX81 program files). CPC adds
   built-in uPD765A disk inspection, CPC OCR, and PNG screenshots.
 - ZX80/ZX81 additionally: model-constrained ZXDB library loading, 1KB/16KB
   RAM selection, ZX81 UDG and WRX hi-res hardware selection, and display-file
@@ -168,6 +168,12 @@ These use the active +3 or CPC uPD765A where fitted.
 | `vtx5000` | `action`: `on`, `off`, `status` | Control the 48K VTX-5000 Viewdata modem. |
 | `plusd` | `action`: `on`, `off`, `status` | Control the MGT +D interface. |
 | `betadisk` | `action`: `on`, `off`, `status` | Control Beta Disk/TR-DOS. |
+
+### MSX Peripherals
+
+| Tool | Parameters | Description |
+| --- | --- | --- |
+| `msxdisk` | `action`: `on`, `off`, `status` | Fit or remove the floppy disk interface (WD2793 + Disk BASIC ROM in slot 3, drives A:/B:). Fitting loads the ROM from the cache/CDN and resets so the BIOS finds it. |
 
 ### Memotech MTX Peripherals
 

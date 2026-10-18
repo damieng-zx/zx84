@@ -9,21 +9,25 @@ import type {
   FrameIndicators, FramePaneProvider, FrameProbe, TranscribeDriver,
   MemoryMapSnapshot,
 } from '@/machines/machine.ts';
-import { DRIVE_PROFILE } from '@/media/floppy/floppy-sound.ts';
+import { DRIVE_PROFILE, fixedDrive } from '@/media/floppy/floppy-sound.ts';
 import type { MsxMachine } from '@/machines/msx/msx-machine.ts';
 import type { OcrGridName } from '@/ocr/ocr.ts';
 import { parseMsxBasic, parseMsxBasicVariables } from '@/basic/msx-basic-parser.ts';
 import { hex8 } from '@/utils/hex.ts';
 
+/** The disk interface's drives are 3.5" units. */
+const DRIVE = fixedDrive('3.5inch');
+
 /** Label the source paged into one MSX 16KB page given its primary slot number.
  *  slot 0 = internal ROM (BIOS+BASIC, pages 0-1 only), slot 1 = cartridge,
- *  slot 2 = 64KB RAM, slot 3 = rear expansion connector (unmodelled, empty). */
-function msxSlotLabel(slot: number, page: number, cartHere: boolean): { read: string } {
+ *  slot 2 = 64KB RAM, slot 3 = rear expansion connector (the floppy disk
+ *  interface's Disk BASIC ROM in page 1 when fitted, else empty). */
+function msxSlotLabel(slot: number, page: number, cartHere: boolean, diskHere: boolean): { read: string } {
   switch (slot) {
     case 0: return { read: page < 2 ? 'ROM' : '(empty)' };
     case 1: return { read: cartHere ? 'Cartridge' : '(empty)' };
     case 2: return { read: 'RAM' };
-    case 3: return { read: '(empty)' };
+    case 3: return { read: page === 1 && diskHere ? 'Disk ROM' : '(empty)' };
     default: return { read: '?' };
   }
 }
@@ -37,7 +41,7 @@ function msxMemoryMap(m: MsxMachine): MemoryMapSnapshot | null {
 
   const slots = ranges.map((range, page) => {
     const slot = (primary >> (page * 2)) & 3;
-    const label = msxSlotLabel(slot, page, mem.cartCoversPage(page));
+    const label = msxSlotLabel(slot, page, mem.cartCoversPage(page), mem.hasDiskInterface);
     return { range, ...label };
   });
 
@@ -91,7 +95,7 @@ export class MsxFrameProbe implements FrameProbe {
     out.beeper = 0;
     out.psg = a.ayWrites > 5 ? 1 : 0;
     out.videoFx = 0;
-    out.disk = 0;
+    out.disk = a.fdcAccesses;
     out.tapeTurbo = false;
 
     // The MSX cassette is instant-load: no transport sync, only the
@@ -105,10 +109,45 @@ export class MsxFrameProbe implements FrameProbe {
     out.fastRomLoading = false;
     out.tracingActive = false;
 
-    out.driveLed[0] = out.driveLed[1] = out.driveLed[2] = out.driveLed[3] = -1;
+    out.driveLed[2] = out.driveLed[3] = -1;
     out.mdvCount = 0;
     out.mdvMotorMask = 0;
-    out.floppySlot = -1;
-    out.floppyProfile = DRIVE_PROFILE.keep;
+
+    const fitted = m.floppyEnabled && m.diskIf.romLoaded;
+    if (!fitted) {
+      out.driveLed[0] = out.driveLed[1] = -1;
+      out.floppySlot = -1;
+      out.floppyProfile = DRIVE_PROFILE.keep;
+      return;
+    }
+    const fdc = m.fdc;
+    const active = m.diskIf.selectedDrive;
+    for (let unit = 0; unit < 2; unit++) {
+      if (!m.diskIf.motorOn || unit !== active) out.driveLed[unit] = 0;
+      else if (!fdc.isExecuting) out.driveLed[unit] = 1;
+      else out.driveLed[unit] = fdc.isWriting ? 3 : 2;
+      out.driveTrack[unit] = fdc.getUnitTrack(unit);
+      out.driveSector[unit] = fdc.isExecuting && unit === active ? fdc.currentSector : -1;
+      out.driveDirty[unit] = fdc.isDirty(unit) ? 1 : 0;
+    }
+    out.floppySlot = active;
+    out.floppyMotor = m.diskIf.motorOn;
+    out.floppyTrack = fdc.getUnitTrack(active);
+    out.floppyProfile = DRIVE();
+  }
+
+  /** The interface ticks its own controller from runFrame, so the only per-UI-
+   *  frame bookkeeping left is consuming the format latch: a completed WRITE
+   *  TRACK re-detects the disk's metadata through the bridge. */
+  frameTick(out: FrameIndicators): void {
+    const fdc = this.m.fdc;
+    if (fdc.formattedUnit >= 0) {
+      out.formattedSlot = fdc.formattedUnit;
+      fdc.formattedUnit = -1;
+    }
+  }
+
+  diskImageForSlot(slot: number) {
+    return slot < 2 ? this.m.fdc.getDiskImage(slot) : null;
   }
 }

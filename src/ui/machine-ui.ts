@@ -57,6 +57,8 @@ const CONTRIBUTIONS: Record<string, MachineUiContribution> = {
       import('@/machines/einstein/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
   },
   msx: {
+    HardwareSection: lazy(() =>
+      import('@/machines/msx/ui/hardware-section.tsx').then(m => ({ default: m.MsxHardwareSection }))),
     Keyboard: lazy(() =>
       import('@/machines/msx/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
   },
@@ -101,6 +103,12 @@ const CONTRIBUTIONS: Record<string, MachineUiContribution> = {
       import('@/machines/bbc/ui/hardware-section.tsx').then(m => ({ default: m.BbcHardwareSection }))),
     Keyboard: lazy(() =>
       import('@/machines/bbc/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
+  },
+  electron: {
+    HardwareSection: lazy(() =>
+      import('@/machines/electron/ui/hardware-section.tsx').then(m => ({ default: m.ElectronHardwareSection }))),
+    Keyboard: lazy(() =>
+      import('@/machines/electron/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
   },
 };
 

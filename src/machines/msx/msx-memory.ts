@@ -12,8 +12,10 @@
  *            .rom cartridge maps here, placed by its "AB" header — see
  *            guessCartBase)
  *   slot 2 — 64KB RAM
- *   slot 3 — the rear expansion connector; unpopulated here → reads 0xFF,
- *            same as an empty cartridge slot (no expansion unit is modelled)
+ *   slot 3 — the rear expansion connector: empty (reads 0xFF) unless the
+ *            optional floppy disk interface is fitted, which puts its 16KB Disk
+ *            BASIC ROM in page 1 (mirrored in page 2) with the WD2793 registers
+ *            overlaying the top of it (see peripherals/disk-interface.ts)
  *
  * The HX-10 has no secondary-slot expansion, so the 0xFFFF expansion register
  * needs no handling — 0xFFFF is just the top of slot 2 RAM.
@@ -26,6 +28,7 @@
  */
 
 import type { IMachineMemory } from '@/machines/machine.ts';
+import type { MsxDiskInterface } from '@/machines/msx/peripherals/disk-interface.ts';
 
 const ROM_SIZE = 0x8000;       // 32KB internal ROM (BIOS + BASIC)
 const RAM_SIZE = 0x10000;      // 64KB RAM (slot 2)
@@ -132,6 +135,11 @@ export class MsxMemory implements IMachineMemory {
    *  selected there and a mega-ROM mounted). */
   private readonly mapperSeg = new Uint8Array(SEGS);
 
+  /** The floppy disk interface in slot 3, or null when not fitted. */
+  private disk: MsxDiskInterface | null = null;
+  /** Segments whose accesses are routed to {@link disk} (its register page). */
+  private readonly diskSeg = new Uint8Array(SEGS);
+
   /** Per-segment read source (8KB view) or null when unmapped (reads 0xFF). */
   private readonly readPtr: (Uint8Array | null)[] = new Array(SEGS).fill(null);
   /** Per-segment write target (8KB view) or null when read-only/empty. */
@@ -156,6 +164,14 @@ export class MsxMemory implements IMachineMemory {
 
   /** Current primary-slot register (debug/memory viewer). */
   getPrimarySlot(): number { return this.primarySlot; }
+
+  /** Fit (or, with null, remove) the floppy disk interface in slot 3. */
+  setDiskInterface(disk: MsxDiskInterface | null): void {
+    this.disk = disk;
+    this.rebuild();
+  }
+
+  get hasDiskInterface(): boolean { return this.disk !== null; }
 
   /** Live 32KB view of the internal ROM (debug/memory viewer). */
   getRom(): Uint8Array { return this.rom; }
@@ -303,6 +319,7 @@ export class MsxMemory implements IMachineMemory {
       const off = seg * SEG_SIZE;
       // A mega-ROM's bank registers catch CPU writes anywhere in slot 1.
       this.mapperSeg[seg] = slot === 1 ? mega : 0;
+      this.diskSeg[seg] = 0;
       if (slot === 0) {
         // Slot 0: ROM in pages 0–1 (read-only), empty above.
         this.readPtr[seg] = page < 2 ? this.rom.subarray(off, off + SEG_SIZE) : null;
@@ -316,8 +333,19 @@ export class MsxMemory implements IMachineMemory {
         // Slot 1: a mounted cartridge (read-only), else empty.
         this.readPtr[seg] = this.cartSeg[seg];
         this.writePtr[seg] = null;
+      } else if (this.disk !== null && (seg === 2 || seg === 4)) {
+        // Slot 3 with the disk interface: the first half of its Disk BASIC ROM
+        // is plain read-only memory (the card decodes pages 1 and 2 alike)...
+        this.readPtr[seg] = this.disk.getRom().subarray(0, SEG_SIZE);
+        this.writePtr[seg] = null;
+      } else if (this.disk !== null && (seg === 3 || seg === 5)) {
+        // ...the second half carries the controller's registers, so every
+        // access is routed through the interface (null pointer = slow path).
+        this.readPtr[seg] = null;
+        this.writePtr[seg] = null;
+        this.diskSeg[seg] = 1;
       } else {
-        // Slot 3: the (unmodelled) rear expansion connector — reads 0xFF.
+        // Slot 3 otherwise: the rear expansion connector, empty — reads 0xFF.
         this.readPtr[seg] = null;
         this.writePtr[seg] = null;
       }
@@ -328,8 +356,20 @@ export class MsxMemory implements IMachineMemory {
 
   readByte(addr: number): number {
     addr &= 0xFFFF;
-    const ptr = this.readPtr[addr >> 13];
-    return ptr ? ptr[addr & 0x1FFF] : 0xFF;
+    const seg = addr >> 13;
+    const ptr = this.readPtr[seg];
+    if (ptr) return ptr[addr & 0x1FFF];
+    return this.diskSeg[seg] ? this.disk!.read(addr) : 0xFF;
+  }
+
+  /** Read with no side effects: the disk controller's registers (a data-register
+   *  read pops a byte) read as 0xFF. For debug views and the disassembler. */
+  peekByte(addr: number): number {
+    addr &= 0xFFFF;
+    const seg = addr >> 13;
+    const ptr = this.readPtr[seg];
+    if (ptr) return ptr[addr & 0x1FFF];
+    return this.diskSeg[seg] ? this.disk!.peek(addr) : 0xFF;
   }
 
   writeByte(addr: number, val: number): void {
@@ -338,11 +378,12 @@ export class MsxMemory implements IMachineMemory {
     const ptr = this.writePtr[seg];
     if (ptr) ptr[addr & 0x1FFF] = val & 0xFF;
     else if (this.mapperSeg[seg]) this.mapperWrite(addr, val & 0xFF);
+    else if (this.diskSeg[seg]) this.disk!.write(addr, val & 0xFF);
   }
 
   readBlock(addr: number, len: number): Uint8Array {
     const out = new Uint8Array(len);
-    for (let i = 0; i < len; i++) out[i] = this.readByte((addr + i) & 0xFFFF);
+    for (let i = 0; i < len; i++) out[i] = this.peekByte((addr + i) & 0xFFFF);
     return out;
   }
 
@@ -352,7 +393,9 @@ export class MsxMemory implements IMachineMemory {
     for (let seg = 0; seg < SEGS; seg++) {
       const ptr = this.readPtr[seg];
       if (ptr) out.set(ptr, seg * SEG_SIZE);
-      else out.fill(0xFF, seg * SEG_SIZE, (seg + 1) * SEG_SIZE);
+      else if (this.diskSeg[seg]) {
+        for (let i = 0; i < SEG_SIZE; i++) out[seg * SEG_SIZE + i] = this.disk!.peek(seg * SEG_SIZE + i);
+      } else out.fill(0xFF, seg * SEG_SIZE, (seg + 1) * SEG_SIZE);
     }
     return out;
   }

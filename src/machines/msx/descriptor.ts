@@ -18,7 +18,9 @@ const MSX_UI: MachineUiCapabilities = {
   trace: true,
   colorMap: 'msx',
   accuracy: false,
-  builtinDisk: false,
+  // The floppy interface is a Hardware-pane option: the Drives pane shows only
+  // while it is fitted (see DrivePane's msxFloppy gate).
+  builtinDisk: true,
   joystick: true,
   fixedJoystick: true,
   mouseTypes: [],
@@ -40,7 +42,10 @@ const MSX_UI: MachineUiCapabilities = {
   persistMedia: false,
   bootDisk: false,
   library: false,
-  memoryRegions: [{ value: 'rom0', label: 'ROM 0' }],
+  memoryRegions: [
+    { value: 'rom0', label: 'ROM 0' },
+    { value: 'rom-disk', label: 'Disk ROM' },
+  ],
   charset: 'spectrum',
 };
 

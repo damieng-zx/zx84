@@ -1,6 +1,6 @@
 # ZX84
 
-**A browser emulator for the Sinclair ZX80, ZX81 and ZX Spectrum, Amstrad CPC (including the Plus range) and PCW, Tatung Einstein, MSX, Memotech MTX, Camputers Lynx, Jupiter Ace, Acorn BBC Micro, and Apple II family, with an MCP server for automated testing.**
+**A browser emulator for the Sinclair ZX80, ZX81 and ZX Spectrum, Amstrad CPC (including the Plus range) and PCW, Tatung Einstein, MSX, Memotech MTX, Camputers Lynx, Jupiter Ace, Acorn BBC Micro and Electron, and the Apple II family, with an MCP server for automated testing.**
 
 https://zx84.envytech.workers.dev
 
@@ -14,11 +14,12 @@ ZX84 is an old-computer emulator with machine-specific hardware models, browser-
 | Sinclair ZX80 / ZX81 | ZX80, ZX81, optional 16KB RAM pack | Software-generated monochrome display, keyboard matrix, `.o` / `.p` program images |
 | Amstrad CPC | CPC 464, CPC 664, CPC 6128, 6128 Plus, GX4000 | Gate array or Plus ASIC, 6845 CRTC, AY-3-891x, 8255 PPI, uPD765A on 664/6128, cartridge on Plus models |
 | Tatung Einstein | TC-01, 256 | TMS9929A (TC-01) or V9938 (256) VDP, AY-3-8910, Z80 CTC, WD1770 |
-| MSX | Toshiba HX-10 | TMS9929A VDP, AY-3-8910, 8255 PPI, cartridge slot |
+| MSX | Toshiba HX-10 | TMS9929A VDP, AY-3-8910, 8255 PPI, cartridge slot, optional WD2793 floppy disk interface |
 | Memotech MTX | MTX500, MTX512, RS128 | TMS9929A VDP, Z80 CTC, SN76489A, twin matrix-wired joysticks, ROM extension card, FDX/SDX WD179x disk interface, optional 6845 80-column display |
 | Camputers Lynx | 48K, 96K, 128K | 6845 CRTC video, DAC sound, cassette, FD1793 floppy on 96K/128K |
 | Jupiter Ace | Jupiter Ace | Jupiter Cantab ULA (32×24 monochrome text display), piezo buzzer, cassette port, optional 16K or 48K RAM pack, FORTH in ROM |
-| Acorn BBC Micro | Model B | MOS 6502, 6522 VIAs, 6845 CRTC with video ULA and SAA5050 teletext (Mode 7), SN76489 sound, Acorn 8271 or WD1770 DFS disc interface |
+| Acorn BBC Micro | Model B | MOS 6502, 6522 VIAs, 6845 CRTC with video ULA and SAA5050 teletext (Mode 7), SN76489 sound, 6850 ACIA with the serial ULA's cassette interface, Acorn 8271 or WD1770 DFS disc interface |
+| Acorn Electron | Electron | MOS 6502, the single ULA (modes 0-6 video, RAM arbitration, ROM paging, keyboard, 1-bit sound, 1200-baud cassette); optional Plus 1 (cartridge slots, analogue and printer ports) and Plus 3 (WD1770 + ADFS disc interface) |
 | Apple II | Apple ][, Apple ][+, Apple //e (unenhanced and Enhanced), Apple //c | MOS 6502 (65C02 on the Enhanced //e and //c), Integer BASIC or Applesoft, Autostart Monitor, composite NTSC/PAL video (text, lores, hires; //e 80-column text, double hi-res and MouseText), Disk ][ with 6-and-2 GCR, 16K language card, //e MMU with 64K auxiliary RAM, optional Videx Videoterm 80-column card, Mockingboard (2 × AY-3-8910), paddles and joystick |
 | Amstrad PCW | 8256, 8512, 9512, 9256 | Gate array (roller-RAM bitmap video, 300Hz timer, FDC interrupt routing), beeper, uPD765A, memory-mapped keyboard, no ROM — boots from disc |
 
@@ -30,13 +31,14 @@ ZX84 is an old-computer emulator with machine-specific hardware models, browser-
 - Spectrum peripherals: Multiface 1/128/3, Interface 2 cartridges, VTX-5000 Viewdata modem, ZX Interface 1 with up to eight Microdrives, MGT +D, and Beta Disk/TR-DOS.
 - CPC cassette support, disk-capable 664/6128 models, Multiface Two, optional ParaDOS ROM, and the Plus ASIC (sprites, soft scroll, split-screen, DMA sound) on the 6128 Plus and GX4000.
 - Einstein disk mounting, optional Xtal DOS boot-disk behavior, and the Einstein 256's V9938 VDP with 512×212 display modes.
-- HX-10 cartridge loading and BIOS-level `.cas` cassette loading.
+- HX-10 cartridge loading, BIOS-level `.cas` cassette loading, and an optional memory-mapped WD2793 floppy disk interface (two 3.5" drives, Disk BASIC ROM in slot 3) taking raw `.dsk`/`.img`, `.dmk`, `.hfe`, `.scp`, `.td0` and extended-DSK images.
 - MTX CP/M 2.2 boot through the real FDX hardware using a hosted Type 07 system disk.
 - MTX logical cassette loading, banked ROM packs, FDX/SDX Type 03 and Type 07 floppy mounting, optional 512 KiB RAM expansion, and optional 80×24 colour display.
 - The bundled MTX CP/M profile installs the native SIDISC module and exposes fitted expansion RAM as an empty type-43 SiDisc drive F:.
 - Camputers Lynx 6845 CRTC display, DAC sound, cassette loading, and the FD1793 floppy interface on the 96K and 128K.
 - Jupiter Ace ULA text display, buzzer sound, ROM-verified cassette loading and saving, and optional 16K or 48K RAM packs.
-- Acorn BBC Micro Model B booting the real MOS and BASIC ROMs: Mode 7 teletext and bitmap modes 0-6, SN76489 stereo sound, keyboard option links, and DFS discs on either the Acorn 8271 or the WD1770 interface.
+- Acorn BBC Micro Model B booting the real MOS and BASIC ROMs: Mode 7 teletext and bitmap modes 0-6, SN76489 stereo sound, keyboard option links, and DFS discs on either the Acorn 8271 or the WD1770 interface, and cassettes (`.uef`, `.csw`) played at the pulse level through the 6850 ACIA with tape-turbo loading.
+- Acorn Electron booting the real OS and BASIC ROMs: the ULA's display modes 0-6 drawn a scanline at a time (so mid-frame mode and palette changes show), its RAM-contention timing, keyboard, sound, and 1200-baud cassettes (`.uef`, `.csw`) read and written through the ULA with tape-turbo loading. The Hardware pane fits a Plus 1 (ROM cartridges, booted with SHIFT+BREAK) and a Plus 3 (ADFS discs on a WD1770).
 - Apple II family: a 6502 core with a CMOS 65C02 variant for the Enhanced //e and //c, a bit-level Disk ][ controller (DOS 3.3 and ProDOS sector images, `.wav` cassette), composite NTSC/PAL or monochrome/green display, a 16K language card, the //e's MMU and 64K auxiliary RAM with 80-column text and double hi-res, and expansion cards chosen in the Hardware pane: the Disk ][ controller (one or two drives), a Videx Videoterm 80-column card on the ][ and ][+, a Mockingboard, and paddles or a joystick. The //c is a slotless 128K machine with the disk drive and 80 columns built in.
 - Amstrad PCW gate array with roller-RAM bitmap video, 300 Hz timer, FDC interrupt routing, memory-mapped keyboard, beeper, and uPD765A discs; the PCW has no ROM and boots CP/M+ or LocoScript from the disc in drive A.
 
@@ -52,11 +54,12 @@ Load by picker or drag-and-drop. ZIP archives are unpacked and routed to compati
 | Spectrum peripherals | Interface 2: `.rom`; Interface 1: `.mdr`, `.mdv`; MGT +D: `.mgt`, `.img`, `.hfe`, `.scp`; Beta Disk: `.trd`, `.scl`, `.hfe`, `.scp` |
 | CPC | Snapshots: `.sna`; tapes: `.cdt`, `.tzx`, `.tap`; disks: `.dsk`, `.hfe`, `.scp` on disk-capable models; Plus cartridges: `.cpr` |
 | Einstein | Disks: `.dsk`, `.hfe`, `.scp` |
-| MSX | Cartridges: `.rom`; cassettes: `.cas` |
+| MSX | Cartridges: `.rom`; cassettes: `.cas`; disks (interface fitted): `.dsk`, `.img`, `.dmk`, `.hfe`, `.scp`, `.td0`, `.edsk` |
 | Memotech MTX | ROM packs: `.rom`; logical cassettes: `.mtx`; FDX/SDX Type 03/07 disks: `.mfloppy`, `.mfloppy-03`, `.mfloppy-07` |
 | Camputers Lynx | Cassettes: `.tap`; disks: `.ldf` on the 96K/128K |
 | Jupiter Ace | Cassettes: `.tap`, `.tzx`, `.csw` |
-| Acorn BBC Micro | Disks: `.ssd`, `.dsd`, `.img` |
+| Acorn BBC Micro | Disks: `.ssd`, `.dsd`, `.img`; tapes: `.uef`, `.csw` |
+| Acorn Electron | Tapes: `.uef`, `.csw`; with the Plus 3, ADFS discs: `.adf`, `.ads`, `.adm`, `.adl`; with the Plus 1, cartridges: `.rom` |
 | Apple II | Disks: `.dsk`, `.do`, `.po` (sector order detected, MacBinary headers read through); cassettes: `.wav` |
 | Amstrad PCW | Disks: `.dsk`, `.td0`, `.hfe`, `.scp` |
 
@@ -84,7 +87,7 @@ Values are case-insensitive; write `+` models as `plus2a`/`plus3` or `%2B3`.
 Known models: `16k` `48k` `128k` `+2` `+2A` `+3` `zx80` `zx81` `jupiter-ace`
 `cpc464` `cpc664` `cpc6128` `cpc6128plus` `gx4000` `pcw8256` `pcw8512`
 `pcw9256` `pcw9512` `einstein-tc01` `einstein-256` `hx-10` `mtx500` `mtx512`
-`rs128` `lynx48` `lynx96` `lynx128` `bbc-b` `apple2` `apple2-plus` `apple2e` `apple2e-enhanced` `apple2c`.
+`rs128` `lynx48` `lynx96` `lynx128` `bbc-b` `electron` `apple2` `apple2-plus` `apple2e` `apple2e-enhanced` `apple2c`.
 
 ### Display And Audio
 
@@ -115,7 +118,7 @@ Known models: `16k` `48k` `128k` `+2` `+2A` `+3` `zx80` `zx81` `jupiter-ace`
 
 ## MCP Server
 
-The included stdio MCP server drives **every registered machine** — Spectrum, ZX80/ZX81, CPC (including the Plus range), Einstein, MSX, MTX, Camputers Lynx, Jupiter Ace, Amstrad PCW, and BBC Micro — for automated testing and reverse engineering. Generic tools work through the `Machine` SPI; hardware-specific tools cover Spectrum peripherals and tracing, MTX expansions, CPC/uPD765A disk inspection, ZX81 hi-res hardware, and per-machine media mounting.
+The included stdio MCP server drives **every registered machine** — Spectrum, ZX80/ZX81, CPC (including the Plus range), Einstein, MSX, MTX, Camputers Lynx, Jupiter Ace, Amstrad PCW, BBC Micro and Electron — for automated testing and reverse engineering. Generic tools work through the `Machine` SPI; hardware-specific tools cover Spectrum peripherals and tracing, MTX expansions, CPC/uPD765A disk inspection, ZX81 hi-res hardware, and per-machine media mounting.
 
 See [`mcp/README.md`](mcp/README.md) for setup, the complete tool reference, and workflows.
 
@@ -140,7 +143,7 @@ npm run mcp           # start the MCP server
 
 ## Current Scope
 
-Hardware and media support varies by machine and model. In particular, the HX-10 has no floppy controller, the Lynx 48K and the Jupiter Ace have no disk interface, the PCW ships no ROM and needs a user-supplied CP/M+ or LocoScript boot disc, and some Einstein and CPC subsystems remain incomplete.
+Hardware and media support varies by machine and model. In particular, the HX-10 needs its floppy interface fitting in the Hardware pane and a user-hosted Disk BASIC ROM (`msx/msx1_disk-basic.rom`), the Lynx 48K and the Jupiter Ace have no disk interface, the PCW ships no ROM and needs a user-supplied CP/M+ or LocoScript boot disc, and some Einstein and CPC subsystems remain incomplete.
 
 ## License
 

@@ -24,6 +24,7 @@ import { lynxEntry } from '@/machines/lynx/descriptor.ts';
 import { aceEntry } from '@/machines/jupiter-ace/descriptor.ts';
 import { pcwEntry } from '@/machines/pcw/descriptor.ts';
 import { bbcEntry } from '@/machines/bbc/descriptor.ts';
+import { electronEntry } from '@/machines/electron/descriptor.ts';
 import { apple2Entry } from '@/machines/apple2/descriptor.ts';
 
 export const registry: readonly MachineEntry[] = [
@@ -37,6 +38,7 @@ export const registry: readonly MachineEntry[] = [
   aceEntry,
   pcwEntry,
   bbcEntry,
+  electronEntry,
   apple2Entry,
 ];
 

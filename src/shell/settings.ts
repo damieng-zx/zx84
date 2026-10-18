@@ -56,7 +56,10 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'mtx-cpm': () => settings.mtxCpm(),
   'mtx-80-column': () => settings.mtx80Column(),
   'mtx-512k-ram': () => settings.mtx512kRam(),
+  'msx-floppy': () => settings.msxFloppy(),
   'bbc-disk-system': () => settings.bbcDiskSystem(),
+  'electron-plus1': () => settings.electronPlus1(),
+  'electron-plus3': () => settings.electronPlus3(),
   'apple2-disk2': () => settings.apple2Disk2(),
   'apple2-drives': () => settings.apple2Drives(),
   'apple2-langcard': () => settings.apple2LangCard(),
@@ -75,6 +78,15 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'zx81-quicksilva-hrg': () => settings.zx81QuickSilvaHrg(),
   'ace-ram-pack': () => settings.aceRamPack(),
 };
+
+/** Whether a boolean setting is on, reactively (call inside a tracking scope).
+ *  Gates a machine capability on a user-fitted peripheral — see
+ *  `MachineUiCapabilities.requires`. A missing gate is open. */
+export function settingEnabled(key: string | undefined): boolean {
+  if (!key) return true;
+  const getter = SETTING_GETTERS[key];
+  return getter ? Boolean(getter()) : true;
+}
 
 export function buildSettingsView(): SettingsView {
   return {
