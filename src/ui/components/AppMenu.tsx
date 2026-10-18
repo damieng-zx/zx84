@@ -13,6 +13,8 @@ import {
 import { pauseOnFocusLost, setPauseOnFocusLost, persistSetting } from '@/store/settings.ts';
 import { factoryReset } from '@/store/persistence.ts';
 
+const REPO_URL = 'https://github.com/damieng-zx/zx84';
+
 export function AppMenu() {
   const [open, setOpen] = createSignal(false);
   const [pos, setPos] = createSignal({ top: 0, left: 0 });
@@ -46,6 +48,11 @@ export function AppMenu() {
     if (!confirm('Reset everything and reload?\n\nThis clears all settings, cached ROMs, and saved disks/tapes/snapshots for this site.')) return;
     await factoryReset();
     location.reload();
+  }
+
+  function openRepo() {
+    close();
+    window.open(REPO_URL, '_blank', 'noopener,noreferrer');
   }
 
   function togglePauseOnFocusLost() {
@@ -109,6 +116,8 @@ export function AppMenu() {
           }}</For>
           <div class="ddmenu-separator" />
           <div class="ddmenu-item" onClick={resetAll}><span class="ddmenu-check" />Reset all settings</div>
+          <div class="ddmenu-separator" />
+          <div class="ddmenu-item" onClick={openRepo}><span class="ddmenu-check" />zx84 on GitHub</div>
         </div>
       </Show>
     </>
