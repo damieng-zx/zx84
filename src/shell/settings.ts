@@ -60,6 +60,7 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'bbc-disk-system': () => settings.bbcDiskSystem(),
   'electron-plus1': () => settings.electronPlus1(),
   'electron-plus3': () => settings.electronPlus3(),
+  'electron-dfs': () => settings.electronDfs(),
   'apple2-disk2': () => settings.apple2Disk2(),
   'apple2-drives': () => settings.apple2Drives(),
   'apple2-langcard': () => settings.apple2LangCard(),

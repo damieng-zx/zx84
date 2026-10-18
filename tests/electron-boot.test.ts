@@ -13,6 +13,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { ElectronMachine } from '@/machines/electron/electron-machine.ts';
 import { parseAdfs } from '@/media/floppy/adfs.ts';
+import { blankSsd, parseSsd } from '@/media/floppy/ssd.ts';
 
 const CACHE = resolve(__dirname, '../mcp/.cache');
 const haveRoms = ['electron-basic.rom', 'electron-os.rom'].every(r => existsSync(resolve(CACHE, r)));
@@ -60,6 +61,34 @@ describe.skipIf(!haveRoms)('Acorn Electron with the real OS and BASIC', () => {
     typist(m)('PRINT 6*7\n');
     run(m, 30);
     expect(m.ocrScreenForMcp()).toMatch(/^\s*42$/m);
+    m.destroy();
+  }, 60_000);
+
+  it('lists the typed program and its variables through the BASIC panes', () => {
+    const m = boot();
+    const type = typist(m);
+    for (const line of ['10 A%=7', '20 X=1.5', '30 N$="ELK"', '40 DIM T(3)', '50 FOR I=1 TO 3 STEP 2', '60 NEXT', 'RUN']) {
+      type(line + '\n');
+      run(m, 40);
+    }
+    const panes = m.services.probe.panes!;
+    // BASIC keeps the space typed after the line number.
+    expect(panes.basicListing!()).toEqual([
+      { lineNumber: 10, text: ' A%=7' },
+      { lineNumber: 20, text: ' X=1.5' },
+      { lineNumber: 30, text: ' N$="ELK"' },
+      { lineNumber: 40, text: ' DIM T(3)' },
+      { lineNumber: 50, text: ' FOR I=1 TO 3 STEP 2' },
+      { lineNumber: 60, text: ' NEXT' },
+    ]);
+    // After the loop runs I = 1, 3, then 5 on exit (STEP 2 passes TO 3).
+    expect(panes.basicVars!()).toEqual([
+      { name: 'A%', kind: 'number', value: '7' },
+      { name: 'I', kind: 'number', value: '5' },
+      { name: 'N$', kind: 'string', value: 'ELK' },
+      { name: 'T(3)', kind: 'array' },
+      { name: 'X', kind: 'number', value: '1.5' },
+    ]);
     m.destroy();
   }, 60_000);
 
@@ -146,4 +175,68 @@ describe.skipIf(!haveExpansions)('Electron Plus 1 and Plus 3 with the real ROMs'
       .toEqual(Array.from(image.subarray(7 * 256, 7 * 256 + len)));
     m.destroy();
   }, 120_000);
+});
+
+// ── Plus 3 with the ACP 1770 DFS (Acorn DFS discs) ──────────────────────────
+// `electron-dfs.rom` is ElectronDFS-ACP1770-2.00 (16K). It re-pages ROM 0 with
+// LDA #&80 : STA &FE05, so it is fitted as ROM 0.
+
+const haveDfs = haveExpansions && existsSync(resolve(CACHE, 'electron-dfs.rom'));
+
+function bootDfs(): ElectronMachine {
+  const rom = new Uint8Array(0x8000);
+  rom.set(readFileSync(resolve(CACHE, 'electron-basic.rom')), 0);
+  rom.set(readFileSync(resolve(CACHE, 'electron-os.rom')), 0x4000);
+  const m = new ElectronMachine('electron', null);
+  m.loadROM(rom);
+  m.setExpansions(true, true, true);
+  m.installPlus1Rom(new Uint8Array(readFileSync(resolve(CACHE, 'electron-plus1.rom'))));
+  m.installDfsRom(new Uint8Array(readFileSync(resolve(CACHE, 'electron-dfs.rom'))));
+  m.reset();
+  for (let i = 0; i < 250; i++) m.tick();
+  return m;
+}
+
+describe.skipIf(!haveDfs)('Electron Plus 3 with the real ACP 1770 DFS', () => {
+  it('announces the DFS and catalogues a blank DFS disc', () => {
+    const m = bootDfs();
+    expect(m.ocrScreenForMcp()).toContain('Advanced 1770 DFS');
+    expect(m.ocrScreenForMcp()).not.toContain('ADFS');
+    m.services.disks.insert('a', blankSsd(40, false), 'blank.ssd');
+    const type = typist(m);
+    type('*DISC\n');
+    run(m, 60);
+    type('*CAT\n');
+    run(m, 1200);
+    expect(m.ocrScreenForMcp()).toMatch(/Drive 0\s+Option 0/);
+    expect(m.ocrScreenForMcp()).toMatch(/Dir\. :0\.\$/);
+    m.destroy();
+  }, 120_000);
+
+  it('SAVEs a program to a DFS disc and LOADs it from the saved .ssd on a fresh machine', () => {
+    const a = bootDfs();
+    a.services.disks.insert('a', blankSsd(40, false), 'blank.ssd');
+    const typeA = typist(a);
+    typeA('*DISC\n');
+    run(a, 60);
+    typeA('NEW\n');
+    typeA('10 PRINT "DFS ROUND TRIP"\n');
+    typeA('SAVE "RT"\n');
+    run(a, 2500);
+    const saved = a.services.disks.save('a')!;
+    expect(saved.name).toBe('blank.ssd');
+    a.destroy();
+
+    const b = bootDfs();
+    b.services.disks.insert('a', parseSsd(saved.data, false), saved.name);
+    const typeB = typist(b);
+    typeB('*DISC\n');
+    run(b, 60);
+    typeB('LOAD "RT"\n');
+    run(b, 1500);
+    typeB('RUN\n');
+    run(b, 60);
+    expect(b.ocrScreenForMcp()).toMatch(/^DFS ROUND TRIP$/m);
+    b.destroy();
+  }, 180_000);
 });

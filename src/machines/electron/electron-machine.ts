@@ -37,7 +37,9 @@ import {
 } from './electron-ula.ts';
 import { wireElectronIo } from './electron-io.ts';
 import { ElectronPlus1, PLUS1_ROM_PAGE, CART_PAGES } from './peripherals/plus1.ts';
-import { ElectronPlus3, PLUS3_ROM_PAGE } from './peripherals/plus3.ts';
+import { ADFS_SECTORS_PER_TRACK } from '@/media/floppy/adfs.ts';
+import { SSD_SECTORS_PER_TRACK } from '@/media/floppy/ssd.ts';
+import { DFS_ROM_PAGE, ElectronPlus3, PLUS3_ROM_PAGE } from './peripherals/plus3.ts';
 import { electronDescriptor } from './descriptor.ts';
 import { createElectronServices, type ElectronServices } from './services/index.ts';
 import {
@@ -87,6 +89,8 @@ export class ElectronMachine extends BaseMachine implements Machine {
   readonly plus3 = new ElectronPlus3((asserted) => { if (asserted) this.cpu.nmi(); });
   plus1Fitted = false;
   plus3Fitted = false;
+  /** The Plus 3's drives run the ACP 1770 DFS (Acorn DFS discs) instead of ADFS. */
+  dfsFitted = false;
   /** Name of the cartridge in the Plus 1's front slot, '' when empty. */
   cartridgeName = '';
   /** Frames left holding SHIFT for a SHIFT+BREAK boot of a disc or cartridge. */
@@ -139,7 +143,9 @@ export class ElectronMachine extends BaseMachine implements Machine {
   /** Fit or remove the expansions and return the ROM loads they need. The ROMs
    *  are fitted at build time, so toggling a peripheral rebuilds the machine. */
   prepare(view: SettingsView): AuxRomRequest[] {
-    this.setExpansions(view.get('electron-plus1', false), view.get('electron-plus3', false));
+    this.setExpansions(
+      view.get('electron-plus1', false), view.get('electron-plus3', false), view.get('electron-dfs', false),
+    );
     const requests: AuxRomRequest[] = [];
     if (this.plus1Fitted) {
       requests.push({
@@ -153,7 +159,18 @@ export class ElectronMachine extends BaseMachine implements Machine {
         awaitLoad: true,
       });
     }
-    if (this.plus3Fitted) {
+    if (this.plus3Fitted && this.dfsFitted) {
+      requests.push({
+        cacheKey: 'electron-plus3-acpdfs200',
+        source: 'electron/dfs.rom',
+        fetchingMsg: 'Fetching Electron ACP 1770 DFS ROM…',
+        loadedMsg: (bytes) => `Electron ACP 1770 DFS ROM loaded (${bytes} bytes)`,
+        failMsg: 'Failed to load the Electron ACP 1770 DFS ROM',
+        failId: 'electron-dfs',
+        apply: (data) => this.installDfsRom(data),
+        awaitLoad: true,
+      });
+    } else if (this.plus3Fitted) {
       requests.push({
         cacheKey: 'electron-plus3-adfs100',
         source: 'electron/plus3.rom',
@@ -168,15 +185,20 @@ export class ElectronMachine extends BaseMachine implements Machine {
     return requests;
   }
 
-  setExpansions(plus1: boolean, plus3: boolean): void {
+  /** `dfs` swaps the Plus 3's ADFS ROM for the ACP 1770 DFS: the same WD1770
+   *  interface, but Acorn DFS discs (.ssd/.dsd) instead of ADFS ones. */
+  setExpansions(plus1: boolean, plus3: boolean, dfs = false): void {
     this.plus1Fitted = plus1;
     this.plus3Fitted = plus3;
+    this.dfsFitted = plus3 && dfs;
+    this.plus3.setFormatSectors(this.dfsFitted ? SSD_SECTORS_PER_TRACK : ADFS_SECTORS_PER_TRACK);
     if (!plus1) {
       this.memory.setExpansionRom(PLUS1_ROM_PAGE, null);
       this.ejectCartridge();
     }
+    if (!plus3 || dfs) this.memory.setExpansionRom(PLUS3_ROM_PAGE, null);
+    if (!plus3 || !dfs) this.memory.setExpansionRom(DFS_ROM_PAGE, null);
     if (!plus3) {
-      this.memory.setExpansionRom(PLUS3_ROM_PAGE, null);
       this.plus3.ejectDisk(0);
       this.plus3.ejectDisk(1);
     }
@@ -184,6 +206,7 @@ export class ElectronMachine extends BaseMachine implements Machine {
 
   installPlus1Rom(data: Uint8Array): void { this.memory.setExpansionRom(PLUS1_ROM_PAGE, data); }
   installPlus3Rom(data: Uint8Array): void { this.memory.setExpansionRom(PLUS3_ROM_PAGE, data); }
+  installDfsRom(data: Uint8Array): void { this.memory.setExpansionRom(DFS_ROM_PAGE, data); }
 
   /** Put a cartridge in the Plus 1's front slot (its two 16K banks are ROMs 2
    *  and 3). The caller resets the machine so the OS finds it. */

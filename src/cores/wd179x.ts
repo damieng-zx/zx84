@@ -99,9 +99,12 @@ const BYTE_CYCLES = 80;
 
 export class WD179x {
   private readonly statusBit7Mode: WD179xOptions['statusBit7'];
-  private readonly formatSectorsPerTrack: number;
+  private formatSectorsPerTrack: number;
   private readonly hasSideCompare: boolean;
   private readonly onInterrupt?: (asserted: boolean) => void;
+
+  /** Change how many sectors a WRITE TRACK lays down (the disc format in use). */
+  setFormatSectorsPerTrack(count: number): void { this.formatSectorsPerTrack = count; }
 
   constructor(options: WD179xOptions) {
     this.statusBit7Mode = options.statusBit7;

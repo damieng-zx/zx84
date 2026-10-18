@@ -667,6 +667,25 @@ describe('Electron services', () => {
     m.destroy();
   });
 
+  it('lists the BASIC program at PAGE, wherever a filing system has put it', () => {
+    // 10 PRINT 1 as BASIC stores it: 0x0D, line hi/lo, length, tokens, 0x0D, then 0xFF.
+    const program = [0x0D, 0x00, 0x0A, 0x07, 0xF1, 0x20, 0x31, 0x0D, 0xFF];
+    for (const page of [0x0E, 0x19]) {          // tape/ADFS PAGE, then DFS PAGE
+      const m = machine();
+      m.memory.ram[0x18] = page;
+      m.memory.ram.set(program, page << 8);
+      expect(m.services.probe.panes?.basicListing?.()).toEqual([{ lineNumber: 10, text: 'PRINT 1' }]);
+      m.destroy();
+    }
+  });
+
+  it('shows no BASIC listing or variables for RAM that holds no program', () => {
+    const m = machine();
+    expect(m.services.probe.panes?.basicListing?.()).toEqual([]);
+    expect(m.services.probe.panes?.basicVars?.()).toEqual([]);
+    m.destroy();
+  });
+
   it('lists the paged-ROM sockets other than the keyboard and BASIC pages', () => {
     const m = machine();
     const idx = m.services.roms.sidewaysSlots.map(s => s.index);
