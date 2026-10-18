@@ -24,6 +24,10 @@ const CTRL_SIDE = 0x04;
 const CTRL_RESET = 0x20;
 
 export const PLUS3_ROM_PAGE = 4;
+/** Where the ACP 1770 DFS ROM goes in place of ADFS. Every DFS ROM for this
+ *  interface ends its calls with `LDA #&80 : STA &FE05`, which pages ROM 0 back
+ *  in, so it only keeps running when it is itself ROM 0. */
+export const DFS_ROM_PAGE = 0;
 
 export class ElectronPlus3 {
   readonly fdc: WD179x;
@@ -99,6 +103,9 @@ export class ElectronPlus3 {
   getUnitTrack(unit: number): number { return this.fdc.getUnitTrack(unit); }
   get formattedUnit(): number { return this.fdc.formattedUnit; }
   set formattedUnit(unit: number) { this.fdc.formattedUnit = unit; }
+
+  /** Sectors per track a disc format lays down: 16 for ADFS, 10 for DFS. */
+  setFormatSectors(count: number): void { this.fdc.setFormatSectorsPerTrack(count); }
 
   insertDisk(image: DskImage, unit = 0): void { this.fdc.insertDisk(image, unit); }
   ejectDisk(unit = 0): void { this.fdc.ejectDisk(unit); }

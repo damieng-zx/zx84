@@ -3,10 +3,12 @@ import type {
 } from '@/machines/machine.ts';
 import type { AcornTapeService } from '@/machines/shared/acorn-tape-service.ts';
 import { parseAdfs } from '@/media/floppy/adfs.ts';
+import { parseSsd } from '@/media/floppy/ssd.ts';
 import type { ElectronMachine } from '../electron-machine.ts';
 import type { ElectronDiskService } from './disks.ts';
 
 const ADFS_EXT = /\.(?:adf|adl|ads|adm)$/i;
+const DFS_EXT = /\.(?:ssd|dsd)$/i;
 
 /** Acornsoft cartridges ship as two 16K dumps, `Name_1.rom` (lower bank) and
  *  `Name_2.rom` (upper bank). */
@@ -39,7 +41,8 @@ export class ElectronMediaService implements MediaService {
       { ext: '.csw', target: 'tape' },
     ];
     if (this.machine.plus3Fitted) {
-      for (const ext of ['.adf', '.adl', '.ads', '.adm']) types.push({ ext, target: 'a' });
+      const exts = this.machine.dfsFitted ? ['.ssd', '.dsd'] : ['.adf', '.adl', '.ads', '.adm'];
+      for (const ext of exts) types.push({ ext, target: 'a' });
     }
     if (this.machine.plus1Fitted) types.push({ ext: '.rom', target: 'cartridge' });
     return types;
@@ -60,14 +63,27 @@ export class ElectronMediaService implements MediaService {
         message: `Tape loaded: ${filename} — type CHAIN"" (or *RUN)`,
       };
     }
-    if (ADFS_EXT.test(filename)) {
+    if (ADFS_EXT.test(filename) || DFS_EXT.test(filename)) {
       if (!this.machine.plus3Fitted) {
         return { ok: false, message: 'Fit the Plus 3 in the Hardware pane to use discs' };
       }
+      const dfsDisc = DFS_EXT.test(filename);
+      if (dfsDisc !== this.machine.dfsFitted) {
+        return {
+          ok: false,
+          message: dfsDisc
+            ? 'Acorn DFS discs (.ssd/.dsd) need the Plus 3 set to DFS in the Hardware pane'
+            : 'ADFS discs need the Plus 3 set to ADFS in the Hardware pane',
+        };
+      }
       const id = target === 'b' ? 'b' : 'a';
       try {
-        // .adl is the double-sided L format even when the file has been trimmed.
-        this.disks.insert(id, parseAdfs(data, /\.adl$/i.test(filename)), filename);
+        // .adl is the double-sided L format even when the file has been trimmed;
+        // .dsd is always two sides.
+        const image = dfsDisc
+          ? parseSsd(data, /\.dsd$/i.test(filename))
+          : parseAdfs(data, /\.adl$/i.test(filename));
+        this.disks.insert(id, image, filename);
       } catch (err) {
         return { ok: false, message: `Disk error: ${(err as Error).message}` };
       }
@@ -87,7 +103,10 @@ export class ElectronMediaService implements MediaService {
       slot.insert(image, name);
       return { ok: true, target: 'cartridge', message: `Cartridge: ${name} (SHIFT+BREAK)` };
     }
-    return { ok: false, message: 'The Electron accepts .uef/.csw tapes, .adf/.adl discs and .rom cartridges' };
+    return {
+      ok: false,
+      message: 'The Electron accepts .uef/.csw tapes, .adf/.adl or .ssd/.dsd discs and .rom cartridges',
+    };
   }
 
   /** A `_1`/`_2` half is a cartridge's lower or upper bank. Mounting the other

@@ -50,7 +50,7 @@ Some tools are intentionally hardware-specific:
   `.dsk/.hfe/.scp/.cdt/.sna/.cpr`, MSX `.rom/.cas`, MTX `.rom/.mtx/.mfloppy`,
   Einstein `.dsk/.hfe/.scp`,
   Lynx `.tap` cassettes and `.ldf` disks, Jupiter Ace `.tap/.tzx/.csw` cassettes,
-  PCW `.dsk/.td0/.hfe/.scp` discs, BBC `.ssd/.dsd/.img` discs and `.uef/.csw` tapes, Electron `.uef/.csw` tapes, `.adf/.adl/.ads/.adm` discs (Plus 3) and `.rom` cartridges (Plus 1), and ZX80/ZX81 program files). CPC adds
+  PCW `.dsk/.td0/.hfe/.scp` discs, BBC `.ssd/.dsd/.img` discs and `.uef/.csw` tapes, Electron `.uef/.csw` tapes, `.adf/.adl/.ads/.adm` discs (Plus 3; `.ssd/.dsd` instead when its DFS option is on) and `.rom` cartridges (Plus 1), and ZX80/ZX81 program files). CPC adds
   built-in uPD765A disk inspection, CPC OCR, and PNG screenshots.
 - ZX80/ZX81 additionally: model-constrained ZXDB library loading, 1KB/16KB
   RAM selection, ZX81 UDG and WRX hi-res hardware selection, and display-file

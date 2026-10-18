@@ -103,6 +103,7 @@ const DEFAULTS = {
   'bbc-disk-system': '1770',
   'electron-plus1': 'off',
   'electron-plus3': 'off',
+  'electron-dfs':   'off',
   'lynx-fdc':       'on',
   'zx8x-16k-ram':  'off',
   'zx81-udg-ram':  'off',
@@ -450,6 +451,10 @@ const _electronPlus3 = /*@once*/ createRoot(() => createSignal(getSaved('electro
 export const electronPlus3 = _electronPlus3[0];
 export const setElectronPlus3 = _electronPlus3[1];
 
+const _electronDfs = /*@once*/ createRoot(() => createSignal(getSaved('electron-dfs', D('electron-dfs')) === 'on'));
+export const electronDfs = _electronDfs[0];
+export const setElectronDfs = _electronDfs[1];
+
 const _lynxFdc = /*@once*/ createRoot(() => createSignal(getSaved('lynx-fdc', D('lynx-fdc')) === 'on'));
 export const lynxFdc = _lynxFdc[0];
 export const setLynxFdc = _lynxFdc[1];
@@ -610,6 +615,7 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'bbc-disk-system', set: setBbcDiskSystem, type: 'string' },
     { key: 'electron-plus1', set: setElectronPlus1, type: 'bool' },
     { key: 'electron-plus3', set: setElectronPlus3, type: 'bool' },
+    { key: 'electron-dfs', set: setElectronDfs, type: 'bool' },
     { key: 'lynx-fdc', set: setLynxFdc, type: 'bool' },
     { key: 'zx8x-16k-ram', set: setZx8x16kRam, type: 'bool' },
     { key: 'zx81-udg-ram', set: setZx81UdgRam, type: 'bool' },

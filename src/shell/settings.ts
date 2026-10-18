@@ -58,6 +58,7 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'bbc-disk-system': () => settings.bbcDiskSystem(),
   'electron-plus1': () => settings.electronPlus1(),
   'electron-plus3': () => settings.electronPlus3(),
+  'electron-dfs': () => settings.electronDfs(),
   // True while the SAA5050 upscaler is selected: machines that draw teletext
   // then supply the raw, unrounded dots for it to round.
   'saa-scaler': () => settings.scalingMode() === SCALING_MODE_SAA5050,

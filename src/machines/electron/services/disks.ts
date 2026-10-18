@@ -1,5 +1,6 @@
 import type { DiskService, DriveDescriptor, DriveMedia } from '@/machines/machine.ts';
 import { serializeAdfs } from '@/media/floppy/adfs.ts';
+import { serializeSsd } from '@/media/floppy/ssd.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import type { ElectronMachine } from '../electron-machine.ts';
 
@@ -36,9 +37,13 @@ export class ElectronDiskService implements DiskService {
     const unit = this.unit(id);
     const image = plus3.getDiskImage(unit);
     if (!image) return null;
-    const data = serializeAdfs(image);
+    const doubleSided = image.numSides === 2;
+    const dfs = image.diskFormat === 'DFS';
+    const data = dfs ? serializeSsd(image, doubleSided) : serializeAdfs(image);
     plus3.clearDirty(unit);
-    const ext = image.numSides === 2 ? '.adl' : image.numTracks > 40 ? '.adm' : '.ads';
+    const ext = dfs
+      ? (doubleSided ? '.dsd' : '.ssd')
+      : doubleSided ? '.adl' : image.numTracks > 40 ? '.adm' : '.ads';
     return { data, name: `${baseName(this.names.get(id) ?? '')}${ext}` };
   }
 
