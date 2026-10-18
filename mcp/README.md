@@ -25,46 +25,22 @@ Run it directly with:
 npm run mcp -- --model zx48k
 ```
 
-Supported startup models are derived from the machine registry and include
-`zx80`, `zx81`, `zx16k`, `zx48k`, `zx128k`, `zx128kplus2`, `zx128kplus2a`, `zx128kplus3`, `cpc464`, `cpc664`,
-`cpc6128`, `cpc6128plus`, `gx4000`, `einstein-tc01`, `einstein-256`, `hx-10`, `hb-55`, `hb-55p`,
-`mtx500`, `mtx512`, `rs128`, `lynx48`, `lynx96`,
-`lynx128`, `jupiter-ace`, `pcw8256`, `pcw8512`, `pcw9512`, `pcw9256`, `bbc-b`, and `electron`. The
-default is `zx48k`. The Spectrum's earlier ids (`48k`, `128k`, `+2`, `+2A`, `+3`) are still
+Every machine in the registry can be started, and the model ids are the ones
+listed under [Known models in the main README](../README.md#media). The default
+is `zx48k`. The Spectrum's earlier ids (`48k`, `128k`, `+2`, `+2A`, `+3`) are still
 accepted by `--model`; the `model` tool takes the current ids only.
 System ROM pages come from the machine registry, are fetched through the shared
 ROM source loader, and are cached under `mcp/.cache/`.
 
 ## Model Support
 
-The generic tools work through the `Machine` SPI and support every model where
-the relevant service exists: execution, register inspection, memory access,
-disassembly, breakpoints/watchpoints, stepping, and OCR.
-
-Some tools are intentionally hardware-specific:
-
-- Spectrum: tape/snapshot loading (auto-enabling the +D / Interface 1 / Beta
-  Disk ROMs), ZXTL/full/port-I/O tracing, library loading, Multiface, VTX-5000,
-  +D, Beta Disk, microdrives, and +3 boot helpers.
-- CPC, MSX, MTX, Einstein, Lynx, Jupiter Ace, PCW, BBC, Electron, ZX80/ZX81: media loads
-  route through the machine's own `MediaService` (CPC
-  `.dsk/.hfe/.scp/.cdt/.sna/.cpr`, MSX `.rom/.cas` plus `.dsk/.img/.dmk/.hfe/.scp/.td0/.edsk` once the disk interface is fitted, MTX `.rom/.mtx/.mfloppy`,
-  Einstein `.dsk/.hfe/.scp`,
-  Lynx `.tap` cassettes and `.ldf` disks, Jupiter Ace `.tap/.tzx/.csw` cassettes,
-  PCW `.dsk/.td0/.hfe/.scp` discs, BBC `.ssd/.dsd/.img` discs and `.uef/.csw` tapes, Electron `.uef/.csw` tapes, `.adf/.adl/.ads/.adm` discs (Plus 3; `.ssd/.dsd` instead when its DFS option is on) and `.rom` cartridges (Plus 1), and ZX80/ZX81 program files). CPC adds
-  built-in uPD765A disk inspection, CPC OCR, and PNG screenshots.
-- ZX80/ZX81 additionally: model-constrained ZXDB library loading, 1KB/16KB
-  RAM selection, ZX81 UDG and WRX hi-res hardware selection, and display-file
-  OCR.
-- MTX additionally: the FDX 80-column display, 512 KiB RAM expansion, and CP/M
-  system profile.
-- PCW additionally: it has no system ROM, so nothing is fetched at startup —
-  boot it by loading a CP/M+ or LocoScript disc into drive A.
-- Lynx `ocr` reads the 40-column grid on the 48K/96K and the 128K's 80-column
-  one, matching the bitmap against the character set in the machine's own ROM;
-  a replaced system ROM without that table is reported rather than guessed at.
-- MSX/MTX/Einstein/Lynx/Jupiter Ace/PCW media capabilities are exposed
-  exactly where their machine services support them.
+The generic tools (execution, registers, memory, disassembly, breakpoints and
+watchpoints, stepping, media loading, OCR, screenshots) work through the
+`Machine` interface on every model whose machine provides the service. A few
+tools are hardware-specific: tracing is Spectrum-only, and several machines
+add bench tools of their own (see the Tool Reference). Each
+[machine sheet](../docs/machines) lists the tools, media formats and limits for
+that machine.
 
 Use `model` to switch machines. Switching always creates a fresh machine.
 
