@@ -2,7 +2,7 @@
 
 <img src="public/mascot.svg" align="right" width="100" height="140" alt="Blip, the ZX84 robot mascot">
 
-**A browser emulator for the Sinclair ZX80, ZX81 and ZX Spectrum, Amstrad CPC (including the Plus range) and PCW, Tatung Einstein, MSX, Memotech MTX, Camputers Lynx, Jupiter Ace, Acorn BBC Micro and Electron, the Apple II family, and the Enterprise 64/128, with an MCP server for automated testing.**
+**A browser emulator for the Sinclair ZX80, ZX81 and ZX Spectrum (and the Pentagon and Scorpion clones), Amstrad CPC (including the Plus range) and PCW, Tatung Einstein, MSX, Memotech MTX, Camputers Lynx, Jupiter Ace, Acorn BBC Micro and Electron, the Apple II family, and the Enterprise 64/128, with an MCP server for automated testing.**
 
 https://zx84.envytech.workers.dev
 
@@ -13,6 +13,7 @@ ZX84 is an old-computer emulator with machine-specific hardware models, browser-
 | Family | Models | Core Hardware |
 | --- | --- | --- |
 | Sinclair ZX Spectrum | 16K, 48K, 128K, +2, +2A, +3 | ULA or Amstrad gate array, beeper, AY on 128K-class models, uPD765A on +3 |
+| Sinclair clones | Pentagon 128, 512, 1024; Scorpion ZS-256 | No contention; Pentagon 71680-T-state frame and extended RAM through 7FFD (and EFF7 on the 1024), Scorpion 256K with 1FFD paging and its own 64K ROM; 1.75 MHz AY; Beta Disk/TR-DOS built in |
 | Sinclair ZX80 / ZX81 | ZX80, ZX81, optional 16KB RAM pack | Software-generated monochrome display, keyboard matrix, `.o` / `.p` program images |
 | Amstrad CPC | CPC 464, CPC 664, CPC 6128, 6128 Plus, GX4000 | Gate array or Plus ASIC, 6845 CRTC, AY-3-891x, 8255 PPI, uPD765A on 664/6128, cartridge on Plus models |
 | Tatung Einstein | TC-01, 256 | TMS9929A (TC-01) or V9938 (256) VDP, AY-3-8910, Z80 CTC, WD1770 |
@@ -31,7 +32,7 @@ ZX84 is an old-computer emulator with machine-specific hardware models, browser-
 ### Hardware And Peripherals
 
 - Spectrum ULA timing, floating bus, contention, 128K paging, AY sound, and +3 floppy support.
-- Spectrum peripherals: Multiface 1/128/3, Interface 2 cartridges, VTX-5000 Viewdata modem, ZX Interface 1 with up to eight Microdrives, MGT +D, and Beta Disk/TR-DOS.
+- Spectrum peripherals: Multiface 1/128/3, Interface 2 cartridges, VTX-5000 Viewdata modem, ZX Interface 1 with up to eight Microdrives, MGT +D, and Beta Disk/TR-DOS (built in on the Pentagon and Scorpion clones).
 - CPC cassette support, disk-capable 664/6128 models, Multiface Two, optional ParaDOS ROM, and the Plus ASIC (sprites, soft scroll, split-screen, DMA sound) on the 6128 Plus and GX4000.
 - Einstein disk mounting, optional Xtal DOS boot-disk behavior, and the Einstein 256's V9938 VDP with 512×212 display modes.
 - HX-10 cartridge loading, BIOS-level `.cas` cassette loading, and an optional memory-mapped WD2793 floppy disk interface (two 3.5" drives, Disk BASIC ROM in slot 3) taking raw `.dsk`/`.img`, `.dmk`, `.hfe`, `.scp`, `.td0` and extended-DSK images.
@@ -89,7 +90,7 @@ The starting machine can be chosen with `?model=` (alias `?machine=`), e.g.
 `?model=cpc6128&disk0=...`. It takes precedence over the last-used machine,
 becomes the new saved choice, and is removed from the address bar once applied.
 Values are case-insensitive; write `+` models as `plus2a`/`plus3` or `%2B3`.
-Known models: `16k` `48k` `128k` `+2` `+2A` `+3` `zx80` `zx81` `jupiter-ace`
+Known models: `16k` `48k` `128k` `+2` `+2A` `+3` `pentagon128` `pentagon512` `pentagon1024` `scorpion256` `zx80` `zx81` `jupiter-ace`
 `cpc464` `cpc664` `cpc6128` `cpc6128plus` `gx4000` `pcw8256` `pcw8512`
 `pcw9256` `pcw9512` `einstein-tc01` `einstein-256` `hx-10` `mtx500` `mtx512`
 `rs128` `lynx48` `lynx96` `lynx128` `bbc-b` `electron` `apple2` `apple2-plus` `apple2e` `apple2e-enhanced` `apple2c` `ep64` `ep128`.
