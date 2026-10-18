@@ -57,6 +57,8 @@ const CONTRIBUTIONS: Record<string, MachineUiContribution> = {
       import('@/machines/einstein/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
   },
   msx: {
+    HardwareSection: lazy(() =>
+      import('@/machines/msx/ui/hardware-section.tsx').then(m => ({ default: m.MsxHardwareSection }))),
     Keyboard: lazy(() =>
       import('@/machines/msx/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
   },

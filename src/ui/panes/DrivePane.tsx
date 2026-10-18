@@ -22,16 +22,17 @@ import {
   driveBForceReady, setDriveBForceReady,
   diskSoundC, setDiskSoundC, diskSoundD, setDiskSoundD,
   writeProtectC, setWriteProtectC, writeProtectD, setWriteProtectD,
-  plusDEnabled, betaDiskEnabled, lynxFdc, bbcDiskSystem, tapeTurbo, setTapeTurbo,
+  plusDEnabled, betaDiskEnabled, lynxFdc, bbcDiskSystem, msxFloppy, tapeTurbo, setTapeTurbo,
   persistSetting, resetSettingsGroup,
 } from '@/store/settings.ts';
-import { isPlusDCapable, isBetaDiskCapable, isLynxModel, isBbcModel } from '@/models.ts';
+import { isPlusDCapable, isBetaDiskCapable, isLynxModel, isBbcModel, isMsxModel } from '@/models.ts';
 import { machineCaps } from '@/state/machine-caps.ts';
 import { DISK_FORMATS, formatLabel, createBlankDisk } from '@/media/floppy/dsk.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { createBlankHfe } from '@/media/floppy/hfe.ts';
 import { blankLdfDisk } from '@/media/floppy/ldf-image.ts';
 import { blankSsd } from '@/media/floppy/ssd.ts';
+import { blankMsxDisk } from '@/media/floppy/msx-disk.ts';
 import { blankAdfs } from '@/media/floppy/adfs.ts';
 import type { DriveStatus } from '@/state/disk-state.ts';
 import { openFile } from '@/ui/file-picker.ts';
@@ -238,6 +239,16 @@ const DFS_NEW_ITEMS = [
   { value: 'dfs', label: 'DFS image', children: DFS_GEOMETRIES.map((g, i) => ({ value: `dfs-${i}`, label: g.label })) },
 ];
 
+// MSX-DOS disks are saved as raw .dsk sector dumps; the blank set is the
+// 3.5" pair a 1DD/2DD MSX1 drive formats, each with a valid FAT12 volume.
+const MSX_BLANKS = [
+  { label: 'Blank 720K DS/80T', id: 0xF9 },
+  { label: 'Blank 360K SS/80T', id: 0xF8 },
+] as const;
+const MSX_NEW_ITEMS = [
+  { value: 'msx', label: 'MSX-DOS image', children: MSX_BLANKS.map((g, i) => ({ value: `msx-${i}`, label: g.label })) },
+];
+
 /** Resolve an `ldf-N` menu value to its geometry, or null for any other value. */
 function lynxBlankForValue(value: string): { tracks: number; sides: number } | null {
   if (!value.startsWith('ldf-')) return null;
@@ -253,6 +264,10 @@ function blankForValue(value: string): { image: DskImage; label: string } | null
       image: blankLdfDisk(ldf.tracks, ldf.sides),
       label: `Blank ${ldf.tracks === 40 ? '200K' : '800K'}`,
     };
+  }
+  if (value.startsWith('msx-')) {
+    const g = MSX_BLANKS[parseInt(value.slice(4))];
+    return g ? { image: blankMsxDisk(g.id), label: g.label } : null;
   }
   if (value.startsWith('adfs-')) {
     const g = ADFS_GEOMETRIES[parseInt(value.slice(5))];
@@ -356,7 +371,8 @@ export function DrivePane() {
     machineCaps().builtinDisk
     && settingEnabled(machineCaps().requires?.builtinDisk)
     && !(isLynxModel(currentModel()) && !lynxFdc())
-    && !(isBbcModel(currentModel()) && bbcDiskSystem() === 'none');
+    && !(isBbcModel(currentModel()) && bbcDiskSystem() === 'none')
+    && !(isMsxModel(currentModel()) && !msxFloppy());
   // The Lynx's FD1793 addresses four drives; everything else here has two.
   const builtinFourDrives = () =>
     builtinDisk() && (machineCaps().builtinDrives ?? 2) > 2;
@@ -366,6 +382,7 @@ export function DrivePane() {
     const accepts = machine?.services.media.accepts() ?? [];
     if (accepts.some(t => t.ext === '.ldf')) return LYNX_NEW_ITEMS;
     if (accepts.some(t => t.ext === '.ssd')) return DFS_NEW_ITEMS;
+    if (accepts.some(t => t.ext === '.dmk')) return MSX_NEW_ITEMS;
     if (accepts.some(t => t.ext === '.adl')) return ADFS_NEW_ITEMS;
     return PLUS3_NEW_ITEMS;
   };

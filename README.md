@@ -14,7 +14,7 @@ ZX84 is an old-computer emulator with machine-specific hardware models, browser-
 | Sinclair ZX80 / ZX81 | ZX80, ZX81, optional 16KB RAM pack | Software-generated monochrome display, keyboard matrix, `.o` / `.p` program images |
 | Amstrad CPC | CPC 464, CPC 664, CPC 6128, 6128 Plus, GX4000 | Gate array or Plus ASIC, 6845 CRTC, AY-3-891x, 8255 PPI, uPD765A on 664/6128, cartridge on Plus models |
 | Tatung Einstein | TC-01, 256 | TMS9929A (TC-01) or V9938 (256) VDP, AY-3-8910, Z80 CTC, WD1770 |
-| MSX | Toshiba HX-10 | TMS9929A VDP, AY-3-8910, 8255 PPI, cartridge slot |
+| MSX | Toshiba HX-10 | TMS9929A VDP, AY-3-8910, 8255 PPI, cartridge slot, optional WD2793 floppy disk interface |
 | Memotech MTX | MTX500, MTX512, RS128 | TMS9929A VDP, Z80 CTC, SN76489A, twin matrix-wired joysticks, ROM extension card, FDX/SDX WD179x disk interface, optional 6845 80-column display |
 | Camputers Lynx | 48K, 96K, 128K | 6845 CRTC video, DAC sound, cassette, FD1793 floppy on 96K/128K |
 | Jupiter Ace | Jupiter Ace | Jupiter Cantab ULA (32×24 monochrome text display), piezo buzzer, cassette port, optional 16K or 48K RAM pack, FORTH in ROM |
@@ -30,7 +30,7 @@ ZX84 is an old-computer emulator with machine-specific hardware models, browser-
 - Spectrum peripherals: Multiface 1/128/3, Interface 2 cartridges, VTX-5000 Viewdata modem, ZX Interface 1 with up to eight Microdrives, MGT +D, and Beta Disk/TR-DOS.
 - CPC cassette support, disk-capable 664/6128 models, Multiface Two, optional ParaDOS ROM, and the Plus ASIC (sprites, soft scroll, split-screen, DMA sound) on the 6128 Plus and GX4000.
 - Einstein disk mounting, optional Xtal DOS boot-disk behavior, and the Einstein 256's V9938 VDP with 512×212 display modes.
-- HX-10 cartridge loading and BIOS-level `.cas` cassette loading.
+- HX-10 cartridge loading, BIOS-level `.cas` cassette loading, and an optional memory-mapped WD2793 floppy disk interface (two 3.5" drives, Disk BASIC ROM in slot 3) taking raw `.dsk`/`.img`, `.dmk`, `.hfe`, `.scp`, `.td0` and extended-DSK images.
 - MTX CP/M 2.2 boot through the real FDX hardware using a hosted Type 07 system disk.
 - MTX logical cassette loading, banked ROM packs, FDX/SDX Type 03 and Type 07 floppy mounting, optional 512 KiB RAM expansion, and optional 80×24 colour display.
 - The bundled MTX CP/M profile installs the native SIDISC module and exposes fitted expansion RAM as an empty type-43 SiDisc drive F:.
@@ -52,7 +52,7 @@ Load by picker or drag-and-drop. ZIP archives are unpacked and routed to compati
 | Spectrum peripherals | Interface 2: `.rom`; Interface 1: `.mdr`, `.mdv`; MGT +D: `.mgt`, `.img`, `.hfe`, `.scp`; Beta Disk: `.trd`, `.scl`, `.hfe`, `.scp` |
 | CPC | Snapshots: `.sna`; tapes: `.cdt`, `.tzx`, `.tap`; disks: `.dsk`, `.hfe`, `.scp` on disk-capable models; Plus cartridges: `.cpr` |
 | Einstein | Disks: `.dsk`, `.hfe`, `.scp` |
-| MSX | Cartridges: `.rom`; cassettes: `.cas` |
+| MSX | Cartridges: `.rom`; cassettes: `.cas`; disks (interface fitted): `.dsk`, `.img`, `.dmk`, `.hfe`, `.scp`, `.td0`, `.edsk` |
 | Memotech MTX | ROM packs: `.rom`; logical cassettes: `.mtx`; FDX/SDX Type 03/07 disks: `.mfloppy`, `.mfloppy-03`, `.mfloppy-07` |
 | Camputers Lynx | Cassettes: `.tap`; disks: `.ldf` on the 96K/128K |
 | Jupiter Ace | Cassettes: `.tap`, `.tzx`, `.csw` |
@@ -140,7 +140,7 @@ npm run mcp           # start the MCP server
 
 ## Current Scope
 
-Hardware and media support varies by machine and model. In particular, the HX-10 has no floppy controller, the Lynx 48K and the Jupiter Ace have no disk interface, the PCW ships no ROM and needs a user-supplied CP/M+ or LocoScript boot disc, and some Einstein and CPC subsystems remain incomplete.
+Hardware and media support varies by machine and model. In particular, the HX-10 needs its floppy interface fitting in the Hardware pane and a user-hosted Disk BASIC ROM (`msx/msx1_disk-basic.rom`), the Lynx 48K and the Jupiter Ace have no disk interface, the PCW ships no ROM and needs a user-supplied CP/M+ or LocoScript boot disc, and some Einstein and CPC subsystems remain incomplete.
 
 ## License
 

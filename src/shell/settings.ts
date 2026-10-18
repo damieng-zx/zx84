@@ -55,6 +55,7 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'mtx-cpm': () => settings.mtxCpm(),
   'mtx-80-column': () => settings.mtx80Column(),
   'mtx-512k-ram': () => settings.mtx512kRam(),
+  'msx-floppy': () => settings.msxFloppy(),
   'bbc-disk-system': () => settings.bbcDiskSystem(),
   'electron-plus1': () => settings.electronPlus1(),
   'electron-plus3': () => settings.electronPlus3(),

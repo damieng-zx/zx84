@@ -100,6 +100,7 @@ const DEFAULTS = {
   'mtx-80-column':  'off',
   'mtx-512k-ram':   'off',
   'mtx-floppy':     'on',
+  'msx-floppy':     'off',
   'bbc-disk-system': '1770',
   'electron-plus1': 'off',
   'electron-plus3': 'off',
@@ -433,6 +434,10 @@ const _mtxFloppy = /*@once*/ createRoot(() => createSignal(getSaved('mtx-floppy'
 export const mtxFloppy = _mtxFloppy[0];
 export const setMtxFloppy = _mtxFloppy[1];
 
+const _msxFloppy = /*@once*/ createRoot(() => createSignal(getSaved('msx-floppy', D('msx-floppy')) === 'on'));
+export const msxFloppy = _msxFloppy[0];
+export const setMsxFloppy = _msxFloppy[1];
+
 const _bbcColorMap = /*@once*/ createRoot(() => createSignal(getSaved('bbc-color-map', D('bbc-color-map')) as 'pal' | 'measured'));
 export const bbcColorMap = _bbcColorMap[0];
 export const setBbcColorMap = _bbcColorMap[1];
@@ -607,6 +612,7 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'mtx-80-column', set: setMtx80Column, type: 'bool' },
     { key: 'mtx-512k-ram', set: setMtx512kRam, type: 'bool' },
     { key: 'mtx-floppy', set: setMtxFloppy, type: 'bool' },
+    { key: 'msx-floppy', set: setMsxFloppy, type: 'bool' },
     { key: 'bbc-disk-system', set: setBbcDiskSystem, type: 'string' },
     { key: 'electron-plus1', set: setElectronPlus1, type: 'bool' },
     { key: 'electron-plus3', set: setElectronPlus3, type: 'bool' },
