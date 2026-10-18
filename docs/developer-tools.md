@@ -316,7 +316,7 @@ undo, JSON import and TypeScript export. It is not part of production builds.
   and branching conventions. Read this first.
 - [`docs/adding-a-machine.md`](adding-a-machine.md) — how a new machine plugs
   in, and what a new CPU family needs for the debugger.
-- [`docs/timings.md`](timings.md) and
-  [`docs/timing-comparison.md`](timing-comparison.md) — timing references.
+- [`docs/timing-comparison.md`](timing-comparison.md) — how zx84's Spectrum
+  timing compares with a published reference.
 - [`mcp/README.md`](../mcp/README.md) — the MCP server's setup and tool
   reference.
