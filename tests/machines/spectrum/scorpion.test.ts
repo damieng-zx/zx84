@@ -335,6 +335,15 @@ describe('Scorpion — snapshots (SZX)', () => {
   });
 });
 
+describe('AY clock of the clones', () => {
+  it('is 1.75 MHz (3.5 MHz CPU / 2) on the Pentagons and the Scorpion, 1.7734 MHz on a Sinclair 128K', () => {
+    const clock = (m: 'pentagon128' | 'pentagon512' | 'pentagon1024' | 'scorpion256' | '128k') =>
+      (new Spectrum(m, null).ay as unknown as { chipFreq: number }).chipFreq;
+    for (const m of ['pentagon128', 'pentagon512', 'pentagon1024', 'scorpion256'] as const) expect(clock(m)).toBe(1_750_000);
+    expect(clock('128k')).toBe(1_773_400);
+  });
+});
+
 describe('Library auto-boot trap for the clones', () => {
   it('waits at the 128K menu key-wait (their ROM 0 is the 128K menu ROM), not the 48K editor', () => {
     const rom0 = new Uint8Array(16384);

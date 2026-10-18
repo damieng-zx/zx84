@@ -51,6 +51,9 @@ export interface MachineVariant {
   // ── Capabilities ─────────────────────────────────────────────────────
 
   readonly hasAY: boolean;
+  /** AY input clock in Hz when it is not the 128K's 1.7734 MHz. The Pentagon and
+   *  Scorpion clock it from their 3.5 MHz CPU clock / 2 = 1.75 MHz. */
+  readonly ayClock?: number;
   readonly hasBanking: boolean;
   readonly hasFDC: boolean;
   readonly hasSpecialPaging: boolean;

@@ -283,7 +283,7 @@ export class Spectrum extends BaseMachine implements Machine {
     this.audio = new Audio();
     // Initial AY rate tracks the Audio default; start() updates it once the
     // AudioContext reports its real platform rate.
-    this.ay = new AY3891x(AY_CLOCK, this.audio.sampleRate, 'ABC');
+    this.ay = new AY3891x(this.variant.ayClock ?? AY_CLOCK, this.audio.sampleRate, 'ABC');
     this.contention = new Contention(this.variant, this.memory);
     // The Scorpion's service ROM (page 2) talks to the FDC itself, so the Beta
     // ports are live whenever it is selected, not only while TR-DOS is trapped in.

@@ -29,6 +29,7 @@ export function createPentagon(model: 'pentagon128' | 'pentagon512' | 'pentagon1
     isContended(_addr: number, _bank: number): boolean { return false; },
 
     hasAY: true,
+    ayClock: 1_750_000,
     hasBanking: true,
     hasFDC: false,
     hasSpecialPaging: false,
