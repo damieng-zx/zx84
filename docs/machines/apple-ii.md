@@ -114,8 +114,8 @@ Disk images: 35-track (or 40-track) images, with a few stray bytes tolerated
 `SIMSYSTEM_IIE` prefix is read through. Order is chosen from a ProDOS volume
 header at block 2, else from which skew makes the DOS 3.3 catalog chain readable,
 else DOS order. The address-field volume number is taken from the DOS boot IOB or
-the VTOC (default 254). Mounting in drive 1 resets and boots the disk; mounting in
-drive 2 does not. A mount fails if the Disk ][ controller is not fitted or the
+the VTOC (default 254). Mounting in drive 1 (`unit:0`) resets and boots the disk; mounting in
+drive 2 (`unit:1`) does not. A mount fails if the Disk ][ controller is not fitted or the
 drive is not present. Write-protect can be set per drive; written tracks are
 folded back into the image once per frame, and Save from the Drive pane
 downloads the modified image. Mounted tapes and disks are restored after a reload.
@@ -147,13 +147,13 @@ downloads the modified image. Mounted tapes and disks are restored after a reloa
 
 | Tool | Status | Notes |
 | --- | --- | --- |
-| Debugger | ✅ | 6502 debug substrate: breakpoints, step into, step over (JSR only), step out, registers A X Y P SP PC with flags, disassembly of a side-effect-free snapshot of the current memory mapping (65C02 mnemonics on the CMOS models), memory view with the Apple II character table |
+| Debugger | ✅ | 6502 debug substrate: breakpoints, memory watchpoints (read, write or either; the frame stops after the accessing instruction), step into, step over (JSR only), step out, registers A X Y P SP PC with flags, disassembly of a side-effect-free snapshot of the current memory mapping (65C02 mnemonics on the CMOS models), memory view with the Apple II character table |
 | Trace | ✗ | No trace engine on this machine |
 | Screen OCR / TEXT overlay | ✅ | Reads the text page directly, exact with no pattern matching: 40 or 80 columns, //e alternate character set (MouseText cells left unmasked), the lower four rows in mixed mode, and the Videx card's screen when active |
 | Software library | ✗ | Not offered for this machine |
 | On-screen keyboard | ✅ | Three layouts (][/][+, //e, //c) with RESET, REPT (][ family), CAPS LOCK and Open/Solid-Apple. Modifiers latch for one keystroke so CTRL-RESET is clickable. The //c's 80/40 and keyboard switches and lamps are drawn but not wired |
 | Hidden panes | ✅ | Microdrive, mouse, system-variable, font, banks and BASIC panes are not shown |
-| MCP tools | ◐ | Generic: `model`, `run`, `step_frame`, `step`, `continue`, `registers`, `set_register`, `read_memory`, `write_memory`, `find`, `disassemble`, `breakpoint`, `delete_breakpoint`, `trap`, `trap_delete`, `trap_log`, `trap_respond`, `key`, `type`, `load` (with `drive`), `eject`, `screenshot`, `ocr`, `symbols`, `symbols_load`. `port_in` and `port_out` decline (no I/O port space). `save` is Spectrum-only. No machine-specific tools |
+| MCP tools | ◐ | Generic: `model`, `run`, `step_frame`, `step`, `continue`, `registers`, `set_register`, `read_memory`, `write_memory`, `find`, `disassemble`, `breakpoint`, `delete_breakpoint`, `memory_watchpoint`, `delete_memory_watchpoint`, `trap`, `trap_delete`, `trap_log`, `trap_respond`, `key`, `type`, `load` (with `drive`), `eject`, `screenshot`, `ocr`, `symbols`, `symbols_load`. `port_in` and `port_out` decline (no I/O port space). `save` is Spectrum-only. No machine-specific tools |
 
 ---
 
@@ -161,8 +161,6 @@ downloads the modified image. Mounted tapes and disks are restored after a reloa
 
 | Issue | Affects | Severity | Notes |
 | --- | --- | --- | --- |
-| Loading a disk into drive 2 from the Drive pane or MCP `load` (`drive` B) lands in drive 1 and reboots | All | medium | `Apple2MediaService.mount` recognises only the target `'b'`; the shell and MCP `load` pass `unit:1` (`src/machines/apple2/services/media.ts`). A headless mount with `unit:1` returned "Drive 1 loaded … (booting)" |
-| Memory watchpoints never fire | All | low | The `memory_watchpoint` tool accepts them, but nothing under `src/machines/apple2/` reads `memWatchpoints`, so the frame loop never checks them |
 | MCP `key` combinations and `type` punctuation or capitals do not apply modifiers | All (MCP only) | low | The tools press a modifier as a separate key event, so the Apple II keyboard (which reads modifiers from each event) sees plain keys: `sym+p` gives `P`, not Ctrl-P. The `type` tool describes its symbol chords as Spectrum mappings |
 | Disk bit position is approximated across pauses between reads | All with Disk ][ | low | Documented in `peripherals/disk2.ts`: each read advances at most one byte's worth of bits so framing stays exact; this is invisible to DOS and ProDOS but "only flux-level copy protection could tell the difference" |
 

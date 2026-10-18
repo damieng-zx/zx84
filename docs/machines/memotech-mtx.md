@@ -129,7 +129,7 @@ RAM `.bin` (all RAM blocks, named like `mtx512-ram-576k.bin`).
 | Tool | Status | Notes |
 | --- | --- | --- |
 | Debugger | ✅ | Breakpoints, memory and port watchpoints, stepping and Z80 disassembly. Memory-region picker: OS ROM, BASIC ROM, Assembler ROM, CP/M Bootstrap ROM, FDX Disk BASIC ROM |
-| Trace | ✗ | The trace entry points are empty stubs on this machine |
+| Trace | ✗ | Not offered: the descriptor has tracing off and the MCP `trace` tool declines on every machine except the Spectrum |
 | Screen OCR / TEXT overlay | ✅ | Reads the VDP text and bitmap modes; with the 80-column display on, OCR returns its text and the TEXT overlay produces nothing |
 | BASIC tools | ◐ | BASIC listing only (program at 0x4000). The system-variables, microdrive and mouse panes are hidden |
 | Software library | ✗ | Not offered for this machine |
@@ -142,9 +142,7 @@ RAM `.bin` (all RAM blocks, named like `mtx512-ram-576k.bin`).
 
 ## Known issues
 
-| Issue | Affects | Severity | Notes |
-| --- | --- | --- | --- |
-| Trace control does nothing | MTX500, MTX512, RS128 | low | The descriptor sets `trace: true`, so the Disassembly pane shows the trace menu, but `startTrace()` is an empty method and `stopTrace()` returns an empty string. The MCP `trace` tool declines on every machine except the Spectrum |
+None known.
 
 ## Not emulated
 
@@ -155,7 +153,7 @@ RAM `.bin` (all RAM blocks, named like `mtx512-ram-576k.bin`).
 - **80-column terminal bell.** A read of port 30h returns 0xFF and rings nothing.
 - **HFE v3** images are rejected with an error.
 - **Snapshots.** The machine has no snapshot service.
-- **Execution trace.** See Tools and integration.
+- **Execution trace.** Only the Spectrum has a trace engine; the trace menu is not offered here.
 
 ## Faithful quirks
 

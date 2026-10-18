@@ -119,7 +119,7 @@ full 64 KB of underlying RAM, ignoring the ROM overlay).
 | Tool | Status | Notes |
 | --- | --- | --- |
 | Debugger (breakpoints, stepping, disassembly) | ✅ | Shared Z80 debug service: breakpoints, memory and port watchpoints, disassembly, registers. Memory pane offers the MOS ROM region and a memory-layout view showing the ROM overlay (CPU read vs write per 16 KB slot) |
-| Trace | ✗ | `startTrace` is a no-op; the MCP `trace` tool declines on every machine except the Spectrum |
+| Trace | ✗ | Not offered: the descriptor has tracing off and the MCP `trace` tool declines on every machine except the Spectrum |
 | Screen OCR / TEXT overlay | ◐ | Matches 6-pixel glyphs on a 42×24 grid against the MOS ROM font (normal and inverse video). TC-01: any mode but Multicolor. 256: GRAPHIC 2 only (the mode MOS 2.1 boots in); other modes report no text. Unmatched cells read as `?` |
 | Software library | ✗ | No library button |
 | Xtal BASIC listing pane | ✅ | Detokenises the program held in RAM from 0x3E01 |
@@ -132,15 +132,13 @@ full 64 KB of underlying RAM, ignoring the ROM overlay).
 
 ## Known issues
 
-| Issue | Affects | Severity | Notes |
-| --- | --- | --- | --- |
-| Trace control does nothing | TC-01, 256 | low | The descriptor sets `trace: true`, so the Disassembly pane shows the trace menu, but `startTrace()` is an empty method and `stopTrace()` returns an empty string. The MCP `trace` tool declines on every machine except the Spectrum |
+None known.
 
 ## Not emulated
 
 - **Cassette.** No tape service, tape pane or tape port I/O; the deck is inert. The 256's system-status cassette bit is never set.
 - **Snapshots.** There is no snapshot format or service.
-- **Execution trace.** `startTrace` is a stub (see Tools).
+- **Execution trace.** Only the Spectrum has a trace engine; the trace menu is not offered here.
 - **Intel 8251 USART.** Stubbed (Tx-ready status, no receive).
 - **Z80 PIO (TC-01) and 256 printer port.** Writes are ignored; the TC-01 reads 0xFF. The 256's port 0x30 returns idle printer status.
 - **Analogue joystick (ADC0844).** Reads a fixed centred value; the 256's pseudo-ADC returns 0x7F.

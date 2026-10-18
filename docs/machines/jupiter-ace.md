@@ -125,7 +125,7 @@ RAM, then the RAM pack when fitted).
 | Tool | Status | Notes |
 | --- | --- | --- |
 | Debugger (breakpoints, stepping, disassembly) | ✅ | Shared Z80 debug service; memory and port watchpoints; Memory pane regions ROM, Video RAM, Char RAM, Main RAM and RAM pack; memory-map pane follows the fitted pack |
-| Trace | ✗ | See Known issues |
+| Trace | ✗ | Not offered: the descriptor has tracing off and the MCP `trace` tool declines on every machine except the Spectrum |
 | Screen OCR / TEXT overlay | ✅ | Reads the 32×24 screen file straight from video RAM (no font matching, so redefined characters do not matter); inverse cells are marked; block graphics read as spaces |
 | Software library | ✗ | Not offered for this machine |
 | BASIC tools / system-variables pane | — | FORTH machine; the sysvar, banks, font, drive, microdrive, joystick and mouse panes are hidden |
@@ -137,9 +137,7 @@ RAM, then the RAM pack when fitted).
 
 ## Known issues
 
-| Issue | Affects | Severity | Notes |
-| --- | --- | --- | --- |
-| Debugger trace control does nothing | `jupiter-ace` | low | The descriptor sets `trace: true`, so the Disassembly pane shows the trace menu, but `JupiterAceMachine.startTrace()` is an empty method ("Execution tracing is a later addition") and `stopTrace()` returns an empty string. The MCP `trace` tool declines on every non-Spectrum machine |
+None known.
 
 ## Not emulated
 
@@ -147,7 +145,7 @@ RAM, then the RAM pack when fitted).
 - **Other RAM expansions.** Only the stock 3 KB, 16 KB pack and 48 KB pack are offered.
 - **Sound chip, disk, snapshot, joystick, mouse, cartridge.** None exist on the Ace; the service surface returns null for disks and snapshots, and the shared AY object in the machine class is never wired to anything.
 - **Tape audio during loading.** Playback is silent.
-- **Execution trace.** See Known issues.
+- **Execution trace.** Only the Spectrum has a trace engine; the trace menu is not offered here.
 
 ## Faithful quirks
 
