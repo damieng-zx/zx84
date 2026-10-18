@@ -128,7 +128,7 @@ Spectrum additionally supports `sym`, `capslock`, and symbol-shift combos.
 | --- | --- | --- |
 | `load` | `file`, `drive` | Load media from a local path or HTTP(S) URL. Spectrum uses its bench path (auto-enables peripheral ROMs); every other machine routes through its own MediaService. ZIPs unwrap to a sole compatible file. |
 | `library` | `title`, `file`, `id`, `frames`, `refresh` | Exact-title library load. ZX80 and ZX81 searches stay strictly within the active model and apply catalog RAM and hi-res hardware requirements before launch. |
-| `screenshot` | `file` (optional) | Write the active machine display to PNG. |
+| `screenshot` | `file` (optional), `source`: `frame` (default) or `vram` | Write the active machine display to PNG. `frame` is the last frame as the video hardware drew it, scanline by scanline, so border, rainbow and multicolour effects show (stopped mid-frame, rows below the beam are the previous frame). On the Spectrum, `vram` instead redraws the screen from screen memory as it is now, with no raster effects — handy straight after a snapshot load or `write_memory`. |
 | `save` | `file` | Save a Spectrum `.szx` snapshot. |
 | `eject` | `target`, `drive` | Eject a tape (any deck machine) or a disk (`a`/`b` where fitted). |
 | `disk_boot` | `file` (optional) | Spectrum +3 Loader-menu boot helper; the optional DSK may be a local path or HTTP(S) URL. |
