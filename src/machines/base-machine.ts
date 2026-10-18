@@ -30,8 +30,8 @@ interface SampleRateAwareAudioChip {
   setSampleRate(sampleRate: number): void;
 }
 
-/** rAF-independent frame period: 50 Hz. */
-const FRAME_PERIOD = 1000 / 50;
+/** rAF-independent default frame rate: 50 Hz (machines override {@link BaseMachine.frameHz}). */
+const DEFAULT_FRAME_HZ = 50;
 /** Per-burst budget for the turbo pump (ms). Each burst runs frames for this
  *  long, then yields (via postMessage) so input and the rAF render get
  *  serviced before the next burst re-arms. Larger = more throughput, but
@@ -50,10 +50,13 @@ const TARGET_BUFFER_FRAMES = 3;
  *  gives the buffer a chance to catch back up before it actually runs dry,
  *  rather than only ever being throttled down once it's already full. */
 const LOW_BUFFER_FRAMES = 1;
-function samplesPerFrame(sampleRate: number): number { return Math.round(sampleRate / 50); }
+function samplesPerFrame(sampleRate: number, frameHz: number): number { return Math.round(sampleRate / frameHz); }
 
 export abstract class BaseMachine {
   // ── Audio/video plumbing the driver needs (each machine supplies these) ──
+  /** Nominal field rate (Hz) the wall-clock pacing and audio back-pressure run
+   *  at. 50 Hz unless a machine (e.g. an NTSC MSX) says otherwise. */
+  protected get frameHz(): number { return DEFAULT_FRAME_HZ; }
   /** Machine's primary sample-generating chip (AY, SN76489, etc.). */
   protected abstract get audioChip(): SampleRateAwareAudioChip;
   abstract mixer: AudioMixer;
@@ -237,7 +240,7 @@ export abstract class BaseMachine {
     this.rafId = requestAnimationFrame(this.frameLoop);
   };
 
-  /** Wall-clock paced execution: catch up at 50 Hz, throttled by audio buffer
+  /** Wall-clock paced execution: catch up at {@link frameHz}, throttled by audio buffer
    *  at the high end (TARGET_BUFFER_FRAMES) and allowed to run ahead of
    *  wall-clock pacing at the low end (LOW_BUFFER_FRAMES) so small, steady
    *  sample-rate drift can't starve the audio worklet. */
@@ -248,16 +251,17 @@ export abstract class BaseMachine {
       this.frameTimeAccum = 0;
       return;
     }
-    const framePeriod = FRAME_PERIOD / multiplier;
+    const nominalPeriod = 1000 / this.frameHz;
+    const framePeriod = nominalPeriod / multiplier;
     this.frameTimeAccum = Math.min(
       this.frameTimeAccum + (now - this.lastFrameTime),
-      Math.max(FRAME_PERIOD * 3, framePeriod * 3),
+      Math.max(nominalPeriod * 3, framePeriod * 3),
     );
     this.lastFrameTime = now;
 
     const audioPacing = multiplier === 1
       && this.audio.ctx !== null && this.audio.ctx.state === 'running';
-    const perFrame = samplesPerFrame(this.audio.sampleRate);
+    const perFrame = samplesPerFrame(this.audio.sampleRate, this.frameHz);
     // The fallback consumes 4096 samples in one main-thread callback, unlike
     // the worklet's 128-sample quanta. Keep a full callback plus pacing slack
     // queued, and leave room for the final frame's overshoot in the ring.

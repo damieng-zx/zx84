@@ -20,7 +20,7 @@ Each machine has its own sheet covering its models, built-in hardware, periphera
 | [Amstrad CPC](docs/machines/amstrad-cpc.md) | CPC 464, CPC 664, CPC 6128, 6128 Plus, GX4000 | Z80 |
 | [Amstrad PCW](docs/machines/amstrad-pcw.md) | 8256, 8512, 9256, 9512 | Z80 |
 | [Tatung Einstein](docs/machines/tatung-einstein.md) | TC-01, 256 | Z80 |
-| [MSX](docs/machines/msx.md) | Toshiba HX-10 | Z80 |
+| [MSX](docs/machines/msx.md) | Toshiba HX-10, Sony HB-55, Sony HB-55P | Z80 |
 | [Memotech MTX](docs/machines/memotech-mtx.md) | MTX500, MTX512, RS128 | Z80 |
 | [Camputers Lynx](docs/machines/camputers-lynx.md) | 48K, 96K, 128K | Z80 |
 | [Jupiter Ace](docs/machines/jupiter-ace.md) | Jupiter Ace | Z80 |
@@ -95,7 +95,7 @@ Values are case-insensitive, and the same ids drive the MCP server's `model`
 tool. The Spectrum's earlier ids (`48k`, `+3`, `plus2a`, …) still work in URLs.
 Known models: `zx16k` `zx48k` `zx128k` `zx128kplus2` `zx128kplus2a` `zx128kplus3` `pentagon128` `pentagon512` `pentagon1024` `scorpion256` `zx80` `zx81` `jupiter-ace`
 `cpc464` `cpc664` `cpc6128` `cpc6128plus` `gx4000` `pcw8256` `pcw8512`
-`pcw9256` `pcw9512` `einstein-tc01` `einstein-256` `hx-10` `mtx500` `mtx512`
+`pcw9256` `pcw9512` `einstein-tc01` `einstein-256` `hx-10` `hb-55` `hb-55p` `mtx500` `mtx512`
 `rs128` `lynx48` `lynx96` `lynx128` `bbc-b` `electron` `apple2` `apple2-plus` `apple2e` `apple2e-enhanced` `apple2c` `ep64` `ep128`.
 
 ### Display And Audio

@@ -1,10 +1,11 @@
 /**
- * MsxMachine — Toshiba HX-10 (MSX1) orchestrator.
+ * MsxMachine — MSX1 orchestrator (Toshiba HX-10 PAL, Sony HB-55 NTSC).
  *
  * The MSX counterpart to `Spectrum` / `CpcMachine` / `EinsteinMachine`: it owns
  * the Z80, AY-3-8910 PSG and TMS9929A VDP (all reused unchanged) plus MSX-
  * specific parts — the 8255 PPI (keyboard scan + primary-slot select), the slot-
- * paged memory and the keyboard — and drives its own PAL field loop. Implements
+ * paged memory and the keyboard — and drives its own field loop (313 PAL lines at
+ * 50 Hz or 262 NTSC lines at 60 Hz, per the model's {@link MsxConfig}). Implements
  * the shared `Machine` interface so `emulator.ts`, the UI and the MCP server
  * treat it like any other machine.
  *
@@ -36,23 +37,22 @@ import { MsxMemory } from '@/machines/msx/msx-memory.ts';
 import { MsxKeyboard } from '@/machines/msx/msx-keyboard.ts';
 import { MsxJoystick } from '@/machines/msx/msx-joystick.ts';
 import { MsxDiskInterface } from '@/machines/msx/peripherals/disk-interface.ts';
-import { msxDiskAuxRom } from '@/machines/msx/aux-roms.ts';
+import { msxDiskAuxRom, msxFirmwareAuxRom } from '@/machines/msx/aux-roms.ts';
 import { MsxPpi, installMsxMemoryHooks, wireMsxPortIO } from '@/machines/msx/msx-io.ts';
 import { createMsxConfig, type MsxConfig } from '@/machines/msx/config.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
 import {
-  MSX_CPU_CLOCK, MSX_PSG_CLOCK, MSX_T_PER_FRAME,
+  MSX_CPU_CLOCK, MSX_PSG_CLOCK,
   MSX_SCREEN_WIDTH, MSX_SCREEN_HEIGHT,
   MSX_BORDER_LEFT, MSX_BORDER_TOP,
 } from '@/machines/msx/constants.ts';
 
-/** PAL scanlines per field. */
-const LINES_PER_FRAME = 313;
 /** Active display lines (0..191); the VDP raises its vblank at line 192. */
 const ACTIVE_LINES = 192;
 
 export class MsxMachine extends BaseMachine implements Machine {
   protected get audioChip(): AY3891x { return this.ay; }
+  protected override get frameHz(): number { return this.config.frameHz; }
   readonly kind: MachineKind = 'msx';
   readonly model: MsxModel;
   readonly config: MsxConfig;
@@ -92,12 +92,16 @@ export class MsxMachine extends BaseMachine implements Machine {
   /** Name of the mounted cartridge (empty if none), for the ROM pane. */
   cartridgeName = '';
 
+  /** Kana-lock LED (PSG port B bit 7, active-low): lit while a Japanese MSX is
+   *  in kana input mode. Always false on a machine whose BIOS never drives it. */
+  kanaLed = false;
+
   /** RGBA frame buffer + a Uint32 view for fast VDP writes. */
   private readonly _pixels = new Uint8Array(MSX_SCREEN_WIDTH * MSX_SCREEN_HEIGHT * 4);
   private readonly _pixels32 = new Uint32Array(this._pixels.buffer);
   get pixels(): Uint8Array { return this._pixels; }
 
-  get tStatesPerFrame(): number { return MSX_T_PER_FRAME; }
+  get tStatesPerFrame(): number { return this.config.tStatesPerFrame; }
 
   constructor(model: MsxModel, display?: IScreenRenderer | null) {
     super();
@@ -105,7 +109,7 @@ export class MsxMachine extends BaseMachine implements Machine {
     this.config = createMsxConfig(model);
     this.cpu = new Z80();
     this.cpu.m1WaitStates = 1; // MSX adds one WAIT clock to each opcode fetch.
-    this.memory = new MsxMemory();
+    this.memory = new MsxMemory(this.config.layout);
     this.ay = new AY3891x(MSX_PSG_CLOCK, 48000, 'ABC');
     this.vdp = new Tms9918a();
     this.keyboard = new MsxKeyboard();
@@ -136,9 +140,9 @@ export class MsxMachine extends BaseMachine implements Machine {
   /** `.scr` export: the TMS9918A's 16KB VRAM *is* the screen. */
   screenExportBytes(): Uint8Array { return this.vdp.vram.slice(); }
 
-  /** RAM export: the full 64K physical RAM image. */
+  /** RAM export: the physical RAM image (64K on the HX-10, 16K on the HB-55). */
   ramExportBytes(): { data: Uint8Array; filename: string } {
-    return { data: this.memory.ramSnapshot(), filename: 'ram-64k.bin' };
+    return { data: this.memory.ramBytes(), filename: `ram-${this.config.ramKB}k.bin` };
   }
 
   /** Apply the MSX-specific settings: the TMS9918A PAL/NTSC colour map and the
@@ -163,6 +167,11 @@ export class MsxMachine extends BaseMachine implements Machine {
   loadROM(data: Uint8Array): void {
     this.memory.loadROM(data);
     this.setStatus('ROM loaded');
+  }
+
+  /** Install the model's on-board firmware ROM (HB-55 Personal Data Bank). */
+  loadFirmware(data: Uint8Array): void {
+    this.memory.loadFirmware(data);
   }
 
   /** Insert a disk into drive `unit` (0 = A:, 1 = B:) of the disk interface. */
@@ -198,7 +207,12 @@ export class MsxMachine extends BaseMachine implements Machine {
     this.fdc.writeProtect[0] = view.get('write-protect-a', false);
     this.fdc.writeProtect[1] = view.get('write-protect-b', false);
     this.setFloppyEnabled(view.get('msx-floppy', false));
-    return this.floppyEnabled && !this.diskIf.romLoaded ? [msxDiskAuxRom(this)] : [];
+    const requests: AuxRomRequest[] = [];
+    // Optional on-board firmware (HB-55 Data Bank): a missing ROM only costs
+    // that feature — the BIOS and BASIC still boot without it.
+    if (this.config.firmware !== null && !this.memory.hasFirmware) requests.push(msxFirmwareAuxRom(this));
+    if (this.floppyEnabled && !this.diskIf.romLoaded) requests.push(msxDiskAuxRom(this));
+    return requests;
   }
 
   /** Mount a `.cas` cassette image (served instantly via BIOS TAPION/TAPIN). */
@@ -223,6 +237,8 @@ export class MsxMachine extends BaseMachine implements Machine {
   /** Resolve the Memory-pane ROM region: the 32KB internal ROM at &0000. */
   resolveMemoryRegion(value: string): { data: Uint8Array; baseAddr: number } | null {
     if (value === 'rom0') return { data: this.memory.getRom(), baseAddr: 0x0000 };
+    const firmware = this.memory.getFirmware();
+    if (value === 'rom-firmware' && firmware) return { data: firmware, baseAddr: (this.config.layout.firmwarePage ?? 0) * 0x4000 };
     if (value === 'rom-disk' && this.diskIf.romLoaded) return { data: this.diskIf.getRom(), baseAddr: 0x4000 };
     return null;
   }
@@ -298,6 +314,7 @@ export class MsxMachine extends BaseMachine implements Machine {
     this.joystick.reset();
     this.ppi.reset();
     this.diskIf.reset();
+    this.kanaLed = false;
     this.cassette.clearRecording();
     this.audio.reset();
     this.mixer.reset();
@@ -312,7 +329,7 @@ export class MsxMachine extends BaseMachine implements Machine {
   protected inTurbo(): boolean { return this.turbo; }
 
   /**
-   * Execute one PAL field. Runs the CPU scanline by scanline; renders the 192
+   * Execute one field (PAL or NTSC). Runs the CPU scanline by scanline; renders the 192
    * active lines; at the end of the active display raises the VDP vblank, which
    * (with R1 interrupt-enable set) pulls the Z80 /INT — serviced in IM 1.
    */
@@ -326,12 +343,13 @@ export class MsxMachine extends BaseMachine implements Machine {
     // Fill the whole buffer (incl. border) with the current backdrop.
     this._pixels32.fill(this.vdp.backdrop());
 
-    const tPerLine = MSX_T_PER_FRAME / LINES_PER_FRAME;
+    const linesPerFrame = this.config.linesPerFrame;
+    const tPerLine = this.config.tStatesPerFrame / linesPerFrame;
     let lineEnd = this.cpu.tStates;
     let lastAudioT = this.cpu.tStates;
     let broke = false;
 
-    for (let line = 0; line < LINES_PER_FRAME; line++) {
+    for (let line = 0; line < linesPerFrame; line++) {
       lineEnd += tPerLine;
 
       while (this.cpu.tStates < lineEnd) {

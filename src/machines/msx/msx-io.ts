@@ -1,5 +1,5 @@
 /**
- * MSX port I/O dispatch + memory hooks (Toshiba HX-10).
+ * MSX port I/O dispatch + memory hooks (Toshiba HX-10, Sony HB-55).
  *
  * The MSX analogue of `src/io-ports.ts` / `einstein/einstein-io.ts`. On-board
  * devices decode on the low byte of the port:
@@ -153,7 +153,10 @@ export function wireMsxPortIO(m: MsxMachine): void {
         ay.writeRegister(ay.selectedReg, val);
         if (ay.selectedReg < 14) m.activity.ayWrites++;
         // PSG port B (reg 15) bit 6 selects which joystick port reg 14 reads.
-        else if (ay.selectedReg === AY_PORT_B) joy.setSelect(val);
+        else if (ay.selectedReg === AY_PORT_B) {
+          joy.setSelect(val);
+          m.kanaLed = (val & 0x80) === 0;
+        }
         break;
       case 0xA8: ppi.writeA(val); break;
       case 0xAA: ppi.writeC(val); break;

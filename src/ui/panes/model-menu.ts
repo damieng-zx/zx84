@@ -35,6 +35,8 @@ export const MODEL_LABELS: Record<MachineModel, string> = {
   'einstein-tc01': 'Einstein TC-01',
   'einstein-256': 'Einstein 256',
   'hx-10': 'Toshiba HX-10',
+  'hb-55': 'Sony HB-55',
+  'hb-55p': 'Sony HB-55P',
   mtx500: 'Memotech MTX500',
   mtx512: 'Memotech MTX512',
   rs128: 'Memotech RS128',
@@ -145,6 +147,8 @@ export const MODEL_MENU: MenuItem[] = [
     label: 'MSX',
     children: [
       modelEntry('hx-10'),
+      modelEntry('hb-55'),
+      modelEntry('hb-55p'),
     ],
   },
   {

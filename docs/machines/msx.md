@@ -1,15 +1,15 @@
-# MSX (Toshiba HX-10)
+# MSX (Toshiba HX-10, Sony HB-55 and HB-55P)
 
-Toshiba's MSX1 home computer: a Z80, a TMS9929A video chip, an AY-3-8910-compatible sound chip and MSX BASIC in ROM, with four primary memory slots selected through an 8255 PPI. zx84 emulates the HX-10 with its cartridge slot, cassette interface and two joystick ports, plus an optional WD2793 floppy disk interface in the rear expansion slot.
+Toshiba's MSX1 home computer: a Z80, a TMS9929A video chip, an AY-3-8910-compatible sound chip and MSX BASIC in ROM, with four primary memory slots selected through an 8255 PPI. zx84 emulates the Toshiba HX-10 (PAL) and the Sony HB-55 (Japan, NTSC) and HB-55P (PAL), each with its cartridge slot, cassette interface and two joystick ports, plus an optional WD2793 floppy disk interface in the rear expansion slot.
 
 | | |
 | --- | --- |
-| **Manufacturer** | Toshiba (MSX1 standard) |
+| **Manufacturer** | Toshiba, Sony (MSX1 standard) |
 | **Released** | — |
 | **CPU** | Z80 — 3.579545 MHz, one WAIT state added to each opcode fetch |
 | **zx84 kind** | `msx` — [`src/machines/msx/`](../../src/machines/msx/) |
-| **Model ids** | `hx-10` — the MCP `model` target and `?model=` value |
-| **Accuracy** | Scanline: the CPU runs line by line (313 lines per 50 Hz field) and the VDP renders each active line after it; no memory contention; no accuracy setting |
+| **Model ids** | `hx-10`, `hb-55`, `hb-55p` — the MCP `model` target and `?model=` value |
+| **Accuracy** | Scanline: the CPU runs line by line (313 lines per 50 Hz field on PAL models, 262 lines per 60 Hz field on the NTSC HB-55) and the VDP renders each active line after it; no memory contention; no accuracy setting |
 | **Status** | Boots to MSX BASIC; keyboard, joysticks, cartridges (including mega-ROM mappers), cassette load and save, and the optional floppy interface all work |
 
 **Legend:** ✅ supported · ◐ partial (see notes) · ✗ not emulated · — not applicable to this model
@@ -20,6 +20,8 @@ Toshiba's MSX1 home computer: a Z80, a TMS9929A video chip, an AY-3-8910-compati
 
 | Model | Year | RAM | ROM | Video | Sound | Storage | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
+| Sony HB-55 (`hb-55`) | 1983 | 16 KB (slot 0, page 3) | 32 KB (BIOS + MSX BASIC 1.0, Japanese character set) + optional 8 KB Personal Data Bank | TMS9918A, 256×192, NTSC 60 Hz | AY-3-8910 PSG + key click | Cassette (`.cas`); cartridge slot; optional floppy interface | 59,736 T-states per field (262 lines × 228); JIS keyboard (the matrix is the standard one, the BIOS key table differs; かな = the CODE key); no secondary-slot expansion |
+| Sony HB-55P (`hb-55p`) | 1984 | 16 KB (slot 0, page 3) | 32 KB (BIOS + MSX BASIC 1.0) + optional 16 KB Personal Data Bank | TMS9929A, 256×192, PAL 50 Hz | AY-3-8910 PSG + key click | Cassette (`.cas`); cartridge slot; optional floppy interface | 71,591 T-states per frame; UK keyboard layout; with the Data Bank ROM it boots to the Sony menu, whose BASIC entry reaches the prompt; no secondary-slot expansion |
 | Toshiba HX-10 (`hx-10`) | — | 64 KB (slot 2) | 32 KB (BIOS + MSX BASIC 1.0) | TMS9929A, 256×192, PAL 50 Hz | AY-3-8910 PSG + key click | Cassette (`.cas`); cartridge slot; optional floppy interface | 71,591 T-states per frame; UK keyboard layout; no secondary-slot expansion |
 
 ### ROM sets
@@ -29,6 +31,10 @@ All ROMs are fetched from the ROM host on demand.
 | Model | Locale | ROM pages | Source |
 | --- | --- | --- | --- |
 | `hx-10` | UK | One 32 KB image: BIOS + MSX BASIC (`hx-10_basic-bios1.rom`) | hosted |
+| `hb-55` | Japan | One 32 KB image: BIOS + MSX BASIC (`hb-55_basic-bios1.rom`, SHA-1 302afb5d…) | hosted |
+| `hb-55` Data Bank | Japan | Optional 8 KB Personal Data Bank (`hb-55_firmware.rom`, MAME `hb55note.rom`) | not hosted yet; the machine runs without it |
+| `hb-55p` | UK | One 32 KB image: BIOS + MSX BASIC (`hb-55p_basic-bios1.rom`, SHA-1 8963fc04…) | hosted |
+| `hb-55p` Data Bank | UK | Optional 16 KB Personal Data Bank (`hb-55p_firmware.rom`, SHA-1 b262aedc…) | hosted |
 | `hx-10` floppy interface | — | One 16 KB Disk BASIC ROM (`msx1_disk-basic.rom`), fetched only when the interface is fitted | hosted |
 
 The system ROM can be replaced from the ROM / Carts pane (the image is truncated or padded to 32 KB); resetting the slot restores the hosted ROM. The Memory pane can show the internal ROM (`ROM 0`) and, when the floppy interface is fitted, the Disk ROM.
@@ -136,7 +142,7 @@ None known.
 ## Not emulated
 
 - **Pulse-level cassette.** Custom turbo loaders that sample the cassette port directly are not covered; only the BIOS routines are served. The cassette input bit (PSG register 14 bit 7) always reads idle.
-- **Secondary slots.** The HX-10 has none, so the expansion register at 0xFFFF is plain RAM.
+- **Secondary slots on a real model.** None of the three models has any, so 0xFFFF is plain memory. The expansion register itself is implemented generically in `MsxMemory` behind a layout flag (`expansions`) and unit-tested, but no model enables it.
 - **SCC sound.** The Konami SCC mapper's bank switching is modelled; the SCC sound chip is not.
 - **Cartridge mappers other than ASCII 8 KB, ASCII 16 KB, Konami and Konami SCC.** A mega-ROM with no recognisable bank-register stores falls back to ASCII 8 KB.
 - **Other expansion hardware.** Slot 3 holds only the floppy interface; otherwise it reads as empty. There is no second cartridge slot.
@@ -171,7 +177,9 @@ None known.
 | Disk image formats, [`tests/floppy/msx-disk.test.ts`](../../tests/floppy/msx-disk.test.ts) | Geometry from media descriptor, trimmed and padded dumps, `.img`, DMK decoding, blank-disk layout | — |
 | Media routing, [`tests/machines/msx/media-routing.test.ts`](../../tests/machines/msx/media-routing.test.ts) | `.rom` and `.cas` routing, disk refusal until the interface is fitted | — |
 | Real Disk BASIC ROMs, [`tests/msx/msx-disk-real-rom.test.ts`](../../tests/msx/msx-disk-real-rom.test.ts) | Boots MSX-DOS, lists A:, copies to B:; skipped unless the ROM and disk paths are supplied through environment variables | — |
+| HB-55 and HB-55P, [`msx-hb55`](../../tests/msx/msx-hb55.test.ts), [`msx-hb55p`](../../tests/msx/msx-hb55p.test.ts), [`msx-hb55-real`](../../tests/msx/msx-hb55-real.test.ts), [`msx-expansion`](../../tests/msx/msx-expansion.test.ts) | Slot-0 RAM and Data Bank layout, NTSC/PAL field timing, kana key and LED, the 0xFFFF expansion register, and real-BIOS boots (skipped without the ROMs in `mcp/.cache`) | — |
 | HX-10 keyboard geometry, [`tests/ui/hx10-keyboard-geometry.test.ts`](../../tests/ui/hx10-keyboard-geometry.test.ts) | 73 caps cover every matrix cell in rows 0–8 | — |
+| Real HB-55 (Japanese) and HB-55P BIOS | Both boot to "MSX BASIC version 1.0" with about 12 KB free (16 KB RAM); `PRINT 2+2` prints 4 (the Japanese BIOS needs `+` typed as Shift+`;`); the HB-55P Data Bank menu reaches BASIC; a slot-1 cartridge INIT runs | 2026-10-18 |
 | Real HX-10 BIOS | Boots to "MSX BASIC version 1.0" with 28815 bytes free; `PRINT 2+2` prints 4 | 2026-07-17 |
 | Synthetic `.cas` | `CLOAD` finds the file, `RUN` executes it | 2026-07-17 |
 | Real Disk BASIC ROMs from several vendors with MSX-DOS 1.03 | Boots from a real disk; `DIR`, `COPY` and `FORMAT` work; the formatted disk parses byte-for-byte in an independent FAT12 reader. About 110 game and application disks reached title screens, loaders or DOS | 2026-10-18 |
