@@ -128,6 +128,8 @@ ZX84 is written in TypeScript with SolidJS and Vite, and runs entirely in the br
 
 [MIT](LICENSE)
 
+The emulated machines, their names and associated trademarks, and their ROMs are copyright of their respective owners. The ROMs are not included in this repository and are not covered by the MIT licence.
+
 ## Acknowledgments
 
 zx84 stands on decades of work by people who documented, emulated and preserved these machines, and who have shared that work freely. Particular thanks to:
