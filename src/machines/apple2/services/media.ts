@@ -24,6 +24,14 @@ export class Apple2MediaService implements MediaService {
     ];
   }
 
+  /** The drive a mount target names: 'a' / 'b' directly, or the shell's
+   *  family-agnostic `unit:N` hint (unit 0 = drive 1, unit 1 = drive 2). */
+  private static driveOf(target: MediaTargetId | undefined): 'a' | 'b' {
+    if (target === 'b') return 'b';
+    const unit = /^unit:(\d+)$/.exec(target ?? '');
+    return unit && Number(unit[1]) === 1 ? 'b' : 'a';
+  }
+
   async mount(
     data: Uint8Array,
     filename: string,
@@ -31,7 +39,7 @@ export class Apple2MediaService implements MediaService {
   ): Promise<MountResult> {
     const ext = filename.toLowerCase().split('.').pop() ?? '';
     if (ext === 'dsk' || ext === 'do' || ext === 'po') {
-      const id = target === 'b' ? 'b' : 'a';
+      const id = Apple2MediaService.driveOf(target);
       try {
         this.disks.mountImage(id, data, filename);
       } catch (err) {
