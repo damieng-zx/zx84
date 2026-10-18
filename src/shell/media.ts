@@ -142,7 +142,7 @@ export async function loadFile(data: Uint8Array, filename: string, unit?: number
   if (!machine) { setStatus('Load a ROM first'); return; }
   // ZIP archives are a machine-agnostic shell concern: unwrap, pick, re-dispatch.
   if (/\.zip$/i.test(filename)) {
-    await handleZip(data, unit);
+    await handleZip(data, filename, unit);
     return;
   }
   // Everything else routes through the active machine's own MediaService.
@@ -228,14 +228,23 @@ async function reflectMount(
  *  archive is filtered by the machine's own MediaService declaration, so a
  *  format the machine accepts can never be dropped by the ZIP parser; the zip
  *  policy decides: offer every accepted entry ('all'), mount the first
- *  accepted entry ('media'), or reject archives outright ('none'). */
-async function handleZip(data: Uint8Array, unit?: number): Promise<void> {
+ *  accepted entry ('media'), or reject archives outright ('none'). A machine
+ *  that mounts whole archives (MediaService.mountArchive) is offered every
+ *  file first. */
+async function handleZip(data: Uint8Array, filename: string, unit?: number): Promise<void> {
   if (!machine) return;
   const policy = machine.descriptor.ui.zipPolicy;
   const accepted = machine.services.media.accepts().map(t => t.ext);
   if (policy === 'none') {
     setStatus(`ZIP archives are not supported here — load ${accepted.join(', ')} files directly`);
     return;
+  }
+  const media = machine.services.media;
+  if (media.mountArchive) {
+    let all;
+    try { all = await unzip(data, ['']); } catch (e) { setStatus(`ZIP error: ${(e as Error).message}`); return; }
+    const result = await media.mountArchive(all, filename);
+    if (result) { await reflectMount(result, data, filename, unit); return; }
   }
   let entries;
   try { entries = await unzip(data, accepted); } catch (e) { setStatus(`ZIP error: ${(e as Error).message}`); return; }

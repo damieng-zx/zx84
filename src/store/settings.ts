@@ -104,6 +104,7 @@ const DEFAULTS = {
   'electron-plus1': 'off',
   'electron-plus3': 'off',
   'lynx-fdc':       'on',
+  'enterprise-exdos': 'on',
   'zx8x-16k-ram':  'off',
   'zx81-udg-ram':  'off',
   'zx81-udg128-ram': 'off',
@@ -454,6 +455,11 @@ const _lynxFdc = /*@once*/ createRoot(() => createSignal(getSaved('lynx-fdc', D(
 export const lynxFdc = _lynxFdc[0];
 export const setLynxFdc = _lynxFdc[1];
 
+/** Enterprise EXDOS disk card (WD1770 + EXDOS ROM) fitted. */
+const _enterpriseExdos = /*@once*/ createRoot(() => createSignal(getSaved('enterprise-exdos', D('enterprise-exdos')) === 'on'));
+export const enterpriseExdos = _enterpriseExdos[0];
+export const setEnterpriseExdos = _enterpriseExdos[1];
+
 const _zx8x16kRam = /*@once*/ createRoot(() => createSignal(getSaved('zx8x-16k-ram', D('zx8x-16k-ram')) === 'on'));
 export const zx8x16kRam = _zx8x16kRam[0];
 export const setZx8x16kRam = _zx8x16kRam[1];
@@ -611,6 +617,7 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'electron-plus1', set: setElectronPlus1, type: 'bool' },
     { key: 'electron-plus3', set: setElectronPlus3, type: 'bool' },
     { key: 'lynx-fdc', set: setLynxFdc, type: 'bool' },
+    { key: 'enterprise-exdos', set: setEnterpriseExdos, type: 'bool' },
     { key: 'zx8x-16k-ram', set: setZx8x16kRam, type: 'bool' },
     { key: 'zx81-udg-ram', set: setZx81UdgRam, type: 'bool' },
     { key: 'zx81-udg128-ram', set: setZx81Udg128Ram, type: 'bool' },

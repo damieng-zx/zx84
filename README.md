@@ -1,6 +1,6 @@
 # ZX84
 
-**A browser emulator for the Sinclair ZX80, ZX81 and ZX Spectrum, Amstrad CPC (including the Plus range) and PCW, Tatung Einstein, MSX, Memotech MTX, Camputers Lynx, Jupiter Ace, and Acorn BBC Micro and Electron, with an MCP server for automated testing.**
+**A browser emulator for the Sinclair ZX80, ZX81 and ZX Spectrum, Amstrad CPC (including the Plus range) and PCW, Tatung Einstein, MSX, Memotech MTX, Camputers Lynx, Jupiter Ace, Acorn BBC Micro and Electron, and Enterprise 64/128, with an MCP server for automated testing.**
 
 https://zx84.envytech.workers.dev
 
@@ -20,6 +20,7 @@ ZX84 is an old-computer emulator with machine-specific hardware models, browser-
 | Jupiter Ace | Jupiter Ace | Jupiter Cantab ULA (32×24 monochrome text display), piezo buzzer, cassette port, optional 16K or 48K RAM pack, FORTH in ROM |
 | Acorn BBC Micro | Model B | MOS 6502, 6522 VIAs, 6845 CRTC with video ULA and SAA5050 teletext (Mode 7), SN76489 sound, 6850 ACIA with the serial ULA's cassette interface, Acorn 8271 or WD1770 DFS disc interface |
 | Acorn Electron | Electron | MOS 6502, the single ULA (modes 0-6 video, RAM arbitration, ROM paging, keyboard, 1-bit sound, 1200-baud cassette); optional Plus 1 (cartridge slots, analogue and printer ports) and Plus 3 (WD1770 + ADFS disc interface) |
+| Enterprise | 64, 128 | Nick (line-parameter-table video, 2-256 colours), Dave (4MB segment paging, 3 tone + noise stereo sound, interrupts), EXOS; optional EXDOS card (WD1770) |
 | Amstrad PCW | 8256, 8512, 9512, 9256 | Gate array (roller-RAM bitmap video, 300Hz timer, FDC interrupt routing), beeper, uPD765A, memory-mapped keyboard, no ROM — boots from disc |
 
 ## Features
@@ -38,6 +39,7 @@ ZX84 is an old-computer emulator with machine-specific hardware models, browser-
 - Jupiter Ace ULA text display, buzzer sound, ROM-verified cassette loading and saving, and optional 16K or 48K RAM packs.
 - Acorn BBC Micro Model B booting the real MOS and BASIC ROMs: Mode 7 teletext and bitmap modes 0-6, SN76489 stereo sound, keyboard option links, and DFS discs on either the Acorn 8271 or the WD1770 interface, and cassettes (`.uef`, `.csw`) played at the pulse level through the 6850 ACIA with tape-turbo loading.
 - Acorn Electron booting the real OS and BASIC ROMs: the ULA's display modes 0-6 drawn a scanline at a time (so mid-frame mode and palette changes show), its RAM-contention timing, keyboard, sound, and 1200-baud cassettes (`.uef`, `.csw`) read and written through the ULA with tape-turbo loading. The Hardware pane fits a Plus 1 (ROM cartridges, booted with SHIFT+BREAK) and a Plus 3 (ADFS discs on a WD1770).
+- Enterprise 64/128 booting EXOS and IS-BASIC: Nick's line parameter table drawn a scanline at a time in every video mode (pixel, low-res pixel, attribute, three character modes; 2 to 256 colours), Dave's segment paging, interrupts, wait states and stereo sound. Programs (`.com`, `.bas`, and multi-file sets in a `.zip`) load through an emulated FILE: device and run automatically; the Hardware pane fits the EXDOS card for `.img` disks (EXDOS 1.3 on a WD1770), and the ROM pane has four extension-ROM sockets for EPDOS, ZozoTools and the like.
 - Amstrad PCW gate array with roller-RAM bitmap video, 300 Hz timer, FDC interrupt routing, memory-mapped keyboard, beeper, and uPD765A discs; the PCW has no ROM and boots CP/M+ or LocoScript from the disc in drive A.
 
 Spectrum ROM-overlay peripherals are model-dependent. Interface 1, MGT +D, and Beta Disk are mutually exclusive; Beta Disk takes precedence when enabled.
@@ -59,6 +61,7 @@ Load by picker or drag-and-drop. ZIP archives are unpacked and routed to compati
 | Acorn BBC Micro | Disks: `.ssd`, `.dsd`, `.img`; tapes: `.uef`, `.csw` |
 | Acorn Electron | Tapes: `.uef`, `.csw`; with the Plus 3, ADFS discs: `.adf`, `.ads`, `.adm`, `.adl`; with the Plus 1, cartridges: `.rom` |
 | Amstrad PCW | Disks: `.dsk`, `.td0`, `.hfe`, `.scp` |
+| Enterprise | EXOS programs: `.com`, `.bas` (and multi-file `.zip` sets) through the FILE: device; with the EXDOS card, disks: `.img` |
 
 The tape deck provides block navigation, transport controls, fast ROM loading, turbo loading, loading sound where applicable, and original-media download. The disk UI supports drive selection, write protection, disk sounds, changed-image saving, blank image creation, and flippy disks.
 
@@ -84,7 +87,7 @@ Values are case-insensitive; write `+` models as `plus2a`/`plus3` or `%2B3`.
 Known models: `16k` `48k` `128k` `+2` `+2A` `+3` `zx80` `zx81` `jupiter-ace`
 `cpc464` `cpc664` `cpc6128` `cpc6128plus` `gx4000` `pcw8256` `pcw8512`
 `pcw9256` `pcw9512` `einstein-tc01` `einstein-256` `hx-10` `mtx500` `mtx512`
-`rs128` `lynx48` `lynx96` `lynx128` `bbc-b` `electron`.
+`rs128` `lynx48` `lynx96` `lynx128` `bbc-b` `electron` `ep64` `ep128`.
 
 ### Display And Audio
 
@@ -115,7 +118,7 @@ Known models: `16k` `48k` `128k` `+2` `+2A` `+3` `zx80` `zx81` `jupiter-ace`
 
 ## MCP Server
 
-The included stdio MCP server drives **every registered machine** — Spectrum, ZX80/ZX81, CPC (including the Plus range), Einstein, MSX, MTX, Camputers Lynx, Jupiter Ace, Amstrad PCW, BBC Micro and Electron — for automated testing and reverse engineering. Generic tools work through the `Machine` SPI; hardware-specific tools cover Spectrum peripherals and tracing, MTX expansions, CPC/uPD765A disk inspection, ZX81 hi-res hardware, and per-machine media mounting.
+The included stdio MCP server drives **every registered machine** — Spectrum, ZX80/ZX81, CPC (including the Plus range), Einstein, MSX, MTX, Camputers Lynx, Jupiter Ace, Amstrad PCW, BBC Micro, Electron and Enterprise — for automated testing and reverse engineering. Generic tools work through the `Machine` SPI; hardware-specific tools cover Spectrum peripherals and tracing, MTX expansions, CPC/uPD765A disk inspection, ZX81 hi-res hardware, and per-machine media mounting.
 
 See [`mcp/README.md`](mcp/README.md) for setup, the complete tool reference, and workflows.
 
@@ -159,6 +162,7 @@ zx84 stands on decades of work by people who documented, emulated and preserved 
 - **Hyllian**, for the xBR scaling shaders.
 - **The MAME team**, **the openMSX team** and the authors of Arnold, Caprice32, BeebEm, beebjit, HxC and the other open-source emulators and tools whose published behaviour and documentation taught us how the hardware works.
 - **Sean Young**, **Cliff Lawson**, **Jacob Nevins**, the **Grimware** and **CPCWiki** contributors, and the many people who wrote hardware references, ROM disassemblies and technical notes.
-- The ZX Spectrum, CPC, PCW, Einstein, MSX, MTX, Camputers Lynx, Jupiter Ace, SAM Coupé and BBC Micro communities, whose documentation, emulators and tools keep these machines alive.
+- **István Varga** for ep128emu and **Thomas Harte** for Clock Signal, whose Enterprise emulation showed how Nick, Dave and EXOS behave.
+- The ZX Spectrum, CPC, PCW, Einstein, MSX, MTX, Camputers Lynx, Jupiter Ace, Enterprise, SAM Coupé and BBC Micro communities, whose documentation, emulators and tools keep these machines alive.
 
 Third-party code and data used in zx84, with their licences, are listed in [THIRD_PARTY.md](./THIRD_PARTY.md).

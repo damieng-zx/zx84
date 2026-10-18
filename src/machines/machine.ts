@@ -22,7 +22,7 @@ import type { MachineModel } from '@/models.ts';
 import type { OcrGridName, FontSource } from '@/ocr/ocr.ts';
 import type { BasicListingLine, BasicVariable } from '@/basic/types.ts';
 
-export type MachineKind = 'spectrum' | 'cpc' | 'einstein' | 'msx' | 'zx8x' | 'mtx' | 'lynx' | 'jupiter-ace' | 'pcw' | 'bbc' | 'electron';
+export type MachineKind = 'spectrum' | 'cpc' | 'einstein' | 'msx' | 'zx8x' | 'mtx' | 'lynx' | 'jupiter-ace' | 'pcw' | 'bbc' | 'electron' | 'enterprise';
 
 /** Keyboard/ROM locale for international machine variants.
  *  'uk' = default (English, no locale-specific ROM/keyboard). */
@@ -525,6 +525,21 @@ export interface MediaService {
   /** Extensions currently loadable (varies with enabled peripherals). */
   accepts(): MediaTypeDescriptor[];
   mount(data: Uint8Array, filename: string, target?: MediaTargetId): Promise<MountResult>;
+  /**
+   * Take a whole .zip at once — every file in it, unfiltered. For software
+   * that ships as several files which load one another by name (the
+   * Enterprise's programs, served through its FILE: device), so picking one
+   * entry would strand the rest. Resolve null to decline, and the shell
+   * unwraps the archive the usual way. Omitted by machines that only ever
+   * mount one file.
+   */
+  mountArchive?(files: readonly ArchiveFile[], archiveName: string): Promise<MountResult | null>;
+}
+
+/** One file out of an archive handed to `MediaService.mountArchive`. */
+export interface ArchiveFile {
+  readonly name: string;
+  readonly data: Uint8Array;
 }
 
 export interface TapeBlockInfo {

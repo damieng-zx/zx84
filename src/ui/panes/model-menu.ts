@@ -44,6 +44,8 @@ export const MODEL_LABELS: Record<MachineModel, string> = {
   pcw9512: 'PCW 9512',
   'bbc-b': 'BBC Micro Model B',
   electron: 'Electron',
+  ep64: 'Enterprise 64',
+  ep128: 'Enterprise 128',
 };
 
 export const LOCALE_LABELS: Record<MachineLocale, string> = {
@@ -157,6 +159,14 @@ export const MODEL_MENU: MenuItem[] = [
     children: [
       modelEntry('bbc-b'),
       modelEntry('electron'),
+    ],
+  },
+  {
+    value: 'enterprise',
+    label: 'Enterprise',
+    children: [
+      modelEntry('ep64'),
+      modelEntry('ep128'),
     ],
   },
 ];

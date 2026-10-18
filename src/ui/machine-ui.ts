@@ -102,6 +102,10 @@ const CONTRIBUTIONS: Record<string, MachineUiContribution> = {
     Keyboard: lazy(() =>
       import('@/machines/electron/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
   },
+  enterprise: {
+    HardwareSection: lazy(() =>
+      import('@/machines/enterprise/ui/hardware-section.tsx').then(m => ({ default: m.EnterpriseHardwareSection }))),
+  },
 };
 
 /** The UI contributions for a machine kind (empty object when none registered). */

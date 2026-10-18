@@ -111,6 +111,14 @@ were read to learn how the hardware behaves; no code from them is used in zx84
 (some comments mention them as behaviour references, and the Einstein keyboard
 matrix agrees with MAME's, verified against the real ROMs).
 
+## ep128emu (GPL-2.0+) and Clock Signal (MIT) — studied for behaviour only
+
+The Enterprise (`src/machines/enterprise/`) was written from how ep128emu
+(István Varga) and Clock Signal (Thomas Harte) describe Nick, Dave, the EXDOS
+card and EXOS's device interface; no code from either is used. The FILE:
+device ROM in `hostfs.ts` is zx84's own, laid out per the EXOS 2.1 technical
+manual's ROM-extension and device-descriptor chapters.
+
 ## Bedstead — CC0-1.0
 
 `src/cores/saa5050-font.ts` holds the SAA5050 teletext glyph dot patterns,
