@@ -118,6 +118,70 @@ describe('Plus 1', () => {
     fitted.destroy();
   });
 
+  describe('two-file cartridges (Name_1.rom + Name_2.rom)', () => {
+    const half = (fill: number): Uint8Array => new Uint8Array(0x4000).fill(fill);
+    const bank = (m: ElectronMachine, page: number): number => {
+      m.memory.romPage = page;
+      return m.memory.readByte(0x8000);
+    };
+
+    it('joins _1 and _2 into lower and upper banks, in either order', async () => {
+      for (const order of [[1, 2], [2, 1]] as const) {
+        const m = machine(true);
+        for (const n of order) {
+          const r = await m.services.media.mount(half(n === 1 ? 0xA1 : 0xB2), `Doom_${n}.rom`);
+          expect(r.ok).toBe(true);
+        }
+        expect(bank(m, 2)).toBe(0xA1);
+        expect(bank(m, 3)).toBe(0xB2);
+        m.destroy();
+      }
+    });
+
+    it('leaves a lone half mirrored across both banks', async () => {
+      const m = machine(true);
+      await m.services.media.mount(half(0xB2), 'Doom_2.rom');
+      expect(bank(m, 2)).toBe(0xB2);
+      expect(bank(m, 3)).toBe(0xB2);
+      m.destroy();
+    });
+
+    it('does not join halves of different cartridges', async () => {
+      const m = machine(true);
+      await m.services.media.mount(half(0xA1), 'Doom_1.rom');
+      await m.services.media.mount(half(0xB2), 'Other_2.rom');
+      expect(bank(m, 2)).toBe(0xB2);
+      expect(bank(m, 3)).toBe(0xB2);
+      m.destroy();
+    });
+
+    it('does not join once the first half has been ejected or replaced', async () => {
+      const m = machine(true);
+      await m.services.media.mount(half(0xA1), 'Doom_1.rom');
+      m.services.roms.cartridge!.eject();
+      await m.services.media.mount(half(0xB2), 'Doom_2.rom');
+      expect(bank(m, 2)).toBe(0xB2);
+      expect(bank(m, 3)).toBe(0xB2);
+
+      await m.services.media.mount(half(0xA1), 'Doom_1.rom');
+      await m.services.media.mount(half(0xCC), 'plain.rom');
+      await m.services.media.mount(half(0xB2), 'Doom_2.rom');
+      expect(bank(m, 2)).toBe(0xB2);
+      m.destroy();
+    });
+
+    it('treats a full 32K _1 image as a cartridge in its own right', async () => {
+      const m = machine(true);
+      const full = new Uint8Array(0x8000);
+      full.fill(0x11, 0, 0x4000); full.fill(0x22, 0x4000);
+      await m.services.media.mount(full, 'Big_1.rom');
+      await m.services.media.mount(half(0x33), 'Big_2.rom');
+      expect(bank(m, 2)).toBe(0x33);
+      expect(bank(m, 3)).toBe(0x33);
+      m.destroy();
+    });
+  });
+
   it('boots a cartridge with SHIFT held, releasing it after the OS has had time to look', () => {
     const m = machine(true);
     m.services.roms.cartridge!.insert(new Uint8Array(0x4000), 'c.rom');
