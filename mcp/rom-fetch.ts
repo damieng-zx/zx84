@@ -6,6 +6,7 @@ import { resolveRomSource, unwrapRomArchive } from '../src/managers/rom-manager.
 import {
   BETADISK_ROM, IF1_ROM, PLUSD_ROM, VTX5000_ROM,
 } from '../src/machines/spectrum/aux-roms.ts';
+import { MSX_DISK_ROM } from '../src/machines/msx/aux-roms.ts';
 import { romFilename, type MultifaceVariant } from '../src/machines/spectrum/peripherals/multiface.ts';
 
 export const CACHE_DIR = path.join(import.meta.dirname!, '.cache');
@@ -58,4 +59,8 @@ export function fetchInterface1Rom(): Promise<Uint8Array> {
 
 export function fetchBetaDiskRom(): Promise<Uint8Array> {
   return fetchCached(BETADISK_ROM);
+}
+
+export function fetchMsxDiskRom(): Promise<Uint8Array> {
+  return fetchCached(MSX_DISK_ROM);
 }
