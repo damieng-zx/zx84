@@ -243,6 +243,31 @@ export function apple2ImageLength(length: number): number | null {
   return Math.abs(length - tracks * TRACK_BYTES) < 1024 ? tracks * TRACK_BYTES : null;
 }
 
+/**
+ * Strip a container header from a raw image. Disks circulate wrapped in a
+ * MacBinary I header (128 bytes: a zero byte, a Pascal-style file name, zero
+ * bytes at offsets 74 and 82, and the data-fork length at 83-86), and a few come
+ * from an emulator that prefixes "SIMSYSTEM_IIE" and a sector-order table (30
+ * bytes). Without this every sector is read at the wrong offset and the boot
+ * sector is garbage. Anything unrecognised is returned unchanged.
+ */
+export function unwrapApple2Image(data: Uint8Array): Uint8Array {
+  if (data.length > 128 + TRACK_BYTES
+    && data[0] === 0 && data[74] === 0 && data[82] === 0 && data[1] >= 1 && data[1] <= 63) {
+    const fork = ((data[83] << 24) | (data[84] << 16) | (data[85] << 8) | data[86]) >>> 0;
+    if (fork > 0 && fork <= data.length - 128 && apple2ImageLength(fork) !== null) {
+      return data.subarray(128, 128 + fork);
+    }
+  }
+  const SIMSYSTEM = 'SIMSYSTEM_IIE';
+  if (data.length > 30 + TRACK_BYTES
+    && Array.from(SIMSYSTEM).every((c, i) => data[i] === c.charCodeAt(0))
+    && apple2ImageLength(data.length - 30) !== null) {
+    return data.subarray(30);
+  }
+  return data;
+}
+
 export function isApple2DiskLength(length: number): boolean {
   return apple2ImageLength(length) !== null;
 }
@@ -256,6 +281,7 @@ export function isApple2DiskLength(length: number): boolean {
  * is at $11000 instead - so the signature does not occur in a DOS-order disk.
  */
 export function detectApple2DiskOrder(data: Uint8Array, name: string): Apple2DiskOrder {
+  data = unwrapApple2Image(data);
   if (/\.po$/i.test(name)) return 'prodos';
   if (/\.do$/i.test(name)) return 'dos';
   const isProdosVolumeHeader = data.length > 0x405
@@ -267,6 +293,7 @@ export function detectApple2DiskOrder(data: Uint8Array, name: string): Apple2Dis
 
 /** Build a `DskImage` from a raw `.dsk`/`.do`/`.po` image. */
 export function parseApple2Disk(data: Uint8Array, order: Apple2DiskOrder): DskImage {
+  data = unwrapApple2Image(data);
   const length = apple2ImageLength(data.length);
   if (length === null) {
     throw new Error(`Not an Apple II disk image (${data.length} bytes)`);

@@ -13,7 +13,7 @@ import {
   APPLE2_SECTOR_SIZE, APPLE2_SECTORS_PER_TRACK, DOS_SKEW, GCR_WRITE_TABLE,
   decodeSector6and2, decodeTrack, encodeSector6and2, encodeTrack,
   apple2VolumeNumber, detectApple2DiskOrder, fourAndFour, fourAndFourDecode, gcr6, gcrRead, parseApple2Disk,
-  serializeApple2Disk,
+  serializeApple2Disk, unwrapApple2Image,
 } from '@/media/floppy/apple2.ts';
 
 describe('GCR 6-and-2 code table', () => {
@@ -161,6 +161,42 @@ describe('image length tolerance', () => {
   it('still rejects data that is not close to a whole number of tracks', () => {
     expect(() => parseApple2Disk(new Uint8Array(35 * 4096 + 2000), 'dos')).toThrow(/Not an Apple II disk/);
     expect(() => parseApple2Disk(new Uint8Array(100), 'dos')).toThrow(/Not an Apple II disk/);
+  });
+});
+
+describe('container headers', () => {
+  const macBinary = (name: string, payload: Uint8Array): Uint8Array => {
+    const out = new Uint8Array(128 + Math.ceil(payload.length / 128) * 128);
+    out[1] = name.length;
+    for (let i = 0; i < name.length; i++) out[2 + i] = name.charCodeAt(i);
+    out[83] = (payload.length >>> 24) & 0xFF; out[84] = (payload.length >>> 16) & 0xFF;
+    out[85] = (payload.length >>> 8) & 0xFF; out[86] = payload.length & 0xFF;
+    out.set(payload, 128);
+    return out;
+  };
+
+  it('reads through a MacBinary header to the real boot sector', () => {
+    const disk = new Uint8Array(35 * 4096);
+    disk.set([0x01, 0xA5, 0x27, 0xC9], 0);          // boot sector
+    const image = parseApple2Disk(macBinary('GAME', disk), 'dos');
+    expect(image.numTracks).toBe(35);
+    expect(Array.from(image.tracks[0][0]!.sectors[0].data.subarray(0, 4))).toEqual([0x01, 0xA5, 0x27, 0xC9]);
+  });
+
+  it('reads through a SIMSYSTEM_IIE prefix', () => {
+    const disk = new Uint8Array(35 * 4096);
+    disk.set([0x01, 0x38, 0xB0, 0x03], 0);
+    const wrapped = new Uint8Array(30 + disk.length);
+    wrapped.set(Array.from('SIMSYSTEM_IIE').map(c => c.charCodeAt(0)), 0);
+    wrapped.set(disk, 30);
+    const image = parseApple2Disk(wrapped, 'dos');
+    expect(Array.from(image.tracks[0][0]!.sectors[0].data.subarray(0, 4))).toEqual([0x01, 0x38, 0xB0, 0x03]);
+  });
+
+  it('leaves an ordinary image alone', () => {
+    const disk = new Uint8Array(35 * 4096);
+    disk[1] = 5;                                      // looks a bit like a name length, nothing else does
+    expect(unwrapApple2Image(disk)).toBe(disk);
   });
 });
 
