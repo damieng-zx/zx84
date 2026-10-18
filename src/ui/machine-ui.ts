@@ -98,6 +98,12 @@ const CONTRIBUTIONS: Record<string, MachineUiContribution> = {
     Keyboard: lazy(() =>
       import('@/machines/bbc/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
   },
+  electron: {
+    HardwareSection: lazy(() =>
+      import('@/machines/electron/ui/hardware-section.tsx').then(m => ({ default: m.ElectronHardwareSection }))),
+    Keyboard: lazy(() =>
+      import('@/machines/electron/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
+  },
 };
 
 /** The UI contributions for a machine kind (empty object when none registered). */
