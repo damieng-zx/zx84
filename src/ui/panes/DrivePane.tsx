@@ -31,6 +31,7 @@ import { DISK_FORMATS, formatLabel, createBlankDisk } from '@/media/floppy/dsk.t
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { createBlankHfe } from '@/media/floppy/hfe.ts';
 import { blankLdfDisk } from '@/media/floppy/ldf-image.ts';
+import { blankFatImage } from '@/media/floppy/fat-image.ts';
 import { blankSsd } from '@/media/floppy/ssd.ts';
 import { blankMsxDisk } from '@/media/floppy/msx-disk.ts';
 import { blankAdfs } from '@/media/floppy/adfs.ts';
@@ -235,6 +236,15 @@ const ADFS_GEOMETRIES = [
 const ADFS_NEW_ITEMS = [
   { value: 'adfs', label: 'ADFS image', children: ADFS_GEOMETRIES.map((g, i) => ({ value: `adfs-${i}`, label: g.label })) },
 ];
+// Raw FAT12 sector dumps (.img, the Enterprise's EXDOS disks): blank disks
+// come pre-formatted, as a FORMAT would leave them.
+const FAT_GEOMETRIES = [
+  { label: 'Blank 720K DS/80T', tracks: 80, sides: 2 },
+  { label: 'Blank 360K DS/40T', tracks: 40, sides: 2 },
+] as const;
+const FAT_NEW_ITEMS = [
+  { value: 'fat', label: 'IMG image', children: FAT_GEOMETRIES.map((g, i) => ({ value: `fat-${i}`, label: g.label })) },
+];
 const DFS_NEW_ITEMS = [
   { value: 'dfs', label: 'DFS image', children: DFS_GEOMETRIES.map((g, i) => ({ value: `dfs-${i}`, label: g.label })) },
 ];
@@ -272,6 +282,10 @@ function blankForValue(value: string): { image: DskImage; label: string } | null
   if (value.startsWith('adfs-')) {
     const g = ADFS_GEOMETRIES[parseInt(value.slice(5))];
     return g ? { image: blankAdfs(g.tracks, g.sides === 2), label: g.label } : null;
+  }
+  if (value.startsWith('fat-')) {
+    const g = FAT_GEOMETRIES[parseInt(value.slice(4))];
+    return g ? { image: blankFatImage(g.tracks, g.sides), label: g.label } : null;
   }
   if (value.startsWith('dfs-')) {
     const g = DFS_GEOMETRIES[parseInt(value.slice(4))];
@@ -385,6 +399,8 @@ export function DrivePane() {
     if (accepts.some(t => t.ext === '.ssd')) return DFS_NEW_ITEMS;
     if (accepts.some(t => t.ext === '.dmk')) return MSX_NEW_ITEMS;
     if (accepts.some(t => t.ext === '.adl')) return ADFS_NEW_ITEMS;
+    // .img without .dsk is a FAT sector dump (with .dsk, it is the +D's MGT).
+    if (accepts.some(t => t.ext === '.img') && !accepts.some(t => t.ext === '.dsk')) return FAT_NEW_ITEMS;
     return PLUS3_NEW_ITEMS;
   };
 

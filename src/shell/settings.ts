@@ -68,6 +68,7 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'apple2-mockingboard': () => settings.apple2Mockingboard(),
   'apple2-80col': () => settings.apple2EightyCol(),
   'apple2e-80col': () => settings.apple2eEightyCol(),
+  'enterprise-exdos': () => settings.enterpriseExdos(),
   // True while the SAA5050 upscaler is selected: machines that draw teletext
   // then supply the raw, unrounded dots for it to round.
   'saa-scaler': () => settings.scalingMode() === SCALING_MODE_SAA5050,
