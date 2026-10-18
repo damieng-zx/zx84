@@ -23,19 +23,19 @@ describe('status-bar LED declarations', () => {
       const l = leds(model);
       expect(l).toContain('kbd');
       expect(l).toContain('text');
-      for (const absent of ['ay', 'dsk', 'beep', 'mouse', 'kemp', 'ear', 'rainbow', 'load'] as const) {
+      for (const absent of ['chip', 'dsk', 'beep', 'mouse', 'kemp', 'ear', 'rainbow', 'load'] as const) {
         expect(l).not.toContain(absent);
       }
     }
   });
 
   it('Spectrum shows AY only on 128K-class models', () => {
-    expect(leds('16k')).not.toContain('ay');
-    expect(leds('48k')).not.toContain('ay');
-    expect(leds('128k')).toContain('ay');
-    expect(leds('+2')).toContain('ay');
-    expect(leds('+2A')).toContain('ay');
-    expect(leds('+3')).toContain('ay');
+    expect(leds('16k')).not.toContain('chip');
+    expect(leds('48k')).not.toContain('chip');
+    expect(leds('128k')).toContain('chip');
+    expect(leds('+2')).toContain('chip');
+    expect(leds('+2A')).toContain('chip');
+    expect(leds('+3')).toContain('chip');
   });
 
   it('Spectrum shows the DISK indicator only on the +3', () => {
@@ -52,7 +52,7 @@ describe('status-bar LED declarations', () => {
 
   it('CPC shows AY but never the (absent) beeper', () => {
     for (const model of ['cpc464', 'cpc6128', 'gx4000'] as const) {
-      expect(leds(model)).toContain('ay');
+      expect(leds(model)).toContain('chip');
       expect(leds(model)).not.toContain('beep');
     }
   });
@@ -67,9 +67,22 @@ describe('status-bar LED declarations', () => {
   });
 
   it('MSX shows PSG + cassette, Einstein shows PSG + disk', () => {
-    expect(leds('hx-10')).toEqual(expect.arrayContaining(['ay', 'load']));
+    expect(leds('hx-10')).toEqual(expect.arrayContaining(['chip', 'load']));
     expect(leds('hx-10')).not.toContain('dsk');
-    expect(leds('einstein-tc01')).toEqual(expect.arrayContaining(['ay', 'dsk']));
+    expect(leds('einstein-tc01')).toEqual(expect.arrayContaining(['chip', 'dsk']));
     expect(leds('einstein-tc01')).not.toContain('load');
+  });
+
+  it('the sound-chip LED is named after its chip', () => {
+    const chip = (m: MachineModel) => entryForModel(m).descriptor(m).ui.soundChip;
+    expect(chip('128k')).toBe('AY-3-8912');
+    expect(chip('cpc6128')).toBe('AY-3-8912');
+    expect(chip('hx-10')).toBe('AY-3-8910');
+    expect(chip('einstein-tc01')).toBe('AY-3-8910');
+    expect(chip('48k')).toBeUndefined();
+    for (const m of ['16k', '48k', '128k', '+3', 'cpc6128', 'hx-10', 'einstein-tc01'] as const) {
+      const ui = entryForModel(m).descriptor(m).ui;
+      expect(ui.statusLeds.includes('chip')).toBe(ui.soundChip !== undefined);
+    }
   });
 });

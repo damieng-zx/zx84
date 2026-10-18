@@ -23,7 +23,8 @@ import type { MachineUiCapabilities, StatusLedId } from '@/machines/machine.ts';
 
 export interface StatusLed {
   readonly id: StatusLedId;
-  readonly label: string;
+  /** Static text, or derived from the active machine's capabilities. */
+  readonly label: string | ((caps: MachineUiCapabilities) => string);
   /** Column group: 1 input · 2 tape/disk · 3 screen/text · 4 sound. */
   readonly group: 1 | 2 | 3 | 4;
   /** Reactive on/off signal (from activity-state). */
@@ -62,8 +63,10 @@ export const STATUS_LEDS: readonly StatusLed[] = [
   },
   // Group 4 — sound
   { id: 'beep', label: 'BEEP', group: 4, signal: ledBeep, tip: 'Beeper bit is toggling (producing sound)' },
-  { id: 'ay', label: 'AY-3-8912', group: 4, signal: ledAy, tip: 'Writing to the AY sound chip registers' },
-  { id: 'psg', label: 'PSG', group: 4, signal: ledAy, tip: 'Writing to the programmable sound generator' },
+  {
+    id: 'chip', label: (caps) => caps.soundChip ?? 'SOUND', group: 4, signal: ledAy,
+    tip: (caps) => `Writing to the ${caps.soundChip ?? 'sound chip'} registers`,
+  },
 ];
 
 /** Column groups in render order. */

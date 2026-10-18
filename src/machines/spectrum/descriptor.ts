@@ -26,7 +26,7 @@ function spectrumMemoryRegions(model: MachineModel): MemoryRegionInfo[] {
 
 function spectrumStatusLeds(model: MachineModel): StatusLedId[] {
   const leds: StatusLedId[] = ['kbd', 'kemp', 'mouse', 'ear', 'load', 'text', 'rainbow', 'beep'];
-  if (is128kClass(model)) leds.push('ay');
+  if (is128kClass(model)) leds.push('chip');
   if (isPlus3(model)) leds.push('dsk');
   return leds;
 }
@@ -50,7 +50,8 @@ function spectrumUi(model: MachineModel): MachineUiCapabilities {
     romPages: romPageSlotCount(model),
     beeper: true,
     // spectrum.ts reads 'ay-mix' to balance the 128K AY against the beeper.
-    psgMixer: true,
+    psgMixer: is128kClass(model),
+    soundChip: is128kClass(model) ? 'AY-3-8912' : undefined,
     psgControls: ['stereo', 'filter', 'dc-block'],
     statusLeds: spectrumStatusLeds(model),
     keyboardBus: 'ula',
