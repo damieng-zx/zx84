@@ -25,6 +25,7 @@ const EINSTEIN_UI: MachineUiCapabilities = {
   colorMap: 'einstein',
   accuracy: false,
   builtinDisk: true,
+  builtinDrives: 2,
   joystick: false,
   fixedJoystick: false,
   mouseTypes: [],

@@ -15,6 +15,7 @@ import { Tms9918a, MSX_PALETTES } from '@/cores/tms9918a.ts';
 import { Z80Ctc } from '@/cores/z80-ctc.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
+import { resolveDriveCount } from '@/machines/shared/drive-count.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import { Tms9918ScreenText, tms9918TextGrid } from '@/ocr/tms9918.ts';
@@ -39,7 +40,7 @@ import {
   MTX_TAPE_FAILURE, MTX_TAPE_RETURN, MTX_TAPE_ROUTINE,
 } from './mtx-tape.ts';
 import {
-  MTX_ACTIVE_LINES, MTX_BORDER_LEFT, MTX_BORDER_TOP, MTX_CPU_CLOCK,
+  MTX_ACTIVE_LINES, MTX_BORDER_LEFT, MTX_BORDER_TOP, MTX_CPU_CLOCK, MTX_MAX_DRIVES,
   MTX_LINES_PER_FRAME, MTX_SCREEN_HEIGHT, MTX_SCREEN_WIDTH,
   MTX_TSTATES_PER_FRAME,
 } from './constants.ts';
@@ -78,6 +79,8 @@ export class MtxMachine extends BaseMachine implements Machine {
   cpmSystemEnabled = false;
   /** FDX floppy subsystem fitted (drives B:/C: + FDX Disk BASIC ROM). */
   floppyEnabled = true;
+  /** How many of the FDX's two drives are fitted (Drives pane choice). */
+  driveCount = MTX_MAX_DRIVES;
 
   private readonly vdpPixels = new Uint8Array(MTX_SCREEN_WIDTH * MTX_SCREEN_HEIGHT * 4);
   private readonly vdpPixels32 = new Uint32Array(this.vdpPixels.buffer);
@@ -162,6 +165,8 @@ export class MtxMachine extends BaseMachine implements Machine {
   prepare(view: SettingsView): [] {
     this.fdc.writeProtect[0] = view.get('write-protect-a', false);
     this.fdc.writeProtect[1] = view.get('write-protect-b', false);
+    this.driveCount = resolveDriveCount(view, 'mtx', MTX_MAX_DRIVES);
+    for (let u = 0; u < this.fdc.connected.length; u++) this.fdc.connected[u] = u < this.driveCount;
     this.column80Requested = view.get('mtx-80-column', false);
     this.floppyRequested = view.get('mtx-floppy', true);
     this.set512kRamEnabled(view.get('mtx-512k-ram', false));

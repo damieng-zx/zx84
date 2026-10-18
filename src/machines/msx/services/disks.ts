@@ -26,7 +26,7 @@ export class MsxDiskService implements DiskService {
     const m = this.m;
     if (!m.floppyEnabled || !m.diskIf.romLoaded) return [];
     const active = m.diskIf.selectedDrive;
-    return [0, 1].map((u): DriveDescriptor => ({
+    return [0, 1].slice(0, m.driveCount).map((u): DriveDescriptor => ({
       id: u === 0 ? 'a' : 'b',
       label: u === 0 ? 'A:' : 'B:',
       loaded: m.fdc.getDiskImage(u) !== null,
@@ -37,6 +37,7 @@ export class MsxDiskService implements DiskService {
   }
 
   insert(id: string, media: DriveMedia, name: string): void {
+    if (unitOf(id) >= this.m.driveCount) throw new Error('that drive is not fitted');
     this.m.loadDisk(media as DskImage, unitOf(id));
     this.names.set(id, name);
   }

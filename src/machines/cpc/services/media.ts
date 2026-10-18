@@ -88,6 +88,7 @@ export class CpcMediaService implements MediaService {
     if (/\.(dsk|hfe|scp)$/i.test(filename)) {
       const unit = CpcMediaService.unitOf(target);
       try {
+        if (unit > 1) throw new Error('that drive is not fitted');
         const image = parseFloppyImage(data);
         this.disks.insert(unit === 0 ? 'a' : 'b', image, filename);
         return { ok: true, target: unit === 0 ? 'a' : 'b', message: `Disk ${unit === 0 ? 'A' : 'B'}: loaded: ${filename}` };

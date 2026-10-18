@@ -35,7 +35,8 @@ export class PcwMediaService implements MediaService {
   }
 
   private unitOf(target: MediaTargetId | undefined): number {
-    if (target === 'b' && this.m.config.drives > 1) return 1;
+    if (target === 'b') return 1;
+    if (target && target.startsWith('unit:')) return Number(target.slice(5));
     return 0;
   }
 
@@ -45,6 +46,7 @@ export class PcwMediaService implements MediaService {
     }
     const m = this.m;
     const unit = this.unitOf(target);
+    if (unit >= m.driveCount) return fail('That drive is not fitted');
     const id = unit === 0 ? 'a' : 'b';
     m.stop();
     try {

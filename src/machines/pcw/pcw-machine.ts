@@ -27,8 +27,9 @@ import { disasmOne, type DisasmLine } from '@/debug/z80/disasm.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type {
   BorderMode, Machine, MachineDescriptor, MachineHost, MachineKind,
-  MachineTraceMode, SettingsView,
+  AuxRomRequest, MachineTraceMode, SettingsView,
 } from '@/machines/machine.ts';
+import { resolveDriveCount } from '@/machines/shared/drive-count.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import type { OcrGridName } from '@/ocr/ocr.ts';
 import {
@@ -72,6 +73,9 @@ export class PcwMachine extends BaseMachine implements Machine {
   readonly keyboard = new PcwKeyboard();
   /** The 3" drives. Drive B exists only on the 8512. */
   readonly fdc = new UPD765A();
+  /** Drives actually fitted: the model's own count, or fewer if the user chose
+   *  so from the Drives pane (set from the settings in prepare()). */
+  driveCount: number;
   readonly mixer: AudioMixer;
   readonly audio: Audio;
   display: IScreenRenderer | null;
@@ -126,7 +130,8 @@ export class PcwMachine extends BaseMachine implements Machine {
     // Only the 8512 shipped with a second mechanism. On the others nothing is
     // wired to that select line, so recalibrating it must fail — which is how
     // CP/M Plus counts drives for its banner.
-    this.fdc.connected[1] = this.config.drives > 1;
+    this.driveCount = this.config.drives;
+    this.fdc.connected[1] = this.driveCount > 1;
     // The PCW is the only machine here that waits on the FDC's interrupt line
     // rather than polling the status register, so it is the only one that can
     // tell the controller answers instantly. Give it a response time.
@@ -242,6 +247,14 @@ export class PcwMachine extends BaseMachine implements Machine {
   }
 
   // ── Machine: settings, ROM, regions ───────────────────────────────────────
+
+  /** Build-time hook: fit the number of drives the user chose (never more than
+   *  the model shipped with). A PCW has no peripheral ROMs to fetch. */
+  prepare(view: SettingsView): AuxRomRequest[] {
+    this.driveCount = resolveDriveCount(view, 'pcw', this.config.drives);
+    this.fdc.connected[1] = this.driveCount > 1;
+    return [];
+  }
 
   applySettings(view: SettingsView): void {
     const phosphor = PCW_PHOSPHORS[view.get('pcw-phosphor', this.config.phosphor)]

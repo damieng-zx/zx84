@@ -2,7 +2,7 @@
  * PCW DiskService — the 3" drives on the machine's uPD765A.
  *
  * The 8256 and 9512 have one drive; only the 8512 shipped with a second, so
- * `drives` is sized from the config and the pane shows exactly what is fitted.
+ * `drives` is sized from the fitted count and the pane shows exactly what is there.
  */
 
 import type { DiskService, DriveDescriptor, DriveMedia } from '@/machines/machine.ts';
@@ -27,7 +27,7 @@ export class PcwDiskService implements DiskService {
     const m = this.m;
     const motorUnit = m.fdc.motorOn ? m.fdc.currentUnit & 1 : -1;
     const out: DriveDescriptor[] = [];
-    for (let u = 0; u < m.config.drives; u++) {
+    for (let u = 0; u < m.driveCount; u++) {
       const id = u === 0 ? 'a' : 'b';
       out.push({
         id,
@@ -42,6 +42,7 @@ export class PcwDiskService implements DiskService {
   }
 
   insert(id: string, media: DriveMedia, name: string): void {
+    if (unitOf(id) >= this.m.driveCount) throw new Error('that drive is not fitted');
     this.m.loadDisk(media as DskImage, unitOf(id));
     this.names.set(id, name);
   }

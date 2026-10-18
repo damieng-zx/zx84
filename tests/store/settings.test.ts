@@ -320,3 +320,58 @@ describe('persistSetting', () => {
     expect(storage.store.get('zx84-flag')).toBe('true');
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// Built-in drive count
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('settings — built-in drive count', () => {
+  it('fits every drive until a count is chosen', async () => {
+    const s = await load();
+    expect(s.driveCountFor('lynx', 4)).toBe(4);
+    expect(s.driveCountFor('cpc', 2)).toBe(2);
+  });
+
+  it('keeps a count per machine kind and persists it', async () => {
+    const s = await load();
+    s.setDriveCountFor('apple2', 1);
+    expect(s.driveCountFor('apple2', 2)).toBe(1);
+    expect(s.driveCountFor('bbc', 2)).toBe(2);
+    expect(JSON.parse(storage.store.get('zx84-drive-counts')!)).toEqual({ apple2: 1 });
+  });
+
+  it('restores a saved count after a reload', async () => {
+    storage.store.set('zx84-drive-counts', JSON.stringify({ lynx: 3 }));
+    const s = await load();
+    expect(s.driveCountFor('lynx', 4)).toBe(3);
+  });
+
+  it('holds a saved count to what the current model can take', async () => {
+    storage.store.set('zx84-drive-counts', JSON.stringify({ lynx: 4 }));
+    const s = await load();
+    expect(s.driveCountFor('lynx', 2)).toBe(2);       // a two-drive Lynx
+    expect(s.driveCountFor('lynx', 4)).toBe(4);       // the choice survives for a four-drive one
+  });
+
+  it('ignores a corrupted entry', async () => {
+    storage.store.set('zx84-drive-counts', '{not json');
+    const s = await load();
+    expect(s.driveCountFor('lynx', 4)).toBe(4);
+    storage.store.set('zx84-drive-counts', JSON.stringify({ lynx: 0, cpc: 'two', bbc: -1 }));
+    expect((await load()).driveCountFor('cpc', 2)).toBe(2);
+  });
+
+  it('carries over the Apple II count from its old Hardware-pane option', async () => {
+    storage.store.set('zx84-apple2-drives', '1');
+    const s = await load();
+    expect(s.driveCountFor('apple2', 2)).toBe(1);
+  });
+
+  it('resets to every drive with the Drives pane', async () => {
+    const s = await load();
+    s.setDriveCountFor('bbc', 1);
+    s.resetSettingsGroup('drive');
+    expect(s.driveCountFor('bbc', 2)).toBe(2);
+    expect(storage.store.get('zx84-drive-counts')).toBe('{}');
+  });
+});

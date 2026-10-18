@@ -38,6 +38,7 @@ import { Asic } from '@/machines/cpc/asic.ts';
 import { Ppi8255, installCpcMemoryHooks, wireCpcPortIO } from '@/machines/cpc/cpc-io.ts';
 import { CpcMultiface } from '@/machines/cpc/peripherals/cpc-multiface.ts';
 import { KempstonMouse } from '@/machines/shared/kempston-mouse.ts';
+import { resolveDriveCount } from '@/machines/shared/drive-count.ts';
 import { CpcAmxMouse } from '@/machines/cpc/peripherals/cpc-amx-mouse.ts';
 import { trapCpcCasRead, scanCpcCasRead } from '@/machines/cpc/cpc-tape-loader.ts';
 import type { CpcCasReadRoutine, CpcCasReadRequest } from '@/machines/cpc/cpc-tape-loader.ts';
@@ -57,6 +58,9 @@ import {
 const TAPE_LOAD_ENTER_GAP = 500;
 const TAPE_LOAD_EXIT_GAP = 5000;
 
+/** The CPC's disk controller (built in, or the DDI-1) takes two drives. */
+export const CPC_MAX_DRIVES = 2;
+
 export class CpcMachine extends BaseMachine implements Machine {
   protected get audioChip(): AY3891x { return this.ay; }
   readonly kind: MachineKind = 'cpc';
@@ -71,6 +75,8 @@ export class CpcMachine extends BaseMachine implements Machine {
   readonly memory: CpcMemory;
   readonly ay: AY3891x;
   readonly fdc: UPD765A;
+  /** Drives fitted to the controller (1..2) — set from the settings in prepare(). */
+  driveCount = CPC_MAX_DRIVES;
   readonly tape: TapeDeck;
   readonly keyboard: CpcKeyboard;
   readonly crtc: Crtc6845;
@@ -258,6 +264,11 @@ export class CpcMachine extends BaseMachine implements Machine {
       this.fdc.writeProtect[0] = view.get('write-protect-a', false);
       this.fdc.writeProtect[1] = view.get('write-protect-b', false);
       this.fdc.forceReady[1] = view.get('drive-b-force-ready', false);
+      // Only the first `driveCount` drives are wired to the controller; a
+      // RECALIBRATE/SEEK on an unfitted unit fails and Sense Drive Status
+      // reports it not-ready, which is how AMSDOS finds out there is no drive B.
+      this.driveCount = resolveDriveCount(view, 'cpc', CPC_MAX_DRIVES);
+      for (let u = 0; u < CPC_MAX_DRIVES; u++) this.fdc.connected[u] = u < this.driveCount;
     }
     this.multiface.enabled = view.get('multiface', false);
     return this.multiface.enabled ? [this.multifaceAuxRom(true)] : [];

@@ -15,6 +15,7 @@ import { Crtc6845 } from '@/cores/crtc-6845.ts';
 import { WD179x } from '@/cores/wd179x.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
+import { resolveDriveCount } from '@/machines/shared/drive-count.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
 import { TapeDeck, TAPE_REF_HZ } from '@/media/tape/tap.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
@@ -23,7 +24,7 @@ import type {
   SettingsView,
 } from '@/machines/machine.ts';
 import {
-  LYNX_BORDER_TOP, LYNX_PAGE_SIZE, LYNX_PALETTE, lynxTStatesPerFrame,
+  LYNX_BORDER_TOP, LYNX_MAX_DRIVES, LYNX_PAGE_SIZE, LYNX_PALETTE, lynxTStatesPerFrame,
 } from './constants.ts';
 import type { OcrResult } from '@/ocr/ocr.ts';
 import {
@@ -76,6 +77,8 @@ export class LynxMachine extends BaseMachine implements Machine {
   /** The interface is fitted: the model has one *and* the Hardware toggle is
    *  on. Drives the FDC ports, `.ldf` media, the DOS ROM and the Drive pane. */
   hasDisk: boolean;
+  /** How many of the FD1793's drives are fitted (Drives pane choice). */
+  driveCount = LYNX_MAX_DRIVES;
 
   /** The cassette deck. The Lynx has a real motor bit, so playback is gated on
    *  the motor rather than on read cadence the way the CPC's has to be. */
@@ -164,6 +167,8 @@ export class LynxMachine extends BaseMachine implements Machine {
   applySettings(view: SettingsView): void {
     this.tapeTurbo = view.get('tape-turbo-load', true);
     this.hasDisk = this.modelHasDisk && view.get('lynx-fdc', true);
+    this.driveCount = resolveDriveCount(view, 'lynx', this.modelHasDisk ? LYNX_MAX_DRIVES : 2);
+    for (let u = 0; u < this.fdc.connected.length; u++) this.fdc.connected[u] = u < this.driveCount;
   }
   setBorderSize(_mode: BorderMode): void { /* the Lynx border is not croppable */ }
 

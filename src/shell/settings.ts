@@ -62,7 +62,6 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'electron-plus3': () => settings.electronPlus3(),
   'electron-dfs': () => settings.electronDfs(),
   'apple2-disk2': () => settings.apple2Disk2(),
-  'apple2-drives': () => settings.apple2Drives(),
   'apple2-langcard': () => settings.apple2LangCard(),
   'apple2-joystick': () => settings.apple2Joystick(),
   'apple2-mockingboard': () => settings.apple2Mockingboard(),
@@ -93,6 +92,11 @@ export function settingEnabled(key: string | undefined): boolean {
 export function buildSettingsView(): SettingsView {
   return {
     get<T>(key: string, fallback: T): T {
+      // `drive-count:<kind>` is the number of built-in drives saved for a
+      // machine kind; the machine's own default stands until one is chosen.
+      if (key.startsWith('drive-count:')) {
+        return (settings.savedDriveCount(key.slice('drive-count:'.length)) ?? fallback) as T;
+      }
       const getter = SETTING_GETTERS[key];
       return getter ? (getter() as T) : fallback;
     },

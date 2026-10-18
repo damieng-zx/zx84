@@ -28,7 +28,7 @@ export class CpcDiskService implements DiskService {
     if (!c.config.hasFDC) return [];
     const motorUnit = c.fdc.motorOn ? c.fdc.currentUnit & 1 : -1;
     const out: DriveDescriptor[] = [];
-    for (let u = 0; u < 2; u++) {
+    for (let u = 0; u < c.driveCount; u++) {
       const id = u === 0 ? 'a' : 'b';
       out.push({
         id,
@@ -43,6 +43,8 @@ export class CpcDiskService implements DiskService {
   }
 
   insert(id: string, media: DriveMedia, name: string): void {
+    if (id !== 'a' && id !== 'b') throw new Error(`Unknown drive: ${id}`);
+    if (id === 'b' && this.c.driveCount < 2) throw new Error('that drive is not fitted');
     this.c.loadDisk(media as DskImage, id === 'a' ? 0 : 1);
     this.names.set(id, name);
   }

@@ -47,7 +47,7 @@ export class SpectrumDiskService implements DiskService {
     const out: DriveDescriptor[] = [];
     const motorUnit = s.fdc.motorOn ? s.fdc.currentUnit & 1 : -1;
     if (s.variant.hasFDC) {
-      for (let u = 0; u < 2; u++) {
+      for (let u = 0; u < s.driveCount; u++) {
         out.push({
           id: u === 0 ? 'a' : 'b',
           label: u === 0 ? 'A:' : 'B:',
@@ -59,7 +59,7 @@ export class SpectrumDiskService implements DiskService {
       }
     }
     if (s.mgtPlusD.enabled) {
-      for (let u = 0; u < 2; u++) {
+      for (let u = 0; u < s.driveCount; u++) {
         out.push({
           id: `plusd:${u}`,
           label: `+D ${u === 0 ? 'C' : 'D'}:`,
@@ -71,7 +71,7 @@ export class SpectrumDiskService implements DiskService {
       }
     }
     if (s.betaDisk.enabled) {
-      for (let u = 0; u < 2; u++) {
+      for (let u = 0; u < s.driveCount; u++) {
         out.push({
           id: `beta:${u}`,
           label: `Beta ${u === 0 ? 'A' : 'B'}:`,
@@ -98,8 +98,19 @@ export class SpectrumDiskService implements DiskService {
     return out;
   }
 
+  /** True when `id` names a unit the machine has not got a drive for. Only the
+   *  floppy families are counted; microdrive ids are checked by their own range. */
+  private unfitted(id: string): boolean {
+    if (id === 'a') return false;
+    if (id === 'b') return this.s.driveCount < 2;
+    const colon = id.indexOf(':');
+    if (colon < 0 || id.startsWith('mdv:')) return false;
+    return Number(id.slice(colon + 1)) >= this.s.driveCount;
+  }
+
   insert(id: string, media: DriveMedia, name: string): void {
     const s = this.s;
+    if (this.unfitted(id)) throw new Error('that drive is not fitted');
     if (id === 'a' || id === 'b') {
       s.loadDisk(media as DskImage, id === 'a' ? 0 : 1);
     } else if (id.startsWith('plusd:')) {

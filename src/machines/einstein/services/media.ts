@@ -40,6 +40,7 @@ export class EinsteinMediaService implements MediaService {
       return fail('Einstein accepts .dsk, .hfe, .scp and .zip disk images');
     }
     const unit = EinsteinMediaService.unitOf(target);
+    if (!Number.isInteger(unit) || unit < 0 || unit >= this.e.driveCount) return fail('that drive is not fitted');
     try {
       const image = parseFloppyImage(data);
       this.disks.insert(unit === 0 ? 'a' : 'b', image, filename);

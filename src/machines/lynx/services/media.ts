@@ -66,6 +66,7 @@ export class LynxMediaService implements MediaService {
         };
       }
       const id = driveIdFor(target);
+      if ('abcd'.indexOf(id) >= this.m.driveCount) return { ok: false, message: 'that drive is not fitted' };
       this.disks.insert(id, image, filename);
       return { ok: true, target: id, message: `Drive ${id.toUpperCase()}: ${filename}` };
     }

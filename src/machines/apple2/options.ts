@@ -7,12 +7,13 @@
  */
 
 import type { SettingsView } from '@/machines/machine.ts';
+import { resolveDriveCount } from '@/machines/shared/drive-count.ts';
 import { apple2ModelInfo, type Apple2Model } from './models.ts';
 
 export interface Apple2Options {
   /** The Disk II controller card in slot 6, with its drives. */
   readonly disk2: boolean;
-  /** Drives attached to the Disk II controller (1 or 2). */
+  /** Drives attached to the Disk II controller (1 or 2), from the Drives pane's count. */
   readonly drives: 1 | 2;
   /** The 16K language card in slot 0 (RAM that replaces the ROM at $D000-$FFFF).
    *  The //e has the equivalent built in, so this is always true there. */
@@ -40,7 +41,7 @@ export function readApple2Options(view: SettingsView, model: Apple2Model): Apple
   return {
     // The //c's drive controller and 80-column hardware are part of the machine.
     disk2: iic || view.get('apple2-disk2', APPLE2_DEFAULT_OPTIONS.disk2),
-    drives: view.get<string>('apple2-drives', '2') === '1' ? 1 : 2,
+    drives: resolveDriveCount(view, 'apple2', 2) as 1 | 2,
     languageCard: iie || view.get('apple2-langcard', APPLE2_DEFAULT_OPTIONS.languageCard),
     // The //e is normally fitted with the extended card; the ][ family has to be
     // given a Videx card.

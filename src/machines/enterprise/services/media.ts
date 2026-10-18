@@ -67,7 +67,9 @@ export class EnterpriseMediaService implements MediaService {
     }
     const image = parseFatImage(data, 'EXDOS IMG');
     if (!image) return { ok: false, message: `${filename} is not a recognised EXDOS disk image` };
-    const id = target ? ['a', 'b', 'c', 'd'][EnterpriseDiskService.unitOf(target)] : 'a';
+    const unit = target ? EnterpriseDiskService.unitOf(target) : 0;
+    if (unit >= this.m.driveCount) return { ok: false, message: 'that drive is not fitted' };
+    const id = ['a', 'b', 'c', 'd'][unit];
     this.disks.insert(id, image, filename);
     // A disk in A: restarts the machine (without the FILE: device in the way)
     // and starts the disk the way its owner would have.

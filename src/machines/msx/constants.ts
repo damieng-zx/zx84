@@ -12,6 +12,9 @@
 import { VDP_WIDTH, VDP_HEIGHT } from '@/cores/tms9918a.ts';
 
 /** Z80 clock (Hz). The MSX standard master clock is 21.477270 MHz / 6. */
+/** Floppy drives the disk interface takes (the WD2793's two select lines used). */
+export const MSX_MAX_DRIVES = 2;
+
 export const MSX_CPU_CLOCK = 3_579_545;
 
 /** PSG clock (Hz) — half the CPU clock on the MSX. */

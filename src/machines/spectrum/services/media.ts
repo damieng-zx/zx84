@@ -137,6 +137,7 @@ export class SpectrumMediaService implements MediaService {
       // Parsing and insertion are synchronous: the frame loop cannot interleave
       // with this swap. Leave the user's running/paused state untouched.
       try {
+        if (unit > 1) throw new Error('that drive is not fitted');
         const image = parseFloppyImage(data);
         this.disks.insert(unit === 0 ? 'a' : 'b', image, filename);
         return { ok: true, target: unit === 0 ? 'a' : 'b', message: `Disk ${unit === 0 ? 'A' : 'B'}: loaded: ${filename}` };
@@ -166,7 +167,11 @@ export class SpectrumMediaService implements MediaService {
       return fail(`Beta Disk error: ${(e as Error).message}`);
     }
     if (!image) return fail(`Not a recognised Beta Disk image: ${filename}`);
-    this.disks.insert(`beta:${unit}`, image, filename);
+    try {
+      this.disks.insert(`beta:${unit}`, image, filename);
+    } catch (e) {
+      return fail(`Beta Disk error: ${(e as Error).message}`);
+    }
     return { ok: true, target: `beta:${unit}`, message: `Beta Disk ${unit === 0 ? 'A' : 'B'}: loaded: ${filename}` };
   }
 
@@ -181,7 +186,11 @@ export class SpectrumMediaService implements MediaService {
       return fail(`+D disk error: ${(e as Error).message}`);
     }
     if (!image) return fail(`Not a recognised +D image: ${filename}`);
-    this.disks.insert(`plusd:${unit}`, image, filename);
+    try {
+      this.disks.insert(`plusd:${unit}`, image, filename);
+    } catch (e) {
+      return fail(`+D disk error: ${(e as Error).message}`);
+    }
     return { ok: true, target: `plusd:${unit}`, message: `+D disk ${unit === 0 ? 'C' : 'D'}: loaded: ${filename}` };
   }
 }

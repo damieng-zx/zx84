@@ -39,6 +39,7 @@ import { wireElectronIo } from './electron-io.ts';
 import { ElectronPlus1, PLUS1_ROM_PAGE, CART_PAGES } from './peripherals/plus1.ts';
 import { ADFS_SECTORS_PER_TRACK } from '@/media/floppy/adfs.ts';
 import { SSD_SECTORS_PER_TRACK } from '@/media/floppy/ssd.ts';
+import { resolveDriveCount } from '@/machines/shared/drive-count.ts';
 import { DFS_ROM_PAGE, ElectronPlus3, PLUS3_ROM_PAGE } from './peripherals/plus3.ts';
 import { electronDescriptor } from './descriptor.ts';
 import { createElectronServices, type ElectronServices } from './services/index.ts';
@@ -89,6 +90,8 @@ export class ElectronMachine extends BaseMachine implements Machine {
   readonly plus3 = new ElectronPlus3((asserted) => { if (asserted) this.cpu.nmi(); });
   plus1Fitted = false;
   plus3Fitted = false;
+  /** How many of the Plus 3's two drives are fitted (1 or 2), from the Drives pane. */
+  driveCount = 2;
   /** The Plus 3's drives run the ACP 1770 DFS (Acorn DFS discs) instead of ADFS. */
   dfsFitted = false;
   /** Name of the cartridge in the Plus 1's front slot, '' when empty. */
@@ -152,6 +155,7 @@ export class ElectronMachine extends BaseMachine implements Machine {
   /** Fit or remove the expansions and return the ROM loads they need. The ROMs
    *  are fitted at build time, so toggling a peripheral rebuilds the machine. */
   prepare(view: SettingsView): AuxRomRequest[] {
+    this.setDriveCount(resolveDriveCount(view, 'electron', 2));
     this.setExpansions(
       view.get('electron-plus1', false), view.get('electron-plus3', false), view.get('electron-dfs', false),
     );
@@ -192,6 +196,12 @@ export class ElectronMachine extends BaseMachine implements Machine {
       });
     }
     return requests;
+  }
+
+  /** Fit the first `count` Plus 3 drives. */
+  setDriveCount(count: number): void {
+    this.driveCount = count;
+    this.plus3.setDriveCount(count);
   }
 
   /** `dfs` swaps the Plus 3's ADFS ROM for the ACP 1770 DFS: the same WD1770

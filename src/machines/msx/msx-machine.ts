@@ -27,6 +27,7 @@ import { disasmOne, type DisasmLine } from '@/debug/z80/disasm.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type { AuxRomRequest, Machine, MachineHost, MachineKind, MachineDescriptor, BorderMode, MachineTraceMode, SettingsView } from '@/machines/machine.ts';
 import { applyAySettings } from '@/machines/shared/ay-settings.ts';
+import { resolveDriveCount } from '@/machines/shared/drive-count.ts';
 import { msxDescriptor } from '@/machines/msx/descriptor.ts';
 import { createMsxServices, type MsxServices } from '@/machines/msx/services/index.ts';
 import type { MsxModel } from '@/models.ts';
@@ -42,7 +43,7 @@ import { MsxPpi, installMsxMemoryHooks, wireMsxPortIO } from '@/machines/msx/msx
 import { createMsxConfig, type MsxConfig } from '@/machines/msx/config.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
 import {
-  MSX_CPU_CLOCK, MSX_PSG_CLOCK,
+  MSX_CPU_CLOCK, MSX_PSG_CLOCK, MSX_MAX_DRIVES,
   MSX_SCREEN_WIDTH, MSX_SCREEN_HEIGHT,
   MSX_BORDER_LEFT, MSX_BORDER_TOP,
 } from '@/machines/msx/constants.ts';
@@ -74,6 +75,8 @@ export class MsxMachine extends BaseMachine implements Machine {
   readonly fdc: WD179x = this.diskIf.fdc;
   /** Disk interface fitted (needs its Disk BASIC ROM loaded as well). */
   floppyEnabled = false;
+  /** How many of the interface's two drives are fitted (Drives pane choice). */
+  driveCount = MSX_MAX_DRIVES;
   /** Inert cassette deck (interface requirement; cassette is a follow-up). */
   readonly tape: TapeDeck;
   readonly mixer: AudioMixer;
@@ -206,6 +209,8 @@ export class MsxMachine extends BaseMachine implements Machine {
   prepare(view: SettingsView): AuxRomRequest[] {
     this.fdc.writeProtect[0] = view.get('write-protect-a', false);
     this.fdc.writeProtect[1] = view.get('write-protect-b', false);
+    this.driveCount = resolveDriveCount(view, 'msx', MSX_MAX_DRIVES);
+    for (let u = 0; u < this.fdc.connected.length; u++) this.fdc.connected[u] = u < this.driveCount;
     this.setFloppyEnabled(view.get('msx-floppy', false));
     const requests: AuxRomRequest[] = [];
     // Optional on-board firmware (HB-55 Data Bank): a missing ROM only costs

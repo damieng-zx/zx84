@@ -1,3 +1,6 @@
+/** Floppy drives the FDX takes (drive-select latch bit 0). */
+export const MTX_MAX_DRIVES = 2;
+
 /** Memotech MTX master/CPU clock. */
 export const MTX_CPU_CLOCK = 4_000_000;
 /** PAL field rate and line geometry used by the TMS9929A. */

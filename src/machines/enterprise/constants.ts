@@ -10,6 +10,9 @@
  */
 
 /** Z80A clock. Dave's 8MHz input divided by two. */
+/** Floppy drives the EXDOS card takes (the WD1770's four select lines). */
+export const EP_MAX_DRIVES = 4;
+
 export const EP_CPU_CLOCK = 4_000_000;
 
 /**

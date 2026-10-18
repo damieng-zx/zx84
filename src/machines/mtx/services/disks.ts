@@ -59,11 +59,12 @@ export class MtxDiskService implements DiskService {
     return [
       this.describe('a', 'Drive B:', 0),
       this.describe('b', 'Drive C:', 1),
-    ];
+    ].slice(0, this.machine.driveCount);
   }
 
   insert(id: string, media: DriveMedia, name: string): void {
     const unit = id === 'b' ? 1 : 0;
+    if (unit >= this.machine.driveCount) throw new Error('that drive is not fitted');
     this.machine.loadDisk(media as DskImage, unit);
     this.names.set(id, name);
   }

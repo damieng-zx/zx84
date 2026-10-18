@@ -3,6 +3,7 @@ import { Pane } from '@/ui/components/Pane.tsx';
 import { DropDownMenuButton } from '@/ui/components/DropDownMenuButton.tsx';
 import { HiOutlineEllipsisVertical, HiOutlineDocumentPlus, HiOutlineArrowDownTray, HiOutlineArrowPath } from 'solid-icons/hi';
 import { machine } from '@/shell/context.ts';
+import { switchModel } from '@/shell/lifecycle.ts';
 import {
   ejectDisk, loadFile, insertBlankDisk, saveDisk,
   ejectPlusDDisk, insertBlankPlusDDisk, savePlusDDisk,
@@ -23,10 +24,10 @@ import {
   diskSoundC, setDiskSoundC, diskSoundD, setDiskSoundD,
   writeProtectC, setWriteProtectC, writeProtectD, setWriteProtectD,
   plusDEnabled, betaDiskEnabled, lynxFdc, bbcDiskSystem, msxFloppy, apple2Disk2, tapeTurbo, setTapeTurbo,
-  persistSetting, resetSettingsGroup,
+  persistSetting, resetSettingsGroup, driveCountFor, setDriveCountFor,
 } from '@/store/settings.ts';
 import { isPlusDCapable, isBetaDiskCapable, hasBuiltinBetaDisk, isLynxModel, isBbcModel, isMsxModel, isApple2Model } from '@/models.ts';
-import { machineCaps } from '@/state/machine-caps.ts';
+import { machineCaps, machineDescriptor } from '@/state/machine-caps.ts';
 import { DISK_FORMATS, formatLabel, createBlankDisk } from '@/media/floppy/dsk.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { createBlankHfe } from '@/media/floppy/hfe.ts';
@@ -90,6 +91,8 @@ function DiskInfo(props: {
   /** Show the global "Turbo while loading" toggle in this drive's menu (+3 /
    *  CPC drives, whose FDC reads engage disk turbo). */
   showTurbo?: boolean;
+  /** On a group's first drive: the "Drive count" sub-menu (1..max fitted). */
+  driveCount?: { max: number; current: number; onChange: (count: number) => void };
 }) {
   return (
     <div class="disk-section">
@@ -131,11 +134,21 @@ function DiskInfo(props: {
               ? [{ value: '__sep', label: '', separator: true },
                  { value: 'turbo', label: 'Turbo while loading', checked: tapeTurbo() }]
               : []),
+            ...(props.driveCount
+              ? [{ value: '__sep-count', label: '', separator: true },
+                 {
+                   value: 'count', label: 'Drive count',
+                   children: Array.from({ length: props.driveCount.max }, (_, i) => ({
+                     value: `count-${i + 1}`, label: String(i + 1), checked: props.driveCount!.current === i + 1,
+                   })),
+                 }]
+              : []),
           ]}
           onSelect={(value) => {
             if (value === 'sound') props.onToggleSound();
             else if (value === 'wp') props.onToggleWriteProtect();
             else if (value === 'force-ready') props.onToggleForceReady?.();
+            else if (value.startsWith('count-')) props.driveCount?.onChange(parseInt(value.slice(6), 10));
             else if (value === 'turbo') {
               setTapeTurbo(!tapeTurbo());
               persistSetting('tape-turbo-load', tapeTurbo() ? 'on' : 'off');
@@ -391,6 +404,23 @@ export function DrivePane() {
   // The Lynx's FD1793 addresses four drives; everything else here has two.
   const builtinFourDrives = () =>
     builtinDisk() && (machineCaps().builtinDrives ?? 2) > 2;
+  // How many drives are fitted. The count is a hardware choice (the floppy
+  // controller sees fewer drives), kept per machine kind, so changing it
+  // rebuilds the machine; mounted disks carry over to the drives that remain.
+  const driveKind = () => machineDescriptor().kind;
+  const builtinMax = () => machineCaps().builtinDrives ?? 2;
+  const builtinCount = () => driveCountFor(driveKind(), builtinMax());
+  // The +D and Beta Disk interfaces each carry a fixed pair of drives.
+  const pairCount = () => driveCountFor(driveKind(), 2);
+  const activeCount = () => (builtinDisk() ? builtinCount() : pairCount());
+  const countMenu = (max: number, current: number) => max < 2 ? undefined : {
+    max, current,
+    onChange: (count: number) => {
+      if (count === current) return;
+      setDriveCountFor(driveKind(), count);
+      void switchModel(currentModel());
+    },
+  };
   // The built-in drives' blank-disk menu is the machine's own disk format: the
   // Lynx accepts .ldf, the BBC .ssd, everything else here uses the +3 DSK/HFE set.
   const builtinDiskItems = () => {
@@ -414,7 +444,9 @@ export function DrivePane() {
       // shared pair — never both on one machine.
       if (currentDiskNameC()) builtinFourDrives() ? ejectDisk(2) : (betaDiskActive() ? ejectBetaDiskDisk(0) : ejectPlusDDisk(0));
       if (currentDiskNameD()) builtinFourDrives() ? ejectDisk(3) : (betaDiskActive() ? ejectBetaDiskDisk(1) : ejectPlusDDisk(1));
+      const countBefore = activeCount();
       resetSettingsGroup('drive');
+      if (activeCount() !== countBefore) void switchModel(currentModel());
       const disks = machine?.services.disks;
       if (disks) {
         disks.setWriteProtect('a', false); disks.setWriteProtect('b', false);
@@ -435,6 +467,7 @@ export function DrivePane() {
           side={diskSideA()}
           onFlip={() => flipDisk(0)}
           showTurbo
+          driveCount={countMenu(builtinMax(), builtinCount())}
           newItems={builtinDiskItems()}
           onNewDisk={(value) => {
             const blank = blankForValue(value);
@@ -453,6 +486,7 @@ export function DrivePane() {
             syncWriteProtect(0, writeProtectA());
           }}
         />
+        <Show when={builtinCount() >= 2}>
         <DiskInfo
           label="B:"
           name={currentDiskNameB()}
@@ -487,7 +521,8 @@ export function DrivePane() {
             syncForceReady(1, driveBForceReady());
           }}
         />
-        <Show when={builtinFourDrives()}>
+        </Show>
+        <Show when={builtinFourDrives() && builtinCount() >= 3}>
           <DiskInfo
             label="C:"
             name={currentDiskNameC()}
@@ -514,6 +549,8 @@ export function DrivePane() {
               syncWriteProtect(2, writeProtectC());
             }}
           />
+        </Show>
+        <Show when={builtinFourDrives() && builtinCount() >= 4}>
           <DiskInfo
             label="D:"
             name={currentDiskNameD()}
@@ -551,6 +588,7 @@ export function DrivePane() {
           soundEnabled={diskSoundC()}
           writeProtected={writeProtectC()}
           showProtection={false}
+          driveCount={countMenu(2, pairCount())}
           newItems={PLUSD_NEW_ITEMS}
           onNewDisk={(value) => {
             const b = plusDBlankForValue(value);
@@ -569,6 +607,7 @@ export function DrivePane() {
             syncPlusDWriteProtect(0, writeProtectC());
           }}
         />
+        <Show when={pairCount() >= 2}>
         <DiskInfo
           label="D:"
           name={currentDiskNameD()}
@@ -595,6 +634,7 @@ export function DrivePane() {
             syncPlusDWriteProtect(1, writeProtectD());
           }}
         />
+        </Show>
       </Show>
       <Show when={betaDiskActive()}>
         <DiskInfo
@@ -605,6 +645,7 @@ export function DrivePane() {
           soundEnabled={diskSoundC()}
           writeProtected={writeProtectC()}
           showProtection={false}
+          driveCount={countMenu(2, pairCount())}
           newItems={BETADISK_NEW_ITEMS}
           onNewDisk={(value) => {
             const b = betaDiskBlankForValue(value);
@@ -623,6 +664,7 @@ export function DrivePane() {
             syncBetaDiskWriteProtect(0, writeProtectC());
           }}
         />
+        <Show when={pairCount() >= 2}>
         <DiskInfo
           label="B:"
           name={currentDiskNameD()}
@@ -649,6 +691,7 @@ export function DrivePane() {
             syncBetaDiskWriteProtect(1, writeProtectD());
           }}
         />
+        </Show>
       </Show>
     </Pane>
   );

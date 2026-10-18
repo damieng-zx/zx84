@@ -37,7 +37,7 @@ export class LynxDiskService implements DiskService {
   get drives(): readonly DriveDescriptor[] {
     const fdc = this.m.fdc;
     const out: DriveDescriptor[] = [];
-    for (let u = 0; u < UNIT_IDS.length; u++) {
+    for (let u = 0; u < this.m.driveCount; u++) {
       out.push({
         id: UNIT_IDS[u],
         label: UNIT_LABELS[u],
@@ -52,6 +52,7 @@ export class LynxDiskService implements DiskService {
 
   insert(id: string, media: DriveMedia, name: string): void {
     const unit = LynxDiskService.unitOf(id);
+    if (unit >= this.m.driveCount) throw new Error('that drive is not fitted');
     this.m.fdc.insertDisk(media as DskImage, unit);
     this.names.set(unit, name);
   }

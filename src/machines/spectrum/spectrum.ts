@@ -42,6 +42,7 @@ import { createVariant, type MachineVariant } from '@/machines/spectrum/variants
 import type { Machine, MachineKind, MachineHost, MachineDescriptor, SettingsView, AuxRomRequest } from '@/machines/machine.ts';
 import { applyAySettings } from '@/machines/shared/ay-settings.ts';
 import { spectrumDescriptor } from '@/machines/spectrum/descriptor.ts';
+import { resolveDriveCount } from '@/machines/shared/drive-count.ts';
 import { buildSpectrumAuxRoms } from '@/machines/spectrum/aux-roms.ts';
 import { createSpectrumServices, type SpectrumServices } from '@/machines/spectrum/services/index.ts';
 import { SpectrumTrace } from '@/machines/spectrum/trace.ts';
@@ -101,6 +102,9 @@ function load48kSequence(): BootKeyStep[] {
   ];
 }
 
+/** The +3's built-in drives, and the +D / Beta Disk interfaces, each have two. */
+export const SPECTRUM_MAX_DRIVES = 2;
+
 export class Spectrum extends BaseMachine implements Machine {
   protected get audioChip(): AY3891x { return this.ay; }
   readonly kind: MachineKind = 'spectrum';
@@ -119,6 +123,9 @@ export class Spectrum extends BaseMachine implements Machine {
   audio: Audio;
   tape: TapeDeck;
   fdc: UPD765A;
+  /** How many drives of the active disk subsystem are fitted (1..2): the +3's
+   *  built-in pair, or the +D / Beta Disk pair. Set from the settings in prepare(). */
+  driveCount = SPECTRUM_MAX_DRIVES;
   contention: Contention;
   screenText = new ScreenText();
   readonly trace: SpectrumTrace;
@@ -380,7 +387,24 @@ export class Spectrum extends BaseMachine implements Machine {
       this.fdc.writeProtect[1] = view.get('write-protect-b', false);
       this.fdc.forceReady[1] = view.get('drive-b-force-ready', false);
     }
-    return buildSpectrumAuxRoms(this, view);
+    const reqs = buildSpectrumAuxRoms(this, view);
+    // How many drives of the active disk subsystem (the +3's built-in pair, or
+    // the +D / Beta Disk pair) are fitted. The unfitted select lines get no
+    // drive: the uPD765A fails RECALIBRATE/SEEK and reports not-ready for them,
+    // the WD179x ends Type I commands in a seek error.
+    this.driveCount = resolveDriveCount(view, 'spectrum', SPECTRUM_MAX_DRIVES);
+    this.applyDriveCount();
+    return reqs;
+  }
+
+  /** Wire only the first `driveCount` drives to each controller's select lines. */
+  private applyDriveCount(): void {
+    for (let u = 0; u < 2; u++) {
+      const fitted = u < this.driveCount;
+      this.fdc.connected[u] = fitted;
+      this.mgtPlusD.fdc.connected[u] = fitted;
+      this.betaDisk.fdc.connected[u] = fitted;
+    }
   }
 
   /** Trace state accessors for io.ts */

@@ -27,6 +27,7 @@ import { disasmOne, type DisasmLine } from '@/debug/z80/disasm.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type { Machine, MachineHost, MachineKind, MachineDescriptor, BorderMode, MachineTraceMode, SettingsView } from '@/machines/machine.ts';
 import { applyAySettings } from '@/machines/shared/ay-settings.ts';
+import { resolveDriveCount } from '@/machines/shared/drive-count.ts';
 import { einsteinDescriptor } from '@/machines/einstein/descriptor.ts';
 import { createEinsteinServices, type EinsteinServices } from '@/machines/einstein/services/index.ts';
 import type { EinsteinModel } from '@/models.ts';
@@ -39,7 +40,7 @@ import { installEinsteinMemoryHooks, wireEinsteinPortIO } from '@/machines/einst
 import { createEinsteinConfig, type EinsteinConfig } from '@/machines/einstein/config.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
 import {
-  EINSTEIN_AY_CLOCK, EINSTEIN_CPU_CLOCK, EINSTEIN_T_PER_FRAME,
+  EINSTEIN_AY_CLOCK, EINSTEIN_CPU_CLOCK, EINSTEIN_MAX_DRIVES, EINSTEIN_T_PER_FRAME,
   EINSTEIN_SCREEN_WIDTH, EINSTEIN_SCREEN_HEIGHT,
   EINSTEIN_BORDER_LEFT, EINSTEIN_BORDER_TOP,
   EINSTEIN_256_SCREEN_WIDTH, EINSTEIN_256_SCREEN_HEIGHT,
@@ -94,6 +95,8 @@ export class EinsteinMachine extends BaseMachine implements Machine {
   /** Per-frame I/O activity for the status-bar LEDs. */
   readonly activity = { kbdReads: 0, fdcAccesses: 0, tapeReads: 0, ayWrites: 0 };
   bootDiskEnabled = true;
+  /** How many of the two WD1772 drives are fitted (Drives pane choice). */
+  driveCount = EINSTEIN_MAX_DRIVES;
 
   /** Screen-text OCR engine for the MCP `ocr` tool and the TEXT overlay. The
    *  TC-01's TMS9929A and the 256's V9938 draw the same MOS font but with
@@ -209,6 +212,8 @@ export class EinsteinMachine extends BaseMachine implements Machine {
   /** Built-in WD1772 drive settings — once per build (no peripheral ROMs). */
   prepare(view: SettingsView): [] {
     this.bootDiskEnabled = view.get('einstein-xtaldos', true);
+    this.driveCount = resolveDriveCount(view, 'einstein', EINSTEIN_MAX_DRIVES);
+    for (let u = 0; u < this.fdc.connected.length; u++) this.fdc.connected[u] = u < this.driveCount;
     if (this.config.hasFDC) {
       this.fdc.writeProtect[0] = view.get('write-protect-a', false);
       this.fdc.writeProtect[1] = view.get('write-protect-b', false);

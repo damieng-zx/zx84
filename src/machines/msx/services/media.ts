@@ -58,7 +58,11 @@ export class MsxMediaService implements MediaService {
       if (this.disks.drives.length === 0) {
         return fail('Fit the disk interface in the Hardware pane to use disk images');
       }
-      const id = target === 'b' || target === 'unit:1' ? 'b' : 'a';
+      const unit = target === 'b' ? 1 : target?.startsWith('unit:') ? Number(target.slice(5)) : 0;
+      if (!Number.isInteger(unit) || unit < 0 || unit >= this.disks.drives.length) {
+        return fail('that drive is not fitted');
+      }
+      const id = unit === 1 ? 'b' : 'a';
       try {
         this.disks.insert(id, parseMsxFloppy(data), filename);
       } catch (err) {

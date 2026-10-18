@@ -10,6 +10,14 @@ import type { ElectronDiskService } from './disks.ts';
 const ADFS_EXT = /\.(?:adf|adl|ads|adm)$/i;
 const DFS_EXT = /\.(?:ssd|dsd)$/i;
 
+/** The drive a mount target names: 'a' / 'b' directly, or the shell's
+ *  family-agnostic `unit:N` hint (unit 0 = drive 0, unit 1 = drive 1). */
+function driveOf(target: MediaTargetId | undefined): 'a' | 'b' {
+  if (target === 'b') return 'b';
+  const unit = /^unit:(\d+)$/.exec(target ?? '');
+  return unit && Number(unit[1]) === 1 ? 'b' : 'a';
+}
+
 /** Acornsoft cartridges ship as two 16K dumps, `Name_1.rom` (lower bank) and
  *  `Name_2.rom` (upper bank). */
 const HALF_ROM = /^(.*)_([12])\.rom$/i;
@@ -76,7 +84,10 @@ export class ElectronMediaService implements MediaService {
             : 'ADFS discs need the Plus 3 set to ADFS in the Hardware pane',
         };
       }
-      const id = target === 'b' ? 'b' : 'a';
+      const id = driveOf(target);
+      if (id === 'b' && this.machine.driveCount < 2) {
+        return { ok: false, message: 'Drive 1 is not fitted (change the drive count in the Drives pane)' };
+      }
       try {
         // .adl is the double-sided L format even when the file has been trimmed;
         // .dsd is always two sides.

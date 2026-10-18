@@ -33,6 +33,7 @@ import { BbcKeyboard } from './bbc-keyboard.ts';
 import { BbcVideo, bitmapMode, wrapSubtract } from './bbc-video.ts';
 import { BbcDfs1770 } from './peripherals/wd1770-dfs.ts';
 import { BbcAcornDfs } from './peripherals/acorn-8271-dfs.ts';
+import { resolveDriveCount } from '@/machines/shared/drive-count.ts';
 import type { BbcDiscController } from './peripherals/disc-controller.ts';
 import { wireBbcIo } from './bbc-io.ts';
 import { bbcDescriptor } from './descriptor.ts';
@@ -103,6 +104,9 @@ export class BbcMachine extends BaseMachine implements Machine {
   /** Which disc interface (if any) is fitted. */
   diskSystem: BbcDiskSystem = '1770';
 
+  /** How many of the two DFS drives are fitted (1 or 2), from the Drives pane. */
+  driveCount = 2;
+
   /** The fitted disc controller, or null when no disc interface is present. */
   get disc(): BbcDiscController | null {
     if (this.diskSystem === 'none') return null;
@@ -172,6 +176,7 @@ export class BbcMachine extends BaseMachine implements Machine {
    *  falls back to DFS when no Econet hardware is present. */
   prepare(view: SettingsView): AuxRomRequest[] {
     this.setDiskSystem(view.get<BbcDiskSystem>('bbc-disk-system', '1770'));
+    this.setDriveCount(resolveDriveCount(view, 'bbc', 2));
     if (this.diskSystem === 'none') return [];
     const acorn = this.diskSystem === 'acorn';
     return [{
@@ -197,6 +202,14 @@ export class BbcMachine extends BaseMachine implements Machine {
       this.acorn8271.ejectDisk(1);
     }
     this.diskSystem = system;
+  }
+
+  /** Fit the first `count` drives. Applied to both controllers so the count
+   *  holds whichever interface is (or is later) fitted. */
+  setDriveCount(count: number): void {
+    this.driveCount = count;
+    this.fdc1770.setDriveCount(count);
+    this.acorn8271.setDriveCount(count);
   }
 
   applySettings(view: SettingsView): void {

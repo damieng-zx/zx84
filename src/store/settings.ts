@@ -108,7 +108,7 @@ const DEFAULTS = {
   'electron-dfs':   'off',
   'lynx-fdc':       'on',
   'apple2-disk2':   'on',
-  'apple2-drives':  '2',
+  'drive-counts':   '{}',
   'apple2-langcard': 'on',
   'apple2-joystick': 'on',
   'apple2-mockingboard': 'off',
@@ -440,9 +440,50 @@ const _apple2Disk2 = /*@once*/ createRoot(() => createSignal(getSaved('apple2-di
 export const apple2Disk2 = _apple2Disk2[0];
 export const setApple2Disk2 = _apple2Disk2[1];
 
-const _apple2Drives = /*@once*/ createRoot(() => createSignal(getSaved('apple2-drives', D('apple2-drives')) as '1' | '2'));
-export const apple2Drives = _apple2Drives[0];
-export const setApple2Drives = _apple2Drives[1];
+// ── Built-in drive count ────────────────────────────────────────────────
+// How many of a machine's built-in floppy drives are fitted, kept per machine
+// kind (a count chosen on the Lynx says nothing about the BBC) as one JSON
+// object. A kind with no entry has every drive its model can take.
+
+function parseDriveCounts(raw: string): Record<string, number> {
+  const out: Record<string, number> = {};
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object') {
+      for (const [kind, n] of Object.entries(parsed)) {
+        if (Number.isInteger(n) && n >= 1) out[kind] = n as number;
+      }
+    }
+  } catch { /* corrupted entry: start again with every drive fitted */ }
+  return out;
+}
+
+function initialDriveCounts(): Record<string, number> {
+  const counts = parseDriveCounts(getSaved('drive-counts', D('drive-counts')));
+  // The Apple II used to keep its count as a Hardware-pane option of its own.
+  if (counts.apple2 === undefined && getSaved('apple2-drives', '') === '1') counts.apple2 = 1;
+  return counts;
+}
+
+const _driveCounts = /*@once*/ createRoot(() => createSignal(initialDriveCounts()));
+const setDriveCountsJson = (json: string): void => { _driveCounts[1](parseDriveCounts(json)); };
+
+/** The count saved for a machine kind, or undefined when the user never chose one. */
+export function savedDriveCount(kind: string): number | undefined {
+  return _driveCounts[0]()[kind];
+}
+
+/** Drives fitted for a machine kind whose model takes at most `max`. */
+export function driveCountFor(kind: string, max: number): number {
+  return Math.min(max, Math.max(1, savedDriveCount(kind) ?? max));
+}
+
+/** Choose and persist how many built-in drives a machine kind has. */
+export function setDriveCountFor(kind: string, count: number): void {
+  const next = { ..._driveCounts[0](), [kind]: count };
+  _driveCounts[1](next);
+  persistSetting('drive-counts', JSON.stringify(next));
+}
 
 const _apple2LangCard = /*@once*/ createRoot(() => createSignal(getSaved('apple2-langcard', D('apple2-langcard')) === 'on'));
 export const apple2LangCard = _apple2LangCard[0];
@@ -645,6 +686,7 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'disk-sound-d',        set: setDiskSoundD,       type: 'bool' },
     { key: 'write-protect-c',     set: setWriteProtectC,    type: 'bool' },
     { key: 'write-protect-d',     set: setWriteProtectD,    type: 'bool' },
+    { key: 'drive-counts',        set: setDriveCountsJson,  type: 'string' },
   ],
   tape: [
     { key: 'tape-auto-rewind',     set: setTapeAutoRewind,     type: 'bool' },
@@ -672,7 +714,6 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'electron-dfs', set: setElectronDfs, type: 'bool' },
     { key: 'lynx-fdc', set: setLynxFdc, type: 'bool' },
     { key: 'apple2-disk2', set: setApple2Disk2, type: 'bool' },
-    { key: 'apple2-drives', set: setApple2Drives, type: 'string' },
     { key: 'apple2-langcard', set: setApple2LangCard, type: 'bool' },
     { key: 'apple2-joystick', set: setApple2Joystick, type: 'bool' },
     { key: 'apple2-mockingboard', set: setApple2Mockingboard, type: 'bool' },

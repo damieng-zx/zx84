@@ -264,9 +264,18 @@ describe('apple2 hardware options', () => {
     } finally { m.destroy(); }
   });
 
+  it('refuses a mount into the second drive when only one is fitted', async () => {
+    const { m } = prepared({ 'drive-count:apple2': 1 });
+    try {
+      const res = await m.services.media.mount(new Uint8Array(35 * 16 * 256), 'two.dsk', 'unit:1');
+      expect(res.ok).toBe(false);
+      expect(m.services.disks.drives.map(d => d.loaded)).toEqual([false]);
+    } finally { m.destroy(); }
+  });
+
   it('attaches one or two drives', () => {
-    expect(prepared({ 'apple2-drives': '1' }).m.services.disks.drives.map(d => d.id)).toEqual(['a']);
-    const { m } = prepared({ 'apple2-drives': '2' });
+    expect(prepared({ 'drive-count:apple2': 1 }).m.services.disks.drives.map(d => d.id)).toEqual(['a']);
+    const { m } = prepared({ 'drive-count:apple2': 2 });
     try {
       expect(m.services.disks.drives.map(d => d.id)).toEqual(['a', 'b']);
     } finally { m.destroy(); }

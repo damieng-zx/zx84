@@ -18,10 +18,12 @@ export class BbcDiskService implements DiskService {
 
   get drives(): readonly DriveDescriptor[] {
     if (!this.machine.disc) return [];
-    return [this.describe('a', 'Drive 0', 0), this.describe('b', 'Drive 1', 1)];
+    const all = [this.describe('a', 'Drive 0', 0), this.describe('b', 'Drive 1', 1)];
+    return all.slice(0, this.machine.driveCount);
   }
 
   insert(id: string, media: DriveMedia, name: string): void {
+    if (this.unit(id) >= this.machine.driveCount) throw new Error('that drive is not fitted');
     this.machine.disc?.insertDisk(media as DskImage, this.unit(id));
     this.names.set(id, name);
   }

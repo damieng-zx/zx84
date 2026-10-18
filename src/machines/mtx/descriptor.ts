@@ -18,6 +18,7 @@ const MTX_UI: MachineUiCapabilities = {
   // VDP-based scanline rendering — no per-t-state Accuracy dropdown (as MSX).
   accuracy: false,
   builtinDisk: true,
+  builtinDrives: 2,
   joystick: true,
   fixedJoystick: true,
   mouseTypes: [],

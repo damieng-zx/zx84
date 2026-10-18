@@ -311,6 +311,7 @@ vi.mock('@/store/settings.ts', () => ({
   setWebglAvailable:  vi.fn(),
   setRenderer:        vi.fn(),
   persistSetting:     vi.fn(),
+  savedDriveCount:    vi.fn(() => undefined),
   borderSize:         vi.fn(() => 2),
   colorMap:           vi.fn(() => 'measured'),
   scale:              vi.fn(() => 2),

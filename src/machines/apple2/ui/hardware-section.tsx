@@ -20,8 +20,8 @@ export function Apple2HardwareSection() {
   const iic = () => apple2ModelInfo(currentModel()).iic;
   return (
     <>
+      <Show when={!iic()}>
       <div class="multiface-row">
-        <Show when={!iic()}>
         <label
           class="mf-check"
           title="Fit the Disk ][ controller card in slot 6, with its drives"
@@ -38,22 +38,8 @@ export function Apple2HardwareSection() {
           />
           Disk ][ controller
         </label>
-        </Show>
-        <select
-          disabled={!iic() && !settings.apple2Disk2()}
-          value={settings.apple2Drives()}
-          title="Drives attached to the Disk ][ controller"
-          onChange={(event) => {
-            const drives = (event.target as HTMLSelectElement).value as '1' | '2';
-            settings.setApple2Drives(drives);
-            settings.persistSetting('apple2-drives', drives);
-            rebuild();
-          }}
-        >
-          <option value="1">{iic() ? 'Internal drive' : '1 drive'}</option>
-          <option value="2">{iic() ? 'Internal + external drive' : '2 drives'}</option>
-        </select>
       </div>
+      </Show>
       <div class="multiface-row">
         <label
           class="mf-check"

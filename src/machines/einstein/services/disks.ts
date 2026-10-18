@@ -43,7 +43,7 @@ export class EinsteinDiskService implements DiskService {
     if (!e.config.hasFDC) return [];
     const motorUnit = e.fdc.motorOn ? e.fdc.currentUnit & 1 : -1;
     const out: DriveDescriptor[] = [];
-    for (let u = 0; u < 2; u++) {
+    for (let u = 0; u < e.driveCount; u++) {
       const id = u === 0 ? 'a' : 'b';
       out.push({
         id,
@@ -58,6 +58,7 @@ export class EinsteinDiskService implements DiskService {
   }
 
   insert(id: string, media: DriveMedia, name: string): void {
+    if ((id === 'a' ? 0 : 1) >= this.e.driveCount) throw new Error('that drive is not fitted');
     this.e.loadDisk(media as DskImage, id === 'a' ? 0 : 1);
     this.names.set(id, name);
   }

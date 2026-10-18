@@ -579,6 +579,7 @@ function makeSpectrumWithFDC(fdcOpts?: Parameters<typeof makeFdcMock>[0]): Retur
   const s = makeSpectrumWithSnap(snap) as any;
   s.variant = { hasBanking: false, hasFDC: true, hasAY: false };
   s.fdc = makeFdcMock(fdcOpts);
+  s.driveCount = 2;
   s.memory = {
     ...s.memory, port7FFD: 0, port1FFD: 0, pagingLocked: false,
     specialPaging: false, currentROM: 0, currentBank: 0,

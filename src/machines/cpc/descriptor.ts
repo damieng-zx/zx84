@@ -26,6 +26,7 @@ function cpcUi(model: MachineModel): MachineUiCapabilities {
     colorMap: 'cpc',
     accuracy: false,
     builtinDisk: cpcHasDisk(model),
+    builtinDrives: 2,
     joystick: true,
     fixedJoystick: true,
     mouseTypes: [

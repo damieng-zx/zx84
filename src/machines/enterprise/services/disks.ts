@@ -28,7 +28,7 @@ export class EnterpriseDiskService implements DiskService {
     const card = this.m.exdos;
     if (!card) return [];
     const fdc = card.fdc;
-    return UNIT_IDS.map((id, u) => ({
+    return UNIT_IDS.slice(0, this.m.driveCount).map((id, u) => ({
       id,
       label: UNIT_LABELS[u],
       loaded: fdc.getDiskImage(u) !== null,
@@ -42,6 +42,7 @@ export class EnterpriseDiskService implements DiskService {
     const card = this.m.exdos;
     if (!card) return;
     const unit = EnterpriseDiskService.unitOf(id);
+    if (unit >= this.m.driveCount) throw new Error('that drive is not fitted');
     card.fdc.insertDisk(media as DskImage, unit);
     card.noteDiskChanged(unit);
     this.names.set(unit, name);

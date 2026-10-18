@@ -189,14 +189,12 @@ export class SpectrumFrameProbe implements FrameProbe {
     out.driveLed[0] = out.driveLed[1] = out.driveLed[2] = out.driveLed[3] = -1;
     if (v.hasFDC) {
       const activeUnit = s.fdc.currentUnit;
-      fillDriveSlot(out, 0, s.fdc, 0, activeUnit);
-      fillDriveSlot(out, 1, s.fdc, 1, activeUnit);
+      for (let u = 0; u < s.driveCount; u++) fillDriveSlot(out, u, s.fdc, u, activeUnit);
     }
     const wd = activeWd(s);
     if (wd) {
       const wdActive = wd.currentUnit;
-      fillDriveSlot(out, 2, wd, 0, wdActive);
-      fillDriveSlot(out, 3, wd, 1, wdActive);
+      for (let u = 0; u < s.driveCount; u++) fillDriveSlot(out, 2 + u, wd, u, wdActive);
     }
 
     // Microdrive motors (IF1).
@@ -268,8 +266,8 @@ export class SpectrumFrameProbe implements FrameProbe {
 
   diskImageForSlot(slot: number): DskImage | null {
     const s = this.s;
-    if (slot <= 1) return s.variant.hasFDC ? s.fdc.getDiskImage(slot) : null;
+    if (slot <= 1) return s.variant.hasFDC && slot < s.driveCount ? s.fdc.getDiskImage(slot) : null;
     const wd = activeWd(s);
-    return wd ? wd.getDiskImage(slot - 2) : null;
+    return wd && slot - 2 < s.driveCount ? wd.getDiskImage(slot - 2) : null;
   }
 }

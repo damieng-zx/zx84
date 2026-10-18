@@ -39,6 +39,8 @@ function spectrumUi(model: MachineModel): MachineUiCapabilities {
     colorMap: 'spectrum',
     accuracy: 'scanline',
     builtinDisk: isPlus3(model),
+    // The +3's pair, and the +D / Beta Disk pairs, are the most drives it can fit.
+    builtinDrives: 2,
     joystick: true,
     fixedJoystick: false,
     mouseTypes: [

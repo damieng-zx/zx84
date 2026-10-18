@@ -7,7 +7,7 @@ import type { LynxModel } from './models.ts';
 import { isLynxModel, lynxHasDisk } from './models.ts';
 import { LynxMachine } from './lynx-machine.ts';
 import {
-  LYNX_ACTIVE_HEIGHT, LYNX_BORDER_TOP, LYNX_GEOMETRY_128, LYNX_GEOMETRY_48,
+  LYNX_ACTIVE_HEIGHT, LYNX_BORDER_TOP, LYNX_GEOMETRY_128, LYNX_GEOMETRY_48, LYNX_MAX_DRIVES,
 } from './constants.ts';
 
 /** The panes the Lynx has no hardware for. */
@@ -30,7 +30,7 @@ function lynxUi(model: LynxModel): MachineUiCapabilities {
     // The 96K and 128K carry the FD1793 and its DOS ROM, so they show the
     // Drive pane; the 48K has neither.
     builtinDisk: disk,
-    builtinDrives: disk ? 4 : 2,
+    builtinDrives: disk ? LYNX_MAX_DRIVES : 2,
     joystick: false,
     fixedJoystick: false,
     mouseTypes: [],

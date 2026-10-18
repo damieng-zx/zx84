@@ -45,6 +45,9 @@ export class BbcAcornDfs implements BbcDiscController {
   isDirty(unit: number): boolean { return this.fdc.isDirty(unit); }
   clearDirty(unit: number): void { this.fdc.clearDirty(unit); }
   get writeProtect(): boolean[] { return this.fdc.writeProtect; }
+  setDriveCount(count: number): void {
+    this.fdc.connected.forEach((_, u, all) => { all[u] = u < count; });
+  }
 
   get motorOn(): boolean { return this.fdc.motorOn; }
   get isExecuting(): boolean { return this.fdc.isExecuting; }

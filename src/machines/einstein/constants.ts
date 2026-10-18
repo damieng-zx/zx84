@@ -8,6 +8,9 @@
 
 import { VDP_WIDTH, VDP_HEIGHT } from '@/cores/tms9918a.ts';
 
+/** Floppy drives the machine takes (the WD1772's two select lines). */
+export const EINSTEIN_MAX_DRIVES = 2;
+
 /** Z80 clock (Hz). */
 export const EINSTEIN_CPU_CLOCK = 4_000_000;
 

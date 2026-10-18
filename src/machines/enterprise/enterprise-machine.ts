@@ -16,6 +16,7 @@
 import { Z80 } from '@/cores/z80.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
+import { resolveDriveCount } from '@/machines/shared/drive-count.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type {
@@ -23,7 +24,7 @@ import type {
   SettingsView, AuxRomRequest,
 } from '@/machines/machine.ts';
 import {
-  CARTRIDGE_MAX_SIZE, EP_CPU_CLOCK, EP_FRAME_HEIGHT, EP_FRAME_WIDTH, EP_LINES_PER_FRAME,
+  CARTRIDGE_MAX_SIZE, EP_CPU_CLOCK, EP_MAX_DRIVES, EP_FRAME_HEIGHT, EP_FRAME_WIDTH, EP_LINES_PER_FRAME,
   EP_SEGMENT_SIZE, EP_T_PER_FRAME, EP_T_PER_LINE, EP_VSYNC_TO_FIRST_LINE, EXDOS_MAX_SIZE,
   EXOS_MAX_SIZE, EXTENSION_MAX_SIZE, EXTENSION_SOCKETS, NICK_CLOCKS_PER_T, SEG_CARTRIDGE,
   SEG_EXDOS, SEG_EXOS, SEG_EXTENSION, SEG_HOSTFS,
@@ -67,6 +68,8 @@ export class EnterpriseMachine extends BaseMachine implements Machine {
   exdos: ExdosCard | null = null;
   /** Whether the Hardware pane wants the disk card. */
   exdosWanted = true;
+  /** How many of the EXDOS card's four drives are fitted (Drives pane choice). */
+  driveCount = EP_MAX_DRIVES;
   private exdosRom: Uint8Array | null = null;
 
   /** FILE: device state; the ROM is only fitted while a bundle is mounted. */
@@ -193,6 +196,7 @@ export class EnterpriseMachine extends BaseMachine implements Machine {
   /** Fit or remove the EXDOS card, and ask for its ROM. */
   prepare(view: SettingsView): AuxRomRequest[] {
     this.exdosWanted = view.get('enterprise-exdos', true);
+    this.driveCount = resolveDriveCount(view, 'enterprise', EP_MAX_DRIVES);
     this.setExdosFitted(this.exdosWanted);
     if (!this.exdosWanted) return [];
     return [{
@@ -210,6 +214,10 @@ export class EnterpriseMachine extends BaseMachine implements Machine {
   setExdosFitted(on: boolean): void {
     if (on && !this.exdos) this.exdos = new ExdosCard();
     if (!on) this.exdos = null;
+    if (this.exdos) {
+      const connected = this.exdos.fdc.connected;
+      for (let u = 0; u < connected.length; u++) connected[u] = u < this.driveCount;
+    }
     this.pageExdosRom();
   }
 

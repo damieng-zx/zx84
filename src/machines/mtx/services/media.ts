@@ -58,8 +58,12 @@ export class MtxMediaService implements MediaService {
       if (this.disks.drives.length === 0) {
         return { ok: false, message: 'Enable the FDX floppy subsystem first' };
       }
+      const unit = target === 'b' ? 1 : target?.startsWith('unit:') ? Number(target.slice(5)) : 0;
+      if (!Number.isInteger(unit) || unit < 0 || unit >= this.disks.drives.length) {
+        return { ok: false, message: 'that drive is not fitted' };
+      }
       try {
-        const id = target === 'b' || target === 'unit:1' ? 'b' : 'a';
+        const id = unit === 1 ? 'b' : 'a';
         this.disks.insert(id, hfe ? parseHFE(data) : parseMtxMfloppy(data), filename);
         return {
           ok: true,
