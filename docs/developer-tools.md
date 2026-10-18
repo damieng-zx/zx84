@@ -70,6 +70,7 @@ The Debugger pane works on every machine, Z80 and 6502 alike.
 | Step Over | Execute one instruction, running subroutines to completion. On the Z80 this covers CALL and RST, DJNZ, conditional jumps and the repeating block instructions (LDIR and friends); on the 6502, JSR. |
 | Step Out | Run until the current routine returns |
 | Step Frame | Run to the end of the current video frame and redraw |
+| Copy (clipboard) | Copy the CPU state to the clipboard — see below |
 | Trace (pencil) | Start a trace — see [Tracing](#tracing) |
 
 The step buttons are available while paused.
@@ -95,10 +96,10 @@ lightweight: registers and memory are read-only, and it always follows PC. For
 memory and port watchpoints, register and memory writes, symbol files or
 breakpoints at arbitrary addresses, use the [MCP server](../mcp/README.md).
 
-**Copying CPU state.** The **Loop** entry in the trace menu copies a snapshot of
-the CPU to the clipboard: registers, flags and the next 16 disassembled
-instructions. It's a quick way to paste the state of a tight loop into a bug
-report or a chat.
+**Copying CPU state.** The clipboard button copies a snapshot of the CPU as
+text: registers, flags and the next 16 disassembled instructions. It works while
+running or paused, and it's a quick way to paste the state of a tight loop
+into a bug report or a chat.
 
 <br clear="right">
 
