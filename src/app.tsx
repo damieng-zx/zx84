@@ -178,6 +178,7 @@ export function App() {
     document.body.classList.toggle('einstein-mode', kind === 'einstein');
     document.body.classList.toggle('msx-mode', kind === 'msx');
     document.body.classList.toggle('bbc-mode', kind === 'bbc' || kind === 'electron');
+    document.body.classList.toggle('apple2-mode', kind === 'apple2');
   });
 
   // Mirror the display scale (1×/2×/3×) into a CSS variable so the on-screen

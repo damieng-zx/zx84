@@ -74,6 +74,12 @@ const CONTRIBUTIONS: Record<string, MachineUiContribution> = {
     Keyboard: lazy(() =>
       import('@/machines/lynx/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
   },
+  apple2: {
+    HardwareSection: lazy(() =>
+      import('@/machines/apple2/ui/hardware-section.tsx').then(m => ({ default: m.Apple2HardwareSection }))),
+    Keyboard: lazy(() =>
+      import('@/machines/apple2/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
+  },
   zx8x: {
     HardwareSection: lazy(() =>
       import('@/machines/zx8x/ui/hardware-section.tsx').then(m => ({ default: m.Zx8xHardwareSection }))),
@@ -156,6 +162,11 @@ export const keyboardLabPresetLoaders: readonly KeyboardLabPresetLoader[] = [
     group: 'Jupiter Cantab',
     load: () => import('@/machines/jupiter-ace/ui/keyboard/lab-preset.ts')
       .then((module) => module.aceKeyboardLabPresets()),
+  },
+  {
+    group: 'Apple II',
+    load: () => import('@/machines/apple2/ui/keyboard/lab-preset.ts')
+      .then((module) => module.apple2KeyboardLabPresets()),
   },
   {
     group: 'Amstrad PCW',

@@ -22,10 +22,10 @@ import {
   driveBForceReady, setDriveBForceReady,
   diskSoundC, setDiskSoundC, diskSoundD, setDiskSoundD,
   writeProtectC, setWriteProtectC, writeProtectD, setWriteProtectD,
-  plusDEnabled, betaDiskEnabled, lynxFdc, bbcDiskSystem, msxFloppy, tapeTurbo, setTapeTurbo,
+  plusDEnabled, betaDiskEnabled, lynxFdc, bbcDiskSystem, msxFloppy, apple2Disk2, tapeTurbo, setTapeTurbo,
   persistSetting, resetSettingsGroup,
 } from '@/store/settings.ts';
-import { isPlusDCapable, isBetaDiskCapable, isLynxModel, isBbcModel, isMsxModel } from '@/models.ts';
+import { isPlusDCapable, isBetaDiskCapable, isLynxModel, isBbcModel, isMsxModel, isApple2Model } from '@/models.ts';
 import { machineCaps } from '@/state/machine-caps.ts';
 import { DISK_FORMATS, formatLabel, createBlankDisk } from '@/media/floppy/dsk.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
@@ -366,13 +366,14 @@ export function DrivePane() {
   // Machines with a built-in floppy controller (Spectrum +3, disk CPCs, Einstein).
   // The Lynx's FD1793 is a Hardware-pane toggle, so its drives only count when
   // the interface is actually fitted; likewise the BBC's disc interface can be
-  // set to "none".
+  // set to "none"; the Apple II's Disk ][ controller card is a Hardware-pane option.
   const builtinDisk = () =>
     machineCaps().builtinDisk
     && settingEnabled(machineCaps().requires?.builtinDisk)
     && !(isLynxModel(currentModel()) && !lynxFdc())
     && !(isBbcModel(currentModel()) && bbcDiskSystem() === 'none')
-    && !(isMsxModel(currentModel()) && !msxFloppy());
+    && !(isMsxModel(currentModel()) && !msxFloppy())
+    && !(isApple2Model(currentModel()) && !apple2Disk2());
   // The Lynx's FD1793 addresses four drives; everything else here has two.
   const builtinFourDrives = () =>
     builtinDisk() && (machineCaps().builtinDrives ?? 2) > 2;

@@ -25,6 +25,7 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'msx-color-map': () => settings.msxColorMap(),
   'einstein-color-map': () => settings.einsteinColorMap(),
   'bbc-color-map': () => settings.bbcColorMap(),
+  'apple2-video': () => settings.apple2Video(),
   'scanline-accuracy': () => settings.scanlineAccuracy(),
   'volume': () => settings.volume(),
   'ay-mix': () => settings.ayMix(),
@@ -59,6 +60,13 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'bbc-disk-system': () => settings.bbcDiskSystem(),
   'electron-plus1': () => settings.electronPlus1(),
   'electron-plus3': () => settings.electronPlus3(),
+  'apple2-disk2': () => settings.apple2Disk2(),
+  'apple2-drives': () => settings.apple2Drives(),
+  'apple2-langcard': () => settings.apple2LangCard(),
+  'apple2-joystick': () => settings.apple2Joystick(),
+  'apple2-mockingboard': () => settings.apple2Mockingboard(),
+  'apple2-80col': () => settings.apple2EightyCol(),
+  'apple2e-80col': () => settings.apple2eEightyCol(),
   // True while the SAA5050 upscaler is selected: machines that draw teletext
   // then supply the raw, unrounded dots for it to round.
   'saa-scaler': () => settings.scalingMode() === SCALING_MODE_SAA5050,

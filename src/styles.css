@@ -3492,6 +3492,237 @@ input[type="range"]::-moz-range-thumb {
   display: none;
 }
 
+/* Apple II family. The ][/][+ has dark brown caps with white legends centred
+   on a beige case; the //e warm grey caps with legends top left and lower-case
+   word keys; the //c the //e's caps in light grey on its snow-white case. */
+.a2-keyboard {
+  --a2-u: var(--keyboard-scene-px);
+  --a2-case-top: #ddd2b4;
+  --a2-case-bottom: #c9bc9a;
+  --a2-case-edge: #8f8467;
+  --a2-cap-top: #4a423a;
+  --a2-cap-mid: #39322b;
+  --a2-cap-bottom: #241f1a;
+  --a2-cap-edge: #18140f;
+  --a2-legend: #efe9d8;
+  position: relative;
+  color: var(--a2-legend);
+  font-family: Helvetica, Arial, sans-serif;
+}
+.a2-keyboard--apple2e {
+  --a2-case-top: #ddd5c0;
+  --a2-case-bottom: #c8bea6;
+  --a2-case-edge: #8c836d;
+  --a2-cap-top: #b4aea2;
+  --a2-cap-mid: #a19b8e;
+  --a2-cap-bottom: #807a6e;
+  --a2-cap-edge: #5f5a50;
+  --a2-legend: #26231f;
+}
+.a2-keyboard--apple2c {
+  --a2-case-top: #f1efe8;
+  --a2-case-bottom: #dfdcd2;
+  --a2-case-edge: #a9a598;
+  --a2-cap-top: #ecebe4;
+  --a2-cap-mid: #dddbd2;
+  --a2-cap-bottom: #bdb9ad;
+  --a2-cap-edge: #8f8b80;
+  --a2-legend: #47443e;
+}
+/* The scene keeps its fixed key coordinates; the case — colour, edges and
+   moulding — is painted by a full-bleed backdrop so it fills the pane rather
+   than a centred strip. Nothing may declare `container-type` between here and
+   .keyboard-scene-frame, or 50cqw stops meaning the pane's width. */
+.a2-keyboard::before {
+  content: '';
+  position: absolute;
+  inset: var(--case-bleed);
+  border: 1px solid var(--a2-case-edge);
+  border-radius: calc(var(--a2-u) * 6);
+  background:
+    linear-gradient(160deg, rgba(255,255,255,0.22), transparent 30%),
+    linear-gradient(180deg, var(--a2-case-top) 0%, var(--a2-case-bottom) 100%);
+  box-shadow:
+    inset 0 calc(var(--a2-u) * 2) calc(var(--a2-u) * 4) rgba(255,255,255,0.45),
+    inset 0 calc(var(--a2-u) * -4) calc(var(--a2-u) * 8) rgba(70,60,40,0.18),
+    0 2px 5px rgba(0,0,0,0.5);
+}
+
+.a2-key {
+  z-index: 2;
+  overflow: hidden;
+  border: 1px solid var(--a2-cap-edge);
+  border-radius: calc(var(--a2-u) * 3);
+  background:
+    linear-gradient(135deg, rgba(255,255,255,0.16), transparent 30%),
+    linear-gradient(
+      180deg,
+      var(--a2-cap-top) 0%,
+      var(--a2-cap-mid) 55%,
+      var(--a2-cap-bottom) 100%
+    );
+  box-shadow:
+    inset calc(var(--a2-u) * 2) calc(var(--a2-u) * 2) 0 rgba(255,255,255,0.16),
+    inset calc(var(--a2-u) * -3) calc(var(--a2-u) * -4) calc(var(--a2-u) * 5) rgba(0,0,0,0.3),
+    0 calc(var(--a2-u) * 3) calc(var(--a2-u) * 2) rgba(0,0,0,0.5);
+  color: var(--a2-legend);
+  cursor: pointer;
+  user-select: none;
+  touch-action: none;
+  transition: filter 0.06s ease, transform 0.05s ease;
+}
+.a2-keyboard--apple2e .a2-key,
+.a2-keyboard--apple2c .a2-key {
+  box-shadow:
+    inset calc(var(--a2-u) * 2) calc(var(--a2-u) * 2) 0 rgba(255,255,255,0.4),
+    inset calc(var(--a2-u) * -3) calc(var(--a2-u) * -4) calc(var(--a2-u) * 5) rgba(40,36,30,0.25),
+    0 calc(var(--a2-u) * 3) calc(var(--a2-u) * 2) rgba(0,0,0,0.42);
+}
+.a2-key:hover {
+  filter: brightness(1.12);
+}
+.a2-key.pressed {
+  filter: brightness(0.78);
+  transform: translateY(calc(var(--a2-u) * 1.5));
+}
+
+.a2-key__legend {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: calc(var(--a2-u) * 1);
+  pointer-events: none;
+  line-height: 1;
+}
+.a2-key__main {
+  font-size: calc(var(--a2-u) * 13);
+  font-weight: 500;
+}
+.a2-key__shift {
+  font-size: calc(var(--a2-u) * 11);
+}
+.a2-key--shifted .a2-key__main {
+  font-size: calc(var(--a2-u) * 11);
+}
+.a2-key__aux {
+  font-size: calc(var(--a2-u) * 6);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.a2-key--word .a2-key__main {
+  font-size: calc(var(--a2-u) * 7.5);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.a2-key--cursor .a2-key__main {
+  font-size: calc(var(--a2-u) * 16);
+}
+
+/* The //e and //c print legends small in the top-left corner. */
+.a2-keyboard--apple2e .a2-key__legend,
+.a2-keyboard--apple2c .a2-key__legend {
+  align-items: flex-start;
+  justify-content: flex-start;
+  padding: calc(var(--a2-u) * 4) calc(var(--a2-u) * 5);
+  gap: calc(var(--a2-u) * 2);
+}
+.a2-keyboard--apple2e .a2-key__main,
+.a2-keyboard--apple2c .a2-key__main {
+  font-size: calc(var(--a2-u) * 10);
+}
+.a2-keyboard--apple2e .a2-key__shift,
+.a2-keyboard--apple2c .a2-key__shift,
+.a2-keyboard--apple2e .a2-key--shifted .a2-key__main,
+.a2-keyboard--apple2c .a2-key--shifted .a2-key__main {
+  font-size: calc(var(--a2-u) * 9);
+}
+.a2-keyboard--apple2e .a2-key--word .a2-key__main,
+.a2-keyboard--apple2c .a2-key--word .a2-key__main {
+  font-size: calc(var(--a2-u) * 8);
+  font-weight: 400;
+  letter-spacing: 0;
+}
+.a2-keyboard--apple2e .a2-key--cursor .a2-key__main,
+.a2-keyboard--apple2c .a2-key--cursor .a2-key__main {
+  font-size: calc(var(--a2-u) * 13);
+}
+.a2-keyboard--apple2e .a2-key--reset,
+.a2-keyboard--apple2c .a2-key--reset {
+  border-radius: calc(var(--a2-u) * 2);
+}
+.a2-key__logo {
+  position: absolute;
+  left: calc(var(--a2-u) * 5);
+  top: calc(var(--a2-u) * 4);
+  width: calc(var(--a2-u) * 11);
+  height: calc(var(--a2-u) * 13);
+  pointer-events: none;
+}
+
+/* POWER lamps: a lit lens set where a cap would be. */
+.a2-lamp--lens {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(0,0,0,0.45);
+  border-radius: calc(var(--a2-u) * 3);
+  background: radial-gradient(circle at 50% 45%, #fff7d6 0%, #f2d98c 45%, #b78f3c 100%);
+  box-shadow:
+    inset 0 calc(var(--a2-u) * -2) calc(var(--a2-u) * 4) rgba(90,60,0,0.35),
+    0 0 calc(var(--a2-u) * 6) rgba(255,220,120,0.55);
+  color: #5a4210;
+  font-size: calc(var(--a2-u) * 6.5);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.a2-keyboard--apple2e .a2-lamp--lens {
+  border-color: #6f6a5f;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(170,240,150,0.95) 0%, rgba(96,170,82,0.9) 38%, transparent 64%),
+    linear-gradient(180deg, #8d877b, #6f6a5f);
+  box-shadow:
+    inset 0 calc(var(--a2-u) * 2) calc(var(--a2-u) * 3) rgba(0,0,0,0.35),
+    0 0 calc(var(--a2-u) * 4) rgba(120,230,100,0.25);
+}
+
+/* The //c's latching 80/40 and KEYBOARD switches and its two lamps. */
+.a2-switch {
+  display: flex;
+  align-items: flex-end;
+  padding: 0 0 calc(var(--a2-u) * 3) calc(var(--a2-u) * 4);
+  border: 1px solid var(--a2-cap-edge);
+  border-radius: calc(var(--a2-u) * 2);
+  background: linear-gradient(180deg, var(--a2-cap-top), var(--a2-cap-bottom));
+  box-shadow: 0 calc(var(--a2-u) * 2) calc(var(--a2-u) * 2) rgba(0,0,0,0.3);
+  color: var(--a2-legend);
+  font-size: calc(var(--a2-u) * 7);
+}
+.a2-led {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--a2-u) * 4);
+  color: #6d6a62;
+  font-size: calc(var(--a2-u) * 7);
+}
+.a2-led::before {
+  content: '';
+  flex: none;
+  width: calc(var(--a2-u) * 7);
+  height: calc(var(--a2-u) * 7);
+  border-radius: 50%;
+  border: 1px solid rgba(0,0,0,0.35);
+}
+.a2-led--power::before {
+  background: #5fd65a;
+  box-shadow: 0 0 calc(var(--a2-u) * 4) rgba(95,214,90,0.7);
+}
+.a2-led--disk::before {
+  background: #6a1f1a;
+}
+
 /* Tatung Einstein TC-01: neutral grey case, deeply stepped rows, light grey
    caps with dark grey modifiers, and the single red ENTER. */
 .tc01-keyboard {

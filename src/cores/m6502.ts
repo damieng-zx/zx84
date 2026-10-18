@@ -32,6 +32,9 @@ const VEC_RESET = 0xFFFC;
 const VEC_IRQ = 0xFFFE;
 
 export class M6502 {
+  /** A CMOS part (65C02) rather than the NMOS 6502; see `M65C02`. */
+  readonly cmos: boolean = false;
+
   // ── Registers ───────────────────────────────────────────────────────────
   a = 0;
   x = 0;
@@ -47,7 +50,7 @@ export class M6502 {
   /** Level-triggered IRQ input. */
   irqLine = false;
   /** Edge-triggered NMI latch (set by nmi(), consumed in step()). */
-  private nmiPending = false;
+  protected nmiPending = false;
 
   /** Memory bus — overridden by the machine before execution. */
   read: (addr: number) => number = () => 0xFF;
@@ -76,41 +79,41 @@ export class M6502 {
   nmi(): void { this.nmiPending = true; }
 
   // ── Bus helpers ─────────────────────────────────────────────────────────
-  private fetch(): number { return this.read(this.pc++) & 0xFF; }
-  private fetch16(): number { const lo = this.fetch(); return lo | (this.fetch() << 8); }
-  private readWord(addr: number): number {
+  protected fetch(): number { return this.read(this.pc++) & 0xFF; }
+  protected fetch16(): number { const lo = this.fetch(); return lo | (this.fetch() << 8); }
+  protected readWord(addr: number): number {
     return this.read(addr) | (this.read((addr + 1) & 0xFFFF) << 8);
   }
   /** JMP (indirect) page-wrap bug: the high byte is fetched from the same page. */
-  private readWordBug(addr: number): number {
+  protected readWordBug(addr: number): number {
     const lo = this.read(addr) & 0xFF;
     const hi = this.read((addr & 0xFF00) | ((addr + 1) & 0xFF)) & 0xFF;
     return lo | (hi << 8);
   }
 
-  private push(v: number): void {
+  protected push(v: number): void {
     this.write(0x0100 | this.sp, v & 0xFF);
     this.sp = (this.sp - 1) & 0xFF;
   }
-  private pop(): number {
+  protected pop(): number {
     this.sp = (this.sp + 1) & 0xFF;
     return this.read(0x0100 | this.sp) & 0xFF;
   }
-  private push16(v: number): void {
+  protected push16(v: number): void {
     this.push((v >> 8) & 0xFF);
     this.push(v & 0xFF);
   }
-  private pop16(): number {
+  protected pop16(): number {
     const lo = this.pop();
     return lo | (this.pop() << 8);
   }
 
   // ── Flag helpers ────────────────────────────────────────────────────────
-  private flag(bit: number): boolean { return (this.p & bit) !== 0; }
-  private setFlag(bit: number, cond: boolean): void {
+  protected flag(bit: number): boolean { return (this.p & bit) !== 0; }
+  protected setFlag(bit: number, cond: boolean): void {
     if (cond) this.p |= bit; else this.p &= ~bit;
   }
-  private setZN(v: number): void {
+  protected setZN(v: number): void {
     v &= 0xFF;
     this.p = (this.p & ~(FLAG_N | FLAG_Z)) | (v & FLAG_N);
     if (v === 0) this.p |= FLAG_Z;
@@ -118,31 +121,31 @@ export class M6502 {
 
   // ── Addressing modes ────────────────────────────────────────────────────
   /** Set true by a page-crossing absolute indexed access. Reset per step. */
-  private pageCross = false;
+  protected pageCross = false;
 
-  private addrZP(): number { return this.fetch(); }
-  private addrZPX(): number { return (this.fetch() + this.x) & 0xFF; }
-  private addrZPY(): number { return (this.fetch() + this.y) & 0xFF; }
-  private addrABS(): number { return this.fetch16(); }
-  private addrABSX(): number {
+  protected addrZP(): number { return this.fetch(); }
+  protected addrZPX(): number { return (this.fetch() + this.x) & 0xFF; }
+  protected addrZPY(): number { return (this.fetch() + this.y) & 0xFF; }
+  protected addrABS(): number { return this.fetch16(); }
+  protected addrABSX(): number {
     const base = this.fetch16();
     const addr = (base + this.x) & 0xFFFF;
     this.pageCross = (base & 0xFF00) !== (addr & 0xFF00);
     return addr;
   }
-  private addrABSY(): number {
+  protected addrABSY(): number {
     const base = this.fetch16();
     const addr = (base + this.y) & 0xFFFF;
     this.pageCross = (base & 0xFF00) !== (addr & 0xFF00);
     return addr;
   }
   /** (zp,X): pointer at zp+X, wrapping in zero page. */
-  private addrINDX(): number {
+  protected addrINDX(): number {
     const zp = (this.fetch() + this.x) & 0xFF;
     return (this.read(zp) | (this.read((zp + 1) & 0xFF) << 8)) & 0xFFFF;
   }
   /** (zp),Y: pointer at zp, offset by Y. */
-  private addrINDY(): number {
+  protected addrINDY(): number {
     const zp = this.fetch();
     const base = this.read(zp) | (this.read((zp + 1) & 0xFF) << 8);
     const addr = (base + this.y) & 0xFFFF;
@@ -151,11 +154,11 @@ export class M6502 {
   }
 
   // ── ALU operations ──────────────────────────────────────────────────────
-  private ora(v: number): void { this.a = (this.a | v) & 0xFF; this.setZN(this.a); }
-  private and(v: number): void { this.a = (this.a & v) & 0xFF; this.setZN(this.a); }
-  private eor(v: number): void { this.a = (this.a ^ v) & 0xFF; this.setZN(this.a); }
+  protected ora(v: number): void { this.a = (this.a | v) & 0xFF; this.setZN(this.a); }
+  protected and(v: number): void { this.a = (this.a & v) & 0xFF; this.setZN(this.a); }
+  protected eor(v: number): void { this.a = (this.a ^ v) & 0xFF; this.setZN(this.a); }
 
-  private adc(v: number): void {
+  protected adc(v: number): void {
     v &= 0xFF;
     if (this.flag(FLAG_D)) {
       const carry = this.flag(FLAG_C) ? 1 : 0;
@@ -180,7 +183,7 @@ export class M6502 {
     }
   }
 
-  private sbc(v: number): void {
+  protected sbc(v: number): void {
     v &= 0xFF;
     if (this.flag(FLAG_D)) {
       const borrow = this.flag(FLAG_C) ? 0 : 1;
@@ -204,39 +207,39 @@ export class M6502 {
     }
   }
 
-  private cmp(reg: number, v: number): void {
+  protected cmp(reg: number, v: number): void {
     const r = (reg - v) & 0x1FF;
     this.setFlag(FLAG_C, reg >= v);
     this.setZN(r & 0xFF);
   }
 
-  private bit(v: number): void {
+  protected bit(v: number): void {
     this.setFlag(FLAG_Z, (this.a & v) === 0);
     this.setFlag(FLAG_N, (v & 0x80) !== 0);
     this.setFlag(FLAG_V, (v & 0x40) !== 0);
   }
 
   // Shifts / rotates — return the result and set C/Z/N.
-  private asl(v: number): number {
+  protected asl(v: number): number {
     this.setFlag(FLAG_C, (v & 0x80) !== 0);
     const r = (v << 1) & 0xFF;
     this.setZN(r);
     return r;
   }
-  private lsr(v: number): number {
+  protected lsr(v: number): number {
     this.setFlag(FLAG_C, (v & 0x01) !== 0);
     const r = (v >> 1) & 0xFF;
     this.setZN(r);
     return r;
   }
-  private rol(v: number): number {
+  protected rol(v: number): number {
     const c = this.flag(FLAG_C) ? 1 : 0;
     this.setFlag(FLAG_C, (v & 0x80) !== 0);
     const r = ((v << 1) | c) & 0xFF;
     this.setZN(r);
     return r;
   }
-  private ror(v: number): number {
+  protected ror(v: number): number {
     const c = this.flag(FLAG_C) ? 0x80 : 0;
     this.setFlag(FLAG_C, (v & 0x01) !== 0);
     const r = ((v >> 1) | c) & 0xFF;
@@ -244,22 +247,22 @@ export class M6502 {
     return r;
   }
 
-  private inc(v: number): number { const r = (v + 1) & 0xFF; this.setZN(r); return r; }
-  private dec(v: number): number { const r = (v - 1) & 0xFF; this.setZN(r); return r; }
+  protected inc(v: number): number { const r = (v + 1) & 0xFF; this.setZN(r); return r; }
+  protected dec(v: number): number { const r = (v - 1) & 0xFF; this.setZN(r); return r; }
 
   // ── Illegal-op helpers ──────────────────────────────────────────────────
-  private slo(v: number): number { return this.asl(v); }
-  private rla(v: number): number { return this.rol(v); }
-  private sre(v: number): number { return this.lsr(v); }
-  private rra(v: number): number { return this.ror(v); }
-  private anc(v: number): void {
+  protected slo(v: number): number { return this.asl(v); }
+  protected rla(v: number): number { return this.rol(v); }
+  protected sre(v: number): number { return this.lsr(v); }
+  protected rra(v: number): number { return this.ror(v); }
+  protected anc(v: number): void {
     this.a = (this.a & v) & 0xFF;
     this.setZN(this.a);
     this.setFlag(FLAG_C, (this.a & 0x80) !== 0);
   }
-  private lax(v: number): void { this.a = v & 0xFF; this.x = this.a; this.setZN(this.a); }
+  protected lax(v: number): void { this.a = v & 0xFF; this.x = this.a; this.setZN(this.a); }
 
-  private branch(cond: boolean): void {
+  protected branch(cond: boolean): void {
     const off = this.fetch();
     if (!cond) return;
     this.tStates += 1;
@@ -269,7 +272,7 @@ export class M6502 {
     this.pc = target;
   }
 
-  private interrupt(vector: number): void {
+  protected interrupt(vector: number): void {
     this.push16(this.pc);
     this.p = (this.p & ~FLAG_B) | FLAG_U;
     this.push(this.p);
@@ -278,7 +281,7 @@ export class M6502 {
     this.tStates += 7;
   }
 
-  private brk(): void {
+  protected brk(): void {
     this.pc = (this.pc + 1) & 0xFFFF;
     this.push16(this.pc);
     this.push(this.p | FLAG_B | FLAG_U);
@@ -300,8 +303,11 @@ export class M6502 {
     }
 
     this.pageCross = false;
-    const op = this.fetch();
+    this.execute(this.fetch());
+  }
 
+  /** Execute one instruction whose opcode has just been fetched. */
+  protected execute(op: number): void {
     switch (op) {
       // ── 0x00 block ──────────────────────────────────────────────────────
       case 0x00: this.brk(); break;
@@ -572,7 +578,7 @@ export class M6502 {
   // ── Undocumented immediate helpers ────────────────────────────────────────
 
   /** ALR #: A = (A & imm) >> 1, C = bit 0 of the AND result. */
-  private alr(v: number): number {
+  protected alr(v: number): number {
     const r = (this.a & v) & 0xFF;
     this.setFlag(FLAG_C, (r & 0x01) !== 0);
     const out = (r >> 1) & 0xFF;
@@ -581,7 +587,7 @@ export class M6502 {
   }
 
   /** ARR #: A = ((A & imm) >> 1) | (C << 7); flags are peculiar. */
-  private arr(v: number): number {
+  protected arr(v: number): number {
     const r = this.a & v;
     const out = ((r >> 1) | (this.flag(FLAG_C) ? 0x80 : 0)) & 0xFF;
     this.setZN(out);
@@ -591,7 +597,7 @@ export class M6502 {
   }
 
   /** AXS # (a.k.a. SBX): X = (A & X) - imm, no borrow propagation to A. */
-  private axs(v: number): void {
+  protected axs(v: number): void {
     const r = (this.a & this.x) - v;
     this.setFlag(FLAG_C, r >= 0);
     this.x = r & 0xFF;

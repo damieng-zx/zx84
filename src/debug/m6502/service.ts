@@ -104,7 +104,7 @@ export class M6502DebugService implements DebugService {
     const out: DisasmRow[] = [];
     let a = addr & 0xFFFF;
     for (let i = 0; i < lines; i++) {
-      const dl = disasmOne(snap, a);
+      const dl = disasmOne(snap, a, this.m.cpu.cmos);
       const bytes = Array.from({ length: dl.length }, (_, j) => hex8(snap[(a + j) & 0xFFFF])).join(' ');
       out.push({
         addr: dl.addr, bytes, text: stripMarkers(dl.text),
@@ -118,7 +118,7 @@ export class M6502DebugService implements DebugService {
   disasmPaneHtml(lines: number): string {
     const snap = this.m.memory.snapshot();
     const pc = this.m.cpu.pc;
-    return formatDisasmHtml(disassembleAroundPC(snap, pc, lines), snap, pc, this.m.breakpoints);
+    return formatDisasmHtml(disassembleAroundPC(snap, pc, lines, 6, this.m.cpu.cmos), snap, pc, this.m.breakpoints);
   }
 
   stepOne(): void { this.m.cpu.step(); }
@@ -167,7 +167,7 @@ export class M6502DebugService implements DebugService {
     const snap = this.m.memory.snapshot();
     let addr = cpu.pc;
     for (let i = 0; i < 16; i++) {
-      const dl = disasmOne(snap, addr);
+      const dl = disasmOne(snap, addr, cpu.cmos);
       const bytesStr = Array.from({ length: dl.length }, (_, j) => hex8(snap[(addr + j) & 0xFFFF]))
         .join(' ')
         .padEnd(11, ' ');
