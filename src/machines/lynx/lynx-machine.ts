@@ -283,7 +283,7 @@ export class LynxMachine extends BaseMachine implements Machine {
   /** The ROM's character set, as loaded. Bank 0 holds ROM image 0 at 0. */
   private get ocrFont(): Uint8Array {
     const at = this.memory.is128k ? LYNX_FONT_OFFSET_128 : LYNX_FONT_OFFSET_48;
-    return this.memory.ram.subarray(at, at + LYNX_FONT_BYTES);
+    return this.memory.rom.subarray(at, at + LYNX_FONT_BYTES);
   }
 
   /** The text grid this model's display carries. */

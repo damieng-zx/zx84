@@ -213,7 +213,7 @@ describe('LynxMachine screen OCR', () => {
       m.loadROM(new Uint8Array(0));
       const font = testFont();
       const at = model === 'lynx128' ? 0x0101 : 0x01d5;
-      m.memory.ram.set(font, at);
+      m.memory.rom.set(font, at);
       expect(m.ocrScreenForMcp().startsWith(`[${grid}]`)).toBe(true);
       expect(m.ocrScreenStyled()!.grid).toBe(grid);
     }

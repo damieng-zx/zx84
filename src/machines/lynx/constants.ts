@@ -7,11 +7,11 @@
  * machine's banking and video.
  */
 
-/** Z80 clock, from the 24MHz crystal: /6 on the 48K and 96K (a Z80A at
- *  4MHz), /4 on the 128K (6MHz) — MAME camplynx.cpp. */
 /** Floppy drives the FD1793 interface can address (96K and 128K). */
 export const LYNX_MAX_DRIVES = 4;
 
+/** Z80 clock, from the 24MHz crystal: /6 on the 48K and 96K (a Z80A at
+ *  4MHz), /4 on the 128K (6MHz). */
 export const LYNX_CPU_CLOCK_48 = 4_000_000;
 export const LYNX_CPU_CLOCK_128 = 6_000_000;
 

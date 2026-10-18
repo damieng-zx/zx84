@@ -16,7 +16,7 @@
  *   128K      mem = ((ma << 2) + (ra << 6)) & 0x3fff
  *
  * Then one byte per character position, eight pixels to the byte, most
- * significant bit leftmost. Both forms are MAME's.
+ * significant bit leftmost.
  */
 
 import type { Crtc6845 } from '@/cores/crtc-6845.ts';
@@ -26,27 +26,10 @@ import {
 } from './constants.ts';
 import type { LynxMemory } from './lynx-memory.ts';
 
-/** Where the planes sit in the flat page array, per board. */
-interface PlaneMap {
-  readonly red: number;
-  readonly blue: number;
-  readonly green: number;
-  readonly altGreen: number;
-  /** Rasters step by this many bytes. */
-  readonly rasterShift: number;
-  /** The address wraps inside the video bank. */
-  readonly mask: number;
-}
-
-const PLANES_48: PlaneMap = {
-  red: 0x2c000, blue: 0x28000, green: 0x3c000, altGreen: 0x38000,
-  rasterShift: 5, mask: 0x1fff,
-};
-
-const PLANES_128: PlaneMap = {
-  red: 0x20000, blue: 0x24000, green: 0x28000, altGreen: 0x2c000,
-  rasterShift: 6, mask: 0x3fff,
-};
+/** How far one raster steps through a plane, per board. The planes themselves
+ *  come from the memory. */
+const RASTER_SHIFT_48 = 5;
+const RASTER_SHIFT_128 = 6;
 
 export class LynxVideo {
   /** The framebuffer's shape, which the 128K's wider display changes. */
@@ -57,7 +40,7 @@ export class LynxVideo {
   /** Port 0x80 bit 4 — read the alternate green plane instead of the main one. */
   altGreen = false;
 
-  private readonly planes: PlaneMap;
+  private readonly rasterShift: number;
   /** How many displayed rows have been emitted this frame. The 6845 decides
    *  where the active region starts, so the border is whatever is left over
    *  rather than a fixed count of lines. */
@@ -67,7 +50,7 @@ export class LynxVideo {
     private readonly memory: LynxMemory,
     private readonly crtc: Crtc6845,
   ) {
-    this.planes = memory.is128k ? PLANES_128 : PLANES_48;
+    this.rasterShift = memory.is128k ? RASTER_SHIFT_128 : RASTER_SHIFT_48;
     this.geometry = memory.is128k ? LYNX_GEOMETRY_128 : LYNX_GEOMETRY_48;
     this.pixels = new Uint32Array(this.geometry.width * this.geometry.height);
   }
@@ -88,19 +71,20 @@ export class LynxVideo {
     const state = this.crtc.currentLine();
 
     if (state.vDisplay && this.drawn < LYNX_ACTIVE_HEIGHT) {
-      const p = this.planes;
-      const mem = ((state.maRow << 2) + (state.ra << p.rasterShift)) & p.mask;
-      const green = this.altGreen ? p.altGreen : p.green;
-      const ram = this.memory.ram;
+      const planes = this.memory.planes;
+      const { red, blue } = planes;
+      const green = this.altGreen ? planes.altGreen : planes.green;
+      const mask = red.length - 1;   // addresses wrap inside a plane
+      const mem = ((state.maRow << 2) + (state.ra << this.rasterShift)) & mask;
       const geo = this.geometry;
       let out = (this.drawn + LYNX_BORDER_TOP) * geo.width + geo.borderLeft;
       const cells = Math.min(state.hDisplayed, geo.activeWidth >> 3);
 
       for (let cell = 0; cell < cells; cell++) {
-        const at = (mem + cell) & p.mask;
-        const r = ram[p.red + at];
-        const b = ram[p.blue + at];
-        const g = ram[green + at];
+        const at = (mem + cell) & mask;
+        const r = red[at];
+        const b = blue[at];
+        const g = green[at];
         for (let bit = 7; bit >= 0; bit--) {
           const m = 1 << bit;
           this.pixels[out++] = LYNX_PALETTE[

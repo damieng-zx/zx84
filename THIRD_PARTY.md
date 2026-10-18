@@ -54,13 +54,13 @@ zx84 adapts the following from MAME source files that carry
   15-colour RGB table from `src/devices/video/tms9928a.cpp`
   (copyright-holders: Sean Young, Nathan Woods, Aaron Giles, Wilbert Pol, hap;
   the table is R. Nabet's computation recorded in that file).
-- **Camputers Lynx** — `src/machines/lynx/` (`lynx-memory.ts` banking
-  tables and port decode, `lynx-keyboard.ts` and the keyboard layout's
-  matrix, `lynx-video.ts` addressing, `lynx-io.ts`) and
-  `src/media/tape/lynx-tap.ts` (tape format constants): from
-  `src/mame/camputers/camplynx.cpp` (copyright-holders: Robbbert) and
-  `src/lib/formats/camplynx_cas.cpp` (copyright-holders: Robbbert,
-  Nigel Barnes).
+- **Camputers Lynx** — `src/machines/lynx/` and `src/media/tape/lynx-tap.ts`:
+  the code is zx84's own, but the machine has no public description other
+  than MAME's, so the hardware data was read from `src/mame/camputers/camplynx.cpp`
+  (copyright-holders: Robbbert), `src/lib/formats/camplynx_cas.cpp`
+  (Robbbert, Nigel Barnes) and `camplynx_dsk.cpp`: the keyboard matrix cell
+  assignments, the bank-select decode rules and port meanings, the video
+  address stepping, and the tape and disk format sizes.
 - **Jupiter Ace and Memotech MTX** — the Ace keyboard matrix and frame
   interrupt timing, and the MTX sound-latch arrangement, were taken from
   `src/mame/cantab/jupace.cpp` (copyright-holders: Curt Coder, Robbbert),

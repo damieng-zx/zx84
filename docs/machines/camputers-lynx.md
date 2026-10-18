@@ -88,8 +88,9 @@ Blank disks can be created in the Drive pane: 800 KB double-sided 80-track or
 200 KB single-sided 40-track. Mounted disks come back after a reload on the
 96K and 128K.
 
-**Save menu exports:** PNG screenshot, RAM `.bin` (the whole physical store,
-including ROM bank: 256 KB on the 48K/96K, 320 KB on the 128K). No snapshot or
+**Save menu exports:** PNG screenshot, RAM `.bin` (every RAM chip back to
+back, without the ROM: user RAM then video RAM, 96 KB on the 48K/96K; the 128K
+adds its extra RAM, 192 KB). No snapshot or
 screen-dump format.
 
 ---
