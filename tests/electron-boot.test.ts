@@ -64,6 +64,34 @@ describe.skipIf(!haveRoms)('Acorn Electron with the real OS and BASIC', () => {
     m.destroy();
   }, 60_000);
 
+  it('lists the typed program and its variables through the BASIC panes', () => {
+    const m = boot();
+    const type = typist(m);
+    for (const line of ['10 A%=7', '20 X=1.5', '30 N$="ELK"', '40 DIM T(3)', '50 FOR I=1 TO 3 STEP 2', '60 NEXT', 'RUN']) {
+      type(line + '\n');
+      run(m, 40);
+    }
+    const panes = m.services.probe.panes!;
+    // BASIC keeps the space typed after the line number.
+    expect(panes.basicListing!()).toEqual([
+      { lineNumber: 10, text: ' A%=7' },
+      { lineNumber: 20, text: ' X=1.5' },
+      { lineNumber: 30, text: ' N$="ELK"' },
+      { lineNumber: 40, text: ' DIM T(3)' },
+      { lineNumber: 50, text: ' FOR I=1 TO 3 STEP 2' },
+      { lineNumber: 60, text: ' NEXT' },
+    ]);
+    // After the loop runs I = 1, 3, then 5 on exit (STEP 2 passes TO 3).
+    expect(panes.basicVars!()).toEqual([
+      { name: 'A%', kind: 'number', value: '7' },
+      { name: 'I', kind: 'number', value: '5' },
+      { name: 'N$', kind: 'string', value: 'ELK' },
+      { name: 'T(3)', kind: 'array' },
+      { name: 'X', kind: 'number', value: '1.5' },
+    ]);
+    m.destroy();
+  }, 60_000);
+
   it('SAVEs a program to tape and LOADs it back from the recording', async () => {
     const a = boot();
     const typeA = typist(a);
