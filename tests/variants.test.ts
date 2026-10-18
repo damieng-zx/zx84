@@ -10,7 +10,6 @@
  *   • the contended-bank rule (48K: 0x4000-0x7FFF only; 128K: odd banks; +2A: banks ≥4),
  *   • capability flags (AY/banking/FDC/specialPaging/romPageCount/is48K),
  *   • port decode masks for 0x7FFD, 0x1FFD, FDC data/status,
- *   • display knobs (cellRenderOffset, vramFlushEnd),
  *   • factory dispatch and immutability.
  *
  * References:
@@ -163,27 +162,6 @@ describe('variants — capability flags', () => {
     expect(v.hasSpecialPaging).toBe(caps.hasSpecialPaging);
     expect(v.romPageCount).toBe(caps.romPageCount);
     expect(v.is48K).toBe(caps.is48K);
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────
-// Display knobs
-// ─────────────────────────────────────────────────────────────────────────
-
-describe('variants — display configuration', () => {
-  it('48K and 16K render at +1 cell offset, flush bitmap+attr (0x5B00)', () => {
-    for (const v of [spectrum48K, spectrum16K]) {
-      expect(v.cellRenderOffset).toBe(1);
-      expect(v.vramFlushEnd).toBe(0x5B00);
-    }
-  });
-
-  it('128K/+2/+2A/+3 render at offset 0, flush bitmap only (0x5800)', () => {
-    for (const m of ['128k', '+2', '+2A', '+3'] as const) {
-      const v = createVariant(m);
-      expect(v.cellRenderOffset).toBe(0);
-      expect(v.vramFlushEnd).toBe(0x5800);
-    }
   });
 });
 
@@ -590,8 +568,6 @@ describe('variants — +2A vs +3 differ only on FDC', () => {
     expect(v2A.hasSpecialPaging).toBe(vP3.hasSpecialPaging);
     expect(v2A.romPageCount).toBe(vP3.romPageCount);
     expect(v2A.is48K).toBe(vP3.is48K);
-    expect(v2A.cellRenderOffset).toBe(vP3.cellRenderOffset);
-    expect(v2A.vramFlushEnd).toBe(vP3.vramFlushEnd);
     expect(v2A.hasIOContention).toBe(vP3.hasIOContention);
     expect(Array.from(v2A.contentionPattern)).toEqual(Array.from(vP3.contentionPattern));
   });
@@ -613,8 +589,6 @@ describe('variants — 128K vs +2 are symmetric', () => {
     expect(v128.hasSpecialPaging).toBe(vP2.hasSpecialPaging);
     expect(v128.romPageCount).toBe(vP2.romPageCount);
     expect(v128.is48K).toBe(vP2.is48K);
-    expect(v128.cellRenderOffset).toBe(vP2.cellRenderOffset);
-    expect(v128.vramFlushEnd).toBe(vP2.vramFlushEnd);
     expect(v128.hasIOContention).toBe(vP2.hasIOContention);
     expect(Array.from(v128.contentionPattern)).toEqual(Array.from(vP2.contentionPattern));
   });

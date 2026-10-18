@@ -1777,6 +1777,76 @@ describe('Spectrum — border colour changes land on 8-pixel (4T) boundaries', (
 });
 
 // ─────────────────────────────────────────────────────────────────────────
+// Attribute fetch timing vs CPU writes (high accuracy, multicolour)
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('Spectrum — an attribute write only affects lines the ULA has not yet fetched', () => {
+  // Hardware: the ULA (gate array on +2A/+3) fetches the bitmap and attribute
+  // bytes of each pair of display cells inside one 8T contended block, and
+  // holds the CPU off contended memory while it does. Pair n of display line
+  // y is fetched in the block starting at contentionStart + y*tpl + 8n. So a
+  // CPU write to an attribute lands either before that block (the line shows
+  // the new colour) or after it (the line keeps the old colour and the next
+  // line, fetched a whole line later, shows the new one). Multicolour engines
+  // such as Nirvana+ rely on the second case: they rewrite a cell's attribute
+  // for the next 2-line pair just after the ULA has fetched it.
+  const OLD = 1 << 3; // blue paper, bitmap all zero -> the cell shows paper
+  const NEW = 2 << 3; // red paper
+
+  function lineColours(model: SpectrumModel, col: number, writeOffset: number): [number, number] {
+    const s = makeMachine(model);
+    const a = s as any;
+    const ula = s.ula;
+    const t = s.contention.timing;
+    // Start the high-accuracy beam at the left edge of display line 0.
+    a._scanAcc = 2;
+    a.totalRenderLines = ula.borderTop * 2 + 192;
+    a.nextRenderLine = ula.borderTop;
+    a.nextPixelX = 0;
+    a.nextDisplayCol = 0;
+    a.nextRenderT = t.displayOrigin - (ula.borderLeft >> 1);
+    for (let i = 0; i < 0x1B00; i++) s.memory.writeByte(0x4000 + i, 0);
+    s.memory.writeByte(0x5800 + col, OLD);
+
+    // Write relative to the start of the fetch block for this cell's pair on
+    // line 0; write8 applies the contention delay itself.
+    s.cpu.tStates = t.contentionStart + 8 * (col >> 1) + writeOffset;
+    s.cpu.write8(0x5800 + col, NEW);
+    s.cpu.tStates = t.displayOrigin + 2 * t.tStatesPerLine; // both lines passed
+    s.flushBeam();
+
+    const px = (ula as any).pixels32 as Uint32Array;
+    const at = (y: number) => px[(ula.borderTop + y) * ula.screenWidth + ula.borderLeft + col * 8];
+    return [at(0), at(1)];
+  }
+
+  for (const model of ['48k', '128k', '+2', '+2A', '+3'] as const) {
+    for (const col of [10, 11]) { // first and second cell of pair 5
+      it(`${model}, cell ${col}: a write after the pair's fetch block keeps line 0, colours line 1`, () => {
+        const s = makeMachine(model);
+        const old = s.ula.palette[1], fresh = s.ula.palette[2];
+        // +8: the first T-state after the block. On the Ferranti ULA it is
+        // uncontended (pattern index 0 of the next block); on the gate array
+        // the write is delayed one more T, still after this pair's fetch.
+        expect(lineColours(model, col, 8)).toEqual([old, fresh]);
+        // +6: the Ferranti ULA's first free T inside the block (delay 0);
+        // the gate array delays it to +9. Both are after the fetch.
+        expect(lineColours(model, col, 6)).toEqual([old, fresh]);
+      });
+
+      it(`${model}, cell ${col}: a write before the pair's fetch block colours line 0`, () => {
+        const s = makeMachine(model);
+        const fresh = s.ula.palette[2];
+        // -10: uncontended on the Ferranti ULA (index 6 of an earlier block);
+        // the gate array delays it to -7 (index 1 of block n-1). Both land
+        // before pair n's fetch.
+        expect(lineColours(model, col, -10)).toEqual([fresh, fresh]);
+      });
+    }
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────
 // Mid-frame resume (SZX dwCyclesStart / .z80 T-state counter)
 // ─────────────────────────────────────────────────────────────────────────
 

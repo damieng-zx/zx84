@@ -231,12 +231,6 @@ export class Spectrum extends BaseMachine implements Machine {
   private _tapeTurboCooldown = 0;
 
 
-  /** Per-cell render threshold: +1 on 48K/16K (Issue 2 ULA) to render when the
-   *  beam enters each cell for tightest accuracy.  +0 on 128K/+2 (Ferranti) and
-   *  +2A/+3 (Amstrad gate array) where deterministic timing makes the slightly
-   *  later capture safe.  Set once in constructor from the variant. */
-  private _cellRenderOffset: 0 | 1 = 1;
-
   /** One-shot auto-boot trap for the software library's one-click play: when PC
    *  reaches `bootTrapPc`, inject the loader keystrokes and disarm. 'menu' holds
    *  Enter (the 128K/+2/+2A/+3 boot menu's default Loader option); 'rom48k' types
@@ -292,14 +286,6 @@ export class Spectrum extends BaseMachine implements Machine {
     this.tape.is48K = this.variant.is48K;
     this.fdc = new UPD765A();
     this.trace = new SpectrumTrace(this);
-    // 48K/16K (Issue 2 ULA): render as the beam enters each cell (+1) for
-    // tightest accuracy.  The beam flush (vramFlushEnd=0x5B00) ensures cells
-    // are captured with the correct attribute before multicolor engines
-    // overwrite them for the next scanline.
-    // 128K/+2 (Ferranti) and +2A/+3 (Amstrad): render after the beam fully
-    // passes (+0).  No beam flush on attr writes — deterministic timing (no IO
-    // contention) keeps the renderer in sync without it.
-    this._cellRenderOffset = this.variant.cellRenderOffset;
     installMemoryHooks(this);
     wirePortIO(this);
 
@@ -977,7 +963,7 @@ export class Spectrum extends BaseMachine implements Machine {
     if (xStart < borderLeft) {
       ula.fillBorder(i, xStart, Math.min(xEnd, borderLeft), border);
     }
-    // `>=` (not `>`): when a chunk ends exactly on the left edge, the Ferranti
+    // `>=` (not `>`): when a chunk ends exactly on the left edge, the
     // +1 cell offset asks for col 0 (colEnd=1). `colStart < colEnd` is the real
     // authority — gating on `xEnd > borderLeft` would skip col 0 here while
     // nextDisplayCol still advanced past it, leaving col 0 stale (a one-scanline
@@ -1019,13 +1005,16 @@ export class Spectrum extends BaseMachine implements Machine {
       const beamX = Math.min(w, (lineRelT << 1) & ~7);
       if (beamX <= this.nextPixelX) break;
 
-      // Display cell range visible up to the beam.
-      // Ferranti ULA (48K/128K/+2): +1 renders as beam enters cell; the
-      // write8 attr flush ensures correct per-scanline multicolor.
-      // Amstrad gate array (+2A/+3): +0 renders after beam fully passes;
-      // deterministic timing makes this safe without attr flushes.
+      // Display cell range visible up to the beam: a cell is captured as the
+      // beam enters it (+1). The ULA / gate array fetches each cell pair's
+      // bitmap and attributes inside the 8T block whose contention starts
+      // just before the pair is displayed, and the CPU is held off contended
+      // memory while it does. So a VRAM write lands either before that block
+      // (fetched) or after it (not), and capturing at cell entry puts the cut
+      // inside the block on every model. The write8 flush (bitmap+attrs)
+      // renders everything already fetched before the write changes it.
       const endCol = Math.min(
-        32, ((Math.min(beamX, dispEnd) - borderLeft) >> 3) + this._cellRenderOffset,
+        32, ((Math.min(beamX, dispEnd) - borderLeft) >> 3) + 1,
       );
       this.renderLineSegment(
         this.nextRenderLine, this.nextPixelX, beamX,

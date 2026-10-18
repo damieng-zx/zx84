@@ -17,9 +17,6 @@ export const spectrum16K: MachineVariant = Object.freeze({
   model: '16k' as const,
   timing: TIMING_48K,
 
-  cellRenderOffset: 1,
-  vramFlushEnd: 0x5B00,
-
   contentionPattern: CONTENTION_FERRANTI,
   hasIOContention: true,
   hasFloatingBus: true,

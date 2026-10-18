@@ -16,9 +16,6 @@ export function createAmstrad(model: '+2A' | '+3'): MachineVariant {
     model: model as SpectrumModel,
     timing: TIMING_PLUS2A,
 
-    cellRenderOffset: 0 as const,
-    vramFlushEnd: 0x5800,
-
     contentionPattern: CONTENTION_AMSTRAD,
     hasIOContention: false,
     hasFloatingBus: false,

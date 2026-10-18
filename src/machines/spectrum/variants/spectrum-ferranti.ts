@@ -14,9 +14,6 @@ export function createFerranti128K(model: '128k' | '+2'): MachineVariant {
     model: model as SpectrumModel,
     timing: TIMING_128K,
 
-    cellRenderOffset: 0 as const,
-    vramFlushEnd: 0x5800,
-
     contentionPattern: CONTENTION_FERRANTI,
     hasIOContention: true,
     hasFloatingBus: true,

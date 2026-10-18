@@ -14,16 +14,6 @@ export interface MachineVariant {
   readonly model: SpectrumModel;
   readonly timing: MachineTiming;
 
-  // ── Display ──────────────────────────────────────────────────────────
-
-  /** Per-cell render offset: +1 on 48K (render as beam enters cell),
-   *  0 on all others (render after beam fully passes cell). */
-  readonly cellRenderOffset: 0 | 1;
-
-  /** VRAM flush boundary for write8: 0x5B00 (48K, flush bitmap+attr)
-   *  or 0x5800 (non-48K, flush bitmap only). */
-  readonly vramFlushEnd: number;
-
   // ── Contention ───────────────────────────────────────────────────────
 
   /** ULA contention delay pattern indexed by (T-state mod 8). */
