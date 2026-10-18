@@ -347,7 +347,7 @@ describe('Library auto-boot trap for the clones', () => {
 describe('Scorpion — registry and menu', () => {
   it('is owned by the Spectrum machine entry and boots from the hosted ZS-256 ROM', () => {
     expect(entryForModel('scorpion256').kind).toBe('spectrum');
-    expect(entryForModel('scorpion256').romSources('scorpion256')).toEqual(['scorpion/zs256-v25c.rom']);
+    expect(entryForModel('scorpion256').romSources('scorpion256')).toEqual(['clones/scorpion-zs256-v25c.rom']);
   });
 
   it('is listed in the Sinclair Clones group', () => {

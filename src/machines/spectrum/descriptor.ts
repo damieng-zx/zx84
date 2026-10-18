@@ -107,7 +107,7 @@ const ROM_SOURCES: Record<string, string[]> = {
   // ROM / TR-DOS 5.03 (ZS-256 "Yellow" v2.5c). Must be uploaded to the ROM host.
   // The TURBO+ v2.92/2.95 BIOS also boots but its "128 TR-DOS" entry polls FDC
   // behaviour that is not modelled, so v2.5c is the reference image.
-  scorpion256: ['scorpion/zs256-v25c.rom'],
+  scorpion256: ['clones/scorpion-zs256-v25c.rom'],
 
   // ── Spanish (Investrónica) ───────────────────────────────────────────────
   '48k-es':  ['sinclair/48-es.rom'],
