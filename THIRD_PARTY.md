@@ -45,10 +45,10 @@ Incorporates some of the ideas from SABR shader. Thanks to Joshua Street.
 zx84 adapts the following from MAME source files that carry
 `license:BSD-3-Clause`. The notice below applies to each.
 
-- **Yamaha V9938** — `src/cores/v9938.ts`: the register write masks, the
-  power-on palette, the Graphic 7 sprite colour table, the screen-mode table,
-  the reset status values and the register/port handling, from
-  `src/devices/video/v9938.cpp` and `v9938.h`
+- **Yamaha V9938** — `src/cores/v9938.ts`: the code is zx84's own; the
+  hardware data in it (register write masks, the power-on palette, the
+  GRAPHIC 7 sprite colour table, the display-mode bit table and the reset
+  status values) was cross-checked against `src/devices/video/v9938.cpp`
   (copyright-holders: Aaron Giles, Nathan Woods).
 - **TMS9928A palette** — `src/cores/tms9918a.ts` (`TMS9918_PALETTE`): the
   15-colour RGB table from `src/devices/video/tms9928a.cpp`

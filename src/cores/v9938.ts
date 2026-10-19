@@ -21,9 +21,10 @@
  * preserves observable CE/TR state without putting an interface in the
  * machine's hot path.
  *
- * Reference: Yamaha V9938 MSX-VIDEO Technical Data Book; MAME's
- * devices/video/v9938.cpp (BSD-3-Clause; see THIRD_PARTY.md) for the port
- * semantics, register masks, reset palette and mode-bit table.
+ * Reference: Yamaha V9938 MSX-VIDEO Technical Data Book. The register masks,
+ * reset palette, GRAPHIC 7 sprite colours and power-up status values below are
+ * hardware data that was cross-checked against MAME's v9938.cpp (BSD-3-Clause);
+ * see THIRD_PARTY.md.
  */
 
 /** Active line width — all modes render into a 512-pixel line (the 256-px
@@ -59,18 +60,43 @@ const pen256 = (v: number): number => {
   return penFromRgb(r, g, b);
 };
 
-const GRAPHIC7_SPRITE_COLOURS: readonly number[] = [
-  0, 2, 192, 194, 48, 50, 240, 242,
-  482, 7, 448, 455, 56, 63, 504, 511,
+/** In GRAPHIC 7 the sixteen sprite colour codes map to fixed 3-bit [R, G, B]
+ *  levels instead of the palette. */
+const GRAPHIC7_SPRITE_RGB: readonly (readonly [number, number, number])[] = [
+  [0, 0, 0], [0, 0, 2], [3, 0, 0], [3, 0, 2],
+  [0, 6, 0], [0, 6, 2], [3, 6, 0], [3, 6, 2],
+  [7, 4, 2], [0, 0, 7], [7, 0, 0], [7, 0, 7],
+  [0, 7, 0], [0, 7, 7], [7, 7, 0], [7, 7, 7],
 ];
 
-/** Register write masks R0–R27 (data book: unused bits read back as set /
- *  are discarded on write). From MAME's v9938.cpp reg_mask[]. */
+/** Which bits of control registers R0–R27 exist; the rest are discarded on
+ *  write. Each entry is the OR of the register's defined fields (data book
+ *  register map), so an undefined bit is simply absent. */
 const REG_MASK: readonly number[] = [
-  0x7E, 0x7B, 0x7F, 0xFF, 0x3F, 0xFF, 0x3F, 0xFF,
-  0xFB, 0xBF, 0x07, 0x03, 0xFF, 0xFF, 0x07, 0x0F,
-  0x0F, 0xBF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-  0x00, 0x7F, 0x3F, 0x07,
+  /* R0  */ 0x7E, // DG IE2 IE1 M5 M4 M3 (bit 0 undefined)
+  /* R1  */ 0x7B, // BL IE0 M1 M2 SI MAG  (bit 2 undefined)
+  /* R2  */ 0x7F, // name table A16-A10
+  /* R3  */ 0xFF, // colour table A13-A6
+  /* R4  */ 0x3F, // pattern generator A16-A11
+  /* R5  */ 0xFF, // sprite attribute A14-A7
+  /* R6  */ 0x3F, // sprite pattern A16-A11
+  /* R7  */ 0xFF, // text colour / backdrop
+  /* R8  */ 0xFB, // MS LP TP CB VR SPD BW (bit 2 undefined)
+  /* R9  */ 0xBF, // LN S1 S0 IL EO NT DC (bit 6 undefined)
+  /* R10 */ 0x07, // colour table A16-A14
+  /* R11 */ 0x03, // sprite attribute A16-A15
+  /* R12 */ 0xFF, // blink colours
+  /* R13 */ 0xFF, // blink timing
+  /* R14 */ 0x07, // VRAM address A16-A14
+  /* R15 */ 0x0F, // status register select
+  /* R16 */ 0x0F, // palette pointer
+  /* R17 */ 0xBF, // indirect register pointer, AII (bit 6 undefined)
+  /* R18 */ 0xFF, // display adjust
+  /* R19 */ 0xFF, // line interrupt row
+  /* R20 */ 0xFF, 0xFF, 0xFF, // colour burst (unused here)
+  /* R23 */ 0xFF, // vertical scroll
+  /* R24 */ 0x00, // (V9958 only)
+  /* R25 */ 0x7F, 0x3F, 0x07, // R25-R27 (V9958 only; forced to zero on write)
 ];
 
 /** Power-up palette (V9938 Technical Data Book p.148, G-R-B 3-bit). */
@@ -134,6 +160,20 @@ export type V9938Mode =
   | 'text1' | 'text2' | 'multicolor'
   | 'graphic1' | 'graphic2' | 'graphic3'
   | 'graphic4' | 'graphic5' | 'graphic6' | 'graphic7' | 'unknown';
+
+/** The data book's display-mode table: which of M1–M5 are set for each mode. */
+const MODE_BY_BITS: Readonly<Record<string, V9938Mode>> = {
+  '': 'graphic1',
+  M1: 'text1',
+  M2: 'multicolor',
+  M3: 'graphic2',
+  M4: 'graphic3',
+  M4M1: 'text2',
+  M4M3: 'graphic4',
+  M5: 'graphic5',
+  M5M3: 'graphic6',
+  M5M4M3: 'graphic7',
+};
 
 export class V9938 {
   /** 192KB private video RAM (128KB main + 64KB expansion at 0x20000). */
@@ -393,25 +433,19 @@ export class V9938 {
   // ── Mode / geometry helpers ───────────────────────────────────────────
 
   /**
-   * Screen mode from M1–M5 (R1 bits 4/3, R0 bits 1/2/3). The mode index
-   * table follows MAME's set_mode():
-   *   n = ((R0 & 0x0E) << 1) | ((R1 & 0x18) >> 3)
+   * Screen mode from the five mode bits: M1 and M2 in R1 (bits 4 and 3), M3,
+   * M4 and M5 in R0 (bits 1, 2 and 3). The data book's mode table is keyed
+   * here as a string of the set bits.
    */
   mode(): V9938Mode {
-    const n = ((this.regs[0] & 0x0E) << 1) | ((this.regs[1] & 0x18) >> 3);
-    switch (n) {
-      case 0x02: return 'text1';
-      case 0x0A: return 'text2';
-      case 0x01: return 'multicolor';
-      case 0x00: return 'graphic1';
-      case 0x04: return 'graphic2';
-      case 0x08: return 'graphic3';
-      case 0x0C: return 'graphic4';
-      case 0x10: return 'graphic5';
-      case 0x14: return 'graphic6';
-      case 0x1C: return 'graphic7';
-      default: return 'unknown';
-    }
+    const r0 = this.regs[0], r1 = this.regs[1];
+    let bits = '';
+    if (r0 & 0x08) bits += 'M5';
+    if (r0 & 0x04) bits += 'M4';
+    if (r0 & 0x02) bits += 'M3';
+    if (r1 & 0x08) bits += 'M2';
+    if (r1 & 0x10) bits += 'M1';
+    return MODE_BY_BITS[bits] ?? 'unknown';
   }
 
   /** True while the display is enabled (R1 BL set). */
@@ -650,8 +684,8 @@ export class V9938 {
     }
   }
 
-  /** Graphics 2/3: per-cell patterns/colours across three vertical thirds
-   *  (the shared MAME mode_graphic23 path). Doubled to 512 px. */
+  /** Graphics 2/3: per-cell patterns/colours across three vertical thirds.
+   *  Doubled to 512 px. */
   private renderGraphic23(px: Uint32Array, rowStart: number, y: number): void {
     const scrolled = (y + this.regs[23]) & 0xFF;
     const vram = this.vram;
@@ -795,12 +829,8 @@ export class V9938 {
         px[dst] = this.pens[(colour >> 2) & 3];
         px[dst + 1] = this.pens[colour & 3];
       } else if (screenMode === 'graphic7') {
-        const encoded = GRAPHIC7_SPRITE_COLOURS[colour];
-        px[dst] = px[dst + 1] = penFromRgb(
-          (encoded >> 6) & 7,
-          (encoded >> 3) & 7,
-          encoded & 7,
-        );
+        const [r, g, b] = GRAPHIC7_SPRITE_RGB[colour];
+        px[dst] = px[dst + 1] = penFromRgb(r, g, b);
       } else {
         px[dst] = px[dst + 1] = this.pens[colour];
       }
@@ -1133,8 +1163,8 @@ export class V9938 {
     this.paletteSecond = false;
     this.status.fill(0);
     this.hrCounter = 0;
-    // Power-up state per the data book / MAME: S2 reports the retrace and
-    // border flags set.
+    // Power-up state per the data book: S2 reports the retrace and border
+    // flags set.
     this.status[2] = 0x0C;
     this.status[4] = 0xFE;
     this.status[6] = 0xFC;
