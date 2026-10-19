@@ -2,11 +2,11 @@
 
 <img src="public/mascot.svg" align="right" width="100" height="140" alt="Blip, the ZX84 robot mascot">
 
-**A browser emulator for the Sinclair ZX80, ZX81 and ZX Spectrum (and the Pentagon and Scorpion clones), Amstrad CPC (including the Plus range) and PCW, Tatung Einstein, MSX, Memotech MTX, Camputers Lynx, Jupiter Ace, Acorn BBC Micro and Electron, the Apple II family, and the Enterprise 64/128, with an MCP server for automated testing.**
+**A browser-based 8-bit computer emulator for the Sinclair ZX80, ZX81 and ZX Spectrum (and the Pentagon and Scorpion clones), Amstrad CPC (including the Plus range) and PCW, Tatung Einstein, MSX, Memotech MTX, Camputers Lynx, Jupiter Ace, Acorn BBC Micro and Electron, the Apple II family, and the Enterprise 64/128, with an MCP server for automated testing.**
 
 https://zx84.envytech.workers.dev
 
-ZX84 is an old-computer emulator with machine-specific hardware models, browser-based media management, inspection tools, and a configurable CRT presentation layer.
+ZX84 is an 8-bit computer emulator with machine-specific hardware models, browser-based media management, inspection tools, and a configurable CRT presentation layer.
 
 ## Supported Machines
 
