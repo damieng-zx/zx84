@@ -33,8 +33,17 @@ on the board.
 
 | Model | ROM pages | Source |
 | --- | --- | --- |
-| Pentagon 128 / 512 / 1024 | The Sinclair 128K pair (`128-0/1.rom`) | hosted; a Pentagon-branded ROM can replace it |
+| Pentagon 128 / 512 / 1024 | The Sinclair 128K pair (`128-0/1.rom`) | hosted. At load zx84 swaps the menu's "Tape Tester" entry for "TR-DOS" (see below); a Pentagon-branded ROM can replace the pair |
 | Scorpion ZS-256 | 0 Scorpion 128K menu, 1 48K BASIC, 2 service ROM, 3 TR-DOS 5.03 | hosted: `clones/scorpion-zs256-v25c.rom` (ZS-256 "Yellow" v2.5c) |
+
+**TR-DOS menu entry.** The Pentagon's menu is the Sinclair one with "Tape Tester"
+replaced by "TR-DOS". zx84 does the same when it loads the Sinclair pair on a
+Pentagon (`src/machines/spectrum/pentagon-menu.ts`): the entry types
+`RANDOMIZE USR VAL "15616"` into the edit line and runs it, which pages TR-DOS in.
+The routine is zx84's own, modelled on the Sinclair Tape Loader's tail rather than
+taken from a Pentagon ROM. It is applied only when page 0 is the stock Sinclair
+128K ROM 0, so a ROM supplied by the user is never altered, and the Spectrum 128K
+models keep Tape Tester.
 
 Any page can be replaced from the ROM pane. A 64 KB ROM dropped on the ROM pane
 keeps the Scorpion model when it is already selected.
@@ -115,7 +124,7 @@ starts TR-DOS itself (its default "128 TR-DOS" entry), then `RUN` is typed.
 | Issue | Affects | Severity | Notes |
 | --- | --- | --- | --- |
 | The Scorpion TURBO+ v2.92 / v2.95 ROMs hang on the menu's "128 TR-DOS" entry | Scorpion with those ROMs | medium | The service-ROM BIOS polls the FDC status for bits 7–5 after a Read Address; the cause is not understood. The v2.5c ROM that zx84 hosts works |
-| The Pentagon 128 ROM is the Sinclair 128K pair, not a Pentagon ROM | Pentagons | low | The banner and menu say Sinclair; software compatibility is unaffected. A Pentagon-branded 128 ROM (with its TR-DOS menu entry) dropped on the ROM pane works, including the library auto-boot, which finds its menu wait by byte pattern; zx84 does not host one |
+| The Pentagon 128 ROM is the Sinclair 128K pair, not a Pentagon ROM | Pentagons | low | The banner says Sinclair; software compatibility is unaffected. A Pentagon-branded 128 ROM dropped on the ROM pane works, including the library auto-boot, which finds its menu wait by byte pattern. zx84 does not host one: the commonly circulated image is Amstrad's ROM with a 65-byte patch of unknown authorship and licence |
 
 ## Not emulated
 

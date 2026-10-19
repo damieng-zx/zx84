@@ -61,7 +61,8 @@ const AY_CLOCK = 1773400;        // ~1.77 MHz
 const NOOP_CONTEND = (_addr: number): void => {};
 
 import type { SpectrumModel } from '@/models.ts';
-import { betaRomInSystemRom, isScorpionClass } from '@/machines/spectrum/models.ts';
+import { betaRomInSystemRom, isPentagonClass, isScorpionClass } from '@/machines/spectrum/models.ts';
+import { withTrdosMenuEntry } from '@/machines/spectrum/pentagon-menu.ts';
 import { IOActivity } from '@/machines/spectrum/activity.ts';
 
 // Re-export IOActivity from its neutral home so existing imports from
@@ -510,7 +511,8 @@ export class Spectrum extends BaseMachine implements Machine {
   }
 
   loadROM(data: Uint8Array): void {
-    this.memory.loadROM(data);
+    // The Pentagons run the Sinclair 128K pair; give its menu the TR-DOS entry.
+    this.memory.loadROM(isPentagonClass(this.model) ? withTrdosMenuEntry(data) : data);
     // The Scorpion's TR-DOS is page 3 of its own 64K ROM, not a separate image.
     if (betaRomInSystemRom(this.model) && data.length >= 4 * 16384) {
       this.betaDisk.loadROM(data.subarray(3 * 16384, 4 * 16384));
