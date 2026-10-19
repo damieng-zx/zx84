@@ -101,7 +101,7 @@ describe('armBootTrap("trdos")', () => {
 });
 
 describe.skipIf(!have(['128-0.rom', '128-1.rom', 'trdos.rom']))('TR-DOS auto-boot against the real ROMs', () => {
-  it('Pentagon: picks 48 BASIC, enters TR-DOS with USR 15616 and runs from the disk', () => {
+  it('Pentagon: selects 48 BASIC unlocked, calls TR-DOS at 0x3D00 and types RUN', () => {
     const spec = new Spectrum('pentagon128', null);
     spec.loadROM(romSet(['128-0.rom', '128-1.rom']));
     spec.betaDisk.loadROM(new Uint8Array(readFileSync(resolve(CACHE, 'trdos.rom'))));
@@ -118,7 +118,19 @@ describe.skipIf(!have(['128-0.rom', '128-1.rom', 'trdos.rom']))('TR-DOS auto-boo
     for (let f = 0; f < 600; f++) spec.runUntil(1);
     expect(spec.bootTrapPc).toBe(-1);                       // the editor trap fired
     expect(spec.memory.currentROM).toBe(1);                 // 48 BASIC was chosen
-    expect(pageIns).toBeGreaterThanOrEqual(2);              // USR 15616, then RUN
+    expect(spec.memory.pagingLocked).toBe(false);           // unlike the menu, which locks it
+    expect(spec.bootTrapKind).toBe('trdos-ready');          // the CALL got TR-DOS back to the editor
+    expect(pageIns).toBeGreaterThanOrEqual(2);              // the CALL, then RUN
+  });
+
+  it('a 48K Spectrum with no Beta Disk fitted never jumps into ROM at 0x3D00', () => {
+    const spec = new Spectrum('zx48k', null);
+    spec.loadROM(new Uint8Array(readFileSync(resolve(CACHE, '128-1.rom'))));
+    spec.reset();
+    spec.armBootTrap('trdos');
+    for (let f = 0; f < 400; f++) spec.runUntil(1);
+    expect(spec.bootTrapPc).toBe(-1);                       // the editor trap fired…
+    expect(spec.bootTrapKind).toBe('trdos-run');            // …but found nothing to call
   });
 });
 

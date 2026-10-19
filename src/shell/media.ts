@@ -49,7 +49,7 @@ import {
 import { setTranscribeMode, transcribeMode } from '@/state/activity-state.ts';
 import { microdriveSlots, setMicrodriveSlot, clearMicrodriveSlot } from '@/state/microdrive-state.ts';
 import { machine, romData, setStatus, romManager } from '@/shell/context.ts';
-import { unpause } from '@/shell/lifecycle.ts';
+import { unpause, autoBootLoad } from '@/shell/lifecycle.ts';
 import type { SpectrumModel } from '@/models.ts';
 
 // ── Cassette / cartridge ──────────────────────────────────────────────────
@@ -138,16 +138,24 @@ export function loadableExtensions(): string[] {
   return exts;
 }
 
-export async function loadFile(data: Uint8Array, filename: string, unit?: number): Promise<void> {
+export interface LoadOptions {
+  /** Boot what was just mounted, where that makes sense: a Beta Disk (.trd/.scl)
+   *  in drive A is run through TR-DOS. Set by the Load button and drag-and-drop,
+   *  where the user is opening a program; not by a drive's own insert, which only
+   *  swaps media under a running machine, nor by the library, which boots its own. */
+  autoBoot?: boolean;
+}
+
+export async function loadFile(data: Uint8Array, filename: string, unit?: number, options: LoadOptions = {}): Promise<void> {
   if (!machine) { setStatus('Load a ROM first'); return; }
   // ZIP archives are a machine-agnostic shell concern: unwrap, pick, re-dispatch.
   if (/\.zip$/i.test(filename)) {
-    await handleZip(data, filename, unit);
+    await handleZip(data, filename, unit, options);
     return;
   }
   // Everything else routes through the active machine's own MediaService.
   const result = await machine.services.media.mount(data, filename, unit !== undefined ? `unit:${unit}` : undefined);
-  await reflectMount(result, data, filename, unit);
+  await reflectMount(result, data, filename, unit, options);
 }
 
 /**
@@ -161,10 +169,11 @@ async function reflectMount(
   data: Uint8Array,
   filename: string,
   unit?: number,
+  options: LoadOptions = {},
 ): Promise<void> {
   if (result.replay) {
     // The mount triggered a model rebuild: the old machine is gone — re-dispatch.
-    await loadFile(data, filename, unit);
+    await loadFile(data, filename, unit, options);
     return;
   }
   if (!result.ok || !machine) { setStatus(result.message); return; }
@@ -202,6 +211,9 @@ async function reflectMount(
     const u = Number(target.slice(5));
     setPlusDDiskState(u, m.services.disks?.image?.(target) ?? null, filename);
     persistBetaDiskDisk(u, data, filename);
+    // Opening a TR-DOS disk runs it, as the library does: reset, enter TR-DOS
+    // (RANDOMIZE USR 15616) and RUN its boot file. Drive B only swaps media.
+    if (options.autoBoot && u === 0) autoBootLoad('trdos');
   } else if (target.startsWith('mdv:')) {
     const u = Number(target.slice(4));
     const drive = m.services.disks?.drives.find(d => d.id === target);
@@ -231,7 +243,7 @@ async function reflectMount(
  *  accepted entry ('media'), or reject archives outright ('none'). A machine
  *  that mounts whole archives (MediaService.mountArchive) is offered every
  *  file first. */
-async function handleZip(data: Uint8Array, filename: string, unit?: number): Promise<void> {
+async function handleZip(data: Uint8Array, filename: string, unit: number | undefined, options: LoadOptions): Promise<void> {
   if (!machine) return;
   const policy = machine.descriptor.ui.zipPolicy;
   const accepted = machine.services.media.accepts().map(t => t.ext);
@@ -244,7 +256,7 @@ async function handleZip(data: Uint8Array, filename: string, unit?: number): Pro
     let all;
     try { all = await unzip(data, ['']); } catch (e) { setStatus(`ZIP error: ${(e as Error).message}`); return; }
     const result = await media.mountArchive(all, filename);
-    if (result) { await reflectMount(result, data, filename, unit); return; }
+    if (result) { await reflectMount(result, data, filename, unit, options); return; }
   }
   let entries;
   try { entries = await unzip(data, accepted); } catch (e) { setStatus(`ZIP error: ${(e as Error).message}`); return; }
@@ -258,7 +270,7 @@ async function handleZip(data: Uint8Array, filename: string, unit?: number): Pro
     if (!name) { setStatus('No file selected'); return; }
     picked = entries.find(m => m.name === name)!;
   }
-  await loadFile(picked.data, picked.name, unit);   // re-dispatch the extracted image
+  await loadFile(picked.data, picked.name, unit, options);   // re-dispatch the extracted image
 }
 
 // ── Download / save ────────────────────────────────────────────────────────

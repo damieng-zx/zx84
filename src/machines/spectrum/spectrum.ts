@@ -79,10 +79,7 @@ const K_SYM: readonly [number, number] = [7, 1];   // SYMBOL SHIFT
 const K_P: readonly [number, number] = [5, 0];     // P (with SYM = ")
 const K_CAPS: readonly [number, number] = [0, 0];  // CAPS SHIFT (with SYM = extended mode)
 const K_R: readonly [number, number] = [2, 3];     // RUN keyword in K-mode
-const K_T: readonly [number, number] = [2, 4];     // RANDOMIZE keyword in K-mode
-const K_L: readonly [number, number] = [6, 1];     // USR in extended mode
 const K_6: readonly [number, number] = [4, 4];     // 6 (with CAPS = cursor down)
-const K_DIGIT: readonly (readonly [number, number])[] = [[4, 0], [3, 0], [3, 1], [3, 2], [3, 3], [3, 4], [4, 4], [4, 3], [4, 2], [4, 1]];
 
 /** 128K/+2/+2A/+3 boot menu: hold ENTER on the default "Loader" option. The
  *  menu ignores input for ~100 frames while it draws, so the hold must be long. */
@@ -117,26 +114,17 @@ function menu48BasicSequence(): BootKeyStep[] {
   return [{ keys: [], frames: 30 }, ...down, ...down, ...down, { keys: [K_ENTER], frames: HOLD }];
 }
 
-/** 48K editor: `RANDOMIZE USR 15616` + ENTER enters TR-DOS, then, once it has
- *  initialised the drive, `RUN` + ENTER loads and runs the disk's boot file.
- *  RANDOMIZE is key T, USR is key L in extended mode (CAPS + SYMBOL SHIFT held
- *  together, then released) and the digits type literally. */
+/** TR-DOS is up at the 48K editor: `RUN` + ENTER loads and runs the disk's boot
+ *  file. RUN is key R in K-mode. */
 function trdosRunSequence(): BootKeyStep[] {
-  const HOLD = 5, GAP = 5, TRDOS_INIT = 100;
-  const digits = [...'15616'].map(c => ({ keys: [K_DIGIT[+c]], frames: HOLD }));
-  const steps: BootKeyStep[] = [
-    { keys: [K_T], frames: HOLD },               // RANDOMIZE
-    { keys: [], frames: GAP },
-    { keys: [K_CAPS, K_SYM], frames: HOLD },     // extended mode
-    { keys: [], frames: GAP },
-    { keys: [K_L], frames: HOLD },               // USR
-    { keys: [], frames: GAP },
-  ];
-  digits.forEach(d => { steps.push(d, { keys: [], frames: GAP }); });
-  steps.push({ keys: [K_ENTER], frames: HOLD }, { keys: [], frames: TRDOS_INIT });
-  steps.push({ keys: [K_R], frames: HOLD }, { keys: [], frames: GAP }, { keys: [K_ENTER], frames: HOLD });
-  return steps;
+  const HOLD = 5, GAP = 5;
+  return [{ keys: [K_R], frames: HOLD }, { keys: [], frames: GAP }, { keys: [K_ENTER], frames: HOLD }];
 }
+
+/** 0x3D00 is TR-DOS's entry point: `RANDOMIZE USR 15616` calls it. */
+const TRDOS_ENTRY = 0x3D00;
+/** The 48K ROM's key-wait loop: the editor idling for a keypress. */
+const EDITOR_KEY_WAIT = 0x15DE;
 
 /** Scorpion menu: ENTER takes the default "128 TR-DOS" entry, which starts
  *  TR-DOS under 128 BASIC; once it is up, `RUN` + ENTER boots the disk. */
@@ -295,7 +283,7 @@ export class Spectrum extends BaseMachine implements Machine {
    *  (A cold jump to LD-BYTES doesn't work: it loads one block to undefined
    *  IX/DE/A' and never runs the BASIC loader, so we drive the real keyboard.) */
   bootTrapPc = -1;
-  bootTrapKind: 'menu' | 'rom48k' | 'trdos-menu' | 'trdos-run' = 'menu';
+  bootTrapKind: 'menu' | 'rom48k' | 'trdos-menu' | 'trdos-run' | 'trdos-ready' = 'menu';
   /** Remaining auto-boot keystroke steps; each holds a key set for `frames`
    *  frames (an empty key set is a release gap so the ROM sees distinct keys). */
   private bootKeySteps: BootKeyStep[] = [];
@@ -308,13 +296,15 @@ export class Spectrum extends BaseMachine implements Machine {
    *  lives here, not the shell.
    *  'menu' holds Enter on the 128K boot menu; 'rom48k' types LOAD "" on 48K;
    *  'trdos' boots the Beta Disk in drive A: the Scorpion's menu starts TR-DOS
-   *  itself, elsewhere it picks 48 BASIC from the 128K menu (when there is one)
-   *  and types RANDOMIZE USR 15616; then RUN. */
+   *  itself and RUN is typed. Elsewhere 48 BASIC is selected (by hardware state
+   *  where 7FFD bit 4 picks the ROM, else from the menu), TR-DOS is entered with
+   *  the CALL that RANDOMIZE USR 15616 makes, and RUN is typed once it is back at
+   *  the editor. */
   armBootTrap(kind: 'menu' | 'rom48k' | 'trdos'): void {
     if (kind === 'trdos') {
       const hasMenu = !this.variant.is48K;
       this.bootTrapKind = hasMenu ? 'trdos-menu' : 'trdos-run';
-      this.bootTrapPc = hasMenu ? bootWaitPc(this.model, this.memory.romPages[0]) : 0x15DE;
+      this.bootTrapPc = hasMenu ? bootWaitPc(this.model, this.memory.romPages[0]) : EDITOR_KEY_WAIT;
       return;
     }
     this.bootTrapKind = kind;
@@ -595,6 +585,29 @@ export class Spectrum extends BaseMachine implements Machine {
     this.setStatus('Reset');
   }
 
+  /** What the 128K menu's "48 BASIC" does, minus its paging lock (a TR-DOS disk
+   *  may well want the banks): select the 48K ROM and cold-start it. Only for
+   *  machines whose ROM is chosen by 7FFD bit 4 alone, not the +2A/+3. */
+  private coldStart48Basic(): void {
+    this.memory.bankSwitch(0x10);
+    this.cpu.pc = 0x0000;
+  }
+
+  /** Enter TR-DOS the way `RANDOMIZE USR 15616` does: a CALL to its entry point,
+   *  returning to where the editor was waiting. The Beta Disk pages its ROM in on
+   *  the M1 fetch at 0x3Dxx, which the trap's own step would otherwise miss.
+   *  False (and nothing done) when there is no Beta Disk to enter. */
+  private callTrdos(): boolean {
+    if (!this.betaDisk.enabled) return false;
+    const sp = (this.cpu.sp - 2) & 0xFFFF;
+    this.memory.writeByte(sp, this.cpu.pc & 0xFF);
+    this.memory.writeByte((sp + 1) & 0xFFFF, this.cpu.pc >> 8);
+    this.cpu.sp = sp;
+    this.cpu.pc = TRDOS_ENTRY;
+    this.betaDisk.checkPage(this.cpu.pc, this.memory);
+    return true;
+  }
+
   /** Pop the next auto-boot keystroke step and press its keys (held until its
    *  frame counter expires in runFrame). No-op when the sequence is exhausted. */
   private advanceBootStep(): void {
@@ -797,18 +810,24 @@ export class Spectrum extends BaseMachine implements Machine {
       // menu / 48K editor key-wait loop, so queue the loader keystrokes and
       // disarm. setKey is the same matrix path the joystick uses.
       if (this.bootTrapPc >= 0 && this.cpu.pc === this.bootTrapPc &&
-          (this.bootTrapKind !== 'trdos-run' || this.memory.isBasicRomActive())) {
+          ((this.bootTrapKind !== 'trdos-run' && this.bootTrapKind !== 'trdos-ready') || this.memory.isBasicRomActive())) {
         this.bootTrapPc = -1;          // one-shot
         switch (this.bootTrapKind) {
           case 'rom48k': this.bootKeySteps = load48kSequence(); break;
           case 'trdos-menu':
             if (isScorpionClass(this.model)) { this.bootKeySteps = scorpionTrdosSequence(); break; }
             // Second stage: the editor's key-wait once 48 BASIC is paged in.
-            this.bootKeySteps = menu48BasicSequence();
+            if (this.memory.hasPlus2ARoms) this.bootKeySteps = menu48BasicSequence();
+            else this.coldStart48Basic();
             this.bootTrapKind = 'trdos-run';
-            this.bootTrapPc = 0x15DE;
+            this.bootTrapPc = EDITOR_KEY_WAIT;
             break;
-          case 'trdos-run': this.bootKeySteps = trdosRunSequence(); break;
+          case 'trdos-run':
+            // The editor is idle: enter TR-DOS as RANDOMIZE USR 15616 would, and
+            // come back to the editor's key-wait when it has initialised the drive.
+            if (this.callTrdos()) { this.bootTrapKind = 'trdos-ready'; this.bootTrapPc = EDITOR_KEY_WAIT; }
+            break;
+          case 'trdos-ready': this.bootKeySteps = trdosRunSequence(); break;
           default: this.bootKeySteps = menuEnterSequence();
         }
         this.advanceBootStep();        // press the first step now

@@ -73,7 +73,7 @@ export function LoadSavePane() {
       extensions: loadableExtensions(),
     });
     if (!results) return;
-    await loadFile(results[0].data, results[0].name);
+    await loadFile(results[0].data, results[0].name, undefined, { autoBoot: true });
   }
 
   return (

@@ -68,11 +68,26 @@ they overlay the same slot as the built-in Beta Disk.
 
 | Extension | Kind | Device | Load | Save | Notes |
 | --- | --- | --- | --- | --- | --- |
-| `.trd` / `.scl` | Disk | Beta Disk | ✅ | ✅ | The native format of this scene |
+| `.trd` / `.scl` | Disk | Beta Disk | ✅ | ✅ | The native format of this scene. Opened with Load or by drag-and-drop it also runs (below) |
 | `.hfe` / `.scp` | Disk | Beta Disk | ✅ | ✅ / ✗ | |
 | `.szx` | Snapshot | Machine | ✅ | ✅ | The only save format for the 512, 1024 and Scorpion (every bank is kept; EFF7 and 1FFD ride in the byte shared with 1FFD) |
 | `.z80` | Snapshot | Machine | ✅ | ◐ | Pentagon 128 only (hardware mode 9); `.z80` cannot hold more than 128K |
 | `.tap` / `.tzx` / `.csw` | Tape | Tape deck | ✅ | ✗ | |
+
+### Loading a TR-DOS disk
+
+A `.trd` or `.scl` opened with the Load button, dropped on the page (also from
+inside a `.zip`) or played from the library is put in drive A and booted: the
+machine is reset and TR-DOS is entered as `RANDOMIZE USR 15616` would, then `RUN`
+loads the disk's `boot` file. Inserting from a drive's own menu, or into drive B,
+only swaps the disk and leaves the machine running.
+
+The 48K ROM is selected by setting the hardware state rather than typing: on a
+Pentagon (and the 128K/+2) 7FFD is written and the ROM cold-started, which unlike
+the menu's "48 BASIC" leaves paging unlocked so 128K software gets its banks. TR-DOS
+is then called at `0x3D00` from the editor's key-wait, and only `RUN` is typed, once
+it is back there. The +2A/+3 menu is still driven by keys. The Scorpion's menu
+starts TR-DOS itself (its default "128 TR-DOS" entry), then `RUN` is typed.
 
 ---
 
@@ -82,7 +97,7 @@ they overlay the same slot as the built-in Beta Disk.
 | --- | --- | --- |
 | Timing | ◐ | Frame lengths as above. The Pentagon first-pixel offset (17,988) and the Scorpion's (14,344) are figures taken from references and are not hardware-verified |
 | Fast ROM loading | ✅ | Active when the 48K BASIC ROM is paged in (ROM page 1 on the Scorpion) |
-| Software library | ◐ | The catalog carries ZXDB's Pentagon and Scorpion titles, with their TR-DOS images (`.trd`/`.scl`) as a Beta Disk format. On a clone the Machine filter gains a Pentagon or Scorpion option (it matches the titles ZXDB tags for that machine and every TR-DOS image). Tapes auto-load through the menu. A TR-DOS disk is mounted, the machine reset and the disk booted: on a Pentagon the menu's "48 BASIC" is picked and `RANDOMIZE USR 15616` then `RUN` typed; on the Scorpion the default "128 TR-DOS" entry is taken and `RUN` typed. A disk with no `boot` file stops at TR-DOS's "NO FILE" |
+| Software library | ◐ | The catalog carries ZXDB's Pentagon and Scorpion titles, with their TR-DOS images (`.trd`/`.scl`) as a Beta Disk format. On a clone the Machine filter gains a Pentagon or Scorpion option (it matches the titles ZXDB tags for that machine and every TR-DOS image). Tapes auto-load through the menu. A TR-DOS disk is mounted, the machine reset and the disk booted (see Loading a TR-DOS disk below). A disk with no `boot` file stops at TR-DOS's "NO FILE" |
 
 ---
 

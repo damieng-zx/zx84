@@ -105,7 +105,7 @@ ZIP archives are unpacked and their contents routed as below.
 | `.hfe` | Disk | +3, +D, Beta | ✅ | ✅ | HFE v1 bitstream; only changed sectors rewritten, so protection is preserved |
 | `.scp` | Disk | +3, +D, Beta | ✅ | ✗ | Flux images; weak sectors recovered from repeated revolutions |
 | `.mgt` / `.img` | Disk | MGT +D | ✅ | ✅ | Saved as `.mgt` |
-| `.trd` / `.scl` | Disk | Beta Disk | ✅ | ✅ | Saved in the same format it was loaded in |
+| `.trd` / `.scl` | Disk | Beta Disk | ✅ | ✅ | Saved in the same format it was loaded in. Opened with Load or by drag-and-drop it also runs through TR-DOS (`RUN` once TR-DOS is entered) |
 | `.mdr` / `.mdv` | Microdrive cartridge | Interface 1 | ✅ | ✅ | Saved as `.mdr`, write-protect flag kept |
 | `.rom` | Cartridge | Interface 2 | ✅ | — | 16K/48K only |
 

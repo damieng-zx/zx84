@@ -132,7 +132,7 @@ export function App() {
       setIsDragging(false);
       const file = e.dataTransfer?.files[0];
       if (!file) return;
-      file.arrayBuffer().then(buf => loadFile(new Uint8Array(buf), file.name));
+      file.arrayBuffer().then(buf => loadFile(new Uint8Array(buf), file.name, undefined, { autoBoot: true }));
     }
     document.addEventListener('dragenter', onDragEnter);
     document.addEventListener('dragleave', onDragLeave);
