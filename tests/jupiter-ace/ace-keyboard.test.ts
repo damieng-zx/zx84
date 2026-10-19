@@ -1,5 +1,5 @@
 /**
- * AceKeyboard — the 8×5 half-row matrix (MAME cantab/jupace.cpp).
+ * AceKeyboard — the 8×5 half-row matrix (checked against the ROM in ace-keyboard-rom.test.ts).
  *
  * Rows are selected by active-low bits of the port high byte; keys are
  * active-low. Expected bit patterns are worked out from the matrix:

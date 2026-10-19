@@ -61,8 +61,9 @@ zx84 adapts the following from MAME source files that carry
   (Robbbert, Nigel Barnes) and `camplynx_dsk.cpp`: the keyboard matrix cell
   assignments, the bank-select decode rules and port meanings, the video
   address stepping, and the tape and disk format sizes.
-- **Jupiter Ace and Memotech MTX** — the Ace keyboard matrix and frame
-  interrupt timing, and the MTX sound-latch arrangement, were taken from
+- **Jupiter Ace and Memotech MTX** — the Ace frame interrupt timing (the
+  vertical-sync line the interrupt is held for) and the MTX sound-latch
+  arrangement were taken from
   `src/mame/cantab/jupace.cpp` (copyright-holders: Curt Coder, Robbbert),
   `src/lib/formats/ace_tap.cpp` (copyright-holders: Wilbert Pol) and
   `src/mame/memotech/mtx.cpp` / `mtx_m.cpp` (copyright-holders: Lee Ward,
