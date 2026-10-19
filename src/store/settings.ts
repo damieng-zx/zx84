@@ -4,6 +4,7 @@
 
 import { createSignal, createMemo, createRoot } from 'solid-js';
 import { getSaved, setSaved } from '@/store/persistence.ts';
+import { parsePhosphor } from '@/display/phosphor.ts';
 
 // ── Defaults — single source of truth ──────────────────────────────────
 //
@@ -31,6 +32,7 @@ const DEFAULTS = {
   'noise':             '0',
   'scaling-mode':      '0',
   'monitor':           'raw',
+  'phosphor':          'color',
   'border-size':       '1',
   'renderer':          'webgl',
   'color-map':         'measured',
@@ -188,6 +190,18 @@ export const setNoise = _noise[1];
 const _scalingMode = /*@once*/ createRoot(() => createSignal(getSavedNumber('scaling-mode', D('scaling-mode'))));
 export const scalingMode = _scalingMode[0];
 export const setScalingMode = _scalingMode[1];
+
+// The Apple II's old 'green' video mode is now the generic green phosphor over its
+// mono picture: migrate the saved choice once.
+const legacyApple2Green = getSaved('apple2-video', '') === 'green';
+if (legacyApple2Green) {
+  setSaved('apple2-video', 'mono');
+  if (getSaved('phosphor', '') === '') setSaved('phosphor', 'green');
+}
+
+const _phosphor = /*@once*/ createRoot(() => createSignal(parsePhosphor(getSaved('phosphor', D('phosphor')))));
+export const phosphor = _phosphor[0];
+export const setPhosphor = _phosphor[1];
 
 const _monitor = /*@once*/ createRoot(() => createSignal(getSaved('monitor', D('monitor'))));
 export const monitor = _monitor[0];
@@ -522,7 +536,7 @@ export const bbcColorMap = _bbcColorMap[0];
 export const setBbcColorMap = _bbcColorMap[1];
 
 const _apple2Video = /*@once*/ createRoot(() => createSignal(
-  getSaved('apple2-video', D('apple2-video')) as 'mono' | 'green' | 'ntsc' | 'pal'));
+  getSaved('apple2-video', D('apple2-video')) as 'mono' | 'ntsc' | 'pal'));
 export const apple2Video = _apple2Video[0];
 export const setApple2Video = _apple2Video[1];
 
@@ -652,6 +666,7 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'curvature-mode',    set: setCurvatureMode,    type: 'number' },
     { key: 'noise',             set: setNoise,            type: 'number' },
     { key: 'monitor',           set: setMonitor,          type: 'string' },
+    { key: 'phosphor',          set: setPhosphor,         type: 'string' },
   ],
   sound: [
     { key: 'volume',      set: setVolume,     type: 'number' },

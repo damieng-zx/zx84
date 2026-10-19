@@ -10,6 +10,7 @@
  */
 
 import type { IScreenRenderer } from '@/display/renderer.ts';
+import type { PhosphorTint } from '@/display/phosphor.ts';
 import hq2xLutUrl from '@/display/shaders/hq2x-lut.png';  // 256×64 RGBA LUT for HQ2x blend weights
 import hq3xLutUrl from '@/display/shaders/hq3x-lut.png';  // 256×144 RGBA LUT for HQ3x blend weights
 import hq4xLutUrl from '@/display/shaders/hq4x-lut.png';  // 256×256 RGBA LUT for HQ4x blend weights
@@ -86,6 +87,8 @@ const FRAG_CRT = `
   uniform float u_saturation;    // 0 = grayscale, 1 = normal, 2 = oversaturated
   uniform float u_gamma;         // display gamma, default 1.0
   uniform float u_noise;         // 0 = off, up to 1 = heavy noise
+  uniform vec3  u_phosphor;      // monochrome tube colour (when u_mono is set)
+  uniform float u_mono;          // 1 = show luminance only, in the phosphor colour
   uniform float u_frame;         // frame counter for varying noise
   uniform float u_scale;         // integer device-pixel scale (passed from CPU)
 
@@ -256,6 +259,11 @@ const FRAG_CRT = `
     // -- Gamma --
     col = pow(col, vec3(1.0 / u_gamma));
 
+    // -- Monochrome phosphor: a single-phosphor tube shows luminance only --
+    if (u_mono > 0.5) {
+      col = vec3(dot(col, vec3(0.299, 0.587, 0.114))) * u_phosphor;
+    }
+
     gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
   }
 `;
@@ -316,6 +324,7 @@ export class WebGLRenderer implements IScreenRenderer {
   private saturation = 1;
   private gamma = 1;
   private noise = 0;
+  private phosphor: PhosphorTint = null;
   private frameCount = 0;
 
   // Cached uniform locations — pass 2
@@ -331,6 +340,8 @@ export class WebGLRenderer implements IScreenRenderer {
   private u2Saturation: WebGLUniformLocation | null = null;
   private u2Gamma: WebGLUniformLocation | null = null;
   private u2Noise: WebGLUniformLocation | null = null;
+  private u2Phosphor: WebGLUniformLocation | null = null;
+  private u2Mono: WebGLUniformLocation | null = null;
   private u2Frame: WebGLUniformLocation | null = null;
   private u2Scale: WebGLUniformLocation | null = null;
   private deviceScale = 2;
@@ -390,6 +401,8 @@ export class WebGLRenderer implements IScreenRenderer {
     this.u2Saturation = gl.getUniformLocation(this.progCRT, 'u_saturation');
     this.u2Gamma = gl.getUniformLocation(this.progCRT, 'u_gamma');
     this.u2Noise = gl.getUniformLocation(this.progCRT, 'u_noise');
+    this.u2Phosphor = gl.getUniformLocation(this.progCRT, 'u_phosphor');
+    this.u2Mono = gl.getUniformLocation(this.progCRT, 'u_mono');
     this.u2Frame = gl.getUniformLocation(this.progCRT, 'u_frame');
     this.u2Scale = gl.getUniformLocation(this.progCRT, 'u_scale');
 
@@ -668,6 +681,11 @@ export class WebGLRenderer implements IScreenRenderer {
     this.glDirty = true;
   }
 
+  setPhosphor(rgb: PhosphorTint): void {
+    this.phosphor = rgb;
+    this.glDirty = true;
+  }
+
   setGamma(v: number): void {
     this.gamma = Math.max(0.25, Math.min(4, v));
     this.glDirty = true;
@@ -762,6 +780,8 @@ export class WebGLRenderer implements IScreenRenderer {
       gl.uniform1f(this.u2Contrast, this.contrast);
       gl.uniform1f(this.u2Saturation, this.saturation);
       gl.uniform1f(this.u2Gamma, this.gamma);
+      gl.uniform3f(this.u2Phosphor, ...(this.phosphor ?? [1, 1, 1]));
+      gl.uniform1f(this.u2Mono, this.phosphor ? 1 : 0);
       gl.uniform1f(this.u2Scale, this.deviceScale);
     }
     // u_noise and u_frame must stay in sync every frame when noise is active:

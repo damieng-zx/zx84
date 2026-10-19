@@ -11,7 +11,8 @@
  *
  *  - `mono`      the raw 1-bit picture (what a monochrome monitor shows);
  *                LORES, which has no 1-bit form, becomes its 16 luminances.
- *  - `green`     the same picture on a P1 phosphor green monitor.
+ *                The phosphor colour (green, amber…) is the Monitor pane's
+ *                tint, applied to every machine by the renderer.
  *  - `ntsc`      composite NTSC: the 1-bit sources (text and hires) are
  *                correlated against the colour subcarrier and low-passed,
  *                which is what makes the Apple II's artifact colours. A run of
@@ -59,7 +60,6 @@ const LORES_LUMA_V = Uint8Array.from(LORES, (c) => {
   return Math.round(0.299 * r + 0.587 * g + 0.114 * b);
 });
 const LORES_LUMA = Uint32Array.from(LORES_LUMA_V, (y) => pack(y, y, y));
-const LORES_GREEN = Uint32Array.from(LORES_LUMA_V, tintGreen);
 
 /**
  * The four composite hues, ordered by chroma angle. The phase reference is the
@@ -103,7 +103,7 @@ const PAL_PHASE_PER_PIXEL = 2 * Math.PI * (4.43361875 / 7.125);
 const NTSC_PHASE_PER_DOT = Math.PI / 2;
 const PAL_PHASE_PER_DOT = 2 * Math.PI * (4.43361875 / 14.25);
 
-export type Apple2VideoMode = 'mono' | 'green' | 'ntsc' | 'pal';
+export type Apple2VideoMode = 'mono' | 'ntsc' | 'pal';
 
 /** Address of the first byte of text/lores row `row` on the given page. */
 export function textRowBase(page: 'page1' | 'page2', row: number): number {
@@ -139,11 +139,6 @@ export interface Apple2VideoState {
 
 function pack(r: number, g: number, b: number): number {
   return (0xFF000000 | (b << 16) | (g << 8) | r) >>> 0;
-}
-
-/** A luminance 0-255 as P1 phosphor green (the classic green monitor). */
-function tintGreen(y: number): number {
-  return pack(((y * 0x33) / 255) | 0, ((y * 0xFF) / 255) | 0, ((y * 0x33) / 255) | 0);
 }
 
 export class Apple2Video {
@@ -222,11 +217,9 @@ export class Apple2Video {
   private paintLine(s: Apple2VideoState, y: number): void {
     const out = (ACTIVE_Y + y) * W + ACTIVE_X;
     const px = this.pixels32;
-    if (s.mode === 'mono' || s.mode === 'green') {
-      const green = s.mode === 'green';
+    if (s.mode === 'mono') {
       for (let x = 0; x < ACTIVE_W; x++) {
-        const y8 = this.level[x] > 0.5 ? 255 : 0;
-        px[out + 2 * x] = px[out + 2 * x + 1] = green ? tintGreen(y8) : (y8 ? WHITE : BLACK);
+        px[out + 2 * x] = px[out + 2 * x + 1] = this.level[x] > 0.5 ? WHITE : BLACK;
       }
       return;
     }
@@ -345,9 +338,7 @@ export class Apple2Video {
     const px = this.pixels32;
     const colour = graphics && (s.mode === 'ntsc' || s.mode === 'pal');
     if (!colour) {
-      const green = s.mode === 'green';
-      const on = green ? tintGreen(255) : WHITE;
-      for (let x = 0; x < FULL_W; x++) px[out + x] = this.dots[x] > 0.5 ? on : BLACK;
+      for (let x = 0; x < FULL_W; x++) px[out + x] = this.dots[x] > 0.5 ? WHITE : BLACK;
       return;
     }
     this.ensureTables560(s.mode);
@@ -417,13 +408,13 @@ export class Apple2Video {
 
   /**
    * The Videx Videoterm's output: 80 by 24 characters of seven dots by nine scan
-   * lines, centred in the frame, in white (or phosphor green). A character code's
+   * lines, centred in the frame, in white. A character code's
    * top bit is inverse video; the cursor inverts its scan lines, steady or at the
    * flash rate.
    */
   private videxText(s: Apple2VideoState, v: VidexView): void {
     const px = this.pixels32;
-    const lit = s.mode === 'green' ? tintGreen(255) : WHITE;
+    const lit = WHITE;
     const top = ((H - VIDEX_ROWS * VIDEX_CELL_HEIGHT) >> 1);
     const cursorShown = v.cursorMode === 0 || ((v.cursorMode & 2) !== 0 && s.flashPhase);
     for (let row = 0; row < VIDEX_ROWS; row++) {
@@ -477,8 +468,7 @@ export class Apple2Video {
   private lores(s: Apple2VideoState): void {
     const px = this.pixels32;
     const page = s.page2 ? 'page2' : 'page1';
-    const pal = s.mode === 'mono' ? LORES_LUMA
-      : s.mode === 'green' ? LORES_GREEN : LORES;
+    const pal = s.mode === 'mono' ? LORES_LUMA : LORES;
     for (let br = 0; br < 48; br++) {
       const addr = textRowBase(page, br >> 1);
       const y0 = ACTIVE_Y + br * 4;

@@ -223,7 +223,7 @@ vi.mock('@/display/canvas-renderer.ts', () => ({
       setSaturation: vi.fn(), setGamma: vi.fn(),
       setSmoothing: vi.fn(), setCurvature: vi.fn(), setScanlines: vi.fn(),
       setMaskType: vi.fn(), setDotPitch: vi.fn(), setCurvatureMode: vi.fn(),
-      setNoise: vi.fn(), setScalingMode: vi.fn(),
+      setNoise: vi.fn(), setScalingMode: vi.fn(), setPhosphor: vi.fn(),
     };
   },
 }));
@@ -327,6 +327,7 @@ vi.mock('@/store/settings.ts', () => ({
   curvatureMode:      vi.fn(() => 0),
   noise:              vi.fn(() => 0),
   scalingMode:        vi.fn(() => 0),
+  phosphor:           vi.fn(() => 'color'),
   volume:             vi.fn(() => 70),
   ayMix:              vi.fn(() => 50),
   tapeFastRom:        vi.fn(() => true),

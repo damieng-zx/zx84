@@ -142,6 +142,7 @@ function makeMockGL(opts: MockGLOptions = {}) {
     // ── uniforms ──
     uniform1f(loc: any, v: number) { if (loc && boundProgram) { loc.lastValue = v; boundProgram.uniformLog.push({ name: loc.name, value: v }); } },
     uniform1i(loc: any, v: number) { if (loc && boundProgram) { loc.lastValue = v; boundProgram.uniformLog.push({ name: loc.name, value: v }); } },
+    uniform3f(loc: any, a: number, b: number, c: number) { if (loc && boundProgram) { loc.lastValue = [a, b, c]; boundProgram.uniformLog.push({ name: loc.name, value: [a, b, c] }); } },
     uniform2f(loc: any, a: number, b: number) { if (loc && boundProgram) { loc.lastValue = [a, b]; boundProgram.uniformLog.push({ name: loc.name, value: [a, b] }); } },
 
     // ── textures ──
@@ -367,6 +368,19 @@ describe('WebGLRenderer setters — clamping', () => {
     r.setContrast(99);
     r.updateTexture(new Uint8Array(352 * 288 * 4));
     expect(mock.programs[7].uniforms.get('u_contrast')!.lastValue).toBe(2);
+  });
+
+  it('setPhosphor switches the shader to luminance-only in that colour, and back', () => {
+    const { r, mock } = makeRenderer();
+    r.updateTexture(new Uint8Array(352 * 288 * 4));
+    expect(mock.programs[7].uniforms.get('u_mono')!.lastValue).toBe(0);
+    r.setPhosphor([1, 0.69, 0]);
+    r.updateTexture(new Uint8Array(352 * 288 * 4));
+    expect(mock.programs[7].uniforms.get('u_mono')!.lastValue).toBe(1);
+    expect(mock.programs[7].uniforms.get('u_phosphor')!.lastValue).toEqual([1, 0.69, 0]);
+    r.setPhosphor(null);
+    r.updateTexture(new Uint8Array(352 * 288 * 4));
+    expect(mock.programs[7].uniforms.get('u_mono')!.lastValue).toBe(0);
   });
 
   it('setSaturation clamps to 0..2', () => {

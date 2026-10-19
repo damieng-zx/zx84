@@ -899,22 +899,6 @@ describe('apple2-plus video addressing', () => {
     }
   });
 
-  it('renders the green screen in phosphor green', () => {
-    const m = make();
-    try {
-      m.charset.load(new Uint8Array(2048));
-      for (let i = 0; i < 40; i++) m.memory.ram[0x2000 + i] = 0x7F;   // solid line
-      const at = dotAt(140, 0);
-      const rgb = () => [m.pixels[at], m.pixels[at + 1], m.pixels[at + 2]];
-      m.video.render(view(m, 'mono', { hires: true }));
-      expect(rgb()).toEqual([0xFF, 0xFF, 0xFF]);
-      m.video.render(view(m, 'green', { hires: true }));
-      expect(rgb()).toEqual([0x33, 0xFF, 0x33]);
-    } finally {
-      m.destroy();
-    }
-  });
-
   it('renders text attributes: $80 normal, $40 flashing, $00-$3F inverse', () => {
     const m = make();
     try {

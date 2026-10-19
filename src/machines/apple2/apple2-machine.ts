@@ -432,7 +432,7 @@ export class Apple2Machine extends BaseMachine implements Machine {
 
   private ocrInput(): Parameters<typeof ocrApple2Text>[0] {
     const videx = this.videx?.view;
-    const ink = this.videoState.mode === 'green' ? '#33ff66' : '#ffffff';
+    const ink = '#ffffff';
     if (videx?.active) {
       return {
         ram: videx.ram, page2: false, textRows: { first: 0, last: 23 },

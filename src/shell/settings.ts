@@ -8,6 +8,7 @@
 import type { SettingsView } from '@/machines/machine.ts';
 import * as settings from '@/store/settings.ts';
 import { SCALING_MODE_SAA5050 } from '@/display/scaling-modes.ts';
+import { phosphorTint } from '@/display/phosphor.ts';
 import { machine } from '@/shell/context.ts';
 
 /**
@@ -126,6 +127,7 @@ export function applyDisplaySettings(): void {
     d.setCurvatureMode(settings.curvatureMode());
     d.setNoise(settings.noise() / 100);
     d.setScalingMode(settings.scalingMode());
+    d.setPhosphor(phosphorTint(settings.phosphor()));
   }
   // Machine-specific settings (palettes, volume, AY mix, tape flags, scanline
   // accuracy, …) are the machine's own business — it reads them from the view.

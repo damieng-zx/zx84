@@ -140,13 +140,12 @@ export function DisplayPane() {
           </Match>
           <Match when={machineCaps().colorMap === 'apple2'}>
             <select value={apple2Video()} onChange={(e) => {
-              const v = (e.target as HTMLSelectElement).value as 'mono' | 'green' | 'ntsc' | 'pal';
+              const v = (e.target as HTMLSelectElement).value as 'mono' | 'ntsc' | 'pal';
               setApple2Video(v);
               persistSetting('apple2-video', v);
               applyDisplaySettings();
             }}>
-              <option value="mono">Monochrome</option>
-              <option value="green">Green screen</option>
+              <option value="mono">Mono</option>
               <option value="ntsc">Composite NTSC</option>
               <option value="pal">Composite PAL</option>
             </select>
