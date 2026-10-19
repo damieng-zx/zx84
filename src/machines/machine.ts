@@ -419,6 +419,10 @@ export interface MachineUiCapabilities {
   readonly memoryRegions: readonly MemoryRegionInfo[];
   /** ASCII glyph table the Memory pane renders with. */
   readonly charset: 'spectrum' | 'cpc' | 'bbc' | 'apple2';
+  /** Hardware is memory-mapped, so a write through the Memory pane's Mapped view
+   *  can reach a device register and have side effects (BBC/Electron SHEILA, the
+   *  Apple II soft switches). The pane warns when this is set. */
+  readonly memoryMappedIo?: boolean;
 }
 
 /**

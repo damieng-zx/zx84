@@ -48,6 +48,7 @@ const APPLE2_UI: MachineUiCapabilities = {
   library: false,
   memoryRegions: [],
   charset: 'apple2',
+  memoryMappedIo: true,
 };
 
 export function apple2Descriptor(

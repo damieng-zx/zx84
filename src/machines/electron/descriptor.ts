@@ -59,6 +59,7 @@ const ELECTRON_UI: MachineUiCapabilities = {
   library: false,
   memoryRegions: [],
   charset: 'bbc',
+  memoryMappedIo: true,
 };
 
 export function electronDescriptor(
