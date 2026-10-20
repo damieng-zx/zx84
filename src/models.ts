@@ -114,6 +114,7 @@ import type { PcwModel } from '@/machines/pcw/models.ts';
 import type { BbcModel } from '@/machines/bbc/models.ts';
 import type { ElectronModel } from '@/machines/electron/models.ts';
 import type { Apple2Model } from '@/machines/apple2/models.ts';
+import type { Apple1Model } from '@/machines/apple1/models.ts';
 import type { EnterpriseModel } from '@/machines/enterprise/models.ts';
 
 /** Any machine ZX84 can emulate. */
@@ -130,4 +131,5 @@ export type MachineModel =
   | BbcModel
   | ElectronModel
   | Apple2Model
+  | Apple1Model
   | EnterpriseModel;
