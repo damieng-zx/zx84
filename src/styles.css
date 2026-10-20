@@ -268,10 +268,9 @@ body.cpc-mode .section-label::after {
   );
 }
 
-/* Einstein/MSX/BBC mode: no rainbow — none of them has a Sinclair heritage. */
-body.einstein-mode .section-label::after,
-body.msx-mode .section-label::after,
-body.bbc-mode .section-label::after {
+/* The rainbow is Sinclair's: every machine without that heritage drops it
+   (the CPC swaps in its own stripe above). */
+body:not(.sinclair-mode):not(.cpc-mode) .section-label::after {
   content: none;
 }
 

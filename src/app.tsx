@@ -170,15 +170,12 @@ export function App() {
   });
 
   // Mark the document with the active platform so platform-specific styling
-  // (e.g. hiding the Spectrum rainbow stripe on pane title bars for non-
-  // Spectrum machines) can key off it.
+  // can key off it. The rainbow stripe on pane title bars belongs to Sinclair
+  // and its clones (Spectrum family incl. Pentagon/Scorpion, ZX80/81) only.
   createEffect(() => {
     const kind = machineKind();
+    document.body.classList.toggle('sinclair-mode', kind === 'spectrum' || kind === 'zx8x');
     document.body.classList.toggle('cpc-mode', kind === 'cpc');
-    document.body.classList.toggle('einstein-mode', kind === 'einstein');
-    document.body.classList.toggle('msx-mode', kind === 'msx');
-    document.body.classList.toggle('bbc-mode', kind === 'bbc' || kind === 'electron');
-    document.body.classList.toggle('apple2-mode', kind === 'apple2');
   });
 
   // Mirror the display scale (1×/2×/3×) into a CSS variable so the on-screen
