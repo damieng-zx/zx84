@@ -43,14 +43,38 @@ const WOZMON = new Uint8Array([
   0x12, 0xD0, 0x30, 0xFB, 0x8D, 0x12, 0xD0, 0x60, 0x00, 0x00, 0x00, 0x0F, 0x00, 0xFF, 0x00, 0x00,
 ]);
 
+/** The Apple Cassette Interface ROM, $C100-$C1FF (supplied as a Monitor hex dump). */
+const ACIROM = new Uint8Array([
+  0xA9, 0xAA, 0x20, 0xEF, 0xFF, 0xA9, 0x8D, 0x20, 0xEF, 0xFF, 0xA0, 0xFF, 0xC8, 0xAD, 0x11, 0xD0,
+  0x10, 0xFB, 0xAD, 0x10, 0xD0, 0x99, 0x00, 0x02, 0x20, 0xEF, 0xFF, 0xC9, 0x9B, 0xF0, 0xE1, 0xC9,
+  0x8D, 0xD0, 0xE9, 0xA2, 0xFF, 0xA9, 0x00, 0x85, 0x24, 0x85, 0x25, 0x85, 0x26, 0x85, 0x27, 0xE8,
+  0xBD, 0x00, 0x02, 0xC9, 0xD2, 0xF0, 0x56, 0xC9, 0xD7, 0xF0, 0x35, 0xC9, 0xAE, 0xF0, 0x27, 0xC9,
+  0x8D, 0xF0, 0x20, 0xC9, 0xA0, 0xF0, 0xE8, 0x49, 0xB0, 0xC9, 0x0A, 0x90, 0x06, 0x69, 0x88, 0xC9,
+  0xFA, 0x90, 0xAD, 0x0A, 0x0A, 0x0A, 0x0A, 0xA0, 0x04, 0x0A, 0x26, 0x24, 0x26, 0x25, 0x88, 0xD0,
+  0xF8, 0xF0, 0xCC, 0x4C, 0x1A, 0xFF, 0xA5, 0x24, 0x85, 0x26, 0xA5, 0x25, 0x85, 0x27, 0xB0, 0xBF,
+  0xA9, 0x40, 0x20, 0xCC, 0xC1, 0x88, 0xA2, 0x00, 0xA1, 0x26, 0xA2, 0x10, 0x0A, 0x20, 0xDB, 0xC1,
+  0xD0, 0xFA, 0x20, 0xF1, 0xC1, 0xA0, 0x1E, 0x90, 0xEC, 0xA6, 0x28, 0xB0, 0x98, 0x20, 0xBC, 0xC1,
+  0xA9, 0x16, 0x20, 0xCC, 0xC1, 0x20, 0xBC, 0xC1, 0xA0, 0x1F, 0x20, 0xBF, 0xC1, 0xB0, 0xF9, 0x20,
+  0xBF, 0xC1, 0xA0, 0x3A, 0xA2, 0x08, 0x48, 0x20, 0xBC, 0xC1, 0x68, 0x2A, 0xA0, 0x39, 0xCA, 0xD0,
+  0xF5, 0x81, 0x26, 0x20, 0xF1, 0xC1, 0xA0, 0x35, 0x90, 0xEA, 0xB0, 0xCD, 0x20, 0xBF, 0xC1, 0x88,
+  0xAD, 0x81, 0xC0, 0xC5, 0x29, 0xF0, 0xF8, 0x85, 0x29, 0xC0, 0x80, 0x60, 0x86, 0x28, 0xA0, 0x42,
+  0x20, 0xE0, 0xC1, 0xD0, 0xF9, 0x69, 0xFE, 0xB0, 0xF5, 0xA0, 0x1E, 0x20, 0xE0, 0xC1, 0xA0, 0x2C,
+  0x88, 0xD0, 0xFD, 0x90, 0x05, 0xA0, 0x2F, 0x88, 0xD0, 0xFD, 0xBC, 0x00, 0xC0, 0xA0, 0x29, 0xCA,
+  0x60, 0xA5, 0x26, 0xC5, 0x24, 0xA5, 0x27, 0xE5, 0x25, 0xE6, 0x26, 0xD0, 0x02, 0xE6, 0x27, 0x60,
+]);
+
 /** The Monitor's NEXTCHAR loop: it has printed everything and wants a key. */
 const waitingForKey = (m: Apple1Machine): boolean =>
   m.cpu.pc >= 0xFF29 && m.cpu.pc <= 0xFF2D && !m.displayBusy;
 
-/** Run frames until the Monitor is idle at its keyboard poll. */
-function settle(m: Apple1Machine, limit = 400): void {
-  for (let i = 0; i < limit && !waitingForKey(m); i++) m.tick();
-  expect(waitingForKey(m)).toBe(true);
+/** The cassette ROM's command loop: it has printed everything and wants a key. */
+const aciWaitingForKey = (m: Apple1Machine): boolean =>
+  m.cpu.pc >= 0xC10D && m.cpu.pc <= 0xC110 && !m.displayBusy;
+
+/** Run frames until the program is idle at its keyboard poll (the Monitor's, by default). */
+function settle(m: Apple1Machine, limit = 400, ready = waitingForKey): void {
+  for (let i = 0; i < limit && !ready(m); i++) m.tick();
+  expect(ready(m)).toBe(true);
 }
 
 /** A reset Monitor, idle at its prompt. */
@@ -63,11 +87,11 @@ function boot(): Apple1Machine {
 }
 
 /** Type like a person: a key, then wait for the Monitor to take it and finish echoing. */
-function typeLine(m: Apple1Machine, text: string): void {
+function typeLine(m: Apple1Machine, text: string, ready = waitingForKey): void {
   for (const ch of text) {
     m.keyboard.press(ch === '\n' ? 0x0D : ch.toUpperCase().charCodeAt(0));
     m.tick();
-    settle(m);
+    settle(m, 400, ready);
   }
 }
 
@@ -347,14 +371,26 @@ describe('apple1 cassette interface', () => {
     m.destroy();
   });
 
-  it('toggles the output on an access with address bit 7 clear, and only counts it', () => {
+  it('toggles the output on every access to the I/O page, read or write, and only counts it', () => {
     const m = withAci();
     m.memory.readByte(0xC000);
     m.memory.writeByte(0xC040, 0);
-    expect(m.activity.cassetteToggles).toBe(2);
-    m.memory.readByte(0xC081);
-    m.memory.peekByte(0xC000);
-    expect(m.activity.cassetteToggles).toBe(2);
+    m.memory.readByte(0xC081);                   // the input read toggles the output too
+    m.memory.writeByte(0xC0FF, 0);               // the leader sweeps X from $FF down: all of them toggle
+    expect(m.activity.cassetteToggles).toBe(4);
+    m.memory.peekByte(0xC000);                   // the debugger does not
+    m.memory.readByte(0xC100);                   // nor does reading the ROM
+    expect(m.activity.cassetteToggles).toBe(4);
+    m.destroy();
+  });
+
+  it('shows the tape input in bit 7 wherever the page is read', async () => {
+    const m = withAci();
+    await m.services.media.mount(square(2, 440), 'tone.wav');   // a long high half, then low
+    m.services.tape!.play();
+    m.cpu.tStates += 1000;                       // inside the high half
+    expect(m.memory.readByte(0xC081) & 0x80).toBe(0x80);
+    expect(m.memory.readByte(0xC000) & 0x80).toBe(0x80);
     m.destroy();
   });
 
@@ -375,6 +411,66 @@ describe('apple1 cassette interface', () => {
     for (let i = 0; i < 3; i++) m.tick();
     expect(m.memory.ram[0x11]).toBe(20);
     expect(m.cassette.playing).toBe(false);       // the tape ran out
+    m.destroy();
+  });
+
+  /** An 8-bit mono WAV that flips level at each time in `edges` (CPU cycles), at `rate` Hz. */
+  function recording(edges: readonly number[], rate: number, cpuClock: number): Uint8Array {
+    const n = Math.ceil((edges[edges.length - 1] / cpuClock + 0.01) * rate);
+    const out = new Uint8Array(44 + n);
+    const v = new DataView(out.buffer);
+    out.set([0x52, 0x49, 0x46, 0x46], 0); v.setUint32(4, 36 + n, true);
+    out.set([0x57, 0x41, 0x56, 0x45, 0x66, 0x6D, 0x74, 0x20], 8);
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, rate, true); v.setUint32(28, rate, true);
+    v.setUint16(32, 1, true); v.setUint16(34, 8, true);
+    out.set([0x64, 0x61, 0x74, 0x61], 36); v.setUint32(40, n, true);
+    let level = 0x40;
+    let next = 0;
+    for (let i = 0; i < n; i++) {
+      while (next < edges.length && (edges[next] / cpuClock) * rate <= i) { level = level === 0x40 ? 0xC0 : 0x40; next++; }
+      out[44 + i] = level;
+    }
+    return out;
+  }
+
+  it('saves memory to tape and loads it back with the real interface ROM', async () => {
+    const m = new Apple1Machine('apple1', null);
+    m.loadROM(WOZMON);
+    m.prepare(view({ 'apple1-aci': true })).find(r => r.source === 'apple1/aci.rom')!.apply(ACIROM);
+    m.reset();
+    settle(m);
+
+    const data = Uint8Array.from({ length: 32 }, (_, i) => (i * 37 + 11) & 0xFF);
+    m.memory.ram.set(data, 0x300);
+
+    // Enter the ACI ROM from the Monitor, and write $300-$31F to tape. The output
+    // toggles are the tape: keep their times.
+    typeLine(m, 'C100R');
+    m.keyboard.press(0x0D);
+    settle(m, 400, aciWaitingForKey);
+    // The Monitor shows the byte it is about to run, then the ROM prints its prompt.
+    expect(m.ocrScreenForMcp().split('\n')).toContain('C100: A9*');
+    const edges: number[] = [];
+    m.pulseCassetteOutput = () => { edges.push(m.cpu.tStates); };
+    typeLine(m, '300.31FW', aciWaitingForKey);
+    m.keyboard.press(0x0D);
+    settle(m, 3000);                              // the ROM hands back to the Monitor when done
+    expect(edges.length).toBeGreaterThan(32 * 8);
+    expect(m.ocrScreenForMcp().split('\n').pop()).toBe('\\');
+
+    // Play that recording back into the same machine and read it into $400.
+    const wav = recording(edges, 192000, m.cpuClockHz);
+    expect((await m.services.media.mount(wav, 'saved.wav')).ok).toBe(true);
+    typeLine(m, 'C100R');
+    m.keyboard.press(0x0D);
+    settle(m, 400, aciWaitingForKey);
+    typeLine(m, '400.41FR', aciWaitingForKey);
+    m.keyboard.press(0x0D);
+    m.tick();
+    m.services.tape!.play();
+    settle(m, 3000);
+    expect([...m.memory.readBlock(0x400, 32)]).toEqual([...data]);
     m.destroy();
   });
 

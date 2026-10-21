@@ -134,21 +134,20 @@ export class Apple1Machine extends BaseMachine implements Machine {
   }
 
   /**
-   * The Apple Cassette Interface's I/O page. An access with address bit 7 clear
-   * toggles the tape output; one with it set reads the tape input in bit 7. The
-   * interface decodes only the page, so the ROM's `LDA $C000` and `LDA $C081`
-   * are the whole programming interface.
+   * The Apple Cassette Interface's I/O page. The interface decodes only the
+   * page: any access to `$C000`-`$C0FF` toggles the tape output, and a read finds
+   * the tape input in bit 7. The ROM relies on both — its leader sweeps
+   * `LDY $C000,X` with X from `$FF` down to 0 and needs every access to toggle to
+   * make an unbroken tone, and it reads the input at `$C081`.
    */
   private wireAci(): void {
     const { memory } = this;
-    memory.aciRead = (offset) => {
-      if ((offset & 0x80) === 0) { this.pulseCassetteOutput(); return 0x00; }
+    memory.aciRead = () => {
+      this.pulseCassetteOutput();
       return this.cassetteInputBit ? 0x80 : 0x00;
     };
-    memory.aciWrite = (offset) => {
-      if ((offset & 0x80) === 0) this.pulseCassetteOutput();
-    };
-    memory.aciPeek = (offset) => ((offset & 0x80) !== 0 && this.cassetteInputBit ? 0x80 : 0x00);
+    memory.aciWrite = () => this.pulseCassetteOutput();
+    memory.aciPeek = () => (this.cassetteInputBit ? 0x80 : 0x00);
   }
 
   /** The tape input level, with the tape brought up to the CPU's present time. */
