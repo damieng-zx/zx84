@@ -106,7 +106,6 @@ become RETURN; lower case is upper-cased; tabs are spaces; characters with no ke
 
 | Issue | Affects | Severity | Notes |
 | --- | --- | --- | --- |
-| Monitor ROM not compared with a known-good dump | all | medium | The hosted `apple1/apple1.rom` is reproduced from the published listing and runs correctly (examine, store, run), but has not been compared byte-for-byte with a dump of a real PROM |
 | Keyboard pane and Hardware section unchecked in a browser | all | low | Built and type-checked; not yet looked at |
 
 ## Not emulated
@@ -132,4 +131,5 @@ become RETURN; lower case is upper-cased; tabs are spaces; characters with no ke
 | ACI with the real ROM: `300.31FW` writes memory to tape and `400.41FR` reads the recording back into other memory, byte for byte; plus a recording played into a 6502 read loop, deck transport, ROM mapping, absent when not fitted (`tests/apple1.test.ts`) | Pass | 2026-10-21 |
 | [`tests/m6820.test.ts`](../../tests/m6820.test.ts) — PIA registers, flags and handshake | Pass | 2026-10-20 |
 | Screenshot against the real 2513 ROM (Monitor dump and punctuation row) | Glyphs correct by eye | 2026-10-20 |
+| Hosted `apple1/apple1.rom` against an independently supplied Woz Monitor hex dump (`FF00`–`FFFF`, 256 bytes): identical, md5 `bdbf2e88ac2183050ac7f7b9a6a363c1` | Pass | 2026-10-21 |
 | Apple I BASIC from a digitised tape (`Apple 1 BASIC … [load at E000.EFFF, enter at E000].wav`, 44.1 kHz stereo, noisy): `C100R`, `E000.EFFFR`, play, `E000R` — BASIC loads in 36.7 s of emulated time, prints its `>` prompt, and runs a short program (the recording is not in the repository, so this is a manual check) | Pass | 2026-10-21 |
