@@ -3,6 +3,8 @@
  *
  *   0x0000-0x0FFF  4K RAM; a second 4K at $1000-$1FFF when fitted, and further
  *                  4K pages up to $BFFF on an expansion board
+ *   0xC000-0xC0FF  Apple Cassette Interface I/O, and its 256-byte ROM at $C100
+ *                  (only when the interface is fitted)
  *   0xE000-0xEFFF  an optional 4K RAM card, where Apple BASIC loads
  *   0xD010-0xD013  the PIA's four registers, repeated through the $Dxxx page
  *                  (only the page and address bit 4 are decoded)
@@ -36,8 +38,22 @@ export class Apple1Memory implements IMachineMemory {
   /** Side-effect-free register read for the debugger. */
   ioPeek: (reg: number) => number = () => 0xFF;
 
+  /** Apple Cassette Interface: I/O at $C000-$C0FF and its 256-byte ROM at $C100. */
+  aciFitted = false;
+  readonly aciRom = new Uint8Array(0x100);
+  /** Hooks for an access to the interface's I/O page, given the low address byte. */
+  aciRead: (offset: number) => number = () => 0xFF;
+  aciWrite: (offset: number) => void = () => {};
+  aciPeek: (offset: number) => number = () => 0xFF;
+
   constructor(ramKb = 8) {
     this.setRamKb(ramKb);
+  }
+
+  /** Install the interface's ROM (256 bytes, mapped at $C100). */
+  loadAciRom(data: Uint8Array): void {
+    this.aciRom.fill(0);
+    this.aciRom.set(data.subarray(0, this.aciRom.length));
   }
 
   /** Fit `kb` of RAM contiguously from $0000, in 4K steps (at most 48K). */
@@ -73,6 +89,9 @@ export class Apple1Memory implements IMachineMemory {
     addr &= 0xFFFF;
     if (addr >= APPLE1_ROM_BASE) return this.rom[addr - APPLE1_ROM_BASE];
     if (Apple1Memory.isPia(addr)) return this.ioRead(addr & 3) & 0xFF;
+    if (this.aciFitted && addr >= 0xC000 && addr < 0xC200) {
+      return addr < 0xC100 ? this.aciRead(addr & 0xFF) & 0xFF : this.aciRom[addr & 0xFF];
+    }
     return this.ramPages[addr >> PAGE_SHIFT] ? this.ram[addr] : 0xFF;
   }
 
@@ -80,6 +99,9 @@ export class Apple1Memory implements IMachineMemory {
     addr &= 0xFFFF;
     if (addr >= APPLE1_ROM_BASE) return this.rom[addr - APPLE1_ROM_BASE];
     if (Apple1Memory.isPia(addr)) return this.ioPeek(addr & 3) & 0xFF;
+    if (this.aciFitted && addr >= 0xC000 && addr < 0xC200) {
+      return addr < 0xC100 ? this.aciPeek(addr & 0xFF) & 0xFF : this.aciRom[addr & 0xFF];
+    }
     return this.ramPages[addr >> PAGE_SHIFT] ? this.ram[addr] : 0xFF;
   }
 
@@ -87,6 +109,10 @@ export class Apple1Memory implements IMachineMemory {
     addr &= 0xFFFF;
     if (addr >= APPLE1_ROM_BASE) return;
     if (Apple1Memory.isPia(addr)) { this.ioWrite(addr & 3, val & 0xFF); return; }
+    if (this.aciFitted && addr >= 0xC000 && addr < 0xC200) {
+      if (addr < 0xC100) this.aciWrite(addr & 0xFF);
+      return;
+    }
     if (this.ramPages[addr >> PAGE_SHIFT]) this.ram[addr] = val & 0xFF;
   }
 

@@ -58,6 +58,24 @@ export function Apple1HardwareSection() {
           BASIC RAM card (4K at $E000)
         </label>
       </div>
+      <div class="multiface-row">
+        <label
+          class="mf-check"
+          title="Fit the Apple Cassette Interface: a tape port (load .wav recordings) and its ROM at $C100"
+        >
+          <input
+            type="checkbox"
+            checked={settings.apple1Aci()}
+            onChange={(event) => {
+              const on = (event.target as HTMLInputElement).checked;
+              settings.setApple1Aci(on);
+              settings.persistSetting('apple1-aci', on ? 'on' : 'off');
+              rebuild();
+            }}
+          />
+          Cassette Interface (ACI)
+        </label>
+      </div>
     </>
   );
 }

@@ -56,7 +56,7 @@ Fitted in the Hardware pane. Every change rebuilds the machine.
 | --- | --- | --- | --- | --- |
 | RAM size | memory | all | ✅ | 4, 8, 16, 32 or 48 KB contiguous from `$0000` |
 | BASIC RAM card | memory | all | ✅ | 4 KB at `$E000`–`$EFFF`, where Apple BASIC loads. On by default |
-| Apple Cassette Interface | tape | all | ✗ | Not yet implemented |
+| Apple Cassette Interface (ACI) | tape | all | ◐ | Off by default. Fits I/O at `$C000`–`$C0FF` and a 256-byte ROM at `$C100`. An access with address bit 7 clear toggles the tape output (counted, not recorded); one with bit 7 set reads the tape input in bit 7 — so `$C081` is the input. That decode is from memory of the interface, not checked against its manual. The ROM (`apple1/aci.rom`) is not hosted, so enabling it reports a failed ROM load until one is |
 
 ---
 
@@ -65,6 +65,7 @@ Fitted in the Hardware pane. Every change rebuilds the machine.
 | Extension | Kind | Device | Load | Save | Notes |
 | --- | --- | --- | --- | --- | --- |
 | `.txt`, `.hex` | listing | Keyboard | ✅ | ✗ | Typed in a key at a time, as a person would key it from a listing — a Monitor hex dump (`0280: A9 00 …` then `280R`), or a BASIC program |
+| `.wav` | tape | Cassette deck (ACI fitted) | ◐ | ✗ | A recording of the tape audio, played into the comparator the ROM's read loop times. Play, pause, stop and rewind; one logical block. Refused unless the ACI is fitted |
 
 A listing is typed, not poked into memory, so it works wherever the keyboard is
 read. One key goes in each time the program has taken the last, so it never goes
@@ -105,12 +106,13 @@ become RETURN; lower case is upper-cased; tabs are spaces; characters with no ke
 
 | Issue | Affects | Severity | Notes |
 | --- | --- | --- | --- |
+| ACI ROM not on the ROM host, and its I/O decode unverified | ACI | high | The interface cannot load a tape until `apple1/aci.rom` exists, and the `$C000`/`$C081` decode should be checked against the ACI manual or the ROM's own read loop |
 | Monitor ROM not on the ROM host | all | high | Needs `apple1/apple1.rom` uploaded; the 256 bytes in `tools/out/apple1-roms/` are reproduced from the published listing and run correctly, but have not been compared with a known-good dump |
 | Keyboard pane and Hardware section unchecked in a browser | all | low | Built and type-checked; not yet looked at |
 
 ## Not emulated
 
-- Apple Cassette Interface — a tape cannot be loaded yet, so Apple I BASIC (a tape image, normally loaded to `$E000`) cannot be started except by typing it in.
+- Writing to tape — the ACI's output toggles are counted but not recorded, so nothing can be saved to a `.wav`. Apple I BASIC (a tape image, normally loaded to `$E000`) is not supplied; load it from a `.wav` once the ACI ROM is available, or type it in.
 - The terminal's cursor is a blinking `@` only; the real display's exact cursor timing is approximate.
 - Memory contents at power-on are zero rather than random.
 - The PIA's interrupt lines are not wired to the CPU, as on the real board.
@@ -128,5 +130,6 @@ become RETURN; lower case is upper-cased; tabs are spaces; characters with no ke
 | Reference | Result | Last checked |
 | --- | --- | --- |
 | [`tests/apple1.test.ts`](../../tests/apple1.test.ts) — Woz Monitor examine, store and run, terminal pacing, keyboard, listings, display against a synthetic font | Pass | 2026-10-20 |
+| ACI: a recording played into `$C081` and counted by a 6502 read loop, deck transport, ROM mapping, absent when not fitted (`tests/apple1.test.ts`) — synthetic tape and ROM only | Pass | 2026-10-21 |
 | [`tests/m6820.test.ts`](../../tests/m6820.test.ts) — PIA registers, flags and handshake | Pass | 2026-10-20 |
 | Screenshot against the real 2513 ROM (Monitor dump and punctuation row) | Glyphs correct by eye | 2026-10-20 |

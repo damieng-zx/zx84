@@ -297,6 +297,120 @@ describe('apple1 listings', () => {
   });
 });
 
+describe('apple1 cassette interface', () => {
+  const view = (values: Record<string, unknown>) => ({
+    get: <T>(k: string, f: T): T => (k in values ? values[k] as T : f),
+  });
+  /** A machine with the interface fitted and its ROM (page of $A5 bytes) loaded. */
+  function withAci(): Apple1Machine {
+    const m = new Apple1Machine('apple1', null);
+    const requests = m.prepare(view({ 'apple1-aci': true }));
+    requests.find(r => r.source === 'apple1/aci.rom')!.apply(new Uint8Array(256).fill(0xA5));
+    return m;
+  }
+  /** 8-bit mono WAV of `halves` alternating half-waves, each `len` samples long, high first. */
+  function square(halves: number, len: number): Uint8Array {
+    const n = halves * len;
+    const out = new Uint8Array(44 + n);
+    const v = new DataView(out.buffer);
+    out.set([0x52, 0x49, 0x46, 0x46], 0); v.setUint32(4, 36 + n, true);
+    out.set([0x57, 0x41, 0x56, 0x45, 0x66, 0x6D, 0x74, 0x20], 8);
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, 44100, true); v.setUint32(28, 44100, true);
+    v.setUint16(32, 1, true); v.setUint16(34, 8, true);
+    out.set([0x64, 0x61, 0x74, 0x61], 36); v.setUint32(40, n, true);
+    for (let i = 0; i < n; i++) out[44 + i] = Math.floor(i / len) % 2 === 0 ? 0xC0 : 0x40;
+    return out;
+  }
+
+  it('is absent unless fitted: nothing at $C000/$C100, no deck, no tape files', async () => {
+    const m = new Apple1Machine('apple1', null);
+    m.memory.writeByte(0xC100, 0x12);
+    expect(m.memory.readByte(0xC081)).toBe(0xFF);
+    expect(m.memory.readByte(0xC100)).toBe(0xFF);
+    expect(m.services.tape).toBeNull();
+    expect(m.services.media.accepts().map(t => t.ext)).not.toContain('.wav');
+    expect((await m.services.media.mount(square(2, 10), 'tape.wav')).ok).toBe(false);
+    expect(m.prepare(view({})).map(r => r.source)).toEqual(['apple2/chargen.rom']);
+    m.destroy();
+  });
+
+  it('asks for its ROM when fitted, and maps it read-only at $C100', () => {
+    const m = withAci();
+    expect(m.prepare(view({ 'apple1-aci': true })).map(r => r.source))
+      .toEqual(['apple1/aci.rom', 'apple2/chargen.rom']);
+    expect(m.memory.readByte(0xC100)).toBe(0xA5);
+    expect(m.memory.readByte(0xC1FF)).toBe(0xA5);
+    m.memory.writeByte(0xC100, 0x00);
+    expect(m.memory.readByte(0xC100)).toBe(0xA5);
+    expect(m.memory.readByte(0xC200)).toBe(0xFF);
+    m.destroy();
+  });
+
+  it('toggles the output on an access with address bit 7 clear, and only counts it', () => {
+    const m = withAci();
+    m.memory.readByte(0xC000);
+    m.memory.writeByte(0xC040, 0);
+    expect(m.activity.cassetteToggles).toBe(2);
+    m.memory.readByte(0xC081);
+    m.memory.peekByte(0xC000);
+    expect(m.activity.cassetteToggles).toBe(2);
+    m.destroy();
+  });
+
+  it('plays a recording into bit 7 of $C081, one flip per zero crossing', async () => {
+    const m = withAci();
+    const result = await m.services.media.mount(square(20, 22), 'tone.wav');
+    expect(result).toMatchObject({ ok: true, target: 'tape' });
+    m.services.tape!.play();
+    // Count every change of $C081 bit 7: the Monitor-style read loop an ACI program runs.
+    m.memory.ram.set([
+      0xAD, 0x81, 0xC0, 0x29, 0x80, 0x85, 0x10,   // LDA $C081 / AND #$80 / STA $10
+      0xAD, 0x81, 0xC0, 0x29, 0x80, 0xC5, 0x10,   // LOOP: LDA $C081 / AND #$80 / CMP $10
+      0xF0, 0xF7,                                 // BEQ LOOP
+      0x85, 0x10, 0xE6, 0x11,                     // STA $10 / INC $11
+      0x4C, 0x07, 0x03,                           // JMP LOOP
+    ], 0x300);
+    m.cpu.pc = 0x300;
+    for (let i = 0; i < 3; i++) m.tick();
+    expect(m.memory.ram[0x11]).toBe(20);
+    expect(m.cassette.playing).toBe(false);       // the tape ran out
+    m.destroy();
+  });
+
+  it('stays still while stopped, and rewinds with a reset', async () => {
+    const m = withAci();
+    await m.services.media.mount(square(4, 22), 'tone.wav');
+    for (let i = 0; i < 2; i++) m.tick();
+    expect(m.cassetteInputBit).toBe(false);       // not playing: no crossings delivered
+    m.services.tape!.play();
+    m.tick();
+    expect(m.cassette.finished).toBe(true);
+    m.reset();
+    expect(m.cassette.finished).toBe(false);
+    m.destroy();
+  });
+
+  it('exposes the deck and reports it to the frame probe', async () => {
+    const m = withAci();
+    const tape = m.services.tape!;
+    expect(tape.loaded).toBe(false);
+    await m.services.media.mount(square(4, 22), 'song.wav');
+    expect(tape.loaded).toBe(true);
+    expect(tape.name).toBe('song.wav');
+    expect(tape.blocks).toHaveLength(1);
+    tape.play();
+    const out = createFrameIndicators();
+    m.services.probe.sample(out);
+    expect(out.tapeLoaded).toBe(true);
+    expect(out.tapePlaying).toBe(true);
+    tape.eject();
+    expect(tape.loaded).toBe(false);
+    expect((await m.services.media.mount(new Uint8Array(64), 'junk.wav')).ok).toBe(false);
+    m.destroy();
+  });
+});
+
 describe('apple1 terminal', () => {
   it('writes characters, wraps at column 40 and scrolls on the last row', () => {
     const t = new Apple1Terminal();

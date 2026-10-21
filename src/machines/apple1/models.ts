@@ -20,6 +20,8 @@ export interface Apple1ModelInfo {
   readonly romSource: string;
   /** Video character-generator ROM on the ROM host: the 2513, shared with the Apple ][. */
   readonly charsetSource: string;
+  /** The Apple Cassette Interface's 256-byte ROM on the ROM host (mapped at $C100). */
+  readonly aciRomSource: string;
   /** Label for the system-ROM entry in the ROM pane. */
   readonly romLabel: string;
 }
@@ -29,6 +31,7 @@ const MODEL_INFO: Record<Apple1Model, Apple1ModelInfo> = {
     label: 'Apple I',
     romSource: 'apple1/apple1.rom',
     charsetSource: 'apple2/chargen.rom',
+    aciRomSource: 'apple1/aci.rom',
     romLabel: 'System ROM (Woz Monitor)',
   },
 };

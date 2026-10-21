@@ -28,6 +28,7 @@ import { Apple1Memory } from './apple1-memory.ts';
 import { Apple1Terminal } from './apple1-terminal.ts';
 import { Apple1Keyboard, apple1PasteBytes } from './apple1-keyboard.ts';
 import { APPLE1_DEFAULT_OPTIONS, readApple1Options, type Apple1Options } from './options.ts';
+import { Apple1Cassette } from './apple1-cassette.ts';
 import { Apple1Charset } from './apple1-charset.ts';
 import { Apple1Video } from './apple1-video.ts';
 import { apple1Descriptor } from './descriptor.ts';
@@ -61,6 +62,7 @@ export class Apple1Machine extends BaseMachine implements Machine {
   readonly audio = new Audio();
   display: IScreenRenderer | null;
 
+  readonly cassette = new Apple1Cassette();
   readonly charset = new Apple1Charset();
   readonly video = new Apple1Video();
   private cursorFrame = 0;
@@ -74,7 +76,7 @@ export class Apple1Machine extends BaseMachine implements Machine {
 
   /** Per-frame activity for the frame probe. `kbdReads` counts reads of the
    *  keyboard's PIA registers, which is what the KEY indicator shows. */
-  readonly activity = { kbdReads: 0 };
+  readonly activity = { kbdReads: 0, cassetteToggles: 0 };
 
   protected readonly audioChip = new NoSound();
   protected override get frameHz(): number { return APPLE1_FRAME_HZ; }
@@ -104,6 +106,7 @@ export class Apple1Machine extends BaseMachine implements Machine {
       if (this.memWatchpoints.length > 0 && this.memWatchHit === null) this.recordMemWatch(addr & 0xFFFF, val & 0xFF, 'write');
     };
     this.wirePia();
+    this.wireAci();
     this.mixer.beeperGain = 0;
     this.mixer.psgGain = 0;
     this.services = createApple1Services(this);
@@ -130,11 +133,52 @@ export class Apple1Machine extends BaseMachine implements Machine {
     };
   }
 
-  /** Fit the RAM the settings ask for, then list the ROMs the machine needs besides
-   *  the Monitor: the video character generator. */
+  /**
+   * The Apple Cassette Interface's I/O page. An access with address bit 7 clear
+   * toggles the tape output; one with it set reads the tape input in bit 7. The
+   * interface decodes only the page, so the ROM's `LDA $C000` and `LDA $C081`
+   * are the whole programming interface.
+   */
+  private wireAci(): void {
+    const { memory } = this;
+    memory.aciRead = (offset) => {
+      if ((offset & 0x80) === 0) { this.pulseCassetteOutput(); return 0x00; }
+      return this.cassetteInputBit ? 0x80 : 0x00;
+    };
+    memory.aciWrite = (offset) => {
+      if ((offset & 0x80) === 0) this.pulseCassetteOutput();
+    };
+    memory.aciPeek = (offset) => ((offset & 0x80) !== 0 && this.cassetteInputBit ? 0x80 : 0x00);
+  }
+
+  /** The tape input level, with the tape brought up to the CPU's present time. */
+  get cassetteInputBit(): boolean {
+    this.cassette.advanceTo(this.cpu.tStates / APPLE1_CPU_CLOCK);
+    return this.cassette.inputBit === 1;
+  }
+
+  /** A toggle of the tape output. It is counted for the activity readout; the
+   *  recording is not kept (see the machine's documentation). */
+  pulseCassetteOutput(): void { this.activity.cassetteToggles++; }
+
+  /** Fit the RAM and interface the settings ask for, then list the ROMs the machine
+   *  needs besides the Monitor: the video character generator and the interface's ROM. */
   prepare(view: SettingsView): AuxRomRequest[] {
     this.fit(readApple1Options(view));
-    return [{
+    const requests: AuxRomRequest[] = [];
+    if (this.options.aci) {
+      requests.push({
+        cacheKey: 'apple1-aci-rom',
+        source: apple1ModelInfo(this.model).aciRomSource,
+        fetchingMsg: 'Fetching Apple Cassette Interface ROM…',
+        loadedMsg: (bytes) => `Cassette Interface ROM loaded (${bytes} bytes)`,
+        failMsg: 'Failed to load the Apple Cassette Interface ROM — tape loading unavailable',
+        failId: 'apple1-aci-rom',
+        apply: (data) => this.memory.loadAciRom(data),
+        awaitLoad: true,
+      });
+    }
+    requests.push({
       cacheKey: 'apple1-chargen',
       source: apple1ModelInfo(this.model).charsetSource,
       fetchingMsg: 'Fetching Apple I character generator ROM…',
@@ -143,13 +187,15 @@ export class Apple1Machine extends BaseMachine implements Machine {
       failId: 'apple1-chargen',
       apply: (data) => { this.charset.load(data); this.needsDisplay = true; },
       awaitLoad: true,
-    }];
+    });
+    return requests;
   }
 
   private fit(options: Apple1Options): void {
     this.options = options;
     this.memory.setRamKb(options.ramKb);
     this.memory.setBasicRam(options.basicRam);
+    this.memory.aciFitted = options.aci;
   }
 
   attachHost(host: MachineHost): void { this.host = host; }
@@ -232,6 +278,8 @@ export class Apple1Machine extends BaseMachine implements Machine {
     this.busyUntil = 0;
     this.activity.kbdReads = 0;
     this.cursorFrame = 0;
+    this.cassette.rewind();
+    this.activity.cassetteToggles = 0;
     this.video.invalidate();
     this.mixer.reset();
     this.needsDisplay = true;
@@ -277,6 +325,7 @@ export class Apple1Machine extends BaseMachine implements Machine {
       }
     }
     this.cursorFrame = (this.cursorFrame + 1) % (CURSOR_FRAMES * 2);
+    this.cassette.advanceTo(this.cpu.tStates / APPLE1_CPU_CLOCK);
     this.drawFrame();
   }
 

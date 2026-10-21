@@ -5,11 +5,13 @@ import { Apple1FrameProbe } from './frame-probe.ts';
 import { Apple1InputService } from './input.ts';
 import { Apple1MediaService } from './media.ts';
 import { Apple1RomService } from './roms.ts';
+import { Apple1TapeService } from './tape.ts';
 
 export interface Apple1Services extends MachineServices {
   readonly media: Apple1MediaService;
   readonly roms: Apple1RomService;
-  readonly tape: null;
+  /** The cassette deck, or null while the Apple Cassette Interface is not fitted. */
+  readonly tape: Apple1TapeService | null;
   readonly disks: null;
   readonly snapshots: null;
   readonly input: Apple1InputService;
@@ -17,10 +19,12 @@ export interface Apple1Services extends MachineServices {
 }
 
 export function createApple1Services(machine: Apple1Machine): Apple1Services {
+  const tape = new Apple1TapeService(machine);
   return {
-    media: new Apple1MediaService(machine),
+    media: new Apple1MediaService(machine, tape),
     roms: new Apple1RomService(machine, () => machine.host),
-    tape: null,
+    // The deck exists only with the interface, which is fitted when the machine is prepared.
+    get tape() { return machine.options.aci ? tape : null; },
     disks: null,
     snapshots: null,
     input: new Apple1InputService(machine),

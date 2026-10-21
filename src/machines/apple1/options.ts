@@ -17,11 +17,14 @@ export interface Apple1Options {
   readonly ramKb: Apple1RamKb;
   /** The 4K RAM card at $E000-$EFFF that Apple BASIC loads into. */
   readonly basicRam: boolean;
+  /** The Apple Cassette Interface: a tape port and its ROM at $C100. */
+  readonly aci: boolean;
 }
 
 export const APPLE1_DEFAULT_OPTIONS: Apple1Options = {
   ramKb: 8,
   basicRam: true,
+  aci: false,
 };
 
 /** The setting's value ('8k'), as a fitted size; anything unrecognised is the default. */
@@ -34,5 +37,6 @@ export function readApple1Options(view: SettingsView): Apple1Options {
   return {
     ramKb: parseApple1Ram(view.get('apple1-ram', `${APPLE1_DEFAULT_OPTIONS.ramKb}k`)),
     basicRam: view.get('apple1-basic-ram', APPLE1_DEFAULT_OPTIONS.basicRam),
+    aci: view.get('apple1-aci', APPLE1_DEFAULT_OPTIONS.aci),
   };
 }
