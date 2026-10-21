@@ -7,6 +7,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { Apple1Machine } from '@/machines/apple1/apple1-machine.ts';
+import { Apple1Cassette } from '@/machines/apple1/apple1-cassette.ts';
 import { apple1Entry } from '@/machines/apple1/descriptor.ts';
 import { parseApple1Ram } from '@/machines/apple1/options.ts';
 import { apple1FaceByte, apple1KeyByte, apple1PasteBytes } from '@/machines/apple1/apple1-keyboard.ts';
@@ -472,6 +473,34 @@ describe('apple1 cassette interface', () => {
     settle(m, 3000);
     expect([...m.memory.readBlock(0x400, 32)]).toEqual([...data]);
     m.destroy();
+  });
+
+  it('ignores tape noise around zero, as a comparator with hysteresis does', () => {
+    // 20 half-waves of 22 samples at +/-0.5, each starting with three samples of noise
+    // that hop either side of zero: a plain sign test would flip on every one of them.
+    const halves = 20; const len = 22; const n = halves * len;
+    const out = new Uint8Array(44 + n);
+    const v = new DataView(out.buffer);
+    out.set([0x52, 0x49, 0x46, 0x46], 0); v.setUint32(4, 36 + n, true);
+    out.set([0x57, 0x41, 0x56, 0x45, 0x66, 0x6D, 0x74, 0x20], 8);
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, 44100, true); v.setUint32(28, 44100, true);
+    v.setUint16(32, 1, true); v.setUint16(34, 8, true);
+    out.set([0x64, 0x61, 0x74, 0x61], 36); v.setUint32(40, n, true);
+    for (let i = 0; i < n; i++) {
+      const high = Math.floor(i / len) % 2 === 0;
+      const at = i % len;
+      out[44 + i] = at < 3 ? (at % 2 === 0 ? 0x88 : 0x78) : high ? 0xC0 : 0x40;   // +/-0.06 jitter, then the level
+    }
+    const deck = new Apple1Cassette();
+    expect(deck.mountWav(out, 'noisy.wav')).toBe(true);
+    deck.playing = true;
+    let flips = 0; let level = deck.inputBit;
+    for (let i = 1; i <= n + 2; i++) {
+      deck.advanceTo(i / 44100);
+      if (deck.inputBit !== level) { flips++; level = deck.inputBit; }
+    }
+    expect(flips).toBe(halves);                   // one flip per half-wave, none from the noise
   });
 
   it('stays still while stopped, and rewinds with a reset', async () => {

@@ -10,6 +10,10 @@
 
 import { parseWav, isWav } from '@/media/tape/wav.ts';
 
+/** The comparator's dead band as a fraction of the recording's mean level: wide enough
+ *  to ride over the noise on a digitised tape, narrow enough to follow its weakest pulses. */
+const DEAD_BAND = 0.3;
+
 export class Apple1Cassette {
   private samples: Float32Array | null = null;
   private sampleRate = 0;
@@ -19,6 +23,8 @@ export class Apple1Cassette {
   /** Emulated time of the last advanceTo, whether or not the tape was running. */
   private lastTime = 0;
   private lastSign = 0;
+  /** Half-width of the comparator's hysteresis, in sample units, set from the recording's level. */
+  private deadBand = 0;
   private level = 0;
 
   playing = false;
@@ -34,6 +40,9 @@ export class Apple1Cassette {
     if (audio.samples.length === 0) return false;
     this.samples = audio.samples;
     this.sampleRate = audio.sampleRate;
+    let level = 0;
+    for (let i = 0; i < audio.samples.length; i++) level += Math.abs(audio.samples[i]);
+    this.deadBand = DEAD_BAND * (level / audio.samples.length);
     this.cursor = 0;
     this.pos = 0;
     this.lastSign = 0;
@@ -73,7 +82,10 @@ export class Apple1Cassette {
     this.pos = Math.min(samples.length, this.pos + dt * this.sampleRate);
     const target = Math.floor(this.pos);
     for (let i = this.cursor; i < target; i++) {
-      const sign = samples[i] >= 0 ? 1 : -1;
+      // A Schmitt trigger: the level only changes once the signal clears the dead
+      // band on the other side, so tape noise around zero does not chatter.
+      const s = samples[i];
+      const sign = s > this.deadBand ? 1 : s < -this.deadBand ? -1 : this.lastSign;
       if (sign !== this.lastSign) {
         this.lastSign = sign;
         this.level ^= 1;
