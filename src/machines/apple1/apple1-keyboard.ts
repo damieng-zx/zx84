@@ -62,6 +62,22 @@ export function apple1FaceByte(face: string, shift: boolean, ctrl: boolean): num
   return pair ? (shift ? pair[1] : pair[0]) : null;
 }
 
+/**
+ * The key presses that type `text`: what a person would key in from a listing.
+ * Any line ending is a RETURN, lower case is upper-cased (the keyboard has no
+ * lower case) and tabs are spaces; characters with no key (accents, braces,
+ * control codes) are dropped, as a listing's formatting is not part of the program.
+ */
+export function apple1PasteBytes(text: string): Uint8Array {
+  const out: number[] = [];
+  const upper = text.replace(/^﻿/, '').replace(/\r\n?|\n/g, '\r').toUpperCase();
+  for (const ch of upper) {
+    const code = ch === '\t' ? 0x20 : ch.charCodeAt(0);
+    if (code === 0x0D || (code >= 0x20 && code <= 0x5F)) out.push(code);
+  }
+  return Uint8Array.from(out);
+}
+
 export class Apple1Keyboard {
   /** On-screen SHIFT and CTRL, latched until the next key. */
   shiftHeld = false;

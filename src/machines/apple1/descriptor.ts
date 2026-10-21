@@ -40,7 +40,7 @@ const APPLE1_UI: MachineUiCapabilities = {
   tapeSound: false,
   tapeExtensions: [],
   saveMenu: ['screenshot-png', 'ram-bin'],
-  zipPolicy: 'none',
+  zipPolicy: 'media',
   persistMedia: false,
   bootDisk: false,
   library: false,

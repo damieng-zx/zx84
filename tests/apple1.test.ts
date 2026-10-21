@@ -9,7 +9,7 @@ import { describe, it, expect } from 'vitest';
 import { Apple1Machine } from '@/machines/apple1/apple1-machine.ts';
 import { apple1Entry } from '@/machines/apple1/descriptor.ts';
 import { parseApple1Ram } from '@/machines/apple1/options.ts';
-import { apple1FaceByte, apple1KeyByte } from '@/machines/apple1/apple1-keyboard.ts';
+import { apple1FaceByte, apple1KeyByte, apple1PasteBytes } from '@/machines/apple1/apple1-keyboard.ts';
 import { APPLE1_KEYS, APPLE1_SCENE, placeApple1Keys } from '@/machines/apple1/ui/keyboard/layout.ts';
 import { Apple1Terminal } from '@/machines/apple1/apple1-terminal.ts';
 import {
@@ -212,6 +212,87 @@ describe('apple1 memory options', () => {
     const out = m.ramExportBytes();
     expect(out.data.length).toBe(16 * 1024);
     expect(out.filename).toBe('apple1-ram-16k.bin');
+    m.destroy();
+  });
+});
+
+describe('apple1 listings', () => {
+  /** Frames until the queue is empty and the Monitor is idle again. */
+  const finish = (m: Apple1Machine, limit = 3000): number => {
+    let frames = 0;
+    while (frames < limit && (m.pasteRemaining > 0 || !waitingForKey(m))) { m.tick(); frames++; }
+    return frames;
+  };
+  const text = (s: string): Uint8Array => new TextEncoder().encode(s);
+
+  it('turns a listing into key presses: one RETURN per line ending, upper case, no stray characters', () => {
+    const keys = [...apple1PasteBytes('0280: a9 00\r\n280r\nx\t1é{\n')];
+    expect(String.fromCharCode(...keys)).toBe('0280: A9 00\r280R\rX 1\r');
+    expect([...apple1PasteBytes('﻿A')]).toEqual([0x41]);
+  });
+
+  it('keys a hex dump into the Monitor and runs it', () => {
+    const m = boot();
+    const listing = '280: A9 C8 20 EF FF 4C 1F FF\n280R\n';
+    expect(m.typeText(listing)).toBe(listing.length);
+    finish(m);
+    expect(m.pasteRemaining).toBe(0);
+    expect([...m.memory.readBlock(0x280, 8)]).toEqual([0xA9, 0xC8, 0x20, 0xEF, 0xFF, 0x4C, 0x1F, 0xFF]);
+    expect(m.ocrScreenForMcp().split('\n')).toContain('0280: A9H');
+    m.destroy();
+  });
+
+  it('types no faster than the terminal can echo', () => {
+    const m = boot();
+    const listing = '300: 11 22 33 44 55 66 77 88\n';
+    m.typeText(listing);
+    const start = m.cpu.tStates;
+    finish(m);
+    expect((m.cpu.tStates - start) / m.cpuClockHz).toBeGreaterThan(listing.length / 61);
+    m.destroy();
+  });
+
+  it('holds a key back while the program has not taken the last one', () => {
+    const m = boot();
+    m.keyboard.press(0x41);                      // waiting in the latch, unread
+    m.typeText('BC');
+    expect(m.pia.cra & 0x80).toBe(0x80);         // the strobe set KBDCR bit 7
+    const before = m.pasteRemaining;
+    (m as unknown as { feedPaste(): void }).feedPaste();
+    expect(m.pasteRemaining).toBe(before);
+    m.destroy();
+  });
+
+  it('is dropped by RESET and by a machine reset', () => {
+    const m = boot();
+    m.typeText('1234567890');
+    m.tick();
+    expect(m.pasteRemaining).toBeGreaterThan(0);
+    m.pressResetKey();
+    expect(m.pasteRemaining).toBe(0);
+    m.typeText('ABC');
+    m.reset();
+    expect(m.pasteRemaining).toBe(0);
+    m.destroy();
+  });
+
+  it('is what mounting a .txt or .hex file does', async () => {
+    const m = boot();
+    const ok = await m.services.media.mount(text('300: AA\n'), 'prog.TXT');
+    expect(ok).toMatchObject({ ok: true, target: 'paste' });
+    finish(m);
+    expect(m.memory.readByte(0x300)).toBe(0xAA);
+    expect((await m.services.media.mount(text('301: BB\r\n'), 'prog.hex')).ok).toBe(true);
+    finish(m);
+    expect(m.memory.readByte(0x301)).toBe(0xBB);
+    expect(m.services.media.accepts().map(t => t.ext)).toEqual(['.txt', '.hex']);
+    m.destroy();
+  });
+
+  it('refuses other files, and listings with nothing typeable', async () => {
+    const m = boot();
+    expect((await m.services.media.mount(text('x'), 'game.tap')).ok).toBe(false);
+    expect((await m.services.media.mount(text('{}~'), 'empty.txt')).ok).toBe(false);
     m.destroy();
   });
 });

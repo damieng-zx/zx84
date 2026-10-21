@@ -26,7 +26,7 @@ import {
 } from './constants.ts';
 import { Apple1Memory } from './apple1-memory.ts';
 import { Apple1Terminal } from './apple1-terminal.ts';
-import { Apple1Keyboard } from './apple1-keyboard.ts';
+import { Apple1Keyboard, apple1PasteBytes } from './apple1-keyboard.ts';
 import { APPLE1_DEFAULT_OPTIONS, readApple1Options, type Apple1Options } from './options.ts';
 import { Apple1Charset } from './apple1-charset.ts';
 import { Apple1Video } from './apple1-video.ts';
@@ -64,6 +64,10 @@ export class Apple1Machine extends BaseMachine implements Machine {
   readonly charset = new Apple1Charset();
   readonly video = new Apple1Video();
   private cursorFrame = 0;
+
+  /** Key presses queued by `typeText`, and how many have been typed. */
+  private paste: Uint8Array = new Uint8Array(0);
+  private pasteAt = 0;
 
   /** CPU cycle count at which the terminal will accept its next character. */
   private busyUntil = 0;
@@ -175,11 +179,41 @@ export class Apple1Machine extends BaseMachine implements Machine {
   /** The keyboard's RESET key: the 6502's RESET line and the PIA's, not a power
    *  cycle. RAM and the screen survive; the Monitor's reset handler runs again. */
   pressResetKey(): boolean {
+    this.cancelPaste();
     this.cpu.reset();
     this.pia.reset();
     this.keyboard.reset();
     this.busyUntil = 0;
     return true;
+  }
+
+  /**
+   * Type `text` at the keyboard, as a person keying in a listing would. One key
+   * goes in each time the program has taken the last (KBDCR bit 7 clear), so the
+   * Monitor or BASIC sees exactly what a keyboard would give it, at the pace the
+   * program reads it; nothing is injected while it is not looking for keys.
+   * Returns how many key presses were queued.
+   */
+  typeText(text: string): number {
+    const keys = apple1PasteBytes(text);
+    this.paste = keys;
+    this.pasteAt = 0;
+    return keys.length;
+  }
+
+  /** Key presses still waiting to be typed. */
+  get pasteRemaining(): number { return this.paste.length - this.pasteAt; }
+
+  cancelPaste(): void {
+    this.paste = new Uint8Array(0);
+    this.pasteAt = 0;
+  }
+
+  /** Hand the program the next queued key if it has finished with the last one. */
+  private feedPaste(): void {
+    if (this.pasteAt >= this.paste.length) return;
+    if ((this.pia.cra & 0x80) !== 0) return;
+    this.keyboard.press(this.paste[this.pasteAt++]);
   }
 
   /** The CLEAR SCREEN key blanks the terminal without involving the CPU. */
@@ -189,6 +223,7 @@ export class Apple1Machine extends BaseMachine implements Machine {
   }
 
   private resetHardware(): void {
+    this.cancelPaste();
     this.memory.reset();
     this.cpu.reset();
     this.pia.reset();
@@ -216,6 +251,7 @@ export class Apple1Machine extends BaseMachine implements Machine {
     const skipAudio = this.speedMultiplier !== 1;
     const watchActive = this.memWatchpoints.length > 0;
     this.activity.kbdReads = 0;
+    this.feedPaste();
 
     while (this.cpu.tStates < endT) {
       if (this.breakpoints.has(this.cpu.pc)) {

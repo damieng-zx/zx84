@@ -2,7 +2,7 @@
 
 <img src="public/mascot.svg" align="right" width="100" height="140" alt="Blip, the ZX84 robot mascot">
 
-**A browser-based 8-bit computer emulator for the Sinclair ZX80, ZX81 and ZX Spectrum (and the Pentagon and Scorpion clones), Amstrad CPC (including the Plus range) and PCW, Tatung Einstein, MSX, Memotech MTX, Camputers Lynx, Jupiter Ace, Acorn BBC Micro and Electron, the Apple II family, and the Enterprise 64/128, with an MCP server for automated testing.**
+**A browser-based 8-bit computer emulator for the Sinclair ZX80, ZX81 and ZX Spectrum (and the Pentagon and Scorpion clones), Amstrad CPC (including the Plus range) and PCW, Tatung Einstein, MSX, Memotech MTX, Camputers Lynx, Jupiter Ace, Acorn BBC Micro and Electron, the Apple I and the Apple II family, and the Enterprise 64/128, with an MCP server for automated testing.**
 
 https://zx84.envytech.workers.dev
 
@@ -27,6 +27,7 @@ Each machine has its own sheet covering its models, built-in hardware, periphera
 | [Enterprise](docs/machines/enterprise.md) | 64, 128 | Z80 |
 | [Acorn BBC Micro](docs/machines/bbc-micro.md) | Model B | 6502 |
 | [Acorn Electron](docs/machines/acorn-electron.md) | Electron | 6502 |
+| [Apple I](docs/machines/apple-i.md) | Apple I | 6502 |
 | [Apple II](docs/machines/apple-ii.md) | Apple ][, ][+, //e, Enhanced //e, //c | 6502 / 65C02 |
 
 ## Features
@@ -62,6 +63,7 @@ Load by picker or drag-and-drop. ZIP archives are unpacked and routed to compati
 | Jupiter Ace | Cassettes: `.tap`, `.tzx`, `.csw` |
 | Acorn BBC Micro | Disks: `.ssd`, `.dsd`, `.img`; tapes: `.uef`, `.csw` |
 | Acorn Electron | Tapes: `.uef`, `.csw`; with the Plus 3, ADFS discs: `.adf`, `.ads`, `.adm`, `.adl`; with the Plus 1, cartridges: `.rom` |
+| Apple I | Listings typed in at the keyboard: `.txt`, `.hex` |
 | Apple II | Disks: `.dsk`, `.do`, `.po` (sector order detected, MacBinary headers read through); cassettes: `.wav` |
 | Amstrad PCW | Disks: `.dsk`, `.td0`, `.hfe`, `.scp` |
 | Enterprise | EXOS programs: `.com`, `.bas` (and multi-file `.zip` sets) through the FILE: device; with the EXDOS card, disks: `.img` |
@@ -91,7 +93,7 @@ tool. The Spectrum's earlier ids (`48k`, `+3`, `plus2a`, …) still work in URLs
 Known models: `zx16k` `zx48k` `zx128k` `zx128kplus2` `zx128kplus2a` `zx128kplus3` `pentagon128` `pentagon512` `pentagon1024` `scorpion256` `zx80` `zx81` `jupiter-ace`
 `cpc464` `cpc664` `cpc6128` `cpc6128plus` `gx4000` `pcw8256` `pcw8512`
 `pcw9256` `pcw9512` `einstein-tc01` `einstein-256` `hx-10` `hb-55` `hb-55p` `mtx500` `mtx512`
-`rs128` `lynx48` `lynx96` `lynx128` `bbc-b` `electron` `apple2` `apple2-plus` `apple2e` `apple2e-enhanced` `apple2c` `ep64` `ep128`.
+`rs128` `lynx48` `lynx96` `lynx128` `bbc-b` `electron` `apple1` `apple2` `apple2-plus` `apple2e` `apple2e-enhanced` `apple2c` `ep64` `ep128`.
 
 ### Display And Audio
 

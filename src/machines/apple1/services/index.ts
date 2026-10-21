@@ -18,7 +18,7 @@ export interface Apple1Services extends MachineServices {
 
 export function createApple1Services(machine: Apple1Machine): Apple1Services {
   return {
-    media: new Apple1MediaService(),
+    media: new Apple1MediaService(machine),
     roms: new Apple1RomService(machine, () => machine.host),
     tape: null,
     disks: null,

@@ -154,7 +154,7 @@ through the selected region:
 
 - **Mapped:** the same write the CPU would make, so a write to ROM is ignored
   and paged memory lands in whichever bank is currently mapped. On the BBC
-  Micro, Electron and Apple II a mapped write can reach a hardware register and
+  Micro, Electron, Apple I and Apple II a mapped write can reach a hardware register and
   trigger its side effects; the pane warns you.
 - **RAM bank:** written directly into that bank, wherever it is paged.
 - **ROM regions:** read-only until you tick the **ROM** box beside the picker.
@@ -292,6 +292,7 @@ rest depend on the hardware:
 | Amstrad PCW | Z80 | | ✓ | | | | ✓ |
 | Enterprise | Z80 | | ✓ | | | ✓ | |
 | BBC Micro, Electron | 6502 | | | ✓ | | | ✓ |
+| Apple I | 6502 | | | | | | ✓ |
 | Apple II | 6502 / 65C02 | | | | | | ✓ |
 
 ## Working on ZX84
