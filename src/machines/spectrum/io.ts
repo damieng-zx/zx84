@@ -162,6 +162,15 @@ export function wirePortIO(s: Spectrum): void {
       return;
     }
 
+    // SpecDrum DAC: low byte 0xDF, high byte ignored. Write-only, so it needs no
+    // IN-side counterpart. 0xDF has A0=1 and A1=1, so it can't also be a ULA
+    // write or an AY/7FFD decode — return like the other interface ports.
+    if (s.specdrum.enabled && s.specdrum.matchPort(port)) {
+      s.specdrum.writePort(val);
+      s.activity.specdrumWrites++;
+      return;
+    }
+
     // ULA port: any port with bit 0 = 0
     if ((port & 0x01) === 0) {
       const newBeeperBit = (val >> 4) & 1;

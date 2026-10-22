@@ -33,6 +33,7 @@ import { BaseMachine } from '@/machines/base-machine.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { Multiface } from '@/machines/spectrum/peripherals/multiface.ts';
 import { VTX5000 } from '@/machines/spectrum/peripherals/vtx5000.ts';
+import { SpecDrum } from '@/machines/spectrum/peripherals/specdrum.ts';
 import { Interface2 } from '@/machines/spectrum/peripherals/interface2.ts';
 import { MgtPlusD } from '@/machines/spectrum/peripherals/mgt-plusd.ts';
 import { Interface1 } from '@/machines/spectrum/peripherals/interface1.ts';
@@ -178,6 +179,9 @@ export class Spectrum extends BaseMachine implements Machine {
 
   /** AMX mouse peripheral */
   amxMouse = new AmxMouse();
+
+  /** Cheetah SpecDrum 8-bit DAC (port 0xDF, write-only) */
+  specdrum = new SpecDrum();
 
   /** Audio mixer peripheral (beeper + AY mixing, DC filter) */
   mixer!: AudioMixer;
@@ -412,6 +416,13 @@ export class Spectrum extends BaseMachine implements Machine {
     const mix = view.get('ay-mix', 50) / 100;
     this.mixer.beeperGain = Math.min(1, 2 * (1 - mix));
     this.mixer.ayGain = Math.min(1, 2 * mix);
+    this.mixer.auxGain = view.get('specdrum-volume', 100) / 100;
+    // The SpecDrum needs no ROM, so it is fitted/removed live here (and read once
+    // at build by prepare()). Removing it clears the latch so a later re-fit
+    // doesn't resume at a stale DC level.
+    const specdrumOn = view.get('specdrum', false);
+    if (this.specdrum.enabled && !specdrumOn) this.specdrum.reset();
+    this.specdrum.enabled = specdrumOn;
     this.tapeFastRom = view.get('tape-instant-rom', true);
     this.tapeTurbo = view.get('tape-turbo-load', true);
     this.tapeSoundEnabled = view.get('tape-sound', true);
@@ -435,6 +446,7 @@ export class Spectrum extends BaseMachine implements Machine {
       this.fdc.writeProtect[1] = view.get('write-protect-b', false);
       this.fdc.forceReady[1] = view.get('drive-b-force-ready', false);
     }
+    this.specdrum.enabled = view.get('specdrum', false);
     const reqs = buildSpectrumAuxRoms(this, view);
     // How many drives of the active disk subsystem (the +3's built-in pair, or
     // the +D / Beta Disk pair) are fitted. The unfitted select lines get no
@@ -567,6 +579,7 @@ export class Spectrum extends BaseMachine implements Machine {
     this.joystick.reset();
     this.kempstonMouse.reset();
     this.amxMouse.reset();
+    this.specdrum.reset();
     this.mixer.reset();
     this.multiface.reset();
     // +D shadow ROM boots at 0x0000: page it in at reset so its init runs.
@@ -959,8 +972,12 @@ export class Spectrum extends BaseMachine implements Machine {
       // when turbo releases.
       if (skipAudio) {
         this.mixer.beeperTStatesAccum = 0;
+        if (this.specdrum.enabled) this.mixer.discardAux();
       } else {
         this.mixer.accumulateLevel(this.ula.getAudioLevel(this.tapeSoundEnabled), elapsed);
+        // The DAC holds its last code between OUTs, so the level over this
+        // instruction is the latched one — within one instruction of exact.
+        if (this.specdrum.enabled) this.mixer.accumulateAux(this.specdrum.level, elapsed);
         this.mixer.generateSamples(this.audio, this.ay, this.variant.hasAY);
       }
     }
