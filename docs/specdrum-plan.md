@@ -330,8 +330,8 @@ Verified headlessly (script: `mcp/.cache/specdrum-check.ts`, git-ignored):
 - The sample players are `OUT (0xDF),A`, 25 sites at 0xFA39–0xFE65. That form puts the
   sample on A8–A15 as well, which is why the decode must ignore the high byte.
 - In DRUM PLAY (pattern screen → D, "DRUMS ON Press space to Stop") it streams
-  ~403 writes per 50 Hz frame (≈ 20.1 kHz) with codes 112–149 around 0x80, and the
-  distribution differs per drum key.
+  ~403 writes per 50 Hz frame (≈ 20.1 kHz) around 0x80. (An early idle-only probe saw
+  codes 112–149; real song playback, measured later in §12, swings 38–212.)
 
 **Not verified:** audible correctness against real hardware, and the amplitude. Drum
 hits only swing ±18 codes around 0x80 (≈ 11 % of full scale after the blocker). Either
@@ -340,3 +340,43 @@ drum keys are not triggering the full-range samples. The 20 kHz stream and the
 per-key differences suggest the former, but this needs listening / a second reference.
 The synthetic square-wave test (`specdrum-wiring.test.ts`) covers the DAC→mixer path
 independently of the software. Default slider level (100 %) may want tuning by ear.
+
+## 12. Audio review follow-up (muffled / clicky report)
+
+An independent review of the demo snapshot (`zx84-zx48k.szx`: the SpecDrum program
+playing its "Demo" song, ~402 DAC writes per frame plus a 1 ms MIC tick every 3
+frames) measured the output against an exact T-state-resolution reference. Findings and
+what was done:
+
+| Finding | Fix |
+| --- | --- |
+| DC thumps ~2× a drum peak: first write after load/reset (latch reset to 0, not 0x80), toggle on/off, `mixer.reset()` | `SpecDrum.IDLE_CODE = 0x80` (constructor and reset). The mixer takes the DAC as a **signed level centred on idle** (`SpecDrum.signedLevel = (code - 128) / 128`, -1..+127/128), so idle is exactly 0 and fitting, removing or resetting it at idle cannot step the output — no priming, seeding or fade-out needed for the aux channel (the 20 Hz high-pass still removes a DC level if software parks the DAC off-centre). The *beeper* filter is primed on its first sample after construction/reset (shared). `Spectrum.setSpecdrumFitted()` is the one entry point (Hardware pane, settings, MCP) |
+| Quiet (−28 dBFS rms) and gain capped at 1, so the MIC tick out-shouted the drums | aux amplitude 0.8 at a signed level of ±1 (a full DAC swing now spans 1.6, twice the beeper's; it was 0.8 before); `auxGain` 0..2; the Sound-pane slider runs 0–200 % |
+| Instruction straddling an output-sample boundary was averaged into both samples (smear, worst at 8–16 kHz) | the mixer cuts the straddling accumulate call at the boundary (exact for the single-call case; proportional spreading kept for catch-up). Shared by every machine |
+| Turbo zeroed `beeperTStatesAccum` but not the duty, so the first sample after turbo could exceed 1 and clip | `discardPending()` (beeper + aux) used by the Spectrum and Jupiter Ace turbo paths |
+| 1–2 dB high-frequency droop (boxcar at the output rate); alias excess near Nyquist | **Not changed.** Inherent to the shared design; a band-limited (blip-style) step would be a separate, all-machine change |
+| MIC tick (0.1 of EAR) is prominent | **Not changed.** It is the measured Issue 3 ULA voltage mapping (`ULA_SPEAKER_LEVEL`), a deliberate hardware-accurate value; the drums are now ~2× louder relative to it. A mute-MIC option remains a possible follow-up |
+| OUT's level applied for the whole instruction (~10 T lead) | **Not changed.** Inaudible (fixed 2.9 µs delay) |
+
+Re-measured on the same demo after the fixes: SpecDrum-off step 0.444 → 0.000, SpecDrum-on
+step 0.081 → 0.000, turbo-release (`mixer.reset()`) step now equals only the instantaneous
+signal value (0.07) instead of a fixed DC offset (0.41). Steady-state peak rose from
+~0.21–0.29 to 0.356.
+
+Tests added: filter priming, exact straddle split (checked against a T-by-T integration
+of the same event stream), `discardPending`, aux priming/seeding/release/re-enable,
+and machine-level fit/remove/reset transients.
+
+### Revision: signed, centred DAC (matches the reference emulator's approach)
+
+A first pass fixed the thumps by priming the DAC's DC-blocker on activation, seeding the
+accumulator when fitted mid-window, and fading the channel out on removal (`releaseAux`).
+That was replaced by the simpler convention the `Release\src` reference uses: centre the
+DAC on its idle code (-128..+127 around 0x80) so idle is zero by construction. Removed:
+`releaseAux`, the aux priming/seeding/release state. Kept: the DC-blocker (for a DAC parked
+off-centre), the shared sample-boundary split, `discardPending`, the beeper priming.
+
+Consequence: removing the SpecDrum while a drum is mid-sample steps the output by at most
+the waveform's own value (a drum cut short), never by a fixed DC offset. Re-measured with the
+real SpecDrum program streaming DRUM PLAY audio (the earlier demo snapshot was no longer
+available): reset, OFF and ON all step by 0.000–0.002.
