@@ -1,6 +1,6 @@
 import { Pane } from '@/ui/components/Pane.tsx';
 import { SliderRow } from '@/ui/components/Slider.tsx';
-import { Show } from 'solid-js';
+import { For, Show } from 'solid-js';
 import {
   volume, setVolume,
   ayMix, setAyMix,
@@ -8,9 +8,9 @@ import {
   snStereo, setSnStereo,
   ayDcBlock, setAyDcBlock,
   ayAntialias, setAyAntialias,
-  persistSetting, resetSettingsGroup,
+  persistSetting, resetSettingsGroup, PERIPHERAL_VOLUMES,
 } from '@/store/settings.ts';
-import { applyDisplaySettings } from '@/shell/settings.ts';
+import { applyDisplaySettings, settingEnabled } from '@/shell/settings.ts';
 import { machineCaps } from '@/state/machine-caps.ts';
 import type { AYStereoMode, AYAntialiasMode } from '@/cores/ay-3-8910.ts';
 
@@ -48,6 +48,19 @@ export function SoundPane() {
         <SliderRow label="Mixer" id="ay-mix" min={0} max={100} value={ayMix} endLabels={['Beep', machineCaps().soundChip ?? 'PSG']}
           onInput={(v) => { setAyMix(v); persistSetting('ay-mix', v); applyDisplaySettings(); }} />
       </Show>
+      {/* One volume slider per fitted DAC-style peripheral the descriptor lists
+          (the SpecDrum), shown only while it is switched on. */}
+      <For each={machineCaps().soundPeripherals ?? []}>
+        {(p) => {
+          const vol = PERIPHERAL_VOLUMES[p.volumeSetting];
+          return (
+            <Show when={vol && settingEnabled(p.enabledSetting)}>
+              <SliderRow label={p.label} id={p.volumeSetting} min={0} max={100} value={vol![0]}
+                onInput={(v) => { vol![1](v); persistSetting(p.volumeSetting, v); applyDisplaySettings(); }} />
+            </Show>
+          );
+        }}
+      </For>
       {/* All three below are AY-3-891x shaping; a machine lists the ones it
           actually reads, so nothing is offered that would do nothing. */}
       <Show when={machineCaps().psgControls.includes('stereo')}>
