@@ -43,6 +43,9 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'ay-antialias': () => settings.ayAntialias(),
   'specdrum-volume': () => settings.specdrumVolume(),
   'mic-audible': () => settings.micAudible(),
+  // Selected joystick interface per player (Spectrum: Kempston port fitted?).
+  'joy-p1': () => settings.joyP1(),
+  'joy-p2': () => settings.joyP2(),
   // Peripheral enablement + write-protects read by each machine's prepare() hook.
   'vtx5000': () => settings.vtx5000Enabled(),
   'specdrum': () => settings.specdrumEnabled(),

@@ -235,6 +235,27 @@ describe('Port routing — Kempston joystick', () => {
     expect(s.cpu.portIn(0x001F) & 0xFF).toBe(0x12);
   });
 
+  it('with no Kempston selected, IN 0x1F floats instead of answering 0x00', () => {
+    // A program probing 0x1F for a Kempston must not find one on an idle bus.
+    const s = makeMachine('zx48k');
+    s.joystick.state = 0x12;
+    const view = { get: <T,>(key: string, fallback: T): T =>
+      (key === 'joy-p1' ? 'cursor' : key === 'joy-p2' ? 'sinclair2' : fallback) as T };
+    s.applySettings(view);
+    expect(s.joystick.enabled).toBe(false);
+    expect(s.cpu.portIn(0x001F) & 0xFF).not.toBe(0x12);
+  });
+
+  it('Kempston selected for either player keeps the port answering', () => {
+    const s = makeMachine('zx48k');
+    const view = (p1: string, p2: string) => ({ get: <T,>(key: string, fallback: T): T =>
+      (key === 'joy-p1' ? p1 : key === 'joy-p2' ? p2 : fallback) as T });
+    s.applySettings(view('cursor', 'kempston'));
+    expect(s.joystick.enabled).toBe(true);
+    s.applySettings(view('kempston', 'none'));
+    expect(s.joystick.enabled).toBe(true);
+  });
+
   it('IN from a port with bit 5 set bypasses Kempston', () => {
     const s = makeMachine('zx48k');
     s.joystick.state = 0xAB;

@@ -25,6 +25,10 @@ export const KEMPSTON_BITS: Record<string, number> = {
 };
 
 export class KempstonJoystick {
+  /** Whether a Kempston interface is fitted (selected for either player).
+   *  When not, port 0x1F is undriven and reads as the floating bus, so
+   *  programs probing for a Kempston do not mistake an idle bus for one. */
+  enabled = true;
   /** 8-bit port value read by the Z80 */
   state = 0;
 

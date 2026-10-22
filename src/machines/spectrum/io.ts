@@ -373,8 +373,8 @@ export function wirePortIO(s: Spectrum): void {
       if (lo === 0x7F) return s.vtx5000.readData();
     }
 
-    // Kempston joystick: bits 5-7 of low byte all zero
-    if ((port & 0x00E0) === 0) {
+    // Kempston joystick: bits 5-7 of low byte all zero (only when fitted)
+    if (s.joystick.enabled && (port & 0x00E0) === 0) {
       s.activity.kempstonReads++;
       return s.joystick.state;
     }

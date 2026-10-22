@@ -427,6 +427,8 @@ export class Spectrum extends BaseMachine implements Machine {
     this.tapeAutoRewind = view.get('tape-auto-rewind', false);
     this.scanlineAccuracy = view.get('scanline-accuracy', 'high') as 'high' | 'mid' | 'low';
     applyAySettings(this.ay, view);
+    this.joystick.enabled = view.get<string>('joy-p1', 'kempston') === 'kempston'
+      || view.get<string>('joy-p2', 'sinclair2') === 'kempston';
     // Live-disable only: enabling needs a ROM load, which prepare() owns.
     if (!view.get('multiface', false)) this.multiface.enabled = false;
   }

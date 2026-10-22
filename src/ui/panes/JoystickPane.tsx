@@ -3,6 +3,7 @@ import { Pane } from '@/ui/components/Pane.tsx';
 import { HiOutlineChevronUp, HiOutlineChevronDown, HiOutlineChevronLeft, HiOutlineChevronRight } from 'solid-icons/hi';
 import { joyP1, joyP2, joyMapP1, joyMapP2, setJoyP1, setJoyP2, setJoyMapP1, setJoyMapP2, persistSetting, gamepadConfigP1, gamepadConfigP2, setGamepadConfigP1, setGamepadConfigP2, resetSettingsGroup } from '@/store/settings.ts';
 import { joyPressForType } from '@/shell/media.ts';
+import { applyDisplaySettings } from '@/shell/settings.ts';
 import { machineCaps } from '@/state/machine-caps.ts';
 
 // On the Spectrum a joystick can present to the CPU through several interface
@@ -132,6 +133,7 @@ function JoyColumn(props: { playerIdx: number; label: string }) {
           <select id={joyKey()} value={joySel()()} onChange={(e) => {
             setJoySel()((e.target as HTMLSelectElement).value);
             persistSetting(joyKey(), joySel()());
+            applyDisplaySettings(); // tell the machine which interface is fitted
           }}>
             <option value="kempston">Kempston</option>
             <option value="cursor">Cursor</option>
@@ -176,6 +178,7 @@ export function JoystickPane() {
       resetSettingsGroup('joystick');
       setGamepadConfigP1(null);
       setGamepadConfigP2(null);
+      applyDisplaySettings();
     }}>
       <div id="joy-columns">
         <JoyColumn playerIdx={0} label="Player 1" />
