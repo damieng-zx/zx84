@@ -32,11 +32,12 @@ describe('SpecDrum port decode', () => {
 });
 
 describe('SpecDrum output', () => {
-  it('starts disabled with a silent DAC', () => {
+  it('starts disabled with the DAC idling at mid-scale (0x80)', () => {
     const drum = new SpecDrum();
     expect(drum.enabled).toBe(false);
-    expect(drum.dac.code).toBe(0);
-    expect(drum.level).toBe(0);
+    expect(SpecDrum.IDLE_CODE).toBe(0x80);
+    expect(drum.dac.code).toBe(0x80);
+    expect(drum.level).toBeCloseTo(128 / 255, 12);
   });
 
   it('latches a written byte into the DAC (unsigned: 0x00 → 0, 0xFF → full scale)', () => {
@@ -51,18 +52,36 @@ describe('SpecDrum output', () => {
     expect(drum.level).toBeCloseTo(128 / 255, 12);
   });
 
+  it('signedLevel is the code centred on idle: 0x80 is 0, 0x00 is -1, 0xFF is +127/128', () => {
+    const drum = new SpecDrum();
+    expect(drum.signedLevel).toBe(0);              // idle on construction
+    drum.writePort(0x00);
+    expect(drum.signedLevel).toBe(-1);
+    drum.writePort(0xFF);
+    expect(drum.signedLevel).toBeCloseTo(127 / 128, 12);
+    drum.writePort(0xC0);
+    expect(drum.signedLevel).toBe(0.5);
+    drum.writePort(0x40);
+    expect(drum.signedLevel).toBe(-0.5);
+    drum.reset();
+    expect(drum.signedLevel).toBe(0);
+  });
+
   it('keeps only the low 8 bits of the written value', () => {
     const drum = new SpecDrum();
     drum.writePort(0x1C3);
     expect(drum.dac.code).toBe(0xC3);
   });
 
-  it('reset clears the latch', () => {
+  it('reset returns the latch to idle (0x80), not zero: zero would be a full-half-scale step', () => {
     const drum = new SpecDrum();
     drum.writePort(0xA5);
     drum.reset();
-    expect(drum.dac.code).toBe(0);
-    expect(drum.level).toBe(0);
+    expect(drum.dac.code).toBe(0x80);
+    expect(drum.level).toBeCloseTo(128 / 255, 12);
+    drum.writePort(0x00);
+    drum.reset();
+    expect(drum.dac.code).toBe(0x80);
   });
 
   it('reset does not change whether the interface is fitted', () => {

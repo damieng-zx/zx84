@@ -417,12 +417,10 @@ export class Spectrum extends BaseMachine implements Machine {
     this.mixer.beeperGain = Math.min(1, 2 * (1 - mix));
     this.mixer.ayGain = Math.min(1, 2 * mix);
     this.mixer.auxGain = view.get('specdrum-volume', 100) / 100;
+    this.ula.micAudible = view.get('mic-audible', true);
     // The SpecDrum needs no ROM, so it is fitted/removed live here (and read once
-    // at build by prepare()). Removing it clears the latch so a later re-fit
-    // doesn't resume at a stale DC level.
-    const specdrumOn = view.get('specdrum', false);
-    if (this.specdrum.enabled && !specdrumOn) this.specdrum.reset();
-    this.specdrum.enabled = specdrumOn;
+    // at build by prepare()).
+    this.setSpecdrumFitted(view.get('specdrum', false));
     this.tapeFastRom = view.get('tape-instant-rom', true);
     this.tapeTurbo = view.get('tape-turbo-load', true);
     this.tapeSoundEnabled = view.get('tape-sound', true);
@@ -431,6 +429,18 @@ export class Spectrum extends BaseMachine implements Machine {
     applyAySettings(this.ay, view);
     // Live-disable only: enabling needs a ROM load, which prepare() owns.
     if (!view.get('multiface', false)) this.multiface.enabled = false;
+  }
+
+  /**
+   * Fit or remove the SpecDrum live (Hardware pane, settings, MCP). The DAC feeds the
+   * mixer as a signed level centred on its idle code, so fitting or removing it at
+   * idle can't step the output. Removing it parks the latch back at idle so a later
+   * re-fit starts clean.
+   */
+  setSpecdrumFitted(on: boolean): void {
+    if (on === this.specdrum.enabled) return;
+    this.specdrum.enabled = on;
+    if (!on) this.specdrum.reset();
   }
 
   /** Configure fitted peripherals from settings (VTX-5000, Multiface, +D, IF1,
@@ -969,15 +979,15 @@ export class Spectrum extends BaseMachine implements Machine {
       // at hundreds of MHz the buffer fills faster than realtime, the sound
       // is unrecognisable, and the per-instruction mixer work is the
       // dominant non-CPU cost. Zero the accumulator so it stays in sync
-      // when turbo releases.
+      // when turbo releases (the pending duty goes with the window, or the first
+      // sample after turbo would be normalised against the wrong span and click).
       if (skipAudio) {
-        this.mixer.beeperTStatesAccum = 0;
-        if (this.specdrum.enabled) this.mixer.discardAux();
+        this.mixer.discardPending();
       } else {
         this.mixer.accumulateLevel(this.ula.getAudioLevel(this.tapeSoundEnabled), elapsed);
         // The DAC holds its last code between OUTs, so the level over this
         // instruction is the latched one — within one instruction of exact.
-        if (this.specdrum.enabled) this.mixer.accumulateAux(this.specdrum.level, elapsed);
+        if (this.specdrum.enabled) this.mixer.accumulateAux(this.specdrum.signedLevel, elapsed);
         this.mixer.generateSamples(this.audio, this.ay, this.variant.hasAY);
       }
     }

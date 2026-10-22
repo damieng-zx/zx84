@@ -73,11 +73,11 @@ export function register(server: McpServer): void {
       if (!spec) return text('The SpecDrum is a Spectrum peripheral — not available on this machine.');
       const drum = spec.specdrum;
 
-      if (action === 'on') drum.enabled = true;
-      else if (action === 'off') { drum.reset(); drum.enabled = false; }
+      if (action === 'on') spec.setSpecdrumFitted(true);
+      else if (action === 'off') spec.setSpecdrumFitted(false);
 
       return text(
-        `SpecDrum: ${drum.enabled ? 'ON' : 'OFF'}  dacCode=${h8(drum.dac.code)}  level=${drum.level.toFixed(3)}  ` +
+        `SpecDrum: ${drum.enabled ? 'ON' : 'OFF'}  dacCode=${h8(drum.dac.code)}  signed=${drum.signedLevel.toFixed(3)}  ` +
         `writesThisFrame=${spec.activity.specdrumWrites}  volume=${(spec.mixer.auxGain * 100).toFixed(0)}%`
       );
     },

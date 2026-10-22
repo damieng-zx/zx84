@@ -43,7 +43,7 @@ describe('SpecDrum — port routing', () => {
   it('is ignored while not fitted', () => {
     s.specdrum.enabled = false;
     s.cpu.portOut(0x00DF, 0xFF);
-    expect(s.specdrum.dac.code).toBe(0);
+    expect(s.specdrum.dac.code).toBe(0x80);   // untouched: still idle
     expect(s.activity.specdrumWrites).toBe(0);
   });
 
@@ -95,10 +95,10 @@ describe('SpecDrum — port routing', () => {
     }
   });
 
-  it('machine reset clears the latch but leaves it fitted', () => {
+  it('machine reset returns the latch to idle (0x80) and leaves it fitted', () => {
     s.cpu.portOut(0x00DF, 0xC8);
     s.reset();
-    expect(s.specdrum.dac.code).toBe(0);
+    expect(s.specdrum.dac.code).toBe(0x80);
     expect(s.specdrum.enabled).toBe(true);
   });
 });
@@ -119,69 +119,141 @@ describe('SpecDrum — settings', () => {
     expect(s.mixer.auxGain).toBeCloseTo(0.4, 12);
     s.applySettings(view({ specdrum: true, 'specdrum-volume': 100 }));
     expect(s.mixer.auxGain).toBe(1);
+    s.applySettings(view({ specdrum: true, 'specdrum-volume': 200 }));
+    expect(s.mixer.auxGain).toBe(2);          // the slider goes to 200 %: the DAC may exceed the speaker
+    s.applySettings(view({ specdrum: true, 'specdrum-volume': 999 }));
+    expect(s.mixer.auxGain).toBe(2);          // ...but no further
   });
 
-  it('removing it live clears the latch so a re-fit does not resume mid-level', () => {
+  it('removing it live returns the latch to idle so a re-fit does not resume mid-level', () => {
     const s = makeMachine('zx48k');
     s.applySettings(view({ specdrum: true }));
     s.cpu.portOut(0x00DF, 0xF0);
     s.applySettings(view({ specdrum: false }));
     expect(s.specdrum.enabled).toBe(false);
     s.applySettings(view({ specdrum: true }));
-    expect(s.specdrum.dac.code).toBe(0);
+    expect(s.specdrum.dac.code).toBe(0x80);
+  });
+
+  it('setSpecdrumFitted is idempotent and parks the latch at idle on a real removal', () => {
+    const s = makeMachine('zx48k');
+    s.setSpecdrumFitted(false);               // already off: nothing happens
+    expect(s.specdrum.enabled).toBe(false);
+    s.setSpecdrumFitted(true);
+    s.setSpecdrumFitted(true);
+    expect(s.specdrum.enabled).toBe(true);
+    s.setSpecdrumFitted(false);
+    expect(s.specdrum.enabled).toBe(false);
   });
 });
 
 describe('SpecDrum — audio path', () => {
   const ALPHA = 1 - (2 * Math.PI * 20 / 44100); // the mixer's ~20 Hz DC-blocker, 44.1 kHz default
+  const frame = (s: Spectrum) => (s as unknown as { runFrame(): void }).runFrame();
 
-  /** Run one frame of `JR $` in RAM and return the left samples produced. */
-  function frameSamples(drum: { enabled: boolean; code?: number }, volume = 100): number[] {
+  /** A 48K with `JR $` at 0x8000 and its audio captured into the returned array. */
+  function rig(fitted: boolean, volume = 100): { s: Spectrum; out: number[] } {
     const s = makeMachine('zx48k');
-    s.applySettings(view({ specdrum: drum.enabled, 'specdrum-volume': volume, 'ay-mix': 50 }));
-    if (drum.code !== undefined) s.specdrum.dac.write(drum.code);
+    s.applySettings(view({ specdrum: fitted, 'specdrum-volume': volume, 'ay-mix': 50 }));
     s.memory.flat[0x8000] = 0x18; // JR $
     s.memory.flat[0x8001] = 0xFE;
     s.cpu.pc = 0x8000;
     const out: number[] = [];
     s.audio.pushSample = (l: number) => { out.push(l); };
-    (s as unknown as { runFrame(): void }).runFrame();
-    return out;
+    return { s, out };
   }
 
-  it('a held full-scale code contributes 0.8·α on the first sample, then decays by α each sample', () => {
-    const base = frameSamples({ enabled: false });
-    const withDac = frameSamples({ enabled: true, code: 255 });
+  /** One frame at the idle code, then step to `code` and return that second frame's samples. */
+  function stepTo(fitted: boolean, code: number, volume = 100): number[] {
+    const { s, out } = rig(fitted, volume);
+    frame(s);
+    const settled = out.length;
+    s.specdrum.dac.write(code);
+    frame(s);
+    return out.slice(settled);
+  }
+
+  it('an idle DAC is silent: the signal is centred on 0x80, so nothing is added to the mix', () => {
+    const { s, out } = rig(true);
+    frame(s); frame(s);
+    expect(out.length).toBeGreaterThan(1000);
+    for (const x of out) expect(x).toBe(0);
+  });
+
+  it('a step to 0xC0 (+0.5) rings through the DC-blocker at 0.4·alpha, then decays by alpha per sample', () => {
+    const base = stepTo(false, 0xC0);
+    const withDac = stepTo(true, 0xC0);
     expect(withDac.length).toBe(base.length);
     expect(withDac.length).toBeGreaterThan(100);
-    for (let n = 0; n < 4; n++) {
-      // y[n] = 0.8 · α^(n+1) for a step to a constant level (first-order high-pass).
-      expect(withDac[n]! - base[n]!).toBeCloseTo(0.8 * Math.pow(ALPHA, n + 1), 3);
-    }
+    const d = withDac.map((x, i) => x - base[i]!);
+    // The step lands inside a sample window, so it is spread over the first two samples;
+    // from the third on it is the pure geometric tail.
+    const peak = Math.max(...d);
+    expect(peak).toBeCloseTo(0.5 * 0.8 * ALPHA, 1);
+    for (let n = 3; n < 12; n++) expect(d[n + 1]! / d[n]!).toBeCloseTo(ALPHA, 6);
   });
 
   it('the SpecDrum slider scales the DAC alone', () => {
-    const base = frameSamples({ enabled: false });
-    const half = frameSamples({ enabled: true, code: 255 }, 50);
-    expect(half[0]! - base[0]!).toBeCloseTo(0.5 * 0.8 * ALPHA, 3);
+    const peak = (volume: number) => {
+      // A quarter-scale step, so even 200 % stays inside the output clamp.
+      const base = stepTo(false, 0xA0, volume);
+      return Math.max(...stepTo(true, 0xA0, volume).map((x, i) => x - base[i]!));
+    };
+    expect(peak(50) / peak(100)).toBeCloseTo(0.5, 6);
+    expect(peak(200) / peak(100)).toBeCloseTo(2, 6);
   });
 
   it('volume 0 silences the DAC but writes still reach it', () => {
-    const base = frameSamples({ enabled: false });
-    const muted = frameSamples({ enabled: true, code: 255 }, 0);
-    expect(muted[0]).toBeCloseTo(base[0]!, 9);
+    const base = stepTo(false, 0xC0, 0);
+    const muted = stepTo(true, 0xC0, 0);
+    for (let i = 0; i < base.length; i++) expect(muted[i]).toBeCloseTo(base[i]!, 12);
   });
 
-  it('a silent code (0x00) adds nothing', () => {
-    const base = frameSamples({ enabled: false });
-    const zero = frameSamples({ enabled: true, code: 0 });
-    expect(zero[10]).toBeCloseTo(base[10]!, 9);
+  it('is signed: a code below idle swings the speaker the other way', () => {
+    const base = stepTo(false, 0x40);
+    const d = stepTo(true, 0x40).map((x, i) => x - base[i]!);
+    expect(Math.min(...d)).toBeCloseTo(-0.5 * 0.8 * ALPHA, 1);
+    expect(Math.max(...d)).toBeLessThanOrEqual(1e-9);
   });
 
   it('with the SpecDrum absent the output is untouched by the slider', () => {
-    const a = frameSamples({ enabled: false }, 100);
-    const b = frameSamples({ enabled: false }, 10);
-    expect(b).toEqual(a);
+    expect(stepTo(false, 0xC0, 10)).toEqual(stepTo(false, 0xC0, 100));
+  });
+
+  it('fitting it at idle does not thump', () => {
+    const { s, out } = rig(false);
+    frame(s);
+    s.setSpecdrumFitted(true);                 // DAC rests at 0x80, which is 0: no edge
+    frame(s); frame(s);
+    for (const x of out) expect(x).toBe(0);
+  });
+
+  it('removing it at idle does not thump', () => {
+    const { s, out } = rig(true);
+    frame(s);
+    s.setSpecdrumFitted(false);
+    frame(s); frame(s);
+    for (const x of out) expect(x).toBe(0);
+  });
+
+  it('removing it mid-sound steps by no more than the waveform\'s own value (a drum cut short)', () => {
+    const { s, out } = rig(true);
+    frame(s);
+    s.specdrum.dac.write(0x90);                // +0.125 -> 0.1 at the speaker
+    frame(s);
+    const boundary = out.length;
+    s.setSpecdrumFitted(false);
+    frame(s);
+    expect(Math.abs(out[boundary]! - out[boundary - 1]!)).toBeLessThanOrEqual(0.8 * 0.125 + 1e-9);
+  });
+
+  it('a machine reset at idle is silent', () => {
+    const { s, out } = rig(true);
+    frame(s);
+    s.reset();
+    s.cpu.pc = 0x8000;
+    frame(s); frame(s);
+    for (const x of out) expect(x).toBe(0);
   });
 });
 
@@ -234,9 +306,47 @@ describe('SpecDrum — streamed samples (the way the real software drives it)', 
   it('swings both ways around zero after the DC-blocker, at a sensible level', () => {
     const out = run(6, true).slice(1000);
     const max = Math.max(...out), min = Math.min(...out);
-    expect(max).toBeGreaterThan(0.2);
-    expect(min).toBeLessThan(-0.2);
-    expect(max).toBeLessThanOrEqual(0.8);
-    expect(min).toBeGreaterThanOrEqual(-0.8);
+    // A full 0x00..0xFF swing is +-0.8 (signed +-1 at the 0.8 aux scale); the duty is 0.497,
+    // so the high half sits a hair above 0.8 once the small residual DC is removed.
+    expect(max).toBeGreaterThan(0.6);
+    expect(min).toBeLessThan(-0.6);
+    expect(max).toBeLessThanOrEqual(0.85);
+    expect(min).toBeGreaterThanOrEqual(-0.85);
+  });
+});
+
+describe('SpecDrum — MIC sync tick', () => {
+  // The Cheetah software pulses MIC (OUT 0xFE bit 3 only) as a sync clock. On real
+  // hardware that leaks faintly into the Spectrum speaker; the Sound pane can mute it.
+  //   loop: LD A,08h / OUT (FEh),A / LD B,0 / DJNZ $ / XOR A / OUT (FEh),A / LD B,0 / DJNZ $ / JR loop
+  const PROGRAM = [0x3E, 0x08, 0xD3, 0xFE, 0x06, 0x00, 0x10, 0xFE, 0xAF, 0xD3, 0xFE, 0x06, 0x00, 0x10, 0xFE, 0x18, 0xEF];
+
+  function peak(micAudible: boolean): number {
+    const s = makeMachine('zx48k');
+    s.applySettings(view({ 'mic-audible': micAudible }));
+    PROGRAM.forEach((b, i) => { s.memory.flat[0x8000 + i] = b; });
+    s.cpu.pc = 0x8000;
+    const out: number[] = [];
+    s.audio.pushSample = (l: number) => { out.push(l); };
+    for (let f = 0; f < 4; f++) (s as unknown as { runFrame(): void }).runFrame();
+    return out.slice(500).reduce((m, x) => Math.max(m, Math.abs(x)), 0);
+  }
+
+  it('is audible by default', () => {
+    expect(peak(true)).toBeGreaterThan(0.02);
+  });
+
+  it('is silent when "MIC in speaker" is off', () => {
+    expect(peak(false)).toBe(0);
+  });
+
+  it('applySettings follows the setting live', () => {
+    const s = makeMachine('zx48k');
+    s.applySettings(view({ 'mic-audible': false }));
+    expect(s.ula.micAudible).toBe(false);
+    s.applySettings(view({ 'mic-audible': true }));
+    expect(s.ula.micAudible).toBe(true);
+    s.applySettings(view({}));                  // a missing key keeps the hardware-accurate default
+    expect(s.ula.micAudible).toBe(true);
   });
 });

@@ -597,6 +597,41 @@ describe('getAudioLevel — EAR/MIC speaker mix and tape routing', () => {
   });
 });
 
+describe('getAudioLevel — MIC audibility option', () => {
+  let ula: ULA;
+  beforeEach(() => { ula = makeUla().ula; });
+  const EAR_ONLY = (3.66 - 0.39) / 3.4;
+  const MIC_ONLY = (0.73 - 0.39) / 3.4;
+
+  it('MIC is audible by default (real hardware leaks it into the speaker)', () => {
+    expect(ula.micAudible).toBe(true);
+    ula.writePort(0x08);
+    expect(ula.getAudioLevel(true)).toBeCloseTo(MIC_ONLY, 6);
+  });
+
+  it('muted: a MIC-only pulse is silent', () => {
+    ula.micAudible = false;
+    ula.writePort(0x08);
+    expect(ula.micBit).toBe(1);                 // the line still toggles (tape SAVE etc.)
+    expect(ula.getAudioLevel(true)).toBe(0);
+  });
+
+  it('muted: EAR is unaffected, and MIC held high no longer lifts the baseline', () => {
+    ula.micAudible = false;
+    ula.writePort(0x18);                        // EAR + MIC, the ROM BEEPER high state
+    expect(ula.getAudioLevel(true)).toBeCloseTo(EAR_ONLY, 6);
+    ula.writePort(0x08);                        // MIC only: the BEEPER low state
+    expect(ula.getAudioLevel(true)).toBe(0);
+  });
+
+  it('muted: tape playback sound still comes through', () => {
+    ula.micAudible = false;
+    ula.tapeActive = true;
+    ula.tapeEarBit = 1;
+    expect(ula.getAudioLevel(true)).toBe(1);
+  });
+});
+
 // ─────────────────────────────────────────────────────────────────────────
 // fillBorder + renderDisplayCell (sub-frame render path)
 // ─────────────────────────────────────────────────────────────────────────

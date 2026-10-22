@@ -25,6 +25,14 @@ export class SpecDrum {
   /** The low address byte the interface answers to. */
   static readonly PORT = 0xDF;
 
+  /** The code the DAC rests at: mid-scale. The software writes it on start-up and
+   *  between drums, and an unsigned converter has to idle there to swing both ways. */
+  static readonly IDLE_CODE = 0x80;
+
+  constructor() {
+    this.dac.write(SpecDrum.IDLE_CODE);
+  }
+
   /** Whether the interface decodes this port address (A0-A7 = 0xDF, A8-A15 free). */
   matchPort(port: number): boolean {
     return (port & 0xFF) === SpecDrum.PORT;
@@ -35,15 +43,24 @@ export class SpecDrum {
     this.dac.write(value);
   }
 
-  /** The DAC output as a 0..1 fraction of full scale (unipolar). */
+  /** The DAC output as a 0..1 fraction of full scale (unipolar), as the chip makes it. */
   get level(): number {
     return this.dac.level;
   }
 
-  /** Machine reset: clear the latch. The board has no reset line, so a real unit
-   *  would hold its last code, but that is a DC offset the mixer blocks anyway and
-   *  a defined state keeps runs deterministic. */
+  /**
+   * The signal the software means to play: the code centred on idle, so 0x80 is 0 and
+   * the range is -1 (0x00) to +127/128 (0xFF). This is what the mixer takes — an idle
+   * DAC is silence by construction, with no DC offset to filter off or prime.
+   */
+  get signedLevel(): number {
+    return (this.dac.code - SpecDrum.IDLE_CODE) / SpecDrum.IDLE_CODE;
+  }
+
+  /** Machine reset: back to the idle code. The board has no reset line, so a real
+   *  unit would hold its last code; resting at mid-scale instead gives a defined
+   *  state and, unlike zero, doesn't put a full-scale step through the mixer. */
   reset(): void {
-    this.dac.reset();
+    this.dac.write(SpecDrum.IDLE_CODE);
   }
 }

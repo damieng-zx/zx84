@@ -379,6 +379,10 @@ export interface MachineUiCapabilities {
     readonly enabledSetting: string;
     readonly volumeSetting: string;
   }[];
+  /** The machine's ULA leaks its MIC (tape-save) output into the speaker, and
+   *  reads 'mic-audible' in applySettings: the Sound pane offers a toggle to
+   *  hear it or not. Omitted where MIC is not part of the speaker mix. */
+  readonly micSpeaker?: boolean;
   /**
    * Which of the Sound pane's PSG-shaping controls apply to this machine.
    *

@@ -53,6 +53,9 @@ const DEFAULTS = {
   'ay-antialias': 'mute',
   // Level of the SpecDrum DAC channel (0-100), separate from master volume.
   'specdrum-volume': '100',
+  // Whether the Spectrum's MIC line leaks into the speaker mix (it does on real
+  // hardware); off hides sync/trigger ticks that software pulses on it.
+  'mic-audible':  'on',
 
   // Joystick
   'joy-p1':     'kempston',
@@ -274,6 +277,10 @@ export const setAyAntialias = _ayAntialias[1];
 const _specdrumVolume = /*@once*/ createRoot(() => createSignal(getSavedNumber('specdrum-volume', D('specdrum-volume'))));
 export const specdrumVolume = _specdrumVolume[0];
 export const setSpecdrumVolume = _specdrumVolume[1];
+
+const _micAudible = /*@once*/ createRoot(() => createSignal(getSaved('mic-audible', D('mic-audible')) === 'on'));
+export const micAudible = _micAudible[0];
+export const setMicAudible = _micAudible[1];
 
 /** Per-peripheral Sound-pane volume signals, keyed by the setting a machine
  *  descriptor names in `soundPeripherals[].volumeSetting` — so the generic pane
@@ -694,6 +701,7 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'ay-dc-block', set: setAyDcBlock,  type: 'bool' },
     { key: 'ay-antialias', set: setAyAntialias, type: 'string' },
     { key: 'specdrum-volume', set: setSpecdrumVolume, type: 'number' },
+    { key: 'mic-audible', set: setMicAudible, type: 'bool' },
   ],
   joystick: [
     { key: 'joy-p1',     set: setJoyP1,    type: 'string' },

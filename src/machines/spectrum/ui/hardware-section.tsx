@@ -93,11 +93,8 @@ export function SpectrumHardwareSection() {
               settings.setSpecdrumEnabled(on);
               settings.persistSetting('specdrum', on ? 'on' : 'off');
               const s = activeSpectrum();
-              if (s) {
-                // No ROM and no reset needed: the board is just a port + DAC.
-                if (!on) s.specdrum.reset();
-                s.specdrum.enabled = on;
-              }
+              // No ROM and no reset needed: the board is just a port + DAC.
+              if (s) s.setSpecdrumFitted(on);
             }}
           />
           SpecDrum

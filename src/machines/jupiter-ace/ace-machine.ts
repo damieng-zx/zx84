@@ -356,7 +356,7 @@ export class JupiterAceMachine extends BaseMachine implements Machine {
       }
     }
 
-    if (skipAudio) this.mixer.beeperTStatesAccum = 0;
+    if (skipAudio) this.mixer.discardPending();
 
     // Tape turbo: while the tape is genuinely being consumed (the loader is
     // polling the ULA), run the real loading code as fast as the pump allows.

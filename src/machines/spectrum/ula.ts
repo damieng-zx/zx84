@@ -118,6 +118,11 @@ export class ULA {
    *  resistor paths; see getAudioLevel. */
   micBit = 0;
 
+  /** Whether the MIC line is heard in the speaker mix. Real hardware leaks it
+   *  faintly; software that pulses MIC as a sync/trigger output (the SpecDrum's
+   *  clock) then ticks audibly, so the Sound pane can mute it. */
+  micAudible = true;
+
   /** Tape EAR bit (0 or 1), set by the tape player */
   tapeEarBit = 0;
 
@@ -206,7 +211,7 @@ export class ULA {
    */
   getAudioLevel(tapeSoundEnabled: boolean): number {
     if (this.tapeActive && tapeSoundEnabled) return this.tapeEarBit;
-    return ULA_SPEAKER_LEVEL[(this.beeperBit << 1) | this.micBit];
+    return ULA_SPEAKER_LEVEL[(this.beeperBit << 1) | (this.micAudible ? this.micBit : 0)];
   }
 
   /**
