@@ -66,6 +66,24 @@ export function register(server: McpServer): void {
   );
 
   server.registerTool(
+    'specdrum',
+    { description: 'Fit/remove the Cheetah SpecDrum 8-bit DAC (port 0xDF, write-only; any Spectrum model). No ROM or reset needed. Status reports the last DAC code written.', inputSchema: { action: z.enum(['on', 'off', 'status']).describe('Action to perform') } },
+    async ({ action }) => {
+      const spec = activeSpectrum();
+      if (!spec) return text('The SpecDrum is a Spectrum peripheral — not available on this machine.');
+      const drum = spec.specdrum;
+
+      if (action === 'on') drum.enabled = true;
+      else if (action === 'off') { drum.reset(); drum.enabled = false; }
+
+      return text(
+        `SpecDrum: ${drum.enabled ? 'ON' : 'OFF'}  dacCode=${h8(drum.dac.code)}  level=${drum.level.toFixed(3)}  ` +
+        `writesThisFrame=${spec.activity.specdrumWrites}  volume=${(spec.mixer.auxGain * 100).toFixed(0)}%`
+      );
+    },
+  );
+
+  server.registerTool(
     'vtx5000',
     { description: 'Enable/disable the VTX-5000 Viewdata/Prestel modem (48K only). Loads the ROM overlay and resets the machine.', inputSchema: { action: z.enum(['on', 'off', 'status']).describe('Action to perform') } },
     async ({ action }) => {
