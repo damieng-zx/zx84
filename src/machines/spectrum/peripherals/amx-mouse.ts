@@ -76,6 +76,11 @@ export class AmxMouse {
       if (val & 0x10) {
         if (port === 'A') this.pioCtrlStateA = 'await_int'; else this.pioCtrlStateB = 'await_int';
       }
+    } else if ((val & 0x0F) === 0x03) {
+      // Interrupt enable word: D7 sets/clears the enable flip-flop; no mask
+      // byte follows. Z80 PIO drivers typically finish setup with 0x83.
+      const enabled = (val & 0x80) !== 0;
+      if (port === 'A') this.intEnabledA = enabled; else this.intEnabledB = enabled;
     }
     // Other control words -- ignore
   }

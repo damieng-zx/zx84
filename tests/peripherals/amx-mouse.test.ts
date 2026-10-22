@@ -7,6 +7,7 @@
  *     byte written is the I/O direction mask.
  *   • Bits 3:0 = 0111 → interrupt-control word. If bit 4 set, the next
  *     byte written is the interrupt mask.
+ *   • Bits 3:0 = 0011 → interrupt enable word; D7 sets the enable flip-flop.
  *
  * Movement injection (drainMovement) is integration-tested via the
  * Spectrum frame loop; here we cover state and pure logic.
@@ -143,8 +144,8 @@ describe('AmxMouse — PIO control state machine', () => {
     expect(m.pioVectorB).toBe(0x10);
   });
 
-  it('other control word (odd bit-0, not mode/int-ctrl nibble) is silently ignored', () => {
-    m.pioControlWrite('A', 0x03); // bits 3:0 = 0011 — neither 0x0F nor 0x07
+  it('other control word (odd bit-0, not mode/int-ctrl/int-enable nibble) is silently ignored', () => {
+    m.pioControlWrite('A', 0x05); // bits 3:0 = 0101 — undefined control word
     expect(m.pioVectorA).toBe(0);
     // State remains normal — a vector write lands immediately after.
     m.pioControlWrite('A', 0x20);
@@ -173,6 +174,51 @@ describe('AmxMouse — PIO control state machine', () => {
     m.pioControlWrite('A', 0x07);   // int-ctrl, no mask follow
     m.pioControlWrite('A', 0x80);   // treated as vector
     expect(m.pioVectorA).toBe(0x80);
+  });
+});
+
+describe('AmxMouse — interrupt enable word (xxxx0011, Zilog UM0081)', () => {
+  const FRAME_LEN = 69888;
+
+  function armedCpu(): Z80 {
+    const cpu = makeCpu().cpu;
+    const real = cpu.interruptWithVector.bind(cpu);
+    cpu.interruptWithVector = (v: number) => { const r = real(v); cpu.iff1 = true; return r; };
+    return cpu;
+  }
+
+  it('0x83 arms a port that was never armed, so queued movement vectors', () => {
+    // Typical driver: vector, mode word, then 0x83 (enable). No 0x87 word.
+    const m = new AmxMouse();
+    const cpu = armedCpu();
+    m.pioControlWrite('A', 0x40);
+    m.pioControlWrite('A', 0x4F);
+    m.pioControlWrite('A', 0x83);
+    m.queueMovement(3, 0);
+    const spy = vi.spyOn(cpu, 'interruptWithVector');
+    m.drainMovement(cpu, FRAME_LEN, new IOActivity());
+    expect(spy).toHaveBeenCalledTimes(3);
+    expect(spy.mock.calls[0][0]).toBe(0x40);
+  });
+
+  it('0x03 disarms an armed port, and only the addressed port', () => {
+    const m = new AmxMouse();
+    const cpu = armedCpu();
+    m.pioControlWrite('A', 0x83);
+    m.pioControlWrite('B', 0x83);
+    m.pioControlWrite('A', 0x03);
+    m.queueMovement(2, 2);
+    const spy = vi.spyOn(cpu, 'interruptWithVector');
+    m.drainMovement(cpu, FRAME_LEN, new IOActivity());
+    // Port A is disabled: the first X step is refused and draining stops.
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('consumes no follow-up byte (the next write is a fresh vector)', () => {
+    const m = new AmxMouse();
+    m.pioControlWrite('B', 0x83);
+    m.pioControlWrite('B', 0x60);
+    expect(m.pioVectorB).toBe(0x60);
   });
 });
 
