@@ -428,3 +428,115 @@ describe('AudioMixer — accumulator catch-up semantics', () => {
     for (const s of audio.samples) expect(s.left).toBe(0);
   });
 });
+
+// ── Auxiliary DAC channel (SpecDrum) ───────────────────────────────────────
+
+describe('AudioMixer — auxiliary DAC channel', () => {
+  const ALPHA = 1 - (2 * Math.PI * 20 / 44_100);
+
+  function feed(m: AudioMixer, audio: ReturnType<typeof fakeAudio>, level: number, elapsed: number): void {
+    m.accumulate(0, elapsed);
+    m.accumulateAux(level, elapsed);
+    m.generateSamples(audio, null, false);
+  }
+
+  it('a constant full-scale level steps to 0.8·α, then decays by α per sample (high-pass)', () => {
+    const m = new AudioMixer(3_500_000);
+    m.init(44_100);
+    const audio = fakeAudio();
+    for (let i = 0; i < 4; i++) feed(m, audio, 1, 80);
+    expect(audio.samples.length).toBe(4);
+    for (let n = 0; n < 4; n++) {
+      expect(audio.samples[n]!.left).toBeCloseTo(0.8 * Math.pow(ALPHA, n + 1), 9);
+      expect(audio.samples[n]!.right).toBeCloseTo(audio.samples[n]!.left, 12); // mono, centred
+    }
+  });
+
+  it('time-weights a level that changes mid-window (half at 0, half at 1 → duty 0.5)', () => {
+    const m = new AudioMixer(3_500_000);
+    m.init(44_100);
+    const audio = fakeAudio();
+    m.accumulate(0, 40); m.accumulateAux(0, 40);
+    m.accumulate(0, 40); m.accumulateAux(1, 40);
+    m.generateSamples(audio, null, false);
+    expect(audio.samples.length).toBe(1);
+    // window = 80 T, one sample consumes 79.365 T of it; duty = 40/80 = 0.5
+    expect(audio.samples[0]!.left).toBeCloseTo(0.5 * 0.8 * ALPHA, 9);
+  });
+
+  it('auxGain scales it and clamps to 0..1; 0 is silent', () => {
+    const run = (gain: number) => {
+      const m = new AudioMixer(3_500_000);
+      m.init(44_100);
+      m.auxGain = gain;
+      const audio = fakeAudio();
+      feed(m, audio, 1, 80);
+      return audio.samples[0]!.left;
+    };
+    expect(run(0.5)).toBeCloseTo(0.5 * 0.8 * ALPHA, 9);
+    expect(run(0)).toBe(0);
+    expect(run(7)).toBeCloseTo(0.8 * ALPHA, 9);   // clamped to 1
+    expect(run(-3)).toBe(0);                      // clamped to 0
+  });
+
+  it('is independent of the beeper and PSG gains', () => {
+    const m = new AudioMixer(3_500_000);
+    m.init(44_100);
+    m.beeperGain = 0;
+    m.ayGain = 0;
+    const audio = fakeAudio();
+    feed(m, audio, 1, 80);
+    expect(audio.samples[0]!.left).toBeCloseTo(0.8 * ALPHA, 9);
+  });
+
+  it('adds to the beeper rather than replacing it', () => {
+    // Levels chosen so the sum stays inside the mixer's �1 output clamp.
+    const only = (beeper: number, aux: number) => {
+      const m = new AudioMixer(3_500_000);
+      m.init(44_100);
+      const audio = fakeAudio();
+      m.accumulateLevel(beeper, 80);
+      m.accumulateAux(aux, 80);
+      m.generateSamples(audio, null, false);
+      return audio.samples[0]!.left;
+    };
+    expect(only(0.4, 0.3)).toBeCloseTo(only(0.4, 0) + only(0, 0.3), 12);
+    expect(only(0.4, 0.3)).toBeGreaterThan(only(0.4, 0));
+  });
+
+  it('a mixer that never used the aux channel is bit-identical to before', () => {
+    const play = (gain: number) => {
+      const m = new AudioMixer(3_500_000);
+      m.init(44_100);
+      m.auxGain = gain;
+      const audio = fakeAudio();
+      for (let i = 0; i < 50; i++) {
+        m.accumulate(i % 3 === 0 ? 1 : 0, 37 + i);
+        m.generateSamples(audio, fakeAY(0.2, 0.1), true);
+      }
+      return audio.samples;
+    };
+    expect(play(0.3)).toEqual(play(1));
+  });
+
+  it('discardAux drops pending duty so it is not mis-normalised (turbo path)', () => {
+    const m = new AudioMixer(3_500_000);
+    m.init(44_100);
+    const audio = fakeAudio();
+    m.accumulateAux(1, 50);
+    m.discardAux();
+    feed(m, audio, 0, 80);
+    expect(audio.samples[0]!.left).toBeCloseTo(0, 12);
+  });
+
+  it('reset() clears the filter state and goes dormant', () => {
+    const m = new AudioMixer(3_500_000);
+    m.init(44_100);
+    const audio = fakeAudio();
+    feed(m, audio, 1, 80);
+    m.reset();
+    m.accumulate(0, 80);
+    m.generateSamples(audio, null, false);
+    expect(audio.samples[1]!.left).toBe(0);
+  });
+});

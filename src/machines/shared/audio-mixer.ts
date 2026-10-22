@@ -39,6 +39,18 @@ export class AudioMixer {
   private _beeperGain = 1.0;
   private _ayGain = 1.0;
 
+  /**
+   * Auxiliary analogue channel for a peripheral DAC (e.g. the SpecDrum): its own
+   * time-weighted accumulator, DC-blocker and gain, so it balances independently of
+   * the beeper and PSG. Dormant — and bit-identical to a mixer without it — until
+   * `accumulateAux` is first called.
+   */
+  private auxActive = false;
+  private auxAccum = 0;
+  private auxDCPrev = 0;
+  private auxDCOut = 0;
+  private _auxGain = 1.0;
+
   get beeperGain(): number { return this._beeperGain; }
   set beeperGain(v: number) { this._beeperGain = clamp01(v); }
 
@@ -47,6 +59,9 @@ export class AudioMixer {
   /** Machine-neutral alias; `ayGain` remains for settings compatibility. */
   get psgGain(): number { return this._ayGain; }
   set psgGain(v: number) { this._ayGain = clamp01(v); }
+
+  get auxGain(): number { return this._auxGain; }
+  set auxGain(v: number) { this._auxGain = clamp01(v); }
 
   constructor(cpuClock: number) {
     this.cpuClock = cpuClock;
@@ -66,6 +81,7 @@ export class AudioMixer {
     // doesn't reinterpret old T-state counts in the new window size.
     this.beeperAccum = 0;
     this.beeperTStatesAccum = 0;
+    this.auxAccum = 0;
   }
 
   /** Accumulate beeper duty for the given elapsed T-states. */
@@ -82,6 +98,22 @@ export class AudioMixer {
   accumulateLevel(level: number, elapsed: number): void {
     this.beeperAccum += level * elapsed;
     this.beeperTStatesAccum += elapsed;
+  }
+
+  /**
+   * Accumulate the auxiliary DAC channel (level 0..1) for the given elapsed
+   * T-states. Call it alongside `accumulate`/`accumulateLevel` with the same
+   * `elapsed` — the aux channel shares their sample window (`beeperTStatesAccum`).
+   */
+  accumulateAux(level: number, elapsed: number): void {
+    this.auxActive = true;
+    this.auxAccum += level * elapsed;
+  }
+
+  /** Drop the aux channel's pending duty (turbo skips audio and zeroes the shared
+   *  window, so the aux accumulator must follow or it would be mis-normalised). */
+  discardAux(): void {
+    this.auxAccum = 0;
   }
 
   /** Generate audio samples when enough T-states have accumulated. */
@@ -112,6 +144,21 @@ export class AudioMixer {
         right = beeperOut * this._beeperGain;
       }
 
+      if (this.auxActive) {
+        // Same time-weighting, scale and high-pass as the beeper, then mixed in
+        // mono at the aux gain. `total` is the window before this sample was
+        // taken off it (the beeper block above already subtracted it).
+        const total = this.beeperTStatesAccum + this.tStatesPerSample;
+        const auxDuty = this.auxAccum / total;
+        this.auxAccum -= auxDuty * this.tStatesPerSample;
+        const auxRaw = auxDuty * 0.8;
+        this.auxDCOut = this.beeperDCAlpha * (this.auxDCOut + auxRaw - this.auxDCPrev);
+        this.auxDCPrev = auxRaw;
+        const auxOut = this.auxDCOut * this._auxGain;
+        left += auxOut;
+        right += auxOut;
+      }
+
       audio.pushSample(
         Math.max(-1, Math.min(1, left)),
         Math.max(-1, Math.min(1, right))
@@ -125,5 +172,9 @@ export class AudioMixer {
     this.beeperDCPrev = 0;
     this.beeperDCOut = 0;
     this.prevBeeperBit = 0;
+    this.auxActive = false;
+    this.auxAccum = 0;
+    this.auxDCPrev = 0;
+    this.auxDCOut = 0;
   }
 }
