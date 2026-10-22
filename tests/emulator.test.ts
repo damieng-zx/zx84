@@ -385,7 +385,6 @@ vi.mock('@/machines/spectrum/peripherals/multiface.ts', () => ({
 
 vi.mock('@/machines/spectrum/peripherals/joysticks.ts', () => ({
   KEMPSTON_BITS: {}, CURSOR_KEYS: {}, SINCLAIR1_KEYS: {}, SINCLAIR2_KEYS: {},
-  resetJoystickKeyState: vi.fn(),
   joyPressForType:       vi.fn(),
 }));
 
