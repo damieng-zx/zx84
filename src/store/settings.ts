@@ -116,6 +116,9 @@ const DEFAULTS = {
   'apple2-mockingboard': 'off',
   'apple2-80col':   'off',
   'apple2e-80col':  'on',
+  'apple1-ram':     '8k',
+  'apple1-basic-ram': 'on',
+  'apple1-aci':     'off',
   'enterprise-exdos': 'on',
   'zx8x-16k-ram':  'off',
   'zx81-udg-ram':  'off',
@@ -519,6 +522,19 @@ const _apple2eEightyCol = /*@once*/ createRoot(() => createSignal(getSaved('appl
 export const apple2eEightyCol = _apple2eEightyCol[0];
 export const setApple2eEightyCol = _apple2eEightyCol[1];
 
+const _apple1Ram = /*@once*/ createRoot(() => createSignal(
+  getSaved('apple1-ram', D('apple1-ram')) as '4k' | '8k' | '16k' | '32k' | '48k'));
+export const apple1Ram = _apple1Ram[0];
+export const setApple1Ram = _apple1Ram[1];
+
+const _apple1BasicRam = /*@once*/ createRoot(() => createSignal(getSaved('apple1-basic-ram', D('apple1-basic-ram')) === 'on'));
+export const apple1BasicRam = _apple1BasicRam[0];
+export const setApple1BasicRam = _apple1BasicRam[1];
+
+const _apple1Aci = /*@once*/ createRoot(() => createSignal(getSaved('apple1-aci', D('apple1-aci')) === 'on'));
+export const apple1Aci = _apple1Aci[0];
+export const setApple1Aci = _apple1Aci[1];
+
 const _mtx512kRam = /*@once*/ createRoot(() => createSignal(getSaved('mtx-512k-ram', D('mtx-512k-ram')) === 'on'));
 export const mtx512kRam = _mtx512kRam[0];
 export const setMtx512kRam = _mtx512kRam[1];
@@ -734,6 +750,9 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'apple2-mockingboard', set: setApple2Mockingboard, type: 'bool' },
     { key: 'apple2-80col', set: setApple2EightyCol, type: 'bool' },
     { key: 'apple2e-80col', set: setApple2eEightyCol, type: 'bool' },
+    { key: 'apple1-ram', set: setApple1Ram, type: 'string' },
+    { key: 'apple1-basic-ram', set: setApple1BasicRam, type: 'bool' },
+    { key: 'apple1-aci', set: setApple1Aci, type: 'bool' },
     { key: 'enterprise-exdos', set: setEnterpriseExdos, type: 'bool' },
     { key: 'zx8x-16k-ram', set: setZx8x16kRam, type: 'bool' },
     { key: 'zx81-udg-ram', set: setZx81UdgRam, type: 'bool' },
