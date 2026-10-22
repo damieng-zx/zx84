@@ -281,6 +281,17 @@ export class WD179x {
   }
 
   /**
+   * /MR master reset: clears the chip's registers, status and in-flight command,
+   * but the drive heads stay where they are (it is the controller that resets,
+   * not the mechanism), so each unit's physical track is preserved.
+   */
+  masterReset(): void {
+    const heads = this.headTrack.slice();
+    this.reset();
+    this.headTrack = heads;
+  }
+
+  /**
    * Per-drive "written since insert" flag (drives C/D). Set when a sector
    * write or format mutates the image, cleared on insert/eject and on save.
    * Drives the Save button's "unsaved changes" indicator in the UI.
