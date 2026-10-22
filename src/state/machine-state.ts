@@ -192,3 +192,7 @@ export const setInterface1RomFailed = _interface1RomFailed[1];
 const _betaDiskRomFailed = createSignal('');
 export const betaDiskRomFailed = _betaDiskRomFailed[0];
 export const setBetaDiskRomFailed = _betaDiskRomFailed[1];
+
+const _uspeechRomFailed = createSignal('');
+export const uspeechRomFailed = _uspeechRomFailed[0];
+export const setUspeechRomFailed = _uspeechRomFailed[1];

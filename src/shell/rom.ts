@@ -23,7 +23,7 @@ import {
   setSidewaysRomSlots,
   setCartridgeName,
   setMultifaceRomFailed, setVtx5000RomFailed, setParadosRomFailed,
-  setPlusDRomFailed, setInterface1RomFailed, setBetaDiskRomFailed, setMsxDiskRomFailed,
+  setPlusDRomFailed, setInterface1RomFailed, setBetaDiskRomFailed, setMsxDiskRomFailed, setUspeechRomFailed,
 } from '@/state/machine-state.ts';
 import {
   romManager, machine, setRomData,
@@ -273,6 +273,7 @@ const FAIL_SETTERS: Record<string, (msg: string) => void> = {
   plusd: setPlusDRomFailed,
   betadisk: setBetaDiskRomFailed,
   interface1: setInterface1RomFailed,
+  uspeech: setUspeechRomFailed,
   parados: setParadosRomFailed,
   msxdisk: setMsxDiskRomFailed,
 };

@@ -81,6 +81,7 @@ Dropping a raw ROM image picks the model by size: 16 KB → 48K, 32 KB → 128K,
 | Beta Disk (TR-DOS) | Disk | 48K, 128K, +2 | ✅ | WD1793, auto-paging at 0x3D00–0x3DFF, drives A:/B: |
 | VTX-5000 | Viewdata modem | 48K | ◐ | 8 KB ROM and 8251 USART; no network connection behind it |
 | Cheetah SpecDrum | Sound (DAC) | all | ✅ | Write-only 8-bit ZN428E DAC on port 0xDF (high byte ignored); needs no ROM; own volume slider in the Sound pane |
+| Currah µSpeech | Speech synthesiser | 16K, 48K, 128K, +2 | ✅ | SP0256-AL2 allophone chip (`src/cores/sp0256.ts`) behind a 2 KB ROM that pages in on any opcode fetch at 0x0038; `LET s$="…"` speaks. Memory-mapped at 0x1000 (status/allophone) and 0x3000/1 (pitch); needs `currah-uspeech.rom` and `sp0256-al2.rom` on the ROM host. Only opcode fetches at 0x0038 toggle the latch (the hardware also decodes data and port cycles there, which no software uses); reset drops the unit out |
 
 **Combination rules:** Interface 1, MGT +D and Beta Disk all overlay slot 0 and
 cannot be fitted together; Beta Disk wins when more than one is enabled. The +D
@@ -145,7 +146,7 @@ screen dump, RAM `.bin`.
 | BASIC tools | ✅ | BASIC listing, BASIC variables, system-variables pane |
 | Software library | ✅ | ZXDB-derived search with screenshots; picks the right model automatically |
 | On-screen keyboard | ✅ | 48K rubber-key and +2/+3 layouts |
-| MCP tools | ✅ | All generic tools, plus `multiface`, `vtx5000`, `specdrum`, `plusd`, `betadisk`, `disk_trace`, `fdc_log`, `sector_read`, `track_geometry`, `disk_geometry`, `weak`, `frame_trace`, `reset_trap` |
+| MCP tools | ✅ | All generic tools, plus `multiface`, `vtx5000`, `specdrum`, `uspeech`, `plusd`, `betadisk`, `disk_trace`, `fdc_log`, `sector_read`, `track_geometry`, `disk_geometry`, `weak`, `frame_trace`, `reset_trap` |
 | Drive count | ✅ | +3 internal drives, and the +D and Beta Disk pairs: one or two, from **Drive count** in the first drive's options menu; saved, rebuilds the machine. Unconnected units give a seek error (WD179x) or equipment check (uPD765A) |
 
 ---

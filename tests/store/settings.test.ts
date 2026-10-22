@@ -56,6 +56,7 @@ describe('settings — initial defaults from getSaved fallbacks', () => {
     expect(s.writeProtectA()).toBe(false); // 'off' default
     expect(s.tapeAutoRewind()).toBe(true);
     expect(s.multifaceEnabled()).toBe(false);
+    expect(s.uspeechEnabled()).toBe(false);
   });
 
   it('string settings default to their documented values', async () => {

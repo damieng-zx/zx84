@@ -53,6 +53,7 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'plusd': () => settings.plusDEnabled(),
   'interface1': () => settings.interface1Enabled(),
   'betadisk': () => settings.betaDiskEnabled(),
+  'uspeech': () => settings.uspeechEnabled(),
   'write-protect-a': () => settings.writeProtectA(),
   'write-protect-b': () => settings.writeProtectB(),
   'write-protect-c': () => settings.writeProtectC(),

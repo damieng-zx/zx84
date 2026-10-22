@@ -35,6 +35,7 @@ export {
   isPlus3,
   isPlusDCapable,
   isInterface1Capable,
+  isUspeechCapable,
   isBetaDiskCapable,
   isPentagonClass,
   isScorpionClass,

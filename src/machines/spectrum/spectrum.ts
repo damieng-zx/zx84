@@ -38,6 +38,7 @@ import { Interface2 } from '@/machines/spectrum/peripherals/interface2.ts';
 import { MgtPlusD } from '@/machines/spectrum/peripherals/mgt-plusd.ts';
 import { Interface1 } from '@/machines/spectrum/peripherals/interface1.ts';
 import { BetaDisk } from '@/machines/spectrum/peripherals/beta-disk.ts';
+import { CurrahUSpeech, USPEECH_TOGGLE_ADDR } from '@/machines/spectrum/peripherals/currah-uspeech.ts';
 import { DISPLAY_WIDTH, DISPLAY_HEIGHT } from '@/machines/spectrum/ula.ts';
 import { createVariant, type MachineVariant } from '@/machines/spectrum/variants/index.ts';
 import type { Machine, MachineKind, MachineHost, MachineDescriptor, SettingsView, AuxRomRequest } from '@/machines/machine.ts';
@@ -203,6 +204,9 @@ export class Spectrum extends BaseMachine implements Machine {
 
   /** Beta Disk interface (48K/128K/+2) — WD1793 FDC + 16KB TR-DOS ROM. */
   betaDisk = new BetaDisk();
+
+  /** Currah µSpeech (16K/48K/128K/+2) — SP0256-AL2 speech synthesiser + 2KB ROM. */
+  currah = new CurrahUSpeech();
 
   get tStatesPerFrame(): number { return this.contention.timing.tStatesPerFrame; }
 
@@ -431,6 +435,10 @@ export class Spectrum extends BaseMachine implements Machine {
       || view.get<string>('joy-p2', 'sinclair2') === 'kempston';
     // Live-disable only: enabling needs a ROM load, which prepare() owns.
     if (!view.get('multiface', false)) this.multiface.enabled = false;
+    if (!view.get('uspeech', false) && this.currah.enabled) {
+      this.currah.pageOut(this.memory);
+      this.currah.enabled = false;
+    }
   }
 
   /**
@@ -489,7 +497,7 @@ export class Spectrum extends BaseMachine implements Machine {
    *  slot 0 so the overlay stays mapped. */
   get hasSlot0Overlay(): boolean {
     return this.multiface.pagedIn || this.mgtPlusD.pagedIn || this.interface1.pagedIn
-      || this.betaDisk.pagedIn
+      || this.betaDisk.pagedIn || this.currah.pagedIn
       || (this.vtx5000.enabled && this.vtx5000.vtxRomPaged)
       || this.interface2.inserted;
   }
@@ -605,6 +613,9 @@ export class Spectrum extends BaseMachine implements Machine {
     // Beta Disk is paged OUT at reset; TR-DOS ROM maps itself in via the M1
     // fetch trap (0x3Dxx) once BASIC enters it. See beta-disk.ts.
     this.betaDisk.reset();
+    // The µSpeech drops out on reset and its ROM maps itself in again on the first
+    // interrupt (the M1 fetch at 0x0038).
+    this.currah.reset();
     this.loaderDetector.reset();
     this.contention.frameStartTStates = 0;
     this._resumeFrameOffset = -1;
@@ -722,6 +733,7 @@ export class Spectrum extends BaseMachine implements Machine {
   protected runFrame(): void {
     // Apply any deferred combo keys (modifier was pressed last frame).
     this.keyboard.processPending();
+    if (this.currah.enabled) this.currah.ensureRates(this.contention.timing.cpuClock, this.audio.sampleRate);
     // Reset activity counters for this frame
     this.activity.reset();
     this.portWatchHit = null;
@@ -833,6 +845,11 @@ export class Spectrum extends BaseMachine implements Machine {
       // beta-disk.ts.
       if (this.betaDisk.enabled) this.betaDisk.checkPage(this.cpu.pc, this.memory);
 
+      // Currah µSpeech: an opcode fetch at 0x0038 (the IM 1 interrupt routine, or
+      // the ROM's own JP 0038) flips its ROM in or out AFTER that fetch, so the
+      // toggle is applied once the instruction has run. See currah-uspeech.ts.
+      const uspeechToggle = this.cpu.pc === USPEECH_TOGGLE_ADDR && this.currah.togglesAt(USPEECH_TOGGLE_ADDR);
+
       // One-shot auto-boot trap (software-library play): the ROM has reached its
       // menu / 48K editor key-wait loop, so queue the loader keystrokes and
       // disarm. setKey is the same matrix path the joystick uses.
@@ -937,6 +954,8 @@ export class Spectrum extends BaseMachine implements Machine {
       // IF1 ROM), map the IF1 ROM back out so the return lands in normal memory.
       if (if1PageOut) this.interface1.pageOut(this.memory);
 
+      if (uspeechToggle) this.currah.toggle(this.memory, this.hasSlot0Overlay);
+
       // Clear EI delay one instruction after EI set it, for the trapHandled /
       // halted fast paths that bypass core.ts's step() (see the comment at
       // eiBefore's declaration above). A real step() already handled this
@@ -970,6 +989,10 @@ export class Spectrum extends BaseMachine implements Machine {
 
       const elapsed = this.cpu.tStates - tBefore;
 
+      // The speech chip runs on its own clock whether or not the audio is muted
+      // (turbo), so software polling its busy bit still sees it make progress.
+      if (this.currah.enabled) this.currah.advance(elapsed, this.memory);
+
       // Advance tape playback and update ULA EAR bit (catches up any
       // T-states not already advanced by the port-in handler mid-instruction).
       // Hoist the playing/paused check inline — saves the method-call frame
@@ -990,7 +1013,7 @@ export class Spectrum extends BaseMachine implements Machine {
         // The DAC holds its last code between OUTs, so the level over this
         // instruction is the latched one — within one instruction of exact.
         if (this.specdrum.enabled) this.mixer.accumulateAux(this.specdrum.signedLevel, elapsed);
-        this.mixer.generateSamples(this.audio, this.ay, this.variant.hasAY);
+        this.mixer.generateSamples(this.audio, this.ay, this.variant.hasAY, this.currah.enabled ? this.currah : null);
       }
     }
 

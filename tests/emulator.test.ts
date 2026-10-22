@@ -83,6 +83,7 @@ function makeSpectrumStub(model: unknown = 'zx128k') {
                   drives: Array.from({ length: 8 }, () => ({
                     loadMDR: vi.fn(), toMDR: vi.fn(() => new Uint8Array(0)),
                     format: vi.fn(), eject: vi.fn(), inserted: false, writeProtected: false })) },
+    currah: { enabled: false, loadROM: vi.fn(), loadSpeechROM: vi.fn(), romLoaded: false, speechRomLoaded: false },
     mixer: { beeperGain: 1, ayGain: 0 },
     contention: { frameStartTStates: 0, timing: { tStatesPerFrame: 70908 } },
     breakpoints: new Set<number>(),
@@ -345,6 +346,7 @@ vi.mock('@/store/settings.ts', () => ({
   plusDEnabled:       vi.fn(() => false),
   betaDiskEnabled:    vi.fn(() => false),
   interface1Enabled:  vi.fn(() => false),
+  uspeechEnabled:     vi.fn(() => false),
   writeProtectC:      vi.fn(() => false),
   writeProtectD:      vi.fn(() => false),
   diskSoundC:         vi.fn(() => true),
