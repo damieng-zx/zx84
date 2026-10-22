@@ -1193,6 +1193,53 @@ describe('Port routing — MF3 port latch reads (+2A/+3)', () => {
     expect(s.multiface.pagedIn).toBe(true);
   });
 
+  it('MF128: OUT 0x3F hides the interface, yet the ROM can still page itself out', () => {
+    // The MF128 ROM's exit does OUT (3F)/(BF) per its hide option and then
+    // IN A,(3F) to page out. After OUT 0x3F a game's stray IN 0xBF must not
+    // page the MF back in; the button makes it visible again.
+    const s = makeMachine('zx128k');
+    s.multiface.enabled = true;
+    s.multiface.variant = 'MF128';
+    s.multiface.romLoaded = true;
+    s.multiface.pressButton(s.memory, s.cpu);
+    expect(s.multiface.pagedIn).toBe(true);
+
+    s.cpu.portOut(0x003F, 0x00);               // hide
+    expect(s.multiface.armed).toBe(false);
+    s.cpu.portIn(0x003F);                      // page-out must still work
+    expect(s.multiface.pagedIn).toBe(false);
+
+    s.cpu.portIn(0x00BF);                      // stray IN: invisible now
+    expect(s.multiface.pagedIn).toBe(false);
+
+    s.multiface.pressButton(s.memory, s.cpu);  // button: visible again
+    expect(s.multiface.armed).toBe(true);
+    expect(s.multiface.pagedIn).toBe(true);
+  });
+
+  it('MF128: OUT 0xBF leaves the interface visible', () => {
+    const s = makeMachine('zx128k');
+    s.multiface.enabled = true;
+    s.multiface.variant = 'MF128';
+    s.multiface.romLoaded = true;
+    s.multiface.pressButton(s.memory, s.cpu);
+    s.cpu.portOut(0x00BF, 0x00);
+    expect(s.multiface.armed).toBe(true);
+    s.cpu.portIn(0x003F);
+    s.cpu.portIn(0x00BF);                      // can page back in
+    expect(s.multiface.pagedIn).toBe(true);
+  });
+
+  it('OUT 0x3F does not hide the MF3 (its ports are the other way round)', () => {
+    const s = makeMachine('zx128kplus3');
+    s.multiface.enabled = true;
+    s.multiface.variant = 'MF3';
+    s.multiface.romLoaded = true;
+    s.multiface.pressButton(s.memory, s.cpu);
+    s.cpu.portOut(0x003F, 0x00);
+    expect(s.multiface.armed).toBe(true);
+  });
+
   it('a hardware reset disarms the interface', () => {
     const s = makeMachine('zx128kplus3');
     s.multiface.enabled = true;

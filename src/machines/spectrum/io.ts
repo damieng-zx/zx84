@@ -171,6 +171,13 @@ export function wirePortIO(s: Spectrum): void {
       return;
     }
 
+    // Multiface 128 "invisible" latch: OUT 0x3F hides the interface until the
+    // button is pressed again (its ROM's exit does OUT 0x3F or OUT 0xBF per its
+    // hide option, then pages itself out with IN 0x3F). OUT 0xBF leaves it live.
+    if (s.multiface.enabled && s.multiface.variant === 'MF128' && (port & 0xFF) === 0x3F) {
+      s.multiface.armed = false;
+    }
+
     // ULA port: any port with bit 0 = 0
     if ((port & 0x01) === 0) {
       const newBeeperBit = (val >> 4) & 1;
@@ -351,11 +358,13 @@ export function wirePortIO(s: Spectrum): void {
     }
 
     // Multiface port handling (IN-triggered paging). MF1's narrower decode is
-    // always live; MF128/MF3 are invisible until the button arms them.
-    if (s.multiface.enabled && s.multiface.romLoaded
-        && (s.multiface.variant === 'MF1' || s.multiface.armed)) {
+    // always live; MF128/MF3 page IN only while armed (the button arms them, the
+    // MF128's OUT 0x3F hides them). Paging OUT always works, so a ROM that has
+    // just hidden itself can still leave.
+    if (s.multiface.enabled && s.multiface.romLoaded) {
       const mfPort = s.multiface.matchPort(port);
-      if (mfPort === 'in' && !s.multiface.pagedIn) {
+      if (mfPort === 'in' && !s.multiface.pagedIn
+          && (s.multiface.variant === 'MF1' || s.multiface.armed)) {
         s.multiface.pageIn(s.memory, s.memory.slot0Bank);
         return 0xFF;
       }
