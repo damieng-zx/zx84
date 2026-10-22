@@ -137,7 +137,7 @@ export async function createMachine(): Promise<boolean> {
   const entry = entryForModel(model);
   const { width: w, height: h } = entry.descriptor(model, locale).screen;
   const display = canvasEl ? createDisplay(canvasEl, w, h) : null;
-  const built = entry.create(model, display);
+  const built = entry.create(model, display, locale);
   setMachine(built);
   const isCurrent = () => machine === built && generation === machineBuildGeneration
     && selection === modelSwitchGeneration && model === currentModel() && locale === currentLocale();

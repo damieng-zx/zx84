@@ -268,6 +268,19 @@ body.cpc-mode .section-label::after {
   );
 }
 
+/* Atari mode: the GRAPHICS 0 screen's own colours, as the emulator draws
+   them — COLPF2 $94 behind, COLPF1-luminance text $9A in front — and no
+   rainbow. */
+body.atari-mode .pane {
+  border-left-color: #1c5099;
+  border-right-color: #1c5099;
+  border-bottom-color: #1c5099;
+}
+body.atari-mode .section-label {
+  background: #1c5099;
+  color: #89beff;
+}
+
 /* The rainbow is Sinclair's: every machine without that heritage drops it
    (the CPC swaps in its own stripe above). */
 body:not(.sinclair-mode):not(.cpc-mode) .section-label::after {
@@ -492,8 +505,10 @@ body:not(.sinclair-mode):not(.cpc-mode) .section-label::after {
   grid-column: 1 / -1;
 }
 
-/* The BBC's disc-system selector likewise spans the full options width. */
-.slider-row.bbc-disk-row {
+/* The BBC's disc-system and Atari's drive-model selectors likewise span the
+   full options width. */
+.slider-row.bbc-disk-row,
+.slider-row.atari-drive-row {
   grid-column: 1 / -1;
 }
 
@@ -3779,6 +3794,536 @@ input[type="range"]::-moz-range-thumb {
 }
 .a2-led--disk::before {
   background: #6a1f1a;
+}
+
+/* Atari 400: beige case around a flat membrane sheet. The key squares are
+   printed tan with raised brown ridges between them; nothing travels, so a
+   press darkens the square instead of moving it. The console column carries
+   the mustard SYSTEM RESET / OPTION / SELECT / START keys. */
+.atari400-keyboard {
+  --a4-u: var(--keyboard-scene-px);
+  position: relative;
+  color: #2e2117;
+  font-family: Helvetica, Arial, sans-serif;
+}
+/* The scene keeps its fixed key coordinates; the case — colour, edges and
+   moulding — is painted by a full-bleed backdrop so it fills the pane rather
+   than a centred strip. Nothing may declare `container-type` between here and
+   .keyboard-scene-frame, or 50cqw stops meaning the pane's width. */
+.atari400-keyboard::before {
+  content: '';
+  position: absolute;
+  inset: var(--case-bleed);
+  border: 1px solid #8c7f68;
+  border-radius: calc(var(--a4-u) * 6);
+  background:
+    linear-gradient(160deg, rgba(255,255,255,0.22), transparent 30%),
+    linear-gradient(180deg, #e2d8c2 0%, #d2c6ac 60%, #c6b99e 100%);
+  box-shadow:
+    inset 0 calc(var(--a4-u) * 2) calc(var(--a4-u) * 4) rgba(255,255,255,0.5),
+    inset 0 calc(var(--a4-u) * -4) calc(var(--a4-u) * 8) rgba(60,44,28,0.18),
+    0 2px 5px rgba(0,0,0,0.5);
+}
+
+/* The membrane sheet, set into a shallow well in the case. */
+.atari400-deck {
+  border-radius: calc(var(--a4-u) * 4);
+  background: linear-gradient(180deg, #4b3627, #3a291d);
+  box-shadow:
+    inset 0 calc(var(--a4-u) * 2) calc(var(--a4-u) * 3) rgba(0,0,0,0.55),
+    0 1px 0 rgba(255,255,255,0.55);
+}
+.atari400-deck--console {
+  background: linear-gradient(180deg, #43301f, #33251a);
+}
+
+.atari400-lamp {
+  border: 1px solid #4a1c14;
+  border-radius: 50%;
+  background: #d43b22;
+  box-shadow:
+    inset 0 1px rgba(255,255,255,0.45),
+    0 0 calc(var(--a4-u) * 4) rgba(230,70,40,0.6);
+}
+.atari400-case-legend {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #e3d6b8;
+  font-size: calc(var(--a4-u) * 7);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.atari400-key {
+  z-index: 2;
+  --a4-face: #ddcca6;
+  --a4-face-low: #cdb98f;
+  overflow: hidden;
+  border: calc(var(--a4-u) * 1.5) solid #6f5844;
+  border-radius: calc(var(--a4-u) * 2.5);
+  background:
+    linear-gradient(180deg, var(--a4-face) 0%, var(--a4-face-low) 100%);
+  box-shadow:
+    inset 0 calc(var(--a4-u) * 1) 0 rgba(255,255,255,0.35),
+    inset 0 calc(var(--a4-u) * -1.5) 0 rgba(70,48,30,0.25),
+    0 calc(var(--a4-u) * 1) 0 rgba(255,240,210,0.12);
+  color: #33241a;
+  cursor: pointer;
+  user-select: none;
+  touch-action: none;
+  transition: filter 0.06s ease;
+}
+.atari400-key:hover {
+  filter: brightness(1.07);
+}
+.atari400-key.pressed {
+  filter: brightness(0.72);
+  box-shadow:
+    inset 0 calc(var(--a4-u) * 2) calc(var(--a4-u) * 3) rgba(40,26,14,0.5);
+}
+/* Control keys: the same membrane, printed a darker brown. */
+.atari400-key--function {
+  --a4-face: #b39672;
+  --a4-face-low: #a0835f;
+  color: #24180f;
+}
+/* SHIFT is printed orange and CTRL yellow on the membrane. */
+.atari400-key--orange {
+  --a4-face: #e8873a;
+  --a4-face-low: #d4702a;
+  border-color: #6e3a16;
+  color: #2e1606;
+}
+.atari400-key--yellow {
+  --a4-face: #f0d24a;
+  --a4-face-low: #dcbb30;
+  border-color: #6c5618;
+  color: #2e2406;
+}
+.atari400-key--console {
+  --a4-face: #e9b13a;
+  --a4-face-low: #d39a22;
+  border-color: #6a4a18;
+  color: #3a2508;
+}
+
+.atari400-key__main,
+.atari400-key__shift,
+.atari400-key__aux {
+  position: absolute;
+  pointer-events: none;
+  line-height: 1;
+  white-space: nowrap;
+}
+.atari400-key__main {
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: calc(var(--a4-u) * 15);
+  font-weight: 700;
+}
+.atari400-key--shifted .atari400-key__main {
+  align-items: flex-end;
+  padding-bottom: calc(var(--a4-u) * 5);
+  font-size: calc(var(--a4-u) * 13);
+}
+.atari400-key__shift {
+  top: calc(var(--a4-u) * 4);
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: calc(var(--a4-u) * 10);
+  font-weight: 700;
+}
+/* The CONTROL function (cursor arrows, CLR) in the cap's corner; on those
+   caps the SHIFT legend moves left to make room. */
+.atari400-key__aux {
+  top: calc(var(--a4-u) * 3);
+  right: calc(var(--a4-u) * 4);
+  font-size: calc(var(--a4-u) * 10);
+  font-weight: 700;
+  color: #7c2d16;
+}
+.atari400-key--minus .atari400-key__shift,
+.atari400-key--equal .atari400-key__shift,
+.atari400-key--plus .atari400-key__shift,
+.atari400-key--asterisk .atari400-key__shift {
+  right: auto;
+  left: calc(var(--a4-u) * 5);
+  text-align: left;
+}
+.atari400-key--word .atari400-key__main {
+  font-size: calc(var(--a4-u) * 8);
+  letter-spacing: 0.02em;
+}
+.atari400-key--word .atari400-key__shift {
+  font-size: calc(var(--a4-u) * 7);
+  letter-spacing: 0.02em;
+}
+.atari400-key--less .atari400-key__shift,
+.atari400-key--greater .atari400-key__shift {
+  font-size: calc(var(--a4-u) * 7);
+}
+.atari400-key--tab .atari400-key__shift {
+  left: calc(var(--a4-u) * 5);
+  right: auto;
+}
+.atari400-key--tab .atari400-key__aux {
+  font-size: calc(var(--a4-u) * 7);
+}
+/* The console keys are 1U, so SYSTEM RESET takes two lines. */
+.atari400-key--console .atari400-key__main {
+  padding: 0 calc(var(--a4-u) * 2);
+  font-size: calc(var(--a4-u) * 6.5);
+  letter-spacing: 0.02em;
+  line-height: 1.15;
+  text-align: center;
+  white-space: normal;
+}
+.atari400-key__logo {
+  width: calc(var(--a4-u) * 20);
+  height: calc(var(--a4-u) * 20);
+  fill: currentColor;
+}
+
+/* Atari XL: beige case, the keys set in a near-black bezel. The caps are
+   dark brown, sculpted and full-travel, with cream legends; the CONTROL
+   functions are printed reversed in small cream boxes. The console keys are
+   flat brushed aluminium, named on the bezel beside (800XL) or above (1200XL)
+   them. */
+.atarixl-keyboard {
+  --ax-u: var(--keyboard-scene-px);
+  --ax-legend: #ece3cc;
+  position: relative;
+  color: var(--ax-legend);
+  font-family: Helvetica, Arial, sans-serif;
+}
+/* The scene keeps its fixed key coordinates; the case — colour, edges and
+   moulding — is painted by a full-bleed backdrop so it fills the pane rather
+   than a centred strip. Nothing may declare `container-type` between here and
+   .keyboard-scene-frame, or 50cqw stops meaning the pane's width. */
+.atarixl-keyboard::before {
+  content: '';
+  position: absolute;
+  inset: var(--case-bleed);
+  border: 1px solid #93876f;
+  border-radius: calc(var(--ax-u) * 5);
+  background:
+    linear-gradient(160deg, rgba(255,255,255,0.25), transparent 30%),
+    linear-gradient(180deg, #e9e0cc 0%, #dbd0b8 60%, #cdc1a6 100%);
+  box-shadow:
+    inset 0 calc(var(--ax-u) * 2) calc(var(--ax-u) * 4) rgba(255,255,255,0.5),
+    inset 0 calc(var(--ax-u) * -4) calc(var(--ax-u) * 8) rgba(60,44,28,0.16),
+    0 2px 5px rgba(0,0,0,0.5);
+}
+
+.atarixl-bezel {
+  border-radius: calc(var(--ax-u) * 3);
+  background: linear-gradient(180deg, #2f2b28 0%, #24211f 100%);
+  box-shadow:
+    inset 0 calc(var(--ax-u) * 1) 0 rgba(255,255,255,0.08),
+    0 calc(var(--ax-u) * 1) 0 rgba(255,255,255,0.45);
+}
+/* The 800XL's console column is a raised step on the bezel; the 1200XL's
+   strip is a recessed channel behind the flat keys. */
+/* The 600XL/800XL's silver bar runs down the bezel, its sheen across its
+   width. The console keys are cut from it: each spans the bar's width and
+   carries the same gradient, so at rest only the cuts show; pressed, a key
+   sinks in place. */
+.atarixl-keyboard--xl {
+  --ax-bar:
+    repeating-linear-gradient(0deg, rgba(255,255,255,0.05) 0 1px, transparent 1px 3px),
+    linear-gradient(90deg, #a5a6a4 0%, #e3e4e2 35%, #c4c5c3 70%, #a5a6a4 100%);
+}
+.atarixl-strip {
+  background: var(--ax-bar);
+  box-shadow:
+    calc(var(--ax-u) * -1) 0 0 rgba(0,0,0,0.6),
+    calc(var(--ax-u) * 1) 0 0 rgba(0,0,0,0.6);
+}
+/* The 1200XL's whole front is the dark panel, crossed edge to edge by one
+   silver bar. Both are full-width boxes whose paint bleeds sideways to the
+   case's edges, as the case backdrop does. The flat keys are cut from the
+   bar: each spans its full height and carries the same gradient, so at rest
+   only the cuts show; pressed, a key sinks in place under a shadow from the
+   bar's top edge. */
+.atarixl-keyboard--full-width {
+  --ax-bar:
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.05) 0 1px, transparent 1px 3px),
+    linear-gradient(180deg, #e3e4e2 0%, #c4c5c3 50%, #a5a6a4 100%);
+}
+.atarixl-keyboard--full-width .atarixl-bezel,
+.atarixl-keyboard--full-width .atarixl-strip {
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+.atarixl-keyboard--full-width .atarixl-bezel::before,
+.atarixl-keyboard--full-width .atarixl-strip::before {
+  content: '';
+  position: absolute;
+  inset: 0 calc(50% - 50cqw);
+}
+.atarixl-keyboard--full-width .atarixl-bezel::before {
+  background: linear-gradient(180deg, #2f2b28 0%, #24211f 100%);
+  box-shadow:
+    inset 0 calc(var(--ax-u) * 1) 0 rgba(255,255,255,0.1),
+    0 calc(var(--ax-u) * 1) 0 rgba(255,255,255,0.45);
+}
+.atarixl-keyboard--full-width .atarixl-strip::before {
+  background: var(--ax-bar);
+  box-shadow:
+    0 calc(var(--ax-u) * -1) 0 rgba(0,0,0,0.6),
+    0 calc(var(--ax-u) * 1) 0 rgba(0,0,0,0.6);
+}
+.atarixl-keyboard--full-width .atarixl-key--silver,
+.atarixl-keyboard--full-width .atarixl-badge {
+  border: 0;
+  border-radius: 0;
+  background: var(--ax-bar);
+  /* The cuts: a dark line down each side with a highlight just inside. */
+  box-shadow:
+    inset calc(var(--ax-u) * 1) 0 0 rgba(30,30,30,0.7),
+    inset calc(var(--ax-u) * -1) 0 0 rgba(30,30,30,0.7),
+    inset calc(var(--ax-u) * 2) 0 0 rgba(255,255,255,0.35);
+}
+.atarixl-keyboard--full-width .atarixl-key--silver:hover {
+  filter: brightness(1.05);
+}
+.atarixl-keyboard--full-width .atarixl-key--silver.pressed {
+  filter: brightness(0.88);
+  transform: none;
+  box-shadow:
+    inset calc(var(--ax-u) * 1) 0 0 rgba(30,30,30,0.7),
+    inset calc(var(--ax-u) * -1) 0 0 rgba(30,30,30,0.7),
+    inset 0 calc(var(--ax-u) * 3) calc(var(--ax-u) * 3) rgba(0,0,0,0.35);
+}
+.atarixl-well {
+  border-radius: calc(var(--ax-u) * 2);
+  background: #161413;
+  box-shadow: inset 0 calc(var(--ax-u) * 2) calc(var(--ax-u) * 3) rgba(0,0,0,0.7);
+}
+
+.atarixl-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: calc(var(--ax-u) * 4);
+  color: #232120;
+  font-size: calc(var(--ax-u) * 13);
+  line-height: 1;
+}
+.atarixl-badge__atari {
+  font-weight: 800;
+  font-style: italic;
+  letter-spacing: 0.02em;
+}
+.atarixl-badge__model {
+  font-weight: 400;
+}
+
+.atarixl-case-legend {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  color: #cfc9bc;
+  font-size: calc(var(--ax-u) * 7.5);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.atarixl-keyboard--1200xl .atarixl-case-legend {
+  justify-content: center;
+}
+
+.atarixl-lamp-box {
+  display: flex;
+}
+.atarixl-lamp-box .atarixl-lamp {
+  flex: 1;
+}
+.atarixl-lamp-legend {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(var(--ax-u) * 4);
+}
+.atarixl-lamp-legend .atarixl-lamp {
+  width: calc(var(--ax-u) * 10);
+  height: calc(var(--ax-u) * 10);
+}
+.atarixl-lamp {
+  box-sizing: border-box;
+  border: 1px solid #1a0b08;
+  border-radius: 50%;
+  background: #4a1a12;
+  box-shadow: inset 0 1px rgba(255,255,255,0.2);
+}
+.atarixl-lamp--lit {
+  background: #e2442a;
+  box-shadow:
+    inset 0 1px rgba(255,255,255,0.45),
+    0 0 calc(var(--ax-u) * 4) rgba(240,80,45,0.7);
+}
+
+.atarixl-key {
+  z-index: 2;
+  --ax-cap-top: #4a423d;
+  --ax-cap-mid: #36302c;
+  --ax-cap-bottom: #221e1b;
+  overflow: hidden;
+  border: 1px solid #141110;
+  border-radius: calc(var(--ax-u) * 3);
+  background:
+    linear-gradient(135deg, rgba(255,255,255,0.12), transparent 26%),
+    linear-gradient(180deg, var(--ax-cap-top) 0%, var(--ax-cap-mid) 55%, var(--ax-cap-bottom) 100%);
+  box-shadow:
+    inset calc(var(--ax-u) * 2) calc(var(--ax-u) * 2) 0 rgba(255,255,255,0.08),
+    inset calc(var(--ax-u) * -3) calc(var(--ax-u) * -4) calc(var(--ax-u) * 4) rgba(0,0,0,0.45),
+    0 calc(var(--ax-u) * 3) calc(var(--ax-u) * 2) rgba(0,0,0,0.6);
+  color: var(--ax-legend);
+  cursor: pointer;
+  user-select: none;
+  touch-action: none;
+  transition: filter 0.06s ease, transform 0.05s ease;
+}
+.atarixl-key:hover {
+  filter: brightness(1.18);
+}
+.atarixl-key.pressed {
+  filter: brightness(0.75);
+  transform: translateY(calc(var(--ax-u) * 1.5));
+}
+.atarixl-key--silver {
+  border: 0;
+  border-radius: 0;
+  background: var(--ax-bar);
+  /* The cuts across the bar: a dark line top and bottom with a highlight just
+     inside the top. */
+  box-shadow:
+    inset 0 calc(var(--ax-u) * 1) 0 rgba(30,30,30,0.7),
+    inset 0 calc(var(--ax-u) * -1) 0 rgba(30,30,30,0.7),
+    inset 0 calc(var(--ax-u) * 2) 0 rgba(255,255,255,0.35);
+}
+.atarixl-key--silver:hover {
+  filter: brightness(1.05);
+}
+.atarixl-key--silver.pressed {
+  filter: brightness(0.88);
+  transform: none;
+  box-shadow:
+    inset 0 calc(var(--ax-u) * 1) 0 rgba(30,30,30,0.7),
+    inset 0 calc(var(--ax-u) * -1) 0 rgba(30,30,30,0.7),
+    inset calc(var(--ax-u) * 3) calc(var(--ax-u) * 3) calc(var(--ax-u) * 4) rgba(0,0,0,0.35);
+}
+
+.atarixl-key__top,
+.atarixl-key__main {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  line-height: 1;
+  white-space: nowrap;
+}
+.atarixl-key__main {
+  inset: 0;
+  font-size: calc(var(--ax-u) * 14);
+  font-weight: 500;
+}
+.atarixl-key--shifted .atarixl-key__main {
+  top: auto;
+  bottom: calc(var(--ax-u) * 5);
+  font-size: calc(var(--ax-u) * 12);
+}
+.atarixl-key__top {
+  top: calc(var(--ax-u) * 5);
+  gap: calc(var(--ax-u) * 3);
+  font-size: calc(var(--ax-u) * 10);
+}
+/* CONTROL's own name, and each CONTROL function, reversed in a cream box. */
+.atarixl-key__aux,
+.atarixl-key--ctrl .atarixl-key__main {
+  pointer-events: none;
+}
+.atarixl-key__aux {
+  padding: calc(var(--ax-u) * 0.5) calc(var(--ax-u) * 1.5);
+  border-radius: calc(var(--ax-u) * 1);
+  background: var(--ax-legend);
+  color: #2a2522;
+  font-size: calc(var(--ax-u) * 8);
+  font-weight: 700;
+}
+.atarixl-key--ctrl .atarixl-key__main {
+  inset: auto;
+  top: 50%;
+  left: 50%;
+  right: auto;
+  padding: calc(var(--ax-u) * 1.5) calc(var(--ax-u) * 3);
+  border-radius: calc(var(--ax-u) * 1.5);
+  background: var(--ax-legend);
+  color: #2a2522;
+  transform: translate(-50%, -50%);
+}
+.atarixl-key--word .atarixl-key__main {
+  font-size: calc(var(--ax-u) * 7.5);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.atarixl-key--word.atarixl-key--shifted .atarixl-key__main {
+  bottom: calc(var(--ax-u) * 7);
+}
+.atarixl-key--word .atarixl-key__top {
+  top: calc(var(--ax-u) * 7);
+  font-size: calc(var(--ax-u) * 7.5);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+/* TAB keeps SET beside the CLR box, and its name low on the left. */
+.atarixl-key--tab .atarixl-key__top {
+  justify-content: flex-start;
+  padding-left: calc(var(--ax-u) * 6);
+  top: calc(var(--ax-u) * 5);
+}
+.atarixl-key--tab .atarixl-key__main {
+  justify-content: flex-start;
+  padding-left: calc(var(--ax-u) * 9);
+  bottom: calc(var(--ax-u) * 5);
+}
+/* The 800XL's 1U BACK SPACE cap wraps, as the real one does. */
+.atarixl-keyboard--xl .atarixl-key--backspace .atarixl-key__main {
+  bottom: calc(var(--ax-u) * 4);
+  white-space: normal;
+  text-align: center;
+  line-height: 1.05;
+  padding: 0 calc(var(--ax-u) * 3);
+  font-size: calc(var(--ax-u) * 6.5);
+}
+.atarixl-keyboard--xl .atarixl-key--backspace .atarixl-key__top {
+  top: calc(var(--ax-u) * 5);
+  font-size: calc(var(--ax-u) * 6.5);
+}
+.atarixl-key--less .atarixl-key__top,
+.atarixl-key--greater .atarixl-key__top {
+  font-size: calc(var(--ax-u) * 7);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+.atarixl-key--break .atarixl-key__main {
+  font-size: calc(var(--ax-u) * 7);
+}
+.atarixl-key__glyph {
+  width: calc(var(--ax-u) * 16);
+  height: calc(var(--ax-u) * 11);
+}
+.atarixl-case-legend .atarixl-key__glyph {
+  width: calc(var(--ax-u) * 12);
+  height: calc(var(--ax-u) * 8);
 }
 
 /* Tatung Einstein TC-01: neutral grey case, deeply stepped rows, light grey

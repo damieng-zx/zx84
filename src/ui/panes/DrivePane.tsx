@@ -8,6 +8,7 @@ import {
   ejectDisk, loadFile, insertBlankDisk, saveDisk,
   ejectPlusDDisk, insertBlankPlusDDisk, savePlusDDisk,
   ejectBetaDiskDisk, insertBlankBetaDiskDisk, saveBetaDiskDisk, flipDisk,
+  addBuiltinDrive, removeBuiltinDrive, setBuiltinDriveModel,
 } from '@/shell/media.ts';
 import { applyDisplaySettings } from '@/shell/settings.ts';
 import {
@@ -24,7 +25,7 @@ import {
   diskSoundC, setDiskSoundC, diskSoundD, setDiskSoundD,
   writeProtectC, setWriteProtectC, writeProtectD, setWriteProtectD,
   plusDEnabled, betaDiskEnabled, lynxFdc, bbcDiskSystem, msxFloppy, apple2Disk2, tapeTurbo, setTapeTurbo,
-  persistSetting, resetSettingsGroup, driveCountFor, setDriveCountFor,
+  persistSetting, resetSettingsGroup, driveCountFor, setDriveCountFor, driveModelsFor,
 } from '@/store/settings.ts';
 import { isPlusDCapable, isBetaDiskCapable, hasBuiltinBetaDisk, isLynxModel, isBbcModel, isMsxModel, isApple2Model } from '@/models.ts';
 import { machineCaps, machineDescriptor } from '@/state/machine-caps.ts';
@@ -93,6 +94,16 @@ function DiskInfo(props: {
   showTurbo?: boolean;
   /** On a group's first drive: the "Drive count" sub-menu (1..max fitted). */
   driveCount?: { max: number; current: number; onChange: (count: number) => void };
+  /** Machines whose drives are set up one at a time: this drive's Model
+   *  sub-menu, and Add / Remove drive (each absent when it cannot apply, at
+   *  the drive limit and for the last drive). */
+  driveSetup?: {
+    models: readonly { value: string; label: string; title?: string }[];
+    current: string;
+    onModel: (model: string) => void;
+    onAdd?: () => void;
+    onRemove?: () => void;
+  };
 }) {
   return (
     <div class="disk-section">
@@ -143,9 +154,23 @@ function DiskInfo(props: {
                    })),
                  }]
               : []),
+            ...(props.driveSetup
+              ? [{ value: '__sep-setup', label: '', separator: true },
+                 {
+                   value: 'model', label: 'Model',
+                   children: props.driveSetup.models.map(m => ({
+                     value: `model-${m.value}`, label: m.label, checked: props.driveSetup!.current === m.value,
+                   })),
+                 },
+                 ...(props.driveSetup.onAdd ? [{ value: 'add-drive', label: 'Add drive' }] : []),
+                 ...(props.driveSetup.onRemove ? [{ value: 'remove-drive', label: 'Remove drive' }] : [])]
+              : []),
           ]}
           onSelect={(value) => {
             if (value === 'sound') props.onToggleSound();
+            else if (value.startsWith('model-')) props.driveSetup?.onModel(value.slice(6));
+            else if (value === 'add-drive') props.driveSetup?.onAdd?.();
+            else if (value === 'remove-drive') props.driveSetup?.onRemove?.();
             else if (value === 'wp') props.onToggleWriteProtect();
             else if (value === 'force-ready') props.onToggleForceReady?.();
             else if (value.startsWith('count-')) props.driveCount?.onChange(parseInt(value.slice(6), 10));
@@ -409,7 +434,28 @@ export function DrivePane() {
   // rebuilds the machine; mounted disks carry over to the drives that remain.
   const driveKind = () => machineDescriptor().kind;
   const builtinMax = () => machineCaps().builtinDrives ?? 2;
-  const builtinCount = () => driveCountFor(driveKind(), builtinMax());
+  // Machines that list `driveModels` set their drives up one at a time: the
+  // list of models is the drive list, so its length is the count.
+  const driveSetupModels = () => machineCaps().driveModels
+    ? driveModelsFor(driveKind(), machineCaps().defaultDriveModels ?? [])
+    : null;
+  const builtinCount = () => {
+    const models = driveSetupModels();
+    return models ? Math.min(builtinMax(), Math.max(1, models.length)) : driveCountFor(driveKind(), builtinMax());
+  };
+  const driveLabel = (unit: number) => machineCaps().builtinDriveLabels?.[unit] ?? `${'ABCD'[unit]}:`;
+  const driveSetupFor = (unit: number) => {
+    const models = driveSetupModels();
+    const options = machineCaps().driveModels;
+    if (!models || !options) return undefined;
+    return {
+      models: options,
+      current: models[unit] ?? options[0].value,
+      onModel: (model: string) => setBuiltinDriveModel(unit, model),
+      onAdd: models.length < builtinMax() ? () => addBuiltinDrive(unit) : undefined,
+      onRemove: models.length > 1 ? () => removeBuiltinDrive(unit) : undefined,
+    };
+  };
   // The +D and Beta Disk interfaces each carry a fixed pair of drives.
   const pairCount = () => driveCountFor(driveKind(), 2);
   const activeCount = () => (builtinDisk() ? builtinCount() : pairCount());
@@ -446,7 +492,9 @@ export function DrivePane() {
       if (currentDiskNameD()) builtinFourDrives() ? ejectDisk(3) : (betaDiskActive() ? ejectBetaDiskDisk(1) : ejectPlusDDisk(1));
       const countBefore = activeCount();
       resetSettingsGroup('drive');
-      if (activeCount() !== countBefore) void switchModel(currentModel());
+      // A drive list set up drive by drive applies live; a count rebuilds.
+      if (machineCaps().driveModels) applyDisplaySettings();
+      else if (activeCount() !== countBefore) void switchModel(currentModel());
       const disks = machine?.services.disks;
       if (disks) {
         disks.setWriteProtect('a', false); disks.setWriteProtect('b', false);
@@ -458,7 +506,7 @@ export function DrivePane() {
     }}>
       <Show when={builtinDisk()}>
         <DiskInfo
-          label="A:"
+          label={driveLabel(0)}
           name={currentDiskName()}
           diskInfo={currentDiskInfo()}
           status={driveAStatus()}
@@ -467,7 +515,8 @@ export function DrivePane() {
           side={diskSideA()}
           onFlip={() => flipDisk(0)}
           showTurbo
-          driveCount={countMenu(builtinMax(), builtinCount())}
+          driveCount={driveSetupModels() ? undefined : countMenu(builtinMax(), builtinCount())}
+          driveSetup={driveSetupFor(0)}
           newItems={builtinDiskItems()}
           onNewDisk={(value) => {
             const blank = blankForValue(value);
@@ -488,7 +537,7 @@ export function DrivePane() {
         />
         <Show when={builtinCount() >= 2}>
         <DiskInfo
-          label="B:"
+          label={driveLabel(1)}
           name={currentDiskNameB()}
           diskInfo={currentDiskInfoB()}
           status={driveBStatus()}
@@ -498,6 +547,7 @@ export function DrivePane() {
           side={diskSideB()}
           onFlip={() => flipDisk(1)}
           showTurbo
+          driveSetup={driveSetupFor(1)}
           newItems={builtinDiskItems()}
           onNewDisk={(value) => {
             const blank = blankForValue(value);
@@ -524,13 +574,14 @@ export function DrivePane() {
         </Show>
         <Show when={builtinFourDrives() && builtinCount() >= 3}>
           <DiskInfo
-            label="C:"
+            label={driveLabel(2)}
             name={currentDiskNameC()}
             diskInfo={currentDiskInfoC()}
             status={driveCStatus()}
             soundEnabled={diskSoundC()}
             writeProtected={writeProtectC()}
             showTurbo
+            driveSetup={driveSetupFor(2)}
             newItems={builtinDiskItems()}
             onNewDisk={(value) => {
               const blank = blankForValue(value);
@@ -552,13 +603,14 @@ export function DrivePane() {
         </Show>
         <Show when={builtinFourDrives() && builtinCount() >= 4}>
           <DiskInfo
-            label="D:"
+            label={driveLabel(3)}
             name={currentDiskNameD()}
             diskInfo={currentDiskInfoD()}
             status={driveDStatus()}
             soundEnabled={diskSoundD()}
             writeProtected={writeProtectD()}
             showTurbo
+            driveSetup={driveSetupFor(3)}
             newItems={builtinDiskItems()}
             onNewDisk={(value) => {
               const blank = blankForValue(value);

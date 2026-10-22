@@ -148,12 +148,14 @@ export const LOCALE_LETTERS: Record<MachineLocale, Record<string, LetterLegend>>
   uk: UK_LETTERS,
   es: ES_LETTERS,
   fr: FR_LETTERS,
+  us: UK_LETTERS, // no US Spectrum; 'us' exists for the NTSC Atari
 };
 
 export const LOCALE_NUMBERS: Record<MachineLocale, Record<string, NumberLegend>> = {
   uk: UK_NUMBERS,
   es: ES_NUMBERS,
   fr: FR_NUMBERS,
+  us: UK_NUMBERS,
 };
 
 export function lettersFor(locale: MachineLocale): Record<string, LetterLegend> {

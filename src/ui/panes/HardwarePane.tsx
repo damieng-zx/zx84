@@ -17,7 +17,7 @@ import { resetSettingsGroup } from '@/store/settings.ts';
 import { machineUi } from '@/ui/machine-ui.ts';
 import { machineKind } from '@/state/machine-caps.ts';
 import {
-  LOCALE_LABELS, MODEL_LABELS, MODEL_LOCALES, MODEL_MENU,
+  MODEL_LABELS, MODEL_MENU, modelLocaleSuffix,
 } from '@/ui/panes/model-menu.ts';
 
 function selectModel(value: string) {
@@ -37,8 +37,8 @@ function buttonLabel() {
   const model = currentModel();
   const locale = currentLocale();
   const base = MODEL_LABELS[model];
-  if (locale === 'uk' || !MODEL_LOCALES[model]?.includes(locale)) return base;
-  return `${base} (${LOCALE_LABELS[locale]})`;
+  const suffix = modelLocaleSuffix(model, locale);
+  return suffix ? `${base} (${suffix})` : base;
 }
 
 export function HardwarePane() {

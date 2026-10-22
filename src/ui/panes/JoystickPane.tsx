@@ -8,10 +8,11 @@ import { machineCaps } from '@/state/machine-caps.ts';
 
 // On the Spectrum a joystick can present to the CPU through several interface
 // types (Kempston/Cursor/Sinclair — each maps to different ports/bits), so the
-// type has to be chosen. The CPC and MSX each expose a single fixed joystick
-// interface to the CPU, so there is nothing to select: the type selector is
-// hidden, and the F2 button is shown (both present a second fire button).
+// type has to be chosen. The CPC, MSX and Atari each expose fixed joystick
+// ports to the CPU, so there is nothing to select and the type selector is
+// hidden. The F2 button is shown for sticks with a second fire button.
 const isFixedJoystick = () => machineCaps().fixedJoystick;
+const fireButtons = () => machineCaps().joystickFireButtons ?? (isFixedJoystick() ? 2 : 1);
 
 // Configuration mode state
 export const [configuringPlayer, setConfiguringPlayer] = createSignal<number>(-1);
@@ -156,8 +157,8 @@ function JoyColumn(props: { playerIdx: number; label: string }) {
         <DpadButton dir="fire" playerIdx={props.playerIdx} />
         <DpadButton dir="up" playerIdx={props.playerIdx} />
         {/* The CPC (matrix bit 4) and MSX (trigger B) joysticks have a real
-            second fire button; the Spectrum's joysticks are single-fire. */}
-        <Show when={isFixedJoystick()} fallback={<div class="joy-spacer" />}>
+            second fire button; the Spectrum's and Atari's are single-fire. */}
+        <Show when={fireButtons() === 2} fallback={<div class="joy-spacer" />}>
           <DpadButton dir="fire2" playerIdx={props.playerIdx} />
         </Show>
         <DpadButton dir="left" playerIdx={props.playerIdx} />

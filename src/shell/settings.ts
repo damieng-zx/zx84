@@ -27,6 +27,7 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'einstein-color-map': () => settings.einsteinColorMap(),
   'bbc-color-map': () => settings.bbcColorMap(),
   'apple2-video': () => settings.apple2Video(),
+  'atari-color-map': () => settings.atariColorMap(),
   'scanline-accuracy': () => settings.scanlineAccuracy(),
   'volume': () => settings.volume(),
   'ay-mix': () => settings.ayMix(),
@@ -107,6 +108,11 @@ export function buildSettingsView(): SettingsView {
       // machine kind; the machine's own default stands until one is chosen.
       if (key.startsWith('drive-count:')) {
         return (settings.savedDriveCount(key.slice('drive-count:'.length)) ?? fallback) as T;
+      }
+      // `drive-models:<kind>` is the list of drive models set up for a
+      // machine kind (one per drive).
+      if (key.startsWith('drive-models:')) {
+        return (settings.savedDriveModels(key.slice('drive-models:'.length)) ?? fallback) as T;
       }
       const getter = SETTING_GETTERS[key];
       return getter ? (getter() as T) : fallback;

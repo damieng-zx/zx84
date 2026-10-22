@@ -228,12 +228,51 @@ async function reflectMount(
     if (m.descriptor.ui.bootCartridge) persistCartridge(m.kind, data, filename);
     if (romData) m.start();
   } else if (target === 'snapshot') {
+    if (result.mediaChanged) syncMediaFromMachine(m);
     if (persistMedia) {
       persistLastFile(data, filename);
       unpause();
     }
   }
   setStatus(result.message);
+}
+
+/**
+ * A snapshot that carried its own disks and cassette (the Atari's) has changed
+ * what is in the drives and on the tape behind the panes' backs: show it, and
+ * persist it so a reload does not bring back what was there before.
+ */
+function syncMediaFromMachine(m: Machine): void {
+  const disks = m.services.disks;
+  if (disks) {
+    DISK_UNITS.forEach((u, unit) => {
+      const drive = disks.drives.find(d => d.id === u.id);
+      const saved = drive?.loaded ? disks.save(u.id) : null;
+      u.setInfo(drive?.loaded ? disks.image?.(u.id) ?? null : null);
+      u.setName(drive?.loaded ? drive.mediaName : '');
+      if (!drive) return;
+      if (saved && m.descriptor.ui.persistMedia) persistDisk(unit, saved.data, drive.mediaName || saved.name, m.kind);
+      else if (!saved) clearDisk(unit, m.kind);
+    });
+  }
+  const tape = m.services.tape;
+  if (!tape) return;
+  const cas = tape.loaded ? tape.stashState()?.casData : undefined;
+  if (cas) {
+    reflectInstantCassette(cas, tape.name);
+  } else {
+    batch(() => {
+      setTapeLoaded(false);
+      setTapeName('');
+      setTapeBlocks([]);
+      setCasBlocks([]);
+      setCasPosition(-1);
+      setTapePosition(0);
+      setTapePaused(true);
+      setTapePlaying(false);
+    });
+    clearTape(m.kind);
+  }
 }
 
 /** Unwrap a .zip and re-dispatch its (relevant) contents through loadFile. The
@@ -305,7 +344,7 @@ export function saveCpcSnapshot(version: 2 | 3): void {
   setStatus(`Saved zx84-${m.model}.sna (v${version})`);
 }
 
-export async function saveSnapshot(format: 'z80' | 'szx' = 'szx'): Promise<void> {
+export async function saveSnapshot(format: 'z80' | 'szx' | 'a8state' = 'szx'): Promise<void> {
   const snapshots = machine?.services.snapshots;
   if (!machine || !snapshots) { setStatus('No machine running'); return; }
 
@@ -514,6 +553,72 @@ export function restoreBuiltinDisks(carried: readonly CarriedDisk[]): void {
     u.setInfo(disks.image?.(c.id) ?? null);
     u.setName(c.name);
   }
+}
+
+// ── Drives set up one at a time (ui.driveModels) ──────────────────────────
+
+/**
+ * Read the four pane slots back from the machine's drives, after the drive
+ * list changed under them: each slot shows (and persists) whatever its drive
+ * now holds, and a slot with no drive, or an empty one, is cleared. Without
+ * this a removed drive's disk would come back on the next reload.
+ */
+function refreshBuiltinDrives(m: Machine): void {
+  const disks = m.services.disks;
+  if (!disks) return;
+  DISK_UNITS.forEach((u, unit) => {
+    const drive = disks.drives[unit];
+    const saved = drive?.loaded ? disks.save(drive.id) : null;
+    if (drive && saved) {
+      u.setInfo(disks.image?.(drive.id) ?? null);
+      u.setName(drive.mediaName);
+      if (m.descriptor.ui.persistMedia) persistDisk(unit, saved.data, drive.mediaName, m.kind);
+    } else {
+      u.setInfo(null);
+      u.setName('');
+      u.setSide?.(0);
+      clearDisk(unit, m.kind);
+    }
+  });
+}
+
+/** Record the machine's drive list as the user's setup for its kind. */
+function saveDriveModels(m: Machine): void {
+  const models = m.services.disks?.driveModels;
+  if (models) settings.setDriveModelsFor(m.kind, models);
+}
+
+/** Add an empty drive below `unit`, of the same model; the drives under it
+ *  move down, disks and all. */
+export function addBuiltinDrive(unit: number): void {
+  const m = machine;
+  const disks = m?.services.disks;
+  if (!m || !disks?.addDrive) return;
+  if (!disks.addDrive(unit)) { setStatus('No room for another drive'); return; }
+  saveDriveModels(m);
+  refreshBuiltinDrives(m);
+  setStatus(`Drive added below ${disks.drives[unit]?.label ?? ''}`.trim());
+}
+
+/** Remove a drive and its disk; the drives under it move up. */
+export function removeBuiltinDrive(unit: number): void {
+  const m = machine;
+  const disks = m?.services.disks;
+  if (!m || !disks?.removeDrive) return;
+  const label = disks.drives[unit]?.label ?? '';
+  if (!disks.removeDrive(unit)) return;
+  saveDriveModels(m);
+  refreshBuiltinDrives(m);
+  setStatus(`Drive ${label} removed`);
+}
+
+/** Set one drive's model; its disk stays in it. */
+export function setBuiltinDriveModel(unit: number, model: string): void {
+  const m = machine;
+  const disks = m?.services.disks;
+  if (!m || !disks?.setDriveModel) return;
+  disks.setDriveModel(unit, model);
+  saveDriveModels(m);
 }
 
 export function ejectDisk(unit: number = 0): void {
@@ -964,9 +1069,11 @@ export async function restoreMedia(): Promise<void> {
     for (let unit = 0; unit < (machine.descriptor.ui.builtinDrives ?? 2); unit++) {
       const u = DISK_UNITS[unit];
       if (!u) continue;
+      const id = u.id;
+      // A machine with a variable drive list restores only into drives it has.
+      if (m.descriptor.ui.driveModels && !disks.drives.some(d => d.id === id)) continue;
       const disk = await restoreDisk(unit, m.kind);
       if (!disk) continue;
-      const id = u.id;
       // Re-mount through the machine's OWN media service, exactly as a fresh
       // load does. Parsing here instead meant a restore only understood the
       // formats the generic detector knows — enough for a +3 .dsk, but not for

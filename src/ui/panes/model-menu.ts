@@ -58,12 +58,21 @@ export const MODEL_LABELS: Record<MachineModel, string> = {
   apple2c: 'Apple //c',
   ep64: 'Enterprise 64',
   ep128: 'Enterprise 128',
+  atari400: 'Atari 400',
+  atari800: 'Atari 800',
+  atari600xl: 'Atari 600XL',
+  atari800xl: 'Atari 800XL',
+  atari1200xl: 'Atari 1200XL',
+  atari65xe: 'Atari 65XE',
+  atari800xe: 'Atari 800XE',
+  atari130xe: 'Atari 130XE',
 };
 
 export const LOCALE_LABELS: Record<MachineLocale, string> = {
   uk: 'English',
   es: 'Español',
   fr: 'Français',
+  us: 'NTSC',
 };
 
 /** Models that have locale-specific ROM variants, and which locales. */
@@ -75,12 +84,46 @@ export const MODEL_LOCALES: Partial<Record<MachineModel, MachineLocale[]>> = {
   'zx128kplus3': ['es'],
   cpc464: ['fr', 'es'],
   cpc6128: ['fr'],
+  // The Atari's locales are TV standards: 'uk' is the PAL machine (50 Hz,
+  // 312 lines), 'us' the NTSC one (60 Hz, 262 lines). Both are listed, since
+  // neither is a "default" a user would assume from the bare name.
+  atari400: ['uk', 'us'],
+  atari800: ['uk', 'us'],
+  atari600xl: ['uk', 'us'],
+  atari800xl: ['uk', 'us'],
+  atari1200xl: ['uk', 'us'],
+  atari65xe: ['uk', 'us'],
+  atari800xe: ['uk', 'us'],
+  atari130xe: ['uk', 'us'],
 };
+
+/** Models whose locale variants are TV standards rather than languages. */
+const TV_STANDARD_MODELS: ReadonlySet<MachineModel> = new Set<MachineModel>([
+  'atari400', 'atari800', 'atari600xl', 'atari800xl', 'atari1200xl',
+  'atari65xe', 'atari800xe', 'atari130xe',
+]);
+const TV_STANDARD_LABELS: Partial<Record<MachineLocale, string>> = { uk: 'PAL', us: 'NTSC' };
+
+/** Name of `locale` for `model`: 'PAL'/'NTSC' for a TV-standard model,
+ *  otherwise the language. */
+export function localeLabelFor(model: MachineModel, locale: MachineLocale): string {
+  return (TV_STANDARD_MODELS.has(model) ? TV_STANDARD_LABELS[locale] : undefined) ?? LOCALE_LABELS[locale];
+}
+
+/** Suffix for the model button, or null when the bare model name says it
+ *  all. TV-standard models always show theirs; others only a non-default
+ *  locale they actually offer. */
+export function modelLocaleSuffix(model: MachineModel, locale: MachineLocale): string | null {
+  if (TV_STANDARD_MODELS.has(model)) return localeLabelFor(model, locale === 'us' ? 'us' : 'uk');
+  if (locale === 'uk' || !MODEL_LOCALES[model]?.includes(locale)) return null;
+  return LOCALE_LABELS[locale];
+}
 
 const FLAG_EMOJI: Record<MachineLocale, string> = {
   uk: '🇬🇧',
   es: '🇪🇸',
   fr: '🇫🇷',
+  us: '🇺🇸',
 };
 
 /** Build a model menu entry. Models with locale variants get flag icons. */
@@ -90,7 +133,7 @@ function modelEntry(model: MachineModel): MenuItem {
   return {
     value: model,
     label: MODEL_LABELS[model],
-    flags: variants.map(l => ({ locale: LOCALE_LABELS[l], emoji: FLAG_EMOJI[l], value: `${model}:${l}` })),
+    flags: variants.map(l => ({ locale: localeLabelFor(model, l), emoji: FLAG_EMOJI[l], value: `${model}:${l}` })),
   };
 }
 
@@ -203,6 +246,20 @@ export const MODEL_MENU: MenuItem[] = [
     children: [
       modelEntry('ep64'),
       modelEntry('ep128'),
+    ],
+  },
+  {
+    value: 'atari',
+    label: 'Atari',
+    children: [
+      modelEntry('atari400'),
+      modelEntry('atari800'),
+      modelEntry('atari600xl'),
+      modelEntry('atari800xl'),
+      modelEntry('atari1200xl'),
+      modelEntry('atari65xe'),
+      modelEntry('atari800xe'),
+      modelEntry('atari130xe'),
     ],
   },
 ];
