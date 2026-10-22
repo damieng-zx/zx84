@@ -65,7 +65,7 @@ rather than failing.
 | Video generator | all | ◐ | 40-column text, lores, hires (pages 1 and 2), mixed mode, flashing and inverse text (flash toggles every 16 frames). //e family adds 80-column text, double hi-res and the alternate character set. Frame buffer is 560 × 192 plus a border; 280-dot modes are pixel-doubled. [`apple2-video.ts`](../../src/machines/apple2/apple2-video.ts) |
 | Character generator | all | ✅ | 2513-style 64-glyph upper-case ROM on the ][ and ][+; 256-glyph ROM with lower case on the //e; Enhanced //e and //c use a ROM with MouseText at `$40`–`$5F` |
 | Speaker | all | ✅ | 1-bit toggle on `$C030`, accumulated per CPU cycle |
-| Cassette interface | all | ◐ | `$C060` input from a zero-crossing comparator over a `.wav` recording; output `$C020` is counted but not recorded (see Not emulated) |
+| Cassette interface | all | ◐ | `$C060` input from a comparator over a `.wav` recording. The comparator has hysteresis — a dead band of 0.3 × the recording's mean level — so noise on a digitised tape does not chatter; output `$C020` is counted but not recorded (see Not emulated) |
 | Keyboard | all | ✅ | Encoder latch + strobe at `$C000`/`$C010`. ][/][+: upper case only. //e family: full ASCII, locking CAPS LOCK (down at power-on), control codes, arrow keys |
 | Game port | all | ◐ | Push buttons `$C061`–`$C063`, four paddle timers `$C064`–`$C067` (about 11 CPU cycles per count plus 25), trigger `$C070`. Annunciators and the `$C040` strobe output are ignored |
 | Vertical-blank status | all | ✅ | `$C019`: high during blanking on the ][ and ][+; inverted (RDVBLBAR, high while drawing) on the //e family |
@@ -129,7 +129,7 @@ downloads the modified image. Mounted tapes and disks are restored after a reloa
 
 | Feature | Status | Notes |
 | --- | --- | --- |
-| CPU timing | ✅ | Cycle count per instruction; frame is 17,030 cycles. Disk bit clock, paddle timers, cassette and Mockingboard timers run from the CPU cycle count |
+| CPU timing | ✅ | Cycle count per instruction; frame is 17,030 cycles and the frame loop is paced at the machine's own 60.05 Hz (1,022,727 Hz ÷ 17,030), not the 50 Hz default. Disk bit clock, paddle timers, cassette and Mockingboard timers run from the CPU cycle count |
 | Display modes | ✅ | NTSC composite (artefact colour decoded from the 1-bit dot stream), PAL composite, monochrome (white) and green phosphor, chosen in the Display pane. PAL changes the colour decoder only; timing stays at 262 lines |
 | Lores colours | ✅ | Fixed 16-colour table in both composite modes; 16 luminances in monochrome and green |
 | Double hi-res | ✅ | 560 dots across, auxiliary byte then main byte per 14-dot cell; colour decoded from every four dots in composite modes |

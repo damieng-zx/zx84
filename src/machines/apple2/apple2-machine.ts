@@ -102,6 +102,9 @@ export class Apple2Machine extends BaseMachine implements Machine {
   readonly activity = { beeperToggled: false, cassetteToggles: 0, kbdReads: 0 };
 
   protected get audioChip(): Apple2Speaker { return this.speaker; }
+  /** The machine's own field rate (60.05 Hz), not the 50 Hz default: a frame is
+   *  17,030 cycles, so pacing at 50 Hz would run it at about 83% speed. */
+  protected override get frameHz(): number { return APPLE2_CPU_CLOCK / APPLE2_TSTATES_PER_FRAME; }
 
   get descriptor(): MachineDescriptor { return apple2Descriptor(this.model); }
   get pixels(): Uint8Array { return this.video.pixels; }

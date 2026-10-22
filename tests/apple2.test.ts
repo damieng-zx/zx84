@@ -213,6 +213,65 @@ describe('apple2-plus cassette deck', () => {
   });
 });
 
+describe('apple2 tape comparator', () => {
+  /** `halves` half-waves of `len` samples at +/-0.5, each starting with three samples of
+   *  jitter that hop either side of zero — the noise on a digitised tape. */
+  function noisyWav(halves: number, len: number): Uint8Array {
+    const n = halves * len;
+    const out = squareWav(44100, n);
+    for (let i = 0; i < n; i++) {
+      const high = Math.floor(i / len) % 2 === 0;
+      const at = i % len;
+      out[44 + i] = at < 3 ? (at % 2 === 0 ? 0x88 : 0x78) : high ? 0xC0 : 0x40;
+    }
+    return out;
+  }
+
+  it('ignores noise around zero: one input flip per half-wave, none from the jitter', () => {
+    const halves = 20; const len = 22;
+    const deck = new Apple2Cassette();
+    expect(deck.mountWav(noisyWav(halves, len), 'noisy.wav')).toBe(true);
+    deck.playing = true;
+    let flips = 0; let level = deck.inputBit;
+    for (let i = 1; i <= halves * len + 2; i++) {
+      deck.advanceTo(i / 44100);
+      if (deck.inputBit !== level) { flips++; level = deck.inputBit; }
+    }
+    expect(flips).toBe(halves);
+  });
+
+  it('still follows a clean full-swing recording: one flip per half-wave', () => {
+    const halves = 25; const len = 4;
+    const wav = squareWav(44100, halves * len);
+    for (let i = 0; i < halves * len; i++) wav[44 + i] = Math.floor(i / len) % 2 === 0 ? 0xE0 : 0x20;
+    const deck = new Apple2Cassette();
+    deck.mountWav(wav, 'tone.wav');
+    deck.playing = true;
+    let flips = 0; let level = deck.inputBit;
+    for (let i = 1; i <= halves * len + 2; i++) {
+      deck.advanceTo(i / 44100 + 1e-9);       // a hair past each sample boundary
+      if (deck.inputBit !== level) { flips++; level = deck.inputBit; }
+    }
+    expect(flips).toBe(halves);
+  });
+});
+
+describe('apple2 frame rate', () => {
+  it.each(['apple2', 'apple2-plus', 'apple2e', 'apple2e-enhanced', 'apple2c'] as const)(
+    '%s paces at its own field rate, not the 50 Hz default',
+    (model) => {
+      const m = new Apple2Machine(model, null);
+      try {
+        const hz = (m as unknown as { frameHz: number }).frameHz;
+        // 1,022,727 Hz over a 17,030-cycle frame: the CPU's real speed, not 83% of it.
+        expect(hz).toBeCloseTo(m.cpuClockHz / m.tStatesPerFrame, 6);
+        expect(hz).toBeGreaterThan(60);
+        expect(hz).toBeLessThan(60.1);
+      } finally { m.destroy(); }
+    },
+  );
+});
+
 describe('apple2 hardware options', () => {
   const settingsView = (values: Record<string, unknown>) =>
     ({ get: (key: string, fallback: unknown) => (key in values ? values[key] : fallback) }) as never;
