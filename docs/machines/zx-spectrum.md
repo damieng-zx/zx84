@@ -80,6 +80,7 @@ Dropping a raw ROM image picks the model by size: 16 KB → 48K, 32 KB → 128K,
 | MGT +D | Disk | 48K, 128K, +2 | ◐ | WD1772, G+DOS, drives C:/D:, read-write and format; printer port not implemented |
 | Beta Disk (TR-DOS) | Disk | 48K, 128K, +2 | ✅ | WD1793, auto-paging at 0x3D00–0x3DFF, drives A:/B: |
 | VTX-5000 | Viewdata modem | 48K | ◐ | 8 KB ROM and 8251 USART; no network connection behind it |
+| Cheetah SpecDrum | Sound (DAC) | all | ✅ | Write-only 8-bit ZN428E DAC on port 0xDF (high byte ignored); needs no ROM; own volume slider in the Sound pane |
 
 **Combination rules:** Interface 1, MGT +D and Beta Disk all overlay slot 0 and
 cannot be fitted together; Beta Disk wins when more than one is enabled. The +D
@@ -144,7 +145,7 @@ screen dump, RAM `.bin`.
 | BASIC tools | ✅ | BASIC listing, BASIC variables, system-variables pane |
 | Software library | ✅ | ZXDB-derived search with screenshots; picks the right model automatically |
 | On-screen keyboard | ✅ | 48K rubber-key and +2/+3 layouts |
-| MCP tools | ✅ | All generic tools, plus `multiface`, `vtx5000`, `plusd`, `betadisk`, `disk_trace`, `fdc_log`, `sector_read`, `track_geometry`, `disk_geometry`, `weak`, `frame_trace`, `reset_trap` |
+| MCP tools | ✅ | All generic tools, plus `multiface`, `vtx5000`, `specdrum`, `plusd`, `betadisk`, `disk_trace`, `fdc_log`, `sector_read`, `track_geometry`, `disk_geometry`, `weak`, `frame_trace`, `reset_trap` |
 | Drive count | ✅ | +3 internal drives, and the +D and Beta Disk pairs: one or two, from **Drive count** in the first drive's options menu; saved, rebuilds the machine. Unconnected units give a seek error (WD179x) or equipment check (uPD765A) |
 
 ---

@@ -34,6 +34,8 @@ export class IOActivity {
   attrWrites = 0;
   /** Number of Kempston mouse port reads this frame */
   mouseReads = 0;
+  /** Number of SpecDrum DAC writes this frame */
+  specdrumWrites = 0;
 
   reset(): void {
     this.ulaReads = 0;
@@ -47,5 +49,6 @@ export class IOActivity {
     this.loaderDetected = false;
     this.attrWrites = 0;
     this.mouseReads = 0;
+    this.specdrumWrites = 0;
   }
 }

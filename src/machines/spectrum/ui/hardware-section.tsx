@@ -83,6 +83,23 @@ export function SpectrumHardwareSection() {
           VTX-5000
         </label>
       </div>
+      <div class="multiface-row">
+        <label class="mf-check" title="Cheetah SpecDrum — 8-bit DAC on port 0xDF (own volume slider in the Sound pane)">
+          <input
+            type="checkbox"
+            checked={settings.specdrumEnabled()}
+            onChange={(e) => {
+              const on = (e.target as HTMLInputElement).checked;
+              settings.setSpecdrumEnabled(on);
+              settings.persistSetting('specdrum', on ? 'on' : 'off');
+              const s = activeSpectrum();
+              // No ROM and no reset needed: the board is just a port + DAC.
+              if (s) s.setSpecdrumFitted(on);
+            }}
+          />
+          SpecDrum
+        </label>
+      </div>
       <Show when={isPlusDCapable(currentModel())}>
         <div class="multiface-row">
           <label

@@ -55,6 +55,10 @@ function spectrumUi(model: MachineModel): MachineUiCapabilities {
     psgMixer: is128kClass(model),
     soundChip: is128kClass(model) ? 'AY-3-8912' : undefined,
     psgControls: ['stereo', 'filter', 'dc-block'],
+    micSpeaker: true,
+    soundPeripherals: [
+      { id: 'specdrum', label: 'SpecDrum', enabledSetting: 'specdrum', volumeSetting: 'specdrum-volume' },
+    ],
     statusLeds: spectrumStatusLeds(model),
     keyboardBus: 'ula',
     tape: 'deck',

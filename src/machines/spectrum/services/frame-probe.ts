@@ -165,7 +165,8 @@ export class SpectrumFrameProbe implements FrameProbe {
     // TAPE LED = the tape is actively rolling; ROM LD-BYTES hits alone miss
     // custom/turbo loaders (they poll the port from their own code).
     out.tapeLoad = (tape.playing && !tape.paused) || a.tapeLoads > 0 ? 1 : 0;
-    out.beeper = a.beeperToggled ? 1 : 0;
+    // The SpecDrum DAC is another analogue output, so its writes light BEEP too.
+    out.beeper = a.beeperToggled || a.specdrumWrites > 0 ? 1 : 0;
     out.psg = a.ayWrites > 5 ? 1 : 0;
     out.videoFx = a.attrWrites > 768 ? 1 : 0;
     out.disk = (a.fdcAccesses > 0

@@ -41,8 +41,11 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'sn-stereo': () => settings.snStereo(),
   'ay-dc-block': () => settings.ayDcBlock(),
   'ay-antialias': () => settings.ayAntialias(),
+  'specdrum-volume': () => settings.specdrumVolume(),
+  'mic-audible': () => settings.micAudible(),
   // Peripheral enablement + write-protects read by each machine's prepare() hook.
   'vtx5000': () => settings.vtx5000Enabled(),
+  'specdrum': () => settings.specdrumEnabled(),
   'multiface': () => settings.multifaceEnabled(),
   'plusd': () => settings.plusDEnabled(),
   'interface1': () => settings.interface1Enabled(),

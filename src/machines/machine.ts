@@ -367,6 +367,23 @@ export interface MachineUiCapabilities {
    *  the 'chip' LED. */
   readonly soundChip?: string;
   /**
+   * User-fitted sound peripherals that get their own Sound-pane volume slider
+   * (a DAC board, say), separate from master volume and the Beep↔PSG balance.
+   * The slider shows only while `enabledSetting` is on, so nothing is offered for
+   * hardware that isn't fitted. `volumeSetting` is a 0-100 setting key the
+   * machine reads in `applySettings`.
+   */
+  readonly soundPeripherals?: readonly {
+    readonly id: string;
+    readonly label: string;
+    readonly enabledSetting: string;
+    readonly volumeSetting: string;
+  }[];
+  /** The machine's ULA leaks its MIC (tape-save) output into the speaker, and
+   *  reads 'mic-audible' in applySettings: the Sound pane offers a toggle to
+   *  hear it or not. Omitted where MIC is not part of the speaker mix. */
+  readonly micSpeaker?: boolean;
+  /**
    * Which of the Sound pane's PSG-shaping controls apply to this machine.
    *
    * They are all AY-3-891x concepts and none of them is universal:

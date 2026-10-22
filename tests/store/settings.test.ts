@@ -375,3 +375,53 @@ describe('settings — built-in drive count', () => {
     expect(storage.store.get('zx84-drive-counts')).toBe('{}');
   });
 });
+
+describe('settings — SpecDrum', () => {
+  it('defaults to not fitted, volume 100', async () => {
+    const s = await load();
+    expect(s.specdrumEnabled()).toBe(false);
+    expect(s.specdrumVolume()).toBe(100);
+  });
+
+  it('reads saved values', async () => {
+    storage.store.set('zx84-specdrum', 'on');
+    storage.store.set('zx84-specdrum-volume', '35');
+    const s = await load();
+    expect(s.specdrumEnabled()).toBe(true);
+    expect(s.specdrumVolume()).toBe(35);
+  });
+
+  it('the Sound-pane reset restores the volume, the Hardware reset removes the board', async () => {
+    const s = await load();
+    s.setSpecdrumVolume(10);
+    s.persistSetting('specdrum-volume', 10);
+    s.resetSettingsGroup('sound');
+    expect(s.specdrumVolume()).toBe(100);
+    s.setSpecdrumEnabled(true);
+    s.resetSettingsGroup('hardware');
+    expect(s.specdrumEnabled()).toBe(false);
+  });
+
+  it('exposes the volume signal under the key a descriptor names', async () => {
+    const s = await load();
+    const [get, set] = s.PERIPHERAL_VOLUMES['specdrum-volume']!;
+    set(64);
+    expect(get()).toBe(64);
+    expect(s.specdrumVolume()).toBe(64);
+  });
+});
+
+describe('settings — MIC in speaker', () => {
+  it('defaults to audible (hardware-accurate)', async () => {
+    const s = await load();
+    expect(s.micAudible()).toBe(true);
+  });
+
+  it('reads a saved off value, and the Sound reset restores it', async () => {
+    storage.store.set('zx84-mic-audible', 'off');
+    const s = await load();
+    expect(s.micAudible()).toBe(false);
+    s.resetSettingsGroup('sound');
+    expect(s.micAudible()).toBe(true);
+  });
+});

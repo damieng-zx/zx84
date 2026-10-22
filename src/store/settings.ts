@@ -51,6 +51,11 @@ const DEFAULTS = {
   'sn-stereo':    'MONO',
   'ay-dc-block':  'on',
   'ay-antialias': 'mute',
+  // Level of the SpecDrum DAC channel (0-100), separate from master volume.
+  'specdrum-volume': '100',
+  // Whether the Spectrum's MIC line leaks into the speaker mix (it does on real
+  // hardware); off hides sync/trigger ticks that software pulses on it.
+  'mic-audible':  'on',
 
   // Joystick
   'joy-p1':     'kempston',
@@ -94,6 +99,7 @@ const DEFAULTS = {
   // Hardware
   'multiface':      'off',
   'vtx5000':        'off',
+  'specdrum':       'off',
   'cpc-parados':    'off',
   'plusd':          'off',
   'interface1':     'off',
@@ -270,6 +276,21 @@ export const setAyDcBlock = _ayDcBlock[1];
 const _ayAntialias = /*@once*/ createRoot(() => createSignal(getSaved('ay-antialias', D('ay-antialias'))));
 export const ayAntialias = _ayAntialias[0];
 export const setAyAntialias = _ayAntialias[1];
+
+const _specdrumVolume = /*@once*/ createRoot(() => createSignal(getSavedNumber('specdrum-volume', D('specdrum-volume'))));
+export const specdrumVolume = _specdrumVolume[0];
+export const setSpecdrumVolume = _specdrumVolume[1];
+
+const _micAudible = /*@once*/ createRoot(() => createSignal(getSaved('mic-audible', D('mic-audible')) === 'on'));
+export const micAudible = _micAudible[0];
+export const setMicAudible = _micAudible[1];
+
+/** Per-peripheral Sound-pane volume signals, keyed by the setting a machine
+ *  descriptor names in `soundPeripherals[].volumeSetting` — so the generic pane
+ *  can drive a slider from the descriptor without knowing which peripheral it is. */
+export const PERIPHERAL_VOLUMES: Readonly<Record<string, readonly [() => number, (v: number) => void]>> = {
+  'specdrum-volume': [specdrumVolume, setSpecdrumVolume],
+};
 
 // ── Joystick settings ───────────────────────────────────────────────────
 
@@ -616,6 +637,10 @@ const _vtx5000Enabled = /*@once*/ createRoot(() => createSignal(getSaved('vtx500
 export const vtx5000Enabled = _vtx5000Enabled[0];
 export const setVtx5000Enabled = _vtx5000Enabled[1];
 
+const _specdrumEnabled = /*@once*/ createRoot(() => createSignal(getSaved('specdrum', D('specdrum')) === 'on'));
+export const specdrumEnabled = _specdrumEnabled[0];
+export const setSpecdrumEnabled = _specdrumEnabled[1];
+
 const _plusDEnabled = /*@once*/ createRoot(() => createSignal(getSaved('plusd', D('plusd')) === 'on'));
 export const plusDEnabled = _plusDEnabled[0];
 export const setPlusDEnabled = _plusDEnabled[1];
@@ -691,6 +716,8 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'sn-stereo',   set: setSnStereo,   type: 'string' },
     { key: 'ay-dc-block', set: setAyDcBlock,  type: 'bool' },
     { key: 'ay-antialias', set: setAyAntialias, type: 'string' },
+    { key: 'specdrum-volume', set: setSpecdrumVolume, type: 'number' },
+    { key: 'mic-audible', set: setMicAudible, type: 'bool' },
   ],
   joystick: [
     { key: 'joy-p1',     set: setJoyP1,    type: 'string' },
@@ -729,6 +756,7 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
   hardware: [
     { key: 'multiface',      set: setMultifaceEnabled, type: 'bool' },
     { key: 'vtx5000',        set: setVtx5000Enabled,   type: 'bool' },
+    { key: 'specdrum',       set: setSpecdrumEnabled,  type: 'bool' },
     { key: 'cpc-parados',    set: setCpcParados,        type: 'bool' },
     { key: 'plusd',          set: setPlusDEnabled,     type: 'bool' },
     { key: 'betadisk',       set: setBetaDiskEnabled,  type: 'bool' },

@@ -1,6 +1,6 @@
 import { Pane } from '@/ui/components/Pane.tsx';
 import { SliderRow } from '@/ui/components/Slider.tsx';
-import { Show } from 'solid-js';
+import { For, Show } from 'solid-js';
 import {
   volume, setVolume,
   ayMix, setAyMix,
@@ -8,9 +8,10 @@ import {
   snStereo, setSnStereo,
   ayDcBlock, setAyDcBlock,
   ayAntialias, setAyAntialias,
-  persistSetting, resetSettingsGroup,
+  micAudible, setMicAudible,
+  persistSetting, resetSettingsGroup, PERIPHERAL_VOLUMES,
 } from '@/store/settings.ts';
-import { applyDisplaySettings } from '@/shell/settings.ts';
+import { applyDisplaySettings, settingEnabled } from '@/shell/settings.ts';
 import { machineCaps } from '@/state/machine-caps.ts';
 import type { AYStereoMode, AYAntialiasMode } from '@/cores/ay-3-8910.ts';
 
@@ -47,6 +48,39 @@ export function SoundPane() {
       <Show when={machineCaps().psgMixer}>
         <SliderRow label="Mixer" id="ay-mix" min={0} max={100} value={ayMix} endLabels={['Beep', machineCaps().soundChip ?? 'PSG']}
           onInput={(v) => { setAyMix(v); persistSetting('ay-mix', v); applyDisplaySettings(); }} />
+      </Show>
+      {/* One volume slider per fitted DAC-style peripheral the descriptor lists
+          (the SpecDrum), shown only while it is switched on. */}
+      <For each={machineCaps().soundPeripherals ?? []}>
+        {(p) => {
+          const vol = PERIPHERAL_VOLUMES[p.volumeSetting];
+          return (
+            <Show when={vol && settingEnabled(p.enabledSetting)}>
+              <SliderRow label={p.label} id={p.volumeSetting} min={0} max={200} value={vol![0]}
+                onInput={(v) => { vol![1](v); persistSetting(p.volumeSetting, v); applyDisplaySettings(); }} />
+            </Show>
+          );
+        }}
+      </For>
+      {/* The MIC line leaks into the Spectrum speaker. Software that pulses it as a
+          sync/trigger output (the SpecDrum's clock) then ticks; this hides it. */}
+      <Show when={machineCaps().micSpeaker}>
+        <div class="slider-row">
+          <span class="slider-label">MIC in speaker</span>
+          <label class="toggle">
+            <input
+              type="checkbox"
+              id="mic-audible"
+              checked={micAudible()}
+              onChange={(e) => {
+                const on = (e.target as HTMLInputElement).checked;
+                setMicAudible(on);
+                persistSetting('mic-audible', on ? 'on' : 'off');
+                applyDisplaySettings();
+              }}
+            />
+          </label>
+        </div>
       </Show>
       {/* All three below are AY-3-891x shaping; a machine lists the ones it
           actually reads, so nothing is offered that would do nothing. */}
