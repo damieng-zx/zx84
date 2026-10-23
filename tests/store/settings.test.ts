@@ -91,6 +91,33 @@ describe('settings — numeric parsing', () => {
   });
 });
 
+describe('settings — stored on/off and text values', () => {
+  it("reads a stored 'on' as true for a flag that defaults to off", async () => {
+    storage.store.set('zx84-multiface', 'on');
+    const s = await load();
+    expect(s.multifaceEnabled()).toBe(true);
+  });
+
+  it("reads a stored 'off' as false for a flag that defaults to on", async () => {
+    storage.store.set('zx84-tape-sound', 'off');
+    const s = await load();
+    expect(s.tapeSoundEnabled()).toBe(false);
+  });
+
+  it('reads a stored string setting verbatim', async () => {
+    storage.store.set('zx84-monitor', 'green');
+    const s = await load();
+    expect(s.monitor()).toBe('green');
+  });
+
+  it('keeps a setter bound to its own signal', async () => {
+    const s = await load();
+    s.setScale(5);
+    expect(s.scale()).toBe(5);
+    expect(s.brightness()).toBe(0);
+  });
+});
+
 // ─────────────────────────────────────────────────────────────────────────
 // Gamepad JSON
 // ─────────────────────────────────────────────────────────────────────────

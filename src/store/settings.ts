@@ -2,7 +2,7 @@
  * Persisted display/sound/joystick settings as signals.
  */
 
-import { createSignal, createMemo, createRoot } from 'solid-js';
+import { createSignal, createMemo, createRoot, type Signal } from 'solid-js';
 import { getSaved, setSaved } from '@/store/persistence.ts';
 import { parsePhosphor } from '@/display/phosphor.ts';
 
@@ -146,6 +146,9 @@ const DEFAULTS = {
 type SettingKey = keyof typeof DEFAULTS;
 const D = (k: SettingKey): string => DEFAULTS[k];
 
+/** A module-level signal, created in its own root so it outlives any component. */
+const signal = <T>(initial: T): Signal<T> => createRoot(() => createSignal(initial));
+
 // ── Display settings ────────────────────────────────────────────────────
 
 function getSavedNumber(key: string, fallback: string): number {
@@ -156,57 +159,25 @@ function getSavedNumber(key: string, fallback: string): number {
   return Number.isFinite(n) ? n : Number(fallback);
 }
 
-const _scale = /*@once*/ createRoot(() => createSignal(getSavedNumber('scale', D('scale'))));
-export const scale = _scale[0];
-export const setScale = _scale[1];
+/** A setting's saved value, or its default. */
+const savedText = (key: SettingKey): string => getSaved(key, D(key));
+const savedNumber = (key: SettingKey): number => getSavedNumber(key, D(key));
+/** An on/off setting, stored as the strings 'on' / 'off'. */
+const savedFlag = (key: SettingKey): boolean => savedText(key) === 'on';
 
-const _brightness = /*@once*/ createRoot(() => createSignal(getSavedNumber('brightness', D('brightness'))));
-export const brightness = _brightness[0];
-export const setBrightness = _brightness[1];
-
-const _contrast = /*@once*/ createRoot(() => createSignal(getSavedNumber('contrast', D('contrast'))));
-export const contrast = _contrast[0];
-export const setContrast = _contrast[1];
-
-const _saturation = /*@once*/ createRoot(() => createSignal(getSavedNumber('saturation', D('saturation'))));
-export const saturation = _saturation[0];
-export const setSaturation = _saturation[1];
-
-const _gamma = /*@once*/ createRoot(() => createSignal(getSavedNumber('gamma', D('gamma'))));
-export const gamma = _gamma[0];
-export const setGamma = _gamma[1];
-
-const _smoothing = /*@once*/ createRoot(() => createSignal(getSavedNumber('smoothing', D('smoothing'))));
-export const smoothing = _smoothing[0];
-export const setSmoothing = _smoothing[1];
-
-const _curvature = /*@once*/ createRoot(() => createSignal(getSavedNumber('curvature', D('curvature'))));
-export const curvature = _curvature[0];
-export const setCurvature = _curvature[1];
-
-const _scanlines = /*@once*/ createRoot(() => createSignal(getSavedNumber('scanlines', D('scanlines'))));
-export const scanlines = _scanlines[0];
-export const setScanlines = _scanlines[1];
-
-const _maskType = /*@once*/ createRoot(() => createSignal(getSavedNumber('mask-type', D('mask-type'))));
-export const maskType = _maskType[0];
-export const setMaskType = _maskType[1];
-
-const _dotPitch = /*@once*/ createRoot(() => createSignal(getSavedNumber('dot-pitch', D('dot-pitch'))));
-export const dotPitch = _dotPitch[0];
-export const setDotPitch = _dotPitch[1];
-
-const _curvatureMode = /*@once*/ createRoot(() => createSignal(getSavedNumber('curvature-mode', D('curvature-mode'))));
-export const curvatureMode = _curvatureMode[0];
-export const setCurvatureMode = _curvatureMode[1];
-
-const _noise = /*@once*/ createRoot(() => createSignal(getSavedNumber('noise', D('noise'))));
-export const noise = _noise[0];
-export const setNoise = _noise[1];
-
-const _scalingMode = /*@once*/ createRoot(() => createSignal(getSavedNumber('scaling-mode', D('scaling-mode'))));
-export const scalingMode = _scalingMode[0];
-export const setScalingMode = _scalingMode[1];
+export const [scale, setScale] = signal(savedNumber('scale'));
+export const [brightness, setBrightness] = signal(savedNumber('brightness'));
+export const [contrast, setContrast] = signal(savedNumber('contrast'));
+export const [saturation, setSaturation] = signal(savedNumber('saturation'));
+export const [gamma, setGamma] = signal(savedNumber('gamma'));
+export const [smoothing, setSmoothing] = signal(savedNumber('smoothing'));
+export const [curvature, setCurvature] = signal(savedNumber('curvature'));
+export const [scanlines, setScanlines] = signal(savedNumber('scanlines'));
+export const [maskType, setMaskType] = signal(savedNumber('mask-type'));
+export const [dotPitch, setDotPitch] = signal(savedNumber('dot-pitch'));
+export const [curvatureMode, setCurvatureMode] = signal(savedNumber('curvature-mode'));
+export const [noise, setNoise] = signal(savedNumber('noise'));
+export const [scalingMode, setScalingMode] = signal(savedNumber('scaling-mode'));
 
 // The Apple II's old 'green' video mode is now the generic green phosphor over its
 // mono picture: migrate the saved choice once.
@@ -216,60 +187,29 @@ if (legacyApple2Green) {
   if (getSaved('phosphor', '') === '') setSaved('phosphor', 'green');
 }
 
-const _phosphor = /*@once*/ createRoot(() => createSignal(parsePhosphor(getSaved('phosphor', D('phosphor')))));
-export const phosphor = _phosphor[0];
-export const setPhosphor = _phosphor[1];
-
-const _monitor = /*@once*/ createRoot(() => createSignal(getSaved('monitor', D('monitor'))));
-export const monitor = _monitor[0];
-export const setMonitor = _monitor[1];
-
-const _borderSize = /*@once*/ createRoot(() => createSignal(getSavedNumber('border-size', D('border-size'))));
-export const borderSize = _borderSize[0];
-export const setBorderSize = _borderSize[1];
-
-const _renderer = /*@once*/ createRoot(() => createSignal(getSaved('renderer', D('renderer')) as 'webgl' | 'canvas'));
-export const renderer = _renderer[0];
-export const setRenderer = _renderer[1];
+export const [phosphor, setPhosphor] = signal(parsePhosphor(savedText('phosphor')));
+export const [monitor, setMonitor] = signal(savedText('monitor'));
+export const [borderSize, setBorderSize] = signal(savedNumber('border-size'));
+export const [renderer, setRenderer] = signal(savedText('renderer') as 'webgl' | 'canvas');
 
 // Runtime-only: cleared when WebGL context creation fails so the UI can
 // hide the option and emulator.ts can avoid retrying.
-const _webglAvailable = /*@once*/ createRoot(() => createSignal(true));
-export const webglAvailable = _webglAvailable[0];
-export const setWebglAvailable = _webglAvailable[1];
-
-const _colorMap = /*@once*/ createRoot(() => createSignal(getSaved('color-map', D('color-map')) as 'basic' | 'measured' | 'vivid'));
-export const colorMap = _colorMap[0];
-export const setColorMap = _colorMap[1];
-
-const _cpcColorMap = /*@once*/ createRoot(() => createSignal(getSaved('cpc-color-map', D('cpc-color-map')) as 'basic' | 'gate-array' | 'asic'));
-export const cpcColorMap = _cpcColorMap[0];
-export const setCpcColorMap = _cpcColorMap[1];
-
-const _msxColorMap = /*@once*/ createRoot(() => createSignal(getSaved('msx-color-map', D('msx-color-map')) as 'pal' | 'ntsc'));
-export const msxColorMap = _msxColorMap[0];
-export const setMsxColorMap = _msxColorMap[1];
+export const [webglAvailable, setWebglAvailable] = signal(true);
+export const [colorMap, setColorMap] = signal(savedText('color-map') as 'basic' | 'measured' | 'vivid');
+export const [cpcColorMap, setCpcColorMap] = signal(savedText('cpc-color-map') as 'basic' | 'gate-array' | 'asic');
+export const [msxColorMap, setMsxColorMap] = signal(savedText('msx-color-map') as 'pal' | 'ntsc');
 
 
-const _einsteinColorMap = /*@once*/ createRoot(() => createSignal(getSaved('einstein-color-map', D('einstein-color-map')) as 'mame' | 'accurate' | 'naive'));
-export const einsteinColorMap = _einsteinColorMap[0];
-export const setEinsteinColorMap = _einsteinColorMap[1];
+export const [einsteinColorMap, setEinsteinColorMap] = signal(savedText('einstein-color-map') as 'mame' | 'accurate' | 'naive');
 
 /** Atari palette id (see machines/atari/palette.ts); the machine falls back
  *  to its region's default for an id that region does not offer. */
-const _atariColorMap = /*@once*/ createRoot(() => createSignal(getSaved('atari-color-map', D('atari-color-map'))));
-export const atariColorMap = _atariColorMap[0];
-export const setAtariColorMap = _atariColorMap[1];
-
-const _scanlineAccuracy = /*@once*/ createRoot(() => createSignal(getSaved('scanline-accuracy', D('scanline-accuracy')) as 'high' | 'mid' | 'low'));
-export const scanlineAccuracy = _scanlineAccuracy[0];
-export const setScanlineAccuracy = _scanlineAccuracy[1];
+export const [atariColorMap, setAtariColorMap] = signal(savedText('atari-color-map'));
+export const [scanlineAccuracy, setScanlineAccuracy] = signal(savedText('scanline-accuracy') as 'high' | 'mid' | 'low');
 
 // ── Sound settings ──────────────────────────────────────────────────────
 
-const _volume = /*@once*/ createRoot(() => createSignal(getSavedNumber('volume', D('volume'))));
-export const volume = _volume[0];
-export const setVolume = _volume[1];
+export const [volume, setVolume] = signal(savedNumber('volume'));
 
 /**
  * A device volume saved by this build, else one derived from the old single
@@ -288,38 +228,16 @@ function getSavedVolume(key: SettingKey, fromBalance?: (mix: number) => number):
   return Number(D(key));
 }
 
-const _beeperVolume = /*@once*/ createRoot(() => createSignal(getSavedVolume('beeper-volume', (m) => 2 * (100 - m))));
-export const beeperVolume = _beeperVolume[0];
-export const setBeeperVolume = _beeperVolume[1];
-
-const _psgVolume = /*@once*/ createRoot(() => createSignal(getSavedVolume('psg-volume', (m) => 2 * m)));
-export const psgVolume = _psgVolume[0];
-export const setPsgVolume = _psgVolume[1];
-
-const _ayStereo = /*@once*/ createRoot(() => createSignal(getSaved('ay-stereo', D('ay-stereo'))));
-export const ayStereo = _ayStereo[0];
-export const setAyStereo = _ayStereo[1];
-
-const _snStereo = /*@once*/ createRoot(() => createSignal(getSaved('sn-stereo', D('sn-stereo'))));
-export const snStereo = _snStereo[0];
-export const setSnStereo = _snStereo[1];
+export const [beeperVolume, setBeeperVolume] = signal(getSavedVolume('beeper-volume', (m) => 2 * (100 - m)));
+export const [psgVolume, setPsgVolume] = signal(getSavedVolume('psg-volume', (m) => 2 * m));
+export const [ayStereo, setAyStereo] = signal(savedText('ay-stereo'));
+export const [snStereo, setSnStereo] = signal(savedText('sn-stereo'));
 
 
-const _ayAntialias = /*@once*/ createRoot(() => createSignal(getSaved('ay-antialias', D('ay-antialias'))));
-export const ayAntialias = _ayAntialias[0];
-export const setAyAntialias = _ayAntialias[1];
-
-const _specdrumVolume = /*@once*/ createRoot(() => createSignal(getSavedNumber('specdrum-volume', D('specdrum-volume'))));
-export const specdrumVolume = _specdrumVolume[0];
-export const setSpecdrumVolume = _specdrumVolume[1];
-
-const _uspeechVolume = /*@once*/ createRoot(() => createSignal(getSavedNumber('uspeech-volume', D('uspeech-volume'))));
-export const uspeechVolume = _uspeechVolume[0];
-export const setUspeechVolume = _uspeechVolume[1];
-
-const _micAudible = /*@once*/ createRoot(() => createSignal(getSaved('mic-audible', D('mic-audible')) === 'on'));
-export const micAudible = _micAudible[0];
-export const setMicAudible = _micAudible[1];
+export const [ayAntialias, setAyAntialias] = signal(savedText('ay-antialias'));
+export const [specdrumVolume, setSpecdrumVolume] = signal(savedNumber('specdrum-volume'));
+export const [uspeechVolume, setUspeechVolume] = signal(savedNumber('uspeech-volume'));
+export const [micAudible, setMicAudible] = signal(savedFlag('mic-audible'));
 
 /** Per-device Sound-pane volume signals, keyed by the setting a machine
  *  descriptor names in `soundDevices[].volumeSetting` — so the generic pane
@@ -333,21 +251,10 @@ export const DEVICE_VOLUMES: Readonly<Record<string, readonly [() => number, (v:
 
 // ── Joystick settings ───────────────────────────────────────────────────
 
-const _joyP1 = /*@once*/ createRoot(() => createSignal(getSaved('joy-p1', D('joy-p1'))));
-export const joyP1 = _joyP1[0];
-export const setJoyP1 = _joyP1[1];
-
-const _joyP2 = /*@once*/ createRoot(() => createSignal(getSaved('joy-p2', D('joy-p2'))));
-export const joyP2 = _joyP2[0];
-export const setJoyP2 = _joyP2[1];
-
-const _joyMapP1 = /*@once*/ createRoot(() => createSignal(getSaved('joy-map-p1', D('joy-map-p1'))));
-export const joyMapP1 = _joyMapP1[0];
-export const setJoyMapP1 = _joyMapP1[1];
-
-const _joyMapP2 = /*@once*/ createRoot(() => createSignal(getSaved('joy-map-p2', D('joy-map-p2'))));
-export const joyMapP2 = _joyMapP2[0];
-export const setJoyMapP2 = _joyMapP2[1];
+export const [joyP1, setJoyP1] = signal(savedText('joy-p1'));
+export const [joyP2, setJoyP2] = signal(savedText('joy-p2'));
+export const [joyMapP1, setJoyMapP1] = signal(savedText('joy-map-p1'));
+export const [joyMapP2, setJoyMapP2] = signal(savedText('joy-map-p2'));
 
 // ── Gamepad configuration ───────────────────────────────────────────────
 
@@ -373,13 +280,8 @@ function loadGamepadConfig(player: 1 | 2): GamepadConfig | null {
   }
 }
 
-const _gamepadConfigP1 = /*@once*/ createRoot(() => createSignal<GamepadConfig | null>(loadGamepadConfig(1)));
-export const gamepadConfigP1 = _gamepadConfigP1[0];
-export const setGamepadConfigP1 = _gamepadConfigP1[1];
-
-const _gamepadConfigP2 = /*@once*/ createRoot(() => createSignal<GamepadConfig | null>(loadGamepadConfig(2)));
-export const gamepadConfigP2 = _gamepadConfigP2[0];
-export const setGamepadConfigP2 = _gamepadConfigP2[1];
+export const [gamepadConfigP1, setGamepadConfigP1] = signal<GamepadConfig | null>(loadGamepadConfig(1));
+export const [gamepadConfigP2, setGamepadConfigP2] = signal<GamepadConfig | null>(loadGamepadConfig(2));
 
 export function saveGamepadConfig(player: 1 | 2, config: GamepadConfig): void {
   if (player === 1) {
@@ -392,130 +294,53 @@ export function saveGamepadConfig(player: 1 | 2, config: GamepadConfig): void {
 
 // ── Font settings ───────────────────────────────────────────────────────
 
-const _fontName = /*@once*/ createRoot(() => createSignal(getSaved('font', D('font'))));
-export const fontName = _fontName[0];
-export const setFontName = _fontName[1];
+export const [fontName, setFontName] = signal(savedText('font'));
 
 // ── Text/OCR overlay settings ──────────────────────────────────────────
 
-const _ocrFont = /*@once*/ createRoot(() => createSignal(getSaved('ocr-font', D('ocr-font'))));
-export const ocrFont = _ocrFont[0];
-export const setOcrFont = _ocrFont[1];
-
-const _ocrLineHeight = /*@once*/ createRoot(() => createSignal(getSavedNumber('ocr-line-height', D('ocr-line-height'))));
-export const ocrLineHeight = _ocrLineHeight[0];
-export const setOcrLineHeight = _ocrLineHeight[1];
-
-const _ocrTracking = /*@once*/ createRoot(() => createSignal(getSavedNumber('ocr-tracking', D('ocr-tracking'))));
-export const ocrTracking = _ocrTracking[0];
-export const setOcrTracking = _ocrTracking[1];
-
-const _ocrOffsetX = /*@once*/ createRoot(() => createSignal(getSavedNumber('ocr-offset-x', D('ocr-offset-x'))));
-export const ocrOffsetX = _ocrOffsetX[0];
-export const setOcrOffsetX = _ocrOffsetX[1];
-
-const _ocrOffsetY = /*@once*/ createRoot(() => createSignal(getSavedNumber('ocr-offset-y', D('ocr-offset-y'))));
-export const ocrOffsetY = _ocrOffsetY[0];
-export const setOcrOffsetY = _ocrOffsetY[1];
-
-const _ocrScaleX = /*@once*/ createRoot(() => createSignal(getSavedNumber('ocr-scale-x', D('ocr-scale-x'))));
-export const ocrScaleX = _ocrScaleX[0];
-export const setOcrScaleX = _ocrScaleX[1];
-
-const _ocrScaleY = /*@once*/ createRoot(() => createSignal(getSavedNumber('ocr-scale-y', D('ocr-scale-y'))));
-export const ocrScaleY = _ocrScaleY[0];
-export const setOcrScaleY = _ocrScaleY[1];
+export const [ocrFont, setOcrFont] = signal(savedText('ocr-font'));
+export const [ocrLineHeight, setOcrLineHeight] = signal(savedNumber('ocr-line-height'));
+export const [ocrTracking, setOcrTracking] = signal(savedNumber('ocr-tracking'));
+export const [ocrOffsetX, setOcrOffsetX] = signal(savedNumber('ocr-offset-x'));
+export const [ocrOffsetY, setOcrOffsetY] = signal(savedNumber('ocr-offset-y'));
+export const [ocrScaleX, setOcrScaleX] = signal(savedNumber('ocr-scale-x'));
+export const [ocrScaleY, setOcrScaleY] = signal(savedNumber('ocr-scale-y'));
 
 // ── Disk mode ───────────────────────────────────────────────────────────
 
-const _diskSoundA = /*@once*/ createRoot(() => createSignal(getSaved('disk-sound-a', D('disk-sound-a')) === 'on'));
-export const diskSoundA = _diskSoundA[0];
-export const setDiskSoundA = _diskSoundA[1];
-
-const _diskSoundB = /*@once*/ createRoot(() => createSignal(getSaved('disk-sound-b', D('disk-sound-b')) === 'on'));
-export const diskSoundB = _diskSoundB[0];
-export const setDiskSoundB = _diskSoundB[1];
-
-const _writeProtectA = /*@once*/ createRoot(() => createSignal(getSaved('write-protect-a', D('write-protect-a')) === 'on'));
-export const writeProtectA = _writeProtectA[0];
-export const setWriteProtectA = _writeProtectA[1];
-
-const _writeProtectB = /*@once*/ createRoot(() => createSignal(getSaved('write-protect-b', D('write-protect-b')) === 'on'));
-export const writeProtectB = _writeProtectB[0];
-export const setWriteProtectB = _writeProtectB[1];
-
-const _driveBForceReady = /*@once*/ createRoot(() => createSignal(getSaved('drive-b-force-ready', D('drive-b-force-ready')) === 'on'));
-export const driveBForceReady = _driveBForceReady[0];
-export const setDriveBForceReady = _driveBForceReady[1];
-
-const _diskSoundC = /*@once*/ createRoot(() => createSignal(getSaved('disk-sound-c', D('disk-sound-c')) === 'on'));
-export const diskSoundC = _diskSoundC[0];
-export const setDiskSoundC = _diskSoundC[1];
-
-const _diskSoundD = /*@once*/ createRoot(() => createSignal(getSaved('disk-sound-d', D('disk-sound-d')) === 'on'));
-export const diskSoundD = _diskSoundD[0];
-export const setDiskSoundD = _diskSoundD[1];
-
-const _writeProtectC = /*@once*/ createRoot(() => createSignal(getSaved('write-protect-c', D('write-protect-c')) === 'on'));
-export const writeProtectC = _writeProtectC[0];
-export const setWriteProtectC = _writeProtectC[1];
-
-const _writeProtectD = /*@once*/ createRoot(() => createSignal(getSaved('write-protect-d', D('write-protect-d')) === 'on'));
-export const writeProtectD = _writeProtectD[0];
-export const setWriteProtectD = _writeProtectD[1];
+export const [diskSoundA, setDiskSoundA] = signal(savedFlag('disk-sound-a'));
+export const [diskSoundB, setDiskSoundB] = signal(savedFlag('disk-sound-b'));
+export const [writeProtectA, setWriteProtectA] = signal(savedFlag('write-protect-a'));
+export const [writeProtectB, setWriteProtectB] = signal(savedFlag('write-protect-b'));
+export const [driveBForceReady, setDriveBForceReady] = signal(savedFlag('drive-b-force-ready'));
+export const [diskSoundC, setDiskSoundC] = signal(savedFlag('disk-sound-c'));
+export const [diskSoundD, setDiskSoundD] = signal(savedFlag('disk-sound-d'));
+export const [writeProtectC, setWriteProtectC] = signal(savedFlag('write-protect-c'));
+export const [writeProtectD, setWriteProtectD] = signal(savedFlag('write-protect-d'));
 
 // ── Tape settings ───────────────────────────────────────────────────────
 
-const _tapeAutoRewind = /*@once*/ createRoot(() => createSignal(getSaved('tape-auto-rewind', D('tape-auto-rewind')) === 'on'));
-export const tapeAutoRewind = _tapeAutoRewind[0];
-export const setTapeAutoRewind = _tapeAutoRewind[1];
-
-const _tapeCollapseBlocks = /*@once*/ createRoot(() => createSignal(getSaved('tape-collapse-blocks', D('tape-collapse-blocks')) === 'on'));
-export const tapeCollapseBlocks = _tapeCollapseBlocks[0];
-export const setTapeCollapseBlocks = _tapeCollapseBlocks[1];
+export const [tapeAutoRewind, setTapeAutoRewind] = signal(savedFlag('tape-auto-rewind'));
+export const [tapeCollapseBlocks, setTapeCollapseBlocks] = signal(savedFlag('tape-collapse-blocks'));
 
 // Persisted key strings are kept stable ('tape-instant-rom', 'tape-turbo-load')
 // so existing saved prefs survive; only the signal names follow the UI wording:
 // Fast ROM loading / Turbo while loading.
-const _tapeFastRom = /*@once*/ createRoot(() => createSignal(getSaved('tape-instant-rom', D('tape-instant-rom')) === 'on'));
-export const tapeFastRom = _tapeFastRom[0];
-export const setTapeFastRom = _tapeFastRom[1];
-
-const _tapeTurbo = /*@once*/ createRoot(() => createSignal(getSaved('tape-turbo-load', D('tape-turbo-load')) === 'on'));
-export const tapeTurbo = _tapeTurbo[0];
-export const setTapeTurbo = _tapeTurbo[1];
-
-const _tapeSoundEnabled = /*@once*/ createRoot(() => createSignal(getSaved('tape-sound', D('tape-sound')) === 'on'));
-export const tapeSoundEnabled = _tapeSoundEnabled[0];
-export const setTapeSoundEnabled = _tapeSoundEnabled[1];
+export const [tapeFastRom, setTapeFastRom] = signal(savedFlag('tape-instant-rom'));
+export const [tapeTurbo, setTapeTurbo] = signal(savedFlag('tape-turbo-load'));
+export const [tapeSoundEnabled, setTapeSoundEnabled] = signal(savedFlag('tape-sound'));
 
 // ── Multiface ────────────────────────────────────────────────────────
 
-const _multifaceEnabled = /*@once*/ createRoot(() => createSignal(getSaved('multiface', D('multiface')) === 'on'));
-export const multifaceEnabled = _multifaceEnabled[0];
-export const setMultifaceEnabled = _multifaceEnabled[1];
-
-const _cpcParados = /*@once*/ createRoot(() => createSignal(getSaved('cpc-parados', D('cpc-parados')) === 'on'));
-export const cpcParados = _cpcParados[0];
-export const setCpcParados = _cpcParados[1];
+export const [multifaceEnabled, setMultifaceEnabled] = signal(savedFlag('multiface'));
+export const [cpcParados, setCpcParados] = signal(savedFlag('cpc-parados'));
 
 /** Megabytes fitted to the external megabyte interface, 0-4. 0 = not fitted. */
 
-const _einsteinXtalDos = /*@once*/ createRoot(() => createSignal(getSaved('einstein-xtaldos', D('einstein-xtaldos')) === 'on'));
-export const einsteinXtalDos = _einsteinXtalDos[0];
-export const setEinsteinXtalDos = _einsteinXtalDos[1];
-
-const _mtxCpm = /*@once*/ createRoot(() => createSignal(getSaved('mtx-cpm', D('mtx-cpm')) === 'on'));
-export const mtxCpm = _mtxCpm[0];
-export const setMtxCpm = _mtxCpm[1];
-
-const _mtx80Column = /*@once*/ createRoot(() => createSignal(getSaved('mtx-80-column', D('mtx-80-column')) === 'on'));
-export const mtx80Column = _mtx80Column[0];
-export const setMtx80Column = _mtx80Column[1];
-
-const _apple2Disk2 = /*@once*/ createRoot(() => createSignal(getSaved('apple2-disk2', D('apple2-disk2')) === 'on'));
-export const apple2Disk2 = _apple2Disk2[0];
-export const setApple2Disk2 = _apple2Disk2[1];
+export const [einsteinXtalDos, setEinsteinXtalDos] = signal(savedFlag('einstein-xtaldos'));
+export const [mtxCpm, setMtxCpm] = signal(savedFlag('mtx-cpm'));
+export const [mtx80Column, setMtx80Column] = signal(savedFlag('mtx-80-column'));
+export const [apple2Disk2, setApple2Disk2] = signal(savedFlag('apple2-disk2'));
 
 // ── Built-in drive count ────────────────────────────────────────────────
 // How many of a machine's built-in floppy drives are fitted, kept per machine
@@ -536,7 +361,7 @@ function parseDriveCounts(raw: string): Record<string, number> {
 }
 
 function initialDriveCounts(): Record<string, number> {
-  const counts = parseDriveCounts(getSaved('drive-counts', D('drive-counts')));
+  const counts = parseDriveCounts(savedText('drive-counts'));
   // The Apple II used to keep its count as a Hardware-pane option of its own.
   if (counts.apple2 === undefined && getSaved('apple2-drives', '') === '1') counts.apple2 = 1;
   return counts;
@@ -563,14 +388,14 @@ function parseDriveModels(raw: string): Record<string, string[]> {
 }
 
 function initialDriveModels(): Record<string, string[]> {
-  const models = parseDriveModels(getSaved('drive-models', D('drive-models')));
+  const models = parseDriveModels(savedText('drive-models'));
   // The Atari used to have one model for every drive, set in the Hardware pane.
   const legacy = getSaved('atari-disk-drive', '');
   if (models.atari === undefined && legacy !== '') models.atari = [legacy, legacy];
   return models;
 }
 
-const _driveModels = /*@once*/ createRoot(() => createSignal(initialDriveModels()));
+const _driveModels = signal(initialDriveModels());
 const setDriveModelsJson = (json: string): void => { _driveModels[1](parseDriveModels(json)); };
 
 /** The drive models saved for a machine kind, or undefined when never set up. */
@@ -590,7 +415,7 @@ export function setDriveModelsFor(kind: string, models: readonly string[]): void
   persistSetting('drive-models', JSON.stringify(next));
 }
 
-const _driveCounts = /*@once*/ createRoot(() => createSignal(initialDriveCounts()));
+const _driveCounts = signal(initialDriveCounts());
 const setDriveCountsJson = (json: string): void => { _driveCounts[1](parseDriveCounts(json)); };
 
 /** The count saved for a machine kind, or undefined when the user never chose one. */
@@ -610,145 +435,55 @@ export function setDriveCountFor(kind: string, count: number): void {
   persistSetting('drive-counts', JSON.stringify(next));
 }
 
-const _apple2LangCard = /*@once*/ createRoot(() => createSignal(getSaved('apple2-langcard', D('apple2-langcard')) === 'on'));
-export const apple2LangCard = _apple2LangCard[0];
-export const setApple2LangCard = _apple2LangCard[1];
+export const [apple2LangCard, setApple2LangCard] = signal(savedFlag('apple2-langcard'));
+export const [apple2Joystick, setApple2Joystick] = signal(savedFlag('apple2-joystick'));
+export const [apple2Mockingboard, setApple2Mockingboard] = signal(savedFlag('apple2-mockingboard'));
+export const [apple2EightyCol, setApple2EightyCol] = signal(savedFlag('apple2-80col'));
+export const [apple2eEightyCol, setApple2eEightyCol] = signal(savedFlag('apple2e-80col'));
 
-const _apple2Joystick = /*@once*/ createRoot(() => createSignal(getSaved('apple2-joystick', D('apple2-joystick')) === 'on'));
-export const apple2Joystick = _apple2Joystick[0];
-export const setApple2Joystick = _apple2Joystick[1];
+export const [apple1Ram, setApple1Ram] = signal(
+  savedText('apple1-ram') as '4k' | '8k' | '16k' | '32k' | '48k');
 
-const _apple2Mockingboard = /*@once*/ createRoot(() => createSignal(getSaved('apple2-mockingboard', D('apple2-mockingboard')) === 'on'));
-export const apple2Mockingboard = _apple2Mockingboard[0];
-export const setApple2Mockingboard = _apple2Mockingboard[1];
+export const [apple1BasicRam, setApple1BasicRam] = signal(savedFlag('apple1-basic-ram'));
+export const [apple1Aci, setApple1Aci] = signal(savedFlag('apple1-aci'));
+export const [mtx512kRam, setMtx512kRam] = signal(savedFlag('mtx-512k-ram'));
+export const [mtxFloppy, setMtxFloppy] = signal(savedFlag('mtx-floppy'));
+export const [msxFloppy, setMsxFloppy] = signal(savedFlag('msx-floppy'));
+export const [bbcColorMap, setBbcColorMap] = signal(savedText('bbc-color-map') as 'pal' | 'measured');
 
-const _apple2EightyCol = /*@once*/ createRoot(() => createSignal(getSaved('apple2-80col', D('apple2-80col')) === 'on'));
-export const apple2EightyCol = _apple2EightyCol[0];
-export const setApple2EightyCol = _apple2EightyCol[1];
+export const [apple2Video, setApple2Video] = signal(
+  savedText('apple2-video') as 'mono' | 'ntsc' | 'pal');
 
-const _apple2eEightyCol = /*@once*/ createRoot(() => createSignal(getSaved('apple2e-80col', D('apple2e-80col')) === 'on'));
-export const apple2eEightyCol = _apple2eEightyCol[0];
-export const setApple2eEightyCol = _apple2eEightyCol[1];
+export const [bbcDiskSystem, setBbcDiskSystem] = signal(
+  savedText('bbc-disk-system') as 'none' | 'acorn' | '1770');
 
-const _apple1Ram = /*@once*/ createRoot(() => createSignal(
-  getSaved('apple1-ram', D('apple1-ram')) as '4k' | '8k' | '16k' | '32k' | '48k'));
-export const apple1Ram = _apple1Ram[0];
-export const setApple1Ram = _apple1Ram[1];
-
-const _apple1BasicRam = /*@once*/ createRoot(() => createSignal(getSaved('apple1-basic-ram', D('apple1-basic-ram')) === 'on'));
-export const apple1BasicRam = _apple1BasicRam[0];
-export const setApple1BasicRam = _apple1BasicRam[1];
-
-const _apple1Aci = /*@once*/ createRoot(() => createSignal(getSaved('apple1-aci', D('apple1-aci')) === 'on'));
-export const apple1Aci = _apple1Aci[0];
-export const setApple1Aci = _apple1Aci[1];
-
-const _mtx512kRam = /*@once*/ createRoot(() => createSignal(getSaved('mtx-512k-ram', D('mtx-512k-ram')) === 'on'));
-export const mtx512kRam = _mtx512kRam[0];
-export const setMtx512kRam = _mtx512kRam[1];
-
-const _mtxFloppy = /*@once*/ createRoot(() => createSignal(getSaved('mtx-floppy', D('mtx-floppy')) === 'on'));
-export const mtxFloppy = _mtxFloppy[0];
-export const setMtxFloppy = _mtxFloppy[1];
-
-const _msxFloppy = /*@once*/ createRoot(() => createSignal(getSaved('msx-floppy', D('msx-floppy')) === 'on'));
-export const msxFloppy = _msxFloppy[0];
-export const setMsxFloppy = _msxFloppy[1];
-
-const _bbcColorMap = /*@once*/ createRoot(() => createSignal(getSaved('bbc-color-map', D('bbc-color-map')) as 'pal' | 'measured'));
-export const bbcColorMap = _bbcColorMap[0];
-export const setBbcColorMap = _bbcColorMap[1];
-
-const _apple2Video = /*@once*/ createRoot(() => createSignal(
-  getSaved('apple2-video', D('apple2-video')) as 'mono' | 'ntsc' | 'pal'));
-export const apple2Video = _apple2Video[0];
-export const setApple2Video = _apple2Video[1];
-
-const _bbcDiskSystem = /*@once*/ createRoot(() => createSignal(
-  getSaved('bbc-disk-system', D('bbc-disk-system')) as 'none' | 'acorn' | '1770'));
-export const bbcDiskSystem = _bbcDiskSystem[0];
-export const setBbcDiskSystem = _bbcDiskSystem[1];
-
-const _electronPlus1 = /*@once*/ createRoot(() => createSignal(getSaved('electron-plus1', D('electron-plus1')) === 'on'));
-export const electronPlus1 = _electronPlus1[0];
-export const setElectronPlus1 = _electronPlus1[1];
-
-const _electronPlus3 = /*@once*/ createRoot(() => createSignal(getSaved('electron-plus3', D('electron-plus3')) === 'on'));
-export const electronPlus3 = _electronPlus3[0];
-export const setElectronPlus3 = _electronPlus3[1];
-
-const _electronDfs = /*@once*/ createRoot(() => createSignal(getSaved('electron-dfs', D('electron-dfs')) === 'on'));
-export const electronDfs = _electronDfs[0];
-export const setElectronDfs = _electronDfs[1];
-
-const _lynxFdc = /*@once*/ createRoot(() => createSignal(getSaved('lynx-fdc', D('lynx-fdc')) === 'on'));
-export const lynxFdc = _lynxFdc[0];
-export const setLynxFdc = _lynxFdc[1];
+export const [electronPlus1, setElectronPlus1] = signal(savedFlag('electron-plus1'));
+export const [electronPlus3, setElectronPlus3] = signal(savedFlag('electron-plus3'));
+export const [electronDfs, setElectronDfs] = signal(savedFlag('electron-dfs'));
+export const [lynxFdc, setLynxFdc] = signal(savedFlag('lynx-fdc'));
 
 /** Enterprise EXDOS disk card (WD1770 + EXDOS ROM) fitted. */
-const _enterpriseExdos = /*@once*/ createRoot(() => createSignal(getSaved('enterprise-exdos', D('enterprise-exdos')) === 'on'));
-export const enterpriseExdos = _enterpriseExdos[0];
-export const setEnterpriseExdos = _enterpriseExdos[1];
-
-const _zx8x16kRam = /*@once*/ createRoot(() => createSignal(getSaved('zx8x-16k-ram', D('zx8x-16k-ram')) === 'on'));
-export const zx8x16kRam = _zx8x16kRam[0];
-export const setZx8x16kRam = _zx8x16kRam[1];
-
-const _zx81UdgRam = /*@once*/ createRoot(() => createSignal(getSaved('zx81-udg-ram', D('zx81-udg-ram')) === 'on'));
-export const zx81UdgRam = _zx81UdgRam[0];
-export const setZx81UdgRam = _zx81UdgRam[1];
-
-const _zx81Udg128Ram = /*@once*/ createRoot(() => createSignal(getSaved('zx81-udg128-ram', D('zx81-udg128-ram')) === 'on'));
-export const zx81Udg128Ram = _zx81Udg128Ram[0];
-export const setZx81Udg128Ram = _zx81Udg128Ram[1];
-
-const _zx81WrxHires = /*@once*/ createRoot(() => createSignal(getSaved('zx81-wrx-hires', D('zx81-wrx-hires')) === 'on'));
-export const zx81WrxHires = _zx81WrxHires[0];
-export const setZx81WrxHires = _zx81WrxHires[1];
-
-const _zx81MemotechHrg = /*@once*/ createRoot(() => createSignal(getSaved('zx81-memotech-hrg', D('zx81-memotech-hrg')) === 'on'));
-export const zx81MemotechHrg = _zx81MemotechHrg[0];
-export const setZx81MemotechHrg = _zx81MemotechHrg[1];
-
-const _zx81QuickSilvaHrg = /*@once*/ createRoot(() => createSignal(getSaved('zx81-quicksilva-hrg', D('zx81-quicksilva-hrg')) === 'on'));
-export const zx81QuickSilvaHrg = _zx81QuickSilvaHrg[0];
-export const setZx81QuickSilvaHrg = _zx81QuickSilvaHrg[1];
+export const [enterpriseExdos, setEnterpriseExdos] = signal(savedFlag('enterprise-exdos'));
+export const [zx8x16kRam, setZx8x16kRam] = signal(savedFlag('zx8x-16k-ram'));
+export const [zx81UdgRam, setZx81UdgRam] = signal(savedFlag('zx81-udg-ram'));
+export const [zx81Udg128Ram, setZx81Udg128Ram] = signal(savedFlag('zx81-udg128-ram'));
+export const [zx81WrxHires, setZx81WrxHires] = signal(savedFlag('zx81-wrx-hires'));
+export const [zx81MemotechHrg, setZx81MemotechHrg] = signal(savedFlag('zx81-memotech-hrg'));
+export const [zx81QuickSilvaHrg, setZx81QuickSilvaHrg] = signal(savedFlag('zx81-quicksilva-hrg'));
 
 /** Jupiter Ace RAM pack: 'none' (stock 3K), '16k' (16K pack, 19K total) or
  *  '48k' (48K pack, 51K total). The 48K pack is the default. */
-const _aceRamPack = /*@once*/ createRoot(() => createSignal(getSaved('ace-ram-pack', D('ace-ram-pack')) as 'none' | '16k' | '48k'));
-export const aceRamPack = _aceRamPack[0];
-export const setAceRamPack = _aceRamPack[1];
-
-const _vtx5000Enabled = /*@once*/ createRoot(() => createSignal(getSaved('vtx5000', D('vtx5000')) === 'on'));
-export const vtx5000Enabled = _vtx5000Enabled[0];
-export const setVtx5000Enabled = _vtx5000Enabled[1];
-
-const _specdrumEnabled = /*@once*/ createRoot(() => createSignal(getSaved('specdrum', D('specdrum')) === 'on'));
-export const specdrumEnabled = _specdrumEnabled[0];
-export const setSpecdrumEnabled = _specdrumEnabled[1];
-
-const _plusDEnabled = /*@once*/ createRoot(() => createSignal(getSaved('plusd', D('plusd')) === 'on'));
-export const plusDEnabled = _plusDEnabled[0];
-export const setPlusDEnabled = _plusDEnabled[1];
-
-const _betaDiskEnabled = /*@once*/ createRoot(() => createSignal(getSaved('betadisk', D('betadisk')) === 'on'));
-export const betaDiskEnabled = _betaDiskEnabled[0];
-export const setBetaDiskEnabled = _betaDiskEnabled[1];
-
-const _interface1Enabled = /*@once*/ createRoot(() => createSignal(getSaved('interface1', D('interface1')) === 'on'));
-export const interface1Enabled = _interface1Enabled[0];
-export const setInterface1Enabled = _interface1Enabled[1];
-
-const _uspeechEnabled = /*@once*/ createRoot(() => createSignal(getSaved('uspeech', D('uspeech')) === 'on'));
-export const uspeechEnabled = _uspeechEnabled[0];
-export const setUspeechEnabled = _uspeechEnabled[1];
+export const [aceRamPack, setAceRamPack] = signal(savedText('ace-ram-pack') as 'none' | '16k' | '48k');
+export const [vtx5000Enabled, setVtx5000Enabled] = signal(savedFlag('vtx5000'));
+export const [specdrumEnabled, setSpecdrumEnabled] = signal(savedFlag('specdrum'));
+export const [plusDEnabled, setPlusDEnabled] = signal(savedFlag('plusd'));
+export const [betaDiskEnabled, setBetaDiskEnabled] = signal(savedFlag('betadisk'));
+export const [interface1Enabled, setInterface1Enabled] = signal(savedFlag('interface1'));
+export const [uspeechEnabled, setUspeechEnabled] = signal(savedFlag('uspeech'));
 
 // ── Behaviour settings ──────────────────────────────────────────────────
 
-const _pauseOnFocusLost = /*@once*/ createRoot(() => createSignal(getSaved('pause-on-blur', D('pause-on-blur')) === 'on'));
-export const pauseOnFocusLost = _pauseOnFocusLost[0];
-export const setPauseOnFocusLost = _pauseOnFocusLost[1];
+export const [pauseOnFocusLost, setPauseOnFocusLost] = signal(savedFlag('pause-on-blur'));
 
 // ── Derived ─────────────────────────────────────────────────────────────
 
