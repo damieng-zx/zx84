@@ -167,6 +167,40 @@ export abstract class BaseMachine {
   /** Whether {@link beamTarget} works on this machine. */
   supportsBeamStops(): boolean { return false; }
 
+  /**
+   * The check a frame loop makes before each instruction: true when the run
+   * must stop at `pc`, for a breakpoint or for a trap that asks to break (and
+   * then `stopReason` says which). The first instruction after such a stop at
+   * the same pc is let through, or a resume would stop again at once; a trap
+   * is told it is a resume so it does not log or break a second time. Costs
+   * three compares when nothing is armed.
+   */
+  protected checkStops(pc: number): boolean {
+    if (this.breakpoints.size === 0 && this.onTrap === null && this.resumeSkipPc < 0) return false;
+    let skipBreakpoint = false;
+    let trapResume = false;
+    if (this.resumeSkipPc >= 0) {
+      if (pc === this.resumeSkipPc) {
+        skipBreakpoint = true;
+        trapResume = this.resumeSkipKind === 'trap';
+      }
+      this.resumeSkipPc = -1;
+    }
+    if (!skipBreakpoint && this.breakpoints.has(pc)) {
+      this.markStop('breakpoint', pc);
+      return true;
+    }
+    // A 6502's next step may enter an interrupt instead of running the
+    // instruction at pc, which a trap there would report though it never runs.
+    if (this.onTrap !== null && !this.interruptEntryPending() && this.onTrap(pc, trapResume)) {
+      this.markStop('trap', pc);
+      return true;
+    }
+    return false;
+  }
+  /** The CPU's next step enters an interrupt (6502 machines override this). */
+  protected interruptEntryPending(): boolean { return false; }
+
   // ── Interrupt log (docs/beam-debug-mcp-spec.md 2a) ────────────────────────
   /** Record interrupt entries and ends in the beam log. A machine that sets
    *  its CPU's `onInterrupt` to {@link noteInterrupt} and calls

@@ -90,6 +90,8 @@ export class AtariMemory implements IMachineMemory {
 
   /** Hardware-window read hook; returns -1 for an address it does not claim. */
   ioRead: (addr: number) => number = () => -1;
+  /** Like `ioRead`, but must change nothing in the hardware (see `peekByte`). */
+  ioPeek: (addr: number) => number = () => -1;
   /** Hardware-window write hook. */
   ioWrite: (addr: number, val: number) => void = () => {};
 
@@ -200,6 +202,20 @@ export class AtariMemory implements IMachineMemory {
     return this.peek(addr);
   }
 
+  /** What a debugger reads at the address: the same as the CPU would, except
+   *  that nothing is disturbed. A real read of the PIA's data register clears
+   *  its interrupt flags and a read of the cartridge control area switches a
+   *  bank; this does neither, and installed by the machine through `ioPeek`
+   *  the hardware window shows the chips' current registers. */
+  peekByte(addr: number): number {
+    addr &= 0xFFFF;
+    if (addr >= IO_BASE && addr < IO_END) {
+      const v = this.ioPeek(addr);
+      return v >= 0 ? v & 0xFF : 0xFF;
+    }
+    return this.peek(addr);
+  }
+
   writeByte(addr: number, val: number): void {
     addr &= 0xFFFF;
     val &= 0xFF;
@@ -246,7 +262,7 @@ export class AtariMemory implements IMachineMemory {
 
   readBlock(addr: number, len: number): Uint8Array {
     const out = new Uint8Array(len);
-    for (let i = 0; i < len; i++) out[i] = this.readByte((addr + i) & 0xFFFF);
+    for (let i = 0; i < len; i++) out[i] = this.peekByte((addr + i) & 0xFFFF);
     return out;
   }
 

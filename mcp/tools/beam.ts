@@ -30,7 +30,8 @@ function resolveSpanAddress(spec: Machine, s: string): number {
   const t = s.trim();
   if (t.startsWith('*')) {
     const at = parseAddr(t.slice(1)) & 0xFFFF;
-    return spec.memory.readByte(at) | (spec.memory.readByte((at + 1) & 0xFFFF) << 8);
+    const peek = (a: number): number => spec.memory.peekByte?.(a) ?? spec.memory.readByte(a);
+    return peek(at) | (peek((at + 1) & 0xFFFF) << 8);
   }
   return parseAddr(t) & 0xFFFF;
 }

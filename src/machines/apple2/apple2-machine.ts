@@ -349,6 +349,8 @@ export class Apple2Machine extends BaseMachine implements Machine {
   protected framePixels(): Uint8Array { return this.video.pixels; }
   protected inTurbo(): boolean { return this.turbo; }
 
+  protected override interruptEntryPending(): boolean { return this.cpu.interruptPending(); }
+
   protected runFrame(): void {
     const endT = this.cpu.tStates + APPLE2_TSTATES_PER_FRAME;
     const skipAudio = this.speedMultiplier !== 1;
@@ -358,12 +360,7 @@ export class Apple2Machine extends BaseMachine implements Machine {
     this.activity.kbdReads = 0;
 
     while (this.cpu.tStates < endT) {
-      if (this.breakpoints.has(this.cpu.pc)) {
-        this.breakpointHit = this.cpu.pc;
-        this.needsDisplay = true;
-        return;
-      }
-      if (this.onTrap !== null && this.onTrap(this.cpu.pc)) {
+      if (this.checkStops(this.cpu.pc)) {
         this.needsDisplay = true;
         return;
       }

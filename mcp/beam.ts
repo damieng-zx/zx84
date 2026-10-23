@@ -120,7 +120,8 @@ export function beamHeader(spec: Machine, log: BeamLog, opts: { relDisplay: bool
   if (spec.kind === 'atari') {
     lines.push('Atari: cycle 0 = the missile DMA slot at the start of the line. This core releases WSYNC at the line ' +
       'boundary, so cycles after a WSYNC run about 9 later than the Altirra manual / hardware; DMA cycles are ' +
-      'interpolated; read stamps other than the common loads are approximate (the last cycle of the instruction).');
+      'interpolated. Opcode and operand fetches, loads, stores and read-modify-write reads are stamped on their ' +
+      'own cycle of the instruction; stack, vector and interrupt-entry accesses on its last.');
   }
   return lines.join('\n');
 }

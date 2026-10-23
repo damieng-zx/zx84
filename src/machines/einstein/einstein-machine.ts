@@ -311,8 +311,7 @@ export class EinsteinMachine extends BaseMachine implements Machine {
       if (is256) vdp.advanceScanline(line);
 
       while (this.cpu.tStates < lineEnd) {
-        if (this.breakpoints.has(this.cpu.pc)) { this.breakpointHit = this.cpu.pc; broke = true; break; }
-        if (this.onTrap !== null && this.onTrap(this.cpu.pc)) { broke = true; break; }
+        if (this.checkStops(this.cpu.pc)) { broke = true; break; }
 
         // EI suppresses interrupts for one instruction; step() itself resets
         // and re-arms eiDelay per-instruction (see core.ts), so a plain

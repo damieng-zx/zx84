@@ -35,6 +35,7 @@ import {
 import { ANTIC_BASE, REG_HSCROL } from './line-writes.ts';
 import type { StopKind } from '@/debug/stop-reason.ts';
 import type { ChipSection } from '@/debug/chip-state.ts';
+import { accessCycle } from '@/debug/m6502/bus-cycles.ts';
 import { Antic, ANTIC_FIRST_LINE, ANTIC_LAST_LINE, ANTIC_MODES } from './antic.ts';
 import { AtariCartridge, type AtariCartType } from './cartridge.ts';
 import { AtariMemory } from './memory.ts';
@@ -340,6 +341,7 @@ export class AtariMachine extends BaseMachine implements Machine {
     this.antic.onWsyc = () => { this.wsyncRequested = true; };
     this.memory.onCartEnable = () => this.senseCartridge();
     this.memory.ioRead = (addr) => this.readHardware(addr);
+    this.memory.ioPeek = (addr) => this.peekHardware(addr);
     this.memory.ioWrite = (addr, val) => this.writeHardware(addr, val);
     this.pia.inputB = 0xFF;
 
@@ -658,6 +660,11 @@ export class AtariMachine extends BaseMachine implements Machine {
     }
   }
 
+  /** The CPU cycle the instruction in progress started at, and whether its step
+   *  is an interrupt entry (which runs no instruction at pc). */
+  private insnStartT = 0;
+  private stepEntersInterrupt = false;
+
   /** Watched accesses made by the instruction in progress, waiting for its last
    *  cycle: addr, value, flags, pc per access. The 6502 core counts an
    *  instruction's cycles after its bus accesses, so inside the callback
@@ -682,10 +689,16 @@ export class AtariMachine extends BaseMachine implements Machine {
     const log = this.beamLog;
     const q = this.accessLog;
     if (log !== null) {
-      const t = this.cpu.tStates - 1 - this.beamFrameStart;
       const cpl = this.timing.cyclesPerLine;
+      const startT = this.insnStartT - this.beamFrameStart;
+      const cycles = this.cpu.tStates - this.insnStartT;
+      // The opcode, to place each access on its own cycle (see bus-cycles.ts).
+      // An interrupt-entry step runs no instruction: its accesses take the last cycle.
+      const opcode = this.stepEntersInterrupt || q.length === 0 ? -1 : this.memory.readByte(q[3]);
       for (let i = 0; i < q.length; i += 4) {
         let flags = q[i + 2];
+        const cycle = opcode < 0 ? cycles : accessCycle(opcode, q[i + 3], q[i], (flags & 1) !== 0, cycles);
+        const t = startT + cycle - 1;
         let kind = BEAM_IO;
         if ((flags & ACCESS_DL) !== 0) {
           // A display-list pointer write: note whether ANTIC is drawing the
@@ -1005,6 +1018,31 @@ export class AtariMachine extends BaseMachine implements Machine {
       }
       return this.antic.readReg(addr);
     }
+    return 0xFF;
+  }
+
+  /** The hardware window as a debugger sees it: the registers a read would
+   *  return, without what a read does. The PIA's data registers are read
+   *  without clearing their interrupt flags; the cartridge control area is
+   *  never touched (a real read there switches a bank); the VCOUNT shown is
+   *  the line now. GTIA, POKEY and ANTIC registers are pure to read. */
+  private peekHardware(addr: number): number {
+    if (addr < 0xD100) return this.gtia.readReg(addr);
+    if (addr < 0xD200) return 0xFF;
+    if (addr < 0xD300) return this.pokey.readReg(addr);
+    if (addr < 0xD400) {
+      const port = addr & 0x01;
+      switch (addr & 0x03) {
+        case 0: case 1: {
+          if ((this.pia.cr[port] & 0x04) === 0) return this.pia.ddr[port];
+          this.pia.inputA = this.joystickPortA();
+          this.pia.inputB = 0xFF;
+          return this.pia.portValue(port);
+        }
+        default: return this.pia.readControl(port);
+      }
+    }
+    if (addr < 0xD500) return this.antic.readReg(addr);
     return 0xFF;
   }
 
@@ -1448,6 +1486,9 @@ export class AtariMachine extends BaseMachine implements Machine {
       this.inStep = true;
       this.pokeyReadAddr = -1;
       this.insnPc = cpu.pc;
+      this.insnStartT = before;
+      // (Only worked out when a watchpoint could log something this step.)
+      this.stepEntersInterrupt = this.watchHi >= 0 && cpu.interruptPending();
       cpu.step();
       this.inStep = false;
       if (this.intOpen > 0) this.closeInterrupts();

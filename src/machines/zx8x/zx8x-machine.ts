@@ -454,8 +454,7 @@ export class Zx8xMachine extends BaseMachine implements Machine {
       lineEnd += lineT;
       if (this.model === 'zx81' && this.nmiEnabled) this.cpu.nmi();
       while (this.cpu.tStates < lineEnd) {
-        if (this.breakpoints.has(this.cpu.pc)) { this.breakpointHit = this.cpu.pc; broke = true; break; }
-        if (this.onTrap?.(this.cpu.pc)) { broke = true; break; }
+        if (this.checkStops(this.cpu.pc)) { broke = true; break; }
         const tapeRom = this.tapeRom;
         if (tapeRom !== null) {
           const pc = this.cpu.pc;

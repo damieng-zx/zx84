@@ -531,8 +531,7 @@ export class CpcMachine extends BaseMachine implements Machine {
   private runCpuUntil(until: number, plusActive: boolean, asic: Asic | null, skipAudio: boolean): boolean {
     const ga = this.gateArray;
     while (this.cpu.tStates < until) {
-      if (this.breakpoints.has(this.cpu.pc)) { this.breakpointHit = this.cpu.pc; return true; }
-      if (this.onTrap !== null && this.onTrap(this.cpu.pc)) return true;
+      if (this.checkStops(this.cpu.pc)) return true;
 
       // CAS READ instant-load. A normal BASIC `RUN"` reaches the firmware's
       // CAS READ routine internally (CAS IN CHAR refilling its 2K buffer), not

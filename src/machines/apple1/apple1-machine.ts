@@ -293,6 +293,8 @@ export class Apple1Machine extends BaseMachine implements Machine {
     this.needsDisplay = true;
   }
 
+  protected override interruptEntryPending(): boolean { return this.cpu.interruptPending(); }
+
   protected runFrame(): void {
     const endT = this.cpu.tStates + APPLE1_TSTATES_PER_FRAME;
     const skipAudio = this.speedMultiplier !== 1;
@@ -301,12 +303,7 @@ export class Apple1Machine extends BaseMachine implements Machine {
     this.feedPaste();
 
     while (this.cpu.tStates < endT) {
-      if (this.breakpoints.has(this.cpu.pc)) {
-        this.breakpointHit = this.cpu.pc;
-        this.drawFrame();
-        return;
-      }
-      if (this.onTrap !== null && this.onTrap(this.cpu.pc)) {
+      if (this.checkStops(this.cpu.pc)) {
         this.drawFrame();
         return;
       }

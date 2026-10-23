@@ -393,8 +393,7 @@ ${text}`;
       lineEnd += tPerLine;
 
       while (this.cpu.tStates < lineEnd) {
-        if (this.breakpoints.has(this.cpu.pc)) { this.breakpointHit = this.cpu.pc; broke = true; break; }
-        if (this.onTrap !== null && this.onTrap(this.cpu.pc)) { broke = true; break; }
+        if (this.checkStops(this.cpu.pc)) { broke = true; break; }
         this.cpu.step();
         // Stop mid-frame on the instruction that tripped a watchpoint.
         if (watchActive && (this.portWatchHit !== null || this.memWatchHit !== null)) { broke = true; break; }

@@ -334,12 +334,7 @@ export class MtxMachine extends BaseMachine implements Machine {
     for (let line = 0; line < MTX_LINES_PER_FRAME; line++) {
       lineEnd += tPerLine;
       while (this.cpu.tStates < lineEnd) {
-        if (this.breakpoints.has(this.cpu.pc)) {
-          this.breakpointHit = this.cpu.pc;
-          broke = true;
-          break;
-        }
-        if (this.onTrap !== null && this.onTrap(this.cpu.pc)) {
+        if (this.checkStops(this.cpu.pc)) {
           broke = true;
           break;
         }

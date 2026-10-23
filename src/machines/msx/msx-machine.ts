@@ -358,8 +358,7 @@ export class MsxMachine extends BaseMachine implements Machine {
       lineEnd += tPerLine;
 
       while (this.cpu.tStates < lineEnd) {
-        if (this.breakpoints.has(this.cpu.pc)) { this.breakpointHit = this.cpu.pc; broke = true; break; }
-        if (this.onTrap !== null && this.onTrap(this.cpu.pc)) { broke = true; break; }
+        if (this.checkStops(this.cpu.pc)) { broke = true; break; }
 
         // Cassette: intercept the BIOS routines while the BIOS ROM is paged
         // into page 0 — TAPION/TAPIN serve a mounted .cas instantly, and

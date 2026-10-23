@@ -142,6 +142,43 @@ describe('Atari memory watchpoints (log mode)', () => {
   });
 });
 
+describe('Atari access stamps fall on their own cycle', () => {
+  it('stamps the read of a read-modify-write two cycles before its write', () => {
+    // INC $80 is 5 cycles: it reads on the 3rd and writes on the 5th.
+    const m = bootAtari([0xe6, 0x80, 0x4c, 0x00, 0xe0]);
+    try {
+      m.beamLog = new BeamLog();
+      m.memWatchpoints.push({ start: 0x80, end: 0x80, mode: 'rw', action: 'log' });
+      m.tick();
+      const log = m.beamLog;
+      expect(log.length).toBeGreaterThan(100);
+      for (let i = 0; i < 40; i += 2) {
+        const read = log.get(i), write = log.get(i + 1);
+        expect([read.flags & 1, write.flags & 1]).toEqual([0, 1]);
+        expect(read.pc).toBe(0xE000);
+        expect(write.t - read.t).toBe(2);
+      }
+    } finally { m.destroy(); }
+  });
+
+  it('stamps the opcode and operand fetches on cycles 1, 2 and 3 and the data read on the 4th', () => {
+    // LDA $0100 (4 cycles) then JMP: watch the three bytes of the LDA and the byte it reads.
+    const m = bootAtari([0xad, 0x00, 0x01, 0x4c, 0x00, 0xe0]);
+    try {
+      m.beamLog = new BeamLog();
+      m.memWatchpoints.push({ start: 0xE000, end: 0xE002, mode: 'read', action: 'log' });
+      m.memWatchpoints.push({ start: 0x0100, end: 0x0100, mode: 'read', action: 'log' });
+      m.tick();
+      const log = m.beamLog;
+      for (let i = 0; i < 40; i += 4) {
+        const t0 = log.get(i).t;
+        expect([0, 1, 2, 3].map(k => log.get(i + k).addr)).toEqual([0xE000, 0xE001, 0xE002, 0x0100]);
+        expect([1, 2, 3].map(k => log.get(i + k).t - t0)).toEqual([1, 2, 3]);
+      }
+    } finally { m.destroy(); }
+  });
+});
+
 describe('beam-stamped log traps', () => {
   beforeEach(() => {
     traps.clear();

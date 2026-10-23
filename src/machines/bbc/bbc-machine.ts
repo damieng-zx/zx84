@@ -382,6 +382,8 @@ export class BbcMachine extends BaseMachine implements Machine {
     this.cpu.setIRQ(this.sysVia.irq || this.userVia.irq || this.acia.irq);
   }
 
+  protected override interruptEntryPending(): boolean { return this.cpu.interruptPending(); }
+
   protected runFrame(): void {
     const cyclesPerLine = BBC_TSTATES_PER_FRAME / LINES_PER_FRAME;
     const skipAudio = this.speedMultiplier !== 1 || this.cassette.turboActive;
@@ -394,12 +396,7 @@ export class BbcMachine extends BaseMachine implements Machine {
     for (let line = 0; line < LINES_PER_FRAME; line++) {
       lineEnd += cyclesPerLine;
       while (this.cpu.tStates < lineEnd) {
-        if (this.breakpoints.has(this.cpu.pc)) {
-          this.breakpointHit = this.cpu.pc;
-          this.needsDisplay = true;
-          return;
-        }
-        if (this.onTrap !== null && this.onTrap(this.cpu.pc)) {
+        if (this.checkStops(this.cpu.pc)) {
           this.needsDisplay = true;
           return;
         }

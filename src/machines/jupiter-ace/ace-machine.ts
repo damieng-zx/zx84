@@ -305,13 +305,7 @@ export class JupiterAceMachine extends BaseMachine implements Machine {
       }
 
       while (this.cpu.tStates < lineEnd) {
-        if (this.breakpoints.size > 0 && this.breakpoints.has(this.cpu.pc)) {
-          this.breakpointHit = this.cpu.pc;
-          broke = true;
-          break;
-        }
-        if (this.onTrap !== null && this.onTrap(this.cpu.pc)) {
-          this.breakpointHit = this.cpu.pc;
+        if (this.checkStops(this.cpu.pc)) {
           broke = true;
           break;
         }

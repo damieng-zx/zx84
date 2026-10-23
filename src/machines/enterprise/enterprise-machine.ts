@@ -418,8 +418,7 @@ export class EnterpriseMachine extends BaseMachine implements Machine {
 
       while (cpu.tStates < lineEnd) {
         const pc = cpu.pc;
-        if (this.breakpoints.has(pc)) { this.breakpointHit = pc; broke = true; break; }
-        if (this.onTrap !== null && this.onTrap(pc)) { broke = true; break; }
+        if (this.checkStops(pc)) { broke = true; break; }
         // A FILE: entry point: serve it, then run the entry's NOP straight
         // away so an interrupt taken here cannot make it serve twice.
         let trapped = false;

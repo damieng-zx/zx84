@@ -176,7 +176,7 @@ export class ElectronMachine extends BaseMachine implements Machine {
       requests.push({
         cacheKey: 'electron-plus3-acpdfs200',
         source: 'electron/dfs.rom',
-        fetchingMsg: 'Fetching Electron ACP 1770 DFS ROM�',
+        fetchingMsg: 'Fetching Electron ACP 1770 DFS ROM�',
         loadedMsg: (bytes) => `Electron ACP 1770 DFS ROM loaded (${bytes} bytes)`,
         failMsg: 'Failed to load the Electron ACP 1770 DFS ROM',
         failId: 'electron-dfs',
@@ -331,6 +331,8 @@ export class ElectronMachine extends BaseMachine implements Machine {
 
   // ── Frame ────────────────────────────────────────────────────────────────
 
+  protected override interruptEntryPending(): boolean { return this.cpu.interruptPending(); }
+
   protected runFrame(): void {
     const skipAudio = this.speedMultiplier !== 1 || this.cassette.turboActive;
     const cpu = this.cpu;
@@ -352,12 +354,7 @@ export class ElectronMachine extends BaseMachine implements Machine {
       cpu.setIRQ(ula.irq);
 
       while (cpu.tStates < lineEnd) {
-        if (this.breakpoints.has(cpu.pc)) {
-          this.breakpointHit = cpu.pc;
-          this.needsDisplay = true;
-          return;
-        }
-        if (this.onTrap !== null && this.onTrap(cpu.pc)) {
+        if (this.checkStops(cpu.pc)) {
           this.needsDisplay = true;
           return;
         }

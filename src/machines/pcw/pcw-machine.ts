@@ -392,8 +392,7 @@ export class PcwMachine extends BaseMachine implements Machine {
     const cpu = this.cpu;
     const asic = this.asic;
     while (cpu.tStates < until) {
-      if (this.breakpoints.has(cpu.pc)) { this.breakpointHit = cpu.pc; return true; }
-      if (this.onTrap !== null && this.onTrap(cpu.pc)) return true;
+      if (this.checkStops(cpu.pc)) return true;
 
       cpu.step();
 
