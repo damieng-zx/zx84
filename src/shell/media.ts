@@ -80,24 +80,6 @@ export function mountInstantCassette(data: Uint8Array, name: string): void {
   reflectInstantCassette(data, name);
 }
 
-/** Insert a cartridge and reboot into it (MSX slot scan / IF2 power-cycle). */
-function insertCartridge(data: Uint8Array, name: string, missingMsg: string): void {
-  const slot = machine?.services.roms.cartridge;
-  if (!slot) { setStatus(missingMsg); return; }
-  slot.insert(data, name);   // power-cycles the machine (stop → insert → reset)
-  setCartridgeNameSig(name);
-  setStatus(`Cartridge: ${name}`);
-  if (romData) machine!.start();
-}
-
-export function insertMsxCartridge(data: Uint8Array, name: string): void {
-  insertCartridge(data, name, 'Cartridges are for the MSX');
-}
-
-export function insertIf2Cartridge(data: Uint8Array, name: string): void {
-  insertCartridge(data, name, 'Cartridges need a 16K/48K Spectrum');
-}
-
 /** Remove the cartridge and reboot to the system ROM/BASIC. */
 export function ejectCartridge(): void {
   const m = machine;
@@ -115,9 +97,6 @@ export function ejectCartridge(): void {
     m.start();
   }
 }
-
-export const ejectMsxCartridge = ejectCartridge;
-export const ejectIf2Cartridge = ejectCartridge;
 
 // ── Tape / disk loading ────────────────────────────────────────────────────
 
