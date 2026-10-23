@@ -8,22 +8,15 @@
  * than showing an empty one.
  *
  * The service still exists because the SPI requires one — the shell calls
- * `installSystemRom` with an empty image on every build.
+ * `installSystemRom` with an empty image on every build. With no host there is
+ * nothing for the setters to persist or rebuild.
  */
 
-import type { CartridgeSlot, RomService, RomSlotInfo } from '@/machines/machine.ts';
+import { SingleRomService } from '@/machines/shared/single-rom-service.ts';
 import type { PcwMachine } from '../pcw-machine.ts';
 
-export class PcwRomService implements RomService {
-  constructor(private readonly m: PcwMachine) {}
+export class PcwRomService extends SingleRomService<PcwMachine> {
+  protected override readonly showSlot = false;
 
-  readonly systemSlots: readonly RomSlotInfo[] = [];
-
-  installSystemRom(data: Uint8Array): void { this.m.loadROM(data); }
-
-  async setSystemRom(_data: Uint8Array, _label: string, _page?: number): Promise<void> {}
-
-  async resetSystemRom(_page?: number): Promise<void> {}
-
-  readonly cartridge: CartridgeSlot | null = null;
+  constructor(machine: PcwMachine) { super(machine, () => null); }
 }
