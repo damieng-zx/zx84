@@ -6,7 +6,6 @@ import {
   ayStereo, setAyStereo,
   snStereo, setSnStereo,
   ayAntialias, setAyAntialias,
-  micAudible, setMicAudible,
   persistSetting, resetSettingsGroup, DEVICE_VOLUMES,
 } from '@/store/settings.ts';
 import { applyDisplaySettings, settingEnabled } from '@/shell/settings.ts';
@@ -62,26 +61,6 @@ export function SoundPane() {
           );
         }}
       </For>
-      {/* The MIC line leaks into the Spectrum speaker. Software that pulses it as a
-          sync/trigger output (the SpecDrum's clock) then ticks; this hides it. */}
-      <Show when={machineCaps().micSpeaker}>
-        <div class="slider-row">
-          <span class="slider-label">MIC in speaker</span>
-          <label class="toggle">
-            <input
-              type="checkbox"
-              id="mic-audible"
-              checked={micAudible()}
-              onChange={(e) => {
-                const on = (e.target as HTMLInputElement).checked;
-                setMicAudible(on);
-                persistSetting('mic-audible', on ? 'on' : 'off');
-                applyDisplaySettings();
-              }}
-            />
-          </label>
-        </div>
-      </Show>
       {/* All three below are AY-3-891x shaping; a machine lists the ones it
           actually reads, so nothing is offered that would do nothing. */}
       <Show when={machineCaps().psgControls.includes('stereo')}>

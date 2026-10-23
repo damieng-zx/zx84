@@ -537,7 +537,9 @@ describe('Border modes', () => {
 
 describe('getAudioLevel — EAR/MIC speaker mix and tape routing', () => {
   let ula: ULA;
-  beforeEach(() => { ula = makeUla().ula; });
+  // These pin the ULA's analogue resistor mix, which includes the MIC leak; the
+  // machine leaves MIC out of the speaker by default (see the MIC audibility tests).
+  beforeEach(() => { ula = makeUla().ula; ula.micAudible = true; });
 
   // Issue 3 ULA speaker-pin voltages: none 0.39V, MIC 0.73V, EAR 3.66V,
   // both 3.79V. Normalised to 0..1 over the 0.39V..3.79V span.
@@ -603,8 +605,14 @@ describe('getAudioLevel — MIC audibility option', () => {
   const EAR_ONLY = (3.66 - 0.39) / 3.4;
   const MIC_ONLY = (0.73 - 0.39) / 3.4;
 
-  it('MIC is audible by default (real hardware leaks it into the speaker)', () => {
-    expect(ula.micAudible).toBe(true);
+  it('MIC is silent by default (no setting exposes it)', () => {
+    expect(ula.micAudible).toBe(false);
+    ula.writePort(0x08);
+    expect(ula.getAudioLevel(true)).toBe(0);
+  });
+
+  it('when enabled, a MIC-only pulse is audible like the real hardware leak', () => {
+    ula.micAudible = true;
     ula.writePort(0x08);
     expect(ula.getAudioLevel(true)).toBeCloseTo(MIC_ONLY, 6);
   });

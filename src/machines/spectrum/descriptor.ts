@@ -66,7 +66,6 @@ function spectrumUi(model: MachineModel): MachineUiCapabilities {
     beeper: true,
     soundChip: is128kClass(model) ? 'AY-3-8912' : undefined,
     psgControls: ['stereo', 'filter'],
-    micSpeaker: true,
     soundDevices: spectrumSoundDevices(model),
     statusLeds: spectrumStatusLeds(model),
     keyboardBus: 'ula',

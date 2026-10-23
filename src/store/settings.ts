@@ -59,9 +59,6 @@ const DEFAULTS = {
   'specdrum-volume': '100',
   // Level of the Currah µSpeech speech output (0-200).
   'uspeech-volume': '100',
-  // Whether the Spectrum's MIC line leaks into the speaker mix (it does on real
-  // hardware); off hides sync/trigger ticks that software pulses on it.
-  'mic-audible':  'on',
 
   // Joystick
   'joy-p1':     'kempston',
@@ -237,7 +234,6 @@ export const [snStereo, setSnStereo] = signal(savedText('sn-stereo'));
 export const [ayAntialias, setAyAntialias] = signal(savedText('ay-antialias'));
 export const [specdrumVolume, setSpecdrumVolume] = signal(savedNumber('specdrum-volume'));
 export const [uspeechVolume, setUspeechVolume] = signal(savedNumber('uspeech-volume'));
-export const [micAudible, setMicAudible] = signal(savedFlag('mic-audible'));
 
 /** Per-device Sound-pane volume signals, keyed by the setting a machine
  *  descriptor names in `soundDevices[].volumeSetting` — so the generic pane
@@ -545,7 +541,6 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'ay-antialias', set: setAyAntialias, type: 'string' },
     { key: 'specdrum-volume', set: setSpecdrumVolume, type: 'number' },
     { key: 'uspeech-volume', set: setUspeechVolume, type: 'number' },
-    { key: 'mic-audible', set: setMicAudible, type: 'bool' },
   ],
   joystick: [
     { key: 'joy-p1',     set: setJoyP1,    type: 'string' },
