@@ -28,6 +28,7 @@ import { electronEntry } from '@/machines/electron/descriptor.ts';
 import { apple2Entry } from '@/machines/apple2/descriptor.ts';
 import { apple1Entry } from '@/machines/apple1/descriptor.ts';
 import { enterpriseEntry } from '@/machines/enterprise/descriptor.ts';
+import { atariEntry } from '@/machines/atari/descriptor.ts';
 
 export const registry: readonly MachineEntry[] = [
   spectrumEntry,
@@ -44,6 +45,7 @@ export const registry: readonly MachineEntry[] = [
   apple2Entry,
   apple1Entry,
   enterpriseEntry,
+  atariEntry,
 ];
 
 /** The registry entry owning `model`. Throws on an unknown model — every

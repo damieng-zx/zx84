@@ -114,7 +114,6 @@ export abstract class BaseMachine {
   protected abstract framePixels(): Uint8Array;
   /** Whether the turbo / fast-load batch path is currently engaged. */
   protected abstract inTurbo(): boolean;
-
   protected setStatus(msg: string): void { if (this.onStatus) this.onStatus(msg); }
 
   /** Live AudioContext once audio is initialised (drive-sound synth attach). */

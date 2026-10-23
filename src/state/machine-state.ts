@@ -128,7 +128,7 @@ export const setScreenGeometry = _screenGeometry[1];
 function loadSavedLocale(): MachineLocale {
   try {
     const raw = localStorage.getItem('zx84-locale');
-    if (raw === 'es' || raw === 'fr') return raw;
+    if (raw === 'es' || raw === 'fr' || raw === 'us') return raw;
   } catch { /* */ }
   return 'uk';
 }

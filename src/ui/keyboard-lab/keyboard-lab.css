@@ -397,6 +397,18 @@ kbd {
     linear-gradient(145deg, #d9d2bb, #aaa38e);
 }
 
+.lab-scene--atari400 {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.12), transparent 18%),
+    linear-gradient(145deg, #5a4535, #3b2c22);
+}
+
+.lab-scene--atarixl {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 18%),
+    linear-gradient(145deg, #34302c, #1f1c1a);
+}
+
 .lab-scene--tc01 {
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.15), transparent 18%),

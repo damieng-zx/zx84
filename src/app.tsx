@@ -176,6 +176,7 @@ export function App() {
     const kind = machineKind();
     document.body.classList.toggle('sinclair-mode', kind === 'spectrum' || kind === 'zx8x');
     document.body.classList.toggle('cpc-mode', kind === 'cpc');
+    document.body.classList.toggle('atari-mode', kind === 'atari');
   });
 
   // Mirror the display scale (1×/2×/3×) into a CSS variable so the on-screen

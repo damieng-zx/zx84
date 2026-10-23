@@ -56,6 +56,10 @@ const CONTRIBUTIONS: Record<string, MachineUiContribution> = {
     Keyboard: lazy(() =>
       import('@/machines/einstein/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
   },
+  atari: {
+    Keyboard: lazy(() =>
+      import('@/machines/atari/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
+  },
   msx: {
     HardwareSection: lazy(() =>
       import('@/machines/msx/ui/hardware-section.tsx').then(m => ({ default: m.MsxHardwareSection }))),
@@ -177,6 +181,11 @@ export const keyboardLabPresetLoaders: readonly KeyboardLabPresetLoader[] = [
     group: 'Apple II',
     load: () => import('@/machines/apple2/ui/keyboard/lab-preset.ts')
       .then((module) => module.apple2KeyboardLabPresets()),
+  },
+  {
+    group: 'Atari 8-bit',
+    load: () => import('@/machines/atari/ui/keyboard/lab-preset.ts')
+      .then((module) => module.atariKeyboardLabPresets()),
   },
   {
     group: 'Amstrad PCW',

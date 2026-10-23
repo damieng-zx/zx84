@@ -22,11 +22,11 @@ import type { MachineModel } from '@/models.ts';
 import type { OcrGridName, FontSource } from '@/ocr/ocr.ts';
 import type { BasicListingLine, BasicVariable } from '@/basic/types.ts';
 
-export type MachineKind = 'spectrum' | 'cpc' | 'einstein' | 'msx' | 'zx8x' | 'mtx' | 'lynx' | 'jupiter-ace' | 'pcw' | 'bbc' | 'electron' | 'apple2' | 'apple1' | 'enterprise';
+export type MachineKind = 'spectrum' | 'cpc' | 'einstein' | 'msx' | 'zx8x' | 'mtx' | 'lynx' | 'jupiter-ace' | 'pcw' | 'bbc' | 'electron' | 'apple2' | 'apple1' | 'enterprise' | 'atari';
 
 /** Keyboard/ROM locale for international machine variants.
  *  'uk' = default (English, no locale-specific ROM/keyboard). */
-export type MachineLocale = 'uk' | 'es' | 'fr';
+export type MachineLocale = 'uk' | 'es' | 'fr' | 'us';
 
 /** Border-size selector shared by both machines: 0=none, 1=small, 2=normal. */
 export type BorderMode = 0 | 1 | 2;
@@ -268,6 +268,14 @@ export type StatusLedId = typeof STATUS_LED_IDS[number];
  * Everything here is presentation-facing but *machine-owned*: the machine knows
  * which of its features the UI should surface. Pure data (headless-safe).
  */
+/** One Color map choice — see `MachineUiCapabilities.colorMapOptions`. */
+export interface ColorMapOption {
+  readonly value: string;
+  readonly label: string;
+  /** Tooltip saying what the choice models. */
+  readonly title?: string;
+}
+
 /** A Sound-pane PSG-shaping control — see `MachineUiCapabilities.psgControls`. */
 export type PsgControl = 'stereo' | 'sn-stereo' | 'filter' | 'dc-block';
 
@@ -292,6 +300,7 @@ export type SaveMenuItem =
   | 'snapshot-z80'
   | 'snapshot-sna-v2'
   | 'snapshot-sna-v3'
+  | 'snapshot-a8state'
   | 'screenshot-png'
   | 'screen-scr'
   | 'ram-bin';
@@ -304,7 +313,11 @@ export interface MachineUiCapabilities {
   /** Execution-trace debugger control is available. */
   readonly trace: boolean;
   /** Palette / colour-map family shown in the Display pane. */
-  readonly colorMap: 'spectrum' | 'cpc' | 'msx' | 'einstein' | 'bbc' | 'apple2' | 'mono';
+  readonly colorMap: 'spectrum' | 'cpc' | 'msx' | 'einstein' | 'bbc' | 'apple2' | 'atari' | 'mono';
+  /** The Color map drop-down's choices, where the machine computes them
+   *  rather than the pane listing a fixed set (the Atari's depend on its
+   *  region). The first is the default. */
+  readonly colorMapOptions?: readonly ColorMapOption[];
   /**
    * Which Accuracy drop-down the Display pane offers, or false for none.
    *
@@ -328,10 +341,24 @@ export interface MachineUiCapabilities {
   /** Built-in drives fitted, A: onward — defaults to 2 when `builtinDisk`.
    *  The Lynx's FD1793 addresses four. Peripheral drives are not counted. */
   readonly builtinDrives?: number;
+  /** Labels of the built-in drives in order, where they are not A:, B:, C:,
+   *  D: (the Atari's D1: to D4:). */
+  readonly builtinDriveLabels?: readonly string[];
+  /** Models a built-in drive can be set to, offered in each drive's Model
+   *  sub-menu. A machine that lists these also adds and removes drives one at
+   *  a time (the drive list, not a separate count, says how many are fitted),
+   *  and implements the `DiskService` hooks for it. */
+  readonly driveModels?: readonly { readonly value: string; readonly label: string; readonly title?: string }[];
+  /** The drive list when the user has not set one up, one model per drive. */
+  readonly defaultDriveModels?: readonly string[];
   /** Joystick pane applies. */
   readonly joystick: boolean;
-  /** Joystick presents a single fixed interface (no type selector; F2 shown). */
+  /** Joystick presents a single fixed interface (no type selector). */
   readonly fixedJoystick: boolean;
+  /** Fire buttons on the machine's joystick. Defaults to 2 for a fixed
+   *  interface (the CPC, MSX and MTX sticks) and 1 otherwise; the Atari's
+   *  fixed ports take one-button CX40s. */
+  readonly joystickFireButtons?: 1 | 2;
   /**
    * Mouse interfaces this machine can drive, in the order the Mouse pane
    * offers them; empty means no mouse pane.
@@ -538,6 +565,10 @@ export interface MountResult {
    *  snapshot on a 48K): this machine is destroyed; the shell must re-dispatch
    *  the same file to the NEW machine's MediaService. */
   readonly replay?: boolean;
+  /** Set when the mount replaced drive or tape contents of its own accord (an
+   *  Atari snapshot carries its disks and cassette): the shell re-reads the
+   *  drives and tape into the panes and persistence. */
+  readonly mediaChanged?: boolean;
 }
 
 /**
@@ -683,6 +714,16 @@ export interface DiskService {
    *  serialized bytes + filename for the shell to persist, or null when the
    *  drive doesn't support in-place formatting. */
   formatBlank?(id: string, name?: string): { data: Uint8Array; name: string } | null;
+  /** Machines with `ui.driveModels`: the model of each fitted drive, in order. */
+  readonly driveModels?: readonly string[];
+  /** Change one drive's model; its disk stays in it. */
+  setDriveModel?(index: number, model: string): void;
+  /** Add an empty drive below `after` (same model); the drives under it move
+   *  down with their disks. False when no more fit. */
+  addDrive?(after: number): boolean;
+  /** Remove a drive and its disk; the drives under it move up. False for the
+   *  last drive. */
+  removeDrive?(index: number): boolean;
 }
 
 export interface RomSlotInfo {
@@ -1102,7 +1143,9 @@ export interface MachineEntry {
   readonly kind: MachineKind;
   readonly models: readonly MachineModel[];
   descriptor(model: MachineModel, locale?: MachineLocale): MachineDescriptor;
-  create(model: MachineModel, display: IScreenRenderer | null): Machine;
+  /** Build the machine. `locale` matters only to machines whose hardware
+   *  differs by region (the Atari's NTSC/PAL timing); others ignore it. */
+  create(model: MachineModel, display: IScreenRenderer | null, locale?: MachineLocale): Machine;
   /** Default system-ROM image sources, fetched and concatenated in order by the
    *  shared rom-manager machinery. */
   romSources(model: MachineModel, locale?: MachineLocale): readonly string[];

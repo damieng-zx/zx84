@@ -129,12 +129,36 @@ export function RomPane(): JSX.Element {
     return size ? `${s.label} · ${size}` : s.label;
   };
 
+  // With no system socket the aux sockets are the machine's ROMs (the Atari's
+  // OS and BASIC), so they head the pane, ahead of the cartridge slot.
+  const sidewaysFirst = (): boolean => !showSystemRomSlot();
+  const sidewaysGrid = (): JSX.Element => (
+    <Show when={sidewaysRomSlots().length > 0}>
+      <div class="rom-grid">
+        <For each={sidewaysRomSlots()}>
+          {(s) => (
+            <Slot
+              label={s.title}
+              text={slotText(s)}
+              placeholder="(empty)"
+              ejectable={s.overridden}
+              ejectTitle={`Revert ${s.title} to its default`}
+              onLoad={() => loadSideways(s.index)}
+              onEject={() => ejectSideways(s.index)}
+            />
+          )}
+        </For>
+      </div>
+    </Show>
+  );
+
   return (
     <Pane
       id="rom-panel"
       label="ROM / Carts"
       visible={showCartridgeSlot() || slots().length > 0 || sidewaysRomSlots().length > 0}
     >
+      <Show when={sidewaysFirst()}>{sidewaysGrid()}</Show>
       <div class="rom-grid">
         <Show when={showSystemRomSlot()}>
           <For each={slots()}>
@@ -167,23 +191,7 @@ export function RomPane(): JSX.Element {
           />
         </Show>
       </div>
-      <Show when={sidewaysRomSlots().length > 0}>
-        <div class="rom-grid">
-          <For each={sidewaysRomSlots()}>
-            {(s) => (
-              <Slot
-                label={s.title}
-                text={slotText(s)}
-                placeholder="(empty)"
-                ejectable={s.overridden}
-                ejectTitle={`Revert ${s.title} to its default`}
-                onLoad={() => loadSideways(s.index)}
-                onEject={() => ejectSideways(s.index)}
-              />
-            )}
-          </For>
-        </div>
-      </Show>
+      <Show when={!sidewaysFirst()}>{sidewaysGrid()}</Show>
     </Pane>
   );
 }

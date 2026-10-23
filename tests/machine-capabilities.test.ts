@@ -27,6 +27,7 @@ const SNAPSHOT_FORMAT: Partial<Record<SaveMenuItem, string>> = {
   'snapshot-z80': '.z80',
   'snapshot-sna-v2': '.sna',
   'snapshot-sna-v3': '.sna',
+  'snapshot-a8state': '.a8state',
 };
 
 /** Build a machine headlessly — no renderer, no ROM. */

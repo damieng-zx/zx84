@@ -41,6 +41,7 @@ const DEFAULTS = {
   'einstein-color-map': 'accurate',
   'bbc-color-map':     'pal',
   'apple2-video':      'ntsc',
+  'atari-color-map':   'tv',
   'scanline-accuracy': 'high',
 
   // Sound
@@ -118,6 +119,7 @@ const DEFAULTS = {
   'lynx-fdc':       'on',
   'apple2-disk2':   'on',
   'drive-counts':   '{}',
+  'drive-models':   '{}',
   'apple2-langcard': 'on',
   'apple2-joystick': 'on',
   'apple2-mockingboard': 'off',
@@ -247,6 +249,12 @@ export const setMsxColorMap = _msxColorMap[1];
 const _einsteinColorMap = /*@once*/ createRoot(() => createSignal(getSaved('einstein-color-map', D('einstein-color-map')) as 'mame' | 'accurate' | 'naive'));
 export const einsteinColorMap = _einsteinColorMap[0];
 export const setEinsteinColorMap = _einsteinColorMap[1];
+
+/** Atari palette id (see machines/atari/palette.ts); the machine falls back
+ *  to its region's default for an id that region does not offer. */
+const _atariColorMap = /*@once*/ createRoot(() => createSignal(getSaved('atari-color-map', D('atari-color-map'))));
+export const atariColorMap = _atariColorMap[0];
+export const setAtariColorMap = _atariColorMap[1];
 
 const _scanlineAccuracy = /*@once*/ createRoot(() => createSignal(getSaved('scanline-accuracy', D('scanline-accuracy')) as 'high' | 'mid' | 'low'));
 export const scanlineAccuracy = _scanlineAccuracy[0];
@@ -504,6 +512,54 @@ function initialDriveCounts(): Record<string, number> {
   return counts;
 }
 
+/**
+ * The model of each drive, per machine kind, for machines whose drives are set
+ * up one at a time (the Atari's SIO drives). The list's length is the number
+ * of drives fitted. Held as JSON like the counts.
+ */
+function parseDriveModels(raw: string): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object') {
+      for (const [kind, models] of Object.entries(parsed)) {
+        if (Array.isArray(models) && models.length > 0 && models.every(m => typeof m === 'string')) {
+          out[kind] = models as string[];
+        }
+      }
+    }
+  } catch { /* corrupted entry: back to the machine's default drives */ }
+  return out;
+}
+
+function initialDriveModels(): Record<string, string[]> {
+  const models = parseDriveModels(getSaved('drive-models', D('drive-models')));
+  // The Atari used to have one model for every drive, set in the Hardware pane.
+  const legacy = getSaved('atari-disk-drive', '');
+  if (models.atari === undefined && legacy !== '') models.atari = [legacy, legacy];
+  return models;
+}
+
+const _driveModels = /*@once*/ createRoot(() => createSignal(initialDriveModels()));
+const setDriveModelsJson = (json: string): void => { _driveModels[1](parseDriveModels(json)); };
+
+/** The drive models saved for a machine kind, or undefined when never set up. */
+export function savedDriveModels(kind: string): readonly string[] | undefined {
+  return _driveModels[0]()[kind];
+}
+
+/** The drive models for a machine kind: what the user set up, else `fallback`. */
+export function driveModelsFor(kind: string, fallback: readonly string[]): readonly string[] {
+  return savedDriveModels(kind) ?? fallback;
+}
+
+/** Choose and persist the drives a machine kind has, one model each. */
+export function setDriveModelsFor(kind: string, models: readonly string[]): void {
+  const next = { ..._driveModels[0](), [kind]: [...models] };
+  _driveModels[1](next);
+  persistSetting('drive-models', JSON.stringify(next));
+}
+
 const _driveCounts = /*@once*/ createRoot(() => createSignal(initialDriveCounts()));
 const setDriveCountsJson = (json: string): void => { _driveCounts[1](parseDriveCounts(json)); };
 
@@ -697,6 +753,7 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'einstein-color-map', set: setEinsteinColorMap, type: 'string' },
     { key: 'bbc-color-map',     set: setBbcColorMap,      type: 'string' },
     { key: 'apple2-video',      set: setApple2Video,      type: 'string' },
+    { key: 'atari-color-map',   set: setAtariColorMap,    type: 'string' },
     { key: 'scanline-accuracy', set: setScanlineAccuracy, type: 'string' },
   ],
   monitor: [
@@ -750,6 +807,7 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'write-protect-c',     set: setWriteProtectC,    type: 'bool' },
     { key: 'write-protect-d',     set: setWriteProtectD,    type: 'bool' },
     { key: 'drive-counts',        set: setDriveCountsJson,  type: 'string' },
+    { key: 'drive-models',        set: setDriveModelsJson,  type: 'string' },
   ],
   tape: [
     { key: 'tape-auto-rewind',     set: setTapeAutoRewind,     type: 'bool' },
