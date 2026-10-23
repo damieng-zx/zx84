@@ -98,28 +98,14 @@ export function installMsxMemoryHooks(m: MsxMachine): void {
   cpu.read8 = (addr: number): number => {
     addr &= 0xFFFF;
     const val = memory.readByte(addr);
-    if (m.memWatchpoints.length > 0 && m.memWatchHit === null) {
-      for (const wp of m.memWatchpoints) {
-        if ((wp.mode === 'read' || wp.mode === 'rw') && addr >= wp.start && addr <= wp.end) {
-          m.memWatchHit = { addr, value: val, dir: 'read' };
-          break;
-        }
-      }
-    }
+    if (m.memWatchpoints.length > 0 && m.memWatchHit === null) m.recordMemWatch(addr, val, 'read');
     return val;
   };
 
   cpu.write8 = (addr: number, val: number): void => {
     addr &= 0xFFFF;
     memory.writeByte(addr, val);
-    if (m.memWatchpoints.length > 0 && m.memWatchHit === null) {
-      for (const wp of m.memWatchpoints) {
-        if ((wp.mode === 'write' || wp.mode === 'rw') && addr >= wp.start && addr <= wp.end) {
-          m.memWatchHit = { addr, value: val & 0xFF, dir: 'write' };
-          break;
-        }
-      }
-    }
+    if (m.memWatchpoints.length > 0 && m.memWatchHit === null) m.recordMemWatch(addr, val & 0xFF, 'write');
   };
 
   cpu._contendAccurate = () => {};
@@ -142,9 +128,7 @@ export function wireMsxPortIO(m: MsxMachine): void {
   cpu.portOut = (port: number, val: number): void => {
     port &= 0xFFFF;
     val &= 0xFF;
-    if (m.portWatchpoints.size > 0 && m.portWatchpoints.has(port) && m.portWatchHit === null) {
-      m.portWatchHit = { port, value: val, dir: 'out' };
-    }
+    if (m.portWatchpoints.size > 0) m.recordPortWatch(port, val, 'out');
     switch (port & 0xFF) {
       case 0x98: vdp.writeData(val); break;
       case 0x99: vdp.writeControl(val); break;
@@ -168,9 +152,7 @@ export function wireMsxPortIO(m: MsxMachine): void {
   cpu.portIn = (port: number): number => {
     port &= 0xFFFF;
     const val = dispatchIn(port);
-    if (m.portWatchpoints.size > 0 && m.portWatchpoints.has(port) && m.portWatchHit === null) {
-      m.portWatchHit = { port, value: val, dir: 'in' };
-    }
+    if (m.portWatchpoints.size > 0) m.recordPortWatch(port, val, 'in');
     return val;
   };
 

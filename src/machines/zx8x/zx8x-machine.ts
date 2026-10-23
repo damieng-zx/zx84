@@ -195,11 +195,7 @@ export class Zx8xMachine extends BaseMachine implements Machine {
         this.displayFetched = true;
         if ((value & 0x40) === 0) value = 0x00;
       }
-      if (this.memWatchpoints.length && this.memWatchHit === null) {
-        for (const wp of this.memWatchpoints) if ((wp.mode === 'read' || wp.mode === 'rw') && addr >= wp.start && addr <= wp.end) {
-          this.memWatchHit = { addr, value, dir: 'read' }; break;
-        }
-      }
+      if (this.memWatchpoints.length > 0 && this.memWatchHit === null) this.recordMemWatch(addr, value, 'read');
       return value;
     };
     this.cpu.write8 = (addr: number, value: number): void => {
@@ -208,11 +204,7 @@ export class Zx8xMachine extends BaseMachine implements Machine {
         this.quickSilvaMode = false;
       }
       this.memory.writeByte(addr, value);
-      if (this.memWatchpoints.length && this.memWatchHit === null) {
-        for (const wp of this.memWatchpoints) if ((wp.mode === 'write' || wp.mode === 'rw') && addr >= wp.start && addr <= wp.end) {
-          this.memWatchHit = { addr, value: value & 0xff, dir: 'write' }; break;
-        }
-      }
+      if (this.memWatchpoints.length > 0 && this.memWatchHit === null) this.recordMemWatch(addr, value & 0xff, 'write');
     };
     this.cpu._contendAccurate = () => {};
     this.cpu.contend = () => {};
@@ -223,7 +215,7 @@ export class Zx8xMachine extends BaseMachine implements Machine {
       }
       this.activity.kbdReads++;
       const value = 0x60 | this.keyboard.read((port >> 8) & 0xff);
-      if (this.portWatchpoints.has(port & 0xffff) && this.portWatchHit === null) this.portWatchHit = { port: port & 0xffff, value, dir: 'in' };
+      if (this.portWatchpoints.size > 0) this.recordPortWatch(port & 0xffff, value, 'in');
       return value;
     };
     this.cpu.portOutHandler = (port: number, value: number): void => {
@@ -233,7 +225,7 @@ export class Zx8xMachine extends BaseMachine implements Machine {
         if (low === 0xfe) this.nmiEnabled = true;
         else if (low === 0xfd) this.nmiEnabled = false;
       }
-      if (this.portWatchpoints.has(port & 0xffff) && this.portWatchHit === null) this.portWatchHit = { port: port & 0xffff, value: value & 0xff, dir: 'out' };
+      if (this.portWatchpoints.size > 0) this.recordPortWatch(port & 0xffff, value & 0xff, 'out');
     };
   }
 

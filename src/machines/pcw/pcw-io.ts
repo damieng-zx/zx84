@@ -58,28 +58,14 @@ export function installPcwMemoryHooks(m: PcwMachine): void {
   cpu.read8 = (addr: number): number => {
     addr &= 0xFFFF;
     const value = memory.readByte(addr);
-    if (m.memWatchpoints.length > 0 && m.memWatchHit === null) {
-      for (const wp of m.memWatchpoints) {
-        if ((wp.mode === 'read' || wp.mode === 'rw') && addr >= wp.start && addr <= wp.end) {
-          m.memWatchHit = { addr, value, dir: 'read' };
-          break;
-        }
-      }
-    }
+    if (m.memWatchpoints.length > 0 && m.memWatchHit === null) m.recordMemWatch(addr, value, 'read');
     return value;
   };
 
   cpu.write8 = (addr: number, value: number): void => {
     addr &= 0xFFFF;
     memory.writeByte(addr, value);
-    if (m.memWatchpoints.length > 0 && m.memWatchHit === null) {
-      for (const wp of m.memWatchpoints) {
-        if ((wp.mode === 'write' || wp.mode === 'rw') && addr >= wp.start && addr <= wp.end) {
-          m.memWatchHit = { addr, value: value & 0xFF, dir: 'write' };
-          break;
-        }
-      }
-    }
+    if (m.memWatchpoints.length > 0 && m.memWatchHit === null) m.recordMemWatch(addr, value & 0xFF, 'write');
   };
 
   // Video memory contention is folded into the flat 3.4MHz clock (see
@@ -95,9 +81,7 @@ export function wirePcwPortIO(m: PcwMachine): void {
   cpu.portOut = (port: number, value: number): void => {
     port &= 0xFFFF;
     value &= 0xFF;
-    if (m.portWatchpoints.size > 0 && m.portWatchpoints.has(port) && m.portWatchHit === null) {
-      m.portWatchHit = { port, value, dir: 'out' };
-    }
+    if (m.portWatchpoints.size > 0) m.recordPortWatch(port, value, 'out');
 
     // A7 low selects the uPD765A; A0 picks the register. Only the data
     // register is writable — the main status register is read-only.
@@ -130,9 +114,7 @@ export function wirePcwPortIO(m: PcwMachine): void {
   cpu.portIn = (port: number): number => {
     port &= 0xFFFF;
     const value = dispatchIn(port);
-    if (m.portWatchpoints.size > 0 && m.portWatchpoints.has(port) && m.portWatchHit === null) {
-      m.portWatchHit = { port, value, dir: 'in' };
-    }
+    if (m.portWatchpoints.size > 0) m.recordPortWatch(port, value, 'in');
     return value;
   };
 

@@ -171,14 +171,7 @@ export function installCpcMemoryHooks(m: CpcMachine): void {
     cpu.tStates = cpcMemCycleStart(cpu.tStates);
     addr &= 0xFFFF;
     const val = memory.readByte(addr);
-    if (m.memWatchpoints.length > 0 && m.memWatchHit === null) {
-      for (const wp of m.memWatchpoints) {
-        if ((wp.mode === 'read' || wp.mode === 'rw') && addr >= wp.start && addr <= wp.end) {
-          m.memWatchHit = { addr, value: val, dir: 'read' };
-          break;
-        }
-      }
-    }
+    if (m.memWatchpoints.length > 0 && m.memWatchHit === null) m.recordMemWatch(addr, val, 'read');
     return val;
   };
 
@@ -194,14 +187,7 @@ export function installCpcMemoryHooks(m: CpcMachine): void {
     } else {
       memory.writeByte(addr, val);
     }
-    if (m.memWatchpoints.length > 0 && m.memWatchHit === null) {
-      for (const wp of m.memWatchpoints) {
-        if ((wp.mode === 'write' || wp.mode === 'rw') && addr >= wp.start && addr <= wp.end) {
-          m.memWatchHit = { addr, value: val & 0xFF, dir: 'write' };
-          break;
-        }
-      }
-    }
+    if (m.memWatchpoints.length > 0 && m.memWatchHit === null) m.recordMemWatch(addr, val & 0xFF, 'write');
   };
 
   // Internal (non-MREQ) cycles are never stretched by /WAIT — only the bus
@@ -227,9 +213,7 @@ export function wireCpcPortIO(m: CpcMachine): void {
   cpu.portOut = (port: number, val: number): void => {
     cpu.tStates = cpcIoOutStart(cpu.tStates);
     port &= 0xFFFF;
-    if (m.portWatchpoints.size > 0 && m.portWatchpoints.has(port) && m.portWatchHit === null) {
-      m.portWatchHit = { port, value: val, dir: 'out' };
-    }
+    if (m.portWatchpoints.size > 0) m.recordPortWatch(port, val, 'out');
 
     // Multiface Two: snoop every OUT into its RAM shadow (so the toolkit can
     // restore write-only chip state on Return), and handle its paging ports
@@ -290,9 +274,7 @@ export function wireCpcPortIO(m: CpcMachine): void {
     cpu.tStates = cpcIoInSample(cpu.tStates);
     port &= 0xFFFF;
     const val = dispatchIn(port);
-    if (m.portWatchpoints.size > 0 && m.portWatchpoints.has(port) && m.portWatchHit === null) {
-      m.portWatchHit = { port, value: val, dir: 'in' };
-    }
+    if (m.portWatchpoints.size > 0) m.recordPortWatch(port, val, 'in');
     return val;
   };
 

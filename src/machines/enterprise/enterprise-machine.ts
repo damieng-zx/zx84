@@ -132,7 +132,7 @@ export class EnterpriseMachine extends BaseMachine implements Machine {
       if (mem.videoPageMask & (1 << page)) this.videoWait();
       else if (this.waitAll || (this.waitM1 && addr === this.cpu.pc)) this.cpu.tStates++;
       const value = mem.readByte(addr);
-      if (this.memWatchpoints.length > 0 && this.memWatchHit === null) this.checkMemWatch(addr & 0xFFFF, value, 'read');
+      if (this.memWatchpoints.length > 0 && this.memWatchHit === null) this.recordMemWatch(addr & 0xFFFF, value, 'read');
       return value;
     };
     this.cpu.write8 = (addr: number, v: number): void => {
@@ -140,20 +140,11 @@ export class EnterpriseMachine extends BaseMachine implements Machine {
       if (mem.videoPageMask & (1 << page)) this.videoWait();
       else if (this.waitAll) this.cpu.tStates++;
       mem.writeByte(addr, v);
-      if (this.memWatchpoints.length > 0 && this.memWatchHit === null) this.checkMemWatch(addr & 0xFFFF, v & 0xFF, 'write');
+      if (this.memWatchpoints.length > 0 && this.memWatchHit === null) this.recordMemWatch(addr & 0xFFFF, v & 0xFF, 'write');
     };
     wireEnterprisePortIO(this);
 
     this.services = createEnterpriseServices(this, () => this.host);
-  }
-
-  private checkMemWatch(addr: number, value: number, dir: 'read' | 'write'): void {
-    for (const wp of this.memWatchpoints) {
-      if ((wp.mode === dir || wp.mode === 'rw') && addr >= wp.start && addr <= wp.end) {
-        this.memWatchHit = { addr, value, dir };
-        return;
-      }
-    }
   }
 
   // ── Bus timing ─────────────────────────────────────────────────────────

@@ -19,15 +19,11 @@ import type { EnterpriseMachine } from './enterprise-machine.ts';
 export function wireEnterprisePortIO(m: EnterpriseMachine): void {
   m.cpu.portInHandler = (port: number): number => {
     const value = portIn(m, port & 0xFF);
-    if (m.portWatchpoints.size > 0 && m.portWatchHit === null && m.portWatchpoints.has(port & 0xFFFF)) {
-      m.portWatchHit = { port: port & 0xFFFF, value, dir: 'in' };
-    }
+    if (m.portWatchpoints.size > 0) m.recordPortWatch(port & 0xFFFF, value, 'in');
     return value;
   };
   m.cpu.portOutHandler = (port: number, value: number): void => {
-    if (m.portWatchpoints.size > 0 && m.portWatchHit === null && m.portWatchpoints.has(port & 0xFFFF)) {
-      m.portWatchHit = { port: port & 0xFFFF, value: value & 0xFF, dir: 'out' };
-    }
+    if (m.portWatchpoints.size > 0) m.recordPortWatch(port & 0xFFFF, value & 0xFF, 'out');
     portOut(m, port & 0xFF, value & 0xFF);
   };
 }

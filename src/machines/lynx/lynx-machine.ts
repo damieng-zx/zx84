@@ -131,27 +131,16 @@ export class LynxMachine extends BaseMachine implements Machine {
     this.tape.pulseScale = this.clock / TAPE_REF_HZ;
     this.cpu.read8 = (addr: number): number => {
       const value = this.memory.readByte(addr);
-      if (this.memWatchpoints.length > 0 && this.memWatchHit === null) this.checkMemWatch(addr & 0xffff, value, 'read');
+      if (this.memWatchpoints.length > 0 && this.memWatchHit === null) this.recordMemWatch(addr & 0xffff, value, 'read');
       return value;
     };
     this.cpu.write8 = (addr: number, v: number): void => {
       this.memory.writeByte(addr, v);
-      if (this.memWatchpoints.length > 0 && this.memWatchHit === null) this.checkMemWatch(addr & 0xffff, v & 0xff, 'write');
+      if (this.memWatchpoints.length > 0 && this.memWatchHit === null) this.recordMemWatch(addr & 0xffff, v & 0xff, 'write');
     };
     wireLynxPortIO(this);
 
     this.services = createLynxServices(this, () => this.host);
-  }
-
-  /** Record the first access this frame that falls in a memory watchpoint.
-   *  Only reached while at least one is set, so the bus pays nothing else. */
-  private checkMemWatch(addr: number, value: number, dir: 'read' | 'write'): void {
-    for (const wp of this.memWatchpoints) {
-      if ((wp.mode === dir || wp.mode === 'rw') && addr >= wp.start && addr <= wp.end) {
-        this.memWatchHit = { addr, value, dir };
-        return;
-      }
-    }
   }
 
   // ── Machine SPI ────────────────────────────────────────────────────────

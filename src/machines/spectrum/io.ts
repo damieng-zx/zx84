@@ -31,14 +31,7 @@ export function installMemoryHooks(s: Spectrum): void {
       cpu.tStates += contention.contentionDelay(cpu.tStates);
     }
     const val = flat[addr];
-    if (s.memWatchpoints.length > 0 && s.memWatchHit === null) {
-      for (const wp of s.memWatchpoints) {
-        if ((wp.mode === 'read' || wp.mode === 'rw') && addr >= wp.start && addr <= wp.end) {
-          s.memWatchHit = { addr, value: val, dir: 'read' };
-          break;
-        }
-      }
-    }
+    if (s.memWatchpoints.length > 0 && s.memWatchHit === null) s.recordMemWatch(addr, val, 'read');
     return val;
   };
 
@@ -109,14 +102,7 @@ export function installMemoryHooks(s: Spectrum): void {
     // or -1 in the common case (no aliasing — branch predicts cheaply).
     const alias = slotAlias[addr >>> 14];
     if (alias >= 0) flat[(alias << 14) | (addr & 0x3FFF)] = v;
-    if (s.memWatchpoints.length > 0 && s.memWatchHit === null) {
-      for (const wp of s.memWatchpoints) {
-        if ((wp.mode === 'write' || wp.mode === 'rw') && addr >= wp.start && addr <= wp.end) {
-          s.memWatchHit = { addr, value: val & 0xFF, dir: 'write' };
-          break;
-        }
-      }
-    }
+    if (s.memWatchpoints.length > 0 && s.memWatchHit === null) s.recordMemWatch(addr, val & 0xFF, 'write');
   };
 
   cpu.portIn = (port: number): number => {
@@ -139,9 +125,7 @@ export function wirePortIO(s: Spectrum): void {
   const v = s.variant;
 
   s.cpu.portOutHandler = (port: number, val: number) => {
-    if (s.portWatchpoints.size > 0 && s.portWatchpoints.has(port & 0xFFFF) && s.portWatchHit === null) {
-      s.portWatchHit = { port: port & 0xFFFF, value: val, dir: 'out' };
-    }
+    if (s.portWatchpoints.size > 0) s.recordPortWatch(port & 0xFFFF, val, 'out');
 
     // MGT +D ports (page out, WD1772 registers, control register). Handled
     // first and returned so a +D OUT can't also trip banking/AY decoding.
@@ -248,9 +232,7 @@ export function wirePortIO(s: Spectrum): void {
 
   s.cpu.portInHandler = (port: number): number => {
     const val = dispatch(port);
-    if (s.portWatchpoints.size > 0 && s.portWatchpoints.has(port & 0xFFFF) && s.portWatchHit === null) {
-      s.portWatchHit = { port: port & 0xFFFF, value: val, dir: 'in' };
-    }
+    if (s.portWatchpoints.size > 0) s.recordPortWatch(port & 0xFFFF, val, 'in');
     return val;
   };
 
