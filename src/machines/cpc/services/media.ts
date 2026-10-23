@@ -31,10 +31,16 @@ export class CpcMediaService implements MediaService {
   accepts(): MediaTypeDescriptor[] {
     const out: MediaTypeDescriptor[] = [
       { ext: '.sna', target: 'snapshot' },
+      // mount() reads all three as cassettes (CDT/TZX share a container); the
+      // shell filters the Load picker and ZIP contents by this list.
       { ext: '.cdt', target: 'tape' },
+      { ext: '.tzx', target: 'tape' },
+      { ext: '.tap', target: 'tape' },
     ];
     if (this.c.config.isPlus) out.push({ ext: '.cpr', target: 'cartridge' });
-    if (this.c.config.hasFDC) out.push({ ext: '.dsk', target: 'a' }, { ext: '.hfe', target: 'a' });
+    if (this.c.config.hasFDC) {
+      for (const ext of ['.dsk', '.hfe', '.scp', '.td0']) out.push({ ext, target: 'a' });
+    }
     return out;
   }
 
@@ -85,7 +91,7 @@ export class CpcMediaService implements MediaService {
     }
 
     // Disk images into the uPD765A.
-    if (/\.(dsk|hfe|scp)$/i.test(filename)) {
+    if (/\.(dsk|hfe|scp|td0)$/i.test(filename)) {
       const unit = CpcMediaService.unitOf(target);
       try {
         if (unit > 1) throw new Error('that drive is not fitted');
@@ -97,6 +103,6 @@ export class CpcMediaService implements MediaService {
       }
     }
 
-    return fail('CPC accepts .sna, .dsk, .hfe, .scp, .cdt, .tzx and .tap files');
+    return fail('CPC accepts .sna, .dsk, .hfe, .scp, .td0, .cdt, .tzx and .tap files');
   }
 }

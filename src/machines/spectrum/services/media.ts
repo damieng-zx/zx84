@@ -56,7 +56,7 @@ export class SpectrumMediaService implements MediaService {
       { ext: '.hfe', target: 'a' },
       { ext: '.scp', target: 'a' },
     ];
-    if (s.variant.hasFDC) out.push({ ext: '.dsk', target: 'a' });
+    if (s.variant.hasFDC) out.push({ ext: '.dsk', target: 'a' }, { ext: '.td0', target: 'a' });
     if (isInterface1Capable(s.model)) out.push({ ext: '.mdr', target: 'mdv:0' }, { ext: '.mdv', target: 'mdv:0' });
     if (isInterface2Capable(s.model)) out.push({ ext: '.rom', target: 'cartridge' });
     return out;
@@ -132,7 +132,7 @@ export class SpectrumMediaService implements MediaService {
     }
 
     // +3 internal drives (uPD765A).
-    if (ext === 'dsk' || ext === 'hfe' || ext === 'scp') {
+    if (ext === 'dsk' || ext === 'hfe' || ext === 'scp' || ext === 'td0') {
       const unit = target === 'b' ? 1 : SpectrumMediaService.unitOf(target, 'fdc:', 0);
       // Parsing and insertion are synchronous: the frame loop cannot interleave
       // with this swap. Leave the user's running/paused state untouched.
