@@ -10,11 +10,10 @@
  * physical one coexist without desyncing.)
  */
 
-import { createSignal, onCleanup, onMount } from 'solid-js';
+import { createSignal, onCleanup } from 'solid-js';
+import { createMatrixKeyboard } from '@/ui/components/matrix-keyboard.ts';
 import { activeAce } from '@/machines/jupiter-ace/ui/active.ts';
 import type { Cell } from './legends.ts';
-
-const released = (): number[] => [0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff];
 
 const sameCell = (a: Cell, b: Cell) => a[0] === b[0] && a[1] === b[1];
 
@@ -28,12 +27,20 @@ export interface KeyboardController {
 }
 
 export function useKeyboard(): KeyboardController {
-  const [matrix, setMatrix] = createSignal<number[]>(released());
   const [latched, setLatched] = createSignal<readonly Cell[]>([]);
 
   const keyboard = () => activeAce()?.keyboard ?? null;
 
-  const isDown = (pos: Cell) => (matrix()[pos[0]] & (1 << pos[1])) === 0;
+  // Mirrors the live matrix each frame so physical keystrokes highlight the
+  // on-screen keys too, not just pointer presses.
+  const matrix = createMatrixKeyboard({
+    keyboard,
+    rows: (kb) => kb.rows,
+    setCell: (kb, row, bit, down) => kb.setKey(row, bit, down),
+    rowCount: 8,
+    released: 0xff,
+  });
+  const isDown = (pos: Cell) => matrix.isDown(pos[0], pos[1]);
 
   const releaseLatched = () => {
     const kb = keyboard();
@@ -66,27 +73,6 @@ export function useKeyboard(): KeyboardController {
     // One-shot: drop latched modifiers once an ordinary key has been used.
     if (latched().length > 0) releaseLatched();
   };
-
-  // Per-frame poll: mirror the live matrix so physical keystrokes highlight the
-  // on-screen keys too, not just pointer presses.
-  onMount(() => {
-    let raf = 0;
-    const tick = () => {
-      const kb = keyboard();
-      if (kb) {
-        const rows = kb.rows;
-        const cur = matrix();
-        let changed = false;
-        for (let i = 0; i < 8; i++) if (rows[i] !== cur[i]) { changed = true; break; }
-        if (changed) setMatrix(Array.from(rows));
-      } else if (matrix().some((b) => b !== 0xff)) {
-        setMatrix(released());
-      }
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    onCleanup(() => cancelAnimationFrame(raf));
-  });
 
   // A latched modifier must not stay held in the matrix once the pane is gone.
   onCleanup(releaseLatched);

@@ -9,7 +9,8 @@
  * matrix for highlighting.
  */
 
-import { For, createSignal, onMount, onCleanup } from 'solid-js';
+import { For, createSignal, onCleanup } from 'solid-js';
+import { createMatrixKeyboard } from '@/ui/components/matrix-keyboard.ts';
 import { activeSpectrum } from '@/machines/spectrum/ui/active.ts';
 
 /** ZX keyboard-matrix [row, bit] for each key glyph. */
@@ -83,8 +84,6 @@ export function Block(props: { n: number; class?: string }) {
   );
 }
 
-const ROWS_RELEASED = (): number[] => [0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff];
-
 /**
  * How a sticky key latches:
  *   • 'oneshot' — held until the next ordinary key is pressed, then released
@@ -121,7 +120,14 @@ const idOf = (positions: [number, number][]) => positions.map(([r, b]) => `${r},
 const CHORD_PULSE_MS = 120;
 
 export function useKeyboard(): KeyboardController {
-  const [matrix, setMatrix] = createSignal<number[]>(ROWS_RELEASED());
+  // Mirrors the live matrix each frame so keys highlight for physical keystrokes too.
+  const matrix = createMatrixKeyboard({
+    keyboard: () => activeSpectrum()?.keyboard ?? null,
+    rows: (kb) => kb.rows,
+    setCell: (kb, row, bit, down) => kb.setKey(row, bit, down),
+    rowCount: 8,
+    released: 0xff,
+  });
   const [latched, setLatched] = createSignal<ReadonlyMap<string, { positions: [number, number][]; hold: boolean }>>(new Map());
 
   // Shift-chord (CAPS+SYMBOL) bits currently pulsed down, awaiting release.
@@ -135,7 +141,7 @@ export function useKeyboard(): KeyboardController {
   };
 
   const isDown = (positions: [number, number][]) =>
-    positions.length > 0 && positions.every(([r, b]) => (matrix()[r] & (1 << b)) === 0);
+    positions.length > 0 && positions.every(([r, b]) => matrix.isDown(r, b));
 
   const onDown = (positions: [number, number][], latch?: LatchMode) => {
     const kb = activeSpectrum()?.keyboard;
@@ -201,26 +207,6 @@ export function useKeyboard(): KeyboardController {
     if (changed) setLatched(next);
   };
 
-  onMount(() => {
-    let raf = 0;
-    const tick = () => {
-      const kb = activeSpectrum()?.keyboard;
-      if (kb) {
-        const r = kb.rows;
-        const cur = matrix();
-        let changed = false;
-        for (let i = 0; i < 8; i++) {
-          if (r[i] !== cur[i]) { changed = true; break; }
-        }
-        if (changed) setMatrix(Array.from(r));
-      } else if (matrix().some((b) => b !== 0xff)) {
-        setMatrix(ROWS_RELEASED());
-      }
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    onCleanup(() => cancelAnimationFrame(raf));
-  });
 
   onCleanup(() => { if (chordTimer) clearTimeout(chordTimer); });
 

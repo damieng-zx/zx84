@@ -2,12 +2,9 @@
  * Toshiba HX-10 on-screen keyboard interaction and live highlighting.
  */
 
-import { createSignal, onCleanup, onMount } from 'solid-js';
+import { createMatrixKeyboard } from '@/ui/components/matrix-keyboard.ts';
 import { activeMsx } from '@/machines/msx/ui/active.ts';
 import type { Hx10Cell } from './layout.ts';
-
-const released = (): number[] =>
-  [0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff];
 
 export interface Hx10KeyboardController {
   isDown(cell: Hx10Cell): boolean;
@@ -16,63 +13,17 @@ export interface Hx10KeyboardController {
 }
 
 export function useHx10Keyboard(): Hx10KeyboardController {
-  const [matrix, setMatrix] = createSignal<number[]>(released());
-  const held = new Set<string>();
-  const keyboard = () => activeMsx()?.keyboard ?? null;
-  const idOf = ([row, bit]: Hx10Cell) => `${row},${bit}`;
-
-  const isDown = ([row, bit]: Hx10Cell) =>
-    (matrix()[row] & (1 << bit)) === 0;
-
-  const onDown = (cell: Hx10Cell) => {
-    const kb = keyboard();
-    if (!kb) return;
-    const id = idOf(cell);
-    if (held.has(id)) return;
-    held.add(id);
-    kb.setKey(cell[0], cell[1], true);
-  };
-
-  const onUp = (cell: Hx10Cell) => {
-    const kb = keyboard();
-    const id = idOf(cell);
-    if (!held.delete(id) || !kb) return;
-    kb.setKey(cell[0], cell[1], false);
-  };
-
-  onMount(() => {
-    let raf = 0;
-    const tick = () => {
-      const kb = keyboard();
-      if (kb) {
-        const rows = kb.rows;
-        const current = matrix();
-        let changed = false;
-        for (let index = 0; index < rows.length; index++) {
-          if (rows[index] !== current[index]) {
-            changed = true;
-            break;
-          }
-        }
-        if (changed) setMatrix(Array.from(rows));
-      } else if (matrix().some((value) => value !== 0xff)) {
-        setMatrix(released());
-      }
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    onCleanup(() => {
-      cancelAnimationFrame(raf);
-      const kb = keyboard();
-      if (kb) {
-        for (const id of held) {
-          const [row, bit] = id.split(',').map(Number);
-          kb.setKey(row, bit, false);
-        }
-      }
-      held.clear();
-    });
+  const matrix = createMatrixKeyboard({
+    keyboard: () => activeMsx()?.keyboard ?? null,
+    rows: (kb) => kb.rows,
+    setCell: (kb, row, bit, down) => kb.setKey(row, bit, down),
+    rowCount: 11,
+    released: 0xff,
   });
 
-  return { isDown, onDown, onUp };
+  return {
+    isDown: ([row, bit]) => matrix.isDown(row, bit),
+    onDown: ([row, bit]) => matrix.press(row, bit),
+    onUp: ([row, bit]) => matrix.release(row, bit),
+  };
 }
