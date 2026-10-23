@@ -12,6 +12,12 @@ export interface StereoAudioSource {
   generateSampleStereo(): { left: number; right: number };
 }
 
+/** A peripheral that contributes a mono signal to both channels, already level-set
+ *  (a speech synthesiser, say). Asked for one sample per output sample. */
+export interface MonoAudioSource {
+  generateSampleMono(): number;
+}
+
 function clamp01(v: number): number {
   return v < 0 ? 0 : v > 1 ? 1 : v;
 }
@@ -158,7 +164,7 @@ export class AudioMixer {
   }
 
   /** Generate audio samples when enough T-states have accumulated. */
-  generateSamples(audio: Audio, psg: StereoAudioSource | null, psgEnabled: boolean): void {
+  generateSamples(audio: Audio, psg: StereoAudioSource | null, psgEnabled: boolean, aux: MonoAudioSource | null = null): void {
     const tps = this.tStatesPerSample;
     while (this.beeperTStatesAccum >= tps) {
       // Time-weighted duty of the window. The common case — an instruction that
@@ -222,6 +228,12 @@ export class AudioMixer {
         const auxOut = this.auxDCOut * this._auxGain;
         left += auxOut;
         right += auxOut;
+      }
+
+      if (aux) {
+        const a = aux.generateSampleMono();
+        left += a;
+        right += a;
       }
 
       audio.pushSample(

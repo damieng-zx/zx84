@@ -12,13 +12,13 @@ import { Show } from 'solid-js';
 import { resetMachine } from '@/shell/lifecycle.ts';
 import {
   currentModel,
-  multifaceRomFailed, vtx5000RomFailed, plusDRomFailed, interface1RomFailed, betaDiskRomFailed,
+  multifaceRomFailed, vtx5000RomFailed, plusDRomFailed, interface1RomFailed, betaDiskRomFailed, uspeechRomFailed,
 } from '@/state/machine-state.ts';
 import { activeSpectrum } from '@/machines/spectrum/ui/active.ts';
 import {
-  loadMultifaceROM, loadVTX5000ROM, loadPlusDROM, loadInterface1ROM, loadBetaDiskROM, triggerNMI,
+  loadMultifaceROM, loadVTX5000ROM, loadPlusDROM, loadInterface1ROM, loadBetaDiskROM, loadUspeechROMs, triggerNMI,
 } from '@/machines/spectrum/ui/hardware-actions.ts';
-import { isPlusDCapable, isInterface1Capable, isBetaDiskCapable, hasBuiltinBetaDisk, type SpectrumModel } from '@/machines/spectrum/models.ts';
+import { isPlusDCapable, isInterface1Capable, isUspeechCapable, isBetaDiskCapable, hasBuiltinBetaDisk, type SpectrumModel } from '@/machines/spectrum/models.ts';
 import { variantForModel, variantLabel } from '@/machines/spectrum/peripherals/multiface.ts';
 import * as settings from '@/store/settings.ts';
 
@@ -168,6 +168,37 @@ export function SpectrumHardwareSection() {
               }}
             />
             ZX Interface 1
+          </label>
+        </div>
+      </Show>
+      <Show when={isUspeechCapable(currentModel())}>
+        <div class="multiface-row">
+          <label
+            class={`mf-check${uspeechRomFailed() ? ' rom-failed' : ''}`}
+            title={uspeechRomFailed() || 'Currah µSpeech — SP0256-AL2 speech synthesiser (LET s$="…" in BASIC)'}
+          >
+            <input
+              type="checkbox"
+              checked={settings.uspeechEnabled()}
+              disabled={!!uspeechRomFailed()}
+              onChange={(e) => {
+                const on = (e.target as HTMLInputElement).checked;
+                settings.setUspeechEnabled(on);
+                settings.persistSetting('uspeech', on ? 'on' : 'off');
+                const s = activeSpectrum();
+                if (s) {
+                  s.currah.enabled = on;
+                  // The unit's ROM initialises BASIC's RAMTOP on the first interrupt
+                  // after power-up, so fitting or removing it needs a reset.
+                  if (on && !(s.currah.romLoaded && s.currah.speechRomLoaded)) {
+                    loadUspeechROMs(s).then((ok) => { if (ok) resetMachine(); });
+                  } else {
+                    resetMachine();
+                  }
+                }
+              }}
+            />
+            Currah µSpeech
           </label>
         </div>
       </Show>

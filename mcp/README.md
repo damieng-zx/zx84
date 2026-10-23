@@ -144,6 +144,7 @@ These use the active +3 or CPC uPD765A where fitted.
 | `multiface` | `action`: `on`, `off`, `nmi`, `status` | Control MF1/MF128/MF3 and trigger NMI. |
 | `vtx5000` | `action`: `on`, `off`, `status` | Control the 48K VTX-5000 Viewdata modem. |
 | `specdrum` | `action`: `on`, `off`, `status` | Fit/remove the SpecDrum 8-bit DAC (port 0xDF); status shows the last DAC code. |
+| `uspeech` | `action`: `on`, `off`, `status` | Control the Currah µSpeech speech synthesiser (SP0256-AL2). |
 | `plusd` | `action`: `on`, `off`, `status` | Control the MGT +D interface. |
 | `betadisk` | `action`: `on`, `off`, `status` | Control Beta Disk/TR-DOS. |
 

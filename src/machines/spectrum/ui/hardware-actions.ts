@@ -10,7 +10,7 @@ import { setStatus } from '@/shell/context.ts';
 import { activeSpectrum } from '@/machines/spectrum/ui/active.ts';
 import type { Spectrum } from '@/machines/spectrum/spectrum.ts';
 import {
-  multifaceAuxRom, vtx5000AuxRom, plusDAuxRom, if1AuxRom, betaAuxRom,
+  multifaceAuxRom, vtx5000AuxRom, plusDAuxRom, if1AuxRom, betaAuxRom, uspeechAuxRoms,
 } from '@/machines/spectrum/aux-roms.ts';
 
 export const loadMultifaceROM = (s: Spectrum) => loadAuxRom(multifaceAuxRom(s));
@@ -18,6 +18,11 @@ export const loadVTX5000ROM = (s: Spectrum) => loadAuxRom(vtx5000AuxRom(s));
 export const loadPlusDROM = (s: Spectrum) => loadAuxRom(plusDAuxRom(s));
 export const loadInterface1ROM = (s: Spectrum) => loadAuxRom(if1AuxRom(s));
 export const loadBetaDiskROM = (s: Spectrum) => loadAuxRom(betaAuxRom(s));
+/** Fetch both µSpeech images; true only if both arrived. */
+export async function loadUspeechROMs(s: Spectrum): Promise<boolean> {
+  for (const r of uspeechAuxRoms(s)) if (!(await loadAuxRom(r))) return false;
+  return true;
+}
 
 /** Press the Multiface's red button (NMI). */
 export function triggerNMI(): void {

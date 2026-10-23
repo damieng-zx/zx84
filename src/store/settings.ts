@@ -104,6 +104,7 @@ const DEFAULTS = {
   'plusd':          'off',
   'interface1':     'off',
   'betadisk':       'off',
+  'uspeech':        'off',
   'einstein-xtaldos': 'on',
   'mtx-cpm':        'off',
   'mtx-80-column':  'off',
@@ -653,6 +654,10 @@ const _interface1Enabled = /*@once*/ createRoot(() => createSignal(getSaved('int
 export const interface1Enabled = _interface1Enabled[0];
 export const setInterface1Enabled = _interface1Enabled[1];
 
+const _uspeechEnabled = /*@once*/ createRoot(() => createSignal(getSaved('uspeech', D('uspeech')) === 'on'));
+export const uspeechEnabled = _uspeechEnabled[0];
+export const setUspeechEnabled = _uspeechEnabled[1];
+
 // ── Behaviour settings ──────────────────────────────────────────────────
 
 const _pauseOnFocusLost = /*@once*/ createRoot(() => createSignal(getSaved('pause-on-blur', D('pause-on-blur')) === 'on'));
@@ -761,6 +766,7 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'plusd',          set: setPlusDEnabled,     type: 'bool' },
     { key: 'betadisk',       set: setBetaDiskEnabled,  type: 'bool' },
     { key: 'interface1',     set: setInterface1Enabled, type: 'bool' },
+    { key: 'uspeech',        set: setUspeechEnabled,   type: 'bool' },
     { key: 'einstein-xtaldos', set: setEinsteinXtalDos, type: 'bool' },
     { key: 'mtx-cpm', set: setMtxCpm, type: 'bool' },
     { key: 'mtx-80-column', set: setMtx80Column, type: 'bool' },

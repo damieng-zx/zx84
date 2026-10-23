@@ -89,6 +89,16 @@ export function isPlusDCapable(m: MachineModel): boolean {
 }
 
 /**
+ * Returns true for models the Currah µSpeech can attach to: the Ferranti-ULA
+ * 16K/48K/128K/+2. Excluded: the Amstrad +2A/+3, whose redesigned edge connector
+ * and ROM paging the unit (which takes /ROMCS over the whole of 0x0000-0x3FFF)
+ * was never made for.
+ */
+export function isUspeechCapable(m: MachineModel): boolean {
+  return m === 'zx16k' || m === 'zx48k' || m === 'zx128k' || m === 'zx128kplus2';
+}
+
+/**
  * Returns true for models the ZX Interface 1 can attach to: the Ferranti-ULA
  * 48K/128K/+2. Excluded: the 16K and the Amstrad +2A/+3, whose redesigned edge
  * connector the IF1 is not electrically compatible with.

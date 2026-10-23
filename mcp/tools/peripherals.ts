@@ -1,12 +1,12 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { variantForModel, variantLabel } from '../../src/machines/spectrum/peripherals/multiface.ts';
-import { isPlusDCapable, isBetaDiskCapable } from '../../src/models.ts';
+import { isPlusDCapable, isBetaDiskCapable, isUspeechCapable } from '../../src/models.ts';
 import { hex8 as h8, hex16 as h16 } from '../../src/utils/hex.ts';
 import { state } from '../state.ts';
 import { activeMsx, activeMtx, activeSpectrum } from '../concrete.ts';
 import { text } from '../format.ts';
-import { fetchMFRom, fetchVTXRom, fetchPlusDRom, fetchBetaDiskRom, fetchMsxDiskRom } from '../rom-fetch.ts';
+import { fetchMFRom, fetchVTXRom, fetchPlusDRom, fetchBetaDiskRom, fetchMsxDiskRom, fetchUspeechRom, fetchSp0256Rom } from '../rom-fetch.ts';
 
 export function register(server: McpServer): void {
   server.registerTool(
@@ -80,6 +80,44 @@ export function register(server: McpServer): void {
         `SpecDrum: ${drum.enabled ? 'ON' : 'OFF'}  dacCode=${h8(drum.dac.code)}  signed=${drum.signedLevel.toFixed(3)}  ` +
         `writesThisFrame=${spec.activity.specdrumWrites}  volume=${(spec.mixer.auxGain * 100).toFixed(0)}%`
       );
+    },
+  );
+
+  server.registerTool(
+    'uspeech',
+    { description: 'Enable/disable the Currah µSpeech speech synthesiser (16K/48K/128K/+2). Loads its ROM and the SP0256-AL2 allophone ROM and resets; the unit pages in on the frame interrupt. Status shows the speech chip\'s LRQ state and the last allophone sent. Actions: "on", "off", "status".', inputSchema: { action: z.enum(['on', 'off', 'status']).describe('Action to perform') } },
+    async ({ action }) => {
+      const spec = activeSpectrum();
+      if (!spec) return text('The Currah µSpeech is a Spectrum peripheral — not available on this machine.');
+      const u = spec.currah;
+
+      if (action === 'status') {
+        return text(
+          `Currah µSpeech: ${u.enabled ? 'ON' : 'OFF'}  romLoaded=${u.romLoaded}  speechRomLoaded=${u.speechRomLoaded}  pagedIn=${u.pagedIn}\n` +
+          `SP0256: ready=${u.chip.ready}  idle=${u.chip.idle}  pitch=${u.highPitch ? 'high' : 'low'}  ` +
+          `commandsAccepted=${u.accepted}  lastAllophone=${u.lastCommand < 0 ? '-' : h8(u.lastCommand)}\n` +
+          `Model: ${spec.model}  RAMTOP=${h16(spec.memory.readByte(0x5CB2) | (spec.memory.readByte(0x5CB3) << 8))}`
+        );
+      }
+
+      if (action === 'off') {
+        u.pageOut(spec.memory);
+        u.enabled = false;
+        spec.reset();
+        return text('Currah µSpeech removed. Machine reset.');
+      }
+
+      // action === 'on'
+      if (!isUspeechCapable(spec.model)) return text(`The µSpeech fits the 16K/48K/128K/+2 only (current: ${spec.model}). Use the model tool to switch.`);
+      try {
+        if (!u.romLoaded) u.loadROM(await fetchUspeechRom());
+        if (!u.speechRomLoaded) u.loadSpeechROM(await fetchSp0256Rom());
+      } catch (err) {
+        return text(`Failed to load the µSpeech ROMs: ${err}`);
+      }
+      u.enabled = true;
+      spec.reset();
+      return text('Currah µSpeech enabled. Machine reset; its ROM pages in on the first interrupt (RAMTOP drops by 256 bytes for its speech buffer).');
     },
   );
 
