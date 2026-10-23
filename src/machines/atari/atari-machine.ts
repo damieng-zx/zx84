@@ -29,7 +29,13 @@ import type {
   AuxRomRequest, BorderMode, HostKeyEvent, Machine, MachineDescriptor, MachineHost, MachineKind, SettingsView,
 } from '@/machines/machine.ts';
 import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
-import { Antic, ANTIC_FIRST_LINE, ANTIC_LAST_LINE } from './antic.ts';
+import {
+  BEAM_DL, BEAM_DMA, BEAM_EFF, BEAM_IO, DL_FETCH, DL_VISIBLE, type BeamInfo, type BeamPos,
+} from '@/debug/beam-log.ts';
+import { REG_HSCROL } from './line-writes.ts';
+import type { StopKind } from '@/debug/stop-reason.ts';
+import type { ChipSection } from '@/debug/chip-state.ts';
+import { Antic, ANTIC_FIRST_LINE, ANTIC_LAST_LINE, ANTIC_MODES } from './antic.ts';
 import { AtariCartridge, type AtariCartType } from './cartridge.ts';
 import { AtariMemory } from './memory.ts';
 import { AtariVideo } from './atari-video.ts';
@@ -95,6 +101,44 @@ const FETCH_SAMPLE_CYCLE = STEAL_START;
 /** Cycles from the start of an instruction to its data read (an absolute load). */
 const VCOUNT_READ_LEAD = 3;
 const STEAL_SPAN = STEAL_END - STEAL_START;
+
+/** The POKEY interrupt sources an IRQST value (active low) shows as pending. */
+function atariPendingIrq(irqst: number): string {
+  const names: [number, string][] = [
+    [0x80, 'BREAK'], [0x40, 'KEY'], [0x20, 'SERIN'], [0x10, 'SEROUT'], [0x08, 'SERDONE'],
+    [0x04, 'TIMER4'], [0x02, 'TIMER2'], [0x01, 'TIMER1'],
+  ];
+  return names.filter(([bit]) => ((~irqst) & bit) !== 0).map(([, n]) => n).join(' ');
+}
+
+/** Flag on a queued access (see `accessLog`): this one is a display-list
+ *  pointer write and goes in the log as a BEAM_DL entry. */
+const ACCESS_DL = 4;
+
+/** What `runAtariLine` did: the line finished, a stop left it part-way, or it
+ *  finished and a stop is wanted after it. */
+const LINE_DONE = 0;
+const LINE_PARKED = 1;
+const LINE_STOPPED = 2;
+
+/** The line in progress: everything the instruction loop needs that a stop
+ *  in the middle of the line must keep for the next call. */
+interface AtariLineState {
+  al: AnticLine;
+  line: number;
+  start: number;
+  end: number;
+  visible: boolean;
+  vbi: boolean;
+  dli: boolean;
+  rnmi: boolean;
+  nmiAt: number;
+  statusDue: boolean;
+  nmiDue: boolean;
+  steal: number;
+  stolen: number;
+  sampled: boolean;
+}
 
 /**
  * True when a 6821 control register drives its C2 pin low. The pin is an
@@ -189,6 +233,35 @@ export class AtariMachine extends BaseMachine implements Machine {
   private rnmiPending = false;
   /** CPU cycle the current line began at, for reads that depend on where in the line they land. */
   private lineStartT = 0;
+  /** A frame is in progress (started, not finished); `fLine` is the next line
+   *  to run in it, and `lineLive` says the line `ls` describes is part-way. */
+  private frameLive = false;
+  private lineLive = false;
+  private fLine = 0;
+  private fSkipAudio = false;
+  private readonly ls: AtariLineState = {
+    al: null as unknown as AnticLine, line: 0, start: 0, end: 0, visible: false, vbi: false, dli: false,
+    rnmi: false, nmiAt: 0, statusDue: false, nmiDue: false, steal: 0, stolen: 0, sampled: false,
+  };
+  /** The lowest and highest address any memory watchpoint covers (lo above hi
+   *  when there are none), so the CPU's bus closures pay one range compare and
+   *  nothing more for an access outside every watchpoint. Refreshed when a
+   *  frame (or the rest of one) starts running: watchpoints change between runs. */
+  private watchLo = 0x10000;
+  private watchHi = -1;
+  private refreshWatchBounds(): void {
+    let lo = 0x10000, hi = -1;
+    for (const wp of this.memWatchpoints) {
+      if (wp.start < lo) lo = wp.start;
+      if (wp.end > hi) hi = wp.end;
+    }
+    this.watchLo = lo;
+    this.watchHi = hi;
+  }
+  /** Instructions left before a single-step request stops the run; -1 = none. */
+  private stepsLeft = -1;
+  /** Set while the rest of a frame is run for a snapshot: nothing may stop it. */
+  private ignoreStops = false;
   /** A WSYNC store ended past its line's end: the next line is spent halted. */
   private wsyncCarried = false;
   private lastAudioT = 0;
@@ -196,6 +269,9 @@ export class AtariMachine extends BaseMachine implements Machine {
    *  grid of `tStatesPerFrame`, so an instruction that overruns a frame's
    *  last line does not stretch every later frame. */
   private frameBase = 0;
+  /** CPU cycle the frame in progress began at: `frameBase` as it was before
+   *  `runFrame` moved it on to the next frame. `beam()` measures from it. */
+  private beamFrameStart = 0;
   private keysDown = 0;
   /** The mixer's weight on the CONSOL speaker (1 at the centre). */
   private speakerWeight = 1;
@@ -236,8 +312,23 @@ export class AtariMachine extends BaseMachine implements Machine {
     this.mixer.beeperGain = SPEAKER_GAIN;
     this.mixer.psgGain = 1;
 
-    this.cpu.read = (addr) => this.memory.readByte(addr);
-    this.cpu.write = (addr, val) => this.memory.writeByte(addr, val);
+    // Watchpoints hook the CPU's own bus access here, not AtariMemory: the SIO
+    // fast path and the XEX loader reach memory through AtariMemory, and those
+    // are not accesses the program made.
+    this.antic.onDlFetch = (address, instr, operand) => this.logDlFetch(address, instr, operand);
+    this.cpu.onInterrupt = (vector) => {
+      const nmi = vector === 0xFFFA;
+      this.noteInterrupt(this.cpu.pc, nmi, nmi ? this.antic.nmist : this.pokey.readReg(0xD20E));
+    };
+    this.cpu.read = (addr) => {
+      const v = this.memory.readByte(addr);
+      if (addr >= this.watchLo && addr <= this.watchHi) this.recordMemWatch(addr, v, 'read');
+      return v;
+    };
+    this.cpu.write = (addr, val) => {
+      this.memory.writeByte(addr, val);
+      if (addr >= this.watchLo && addr <= this.watchHi) this.recordMemWatch(addr, val & 0xFF, 'write');
+    };
     this.antic.read = (addr) => this.memory.readRam(addr);
     this.antic.onWsyc = () => { this.wsyncRequested = true; };
     this.memory.onCartEnable = () => this.senseCartridge();
@@ -359,8 +450,290 @@ export class AtariMachine extends BaseMachine implements Machine {
     this.mixer.reset();
     this.cpu.reset();
     this.frameBase = this.cpu.tStates;
+    this.beamFrameStart = this.frameBase;
+    this.resumeSkipPc = -1;
+    this.dropFrameInProgress();
+    // A warm reset keeps counting so a log that spans it stays in order.
+    if (!warm) this.resetFrameCount();
     this.needsDisplay = true;
     this.setStatus(`Atari ${atariModelName(this.model)} (${this.region.toUpperCase()}) reset`);
+  }
+
+  // ── Beam seam ────────────────────────────────────────────────────────────
+
+  /** The frame in progress and the cycles since it started: `line * 114` plus
+   *  the cycle in the line, since a frame is a whole number of lines. Between
+   *  frames it is the next frame, a few cycles in. (A frame a breakpoint
+   *  stopped part-way is not resumable yet, so right after one the next
+   *  frame's start is ahead of the CPU and `t` is negative.) */
+  beam(): BeamPos {
+    const start = this.frameOpen ? this.beamFrameStart : this.frameBase;
+    return { frame: this.frameNumber, t: this.cpu.tStates - start };
+  }
+
+  beamInfo(): BeamInfo {
+    return {
+      cyclesPerLine: this.timing.cyclesPerLine,
+      linesPerFrame: this.timing.linesPerFrame,
+      displayStart: ANTIC_FIRST_LINE * this.timing.cyclesPerLine,
+    };
+  }
+
+  // ── Chip state ───────────────────────────────────────────────────────────
+
+  /** The custom chips, for the debugger's `chip_state`. Every dump reads the
+   *  chips' own state, never the bus, so it clears no flag and trips no
+   *  watchpoint. */
+  chips(): readonly ChipSection[] {
+    return [
+      { name: 'antic', description: 'ANTIC: display-list processor (DMACTL, display list, scroll, NMI)', dump: () => this.dumpAntic() },
+      { name: 'gtia', description: 'GTIA: colours, players/missiles, priority, console', dump: () => this.dumpGtia() },
+      { name: 'pokey', description: 'POKEY: audio, timers, keyboard, serial, IRQ', dump: () => this.dumpPokey() },
+      { name: 'pia', description: 'PIA 6520: joystick ports and the XL memory-control lines', dump: () => this.dumpPia() },
+    ];
+  }
+
+  private dumpAntic(): string {
+    const a = this.antic;
+    const h = (v: number, w = 2) => v.toString(16).toUpperCase().padStart(w, '0');
+    const dmactl = a.dmactl;
+    const width = ['none', 'narrow', 'normal', 'wide'][dmactl & 3];
+    const lines = [
+      `DMACTL  D400 = ${h(dmactl)}  playfield ${width}, missile DMA ${dmactl & 4 ? 'on' : 'off'}, player DMA ${dmactl & 8 ? 'on' : 'off'}, ` +
+      `${dmactl & 16 ? 'single' : 'double'}-line PM, display-list DMA ${dmactl & 32 ? 'on' : 'off'}`,
+      `CHACTL  D401 = ${h(a.chactl)}`,
+      `DLISTL/H D402/3 = ${h(a.dlistStart, 4)}  (counter now ${h(a.dlistCounter, 4)})`,
+      `HSCROL  D404 = ${h(a.hscrol)}   VSCROL D405 = ${h(a.vscrol)}`,
+      `PMBASE  D407 = ${h(a.pmbase)}   CHBASE D409 = ${h(a.chbase)}`,
+      `VCOUNT  D40B = ${h((a.line >> 1) & 0xFF)}  (line ${a.line})`,
+      `NMIEN   D40E = ${h(a.nmien)}  ${a.nmien & 0x80 ? 'DLI ' : ''}${a.nmien & 0x40 ? 'VBI' : ''}`.trimEnd(),
+      `NMIST   D40F = ${h(a.nmist | 0x1F)}  ${a.nmist & 0x80 ? 'DLI ' : ''}${a.nmist & 0x40 ? 'VBI ' : ''}${a.nmist & 0x20 ? 'RESET' : ''}`.trimEnd(),
+      '',
+      `Display list from ${h(a.dlistStart, 4)}:`,
+    ];
+    // Decode it the way ANTIC reads it: scanlines count from the first
+    // display line, and a JVB ends the list.
+    let pc = a.dlistStart;
+    let line = ANTIC_FIRST_LINE;
+    for (let n = 0; n < 64; n++) {
+      const instr = a.read(pc) & 0xFF;
+      const mode = instr & 0x0F;
+      const flags = `${instr & 0x80 ? ' DLI' : ''}`;
+      if (mode === 0) {
+        const count = ((instr >> 4) & 7) + 1;
+        lines.push(`  ${h(pc, 4)}  ${h(instr)}           blank ${count}${flags}   lines ${line}-${line + count - 1}`);
+        line += count; pc = (pc + 1) & 0xFFFF;
+        continue;
+      }
+      if (mode === 1) {
+        const target = a.read(pc + 1) | (a.read(pc + 2) << 8);
+        lines.push(`  ${h(pc, 4)}  ${h(instr)} ${h(target & 0xFF)} ${h(target >> 8)}     ${instr & 0x40 ? 'JVB' : 'JMP'} ${h(target, 4)}${flags}`);
+        if (instr & 0x40) break;
+        pc = target;
+        continue;
+      }
+      const info = ANTIC_MODES[mode];
+      const lms = (instr & 0x40) !== 0;
+      const operand = lms ? a.read(pc + 1) | (a.read(pc + 2) << 8) : 0;
+      const count = info ? info.lines : 1;
+      lines.push(`  ${h(pc, 4)}  ${h(instr)}${lms ? ` ${h(operand & 0xFF)} ${h(operand >> 8)}` : '      '}     mode ${mode.toString(16).toUpperCase()}` +
+        `${lms ? ` LMS ${h(operand, 4)}` : ''}${flags}${instr & 0x20 ? ' VSCROL' : ''}${instr & 0x10 ? ' HSCROL' : ''}   lines ${line}-${line + count - 1}`);
+      line += count; pc = (pc + (lms ? 3 : 1)) & 0xFFFF;
+    }
+    return lines.join('\n');
+  }
+
+  private dumpGtia(): string {
+    const g = this.gtia;
+    const h = (v: number) => v.toString(16).toUpperCase().padStart(2, '0');
+    const names = [
+      'HPOSP0', 'HPOSP1', 'HPOSP2', 'HPOSP3', 'HPOSM0', 'HPOSM1', 'HPOSM2', 'HPOSM3',
+      'SIZEP0', 'SIZEP1', 'SIZEP2', 'SIZEP3', 'SIZEM', 'GRAFP0', 'GRAFP1', 'GRAFP2', 'GRAFP3', 'GRAFM',
+      'COLPM0', 'COLPM1', 'COLPM2', 'COLPM3', 'COLPF0', 'COLPF1', 'COLPF2', 'COLPF3', 'COLBK',
+      'PRIOR', 'VDELAY', 'GRACTL',
+    ];
+    const rows = names.map((n, i) => `${n.padEnd(7)} D0${h(i)} = ${h(g.regValue(i))}`);
+    const prior = g.prior;
+    rows.push('', `PRIOR: priority ${prior & 0x0F}${prior & 0x10 ? ', 5th player' : ''}${prior & 0x20 ? ', multicolour players' : ''}, ` +
+      `mode ${['normal', '9 (16 luminances)', '10 (9 colours)', '11 (16 colours)'][prior >> 6]}`);
+    rows.push(`CONSOL  D01F = ${h(g.consol)}  (active low: START ${g.consol & 1 ? 'up' : 'down'}, SELECT ${g.consol & 2 ? 'up' : 'down'}, OPTION ${g.consol & 4 ? 'up' : 'down'})`);
+    rows.push('(The write-only registers above are the chip\'s own values, not the OS shadows.)');
+    return rows.join('\n');
+  }
+
+  private dumpPokey(): string {
+    const p = this.pokey;
+    const h = (v: number) => v.toString(16).toUpperCase().padStart(2, '0');
+    const rows: string[] = [];
+    for (let i = 0; i < 4; i++) rows.push(`AUDF${i + 1}  D20${i * 2} = ${h(p.audf[i])}   AUDC${i + 1} D20${i * 2 + 1} = ${h(p.audc[i])}`);
+    rows.push(
+      `AUDCTL  D208 = ${h(p.audctl)}`,
+      `IRQEN   D20E = ${h(p.irqen)}  ${[[0x80, 'BREAK'], [0x40, 'KEY'], [0x20, 'SERIN'], [0x10, 'SEROUT'], [0x08, 'SERDONE'], [0x04, 'TIMER4'], [0x02, 'TIMER2'], [0x01, 'TIMER1']]
+        .filter(([bit]) => (p.irqen & (bit as number)) !== 0).map(([, n]) => n).join(' ')}`,
+      `IRQST   D20E = ${h(p.readReg(0xD20E))}  (active low; pending: ${atariPendingIrq(p.readReg(0xD20E)) || 'none'})`,
+      `SKCTL   D20F = ${h(p.skctl)}   SKSTAT D20F = ${h(p.readReg(0xD20F))}`,
+      `KBCODE  D209 = ${h(p.kbcode)}   SERIN D20D = ${h(p.serin)}`,
+      '(The timers\' running counts are not exposed by the core.)',
+    );
+    return rows.join('\n');
+  }
+
+  private dumpPia(): string {
+    const p = this.pia;
+    const h = (v: number) => v.toString(16).toUpperCase().padStart(2, '0');
+    const s = p.exportState();
+    const rows: string[] = [];
+    for (let i = 0; i < 2; i++) {
+      const port = i === 0 ? 'PORTA' : 'PORTB';
+      rows.push(
+        `${port}  D30${i} = ${h(p.portValue(i))}  (pins, with the direction register applied)   DDR ${h(p.ddr[i])}  output latch ${h(p.out[i])}`,
+        `PACTL/PBCTL D30${i + 2} = ${h(p.cr[i])}  data register ${p.cr[i] & 4 ? 'selected' : 'DDR selected'}, C1 flag ${s[6 + i * 2] ? 'set' : 'clear'}, C2 flag ${s[7 + i * 2] ? 'set' : 'clear'}`,
+      );
+    }
+    rows.push(`IRQ line: ${p.irq ? 'asserted' : 'clear'}`);
+    return rows.join('\n');
+  }
+
+  /** Forget a frame that was stopped part-way (a reset or a loaded snapshot
+   *  starts the machine over, so there is nothing to resume). */
+  private dropFrameInProgress(): void {
+    this.frameLive = false;
+    this.lineLive = false;
+    this.fLine = 0;
+    this.midFrame = false;
+    this.stepsLeft = -1;
+    this.accessLog.length = 0;
+    this.clearInterrupts();
+  }
+
+  /** Run the rest of a frame that was stopped part-way, with every stop
+   *  ignored, so the machine is between frames (a snapshot needs that). */
+  private completeFrame(): void {
+    if (!this.midFrame) return;
+    this.ignoreStops = true;
+    try {
+      this.stepFrame();
+    } finally {
+      this.ignoreStops = false;
+    }
+  }
+
+  override supportsBeamStops(): boolean { return true; }
+  override supportsInterruptLog(): boolean { return true; }
+  protected override stackPointer(): number { return this.cpu.sp; }
+  protected override cpuPc(): number { return this.cpu.pc; }
+  /** The 6502 pushes PCH, PCL, P: the return address is at SP+2 (low), SP+3 (high). */
+  protected override interruptedPc(): number {
+    const sp = this.cpu.sp;
+    return this.memory.readRam(0x100 | ((sp + 2) & 0xFF)) | (this.memory.readRam(0x100 | ((sp + 3) & 0xFF)) << 8);
+  }
+
+  /** Execute exactly one instruction, inside the frame loop: the chips are
+   *  clocked, DMA is stolen and a WSYNC halts, as in a run. The first
+   *  instruction does not stop on a breakpoint or trap at its own pc. */
+  stepInstruction(): void {
+    this.breakpointHit = -1;
+    this.portWatchHit = null;
+    this.memWatchHit = null;
+    this.stopReason = null;
+    this.resumeSkipPc = this.cpu.pc;
+    this.resumeSkipKind = 'breakpoint';
+    this.stepsLeft = 1;
+    try {
+      this.stepFrame();
+    } finally {
+      this.stepsLeft = -1;
+    }
+  }
+
+  /** Watched accesses made by the instruction in progress, waiting for its last
+   *  cycle: addr, value, flags, pc per access. The 6502 core counts an
+   *  instruction's cycles after its bus accesses, so inside the callback
+   *  `cpu.tStates` is still the instruction's start. */
+  private readonly accessLog: number[] = [];
+
+  protected override logAccess(addr: number, value: number, write: boolean, port: boolean, values?: number[]): void {
+    const log = this.beamLog;
+    if (log === null || !log.acceptsFrame(this.frameNumber)) return;
+    if (values !== undefined && !values.includes(value)) return;
+    if (!this.inStep) {
+      super.logAccess(addr, value, write, port, values);
+      return;
+    }
+    this.accessLog.push(addr, value, (write ? 1 : 0) | (port ? 2 : 0), this.insnPc);
+  }
+
+  /** Stamp the queued accesses with the instruction's last cycle: a store's
+   *  bus write is its last cycle, and for the common loads it is too. (A
+   *  read-modify-write's read comes earlier; the stamp is approximate there.) */
+  private stampAccesses(): void {
+    const log = this.beamLog;
+    const q = this.accessLog;
+    if (log !== null) {
+      const t = this.cpu.tStates - 1 - this.beamFrameStart;
+      const cpl = this.timing.cyclesPerLine;
+      for (let i = 0; i < q.length; i += 4) {
+        let flags = q[i + 2];
+        let kind = BEAM_IO;
+        if ((flags & ACCESS_DL) !== 0) {
+          // A display-list pointer write: note whether ANTIC is drawing the
+          // picture (a write then restarts the display list mid-frame).
+          kind = BEAM_DL;
+          const line = Math.floor(t / cpl);
+          if (line >= ANTIC_FIRST_LINE && line < ANTIC_LAST_LINE) flags |= DL_VISIBLE;
+        }
+        log.push(kind, this.frameNumber, t, q[i + 3], q[i], q[i + 1], flags);
+      }
+    }
+    q.length = 0;
+  }
+
+  /** Log the Atari's display-list events (every DLISTL/DLISTH write, with a
+   *  flag for one that lands in the visible area, and every display-list
+   *  instruction ANTIC fetches). */
+  dlLogging = false;
+  /** Log how many cycles DMA steals on each line, and from what. */
+  dmaLogging = false;
+  /** Log what the renderer decided about HSCROL on each scrolling line: the
+   *  value it used, the write that supplied it and any that came too late. */
+  get effLogging(): boolean { return this.video.onHscrol !== null; }
+  set effLogging(on: boolean) {
+    this.video.onHscrol = on
+      ? (y, value, source, cutoff, lateCount, lateValue, lateCycle) =>
+        this.logHscrol(y, value, source, cutoff, lateCount, lateValue, lateCycle)
+      : null;
+  }
+
+  private logHscrol(
+    y: number, value: number, source: number, cutoff: number,
+    lateCount: number, lateValue: number, lateCycle: number,
+  ): void {
+    const log = this.beamLog;
+    if (log === null) return;
+    // flags: bit 0 = a write supplied the value; bits 8+ = how many came too late.
+    // regLo: the supplying write's cycle (low 16) and the cutoff (high 16);
+    // regHi: the last late write's value (low 8) and cycle (next 8).
+    log.push(BEAM_EFF, this.frameNumber, (y + ANTIC_FIRST_LINE) * this.timing.cyclesPerLine,
+      0, REG_HSCROL, value, (source >= 0 ? 1 : 0) | (lateCount << 8),
+      (source & 0xFFFF) | (cutoff << 16), lateValue | (lateCycle << 8));
+  }
+
+  /** ANTIC fetched a display-list instruction at the top of the current line.
+   *  These chip-side events are stamped from the loop's own line counter, not
+   *  `cpu.tStates`, which may already be past the line start. */
+  private logDlFetch(address: number, instr: number, operand: number): void {
+    const log = this.beamLog;
+    if (!this.dlLogging || log === null) return;
+    log.push(BEAM_DL, this.frameNumber, this.fLine * this.timing.cyclesPerLine, address, operand, instr, DL_FETCH);
+  }
+
+  /** Log the line's DMA steal. */
+  private logDma(line: number, steal: number): void {
+    const log = this.beamLog;
+    if (!this.dmaLogging || log === null) return;
+    const b = this.antic.stealBreakdown();
+    log.push(BEAM_DMA, this.frameNumber, line * this.timing.cyclesPerLine, 0, 0, steal, 0,
+      b.dl | (b.screen << 8) | (b.glyph << 16) | (b.pm << 24), b.refresh);
   }
 
   /**
@@ -389,6 +762,9 @@ export class AtariMachine extends BaseMachine implements Machine {
    * Host input (held keys, the joystick) is live state, not machine state.
    */
   saveState(w: StateWriter, withMedia: boolean): void {
+    // A frame stopped part-way holds loop state this snapshot does not carry;
+    // run the rest of it first, as step_frame would.
+    this.completeFrame();
     const cpu = this.cpu;
     const mem = this.memory;
     w.section('CPU ', () => {
@@ -449,6 +825,7 @@ export class AtariMachine extends BaseMachine implements Machine {
   loadState(r: StateReader): void {
     const cpu = this.cpu;
     const mem = this.memory;
+    this.dropFrameInProgress();
     {
       const s = r.section('CPU ');
       cpu.a = s.u8(); cpu.x = s.u8(); cpu.y = s.u8(); cpu.sp = s.u8(); cpu.pc = s.u16(); cpu.p = s.u8();
@@ -624,6 +1001,11 @@ export class AtariMachine extends BaseMachine implements Machine {
       if (a === 0x01 || a === 0x04 || a === 0x09) {
         this.lineWrites.addAntic(a, value & 0xFF, this.antic.regValue(a));
       }
+      // A write to the display-list pointer, for the display-list log (the
+      // flag in the entry says whether it landed while ANTIC was drawing).
+      if ((a === 0x02 || a === 0x03) && this.dlLogging && this.beamLog !== null && this.inStep) {
+        this.accessLog.push(addr, value & 0xFF, ACCESS_DL | 1, this.insnPc);
+      }
       this.antic.writeReg(addr, value);
     }
   }
@@ -759,169 +1141,65 @@ export class AtariMachine extends BaseMachine implements Machine {
 
   // ── Frame loop ───────────────────────────────────────────────────────────
 
+  /**
+   * Run the frame in progress, or start the next one. A frame is a loop over
+   * lines, and a line is a loop over instructions; a stop (a breakpoint, a
+   * trap, a watchpoint, a beam target or a single step) returns from the
+   * middle of either, and the next call carries on from where it stopped, so
+   * stopping and continuing changes nothing about the frame (docs/
+   * beam-debug-mcp-spec.md P3). Everything live between two instructions is in
+   * fields: `fLine`, `ls` (the line in progress) and the machine's own state.
+   */
   protected runFrame(): void {
+    const timing = this.timing;
+    this.refreshWatchBounds();
+    if (!this.frameLive) this.beginAtariFrame();
+    while (this.fLine < timing.linesPerFrame) {
+      if (!this.lineLive) this.beginAtariLine(this.fLine);
+      const result = this.runAtariLine();
+      if (result === LINE_PARKED) {
+        this.midFrame = true;
+        this.needsDisplay = true;
+        return;
+      }
+      this.fLine++;
+      // A stop at the end of the line leaves the frame open, unless that was
+      // its last line: then it is finished like any other frame.
+      if (result === LINE_STOPPED && this.fLine < timing.linesPerFrame) {
+        this.midFrame = true;
+        this.needsDisplay = true;
+        return;
+      }
+    }
+    this.finishAtariFrame();
+  }
+
+  /** Frame header: runs once, when a frame starts. */
+  private beginAtariFrame(): void {
     const cpu = this.cpu;
     const timing = this.timing;
     // Re-anchor if the CPU has run well past the grid (a debugger step, a
     // breakpoint resumed mid-frame) rather than racing through stale lines.
     if (cpu.tStates - this.frameBase > timing.tStatesPerFrame) this.frameBase = cpu.tStates;
-    const frameStart = this.frameBase;
+    this.beamFrameStart = this.frameBase;
     this.frameBase += timing.tStatesPerFrame;
-    const skipAudio = this.speedMultiplier !== 1 || (this.tapeTurbo && this.tapeLoadingActive);
+    this.fSkipAudio = this.speedMultiplier !== 1 || (this.tapeTurbo && this.tapeLoadingActive);
     this.activity.keyPresses = 0;
     this.activity.psgWrites = 0;
     this.activity.casReads = 0;
     if (this.tapeIdleFrames > 0) this.tapeIdleFrames--;
     this.antic.beginFrame();
     this.lastAudioT = cpu.tStates;
+    this.fLine = 0;
+    this.frameLive = true;
+    this.lineLive = false;
+  }
 
-    for (let line = 0; line < timing.linesPerFrame; line++) {
-      const al = this.antic.beginLine(line);
-      const lineStart = frameStart + line * timing.cyclesPerLine;
-      const lineEnd = lineStart + timing.cyclesPerLine;
-      const visible = line >= ANTIC_FIRST_LINE && line < ANTIC_LAST_LINE;
-      // Player/missile DMA reads its bytes in the first cycles of the line,
-      // before the CPU gets to run.
-      if (visible) this.video.capturePm(line, al, this.antic, this.memory);
-
-      // ANTIC posts NMIST and raises the NMI a few cycles into the line, and
-      // the 6502 only takes it at the end of the instruction in progress. A
-      // poll of NMIST whose read lands at or after that point sees the bit
-      // before the OS handler clears it (games spin on exactly that), so the
-      // status goes up for an instruction that *ends* past NMI_CYCLE, and
-      // the NMI itself before the next one.
-      const vbi = this.antic.takeVbi();
-      const dli = al.dli;
-      const rnmi = line === ANTIC_VBI_LINE && this.rnmiPending;
-      if (rnmi) this.rnmiPending = false;
-      this.lineStartT = lineStart;
-      let statusDue = vbi || dli || rnmi;
-      // Whether the NMI is enabled is decided when it is raised, not at the
-      // top of the line: a store to NMIEN just after a WSYNC (cycle 0-6 of
-      // the line) is in time for it.
-      let nmiDue = statusDue;
-      const nmiAt = lineStart + NMI_CYCLE;
-
-      // ANTIC's DMA halts the CPU: the line is still 114 cycles long, but the
-      // CPU only gets what DMA leaves it, and POKEY keeps counting meanwhile.
-      // The stolen cycles are charged once the line is past the NMI point,
-      // where the refresh and playfield fetches really fall.
-      let steal = this.antic.stealCycles();
-      let stolen = 0;
-      let sampled = false;
-
-      this.wsyncRequested = false;
-      const writes = this.lineWrites;
-      writes.clear();
-      if (this.wsyncCarried) {
-        // The WSYNC store ended past the line it started in, after the point
-        // where ANTIC releases the CPU: it waits for the next release, which
-        // is this whole line.
-        this.wsyncCarried = false;
-        if (cpu.tStates < lineEnd) {
-          this.clockChips(lineEnd - cpu.tStates);
-          cpu.tStates = lineEnd;
-        }
-        this.wsyncRequested = true;
-      }
-      while (cpu.tStates < lineEnd) {
-        if (!sampled && cpu.tStates - lineStart >= FETCH_SAMPLE_CYCLE) {
-          sampled = true;
-          steal = this.sampleLineFetch(al, visible);
-        }
-        if (statusDue && cpu.tStates + NMIST_READ_LEAD >= nmiAt) {
-          this.antic.postNmiStatus(vbi, dli, rnmi);
-          statusDue = false;
-        }
-        if (nmiDue && cpu.tStates >= nmiAt) {
-          if (rnmi || this.nmiEnabled(vbi, dli)) cpu.nmi(); // RNMI ignores NMIEN
-          nmiDue = false;
-        }
-        if (stolen < steal) {
-          const t = cpu.tStates - lineStart;
-          if (t > STEAL_START) {
-            const due = t >= STEAL_END ? steal : ((steal * (t - STEAL_START)) / STEAL_SPAN) | 0;
-            if (due > stolen) {
-              cpu.tStates += due - stolen;
-              this.clockChips(due - stolen);
-              stolen = due;
-              if (cpu.tStates >= lineEnd) break;
-            }
-          }
-        }
-        if (this.breakpoints.has(cpu.pc)) {
-          this.breakpointHit = cpu.pc;
-          this.needsDisplay = true;
-          return;
-        }
-        if (this.onTrap !== null && this.onTrap(cpu.pc)) {
-          this.needsDisplay = true;
-          return;
-        }
-        // Service an SIO call natively instead of letting the OS bit-bang it.
-        // Only while the OS ROM is mapped: an XL program that switches it out
-        // (Turbo-BASIC XL) keeps its own code in the RAM at $E459.
-        if (cpu.pc === SIO_ENTRY && this.memory.osRomEnabled && this.sio.claims()) {
-          this.sio.handle();
-          continue;
-        }
-        if (cpu.pc === XEX_TRAP && this.xex) {
-          this.xexTrap();
-          continue;
-        }
-        cpu.setIRQ(this.pokey.irq || this.pia.irq);
-        const before = cpu.tStates;
-        this.inStep = true;
-        this.pokeyReadAddr = -1;
-        cpu.step();
-        this.inStep = false;
-        // A store's bus write is its last cycle (the core counts the
-        // instruction's cycles after its access).
-        if (writes.pending) writes.stamp(cpu.tStates - 1 - lineStart);
-        if (this.pokeyWrites.length > 0) this.clockWithPokeyWrites(cpu.tStates - before);
-        else this.clockChips(cpu.tStates - before);
-        if (this.wsyncRequested) {
-          // WSYNC holds the CPU (RDY low) until the line ends.
-          if (cpu.tStates < lineEnd) {
-            this.clockChips(lineEnd - cpu.tStates);
-            cpu.tStates = lineEnd;
-          } else {
-            this.wsyncCarried = true;
-          }
-          break;
-        }
-      }
-
-      if (!sampled) steal = this.sampleLineFetch(al, visible);
-
-      // A CPU held by WSYNC (or past the line already) still gets the
-      // line's interrupt, as it comes out of the halt.
-      // DMA the CPU ran past without paying for (an instruction that crossed
-      // the end of the line) is still owed; a WSYNC halt already covered it.
-      if (stolen < steal && !this.wsyncRequested) {
-        cpu.tStates += steal - stolen;
-        this.clockChips(steal - stolen);
-      }
-      if (statusDue) this.antic.postNmiStatus(vbi, dli, rnmi);
-      if (nmiDue && (rnmi || this.nmiEnabled(vbi, dli))) cpu.nmi();
-
-      const now = cpu.tStates;
-      if (!skipAudio) {
-        const audioElapsed = now - this.lastAudioT;
-        if (audioElapsed > 0) {
-          // The 400/800's internal speaker; the XL's goes through POKEY.
-          this.mixer.accumulate(this.gtia.speaker && !this.memory.xl ? 1 : 0, audioElapsed);
-          this.mixer.generateSamples(this.audio, this.pokey, true);
-          this.lastAudioT = now;
-        }
-      }
-
-      if (writes.pending) writes.stamp(now - lineStart);
-      if (visible) {
-        this.video.renderLine(line - ANTIC_FIRST_LINE, al, this.antic, this.gtia, this.memory, writes);
-      }
-    }
-
+  /** Frame trailer: runs once, when the last line is done. */
+  private finishAtariFrame(): void {
+    this.frameLive = false;
+    this.midFrame = false;
+    this.fLine = 0;
     this.activity.speakerToggles = this.gtia.speakerToggles;
     this.gtia.speakerToggles = 0;
     this.needsDisplay = true;
@@ -930,6 +1208,264 @@ export class AtariMachine extends BaseMachine implements Machine {
       script.frame();
       if (script.finished) this.autostart = null;
     }
+  }
+
+  /** Line header: runs once, when a line starts. Leaves the line in `ls`. */
+  private beginAtariLine(line: number): void {
+    const cpu = this.cpu;
+    const timing = this.timing;
+    const ls = this.ls;
+    const al = this.antic.beginLine(line);
+    const lineStart = this.beamFrameStart + line * timing.cyclesPerLine;
+    const lineEnd = lineStart + timing.cyclesPerLine;
+    const visible = line >= ANTIC_FIRST_LINE && line < ANTIC_LAST_LINE;
+    // Player/missile DMA reads its bytes in the first cycles of the line,
+    // before the CPU gets to run.
+    if (visible) this.video.capturePm(line, al, this.antic, this.memory);
+
+    // ANTIC posts NMIST and raises the NMI a few cycles into the line, and
+    // the 6502 only takes it at the end of the instruction in progress. A
+    // poll of NMIST whose read lands at or after that point sees the bit
+    // before the OS handler clears it (games spin on exactly that), so the
+    // status goes up for an instruction that *ends* past NMI_CYCLE, and
+    // the NMI itself before the next one.
+    const vbi = this.antic.takeVbi();
+    const dli = al.dli;
+    const rnmi = line === ANTIC_VBI_LINE && this.rnmiPending;
+    if (rnmi) this.rnmiPending = false;
+    this.lineStartT = lineStart;
+    ls.al = al;
+    ls.line = line;
+    ls.start = lineStart;
+    ls.end = lineEnd;
+    ls.visible = visible;
+    ls.vbi = vbi;
+    ls.dli = dli;
+    ls.rnmi = rnmi;
+    ls.statusDue = vbi || dli || rnmi;
+    // Whether the NMI is enabled is decided when it is raised, not at the
+    // top of the line: a store to NMIEN just after a WSYNC (cycle 0-6 of
+    // the line) is in time for it.
+    ls.nmiDue = ls.statusDue;
+    ls.nmiAt = lineStart + NMI_CYCLE;
+    // ANTIC's DMA halts the CPU: the line is still 114 cycles long, but the
+    // CPU only gets what DMA leaves it, and POKEY keeps counting meanwhile.
+    // The stolen cycles are charged once the line is past the NMI point,
+    // where the refresh and playfield fetches really fall.
+    ls.steal = this.antic.stealCycles();
+    ls.stolen = 0;
+    ls.sampled = false;
+
+    this.wsyncRequested = false;
+    this.lineWrites.clear();
+    if (this.wsyncCarried) {
+      // The WSYNC store ended past the line it started in, after the point
+      // where ANTIC releases the CPU: it waits for the next release, which
+      // is this whole line.
+      this.wsyncCarried = false;
+      if (cpu.tStates < lineEnd) {
+        this.clockChips(lineEnd - cpu.tStates);
+        cpu.tStates = lineEnd;
+      }
+      this.wsyncRequested = true;
+    }
+    this.lineLive = true;
+  }
+
+  /** Save the loop's locals into the line in progress so a later call can
+   *  carry on from here. */
+  private parkLine(
+    statusDue: boolean, nmiDue: boolean, steal: number, stolen: number, sampled: boolean, skipPc: number,
+  ): void {
+    const ls = this.ls;
+    ls.statusDue = statusDue;
+    ls.nmiDue = nmiDue;
+    ls.steal = steal;
+    ls.stolen = stolen;
+    ls.sampled = sampled;
+    // A skip that was not used up is still owed to the first instruction run.
+    if (skipPc >= 0) this.resumeSkipPc = skipPc;
+  }
+
+  /**
+   * Run the rest of the line in progress: its instructions, then its trailer.
+   * Returns LINE_DONE when the line finished, LINE_PARKED when a stop left it
+   * part-way (it carries on from there next call), or LINE_STOPPED when the
+   * line finished and a stop is wanted after it (the instruction that ends a
+   * line by WSYNC leaves the instruction loop early).
+   */
+  private runAtariLine(): number {
+    const cpu = this.cpu;
+    const ls = this.ls;
+    const al = ls.al;
+    const lineStart = ls.start;
+    const lineEnd = ls.end;
+    const visible = ls.visible;
+    const vbi = ls.vbi;
+    const dli = ls.dli;
+    const rnmi = ls.rnmi;
+    const nmiAt = ls.nmiAt;
+    let statusDue = ls.statusDue;
+    let nmiDue = ls.nmiDue;
+    let steal = ls.steal;
+    let stolen = ls.stolen;
+    let sampled = ls.sampled;
+    const writes = this.lineWrites;
+    // The pc a stop at the last pause must step over, taken once per call: it
+    // applies to the first instruction run, and is gone after that whether or
+    // not the pc matched.
+    let skipPc = this.resumeSkipPc;
+    const skipKind = this.resumeSkipKind;
+    this.resumeSkipPc = -1;
+    // Completing a frame for a snapshot must not stop anywhere.
+    const ignore = this.ignoreStops;
+    let stopAfter: StopKind | null = null;
+
+    while (cpu.tStates < lineEnd) {
+      // A beam target: stop at the first instruction boundary at or after it.
+      const target = this.beamTarget;
+      if (target !== null && !ignore &&
+          (this.frameNumber > target.frame ||
+            (this.frameNumber === target.frame && cpu.tStates - this.beamFrameStart >= target.t))) {
+        this.beamTarget = null;
+        this.markStop('beam', cpu.pc);
+        this.parkLine(statusDue, nmiDue, steal, stolen, sampled, skipPc);
+        return LINE_PARKED;
+      }
+      if (!sampled && cpu.tStates - lineStart >= FETCH_SAMPLE_CYCLE) {
+        sampled = true;
+        steal = this.sampleLineFetch(al, visible);
+      }
+      if (statusDue && cpu.tStates + NMIST_READ_LEAD >= nmiAt) {
+        this.antic.postNmiStatus(vbi, dli, rnmi);
+        statusDue = false;
+      }
+      if (nmiDue && cpu.tStates >= nmiAt) {
+        if (rnmi || this.nmiEnabled(vbi, dli)) cpu.nmi(); // RNMI ignores NMIEN
+        nmiDue = false;
+      }
+      if (stolen < steal) {
+        const t = cpu.tStates - lineStart;
+        if (t > STEAL_START) {
+          const due = t >= STEAL_END ? steal : ((steal * (t - STEAL_START)) / STEAL_SPAN) | 0;
+          if (due > stolen) {
+            cpu.tStates += due - stolen;
+            this.clockChips(due - stolen);
+            stolen = due;
+            if (cpu.tStates >= lineEnd) break;
+          }
+        }
+      }
+      cpu.setIRQ(this.pokey.irq || this.pia.irq);
+      // The first instruction after a breakpoint or trap stopped the run at
+      // this pc must not stop there again, or a resume makes no progress.
+      let skipBreakpoint = false;
+      let trapResume = false;
+      if (skipPc >= 0) {
+        if (cpu.pc === skipPc) {
+          skipBreakpoint = true;
+          trapResume = skipKind === 'trap';
+        }
+        skipPc = -1;
+      }
+      if (!skipBreakpoint && !ignore && this.breakpoints.has(cpu.pc)) {
+        this.markStop('breakpoint', cpu.pc);
+        this.parkLine(statusDue, nmiDue, steal, stolen, sampled, -1);
+        return LINE_PARKED;
+      }
+      // The next step may enter an interrupt instead of running the
+      // instruction at pc; a trap there would report one that does not run.
+      if (this.onTrap !== null && !cpu.interruptPending() && this.onTrap(cpu.pc, trapResume) && !ignore) {
+        this.markStop('trap', cpu.pc);
+        this.parkLine(statusDue, nmiDue, steal, stolen, sampled, -1);
+        return LINE_PARKED;
+      }
+      // Service an SIO call natively instead of letting the OS bit-bang it.
+      // Only while the OS ROM is mapped: an XL program that switches it out
+      // (Turbo-BASIC XL) keeps its own code in the RAM at $E459.
+      if (cpu.pc === SIO_ENTRY && this.memory.osRomEnabled && this.sio.claims()) {
+        this.sio.handle();
+        continue;
+      }
+      if (cpu.pc === XEX_TRAP && this.xex) {
+        this.xexTrap();
+        continue;
+      }
+      const before = cpu.tStates;
+      this.inStep = true;
+      this.pokeyReadAddr = -1;
+      this.insnPc = cpu.pc;
+      cpu.step();
+      this.inStep = false;
+      if (this.intOpen > 0) this.closeInterrupts();
+      // A store's bus write is its last cycle (the core counts the
+      // instruction's cycles after its access).
+      if (writes.pending) writes.stamp(cpu.tStates - 1 - lineStart);
+      if (this.accessLog.length > 0) this.stampAccesses();
+      if (!ignore) {
+        if (this.memWatchHit !== null) stopAfter = 'watch';
+        else if (this.stepsLeft > 0 && --this.stepsLeft === 0) stopAfter = 'step';
+      }
+      if (this.pokeyWrites.length > 0) this.clockWithPokeyWrites(cpu.tStates - before);
+      else this.clockChips(cpu.tStates - before);
+      if (this.wsyncRequested) {
+        // WSYNC holds the CPU (RDY low) until the line ends.
+        if (cpu.tStates < lineEnd) {
+          this.clockChips(lineEnd - cpu.tStates);
+          cpu.tStates = lineEnd;
+        } else {
+          this.wsyncCarried = true;
+        }
+        break;
+      }
+      // A watchpoint fired, or a single step was asked for, during this
+      // instruction: stop with the chips clocked up to the end of it.
+      if (stopAfter !== null) {
+        this.markStop(stopAfter, cpu.pc);
+        this.parkLine(statusDue, nmiDue, steal, stolen, sampled, skipPc);
+        return LINE_PARKED;
+      }
+    }
+
+    if (!sampled) steal = this.sampleLineFetch(al, visible);
+
+    // A CPU held by WSYNC (or past the line already) still gets the
+    // line's interrupt, as it comes out of the halt.
+    // DMA the CPU ran past without paying for (an instruction that crossed
+    // the end of the line) is still owed; a WSYNC halt already covered it.
+    if (stolen < steal && !this.wsyncRequested) {
+      cpu.tStates += steal - stolen;
+      this.clockChips(steal - stolen);
+    }
+    if (statusDue) this.antic.postNmiStatus(vbi, dli, rnmi);
+    if (nmiDue && (rnmi || this.nmiEnabled(vbi, dli))) cpu.nmi();
+
+    const now = cpu.tStates;
+    if (!this.fSkipAudio) {
+      const audioElapsed = now - this.lastAudioT;
+      if (audioElapsed > 0) {
+        // The 400/800's internal speaker; the XL's goes through POKEY.
+        this.mixer.accumulate(this.gtia.speaker && !this.memory.xl ? 1 : 0, audioElapsed);
+        this.mixer.generateSamples(this.audio, this.pokey, true);
+        this.lastAudioT = now;
+      }
+    }
+
+    if (writes.pending) writes.stamp(now - lineStart);
+    if (visible) {
+      this.video.renderLine(ls.line - ANTIC_FIRST_LINE, al, this.antic, this.gtia, this.memory, writes);
+    }
+    if (this.dmaLogging) this.logDma(ls.line, steal);
+    this.lineLive = false;
+    // The instruction that ended the line by WSYNC left the instruction loop
+    // early, so a stop it asked for happens here, with the line done.
+    if (stopAfter !== null) {
+      this.markStop(stopAfter, cpu.pc);
+      if (skipPc >= 0) this.resumeSkipPc = skipPc;
+      return LINE_STOPPED;
+    }
+    if (skipPc >= 0) this.resumeSkipPc = skipPc;
+    return LINE_DONE;
   }
 
   /** ANTIC samples DMACTL's width and fetches the mode line's screen bytes:

@@ -11,6 +11,7 @@
 
 import { Z80 } from '@/cores/z80.ts';
 import type { DisasmLine } from '@/debug/z80/disasm.ts';
+import type { BeamInfo, BeamPos } from '@/debug/beam-log.ts';
 import { AY3891x } from '@/cores/ay-3-8910.ts';
 import { SpectrumMemory } from '@/machines/spectrum/memory.ts';
 import { ULA, PALETTES, type BorderMode } from '@/machines/spectrum/ula.ts';
@@ -335,6 +336,7 @@ export class Spectrum extends BaseMachine implements Machine {
       is16K: model === 'zx16k',
     });
     this.cpu = new Z80();
+    this.cpu.onInterrupt = (handler, nmi) => this.noteInterrupt(handler, nmi);
     this.keyboard = new SpectrumKeyboard();
     this.ula = new ULA(this.keyboard);
     this.display = display ?? null;
@@ -621,6 +623,8 @@ export class Spectrum extends BaseMachine implements Machine {
     this.currah.reset();
     this.loaderDetector.reset();
     this.contention.frameStartTStates = 0;
+    this.resumeSkipPc = -1;
+    this.resetFrameCount();
     this._resumeFrameOffset = -1;
     this.needsDisplay = true;
     this.setStatus('Reset');
@@ -696,7 +700,7 @@ export class Spectrum extends BaseMachine implements Machine {
     const budgetEnd = performance.now() + budgetMs;
     this._skipRender = true;
     do {
-      this.runFrame();
+      this.stepFrame();
       if (this.breakpointHit >= 0) break;
     } while (performance.now() < budgetEnd);
     this._skipRender = false;
@@ -731,6 +735,36 @@ export class Spectrum extends BaseMachine implements Machine {
   resumeAtFrameOffset(frameOffset: number): void {
     const tpf = this.contention.timing.tStatesPerFrame;
     this._resumeFrameOffset = ((frameOffset % tpf) + tpf) % tpf;
+  }
+
+  override supportsInterruptLog(): boolean { return true; }
+  protected override stackPointer(): number { return this.cpu.sp; }
+  protected override cpuPc(): number { return this.cpu.pc; }
+  /** The Z80 pushes the return address low byte first: it is at SP, SP+1. */
+  protected override interruptedPc(): number {
+    const sp = this.cpu.sp;
+    return this.memory.readByte(sp) | (this.memory.readByte((sp + 1) & 0xFFFF) << 8);
+  }
+
+  /** The frame in progress and the T-states since the interrupt that started
+   *  it. Between frames it is the next frame, mirroring the start `runFrame`
+   *  will give it, so `t` is small and never a whole frame. */
+  beam(): BeamPos {
+    let start = this.contention.frameStartTStates;
+    if (!this.frameOpen) {
+      const next = start + this.contention.timing.tStatesPerFrame;
+      if (next <= this.cpu.tStates) start = next;
+    }
+    return { frame: this.frameNumber, t: this.cpu.tStates - start };
+  }
+
+  beamInfo(): BeamInfo {
+    const timing = this.contention.timing;
+    return {
+      cyclesPerLine: timing.tStatesPerLine,
+      linesPerFrame: Math.round(timing.tStatesPerFrame / timing.tStatesPerLine),
+      displayStart: timing.displayOrigin,
+    };
   }
 
   protected runFrame(): void {
@@ -812,6 +846,12 @@ export class Spectrum extends BaseMachine implements Machine {
                       + this.contention.timing.displayOrigin
                       - borderTop * this.contention.timing.tStatesPerLine
                       - (borderLeft >> 1);
+
+    // Taken once per call: it applies to the first instruction run, and is
+    // gone after that whether or not the pc matched.
+    let skipPc = this.resumeSkipPc;
+    const skipKind = this.resumeSkipKind;
+    this.resumeSkipPc = -1;
 
     while (this.cpu.tStates < frameEnd) {
       const tBefore = this.cpu.tStates;
@@ -934,23 +974,39 @@ export class Spectrum extends BaseMachine implements Machine {
           this.cpu.r = (this.cpu.r & 0x80) | ((this.cpu.r + nops) & 0x7F);
         }
       } else {
+        // The first instruction after a breakpoint or trap stopped the run at
+        // this pc must not stop there again, or a resume makes no progress.
+        let skipBreakpoint = false;
+        let trapResume = false;
+        if (skipPc >= 0) {
+          if (this.cpu.pc === skipPc) {
+            skipBreakpoint = true;
+            trapResume = skipKind === 'trap';
+          }
+          skipPc = -1;
+        }
         // Breakpoint check (skipped when set is empty for zero overhead)
-        if (this.breakpoints.size > 0 && this.breakpoints.has(this.cpu.pc)) {
-          this.breakpointHit = this.cpu.pc;
+        if (!skipBreakpoint && this.breakpoints.size > 0 && this.breakpoints.has(this.cpu.pc)) {
+          this.markStop('breakpoint', this.cpu.pc);
           break;
         }
         // Pre-instruction trap hook (MCP traps: log, respond, break)
-        if (this.onTrap !== null && this.onTrap(this.cpu.pc)) {
-          this.breakpointHit = this.cpu.pc;
+        if (this.onTrap !== null && this.onTrap(this.cpu.pc, trapResume)) {
+          this.markStop('trap', this.cpu.pc);
           break;
         }
         if (this.trace.active && this.trace.mode === 'full' && this.cpu.pc >= 0x4000) this.trace.captureFull();
         const zxtlPC = this.trace.active && this.trace.mode === 'zxtl' ? this.cpu.pc : -1;
+        this.insnPc = this.cpu.pc;
         this.cpu.step();
+        if (this.intOpen > 0) this.closeInterrupts();
         tookStep = true;
         if (zxtlPC >= 0) this.trace.captureZxtl(zxtlPC);
         // Break mid-frame if a port or memory watchpoint fired during this instruction
-        if (watchActive && (this.portWatchHit !== null || this.memWatchHit !== null)) break;
+        if (watchActive && (this.portWatchHit !== null || this.memWatchHit !== null)) {
+          this.markStop(this.portWatchHit !== null ? 'port' : 'watch', this.cpu.pc);
+          break;
+        }
       }
 
       // IF1 page-out: now that the RET at 0x0700 has executed (fetched from the
@@ -1019,6 +1075,10 @@ export class Spectrum extends BaseMachine implements Machine {
         this.mixer.generateSamples(this.audio, this.ay, this.variant.hasAY, this.currah.enabled ? this.currah : null);
       }
     }
+
+    // A stop (breakpoint, trap or watchpoint) leaves the loop before the frame
+    // is over; the next call resumes it, so the frame is still open.
+    this.midFrame = this.cpu.tStates < frameEnd;
 
     // Drive the auto-boot keystroke sequence: when the current step's hold
     // window expires, release its keys and press the next step (an empty key

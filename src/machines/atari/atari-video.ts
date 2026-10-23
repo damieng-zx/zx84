@@ -54,6 +54,19 @@ import { buildAtariPalette } from './palette.ts';
 
 const WIDTH = ATARI_SCREEN_WIDTH;
 
+/**
+ * HSCROL as ANTIC samples it for a line: the last HSCROL write made by
+ * HSCROL_CYCLE, else the value the line started with. One rule for the
+ * renderer's two paths and for the debugger's view of it.
+ */
+function sampleHscrol(w: LineWrites, atStart: number): number {
+  let hs = atStart;
+  for (let i = 0; i < w.count && w.cycle[i] <= HSCROL_CYCLE; i++) {
+    if (w.reg[i] === REG_HSCROL) hs = w.value[i] & 0x0F;
+  }
+  return hs;
+}
+
 /** Writes made on or before this cycle of a line count as made in the
  *  horizontal blank before it: ANTIC fetches the player/missile data (cycles
  *  0-5) and so reads VDELAY/GRACTL/GRAF with them in place. A WSYNC wait in
@@ -65,7 +78,7 @@ const LATCH_CYCLE = 8;
 const BLANK_CYCLE = 18;
 /** ANTIC samples HSCROL as the line's playfield starts; a write made by this
  *  cycle shifts that line, a later one the next. */
-const HSCROL_CYCLE = 10;
+export const HSCROL_CYCLE = 10;
 
 /** Playfield colour classes held per pixel while a line is composed. */
 const BAK = 0;
@@ -199,6 +212,37 @@ export class AtariVideo {
   private pmgStale = true;
 
   /**
+   * Called for each line drawn with horizontal scrolling on, with what the
+   * renderer decided about HSCROL for it: the value used, the cycle of the
+   * write that supplied it (-1 if the line started with it), the cutoff cycle,
+   * and the writes that came too late to count (how many, and the last one's
+   * value and cycle). Null costs nothing; a debugger uses it for the
+   * effective-HSCROL view. (A repeat of the value the register already holds
+   * is not in the line's write log and is not counted: it changes nothing.)
+   */
+  onHscrol: ((y: number, value: number, source: number, cutoff: number,
+    lateCount: number, lateValue: number, lateCycle: number) => void) | null = null;
+
+  private reportHscrol(y: number, line: AnticLine, w: LineWrites | undefined): void {
+    let source = -1;
+    let lateCount = 0, lateValue = 0, lateCycle = 0;
+    if (w !== undefined) {
+      for (let i = 0; i < w.count; i++) {
+        if (w.reg[i] !== REG_HSCROL) continue;
+        if (w.cycle[i] <= HSCROL_CYCLE) {
+          source = w.cycle[i];
+        } else {
+          lateCount++;
+          lateValue = w.value[i] & 0x0F;
+          lateCycle = w.cycle[i];
+        }
+      }
+    }
+    const value = w !== undefined ? sampleHscrol(w, line.hscrol) : line.hscrol;
+    this.onHscrol!(y, value, source, HSCROL_CYCLE, lateCount, lateValue, lateCycle);
+  }
+
+  /**
    * Draw one scanline. `writes` is the log of register writes the CPU made
    * during it: with none (the usual line) it is drawn once from the registers
    * as they stand; otherwise the line is rewound to the state it began in and
@@ -213,6 +257,7 @@ export class AtariVideo {
     // resumed mid-line) gets the bytes as they are now.
     if (!this.screenFetched && line.fetch !== false) this.fetchScreen(line, memory);
     this.screenFetched = false;
+    if (this.onHscrol !== null && line.hscrollOn) this.reportHscrol(y, line, writes);
     if (writes !== undefined && writes.count > 0) {
       if (!this.inBlankOnly(line, writes)) {
         this.renderSegmented(y, line, antic, gtia, memory, writes);
@@ -270,11 +315,7 @@ export class AtariVideo {
   private inBlankOnly(line: AnticLine, w: LineWrites): boolean {
     const n = w.count;
     for (let i = 0; i < n; i++) if (w.cycle[i] > BLANK_CYCLE) return false;
-    if (line.hscrollOn) {
-      for (let i = 0; i < n; i++) {
-        if (w.reg[i] === REG_HSCROL && w.cycle[i] <= HSCROL_CYCLE) line.hscrol = w.value[i] & 0x0F;
-      }
-    }
+    if (line.hscrollOn) line.hscrol = sampleHscrol(w, line.hscrol);
     return true;
   }
 
@@ -289,13 +330,7 @@ export class AtariVideo {
     for (let i = n - 1; i >= 0; i--) if (reg[i] !== REG_HITCLR) applyWrite(gtia, antic, reg[i], w.old[i]);
 
     // HSCROL as the line starts.
-    if (line.hscrollOn) {
-      let hs = antic.hscrol;
-      for (let i = 0; i < n && cycle[i] <= HSCROL_CYCLE; i++) {
-        if (reg[i] === REG_HSCROL) hs = value[i] & 0x0F;
-      }
-      line.hscrol = hs;
-    }
+    if (line.hscrollOn) line.hscrol = sampleHscrol(w, antic.hscrol);
 
     // The writes of the horizontal blank are in place when the objects are
     // latched; the rest take effect as the beam passes them.

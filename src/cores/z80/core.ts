@@ -216,7 +216,18 @@ export class Z80 {
   }
 
   // --- Interrupt handling ---
+  /** Called when the CPU has just accepted an INT or NMI, with the address of
+   *  its handler and `tStates` already past the acknowledge. Null costs
+   *  nothing; a debugger uses it to log interrupts. */
+  onInterrupt: ((handler: number, nmi: boolean) => void) | null = null;
+
   interrupt(): number {
+    const taken = this.acceptInterrupt();
+    if (taken > 0 && this.onInterrupt !== null) this.onInterrupt(this.pc, false);
+    return taken;
+  }
+
+  private acceptInterrupt(): number {
     if (!this.iff1 || this.eiDelay) {
       this._pendingVector = 0xFF;
       return 0;
@@ -308,6 +319,7 @@ export class Z80 {
     this.push16(this.pc);    // push PC: 2×3T (inside push16's write16)
     this.memptr = this.pc = 0x0066;
     this.tStates += 3;       // total = 5 + 3 + 3 = 11T
+    if (this.onInterrupt !== null) this.onInterrupt(this.pc, true);
   }
 
   /** Fire an IM 2 interrupt with a specific vector byte (for peripheral devices like Z80 PIO).

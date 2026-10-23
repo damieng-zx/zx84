@@ -174,6 +174,11 @@ export class Antic {
 
   /** The display-list counter. DLISTL/H write it and JVB reloads it. */
   private dlistPc = 0;
+  /** Where the display list starts: the address last written to DLISTL/H, or
+   *  last loaded by a JVB. (The counter has moved on from it by mid-frame.) */
+  dlistStart = 0;
+  /** The display-list counter: the address of the next instruction ANTIC fetches. */
+  get dlistCounter(): number { return this.dlistPc; }
   private mode = 0;
   private bytesPerLine = 0;
   private rowInMode = 0;
@@ -256,6 +261,7 @@ export class Antic {
     this.pmbase = r.u8(); this.chbase = r.u8(); this.nmien = r.u8(); this.nmist = r.u8();
     this.line = r.u16();
     this.dlistPc = r.u16();
+    this.dlistStart = this.dlistPc; // the snapshot keeps the counter, not where the list began
     this.mode = r.u8();
     this.bytesPerLine = r.u16();
     this.rowInMode = r.u8();
@@ -330,6 +336,11 @@ export class Antic {
     this.blankOut();
   }
 
+  /** Called for every display-list instruction ANTIC fetches: where it is, the
+   *  instruction byte, and its operand (a JMP/JVB target or an LMS address;
+   *  0 for the rest). Null costs nothing; a debugger uses it to log them. */
+  onDlFetch: ((address: number, instr: number, operand: number) => void) | null = null;
+
   /** Advance ANTIC to `line` and return that line's display description. */
   beginLine(line: number): AnticLine {
     this.line = line;
@@ -364,12 +375,14 @@ export class Antic {
     // Fetch one or more instructions until one consumes the scanline: blank
     // and JVB are single-byte, so a short run of them can fit in one line.
     for (let guard = 0; guard < 16; guard++) {
+      const dlAddr = this.dlistPc;
       const instr = this.read(this.dlistPc) & 0xFF;
       this.advanceDlist();
       this.lineDlCycles++;
       const mode = instr & 0x0F;
 
       if (mode === 0) {
+        if (this.onDlFetch !== null) this.onDlFetch(dlAddr, instr, 0);
         // Blank line(s): the high nibble is the repeat count minus one. Bits
         // 4-5 are not scroll flags here, so a blank line ends a VSCROL region.
         const count = ((instr >> 4) & 0x07) + 1;
@@ -388,6 +401,7 @@ export class Antic {
         // address at the next frame's line 8. Neither raises VBI itself
         // (that is the fixed scanline above).
         this.dlistPc = this.readWord(this.dlistPc);
+        if (this.onDlFetch !== null) this.onDlFetch(dlAddr, instr, this.dlistPc);
         this.lineDlCycles += 2;
         this.mode = 0;
         this.bytesPerLine = 0;
@@ -397,6 +411,7 @@ export class Antic {
           this.waiting = true;
           this.jvbDli = this.dliEnabled;
           this.linesLeft = 0;
+          this.dlistStart = this.dlistPc;
         }
         return this.fillOut(false);
       }
@@ -414,6 +429,7 @@ export class Antic {
         this.advanceDlist();
         this.lineDlCycles += 2;
       }
+      if (this.onDlFetch !== null) this.onDlFetch(dlAddr, instr, (instr & 0x40) !== 0 ? this.screenAddr : 0);
       // The first scanline of a mode line fetches its screen bytes (the
       // character names in a text mode); later scanlines replay ANTIC's line
       // buffer.
@@ -472,6 +488,20 @@ export class Antic {
     return n;
   }
 
+  /** What the current line's steal is made of: refresh, display-list bytes,
+   *  screen bytes (the mode line's first scanline), glyph bytes (text modes,
+   *  every scanline) and player/missile cycles. Sums to {@link stealCycles}. */
+  stealBreakdown(): { refresh: number; dl: number; screen: number; glyph: number; pm: number } {
+    const out = this.lineOut;
+    const glyph = !out.blank && ANTIC_MODES[out.mode]?.text ? out.bytes : 0;
+    let pm = 0;
+    if (this.line >= ANTIC_FIRST_LINE && this.line < ANTIC_LAST_LINE) {
+      if (this.playerDma) pm = 5;
+      else if (this.missileDma) pm = 1;
+    }
+    return { refresh: REFRESH_CYCLES, dl: this.lineDlCycles, screen: this.lineScreenCycles, glyph, pm };
+  }
+
   // ── Bus ──────────────────────────────────────────────────────────────────
 
   readReg(addr: number): number {
@@ -514,8 +544,8 @@ export class Antic {
     switch (addr & 0x0F) {
       case REG_DMACTL: this.dmactl = v; break;
       case REG_CHACTL: this.chactl = v; break;
-      case REG_DLISTL: this.dlistPc = (this.dlistPc & 0xFF00) | v; break;
-      case REG_DLISTH: this.dlistPc = (this.dlistPc & 0x00FF) | (v << 8); break;
+      case REG_DLISTL: this.dlistPc = (this.dlistPc & 0xFF00) | v; this.dlistStart = this.dlistPc; break;
+      case REG_DLISTH: this.dlistPc = (this.dlistPc & 0x00FF) | (v << 8); this.dlistStart = this.dlistPc; break;
       case REG_HSCROL: this.hscrol = v & 0x0F; break;
       case REG_VSCROL: this.vscrol = v & 0x0F; break;
       case REG_PMBASE: this.pmbase = v; break;

@@ -23,6 +23,8 @@ import { register as registerMedia } from './tools/media.ts';
 import { register as registerTrace } from './tools/trace.ts';
 import { register as registerPeripherals } from './tools/peripherals.ts';
 import { register as registerSymbols } from './tools/symbols.ts';
+import { register as registerBeam } from './tools/beam.ts';
+import { register as registerChips } from './tools/chips.ts';
 
 const server = new McpServer({
   name: 'zx84',
@@ -38,6 +40,8 @@ registerMedia(server);
 registerTrace(server);
 registerPeripherals(server);
 registerSymbols(server);
+registerBeam(server);
+registerChips(server);
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);

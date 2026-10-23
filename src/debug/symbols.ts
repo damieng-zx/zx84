@@ -65,6 +65,17 @@ export class SymbolTable {
     return this.byName.get(name);
   }
 
+  /** The label at an address, if one is loaded (first by name when several
+   *  share it). Equates are not labels and are never returned. */
+  labelAt(address: number): SymbolEntry | undefined {
+    let found: SymbolEntry | undefined;
+    for (const s of this.byName.values()) {
+      if (s.kind !== 'label' || s.value !== address) continue;
+      if (found === undefined || s.name.localeCompare(found.name) < 0) found = s;
+    }
+    return found;
+  }
+
   /** Iterate all symbols sorted by name. */
   entries(): SymbolEntry[] {
     return [...this.byName.values()].sort((a, b) => a.name.localeCompare(b.name));

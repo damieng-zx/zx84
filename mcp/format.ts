@@ -117,7 +117,8 @@ export function checkWatchHit(spec: Machine): string | null {
     return `Memory watchpoint: ${dir === 'write' ? 'WR' : 'RD'} (${h16(addr)}) = ${h8(value)}  PC=${h16(dbg.pc)}\n${formatStep(spec)}`;
   }
   if (spec.breakpointHit >= 0) {
-    return `Breakpoint at ${h16(spec.breakpointHit)}. T=${dbg.tStates}\n${formatStep(spec)}`;
+    const what = spec.stopReason?.kind === 'trap' ? 'Trap (break)' : 'Breakpoint';
+    return `${what} at ${h16(spec.breakpointHit)}. T=${dbg.tStates}\n${formatStep(spec)}`;
   }
   return null;
 }

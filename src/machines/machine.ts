@@ -17,6 +17,9 @@
 
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
+import type { BeamInfo, BeamLog, BeamPos } from '@/debug/beam-log.ts';
+import type { StopReason } from '@/debug/stop-reason.ts';
+import type { ChipSection } from '@/debug/chip-state.ts';
 import type { TapeBlock } from '@/media/tape/tap.ts';
 import type { MachineModel } from '@/models.ts';
 import type { OcrGridName, FontSource } from '@/ocr/ocr.ts';
@@ -119,9 +122,43 @@ export interface Machine {
   breakpointHit: number;
   portWatchpoints: Set<number>;
   portWatchHit: { port: number; value: number; dir: 'in' | 'out' } | null;
-  memWatchpoints: { start: number; end: number; mode: 'read' | 'write' | 'rw' }[];
+  memWatchpoints: {
+    start: number; end: number; mode: 'read' | 'write' | 'rw';
+    /** `'break'` (default) stops at the first access; `'log'` records every
+     *  access in the beam log and carries on. */
+    action?: 'break' | 'log';
+    /** A log watchpoint records only accesses of these values. */
+    values?: number[];
+  }[];
   memWatchHit: { addr: number; value: number; dir: 'read' | 'write' } | null;
-  onTrap: ((pc: number) => boolean) | null;
+  /** Ports in `portWatchpoints` that log to the beam log instead of stopping. */
+  portLogPorts: Set<number>;
+  onTrap: ((pc: number, resume?: boolean) => boolean) | null;
+  /** Why the last run stopped (null if it ran to its end). */
+  stopReason: StopReason | null;
+  /** The beam-stamped debug event ring; null until a debugger arms it. */
+  beamLog: BeamLog | null;
+  /** The index of the frame in progress (frames completed since reset). Only a
+   *  machine that implements `beam()` keeps it honest. */
+  readonly frameNumber: number;
+  /** Where the beam is: the frame in progress and the cycles since it started
+   *  (`t`). Null when the machine has no raster to report. */
+  beam(): BeamPos | null;
+  /** The raster geometry `beam().t` is measured in, or null. */
+  beamInfo(): BeamInfo | null;
+  /** Log interrupt entries and ends in the beam log (off by default). A
+   *  machine that cannot report them ignores it ({@link supportsInterruptLog}). */
+  interruptLogging: boolean;
+  /** Whether {@link interruptLogging} does anything on this machine. */
+  supportsInterruptLog(): boolean;
+  /** Stop at the first instruction boundary at or after this beam position;
+   *  honoured only where {@link supportsBeamStops} is true. */
+  beamTarget: { frame: number; t: number } | null;
+  /** Whether the frame loop can stop mid-frame and resume (run-to-beam). */
+  supportsBeamStops(): boolean;
+  /** Execute exactly one instruction inside the frame loop, when the machine
+   *  can (the debugger's step); absent, the debug service steps the CPU raw. */
+  stepInstruction?(): void;
   onStatus: ((msg: string) => void) | null;
   onFrame: (() => void) | null;
   /** Fired when the machine changes its frame-buffer geometry at runtime (so
@@ -928,6 +965,11 @@ export interface DebugService {
   /** The CPU's I/O-port space, or null on machines whose CPU has none (the
    *  6502 memory-maps its hardware instead). */
   readonly ports: CpuPorts | null;
+
+  /** The machine's custom chips, each with a dump of its registers and
+   *  decoded state (read without side effects); absent where the machine does
+   *  not offer them. */
+  chips?(): readonly ChipSection[];
 }
 
 // ── Input service ───────────────────────────────────────────────────────────

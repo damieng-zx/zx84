@@ -2,6 +2,8 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { hex8 as h8, hex16 as h16 } from '../../src/utils/hex.ts';
 import { parseAddr, text } from '../format.ts';
+import { state, symbols } from '../state.ts';
+import { armBeamLog } from '../beam.ts';
 import { traps, trapLog, resetTrap, setResetTrap, type Trap } from '../traps.ts';
 
 export function register(server: McpServer): void {
@@ -23,14 +25,17 @@ export function register(server: McpServer): void {
 
   server.registerTool(
     'trap',
-    { description: 'Set a trap at an address. Actions: "log" (record and continue), "break" (halt execution), "respond" (stuff registers and RET). Omit address to list all traps.', inputSchema: {
-      address: z.string().optional().describe('Address to trap (omit to list all)'),
+    { description: 'Set a trap at one or more addresses. Actions: "log" (record and continue), "break" (halt execution), "respond" (stuff registers and RET). A log trap on a machine with a beam position (Atari, Spectrum) also writes a frame/line/cycle-stamped row to the beam log — read it with beam_log_read. Omit address to list all traps.', inputSchema: {
+      address: z.string().optional().describe('Address(es) to trap, comma/space separated (omit to list all)'),
       action: z.enum(['log', 'break', 'respond']).default('log').describe('What to do when the trap fires'),
       cond_c: z.number().int().min(0).max(255).optional().describe('Only fire when C register equals this value (e.g. BDOS function number)'),
-      label: z.string().default('').describe('Label for log output (e.g. "BDOS", "BIOS_CONOUT")'),
+      label: z.string().default('').describe('Label for log output (e.g. "BDOS", "BIOS_CONOUT"); defaults to the loaded symbol at the address, else trap@ADDR'),
       responses: z.array(z.record(z.string(), z.number())).optional().describe('For respond mode: array of {reg: value} objects consumed in FIFO order'),
+      regs: z.boolean().default(false).describe('Log traps: include the CPU registers in the beam-log row'),
+      frames: z.string().optional().describe('Log traps: capture the beam log only in these frames, e.g. "1500-1510" (applies to the whole beam log)'),
+      lines: z.string().optional().describe('Log traps: capture the beam log only on these lines, e.g. "8-40" (applies to the whole beam log)'),
     } },
-    async ({ address, action, cond_c, label, responses }) => {
+    async ({ address, action, cond_c, label, responses, regs, frames, lines }) => {
       if (!address) {
         if (traps.size === 0) return text('No traps set');
         const lines: string[] = [];
@@ -45,20 +50,34 @@ export function register(server: McpServer): void {
         }
         return text(lines.join('\n'));
       }
-      const addr = parseAddr(address) & 0xFFFF;
-      const trap: Trap = {
-        address: addr,
-        action,
-        cond: cond_c === undefined ? undefined : { reg: 'C', value: cond_c },
-        label: label || `trap@${h16(addr)}`,
-        responses: (responses ?? []).map(r => ({ regs: r })),
-      };
-      if (!traps.has(addr)) traps.set(addr, []);
-      traps.get(addr)!.push(trap);
-      let msg = `Trap set at ${h16(addr)}: ${action}`;
+      const addrs = address.split(/[\s,]+/).filter(Boolean).map(a => parseAddr(a) & 0xFFFF);
+      // A log trap on a machine with a beam position writes beam-log rows;
+      // arm the log (and set its capture filters) up front.
+      let beamNote = '';
+      if (action === 'log') {
+        if (armBeamLog(state.spec, frames, lines) === null && (frames !== undefined || lines !== undefined || regs)) {
+          beamNote = ' (this machine has no beam position: frames/lines/regs apply to the beam log only, so they were ignored)';
+        }
+      }
+      let responseCount = 0;
+      for (const addr of addrs) {
+        const trap: Trap = {
+          address: addr,
+          action,
+          regs,
+          cond: cond_c === undefined ? undefined : { reg: 'C', value: cond_c },
+          // An unlabelled trap takes the loaded symbol at its address, if any.
+          label: label || symbols.labelAt(addr)?.name || `trap@${h16(addr)}`,
+          responses: (responses ?? []).map(r => ({ regs: r })),
+        };
+        responseCount = trap.responses.length;
+        if (!traps.has(addr)) traps.set(addr, []);
+        traps.get(addr)!.push(trap);
+      }
+      let msg = `Trap set at ${addrs.map(h16).join(', ')}: ${action}`;
       if (cond_c !== undefined) msg += ` when C==${h8(cond_c)}`;
-      if (trap.responses.length > 0) msg += `, ${trap.responses.length} response(s) queued`;
-      return text(msg);
+      if (responseCount > 0) msg += `, ${responseCount} response(s) queued`;
+      return text(msg + beamNote);
     },
   );
 

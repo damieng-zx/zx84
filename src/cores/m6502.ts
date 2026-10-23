@@ -85,6 +85,16 @@ export class M6502 {
 
   /** An NMI edge is latched and not yet taken (read and restored by snapshots). */
   get nmiLatched(): boolean { return this.nmiPending; }
+
+  /** Whether the next `step()` enters an interrupt instead of running an
+   *  instruction: an NMI is latched, or IRQ is asserted and not masked (with
+   *  the one-instruction lag after CLI, SEI and PLP that `step()` applies). A
+   *  debugger asks this before reporting "the instruction at pc", which would
+   *  not run. */
+  interruptPending(): boolean {
+    if (this.nmiPending) return true;
+    return this.irqLine && !(this.iDeferred ? this.iBefore : this.flag(FLAG_I));
+  }
   set nmiLatched(pending: boolean) { this.nmiPending = pending; }
 
   // ── Bus helpers ─────────────────────────────────────────────────────────
@@ -289,6 +299,11 @@ export class M6502 {
     this.pc = target;
   }
 
+  /** Called when the CPU has just entered an NMI or IRQ, with the vector it
+   *  took (so a debugger can tell which) and `tStates` already past the
+   *  7-cycle entry. Null costs nothing. */
+  onInterrupt: ((vector: number) => void) | null = null;
+
   protected interrupt(vector: number): void {
     this.push16(this.pc);
     this.p = (this.p & ~FLAG_B) | FLAG_U;
@@ -296,6 +311,7 @@ export class M6502 {
     this.p |= FLAG_I;
     this.pc = this.readWord(vector);
     this.tStates += 7;
+    if (this.onInterrupt !== null) this.onInterrupt(vector);
   }
 
   protected brk(): void {

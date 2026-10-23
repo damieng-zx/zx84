@@ -12,6 +12,7 @@
 
 import type { Spectrum } from '../src/machines/spectrum/spectrum.ts';
 import type { CpcMachine } from '../src/machines/cpc/cpc-machine.ts';
+import type { AtariMachine } from '../src/machines/atari/atari-machine.ts';
 import type { MsxMachine } from '../src/machines/msx/msx-machine.ts';
 import type { EinsteinMachine } from '../src/machines/einstein/einstein-machine.ts';
 import type { MtxMachine } from '../src/machines/mtx/mtx-machine.ts';
@@ -29,6 +30,12 @@ function narrow<T>(kind: Machine['kind']): T | null {
  *  bail gracefully on other machines. */
 export function activeSpectrum(): Spectrum | null {
   return narrow<Spectrum>('spectrum');
+}
+
+/** The active machine as an AtariMachine, or null. The Atari-only beam events
+ *  (display list, DMA, the renderer's HSCROL decisions) are switched on here. */
+export function activeAtari(): AtariMachine | null {
+  return narrow<AtariMachine>('atari');
 }
 
 /** The active machine as a CpcMachine, or null otherwise. */
