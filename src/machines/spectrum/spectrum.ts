@@ -42,6 +42,7 @@ import { CurrahUSpeech, USPEECH_TOGGLE_ADDR } from '@/machines/spectrum/peripher
 import { DISPLAY_WIDTH, DISPLAY_HEIGHT } from '@/machines/spectrum/ula.ts';
 import { createVariant, type MachineVariant } from '@/machines/spectrum/variants/index.ts';
 import type { Machine, MachineKind, MachineHost, MachineDescriptor, SettingsView, AuxRomRequest } from '@/machines/machine.ts';
+import { soundDeviceGains } from '@/machines/machine.ts';
 import { applyAySettings } from '@/machines/shared/ay-settings.ts';
 import { spectrumDescriptor } from '@/machines/spectrum/descriptor.ts';
 import { resolveDriveCount } from '@/machines/shared/drive-count.ts';
@@ -417,10 +418,12 @@ export class Spectrum extends BaseMachine implements Machine {
   applySettings(view: SettingsView): void {
     this.ula.palette = PALETTES[view.get('color-map', 'measured') as keyof typeof PALETTES];
     this.audio.setVolume(view.get('volume', 70) / 100);
-    const mix = view.get('ay-mix', 50) / 100;
-    this.mixer.beeperGain = Math.min(1, 2 * (1 - mix));
-    this.mixer.ayGain = Math.min(1, 2 * mix);
-    this.mixer.auxGain = view.get('specdrum-volume', 100) / 100;
+    // One volume per sound device, from the descriptor's soundDevices.
+    const gains = soundDeviceGains(this.descriptor.ui.soundDevices, view);
+    this.mixer.beeperGain = gains.beeper;
+    this.mixer.ayGain = gains.psg ?? 1;
+    this.mixer.auxGain = gains.specdrum;
+    this.mixer.monoGain = gains.uspeech ?? 1;
     this.ula.micAudible = view.get('mic-audible', true);
     // The SpecDrum needs no ROM, so it is fitted/removed live here (and read once
     // at build by prepare()).

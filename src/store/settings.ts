@@ -46,7 +46,11 @@ const DEFAULTS = {
 
   // Sound
   'volume':       '70',
-  'ay-mix':       '50',
+  // Per-device levels (percent), one slider per hardware sound device on a machine
+  // with more than one. Beeper/speaker and the main sound chip are 0-100; the
+  // fitted DAC and speech board go to 200.
+  'beeper-volume': '100',
+  'psg-volume':   '100',
   'ay-stereo':    'ABC',
   // SN76489 tone-channel split; the chip is mono, so that is the default.
   'sn-stereo':    'MONO',
@@ -54,6 +58,8 @@ const DEFAULTS = {
   'ay-antialias': 'mute',
   // Level of the SpecDrum DAC channel (0-100), separate from master volume.
   'specdrum-volume': '100',
+  // Level of the Currah µSpeech speech output (0-200).
+  'uspeech-volume': '100',
   // Whether the Spectrum's MIC line leaks into the speaker mix (it does on real
   // hardware); off hides sync/trigger ticks that software pulses on it.
   'mic-audible':  'on',
@@ -266,9 +272,30 @@ const _volume = /*@once*/ createRoot(() => createSignal(getSavedNumber('volume',
 export const volume = _volume[0];
 export const setVolume = _volume[1];
 
-const _ayMix = /*@once*/ createRoot(() => createSignal(getSavedNumber('ay-mix', D('ay-mix'))));
-export const ayMix = _ayMix[0];
-export const setAyMix = _ayMix[1];
+/**
+ * A device volume saved by this build, else one derived from the old single
+ * Beep↔PSG balance slider ('ay-mix', 0 = all beeper … 100 = all PSG) that the
+ * per-device sliders replaced, so a balance the user had set carries over. The
+ * old centre kept both at unity and each end faded the other out, hence the
+ * `fromBalance` mappings below.
+ */
+function getSavedVolume(key: SettingKey, fromBalance?: (mix: number) => number): number {
+  if (getSaved(key, '') !== '') return getSavedNumber(key, D(key));
+  const legacy = getSaved('ay-mix', '');
+  const mix = Number(legacy);
+  if (fromBalance && legacy !== '' && Number.isFinite(mix)) {
+    return Math.round(Math.min(100, Math.max(0, fromBalance(Math.min(100, Math.max(0, mix))))));
+  }
+  return Number(D(key));
+}
+
+const _beeperVolume = /*@once*/ createRoot(() => createSignal(getSavedVolume('beeper-volume', (m) => 2 * (100 - m))));
+export const beeperVolume = _beeperVolume[0];
+export const setBeeperVolume = _beeperVolume[1];
+
+const _psgVolume = /*@once*/ createRoot(() => createSignal(getSavedVolume('psg-volume', (m) => 2 * m)));
+export const psgVolume = _psgVolume[0];
+export const setPsgVolume = _psgVolume[1];
 
 const _ayStereo = /*@once*/ createRoot(() => createSignal(getSaved('ay-stereo', D('ay-stereo'))));
 export const ayStereo = _ayStereo[0];
@@ -290,15 +317,22 @@ const _specdrumVolume = /*@once*/ createRoot(() => createSignal(getSavedNumber('
 export const specdrumVolume = _specdrumVolume[0];
 export const setSpecdrumVolume = _specdrumVolume[1];
 
+const _uspeechVolume = /*@once*/ createRoot(() => createSignal(getSavedNumber('uspeech-volume', D('uspeech-volume'))));
+export const uspeechVolume = _uspeechVolume[0];
+export const setUspeechVolume = _uspeechVolume[1];
+
 const _micAudible = /*@once*/ createRoot(() => createSignal(getSaved('mic-audible', D('mic-audible')) === 'on'));
 export const micAudible = _micAudible[0];
 export const setMicAudible = _micAudible[1];
 
-/** Per-peripheral Sound-pane volume signals, keyed by the setting a machine
- *  descriptor names in `soundPeripherals[].volumeSetting` — so the generic pane
- *  can drive a slider from the descriptor without knowing which peripheral it is. */
-export const PERIPHERAL_VOLUMES: Readonly<Record<string, readonly [() => number, (v: number) => void]>> = {
+/** Per-device Sound-pane volume signals, keyed by the setting a machine
+ *  descriptor names in `soundDevices[].volumeSetting` — so the generic pane
+ *  can drive a slider from the descriptor without knowing which device it is. */
+export const DEVICE_VOLUMES: Readonly<Record<string, readonly [() => number, (v: number) => void]>> = {
+  'beeper-volume': [beeperVolume, setBeeperVolume],
+  'psg-volume': [psgVolume, setPsgVolume],
   'specdrum-volume': [specdrumVolume, setSpecdrumVolume],
+  'uspeech-volume': [uspeechVolume, setUspeechVolume],
 };
 
 // ── Joystick settings ───────────────────────────────────────────────────
@@ -773,12 +807,14 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
   ],
   sound: [
     { key: 'volume',      set: setVolume,     type: 'number' },
-    { key: 'ay-mix',      set: setAyMix,      type: 'number' },
+    { key: 'beeper-volume', set: setBeeperVolume, type: 'number' },
+    { key: 'psg-volume',  set: setPsgVolume,  type: 'number' },
     { key: 'ay-stereo',   set: setAyStereo,   type: 'string' },
     { key: 'sn-stereo',   set: setSnStereo,   type: 'string' },
     { key: 'ay-dc-block', set: setAyDcBlock,  type: 'bool' },
     { key: 'ay-antialias', set: setAyAntialias, type: 'string' },
     { key: 'specdrum-volume', set: setSpecdrumVolume, type: 'number' },
+    { key: 'uspeech-volume', set: setUspeechVolume, type: 'number' },
     { key: 'mic-audible', set: setMicAudible, type: 'bool' },
   ],
   joystick: [

@@ -23,6 +23,7 @@ import { M6821 } from '@/cores/m6821.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
+import { soundDeviceGains } from '@/machines/machine.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type {
   AuxRomRequest, BorderMode, HostKeyEvent, Machine, MachineDescriptor, MachineHost, MachineKind, SettingsView,
@@ -271,11 +272,10 @@ export class AtariMachine extends BaseMachine implements Machine {
     }
     this.audio.setVolume(view.get('volume', 70) / 100);
     this.tapeTurbo = view.get('tape-turbo-load', true);
-    // The Beep/PSG balance, as on the Spectrum: the centre keeps the
-    // hardware's levels, and each side fades the other source out.
-    const mix = view.get('ay-mix', 50) / 100;
-    this.speakerWeight = Math.min(1, 2 * (1 - mix));
-    const pokeyWeight = Math.min(1, 2 * mix);
+    // Each source has its own volume, declared by the descriptor's soundDevices.
+    const gains = soundDeviceGains(this.descriptor.ui.soundDevices, view);
+    this.speakerWeight = Math.min(1, gains.beeper);
+    const pokeyWeight = Math.min(1, gains.psg);
     this.mixer.beeperGain = SPEAKER_GAIN * this.speakerWeight;
     if (this.memory.xl) {
       // The XL's speaker is inside POKEY's output, so weigh the two there.

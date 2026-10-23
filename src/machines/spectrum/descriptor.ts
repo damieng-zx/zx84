@@ -5,11 +5,11 @@
 
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type { MachineDescriptor, MachineEntry, MachineLocale, MachineUiCapabilities, MemoryRegionInfo } from '@/machines/machine.ts';
-import type { StatusLedId } from '@/machines/machine.ts';
+import type { SoundDeviceInfo, StatusLedId } from '@/machines/machine.ts';
 import type { MachineModel } from '@/models.ts';
 import { isCpcModel } from '@/models.ts';
 import type { SpectrumModel } from './models.ts';
-import { is128kClass, isPlus2AClass, isScorpionClass, isPlus3, isInterface2Capable, romPageSlotCount, ramBankCountFor } from './models.ts';
+import { is128kClass, isUspeechCapable, isPlus2AClass, isScorpionClass, isPlus3, isInterface2Capable, romPageSlotCount, ramBankCountFor } from './models.ts';
 import { Spectrum } from './spectrum.ts';
 import { SCREEN_WIDTH, SCREEN_HEIGHT } from './ula.ts';
 
@@ -29,6 +29,19 @@ function spectrumStatusLeds(model: MachineModel): StatusLedId[] {
   if (is128kClass(model)) leds.push('chip');
   if (isPlus3(model)) leds.push('dsk');
   return leds;
+}
+
+/** The Spectrum's sound devices: the ULA beeper, the 128K's AY, and the fitted
+ *  SpecDrum and Currah µSpeech. spectrum.ts reads the same list in applySettings. */
+function spectrumSoundDevices(model: MachineModel): SoundDeviceInfo[] {
+  const devices: SoundDeviceInfo[] = [{ id: 'beeper', label: 'Beeper', volumeSetting: 'beeper-volume' }];
+  if (is128kClass(model)) devices.push({ id: 'psg', label: 'AY-3-8912', volumeSetting: 'psg-volume' });
+  // The DAC may be pushed past the speaker: drum samples use only part of its range.
+  devices.push({ id: 'specdrum', label: 'SpecDrum', volumeSetting: 'specdrum-volume', enabledSetting: 'specdrum', maxVolume: 200 });
+  if (isUspeechCapable(model)) {
+    devices.push({ id: 'uspeech', label: 'µSpeech', volumeSetting: 'uspeech-volume', enabledSetting: 'uspeech', maxVolume: 200 });
+  }
+  return devices;
 }
 
 function spectrumUi(model: MachineModel): MachineUiCapabilities {
@@ -51,14 +64,10 @@ function spectrumUi(model: MachineModel): MachineUiCapabilities {
     systemRomLabel: 'ROM',
     romPages: romPageSlotCount(model),
     beeper: true,
-    // spectrum.ts reads 'ay-mix' to balance the 128K AY against the beeper.
-    psgMixer: is128kClass(model),
     soundChip: is128kClass(model) ? 'AY-3-8912' : undefined,
     psgControls: ['stereo', 'filter', 'dc-block'],
     micSpeaker: true,
-    soundPeripherals: [
-      { id: 'specdrum', label: 'SpecDrum', enabledSetting: 'specdrum', volumeSetting: 'specdrum-volume' },
-    ],
+    soundDevices: spectrumSoundDevices(model),
     statusLeds: spectrumStatusLeds(model),
     keyboardBus: 'ula',
     tape: 'deck',

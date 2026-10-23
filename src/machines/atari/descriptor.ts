@@ -65,11 +65,14 @@ const BASE_UI: MachineUiCapabilities = {
   systemRomSlot: false,
   romPages: 0,
   // GTIA's CONSOL bit 3 drives the 400/800's internal speaker (the XL's goes
-  // to the TV sound through POKEY): the BEEP side of the mixer, with POKEY
-  // on the sound-chip side.
+  // to the TV sound through POKEY): the BEEP LED, with POKEY on the sound-chip
+  // side. Each has its own Sound-pane volume.
   beeper: true,
-  psgMixer: true,
   soundChip: 'POKEY',
+  soundDevices: [
+    { id: 'beeper', label: 'Speaker', volumeSetting: 'beeper-volume' },
+    { id: 'psg', label: 'POKEY', volumeSetting: 'psg-volume' },
+  ],
   psgControls: [],
   statusLeds: ['kbd', 'load', 'dsk', 'chip', 'beep', 'text'],
   keyboardBus: 'matrix',

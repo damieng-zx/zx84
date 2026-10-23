@@ -85,6 +85,8 @@ export class AudioMixer {
   private auxDCPrev = 0;
   private auxDCOut = 0;
   private _auxGain = 1.0;
+  /** Gain of the mono source passed to `generateSamples` (a speech board), 0..2. */
+  private _monoGain = 1.0;
 
   get beeperGain(): number { return this._beeperGain; }
   set beeperGain(v: number) { this._beeperGain = clamp01(v); }
@@ -98,6 +100,11 @@ export class AudioMixer {
   /** Aux (DAC) gain, 0..2 — it may exceed 1, unlike the beeper/PSG balance. */
   get auxGain(): number { return this._auxGain; }
   set auxGain(v: number) { this._auxGain = v < 0 ? 0 : v > AUX_GAIN_MAX ? AUX_GAIN_MAX : v; }
+
+  /** Gain of the mono peripheral source (e.g. a speech synthesiser), 0..2 — like
+   *  the aux DAC it may exceed unity, since it is a separate line-level source. */
+  get monoGain(): number { return this._monoGain; }
+  set monoGain(v: number) { this._monoGain = v < 0 ? 0 : v > AUX_GAIN_MAX ? AUX_GAIN_MAX : v; }
 
   constructor(cpuClock: number) {
     this.cpuClock = cpuClock;
@@ -231,7 +238,7 @@ export class AudioMixer {
       }
 
       if (aux) {
-        const a = aux.generateSampleMono();
+        const a = aux.generateSampleMono() * this._monoGain;
         left += a;
         right += a;
       }

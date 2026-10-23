@@ -13,6 +13,7 @@ import { M65C02 } from '@/cores/m65c02.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
+import { soundDeviceGains } from '@/machines/machine.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type {
   AuxRomRequest, BorderMode, Machine, MachineDescriptor, MachineHost, MachineKind, SettingsView,
@@ -173,7 +174,7 @@ export class Apple2Machine extends BaseMachine implements Machine {
       this.speaker.onSampleRate = (rate) => board.setSampleRate(rate);
       this.memory.cards[MOCKINGBOARD_SLOT] = board;
       this.mockingboard = board;
-      this.mixer.psgGain = 1;
+      this.mixer.psgGain = 1;   // until applySettings() sets the user's volume
     }
     if (this.modelInfo.iie) {
       this.mmu.auxFitted = this.options.eightyColumn;
@@ -232,6 +233,9 @@ export class Apple2Machine extends BaseMachine implements Machine {
 
   applySettings(view: SettingsView): void {
     this.audio.setVolume(view.get('volume', 70) / 100);
+    const gains = soundDeviceGains(this.descriptor.ui.soundDevices, view);
+    this.mixer.beeperGain = gains.beeper;
+    if (this.mockingboard) this.mixer.psgGain = gains.psg;
     const mode = view.get<Apple2VideoMode>('apple2-video', 'ntsc');
     if (mode !== this.videoState.mode) {
       this.videoState.mode = mode;

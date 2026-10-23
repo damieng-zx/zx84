@@ -277,6 +277,23 @@ export interface ColorMapOption {
 }
 
 /** A Sound-pane PSG-shaping control — see `MachineUiCapabilities.psgControls`. */
+/** One hardware sound device of a machine, as `MachineUiCapabilities.soundDevices` lists it. */
+export interface SoundDeviceInfo {
+  /** Stable id for the device (`beeper`, `psg`, `specdrum`, …). */
+  readonly id: string;
+  /** Slider label. */
+  readonly label: string;
+  /** The 0-`maxVolume` percent setting key holding this device's volume. Several
+   *  machines share a key for the same kind of device (`beeper-volume`). */
+  readonly volumeSetting: string;
+  /** Boolean setting that must be on for the device to be present (a user-fitted
+   *  peripheral). Omitted for devices the machine always has. */
+  readonly enabledSetting?: string;
+  /** Slider ceiling in percent (default 100). Above 100 lets a line-level device
+   *  (a DAC) be pushed past the speaker. */
+  readonly maxVolume?: number;
+}
+
 export type PsgControl = 'stereo' | 'sn-stereo' | 'filter' | 'dc-block';
 
 /** One mouse interface a machine offers — see `MachineUiCapabilities.mouseTypes`.
@@ -379,33 +396,22 @@ export interface MachineUiCapabilities {
   readonly systemRomSlot?: boolean;
   /** Independently-overridable 16K system ROM pages (0 = single image). */
   readonly romPages: 0 | 2 | 4;
-  /** 1-bit beeper present (the BEEP activity LED, and the beeper side of the
-   *  Sound-pane mixer). */
+  /** 1-bit beeper present (the BEEP activity LED). */
   readonly beeper: boolean;
-  /** The Beep↔PSG balance slider applies: the machine has both a beeper and
-   *  a PSG to balance, and reads 'ay-mix' in applySettings. Omitted where the
-   *  balance is fixed — a buzzer-only machine (the Ace, the Lynx) has nothing
-   *  to weigh it against, and the MSX and Einstein never read the setting —
-   *  so the pane hides a slider that would do nothing. */
-  readonly psgMixer?: boolean;
   /** Name of the machine's sound chip (`AY-3-8912`, `SN76489`, …) — the label
-   *  of the status-bar sound LED and the sound side of the Sound-pane mixer.
-   *  Omitted where the machine has only a beeper; such a machine must not list
-   *  the 'chip' LED. */
+   *  of the status-bar sound LED. Omitted where the machine has only a beeper;
+   *  such a machine must not list the 'chip' LED. */
   readonly soundChip?: string;
   /**
-   * User-fitted sound peripherals that get their own Sound-pane volume slider
-   * (a DAC board, say), separate from master volume and the Beep↔PSG balance.
-   * The slider shows only while `enabledSetting` is on, so nothing is offered for
-   * hardware that isn't fitted. `volumeSetting` is a 0-100 setting key the
-   * machine reads in `applySettings`.
+   * Every hardware sound device this machine can have — the speaker/beeper, the
+   * PSG, a fitted DAC or speech board — in the order the Sound pane lists them.
+   * The pane draws one volume slider per *present* device (see
+   * `presentSoundDevices`) once there are two or more, and the machine reads the
+   * same list in `applySettings` through `soundDeviceGains` to set its mixer.
+   * A machine with a single device lists it (or nothing) and gets no slider.
+   * Declare a device here and it gets its slider and persistence for free.
    */
-  readonly soundPeripherals?: readonly {
-    readonly id: string;
-    readonly label: string;
-    readonly enabledSetting: string;
-    readonly volumeSetting: string;
-  }[];
+  readonly soundDevices?: readonly SoundDeviceInfo[];
   /** The machine's ULA leaks its MIC (tape-save) output into the speaker, and
    *  reads 'mic-audible' in applySettings: the Sound pane offers a toggle to
    *  hear it or not. Omitted where MIC is not part of the speaker mix. */
@@ -1159,4 +1165,39 @@ export interface MachineEntry {
    *  this machine family can't accept the image. Keeps ROM-size→model knowledge
    *  in the machine that owns it; the shell iterates entries. */
   detectModelForRom?(data: Uint8Array, current: MachineModel): MachineModel | null;
+}
+
+/** The devices that are actually fitted: those with no `enabledSetting` (always
+ *  there) plus those whose setting `isOn` reports on. */
+export function presentSoundDevices(
+  devices: readonly SoundDeviceInfo[] | undefined,
+  isOn: (setting: string) => boolean,
+): readonly SoundDeviceInfo[] {
+  return (devices ?? []).filter((d) => !d.enabledSetting || isOn(d.enabledSetting));
+}
+
+/** Slider ceiling of a sound device in percent. */
+export function soundDeviceMaxVolume(device: SoundDeviceInfo): number {
+  return device.maxVolume ?? 100;
+}
+
+/**
+ * The mixer gain (1 = unity) for each sound-device id, from the persisted volumes
+ * in `view`. Volumes are percent, clamped to 0..the device's ceiling. With fewer
+ * than two devices present every gain is 1: a lone device has no slider, so a
+ * volume left over from another configuration must not silently quieten it.
+ */
+export function soundDeviceGains(
+  devices: readonly SoundDeviceInfo[] | undefined,
+  view: SettingsView,
+): Record<string, number> {
+  const gains: Record<string, number> = {};
+  const mixing = presentSoundDevices(devices, (key) => Boolean(view.get(key, false))).length > 1;
+  for (const d of devices ?? []) {
+    if (!mixing) { gains[d.id] = 1; continue; }
+    const pct = Number(view.get(d.volumeSetting, 100));
+    const clamped = Number.isFinite(pct) ? Math.min(soundDeviceMaxVolume(d), Math.max(0, pct)) : 100;
+    gains[d.id] = clamped / 100;
+  }
+  return gains;
 }

@@ -30,7 +30,8 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'atari-color-map': () => settings.atariColorMap(),
   'scanline-accuracy': () => settings.scanlineAccuracy(),
   'volume': () => settings.volume(),
-  'ay-mix': () => settings.ayMix(),
+  'beeper-volume': () => settings.beeperVolume(),
+  'psg-volume': () => settings.psgVolume(),
   'tape-instant-rom': () => settings.tapeFastRom(),
   'tape-turbo-load': () => settings.tapeTurbo(),
   'tape-sound': () => settings.tapeSoundEnabled(),
@@ -43,6 +44,7 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'ay-dc-block': () => settings.ayDcBlock(),
   'ay-antialias': () => settings.ayAntialias(),
   'specdrum-volume': () => settings.specdrumVolume(),
+  'uspeech-volume': () => settings.uspeechVolume(),
   'mic-audible': () => settings.micAudible(),
   // Selected joystick interface per player (Spectrum: Kempston port fitted?).
   'joy-p1': () => settings.joyP1(),

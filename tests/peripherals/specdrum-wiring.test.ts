@@ -154,7 +154,7 @@ describe('SpecDrum — audio path', () => {
   /** A 48K with `JR $` at 0x8000 and its audio captured into the returned array. */
   function rig(fitted: boolean, volume = 100): { s: Spectrum; out: number[] } {
     const s = makeMachine('zx48k');
-    s.applySettings(view({ specdrum: fitted, 'specdrum-volume': volume, 'ay-mix': 50 }));
+    s.applySettings(view({ specdrum: fitted, 'specdrum-volume': volume }));
     s.memory.flat[0x8000] = 0x18; // JR $
     s.memory.flat[0x8001] = 0xFE;
     s.cpu.pc = 0x8000;

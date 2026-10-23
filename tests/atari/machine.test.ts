@@ -535,52 +535,56 @@ describe('atari CONSOL speaker routing', () => {
 });
 
 /**
- * The Sound pane's Beep/PSG balance ('ay-mix'). The centre keeps the
- * hardware's levels; each end fades the other source out. The XL's speaker
- * joins POKEY inside the chip, so its balance is struck there rather than in
- * the shared mixer.
+ * The Sound pane's per-device volumes: the speaker ('beeper-volume') and POKEY
+ * ('psg-volume'), each 0-100 and independent. At 100 both keep the hardware's
+ * levels. The XL's speaker joins POKEY inside the chip, so its level is struck
+ * there rather than in the shared mixer.
  */
-describe('atari Sound-pane balance', () => {
-  const view = (mix: number): SettingsView => ({
-    get: <T>(key: string, fallback: T) => (key === 'ay-mix' ? mix as T : fallback),
+describe('atari Sound-pane device volumes', () => {
+  const view = (beeper: number, psg: number): SettingsView => ({
+    get: <T>(key: string, fallback: T) =>
+      (key === 'beeper-volume' ? beeper : key === 'psg-volume' ? psg : fallback) as T,
   });
 
-  it('keeps the 800 hardware balance at the centre and fades each source at the ends', () => {
+  it('keeps the 800 hardware balance at 100/100, and each slider fades only its own source', () => {
     const m = new AtariMachine('atari800', null);
     try {
-      m.applySettings(view(50));
+      m.applySettings(view(100, 100));
       expect([m.mixer.beeperGain, m.mixer.psgGain]).toEqual([0.5, 1]);
-      m.applySettings(view(100));
+      m.applySettings(view(0, 100));
       expect([m.mixer.beeperGain, m.mixer.psgGain]).toEqual([0, 1]);
-      m.applySettings(view(0));
+      m.applySettings(view(100, 0));
       expect([m.mixer.beeperGain, m.mixer.psgGain]).toEqual([0.5, 0]);
+      m.applySettings(view(40, 70));
+      expect(m.mixer.beeperGain).toBeCloseTo(0.2, 12);
+      expect(m.mixer.psgGain).toBeCloseTo(0.7, 12);
     } finally {
       m.destroy();
     }
   });
 
-  it('mutes the XL speaker at the PSG end, inside POKEY', () => {
+  it('mutes the XL speaker with its own slider, inside POKEY', () => {
     const m = new AtariMachine('atari800xl', null);
     try {
       const levels: number[] = [];
       const set = m.pokey.setExternal.bind(m.pokey);
       m.pokey.setExternal = (level: number) => { levels.push(level); set(level); };
-      m.applySettings(view(100));
+      m.applySettings(view(0, 100));
       m.memory.writeByte(0xd01f, 0x08);
       expect(levels.at(-1)).toBe(0);
-      m.applySettings(view(50));
+      m.applySettings(view(100, 100));
       expect(levels.at(-1)).toBeGreaterThan(0);
     } finally {
       m.destroy();
     }
   });
 
-  it('silences POKEY on the XL at the Beep end', () => {
+  it('silences POKEY on the XL with the POKEY slider alone', () => {
     // Peak output after AUDC1 steps to forced volume 15.
-    const peak = (mix: number): number => {
+    const peak = (psg: number): number => {
       const m = new AtariMachine('atari800xl', null);
       try {
-        m.applySettings(view(mix));
+        m.applySettings(view(100, psg));
         m.memory.writeByte(0xd201, 0x1f);
         m.pokey.advance(20_000);
         let max = 0;
@@ -590,7 +594,7 @@ describe('atari Sound-pane balance', () => {
         m.destroy();
       }
     };
-    expect(peak(50)).toBeGreaterThan(0.1);
+    expect(peak(100)).toBeGreaterThan(0.1);
     expect(peak(0)).toBe(0);
   });
 });

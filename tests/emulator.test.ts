@@ -330,7 +330,8 @@ vi.mock('@/store/settings.ts', () => ({
   scalingMode:        vi.fn(() => 0),
   phosphor:           vi.fn(() => 'color'),
   volume:             vi.fn(() => 70),
-  ayMix:              vi.fn(() => 50),
+  beeperVolume:       vi.fn(() => 100),
+  psgVolume:          vi.fn(() => 100),
   tapeFastRom:        vi.fn(() => true),
   tapeTurbo:          vi.fn(() => true),
   tapeSoundEnabled:   vi.fn(() => true),
@@ -460,7 +461,8 @@ beforeEach(() => {
   vi.mocked(settings.noise).mockReturnValue(0);
   vi.mocked(settings.scalingMode).mockReturnValue(0);
   vi.mocked(settings.volume).mockReturnValue(70);
-  vi.mocked(settings.ayMix).mockReturnValue(50);
+  vi.mocked(settings.beeperVolume).mockReturnValue(100);
+  vi.mocked(settings.psgVolume).mockReturnValue(100);
   vi.mocked(settings.tapeFastRom).mockReturnValue(true);
   vi.mocked(settings.tapeTurbo).mockReturnValue(true);
   vi.mocked(settings.tapeSoundEnabled).mockReturnValue(true);

@@ -203,10 +203,17 @@ describe('settings — reset defaults vs initial defaults consistency', () => {
 
   it('sound pane: reset gives the same values as fresh boot', async () => {
     const s = await load();
-    const before = { volume: s.volume(), ayMix: s.ayMix(), ayStereo: s.ayStereo() };
+    const before = {
+      volume: s.volume(), beeper: s.beeperVolume(), psg: s.psgVolume(),
+      specdrum: s.specdrumVolume(), uspeech: s.uspeechVolume(), ayStereo: s.ayStereo(),
+    };
     s.setVolume(13); s.setAyStereo('XYZ');
+    s.setBeeperVolume(5); s.setPsgVolume(6); s.setSpecdrumVolume(7); s.setUspeechVolume(8);
     s.resetSettingsGroup('sound');
-    expect({ volume: s.volume(), ayMix: s.ayMix(), ayStereo: s.ayStereo() }).toEqual(before);
+    expect({
+      volume: s.volume(), beeper: s.beeperVolume(), psg: s.psgVolume(),
+      specdrum: s.specdrumVolume(), uspeech: s.uspeechVolume(), ayStereo: s.ayStereo(),
+    }).toEqual(before);
   });
 
   it('joystick pane: reset gives the same values as fresh boot', async () => {
@@ -405,10 +412,84 @@ describe('settings — SpecDrum', () => {
 
   it('exposes the volume signal under the key a descriptor names', async () => {
     const s = await load();
-    const [get, set] = s.PERIPHERAL_VOLUMES['specdrum-volume']!;
+    const [get, set] = s.DEVICE_VOLUMES['specdrum-volume']!;
     set(64);
     expect(get()).toBe(64);
     expect(s.specdrumVolume()).toBe(64);
+  });
+});
+
+describe('settings — per-device sound volumes', () => {
+  it('default to unity (100) for every device', async () => {
+    const s = await load();
+    expect([s.beeperVolume(), s.psgVolume(), s.specdrumVolume(), s.uspeechVolume()]).toEqual([100, 100, 100, 100]);
+  });
+
+  it('read saved values and ignore a corrupted one', async () => {
+    storage.store.set('zx84-beeper-volume', '25');
+    storage.store.set('zx84-psg-volume', 'loud');
+    storage.store.set('zx84-uspeech-volume', '150');
+    const s = await load();
+    expect(s.beeperVolume()).toBe(25);
+    expect(s.psgVolume()).toBe(100);       // NaN falls back to the default
+    expect(s.uspeechVolume()).toBe(150);
+  });
+
+  it('every volume key a descriptor can name has a signal to drive its slider', async () => {
+    const s = await load();
+    expect(Object.keys(s.DEVICE_VOLUMES).sort()).toEqual(['beeper-volume', 'psg-volume', 'specdrum-volume', 'uspeech-volume']);
+    const [get, set] = s.DEVICE_VOLUMES['psg-volume']!;
+    set(42);
+    expect(get()).toBe(42);
+    expect(s.psgVolume()).toBe(42);
+  });
+
+  it('persistSetting stores them under the plain key, where the next boot reads them', async () => {
+    const s = await load();
+    s.persistSetting('beeper-volume', 33);
+    expect(storage.store.get('zx84-beeper-volume')).toBe('33');
+    vi.resetModules();
+    expect((await load()).beeperVolume()).toBe(33);
+  });
+
+  it('the Sound-pane reset puts them back to 100 and rewrites the saved values', async () => {
+    const s = await load();
+    s.setBeeperVolume(10); s.persistSetting('beeper-volume', 10);
+    s.setPsgVolume(20); s.setUspeechVolume(30);
+    s.resetSettingsGroup('sound');
+    expect([s.beeperVolume(), s.psgVolume(), s.uspeechVolume()]).toEqual([100, 100, 100]);
+    expect(storage.store.get('zx84-beeper-volume')).toBe('100');
+  });
+
+  // The old single Beep↔PSG balance ('ay-mix') is gone; a balance the user had
+  // set is carried into the per-device sliders: the centre keeps both at unity
+  // and each end fades the other source out.
+  describe('migration from the old balance slider', () => {
+    it.each([
+      ['50', 100, 100],   // centre: both at unity
+      ['0', 100, 0],      // all beeper: PSG silent
+      ['100', 0, 100],    // all PSG: beeper silent
+      ['25', 100, 50],    // a quarter towards the beeper: PSG at half
+      ['75', 50, 100],
+    ])('ay-mix %s → beeper %i, PSG %i', async (mix, beeper, psg) => {
+      storage.store.set('zx84-ay-mix', mix);
+      const s = await load();
+      expect([s.beeperVolume(), s.psgVolume()]).toEqual([beeper, psg]);
+    });
+
+    it('a per-device volume saved by this build wins over the old balance', async () => {
+      storage.store.set('zx84-ay-mix', '100');
+      storage.store.set('zx84-beeper-volume', '80');
+      const s = await load();
+      expect(s.beeperVolume()).toBe(80);
+      expect(s.psgVolume()).toBe(100);   // not saved: derived from ay-mix 100
+    });
+
+    it('a garbage old balance is ignored', async () => {
+      storage.store.set('zx84-ay-mix', 'x');
+      const s = await load();
+      expect([s.beeperVolume(), s.psgVolume()]).toEqual([100, 100]);
+    });
   });
 });
 

@@ -3,16 +3,16 @@ import { SliderRow } from '@/ui/components/Slider.tsx';
 import { For, Show } from 'solid-js';
 import {
   volume, setVolume,
-  ayMix, setAyMix,
   ayStereo, setAyStereo,
   snStereo, setSnStereo,
   ayDcBlock, setAyDcBlock,
   ayAntialias, setAyAntialias,
   micAudible, setMicAudible,
-  persistSetting, resetSettingsGroup, PERIPHERAL_VOLUMES,
+  persistSetting, resetSettingsGroup, DEVICE_VOLUMES,
 } from '@/store/settings.ts';
 import { applyDisplaySettings, settingEnabled } from '@/shell/settings.ts';
 import { machineCaps } from '@/state/machine-caps.ts';
+import { presentSoundDevices, soundDeviceMaxVolume } from '@/machines/machine.ts';
 import type { AYStereoMode, AYAntialiasMode } from '@/cores/ay-3-8910.ts';
 
 const STEREO_MODES: { value: AYStereoMode; label: string }[] = [
@@ -33,6 +33,13 @@ const ANTIALIAS_MODES: { value: AYAntialiasMode; label: string }[] = [
   { value: 'none',    label: 'None (raw)' },
 ];
 
+/** The sound devices to draw a volume slider for: all those fitted, but only when
+ *  there are at least two. Reactive on the model and on the Hardware-pane toggles. */
+function mixDevices() {
+  const present = presentSoundDevices(machineCaps().soundDevices, settingEnabled);
+  return present.length > 1 ? present : [];
+}
+
 export function SoundPane() {
   return (
     <Pane id="sound-panel" label="Sound" onResetSettings={() => {
@@ -42,22 +49,16 @@ export function SoundPane() {
     }}>
       <SliderRow label="Volume" id="volume" min={0} max={100} value={volume}
         onInput={(v) => { setVolume(v); persistSetting('volume', v); applyDisplaySettings(); }} />
-      {/* Beeper↔PSG balance — only where the machine actually mixes the two
-          and reads the setting. A buzzer-only machine like the Ace has no PSG
-          to weigh against, so the slider would move nothing. */}
-      <Show when={machineCaps().psgMixer}>
-        <SliderRow label="Mixer" id="ay-mix" min={0} max={100} value={ayMix} endLabels={['Beep', machineCaps().soundChip ?? 'PSG']}
-          onInput={(v) => { setAyMix(v); persistSetting('ay-mix', v); applyDisplaySettings(); }} />
-      </Show>
-      {/* One volume slider per fitted DAC-style peripheral the descriptor lists
-          (the SpecDrum), shown only while it is switched on. */}
-      <For each={machineCaps().soundPeripherals ?? []}>
-        {(p) => {
-          const vol = PERIPHERAL_VOLUMES[p.volumeSetting];
+      {/* One volume slider per hardware sound device the descriptor lists and the
+          machine actually has fitted — only once there are two or more to weigh
+          against each other. A single-device machine keeps master volume alone. */}
+      <For each={mixDevices()}>
+        {(d) => {
+          const vol = DEVICE_VOLUMES[d.volumeSetting];
           return (
-            <Show when={vol && settingEnabled(p.enabledSetting)}>
-              <SliderRow label={p.label} id={p.volumeSetting} min={0} max={200} value={vol![0]}
-                onInput={(v) => { vol![1](v); persistSetting(p.volumeSetting, v); applyDisplaySettings(); }} />
+            <Show when={vol}>
+              <SliderRow label={d.label} id={d.volumeSetting} min={0} max={soundDeviceMaxVolume(d)} value={vol![0]}
+                onInput={(v) => { vol![1](v); persistSetting(d.volumeSetting, v); applyDisplaySettings(); }} />
             </Show>
           );
         }}

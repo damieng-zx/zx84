@@ -693,3 +693,50 @@ describe('AudioMixer — auxiliary DAC channel', () => {
     for (const s of audio.samples) expect(s.left).toBe(0);
   });
 });
+
+describe('AudioMixer — mono peripheral source (speech board)', () => {
+  const N = 70;                                          // T per sample at 50 kHz, exactly
+  const mk = () => { const m = new AudioMixer(3_500_000); m.init(50_000); return m; };
+  /** A speech source already level-set at a steady 0.25. */
+  const speech = { generateSampleMono: () => 0.25 };
+  function render(gain: number | null): number {
+    const m = mk(); const audio = fakeAudio();
+    if (gain !== null) m.monoGain = gain;
+    m.beeperGain = 0;                                    // isolate the mono source
+    m.accumulate(0, N);
+    m.generateSamples(audio, null, false, speech);
+    return audio.samples[0]!.left;
+  }
+
+  it('is mixed at unity by default, equally into both channels', () => {
+    const m = mk(); const audio = fakeAudio();
+    m.accumulate(0, N); m.generateSamples(audio, null, false, speech);
+    expect(audio.samples[0]).toEqual({ left: 0.25, right: 0.25 });
+  });
+
+  it('monoGain scales it linearly', () => {
+    expect(render(0.5)).toBeCloseTo(0.125, 12);
+    expect(render(1.5)).toBeCloseTo(0.375, 12);
+  });
+
+  it('monoGain 0 silences it', () => {
+    expect(render(0)).toBe(0);
+  });
+
+  it('monoGain clamps to 0..2 so a stray setting cannot blow the output up', () => {
+    const m = mk();
+    m.monoGain = 9; expect(m.monoGain).toBe(2);
+    m.monoGain = -3; expect(m.monoGain).toBe(0);
+  });
+
+  it('does not touch the beeper or the PSG: only the mono source is scaled', () => {
+    const m = mk(); const audio = fakeAudio();
+    m.monoGain = 0;
+    m.beeperGain = 1;
+    m.accumulateLevel(1, N);                             // beeper held high: first sample steps up through the DC-blocker
+    m.generateSamples(audio, null, false, speech);
+    const withoutSpeech = mk(); const a2 = fakeAudio();
+    withoutSpeech.accumulateLevel(1, N); withoutSpeech.generateSamples(a2, null, false);
+    expect(audio.samples[0]!.left).toBe(a2.samples[0]!.left);
+  });
+});

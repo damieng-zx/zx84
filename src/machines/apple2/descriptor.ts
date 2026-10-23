@@ -7,7 +7,7 @@
 
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type {
-  MachineDescriptor, MachineEntry, MachineLocale, MachineUiCapabilities,
+  MachineDescriptor, MachineEntry, MachineLocale, MachineUiCapabilities, SoundDeviceInfo,
 } from '@/machines/machine.ts';
 import type { MachineModel } from '@/models.ts';
 import { apple2ModelInfo, type Apple2Model } from './models.ts';
@@ -51,6 +51,13 @@ const APPLE2_UI: MachineUiCapabilities = {
   memoryMappedIo: true,
 };
 
+const SPEAKER: SoundDeviceInfo = { id: 'beeper', label: 'Speaker', volumeSetting: 'beeper-volume' };
+const APPLE2_SPEAKER_ONLY: readonly SoundDeviceInfo[] = [SPEAKER];
+const APPLE2_SOUND_DEVICES: readonly SoundDeviceInfo[] = [
+  SPEAKER,
+  { id: 'psg', label: 'Mockingboard', volumeSetting: 'psg-volume', enabledSetting: 'apple2-mockingboard' },
+];
+
 export function apple2Descriptor(
   model: MachineModel,
   locale: MachineLocale = 'uk',
@@ -69,7 +76,12 @@ export function apple2Descriptor(
       borderLeft: APPLE2_BORDER_LEFT,
       borderTop: APPLE2_BORDER_TOP,
     },
-    ui: { ...APPLE2_UI, systemRomLabel: apple2ModelInfo(model).romLabel },
+    ui: {
+      ...APPLE2_UI,
+      systemRomLabel: apple2ModelInfo(model).romLabel,
+      // The //c has no slots, so no Mockingboard to weigh against the speaker.
+      soundDevices: apple2ModelInfo(model).iic ? APPLE2_SPEAKER_ONLY : APPLE2_SOUND_DEVICES,
+    },
   };
 }
 
