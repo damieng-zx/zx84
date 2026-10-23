@@ -337,7 +337,6 @@ vi.mock('@/store/settings.ts', () => ({
   tapeSoundEnabled:   vi.fn(() => true),
   scanlineAccuracy:   vi.fn(() => 'high'),
   ayStereo:           vi.fn(() => 'ABC'),
-  ayDcBlock:          vi.fn(() => true),
   ayAntialias:        vi.fn(() => 'mute'),
   writeProtectA:      vi.fn(() => false),
   writeProtectB:      vi.fn(() => false),
@@ -468,7 +467,6 @@ beforeEach(() => {
   vi.mocked(settings.tapeSoundEnabled).mockReturnValue(true);
   vi.mocked(settings.scanlineAccuracy).mockReturnValue('high');
   vi.mocked(settings.ayStereo).mockReturnValue('ABC');
-  vi.mocked(settings.ayDcBlock).mockReturnValue(true);
   vi.mocked(settings.ayAntialias).mockReturnValue('mute');
   vi.mocked(settings.writeProtectA).mockReturnValue(false);
   vi.mocked(settings.writeProtectB).mockReturnValue(false);

@@ -41,7 +41,6 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'ay-stereo': () => settings.ayStereo(),
   // The SN76489's tone-channel split (BBC Micro, MTX) — mono by default.
   'sn-stereo': () => settings.snStereo(),
-  'ay-dc-block': () => settings.ayDcBlock(),
   'ay-antialias': () => settings.ayAntialias(),
   'specdrum-volume': () => settings.specdrumVolume(),
   'uspeech-volume': () => settings.uspeechVolume(),

@@ -39,7 +39,7 @@ function cpcUi(model: MachineModel): MachineUiCapabilities {
     romPages: 0,
     beeper: false,
     soundChip: 'AY-3-8912',
-    psgControls: ['stereo', 'filter', 'dc-block'],
+    psgControls: ['stereo', 'filter'],
     statusLeds: cpcStatusLeds(model),
     keyboardBus: 'ppi',
     // The GX4000 console has no cassette — drop the tape pane. Other CPC

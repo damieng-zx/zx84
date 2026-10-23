@@ -80,6 +80,10 @@ export class Mockingboard implements Apple2Card, StereoAudioSource {
     for (const ay of this.ay) ay.setSampleRate(rate);
   }
 
+  setDcBlocking(enabled: boolean): void {
+    for (const ay of this.ay) ay.setDcBlocking(enabled);
+  }
+
   generateSampleStereo(): { left: number; right: number } {
     return {
       left: this.ay[0].generateSample() * AY_GAIN,

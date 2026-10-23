@@ -2,7 +2,7 @@
  * Tests for AudioMixer.
  *
  * Lock-ins for previously-fragile behaviour:
- *  - Constructor pre-populates beeperDCAlpha (44100 Hz default) so an
+ *  - Constructor pre-populates the beeper's DC-blocker alpha (44100 Hz default) so an
  *    init()-less mixer doesn't silently mute.
  *  - generateSamples() spreads accumulated duty proportionally across
  *    catch-up sample windows instead of dumping it into the first sample
@@ -29,9 +29,13 @@ function fakeAudio(): Audio & { samples: CapturedSample[] } {
   } as unknown as Audio & { samples: CapturedSample[] };
 }
 
+/** A PSG that reports its output as already DC-coupled, so the mixer passes a
+ *  constant level straight through. (A real AY/SN76489 is blocked by the mixer;
+ *  see the "DC blocking per sound device" tests.) */
 function fakeAY(left: number, right: number): AY3891x {
   let calls = 0;
   const ay = {
+    ownsDcCoupling: true,
     calls: () => calls,
     generateSampleStereo() {
       calls++;
@@ -60,14 +64,14 @@ describe('AudioMixer â construction & init', () => {
     expect(m.tStatesPerSample).toBeCloseTo(3_500_000 / 48_000, 6);
     // ~20Hz HPF cutoff: alpha = 1 - 2ÏÂ·20/sampleRate
     const expectedAlpha = 1 - (2 * Math.PI * 20 / 48_000);
-    expect((m as any).beeperDCAlpha).toBeCloseTo(expectedAlpha, 8);
+    expect((m as any).beeperDC.alpha).toBeCloseTo(expectedAlpha, 8);
   });
 
   it('without init(), the constructor pre-populates a usable DC alpha (44.1kHz default)', () => {
     // Regression guard: pre-fix, beeperDCAlpha defaulted to 0 and the mixer
     // played silence until someone called init().
     const m = new AudioMixer(3_500_000);
-    expect((m as any).beeperDCAlpha).toBeCloseTo(1 - (2 * Math.PI * 20 / 44_100), 8);
+    expect((m as any).beeperDC.alpha).toBeCloseTo(1 - (2 * Math.PI * 20 / 44_100), 8);
 
     const audio = fakeAudio();
     // The first sample only seeds the filter (a signal already at a DC level starts
@@ -358,14 +362,14 @@ describe('AudioMixer â reset()', () => {
 
     expect(m.beeperTStatesAccum).toBe(0);
     expect((m as any).beeperAccum).toBe(0);
-    expect((m as any).beeperDCPrev).toBe(0);
-    expect((m as any).beeperDCOut).toBe(0);
+    expect((m as any).beeperDC.prev).toBe(0);
+    expect((m as any).beeperDC.out).toBe(0);
     expect(m.prevBeeperBit).toBe(0);
     // Config preserved.
     expect(m.beeperGain).toBe(0.7);
     expect(m.ayGain).toBe(0.3);
     expect(m.tStatesPerSample).toBeCloseTo(3_500_000 / 44_100, 6);
-    expect((m as any).beeperDCAlpha).not.toBe(0);
+    expect((m as any).beeperDC.alpha).not.toBe(0);
   });
 });
 
@@ -697,26 +701,31 @@ describe('AudioMixer — auxiliary DAC channel', () => {
 describe('AudioMixer — mono peripheral source (speech board)', () => {
   const N = 70;                                          // T per sample at 50 kHz, exactly
   const mk = () => { const m = new AudioMixer(3_500_000); m.init(50_000); return m; };
-  /** A speech source already level-set at a steady 0.25. */
-  const speech = { generateSampleMono: () => 0.25 };
+  /** The blocker's first-sample response to a 0 -> 0.25 step at 50 kHz. */
+  const STEP = 0.25 * (1 - (2 * Math.PI * 20 / 50_000));
+  /** A speech source, level-set: idle at 0, then a step to 0.25. The mixer's DC
+   *  blocker primes on the first sample, so the step shows on the second. */
+  const makeSpeech = () => { let n = 0; return { generateSampleMono: () => (n++ === 0 ? 0 : 0.25) }; };
   function render(gain: number | null): number {
     const m = mk(); const audio = fakeAudio();
+    const speech = makeSpeech();
     if (gain !== null) m.monoGain = gain;
     m.beeperGain = 0;                                    // isolate the mono source
-    m.accumulate(0, N);
-    m.generateSamples(audio, null, false, speech);
-    return audio.samples[0]!.left;
+    for (let i = 0; i < 2; i++) { m.accumulate(0, N); m.generateSamples(audio, null, false, speech); }
+    return audio.samples[1]!.left;
   }
 
   it('is mixed at unity by default, equally into both channels', () => {
     const m = mk(); const audio = fakeAudio();
-    m.accumulate(0, N); m.generateSamples(audio, null, false, speech);
-    expect(audio.samples[0]).toEqual({ left: 0.25, right: 0.25 });
+    const speech = makeSpeech();
+    for (let i = 0; i < 2; i++) { m.accumulate(0, N); m.generateSamples(audio, null, false, speech); }
+    expect(audio.samples[1]!.left).toBeCloseTo(STEP, 12);
+    expect(audio.samples[1]!.right).toBe(audio.samples[1]!.left);
   });
 
   it('monoGain scales it linearly', () => {
-    expect(render(0.5)).toBeCloseTo(0.125, 12);
-    expect(render(1.5)).toBeCloseTo(0.375, 12);
+    expect(render(0.5)).toBeCloseTo(STEP * 0.5, 12);
+    expect(render(1.5)).toBeCloseTo(STEP * 1.5, 12);
   });
 
   it('monoGain 0 silences it', () => {
@@ -734,9 +743,77 @@ describe('AudioMixer — mono peripheral source (speech board)', () => {
     m.monoGain = 0;
     m.beeperGain = 1;
     m.accumulateLevel(1, N);                             // beeper held high: first sample steps up through the DC-blocker
-    m.generateSamples(audio, null, false, speech);
+    m.generateSamples(audio, null, false, makeSpeech());
     const withoutSpeech = mk(); const a2 = fakeAudio();
     withoutSpeech.accumulateLevel(1, N); withoutSpeech.generateSamples(a2, null, false);
     expect(audio.samples[0]!.left).toBe(a2.samples[0]!.left);
+  });
+});
+
+// -- DC blocking per sound device ------------------------------------------
+
+describe('AudioMixer - DC blocking per sound device', () => {
+  const N = 70;                                          // T per sample at 50 kHz, exactly
+  const mk = () => { const m = new AudioMixer(3_500_000); m.init(50_000); m.beeperGain = 0; return m; };
+  /** A PSG with no filter of its own, parked at a constant level. */
+  function rawPsg(level: number) {
+    let blockingOff = 0;
+    return {
+      generateSampleStereo: () => ({ left: level, right: level }),
+      setDcBlocking: (on: boolean) => { if (!on) blockingOff++; },
+      switchedOff: () => blockingOff,
+    };
+  }
+  function run(m: AudioMixer, audio: Audio, n: number, psg: ReturnType<typeof rawPsg> | null, mono: { generateSampleMono(): number } | null = null) {
+    for (let i = 0; i < n; i++) {
+      m.accumulate(0, N);
+      m.generateSamples(audio, psg as never, psg !== null, mono);
+    }
+  }
+
+  it('centres a PSG parked at a constant level instead of passing the offset through', () => {
+    const m = mk(); const audio = fakeAudio();
+    run(m, audio, 2000, rawPsg(0.4));
+    expect(Math.abs(audio.samples[1999]!.left)).toBeLessThan(1e-6);
+    expect(Math.abs(audio.samples[1999]!.right)).toBeLessThan(1e-6);
+  });
+
+  it('does not step when the PSG starts already at a DC level (primed on the first sample)', () => {
+    const m = mk(); const audio = fakeAudio();
+    run(m, audio, 1, rawPsg(0.4));
+    expect(audio.samples[0]).toEqual({ left: 0, right: 0 });
+  });
+
+  it("switches the PSG's own filter off, once, so the signal is not filtered twice", () => {
+    const m = mk(); const audio = fakeAudio();
+    const psg = rawPsg(0.4);
+    run(m, audio, 10, psg);
+    expect(psg.switchedOff()).toBe(1);
+  });
+
+  it('leaves a source that owns its DC coupling (POKEY) untouched', () => {
+    const m = mk(); const audio = fakeAudio();
+    const psg = {
+      ownsDcCoupling: true,
+      generateSampleStereo: () => ({ left: 0.4, right: 0.4 }),
+      setDcBlocking: () => { throw new Error('must not be called'); },
+    };
+    for (let i = 0; i < 5; i++) { m.accumulate(0, N); m.generateSamples(audio, psg as never, true); }
+    expect(audio.samples[4]).toEqual({ left: 0.4, right: 0.4 });
+  });
+
+  it('blocks a parked mono (speech) source too', () => {
+    const m = mk(); const audio = fakeAudio();
+    run(m, audio, 2000, null, { generateSampleMono: () => 0.3 });
+    expect(Math.abs(audio.samples[1999]!.left)).toBeLessThan(1e-6);
+  });
+
+  it('re-primes the PSG after it was muted, so re-enabling it does not click', () => {
+    const m = mk(); const audio = fakeAudio();
+    const psg = rawPsg(0.4);
+    run(m, audio, 500, psg);
+    run(m, audio, 5, null);                              // PSG off: idle() runs
+    run(m, audio, 1, psg);
+    expect(audio.samples[505]).toEqual({ left: 0, right: 0 });
   });
 });

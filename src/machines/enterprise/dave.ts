@@ -96,7 +96,6 @@ export class Dave implements StereoAudioSource {
   private dacLeft = false;
   private dacRight = false;
   private sumL = 0; private sumR = 0; private sumN = 0;
-  private dcL = 0; private dcR = 0; private dcPrevL = 0; private dcPrevR = 0;
   /** Last sample produced (0..1 per side), for the sound activity LED. */
   level = 0;
 
@@ -133,7 +132,6 @@ export class Dave implements StereoAudioSource {
     this.prev.fill(0);
     this.noiseClockPrev = this.noiseIn = this.noiseHeld = 0;
     this.sumL = this.sumR = this.sumN = 0;
-    this.dcL = this.dcR = this.dcPrevL = this.dcPrevR = 0;
     this.level = 0;
     this.sndState = this.secState = 0;
     this.int1State = this.int2State = 1;
@@ -350,12 +348,9 @@ export class Dave implements StereoAudioSource {
     const l = this.sumL / (n * FULL_SCALE);
     const r = this.sumR / (n * FULL_SCALE);
     this.sumL = this.sumR = this.sumN = 0;
-    this.dcL = 0.995 * (this.dcL + l - this.dcPrevL);
-    this.dcR = 0.995 * (this.dcR + r - this.dcPrevR);
-    this.dcPrevL = l;
-    this.dcPrevR = r;
     this.level = l > r ? l : r;
-    return { left: this.dcL, right: this.dcR };
+    // Raw: the mixer's DC blocker centres it.
+    return { left: l, right: r };
   }
 
   /** The mixer's sample-rate hook — Dave's averaging needs nothing. */

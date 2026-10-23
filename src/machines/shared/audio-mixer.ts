@@ -1,6 +1,6 @@
 /**
- * Audio mixer peripheral: beeper accumulation, DC-blocking filter,
- * and stereo sample generation (beeper + programmable sound generator).
+ * Audio mixer peripheral: beeper accumulation, a DC blocker per sound device,
+ * and stereo sample generation (beeper + programmable sound generator + DAC + speech).
  *
  * Lives in `machines/shared/` because every machine (Spectrum, CPC, Einstein,
  * MSX, MTX) mixes its beeper/PSG output through it — it is genuinely machine-agnostic
@@ -8,8 +8,16 @@
  */
 
 import type { Audio } from '@/audio.ts';
+import { DcBlocker } from '@/machines/shared/dc-blocker.ts';
+
 export interface StereoAudioSource {
   generateSampleStereo(): { left: number; right: number };
+  /** Present on a source that can filter its own DC. The mixer blocks every source
+   *  itself, so it switches the source's own filter off to avoid filtering twice. */
+  setDcBlocking?(enabled: boolean): void;
+  /** True for a source whose output coupling is part of its hardware model (POKEY):
+   *  the mixer leaves its DC handling alone. */
+  readonly ownsDcCoupling?: boolean;
 }
 
 /** A peripheral that contributes a mono signal to both channels, already level-set
@@ -54,14 +62,17 @@ export class AudioMixer {
   private beeperLastLevel = 0;
   private beeperLastElapsed = 0;
 
-  /** DC-blocking filter for beeper */
-  private beeperDCAlpha: number;
-  private beeperDCPrev = 0;
-  private beeperDCOut = 0;
-  /** False until the filter has seen its first sample after construction/reset: that
-   *  sample seeds the filter's history, so a signal that is already at a DC level
-   *  (the beeper held high across a reset) starts at zero instead of stepping. */
-  private beeperPrimed = false;
+  /** One DC blocker per sound device, so each is centred before it is scaled and
+   *  mixed. The beeper and PSG prime on their first sample (a signal already at a DC
+   *  level — the beeper held high across a reset — starts at zero instead of stepping);
+   *  the signed aux DAC is exactly zero at idle and needs no priming. */
+  private readonly beeperDC = new DcBlocker();
+  private readonly psgDCLeft = new DcBlocker();
+  private readonly psgDCRight = new DcBlocker();
+  private readonly auxDC = new DcBlocker(44100, false);
+  private readonly monoDC = new DcBlocker();
+  /** The PSG whose own filter has been switched off, so it is done once per source. */
+  private rawPsg: StereoAudioSource | null = null;
 
   /** Gain factors for PSG/beeper balance (clamped to 0..1). */
   private _beeperGain = 1.0;
@@ -82,8 +93,6 @@ export class AudioMixer {
   private auxAccum = 0;
   private auxLastLevel = 0;
   private auxLastElapsed = 0;
-  private auxDCPrev = 0;
-  private auxDCOut = 0;
   private _auxGain = 1.0;
   /** Gain of the mono source passed to `generateSamples` (a speech board), 0..2. */
   private _monoGain = 1.0;
@@ -112,14 +121,14 @@ export class AudioMixer {
     // Audio drivers should still call init(audio.sampleRate) but a missing
     // init must not silently mute the beeper.
     this.tStatesPerSample = cpuClock / 44100;
-    this.beeperDCAlpha = 1 - (2 * Math.PI * 20 / 44100);
   }
 
   /** Compute tStatesPerSample and DC alpha from actual audio sample rate. */
   init(sampleRate: number): void {
     this.tStatesPerSample = this.cpuClock / sampleRate;
-    // DC-blocking filter: ~20Hz cutoff, same as AY core
-    this.beeperDCAlpha = 1 - (2 * Math.PI * 20 / sampleRate);
+    for (const dc of [this.beeperDC, this.psgDCLeft, this.psgDCRight, this.auxDC, this.monoDC]) {
+      dc.setSampleRate(sampleRate);
+    }
     // Drop in-flight accumulator state so a mid-stream sample-rate change
     // doesn't reinterpret old T-state counts in the new window size.
     this.discardPending();
@@ -194,23 +203,26 @@ export class AudioMixer {
       }
       this.beeperTStatesAccum = extra;
 
-      // DC-blocking high-pass filter: y[n] = alpha(y[n-1] + x[n] - x[n-1])
-      const beeperRaw = duty * BEEPER_SCALE;
-      if (!this.beeperPrimed) {
-        this.beeperDCPrev = beeperRaw;
-        this.beeperDCOut = 0;
-        this.beeperPrimed = true;
-      }
-      this.beeperDCOut = this.beeperDCAlpha * (this.beeperDCOut + beeperRaw - this.beeperDCPrev);
-      this.beeperDCPrev = beeperRaw;
-      const beeperOut = this.beeperDCOut;
+      const beeperOut = this.beeperDC.process(duty * BEEPER_SCALE);
 
       let left: number, right: number;
       if (psgEnabled && psg) {
         const psgSample = psg.generateSampleStereo();
-        left = psgSample.left * this._ayGain + beeperOut * this._beeperGain;
-        right = psgSample.right * this._ayGain + beeperOut * this._beeperGain;
+        let psgL = psgSample.left;
+        let psgR = psgSample.right;
+        if (!psg.ownsDcCoupling) {
+          if (psg !== this.rawPsg) {
+            psg.setDcBlocking?.(false);
+            this.rawPsg = psg;
+          }
+          psgL = this.psgDCLeft.process(psgL);
+          psgR = this.psgDCRight.process(psgR);
+        }
+        left = psgL * this._ayGain + beeperOut * this._beeperGain;
+        right = psgR * this._ayGain + beeperOut * this._beeperGain;
       } else {
+        this.psgDCLeft.idle();
+        this.psgDCRight.idle();
         left = beeperOut * this._beeperGain;
         right = beeperOut * this._beeperGain;
       }
@@ -229,18 +241,17 @@ export class AudioMixer {
           this.auxAccum -= auxMean * tps;
           this.auxLastElapsed = 0;
         }
-        const auxRaw = auxMean * AUX_SCALE;
-        this.auxDCOut = this.beeperDCAlpha * (this.auxDCOut + auxRaw - this.auxDCPrev);
-        this.auxDCPrev = auxRaw;
-        const auxOut = this.auxDCOut * this._auxGain;
+        const auxOut = this.auxDC.process(auxMean * AUX_SCALE) * this._auxGain;
         left += auxOut;
         right += auxOut;
       }
 
       if (aux) {
-        const a = aux.generateSampleMono() * this._monoGain;
+        const a = this.monoDC.process(aux.generateSampleMono()) * this._monoGain;
         left += a;
         right += a;
+      } else {
+        this.monoDC.idle();
       }
 
       audio.pushSample(
@@ -252,12 +263,10 @@ export class AudioMixer {
 
   reset(): void {
     this.discardPending();
-    this.beeperDCPrev = 0;
-    this.beeperDCOut = 0;
-    this.beeperPrimed = false;
     this.prevBeeperBit = 0;
     this.auxActive = false;
-    this.auxDCPrev = 0;
-    this.auxDCOut = 0;
+    for (const dc of [this.beeperDC, this.psgDCLeft, this.psgDCRight, this.auxDC, this.monoDC]) {
+      dc.reset();
+    }
   }
 }

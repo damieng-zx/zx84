@@ -191,6 +191,9 @@ const CLAMP_LOW = -0.5;
 const CLAMP_HIGH = 0.65;
 
 export class Pokey {
+  /** POKEY's two-stage output coupling is part of its hardware model, so the
+   *  mixer leaves its DC handling alone. */
+  readonly ownsDcCoupling = true;
   readonly audf = new Uint8Array(4);
   readonly audc = new Uint8Array(4);
   audctl = 0;

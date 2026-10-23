@@ -65,7 +65,7 @@ function spectrumUi(model: MachineModel): MachineUiCapabilities {
     romPages: romPageSlotCount(model),
     beeper: true,
     soundChip: is128kClass(model) ? 'AY-3-8912' : undefined,
-    psgControls: ['stereo', 'filter', 'dc-block'],
+    psgControls: ['stereo', 'filter'],
     micSpeaker: true,
     soundDevices: spectrumSoundDevices(model),
     statusLeds: spectrumStatusLeds(model),

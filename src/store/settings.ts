@@ -54,7 +54,6 @@ const DEFAULTS = {
   'ay-stereo':    'ABC',
   // SN76489 tone-channel split; the chip is mono, so that is the default.
   'sn-stereo':    'MONO',
-  'ay-dc-block':  'on',
   'ay-antialias': 'mute',
   // Level of the SpecDrum DAC channel (0-100), separate from master volume.
   'specdrum-volume': '100',
@@ -305,9 +304,6 @@ const _snStereo = /*@once*/ createRoot(() => createSignal(getSaved('sn-stereo', 
 export const snStereo = _snStereo[0];
 export const setSnStereo = _snStereo[1];
 
-const _ayDcBlock = /*@once*/ createRoot(() => createSignal(getSaved('ay-dc-block', D('ay-dc-block')) === 'on'));
-export const ayDcBlock = _ayDcBlock[0];
-export const setAyDcBlock = _ayDcBlock[1];
 
 const _ayAntialias = /*@once*/ createRoot(() => createSignal(getSaved('ay-antialias', D('ay-antialias'))));
 export const ayAntialias = _ayAntialias[0];
@@ -811,7 +807,6 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'psg-volume',  set: setPsgVolume,  type: 'number' },
     { key: 'ay-stereo',   set: setAyStereo,   type: 'string' },
     { key: 'sn-stereo',   set: setSnStereo,   type: 'string' },
-    { key: 'ay-dc-block', set: setAyDcBlock,  type: 'bool' },
     { key: 'ay-antialias', set: setAyAntialias, type: 'string' },
     { key: 'specdrum-volume', set: setSpecdrumVolume, type: 'number' },
     { key: 'uspeech-volume', set: setUspeechVolume, type: 'number' },

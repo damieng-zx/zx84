@@ -294,7 +294,7 @@ export interface SoundDeviceInfo {
   readonly maxVolume?: number;
 }
 
-export type PsgControl = 'stereo' | 'sn-stereo' | 'filter' | 'dc-block';
+export type PsgControl = 'stereo' | 'sn-stereo' | 'filter';
 
 /** One mouse interface a machine offers — see `MachineUiCapabilities.mouseTypes`.
  *  `id` is the mode string passed back through `InputService.mice`. */
@@ -428,7 +428,6 @@ export interface MachineUiCapabilities {
    *                left and right amplitude, so the program decides the image.
    *   'filter'   — the ultrasonic anti-alias strategy, which the MTX's
    *                SN76489 shares even though it is not an AY.
-   *   'dc-block' — the DC blocking filter, AY-only.
    *
    * A machine with no PSG at all (ZX80/81) lists none of them.
    */

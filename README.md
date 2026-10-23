@@ -103,7 +103,7 @@ Known models: `zx16k` `zx48k` `zx128k` `zx128kplus2` `zx128kplus2a` `zx128kplus3
 - CRT controls for brightness, contrast, saturation, gamma, scanlines, softness, noise, dot pitch, curvature, masks, and monitor presets.
 - Shadow-mask, aperture-grille, slot-mask, LCD-grid, and attribute-mask options.
 - Web Audio output with AudioWorklet and SharedArrayBuffer paths where available, plus a ScriptProcessor fallback.
-- Master volume, beeper-to-AY mix, AY stereo placement, DC blocking, and ultrasonic-tone filtering.
+- Master volume, beeper-to-AY mix, AY stereo placement, and ultrasonic-tone filtering.
 
 ### Input And Interface
 

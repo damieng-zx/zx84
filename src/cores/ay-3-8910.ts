@@ -93,7 +93,9 @@ export class AY3891x {
   // Stereo panning mode
   stereoMode: AYStereoMode;
 
-  // DC-blocking filter — toggle for conformance testing (disable to match raw VGMPlay output)
+  // DC-blocking filter. Core default is on (matches the real chip's coupling); the
+  // mixer blocks every source itself and switches this off, and conformance tests
+  // disable it to match raw VGMPlay output.
   dcBlocking = true;
 
   // Resampler anti-aliasing mode. Core default is 'none' (deterministic
@@ -122,6 +124,11 @@ export class AY3891x {
   private _dcPrevR: number;
   private _dcOutL: number;
   private _dcOutR: number;
+
+  /** Same as assigning `dcBlocking`, for the mixer's `StereoAudioSource` contract. */
+  setDcBlocking(enabled: boolean): void {
+    this.dcBlocking = enabled;
+  }
 
   constructor(chipFreq: number, sampleRate: number, stereoMode: AYStereoMode = 'ABC') {
     this.chipFreq = chipFreq || 1773400;

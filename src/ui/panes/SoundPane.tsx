@@ -5,7 +5,6 @@ import {
   volume, setVolume,
   ayStereo, setAyStereo,
   snStereo, setSnStereo,
-  ayDcBlock, setAyDcBlock,
   ayAntialias, setAyAntialias,
   micAudible, setMicAudible,
   persistSetting, resetSettingsGroup, DEVICE_VOLUMES,
@@ -136,24 +135,6 @@ export function SoundPane() {
         >
           {ANTIALIAS_MODES.map(m => <option value={m.value}>{m.label}</option>)}
         </select>
-      </div>
-      </Show>
-      <Show when={machineCaps().psgControls.includes('dc-block')}>
-      <div class="slider-row">
-        <span class="slider-label">DC Blocking</span>
-        <label class="toggle">
-          <input
-            type="checkbox"
-            id="ay-dc-block"
-            checked={ayDcBlock()}
-            onChange={(e) => {
-              const on = (e.target as HTMLInputElement).checked;
-              setAyDcBlock(on);
-              persistSetting('ay-dc-block', on ? 'on' : 'off');
-              applyDisplaySettings();
-            }}
-          />
-        </label>
       </div>
       </Show>
     </Pane>
