@@ -14,20 +14,12 @@ import { batch } from 'solid-js';
 import type { Machine, MountResult, TapeStashState } from '@/machines/machine.ts';
 import type { MachineKind } from '@/machines/machine.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
-import { parseFloppyImage, parseHFE, serializeHFE, isHFE, attachHfeBitstream } from '@/media/floppy/hfe.ts';
-import { parseSCP, isScp } from '@/media/floppy/scp.ts';
-import { parseMgt, serializeMgt, blankMgtDisk, mgtExtFromName } from '@/media/floppy/mgt-image.ts';
-import { parseTrd, serializeTrd, blankTrdDisk } from '@/media/floppy/trd-image.ts';
-import { parseScl, serializeScl, isScl, SCL_DISK_FORMAT } from '@/media/floppy/scl-image.ts';
-import { parseMdrBlocks } from '@/media/microdrive.ts';
+import { parseFloppyImage } from '@/media/floppy/hfe.ts';
 import { unzip } from '@/media/zip.ts';
 import { showFilePicker } from '@/ui/zip-picker.ts';
 import * as settings from '@/store/settings.ts';
 import {
   persistLastFile, persistTape, clearTape, restoreTape, persistDisk, restoreDisk, clearDisk,
-  persistPlusDDisk, restorePlusDDisk, clearPlusDDisk,
-  persistBetaDiskDisk, restoreBetaDiskDisk, clearBetaDiskDisk,
-  persistMicrodrive, restoreMicrodrive, clearMicrodrive,
   persistCartridge, restoreCartridge, clearCartridge,
 } from '@/store/persistence.ts';
 import { entryForModel } from '@/machines/registry.ts';
@@ -47,9 +39,18 @@ import {
   setCurrentDiskInfoC, setCurrentDiskNameC, setCurrentDiskInfoD, setCurrentDiskNameD,
 } from '@/state/disk-state.ts';
 import { setTranscribeMode, transcribeMode } from '@/state/activity-state.ts';
-import { microdriveSlots, setMicrodriveSlot, clearMicrodriveSlot } from '@/state/microdrive-state.ts';
 import { machine, romData, setStatus, romManager } from '@/shell/context.ts';
-import { unpause, autoBootLoad } from '@/shell/lifecycle.ts';
+import { unpause } from '@/shell/lifecycle.ts';
+import { downloadFile } from '@/shell/download.ts';
+import { reflectPeripheralMount, restorePeripheralDrives } from '@/shell/peripheral-drives.ts';
+
+// The Spectrum's add-on drives (+D, Beta Disk, microdrives) live in their own module.
+export {
+  loadPlusDDisk, ejectPlusDDisk, insertBlankPlusDDisk, savePlusDDisk,
+  loadBetaDiskDisk, ejectBetaDiskDisk, insertBlankBetaDiskDisk, saveBetaDiskDisk,
+  loadMicrodrive, ejectMicrodrive, insertBlankMicrodrive, saveMicrodrive, setMicrodriveWriteProtect,
+} from '@/shell/peripheral-drives.ts';
+export type { PlusDBlankGeometry, BetaDiskBlankGeometry } from '@/shell/peripheral-drives.ts';
 import type { SpectrumModel } from '@/models.ts';
 
 // ── Cassette / cartridge ──────────────────────────────────────────────────
@@ -203,22 +204,8 @@ async function reflectMount(
       if (unit === 0) persistLastFile(data, filename);
       persistDisk(unit, data, filename, m.kind);
     }
-  } else if (target.startsWith('plusd:')) {
-    const u = Number(target.slice(6));
-    setPlusDDiskState(u, m.services.disks?.image?.(target) ?? null, filename);
-    persistPlusDDisk(u, data, filename);
-  } else if (target.startsWith('beta:')) {
-    const u = Number(target.slice(5));
-    setPlusDDiskState(u, m.services.disks?.image?.(target) ?? null, filename);
-    persistBetaDiskDisk(u, data, filename);
-    // Opening a TR-DOS disk runs it, as the library does: reset, enter TR-DOS
-    // (RANDOMIZE USR 15616) and RUN its boot file. Drive B only swaps media.
-    if (options.autoBoot && u === 0) autoBootLoad('trdos');
-  } else if (target.startsWith('mdv:')) {
-    const u = Number(target.slice(4));
-    const drive = m.services.disks?.drives.find(d => d.id === target);
-    setMicrodriveSlot(u, { loaded: true, name: filename, writeProtected: drive?.writeProtected ?? false, modified: false, blocks: parseMdrBlocks(data) });
-    persistMicrodrive(u, data, filename).catch((e) => console.warn('persistMicrodrive failed:', e));
+  } else if (reflectPeripheralMount(m, target, data, filename, options.autoBoot === true)) {
+    // add-on drive (+D, Beta Disk, microdrive): reflected and persisted there
   } else if (target === 'cas') {
     reflectInstantCassette(data, filename);
   } else if (target === 'cartridge') {
@@ -313,16 +300,6 @@ async function handleZip(data: Uint8Array, filename: string, unit: number | unde
 }
 
 // ── Download / save ────────────────────────────────────────────────────────
-
-function downloadFile(data: Uint8Array, filename: string): void {
-  const blob = new Blob([data as BlobPart], { type: 'application/octet-stream' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
 
 /** Save the running CPC as a `.SNA` (v2 = flat, v3 = RLE-compressed). The
  *  Load/Save pane offers this only when the descriptor names the entry. */
@@ -781,183 +758,6 @@ export function loadDiskToUnit(data: Uint8Array, filename: string, unit: number)
   }
 }
 
-// ── MGT +D disk helpers (drives C/D = WD1772 units 0/1) ──────────────────
-
-function setPlusDDiskState(unit: number, image: DskImage | null, name: string): void {
-  if (unit === 0) { setCurrentDiskInfoC(image); setCurrentDiskNameC(name); }
-  else { setCurrentDiskInfoD(image); setCurrentDiskNameD(name); }
-}
-
-/** True when the active machine currently offers drive id `id`. */
-function hasDrive(id: string): boolean {
-  return machine?.services.disks?.drives.some(d => d.id === id) ?? false;
-}
-
-/** Load a .mgt/.img/.hfe image into a +D drive (unit 0/1 → C:/D:). */
-export function loadPlusDDisk(data: Uint8Array, filename: string, unit: number): void {
-  if (!machine) { setStatus('Load a ROM first'); return; }
-  if (!hasDrive(`plusd:${unit}`)) { setStatus('Enable the MGT +D in Hardware first'); return; }
-  let image: DskImage | null;
-  try {
-    image = isHFE(data) ? parseHFE(data) : isScp(data) ? parseSCP(data) : parseMgt(data, mgtExtFromName(filename));
-  } catch (e) {
-    setStatus(`+D disk error: ${(e as Error).message}`);
-    return;
-  }
-  if (!image) { setStatus(`Not a recognised +D image: ${filename}`); return; }
-  machine.services.disks!.insert(`plusd:${unit}`, image, filename);
-  setPlusDDiskState(unit, image, filename);
-  persistPlusDDisk(unit, data, filename);
-  setStatus(`+D disk ${unit === 0 ? 'C' : 'D'}: loaded: ${filename}`);
-}
-
-export function ejectPlusDDisk(unit: number): void {
-  if (!machine || !hasDrive(`plusd:${unit}`)) return;
-  machine.services.disks!.eject(`plusd:${unit}`);
-  clearPlusDDisk(unit);
-  setPlusDDiskState(unit, null, '');
-  setStatus(`+D disk ${unit === 0 ? 'C' : 'D'}: ejected`);
-}
-
-/** Blank +D geometries offered in the UI (all 10 × 512-byte sectors). */
-export interface PlusDBlankGeometry { tracks: number; sides: number; }
-
-export function insertBlankPlusDDisk(unit: number, geom: PlusDBlankGeometry, asHfe = false): void {
-  if (!machine || !hasDrive(`plusd:${unit}`)) return;
-  const base = blankMgtDisk(geom.tracks, geom.sides);
-  const image = asHfe ? attachHfeBitstream(base) : base;
-  const [name, data] = asHfe
-    ? ['BLANK.hfe', serializeHFE(image)]
-    : ['BLANK.mgt', serializeMgt(image, 'mgt')];
-  machine.services.disks!.insert(`plusd:${unit}`, image, name);
-  setPlusDDiskState(unit, image, name);
-  persistPlusDDisk(unit, data, name);
-}
-
-export function savePlusDDisk(unit: number): void {
-  if (!machine || !hasDrive(`plusd:${unit}`)) return;
-  const saved = machine.services.disks!.save(`plusd:${unit}`);
-  if (!saved) { setStatus(`No disk in +D drive ${unit === 0 ? 'C' : 'D'}:`); return; }
-  const name = unit === 0 ? currentDiskNameC() : currentDiskNameD();
-  const base = name.replace(/\.[^.]+$/, '') || 'plusd';
-  const ext = saved.name.slice(saved.name.lastIndexOf('.'));
-  downloadFile(saved.data, `${base}${ext}`);
-}
-
-// ── Beta Disk (TR-DOS) helpers (WD1793 units 0/1) ────────────────────────
-
-/** Load a .trd/.scl/.hfe image into a Beta Disk drive (unit 0/1). */
-export function loadBetaDiskDisk(data: Uint8Array, filename: string, unit: number): void {
-  if (!machine) { setStatus('Load a ROM first'); return; }
-  if (!hasDrive(`beta:${unit}`)) { setStatus('Enable the Beta Disk in Hardware first'); return; }
-  let image: DskImage | null;
-  try {
-    if (isHFE(data)) image = parseHFE(data);
-    else if (isScp(data)) image = parseSCP(data);
-    else if (isScl(data)) image = parseScl(data);
-    else image = parseTrd(data);
-  } catch (e) {
-    setStatus(`Beta Disk error: ${(e as Error).message}`);
-    return;
-  }
-  if (!image) { setStatus(`Not a recognised Beta Disk image: ${filename}`); return; }
-  machine.services.disks!.insert(`beta:${unit}`, image, filename);
-  setPlusDDiskState(unit, image, filename);
-  persistBetaDiskDisk(unit, data, filename);
-  setStatus(`Beta Disk ${unit === 0 ? 'A' : 'B'}: loaded: ${filename}`);
-}
-
-export function ejectBetaDiskDisk(unit: number): void {
-  if (!machine || !hasDrive(`beta:${unit}`)) return;
-  machine.services.disks!.eject(`beta:${unit}`);
-  clearBetaDiskDisk(unit);
-  setPlusDDiskState(unit, null, '');
-  setStatus(`Beta Disk ${unit === 0 ? 'A' : 'B'}: ejected`);
-}
-
-/** Blank TR-DOS geometries offered in the UI (all 16 × 256-byte sectors). */
-export interface BetaDiskBlankGeometry { tracks: number; sides: number; }
-
-export function insertBlankBetaDiskDisk(unit: number, geom: BetaDiskBlankGeometry = { tracks: 80, sides: 2 }, asScl = false): void {
-  if (!machine || !hasDrive(`beta:${unit}`)) return;
-  const image = asScl ? blankTrdDisk(80, 2) : blankTrdDisk(geom.tracks, geom.sides);
-  if (asScl) image.diskFormat = SCL_DISK_FORMAT;
-  const [name, data] = asScl ? ['BLANK.scl', serializeScl(image)] : ['BLANK.trd', serializeTrd(image)];
-  machine.services.disks!.insert(`beta:${unit}`, image, name);
-  setPlusDDiskState(unit, image, name);
-  persistBetaDiskDisk(unit, data, name);
-}
-
-export function saveBetaDiskDisk(unit: number): void {
-  if (!machine || !hasDrive(`beta:${unit}`)) return;
-  const saved = machine.services.disks!.save(`beta:${unit}`);
-  if (!saved) { setStatus(`No disk in Beta Disk drive ${unit === 0 ? 'A' : 'B'}:`); return; }
-  const name = unit === 0 ? currentDiskNameC() : currentDiskNameD();
-  const base = name.replace(/\.[^.]+$/, '') || 'betadisk';
-  const ext = saved.name.slice(saved.name.lastIndexOf('.'));
-  downloadFile(saved.data, `${base}${ext}`);
-}
-
-// ── ZX Interface 1 microdrive helpers (drives 1-8 → units 0-7) ───────────
-
-/** Mount an .mdr/.mdv cartridge into a microdrive (unit 0-7 → drive 1-8). */
-export function loadMicrodrive(data: Uint8Array, filename: string, unit: number): void {
-  if (!machine) { setStatus('Load a ROM first'); return; }
-  if (!hasDrive(`mdv:${unit}`)) { setStatus('Enable the ZX Interface 1 in Hardware first'); return; }
-  try {
-    machine.services.disks!.insert(`mdv:${unit}`, data, filename);
-    const drive = machine.services.disks!.drives.find(d => d.id === `mdv:${unit}`);
-    setMicrodriveSlot(unit, { loaded: true, name: filename, writeProtected: drive?.writeProtected ?? false, modified: false, blocks: parseMdrBlocks(data) });
-    persistMicrodrive(unit, data, filename).catch((e) => console.warn('persistMicrodrive failed:', e));
-    setStatus(`Microdrive ${unit + 1}: loaded: ${filename}`);
-  } catch (e) {
-    console.error('loadMicrodrive failed:', e);
-    setStatus(`Microdrive error: ${(e as Error).message}`);
-  }
-}
-
-export function ejectMicrodrive(unit: number): void {
-  if (!machine || !hasDrive(`mdv:${unit}`)) return;
-  machine.services.disks!.eject(`mdv:${unit}`);
-  clearMicrodrive(unit);
-  clearMicrodriveSlot(unit);
-  setStatus(`Microdrive ${unit + 1}: ejected`);
-}
-
-export function insertBlankMicrodrive(unit: number, name = 'CART'): void {
-  // Formatting a blank cartridge is an IF1 FORMAT mechanism (no image codec
-  // makes one); the machine's DiskService owns it and hands back the bytes.
-  const disks = machine?.services.disks;
-  if (!machine || !disks?.formatBlank || !hasDrive(`mdv:${unit}`)) {
-    setStatus('Enable the ZX Interface 1 in Hardware first'); return;
-  }
-  const blank = disks.formatBlank(`mdv:${unit}`, name);
-  if (!blank) { setStatus('Enable the ZX Interface 1 in Hardware first'); return; }
-  setMicrodriveSlot(unit, { loaded: true, name: blank.name, writeProtected: false, modified: false, blocks: [] });
-  persistMicrodrive(unit, blank.data, blank.name);
-  setStatus(`Microdrive ${unit + 1}: blank cartridge inserted`);
-}
-
-export function saveMicrodrive(unit: number): void {
-  if (!machine || !hasDrive(`mdv:${unit}`)) return;
-  const saved = machine.services.disks!.save(`mdv:${unit}`);
-  if (!saved) { setStatus(`No cartridge in microdrive ${unit + 1}`); return; }
-  const base = (microdriveSlots()[unit]?.name || `mdr${unit + 1}`).replace(/\.[^.]+$/, '') || `mdr${unit + 1}`;
-  downloadFile(saved.data, `${base}.mdr`);
-}
-
-/** Toggle the write-protect tab on a mounted cartridge and re-persist it. */
-export function setMicrodriveWriteProtect(unit: number, wp: boolean): void {
-  if (!machine || !hasDrive(`mdv:${unit}`)) return;
-  const disks = machine.services.disks!;
-  const drive = disks.drives.find(d => d.id === `mdv:${unit}`);
-  if (!drive?.loaded) return;
-  disks.setWriteProtect(`mdv:${unit}`, wp);
-  setMicrodriveSlot(unit, { writeProtected: wp });
-  const saved = disks.save(`mdv:${unit}`);
-  if (saved) persistMicrodrive(unit, saved.data, microdriveSlots()[unit]?.name || `mdr${unit + 1}.mdr`);
-}
-
 // ── Joystick / mouse routing ────────────────────────────────────────────
 
 export function joyPressForType(dir: string, pressed: boolean, mode: string, player = 0): void {
@@ -1090,51 +890,7 @@ export async function restoreMedia(): Promise<void> {
       u.setName(disk.name);
     }
 
-    // MGT +D drives C:/D: — only when the +D is fitted.
-    if (hasDrive('plusd:0')) {
-      for (const unit of [0, 1]) {
-        const disk = await restorePlusDDisk(unit);
-        if (!disk) continue;
-        try {
-          const image = isHFE(disk.data) ? parseHFE(disk.data)
-            : isScp(disk.data) ? parseSCP(disk.data)
-            : parseMgt(disk.data, mgtExtFromName(disk.name));
-          if (!image) continue;
-          disks.insert(`plusd:${unit}`, image, disk.name);
-          setPlusDDiskState(unit, image, disk.name);
-        } catch { /* ignore corrupt data */ }
-      }
-    }
-
-    // Beta Disk drives A:/B: — only when the Beta Disk is fitted.
-    if (hasDrive('beta:0')) {
-      for (const unit of [0, 1]) {
-        const disk = await restoreBetaDiskDisk(unit);
-        if (!disk) continue;
-        try {
-          const image = isHFE(disk.data) ? parseHFE(disk.data)
-            : isScp(disk.data) ? parseSCP(disk.data)
-            : isScl(disk.data) ? parseScl(disk.data)
-            : parseTrd(disk.data);
-          if (!image) continue;
-          disks.insert(`beta:${unit}`, image, disk.name);
-          setPlusDDiskState(unit, image, disk.name);
-        } catch { /* ignore corrupt data */ }
-      }
-    }
-
-    // ZX Interface 1 microdrives (drives 1-8) — only when the IF1 is fitted.
-    if (hasDrive('mdv:0')) {
-      for (let unit = 0; unit < 8; unit++) {
-        const cart = await restoreMicrodrive(unit);
-        if (!cart) continue;
-        try {
-          disks.insert(`mdv:${unit}`, cart.data, cart.name);
-          const drive = disks.drives.find(d => d.id === `mdv:${unit}`);
-          setMicrodriveSlot(unit, { loaded: true, name: cart.name, writeProtected: drive?.writeProtected ?? false, modified: false, blocks: parseMdrBlocks(cart.data) });
-        } catch { /* ignore corrupt data */ }
-      }
-    }
+    await restorePeripheralDrives(disks);
   }
 }
 
