@@ -5,15 +5,11 @@
  * `drives` is sized from the fitted count and the pane shows exactly what is there.
  */
 
+import { baseName, saveHfeOr } from '@/machines/shared/disk-save.ts';
 import type { DiskService, DriveDescriptor, DriveMedia } from '@/machines/machine.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { serializeDSK } from '@/media/floppy/dsk.ts';
-import { serializeHFE } from '@/media/floppy/hfe.ts';
 import type { PcwMachine } from '../pcw-machine.ts';
-
-function baseName(name: string, fallback: string): string {
-  return name.replace(/\.[^.]+$/, '') || fallback;
-}
 
 function unitOf(id: string): number { return id === 'b' ? 1 : 0; }
 
@@ -59,9 +55,7 @@ export class PcwDiskService implements DiskService {
     const base = baseName(this.names.get(id) ?? '', 'disk');
     // HFE-sourced discs save back as HFE so their bitstream survives; the rest
     // as DSK, which is how PCW software is distributed.
-    const out = image.bitstream
-      ? { data: serializeHFE(image), name: `${base}.hfe` }
-      : { data: serializeDSK(image), name: `${base}.dsk` };
+    const out = saveHfeOr(image, base, '.dsk', serializeDSK);
     this.m.fdc.clearDirty(unit);
     return out;
   }

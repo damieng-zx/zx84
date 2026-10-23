@@ -6,6 +6,7 @@
  * filename — is service state; the controller holds only the parsed image.
  */
 
+import { baseName } from '@/machines/shared/disk-save.ts';
 import type { DiskService, DriveDescriptor, DriveMedia } from '@/machines/machine.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { serializeLdf } from '@/media/floppy/ldf-image.ts';
@@ -15,10 +16,6 @@ import type { LynxMachine } from '../lynx-machine.ts';
  *  shell's built-in transport addresses them the same way as every machine. */
 const UNIT_IDS = ['a', 'b', 'c', 'd'] as const;
 const UNIT_LABELS = ['A:', 'B:', 'C:', 'D:'] as const;
-
-function baseName(name: string, fallback: string): string {
-  return name.replace(/\.[^.]+$/, '') || fallback;
-}
 
 export class LynxDiskService implements DiskService {
   /** Mounted media name per drive unit, not per id spelling. */

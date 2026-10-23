@@ -21,6 +21,7 @@
 import type {
   DiskService, DriveDescriptor, DriveMedia,
 } from '@/machines/machine.ts';
+import { baseName } from '@/machines/shared/disk-save.ts';
 import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { atrFromDskImage, parseAtariDisk, type AtariDisk } from '@/media/floppy/atr.ts';
@@ -239,7 +240,7 @@ export class AtariDiskService implements DiskService {
   save(id: string): { data: Uint8Array; name: string } | null {
     const state = this.byId(id);
     if (!state?.disk) return null;
-    const base = state.name.replace(/\.[^.]+$/, '') || `atari-disk-${state.id}`;
+    const base = baseName(state.name, `atari-disk-${state.id}`);
     return { data: state.disk.toBytes(), name: `${base}.atr` };
   }
 

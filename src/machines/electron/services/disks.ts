@@ -1,12 +1,9 @@
+import { baseName } from '@/machines/shared/disk-save.ts';
 import type { DiskService, DriveDescriptor, DriveMedia } from '@/machines/machine.ts';
 import { serializeAdfs } from '@/media/floppy/adfs.ts';
 import { serializeSsd } from '@/media/floppy/ssd.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import type { ElectronMachine } from '../electron-machine.ts';
-
-function baseName(name: string): string {
-  return name.replace(/\.[^.]+$/, '') || 'disk';
-}
 
 /** The Plus 3's two drives (0 and 1) on its WD1770. With no Plus 3 fitted there
  *  are no drives, so the Drives pane has nothing to show. */

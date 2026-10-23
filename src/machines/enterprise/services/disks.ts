@@ -3,6 +3,7 @@
  */
 
 import type { DiskService, DriveDescriptor, DriveMedia } from '@/machines/machine.ts';
+import { baseName } from '@/machines/shared/disk-save.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { serializeFatImage } from '@/media/floppy/fat-image.ts';
 import type { EnterpriseMachine } from '../enterprise-machine.ts';
@@ -65,7 +66,7 @@ export class EnterpriseDiskService implements DiskService {
     const img = this.image(id);
     if (!img) return null;
     const unit = EnterpriseDiskService.unitOf(id);
-    const stem = (this.names.get(unit) ?? '').replace(/\.[^.]+$/, '') || `enterprise-drive-${unit + 1}`;
+    const stem = baseName(this.names.get(unit) ?? '', `enterprise-drive-${unit + 1}`);
     return { data: serializeFatImage(img), name: `${stem}.img` };
   }
 

@@ -1,11 +1,8 @@
+import { baseName } from '@/machines/shared/disk-save.ts';
 import type { DiskService, DriveDescriptor, DriveMedia } from '@/machines/machine.ts';
 import { serializeSsd } from '@/media/floppy/ssd.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import type { BbcMachine } from '../bbc-machine.ts';
-
-function baseName(name: string): string {
-  return name.replace(/\.[^.]+$/, '') || 'disk';
-}
 
 /** The two physical DFS drives (0 and 1) backed by whichever disc controller
  *  (8271 or 1770) the machine has fitted. */

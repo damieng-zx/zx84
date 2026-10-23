@@ -1,13 +1,10 @@
+import { baseName } from '@/machines/shared/disk-save.ts';
 import type { DiskService, DriveDescriptor, DriveMedia } from '@/machines/machine.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import {
   detectApple2DiskOrder, parseApple2Disk, serializeApple2Disk, type Apple2DiskOrder,
 } from '@/media/floppy/apple2.ts';
 import type { Apple2Machine } from '../apple2-machine.ts';
-
-function baseName(name: string): string {
-  return name.replace(/\.[^.]+$/, '') || 'disk';
-}
 
 /** The Disk II's two drives (A: = drive 1). */
 export class Apple2DiskService implements DiskService {

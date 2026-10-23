@@ -1,3 +1,4 @@
+import { baseName } from '@/machines/shared/disk-save.ts';
 import type {
   BootDiskRequest, DiskService, DriveDescriptor, DriveMedia,
 } from '@/machines/machine.ts';
@@ -32,10 +33,6 @@ export function parseMtxCpmSystemDisk(data: Uint8Array, ramDisk: boolean): DskIm
   const boot = image.tracks[0]?.[0]?.sectors[0]?.data;
   if (boot) writeStartup(boot, ramDisk);
   return image;
-}
-
-function baseName(name: string): string {
-  return name.replace(/\.[^.]+$/, '') || 'disk';
 }
 
 export class MtxDiskService implements DiskService {

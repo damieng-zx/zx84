@@ -4,6 +4,7 @@
  * no card in slot 3 the list is empty and the Drives pane hides itself.
  */
 
+import { baseName } from '@/machines/shared/disk-save.ts';
 import type { DiskService, DriveDescriptor, DriveMedia } from '@/machines/machine.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { serializeDSK } from '@/media/floppy/dsk.ts';
@@ -12,10 +13,6 @@ import { isRegularMsxImage, serializeMsxRaw } from '@/media/floppy/msx-disk.ts';
 import type { MsxMachine } from '@/machines/msx/msx-machine.ts';
 
 function unitOf(id: string): number { return id === 'b' ? 1 : 0; }
-
-function baseName(name: string): string {
-  return name.replace(/\.[^.]+$/, '') || 'disk';
-}
 
 export class MsxDiskService implements DiskService {
   private readonly names = new Map<string, string>();

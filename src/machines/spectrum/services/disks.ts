@@ -8,6 +8,7 @@
  * updates and persistence remain shell reflection, exactly as before.
  */
 
+import { baseName, saveHfeOr } from '@/machines/shared/disk-save.ts';
 import type { DiskService, DriveDescriptor, DriveMedia } from '@/machines/machine.ts';
 import type { Spectrum } from '@/machines/spectrum/spectrum.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
@@ -35,10 +36,6 @@ export function parseBetaMedia(data: Uint8Array): DskImage | null {
   if (isTd0(data)) return parseTd0(data);
   if (isScl(data)) return parseScl(data);
   return parseTrd(data);
-}
-
-function baseName(name: string, fallback: string): string {
-  return name.replace(/\.[^.]+$/, '') || fallback;
 }
 
 export class SpectrumDiskService implements DiskService {
@@ -149,9 +146,7 @@ export class SpectrumDiskService implements DiskService {
       const base = baseName(mounted, 'disk');
       // HFE-sourced disks save back as HFE (writes re-encoded into the retained
       // bitstream, protection tracks preserved); everything else as DSK.
-      const out = image.bitstream
-        ? { data: serializeHFE(image), name: `${base}.hfe` }
-        : { data: serializeDSK(image), name: `${base}.dsk` };
+      const out = saveHfeOr(image, base, '.dsk', serializeDSK);
       s.fdc.clearDirty(unit);   // the on-disk file now matches the image
       return out;
     }
@@ -160,9 +155,7 @@ export class SpectrumDiskService implements DiskService {
       const image = s.mgtPlusD.fdc.getDiskImage(unit);
       if (!image) return null;
       const base = baseName(mounted, 'plusd');
-      const out = image.bitstream
-        ? { data: serializeHFE(image), name: `${base}.hfe` }
-        : { data: serializeMgt(image, 'mgt'), name: `${base}.mgt` };
+      const out = saveHfeOr(image, base, '.mgt', (img) => serializeMgt(img, 'mgt'));
       s.mgtPlusD.fdc.clearDirty(unit);
       return out;
     }
