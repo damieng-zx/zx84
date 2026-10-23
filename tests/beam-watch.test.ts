@@ -182,6 +182,33 @@ describe('beam-stamped log traps', () => {
   });
 });
 
+describe('Z80 register snapshot in a log trap', () => {
+  beforeEach(() => {
+    traps.clear();
+    trapLog.length = 0;
+  });
+
+  it('records IX, IY, SP, I and IM as well as AF, BC, DE and HL', () => {
+    const s = new Spectrum('zx48k', null);
+    s.loadROM(new Uint8Array(16384));
+    try {
+      installTrapHook(s);
+      armBeamLog(s);
+      s.cpu.pc = 0x8000;                       // RAM is all NOPs
+      s.cpu.ix = 0x1234; s.cpu.iy = 0xABCD; s.cpu.sp = 0xBFF0;
+      s.cpu.i = 0x3F; s.cpu.im = 2;
+      s.cpu.bc = 0x0102; s.cpu.de = 0x0304; s.cpu.hl = 0x0506;
+      const trap: Trap = { address: 0x8003, action: 'log', label: 'z', regs: true, responses: [] };
+      traps.set(0x8003, [trap]);
+      s.tick();
+      const e = s.beamLog!.get(0);
+      expect(e).toMatchObject({ kind: BEAM_PC, pc: 0x8003, flags: FLAG_REGS });
+      expect(formatEntry(s, e, OPTS)).toMatch(
+        /^0 \d+ \d+ 8003 z \[AF=\w{4} BC=0102 DE=0304 HL=0506 IX=1234 IY=ABCD SP=BFF0 I=3F IM=2\]$/);
+    } finally { s.destroy(); }
+  });
+});
+
 describe('Spectrum port log', () => {
   it('records an OUT (C),r to a logged port with the pc and a t inside the instruction', () => {
     const s = new Spectrum('zx48k', null);

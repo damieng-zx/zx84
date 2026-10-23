@@ -30,9 +30,9 @@ import type {
 } from '@/machines/machine.ts';
 import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 import {
-  BEAM_DL, BEAM_DMA, BEAM_EFF, BEAM_IO, DL_FETCH, DL_VISIBLE, type BeamInfo, type BeamPos,
+  BEAM_DL, BEAM_DMA, BEAM_EFF, BEAM_IO, DL_FETCH, DL_VISIBLE, IRQ_CRITIC, IRQ_I_SET, type BeamInfo, type BeamPos,
 } from '@/debug/beam-log.ts';
-import { REG_HSCROL } from './line-writes.ts';
+import { ANTIC_BASE, REG_HSCROL } from './line-writes.ts';
 import type { StopKind } from '@/debug/stop-reason.ts';
 import type { ChipSection } from '@/debug/chip-state.ts';
 import { Antic, ANTIC_FIRST_LINE, ANTIC_LAST_LINE, ANTIC_MODES } from './antic.ts';
@@ -318,7 +318,14 @@ export class AtariMachine extends BaseMachine implements Machine {
     this.antic.onDlFetch = (address, instr, operand) => this.logDlFetch(address, instr, operand);
     this.cpu.onInterrupt = (vector) => {
       const nmi = vector === 0xFFFA;
-      this.noteInterrupt(this.cpu.pc, nmi, nmi ? this.antic.nmist : this.pokey.readReg(0xD20E));
+      // The OS skips a VBI's deferred stage when CRITIC is set or the
+      // interrupted code had the I flag set (the P the CPU just pushed).
+      let why = 0;
+      if (nmi && (this.antic.nmist & 0x40) !== 0 && this.interruptLogging) {
+        if (this.memory.readRam(0x42) !== 0) why |= IRQ_CRITIC;
+        if ((this.memory.readRam(0x100 | ((this.cpu.sp + 1) & 0xFF)) & 0x04) !== 0) why |= IRQ_I_SET;
+      }
+      this.noteInterrupt(this.cpu.pc, nmi, nmi ? this.antic.nmist : this.pokey.readReg(0xD20E), why);
     };
     this.cpu.read = (addr) => {
       const v = this.memory.readByte(addr);
@@ -573,8 +580,13 @@ export class AtariMachine extends BaseMachine implements Machine {
       `IRQST   D20E = ${h(p.readReg(0xD20E))}  (active low; pending: ${atariPendingIrq(p.readReg(0xD20E)) || 'none'})`,
       `SKCTL   D20F = ${h(p.skctl)}   SKSTAT D20F = ${h(p.readReg(0xD20F))}`,
       `KBCODE  D209 = ${h(p.kbcode)}   SERIN D20D = ${h(p.serin)}`,
-      '(The timers\' running counts are not exposed by the core.)',
     );
+    for (let i = 0; i < 4; i++) {
+      const t = p.timerInfo(i);
+      const clock = t.clock === 'fast' ? '1.79 MHz' : t.clock === 'linked' ? 'linked into a 16-bit pair' : t.base15k ? '15 kHz' : '64 kHz';
+      rows.push(`Timer ${i + 1}: AUDF ${h(p.audf[i])}, clock ${clock}, ${Number.isFinite(t.underflowIn)
+        ? `next underflow in ${t.underflowIn} CPU cycles` : 'not counting'}`);
+    }
     return rows.join('\n');
   }
 
@@ -694,13 +706,23 @@ export class AtariMachine extends BaseMachine implements Machine {
   dlLogging = false;
   /** Log how many cycles DMA steals on each line, and from what. */
   dmaLogging = false;
-  /** Log what the renderer decided about HSCROL on each scrolling line: the
-   *  value it used, the write that supplied it and any that came too late. */
-  get effLogging(): boolean { return this.video.onHscrol !== null; }
+  /** Log what the renderer decided for the registers that depend on where in
+   *  the line they are written: HSCROL on each scrolling line (the value used,
+   *  the write that supplied it, any that came too late), each change of a
+   *  playfield or background colour (with the pixel it starts at), and the
+   *  playfield width DMACTL gave a line (when it changes, or a write came too
+   *  late for it). */
+  private effOn = false;
+  get effLogging(): boolean { return this.effOn; }
   set effLogging(on: boolean) {
+    this.effOn = on;
+    this.dmactlLogged = -1;
     this.video.onHscrol = on
       ? (y, value, source, cutoff, lateCount, lateValue, lateCycle) =>
         this.logHscrol(y, value, source, cutoff, lateCount, lateValue, lateCycle)
+      : null;
+    this.video.onColour = on
+      ? (y, reg, value, old, cutX, cycle) => this.logColour(y, reg, value, old, cutX, cycle)
       : null;
   }
 
@@ -716,6 +738,37 @@ export class AtariMachine extends BaseMachine implements Machine {
     log.push(BEAM_EFF, this.frameNumber, (y + ANTIC_FIRST_LINE) * this.timing.cyclesPerLine,
       0, REG_HSCROL, value, (source >= 0 ? 1 : 0) | (lateCount << 8),
       (source & 0xFFFF) | (cutoff << 16), lateValue | (lateCycle << 8));
+  }
+
+  /** A colour register changed during a line. addr = the GTIA offset; value =
+   *  what was written; regHi = what it replaced; regLo = the buffer x the
+   *  renderer starts drawing with it; flags >> 8 = the cycle of the write. */
+  private logColour(y: number, reg: number, value: number, old: number, cutX: number, cycle: number): void {
+    const log = this.beamLog;
+    if (log === null) return;
+    log.push(BEAM_EFF, this.frameNumber, (y + ANTIC_FIRST_LINE) * this.timing.cyclesPerLine + cycle,
+      0, reg, value, cycle << 8, cutX, old);
+  }
+
+  /** DMACTL as ANTIC sampled it for the line in progress, and the last value
+   *  logged (-1 = none yet). */
+  private sampledDmactl = 0;
+  private dmactlLogged = -1;
+
+  /** The playfield width DMACTL gave this line: logged when it changes, and
+   *  when the register held a different value by the line's end (a write that
+   *  came after ANTIC sampled it). addr = ANTIC_BASE (DMACTL); value = the one
+   *  used; regLo = the register at the end of the line; regHi = the last
+   *  value logged; flags bit 0 = late. */
+  private logDmactl(line: number): void {
+    const log = this.beamLog;
+    const used = this.sampledDmactl;
+    const now = this.antic.dmactl;
+    const late = now !== used;
+    if (log === null || (used === this.dmactlLogged && !late)) return;
+    log.push(BEAM_EFF, this.frameNumber, line * this.timing.cyclesPerLine + FETCH_SAMPLE_CYCLE,
+      0, ANTIC_BASE, used, late ? 1 : 0, now, this.dmactlLogged < 0 ? used : this.dmactlLogged);
+    this.dmactlLogged = used;
   }
 
   /** ANTIC fetched a display-list instruction at the top of the current line.
@@ -1456,6 +1509,7 @@ export class AtariMachine extends BaseMachine implements Machine {
       this.video.renderLine(ls.line - ANTIC_FIRST_LINE, al, this.antic, this.gtia, this.memory, writes);
     }
     if (this.dmaLogging) this.logDma(ls.line, steal);
+    if (this.effOn && visible) this.logDmactl(ls.line);
     this.lineLive = false;
     // The instruction that ended the line by WSYNC left the instruction loop
     // early, so a stop it asked for happens here, with the line done.
@@ -1472,6 +1526,7 @@ export class AtariMachine extends BaseMachine implements Machine {
    *  settle the line on them and return the DMA cycles it now costs. */
   private sampleLineFetch(al: AnticLine, visible: boolean): number {
     this.antic.sampleFetch();
+    this.sampledDmactl = this.antic.dmactl;
     if (visible && al.fetch !== false) this.video.fetchScreen(al, this.memory);
     return this.antic.stealCycles();
   }

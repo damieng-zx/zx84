@@ -17,6 +17,7 @@ import { installTrapHook } from '../../mcp/traps.ts';
 import { AtariMachine } from '@/machines/atari/atari-machine.ts';
 import { ATARI_OS_SIZE } from '@/machines/atari/models.ts';
 import { CpcMachine } from '@/machines/cpc/cpc-machine.ts';
+import { Spectrum } from '@/machines/spectrum/spectrum.ts';
 
 type Result = { content: { type: 'text'; text: string }[] };
 type Handler = (args: Record<string, unknown>) => Promise<Result>;
@@ -163,7 +164,9 @@ describe('MCP interrupt and view tools', () => {
     const rows = await call('beam_log_read', { ...READ_DEFAULTS, kinds: 'irq' });
     // Entered on the vertical-blank line, 16 cycles in (the NMI point, the rest
     // of the JMP in progress and the 7-cycle entry); from = the interrupted JMP.
-    expect(rows).toMatch(/^0 248 16 NMI enter VBI handler=E100 from=E005 depth=0$/m);
+    // (This synthetic OS never runs CLI, so the interrupted code has the I flag set from reset: the
+    // log says the deferred VBI would be skipped.)
+    expect(rows).toMatch(/^0 248 16 NMI enter VBI handler=E100 from=E005 depth=0 \[deferred VBI skipped: interrupted code had I set\]$/m);
     expect(rows).toMatch(/^0 248 27 NMI end handler=E100 to=E005 cost=11 cycles depth=0 \(entered 0 248 16\)$/m);
     const stats = await call('beam_log_read', { ...READ_DEFAULTS, stats: true });
     expect(stats).toMatch(/NMI VBI\s+n=\s*4\s+start line min\/avg\/max 248\.0\/248\.0\/248\.0/);
@@ -212,12 +215,29 @@ describe('MCP interrupt and view tools', () => {
 
   it('summary needs eff and says so; with eff it lists the renderer\'s decisions', async () => {
     await call('beam_log', { action: 'start' });
-    expect(await call('beam_log_read', { ...READ_DEFAULTS, summary: true })).toMatch(/No HSCROL decisions recorded/);
+    expect(await call('beam_log_read', { ...READ_DEFAULTS, summary: true })).toMatch(/No decisions recorded/);
     const none = await call('beam_log', { action: 'start', eff: true });
     expect(none).toMatch(/Beam log armed/);
     expect((state.spec as AtariMachine).effLogging).toBe(true);
     await call('beam_log', { action: 'stop' });
     expect((state.spec as AtariMachine).effLogging).toBe(false);
+  });
+
+  it('summary lists colour changes and filters by register', async () => {
+    // (This machine is the NMI test's: it never writes a colour, so use the rainbow.)
+    state.spec.destroy();
+    state.spec = bootAtari();
+    installTrapHook(state.spec);
+    await call('beam_log', { action: 'start', eff: true });
+    await call('run', { frames: 1 });
+    const colbk = await call('beam_log_read', { ...READ_DEFAULTS, summary: true, regs: 'colbk' });
+    expect(colbk).toMatch(/What the renderer and ANTIC decided/);
+    // COLBK ignores bit 0, so the rainbow's INX changes it every second line.
+    const m = /^0 \d+ 3 COLBK=([0-9A-F]{2}) \(was ([0-9A-F]{2})\) written at cycle 3, drawn from the first pixel of the line$/m.exec(colbk);
+    expect(m).not.toBeNull();
+    expect(parseInt(m![1], 16) - parseInt(m![2], 16)).toBe(2);
+    expect(await call('beam_log_read', { ...READ_DEFAULTS, summary: true, regs: 'hscrol' })).toMatch(/No decisions recorded/);
+    expect(await call('beam_log_read', { ...READ_DEFAULTS, summary: true, regs: 'colour', limit: 1 })).toMatch(/0\.\.0 of \d+/);
   });
 
   it('refuses interrupt_log where it is not supported', async () => {
@@ -280,6 +300,26 @@ describe('MCP chip_state', () => {
     expect(m.pia.cr[0] & 0x80).toBe(0x80); // the flag a data-register read would have cleared
   });
 
+  it('shows how each POKEY timer is clocked and when it next underflows', async () => {
+    const m = state.spec as AtariMachine;
+    const idle = await call('chip_state', { chip: 'pokey' });
+    expect(idle).toMatch(/Timer 1: AUDF 00, clock 64 kHz, not counting/);
+    // Timer 1 at 1.79 MHz, AUDF 99, started: it underflows after about 100 cycles.
+    m.pokey.writeReg(0xD20F, 0x03);   // SKCTL: out of initialisation
+    m.pokey.writeReg(0xD208, 0x40);   // AUDCTL: channel 1 at 1.79 MHz
+    m.pokey.writeReg(0xD200, 99);     // AUDF1
+    m.pokey.writeReg(0xD209, 0);      // STIMER
+    const running = await call('chip_state', { chip: 'pokey' });
+    const t1 = /Timer 1: AUDF 63, clock 1\.79 MHz, next underflow in (\d+) CPU cycles/.exec(running);
+    expect(t1).not.toBeNull();
+    expect(Number(t1![1])).toBeGreaterThan(90);
+    expect(Number(t1![1])).toBeLessThan(110);
+    // STIMER starts all four; the others keep their own clock.
+    expect(running).toMatch(/Timer 2: AUDF 00, clock 64 kHz, next underflow in \d+ CPU cycles/);
+    // And a dump changes nothing: the same number twice.
+    expect(await call('chip_state', { chip: 'pokey' })).toBe(running);
+  });
+
   it('says so on a machine without chips', async () => {
     state.model = 'cpc6128';
     state.spec = new CpcMachine('cpc6128', null);
@@ -302,5 +342,29 @@ describe('MCP beam tools on a machine with no beam position', () => {
     expect(await call('beam_log_read', READ_DEFAULTS)).toMatch(no);
     // A break-mode watchpoint is unaffected.
     expect(await call('memory_watchpoint', { address: '4000', length: 1, mode: 'rw', action: 'break' })).toMatch(/Memory watchpoint set: 4000 \(rw\)/);
+  });
+});
+
+describe('MCP run to a raster position on the Spectrum', () => {
+  beforeEach(() => {
+    state.model = 'zx48k';
+    state.spec?.destroy();
+    const s = new Spectrum('zx48k', null);
+    s.loadROM(new Uint8Array(16384));
+    // LD A,0 ; loop: OUT (254),A ; INC A ; AND 7 ; JR loop
+    [0x3e, 0x00, 0xd3, 0xfe, 0x3c, 0xe6, 0x07, 0x18, 0xf9].forEach((b, i) => s.memory.writeByte(0x8000 + i, b));
+    s.cpu.pc = 0x8000;
+    state.spec = s;
+  });
+
+  it('stops mid-frame at the line, a frame later the second time, and a normal run finishes the frame', async () => {
+    const first = await call('run', { frames: 1, until_line: 64 });
+    expect(first).toMatch(/Stopped at frame 0, line 64, cycle \d+ /);
+    expect(first).toMatch(/Paused mid-frame/);
+    const second = await call('run', { frames: 1, until_line: 64 });
+    expect(second).toMatch(/Stopped at frame 1, line 64, cycle \d+ /);
+    expect(await call('run', { frames: 1 })).toMatch(/Ran 1 frame/);
+    expect(state.spec.frameNumber).toBe(2);
+    expect(await call('run', { frames: 1, until_line: 400 })).toMatch(/until_line must be below 312/);
   });
 });

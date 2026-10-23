@@ -11,7 +11,7 @@ import { activeAtari } from '../concrete.ts';
 import { traps, type Trap } from '../traps.ts';
 import { CACHE_DIR } from '../rom-fetch.ts';
 import {
-  NO_BEAM, armBeamLog, beamHeader, formatEntry, hscrolAt, interruptStats, matchingIndexes, pairDeltas,
+  NO_BEAM, armBeamLog, beamHeader, effFilter, formatEntry, hscrolAt, interruptStats, matchingIndexes, pairDeltas,
   parseKinds, type BeamReadOptions,
 } from '../beam.ts';
 
@@ -145,11 +145,12 @@ export function register(server: McpServer): void {
       format: z.enum(['text', 'json']).default('text'),
       file: z.boolean().default(false).describe('Write every matching entry to a file in the MCP cache dir and return its path'),
       stats: z.boolean().default(false).describe('Instead of rows: per interrupt type and named span, count and min/avg/max start line, end line and cost'),
-      summary: z.boolean().default(false).describe('Instead of rows: the renderer\'s effective HSCROL for every scrolling line, with late writes marked (needs beam_log start eff:true)'),
+      summary: z.boolean().default(false).describe('Instead of rows: what the renderer and ANTIC decided per line — the effective HSCROL (late writes marked), each change of a colour register with the pixel it starts at, and the playfield width DMACTL gave (needs beam_log start eff:true)'),
+      regs: z.string().optional().describe('With summary: only these — hscrol, dmactl, colour, or a register such as colbk (comma-separated)'),
       pairs: z.string().optional().describe('Instead of rows: gaps between pc addresses, e.g. "1273-1276,1280-1290" (needs log traps at both)'),
       at: z.number().int().min(0).optional().describe('Instead of rows: HSCROL per write with the cutoff at this cycle (needs a log watchpoint on D404)'),
     } },
-    async ({ offset, limit, kinds, t, rel, format, file, stats, summary, pairs, at }) => {
+    async ({ offset, limit, kinds, t, rel, format, file, stats, summary, regs, pairs, at }) => {
       const spec = state.spec;
       if (spec.beamInfo() === null) return text(NO_BEAM);
       const log = spec.beamLog;
@@ -165,15 +166,16 @@ export function register(server: McpServer): void {
         if (pairs !== undefined) parts.push(pairDeltas(spec, log, parsePairs(pairs)));
         if (at !== undefined) parts.push(hscrolAt(spec, log, at));
         if (summary) {
-          const idx = matchingIndexes(log, new Set([BEAM_EFF]));
+          const keep = effFilter(regs);
+          const idx = matchingIndexes(log, new Set([BEAM_EFF])).filter(i => keep === null || keep(log.get(i).addr));
           if (idx.length === 0) {
-            parts.push('No HSCROL decisions recorded. Arm with "beam_log start eff:true" and run frames with horizontal scrolling on.');
+            parts.push('No decisions recorded. Arm with "beam_log start eff:true" and run frames (HSCROL needs horizontal scrolling on; colours need a register written during a line).');
           } else {
             const start = Math.min(offset, idx.length);
             const end = Math.min(start + limit, idx.length);
             const rows: string[] = [];
             for (let i = start; i < end; i++) rows.push(formatEntry(spec, log.get(idx[i]), opts));
-            parts.push(`Effective HSCROL per line (the renderer's decisions), ${start}..${end - 1} of ${idx.length}:\n${rows.join('\n')}`);
+            parts.push(`What the renderer and ANTIC decided (late writes marked), ${start}..${end - 1} of ${idx.length}:\n${rows.join('\n')}`);
           }
         }
         return text(parts.join('\n\n'));

@@ -17,8 +17,28 @@ describe('BeamLog', () => {
     expect(log.length).toBe(2);
     expect(log.get(0)).toEqual({
       kind: BEAM_PC, frame: 3, t: 100, pc: 0x1273, addr: 0, value: 0, flags: 0, regLo: 7, regHi: 9,
+      regX0: 0, regX1: 0,
     });
     expect(log.get(1)).toMatchObject({ kind: BEAM_IO, t: 101, addr: 0xD404, value: 3, flags: 1 });
+  });
+
+  it('keeps two more register words, allocated only once an entry uses them', () => {
+    const log = new BeamLog(4);
+    log.push(BEAM_PC, 0, 1, 0x10, 0, 0, 1, 11, 22);                 // none yet
+    log.push(BEAM_PC, 0, 2, 0x20, 0, 0, 1, 11, 22, 0x1234, -5);     // first use
+    log.push(BEAM_PC, 0, 3, 0x30, 0, 0, 1, 11, 22);                 // a later entry without them
+    expect(log.get(0)).toMatchObject({ regX0: 0, regX1: 0 });
+    expect(log.get(1)).toMatchObject({ regX0: 0x1234, regX1: -5 });
+    // Nothing of the entry before it shows through on one that has none.
+    expect(log.get(2)).toMatchObject({ regX0: 0, regX1: 0 });
+    // The ring wraps: the entry that had them is still held until it is pushed out...
+    log.push(BEAM_PC, 0, 4, 0x40);
+    log.push(BEAM_PC, 0, 5, 0x50);
+    expect([0, 1, 2, 3].map(i => log.get(i).regX0)).toEqual([0x1234, 0, 0, 0]);
+    // ...and the entries that overwrite it carry none of its words.
+    log.push(BEAM_PC, 0, 6, 0x60);
+    log.push(BEAM_PC, 0, 7, 0x70);
+    expect([0, 1, 2, 3].map(i => log.get(i).regX0)).toEqual([0, 0, 0, 0]);
   });
 
   it('keeps events that share a t in the order they were pushed', () => {

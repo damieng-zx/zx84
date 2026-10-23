@@ -223,6 +223,24 @@ export class AtariVideo {
   onHscrol: ((y: number, value: number, source: number, cutoff: number,
     lateCount: number, lateValue: number, lateCycle: number) => void) | null = null;
 
+  /**
+   * Called for each write that changed a playfield or background colour
+   * register (COLPF0-3, COLBK) during a line: the register (a GTIA offset), the
+   * value written and the one it replaced, the buffer x at which the renderer
+   * starts drawing with it (`writeCutX`; at or left of the picture's left
+   * edge, 8, means from the line's first pixel) and the cycle of the write.
+   * Null costs nothing. Writes that repeat the register's value are not in
+   * the line's write log and are not reported.
+   */
+  onColour: ((y: number, reg: number, value: number, old: number, cutX: number, cycle: number) => void) | null = null;
+
+  private reportColours(y: number, w: LineWrites): void {
+    for (let i = 0; i < w.count; i++) {
+      const reg = w.reg[i];
+      if (reg >= 0x16 && reg <= 0x1A) this.onColour!(y, reg, w.value[i], w.old[i], writeCutX(reg, w.cycle[i]), w.cycle[i]);
+    }
+  }
+
   private reportHscrol(y: number, line: AnticLine, w: LineWrites | undefined): void {
     let source = -1;
     let lateCount = 0, lateValue = 0, lateCycle = 0;
@@ -258,6 +276,7 @@ export class AtariVideo {
     if (!this.screenFetched && line.fetch !== false) this.fetchScreen(line, memory);
     this.screenFetched = false;
     if (this.onHscrol !== null && line.hscrollOn) this.reportHscrol(y, line, writes);
+    if (this.onColour !== null && writes !== undefined && writes.count > 0) this.reportColours(y, writes);
     if (writes !== undefined && writes.count > 0) {
       if (!this.inBlankOnly(line, writes)) {
         this.renderSegmented(y, line, antic, gtia, memory, writes);

@@ -189,7 +189,7 @@ export abstract class BaseMachine {
    *  is whatever interrupt-status register the machine can say (NMIST/IRQST).
    *  Called from the core's `onInterrupt`, after the stack pushes, so the
    *  stack pointer is the one the interrupt's end is measured against. */
-  protected noteInterrupt(handler: number, nmi: boolean, status = 0): void {
+  protected noteInterrupt(handler: number, nmi: boolean, status = 0, extraFlags = 0): void {
     const log = this.beamLog;
     if (!this.interruptLogging || log === null) return;
     const pos = this.beam();
@@ -197,7 +197,7 @@ export abstract class BaseMachine {
     const depth = this.intOpen;
     this.intStack.push(this.stackPointer(), pos.frame, pos.t, handler, nmi ? 1 : 0);
     this.intOpen++;
-    log.push(BEAM_IRQ, pos.frame, pos.t, this.interruptedPc(), handler, status, (nmi ? 1 : 0) | (depth << 8));
+    log.push(BEAM_IRQ, pos.frame, pos.t, this.interruptedPc(), handler, status, (nmi ? 1 : 0) | extraFlags | (depth << 8));
   }
   /** Close the interrupts the CPU has returned from: the end of one is the
    *  first instruction boundary at which the stack pointer has risen back

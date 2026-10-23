@@ -10,9 +10,9 @@ import { AtariMachine } from '@/machines/atari/atari-machine.ts';
 import { ATARI_OS_SIZE } from '@/machines/atari/models.ts';
 import { Spectrum } from '@/machines/spectrum/spectrum.ts';
 import {
-  BeamLog, BEAM_DL, BEAM_DMA, BEAM_EFF, BEAM_IRQ, DL_FETCH, DL_VISIBLE, type BeamEntry,
+  BeamLog, BEAM_DL, BEAM_DMA, BEAM_EFF, BEAM_IRQ, DL_FETCH, DL_VISIBLE, IRQ_CRITIC, IRQ_I_SET, type BeamEntry,
 } from '@/debug/beam-log.ts';
-import { atariIrqType, describeDlInstruction, interruptStats } from '../mcp/beam.ts';
+import { atariIrqType, describeDlInstruction, formatEntry, interruptStats } from '../mcp/beam.ts';
 
 /** An OS running `program` at $E000, with the NMI vector at $E100 holding `nmi`. */
 function bootAtari(program: number[], nmi: number[] = [0x40]): AtariMachine {
@@ -89,6 +89,30 @@ describe('Atari interrupt log', () => {
       const irq = entries(m.beamLog, BEAM_IRQ).map(e => `${(e.flags & 2) ? 'end' : 'enter'}${e.flags >> 8}`);
       expect(irq).toEqual(['enter0', 'enter1', 'end1', 'end0']);
     } finally { m.destroy(); }
+  });
+
+  it('flags a VBI whose deferred stage the OS would skip: CRITIC set, or I set in the interrupted code', () => {
+    // A reset leaves the I flag set and the OS clears it with CLI, so each program does the same
+    // (except the one that wants it set).
+    const critic = bootAtari([0x58, 0xa9, 0x01, 0x85, 0x42, 0xa9, 0x40, 0x8d, 0x0e, 0xd4, 0x4c, 0x0a, 0xe0], VBI_HANDLER);
+    const masked = bootAtari([0x78, 0xa9, 0x40, 0x8d, 0x0e, 0xd4, 0x4c, 0x06, 0xe0], VBI_HANDLER);
+    const plain = bootAtari([0x58, 0xa9, 0x40, 0x8d, 0x0e, 0xd4, 0x4c, 0x06, 0xe0], VBI_HANDLER);
+    try {
+      const flags = (m: AtariMachine): number[] => {
+        m.beamLog = new BeamLog();
+        m.interruptLogging = true;
+        for (let i = 0; i < 3; i++) m.tick();
+        return entries(m.beamLog, BEAM_IRQ).filter(e => (e.flags & 2) === 0).map(e => e.flags & 0x30);
+      };
+      expect(flags(critic)).toEqual([IRQ_CRITIC, IRQ_CRITIC, IRQ_CRITIC]);
+      expect(flags(masked)).toEqual([IRQ_I_SET, IRQ_I_SET, IRQ_I_SET]);
+      expect(flags(plain)).toEqual([0, 0, 0]);
+      expect(interruptStats(critic, critic.beamLog!)).toMatch(/NMI VBI .*deferred VBI skipped 3\/3 \(CRITIC 3, I flag 0\)/);
+      expect(interruptStats(masked, masked.beamLog!)).toMatch(/deferred VBI skipped 3\/3 \(CRITIC 0, I flag 3\)/);
+      expect(interruptStats(plain, plain.beamLog!)).toMatch(/deferred VBI skipped 0\/3/);
+      const row = formatEntry(critic, entries(critic.beamLog!, BEAM_IRQ)[0], { offset: 0, limit: 1, showT: false, relDisplay: false });
+      expect(row).toMatch(/\[deferred VBI skipped: CRITIC set\]$/);
+    } finally { critic.destroy(); masked.destroy(); plain.destroy(); }
   });
 
   it('interruptStats reports the count, the line and the cost per type', () => {
@@ -219,6 +243,69 @@ describe('Atari HSCROL decisions', () => {
         expect((e2[i].value - e2[i - 1].value) & 0x0F).toBe(1);
       }
     } finally { late.destroy(); early.destroy(); }
+  });
+});
+
+describe('Atari colour and DMACTL decisions', () => {
+  const COLBK = 0x1A;
+  const DMACTL_ID = 0x20;
+
+  it('reports each colour change with the pixel the renderer starts it at', () => {
+    // STA WSYNC ; (NOPs) ; STX COLBK ; INX — a new background every line, at a fixed cycle.
+    const early = bootAtari([0xa2, 0x00, 0x8d, 0x0a, 0xd4, 0x8e, 0x1a, 0xd0, 0xe8, 0x4c, 0x02, 0xe0]);
+    const mid = bootAtari([0xa2, 0x00, 0x8d, 0x0a, 0xd4, ...new Array(30).fill(0xea),
+      0x8e, 0x1a, 0xd0, 0xe8, 0x4c, 0x02, 0xe0]);
+    try {
+      for (const m of [early, mid]) {
+        m.beamLog = new BeamLog(500_000);
+        m.effLogging = true;
+        m.tick();
+      }
+      // COLBK ignores bit 0, so INX changes it every second line: only those writes are reported.
+      const e1 = entries(early.beamLog!, BEAM_EFF).filter(e => e.addr === COLBK);
+      expect(e1.length).toBeGreaterThan(100);
+      // Written at cycle 3 of the line: before the picture's left edge (x 8), so from its first pixel.
+      expect(e1[50].flags >> 8).toBe(3);
+      expect(e1[50].regLo).toBeLessThanOrEqual(8);
+      // Each replaces the one before: two apart, and the old value is the previous one.
+      expect((e1[50].value - e1[49].value) & 0xFF).toBe(2);
+      expect(e1[50].regHi).toBe(e1[49].value & 0xFE);
+
+      const e2 = entries(mid.beamLog!, BEAM_EFF).filter(e => e.addr === COLBK);
+      expect(e2.length).toBeGreaterThan(100);
+      const row = e2[50];
+      const cycle = row.flags >> 8;
+      expect(cycle).toBeGreaterThan(55);                   // after 30 NOPs
+      // The cut follows the Altirra manual: a colour write shows one colour clock
+      // after its bus cycle (clock 2*cycle - 1), at buffer x = 8 + 2 * (clock - 48).
+      expect(row.regLo).toBe(8 + (2 * cycle - 1 - 48) * 2);
+      expect(row.regLo).toBeGreaterThan(100);
+      expect(row.t % 114).toBe(cycle);                     // stamped at the write
+    } finally { early.destroy(); mid.destroy(); }
+  });
+
+  it('reports the playfield width when it changes, and a DMACTL write that came too late', () => {
+    // DMACTL = 2 (normal width); 100 lines; then, 20 cycles into a line (after
+    // ANTIC's sample at 16), DMACTL = 1 (narrow); then idle.
+    const m = bootAtari([
+      0xa9, 0x02, 0x8d, 0x00, 0xd4,                   // LDA #2 ; STA DMACTL
+      0xa2, 0x00,                                     // LDX #0
+      0x8d, 0x0a, 0xd4, 0xe8, 0xe0, 0x64, 0xd0, 0xf8, // loop: STA WSYNC ; INX ; CPX #100 ; BNE loop
+      0x8d, 0x0a, 0xd4,                               // STA WSYNC
+      ...new Array(10).fill(0xea),                    // 20 cycles
+      0xa9, 0x01, 0x8d, 0x00, 0xd4,                   // LDA #1 ; STA DMACTL
+      0x8d, 0x0a, 0xd4, 0x4c, 0x1a, 0xe0,             // idle: STA WSYNC ; JMP idle
+    ]);
+    try {
+      m.beamLog = new BeamLog(500_000);
+      m.effLogging = true;
+      m.tick();
+      const d = entries(m.beamLog, BEAM_EFF).filter(e => e.addr === DMACTL_ID && e.frame === 0);
+      // First visible line, the line the write was late for, and the first line that used it.
+      expect(d.map(e => [e.value & 3, e.flags & 1, e.regLo & 3])).toEqual([[2, 0, 2], [2, 1, 1], [1, 0, 1]]);
+      expect(d[1].regHi).toBe(2);                       // the value logged before it
+      expect(Math.floor(d[2].t / 114)).toBe(Math.floor(d[1].t / 114) + 1);
+    } finally { m.destroy(); }
   });
 });
 

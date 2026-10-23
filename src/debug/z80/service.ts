@@ -122,6 +122,7 @@ export class Z80DebugService implements DebugService {
       case 'PC': return cpu.pc;
       case 'I':  return cpu.i;
       case 'R':  return cpu.r;
+      case 'IM': return cpu.im;
       default: return null;
     }
   }

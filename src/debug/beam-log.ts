@@ -30,6 +30,9 @@ export interface BeamInfo {
   linesPerFrame: number;
   /** `t` of the first pixel of the first display line. */
   displayStart: number;
+  /** A caveat a reader should see with the numbers, e.g. that the display
+   *  start is a model's best-known figure and not hardware-verified. */
+  note?: string;
 }
 
 /** Kinds of entry. One reader, many sources. */
@@ -39,6 +42,11 @@ export const BEAM_IRQ = 3;
 export const BEAM_DL = 4;
 export const BEAM_DMA = 5;
 export const BEAM_EFF = 6;
+
+/** Flags on an Atari VBI's BEAM_IRQ entry: the OS skips the deferred VBI when
+ *  CRITIC ($42) is non-zero or the interrupted code had the I flag set. */
+export const IRQ_CRITIC = 16;
+export const IRQ_I_SET = 32;
 
 /** Flags of a BEAM_DL entry. A pointer write has bit 0 (write) and, when it
  *  landed while ANTIC was drawing the picture, DL_VISIBLE; a fetched
@@ -86,6 +94,9 @@ export interface BeamEntry {
   /** Packed register snapshot, two words (only meaningful when written). */
   regLo: number;
   regHi: number;
+  /** Two more words for a CPU with more registers (the Z80); 0 when unused. */
+  regX0: number;
+  regX1: number;
 }
 
 export const DEFAULT_BEAM_LOG_CAPACITY = 100_000;
@@ -104,6 +115,10 @@ export class BeamLog {
   private readonly flagsCol: Int32Array;
   private readonly regLos: Int32Array;
   private readonly regHis: Int32Array;
+  /** Two more register words, allocated the first time an entry uses them, so
+   *  a log that never needs them pays nothing. */
+  private regX0s: Int32Array | null = null;
+  private regX1s: Int32Array | null = null;
   /** Index the next entry is written to. */
   private head = 0;
   private size = 0;
@@ -158,10 +173,20 @@ export class BeamLog {
   /** Record an entry. Returns false when a capture filter rejected it. */
   push(
     kind: number, frame: number, t: number,
-    pc = 0, addr = 0, value = 0, flags = 0, regLo = 0, regHi = 0,
+    pc = 0, addr = 0, value = 0, flags = 0, regLo = 0, regHi = 0, regX0 = 0, regX1 = 0,
   ): boolean {
     if (!this.accepts(frame, t)) return false;
     const i = this.head;
+    // Once the extra words exist every entry writes them, so an old entry's
+    // words never show through on a later one that has none.
+    if (this.regX0s === null && (regX0 | regX1) !== 0) {
+      this.regX0s = new Int32Array(this.capacity);
+      this.regX1s = new Int32Array(this.capacity);
+    }
+    if (this.regX0s !== null) {
+      this.regX0s[i] = regX0;
+      this.regX1s![i] = regX1;
+    }
     this.kinds[i] = kind;
     this.frames[i] = frame;
     this.ts[i] = t;
@@ -184,6 +209,7 @@ export class BeamLog {
       kind: this.kinds[j], frame: this.frames[j], t: this.ts[j], pc: this.pcs[j],
       addr: this.addrs[j], value: this.values[j], flags: this.flagsCol[j],
       regLo: this.regLos[j], regHi: this.regHis[j],
+      regX0: this.regX0s !== null ? this.regX0s[j] : 0, regX1: this.regX1s !== null ? this.regX1s[j] : 0,
     };
   }
 

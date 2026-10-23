@@ -547,6 +547,22 @@ export class Pokey {
   }
 
   /** Channel 4's period in CPU cycles, from AUDF and AUDCTL. */
+  /**
+   * Timer channel `c` (0-3) for a debugger: what clocks it, and how many CPU
+   * cycles until it next underflows (Infinity when it is not counting: never
+   * started by STIMER, held in initialisation, or the high half of a linked
+   * pair, which underflows through its low half).
+   */
+  timerInfo(c: number): { clock: 'base' | 'fast' | 'linked'; base15k: boolean; underflowIn: number } {
+    const kind = this.clock[c];
+    const left = this.under[c] - this.now;
+    return {
+      clock: kind === CLOCK_FAST ? 'fast' : kind === CLOCK_LINKED ? 'linked' : 'base',
+      base15k: (this.audctl & 0x01) !== 0,
+      underflowIn: Number.isFinite(left) ? Math.max(0, Math.round(left)) : Infinity,
+    };
+  }
+
   private channel4Period(): number {
     const base = (this.audctl & 0x01) !== 0 ? BASE_15K : BASE_64K;
     if ((this.audctl & 0x08) === 0) return (this.audf[3] + 1) * base;

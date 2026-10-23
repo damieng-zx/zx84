@@ -152,8 +152,8 @@ function pushBeamPc(spec: Machine, trap: Trap, pc: number): void {
   const pos = spec.beam();
   if (pos === null) return;
   if (trap.regs) {
-    const [lo, hi] = packRegs(spec);
-    log.push(BEAM_PC, pos.frame, pos.t, pc, labelId(trap.label), 0, FLAG_REGS, lo, hi);
+    const [lo, hi, x0, x1] = packRegs(spec);
+    log.push(BEAM_PC, pos.frame, pos.t, pc, labelId(trap.label), 0, FLAG_REGS, lo, hi, x0, x1);
   } else {
     log.push(BEAM_PC, pos.frame, pos.t, pc, labelId(trap.label));
   }

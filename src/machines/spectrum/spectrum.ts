@@ -64,6 +64,12 @@ const AY_CLOCK = 1773400;        // ~1.77 MHz
  *  inline-cache stability across instances). */
 const NOOP_CONTEND = (_addr: number): void => {};
 
+/** Models whose first-pixel offset (`displayOrigin`) is a best-known figure,
+ *  not a measurement: see their notes in contention.ts. */
+const UNVERIFIED_DISPLAY_START: ReadonlySet<string> = new Set([
+  'pentagon128', 'pentagon512', 'pentagon1024', 'scorpion256',
+]);
+
 import type { SpectrumModel } from '@/models.ts';
 import { betaRomInSystemRom, isPentagonClass, isScorpionClass } from '@/machines/spectrum/models.ts';
 import { withTrdosMenuEntry } from '@/machines/spectrum/pentagon-menu.ts';
@@ -624,6 +630,7 @@ export class Spectrum extends BaseMachine implements Machine {
     this.loaderDetector.reset();
     this.contention.frameStartTStates = 0;
     this.resumeSkipPc = -1;
+    this.frameLive = false;
     this.resetFrameCount();
     this._resumeFrameOffset = -1;
     this.needsDisplay = true;
@@ -735,6 +742,9 @@ export class Spectrum extends BaseMachine implements Machine {
   resumeAtFrameOffset(frameOffset: number): void {
     const tpf = this.contention.timing.tStatesPerFrame;
     this._resumeFrameOffset = ((frameOffset % tpf) + tpf) % tpf;
+    // A loaded state replaces any frame that was stopped part-way.
+    this.frameLive = false;
+    this.midFrame = false;
   }
 
   override supportsInterruptLog(): boolean { return true; }
@@ -764,15 +774,35 @@ export class Spectrum extends BaseMachine implements Machine {
       cyclesPerLine: timing.tStatesPerLine,
       linesPerFrame: Math.round(timing.tStatesPerFrame / timing.tStatesPerLine),
       displayStart: timing.displayOrigin,
+      // The Pentagon's and Scorpion's first-pixel offsets are the figures
+      // emulators converge on (their timing tables say as much), not
+      // measurements: say so next to every number the log prints.
+      ...(UNVERIFIED_DISPLAY_START.has(this.model)
+        ? { note: 'this model\'s display start is the figure emulators use, not hardware-verified' }
+        : {}),
     };
   }
 
+  /** A frame is in progress: it started and a stop (a breakpoint, a trap, a
+   *  watchpoint or a beam target) left it part-way. The next `runFrame` carries
+   *  it on instead of starting another. */
+  private frameLive = false;
+  /** The INT retry window's state when the frame was stopped. */
+  private intPendingF = false;
+
+  override supportsBeamStops(): boolean { return true; }
+
   protected runFrame(): void {
-    // Apply any deferred combo keys (modifier was pressed last frame).
-    this.keyboard.processPending();
-    if (this.currah.enabled) this.currah.ensureRates(this.contention.timing.cpuClock, this.audio.sampleRate);
-    // Reset activity counters for this frame
-    this.activity.reset();
+    // A frame a debugger stopped part-way is carried on, not started again:
+    // the work marked "once per frame" below is skipped for it.
+    const resuming = this.frameLive;
+    if (!resuming) {
+      // Apply any deferred combo keys (modifier was pressed last frame).
+      this.keyboard.processPending();
+      if (this.currah.enabled) this.currah.ensureRates(this.contention.timing.cpuClock, this.audio.sampleRate);
+      // Reset activity counters for this frame
+      this.activity.reset();
+    }
     this.portWatchHit = null;
     this.memWatchHit = null;
     // The ULA's frame boundary occurs at exact tStatesPerFrame intervals,
@@ -788,8 +818,10 @@ export class Spectrum extends BaseMachine implements Machine {
     // Re-syncing to cpu.tStates here would assert a fresh INT on every resume,
     // even inside an ISR whose page helper has re-enabled interrupts.
     // Reset starts at zero; snapshot loads provide _resumeFrameOffset below.
-    const resumeOffset = this._resumeFrameOffset;
-    if (resumeOffset >= 0) {
+    const resumeOffset = resuming ? -1 : this._resumeFrameOffset;
+    if (resuming) {
+      // The frame's boundary stays where it was.
+    } else if (resumeOffset >= 0) {
       this._resumeFrameOffset = -1;
       this.contention.frameStartTStates = this.cpu.tStates - resumeOffset;
     } else {
@@ -797,7 +829,7 @@ export class Spectrum extends BaseMachine implements Machine {
         idealStart <= this.cpu.tStates ? idealStart : this.contention.frameStartTStates;
     }
     const frameStart = this.contention.frameStartTStates;
-    this.tapeLastAdvanceT = this.cpu.tStates;
+    if (!resuming) this.tapeLastAdvanceT = this.cpu.tStates;
     const frameEnd = frameStart + tpf;
     const intWindowEnd = frameStart + this.contention.timing.intLength;
 
@@ -807,14 +839,14 @@ export class Spectrum extends BaseMachine implements Machine {
     // If IFF1 is false (DI), the interrupt stays pending until EI re-enables it,
     // but only within the INT window — after that, it's lost until the next frame.
     // A mid-frame resume past the INT window must not take an interrupt now.
-    let intT = this.cpu.tStates < intWindowEnd ? this.cpu.interrupt() : 0;
+    let intT = !resuming && this.cpu.tStates < intWindowEnd ? this.cpu.interrupt() : 0;
     // intT === 0 means the ack didn't take this attempt — could be DI (iff1=false)
     // OR EI delay (eiDelay=true at the frame edge). Either way the INT line is still
     // held LOW for the model's int window; retry until it fires or the window closes.
-    let intPending = intT === 0 && this.cpu.tStates < intWindowEnd;
+    let intPending = resuming ? this.intPendingF : intT === 0 && this.cpu.tStates < intWindowEnd;
 
     // AMX mouse: drain queued movement steps as PIO interrupts spread across frame
-    if (this.amxMouse.enabled && (this.amxMouse.pendingX !== 0 || this.amxMouse.pendingY !== 0)) {
+    if (!resuming && this.amxMouse.enabled && (this.amxMouse.pendingX !== 0 || this.amxMouse.pendingY !== 0)) {
       this.amxMouse.drainMovement(this.cpu, frameEnd, this.activity);
     }
 
@@ -833,19 +865,22 @@ export class Spectrum extends BaseMachine implements Machine {
     // Init scanline rendering state for this frame
     // High and mid modes advance flash here (they render scanlines individually).
     // Low mode skips this — renderFrame() handles flash internally.
-    if (this._scanAcc > 0) this.ula.advanceFlash();
-    const borderTop = this.ula.borderTop;
-    const borderLeft = this.ula.borderLeft;
-    this.totalRenderLines = borderTop * 2 + DISPLAY_HEIGHT;
-    this.nextRenderLine = 0;
-    this.nextPixelX = 0;
-    this.nextDisplayCol = 0;
-    // displayOrigin = T-state of the first display pixel (varies by model).
-    // Left border starts borderLeft/2 T-states before that on each line.
-    this.nextRenderT = this.contention.frameStartTStates
-                      + this.contention.timing.displayOrigin
-                      - borderTop * this.contention.timing.tStatesPerLine
-                      - (borderLeft >> 1);
+    // (A resumed frame keeps the render position it had reached.)
+    if (!resuming) {
+      if (this._scanAcc > 0) this.ula.advanceFlash();
+      const borderTop = this.ula.borderTop;
+      const borderLeft = this.ula.borderLeft;
+      this.totalRenderLines = borderTop * 2 + DISPLAY_HEIGHT;
+      this.nextRenderLine = 0;
+      this.nextPixelX = 0;
+      this.nextDisplayCol = 0;
+      // displayOrigin = T-state of the first display pixel (varies by model).
+      // Left border starts borderLeft/2 T-states before that on each line.
+      this.nextRenderT = this.contention.frameStartTStates
+                        + this.contention.timing.displayOrigin
+                        - borderTop * this.contention.timing.tStatesPerLine
+                        - (borderLeft >> 1);
+    }
 
     // Taken once per call: it applies to the first instruction run, and is
     // gone after that whether or not the pc matched.
@@ -854,6 +889,17 @@ export class Spectrum extends BaseMachine implements Machine {
     this.resumeSkipPc = -1;
 
     while (this.cpu.tStates < frameEnd) {
+      // A beam target: stop at the first instruction boundary at or after it.
+      const target = this.beamTarget;
+      if (target !== null &&
+          (this.frameNumber > target.frame ||
+            (this.frameNumber === target.frame && this.cpu.tStates - frameStart >= target.t))) {
+        this.beamTarget = null;
+        this.markStop('beam', this.cpu.pc);
+        // A skip that was not used up is still owed to the first instruction run.
+        if (skipPc >= 0) this.resumeSkipPc = skipPc;
+        break;
+      }
       const tBefore = this.cpu.tStates;
       // EI delay bookkeeping for the two fast paths below (trapHandled /
       // halted) that bypass core.ts's step() entirely: step() itself resets
@@ -1076,9 +1122,20 @@ export class Spectrum extends BaseMachine implements Machine {
       }
     }
 
-    // A stop (breakpoint, trap or watchpoint) leaves the loop before the frame
-    // is over; the next call resumes it, so the frame is still open.
-    this.midFrame = this.cpu.tStates < frameEnd;
+    // A stop (breakpoint, trap, watchpoint or beam target) leaves the loop
+    // before the frame is over: the frame stays open and the next call carries
+    // it on. The end-of-frame work below belongs to the end of the frame, so a
+    // stop skips it (running it here and again at the real end would count the
+    // frame's tape, boot-script and loader bookkeeping twice).
+    if (this.cpu.tStates < frameEnd) {
+      this.midFrame = true;
+      this.frameLive = true;
+      this.intPendingF = intPending;
+      this.needsDisplay = true;
+      return;
+    }
+    this.midFrame = false;
+    this.frameLive = false;
 
     // Drive the auto-boot keystroke sequence: when the current step's hold
     // window expires, release its keys and press the next step (an empty key

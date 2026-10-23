@@ -171,6 +171,27 @@ describe('Atari resumable frame loop', () => {
     } finally { m.destroy(); }
   });
 
+  it('a snapshot taken at a mid-frame stop restores into a fresh machine that then matches the original', async () => {
+    // The browser's refresh-resume path saves whatever state the machine is in,
+    // which after a debugger stop is the middle of a frame.
+    const src = boot();
+    const dst = boot();
+    try {
+      src.tick();
+      src.beamTarget = { frame: 1, t: 100 * 114 };
+      src.runUntil(5);
+      expect(src.frameNumber).toBe(1);
+      const file = await src.services.snapshots.save('.a8state');
+      // Saving finished the frame, so the original is between frames again.
+      expect(src.frameNumber).toBe(2);
+      expect((await dst.services.snapshots.apply(file, 'mid.a8state')).ok).toBe(true);
+      src.tick(); src.tick();
+      dst.tick(); dst.tick();
+      const regs = (m: AtariMachine) => [m.cpu.a, m.cpu.x, m.cpu.y, m.cpu.sp, m.cpu.pc, m.cpu.p, m.cpu.tStates, hash(m.pixels)].join(',');
+      expect(regs(dst)).toBe(regs(src));
+    } finally { src.destroy(); dst.destroy(); }
+  });
+
   it('a reset in the middle of a frame starts over cleanly', () => {
     const m = boot();
     try {
@@ -181,5 +202,150 @@ describe('Atari resumable frame loop', () => {
       expect(m.frameNumber).toBe(1);
       expect(m.beam().t).toBeLessThan(20);
     } finally { m.destroy(); }
+  });
+});
+
+// ── The Spectrum ───────────────────────────────────────────────────────────
+
+import { Spectrum } from '@/machines/spectrum/spectrum.ts';
+
+/**
+ * $8000: LD A,0 ; loop: OUT (254),A ; INC A ; AND 7 ; JR loop — a new border
+ * colour every 38 T-states, so the picture records exactly when each OUT landed.
+ */
+const BORDER_LOOP = [0x3e, 0x00, 0xd3, 0xfe, 0x3c, 0xe6, 0x07, 0x18, 0xf9];
+
+function bootSpectrum(accuracy: 'high' | 'mid' | 'low' = 'high'): Spectrum {
+  const s = new Spectrum('zx48k', null);
+  s.loadROM(new Uint8Array(16384));
+  BORDER_LOOP.forEach((b, i) => s.memory.writeByte(0x8000 + i, b));
+  s.cpu.pc = 0x8000;
+  s.scanlineAccuracy = accuracy;
+  return s;
+}
+
+function spectrumState(s: Spectrum): string {
+  const c = s.cpu;
+  return [c.a, c.f, c.b, c.c, c.pc, c.sp, c.tStates, s.frameNumber, s.contention.frameStartTStates, hash(s.pixels)].join(',');
+}
+
+function runSpectrumToFrame(s: Spectrum, frames: number): void {
+  for (let guard = 0; s.frameNumber < frames && guard < 1000; guard++) s.runUntil(1);
+}
+
+describe.each(['high', 'mid', 'low'] as const)('Spectrum resumable frame loop (%s accuracy)', (accuracy) => {
+  it('supports run-to-beam', () => {
+    const s = bootSpectrum(accuracy);
+    try { expect(s.supportsBeamStops()).toBe(true); } finally { s.destroy(); }
+  });
+
+  it('stopping at a beam position and carrying on changes nothing, picture included', () => {
+    const ref = bootSpectrum(accuracy);
+    const s = bootSpectrum(accuracy);
+    try {
+      runSpectrumToFrame(ref, 3);
+      s.tick();
+      // Frame 1: stop in the top border, then deep in the display.
+      s.beamTarget = { frame: 1, t: 20 * 224 + 50 };
+      expect(s.runUntil(5)).toBe(1);
+      expect(s.stopReason?.kind).toBe('beam');
+      expect(s.frameNumber).toBe(1);
+      const first = s.beam();
+      expect(first.frame).toBe(1);
+      expect(first.t).toBeGreaterThanOrEqual(20 * 224 + 50);
+      expect(first.t).toBeLessThan(20 * 224 + 50 + 40);
+      s.beamTarget = { frame: 1, t: 200 * 224 };
+      s.runUntil(5);
+      expect(s.stopReason?.kind).toBe('beam');
+      expect(s.beam().t).toBeGreaterThanOrEqual(200 * 224);
+      s.beamTarget = null;
+      runSpectrumToFrame(s, 3);
+      expect(spectrumState(s)).toBe(spectrumState(ref));
+    } finally { ref.destroy(); s.destroy(); }
+  });
+
+  it('a breakpoint stop and a resume change nothing either', () => {
+    const ref = bootSpectrum(accuracy);
+    const s = bootSpectrum(accuracy);
+    try {
+      runSpectrumToFrame(ref, 3);
+      s.tick();
+      s.breakpoints.add(0x8004);
+      s.runUntil(1);
+      expect(s.stopReason?.kind).toBe('breakpoint');
+      expect(s.frameNumber).toBe(1);
+      s.breakpoints.clear();
+      runSpectrumToFrame(s, 3);
+      expect(spectrumState(s)).toBe(spectrumState(ref));
+    } finally { ref.destroy(); s.destroy(); }
+  });
+
+  it('a second target for the same line is the next frame', () => {
+    const s = bootSpectrum(accuracy);
+    try {
+      s.beamTarget = { frame: 0, t: 64 * 224 };
+      s.runUntil(5);
+      expect(s.beam().frame).toBe(0);
+      expect(Math.floor(s.beam().t / 224)).toBe(64);
+      s.beamTarget = { frame: 1, t: 64 * 224 };
+      s.runUntil(5);
+      expect(s.beam().frame).toBe(1);
+      expect(Math.floor(s.beam().t / 224)).toBe(64);
+    } finally { s.destroy(); }
+  });
+
+  it('a reset in the middle of a frame starts over cleanly', () => {
+    const s = bootSpectrum(accuracy);
+    try {
+      s.beamTarget = { frame: 0, t: 100 * 224 };
+      s.runUntil(5);
+      s.reset();
+      s.tick();
+      expect(s.frameNumber).toBe(1);
+      expect(s.beam().t).toBeLessThan(40);
+    } finally { s.destroy(); }
+  });
+});
+
+// ── The Spectrum on its real ROM ───────────────────────────────────────────
+
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+const ROM48 = [process.env.SPECTRUM_ROM_DIR, resolve(__dirname, '../mcp/.cache')]
+  .filter((d): d is string => !!d)
+  .map(d => resolve(d, '48.rom'))
+  .find(p => existsSync(p));
+
+describe.skipIf(!ROM48)('Spectrum resumable frame loop on the 48K ROM', { timeout: 30_000 }, () => {
+  function bootRom(): Spectrum {
+    const s = new Spectrum('zx48k', null);
+    s.loadROM(new Uint8Array(readFileSync(ROM48!)));
+    s.reset();
+    for (let f = 0; f < 150; f++) s.tick();      // to the "(c) 1982 Sinclair" banner and the idle loop
+    return s;
+  }
+  const frames = (s: Spectrum): number => s.memory.readByte(23672) | (s.memory.readByte(23673) << 8);
+
+  it('interrupts, HALT and the frame counter survive stops in the middle of frames', () => {
+    const ref = bootRom();
+    const s = bootRom();
+    try {
+      const base = s.frameNumber;
+      runSpectrumToFrame(ref, base + 6);
+      // Stop in six different frames, at lines through the picture, around the interrupt too.
+      const lines = [0, 1, 70, 150, 230, 300];
+      for (let k = 0; k < lines.length; k++) {
+        s.beamTarget = { frame: base + k, t: lines[k] * 224 + 10 };
+        s.runUntil(5);
+        expect(s.stopReason?.kind).toBe('beam');
+      }
+      s.beamTarget = null;
+      runSpectrumToFrame(s, base + 6);
+      expect(spectrumState(s)).toBe(spectrumState(ref));
+      // The ROM's own FRAMES counter (one a frame, from the interrupt) agrees with the frame count.
+      expect(frames(s)).toBe(frames(ref));
+      expect(frames(s) - frames(bootRom())).toBe(6);
+    } finally { ref.destroy(); s.destroy(); }
   });
 });
