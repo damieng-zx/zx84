@@ -2,6 +2,25 @@ import { createSignal, Show } from 'solid-js';
 
 const CHANGELOG: { version: string; items: string[] }[] = [
   {
+    version: '0.10.0',
+    items: [
+      'Add Atari 8-bit support: 400, 800, XL and XE, NTSC and PAL',
+      'Add Apple I and the Apple II family: ][, ][+, //e, Enhanced //e and //c',
+      'Add Acorn Electron with Plus 1 and Plus 3, and UEF cassette support',
+      'Add Enterprise 64 and 128',
+      'Add Sony HB-55 and HB-55P MSX models, and an optional floppy interface for the Toshiba HX-10',
+      'Add Pentagon 128, 512 and 1024 and Scorpion ZS-256, with Beta disk boot from the library',
+      'Add Currah µSpeech speech synthesiser and Cheetah SpecDrum',
+      'Edit registers and memory in the browser debugger',
+      'Monochrome phosphor option for the Monitor pane',
+      'Choose how many built-in drives are fitted',
+      'Spectrum model ids now use a zx prefix (old ids still work)',
+      'Peripheral fixes: +D printer port, Beta FDC reset, Multiface 128 hiding, Interface 1 idle ports, Kempston and Cursor joysticks, AMX PIO interrupts',
+      'Fixed MCP screenshots to capture the frame as drawn',
+      'Fixed frame timing after the debugger stops',
+      'Sound chip named in the status bar and mixer; Blip the robot mascot; zx84 on GitHub link in the menu',
+    ]
+  }, {
     version: '0.9.1',
     items: [
       'Removed SAM Coupe support',
