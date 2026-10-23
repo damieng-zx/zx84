@@ -26,6 +26,7 @@ import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { disasmOne, type DisasmLine } from '@/debug/z80/disasm.ts';
 import { z80ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
+import { soundDeviceGains } from '@/machines/machine.ts';
 import type { AuxRomRequest, Machine, MachineHost, MachineKind, MachineDescriptor, BorderMode, MachineTraceMode, SettingsView } from '@/machines/machine.ts';
 import { applyAySettings } from '@/machines/shared/ay-settings.ts';
 import { resolveDriveCount } from '@/machines/shared/drive-count.ts';
@@ -48,6 +49,9 @@ import {
   MSX_SCREEN_WIDTH, MSX_SCREEN_HEIGHT,
   MSX_BORDER_LEFT, MSX_BORDER_TOP,
 } from '@/machines/msx/constants.ts';
+
+/** The key click's level against the AY at full scale, before its Sound-pane volume. */
+const KEY_CLICK_GAIN = 0.5;
 
 /** Active display lines (0..191); the VDP raises its vblank at line 192. */
 const ACTIVE_LINES = 192;
@@ -124,7 +128,7 @@ export class MsxMachine extends BaseMachine implements Machine {
     this.audio = new Audio();
     this.mixer = new AudioMixer(MSX_CPU_CLOCK);
     // The 1-bit "beeper" path carries the PPI port C bit 7 key click.
-    this.mixer.beeperGain = 0.5;
+    this.mixer.beeperGain = KEY_CLICK_GAIN;
     this.mixer.ayGain = 1;
     this.display = display ?? null;
 
@@ -155,6 +159,10 @@ export class MsxMachine extends BaseMachine implements Machine {
   applySettings(view: SettingsView): void {
     this.vdp.palette = MSX_PALETTES[view.get('msx-color-map', 'pal') as keyof typeof MSX_PALETTES];
     this.audio.setVolume(view.get('volume', 70) / 100);
+    // The key click and the AY each have a volume; 100 % keeps the hardware's levels.
+    const gains = soundDeviceGains(this.descriptor.ui.soundDevices, view);
+    this.mixer.beeperGain = KEY_CLICK_GAIN * gains.beeper;
+    this.mixer.ayGain = gains.psg;
     applyAySettings(this.ay, view);
     // The Hardware pane's "reset settings" turns the option off underneath a
     // fitted card: take it out and cold-start, since Disk BASIC's hooks into

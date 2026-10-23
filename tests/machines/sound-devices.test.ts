@@ -16,6 +16,8 @@ import { Spectrum } from '@/machines/spectrum/spectrum.ts';
 import { spectrumDescriptor } from '@/machines/spectrum/descriptor.ts';
 import { apple2Descriptor } from '@/machines/apple2/descriptor.ts';
 import { atariDescriptor } from '@/machines/atari/descriptor.ts';
+import { msxDescriptor } from '@/machines/msx/descriptor.ts';
+import { MsxMachine } from '@/machines/msx/msx-machine.ts';
 import { Apple2Machine } from '@/machines/apple2/apple2-machine.ts';
 import type { SpectrumModel } from '@/models.ts';
 
@@ -201,6 +203,29 @@ describe('Spectrum applies the device volumes', () => {
     s.applySettings(view({ uspeech: true, 'uspeech-volume': 20 }));
     s.applySettings(view({ uspeech: false, 'uspeech-volume': 20 }));
     expect(s.mixer.monoGain).toBe(1);
+  });
+});
+
+describe('MSX applies the device volumes', () => {
+  it('declares the key click and the AY', () => {
+    const present = presentSoundDevices(msxDescriptor('hx-10').ui.soundDevices, on());
+    expect(ids(present)).toEqual(['beeper', 'psg']);
+    expect(present[1]!.label).toBe('AY-3-8910');
+  });
+
+  it('keeps the hardware levels at 100 % (click at half the AY) and scales each independently', () => {
+    const m = new MsxMachine('hx-10');
+    try {
+      m.applySettings(view({}));
+      expect([m.mixer.beeperGain, m.mixer.ayGain]).toEqual([0.5, 1]);
+      m.applySettings(view({ 'beeper-volume': 40, 'psg-volume': 70 }));
+      expect(m.mixer.beeperGain).toBeCloseTo(0.2, 12);
+      expect(m.mixer.ayGain).toBeCloseTo(0.7, 12);
+      m.applySettings(view({ 'beeper-volume': 0, 'psg-volume': 100 }));
+      expect([m.mixer.beeperGain, m.mixer.ayGain]).toEqual([0, 1]);
+    } finally {
+      m.destroy();
+    }
   });
 });
 
