@@ -31,6 +31,7 @@ export class BbcMediaService implements MediaService {
       { ext: '.img', target: 'a' },
       { ext: '.uef', target: 'tape' },
       { ext: '.csw', target: 'tape' },
+      { ext: '.wav', target: 'tape' },
     ];
   }
 
@@ -62,9 +63,9 @@ export class BbcMediaService implements MediaService {
         return { ok: false, message: `Disk error: ${(err as Error).message}` };
       }
     }
-    if (/\.(?:uef|csw)$/i.test(filename)) {
+    if (/\.(?:uef|csw|wav)$/i.test(filename)) {
       if (!(await this.tape.mountBytes(data, filename))) {
-        return { ok: false, message: `Tape error: ${filename} is not a readable UEF or CSW image` };
+        return { ok: false, message: `Tape error: ${filename} is not a readable UEF, CSW or WAVE image` };
       }
       return {
         ok: true,
@@ -72,6 +73,6 @@ export class BbcMediaService implements MediaService {
         message: `Tape loaded: ${filename} — type *TAPE then CHAIN"" (or *RUN)`,
       };
     }
-    return { ok: false, message: 'BBC accepts .ssd/.dsd/.img disk images and .uef/.csw tapes' };
+    return { ok: false, message: 'BBC accepts .ssd/.dsd/.img disk images and .uef/.csw/.wav tapes' };
   }
 }

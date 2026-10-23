@@ -16,6 +16,7 @@ import type { Spectrum } from '@/machines/spectrum/spectrum.ts';
 import { isInterface1Capable, isInterface2Capable } from '@/machines/spectrum/models.ts';
 import { parseTZX } from '@/media/tape/tzx.ts';
 import { parseCSW } from '@/media/tape/csw.ts';
+import { wavToPulseBlocks } from '@/media/tape/wav.ts';
 import type { TapeBlock } from '@/media/tape/tap.ts';
 import { parseFloppyImage } from '@/media/floppy/hfe.ts';
 import { parsePlusDMedia, parseBetaMedia, type SpectrumDiskService } from './disks.ts';
@@ -49,14 +50,17 @@ export class SpectrumMediaService implements MediaService {
       { ext: '.tzx', target: 'tape' },
       { ext: '.cdt', target: 'tape' },
       { ext: '.csw', target: 'tape' },
+      { ext: '.wav', target: 'tape' },
       { ext: '.trd', target: 'a' },
       { ext: '.scl', target: 'a' },
       { ext: '.mgt', target: 'a' },
       { ext: '.img', target: 'a' },
       { ext: '.hfe', target: 'a' },
       { ext: '.scp', target: 'a' },
+      { ext: '.td0', target: 'a' },
     ];
-    if (s.variant.hasFDC) out.push({ ext: '.dsk', target: 'a' }, { ext: '.td0', target: 'a' });
+    // A raw .dsk is the +3's CPC-format image, or a +D's MGT/SAM sector dump.
+    if (s.variant.hasFDC || s.mgtPlusD.enabled) out.push({ ext: '.dsk', target: 'a' });
     if (isInterface1Capable(s.model)) out.push({ ext: '.mdr', target: 'mdv:0' }, { ext: '.mdv', target: 'mdv:0' });
     if (isInterface2Capable(s.model)) out.push({ ext: '.rom', target: 'cartridge' });
     return out;
@@ -88,13 +92,25 @@ export class SpectrumMediaService implements MediaService {
     // MGT +D images route to the WD1772, not the +3 DSK path.
     if (/\.(mgt|img)$/i.test(filename)) return this.mountPlusD(data, filename, target);
 
-    // A .hfe/.scp flux image targets whichever WD-family interface is active
+    // A .hfe/.scp flux image (or .td0 Teledisk) targets whichever WD-family interface is active
     // (see the file header for why this ordering matters).
-    if (/\.(hfe|scp)$/i.test(filename) && s.betaDisk.enabled) {
+    if (/\.(hfe|scp|td0)$/i.test(filename) && s.betaDisk.enabled) {
       return this.mountBeta(data, filename, target);
     }
-    if (/\.(hfe|scp)$/i.test(filename) && s.mgtPlusD.enabled && !s.variant.hasFDC) {
+    if (/\.(hfe|scp|td0)$/i.test(filename) && s.mgtPlusD.enabled && !s.variant.hasFDC) {
       return this.mountPlusD(data, filename, target);
+    }
+
+    // With a +D fitted to a machine that has no controller of its own, a raw
+    // .dsk is its sector dump: the CPC-format DSK needs the +3's uPD765A.
+    if (/\.dsk$/i.test(filename) && !s.variant.hasFDC && s.mgtPlusD.enabled) {
+      return this.mountPlusD(data, filename, target);
+    }
+
+    // Nothing left to read a disk image with: name the Hardware toggles rather
+    // than letting the +3 path fail on a drive that is not fitted.
+    if (/\.(hfe|scp|td0)$/i.test(filename) && !s.variant.hasFDC) {
+      return fail('Enable the Beta Disk or MGT +D in Hardware first');
     }
 
     // ZX Interface 1 microdrive cartridges route to the IF1.
@@ -111,8 +127,8 @@ export class SpectrumMediaService implements MediaService {
 
     const ext = filename.toLowerCase().split('.').pop();
 
-    // Cassettes: TAP/TZX/CDT (same container) or CSW.
-    if (ext === 'tap' || ext === 'tzx' || ext === 'cdt' || ext === 'csw') {
+    // Cassettes: TAP/TZX/CDT (same container), CSW, or a WAVE recording.
+    if (ext === 'tap' || ext === 'tzx' || ext === 'cdt' || ext === 'csw' || ext === 'wav') {
       // No stop/start pair: parsing allocates and mountBlocks swaps the block
       // list in one synchronous step, so the frame loop cannot interleave with
       // it — the same reasoning as the disk path below. Starting here was
@@ -123,6 +139,7 @@ export class SpectrumMediaService implements MediaService {
       try {
         if (ext === 'tzx' || ext === 'cdt') blocks = parseTZX(data);
         else if (ext === 'csw') blocks = await parseCSW(data);
+        else if (ext === 'wav') blocks = wavToPulseBlocks(data);
         else blocks = s.tape.parseTAP(data);
       } catch (e) {
         return fail(`Error: ${(e as Error).message}`);

@@ -1,6 +1,6 @@
 /**
  * TapeService for the Acorn machines (BBC Micro, Electron): the transport and
- * file handling over a shared `CassetteDrive`. UEF and CSW images both play at
+ * file handling over a shared `CassetteDrive`. UEF, CSW and WAVE images all play at
  * the pulse level; the machine's own receiver decodes them.
  */
 
@@ -8,15 +8,18 @@ import type { TapeBlockInfo, TapeService, TapeStashState } from '@/machines/mach
 import type { TapeBlock } from '@/media/tape/tap.ts';
 import { looksLikeUef, parseUEF } from '@/media/tape/uef.ts';
 import { parseCSW } from '@/media/tape/csw.ts';
+import { isWav, wavToPulseBlocks } from '@/media/tape/wav.ts';
 import { tapeBlockInfo } from './tape-block-info.ts';
 import type { CassetteDrive } from './cassette-drive.ts';
 
-export const ACORN_TAPE_EXTENSIONS = ['.uef', '.csw'] as const;
+export const ACORN_TAPE_EXTENSIONS = ['.uef', '.csw', '.wav'] as const;
 
-/** Parse a UEF or CSW image. The content decides, not the file name: a UEF
- *  signature (or gzip wrapper) is UEF, anything else is tried as CSW. */
+/** Parse a UEF, CSW or WAVE image. The content decides, not the file name: a
+ *  UEF signature (or gzip wrapper) is UEF, a RIFF/WAVE header is a recording,
+ *  anything else is tried as CSW. */
 export async function parseAcornTape(data: Uint8Array): Promise<TapeBlock[]> {
-  return looksLikeUef(data) ? parseUEF(data) : parseCSW(data);
+  if (looksLikeUef(data)) return parseUEF(data);
+  return isWav(data) ? wavToPulseBlocks(data) : parseCSW(data);
 }
 
 export class AcornTapeService implements TapeService {
@@ -34,7 +37,7 @@ export class AcornTapeService implements TapeService {
   get playing(): boolean { return this.drive.deck.playing; }
   get paused(): boolean { return this.drive.userPaused; }
 
-  /** Parse and mount a tape image (UEF, gzipped UEF or CSW). */
+  /** Parse and mount a tape image (UEF, gzipped UEF, CSW or WAVE). */
   async mountBytes(data: Uint8Array, name: string): Promise<boolean> {
     let blocks: TapeBlock[];
     try {

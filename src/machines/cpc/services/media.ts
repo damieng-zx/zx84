@@ -10,6 +10,8 @@
 import type { MediaService, MediaTypeDescriptor, MediaTargetId, MountResult } from '@/machines/machine.ts';
 import type { CpcMachine } from '@/machines/cpc/cpc-machine.ts';
 import { parseTZX } from '@/media/tape/tzx.ts';
+import { parseCSW } from '@/media/tape/csw.ts';
+import { wavToPulseBlocks } from '@/media/tape/wav.ts';
 import type { TapeBlock } from '@/media/tape/tap.ts';
 import { parseFloppyImage } from '@/media/floppy/hfe.ts';
 import type { CpcTapeService } from './tape.ts';
@@ -36,6 +38,8 @@ export class CpcMediaService implements MediaService {
       { ext: '.cdt', target: 'tape' },
       { ext: '.tzx', target: 'tape' },
       { ext: '.tap', target: 'tape' },
+      { ext: '.csw', target: 'tape' },
+      { ext: '.wav', target: 'tape' },
     ];
     if (this.c.config.isPlus) out.push({ ext: '.cpr', target: 'cartridge' });
     if (this.c.config.hasFDC) {
@@ -53,14 +57,17 @@ export class CpcMediaService implements MediaService {
   async mount(data: Uint8Array, filename: string, target?: MediaTargetId): Promise<MountResult> {
     const c = this.c;
 
-    // Cassettes: CDT/TZX (same container) or TAP.
-    if (/\.(cdt|tzx|tap)$/i.test(filename)) {
+    // Cassettes: CDT/TZX (same container), TAP, CSW, or a WAVE recording.
+    if (/\.(cdt|tzx|tap|csw|wav)$/i.test(filename)) {
       // No stop/start pair — see the Spectrum's tape mount: parse and swap are
       // synchronous, and starting on the failure path restarted a machine the
       // user had paused, since the shell returns early on !ok.
       let blocks: TapeBlock[];
       try {
-        blocks = /\.tap$/i.test(filename) ? c.tape.parseTAP(data) : parseTZX(data);
+        if (/\.tap$/i.test(filename)) blocks = c.tape.parseTAP(data);
+        else if (/\.csw$/i.test(filename)) blocks = await parseCSW(data);
+        else if (/\.wav$/i.test(filename)) blocks = wavToPulseBlocks(data);
+        else blocks = parseTZX(data);
       } catch (e) {
         return fail(`Error: ${(e as Error).message}`);
       }
@@ -103,6 +110,6 @@ export class CpcMediaService implements MediaService {
       }
     }
 
-    return fail('CPC accepts .sna, .dsk, .hfe, .scp, .td0, .cdt, .tzx and .tap files');
+    return fail('CPC accepts .sna, .dsk, .hfe, .scp, .td0, .cdt, .tzx, .tap, .csw and .wav files');
   }
 }

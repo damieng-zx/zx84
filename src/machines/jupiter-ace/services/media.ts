@@ -1,5 +1,5 @@
 /**
- * Ace MediaService — the machine's own file routing: TAP/TZX/CSW cassettes
+ * Ace MediaService — the machine's own file routing: TAP/TZX/CSW/WAV cassettes
  * played back through the pulse deck. ZIP unwrapping stays a shell concern.
  *
  * The service mutates the deck only. Signals, persistence and whether the
@@ -10,6 +10,7 @@ import type { MediaService, MediaTypeDescriptor, MediaTargetId, MountResult } fr
 import type { DataBlock, TapeBlock } from '@/media/tape/tap.ts';
 import { parseTZX } from '@/media/tape/tzx.ts';
 import { parseCSW } from '@/media/tape/csw.ts';
+import { wavToPulseBlocks } from '@/media/tape/wav.ts';
 import { parseAceTap } from '../ace-tape.ts';
 import type { AceTapeService } from './tape.ts';
 
@@ -27,12 +28,13 @@ export class AceMediaService implements MediaService {
       { ext: '.tap', target: 'tape' },
       { ext: '.tzx', target: 'tape' },
       { ext: '.csw', target: 'tape' },
+      { ext: '.wav', target: 'tape' },
     ];
   }
 
   async mount(data: Uint8Array, filename: string, _target?: MediaTargetId): Promise<MountResult> {
     const ext = filename.toLowerCase().split('.').pop();
-    if (ext === 'tap' || ext === 'tzx' || ext === 'csw') {
+    if (ext === 'tap' || ext === 'tzx' || ext === 'csw' || ext === 'wav') {
       // No stop/start pair: parsing allocates and mountBlocks swaps the block
       // list in one synchronous step, so the frame loop has nothing to trip
       // over (same reasoning as the disk mounts). Starting here was worse than
@@ -43,6 +45,7 @@ export class AceMediaService implements MediaService {
       try {
         if (ext === 'tzx') blocks = parseTZX(data);
         else if (ext === 'csw') blocks = await parseCSW(data);
+        else if (ext === 'wav') blocks = wavToPulseBlocks(data);
         else blocks = parseAceTap(data);   // Ace chunks are flag-less — NOT parseTAP
       } catch (e) {
         return fail(`Error: ${(e as Error).message}`);
@@ -63,6 +66,6 @@ export class AceMediaService implements MediaService {
       return { ok: true, target: 'tape', message: `Tape loaded: ${filename}${hint}` };
     }
 
-    return fail('The Jupiter Ace accepts .tap, .tzx and .csw cassettes (or a .zip of one)');
+    return fail('The Jupiter Ace accepts .tap, .tzx, .csw and .wav cassettes (or a .zip of one)');
   }
 }

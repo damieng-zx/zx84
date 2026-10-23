@@ -48,7 +48,7 @@ function cpcUi(model: MachineModel): MachineUiCapabilities {
     // The CPC firmware's tape-read routine is trapped (see cpc-machine.ts).
     fastRomLoading: cpcHasTape(model),
     tapeSound: false,
-    tapeExtensions: cpcHasTape(model) ? ['.cdt', '.tzx', '.tap', '.zip'] : [],
+    tapeExtensions: cpcHasTape(model) ? ['.cdt', '.tzx', '.tap', '.csw', '.wav', '.zip'] : [],
     saveMenu: ['snapshot-sna-v2', 'snapshot-sna-v3', 'screenshot-png', 'screen-scr', 'ram-bin'],
     zipPolicy: 'none',
     persistMedia: false,

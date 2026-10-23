@@ -14,20 +14,25 @@ import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { serializeDSK } from '@/media/floppy/dsk.ts';
 import { parseHFE, serializeHFE, isHFE } from '@/media/floppy/hfe.ts';
 import { parseSCP, isScp } from '@/media/floppy/scp.ts';
+import { parseTd0, isTd0 } from '@/media/floppy/td0.ts';
 import { parseMgt, serializeMgt, mgtExtFromName } from '@/media/floppy/mgt-image.ts';
 import { parseTrd, serializeTrd } from '@/media/floppy/trd-image.ts';
 import { parseScl, serializeScl, isScl, SCL_DISK_FORMAT } from '@/media/floppy/scl-image.ts';
 
-/** Parse a +D image (.mgt/.img, or .hfe/.scp flux) — the exact format chain
- *  the +D loader used before this service existed. */
+/** Parse a +D image (.mgt/.img/.dsk sector dumps, .hfe/.scp flux, or a
+ *  Teledisk .td0). A raw .dsk is MGT track order, as SimCoupe and SAM write it. */
 export function parsePlusDMedia(data: Uint8Array, filename: string): DskImage | null {
-  return isHFE(data) ? parseHFE(data) : isScp(data) ? parseSCP(data) : parseMgt(data, mgtExtFromName(filename));
+  if (isHFE(data)) return parseHFE(data);
+  if (isScp(data)) return parseSCP(data);
+  if (isTd0(data)) return parseTd0(data);
+  return parseMgt(data, mgtExtFromName(filename));
 }
 
-/** Parse a Beta Disk image (.trd/.scl, or .hfe/.scp flux) — verbatim chain. */
+/** Parse a Beta Disk image (.trd/.scl, .hfe/.scp flux, or a Teledisk .td0). */
 export function parseBetaMedia(data: Uint8Array): DskImage | null {
   if (isHFE(data)) return parseHFE(data);
   if (isScp(data)) return parseSCP(data);
+  if (isTd0(data)) return parseTd0(data);
   if (isScl(data)) return parseScl(data);
   return parseTrd(data);
 }

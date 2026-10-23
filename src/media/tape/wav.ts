@@ -7,6 +7,9 @@
  * float, PCM or IEEE float); multi-channel audio is averaged down to mono.
  */
 
+import type { TapeBlock } from '@/media/tape/tap.ts';
+import { TAPE_REF_HZ } from '@/media/tape/tap.ts';
+
 export interface WavAudio {
   readonly sampleRate: number;
   /** Mono samples in -1..1. */
@@ -89,4 +92,62 @@ function readSample(view: DataView, at: number, format: number, bits: number): n
     case 32: return view.getInt32(at, true) / 2147483648;
     default: throw new Error(`Unsupported WAVE sample size: ${bits} bits`);
   }
+}
+
+// -- Audio to pulse stream --------------------------------------------------
+
+/** Schmitt-trigger half-width as a fraction of the recording's peak. Wide
+ *  enough to ride out tape hiss and ringing on a square edge, narrow enough
+ *  that a quiet recording still triggers. */
+const TRIGGER = 0.2;
+
+/**
+ * Turn a WAVE recording of a cassette into the pulse-level block the CSW path
+ * already plays: a `set-level` for the starting polarity and one `csw` block
+ * whose entries are the run lengths between edges, in 3.5MHz-referenced
+ * T-states. The signal is centred on its mean and thresholded with hysteresis,
+ * so each pulse is the time between the signal crossing +TRIGGER and -TRIGGER
+ * of peak. Leading silence is dropped. Throws when the recording is silent.
+ */
+export function wavToPulseBlocks(data: Uint8Array): TapeBlock[] {
+  const { sampleRate, samples } = parseWav(data);
+
+  let sum = 0;
+  for (let i = 0; i < samples.length; i++) sum += samples[i];
+  const mean = samples.length ? sum / samples.length : 0;
+  let peak = 0;
+  for (let i = 0; i < samples.length; i++) {
+    const a = Math.abs(samples[i] - mean);
+    if (a > peak) peak = a;
+  }
+  if (peak < 0.01) throw new Error('WAVE recording is silent');
+  const hi = mean + peak * TRIGGER;
+  const lo = mean - peak * TRIGGER;
+
+  const perSample = TAPE_REF_HZ / sampleRate;
+  const runs: number[] = [];
+  let level = -1;
+  let start = 0;
+  let initial = 0;
+  const close = (end: number): void => {
+    const t = Math.round((end - start) * perSample);
+    runs.push(t < 1 ? 1 : t > 0x7FFFFFFF ? 0x7FFFFFFF : t);
+  };
+  for (let i = 0; i < samples.length; i++) {
+    const v = samples[i];
+    if (level < 0) {
+      if (v > hi) { level = 1; initial = 1; start = i; }
+      else if (v < lo) { level = 0; initial = 0; start = i; }
+    } else if (level === 1 && v < lo) {
+      close(i); level = 0; start = i;
+    } else if (level === 0 && v > hi) {
+      close(i); level = 1; start = i;
+    }
+  }
+  if (level >= 0) close(samples.length);
+
+  return [
+    { kind: 'set-level', level: initial },
+    { kind: 'csw', pulses: Uint32Array.from(runs) },
+  ];
 }

@@ -13,6 +13,8 @@ import { Spectrum } from '@/machines/spectrum/spectrum.ts';
 import { CpcMachine } from '@/machines/cpc/cpc-machine.ts';
 import { EinsteinMachine } from '@/machines/einstein/einstein-machine.ts';
 import { td0Crc } from '@/media/floppy/td0.ts';
+import { blankMgtDisk, serializeMgt } from '@/media/floppy/mgt-image.ts';
+import { serializeDSK } from '@/media/floppy/dsk.ts';
 import type { Machine } from '@/machines/machine.ts';
 
 /** A plain ('TD') Teledisk image of one PCW-shaped track: nine 512-byte
@@ -53,8 +55,27 @@ describe('TD0 disk images', () => {
     expect(img!.tracks[0][0]!.sectors[4].data[0]).toBe(5);
   });
 
-  it('are not offered on a Spectrum with no floppy controller', () => {
-    expect(exts(new Spectrum('zx48k', null))).not.toContain('.td0');
+  it('on a Spectrum with no interface fitted are refused with the Hardware hint', async () => {
+    const s = new Spectrum('zx48k', null);
+    const res = await s.services.media.mount(td0Image(), 'game.td0');
+    expect(res.ok).toBe(false);
+    expect(res.message).toMatch(/Enable the Beta Disk or MGT \+D/);
+  });
+
+  it('route to the Beta Disk when it is enabled', async () => {
+    const s = new Spectrum('zx48k', null);
+    s.start = async () => {};
+    s.betaDisk.enabled = true;
+    expect(await s.services.media.mount(td0Image(), 'game.td0')).toMatchObject({ ok: true, target: 'beta:0' });
+    expect(s.betaDisk.fdc.getDiskImage(0)!.tracks[0][0]!.sectors).toHaveLength(9);
+  });
+
+  it('route to the +D when only the +D is enabled', async () => {
+    const s = new Spectrum('zx48k', null);
+    s.start = async () => {};
+    s.mgtPlusD.enabled = true;
+    expect(await s.services.media.mount(td0Image(), 'game.td0', 'unit:1')).toMatchObject({ ok: true, target: 'plusd:1' });
+    expect(s.mgtPlusD.fdc.getDiskImage(1)!.tracks[0][0]!.sectors).toHaveLength(9);
   });
 
   it('mount into CPC drive A and B', async () => {
@@ -113,5 +134,67 @@ describe('Einstein', () => {
     const e = new EinsteinMachine('einstein-tc01', null);
     e.prepare({ get<T>(_k: string, fallback: T): T { return fallback; } });
     for (const ext of ['.dsk', '.hfe', '.scp']) expect(exts(e)).toContain(ext);
+  });
+});
+
+describe('raw .dsk on a Spectrum with a +D', () => {
+  const plusD = (): Spectrum => {
+    const s = new Spectrum('zx48k', null);
+    s.start = async () => {};
+    s.mgtPlusD.enabled = true;
+    return s;
+  };
+  // 80 tracks × 2 sides × 10 sectors × 512 bytes: the +D's 800K geometry.
+  const mgtDump = (): Uint8Array => serializeMgt(blankMgtDisk(80, 2), 'mgt');
+
+  it('is a +D sector dump and mounts in the +D', async () => {
+    const s = plusD();
+    expect(await s.services.media.mount(mgtDump(), 'sam.dsk')).toMatchObject({ ok: true, target: 'plusd:0' });
+    expect(s.mgtPlusD.fdc.getDiskImage(0)).not.toBeNull();
+  });
+
+  it('is only offered once the +D is fitted (or on a +3)', () => {
+    expect(exts(new Spectrum('zx48k', null))).not.toContain('.dsk');
+    expect(exts(plusD())).toContain('.dsk');
+    expect(exts(new Spectrum('zx128kplus3', null))).toContain('.dsk');
+  });
+
+  it('refuses a CPC-format DSK rather than misreading it as sectors', async () => {
+    const res = await plusD().services.media.mount(serializeDSK(blankMgtDisk(40, 1)), 'cpc.dsk');
+    expect(res.ok).toBe(false);
+    expect(res.message).toMatch(/Not a recognised \+D image/);
+  });
+
+  it('still goes to the uPD765A on a +3', async () => {
+    const s = new Spectrum('zx128kplus3', null);
+    s.start = async () => {};
+    expect(await s.services.media.mount(serializeDSK(blankMgtDisk(40, 1)), 'game.dsk'))
+      .toMatchObject({ ok: true, target: 'a' });
+  });
+});
+
+describe('CSW tapes on the CPC', () => {
+  /** CSW v1, RLE, starting low: header 0x20 bytes, then one byte per pulse. */
+  function csw(pulses: number[]): Uint8Array {
+    const out = new Uint8Array(0x20 + pulses.length);
+    [...'Compressed Square Wave\x1A'].forEach((ch, i) => { out[i] = ch.charCodeAt(0); });
+    out[0x17] = 1; out[0x18] = 1;                // revision 1.01
+    out[0x19] = 0x44; out[0x1A] = 0xAC;          // 44100 Hz
+    out[0x1B] = 1;                               // RLE
+    out.set(pulses, 0x20);
+    return out;
+  }
+
+  it('mounts as a pulse block, with the sample rate turned into T-states', async () => {
+    const c = new CpcMachine('cpc6128', null);
+    expect(exts(c)).toContain('.csw');
+    expect(await c.services.media.mount(csw([10, 20, 30]), 'game.csw')).toMatchObject({ ok: true, target: 'tape' });
+    const block = c.services.tape!.rawBlocks.find(b => b.kind === 'csw') as { pulses: Uint32Array };
+    expect([...block.pulses]).toEqual([10, 20, 30].map(n => Math.round(n * 3_500_000 / 44100)));
+  });
+
+  it('a corrupt .csw is refused', async () => {
+    const c = new CpcMachine('cpc6128', null);
+    expect((await c.services.media.mount(new Uint8Array(64), 'junk.csw')).ok).toBe(false);
   });
 });

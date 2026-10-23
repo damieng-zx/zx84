@@ -47,6 +47,7 @@ export class ElectronMediaService implements MediaService {
     const types: MediaTypeDescriptor[] = [
       { ext: '.uef', target: 'tape' },
       { ext: '.csw', target: 'tape' },
+      { ext: '.wav', target: 'tape' },
     ];
     if (this.machine.plus3Fitted) {
       const exts = this.machine.dfsFitted ? ['.ssd', '.dsd'] : ['.adf', '.adl', '.ads', '.adm'];
@@ -61,9 +62,9 @@ export class ElectronMediaService implements MediaService {
     filename: string,
     target?: MediaTargetId,
   ): Promise<MountResult> {
-    if (/\.(?:uef|csw)$/i.test(filename)) {
+    if (/\.(?:uef|csw|wav)$/i.test(filename)) {
       if (!(await this.tape.mountBytes(data, filename))) {
-        return { ok: false, message: `Tape error: ${filename} is not a readable UEF or CSW image` };
+        return { ok: false, message: `Tape error: ${filename} is not a readable UEF, CSW or WAVE image` };
       }
       return {
         ok: true,
