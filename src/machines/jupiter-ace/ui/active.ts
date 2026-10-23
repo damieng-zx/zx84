@@ -10,9 +10,10 @@
  */
 
 import { machine } from '@/shell/context.ts';
+import { narrowMachine } from '@/machines/shared/narrow-machine.ts';
 import type { JupiterAceMachine } from '@/machines/jupiter-ace/ace-machine.ts';
 
 /** The running machine as a `JupiterAceMachine`, or null on any other machine. */
 export function activeAce(): JupiterAceMachine | null {
-  return machine && machine.kind === 'jupiter-ace' ? (machine as unknown as JupiterAceMachine) : null;
+  return narrowMachine<JupiterAceMachine>(machine, 'jupiter-ace');
 }

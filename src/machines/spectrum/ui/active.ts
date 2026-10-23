@@ -11,9 +11,10 @@
  */
 
 import { machine } from '@/shell/context.ts';
+import { narrowMachine } from '@/machines/shared/narrow-machine.ts';
 import type { Spectrum } from '@/machines/spectrum/spectrum.ts';
 
 /** The running machine as a `Spectrum`, or null on any other machine. */
 export function activeSpectrum(): Spectrum | null {
-  return machine && machine.kind === 'spectrum' ? (machine as unknown as Spectrum) : null;
+  return narrowMachine<Spectrum>(machine, 'spectrum');
 }

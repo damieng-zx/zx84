@@ -10,9 +10,10 @@
  */
 
 import { machine } from '@/shell/context.ts';
+import { narrowMachine } from '@/machines/shared/narrow-machine.ts';
 import type { Zx8xMachine } from '@/machines/zx8x/zx8x-machine.ts';
 
 /** The running machine as a `Zx8xMachine`, or null on any other machine. */
 export function activeZx8x(): Zx8xMachine | null {
-  return machine && machine.kind === 'zx8x' ? (machine as unknown as Zx8xMachine) : null;
+  return narrowMachine<Zx8xMachine>(machine, 'zx8x');
 }

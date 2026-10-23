@@ -3,10 +3,9 @@
  */
 
 import { machine } from '@/shell/context.ts';
+import { narrowMachine } from '@/machines/shared/narrow-machine.ts';
 import type { AtariMachine } from '@/machines/atari/atari-machine.ts';
 
 export function activeAtari(): AtariMachine | null {
-  return machine && machine.kind === 'atari'
-    ? (machine as unknown as AtariMachine)
-    : null;
+  return narrowMachine<AtariMachine>(machine, 'atari');
 }

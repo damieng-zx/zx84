@@ -3,10 +3,9 @@
  */
 
 import { machine } from '@/shell/context.ts';
+import { narrowMachine } from '@/machines/shared/narrow-machine.ts';
 import type { BbcMachine } from '@/machines/bbc/bbc-machine.ts';
 
 export function activeBbc(): BbcMachine | null {
-  return machine && machine.kind === 'bbc'
-    ? (machine as unknown as BbcMachine)
-    : null;
+  return narrowMachine<BbcMachine>(machine, 'bbc');
 }

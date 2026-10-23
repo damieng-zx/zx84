@@ -3,10 +3,9 @@
  */
 
 import { machine } from '@/shell/context.ts';
+import { narrowMachine } from '@/machines/shared/narrow-machine.ts';
 import type { Apple1Machine } from '@/machines/apple1/apple1-machine.ts';
 
 export function activeApple1(): Apple1Machine | null {
-  return machine && machine.kind === 'apple1'
-    ? (machine as unknown as Apple1Machine)
-    : null;
+  return narrowMachine<Apple1Machine>(machine, 'apple1');
 }

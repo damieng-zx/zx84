@@ -3,10 +3,9 @@
  */
 
 import { machine } from '@/shell/context.ts';
+import { narrowMachine } from '@/machines/shared/narrow-machine.ts';
 import type { ElectronMachine } from '@/machines/electron/electron-machine.ts';
 
 export function activeElectron(): ElectronMachine | null {
-  return machine && machine.kind === 'electron'
-    ? (machine as unknown as ElectronMachine)
-    : null;
+  return narrowMachine<ElectronMachine>(machine, 'electron');
 }

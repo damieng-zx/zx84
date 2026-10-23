@@ -3,10 +3,9 @@
  */
 
 import { machine } from '@/shell/context.ts';
+import { narrowMachine } from '@/machines/shared/narrow-machine.ts';
 import type { EinsteinMachine } from '@/machines/einstein/einstein-machine.ts';
 
 export function activeEinstein(): EinsteinMachine | null {
-  return machine && machine.kind === 'einstein'
-    ? (machine as unknown as EinsteinMachine)
-    : null;
+  return narrowMachine<EinsteinMachine>(machine, 'einstein');
 }
