@@ -9,9 +9,9 @@
  * unnamed: SHIFT LOCK at [0,3], which the MiSTer Lynx48 core identifies. The
  * two together account for every cell in the matrix but [9,4], and for every
  * cap on the deck but BREAK — which is why BREAK is carried here with no cell
- * at all. It is not a matrix key: it pulls the CPU's interrupt line directly,
- * and this machine already asserts that once a frame, so the cap depresses and
- * does nothing else.
+ * at all. It is not a matrix key: Camputers' circuit diagrams wire it from the
+ * keyboard connector straight onto the Z80's /INT line, so it holds an
+ * interrupt request for as long as it is down (see `lynx-keyboard.ts`).
  *
  * The unlabelled key face is the Ø cap: MAME gives it a shifted `_`, but the
  * real cap prints the slashed zero alone, so that is what it shows.

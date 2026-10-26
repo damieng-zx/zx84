@@ -2,7 +2,7 @@
  * LynxMachine — the Camputers Lynx motherboard.
  *
  * A Z80 at 4MHz (6MHz on the 128K), a Motorola 6845 sequencing the raster over three one-bit
- * colour planes, a ten-line keyboard read through the address bus, an 8-bit
+ * colour planes, a ten-line keyboard read through the address bus, a 6-bit
  * sound DAC on port 0x84 and, on the 96K/128K, an FD1793 floppy controller —
  * which is a WD1793, so the existing WD179x core covers it.
  *
@@ -59,6 +59,31 @@ const OCR_UNAVAILABLE =
  *  no PSG to keep in step with the sample rate. */
 const NO_PSG = { setSampleRate(_rate: number): void { /* no PSG fitted */ } };
 
+/**
+ * The sound DAC's output for each 6-bit code, 0..1.
+ *
+ * Camputers' 128K motherboard diagram (sheet 5, "Input/Output") latches D0-D5
+ * of an OUT to port 0x84 into a 40174 hex flip-flop (IC25, cleared by /RESET)
+ * whose outputs drive a binary-weighted resistor ladder into one node: D5
+ * through 75K, D4 150K, D3 300K, D2 620K, D1 1.2M, D0 2.4M (R38-R40, R35-R37),
+ * with 39K (R41) to 0V. D6 and D7 go nowhere. The node voltage is the sum of
+ * the set bits' conductances over a fixed total, so each code's level is its
+ * conductance over full scale's — linear but for D2's 620K, the nearest E24
+ * value to 600K, which leaves that bit 3% light.
+ */
+const DAC_LEVELS: Float64Array = (() => {
+  const ohms = [2_400_000, 1_200_000, 620_000, 300_000, 150_000, 75_000];   // D0..D5
+  let full = 0;
+  for (const r of ohms) full += 1 / r;
+  const out = new Float64Array(64);
+  for (let code = 0; code < 64; code++) {
+    let g = 0;
+    for (let bit = 0; bit < 6; bit++) if (code & (1 << bit)) g += 1 / ohms[bit];
+    out[code] = g / full;
+  }
+  return out;
+})();
+
 /** Frames of quiet before tape turbo lets go, so the gap between two blocks
  *  does not drop the machine back to 1x and then straight up again. */
 const TAPE_TURBO_COOLDOWN = 25;
@@ -109,7 +134,8 @@ export class LynxMachine extends BaseMachine implements Machine {
   /** True while tape turbo is engaged — the Tape pane's TURBO lamp. */
   get tapeTurboActive(): boolean { return this._tapeTurboActive; }
 
-  /** Port 0x84's DAC value while the cassette motor is off. */
+  /** The sound DAC's 6-bit latch: D0-D5 of port 0x84, written while the
+   *  cassette motor is off (see DAC_LEVELS). */
   dacLevel = 0;
   /** Port 0x80 as last written. */
   private port80 = 0;
@@ -334,7 +360,7 @@ export class LynxMachine extends BaseMachine implements Machine {
     {
       const s = r.section('PORT');
       this.port80 = s.u8();
-      this.dacLevel = s.u8();
+      this.dacLevel = s.u8() & 0x3f;
       this.tapeMotorRunning = s.bool();
       this.video.altGreen = (this.port80 & 0x10) !== 0;
     }
@@ -524,6 +550,7 @@ ${text}`;
 
     const lines = this.fLines;
     const tPerLine = this.tPerFrame / lines;
+    const keyboard = this.keyboard;
     let lastAudioT = this.cpu.tStates;
 
     for (; this.fLine < lines; this.fLine++) {
@@ -533,6 +560,9 @@ ${text}`;
       const lineEnd = line + 1 === lines ? this.frameEndT : this.frameStartT + (line + 1) * tPerLine;
 
       while (this.cpu.tStates < lineEnd) {
+        // BREAK holds /INT low for as long as it is down, so the CPU takes an
+        // interrupt at every instruction boundary where it has them enabled.
+        if (keyboard.breakDown) this.cpu.interrupt();
         if (this.checkStops(this.cpu.pc)) {
           // The frame stays open; the next call carries on in this line.
           this.midFrame = true;
@@ -546,9 +576,8 @@ ${text}`;
         if (!skipAudio) {
           const elapsed = this.cpu.tStates - lastAudioT;
           if (elapsed > 0) {
-            // The DAC is an 8-bit level and the mixer's beeper channel is one
-            // bit, so only the top bit carries for now.
-            this.mixer.accumulate(this.dacLevel >> 7, elapsed);
+            // The DAC's level, through the speaker's DC blocker like a beeper.
+            this.mixer.accumulateLevel(DAC_LEVELS[this.dacLevel], elapsed);
             this.mixer.generateSamples(this.audio, null, false);
             lastAudioT = this.cpu.tStates;
           }

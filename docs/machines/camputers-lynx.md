@@ -23,9 +23,9 @@ loading, the FD1793 disk interface, the on-screen keyboard and screen OCR.
 
 | Model | Year | RAM | ROM | Video | Sound | Storage | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Lynx 48K (`lynx48`) | 1983 | 48 KB | 16 KB (2 × 8 KB images) | 6845, 256 × 248, 8 colours | 8-bit DAC | Cassette | 4 MHz = 80,000 T/frame at 50 Hz; no disk interface |
-| Lynx 96K (`lynx96`) | | 96 KB | 24 KB (3 × 8 KB) + 8 KB DOS ROM | 6845, 256 × 248, 8 colours | 8-bit DAC | Cassette + FD1793 floppy, drives A:–D: | Same board design as the 48K with a longer ROM; floppy interface can be removed in the Hardware pane |
-| Lynx 128K (`lynx128`) | 1984 | 128 KB | 24 KB (3 × 8 KB) + 8 KB DOS ROM | 6845, 512 × 248, 8 colours | 8-bit DAC | Cassette (twice the 48K tape speed) + FD1793 floppy, drives A:–D: | Different board: bank port 0x82, other video plane layout, motor on port 0x80 bit 3. 6 MHz = 120,000 T/frame; 80-column text (see Tools) |
+| Lynx 48K (`lynx48`) | 1983 | 48 KB | 16 KB (2 × 8 KB images) | 6845, 256 × 248, 8 colours | 6-bit DAC | Cassette | 4 MHz = 80,000 T/frame at 50 Hz; no disk interface |
+| Lynx 96K (`lynx96`) | | 96 KB | 24 KB (3 × 8 KB) + 8 KB DOS ROM | 6845, 256 × 248, 8 colours | 6-bit DAC | Cassette + FD1793 floppy, drives A:–D: | Same board design as the 48K with a longer ROM; floppy interface can be removed in the Hardware pane |
+| Lynx 128K (`lynx128`) | 1984 | 128 KB | 24 KB (3 × 8 KB) + 8 KB DOS ROM | 6845, 512 × 248, 8 colours | 6-bit DAC | Cassette (twice the 48K tape speed) + FD1793 floppy, drives A:–D: | Different board: bank port 0x82, other video plane layout, motor on port 0x80 bit 3. 6 MHz = 120,000 T/frame; 80-column text (see Tools) |
 
 ### ROM sets
 
@@ -52,13 +52,20 @@ is the 128K, otherwise 96K. Other sizes are not detected.
 | Part | Models | Status | Notes |
 | --- | --- | --- | --- |
 | Z80A CPU | all | ✅ | Shared core [`src/cores/z80.ts`](../../src/cores/z80.ts); no memory contention modelled |
-| Motorola 6845 CRTC | all | ◐ | Shared core [`src/cores/crtc-6845.ts`](../../src/cores/crtc-6845.ts). Programmed line count sets the raster; VSYNC is wired to /INT. Light-pen registers never change; status read returns 0 |
+| Motorola 6845 CRTC | all | ◐ | Shared core [`src/cores/crtc-6845.ts`](../../src/cores/crtc-6845.ts). Programmed line count sets the raster. The frame interrupt comes from VSYNC, not the board's CURSOR one-shot (see Known issues). A plain 6845 has no status register, so a read of port 0x86 is undriven and returns 0xFF. R14–R17 read back through port 0x87; the light-pen registers never change (see Not emulated) |
 | Colour-plane video | all | ✅ | Three 1-bit planes (red, green, blue) → 8 fixed colours. Port 0x80 bit 4 swaps in an alternate green plane (48K/96K plane map and 128K plane map differ) |
 | Banked memory | all | ✅ | 8 KB pages; a write lands in every write-enabled bank at once, a read comes from the bank the decode selects. Bank port 0x7F (48K/96K), 0x82 (128K) |
-| Sound DAC | all | ◐ | Port 0x84; only the top bit reaches the mixer (see Known issues) |
-| Keyboard | all | ✅ | 10-line matrix read through the address bus: a read of port 0x80 carries the line in A8–A11 |
+| Sound DAC | all | ✅ | Port 0x84 D0–D5 latch into a 40174 driving a binary-weighted resistor ladder (D5 75K … D0 2.4M); D6 and D7 are not connected. All 64 levels reach the speaker channel at the ladder's own weights (D2's 620K leaves that bit 3% light), so BEEP volume and sampled sound play. /RESET clears it. Held off the speaker while the cassette motor runs (see Not emulated) |
+| Keyboard | all | ✅ | 10-line matrix read through the address bus: a read of port 0x80 carries the line in A8–A11. BREAK is off the matrix: a separate switch on keyboard-connector pin 6, wired to the Z80's /INT, so it holds an interrupt request while down |
 | Cassette interface | all | ◐ | Motor relay on port 0x80 (bit 1; bit 3 on the 128K); input on keyboard line 0 bit 0 (48K/96K) or port 0x82 bit 2 (128K); output on port 0x84 bit 5 while the motor runs, recorded (see Tape recording) |
 | FD1793 + DOS ROM | 96K, 128K | ✅ | Shared `WD179x` core ([`src/cores/wd179x.ts`](../../src/cores/wd179x.ts)); ports 0x50–0x53 read, 0x54–0x57 write, 0x58 drive/side/motor latch. Latch bit 4 pages RAM over the DOS ROM slot |
+
+The DAC, BREAK, interrupt and light-pen notes come from Camputers' own
+keyboard and 128K (Mk II) motherboard circuit diagrams, as collected in
+[ukscone/Camputers-Lynx](https://github.com/ukscone/Camputers-Lynx/tree/master/Schematics).
+The 48K/96K diagram there is too coarse to read at the scan's resolution; the
+6-bit DAC on those models is also MAME's and Wikipedia's account, and BEEP's
+volume runs 0–63 on all of them.
 
 ---
 
@@ -139,15 +146,15 @@ RAM chip back to back, without the ROM: user RAM then video RAM, 96 KB on the
 | Memory layout pane | ✅ | Per-slot page names (ROM, RAM, Video), the write-enabled banks, green plane (main/alternate), cassette motor |
 | Screen OCR / TEXT overlay | ✅ | Matches the screen against the 96-glyph (6 × 10 pixel) character set in the first ROM image. 40 × 24 grid on the 48K/96K, 80 × 24 on the 128K. Reports an error rather than guessing when a replaced ROM has no font at the usual address. Understands inverse video |
 | Software library | ✗ | None |
-| On-screen keyboard | ✅ | Skeuomorphic Lynx deck, same on all models; BREAK cap is drawn but does nothing |
+| On-screen keyboard | ✅ | Skeuomorphic Lynx deck, same on all models; the BREAK cap holds /INT low while pressed |
 | Hardware pane | ✅ | "Floppy disks" checkbox (96K, 128K) |
 | Status bar | ✅ | Keyboard, load and TEXT indicators, plus a disk indicator on 96K/128K |
 | MCP tools | ✅ | All generic tools (`run`, `step`, `registers`, `read_memory`, breakpoints, watchpoints, traps, `key`, `type`, `load`, `eject`, `screenshot`, `ocr`, …). `trace` works. No machine-specific tools; `frame_trace`, `save` (SZX) and the +3/CPC disk-inspection tools do not apply |
 | Drive count | ✅ | One to four drives on the FD1793, from **Drive count** in drive A's options menu; saved, rebuilds the machine. Unconnected units give a seek error and stay not-ready |
 
 Host keyboard: mapped by physical key position; the Lynx has no function keys.
-Esc → ESC, Backspace → DELETE, Caps Lock → SHIFT LOCK, either Shift or Control
-key works.
+Esc → ESC, Backspace → DELETE, Caps Lock → SHIFT LOCK, Pause → BREAK, either
+Shift or Control key works.
 
 ---
 
@@ -155,8 +162,7 @@ key works.
 
 | Issue | Affects | Severity | Notes |
 | --- | --- | --- | --- |
-| Sound is 1-bit | all | low | The DAC is 8-bit, but only `dacLevel >> 7` is accumulated: "only the top bit carries for now" (`lynx-machine.ts` `runFrame`) |
-| BREAK key has no effect | all | low | The cap is in the layout with no matrix cell and there is no host mapping; real BREAK pulls the CPU interrupt line, which the machine already asserts once a frame, so the cap "depresses and does nothing else" (`ui/keyboard/layout.ts`) |
+| Frame interrupt timing | all | low | Camputers' 128K diagram (sheet 5) drives /INT from the 6845's CURSOR output through a 4538 one-shot of 40 µs ± 8 µs and a 7406. zx84, like MAME (whose notes say CURSOR did not work for it), interrupts on the first line of VSYNC instead, and offers the request once rather than holding it for 40 µs, so an interrupt that arrives while interrupts are disabled is lost rather than taken when they come back on within the pulse |
 
 ## Not emulated
 
@@ -165,7 +171,7 @@ key works.
 - **Joystick and mouse.** The input service has no joystick or mouse ("later increment").
 - **Snapshots: the cassette.** `.lynxstate` restores the machine exactly but not the tape deck's position. No other emulator's snapshot format is read or written.
 - **Cartridge slot.** `cartridge` is `null`.
-- **6845 light pen and status register.** R16/R17 never change and the status port reads 0.
+- **6845 light pen.** R16/R17 never change. The 128K board has a light-pen input (SKT4 pin 1, "LPI", pulled up through 10K and clocked onto the 6845's LPSTB by a 74LS74, diagram sheet 6), but no light pen is known for the Lynx, and with nothing plugged in the input idles high and never strobes.
 
 ## Faithful quirks
 
@@ -175,6 +181,8 @@ key works.
 - **48K/96K cassette input shares keyboard line 0 bit 0.** While the motor bit is set, SHIFT's column carries the tape signal instead.
 - **The 128K runs its tape at twice the speed**, so bit cells are half as wide.
 - **The border is black.** There is no border colour register.
+- **BREAK does not stop a program.** It holds /INT low, so the CPU takes RST 38h again each time it re-enables interrupts, for as long as the key is down; what that does is up to the ROM. ESC is the key that interrupts a program (Computing Today, June 1983, found BREAK "appears to do nothing in particular").
+- **Port 0x86 reads 0xFF.** The plain 6845 has no status register to answer it.
 - **FD1793 status bit 7 is NOT READY** rather than MOTOR ON, as on a WD1793.
 
 ---
@@ -185,7 +193,8 @@ key works.
 | --- | --- | --- |
 | `tests/lynx/lynx-clock.test.ts` — 4 MHz / 6 MHz clocks, 80,000 / 120,000 T-states per frame | Pass | 2026-10-18 |
 | `tests/lynx/lynx-memory.test.ts`, `lynx-memory-128.test.ts` — bank decode, multi-bank writes, DOS ROM paging, IC82 gate | Pass | 2026-10-18 |
-| `tests/lynx/lynx-io.test.ts` — keyboard line in A8–A11, DAC vs tape on port 0x84, 48K/128K bank and cassette ports, FDC ports | Pass | 2026-10-18 |
+| `tests/lynx/lynx-io.test.ts` — keyboard line in A8–A11, DAC (6-bit latch) vs tape on port 0x84, 48K/128K bank and cassette ports, FDC ports | Pass | 2026-10-26 |
+| `tests/lynx/lynx-sound-break.test.ts` — DAC levels worked by hand from the ladder's resistor values (full scale, D5 alone, a mixed code, D6/D7 ignored, every code above the last, cleared by reset); BREAK as a held /INT level (re-entered while down, stops when let go, masked by DI, host Pause key); port 0x86 undriven, R14 read back | Pass | 2026-10-26 |
 | `tests/lynx/lynx-video.test.ts` — screen sizes, row stride, alternate green plane, black border | Pass | 2026-10-18 |
 | `tests/lynx/lynx-tap.test.ts`, `lynx-tape-deck.test.ts` — `.tap` parse (sizes checked against the "Lynx Invaders" image length), motor-gated deck, Spectrum `.tap` refusal, tape turbo | Pass | 2026-10-18 |
 | `tests/lynx/lynx-tape-save.test.ts` — SAVE recording: spec-built pulse trains through port 0x84 at the 48K and 128K rates decode to the exact `.tap` and mount back; motor-off and reset; sync byte, partial byte, header-sized cut; a `.tap` played through the deck and captured decodes to itself | Pass | 2026-10-26 |
