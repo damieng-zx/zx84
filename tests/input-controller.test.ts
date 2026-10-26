@@ -725,8 +725,7 @@ describe('InputController.reset()', () => {
 describe('input-controller — regressions', () => {
   // Regression for bug A: onBlur now issues an explicit release for every
   // direction tracked in gamepadPrevState, so a held gamepad button at blur
-  // time doesn't become a stuck Spectrum press. resetJoystickKeyState on
-  // its own only clears the cursor-shift counter — not the joystick bits.
+  // time doesn't become a stuck Spectrum press.
   it('onBlur releases gamepad-driven joystick directions that were held', () => {
     mockState.joyMapP1Mode = 'gamepad';
     mockState.gamepadCfgP1 = makeConfig();

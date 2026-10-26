@@ -4,8 +4,9 @@ import { entryForModel } from '../src/machines/registry.ts';
 import type { MachineModel } from '../src/models.ts';
 import { resolveRomSource, unwrapRomArchive } from '../src/managers/rom-manager.ts';
 import {
-  BETADISK_ROM, IF1_ROM, PLUSD_ROM, VTX5000_ROM,
+  BETADISK_ROM, IF1_ROM, PLUSD_ROM, VTX5000_ROM, USPEECH_ROM, SP0256_AL2_ROM,
 } from '../src/machines/spectrum/aux-roms.ts';
+import { MSX_DISK_ROM } from '../src/machines/msx/aux-roms.ts';
 import { romFilename, type MultifaceVariant } from '../src/machines/spectrum/peripherals/multiface.ts';
 
 export const CACHE_DIR = path.join(import.meta.dirname!, '.cache');
@@ -21,6 +22,12 @@ async function fetchCached(source: string): Promise<Uint8Array> {
   fs.mkdirSync(CACHE_DIR, { recursive: true });
   fs.writeFileSync(cachePath, data);
   return unwrapRomArchive(data, filename);
+}
+
+/** Fetch a machine-requested ROM source (a relative ROM-host path or a full URL)
+ *  through the same resolve + on-disk cache as the system ROMs. */
+export function fetchRomSource(source: string): Promise<Uint8Array> {
+  return fetchCached(source);
 }
 
 export async function fetchROM(model: MachineModel): Promise<Uint8Array> {
@@ -52,10 +59,22 @@ export function fetchPlusDRom(): Promise<Uint8Array> {
   return fetchCached(PLUSD_ROM);
 }
 
+export function fetchUspeechRom(): Promise<Uint8Array> {
+  return fetchCached(USPEECH_ROM);
+}
+
+export function fetchSp0256Rom(): Promise<Uint8Array> {
+  return fetchCached(SP0256_AL2_ROM);
+}
+
 export function fetchInterface1Rom(): Promise<Uint8Array> {
   return fetchCached(IF1_ROM);
 }
 
 export function fetchBetaDiskRom(): Promise<Uint8Array> {
   return fetchCached(BETADISK_ROM);
+}
+
+export function fetchMsxDiskRom(): Promise<Uint8Array> {
+  return fetchCached(MSX_DISK_ROM);
 }

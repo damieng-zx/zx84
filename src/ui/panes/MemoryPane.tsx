@@ -13,11 +13,18 @@
  *
  * Uses virtual scrolling so that even the full 64KB view (4096 × 15px rows)
  * remains fast to render and update.
+ *
+ * While paused, Hex and Hex+ASCII bytes can be overtyped: click a byte, type hex
+ * digits (or characters, in the ASCII column), Tab to swap columns. Writes go
+ * through the selected region — Mapped writes use the CPU's own write path, a RAM
+ * bank is written directly, and ROM regions stay read-only unless the ROM
+ * checkbox is ticked.
  */
 
 import { createSignal, createEffect, For, Show, onMount, onCleanup } from 'solid-js';
 import { Pane } from '@/ui/components/Pane.tsx';
 import { machine } from '@/shell/context.ts';
+import { refreshDebugViews } from '@/shell/lifecycle.ts';
 import { currentModel, emulationPaused } from '@/state/machine-state.ts';
 import { machineCaps } from '@/state/machine-caps.ts';
 import { isCollapsed } from '@/ui/panes.ts';
@@ -104,6 +111,21 @@ const BBC_CHARS: string[] = (() => {
   return t;
 })();
 
+// ── Apple II → Unicode character table ───────────────────────────────────
+//
+// The Apple II character order runs '@A-Z[\]^_' for codes $00-$1F and ASCII
+// space…'?' for $20-$3F; bits 6 and 7 are the flash and inverse-video flags,
+// so every byte displays the glyph its low six bits name.
+
+const APPLE2_CHARS: string[] = (() => {
+  const t = new Array<string>(256).fill('·');
+  for (let b = 0; b <= 0xFF; b++) {
+    const g = b & 0x3F;
+    t[b] = g < 0x20 ? String.fromCharCode(g + 0x40) : String.fromCharCode(g);
+  }
+  return t;
+})();
+
 // ── Hex formatting helpers ───────────────────────────────────────────────
 
 const HEX = '0123456789ABCDEF';
@@ -186,6 +208,47 @@ function renderRows(
   return parts.join('\n');
 }
 
+// ── Edit-cursor geometry ─────────────────────────────────────────────────
+//
+// Mirrors renderRows(): where, in characters from the start of a row, a byte's
+// hex pair or ASCII glyph sits. The cursor overlay and click hit-testing both
+// work from these, so they must change together with renderRows.
+
+/** Characters taken by the "AAAA: " address prefix. */
+const ADDR_COLS = 6;
+
+type EditColumn = 'hex' | 'ascii';
+
+/** Character column of byte `b`'s hex pair within a row. */
+function hexCol(mode: DisplayMode, b: number, bpr: number): number {
+  if (mode === 'hex+ascii') return ADDR_COLS + b * 2;
+  const mid = bpr <= 16 ? (bpr >> 1) : -1;
+  return ADDR_COLS + b * 3 + (mid > 0 && b >= mid ? 1 : 0);
+}
+
+/** Character column of byte `b`'s ASCII glyph within a Hex+ASCII row. */
+function asciiCol(b: number, bpr: number): number {
+  return ADDR_COLS + bpr * 2 + 2 + b;
+}
+
+/** Which byte and column a character column of a row falls on, if any. */
+function hitTest(mode: DisplayMode, col: number, bpr: number): { b: number; column: EditColumn } | null {
+  for (let b = 0; b < bpr; b++) {
+    const h = hexCol(mode, b, bpr);
+    if (col >= h && col < h + 2) return { b, column: 'hex' };
+    if (mode === 'hex+ascii' && col === asciiCol(b, bpr)) return { b, column: 'ascii' };
+  }
+  return null;
+}
+
+interface EditPos {
+  /** Index into the region's data (not an address). */
+  off: number;
+  column: EditColumn;
+  /** Which hex digit the next keystroke replaces: 0 = high, 1 = low. */
+  nibble: 0 | 1;
+}
+
 // ── Component ────────────────────────────────────────────────────────────
 
 export function MemoryPane() {
@@ -195,19 +258,76 @@ export function MemoryPane() {
   );
   const [addrText, setAddrText] = createSignal('0000');
   const [goOpen,   setGoOpen]   = createSignal(false);
+  const [allowRom, setAllowRom] = createSignal(false);
+  const [editPos,  setEditPos]  = createSignal<EditPos | null>(null);
 
   let scrollEl!: HTMLDivElement;
   let innerEl!:  HTMLDivElement;
   let preEl!:    HTMLPreElement;
+  let cursorEl!: HTMLDivElement;
   let goInputEl!: HTMLInputElement;
 
   /** ASCII glyph table for the active machine. */
   const chars = (): string[] => {
     const charset = machineCaps().charset;
-    return charset === 'cpc' ? CPC_CHARS : charset === 'bbc' ? BBC_CHARS : SPECTRUM_CHARS;
+    if (charset === 'cpc') return CPC_CHARS;
+    if (charset === 'bbc') return BBC_CHARS;
+    if (charset === 'apple2') return APPLE2_CHARS;
+    return SPECTRUM_CHARS;
   };
 
   function bpr(): number { return mode() === 'ascii' ? BYTES_ASCII : BYTES_HEX; }
+
+  const isBank = (r: string): boolean => r.startsWith('bank');
+  const isRomRegion = (): boolean => region() !== 'mapped' && !isBank(region());
+
+  /** The RAM bank number the region names, or null when it is not a bank this
+   *  machine has (the picker always lists 8; getRamBank coerces the rest). */
+  function ramBank(): number | null {
+    const r = region();
+    if (!isBank(r) || !machine) return null;
+    const n = parseInt(r.slice(4), 10);
+    return n < machine.memory.ramBankCount ? n : null;
+  }
+
+  /** Whether bytes can be overtyped right now: paused (a write would race the
+   *  frame loop), a hex mode, and a region that accepts writes. */
+  const editable = (): boolean => {
+    if (!emulationPaused() || mode() === 'ascii') return false;
+    const r = region();
+    if (r === 'mapped') return true;
+    if (isBank(r)) return ramBank() !== null;
+    return allowRom();
+  };
+
+  /** Mapped writes can land on a device register on memory-mapped machines. */
+  const mappedHasSideEffects = (): boolean =>
+    region() === 'mapped' && machineCaps().memoryMappedIo === true;
+
+  /**
+   * Write one byte of the selected region and redraw what depends on it.
+   * Mapped goes through the CPU's mapping (ROM there ignores it, as for the CPU);
+   * a bank or ROM region is written in place, like MCP's `write_memory`.
+   */
+  function poke(off: number, val: number): boolean {
+    const m = machine;
+    if (!m || !editable()) return false;
+    const r = region();
+    if (r === 'mapped') {
+      m.memory.writeByte(off & 0xFFFF, val);
+    } else if (isBank(r)) {
+      const n = ramBank();
+      if (n === null) return false;
+      m.memory.getRamBank(n)[off] = val;
+    } else {
+      const s = source();
+      if (!s || off >= s.data.length) return false;
+      s.data[off] = val;
+    }
+    refreshDebugViews();
+    updateView(true);
+    return true;
+  }
 
   /** Whether a saved region key is valid for the active machine. */
   function regionValid(r: string): boolean {
@@ -292,6 +412,120 @@ export function MemoryPane() {
     updateView(true);
   }
 
+  // ── Edit cursor ──────────────────────────────────────────────────────
+
+  /** Width in px of one monospace character of the dump. */
+  let charW = 0;
+  function charWidth(): number {
+    if (charW > 0) return charW;
+    const probe = document.createElement('span');
+    probe.style.cssText = 'position:absolute;visibility:hidden;white-space:pre';
+    probe.textContent = '0'.repeat(64);
+    preEl.appendChild(probe);
+    charW = probe.getBoundingClientRect().width / 64;
+    probe.remove();
+    return charW;
+  }
+
+  /** Position the overlay on the byte being edited (or hide it). */
+  function placeCursor(): void {
+    if (!cursorEl) return;
+    const pos = editPos();
+    if (!pos || !editable()) { cursorEl.style.display = 'none'; return; }
+    const perRow = bpr();
+    const row = Math.floor(pos.off / perRow);
+    const b = pos.off % perRow;
+    const w = charWidth();
+    const col = pos.column === 'hex' ? hexCol(mode(), b, perRow) : asciiCol(b, perRow);
+    const cols = pos.column === 'hex' ? 2 : 1;
+    cursorEl.style.display = 'block';
+    cursorEl.style.top = `${row * ROW_H}px`;
+    cursorEl.style.left = `${2 + col * w}px`;
+    cursorEl.style.width = `${cols * w}px`;
+  }
+
+  /** Scroll just far enough that the cursor row is on screen. */
+  function revealCursor(): void {
+    const pos = editPos();
+    if (!pos) return;
+    const top = Math.floor(pos.off / bpr()) * ROW_H;
+    if (top < scrollEl.scrollTop) scrollEl.scrollTop = top;
+    else if (top + ROW_H > scrollEl.scrollTop + scrollEl.clientHeight) {
+      scrollEl.scrollTop = top + ROW_H - scrollEl.clientHeight;
+    }
+  }
+
+  function onPaneClick(e: MouseEvent): void {
+    if (!editable()) return;
+    // A drag-select to copy bytes ends in a click too; leave that selection alone.
+    if (hasActiveSelection()) return;
+    const s = source();
+    if (!s) return;
+    const perRow = bpr();
+    const top = innerEl.getBoundingClientRect().top;
+    const left = preEl.getBoundingClientRect().left + 2;
+    const row = Math.floor((e.clientY - top) / ROW_H);
+    const col = Math.floor((e.clientX - left) / charWidth());
+    const hit = hitTest(mode(), col, perRow);
+    if (!hit || row < 0) return;
+    const off = row * perRow + hit.b;
+    if (off >= s.data.length) return;
+    setEditPos({ off, column: hit.column, nibble: 0 });
+    scrollEl.focus({ preventScroll: true });
+  }
+
+  /** Move the cursor `delta` bytes, staying inside the region. */
+  function moveCursor(delta: number): void {
+    const pos = editPos();
+    const s = source();
+    if (!pos || !s) return;
+    const off = Math.max(0, Math.min(s.data.length - 1, pos.off + delta));
+    setEditPos({ ...pos, off, nibble: 0 });
+    revealCursor();
+  }
+
+  function onEditKey(e: KeyboardEvent): void {
+    const pos = editPos();
+    if (!pos || !editable()) return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const perRow = bpr();
+    const s = source();
+    if (!s) return;
+
+    switch (e.key) {
+      case 'Escape':     setEditPos(null); break;
+      case 'ArrowLeft':  moveCursor(-1); break;
+      case 'ArrowRight': moveCursor(1); break;
+      case 'ArrowUp':    moveCursor(-perRow); break;
+      case 'ArrowDown':  moveCursor(perRow); break;
+      case 'Backspace':  moveCursor(-1); break;
+      case 'Tab':
+        if (mode() !== 'hex+ascii') return; // nothing to swap to: let focus move on
+        setEditPos({ ...pos, column: pos.column === 'hex' ? 'ascii' : 'hex', nibble: 0 });
+        break;
+      default: {
+        if (e.key.length !== 1) return;
+        const old = s.data[pos.off];
+        if (pos.column === 'hex') {
+          if (!/^[0-9a-f]$/i.test(e.key)) return;
+          const d = parseInt(e.key, 16);
+          if (pos.nibble === 0) {
+            if (poke(pos.off, (d << 4) | (old & 0x0F))) setEditPos({ ...pos, nibble: 1 });
+          } else if (poke(pos.off, (old & 0xF0) | d)) {
+            moveCursor(1);
+          }
+        } else {
+          // '·' stands for every unprintable byte, so it names none of them.
+          const code = e.key === '\u00b7' ? -1 : chars().indexOf(e.key);
+          if (code < 0) return;
+          if (poke(pos.off, code)) moveCursor(1);
+        }
+      }
+    }
+    e.preventDefault();
+    e.stopPropagation(); // keep emulator key capture and page shortcuts out of it
+  }
+
   function onScroll(): void {
     const firstRow = Math.floor(scrollEl.scrollTop / ROW_H);
     const s = source();
@@ -300,6 +534,7 @@ export function MemoryPane() {
   }
 
   function changeRegion(r: string): void {
+    setEditPos(null);
     setRegion(r);
     saveSetting(REGION_KEY, r);
     if (scrollEl) scrollEl.scrollTop = 0;
@@ -308,6 +543,7 @@ export function MemoryPane() {
   }
 
   function changeMode(m: DisplayMode): void {
+    setEditPos(null);
     setMode(m);
     saveSetting(MODE_KEY, m);
     updateView(true);
@@ -329,6 +565,13 @@ export function MemoryPane() {
   createEffect(() => {
     currentModel();
     if (!regionValid(region())) changeRegion('mapped');
+  });
+
+  // Keep the overlay on its byte, and drop it when editing stops being possible
+  // (resume, or a region that is no longer writable).
+  createEffect(() => {
+    if (!editable()) setEditPos(null);
+    placeCursor();
   });
 
   onMount(() => {
@@ -358,6 +601,15 @@ export function MemoryPane() {
           <option value="hex+ascii" selected={mode() === 'hex+ascii'}>Hex+ASCII</option>
           <option value="ascii"     selected={mode() === 'ascii'}    >ASCII</option>
         </select>
+        <Show when={isRomRegion()}>
+          <label class="mem-rom-write" title="Allow edits to this ROM image">
+            <input
+              type="checkbox"
+              checked={allowRom()}
+              onChange={e => setAllowRom(e.currentTarget.checked)}
+            /> ROM
+          </label>
+        </Show>
         <button
           class="btn btn-sm"
           classList={{ active: goOpen() }}
@@ -384,9 +636,21 @@ export function MemoryPane() {
           <button class="btn btn-sm mem-go-confirm" onClick={() => scrollToAddr(addrText())}>Go</button>
         </div>
       </Show>
-      <div class="mem-scroll" ref={scrollEl} onScroll={onScroll}>
+      <Show when={mappedHasSideEffects() && emulationPaused()}>
+        <div class="mem-note">Mapped writes reach memory-mapped hardware and can have side effects.</div>
+      </Show>
+      <div
+        class="mem-scroll"
+        classList={{ 'mem-editable': editable() }}
+        ref={scrollEl}
+        tabindex={editable() ? 0 : -1}
+        onScroll={onScroll}
+        onClick={onPaneClick}
+        onKeyDown={onEditKey}
+      >
         <div ref={innerEl} style="position:relative;width:100%">
           <pre ref={preEl} style="position:absolute;left:0;top:0;margin:0;padding:0 2px" />
+          <div ref={cursorEl} class="mem-cursor" />
         </div>
       </div>
     </Pane>

@@ -10,7 +10,7 @@
  */
 
 import { dbLoad, dbSave, getSaved, setSaved } from '@/store/persistence.ts';
-import { is128kClass, isPlus3, type SpectrumModel, type MachineModel } from '@/models.ts';
+import { is128kClass, isPlus3, hasBuiltinBetaDisk, type SpectrumModel, type MachineModel } from '@/models.ts';
 
 /** One game in the compact on-wire schema. Short keys keep the JSON small. Each
  *  slot retains one preferred file for a format and its native machine class.
@@ -27,6 +27,8 @@ export interface RawGame {
   k?: string;   // 128K tape file_link
   d?: string;   // disk file_link (.dsk) — side A / disk 1
   ds?: [string, string][]; // extra disk sides: [file_link, label]
+  b?: string;   // Beta Disk (TR-DOS) image file_link (.trd preferred, else .scl)
+  c?: number;   // clone tags, bitmask (CLONE_PENTAGON | CLONE_SCORPION): tagged for that machine in ZXDB
   m?: string;   // MGT +D disk file_link for 48K-class machines (.mgt/.img)
   mk?: string;  // MGT +D disk file_link for 128K-class machines
   u?: string;   // Interface 1 microdrive file_link for 48K-class machines (.mdr/.mdv)
@@ -36,6 +38,10 @@ export interface RawGame {
   nk?: string;  // 128K snapshot file_link
   r?: string;   // ZX Interface 2 ROM cartridge file_link (.rom), 16K/48K only
 }
+
+/** `RawGame.c` bits: the ZXDB machine type of the entry or of one of its files. */
+export const CLONE_PENTAGON = 1;
+export const CLONE_SCORPION = 2;
 
 export interface RawCatalog {
   genres: string[];
@@ -61,6 +67,10 @@ export interface Game {
   plus3Disk: string;
   /** Extra disk sides: [file_link, label]. */
   diskSides: [string, string][];
+  /** ZXDB file_link for a Beta Disk (TR-DOS) image, '' when none. */
+  betaDisk: string;
+  /** Bitmask of CLONE_PENTAGON / CLONE_SCORPION: the clones ZXDB tags it for. */
+  clones: number;
   /** ZXDB file_link for an MGT +D disk on a 48K-class machine, '' when none. */
   mgt48: string;
   /** ZXDB file_link for an MGT +D disk on a 128K-class machine, '' when none. */
@@ -189,6 +199,8 @@ export function resolveGame(raw: RawGame, cat: RawCatalog): Game {
     tape128: raw.k ?? '',
     plus3Disk: raw.d ?? '',
     diskSides: raw.ds ?? [],
+    betaDisk: raw.b ?? '',
+    clones: raw.c ?? 0,
     mgt48: raw.m ?? '',
     mgt128: raw.mk ?? '',
     microdrive48: raw.u ?? '',
@@ -206,12 +218,26 @@ export function resolveGame(raw: RawGame, cat: RawCatalog): Game {
 export interface LoadPlan {
   target: SpectrumModel;     // model to load it on (may equal the current one)
   link: string;             // ZXDB file_link to fetch + mount
-  kind: 'tape' | 'plus3-disk' | 'mgt-disk' | 'snapshot' | 'rom' | 'microdrive';
+  kind: 'tape' | 'plus3-disk' | 'mgt-disk' | 'beta-disk' | 'snapshot' | 'rom' | 'microdrive';
   peripheral?: 'plusd' | 'interface1';
   // How to start it: press Enter on the 128K/+3 loader menu, jump the 48K ROM
   // loader, mount a ZX Interface 2 cartridge (self-boots on reset, no loader
   // kick), or — for a snapshot — nothing (it restores running state itself).
-  boot: 'menu' | 'rom48k' | 'snapshot' | 'rom' | 'peripheral';
+  // 'peripheral' mounts the disk/cartridge and resets, leaving the user at the
+  // machine's own prompt (G+DOS, or BASIC for an Interface 1). 'trdos' mounts a
+  // Beta Disk and types RANDOMIZE USR 15616 and RUN to boot it.
+  boot: 'menu' | 'rom48k' | 'snapshot' | 'rom' | 'peripheral' | 'trdos';
+}
+
+/** A Beta Disk (TR-DOS) image runs on the Pentagon/Scorpion, which have the
+ *  interface built in: stay on the current clone, else pick the one ZXDB tags it
+ *  for (the Pentagon unless it is Scorpion-only). */
+function betaPlan(game: Game, current: MachineModel): LoadPlan | null {
+  if (!game.betaDisk) return null;
+  const target: SpectrumModel = hasBuiltinBetaDisk(current)
+    ? current as SpectrumModel
+    : game.clones === CLONE_SCORPION ? 'scorpion256' : 'pentagon128';
+  return { target, link: game.betaDisk, kind: 'beta-disk', boot: 'trdos' };
 }
 
 /** Select a specific requested media format while preserving the current model
@@ -221,34 +247,35 @@ function planFormat(game: Game, current: MachineModel, format: LibraryFormat): L
   const peripheral = (kind: 'mgt-disk' | 'microdrive', link48: string, link128: string): LoadPlan | null => {
     const peripheralName = kind === 'mgt-disk' ? 'plusd' : 'interface1';
     if (is128kClass(current) && !isPlus3(current)) {
-      const target = current === '+2A' ? '128k' : current as SpectrumModel;
+      const target = current === 'zx128kplus2a' ? 'zx128k' : current as SpectrumModel;
       if (link128 || link48) return { target, link: link128 || link48, kind, peripheral: peripheralName, boot: 'peripheral' };
     }
-    if (link48) return { target: '48k', link: link48, kind, peripheral: peripheralName, boot: 'peripheral' };
-    if (link128) return { target: '128k', link: link128, kind, peripheral: peripheralName, boot: 'peripheral' };
+    if (link48) return { target: 'zx48k', link: link48, kind, peripheral: peripheralName, boot: 'peripheral' };
+    if (link128) return { target: 'zx128k', link: link128, kind, peripheral: peripheralName, boot: 'peripheral' };
     return null;
   };
 
   switch (format) {
     case 'tape':
       if (isPlus3(current)) {
-        if (tape128 || tape48 || tape16) return { target: '+3', link: tape128 || tape48 || tape16, kind: 'tape', boot: 'menu' };
+        if (tape128 || tape48 || tape16) return { target: 'zx128kplus3', link: tape128 || tape48 || tape16, kind: 'tape', boot: 'menu' };
       } else if (is128kClass(current)) {
         if (tape128 || tape48 || tape16) return { target: current as SpectrumModel, link: tape128 || tape48 || tape16, kind: 'tape', boot: 'menu' };
-      } else if (current === '16k' && tape16) {
-        return { target: '16k', link: tape16, kind: 'tape', boot: 'rom48k' };
+      } else if (current === 'zx16k' && tape16) {
+        return { target: 'zx16k', link: tape16, kind: 'tape', boot: 'rom48k' };
       }
-      if (tape48 || tape16) return { target: '48k', link: tape48 || tape16, kind: 'tape', boot: 'rom48k' };
-      if (tape128) return { target: '128k', link: tape128, kind: 'tape', boot: 'menu' };
+      if (tape48 || tape16) return { target: 'zx48k', link: tape48 || tape16, kind: 'tape', boot: 'rom48k' };
+      if (tape128) return { target: 'zx128k', link: tape128, kind: 'tape', boot: 'menu' };
       return null;
     case 'plus3-disk':
-      return plus3Disk ? { target: '+3', link: plus3Disk, kind: 'plus3-disk', boot: 'menu' } : null;
+      return plus3Disk ? { target: 'zx128kplus3', link: plus3Disk, kind: 'plus3-disk', boot: 'menu' } : null;
     case 'mgt-disk': return peripheral('mgt-disk', mgt48, mgt128);
+    case 'beta-disk': return betaPlan(game, current);
     case 'snapshot':
-      if (snap128) return { target: '128k', link: snap128, kind: 'snapshot', boot: 'snapshot' };
-      if (snap48) return { target: '48k', link: snap48, kind: 'snapshot', boot: 'snapshot' };
-      return snap16 ? { target: '16k', link: snap16, kind: 'snapshot', boot: 'snapshot' } : null;
-    case 'rom': return rom ? { target: current === '16k' ? '16k' : '48k', link: rom, kind: 'rom', boot: 'rom' } : null;
+      if (snap128) return { target: 'zx128k', link: snap128, kind: 'snapshot', boot: 'snapshot' };
+      if (snap48) return { target: 'zx48k', link: snap48, kind: 'snapshot', boot: 'snapshot' };
+      return snap16 ? { target: 'zx16k', link: snap16, kind: 'snapshot', boot: 'snapshot' } : null;
+    case 'rom': return rom ? { target: current === 'zx16k' ? 'zx16k' : 'zx48k', link: rom, kind: 'rom', boot: 'rom' } : null;
     case 'microdrive': return peripheral('microdrive', microdrive48, microdrive128);
   }
 }
@@ -273,41 +300,47 @@ export function planLoad(game: Game, current: MachineModel, preferredFormats: It
     if (preferred) return preferred;
   }
   const { tape16, tape48, tape128, plus3Disk, mgt48, mgt128, microdrive48, microdrive128, snap16, snap48, snap128, rom } = game;
-  if (rom) return { target: current === '16k' ? '16k' : '48k', link: rom, kind: 'rom', boot: 'rom' };
+  if (rom) return { target: current === 'zx16k' ? 'zx16k' : 'zx48k', link: rom, kind: 'rom', boot: 'rom' };
   const anyTape = tape128 || tape48 || tape16;
 
   if (isPlus3(current)) {
-    if (plus3Disk) return { target: '+3', link: plus3Disk, kind: 'plus3-disk', boot: 'menu' };
-    if (anyTape) return { target: '+3', link: anyTape, kind: 'tape', boot: 'menu' };
+    if (plus3Disk) return { target: 'zx128kplus3', link: plus3Disk, kind: 'plus3-disk', boot: 'menu' };
+    if (anyTape) return { target: 'zx128kplus3', link: anyTape, kind: 'tape', boot: 'menu' };
   } else if (is128kClass(current)) {   // 128 / +2 / +2A (not +3, handled above)
     if (anyTape) return { target: current as SpectrumModel, link: anyTape, kind: 'tape', boot: 'menu' };
+    // On a Pentagon/Scorpion a TR-DOS disk is native, so it beats the peripherals below.
+    if (hasBuiltinBetaDisk(current)) { const beta = betaPlan(game, current); if (beta) return beta; }
     // The +2A is 128K-class but its Amstrad edge connector cannot host the +D
     // or Interface 1. Use a plain 128K model when a peripheral is needed.
-    const peripheralTarget = current === '128k' || current === '+2' ? current as SpectrumModel : '128k';
+    const peripheralTarget = current === 'zx128k' || current === 'zx128kplus2' ? current as SpectrumModel : 'zx128k';
     if (mgt128 || mgt48) return { target: peripheralTarget, link: mgt128 || mgt48, kind: 'mgt-disk', peripheral: 'plusd', boot: 'peripheral' };
     if (microdrive128 || microdrive48) return { target: peripheralTarget, link: microdrive128 || microdrive48, kind: 'microdrive', peripheral: 'interface1', boot: 'peripheral' };
-    if (plus3Disk) return { target: '+3', link: plus3Disk, kind: 'plus3-disk', boot: 'menu' };
+    if (plus3Disk) return { target: 'zx128kplus3', link: plus3Disk, kind: 'plus3-disk', boot: 'menu' };
   } else {
-    const is16 = current === '16k';
-    if (is16 && tape16) return { target: '16k', link: tape16, kind: 'tape', boot: 'rom48k' };
-    if (!is16 && tape48) return { target: '48k', link: tape48, kind: 'tape', boot: 'rom48k' };
-    if (tape16) return { target: '48k', link: tape16, kind: 'tape', boot: 'rom48k' };
-    if (tape48) return { target: '48k', link: tape48, kind: 'tape', boot: 'rom48k' };
-    if (mgt48) return { target: '48k', link: mgt48, kind: 'mgt-disk', peripheral: 'plusd', boot: 'peripheral' };
-    if (microdrive48) return { target: '48k', link: microdrive48, kind: 'microdrive', peripheral: 'interface1', boot: 'peripheral' };
-    if (tape128) return { target: '128k', link: tape128, kind: 'tape', boot: 'menu' };
-    if (mgt128) return { target: '128k', link: mgt128, kind: 'mgt-disk', peripheral: 'plusd', boot: 'peripheral' };
-    if (microdrive128) return { target: '128k', link: microdrive128, kind: 'microdrive', peripheral: 'interface1', boot: 'peripheral' };
-    if (plus3Disk) return { target: '+3', link: plus3Disk, kind: 'plus3-disk', boot: 'menu' };
+    const is16 = current === 'zx16k';
+    if (is16 && tape16) return { target: 'zx16k', link: tape16, kind: 'tape', boot: 'rom48k' };
+    if (!is16 && tape48) return { target: 'zx48k', link: tape48, kind: 'tape', boot: 'rom48k' };
+    if (tape16) return { target: 'zx48k', link: tape16, kind: 'tape', boot: 'rom48k' };
+    if (tape48) return { target: 'zx48k', link: tape48, kind: 'tape', boot: 'rom48k' };
+    if (mgt48) return { target: 'zx48k', link: mgt48, kind: 'mgt-disk', peripheral: 'plusd', boot: 'peripheral' };
+    if (microdrive48) return { target: 'zx48k', link: microdrive48, kind: 'microdrive', peripheral: 'interface1', boot: 'peripheral' };
+    if (tape128) return { target: 'zx128k', link: tape128, kind: 'tape', boot: 'menu' };
+    if (mgt128) return { target: 'zx128k', link: mgt128, kind: 'mgt-disk', peripheral: 'plusd', boot: 'peripheral' };
+    if (microdrive128) return { target: 'zx128k', link: microdrive128, kind: 'microdrive', peripheral: 'interface1', boot: 'peripheral' };
+    if (plus3Disk) return { target: 'zx128kplus3', link: plus3Disk, kind: 'plus3-disk', boot: 'menu' };
   }
-  if (snap128) return { target: '128k', link: snap128, kind: 'snapshot', boot: 'snapshot' };
-  if (snap48) return { target: '48k', link: snap48, kind: 'snapshot', boot: 'snapshot' };
-  if (snap16) return { target: '16k', link: snap16, kind: 'snapshot', boot: 'snapshot' };
+  const beta = betaPlan(game, current);
+  if (beta) return beta;
+  if (snap128) return { target: 'zx128k', link: snap128, kind: 'snapshot', boot: 'snapshot' };
+  if (snap48) return { target: 'zx48k', link: snap48, kind: 'snapshot', boot: 'snapshot' };
+  if (snap16) return { target: 'zx16k', link: snap16, kind: 'snapshot', boot: 'snapshot' };
   return null;
 }
 
-export type LibraryFormat = 'tape' | 'plus3-disk' | 'mgt-disk' | 'snapshot' | 'rom' | 'microdrive';
-export type LibraryMachine = '16' | '48' | '128' | '+3';
+export type LibraryFormat = 'tape' | 'plus3-disk' | 'mgt-disk' | 'beta-disk' | 'snapshot' | 'rom' | 'microdrive';
+/** Machine filter values. 'pentagon' and 'scorpion' are only offered while that
+ *  clone is the current model (see LibraryBrowser). */
+export type LibraryMachine = '16' | '48' | '128' | '+3' | 'pentagon' | 'scorpion';
 
 /** Whether a title has a retained image of the requested media format. */
 export function hasFormat(game: Game, format: LibraryFormat): boolean {
@@ -315,6 +348,7 @@ export function hasFormat(game: Game, format: LibraryFormat): boolean {
     case 'tape': return !!(game.tape16 || game.tape48 || game.tape128);
     case 'plus3-disk': return !!game.plus3Disk;
     case 'mgt-disk': return !!(game.mgt48 || game.mgt128);
+    case 'beta-disk': return !!game.betaDisk;
     case 'snapshot': return !!(game.snap16 || game.snap48 || game.snap128);
     case 'rom': return !!game.rom;
     case 'microdrive': return !!(game.microdrive48 || game.microdrive128);
@@ -323,7 +357,7 @@ export function hasFormat(game: Game, format: LibraryFormat): boolean {
 
 /** Retained media formats in display order. */
 export function availableFormats(game: Game): LibraryFormat[] {
-  const formats: LibraryFormat[] = ['tape', 'plus3-disk', 'mgt-disk', 'snapshot', 'rom', 'microdrive'];
+  const formats: LibraryFormat[] = ['tape', 'plus3-disk', 'mgt-disk', 'beta-disk', 'snapshot', 'rom', 'microdrive'];
   return formats.filter(format => hasFormat(game, format));
 }
 
@@ -334,6 +368,10 @@ export function supportsMachine(game: Game, machine: LibraryMachine): boolean {
     case '48': return !!(game.tape16 || game.tape48 || game.snap16 || game.snap48 || game.rom || game.mgt48 || game.microdrive48);
     case '128': return !!(game.tape16 || game.tape48 || game.tape128 || game.snap16 || game.snap48 || game.snap128 || game.mgt48 || game.mgt128 || game.microdrive48 || game.microdrive128);
     case '+3': return !!(game.tape16 || game.tape48 || game.tape128 || game.snap16 || game.snap48 || game.snap128 || game.plus3Disk);
+    // The clones' own software: anything ZXDB tags for them, and every TR-DOS
+    // image (which both run, the Scorpion being TR-DOS native too).
+    case 'pentagon': return !!(game.clones & CLONE_PENTAGON || game.betaDisk);
+    case 'scorpion': return !!(game.clones & CLONE_SCORPION || game.betaDisk);
   }
 }
 

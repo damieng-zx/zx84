@@ -28,7 +28,7 @@ function tinyTap(): Uint8Array {
   return new Uint8Array([3, 0, flag, payload, flag ^ payload]);
 }
 
-function headless(model: '48k' | '+3'): Spectrum {
+function headless(model: 'zx48k' | 'zx128kplus3'): Spectrum {
   const s = new Spectrum(model, null);
   s.start = async () => {};
   return s;
@@ -46,7 +46,7 @@ describe('FrameIndicators struct', () => {
 
 describe('SpectrumFrameProbe.sample', () => {
   it('never replaces the preallocated arrays (in-place overwrite only)', () => {
-    const s = headless('+3');
+    const s = headless('zx128kplus3');
     const ind = createFrameIndicators();
     const led = ind.driveLed, track = ind.driveTrack, sector = ind.driveSector, dirty = ind.driveDirty;
     s.services.probe.sample(ind);
@@ -58,7 +58,7 @@ describe('SpectrumFrameProbe.sample', () => {
   });
 
   it('is a pure read: repeated samples yield identical results and leave the deck alone', async () => {
-    const s = headless('48k');
+    const s = headless('zx48k');
     await s.services.media.mount(tinyTap(), 'probe.tap');
     const posBefore = s.tape.position;
     const pausedBefore = s.tape.paused;
@@ -75,7 +75,7 @@ describe('SpectrumFrameProbe.sample', () => {
   });
 
   it('48K: no FDC → all four drive slots absent, no floppy sound feed', () => {
-    const s = headless('48k');
+    const s = headless('zx48k');
     const ind = createFrameIndicators();
     s.services.probe.sample(ind);
     expect(Array.from(ind.driveLed)).toEqual([-1, -1, -1, -1]);
@@ -84,7 +84,7 @@ describe('SpectrumFrameProbe.sample', () => {
   });
 
   it('+3: uPD765A fills slots A/B; 3" profile derived from a 180KB CF2 disk', () => {
-    const s = headless('+3');
+    const s = headless('zx128kplus3');
     const img = parseFloppyImage(serializeDSK(blankMgtDisk(40, 1)));
     s.loadDisk(img, 0);
     const ind = createFrameIndicators();
@@ -97,7 +97,7 @@ describe('SpectrumFrameProbe.sample', () => {
   });
 
   it('mounted tape reports transport state (loaded, play-paused at block 0)', async () => {
-    const s = headless('48k');
+    const s = headless('zx48k');
     await s.services.media.mount(tinyTap(), 'probe.tap');
     const ind = createFrameIndicators();
     s.services.probe.sample(ind);
@@ -108,7 +108,7 @@ describe('SpectrumFrameProbe.sample', () => {
   });
 
   it('reports the active Interface 1 microdrive sector for the block viewer', async () => {
-    const s = headless('48k');
+    const s = headless('zx48k');
     s.interface1.enabled = true;
     await s.services.media.mount(new Uint8Array(BLOCK_LEN * 2), 'probe.mdr');
     s.interface1.drives[0].motorOn = true;
@@ -123,7 +123,7 @@ describe('SpectrumFrameProbe.sample', () => {
   });
 
   it('frameTick auto-rewinds a finished tape only when tapeAutoRewind is set', async () => {
-    const s = headless('48k');
+    const s = headless('zx48k');
     await s.services.media.mount(tinyTap(), 'probe.tap');
     // Run-out deck: position past the last block (finished is derived from
     // position >= blocks.length) with playback stopped.
@@ -144,7 +144,7 @@ describe('SpectrumFrameProbe.sample', () => {
   });
 
   it('frameTick consumes the uPD765A format latch into formattedSlot exactly once', () => {
-    const s = headless('+3');
+    const s = headless('zx128kplus3');
     const img = parseFloppyImage(serializeDSK(blankMgtDisk(40, 1)));
     s.loadDisk(img, 1);
     s.fdc.formattedUnit = 1;

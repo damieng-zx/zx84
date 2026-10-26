@@ -22,48 +22,25 @@ The project `.mcp.json` already registers the server:
 Run it directly with:
 
 ```text
-npm run mcp -- --model 48k
+npm run mcp -- --model zx48k
 ```
 
-Supported startup models are derived from the machine registry and include
-`zx80`, `zx81`, `16k`, `48k`, `128k`, `+2`, `+2A`, `+3`, `cpc464`, `cpc664`,
-`cpc6128`, `cpc6128plus`, `gx4000`, `einstein-tc01`, `einstein-256`, `hx-10`,
-`mtx500`, `mtx512`, `rs128`, `lynx48`, `lynx96`,
-`lynx128`, `jupiter-ace`, `pcw8256`, `pcw8512`, `pcw9512`, `pcw9256`, and `bbc-b`. The
-default is `48k`.
+Every machine in the registry can be started, and the model ids are the ones
+listed under [Known models in the main README](../README.md#media). The default
+is `zx48k`. The Spectrum's earlier ids (`48k`, `128k`, `+2`, `+2A`, `+3`) are still
+accepted by `--model`; the `model` tool takes the current ids only.
 System ROM pages come from the machine registry, are fetched through the shared
 ROM source loader, and are cached under `mcp/.cache/`.
 
 ## Model Support
 
-The generic tools work through the `Machine` SPI and support every model where
-the relevant service exists: execution, register inspection, memory access,
-disassembly, breakpoints/watchpoints, stepping, and OCR.
-
-Some tools are intentionally hardware-specific:
-
-- Spectrum: tape/snapshot loading (auto-enabling the +D / Interface 1 / Beta
-  Disk ROMs), ZXTL/full/port-I/O tracing, library loading, Multiface, VTX-5000,
-  +D, Beta Disk, microdrives, and +3 boot helpers.
-- CPC, MSX, MTX, Einstein, Lynx, Jupiter Ace, PCW, BBC, ZX80/ZX81: media loads
-  route through the machine's own `MediaService` (CPC
-  `.dsk/.hfe/.scp/.cdt/.sna/.cpr`, MSX `.rom/.cas`, MTX `.rom/.mtx/.mfloppy`,
-  Einstein `.dsk/.hfe/.scp`,
-  Lynx `.tap` cassettes and `.ldf` disks, Jupiter Ace `.tap/.tzx/.csw` cassettes,
-  PCW `.dsk/.td0/.hfe/.scp` discs, BBC `.ssd/.dsd/.img` discs, and ZX80/ZX81 program files). CPC adds
-  built-in uPD765A disk inspection, CPC OCR, and PNG screenshots.
-- ZX80/ZX81 additionally: model-constrained ZXDB library loading, 1KB/16KB
-  RAM selection, ZX81 UDG and WRX hi-res hardware selection, and display-file
-  OCR.
-- MTX additionally: the FDX 80-column display, 512 KiB RAM expansion, and CP/M
-  system profile.
-- PCW additionally: it has no system ROM, so nothing is fetched at startup —
-  boot it by loading a CP/M+ or LocoScript disc into drive A.
-- Lynx `ocr` reads the 40-column grid on the 48K/96K and the 128K's 80-column
-  one, matching the bitmap against the character set in the machine's own ROM;
-  a replaced system ROM without that table is reported rather than guessed at.
-- MSX/MTX/Einstein/Lynx/Jupiter Ace/PCW media capabilities are exposed
-  exactly where their machine services support them.
+The generic tools (execution, registers, memory, disassembly, breakpoints and
+watchpoints, stepping, media loading, OCR, screenshots) work through the
+`Machine` interface on every model whose machine provides the service. A few
+tools are hardware-specific: tracing is Spectrum-only, and several machines
+add bench tools of their own (see the Tool Reference). Each
+[machine sheet](../docs/machines) lists the tools, media formats and limits for
+that machine.
 
 Use `model` to switch machines. Switching always creates a fresh machine.
 
@@ -127,7 +104,7 @@ Spectrum additionally supports `sym`, `capslock`, and symbol-shift combos.
 | --- | --- | --- |
 | `load` | `file`, `drive` | Load media from a local path or HTTP(S) URL. Spectrum uses its bench path (auto-enables peripheral ROMs); every other machine routes through its own MediaService. ZIPs unwrap to a sole compatible file. |
 | `library` | `title`, `file`, `id`, `frames`, `refresh` | Exact-title library load. ZX80 and ZX81 searches stay strictly within the active model and apply catalog RAM and hi-res hardware requirements before launch. |
-| `screenshot` | `file` (optional) | Write the active machine display to PNG. |
+| `screenshot` | `file` (optional), `source`: `frame` (default) or `vram` | Write the active machine display to PNG. `frame` is the last frame as the video hardware drew it, scanline by scanline, so border, rainbow and multicolour effects show (stopped mid-frame, rows below the beam are the previous frame). On the Spectrum, `vram` instead redraws the screen from screen memory as it is now, with no raster effects — handy straight after a snapshot load or `write_memory`. |
 | `save` | `file` | Save a Spectrum `.szx` snapshot. |
 | `eject` | `target`, `drive` | Eject a tape (any deck machine) or a disk (`a`/`b` where fitted). |
 | `disk_boot` | `file` (optional) | Spectrum +3 Loader-menu boot helper; the optional DSK may be a local path or HTTP(S) URL. |
@@ -166,8 +143,16 @@ These use the active +3 or CPC uPD765A where fitted.
 | --- | --- | --- |
 | `multiface` | `action`: `on`, `off`, `nmi`, `status` | Control MF1/MF128/MF3 and trigger NMI. |
 | `vtx5000` | `action`: `on`, `off`, `status` | Control the 48K VTX-5000 Viewdata modem. |
+| `specdrum` | `action`: `on`, `off`, `status` | Fit/remove the SpecDrum 8-bit DAC (port 0xDF); status shows the last DAC code. |
+| `uspeech` | `action`: `on`, `off`, `status` | Control the Currah µSpeech speech synthesiser (SP0256-AL2). |
 | `plusd` | `action`: `on`, `off`, `status` | Control the MGT +D interface. |
 | `betadisk` | `action`: `on`, `off`, `status` | Control Beta Disk/TR-DOS. |
+
+### MSX Peripherals
+
+| Tool | Parameters | Description |
+| --- | --- | --- |
+| `msxdisk` | `action`: `on`, `off`, `status` | Fit or remove the floppy disk interface (WD2793 + Disk BASIC ROM in slot 3, drives A:/B:). Fitting loads the ROM from the cache/CDN and resets so the BIOS finds it. |
 
 ### Memotech MTX Peripherals
 

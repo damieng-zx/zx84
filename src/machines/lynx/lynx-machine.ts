@@ -15,7 +15,9 @@ import { Crtc6845 } from '@/cores/crtc-6845.ts';
 import { WD179x } from '@/cores/wd179x.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
+import { resolveDriveCount } from '@/machines/shared/drive-count.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
+import { z80ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
 import { TapeDeck, TAPE_REF_HZ } from '@/media/tape/tap.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type {
@@ -23,7 +25,7 @@ import type {
   SettingsView,
 } from '@/machines/machine.ts';
 import {
-  LYNX_BORDER_TOP, LYNX_PAGE_SIZE, LYNX_PALETTE, lynxTStatesPerFrame,
+  LYNX_BORDER_TOP, LYNX_MAX_DRIVES, LYNX_PAGE_SIZE, LYNX_PALETTE, lynxTStatesPerFrame,
 } from './constants.ts';
 import type { OcrResult } from '@/ocr/ocr.ts';
 import {
@@ -76,6 +78,8 @@ export class LynxMachine extends BaseMachine implements Machine {
   /** The interface is fitted: the model has one *and* the Hardware toggle is
    *  on. Drives the FDC ports, `.ldf` media, the DOS ROM and the Drive pane. */
   hasDisk: boolean;
+  /** How many of the FD1793's drives are fitted (Drives pane choice). */
+  driveCount = LYNX_MAX_DRIVES;
 
   /** The cassette deck. The Lynx has a real motor bit, so playback is gated on
    *  the motor rather than on read cadence the way the CPC's has to be. */
@@ -126,29 +130,19 @@ export class LynxMachine extends BaseMachine implements Machine {
     this._pixels = new Uint8Array(this._pixels32.buffer);
 
     this.tape.pulseScale = this.clock / TAPE_REF_HZ;
+    this.cpu.onInterrupt = (handler, nmi) => this.noteInterrupt(handler, nmi);
     this.cpu.read8 = (addr: number): number => {
       const value = this.memory.readByte(addr);
-      if (this.memWatchpoints.length > 0 && this.memWatchHit === null) this.checkMemWatch(addr & 0xffff, value, 'read');
+      if (this.memWatchpoints.length > 0 && this.memWatchHit === null) this.recordMemWatch(addr & 0xffff, value, 'read');
       return value;
     };
     this.cpu.write8 = (addr: number, v: number): void => {
       this.memory.writeByte(addr, v);
-      if (this.memWatchpoints.length > 0 && this.memWatchHit === null) this.checkMemWatch(addr & 0xffff, v & 0xff, 'write');
+      if (this.memWatchpoints.length > 0 && this.memWatchHit === null) this.recordMemWatch(addr & 0xffff, v & 0xff, 'write');
     };
     wireLynxPortIO(this);
 
     this.services = createLynxServices(this, () => this.host);
-  }
-
-  /** Record the first access this frame that falls in a memory watchpoint.
-   *  Only reached while at least one is set, so the bus pays nothing else. */
-  private checkMemWatch(addr: number, value: number, dir: 'read' | 'write'): void {
-    for (const wp of this.memWatchpoints) {
-      if ((wp.mode === dir || wp.mode === 'rw') && addr >= wp.start && addr <= wp.end) {
-        this.memWatchHit = { addr, value, dir };
-        return;
-      }
-    }
   }
 
   // ── Machine SPI ────────────────────────────────────────────────────────
@@ -164,6 +158,8 @@ export class LynxMachine extends BaseMachine implements Machine {
   applySettings(view: SettingsView): void {
     this.tapeTurbo = view.get('tape-turbo-load', true);
     this.hasDisk = this.modelHasDisk && view.get('lynx-fdc', true);
+    this.driveCount = resolveDriveCount(view, 'lynx', this.modelHasDisk ? LYNX_MAX_DRIVES : 2);
+    for (let u = 0; u < this.fdc.connected.length; u++) this.fdc.connected[u] = u < this.driveCount;
   }
   setBorderSize(_mode: BorderMode): void { /* the Lynx border is not croppable */ }
 
@@ -201,6 +197,7 @@ export class LynxMachine extends BaseMachine implements Machine {
     this.tape.paused = true;
     this._tapeTurboActive = false;
     this._tapeTurboCooldown = 0;
+    this.resetFrameCount();
   }
 
   // ── Port 0x80 and the cassette ─────────────────────────────────────────
@@ -278,7 +275,7 @@ export class LynxMachine extends BaseMachine implements Machine {
   /** The ROM's character set, as loaded. Bank 0 holds ROM image 0 at 0. */
   private get ocrFont(): Uint8Array {
     const at = this.memory.is128k ? LYNX_FONT_OFFSET_128 : LYNX_FONT_OFFSET_48;
-    return this.memory.ram.subarray(at, at + LYNX_FONT_BYTES);
+    return this.memory.rom.subarray(at, at + LYNX_FONT_BYTES);
   }
 
   /** The text grid this model's display carries. */
@@ -370,6 +367,34 @@ ${text}`;
     return null;
   }
 
+  // ── Beam ───────────────────────────────────────────────────────────────
+
+  /** The next line of the frame in progress to run (it carries over a stop). */
+  private fLine = 0;
+  /** The 6845's line count, sampled when the frame in progress started. */
+  private fLines = 0;
+  /** VSYNC has interrupted the CPU in the frame in progress. */
+  private fInterrupted = false;
+
+  /** Frame line 0 is the 6845's first line (row 0, raster 0), the first
+   *  displayed one; VSYNC interrupts at the end of the line before row R7. */
+  beam(): BeamPos { return this.gridBeam(); }
+  beamInfo(): BeamInfo {
+    const lines = this.frameOpen ? this.fLines : this.crtc.linesPerFrame();
+    return {
+      cyclesPerLine: this.tPerFrame / lines,
+      linesPerFrame: lines,
+      displayStart: 0,
+      note: 'line 0 is the first line of the 6845\'s character row 0, restarted each frame, which is the first displayed line; VSYNC, wired straight to /INT, interrupts at the end of the line before row R7\'s first. The 50Hz frame is split evenly over the lines R4/R5/R9 program (312 by default), so a line follows the frame, not R0, and its length may be fractional. Each line is drawn whole when the CPU reaches its end',
+    };
+  }
+  override supportsBeamStops(): boolean { return true; }
+  override supportsInterruptLog(): boolean { return true; }
+  protected override cpuCycles(): number { return this.cpu.tStates; }
+  protected override stackPointer(): number { return this.cpu.sp; }
+  protected override cpuPc(): number { return this.cpu.pc; }
+  protected override interruptedPc(): number { return z80ReturnAddress(this.cpu.sp, a => this.memory.readByte(a)); }
+
   // ── Frame ──────────────────────────────────────────────────────────────
 
   protected get audioChip() { return NO_PSG; }
@@ -378,32 +403,42 @@ ${text}`;
 
   protected runFrame(): void {
     const skipAudio = this.speedMultiplier !== 1 || this._tapeTurboActive;
-    this.activity.kbdReads = 0;
-    this.activity.fdcAccesses = 0;
-    this.activity.casReads = 0;
+    // A frame a stop left part-way carries on from the line it was in.
+    if (!this.openFrame(this.tPerFrame)) {
+      this.activity.kbdReads = 0;
+      this.activity.fdcAccesses = 0;
+      this.activity.casReads = 0;
+      this.video.beginFrame();
+      // The 6845 owns the line count; the 50Hz frame is divided among however
+      // many lines it has been programmed for, so an unusual R4/R9 stretches or
+      // squeezes the raster rather than losing lines off the bottom.
+      this.fLines = this.crtc.linesPerFrame();
+      this.fLine = 0;
+      this.fInterrupted = false;
+    }
+    this.portWatchHit = null;
+    this.memWatchHit = null;
 
-    this.video.beginFrame();
-
-    // The 6845 owns the line count; the 50Hz frame is divided among however
-    // many lines it has been programmed for, so an unusual R4/R9 stretches or
-    // squeezes the raster rather than losing lines off the bottom.
-    const lines = this.crtc.linesPerFrame();
+    const lines = this.fLines;
     const tPerLine = this.tPerFrame / lines;
-    let lineEnd = this.cpu.tStates;
     let lastAudioT = this.cpu.tStates;
-    let broke = false;
-    let interrupted = false;
-    const watchActive = this.portWatchpoints.size > 0 || this.memWatchpoints.length > 0;
 
-    for (let line = 0; line < lines; line++) {
-      lineEnd += tPerLine;
+    for (; this.fLine < lines; this.fLine++) {
+      const line = this.fLine;
+      // The last line ends on the frame's end exactly: lines × (frame / lines)
+      // can round a hair past it.
+      const lineEnd = line + 1 === lines ? this.frameEndT : this.frameStartT + (line + 1) * tPerLine;
 
       while (this.cpu.tStates < lineEnd) {
-        if (this.breakpoints.has(this.cpu.pc)) { this.breakpointHit = this.cpu.pc; broke = true; break; }
-        if (this.onTrap !== null && this.onTrap(this.cpu.pc)) { broke = true; break; }
+        if (this.checkStops(this.cpu.pc)) {
+          // The frame stays open; the next call carries on in this line.
+          this.midFrame = true;
+          this.needsDisplay = true;
+          return;
+        }
+        this.beforeInsn(this.cpu.pc);
         this.cpu.step();
-        // Stop mid-frame on the instruction that tripped a watchpoint.
-        if (watchActive && (this.portWatchHit !== null || this.memWatchHit !== null)) { broke = true; break; }
+        const stopped = this.afterInsn();
 
         if (!skipAudio) {
           const elapsed = this.cpu.tStates - lastAudioT;
@@ -415,18 +450,25 @@ ${text}`;
             lastAudioT = this.cpu.tStates;
           }
         }
+
+        // Stop mid-frame on the instruction that tripped a watchpoint, with
+        // the frame open.
+        if (stopped) {
+          this.midFrame = true;
+          this.needsDisplay = true;
+          return;
+        }
       }
-      if (broke) break;
 
       this.video.renderScanline();
 
       // VSYNC is wired straight to /INT.
-      if (this.crtc.vsyncStart) { this.cpu.interrupt(); interrupted = true; }
+      if (this.crtc.vsyncStart) { this.cpu.interrupt(); this.fInterrupted = true; }
     }
 
     // Until the ROM has programmed R7 there is no VSYNC to interrupt from, and
     // the machine would never leave its initialisation loop.
-    if (!broke && !interrupted) this.cpu.interrupt();
+    if (!this.fInterrupted) this.cpu.interrupt();
 
     this.updateTapeTurbo();
     if (this.display) this.display.updateTexture(this._pixels);

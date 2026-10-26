@@ -11,6 +11,7 @@ import type { CpcMachine } from '@/machines/cpc/cpc-machine.ts';
 import type { TapeBlock } from '@/media/tape/tap.ts';
 import { parseTZX } from '@/media/tape/tzx.ts';
 import { parseCSW } from '@/media/tape/csw.ts';
+import { wavToPulseBlocks } from '@/media/tape/wav.ts';
 import { tapeBlockInfo } from '@/machines/shared/tape-block-info.ts';
 
 export class CpcTapeService implements TapeService {
@@ -69,6 +70,7 @@ export class CpcTapeService implements TapeService {
       const ext = name.toLowerCase().split('.').pop();
       blocks = ext === 'tzx' || ext === 'cdt' ? parseTZX(data)
         : ext === 'csw' ? await parseCSW(data)
+        : ext === 'wav' ? wavToPulseBlocks(data)
         : this.c.tape.parseTAP(data);
     } catch {
       return false;

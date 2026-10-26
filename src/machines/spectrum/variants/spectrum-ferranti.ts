@@ -9,13 +9,10 @@ import type { MachineVariant } from './machine-variant.ts';
 /** Ferranti ULA contention pattern: 6,5,4,3,2,1,0,0 */
 const CONTENTION_FERRANTI = new Uint8Array([6, 5, 4, 3, 2, 1, 0, 0]);
 
-export function createFerranti128K(model: '128k' | '+2'): MachineVariant {
+export function createFerranti128K(model: 'zx128k' | 'zx128kplus2'): MachineVariant {
   return Object.freeze({
     model: model as SpectrumModel,
     timing: TIMING_128K,
-
-    cellRenderOffset: 0 as const,
-    vramFlushEnd: 0x5800,
 
     contentionPattern: CONTENTION_FERRANTI,
     hasIOContention: true,
@@ -38,6 +35,7 @@ export function createFerranti128K(model: '128k' | '+2'): MachineVariant {
     // 128K/+2 loose decode: (port & 0x8002) === 0
     decodes7FFD(port: number): boolean { return (port & 0x8002) === 0; },
     decodes1FFD(_port: number): boolean { return false; },
+    decodesEFF7(_port: number): boolean { return false; },
     decodesFDCData(_port: number): boolean { return false; },
     decodesFDCStatus(_port: number): boolean { return false; },
   });

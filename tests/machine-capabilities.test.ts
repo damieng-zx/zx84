@@ -16,6 +16,7 @@
 import { describe, expect, it } from 'vitest';
 import { registry } from '@/machines/registry.ts';
 import { STATUS_LED_IDS, type SaveMenuItem } from '@/machines/machine.ts';
+import { machineUi } from '@/ui/machine-ui.ts';
 
 /** Every (entry, model) pair the registry knows about. */
 const ALL = registry.flatMap(entry => entry.models.map(model => ({ entry, model })));
@@ -26,11 +27,24 @@ const SNAPSHOT_FORMAT: Partial<Record<SaveMenuItem, string>> = {
   'snapshot-z80': '.z80',
   'snapshot-sna-v2': '.sna',
   'snapshot-sna-v3': '.sna',
+  'snapshot-a8state': '.a8state',
 };
 
 /** Build a machine headlessly — no renderer, no ROM. */
 function build(entry: (typeof registry)[number], model: (typeof ALL)[number]['model']) {
   return entry.create(model, null);
+}
+
+/** Build a machine with the Hardware-pane peripherals named in `keys` switched on
+ *  (what the shell does through prepare() before the machine is used). */
+function buildWith(
+  entry: (typeof registry)[number], model: (typeof ALL)[number]['model'], keys: string[],
+) {
+  const machine = build(entry, model);
+  machine.prepare?.({
+    get: <T>(key: string, fallback: T): T => (keys.includes(key) ? (true as T) : fallback),
+  });
+  return machine;
 }
 
 describe('machine capabilities', () => {
@@ -83,15 +97,54 @@ describe('machine capabilities', () => {
     '%s backs built-in drives with a disk service that has them',
     (_model, { entry, model }) => {
       const caps = entry.descriptor(model).ui;
-      const machine = build(entry, model);
+      // A drive capability gated on a Hardware-pane setting only holds with it on.
+      const gate = caps.requires?.builtinDisk;
+      const machine = buildWith(entry, model, gate ? [gate] : []);
       try {
         if (!caps.builtinDisk) return;
         const disks = machine.services.disks;
         expect(disks).not.toBeNull();
+        // A controller that is a Hardware-pane option (the MSX disk interface)
+        // lists no drives until it is fitted; the pane hides itself meanwhile.
+        // Fitting it through the machine's own prepare() hook must produce them.
+        if (!disks!.drives.some(d => d.id === 'a') && machine.prepare) {
+          const reqs = machine.prepare({
+            get: <T,>(_key: string, fallback: T): T => (typeof fallback === 'boolean' ? true : fallback) as T,
+          });
+          for (const r of reqs) r.apply(new Uint8Array(0x4000));
+        }
         // The Drive pane addresses the built-ins as 'a' and 'b'.
         expect(disks!.drives.some(d => d.id === 'a')).toBe(true);
       } finally {
         machine.destroy();
+      }
+    },
+  );
+
+  it.each(ALL.map(a => [a.model, a] as const))(
+    '%s hides gated drives and cartridge slot until their peripheral is fitted',
+    (_model, { entry, model }) => {
+      const caps = entry.descriptor(model).ui;
+      const diskGate = caps.requires?.builtinDisk;
+      const cartGate = caps.requires?.cartridge;
+      if (!diskGate && !cartGate) return;
+      const bare = build(entry, model);
+      const fitted = buildWith(entry, model, [diskGate, cartGate].filter((k): k is string => !!k));
+      try {
+        // The gate must name a setting the shell can read back.
+        for (const g of [diskGate, cartGate]) if (g) expect(g).toMatch(/^[a-z0-9-]+$/);
+        if (diskGate) {
+          expect(bare.services.disks?.drives ?? []).toHaveLength(0);
+          expect(fitted.services.disks?.drives.length ?? 0).toBeGreaterThan(0);
+        }
+        if (cartGate) {
+          expect(caps.cartridge).toBe(true);
+          expect(bare.services.roms.cartridge).toBeNull();
+          expect(fitted.services.roms.cartridge).not.toBeNull();
+        }
+      } finally {
+        bare.destroy();
+        fitted.destroy();
       }
     },
   );
@@ -150,6 +203,16 @@ describe('machine capabilities', () => {
       // two is stale, and the pane silently wins.
       if (caps.hiddenPanes.includes('mouse-panel')) expect(caps.mouseTypes).toEqual([]);
       if (caps.hiddenPanes.includes('banks-panel')) expect(caps.memoryLayout).toBe(false);
+    },
+  );
+
+  it.each(ALL.map(a => [a.model, a] as const))(
+    '%s shows the System Variables pane only when it has a view for it',
+    (_model, { entry, model }) => {
+      // The pane body is the machine's SysVars contribution; without one it
+      // renders empty, which looks broken rather than absent.
+      const hasView = machineUi(entry.kind).SysVars !== undefined;
+      expect(entry.descriptor(model).ui.hiddenPanes.includes('sysvar-panel')).toBe(!hasView);
     },
   );
 });

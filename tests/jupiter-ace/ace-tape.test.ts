@@ -358,8 +358,8 @@ describe('AceTapeService — mountBytes tags Ace pairs end to end', () => {
     // .cdt is the Amstrad CPC's container; no Ace tape ever shipped in one,
     // and the descriptor never offered it either.
     const m = machine();
-    expect(m.services.media.accepts().map(a => a.ext)).toEqual(['.tap', '.tzx', '.csw']);
-    expect(m.descriptor.ui.tapeExtensions).toEqual(['.tap', '.tzx', '.csw', '.zip']);
+    expect(m.services.media.accepts().map(a => a.ext)).toEqual(['.tap', '.tzx', '.csw', '.wav']);
+    expect(m.descriptor.ui.tapeExtensions).toEqual(['.tap', '.tzx', '.csw', '.wav', '.zip']);
     const result = await m.services.media.mount(new Uint8Array(8), 'game.cdt');
     expect(result.ok).toBe(false);
     m.destroy();

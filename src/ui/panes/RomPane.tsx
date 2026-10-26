@@ -11,6 +11,7 @@ import { mtxFloppy, mtxCpm } from '@/store/settings.ts';
 import { machineCaps } from '@/state/machine-caps.ts';
 import type { RomPage } from '@/managers/rom-manager.ts';
 import { openFile } from '@/ui/file-picker.ts';
+import { settingEnabled } from '@/shell/settings.ts';
 
 /** Format a byte count as a compact KB/byte string. */
 function fmtSize(n: number): string {
@@ -110,7 +111,8 @@ export function RomPane(): JSX.Element {
     await resetSidewaysRom(index);
   }
 
-  const showCartridgeSlot = (): boolean => machineCaps().cartridge;
+  const showCartridgeSlot = (): boolean =>
+    machineCaps().cartridge && settingEnabled(machineCaps().requires?.cartridge);
   // On the Plus range the cartridge IS the boot source — no separate on-board
   // ROM to upload, so the system-ROM socket is suppressed to avoid showing two
   // competing cartridge entries.
@@ -127,12 +129,36 @@ export function RomPane(): JSX.Element {
     return size ? `${s.label} · ${size}` : s.label;
   };
 
+  // With no system socket the aux sockets are the machine's ROMs (the Atari's
+  // OS and BASIC), so they head the pane, ahead of the cartridge slot.
+  const sidewaysFirst = (): boolean => !showSystemRomSlot();
+  const sidewaysGrid = (): JSX.Element => (
+    <Show when={sidewaysRomSlots().length > 0}>
+      <div class="rom-grid">
+        <For each={sidewaysRomSlots()}>
+          {(s) => (
+            <Slot
+              label={s.title}
+              text={slotText(s)}
+              placeholder="(empty)"
+              ejectable={s.overridden}
+              ejectTitle={`Revert ${s.title} to its default`}
+              onLoad={() => loadSideways(s.index)}
+              onEject={() => ejectSideways(s.index)}
+            />
+          )}
+        </For>
+      </div>
+    </Show>
+  );
+
   return (
     <Pane
       id="rom-panel"
       label="ROM / Carts"
       visible={showCartridgeSlot() || slots().length > 0 || sidewaysRomSlots().length > 0}
     >
+      <Show when={sidewaysFirst()}>{sidewaysGrid()}</Show>
       <div class="rom-grid">
         <Show when={showSystemRomSlot()}>
           <For each={slots()}>
@@ -165,23 +191,7 @@ export function RomPane(): JSX.Element {
           />
         </Show>
       </div>
-      <Show when={sidewaysRomSlots().length > 0}>
-        <div class="rom-grid">
-          <For each={sidewaysRomSlots()}>
-            {(s) => (
-              <Slot
-                label={s.title}
-                text={slotText(s)}
-                placeholder="(empty)"
-                ejectable={s.overridden}
-                ejectTitle={`Revert ${s.title} to its default`}
-                onLoad={() => loadSideways(s.index)}
-                onEject={() => ejectSideways(s.index)}
-              />
-            )}
-          </For>
-        </div>
-      </Show>
+      <Show when={!sidewaysFirst()}>{sidewaysGrid()}</Show>
     </Pane>
   );
 }

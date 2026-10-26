@@ -24,28 +24,14 @@ export function installAceMemoryHooks(m: JupiterAceMachine): void {
   cpu.read8 = (addr: number): number => {
     addr &= 0xFFFF;
     const val = memory.readByte(addr);
-    if (m.memWatchpoints.length > 0 && m.memWatchHit === null) {
-      for (const wp of m.memWatchpoints) {
-        if ((wp.mode === 'read' || wp.mode === 'rw') && addr >= wp.start && addr <= wp.end) {
-          m.memWatchHit = { addr, value: val, dir: 'read' };
-          break;
-        }
-      }
-    }
+    if (m.memWatchpoints.length > 0 && m.memWatchHit === null) m.recordMemWatch(addr, val, 'read');
     return val;
   };
 
   cpu.write8 = (addr: number, val: number): void => {
     addr &= 0xFFFF;
     memory.writeByte(addr, val);
-    if (m.memWatchpoints.length > 0 && m.memWatchHit === null) {
-      for (const wp of m.memWatchpoints) {
-        if ((wp.mode === 'write' || wp.mode === 'rw') && addr >= wp.start && addr <= wp.end) {
-          m.memWatchHit = { addr, value: val & 0xFF, dir: 'write' };
-          break;
-        }
-      }
-    }
+    if (m.memWatchpoints.length > 0 && m.memWatchHit === null) m.recordMemWatch(addr, val & 0xFF, 'write');
   };
 
   cpu._contendAccurate = () => {};
@@ -57,9 +43,7 @@ export function wireAcePortIO(m: JupiterAceMachine): void {
   const s = m;
 
   s.cpu.portOutHandler = (port: number, val: number): void => {
-    if (s.portWatchpoints.size > 0 && s.portWatchpoints.has(port & 0xFFFF) && s.portWatchHit === null) {
-      s.portWatchHit = { port: port & 0xFFFF, value: val & 0xFF, dir: 'out' };
-    }
+    if (s.portWatchpoints.size > 0) s.recordPortWatch(port & 0xFFFF, val & 0xFF, 'out');
 
     // ULA port: any port with bit 0 = 0.
     if ((port & 0x01) === 0) {
@@ -113,9 +97,7 @@ export function wireAcePortIO(m: JupiterAceMachine): void {
       s.activity.beeperToggled = true;
       s.mixer.prevBeeperBit = s.ula.buzzerBit;
     }
-    if (s.portWatchpoints.size > 0 && s.portWatchpoints.has(port & 0xFFFF) && s.portWatchHit === null) {
-      s.portWatchHit = { port: port & 0xFFFF, value: val, dir: 'in' };
-    }
+    if (s.portWatchpoints.size > 0) s.recordPortWatch(port & 0xFFFF, val, 'in');
     return val;
   };
 }

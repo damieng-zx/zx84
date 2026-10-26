@@ -1,6 +1,6 @@
 /**
  * Einstein MediaService routing — ported verbatim from the pre-service
- * emulator.loadFile asEinstein branch: only disk images (.dsk/.hfe/.scp) read by
+ * emulator.loadFile asEinstein branch: only disk images (.dsk/.hfe/.scp/.td0) read by
  * the WD1772; everything else refused. ZIP unwrapping stays a shell concern.
  * Tests run headless against a real EinsteinMachine (display = null).
  */
@@ -42,9 +42,9 @@ describe('Einstein MediaService routing', () => {
     expect(e.fdc.getDiskImage(0)).not.toBeNull();
   });
 
-  it('accepts() offers .dsk/.hfe/.scp (no tape, no cartridge)', () => {
+  it('accepts() offers .dsk/.hfe/.scp/.td0 (no tape, no cartridge)', () => {
     const exts = machine().services.media.accepts().map(t => t.ext);
-    expect(exts).toEqual(['.dsk', '.hfe', '.scp']);
+    expect(exts).toEqual(['.dsk', '.hfe', '.scp', '.td0']);
   });
 
   it('has no cassette or snapshot service', () => {

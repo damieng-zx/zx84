@@ -5,14 +5,14 @@
  * with a headless machine without rebuilding the harness for every call.
  *
  * Usage:
- *   npx tsx mcp/server.ts [--model zx80|zx81|48k|128k|+2|+2A|+3|...]
+ *   npx tsx mcp/server.ts [--model zx80|zx81|zx48k|zx128k|zx128kplus3|...]
  */
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import type { MachineModel } from '../src/models.ts';
 import { initMachine } from './state.ts';
-import { isMcpModel } from './models.ts';
+import { resolveMcpModel } from './models.ts';
 
 import { register as registerMachine } from './tools/machine.ts';
 import { register as registerMemory } from './tools/memory.ts';
@@ -23,6 +23,8 @@ import { register as registerMedia } from './tools/media.ts';
 import { register as registerTrace } from './tools/trace.ts';
 import { register as registerPeripherals } from './tools/peripherals.ts';
 import { register as registerSymbols } from './tools/symbols.ts';
+import { register as registerBeam } from './tools/beam.ts';
+import { register as registerChips } from './tools/chips.ts';
 
 const server = new McpServer({
   name: 'zx84',
@@ -38,14 +40,16 @@ registerMedia(server);
 registerTrace(server);
 registerPeripherals(server);
 registerSymbols(server);
+registerBeam(server);
+registerChips(server);
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
-  let startModel: MachineModel = '48k';
+  let startModel: MachineModel = 'zx48k';
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--model' && i + 1 < args.length) {
       const m = args[++i];
-      if (isMcpModel(m)) startModel = m;
+      startModel = resolveMcpModel(m) ?? startModel;
     }
   }
 

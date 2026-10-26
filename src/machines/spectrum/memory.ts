@@ -18,6 +18,7 @@
  */
 
 import type { SpectrumModel } from '@/models.ts';
+import { pagingScheme, ramBankCountFor, type PagingScheme } from '@/machines/spectrum/models.ts';
 import type { IMachineMemory } from '@/machines/machine.ts';
 import { BANK_SIZE } from '@/utils/bank-size.ts';
 
@@ -43,7 +44,7 @@ export class SpectrumMemory implements IMachineMemory {
    *  Hot-path callers (io-ports.ts) capture this once and index directly. */
   readonly flat = new Uint8Array(0x10000);
 
-  /** 8 × 16KB cold storage for unmapped RAM banks. When a bank is currently
+  /** 16KB cold storage (8 banks; 32 on the Pentagon 512, 64 on the 1024) for unmapped RAM banks. When a bank is currently
    *  mapped (`_slotBank[s] === n`), the live data lives in flat — this array
    *  is stale until the bank is flushed back on switch. Use `getRamBank()`
    *  for an always-correct accessor. */
@@ -81,6 +82,20 @@ export class SpectrumMemory implements IMachineMemory {
   /** Current port 0x1FFD value (+2A only) */
   port1FFD = 0;
 
+  /** Last value written to port 0xEFF7 (Pentagon 1024 only). Bit 2 set = plain
+   *  128K mode (D5/D6/D7 of 7FFD stop extending the page number); clear = the
+   *  full 1MB. Bit 3 maps writable RAM bank 0 over 0x0000 (ramAtZero). The turbo
+   *  bit and the video-mode bits are latched here but have no effect yet.
+   *  Cleared by reset. */
+  portEFF7 = 0;
+
+  /** How 7FFD (and, on the Scorpion, 1FFD) form the RAM and ROM page numbers. */
+  readonly scheme: PagingScheme;
+
+  /** True while slot 0 maps RAM bank 0 instead of ROM and is writable: Scorpion
+   *  1FFD bit 0. (The +2A's all-RAM special paging is tracked separately.) */
+  ramAtZero = false;
+
   /** Whether paging is locked (bit 5 of 0x7FFD) */
   pagingLocked = false;
 
@@ -107,13 +122,15 @@ export class SpectrumMemory implements IMachineMemory {
    *  Contention slot mask) can refresh. Null when no listener is wired. */
   onSlotsChanged: (() => void) | null = null;
 
-  constructor(model: SpectrumModel, opts?: { hasBanking?: boolean; romPageCount?: number; is16K?: boolean }) {
-    this.is128K = opts?.hasBanking ?? (model !== '48k' && model !== '16k');
-    this.is16K = opts?.is16K ?? (model === '16k');
+  constructor(model: SpectrumModel, opts?: { hasBanking?: boolean; romPageCount?: number; is16K?: boolean; ramBankCount?: number }) {
+    this.is128K = opts?.hasBanking ?? (model !== 'zx48k' && model !== 'zx16k');
+    this.is16K = opts?.is16K ?? (model === 'zx16k');
+    this.scheme = pagingScheme(model);
 
-    // Create 8 RAM banks (cold storage)
+    // Create the RAM banks (cold storage)
     this._ramBanks = [];
-    for (let i = 0; i < 8; i++) {
+    const bankCount = opts?.ramBankCount ?? ramBankCountFor(model);
+    for (let i = 0; i < bankCount; i++) {
       this._ramBanks.push(new Uint8Array(BANK_SIZE));
     }
 
@@ -178,9 +195,31 @@ export class SpectrumMemory implements IMachineMemory {
    * external ROM (Multiface, VTX-5000) has been paged into slot 0.
    */
   isBasicRomActive(): boolean {
-    if (this.specialPaging || this.externalRomPaged) return false;
+    if (this.specialPaging || this.externalRomPaged || this.ramAtZero) return false;
     if (!this.is128K) return true;
-    return this.currentROM === this.romPages.length - 1;
+    return this.currentROM === this.basicRomPage;
+  }
+
+  /** Index of the 48K BASIC ROM page: the last page on every machine except the
+   *  Scorpion, whose 64K ROM is 128K menu / 48K BASIC / service monitor / TR-DOS. */
+  get basicRomPage(): number {
+    return this.scheme === 'scorpion' ? 1 : this.romPages.length - 1;
+  }
+
+  /** True for the +2A/+3 style of four 16K ROM pages (1FFD bit 2 | 7FFD bit 4);
+   *  the Scorpion also has four pages but selects them with 1FFD bit 1. */
+  get hasPlus2ARoms(): boolean {
+    return this.romPages.length === 4 && this.scheme !== 'scorpion';
+  }
+
+  /** ROM page selected by a 7FFD / 1FFD pair on this machine. */
+  romIndexFor(val7FFD: number, val1FFD: number): number {
+    // Scorpion: 1FFD D1 selects the service ROM (page 2) whatever 7FFD D4 says,
+    // otherwise 7FFD D4 picks the 128K menu (0) or 48K BASIC (1). TR-DOS (page 3)
+    // is not port-selected: the Beta Disk's M1 trap maps it in.
+    if (this.scheme === 'scorpion') return (val1FFD & 0x02) !== 0 ? 2 : (val7FFD >> 4) & 1;
+    if (this.romPages.length === 4) return (((val1FFD >> 2) & 1) << 1) | ((val7FFD >> 4) & 1);
+    return (val7FFD >> 4) & 1;
   }
 
   // ── Screen bank ───────────────────────────────────────────────────────
@@ -227,6 +266,8 @@ export class SpectrumMemory implements IMachineMemory {
     if (this.specialPaging) {
       const bank = SPECIAL_MODES[(this.port1FFD >> 1) & 3][0];
       this._loadSlot(0, this._ramBanks[bank], bank);
+    } else if (this.ramAtZero) {
+      this._loadSlot(0, this._ramBanks[0], 0);
     } else {
       this._loadSlot(0, this.romPages[this.currentROM], -1);
     }
@@ -311,9 +352,13 @@ export class SpectrumMemory implements IMachineMemory {
       this._switchRam(3, banks[3]);
     } else {
       if (!this.externalRomPaged) {
-        this._flushSlot(0);
-        const rom = this.is128K ? this.romPages[this.currentROM] : this.romPages[1];
-        this._loadSlot(0, rom, -1);
+        if (this.ramAtZero) {
+          this._switchRam(0, 0);
+        } else {
+          this._flushSlot(0);
+          const rom = this.is128K ? this.romPages[this.currentROM] : this.romPages[1];
+          this._loadSlot(0, rom, -1);
+        }
       }
       this._switchRam(1, 5);
       if (this.is16K) {
@@ -341,10 +386,12 @@ export class SpectrumMemory implements IMachineMemory {
     this.flat.fill(0);
     this.port7FFD = 0;
     this.port1FFD = 0;
+    this.portEFF7 = 0;
     this.pagingLocked = false;
     this.currentBank = 0;
     this.currentROM = 0;
     this.specialPaging = false;
+    this.ramAtZero = false;
     this.externalRomPaged = false;
     // Force-reload all slots (mark unmapped so _switchRam's same-bank
     // shortcut doesn't fire on a live region that no longer matches cold).
@@ -389,26 +436,21 @@ export class SpectrumMemory implements IMachineMemory {
   bankSwitch(val: number, skipSlot0 = false): void {
     if (!this.is128K || this.pagingLocked) return;
 
-    const newBank = val & 0x07;
+    const newBank = this.bankFor7FFD(val);
 
-    let newROM: number;
-    if (this.romPages.length === 4) {
-      newROM = (((this.port1FFD >> 2) & 1) << 1) | ((val >> 4) & 1);
-    } else {
-      newROM = (val >> 4) & 1;
-    }
+    const newROM = this.romIndexFor(val, this.port1FFD);
 
     if (this.specialPaging) {
       // In special paging, 0x7FFD only latches — does not change slots.
       this.port7FFD = val;
       this.currentBank = newBank;
       this.currentROM = newROM;
-      if (val & 0x20) this.pagingLocked = true;
+      if (this.locksPaging(val)) this.pagingLocked = true;
       this._refreshScreenSlots();
       return;
     }
     this._switchRam(3, newBank);
-    if (!skipSlot0 && !this.externalRomPaged && newROM !== this.currentROM) {
+    if (!skipSlot0 && !this.externalRomPaged && !this.ramAtZero && newROM !== this.currentROM) {
       // Slot 0 was ROM (or this method only runs when slot 0 is ROM here);
       // overwrite with new ROM image without flushing (ROM isn't dirtied).
       this.flat.set(this.romPages[newROM].subarray(0, BANK_SIZE), 0);
@@ -419,8 +461,80 @@ export class SpectrumMemory implements IMachineMemory {
     this.port7FFD = val;
     this.currentBank = newBank;
     this.currentROM = newROM;
-    if (val & 0x20) this.pagingLocked = true;
+    if (this.locksPaging(val)) this.pagingLocked = true;
     this._refreshScreenSlots();
+    if (this.onSlotsChanged !== null) this.onSlotsChanged();
+  }
+
+  /** RAM page selected at 0xC000 by a 7FFD value, on this machine.
+   *  Pentagon 512: D0-D2 | D6<<3 | D7<<3 (pages 0-31). Pentagon 1024 in 1MB mode
+   *  (EFF7 bit 2 clear) adds D5 as page bit 5 (pages 0-63); with EFF7 bit 2 set
+   *  it behaves as a 128K. */
+  bankFor7FFD(val: number): number {
+    switch (this.scheme) {
+      case 'pentagon512':
+        return (val & 0x07) | ((val & 0xC0) >> 3);
+      case 'pentagon1024':
+        return (this.portEFF7 & 0x04) !== 0
+          ? val & 0x07
+          : (val & 0x07) | ((val & 0xC0) >> 3) | (val & 0x20);
+      case 'scorpion':
+        // 1FFD D4 is page bit 3, giving 16 banks (256K).
+        return (val & 0x07) | ((this.port1FFD & 0x10) >> 1);
+      default:
+        return val & 0x07;
+    }
+  }
+
+  /** Whether a 7FFD write with D5 set locks paging until reset. On the 1024 in
+   *  1MB mode D5 is a page bit instead, so it cannot lock. */
+  locksPaging(val: number): boolean {
+    if ((val & 0x20) === 0) return false;
+    return !(this.scheme === 'pentagon1024' && (this.portEFF7 & 0x04) === 0);
+  }
+
+  /** Latch a 7FFD value read back from a snapshot: the register, the page it
+   *  selects at 0xC000 and the paging lock. Slots are remapped by applyBanking. */
+  latch7FFD(val: number): void {
+    this.port7FFD = val;
+    this.currentBank = this.bankFor7FFD(val);
+    this.pagingLocked = this.locksPaging(val);
+  }
+
+  /**
+   * Handle port 0xEFF7 write (Pentagon 1024). Flipping bit 2 changes how the
+   * latched 7FFD value is read, so the page at 0xC000 is re-derived from it;
+   * bit 3 maps writable RAM bank 0 over 0x0000 in place of the ROM.
+   * @param skipSlot0 Pass true when Multiface/VTX overlay occupies slot 0.
+   */
+  writeEFF7(val: number, skipSlot0 = false): void {
+    this.portEFF7 = val & 0xFF;
+    if (this.scheme !== 'pentagon1024') return;
+    this.setRamAtZero((val & 0x08) !== 0, skipSlot0);
+    if (this.specialPaging) return;
+    const bank = this.bankFor7FFD(this.port7FFD);
+    if (bank !== this.currentBank) {
+      this._switchRam(3, bank);
+      this.currentBank = bank;
+      this._refreshScreenSlots();
+      if (this.onSlotsChanged !== null) this.onSlotsChanged();
+    }
+  }
+
+  /** Map writable RAM bank 0 over 0x0000 (true) or the current ROM page back in
+   *  (false). Shared by the Scorpion's 1FFD D0 and the 1024's EFF7 bit 3. */
+  private setRamAtZero(on: boolean, skipSlot0: boolean): void {
+    const was = this.ramAtZero;
+    this.ramAtZero = on;
+    if (on === was || skipSlot0 || this.externalRomPaged) return;
+    if (on) {
+      this._switchRam(0, 0);
+    } else {
+      this._flushSlot(0);
+      this.flat.set(this.romPages[this.currentROM].subarray(0, BANK_SIZE), 0);
+      this._slotBank[0] = -1;
+      this._refreshAliases();
+    }
     if (this.onSlotsChanged !== null) this.onSlotsChanged();
   }
 
@@ -430,6 +544,8 @@ export class SpectrumMemory implements IMachineMemory {
    */
   bankSwitch1FFD(val: number, skipSlot0 = false): void {
     if (!this.is128K || this.pagingLocked) return;
+
+    if (this.scheme === 'scorpion') { this.bankSwitchScorpion1FFD(val, skipSlot0); return; }
 
     this.port1FFD = val;
     const wasSpecial = this.specialPaging;
@@ -457,6 +573,33 @@ export class SpectrumMemory implements IMachineMemory {
       this._switchRam(2, 2);
       this._switchRam(3, this.currentBank);
     }
+    if (this.onSlotsChanged !== null) this.onSlotsChanged();
+  }
+
+  /**
+   * Scorpion port 1FFD: D0 maps RAM bank 0 over 0x0000-0x3FFF (and makes it
+   * writable), D1 selects the service ROM (page 2), D4 is bit 3 of the RAM page
+   * at 0xC000. 7FFD D4 chooses between the 128K menu and 48K BASIC ROMs.
+   */
+  private bankSwitchScorpion1FFD(val: number, skipSlot0: boolean): void {
+    this.port1FFD = val;
+    const wasRam0 = this.ramAtZero;
+    this.ramAtZero = (val & 0x01) !== 0;
+    this.currentROM = this.romIndexFor(this.port7FFD, val);
+    if (!skipSlot0 && !this.externalRomPaged) {
+      if (this.ramAtZero) {
+        this._switchRam(0, 0);
+      } else {
+        if (wasRam0) this._flushSlot(0);
+        this.flat.set(this.romPages[this.currentROM].subarray(0, BANK_SIZE), 0);
+        this._slotBank[0] = -1;
+        this._refreshAliases();
+      }
+    }
+    const bank = this.bankFor7FFD(this.port7FFD);
+    this._switchRam(3, bank);
+    this.currentBank = bank;
+    this._refreshScreenSlots();
     if (this.onSlotsChanged !== null) this.onSlotsChanged();
   }
 
@@ -491,9 +634,10 @@ export class SpectrumMemory implements IMachineMemory {
    */
   selectSnapshot48KRom(): void {
     if (!this.is128K) return;
-    this.currentROM = this.romPages.length - 1;
+    this.currentROM = this.basicRomPage;
     this.port7FFD = (this.port7FFD & ~0x30) | 0x10 | 0x20;
-    if (this.romPages.length === 4) this.port1FFD |= 0x04;
+    if (this.scheme === 'scorpion') this.port1FFD &= ~0x02;   // 1FFD D1 clear: 48K BASIC, not the service ROM
+    else if (this.romPages.length === 4) this.port1FFD |= 0x04;
     this.pagingLocked = true;
     this.applyBanking();
   }
@@ -509,7 +653,7 @@ export class SpectrumMemory implements IMachineMemory {
    * editor). Call after port7FFD is set. No-op on 2-ROM machines.
    */
   selectSnapshot128KRom(): void {
-    if (this.romPages.length !== 4) return;
+    if (!this.hasPlus2ARoms) return;
     const bit4 = (this.port7FFD >> 4) & 1;
     this.port1FFD = bit4 << 2;
     this.specialPaging = false;
@@ -518,13 +662,13 @@ export class SpectrumMemory implements IMachineMemory {
   }
 
   /**
-   * Return all 8 RAM banks for serialisation. Returns live views (subarrays
+   * Return every RAM bank (8, or 32/64 on the Pentagon 512/1024) for serialisation. Returns live views (subarrays
    * of flat for mapped banks; cold storage otherwise) so post-call writes
    * through getRamBank reflect in the returned references.
    */
   flushBanks(): readonly Uint8Array[] {
     const result: Uint8Array[] = [];
-    for (let n = 0; n < 8; n++) result.push(this.getRamBank(n));
+    for (let n = 0; n < this._ramBanks.length; n++) result.push(this.getRamBank(n));
     return result;
   }
 
@@ -576,8 +720,8 @@ export class SpectrumMemory implements IMachineMemory {
     return this._ramBanks[n];
   }
 
-  /** Eight 16K banks, on every model — a 48K machine simply never pages the
-   *  ones its ULA cannot see. */
+  /** 16K RAM banks fitted: eight on every Sinclair model (a 48K machine simply
+   *  never pages the ones its ULA cannot see), 32/64 on the Pentagon 512/1024. */
   get ramBankCount(): number { return this._ramBanks.length; }
 
   /**

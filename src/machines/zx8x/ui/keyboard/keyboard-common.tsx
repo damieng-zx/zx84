@@ -8,11 +8,10 @@
  * SHIFT and a physical Shift coexist without desyncing.)
  */
 
-import { createSignal, onCleanup, onMount } from 'solid-js';
+import { createSignal } from 'solid-js';
+import { createMatrixKeyboard } from '@/ui/components/matrix-keyboard.ts';
 import { activeZx8x } from '@/machines/zx8x/ui/active.ts';
 import { SHIFT, type Cell } from './legends.ts';
-
-const released = (): number[] => [0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff];
 
 export interface KeyboardController {
   /** True when this key's matrix bit is currently held (active-low). */
@@ -24,12 +23,20 @@ export interface KeyboardController {
 }
 
 export function useKeyboard(): KeyboardController {
-  const [matrix, setMatrix] = createSignal<number[]>(released());
   const [shiftLatched, setShiftLatched] = createSignal(false);
 
   const keyboard = () => activeZx8x()?.keyboard ?? null;
 
-  const isDown = (pos: Cell) => (matrix()[pos[0]] & (1 << pos[1])) === 0;
+  // Mirrors the live matrix each frame so physical keystrokes highlight the
+  // on-screen keys too, not just pointer presses.
+  const matrix = createMatrixKeyboard({
+    keyboard,
+    rows: (kb) => kb.rows,
+    setCell: (kb, row, bit, down) => kb.setKey(row, bit, down),
+    rowCount: 8,
+    released: 0xff,
+  });
+  const isDown = (pos: Cell) => matrix.isDown(pos[0], pos[1]);
 
   const onDown = (pos: Cell, latch?: boolean) => {
     const kb = keyboard();
@@ -54,27 +61,6 @@ export function useKeyboard(): KeyboardController {
       setShiftLatched(false);
     }
   };
-
-  // Per-frame poll: mirror the live matrix so physical keystrokes highlight the
-  // on-screen keys too, not just pointer presses.
-  onMount(() => {
-    let raf = 0;
-    const tick = () => {
-      const kb = keyboard();
-      if (kb) {
-        const rows = kb.rows;
-        const cur = matrix();
-        let changed = false;
-        for (let i = 0; i < 8; i++) if (rows[i] !== cur[i]) { changed = true; break; }
-        if (changed) setMatrix(Array.from(rows));
-      } else if (matrix().some((b) => b !== 0xff)) {
-        setMatrix(released());
-      }
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    onCleanup(() => cancelAnimationFrame(raf));
-  });
 
   return { isDown, onDown, onUp };
 }

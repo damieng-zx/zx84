@@ -33,12 +33,12 @@ function makeCpu(): Z80 {
 }
 
 function makeMemory48k(): SpectrumMemory {
-  const mem = new SpectrumMemory('48k');
+  const mem = new SpectrumMemory('zx48k');
   mem.loadROM(new Uint8Array(16384));
   return mem;
 }
 function makeMemory128k(): SpectrumMemory {
-  const mem = new SpectrumMemory('128k');
+  const mem = new SpectrumMemory('zx128k');
   mem.loadROM(new Uint8Array(16384));
   return mem;
 }

@@ -9,6 +9,7 @@ import type { TapeBlockInfo, TapeService, TapeStashState } from '@/machines/mach
 import type { DataBlock, TapeBlock } from '@/media/tape/tap.ts';
 import { parseTZX } from '@/media/tape/tzx.ts';
 import { parseCSW } from '@/media/tape/csw.ts';
+import { wavToPulseBlocks } from '@/media/tape/wav.ts';
 import { tapeBlockInfo } from '@/machines/shared/tape-block-info.ts';
 import { parseAceTap, parseAceTapeHeader, tagAceTapeFiles } from '../ace-tape.ts';
 import { decodeAceSaveToTap } from '../ace-tape-save.ts';
@@ -90,6 +91,7 @@ export class AceTapeService implements TapeService {
       const ext = name.toLowerCase().split('.').pop();
       blocks = ext === 'tzx' ? parseTZX(data)
         : ext === 'csw' ? await parseCSW(data)
+        : ext === 'wav' ? wavToPulseBlocks(data)
         : parseAceTap(data);
     } catch {
       return false;

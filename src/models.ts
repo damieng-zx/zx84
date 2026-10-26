@@ -23,6 +23,10 @@ export type { LynxModel } from '@/machines/lynx/models.ts';
 export type { JupiterAceModel } from '@/machines/jupiter-ace/models.ts';
 export type { PcwModel } from '@/machines/pcw/models.ts';
 export type { BbcModel } from '@/machines/bbc/models.ts';
+export type { ElectronModel } from '@/machines/electron/models.ts';
+export type { Apple2Model } from '@/machines/apple2/models.ts';
+export type { EnterpriseModel } from '@/machines/enterprise/models.ts';
+export type { AtariModel } from '@/machines/atari/models.ts';
 
 // ── Per-family classification helpers (re-exported from each machine folder) ─
 export {
@@ -32,8 +36,15 @@ export {
   isPlus3,
   isPlusDCapable,
   isInterface1Capable,
+  isUspeechCapable,
   isBetaDiskCapable,
+  isPentagonClass,
+  isScorpionClass,
+  hasBuiltinBetaDisk,
+  betaRomInSystemRom,
   isInterface2Capable,
+  LEGACY_SPECTRUM_IDS,
+  legacySpectrumModel,
   type RomPage,
 } from '@/machines/spectrum/models.ts';
 export { isCpcModel, cpcHasDisk, cpcHasTape, cpcIsPlusClass } from '@/machines/cpc/models.ts';
@@ -45,6 +56,10 @@ export { isLynxModel } from '@/machines/lynx/models.ts';
 export { isJupiterAceModel } from '@/machines/jupiter-ace/models.ts';
 export { isPcwModel } from '@/machines/pcw/models.ts';
 export { isBbcModel } from '@/machines/bbc/models.ts';
+export { isElectronModel } from '@/machines/electron/models.ts';
+export { isApple2Model } from '@/machines/apple2/models.ts';
+export { isEnterpriseModel } from '@/machines/enterprise/models.ts';
+export { isAtariModel } from '@/machines/atari/models.ts';
 
 // ── System-ROM slot geometry (dispatches per family) ───────────────────────
 //
@@ -100,6 +115,11 @@ import type { LynxModel } from '@/machines/lynx/models.ts';
 import type { JupiterAceModel } from '@/machines/jupiter-ace/models.ts';
 import type { PcwModel } from '@/machines/pcw/models.ts';
 import type { BbcModel } from '@/machines/bbc/models.ts';
+import type { ElectronModel } from '@/machines/electron/models.ts';
+import type { Apple2Model } from '@/machines/apple2/models.ts';
+import type { Apple1Model } from '@/machines/apple1/models.ts';
+import type { EnterpriseModel } from '@/machines/enterprise/models.ts';
+import type { AtariModel } from '@/machines/atari/models.ts';
 
 /** Any machine ZX84 can emulate. */
 export type MachineModel =
@@ -112,4 +132,9 @@ export type MachineModel =
   | LynxModel
   | JupiterAceModel
   | PcwModel
-  | BbcModel;
+  | BbcModel
+  | ElectronModel
+  | Apple2Model
+  | Apple1Model
+  | EnterpriseModel
+  | AtariModel;

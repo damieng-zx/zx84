@@ -10,7 +10,7 @@
 
 import type { HostKeyEvent, InputService, JoystickInput, MouseInput, MouseSink } from '@/machines/machine.ts';
 import type { Spectrum } from '@/machines/spectrum/spectrum.ts';
-import { joyPressForType, resetJoystickKeyState } from '@/machines/spectrum/peripherals/joysticks.ts';
+import { joyPressForType } from '@/machines/spectrum/peripherals/joysticks.ts';
 
 export class SpectrumInputService implements InputService {
   constructor(private readonly s: Spectrum) {}
@@ -25,7 +25,6 @@ export class SpectrumInputService implements InputService {
 
   releaseAll(): void {
     this.s.keyboard.reset();
-    resetJoystickKeyState();
   }
 
   readonly mouse: MouseSink | null = null;

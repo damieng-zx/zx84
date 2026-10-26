@@ -5,7 +5,7 @@ import { Blob as NodeBlob } from 'node:buffer';
  * Covered here:
  *  - loadRomFiles: size/count validation and filename-sorted concatenation
  *  - applyROM: size → model detection thresholds (and currentModel preservation)
- *  - effectiveROMModel: +3 always aliases to '+2A' via switchModel ROM fetch
+ *  - effectiveROMModel: +3 always aliases to 'zx128kplus2a' via switchModel ROM fetch
  *  - toggleTranscribeMode: toggle on/off semantics
  *  - Tape transport: null-guard early returns; tapePrev/tapeNext boundary checks
  *  - tapeTogglePlay / tapeTogglePause: state sync with spectrum.tape
@@ -37,7 +37,7 @@ let lastSpectrumStub: SpectrumStub | null = null;
 type CpcStub = ReturnType<typeof makeCpcStub>;
 let lastCpcStub: CpcStub | null = null;
 
-function makeSpectrumStub(model: unknown = '128k') {
+function makeSpectrumStub(model: unknown = 'zx128k') {
   const s = {
     cpu: { pc: 0, sp: 0, a: 0, f: 0, iff1: false, halted: false },
     memory: {
@@ -48,6 +48,11 @@ function makeSpectrumStub(model: unknown = '128k') {
       specialPaging: false, port7FFD: 0, port1FFD: 0,
       currentBank: 0, currentROM: 0, pagingLocked: false,
       applyBanking: vi.fn(), slot0Bank: 0,
+      // Plain-128K behaviour of SpectrumMemory.latch7FFD (see tests/pentagon-paging for the clones).
+      scheme: 'standard', portEFF7: 0,
+      latch7FFD(this: { port7FFD: number; currentBank: number; pagingLocked: boolean }, val: number) {
+        this.port7FFD = val; this.currentBank = val & 7; this.pagingLocked = (val & 0x20) !== 0;
+      },
     },
     tape: {
       blocks: [] as unknown[], position: 0, paused: true, playing: false, loaded: false,
@@ -78,6 +83,7 @@ function makeSpectrumStub(model: unknown = '128k') {
                   drives: Array.from({ length: 8 }, () => ({
                     loadMDR: vi.fn(), toMDR: vi.fn(() => new Uint8Array(0)),
                     format: vi.fn(), eject: vi.fn(), inserted: false, writeProtected: false })) },
+    currah: { enabled: false, loadROM: vi.fn(), loadSpeechROM: vi.fn(), romLoaded: false, speechRomLoaded: false },
     mixer: { beeperGain: 1, ayGain: 0 },
     contention: { frameStartTStates: 0, timing: { tStatesPerFrame: 70908 } },
     breakpoints: new Set<number>(),
@@ -218,7 +224,7 @@ vi.mock('@/display/canvas-renderer.ts', () => ({
       setSaturation: vi.fn(), setGamma: vi.fn(),
       setSmoothing: vi.fn(), setCurvature: vi.fn(), setScanlines: vi.fn(),
       setMaskType: vi.fn(), setDotPitch: vi.fn(), setCurvatureMode: vi.fn(),
-      setNoise: vi.fn(), setScalingMode: vi.fn(),
+      setNoise: vi.fn(), setScalingMode: vi.fn(), setPhosphor: vi.fn(),
     };
   },
 }));
@@ -266,7 +272,7 @@ function getRomManager() { return _h.romManager!; }
 vi.mock('@/managers/rom-manager.ts', () => ({
   ROMManager: class {
     restoreROM      = vi.fn(async () => null as any);
-    fetchDefaultROM = vi.fn(async () => ({ data: new Uint8Array(16384), label: '48k' }));
+    fetchDefaultROM = vi.fn(async () => ({ data: new Uint8Array(16384), label: 'zx48k' }));
     persistROM      = vi.fn(async () => {});
     getCached       = vi.fn(() => null as any);
     clearROM        = vi.fn(async () => {});
@@ -277,10 +283,10 @@ vi.mock('@/managers/rom-manager.ts', () => ({
     constructor() { _h.romManager = this as any; }
   },
   defaultRomPageLabel: (model: string, page: number) => {
-    if (model === '+2A' || model === '+3') {
+    if (model === 'zx128kplus2a' || model === 'zx128kplus3') {
       return ['128K Editor', '128K Syntax Checker', '+3DOS', '48K BASIC'][page];
     }
-    return `${model === '+2' ? 'Amstrad' : 'Sinclair'} ${page === 0 ? '128K' : '48K'} BASIC`;
+    return `${model === 'zx128kplus2' ? 'Amstrad' : 'Sinclair'} ${page === 0 ? '128K' : '48K'} BASIC`;
   },
   resolveRomSource: (source: string) => source,
 }));
@@ -306,6 +312,7 @@ vi.mock('@/store/settings.ts', () => ({
   setWebglAvailable:  vi.fn(),
   setRenderer:        vi.fn(),
   persistSetting:     vi.fn(),
+  savedDriveCount:    vi.fn(() => undefined),
   borderSize:         vi.fn(() => 2),
   colorMap:           vi.fn(() => 'measured'),
   scale:              vi.fn(() => 2),
@@ -321,14 +328,15 @@ vi.mock('@/store/settings.ts', () => ({
   curvatureMode:      vi.fn(() => 0),
   noise:              vi.fn(() => 0),
   scalingMode:        vi.fn(() => 0),
+  phosphor:           vi.fn(() => 'color'),
   volume:             vi.fn(() => 70),
-  ayMix:              vi.fn(() => 50),
+  beeperVolume:       vi.fn(() => 100),
+  psgVolume:          vi.fn(() => 100),
   tapeFastRom:        vi.fn(() => true),
   tapeTurbo:          vi.fn(() => true),
   tapeSoundEnabled:   vi.fn(() => true),
   scanlineAccuracy:   vi.fn(() => 'high'),
   ayStereo:           vi.fn(() => 'ABC'),
-  ayDcBlock:          vi.fn(() => true),
   ayAntialias:        vi.fn(() => 'mute'),
   writeProtectA:      vi.fn(() => false),
   writeProtectB:      vi.fn(() => false),
@@ -338,6 +346,7 @@ vi.mock('@/store/settings.ts', () => ({
   plusDEnabled:       vi.fn(() => false),
   betaDiskEnabled:    vi.fn(() => false),
   interface1Enabled:  vi.fn(() => false),
+  uspeechEnabled:     vi.fn(() => false),
   writeProtectC:      vi.fn(() => false),
   writeProtectD:      vi.fn(() => false),
   diskSoundC:         vi.fn(() => true),
@@ -352,6 +361,7 @@ vi.mock('@/store/settings.ts', () => ({
 
 vi.mock('@/store/persistence.ts', () => ({
   migrateDiskStorage: vi.fn(async () => {}),
+  migrateModelIds: vi.fn(async () => {}),
   clearLastFile:   vi.fn(),
   restoreTape:     vi.fn(async () => null),
   restoreDisk:     vi.fn(async () => null),
@@ -377,7 +387,6 @@ vi.mock('@/machines/spectrum/peripherals/multiface.ts', () => ({
 
 vi.mock('@/machines/spectrum/peripherals/joysticks.ts', () => ({
   KEMPSTON_BITS: {}, CURSOR_KEYS: {}, SINCLAIR1_KEYS: {}, SINCLAIR2_KEYS: {},
-  resetJoystickKeyState: vi.fn(),
   joyPressForType:       vi.fn(),
 }));
 
@@ -451,13 +460,13 @@ beforeEach(() => {
   vi.mocked(settings.noise).mockReturnValue(0);
   vi.mocked(settings.scalingMode).mockReturnValue(0);
   vi.mocked(settings.volume).mockReturnValue(70);
-  vi.mocked(settings.ayMix).mockReturnValue(50);
+  vi.mocked(settings.beeperVolume).mockReturnValue(100);
+  vi.mocked(settings.psgVolume).mockReturnValue(100);
   vi.mocked(settings.tapeFastRom).mockReturnValue(true);
   vi.mocked(settings.tapeTurbo).mockReturnValue(true);
   vi.mocked(settings.tapeSoundEnabled).mockReturnValue(true);
   vi.mocked(settings.scanlineAccuracy).mockReturnValue('high');
   vi.mocked(settings.ayStereo).mockReturnValue('ABC');
-  vi.mocked(settings.ayDcBlock).mockReturnValue(true);
   vi.mocked(settings.ayAntialias).mockReturnValue('mute');
   vi.mocked(settings.writeProtectA).mockReturnValue(false);
   vi.mocked(settings.writeProtectB).mockReturnValue(false);
@@ -465,7 +474,7 @@ beforeEach(() => {
   vi.mocked(settings.tapeAutoRewind).mockReturnValue(true);
   // Restore ROMManager spies (captured via vi.hoisted)
   getRomManager().restoreROM.mockResolvedValue(null);
-  getRomManager().fetchDefaultROM.mockResolvedValue({ data: new Uint8Array(16384), label: '48k' });
+  getRomManager().fetchDefaultROM.mockResolvedValue({ data: new Uint8Array(16384), label: 'zx48k' });
   // Reset status signal so tests can check statusText() cleanly
   emulator.setStatus('');
   // localStorage for machine-state model persistence
@@ -563,54 +572,54 @@ describe('applyROM — size → model detection', () => {
 
   it('exactly 16384 bytes → 48k', async () => {
     await emulator.applyROM(new Uint8Array(16384), 'spectrum48.rom');
-    expect(currentModel()).toBe('48k');
+    expect(currentModel()).toBe('zx48k');
   });
 
   it('16385 bytes (> 16384, < 32768) → 48k', async () => {
     await emulator.applyROM(new Uint8Array(16385), 'odd.rom');
-    expect(currentModel()).toBe('48k');
+    expect(currentModel()).toBe('zx48k');
   });
 
   it('exactly 32768 bytes on a 48k machine → upgrades to 128k', async () => {
-    setCurrentModel('48k');
+    setCurrentModel('zx48k');
     await emulator.applyROM(new Uint8Array(32768), 'spectrum128.rom');
-    expect(currentModel()).toBe('128k');
+    expect(currentModel()).toBe('zx128k');
   });
 
   it('32768 bytes while on +3 → keeps +3 (is128kClass true, so model preserved)', async () => {
-    setCurrentModel('+3');
+    setCurrentModel('zx128kplus3');
     await emulator.applyROM(new Uint8Array(32768), 'custom.rom');
-    expect(currentModel()).toBe('+3');
+    expect(currentModel()).toBe('zx128kplus3');
   });
 
   it('32768 bytes while on +2A → keeps +2A', async () => {
-    setCurrentModel('+2A');
+    setCurrentModel('zx128kplus2a');
     await emulator.applyROM(new Uint8Array(32768), 'custom.rom');
-    expect(currentModel()).toBe('+2A');
+    expect(currentModel()).toBe('zx128kplus2a');
   });
 
   it('exactly 65536 bytes on a 48k machine → upgrades to +2A', async () => {
-    setCurrentModel('48k');
+    setCurrentModel('zx48k');
     await emulator.applyROM(new Uint8Array(65536), 'plus2a.rom');
-    expect(currentModel()).toBe('+2A');
+    expect(currentModel()).toBe('zx128kplus2a');
   });
 
   it('65536 bytes on 128k → +2A (128k is not isPlus2AClass)', async () => {
-    setCurrentModel('128k');
+    setCurrentModel('zx128k');
     await emulator.applyROM(new Uint8Array(65536), 'plus2a.rom');
-    expect(currentModel()).toBe('+2A');
+    expect(currentModel()).toBe('zx128kplus2a');
   });
 
-  it('65536 bytes while on +3 → keeps +3 (isPlus2AClass("+3") = true)', async () => {
-    setCurrentModel('+3');
+  it('65536 bytes while on +3 → keeps +3 (isPlus2AClass("zx128kplus3") = true)', async () => {
+    setCurrentModel('zx128kplus3');
     await emulator.applyROM(new Uint8Array(65536), 'plus3.rom');
-    expect(currentModel()).toBe('+3');
+    expect(currentModel()).toBe('zx128kplus3');
   });
 
   it('65536 bytes while on +2A → keeps +2A', async () => {
-    setCurrentModel('+2A');
+    setCurrentModel('zx128kplus2a');
     await emulator.applyROM(new Uint8Array(65536), 'plus2a.rom');
-    expect(currentModel()).toBe('+2A');
+    expect(currentModel()).toBe('zx128kplus2a');
   });
 });
 
@@ -619,16 +628,16 @@ describe('applyROM — size → model detection', () => {
 describe('effectiveROMModel — +3 always uses the +2A (v4.1) ROM set', () => {
   beforeEach(() => { emulator.setCanvas(fakeCanvas); });
 
-  it('switchModel("+3") always fetches ROM keyed as "+2A"', async () => {
-    await emulator.switchModel('+3');
-    expect(getRomManager().restoreROM).toHaveBeenCalledWith('+2A');
-    expect(getRomManager().restoreROM).not.toHaveBeenCalledWith('+3');
+  it('switchModel("zx128kplus3") always fetches ROM keyed as "zx128kplus2a"', async () => {
+    await emulator.switchModel('zx128kplus3');
+    expect(getRomManager().restoreROM).toHaveBeenCalledWith('zx128kplus2a');
+    expect(getRomManager().restoreROM).not.toHaveBeenCalledWith('zx128kplus3');
   });
 
   it('non-+3 models are never aliased', async () => {
-    await emulator.switchModel('128k');
-    expect(getRomManager().restoreROM).toHaveBeenCalledWith('128k');
-    expect(getRomManager().restoreROM).not.toHaveBeenCalledWith('+2A');
+    await emulator.switchModel('zx128k');
+    expect(getRomManager().restoreROM).toHaveBeenCalledWith('zx128k');
+    expect(getRomManager().restoreROM).not.toHaveBeenCalledWith('zx128kplus2a');
   });
 });
 
@@ -680,14 +689,14 @@ describe('switchModel — stale ROM loads', () => {
     let resolveAux!: (data: Uint8Array) => void;
     vi.mocked(persistence.dbLoad).mockReturnValueOnce(new Promise(resolve => { resolveAux = resolve; }));
     vi.mocked(settings.vtx5000Enabled).mockReturnValue(true);
-    setCurrentModel('48k');
+    setCurrentModel('zx48k');
     setRomData(new Uint8Array(16384).fill(0x11));
     const oldBuild = emulator.createMachine();
     const old = lastSpectrumStub!;
     vi.mocked(settings.vtx5000Enabled).mockReturnValue(false);
     const newRom = new Uint8Array(32768).fill(0x22);
     getRomManager().restoreROM.mockResolvedValue({ data: newRom, label: 'new' });
-    await emulator.switchModel('128k');
+    await emulator.switchModel('zx128k');
     const current = lastSpectrumStub!;
     emulator.setCurrentDiskName('current.dsk');
     resolveAux(new Uint8Array(8192));
@@ -709,11 +718,11 @@ describe('switchModel — stale ROM loads', () => {
       return new Promise(resolve => { resolvePage = resolve; });
     });
     getRomManager().restoreROM.mockResolvedValue({ data: new Uint8Array(32768), label: 'old' });
-    const oldSwitch = emulator.switchModel('128k');
+    const oldSwitch = emulator.switchModel('zx128k');
     await loading;
     const latest = new Uint8Array(16384).fill(0x77);
     getRomManager().restoreROM.mockResolvedValue({ data: latest, label: 'latest' });
-    await emulator.switchModel('48k');
+    await emulator.switchModel('zx48k');
     resolvePage(null);
     await oldSwitch;
     expect(romData).toBe(latest);
@@ -722,7 +731,7 @@ describe('switchModel — stale ROM loads', () => {
   it('teardown invalidates a pending system ROM fetch', async () => {
     let resolveRom!: (entry: unknown) => void;
     getRomManager().restoreROM.mockReturnValueOnce(new Promise(resolve => { resolveRom = resolve; }));
-    const pending = emulator.switchModel('48k');
+    const pending = emulator.switchModel('zx48k');
     emulator.destroy();
     resolveRom({ data: new Uint8Array(16384), label: 'late' });
     await pending;
@@ -734,16 +743,16 @@ describe('switchModel — stale ROM loads', () => {
     const oldRom = new Promise<unknown>((resolve) => { resolveOld = resolve; });
     const newData = new Uint8Array([0x22]);
     getRomManager().restoreROM.mockImplementation((key: string) =>
-      key === '48k' ? oldRom : Promise.resolve({ data: newData, label: '128K' }));
+      key === 'zx48k' ? oldRom : Promise.resolve({ data: newData, label: '128K' }));
 
-    const oldSwitch = emulator.switchModel('48k');
+    const oldSwitch = emulator.switchModel('zx48k');
     await Promise.resolve();
-    await emulator.switchModel('128k');
+    await emulator.switchModel('zx128k');
     resolveOld({ data: new Uint8Array([0x11]), label: '48K' });
     await oldSwitch;
 
-    expect(currentModel()).toBe('128k');
-    expect(lastSpectrumStub?.model).toBe('128k');
+    expect(currentModel()).toBe('zx128k');
+    expect(lastSpectrumStub?.model).toBe('zx128k');
     expect(lastSpectrumStub?.loadROM.mock.calls.at(-1)?.[0]).toBe(newData);
   });
 });
@@ -757,7 +766,7 @@ describe('switchModel — multi-page ROM overrides (128K/+2 2-page, +2A/+3 4-pag
     // happen to switch to a multi-page model see the harness default (no override).
     getRomManager().restoreROMPage.mockImplementation(async () => null as any);
     getRomManager().getCachedPage.mockImplementation(() => null as any);
-    setCurrentModel('128k'); // restore the app default for later describes
+    setCurrentModel('zx128k'); // restore the app default for later describes
   });
 
   function makeBaseRom(size = 32768): Uint8Array {
@@ -769,7 +778,7 @@ describe('switchModel — multi-page ROM overrides (128K/+2 2-page, +2A/+3 4-pag
   it('with no page overrides, the base 32K default image passes through unchanged', async () => {
     const base = makeBaseRom();
     getRomManager().restoreROM.mockResolvedValueOnce({ data: base, label: '128K (default)' });
-    await emulator.switchModel('128k');
+    await emulator.switchModel('zx128k');
     const loaded = lastSpectrumStub!.loadROM.mock.calls[0][0] as Uint8Array;
     expect(Array.from(loaded)).toEqual(Array.from(base));
   });
@@ -781,7 +790,7 @@ describe('switchModel — multi-page ROM overrides (128K/+2 2-page, +2A/+3 4-pag
     getRomManager().restoreROMPage.mockImplementation(async (_model: string, page: number) =>
       page === 1 ? { data: override, label: 'custom48.rom (custom)' } : null);
 
-    await emulator.switchModel('128k');
+    await emulator.switchModel('zx128k');
 
     const loaded = lastSpectrumStub!.loadROM.mock.calls[0][0] as Uint8Array;
     expect(Array.from(loaded.subarray(0, 16384))).toEqual(Array.from(base.subarray(0, 16384)));
@@ -795,7 +804,7 @@ describe('switchModel — multi-page ROM overrides (128K/+2 2-page, +2A/+3 4-pag
     getRomManager().restoreROMPage.mockImplementation(async (_model: string, page: number) =>
       page === 0 ? { data: override, label: 'custom128.rom (custom)' } : null);
 
-    await emulator.switchModel('128k');
+    await emulator.switchModel('zx128k');
 
     const loaded = lastSpectrumStub!.loadROM.mock.calls[0][0] as Uint8Array;
     expect(Array.from(loaded.subarray(0, 16384))).toEqual(Array.from(override));
@@ -810,7 +819,7 @@ describe('switchModel — multi-page ROM overrides (128K/+2 2-page, +2A/+3 4-pag
     getRomManager().restoreROMPage.mockImplementation(async (_model: string, page: number) =>
       page === 0 ? { data: p0, label: 'a' } : { data: p1, label: 'b' });
 
-    await emulator.switchModel('128k');
+    await emulator.switchModel('zx128k');
 
     const loaded = lastSpectrumStub!.loadROM.mock.calls[0][0] as Uint8Array;
     expect(Array.from(loaded.subarray(0, 16384))).toEqual(Array.from(p0));
@@ -824,7 +833,7 @@ describe('switchModel — multi-page ROM overrides (128K/+2 2-page, +2A/+3 4-pag
     getRomManager().restoreROMPage.mockImplementation(async (_model: string, page: number) =>
       page === 1 ? { data: new Uint8Array(16384).fill(0xEE), label: 'x' } : null);
 
-    await emulator.switchModel('128k');
+    await emulator.switchModel('zx128k');
 
     expect(Array.from(base)).toEqual(Array.from(baseCopy)); // untouched
   });
@@ -836,15 +845,15 @@ describe('switchModel — multi-page ROM overrides (128K/+2 2-page, +2A/+3 4-pag
     getRomManager().restoreROMPage.mockImplementation(async (_model: string, page: number) =>
       page === 1 ? { data: override, label: 'x' } : null);
 
-    await emulator.switchModel('+2');
+    await emulator.switchModel('zx128kplus2');
 
     const loaded = lastSpectrumStub!.loadROM.mock.calls[0][0] as Uint8Array;
     expect(Array.from(loaded.subarray(16384))).toEqual(Array.from(override));
   });
 
   it('non-dual models (e.g. 48K) never consult restoreROMPage', async () => {
-    getRomManager().restoreROM.mockResolvedValueOnce({ data: new Uint8Array(16384), label: '48k' });
-    await emulator.switchModel('48k');
+    getRomManager().restoreROM.mockResolvedValueOnce({ data: new Uint8Array(16384), label: 'zx48k' });
+    await emulator.switchModel('zx48k');
     expect(getRomManager().restoreROMPage).not.toHaveBeenCalled();
   });
 
@@ -855,7 +864,7 @@ describe('switchModel — multi-page ROM overrides (128K/+2 2-page, +2A/+3 4-pag
     getRomManager().restoreROMPage.mockImplementation(async (_model: string, page: number) =>
       page === 2 ? { data: override, label: 'custom3dos.rom (custom)' } : null);
 
-    await emulator.switchModel('+3');
+    await emulator.switchModel('zx128kplus3');
 
     const loaded = lastSpectrumStub!.loadROM.mock.calls[0][0] as Uint8Array;
     expect(Array.from(loaded.subarray(0, 32768))).toEqual(Array.from(base.subarray(0, 32768)));
@@ -870,7 +879,7 @@ describe('switchModel — multi-page ROM overrides (128K/+2 2-page, +2A/+3 4-pag
     getRomManager().restoreROMPage.mockImplementation(async (_model: string, page: number) =>
       ({ data: overrides[page], label: `p${page}` }));
 
-    await emulator.switchModel('+3');
+    await emulator.switchModel('zx128kplus3');
 
     const loaded = lastSpectrumStub!.loadROM.mock.calls[0][0] as Uint8Array;
     for (let page = 0; page < 4; page++) {
@@ -885,7 +894,7 @@ describe('switchModel — multi-page ROM overrides (128K/+2 2-page, +2A/+3 4-pag
     getRomManager().restoreROMPage.mockImplementation(async (_model: string, page: number) =>
       page === 3 ? { data: override, label: 'x' } : null);
 
-    await emulator.switchModel('+2A');
+    await emulator.switchModel('zx128kplus2a');
 
     const loaded = lastSpectrumStub!.loadROM.mock.calls[0][0] as Uint8Array;
     expect(Array.from(loaded.subarray(49152))).toEqual(Array.from(override));
@@ -893,21 +902,21 @@ describe('switchModel — multi-page ROM overrides (128K/+2 2-page, +2A/+3 4-pag
 
   it('with no override, the pane shows the named default ROM, never a bare "(default)" placeholder', async () => {
     getRomManager().restoreROM.mockResolvedValueOnce({ data: makeBaseRom(), label: '128K (default)' });
-    await emulator.switchModel('128k');
+    await emulator.switchModel('zx128k');
     expect(romSlots()[0].label).toBe('Sinclair 128K BASIC');
     expect(romSlots()[1].label).toBe('Sinclair 48K BASIC');
   });
 
   it('the +2 defaults are credited to Amstrad, not Sinclair', async () => {
     getRomManager().restoreROM.mockResolvedValueOnce({ data: makeBaseRom(), label: '+2 (default)' });
-    await emulator.switchModel('+2');
+    await emulator.switchModel('zx128kplus2');
     expect(romSlots()[0].label).toBe('Amstrad 128K BASIC');
     expect(romSlots()[1].label).toBe('Amstrad 48K BASIC');
   });
 
   it('a +3 with no overrides shows all four named default ROMs', async () => {
     getRomManager().restoreROM.mockResolvedValueOnce({ data: makeBaseRom(65536), label: '+3 (default)' });
-    await emulator.switchModel('+3');
+    await emulator.switchModel('zx128kplus3');
     expect(romSlots().map(s => s.label)).toEqual(['128K Editor', '128K Syntax Checker', '+3DOS', '48K BASIC']);
   });
 
@@ -922,7 +931,7 @@ describe('switchModel — multi-page ROM overrides (128K/+2 2-page, +2A/+3 4-pag
     getRomManager().getCachedPage.mockImplementation((_model: string, page: number) =>
       page === 1 ? override : null);
 
-    await emulator.switchModel('128k');
+    await emulator.switchModel('zx128k');
 
     expect(romSlots()[1].label).toBe('my48.rom');
     expect(romSlots()[0].label).toBe('Sinclair 128K BASIC'); // page 0 still default
@@ -936,10 +945,10 @@ describe('setSystemRomPage / resetSystemRomPage', () => {
     emulator.setCanvas(fakeCanvas);
     getRomManager().restoreROMPage.mockImplementation(async () => null as any);
   });
-  afterEach(() => { setCurrentModel('128k'); });
+  afterEach(() => { setCurrentModel('zx128k'); });
 
   it('a combined 32K image persists both pages, regardless of which slot triggered the load', async () => {
-    setCurrentModel('128k');
+    setCurrentModel('zx128k');
     await emulator.createMachine();
     const combined = new Uint8Array(32768);
     combined.fill(0x11, 0, 16384);
@@ -950,41 +959,41 @@ describe('setSystemRomPage / resetSystemRomPage', () => {
     expect(getRomManager().persistROMPage).toHaveBeenCalledTimes(2);
     const [model0, page0, data0, label0] = getRomManager().persistROMPage.mock.calls[0];
     const [model1, page1, data1, label1] = getRomManager().persistROMPage.mock.calls[1];
-    expect(model0).toBe('128k');
+    expect(model0).toBe('zx128k');
     expect(page0).toBe(0);
     expect(Array.from(data0 as Uint8Array)).toEqual(Array.from(combined.subarray(0, 16384)));
     expect(label0).toBe('combined.rom (bank 1)');
-    expect(model1).toBe('128k');
+    expect(model1).toBe('zx128k');
     expect(page1).toBe(1);
     expect(Array.from(data1 as Uint8Array)).toEqual(Array.from(combined.subarray(16384)));
     expect(label1).toBe('combined.rom (bank 2)');
   });
 
   it('a 16K image only persists the targeted page, with no "(custom)" marker', async () => {
-    setCurrentModel('128k');
+    setCurrentModel('zx128k');
     await emulator.createMachine();
     const single = new Uint8Array(16384).fill(0x99);
     await emulator.setSystemRomPage(1, single, 'basic.rom');
     expect(getRomManager().persistROMPage).toHaveBeenCalledTimes(1);
-    expect(getRomManager().persistROMPage).toHaveBeenCalledWith('128k', 1, expect.anything(), 'basic.rom');
+    expect(getRomManager().persistROMPage).toHaveBeenCalledWith('zx128k', 1, expect.anything(), 'basic.rom');
   });
 
   it('is a no-op on non-dual models', async () => {
-    setCurrentModel('48k');
+    setCurrentModel('zx48k');
     await emulator.createMachine();
     await emulator.setSystemRomPage(1, new Uint8Array(16384), 'x.rom');
     expect(getRomManager().persistROMPage).not.toHaveBeenCalled();
   });
 
   it('resetSystemRomPage clears just the targeted page', async () => {
-    setCurrentModel('128k');
+    setCurrentModel('zx128k');
     await emulator.createMachine();
     await emulator.resetSystemRomPage(0);
-    expect(getRomManager().clearROMPage).toHaveBeenCalledWith('128k', 0);
+    expect(getRomManager().clearROMPage).toHaveBeenCalledWith('zx128k', 0);
   });
 
   it('a combined 64K image on a +3 persists all four pages, regardless of which slot triggered the load', async () => {
-    setCurrentModel('+3');
+    setCurrentModel('zx128kplus3');
     await emulator.createMachine();
     const combined = new Uint8Array(65536);
     for (let page = 0; page < 4; page++) combined.fill(0x10 + page, page * 16384, (page + 1) * 16384);
@@ -994,7 +1003,7 @@ describe('setSystemRomPage / resetSystemRomPage', () => {
     expect(getRomManager().persistROMPage).toHaveBeenCalledTimes(4);
     for (let page = 0; page < 4; page++) {
       const [model, calledPage, data, label] = getRomManager().persistROMPage.mock.calls[page];
-      expect(model).toBe('+2A'); // +3 always keys its ROM as +2A (see effectiveROMModel)
+      expect(model).toBe('zx128kplus2a'); // +3 always keys its ROM as +2A (see effectiveROMModel)
       expect(calledPage).toBe(page);
       expect(Array.from(data as Uint8Array)).toEqual(
         Array.from(combined.subarray(page * 16384, (page + 1) * 16384))
@@ -1004,10 +1013,10 @@ describe('setSystemRomPage / resetSystemRomPage', () => {
   });
 
   it('a 16K image on a +3 only persists the targeted page (of four), with no "(custom)" marker', async () => {
-    setCurrentModel('+3');
+    setCurrentModel('zx128kplus3');
     await emulator.setSystemRomPage(2, new Uint8Array(16384).fill(0x77), 'plus3dos.rom');
     expect(getRomManager().persistROMPage).toHaveBeenCalledTimes(1);
-    expect(getRomManager().persistROMPage).toHaveBeenCalledWith('+2A', 2, expect.anything(), 'plus3dos.rom');
+    expect(getRomManager().persistROMPage).toHaveBeenCalledWith('zx128kplus2a', 2, expect.anything(), 'plus3dos.rom');
   });
 });
 
@@ -1019,7 +1028,7 @@ describe('updateRomPaneInfo — systemSlots (custom/overridden flags drive eject
     getRomManager().restoreROMPage.mockImplementation(async () => null as any);
     getRomManager().getCachedPage.mockImplementation(() => null as any);
     getRomManager().getCached.mockImplementation(() => null as any);
-    setCurrentModel('128k');
+    setCurrentModel('zx128k');
   });
 
   it('a single-ROM model (e.g. 48K) reports overridden=false for the stock default', async () => {
@@ -1028,7 +1037,7 @@ describe('updateRomPaneInfo — systemSlots (custom/overridden flags drive eject
     const entry = { data: new Uint8Array(16384), label: 'Sinclair BASIC', isCustom: false };
     getRomManager().restoreROM.mockResolvedValueOnce(entry);
     getRomManager().getCached.mockImplementation(() => entry);
-    await emulator.switchModel('48k');
+    await emulator.switchModel('zx48k');
     expect(romSlots()[0].label).toBe('Sinclair BASIC');
     expect(romSlots()[0].overridden).toBe(false);
   });
@@ -1037,14 +1046,14 @@ describe('updateRomPaneInfo — systemSlots (custom/overridden flags drive eject
     const entry = { data: new Uint8Array(16384), label: 'myrom.rom', isCustom: true };
     getRomManager().restoreROM.mockResolvedValueOnce(entry);
     getRomManager().getCached.mockImplementation(() => entry);
-    await emulator.switchModel('48k');
+    await emulator.switchModel('zx48k');
     expect(romSlots()[0].label).toBe('myrom.rom');
     expect(romSlots()[0].overridden).toBe(true);
   });
 
   it('a multi-page model reports overridden=false for every default page', async () => {
     getRomManager().restoreROM.mockResolvedValueOnce({ data: new Uint8Array(32768), label: '128K (default)' });
-    await emulator.switchModel('128k');
+    await emulator.switchModel('zx128k');
     expect(romSlots().map(s => s.overridden)).toEqual([false, false]);
   });
 
@@ -1052,7 +1061,7 @@ describe('updateRomPaneInfo — systemSlots (custom/overridden flags drive eject
     getRomManager().restoreROM.mockResolvedValueOnce({ data: new Uint8Array(32768), label: '128K (default)' });
     getRomManager().getCachedPage.mockImplementation((_model: string, page: number) =>
       page === 1 ? { data: new Uint8Array(16384), label: 'basic.rom', isCustom: true } : null);
-    await emulator.switchModel('128k');
+    await emulator.switchModel('zx128k');
     expect(romSlots().map(s => s.overridden)).toEqual([false, true]);
   });
 });
@@ -1209,7 +1218,7 @@ describe('tape independence across Spectrum/CPC model switch', () => {
   // These tests switch the (module-level) current model to a CPC and back.
   // Reset it to a Spectrum afterwards so later describes' setupSpectrum() —
   // which calls createMachine() against the live model — still builds a Spectrum.
-  afterEach(() => { setCurrentModel('128k'); });
+  afterEach(() => { setCurrentModel('zx128k'); });
 
   it('keeps each family\'s tape separate and never leaks one onto the other', async () => {
     // Distinct array identities let us prove which deck holds which tape.
@@ -1232,7 +1241,7 @@ describe('tape independence across Spectrum/CPC model switch', () => {
     lastCpcStub!.tape.position = 2;
     emulator.setTapeName('cpcgame.cdt');
 
-    await emulator.switchModel('128k');
+    await emulator.switchModel('zx128k');
     // The Spectrum's own tape is restored — not the CPC one. (The deck is
     // restored from a copied block list, so compare by value, not identity.)
     expect(lastSpectrumStub!.tape.blocks).toStrictEqual(zxBlocks);
@@ -1253,7 +1262,7 @@ describe('tape independence across Spectrum/CPC model switch', () => {
     s.tape.position = 3;
     emulator.setTapeName('keep.tap');
 
-    await emulator.switchModel('48k');
+    await emulator.switchModel('zx48k');
     expect(lastSpectrumStub!.tape.blocks).toStrictEqual(blocks);
     expect(lastSpectrumStub!.tape.position).toBe(0);
     expect(emulator.tapeName()).toBe('keep.tap');
@@ -1388,7 +1397,7 @@ describe('restoreRefreshState', () => {
   it('returns false and clears the key when snapshot is stale (> 60s old)', async () => {
     const ls = {
       getItem: vi.fn(() => JSON.stringify({
-        snapshot: btoa('x'), model: '48k',
+        snapshot: btoa('x'), model: 'zx48k',
         timestamp: Date.now() - 70_000,
       })),
       setItem: vi.fn(), removeItem: vi.fn(),
@@ -1403,7 +1412,7 @@ describe('restoreRefreshState', () => {
     emulator.destroy();
     (globalThis as any).localStorage = {
       getItem: vi.fn(() => JSON.stringify({
-        snapshot: btoa('x'), model: '48k',
+        snapshot: btoa('x'), model: 'zx48k',
         timestamp: Date.now() - 1000,
       })),
       setItem: vi.fn(), removeItem: vi.fn(),
@@ -1615,7 +1624,7 @@ describe('switchModel', () => {
 
   it('uses restoreROM result when entry present', async () => {
     getRomManager().restoreROM.mockResolvedValueOnce({ data: new Uint8Array(16384), label: 'x' });
-    await emulator.switchModel('48k');
+    await emulator.switchModel('zx48k');
     expect(emulator.romData).not.toBeNull();
     expect(getRomManager().fetchDefaultROM).not.toHaveBeenCalled();
   });
@@ -1623,14 +1632,14 @@ describe('switchModel', () => {
   it('falls back to fetchDefaultROM when restoreROM returns null', async () => {
     getRomManager().restoreROM.mockResolvedValueOnce(null);
     getRomManager().fetchDefaultROM.mockResolvedValueOnce({ data: new Uint8Array(32768), label: 'y' });
-    await emulator.switchModel('128k');
-    expect(getRomManager().fetchDefaultROM).toHaveBeenCalledWith('128k', '128k', 'uk', expect.any(Function));
+    await emulator.switchModel('zx128k');
+    expect(getRomManager().fetchDefaultROM).toHaveBeenCalledWith('zx128k', 'zx128k', 'uk', expect.any(Function));
   });
 
   it('sets romData to null when both restore and fetch fail', async () => {
     getRomManager().restoreROM.mockResolvedValueOnce(null);
     getRomManager().fetchDefaultROM.mockResolvedValueOnce(null);
-    await emulator.switchModel('48k');
+    await emulator.switchModel('zx48k');
     expect(emulator.romData).toBeNull();
   });
 });
@@ -2091,8 +2100,8 @@ describe('init / restoreMedia', () => {
   beforeEach(() => { emulator.setCanvas(fakeCanvas); });
 
   it.each([
-    ['128k', '128k', 32768, 1],
-    ['+3', '+2A', 65536, 3],
+    ['zx128k', 'zx128k', 32768, 1],
+    ['zx128kplus3', 'zx128kplus2a', 65536, 3],
   ] as const)('init restores the last ROM-page override on %s', async (model, key, size, page) => {
     setCurrentModel(model);
     const base = new Uint8Array(size).fill(0x11);
@@ -2110,7 +2119,7 @@ describe('init / restoreMedia', () => {
       expect(getRomManager().restoreROMPage).toHaveBeenCalledWith(key, page);
     } finally {
       getRomManager().restoreROMPage.mockResolvedValue(null);
-      setCurrentModel('128k');
+      setCurrentModel('zx128k');
     }
   });
 
@@ -2130,7 +2139,7 @@ describe('init / restoreMedia', () => {
   });
 
   it('init: with cached ROM creates machine and restores media', async () => {
-    getRomManager().restoreROM.mockResolvedValueOnce({ data: new Uint8Array(16384), label: '48k' });
+    getRomManager().restoreROM.mockResolvedValueOnce({ data: new Uint8Array(16384), label: 'zx48k' });
     vi.mocked(persistence.restoreTape).mockResolvedValueOnce(null);
     vi.mocked(persistence.restoreDisk).mockResolvedValue(null);
     await emulator.init();
@@ -2139,7 +2148,7 @@ describe('init / restoreMedia', () => {
 
   it('init: fetches default ROM when no cached entry, then creates machine', async () => {
     getRomManager().restoreROM.mockResolvedValueOnce(null);
-    getRomManager().fetchDefaultROM.mockResolvedValueOnce({ data: new Uint8Array(16384), label: '48k' });
+    getRomManager().fetchDefaultROM.mockResolvedValueOnce({ data: new Uint8Array(16384), label: 'zx48k' });
     await emulator.init();
     expect(getRomManager().fetchDefaultROM).toHaveBeenCalled();
   });
@@ -2153,7 +2162,7 @@ describe('init / restoreMedia', () => {
   });
 
   it('restoreMedia (via init): restores tape from TAP', async () => {
-    getRomManager().restoreROM.mockResolvedValueOnce({ data: new Uint8Array(16384), label: '48k' });
+    getRomManager().restoreROM.mockResolvedValueOnce({ data: new Uint8Array(16384), label: 'zx48k' });
     vi.mocked(persistence.restoreTape).mockResolvedValueOnce({
       name: 'game.tap', data: new Uint8Array(10),
     });
@@ -2163,7 +2172,7 @@ describe('init / restoreMedia', () => {
   });
 
   it('restoreMedia (via init): restores tape from TZX → uses parseTZX', async () => {
-    getRomManager().restoreROM.mockResolvedValueOnce({ data: new Uint8Array(16384), label: '48k' });
+    getRomManager().restoreROM.mockResolvedValueOnce({ data: new Uint8Array(16384), label: 'zx48k' });
     vi.mocked(persistence.restoreTape).mockResolvedValueOnce({
       name: 'game.tzx', data: new Uint8Array(10),
     });
@@ -2172,7 +2181,7 @@ describe('init / restoreMedia', () => {
   });
 
   it('restoreMedia (via init): swallows tape parse errors', async () => {
-    getRomManager().restoreROM.mockResolvedValueOnce({ data: new Uint8Array(16384), label: '48k' });
+    getRomManager().restoreROM.mockResolvedValueOnce({ data: new Uint8Array(16384), label: 'zx48k' });
     vi.mocked(persistence.restoreTape).mockResolvedValueOnce({
       name: 'bad.tzx', data: new Uint8Array(10),
     });
@@ -2181,7 +2190,7 @@ describe('init / restoreMedia', () => {
   });
 
   it('restoreMedia: restores disk A and B', async () => {
-    getRomManager().restoreROM.mockResolvedValueOnce({ data: new Uint8Array(16384), label: '48k' });
+    getRomManager().restoreROM.mockResolvedValueOnce({ data: new Uint8Array(16384), label: 'zx48k' });
     vi.mocked(persistence.restoreDisk)
       .mockResolvedValueOnce({ name: 'a.dsk', data: new Uint8Array(10) })
       .mockResolvedValueOnce({ name: 'b.dsk', data: new Uint8Array(10) });
@@ -2191,7 +2200,7 @@ describe('init / restoreMedia', () => {
   });
 
   it('restoreMedia: swallows disk parse errors', async () => {
-    getRomManager().restoreROM.mockResolvedValueOnce({ data: new Uint8Array(16384), label: '48k' });
+    getRomManager().restoreROM.mockResolvedValueOnce({ data: new Uint8Array(16384), label: 'zx48k' });
     vi.mocked(persistence.restoreDisk).mockResolvedValueOnce({ name: 'bad.dsk', data: new Uint8Array(10) });
     vi.mocked(dskMod.parseDSK).mockImplementationOnce(() => { throw new Error('corrupt'); });
     await expect(emulator.init()).resolves.toBeUndefined();
@@ -2201,7 +2210,7 @@ describe('init / restoreMedia', () => {
     // A fresh refresh snapshot makes createMachine() restore RAM. The mounted
     // disk/tape are persisted separately, so
     // restoreMedia() must still run — otherwise a hard reload drops the media.
-    getRomManager().restoreROM.mockResolvedValueOnce({ data: new Uint8Array(16384), label: '48k' });
+    getRomManager().restoreROM.mockResolvedValueOnce({ data: new Uint8Array(16384), label: 'zx48k' });
     (globalThis as any).localStorage = {
       getItem: vi.fn((k: string) => k === 'zx84-refresh-state'
         ? JSON.stringify({ snapshot: btoa('xx'), model: currentModel(), timestamp: Date.now() })
@@ -2229,7 +2238,7 @@ describe('saveRefreshState / restoreRefreshState — happy paths', () => {
     // emulator.romData is null after setupSpectrum (no ROM loaded); inject one
     // by going through applyROM-equivalent path: call switchModel to get romData.
     getRomManager().restoreROM.mockResolvedValueOnce({ data: new Uint8Array(16384), label: 'x' });
-    await emulator.switchModel('48k');
+    await emulator.switchModel('zx48k');
     const setItem = vi.fn();
     (globalThis as any).localStorage = { getItem: vi.fn(() => null), setItem, removeItem: vi.fn() };
     vi.mocked(szx.saveSZXSync).mockReturnValueOnce(new Uint8Array([1, 2, 3]));
@@ -2248,7 +2257,7 @@ describe('saveRefreshState / restoreRefreshState — happy paths', () => {
   it('saveRefreshState catches errors from saveSZXSync (no throw on unload)', async () => {
     await setupSpectrum();
     getRomManager().restoreROM.mockResolvedValueOnce({ data: new Uint8Array(16384), label: 'x' });
-    await emulator.switchModel('48k');
+    await emulator.switchModel('zx48k');
     (globalThis as any).localStorage = { getItem: vi.fn(() => null), setItem: vi.fn(), removeItem: vi.fn() };
     vi.mocked(szx.saveSZXSync).mockImplementationOnce(() => { throw new Error('fail'); });
     expect(() => emulator.saveRefreshState()).not.toThrow();
@@ -2257,11 +2266,11 @@ describe('saveRefreshState / restoreRefreshState — happy paths', () => {
   it('restoreRefreshState happy: loads SZX, restarts spectrum, returns true', async () => {
     await setupSpectrum();
     getRomManager().restoreROM.mockResolvedValueOnce({ data: new Uint8Array(16384), label: 'x' });
-    await emulator.switchModel('48k');
+    await emulator.switchModel('zx48k');
     const s = lastSpectrumStub!;
     (globalThis as any).localStorage = {
       getItem: vi.fn(() => JSON.stringify({
-        snapshot: btoa('xx'), model: '48k', timestamp: Date.now() - 1000,
+        snapshot: btoa('xx'), model: 'zx48k', timestamp: Date.now() - 1000,
       })),
       setItem: vi.fn(), removeItem: vi.fn(),
     };
@@ -2277,12 +2286,12 @@ describe('saveRefreshState / restoreRefreshState — happy paths', () => {
   it('restoreRefreshState 128K path: applies port7FFD/1FFD and re-banks', async () => {
     await setupSpectrum();
     getRomManager().restoreROM.mockResolvedValueOnce({ data: new Uint8Array(16384), label: 'x' });
-    await emulator.switchModel('48k');
+    await emulator.switchModel('zx48k');
     const s = lastSpectrumStub!;
     s.variant.hasSpecialPaging = true;
     (globalThis as any).localStorage = {
       getItem: vi.fn(() => JSON.stringify({
-        snapshot: btoa('xx'), model: '48k', timestamp: Date.now() - 500,
+        snapshot: btoa('xx'), model: 'zx48k', timestamp: Date.now() - 500,
       })),
       setItem: vi.fn(), removeItem: vi.fn(),
     };
@@ -2317,19 +2326,19 @@ describe('media callback bodies', () => {
     expect(emulator.statusText()).toMatch(/Error|Invalid|SNA/i);
   });
 
-  it("host.requestModel('128k'): upgrades via the restorable-ROM chain, declines when none", async () => {
+  it("host.requestModel('zx128k'): upgrades via the restorable-ROM chain, declines when none", async () => {
     const host = (emulator.machine as any).host;
     expect(host).not.toBeNull();
 
     // No 128K-class ROM restorable → the host declines the upgrade.
     getRomManager().restoreROM.mockResolvedValue(null);
-    expect(await host.requestModel('128k', 'test')).toBe(false);
+    expect(await host.requestModel('zx128k', 'test')).toBe(false);
 
     // A 128k ROM available → rebuilds as 128k and reports success.
     getRomManager().restoreROM
-      .mockResolvedValueOnce({ data: new Uint8Array(32768), label: '128k' });
-    expect(await host.requestModel('128k', 'test')).toBe(true);
-    expect(currentModel()).toBe('128k');
+      .mockResolvedValueOnce({ data: new Uint8Array(32768), label: 'zx128k' });
+    expect(await host.requestModel('zx128k', 'test')).toBe(true);
+    expect(currentModel()).toBe('zx128k');
     expect(emulator.machine).not.toBeNull();
   });
 
@@ -2442,7 +2451,7 @@ describe('createDisplay — WebGL constructor throw triggers Canvas fallback', (
   it('restoreRefreshState catches errors and returns false', async () => {
     await setupSpectrum();
     getRomManager().restoreROM.mockResolvedValueOnce({ data: new Uint8Array(16384), label: 'x' });
-    await emulator.switchModel('48k');
+    await emulator.switchModel('zx48k');
     const removeItem = vi.fn();
     (globalThis as any).localStorage = {
       getItem: vi.fn(() => 'not-json'),

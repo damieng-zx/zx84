@@ -15,6 +15,7 @@ import { openFile } from '@/ui/file-picker.ts';
 const SAVE_ITEMS: Record<SaveMenuItem, { label: string; run: () => void }> = {
   'snapshot-szx': { label: 'Snapshot (.szx)', run: () => { void saveSnapshot('szx'); } },
   'snapshot-z80': { label: 'Snapshot (.z80)', run: () => { void saveSnapshot('z80'); } },
+  'snapshot-a8state': { label: 'Snapshot (.a8state)', run: () => { void saveSnapshot('a8state'); } },
   'snapshot-sna-v2': { label: 'Snapshot v2 (.sna)', run: () => saveCpcSnapshot(2) },
   'snapshot-sna-v3': { label: 'Snapshot v3 (.sna)', run: () => saveCpcSnapshot(3) },
   'screenshot-png': { label: 'Screenshot (.png)', run: () => saveScreenshot('png') },
@@ -73,7 +74,7 @@ export function LoadSavePane() {
       extensions: loadableExtensions(),
     });
     if (!results) return;
-    await loadFile(results[0].data, results[0].name);
+    await loadFile(results[0].data, results[0].name, undefined, { autoBoot: true });
   }
 
   return (

@@ -9,48 +9,64 @@
 
 import { createEffect, onMount, onCleanup } from 'solid-js';
 import { machine } from '@/shell/context.ts';
+import { pokeRegister } from '@/shell/lifecycle.ts';
 import { regsRev } from '@/state/debug-state.ts';
-import { set8, set16, setStr, makeLabel, makeSlot, makeFlag } from './dom.ts';
+import { emulationPaused } from '@/state/machine-state.ts';
+import { set8, set16, setStr, makeLabel, makeSlot, makeFlag, makeEditable, EDITABLE_CLASS } from './dom.ts';
+
+// P-register bit for each flag the panel can toggle.
+const P_NEG = 0x80, P_OVFL = 0x40, P_DEC = 0x08, P_IRQ = 0x04, P_ZERO = 0x02, P_CARRY = 0x01;
 
 export function M6502Registers() {
   let ref!: HTMLPreElement;
 
   onMount(() => {
     const pre = ref;
+    // Click-to-edit plumbing: a hex box over a register value, a flip for a flag.
+    const edit = (slot: Text, digits: number, reg: string) =>
+      makeEditable(slot, digits, v => pokeRegister(reg, v));
+    const flip = (mask: number) => () => {
+      const p = machine?.services.debug.getReg('P');
+      if (p != null) pokeRegister('P', p ^ mask);
+    };
+
     const s = {
       a: makeSlot(), x: makeSlot(), y: makeSlot(), p: makeSlot(),
       pc: makeSlot(), sp: makeSlot(), tpf: makeSlot(),
-      fSign: makeFlag('Sign', 'Negative: bit 7 of the last result'),
-      fOvfl: makeFlag('Ovfl', 'Overflow: signed overflow from ADC/SBC (or bit 6 via BIT)'),
-      fDeci: makeFlag('Deci', 'Decimal: ADC/SBC work in BCD'),
-      fIDis: makeFlag('IDis', 'Interrupt disable: set masks IRQ (NMI still fires)'),
-      fZero: makeFlag('Zero', 'Set if the last result was zero'),
-      fCrry: makeFlag('Crry', 'Carry: carry out of bit 7, or no borrow'),
+      fSign: makeFlag('Sign', 'Negative: bit 7 of the last result', flip(P_NEG)),
+      fOvfl: makeFlag('Ovfl', 'Overflow: signed overflow from ADC/SBC (or bit 6 via BIT)', flip(P_OVFL)),
+      fDeci: makeFlag('Deci', 'Decimal: ADC/SBC work in BCD', flip(P_DEC)),
+      fIDis: makeFlag('IDis', 'Interrupt disable: set masks IRQ (NMI still fires)', flip(P_IRQ)),
+      fZero: makeFlag('Zero', 'Set if the last result was zero', flip(P_ZERO)),
+      fCrry: makeFlag('Crry', 'Carry: carry out of bit 7, or no borrow', flip(P_CARRY)),
     };
     const t = (str: string) => document.createTextNode(str);
 
     // Row 1: A   xx    X   xx     Sign Ovfl
     pre.append(
-      makeLabel('A ', 'Accumulator'), t('  '), s.a, t('    '),
-      makeLabel('X ', 'Index register X'), t('  '), s.x, t('     '),
+      makeLabel('A ', 'Accumulator'), t('  '), edit(s.a, 2, 'A'), t('    '),
+      makeLabel('X ', 'Index register X'), t('  '), edit(s.x, 2, 'X'), t('     '),
       s.fSign.el, t(' '), s.fOvfl.el, t('\n'),
     );
     // Row 2: Y   xx    P   xx     Deci IDis
     pre.append(
-      makeLabel('Y ', 'Index register Y'), t('  '), s.y, t('    '),
-      makeLabel('P ', 'Processor status (NV-BDIZC)'), t('  '), s.p, t('     '),
+      makeLabel('Y ', 'Index register Y'), t('  '), edit(s.y, 2, 'Y'), t('    '),
+      makeLabel('P ', 'Processor status (NV-BDIZC)'), t('  '), edit(s.p, 2, 'P'), t('     '),
       s.fDeci.el, t(' '), s.fIDis.el, t('\n'),
     );
     // Row 3: PC  xxxx  SP  xxxx   Zero Crry
     pre.append(
-      makeLabel('PC', 'Program counter'), t('  '), s.pc, t('  '),
-      makeLabel('SP', 'Stack pointer (page 1)'), t('  '), s.sp, t('   '),
+      makeLabel('PC', 'Program counter'), t('  '), edit(s.pc, 4, 'PC'), t('  '),
+      makeLabel('SP', 'Stack pointer (page 1)'), t('  '), edit(s.sp, 4, 'SP'), t('   '),
       s.fZero.el, t(' '), s.fCrry.el, t('\n'),
     );
     // Row 4: cycles per frame.
     pre.append(makeLabel('T/F', 'CPU cycles per frame'), t(' '), s.tpf);
 
     let pA = -1, pX = -1, pY = -1, pP = -1, pPC = -1, pSP = -1, pTPF = '';
+
+    // Registers are only editable while paused: a write would race the frame loop.
+    createEffect(() => { pre.classList.toggle(EDITABLE_CLASS, emulationPaused()); });
 
     createEffect(() => {
       regsRev(); // track the signal

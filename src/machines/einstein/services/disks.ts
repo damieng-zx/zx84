@@ -6,23 +6,20 @@
  * the shell owns fetching/caching and this service owns DSK decoding.
  */
 
+import { baseName, saveHfeOr } from '@/machines/shared/disk-save.ts';
 import type {
   BootDiskRequest, DiskService, DriveDescriptor, DriveMedia,
 } from '@/machines/machine.ts';
 import type { EinsteinMachine } from '@/machines/einstein/einstein-machine.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { serializeDSK } from '@/media/floppy/dsk.ts';
-import { parseFloppyImage, serializeHFE } from '@/media/floppy/hfe.ts';
+import { parseFloppyImage } from '@/media/floppy/hfe.ts';
 
 const XTAL_DOS_BOOT_DISK: BootDiskRequest = {
   source: 'einstein/xtaldos.dsk',
   cacheKey: 'disk-einstein-xtaldos',
   parse: parseFloppyImage,
 };
-
-function baseName(name: string, fallback: string): string {
-  return name.replace(/\.[^.]+$/, '') || fallback;
-}
 
 export class EinsteinDiskService implements DiskService {
   /** Mounted media names per drive id (media identity is service state). */
@@ -43,7 +40,7 @@ export class EinsteinDiskService implements DiskService {
     if (!e.config.hasFDC) return [];
     const motorUnit = e.fdc.motorOn ? e.fdc.currentUnit & 1 : -1;
     const out: DriveDescriptor[] = [];
-    for (let u = 0; u < 2; u++) {
+    for (let u = 0; u < e.driveCount; u++) {
       const id = u === 0 ? 'a' : 'b';
       out.push({
         id,
@@ -58,6 +55,7 @@ export class EinsteinDiskService implements DiskService {
   }
 
   insert(id: string, media: DriveMedia, name: string): void {
+    if ((id === 'a' ? 0 : 1) >= this.e.driveCount) throw new Error('that drive is not fitted');
     this.e.loadDisk(media as DskImage, id === 'a' ? 0 : 1);
     this.names.set(id, name);
   }
@@ -72,9 +70,7 @@ export class EinsteinDiskService implements DiskService {
     const image = this.e.fdc.getDiskImage(unit);
     if (!image) return null;
     const base = baseName(this.names.get(id) ?? '', 'disk');
-    const out = image.bitstream
-      ? { data: serializeHFE(image), name: `${base}.hfe` }
-      : { data: serializeDSK(image), name: `${base}.dsk` };
+    const out = saveHfeOr(image, base, '.dsk', serializeDSK);
     this.e.fdc.clearDirty(unit);
     return out;
   }

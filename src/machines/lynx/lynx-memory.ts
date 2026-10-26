@@ -1,131 +1,145 @@
 /**
  * LynxMemory — the Camputers Lynx's banked 64K window.
  *
- * The machine is unusual in two ways, both from MAME's `camplynx.cpp`:
+ * Two things make this machine unlike the others here:
  *
- *  - A write goes to *every* enabled bank at once. The bank port's write
- *    nibble enables banks 1-4, and on the 48K/96K two bits of port 0x80 veto
- *    the two video banks, so the ROM can paint one byte into red and blue in a
- *    single store.
- *  - A read comes from whichever bank the decode selects. The read nibble
- *    picks one of a handful of fixed 8-page layouts rather than composing a
- *    slot at a time.
+ *  - Writes and reads are decoded separately. A store goes to every bank whose
+ *    write enable is set, all at once, so the ROM can paint one byte into red
+ *    and blue in a single instruction. A read comes from one source, chosen by
+ *    a different set of enable bits.
+ *  - Reads fill the 64K from up to two sources: the bottom 24K can be ROM
+ *    while the rest comes from RAM or video.
  *
- * Storage is one flat array of 8K pages, exactly as MAME lays it out, because
- * the bank tables are written in those terms:
+ * The chips are modelled as the separate stores they are, rather than one
+ * address space:
  *
- *   pages  0-7   bank 0 — the ROM images at their load addresses, 0xFF elsewhere
- *   pages  8-15  bank 1 — user RAM
- *   pages 16-23  bank 2 — 48K/96K: spare; 128K: video (red 16, blue 18, greens 20/22)
- *   pages 24-31  bank 3 — 48K/96K: video (blue 20, red 22, greens 28/30)
- *   pages 32-39  bank 4 — the 128K's extra RAM
+ *   rom       64K   system ROM images, then the disk interface's ROM at 0xE000
+ *   userRam   64K   the program's RAM
+ *   videoRam        48K/96K: four 8K colour planes (blue, red, alt-green,
+ *                   green). 128K: 64K holding four 16K planes (red, blue,
+ *                   green, alt-green).
+ *   extraRam  64K   128K only
  *
- * The 48K's video planes are not where the bank numbering suggests: MAME reads
- * them at flat offsets 0x28000/0x2C000/0x38000/0x3C000, which fall inside banks
- * 2 and 3, and its writes mirror each store to four addresses so both halves of
- * each bank hold the same image. That mirroring is real decode, not a
- * shortcut — see `writeByte`.
+ * The 48K's video RAM is not decoded on A13 or A15, so a plane shows up at
+ * every 8K step of its pair: A14 alone picks blue or red (or alt-green or
+ * green). The two pairs are one "bank" each, chosen for reading by port 0x80.
+ *
+ * Each 8K slot of the CPU's address space holds a window onto one of those
+ * stores; `applyBanks` recomputes the eight windows when a bank port changes.
+ *
+ * The bank-select rules come from MAME's `camplynx.cpp`, the only detailed
+ * public description of the machine; see THIRD_PARTY.md.
  */
 
 import { LYNX_PAGE_SIZE, LYNX_PAGES } from './constants.ts';
 import type { LynxModel } from './models.ts';
 
-/** Pages in the flat array. 32 for the 48K/96K, 40 for the 128K. */
-const PAGES_48 = 32;
-const PAGES_128 = 40;
+const PAGE = LYNX_PAGE_SIZE;
 
-/** Where each ROM image is loaded inside bank 0, from MAME's ROM_LOAD offsets. */
-export const ROM_LOAD_OFFSETS = [0x0000, 0x2000, 0x4000] as const;
-/** The disk interface's ROM sits high in bank 0, paged in over slot 7. */
+/** Offset of each ROM image inside the ROM store; the 96K and 128K use all three. */
+export const ROM_IMAGE_BASES = [0x0000, 0x2000, 0x4000] as const;
+/** The disk interface's ROM sits high in the ROM store, paged in over slot 7. */
 export const DOS_ROM_OFFSET = 0xe000;
 
-/** One read layout: the page occupying each of the eight 8K slots. */
-type Layout = readonly number[];
-
-function layouts(
-  table: ReadonlyArray<readonly [readonly number[], Layout]>,
-): Record<number, Layout> {
-  const out: Record<number, Layout> = {};
-  for (const [keys, pages] of table) for (const key of keys) out[key] = pages;
-  return out;
+/** The four one-bit colour planes the display reads, as live views. */
+export interface LynxPlanes {
+  readonly red: Uint8Array;
+  readonly green: Uint8Array;
+  readonly altGreen: Uint8Array;
+  readonly blue: Uint8Array;
 }
 
-/**
- * 48K/96K read layouts, keyed by the `rbyte` MAME's `port7f_w` computes from
- * the bank port's read nibble and port 0x80's bits 2-3. Every alias in the
- * source's case fall-through is listed, so an unlisted value really is one the
- * hardware cannot produce.
- */
-const LAYOUTS_48: Readonly<Record<number, Layout>> = layouts([
-  // ROM low and mirrored high — the layout the machine resets into.
-  [[0x00, 0x04, 0x08, 0x0c, 0x10, 0x14, 0x18, 0x1c], [0, 1, 2, 3, 0, 1, 2, 7]],
-  [[0x20, 0x24, 0x28, 0x2c], [8, 9, 10, 11, 12, 13, 14, 7]],
-  [[0x30, 0x34, 0x38, 0x3c], [0, 1, 2, 11, 12, 13, 14, 7]],
-  [[0x44, 0x64], [24, 25, 26, 27, 28, 29, 30, 31]],
-  [[0x40, 0x60, 0x48, 0x68, 0x4c, 0x6c], [16, 17, 18, 19, 20, 21, 22, 23]],
-  [[0x54, 0x74], [0, 1, 2, 27, 28, 29, 30, 31]],
-  [[0x50, 0x70, 0x58, 0x78, 0x5c, 0x7c], [0, 1, 2, 19, 20, 21, 22, 23]],
-]);
-
-/** 128K read layouts, from `port82_w`. The key is the reversed read nibble. */
-const LAYOUTS_128: Readonly<Record<number, Layout>> = layouts([
-  [[0x00, 0x01], [0, 1, 2, 3, 4, 5, 6, 7]],
-  [[0x02, 0x0a], [8, 9, 10, 11, 12, 13, 14, 15]],
-  [[0x03, 0x07, 0x0b, 0x0f], [0, 1, 2, 11, 12, 13, 14, 7]],
-  [[0x04, 0x06, 0x0c, 0x0e], [16, 17, 18, 19, 20, 21, 22, 23]],
-  [[0x05, 0x0d], [0, 1, 2, 19, 20, 21, 22, 23]],
-  [[0x08], [32, 33, 34, 35, 36, 37, 38, 39]],
-  [[0x09], [0, 1, 2, 35, 36, 37, 38, 39]],
-]);
-
-/** The layouts whose slot 7 is the DOS ROM, and so gives way to page 15 when
- *  the FDC latch's bit 4 says so. */
-const DOS_SLOT_KEYS_48 = new Set([0x20, 0x24, 0x28, 0x2c, 0x30, 0x34, 0x38, 0x3c]);
-const DOS_SLOT_KEYS_128 = new Set([0x03, 0x07, 0x0b, 0x0f]);
-
-/** Reverse the low four bits — MAME's `bitswap<8>(data, 0,0,0,0, 0,1,2,3)`. */
-function reverseNibble(data: number): number {
-  return ((data & 1) << 3) | ((data & 2) << 1) | ((data >> 1) & 2) | ((data >> 3) & 1);
+/** What one 8K slot of the CPU's map currently shows. */
+interface Window {
+  readonly store: Uint8Array;
+  readonly base: number;
+  readonly label: string;
 }
 
 export class LynxMemory {
-  /** Every page of every bank, back to back. */
-  readonly ram: Uint8Array;
-  /** The page currently readable in each 8K slot of the Z80's 64K. */
-  private readonly readPage = new Uint8Array(LYNX_PAGES);
+  readonly is128k: boolean;
 
-  /** The bank port as last written, before the active-high correction. */
+  readonly rom = new Uint8Array(0x10000).fill(0xff);
+  readonly userRam = new Uint8Array(0x10000);
+  readonly videoRam: Uint8Array;
+  readonly extraRam: Uint8Array | null;
+  readonly planes: LynxPlanes;
+
+  /** The 48K's two video banks, each a (low, high-in-A14) pair of planes. */
+  private readonly videoBanks: readonly [readonly Uint8Array[], readonly Uint8Array[]];
+
+  private readonly romWin: Window[] = [];
+  private readonly userWin: Window[] = [];
+  private readonly extraWin: Window[] = [];
+  private map: Window[] = [];
+
   private bankData = 0;
-  /** Port 0x80 as last written — two of its bits join the 48K's bank decode. */
   private port80 = 0;
-  /** Write enables: banks 1-4 in bits 0-3, and on the 48K/96K the two video
-   *  vetoes from port 0x80 in bits 5-6. */
-  private wbyte = 0;
-  /** Port 0x58 bit 4 swaps RAM in over the DOS ROM slot. */
   private port58 = 0;
 
-  readonly is128k: boolean;
+  private writeUser = false;
+  private writeVideoA = false;   // 48K: blue/red pair. 128K: the video bank.
+  private writeVideoB = false;   // 48K only: the green pair.
+  private writeExtra = false;    // 128K only
+
+  private readonly ramBanks: Uint8Array[];
 
   constructor(model: LynxModel) {
     this.is128k = model === 'lynx128';
-    this.ram = new Uint8Array((this.is128k ? PAGES_128 : PAGES_48) * LYNX_PAGE_SIZE);
-    this.ram.fill(0xff, 0, LYNX_PAGES * LYNX_PAGE_SIZE);
+
+    if (this.is128k) {
+      this.videoRam = new Uint8Array(0x10000);
+      this.planes = {
+        red: this.videoRam.subarray(0x0000, 0x4000),
+        blue: this.videoRam.subarray(0x4000, 0x8000),
+        green: this.videoRam.subarray(0x8000, 0xc000),
+        altGreen: this.videoRam.subarray(0xc000, 0x10000),
+      };
+      this.extraRam = new Uint8Array(0x10000);
+      this.videoBanks = [[], []];
+    } else {
+      this.videoRam = new Uint8Array(0x8000);
+      this.planes = {
+        blue: this.videoRam.subarray(0x0000, 0x2000),
+        red: this.videoRam.subarray(0x2000, 0x4000),
+        altGreen: this.videoRam.subarray(0x4000, 0x6000),
+        green: this.videoRam.subarray(0x6000, 0x8000),
+      };
+      this.extraRam = null;
+      this.videoBanks = [[this.planes.blue, this.planes.red], [this.planes.altGreen, this.planes.green]];
+    }
+
+    for (let p = 0; p < LYNX_PAGES; p++) {
+      this.romWin.push({ store: this.rom, base: p * PAGE, label: `ROM ${p}` });
+      this.userWin.push({ store: this.userRam, base: p * PAGE, label: `RAM ${p}` });
+      if (this.extraRam) {
+        this.extraWin.push({ store: this.extraRam, base: p * PAGE, label: `RAM ${p + 8}` });
+      }
+    }
+
+    // 16K views for the Memory pane: user RAM, then video, then extra RAM.
+    this.ramBanks = [];
+    const addBanks = (store: Uint8Array): void => {
+      for (let at = 0; at < store.length; at += 0x4000) this.ramBanks.push(store.subarray(at, at + 0x4000));
+    };
+    addBanks(this.userRam);
+    addBanks(this.videoRam);
+    if (this.extraRam) addBanks(this.extraRam);
+
     this.reset();
   }
 
   /**
-   * Load the system ROM images into bank 0 at their own addresses. `images`
-   * are the 8K parts in order; `dos` is the optional disk-interface ROM.
+   * Load the system ROM images at their own addresses. `images` are the 8K
+   * parts in order; `dos` is the optional disk-interface ROM.
    */
   loadRoms(images: readonly Uint8Array[], dos?: Uint8Array | null): void {
-    // Bank 0 reads 0xFF where no ROM is fitted, as MAME's ERASEFF region does.
-    this.ram.fill(0xff, 0, LYNX_PAGES * LYNX_PAGE_SIZE);
+    this.rom.fill(0xff);
     images.forEach((image, index) => {
-      const at = ROM_LOAD_OFFSETS[index];
-      if (at === undefined) return;
-      this.ram.set(image.subarray(0, LYNX_PAGE_SIZE), at);
+      const at = ROM_IMAGE_BASES[index];
+      if (at !== undefined) this.rom.set(image.subarray(0, PAGE), at);
     });
-    if (dos) this.ram.set(dos.subarray(0, LYNX_PAGE_SIZE), DOS_ROM_OFFSET);
+    if (dos) this.rom.set(dos.subarray(0, PAGE), DOS_ROM_OFFSET);
   }
 
   // ── Bank control ───────────────────────────────────────────────────────
@@ -136,7 +150,7 @@ export class LynxMemory {
     this.applyBanks();
   }
 
-  /** Port 0x80 — on the 48K/96K bits 2 and 3 join the decode, so re-apply. */
+  /** Port 0x80 — on the 48K/96K bits 2 and 3 join the bank decode. */
   setPort80(value: number): void {
     this.port80 = value & 0xff;
     if (!this.is128k) this.applyBanks();
@@ -148,93 +162,150 @@ export class LynxMemory {
     this.applyBanks();
   }
 
-  private applyBanks(): void {
-    const ramOverDos = (this.port58 & 0x10) !== 0;
-    let layout: Layout | undefined;
-    let dosSlot: boolean;
+  /** Reset clears the bank port, which puts the ROM at the bottom for the CPU to start in. */
+  reset(): void {
+    this.bankData = 0;
+    this.port80 = 0;
+    this.port58 = 0;
+    this.applyBanks();
+  }
 
-    if (this.is128k) {
-      // d7-d4 are the write enables and d3-d0 the read enables, the reverse of
-      // the 48K's order; d3 and d2 arrive active low.
-      const data = (this.bankData ^ 0x8c) & 0xff;
-      this.wbyte = reverseNibble(data >> 4);
-      let rbyte = reverseNibble(data);
-      // Bank 4 drops out when bank 2 is selected — an AND gate in IC82.
-      if (rbyte & 0x02) rbyte &= 0x07;
-      layout = LAYOUTS_128[rbyte];
-      dosSlot = DOS_SLOT_KEYS_128.has(rbyte);
-    } else {
-      // Bits 0, 4 and 5 arrive active low; correct them so every enable reads
-      // as "1 means on", which is what the tables are written against.
-      const data = (this.bankData ^ 0x31) & 0xff;
-      this.wbyte = (data & 0x0f) | ((this.port80 & 0x0c) << 3);
-      const rbyte = (data & 0x70) | (this.port80 & 0x0c);
-      layout = LAYOUTS_48[rbyte];
-      dosSlot = DOS_SLOT_KEYS_48.has(rbyte);
+  private applyBanks(): void {
+    this.map = this.is128k ? this.decode128() : this.decode48();
+  }
+
+  /**
+   * 48K/96K. Bank port bits 0, 4 and 5 arrive inverted. Writes: bit 0 user
+   * RAM, bit 1 the blue/red video pair, bit 2 the green pair, with port 0x80
+   * bits 2 and 3 vetoing the pairs. Reads: bit 4 puts ROM at the bottom 24K,
+   * bit 5 selects user RAM and bit 6 video for the rest, and port 0x80 picks
+   * which video pair a read sees.
+   */
+  private decode48(): Window[] {
+    const d = (this.bankData ^ 0x31) & 0xff;
+    this.writeUser = (d & 0x01) !== 0;
+    this.writeVideoA = (d & 0x02) !== 0 && (this.port80 & 0x04) === 0;
+    this.writeVideoB = (d & 0x04) !== 0 && (this.port80 & 0x08) === 0;
+    this.writeExtra = false;
+
+    const romLow = (d & 0x10) !== 0;
+    const wantUser = (d & 0x20) !== 0;
+    const wantVideo = (d & 0x40) !== 0;
+    const rom = this.romWin;
+
+    if (wantVideo) {
+      const pair = (this.port80 & 0x0c) === 0x04 ? 1 : 0;
+      return Array.from({ length: LYNX_PAGES }, (_, s) =>
+        s < 3 && romLow ? rom[s] : this.video48(pair, s));
     }
 
-    if (!layout) return;   // a combination the decode cannot produce; leave as-is
-    this.readPage.set(layout);
-    if (dosSlot && ramOverDos) this.readPage[7] = 15;
+    if (wantUser) {
+      const user = this.userWin;
+      return Array.from({ length: LYNX_PAGES }, (_, s) => {
+        if (s < 3) return romLow ? rom[s] : user[s];
+        if (s < 7) return user[s];
+        return (this.port58 & 0x10) !== 0 ? user[7] : rom[7];
+      });
+    }
+
+    // Neither: the ROM, its first three pages repeated over the middle of the map.
+    return [rom[0], rom[1], rom[2], rom[3], rom[0], rom[1], rom[2], rom[7]];
+  }
+
+  /**
+   * 128K. The bank port is a write nibble on top and a read nibble below, each
+   * bit-reversed; bits 7, 3 and 2 arrive inverted. Reads: bit 3 ROM at the
+   * bottom 24K, bit 2 user RAM, bit 1 video, bit 0 extra RAM. Extra RAM drops
+   * out when user RAM is selected (an AND gate in IC82), and user RAM loses to
+   * video when both are asked for without the ROM.
+   */
+  private decode128(): Window[] {
+    const c = (this.bankData ^ 0x8c) & 0xff;
+    this.writeUser = (c & 0x80) !== 0;
+    this.writeVideoA = (c & 0x40) !== 0;
+    this.writeVideoB = false;
+    this.writeExtra = (c & 0x10) !== 0;
+
+    const romLow = (c & 0x08) !== 0;
+    const user = (c & 0x04) !== 0;
+    const video = (c & 0x02) !== 0;
+    const extra = (c & 0x01) !== 0 && !user;
+    const rom = this.romWin;
+
+    let source: Window[] | null;
+    if (user && !(video && !romLow)) source = this.userWin;
+    else if (video) source = Array.from({ length: LYNX_PAGES }, (_, s) => this.video128(s));
+    else if (extra) source = this.extraWin;
+    else source = null;
+
+    if (source === null) return rom.slice();
+    return source.map((w, s) => {
+      if (s < 3 && romLow) return rom[s];
+      // User RAM sharing the map with ROM leaves the DOS ROM (or RAM over it) on top.
+      if (s === 7 && source === this.userWin && romLow) {
+        return (this.port58 & 0x10) !== 0 ? this.userWin[7] : rom[7];
+      }
+      return w;
+    });
+  }
+
+  private video48(pair: number, slot: number): Window {
+    const plane = (slot >> 1) & 1;
+    const names = pair === 0 ? ['blue', 'red'] : ['alt green', 'green'];
+    return { store: this.videoBanks[pair][plane], base: 0, label: `Video ${names[plane]}` };
+  }
+
+  private video128(slot: number): Window {
+    const names = ['red', 'blue', 'green', 'alt green'];
+    return { store: this.videoRam, base: slot * PAGE, label: `Video ${names[slot >> 1]}` };
   }
 
   // ── CPU access ─────────────────────────────────────────────────────────
 
   readByte(addr: number): number {
     const a = addr & 0xffff;
-    return this.ram[this.readPage[a >> 13] * LYNX_PAGE_SIZE + (a & 0x1fff)];
+    const w = this.map[a >> 13];
+    return w.store[w.base + (a & 0x1fff)];
   }
 
   /**
-   * A store lands in every bank enabled for writing, all at once.
-   *
-   * On the 48K/96K the video banks leave A13 and A15 out of the decode, so one
-   * store appears at four addresses and the display reads whichever of them the
-   * plane lives at. The 128K decodes fully and writes one.
+   * A store lands in every bank enabled for writing. On the 48K/96K each video
+   * pair ignores A13 and A15, so the plane is picked by A14 and the offset is
+   * the low thirteen bits; the 128K decodes its 64K video bank in full.
    */
   writeByte(addr: number, value: number): void {
     const a = addr & 0xffff;
     const v = value & 0xff;
-    const w = this.wbyte;
 
-    if (w & 0x01) this.ram[0x10000 + a] = v;              // bank 1, user RAM
+    if (this.writeUser) this.userRam[a] = v;
 
     if (this.is128k) {
-      if ((w & 0x22) === 0x02) this.ram[0x20000 + a] = v;   // bank 2, video
-      if ((w & 0x44) === 0x04) this.ram[0x30000 + a] = v;   // bank 3
-      if (w & 0x08) this.ram[0x40000 + a] = v;              // bank 4, extra RAM
+      if (this.writeVideoA) this.videoRam[a] = v;
+      if (this.writeExtra) this.extraRam![a] = v;
       return;
     }
-
-    const off = a & 0x5fff;
-    if ((w & 0x22) === 0x02) {
-      this.ram[0x20000 | off] = v;
-      this.ram[0x22000 | off] = v;
-      this.ram[0x28000 | off] = v;   // blue
-      this.ram[0x2a000 | off] = v;
-    }
-    if ((w & 0x44) === 0x04) {
-      this.ram[0x30000 | off] = v;
-      this.ram[0x32000 | off] = v;
-      this.ram[0x38000 | off] = v;   // alt green
-      this.ram[0x3a000 | off] = v;
-    }
+    if (this.writeVideoA) this.videoBanks[0][(a >> 14) & 1][a & 0x1fff] = v;
+    if (this.writeVideoB) this.videoBanks[1][(a >> 14) & 1][a & 0x1fff] = v;
   }
 
-  /** Read straight out of a page, ignoring banking — for the video and debug. */
-  readPageByte(page: number, offset: number): number {
-    return this.ram[page * LYNX_PAGE_SIZE + (offset & 0x1fff)];
+  // ── Introspection ──────────────────────────────────────────────────────
+
+  /** What each 8K slot of the CPU's map reads from, for the memory pane. */
+  get slotLabels(): readonly string[] { return this.map.map(w => w.label); }
+
+  /** Which banks a store currently lands in, for the memory pane. */
+  get writeTargets(): readonly string[] {
+    const out: string[] = [];
+    if (this.writeUser) out.push('RAM');
+    if (this.writeVideoA) out.push(this.is128k ? 'video' : 'blue/red');
+    if (this.writeVideoB) out.push('green');
+    if (this.writeExtra) out.push('extra RAM');
+    return out;
   }
-
-  /** The page in each 8K slot, for the memory pane. */
-  get pages(): Uint8Array { return this.readPage; }
-
-  /** The write enables, for the memory pane. */
-  get writeEnables(): number { return this.wbyte; }
 
   /** The 8K DOS ROM image, for the Memory pane's `rom-dos` region. */
   get dosRom(): Uint8Array {
-    return this.ram.subarray(DOS_ROM_OFFSET, DOS_ROM_OFFSET + LYNX_PAGE_SIZE);
+    return this.rom.subarray(DOS_ROM_OFFSET, DOS_ROM_OFFSET + PAGE);
   }
 
   // ── IMachineMemory ─────────────────────────────────────────────────────
@@ -248,25 +319,20 @@ export class LynxMemory {
   /** The 64K the CPU can currently see, flattened. */
   snapshot(): Uint8Array { return this.readBlock(0, 0x10000); }
 
-  /** The whole physical RAM store, flattened — the raw `.bin` dump (256K on
-   *  the 48K/96K, 320K on the 128K, matching MAME's RAM device). */
-  ramSnapshot(): Uint8Array { return this.ram.slice(); }
+  /** Every RAM chip back to back — user RAM, video RAM, then the 128K's extra
+   *  RAM (not the ROM) — as a copy, for the raw `.bin` save. */
+  ramSnapshot(): Uint8Array {
+    const parts = [this.userRam, this.videoRam, ...(this.extraRam ? [this.extraRam] : [])];
+    const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+    let at = 0;
+    for (const p of parts) { out.set(p, at); at += p.length; }
+    return out;
+  }
 
-  /** User RAM as 16K banks, starting at bank 1's first page. */
+  /** A 16K view of RAM: user RAM first, then video, then extra RAM. */
   getRamBank(n: number): Uint8Array {
-    const bank = Math.min(Math.max(n, 0), this.ramBankCount - 1);
-    const at = 0x10000 + bank * 0x4000;
-    return this.ram.subarray(at, at + 0x4000);
+    return this.ramBanks[Math.min(Math.max(n, 0), this.ramBanks.length - 1)];
   }
 
-  get ramBankCount(): number { return this.is128k ? 12 : 8; }
-
-  /** Reset writes 0 to the bank port with port 0x80 clear, which is what puts
-   *  the ROM in the bottom 24K for the CPU to start in. */
-  reset(): void {
-    this.bankData = 0;
-    this.port80 = 0;
-    this.port58 = 0;
-    this.applyBanks();
-  }
+  get ramBankCount(): number { return this.ramBanks.length; }
 }

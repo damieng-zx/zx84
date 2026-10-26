@@ -1,4 +1,4 @@
-import { Show } from 'solid-js';
+import { Show, For } from 'solid-js';
 import { Pane } from '@/ui/components/Pane.tsx';
 import { SliderRow } from '@/ui/components/Slider.tsx';
 import {
@@ -7,12 +7,13 @@ import {
   smoothing, setSmoothing, curvature, setCurvature, scanlines, setScanlines,
   maskType, setMaskType, dotPitch, setDotPitch, curvatureMode, setCurvatureMode,
   noise, setNoise, scalingMode,
-  monitor, setMonitor,
+  monitor, setMonitor, phosphor, setPhosphor,
   renderer,
   persistSetting, resetSettingsGroup,
 } from '@/store/settings.ts';
 import { machine } from '@/shell/context.ts';
 import { applyDisplaySettings } from '@/shell/settings.ts';
+import { PHOSPHORS, parsePhosphor, phosphorTint } from '@/display/phosphor.ts';
 
 interface MonitorPreset {
   maskType: number;
@@ -53,6 +54,17 @@ function applyPreset(preset: MonitorPreset) {
 export function MonitorPane() {
   return (
     <Pane id="monitor-pane" label="Monitor" onResetSettings={() => { resetSettingsGroup('monitor'); applyDisplaySettings(); }}>
+      <div class="slider-row">
+        <span class="slider-label">Phosphor</span>
+        <select id="phosphor-select" value={phosphor()} onChange={(e) => {
+          const v = parsePhosphor((e.target as HTMLSelectElement).value);
+          setPhosphor(v);
+          machine?.display?.setPhosphor(phosphorTint(v));
+          persistSetting('phosphor', v);
+        }}>
+          <For each={PHOSPHORS}>{(p) => <option value={p.id}>{p.label}</option>}</For>
+        </select>
+      </div>
       <Show when={renderer() === 'webgl'}>
       <SliderRow label="Brightness" id="brightness" min={-50} max={50} value={brightness}
         onInput={(v) => { setBrightness(v); machine?.display?.setBrightness(v / 50); persistSetting('brightness', v); }} />

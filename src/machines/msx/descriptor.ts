@@ -6,19 +6,24 @@
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type { MachineDescriptor, MachineEntry, MachineLocale, MachineUiCapabilities } from '@/machines/machine.ts';
 import type { MachineModel } from '@/models.ts';
-import type { MsxModel } from './models.ts';
+import { isMsxModel, type MsxModel } from './models.ts';
+import { createMsxConfig } from './config.ts';
 import { MsxMachine } from './msx-machine.ts';
 import {
   MSX_SCREEN_WIDTH, MSX_SCREEN_HEIGHT, MSX_BORDER_LEFT, MSX_BORDER_TOP,
 } from './constants.ts';
 
 const MSX_UI: MachineUiCapabilities = {
-  hiddenPanes: [],
+  // No system-variables view (only the Spectrum contributes one).
+  hiddenPanes: ['sysvar-panel'],
   memoryLayout: true,
-  trace: true,
+  trace: false,
   colorMap: 'msx',
   accuracy: false,
-  builtinDisk: false,
+  // The floppy interface is a Hardware-pane option: the Drives pane shows only
+  // while it is fitted (see DrivePane's msxFloppy gate).
+  builtinDisk: true,
+  builtinDrives: 2,
   joystick: true,
   fixedJoystick: true,
   mouseTypes: [],
@@ -26,10 +31,11 @@ const MSX_UI: MachineUiCapabilities = {
   systemRomLabel: 'System ROM',
   romPages: 0,
   beeper: true,
-  psgControls: ['stereo', 'filter', 'dc-block'],
+  psgControls: ['stereo', 'filter'],
   // PSG (AY-3-8910) sound, cassette load, keyboard and OCR. The MSX has no
   // Spectrum-style EAR/rainbow/Kempston activity to indicate.
-  statusLeds: ['kbd', 'load', 'ay', 'text'],
+  soundChip: 'AY-3-8910',
+  statusLeds: ['kbd', 'load', 'chip', 'text'],
   keyboardBus: 'ula',
   tape: 'instant',
   tapeSound: true,
@@ -40,11 +46,15 @@ const MSX_UI: MachineUiCapabilities = {
   persistMedia: false,
   bootDisk: false,
   library: false,
-  memoryRegions: [{ value: 'rom0', label: 'ROM 0' }],
+  memoryRegions: [
+    { value: 'rom0', label: 'ROM 0' },
+    { value: 'rom-firmware', label: 'Data Bank ROM' },
+    { value: 'rom-disk', label: 'Disk ROM' },
+  ],
   charset: 'spectrum',
 };
 
-/** Descriptor for the HX-10 — shared by the registry entry and the machine
+/** Descriptor for an MSX model — shared by the registry entry and the machine
  *  instance's own `descriptor` getter. */
 export function msxDescriptor(model: MachineModel, locale: MachineLocale = 'uk'): MachineDescriptor {
   return {
@@ -63,12 +73,12 @@ export function msxDescriptor(model: MachineModel, locale: MachineLocale = 'uk')
 
 export const msxEntry: MachineEntry = {
   kind: 'msx',
-  models: ['hx-10'],
+  models: ['hx-10', 'hb-55', 'hb-55p'],
   descriptor: msxDescriptor,
   create(model: MachineModel, display: IScreenRenderer | null) {
     return new MsxMachine(model as MsxModel, display);
   },
-  romSources(_model?: MachineModel, _locale?: MachineLocale) {
-    return ['msx/hx-10_basic-bios1.rom'];
+  romSources(model?: MachineModel, _locale?: MachineLocale) {
+    return [createMsxConfig(model !== undefined && isMsxModel(model) ? model : 'hx-10').biosSource];
   },
 };

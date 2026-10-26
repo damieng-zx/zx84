@@ -3,8 +3,8 @@
  *
  * Identical scan hardware to the ZX Spectrum (both ULAs came from the same
  * designer): eight half-rows of five bits, selected by the high byte of a port
- * 0xFE read (a 0 bit selects the row), keys active-low. The Ace's matrix
- * (MAME cantab/jupace.cpp INPUT_PORTS) is:
+ * 0xFE read (a 0 bit selects the row), keys active-low. The Ace's matrix is,
+ * as the ROM's own key tables confirm (see tests/jupiter-ace/ace-keyboard-rom.test.ts):
  *
  *   row 0 (0xFE): SHIFT   SYM     Z   X   C
  *   row 1 (0xFD): A       S       D   F   G

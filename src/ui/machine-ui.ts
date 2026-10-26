@@ -56,7 +56,13 @@ const CONTRIBUTIONS: Record<string, MachineUiContribution> = {
     Keyboard: lazy(() =>
       import('@/machines/einstein/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
   },
+  atari: {
+    Keyboard: lazy(() =>
+      import('@/machines/atari/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
+  },
   msx: {
+    HardwareSection: lazy(() =>
+      import('@/machines/msx/ui/hardware-section.tsx').then(m => ({ default: m.MsxHardwareSection }))),
     Keyboard: lazy(() =>
       import('@/machines/msx/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
   },
@@ -71,6 +77,18 @@ const CONTRIBUTIONS: Record<string, MachineUiContribution> = {
       import('@/machines/lynx/ui/hardware-section.tsx').then(m => ({ default: m.LynxHardwareSection }))),
     Keyboard: lazy(() =>
       import('@/machines/lynx/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
+  },
+  apple2: {
+    HardwareSection: lazy(() =>
+      import('@/machines/apple2/ui/hardware-section.tsx').then(m => ({ default: m.Apple2HardwareSection }))),
+    Keyboard: lazy(() =>
+      import('@/machines/apple2/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
+  },
+  apple1: {
+    HardwareSection: lazy(() =>
+      import('@/machines/apple1/ui/hardware-section.tsx').then(m => ({ default: m.Apple1HardwareSection }))),
+    Keyboard: lazy(() =>
+      import('@/machines/apple1/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
   },
   zx8x: {
     HardwareSection: lazy(() =>
@@ -95,6 +113,16 @@ const CONTRIBUTIONS: Record<string, MachineUiContribution> = {
       import('@/machines/bbc/ui/hardware-section.tsx').then(m => ({ default: m.BbcHardwareSection }))),
     Keyboard: lazy(() =>
       import('@/machines/bbc/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
+  },
+  electron: {
+    HardwareSection: lazy(() =>
+      import('@/machines/electron/ui/hardware-section.tsx').then(m => ({ default: m.ElectronHardwareSection }))),
+    Keyboard: lazy(() =>
+      import('@/machines/electron/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
+  },
+  enterprise: {
+    HardwareSection: lazy(() =>
+      import('@/machines/enterprise/ui/hardware-section.tsx').then(m => ({ default: m.EnterpriseHardwareSection }))),
   },
 };
 
@@ -148,6 +176,16 @@ export const keyboardLabPresetLoaders: readonly KeyboardLabPresetLoader[] = [
     group: 'Jupiter Cantab',
     load: () => import('@/machines/jupiter-ace/ui/keyboard/lab-preset.ts')
       .then((module) => module.aceKeyboardLabPresets()),
+  },
+  {
+    group: 'Apple II',
+    load: () => import('@/machines/apple2/ui/keyboard/lab-preset.ts')
+      .then((module) => module.apple2KeyboardLabPresets()),
+  },
+  {
+    group: 'Atari 8-bit',
+    load: () => import('@/machines/atari/ui/keyboard/lab-preset.ts')
+      .then((module) => module.atariKeyboardLabPresets()),
   },
   {
     group: 'Amstrad PCW',

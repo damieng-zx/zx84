@@ -132,7 +132,7 @@ export function App() {
       setIsDragging(false);
       const file = e.dataTransfer?.files[0];
       if (!file) return;
-      file.arrayBuffer().then(buf => loadFile(new Uint8Array(buf), file.name));
+      file.arrayBuffer().then(buf => loadFile(new Uint8Array(buf), file.name, undefined, { autoBoot: true }));
     }
     document.addEventListener('dragenter', onDragEnter);
     document.addEventListener('dragleave', onDragLeave);
@@ -170,14 +170,13 @@ export function App() {
   });
 
   // Mark the document with the active platform so platform-specific styling
-  // (e.g. hiding the Spectrum rainbow stripe on pane title bars for non-
-  // Spectrum machines) can key off it.
+  // can key off it. The rainbow stripe on pane title bars belongs to Sinclair
+  // and its clones (Spectrum family incl. Pentagon/Scorpion, ZX80/81) only.
   createEffect(() => {
     const kind = machineKind();
+    document.body.classList.toggle('sinclair-mode', kind === 'spectrum' || kind === 'zx8x');
     document.body.classList.toggle('cpc-mode', kind === 'cpc');
-    document.body.classList.toggle('einstein-mode', kind === 'einstein');
-    document.body.classList.toggle('msx-mode', kind === 'msx');
-    document.body.classList.toggle('bbc-mode', kind === 'bbc');
+    document.body.classList.toggle('atari-mode', kind === 'atari');
   });
 
   // Mirror the display scale (1×/2×/3×) into a CSS variable so the on-screen
@@ -204,7 +203,7 @@ export function App() {
         <div id="toolbar">
           <h1>
             <span class="logo-stripe" />
-            <span class="logo">ZX<span class="logo-num">84</span><sup class="logo-version" onClick={(e) => { e.stopPropagation(); toggleChangelog(); }}>v{__APP_VERSION__}</sup><AppMenu /></span>
+            <span class="logo"><img class="logo-mascot" src="/favicon.svg" alt="" width="32" height="32" />ZX<span class="logo-num">84</span><sup class="logo-version" onClick={(e) => { e.stopPropagation(); toggleChangelog(); }}>v{__APP_VERSION__}</sup><AppMenu /></span>
             <span class="logo-stripe" />
           </h1>
           <ChangelogOverlay />

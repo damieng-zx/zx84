@@ -11,7 +11,7 @@ import { FloppySound } from '@/media/floppy/floppy-sound.ts';
 import type { RomPage } from '@/managers/rom-manager.ts';
 import { type TraceMode } from '@/managers/debug-manager.ts';
 import * as settings from '@/store/settings.ts';
-import { clearLastFile, migrateDiskStorage } from '@/store/persistence.ts';
+import { clearLastFile, migrateDiskStorage, migrateModelIds } from '@/store/persistence.ts';
 import { decideFocusPause } from '@/focus-pause.ts';
 import {
   currentModel, setCurrentModel, saveModel, emulationPaused, setEmulationPaused,
@@ -80,7 +80,7 @@ function buildMachineHost(): MachineHost {
   return {
     setStatus,
     async requestModel(model, _reason) {
-      if (model === '128k') {
+      if (model === 'zx128k') {
         // Any 128K-class machine with a restorable ROM satisfies a 128K
         // snapshot — same fallback chain ensure128kROM always used.
         return await ensure128kROM();
@@ -137,7 +137,7 @@ export async function createMachine(): Promise<boolean> {
   const entry = entryForModel(model);
   const { width: w, height: h } = entry.descriptor(model, locale).screen;
   const display = canvasEl ? createDisplay(canvasEl, w, h) : null;
-  const built = entry.create(model, display);
+  const built = entry.create(model, display, locale);
   setMachine(built);
   const isCurrent = () => machine === built && generation === machineBuildGeneration
     && selection === modelSwitchGeneration && model === currentModel() && locale === currentLocale();
@@ -310,6 +310,27 @@ export function stepFrame(): void {
   debugManager.stepFrame(machine, updateRegsOnce);
 }
 
+// ── Editing CPU state while paused ──────────────────────────────────────
+
+/** Redraw every paused-state debug view (registers, disassembly, sysvars, BASIC,
+ *  memory map) after something outside the frame loop changed the machine. */
+export function refreshDebugViews(): void {
+  updateRegsOnce();
+}
+
+/**
+ * Poke a CPU register from the Debugger pane. Refuses while running — a write
+ * would race the frame loop — and returns false for an unknown register name.
+ * Shares `DebugService.setReg` with the MCP `set_register` tool, so the browser
+ * and MCP behave the same.
+ */
+export function pokeRegister(name: string, value: number): boolean {
+  if (!machine || !emulationPaused()) return false;
+  const ok = machine.services.debug.setReg(name, value);
+  if (ok) updateRegsOnce();
+  return ok;
+}
+
 // ── Reset / boot ──────────────────────────────────────────────────────────
 
 export function resetMachine(): void {
@@ -333,7 +354,7 @@ export function resetMachine(): void {
  * address for its own ROM family (Machine.armBootTrap); machines without a
  * ROM-loader auto-boot leave the method unimplemented and this is a no-op.
  */
-export function autoBootLoad(method: 'menu' | 'rom48k' | 'disk'): void {
+export function autoBootLoad(method: 'menu' | 'rom48k' | 'disk' | 'trdos'): void {
   resetMachine();
   machine?.armBootTrap?.(method);
 }
@@ -481,6 +502,7 @@ export function setCanvas(el: HTMLCanvasElement): void {
 export async function init(): Promise<void> {
   const generation = ++modelSwitchGeneration;
   await migrateDiskStorage();
+  await migrateModelIds();
   if (generation !== modelSwitchGeneration) return;
   const model = currentModel();
   const locale = currentLocale();

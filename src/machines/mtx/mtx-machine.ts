@@ -15,7 +15,9 @@ import { Tms9918a, MSX_PALETTES } from '@/cores/tms9918a.ts';
 import { Z80Ctc } from '@/cores/z80-ctc.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
+import { resolveDriveCount } from '@/machines/shared/drive-count.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
+import { z80ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import { Tms9918ScreenText, tms9918TextGrid } from '@/ocr/tms9918.ts';
 import type { OcrGridName, OcrResult } from '@/ocr/ocr.ts';
@@ -39,7 +41,7 @@ import {
   MTX_TAPE_FAILURE, MTX_TAPE_RETURN, MTX_TAPE_ROUTINE,
 } from './mtx-tape.ts';
 import {
-  MTX_ACTIVE_LINES, MTX_BORDER_LEFT, MTX_BORDER_TOP, MTX_CPU_CLOCK,
+  MTX_ACTIVE_LINES, MTX_BORDER_LEFT, MTX_BORDER_TOP, MTX_CPU_CLOCK, MTX_MAX_DRIVES,
   MTX_LINES_PER_FRAME, MTX_SCREEN_HEIGHT, MTX_SCREEN_WIDTH,
   MTX_TSTATES_PER_FRAME,
 } from './constants.ts';
@@ -78,6 +80,8 @@ export class MtxMachine extends BaseMachine implements Machine {
   cpmSystemEnabled = false;
   /** FDX floppy subsystem fitted (drives B:/C: + FDX Disk BASIC ROM). */
   floppyEnabled = true;
+  /** How many of the FDX's two drives are fitted (Drives pane choice). */
+  driveCount = MTX_MAX_DRIVES;
 
   private readonly vdpPixels = new Uint8Array(MTX_SCREEN_WIDTH * MTX_SCREEN_HEIGHT * 4);
   private readonly vdpPixels32 = new Uint32Array(this.vdpPixels.buffer);
@@ -106,6 +110,7 @@ export class MtxMachine extends BaseMachine implements Machine {
     this.display = display ?? null;
     // The CTC is the only daisy-chain device: RETI clears its IUS latch.
     this.cpu.onReti = () => this.ctc.reti();
+    this.cpu.onInterrupt = (handler, nmi) => this.noteInterrupt(handler, nmi);
 
     this.mixer.beeperGain = 0;
     this.mixer.psgGain = 1;
@@ -162,6 +167,8 @@ export class MtxMachine extends BaseMachine implements Machine {
   prepare(view: SettingsView): [] {
     this.fdc.writeProtect[0] = view.get('write-protect-a', false);
     this.fdc.writeProtect[1] = view.get('write-protect-b', false);
+    this.driveCount = resolveDriveCount(view, 'mtx', MTX_MAX_DRIVES);
+    for (let u = 0; u < this.fdc.connected.length; u++) this.fdc.connected[u] = u < this.driveCount;
     this.column80Requested = view.get('mtx-80-column', false);
     this.floppyRequested = view.get('mtx-floppy', true);
     this.set512kRamEnabled(view.get('mtx-512k-ram', false));
@@ -251,6 +258,7 @@ export class MtxMachine extends BaseMachine implements Machine {
     this.tapeOutput = 0;
     this.soundLatch = 0;
     this.vdpIntAsserted = false;
+    this.resetFrameCount();
     this.needsDisplay = true;
     this.setStatus('Reset');
   }
@@ -312,38 +320,66 @@ export class MtxMachine extends BaseMachine implements Machine {
   protected framePixels(): Uint8Array { return this.pixels; }
   protected inTurbo(): boolean { return this.turbo; }
 
+  // ── Beam ───────────────────────────────────────────────────────────────
+
+  /** The next line of the frame in progress to run (it carries over a stop). */
+  private fLine = 0;
+
+  /** Frame line 0 is the VDP's first active line; its frame flag (to CTC
+   *  channel 0) comes at the end of line 192. Each line is drawn when the CPU
+   *  reaches its end. */
+  beam(): BeamPos { return this.gridBeam(); }
+  beamInfo(): BeamInfo {
+    return {
+      cyclesPerLine: MTX_TSTATES_PER_FRAME / MTX_LINES_PER_FRAME,
+      linesPerFrame: MTX_LINES_PER_FRAME,
+      displayStart: 0,
+      note: 'line 0 is the first active line of the VDP; the 4MHz PAL field is split evenly over 313 lines, so a line is a fractional ~255.6 cycles; each line is drawn whole when the CPU reaches its end, so a VDP write shows from the line it is made in; the frame flag rises at the end of line 192 and reaches /INT through CTC channel 0; the 80-column card\'s picture is drawn once at the end of the frame',
+    };
+  }
+  override supportsBeamStops(): boolean { return true; }
+  override supportsInterruptLog(): boolean { return true; }
+  protected override cpuCycles(): number { return this.cpu.tStates; }
+  protected override stackPointer(): number { return this.cpu.sp; }
+  protected override cpuPc(): number { return this.cpu.pc; }
+  protected override interruptedPc(): number { return z80ReturnAddress(this.cpu.sp, a => this.memory.readByte(a)); }
+
   protected runFrame(): void {
     const skipAudio = this.speedMultiplier !== 1;
-    this.activity.kbdReads = 0;
-    this.activity.psgWrites = 0;
-    this.activity.casReads = 0;
-    this.activity.fdcAccesses = 0;
-    this.vdpPixels32.fill(this.vdp.backdrop());
+    // A frame a stop left part-way carries on from the line it was in.
+    if (!this.openFrame(MTX_TSTATES_PER_FRAME)) {
+      this.activity.kbdReads = 0;
+      this.activity.psgWrites = 0;
+      this.activity.casReads = 0;
+      this.activity.fdcAccesses = 0;
+      this.vdpPixels32.fill(this.vdp.backdrop());
+      this.fLine = 0;
+    }
+    this.portWatchHit = null;
+    this.memWatchHit = null;
 
     const tPerLine = MTX_TSTATES_PER_FRAME / MTX_LINES_PER_FRAME;
-    let lineEnd = this.cpu.tStates;
     let lastCtcT = this.cpu.tStates;
     let lastAudioT = this.cpu.tStates;
-    let broke = false;
 
-    for (let line = 0; line < MTX_LINES_PER_FRAME; line++) {
-      lineEnd += tPerLine;
+    for (; this.fLine < MTX_LINES_PER_FRAME; this.fLine++) {
+      const line = this.fLine;
+      const lineEnd = this.frameStartT + (line + 1) * tPerLine;
       while (this.cpu.tStates < lineEnd) {
-        if (this.breakpoints.has(this.cpu.pc)) {
-          this.breakpointHit = this.cpu.pc;
-          broke = true;
-          break;
-        }
-        if (this.onTrap !== null && this.onTrap(this.cpu.pc)) {
-          broke = true;
-          break;
+        if (this.checkStops(this.cpu.pc)) {
+          // The frame stays open; the next call carries on in this line.
+          this.midFrame = true;
+          this.needsDisplay = true;
+          return;
         }
         if (this.trapCassetteRoutine()) continue;
 
         // EI suppresses interrupts for one instruction; step() itself resets
         // and re-arms eiDelay per-instruction (see core.ts), so a plain
         // post-step check is enough here.
+        this.beforeInsn(this.cpu.pc);
         this.cpu.step();
+        const stopped = this.afterInsn();
 
         const elapsed = this.cpu.tStates - lastCtcT;
         if (elapsed > 0) {
@@ -364,8 +400,15 @@ export class MtxMachine extends BaseMachine implements Machine {
             lastAudioT = this.cpu.tStates;
           }
         }
+
+        // Stop on the instruction that tripped a watchpoint, once its cycles
+        // have reached the CTC, with the frame open.
+        if (stopped) {
+          this.midFrame = true;
+          this.needsDisplay = true;
+          return;
+        }
       }
-      if (broke) break;
 
       if (line < MTX_ACTIVE_LINES) {
         const rowStart = (MTX_BORDER_TOP + line) * MTX_SCREEN_WIDTH + MTX_BORDER_LEFT;

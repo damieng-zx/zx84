@@ -2,9 +2,9 @@
  * Multiface peripheral — overlays 8KB ROM + 8KB RAM into slot 0 (0x0000-0x3FFF).
  *
  * Three variants:
- *   MF1   (48K)       — OUT 0x9F pages in, OUT 0x1F pages out
- *   MF128 (128K/+2)   — OUT 0xBF pages in, OUT 0x3F pages out
- *   MF3   (+2A/+3)    — OUT 0x3F pages in, OUT 0xBF pages out
+ *   MF1   (48K)       — IN 0x9F pages in, IN 0x1F pages out
+ *   MF128 (128K/+2)   — IN 0xBF pages in, IN 0x3F pages out
+ *   MF3   (+2A/+3)    — IN 0x3F pages in, IN 0xBF pages out
  */
 
 import type { SpectrumModel } from '@/machines/spectrum/spectrum.ts';
@@ -14,8 +14,8 @@ import type { SpectrumMemory } from '@/machines/spectrum/memory.ts';
 export type MultifaceVariant = 'MF1' | 'MF128' | 'MF3';
 
 export function variantForModel(model: SpectrumModel): MultifaceVariant {
-  if (model === '16k' || model === '48k') return 'MF1';
-  if (model === '+2A' || model === '+3') return 'MF3';
+  if (model === 'zx16k' || model === 'zx48k') return 'MF1';
+  if (model === 'zx128kplus2a' || model === 'zx128kplus3') return 'MF3';
   return 'MF128';
 }
 
@@ -44,7 +44,8 @@ export class Multiface {
    *  menu/tool routines legitimately page out and back in many times (e.g.
    *  borrowing the underlying ROM's HALT/keyboard-scan idle loop), so a
    *  page-out must NOT disarm it, or the ROM can never page itself back in
-   *  and the machine hangs. Only a hardware reset clears it.
+   *  and the machine hangs. A hardware reset clears it, and so does the
+   *  MF128's OUT 0x3F (its invisible latch); the button arms it again.
    *  MF1's narrower bit-mask decode means real MF1 hardware has no such
    *  latch — its ports are always live, so this flag isn't consulted for it. */
   armed = false;

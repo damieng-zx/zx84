@@ -8,13 +8,51 @@ import {
 import { formatStep, formatRegs, parseAddr, text, checkWatchHit } from '../format.ts';
 import { traps, resetTrap, consumeResetHit } from '../traps.ts';
 import { MCP_MODELS } from '../models.ts';
+import { cyclesText, lineCycle } from '../beam.ts';
 
 export function register(server: McpServer): void {
   server.registerTool(
     'run',
-    { description: 'Run the emulator for N frames (default 1, max 5000). Returns breakpoint info if hit.', inputSchema: { frames: z.number().int().positive().max(5000).default(1).describe('Number of frames to run') } },
-    async ({ frames }) => {
+    { description: 'Run the emulator for N frames (default 1, max 5000). Returns breakpoint info if hit. With until_line, instead run to a raster position and stop there between two instructions, mid-frame: until_line (and optionally until_cycle) is the next time the beam reaches it (this frame if it is still ahead, otherwise the next), or in frame until_frame. The machine is left paused and resumable — step_frame, run and continue finish the frame as normal — so memory can be read exactly as the program will see it at that point. frames is then the give-up limit. Lines count from the frame start; beam_log_read\'s header says where the display starts. Supported on the Atari and the Spectrum family.', inputSchema: {
+      frames: z.number().int().positive().max(5000).default(1).describe('Number of frames to run (with until_line: the most to run before giving up)'),
+      until_line: z.number().int().min(0).optional().describe('Stop at this raster line'),
+      until_cycle: z.number().int().min(0).optional().describe('...and this cycle within the line (default 0)'),
+      until_frame: z.number().int().min(0).optional().describe('...in this absolute frame number (default: the next time the beam reaches it)'),
+    } },
+    async ({ frames, until_line, until_cycle, until_frame }) => {
       const spec = state.spec;
+      if (until_line === undefined && (until_cycle !== undefined || until_frame !== undefined)) {
+        return text('until_cycle and until_frame need until_line.');
+      }
+      if (until_line !== undefined) {
+        const info = spec.beamInfo();
+        if (info === null || !spec.supportsBeamStops()) {
+          return text(`Running to a raster position is not supported on this machine (${state.model.toUpperCase()}).`);
+        }
+        if (until_line >= info.linesPerFrame) return text(`until_line must be below ${info.linesPerFrame}, this machine's lines per frame.`);
+        const cycle = until_cycle ?? 0;
+        if (cycle >= info.cyclesPerLine) return text(`until_cycle must be below ${cyclesText(info.cyclesPerLine)}, this machine's cycles per line.`);
+        const t = until_line * info.cyclesPerLine + cycle;
+        const here = spec.beam()!;
+        if (until_frame !== undefined && (until_frame < here.frame || (until_frame === here.frame && t <= here.t))) {
+          return text(`Frame ${until_frame}, line ${until_line}, cycle ${until_cycle ?? 0} has already gone by: the beam is at frame ${here.frame}, t=${here.t}.`);
+        }
+        const frame = until_frame ?? (here.t < t ? here.frame : here.frame + 1);
+        spec.beamTarget = { frame, t };
+        const limit = Math.min(5000, Math.max(frames, frame - here.frame + 2));
+        const ran = spec.runUntil(limit);
+        spec.beamTarget = null;
+        const reset = consumeResetHit();
+        if (reset) return text(`${reset.text}\nafter ${ran} call(s)\n${formatStep(spec)}`);
+        if (spec.stopReason?.kind === 'beam') {
+          const at = spec.beam()!;
+          const { line, cycle: atCycle } = lineCycle(at.t, info, false);
+          return text(`Stopped at frame ${at.frame}, line ${line}, cycle ${atCycle} (t=${at.t}); target was frame ${frame}, line ${until_line}, cycle ${cycle}. Paused mid-frame.\n${formatStep(spec)}`);
+        }
+        const hit = checkWatchHit(spec);
+        if (hit) return text(`${hit}\nbefore reaching frame ${frame}, line ${until_line}, cycle ${cycle}`);
+        return text(`Did not reach frame ${frame}, line ${until_line}, cycle ${cycle} within ${limit} frame(s). T=${spec.services.debug.tStates}`);
+      }
       const ran = spec.runUntil(frames);
       const reset = consumeResetHit();
       if (reset) return text(`${reset.text}\nafter ${ran}/${frames} frame(s)\n${formatStep(spec)}`);

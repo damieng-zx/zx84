@@ -24,6 +24,9 @@ export const TSTATES_PER_FRAME_48K = 69_888;
 /** 128K/+2/+2A/+3: 228 T-states/line Ã— 311 lines. */
 export const TSTATES_PER_FRAME_128K = 70_908;
 
+/** Pentagon: 224 T-states/line × 320 lines. */
+export const TSTATES_PER_FRAME_PENTAGON = 71_680;
+
 /** Model-dependent ULA timing parameters. */
 export interface MachineTiming {
   cpuClock: number;
@@ -75,6 +78,42 @@ export const TIMING_PLUS2A: MachineTiming = {
   displayOrigin: 14364,     // first pixel output (contentionStart + 3T pipeline)
   intLength: 32,
   floatingBusAdjust: 1,
+};
+
+/**
+ * Pentagon 128 and its kin: a 3.5 MHz Z80 on a 224 T-state line like the 48K,
+ * but 320 lines per frame (71680 T-states, ~48.83 Hz), and no ULA memory
+ * contention. Unlike the 128K it never slows the CPU, which is why timing-tuned
+ * Russian demos need it.
+ * The first-pixel offset (17988) is the figure Pentagon emulators converge on;
+ * it is not hardware-verified here — one forum source quotes 17989.
+ */
+export const TIMING_PENTAGON: MachineTiming = {
+  cpuClock: Z80_CLOCK_48K,
+  tStatesPerFrame: TSTATES_PER_FRAME_PENTAGON,  // 224 × 320
+  tStatesPerLine: 224,
+  contentionStart: 17988,   // nothing is contended; kept for the shared maths
+  displayOrigin: 17988,
+  intLength: 32,
+  floatingBusAdjust: 0,
+};
+
+/**
+ * Scorpion ZS-256: a 3.5 MHz Z80 on the 48K's 224 T-state line and 312-line
+ * frame (69888 T-states), with no ULA memory contention.
+ * The first-pixel offset (14344) is the figure one Scorpion reference gives
+ * (+9 T-states over the 48K's 14335); an emulator source quotes 14364, so it is
+ * not hardware-verified. The Scorpion's "even M1" rule (an M1 fetch from RAM that
+ * would start on an odd T-state takes one extra wait) is NOT modelled.
+ */
+export const TIMING_SCORPION: MachineTiming = {
+  cpuClock: Z80_CLOCK_48K,
+  tStatesPerFrame: TSTATES_PER_FRAME_48K,   // 224 x 312
+  tStatesPerLine: 224,
+  contentionStart: 14344,   // nothing is contended; kept for the shared maths
+  displayOrigin: 14344,
+  intLength: 32,
+  floatingBusAdjust: 0,
 };
 
 export class Contention {

@@ -21,8 +21,10 @@
  *   0xF3  WD1772 sector register (r/w)
  *   0xFB  WD1772 data register (r/w)
  *   0xE7  read = page in, write = page out
- *   0xEF  control register (write): drive = (b & 3)==2 ? 1 : 0, side = b>>7
- *   0xF7  printer port (decoded, not implemented in this build)
+ *   0xEF  control register (write): drive = (b & 3)==2 ? 1 : 0, side = b>>7,
+ *         b6 = printer STROBE (data is latched into the output on a rising edge)
+ *   0xF7  printer: write = data latch, read b7 = BUSY. The virtual printer is
+ *         always ready (BUSY clear) and collects what it is sent in `printed`.
  *
  * The slot-0 overlay mechanism is shared with the Multiface (setSlot0 /
  * restoreSlot0); `pagedIn` feeds spectrum.hasSlot0Overlay so 128K bank
@@ -40,6 +42,7 @@ const PORT_DATA       = 0xFB;
 const PORT_PAGE       = 0xE7;
 const PORT_CONTROL    = 0xEF;
 const PORT_PRINTER    = 0xF7;
+const MAX_PRINTED     = 1 << 20;
 
 export class MgtPlusD {
   enabled = false;
@@ -55,6 +58,11 @@ export class MgtPlusD {
 
   /** Last value written to the control register (port 0xEF). */
   controlReg = 0;
+  /** Printer data latch (port 0xF7 write). */
+  private printerData = 0;
+  /** Bytes strobed to the virtual printer, capped so a runaway listing can't
+   *  grow without bound. */
+  readonly printed: number[] = [];
 
   readonly fdc = new WD179x({
     statusBit7: 'motor-on',
@@ -65,6 +73,7 @@ export class MgtPlusD {
     this.pagedIn = false;
     this.ram.fill(0);
     this.controlReg = 0;
+    this.printerData = 0;
     this.fdc.reset();
   }
 
@@ -124,7 +133,7 @@ export class MgtPlusD {
       case PORT_SECTOR:     return this.fdc.readSectorReg();
       case PORT_DATA:       return this.fdc.readData();
       case PORT_PAGE:       this.pageIn(memory); return 0; // Fuse plusd_patch_read returns 0
-      case PORT_PRINTER:    return 0xFF; // printer BUSY not implemented
+      case PORT_PRINTER:    return 0x7F; // b7 = BUSY: the virtual printer is always ready
       default:              return 0xFF;
     }
   }
@@ -137,11 +146,15 @@ export class MgtPlusD {
       case PORT_DATA:       this.fdc.writeData(val); break;
       case PORT_PAGE:       this.pageOut(memory); break;
       case PORT_CONTROL:
+        // STROBE (b6) rising edge: the latched byte goes to the printer.
+        if ((val & 0x40) && !(this.controlReg & 0x40) && this.printed.length < MAX_PRINTED) {
+          this.printed.push(this.printerData);
+        }
         this.controlReg = val & 0xFF;
         this.fdc.selectDrive((val & 0x03) === 2 ? 1 : 0);
         this.fdc.setSide((val & 0x80) ? 1 : 0);
         break;
-      case PORT_PRINTER:    break; // printer not implemented
+      case PORT_PRINTER:    this.printerData = val & 0xFF; break;
     }
   }
 }

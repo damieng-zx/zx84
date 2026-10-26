@@ -1,12 +1,12 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { variantForModel, variantLabel } from '../../src/machines/spectrum/peripherals/multiface.ts';
-import { isPlusDCapable, isBetaDiskCapable } from '../../src/models.ts';
+import { isPlusDCapable, isBetaDiskCapable, isUspeechCapable } from '../../src/models.ts';
 import { hex8 as h8, hex16 as h16 } from '../../src/utils/hex.ts';
 import { state } from '../state.ts';
-import { activeMtx, activeSpectrum } from '../concrete.ts';
+import { activeMsx, activeMtx, activeSpectrum } from '../concrete.ts';
 import { text } from '../format.ts';
-import { fetchMFRom, fetchVTXRom, fetchPlusDRom, fetchBetaDiskRom } from '../rom-fetch.ts';
+import { fetchMFRom, fetchVTXRom, fetchPlusDRom, fetchBetaDiskRom, fetchMsxDiskRom, fetchUspeechRom, fetchSp0256Rom } from '../rom-fetch.ts';
 
 export function register(server: McpServer): void {
   server.registerTool(
@@ -66,6 +66,62 @@ export function register(server: McpServer): void {
   );
 
   server.registerTool(
+    'specdrum',
+    { description: 'Fit/remove the Cheetah SpecDrum 8-bit DAC (port 0xDF, write-only; any Spectrum model). No ROM or reset needed. Status reports the last DAC code written.', inputSchema: { action: z.enum(['on', 'off', 'status']).describe('Action to perform') } },
+    async ({ action }) => {
+      const spec = activeSpectrum();
+      if (!spec) return text('The SpecDrum is a Spectrum peripheral — not available on this machine.');
+      const drum = spec.specdrum;
+
+      if (action === 'on') spec.setSpecdrumFitted(true);
+      else if (action === 'off') spec.setSpecdrumFitted(false);
+
+      return text(
+        `SpecDrum: ${drum.enabled ? 'ON' : 'OFF'}  dacCode=${h8(drum.dac.code)}  signed=${drum.signedLevel.toFixed(3)}  ` +
+        `writesThisFrame=${spec.activity.specdrumWrites}  volume=${(spec.mixer.auxGain * 100).toFixed(0)}%`
+      );
+    },
+  );
+
+  server.registerTool(
+    'uspeech',
+    { description: 'Enable/disable the Currah µSpeech speech synthesiser (16K/48K/128K/+2). Loads its ROM and the SP0256-AL2 allophone ROM and resets; the unit pages in on the frame interrupt. Status shows the speech chip\'s LRQ state and the last allophone sent. Actions: "on", "off", "status".', inputSchema: { action: z.enum(['on', 'off', 'status']).describe('Action to perform') } },
+    async ({ action }) => {
+      const spec = activeSpectrum();
+      if (!spec) return text('The Currah µSpeech is a Spectrum peripheral — not available on this machine.');
+      const u = spec.currah;
+
+      if (action === 'status') {
+        return text(
+          `Currah µSpeech: ${u.enabled ? 'ON' : 'OFF'}  romLoaded=${u.romLoaded}  speechRomLoaded=${u.speechRomLoaded}  pagedIn=${u.pagedIn}\n` +
+          `SP0256: ready=${u.chip.ready}  idle=${u.chip.idle}  pitch=${u.highPitch ? 'high' : 'low'}  ` +
+          `commandsAccepted=${u.accepted}  lastAllophone=${u.lastCommand < 0 ? '-' : h8(u.lastCommand)}\n` +
+          `Model: ${spec.model}  RAMTOP=${h16(spec.memory.readByte(0x5CB2) | (spec.memory.readByte(0x5CB3) << 8))}`
+        );
+      }
+
+      if (action === 'off') {
+        u.pageOut(spec.memory);
+        u.enabled = false;
+        spec.reset();
+        return text('Currah µSpeech removed. Machine reset.');
+      }
+
+      // action === 'on'
+      if (!isUspeechCapable(spec.model)) return text(`The µSpeech fits the 16K/48K/128K/+2 only (current: ${spec.model}). Use the model tool to switch.`);
+      try {
+        if (!u.romLoaded) u.loadROM(await fetchUspeechRom());
+        if (!u.speechRomLoaded) u.loadSpeechROM(await fetchSp0256Rom());
+      } catch (err) {
+        return text(`Failed to load the µSpeech ROMs: ${err}`);
+      }
+      u.enabled = true;
+      spec.reset();
+      return text('Currah µSpeech enabled. Machine reset; its ROM pages in on the first interrupt (RAMTOP drops by 256 bytes for its speech buffer).');
+    },
+  );
+
+  server.registerTool(
     'vtx5000',
     { description: 'Enable/disable the VTX-5000 Viewdata/Prestel modem (48K only). Loads the ROM overlay and resets the machine.', inputSchema: { action: z.enum(['on', 'off', 'status']).describe('Action to perform') } },
     async ({ action }) => {
@@ -90,7 +146,7 @@ export function register(server: McpServer): void {
       }
 
       // action === 'on'
-      if (spec.model !== '48k') return text('VTX-5000 only supported on 48K model. Use model tool to switch.');
+      if (spec.model !== 'zx48k') return text('VTX-5000 only supported on 48K model. Use model tool to switch.');
       vtx.enabled = true;
       if (!vtx.romLoaded) {
         try {
@@ -136,7 +192,7 @@ export function register(server: McpServer): void {
       }
 
       // action === 'on'
-      if (!isPlusDCapable(spec.model)) return text(`+D supported on 48k/128k/+2 only (current: ${spec.model}). Use the model tool to switch.`);
+      if (!isPlusDCapable(spec.model)) return text(`+D supported on zx48k/zx128k/zx128kplus2 only (current: ${spec.model}). Use the model tool to switch.`);
       pd.enabled = true;
       if (!pd.romLoaded) {
         try {
@@ -179,7 +235,7 @@ export function register(server: McpServer): void {
       }
 
       // action === 'on'
-      if (!isBetaDiskCapable(spec.model)) return text(`Beta Disk supported on 48k/128k/+2 only (current: ${spec.model}). Use the model tool to switch.`);
+      if (!isBetaDiskCapable(spec.model)) return text(`Beta Disk supported on zx48k/zx128k/zx128kplus2 only (current: ${spec.model}). Use the model tool to switch.`);
       // Mutually exclusive with the +D / Interface 1 (all overlay slot 0).
       if (spec.mgtPlusD.pagedIn) spec.mgtPlusD.pageOut(spec.memory);
       spec.mgtPlusD.enabled = false;
@@ -200,6 +256,48 @@ export function register(server: McpServer): void {
         `Beta Disk enabled (TR-DOS ROM ${bd.rom.length} bytes). Machine reset.\n` +
         `Enter TR-DOS with: RANDOMIZE USR 15616\n` +
         `pagedIn=${bd.pagedIn}  PC=${h16(spec.cpu.pc)}`
+      );
+    },
+  );
+
+  server.registerTool(
+    'msxdisk',
+    {
+      description: 'Fit, remove, or inspect the MSX floppy disk interface (WD2793 + Disk BASIC ROM in slot 3, drives A:/B:). Fitting it loads the Disk BASIC ROM and resets the machine so the BIOS finds it; mount disks with the load tool.',
+      inputSchema: {
+        action: z.enum(['on', 'off', 'status']).describe('Action to perform'),
+      },
+    },
+    async ({ action }) => {
+      const msx = activeMsx();
+      if (!msx) return text('The floppy disk interface is an MSX peripheral.');
+      const di = msx.diskIf;
+      if (action === 'status') {
+        const drive = (u: number) => msx.fdc.getDiskImage(u) ? 'disk' : 'empty';
+        return text(
+          `MSX disk interface: ${msx.floppyEnabled ? 'ON' : 'OFF'}  romLoaded=${di.romLoaded}` +
+          (di.romLoaded ? ` (${di.romSize} bytes, ${di.layout} layout)` : '') + '\n' +
+          `A: ${drive(0)}  B: ${drive(1)}  selected=${di.selectedDrive} motor=${di.motorOn}  ` +
+          `fdc track=${msx.fdc.getUnitTrack(di.selectedDrive)}`,
+        );
+      }
+      if (action === 'off') {
+        msx.setFloppyEnabled(false);
+        msx.reset();
+        return text('MSX disk interface removed. Machine reset.');
+      }
+      if (!di.romLoaded) {
+        try {
+          msx.loadDiskRom(await fetchMsxDiskRom());
+        } catch (err) {
+          return text(`Failed to load the MSX Disk BASIC ROM: ${err}`);
+        }
+      }
+      msx.setFloppyEnabled(true);
+      msx.reset();
+      return text(
+        `MSX disk interface fitted (Disk BASIC ROM ${di.romSize} bytes, ${di.layout} register layout). Machine reset.\n` +
+        `PC=${h16(msx.cpu.pc)}`,
       );
     },
   );

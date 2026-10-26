@@ -12,12 +12,14 @@
 
 import type { Spectrum } from '../src/machines/spectrum/spectrum.ts';
 import type { CpcMachine } from '../src/machines/cpc/cpc-machine.ts';
+import type { AtariMachine } from '../src/machines/atari/atari-machine.ts';
 import type { MsxMachine } from '../src/machines/msx/msx-machine.ts';
 import type { EinsteinMachine } from '../src/machines/einstein/einstein-machine.ts';
 import type { MtxMachine } from '../src/machines/mtx/mtx-machine.ts';
 import type { UPD765A } from '../src/cores/upd765a.ts';
 import type { Machine } from '../src/machines/machine.ts';
 import { state, type InitMachineOptions } from './state.ts';
+import { fetchRomSource } from './rom-fetch.ts';
 
 function narrow<T>(kind: Machine['kind']): T | null {
   const m: Machine | undefined = state.spec;
@@ -28,6 +30,12 @@ function narrow<T>(kind: Machine['kind']): T | null {
  *  bail gracefully on other machines. */
 export function activeSpectrum(): Spectrum | null {
   return narrow<Spectrum>('spectrum');
+}
+
+/** The active machine as an AtariMachine, or null. The Atari-only beam events
+ *  (display list, DMA, the renderer's HSCROL decisions) are switched on here. */
+export function activeAtari(): AtariMachine | null {
+  return narrow<AtariMachine>('atari');
 }
 
 /** The active machine as a CpcMachine, or null otherwise. */
@@ -114,10 +122,6 @@ export async function applyHeadlessKnobs(machine: Machine, options: InitMachineO
   zx81Wrx = requested === 'wrx';
   zx81Memotech = requested === 'memotech';
   zx81QuickSilva = requested === 'quicksilva';
-  if (machine.kind === 'spectrum') {
-    // Cheap scanline rendering — the MCP framebuffer is only read on demand.
-    (machine as unknown as { scanlineAccuracy: string }).scanlineAccuracy = 'low';
-  }
   // Every machine gets a SettingsView and its prepare() hook, not just the
   // zx8x: a machine that never sees one keeps whatever its constructor left.
   // The Jupiter Ace boots with no RAM pack that way, and since its FORTH ROM
@@ -137,9 +141,13 @@ export async function applyHeadlessKnobs(machine: Machine, options: InitMachineO
   };
   machine.applySettings(view);
   for (const request of machine.prepare?.(view) ?? []) {
-    const response = await fetch(request.source);
-    if (!response.ok) throw new Error(`${request.failMsg}: HTTP ${response.status}`);
-    request.apply(new Uint8Array(await response.arrayBuffer()));
+    let rom: Uint8Array;
+    try {
+      rom = await fetchRomSource(request.source);
+    } catch (error) {
+      throw new Error(`${request.failMsg}: ${(error as Error).message}`);
+    }
+    request.apply(rom);
   }
   if (machine.kind === 'zx8x') {
     const hires = machine.model === 'zx81'

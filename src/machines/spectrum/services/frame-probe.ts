@@ -165,7 +165,8 @@ export class SpectrumFrameProbe implements FrameProbe {
     // TAPE LED = the tape is actively rolling; ROM LD-BYTES hits alone miss
     // custom/turbo loaders (they poll the port from their own code).
     out.tapeLoad = (tape.playing && !tape.paused) || a.tapeLoads > 0 ? 1 : 0;
-    out.beeper = a.beeperToggled ? 1 : 0;
+    // The SpecDrum DAC is another analogue output, so its writes light BEEP too.
+    out.beeper = a.beeperToggled || a.specdrumWrites > 0 ? 1 : 0;
     out.psg = a.ayWrites > 5 ? 1 : 0;
     out.videoFx = a.attrWrites > 768 ? 1 : 0;
     out.disk = (a.fdcAccesses > 0
@@ -189,14 +190,12 @@ export class SpectrumFrameProbe implements FrameProbe {
     out.driveLed[0] = out.driveLed[1] = out.driveLed[2] = out.driveLed[3] = -1;
     if (v.hasFDC) {
       const activeUnit = s.fdc.currentUnit;
-      fillDriveSlot(out, 0, s.fdc, 0, activeUnit);
-      fillDriveSlot(out, 1, s.fdc, 1, activeUnit);
+      for (let u = 0; u < s.driveCount; u++) fillDriveSlot(out, u, s.fdc, u, activeUnit);
     }
     const wd = activeWd(s);
     if (wd) {
       const wdActive = wd.currentUnit;
-      fillDriveSlot(out, 2, wd, 0, wdActive);
-      fillDriveSlot(out, 3, wd, 1, wdActive);
+      for (let u = 0; u < s.driveCount; u++) fillDriveSlot(out, 2 + u, wd, u, wdActive);
     }
 
     // Microdrive motors (IF1).
@@ -268,8 +267,8 @@ export class SpectrumFrameProbe implements FrameProbe {
 
   diskImageForSlot(slot: number): DskImage | null {
     const s = this.s;
-    if (slot <= 1) return s.variant.hasFDC ? s.fdc.getDiskImage(slot) : null;
+    if (slot <= 1) return s.variant.hasFDC && slot < s.driveCount ? s.fdc.getDiskImage(slot) : null;
     const wd = activeWd(s);
-    return wd ? wd.getDiskImage(slot - 2) : null;
+    return wd && slot - 2 < s.driveCount ? wd.getDiskImage(slot - 2) : null;
   }
 }

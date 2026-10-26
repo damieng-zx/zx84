@@ -99,4 +99,7 @@ export class BbcDfs1770 implements BbcDiscController {
   isDirty(unit: number): boolean { return this.fdc.isDirty(unit); }
   clearDirty(unit: number): void { this.fdc.clearDirty(unit); }
   get writeProtect(): boolean[] { return this.fdc.writeProtect; }
+  setDriveCount(count: number): void {
+    this.fdc.connected = this.fdc.connected.map((_, u) => u < count);
+  }
 }

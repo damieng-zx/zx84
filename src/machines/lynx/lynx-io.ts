@@ -23,15 +23,11 @@ import type { LynxMachine } from './lynx-machine.ts';
 export function wireLynxPortIO(m: LynxMachine): void {
   m.cpu.portInHandler = (port: number): number => {
     const value = portIn(m, port);
-    if (m.portWatchpoints.size > 0 && m.portWatchHit === null && m.portWatchpoints.has(port & 0xffff)) {
-      m.portWatchHit = { port: port & 0xffff, value, dir: 'in' };
-    }
+    if (m.portWatchpoints.size > 0) m.recordPortWatch(port & 0xffff, value, 'in');
     return value;
   };
   m.cpu.portOutHandler = (port: number, value: number): void => {
-    if (m.portWatchpoints.size > 0 && m.portWatchHit === null && m.portWatchpoints.has(port & 0xffff)) {
-      m.portWatchHit = { port: port & 0xffff, value: value & 0xff, dir: 'out' };
-    }
+    if (m.portWatchpoints.size > 0) m.recordPortWatch(port & 0xffff, value & 0xff, 'out');
     portOut(m, port, value);
   };
 }

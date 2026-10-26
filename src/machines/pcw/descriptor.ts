@@ -11,12 +11,16 @@ import type {
   MachineDescriptor, MachineEntry, MachineLocale, MachineUiCapabilities,
 } from '@/machines/machine.ts';
 import type { MachineModel } from '@/models.ts';
-import type { PcwModel } from './models.ts';
+import { pcwDriveCount, type PcwModel } from './models.ts';
 import { PcwMachine } from './pcw-machine.ts';
 import {
   PCW_BORDER_LEFT, PCW_BORDER_TOP, PCW_DISPLAY_HEIGHT, PCW_DISPLAY_WIDTH,
   PCW_SCREEN_HEIGHT, PCW_SCREEN_WIDTH,
 } from './constants.ts';
+
+function pcwUi(model: MachineModel): MachineUiCapabilities {
+  return { ...PCW_UI, builtinDrives: pcwDriveCount(model as PcwModel) };
+}
 
 const PCW_UI: MachineUiCapabilities = {
   // No cassette port, no joystick, no mouse fitted, no Sinclair sysvars, and
@@ -77,7 +81,7 @@ export function pcwDescriptor(
       borderLeft: PCW_BORDER_LEFT,
       borderTop: PCW_BORDER_TOP,
     },
-    ui: PCW_UI,
+    ui: pcwUi(model),
   };
 }
 

@@ -24,11 +24,13 @@ import { UPD765A } from '@/cores/upd765a.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { disasmOne, type DisasmLine } from '@/debug/z80/disasm.ts';
+import { z80ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type {
   BorderMode, Machine, MachineDescriptor, MachineHost, MachineKind,
-  MachineTraceMode, SettingsView,
+  AuxRomRequest, MachineTraceMode, SettingsView,
 } from '@/machines/machine.ts';
+import { resolveDriveCount } from '@/machines/shared/drive-count.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import type { OcrGridName } from '@/ocr/ocr.ts';
 import {
@@ -72,6 +74,9 @@ export class PcwMachine extends BaseMachine implements Machine {
   readonly keyboard = new PcwKeyboard();
   /** The 3" drives. Drive B exists only on the 8512. */
   readonly fdc = new UPD765A();
+  /** Drives actually fitted: the model's own count, or fewer if the user chose
+   *  so from the Drives pane (set from the settings in prepare()). */
+  driveCount: number;
   readonly mixer: AudioMixer;
   readonly audio: Audio;
   display: IScreenRenderer | null;
@@ -111,6 +116,7 @@ export class PcwMachine extends BaseMachine implements Machine {
     this.model = model;
     this.config = createPcwConfig(model);
     this.cpu = new Z80();
+    this.cpu.onInterrupt = (handler, nmi) => this.noteInterrupt(handler, nmi);
     this.memory = new PcwMemory(this.config);
     this.asic = new PcwAsic(this.memory);
     this.audio = new Audio();
@@ -126,7 +132,8 @@ export class PcwMachine extends BaseMachine implements Machine {
     // Only the 8512 shipped with a second mechanism. On the others nothing is
     // wired to that select line, so recalibrating it must fail — which is how
     // CP/M Plus counts drives for its banner.
-    this.fdc.connected[1] = this.config.drives > 1;
+    this.driveCount = this.config.drives;
+    this.fdc.connected[1] = this.driveCount > 1;
     // The PCW is the only machine here that waits on the FDC's interrupt line
     // rather than polling the status register, so it is the only one that can
     // tell the controller answers instantly. Give it a response time.
@@ -243,6 +250,14 @@ export class PcwMachine extends BaseMachine implements Machine {
 
   // ── Machine: settings, ROM, regions ───────────────────────────────────────
 
+  /** Build-time hook: fit the number of drives the user chose (never more than
+   *  the model shipped with). A PCW has no peripheral ROMs to fetch. */
+  prepare(view: SettingsView): AuxRomRequest[] {
+    this.driveCount = resolveDriveCount(view, 'pcw', this.config.drives);
+    this.fdc.connected[1] = this.driveCount > 1;
+    return [];
+  }
+
   applySettings(view: SettingsView): void {
     const phosphor = PCW_PHOSPHORS[view.get('pcw-phosphor', this.config.phosphor)]
       ?? PCW_PHOSPHORS[this.config.phosphor];
@@ -301,6 +316,7 @@ export class PcwMachine extends BaseMachine implements Machine {
     this.lastNmiLine = false;
     this.audio.reset();
     this.mixer.reset();
+    this.resetFrameCount();
     this.needsDisplay = true;
     // A reset with a disc already in drive A boots straight back into it.
     if (!this.boot()) this.setStatus('Reset');
@@ -308,6 +324,36 @@ export class PcwMachine extends BaseMachine implements Machine {
 
   protected framePixels(): Uint8Array { return this._pixels; }
   protected inTurbo(): boolean { return this.turbo; }
+
+  // ── Beam ────────────────────────────────────────────────────────────────
+
+  /** The next line of the frame in progress to run, and whether its
+   *  start-of-line work (gate array line, timer pulse, FDC sample) is done —
+   *  both carry over a stop. */
+  private fLine = 0;
+  private fLineLive = false;
+
+  /** Frame line 0 is the first of the 256 displayed lines; 256-311 are frame
+   *  flyback. Each line is drawn whole when the CPU reaches its end. */
+  beam(): BeamPos { return this.gridBeam(); }
+  beamInfo(): BeamInfo {
+    return {
+      cyclesPerLine: PCW_T_PER_LINE,
+      linesPerFrame: PCW_LINES_PER_FRAME,
+      displayStart: 0,
+      note: 'line 0 is the first of the 256 displayed lines and 256-311 are frame flyback (the '
+        + 'status byte\'s flyback bit); the 300Hz timer interrupt starts at lines 258, 310, 50, '
+        + '102, 154 and 206; each line is drawn whole when the CPU reaches its end, so t within '
+        + 'a line is not a pixel position; a line is 218 T-states, 3.4MHz rounded to whole '
+        + 'T-states per 64us line',
+    };
+  }
+  override supportsBeamStops(): boolean { return true; }
+  override supportsInterruptLog(): boolean { return true; }
+  protected override cpuCycles(): number { return this.cpu.tStates; }
+  protected override stackPointer(): number { return this.cpu.sp; }
+  protected override cpuPc(): number { return this.cpu.pc; }
+  protected override interruptedPc(): number { return z80ReturnAddress(this.cpu.sp, a => this.memory.readByte(a)); }
 
   /**
    * Execute one PAL field: 312 scan lines of 218 T-states.
@@ -321,38 +367,49 @@ export class PcwMachine extends BaseMachine implements Machine {
     const cpu = this.cpu;
     const asic = this.asic;
     const skipAudio = this.speedMultiplier !== 1;
-    const a = this.activity;
-    a.kbdReads = 0; a.fdcAccesses = 0; a.beeperWrites = 0; a.printerWrites = 0;
-
-    asic.beginFrame(this._pixels32);
-
-    let lineEnd = cpu.tStates;
+    // A frame a stop left part-way carries on from the line it was in.
+    if (!this.openFrame(PCW_T_PER_FRAME)) {
+      const a = this.activity;
+      a.kbdReads = 0; a.fdcAccesses = 0; a.beeperWrites = 0; a.printerWrites = 0;
+      asic.beginFrame(this._pixels32);
+      this.fLine = 0;
+      this.fLineLive = false;
+    }
+    this.portWatchHit = null;
+    this.memWatchHit = null;
     this.lastAudioT = cpu.tStates;
-    let broke = false;
 
-    for (let line = 0; line < PCW_LINES_PER_FRAME; line++) {
-      const lineStart = lineEnd;
-      lineEnd += PCW_T_PER_LINE;
-      asic.beginLine(line);
+    for (; this.fLine < PCW_LINES_PER_FRAME; this.fLine++) {
+      const line = this.fLine;
+      const lineStart = this.frameStartT + line * PCW_T_PER_LINE;
+      const lineEnd = lineStart + PCW_T_PER_LINE;
 
-      if (PcwAsic.isInterruptLine(line)) {
-        this.timerPulseEnd = lineStart + PCW_TIMER_PULSE_T;
-        // The gate array scans the keyboard into block 3 continuously, "even
-        // when interrupts are disabled". Refreshing it on the interrupt lines
-        // gives software a matrix at most one 300Hz tick old, which is as
-        // fresh as the real DMA ever is.
-        this.scanKeyboard();
+      if (!this.fLineLive) {
+        this.fLineLive = true;
+        asic.beginLine(line);
+
+        if (PcwAsic.isInterruptLine(line)) {
+          this.timerPulseEnd = lineStart + PCW_TIMER_PULSE_T;
+          // The gate array scans the keyboard into block 3 continuously, "even
+          // when interrupts are disabled". Refreshing it on the interrupt
+          // lines gives software a matrix at most one 300Hz tick old, which is
+          // as fresh as the real DMA ever is.
+          this.scanKeyboard();
+        }
+
+        // The FDC's interrupt line is sampled per scan line: 64us of latency on
+        // a signal the BIOS reaches through an interrupt handler is
+        // immaterial, and this keeps the inner loop free of a per-instruction
+        // chip poll. The same tick is what the controller's command-response
+        // time is charged against (see PCW_FDC_INT_RESPONSE_LINES).
+        this.fdc.tickIntResponse();
+        asic.fdcInt = this.fdc.interruptLine;
       }
 
-      // The FDC's interrupt line is sampled per scan line: 64us of latency on a
-      // signal the BIOS reaches through an interrupt handler is immaterial, and
-      // this keeps the inner loop free of a per-instruction chip poll. The same
-      // tick is what the controller's command-response time is charged against
-      // (see PCW_FDC_INT_RESPONSE_LINES).
-      this.fdc.tickIntResponse();
-      asic.fdcInt = this.fdc.interruptLine;
-
-      // End the timer pulse where it falls inside this line.
+      // End the timer pulse where it falls inside this line. Only the pulse's
+      // end clears `timerPending`, so after a stop this is still true exactly
+      // when the stop fell before the pulse ended.
+      let broke = false;
       if (asic.timerPending && this.timerPulseEnd < lineEnd) {
         broke = this.runCpuUntil(this.timerPulseEnd, skipAudio);
         if (!broke) asic.endTimerPulse();
@@ -360,9 +417,16 @@ export class PcwMachine extends BaseMachine implements Machine {
       if (!broke) broke = this.runCpuUntil(lineEnd, skipAudio);
 
       // Draw the line even when execution broke inside it, so a breakpoint
-      // leaves a coherent partial frame rather than a torn one.
+      // leaves a coherent partial frame rather than a torn one (the line is
+      // drawn again when the resumed frame finishes it).
       asic.renderScanline(this._pixels32, line);
-      if (broke) break;
+      if (broke) {
+        // The frame stays open; the next call carries on in this line.
+        this.midFrame = true;
+        this.needsDisplay = true;
+        return;
+      }
+      this.fLineLive = false;
     }
 
     this.needsDisplay = true;
@@ -374,15 +438,17 @@ export class PcwMachine extends BaseMachine implements Machine {
   }
 
   /** Run the CPU until `until` T-states, servicing /NMI, /INT and audio.
-   *  Returns true if a breakpoint or trap stopped execution. */
+   *  Returns true if a stop (breakpoint, trap, beam target or watchpoint)
+   *  ended the run. */
   private runCpuUntil(until: number, skipAudio: boolean): boolean {
     const cpu = this.cpu;
     const asic = this.asic;
     while (cpu.tStates < until) {
-      if (this.breakpoints.has(cpu.pc)) { this.breakpointHit = cpu.pc; return true; }
-      if (this.onTrap !== null && this.onTrap(cpu.pc)) return true;
+      if (this.checkStops(cpu.pc)) return true;
 
+      this.beforeInsn(cpu.pc);
       cpu.step();
+      const stopped = this.afterInsn();
 
       // /NMI is edge triggered, so it fires once per rising edge of the FDC's
       // interrupt line however long that line stays up.
@@ -402,6 +468,10 @@ export class PcwMachine extends BaseMachine implements Machine {
           this.lastAudioT = cpu.tStates;
         }
       }
+      // Stop on the instruction that tripped a watchpoint, with the frame
+      // open, after the interrupt check so a resume takes a pending one where
+      // a run would.
+      if (stopped) return true;
     }
     return false;
   }

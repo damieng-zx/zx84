@@ -11,6 +11,7 @@
 
 import { Z80 } from '@/cores/z80.ts';
 import type { DisasmLine } from '@/debug/z80/disasm.ts';
+import { z80ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
 import { AY3891x } from '@/cores/ay-3-8910.ts';
 import { SpectrumMemory } from '@/machines/spectrum/memory.ts';
 import { ULA, PALETTES, type BorderMode } from '@/machines/spectrum/ula.ts';
@@ -33,18 +34,23 @@ import { BaseMachine } from '@/machines/base-machine.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { Multiface } from '@/machines/spectrum/peripherals/multiface.ts';
 import { VTX5000 } from '@/machines/spectrum/peripherals/vtx5000.ts';
+import { SpecDrum } from '@/machines/spectrum/peripherals/specdrum.ts';
 import { Interface2 } from '@/machines/spectrum/peripherals/interface2.ts';
 import { MgtPlusD } from '@/machines/spectrum/peripherals/mgt-plusd.ts';
 import { Interface1 } from '@/machines/spectrum/peripherals/interface1.ts';
 import { BetaDisk } from '@/machines/spectrum/peripherals/beta-disk.ts';
+import { CurrahUSpeech, USPEECH_TOGGLE_ADDR } from '@/machines/spectrum/peripherals/currah-uspeech.ts';
 import { DISPLAY_WIDTH, DISPLAY_HEIGHT } from '@/machines/spectrum/ula.ts';
 import { createVariant, type MachineVariant } from '@/machines/spectrum/variants/index.ts';
 import type { Machine, MachineKind, MachineHost, MachineDescriptor, SettingsView, AuxRomRequest } from '@/machines/machine.ts';
+import { soundDeviceGains } from '@/machines/machine.ts';
 import { applyAySettings } from '@/machines/shared/ay-settings.ts';
 import { spectrumDescriptor } from '@/machines/spectrum/descriptor.ts';
+import { resolveDriveCount } from '@/machines/shared/drive-count.ts';
 import { buildSpectrumAuxRoms } from '@/machines/spectrum/aux-roms.ts';
 import { createSpectrumServices, type SpectrumServices } from '@/machines/spectrum/services/index.ts';
 import { SpectrumTrace } from '@/machines/spectrum/trace.ts';
+import { bootWaitPc } from '@/machines/spectrum/boot-trap.ts';
 
 // Re-export model type and helpers from their canonical home (models.ts)
 // so existing imports from '@/machines/spectrum/spectrum.ts' continue to work.
@@ -58,7 +64,15 @@ const AY_CLOCK = 1773400;        // ~1.77 MHz
  *  inline-cache stability across instances). */
 const NOOP_CONTEND = (_addr: number): void => {};
 
+/** Models whose first-pixel offset (`displayOrigin`) is a best-known figure,
+ *  not a measurement: see their notes in contention.ts. */
+const UNVERIFIED_DISPLAY_START: ReadonlySet<string> = new Set([
+  'pentagon128', 'pentagon512', 'pentagon1024', 'scorpion256',
+]);
+
 import type { SpectrumModel } from '@/models.ts';
+import { betaRomInSystemRom, isPentagonClass, isScorpionClass } from '@/machines/spectrum/models.ts';
+import { withTrdosMenuEntry } from '@/machines/spectrum/pentagon-menu.ts';
 import { IOActivity } from '@/machines/spectrum/activity.ts';
 
 // Re-export IOActivity from its neutral home so existing imports from
@@ -74,6 +88,9 @@ const K_ENTER: readonly [number, number] = [6, 0];
 const K_J: readonly [number, number] = [6, 3];     // LOAD keyword in K-mode
 const K_SYM: readonly [number, number] = [7, 1];   // SYMBOL SHIFT
 const K_P: readonly [number, number] = [5, 0];     // P (with SYM = ")
+const K_CAPS: readonly [number, number] = [0, 0];  // CAPS SHIFT (with SYM = extended mode)
+const K_R: readonly [number, number] = [2, 3];     // RUN keyword in K-mode
+const K_6: readonly [number, number] = [4, 4];     // 6 (with CAPS = cursor down)
 
 /** 128K/+2/+2A/+3 boot menu: hold ENTER on the default "Loader" option. The
  *  menu ignores input for ~100 frames while it draws, so the hold must be long. */
@@ -99,6 +116,42 @@ function load48kSequence(): BootKeyStep[] {
   ];
 }
 
+/** 128K menu: cursor down (CAPS + 6) three times from "Tape Loader" past "128
+ *  BASIC" and "Calculator" to "48 BASIC", then ENTER. That pages the 48K ROM and
+ *  shows its editor; TR-DOS only traps in while that ROM is live. */
+function menu48BasicSequence(): BootKeyStep[] {
+  const HOLD = 5, GAP = 15;
+  const down: BootKeyStep[] = [{ keys: [K_CAPS, K_6], frames: HOLD }, { keys: [], frames: GAP }];
+  return [{ keys: [], frames: 30 }, ...down, ...down, ...down, { keys: [K_ENTER], frames: HOLD }];
+}
+
+/** TR-DOS is up at the 48K editor: `RUN` + ENTER loads and runs the disk's boot
+ *  file. RUN is key R in K-mode. */
+function trdosRunSequence(): BootKeyStep[] {
+  const HOLD = 5, GAP = 5;
+  return [{ keys: [K_R], frames: HOLD }, { keys: [], frames: GAP }, { keys: [K_ENTER], frames: HOLD }];
+}
+
+/** 0x3D00 is TR-DOS's entry point: `RANDOMIZE USR 15616` calls it. */
+const TRDOS_ENTRY = 0x3D00;
+/** The 48K ROM's key-wait loop: the editor idling for a keypress. */
+const EDITOR_KEY_WAIT = 0x15DE;
+
+/** Scorpion menu: ENTER takes the default "128 TR-DOS" entry, which starts
+ *  TR-DOS under 128 BASIC; once it is up, `RUN` + ENTER boots the disk. */
+function scorpionTrdosSequence(): BootKeyStep[] {
+  const HOLD = 5, GAP = 5, TRDOS_INIT = 150;
+  return [
+    { keys: [], frames: 30 },
+    { keys: [K_ENTER], frames: HOLD },
+    { keys: [], frames: TRDOS_INIT },
+    { keys: [K_R], frames: HOLD }, { keys: [], frames: GAP }, { keys: [K_ENTER], frames: HOLD },
+  ];
+}
+
+/** The +3's built-in drives, and the +D / Beta Disk interfaces, each have two. */
+export const SPECTRUM_MAX_DRIVES = 2;
+
 export class Spectrum extends BaseMachine implements Machine {
   protected get audioChip(): AY3891x { return this.ay; }
   readonly kind: MachineKind = 'spectrum';
@@ -117,6 +170,9 @@ export class Spectrum extends BaseMachine implements Machine {
   audio: Audio;
   tape: TapeDeck;
   fdc: UPD765A;
+  /** How many drives of the active disk subsystem are fitted (1..2): the +3's
+   *  built-in pair, or the +D / Beta Disk pair. Set from the settings in prepare(). */
+  driveCount = SPECTRUM_MAX_DRIVES;
   contention: Contention;
   screenText = new ScreenText();
   readonly trace: SpectrumTrace;
@@ -132,6 +188,9 @@ export class Spectrum extends BaseMachine implements Machine {
 
   /** AMX mouse peripheral */
   amxMouse = new AmxMouse();
+
+  /** Cheetah SpecDrum 8-bit DAC (port 0xDF, write-only) */
+  specdrum = new SpecDrum();
 
   /** Audio mixer peripheral (beeper + AY mixing, DC filter) */
   mixer!: AudioMixer;
@@ -153,6 +212,9 @@ export class Spectrum extends BaseMachine implements Machine {
 
   /** Beta Disk interface (48K/128K/+2) — WD1793 FDC + 16KB TR-DOS ROM. */
   betaDisk = new BetaDisk();
+
+  /** Currah µSpeech (16K/48K/128K/+2) — SP0256-AL2 speech synthesiser + 2KB ROM. */
+  currah = new CurrahUSpeech();
 
   get tStatesPerFrame(): number { return this.contention.timing.tStatesPerFrame; }
 
@@ -230,12 +292,6 @@ export class Spectrum extends BaseMachine implements Machine {
   private _tapeTurboCooldown = 0;
 
 
-  /** Per-cell render threshold: +1 on 48K/16K (Issue 2 ULA) to render when the
-   *  beam enters each cell for tightest accuracy.  +0 on 128K/+2 (Ferranti) and
-   *  +2A/+3 (Amstrad gate array) where deterministic timing makes the slightly
-   *  later capture safe.  Set once in constructor from the variant. */
-  private _cellRenderOffset: 0 | 1 = 1;
-
   /** One-shot auto-boot trap for the software library's one-click play: when PC
    *  reaches `bootTrapPc`, inject the loader keystrokes and disarm. 'menu' holds
    *  Enter (the 128K/+2/+2A/+3 boot menu's default Loader option); 'rom48k' types
@@ -244,7 +300,7 @@ export class Spectrum extends BaseMachine implements Machine {
    *  (A cold jump to LD-BYTES doesn't work: it loads one block to undefined
    *  IX/DE/A' and never runs the BASIC loader, so we drive the real keyboard.) */
   bootTrapPc = -1;
-  bootTrapKind: 'menu' | 'rom48k' = 'menu';
+  bootTrapKind: 'menu' | 'rom48k' | 'trdos-menu' | 'trdos-run' | 'trdos-ready' = 'menu';
   /** Remaining auto-boot keystroke steps; each holds a key set for `frames`
    *  frames (an empty key set is a release gap so the ROM sees distinct keys). */
   private bootKeySteps: BootKeyStep[] = [];
@@ -253,14 +309,23 @@ export class Spectrum extends BaseMachine implements Machine {
 
   /** Arm the software library's one-click auto-boot trap after a reset. The
    *  trap PC is the ROM's menu/editor key-wait loop — a Spectrum-family address
-   *  (found by tracing each model's key-wait), so it lives here, not the shell.
-   *  'menu' holds Enter on the 128K boot menu; 'rom48k' types LOAD "" on 48K. */
-  armBootTrap(kind: 'menu' | 'rom48k'): void {
+   *  (see boot-trap.ts; the +2A/+3 one is found in the installed ROM 0), so it
+   *  lives here, not the shell.
+   *  'menu' holds Enter on the 128K boot menu; 'rom48k' types LOAD "" on 48K;
+   *  'trdos' boots the Beta Disk in drive A: the Scorpion's menu starts TR-DOS
+   *  itself and RUN is typed. Elsewhere 48 BASIC is selected (by hardware state
+   *  where 7FFD bit 4 picks the ROM, else from the menu), TR-DOS is entered with
+   *  the CALL that RANDOMIZE USR 15616 makes, and RUN is typed once it is back at
+   *  the editor. */
+  armBootTrap(kind: 'menu' | 'rom48k' | 'trdos'): void {
+    if (kind === 'trdos') {
+      const hasMenu = !this.variant.is48K;
+      this.bootTrapKind = hasMenu ? 'trdos-menu' : 'trdos-run';
+      this.bootTrapPc = hasMenu ? bootWaitPc(this.model, this.memory.romPages[0]) : EDITOR_KEY_WAIT;
+      return;
+    }
     this.bootTrapKind = kind;
-    const m = this.model;
-    this.bootTrapPc = (m === '+2A' || m === '+3') ? 0x1875   // +2A/+3 menu wait
-      : (m === '128k' || m === '+2') ? 0x0E65               // 128K/+2 menu wait
-      : 0x15DE;                                             // 48K editor WAIT-KEY
+    this.bootTrapPc = bootWaitPc(this.model, this.memory.romPages[0]);
   }
 
   // The debug surface (breakpoints / port + memory watchpoints / onTrap /
@@ -274,17 +339,21 @@ export class Spectrum extends BaseMachine implements Machine {
     this.memory = new SpectrumMemory(model, {
       hasBanking: this.variant.hasBanking,
       romPageCount: this.variant.romPageCount,
-      is16K: model === '16k',
+      is16K: model === 'zx16k',
     });
     this.cpu = new Z80();
+    this.cpu.onInterrupt = (handler, nmi) => this.noteInterrupt(handler, nmi);
     this.keyboard = new SpectrumKeyboard();
     this.ula = new ULA(this.keyboard);
     this.display = display ?? null;
     this.audio = new Audio();
     // Initial AY rate tracks the Audio default; start() updates it once the
     // AudioContext reports its real platform rate.
-    this.ay = new AY3891x(AY_CLOCK, this.audio.sampleRate, 'ABC');
+    this.ay = new AY3891x(this.variant.ayClock ?? AY_CLOCK, this.audio.sampleRate, 'ABC');
     this.contention = new Contention(this.variant, this.memory);
+    // The Scorpion's service ROM (page 2) talks to the FDC itself, so the Beta
+    // ports are live whenever it is selected, not only while TR-DOS is trapped in.
+    if (isScorpionClass(model)) this.betaDisk.portGate = () => this.memory.currentROM === 2;
     this.mixer = new AudioMixer(this.contention.timing.cpuClock);
     this.tape = new TapeDeck(this.variant.timing.cpuClock);
     // TZX/TAP pulse lengths are 3.5MHz T-states; the 128K-class clock is
@@ -293,14 +362,6 @@ export class Spectrum extends BaseMachine implements Machine {
     this.tape.is48K = this.variant.is48K;
     this.fdc = new UPD765A();
     this.trace = new SpectrumTrace(this);
-    // 48K/16K (Issue 2 ULA): render as the beam enters each cell (+1) for
-    // tightest accuracy.  The beam flush (vramFlushEnd=0x5B00) ensures cells
-    // are captured with the correct attribute before multicolor engines
-    // overwrite them for the next scanline.
-    // 128K/+2 (Ferranti) and +2A/+3 (Amstrad): render after the beam fully
-    // passes (+0).  No beam flush on attr writes — deterministic timing (no IO
-    // contention) keeps the renderer in sync without it.
-    this._cellRenderOffset = this.variant.cellRenderOffset;
     installMemoryHooks(this);
     wirePortIO(this);
 
@@ -365,17 +426,42 @@ export class Spectrum extends BaseMachine implements Machine {
   applySettings(view: SettingsView): void {
     this.ula.palette = PALETTES[view.get('color-map', 'measured') as keyof typeof PALETTES];
     this.audio.setVolume(view.get('volume', 70) / 100);
-    const mix = view.get('ay-mix', 50) / 100;
-    this.mixer.beeperGain = Math.min(1, 2 * (1 - mix));
-    this.mixer.ayGain = Math.min(1, 2 * mix);
+    // One volume per sound device, from the descriptor's soundDevices.
+    const gains = soundDeviceGains(this.descriptor.ui.soundDevices, view);
+    this.mixer.beeperGain = gains.beeper;
+    this.mixer.ayGain = gains.psg ?? 1;
+    this.mixer.auxGain = gains.specdrum;
+    this.mixer.monoGain = gains.uspeech ?? 1;
+    this.ula.micAudible = view.get('mic-audible', true);
+    // The SpecDrum needs no ROM, so it is fitted/removed live here (and read once
+    // at build by prepare()).
+    this.setSpecdrumFitted(view.get('specdrum', false));
     this.tapeFastRom = view.get('tape-instant-rom', true);
     this.tapeTurbo = view.get('tape-turbo-load', true);
     this.tapeSoundEnabled = view.get('tape-sound', true);
     this.tapeAutoRewind = view.get('tape-auto-rewind', false);
     this.scanlineAccuracy = view.get('scanline-accuracy', 'high') as 'high' | 'mid' | 'low';
     applyAySettings(this.ay, view);
+    this.joystick.enabled = view.get<string>('joy-p1', 'kempston') === 'kempston'
+      || view.get<string>('joy-p2', 'sinclair2') === 'kempston';
     // Live-disable only: enabling needs a ROM load, which prepare() owns.
     if (!view.get('multiface', false)) this.multiface.enabled = false;
+    if (!view.get('uspeech', false) && this.currah.enabled) {
+      this.currah.pageOut(this.memory);
+      this.currah.enabled = false;
+    }
+  }
+
+  /**
+   * Fit or remove the SpecDrum live (Hardware pane, settings, MCP). The DAC feeds the
+   * mixer as a signed level centred on its idle code, so fitting or removing it at
+   * idle can't step the output. Removing it parks the latch back at idle so a later
+   * re-fit starts clean.
+   */
+  setSpecdrumFitted(on: boolean): void {
+    if (on === this.specdrum.enabled) return;
+    this.specdrum.enabled = on;
+    if (!on) this.specdrum.reset();
   }
 
   /** Configure fitted peripherals from settings (VTX-5000, Multiface, +D, IF1,
@@ -391,7 +477,25 @@ export class Spectrum extends BaseMachine implements Machine {
       this.fdc.writeProtect[1] = view.get('write-protect-b', false);
       this.fdc.forceReady[1] = view.get('drive-b-force-ready', false);
     }
-    return buildSpectrumAuxRoms(this, view);
+    this.specdrum.enabled = view.get('specdrum', false);
+    const reqs = buildSpectrumAuxRoms(this, view);
+    // How many drives of the active disk subsystem (the +3's built-in pair, or
+    // the +D / Beta Disk pair) are fitted. The unfitted select lines get no
+    // drive: the uPD765A fails RECALIBRATE/SEEK and reports not-ready for them,
+    // the WD179x ends Type I commands in a seek error.
+    this.driveCount = resolveDriveCount(view, 'spectrum', SPECTRUM_MAX_DRIVES);
+    this.applyDriveCount();
+    return reqs;
+  }
+
+  /** Wire only the first `driveCount` drives to each controller's select lines. */
+  private applyDriveCount(): void {
+    for (let u = 0; u < 2; u++) {
+      const fitted = u < this.driveCount;
+      this.fdc.connected[u] = fitted;
+      this.mgtPlusD.fdc.connected[u] = fitted;
+      this.betaDisk.fdc.connected[u] = fitted;
+    }
   }
 
   /** Trace state accessors for io.ts */
@@ -404,7 +508,7 @@ export class Spectrum extends BaseMachine implements Machine {
    *  slot 0 so the overlay stays mapped. */
   get hasSlot0Overlay(): boolean {
     return this.multiface.pagedIn || this.mgtPlusD.pagedIn || this.interface1.pagedIn
-      || this.betaDisk.pagedIn
+      || this.betaDisk.pagedIn || this.currah.pagedIn
       || (this.vtx5000.enabled && this.vtx5000.vtxRomPaged)
       || this.interface2.inserted;
   }
@@ -450,10 +554,15 @@ export class Spectrum extends BaseMachine implements Machine {
   }
 
   loadROM(data: Uint8Array): void {
-    this.memory.loadROM(data);
+    // The Pentagons run the Sinclair 128K pair; give its menu the TR-DOS entry.
+    this.memory.loadROM(isPentagonClass(this.model) ? withTrdosMenuEntry(data) : data);
+    // The Scorpion's TR-DOS is page 3 of its own 64K ROM, not a separate image.
+    if (betaRomInSystemRom(this.model) && data.length >= 4 * 16384) {
+      this.betaDisk.loadROM(data.subarray(3 * 16384, 4 * 16384));
+    }
     if (this.vtx5000.enabled && this.vtx5000.romLoaded) {
       if (this.memory.is128K) {
-        this.memory.currentROM = this.memory.romPages.length === 4 ? 3 : 1;
+        this.memory.currentROM = this.memory.basicRomPage;
       }
       this.vtx5000.applyROM(this.memory);
       this.memory.externalRomPaged = true;
@@ -490,7 +599,7 @@ export class Spectrum extends BaseMachine implements Machine {
     this.vtx5000.reset();
     if (this.vtx5000.enabled && this.vtx5000.romLoaded) {
       if (this.memory.is128K) {
-        this.memory.currentROM = this.memory.romPages.length === 4 ? 3 : 1;
+        this.memory.currentROM = this.memory.basicRomPage;
       }
       this.vtx5000.applyROM(this.memory);
       this.memory.externalRomPaged = true;
@@ -501,6 +610,7 @@ export class Spectrum extends BaseMachine implements Machine {
     this.joystick.reset();
     this.kempstonMouse.reset();
     this.amxMouse.reset();
+    this.specdrum.reset();
     this.mixer.reset();
     this.multiface.reset();
     // +D shadow ROM boots at 0x0000: page it in at reset so its init runs.
@@ -514,11 +624,40 @@ export class Spectrum extends BaseMachine implements Machine {
     // Beta Disk is paged OUT at reset; TR-DOS ROM maps itself in via the M1
     // fetch trap (0x3Dxx) once BASIC enters it. See beta-disk.ts.
     this.betaDisk.reset();
+    // The µSpeech drops out on reset and its ROM maps itself in again on the first
+    // interrupt (the M1 fetch at 0x0038).
+    this.currah.reset();
     this.loaderDetector.reset();
     this.contention.frameStartTStates = 0;
+    this.resumeSkipPc = -1;
+    this.frameLive = false;
+    this.resetFrameCount();
     this._resumeFrameOffset = -1;
     this.needsDisplay = true;
     this.setStatus('Reset');
+  }
+
+  /** What the 128K menu's "48 BASIC" does, minus its paging lock (a TR-DOS disk
+   *  may well want the banks): select the 48K ROM and cold-start it. Only for
+   *  machines whose ROM is chosen by 7FFD bit 4 alone, not the +2A/+3. */
+  private coldStart48Basic(): void {
+    this.memory.bankSwitch(0x10);
+    this.cpu.pc = 0x0000;
+  }
+
+  /** Enter TR-DOS the way `RANDOMIZE USR 15616` does: a CALL to its entry point,
+   *  returning to where the editor was waiting. The Beta Disk pages its ROM in on
+   *  the M1 fetch at 0x3Dxx, which the trap's own step would otherwise miss.
+   *  False (and nothing done) when there is no Beta Disk to enter. */
+  private callTrdos(): boolean {
+    if (!this.betaDisk.enabled) return false;
+    const sp = (this.cpu.sp - 2) & 0xFFFF;
+    this.memory.writeByte(sp, this.cpu.pc & 0xFF);
+    this.memory.writeByte((sp + 1) & 0xFFFF, this.cpu.pc >> 8);
+    this.cpu.sp = sp;
+    this.cpu.pc = TRDOS_ENTRY;
+    this.betaDisk.checkPage(this.cpu.pc, this.memory);
+    return true;
   }
 
   /** Pop the next auto-boot keystroke step and press its keys (held until its
@@ -568,7 +707,7 @@ export class Spectrum extends BaseMachine implements Machine {
     const budgetEnd = performance.now() + budgetMs;
     this._skipRender = true;
     do {
-      this.runFrame();
+      this.stepFrame();
       if (this.breakpointHit >= 0) break;
     } while (performance.now() < budgetEnd);
     this._skipRender = false;
@@ -603,13 +742,67 @@ export class Spectrum extends BaseMachine implements Machine {
   resumeAtFrameOffset(frameOffset: number): void {
     const tpf = this.contention.timing.tStatesPerFrame;
     this._resumeFrameOffset = ((frameOffset % tpf) + tpf) % tpf;
+    // A loaded state replaces any frame that was stopped part-way.
+    this.frameLive = false;
+    this.midFrame = false;
   }
 
+  override supportsInterruptLog(): boolean { return true; }
+  protected override cpuCycles(): number { return this.cpu.tStates; }
+  protected override stackPointer(): number { return this.cpu.sp; }
+  protected override cpuPc(): number { return this.cpu.pc; }
+  /** The Z80 pushes the return address low byte first: it is at SP, SP+1. */
+  protected override interruptedPc(): number {
+    return z80ReturnAddress(this.cpu.sp, a => this.memory.readByte(a));
+  }
+
+  /** The frame in progress and the T-states since the interrupt that started
+   *  it. Between frames it is the next frame, mirroring the start `runFrame`
+   *  will give it, so `t` is small and never a whole frame. */
+  beam(): BeamPos {
+    let start = this.contention.frameStartTStates;
+    if (!this.frameOpen) {
+      const next = start + this.contention.timing.tStatesPerFrame;
+      if (next <= this.cpu.tStates) start = next;
+    }
+    return { frame: this.frameNumber, t: this.cpu.tStates - start };
+  }
+
+  beamInfo(): BeamInfo {
+    const timing = this.contention.timing;
+    return {
+      cyclesPerLine: timing.tStatesPerLine,
+      linesPerFrame: Math.round(timing.tStatesPerFrame / timing.tStatesPerLine),
+      displayStart: timing.displayOrigin,
+      // The Pentagon's and Scorpion's first-pixel offsets are the figures
+      // emulators converge on (their timing tables say as much), not
+      // measurements: say so next to every number the log prints.
+      ...(UNVERIFIED_DISPLAY_START.has(this.model)
+        ? { note: 'this model\'s display start is the figure emulators use, not hardware-verified' }
+        : {}),
+    };
+  }
+
+  /** A frame is in progress: it started and a stop (a breakpoint, a trap, a
+   *  watchpoint or a beam target) left it part-way. The next `runFrame` carries
+   *  it on instead of starting another. */
+  private frameLive = false;
+  /** The INT retry window's state when the frame was stopped. */
+  private intPendingF = false;
+
+  override supportsBeamStops(): boolean { return true; }
+
   protected runFrame(): void {
-    // Apply any deferred combo keys (modifier was pressed last frame).
-    this.keyboard.processPending();
-    // Reset activity counters for this frame
-    this.activity.reset();
+    // A frame a debugger stopped part-way is carried on, not started again:
+    // the work marked "once per frame" below is skipped for it.
+    const resuming = this.frameLive;
+    if (!resuming) {
+      // Apply any deferred combo keys (modifier was pressed last frame).
+      this.keyboard.processPending();
+      if (this.currah.enabled) this.currah.ensureRates(this.contention.timing.cpuClock, this.audio.sampleRate);
+      // Reset activity counters for this frame
+      this.activity.reset();
+    }
     this.portWatchHit = null;
     this.memWatchHit = null;
     // The ULA's frame boundary occurs at exact tStatesPerFrame intervals,
@@ -621,17 +814,22 @@ export class Spectrum extends BaseMachine implements Machine {
     const tpf = this.contention.timing.tStatesPerFrame;
     const idealStart = this.contention.frameStartTStates + tpf;
     // Use ideal boundary if the CPU has reached it (normal case).
-    // Otherwise re-sync to current tStates (first frame, snapshot load, reset).
-    const resumeOffset = this._resumeFrameOffset;
-    if (resumeOffset >= 0) {
+    // If the current frame was stopped by the debugger, retain its boundary.
+    // Re-syncing to cpu.tStates here would assert a fresh INT on every resume,
+    // even inside an ISR whose page helper has re-enabled interrupts.
+    // Reset starts at zero; snapshot loads provide _resumeFrameOffset below.
+    const resumeOffset = resuming ? -1 : this._resumeFrameOffset;
+    if (resuming) {
+      // The frame's boundary stays where it was.
+    } else if (resumeOffset >= 0) {
       this._resumeFrameOffset = -1;
       this.contention.frameStartTStates = this.cpu.tStates - resumeOffset;
     } else {
       this.contention.frameStartTStates =
-        idealStart <= this.cpu.tStates ? idealStart : this.cpu.tStates;
+        idealStart <= this.cpu.tStates ? idealStart : this.contention.frameStartTStates;
     }
     const frameStart = this.contention.frameStartTStates;
-    this.tapeLastAdvanceT = this.cpu.tStates;
+    if (!resuming) this.tapeLastAdvanceT = this.cpu.tStates;
     const frameEnd = frameStart + tpf;
     const intWindowEnd = frameStart + this.contention.timing.intLength;
 
@@ -641,14 +839,14 @@ export class Spectrum extends BaseMachine implements Machine {
     // If IFF1 is false (DI), the interrupt stays pending until EI re-enables it,
     // but only within the INT window — after that, it's lost until the next frame.
     // A mid-frame resume past the INT window must not take an interrupt now.
-    let intT = this.cpu.tStates < intWindowEnd ? this.cpu.interrupt() : 0;
+    let intT = !resuming && this.cpu.tStates < intWindowEnd ? this.cpu.interrupt() : 0;
     // intT === 0 means the ack didn't take this attempt — could be DI (iff1=false)
     // OR EI delay (eiDelay=true at the frame edge). Either way the INT line is still
     // held LOW for the model's int window; retry until it fires or the window closes.
-    let intPending = intT === 0 && this.cpu.tStates < intWindowEnd;
+    let intPending = resuming ? this.intPendingF : intT === 0 && this.cpu.tStates < intWindowEnd;
 
     // AMX mouse: drain queued movement steps as PIO interrupts spread across frame
-    if (this.amxMouse.enabled && (this.amxMouse.pendingX !== 0 || this.amxMouse.pendingY !== 0)) {
+    if (!resuming && this.amxMouse.enabled && (this.amxMouse.pendingX !== 0 || this.amxMouse.pendingY !== 0)) {
       this.amxMouse.drainMovement(this.cpu, frameEnd, this.activity);
     }
 
@@ -667,21 +865,32 @@ export class Spectrum extends BaseMachine implements Machine {
     // Init scanline rendering state for this frame
     // High and mid modes advance flash here (they render scanlines individually).
     // Low mode skips this — renderFrame() handles flash internally.
-    if (this._scanAcc > 0) this.ula.advanceFlash();
-    const borderTop = this.ula.borderTop;
-    const borderLeft = this.ula.borderLeft;
-    this.totalRenderLines = borderTop * 2 + DISPLAY_HEIGHT;
-    this.nextRenderLine = 0;
-    this.nextPixelX = 0;
-    this.nextDisplayCol = 0;
-    // displayOrigin = T-state of the first display pixel (varies by model).
-    // Left border starts borderLeft/2 T-states before that on each line.
-    this.nextRenderT = this.contention.frameStartTStates
-                      + this.contention.timing.displayOrigin
-                      - borderTop * this.contention.timing.tStatesPerLine
-                      - (borderLeft >> 1);
+    // (A resumed frame keeps the render position it had reached.)
+    if (!resuming) {
+      if (this._scanAcc > 0) this.ula.advanceFlash();
+      const borderTop = this.ula.borderTop;
+      const borderLeft = this.ula.borderLeft;
+      this.totalRenderLines = borderTop * 2 + DISPLAY_HEIGHT;
+      this.nextRenderLine = 0;
+      this.nextPixelX = 0;
+      this.nextDisplayCol = 0;
+      // displayOrigin = T-state of the first display pixel (varies by model).
+      // Left border starts borderLeft/2 T-states before that on each line.
+      this.nextRenderT = this.contention.frameStartTStates
+                        + this.contention.timing.displayOrigin
+                        - borderTop * this.contention.timing.tStatesPerLine
+                        - (borderLeft >> 1);
+    }
 
     while (this.cpu.tStates < frameEnd) {
+      // A beam target: stop at the first instruction boundary at or after it
+      // (checked here too, not only in checkStops, so a HALT or a trap fast
+      // path below cannot carry the run past it).
+      if (this.beamTarget !== null && this.beamReached(this.beamTarget)) {
+        this.beamTarget = null;
+        this.markStop('beam', this.cpu.pc);
+        break;
+      }
       const tBefore = this.cpu.tStates;
       // EI delay bookkeeping for the two fast paths below (trapHandled /
       // halted) that bypass core.ts's step() entirely: step() itself resets
@@ -716,12 +925,35 @@ export class Spectrum extends BaseMachine implements Machine {
       // beta-disk.ts.
       if (this.betaDisk.enabled) this.betaDisk.checkPage(this.cpu.pc, this.memory);
 
+      // Currah µSpeech: an opcode fetch at 0x0038 (the IM 1 interrupt routine, or
+      // the ROM's own JP 0038) flips its ROM in or out AFTER that fetch, so the
+      // toggle is applied once the instruction has run. See currah-uspeech.ts.
+      const uspeechToggle = this.cpu.pc === USPEECH_TOGGLE_ADDR && this.currah.togglesAt(USPEECH_TOGGLE_ADDR);
+
       // One-shot auto-boot trap (software-library play): the ROM has reached its
       // menu / 48K editor key-wait loop, so queue the loader keystrokes and
       // disarm. setKey is the same matrix path the joystick uses.
-      if (this.bootTrapPc >= 0 && this.cpu.pc === this.bootTrapPc) {
+      if (this.bootTrapPc >= 0 && this.cpu.pc === this.bootTrapPc &&
+          ((this.bootTrapKind !== 'trdos-run' && this.bootTrapKind !== 'trdos-ready') || this.memory.isBasicRomActive())) {
         this.bootTrapPc = -1;          // one-shot
-        this.bootKeySteps = this.bootTrapKind === 'rom48k' ? load48kSequence() : menuEnterSequence();
+        switch (this.bootTrapKind) {
+          case 'rom48k': this.bootKeySteps = load48kSequence(); break;
+          case 'trdos-menu':
+            if (isScorpionClass(this.model)) { this.bootKeySteps = scorpionTrdosSequence(); break; }
+            // Second stage: the editor's key-wait once 48 BASIC is paged in.
+            if (this.memory.hasPlus2ARoms) this.bootKeySteps = menu48BasicSequence();
+            else this.coldStart48Basic();
+            this.bootTrapKind = 'trdos-run';
+            this.bootTrapPc = EDITOR_KEY_WAIT;
+            break;
+          case 'trdos-run':
+            // The editor is idle: enter TR-DOS as RANDOMIZE USR 15616 would, and
+            // come back to the editor's key-wait when it has initialised the drive.
+            if (this.callTrdos()) { this.bootTrapKind = 'trdos-ready'; this.bootTrapPc = EDITOR_KEY_WAIT; }
+            break;
+          case 'trdos-ready': this.bootKeySteps = trdosRunSequence(); break;
+          default: this.bootKeySteps = menuEnterSequence();
+        }
         this.advanceBootStep();        // press the first step now
       }
 
@@ -779,28 +1011,28 @@ export class Spectrum extends BaseMachine implements Machine {
           this.cpu.r = (this.cpu.r & 0x80) | ((this.cpu.r + nops) & 0x7F);
         }
       } else {
-        // Breakpoint check (skipped when set is empty for zero overhead)
-        if (this.breakpoints.size > 0 && this.breakpoints.has(this.cpu.pc)) {
-          this.breakpointHit = this.cpu.pc;
-          break;
-        }
-        // Pre-instruction trap hook (MCP traps: log, respond, break)
-        if (this.onTrap !== null && this.onTrap(this.cpu.pc)) {
-          this.breakpointHit = this.cpu.pc;
-          break;
-        }
+        // Breakpoints and the pre-instruction trap hook (MCP traps: log,
+        // respond, break), with the step-over after a stop at this pc.
+        if (this.checkStops(this.cpu.pc)) break;
         if (this.trace.active && this.trace.mode === 'full' && this.cpu.pc >= 0x4000) this.trace.captureFull();
         const zxtlPC = this.trace.active && this.trace.mode === 'zxtl' ? this.cpu.pc : -1;
+        this.insnPc = this.cpu.pc;
         this.cpu.step();
+        if (this.intOpen > 0) this.closeInterrupts();
         tookStep = true;
         if (zxtlPC >= 0) this.trace.captureZxtl(zxtlPC);
         // Break mid-frame if a port or memory watchpoint fired during this instruction
-        if (watchActive && (this.portWatchHit !== null || this.memWatchHit !== null)) break;
+        if (watchActive && (this.portWatchHit !== null || this.memWatchHit !== null)) {
+          this.markStop(this.portWatchHit !== null ? 'port' : 'watch', this.cpu.pc);
+          break;
+        }
       }
 
       // IF1 page-out: now that the RET at 0x0700 has executed (fetched from the
       // IF1 ROM), map the IF1 ROM back out so the return lands in normal memory.
       if (if1PageOut) this.interface1.pageOut(this.memory);
+
+      if (uspeechToggle) this.currah.toggle(this.memory, this.hasSlot0Overlay);
 
       // Clear EI delay one instruction after EI set it, for the trapHandled /
       // halted fast paths that bypass core.ts's step() (see the comment at
@@ -835,6 +1067,10 @@ export class Spectrum extends BaseMachine implements Machine {
 
       const elapsed = this.cpu.tStates - tBefore;
 
+      // The speech chip runs on its own clock whether or not the audio is muted
+      // (turbo), so software polling its busy bit still sees it make progress.
+      if (this.currah.enabled) this.currah.advance(elapsed, this.memory);
+
       // Advance tape playback and update ULA EAR bit (catches up any
       // T-states not already advanced by the port-in handler mid-instruction).
       // Hoist the playing/paused check inline — saves the method-call frame
@@ -846,14 +1082,33 @@ export class Spectrum extends BaseMachine implements Machine {
       // at hundreds of MHz the buffer fills faster than realtime, the sound
       // is unrecognisable, and the per-instruction mixer work is the
       // dominant non-CPU cost. Zero the accumulator so it stays in sync
-      // when turbo releases.
+      // when turbo releases (the pending duty goes with the window, or the first
+      // sample after turbo would be normalised against the wrong span and click).
       if (skipAudio) {
-        this.mixer.beeperTStatesAccum = 0;
+        this.mixer.discardPending();
       } else {
         this.mixer.accumulateLevel(this.ula.getAudioLevel(this.tapeSoundEnabled), elapsed);
-        this.mixer.generateSamples(this.audio, this.ay, this.variant.hasAY);
+        // The DAC holds its last code between OUTs, so the level over this
+        // instruction is the latched one — within one instruction of exact.
+        if (this.specdrum.enabled) this.mixer.accumulateAux(this.specdrum.signedLevel, elapsed);
+        this.mixer.generateSamples(this.audio, this.ay, this.variant.hasAY, this.currah.enabled ? this.currah : null);
       }
     }
+
+    // A stop (breakpoint, trap, watchpoint or beam target) leaves the loop
+    // before the frame is over: the frame stays open and the next call carries
+    // it on. The end-of-frame work below belongs to the end of the frame, so a
+    // stop skips it (running it here and again at the real end would count the
+    // frame's tape, boot-script and loader bookkeeping twice).
+    if (this.cpu.tStates < frameEnd) {
+      this.midFrame = true;
+      this.frameLive = true;
+      this.intPendingF = intPending;
+      this.needsDisplay = true;
+      return;
+    }
+    this.midFrame = false;
+    this.frameLive = false;
 
     // Drive the auto-boot keystroke sequence: when the current step's hold
     // window expires, release its keys and press the next step (an empty key
@@ -975,7 +1230,7 @@ export class Spectrum extends BaseMachine implements Machine {
     if (xStart < borderLeft) {
       ula.fillBorder(i, xStart, Math.min(xEnd, borderLeft), border);
     }
-    // `>=` (not `>`): when a chunk ends exactly on the left edge, the Ferranti
+    // `>=` (not `>`): when a chunk ends exactly on the left edge, the
     // +1 cell offset asks for col 0 (colEnd=1). `colStart < colEnd` is the real
     // authority — gating on `xEnd > borderLeft` would skip col 0 here while
     // nextDisplayCol still advanced past it, leaving col 0 stale (a one-scanline
@@ -1017,13 +1272,16 @@ export class Spectrum extends BaseMachine implements Machine {
       const beamX = Math.min(w, (lineRelT << 1) & ~7);
       if (beamX <= this.nextPixelX) break;
 
-      // Display cell range visible up to the beam.
-      // Ferranti ULA (48K/128K/+2): +1 renders as beam enters cell; the
-      // write8 attr flush ensures correct per-scanline multicolor.
-      // Amstrad gate array (+2A/+3): +0 renders after beam fully passes;
-      // deterministic timing makes this safe without attr flushes.
+      // Display cell range visible up to the beam: a cell is captured as the
+      // beam enters it (+1). The ULA / gate array fetches each cell pair's
+      // bitmap and attributes inside the 8T block whose contention starts
+      // just before the pair is displayed, and the CPU is held off contended
+      // memory while it does. So a VRAM write lands either before that block
+      // (fetched) or after it (not), and capturing at cell entry puts the cut
+      // inside the block on every model. The write8 flush (bitmap+attrs)
+      // renders everything already fetched before the write changes it.
       const endCol = Math.min(
-        32, ((Math.min(beamX, dispEnd) - borderLeft) >> 3) + this._cellRenderOffset,
+        32, ((Math.min(beamX, dispEnd) - borderLeft) >> 3) + 1,
       );
       this.renderLineSegment(
         this.nextRenderLine, this.nextPixelX, beamX,

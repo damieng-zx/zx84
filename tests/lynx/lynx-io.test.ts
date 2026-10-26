@@ -65,19 +65,19 @@ describe('Lynx port I/O', () => {
   });
 
   it('takes the bank port at 0x7F on the 48K and at 0x82 on the 128K', () => {
-    const before48 = [...machine().memory.pages];
+    const before48 = [...machine().memory.slotLabels];
     const m48 = machine();
     m48.cpu.portOut(0x007f, 0x20 ^ 0x31);      // read bank 1 only
-    expect([...m48.memory.pages]).not.toEqual(before48);
+    expect([...m48.memory.slotLabels]).not.toEqual(before48);
     m48.cpu.portOut(0x0082, 0x00);             // no such port here
-    expect([...m48.memory.pages]).toEqual([8, 9, 10, 11, 12, 13, 14, 7]);
+    expect([...m48.memory.slotLabels]).toEqual(['RAM 0', 'RAM 1', 'RAM 2', 'RAM 3', 'RAM 4', 'RAM 5', 'RAM 6', 'ROM 7']);
 
     const m128 = machine('lynx128');
-    const before128 = [...m128.memory.pages];
+    const before128 = [...m128.memory.slotLabels];
     m128.cpu.portOut(0x007f, 0xff);            // no such port on this board
-    expect([...m128.memory.pages]).toEqual(before128);
+    expect([...m128.memory.slotLabels]).toEqual(before128);
     m128.cpu.portOut(0x0082, 0x04 ^ 0x8c);     // read bank 1 only
-    expect([...m128.memory.pages]).toEqual([8, 9, 10, 11, 12, 13, 14, 15]);
+    expect([...m128.memory.slotLabels]).toEqual(Array.from({ length: 8 }, (_, i) => `RAM ${i}`));
   });
 
   it('reads the FDC at 0x50-0x53 and writes it at 0x54-0x57', () => {

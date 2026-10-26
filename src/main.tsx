@@ -1,5 +1,5 @@
 /**
- * ZX84 - ZX Spectrum Emulator
+ * ZX84 - 8-bit Computer Emulator
  * Entry point: render Solid app.
  */
 

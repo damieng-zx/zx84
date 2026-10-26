@@ -1,6 +1,6 @@
 /**
  * Einstein MediaService — the machine's own file routing, ported verbatim from
- * the shell's Einstein loadFile branch: only disk images (.dsk/.hfe/.scp), read
+ * the shell's Einstein loadFile branch: only disk images (.dsk/.hfe/.scp/.td0), read
  * by the WD1772. ZIP unwrapping stays a shell concern.
  *
  * The service mutates the machine only. Signals, persistence and the Xtal-DOS
@@ -26,6 +26,7 @@ export class EinsteinMediaService implements MediaService {
       { ext: '.dsk', target: 'a' },
       { ext: '.hfe', target: 'a' },
       { ext: '.scp', target: 'a' },
+      { ext: '.td0', target: 'a' },
     ];
   }
 
@@ -36,10 +37,11 @@ export class EinsteinMediaService implements MediaService {
   }
 
   async mount(data: Uint8Array, filename: string, target?: MediaTargetId): Promise<MountResult> {
-    if (!/\.(dsk|hfe|scp)$/i.test(filename)) {
-      return fail('Einstein accepts .dsk, .hfe, .scp and .zip disk images');
+    if (!/\.(dsk|hfe|scp|td0)$/i.test(filename)) {
+      return fail('Einstein accepts .dsk, .hfe, .scp, .td0 and .zip disk images');
     }
     const unit = EinsteinMediaService.unitOf(target);
+    if (!Number.isInteger(unit) || unit < 0 || unit >= this.e.driveCount) return fail('that drive is not fitted');
     try {
       const image = parseFloppyImage(data);
       this.disks.insert(unit === 0 ? 'a' : 'b', image, filename);

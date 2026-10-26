@@ -9,7 +9,9 @@
 
 import type { Machine } from '../src/machines/machine.ts';
 import { hex16 as h16 } from '../src/utils/hex.ts';
+import { BEAM_PC } from '../src/debug/beam-log.ts';
 import { spectrumPagingLine } from './format.ts';
+import { FLAG_REGS, labelId, lineCycle, packRegs } from './beam.ts';
 
 export interface TrapResponse {
   /** Register values to set before RETurning. Only listed regs are changed. */
@@ -27,6 +29,8 @@ export interface Trap {
   label: string;
   /** Pre-queued responses for 'respond' mode */
   responses: TrapResponse[];
+  /** 'log' mode: put the CPU registers in the beam-log entry too. */
+  regs?: boolean;
 }
 
 export const traps = new Map<number, Trap[]>();
@@ -108,6 +112,13 @@ function readCpmString(spec: Machine, addr: number, maxLen = 256): string {
 export function formatTrapLog(trap: Trap, spec: Machine): string {
   const dbg = spec.services.debug;
   let line = `[${h16(dbg.pc)}] ${trap.label}  ${dbg.regsSummary()} T=${dbg.tStates}`;
+  // Where the beam is, on a machine that can say: frame/line/cycle.
+  const pos = spec.beam?.() ?? null;
+  const info = spec.beamInfo?.() ?? null;
+  if (pos !== null && info !== null) {
+    const { line: ln, cycle } = lineCycle(pos.t, info, false);
+    line += ` B=${pos.frame}/${ln}/${cycle}`;
+  }
   const fn = trap.address === 0x0005 ? dbg.getReg('C') : null;
   if (fn !== null) {
     const de = dbg.getReg('DE') ?? 0;
@@ -134,9 +145,23 @@ export function formatTrapLog(trap: Trap, spec: Machine): string {
   return line;
 }
 
+/** Put a logged trap hit in the machine's beam log, if one is armed. */
+function pushBeamPc(spec: Machine, trap: Trap, pc: number): void {
+  const log = spec.beamLog;
+  if (!log) return;
+  const pos = spec.beam();
+  if (pos === null) return;
+  if (trap.regs) {
+    const [lo, hi, x0, x1] = packRegs(spec);
+    log.push(BEAM_PC, pos.frame, pos.t, pc, labelId(trap.label), 0, FLAG_REGS, lo, hi, x0, x1);
+  } else {
+    log.push(BEAM_PC, pos.frame, pos.t, pc, labelId(trap.label));
+  }
+}
+
 /** Install the onTrap callback on the given spec. Called from initMachine. */
 export function installTrapHook(spec: Machine): void {
-  spec.onTrap = (pc: number): boolean => {
+  spec.onTrap = (pc: number, resume = false): boolean => {
     if (resetTrap.armed) {
       // Fire on the transition *into* 0x0000 (lastPc must be a real prior
       // instruction, so arming while already at boot PC=0 can't false-fire).
@@ -153,9 +178,14 @@ export function installTrapHook(spec: Machine): void {
     const dbg = spec.services.debug;
     for (const trap of list) {
       if (trap.cond && dbg.getReg(trap.cond.reg) !== trap.cond.value) continue;
+      // Resuming from a trap stop at this pc: the log and break traps already
+      // ran on the way in. Only a respond trap still has work to do (the user
+      // may have queued the answer it stopped for).
+      if (resume && trap.action !== 'respond') continue;
 
       if (trap.action === 'log') {
         pushTrapLog(formatTrapLog(trap, spec));
+        pushBeamPc(spec, trap, pc);
         return false;
       }
       if (trap.action === 'break') {

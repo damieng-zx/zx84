@@ -6,6 +6,8 @@ import {
   renderer, webglAvailable, colorMap, setColorMap, scanlineAccuracy, setScanlineAccuracy,
   cpcColorMap, setCpcColorMap, msxColorMap, setMsxColorMap,
   einsteinColorMap, setEinsteinColorMap, bbcColorMap, setBbcColorMap,
+  apple2Video, setApple2Video,
+  atariColorMap, setAtariColorMap,
   persistSetting, resetSettingsGroup,
 } from '@/store/settings.ts';
 import { machine } from '@/shell/context.ts';
@@ -137,6 +139,38 @@ export function DisplayPane() {
               <option value="measured">Measured</option>
             </select>
           </Match>
+          <Match when={machineCaps().colorMap === 'apple2'}>
+            <select value={apple2Video()} onChange={(e) => {
+              const v = (e.target as HTMLSelectElement).value as 'mono' | 'ntsc' | 'pal';
+              setApple2Video(v);
+              persistSetting('apple2-video', v);
+              applyDisplaySettings();
+            }}>
+              <option value="mono">Mono</option>
+              <option value="ntsc">Composite NTSC</option>
+              <option value="pal">Composite PAL</option>
+            </select>
+          </Match>
+          <Match when={machineCaps().colorMap === 'atari'}>
+            {/* The machine lists its region's palettes; a stored choice the
+                region lacks (PAL has no 1702 tint) shows as the default. */}
+            <select
+              value={machineCaps().colorMapOptions?.some(o => o.value === atariColorMap())
+                ? atariColorMap()
+                : machineCaps().colorMapOptions?.[0]?.value}
+              title={machineCaps().colorMapOptions?.find(o => o.value === atariColorMap())?.title}
+              onChange={(e) => {
+                const v = (e.target as HTMLSelectElement).value;
+                setAtariColorMap(v);
+                persistSetting('atari-color-map', v);
+                applyDisplaySettings();
+              }}
+            >
+              <For each={machineCaps().colorMapOptions ?? []}>
+                {(o) => <option value={o.value} title={o.title}>{o.label}</option>}
+              </For>
+            </select>
+          </Match>
         </Switch>
       </div>
       </Show>
@@ -149,17 +183,21 @@ export function DisplayPane() {
           persistSetting('scanline-accuracy', v);
           applyDisplaySettings();   // machine re-reads its accuracy setting
         }}>
-          <Show
-            when={machineCaps().accuracy === 'contention'}
-            fallback={<>
-              <option value="high">High (per t-state)</option>
+          <Switch fallback={<>
+            <option value="high">High (per t-state)</option>
+            <option value="mid">Mid (per scanline)</option>
+            <option value="low">Low (per 8-scanlines/cell)</option>
+          </>}>
+            <Match when={machineCaps().accuracy === 'raster'}>
+              <option value="high">High (per cycle)</option>
               <option value="mid">Mid (per scanline)</option>
-              <option value="low">Low (per 8-scanlines/cell)</option>
-            </>}
-          >
-            <option value="high">High (ASIC memory slots)</option>
-            <option value="low">Low (uncontended)</option>
-          </Show>
+              <option value="low">Low (per frame)</option>
+            </Match>
+            <Match when={machineCaps().accuracy === 'contention'}>
+              <option value="high">High (ASIC memory slots)</option>
+              <option value="low">Low (uncontended)</option>
+            </Match>
+          </Switch>
         </select>
       </div>
       </Show>

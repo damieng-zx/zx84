@@ -9,11 +9,8 @@ import type { MachineVariant } from './machine-variant.ts';
 const CONTENTION_FERRANTI = new Uint8Array([6, 5, 4, 3, 2, 1, 0, 0]);
 
 export const spectrum48K: MachineVariant = Object.freeze({
-  model: '48k' as const,
+  model: 'zx48k' as const,
   timing: TIMING_48K,
-
-  cellRenderOffset: 1,
-  vramFlushEnd: 0x5B00,
 
   contentionPattern: CONTENTION_FERRANTI,
   hasIOContention: true,
@@ -34,6 +31,7 @@ export const spectrum48K: MachineVariant = Object.freeze({
 
   decodes7FFD(_port: number): boolean { return false; },
   decodes1FFD(_port: number): boolean { return false; },
+  decodesEFF7(_port: number): boolean { return false; },
   decodesFDCData(_port: number): boolean { return false; },
   decodesFDCStatus(_port: number): boolean { return false; },
 });

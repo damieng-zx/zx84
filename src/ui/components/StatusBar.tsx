@@ -15,6 +15,10 @@ function Led(props: { led: StatusLed }) {
     const t = props.led.tip;
     return typeof t === 'function' ? t(machineCaps()) : t;
   };
+  const label = () => {
+    const l = props.led.label;
+    return typeof l === 'function' ? l(machineCaps()) : l;
+  };
   return (
     <div
       id={`led-${props.led.id}`}
@@ -24,7 +28,7 @@ function Led(props: { led: StatusLed }) {
       style={props.led.onClick ? 'cursor:pointer' : undefined}
       title={tip()}
     >
-      {props.led.label}
+      {label()}
     </div>
   );
 }

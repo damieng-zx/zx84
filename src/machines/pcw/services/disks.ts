@@ -2,18 +2,14 @@
  * PCW DiskService — the 3" drives on the machine's uPD765A.
  *
  * The 8256 and 9512 have one drive; only the 8512 shipped with a second, so
- * `drives` is sized from the config and the pane shows exactly what is fitted.
+ * `drives` is sized from the fitted count and the pane shows exactly what is there.
  */
 
+import { baseName, saveHfeOr } from '@/machines/shared/disk-save.ts';
 import type { DiskService, DriveDescriptor, DriveMedia } from '@/machines/machine.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { serializeDSK } from '@/media/floppy/dsk.ts';
-import { serializeHFE } from '@/media/floppy/hfe.ts';
 import type { PcwMachine } from '../pcw-machine.ts';
-
-function baseName(name: string, fallback: string): string {
-  return name.replace(/\.[^.]+$/, '') || fallback;
-}
 
 function unitOf(id: string): number { return id === 'b' ? 1 : 0; }
 
@@ -27,7 +23,7 @@ export class PcwDiskService implements DiskService {
     const m = this.m;
     const motorUnit = m.fdc.motorOn ? m.fdc.currentUnit & 1 : -1;
     const out: DriveDescriptor[] = [];
-    for (let u = 0; u < m.config.drives; u++) {
+    for (let u = 0; u < m.driveCount; u++) {
       const id = u === 0 ? 'a' : 'b';
       out.push({
         id,
@@ -42,6 +38,7 @@ export class PcwDiskService implements DiskService {
   }
 
   insert(id: string, media: DriveMedia, name: string): void {
+    if (unitOf(id) >= this.m.driveCount) throw new Error('that drive is not fitted');
     this.m.loadDisk(media as DskImage, unitOf(id));
     this.names.set(id, name);
   }
@@ -58,9 +55,7 @@ export class PcwDiskService implements DiskService {
     const base = baseName(this.names.get(id) ?? '', 'disk');
     // HFE-sourced discs save back as HFE so their bitstream survives; the rest
     // as DSK, which is how PCW software is distributed.
-    const out = image.bitstream
-      ? { data: serializeHFE(image), name: `${base}.hfe` }
-      : { data: serializeDSK(image), name: `${base}.dsk` };
+    const out = saveHfeOr(image, base, '.dsk', serializeDSK);
     this.m.fdc.clearDirty(unit);
     return out;
   }

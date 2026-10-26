@@ -11,6 +11,7 @@
 import { M6502, FLAG_C, FLAG_D, FLAG_I, FLAG_N, FLAG_V, FLAG_Z } from '@/cores/m6502.ts';
 import { disasmOne, disassembleAroundPC, formatDisasmHtml, stripMarkers } from '@/debug/m6502/disasm.ts';
 import { hex8, hex16 } from '@/utils/hex.ts';
+import type { ChipSection } from '@/debug/chip-state.ts';
 import type {
   CpuPorts, DebugPanelDescriptor, DebugService, DisasmRow, Machine,
   RegisterDesc, RegisterSnapshot,
@@ -21,6 +22,11 @@ export interface M6502DebugTarget extends Machine {
   cpu: M6502;
   startTrace(mode?: string): void;
   stopTrace(): string;
+  /** Execute one instruction inside the machine's frame loop (chips clocked,
+   *  DMA stolen, WSYNC halting), when it has one. */
+  stepInstruction?(): void;
+  /** The machine's custom chips (see DebugService.chips). */
+  chips?(): readonly ChipSection[];
   ocrScreenForMcp(mode?: string): string;
   resolveMemoryRegion?(value: string): { data: Uint8Array; baseAddr: number } | null;
   screenExportBytes?(): Uint8Array | null;
@@ -104,7 +110,7 @@ export class M6502DebugService implements DebugService {
     const out: DisasmRow[] = [];
     let a = addr & 0xFFFF;
     for (let i = 0; i < lines; i++) {
-      const dl = disasmOne(snap, a);
+      const dl = disasmOne(snap, a, this.m.cpu.cmos);
       const bytes = Array.from({ length: dl.length }, (_, j) => hex8(snap[(a + j) & 0xFFFF])).join(' ');
       out.push({
         addr: dl.addr, bytes, text: stripMarkers(dl.text),
@@ -118,22 +124,29 @@ export class M6502DebugService implements DebugService {
   disasmPaneHtml(lines: number): string {
     const snap = this.m.memory.snapshot();
     const pc = this.m.cpu.pc;
-    return formatDisasmHtml(disassembleAroundPC(snap, pc, lines), snap, pc, this.m.breakpoints);
+    return formatDisasmHtml(disassembleAroundPC(snap, pc, lines, 6, this.m.cpu.cmos), snap, pc, this.m.breakpoints);
   }
 
-  stepOne(): void { this.m.cpu.step(); }
+  /** One instruction: through the machine's frame loop when it has one, so the
+   *  chips keep time and a WSYNC halts; else the bare CPU. */
+  private step1(): void {
+    if (this.m.stepInstruction) this.m.stepInstruction();
+    else this.m.cpu.step();
+  }
 
-  stepInto(): void { this.m.cpu.step(); }
+  stepOne(): void { this.step1(); }
+
+  stepInto(): void { this.step1(); }
 
   /** Step over JSR (0x20); everything else completes in one instruction. */
   stepOver(): void {
     const cpu = this.m.cpu;
     const op = this.m.memory.readByte(cpu.pc);
-    if (op !== 0x20) { cpu.step(); return; }
+    if (op !== 0x20) { this.step1(); return; }
     const targetSP = cpu.sp;
     const limit = cpu.tStates + 10_000_000;
-    cpu.step();
-    while (cpu.sp !== targetSP && cpu.tStates < limit) cpu.step();
+    this.step1();
+    while (cpu.sp !== targetSP && cpu.tStates < limit) this.step1();
   }
 
   /** Run until the current subroutine's RTS returns (SP moves back past it). */
@@ -141,7 +154,7 @@ export class M6502DebugService implements DebugService {
     const cpu = this.m.cpu;
     const targetSP = (cpu.sp + 2) & 0xFF;
     const limit = cpu.tStates + 20_000_000;
-    while (cpu.sp !== targetSP && cpu.tStates < limit) cpu.step();
+    while (cpu.sp !== targetSP && cpu.tStates < limit) this.step1();
   }
 
   cpuStateText(): string {
@@ -167,7 +180,7 @@ export class M6502DebugService implements DebugService {
     const snap = this.m.memory.snapshot();
     let addr = cpu.pc;
     for (let i = 0; i < 16; i++) {
-      const dl = disasmOne(snap, addr);
+      const dl = disasmOne(snap, addr, cpu.cmos);
       const bytesStr = Array.from({ length: dl.length }, (_, j) => hex8(snap[(addr + j) & 0xFFFF]))
         .join(' ')
         .padEnd(11, ' ');
@@ -241,4 +254,6 @@ export class M6502DebugService implements DebugService {
   ramExport(): { data: Uint8Array; filename: string } | null { return this.m.ramExportBytes?.() ?? null; }
 
   panels(): DebugPanelDescriptor[] { return []; }
+
+  chips(): readonly ChipSection[] { return this.m.chips?.() ?? []; }
 }

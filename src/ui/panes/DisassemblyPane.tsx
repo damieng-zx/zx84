@@ -6,7 +6,7 @@ import { DropDownMenuButton } from '@/ui/components/DropDownMenuButton.tsx';
 import {
   HiOutlinePlay, HiOutlinePause,
   HiOutlineArrowDownRight, HiOutlineArrowTrendingDown, HiOutlineArrowUpRight,
-  HiOutlineForward, HiOutlinePencilSquare,
+  HiOutlineForward, HiOutlinePencilSquare, HiOutlineClipboardDocument,
 } from 'solid-icons/hi';
 import {
   stepInto, stepOver, stepOut, stepFrame,
@@ -85,6 +85,7 @@ export function DisassemblyPane() {
         <button class="btn btn-md" title="Step Over (execute, stepping over CALLs)" onClick={stepOver} disabled={!emulationPaused()}><HiOutlineArrowTrendingDown /></button>
         <button class="btn btn-md" title="Step Out (run until RET)" onClick={stepOut} disabled={!emulationPaused()}><HiOutlineArrowUpRight /></button>
         <button class="btn btn-md" title="Step Frame (run to end of frame)" onClick={stepFrame} disabled={!emulationPaused()}><HiOutlineForward /></button>
+        <button class="btn btn-md" title="Copy CPU state (registers, flags and disassembly) to the clipboard" onClick={copyCpuState}><HiOutlineClipboardDocument /></button>
         <Show when={tracingSupported()}>
           <Show when={tracing()} fallback={
             <DropDownMenuButton
@@ -94,12 +95,8 @@ export function DisassemblyPane() {
                 { value: 'full', label: 'Full' },
                 { value: 'portio', label: 'Port IO' },
                 { value: 'zxtl', label: 'ZXTrace' },
-                { value: 'loopanalysis', label: 'Loop' },
               ]}
-              onSelect={(mode) => {
-                if (mode === 'loopanalysis') copyCpuState();
-                else startTrace(mode as 'full' | 'portio' | 'zxtl');
-              }}
+              onSelect={(mode) => startTrace(mode as 'full' | 'portio' | 'zxtl')}
             />
           }>
             <button class="btn btn-md active" title="Stop tracing and copy to clipboard" onClick={stopTrace}>Stop</button>

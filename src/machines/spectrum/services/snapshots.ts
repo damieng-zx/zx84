@@ -35,7 +35,7 @@ export class SpectrumSnapshotService implements SnapshotService {
   private async upgradeTo128k(reason: string): Promise<boolean> {
     const host = this.host();
     if (!host) return false;
-    return host.requestModel('128k', reason);
+    return host.requestModel('zx128k', reason);
   }
 
   async apply(data: Uint8Array, filename: string): Promise<SnapshotApplyResult> {

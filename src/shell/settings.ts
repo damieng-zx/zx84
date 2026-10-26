@@ -8,6 +8,7 @@
 import type { SettingsView } from '@/machines/machine.ts';
 import * as settings from '@/store/settings.ts';
 import { SCALING_MODE_SAA5050 } from '@/display/scaling-modes.ts';
+import { phosphorTint } from '@/display/phosphor.ts';
 import { machine } from '@/shell/context.ts';
 
 /**
@@ -25,9 +26,12 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'msx-color-map': () => settings.msxColorMap(),
   'einstein-color-map': () => settings.einsteinColorMap(),
   'bbc-color-map': () => settings.bbcColorMap(),
+  'apple2-video': () => settings.apple2Video(),
+  'atari-color-map': () => settings.atariColorMap(),
   'scanline-accuracy': () => settings.scanlineAccuracy(),
   'volume': () => settings.volume(),
-  'ay-mix': () => settings.ayMix(),
+  'beeper-volume': () => settings.beeperVolume(),
+  'psg-volume': () => settings.psgVolume(),
   'tape-instant-rom': () => settings.tapeFastRom(),
   'tape-turbo-load': () => settings.tapeTurbo(),
   'tape-sound': () => settings.tapeSoundEnabled(),
@@ -37,14 +41,21 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'ay-stereo': () => settings.ayStereo(),
   // The SN76489's tone-channel split (BBC Micro, MTX) — mono by default.
   'sn-stereo': () => settings.snStereo(),
-  'ay-dc-block': () => settings.ayDcBlock(),
   'ay-antialias': () => settings.ayAntialias(),
+  'specdrum-volume': () => settings.specdrumVolume(),
+  'uspeech-volume': () => settings.uspeechVolume(),
+  'mic-audible': () => settings.micAudible(),
+  // Selected joystick interface per player (Spectrum: Kempston port fitted?).
+  'joy-p1': () => settings.joyP1(),
+  'joy-p2': () => settings.joyP2(),
   // Peripheral enablement + write-protects read by each machine's prepare() hook.
   'vtx5000': () => settings.vtx5000Enabled(),
+  'specdrum': () => settings.specdrumEnabled(),
   'multiface': () => settings.multifaceEnabled(),
   'plusd': () => settings.plusDEnabled(),
   'interface1': () => settings.interface1Enabled(),
   'betadisk': () => settings.betaDiskEnabled(),
+  'uspeech': () => settings.uspeechEnabled(),
   'write-protect-a': () => settings.writeProtectA(),
   'write-protect-b': () => settings.writeProtectB(),
   'write-protect-c': () => settings.writeProtectC(),
@@ -55,7 +66,21 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'mtx-cpm': () => settings.mtxCpm(),
   'mtx-80-column': () => settings.mtx80Column(),
   'mtx-512k-ram': () => settings.mtx512kRam(),
+  'msx-floppy': () => settings.msxFloppy(),
   'bbc-disk-system': () => settings.bbcDiskSystem(),
+  'electron-plus1': () => settings.electronPlus1(),
+  'electron-plus3': () => settings.electronPlus3(),
+  'electron-dfs': () => settings.electronDfs(),
+  'apple2-disk2': () => settings.apple2Disk2(),
+  'apple2-langcard': () => settings.apple2LangCard(),
+  'apple2-joystick': () => settings.apple2Joystick(),
+  'apple2-mockingboard': () => settings.apple2Mockingboard(),
+  'apple2-80col': () => settings.apple2EightyCol(),
+  'apple2e-80col': () => settings.apple2eEightyCol(),
+  'apple1-ram': () => settings.apple1Ram(),
+  'apple1-basic-ram': () => settings.apple1BasicRam(),
+  'apple1-aci': () => settings.apple1Aci(),
+  'enterprise-exdos': () => settings.enterpriseExdos(),
   // True while the SAA5050 upscaler is selected: machines that draw teletext
   // then supply the raw, unrounded dots for it to round.
   'saa-scaler': () => settings.scalingMode() === SCALING_MODE_SAA5050,
@@ -68,9 +93,28 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'ace-ram-pack': () => settings.aceRamPack(),
 };
 
+/** Whether a boolean setting is on, reactively (call inside a tracking scope).
+ *  Gates a machine capability on a user-fitted peripheral — see
+ *  `MachineUiCapabilities.requires`. A missing gate is open. */
+export function settingEnabled(key: string | undefined): boolean {
+  if (!key) return true;
+  const getter = SETTING_GETTERS[key];
+  return getter ? Boolean(getter()) : true;
+}
+
 export function buildSettingsView(): SettingsView {
   return {
     get<T>(key: string, fallback: T): T {
+      // `drive-count:<kind>` is the number of built-in drives saved for a
+      // machine kind; the machine's own default stands until one is chosen.
+      if (key.startsWith('drive-count:')) {
+        return (settings.savedDriveCount(key.slice('drive-count:'.length)) ?? fallback) as T;
+      }
+      // `drive-models:<kind>` is the list of drive models set up for a
+      // machine kind (one per drive).
+      if (key.startsWith('drive-models:')) {
+        return (settings.savedDriveModels(key.slice('drive-models:'.length)) ?? fallback) as T;
+      }
       const getter = SETTING_GETTERS[key];
       return getter ? (getter() as T) : fallback;
     },
@@ -100,6 +144,7 @@ export function applyDisplaySettings(): void {
     d.setCurvatureMode(settings.curvatureMode());
     d.setNoise(settings.noise() / 100);
     d.setScalingMode(settings.scalingMode());
+    d.setPhosphor(phosphorTint(settings.phosphor()));
   }
   // Machine-specific settings (palettes, volume, AY mix, tape flags, scanline
   // accuracy, …) are the machine's own business — it reads them from the view.

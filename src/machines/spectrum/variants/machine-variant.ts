@@ -14,16 +14,6 @@ export interface MachineVariant {
   readonly model: SpectrumModel;
   readonly timing: MachineTiming;
 
-  // ── Display ──────────────────────────────────────────────────────────
-
-  /** Per-cell render offset: +1 on 48K (render as beam enters cell),
-   *  0 on all others (render after beam fully passes cell). */
-  readonly cellRenderOffset: 0 | 1;
-
-  /** VRAM flush boundary for write8: 0x5B00 (48K, flush bitmap+attr)
-   *  or 0x5800 (non-48K, flush bitmap only). */
-  readonly vramFlushEnd: number;
-
   // ── Contention ───────────────────────────────────────────────────────
 
   /** ULA contention delay pattern indexed by (T-state mod 8). */
@@ -51,6 +41,9 @@ export interface MachineVariant {
   // ── Capabilities ─────────────────────────────────────────────────────
 
   readonly hasAY: boolean;
+  /** AY input clock in Hz when it is not the 128K's 1.7734 MHz. The Pentagon and
+   *  Scorpion clock it from their 3.5 MHz CPU clock / 2 = 1.75 MHz. */
+  readonly ayClock?: number;
   readonly hasBanking: boolean;
   readonly hasFDC: boolean;
   readonly hasSpecialPaging: boolean;
@@ -64,6 +57,9 @@ export interface MachineVariant {
 
   /** True if this port address decodes as 0x1FFD (+2A special paging). */
   decodes1FFD(port: number): boolean;
+
+  /** True if this port address decodes as 0xEFF7 (Pentagon 1024 control port). */
+  decodesEFF7(port: number): boolean;
 
   /** True if this port address decodes as FDC data (0x3FFD). */
   decodesFDCData(port: number): boolean;

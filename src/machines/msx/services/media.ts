@@ -1,33 +1,47 @@
 /**
- * MSX MediaService — the machine's own file routing, ported verbatim from the
- * shell's MSX loadFile branch: `.rom` cartridges (auto-booted) and `.cas`
- * cassettes (BIOS-trap load). ZIP unwrapping stays a shell concern.
+ * MSX MediaService — the machine's own file routing: `.rom` cartridges
+ * (auto-booted), `.cas` cassettes (BIOS-trap load) and, while the optional
+ * floppy disk interface is fitted, disk images for drives A: and B:. ZIP
+ * unwrapping stays a shell concern.
  *
- * The service mutates the machine only. The cartridge name / cassette block
- * signals, persistence and machine restart stay shell reflection, keyed off
- * MountResult.target.
+ * The service mutates the machine only. The cartridge name / cassette block /
+ * disk signals, persistence and machine restart stay shell reflection, keyed
+ * off MountResult.target.
  */
 
 import type { MediaService, MediaTypeDescriptor, MediaTargetId, MountResult } from '@/machines/machine.ts';
+import { parseMsxFloppy } from '@/media/floppy/msx-disk.ts';
+import type { MsxDiskService } from './disks.ts';
 import type { MsxRomService } from './roms.ts';
 import type { MsxTapeService } from './tape.ts';
 
 function fail(message: string): MountResult { return { ok: false, message }; }
 
+/** Disk container extensions the floppy interface accepts. `.dsk`/`.img` are
+ *  raw sector dumps; `.edsk` is the extended CPC container used for disks that
+ *  a plain dump cannot hold. */
+const DISK_EXTENSIONS = ['.dsk', '.img', '.dmk', '.hfe', '.scp', '.td0', '.edsk'] as const;
+const DISK_PATTERN = /\.(?:dsk|img|dmk|hfe|scp|td0|edsk)$/i;
+
 export class MsxMediaService implements MediaService {
   constructor(
     private readonly roms: MsxRomService,
     private readonly tape: MsxTapeService,
+    private readonly disks: MsxDiskService,
   ) {}
 
   accepts(): MediaTypeDescriptor[] {
-    return [
+    const types: MediaTypeDescriptor[] = [
       { ext: '.rom', target: 'cartridge' },
       { ext: '.cas', target: 'tape' },
     ];
+    if (this.disks.drives.length > 0) {
+      for (const ext of DISK_EXTENSIONS) types.push({ ext, target: 'a' });
+    }
+    return types;
   }
 
-  async mount(data: Uint8Array, filename: string, _target?: MediaTargetId): Promise<MountResult> {
+  async mount(data: Uint8Array, filename: string, target?: MediaTargetId): Promise<MountResult> {
     // Cartridge ROM: insert into slot 1 and power-cycle so the BIOS scan runs it.
     if (/\.rom$/i.test(filename)) {
       this.roms.cartridge.insert(data, filename);
@@ -40,6 +54,23 @@ export class MsxMediaService implements MediaService {
       return { ok: true, target: 'cas', message: `Cassette: ${filename} — type CLOAD or BLOAD"CAS:"` };
     }
 
-    return fail('MSX accepts .rom cartridges and .cas cassettes (or a .zip of one)');
+    if (DISK_PATTERN.test(filename)) {
+      if (this.disks.drives.length === 0) {
+        return fail('Fit the disk interface in the Hardware pane to use disk images');
+      }
+      const unit = target === 'b' ? 1 : target?.startsWith('unit:') ? Number(target.slice(5)) : 0;
+      if (!Number.isInteger(unit) || unit < 0 || unit >= this.disks.drives.length) {
+        return fail('that drive is not fitted');
+      }
+      const id = unit === 1 ? 'b' : 'a';
+      try {
+        this.disks.insert(id, parseMsxFloppy(data), filename);
+      } catch (err) {
+        return fail(`Disk error: ${(err as Error).message}`);
+      }
+      return { ok: true, target: id, message: `Drive ${id.toUpperCase()}: loaded: ${filename}` };
+    }
+
+    return fail('MSX accepts .rom cartridges, .cas cassettes and disk images (.dsk .img .dmk .hfe .scp .td0 .edsk), or a .zip of one');
   }
 }

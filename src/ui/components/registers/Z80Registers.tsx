@@ -10,8 +10,15 @@
 
 import { createEffect, onMount, onCleanup } from 'solid-js';
 import { machine } from '@/shell/context.ts';
+import { pokeRegister } from '@/shell/lifecycle.ts';
 import { regsRev } from '@/state/debug-state.ts';
-import { set16, set8x2, setStr, makeLabel, makeSlot, makeFlag } from './dom.ts';
+import { emulationPaused } from '@/state/machine-state.ts';
+import {
+  set16, set8x2, setStr, makeLabel, makeSlot, makeFlag, makeEditable, makeToggle, EDITABLE_CLASS,
+} from './dom.ts';
+
+// Z80 F-register bit for each flag the panel can toggle.
+const F_SIGN = 0x80, F_ZERO = 0x40, F_HALF = 0x10, F_PV = 0x04, F_SUBT = 0x02, F_CARRY = 0x01;
 
 export function Z80Registers() {
   let ref!: HTMLPreElement;
@@ -19,63 +26,79 @@ export function Z80Registers() {
   onMount(() => {
     const pre = ref;
 
+    // Click-to-edit plumbing: a hex box over a register value, a flip for a flag.
+    const edit = (slot: Text, digits: number, reg: string) =>
+      makeEditable(slot, digits, v => pokeRegister(reg, v));
+    const flip = (mask: number) => () => {
+      const f = machine?.services.debug.getReg('F');
+      if (f != null) pokeRegister('F', f ^ mask);
+    };
+
     // Build DOM structure once
     const s = {
       af: makeSlot(), af_: makeSlot(), bc: makeSlot(), bc_: makeSlot(),
       de: makeSlot(), de_: makeSlot(), hl: makeSlot(), hl_: makeSlot(),
       ix: makeSlot(), iy: makeSlot(), sp: makeSlot(), pc: makeSlot(),
       ir: makeSlot(), tpf: makeSlot(), iff: makeSlot(), im: makeSlot(), halt: makeSlot(),
-      fSign: makeFlag('Sign', 'Set if result is negative (bit 7 of result)'),
-      fZero: makeFlag('Zero', 'Set if result is zero'),
-      fHalf: makeFlag('Half', 'Half-carry: set on carry from bit 3 to bit 4'),
-      fPrty: makeFlag('Prty', 'Parity/Overflow: set on even parity or arithmetic overflow'),
-      fSubt: makeFlag('Subt', 'Subtract: set if last operation was a subtraction'),
-      fCrry: makeFlag('Crry', 'Carry: set on carry from bit 7 or borrow'),
+      fSign: makeFlag('Sign', 'Set if result is negative (bit 7 of result)', flip(F_SIGN)),
+      fZero: makeFlag('Zero', 'Set if result is zero', flip(F_ZERO)),
+      fHalf: makeFlag('Half', 'Half-carry: set on carry from bit 3 to bit 4', flip(F_HALF)),
+      fPrty: makeFlag('Prty', 'Parity/Overflow: set on even parity or arithmetic overflow', flip(F_PV)),
+      fSubt: makeFlag('Subt', 'Subtract: set if last operation was a subtraction', flip(F_SUBT)),
+      fCrry: makeFlag('Crry', 'Carry: set on carry from bit 7 or borrow', flip(F_CARRY)),
     };
 
     const t = (str: string) => document.createTextNode(str);
 
     // Row 1: AF  xxxx  AF' xxxx   Sign Zero
     pre.append(
-      makeLabel('AF', 'Accumulator and Flags'), t('  '), s.af, t('  '),
-      makeLabel("AF'", 'Shadow Accumulator and Flags'), t(' '), s.af_, t('   '),
+      makeLabel('AF', 'Accumulator and Flags'), t('  '), edit(s.af, 4, 'AF'), t('  '),
+      makeLabel("AF'", 'Shadow Accumulator and Flags'), t(' '), edit(s.af_, 4, "AF'"), t('   '),
       s.fSign.el, t(' '), s.fZero.el, t('\n'),
     );
     // Row 2: BC  xxxx  BC' xxxx   Half Prty
     pre.append(
-      makeLabel('BC', 'General-purpose register pair B and C'), t('  '), s.bc, t('  '),
-      makeLabel("BC'", 'Shadow BC'), t(' '), s.bc_, t('   '),
+      makeLabel('BC', 'General-purpose register pair B and C'), t('  '), edit(s.bc, 4, 'BC'), t('  '),
+      makeLabel("BC'", 'Shadow BC'), t(' '), edit(s.bc_, 4, "BC'"), t('   '),
       s.fHalf.el, t(' '), s.fPrty.el, t('\n'),
     );
     // Row 3: DE  xxxx  DE' xxxx   Subt Crry
     pre.append(
-      makeLabel('DE', 'General-purpose register pair D and E'), t('  '), s.de, t('  '),
-      makeLabel("DE'", 'Shadow DE'), t(' '), s.de_, t('   '),
+      makeLabel('DE', 'General-purpose register pair D and E'), t('  '), edit(s.de, 4, 'DE'), t('  '),
+      makeLabel("DE'", 'Shadow DE'), t(' '), edit(s.de_, 4, "DE'"), t('   '),
       s.fSubt.el, t(' '), s.fCrry.el, t('\n'),
     );
     // Row 4: HL  xxxx  HL' xxxx   T\F nnn
     pre.append(
-      makeLabel('HL', 'General-purpose register pair H and L'), t('  '), s.hl, t('  '),
-      makeLabel("HL'", 'Shadow HL'), t(' '), s.hl_, t('   '),
+      makeLabel('HL', 'General-purpose register pair H and L'), t('  '), edit(s.hl, 4, 'HL'), t('  '),
+      makeLabel("HL'", 'Shadow HL'), t(' '), edit(s.hl_, 4, "HL'"), t('   '),
       makeLabel('T/F', 'T-states per frame'), t(' '), s.tpf, t('\n'),
     );
     // Row 5: IX  xxxx  IY  xxxx   EI  IMn HALT
     pre.append(
-      makeLabel('IX', 'Index register X'), t('  '), s.ix, t('  '),
-      makeLabel('IY', 'Index register Y'), t('  '), s.iy, t('   '),
-      s.iff, t('  '), makeLabel('IM', 'Interrupt mode'), s.im, s.halt, t('\n'),
+      makeLabel('IX', 'Index register X'), t('  '), edit(s.ix, 4, 'IX'), t('  '),
+      makeLabel('IY', 'Index register Y'), t('  '), edit(s.iy, 4, 'IY'), t('   '),
+      makeToggle(s.iff, 'Click to toggle interrupts (EI/DI)', () => {
+        const dbg = machine?.services.debug;
+        if (dbg) pokeRegister('IFF', dbg.regs().iff1 ? 0 : 1);
+      }),
+      t('  '), makeLabel('IM', 'Interrupt mode'), edit(s.im, 1, 'IM'), s.halt, t('\n'),
     );
     // Row 6: SP  xxxx  PC  xxxx   IR  xxxx
     pre.append(
-      makeLabel('SP', 'Stack pointer'), t('  '), s.sp, t('  '),
-      makeLabel('PC', 'Program counter'), t('  '), s.pc, t('   '),
-      makeLabel('IR', 'Interrupt vector + Refresh counter'), t('  '), s.ir,
+      makeLabel('SP', 'Stack pointer'), t('  '), edit(s.sp, 4, 'SP'), t('  '),
+      makeLabel('PC', 'Program counter'), t('  '), edit(s.pc, 4, 'PC'), t('   '),
+      makeLabel('IR', 'Interrupt vector + Refresh counter'), t('  '),
+      makeEditable(s.ir, 4, v => { pokeRegister('I', v >> 8); pokeRegister('R', v & 0xFF); }),
     );
 
     // Previous values — skip DOM writes when unchanged
     let pAF = -1, pAF_ = -1, pBC = -1, pBC_ = -1, pDE = -1, pDE_ = -1;
     let pHL = -1, pHL_ = -1, pIX = -1, pIY = -1, pSP = -1, pPC = -1;
     let pIR = -1, pTPF = '', pIFF = '', pIM = '', pHALT = '';
+
+    // Registers are only editable while paused: a write would race the frame loop.
+    createEffect(() => { pre.classList.toggle(EDITABLE_CLASS, emulationPaused()); });
 
     createEffect(() => {
       regsRev(); // track the signal

@@ -2,6 +2,8 @@
  * Screen renderer interface — implemented by WebGLRenderer and CanvasRenderer.
  */
 
+import type { PhosphorTint } from '@/display/phosphor.ts';
+
 export interface IScreenRenderer {
   canvas: HTMLCanvasElement;
   scale: number;
@@ -30,6 +32,9 @@ export interface IScreenRenderer {
   setSaturation(v: number): void;
   setGamma(v: number): void;
   setNoise(v: number): void;
+  /** Reduce the picture to its luminance in this colour (a monochrome tube's
+   *  phosphor); null shows it in colour. */
+  setPhosphor(rgb: PhosphorTint): void;
   setScalingMode(v: number): void;
   /** Release GPU/context resources owned by this renderer. Optional — the
    *  Canvas2D renderer needs no explicit teardown. Pass `{ loseContext: true }`

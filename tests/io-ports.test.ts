@@ -34,7 +34,7 @@ function makeMachine(model: SpectrumModel): Spectrum {
 // ─────────────────────────────────────────────────────────────────────────
 
 describe('Port decode — 48K Ferranti', () => {
-  const s = makeMachine('48k');
+  const s = makeMachine('zx48k');
   const v = s.variant;
 
   it('decodes ULA port for any address with bit 0 clear (via 48k case: hasBanking=false)', () => {
@@ -56,7 +56,7 @@ describe('Port decode — 48K Ferranti', () => {
 });
 
 describe('Port decode — 128K/+2 Ferranti (port 7FFD)', () => {
-  const s = makeMachine('128k');
+  const s = makeMachine('zx128k');
   const v = s.variant;
 
   it('decodes 7FFD as (port & 0x8002) === 0 — broadest mask', () => {
@@ -75,7 +75,7 @@ describe('Port decode — 128K/+2 Ferranti (port 7FFD)', () => {
 });
 
 describe('Port decode — +2A/+3 Amstrad', () => {
-  const s = makeMachine('+3');
+  const s = makeMachine('zx128kplus3');
   const v = s.variant;
 
   it('decodes 7FFD as (port & 0xC002) === 0x4000 (tighter than Ferranti)', () => {
@@ -109,7 +109,7 @@ describe('Port decode — +2A/+3 Amstrad', () => {
 
 describe('Port routing — ULA writes', () => {
   let s: Spectrum;
-  beforeEach(() => { s = makeMachine('48k'); });
+  beforeEach(() => { s = makeMachine('zx48k'); });
 
   it('any port with bit 0 = 0 routes to ULA (border + beeper)', () => {
     s.cpu.portOut(0x00FE, 0x07); // border 7, beeper 0
@@ -137,14 +137,14 @@ describe('Port routing — ULA writes', () => {
 
 describe('Port routing — ULA reads', () => {
   it('ULA read returns 0xBF when no keys pressed (bits 5+7 set, EAR=0, no rows hit)', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     // 0xBF = 10111111: bit 7 set, bit 6 clear (beeper=0), bit 5 set, bits 0-4 all 1
     // High byte 0xFF → no rows selected, no keys can read low
     expect(s.cpu.portIn(0xFFFE) & 0xFF).toBe(0xBF);
   });
 
   it('writing beeper bit 4 feeds back on bit 6 (Issue 3 contract)', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.cpu.portOut(0x00FE, 0x10);
     expect(s.cpu.portIn(0xFFFE) & 0x40).toBe(0x40);
     s.cpu.portOut(0x00FE, 0x00);
@@ -158,20 +158,20 @@ describe('Port routing — ULA reads', () => {
 
 describe('Port routing — AY-3-8910 (128K only)', () => {
   it('128K: port 0xFFFD selects an AY register', () => {
-    const s = makeMachine('128k');
+    const s = makeMachine('zx128k');
     s.cpu.portOut(0xFFFD, 0x07); // select mixer register
     expect(s.ay.selectedReg).toBe(0x07);
   });
 
   it('128K: port 0xBFFD writes the selected AY register', () => {
-    const s = makeMachine('128k');
+    const s = makeMachine('zx128k');
     s.cpu.portOut(0xFFFD, 0x07); // mixer
     s.cpu.portOut(0xBFFD, 0x3E); // tone A only
     expect(s.ay.mixer).toBe(0x3E);
   });
 
   it('128K: port 0xFFFD reads the selected AY register', () => {
-    const s = makeMachine('128k');
+    const s = makeMachine('zx128k');
     s.cpu.portOut(0xFFFD, 0x00);
     s.cpu.portOut(0xBFFD, 0x42); // tone period low
     expect(s.cpu.portIn(0xFFFD) & 0xFF).toBe(0x42);
@@ -183,14 +183,14 @@ describe('Port routing — AY-3-8910 (128K only)', () => {
     // keyboard scan. Reading back whatever was last written to R14 would
     // be a stale output-mode value that no longer applies once the port
     // is (or defaults to) input mode.
-    const s = makeMachine('128k');
+    const s = makeMachine('zx128k');
     s.cpu.portOut(0xFFFD, 14);
     s.cpu.portOut(0xBFFD, 0x42); // write R14 while selected
     expect(s.cpu.portIn(0xFFFD) & 0xFF).toBe(0xFF); // R7 bit 6 still 0 (input)
   });
 
   it('R14 in output mode (R7 bit 6 = 1) reads back the last written value', () => {
-    const s = makeMachine('128k');
+    const s = makeMachine('zx128k');
     s.cpu.portOut(0xFFFD, 7);
     s.cpu.portOut(0xBFFD, 0x40); // R7 bit 6 = 1 -> port A output
     s.cpu.portOut(0xFFFD, 14);
@@ -199,7 +199,7 @@ describe('Port routing — AY-3-8910 (128K only)', () => {
   });
 
   it('AY register select accepts only a byte with the upper nibble zero (0-15)', () => {
-    const s = makeMachine('128k');
+    const s = makeMachine('zx128k');
     s.cpu.portOut(0xFFFD, 0x0A); // upper nibble 0 -> selects register 10
     expect(s.ay.selectedReg).toBe(0x0A);
   });
@@ -209,7 +209,7 @@ describe('Port routing — AY-3-8910 (128K only)', () => {
     // zero to latch a new register; anything else deselects the chip
     // instead of wrapping down to a valid-looking register (0x1A -> 0x0A
     // would be FUSE's simplified `& 0x0F`, not real hardware).
-    const s = makeMachine('128k');
+    const s = makeMachine('zx128k');
     s.cpu.portOut(0xFFFD, 0x05); // select register 5 first
     expect(s.ay.selectedReg).toBe(0x05);
     s.cpu.portOut(0xFFFD, 0x1A); // upper nibble non-zero -> deselect, ignored
@@ -217,7 +217,7 @@ describe('Port routing — AY-3-8910 (128K only)', () => {
   });
 
   it('48K: writing to "AY port" 0xBFFD does nothing — no AY hardware', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     // Should not throw; AY register state untouched.
     expect(() => s.cpu.portOut(0xBFFD, 0x42)).not.toThrow();
     expect(s.ay.regs[0]).toBe(0);
@@ -230,13 +230,34 @@ describe('Port routing — AY-3-8910 (128K only)', () => {
 
 describe('Port routing — Kempston joystick', () => {
   it('IN from 0x1F (bits 5-7 zero, bit 0 set) returns joystick state', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.joystick.state = 0x12;
     expect(s.cpu.portIn(0x001F) & 0xFF).toBe(0x12);
   });
 
+  it('with no Kempston selected, IN 0x1F floats instead of answering 0x00', () => {
+    // A program probing 0x1F for a Kempston must not find one on an idle bus.
+    const s = makeMachine('zx48k');
+    s.joystick.state = 0x12;
+    const view = { get: <T,>(key: string, fallback: T): T =>
+      (key === 'joy-p1' ? 'cursor' : key === 'joy-p2' ? 'sinclair2' : fallback) as T };
+    s.applySettings(view);
+    expect(s.joystick.enabled).toBe(false);
+    expect(s.cpu.portIn(0x001F) & 0xFF).not.toBe(0x12);
+  });
+
+  it('Kempston selected for either player keeps the port answering', () => {
+    const s = makeMachine('zx48k');
+    const view = (p1: string, p2: string) => ({ get: <T,>(key: string, fallback: T): T =>
+      (key === 'joy-p1' ? p1 : key === 'joy-p2' ? p2 : fallback) as T });
+    s.applySettings(view('cursor', 'kempston'));
+    expect(s.joystick.enabled).toBe(true);
+    s.applySettings(view('kempston', 'none'));
+    expect(s.joystick.enabled).toBe(true);
+  });
+
   it('IN from a port with bit 5 set bypasses Kempston', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.joystick.state = 0xAB;
     // 0x20 = bit 5 set → not Kempston decode → falls through to floating bus.
     const v = s.cpu.portIn(0x0021) & 0xFF;
@@ -246,7 +267,7 @@ describe('Port routing — Kempston joystick', () => {
 
 describe('Unattached port IN — floating bus vs Amstrad gate array', () => {
   it('48K/128K (Ferranti): unattached port reads the ULA floating bus, not 0xFF', () => {
-    const s = makeMachine('128k');
+    const s = makeMachine('zx128k');
     s.contention.frameStartTStates = 0;
     s.memory.screenBank[0] = 0x42; // pixel byte at line 0, char col 0
     // 128K timing: contentionStart=14361, floatingBusAdjust=+1 → offset 0 at T=14360 (phase 0, pixel byte).
@@ -258,7 +279,7 @@ describe('Unattached port IN — floating bus vs Amstrad gate array', () => {
   it('+2A/+3: a port outside 0000 xxxx xxxx xx01 (e.g. 0x00FF) reads 0xFF, not the bus', () => {
     // Arkanoid's IN 0xFF has A1=1, outside the gate array's floating-bus
     // decode — the reason it hangs on a real +3.
-    const s = makeMachine('+3');
+    const s = makeMachine('zx128kplus3');
     expect(s.variant.hasFloatingBus).toBe(false);
     s.contention.frameStartTStates = 0;
     s.memory.screenBank[0] = 0x42;
@@ -267,7 +288,7 @@ describe('Unattached port IN — floating bus vs Amstrad gate array', () => {
   });
 
   it('+2A/+3: port 0x0FFD (0000 xxxx xxxx xx01) reads the gate array fetch during display', () => {
-    const s = makeMachine('+2A');
+    const s = makeMachine('zx128kplus2a');
     s.contention.frameStartTStates = 0;
     s.memory.screenBank[0] = 0x42;       // pixel byte, line 0 col 0
     s.memory.screenBank[0x1800] = 0x47;  // attr col 0
@@ -280,7 +301,7 @@ describe('Unattached port IN — floating bus vs Amstrad gate array', () => {
   });
 
   it('+2A/+3: idle half of the 8T block returns the last fetched byte, not 0xFF', () => {
-    const s = makeMachine('+2A');
+    const s = makeMachine('zx128kplus2a');
     s.contention.frameStartTStates = 0;
     s.memory.screenBank[0x1801] = 0x48;  // attr col 1 — last fetch of the block
     s.cpu.tStates = 14360 + 5;           // phase 5: gate array not fetching
@@ -288,14 +309,14 @@ describe('Unattached port IN — floating bus vs Amstrad gate array', () => {
   });
 
   it('+2A/+3: border time reads 0xFF on the floating-bus port', () => {
-    const s = makeMachine('+2A');
+    const s = makeMachine('zx128kplus2a');
     s.contention.frameStartTStates = 0;
     s.cpu.tStates = 1000; // top border
     expect(s.cpu.portIn(0x0FFD) & 0xFF).toBe(0xFF);
   });
 
   it('+2A/+3: locked paging (7FFD bit 5) disables the floating bus', () => {
-    const s = makeMachine('+2A');
+    const s = makeMachine('zx128kplus2a');
     s.contention.frameStartTStates = 0;
     s.memory.screenBank[0] = 0x42;
     s.cpu.portOut(0x7FFD, 0x20);         // lock paging
@@ -310,12 +331,12 @@ describe('Unattached port IN — floating bus vs Amstrad gate array', () => {
 
 describe('Port routing — FDC (+3 only)', () => {
   it('+3: read 0x2FFD returns FDC Main Status Register', () => {
-    const s = makeMachine('+3');
+    const s = makeMachine('zx128kplus3');
     expect(s.cpu.portIn(0x2FFD)).toBe(0x80); // idle FDC, RQM only
   });
 
   it('+3: write 0x3FFD feeds the FDC data register (command byte)', () => {
-    const s = makeMachine('+3');
+    const s = makeMachine('zx128kplus3');
     s.fdc.logFn = null;
     s.cpu.portOut(0x3FFD, 0x08); // SENSE_INT (no params)
     // After SENSE_INT executes (no params), FDC is in result phase
@@ -323,7 +344,7 @@ describe('Port routing — FDC (+3 only)', () => {
   });
 
   it('+2A (no FDC): FDC ports decode but return 0xFF', () => {
-    const s = makeMachine('+2A');
+    const s = makeMachine('zx128kplus2a');
     expect(s.variant.hasSpecialPaging).toBe(true);
     expect(s.variant.hasFDC).toBe(false);
     expect(s.cpu.portIn(0x2FFD)).toBe(0xFF); // status — no hardware
@@ -331,7 +352,7 @@ describe('Port routing — FDC (+3 only)', () => {
   });
 
   it('128K (no special paging at all): FDC ports go to floating bus', () => {
-    const s = makeMachine('128k');
+    const s = makeMachine('zx128k');
     // Without hasSpecialPaging, the FDC branch is skipped entirely.
     // Reads land in floating bus / open. We assert it doesn't throw.
     expect(() => s.cpu.portIn(0x2FFD)).not.toThrow();
@@ -345,7 +366,7 @@ describe('Port routing — FDC (+3 only)', () => {
 describe('Memory paging — port 0x7FFD (128K)', () => {
   let s: Spectrum;
   beforeEach(() => {
-    s = makeMachine('128k');
+    s = makeMachine('zx128k');
     // Pre-write a marker into each RAM bank to identify which is paged in.
     for (let bank = 0; bank < 8; bank++) {
       s.memory.getRamBank(bank)[0] = 0xB0 + bank;
@@ -408,7 +429,7 @@ describe('Memory paging — port 0x7FFD (128K)', () => {
 describe('Memory paging — port 0x1FFD special modes (+2A/+3)', () => {
   let s: Spectrum;
   beforeEach(() => {
-    s = makeMachine('+3');
+    s = makeMachine('zx128kplus3');
     for (let bank = 0; bank < 8; bank++) {
       s.memory.getRamBank(bank)[0] = 0xC0 + bank;
     }
@@ -488,7 +509,7 @@ describe('Memory paging — port 0x1FFD special modes (+2A/+3)', () => {
 
 describe('ROM latching — +2A/+3 four-ROM selection', () => {
   let s: Spectrum;
-  beforeEach(() => { s = makeMachine('+3'); });
+  beforeEach(() => { s = makeMachine('zx128kplus3'); });
 
   it('ROM page = ((1FFD>>2)&1)<<1 | (7FFD>>4)&1', () => {
     // ROM 0: 1FFD bit 2 = 0, 7FFD bit 4 = 0
@@ -532,7 +553,7 @@ describe('ROM latching — +2A/+3 four-ROM selection', () => {
 
 describe('Memory hooks — ROM write protection', () => {
   it('48K: writes to 0x0000-0x3FFF dropped, RAM writes succeed', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.cpu.write8(0x0000, 0x55);
     expect(s.memory.readByte(0x0000)).not.toBe(0x55);
     s.cpu.write8(0x4000, 0x55);
@@ -540,7 +561,7 @@ describe('Memory hooks — ROM write protection', () => {
   });
 
   it('128K: ROM write protected, RAM all writable', () => {
-    const s = makeMachine('128k');
+    const s = makeMachine('zx128k');
     s.cpu.write8(0x0000, 0x55);
     expect(s.memory.readByte(0x0000)).not.toBe(0x55);
     s.cpu.write8(0xC000, 0x42);
@@ -548,7 +569,7 @@ describe('Memory hooks — ROM write protection', () => {
   });
 
   it('16K: writes above 0x8000 dropped (no RAM), reads return 0xFF', () => {
-    const s = makeMachine('16k');
+    const s = makeMachine('zx16k');
     s.cpu.write8(0xC000, 0x55);
     expect(s.memory.readByte(0xC000)).toBe(0xFF);
     s.cpu.write8(0x8000, 0xAA);
@@ -565,7 +586,7 @@ describe('Memory hooks — ROM write protection', () => {
 
 describe('ROM latching — port latch readback (MF3 quirk on +2A/+3)', () => {
   it('port7FFD/port1FFD fields track the last written values', () => {
-    const s = makeMachine('+3');
+    const s = makeMachine('zx128kplus3');
     // Avoid bit 5 of 7FFD — that's the paging-lock bit and would block
     // the subsequent 1FFD write.
     s.cpu.portOut(0x7FFD, 0x17);
@@ -575,7 +596,7 @@ describe('ROM latching — port latch readback (MF3 quirk on +2A/+3)', () => {
   });
 
   it('in special paging, 0x7FFD writes only latch — slots do not move', () => {
-    const s = makeMachine('+3');
+    const s = makeMachine('zx128kplus3');
     for (let bank = 0; bank < 8; bank++) {
       s.memory.getRamBank(bank)[0] = 0xD0 + bank;
     }
@@ -600,7 +621,7 @@ describe('ROM latching — port latch readback (MF3 quirk on +2A/+3)', () => {
 describe('Memory watchpoints', () => {
   let s: Spectrum;
   beforeEach(() => {
-    s = makeMachine('48k');
+    s = makeMachine('zx48k');
     // Seed RAM with known values
     s.memory.getRamBank(0)[0x0000] = 0xAA; // bank 0 slot 1 = 0x4000
     s.memory.getRamBank(5)[0x0000] = 0xBB; // bank 5 slot 1 = 0x4000 on 128K
@@ -697,7 +718,7 @@ describe('Memory watchpoints', () => {
 
 describe('Port watchpoints — OUT', () => {
   let s: Spectrum;
-  beforeEach(() => { s = makeMachine('48k'); });
+  beforeEach(() => { s = makeMachine('zx48k'); });
 
   it('portOut fires watchpoint for any matching port', () => {
     s.portWatchpoints.add(0x00FE);
@@ -730,7 +751,7 @@ describe('Port watchpoints — OUT', () => {
 
 describe('Port watchpoints — IN (all paths)', () => {
   it('+3: FDC data read (0x3FFD) fires port watchpoint', () => {
-    const s = makeMachine('+3');
+    const s = makeMachine('zx128kplus3');
     s.portWatchpoints.add(0x3FFD);
     s.cpu.portIn(0x3FFD);
     expect(s.portWatchHit).not.toBeNull();
@@ -739,7 +760,7 @@ describe('Port watchpoints — IN (all paths)', () => {
   });
 
   it('48K: unattached port IN (floating bus) fires port watchpoint', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.portWatchpoints.add(0x00FF);
     s.cpu.portIn(0x00FF);
     expect(s.portWatchHit).not.toBeNull();
@@ -747,7 +768,7 @@ describe('Port watchpoints — IN (all paths)', () => {
   });
 
   it('ULA port IN fires port watchpoint', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.portWatchpoints.add(0xFFFE);
     s.cpu.portIn(0xFFFE);
     expect(s.portWatchHit).not.toBeNull();
@@ -756,7 +777,7 @@ describe('Port watchpoints — IN (all paths)', () => {
   });
 
   it('AY register read fires port watchpoint', () => {
-    const s = makeMachine('128k');
+    const s = makeMachine('zx128k');
     s.portWatchpoints.add(0xFFFD);
     s.cpu.portIn(0xFFFD);
     expect(s.portWatchHit).not.toBeNull();
@@ -765,7 +786,7 @@ describe('Port watchpoints — IN (all paths)', () => {
   });
 
   it('Kempston joystick IN fires port watchpoint', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.portWatchpoints.add(0x001F);
     s.cpu.portIn(0x001F);
     expect(s.portWatchHit).not.toBeNull();
@@ -773,7 +794,7 @@ describe('Port watchpoints — IN (all paths)', () => {
   });
 
   it('first-hit-only: second IN does not overwrite portWatchHit', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.portWatchpoints.add(0xFFFE);
     s.cpu.portIn(0xFFFE);
     const first = s.portWatchHit?.value;
@@ -784,14 +805,14 @@ describe('Port watchpoints — IN (all paths)', () => {
 
 describe('Port watchpoints — VTX-5000 OUT fires watchpoint before early return', () => {
   it('OUT to non-VTX port fires watchpoint', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.portWatchpoints.add(0x00FF);
     s.cpu.portOut(0x00FF, 0xAA);
     expect(s.portWatchHit).not.toBeNull();
   });
 
   it('OUT to VTX control port (lo=0xFF) with VTX enabled fires watchpoint', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.vtx5000.enabled = true;
     s.portWatchpoints.add(0x00FF);
     s.cpu.portOut(0x00FF, 0xAA);
@@ -800,7 +821,7 @@ describe('Port watchpoints — VTX-5000 OUT fires watchpoint before early return
   });
 
   it('OUT to VTX data port (lo=0x7F) with VTX enabled fires watchpoint', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.vtx5000.enabled = true;
     s.portWatchpoints.add(0x007F);
     s.cpu.portOut(0x007F, 0x42);
@@ -815,7 +836,7 @@ describe('Port watchpoints — VTX-5000 OUT fires watchpoint before early return
 
 describe('Activity counters — ULA and beeper', () => {
   let s: Spectrum;
-  beforeEach(() => { s = makeMachine('48k'); });
+  beforeEach(() => { s = makeMachine('zx48k'); });
 
   it('ulaReads increments on every ULA IN', () => {
     expect(s.activity.ulaReads).toBe(0);
@@ -853,7 +874,7 @@ describe('Activity counters — ULA and beeper', () => {
 
 describe('Activity counters — attrWrites range', () => {
   let s: Spectrum;
-  beforeEach(() => { s = makeMachine('48k'); });
+  beforeEach(() => { s = makeMachine('zx48k'); });
 
   it('write at 0x5800 increments attrWrites', () => {
     s.cpu.write8(0x5800, 0x01);
@@ -883,7 +904,7 @@ describe('Activity counters — attrWrites range', () => {
 
 describe('Activity counters — AY, FDC, Kempston', () => {
   it('ayWrites increments on AY register write (not on register select)', () => {
-    const s = makeMachine('128k');
+    const s = makeMachine('zx128k');
     s.cpu.portOut(0xFFFD, 0x07); // select — should NOT increment
     expect(s.activity.ayWrites).toBe(0);
     s.cpu.portOut(0xBFFD, 0x3F); // write — SHOULD increment
@@ -891,14 +912,14 @@ describe('Activity counters — AY, FDC, Kempston', () => {
   });
 
   it('fdcAccesses increments on FDC write (0x3FFD)', () => {
-    const s = makeMachine('+3');
+    const s = makeMachine('zx128kplus3');
     s.fdc.logFn = null;
     s.cpu.portOut(0x3FFD, 0x08); // write command byte
     expect(s.activity.fdcAccesses).toBe(1);
   });
 
   it('fdcAccesses increments on FDC data read (0x3FFD)', () => {
-    const s = makeMachine('+3');
+    const s = makeMachine('zx128kplus3');
     s.fdc.logFn = null;
     // Put FDC in result phase so readData returns real data
     s.cpu.portOut(0x3FFD, 0x08); // SENSE_INT
@@ -908,7 +929,7 @@ describe('Activity counters — AY, FDC, Kempston', () => {
   });
 
   it('kempstonReads increments on Kempston joystick IN', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.cpu.portIn(0x001F);
     expect(s.activity.kempstonReads).toBe(1);
   });
@@ -921,7 +942,7 @@ describe('Activity counters — AY, FDC, Kempston', () => {
 describe('Port routing — AMX mouse', () => {
   let s: Spectrum;
   beforeEach(() => {
-    s = makeMachine('48k');
+    s = makeMachine('zx48k');
     s.amxMouse.enabled = true;
     s.amxMouse.dirX = 1;
     s.amxMouse.dirY = 0;
@@ -982,7 +1003,7 @@ describe('Port routing — AMX mouse', () => {
 describe('Port routing — Kempston mouse', () => {
   let s: Spectrum;
   beforeEach(() => {
-    s = makeMachine('48k');
+    s = makeMachine('zx48k');
     s.kempstonMouse.enabled = true;
     s.kempstonMouse.x = 0xAB;
     s.kempstonMouse.y = 0xCD;
@@ -1029,7 +1050,7 @@ describe('Port routing — Kempston mouse', () => {
 describe('Port routing — VTX-5000', () => {
   let s: Spectrum;
   beforeEach(() => {
-    s = makeMachine('48k');
+    s = makeMachine('zx48k');
     s.vtx5000.enabled = true;
   });
 
@@ -1070,7 +1091,7 @@ describe('Port routing — VTX-5000', () => {
 describe('Port routing — Multiface page-in/page-out (MF1)', () => {
   let s: Spectrum;
   beforeEach(() => {
-    s = makeMachine('48k');
+    s = makeMachine('zx48k');
     s.multiface.enabled = true;
     s.multiface.variant = 'MF1';
     s.multiface.romLoaded = true;
@@ -1116,7 +1137,7 @@ describe('Port routing — Multiface page-in/page-out (MF1)', () => {
 
 describe('Port routing — MF3 port latch reads (+2A/+3)', () => {
   it('IN 0x7F3F returns port7FFD latch once the button has armed the interface', () => {
-    const s = makeMachine('+3');
+    const s = makeMachine('zx128kplus3');
     s.multiface.enabled = true;
     s.multiface.variant = 'MF3';
     s.multiface.romLoaded = true;
@@ -1127,7 +1148,7 @@ describe('Port routing — MF3 port latch reads (+2A/+3)', () => {
   });
 
   it('IN 0x1F3F returns port1FFD latch once the button has armed the interface', () => {
-    const s = makeMachine('+3');
+    const s = makeMachine('zx128kplus3');
     s.multiface.enabled = true;
     s.multiface.variant = 'MF3';
     s.multiface.romLoaded = true;
@@ -1138,7 +1159,7 @@ describe('Port routing — MF3 port latch reads (+2A/+3)', () => {
   });
 
   it('before the button is pressed, MF128/MF3 paging and latch ports are invisible', () => {
-    const s = makeMachine('+3');
+    const s = makeMachine('zx128kplus3');
     s.multiface.enabled = true;
     s.multiface.variant = 'MF3';
     s.multiface.romLoaded = true;
@@ -1157,7 +1178,7 @@ describe('Port routing — MF3 port latch reads (+2A/+3)', () => {
     // HALT/keyboard-scan idle loop) — a page-out must not disarm the
     // interface, or the ROM can never page itself back in and the machine
     // hangs (this was a real regression).
-    const s = makeMachine('+3');
+    const s = makeMachine('zx128kplus3');
     s.multiface.enabled = true;
     s.multiface.variant = 'MF3';
     s.multiface.romLoaded = true;
@@ -1172,8 +1193,55 @@ describe('Port routing — MF3 port latch reads (+2A/+3)', () => {
     expect(s.multiface.pagedIn).toBe(true);
   });
 
+  it('MF128: OUT 0x3F hides the interface, yet the ROM can still page itself out', () => {
+    // The MF128 ROM's exit does OUT (3F)/(BF) per its hide option and then
+    // IN A,(3F) to page out. After OUT 0x3F a game's stray IN 0xBF must not
+    // page the MF back in; the button makes it visible again.
+    const s = makeMachine('zx128k');
+    s.multiface.enabled = true;
+    s.multiface.variant = 'MF128';
+    s.multiface.romLoaded = true;
+    s.multiface.pressButton(s.memory, s.cpu);
+    expect(s.multiface.pagedIn).toBe(true);
+
+    s.cpu.portOut(0x003F, 0x00);               // hide
+    expect(s.multiface.armed).toBe(false);
+    s.cpu.portIn(0x003F);                      // page-out must still work
+    expect(s.multiface.pagedIn).toBe(false);
+
+    s.cpu.portIn(0x00BF);                      // stray IN: invisible now
+    expect(s.multiface.pagedIn).toBe(false);
+
+    s.multiface.pressButton(s.memory, s.cpu);  // button: visible again
+    expect(s.multiface.armed).toBe(true);
+    expect(s.multiface.pagedIn).toBe(true);
+  });
+
+  it('MF128: OUT 0xBF leaves the interface visible', () => {
+    const s = makeMachine('zx128k');
+    s.multiface.enabled = true;
+    s.multiface.variant = 'MF128';
+    s.multiface.romLoaded = true;
+    s.multiface.pressButton(s.memory, s.cpu);
+    s.cpu.portOut(0x00BF, 0x00);
+    expect(s.multiface.armed).toBe(true);
+    s.cpu.portIn(0x003F);
+    s.cpu.portIn(0x00BF);                      // can page back in
+    expect(s.multiface.pagedIn).toBe(true);
+  });
+
+  it('OUT 0x3F does not hide the MF3 (its ports are the other way round)', () => {
+    const s = makeMachine('zx128kplus3');
+    s.multiface.enabled = true;
+    s.multiface.variant = 'MF3';
+    s.multiface.romLoaded = true;
+    s.multiface.pressButton(s.memory, s.cpu);
+    s.cpu.portOut(0x003F, 0x00);
+    expect(s.multiface.armed).toBe(true);
+  });
+
   it('a hardware reset disarms the interface', () => {
-    const s = makeMachine('+3');
+    const s = makeMachine('zx128kplus3');
     s.multiface.enabled = true;
     s.multiface.variant = 'MF3';
     s.multiface.romLoaded = true;
@@ -1188,7 +1256,7 @@ describe('Port routing — MF3 port latch reads (+2A/+3)', () => {
   });
 
   it('MF3 latch reads only with MF3 variant — MF1 ignores the same ports', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.multiface.enabled = true;
     s.multiface.variant = 'MF1';
     s.memory.port7FFD = 0x13;
@@ -1207,20 +1275,20 @@ describe('Port routing — MF3 port latch reads (+2A/+3)', () => {
 
 describe('cpu.contend hook — hasIOContention', () => {
   it('48K (Ferranti, hasIOContention=true): contend is a non-trivial function', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     expect(s.variant.hasIOContention).toBe(true);
     // The contend hook should be installed and callable
     expect(() => s.cpu.contend?.(0x4000)).not.toThrow();
   });
 
   it('128K (Ferranti, hasIOContention=true): contend non-trivial', () => {
-    const s = makeMachine('128k');
+    const s = makeMachine('zx128k');
     expect(s.variant.hasIOContention).toBe(true);
     expect(() => s.cpu.contend?.(0x4000)).not.toThrow();
   });
 
   it('+2A/+3 (Amstrad): hasIOContention differs from Ferranti', () => {
-    const s = makeMachine('+3');
+    const s = makeMachine('zx128kplus3');
     // +2A/+3 still has IO contention but only for ULA ports (different rules)
     expect(() => s.cpu.contend?.(0x4000)).not.toThrow();
   });
@@ -1233,7 +1301,7 @@ describe('cpu.contend hook — hasIOContention', () => {
 describe('write8 — Multiface ROM/RAM passthrough when paged in', () => {
   let s: Spectrum;
   beforeEach(() => {
-    s = makeMachine('48k');
+    s = makeMachine('zx48k');
     s.multiface.enabled = true;
     s.multiface.variant = 'MF1';
     s.multiface.romLoaded = true;
@@ -1255,7 +1323,7 @@ describe('write8 — Multiface ROM/RAM passthrough when paged in', () => {
 describe('write8 — Interface 2 cartridge ROM passthrough when inserted', () => {
   let s: Spectrum;
   beforeEach(() => {
-    s = makeMachine('48k');
+    s = makeMachine('zx48k');
     s.interface2.insert(new Uint8Array(16384).fill(0xCC), 'test.rom');
     s.reset();
   });
@@ -1277,7 +1345,7 @@ describe('write8 — Interface 2 cartridge ROM passthrough when inserted', () =>
 
 describe('write8 — 16K open-bus behaviour', () => {
   it('writes to 0x8000-0xFFFF on 16K are dropped; reads return 0xFF', () => {
-    const s = makeMachine('16k');
+    const s = makeMachine('zx16k');
     s.cpu.write8(0x8000, 0x42);
     s.cpu.write8(0xFFFF, 0x42);
     expect(s.memory.readByte(0x8000)).toBe(0xFF);
@@ -1285,7 +1353,7 @@ describe('write8 — 16K open-bus behaviour', () => {
   });
 
   it('16K RAM (0x4000-0x7FFF) is writable', () => {
-    const s = makeMachine('16k');
+    const s = makeMachine('zx16k');
     s.cpu.write8(0x4000, 0x42);
     expect(s.memory.readByte(0x4000)).toBe(0x42);
     s.cpu.write8(0x7FFF, 0x99);

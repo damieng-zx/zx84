@@ -10,6 +10,8 @@
 import type { MediaService, MediaTypeDescriptor, MediaTargetId, MountResult } from '@/machines/machine.ts';
 import type { CpcMachine } from '@/machines/cpc/cpc-machine.ts';
 import { parseTZX } from '@/media/tape/tzx.ts';
+import { parseCSW } from '@/media/tape/csw.ts';
+import { wavToPulseBlocks } from '@/media/tape/wav.ts';
 import type { TapeBlock } from '@/media/tape/tap.ts';
 import { parseFloppyImage } from '@/media/floppy/hfe.ts';
 import type { CpcTapeService } from './tape.ts';
@@ -31,10 +33,18 @@ export class CpcMediaService implements MediaService {
   accepts(): MediaTypeDescriptor[] {
     const out: MediaTypeDescriptor[] = [
       { ext: '.sna', target: 'snapshot' },
+      // mount() reads all three as cassettes (CDT/TZX share a container); the
+      // shell filters the Load picker and ZIP contents by this list.
       { ext: '.cdt', target: 'tape' },
+      { ext: '.tzx', target: 'tape' },
+      { ext: '.tap', target: 'tape' },
+      { ext: '.csw', target: 'tape' },
+      { ext: '.wav', target: 'tape' },
     ];
     if (this.c.config.isPlus) out.push({ ext: '.cpr', target: 'cartridge' });
-    if (this.c.config.hasFDC) out.push({ ext: '.dsk', target: 'a' }, { ext: '.hfe', target: 'a' });
+    if (this.c.config.hasFDC) {
+      for (const ext of ['.dsk', '.hfe', '.scp', '.td0']) out.push({ ext, target: 'a' });
+    }
     return out;
   }
 
@@ -47,14 +57,17 @@ export class CpcMediaService implements MediaService {
   async mount(data: Uint8Array, filename: string, target?: MediaTargetId): Promise<MountResult> {
     const c = this.c;
 
-    // Cassettes: CDT/TZX (same container) or TAP.
-    if (/\.(cdt|tzx|tap)$/i.test(filename)) {
+    // Cassettes: CDT/TZX (same container), TAP, CSW, or a WAVE recording.
+    if (/\.(cdt|tzx|tap|csw|wav)$/i.test(filename)) {
       // No stop/start pair — see the Spectrum's tape mount: parse and swap are
       // synchronous, and starting on the failure path restarted a machine the
       // user had paused, since the shell returns early on !ok.
       let blocks: TapeBlock[];
       try {
-        blocks = /\.tap$/i.test(filename) ? c.tape.parseTAP(data) : parseTZX(data);
+        if (/\.tap$/i.test(filename)) blocks = c.tape.parseTAP(data);
+        else if (/\.csw$/i.test(filename)) blocks = await parseCSW(data);
+        else if (/\.wav$/i.test(filename)) blocks = wavToPulseBlocks(data);
+        else blocks = parseTZX(data);
       } catch (e) {
         return fail(`Error: ${(e as Error).message}`);
       }
@@ -85,9 +98,10 @@ export class CpcMediaService implements MediaService {
     }
 
     // Disk images into the uPD765A.
-    if (/\.(dsk|hfe|scp)$/i.test(filename)) {
+    if (/\.(dsk|hfe|scp|td0)$/i.test(filename)) {
       const unit = CpcMediaService.unitOf(target);
       try {
+        if (unit > 1) throw new Error('that drive is not fitted');
         const image = parseFloppyImage(data);
         this.disks.insert(unit === 0 ? 'a' : 'b', image, filename);
         return { ok: true, target: unit === 0 ? 'a' : 'b', message: `Disk ${unit === 0 ? 'A' : 'B'}: loaded: ${filename}` };
@@ -96,6 +110,6 @@ export class CpcMediaService implements MediaService {
       }
     }
 
-    return fail('CPC accepts .sna, .dsk, .hfe, .scp, .cdt, .tzx and .tap files');
+    return fail('CPC accepts .sna, .dsk, .hfe, .scp, .td0, .cdt, .tzx, .tap, .csw and .wav files');
   }
 }

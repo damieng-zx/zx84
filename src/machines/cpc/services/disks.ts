@@ -7,15 +7,11 @@
  * updates and persistence remain shell reflection, exactly as before.
  */
 
+import { baseName, saveHfeOr } from '@/machines/shared/disk-save.ts';
 import type { DiskService, DriveDescriptor, DriveMedia } from '@/machines/machine.ts';
 import type { CpcMachine } from '@/machines/cpc/cpc-machine.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { serializeDSK } from '@/media/floppy/dsk.ts';
-import { serializeHFE } from '@/media/floppy/hfe.ts';
-
-function baseName(name: string, fallback: string): string {
-  return name.replace(/\.[^.]+$/, '') || fallback;
-}
 
 export class CpcDiskService implements DiskService {
   /** Mounted media names per drive id (media identity is service state). */
@@ -28,7 +24,7 @@ export class CpcDiskService implements DiskService {
     if (!c.config.hasFDC) return [];
     const motorUnit = c.fdc.motorOn ? c.fdc.currentUnit & 1 : -1;
     const out: DriveDescriptor[] = [];
-    for (let u = 0; u < 2; u++) {
+    for (let u = 0; u < c.driveCount; u++) {
       const id = u === 0 ? 'a' : 'b';
       out.push({
         id,
@@ -43,6 +39,8 @@ export class CpcDiskService implements DiskService {
   }
 
   insert(id: string, media: DriveMedia, name: string): void {
+    if (id !== 'a' && id !== 'b') throw new Error(`Unknown drive: ${id}`);
+    if (id === 'b' && this.c.driveCount < 2) throw new Error('that drive is not fitted');
     this.c.loadDisk(media as DskImage, id === 'a' ? 0 : 1);
     this.names.set(id, name);
   }
@@ -59,9 +57,7 @@ export class CpcDiskService implements DiskService {
     const base = baseName(this.names.get(id) ?? '', 'disk');
     // HFE-sourced disks save back as HFE (protection tracks preserved); the rest
     // as DSK.
-    const out = image.bitstream
-      ? { data: serializeHFE(image), name: `${base}.hfe` }
-      : { data: serializeDSK(image), name: `${base}.dsk` };
+    const out = saveHfeOr(image, base, '.dsk', serializeDSK);
     this.c.fdc.clearDirty(unit);
     return out;
   }

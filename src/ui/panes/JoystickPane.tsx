@@ -3,14 +3,16 @@ import { Pane } from '@/ui/components/Pane.tsx';
 import { HiOutlineChevronUp, HiOutlineChevronDown, HiOutlineChevronLeft, HiOutlineChevronRight } from 'solid-icons/hi';
 import { joyP1, joyP2, joyMapP1, joyMapP2, setJoyP1, setJoyP2, setJoyMapP1, setJoyMapP2, persistSetting, gamepadConfigP1, gamepadConfigP2, setGamepadConfigP1, setGamepadConfigP2, resetSettingsGroup } from '@/store/settings.ts';
 import { joyPressForType } from '@/shell/media.ts';
+import { applyDisplaySettings } from '@/shell/settings.ts';
 import { machineCaps } from '@/state/machine-caps.ts';
 
 // On the Spectrum a joystick can present to the CPU through several interface
 // types (Kempston/Cursor/Sinclair — each maps to different ports/bits), so the
-// type has to be chosen. The CPC and MSX each expose a single fixed joystick
-// interface to the CPU, so there is nothing to select: the type selector is
-// hidden, and the F2 button is shown (both present a second fire button).
+// type has to be chosen. The CPC, MSX and Atari each expose fixed joystick
+// ports to the CPU, so there is nothing to select and the type selector is
+// hidden. The F2 button is shown for sticks with a second fire button.
 const isFixedJoystick = () => machineCaps().fixedJoystick;
+const fireButtons = () => machineCaps().joystickFireButtons ?? (isFixedJoystick() ? 2 : 1);
 
 // Configuration mode state
 export const [configuringPlayer, setConfiguringPlayer] = createSignal<number>(-1);
@@ -132,6 +134,7 @@ function JoyColumn(props: { playerIdx: number; label: string }) {
           <select id={joyKey()} value={joySel()()} onChange={(e) => {
             setJoySel()((e.target as HTMLSelectElement).value);
             persistSetting(joyKey(), joySel()());
+            applyDisplaySettings(); // tell the machine which interface is fitted
           }}>
             <option value="kempston">Kempston</option>
             <option value="cursor">Cursor</option>
@@ -154,8 +157,8 @@ function JoyColumn(props: { playerIdx: number; label: string }) {
         <DpadButton dir="fire" playerIdx={props.playerIdx} />
         <DpadButton dir="up" playerIdx={props.playerIdx} />
         {/* The CPC (matrix bit 4) and MSX (trigger B) joysticks have a real
-            second fire button; the Spectrum's joysticks are single-fire. */}
-        <Show when={isFixedJoystick()} fallback={<div class="joy-spacer" />}>
+            second fire button; the Spectrum's and Atari's are single-fire. */}
+        <Show when={fireButtons() === 2} fallback={<div class="joy-spacer" />}>
           <DpadButton dir="fire2" playerIdx={props.playerIdx} />
         </Show>
         <DpadButton dir="left" playerIdx={props.playerIdx} />
@@ -176,6 +179,7 @@ export function JoystickPane() {
       resetSettingsGroup('joystick');
       setGamepadConfigP1(null);
       setGamepadConfigP2(null);
+      applyDisplaySettings();
     }}>
       <div id="joy-columns">
         <JoyColumn playerIdx={0} label="Player 1" />

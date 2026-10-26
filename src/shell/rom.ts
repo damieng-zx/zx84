@@ -23,7 +23,7 @@ import {
   setSidewaysRomSlots,
   setCartridgeName,
   setMultifaceRomFailed, setVtx5000RomFailed, setParadosRomFailed,
-  setPlusDRomFailed, setInterface1RomFailed, setBetaDiskRomFailed,
+  setPlusDRomFailed, setInterface1RomFailed, setBetaDiskRomFailed, setMsxDiskRomFailed, setUspeechRomFailed,
 } from '@/state/machine-state.ts';
 import {
   romManager, machine, setRomData,
@@ -240,7 +240,7 @@ export async function loadRomFiles(files: Array<{ name: string; data: Uint8Array
  *  createMachine() destroys the old machine and installs a new one; the caller
  *  re-reads the shell context. Returns false if no 128K ROM is available. */
 export async function ensure128kROM(): Promise<boolean> {
-  const models: SpectrumModel[] = ['128k', '+2', '+2A', '+3'];
+  const models: SpectrumModel[] = ['zx128k', 'zx128kplus2', 'zx128kplus2a', 'zx128kplus3'];
   const locale = currentLocaleValue();
   for (const model of models) {
     const key = effectiveROMKey(model, locale);
@@ -273,7 +273,9 @@ const FAIL_SETTERS: Record<string, (msg: string) => void> = {
   plusd: setPlusDRomFailed,
   betadisk: setBetaDiskRomFailed,
   interface1: setInterface1RomFailed,
+  uspeech: setUspeechRomFailed,
   parados: setParadosRomFailed,
+  msxdisk: setMsxDiskRomFailed,
 };
 
 /** Fetch (IndexedDB-cached, CDN on miss) and wire in one peripheral ROM.

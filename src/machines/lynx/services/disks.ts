@@ -6,6 +6,7 @@
  * filename — is service state; the controller holds only the parsed image.
  */
 
+import { baseName } from '@/machines/shared/disk-save.ts';
 import type { DiskService, DriveDescriptor, DriveMedia } from '@/machines/machine.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { serializeLdf } from '@/media/floppy/ldf-image.ts';
@@ -15,10 +16,6 @@ import type { LynxMachine } from '../lynx-machine.ts';
  *  shell's built-in transport addresses them the same way as every machine. */
 const UNIT_IDS = ['a', 'b', 'c', 'd'] as const;
 const UNIT_LABELS = ['A:', 'B:', 'C:', 'D:'] as const;
-
-function baseName(name: string, fallback: string): string {
-  return name.replace(/\.[^.]+$/, '') || fallback;
-}
 
 export class LynxDiskService implements DiskService {
   /** Mounted media name per drive unit, not per id spelling. */
@@ -37,7 +34,7 @@ export class LynxDiskService implements DiskService {
   get drives(): readonly DriveDescriptor[] {
     const fdc = this.m.fdc;
     const out: DriveDescriptor[] = [];
-    for (let u = 0; u < UNIT_IDS.length; u++) {
+    for (let u = 0; u < this.m.driveCount; u++) {
       out.push({
         id: UNIT_IDS[u],
         label: UNIT_LABELS[u],
@@ -52,6 +49,7 @@ export class LynxDiskService implements DiskService {
 
   insert(id: string, media: DriveMedia, name: string): void {
     const unit = LynxDiskService.unitOf(id);
+    if (unit >= this.m.driveCount) throw new Error('that drive is not fitted');
     this.m.fdc.insertDisk(media as DskImage, unit);
     this.names.set(unit, name);
   }

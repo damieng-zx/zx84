@@ -186,6 +186,31 @@ describe('CanvasRenderer updateTexture', () => {
   });
 });
 
+describe('CanvasRenderer phosphor', () => {
+  function drawn(tint: readonly [number, number, number] | null, px: number[]): number[] {
+    const off = new StubCtx2D();
+    dom.restore();
+    dom = installDom(1, () => new StubCanvas(off));
+    const r = new CanvasRenderer(new StubCanvas(new StubCtx2D()) as unknown as HTMLCanvasElement, 1, 1);
+    r.setPhosphor(tint);
+    r.updateTexture(new Uint8Array(px));
+    return Array.from(off.puts[0].data.data.slice(0, 4));
+  }
+
+  it('reduces a colour to its Rec.601 luminance in the phosphor colour', () => {
+    // Pure red: luma = 0.299 * 255 = 76.2, so the tube glows 76 where it is brightest.
+    expect(drawn([0.2, 1, 0.2], [255, 0, 0, 255])).toEqual([15, 76, 15, 255]);
+  });
+
+  it('shows full white as the phosphor colour itself', () => {
+    expect(drawn([1, 0.69, 0], [255, 255, 255, 255])).toEqual([255, 176, 0, 255]);
+  });
+
+  it('leaves the picture untouched when null (colour monitor)', () => {
+    expect(drawn(null, [12, 200, 99, 255])).toEqual([12, 200, 99, 255]);
+  });
+});
+
 describe('CanvasRenderer updateTexture validation', () => {
   it('throws with a clear message when pixel buffer length mismatches', () => {
     const canvas = new StubCanvas() as unknown as HTMLCanvasElement;

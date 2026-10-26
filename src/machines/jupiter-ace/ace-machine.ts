@@ -35,8 +35,9 @@ import { installAceMemoryHooks, wireAcePortIO } from './io.ts';
 import type { OcrGridName, OcrResult } from '@/ocr/ocr.ts';
 import { aceOcrResult, aceScreenCells, aceScreenText } from '@/ocr/jupiter-ace.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
+import { z80ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
 import {
-  ACE_CPU_CLOCK, ACE_T_PER_FRAME, ACE_LINES_PER_FRAME, ACE_ACTIVE_LINES,
+  ACE_CPU_CLOCK, ACE_T_PER_FRAME, ACE_T_PER_LINE, ACE_LINES_PER_FRAME, ACE_ACTIVE_LINES,
   ACE_INT_LENGTH_T, ACE_SCREEN_WIDTH, ACE_SCREEN_HEIGHT,
   ACE_BORDER_LEFT, ACE_BORDER_TOP,
 } from './constants.ts';
@@ -112,6 +113,7 @@ export class JupiterAceMachine extends BaseMachine implements Machine {
     super();
     this.model = model;
     this.cpu = new Z80();
+    this.cpu.onInterrupt = (handler, nmi) => this.noteInterrupt(handler, nmi);
     this.memory = new AceMemory();
     this.keyboard = new AceKeyboard();
     this.ula = new AceUla(this.keyboard);
@@ -248,6 +250,7 @@ export class JupiterAceMachine extends BaseMachine implements Machine {
     this.mixer.prevBeeperBit = 0;
     this.audio.reset();
     this.mixer.reset();
+    this.resetFrameCount();
     this.needsDisplay = true;
     this.setStatus('Reset');
   }
@@ -259,6 +262,37 @@ export class JupiterAceMachine extends BaseMachine implements Machine {
   /** Manual turbo, or the automatic tape-loading turbo. */
   protected inTurbo(): boolean { return this.turbo || this.tapeTurboActive; }
 
+  // ── Beam ───────────────────────────────────────────────────────────────
+
+  /** The next line of the frame in progress to run (it carries over a stop). */
+  private fLine = 0;
+  /** The ULA holds /INT low for ACE_INT_LENGTH_T each frame, starting when
+   *  the active area ends. If the CPU is masking interrupts (DI), the pulse
+   *  is lost until the next frame; a retry within the window covers EI's
+   *  one-instruction delay and HALT wake-up. Fields, so a stop inside the
+   *  window carries it over. */
+  private intPending = false;
+  private intWindowEnd = 0;
+
+  /** Frame line 0 is the ULA's first active line (MAME's line 56); the /INT
+   *  pulse starts with line 192. Each line is drawn when the CPU reaches its
+   *  end. */
+  beam(): BeamPos { return this.gridBeam(); }
+  beamInfo(): BeamInfo {
+    return {
+      cyclesPerLine: ACE_T_PER_LINE,
+      linesPerFrame: LINES_PER_FRAME,
+      displayStart: 0,
+      note: 'line 0 is the first of the 192 active lines and /INT is held low for the 8 lines from line 192; each line is drawn whole when the CPU reaches its end, so the position of the picture within a line is not modelled and a video RAM write shows from the line it is made in',
+    };
+  }
+  override supportsBeamStops(): boolean { return true; }
+  override supportsInterruptLog(): boolean { return true; }
+  protected override cpuCycles(): number { return this.cpu.tStates; }
+  protected override stackPointer(): number { return this.cpu.sp; }
+  protected override cpuPc(): number { return this.cpu.pc; }
+  protected override interruptedPc(): number { return z80ReturnAddress(this.cpu.sp, a => this.memory.readByte(a)); }
+
   /**
    * Execute one PAL field. Runs the CPU scanline by scanline from the first
    * active line; renders the 192 active lines; the ULA's /INT pulse is
@@ -268,50 +302,45 @@ export class JupiterAceMachine extends BaseMachine implements Machine {
    * blanking interval, not racing the beam down the screen.
    */
   protected runFrame(): void {
-    // Apply any deferred combo keys (modifier was pressed last frame).
-    this.keyboard.processPending();
-    // Reset activity counters for this frame.
-    this.activity.ulaReads = 0;
-    this.activity.tapePolls = 0;
-    this.activity.earReads = 0;
-    this.activity.beeperToggled = false;
-    this.activity.loaderDetected = false;
+    // A frame a stop left part-way carries on from the line it was in, whose
+    // start-of-line work is already done.
+    let resumed = this.openFrame(ACE_T_PER_FRAME);
+    if (!resumed) {
+      // Apply any deferred combo keys (modifier was pressed last frame).
+      this.keyboard.processPending();
+      // Reset activity counters for this frame.
+      this.activity.ulaReads = 0;
+      this.activity.tapePolls = 0;
+      this.activity.earReads = 0;
+      this.activity.beeperToggled = false;
+      this.activity.loaderDetected = false;
+      // Paper fills the whole buffer — the Ace border is always paper-white.
+      this._pixels32.fill(PAPER);
+      this.intPending = false;
+      this.fLine = 0;
+    }
     this.portWatchHit = null;
     this.memWatchHit = null;
+    // While the tape plays this is where the deck already is.
     this.tapeLastAdvanceT = this.cpu.tStates;
-
-    // Paper fills the whole buffer — the Ace border is always paper-white.
-    this._pixels32.fill(PAPER);
-
-    // The ULA holds /INT low for ACE_INT_LENGTH_T each frame, starting when
-    // the active area ends. If the CPU is masking interrupts (DI), the pulse
-    // is lost until the next frame; a retry within the window covers EI's
-    // one-instruction delay and HALT wake-up.
-    let intPending = false;
-    let intWindowEnd = 0;
 
     const skipAudio = this.speedMultiplier !== 1 || this.tapeTurboActive;
 
     const tPerLine = ACE_T_PER_FRAME / LINES_PER_FRAME;
-    let lineEnd = this.cpu.tStates;
     let lastAudioT = this.cpu.tStates;
     let broke = false;
 
-    for (let line = 0; line < LINES_PER_FRAME; line++) {
-      lineEnd += tPerLine;
-      if (line === ACTIVE_LINES) {
-        intPending = this.cpu.interrupt() === 0;
-        intWindowEnd = this.cpu.tStates + ACE_INT_LENGTH_T;
+    for (; this.fLine < LINES_PER_FRAME; this.fLine++) {
+      const line = this.fLine;
+      const lineEnd = this.frameStartT + (line + 1) * tPerLine;
+      if (line === ACTIVE_LINES && !resumed) {
+        this.intPending = this.cpu.interrupt() === 0;
+        this.intWindowEnd = this.cpu.tStates + ACE_INT_LENGTH_T;
       }
+      resumed = false;
 
       while (this.cpu.tStates < lineEnd) {
-        if (this.breakpoints.size > 0 && this.breakpoints.has(this.cpu.pc)) {
-          this.breakpointHit = this.cpu.pc;
-          broke = true;
-          break;
-        }
-        if (this.onTrap !== null && this.onTrap(this.cpu.pc)) {
-          this.breakpointHit = this.cpu.pc;
+        if (this.checkStops(this.cpu.pc)) {
           broke = true;
           break;
         }
@@ -319,16 +348,18 @@ export class JupiterAceMachine extends BaseMachine implements Machine {
         // EI suppresses interrupts for one instruction; step() itself resets
         // and re-arms eiDelay per-instruction, so a plain post-step check is
         // enough here.
+        this.beforeInsn(this.cpu.pc);
         this.cpu.step();
+        const stopped = this.afterInsn();
 
         // Pending interrupt: /INT is only held low for the pulse window. If EI
         // re-enables interrupts within it, fire; after the window closes the
         // interrupt is lost until the next frame.
-        if (intPending) {
-          if (this.cpu.tStates >= intWindowEnd) {
-            intPending = false;
+        if (this.intPending) {
+          if (this.cpu.tStates >= this.intWindowEnd) {
+            this.intPending = false;
           } else if (this.cpu.iff1) {
-            if (this.cpu.interrupt() > 0) intPending = false;
+            if (this.cpu.interrupt() > 0) this.intPending = false;
           }
         }
 
@@ -347,8 +378,20 @@ export class JupiterAceMachine extends BaseMachine implements Machine {
             lastAudioT = this.cpu.tStates;
           }
         }
+
+        // Stop on the instruction that tripped a watchpoint, once the
+        // interrupt it let in is taken, so the frame carries on exactly.
+        if (stopped) {
+          broke = true;
+          break;
+        }
       }
-      if (broke) break;
+      if (broke) {
+        // The frame stays open; the next call carries on in this line.
+        this.midFrame = true;
+        this.needsDisplay = true;
+        return;
+      }
 
       // Render active scanlines into the centred active area.
       if (line < ACTIVE_LINES) {
@@ -356,7 +399,7 @@ export class JupiterAceMachine extends BaseMachine implements Machine {
       }
     }
 
-    if (skipAudio) this.mixer.beeperTStatesAccum = 0;
+    if (skipAudio) this.mixer.discardPending();
 
     // Tape turbo: while the tape is genuinely being consumed (the loader is
     // polling the ULA), run the real loading code as fast as the pump allows.

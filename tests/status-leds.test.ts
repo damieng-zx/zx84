@@ -23,36 +23,36 @@ describe('status-bar LED declarations', () => {
       const l = leds(model);
       expect(l).toContain('kbd');
       expect(l).toContain('text');
-      for (const absent of ['ay', 'dsk', 'beep', 'mouse', 'kemp', 'ear', 'rainbow', 'load'] as const) {
+      for (const absent of ['chip', 'dsk', 'beep', 'mouse', 'kemp', 'ear', 'rainbow', 'load'] as const) {
         expect(l).not.toContain(absent);
       }
     }
   });
 
   it('Spectrum shows AY only on 128K-class models', () => {
-    expect(leds('16k')).not.toContain('ay');
-    expect(leds('48k')).not.toContain('ay');
-    expect(leds('128k')).toContain('ay');
-    expect(leds('+2')).toContain('ay');
-    expect(leds('+2A')).toContain('ay');
-    expect(leds('+3')).toContain('ay');
+    expect(leds('zx16k')).not.toContain('chip');
+    expect(leds('zx48k')).not.toContain('chip');
+    expect(leds('zx128k')).toContain('chip');
+    expect(leds('zx128kplus2')).toContain('chip');
+    expect(leds('zx128kplus2a')).toContain('chip');
+    expect(leds('zx128kplus3')).toContain('chip');
   });
 
   it('Spectrum shows the DISK indicator only on the +3', () => {
-    expect(leds('48k')).not.toContain('dsk');
-    expect(leds('128k')).not.toContain('dsk');
-    expect(leds('+3')).toContain('dsk');
+    expect(leds('zx48k')).not.toContain('dsk');
+    expect(leds('zx128k')).not.toContain('dsk');
+    expect(leds('zx128kplus3')).toContain('dsk');
   });
 
   it('every Spectrum keeps its Kempston/EAR/rainbow/beep indicators', () => {
     for (const led of ['kemp', 'ear', 'rainbow', 'beep'] as const) {
-      expect(leds('48k')).toContain(led);
+      expect(leds('zx48k')).toContain(led);
     }
   });
 
   it('CPC shows AY but never the (absent) beeper', () => {
     for (const model of ['cpc464', 'cpc6128', 'gx4000'] as const) {
-      expect(leds(model)).toContain('ay');
+      expect(leds(model)).toContain('chip');
       expect(leds(model)).not.toContain('beep');
     }
   });
@@ -67,9 +67,22 @@ describe('status-bar LED declarations', () => {
   });
 
   it('MSX shows PSG + cassette, Einstein shows PSG + disk', () => {
-    expect(leds('hx-10')).toEqual(expect.arrayContaining(['ay', 'load']));
+    expect(leds('hx-10')).toEqual(expect.arrayContaining(['chip', 'load']));
     expect(leds('hx-10')).not.toContain('dsk');
-    expect(leds('einstein-tc01')).toEqual(expect.arrayContaining(['ay', 'dsk']));
+    expect(leds('einstein-tc01')).toEqual(expect.arrayContaining(['chip', 'dsk']));
     expect(leds('einstein-tc01')).not.toContain('load');
+  });
+
+  it('the sound-chip LED is named after its chip', () => {
+    const chip = (m: MachineModel) => entryForModel(m).descriptor(m).ui.soundChip;
+    expect(chip('zx128k')).toBe('AY-3-8912');
+    expect(chip('cpc6128')).toBe('AY-3-8912');
+    expect(chip('hx-10')).toBe('AY-3-8910');
+    expect(chip('einstein-tc01')).toBe('AY-3-8910');
+    expect(chip('zx48k')).toBeUndefined();
+    for (const m of ['zx16k', 'zx48k', 'zx128k', 'zx128kplus3', 'cpc6128', 'hx-10', 'einstein-tc01'] as const) {
+      const ui = entryForModel(m).descriptor(m).ui;
+      expect(ui.statusLeds.includes('chip')).toBe(ui.soundChip !== undefined);
+    }
   });
 });

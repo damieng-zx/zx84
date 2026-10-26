@@ -15,13 +15,15 @@
 import type { AuxRomRequest, SettingsView } from '@/machines/machine.ts';
 import type { Spectrum } from '@/machines/spectrum/spectrum.ts';
 import type { SpectrumModel } from '@/machines/spectrum/models.ts';
-import { isPlusDCapable, isInterface1Capable, isBetaDiskCapable } from '@/machines/spectrum/models.ts';
+import { isPlusDCapable, isInterface1Capable, isBetaDiskCapable, hasBuiltinBetaDisk, betaRomInSystemRom, isUspeechCapable } from '@/machines/spectrum/models.ts';
 import { variantForModel, variantLabel, romFilename } from '@/machines/spectrum/peripherals/multiface.ts';
 
 export const VTX5000_ROM = 'sinclair/vtx5000-3-1.rom';
 export const PLUSD_ROM = 'sinclair/plus-d.rom';
 export const BETADISK_ROM = 'sinclair/trdos.rom';
 export const IF1_ROM = 'sinclair/if1-2.rom';
+export const USPEECH_ROM = 'sinclair/currah-uspeech.rom';
+export const SP0256_AL2_ROM = 'sinclair/sp0256-al2.rom';
 
 export function vtx5000AuxRom(m: Spectrum): AuxRomRequest {
   return {
@@ -67,6 +69,28 @@ export function if1AuxRom(m: Spectrum): AuxRomRequest {
   };
 }
 
+/** The Currah µSpeech needs two images: its own 2KB ROM and the SP0256-AL2's
+ *  internal allophone ROM. Both are awaited so they are present before the reset
+ *  that precedes the first interrupt, where the unit's ROM pages itself in. */
+export function uspeechAuxRoms(m: Spectrum): AuxRomRequest[] {
+  return [
+    {
+      cacheKey: 'uspeech-rom', source: USPEECH_ROM,
+      fetchingMsg: 'Fetching Currah µSpeech ROM…',
+      loadedMsg: (n) => `Currah µSpeech ROM loaded (${n} bytes)`,
+      failMsg: 'Failed to load Currah µSpeech ROM', failId: 'uspeech',
+      apply: (d) => m.currah.loadROM(d), awaitLoad: true,
+    },
+    {
+      cacheKey: 'sp0256-al2-rom', source: SP0256_AL2_ROM,
+      fetchingMsg: 'Fetching SP0256-AL2 speech ROM…',
+      loadedMsg: (n) => `SP0256-AL2 speech ROM loaded (${n} bytes)`,
+      failMsg: 'Failed to load SP0256-AL2 speech ROM', failId: 'uspeech',
+      apply: (d) => m.currah.loadSpeechROM(d), awaitLoad: true,
+    },
+  ];
+}
+
 export function betaAuxRom(m: Spectrum): AuxRomRequest {
   return {
     cacheKey: 'betadisk-rom', source: BETADISK_ROM,
@@ -99,7 +123,9 @@ export function buildSpectrumAuxRoms(m: Spectrum, view: SettingsView): AuxRomReq
   if (m.multiface.enabled) reqs.push(multifaceAuxRom(m));
 
   // Beta, +D and IF1 all overlay slot 0 — only one may be active; Beta wins.
-  const betaActive = view.get('betadisk', false) && isBetaDiskCapable(model);
+  // Models with a Beta Disk on the board (Pentagon) always have it, whatever the
+  // Hardware-pane setting says.
+  const betaActive = (hasBuiltinBetaDisk(model) || view.get('betadisk', false)) && isBetaDiskCapable(model);
 
   m.mgtPlusD.enabled = !betaActive && view.get('plusd', false) && isPlusDCapable(model);
   if (m.mgtPlusD.enabled) {
@@ -111,11 +137,17 @@ export function buildSpectrumAuxRoms(m: Spectrum, view: SettingsView): AuxRomReq
   m.interface1.enabled = !betaActive && view.get('interface1', false) && isInterface1Capable(model);
   if (m.interface1.enabled) reqs.push(if1AuxRom(m));
 
+  // Independent of the disk interfaces: if one of them has slot 0 paged in when the
+  // µSpeech's toggle fires, the toggle is ignored (see CurrahUSpeech.toggle).
+  m.currah.enabled = view.get('uspeech', false) && isUspeechCapable(model);
+  if (m.currah.enabled) reqs.push(...uspeechAuxRoms(m));
+
   m.betaDisk.enabled = betaActive;
   if (m.betaDisk.enabled) {
     m.betaDisk.fdc.writeProtect[0] = view.get('write-protect-c', false);
     m.betaDisk.fdc.writeProtect[1] = view.get('write-protect-d', false);
-    reqs.push(betaAuxRom(m));
+    // A Scorpion's TR-DOS comes out of its system ROM (see Spectrum.loadROM).
+    if (!betaRomInSystemRom(model)) reqs.push(betaAuxRom(m));
   }
 
   return reqs;

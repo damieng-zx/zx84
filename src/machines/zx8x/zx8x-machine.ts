@@ -3,6 +3,7 @@ import { AY3891x } from '@/cores/ay-3-8910.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
+import { z80ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
 import type {
   AuxRomRequest, BorderMode, Machine, MachineDescriptor, MachineHost, MachineKind, MachineTraceMode, SettingsView,
 } from '@/machines/machine.ts';
@@ -18,6 +19,7 @@ import { createZx8xServices, type Zx8xServices } from './services/index.ts';
 import {
   ZX8X_ACTIVE_HEIGHT, ZX8X_ACTIVE_WIDTH, ZX8X_BORDER_LEFT, ZX8X_BORDER_TOP,
   ZX8X_CPU_CLOCK, ZX8X_LINES_PER_FRAME, ZX8X_SCREEN_HEIGHT, ZX8X_SCREEN_WIDTH, ZX8X_T_PER_FRAME,
+  ZX8X_T_PER_LINE,
 } from './constants.ts';
 
 const WHITE = 0xffffffff;
@@ -165,6 +167,7 @@ export class Zx8xMachine extends BaseMachine implements Machine {
     this.memory = new Zx8xMemory(model);
     this.mixer.beeperGain = 0;
     this.mixer.ayGain = 0;
+    this.cpu.onInterrupt = (handler, nmi) => this.noteInterrupt(handler, nmi);
     this.installCpuBus();
     this.installCpuStep();
     this.services = createZx8xServices(this);
@@ -195,11 +198,7 @@ export class Zx8xMachine extends BaseMachine implements Machine {
         this.displayFetched = true;
         if ((value & 0x40) === 0) value = 0x00;
       }
-      if (this.memWatchpoints.length && this.memWatchHit === null) {
-        for (const wp of this.memWatchpoints) if ((wp.mode === 'read' || wp.mode === 'rw') && addr >= wp.start && addr <= wp.end) {
-          this.memWatchHit = { addr, value, dir: 'read' }; break;
-        }
-      }
+      if (this.memWatchpoints.length > 0 && this.memWatchHit === null) this.recordMemWatch(addr, value, 'read');
       return value;
     };
     this.cpu.write8 = (addr: number, value: number): void => {
@@ -208,11 +207,7 @@ export class Zx8xMachine extends BaseMachine implements Machine {
         this.quickSilvaMode = false;
       }
       this.memory.writeByte(addr, value);
-      if (this.memWatchpoints.length && this.memWatchHit === null) {
-        for (const wp of this.memWatchpoints) if ((wp.mode === 'write' || wp.mode === 'rw') && addr >= wp.start && addr <= wp.end) {
-          this.memWatchHit = { addr, value: value & 0xff, dir: 'write' }; break;
-        }
-      }
+      if (this.memWatchpoints.length > 0 && this.memWatchHit === null) this.recordMemWatch(addr, value & 0xff, 'write');
     };
     this.cpu._contendAccurate = () => {};
     this.cpu.contend = () => {};
@@ -223,7 +218,7 @@ export class Zx8xMachine extends BaseMachine implements Machine {
       }
       this.activity.kbdReads++;
       const value = 0x60 | this.keyboard.read((port >> 8) & 0xff);
-      if (this.portWatchpoints.has(port & 0xffff) && this.portWatchHit === null) this.portWatchHit = { port: port & 0xffff, value, dir: 'in' };
+      if (this.portWatchpoints.size > 0) this.recordPortWatch(port & 0xffff, value, 'in');
       return value;
     };
     this.cpu.portOutHandler = (port: number, value: number): void => {
@@ -233,7 +228,7 @@ export class Zx8xMachine extends BaseMachine implements Machine {
         if (low === 0xfe) this.nmiEnabled = true;
         else if (low === 0xfd) this.nmiEnabled = false;
       }
-      if (this.portWatchpoints.has(port & 0xffff) && this.portWatchHit === null) this.portWatchHit = { port: port & 0xffff, value: value & 0xff, dir: 'out' };
+      if (this.portWatchpoints.size > 0) this.recordPortWatch(port & 0xffff, value & 0xff, 'out');
     };
   }
 
@@ -439,6 +434,7 @@ export class Zx8xMachine extends BaseMachine implements Machine {
     this.mixer.reset();
     this.resetPseudoHires();
     this.frame32.fill(WHITE);
+    this.resetFrameCount();
     this.needsDisplay = true;
   }
 
@@ -452,18 +448,49 @@ export class Zx8xMachine extends BaseMachine implements Machine {
   protected framePixels(): Uint8Array { return this.frame; }
   protected inTurbo(): boolean { return this.turbo; }
 
+  // ── Beam ───────────────────────────────────────────────────────────────
+
+  /** The next line of the frame in progress to run (it carries over a stop). */
+  private fLine = 0;
+
+  /** The CPU makes the picture itself, so the frame here is a fixed slice of
+   *  CPU time: 312 lines of 207T, each opened by the ZX81's NMI generator
+   *  while it is on. Where the picture falls in it is up to the software. */
+  beam(): BeamPos { return this.gridBeam(); }
+  beamInfo(): BeamInfo {
+    return {
+      cyclesPerLine: ZX8X_T_PER_LINE,
+      linesPerFrame: ZX8X_LINES_PER_FRAME,
+      displayStart: 0,
+      note: 'the CPU generates the picture, so a frame is a fixed slice of 312 lines of 207T counted from reset, not the TV frame: on the ZX81 each line starts with an NMI while the NMI generator is on (OUT (0xFE)); vertical sync and the position of the picture are made by the ROM or program (IN from 0xFE starts VSYNC), so line 0 is not the top of the picture and displayStart is 0 only nominally; the ZX80 has no NMI generator and its lines are just 207T of CPU time. The display file is drawn once at the end of the frame (pseudo-hi-res rows as the CPU fetches them)',
+    };
+  }
+  override supportsBeamStops(): boolean { return true; }
+  override supportsInterruptLog(): boolean { return true; }
+  protected override cpuCycles(): number { return this.cpu.tStates; }
+  protected override stackPointer(): number { return this.cpu.sp; }
+  protected override cpuPc(): number { return this.cpu.pc; }
+  protected override interruptedPc(): number { return z80ReturnAddress(this.cpu.sp, a => this.memory.readByte(a)); }
+
   protected runFrame(): void {
-    this.activity.kbdReads = 0;
+    // A frame a stop left part-way carries on from the line it was in, whose
+    // NMI has already been raised.
+    let resumed = this.openFrame(ZX8X_T_PER_FRAME);
+    if (!resumed) {
+      this.activity.kbdReads = 0;
+      this.fLine = 0;
+    }
+    this.portWatchHit = null;
+    this.memWatchHit = null;
     const lineT = ZX8X_T_PER_FRAME / ZX8X_LINES_PER_FRAME;
-    let lineEnd = this.cpu.tStates;
     let lastAudio = this.cpu.tStates;
     let broke = false;
-    for (let line = 0; line < ZX8X_LINES_PER_FRAME; line++) {
-      lineEnd += lineT;
-      if (this.model === 'zx81' && this.nmiEnabled) this.cpu.nmi();
+    for (; this.fLine < ZX8X_LINES_PER_FRAME; this.fLine++) {
+      const lineEnd = this.frameStartT + (this.fLine + 1) * lineT;
+      if (!resumed && this.model === 'zx81' && this.nmiEnabled) this.cpu.nmi();
+      resumed = false;
       while (this.cpu.tStates < lineEnd) {
-        if (this.breakpoints.has(this.cpu.pc)) { this.breakpointHit = this.cpu.pc; broke = true; break; }
-        if (this.onTrap?.(this.cpu.pc)) { broke = true; break; }
+        if (this.checkStops(this.cpu.pc)) { broke = true; break; }
         const tapeRom = this.tapeRom;
         if (tapeRom !== null) {
           const pc = this.cpu.pc;
@@ -472,7 +499,9 @@ export class Zx8xMachine extends BaseMachine implements Machine {
         // EI suppresses interrupts for one instruction; step() itself resets
         // and re-arms eiDelay per-instruction (see core.ts), so a plain
         // post-step check is enough here.
+        this.beforeInsn(this.cpu.pc);
         this.cpu.step();
+        const stopped = this.afterInsn();
         // /INT is wired to A6. During each M1 refresh the low address byte
         // carries R, so the line is low when the instruction's final refresh
         // address (R before its increment) has bit 6 clear. The ROM loads R
@@ -488,8 +517,20 @@ export class Zx8xMachine extends BaseMachine implements Machine {
           this.mixer.generateSamples(this.audio, null, false);
           lastAudio = this.cpu.tStates;
         }
+        // Stop on the instruction that tripped a watchpoint once /INT has
+        // been sampled after it: A6 is only low for this one refresh, so a
+        // resume that skipped the check would lose the interrupt.
+        if (stopped) {
+          broke = true;
+          break;
+        }
       }
-      if (broke) break;
+      if (broke) {
+        // The frame stays open; the next call carries on in this line.
+        this.midFrame = true;
+        this.needsDisplay = true;
+        return;
+      }
     }
     this.renderCurrentVideo();
     this.displayFetched = false;

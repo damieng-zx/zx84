@@ -17,16 +17,19 @@
 
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
+import type { BeamInfo, BeamLog, BeamPos } from '@/debug/beam-log.ts';
+import type { StopReason } from '@/debug/stop-reason.ts';
+import type { ChipSection } from '@/debug/chip-state.ts';
 import type { TapeBlock } from '@/media/tape/tap.ts';
 import type { MachineModel } from '@/models.ts';
 import type { OcrGridName, FontSource } from '@/ocr/ocr.ts';
 import type { BasicListingLine, BasicVariable } from '@/basic/types.ts';
 
-export type MachineKind = 'spectrum' | 'cpc' | 'einstein' | 'msx' | 'zx8x' | 'mtx' | 'lynx' | 'jupiter-ace' | 'pcw' | 'bbc';
+export type MachineKind = 'spectrum' | 'cpc' | 'einstein' | 'msx' | 'zx8x' | 'mtx' | 'lynx' | 'jupiter-ace' | 'pcw' | 'bbc' | 'electron' | 'apple2' | 'apple1' | 'enterprise' | 'atari';
 
 /** Keyboard/ROM locale for international machine variants.
  *  'uk' = default (English, no locale-specific ROM/keyboard). */
-export type MachineLocale = 'uk' | 'es' | 'fr';
+export type MachineLocale = 'uk' | 'es' | 'fr' | 'us';
 
 /** Border-size selector shared by both machines: 0=none, 1=small, 2=normal. */
 export type BorderMode = 0 | 1 | 2;
@@ -52,6 +55,10 @@ export interface ByteReader {
  */
 export interface IMachineMemory extends ByteReader {
   readByte(addr: number): number;
+  /** Read for inspection only (debugger, MCP): never disturbs read-sensitive
+   *  hardware. Machines whose IO has read side effects provide it; the rest
+   *  fall back to `readByte`. */
+  peekByte?(addr: number): number;
   writeByte(addr: number, val: number): void;
   readBlock(addr: number, len: number): Uint8Array;
   /** Fresh 64KB copy of the current paged address space (debug/snapshot). */
@@ -115,9 +122,43 @@ export interface Machine {
   breakpointHit: number;
   portWatchpoints: Set<number>;
   portWatchHit: { port: number; value: number; dir: 'in' | 'out' } | null;
-  memWatchpoints: { start: number; end: number; mode: 'read' | 'write' | 'rw' }[];
+  memWatchpoints: {
+    start: number; end: number; mode: 'read' | 'write' | 'rw';
+    /** `'break'` (default) stops at the first access; `'log'` records every
+     *  access in the beam log and carries on. */
+    action?: 'break' | 'log';
+    /** A log watchpoint records only accesses of these values. */
+    values?: number[];
+  }[];
   memWatchHit: { addr: number; value: number; dir: 'read' | 'write' } | null;
-  onTrap: ((pc: number) => boolean) | null;
+  /** Ports in `portWatchpoints` that log to the beam log instead of stopping. */
+  portLogPorts: Set<number>;
+  onTrap: ((pc: number, resume?: boolean) => boolean) | null;
+  /** Why the last run stopped (null if it ran to its end). */
+  stopReason: StopReason | null;
+  /** The beam-stamped debug event ring; null until a debugger arms it. */
+  beamLog: BeamLog | null;
+  /** The index of the frame in progress (frames completed since reset). Only a
+   *  machine that implements `beam()` keeps it honest. */
+  readonly frameNumber: number;
+  /** Where the beam is: the frame in progress and the cycles since it started
+   *  (`t`). Null when the machine has no raster to report. */
+  beam(): BeamPos | null;
+  /** The raster geometry `beam().t` is measured in, or null. */
+  beamInfo(): BeamInfo | null;
+  /** Log interrupt entries and ends in the beam log (off by default). A
+   *  machine that cannot report them ignores it ({@link supportsInterruptLog}). */
+  interruptLogging: boolean;
+  /** Whether {@link interruptLogging} does anything on this machine. */
+  supportsInterruptLog(): boolean;
+  /** Stop at the first instruction boundary at or after this beam position;
+   *  honoured only where {@link supportsBeamStops} is true. */
+  beamTarget: { frame: number; t: number } | null;
+  /** Whether the frame loop can stop mid-frame and resume (run-to-beam). */
+  supportsBeamStops(): boolean;
+  /** Execute exactly one instruction inside the frame loop, when the machine
+   *  can (the debugger's step); absent, the debug service steps the CPU raw. */
+  stepInstruction?(): void;
   onStatus: ((msg: string) => void) | null;
   onFrame: (() => void) | null;
   /** Fired when the machine changes its frame-buffer geometry at runtime (so
@@ -146,7 +187,7 @@ export interface Machine {
    *  owns the trap address(es) for its own ROM family — or, for 'disk', its own
    *  equivalent of holding the boot key down. Machines without a ROM-loader
    *  auto-boot omit this (the shell keys off its presence). */
-  armBootTrap?(kind: 'menu' | 'rom48k' | 'disk'): void;
+  armBootTrap?(kind: 'menu' | 'rom48k' | 'disk' | 'trdos'): void;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -250,7 +291,7 @@ export type MemoryMapFlag = 'screen' | 'active';
  *  declared here so machine descriptors stay headless-safe. A machine lists the
  *  ids it exposes via `MachineUiCapabilities.statusLeds`. */
 export const STATUS_LED_IDS = [
-  'kbd', 'kemp', 'mouse', 'ear', 'load', 'dsk', 'text', 'rainbow', 'beep', 'ay', 'psg',
+  'kbd', 'kemp', 'mouse', 'ear', 'load', 'dsk', 'text', 'rainbow', 'beep', 'chip',
 ] as const;
 
 export type StatusLedId = typeof STATUS_LED_IDS[number];
@@ -264,8 +305,33 @@ export type StatusLedId = typeof STATUS_LED_IDS[number];
  * Everything here is presentation-facing but *machine-owned*: the machine knows
  * which of its features the UI should surface. Pure data (headless-safe).
  */
+/** One Color map choice — see `MachineUiCapabilities.colorMapOptions`. */
+export interface ColorMapOption {
+  readonly value: string;
+  readonly label: string;
+  /** Tooltip saying what the choice models. */
+  readonly title?: string;
+}
+
 /** A Sound-pane PSG-shaping control — see `MachineUiCapabilities.psgControls`. */
-export type PsgControl = 'stereo' | 'sn-stereo' | 'filter' | 'dc-block';
+/** One hardware sound device of a machine, as `MachineUiCapabilities.soundDevices` lists it. */
+export interface SoundDeviceInfo {
+  /** Stable id for the device (`beeper`, `psg`, `specdrum`, …). */
+  readonly id: string;
+  /** Slider label. */
+  readonly label: string;
+  /** The 0-`maxVolume` percent setting key holding this device's volume. Several
+   *  machines share a key for the same kind of device (`beeper-volume`). */
+  readonly volumeSetting: string;
+  /** Boolean setting that must be on for the device to be present (a user-fitted
+   *  peripheral). Omitted for devices the machine always has. */
+  readonly enabledSetting?: string;
+  /** Slider ceiling in percent (default 100). Above 100 lets a line-level device
+   *  (a DAC) be pushed past the speaker. */
+  readonly maxVolume?: number;
+}
+
+export type PsgControl = 'stereo' | 'sn-stereo' | 'filter';
 
 /** One mouse interface a machine offers — see `MachineUiCapabilities.mouseTypes`.
  *  `id` is the mode string passed back through `InputService.mice`. */
@@ -288,6 +354,7 @@ export type SaveMenuItem =
   | 'snapshot-z80'
   | 'snapshot-sna-v2'
   | 'snapshot-sna-v3'
+  | 'snapshot-a8state'
   | 'screenshot-png'
   | 'screen-scr'
   | 'ram-bin';
@@ -300,25 +367,56 @@ export interface MachineUiCapabilities {
   /** Execution-trace debugger control is available. */
   readonly trace: boolean;
   /** Palette / colour-map family shown in the Display pane. */
-  readonly colorMap: 'spectrum' | 'cpc' | 'msx' | 'einstein' | 'bbc' | 'mono';
+  readonly colorMap: 'spectrum' | 'cpc' | 'msx' | 'einstein' | 'bbc' | 'apple2' | 'atari' | 'mono';
+  /** The Color map drop-down's choices, where the machine computes them
+   *  rather than the pane listing a fixed set (the Atari's depend on its
+   *  region). The first is the default. */
+  readonly colorMapOptions?: readonly ColorMapOption[];
   /**
    * Which Accuracy drop-down the Display pane offers, or false for none.
    *
    * 'scanline' is the Spectrum's per-t-state / per-line / per-cell renderer;
-   * 'contention' is for a machine that always draws a whole line at a time
-   * and whose only accuracy step is whether memory slots are charged. Both
-   * write the same `scanline-accuracy` setting, so the control is one control.
+   * 'raster' is a machine that can draw per CPU cycle, per scanline or once
+   * per frame (the BBC Micro and the Apple II), where the first two show what
+   * a program changes mid-frame (split modes, palette changes) and the last is
+   * the fastest; 'contention' is for a machine that always draws a whole line
+   * at a time and whose only accuracy step is whether memory slots are
+   * charged. All write the same `scanline-accuracy` setting, so the control
+   * is one control.
    */
-  readonly accuracy: false | 'scanline' | 'contention';
+  readonly accuracy: false | 'scanline' | 'raster' | 'contention';
   /** Built-in floppy drives (A:/B:) are fitted. */
   readonly builtinDisk: boolean;
+  /** Boolean Hardware-pane settings (SettingsView keys) a capability depends
+   *  on, for peripherals fitted by the user: the capability only applies while
+   *  its setting is on. The machine still declares the capability statically
+   *  (descriptors are pure functions of the model); the generic panes consult
+   *  the setting so they show nothing for hardware that isn't fitted. */
+  readonly requires?: {
+    readonly builtinDisk?: string;
+    readonly cartridge?: string;
+  };
   /** Built-in drives fitted, A: onward — defaults to 2 when `builtinDisk`.
    *  The Lynx's FD1793 addresses four. Peripheral drives are not counted. */
   readonly builtinDrives?: number;
+  /** Labels of the built-in drives in order, where they are not A:, B:, C:,
+   *  D: (the Atari's D1: to D4:). */
+  readonly builtinDriveLabels?: readonly string[];
+  /** Models a built-in drive can be set to, offered in each drive's Model
+   *  sub-menu. A machine that lists these also adds and removes drives one at
+   *  a time (the drive list, not a separate count, says how many are fitted),
+   *  and implements the `DiskService` hooks for it. */
+  readonly driveModels?: readonly { readonly value: string; readonly label: string; readonly title?: string }[];
+  /** The drive list when the user has not set one up, one model per drive. */
+  readonly defaultDriveModels?: readonly string[];
   /** Joystick pane applies. */
   readonly joystick: boolean;
-  /** Joystick presents a single fixed interface (no type selector; F2 shown). */
+  /** Joystick presents a single fixed interface (no type selector). */
   readonly fixedJoystick: boolean;
+  /** Fire buttons on the machine's joystick. Defaults to 2 for a fixed
+   *  interface (the CPC, MSX and MTX sticks) and 1 otherwise; the Atari's
+   *  fixed ports take one-button CX40s. */
+  readonly joystickFireButtons?: 1 | 2;
   /**
    * Mouse interfaces this machine can drive, in the order the Mouse pane
    * offers them; empty means no mouse pane.
@@ -339,15 +437,26 @@ export interface MachineUiCapabilities {
   readonly systemRomSlot?: boolean;
   /** Independently-overridable 16K system ROM pages (0 = single image). */
   readonly romPages: 0 | 2 | 4;
-  /** 1-bit beeper present (the BEEP activity LED, and the beeper side of the
-   *  Sound-pane mixer). */
+  /** 1-bit beeper present (the BEEP activity LED). */
   readonly beeper: boolean;
-  /** The Beep↔PSG balance slider applies: the machine has both a beeper and
-   *  a PSG to balance, and reads 'ay-mix' in applySettings. Omitted where the
-   *  balance is fixed — a buzzer-only machine (the Ace, the Lynx) has nothing
-   *  to weigh it against, and the MSX and Einstein never read the setting —
-   *  so the pane hides a slider that would do nothing. */
-  readonly psgMixer?: boolean;
+  /** Name of the machine's sound chip (`AY-3-8912`, `SN76489`, …) — the label
+   *  of the status-bar sound LED. Omitted where the machine has only a beeper;
+   *  such a machine must not list the 'chip' LED. */
+  readonly soundChip?: string;
+  /**
+   * Every hardware sound device this machine can have — the speaker/beeper, the
+   * PSG, a fitted DAC or speech board — in the order the Sound pane lists them.
+   * The pane draws one volume slider per *present* device (see
+   * `presentSoundDevices`) once there are two or more, and the machine reads the
+   * same list in `applySettings` through `soundDeviceGains` to set its mixer.
+   * A machine with a single device lists it (or nothing) and gets no slider.
+   * Declare a device here and it gets its slider and persistence for free.
+   */
+  readonly soundDevices?: readonly SoundDeviceInfo[];
+  /** The machine's ULA leaks its MIC (tape-save) output into the speaker, and
+   *  reads 'mic-audible' in applySettings: the Sound pane offers a toggle to
+   *  hear it or not. Omitted where MIC is not part of the speaker mix. */
+  readonly micSpeaker?: boolean;
   /**
    * Which of the Sound pane's PSG-shaping controls apply to this machine.
    *
@@ -360,7 +469,6 @@ export interface MachineUiCapabilities {
    *                left and right amplitude, so the program decides the image.
    *   'filter'   — the ultrasonic anti-alias strategy, which the MTX's
    *                SN76489 shares even though it is not an AY.
-   *   'dc-block' — the DC blocking filter, AY-only.
    *
    * A machine with no PSG at all (ZX80/81) lists none of them.
    */
@@ -400,7 +508,11 @@ export interface MachineUiCapabilities {
   /** ROM regions the Memory pane's region picker offers (besides mapped/banks). */
   readonly memoryRegions: readonly MemoryRegionInfo[];
   /** ASCII glyph table the Memory pane renders with. */
-  readonly charset: 'spectrum' | 'cpc' | 'bbc';
+  readonly charset: 'spectrum' | 'cpc' | 'bbc' | 'apple2';
+  /** Hardware is memory-mapped, so a write through the Memory pane's Mapped view
+   *  can reach a device register and have side effects (BBC/Electron SHEILA, the
+   *  Apple II soft switches). The pane warns when this is set. */
+  readonly memoryMappedIo?: boolean;
 }
 
 /**
@@ -499,6 +611,10 @@ export interface MountResult {
    *  snapshot on a 48K): this machine is destroyed; the shell must re-dispatch
    *  the same file to the NEW machine's MediaService. */
   readonly replay?: boolean;
+  /** Set when the mount replaced drive or tape contents of its own accord (an
+   *  Atari snapshot carries its disks and cassette): the shell re-reads the
+   *  drives and tape into the panes and persistence. */
+  readonly mediaChanged?: boolean;
 }
 
 /**
@@ -512,6 +628,21 @@ export interface MediaService {
   /** Extensions currently loadable (varies with enabled peripherals). */
   accepts(): MediaTypeDescriptor[];
   mount(data: Uint8Array, filename: string, target?: MediaTargetId): Promise<MountResult>;
+  /**
+   * Take a whole .zip at once — every file in it, unfiltered. For software
+   * that ships as several files which load one another by name (the
+   * Enterprise's programs, served through its FILE: device), so picking one
+   * entry would strand the rest. Resolve null to decline, and the shell
+   * unwraps the archive the usual way. Omitted by machines that only ever
+   * mount one file.
+   */
+  mountArchive?(files: readonly ArchiveFile[], archiveName: string): Promise<MountResult | null>;
+}
+
+/** One file out of an archive handed to `MediaService.mountArchive`. */
+export interface ArchiveFile {
+  readonly name: string;
+  readonly data: Uint8Array;
 }
 
 export interface TapeBlockInfo {
@@ -629,6 +760,16 @@ export interface DiskService {
    *  serialized bytes + filename for the shell to persist, or null when the
    *  drive doesn't support in-place formatting. */
   formatBlank?(id: string, name?: string): { data: Uint8Array; name: string } | null;
+  /** Machines with `ui.driveModels`: the model of each fitted drive, in order. */
+  readonly driveModels?: readonly string[];
+  /** Change one drive's model; its disk stays in it. */
+  setDriveModel?(index: number, model: string): void;
+  /** Add an empty drive below `after` (same model); the drives under it move
+   *  down with their disks. False when no more fit. */
+  addDrive?(after: number): boolean;
+  /** Remove a drive and its disk; the drives under it move up. False for the
+   *  last drive. */
+  removeDrive?(index: number): boolean;
 }
 
 export interface RomSlotInfo {
@@ -828,6 +969,11 @@ export interface DebugService {
   /** The CPU's I/O-port space, or null on machines whose CPU has none (the
    *  6502 memory-maps its hardware instead). */
   readonly ports: CpuPorts | null;
+
+  /** The machine's custom chips, each with a dump of its registers and
+   *  decoded state (read without side effects); absent where the machine does
+   *  not offer them. */
+  chips?(): readonly ChipSection[];
 }
 
 // ── Input service ───────────────────────────────────────────────────────────
@@ -1048,7 +1194,9 @@ export interface MachineEntry {
   readonly kind: MachineKind;
   readonly models: readonly MachineModel[];
   descriptor(model: MachineModel, locale?: MachineLocale): MachineDescriptor;
-  create(model: MachineModel, display: IScreenRenderer | null): Machine;
+  /** Build the machine. `locale` matters only to machines whose hardware
+   *  differs by region (the Atari's NTSC/PAL timing); others ignore it. */
+  create(model: MachineModel, display: IScreenRenderer | null, locale?: MachineLocale): Machine;
   /** Default system-ROM image sources, fetched and concatenated in order by the
    *  shared rom-manager machinery. */
   romSources(model: MachineModel, locale?: MachineLocale): readonly string[];
@@ -1062,4 +1210,39 @@ export interface MachineEntry {
    *  this machine family can't accept the image. Keeps ROM-size→model knowledge
    *  in the machine that owns it; the shell iterates entries. */
   detectModelForRom?(data: Uint8Array, current: MachineModel): MachineModel | null;
+}
+
+/** The devices that are actually fitted: those with no `enabledSetting` (always
+ *  there) plus those whose setting `isOn` reports on. */
+export function presentSoundDevices(
+  devices: readonly SoundDeviceInfo[] | undefined,
+  isOn: (setting: string) => boolean,
+): readonly SoundDeviceInfo[] {
+  return (devices ?? []).filter((d) => !d.enabledSetting || isOn(d.enabledSetting));
+}
+
+/** Slider ceiling of a sound device in percent. */
+export function soundDeviceMaxVolume(device: SoundDeviceInfo): number {
+  return device.maxVolume ?? 100;
+}
+
+/**
+ * The mixer gain (1 = unity) for each sound-device id, from the persisted volumes
+ * in `view`. Volumes are percent, clamped to 0..the device's ceiling. With fewer
+ * than two devices present every gain is 1: a lone device has no slider, so a
+ * volume left over from another configuration must not silently quieten it.
+ */
+export function soundDeviceGains(
+  devices: readonly SoundDeviceInfo[] | undefined,
+  view: SettingsView,
+): Record<string, number> {
+  const gains: Record<string, number> = {};
+  const mixing = presentSoundDevices(devices, (key) => Boolean(view.get(key, false))).length > 1;
+  for (const d of devices ?? []) {
+    if (!mixing) { gains[d.id] = 1; continue; }
+    const pct = Number(view.get(d.volumeSetting, 100));
+    const clamped = Number.isFinite(pct) ? Math.min(soundDeviceMaxVolume(d), Math.max(0, pct)) : 100;
+    gains[d.id] = clamped / 100;
+  }
+  return gains;
 }

@@ -17,7 +17,7 @@ import {
 } from '@/models.ts';
 import { isKnownModel } from '@/state/machine-state.ts';
 
-const ALL_MODELS: SpectrumModel[] = ['16k', '48k', '128k', '+2', '+2A', '+3'];
+const ALL_MODELS: SpectrumModel[] = ['zx16k', 'zx48k', 'zx128k', 'zx128kplus2', 'zx128kplus2a', 'zx128kplus3', 'pentagon128', 'pentagon512', 'pentagon1024', 'scorpion256'];
 
 describe('models — classification helpers', () => {
   it('recognizes persisted MTX models', () => {
@@ -27,35 +27,40 @@ describe('models — classification helpers', () => {
   });
   it('is16K matches only 16K', () => {
     const truth: Record<SpectrumModel, boolean> = {
-      '16k': true, '48k': false, '128k': false, '+2': false, '+2A': false, '+3': false,
+      'zx16k': true, 'zx48k': false, 'zx128k': false, 'zx128kplus2': false, 'zx128kplus2a': false, 'zx128kplus3': false,
+      pentagon128: false, pentagon512: false, pentagon1024: false, scorpion256: false,
     };
     for (const m of ALL_MODELS) expect(is16K(m)).toBe(truth[m]);
   });
 
   it('is128kClass matches 128K/+2/+2A/+3 (everything except 16K/48K)', () => {
     const truth: Record<SpectrumModel, boolean> = {
-      '16k': false, '48k': false, '128k': true, '+2': true, '+2A': true, '+3': true,
+      'zx16k': false, 'zx48k': false, 'zx128k': true, 'zx128kplus2': true, 'zx128kplus2a': true, 'zx128kplus3': true,
+      pentagon128: true, pentagon512: true, pentagon1024: true, scorpion256: true,
     };
     for (const m of ALL_MODELS) expect(is128kClass(m)).toBe(truth[m]);
   });
 
   it('isPlus2AClass matches only +2A and +3 (Amstrad gate array)', () => {
     const truth: Record<SpectrumModel, boolean> = {
-      '16k': false, '48k': false, '128k': false, '+2': false, '+2A': true, '+3': true,
+      'zx16k': false, 'zx48k': false, 'zx128k': false, 'zx128kplus2': false, 'zx128kplus2a': true, 'zx128kplus3': true,
+      pentagon128: false, pentagon512: false, pentagon1024: false, scorpion256: false,
     };
     for (const m of ALL_MODELS) expect(isPlus2AClass(m)).toBe(truth[m]);
   });
 
   it('isPlus3 matches only +3 (has FDC)', () => {
     const truth: Record<SpectrumModel, boolean> = {
-      '16k': false, '48k': false, '128k': false, '+2': false, '+2A': false, '+3': true,
+      'zx16k': false, 'zx48k': false, 'zx128k': false, 'zx128kplus2': false, 'zx128kplus2a': false, 'zx128kplus3': true,
+      pentagon128: false, pentagon512: false, pentagon1024: false, scorpion256: false,
     };
     for (const m of ALL_MODELS) expect(isPlus3(m)).toBe(truth[m]);
   });
 
-  it('romPageSlotCount is 2 for 128K/+2, 4 for +2A/+3, 0 otherwise', () => {
+  it('romPageSlotCount is 2 for 128K/+2/Pentagon, 4 for +2A/+3/Scorpion, 0 otherwise', () => {
     const truth: Record<SpectrumModel, 0 | 2 | 4> = {
-      '16k': 0, '48k': 0, '128k': 2, '+2': 2, '+2A': 4, '+3': 4,
+      'zx16k': 0, 'zx48k': 0, 'zx128k': 2, 'zx128kplus2': 2, 'zx128kplus2a': 4, 'zx128kplus3': 4,
+      pentagon128: 2, pentagon512: 2, pentagon1024: 2, scorpion256: 4,
     };
     for (const m of ALL_MODELS) expect(romPageSlotCount(m)).toBe(truth[m]);
   });

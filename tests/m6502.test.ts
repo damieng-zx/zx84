@@ -154,6 +154,93 @@ describe('m6502 — decimal mode', () => {
     expect(cpu.p & FLAG_C).toBe(0);
   });
 
+  /** The NMOS decimal-mode ADC/SBC, worked out digit by digit from the
+   *  data-sheet description of what the chip does, for every input. */
+  function reference(op: 'adc' | 'sbc', a: number, v: number, c: number) {
+    if (op === 'adc') {
+      const binary = a + v + c;
+      let lowDigit = (a & 15) + (v & 15) + c;
+      let carryToHigh = 0;
+      if (lowDigit >= 10) { lowDigit = (lowDigit + 6) & 15; carryToHigh = 1; }
+      const highSum = (a >> 4) + (v >> 4) + carryToHigh;      // before correction
+      const half = (highSum << 4) | lowDigit;                  // up to 9 bits
+      const signedHigh = ((a >> 4) ^ 8) - 8 + (((v >> 4) ^ 8) - 8) + carryToHigh;
+      const overflow = signedHigh < -8 || signedHigh > 7;
+      const negative = (highSum & 8) !== 0;
+      let high = highSum;
+      if (high >= 10) high += 6;
+      return {
+        a: ((high << 4) | lowDigit) & 0xff,
+        c: high >= 16 ? 1 : 0,
+        z: (binary & 0xff) === 0 ? 1 : 0,
+        n: negative ? 1 : 0,
+        v: overflow ? 1 : 0,
+        half,
+      };
+    }
+    const binary = a - v - (1 - c);
+    let lowDigit = (a & 15) - (v & 15) - (1 - c);
+    let borrowHigh = 0;
+    if (lowDigit < 0) { lowDigit = (lowDigit - 6) & 15; borrowHigh = 1; }
+    let high = (a >> 4) - (v >> 4) - borrowHigh;
+    if (high < 0) high -= 6;
+    const signedResult = ((a ^ 0x80) - 0x80) - ((v ^ 0x80) - 0x80) - (1 - c);
+    return {
+      a: ((high << 4) | lowDigit) & 0xff,
+      c: binary >= 0 ? 1 : 0,
+      z: (binary & 0xff) === 0 ? 1 : 0,
+      n: (binary & 0x80) !== 0 ? 1 : 0,
+      v: signedResult < -128 || signedResult > 127 ? 1 : 0,
+      half: 0,
+    };
+  }
+
+  it.each(['adc', 'sbc'] as const)('decimal %s matches the NMOS result and flags for every input', op => {
+    const { cpu, mem } = harness();
+    const opcode = op === 'adc' ? 0x69 : 0xE9;
+    for (let c = 0; c < 2; c++) {
+      for (let a = 0; a < 256; a++) {
+        for (let v = 0; v < 256; v++) {
+          boot(mem, cpu, 0x200, [opcode, v]);
+          cpu.a = a;
+          cpu.p = FLAG_U | FLAG_D | (c ? FLAG_C : 0);
+          cpu.step();
+          const want = reference(op, a, v, c);
+          const got = {
+            a: cpu.a, c: cpu.p & FLAG_C, z: (cpu.p & FLAG_Z) ? 1 : 0,
+            n: (cpu.p & FLAG_N) ? 1 : 0, v: (cpu.p & FLAG_V) ? 1 : 0,
+          };
+          const expected = { a: want.a, c: want.c, z: want.z, n: want.n, v: want.v };
+          if (JSON.stringify(got) !== JSON.stringify(expected)) {
+            // Name the input in the failure rather than 131,072 passes.
+            expect({ op, input: { a, v, c }, out: got }).toEqual({ op, input: { a, v, c }, out: expected });
+          }
+        }
+      }
+    }
+  });
+
+  it('takes N and V from the half-corrected sum in decimal ADC (79 + 00 + carry = 80, N and V set)', () => {
+    const { cpu, mem } = harness();
+    boot(mem, cpu, 0x200, [0x69, 0x00]);
+    cpu.a = 0x79; cpu.p = FLAG_U | FLAG_D | FLAG_C;
+    cpu.step();
+    expect(cpu.a).toBe(0x80);
+    expect(cpu.p & FLAG_N).toBe(FLAG_N);
+    expect(cpu.p & FLAG_V).toBe(FLAG_V);
+    expect(cpu.p & FLAG_C).toBe(0);
+  });
+
+  it('takes N from the binary result in decimal SBC (00 - 66 with no borrow gives 34 but binary 9A)', () => {
+    const { cpu, mem } = harness();
+    boot(mem, cpu, 0x200, [0xE9, 0x66]);
+    cpu.a = 0x00; cpu.p = FLAG_U | FLAG_D | FLAG_C;
+    cpu.step();
+    expect(cpu.a).toBe(0x34);
+    expect(cpu.p & FLAG_N).toBe(FLAG_N); // from 0x9A, not 0x34
+    expect(cpu.p & FLAG_C).toBe(0);
+  });
+
   it('decimal Z uses the binary result (NMOS quirk)', () => {
     const { cpu, mem } = harness();
     // 0x99 + 0x01 => decimal 0x00 (Z would be set) but binary 0x9A (not zero).
@@ -456,5 +543,74 @@ describe('m6502 — stable undocumented opcodes', () => {
     expect(cpu.x).toBe(0x0A);
     expect(cpu.a).toBe(0xFF);
     expect(cpu.p & FLAG_C).toBe(FLAG_C);
+  });
+});
+
+describe('m6502 — the I flag and the interrupt poll', () => {
+  /** A CPU at $0200 with the IRQ vector at $0300 and room on the stack. */
+  function rig(program: number[]) {
+    const { cpu, mem } = harness();
+    mem[0xFFFE] = 0x00; mem[0xFFFF] = 0x03;
+    boot(mem, cpu, 0x200, program);
+    cpu.sp = 0xFD;
+    return { cpu, mem };
+  }
+
+  it('lets one more instruction run after CLI before a pending IRQ is taken', () => {
+    const { cpu } = rig([0x58, 0xEA, 0xEA]); // CLI ; NOP ; NOP
+    cpu.p = FLAG_U | FLAG_I;
+    cpu.irqLine = true;
+    cpu.step();                       // CLI
+    expect(cpu.p & FLAG_I).toBe(0);
+    cpu.step();                       // the NOP after it still runs
+    expect(cpu.pc).toBe(0x202);
+    cpu.step();                       // now the IRQ
+    expect(cpu.pc).toBe(0x300);
+  });
+
+  it('lets one more instruction run after PLP clears I as well', () => {
+    const { cpu, mem } = rig([0x28, 0xEA, 0xEA]); // PLP ; NOP ; NOP
+    mem[0x1FE] = FLAG_U;            // the byte PLP pulls: I clear
+    cpu.sp = 0xFD;
+    cpu.p = FLAG_U | FLAG_I;
+    cpu.irqLine = true;
+    cpu.step();
+    cpu.step();
+    expect(cpu.pc).toBe(0x202);
+    cpu.step();
+    expect(cpu.pc).toBe(0x300);
+  });
+
+  it('still takes an IRQ asserted during SEI right after it, with I set in the pushed status', () => {
+    const { cpu, mem } = rig([0x78, 0xEA]); // SEI ; NOP
+    cpu.p = FLAG_U;
+    cpu.step();                       // SEI runs with no IRQ yet
+    cpu.irqLine = true;               // asserted before SEI finished
+    cpu.step();                       // taken before the NOP
+    expect(cpu.pc).toBe(0x300);
+    expect(mem[0x1FB] & FLAG_I).toBe(FLAG_I);
+  });
+
+  it('blocks an IRQ at once for any instruction after SEI has been polled', () => {
+    const { cpu } = rig([0x78, 0xEA, 0xEA, 0xEA]);
+    cpu.p = FLAG_U;
+    cpu.step();                       // SEI
+    cpu.step();                       // NOP, no IRQ pending
+    cpu.irqLine = true;
+    cpu.step();                       // NOP: masked now
+    expect(cpu.pc).toBe(0x203);
+  });
+
+  it('applies the I flag RTI restores immediately', () => {
+    const { cpu, mem } = rig([0x40, 0xEA]); // RTI
+    cpu.sp = 0xFB;
+    mem[0x1FC] = FLAG_U;              // status to restore: I clear
+    mem[0x1FD] = 0x01; mem[0x1FE] = 0x02; // return to $0201
+    cpu.p = FLAG_U | FLAG_I;
+    cpu.irqLine = true;
+    cpu.step();                       // RTI
+    expect(cpu.p & FLAG_I).toBe(0);
+    cpu.step();                       // taken now, with no instruction in between
+    expect(cpu.pc).toBe(0x300);
   });
 });

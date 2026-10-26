@@ -1,44 +1,51 @@
 # ZX84
 
-**A browser emulator for the Sinclair ZX80, ZX81 and ZX Spectrum, Amstrad CPC (including the Plus range) and PCW, Tatung Einstein, MSX, Memotech MTX, Camputers Lynx, Jupiter Ace, and Acorn BBC Micro, with an MCP server for automated testing.**
+<img src="public/mascot.svg" align="right" width="100" height="140" alt="Blip, the ZX84 robot mascot">
+
+**A browser-based 8-bit computer emulator for the Sinclair ZX80, ZX81 and ZX Spectrum (and the Pentagon and Scorpion clones), Amstrad CPC (including the Plus range) and PCW, Tatung Einstein, MSX, Memotech MTX, Camputers Lynx, Jupiter Ace, Acorn BBC Micro and Electron, the Apple I and the Apple II family, and the Enterprise 64/128, with an MCP server for automated testing.**
 
 https://zx84.envytech.workers.dev
 
-ZX84 is an old-computer emulator with machine-specific hardware models, browser-based media management, inspection tools, and a configurable CRT presentation layer.
+ZX84 is an 8-bit computer emulator with machine-specific hardware models, browser-based media management, inspection tools, and a configurable CRT presentation layer.
 
 ## Supported Machines
 
-| Family | Models | Core Hardware |
+Each machine has its own sheet covering its models, built-in hardware, peripherals, media formats, tools and known issues.
+
+| Machine | Models | CPU |
 | --- | --- | --- |
-| Sinclair ZX Spectrum | 16K, 48K, 128K, +2, +2A, +3 | ULA or Amstrad gate array, beeper, AY on 128K-class models, uPD765A on +3 |
-| Sinclair ZX80 / ZX81 | ZX80, ZX81, optional 16KB RAM pack | Software-generated monochrome display, keyboard matrix, `.o` / `.p` program images |
-| Amstrad CPC | CPC 464, CPC 664, CPC 6128, 6128 Plus, GX4000 | Gate array or Plus ASIC, 6845 CRTC, AY-3-891x, 8255 PPI, uPD765A on 664/6128, cartridge on Plus models |
-| Tatung Einstein | TC-01, 256 | TMS9929A (TC-01) or V9938 (256) VDP, AY-3-8910, Z80 CTC, WD1770 |
-| MSX | Toshiba HX-10 | TMS9929A VDP, AY-3-8910, 8255 PPI, cartridge slot |
-| Memotech MTX | MTX500, MTX512, RS128 | TMS9929A VDP, Z80 CTC, SN76489A, twin matrix-wired joysticks, ROM extension card, FDX/SDX WD179x disk interface, optional 6845 80-column display |
-| Camputers Lynx | 48K, 96K, 128K | 6845 CRTC video, DAC sound, cassette, FD1793 floppy on 96K/128K |
-| Jupiter Ace | Jupiter Ace | Jupiter Cantab ULA (32×24 monochrome text display), piezo buzzer, cassette port, optional 16K or 48K RAM pack, FORTH in ROM |
-| Acorn BBC Micro | Model B | MOS 6502, 6522 VIAs, 6845 CRTC with video ULA and SAA5050 teletext (Mode 7), SN76489 sound, Acorn 8271 or WD1770 DFS disc interface |
-| Amstrad PCW | 8256, 8512, 9512, 9256 | Gate array (roller-RAM bitmap video, 300Hz timer, FDC interrupt routing), beeper, uPD765A, memory-mapped keyboard, no ROM — boots from disc |
+| [Sinclair ZX Spectrum](docs/machines/zx-spectrum.md) | 16K, 48K, 128K, +2, +2A, +3 | Z80 |
+| [Sinclair clones](docs/machines/sinclair-clones.md) | Pentagon 128, 512, 1024; Scorpion ZS-256 | Z80 |
+| [Sinclair ZX80 / ZX81](docs/machines/zx80-zx81.md) | ZX80, ZX81 | Z80 |
+| [Amstrad CPC](docs/machines/amstrad-cpc.md) | CPC 464, CPC 664, CPC 6128, 6128 Plus, GX4000 | Z80 |
+| [Amstrad PCW](docs/machines/amstrad-pcw.md) | 8256, 8512, 9256, 9512 | Z80 |
+| [Tatung Einstein](docs/machines/tatung-einstein.md) | TC-01, 256 | Z80 |
+| [MSX](docs/machines/msx.md) | Toshiba HX-10, Sony HB-55, Sony HB-55P | Z80 |
+| [Memotech MTX](docs/machines/memotech-mtx.md) | MTX500, MTX512, RS128 | Z80 |
+| [Camputers Lynx](docs/machines/camputers-lynx.md) | 48K, 96K, 128K | Z80 |
+| [Jupiter Ace](docs/machines/jupiter-ace.md) | Jupiter Ace | Z80 |
+| [Enterprise](docs/machines/enterprise.md) | 64, 128 | Z80 |
+| [Acorn BBC Micro](docs/machines/bbc-micro.md) | Model B | 6502 |
+| [Acorn Electron](docs/machines/acorn-electron.md) | Electron | 6502 |
+| [Apple I](docs/machines/apple-i.md) | Apple I | 6502 |
+| [Apple II](docs/machines/apple-ii.md) | Apple ][, ][+, //e, Enhanced //e, //c | 6502 / 65C02 |
 
 ## Features
 
 ### Hardware And Peripherals
 
-- Spectrum ULA timing, floating bus, contention, 128K paging, AY sound, and +3 floppy support.
-- Spectrum peripherals: Multiface 1/128/3, Interface 2 cartridges, VTX-5000 Viewdata modem, ZX Interface 1 with up to eight Microdrives, MGT +D, and Beta Disk/TR-DOS.
-- CPC cassette support, disk-capable 664/6128 models, Multiface Two, optional ParaDOS ROM, and the Plus ASIC (sprites, soft scroll, split-screen, DMA sound) on the 6128 Plus and GX4000.
-- Einstein disk mounting, optional Xtal DOS boot-disk behavior, and the Einstein 256's V9938 VDP with 512×212 display modes.
-- HX-10 cartridge loading and BIOS-level `.cas` cassette loading.
-- MTX CP/M 2.2 boot through the real FDX hardware using a hosted Type 07 system disk.
-- MTX logical cassette loading, banked ROM packs, FDX/SDX Type 03 and Type 07 floppy mounting, optional 512 KiB RAM expansion, and optional 80×24 colour display.
-- The bundled MTX CP/M profile installs the native SIDISC module and exposes fitted expansion RAM as an empty type-43 SiDisc drive F:.
-- Camputers Lynx 6845 CRTC display, DAC sound, cassette loading, and the FD1793 floppy interface on the 96K and 128K.
-- Jupiter Ace ULA text display, buzzer sound, ROM-verified cassette loading and saving, and optional 16K or 48K RAM packs.
-- Acorn BBC Micro Model B booting the real MOS and BASIC ROMs: Mode 7 teletext and bitmap modes 0-6, SN76489 stereo sound, keyboard option links, and DFS discs on either the Acorn 8271 or the WD1770 interface.
-- Amstrad PCW gate array with roller-RAM bitmap video, 300 Hz timer, FDC interrupt routing, memory-mapped keyboard, beeper, and uPD765A discs; the PCW has no ROM and boots CP/M+ or LocoScript from the disc in drive A.
+- Broad hardware support: shared CPU, video, sound and disk-controller cores, with each model's built-in hardware (memory paging, video chips, sound chips) emulated.
+- Peripherals and expansions: floppy and microdrive interfaces, cartridge ports, cassette decks, joystick and mouse interfaces, memory expansions and other add-ons, fitted from the Hardware pane where the machine supports them.
+- Real firmware: machines boot their own ROMs, which you supply, with custom ROMs selectable.
 
-Spectrum ROM-overlay peripherals are model-dependent. Interface 1, MGT +D, and Beta Disk are mutually exclusive; Beta Disk takes precedence when enabled.
+See the [machine sheets](#supported-machines) for each machine's models, hardware, peripherals and media.
+
+### Inspection And Tools
+
+- Debugger with breakpoints, watchpoints and stepping on every machine, plus memory and paging views, disassembly, and instruction tracing.
+- OCR: screen text can be read back as text, on screen and through the MCP server.
+- Machine-aware BASIC listings and system-variable views where applicable.
+- A headless MCP server for scripted and AI-driven testing.
 
 ### Media
 
@@ -50,12 +57,16 @@ Load by picker or drag-and-drop. ZIP archives are unpacked and routed to compati
 | Spectrum peripherals | Interface 2: `.rom`; Interface 1: `.mdr`, `.mdv`; MGT +D: `.mgt`, `.img`, `.hfe`, `.scp`; Beta Disk: `.trd`, `.scl`, `.hfe`, `.scp` |
 | CPC | Snapshots: `.sna`; tapes: `.cdt`, `.tzx`, `.tap`; disks: `.dsk`, `.hfe`, `.scp` on disk-capable models; Plus cartridges: `.cpr` |
 | Einstein | Disks: `.dsk`, `.hfe`, `.scp` |
-| MSX | Cartridges: `.rom`; cassettes: `.cas` |
+| MSX | Cartridges: `.rom`; cassettes: `.cas`; disks (interface fitted): `.dsk`, `.img`, `.dmk`, `.hfe`, `.scp`, `.td0`, `.edsk` |
 | Memotech MTX | ROM packs: `.rom`; logical cassettes: `.mtx`; FDX/SDX Type 03/07 disks: `.mfloppy`, `.mfloppy-03`, `.mfloppy-07` |
 | Camputers Lynx | Cassettes: `.tap`; disks: `.ldf` on the 96K/128K |
 | Jupiter Ace | Cassettes: `.tap`, `.tzx`, `.csw` |
-| Acorn BBC Micro | Disks: `.ssd`, `.dsd`, `.img` |
+| Acorn BBC Micro | Disks: `.ssd`, `.dsd`, `.img`; tapes: `.uef`, `.csw` |
+| Acorn Electron | Tapes: `.uef`, `.csw`; with the Plus 3, ADFS discs: `.adf`, `.ads`, `.adm`, `.adl`; with the Plus 1, cartridges: `.rom` |
+| Apple I | Listings typed in at the keyboard: `.txt`, `.hex`; with the cassette interface fitted, cassettes: `.wav` |
+| Apple II | Disks: `.dsk`, `.do`, `.po` (sector order detected, MacBinary headers read through); cassettes: `.wav` |
 | Amstrad PCW | Disks: `.dsk`, `.td0`, `.hfe`, `.scp` |
+| Enterprise | EXOS programs: `.com`, `.bas` (and multi-file `.zip` sets) through the FILE: device; with the EXDOS card, disks: `.img` |
 
 The tape deck provides block navigation, transport controls, fast ROM loading, turbo loading, loading sound where applicable, and original-media download. The disk UI supports drive selection, write protection, disk sounds, changed-image saving, blank image creation, and flippy disks.
 
@@ -77,31 +88,28 @@ extension.
 The starting machine can be chosen with `?model=` (alias `?machine=`), e.g.
 `?model=cpc6128&disk0=...`. It takes precedence over the last-used machine,
 becomes the new saved choice, and is removed from the address bar once applied.
-Values are case-insensitive; write `+` models as `plus2a`/`plus3` or `%2B3`.
-Known models: `16k` `48k` `128k` `+2` `+2A` `+3` `zx80` `zx81` `jupiter-ace`
+Values are case-insensitive, and the same ids drive the MCP server's `model`
+tool. The Spectrum's earlier ids (`48k`, `+3`, `plus2a`, …) still work in URLs.
+Known models: `zx16k` `zx48k` `zx128k` `zx128kplus2` `zx128kplus2a` `zx128kplus3` `pentagon128` `pentagon512` `pentagon1024` `scorpion256` `zx80` `zx81` `jupiter-ace`
 `cpc464` `cpc664` `cpc6128` `cpc6128plus` `gx4000` `pcw8256` `pcw8512`
-`pcw9256` `pcw9512` `einstein-tc01` `einstein-256` `hx-10` `mtx500` `mtx512`
-`rs128` `lynx48` `lynx96` `lynx128` `bbc-b`.
+`pcw9256` `pcw9512` `einstein-tc01` `einstein-256` `hx-10` `hb-55` `hb-55p` `mtx500` `mtx512`
+`rs128` `lynx48` `lynx96` `lynx128` `bbc-b` `electron` `apple1` `apple2` `apple2-plus` `apple2e` `apple2e-enhanced` `apple2c` `ep64` `ep128`.
 
 ### Display And Audio
 
-- WebGL CRT renderer with a Canvas fallback.
+- WebGL CRT shader renderer with a Canvas fallback.
 - Integer scaling plus HQx and xBR upscalers.
 - Scanline accuracy controls, Spectrum rainbow rendering, selectable palettes, border cropping, and CPC pixel-aspect correction.
 - CRT controls for brightness, contrast, saturation, gamma, scanlines, softness, noise, dot pitch, curvature, masks, and monitor presets.
 - Shadow-mask, aperture-grille, slot-mask, LCD-grid, and attribute-mask options.
 - Web Audio output with AudioWorklet and SharedArrayBuffer paths where available, plus a ScriptProcessor fallback.
-- Master volume, beeper-to-AY mix, AY stereo placement, DC blocking, and ultrasonic-tone filtering.
+- Master volume, beeper-to-AY mix, AY stereo placement, and ultrasonic-tone filtering.
 
-### Input And Development Tools
+### Input And Interface
 
 - Keyboard mapping, configurable two-player joystick mappings, physical gamepads, and touch/mouse D-pads.
 - Spectrum joystick interfaces: Kempston, Cursor, Sinclair 1, and Sinclair 2.
 - Kempston and AMX mouse modes on supported machines.
-- Pause, frame stepping, step into/over/out, breakpoints, run-to-cursor, disassembly, registers, memory views, and clipboard export.
-- Spectrum and Einstein tracing: full execution, port I/O, and ZXTrace. Spectrum traces coalesce repeated loops.
-- Spectrum-specific BASIC, BASIC variables, system variables, font, memory-bank, screen-text, and OCR tools.
-- Screen transcription (the TEXT overlay and the MCP `ocr` tool) on every machine with an OCR engine. The Lynx and the PCW have no character memory, so their text is recovered by matching the picture against the character set; the Jupiter Ace, the ZX80/ZX81 and BBC Mode 7 read theirs straight out of the screen file.
 - Customizable pane ordering, placement, visibility, collapse state, and persistent per-pane settings.
 
 ### Saving, Library, And Persistence
@@ -110,38 +118,18 @@ Known models: `16k` `48k` `128k` `+2` `+2A` `+3` `zx80` `zx81` `jupiter-ace`
 - Persist settings, pane layout, custom ROMs and fonts, and supported media in browser storage.
 - Spectrum and ZX80/ZX81 software libraries with ZXDB-derived search, screenshots, automatic model selection, and cached catalog data.
 
-## MCP Server
+## Development
 
-The included stdio MCP server drives **every registered machine** — Spectrum, ZX80/ZX81, CPC (including the Plus range), Einstein, MSX, MTX, Camputers Lynx, Jupiter Ace, Amstrad PCW, and BBC Micro — for automated testing and reverse engineering. Generic tools work through the `Machine` SPI; hardware-specific tools cover Spectrum peripherals and tracing, MTX expansions, CPC/uPD765A disk inspection, ZX81 hi-res hardware, and per-machine media mounting.
+ZX84 is written in TypeScript with SolidJS and Vite, and runs entirely in the browser. Each machine is assembled from shared chip cores — Z80 and 6502 CPUs, video chips, sound chips and disk controllers — behind a common machine interface. That same interface powers the built-in developer tools: a debugger with breakpoints and stepping on every machine, memory and paging views, and, depending on the machine, BASIC listings, system variables, instruction tracing and screen-text extraction. It also powers a headless MCP server, so any machine can be driven by scripts and AI assistants for automated testing and reverse engineering.
 
-See [`mcp/README.md`](mcp/README.md) for setup, the complete tool reference, and workflows.
-
-## Getting Started
-
-```bash
-npm install
-npm run dev
-```
-
-Open `http://localhost:5174`, choose a machine in the Hardware pane, then load compatible ROMs and media. The hosted version supplies the standard machine ROM sets; local builds can load replacement ROM images from the ROM pane.
-
-Useful commands:
-
-```bash
-npm test              # full Vitest suite
-npx tsc --noEmit      # type-check without output
-npm run depcheck      # enforce architecture boundaries
-npm run build         # production build
-npm run mcp           # start the MCP server
-```
-
-## Current Scope
-
-Hardware and media support varies by machine and model. In particular, the HX-10 has no floppy controller, the Lynx 48K and the Jupiter Ace have no disk interface, the PCW ships no ROM and needs a user-supplied CP/M+ or LocoScript boot disc, and some Einstein and CPC subsystems remain incomplete.
+- **[Developer tools](docs/developer-tools.md)** — a guided tour of the debugger, memory, BASIC and tracing tools, with screenshots, and everything you need to build, test and contribute to ZX84.
+- **[MCP server](mcp/README.md)** — set up the headless server and drive any machine from an MCP client: run, step and set breakpoints and watchpoints, read and write memory, load media, read the screen as text, and inspect disks.
 
 ## License
 
 [MIT](LICENSE)
+
+The emulated machines, their names and associated trademarks, and their ROMs are copyright of their respective owners. The ROMs are not included in this repository and are not covered by the MIT licence.
 
 ## Acknowledgments
 
@@ -156,6 +144,7 @@ zx84 stands on decades of work by people who documented, emulated and preserved 
 - **Hyllian**, for the xBR scaling shaders.
 - **The MAME team**, **the openMSX team** and the authors of Arnold, Caprice32, BeebEm, beebjit, HxC and the other open-source emulators and tools whose published behaviour and documentation taught us how the hardware works.
 - **Sean Young**, **Cliff Lawson**, **Jacob Nevins**, the **Grimware** and **CPCWiki** contributors, and the many people who wrote hardware references, ROM disassemblies and technical notes.
-- The ZX Spectrum, CPC, PCW, Einstein, MSX, MTX, Camputers Lynx, Jupiter Ace, SAM Coupé and BBC Micro communities, whose documentation, emulators and tools keep these machines alive.
+- **István Varga** for ep128emu and **Thomas Harte** for Clock Signal, whose Enterprise emulation showed how Nick, Dave and EXOS behave.
+- The ZX Spectrum, CPC, PCW, Einstein, MSX, MTX, Camputers Lynx, Jupiter Ace, Enterprise, SAM Coupé and BBC Micro communities, whose documentation, emulators and tools keep these machines alive.
 
 Third-party code and data used in zx84, with their licences, are listed in [THIRD_PARTY.md](./THIRD_PARTY.md).

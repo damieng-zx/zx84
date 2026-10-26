@@ -27,6 +27,9 @@ export interface BbcDiscController {
   isDirty(unit: number): boolean;
   clearDirty(unit: number): void;
   readonly writeProtect: boolean[];
+  /** Fit the first `count` drives; the rest have no drive wired to their select
+   *  line (the controller reports them not-ready / not at track 0). */
+  setDriveCount(count: number): void;
 
   /** Frame-probe indicators. */
   readonly motorOn: boolean;

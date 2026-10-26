@@ -151,6 +151,7 @@ export class CpcFrameProbe implements FrameProbe {
     const fdc = c.fdc;
     const active = fdc.currentUnit;
     for (let unit = 0; unit < 2; unit++) {
+      if (unit >= c.driveCount) { out.driveLed[unit] = -1; continue; }   // no drive on this line
       if (!fdc.motorOn || unit !== active) out.driveLed[unit] = 0;
       else if (!fdc.isExecuting) out.driveLed[unit] = 1;
       else out.driveLed[unit] = fdc.isWriting ? 3 : 2;
@@ -196,6 +197,6 @@ export class CpcFrameProbe implements FrameProbe {
   }
 
   diskImageForSlot(slot: number): DskImage | null {
-    return slot < 2 ? this.c.fdc.getDiskImage(slot) : null;
+    return slot < this.c.driveCount ? this.c.fdc.getDiskImage(slot) : null;
   }
 }

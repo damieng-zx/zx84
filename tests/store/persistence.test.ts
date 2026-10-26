@@ -90,6 +90,7 @@ class MemDB {
         if (db.failPutKey === key) { pendingError = true; tx.error = new Error('PutFailed'); return; }
         db.store.set(key, value);
       },
+      delete(key: string) { db.store.delete(key); },
       get(key: string) {
         const req: MemRequest<Uint8Array | undefined> = { onsuccess: null, onerror: null };
         if (db.failGetKey === key) {
@@ -502,5 +503,72 @@ describe('persistPlusDDisk / restorePlusDDisk / clearPlusDDisk (MGT +D C:/D:)', 
     p.clearPlusDDisk(1);
     expect(storage.store.has('zx84-disk-d-file')).toBe(false);
     expect(await p.restorePlusDDisk(1)).toBeNull();
+  });
+});
+
+describe('migrateModelIds (Spectrum ids unified under a zx prefix)', () => {
+  const bytes = (...b: number[]) => new Uint8Array(b);
+
+  it('moves a stored ROM, its pages and its labels to the new ids, locale suffixes included', async () => {
+    memDB.store.set('rom-48k', bytes(1));
+    memDB.store.set('rom-128k-page1', bytes(2));
+    memDB.store.set('rom-+2A-es', bytes(3));
+    memDB.store.set('rom-+3-page3', bytes(4));
+    storage.setItem('zx84-rom-label-48k', 'my48.rom');
+    storage.setItem('zx84-rom-label-128k-page1', 'basic.rom');
+    const p = await load();
+    await p.migrateModelIds();
+    expect(memDB.store.get('rom-zx48k')).toEqual(bytes(1));
+    expect(memDB.store.get('rom-zx128k-page1')).toEqual(bytes(2));
+    expect(memDB.store.get('rom-zx128kplus2a-es')).toEqual(bytes(3));
+    expect(memDB.store.get('rom-zx128kplus3-page3')).toEqual(bytes(4));
+    expect(storage.getItem('zx84-rom-label-zx48k')).toBe('my48.rom');
+    expect(storage.getItem('zx84-rom-label-zx128k-page1')).toBe('basic.rom');
+    // Nothing left behind under the old ids.
+    expect([...memDB.store.keys()].filter(k => /^rom-(16k|48k|128k|\+)/.test(k))).toEqual([]);
+    expect(storage.getItem('zx84-rom-label-48k')).toBeNull();
+    expect(storage.getItem('zx84-rom-label-128k-page1')).toBeNull();
+  });
+
+  it('never overwrites a ROM already stored under the new id', async () => {
+    memDB.store.set('rom-48k', bytes(1));
+    memDB.store.set('rom-zx48k', bytes(9));
+    storage.setItem('zx84-rom-label-48k', 'old.rom');
+    storage.setItem('zx84-rom-label-zx48k', 'new.rom');
+    const p = await load();
+    await p.migrateModelIds();
+    expect(memDB.store.get('rom-zx48k')).toEqual(bytes(9));
+    expect(storage.getItem('zx84-rom-label-zx48k')).toBe('new.rom');
+    expect(memDB.store.has('rom-48k')).toBe(false);
+  });
+
+  it('leaves ROMs of other machines alone', async () => {
+    memDB.store.set('rom-cpc6128', bytes(5));
+    memDB.store.set('rom-hx-10', bytes(6));
+    const p = await load();
+    await p.migrateModelIds();
+    expect(memDB.store.get('rom-cpc6128')).toEqual(bytes(5));
+    expect(memDB.store.get('rom-hx-10')).toEqual(bytes(6));
+  });
+
+  it('runs once: a ROM stored under an old id afterwards is not touched', async () => {
+    const p = await load();
+    await p.migrateModelIds();
+    memDB.store.set('rom-48k', bytes(7));
+    await p.migrateModelIds();
+    expect(memDB.store.get('rom-48k')).toEqual(bytes(7));
+    expect(memDB.store.has('rom-zx48k')).toBe(false);
+  });
+
+  it('keeps the old record and retries next start when the copy fails', async () => {
+    memDB.store.set('rom-48k', bytes(1));
+    memDB.failPutKey = 'rom-zx48k';
+    const p = await load();
+    await p.migrateModelIds();
+    expect(memDB.store.get('rom-48k')).toEqual(bytes(1));
+    memDB.failPutKey = null;
+    await p.migrateModelIds();
+    expect(memDB.store.get('rom-zx48k')).toEqual(bytes(1));
+    expect(memDB.store.has('rom-48k')).toBe(false);
   });
 });

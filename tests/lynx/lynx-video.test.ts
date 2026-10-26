@@ -13,11 +13,8 @@ import { LynxMachine } from '@/machines/lynx/lynx-machine.ts';
 import { LYNX_PALETTE } from '@/machines/lynx/constants.ts';
 import type { LynxModel } from '@/machines/lynx/models.ts';
 
-/** Plane bases in the flat page array, per board (MAME's update_row). */
-const PLANES = {
-  lynx48: { red: 0x2c000, blue: 0x28000, green: 0x3c000, altGreen: 0x38000, stride: 32 },
-  lynx128: { red: 0x20000, blue: 0x24000, green: 0x28000, altGreen: 0x2c000, stride: 64 },
-} as const;
+/** Bytes between successive rasters of a plane, per board. */
+const STRIDE = { lynx48: 32, lynx128: 64 } as const;
 
 /** A 6845 programmed the way each Lynx ROM programs it. */
 function crtcFor(model: LynxModel): Crtc6845 {
@@ -77,12 +74,12 @@ describe('Lynx video', () => {
     'composites %s red, green and blue into one of eight colours',
     model => {
       const { memory, crtc, video } = build(model);
-      const p = PLANES[model];
+      const { planes } = memory;
       // Top-left byte of each plane: red only, then green only, then all three.
-      memory.ram[p.red] = 0b10000000;
-      memory.ram[p.green] = 0b01000000;
-      memory.ram[p.blue] = 0b00100000;
-      memory.ram[p.red + 1] = memory.ram[p.green + 1] = memory.ram[p.blue + 1] = 0xff;
+      planes.red[0] = 0b10000000;
+      planes.green[0] = 0b01000000;
+      planes.blue[0] = 0b00100000;
+      planes.red[1] = planes.green[1] = planes.blue[1] = 0xff;
 
       frame(video, crtc);
 
@@ -96,8 +93,7 @@ describe('Lynx video', () => {
 
   it.each(['lynx48', 'lynx128'] as const)('steps %s rows by its own stride', model => {
     const { memory, crtc, video } = build(model);
-    const p = PLANES[model];
-    memory.ram[p.green + p.stride] = 0xff;   // the second row of the green plane
+    memory.planes.green[STRIDE[model]] = 0xff;   // the second row of the green plane
     frame(video, crtc);
     expect(pixel(video, 0, 0)).toBe(LYNX_PALETTE[0]);
     expect(pixel(video, 0, 1)).toBe(LYNX_PALETTE[2]);
@@ -105,9 +101,8 @@ describe('Lynx video', () => {
 
   it('swaps in the alternate green plane on port 0x80 bit 4', () => {
     const { memory, crtc, video } = build('lynx48');
-    const p = PLANES.lynx48;
-    memory.ram[p.green] = 0xff;
-    memory.ram[p.altGreen] = 0x00;
+    memory.planes.green[0] = 0xff;
+    memory.planes.altGreen[0] = 0x00;
 
     frame(video, crtc);
     expect(pixel(video, 0, 0)).toBe(LYNX_PALETTE[2]);
@@ -119,7 +114,7 @@ describe('Lynx video', () => {
 
   it('leaves the border black — the Lynx has no border colour to set', () => {
     const { memory, crtc, video } = build('lynx48');
-    memory.ram.fill(0xff, PLANES.lynx48.green, PLANES.lynx48.green + 0x2000);
+    memory.planes.green.fill(0xff);
     frame(video, crtc);
     expect(video.pixels[0]).toBe(LYNX_PALETTE[0]);
     expect(pixel(video, -1, 0)).toBe(LYNX_PALETTE[0]);

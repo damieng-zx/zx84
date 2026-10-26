@@ -4,8 +4,9 @@
  * A cycle-counted interpreter for the official 151-opcode set plus the stable
  * undocumented instructions (SLO/RLA/SRE/RRA/SAX/LAX/DCP/ISC/ANC/ALR/ARR/AXS),
  * which some BBC software relies on. IRQ is level-sensitive; NMI is
- * edge-triggered. Decimal mode is modelled, including the NMOS Z-flag quirk
- * (Z is taken from the binary result).
+ * edge-triggered. Decimal mode is modelled with the NMOS flag quirks: ADC takes
+ * Z from the binary sum and N and V from the half-corrected sum, SBC takes all
+ * four flags from the binary subtraction.
  *
  * Memory is chip-agnostic — the machine wires the bus after construction:
  *
@@ -32,6 +33,9 @@ const VEC_RESET = 0xFFFC;
 const VEC_IRQ = 0xFFFE;
 
 export class M6502 {
+  /** A CMOS part (65C02) rather than the NMOS 6502; see `M65C02`. */
+  readonly cmos: boolean = false;
+
   // ── Registers ───────────────────────────────────────────────────────────
   a = 0;
   x = 0;
@@ -47,7 +51,11 @@ export class M6502 {
   /** Level-triggered IRQ input. */
   irqLine = false;
   /** Edge-triggered NMI latch (set by nmi(), consumed in step()). */
-  private nmiPending = false;
+  protected nmiPending = false;
+  /** An instruction that changed I (CLI, SEI, PLP) has just run: the next
+   *  interrupt poll sees `iBefore`, I as it was, not as it is now. */
+  protected iDeferred = false;
+  protected iBefore = false;
 
   /** Memory bus — overridden by the machine before execution. */
   read: (addr: number) => number = () => 0xFF;
@@ -75,42 +83,60 @@ export class M6502 {
   /** Latch an NMI edge. */
   nmi(): void { this.nmiPending = true; }
 
+  /** An NMI edge is latched and not yet taken (read and restored by snapshots). */
+  get nmiLatched(): boolean { return this.nmiPending; }
+
+  /** Whether the next `step()` enters an interrupt instead of running an
+   *  instruction: an NMI is latched, or IRQ is asserted and not masked (with
+   *  the one-instruction lag after CLI, SEI and PLP that `step()` applies). A
+   *  debugger asks this before reporting "the instruction at pc", which would
+   *  not run. */
+  interruptPending(): boolean {
+    if (this.nmiPending) return true;
+    return this.irqLine && !(this.iDeferred ? this.iBefore : this.flag(FLAG_I));
+  }
+  set nmiLatched(pending: boolean) { this.nmiPending = pending; }
+
   // ── Bus helpers ─────────────────────────────────────────────────────────
-  private fetch(): number { return this.read(this.pc++) & 0xFF; }
-  private fetch16(): number { const lo = this.fetch(); return lo | (this.fetch() << 8); }
-  private readWord(addr: number): number {
+  protected fetch(): number {
+    const v = this.read(this.pc) & 0xFF;
+    this.pc = (this.pc + 1) & 0xFFFF; // the program counter wraps at 64K
+    return v;
+  }
+  protected fetch16(): number { const lo = this.fetch(); return lo | (this.fetch() << 8); }
+  protected readWord(addr: number): number {
     return this.read(addr) | (this.read((addr + 1) & 0xFFFF) << 8);
   }
   /** JMP (indirect) page-wrap bug: the high byte is fetched from the same page. */
-  private readWordBug(addr: number): number {
+  protected readWordBug(addr: number): number {
     const lo = this.read(addr) & 0xFF;
     const hi = this.read((addr & 0xFF00) | ((addr + 1) & 0xFF)) & 0xFF;
     return lo | (hi << 8);
   }
 
-  private push(v: number): void {
+  protected push(v: number): void {
     this.write(0x0100 | this.sp, v & 0xFF);
     this.sp = (this.sp - 1) & 0xFF;
   }
-  private pop(): number {
+  protected pop(): number {
     this.sp = (this.sp + 1) & 0xFF;
     return this.read(0x0100 | this.sp) & 0xFF;
   }
-  private push16(v: number): void {
+  protected push16(v: number): void {
     this.push((v >> 8) & 0xFF);
     this.push(v & 0xFF);
   }
-  private pop16(): number {
+  protected pop16(): number {
     const lo = this.pop();
     return lo | (this.pop() << 8);
   }
 
   // ── Flag helpers ────────────────────────────────────────────────────────
-  private flag(bit: number): boolean { return (this.p & bit) !== 0; }
-  private setFlag(bit: number, cond: boolean): void {
+  protected flag(bit: number): boolean { return (this.p & bit) !== 0; }
+  protected setFlag(bit: number, cond: boolean): void {
     if (cond) this.p |= bit; else this.p &= ~bit;
   }
-  private setZN(v: number): void {
+  protected setZN(v: number): void {
     v &= 0xFF;
     this.p = (this.p & ~(FLAG_N | FLAG_Z)) | (v & FLAG_N);
     if (v === 0) this.p |= FLAG_Z;
@@ -118,31 +144,31 @@ export class M6502 {
 
   // ── Addressing modes ────────────────────────────────────────────────────
   /** Set true by a page-crossing absolute indexed access. Reset per step. */
-  private pageCross = false;
+  protected pageCross = false;
 
-  private addrZP(): number { return this.fetch(); }
-  private addrZPX(): number { return (this.fetch() + this.x) & 0xFF; }
-  private addrZPY(): number { return (this.fetch() + this.y) & 0xFF; }
-  private addrABS(): number { return this.fetch16(); }
-  private addrABSX(): number {
+  protected addrZP(): number { return this.fetch(); }
+  protected addrZPX(): number { return (this.fetch() + this.x) & 0xFF; }
+  protected addrZPY(): number { return (this.fetch() + this.y) & 0xFF; }
+  protected addrABS(): number { return this.fetch16(); }
+  protected addrABSX(): number {
     const base = this.fetch16();
     const addr = (base + this.x) & 0xFFFF;
     this.pageCross = (base & 0xFF00) !== (addr & 0xFF00);
     return addr;
   }
-  private addrABSY(): number {
+  protected addrABSY(): number {
     const base = this.fetch16();
     const addr = (base + this.y) & 0xFFFF;
     this.pageCross = (base & 0xFF00) !== (addr & 0xFF00);
     return addr;
   }
   /** (zp,X): pointer at zp+X, wrapping in zero page. */
-  private addrINDX(): number {
+  protected addrINDX(): number {
     const zp = (this.fetch() + this.x) & 0xFF;
     return (this.read(zp) | (this.read((zp + 1) & 0xFF) << 8)) & 0xFFFF;
   }
   /** (zp),Y: pointer at zp, offset by Y. */
-  private addrINDY(): number {
+  protected addrINDY(): number {
     const zp = this.fetch();
     const base = this.read(zp) | (this.read((zp + 1) & 0xFF) << 8);
     const addr = (base + this.y) & 0xFFFF;
@@ -151,25 +177,28 @@ export class M6502 {
   }
 
   // ── ALU operations ──────────────────────────────────────────────────────
-  private ora(v: number): void { this.a = (this.a | v) & 0xFF; this.setZN(this.a); }
-  private and(v: number): void { this.a = (this.a & v) & 0xFF; this.setZN(this.a); }
-  private eor(v: number): void { this.a = (this.a ^ v) & 0xFF; this.setZN(this.a); }
+  protected ora(v: number): void { this.a = (this.a | v) & 0xFF; this.setZN(this.a); }
+  protected and(v: number): void { this.a = (this.a & v) & 0xFF; this.setZN(this.a); }
+  protected eor(v: number): void { this.a = (this.a ^ v) & 0xFF; this.setZN(this.a); }
 
-  private adc(v: number): void {
+  protected adc(v: number): void {
     v &= 0xFF;
     if (this.flag(FLAG_D)) {
       const carry = this.flag(FLAG_C) ? 1 : 0;
       const bin = this.a + v + carry;
-      this.setFlag(FLAG_V, (~(this.a ^ v) & (this.a ^ bin) & 0x80) !== 0);
+      // The low digit is corrected first (with its carry into the high one);
+      // N and V are taken from that half-corrected sum, before the high digit
+      // is corrected, and Z from the plain binary sum. Only C and the result
+      // see the final correction.
       let lo = (this.a & 0x0F) + (v & 0x0F) + carry;
-      let hi = (this.a >> 4) + (v >> 4);
-      if (lo > 9) { lo += 6; hi++; }
-      if (hi > 9) hi += 6;
-      this.setFlag(FLAG_C, hi > 15);
-      this.a = ((hi << 4) | (lo & 0x0F)) & 0xFF;
-      // NMOS: Z is derived from the binary result, N from the decimal result.
+      if (lo > 9) lo = ((lo + 6) & 0x0F) + 0x10;
+      let sum = (this.a & 0xF0) + (v & 0xF0) + lo;
+      this.setFlag(FLAG_N, (sum & 0x80) !== 0);
+      this.setFlag(FLAG_V, (~(this.a ^ v) & (this.a ^ sum) & 0x80) !== 0);
+      if (sum > 0x9F) sum += 0x60;
+      this.setFlag(FLAG_C, sum > 0xFF);
+      this.a = sum & 0xFF;
       this.setFlag(FLAG_Z, (bin & 0xFF) === 0);
-      this.setFlag(FLAG_N, (this.a & 0x80) !== 0);
     } else {
       const carry = this.flag(FLAG_C) ? 1 : 0;
       const r = this.a + v + carry;
@@ -180,7 +209,7 @@ export class M6502 {
     }
   }
 
-  private sbc(v: number): void {
+  protected sbc(v: number): void {
     v &= 0xFF;
     if (this.flag(FLAG_D)) {
       const borrow = this.flag(FLAG_C) ? 0 : 1;
@@ -191,9 +220,10 @@ export class M6502 {
       if (lo < 0) { lo -= 6; hi--; }
       if (hi < 0) hi -= 6;
       this.a = ((hi << 4) | (lo & 0x0F)) & 0xFF;
+      // NMOS: every flag comes from the binary subtraction.
       this.setFlag(FLAG_C, bin >= 0);
       this.setFlag(FLAG_Z, (bin & 0xFF) === 0);
-      this.setFlag(FLAG_N, (this.a & 0x80) !== 0);
+      this.setFlag(FLAG_N, (bin & 0x80) !== 0);
     } else {
       const borrow = this.flag(FLAG_C) ? 0 : 1;
       const r = this.a - v - borrow;
@@ -204,39 +234,39 @@ export class M6502 {
     }
   }
 
-  private cmp(reg: number, v: number): void {
+  protected cmp(reg: number, v: number): void {
     const r = (reg - v) & 0x1FF;
     this.setFlag(FLAG_C, reg >= v);
     this.setZN(r & 0xFF);
   }
 
-  private bit(v: number): void {
+  protected bit(v: number): void {
     this.setFlag(FLAG_Z, (this.a & v) === 0);
     this.setFlag(FLAG_N, (v & 0x80) !== 0);
     this.setFlag(FLAG_V, (v & 0x40) !== 0);
   }
 
   // Shifts / rotates — return the result and set C/Z/N.
-  private asl(v: number): number {
+  protected asl(v: number): number {
     this.setFlag(FLAG_C, (v & 0x80) !== 0);
     const r = (v << 1) & 0xFF;
     this.setZN(r);
     return r;
   }
-  private lsr(v: number): number {
+  protected lsr(v: number): number {
     this.setFlag(FLAG_C, (v & 0x01) !== 0);
     const r = (v >> 1) & 0xFF;
     this.setZN(r);
     return r;
   }
-  private rol(v: number): number {
+  protected rol(v: number): number {
     const c = this.flag(FLAG_C) ? 1 : 0;
     this.setFlag(FLAG_C, (v & 0x80) !== 0);
     const r = ((v << 1) | c) & 0xFF;
     this.setZN(r);
     return r;
   }
-  private ror(v: number): number {
+  protected ror(v: number): number {
     const c = this.flag(FLAG_C) ? 0x80 : 0;
     this.setFlag(FLAG_C, (v & 0x01) !== 0);
     const r = ((v >> 1) | c) & 0xFF;
@@ -244,22 +274,22 @@ export class M6502 {
     return r;
   }
 
-  private inc(v: number): number { const r = (v + 1) & 0xFF; this.setZN(r); return r; }
-  private dec(v: number): number { const r = (v - 1) & 0xFF; this.setZN(r); return r; }
+  protected inc(v: number): number { const r = (v + 1) & 0xFF; this.setZN(r); return r; }
+  protected dec(v: number): number { const r = (v - 1) & 0xFF; this.setZN(r); return r; }
 
   // ── Illegal-op helpers ──────────────────────────────────────────────────
-  private slo(v: number): number { return this.asl(v); }
-  private rla(v: number): number { return this.rol(v); }
-  private sre(v: number): number { return this.lsr(v); }
-  private rra(v: number): number { return this.ror(v); }
-  private anc(v: number): void {
+  protected slo(v: number): number { return this.asl(v); }
+  protected rla(v: number): number { return this.rol(v); }
+  protected sre(v: number): number { return this.lsr(v); }
+  protected rra(v: number): number { return this.ror(v); }
+  protected anc(v: number): void {
     this.a = (this.a & v) & 0xFF;
     this.setZN(this.a);
     this.setFlag(FLAG_C, (this.a & 0x80) !== 0);
   }
-  private lax(v: number): void { this.a = v & 0xFF; this.x = this.a; this.setZN(this.a); }
+  protected lax(v: number): void { this.a = v & 0xFF; this.x = this.a; this.setZN(this.a); }
 
-  private branch(cond: boolean): void {
+  protected branch(cond: boolean): void {
     const off = this.fetch();
     if (!cond) return;
     this.tStates += 1;
@@ -269,16 +299,22 @@ export class M6502 {
     this.pc = target;
   }
 
-  private interrupt(vector: number): void {
+  /** Called when the CPU has just entered an NMI or IRQ, with the vector it
+   *  took (so a debugger can tell which) and `tStates` already past the
+   *  7-cycle entry. Null costs nothing. */
+  onInterrupt: ((vector: number) => void) | null = null;
+
+  protected interrupt(vector: number): void {
     this.push16(this.pc);
     this.p = (this.p & ~FLAG_B) | FLAG_U;
     this.push(this.p);
     this.p |= FLAG_I;
     this.pc = this.readWord(vector);
     this.tStates += 7;
+    if (this.onInterrupt !== null) this.onInterrupt(vector);
   }
 
-  private brk(): void {
+  protected brk(): void {
     this.pc = (this.pc + 1) & 0xFFFF;
     this.push16(this.pc);
     this.push(this.p | FLAG_B | FLAG_U);
@@ -289,19 +325,29 @@ export class M6502 {
 
   // ── Instruction fetch/execute ───────────────────────────────────────────
   step(): void {
+    // The chip polls IRQ before its last cycle, but CLI, SEI and PLP change I
+    // on that last cycle, so for the one poll after them it is still the old
+    // value: a pending IRQ waits one more instruction after CLI or PLP clears
+    // I, and is still taken once after SEI or PLP sets it. (RTI loads I early
+    // enough that it counts at once.)
+    const masked = this.iDeferred ? this.iBefore : this.flag(FLAG_I);
+    this.iDeferred = false;
     if (this.nmiPending) {
       this.nmiPending = false;
       this.interrupt(VEC_NMI);
       return;
     }
-    if (this.irqLine && !this.flag(FLAG_I)) {
+    if (this.irqLine && !masked) {
       this.interrupt(VEC_IRQ);
       return;
     }
 
     this.pageCross = false;
-    const op = this.fetch();
+    this.execute(this.fetch());
+  }
 
+  /** Execute one instruction whose opcode has just been fetched. */
+  protected execute(op: number): void {
     switch (op) {
       // ── 0x00 block ──────────────────────────────────────────────────────
       case 0x00: this.brk(); break;
@@ -343,7 +389,7 @@ export class M6502 {
       case 0x25: { const a = this.addrZP(); this.and(this.read(a)); this.tStates += 3; break; }
       case 0x26: { const a = this.addrZP(); this.write(a, this.rol(this.read(a))); this.tStates += 5; break; }
       case 0x27: { const a = this.addrZP(); const r = this.rla(this.read(a)); this.write(a, r); this.and(r); this.tStates += 5; break; }
-      case 0x28: this.p = (this.pop() & ~FLAG_B) | FLAG_U; this.tStates += 4; break;
+      case 0x28: this.iBefore = this.flag(FLAG_I); this.iDeferred = true; this.p = (this.pop() & ~FLAG_B) | FLAG_U; this.tStates += 4; break;
       case 0x29: this.and(this.fetch()); this.tStates += 2; break;
       case 0x2A: this.a = this.rol(this.a); this.tStates += 2; break;
       case 0x2B: this.anc(this.fetch()); this.tStates += 2; break;
@@ -390,7 +436,7 @@ export class M6502 {
       case 0x55: { const a = this.addrZPX(); this.eor(this.read(a)); this.tStates += 4; break; }
       case 0x56: { const a = this.addrZPX(); this.write(a, this.lsr(this.read(a))); this.tStates += 6; break; }
       case 0x57: { const a = this.addrZPX(); const r = this.sre(this.read(a)); this.write(a, r); this.eor(r); this.tStates += 6; break; }
-      case 0x58: this.setFlag(FLAG_I, false); this.tStates += 2; break;
+      case 0x58: this.iBefore = this.flag(FLAG_I); this.iDeferred = true; this.setFlag(FLAG_I, false); this.tStates += 2; break;
       case 0x59: { const a = this.addrABSY(); this.eor(this.read(a)); this.tStates += 4 + (this.pageCross ? 1 : 0); break; }
       case 0x5A: this.tStates += 2; break;
       case 0x5B: { const a = this.addrABSY(); const r = this.sre(this.read(a)); this.write(a, r); this.eor(r); this.tStates += 7; break; }
@@ -422,7 +468,7 @@ export class M6502 {
       case 0x75: { const a = this.addrZPX(); this.adc(this.read(a)); this.tStates += 4; break; }
       case 0x76: { const a = this.addrZPX(); this.write(a, this.ror(this.read(a))); this.tStates += 6; break; }
       case 0x77: { const a = this.addrZPX(); const r = this.rra(this.read(a)); this.write(a, r); this.adc(r); this.tStates += 6; break; }
-      case 0x78: this.setFlag(FLAG_I, true); this.tStates += 2; break;
+      case 0x78: this.iBefore = this.flag(FLAG_I); this.iDeferred = true; this.setFlag(FLAG_I, true); this.tStates += 2; break;
       case 0x79: { const a = this.addrABSY(); this.adc(this.read(a)); this.tStates += 4 + (this.pageCross ? 1 : 0); break; }
       case 0x7A: this.tStates += 2; break;
       case 0x7B: { const a = this.addrABSY(); const r = this.rra(this.read(a)); this.write(a, r); this.adc(r); this.tStates += 7; break; }
@@ -572,7 +618,7 @@ export class M6502 {
   // ── Undocumented immediate helpers ────────────────────────────────────────
 
   /** ALR #: A = (A & imm) >> 1, C = bit 0 of the AND result. */
-  private alr(v: number): number {
+  protected alr(v: number): number {
     const r = (this.a & v) & 0xFF;
     this.setFlag(FLAG_C, (r & 0x01) !== 0);
     const out = (r >> 1) & 0xFF;
@@ -581,7 +627,7 @@ export class M6502 {
   }
 
   /** ARR #: A = ((A & imm) >> 1) | (C << 7); flags are peculiar. */
-  private arr(v: number): number {
+  protected arr(v: number): number {
     const r = this.a & v;
     const out = ((r >> 1) | (this.flag(FLAG_C) ? 0x80 : 0)) & 0xFF;
     this.setZN(out);
@@ -591,7 +637,7 @@ export class M6502 {
   }
 
   /** AXS # (a.k.a. SBX): X = (A & X) - imm, no borrow propagation to A. */
-  private axs(v: number): void {
+  protected axs(v: number): void {
     const r = (this.a & this.x) - v;
     this.setFlag(FLAG_C, r >= 0);
     this.x = r & 0xFF;

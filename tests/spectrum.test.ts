@@ -57,6 +57,32 @@ function loadProgram(s: Spectrum, ...bytes: number[]): void {
   s.cpu.sp = 0xFF00;
 }
 
+describe('debugger mid-frame resume timing', () => {
+  it.each(['breakpoint', 'watchpoint'] as const)(
+    'does not start a new INT window after a %s',
+    (kind) => {
+      const s = makeMachine('zx128k');
+      // EI; NOP; JP C005; INC A; JR C005. First INT window expires before EI is run.
+      loadProgram(s, 0xFB, 0, 0xC3, 5, 0xC0, 0x3C, 0x18, 0xFD);
+      s.cpu.tStates = 1000;
+      s.resumeAtFrameOffset(1000);
+      if (kind === 'breakpoint') s.breakpoints.add(0xC006);
+      else s.memWatchpoints.push({ start: 0xC005, end: 0xC005, mode: 'read' });
+      s.runUntil(1);
+      s.breakpoints.clear();
+      s.memWatchpoints.length = 0;
+      // A breakpoint resume with IFF1 set must keep the same physical frame.
+      const interruptedSP = s.cpu.sp;
+      s.breakpoints.add(0xC006);
+      s.services.debug.stepOne();
+      s.runUntil(1);
+      expect(s.cpu.sp).toBe(interruptedSP);
+      expect(s.cpu.pc).toBe(0xC006);
+      expect(s.contention.frameStartTStates).toBe(0);
+    },
+  );
+});
+
 // ─────────────────────────────────────────────────────────────────────────
 // IOActivity
 // ─────────────────────────────────────────────────────────────────────────
@@ -86,7 +112,7 @@ describe('IOActivity', () => {
 
 describe('Spectrum — construction', () => {
   it('48K: no banking, no AY, single ROM page, contention 48K timing', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     expect(s.variant.hasBanking).toBe(false);
     expect(s.variant.hasAY).toBe(false);
     expect(s.variant.romPageCount).toBe(1);
@@ -94,21 +120,21 @@ describe('Spectrum — construction', () => {
   });
 
   it('128K: AY present, banking, 2 ROM pages', () => {
-    const s = makeMachine('128k');
+    const s = makeMachine('zx128k');
     expect(s.variant.hasAY).toBe(true);
     expect(s.variant.hasBanking).toBe(true);
     expect(s.variant.romPageCount).toBe(2);
   });
 
   it('+3: AY + FDC + 4 ROM pages', () => {
-    const s = makeMachine('+3');
+    const s = makeMachine('zx128kplus3');
     expect(s.variant.hasAY).toBe(true);
     expect(s.variant.hasFDC).toBe(true);
     expect(s.variant.romPageCount).toBe(4);
   });
 
   it('exposes 8 RAM banks regardless of model (only banking models switch them)', () => {
-    for (const model of ['48k', '128k', '+3'] as const) {
+    for (const model of ['zx48k', 'zx128k', 'zx128kplus3'] as const) {
       const s = makeMachine(model);
       for (let i = 0; i < 8; i++) {
         expect(s.memory.getRamBank(i).length).toBe(16384);
@@ -121,7 +147,7 @@ describe('Spectrum — construction', () => {
   // hard-coded to 44.1 kHz — a 48 kHz context (Windows / most modern DACs)
   // would otherwise produce slightly mistuned AY tones.
   it('AY sample rate tracks the audio sample rate, not a hard-coded 44100', () => {
-    const s = makeMachine('128k');
+    const s = makeMachine('zx128k');
     expect(s.ay.sampleRate).toBe(s.audio.sampleRate);
     expect(s.ay.sampleRate).not.toBe(44100);
     // Derived constants must follow the rate, not be frozen at the old one.
@@ -138,7 +164,7 @@ describe('Spectrum — construction', () => {
 
 describe('Spectrum.reset', () => {
   it('clears CPU registers, frame counters, and breakpoint state', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.cpu.a = 0x42;
     s.cpu.tStates = 12345;
     s.contention.frameStartTStates = 999;
@@ -153,14 +179,14 @@ describe('Spectrum.reset', () => {
   });
 
   it('sets running = false (cancels any pending start)', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     (s as any).running = true;
     s.reset();
     expect((s as any).running).toBe(false);
   });
 
   it('flushes activity counters via the next tick(), and reset wires needsDisplay', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     (s as any).needsDisplay = false;
     s.reset();
     expect((s as any).needsDisplay).toBe(true);
@@ -173,7 +199,7 @@ describe('Spectrum.reset', () => {
 
 describe('Spectrum.tick / runUntil', () => {
   it('tick() runs one frame and advances tStates by ~tStatesPerFrame', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     // Park CPU on a tight loop of NOPs in RAM so we have predictable timing.
     loadProgram(s, 0x00, 0x00, 0x00, 0x18, 0xFB); // NOP NOP NOP JR -5
     const before = s.cpu.tStates;
@@ -182,7 +208,7 @@ describe('Spectrum.tick / runUntil', () => {
   });
 
   it('tick() resets breakpointHit / portWatchHit / memWatchHit at entry', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.breakpointHit = 0x1234;
     s.portWatchHit = { port: 0xFE, value: 0, dir: 'in' };
     s.memWatchHit = { addr: 0, value: 0, dir: 'read' };
@@ -194,7 +220,7 @@ describe('Spectrum.tick / runUntil', () => {
   });
 
   it('runUntil() stops early and returns N when a breakpoint fires on frame N-1', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     loadProgram(s, 0x00, 0x00, 0x76); // NOP NOP HALT — runs forever once HALT'd
     s.breakpoints.add(0xC002); // HALT
     const frames = s.runUntil(10);
@@ -203,13 +229,13 @@ describe('Spectrum.tick / runUntil', () => {
   });
 
   it('runUntil() returns maxFrames when nothing breaks', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     loadProgram(s, 0x18, 0xFE);
     expect(s.runUntil(3)).toBe(3);
   });
 
   it('breakpoint hit halts BEFORE the trapped instruction executes (PC unchanged)', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     loadProgram(s, 0x00, 0x3C, 0x18, 0xFC); // NOP, INC A, JR -4
     s.breakpoints.add(0xC001); // INC A
     s.tick();
@@ -219,7 +245,7 @@ describe('Spectrum.tick / runUntil', () => {
   });
 
   it('onTrap returning true breaks just like a breakpoint', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     loadProgram(s, 0x3C, 0x3C, 0x3C); // INC A x3
     let calls = 0;
     s.onTrap = (pc) => { calls++; return pc === 0xC001; };
@@ -236,7 +262,7 @@ describe('Spectrum.tick / runUntil', () => {
 
 describe('Spectrum.portWatchpoints', () => {
   it('OUT to a watched port fires portWatchHit with dir=out and value', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     // XOR A ; OUT ($FE),A ; HALT — port = (A<<8)|0xFE = 0x00FE
     loadProgram(s, 0xAF, 0xD3, 0xFE, 0x76);
     s.portWatchpoints.add(0x00FE);
@@ -247,7 +273,7 @@ describe('Spectrum.portWatchpoints', () => {
   });
 
   it('IN A,(n) on a watched port fires with dir=in', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     // IN A,($FE) ; HALT
     loadProgram(s, 0xDB, 0xFE, 0x76);
     s.portWatchpoints.add(0xFE);
@@ -257,7 +283,7 @@ describe('Spectrum.portWatchpoints', () => {
   });
 
   it('unwatched port access leaves portWatchHit null', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     loadProgram(s, 0x3E, 0x07, 0xD3, 0xFE, 0x76);
     // intentionally NOT watching 0xFE
     s.portWatchpoints.add(0x7FFD);
@@ -272,7 +298,7 @@ describe('Spectrum.portWatchpoints', () => {
 
 describe('Spectrum.memWatchpoints', () => {
   it('write inside a write watchpoint range fires memWatchHit with dir=write', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     // LD HL,$8000 ; LD (HL),$42 ; HALT
     loadProgram(s, 0x21, 0x00, 0x80, 0x36, 0x42, 0x76);
     s.memWatchpoints.push({ start: 0x8000, end: 0x8000, mode: 'write' });
@@ -284,7 +310,7 @@ describe('Spectrum.memWatchpoints', () => {
   });
 
   it('read inside a read watchpoint range fires with dir=read', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.memory.writeByte(0x8000, 0x99);
     // LD HL,$8000 ; LD A,(HL) ; HALT
     loadProgram(s, 0x21, 0x00, 0x80, 0x7E, 0x76);
@@ -296,7 +322,7 @@ describe('Spectrum.memWatchpoints', () => {
   });
 
   it('"rw" mode catches both reads and writes', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     // LD HL,$8000 ; LD (HL),$42 ; HALT
     loadProgram(s, 0x21, 0x00, 0x80, 0x36, 0x42, 0x76);
     s.memWatchpoints.push({ start: 0x8000, end: 0x8000, mode: 'rw' });
@@ -305,7 +331,7 @@ describe('Spectrum.memWatchpoints', () => {
   });
 
   it('access OUTSIDE the watched range does not fire', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     loadProgram(s, 0x21, 0x00, 0x80, 0x36, 0x42, 0x76);
     s.memWatchpoints.push({ start: 0x9000, end: 0x9FFF, mode: 'rw' });
     s.tick();
@@ -319,7 +345,7 @@ describe('Spectrum.memWatchpoints', () => {
 
 describe('Spectrum.flushBeam', () => {
   it('low accuracy (_scanAcc=0) is a no-op', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     (s as any)._scanAcc = 0;
     let called = false;
     (s as any).renderPendingScanlines = () => { called = true; };
@@ -329,7 +355,7 @@ describe('Spectrum.flushBeam', () => {
   });
 
   it('mid accuracy (_scanAcc=1) calls renderCompletedScanlines', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     (s as any)._scanAcc = 1;
     let mid = 0, high = 0;
     (s as any).renderCompletedScanlines = () => { mid++; };
@@ -340,7 +366,7 @@ describe('Spectrum.flushBeam', () => {
   });
 
   it('high accuracy (_scanAcc=2) calls renderPendingScanlines', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     (s as any)._scanAcc = 2;
     let mid = 0, high = 0;
     (s as any).renderCompletedScanlines = () => { mid++; };
@@ -357,7 +383,7 @@ describe('Spectrum.flushBeam', () => {
 
 describe('Spectrum tracing', () => {
   it('startTrace / stopTrace round-trips an empty session', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.startTrace('full');
     expect(s.tracing).toBe(true);
     const out = s.stopTrace();
@@ -366,7 +392,7 @@ describe('Spectrum tracing', () => {
   });
 
   it('portio mode collects an IN tally', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.startTrace('portio');
     // IN A,($FE) ; HALT — exercise the port path
     loadProgram(s, 0xDB, 0xFE, 0x76);
@@ -379,7 +405,7 @@ describe('Spectrum tracing', () => {
   });
 
   it('full mode produces disassembly lines for instructions in RAM', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.startTrace('full');
     // NOP NOP HALT (HALT stays at PC=0xC002)
     loadProgram(s, 0x00, 0x00, 0x76);
@@ -391,7 +417,7 @@ describe('Spectrum tracing', () => {
   });
 
   it('zxtl mode emits a header and decimal-formatted lines', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.startTrace('zxtl');
     loadProgram(s, 0x00, 0x76); // NOP HALT
     s.tick();
@@ -407,7 +433,7 @@ describe('Spectrum tracing', () => {
 
 describe('Spectrum.logPortAccess', () => {
   it('portio: accumulates per-port count, pcs, and vals', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.startTrace('portio');
     s.cpu.pc = 0x8000;
     s.logPortAccess('IN', 0xFE, 0x42);
@@ -423,7 +449,7 @@ describe('Spectrum.logPortAccess', () => {
   });
 
   it('full: writing >= 500_000 trace lines auto-disables tracing', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.startTrace('full');
     const buf = s.trace.buffer;
     for (let i = 0; i < 500_000; i++) buf.push('x');
@@ -449,7 +475,7 @@ describe('Spectrum — tape turbo engagement', () => {
   }
 
   it('engages tape turbo when EAR reads happen and tapeTurbo is enabled', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     loadedTape(s);
     s.tapeTurbo = true;
     s.activity.earReads = 5;
@@ -473,7 +499,7 @@ describe('Spectrum — tape turbo engagement', () => {
   // The cooldown no longer auto-pauses the tape at all — it only disengages
   // turbo. Tape pausing is handled exclusively by the LoaderDetector.
   it('cooldown expiration does NOT auto-pause the tape', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     (s.tape as any).blocks = [{ kind: 'pause', duration: 1000 }];
     s.tape.position = 0;
     s.tape.paused = false;
@@ -497,7 +523,7 @@ describe('Spectrum — tape turbo engagement', () => {
 
 describe('Spectrum — HALT fast-path inside runFrame', () => {
   it('non-contended HALT advances R by ~nops without per-NOP step overhead', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     // HALT in upper RAM (uncontended). PC=$C000.
     loadProgram(s, 0x76);
     s.cpu.r = 0;
@@ -519,7 +545,7 @@ describe('Spectrum — HALT fast-path inside runFrame', () => {
 
 describe('Spectrum — frame boundary', () => {
   it('frameStartTStates snaps to ideal start each frame (no drift accumulation)', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     loadProgram(s, 0x00, 0x18, 0xFD); // NOP ; JR -3 (tight loop)
     const tpf = s.tStatesPerFrame;
     s.tick(); // frame 1
@@ -531,7 +557,7 @@ describe('Spectrum — frame boundary', () => {
   });
 
   it('frameStartTStates re-syncs to cpu.tStates when cpu.tStates < ideal start (e.g. snapshot load)', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     loadProgram(s, 0x00, 0x18, 0xFD);
     // Pretend a snapshot just loaded: cpu.tStates is high but frameStartTStates is 0.
     s.cpu.tStates = 1_000_000;
@@ -548,7 +574,7 @@ describe('Spectrum — frame boundary', () => {
 
 describe('Spectrum — portLabel (private, via portio tally output)', () => {
   it('labels ULA, Kempston, AY, 7FFD on 128K', () => {
-    const s = makeMachine('128k');
+    const s = makeMachine('zx128k');
     s.startTrace('portio');
     s.logPortAccess('IN', 0x00FE, 0); // ULA
     s.logPortAccess('IN', 0x001F, 0); // Kempston (port&E0===0)
@@ -562,7 +588,7 @@ describe('Spectrum — portLabel (private, via portio tally output)', () => {
   });
 
   it('+3: FDC label and 1FFD label appear for those ports', () => {
-    const s = makeMachine('+3');
+    const s = makeMachine('zx128kplus3');
     s.startTrace('portio');
     s.logPortAccess('OUT', 0x1FFD, 0);   // +2A/+3 special paging
     s.logPortAccess('IN',  0x2FFD, 0);   // FDC status
@@ -579,7 +605,7 @@ describe('Spectrum — portLabel (private, via portio tally output)', () => {
 
 describe('Spectrum — load* delegation', () => {
   it('loadROM stores ROM at page 0 and emits a status', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     let status = '';
     s.onStatus = (m) => { status = m; };
     const rom = new Uint8Array(16384);
@@ -590,7 +616,7 @@ describe('Spectrum — load* delegation', () => {
   });
 
   it('loadTAP delegates to tape (state changes observable via tape.loaded)', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     // Minimal TAP: one block, header (length=19 bytes, type=0=program, name, len, line, var)
     // Skip parsing details; just ensure the call doesn't throw and tape transitions.
     const tap = new Uint8Array([0x02, 0x00, 0xFF, 0xFF]);
@@ -605,7 +631,7 @@ describe('Spectrum — load* delegation', () => {
 
 describe('Spectrum.start (audio mocked)', () => {
   it('start() initialises audio, sets running, and registers a rAF callback', async () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     // Stub out audio + mixer init so no real AudioContext is touched.
     s.audio.init = (async () => { (s.audio as any).sampleRate = 48000; }) as any;
     s.mixer.init = (() => {}) as any;
@@ -630,7 +656,7 @@ describe('Spectrum.start (audio mocked)', () => {
   });
 
   it('start() while already running short-circuits', async () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     (s as any).running = true;
     let initCalled = 0;
     s.audio.init = (async () => { initCalled++; }) as any;
@@ -639,7 +665,7 @@ describe('Spectrum.start (audio mocked)', () => {
   });
 
   it('start() aborts if stop() is called before audio finishes initialising', async () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     let resolveInit!: () => void;
     s.audio.init = (() => new Promise<void>((res) => { resolveInit = res; })) as any;
     s.mixer.init = (() => {}) as any;
@@ -675,7 +701,7 @@ describe('Spectrum.frameLoop (audio + rAF mocked)', () => {
   }
 
   it('runs at least one frame when accumulated time exceeds FRAME_PERIOD', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     bootHeadless(s);
     loadProgram(s, 0x18, 0xFE);
     const t0 = s.cpu.tStates;
@@ -684,7 +710,7 @@ describe('Spectrum.frameLoop (audio + rAF mocked)', () => {
   });
 
   it('uses the discrete multiplier for paced frame counts', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.audio.ctx = null as any;
     let frames = 0;
     (s as any).runFrame = () => { frames++; };
@@ -702,7 +728,7 @@ describe('Spectrum.frameLoop (audio + rAF mocked)', () => {
   });
 
   it('honours the 0% and 10% pacing stops', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.audio.ctx = null as any;
     let frames = 0;
     (s as any).runFrame = () => { frames++; };
@@ -725,7 +751,7 @@ describe('Spectrum.frameLoop (audio + rAF mocked)', () => {
     // until budgetMs of wall-clock has passed (or a breakpoint hits). The pump
     // calls this back-to-back; here we call it directly and stub performance.now
     // to control the budget deterministically.
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     bootHeadless(s);
     s.turbo = true;
     loadProgram(s, 0x18, 0xFE);
@@ -759,7 +785,7 @@ describe('Spectrum.frameLoop (audio + rAF mocked)', () => {
     // The rAF tick no longer executes turbo frames — it hands off to the async
     // MessageChannel pump (decoupled from vsync). So a single frameLoop() tick
     // in turbo advances no emulated time itself.
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     bootHeadless(s);
     s.turbo = true;
     loadProgram(s, 0x18, 0xFE);
@@ -777,7 +803,7 @@ describe('Spectrum.frameLoop (audio + rAF mocked)', () => {
   });
 
   it('paused (running=false) still updates the display when present', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     let updates = 0;
     s.display = { updateTexture: () => { updates++; }, resize: () => {} } as any;
     (s as any).running = false;
@@ -787,7 +813,7 @@ describe('Spectrum.frameLoop (audio + rAF mocked)', () => {
   });
 
   it('fires onFrame and updates the display after each frameLoop tick', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     bootHeadless(s);
     let frames = 0;
     let updates = 0;
@@ -800,7 +826,7 @@ describe('Spectrum.frameLoop (audio + rAF mocked)', () => {
   });
 
   it('audio pacing breaks the inner loop when buffer is already full', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     bootHeadless(s);
     // Spoof a running AudioContext with a "full" buffer
     s.audio.ctx = { state: 'running' } as any;
@@ -820,7 +846,7 @@ describe('Spectrum.frameLoop (audio + rAF mocked)', () => {
     // accumulate into periodic underruns. Below LOW_BUFFER_FRAMES, a frame
     // must run right away regardless of frameTimeAccum, and stop once the
     // buffer reaches the low-water mark rather than running away.
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.audio.ctx = { state: 'running' } as any;
     s.audio.sampleRate = 48000; // perFrame = 960, low-water = 960 (1 frame)
     let samplesProduced = 0;
@@ -839,7 +865,7 @@ describe('Spectrum.frameLoop (audio + rAF mocked)', () => {
   });
 
   it('breakpoint stops the inner loop in normal (non-turbo) mode', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     bootHeadless(s);
     s.turbo = false;
     loadProgram(s, 0x00, 0x18, 0xFD);
@@ -849,7 +875,7 @@ describe('Spectrum.frameLoop (audio + rAF mocked)', () => {
   });
 
   it('breakpoint stops a turbo burst mid-batch', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     bootHeadless(s);
     s.turbo = true;
     loadProgram(s, 0x00, 0x18, 0xFD); // NOP ; JR -3
@@ -861,7 +887,7 @@ describe('Spectrum.frameLoop (audio + rAF mocked)', () => {
 
 describe('Spectrum.stop / destroy (no AudioContext)', () => {
   it('stop() clears running and starting but leaves rAF alone', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     (s as any).running = true;
     (s as any).starting = true;
     s.stop();
@@ -870,7 +896,7 @@ describe('Spectrum.stop / destroy (no AudioContext)', () => {
   });
 
   it('destroy() with no rAF and no AudioContext is a safe no-op', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     expect(() => s.destroy()).not.toThrow();
   });
 });
@@ -881,7 +907,7 @@ describe('Spectrum.stop / destroy (no AudioContext)', () => {
 
 describe('Spectrum — EI / interrupt timing', () => {
   it('frame interrupt fires when IFF1 is enabled before the frame', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.cpu.iff1 = true;
     s.cpu.im = 1;
     loadProgram(s, 0x18, 0xFE); // JR -2 (tight loop at $C000)
@@ -898,7 +924,7 @@ describe('Spectrum — EI / interrupt timing', () => {
   // until either the ack succeeds or the window closes — exactly the same
   // way it retries when iff1 is the blocker.
   it('an interrupt blocked by eiDelay at frame boundary still fires after one instruction', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.cpu.iff1 = true;
     s.cpu.eiDelay = true;
     s.cpu.im = 1;
@@ -917,7 +943,7 @@ describe('Spectrum — EI / interrupt timing', () => {
 
 describe('Spectrum.setBorderSize', () => {
   it('updates ULA dimensions and re-renders the frame (display=null is safe)', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.setBorderSize(0);
     expect(s.ula.screenWidth).toBe(256);
     s.setBorderSize(2);
@@ -925,7 +951,7 @@ describe('Spectrum.setBorderSize', () => {
   });
 
   it('forwards resize() to the display when present', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     let resized: [number, number] | null = null;
     s.display = {
       resize: (w: number, h: number) => { resized = [w, h]; },
@@ -952,7 +978,7 @@ describe('Spectrum — VTX-5000 ROM paging', () => {
   }
 
   it('128K loadROM forces ROM page to the 48K BASIC ROM index when VTX is active', () => {
-    const s = new Spectrum('128k', null);
+    const s = new Spectrum('zx128k', null);
     enableVTX(s);
     s.memory.currentROM = 0; // pretend we were on the 128K editor ROM
     s.loadROM(tagRom());
@@ -962,7 +988,7 @@ describe('Spectrum — VTX-5000 ROM paging', () => {
   });
 
   it('+3 loadROM forces ROM page 3 (4 ROM pages, BASIC is last)', () => {
-    const s = new Spectrum('+3', null);
+    const s = new Spectrum('zx128kplus3', null);
     enableVTX(s);
     s.memory.currentROM = 0;
     s.loadROM(tagRom());
@@ -970,7 +996,7 @@ describe('Spectrum — VTX-5000 ROM paging', () => {
   });
 
   it('reset() re-applies VTX ROM overlay', () => {
-    const s = new Spectrum('128k', null);
+    const s = new Spectrum('zx128k', null);
     s.loadROM(tagRom());
     enableVTX(s);
     s.memory.externalRomPaged = false;
@@ -979,7 +1005,7 @@ describe('Spectrum — VTX-5000 ROM paging', () => {
   });
 
   it('onRomPage(true) restores Spectrum ROM when VTX was paged', () => {
-    const s = new Spectrum('48k', null);
+    const s = new Spectrum('zx48k', null);
     s.loadROM(tagRom());
     enableVTX(s);
     s.vtx5000.applyROM(s.memory);
@@ -991,7 +1017,7 @@ describe('Spectrum — VTX-5000 ROM paging', () => {
   });
 
   it('onRomPage(false) re-applies VTX ROM when Spectrum ROM was paged', () => {
-    const s = new Spectrum('48k', null);
+    const s = new Spectrum('zx48k', null);
     s.loadROM(tagRom());
     enableVTX(s);
     s.vtx5000.vtxRomPaged = false;
@@ -1002,7 +1028,7 @@ describe('Spectrum — VTX-5000 ROM paging', () => {
   });
 
   it('onRomPage is a no-op when VTX is disabled or ROM not loaded', () => {
-    const s = new Spectrum('48k', null);
+    const s = new Spectrum('zx48k', null);
     s.loadROM(tagRom());
     // not enabled
     s.vtx5000.vtxRomPaged = true;
@@ -1021,7 +1047,7 @@ describe('Spectrum — VTX-5000 ROM paging', () => {
 
 describe('Spectrum.destroy', () => {
   it('cancels the rAF when one is registered, and clears rafId', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     let cancelled: number | null = null;
     const origCAF = globalThis.cancelAnimationFrame;
     globalThis.cancelAnimationFrame = ((id: number) => { cancelled = id; }) as any;
@@ -1042,7 +1068,7 @@ describe('Spectrum.destroy', () => {
 
 describe('Spectrum — HALT in contended memory', () => {
   it('takes the slow per-NOP path when IR is in contended memory (I in $40-$7F)', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     // HALT at 0xC000 (uncontended PC) but I=0x40 → IR points into contended bank
     s.memory.writeByte(0xC000, 0x76);
     s.cpu.pc = 0xC000;
@@ -1063,7 +1089,7 @@ describe('Spectrum — HALT in contended memory', () => {
 
 describe('Spectrum.scanlineAccuracy frame-end rendering', () => {
   it('low: calls ula.renderFrame() once at frame end', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.scanlineAccuracy = 'low';
     let bulkCalls = 0;
     const orig = s.ula.renderFrame.bind(s.ula);
@@ -1077,7 +1103,7 @@ describe('Spectrum.scanlineAccuracy frame-end rendering', () => {
   });
 
   it('mid: renderCompletedScanlines flushes every visible line over a frame', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.scanlineAccuracy = 'mid';
     loadProgram(s, 0x18, 0xFE);
     s.tick();
@@ -1086,7 +1112,7 @@ describe('Spectrum.scanlineAccuracy frame-end rendering', () => {
   });
 
   it('high: completes all scanlines by frame end', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.scanlineAccuracy = 'high';
     loadProgram(s, 0x18, 0xFE);
     s.tick();
@@ -1100,7 +1126,7 @@ describe('Spectrum.scanlineAccuracy frame-end rendering', () => {
 
 describe('Spectrum — trace loop detection (full mode)', () => {
   it('emits a "loops back to" marker when the same PC repeats with the same register hash', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.startTrace('full');
     // A 3-byte tight loop in RAM: NOP ; JR -3 (back to NOP).
     // After the first iteration, PC=0xC000 with identical register state should trip dedup.
@@ -1111,7 +1137,7 @@ describe('Spectrum — trace loop detection (full mode)', () => {
   });
 
   it('captureZxtlLine flags a non-sequential PC as a jump with "*"', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.startTrace('zxtl');
     // NOP at $C000 then JR -3 jumps back to $C000.
     loadProgram(s, 0x00, 0x18, 0xFD);
@@ -1137,21 +1163,21 @@ describe('Spectrum — traceCtx context strings', () => {
   }
 
   it('JR cc taken/not-taken shows "taken" / "--"', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.cpu.f = 0; // Z=0
     const out = trace(s, 0x28, 0x02); // JR Z,+2 — not taken
     expect(out).toContain('--');
   });
 
   it('LD (BC),A and LD A,(BC) include the address effect', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.cpu.bc = 0xC100;
     const out = trace(s, 0x02); // LD (BC),A
     expect(out).toMatch(/A=.*→\(C100\)/);
   });
 
   it('ALU on (HL) shows A and (HL) values', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.cpu.hl = 0xC050;
     s.memory.writeByte(0xC050, 0x33);
     const out = trace(s, 0x86); // ADD A,(HL)
@@ -1159,14 +1185,14 @@ describe('Spectrum — traceCtx context strings', () => {
   });
 
   it('OUT (n),A shows current A', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.cpu.a = 0x55;
     const out = trace(s, 0xD3, 0xFE); // OUT ($FE),A
     expect(out).toMatch(/A=55/);
   });
 
   it('CB bit op on (HL) shows the memory value', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.cpu.hl = 0xC100;
     s.memory.writeByte(0xC100, 0xAA);
     const out = trace(s, 0xCB, 0x46); // BIT 0,(HL)
@@ -1174,7 +1200,7 @@ describe('Spectrum — traceCtx context strings', () => {
   });
 
   it('ED block instruction shows HL/DE/BC', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.cpu.hl = 0xC000;
     s.cpu.de = 0xC100;
     s.cpu.bc = 0x0001;
@@ -1183,14 +1209,14 @@ describe('Spectrum — traceCtx context strings', () => {
   });
 
   it('ED IN/OUT (C) shows port=BC', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.cpu.bc = 0x00FE;
     const out = trace(s, 0xED, 0x78); // IN A,(C)
     expect(out).toContain('port=00FE');
   });
 
   it('DD prefix with (IX+d) memory access shows the indexed address', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.cpu.ix = 0xC000;
     s.memory.writeByte(0xC010, 0x77);
     const out = trace(s, 0xDD, 0x7E, 0x10); // LD A,(IX+$10)
@@ -1198,7 +1224,7 @@ describe('Spectrum — traceCtx context strings', () => {
   });
 
   it('DDCB shows the indexed memory operand', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.cpu.ix = 0xC000;
     s.memory.writeByte(0xC005, 0x80);
     const out = trace(s, 0xDD, 0xCB, 0x05, 0x46); // BIT 0,(IX+5)
@@ -1206,14 +1232,14 @@ describe('Spectrum — traceCtx context strings', () => {
   });
 
   it('DJNZ shows B (decremented)', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.cpu.bc = 0x0500;
     const out = trace(s, 0x10, 0xFE); // DJNZ -2
     expect(out).toMatch(/B=05/);
   });
 
   it('LD A,(BC) reads through the indirect pointer', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.cpu.bc = 0xC100;
     s.memory.writeByte(0xC100, 0xAB);
     const out = trace(s, 0x0A); // LD A,(BC)
@@ -1221,7 +1247,7 @@ describe('Spectrum — traceCtx context strings', () => {
   });
 
   it('LD A,(DE) reads through the indirect pointer', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.cpu.de = 0xC200;
     s.memory.writeByte(0xC200, 0xCD);
     const out = trace(s, 0x1A); // LD A,(DE)
@@ -1229,7 +1255,7 @@ describe('Spectrum — traceCtx context strings', () => {
   });
 
   it('INC (HL) / DEC (HL) show (HL) value', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.cpu.hl = 0xC050;
     s.memory.writeByte(0xC050, 0x10);
     const out = trace(s, 0x34); // INC (HL)
@@ -1237,7 +1263,7 @@ describe('Spectrum — traceCtx context strings', () => {
   });
 
   it('LD r,(HL) shows the (HL) value', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.cpu.hl = 0xC050;
     s.memory.writeByte(0xC050, 0x77);
     const out = trace(s, 0x46); // LD B,(HL)
@@ -1245,7 +1271,7 @@ describe('Spectrum — traceCtx context strings', () => {
   });
 
   it('LD (HL),r shows source register written to (HL)', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.cpu.hl = 0xC050;
     s.cpu.bc = 0x4200; // B = 0x42
     const out = trace(s, 0x70); // LD (HL),B
@@ -1253,7 +1279,7 @@ describe('Spectrum — traceCtx context strings', () => {
   });
 
   it('RET cc / JP cc / CALL cc render taken/-- decisions', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.cpu.f = 0; // Z=0
     expect(trace(s, 0xC0)).toContain('taken'); // RET NZ
     expect(trace(s, 0xC8)).toContain('--');    // RET Z (not taken)
@@ -1262,33 +1288,33 @@ describe('Spectrum — traceCtx context strings', () => {
   });
 
   it('ALU A,n (immediate) shows A', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.cpu.a = 0x77;
     const out = trace(s, 0xC6, 0x01); // ADD A,1
     expect(out).toMatch(/A=77/);
   });
 
   it('CB op on a register (not (HL)) yields empty ctx', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     const out = trace(s, 0xCB, 0x40); // BIT 0,B — no ctx
     // We just need to verify it didn't throw; output may have any address
     expect(out).toContain('C000');
   });
 
   it('DDFD nested prefix yields empty ctx without throwing', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     const out = trace(s, 0xDD, 0xFD, 0x00);
     expect(out).toContain('C000');
   });
 
   it('DD with a non-memory inner opcode yields empty ctx', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     const out = trace(s, 0xDD, 0x00); // DD NOP — non-mem
     expect(out).toContain('C000');
   });
 
   it('DD ALU on (IX+d) shows A and indexed memory', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.cpu.ix = 0xC000;
     s.cpu.a = 0x10;
     s.memory.writeByte(0xC010, 0x99);
@@ -1297,20 +1323,20 @@ describe('Spectrum — traceCtx context strings', () => {
   });
 
   it('main-table ALU on register (CP B) shows A only', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.cpu.a = 0x42;
     const out = trace(s, 0xB8); // CP B — main table x=2, z=0
     expect(out).toMatch(/A=42/);
   });
 
   it('ED LD I,A and other unmatched ED ops have empty ctx', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     const out = trace(s, 0xED, 0x47); // LD I,A — ED with x=1,z=7 → empty
     expect(out).toContain('C000'); // line still recorded
   });
 
   it('DD STORE A,(IX+d) shows A= and (addr)=', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.cpu.ix = 0xC000;
     s.cpu.a = 0x12;
     s.memory.writeByte(0xC010, 0x99);
@@ -1327,7 +1353,7 @@ describe('Spectrum — traceCtx context strings', () => {
 
 describe('Spectrum.flushRemainingLines', () => {
   it('renders any leftover lines: border, display, and bottom border', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     // Force state where the inner loop will iterate over a mix of border + display lines.
     (s as any).nextRenderLine = 0;
     const borderTop = (s.ula as any).borderTop as number;
@@ -1350,7 +1376,7 @@ describe('Spectrum.flushRemainingLines', () => {
 
 describe('Spectrum — tape ROM trap', () => {
   it('handles the block via instant load when flag and length match, skipping the block', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.tapeFastRom = true;
     const payload = new Uint8Array([0x11, 0x22, 0x33, 0x44]);
     (s.tape as any).blocks = [
@@ -1374,7 +1400,7 @@ describe('Spectrum — tape ROM trap', () => {
   });
 
   it('falls through to the real ROM when peekDataBlock returns null', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.tapeFastRom = true;
     // Fake a "loaded" tape that has only a non-rom block so hasRomBlock() is true,
     // but peekDataBlock() returns null (e.g. only tone block). Easier: stub it.
@@ -1396,7 +1422,7 @@ describe('Spectrum — tape ROM trap', () => {
 
 describe('Spectrum — portLabel additional cases', () => {
   it('AY write port $BFFD is labelled AY on 128K (matches the $8000 mask)', () => {
-    const s = makeMachine('128k');
+    const s = makeMachine('zx128k');
     s.startTrace('portio');
     s.logPortAccess('OUT', 0xBFFD, 0); // bit 0 set so it's not ULA-routed
     const out = s.stopTrace();
@@ -1404,7 +1430,7 @@ describe('Spectrum — portLabel additional cases', () => {
   });
 
   it('48K (no AY): port $FFFD is NOT labelled AY', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.startTrace('portio');
     s.logPortAccess('IN', 0xFFFD, 0);
     const out = s.stopTrace();
@@ -1416,7 +1442,7 @@ describe('Spectrum — portLabel additional cases', () => {
   });
 
   it('unknown port returns empty label without throwing', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.startTrace('portio');
     s.logPortAccess('IN', 0x1234, 0); // odd port, not Kempston, not anything else
     const out = s.stopTrace();
@@ -1430,26 +1456,26 @@ describe('Spectrum — portLabel additional cases', () => {
 
 describe('Spectrum — OCR helpers', () => {
   it('ocrScreen returns a string for the default grid', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     const text = s.ocrScreen();
     expect(typeof text).toBe('string');
   });
 
   it('ocrScreenForMcp prefixes the chosen grid label', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     const text = s.ocrScreenForMcp('32x24');
     expect(text.startsWith('[32x24]\n')).toBe(true);
   });
 
   it('ocrScreenStyled returns a result object with the requested grid', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     const r = s.ocrScreenStyled(undefined, '32x24');
     expect(r).toBeTruthy();
     expect(typeof r).toBe('object');
   });
 
   it('ocrScreenStyled with grid=auto picks a grid via detectAndCacheGrid', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     const r = s.ocrScreenStyled(undefined, 'auto');
     expect(r).toBeTruthy();
   });
@@ -1461,7 +1487,7 @@ describe('Spectrum — OCR helpers', () => {
 
 describe('Spectrum.loadDisk', () => {
   it('inserts the disk image into the FDC at the given unit', () => {
-    const s = makeMachine('+3');
+    const s = makeMachine('zx128kplus3');
     let inserted: { unit: number; image: any } | null = null;
     const orig = s.fdc.insertDisk.bind(s.fdc);
     s.fdc.insertDisk = ((image: any, unit: number) => {
@@ -1475,7 +1501,7 @@ describe('Spectrum.loadDisk', () => {
   });
 
   it('defaults unit to 0 when not specified', () => {
-    const s = makeMachine('+3');
+    const s = makeMachine('zx128kplus3');
     let unitSeen = -1;
     s.fdc.insertDisk = ((_image: any, unit: number) => { unitSeen = unit; }) as any;
     s.loadDisk({ tracks: [] } as any);
@@ -1489,7 +1515,7 @@ describe('Spectrum.loadDisk', () => {
 
 describe('Spectrum — AMX mouse drain at frame start', () => {
   it('calls drainMovement when AMX is enabled and movement is pending', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.amxMouse.enabled = true;
     s.amxMouse.pendingX = 2;
     let drained = false;
@@ -1500,7 +1526,7 @@ describe('Spectrum — AMX mouse drain at frame start', () => {
   });
 
   it('skips drainMovement when no movement is pending', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.amxMouse.enabled = true;
     s.amxMouse.pendingX = 0;
     s.amxMouse.pendingY = 0;
@@ -1525,7 +1551,7 @@ describe('Spectrum — tape turbo cooldown lifecycle', () => {
   }
 
   it('engages turbo on tapeLoads activity and refreshes the cooldown', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     fakeTapeLoaded(s);
     s.tapeTurbo = true;
     // Park at the LD-BYTES address so the runFrame activity-counter increment fires.
@@ -1539,7 +1565,7 @@ describe('Spectrum — tape turbo cooldown lifecycle', () => {
   });
 
   it('decrements cooldown when no loading signal arrives and disengages turbo at zero', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     fakeTapeLoaded(s);
     s.tapeTurbo = false; // never let it re-engage
     (s as any)._tapeTurboActive = true;
@@ -1551,7 +1577,7 @@ describe('Spectrum — tape turbo cooldown lifecycle', () => {
   });
 
   it('finished tape with active turbo forces turbo off', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     (s.tape as any).blocks = [{ kind: 'pause', duration: 1000 }];
     s.tape.position = 999; // past the end → finished=true
     s.tape.playing = true;
@@ -1568,7 +1594,7 @@ describe('Spectrum — tape turbo cooldown lifecycle', () => {
 
 describe('Spectrum — startTrace transitions', () => {
   it('switching from full → portio clears the full-mode loop cache', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.startTrace('full');
     (s.trace as any).loopPC[0] = 0xABCD;
     s.startTrace('portio');
@@ -1577,7 +1603,7 @@ describe('Spectrum — startTrace transitions', () => {
   });
 
   it('traceBuffer getter exposes the (readonly) line array', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.startTrace('full');
     s.trace.buffer.push('hello');
     expect(s.traceBuffer.length).toBe(1);
@@ -1585,7 +1611,7 @@ describe('Spectrum — startTrace transitions', () => {
   });
 
   it('traceMode getter reflects the active mode', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.startTrace('portio');
     expect(s.traceMode).toBe('portio');
     s.stopTrace();
@@ -1594,7 +1620,7 @@ describe('Spectrum — startTrace transitions', () => {
   });
 
   it('stopTrace flushes a pending loop marker when count > 0 at end', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.startTrace('full');
     (s.trace as any).loopCount = 7;
     (s.trace as any).loopAddr = 0xABCD;
@@ -1603,7 +1629,7 @@ describe('Spectrum — startTrace transitions', () => {
   });
 
   it('captureTraceLine flushes loop marker when it sees a fresh PC with count > 0', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.startTrace('full');
     (s.trace as any).loopCount = 3;
     (s.trace as any).loopAddr = 0x9000;
@@ -1616,7 +1642,7 @@ describe('Spectrum — startTrace transitions', () => {
   });
 
   it('full-mode trace auto-disables once buffer crosses 500_000 lines', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.startTrace('full');
     const buf = s.trace.buffer;
     for (let i = 0; i < 499_999; i++) buf.push('x');
@@ -1626,7 +1652,7 @@ describe('Spectrum — startTrace transitions', () => {
   });
 
   it('zxtl-mode trace auto-disables once buffer crosses 500_000 lines', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.startTrace('zxtl');
     const buf = s.trace.buffer;
     while (buf.length < 499_999) buf.push('x');
@@ -1639,7 +1665,7 @@ describe('Spectrum — startTrace transitions', () => {
   // progresses — otherwise loops driven by IX/IY/SP silently collapse to a
   // single iteration in the trace.
   it('full-mode loop dedup does not suppress iterations that only change IX', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.startTrace('full');
     loadProgram(s, 0xDD, 0x23, 0x18, 0xFC); // INC IX ; JR -4
     s.cpu.ix = 0;
@@ -1652,7 +1678,7 @@ describe('Spectrum — startTrace transitions', () => {
   // stopTrace() must be idempotent in portio mode: a second call after the
   // tallies have been nulled used to throw.
   it('stopTrace() in portio mode is idempotent after the maps are nulled', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.startTrace('portio');
     s.logPortAccess('IN', 0xFE, 0);
     const first = s.stopTrace();
@@ -1665,7 +1691,7 @@ describe('Spectrum — startTrace transitions', () => {
   });
 
   it('zxtl mode emits header lines on start', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.startTrace('zxtl');
     const out = s.stopTrace();
     expect(out).toContain('ZXTL');
@@ -1684,7 +1710,7 @@ describe('Spectrum — EI interrupt shadow', () => {
   // interrupt fires at all this frame (the INT window closes long before
   // the loop ends).
   it('EI:DI is atomic — a pending INT is not accepted between them', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     loadProgram(s, 0xFB, 0xF3, 0x18, 0xFE); // EI ; DI ; JR $
     s.cpu.iff1 = false;
     s.cpu.iff2 = false;
@@ -1700,7 +1726,7 @@ describe('Spectrum — EI interrupt shadow', () => {
   // (0xC001) — pushing 0xC001 makes the ISR return into HALT and lose a
   // full frame.
   it('EI:HALT — the INT wakes the HALT, pushing the address after it', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     loadProgram(s, 0xFB, 0x76); // EI ; HALT
     s.cpu.iff1 = false;
     s.cpu.iff2 = false;
@@ -1723,7 +1749,7 @@ describe('Spectrum — border colour changes land on 8-pixel (4T) boundaries', (
     // The ULA latches the border colour once per 8-pixel character period,
     // so an OUT at 5T into a line (pixel 10) must not produce a 2px-resolution
     // edge at x=10: the new colour takes the whole 8..15 cell.
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     const a = s as any;
     a._scanAcc = 2;
     const ula = s.ula;
@@ -1751,6 +1777,76 @@ describe('Spectrum — border colour changes land on 8-pixel (4T) boundaries', (
 });
 
 // ─────────────────────────────────────────────────────────────────────────
+// Attribute fetch timing vs CPU writes (high accuracy, multicolour)
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('Spectrum — an attribute write only affects lines the ULA has not yet fetched', () => {
+  // Hardware: the ULA (gate array on +2A/+3) fetches the bitmap and attribute
+  // bytes of each pair of display cells inside one 8T contended block, and
+  // holds the CPU off contended memory while it does. Pair n of display line
+  // y is fetched in the block starting at contentionStart + y*tpl + 8n. So a
+  // CPU write to an attribute lands either before that block (the line shows
+  // the new colour) or after it (the line keeps the old colour and the next
+  // line, fetched a whole line later, shows the new one). Multicolour engines
+  // such as Nirvana+ rely on the second case: they rewrite a cell's attribute
+  // for the next 2-line pair just after the ULA has fetched it.
+  const OLD = 1 << 3; // blue paper, bitmap all zero -> the cell shows paper
+  const NEW = 2 << 3; // red paper
+
+  function lineColours(model: SpectrumModel, col: number, writeOffset: number): [number, number] {
+    const s = makeMachine(model);
+    const a = s as any;
+    const ula = s.ula;
+    const t = s.contention.timing;
+    // Start the high-accuracy beam at the left edge of display line 0.
+    a._scanAcc = 2;
+    a.totalRenderLines = ula.borderTop * 2 + 192;
+    a.nextRenderLine = ula.borderTop;
+    a.nextPixelX = 0;
+    a.nextDisplayCol = 0;
+    a.nextRenderT = t.displayOrigin - (ula.borderLeft >> 1);
+    for (let i = 0; i < 0x1B00; i++) s.memory.writeByte(0x4000 + i, 0);
+    s.memory.writeByte(0x5800 + col, OLD);
+
+    // Write relative to the start of the fetch block for this cell's pair on
+    // line 0; write8 applies the contention delay itself.
+    s.cpu.tStates = t.contentionStart + 8 * (col >> 1) + writeOffset;
+    s.cpu.write8(0x5800 + col, NEW);
+    s.cpu.tStates = t.displayOrigin + 2 * t.tStatesPerLine; // both lines passed
+    s.flushBeam();
+
+    const px = (ula as any).pixels32 as Uint32Array;
+    const at = (y: number) => px[(ula.borderTop + y) * ula.screenWidth + ula.borderLeft + col * 8];
+    return [at(0), at(1)];
+  }
+
+  for (const model of ['zx48k', 'zx128k', 'zx128kplus2', 'zx128kplus2a', 'zx128kplus3'] as const) {
+    for (const col of [10, 11]) { // first and second cell of pair 5
+      it(`${model}, cell ${col}: a write after the pair's fetch block keeps line 0, colours line 1`, () => {
+        const s = makeMachine(model);
+        const old = s.ula.palette[1], fresh = s.ula.palette[2];
+        // +8: the first T-state after the block. On the Ferranti ULA it is
+        // uncontended (pattern index 0 of the next block); on the gate array
+        // the write is delayed one more T, still after this pair's fetch.
+        expect(lineColours(model, col, 8)).toEqual([old, fresh]);
+        // +6: the Ferranti ULA's first free T inside the block (delay 0);
+        // the gate array delays it to +9. Both are after the fetch.
+        expect(lineColours(model, col, 6)).toEqual([old, fresh]);
+      });
+
+      it(`${model}, cell ${col}: a write before the pair's fetch block colours line 0`, () => {
+        const s = makeMachine(model);
+        const fresh = s.ula.palette[2];
+        // -10: uncontended on the Ferranti ULA (index 6 of an earlier block);
+        // the gate array delays it to -7 (index 1 of block n-1). Both land
+        // before pair n's fetch.
+        expect(lineColours(model, col, -10)).toEqual([fresh, fresh]);
+      });
+    }
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────
 // Mid-frame resume (SZX dwCyclesStart / .z80 T-state counter)
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -1758,7 +1854,7 @@ describe('Spectrum.resumeAtFrameOffset', () => {
   it('resuming 1000T into the frame does not take an INT until the frame boundary', () => {
     // A snapshot taken 1000T after the INT must see its next INT
     // tpf - 1000 T-states later, not immediately on load.
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     loadProgram(s, 0x18, 0xFE);   // JR -2
     s.cpu.im = 1;
     s.cpu.iff1 = s.cpu.iff2 = true;
@@ -1775,7 +1871,7 @@ describe('Spectrum.resumeAtFrameOffset', () => {
   });
 
   it('a resume offset still inside the INT window takes the INT at once', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     loadProgram(s, 0x18, 0xFE);
     s.cpu.im = 1;
     s.cpu.iff1 = s.cpu.iff2 = true;
@@ -1798,21 +1894,21 @@ describe('Spectrum — beam flush before displayed-screen changes (128K)', () =>
   }
 
   it('flushes before a 7FFD write that flips the displayed screen (bit 3)', () => {
-    const s = makeMachine('128k');
+    const s = makeMachine('zx128k');
     const c = spy(s);
     s.cpu.portOut(0x7FFD, 0x08);
     expect(c.n).toBe(1);
   });
 
   it('does not flush for a 7FFD write that leaves bit 3 unchanged', () => {
-    const s = makeMachine('128k');
+    const s = makeMachine('zx128k');
     const c = spy(s);
     s.cpu.portOut(0x7FFD, 0x03);
     expect(c.n).toBe(0);
   });
 
   it('flushes before a write to 0xC000 while bank 7 is paged there and displayed', () => {
-    const s = makeMachine('128k');
+    const s = makeMachine('zx128k');
     s.cpu.portOut(0x7FFD, 0x0F); // bank 7 at 0xC000, shadow screen shown
     const c = spy(s);
     s.cpu.write8(0xC000, 0xAA);
@@ -1820,7 +1916,7 @@ describe('Spectrum — beam flush before displayed-screen changes (128K)', () =>
   });
 
   it('does not flush for a 0xC000 write when bank 7 is paged but not displayed', () => {
-    const s = makeMachine('128k');
+    const s = makeMachine('zx128k');
     s.cpu.portOut(0x7FFD, 0x07);
     const c = spy(s);
     s.cpu.write8(0xC000, 0xAA);
@@ -1828,7 +1924,7 @@ describe('Spectrum — beam flush before displayed-screen changes (128K)', () =>
   });
 
   it('flushes for a 0xC000 write when bank 5 is paged there (aliased normal screen)', () => {
-    const s = makeMachine('128k');
+    const s = makeMachine('zx128k');
     s.cpu.portOut(0x7FFD, 0x05);
     const c = spy(s);
     s.cpu.write8(0xC000, 0xAA);
@@ -1836,7 +1932,7 @@ describe('Spectrum — beam flush before displayed-screen changes (128K)', () =>
   });
 
   it('no flush for a 0x4000 write while the shadow screen (bank 7) is displayed', () => {
-    const s = makeMachine('128k');
+    const s = makeMachine('zx128k');
     s.cpu.portOut(0x7FFD, 0x08);
     const c = spy(s);
     s.cpu.write8(0x4000, 0xAA);
@@ -1859,7 +1955,7 @@ describe('Spectrum — tape restart does not hand the deck stale T-states', () =
   }
 
   it('loader-detector auto-start measures the next advance from the IN, not frame top', () => {
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.loadTAP(tap());
     s.tape.paused = true;
     (s as any).tapeLastAdvanceT = 0;   // stamped at the top of the frame
@@ -1872,7 +1968,7 @@ describe('Spectrum — tape restart does not hand the deck stale T-states', () =
 
   it('tape service resume() rebases the advance point', async () => {
     const { createSpectrumServices } = await import('@/machines/spectrum/services/index.ts');
-    const s = makeMachine('48k');
+    const s = makeMachine('zx48k');
     s.loadTAP(tap());
     s.tape.paused = true;
     (s as any).tapeLastAdvanceT = 0;
@@ -1885,14 +1981,14 @@ describe('Spectrum — tape restart does not hand the deck stale T-states', () =
 describe('Spectrum — tape pulse scaling to the CPU clock', () => {
   // TZX timings are T-states of a 3.5MHz reference clock.
   it('48K (3.5MHz) plays pulses unscaled', () => {
-    expect(makeMachine('48k').tape.pulseScale).toBe(1);
+    expect(makeMachine('zx48k').tape.pulseScale).toBe(1);
   });
 
   it('128K (3.5469MHz) scales pulses by 3546900 / 3500000', () => {
-    expect(makeMachine('128k').tape.pulseScale).toBeCloseTo(3_546_900 / 3_500_000, 9);
+    expect(makeMachine('zx128k').tape.pulseScale).toBeCloseTo(3_546_900 / 3_500_000, 9);
   });
 
   it('+3 (3.5469MHz) scales pulses too', () => {
-    expect(makeMachine('+3').tape.pulseScale).toBeCloseTo(1.0134, 4);
+    expect(makeMachine('zx128kplus3').tape.pulseScale).toBeCloseTo(1.0134, 4);
   });
 });

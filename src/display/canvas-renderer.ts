@@ -6,6 +6,7 @@
  */
 
 import type { IScreenRenderer } from '@/display/renderer.ts';
+import type { PhosphorTint } from '@/display/phosphor.ts';
 
 export class CanvasRenderer implements IScreenRenderer {
   canvas: HTMLCanvasElement;
@@ -22,6 +23,8 @@ export class CanvasRenderer implements IScreenRenderer {
   // Horizontal squeeze applied to CSS width only — see WebGLRenderer.
   private pixelAspectX: number;
   private oversample = 1;
+  // Monochrome phosphor as 0-256 channel multipliers (null = colour).
+  private phosphor: PhosphorTint = null;
   private ctx: CanvasRenderingContext2D;
   private offscreen: HTMLCanvasElement;
   private offCtx: CanvasRenderingContext2D;
@@ -79,7 +82,21 @@ export class CanvasRenderer implements IScreenRenderer {
     if (pixels.length !== expected) {
       throw new Error(`CanvasRenderer.updateTexture: expected ${expected} bytes (${this.width}×${this.height} RGBA), got ${pixels.length}`);
     }
-    this.imageData.data.set(pixels);
+    const tint = this.phosphor;
+    if (tint) {
+      // Luminance only (Rec. 601, the weights the WebGL pass uses), in the phosphor colour.
+      const out = this.imageData.data;
+      const tr = tint[0] * 256, tg = tint[1] * 256, tb = tint[2] * 256;
+      for (let i = 0; i < expected; i += 4) {
+        const y = 0.299 * pixels[i] + 0.587 * pixels[i + 1] + 0.114 * pixels[i + 2];
+        out[i] = y * tr / 256;
+        out[i + 1] = y * tg / 256;
+        out[i + 2] = y * tb / 256;
+        out[i + 3] = 255;
+      }
+    } else {
+      this.imageData.data.set(pixels);
+    }
     this.offCtx.putImageData(this.imageData, 0, 0);
     this.ctx.imageSmoothingEnabled = false;
     this.ctx.drawImage(
@@ -139,5 +156,6 @@ export class CanvasRenderer implements IScreenRenderer {
   setSaturation(_v: number): void {}
   setGamma(_v: number): void {}
   setNoise(_v: number): void {}
+  setPhosphor(rgb: PhosphorTint): void { this.phosphor = rgb; }
   setScalingMode(_v: number): void {}
 }

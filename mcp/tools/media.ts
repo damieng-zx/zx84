@@ -230,13 +230,18 @@ export function register(server: McpServer): void {
       // 6. Mount + boot. Snapshots and peripheral media use the path-based
       // loader: it handles SZX banking and enables the +D/Interface 1 ROM before
       // mounting. Tapes/disks mount + arm the auto-boot trap like the UI.
-      if (plan.boot === 'snapshot' || plan.boot === 'peripheral') {
+      if (plan.boot === 'snapshot' || plan.boot === 'peripheral' || plan.boot === 'trdos') {
         fs.mkdirSync(CACHE_DIR, { recursive: true });
         const tmp = path.join(CACHE_DIR, `library-${path.basename(innerName)}`);
         fs.writeFileSync(tmp, data);
         lines.push(await loadFileInto(activeSpectrum()!, tmp, 0));
+        if (plan.boot === 'trdos') {
+          // A Beta disk boots through TR-DOS: reset, then type RANDOMIZE USR 15616 / RUN.
+          activeSpectrum()!.reset();
+          activeSpectrum()!.armBootTrap('trdos');
+        }
       } else {
-        lines.push(mountAndArm(activeSpectrum()!, data, innerName, plan.boot, plan.target));
+        lines.push(mountAndArm(activeSpectrum()!, data, innerName, plan.boot));
       }
 
       // 7. With a frame budget, run the loader to a pass/fail verdict (tape/disk)
@@ -244,7 +249,7 @@ export function register(server: McpServer): void {
       //    self-starting, no loader to poll) just runs the frames.
       if (frames > 0) {
         const spec = activeSpectrum()!;
-        if (plan.boot === 'snapshot' || plan.boot === 'rom' || plan.boot === 'peripheral') {
+        if (plan.boot === 'snapshot' || plan.boot === 'rom' || plan.boot === 'peripheral' || plan.boot === 'trdos') {
           const ran = spec.runUntil(frames);
           lines.push(`Ran ${ran}/${frames} frame(s). PC=${h16(spec.cpu.pc)} T=${spec.cpu.tStates}`);
         } else {
@@ -263,25 +268,46 @@ export function register(server: McpServer): void {
   server.registerTool(
     'screenshot',
     {
-      description: 'Capture the active machine display as a PNG file and return the file path.',
+      description: 'Capture the active machine display as a PNG file and return the file path. '
+        + 'By default this is the frame exactly as the video hardware drew it, scanline by scanline, '
+        + 'so border, rainbow and multicolour effects show. Stopped mid-frame, rows below the beam '
+        + 'are still the previous frame. Spectrum only: source="vram" instead redraws the whole '
+        + 'screen from screen memory as it is right now (one border colour, no raster effects), '
+        + 'useful straight after a snapshot load or write_memory.',
       inputSchema: {
         file: z.string().optional().describe('Output PNG path (default: <mcp cache>/screenshot.png)'),
+        source: z.enum(['frame', 'vram']).default('frame')
+          .describe('"frame" (default): the last frame as drawn. "vram": redraw from screen memory now (Spectrum only).'),
       },
     },
-    async ({ file }) => {
+    async ({ file, source }) => {
       let rgba: Uint8Array;
       let width: number;
       let height: number;
+      let note = '';
 
       const spec = activeSpectrum();
       if (spec) {
-        // Re-render from the active screen bank: the headless run may have skipped
-        // the bulk frame render, so the pixel buffer can be stale.
-        spec.ula.renderFrame(spec.memory.screenBank, 0x4000);
         rgba = spec.ula.pixels;
+        if (source === 'vram') {
+          // renderFrame draws into the live frame buffer; put the drawn frame
+          // back afterwards so a later "frame" capture still sees it.
+          const drawn = rgba.slice();
+          spec.ula.renderFrame(spec.memory.screenBank, 0x4000);
+          rgba = rgba.slice();
+          spec.ula.pixels.set(drawn);
+          note = ', redrawn from screen memory';
+        } else {
+          const frameT = spec.cpu.tStates - spec.contention.frameStartTStates;
+          const { tStatesPerFrame, tStatesPerLine } = spec.contention.timing;
+          if (frameT < tStatesPerFrame) {
+            note = `, mid-frame at frame line ${Math.floor(frameT / tStatesPerLine)}: rows below the beam are the previous frame`;
+          }
+        }
         width = spec.ula.screenWidth;
         height = spec.ula.screenHeight;
       } else {
+        if (source === 'vram') return text('source="vram" is only supported on the Spectrum.');
         rgba = state.spec.pixels;
         width = state.spec.frameWidth;
         height = state.spec.frameHeight;
@@ -296,7 +322,7 @@ export function register(server: McpServer): void {
       const png = encodePNG(rgba, width, height);
       fs.mkdirSync(path.dirname(out), { recursive: true });
       fs.writeFileSync(out, png);
-      return text(`Screenshot saved: ${out} (${width}×${height}, ${png.length} bytes)`);
+      return text(`Screenshot saved: ${out} (${width}×${height}, ${png.length} bytes${note})`);
     },
   );
 
@@ -334,8 +360,8 @@ export function register(server: McpServer): void {
       if (activeCpc()) return text('disk_boot is +3-specific. On the CPC, use load to mount a .dsk, then type RUN"DISC or |CPM.');
       const lines: string[] = [];
       if (file) {
-        if (state.model !== '+3') {
-          lines.push(await initMachine('+3'));
+        if (state.model !== 'zx128kplus3') {
+          lines.push(await initMachine('zx128kplus3'));
         } else {
           state.spec.reset();
           lines.push('Machine reset (+3)');
@@ -346,7 +372,7 @@ export function register(server: McpServer): void {
           return text(lines.join('\n'));
         }
       } else {
-        if (state.model !== '+3') return text('disk_boot requires +3 model. Use model tool to switch, or pass a file path.');
+        if (state.model !== 'zx128kplus3') return text('disk_boot requires +3 model. Use model tool to switch, or pass a file path.');
         if (!activeFdc()!.getDiskImage(0)) return text('No disk in drive A:. Use load tool first, or pass a file path.');
       }
       const spec = activeSpectrum()!;
@@ -368,8 +394,8 @@ export function register(server: McpServer): void {
     async ({ file }) => {
       if (activeCpc()) return text('disk_trace is a +3 copy-protection helper, not applicable to the CPC.');
       const lines: string[] = [];
-      if (state.model !== '+3') {
-        lines.push(await initMachine('+3'));
+      if (state.model !== 'zx128kplus3') {
+        lines.push(await initMachine('zx128kplus3'));
       } else {
         state.spec.reset();
         lines.push('Machine reset (+3)');

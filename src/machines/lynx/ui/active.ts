@@ -3,10 +3,9 @@
  */
 
 import { machine } from '@/shell/context.ts';
+import { narrowMachine } from '@/machines/shared/narrow-machine.ts';
 import type { LynxMachine } from '@/machines/lynx/lynx-machine.ts';
 
 export function activeLynx(): LynxMachine | null {
-  return machine && machine.kind === 'lynx'
-    ? (machine as unknown as LynxMachine)
-    : null;
+  return narrowMachine<LynxMachine>(machine, 'lynx');
 }

@@ -46,6 +46,15 @@ describe('Interface1 — port decode', () => {
     expect(if1.matchPort(0xfee7)).toBe(true); // high byte ignored
   });
 
+  it('idle RS-232 / ZX Net port reads RXD (b7) and Net (b0) low', () => {
+    // The IF1 ROM's RS-232 receiver (0x0BAF: IN A,(F7); RLCA; JR NC) waits for
+    // bit 7 high as the start bit, and its ZX Net routine (0x0FCC: IN A,(F7);
+    // RRCA; RET C) treats bit 0 high as a busy line. Idle must be low on both.
+    const v = if1.readPort(0xf7);
+    expect(v & 0x80).toBe(0);
+    expect(v & 0x01).toBe(0);
+  });
+
   it('does not match unrelated ports', () => {
     expect(if1.matchPort(0xfe)).toBe(false);
     expect(if1.matchPort(0x1f)).toBe(false);
@@ -55,7 +64,7 @@ describe('Interface1 — port decode', () => {
 
 describe('Interface1 — shadow ROM paging', () => {
   function makeMem(): SpectrumMemory {
-    const mem = new SpectrumMemory('48k');
+    const mem = new SpectrumMemory('zx48k');
     mem.romPages[0].fill(0x99);            // whole Spectrum ROM = 0x99
     mem.romPages[0][0x0000] = 0xAA;        // a low-half marker
     mem.romPages[0][0x2000] = 0xC3;        // an upper-half marker

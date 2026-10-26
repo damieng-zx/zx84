@@ -33,6 +33,8 @@ import { Microdrive } from '@/machines/spectrum/peripherals/microdrive.ts';
 const PORT_DATA    = 0xE7;
 const PORT_CONTROL = 0xEF; // control (write) / status (read)
 const PORT_RS232   = 0xF7;
+/** Idle value of port 0xF7: RXD (b7) and ZX Net (b0) low, other bits high. */
+const IDLE_RS232   = 0x7E;
 
 export class Interface1 {
   enabled = false;
@@ -120,7 +122,11 @@ export class Interface1 {
     switch (port & 0xFF) {
       case PORT_DATA:    return this.readData();
       case PORT_CONTROL: return this.readStatus();
-      case PORT_RS232:   return 0xFF; // RS-232 / Net idle line — stubbed
+      // RS-232 / Net idle line — stubbed. The IF1 ROM waits for RXD (bit 7)
+      // to go high as a start bit (0x0BAF: RLCA / JR NC) and treats ZX Net
+      // bit 0 high as a busy line (0x0FCC: RRCA / RET C), so an idle line
+      // reads both low; a permanent 0xFF looks like constant traffic.
+      case PORT_RS232:   return IDLE_RS232;
       default:           return 0xFF;
     }
   }

@@ -12,9 +12,13 @@ import { M6502 } from '@/cores/m6502.ts';
 import { M6522 } from '@/cores/m6522.ts';
 import { Crtc6845 } from '@/cores/crtc-6845.ts';
 import { Sn76489, type Sn76489AntialiasMode, type Sn76489StereoMode } from '@/cores/sn76489.ts';
+import { Mc6850 } from '@/cores/mc6850.ts';
+import { CassetteDrive } from '@/machines/shared/cassette-drive.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
+import { m6502ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
+import { accessTime } from '@/debug/m6502/bus-cycles.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type {
   AuxRomRequest, BorderMode, Machine, MachineDescriptor, MachineHost, MachineKind, SettingsView,
@@ -31,6 +35,7 @@ import { BbcKeyboard } from './bbc-keyboard.ts';
 import { BbcVideo, bitmapMode, wrapSubtract } from './bbc-video.ts';
 import { BbcDfs1770 } from './peripherals/wd1770-dfs.ts';
 import { BbcAcornDfs } from './peripherals/acorn-8271-dfs.ts';
+import { resolveDriveCount } from '@/machines/shared/drive-count.ts';
 import type { BbcDiscController } from './peripherals/disc-controller.ts';
 import { wireBbcIo } from './bbc-io.ts';
 import { bbcDescriptor } from './descriptor.ts';
@@ -41,8 +46,22 @@ import {
   BBC_TSTATES_PER_FRAME,
 } from './constants.ts';
 
+/** Serial ULA baud-rate codes (bits 0-2 transmit, 3-5 receive). The cassette
+ *  runs at 1200 or 300 baud; RS423 defaults to 9600 (code 4, hence 0x64). */
+const SERIAL_BAUD = [19200, 1200, 4800, 150, 9600, 300, 2400, 75] as const;
+
 /** PAL scanlines per frame. */
 const LINES_PER_FRAME = 312;
+/** What each accuracy means for reading a beam position against the picture. */
+const VIDEO_NOTES: Readonly<Record<'high' | 'mid' | 'low', string>> = {
+  high: 'At High accuracy the picture is drawn as the beam goes, to the character, so a write shows from the character the beam had reached',
+  mid: 'At Mid accuracy each scanline is drawn whole when the beam reaches its end, with the state as it is then',
+  low: 'At Low accuracy the picture is drawn at the end of the frame, so a mid-frame change shows for the whole frame',
+};
+/** How the frame in progress is drawn (see `videoAccuracy`). */
+const VIDEO_LOW = 0;
+const VIDEO_MID = 1;
+const VIDEO_HIGH = 2;
 /** How long a SHIFT+BREAK holds SHIFT — the MOS samples it early in its reset
  *  sequence; half a second covers it with margin, like a real key press. */
 const BOOT_SHIFT_FRAMES = 25;
@@ -72,6 +91,10 @@ export class BbcMachine extends BaseMachine implements Machine {
   readonly video = new BbcVideo();
   readonly fdc1770 = new BbcDfs1770((asserted) => { if (asserted) this.cpu.nmi(); });
   readonly acorn8271 = new BbcAcornDfs(() => this.cpu.nmi());
+  /** The 6850 ACIA behind the serial ULA: RS423 or, here, the cassette port. */
+  readonly acia = new Mc6850();
+  /** Cassette deck, tone decoder and recorder wired to the serial ULA. */
+  readonly cassette = new CassetteDrive(BBC_CPU_CLOCK);
   readonly psg = new Sn76489(BBC_SOUND_CLOCK, 48_000, 'ti-15bit');
   readonly mixer = new AudioMixer(BBC_CPU_CLOCK);
   readonly audio = new Audio();
@@ -82,7 +105,6 @@ export class BbcMachine extends BaseMachine implements Machine {
   videoUlaControl = 0;
   videoPaletteRegister = 0;
   serialUlaControl = 0;
-  aciaControl = 0;
   /** Logical -> physical colour map (identity until the OS writes the palette). */
   readonly palette = Uint8Array.from({ length: 16 }, (_, i) => i);
   /** Mode 7 teletext OCR engine, driven by the TEXT status-icon overlay. */
@@ -93,6 +115,9 @@ export class BbcMachine extends BaseMachine implements Machine {
 
   /** Which disc interface (if any) is fitted. */
   diskSystem: BbcDiskSystem = '1770';
+
+  /** How many of the two DFS drives are fitted (1 or 2), from the Drives pane. */
+  driveCount = 2;
 
   /** The fitted disc controller, or null when no disc interface is present. */
   get disc(): BbcDiscController | null {
@@ -105,6 +130,8 @@ export class BbcMachine extends BaseMachine implements Machine {
   private borderMode: BorderMode = 2;
   private viaAccum = 0;
   private prevVsync = false;
+  /** Run flat out while the tape is being read ('tape-turbo-load'). */
+  private tapeTurboEnabled = true;
 
   protected get audioChip(): Sn76489 { return this.psg; }
 
@@ -121,12 +148,33 @@ export class BbcMachine extends BaseMachine implements Machine {
     super();
     this.model = model;
     this.display = display ?? null;
-    this.cpu.read = (addr) => this.memory.readByte(addr);
-    this.cpu.write = (addr, val) => this.memory.writeByte(addr, val);
+    this.cpu.onInterrupt = (vector) => this.noteInterrupt(this.cpu.pc, vector === 0xFFFA);
+    // The 6502 core makes its bus accesses before it counts the cycles.
+    this.deferAccessStamps = true;
+    this.cpu.read = (addr) => {
+      const value = this.memory.readByte(addr);
+      if (this.memWatchpoints.length > 0 && this.memWatchHit === null) this.recordMemWatch(addr & 0xFFFF, value, 'read');
+      return value;
+    };
+    this.cpu.write = (addr, val) => {
+      // High accuracy: draw up to the beam with things as they were, so a
+      // write to the screen, the palette, the ULA or the CRTC shows from the
+      // character the beam has reached.
+      if (this.frameVideo === VIDEO_HIGH) this.catchUpVideo(addr);
+      this.memory.writeByte(addr, val);
+      if (this.memWatchpoints.length > 0 && this.memWatchHit === null) this.recordMemWatch(addr & 0xFFFF, val & 0xFF, 'write');
+    };
     // PSG-only machine: no beeper to balance against the SN76489.
     this.mixer.beeperGain = 0;
     this.mixer.psgGain = 1;
     wireBbcIo(this);
+    this.acia.onTxByte = (value, startCycle) => {
+      // Only the cassette port records; RS423 output goes nowhere.
+      if ((this.serialUlaControl & 0x40) === 0 && this.cassette.motor) {
+        this.cassette.recorder.setBaud(Math.round(this.acia.txBaud(BBC_CPU_CLOCK)));
+        this.cassette.recorder.byte(value, startCycle);
+      }
+    };
     this.services = createBbcServices(this);
   }
 
@@ -147,6 +195,7 @@ export class BbcMachine extends BaseMachine implements Machine {
    *  falls back to DFS when no Econet hardware is present. */
   prepare(view: SettingsView): AuxRomRequest[] {
     this.setDiskSystem(view.get<BbcDiskSystem>('bbc-disk-system', '1770'));
+    this.setDriveCount(resolveDriveCount(view, 'bbc', 2));
     if (this.diskSystem === 'none') return [];
     const acorn = this.diskSystem === 'acorn';
     return [{
@@ -174,6 +223,14 @@ export class BbcMachine extends BaseMachine implements Machine {
     this.diskSystem = system;
   }
 
+  /** Fit the first `count` drives. Applied to both controllers so the count
+   *  holds whichever interface is (or is later) fitted. */
+  setDriveCount(count: number): void {
+    this.driveCount = count;
+    this.fdc1770.setDriveCount(count);
+    this.acorn8271.setDriveCount(count);
+  }
+
   applySettings(view: SettingsView): void {
     this.audio.setVolume(view.get('volume', 70) / 100);
     // The SN76489 shares the Sound panel's anti-alias strategy control with the
@@ -181,7 +238,9 @@ export class BbcMachine extends BaseMachine implements Machine {
     this.psg.antialias = view.get<Sn76489AntialiasMode>('ay-antialias', 'mute');
     this.psg.setStereoMode(view.get<Sn76489StereoMode>('sn-stereo', 'MONO'));
     this.video.paletteMode = view.get<'pal' | 'measured'>('bbc-color-map', 'pal');
+    this.videoAccuracy = view.get<'high' | 'mid' | 'low'>('scanline-accuracy', 'high');
     this.diskSystem = view.get<BbcDiskSystem>('bbc-disk-system', '1770');
+    this.tapeTurboEnabled = view.get('tape-turbo-load', true);
     // With the SAA5050 upscaler the display rounds and smooths the teletext
     // itself, at any scale, so give it the plain dots in the 1x layout.
     const raw = view.get('saa-scaler', false);
@@ -232,6 +291,7 @@ export class BbcMachine extends BaseMachine implements Machine {
   reset(): void {
     this.stop();
     this.resetHardware();
+    this.resetFrameCount();
     this.setStatus('Reset');
   }
 
@@ -257,6 +317,11 @@ export class BbcMachine extends BaseMachine implements Machine {
   private resetHardware(): void {
     this.bootShiftFrames = 0;
     this.cpu.reset();
+    // The clock restarts, so a frame a stop left open cannot be carried on.
+    // SHIFT+BREAK keeps counting frames so a log that spans it stays in order.
+    this.midFrame = false;
+    this.fLine = 0;
+    this.clearInterrupts();
     this.memory.reset();
     this.crtc.reset();
     this.video.reset();
@@ -271,8 +336,9 @@ export class BbcMachine extends BaseMachine implements Machine {
     this.ic32 = { soundEnabled: false, keyboardScan: false, c0: 0, c1: 0, capsLock: false, shiftLock: false };
     this.videoUlaControl = 0;
     this.videoPaletteRegister = 0;
-    this.serialUlaControl = 0;
-    this.aciaControl = 0;
+    this.acia.reset();
+    this.cassette.reset();
+    this.writeSerialUla(0);
     this.palette.fill(0);
     for (let i = 0; i < 16; i++) this.palette[i] = i;
     this.viaAccum = 0;
@@ -285,7 +351,44 @@ export class BbcMachine extends BaseMachine implements Machine {
   }
 
   protected framePixels(): Uint8Array { return this.video.pixels; }
-  protected inTurbo(): boolean { return this.turbo; }
+  protected inTurbo(): boolean { return this.turbo || this.cassette.turboActive; }
+
+  /** Serial ULA (0xFE10): bits 0-2 transmit and 3-5 receive baud rate, bit 6
+   *  selects RS423 (1) or cassette (0), bit 7 is the cassette motor relay. */
+  writeSerialUla(value: number): void {
+    this.serialUlaControl = value & 0xFF;
+    this.cassette.setMotor((value & 0x80) !== 0, this.cpu.tStates);
+    this.updateAciaClock();
+    this.updateSerialInputs();
+  }
+
+  /** The serial ULA divides its 1.2288 MHz-derived clock into 64× the chosen
+   *  baud rate for the ACIA; the ACIA's own ÷1/16/64 setting then picks the
+   *  real bit rate from that. */
+  updateAciaClock(): void {
+    const div = this.acia.clockDivide / 64;
+    const v = this.serialUlaControl;
+    const tx = SERIAL_BAUD[v & 7];
+    // On RS423 the receive rate has its own field; on the cassette port the
+    // MOS leaves it at 19200 and the ACIA takes both clocks from the transmit
+    // rate (it writes &85 — 300 baud ×4 from the ACIA's ÷16 — for 1200 baud).
+    const rx = (v & 0x40) === 0 ? tx : SERIAL_BAUD[(v >> 3) & 7];
+    this.acia.txBitCycles = (BBC_CPU_CLOCK / tx) * div;
+    this.acia.rxBitCycles = (BBC_CPU_CLOCK / rx) * div;
+  }
+
+  /** Point the ACIA's receive line and carrier-detect pin at the cassette
+   *  demodulator (cassette mode) or leave them idle (RS423, nothing attached). */
+  private updateSerialInputs(): void {
+    if ((this.serialUlaControl & 0x40) === 0) {
+      const f = this.cassette.fsk;
+      this.acia.setRxLine(f.level, f.levelSince, f.startLevel);
+      this.acia.setDcd(f.carrier);
+    } else {
+      this.acia.setRxLine(1, 0);
+      this.acia.setDcd(false);
+    }
+  }
 
   /** Advance the 1 MHz devices (VIAs) by the CPU cycles just executed and
    *  propagate their interrupt line to the CPU. */
@@ -298,31 +401,98 @@ export class BbcMachine extends BaseMachine implements Machine {
       this.userVia.addCycles(viaCycles);
       this.disc?.tick(viaCycles);   // 1 MHz disc controller clock
     }
-    this.cpu.setIRQ(this.sysVia.irq || this.userVia.irq);
+    const now = this.cpu.tStates;
+    this.cassette.step(elapsed, now);
+    this.updateSerialInputs();
+    this.acia.tick(now);
+    this.cpu.setIRQ(this.sysVia.irq || this.userVia.irq || this.acia.irq);
+  }
+
+  // ── Beam ───────────────────────────────────────────────────────────────
+
+  /** The next line of the frame in progress to run (it carries over a stop). */
+  private fLine = 0;
+
+  /** Frame line 0 is the CRTC's first character row, which `beginFrame`
+   *  restarts at the top of each frame; VSYNC (System VIA CA1, the 50 Hz
+   *  interrupt) starts on the first line of row R7. The frame is 20 ms split
+   *  evenly into 312 lines, so a line is 40000/312 cycles, not 128. */
+  beam(): BeamPos { return this.gridBeam(); }
+  beamInfo(): BeamInfo {
+    return {
+      cyclesPerLine: BBC_TSTATES_PER_FRAME / LINES_PER_FRAME,
+      linesPerFrame: LINES_PER_FRAME,
+      displayStart: 0,
+      note: 'line 0 is the first line of CRTC character row 0, which is restarted each frame; VSYNC, the frame interrupt (System VIA CA1), starts on the first line of row R7 (line 272 in modes 0-2, 4 and 5, 270 in 3, 6 and 7). The 40000-cycle frame is split evenly into 312 lines of about 128.2 cycles, not the 6845’s 128. '
+        + VIDEO_NOTES[this.videoAccuracy],
+    };
+  }
+  override supportsBeamStops(): boolean { return true; }
+  override supportsInterruptLog(): boolean { return true; }
+  protected override cpuCycles(): number { return this.cpu.tStates; }
+  protected override stackPointer(): number { return this.cpu.sp; }
+  protected override cpuPc(): number { return this.cpu.pc; }
+  protected override interruptedPc(): number { return m6502ReturnAddress(this.cpu.sp, a => this.memory.readByte(a)); }
+  /** An opcode is never read from the hardware pages, where reads have side effects. */
+  protected override peekOpcode(addr: number): number {
+    return addr >= 0xFC00 && addr < 0xFF00 ? -1 : this.memory.readByte(addr);
+  }
+
+  protected override interruptEntryPending(): boolean { return this.cpu.interruptPending(); }
+
+  // ── Video accuracy ─────────────────────────────────────────────────────
+
+  /** The Display pane's accuracy: 'high' draws as the beam goes, to the
+   *  character, 'mid' a scanline at a time, 'low' the whole frame at its end
+   *  (the fastest, but a mode or palette change mid-frame shows everywhere). */
+  videoAccuracy: 'high' | 'mid' | 'low' = 'high';
+  /** The accuracy the frame in progress is drawn at (VIDEO_*), fixed when it
+   *  starts; turbo draws at Low. */
+  private frameVideo = VIDEO_LOW;
+
+  /** Draw the scanline in progress up to where the beam is for an access the
+   *  CPU is making to `addr` now (the 6502 core calls its bus before it counts
+   *  the instruction's cycles, so the access's own cycle is worked out). */
+  private catchUpVideo(addr: number): void {
+    if (!this.frameOpen) return;
+    const pc = this.insnPc;
+    const t = accessTime(this.cpu.tStates, this.peekOpcode(pc), pc, addr, true, false);
+    const lineStart = this.frameStartT + (this.fLine * BBC_TSTATES_PER_FRAME) / LINES_PER_FRAME;
+    // A character a cycle in the 2MHz modes, every other cycle in the 1MHz ones.
+    const perChar = (this.videoUlaControl & 0x10) !== 0 ? 1 : 2;
+    this.video.drawLine(this, this.fLine, Math.floor((t - lineStart) / perChar));
   }
 
   protected runFrame(): void {
-    const cyclesPerLine = BBC_TSTATES_PER_FRAME / LINES_PER_FRAME;
-    const skipAudio = this.speedMultiplier !== 1;
-    this.activity.psgWrites = 0;
-    this.crtc.beginFrame();
-    let lineEnd = this.cpu.tStates;
+    const skipAudio = this.speedMultiplier !== 1 || this.cassette.turboActive;
+    // A frame a stop left part-way carries on from the line it was in.
+    if (!this.openFrame(BBC_TSTATES_PER_FRAME)) {
+      this.activity.psgWrites = 0;
+      this.crtc.beginFrame();
+      this.fLine = 0;
+      this.frameVideo = this.inTurbo() ? VIDEO_LOW
+        : this.videoAccuracy === 'high' ? VIDEO_HIGH : this.videoAccuracy === 'mid' ? VIDEO_MID : VIDEO_LOW;
+      if (this.frameVideo !== VIDEO_LOW) {
+        this.syncLayoutToScale();
+        this.video.beginFrame(this);
+      }
+    }
+    this.memWatchHit = null;
     let lastAudioT = this.cpu.tStates;
 
-    for (let line = 0; line < LINES_PER_FRAME; line++) {
-      lineEnd += cyclesPerLine;
+    for (; this.fLine < LINES_PER_FRAME; this.fLine++) {
+      const lineEnd = this.frameStartT + ((this.fLine + 1) * BBC_TSTATES_PER_FRAME) / LINES_PER_FRAME;
       while (this.cpu.tStates < lineEnd) {
-        if (this.breakpoints.has(this.cpu.pc)) {
-          this.breakpointHit = this.cpu.pc;
-          this.needsDisplay = true;
-          return;
-        }
-        if (this.onTrap !== null && this.onTrap(this.cpu.pc)) {
+        if (this.checkStops(this.cpu.pc)) {
+          // The frame stays open; the next call carries on in this line.
+          this.midFrame = true;
           this.needsDisplay = true;
           return;
         }
         const before = this.cpu.tStates;
+        this.beforeInsn(this.cpu.pc);
         this.cpu.step();
+        const stopped = this.afterInsn();
         this.tickChips(this.cpu.tStates - before);
 
         if (!skipAudio) {
@@ -333,6 +503,19 @@ export class BbcMachine extends BaseMachine implements Machine {
             lastAudioT = this.cpu.tStates;
           }
         }
+        // Stop on the instruction that tripped a memory watchpoint, with the
+        // frame open.
+        if (stopped) {
+          this.midFrame = true;
+          this.needsDisplay = true;
+          return;
+        }
+      }
+      // Mid and High: the scanline is drawn (the rest of it, at High) before
+      // the CRTC moves on.
+      if (this.frameVideo !== VIDEO_LOW) {
+        this.video.drawLine(this, this.fLine, Infinity);
+        this.video.endLine();
       }
       this.crtc.advanceLine();
       if (this.crtc.vsyncStart) {
@@ -343,9 +526,12 @@ export class BbcMachine extends BaseMachine implements Machine {
       this.prevVsync = this.crtc.vsyncActive;
     }
 
-    this.syncLayoutToScale();
-    this.video.render(this);
+    if (this.frameVideo === VIDEO_LOW) {
+      this.syncLayoutToScale();
+      this.video.render(this);
+    }
     this.disc?.tickFrame();
+    this.cassette.frameTick(this.tapeTurboEnabled);
     if (this.bootShiftFrames > 0 && --this.bootShiftFrames === 0) {
       this.keyboard.setCell(0, 0, false);
     }

@@ -81,17 +81,17 @@ describe('BetaDisk port decode', () => {
 });
 
 describe('BetaDisk system register (port 0xFF)', () => {
-  // Bit semantics verified against Fuse beta.c: b0-1 drive, b4 side (INVERTED —
-  // bit set = side 0), b5 density, b3 HLT; there is no reset bit.
+  // Bits: b0-1 drive, b2 /MR (low = FDC reset), b3 HLT, b4 side (INVERTED —
+  // bit set = side 0), b6 density (0 = MFM).
   it('selects the drive (b0-1) and side (b4 inverted)', () => {
     const beta = armedBeta();
     beta.pageIn(fakeMemory(true) as unknown as SpectrumMemory);
     // Bit 4 set → side 0.
-    beta.writePort(0xFF, 0x01 | 0x10);
+    beta.writePort(0xFF, 0x01 | 0x10 | 0x04);
     expect(beta.fdc.currentDrive).toBe(1);
     expect(beta.fdc.side).toBe(0);
     // Bit 4 clear → side 1.
-    beta.writePort(0xFF, 0x00);
+    beta.writePort(0xFF, 0x04);
     expect(beta.fdc.currentDrive).toBe(0);
     expect(beta.fdc.side).toBe(1);
   });
@@ -106,14 +106,37 @@ describe('BetaDisk system register (port 0xFF)', () => {
     expect(beta.fdc.side).toBe(0);
   });
 
-  it('does not reset the controller on a system-port write (no reset bit)', () => {
+  it('bit 2 low resets the controller registers but not the head position', () => {
     const beta = armedBeta();
     beta.pageIn(fakeMemory(true) as unknown as SpectrumMemory);
     beta.fdc.writeData(20);
     beta.fdc.writeCommand(0x10); // SEEK to 20
     expect(beta.fdc.getUnitTrack(0)).toBe(20);
-    beta.writePort(0xFF, 0x00);  // must NOT reset the head position
-    expect(beta.fdc.getUnitTrack(0)).toBe(20);
+    expect(beta.fdc.readTrack()).toBe(20);
+    beta.writePort(0xFF, 0x3C & ~0x04); // /MR low
+    expect(beta.fdc.readTrack()).toBe(0);          // chip registers cleared
+    expect(beta.fdc.getUnitTrack(0)).toBe(20);     // the mechanism did not move
+  });
+
+  it('bit 2 set (TR-DOS writes 0x3C) leaves the controller alone', () => {
+    const beta = armedBeta();
+    beta.pageIn(fakeMemory(true) as unknown as SpectrumMemory);
+    beta.fdc.writeData(20);
+    beta.fdc.writeCommand(0x10);
+    beta.writePort(0xFF, 0x3C);
+    expect(beta.fdc.readTrack()).toBe(20);
+  });
+
+  it('FDC register writes are ignored while /MR is held low, and resume after', () => {
+    const beta = armedBeta();
+    beta.pageIn(fakeMemory(true) as unknown as SpectrumMemory);
+    beta.writePort(0xFF, 0x38);   // /MR low
+    beta.writePort(0x7F, 0x55);   // data register write — ignored
+    beta.writePort(0x5F, 0x44);   // sector register write — ignored
+    expect(beta.fdc.readSectorReg()).toBe(0);
+    beta.writePort(0xFF, 0x3C);   // /MR released
+    beta.writePort(0x5F, 0x44);
+    expect(beta.fdc.readSectorReg()).toBe(0x44);
   });
 
   it('read reflects INTRQ (bit 7) and DRQ (bit 6)', () => {

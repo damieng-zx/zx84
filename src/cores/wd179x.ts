@@ -51,6 +51,16 @@ export interface WD179xOptions {
    * the status register and leave this unset.
    */
   readonly onInterrupt?: (asserted: boolean) => void;
+  /**
+   * Lost-data timeout for the polled hosts, in status/line polls. A Write
+   * Sector or Write Track command raises DRQ for its first byte; on real silicon
+   * the CPU must load it within a few byte times or the command terminates with
+   * LOST DATA and INTRQ (nothing is written). The polled model has no byte
+   * clock, so the number of times the host looks at the status register or the
+   * DRQ/INTRQ lines without servicing DRQ stands in for elapsed time. Unset (the
+   * default) keeps the controller waiting for the CPU indefinitely.
+   */
+  readonly lostDataPolls?: number;
 }
 
 // ── Status register bits ────────────────────────────────────────────────────
@@ -61,6 +71,7 @@ const ST_BUSY      = 0x01; // all commands: command in progress
 const ST_DRQ       = 0x02; // Type II/III: data register needs service
 const ST_INDEX     = 0x02; // Type I: index pulse (same bit as DRQ)
 const ST_TRACK0    = 0x04; // Type I: head over track 0
+const ST_LOSTDATA  = 0x04; // Type II/III: CPU did not service DRQ in time
 const ST_CRCERR    = 0x08; // Type II/III: CRC error (ID or data field)
 const ST_RNF       = 0x10; // Type II/III: record not found / Type I: seek error (V=1 verify mismatch)
 const ST_RECTYPE   = 0x20; // Type II read: record type (1 = deleted-data mark) / Type I: head loaded
@@ -99,15 +110,24 @@ const BYTE_CYCLES = 80;
 
 export class WD179x {
   private readonly statusBit7Mode: WD179xOptions['statusBit7'];
-  private readonly formatSectorsPerTrack: number;
+  private formatSectorsPerTrack: number;
   private readonly hasSideCompare: boolean;
   private readonly onInterrupt?: (asserted: boolean) => void;
+  private readonly lostDataPolls: number;
+  /** A write command has raised DRQ and the first byte has not arrived yet. */
+  private awaitingFirstByte = false;
+  /** Polls seen since the write command's DRQ went up (see lostDataPolls). */
+  private idlePolls = 0;
+
+  /** Change how many sectors a WRITE TRACK lays down (the disc format in use). */
+  setFormatSectorsPerTrack(count: number): void { this.formatSectorsPerTrack = count; }
 
   constructor(options: WD179xOptions) {
     this.statusBit7Mode = options.statusBit7;
     this.formatSectorsPerTrack = options.formatSectorsPerTrack;
     this.hasSideCompare = options.sideCompare ?? options.statusBit7 === 'not-ready';
     this.onInterrupt = options.onInterrupt;
+    this.lostDataPolls = options.lostDataPolls ?? 0;
   }
 
   // ── Registers ─────────────────────────────────────────────────────────
@@ -148,6 +168,11 @@ export class WD179x {
    *  surface; inert on the WD179x (its drives are always ready when a disk is
    *  present and images are not treated as flippy). */
   forceReady = [false, false, false, false];
+  /** Per-drive "a drive is wired to this select line". A machine fitted with
+   *  fewer drives than the chip can address clears the rest: with nothing on the
+   *  line TR00 never asserts, so RESTORE and SEEK end in a seek error, and
+   *  the 1793's READY line stays low. */
+  connected = [true, true, true, true];
   flipSide = [0, 0, 0, 0];
   /** Optional command-log sink (parity with the uPD765A's `logFn` so the MCP
    *  fdc-log tool can attach through the shared `Machine.fdc`). Unused by the
@@ -159,7 +184,7 @@ export class WD179x {
   private statusBit7(): number {
     return this.statusBit7Mode === 'motor-on'
       ? (this.motorOn ? ST_BIT7 : 0)
-      : (this.disks[this.currentDrive] === null ? ST_BIT7 : 0);
+      : (this.disks[this.currentDrive] === null || !this.connected[this.currentDrive] ? ST_BIT7 : 0);
   }
 
   /**
@@ -256,6 +281,17 @@ export class WD179x {
   }
 
   /**
+   * /MR master reset: clears the chip's registers, status and in-flight command,
+   * but the drive heads stay where they are (it is the controller that resets,
+   * not the mechanism), so each unit's physical track is preserved.
+   */
+  masterReset(): void {
+    const heads = this.headTrack.slice();
+    this.reset();
+    this.headTrack = heads;
+  }
+
+  /**
    * Per-drive "written since insert" flag (drives C/D). Set when a sector
    * write or format mutates the image, cleared on insert/eject and on save.
    * Drives the Save button's "unsaved changes" indicator in the UI.
@@ -294,9 +330,9 @@ export class WD179x {
   // ── Interrupt / data-request lines (read by the Beta system port) ─────
   /** INTRQ — asserted when a command has completed (BUSY clear). Our transfers
    *  finish synchronously, so "not BUSY" is the completion signal TR-DOS polls. */
-  get intrq(): boolean { return (this.statusReg & ST_BUSY) === 0; }
+  get intrq(): boolean { this.pollForLostData(); return (this.statusReg & ST_BUSY) === 0; }
   /** DRQ — the data register needs servicing during a Type II/III transfer. */
-  get drq(): boolean { return !this.typeICmd && (this.statusReg & ST_DRQ) !== 0; }
+  get drq(): boolean { this.pollForLostData(); return !this.typeICmd && (this.statusReg & ST_DRQ) !== 0; }
 
   /** Decay the display latches and spin the motor down when idle. */
   tickFrame(): void {
@@ -356,7 +392,10 @@ export class WD179x {
     const after = this.afterByte;
     this.afterByte = 'none';
     switch (after) {
-      case 'next': this.setDataRequest(true); break;
+      case 'next':
+        if (!this.typeICmd && (this.statusReg & ST_BUSY) !== 0) this.statusReg |= ST_DRQ;
+        this.setDataRequest(true);
+        break;
       case 'readDone': this.completeRead(); break;
       case 'writeDone': this.completeWrite(); break;
       case 'formatDone': this.applyFormat(); break;
@@ -370,6 +409,7 @@ export class WD179x {
    *  when a disk is present and spinning so the ROM's index-edge detector sees
    *  the 0→1 transition it needs. */
   readStatus(): number {
+    this.pollForLostData();
     // Reading the status acknowledges a completed command (the host's NMI
     // handler clears the completion edge here).
     if (this.completionIrq) this.setCompletion(false);
@@ -395,6 +435,11 @@ export class WD179x {
     if (this.buffer !== null && !this.writing) {
       const v = this.buffer[this.bufPos++];
       this.dataReg = v;
+      // The status register's DRQ bit follows the data-request line: it drops
+      // once the byte is taken and returns when the next is offered, so a host
+      // that polls the status (the Electron's ADFS) sees the same handshake an
+      // NMI handler gets from the interrupt edge.
+      if (this.interruptDriven) this.statusReg &= ~ST_DRQ;
       if (this.bufPos >= this.buffer.length) this.finishRead();
       else if (this.interruptDriven) this.scheduleByte('next');
       return v;
@@ -411,9 +456,11 @@ export class WD179x {
   writeData(v: number): void {
     v &= 0xFF;
     this.dataReg = v;
+    this.awaitingFirstByte = false;
     if (this.formatting) { this.formatByte(v); return; }
     if (this.buffer !== null && this.writing) {
       this.buffer[this.bufPos++] = v;
+      if (this.interruptDriven) this.statusReg &= ~ST_DRQ;
       if (this.bufPos >= this.buffer.length) this.finishWrite();
       else if (this.interruptDriven) this.scheduleByte('next');
     }
@@ -506,9 +553,11 @@ export class WD179x {
   private endTypeI(cmd: number): void {
     let s = ST_RECTYPE; // head loaded / spin-up complete
     s |= this.statusBit7();
-    if (this.headTrack[this.currentDrive] === 0) s |= ST_TRACK0;
+    const wired = this.connected[this.currentDrive];
+    if (wired && this.headTrack[this.currentDrive] === 0) s |= ST_TRACK0;
     if (this.writeProtect[this.currentDrive]) s |= ST_WRITEPROT;
-    if (cmd & 0x04) {
+    if (!wired) s |= ST_RNF;       // seek error: the head never finds TR00 or an ID
+    if (wired && (cmd & 0x04)) {
       // V (verify, bit 2): the controller reads ID fields on the destination
       // track until one's track number matches the Track Register with a good
       // CRC — any ID on the track will do, not just the first. An ID that
@@ -551,6 +600,25 @@ export class WD179x {
 
   /** Complete a command that failed before any transfer with `status`,
    *  raising the completion interrupt so an NMI-driven host stops waiting. */
+  /** Called whenever the host looks at the controller (status register, or the
+   *  DRQ/INTRQ lines). Enough looks without the first write byte arriving means
+   *  the CPU missed the DRQ window: terminate with LOST DATA + INTRQ. */
+  pollForLostData(): void {
+    if (!this.awaitingFirstByte || this.lostDataPolls <= 0) return;
+    if (++this.idlePolls < this.lostDataPolls) return;
+    this.awaitingFirstByte = false;
+    this.formatting = false;
+    this.writing = false;
+    this.buffer = null;
+    this.statusReg = this.base() | ST_LOSTDATA;
+  }
+
+  /** Begin the lost-data window for a write command that has just raised DRQ. */
+  private awaitFirstByte(): void {
+    this.awaitingFirstByte = true;
+    this.idlePolls = 0;
+  }
+
   private failCommand(status: number): void {
     this.statusReg = this.base() | status;
     if (this.interruptDriven) this.scheduleCompletion();
@@ -628,6 +696,7 @@ export class WD179x {
     this.dirty[this.currentDrive] = true;
     this.statusReg = this.base() | ST_BUSY | ST_DRQ;
     this.latch(true);
+    this.awaitFirstByte();
     if (this.interruptDriven) this.scheduleByte('next');
   }
 
@@ -760,6 +829,7 @@ export class WD179x {
     this.fmtPending = null;
     this.fmtBytesLeft = 8192; // budget so a malformed stream still terminates
     this.statusReg = this.base() | ST_BUSY | ST_DRQ;
+    this.awaitFirstByte();
     if (this.interruptDriven) this.scheduleByte('next');
   }
 

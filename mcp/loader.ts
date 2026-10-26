@@ -22,6 +22,13 @@ export async function mountMediaBytes(machine: Machine, source: Uint8Array, sour
   let filename = sourceName;
   const accepted = new Set(machine.services.media.accepts().map(type => type.ext.toLowerCase()));
 
+  if (/\.zip$/i.test(filename) && machine.services.media.mountArchive && !innerFile) {
+    let all;
+    try { all = await unzip(data, ['']); } catch (error) { return `ZIP error: ${(error as Error).message}`; }
+    const result = await machine.services.media.mountArchive(all, filename);
+    if (result) return result.message;
+  }
+
   if (/\.zip$/i.test(filename)) {
     let entries;
     try {

@@ -8,33 +8,18 @@
  * updates and persistence remain shell reflection, exactly as before.
  */
 
+import { baseName, saveHfeOr } from '@/machines/shared/disk-save.ts';
 import type { DiskService, DriveDescriptor, DriveMedia } from '@/machines/machine.ts';
 import type { Spectrum } from '@/machines/spectrum/spectrum.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { serializeDSK } from '@/media/floppy/dsk.ts';
-import { parseHFE, serializeHFE, isHFE } from '@/media/floppy/hfe.ts';
-import { parseSCP, isScp } from '@/media/floppy/scp.ts';
-import { parseMgt, serializeMgt, mgtExtFromName } from '@/media/floppy/mgt-image.ts';
-import { parseTrd, serializeTrd } from '@/media/floppy/trd-image.ts';
-import { parseScl, serializeScl, isScl, SCL_DISK_FORMAT } from '@/media/floppy/scl-image.ts';
+import { serializeHFE } from '@/media/floppy/hfe.ts';
+import { parsePlusDMedia, parseBetaMedia } from '@/media/floppy/addon-images.ts';
+import { serializeMgt } from '@/media/floppy/mgt-image.ts';
+import { serializeTrd } from '@/media/floppy/trd-image.ts';
+import { serializeScl, SCL_DISK_FORMAT } from '@/media/floppy/scl-image.ts';
 
-/** Parse a +D image (.mgt/.img, or .hfe/.scp flux) — the exact format chain
- *  the +D loader used before this service existed. */
-export function parsePlusDMedia(data: Uint8Array, filename: string): DskImage | null {
-  return isHFE(data) ? parseHFE(data) : isScp(data) ? parseSCP(data) : parseMgt(data, mgtExtFromName(filename));
-}
-
-/** Parse a Beta Disk image (.trd/.scl, or .hfe/.scp flux) — verbatim chain. */
-export function parseBetaMedia(data: Uint8Array): DskImage | null {
-  if (isHFE(data)) return parseHFE(data);
-  if (isScp(data)) return parseSCP(data);
-  if (isScl(data)) return parseScl(data);
-  return parseTrd(data);
-}
-
-function baseName(name: string, fallback: string): string {
-  return name.replace(/\.[^.]+$/, '') || fallback;
-}
+export { parsePlusDMedia, parseBetaMedia };
 
 export class SpectrumDiskService implements DiskService {
   /** Mounted media names per drive id (media identity is service state). */
@@ -47,7 +32,7 @@ export class SpectrumDiskService implements DiskService {
     const out: DriveDescriptor[] = [];
     const motorUnit = s.fdc.motorOn ? s.fdc.currentUnit & 1 : -1;
     if (s.variant.hasFDC) {
-      for (let u = 0; u < 2; u++) {
+      for (let u = 0; u < s.driveCount; u++) {
         out.push({
           id: u === 0 ? 'a' : 'b',
           label: u === 0 ? 'A:' : 'B:',
@@ -59,7 +44,7 @@ export class SpectrumDiskService implements DiskService {
       }
     }
     if (s.mgtPlusD.enabled) {
-      for (let u = 0; u < 2; u++) {
+      for (let u = 0; u < s.driveCount; u++) {
         out.push({
           id: `plusd:${u}`,
           label: `+D ${u === 0 ? 'C' : 'D'}:`,
@@ -71,7 +56,7 @@ export class SpectrumDiskService implements DiskService {
       }
     }
     if (s.betaDisk.enabled) {
-      for (let u = 0; u < 2; u++) {
+      for (let u = 0; u < s.driveCount; u++) {
         out.push({
           id: `beta:${u}`,
           label: `Beta ${u === 0 ? 'A' : 'B'}:`,
@@ -98,8 +83,19 @@ export class SpectrumDiskService implements DiskService {
     return out;
   }
 
+  /** True when `id` names a unit the machine has not got a drive for. Only the
+   *  floppy families are counted; microdrive ids are checked by their own range. */
+  private unfitted(id: string): boolean {
+    if (id === 'a') return false;
+    if (id === 'b') return this.s.driveCount < 2;
+    const colon = id.indexOf(':');
+    if (colon < 0 || id.startsWith('mdv:')) return false;
+    return Number(id.slice(colon + 1)) >= this.s.driveCount;
+  }
+
   insert(id: string, media: DriveMedia, name: string): void {
     const s = this.s;
+    if (this.unfitted(id)) throw new Error('that drive is not fitted');
     if (id === 'a' || id === 'b') {
       s.loadDisk(media as DskImage, id === 'a' ? 0 : 1);
     } else if (id.startsWith('plusd:')) {
@@ -133,9 +129,7 @@ export class SpectrumDiskService implements DiskService {
       const base = baseName(mounted, 'disk');
       // HFE-sourced disks save back as HFE (writes re-encoded into the retained
       // bitstream, protection tracks preserved); everything else as DSK.
-      const out = image.bitstream
-        ? { data: serializeHFE(image), name: `${base}.hfe` }
-        : { data: serializeDSK(image), name: `${base}.dsk` };
+      const out = saveHfeOr(image, base, '.dsk', serializeDSK);
       s.fdc.clearDirty(unit);   // the on-disk file now matches the image
       return out;
     }
@@ -144,9 +138,7 @@ export class SpectrumDiskService implements DiskService {
       const image = s.mgtPlusD.fdc.getDiskImage(unit);
       if (!image) return null;
       const base = baseName(mounted, 'plusd');
-      const out = image.bitstream
-        ? { data: serializeHFE(image), name: `${base}.hfe` }
-        : { data: serializeMgt(image, 'mgt'), name: `${base}.mgt` };
+      const out = saveHfeOr(image, base, '.mgt', (img) => serializeMgt(img, 'mgt'));
       s.mgtPlusD.fdc.clearDirty(unit);
       return out;
     }

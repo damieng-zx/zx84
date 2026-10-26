@@ -56,6 +56,7 @@ describe('settings — initial defaults from getSaved fallbacks', () => {
     expect(s.writeProtectA()).toBe(false); // 'off' default
     expect(s.tapeAutoRewind()).toBe(true);
     expect(s.multifaceEnabled()).toBe(false);
+    expect(s.uspeechEnabled()).toBe(false);
   });
 
   it('string settings default to their documented values', async () => {
@@ -87,6 +88,33 @@ describe('settings — numeric parsing', () => {
     storage.store.set('zx84-scale', 'banana');
     const s = await load();
     expect(s.scale()).toBe(2); // documented default
+  });
+});
+
+describe('settings — stored on/off and text values', () => {
+  it("reads a stored 'on' as true for a flag that defaults to off", async () => {
+    storage.store.set('zx84-multiface', 'on');
+    const s = await load();
+    expect(s.multifaceEnabled()).toBe(true);
+  });
+
+  it("reads a stored 'off' as false for a flag that defaults to on", async () => {
+    storage.store.set('zx84-tape-sound', 'off');
+    const s = await load();
+    expect(s.tapeSoundEnabled()).toBe(false);
+  });
+
+  it('reads a stored string setting verbatim', async () => {
+    storage.store.set('zx84-monitor', 'green');
+    const s = await load();
+    expect(s.monitor()).toBe('green');
+  });
+
+  it('keeps a setter bound to its own signal', async () => {
+    const s = await load();
+    s.setScale(5);
+    expect(s.scale()).toBe(5);
+    expect(s.brightness()).toBe(0);
   });
 });
 
@@ -202,10 +230,17 @@ describe('settings — reset defaults vs initial defaults consistency', () => {
 
   it('sound pane: reset gives the same values as fresh boot', async () => {
     const s = await load();
-    const before = { volume: s.volume(), ayMix: s.ayMix(), ayStereo: s.ayStereo() };
+    const before = {
+      volume: s.volume(), beeper: s.beeperVolume(), psg: s.psgVolume(),
+      specdrum: s.specdrumVolume(), uspeech: s.uspeechVolume(), ayStereo: s.ayStereo(),
+    };
     s.setVolume(13); s.setAyStereo('XYZ');
+    s.setBeeperVolume(5); s.setPsgVolume(6); s.setSpecdrumVolume(7); s.setUspeechVolume(8);
     s.resetSettingsGroup('sound');
-    expect({ volume: s.volume(), ayMix: s.ayMix(), ayStereo: s.ayStereo() }).toEqual(before);
+    expect({
+      volume: s.volume(), beeper: s.beeperVolume(), psg: s.psgVolume(),
+      specdrum: s.specdrumVolume(), uspeech: s.uspeechVolume(), ayStereo: s.ayStereo(),
+    }).toEqual(before);
   });
 
   it('joystick pane: reset gives the same values as fresh boot', async () => {
@@ -318,5 +353,184 @@ describe('persistSetting', () => {
     const s = await load();
     s.persistSetting('flag', true as unknown as string);
     expect(storage.store.get('zx84-flag')).toBe('true');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Built-in drive count
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('settings — built-in drive count', () => {
+  it('fits every drive until a count is chosen', async () => {
+    const s = await load();
+    expect(s.driveCountFor('lynx', 4)).toBe(4);
+    expect(s.driveCountFor('cpc', 2)).toBe(2);
+  });
+
+  it('keeps a count per machine kind and persists it', async () => {
+    const s = await load();
+    s.setDriveCountFor('apple2', 1);
+    expect(s.driveCountFor('apple2', 2)).toBe(1);
+    expect(s.driveCountFor('bbc', 2)).toBe(2);
+    expect(JSON.parse(storage.store.get('zx84-drive-counts')!)).toEqual({ apple2: 1 });
+  });
+
+  it('restores a saved count after a reload', async () => {
+    storage.store.set('zx84-drive-counts', JSON.stringify({ lynx: 3 }));
+    const s = await load();
+    expect(s.driveCountFor('lynx', 4)).toBe(3);
+  });
+
+  it('holds a saved count to what the current model can take', async () => {
+    storage.store.set('zx84-drive-counts', JSON.stringify({ lynx: 4 }));
+    const s = await load();
+    expect(s.driveCountFor('lynx', 2)).toBe(2);       // a two-drive Lynx
+    expect(s.driveCountFor('lynx', 4)).toBe(4);       // the choice survives for a four-drive one
+  });
+
+  it('ignores a corrupted entry', async () => {
+    storage.store.set('zx84-drive-counts', '{not json');
+    const s = await load();
+    expect(s.driveCountFor('lynx', 4)).toBe(4);
+    storage.store.set('zx84-drive-counts', JSON.stringify({ lynx: 0, cpc: 'two', bbc: -1 }));
+    expect((await load()).driveCountFor('cpc', 2)).toBe(2);
+  });
+
+  it('carries over the Apple II count from its old Hardware-pane option', async () => {
+    storage.store.set('zx84-apple2-drives', '1');
+    const s = await load();
+    expect(s.driveCountFor('apple2', 2)).toBe(1);
+  });
+
+  it('resets to every drive with the Drives pane', async () => {
+    const s = await load();
+    s.setDriveCountFor('bbc', 1);
+    s.resetSettingsGroup('drive');
+    expect(s.driveCountFor('bbc', 2)).toBe(2);
+    expect(storage.store.get('zx84-drive-counts')).toBe('{}');
+  });
+});
+
+describe('settings — SpecDrum', () => {
+  it('defaults to not fitted, volume 100', async () => {
+    const s = await load();
+    expect(s.specdrumEnabled()).toBe(false);
+    expect(s.specdrumVolume()).toBe(100);
+  });
+
+  it('reads saved values', async () => {
+    storage.store.set('zx84-specdrum', 'on');
+    storage.store.set('zx84-specdrum-volume', '35');
+    const s = await load();
+    expect(s.specdrumEnabled()).toBe(true);
+    expect(s.specdrumVolume()).toBe(35);
+  });
+
+  it('the Sound-pane reset restores the volume, the Hardware reset removes the board', async () => {
+    const s = await load();
+    s.setSpecdrumVolume(10);
+    s.persistSetting('specdrum-volume', 10);
+    s.resetSettingsGroup('sound');
+    expect(s.specdrumVolume()).toBe(100);
+    s.setSpecdrumEnabled(true);
+    s.resetSettingsGroup('hardware');
+    expect(s.specdrumEnabled()).toBe(false);
+  });
+
+  it('exposes the volume signal under the key a descriptor names', async () => {
+    const s = await load();
+    const [get, set] = s.DEVICE_VOLUMES['specdrum-volume']!;
+    set(64);
+    expect(get()).toBe(64);
+    expect(s.specdrumVolume()).toBe(64);
+  });
+});
+
+describe('settings — per-device sound volumes', () => {
+  it('default to unity (100) for every device', async () => {
+    const s = await load();
+    expect([s.beeperVolume(), s.psgVolume(), s.specdrumVolume(), s.uspeechVolume()]).toEqual([100, 100, 100, 100]);
+  });
+
+  it('read saved values and ignore a corrupted one', async () => {
+    storage.store.set('zx84-beeper-volume', '25');
+    storage.store.set('zx84-psg-volume', 'loud');
+    storage.store.set('zx84-uspeech-volume', '150');
+    const s = await load();
+    expect(s.beeperVolume()).toBe(25);
+    expect(s.psgVolume()).toBe(100);       // NaN falls back to the default
+    expect(s.uspeechVolume()).toBe(150);
+  });
+
+  it('every volume key a descriptor can name has a signal to drive its slider', async () => {
+    const s = await load();
+    expect(Object.keys(s.DEVICE_VOLUMES).sort()).toEqual(['beeper-volume', 'psg-volume', 'specdrum-volume', 'uspeech-volume']);
+    const [get, set] = s.DEVICE_VOLUMES['psg-volume']!;
+    set(42);
+    expect(get()).toBe(42);
+    expect(s.psgVolume()).toBe(42);
+  });
+
+  it('persistSetting stores them under the plain key, where the next boot reads them', async () => {
+    const s = await load();
+    s.persistSetting('beeper-volume', 33);
+    expect(storage.store.get('zx84-beeper-volume')).toBe('33');
+    vi.resetModules();
+    expect((await load()).beeperVolume()).toBe(33);
+  });
+
+  it('the Sound-pane reset puts them back to 100 and rewrites the saved values', async () => {
+    const s = await load();
+    s.setBeeperVolume(10); s.persistSetting('beeper-volume', 10);
+    s.setPsgVolume(20); s.setUspeechVolume(30);
+    s.resetSettingsGroup('sound');
+    expect([s.beeperVolume(), s.psgVolume(), s.uspeechVolume()]).toEqual([100, 100, 100]);
+    expect(storage.store.get('zx84-beeper-volume')).toBe('100');
+  });
+
+  // The old single Beep↔PSG balance ('ay-mix') is gone; a balance the user had
+  // set is carried into the per-device sliders: the centre keeps both at unity
+  // and each end fades the other source out.
+  describe('migration from the old balance slider', () => {
+    it.each([
+      ['50', 100, 100],   // centre: both at unity
+      ['0', 100, 0],      // all beeper: PSG silent
+      ['100', 0, 100],    // all PSG: beeper silent
+      ['25', 100, 50],    // a quarter towards the beeper: PSG at half
+      ['75', 50, 100],
+    ])('ay-mix %s → beeper %i, PSG %i', async (mix, beeper, psg) => {
+      storage.store.set('zx84-ay-mix', mix);
+      const s = await load();
+      expect([s.beeperVolume(), s.psgVolume()]).toEqual([beeper, psg]);
+    });
+
+    it('a per-device volume saved by this build wins over the old balance', async () => {
+      storage.store.set('zx84-ay-mix', '100');
+      storage.store.set('zx84-beeper-volume', '80');
+      const s = await load();
+      expect(s.beeperVolume()).toBe(80);
+      expect(s.psgVolume()).toBe(100);   // not saved: derived from ay-mix 100
+    });
+
+    it('a garbage old balance is ignored', async () => {
+      storage.store.set('zx84-ay-mix', 'x');
+      const s = await load();
+      expect([s.beeperVolume(), s.psgVolume()]).toEqual([100, 100]);
+    });
+  });
+});
+
+describe('settings — MIC in speaker', () => {
+  it('defaults to audible (hardware-accurate)', async () => {
+    const s = await load();
+    expect(s.micAudible()).toBe(true);
+  });
+
+  it('reads a saved off value, and the Sound reset restores it', async () => {
+    storage.store.set('zx84-mic-audible', 'off');
+    const s = await load();
+    expect(s.micAudible()).toBe(false);
+    s.resetSettingsGroup('sound');
+    expect(s.micAudible()).toBe(true);
   });
 });

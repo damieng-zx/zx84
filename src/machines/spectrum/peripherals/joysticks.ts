@@ -3,7 +3,8 @@
  * (Cursor, Sinclair 1 & 2).
  *
  * Keyboard-mapped modes press Spectrum matrix keys that correspond to
- * the joystick directions.  Cursor mode additionally holds Caps Shift.
+ * the joystick directions. The Cursor (AGF/Protek) interface is wired to the
+ * 5/6/7/8/0 keys alone: it never presses Caps Shift.
  */
 
 import type { SpectrumKeyboard } from '@/machines/spectrum/keyboard.ts';
@@ -25,6 +26,10 @@ export const KEMPSTON_BITS: Record<string, number> = {
 };
 
 export class KempstonJoystick {
+  /** Whether a Kempston interface is fitted (selected for either player).
+   *  When not, port 0x1F is undriven and reads as the floating bus, so
+   *  programs probing for a Kempston do not mistake an idle bus for one. */
+  enabled = true;
   /** 8-bit port value read by the Z80 */
   state = 0;
 
@@ -69,16 +74,6 @@ export const SINCLAIR1_KEYS: Record<string, { row: number; bit: number }> = {
   fire:  { row: 4, bit: 0 },
 };
 
-// Track how many cursor-joystick directions are currently held,
-// so Caps Shift stays pressed until all are released.
-let cursorShiftCount = 0;
-
-/** Reset module-level input state. Called on window blur so a missed keyup
- *  (e.g. alt-tab while a key is held) can't leave Caps Shift stuck. */
-export function resetJoystickKeyState(): void {
-  cursorShiftCount = 0;
-}
-
 export function joyPressForType(target: JoystickTarget, dir: string, pressed: boolean, mode: string): void {
   if (mode === 'none') return;
 
@@ -89,22 +84,6 @@ export function joyPressForType(target: JoystickTarget, dir: string, pressed: bo
               : mode === 'sinclair2' ? SINCLAIR2_KEYS
               : SINCLAIR1_KEYS;
     const key = map[dir];
-    if (key) {
-      target.keyboard.setKey(key.row, key.bit, pressed);
-      // Cursor joystick requires Caps Shift held with the number keys.
-      // setKey is reference-counted, so we must only emit CS press/release on
-      // 0↔1 transitions of the held-direction count — otherwise repeated
-      // presses leak CS into the press counter and it stays stuck.
-      if (mode === 'cursor') {
-        const prev = cursorShiftCount;
-        cursorShiftCount += pressed ? 1 : -1;
-        if (cursorShiftCount < 0) cursorShiftCount = 0;
-        if (prev === 0 && cursorShiftCount > 0) {
-          target.keyboard.setKey(0, 0, true);
-        } else if (prev > 0 && cursorShiftCount === 0) {
-          target.keyboard.setKey(0, 0, false);
-        }
-      }
-    }
+    if (key) target.keyboard.setKey(key.row, key.bit, pressed);
   }
 }

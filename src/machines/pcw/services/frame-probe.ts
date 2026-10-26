@@ -122,7 +122,7 @@ export class PcwFrameProbe implements FrameProbe {
     out.tracingActive = false;
 
     const fdc = m.fdc;
-    const fitted = m.config.drives;
+    const fitted = m.driveCount;
     const activeUnit = fdc.motorOn ? fdc.currentUnit & 1 : -1;
     let soundSlot = -1;
     for (let u = 0; u < 4; u++) {
@@ -154,6 +154,6 @@ export class PcwFrameProbe implements FrameProbe {
   }
 
   diskImageForSlot(slot: number): DskImage | null {
-    return slot < this.m.config.drives ? this.m.fdc.getDiskImage(slot) : null;
+    return slot < this.m.driveCount ? this.m.fdc.getDiskImage(slot) : null;
   }
 }

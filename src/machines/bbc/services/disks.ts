@@ -1,11 +1,8 @@
+import { baseName } from '@/machines/shared/disk-save.ts';
 import type { DiskService, DriveDescriptor, DriveMedia } from '@/machines/machine.ts';
 import { serializeSsd } from '@/media/floppy/ssd.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import type { BbcMachine } from '../bbc-machine.ts';
-
-function baseName(name: string): string {
-  return name.replace(/\.[^.]+$/, '') || 'disk';
-}
 
 /** The two physical DFS drives (0 and 1) backed by whichever disc controller
  *  (8271 or 1770) the machine has fitted. */
@@ -18,10 +15,12 @@ export class BbcDiskService implements DiskService {
 
   get drives(): readonly DriveDescriptor[] {
     if (!this.machine.disc) return [];
-    return [this.describe('a', 'Drive 0', 0), this.describe('b', 'Drive 1', 1)];
+    const all = [this.describe('a', 'Drive 0', 0), this.describe('b', 'Drive 1', 1)];
+    return all.slice(0, this.machine.driveCount);
   }
 
   insert(id: string, media: DriveMedia, name: string): void {
+    if (this.unit(id) >= this.machine.driveCount) throw new Error('that drive is not fitted');
     this.machine.disc?.insertDisk(media as DskImage, this.unit(id));
     this.names.set(id, name);
   }

@@ -45,29 +45,25 @@ Incorporates some of the ideas from SABR shader. Thanks to Joshua Street.
 zx84 adapts the following from MAME source files that carry
 `license:BSD-3-Clause`. The notice below applies to each.
 
-- **Intel 8271** — `src/cores/i8271.ts`: structure, field and method names,
-  status/error names and values, the status/result/command/parameter register
-  logic, the command-parameter table and the SPECIFY and special-register
-  handling, from `src/devices/machine/i8271.cpp` and `i8271.h`
-  (copyright-holders: Carl, Olivier Galibert).
-- **Yamaha V9938** — `src/cores/v9938.ts`: the register write masks, the
-  power-on palette, the Graphic 7 sprite colour table, the screen-mode table,
-  the reset status values and the register/port handling, from
-  `src/devices/video/v9938.cpp` and `v9938.h`
+- **Yamaha V9938** — `src/cores/v9938.ts`: the code is zx84's own; the
+  hardware data in it (register write masks, the power-on palette, the
+  GRAPHIC 7 sprite colour table, the display-mode bit table and the reset
+  status values) was cross-checked against `src/devices/video/v9938.cpp`
   (copyright-holders: Aaron Giles, Nathan Woods).
 - **TMS9928A palette** — `src/cores/tms9918a.ts` (`TMS9918_PALETTE`): the
   15-colour RGB table from `src/devices/video/tms9928a.cpp`
   (copyright-holders: Sean Young, Nathan Woods, Aaron Giles, Wilbert Pol, hap;
   the table is R. Nabet's computation recorded in that file).
-- **Camputers Lynx** — `src/machines/lynx/` (`lynx-memory.ts` banking
-  tables and port decode, `lynx-keyboard.ts` and the keyboard layout's
-  matrix, `lynx-video.ts` addressing, `lynx-io.ts`) and
-  `src/media/tape/lynx-tap.ts` (tape format constants): from
-  `src/mame/camputers/camplynx.cpp` (copyright-holders: Robbbert) and
-  `src/lib/formats/camplynx_cas.cpp` (copyright-holders: Robbbert,
-  Nigel Barnes).
-- **Jupiter Ace and Memotech MTX** — the Ace keyboard matrix and frame
-  interrupt timing, and the MTX sound-latch arrangement, were taken from
+- **Camputers Lynx** — `src/machines/lynx/` and `src/media/tape/lynx-tap.ts`:
+  the code is zx84's own, but the machine has no public description other
+  than MAME's, so the hardware data was read from `src/mame/camputers/camplynx.cpp`
+  (copyright-holders: Robbbert), `src/lib/formats/camplynx_cas.cpp`
+  (Robbbert, Nigel Barnes) and `camplynx_dsk.cpp`: the keyboard matrix cell
+  assignments, the bank-select decode rules and port meanings, the video
+  address stepping, and the tape and disk format sizes.
+- **Jupiter Ace and Memotech MTX** — the Ace frame interrupt timing (the
+  vertical-sync line the interrupt is held for) and the MTX sound-latch
+  arrangement were taken from
   `src/mame/cantab/jupace.cpp` (copyright-holders: Curt Coder, Robbbert),
   `src/lib/formats/ace_tap.cpp` (copyright-holders: Wilbert Pol) and
   `src/mame/memotech/mtx.cpp` / `mtx_m.cpp` (copyright-holders: Lee Ward,
@@ -110,6 +106,14 @@ MAME's Tatung Einstein, Amstrad CPC and Amstrad PCW drivers are GPL-2.0+. They
 were read to learn how the hardware behaves; no code from them is used in zx84
 (some comments mention them as behaviour references, and the Einstein keyboard
 matrix agrees with MAME's, verified against the real ROMs).
+
+## ep128emu (GPL-2.0+) and Clock Signal (MIT) — studied for behaviour only
+
+The Enterprise (`src/machines/enterprise/`) was written from how ep128emu
+(István Varga) and Clock Signal (Thomas Harte) describe Nick, Dave, the EXDOS
+card and EXOS's device interface; no code from either is used. The FILE:
+device ROM in `hostfs.ts` is zx84's own, laid out per the EXOS 2.1 technical
+manual's ROM-extension and device-descriptor chapters.
 
 ## Bedstead — CC0-1.0
 

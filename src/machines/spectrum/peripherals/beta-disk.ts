@@ -55,15 +55,27 @@ export class BetaDisk {
 
   /** Last value written to the system register (port 0xFF). */
   systemReg = 0;
+  /** True while the system register holds the FDC's /MR line low. */
+  private fdcInReset = false;
+
+  /** Extra condition under which the FDC ports are live even though the TR-DOS
+   *  overlay is not paged in. The Scorpion's service ROM (page 2) drives the
+   *  controller directly, so its machine sets this to "service ROM selected".
+   *  Null on every other machine, keeping matchPort a single flag test. */
+  portGate: (() => boolean) | null = null;
 
   readonly fdc = new WD179x({
     statusBit7: 'not-ready',
     formatSectorsPerTrack: 16,
+    // TR-DOS can issue a command word of 0xFF (WRITE TRACK) without ever
+    // servicing DRQ and relies on the chip's LOST DATA termination to finish it.
+    lostDataPolls: 8,
   });
 
   reset(): void {
     this.pagedIn = false;
     this.systemReg = 0;
+    this.fdcInReset = false;
     this.fdc.reset();
   }
 
@@ -107,7 +119,7 @@ export class BetaDisk {
 
   // ── Port decode (active only while paged in) ──────────────────────────
   matchPort(port: number): boolean {
-    if (!this.pagedIn) return false;
+    if (!this.pagedIn && (this.portGate === null || !this.portGate())) return false;
     switch (port & 0xFF) {
       case PORT_STATUS_CMD: case PORT_TRACK: case PORT_SECTOR:
       case PORT_DATA: case PORT_SYSTEM:
@@ -131,18 +143,23 @@ export class BetaDisk {
 
   writePort(port: number, val: number): void {
     switch (port & 0xFF) {
-      case PORT_STATUS_CMD: this.fdc.writeCommand(val); break;
-      case PORT_TRACK:      this.fdc.writeTrack(val); break;
-      case PORT_SECTOR:     this.fdc.writeSectorReg(val); break;
-      case PORT_DATA:       this.fdc.writeData(val); break;
+      // While the system register holds /MR low the FDC is held in reset and
+      // ignores register writes.
+      case PORT_STATUS_CMD: if (!this.fdcInReset) this.fdc.writeCommand(val); break;
+      case PORT_TRACK:      if (!this.fdcInReset) this.fdc.writeTrack(val); break;
+      case PORT_SECTOR:     if (!this.fdcInReset) this.fdc.writeSectorReg(val); break;
+      case PORT_DATA:       if (!this.fdcInReset) this.fdc.writeData(val); break;
       case PORT_SYSTEM:
         this.systemReg = val & 0xFF;
         // System-register bits (verified against Fuse beta.c wd_fdc / beta_sp_write):
         //   b0-1 drive select (2 drives — units 2/3 alias to 0/1)
+        //   b2   /MR: low holds the 1793 in master reset (TR-DOS writes 0x3C,
+        //        bit 2 set). The heads stay put; only the controller resets.
         //   b3   HLT (head-load timing) — modelled implicitly
         //   b4   side select, INVERTED: bit set → side 0, clear → side 1
-        //   b5   density (DDEN); TR-DOS is always MFM, so ignored
-        // There is NO reset bit here (reset is via the machine reset line).
+        //   b6   density (DDEN, 0 = MFM); TR-DOS is always MFM, so ignored
+        this.fdcInReset = (val & 0x04) === 0;
+        if (this.fdcInReset) this.fdc.masterReset();
         this.fdc.selectDrive(val & 0x03);
         this.fdc.setSide((val & 0x10) ? 0 : 1);
         break;

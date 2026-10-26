@@ -11,6 +11,7 @@ import type {
 } from '@/machines/machine.ts';
 import type { MachineModel } from '@/models.ts';
 import type { BbcModel } from './models.ts';
+import { ACORN_TAPE_EXTENSIONS } from '@/machines/shared/acorn-tape-service.ts';
 import { BbcMachine } from './bbc-machine.ts';
 import {
   BBC_ACTIVE_WIDTH, BBC_BORDER_LEFT, BBC_LAYOUT_1X, BBC_SCREEN_WIDTH, type BbcLayout,
@@ -18,14 +19,14 @@ import {
 
 const BBC_UI: MachineUiCapabilities = {
   hiddenPanes: [
-    'tape-panel', 'microdrive-panel', 'mouse-panel', 'joystick-panel',
+    'microdrive-panel', 'mouse-panel', 'joystick-panel',
     'sysvar-panel', 'font-panel', 'banks-panel',
   ],
   memoryLayout: false,
   trace: false,
   // Mode 7 / ULA palette control; 'bbc' selects the BBC palette family.
   colorMap: 'bbc',
-  accuracy: false,
+  accuracy: 'raster',
   builtinDisk: true,
   builtinDrives: 2,
   joystick: false,
@@ -36,17 +37,21 @@ const BBC_UI: MachineUiCapabilities = {
   romPages: 0,
   beeper: false,
   psgControls: ['sn-stereo', 'filter'],
-  statusLeds: ['kbd', 'dsk', 'psg', 'text'],
+  soundChip: 'SN76489',
+  statusLeds: ['kbd', 'load', 'dsk', 'chip', 'text'],
   keyboardBus: 'matrix',
+  tape: 'deck',
   tapeSound: false,
-  tapeExtensions: [],
-  saveMenu: ['screenshot-png', 'ram-bin'],
+  tapeExtensions: ACORN_TAPE_EXTENSIONS,
+  // 'tape-tap' downloads whatever the OS has SAVEd to the cassette port (.uef).
+  saveMenu: ['tape-tap', 'screenshot-png', 'ram-bin'],
   zipPolicy: 'media',
   persistMedia: true,
   bootDisk: false,
   library: false,
   memoryRegions: [],
   charset: 'bbc',
+  memoryMappedIo: true,
 };
 
 export function bbcDescriptor(

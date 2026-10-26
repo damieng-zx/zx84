@@ -31,14 +31,7 @@ export function installMemoryHooks(s: Spectrum): void {
       cpu.tStates += contention.contentionDelay(cpu.tStates);
     }
     const val = flat[addr];
-    if (s.memWatchpoints.length > 0 && s.memWatchHit === null) {
-      for (const wp of s.memWatchpoints) {
-        if ((wp.mode === 'read' || wp.mode === 'rw') && addr >= wp.start && addr <= wp.end) {
-          s.memWatchHit = { addr, value: val, dir: 'read' };
-          break;
-        }
-      }
-    }
+    if (s.memWatchpoints.length > 0 && s.memWatchHit === null) s.recordMemWatch(addr, val, 'read');
     return val;
   };
 
@@ -55,9 +48,12 @@ export function installMemoryHooks(s: Spectrum): void {
   } : () => {};
   cpu.contend = cpu._contendAccurate;
 
-  // Bytes of the displayed bank that affect rendering on this model
-  // (bitmap+attrs on 48K, bitmap only elsewhere), as an offset within the bank.
-  const vramFlushLen = v.vramFlushEnd - 0x4000;
+  // Bytes of the displayed bank that affect rendering (bitmap + attributes),
+  // as an offset within the bank. Every model needs the attributes too: a
+  // multicolour engine rewrites a cell's attribute right after the ULA has
+  // fetched it, and without the flush the lazy renderer would draw the line
+  // just fetched with the next line's colours.
+  const vramFlushLen = 0x1B00;
   const slotIsScreen = memory.slotIsScreen;
 
   cpu.write8 = (addr: number, val: number): void => {
@@ -76,11 +72,14 @@ export function installMemoryHooks(s: Spectrum): void {
         return; // IF1 ROM (0x0000-0x1FFF) + Spectrum ROM upper half — all ROM
       } else if (s.betaDisk.pagedIn) {
         return; // TR-DOS ROM (0x0000-0x3FFF) — all ROM, discard writes
+      } else if (s.currah.pagedIn) {
+        s.currah.write(addr, val, memory); // µSpeech: 0x1000 allophone, 0x3000/1 pitch; rest is ROM
+        return;
       } else if (s.interface2.inserted) {
         return; // IF2 cartridge ROM (0x0000-0x3FFF) — all ROM, no /WR line at the cart slot
       } else if (s.vtx5000.enabled && s.vtx5000.vtxRomPaged && addr >= 0x2000) {
         // VTX-5000: 0x2000-0x3FFF is RAM — allow through
-      } else if (!memory.specialPaging) {
+      } else if (!memory.specialPaging && !memory.ramAtZero) {
         return; // Normal ROM — discard
       }
     }
@@ -89,7 +88,7 @@ export function installMemoryHooks(s: Spectrum): void {
     if (memory.is16K && addr >= 0x8000) return;
     // Flush before any write into the displayed bank — through 0x4000, or
     // through 0xC000 when bank 7 (shadow screen, shown) or bank 5 is paged
-    // there — so already-passed beam positions keep the old data.
+    // there — so already-fetched beam positions keep the old data.
     if (slotIsScreen[addr >>> 14] !== 0 && (addr & 0x3FFF) < vramFlushLen) {
       s.flushBeam();
     }
@@ -103,14 +102,7 @@ export function installMemoryHooks(s: Spectrum): void {
     // or -1 in the common case (no aliasing — branch predicts cheaply).
     const alias = slotAlias[addr >>> 14];
     if (alias >= 0) flat[(alias << 14) | (addr & 0x3FFF)] = v;
-    if (s.memWatchpoints.length > 0 && s.memWatchHit === null) {
-      for (const wp of s.memWatchpoints) {
-        if ((wp.mode === 'write' || wp.mode === 'rw') && addr >= wp.start && addr <= wp.end) {
-          s.memWatchHit = { addr, value: val & 0xFF, dir: 'write' };
-          break;
-        }
-      }
-    }
+    if (s.memWatchpoints.length > 0 && s.memWatchHit === null) s.recordMemWatch(addr, val & 0xFF, 'write');
   };
 
   cpu.portIn = (port: number): number => {
@@ -133,9 +125,7 @@ export function wirePortIO(s: Spectrum): void {
   const v = s.variant;
 
   s.cpu.portOutHandler = (port: number, val: number) => {
-    if (s.portWatchpoints.size > 0 && s.portWatchpoints.has(port & 0xFFFF) && s.portWatchHit === null) {
-      s.portWatchHit = { port: port & 0xFFFF, value: val, dir: 'out' };
-    }
+    if (s.portWatchpoints.size > 0) s.recordPortWatch(port & 0xFFFF, val, 'out');
 
     // MGT +D ports (page out, WD1772 registers, control register). Handled
     // first and returned so a +D OUT can't also trip banking/AY decoding.
@@ -159,6 +149,22 @@ export function wirePortIO(s: Spectrum): void {
       return;
     }
 
+    // SpecDrum DAC: low byte 0xDF, high byte ignored. Write-only, so it needs no
+    // IN-side counterpart. 0xDF has A0=1 and A1=1, so it can't also be a ULA
+    // write or an AY/7FFD decode — return like the other interface ports.
+    if (s.specdrum.enabled && s.specdrum.matchPort(port)) {
+      s.specdrum.writePort(val);
+      s.activity.specdrumWrites++;
+      return;
+    }
+
+    // Multiface 128 "invisible" latch: OUT 0x3F hides the interface until the
+    // button is pressed again (its ROM's exit does OUT 0x3F or OUT 0xBF per its
+    // hide option, then pages itself out with IN 0x3F). OUT 0xBF leaves it live.
+    if (s.multiface.enabled && s.multiface.variant === 'MF128' && (port & 0xFF) === 0x3F) {
+      s.multiface.armed = false;
+    }
+
     // ULA port: any port with bit 0 = 0
     if ((port & 0x01) === 0) {
       const newBeeperBit = (val >> 4) & 1;
@@ -177,6 +183,9 @@ export function wirePortIO(s: Spectrum): void {
         if (((val ^ s.memory.port7FFD) & 0x08) !== 0 && !s.memory.pagingLocked) s.flushBeam();
         s.memory.bankSwitch(val, s.hasSlot0Overlay);
       }
+
+      // Pentagon 1024: port 0xEFF7 (128K / 1MB mode gate, ROM-as-RAM, turbo, video).
+      if (v.decodesEFF7(port)) s.memory.writeEFF7(val, s.hasSlot0Overlay);
 
       // +2A: port 0x1FFD. Once paging is locked (7FFD bit 5), hardware
       // freezes the whole register — the motor bit lives in the same port,
@@ -223,9 +232,7 @@ export function wirePortIO(s: Spectrum): void {
 
   s.cpu.portInHandler = (port: number): number => {
     const val = dispatch(port);
-    if (s.portWatchpoints.size > 0 && s.portWatchpoints.has(port & 0xFFFF) && s.portWatchHit === null) {
-      s.portWatchHit = { port: port & 0xFFFF, value: val, dir: 'in' };
-    }
+    if (s.portWatchpoints.size > 0) s.recordPortWatch(port & 0xFFFF, val, 'in');
     return val;
   };
 
@@ -336,11 +343,13 @@ export function wirePortIO(s: Spectrum): void {
     }
 
     // Multiface port handling (IN-triggered paging). MF1's narrower decode is
-    // always live; MF128/MF3 are invisible until the button arms them.
-    if (s.multiface.enabled && s.multiface.romLoaded
-        && (s.multiface.variant === 'MF1' || s.multiface.armed)) {
+    // always live; MF128/MF3 page IN only while armed (the button arms them, the
+    // MF128's OUT 0x3F hides them). Paging OUT always works, so a ROM that has
+    // just hidden itself can still leave.
+    if (s.multiface.enabled && s.multiface.romLoaded) {
       const mfPort = s.multiface.matchPort(port);
-      if (mfPort === 'in' && !s.multiface.pagedIn) {
+      if (mfPort === 'in' && !s.multiface.pagedIn
+          && (s.multiface.variant === 'MF1' || s.multiface.armed)) {
         s.multiface.pageIn(s.memory, s.memory.slot0Bank);
         return 0xFF;
       }
@@ -358,8 +367,8 @@ export function wirePortIO(s: Spectrum): void {
       if (lo === 0x7F) return s.vtx5000.readData();
     }
 
-    // Kempston joystick: bits 5-7 of low byte all zero
-    if ((port & 0x00E0) === 0) {
+    // Kempston joystick: bits 5-7 of low byte all zero (only when fitted)
+    if (s.joystick.enabled && (port & 0x00E0) === 0) {
       s.activity.kempstonReads++;
       return s.joystick.state;
     }

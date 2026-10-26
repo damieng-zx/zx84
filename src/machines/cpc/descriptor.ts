@@ -12,7 +12,7 @@ import { CpcMachine } from './cpc-machine.ts';
 import { CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT, CPC_BORDER_LEFT, CPC_BORDER_TOP } from './constants.ts';
 
 function cpcStatusLeds(model: MachineModel): StatusLedId[] {
-  const leds: StatusLedId[] = ['kbd', 'mouse', 'text', 'ay'];
+  const leds: StatusLedId[] = ['kbd', 'mouse', 'text', 'chip'];
   if (cpcHasTape(model)) leds.push('load');
   if (cpcHasDisk(model)) leds.push('dsk');
   return leds;
@@ -26,6 +26,7 @@ function cpcUi(model: MachineModel): MachineUiCapabilities {
     colorMap: 'cpc',
     accuracy: false,
     builtinDisk: cpcHasDisk(model),
+    builtinDrives: 2,
     joystick: true,
     fixedJoystick: true,
     mouseTypes: [
@@ -37,7 +38,8 @@ function cpcUi(model: MachineModel): MachineUiCapabilities {
     systemRomLabel: 'ROM',
     romPages: 0,
     beeper: false,
-    psgControls: ['stereo', 'filter', 'dc-block'],
+    soundChip: 'AY-3-8912',
+    psgControls: ['stereo', 'filter'],
     statusLeds: cpcStatusLeds(model),
     keyboardBus: 'ppi',
     // The GX4000 console has no cassette — drop the tape pane. Other CPC
@@ -46,7 +48,7 @@ function cpcUi(model: MachineModel): MachineUiCapabilities {
     // The CPC firmware's tape-read routine is trapped (see cpc-machine.ts).
     fastRomLoading: cpcHasTape(model),
     tapeSound: false,
-    tapeExtensions: cpcHasTape(model) ? ['.cdt', '.tzx', '.tap', '.zip'] : [],
+    tapeExtensions: cpcHasTape(model) ? ['.cdt', '.tzx', '.tap', '.csw', '.wav', '.zip'] : [],
     saveMenu: ['snapshot-sna-v2', 'snapshot-sna-v3', 'screenshot-png', 'screen-scr', 'ram-bin'],
     zipPolicy: 'none',
     persistMedia: false,

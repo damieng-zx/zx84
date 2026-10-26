@@ -193,13 +193,14 @@ function is128KHardware(hwMode: number, version: number): boolean {
 
 /** Map hardware mode + "modify hardware" flag to an emulated model. */
 function sourceModelOf(hwMode: number, version: number, modify: boolean): SpectrumModel | null {
-  if (hwMode === 7 || hwMode === 8) return modify ? '+2A' : '+3';
-  if (hwMode === 13) return '+2A';
-  if (hwMode === 12) return '+2';
+  if (hwMode === 7 || hwMode === 8) return modify ? 'zx128kplus2a' : 'zx128kplus3';
+  if (hwMode === 13) return 'zx128kplus2a';
+  if (hwMode === 12) return 'zx128kplus2';
+  if (hwMode === 9) return 'pentagon128';
   if (hwMode <= 6) {
     const is128 = version === 2 ? hwMode >= 3 : hwMode >= 4;
-    if (!is128) return hwMode === 2 ? null : modify ? '16k' : '48k';
-    return modify ? '+2' : '128k';
+    if (!is128) return hwMode === 2 ? null : modify ? 'zx16k' : 'zx48k';
+    return modify ? 'zx128kplus2' : 'zx128k';
   }
   return null;
 }
@@ -353,14 +354,14 @@ export function loadZ80(
     memory.pagingLocked = (port7FFD & 0x20) !== 0;
     // Only +3 (7, and XZX-Pro's mistaken 8) and +2A (13) have a 0x1FFD.
     const sourceHas1FFD = hwMode === 7 || hwMode === 8 || hwMode === 13;
-    if (memory.romPages.length === 4 && !sourceHas1FFD) {
+    if (memory.hasPlus2ARoms && !sourceHas1FFD) {
       // 128K/+2 snapshot on a +2A/+3: map 7FFD bit 4 onto the 4-ROM select.
       memory.currentROM = (port7FFD >> 4) & 1;
       memory.applyBanking();
       memory.selectSnapshot128KRom();
       return { is128K: true, port7FFD, borderColor, ayRegs, ayCurrentReg, port1FFD, frameTStates, sourceModel };
     }
-    if (memory.romPages.length === 4 && port1FFD !== undefined) {
+    if (memory.hasPlus2ARoms && port1FFD !== undefined) {
       // +2A/+3: ROM = bit 2 of 1FFD (high) | bit 4 of 7FFD (low); special
       // (all-RAM) paging mode is bit 0 of 1FFD. Without this, a snapshot
       // taken in an all-RAM CP/M configuration loads with ROM paging
@@ -536,7 +537,7 @@ export function saveZ80(
 
   // ── v3 extended header: 54 bytes, or 55 when +2A/+3 special paging (port
   // 0x1FFD) needs to be saved — that byte only exists in the longer variant.
-  const isPlus2A3 = memory.romPages.length === 4;
+  const isPlus2A3 = memory.hasPlus2ARoms;
   const extHeaderLen = isPlus2A3 ? 55 : 54;
   const extHeader = new Uint8Array(2 + extHeaderLen);
 
@@ -550,9 +551,10 @@ export function saveZ80(
   // v3 hardware modes: 0=48K, 1=48K+IF1, 3=48K+MGT, 4=128K, 5=128K+IF1, 7=+3, 9=Pentagon, 12=+2, 13=+2A
   let hwMode: number;
   if (!is128K) hwMode = 0;                         // 48K (16K: + modify flag)
-  else if (model === '+2A') hwMode = 13;
-  else if (model === '+2') hwMode = 12;
-  else if (model === '+3' || (model === undefined && isPlus2A3)) hwMode = 7;
+  else if (model === 'zx128kplus2a') hwMode = 13;
+  else if (model === 'zx128kplus2') hwMode = 12;
+  else if (model === 'pentagon128') hwMode = 9;
+  else if (model === 'zx128kplus3' || (model === undefined && isPlus2A3)) hwMode = 7;
   else hwMode = 4;                                 // 128K
   extHeader[4] = hwMode;
 
@@ -564,7 +566,7 @@ export function saveZ80(
 
   // Byte 7 (extBase+5): bit 7 = "modify hardware" (48K→16K here). The +2 and
   // +2A have their own hwMode values, so only the 16K needs the flag.
-  extHeader[7] = model === '16k' ? 0x80 : 0;
+  extHeader[7] = model === 'zx16k' ? 0x80 : 0;
 
   // Byte 8 (extBase+6): last OUT to port 0xFFFD (AY selected register)
   extHeader[8] = ayCurrentReg ?? 0;

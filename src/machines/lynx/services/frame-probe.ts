@@ -16,38 +16,20 @@ import type { LynxMachine } from '../lynx-machine.ts';
  *  80 tracks, well past where a capacity test would call a drive 3.5". */
 const DRIVE = fixedDrive('5.25inch');
 
-/** What a page number means, for the memory-layout pane. Pages 0-7 are the
- *  ROM region, 8-15 user RAM, and the rest video or the 128K's extra RAM. */
-function pageName(page: number, is128k: boolean): string {
-  if (page < 8) return `ROM ${page}`;
-  if (page < 16) return `RAM ${page - 8}`;
-  if (is128k) {
-    if (page < 24) return `Video ${page - 16}`;
-    return `RAM ${page - 24 + 8}`;
-  }
-  return `Video ${page - 16}`;
-}
-
 function lynxMemoryMap(m: LynxMachine): MemoryMapSnapshot {
-  const pages = m.memory.pages;
-  const is128k = m.memory.is128k;
+  const labels = m.memory.slotLabels;
   const slots = [];
   for (let slot = 7; slot >= 0; slot--) {
     const base = slot * 0x2000;
     slots.push({
       range: `${hex8(base >> 8)}00-${hex8(((base + 0x1fff) >> 8) & 0xff)}FF`,
-      read: pageName(pages[slot], is128k),
+      read: labels[slot],
     });
   }
 
-  // Every write goes to all the banks the enables allow, so the pane lists
-  // them as one set rather than per slot.
-  const w = m.memory.writeEnables;
-  const banks: string[] = [];
-  if (w & 0x01) banks.push('RAM');
-  if ((w & 0x22) === 0x02) banks.push(is128k ? 'video' : 'blue/red');
-  if ((w & 0x44) === 0x04) banks.push(is128k ? 'bank 3' : 'green');
-  if (is128k && (w & 0x08)) banks.push('extra RAM');
+  // A store goes to every bank enabled for writing, so the pane lists them as
+  // one set rather than per slot.
+  const banks = m.memory.writeTargets;
 
   return {
     slots,
