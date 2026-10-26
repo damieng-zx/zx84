@@ -85,7 +85,7 @@ export class AceFrameProbe implements FrameProbe {
     out.tapePosition = tape.position;
     out.casBlock = -1;
     out.fastRomLoading = false;
-    out.tracingActive = false;
+    out.tracingActive = this.m.traceActive;
 
     out.driveLed[0] = out.driveLed[1] = out.driveLed[2] = out.driveLed[3] = -1;
     out.mdvCount = 0;

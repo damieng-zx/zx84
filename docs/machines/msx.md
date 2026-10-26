@@ -123,7 +123,7 @@ Disk images load into drive A: unless the target is drive B:. Blank disks can be
 | Tool | Status | Notes |
 | --- | --- | --- |
 | Debugger | ✅ | Shared Z80 debugger: breakpoints, stepping, disassembly, registers, memory and port watchpoints |
-| Trace | ✗ | Not offered: the descriptor has tracing off and the MCP `trace` tool declines on every machine except the Spectrum |
+| Trace | ✅ | Full (address, disassembly, registers, T-states and operand context, with tight loops folded), a port I/O tally, and ZXTrace — the shared Z80 trace engine; a trace stops capturing at 500,000 lines |
 | Screen OCR / TEXT overlay | ✅ | Reads the VDP name table directly in SCREEN 0 (40×24) and SCREEN 1 (32×24); other modes return a note |
 | BASIC tools | ✅ | MSX BASIC listing and variables, parsed from the BASIC work area in RAM |
 | Memory Layout pane | ✅ | Shows what each 16 KB page selects (ROM, cartridge, RAM, Disk ROM, empty), the PPI port A value, and the active cartridge mapper |
@@ -131,7 +131,7 @@ Disk images load into drive A: unless the target is drive B:. Blank disks can be
 | On-screen keyboard | ✅ | UK Toshiba HX-10P layout, 73 keys covering matrix rows 0–8 |
 | ROM / Carts pane | ✅ | System ROM replacement and cartridge insert/eject |
 | Drives pane | ✅ | Shown only while the floppy interface is fitted |
-| MCP tools | ✅ | Generic tools (execution, registers, memory, breakpoints and watchpoints, ports, `key`, `type`, `load`, `eject`, `screenshot`, `ocr`, `model`), plus `msxdisk` (`on`, `off`, `status`) to fit or remove the floppy interface. The `trace`, `save` (SZX), and +3/CPC disk-inspection tools (`disk_geometry`, `track_geometry`, `sector_read`, `weak`) do not apply to this machine |
+| MCP tools | ✅ | Generic tools (execution, registers, memory, breakpoints and watchpoints, ports, `key`, `type`, `load`, `eject`, `screenshot`, `ocr`, `model`), plus `msxdisk` (`on`, `off`, `status`) to fit or remove the floppy interface. `trace` works. The `frame_trace`, `save` (SZX), and +3/CPC disk-inspection tools (`disk_geometry`, `track_geometry`, `sector_read`, `weak`) do not apply to this machine |
 | Drive count | ✅ | One or two drives on the floppy interface, from **Drive count** in drive A's options menu; saved, rebuilds the machine. Unconnected units give a seek error and stay not-ready |
 
 ---
@@ -151,7 +151,6 @@ None known.
 - **1.44 MB high-density disks.** Rejected with an error (MSX1 interfaces are double density).
 - **HFE v3 images.** Rejected with an error.
 - **Snapshots.** There is no snapshot format or service.
-- **Execution trace.** Only the Spectrum has a trace engine; the trace menu is not offered here.
 - **Numeric keypad hardware.** The HX-10 keyboard has none, so the on-screen keyboard has no keypad; host Numpad keys still map to matrix rows 9–10.
 
 ## Faithful quirks

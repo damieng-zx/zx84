@@ -4,8 +4,9 @@ import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
 import { z80ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
+import { Z80Trace } from '@/debug/z80/trace.ts';
 import type {
-  AuxRomRequest, BorderMode, Machine, MachineDescriptor, MachineHost, MachineKind, MachineTraceMode, SettingsView,
+  AuxRomRequest, BorderMode, Machine, MachineDescriptor, MachineHost, MachineKind, SettingsView,
 } from '@/machines/machine.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type { OcrGridName, OcrResult } from '@/ocr/ocr.ts';
@@ -942,8 +943,9 @@ export class Zx8xMachine extends BaseMachine implements Machine {
   ramExportBytes(): { data: Uint8Array; filename: string } {
     return { data: this.memory.ramSnapshot(), filename: `ram-${this.memory.ramSize / 1024}k.bin` };
   }
-  startTrace(_mode: MachineTraceMode = 'full'): void {}
-  stopTrace(): string { return ''; }
+  /** Execution trace: BaseMachine's startTrace/stopTrace drive it and
+   *  beforeInsn/afterInsn feed it (debug/z80/trace.ts). */
+  protected override tracer = new Z80Trace(this);
   ocrScreenForMcp(_mode: OcrGridName | 'auto' = 'auto'): string {
     if (this.pseudoHiresActive()) return '[32x24]\n';
     return `[32x24]\n${this.screenText.ocr(this.memory.snapshot(), this.model)}`;

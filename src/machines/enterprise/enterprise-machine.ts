@@ -19,9 +19,10 @@ import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { resolveDriveCount } from '@/machines/shared/drive-count.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
 import { z80ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
+import { Z80Trace } from '@/debug/z80/trace.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type {
-  BorderMode, Machine, MachineDescriptor, MachineHost, MachineKind, MachineTraceMode,
+  BorderMode, Machine, MachineDescriptor, MachineHost, MachineKind,
   SettingsView, AuxRomRequest,
 } from '@/machines/machine.ts';
 import {
@@ -374,8 +375,9 @@ export class EnterpriseMachine extends BaseMachine implements Machine {
 
   // ── Debug SPI ──────────────────────────────────────────────────────────
 
-  startTrace(_mode: MachineTraceMode = 'full'): void { /* not yet */ }
-  stopTrace(): string { return ''; }
+  /** Execution trace: BaseMachine's startTrace/stopTrace drive it and
+   *  beforeInsn/afterInsn feed it (debug/z80/trace.ts). */
+  protected override tracer = new Z80Trace(this);
 
   /** The character-mode text on screen, read from Nick's line parameter
    *  table rather than recognised from pixels. */

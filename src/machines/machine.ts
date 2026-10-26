@@ -366,6 +366,9 @@ export interface MachineUiCapabilities {
   readonly memoryLayout: boolean;
   /** Execution-trace debugger control is available. */
   readonly trace: boolean;
+  /** The trace modes offered, when not all three ('zxtl' is a Z80 register
+   *  layout, so a 6502 machine lists 'full' and 'portio'). */
+  readonly traceModes?: readonly MachineTraceMode[];
   /** Palette / colour-map family shown in the Display pane. */
   readonly colorMap: 'spectrum' | 'cpc' | 'msx' | 'einstein' | 'bbc' | 'apple2' | 'atari' | 'mono';
   /** The Color map drop-down's choices, where the machine computes them
@@ -929,8 +932,14 @@ export interface DebugService {
   stepOut(): void;
   /** Multi-line CPU state + disassembly block (clipboard copy). */
   cpuStateText(): string;
+  /** Start an execution trace ('full', 'portio' or 'zxtl'; a mode the
+   *  machine does not offer is ignored). */
   startTrace(mode?: string): void;
+  /** Stop the trace and return its text. */
   stopTrace(): string;
+  /** The mode of the trace started and not yet stopped — it may already have
+   *  stopped capturing at its line cap — or null. */
+  traceSession(): MachineTraceMode | null;
   /** Screen OCR ('auto' or a machine-defined grid name). */
   ocr(mode?: string): string;
   /** Resolve a Memory-pane ROM region id (descriptor.ui.memoryRegions) to a

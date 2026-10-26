@@ -18,7 +18,7 @@ const HIDDEN = [
 const ENTERPRISE_UI: MachineUiCapabilities = {
   hiddenPanes: HIDDEN,
   memoryLayout: true,
-  trace: false,
+  trace: true,
   // Nick's 256 colours are fixed by its DAC: there is no palette to choose.
   colorMap: 'mono',
   accuracy: false,

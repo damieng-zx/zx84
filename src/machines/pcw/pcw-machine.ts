@@ -25,10 +25,11 @@ import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { disasmOne, type DisasmLine } from '@/debug/z80/disasm.ts';
 import { z80ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
+import { Z80Trace } from '@/debug/z80/trace.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type {
   BorderMode, Machine, MachineDescriptor, MachineHost, MachineKind,
-  AuxRomRequest, MachineTraceMode, SettingsView,
+  AuxRomRequest, SettingsView,
 } from '@/machines/machine.ts';
 import { resolveDriveCount } from '@/machines/shared/drive-count.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
@@ -494,11 +495,9 @@ export class PcwMachine extends BaseMachine implements Machine {
     return { ...disasmOne(buf, 0), addr: pc };
   }
 
-  startTrace(_mode: MachineTraceMode = 'full'): void {
-    // Execution tracing is not wired up yet; no-op so the MCP tool degrades.
-  }
-
-  stopTrace(): string { return ''; }
+  /** Execution trace: BaseMachine's startTrace/stopTrace drive it and
+   *  beforeInsn/afterInsn feed it (debug/z80/trace.ts). */
+  protected override tracer = new Z80Trace(this);
 
   /**
    * Screen OCR.

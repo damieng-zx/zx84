@@ -119,14 +119,14 @@ full 64 KB of underlying RAM, ignoring the ROM overlay).
 | Tool | Status | Notes |
 | --- | --- | --- |
 | Debugger (breakpoints, stepping, disassembly) | ✅ | Shared Z80 debug service: breakpoints, memory and port watchpoints, disassembly, registers. Memory pane offers the MOS ROM region and a memory-layout view showing the ROM overlay (CPU read vs write per 16 KB slot) |
-| Trace | ✗ | Not offered: the descriptor has tracing off and the MCP `trace` tool declines on every machine except the Spectrum |
+| Trace | ✅ | Full (address, disassembly, registers, T-states and operand context, with tight loops folded), a port I/O tally, and ZXTrace — the shared Z80 trace engine; a trace stops capturing at 500,000 lines |
 | Screen OCR / TEXT overlay | ◐ | Matches 6-pixel glyphs on a 42×24 grid against the MOS ROM font (normal and inverse video). TC-01: any mode but Multicolor. 256: GRAPHIC 2 only (the mode MOS 2.1 boots in); other modes report no text. Unmatched cells read as `?` |
 | Software library | ✗ | No library button |
 | Xtal BASIC listing pane | ✅ | Detokenises the program held in RAM from 0x3E01 |
 | On-screen keyboard | ✅ | A separate deck for each model (TC-01 deck; the 256's deck with L-shaped ENTER, function-key legend card and four-wedge cursor pad). Keyboard Lab preset "Tatung Einstein" |
 | Host keyboard | ✅ | Physical-position mapping, US layout (best-effort for punctuation). Alt is GRAPH, CapsLock is ALPHA LOCK, F1–F8 are F0–F7, Pause is BREAK, Backspace and Delete are INS DEL. Cursor keys are model-specific chords: TC-01 holds SHIFT for left and up; on the 256 left has its own cell and up is CONTROL+K |
 | Status LEDs | ✅ | Keyboard, sound chip (AY-3-8910), disk and TEXT |
-| MCP tools | ✅ | Generic tools only (run, step, registers, memory, breakpoints and watchpoints, ports, `key`, `type`, `load` with `drive`, `eject`, `screenshot`, `ocr`, `model`). No Einstein-specific tools. `trace`, `save` (Spectrum snapshot), the uPD765A inspection tools (`disk_geometry`, `track_geometry`, `sector_read`, `weak`) and the Spectrum/CPC disk helpers do not apply; `fdc_log` stays empty because the WD1770 core does not write to the log |
+| MCP tools | ✅ | Generic tools only (run, step, registers, memory, breakpoints and watchpoints, ports, `key`, `type`, `load` with `drive`, `eject`, `screenshot`, `ocr`, `model`). `trace` works. No Einstein-specific tools. `frame_trace`, `save` (Spectrum snapshot), the uPD765A inspection tools (`disk_geometry`, `track_geometry`, `sector_read`, `weak`) and the Spectrum/CPC disk helpers do not apply; `fdc_log` stays empty because the WD1770 core does not write to the log |
 | Drive count | ✅ | One or two drives, from **Drive count** in drive A's options menu; saved, rebuilds the machine. Unconnected units give a seek error |
 
 ---
@@ -139,7 +139,6 @@ None known.
 
 - **Cassette.** No tape service, tape pane or tape port I/O; the deck is inert. The 256's system-status cassette bit is never set.
 - **Snapshots.** There is no snapshot format or service.
-- **Execution trace.** Only the Spectrum has a trace engine; the trace menu is not offered here.
 - **Intel 8251 USART.** Stubbed (Tx-ready status, no receive).
 - **Z80 PIO (TC-01) and 256 printer port.** Writes are ignored; the TC-01 reads 0xFF. The 256's port 0x30 returns idle printer status.
 - **Analogue joystick (ADC0844).** Reads a fixed centred value; the 256's pseudo-ADC returns 0x7F.

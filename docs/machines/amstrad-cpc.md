@@ -14,7 +14,7 @@ shared with the Spectrum +3, and a small set of period add-ons.
 | **zx84 kind** | `cpc` — [`src/machines/cpc/`](../../src/machines/cpc/) |
 | **Model ids** | `cpc464` `cpc664` `cpc6128` `cpc6128plus` `gx4000` — the MCP `model` target and `?model=` value (URL matching is case-insensitive; no id contains a `+`, so there is no spelling quirk) |
 | **Accuracy** | Per-scanline raster driven by the CRTC's programmed registers; Z80 memory and I/O cycles aligned to the Gate Array `/WAIT` grid. No accuracy selector (`ui.accuracy` is `false`) |
-| **Status** | Working — all five models boot from firmware ROM or cartridge; Plus ASIC sprites, soft scroll, split screen, raster interrupt and DMA sound are implemented; no execution trace |
+| **Status** | Working — all five models boot from firmware ROM or cartridge; Plus ASIC sprites, soft scroll, split screen, raster interrupt and DMA sound are implemented |
 
 **Legend:** ✅ supported · ◐ partial (see notes) · ✗ not emulated · — not applicable to this model
 
@@ -161,13 +161,13 @@ beneath the ROM overlays).
 | --- | --- | --- |
 | Debugger (breakpoints, stepping, disassembly) | ✅ | Z80 debug service shared with the Spectrum: breakpoints, memory and port watchpoints, step into/over/out, disassembly. Memory pane can show the lower ROM, BASIC and AMSDOS (cartridge pages 0, 1 and 3 on the Plus) |
 | Memory layout pane | ✅ | Per 16 KB slot: the CPU-read source (ROM or RAM bank) and the RAM bank written beneath it, RAM configuration, selected upper ROM, video DMA bank, screen mode |
-| Trace | ✗ | The trace control is hidden (`ui.trace: false`) and `startTrace` is a no-op |
+| Trace | ✅ | Full (address, disassembly, registers, T-states and operand context, with tight loops folded), a port I/O tally, and ZXTrace — the shared Z80 trace engine; a trace stops capturing at 500,000 lines |
 | Screen OCR / TEXT overlay | ✅ | Reads the 20-, 40- or 80-column grid for the current screen mode against the character set in the lower ROM, normal and inverse video. Text drawn with a redefined font is not recognised |
 | BASIC tools | ✅ | Locomotive BASIC listing and variables viewers read the program from RAM at &0170. The system-variables and font panes are hidden |
 | Software library | ✗ | `library: false` |
 | On-screen keyboard | ✅ | Separate layouts for the 464, 664 and 6128; the 6128 Plus reuses the 6128 layout. None for the GX4000 |
 | Machine-specific panes | ✅ | Hardware pane: Multiface Two with STOP button, ParaDOS. Drives pane (disk models), tape pane (tape models), cartridge slot (Plus models), Mouse pane (Kempston / AMX) |
-| MCP tools | ✅ | Generic tools plus `load` / `eject` (tape, drives A:/B:), `ocr`, `screenshot`, and the uPD765A inspectors `disk_geometry`, `track_geometry`, `sector_read`, `weak`, `fdc_log`. `key` accepts `f0`–`f9` for the keypad. These decline on a CPC: `multiface`, `vtx5000`, `plusd`, `betadisk`, `disk_boot`, `disk_trace`, `save` (SZX only), `frame_trace`, `trace` |
+| MCP tools | ✅ | Generic tools (including `trace`, `stop_trace` and `trace_read`) plus `load` / `eject` (tape, drives A:/B:), `ocr`, `screenshot`, and the uPD765A inspectors `disk_geometry`, `track_geometry`, `sector_read`, `weak`, `fdc_log`. `key` accepts `f0`–`f9` for the keypad. These decline on a CPC: `multiface`, `vtx5000`, `plusd`, `betadisk`, `disk_boot`, `disk_trace`, `save` (SZX only), `frame_trace` |
 | Drive count | ✅ | Disk models: one or two drives, chosen from **Drive count** in drive A's options menu. Saved per machine; rebuilds the machine. With one drive the uPD765A reports unit 1 not connected (equipment check on seek, not ready) |
 
 ---

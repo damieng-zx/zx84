@@ -94,7 +94,7 @@ become RETURN; lower case is upper-cased; tabs are spaces; characters with no ke
 | Tool | Status | Notes |
 | --- | --- | --- |
 | Debugger (breakpoints, stepping, disassembly) | ✅ | The shared 6502 debug service; no I/O ports. Memory-mapped PIA reads in the Memory pane use a side-effect-free peek |
-| Trace | ✗ | |
+| Trace | ✅ | Full (address, disassembly, registers, cycles and operand context, with interrupt entries marked and tight loops folded) and an I/O tally of the CPU's reads and writes in C000-C0FF (the cassette interface) and D000-DFFF (the PIA) — the shared 6502 trace engine; no ZXTrace, which is a Z80 layout; a trace stops capturing at 500,000 lines |
 | Screen OCR / TEXT overlay | ✅ | Read straight from the terminal buffer, so exact |
 | Software library | ✗ | |
 | Machine-specific panes | ◐ | Keyboard (teletype layout with RESET and CLEAR SCREEN; reuses the Apple ][ skin) and a Hardware section |

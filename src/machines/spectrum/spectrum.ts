@@ -362,6 +362,7 @@ export class Spectrum extends BaseMachine implements Machine {
     this.tape.is48K = this.variant.is48K;
     this.fdc = new UPD765A();
     this.trace = new SpectrumTrace(this);
+    this.tracer = this.trace;
     installMemoryHooks(this);
     wirePortIO(this);
 

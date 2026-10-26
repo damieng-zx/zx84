@@ -23,7 +23,8 @@ const BBC_UI: MachineUiCapabilities = {
     'sysvar-panel', 'font-panel', 'banks-panel',
   ],
   memoryLayout: false,
-  trace: false,
+  trace: true,
+  traceModes: ['full', 'portio'],
   // Mode 7 / ULA palette control; 'bbc' selects the BBC palette family.
   colorMap: 'bbc',
   accuracy: 'raster',

@@ -117,14 +117,14 @@ screen-dump format.
 | Tool | Status | Notes |
 | --- | --- | --- |
 | Debugger (breakpoints, stepping, disassembly) | ✅ | Shared Z80 debug service; memory regions for the system ROM and (with the floppy interface) the DOS ROM; memory and port watchpoints |
-| Trace | ✗ | Not wired up; the MCP tool degrades rather than failing |
+| Trace | ✅ | Full (address, disassembly, registers, T-states and operand context, with tight loops folded), a port I/O tally, and ZXTrace — the shared Z80 trace engine; a trace stops capturing at 500,000 lines |
 | Memory layout pane | ✅ | Per-slot page names (ROM, RAM, Video), the write-enabled banks, green plane (main/alternate), cassette motor |
 | Screen OCR / TEXT overlay | ✅ | Matches the screen against the 96-glyph (6 × 10 pixel) character set in the first ROM image. 40 × 24 grid on the 48K/96K, 80 × 24 on the 128K. Reports an error rather than guessing when a replaced ROM has no font at the usual address. Understands inverse video |
 | Software library | ✗ | None |
 | On-screen keyboard | ✅ | Skeuomorphic Lynx deck, same on all models; BREAK cap is drawn but does nothing |
 | Hardware pane | ✅ | "Floppy disks" checkbox (96K, 128K) |
 | Status bar | ✅ | Keyboard, load and TEXT indicators, plus a disk indicator on 96K/128K |
-| MCP tools | ✅ | All generic tools (`run`, `step`, `registers`, `read_memory`, breakpoints, watchpoints, traps, `key`, `type`, `load`, `eject`, `screenshot`, `ocr`, …). No machine-specific tools; `trace`, `save` (SZX) and the +3/CPC disk-inspection tools do not apply |
+| MCP tools | ✅ | All generic tools (`run`, `step`, `registers`, `read_memory`, breakpoints, watchpoints, traps, `key`, `type`, `load`, `eject`, `screenshot`, `ocr`, …). `trace` works. No machine-specific tools; `frame_trace`, `save` (SZX) and the +3/CPC disk-inspection tools do not apply |
 | Drive count | ✅ | One to four drives on the FD1793, from **Drive count** in drive A's options menu; saved, rebuilds the machine. Unconnected units give a seek error and stay not-ready |
 
 Host keyboard: mapped by physical key position; the Lynx has no function keys.
@@ -143,7 +143,6 @@ key works.
 ## Not emulated
 
 - **Tape recording.** `cassetteOutput` drops the bit ("nothing records"); with the motor on, port 0x84 is kept off the DAC so SAVE is silent.
-- **Execution tracing.** `startTrace` is a no-op.
 - **Joystick and mouse.** The input service has no joystick or mouse ("later increment").
 - **Snapshots.** `services.snapshots` is `null`; no snapshot load or save.
 - **Cartridge slot.** `cartridge` is `null`.

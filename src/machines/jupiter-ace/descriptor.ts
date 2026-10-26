@@ -21,7 +21,7 @@ const ACE_UI: MachineUiCapabilities = {
     'font-panel', 'sysvar-panel', 'banks-panel',
   ],
   memoryLayout: false,
-  trace: false,
+  trace: true,
   colorMap: 'mono',
   accuracy: false,
   builtinDisk: false,

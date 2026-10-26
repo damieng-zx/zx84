@@ -20,7 +20,7 @@ function lynxUi(model: LynxModel): MachineUiCapabilities {
   return {
     hiddenPanes: HIDDEN,
     memoryLayout: true,
-    trace: false,
+    trace: true,
     // Eight fixed colours from three one-bit planes: nearest the ZX palette's
     // bright half, which is what 'spectrum' names.
     colorMap: 'spectrum',

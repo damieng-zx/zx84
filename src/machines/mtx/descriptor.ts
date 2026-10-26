@@ -13,7 +13,7 @@ import {
 const MTX_UI: MachineUiCapabilities = {
   hiddenPanes: ['microdrive-panel', 'mouse-panel', 'sysvar-panel'],
   memoryLayout: true,
-  trace: false,
+  trace: true,
   colorMap: 'msx',
   // VDP-based scanline rendering — no per-t-state Accuracy dropdown (as MSX).
   accuracy: false,

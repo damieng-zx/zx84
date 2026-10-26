@@ -15,6 +15,7 @@ import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
 import { m6502ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
 import { accessTime } from '@/debug/m6502/bus-cycles.ts';
+import { M6502Trace } from '@/debug/m6502/trace.ts';
 import { soundDeviceGains } from '@/machines/machine.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type {
@@ -610,6 +611,21 @@ export class Apple2Machine extends BaseMachine implements Machine {
     return { data: this.memory.ram.slice(), filename: `${this.model}-ram-48k.bin` };
   }
 
-  startTrace(_mode = 'full'): void {}
-  stopTrace(): string { return ''; }
+  /** Execution trace: BaseMachine's startTrace/stopTrace drive it and
+   *  beforeInsn feeds it (debug/m6502/trace.ts). */
+  protected override tracer = new M6502Trace(this, {
+    io: [[0xC000, 0xC0FF]],
+    // Reads of the soft switches flip them, and of $C800-$CFFF (re)select the
+    // card that owns the expansion ROM.
+    noRead: [[0xC000, 0xC0FF], [0xC800, 0xCFFF]],
+    ioLabel: apple2IoLabel,
+  });
+}
+
+/** Portio-trace names for the Apple II's $C0xx soft switches and slot I/O. */
+function apple2IoLabel(addr: number): string {
+  if (addr >= 0xC090) return `SLOT${(addr >> 4) & 7}`;
+  if (addr >= 0xC050 && addr < 0xC058) return 'VIDEO';
+  if (addr >= 0xC058 && addr < 0xC060) return 'ANN';
+  return ['KBD', 'KBDSTR', 'CASOUT', 'SPKR', 'STROBE', '', 'INPUT', 'PDLTRG', 'LC'][(addr >> 4) & 0xF] ?? '';
 }

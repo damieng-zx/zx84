@@ -30,7 +30,7 @@ const PCW_UI: MachineUiCapabilities = {
     'sysvar-panel', 'font-panel',
   ],
   memoryLayout: true,
-  trace: false,
+  trace: true,
   colorMap: 'mono',
   accuracy: false,
   builtinDisk: true,

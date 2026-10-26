@@ -28,6 +28,8 @@ import type { IScreenRenderer } from '@/display/renderer.ts';
 import { BEAM_IO, BEAM_IRQ, type BeamInfo, type BeamLog, type BeamPos } from '@/debug/beam-log.ts';
 import type { StopKind, StopReason } from '@/debug/stop-reason.ts';
 import { accessCycle } from '@/debug/m6502/bus-cycles.ts';
+import { IDLE_TRACER, type MachineTracer } from '@/debug/trace.ts';
+import type { MachineTraceMode } from '@/machines/machine.ts';
 
 /** Interrupts the interrupt log keeps open at once (see `noteInterrupt`). */
 const MAX_OPEN_INTERRUPTS = 16;
@@ -397,11 +399,29 @@ export abstract class BaseMachine {
    *  queued access's instruction. A machine that defers stamps overrides it. */
   protected peekOpcode(_addr: number): number { return -1; }
 
+  // ── Execution trace ───────────────────────────────────────────────────────
+  /** The machine's trace engine (its CPU family's `debug/<family>/trace.ts`).
+   *  {@link beforeInsn} and {@link afterInsn} feed it, each behind one check
+   *  of `active`, so it costs nothing while no trace runs; a machine whose
+   *  loop does not use them calls `before()`/`after()` the same way. */
+  protected tracer: MachineTracer = IDLE_TRACER;
+  /** Start a trace in `mode`; a mode the engine does not offer is ignored. */
+  startTrace(mode: string = 'full'): void {
+    if (this.tracer.supports(mode)) this.tracer.start(mode);
+  }
+  /** Stop the trace and return its text ('' when none ran). */
+  stopTrace(): string { return this.tracer.stop(); }
+  /** The trace engine is capturing (the frame probe's `tracingActive`). */
+  get traceActive(): boolean { return this.tracer.active; }
+  /** The mode of the trace started and not yet stopped, or null. */
+  traceSession(): MachineTraceMode | null { return this.tracer.session; }
+
   /** Call right before the CPU steps the instruction at `pc` (after
    *  {@link checkStops}). Names the instruction for watchpoint log entries and,
    *  on a machine that defers access stamps, notes where it starts. */
   protected beforeInsn(pc: number): void {
     this.insnPc = pc;
+    if (this.tracer.active) this.tracer.before();
     if (this.deferAccessStamps) {
       this.insnActive = true;
       this.insnStartT = this.cpuCycles();
@@ -416,6 +436,7 @@ export abstract class BaseMachine {
    *  a pending interrupt), so a resume carries on exactly; {@link stepFrame}
    *  records the stop at the pc the loop left the CPU at. */
   protected afterInsn(): boolean {
+    if (this.tracer.active) this.tracer.after();
     if (this.intOpen > 0) this.closeInterrupts();
     if (this.insnActive) {
       this.insnActive = false;

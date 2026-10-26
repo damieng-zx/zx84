@@ -19,6 +19,7 @@ import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
 import { m6502ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
 import { accessTime } from '@/debug/m6502/bus-cycles.ts';
+import { M6502Trace } from '@/debug/m6502/trace.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type {
   AuxRomRequest, BorderMode, Machine, MachineDescriptor, MachineHost, MachineKind, SettingsView,
@@ -542,8 +543,9 @@ export class BbcMachine extends BaseMachine implements Machine {
     return { data: this.memory.ram.slice(), filename: `${this.model}-ram-32k.bin` };
   }
 
-  startTrace(_mode = 'full'): void {}
-  stopTrace(): string { return ''; }
+  /** Execution trace: BaseMachine's startTrace/stopTrace drive it and
+   *  beforeInsn feeds it (debug/m6502/trace.ts). */
+  protected override tracer = new M6502Trace(this, { io: [[0xFC00, 0xFEFF]], ioLabel: bbcIoLabel });
 
   /** True while the Video ULA is in teletext (Mode 7). */
   private isMode7(): boolean { return (this.videoUlaControl & 0x02) !== 0; }
@@ -644,4 +646,17 @@ export class BbcMachine extends BaseMachine implements Machine {
       }
     }
   }
+}
+
+/** Portio-trace names for the BBC Micro's FRED, JIM and SHEILA pages. */
+function bbcIoLabel(addr: number): string {
+  if (addr < 0xFD00) return 'FRED';
+  if (addr < 0xFE00) return 'JIM';
+  const o = addr & 0xFF;
+  if (o < 0x08) return 'CRTC';
+  if (o < 0x10) return 'ACIA';
+  if (o < 0x20) return 'SERULA';
+  if (o < 0x30) return 'VIDULA';
+  if (o < 0x40) return 'ROMSEL';
+  return ['SYSVIA', 'USRVIA', 'FDC', 'ECONET', 'ADC', 'TUBE'][(o - 0x40) >> 5];
 }

@@ -22,6 +22,7 @@ import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { CassetteDrive } from '@/machines/shared/cassette-drive.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
 import { m6502ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
+import { M6502Trace } from '@/debug/m6502/trace.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type {
   AuxRomRequest, BorderMode, Machine, MachineDescriptor, MachineHost, MachineKind, SettingsView,
@@ -457,8 +458,9 @@ export class ElectronMachine extends BaseMachine implements Machine {
     return { data: this.memory.ram.slice(), filename: `${this.model}-ram-32k.bin` };
   }
 
-  startTrace(_mode = 'full'): void {}
-  stopTrace(): string { return ''; }
+  /** Execution trace: BaseMachine's startTrace/stopTrace drive it and
+   *  beforeInsn feeds it (debug/m6502/trace.ts). */
+  protected override tracer = new M6502Trace(this, { io: [[0xFC00, 0xFEFF]], ioLabel: electronIoLabel });
 
   // ── Text recognition ─────────────────────────────────────────────────────
 
@@ -521,4 +523,9 @@ export class ElectronMachine extends BaseMachine implements Machine {
       }
     }
   }
+}
+
+/** Portio-trace names for the Electron's FRED, JIM and SHEILA (the ULA) pages. */
+function electronIoLabel(addr: number): string {
+  return addr < 0xFD00 ? 'FRED' : addr < 0xFE00 ? 'JIM' : 'ULA';
 }

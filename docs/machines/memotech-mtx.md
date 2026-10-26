@@ -129,7 +129,7 @@ RAM `.bin` (all RAM blocks, named like `mtx512-ram-576k.bin`).
 | Tool | Status | Notes |
 | --- | --- | --- |
 | Debugger | ✅ | Breakpoints, memory and port watchpoints, stepping and Z80 disassembly. Memory-region picker: OS ROM, BASIC ROM, Assembler ROM, CP/M Bootstrap ROM, FDX Disk BASIC ROM |
-| Trace | ✗ | Not offered: the descriptor has tracing off and the MCP `trace` tool declines on every machine except the Spectrum |
+| Trace | ✅ | Full (address, disassembly, registers, T-states and operand context, with tight loops folded), a port I/O tally, and ZXTrace — the shared Z80 trace engine; a trace stops capturing at 500,000 lines |
 | Screen OCR / TEXT overlay | ✅ | Reads the VDP text and bitmap modes; with the 80-column display on, OCR returns its text and the TEXT overlay produces nothing |
 | BASIC tools | ◐ | BASIC listing only (program at 0x4000). The system-variables, microdrive and mouse panes are hidden |
 | Software library | ✗ | Not offered for this machine |
@@ -154,7 +154,6 @@ None known.
 - **80-column terminal bell.** A read of port 30h returns 0xFF and rings nothing.
 - **HFE v3** images are rejected with an error.
 - **Snapshots.** The machine has no snapshot service.
-- **Execution trace.** Only the Spectrum has a trace engine; the trace menu is not offered here.
 
 ## Faithful quirks
 

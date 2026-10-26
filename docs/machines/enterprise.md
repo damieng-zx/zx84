@@ -132,7 +132,7 @@ Blank disks can be created in the Drives pane: 720 KB double-sided 80-track or
 | --- | --- | --- |
 | Debugger (breakpoints, stepping, disassembly) | ✅ | Z80 debug service; breakpoints, step, memory and port watchpoints, registers |
 | Memory pane | ✅ | Shows each 16 KB Z80 page's segment (EXOS, Cartridge, FILE: ROM, EXDOS, RAM, VRAM, empty), the wait-state mode, the line parameter table base and the border |
-| Trace | ✗ | `startTrace` is a stub; the trace UI is off for this machine |
+| Trace | ✅ | Full (address, disassembly, registers, T-states and operand context, with tight loops folded), a port I/O tally, and ZXTrace — the shared Z80 trace engine; a trace stops capturing at 500,000 lines |
 | Screen OCR / TEXT overlay | ✅ | Reads character-mode text from Nick's line parameter table rather than from pixels; bitmap-mode screens return no text |
 | Software library | ✗ | Not available |
 | On-screen keyboard | ✗ | None; host keyboard only |

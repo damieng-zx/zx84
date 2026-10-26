@@ -27,7 +27,8 @@ const ELECTRON_UI: MachineUiCapabilities = {
     'sysvar-panel', 'font-panel', 'banks-panel',
   ],
   memoryLayout: false,
-  trace: false,
+  trace: true,
+  traceModes: ['full', 'portio'],
   // The ULA's eight colours are the BBC's: share its PAL / Measured choice.
   colorMap: 'bbc',
   accuracy: false,

@@ -21,7 +21,7 @@ import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type {
-  Machine, MachineHost, MachineKind, MachineDescriptor, BorderMode, MachineTraceMode,
+  Machine, MachineHost, MachineKind, MachineDescriptor, BorderMode,
   SettingsView, AuxRomRequest,
 } from '@/machines/machine.ts';
 import { aceDescriptor } from './descriptor.ts';
@@ -36,6 +36,7 @@ import type { OcrGridName, OcrResult } from '@/ocr/ocr.ts';
 import { aceOcrResult, aceScreenCells, aceScreenText } from '@/ocr/jupiter-ace.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
 import { z80ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
+import { Z80Trace } from '@/debug/z80/trace.ts';
 import {
   ACE_CPU_CLOCK, ACE_T_PER_FRAME, ACE_T_PER_LINE, ACE_LINES_PER_FRAME, ACE_ACTIVE_LINES,
   ACE_INT_LENGTH_T, ACE_SCREEN_WIDTH, ACE_SCREEN_HEIGHT,
@@ -460,11 +461,9 @@ export class JupiterAceMachine extends BaseMachine implements Machine {
 
   // ── Machine: debug helpers ───────────────────────────────────────────
 
-  startTrace(_mode: MachineTraceMode = 'full'): void {
-    // Execution tracing is a later addition; no-op so the MCP tool degrades.
-  }
-
-  stopTrace(): string { return ''; }
+  /** Execution trace: BaseMachine's startTrace/stopTrace drive it and
+   *  beforeInsn/afterInsn feed it (debug/z80/trace.ts). */
+  protected override tracer = new Z80Trace(this);
 
   // ── Screen OCR ─────────────────────────────────────────────────────────────
   //

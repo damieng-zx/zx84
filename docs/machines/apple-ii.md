@@ -148,7 +148,7 @@ downloads the modified image. Mounted tapes and disks are restored after a reloa
 | Tool | Status | Notes |
 | --- | --- | --- |
 | Debugger | ✅ | 6502 debug substrate: breakpoints, memory watchpoints (read, write or either; the frame stops after the accessing instruction), step into, step over (JSR only), step out, registers A X Y P SP PC with flags, disassembly of a side-effect-free snapshot of the current memory mapping (65C02 mnemonics on the CMOS models), memory view with the Apple II character table |
-| Trace | ✗ | No trace engine on this machine |
+| Trace | ✅ | Full (address, disassembly, registers, cycles and operand context, with interrupt entries marked and tight loops folded) and an I/O tally of the CPU's reads and writes in C000-C0FF (the soft switches and slot I/O) — the shared 6502 trace engine; no ZXTrace, which is a Z80 layout; a trace stops capturing at 500,000 lines |
 | Screen OCR / TEXT overlay | ✅ | Reads the text page directly, exact with no pattern matching: 40 or 80 columns, //e alternate character set (MouseText cells left unmasked), the lower four rows in mixed mode, and the Videx card's screen when active |
 | Software library | ✗ | Not offered for this machine |
 | On-screen keyboard | ✅ | Three layouts (][/][+, //e, //c) with RESET, REPT (][ family), CAPS LOCK and Open/Solid-Apple. Modifiers latch for one keystroke so CTRL-RESET is clickable. The //c's 80/40 and keyboard switches and lamps are drawn but not wired |

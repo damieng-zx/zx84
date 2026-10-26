@@ -14,6 +14,7 @@ import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
 import { m6502ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
+import { M6502Trace } from '@/debug/m6502/trace.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type {
   AuxRomRequest, BorderMode, Machine, MachineDescriptor, MachineHost, MachineKind, SettingsView,
@@ -401,6 +402,14 @@ export class Apple1Machine extends BaseMachine implements Machine {
     return { data: this.memory.ram.slice(0, kb * 1024), filename: `${this.model}-ram-${kb}k.bin` };
   }
 
-  startTrace(_mode = 'full'): void {}
-  stopTrace(): string { return ''; }
+  /** Execution trace: BaseMachine's startTrace/stopTrace drive it and
+   *  beforeInsn feeds it (debug/m6502/trace.ts). */
+  protected override tracer = new M6502Trace(this, { io: [[0xC000, 0xC0FF], [0xD000, 0xDFFF]], ioLabel: apple1IoLabel });
+}
+
+/** Portio-trace names for the Apple I's I/O: the PIA (repeated through $Dxxx,
+ *  address bit 4 set) and the cassette interface's page. */
+function apple1IoLabel(addr: number): string {
+  if ((addr & 0xF010) === 0xD010) return ['KBD', 'KBDCR', 'DSP', 'DSPCR'][addr & 3];
+  return (addr & 0xFF00) === 0xC000 ? 'ACI' : '';
 }

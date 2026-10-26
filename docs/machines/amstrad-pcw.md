@@ -114,13 +114,13 @@ offered). Mounted discs are persisted across reloads.
 | Tool | Status | Notes |
 | --- | --- | --- |
 | Debugger (breakpoints, stepping, disassembly) | ✅ | Shared Z80 debug service; memory and port watchpoints are checked in the PCW's access hooks |
-| Trace | ✗ | `trace: false` in the descriptor; `startTrace` is a no-op and `stopTrace` returns nothing |
+| Trace | ✅ | Full (address, disassembly, registers, T-states and operand context, with tight loops folded), a port I/O tally, and ZXTrace — the shared Z80 trace engine; a trace stops capturing at 500,000 lines |
 | Screen OCR / TEXT overlay | ✅ | Cuts the screen into 90×32 cells of 8×8 pixels (walking roller RAM) and matches them against the CP/M character set in RAM (block 2, offset &3800). Reports that OCR is unavailable if that area does not look like a font, and so is meaningful for CP/M screens. The TEXT overlay blanks matched cells |
 | Software library | ✗ | `library: false` |
 | Memory Layout pane | ✅ | Shows read and write block per 16 KB range, &F0–&F4, roller base and whether the machine has booted; flags the block holding roller RAM and the keyboard block |
 | On-screen keyboard | ✅ | 82 caps on the keyboard matrix; the 8256/8512 slab layout, or the 9512/9256 three-block layout. Caps with no host key (COPY, PASTE, EXCH, function keys) are clickable. Included in the keyboard lab presets |
 | Host keyboard | ✅ | Letters, digits, punctuation, numeric pad, F2/F4/F6/F8, Escape (STOP), Caps Lock (SHIFT LOCK, latching), Control (ALT), Alt (EXTRA), Backspace (DEL←), Delete, Tab, Enter |
-| MCP tools | ✅ | Generic tools: `model`, `load` (`.dsk`/`.td0`/`.hfe`/`.scp`, drive 0/A or 1/B), `eject`, `run`, `step`, `registers`, `read_memory`, `write_memory`, `disassemble`, breakpoints and watchpoints, `port_in`, `port_out`, `key`, `type`, `ocr`, `screenshot`, `fdc_log`. No PCW-specific tool. `save` (SZX), `disk_boot`, `disk_trace`, `frame_trace`, and the sector-level tools `weak`, `disk_geometry`, `track_geometry`, `sector_read` do not apply to the PCW. `trace` has no effect |
+| MCP tools | ✅ | Generic tools: `model`, `load` (`.dsk`/`.td0`/`.hfe`/`.scp`, drive 0/A or 1/B), `eject`, `run`, `step`, `registers`, `read_memory`, `write_memory`, `disassemble`, breakpoints and watchpoints, `port_in`, `port_out`, `key`, `type`, `ocr`, `screenshot`, `fdc_log`. No PCW-specific tool. `save` (SZX), `disk_boot`, `disk_trace`, `frame_trace`, and the sector-level tools `weak`, `disk_geometry`, `track_geometry`, `sector_read` do not apply to the PCW. `trace` works in all three modes |
 | Drive count | ✅ | Up to the model's own drives (one on the 8256, 9256 and 9512; two on the 8512). **Drive count** in drive A's options menu can lower an 8512 to one; saved, rebuilds the machine |
 
 ---

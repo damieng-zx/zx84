@@ -22,7 +22,7 @@ function cpcUi(model: MachineModel): MachineUiCapabilities {
   return {
     hiddenPanes: ['sysvar-panel', 'font-panel'],
     memoryLayout: true,
-    trace: false,
+    trace: true,
     colorMap: 'cpc',
     accuracy: false,
     builtinDisk: cpcHasDisk(model),
