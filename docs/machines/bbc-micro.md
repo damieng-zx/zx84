@@ -85,6 +85,8 @@ Econet hardware is fitted.
 | Cassette interface | all | ✅ | Pulse-level playback through an FSK demodulator into the ACIA, 1200 and 300 baud; motor relay moves the tape; what the OS writes to the ACIA is recorded |
 | Disc controller | all | ✅ | Intel 8271 or WD1770, or none (see Peripherals). Floppy window 0xFE80–0xFE87; interrupt output on the CPU NMI line |
 | Floppy drives | all | ✅ | Two DFS drives (0 and 1), 5.25" (drive sounds use the 5.25" profile), 40 or 80 tracks, one or two sides; write-protect per drive |
+| uPD7002 ADC (analogue port) | all | ✅ | [`upd7002.ts`](../../src/machines/bbc/peripherals/upd7002.ts) at 0xFEC0–0xFEDF (repeating every four bytes): channel/flag/precision write, status (/EOC, /BUSY, top two result bits), result high and low bytes. A conversion takes 4 ms (8-bit) or 10 ms (12-bit); end of conversion is a falling edge on System VIA CB1, the MOS's ADC interrupt |
+| Joystick fire buttons | all | ✅ | System VIA PB4 (joystick 1) and PB5 (joystick 2), low while pressed |
 
 ---
 
@@ -95,7 +97,8 @@ Econet hardware is fitted.
 | Acorn DFS, Intel 8271 | disk | `bbc-b` | ✅ | Original interface; single-density command/parameter/result chip ([`i8271.ts`](../../src/cores/i8271.ts)) mapped at 0xFE80–0xFE84. Functional model: sector data comes straight from the disk image, with no flux or bitstream layer |
 | Acorn 1770 DFS, WD1770 | disk | `bbc-b` | ✅ | Later upgrade ([`wd179x.ts`](../../src/cores/wd179x.ts) base). Registers at 0xFE84–0xFE87 with a write-only drive-control latch at 0xFE80 (drive select, side, reset). Default |
 | No disc interface | — | `bbc-b` | ✅ | No DFS ROM fitted and the Drives pane is hidden |
-| Joystick, mouse | input | — | ✗ | None offered (descriptor has no joystick or mouse types) |
+| Joysticks (analogue port) | input | all | ✅ | Two sticks, one fire button each. Player 1 is ADC channels 0/1 (ADVAL(1)/(2)) and PB4, player 2 channels 2/3 and PB5. A stick reads highest at full left and full up (ADVAL 65520) and 0 at full right and full down. Keys and the on-screen pad give full deflection; a gamepad's analogue stick is proportional |
+| Mouse | input | — | ✗ | None offered (descriptor has no mouse types) |
 | Cartridge slot | — | — | ✗ | None offered |
 
 **Combination rules:** The disc interface is chosen with the **Disk system**
@@ -181,12 +184,12 @@ Drives pane.
 - **1 MHz bus cycle stretching.** The CPU runs at a flat 2 MHz cycle count with no wait states added for accesses to the 0xFC00–0xFEFF hardware window (the VIAs and disc controller are simply ticked at half the CPU rate).
 - **Tube.** The ULA is absent: reads of the Tube window return 0x00 and writes are ignored.
 - **Econet.** 0xFEA0–0xFEBF reads 0xFF and writes are ignored; DNFS therefore runs as plain DFS.
-- **Analogue-to-digital converter (uPD7002).** 0xFEC0–0xFEDF reads 0xFF and writes are ignored, so there is no joystick or fire-button input.
 - **Speech processor.** The IC32 latch outputs that would select it are ignored.
 - **User port and printer port.** The User VIA's port A and B inputs are tied high; nothing is connected to the printer or user port, and the User VIA is not wired to any host device.
 - **RS423 serial port.** Nothing is received and transmitted bytes go nowhere; only the cassette selection of the ACIA is connected.
 - **Sideways RAM and ROM writes.** Writes to 0x8000–0xFFFF ROM areas are ignored; there is no writeable sideways RAM.
-- **Joysticks, mice, cartridges and snapshots.** None are offered for this machine.
+- **Mice, cartridges and snapshots.** None are offered for this machine.
+- **ADC conversion noise.** A converted value is the stick's position exactly; a real uPD7002 jitters in its low bits.
 - **Tape sound.** The cassette signal is not played through the speaker.
 - **Other Model B variants.** Only the Model B (32 KB) is registered; no B+, Master, or 16 KB Model A.
 - **8271 and WD1770 at bitstream level.** Both controllers are functional models working on sectors; there are no flux, HFE or SCP disc formats, and copy-protected discs that depend on raw track layout are not supported.
@@ -212,6 +215,7 @@ Drives pane.
 | [`tests/bbc-dfs.test.ts`](../../tests/bbc-dfs.test.ts) — SSD/DSD parse and serialize round trip, 1770 and 8271 register access through the memory bus, drive and ROM socket exposure, NMI handshake per byte | Tests | — |
 | [`tests/i8271.test.ts`](../../tests/i8271.test.ts) — 8271 registers, read and write commands, errors (not found, not ready, write-protected), interrupt, format | Tests | — |
 | [`tests/bbc-tape.test.ts`](../../tests/bbc-tape.test.ts) — motor-gated tape, carrier detect, ordered byte delivery at 1200 baud, recording to UEF, RS423 ignores recording; SAVE then LOAD/LIST/RUN round trip on the real OS and BASIC ROMs (skipped when the cached ROMs are absent) | Tests | — |
+| [`tests/bbc-joystick.test.ts`](../../tests/bbc-joystick.test.ts) — uPD7002 register layout and 4 ms / 10 ms conversion times from the data sheet, CB1 end-of-conversion edge, channel and fire-button wiring, proportional input; ADVAL(0), (1), (2) and (4) through MOS 1.20's OSBYTE 128 on the real ROMs (skipped when the cached ROMs are absent) | Tests | — |
 | [`tests/bbc-ocr.test.ts`](../../tests/bbc-ocr.test.ts) — Mode 7 text read-back, overlay masks and framebuffer blanking, bitmap-mode OCR against the MOS font, BASIC listing provider | Tests | — |
 | [`tests/cores/crtc-6845-interlace.test.ts`](../../tests/cores/crtc-6845-interlace.test.ts) — 312-line frames with the Mode 7 and Mode 0 register sets | Tests | — |
 | [`tests/tape/uef.test.ts`](../../tests/tape/uef.test.ts) — UEF codec, 300 baud, gzip, recorder, UEF to demodulator round trip, UEF/CSW choice by content | Tests | — |

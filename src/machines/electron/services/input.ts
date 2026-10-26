@@ -1,4 +1,4 @@
-import type { HostKeyEvent, InputService, MouseSink } from '@/machines/machine.ts';
+import type { HostKeyEvent, InputService, JoystickInput, MouseSink } from '@/machines/machine.ts';
 import type { ElectronMachine } from '../electron-machine.ts';
 
 export class ElectronInputService implements InputService {
@@ -21,6 +21,18 @@ export class ElectronInputService implements InputService {
 
   releaseAll(): void {
     this.machine.keyboard.reset();
+    this.machine.releaseJoysticks();
+  }
+
+  private readonly plus1Joystick: JoystickInput = {
+    press: (dir, pressed, _mode, player) => this.machine.joystickPress(dir, pressed, player),
+    analog: (axis, value, player) => this.machine.joystickAnalog(axis, value, player),
+  };
+
+  /** The joystick ports are the Plus 1's: without it there is nowhere to plug
+   *  a stick in, so the cursor keys stay the keyboard's. */
+  get joystick(): JoystickInput | null {
+    return this.machine.plus1Fitted ? this.plus1Joystick : null;
   }
 
   readonly mouse: MouseSink | null = null;

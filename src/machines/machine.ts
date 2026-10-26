@@ -340,6 +340,13 @@ export interface MouseTypeInfo {
   readonly label: string;
 }
 
+/** One joystick interface a machine offers — see
+ *  `MachineUiCapabilities.joystickTypes`. */
+export interface JoystickTypeInfo {
+  readonly id: string;
+  readonly label: string;
+}
+
 /**
  * One entry in the Load/Save pane's Save menu. A machine lists exactly the
  * artifacts it can write and the pane renders the list verbatim, so a machine
@@ -398,6 +405,8 @@ export interface MachineUiCapabilities {
   readonly requires?: {
     readonly builtinDisk?: string;
     readonly cartridge?: string;
+    /** The joystick ports belong to an add-on (the Electron's Plus 1). */
+    readonly joystick?: string;
   };
   /** Built-in drives fitted, A: onward — defaults to 2 when `builtinDisk`.
    *  The Lynx's FD1793 addresses four. Peripheral drives are not counted. */
@@ -420,6 +429,14 @@ export interface MachineUiCapabilities {
    *  interface (the CPC, MSX and MTX sticks) and 1 otherwise; the Atari's
    *  fixed ports take one-button CX40s. */
   readonly joystickFireButtons?: 1 | 2;
+  /** The joystick interfaces the type selector offers when the joystick is
+   *  not fixed, in order; the ids are the `joy-p1`/`joy-p2` setting values the
+   *  machine reads and the `mode` its `JoystickInput` receives. Omitted, the
+   *  selector offers the Spectrum's interfaces (Kempston, Cursor, Sinclair). */
+  readonly joystickTypes?: readonly JoystickTypeInfo[];
+  /** Joysticks the machine can take — defaults to 2. With 1 the pane shows
+   *  only player 1. */
+  readonly joystickPlayers?: 1 | 2;
   /**
    * Mouse interfaces this machine can drive, in the order the Mouse pane
    * offers them; empty means no mouse pane.
@@ -1015,6 +1032,19 @@ export interface MouseInput {
  *  joystick hardware (Kempston port, PPI matrix row, …). */
 export interface JoystickInput {
   press(dir: string, pressed: boolean, mode: string, player: number): void;
+  /**
+   * Proportional stick position, for a machine whose joystick is analogue (a
+   * BBC Micro's ADC, the Apple II's paddle timers, …). `value` runs from -1
+   * (full left / full up) through 0 (centred) to +1 (full right / full down);
+   * the machine converts that to its own hardware's scale and direction.
+   *
+   * Optional: only machines with analogue inputs implement it. When it is
+   * present the input controller sends a gamepad's analogue axes here and does
+   * not also send that axis's digital directions, so an axis is driven by one
+   * path at a time; keys and the on-screen pad still arrive through `press`,
+   * where a direction means full deflection.
+   */
+  analog?(axis: 'x' | 'y', value: number, player: number): void;
 }
 
 export interface InputService {

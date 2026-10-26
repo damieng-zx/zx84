@@ -78,7 +78,8 @@ Fitted from the Hardware pane. Each option loads its ROM at build time, so toggl
 
 | Peripheral | Type | Models | Status | Notes |
 | --- | --- | --- | --- | --- |
-| Plus 1 (cartridges) — Hardware pane option "Plus 1 (cartridges)" | ROM / input / comms | `electron` | ◐ | Expansion OS in ROM 12 and the front cartridge slot (SK1, ROM pages 2 and 3). ADC at `&FC70`, printer data at `&FC71`, status at `&FC72`. The analogue ports always read centred and the printer port never reports busy and has no output (see Not emulated) |
+| Plus 1 (cartridges) — Hardware pane option "Plus 1 (cartridges)" | ROM / input / comms | `electron` | ◐ | Expansion OS in ROM 12 and the front cartridge slot (SK1, ROM pages 2 and 3). ADC0844 at `&FC70`, printer data at `&FC71`, status at `&FC72`. The printer port never reports busy and has no output (see Not emulated) |
+| Plus 1 analogue joysticks | input | `electron` | ✅ | Shown while the Plus 1 is fitted. A write to `&FC70` selects the channel (the Plus 1 ROM writes 4–7 for ADVAL(1)–(4)) and starts a 40 µs conversion; status bit 6 (/INTR) goes low when it ends and high again when `&FC70` is read. Player 1 is channels 1/2 and fire on status bit 4, player 2 channels 3/4 and bit 5 (fire buttons low while pressed). Sticks read 255 at full left and full up, as on the BBC Micro; keys give full deflection, a gamepad's analogue stick is proportional |
 | Plus 3 (disc drives) — "Plus 3 (disc drives)" | Disk | `electron` | ✅ | WD1770 at `&FCC4`–`&FCC7` with the drive-control latch at `&FCC0` (drive 0/1, side, density, controller reset); ADFS ROM in page 4; two drives. DRQ and command completion raise the CPU NMI, and ADFS moves each byte from its NMI handler |
 | Plus 3 with ACP 1770 DFS — "DFS instead of ADFS (.ssd/.dsd)" | Disk | `electron` | ◐ | Swaps the ADFS ROM for the ACP 1770 DFS (fitted as ROM 0) on the same WD1770 interface, so Acorn DFS discs work. Only enabled while the Plus 3 is fitted. See Known issues |
 | Sideways ROM sockets | ROM | `electron` | ✅ | ROM pane lists pages 0 and 1 (socket SK2), 2 and 3 (SK1), 4 (disc interface), 5 and 6 (user ROM), 7 (modem interface), 12 (Plus 1 OS), 13 (high priority), 14 (Econet), 15 (reserved); pages 8–11 are not sockets. Loaded ROMs persist across reloads |
@@ -140,7 +141,7 @@ Disc saves from the Drives pane keep the format family: ADFS discs save as `.adl
 | Screen OCR / TEXT overlay | ✅ | Matches the 8 × 8 glyphs in every mode against the OS font found in the OS ROM, in normal and inverse video, with paper and ink colours; the MCP `ocr` tool returns the text |
 | BASIC tools | ✅ | BASIC listing and BASIC variables panes read the tokenised program from `PAGE` |
 | Software library | ✗ | Not offered |
-| Machine-specific panes | ✅ | Hardware-pane section (Plus 1, Plus 3, DFS); on-screen Electron keyboard with BREAK, cassette-motor and caps-lock lamps; Tape, Drives (Plus 3 only) and ROM panes. Hidden: microdrive, mouse, joystick, system variables, font and banks panes |
+| Machine-specific panes | ✅ | Hardware-pane section (Plus 1, Plus 3, DFS); on-screen Electron keyboard with BREAK, cassette-motor and caps-lock lamps; Tape, Drives (Plus 3 only) and ROM panes. The Joysticks pane appears while the Plus 1 is fitted. Hidden: microdrive, mouse, system variables, font and banks panes |
 | MCP tools | ◐ | The generic tools: `model`, `run`, `step_frame`, `step`, `registers`, `set_register`, `read_memory`, `write_memory`, `find`, `disassemble`, `breakpoint` and its delete, `memory_watchpoint` and its delete, `trap` family, `reset_trap`, `key`, `type`, `load`, `eject`, `screenshot`, `ocr`, `symbols`, `symbols_load`. No Electron-specific tool exists, and the MCP has no way to fit the Plus 1, Plus 3 or DFS (they default to off), so `.adf`/`.adl`/`.ssd`/`.rom` loads are refused there; tapes load. `trace` and `stop_trace` work in full and portio modes, and `save` writes Spectrum snapshots only |
 | Drive count | ✅ | Plus 3 drives: one or two. Pick **Drive count** in drive 0's options menu in the Drives pane. The choice is saved, rebuilds the machine, and with one drive the WD1770 sees nothing on the second select line (seek error, not ready) |
 
@@ -154,7 +155,7 @@ Disc saves from the Drives pane keep the format family: ADFS discs save as `.adl
 
 ## Not emulated
 
-- **Plus 1 analogue joystick ports.** The ADC at `&FC70` answers instantly and every channel reads centred (`&80`); the fire buttons read released. There is no host joystick mapping for the Electron.
+- **ADC conversion noise.** A Plus 1 conversion returns the stick's position exactly; a real ADC0844 jitters in its low bit.
 - **Plus 1 printer port.** Bytes written to `&FC71` are held in an internal buffer and never sent anywhere; the port never reports busy.
 - **Second Plus 1 cartridge slot.** Only the front slot (ROM pages 2 and 3) takes cartridges; pages 0 and 1 can only be loaded as sideways ROMs from the ROM pane.
 - **JIM paged memory.** `&FD00`–`&FDFF` is absent and floats high.
@@ -182,6 +183,7 @@ Disc saves from the Drives pane keep the format family: ADFS discs save as `.adl
 | --- | --- | --- |
 | [`tests/electron.test.ts`](../../tests/electron.test.ts) | Memory map and ROM paging, keyboard matrix and host mapping, BREAK, ULA interrupts, palette and display for modes 0–6 (including mid-frame palette change and gapped modes), memory timing (2 MHz ROM, 1 MHz RAM, display-fetch halt in modes 0–3 only), sound divider, cassette receive and transmit, services, sideways ROM listing | Test file in repo |
 | [`tests/electron-expansions.test.ts`](../../tests/electron-expansions.test.ts) | Plus 1 (ROM 12, cartridge banks, `_1`/`_2` pairing, status registers, SHIFT+BREAK boot), Plus 3 (WD1770 registers, DRQ per byte, NMI on completion, drive/side latch, controller driven from the CPU clock, `.adl` save), DFS swap (ROM 0, `.ssd`/`.dsd` accept, formatted track length) | Test file in repo |
+| [`tests/electron-joystick.test.ts`](../../tests/electron-joystick.test.ts) | Plus 1 ADC0844: 40 µs conversion, /INTR on status bit 6, result latch, channel and fire-button wiring, proportional input, no joystick without the Plus 1; ADVAL(0), (1), (2) and (4) through the real Plus 1 Expansion ROM (skipped when the cached ROMs are absent) | Test file in repo |
 | [`tests/electron-ocr.test.ts`](../../tests/electron-ocr.test.ts) | OS font lookup, mode 6 and mode 1 text reading, inverse video, screen wrap | Test file in repo |
 | [`tests/electron-boot.test.ts`](../../tests/electron-boot.test.ts) | With the real ROMs in `mcp/.cache` (skipped when absent): boot to the BASIC prompt, BASIC from the keyboard, BASIC panes, tape SAVE then LOAD round trip; Plus 1/Plus 3 start-up banner and `*HELP`; ADFS L catalogue and a file load across a track boundary (needs `ZX84_ADL`); DFS catalogue and SAVE/LOAD round trip from the saved `.ssd` | Test file in repo |
 | Electron `.uef` collection (752 files), headless | Almost all load and run; three file-level-chunk UEFs parse to no blocks | 2026-10-18 |

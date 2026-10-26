@@ -15,6 +15,7 @@
  */
 
 import type { PcwMachine } from './pcw-machine.ts';
+import { PCW_JOYSTICK_E0_PORT, PCW_KEMPSTON_PORT } from './pcw-joystick.ts';
 import {
   PCW_FDC_REGISTER_BIT, PCW_FDC_SELECT_MASK,
   PORT_BANK0, PORT_BANK1, PORT_BANK2, PORT_BANK3, PORT_MEMCTL, PORT_PRINTER_CTRL,
@@ -124,7 +125,14 @@ export function wirePcwPortIO(m: PcwMachine): void {
       return (port & PCW_FDC_REGISTER_BIT) ? m.fdc.readData() : m.fdc.readStatus();
     }
 
-    switch (port & 0xFF) {
+    // An add-on joystick interface at &9F or &E0 (pcw-joystick.ts).
+    const low = port & 0xFF;
+    if (low === PCW_KEMPSTON_PORT || low === PCW_JOYSTICK_E0_PORT) {
+      const joy = m.joystick.read(low);
+      if (joy !== null) return joy;
+    }
+
+    switch (low) {
       // &F4 returns the same status byte as &F8 but clears the interrupt
       // counter on the way out; the BIOS uses it to find out how many 300Hz
       // ticks it missed.

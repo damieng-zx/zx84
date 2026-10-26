@@ -19,11 +19,12 @@ import {
 } from './constants.ts';
 
 const ELECTRON_UI: MachineUiCapabilities = {
-  // No microdrive, joystick or mouse, and nothing to show in the
-  // Spectrum-style sysvar/font/banks panes. The Drives pane is kept: it lists
-  // the Plus 3's drives once that is fitted and nothing before.
+  // No microdrive or mouse, and nothing to show in the Spectrum-style
+  // sysvar/font/banks panes. The Drives pane is kept: it lists the Plus 3's
+  // drives once that is fitted and nothing before; the Joysticks pane, the
+  // Plus 1's analogue port the same way.
   hiddenPanes: [
-    'microdrive-panel', 'mouse-panel', 'joystick-panel',
+    'microdrive-panel', 'mouse-panel',
     'sysvar-panel', 'font-panel', 'banks-panel',
   ],
   memoryLayout: false,
@@ -37,9 +38,12 @@ const ELECTRON_UI: MachineUiCapabilities = {
   // while the matching setting is on.
   builtinDisk: true,
   builtinDrives: 2,
-  requires: { builtinDisk: 'electron-plus3', cartridge: 'electron-plus1' },
-  joystick: false,
-  fixedJoystick: false,
+  requires: { builtinDisk: 'electron-plus3', cartridge: 'electron-plus1', joystick: 'electron-plus1' },
+  // The Plus 1's analogue port: two proportional sticks on its ADC0844, one
+  // fire button each.
+  joystick: true,
+  fixedJoystick: true,
+  joystickFireButtons: 1,
   mouseTypes: [],
   cartridge: true,
   systemRomLabel: 'OS + BASIC ROM',

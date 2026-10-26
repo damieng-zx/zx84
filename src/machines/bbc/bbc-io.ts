@@ -84,6 +84,7 @@ export function readBbcIo(m: BbcMachine, addr: number): number {
     default: break;
   }
   if ((a & 0xFFF0) === 0xFE10) return 0x00;      // serial ULA (write-only)
+  if (a >= 0xFEC0 && a <= 0xFEDF) return m.adc.read(a & 3);   // uPD7002 ADC
   // Video ULA: A0 selects control (0) / palette (1); the whole 0xFE20-0xFE2F
   // block aliases to those two registers (Acorn DFS 1.20 probes 0xFE29).
   if ((a & 0xFFF0) === 0xFE20) return (a & 1) ? m.videoPaletteRegister : m.videoUlaControl;
@@ -146,7 +147,8 @@ export function writeBbcIo(m: BbcMachine, addr: number, val: number): void {
     case 0xFE30: m.memory.romsel = v & 0x0F; return;
     default:
       if (a >= 0xFE80 && a <= 0xFE87) { m.disc?.write(a, v); return; }
-      return;                                    // Econet/ADC/Tube: ignored
+      if (a >= 0xFEC0 && a <= 0xFEDF) { m.adc.write(a & 3, v, m.cpu.tStates); return; }
+      return;                                    // Econet/Tube: ignored
   }
 }
 
@@ -168,6 +170,10 @@ export function wireBbcIo(m: BbcMachine): void {
   };
   // Port B drives the addressable latch (DDRB low nibble only).
   m.sysVia.onPortBWrite = (value, ddr) => writeIc32(m, value, ddr);
+
+  // The ADC's /EOC pin is System VIA CB1: it goes high as a conversion starts
+  // and low when it ends, the falling edge the MOS's ADC interrupt waits for.
+  m.adc.onEoc = (level) => m.sysVia.setCB1(level);
 
   // User VIA port A is the printer port; nothing to wire yet.
   m.userVia.portAInput = 0xFF;

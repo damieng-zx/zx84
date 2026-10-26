@@ -6,6 +6,7 @@
  *   0xC020         cassette output toggle
  *   0xC030         speaker toggle
  *   0xC050-0xC057  display switches (text/mixed/page2/lores-hires)
+ *   0xC058-0xC05F  annunciators AN0-AN3 off/on (game connector outputs)
  *   0xC060         cassette input (bit 7); 0xC061-0xC063 pushbuttons
  *   0xC064-0xC067  paddle timers (bit 7);  0xC070 paddle trigger
  *   0xC080-0xC08F  slot 0 I/O — the language card's bank/ROM switches
@@ -55,7 +56,7 @@ export function readApple2Io(m: Apple2Machine, addr: number): number {
   if (off === 0x30) { m.toggleSpeaker(); return 0x00; }
   if (off <= 0x4F) return 0x00;
   if (off <= 0x57) { applyVideoSwitch(m, off - 0x50); return 0x00; }
-  if (off <= 0x5F) return 0x00;
+  if (off <= 0x5F) { m.paddles.annunciator(off); return 0x00; }
   if (off <= 0x6F) {
     switch (off & 0x07) {
       case 0x00: return m.cassetteInputBit ? 0x80 : 0x00;
@@ -83,6 +84,7 @@ export function writeApple2Io(m: Apple2Machine, addr: number, val: number): void
   if (off === 0x30) { m.toggleSpeaker(); return; }
   if (off <= 0x4F) return;
   if (off <= 0x57) { applyVideoSwitch(m, off - 0x50); return; }
+  if (off <= 0x5F) { m.paddles.annunciator(off); return; }
   if (off <= 0x7F) { if (off >= 0x70) m.paddles.trigger(m.cpu.tStates); return; }
   if (off <= 0x8F) { m.memory.lcAccess(off, false); return; }
 

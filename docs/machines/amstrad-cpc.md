@@ -71,6 +71,7 @@ reads 0xFF.
 | ASIC programmable raster interrupt | 6128 Plus, GX4000 | ✅ | Fires at the programmed scanline; the 52-line flyback is suppressed while armed; IM 2 vector byte with priority raster > DMA 2 > DMA 1 > DMA 0 |
 | ASIC DMA sound | 6128 Plus, GX4000 | ✅ | Three channels, one instruction per HSYNC from base 64 KB RAM: LOAD (PSG register), PAUSE (scaled by the channel prescaler), REPEAT, LOOP, INT, STOP. Drives the AY-3-8912 directly |
 | ASIC RMR2 banking | 6128 Plus, GX4000 | ✅ | `%101xxxxx` on the Gate Array port while unlocked: selects which of the low eight cartridge pages backs the lower ROM, where it overlays (&0000, &4000 or &8000), and pages the 16 KB ASIC register window into &4000–&7FFF |
+| ASIC analogue inputs | 6128 Plus, GX4000 | ✅ | &6808–&680F in the register window, read-only, 6 bits. ADC0/ADC1 (&6808/&6809) are joystick 1 X/Y, ADC2/ADC3 joystick 2; &00 is left / up, &3F right / down, a centred stick &20. ADC4 and ADC6 read &3F, ADC5 and ADC7 &00 (tied to +5V and ground on a real Plus). The analogue stick's buttons are the digital port's fire buttons |
 | ASIC ghost writes | 6128 Plus, GX4000 | ✅ | An `IN` from the Gate Array or CRTC write ports writes the floating bus value (0xFF) to the register, as on the real ASIC |
 | Intel 8255 PPI | all | ✅ | Port A to the AY data bus; Port B returns VSYNC, manufacturer code 7 (Amstrad), 50 Hz flag, expansion/printer lines pulled high, and the cassette read bit; Port C carries the keyboard line, AY BDIR/BC1 and the cassette motor bit |
 | AY-3-8912 | all | ✅ | Shared core, 1 MHz clock, stereo placement ABC by default; stereo, ultrasonic filter and DC-block controls in the Sound pane. No beeper |
@@ -86,7 +87,7 @@ reads 0xFF.
 
 | Peripheral | Type | Models | Status | Notes |
 | --- | --- | --- | --- | --- |
-| Joystick (two ports) | input | all | ✅ | Wired into the keyboard matrix: player 1 on line 9, player 2 on line 6. The emulator's primary fire button drives CPC Fire 2 (the main button on a one-button stick) and its secondary button drives Fire 1. Physical gamepads and the touch D-pad |
+| Joystick (two ports) | input | all | ✅ | Wired into the keyboard matrix: player 1 on line 9, player 2 on line 6. The emulator's primary fire button drives CPC Fire 2 (the main button on a one-button stick) and its secondary button drives Fire 1. Physical gamepads and the touch D-pad. On a 6128 Plus or GX4000 the same sticks also drive the ASIC's analogue inputs: keys at full deflection, a gamepad's analogue stick proportionally (and the digital port past half travel) |
 | Kempston mouse | input | all | ✅ | Ports &FBEE (X), &FBEF (Y), &FAEF (buttons, active low); Y counts upward |
 | AMX mouse | input | all | ✅ | Presented on keyboard line 9 as one-mickey pulses retired on line deselect; left/right/middle buttons map to Fire 2/Fire 1/Fire 3 |
 | Multiface Two | ROM + RAM / NMI | all | ✅ | 8 KB ROM + 8 KB RAM overlaid on &0000–&3FFF. `OUT &FEE8` pages in, `OUT &FEEA` pages out; the red STOP button (Hardware pane) pages in and raises an NMI to &0066. Records writes to the Gate Array, CRTC, ROM-select and PPI control ports into its RAM so the toolkit's Return restores the machine. Can be enabled and disabled without rebuilding the machine. The code does not restrict it by model |
@@ -187,7 +188,6 @@ beneath the ROM overlays).
 - **RAM beyond the built-in memory.** The 64 KB block bits of the RAM command are decoded but wrap onto the installed banks; no expansion RAM is modelled. The 464 and 664 ignore the bank command altogether.
 - **DDI-1 disk interface for the 464.** No controller is on the bus; the FDC ports float to 0xFF.
 - **Light pen.** CRTC registers 16 and 17 never change; nothing models a pen strobe.
-- **Plus analogue inputs.** The ASIC register window stores writes to its analogue-input area, but no paddle or analogue joystick source is wired.
 - **CRTC type selection.** Non-Plus models are fixed at type 0 and the Plus at type 4; types 1–3 exist in the core but cannot be chosen.
 - **PPI configuration links.** Port B always reports Amstrad as manufacturer and 50 Hz.
 - **464 Plus.** Snapshot type 5 is recognised as unmodelled and loads as a 6128.
@@ -216,6 +216,7 @@ beneath the ROM overlays).
 | `tests/cpc/cpc-tape-instant-load.test.ts`, `cpc-tape-loader.test.ts`, `cpc-tape-io.test.ts` | CAS READ routine offsets found by scan on the 464, 664 and 6128 OS ROMs; CRC-gated block extraction; 1942 instant-loads on 464 and 6128 (skipped without ROMs and tape); PPI cassette bit and cadence gating | — |
 | Fast ROM loading, trap on vs trap off, real CDTs (1942, 180, 10th Frame, 1943, 2048, 3D Starstrike) | CAS READ results and bytes identical on 464, 664 and 6128 | 2026-09-25 |
 | `tests/cpc/cpc-multiface.test.ts`, `cpc-mouse.test.ts`, `cpc-keyboard.test.ts`, `joystick-fire.test.ts` | Multiface port decode, paging and NMI; Kempston and AMX behaviour; joystick matrix lines; fire-button mapping | — |
+| `tests/cpc/plus-analogue.test.ts` | ASIC analogue channel map, direction and tied-off levels from CPCWiki's measurements of a real Plus, read through the unlocked register window; read-only writes; proportional input and the digital port; held stick across a reset | — |
 | `tests/cpc/cpc-memory.test.ts`, `cpc-fdc-ports.test.ts`, `cpc-models.test.ts`, `plus-debug.test.ts`, `render-centering.test.ts` | ROM split and paging; FDC port decode (absent on 464 and GX4000); model classification; Plus cartridge boot; display centring | — |
 | `tests/machines/cpc/media-routing.test.ts` | Extension routing to tape, snapshot (with model auto-switch), disk and cartridge; `.cpr` refused on non-Plus models | — |
 | `tests/cpc/cpc-screen-text.test.ts`, `tests/basic/cpc-basic-parser.test.ts` | OCR across screen modes; Locomotive BASIC detokenizer against byte sequences captured from the real 6128 firmware | — |

@@ -19,7 +19,7 @@ import {
 
 const BBC_UI: MachineUiCapabilities = {
   hiddenPanes: [
-    'microdrive-panel', 'mouse-panel', 'joystick-panel',
+    'microdrive-panel', 'mouse-panel',
     'sysvar-panel', 'font-panel', 'banks-panel',
   ],
   memoryLayout: false,
@@ -30,8 +30,11 @@ const BBC_UI: MachineUiCapabilities = {
   accuracy: 'raster',
   builtinDisk: true,
   builtinDrives: 2,
-  joystick: false,
-  fixedJoystick: false,
+  // The analogue port: two proportional sticks on the uPD7002, one fire
+  // button each on the System VIA.
+  joystick: true,
+  fixedJoystick: true,
+  joystickFireButtons: 1,
   mouseTypes: [],
   cartridge: false,
   systemRomLabel: 'OS + BASIC ROMs',

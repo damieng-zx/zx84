@@ -1,9 +1,9 @@
-import { createSignal, Show } from 'solid-js';
+import { createSignal, For, Show } from 'solid-js';
 import { Pane } from '@/ui/components/Pane.tsx';
 import { HiOutlineChevronUp, HiOutlineChevronDown, HiOutlineChevronLeft, HiOutlineChevronRight } from 'solid-icons/hi';
 import { joyP1, joyP2, joyMapP1, joyMapP2, setJoyP1, setJoyP2, setJoyMapP1, setJoyMapP2, persistSetting, gamepadConfigP1, gamepadConfigP2, setGamepadConfigP1, setGamepadConfigP2, resetSettingsGroup } from '@/store/settings.ts';
 import { joyPressForType } from '@/shell/media.ts';
-import { applyDisplaySettings } from '@/shell/settings.ts';
+import { applyDisplaySettings, settingEnabled } from '@/shell/settings.ts';
 import { machineCaps } from '@/state/machine-caps.ts';
 
 // On the Spectrum a joystick can present to the CPU through several interface
@@ -13,6 +13,15 @@ import { machineCaps } from '@/state/machine-caps.ts';
 // hidden. The F2 button is shown for sticks with a second fire button.
 const isFixedJoystick = () => machineCaps().fixedJoystick;
 const fireButtons = () => machineCaps().joystickFireButtons ?? (isFixedJoystick() ? 2 : 1);
+// A machine with its own interfaces lists them (the PCW's Kempston,
+// Spectravideo and Cascade); otherwise the selector offers the Spectrum's.
+const SPECTRUM_JOYSTICK_TYPES = [
+  { id: 'kempston', label: 'Kempston' },
+  { id: 'cursor', label: 'Cursor' },
+  { id: 'sinclair1', label: 'Sinclair Port 1' },
+  { id: 'sinclair2', label: 'Sinclair Port 2' },
+] as const;
+const joystickTypes = () => machineCaps().joystickTypes ?? SPECTRUM_JOYSTICK_TYPES;
 
 // Configuration mode state
 export const [configuringPlayer, setConfiguringPlayer] = createSignal<number>(-1);
@@ -136,10 +145,7 @@ function JoyColumn(props: { playerIdx: number; label: string }) {
             persistSetting(joyKey(), joySel()());
             applyDisplaySettings(); // tell the machine which interface is fitted
           }}>
-            <option value="kempston">Kempston</option>
-            <option value="cursor">Cursor</option>
-            <option value="sinclair1">Sinclair Port 1</option>
-            <option value="sinclair2">Sinclair Port 2</option>
+            <For each={joystickTypes()}>{(t) => <option value={t.id}>{t.label}</option>}</For>
             <option value="none">None</option>
           </select>
         </label>
@@ -174,7 +180,7 @@ function JoyColumn(props: { playerIdx: number; label: string }) {
 
 export function JoystickPane() {
   return (
-    <Pane id="joystick-panel" label="Joysticks" visible={machineCaps().joystick} onResetSettings={() => {
+    <Pane id="joystick-panel" label="Joysticks" visible={machineCaps().joystick && settingEnabled(machineCaps().requires?.joystick)} onResetSettings={() => {
       cancelConfiguration();
       resetSettingsGroup('joystick');
       setGamepadConfigP1(null);
@@ -183,7 +189,9 @@ export function JoystickPane() {
     }}>
       <div id="joy-columns">
         <JoyColumn playerIdx={0} label="Player 1" />
-        <JoyColumn playerIdx={1} label="Player 2" />
+        <Show when={(machineCaps().joystickPlayers ?? 2) === 2}>
+          <JoyColumn playerIdx={1} label="Player 2" />
+        </Show>
       </div>
     </Pane>
   );

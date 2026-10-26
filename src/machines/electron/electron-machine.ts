@@ -39,6 +39,7 @@ import {
 } from './electron-ula.ts';
 import { wireElectronIo } from './electron-io.ts';
 import { ElectronPlus1, PLUS1_ROM_PAGE, CART_PAGES } from './peripherals/plus1.ts';
+import { AnalogSticks, axisToRange } from '@/machines/shared/analog-stick.ts';
 import { ADFS_SECTORS_PER_TRACK } from '@/media/floppy/adfs.ts';
 import { SSD_SECTORS_PER_TRACK } from '@/media/floppy/ssd.ts';
 import { resolveDriveCount } from '@/machines/shared/drive-count.ts';
@@ -92,6 +93,8 @@ export class ElectronMachine extends BaseMachine implements Machine {
   readonly plus3 = new ElectronPlus3((asserted) => { if (asserted) this.cpu.nmi(); });
   plus1Fitted = false;
   plus3Fitted = false;
+  /** The two joysticks on the Plus 1's analogue port, as the host drives them. */
+  readonly sticks = new AnalogSticks(2);
   /** How many of the Plus 3's two drives are fitted (1 or 2), from the Drives pane. */
   driveCount = 2;
   /** The Plus 3's drives run the ACP 1770 DFS (Acorn DFS discs) instead of ADFS. */
@@ -231,6 +234,35 @@ export class ElectronMachine extends BaseMachine implements Machine {
       this.plus3.ejectDisk(0);
       this.plus3.ejectDisk(1);
     }
+  }
+
+  /** A joystick direction or fire button on the Plus 1's analogue port.
+   *  Directions are full deflection. */
+  joystickPress(dir: string, pressed: boolean, player: number): void {
+    if (player !== 0 && player !== 1) return;
+    if (dir === 'fire') { this.plus1.fire[player] = pressed; return; }
+    if (this.sticks.press(dir, pressed, player)) this.updateStickInputs(player);
+  }
+
+  /** A gamepad's proportional axis (-1 left/up … +1 right/down). */
+  joystickAnalog(axis: 'x' | 'y', value: number, player: number): void {
+    if (player !== 0 && player !== 1) return;
+    this.sticks.analog(axis, value, player);
+    this.updateStickInputs(player);
+  }
+
+  releaseJoysticks(): void {
+    this.sticks.reset();
+    this.plus1.fire[0] = this.plus1.fire[1] = false;
+    this.updateStickInputs(0);
+    this.updateStickInputs(1);
+  }
+
+  /** Joystick `player` onto ADC channels 2p (X) and 2p+1 (Y); the sticks read
+   *  255 at full left and full up, as on the BBC Micro. */
+  private updateStickInputs(player: number): void {
+    this.plus1.adc[player * 2] = axisToRange(this.sticks.x(player), 0xFF, true);
+    this.plus1.adc[player * 2 + 1] = axisToRange(this.sticks.y(player), 0xFF, true);
   }
 
   installPlus1Rom(data: Uint8Array): void { this.memory.setExpansionRom(PLUS1_ROM_PAGE, data); }

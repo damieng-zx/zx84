@@ -7,7 +7,9 @@
  *   $C010        strobe clear; read returns any-key-down in bit 7
  *   $C011-$C01F  read: the state of each of those switches in bit 7
  *   $C020/$C030  cassette out, speaker
- *   $C050-$C057  TEXT / MIXED / PAGE2 / HIRES;  $C05E/$C05F  double hi-res on/off
+ *   $C050-$C057  TEXT / MIXED / PAGE2 / HIRES
+ *   $C058-$C05F  annunciators AN0-AN3 off/on; $C05E/$C05F (AN3) also turn
+ *                double hi-res on/off
  *   $C061-$C063  Open-Apple, Solid-Apple, SHIFT as buttons 0-2
  *   $C080-$C08F  the language card (built in);  $C0E0-$C0EF  the Disk II
  *
@@ -35,6 +37,13 @@ function videoSwitch(m: Apple2Machine, sw: number): void {
   applyVideoSwitch(m, sw);
   m.mmu.page2 = m.page2;
   m.mmu.hires = m.hires;
+}
+
+/** $C058-$C05F: an annunciator latch; AN3 off is also double hi-res on. */
+function annunciator(m: Apple2Machine, off: number): void {
+  m.paddles.annunciator(off);
+  if (off === 0x5E) m.dhires = true;
+  else if (off === 0x5F) m.dhires = false;
 }
 
 export function readApple2eIo(m: Apple2Machine, addr: number): number {
@@ -75,9 +84,7 @@ export function readApple2eIo(m: Apple2Machine, addr: number): number {
   if (off === 0x30) { m.toggleSpeaker(); return 0x00; }
   if (off <= 0x4F) return 0x00;
   if (off <= 0x57) { videoSwitch(m, off - 0x50); return 0x00; }
-  if (off <= 0x5D) return 0x00;                      // annunciators 0-2
-  if (off === 0x5E) { m.dhires = true; return 0x00; }
-  if (off === 0x5F) { m.dhires = false; return 0x00; }
+  if (off <= 0x5F) { annunciator(m, off); return 0x00; }
   if (off <= 0x6F) {
     switch (off & 0x07) {
       case 0x00: return m.cassetteInputBit ? 0x80 : 0x00;
@@ -106,8 +113,7 @@ export function writeApple2eIo(m: Apple2Machine, addr: number, val: number): voi
   if (off === 0x30) { m.toggleSpeaker(); return; }
   if (off <= 0x4F) return;
   if (off <= 0x57) { videoSwitch(m, off - 0x50); return; }
-  if (off === 0x5E) { m.dhires = true; return; }
-  if (off === 0x5F) { m.dhires = false; return; }
+  if (off <= 0x5F) { annunciator(m, off); return; }
   if (off <= 0x7F) { if (off >= 0x70 && off <= 0x7D) m.paddles.trigger(m.cpu.tStates); return; }
   if (off <= 0x8F) { m.memory.lcAccess(off, false); return; }
 

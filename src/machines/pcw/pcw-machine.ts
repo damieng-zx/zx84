@@ -42,6 +42,7 @@ import { BaseMachine } from '@/machines/base-machine.ts';
 import { PcwMemory } from './pcw-memory.ts';
 import { PcwAsic } from './asic.ts';
 import { PcwKeyboard } from './pcw-keyboard.ts';
+import { PcwJoystick } from './pcw-joystick.ts';
 import { createPcwConfig, type PcwConfig } from './config.ts';
 import type { PcwModel } from './models.ts';
 import { pcwDescriptor } from './descriptor.ts';
@@ -73,6 +74,8 @@ export class PcwMachine extends BaseMachine implements Machine {
   /** The custom silicon: video, the 300Hz timer and the status byte. */
   readonly asic: PcwAsic;
   readonly keyboard = new PcwKeyboard();
+  /** The add-on joystick interface (Kempston, Spectravideo or Cascade). */
+  readonly joystick = new PcwJoystick();
   /** The 3" drives. Drive B exists only on the 8512. */
   readonly fdc = new UPD765A();
   /** Drives actually fitted: the model's own count, or fewer if the user chose
@@ -266,6 +269,7 @@ export class PcwMachine extends BaseMachine implements Machine {
     this.asic.paper = phosphor.paper;
     this.fdc.writeProtect[0] = view.get('write-protect-a', false);
     this.fdc.writeProtect[1] = view.get('write-protect-b', false);
+    this.joystick.setType(view.get<string>('joy-p1', 'kempston'));
     this.audio.setVolume(view.get('volume', 70) / 100);
     this.needsDisplay = true;
   }

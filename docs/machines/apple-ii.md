@@ -67,7 +67,7 @@ rather than failing.
 | Speaker | all | ✅ | 1-bit toggle on `$C030`, accumulated per CPU cycle |
 | Cassette interface | all | ◐ | `$C060` input from a comparator over a `.wav` recording. The comparator has hysteresis — a dead band of 0.3 × the recording's mean level — so noise on a digitised tape does not chatter; output `$C020` is counted but not recorded (see Not emulated) |
 | Keyboard | all | ✅ | Encoder latch + strobe at `$C000`/`$C010`. ][/][+: upper case only. //e family: full ASCII, locking CAPS LOCK (down at power-on), control codes, arrow keys |
-| Game port | all | ◐ | Push buttons `$C061`–`$C063`, four paddle timers `$C064`–`$C067` (about 11 CPU cycles per count plus 25), trigger `$C070`. Annunciators and the `$C040` strobe output are ignored |
+| Game port | all | ◐ | Push buttons `$C061`–`$C063`, four paddle timers `$C064`–`$C067` (11 CPU cycles per count plus 8, so the Monitor's PREAD returns the position, 0–255), trigger `$C070`. Annunciators AN0–AN3 at `$C058`–`$C05F` are latches (even address off, odd on; on the //e AN3 is also the double hi-res switch) whose state is kept but drives nothing. The `$C040` strobe output is ignored |
 | Vertical-blank status | all | ✅ | `$C019`: high during blanking on the ][ and ][+; inverted (RDVBLBAR, high while drawing) on the //e family |
 | Interrupts | all | ✅ | No motherboard interrupt sources. IRQ is driven only by the Mockingboard's 6522 timers |
 
@@ -85,7 +85,7 @@ carry over.
 | Videx Videoterm (slot 3) | 80-column video | `apple2`, `apple2-plus` | ✅ | 6845 CRTC, 2 KB card RAM behind a 512-byte window at `$CC00`, 1 KB firmware, 2 KB character ROM. 80 × 24 characters of 7 × 9 dots with inverse video and a cursor, shown once `PR#3` has programmed 80 columns |
 | Extended 80-column card (64 KB) | RAM / video | `apple2e`, `apple2e-enhanced` | ✅ | On by default. Provides auxiliary RAM for 80-column text, double hi-res and 128 KB software; built in on the //c |
 | Mockingboard (slot 4) | Sound | `apple2`, `apple2-plus`, `apple2e`, `apple2e-enhanced` | ✅ | Model A: two 6522 VIAs each driving an AY-3-8910 (left and right), VIA timer interrupts on the IRQ line. Not offered on the //c |
-| Paddles / joystick | Input | all | ◐ | On by default. Digital only: a direction drives its paddle axis to an end stop and releasing centres it. Player 1 = paddles 0/1 + button 0, player 2 = paddles 2/3 + button 1. Without it, paddle reads time out at full scale and buttons never close |
+| Paddles / joystick | Input | all | ✅ | On by default. A gamepad's analogue stick sets the paddles proportionally; keys, the on-screen pad and a D-pad drive an axis to an end stop and releasing centres it (127). X reads 0 at full left and 255 at full right, Y 0 at full up. Player 1 = paddles 0/1 + button 0, player 2 = paddles 2/3 + button 1. Without it, paddle reads time out at full scale and buttons never close |
 
 **Combination rules:** each card has a fixed slot (language card 0, Videx 3,
 Mockingboard 4, Disk ][ 6), so cards never conflict. The Videx card is offered
@@ -170,13 +170,13 @@ downloads the modified image. Mounted tapes and disks are restored after a reloa
 - **Double lo-res.** Lores reads main RAM only, even on the //e family with auxiliary RAM.
 - **Mid-frame video changes.** The picture is rendered once per frame from the final switch state; raster tricks that change mode within a frame do not show.
 - **Cassette recording.** `$C020` output is counted for the activity readout but never captured to a file.
-- **Annunciators and the game-port strobe.** `$C040` and `$C058`–`$C05D` are ignored.
+- **Game-port strobe and annunciator outputs.** `$C040` is ignored, and the annunciator latches drive nothing outside the machine.
 - **//c serial ports, mouse, and its VBL and mouse soft switches.** There is no code for them; slot 1 and 2 I/O reads float high (`$FF`).
 - **//c 80/40 and keyboard-layout switches.** Drawn on the on-screen keyboard only.
 - **Rockwell/WDC 65C02 bit instructions and WAI/STP.** They execute as NOPs on the CMOS models.
 - **Other expansion cards.** Only the Disk ][ controller, language card, Videx Videoterm, Mockingboard and extended 80-column card exist (no mouse, clock, serial, hard-disk or CPU cards). The Mockingboard has no speech chip.
 - **Other disk formats.** Only 16-sector 6-and-2 `.dsk`/`.do`/`.po` images, and no raw-nibble or copy-protected images (the codec produces the standard layout only). 13-sector, `.nib`, `.woz`, `.2mg` and hard-disk images are not accepted.
-- **Analogue paddles.** Input is digital only.
+- **Mouse as paddles.** The host mouse does not drive the paddles.
 - **Machine snapshots.** The snapshot service is absent.
 
 ## Faithful quirks
@@ -200,6 +200,7 @@ downloads the modified image. Mounted tapes and disks are restored after a reloa
 | Reference | Result | Last checked |
 | --- | --- | --- |
 | `tests/apple2.test.ts` | Registration, memory map, soft switches, cassette deck, hardware options, original ][ boot jump, language card, Videx card, Mockingboard, paddles and joystick, KEY indicator, video addressing and composite/PAL/green rendering, OCR, Disk ][ stepper, GCR stream and spin-down | Test suite |
+| `tests/apple2-gameport.test.ts` | PREAD's algorithm reading 0 at full left / up, 255 at full right / down, 127 centred and proportional gamepad positions on all four paddles (and the same on the real Autostart ROM's `$FB1E` when `mcp/.cache/apple2plus.rom` is present); annunciator latches on the ][+ and the //e's AN3 / double hi-res | Test suite |
 | `tests/apple2e.test.ts` | //e MMU main/auxiliary paging, ROM and `$C300`/INTC8ROM handling, auxiliary language-card RAM, soft-switch read-back, keyboard, character set, 80-column text and double hi-res | Test suite |
 | `tests/apple2-cmos.test.ts` | Enhanced //e and //c registration, 65C02 execution through the machine bus, 65C02 disassembly, MouseText, the //c's fixed internal ROM and built-in hardware | Test suite |
 | `tests/apple2-disk.test.ts` | GCR/4-and-4/6-and-2 codec against the published definitions, sector skews, length tolerance, MacBinary and SIMSYSTEM headers, sector-order detection, volume number | Test suite |

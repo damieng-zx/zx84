@@ -23,7 +23,7 @@ BASIC or Xtal DOS loads from a floppy image in drive A:.
 
 | Model | Year | RAM | ROM | Video | Sound | Storage | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| TC-01 (`einstein-tc01`) | 1984 | 64 KB | 8 KB MOS | TMS9929A, 16 KB VRAM, 256×192 | AY-3-8910 | 2 × WD1770 floppy drives | PAL 50 Hz; output buffer 320×240 with border. 8251 USART, Z80 PIO and ADC0844 are stubbed |
+| TC-01 (`einstein-tc01`) | 1984 | 64 KB | 8 KB MOS | TMS9929A, 16 KB VRAM, 256×192 | AY-3-8910 | 2 × WD1770 floppy drives | PAL 50 Hz; output buffer 320×240 with border. 8251 USART and Z80 PIO are stubbed |
 | Einstein 256 (`einstein-256`) | 1986 | 64 KB (+ 192 KB VRAM) | 16 KB MOS 2.1 | V9938, 192 KB VRAM, 512×212 | AY-3-8910 | 2 × WD1770 floppy drives | Output buffer 576×240 presented at half width (`pixelAspectX` 0.5); adds ALPHA LOCK latch and system-status port; no PIO or ADC0844 |
 
 ### ROM sets
@@ -56,7 +56,9 @@ same CDN and cached; see Peripherals.
 | WD1770 FDC | all | ✅ | Shared WD179x core in WD1770 mode. Ports 0x18–0x1B (mirrored at 0x1C–0x1F), polled (INTRQ and DRQ are not wired). Drive select latch 0x23: one-hot on bits 0–3, side on bit 4, no motor or density bit. Type I commands pulse BUSY because the MOS waits for it |
 | Z80 CTC | all | ✅ | [`src/cores/z80-ctc.ts`](../../src/cores/z80-ctc.ts). Timer prescaler on the 4 MHz CPU clock; channels 0–2 clocked by a 2 MHz pin; channel 2 zero-count chained to channel 3 trigger (the periodic interrupt source); heads the daisy chain and decodes RETI |
 | Board interrupts | all | ✅ | Below the CTC in priority order: keyboard (0xF7), ADC (0xFB), fire button (0xFD), each masked by a port 0x20, 0x21 or 0x25 write. Held off while a CTC channel is under service |
-| ADC0844 | TC-01 | ◐ | Ports 0x38–0x3F. A write starts a conversion and raises the ADC interrupt after about 160 T-states; every read returns a centred 0x80 (no analogue joystick) |
+| ADC0844 | TC-01 | ✅ | Ports 0x38–0x3F. A write is the MUX address (b1–b0 the channel) and starts a conversion; after about 160 T-states the result is latched and the ADC interrupt raised; a read returns the result and clears the interrupt. Channels 1/2 are joystick 1 X/Y, 3/4 joystick 2. X reads 0 at full left and 0xFF at full right, Y 0xFF at full up and 0 at full down, centred 0x80 (MAME's wiring; no Tatung description to hand) |
+| Pseudo-ADC | 256 | ✅ | Port 0x38. A write latches the selection and raises the ADC interrupt; a read clears it and returns 0x00, 0x7F or 0xFF for the selected stick's X (selection & 5 = 4: right 0xFF) or Y (= 5: up 0xFF), b1 picking port A (joystick 2) or port B (joystick 1) |
+| Joystick ports | 256 | ✅ | 0x30 (port A, joystick 2) and 0x32 (port B, joystick 1): b0 up, b1 down, b2 left, b3 right, b4 fire, active low; b6–b5 printer status |
 | ALPHA LOCK latch, system status | 256 | ✅ | Port 0x22 toggles the latch on any access; port 0x26 reports ALPHA LOCK key, ROM paged in, and hardwired dipswitches (50 Hz, parallel printer, English, no mouse). The ALPHA LOCK key has a lamp on the on-screen keyboard |
 | Intel 8251 USART | all | ✗ | Stubbed: status reads return Tx-ready, no receive, writes ignored |
 | Z80 PIO | TC-01 | ✗ | Ports 0x30–0x37 decoded and ignored; reads return 0xFF |
@@ -69,7 +71,7 @@ same CDN and cached; see Peripherals.
 | --- | --- | --- | --- | --- |
 | Floppy drives A: and B: | disk | all | ✅ | Two WD1770 drives (units 0 and 1). Per-drive write-protect, drive-B force-ready, flip side for flippy images, and drive sounds (profile chosen from the image capacity) |
 | Xtal DOS boot disk | disk | all | ✅ | Hardware-pane checkbox **Xtal DOS**, on by default. While drive A: is empty a hidden Xtal DOS system disk (fetched from the ROM CDN and cached) is mounted there, so the machine boots straight into Xtal DOS. A disk the user loads into drive A: replaces it; ejecting that disk brings it back; turning the option off removes it. If the disk cannot be fetched the option does nothing |
-| Joystick | input | all | ✗ | Joystick pane is hidden (no host input drives the fire lines); see Not emulated |
+| Joysticks | input | all | ✅ | Two sticks with one fire button each. Fire is status port 0x20 bit 0 (player 1) or bit 1 (player 2), active low, and raises the fire interrupt at the next 50 Hz scan. On the TC-01 the sticks feed the ADC0844 — a gamepad's analogue stick proportionally, keys and the on-screen pad at full deflection; on the 256 they drive the digital ports (half deflection counts as pushed) |
 | Mouse | input | all | ✗ | No mouse pane; the 256's status port reports no mouse |
 
 **Combination rules:** None. The Xtal DOS option only applies while drive A: holds
@@ -141,8 +143,7 @@ None known.
 - **Snapshots.** There is no snapshot format or service.
 - **Intel 8251 USART.** Stubbed (Tx-ready status, no receive).
 - **Z80 PIO (TC-01) and 256 printer port.** Writes are ignored; the TC-01 reads 0xFF. The 256's port 0x30 returns idle printer status.
-- **Analogue joystick (ADC0844).** Reads a fixed centred value; the 256's pseudo-ADC returns 0x7F.
-- **Joystick direction and fire input.** The fire lines (status port, 256 ports 0x30 and 0x32) and fire interrupt are decoded, but nothing on the host side drives them and directions are not mapped.
+- **ADC0844 differential modes.** The MUX address's mode bits are not decoded: every conversion is single-ended on the channel in b1–b0.
 - **Mouse.** No mouse type is offered.
 - **256 dipswitches.** Hardwired to 50 Hz, parallel printer, English.
 - **TMS9929A Multicolor mode and fifth-sprite and coincidence reporting.** Approximate.
@@ -166,6 +167,7 @@ None known.
 | `tests/einstein/einstein-machine.test.ts` | ROM overlay and mirror, port 0x24 toggle, I/O mirrors, AY-scanned keyboard, CTC interrupt path and 2 MHz clocking, keyboard/ADC/fire interrupts and daisy-chain gating, boot-disk profile, Xtal BASIC listing, frame smoke | — |
 | `tests/einstein/einstein-256.test.ts` | 16 KB linear ROM window, V9938 port decode, port 0x80 mask, system status 0x26, ALPHA LOCK, registry ROM-size detection, 512×212 descriptor and pixel aspect, boot smoke | — |
 | `tests/einstein/v9938.test.ts` | V9938 ports, VRAM and palette addressing, status registers and interrupts, mode decode, text, graphics and bitmap rendering, sprites, command processor | — |
+| `tests/einstein/einstein-joystick.test.ts` | TC-01 ADC0844 conversion and latch, channel and axis wiring, proportional input, fire bits and fire request; 256 joystick port bits and pseudo-ADC selections. Neither MOS has a joystick routine to run (MOS 2.1 uses 0x30/0x32 only for its printer) | — |
 | `tests/einstein/einstein-keyboard.test.ts` | Matrix scan, status line modifiers, host-key and per-model cursor chords | — |
 | `tests/einstein/einstein-256-ocr.test.ts` | GRAPHIC 2 OCR, no text in other modes | — |
 | `tests/machines/einstein/media-routing.test.ts`, `tests/machines/disk-pause.test.ts`, `tests/machines/frame-probe.test.ts` | `.dsk`/`.hfe` mount to drive A:/B:, `accepts()` list, refusal of other files, mount preserves run state, drive-sound feed and format latch | — |

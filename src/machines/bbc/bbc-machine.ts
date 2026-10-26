@@ -36,6 +36,8 @@ import { BbcKeyboard } from './bbc-keyboard.ts';
 import { BbcVideo, bitmapMode, wrapSubtract } from './bbc-video.ts';
 import { BbcDfs1770 } from './peripherals/wd1770-dfs.ts';
 import { BbcAcornDfs } from './peripherals/acorn-8271-dfs.ts';
+import { Upd7002 } from './peripherals/upd7002.ts';
+import { AnalogSticks, axisToRange } from '@/machines/shared/analog-stick.ts';
 import { resolveDriveCount } from '@/machines/shared/drive-count.ts';
 import type { BbcDiscController } from './peripherals/disc-controller.ts';
 import { wireBbcIo } from './bbc-io.ts';
@@ -92,6 +94,13 @@ export class BbcMachine extends BaseMachine implements Machine {
   readonly video = new BbcVideo();
   readonly fdc1770 = new BbcDfs1770((asserted) => { if (asserted) this.cpu.nmi(); });
   readonly acorn8271 = new BbcAcornDfs(() => this.cpu.nmi());
+  /** The analogue port's uPD7002 ADC (&FEC0-&FEDF); end of conversion is
+   *  System VIA CB1. */
+  readonly adc = new Upd7002();
+  /** The two joysticks on the analogue port, as the host drives them. */
+  readonly sticks = new AnalogSticks(2);
+  /** Joystick fire buttons, System VIA PB4 (joystick 1) and PB5 (joystick 2). */
+  private readonly fire = [false, false];
   /** The 6850 ACIA behind the serial ULA: RS423 or, here, the cassette port. */
   readonly acia = new Mc6850();
   /** Cassette deck, tone decoder and recorder wired to the serial ULA. */
@@ -282,6 +291,43 @@ export class BbcMachine extends BaseMachine implements Machine {
     );
   }
 
+  /** A joystick direction or fire button from the host. Directions are full
+   *  deflection; fire is PB4/PB5, low while pressed. */
+  joystickPress(dir: string, pressed: boolean, player: number): void {
+    if (player !== 0 && player !== 1) return;
+    if (dir === 'fire') { this.fire[player] = pressed; this.updateFireInputs(); return; }
+    if (this.sticks.press(dir, pressed, player)) this.updateStickInputs(player);
+  }
+
+  /** A gamepad's proportional axis (-1 left/up … +1 right/down). */
+  joystickAnalog(axis: 'x' | 'y', value: number, player: number): void {
+    if (player !== 0 && player !== 1) return;
+    this.sticks.analog(axis, value, player);
+    this.updateStickInputs(player);
+  }
+
+  /** Release both sticks and fire buttons (window blur). */
+  releaseJoysticks(): void {
+    this.sticks.reset();
+    this.fire[0] = this.fire[1] = false;
+    this.updateStickInputs(0);
+    this.updateStickInputs(1);
+    this.updateFireInputs();
+  }
+
+  /** Joystick `player`'s position onto ADC channels 2p (X) and 2p+1 (Y).
+   *  A BBC stick reads highest at full left and full up. */
+  private updateStickInputs(player: number): void {
+    this.adc.inputs[player * 2] = axisToRange(this.sticks.x(player), 0xFFF, true);
+    this.adc.inputs[player * 2 + 1] = axisToRange(this.sticks.y(player), 0xFFF, true);
+  }
+
+  /** PB4/PB5 are inputs pulled high; a pressed fire button grounds its bit.
+   *  PB6/PB7 (the speech system's lines) stay high. */
+  private updateFireInputs(): void {
+    this.sysVia.portBInput = 0xFF & ~(this.fire[0] ? 0x10 : 0) & ~(this.fire[1] ? 0x20 : 0);
+  }
+
   /** A key changed: pulse CA2 (keyboard) when auto-scan is enabled. */
   keyboardActivity(): void {
     if (!this.ic32.keyboardScan) return;
@@ -334,6 +380,8 @@ export class BbcMachine extends BaseMachine implements Machine {
     // genuine transition (VSYNC on CA1, ADC EOC on CB1).
     this.sysVia.setCA1(true);
     this.sysVia.setCB1(true);
+    this.adc.reset();
+    this.updateFireInputs();
     this.ic32 = { soundEnabled: false, keyboardScan: false, c0: 0, c1: 0, capsLock: false, shiftLock: false };
     this.videoUlaControl = 0;
     this.videoPaletteRegister = 0;
@@ -403,6 +451,7 @@ export class BbcMachine extends BaseMachine implements Machine {
       this.disc?.tick(viaCycles);   // 1 MHz disc controller clock
     }
     const now = this.cpu.tStates;
+    if (this.adc.doneAt >= 0 && now >= this.adc.doneAt) this.adc.tick(now);
     this.cassette.step(elapsed, now);
     this.updateSerialInputs();
     this.acia.tick(now);

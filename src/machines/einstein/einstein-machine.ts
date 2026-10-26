@@ -31,6 +31,7 @@ import type { Machine, MachineHost, MachineKind, MachineDescriptor, BorderMode, 
 import { applyAySettings } from '@/machines/shared/ay-settings.ts';
 import { resolveDriveCount } from '@/machines/shared/drive-count.ts';
 import { einsteinDescriptor } from '@/machines/einstein/descriptor.ts';
+import { AnalogSticks, axisToRange } from '@/machines/shared/analog-stick.ts';
 import { createEinsteinServices, type EinsteinServices } from '@/machines/einstein/services/index.ts';
 import type { EinsteinModel } from '@/models.ts';
 import type { OcrGridName, OcrResult } from '@/ocr/ocr.ts';
@@ -93,6 +94,13 @@ export class EinsteinMachine extends BaseMachine implements Machine {
   boardIntMask = 0;
   /** T-state at which an ADC conversion completes (INTR), or -1. */
   adcDoneAt = -1;
+  /** TC-01 ADC0844: the channel being converted (0-3) and the last result. */
+  adcChannel = 0;
+  adcResult = 0x80;
+  /** Einstein 256: the selection last written to the pseudo-ADC (0x38). */
+  pseudoAdc = 0;
+  /** The two joysticks, as the host drives them. */
+  readonly sticks = new AnalogSticks(2);
 
   /** Per-frame I/O activity for the status-bar LEDs. */
   readonly activity = { kbdReads: 0, fdcAccesses: 0, tapeReads: 0, ayWrites: 0 };
@@ -270,6 +278,9 @@ export class EinsteinMachine extends BaseMachine implements Machine {
     this.boardIntPending = 0;
     this.boardIntMask = 0;
     this.adcDoneAt = -1;
+    this.adcChannel = 0;
+    this.adcResult = 0x80;
+    this.pseudoAdc = 0;
     this.resetFrameCount();
     this.needsDisplay = true;
     this.setStatus('Reset');
@@ -383,6 +394,7 @@ export class EinsteinMachine extends BaseMachine implements Machine {
         // Keyboard → ADC → fire, below the CTC (and the unmodelled PIO).
         if (this.adcDoneAt >= 0 && this.cpu.tStates >= this.adcDoneAt) {
           this.adcDoneAt = -1;
+          this.adcResult = this.adcInput(this.adcChannel);
           this.boardIntPending |= EINSTEIN_INT_ADC;
         }
         // Inhibited while a CTC channel is under service (IEO low until RETI).
@@ -445,6 +457,63 @@ export class EinsteinMachine extends BaseMachine implements Machine {
     this.scanBoardInterrupts();
     this.fdc.tickFrame();   // motor spin-down / display-latch decay
     this.needsDisplay = true;
+  }
+
+  // ── Joysticks ─────────────────────────────────────────────────────────
+
+  /** A host joystick direction (full deflection) or fire button. Player 1's
+   *  fire is status bit 0, player 2's bit 1. */
+  joystickPress(dir: string, pressed: boolean, player: number): void {
+    if (player !== 0 && player !== 1) return;
+    if (dir === 'fire') { this.keyboard.setJoystick(player === 0 ? 'fire1' : 'fire2', pressed); return; }
+    this.sticks.press(dir, pressed, player);
+  }
+
+  /** A gamepad's proportional axis (-1 left/up … +1 right/down). */
+  joystickAnalog(axis: 'x' | 'y', value: number, player: number): void {
+    if (player !== 0 && player !== 1) return;
+    this.sticks.analog(axis, value, player);
+  }
+
+  /**
+   * What the TC-01's ADC0844 converts on `channel`: channels 0/1 are joystick
+   * 1's X/Y, 2/3 joystick 2's. X reads 0 at full left and 255 at full right,
+   * Y 255 at full up and 0 at full down, centred 0x80 (MAME's einstein
+   * analogue ports, the only description of the wiring to hand).
+   */
+  adcInput(channel: number): number {
+    const player = (channel >> 1) & 1;
+    return (channel & 1)
+      ? axisToRange(this.sticks.y(player), 0xFF, true)
+      : axisToRange(this.sticks.x(player), 0xFF, false);
+  }
+
+  /** Joystick `player` as the 256's port bits 3-0, active low: b0 up, b1
+   *  down, b2 left, b3 right (half deflection counts as pushed). */
+  joystickDirBits(player: number): number {
+    const x = this.sticks.x(player), y = this.sticks.y(player);
+    let v = 0x0F;
+    if (y <= -0.5) v &= ~0x01;
+    if (y >= 0.5) v &= ~0x02;
+    if (x <= -0.5) v &= ~0x04;
+    if (x >= 0.5) v &= ~0x08;
+    return v;
+  }
+
+  /**
+   * Einstein 256 pseudo-ADC (port 0x38): the digital sticks read as an ADC.
+   * The written selection's b1 picks port A (set; joystick 2) or port B
+   * (joystick 1); b2 with b0 clear asks for X (right 0xFF, left 0x00), with
+   * b0 set for Y (up 0xFF, down 0x00); anything else, or a centred stick,
+   * reads 0x7F (MAME einstein pseudo_adc_r).
+   */
+  pseudoAdcRead(): number {
+    const bits = this.joystickDirBits((this.pseudoAdc & 0x02) ? 1 : 0);
+    switch (this.pseudoAdc & 0x05) {
+      case 0x04: return (bits & 0x08) === 0 ? 0xFF : (bits & 0x04) === 0 ? 0x00 : 0x7F;
+      case 0x05: return (bits & 0x01) === 0 ? 0xFF : (bits & 0x02) === 0 ? 0x00 : 0x7F;
+      default: return 0x7F;
+    }
   }
 
   /** The 50Hz keyboard scan (MAME keyboard_timer_callback): a key down on

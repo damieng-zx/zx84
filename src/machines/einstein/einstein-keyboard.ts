@@ -227,11 +227,12 @@ export class EinsteinKeyboard {
    *  — port 0x26 bit0 on the 256. */
   alphaLockKeyPressed(): boolean { return (this.matrix[0] & 0x10) === 0; }
 
-  /** Einstein 256 joystick port low nibble bits (active-low, b4 = fire).
-   *  Directions are not mapped yet; fire rides the fire1/fire2 state. */
-  joystickByte(stick: 1 | 2): number {
+  /** Einstein 256 joystick port bits 4-0, active-low: b0 up, b1 down, b2
+   *  left, b3 right (`dirs`, from the machine's stick state) and b4 fire,
+   *  which is the same button as status bit 0 (`stick` 1) or bit 1 (2). */
+  joystickByte(stick: 1 | 2, dirs = 0x0F): number {
     const fire = stick === 1 ? this.fire1 : this.fire2;
-    return fire ? 0x0F : 0x1F;
+    return (fire ? 0x00 : 0x10) | (dirs & 0x0F);
   }
 
   reset(): void {

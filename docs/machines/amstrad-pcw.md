@@ -63,8 +63,12 @@ shipped or hosted (`bootDisk: false`); load your own.
 
 ## Peripherals
 
-None. The PCW descriptor hides the tape, Microdrive, mouse, joystick, system
-variables and font panes, and has no joystick, mouse or cartridge slot.
+| Peripheral | Type | Models | Status | Notes |
+| --- | --- | --- | --- | --- |
+| Joystick interface | input | all | ✅ | One add-on interface, chosen in the Joystick pane (one player, one fire button). Kempston at &9F (active high: b4 fire, b3 down, b2 up, b1 left, b0 right); Spectravideo at &E0 (active high: b4 right, b3 up, b2 left, b1 fire, b0 down, b7 0); Cascade at &E0 (active low: b7 fire, b4 up, b2 down, b1 right, b0 left). Port layouts from John Elliott's PCW hardware guide §12. None fitted: both ports read &FF |
+
+The PCW descriptor hides the tape, Microdrive, mouse, system variables and font
+panes, and has no mouse or cartridge slot.
 
 ---
 
@@ -136,10 +140,10 @@ None known.
 - **Gate array bootstrap mode.** The invented bootstrap code is not run; the boot sector is placed and entered natively.
 - **Per-line flyback pulse.** Status bit 6 reports frame flyback only; software that watches for the line pulse itself sees nothing.
 - **60 Hz / 28-line screen.** The status byte always reports the 50 Hz, 32-line screen.
-- **Cursor and extended keyboard bits.** The key bits in &3FFB–&3FFF are unmapped (a `TODO(verify)` in the keyboard source: the reference does not enumerate them). The joystick bits of &3FF9 have no cap and no host mapping, and the joystick and mouse inputs are absent.
+- **Cursor and extended keyboard bits.** The key bits in &3FFB–&3FFF are unmapped (a `TODO(verify)` in the keyboard source: the reference does not enumerate them). The keyboard joystick bits (J1 in &3FF9, J2 in &3FFB) stay idle: no PCW keyboard has a socket for them (PCW hardware guide §10.3), so a host joystick goes to an add-on interface instead (see Peripherals). The LK2 W/A/D/X keyboard joystick is not modelled (LK2 is not fitted). There is no mouse.
 - **Drive mechanism limits.** Single- versus double-sided drive A (8256/8512 versus 9512/9256) is recorded per model but not enforced on mounted images.
 - **Tape, snapshots, cartridges, system ROM.** The PCW has none; the corresponding services are absent.
-- **Add-on ports.** Any port not decoded reads as open bus (&FF) and ignores writes; no serial interface or mouse is attached.
+- **Add-on ports.** Any port not decoded reads as open bus (&FF) and ignores writes; no serial interface or mouse is attached. The DKTronics joystick (a port of the DKTronics sound board's AY) is not offered, as that board is not emulated.
 - **Execution tracing.** Not wired up for this machine.
 
 ## Faithful quirks
@@ -164,6 +168,7 @@ None known.
 | [`tests/pcw/machine.test.ts`](../../tests/pcw/machine.test.ts) | Registry entry with no ROM, per-model RAM/drives/printer/drive type/phosphor, port decode, system commands, FDC response time, boot-sector load at &F000/&F010, 300 Hz pulse behaviour | Unit test |
 | [`tests/pcw/bootstrap.test.ts`](../../tests/pcw/bootstrap.test.ts) | Boot sector checksum and location, with no-disc, unreadable and bad-checksum reported separately | Unit test |
 | [`tests/pcw/keyboard.test.ts`](../../tests/pcw/keyboard.test.ts), [`pcw-keyboard-layout.test.ts`](../../tests/pcw/pcw-keyboard-layout.test.ts) | Matrix bit positions, idle zero state, link and heartbeat bits, on-screen keyboard caps and geometry for both decks | Unit test |
+| [`tests/pcw/pcw-joystick.test.ts`](../../tests/pcw/pcw-joystick.test.ts) | Kempston, Spectravideo and Cascade port bit layouts from the PCW hardware guide; none fitted floats high; keyboard-matrix joystick bits untouched | Unit test |
 | [`tests/pcw/ocr.test.ts`](../../tests/pcw/ocr.test.ts) | Font sanity check, cell recognition, TEXT overlay capability | Unit test |
 | [`tests/cores/upd765a-int.test.ts`](../../tests/cores/upd765a-int.test.ts), [`upd765a-tc.test.ts`](../../tests/cores/upd765a-tc.test.ts) | uPD765A interrupt line and terminal-count behaviour the PCW depends on | Unit test |
 | [`tests/emulator.test.ts`](../../tests/emulator.test.ts) | Drive A disc kept when switching within the PCW family, dropped when switching to another machine | Unit test |
