@@ -11,11 +11,11 @@
  */
 
 import type { DskImage } from '@/media/floppy/disk-image.ts';
-import { parseHFE, serializeHFE, isHFE, attachHfeBitstream } from '@/media/floppy/hfe.ts';
-import { parseSCP, isScp } from '@/media/floppy/scp.ts';
-import { parseMgt, serializeMgt, blankMgtDisk, mgtExtFromName } from '@/media/floppy/mgt-image.ts';
-import { parseTrd, serializeTrd, blankTrdDisk } from '@/media/floppy/trd-image.ts';
-import { parseScl, serializeScl, isScl, SCL_DISK_FORMAT } from '@/media/floppy/scl-image.ts';
+import { serializeHFE, attachHfeBitstream } from '@/media/floppy/hfe.ts';
+import { parsePlusDMedia, parseBetaMedia } from '@/media/floppy/addon-images.ts';
+import { serializeMgt, blankMgtDisk } from '@/media/floppy/mgt-image.ts';
+import { serializeTrd, blankTrdDisk } from '@/media/floppy/trd-image.ts';
+import { serializeScl, SCL_DISK_FORMAT } from '@/media/floppy/scl-image.ts';
 import { parseMdrBlocks } from '@/media/microdrive.ts';
 import {
   persistPlusDDisk, restorePlusDDisk, clearPlusDDisk,
@@ -67,8 +67,7 @@ const PLUSD: DiskPeripheral = {
   diskLabel: '+D disk',
   notFitted: 'Enable the MGT +D in Hardware first',
   saveBase: 'plusd',
-  parse: (data, filename) =>
-    isHFE(data) ? parseHFE(data) : isScp(data) ? parseSCP(data) : parseMgt(data, mgtExtFromName(filename)),
+  parse: (data, filename) => parsePlusDMedia(data, filename),
   persist: (unit, data, name) => persistPlusDDisk(unit, data, name),
   clear: (unit) => clearPlusDDisk(unit),
   restore: (unit) => restorePlusDDisk(unit),
@@ -81,11 +80,7 @@ const BETA: DiskPeripheral = {
   diskLabel: 'Beta Disk',
   notFitted: 'Enable the Beta Disk in Hardware first',
   saveBase: 'betadisk',
-  parse: (data) =>
-    isHFE(data) ? parseHFE(data)
-    : isScp(data) ? parseSCP(data)
-    : isScl(data) ? parseScl(data)
-    : parseTrd(data),
+  parse: (data) => parseBetaMedia(data),
   persist: (unit, data, name) => persistBetaDiskDisk(unit, data, name),
   clear: (unit) => clearBetaDiskDisk(unit),
   restore: (unit) => restoreBetaDiskDisk(unit),

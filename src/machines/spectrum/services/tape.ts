@@ -10,6 +10,7 @@ import type { Spectrum } from '@/machines/spectrum/spectrum.ts';
 import type { TapeBlock } from '@/media/tape/tap.ts';
 import { parseTZX } from '@/media/tape/tzx.ts';
 import { parseCSW } from '@/media/tape/csw.ts';
+import { wavToPulseBlocks } from '@/media/tape/wav.ts';
 
 /** One-line pane label for a tape block (data blocks show flag + length). */
 export function tapeBlockInfo(b: TapeBlock, index: number): TapeBlockInfo {
@@ -100,6 +101,7 @@ export class SpectrumTapeService implements TapeService {
       const ext = name.toLowerCase().split('.').pop();
       blocks = ext === 'tzx' || ext === 'cdt' ? parseTZX(data)
         : ext === 'csw' ? await parseCSW(data)
+        : ext === 'wav' ? wavToPulseBlocks(data)
         : this.s.tape.parseTAP(data);
     } catch {
       return false;

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { isTd0, parseTd0, lzhufDecode, td0Crc } from '@/media/floppy/td0.ts';
 import { parseFloppyImage } from '@/media/floppy/hfe.ts';
+import { parsePlusDMedia, parseBetaMedia } from '@/media/floppy/addon-images.ts';
 
 // ── Synthetic TD0 builder ───────────────────────────────────────────────────
 //
@@ -332,5 +333,17 @@ describe('parseFloppyImage', () => {
     const img = parseFloppyImage(buildTd0([pcwTrack(0), pcwTrack(1)]));
     expect(img.numTracks).toBe(2);
     expect(img.tracks[0][0]!.sectors).toHaveLength(9);
+  });
+});
+
+// The +D and Beta Disk read .td0 on both the mount path and the reload path,
+// which share these parsers (a copy in the shell once lacked the TD0 case).
+describe('the Spectrum disk add-ons', () => {
+  const image = (): Uint8Array => buildTd0([pcwTrack(0), pcwTrack(1)]);
+  it('+D reads a Teledisk image whatever its name', () => {
+    expect(parsePlusDMedia(image(), 'game.td0')?.tracks.length).toBeGreaterThan(0);
+  });
+  it('Beta Disk reads a Teledisk image', () => {
+    expect(parseBetaMedia(image())?.tracks.length).toBeGreaterThan(0);
   });
 });

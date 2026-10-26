@@ -12,6 +12,7 @@ import { wavToPulseBlocks } from '@/media/tape/wav.ts';
 import { parseAcornTape } from '@/machines/shared/acorn-tape-service.ts';
 import { Spectrum } from '@/machines/spectrum/spectrum.ts';
 import { CpcMachine } from '@/machines/cpc/cpc-machine.ts';
+import { JupiterAceMachine } from '@/machines/jupiter-ace/ace-machine.ts';
 import type { CswBlock, SetLevelBlock } from '@/media/tape/tap.ts';
 
 const RATE = 44100;
@@ -104,6 +105,18 @@ describe('WAVE tapes on the machines that play pulses', () => {
     expect(c.services.media.accepts().map(t => t.ext)).toContain('.wav');
     expect(await c.services.media.mount(recording(), 'game.wav')).toMatchObject({ ok: true, target: 'tape' });
     expect(c.services.tape!.rawBlocks.some(b => b.kind === 'csw')).toBe(true);
+  });
+
+  // A page reload restores the saved tape through mountBytes, not mount: it
+  // must read the bytes as a recording too, not as a .tap of nonsense blocks.
+  it.each([
+    ['Spectrum', () => new Spectrum('zx48k', null)],
+    ['CPC', () => new CpcMachine('cpc6128', null)],
+    ['Jupiter Ace', () => new JupiterAceMachine('jupiter-ace', null)],
+  ] as const)('come back as a pulse block when the %s restores them on reload', async (_name, create) => {
+    const m = create();
+    expect(await m.services.tape!.mountBytes(recording(), 'game.wav')).toBe(true);
+    expect(m.services.tape!.rawBlocks.map(b => b.kind)).toEqual(['set-level', 'csw']);
   });
 
   it('a corrupt .wav is refused with a message, not mounted', async () => {
