@@ -432,7 +432,6 @@ export class Spectrum extends BaseMachine implements Machine {
     this.mixer.ayGain = gains.psg ?? 1;
     this.mixer.auxGain = gains.specdrum;
     this.mixer.monoGain = gains.uspeech ?? 1;
-    this.ula.micAudible = view.get('mic-audible', true);
     // The SpecDrum needs no ROM, so it is fitted/removed live here (and read once
     // at build by prepare()).
     this.setSpecdrumFitted(view.get('specdrum', false));

@@ -119,9 +119,10 @@ export class ULA {
   micBit = 0;
 
   /** Whether the MIC line is heard in the speaker mix. Real hardware leaks it
-   *  faintly; software that pulses MIC as a sync/trigger output (the SpecDrum's
-   *  clock) then ticks audibly, so the Sound pane can mute it. */
-  micAudible = true;
+   *  faintly, but software that pulses MIC as a sync/trigger output (the
+   *  SpecDrum's clock) then ticks audibly, so it is off by default and there is
+   *  no user setting for it. */
+  micAudible = false;
 
   /** Tape EAR bit (0 or 1), set by the tape player */
   tapeEarBit = 0;
