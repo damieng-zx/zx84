@@ -18,10 +18,16 @@
  *
  * Anything else (the stack traffic of JSR, RTS, RTI, PHA, PLA and BRK, the
  * indirect pointer of JMP, interrupt entry) is put on the last cycle, which is
- * inside the instruction but not necessarily its exact cycle. This module
- * imports only the disassembler's opcode table.
+ * inside the instruction but not necessarily its exact cycle.
+ *
+ * Inside a bus callback the instruction's length in cycles is not known yet
+ * either; `accessTime` takes it from each core's base cycle counts, measured
+ * once by running every opcode on a scratch core (so a page-crossing or
+ * decimal-mode extra cycle is not in it).
  */
 
+import { M6502 } from '@/cores/m6502.ts';
+import { M65C02 } from '@/cores/m65c02.ts';
 import { disasmOne } from './disasm.ts';
 
 /** Instruction length by opcode, built from the disassembler's table. */
@@ -69,4 +75,47 @@ export function accessCycle(opcode: number, pc: number, addr: number, write: boo
   if (offset < LENGTH[opcode & 0xFF]) return offset + 1;
   if (RMW[opcode & 0xFF] === 1 && cycles >= 3) return cycles - 2;
   return cycles;
+}
+
+/** Base cycles per opcode, measured on a scratch core: operands of zero, index
+ *  registers of zero (so no page is crossed) and flags clear. A branch is
+ *  counted as taken; it makes no data access, so that does not matter here. */
+function measureCycles(cpu: M6502): Uint8Array {
+  const table = new Uint8Array(256);
+  for (let op = 0; op < 256; op++) {
+    cpu.reset();
+    cpu.pc = 0x0200;
+    cpu.a = cpu.x = cpu.y = 0;
+    cpu.p = 0x24;              // I set, D clear: no interrupt, no decimal extra
+    cpu.read = (addr) => (addr === 0x0200 ? op : 0);
+    cpu.write = () => {};
+    const before = cpu.tStates;
+    cpu.step();
+    table[op] = cpu.tStates - before;
+  }
+  return table;
+}
+
+let nmosCycles: Uint8Array | null = null;
+let cmosCycles: Uint8Array | null = null;
+
+/** The base number of cycles of an instruction, on an NMOS 6502 or a 65C02. */
+export function baseCycles(opcode: number, cmos: boolean): number {
+  if (cmos) return (cmosCycles ??= measureCycles(new M65C02()))[opcode & 0xFF];
+  return (nmosCycles ??= measureCycles(new M6502()))[opcode & 0xFF];
+}
+
+/**
+ * The CPU cycle a bus access falls on, worked out while the access is being
+ * made: `start` is the core's cycle count at the instruction's start (which it
+ * still is inside the callback), `opcode` the instruction at `pc`. A machine
+ * that draws its picture as the beam goes uses it to catch the picture up to
+ * the exact moment a write changes what is drawn. An opcode of -1 (not known)
+ * gives `start`.
+ */
+export function accessTime(
+  start: number, opcode: number, pc: number, addr: number, write: boolean, cmos: boolean,
+): number {
+  if (opcode < 0) return start;
+  return start + accessCycle(opcode, pc, addr, write, baseCycles(opcode, cmos)) - 1;
 }

@@ -18,6 +18,7 @@ import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
 import { m6502ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
+import { accessTime } from '@/debug/m6502/bus-cycles.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type {
   AuxRomRequest, BorderMode, Machine, MachineDescriptor, MachineHost, MachineKind, SettingsView,
@@ -51,6 +52,16 @@ const SERIAL_BAUD = [19200, 1200, 4800, 150, 9600, 300, 2400, 75] as const;
 
 /** PAL scanlines per frame. */
 const LINES_PER_FRAME = 312;
+/** What each accuracy means for reading a beam position against the picture. */
+const VIDEO_NOTES: Readonly<Record<'high' | 'mid' | 'low', string>> = {
+  high: 'At High accuracy the picture is drawn as the beam goes, to the character, so a write shows from the character the beam had reached',
+  mid: 'At Mid accuracy each scanline is drawn whole when the beam reaches its end, with the state as it is then',
+  low: 'At Low accuracy the picture is drawn at the end of the frame, so a mid-frame change shows for the whole frame',
+};
+/** How the frame in progress is drawn (see `videoAccuracy`). */
+const VIDEO_LOW = 0;
+const VIDEO_MID = 1;
+const VIDEO_HIGH = 2;
 /** How long a SHIFT+BREAK holds SHIFT — the MOS samples it early in its reset
  *  sequence; half a second covers it with margin, like a real key press. */
 const BOOT_SHIFT_FRAMES = 25;
@@ -146,6 +157,10 @@ export class BbcMachine extends BaseMachine implements Machine {
       return value;
     };
     this.cpu.write = (addr, val) => {
+      // High accuracy: draw up to the beam with things as they were, so a
+      // write to the screen, the palette, the ULA or the CRTC shows from the
+      // character the beam has reached.
+      if (this.frameVideo === VIDEO_HIGH) this.catchUpVideo(addr);
       this.memory.writeByte(addr, val);
       if (this.memWatchpoints.length > 0 && this.memWatchHit === null) this.recordMemWatch(addr & 0xFFFF, val & 0xFF, 'write');
     };
@@ -223,6 +238,7 @@ export class BbcMachine extends BaseMachine implements Machine {
     this.psg.antialias = view.get<Sn76489AntialiasMode>('ay-antialias', 'mute');
     this.psg.setStereoMode(view.get<Sn76489StereoMode>('sn-stereo', 'MONO'));
     this.video.paletteMode = view.get<'pal' | 'measured'>('bbc-color-map', 'pal');
+    this.videoAccuracy = view.get<'high' | 'mid' | 'low'>('scanline-accuracy', 'high');
     this.diskSystem = view.get<BbcDiskSystem>('bbc-disk-system', '1770');
     this.tapeTurboEnabled = view.get('tape-turbo-load', true);
     // With the SAA5050 upscaler the display rounds and smooths the teletext
@@ -407,7 +423,8 @@ export class BbcMachine extends BaseMachine implements Machine {
       cyclesPerLine: BBC_TSTATES_PER_FRAME / LINES_PER_FRAME,
       linesPerFrame: LINES_PER_FRAME,
       displayStart: 0,
-      note: 'line 0 is the first line of CRTC character row 0, which is restarted each frame; VSYNC, the frame interrupt (System VIA CA1), starts on the first line of row R7 (line 272 in modes 0-2, 4 and 5, 270 in 3, 6 and 7). The 40000-cycle frame is split evenly into 312 lines of 40000/312 (about 128.2) cycles, not the 64 µs lines of 128 a real 6845 makes, so a cycle within a line is fractional. The picture is drawn at the end of the frame, so a mid-frame register change shows for the whole frame',
+      note: 'line 0 is the first line of CRTC character row 0, which is restarted each frame; VSYNC, the frame interrupt (System VIA CA1), starts on the first line of row R7 (line 272 in modes 0-2, 4 and 5, 270 in 3, 6 and 7). The 40000-cycle frame is split evenly into 312 lines of about 128.2 cycles, not the 6845’s 128. '
+        + VIDEO_NOTES[this.videoAccuracy],
     };
   }
   override supportsBeamStops(): boolean { return true; }
@@ -423,6 +440,29 @@ export class BbcMachine extends BaseMachine implements Machine {
 
   protected override interruptEntryPending(): boolean { return this.cpu.interruptPending(); }
 
+  // ── Video accuracy ─────────────────────────────────────────────────────
+
+  /** The Display pane's accuracy: 'high' draws as the beam goes, to the
+   *  character, 'mid' a scanline at a time, 'low' the whole frame at its end
+   *  (the fastest, but a mode or palette change mid-frame shows everywhere). */
+  videoAccuracy: 'high' | 'mid' | 'low' = 'high';
+  /** The accuracy the frame in progress is drawn at (VIDEO_*), fixed when it
+   *  starts; turbo draws at Low. */
+  private frameVideo = VIDEO_LOW;
+
+  /** Draw the scanline in progress up to where the beam is for an access the
+   *  CPU is making to `addr` now (the 6502 core calls its bus before it counts
+   *  the instruction's cycles, so the access's own cycle is worked out). */
+  private catchUpVideo(addr: number): void {
+    if (!this.frameOpen) return;
+    const pc = this.insnPc;
+    const t = accessTime(this.cpu.tStates, this.peekOpcode(pc), pc, addr, true, false);
+    const lineStart = this.frameStartT + (this.fLine * BBC_TSTATES_PER_FRAME) / LINES_PER_FRAME;
+    // A character a cycle in the 2MHz modes, every other cycle in the 1MHz ones.
+    const perChar = (this.videoUlaControl & 0x10) !== 0 ? 1 : 2;
+    this.video.drawLine(this, this.fLine, Math.floor((t - lineStart) / perChar));
+  }
+
   protected runFrame(): void {
     const skipAudio = this.speedMultiplier !== 1 || this.cassette.turboActive;
     // A frame a stop left part-way carries on from the line it was in.
@@ -430,6 +470,12 @@ export class BbcMachine extends BaseMachine implements Machine {
       this.activity.psgWrites = 0;
       this.crtc.beginFrame();
       this.fLine = 0;
+      this.frameVideo = this.inTurbo() ? VIDEO_LOW
+        : this.videoAccuracy === 'high' ? VIDEO_HIGH : this.videoAccuracy === 'mid' ? VIDEO_MID : VIDEO_LOW;
+      if (this.frameVideo !== VIDEO_LOW) {
+        this.syncLayoutToScale();
+        this.video.beginFrame(this);
+      }
     }
     this.memWatchHit = null;
     let lastAudioT = this.cpu.tStates;
@@ -465,6 +511,12 @@ export class BbcMachine extends BaseMachine implements Machine {
           return;
         }
       }
+      // Mid and High: the scanline is drawn (the rest of it, at High) before
+      // the CRTC moves on.
+      if (this.frameVideo !== VIDEO_LOW) {
+        this.video.drawLine(this, this.fLine, Infinity);
+        this.video.endLine();
+      }
       this.crtc.advanceLine();
       if (this.crtc.vsyncStart) {
         this.sysVia.setCA1(false);                       // VSYNC negative edge
@@ -474,8 +526,10 @@ export class BbcMachine extends BaseMachine implements Machine {
       this.prevVsync = this.crtc.vsyncActive;
     }
 
-    this.syncLayoutToScale();
-    this.video.render(this);
+    if (this.frameVideo === VIDEO_LOW) {
+      this.syncLayoutToScale();
+      this.video.render(this);
+    }
     this.disc?.tickFrame();
     this.cassette.frameTick(this.tapeTurboEnabled);
     if (this.bootShiftFrames > 0 && --this.bootShiftFrames === 0) {

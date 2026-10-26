@@ -376,11 +376,15 @@ export interface MachineUiCapabilities {
    * Which Accuracy drop-down the Display pane offers, or false for none.
    *
    * 'scanline' is the Spectrum's per-t-state / per-line / per-cell renderer;
-   * 'contention' is for a machine that always draws a whole line at a time
-   * and whose only accuracy step is whether memory slots are charged. Both
-   * write the same `scanline-accuracy` setting, so the control is one control.
+   * 'raster' is a machine that can draw per CPU cycle, per scanline or once
+   * per frame (the BBC Micro and the Apple II), where the first two show what
+   * a program changes mid-frame (split modes, palette changes) and the last is
+   * the fastest; 'contention' is for a machine that always draws a whole line
+   * at a time and whose only accuracy step is whether memory slots are
+   * charged. All write the same `scanline-accuracy` setting, so the control
+   * is one control.
    */
-  readonly accuracy: false | 'scanline' | 'contention';
+  readonly accuracy: false | 'scanline' | 'raster' | 'contention';
   /** Built-in floppy drives (A:/B:) are fitted. */
   readonly builtinDisk: boolean;
   /** Boolean Hardware-pane settings (SettingsView keys) a capability depends

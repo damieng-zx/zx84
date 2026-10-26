@@ -196,6 +196,12 @@ export class Crtc6845 {
     };
   }
 
+  /** The scanline in progress as `currentLine` gives it, field by field and
+   *  without allocating, for a host that draws as the beam goes. */
+  get rowAddress(): number { return this.maRow; }
+  get rasterAddress(): number { return this.ra; }
+  get inVerticalDisplay(): boolean { return this.vcc < this.regs[R_VERT_DISPLAYED]; }
+
   /** Advance to the next scanline, updating VCC/RA/MA and VSYNC. After this,
    *  `vsyncStart` is true iff VSYNC begins on the scanline just entered. */
   advanceLine(): void {

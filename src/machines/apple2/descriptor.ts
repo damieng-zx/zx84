@@ -25,7 +25,7 @@ const APPLE2_UI: MachineUiCapabilities = {
   memoryLayout: false,
   trace: false,
   colorMap: 'apple2',
-  accuracy: false,
+  accuracy: 'raster',
   builtinDisk: true,
   builtinDrives: 2,
   joystick: true,

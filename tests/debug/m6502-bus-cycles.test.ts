@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { accessCycle, instructionLength, isReadModifyWrite } from '@/debug/m6502/bus-cycles.ts';
+import { accessCycle, accessTime, baseCycles, instructionLength, isReadModifyWrite } from '@/debug/m6502/bus-cycles.ts';
 
 describe('6502 bus cycles', () => {
   it('knows the length of every addressing mode', () => {
@@ -46,5 +46,28 @@ describe('6502 bus cycles', () => {
     expect(accessCycle(0xFE, 0xE000, 0x1234, false, 7)).toBe(5);       // INC abs,X
     expect(accessCycle(0xF6, 0xE000, 0x0080, false, 6)).toBe(4);       // INC zp,X
     expect(accessCycle(0xE3, 0xE000, 0x0080, false, 8)).toBe(6);       // ISC (zp,X)
+  });
+});
+
+describe('baseCycles and accessTime', () => {
+  it('measures the documented base cycles of the core', () => {
+    expect(baseCycles(0xA9, false)).toBe(2);   // LDA #
+    expect(baseCycles(0xAD, false)).toBe(4);   // LDA abs
+    expect(baseCycles(0x8D, false)).toBe(4);   // STA abs
+    expect(baseCycles(0x9D, false)).toBe(5);   // STA abs,X
+    expect(baseCycles(0xEE, false)).toBe(6);   // INC abs
+    expect(baseCycles(0x20, false)).toBe(6);   // JSR
+    expect(baseCycles(0x9C, true)).toBe(4);    // STZ abs (65C02)
+  });
+  it('puts a store on its last cycle and a soft-switch read on its own', () => {
+    // STA $C050 at $0300, starting at cycle 1000: the write is cycle 4.
+    expect(accessTime(1000, 0x8D, 0x0300, 0xC050, true, false)).toBe(1003);
+    // LDA $C054 reads on cycle 4; the opcode fetch is cycle 1.
+    expect(accessTime(1000, 0xAD, 0x0300, 0xC054, false, false)).toBe(1003);
+    expect(accessTime(1000, 0xAD, 0x0300, 0x0300, false, false)).toBe(1000);
+    // INC abs reads on cycle 4 and writes on cycle 6.
+    expect(accessTime(1000, 0xEE, 0x0300, 0x2000, false, false)).toBe(1003);
+    expect(accessTime(1000, 0xEE, 0x0300, 0x2000, true, false)).toBe(1005);
+    expect(accessTime(1000, -1, 0x0300, 0x2000, true, false)).toBe(1000);
   });
 });

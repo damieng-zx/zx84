@@ -26,7 +26,7 @@ const BBC_UI: MachineUiCapabilities = {
   trace: false,
   // Mode 7 / ULA palette control; 'bbc' selects the BBC palette family.
   colorMap: 'bbc',
-  accuracy: false,
+  accuracy: 'raster',
   builtinDisk: true,
   builtinDrives: 2,
   joystick: false,

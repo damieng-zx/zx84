@@ -27,6 +27,15 @@
  * pick up colour fringes, as they do on a colour monitor. Lores is drawn from a
  * fixed 16-colour table in both composite modes: its colours come from the
  * video generator's own phase table, not from decoding a 1-bit stream.
+ *
+ * Every display line is built in two steps, as the hardware makes it: its 40
+ * columns are fetched (`fetchColumns`, each with the switches and memory as
+ * they are when it is fetched), then the line is painted (`paintFetched`).
+ * `render` does both for the whole frame at its end (the Low accuracy); the
+ * machine can instead fetch a line's columns as the beam passes them (High)
+ * or all at the line's end (Mid), through `fetchLine` and `endLine`. A line
+ * whose columns came from different modes (a switch flipped mid-line) is
+ * decoded as one 560-dot composite stream.
  */
 
 import {
@@ -137,6 +146,14 @@ export interface Apple2VideoState {
   videx?: VidexView | null;
 }
 
+/** What a fetched column holds. 280-dot kinds fill `level`/`quarter`, 560-dot
+ *  kinds fill `dots`, lores keeps its nibble. */
+const COL_TEXT40 = 0;
+const COL_HIRES = 1;
+const COL_LORES = 2;
+const COL_TEXT80 = 3;
+const COL_DHIRES = 4;
+
 function pack(r: number, g: number, b: number): number {
   return (0xFF000000 | (b << 16) | (g << 8) | r) >>> 0;
 }
@@ -202,15 +219,188 @@ export class Apple2Video {
       return;
     }
     if (s.mode === 'ntsc' || s.mode === 'pal') this.ensureTables(s.mode);
-    if (s.textMode) {
-      this.textRows(s, 0, 24);
+    for (let y = 0; y < 192; y++) {
+      this.fetchColumns(s, y, 0, 40);
+      this.paintFetched(s, y);
+    }
+  }
+
+  // ── Building a line ──────────────────────────────────────────────────────
+
+  /** The kind of each fetched column of the line being built, and a lores
+   *  column's nibble. */
+  private readonly colKind = new Uint8Array(40);
+  private readonly colLores = new Uint8Array(40);
+
+  /** Fetch columns [from, to) of display line `y` (0-191) with the switches and
+   *  memory in `s`: the mode the line is in (mixed mode's last four text rows
+   *  included) decides what each column becomes. */
+  private fetchColumns(s: Apple2VideoState, y: number, from: number, to: number): void {
+    const page = s.page2 ? 'page2' : 'page1';
+    const text = s.textMode || (s.mixed && y >= 160);
+    if (text) {
+      const addr = textRowBase(page, y >> 3);
+      const r = y & 7;
+      const alt = !!s.altCharset;
+      if (s.col80) {
+        // 80 columns: the even character comes from auxiliary RAM, the odd from main.
+        const aux = s.aux ?? null;
+        for (let col = from; col < to; col++) {
+          const a = aux ? aux[(addr + col) & 0xFFFF] : 0xA0;
+          const m = s.ram[(addr + col) & 0xFFFF];
+          const ab = s.charset.glyph(a, r, s.flashPhase, alt);
+          const mb = s.charset.glyph(m, r, s.flashPhase, alt);
+          for (let x = 0; x < 7; x++) {
+            this.dots[col * 14 + x] = (ab >> (6 - x)) & 1;
+            this.dots[col * 14 + 7 + x] = (mb >> (6 - x)) & 1;
+          }
+          this.colKind[col] = COL_TEXT80;
+        }
+        return;
+      }
+      for (let col = from; col < to; col++) {
+        const bits = s.charset.glyph(s.ram[(addr + col) & 0xFFFF], r, s.flashPhase, alt);
+        for (let x = 0; x < 7; x++) {
+          this.level[col * 7 + x] = (bits >> (6 - x)) & 1;
+          this.quarter[col * 7 + x] = 0;
+        }
+        this.colKind[col] = COL_TEXT40;
+      }
       return;
     }
-    if (s.hires) {
-      if (s.col80 && s.dhires) this.doubleHires(s);
-      else this.hires(s);
-    } else this.lores(s);
-    if (s.mixed) this.textRows(s, 20, 24);
+    if (!s.hires) {
+      // Lores: 40×48 blocks of four lines; a byte's nibbles are two blocks.
+      const addr = textRowBase(page, y >> 3);
+      const high = ((y >> 2) & 1) === 1;
+      for (let col = from; col < to; col++) {
+        const b = s.ram[(addr + col) & 0xFFFF];
+        this.colLores[col] = (high ? (b >> 4) : b) & 0x0F;
+        this.colKind[col] = COL_LORES;
+      }
+      return;
+    }
+    const addr = hiresRowBase(page, y);
+    if (s.col80 && s.dhires) {
+      // Double hi-res: two bytes per 14-dot cell — auxiliary RAM first, then
+      // main, seven dots each with bit 0 leftmost.
+      const aux = s.aux ?? null;
+      for (let col = from; col < to; col++) {
+        const a = aux ? aux[(addr + col) & 0xFFFF] : 0;
+        const m = s.ram[(addr + col) & 0xFFFF];
+        for (let i = 0; i < 7; i++) {
+          this.dots[col * 14 + i] = (a >> i) & 1;
+          this.dots[col * 14 + 7 + i] = (m >> i) & 1;
+        }
+        this.colKind[col] = COL_DHIRES;
+      }
+      return;
+    }
+    // Hires: seven pixels per byte (bit 0 leftmost) plus the half-dot.
+    for (let col = from; col < to; col++) {
+      const b = s.ram[(addr + col) & 0xFFFF];
+      const q = (b & 0x80) !== 0 ? 1 : 0;
+      for (let i = 0; i < 7; i++) {
+        this.level[col * 7 + i] = (b >> i) & 1;
+        this.quarter[col * 7 + i] = q;
+      }
+      this.colKind[col] = COL_HIRES;
+    }
+  }
+
+  /** Paint display line `y` from its fetched columns. */
+  private paintFetched(s: Apple2VideoState, y: number): void {
+    const kind = this.colKind[0];
+    let uniform = true;
+    for (let col = 1; col < 40; col++) {
+      if (this.colKind[col] !== kind) { uniform = false; break; }
+    }
+    if (!uniform) {
+      this.paintMixed(s, y);
+      return;
+    }
+    switch (kind) {
+      case COL_TEXT40:
+      case COL_HIRES:
+        this.paintLine(s, y);
+        return;
+      case COL_TEXT80:
+        this.paintDots(s, y, false);
+        return;
+      case COL_DHIRES:
+        this.paintDots(s, y, true);
+        return;
+      default: {
+        const pal = s.mode === 'mono' ? LORES_LUMA : LORES;
+        const out = (ACTIVE_Y + y) * W + ACTIVE_X;
+        for (let col = 0; col < 40; col++) {
+          this.pixels32.fill(pal[this.colLores[col]], out + col * 14, out + col * 14 + 14);
+        }
+      }
+    }
+  }
+
+  /**
+   * A line whose columns were fetched in different modes: everything becomes
+   * one 560-dot stream, decoded as composite graphics. A 280-dot column is each
+   * dot twice (a hires half-dot one 560-dot later); a lores column is its
+   * nibble repeated on the dot clock, which is how the video generator makes a
+   * lores colour.
+   */
+  private paintMixed(s: Apple2VideoState, y: number): void {
+    for (let col = 0; col < 40; col++) {
+      const base = col * 14;
+      switch (this.colKind[col]) {
+        case COL_TEXT40:
+        case COL_HIRES:
+          for (let i = 0; i < 7; i++) {
+            const v = this.level[col * 7 + i];
+            const d = base + 2 * i + this.quarter[col * 7 + i];
+            this.dots[d] = v;
+            if (d + 1 < FULL_W) this.dots[d + 1] = v;
+          }
+          break;
+        case COL_LORES: {
+          const n = this.colLores[col];
+          for (let k = 0; k < 14; k++) this.dots[base + k] = (n >> ((base + k) & 3)) & 1;
+          break;
+        }
+        default:
+          break;   // 80-column text and double hi-res are 560 dots already
+      }
+    }
+    this.paintDots(s, y, true);
+  }
+
+  // ── Building lines as the beam goes (Mid and High accuracy) ─────────────
+
+  /** Columns of the line in progress already fetched. */
+  private fetched = 0;
+
+  /** Start a frame built line by line. A Videx card's display is drawn whole
+   *  at the end of the frame, so there is nothing to do for it here. */
+  beginFrame(s: Apple2VideoState): void {
+    this.fetched = 0;
+    if (s.videx?.active) return;
+    if (s.mode === 'ntsc' || s.mode === 'pal') this.ensureTables(s.mode);
+  }
+
+  /** Fetch display line `y`'s columns up to `to` (exclusive), with things as
+   *  they are now. */
+  fetchLine(s: Apple2VideoState, y: number, to: number): void {
+    const end = to > 40 ? 40 : to;
+    if (end <= this.fetched || s.videx?.active) return;
+    this.fetchColumns(s, y, this.fetched, end);
+    this.fetched = end;
+  }
+
+  /** Finish display line `y`: fetch the columns the beam has not reached yet
+   *  and paint the line. */
+  endLine(s: Apple2VideoState, y: number): void {
+    if (!s.videx?.active) {
+      this.fetchLine(s, y, 40);
+      this.paintFetched(s, y);
+    }
+    this.fetched = 0;
   }
 
   /** Paint one 280-dot 1-bit source line at buffer row `y`, each dot as two pixels. */
@@ -385,28 +575,6 @@ export class Apple2Video {
   }
 
   /**
-   * Double hi-res: 560 dots across, two bytes per 14-dot cell — auxiliary RAM
-   * first, then main, seven dots each with bit 0 leftmost. The colour is the
-   * pattern of every four dots.
-   */
-  private doubleHires(s: Apple2VideoState): void {
-    const page = s.page2 ? 'page2' : 'page1';
-    const aux = s.aux ?? null;
-    for (let y = 0; y < 192; y++) {
-      const addr = hiresRowBase(page, y);
-      for (let col = 0; col < 40; col++) {
-        const a = aux ? aux[(addr + col) & 0xFFFF] : 0;
-        const m = s.ram[(addr + col) & 0xFFFF];
-        for (let i = 0; i < 7; i++) {
-          this.dots[col * 14 + i] = (a >> i) & 1;
-          this.dots[col * 14 + 7 + i] = (m >> i) & 1;
-        }
-      }
-      this.paintDots(s, y, true);
-    }
-  }
-
-  /**
    * The Videx Videoterm's output: 80 by 24 characters of seven dots by nine scan
    * lines, centred in the frame, in white. A character code's
    * top bit is inverse video; the cursor inverts its scan lines, steady or at the
@@ -430,75 +598,6 @@ export class Apple2Video {
           for (let d = 0; d < 7; d++) px[x + d] = (bits >> (7 - d)) & 1 ? lit : BLACK;
         }
       }
-    }
-  }
-
-  /** Text rows [start, end) — glyphs into the 1-bit line path. */
-  private textRows(s: Apple2VideoState, start: number, end: number): void {
-    const page = s.page2 ? 'page2' : 'page1';
-    const alt = !!s.altCharset;
-    const wide = !!s.col80;
-    for (let row = start; row < end; row++) {
-      const addr = textRowBase(page, row);
-      const y0 = row * 8;
-      for (let r = 0; r < 8; r++) {
-        if (wide) {
-          // 80 columns: even columns come from auxiliary RAM, odd from main.
-          for (let col = 0; col < 80; col++) {
-            const bank = (col & 1) === 0 ? (s.aux ?? null) : s.ram;
-            const b = bank ? bank[(addr + (col >> 1)) & 0xFFFF] : 0xA0;
-            const bits = s.charset.glyph(b, r, s.flashPhase, alt);
-            for (let x = 0; x < 7; x++) this.dots[col * 7 + x] = (bits >> (6 - x)) & 1;
-          }
-          this.paintDots(s, y0 + r, false);
-        } else {
-          for (let col = 0; col < 40; col++) {
-            const b = s.ram[(addr + col) & 0xFFFF];
-            const bits = s.charset.glyph(b, r, s.flashPhase, alt);
-            for (let x = 0; x < 7; x++) this.level[col * 7 + x] = (bits >> (6 - x)) & 1;
-          }
-          this.quarter.fill(0);
-          this.paintLine(s, y0 + r);
-        }
-      }
-    }
-  }
-
-  /** Lores: 40×48 blocks, each 7×4 pixels; the byte's nibbles are two blocks. */
-  private lores(s: Apple2VideoState): void {
-    const px = this.pixels32;
-    const page = s.page2 ? 'page2' : 'page1';
-    const pal = s.mode === 'mono' ? LORES_LUMA : LORES;
-    for (let br = 0; br < 48; br++) {
-      const addr = textRowBase(page, br >> 1);
-      const y0 = ACTIVE_Y + br * 4;
-      const high = (br & 1) === 1;
-      for (let col = 0; col < 40; col++) {
-        const b = s.ram[(addr + col) & 0xFFFF];
-        const colour = pal[(high ? (b >> 4) : b) & 0x0F];
-        const x0 = ACTIVE_X + col * 14;
-        for (let y = 0; y < 4; y++) {
-          const out = (y0 + y) * W;
-          px.fill(colour, out + x0, out + x0 + 14);
-        }
-      }
-    }
-  }
-
-  /** Hires: 280×192, seven pixels per byte (bit 0 leftmost) plus the half-dot. */
-  private hires(s: Apple2VideoState): void {
-    const page = s.page2 ? 'page2' : 'page1';
-    for (let y = 0; y < 192; y++) {
-      const addr = hiresRowBase(page, y);
-      for (let col = 0; col < 40; col++) {
-        const b = s.ram[(addr + col) & 0xFFFF];
-        const q = (b & 0x80) !== 0 ? 1 : 0;
-        for (let i = 0; i < 7; i++) {
-          this.level[col * 7 + i] = (b >> i) & 1;
-          this.quarter[col * 7 + i] = q;
-        }
-      }
-      this.paintLine(s, y);
     }
   }
 }

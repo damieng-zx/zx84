@@ -14,6 +14,7 @@ import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
 import { m6502ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
+import { accessTime } from '@/debug/m6502/bus-cycles.ts';
 import { soundDeviceGains } from '@/machines/machine.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type {
@@ -45,6 +46,19 @@ import { createApple2Services, type Apple2Services } from './services/index.ts';
 
 /** Frames between flash-phase flips (the text-mode "flashing" attribute). */
 const FLASH_FRAMES = 16;
+/** How the frame in progress is drawn (see `videoAccuracy`). */
+const VIDEO_LOW = 0;
+const VIDEO_MID = 1;
+const VIDEO_HIGH = 2;
+/** The cycle of a line on which its first column is fetched: the 25 before
+ *  it are horizontal blanking. */
+const FIRST_COLUMN_CYCLE = 25;
+/** What each accuracy means for reading a beam position against the picture. */
+const VIDEO_NOTES: Readonly<Record<'high' | 'mid' | 'low', string>> = {
+  high: 'At High accuracy each column is fetched on its own cycle (25 to 64 of the line), so a write or a switch shows from the column the beam had reached',
+  mid: 'At Mid accuracy each line is built when the beam reaches its end, with the switches and memory as they are then',
+  low: 'At Low accuracy the picture is drawn at the end of the frame, so a mid-frame switch change shows for the whole frame',
+};
 
 /** The slot a Mockingboard is conventionally fitted in. */
 const MOCKINGBOARD_SLOT = 4;
@@ -139,11 +153,17 @@ export class Apple2Machine extends BaseMachine implements Machine {
       charset: this.charset, flashPhase: false, mode: 'ntsc',
     };
     this.cpu.read = (addr) => {
+      // A soft switch flips on a read: at High accuracy the line is fetched up
+      // to the beam first, with the switch as it was.
+      if ((addr & 0xFF00) === 0xC000 && this.frameVideo === VIDEO_HIGH) this.catchUpVideo(addr, false);
       const value = this.memory.readByte(addr);
       if (this.memWatchpoints.length > 0 && this.memWatchHit === null) this.recordMemWatch(addr & 0xFFFF, value, 'read');
       return value;
     };
     this.cpu.write = (addr, val) => {
+      // High accuracy: fetch the line up to the beam before the write lands,
+      // so a change to the screen or a switch shows from the column reached.
+      if (this.frameVideo === VIDEO_HIGH) this.catchUpVideo(addr, true);
       this.memory.writeByte(addr, val);
       if (this.memWatchpoints.length > 0 && this.memWatchHit === null) this.recordMemWatch(addr & 0xFFFF, val & 0xFF, 'write');
     };
@@ -240,6 +260,7 @@ export class Apple2Machine extends BaseMachine implements Machine {
     const gains = soundDeviceGains(this.descriptor.ui.soundDevices, view);
     this.mixer.beeperGain = gains.beeper;
     if (this.mockingboard) this.mixer.psgGain = gains.psg;
+    this.videoAccuracy = view.get<'high' | 'mid' | 'low'>('scanline-accuracy', 'high');
     const mode = view.get<Apple2VideoMode>('apple2-video', 'ntsc');
     if (mode !== this.videoState.mode) {
       this.videoState.mode = mode;
@@ -363,8 +384,8 @@ export class Apple2Machine extends BaseMachine implements Machine {
     return {
       cyclesPerLine: APPLE2_CYCLES_PER_LINE,
       linesPerFrame: APPLE2_TSTATES_PER_FRAME / APPLE2_CYCLES_PER_LINE,
-      displayStart: 0,
-      note: 'line 0 is the first text/graphics line and line 192 starts VBL; the picture is drawn at the end of the frame, so a mid-frame switch change shows for the whole frame',
+      displayStart: FIRST_COLUMN_CYCLE,
+      note: 'line 0 is the first text/graphics line and line 192 starts VBL. ' + VIDEO_NOTES[this.videoAccuracy],
     };
   }
   override supportsBeamStops(): boolean { return true; }
@@ -380,6 +401,49 @@ export class Apple2Machine extends BaseMachine implements Machine {
 
   protected override interruptEntryPending(): boolean { return this.cpu.interruptPending(); }
 
+  // ── Video accuracy ─────────────────────────────────────────────────────
+
+  /** The Display pane's accuracy: 'high' fetches each column on its own
+   *  cycle, 'mid' builds a line at a time, 'low' draws the whole frame at its
+   *  end (the fastest, but a switch flipped mid-frame shows everywhere). */
+  videoAccuracy: 'high' | 'mid' | 'low' = 'high';
+  /** The accuracy the frame in progress is drawn at (VIDEO_*), fixed when it
+   *  starts; turbo draws at Low. */
+  private frameVideo = VIDEO_LOW;
+  /** The display line (0-192) of the frame in progress not yet finished, and
+   *  the cycle it ends at. */
+  private videoLine = 0;
+  private videoLineEndT = 0;
+
+  /** Finish every display line that ends at or before cycle `t`. */
+  private finishVideoLines(t: number): void {
+    while (this.videoLine < APPLE2_VBL_LINE && t >= this.videoLineEndT) {
+      this.syncVideoState();
+      this.video.endLine(this.videoState, this.videoLine);
+      this.videoLine++;
+      this.videoLineEndT += APPLE2_CYCLES_PER_LINE;
+    }
+    // Past the last display line nothing is left to finish in this frame.
+    if (this.videoLine >= APPLE2_VBL_LINE) this.videoLineEndT = Infinity;
+  }
+
+  /** Fetch the picture up to where the beam is for an access the CPU is
+   *  making to `addr` now (the 6502 core calls its bus before it counts the
+   *  instruction's cycles, so the access's own cycle is worked out). The
+   *  video fetch is in the first half of a cycle and the CPU's access in the
+   *  second, so the column fetched on the access's own cycle sees the old
+   *  value. */
+  private catchUpVideo(addr: number, write: boolean): void {
+    if (!this.frameOpen) return;
+    const pc = this.insnPc;
+    const t = accessTime(this.cpu.tStates, this.peekOpcode(pc), pc, addr, write, this.modelInfo.cmos);
+    this.finishVideoLines(t);
+    if (this.videoLine >= APPLE2_VBL_LINE) return;
+    const lineStart = this.videoLineEndT - APPLE2_CYCLES_PER_LINE;
+    this.syncVideoState();
+    this.video.fetchLine(this.videoState, this.videoLine, t - lineStart - FIRST_COLUMN_CYCLE + 1);
+  }
+
   protected runFrame(): void {
     const skipAudio = this.speedMultiplier !== 1;
     const board = this.mockingboard;
@@ -387,6 +451,14 @@ export class Apple2Machine extends BaseMachine implements Machine {
     if (!this.openFrame(APPLE2_TSTATES_PER_FRAME, now - (now % APPLE2_TSTATES_PER_FRAME))) {
       this.activity.beeperToggled = false;
       this.activity.kbdReads = 0;
+      this.frameVideo = this.inTurbo() ? VIDEO_LOW
+        : this.videoAccuracy === 'high' ? VIDEO_HIGH : this.videoAccuracy === 'mid' ? VIDEO_MID : VIDEO_LOW;
+      this.videoLine = 0;
+      this.videoLineEndT = this.frameStartT + APPLE2_CYCLES_PER_LINE;
+      if (this.frameVideo !== VIDEO_LOW) {
+        this.syncVideoState();
+        this.video.beginFrame(this.videoState);
+      }
     }
     this.memWatchHit = null;
     const endT = this.frameEndT;
@@ -402,6 +474,10 @@ export class Apple2Machine extends BaseMachine implements Machine {
       this.beforeInsn(this.cpu.pc);
       this.cpu.step();
       const stopped = this.afterInsn();
+      // Mid and High: a line is finished once the beam is past its end.
+      if (this.frameVideo !== VIDEO_LOW && this.cpu.tStates >= this.videoLineEndT) {
+        this.finishVideoLines(this.cpu.tStates);
+      }
       const elapsed = this.cpu.tStates - before;
       if (board) {
         board.tick(elapsed);
@@ -424,7 +500,9 @@ export class Apple2Machine extends BaseMachine implements Machine {
     this.flashPhase = this.flashFrame < FLASH_FRAMES;
 
     this.syncVideoState();
-    this.video.render(this.videoState);
+    // Mid and High have built the picture as the beam went; a Videx card's
+    // display is drawn whole at every accuracy.
+    if (this.frameVideo === VIDEO_LOW || this.videoState.videx?.active) this.video.render(this.videoState);
 
     this.cassette.advanceTo(this.cpu.tStates / APPLE2_CPU_CLOCK);
     this.disk2.tickFrame();

@@ -183,17 +183,21 @@ export function DisplayPane() {
           persistSetting('scanline-accuracy', v);
           applyDisplaySettings();   // machine re-reads its accuracy setting
         }}>
-          <Show
-            when={machineCaps().accuracy === 'contention'}
-            fallback={<>
-              <option value="high">High (per t-state)</option>
+          <Switch fallback={<>
+            <option value="high">High (per t-state)</option>
+            <option value="mid">Mid (per scanline)</option>
+            <option value="low">Low (per 8-scanlines/cell)</option>
+          </>}>
+            <Match when={machineCaps().accuracy === 'raster'}>
+              <option value="high">High (per cycle)</option>
               <option value="mid">Mid (per scanline)</option>
-              <option value="low">Low (per 8-scanlines/cell)</option>
-            </>}
-          >
-            <option value="high">High (ASIC memory slots)</option>
-            <option value="low">Low (uncontended)</option>
-          </Show>
+              <option value="low">Low (per frame)</option>
+            </Match>
+            <Match when={machineCaps().accuracy === 'contention'}>
+              <option value="high">High (ASIC memory slots)</option>
+              <option value="low">Low (uncontended)</option>
+            </Match>
+          </Switch>
         </select>
       </div>
       </Show>
