@@ -91,7 +91,7 @@ ZIP archives are unpacked and only entries that match the table below are offere
 | --- | --- | --- | --- | --- | --- |
 | `.rom` | ROM pack | ROM page 2 (cartridge slot) | ✅ | ✗ | 8 KiB to 128 KiB in whole 8 KiB banks; anything else is rejected |
 | `.mtx` | Logical cassette | Tape | ✅ | ✅ | The byte stream the ROM asks for; at least the 18-byte header is required. Served instantly to `LOAD` and `VERIFY`. Save is the latest program the ROM SAVEd (Save menu), named after it |
-| `.hfe` | Disk | Drive B: (default) or C: | ✅ | ✅ | HFE v1 bitstream. Saved back as `.hfe`. HFE v3 is rejected |
+| `.hfe` | Disk | Drive B: (default) or C: | ✅ | ✅ | HFE v1 or v3 bitstream. Saved back as `.hfe` (v1) |
 | `.mfloppy` / `.mfloppy-07` | Disk | Drive B: (default) or C: | ✅ | ✅ | Type 07: 80 tracks × 2 sides × 16 × 256-byte sectors (655,360 bytes). Saved as `.mfloppy` |
 | `.mfloppy-03` | Disk | Drive B: (default) or C: | ✅ | ✅ | Type 03: 40 tracks × 2 sides (327,680 bytes). Saved as `.mfloppy-03` |
 
@@ -154,7 +154,6 @@ None known.
 - **Printer port (04h) and the uncommitted PIO (07h).** Not decoded; reads return 0xFF and writes are ignored.
 - **DART / RS-232.** Not present on any model.
 - **80-column terminal bell.** A read of port 30h returns 0xFF and rings nothing.
-- **HFE v3** images are rejected with an error.
 - **Snapshots.** The machine has no snapshot service.
 
 ## Faithful quirks

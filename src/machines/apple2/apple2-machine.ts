@@ -100,7 +100,8 @@ export class Apple2Machine extends BaseMachine implements Machine {
   /** Cycles run before the last RESET-key press: the key resets the 6502's
    *  cycle count but not the tape, so the recorder's clock carries on from here. */
   private tapeClockBase = 0;
-  readonly disk2 = new Disk2(() => this.cpu.tStates);
+  /** The Disk II turns its disk from the exact cycle of each access to it. */
+  readonly disk2 = new Disk2((write) => this.busCycle(write === true));
   readonly speaker = new Apple2Speaker();
   readonly mixer = new AudioMixer(APPLE2_CPU_CLOCK);
   readonly audio = new Audio();
@@ -464,6 +465,17 @@ export class Apple2Machine extends BaseMachine implements Machine {
     const lineStart = this.videoLineEndT - APPLE2_CYCLES_PER_LINE;
     this.syncVideoState();
     this.video.fetchLine(this.videoState, this.videoLine, t - lineStart - FIRST_COLUMN_CYCLE + 1);
+  }
+
+  /** The CPU cycle of the bus access in progress to a slot I/O address (the
+   *  6502 core makes its accesses before it counts the instruction's cycles),
+   *  or the current count outside an instruction. Loads, stores and the
+   *  read-modify-write steps of an I/O access fall on a cycle that depends only
+   *  on the opcode, not the address. */
+  private busCycle(write: boolean): number {
+    if (!this.insnActive) return this.cpu.tStates;
+    const pc = this.insnPc;
+    return accessTime(this.cpu.tStates, this.peekOpcode(pc), pc, 0xC0E0, write, this.modelInfo.cmos);
   }
 
   protected runFrame(): void {

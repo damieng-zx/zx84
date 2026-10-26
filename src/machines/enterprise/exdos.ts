@@ -9,7 +9,9 @@
  *              ready; the unused bits read 1 (0x3C)
  *
  * The status bit polarities follow ep128emu, whose EXDOS emulation real
- * EXDOS and IS-DOS boot on. The card's disks are 720K 3.5" FAT12 images.
+ * EXDOS and IS-DOS boot on. Single density (b5) drives the WD1770's /DDEN, so
+ * an FM disk (from an HFE or SCP image) reads only with it set and an MFM one
+ * only with it clear.
  */
 
 import { WD179x } from '@/cores/wd179x.ts';
@@ -24,6 +26,7 @@ export class ExdosCard {
 
   reset(): void {
     this.fdc.reset();
+    this.fdc.setDensity(false);
     this.selected = false;
   }
 
@@ -48,6 +51,7 @@ export class ExdosCard {
   }
 
   writeControl(value: number): void {
+    this.fdc.setDensity((value & 0x20) !== 0);
     if ((value & 0x0F) === 0) { this.selected = false; return; }
     this.selected = true;
     const unit = value & 0x01 ? 0 : value & 0x02 ? 1 : value & 0x04 ? 2 : 3;

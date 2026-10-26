@@ -92,7 +92,7 @@ describe('bbc 1770 interface', () => {
     const m = new BbcMachine('bbc-b', null);
     try {
       m.fdc1770.insertDisk(parseSsd(makeSsdPattern(), false), 0);
-      m.memory.writeByte(0xFE80, 0x00);   // drive 0, side 0
+      m.memory.writeByte(0xFE80, 0x08);   // drive 0, side 0, single density (DFS discs are FM)
       m.memory.writeByte(0xFE85, 0x00);   // track 0
       m.memory.writeByte(0xFE86, 0x03);   // sector 3
       m.memory.writeByte(0xFE84, 0x80);   // READ SECTOR
@@ -214,7 +214,7 @@ describe('bbc 1770 interface', () => {
         }
       }
       m.fdc1770.insertDisk(parseSsd(ssd, false), 0);
-      m.memory.writeByte(0xFE80, 0x20);      // drive 0, side 0, reset released
+      m.memory.writeByte(0xFE80, 0x28);      // drive 0, side 0, single density, reset released
       m.memory.writeByte(0xFE87, 13);        // SEEK target
       m.memory.writeByte(0xFE84, 0x10);      // SEEK
       expect(m.memory.readByte(0xFE85)).toBe(13);
@@ -253,6 +253,18 @@ describe('bbc 1770 Acorn NMI handshake', () => {
     expect(d.read(0x80)).toBe(0xFF);
   });
 
+  it('selects single density from bit 3 of the control latch: a DFS (FM) disc reads only then', () => {
+    const d = disc([]);
+    d.insertDisk(parseSsd(makeSsdPattern(), false), 0);
+    d.write(0x80, 0x20);                 // double density
+    d.write(0x86, 0x03);
+    d.write(0x84, 0x80);                 // READ SECTOR
+    expect(d.read(0x84) & 0x10).toBe(0x10);   // RECORD NOT FOUND
+    d.write(0x80, 0x28);                 // single density
+    d.write(0x84, 0x80);
+    expect(d.read(0x84) & 0x13).toBe(0x03);   // BUSY | DRQ, found
+  });
+
   it('selects the drive from bit 1 of the control latch', () => {
     const d = disc([]);
     d.write(0x80, 0x29);                 // bit 1 clear -> drive 0
@@ -277,7 +289,7 @@ describe('bbc 1770 Acorn NMI handshake', () => {
     const nmis: number[] = [];
     const d = disc(nmis);
     d.insertDisk(parseSsd(makeSsdPattern(), false), 0);
-    d.write(0x80, 0x20);                 // drive 0, side 0, reset released
+    d.write(0x80, 0x28);                 // drive 0, side 0, single density, reset released
     d.write(0x85, 0x00);                 // track 0
     d.write(0x86, 0x03);                 // sector 3
     d.write(0x84, 0x80);                 // READ SECTOR

@@ -313,6 +313,16 @@ export class WD179x {
   selectDrive(unit: number): void { this.currentDrive = unit & 3; }
   setSide(side: number): void { this.side = side & 1; }
 
+  /**
+   * The /DDEN input: true selects single density (FM), false double density
+   * (MFM, the default). It is a pin the host board drives from its control
+   * latch, so a chip reset leaves it alone. A track recorded in the other
+   * density has no ID field the controller can read (see locateTrack), and a
+   * WRITE TRACK lays its sectors down in this density.
+   */
+  singleDensity = false;
+  setDensity(single: boolean): void { this.singleDensity = single; }
+
   // ── State getters (for the UI / floppy sound) ─────────────────────────
   get currentUnit(): number { return this.currentDrive; }
   get currentTrack(): number { return this.headTrack[this.currentDrive]; }
@@ -593,7 +603,11 @@ export class WD179x {
   private locateTrack(): DskTrack | null {
     const disk = this.disks[this.currentDrive];
     if (!disk) return null;
-    return disk.tracks[this.headTrack[this.currentDrive]]?.[this.side] ?? null;
+    const track = disk.tracks[this.headTrack[this.currentDrive]]?.[this.side] ?? null;
+    // In the wrong density the data separator never locks onto an address
+    // mark: the track reads as unformatted. Untagged tracks read in either.
+    if (track?.encoding && (track.encoding === 'fm') !== this.singleDensity) return null;
+    return track;
   }
 
   private base(): number { return this.statusBit7(); }
@@ -885,7 +899,10 @@ export class WD179x {
     if (disk && this.fmtSectors.length > 0) {
       const sectorMap = new Map<number, number>();
       this.fmtSectors.forEach((s, i) => sectorMap.set(s.r, i));
-      const track: DskTrack = { sectors: this.fmtSectors, sectorMap, gap3: 82, filler: 0xE5 };
+      const track: DskTrack = {
+        sectors: this.fmtSectors, sectorMap, gap3: 82, filler: 0xE5,
+        encoding: this.singleDensity ? 'fm' : 'mfm',
+      };
       // Grow the cylinder array if the disk image is shorter than this track.
       while (disk.tracks.length <= cyl) disk.tracks.push([]);
       const sides = disk.tracks[cyl];

@@ -18,6 +18,10 @@
  * This is a functional model, not a bitstream one: there is no flux layer and
  * sectors come straight from the shared `DskImage` structure that the uPD765A
  * and WD179x cores also use, so SSD/DSD/DSK geometry and write-back are shared.
+ * What a disc image can carry about a sector still counts: the chip is single
+ * density only (an MFM track has no ID field it can read), a deleted-data mark
+ * ends a read with "deleted data found", a bad data CRC with a data CRC error,
+ * and a weak sector reads differently each time.
  * Command timing (the busy delay before a result, the pacing of data bytes) and
  * the sector-not-found code are the values Acorn DFS has been observed to work
  * with in other emulators; nothing is copied from them.
@@ -53,6 +57,8 @@ export const I8271Result = {
   WP: 0x12,    // write protected
   T0NF: 0x14,  // track 0 not found
   NF: 0x1e,    // sector not found
+  /** Flag OR'd into the completion code: a deleted-data mark was read. */
+  DELETED: 0x20,
 } as const;
 
 // ── Special registers (WRITE / READ SPECIAL REGISTER, SPECIFY) ──────────────
@@ -110,6 +116,10 @@ interface Transfer {
   /** Sectors a write is committed to when the last byte arrives. */
   targets: DskSector[];
   unit: number;
+  /** Result once the transfer ends (a read that met a deleted mark or a CRC error). */
+  code?: number;
+  /** A write lays down deleted-data marks. */
+  deleted?: boolean;
 }
 
 interface Command {
@@ -329,7 +339,7 @@ export class I8271 {
   /** Opcode (low bit and drive-select bits ignored) → parameter count and action. */
   private static readonly commands = new Map<number, Command>([
     [0x0a, { args: 3, run: c => c.dataCommand('write') }],   // write data
-    [0x0e, { args: 3, run: c => c.dataCommand('write') }],   // write deleted data
+    [0x0e, { args: 3, run: c => c.dataCommand('write', true) }],   // write deleted data
     [0x12, { args: 3, run: c => c.dataCommand('read') }],    // read data
     [0x16, { args: 3, run: c => c.dataCommand('read') }],    // read data and deleted data
     [0x1e, { args: 3, run: c => c.dataCommand('verify') }],  // verify data and deleted data
@@ -394,7 +404,9 @@ export class I8271 {
   }
 
   private trackFor(disk: DskImage) {
-    return disk.tracks[this.cmd[1]]?.[this.side] ?? null;
+    const track = disk.tracks[this.cmd[1]]?.[this.side] ?? null;
+    // Single density only: a double-density track reads as unformatted.
+    return track?.encoding === 'mfm' ? null : track;
   }
 
   /** The run of consecutive sectors a data command names, or null if one is absent. */
@@ -433,33 +445,54 @@ export class I8271 {
       for (const sector of x.targets) {
         sector.data.set(x.bytes.subarray(at, at + sector.data.length));
         sector.copies = undefined;   // rewriting a sector erases any weak-bit variation
+        // A fresh data field: a good CRC, behind the mark the command asked for.
+        sector.st1 &= ~0x20;
+        sector.st2 = (sector.st2 & ~0x60) | (x.deleted ? 0x40 : 0);
         at += sector.data.length;
       }
       this.written[x.unit] = true;
     }
-    this.conclude(I8271Result.NONE);
+    this.conclude(x.code ?? I8271Result.NONE);
   }
 
   // ── Commands ──────────────────────────────────────────────────────────────
 
-  private dataCommand(kind: 'read' | 'write' | 'verify'): void {
+  private dataCommand(kind: 'read' | 'write' | 'verify', deleted = false): void {
     const unit = this.engage(true);
     if (kind === 'write' && this.writeProtect[unit]) return this.conclude(I8271Result.WP);
     const disk = this.disks[unit];
     if (disk === null) return this.conclude(I8271Result.NR);
-    const run = this.sectorRun(disk);
+    let run = this.sectorRun(disk);
     if (run === null) return this.conclude(I8271Result.NF);
-    if (kind === 'verify') return this.conclude(I8271Result.NONE);
 
-    const total = run.reduce((n, s) => n + s.data.length, 0);
     if (kind === 'write') {
-      this.beginTransfer({ bytes: new Uint8Array(total), at: 0, fromHost: true, targets: run, unit });
+      const total = run.reduce((n, s) => n + s.data.length, 0);
+      this.beginTransfer({ bytes: new Uint8Array(total), at: 0, fromHost: true, targets: run, unit, deleted });
       return;
     }
+
+    // A read (or verify) stops at the first sector with a deleted-data mark or
+    // a bad data CRC, after transferring it, and says which it met.
+    let code: number = I8271Result.NONE;
+    const stop = run.findIndex(s => (s.st2 & 0x40) !== 0 || (s.st1 & 0x20) !== 0 || (s.st2 & 0x20) !== 0);
+    if (stop >= 0) {
+      const s = run[stop];
+      if ((s.st1 & 0x20) || (s.st2 & 0x20)) code = I8271Result.DCRC;
+      if (s.st2 & 0x40) code |= I8271Result.DELETED;
+      run = run.slice(0, stop + 1);
+    }
+    if (kind === 'verify') return this.conclude(code);
+
+    const total = run.reduce((n, s) => n + s.data.length, 0);
     const bytes = new Uint8Array(total);
     let at = 0;
-    for (const s of run) { bytes.set(s.data, at); at += s.data.length; }
-    this.beginTransfer({ bytes, at: 0, fromHost: false, targets: [], unit });
+    for (const s of run) {
+      // A weak sector reads differently every time: pick one of its readings.
+      const copy = s.copies && s.copies.length > 1 ? s.copies[Math.floor(Math.random() * s.copies.length)] : s.data;
+      bytes.set(copy.subarray(0, s.data.length), at);
+      at += s.data.length;
+    }
+    this.beginTransfer({ bytes, at: 0, fromHost: false, targets: [], unit, code });
   }
 
   /** READ ID: hand back the C, H, R, N of the next `count` sector headers on the track. */
@@ -485,7 +518,13 @@ export class I8271 {
     if (disk === null) return this.conclude(I8271Result.NR);
     const track = this.trackFor(disk);
     if (track === null) return this.conclude(I8271Result.NF);
-    for (const s of track.sectors) s.data.fill(ERASED);
+    for (const s of track.sectors) {
+      s.data.fill(ERASED);
+      s.st1 = 0;
+      s.st2 = 0;
+      s.copies = undefined;
+    }
+    track.encoding = 'fm';
     this.written[unit] = true;
     this.conclude(I8271Result.NONE);
   }

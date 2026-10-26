@@ -1,6 +1,6 @@
 import { baseName } from '@/machines/shared/disk-save.ts';
 import type { DiskService, DriveDescriptor, DriveMedia } from '@/machines/machine.ts';
-import { serializeSsd } from '@/media/floppy/ssd.ts';
+import { serializeAcornDisc } from '@/media/floppy/acorn-disc.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import type { BbcMachine } from '../bbc-machine.ts';
 
@@ -36,13 +36,11 @@ export class BbcDiskService implements DiskService {
     const unit = this.unit(id);
     const image = disc.getDiskImage(unit);
     if (!image) return null;
-    const doubleSided = image.numSides === 2;
-    const data = serializeSsd(image, doubleSided);
+    // A plain DFS layout saves as .ssd/.dsd; an HFE-sourced or irregular
+    // (protected) disc as .hfe, so nothing on it is lost.
+    const { data, ext } = serializeAcornDisc(image);
     disc.clearDirty(unit);
-    return {
-      data,
-      name: `${baseName(this.names.get(id) ?? '')}${doubleSided ? '.dsd' : '.ssd'}`,
-    };
+    return { data, name: `${baseName(this.names.get(id) ?? '')}${ext}` };
   }
 
   setWriteProtect(id: string, on: boolean): void {

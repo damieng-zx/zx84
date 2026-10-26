@@ -91,7 +91,7 @@ ZIP archives are unpacked and their contents routed as below. The Load picker of
 | `.dsk` | Disk | Drive A: (or B:) | ✅ | ✅ | Headerless 512-byte-sector dump: 160K, 180K, 320K, 360K, 640K or 720K. Geometry comes from the FAT media descriptor, not only the file size; trimmed and padded dumps are accepted. Saved as `.dsk` when every sector is clean and regular |
 | `.img` | Disk | Drive A: (or B:) | ✅ | ◐ | One header byte (1 or 2) before a 360K or 720K dump. Saved back as `.dsk` |
 | `.dmk` | Disk | Drive A: (or B:) | ✅ | ◐ | Keeps CRC errors, deleted-data marks and odd layouts. Saved as `.edsk` when irregular, otherwise `.dsk` |
-| `.hfe` | Disk | Drive A: (or B:) | ✅ | ✅ | HFE v1 bitstream; HFE-sourced disks save back as `.hfe` |
+| `.hfe` | Disk | Drive A: (or B:) | ✅ | ✅ | HFE v1 or v3 bitstream; HFE-sourced disks save back as `.hfe` (v1) |
 | `.scp` | Disk | Drive A: (or B:) | ✅ | ◐ | Flux image. Saved as `.dsk`, or `.edsk` when irregular |
 | `.td0` | Disk | Drive A: (or B:) | ✅ | ◐ | Teledisk. Saved as `.dsk`, or `.edsk` when irregular |
 | `.edsk` | Disk | Drive A: (or B:) | ✅ | ✅ | Extended CPC DSK container; used for irregular disks a plain dump cannot hold |
@@ -149,7 +149,6 @@ None known.
 - **Other expansion hardware.** Slot 3 holds only the floppy interface; otherwise it reads as empty. There is no second cartridge slot.
 - **Single-drive disk configuration.** The interface always presents two drives, A: and B:.
 - **1.44 MB high-density disks.** Rejected with an error (MSX1 interfaces are double density).
-- **HFE v3 images.** Rejected with an error.
 - **Snapshots.** There is no snapshot format or service.
 - **Numeric keypad hardware.** The HX-10 keyboard has none, so the on-screen keyboard has no keypad; host Numpad keys still map to matrix rows 9–10.
 

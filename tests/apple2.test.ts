@@ -1036,60 +1036,133 @@ describe('apple2-plus OCR', () => {
   });
 });
 
+/** Disk bytes as software reads them: poll the data register every `every`
+ *  cycles, take a byte when bit 7 is set, then wait for bit 7 to clear before
+ *  taking the next (the register holds a finished byte for a couple of cells). */
+function collectNibbles(d: Disk2, clock: { t: number }, count: number, every = 4): number[] {
+  const got: number[] = [];
+  let armed = true;
+  for (let guard = 0; got.length < count && guard < 1_000_000; guard++) {
+    clock.t += every;
+    const v = d.read(0x0C);
+    if (v & 0x80) {
+      if (armed) got.push(v);
+      armed = false;
+    } else {
+      armed = true;
+    }
+  }
+  return got;
+}
+
 describe('apple2-plus Disk II controller', () => {
-  it('drives the stepper so two phase steps advance one track', () => {
-    let cycles = 0;
-    const d = new Disk2(() => cycles);
-    const raw = new Uint8Array(35 * 16 * 256);
-    d.insertDisk(parseApple2Disk(raw, 'dos'), 0);
-    expect(d.getUnitTrack(0)).toBe(0);
-    d.read(0x01);   // phase 0 on (the current phase: no move)
-    d.read(0x03);   // phase 1 on -> half track
-    expect(d.getUnitTrack(0)).toBe(0);
-    d.read(0x05);   // phase 2 on -> track 1
+  it('moves the head half a track per phase step, and onto quarter tracks between two magnets', () => {
+    const clock = { t: 0 };
+    const d = new Disk2(() => clock.t);
+    d.insertDisk(parseApple2Disk(new Uint8Array(35 * 16 * 256), 'dos'), 0);
+    expect(d.getUnitQuarterTrack(0)).toBe(0);
+    d.read(0x01);   // phase 0 on: already over it
+    expect(d.getUnitQuarterTrack(0)).toBe(0);
+    d.read(0x03);   // phase 1 on too: held between phases 0 and 1, quarter track 1
+    expect(d.getUnitQuarterTrack(0)).toBe(1);
+    d.read(0x00);   // phase 0 off: phase 1 alone pulls it to the half track
+    expect(d.getUnitQuarterTrack(0)).toBe(2);
+    d.read(0x05);   // phase 2 on
+    d.read(0x02);   // phase 1 off: track 1
+    expect(d.getUnitQuarterTrack(0)).toBe(4);
     expect(d.getUnitTrack(0)).toBe(1);
-    d.read(0x07);   // phase 3 on -> still track 1 (1.5 tracks)
-    expect(d.getUnitTrack(0)).toBe(1);
-    d.read(0x01);   // phase 0 on again -> track 2 (two full steps per track)
+    d.read(0x07);   // phase 3 on
+    d.read(0x04);   // phase 2 off: track 1.5
+    d.read(0x01);   // phase 0 on
+    d.read(0x06);   // phase 3 off: track 2
     expect(d.getUnitTrack(0)).toBe(2);
+    d.read(0x05);   // phase 2 on, 0 still on: directly opposite magnets, no pull
+    expect(d.getUnitQuarterTrack(0)).toBe(8);
+    d.read(0x00);   // phase 0 off: phase 2's poles are a track either side; still no pull
+    expect(d.getUnitQuarterTrack(0)).toBe(8);
   });
 
-  it('only runs with the motor on, and senses write protect on $C0ED', () => {
-    let cycles = 0;
-    const d = new Disk2(() => cycles);
+  it('stops at track 0 when stepped outward', () => {
+    const clock = { t: 0 };
+    const d = new Disk2(() => clock.t);
+    d.insertDisk(parseApple2Disk(new Uint8Array(35 * 16 * 256), 'dos'), 0);
+    d.read(0x07);   // phase 3 on: two quarter tracks behind track 0
+    expect(d.getUnitQuarterTrack(0)).toBe(0);
+  });
+
+  it('only turns with the motor on, and senses write protect through $C0EE', () => {
+    const clock = { t: 0 };
+    const d = new Disk2(() => clock.t);
     const raw = new Uint8Array(35 * 16 * 256);
-    raw[0] = 0x11;
     d.insertDisk(parseApple2Disk(raw, 'dos'), 0);
 
-    cycles += 8;
-    let any = 0;
-    for (let i = 0; i < 64; i++) { cycles += 8; if (d.read(0x0C) !== 0) any++; }
-    expect(any).toBe(0);                    // motor off: no data
+    const seen = new Set<number>();
+    for (let i = 0; i < 64; i++) { clock.t += 8; seen.add(d.read(0x0C)); }
+    expect(seen.size).toBe(1);              // motor off: the register never changes
 
     d.read(0x09);                           // motor on
     d.read(0x0A);                           // drive 1
+    // DOS's sequence: LDA $C08D,X (Q6 on) then, a 4-cycle LDA later, LDA $C08E,X.
     d.writeProtect[0] = true;
-    expect(d.read(0x0D)).toBe(0x80);        // write-protect sense
+    clock.t += 4; d.read(0x0D);
+    clock.t += 4;
+    expect(d.read(0x0E) & 0x80).toBe(0x80);
     d.writeProtect[0] = false;
-    expect(d.read(0x0D)).toBe(0x00);
+    clock.t += 4; d.read(0x0D);
+    clock.t += 4;
+    expect(d.read(0x0E) & 0x80).toBe(0);
   });
 
   it('streams the GCR track: a leading sync gap then the address prologue', () => {
-    let cycles = 0;
-    const d = new Disk2(() => cycles);
-    const raw = new Uint8Array(35 * 16 * 256);
-    d.insertDisk(parseApple2Disk(raw, 'dos'), 0);
+    const clock = { t: 0 };
+    const d = new Disk2(() => clock.t);
+    d.insertDisk(parseApple2Disk(new Uint8Array(35 * 16 * 256), 'dos'), 0);
     d.read(0x09);                           // motor on
     d.read(0x0A);                           // drive 1
+    const got = collectNibbles(d, clock, 60);
+    // The first byte may be caught partway; after it the reader is in step.
+    const prologue = got.findIndex((b, i) => b === 0xD5 && got[i + 1] === 0xAA && got[i + 2] === 0x96);
+    expect(prologue).toBeGreaterThan(40);
+    for (let i = 1; i < prologue; i++) expect(got[i], `sync ${i}`).toBe(0xFF);
+  });
 
-    const got: number[] = [];
-    while (got.length < 60) {
-      cycles += 8;
-      const b = d.read(0x0C);
-      if (b !== 0) got.push(b);
-    }
-    for (let i = 0; i < 48; i++) expect(got[i], `sync ${i}`).toBe(0xFF);
-    expect(got.slice(48, 51)).toEqual([0xD5, 0xAA, 0x96]);
+  it('turns one bit cell every 4 cycles, also while the CPU is not reading', () => {
+    // Poll every cycle and time each sighting of sector 0's address field: one
+    // revolution is the track's cell count × 4 cycles, and after a pause of a
+    // revolution and a half with no reads at all the next sighting is exactly
+    // two revolutions on — the disk kept turning.
+    const clock = { t: 0 };
+    const d = new Disk2(() => clock.t);
+    d.insertDisk(parseApple2Disk(new Uint8Array(35 * 16 * 256), 'dos'), 0);
+    d.read(0x09); d.read(0x0A);
+    const nextSector0 = (): number => {
+      const recent: number[] = [];
+      let armed = false;
+      let seenAt = -1;
+      for (let guard = 0; guard < 1_000_000; guard++) {
+        clock.t += 1;
+        const v = d.read(0x0C);
+        if (!(v & 0x80)) { armed = true; continue; }
+        if (!armed) continue;
+        armed = false;
+        recent.push(v);
+        const n = recent.length;
+        if (n >= 3 && recent[n - 3] === 0xD5 && recent[n - 2] === 0xAA && v === 0x96) { seenAt = clock.t; recent.length = 0; }
+        // Sector number: the third 4-and-4 pair after the prologue.
+        if (seenAt >= 0 && recent.length === 6) {
+          if ((((recent[4] << 1) | 1) & recent[5]) === 0) return seenAt;
+          seenAt = -1;
+        }
+      }
+      throw new Error('no sector 0');
+    };
+    const cells = d.getDiskImage(0)!.apple2.bits.tracks[0].bitCount;
+    const t0 = nextSector0();
+    const t1 = nextSector0();
+    expect(t1 - t0).toBe(cells * 4);
+    clock.t += Math.floor(cells * 4 * 1.5) - (clock.t - t1);
+    const t2 = nextSector0();
+    expect(t2 - t1).toBe(cells * 8);
   });
 
   it('keeps spinning for about a second after the motor is switched off', () => {
@@ -1136,12 +1209,11 @@ describe('apple2-plus Disk II controller', () => {
     const raw = new Uint8Array(35 * 16 * 256);
     const vtoc = 17 * 4096;
     raw[vtoc + 1] = 17; raw[vtoc + 3] = 3; raw[vtoc + 6] = 61;
-    let cycles = 0;
-    const d = new Disk2(() => cycles);
+    const clock = { t: 0 };
+    const d = new Disk2(() => clock.t);
     d.insertDisk(parseApple2Disk(raw, 'dos'), 0);
     d.read(0x09); d.read(0x0A);
-    const got: number[] = [];
-    while (got.length < 70) { cycles += 8; const b = d.read(0x0C); if (b !== 0) got.push(b); }
+    const got = collectNibbles(d, clock, 80);
     const at = got.findIndex((b, i) => b === 0xD5 && got[i + 1] === 0xAA && got[i + 2] === 0x96);
     // 4-and-4: volume byte pair follows the prologue.
     expect(((got[at + 3] << 1) | 1) & got[at + 4]).toBe(61);
@@ -1150,22 +1222,14 @@ describe('apple2-plus Disk II controller', () => {
   it('mounting the other drive mid-read does not disturb the active stream', () => {
     const raw = new Uint8Array(35 * 16 * 256);
     const stream = (insertOtherAt: number | null): number[] => {
-      let cycles = 0;
-      const d = new Disk2(() => cycles);
+      const clock = { t: 0 };
+      const d = new Disk2(() => clock.t);
       d.insertDisk(parseApple2Disk(raw, 'dos'), 0);
       d.read(0x09);                         // motor on
       d.read(0x0A);                         // drive 1
-      const got: number[] = [];
-      while (got.length < 120) {
-        if (got.length === insertOtherAt) {
-          d.insertDisk(parseApple2Disk(raw, 'dos'), 1);   // drive 2, drive 1 still selected
-          insertOtherAt = null;
-        }
-        cycles += 8;
-        const b = d.read(0x0C);
-        if (b !== 0) got.push(b);
-      }
-      return got;
+      const got = collectNibbles(d, clock, 60);
+      if (insertOtherAt !== null) d.insertDisk(parseApple2Disk(raw, 'dos'), 1);   // drive 2
+      return got.concat(collectNibbles(d, clock, 60));
     };
     expect(stream(60)).toEqual(stream(null));
   });

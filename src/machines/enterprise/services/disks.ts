@@ -6,6 +6,8 @@ import type { DiskService, DriveDescriptor, DriveMedia } from '@/machines/machin
 import { baseName } from '@/machines/shared/disk-save.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { serializeFatImage } from '@/media/floppy/fat-image.ts';
+import { hasRegularLayout } from '@/media/floppy/disk-detect.ts';
+import { encodeHFE, serializeHFE } from '@/media/floppy/hfe.ts';
 import type { EnterpriseMachine } from '../enterprise-machine.ts';
 
 const UNIT_IDS = ['a', 'b', 'c', 'd'] as const;
@@ -67,7 +69,15 @@ export class EnterpriseDiskService implements DiskService {
     if (!img) return null;
     const unit = EnterpriseDiskService.unitOf(id);
     const stem = baseName(this.names.get(unit) ?? '', `enterprise-drive-${unit + 1}`);
-    return { data: serializeFatImage(img), name: `${stem}.img` };
+    // An HFE keeps its bitstream (only written sectors re-encoded); a plain
+    // 512-byte-sector layout saves as a raw .img; anything else (an odd layout
+    // from a DSK, SCP or HFE) as a fresh .hfe, which loses nothing.
+    if (img.bitstream) return { data: serializeHFE(img), name: `${stem}.hfe` };
+    const spt = img.tracks[0]?.[0]?.sectors.length ?? 0;
+    if (spt > 0 && hasRegularLayout(img, { sectors: spt, firstId: 1, size: 512, encoding: 'mfm' })) {
+      return { data: serializeFatImage(img), name: `${stem}.img` };
+    }
+    return { data: encodeHFE(img), name: `${stem}.hfe` };
   }
 
   setWriteProtect(id: string, on: boolean): void {

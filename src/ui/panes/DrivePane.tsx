@@ -475,8 +475,8 @@ export function DrivePane() {
     if (accepts.some(t => t.ext === '.ssd')) return DFS_NEW_ITEMS;
     if (accepts.some(t => t.ext === '.dmk')) return MSX_NEW_ITEMS;
     if (accepts.some(t => t.ext === '.adl')) return ADFS_NEW_ITEMS;
-    // .img without .dsk is a FAT sector dump (with .dsk, it is the +D's MGT).
-    if (accepts.some(t => t.ext === '.img') && !accepts.some(t => t.ext === '.dsk')) return FAT_NEW_ITEMS;
+    // .img is a FAT sector dump, unless .mgt is taken too (then it is the +D's MGT).
+    if (accepts.some(t => t.ext === '.img') && !accepts.some(t => t.ext === '.mgt')) return FAT_NEW_ITEMS;
     return PLUS3_NEW_ITEMS;
   };
 

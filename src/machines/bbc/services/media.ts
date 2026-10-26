@@ -1,7 +1,7 @@
 import type {
   MediaService, MediaTargetId, MediaTypeDescriptor, MountResult,
 } from '@/machines/machine.ts';
-import { parseSsd, SSD_TRACK_BYTES } from '@/media/floppy/ssd.ts';
+import { parseAcornDisc } from '@/media/floppy/acorn-disc.ts';
 import type { BbcMachine } from '../bbc-machine.ts';
 import type { BbcDiskService } from './disks.ts';
 import type { AcornTapeService } from '@/machines/shared/acorn-tape-service.ts';
@@ -14,9 +14,10 @@ function driveOf(target: MediaTargetId | undefined): 'a' | 'b' {
   return unit && Number(unit[1]) === 1 ? 'b' : 'a';
 }
 
-/** BBC media routing: Acorn DFS raw disk images (.ssd/.dsd/.img) and UEF/CSW
- *  cassette images. A disc loaded into drive 0 is auto-booted with SHIFT+BREAK,
- *  as a user would; a tape is mounted and waits for the user's *TAPE/CHAIN. */
+/** BBC media routing: Acorn DFS discs — raw dumps (.ssd/.dsd/.img) and HFE / SCP
+ *  bitstream and flux images — and UEF/CSW cassette images. A disc loaded into
+ *  drive 0 is auto-booted with SHIFT+BREAK, as a user would; a tape is mounted
+ *  and waits for the user's *TAPE/CHAIN. */
 export class BbcMediaService implements MediaService {
   constructor(
     private readonly machine: BbcMachine,
@@ -29,6 +30,8 @@ export class BbcMediaService implements MediaService {
       { ext: '.ssd', target: 'a' },
       { ext: '.dsd', target: 'a' },
       { ext: '.img', target: 'a' },
+      { ext: '.hfe', target: 'a' },
+      { ext: '.scp', target: 'a' },
       { ext: '.uef', target: 'tape' },
       { ext: '.csw', target: 'tape' },
       { ext: '.wav', target: 'tape' },
@@ -40,17 +43,23 @@ export class BbcMediaService implements MediaService {
     filename: string,
     target?: MediaTargetId,
   ): Promise<MountResult> {
-    if (/\.(?:ssd|dsd|img)$/i.test(filename)) {
-      // .dsd is always two sides; a .img over a single-sided 80-track image
-      // (204800 bytes) is taken as double-sided.
-      const doubleSided = /\.dsd$/i.test(filename)
-        || (/\.img$/i.test(filename) && data.length > SSD_TRACK_BYTES * 80);
+    if (/\.(?:ssd|dsd|img|hfe|scp)$/i.test(filename)) {
       const id = driveOf(target);
       if (id === 'b' && this.machine.driveCount < 2) {
         return { ok: false, message: 'Drive 1 is not fitted (change the drive count in the Drives pane)' };
       }
       try {
-        this.disks.insert(id, parseSsd(data, doubleSided), filename);
+        // .dsd is always two sides; a .img over a single-sided 80-track image
+        // (204800 bytes) is taken as double-sided. HFE and SCP are decoded
+        // track by track, whatever the file is called.
+        const { image } = parseAcornDisc(data, filename, 'dfs');
+        // The DFS (on either controller) reads single-density discs only: a
+        // disc with no FM track at all — an ADFS or other double-density disc —
+        // would just give "Disc fault" at every access.
+        if (!image.tracks.some(row => row.some(t => t && t.sectors.length > 0 && t.encoding !== 'mfm'))) {
+          return { ok: false, message: `${filename} is a double-density disc; the BBC's DFS reads single-density (FM) discs` };
+        }
+        this.disks.insert(id, image, filename);
         if (id === 'a') this.machine.bootDisc();
         return {
           ok: true,
@@ -73,6 +82,6 @@ export class BbcMediaService implements MediaService {
         message: `Tape loaded: ${filename} — type *TAPE then CHAIN"" (or *RUN)`,
       };
     }
-    return { ok: false, message: 'BBC accepts .ssd/.dsd/.img disk images and .uef/.csw/.wav tapes' };
+    return { ok: false, message: 'BBC accepts .ssd/.dsd/.img/.hfe/.scp disk images and .uef/.csw/.wav tapes' };
   }
 }

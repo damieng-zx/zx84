@@ -5,8 +5,12 @@ import type { Apple2Machine } from '../apple2-machine.ts';
 import type { Apple2DiskService } from './disks.ts';
 import type { Apple2TapeService } from './tape.ts';
 
-/** Apple II media routing: 5.25" sector images (`.dsk`/`.do`/`.po`) into the
- *  Disk II drives, and `.wav` cassette recordings onto the tape deck. A disk
+/** Disk image extensions; the contents, not the name, decide the format. */
+const DISK_EXTENSIONS = ['dsk', 'do', 'po', 'd13', 'nib', 'woz', '2mg', '2img'];
+
+/** Apple II media routing: 5.25" disk images into the Disk II drives — sector
+ *  images (`.dsk`/`.do`/`.po`, 13-sector `.d13`), `.2mg`, raw-nibble `.nib` and
+ *  bit-level `.woz` — and `.wav` cassette recordings onto the tape deck. A disk
  *  mounted in drive 1 boots, as a reset does. */
 export class Apple2MediaService implements MediaService {
   constructor(
@@ -20,6 +24,11 @@ export class Apple2MediaService implements MediaService {
       { ext: '.dsk', target: 'a' },
       { ext: '.do', target: 'a' },
       { ext: '.po', target: 'a' },
+      { ext: '.d13', target: 'a' },
+      { ext: '.nib', target: 'a' },
+      { ext: '.woz', target: 'a' },
+      { ext: '.2mg', target: 'a' },
+      { ext: '.2img', target: 'a' },
       { ext: '.wav', target: 'tape' },
     ];
   }
@@ -38,7 +47,7 @@ export class Apple2MediaService implements MediaService {
     target?: MediaTargetId,
   ): Promise<MountResult> {
     const ext = filename.toLowerCase().split('.').pop() ?? '';
-    if (ext === 'dsk' || ext === 'do' || ext === 'po') {
+    if (DISK_EXTENSIONS.includes(ext)) {
       const id = Apple2MediaService.driveOf(target);
       try {
         this.disks.mountImage(id, data, filename);
@@ -57,6 +66,6 @@ export class Apple2MediaService implements MediaService {
       }
       return { ok: false, message: 'Not a readable WAVE cassette' };
     }
-    return { ok: false, message: 'Apple II accepts .dsk, .do, .po and .wav' };
+    return { ok: false, message: 'Apple II accepts .dsk, .do, .po, .d13, .nib, .woz, .2mg and .wav' };
   }
 }

@@ -80,7 +80,7 @@ Fitted from the Hardware pane. Each option loads its ROM at build time, so toggl
 | --- | --- | --- | --- | --- |
 | Plus 1 (cartridges) — Hardware pane option "Plus 1 (cartridges)" | ROM / input / comms | `electron` | ◐ | Expansion OS in ROM 12 and the front cartridge slot (SK1, ROM pages 2 and 3). ADC0844 at `&FC70`, printer data at `&FC71`, status at `&FC72`. The printer port never reports busy and has no output (see Not emulated) |
 | Plus 1 analogue joysticks | input | `electron` | ✅ | Shown while the Plus 1 is fitted. A write to `&FC70` selects the channel (the Plus 1 ROM writes 4–7 for ADVAL(1)–(4)) and starts a 40 µs conversion; status bit 6 (/INTR) goes low when it ends and high again when `&FC70` is read. Player 1 is channels 1/2 and fire on status bit 4, player 2 channels 3/4 and bit 5 (fire buttons low while pressed). Sticks read 255 at full left and full up, as on the BBC Micro; keys give full deflection, a gamepad's analogue stick is proportional |
-| Plus 3 (disc drives) — "Plus 3 (disc drives)" | Disk | `electron` | ✅ | WD1770 at `&FCC4`–`&FCC7` with the drive-control latch at `&FCC0` (drive 0/1, side, density, controller reset); ADFS ROM in page 4; two drives. DRQ and command completion raise the CPU NMI, and ADFS moves each byte from its NMI handler |
+| Plus 3 (disc drives) — "Plus 3 (disc drives)" | Disk | `electron` | ✅ | WD1770 at `&FCC4`–`&FCC7` with the drive-control latch at `&FCC0` (drive 0/1, side, density, controller reset; bit 3 selects single density, and a track recorded in the other density reads as unformatted); ADFS ROM in page 4; two drives. DRQ and command completion raise the CPU NMI, and ADFS moves each byte from its NMI handler |
 | Plus 3 with ACP 1770 DFS — "DFS instead of ADFS (.ssd/.dsd)" | Disk | `electron` | ◐ | Swaps the ADFS ROM for the ACP 1770 DFS (fitted as ROM 0) on the same WD1770 interface, so Acorn DFS discs work. Only enabled while the Plus 3 is fitted. See Known issues |
 | Sideways ROM sockets | ROM | `electron` | ✅ | ROM pane lists pages 0 and 1 (socket SK2), 2 and 3 (SK1), 4 (disc interface), 5 and 6 (user ROM), 7 (modem interface), 12 (Plus 1 OS), 13 (high priority), 14 (Econet), 15 (reserved); pages 8–11 are not sockets. Loaded ROMs persist across reloads |
 
@@ -90,20 +90,23 @@ Fitted from the Hardware pane. Each option loads its ROM at build time, so toggl
 
 ## Media formats
 
-ZIP archives are unpacked and only entries the machine accepts are offered. Media is routed by what is fitted: `.adf`/`.adl`/`.ads`/`.adm` need the Plus 3 in ADFS mode, `.ssd`/`.dsd` need the Plus 3 in DFS mode, and `.rom` needs the Plus 1; otherwise the mount fails with a message naming the option to fit.
+ZIP archives are unpacked and only entries the machine accepts are offered. Media is routed by what is fitted: `.adf`/`.adl`/`.ads`/`.adm` need the Plus 3 in ADFS mode, `.ssd`/`.dsd` need the Plus 3 in DFS mode, and `.rom` needs the Plus 1; otherwise the mount fails with a message naming the option to fit. `.img`, `.dsk`, `.hfe` and `.scp` discs are taken in either mode and told apart by content (an ADFS root directory or a DFS catalogue in a sector dump; ten single-density or sixteen double-density sectors on the first track of an HFE or SCP); a disc that is plainly the other filing system's is refused, one that is neither (a protection first track) is mounted. HFE and SCP are recognised by their signature whatever the file is called.
 
 | Extension | Kind | Device | Load | Save | Notes |
 | --- | --- | --- | --- | --- | --- |
 | `.uef` | Tape | Tape deck | ✅ | ✅ | Plain or gzip-wrapped; the content decides, not the name. Save is a recording of what the OS SAVEs to the cassette port (always named `electron-tape.uef`), not a re-save of the mounted tape |
 | `.csw` | Tape | Tape deck | ✅ | ✗ | Sampled tape |
 | `.adf` `.ads` `.adm` | Disk (ADFS) | Plus 3 drive 0 / 1 | ✅ | ✅ | Raw 16 × 256-byte sector dumps. Geometry by size: up to 160 KB is 40 tracks single-sided (S), up to 320 KB is 80 tracks single-sided (M), larger is 80 tracks double-sided (L). Short files are padded; images over 640 KB are refused |
-| `.adl` | Disk (ADFS L) | Plus 3 drive 0 / 1 | ✅ | ✅ | Always 80 tracks double-sided, even if trimmed; logical-sector order (side 0 then side 1), not interleaved |
+| `.adl` | Disk (ADFS L) | Plus 3 drive 0 / 1 | ✅ | ✅ | Always 80 tracks double-sided, even if trimmed. The image holds the cylinders in turn, side 0 then side 1 of each (the BeebEm, MAME and Greaseweazle convention); ADFS itself fills side 0 before side 1, so logical sector 16 is image sector 32 |
+| `.img` `.dsk` | Disk (ADFS or DFS) | Plus 3 drive 0 / 1 | ✅ | ✅ | Headerless sector dump of either filing system, by content; one that says neither is taken as the filing system the Plus 3 is set to. Saved back as the matching ADFS or DFS dump |
+| `.hfe` | Disk | Plus 3 drive 0 / 1 | ✅ | ✅ | HFE v1 or v3 bitstream, decoded track by track: MFM for ADFS, FM for DFS. Deleted-data marks, CRC errors, odd sector IDs and sizes and duplicate IDs are kept; v3 weak bytes become weak sectors. Saved back as `.hfe` (v1), only written sectors re-encoded |
+| `.scp` | Disk | Plus 3 drive 0 / 1 | ✅ | ◐ | SuperCard Pro flux, decoded at load; a sector that reads differently across revolutions is weak. Saved as an ADFS or DFS dump when its layout is plain, otherwise as `.hfe` |
 | `.ssd` `.dsd` | Disk (Acorn DFS) | Plus 3 drive 0 / 1 (DFS mode) | ✅ | ✅ | 10 × 256-byte sectors per track; `.dsd` interleaves the two sides. Truncated images are padded to the 40 or 80 tracks their catalogue declares |
 | `.rom` | Cartridge | Plus 1 front slot | ✅ | — | 16 KB (repeated into both banks) or 32 KB (lower then upper bank). `Name_1.rom` + `Name_2.rom` halves are joined into one 32 KB cartridge in either order when the first is still in the slot |
 
 Drive 0 is the default target and drive 1 is selected with target `b`. Mounting a disc in drive 0 or a cartridge boots it with SHIFT+BREAK (cartridge insert and eject also power-cycle the machine first); mounting a tape does not reset the machine and the status line says to type `CHAIN""` (or `*RUN`).
 
-Disc saves from the Drives pane keep the format family: ADFS discs save as `.adl` (two-sided), `.adm` (more than 40 tracks) or `.ads`, so a loaded `.adf` is saved under the extension matching its geometry; DFS discs save as `.dsd` or `.ssd`. The Drives pane can create blank ADFS discs (640 KB L, 320 KB M, 160 KB S; unformatted as far as the filing system is concerned, so `*FORMAT` is still needed) or, in DFS mode, blank DFS discs (100 KB, 200 KB single-sided; 200 KB, 400 KB double-sided). Write-protect can be set per drive.
+Disc saves from the Drives pane keep the format family: ADFS discs save as `.adl` (two-sided), `.adm` (more than 40 tracks) or `.ads`, so a loaded `.adf` is saved under the extension matching its geometry; DFS discs save as `.dsd` or `.ssd`. A disc that came from an HFE saves as `.hfe`, as does any disc whose layout a sector dump cannot hold (a protection track, deleted-data or bad-CRC sectors). The Drives pane can create blank ADFS discs (640 KB L, 320 KB M, 160 KB S; unformatted as far as the filing system is concerned, so `*FORMAT` is still needed) or, in DFS mode, blank DFS discs (100 KB, 200 KB single-sided; 200 KB, 400 KB double-sided). Write-protect can be set per drive.
 
 **Save menu exports:** Saved tape (`.uef`), PNG screenshot, RAM `.bin` (the 32 KB of main RAM).
 
@@ -161,7 +164,7 @@ Disc saves from the Drives pane keep the format family: ADFS discs save as `.adl
 - **JIM paged memory.** `&FD00`–`&FDFF` is absent and floats high.
 - **Other expansion hardware.** Econet, modem and other interfaces exist only as empty ROM pages; nothing decodes their registers.
 - **UEF disc-image chunks.** UEF chunks outside the supported set (including disc images, security cycles, phase change and markers) are skipped; a UEF that yields no tape blocks is refused as unreadable.
-- **Disc formats other than ADFS and DFS sector dumps.** `.hfe`, `.scp`, `.dsk` and `.img` are not accepted by the Electron.
+- **Track timing on HFE and SCP discs.** Tracks are decoded to sectors once at load. Deleted-data marks, CRC errors, odd sector IDs and sizes, duplicate IDs and weak sectors carry over, but protections that time the track itself (gap lengths, where a sector sits relative to the index) are not reproduced.
 - **Machine snapshots.** No snapshot service; the Save menu has no snapshot entry.
 
 ## Faithful quirks
@@ -186,6 +189,7 @@ Disc saves from the Drives pane keep the format family: ADFS discs save as `.adl
 | [`tests/electron-joystick.test.ts`](../../tests/electron-joystick.test.ts) | Plus 1 ADC0844: 40 µs conversion, /INTR on status bit 6, result latch, channel and fire-button wiring, proportional input, no joystick without the Plus 1; ADVAL(0), (1), (2) and (4) through the real Plus 1 Expansion ROM (skipped when the cached ROMs are absent) | Test file in repo |
 | [`tests/electron-ocr.test.ts`](../../tests/electron-ocr.test.ts) | OS font lookup, mode 6 and mode 1 text reading, inverse video, screen wrap | Test file in repo |
 | [`tests/electron-boot.test.ts`](../../tests/electron-boot.test.ts) | With the real ROMs in `mcp/.cache` (skipped when absent): boot to the BASIC prompt, BASIC from the keyboard, BASIC panes, tape SAVE then LOAD round trip; Plus 1/Plus 3 start-up banner and `*HELP`; ADFS L catalogue and a file load across a track boundary (needs `ZX84_ADL`); DFS catalogue and SAVE/LOAD round trip from the saved `.ssd` | Test file in repo |
+| [`tests/disc-formats-boot.test.ts`](../../tests/disc-formats-boot.test.ts) | With the real ROMs: the ADFS L disc as MFM `.hfe` and `.scp` loads a file across tracks as the `.adl` does; an FM `.hfe` boots under the 1770 DFS and a program saved to it comes back from the saved `.hfe`; a DFS disc is refused in ADFS mode | Test file in repo |
 | Electron `.uef` collection (752 files), headless | Almost all load and run; three file-level-chunk UEFs parse to no blocks | 2026-10-18 |
 | ADFS `.adl` discs (5 BeebEm images) | Read, and SAVE then reload round trip, verified | 2026-10-18 |
 | Acornsoft cartridge pairs (`_1`/`_2`) | Work as one concatenated 32 KB image | 2026-10-18 |

@@ -94,8 +94,8 @@ Econet hardware is fitted.
 
 | Peripheral | Type | Models | Status | Notes |
 | --- | --- | --- | --- | --- |
-| Acorn DFS, Intel 8271 | disk | `bbc-b` | ✅ | Original interface; single-density command/parameter/result chip ([`i8271.ts`](../../src/cores/i8271.ts)) mapped at 0xFE80–0xFE84. Functional model: sector data comes straight from the disk image, with no flux or bitstream layer |
-| Acorn 1770 DFS, WD1770 | disk | `bbc-b` | ✅ | Later upgrade ([`wd179x.ts`](../../src/cores/wd179x.ts) base). Registers at 0xFE84–0xFE87 with a write-only drive-control latch at 0xFE80 (drive select, side, reset). Default |
+| Acorn DFS, Intel 8271 | disk | `bbc-b` | ✅ | Original interface; single-density command/parameter/result chip ([`i8271.ts`](../../src/cores/i8271.ts)) mapped at 0xFE80–0xFE84. Functional model on decoded sectors: reads single-density (FM) tracks only; a read stops at a deleted-data mark with "deleted data found" (result bit 5) or at a bad data CRC with 0x0E; WRITE DELETED DATA lays a deleted mark down; a weak sector (from SCP or HFE v3) reads one of its recorded readings |
+| Acorn 1770 DFS, WD1770 | disk | `bbc-b` | ✅ | Later upgrade ([`wd179x.ts`](../../src/cores/wd179x.ts) base). Registers at 0xFE84–0xFE87 with a write-only drive-control latch at 0xFE80 (drive select, side, density, reset). Latch bit 3 selects single density; a track recorded in the other density reads as unformatted. Default |
 | No disc interface | — | `bbc-b` | ✅ | No DFS ROM fitted and the Drives pane is hidden |
 | Joysticks (analogue port) | input | all | ✅ | Two sticks, one fire button each. Player 1 is ADC channels 0/1 (ADVAL(1)/(2)) and PB4, player 2 channels 2/3 and PB5. A stick reads highest at full left and full up (ADVAL 65520) and 0 at full right and full down. Keys and the on-screen pad give full deflection; a gamepad's analogue stick is proportional |
 | Mouse | input | — | ✗ | None offered (descriptor has no mouse types) |
@@ -111,15 +111,18 @@ discs. Exactly one interface is fitted at a time.
 
 ## Media formats
 
-ZIP archives are unpacked and their contents routed as below. File type is
-decided by extension for disks; for tapes the content decides (a UEF signature
-or gzip wrapper is UEF, anything else is tried as CSW).
+ZIP archives are unpacked and their contents routed as below. HFE and SCP disks
+are recognised by their signature whatever the file is called; other disks by
+extension. For tapes the content decides (a UEF signature or gzip wrapper is
+UEF, anything else is tried as CSW).
 
 | Extension | Kind | Device | Load | Save | Notes |
 | --- | --- | --- | --- | --- | --- |
 | `.ssd` | Disk | DFS drive 0 (or 1) | ✅ | ✅ | Single-sided raw sector dump (10 × 256-byte sectors per track). Truncated images are padded to 40 or 80 tracks per the catalogue |
 | `.dsd` | Disk | DFS drive 0 (or 1) | ✅ | ✅ | Double-sided, sides interleaved per track |
 | `.img` | Disk | DFS drive 0 (or 1) | ✅ | ✅ | Treated as double-sided when larger than 204,800 bytes, otherwise single-sided; saved back as `.ssd` or `.dsd` |
+| `.hfe` | Disk | DFS drive 0 (or 1) | ✅ | ✅ | HFE v1 or v3 bitstream, decoded track by track. Keeps deleted-data marks, CRC errors, odd sector IDs and sizes, and duplicate IDs; v3 weak bytes become weak sectors. Saved back as `.hfe` (v1), only written sectors re-encoded. A disc with no single-density track is refused, as the DFS cannot read it |
+| `.scp` | Disk | DFS drive 0 (or 1) | ✅ | ◐ | SuperCard Pro flux, decoded at load; a sector that reads differently across revolutions is weak. Saved as `.ssd`/`.dsd` when its layout is plain DFS, otherwise as `.hfe` |
 | `.uef` | Tape | Tape deck | ✅ | ✅ | Gzip-wrapped UEF also accepted. Save is whatever the OS wrote to the cassette port |
 | `.csw` | Tape | Tape deck | ✅ | ✗ | Sampled tape |
 
@@ -127,7 +130,9 @@ Loading a disk into drive 0 resets the machine and holds SHIFT (SHIFT+BREAK) so
 the DFS auto-boots it; drive 1 is mounted without a reset. A tape is mounted
 with play armed and waits for `*TAPE` then `CHAIN""` (or `*RUN`). There are no
 snapshot formats. Blank discs can be created in the Drives pane as `.ssd`
-(100K SS/40T, 200K SS/80T) or `.dsd` (200K DS/40T, 400K DS/80T).
+(100K SS/40T, 200K SS/80T) or `.dsd` (200K DS/40T, 400K DS/80T). A disc whose
+layout a sector dump cannot hold (a protection track, deleted-data or bad-CRC
+sectors) is saved as `.hfe` instead of `.ssd`, so nothing on it is lost.
 
 **Save menu exports:** recorded tape (`.uef`, offered as `bbc-tape.uef`), PNG
 screenshot, RAM `.bin` (32 KB, `bbc-b-ram-32k.bin`). Disks are saved from the
@@ -167,7 +172,7 @@ Drives pane.
 | Software library | ✗ | `library: false` |
 | Boot disk helper | ✗ | `bootDisk: false`; disc boot is the automatic SHIFT+BREAK on mount |
 | Machine-specific panes | ✅ | On-screen BBC keyboard with function-key strip, working BREAK key and lamps; Hardware-pane Disk system selector; Display-pane colour map; Sound-pane stereo and filter controls |
-| MCP tools | ✅ | Generic: `run`, `step`, `step_frame`, `continue`, `registers`, `set_register`, `read_memory`, `write_memory`, `find`, `disassemble`, `breakpoint`, `delete_breakpoint`, `memory_watchpoint`, `delete_memory_watchpoint`, `symbols`, `symbols_load`, `key`, `type`, `ocr`, `screenshot`, `load` (`.ssd/.dsd/.img` disks and `.uef/.csw` tapes), `eject` (tape or disk), `model`. `port_in` and `port_out` report that the machine has no I/O port space (hardware is memory-mapped). `trace` and `stop_trace` work in full and portio modes. The Spectrum- and CPC-specific disk, FDC, Multiface and `frame_trace` tools do not apply, and `save` (SZX snapshot) is Spectrum-only |
+| MCP tools | ✅ | Generic: `run`, `step`, `step_frame`, `continue`, `registers`, `set_register`, `read_memory`, `write_memory`, `find`, `disassemble`, `breakpoint`, `delete_breakpoint`, `memory_watchpoint`, `delete_memory_watchpoint`, `symbols`, `symbols_load`, `key`, `type`, `ocr`, `screenshot`, `load` (`.ssd/.dsd/.img/.hfe/.scp` disks and `.uef/.csw` tapes), `eject` (tape or disk), `model`. `port_in` and `port_out` report that the machine has no I/O port space (hardware is memory-mapped). `trace` and `stop_trace` work in full and portio modes. The Spectrum- and CPC-specific disk, FDC, Multiface and `frame_trace` tools do not apply, and `save` (SZX snapshot) is Spectrum-only |
 | Drive count | ✅ | One or two drives, from **Drive count** in drive 0's options menu; saved, rebuilds the machine. With one drive the 8271 reports drive 1 neither ready nor at track 0 (as the DFS expects), and the 1770 ends a restore on it with a seek error |
 
 ---
@@ -192,7 +197,7 @@ Drives pane.
 - **ADC conversion noise.** A converted value is the stick's position exactly; a real uPD7002 jitters in its low bits.
 - **Tape sound.** The cassette signal is not played through the speaker.
 - **Other Model B variants.** Only the Model B (32 KB) is registered; no B+, Master, or 16 KB Model A.
-- **8271 and WD1770 at bitstream level.** Both controllers are functional models working on sectors; there are no flux, HFE or SCP disc formats, and copy-protected discs that depend on raw track layout are not supported.
+- **8271 and WD1770 at bitstream level.** Both controllers work on sectors decoded once at load, from HFE and SCP tracks as from sector dumps. Deleted-data marks, CRC errors, odd sector IDs and sizes, duplicate IDs and weak sectors carry over, but protections that time the track itself (gap lengths, where a sector sits relative to the index, sectors spanning both densities) are not reproduced. An ID field with a bad CRC drops its sector, and the 8271's plain READ DATA stops at a deleted mark just as READ DATA AND DELETED DATA does.
 
 ## Faithful quirks
 
@@ -214,6 +219,9 @@ Drives pane.
 | [`tests/bbc-hardware.test.ts`](../../tests/bbc-hardware.test.ts) — SAA5050 alpha and mosaics, sheila IO decode, ROMSEL, IC32 latch, keyboard matrix, option links and CA2, sound strobe, Mode 7 half-line blending, scale-dependent layout, bitmap mode pixel unpacking, ULA palette decode | Tests | — |
 | [`tests/bbc-dfs.test.ts`](../../tests/bbc-dfs.test.ts) — SSD/DSD parse and serialize round trip, 1770 and 8271 register access through the memory bus, drive and ROM socket exposure, NMI handshake per byte | Tests | — |
 | [`tests/i8271.test.ts`](../../tests/i8271.test.ts) — 8271 registers, read and write commands, errors (not found, not ready, write-protected), interrupt, format | Tests | — |
+| [`tests/cores/disc-density.test.ts`](../../tests/cores/disc-density.test.ts) — WD1770 single/double density selection and WRITE TRACK density; 8271 refusing MFM tracks, deleted-data and CRC-error results, WRITE DELETED DATA, weak sectors | Tests | — |
+| [`tests/floppy/fm-track.test.ts`](../../tests/floppy/fm-track.test.ts), [`tests/floppy/hfe-v3.test.ts`](../../tests/floppy/hfe-v3.test.ts), [`tests/media/acorn-disc.test.ts`](../../tests/media/acorn-disc.test.ts) — FM track decode/encode from an IBM 3740 encoder written in the test, FM in HFE and SCP, HFE v3 opcodes, Acorn disc sniffing and save formats | Tests | — |
+| [`tests/disc-formats-boot.test.ts`](../../tests/disc-formats-boot.test.ts) — a DFS disc made in the test boots identically from `.ssd`, FM `.hfe` (v1 and v3) and `.scp` on both controllers (skipped without the cached MOS, BASIC, DNFS and DFS 2.26 ROMs) | Tests | — |
 | [`tests/bbc-tape.test.ts`](../../tests/bbc-tape.test.ts) — motor-gated tape, carrier detect, ordered byte delivery at 1200 baud, recording to UEF, RS423 ignores recording; SAVE then LOAD/LIST/RUN round trip on the real OS and BASIC ROMs (skipped when the cached ROMs are absent) | Tests | — |
 | [`tests/bbc-joystick.test.ts`](../../tests/bbc-joystick.test.ts) — uPD7002 register layout and 4 ms / 10 ms conversion times from the data sheet, CB1 end-of-conversion edge, channel and fire-button wiring, proportional input; ADVAL(0), (1), (2) and (4) through MOS 1.20's OSBYTE 128 on the real ROMs (skipped when the cached ROMs are absent) | Tests | — |
 | [`tests/bbc-ocr.test.ts`](../../tests/bbc-ocr.test.ts) — Mode 7 text read-back, overlay masks and framebuffer blanking, bitmap-mode OCR against the MOS font, BASIC listing provider | Tests | — |

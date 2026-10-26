@@ -34,6 +34,14 @@ export interface DskTrack {
   sectorMap: Map<number, number>;
   gap3: number;
   filler: number;
+  /**
+   * How the track is recorded: FM (single density, IBM 3740 — the BBC Micro's
+   * 8271 and Acorn DFS) or MFM (double density, IBM System 34). A controller
+   * reads a track only in its own density, so one in the other density is
+   * "record not found" to it. Undefined when the source format does not say
+   * (sector dumps for MFM-only machines): any density reads it.
+   */
+  encoding?: 'fm' | 'mfm';
 }
 
 /** Where one decoded sector's data field sits in a track's cell stream, so a
@@ -45,16 +53,22 @@ export interface HfeSectorLayout {
   len: number;
   /** Data address mark: 0xFB (data) or 0xF8 (deleted-data). */
   mark: number;
+  /**
+   * Present for an FM field: bit-cells per FM clock or data window (1 when the
+   * stream runs at the FM cell rate, 2 when — as HxC and Greaseweazle write FM
+   * — it is stored at the double-density rate). Absent for MFM.
+   */
+  fm?: number;
 }
 
 /**
- * Raw per-track MFM bit-cell streams retained from an HFE image. When present
+ * Raw per-track FM/MFM bit-cell streams retained from an HFE image. When present
  * the mounted disk *is* the HFE bitstream: the FDC's decoded {@link DskTrack}s
  * are derived from `cells[cylinder][side]` (see `hfe.ts`), not from a DSK file,
  * and the flux stays attached for on-demand re-decode / write-back.
  */
 export interface HfeBitstream {
-  /** cells[cylinder][side] — LSB-first MFM bit-cells, or null for a blank side. */
+  /** cells[cylinder][side] — LSB-first bit-cells, or null for a blank side. */
   cells: (Uint8Array | null)[][];
   /**
    * Physical-order data-field positions per [cylinder][side], parallel to the

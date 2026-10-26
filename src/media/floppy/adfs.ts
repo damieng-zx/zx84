@@ -6,9 +6,14 @@
  *
  *   ADFS S   160K   40 tracks, one side
  *   ADFS M   320K   80 tracks, one side
- *   ADFS L   640K   80 tracks, two sides, one 2560-sector volume: logical
- *                   sectors 0-1279 fill side 0 track by track, then 1280-2559
- *                   side 1 (so the file is the disc in logical-sector order)
+ *   ADFS L   640K   80 tracks, two sides, one 2560-sector volume
+ *
+ * An L image stores the tracks cylinder by cylinder, side 0 then side 1 of each
+ * (as BeebEm, MAME and Greaseweazle read and write .adl files). That is not
+ * ADFS's own logical order: ADFS fills side 0 track by track (logical sectors
+ * 0-1279) before side 1, so logical sector 16 — the start of track 1, side 0 —
+ * is the image's 33rd sector. Text files on real .adl images run on across that
+ * gap (e.g. from image sector 15 to 32), which is how the layout was confirmed.
  *
  * They materialise into the shared `DskImage` model. Short files (images are
  * often trimmed after the last used sector) are padded with filler up to the
@@ -53,13 +58,14 @@ function buildTrack(data: Uint8Array, base: number, cyl: number, side: number): 
       data: data.slice(off, off + ADFS_SECTOR_SIZE),
     });
   }
-  return { sectors, sectorMap, gap3: 0x1B, filler: FILLER };
+  // ADFS discs are double density (MFM).
+  return { sectors, sectorMap, gap3: 0x1B, filler: FILLER, encoding: 'mfm' };
 }
 
-/** Offset of a track in the file: sides are laid end to end, not interleaved
- *  as DFS `.dsd` images are. */
-function trackOffset(track: number, side: number, tracksPerSide: number): number {
-  return (side * tracksPerSide + track) * ADFS_TRACK_BYTES;
+/** Offset of a track in the file: a double-sided image interleaves the sides
+ *  track by track, as DFS `.dsd` images do. */
+function trackOffset(track: number, side: number, sides: number): number {
+  return (track * sides + side) * ADFS_TRACK_BYTES;
 }
 
 export function parseAdfs(data: Uint8Array, doubleSided = false): DskImage {
@@ -76,7 +82,7 @@ export function parseAdfs(data: Uint8Array, doubleSided = false): DskImage {
   for (let t = 0; t < numTracks; t++) {
     const sides: (DskTrack | null)[] = new Array(numSides).fill(null);
     for (let s = 0; s < numSides; s++) {
-      sides[s] = buildTrack(data, trackOffset(t, s, numTracks), t, s);
+      sides[s] = buildTrack(data, trackOffset(t, s, numSides), t, s);
     }
     tracks.push(sides);
   }
@@ -108,7 +114,7 @@ export function serializeAdfs(image: DskImage): Uint8Array {
     for (let s = 0; s < numSides; s++) {
       const track = image.tracks[t]?.[s];
       if (!track) continue;
-      const base = trackOffset(t, s, image.numTracks);
+      const base = trackOffset(t, s, numSides);
       for (const sec of track.sectors) {
         if (sec.r < 0 || sec.r >= ADFS_SECTORS_PER_TRACK) continue;
         out.set(sec.data.subarray(0, ADFS_SECTOR_SIZE), base + sec.r * ADFS_SECTOR_SIZE);

@@ -51,13 +51,15 @@ describe('Memotech HFE media integration', () => {
     expect(m.services.disks.image('a')).toBe(original);
   });
 
-  it('reports unsupported HFE v3 without mounting it', async () => {
-    const v3 = new Uint8Array(512);
+  it('mounts an HFE v3 image and saves it back as v1', async () => {
+    // A v1 MFM track holds no byte whose first four cells are all set, so the
+    // same track data under the v3 signature is a v3 image with no opcodes.
+    const v3 = hfe.slice();
     v3.set(new TextEncoder().encode('HXCHFEV3'));
-    const result = await m.services.media.mount(v3, 'v3.hfe');
-    expect(result.ok).toBe(false);
-    expect(result.message).toContain('HFE v3 images are not yet supported');
-    expect(m.services.disks.image('a')).toBeNull();
+    expect(await m.services.media.mount(v3, 'v3.hfe')).toMatchObject({ ok: true, target: 'a' });
+    expect(m.services.disks.image('a')!.tracks[0][1]!.sectors[0].data).toEqual(new Uint8Array(256).fill(0x3c));
+    const saved = m.services.disks.save('a')!;
+    expect(new TextDecoder().decode(saved.data.subarray(0, 8))).toBe('HXCPICFE');
   });
 
   it('rejects HFE when the floppy hardware is disabled', async () => {

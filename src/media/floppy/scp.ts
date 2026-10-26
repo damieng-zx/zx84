@@ -1,12 +1,13 @@
 /**
- * SuperCard Pro (.scp) flux disk images for the +3/CPC (uPD765A) and the Beta
- * Disk / +D (WD179x).
+ * SuperCard Pro (.scp) flux disk images, for every machine that takes disks: the
+ * uPD765A, WD179x and Intel 8271 paths all read the decoded sectors.
  *
  * SCP is a *flux* format — one level below HFE. Instead of MFM bit-cells it
  * stores the raw timing between magnetic flux reversals (in 25ns ticks), for one
  * or more revolutions of each track. We recover the bit-cells with a software
- * data separator (a PLL), then reuse the exact MFM decoder the HFE path uses
- * (`decodeHfeTrack`) to turn cells into sectors.
+ * data separator (a PLL), then reuse the exact decoder the HFE path uses
+ * (`decodeHfeTrack`) to turn cells into sectors — MFM, or FM (single density,
+ * as the BBC Micro's discs) read at the double-density cell time.
  *
  * The point of flux (vs HFE's single deterministic revolution) is fidelity for
  * copy protection: weak/fuzzy sectors read differently each revolution. When a
@@ -124,7 +125,7 @@ function estimateCellTicks(flux: number[], resTicks: number): number {
  *  readings are just misreads of a sound sector and are ignored; the sector is
  *  weak only if good readings disagree. When every reading failed its CRC (a
  *  weak-bit protection sector), the differing bad readings are the weak copies. */
-function mergeRevolutions(tracks: DskTrack[]): DskTrack | null {
+export function mergeRevolutions(tracks: DskTrack[]): DskTrack | null {
   const good = tracks.filter((t): t is DskTrack => t !== null);
   if (good.length === 0) return null;
 
@@ -166,7 +167,7 @@ function mergeRevolutions(tracks: DskTrack[]): DskTrack | null {
     const idx = sectors.push(sector) - 1;
     if (!sectorMap.has(sector.r)) sectorMap.set(sector.r, idx);
   }
-  return { sectors, sectorMap, gap3: good[0].gap3, filler: good[0].filler };
+  return { sectors, sectorMap, gap3: good[0].gap3, filler: good[0].filler, encoding: good[0].encoding };
 }
 
 function bytesKey(d: Uint8Array): string {

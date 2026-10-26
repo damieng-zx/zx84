@@ -80,7 +80,7 @@ carry over.
 
 | Peripheral | Type | Models | Status | Notes |
 | --- | --- | --- | --- | --- |
-| Disk ][ controller (slot 6) with 1 or 2 drives | Disk | `apple2`, `apple2-plus`, `apple2e`, `apple2e-enhanced` (optional, on by default); `apple2c` (built in) | ✅ | Bit-level: stepper phases with half-track positioning, motor with about 1 second of spin-down, 6-and-2 GCR shift register, write-protect sense, write support. One or two drives, chosen from the Drives pane's **Drive count** menu (rebuilds the machine); the //c's second drive is its external one |
+| Disk ][ controller (slot 6) with 1 or 2 drives | Disk | `apple2`, `apple2-plus`, `apple2e`, `apple2e-enhanced` (optional, on by default); `apple2c` (built in) | ✅ | Bit-level: each track is a stream of 4 µs bit cells turning under the head at 4 CPU cycles a cell, timed from the exact cycle of every access (so it keeps turning between reads). Behavioural model of the logic state sequencer: data register shifting, a finished byte held through 0 cells until a 1 restarts it (at least two cells), MC3470 random bits after more than three cells without a flux transition, write-protect sense, writes laid down cell by cell with the software's own timing (32-cycle bytes, 40-cycle self-sync). Four stepper magnets position the head on 160 quarter tracks (two adjacent magnets hold it between them); motor with about 1 second of spin-down. One or two drives, chosen from the Drives pane's **Drive count** menu (rebuilds the machine); the //c's second drive is its external one |
 | Language card (slot 0) | RAM | `apple2`, `apple2-plus` | ✅ | On by default; checkbox in the Hardware pane. Built in on the //e family |
 | Videx Videoterm (slot 3) | 80-column video | `apple2`, `apple2-plus` | ✅ | 6845 CRTC, 2 KB card RAM behind a 512-byte window at `$CC00`, 1 KB firmware, 2 KB character ROM. 80 × 24 characters of 7 × 9 dots with inverse video and a cursor, shown once `PR#3` has programmed 80 columns |
 | Extended 80-column card (64 KB) | RAM / video | `apple2e`, `apple2e-enhanced` | ✅ | On by default. Provides auxiliary RAM for 80-column text, double hi-res and 128 KB software; built in on the //c |
@@ -104,21 +104,34 @@ when there are several.
 
 | Extension | Kind | Device | Load | Save | Notes |
 | --- | --- | --- | --- | --- | --- |
-| `.dsk` | Disk | Disk ][ drive 1 or 2 | ✅ | ✅ | 140 KB sector image; sector order detected from the contents, not the extension. Save writes `.po` for ProDOS order, otherwise `.dsk` |
+| `.dsk` | Disk | Disk ][ drive 1 or 2 | ✅ | ✅ | 140 KB 16-sector image; sector order detected from the contents, not the extension. Save writes `.po` for ProDOS order, otherwise `.dsk` |
 | `.do` | Disk | Disk ][ drive 1 or 2 | ✅ | ✅ | Saved as `.dsk` (or `.po` if the contents are detected as ProDOS order) |
 | `.po` | Disk | Disk ][ drive 1 or 2 | ✅ | ✅ | Order is detected from the contents; a DOS-order dump named `.po` is saved as `.dsk` |
+| `.d13` | Disk | Disk ][ drive 1 or 2 | ◐ | ✅ | 13-sector DOS 3.1-3.2.1 image (116,480 bytes, physical sector order), nibblized with `D5 AA B5` address fields and 5-and-3 data fields. Mounts, reads and writes, but does not boot: see Not emulated |
+| `.nib` | Disk | Disk ][ drive 1 or 2 | ✅ | ✅ | Raw nibbles, 35 (or 40) tracks of 6,656 bytes (6,384-byte `.nb2` tracks too). Gap `$FF`s become ten-cell self-sync bytes again; `$FF`s inside address and data fields stay eight cells. Saved as `.nib` (each track's nibbles as a reader collects them) |
+| `.woz` | Disk | Disk ][ drive 1 or 2 | ✅ | ✅ | WOZ 1, WOZ 2 and WOZ 2.1: CRC-32 checked (a zero CRC is accepted), INFO (write protect, optimal bit timing, creator), TMAP quarter tracks, TRKS bit streams, WOZ 2.1 FLUX tracks (each transition interval rounded to whole cells) used in place of the bit track for their quarter tracks; META kept. 3.5" WOZ disks are refused. Saved as WOZ 2 with every written cell |
+| `.2mg` / `.2img` | Disk | Disk ][ drive 1 or 2 | ✅ | ✅ | 64-byte header around a 140 KB DOS- or ProDOS-order image or a `.nib`; the locked flag sets write protect and a header volume number is used for the address fields. Saved as `.2mg` with the header, comment and creator data kept. Larger (3.5", hard-disk) images are refused |
 | `.wav` | Tape | Cassette deck | ✅ | ✅ | FSK audio; one logical block with play, pause, stop and rewind. Save is a recording of the `$C020` toggles since the last reset (`apple2-tape.wav`: 44.1 kHz 16-bit mono square wave, silences between saves cut to 1 s), not a re-save of the mounted tape |
 
-Disk images: 35-track (or 40-track) images, with a few stray bytes tolerated
+The format is decided by the contents (a WOZ or 2MG header, a `.nib` or `.d13`
+length), not the extension. Every disk becomes a set of bit-cell tracks on a
+quarter-track map: a sector image is nibblized DOS-style (48 self-sync bytes,
+then per sector the address field, 6 sync, the data field and 20 sync, padded
+with sync to 51,136 cells, one 300 RPM revolution at 4 cycles a cell), each
+track readable from its own quarter track and the ones either side, half tracks
+blank, as in WOZ images of standard disks. Sector images: 35-track (or 40-track) images, with a few stray bytes tolerated
 (within 1 KB of a whole number of tracks). A MacBinary I header or a
 `SIMSYSTEM_IIE` prefix is read through. Order is chosen from a ProDOS volume
 header at block 2, else from which skew makes the DOS 3.3 catalog chain readable,
 else DOS order. The address-field volume number is taken from the DOS boot IOB or
 the VTOC (default 254). Mounting in drive 1 (`unit:0`) resets and boots the disk; mounting in
 drive 2 (`unit:1`) does not. A mount fails if the Disk ][ controller is not fitted or the
-drive is not present. Write-protect can be set per drive; written tracks are
-folded back into the image once per frame, and Save from the Drive pane
-downloads the modified image. Mounted tapes and disks are restored after a reload.
+drive is not present. Write-protect can be set per drive (a WOZ or 2MG image's
+own flag sets it on mount, and is saved with it); written tracks are decoded and
+folded back into the sector image once per frame, and Save from the Drive pane
+downloads the modified image in the format it was loaded as. Writing over a
+blank quarter track lays down a new track there (kept by `.woz`, not by sector
+formats). Mounted tapes and disks are restored after a reload.
 
 **Save menu exports:** Saved tape (`.wav`); PNG screenshot; RAM `.bin` (the 48 KB of main RAM, named
 `<model>-ram-48k.bin`). There are no machine snapshots.
@@ -163,7 +176,9 @@ downloads the modified image. Mounted tapes and disks are restored after a reloa
 | Issue | Affects | Severity | Notes |
 | --- | --- | --- | --- |
 | MCP `key` combinations and `type` punctuation or capitals do not apply modifiers | All (MCP only) | low | The tools press a modifier as a separate key event, so the Apple II keyboard (which reads modifiers from each event) sees plain keys: `sym+p` gives `P`, not Ctrl-P. The `type` tool describes its symbol chords as Spectrum mappings |
-| Disk bit position is approximated across pauses between reads | All with Disk ][ | low | Documented in `peripherals/disk2.ts`: each read advances at most one byte's worth of bits so framing stays exact; this is invisible to DOS and ProDOS but "only flux-level copy protection could tell the difference" |
+| Disk ][ sequencer is behavioural, not the P6 PROM | All with Disk ][ | low | Documented in `peripherals/disk2.ts`: bits move a whole 4 µs cell at a time, so where within a cell a transition or a CPU access falls is not modelled; reads of the card's odd addresses return the data register rather than the floating bus |
+| The head moves the instant a phase changes | All with Disk ][ | low | No stepper settling time or inertia: a protection that times a seek, or relies on the head overshooting, sees an ideal drive |
+| 13-sector disks do not boot | All with Disk ][ | low | The 13-sector Disk II boot PROM (P5A) is not in the ROM set, and the 16-sector boot ROM and DOS 3.3 cannot read `D5 AA B5` address fields. The 5-and-3 layout follows the DOS 3.2 structure (154 low-bit values then 256 five-bit values, running XOR) but has not been checked against real DOS 3.2 media |
 
 ## Not emulated
 
@@ -174,7 +189,7 @@ downloads the modified image. Mounted tapes and disks are restored after a reloa
 - **//c 80/40 and keyboard-layout switches.** Drawn on the on-screen keyboard only.
 - **Rockwell/WDC 65C02 bit instructions and WAI/STP.** They execute as NOPs on the CMOS models.
 - **Other expansion cards.** Only the Disk ][ controller, language card, Videx Videoterm, Mockingboard and extended 80-column card exist (no mouse, clock, serial, hard-disk or CPU cards). The Mockingboard has no speech chip.
-- **Other disk formats.** Only 16-sector 6-and-2 `.dsk`/`.do`/`.po` images, and no raw-nibble or copy-protected images (the codec produces the standard layout only). 13-sector, `.nib`, `.woz`, `.2mg` and hard-disk images are not accepted.
+- **Other disk formats.** Hard-disk and 3.5-inch images (`.hdv`, 800K `.2mg`/`.po`, 3.5" WOZ) are not accepted: there is no SmartPort or hard-disk card. Flux tracks are turned into bit cells when the WOZ is loaded, so jitter finer than a cell is lost.
 - **Mouse as paddles.** The host mouse does not drive the paddles.
 - **Machine snapshots.** The snapshot service is absent.
 
@@ -204,6 +219,9 @@ downloads the modified image. Mounted tapes and disks are restored after a reloa
 | `tests/apple2-tape-save.test.ts` | A program toggling `$C020` from a table of delays (no ROM): the Save menu's WAV header against the RIFF/WAVE PCM layout, and the WAV mounted back plays into `$C060` with each half-cycle within one output sample of the program's 6502 cycle count; toggles timed on the access cycle; reset clears | Test suite |
 | `tests/apple2-cmos.test.ts` | Enhanced //e and //c registration, 65C02 execution through the machine bus, 65C02 disassembly, MouseText, the //c's fixed internal ROM and built-in hardware | Test suite |
 | `tests/apple2-disk.test.ts` | GCR/4-and-4/6-and-2 codec against the published definitions, sector skews, length tolerance, MacBinary and SIMSYSTEM headers, sector-order detection, volume number | Test suite |
+| `tests/apple2-media-formats.test.ts` | WOZ 1/2/2.1 built byte by byte from the reference (header, INFO, TMAP with blank `FF`, TRKS blocks from block 3, MSB-first bits, CRC-32 from zlib, FLUX intervals), `.nib` sync widening, `.2mg` header fields and save, 5-and-3 code table and sector round trip, `.d13` nibblizing | Test suite |
+| `tests/apple2-disk2-lss.test.ts` | Data register hold times (two cells after a byte, four after a self-sync byte), a 7-cycle polling loop seeing every byte once, MC3470 noise after four 0 cells but not three, blank tracks and half tracks read as noise, quarter-track TMAP lookup, a data field written with DOS's 40/32-cycle timing that reads back and saves to `.dsk` and `.woz`, write protect | Test suite |
+| `tests/apple2-disk-boot.test.ts` | A 6502 loader in the style of the boot ROM and RWTS (cycle-counted polling, stepper driven phase by phase, 6-and-2 decode on the CPU) loads tracks 0-2 and runs the boot sector from the same disk as `.dsk`, `.po`, `.nib`, WOZ 2 and `.2mg`, on the ][+ and (WOZ) the Enhanced //e. No Apple ROM or disk is needed | Test suite |
 | `tests/apple2-keyboard.test.ts` | ][ encoder codes against the Reference Manual table, key release tracking, REPT, RESET on each family | Test suite |
 | `tests/m6502.test.ts`, `tests/m65c02.test.ts`, `tests/m6522.test.ts` | NMOS 6502 (flags, decimal, page crossings, interrupts, undocumented opcodes), 65C02 differences and the 6522 VIA, from the datasheets | Test suite |
 | Real-ROM disk boots (headless): ][ and //e boot most of a 428-disk TOSEC sample; //e runs many 128K titles; Videx `PR#3` prints 80 columns | Recorded as working; not repeatable from the repo | 2026-10-18 |

@@ -104,7 +104,7 @@ ZIP archives are unpacked and their contents routed as below.
 | `.tzx` / `.cdt` | Tape | Tape deck | ✅ | ✅ | Turbo and custom loaders at pulse level. Save is a recording of what the machine wrote to MIC since the last reset, not a re-save of the mounted tape: ROM-speed blocks become standard blocks (0x10), or turbo blocks (0x11) with the measured timings when the leader length or a partial last byte differs from the ROM's; anything else that starts with a pilot tone (a turbo saver) is kept as exact pulse widths (CSW block 0x18); clicks and sound with no pilot are dropped. Named after the first header, else `spectrum-tape.tzx` |
 | `.csw` | Tape | Tape deck | ✅ | ✗ | Sampled tape |
 | `.dsk` | Disk | +3 drives | ✅ | ✅ | Standard and extended DSK |
-| `.hfe` | Disk | +3, +D, Beta | ✅ | ✅ | HFE v1 bitstream; only changed sectors rewritten, so protection is preserved |
+| `.hfe` | Disk | +3, +D, Beta | ✅ | ✅ | HFE v1 or v3 bitstream (v3 weak `RAND` bytes become weak sectors); only changed sectors rewritten, so protection is preserved. Saved back as v1 |
 | `.scp` | Disk | +3, +D, Beta | ✅ | ✗ | Flux images; weak sectors recovered from repeated revolutions |
 | `.mgt` / `.img` | Disk | MGT +D | ✅ | ✅ | Saved as `.mgt` |
 | `.trd` / `.scl` | Disk | Beta Disk | ✅ | ✅ | Saved in the same format it was loaded in. Opened with Load or by drag-and-drop it also runs through TR-DOS (`RUN` once TR-DOS is entered) |
@@ -161,7 +161,6 @@ None known.
 - **Interface 1 RS-232 and ZX Net.** The ports are decoded but return idle-line values.
 - **MGT +D printer port.** Reads 0xFF (never busy); writes are ignored.
 - **uPD765A SCAN commands.** Unimplemented; the frame probe flags it when software issues one.
-- **HFE v3** images are rejected with an error.
 - **VTX-5000 network.** The modem has nothing connected to it.
 
 ## Faithful quirks

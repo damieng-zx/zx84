@@ -1,7 +1,7 @@
 /**
  * EnterpriseMediaService — what a dropped file means on this machine.
  *
- * EXDOS disks (.img) go to the disk card. Anything with an EXOS file header
+ * EXDOS disks (.img, .dsk, .hfe, .scp) go to the disk card. Anything with an EXOS file header
  * (.com programs, .bas BASIC) goes to the FILE: device: the machine is reset
  * with the device's ROM fitted, and the typer runs it from BASIC. A whole
  * archive mounts as one set of files, because multi-part programs load their
@@ -12,7 +12,7 @@ import type {
   ArchiveFile, MachineHost, MediaService, MediaTargetId, MediaTypeDescriptor, MountResult,
 } from '@/machines/machine.ts';
 import {
-  buildFatImage, fatFileFirstSector, fatRootDirectory, parseFatImage,
+  buildFatImage, fatFileFirstSector, fatRootDirectory, parseFatFloppy,
 } from '@/media/floppy/fat-image.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import type { EnterpriseMachine } from '../enterprise-machine.ts';
@@ -21,7 +21,9 @@ import { EnterpriseDiskService } from './disks.ts';
 
 /** Extensions the FILE: device is offered on their own. */
 const FILE_EXTS = ['.com', '.bas', '.prg', '.ep', '.app', '.exe'];
-const DISK_EXTS = ['.img'];
+/** Disk files: raw sector dumps (.img; .dsk is either a raw dump or a CPC-style
+ *  extended DSK, told apart by content) and HFE / SCP bitstream and flux images. */
+const DISK_EXTS = ['.img', '.dsk', '.hfe', '.scp'];
 
 /** Keyboard scans to let EXOS start before pressing a key at its title. */
 const BOOT_SCANS = 30;
@@ -65,7 +67,12 @@ export class EnterpriseMediaService implements MediaService {
     if (!this.m.exdos) {
       return { ok: false, message: 'Fit the EXDOS disk card (Hardware pane) to use disks' };
     }
-    const image = parseFatImage(data, 'EXDOS IMG');
+    let image: DskImage | null;
+    try {
+      image = parseFatFloppy(data, 'EXDOS IMG');
+    } catch (err) {
+      return { ok: false, message: `Disk error: ${(err as Error).message}` };
+    }
     if (!image) return { ok: false, message: `${filename} is not a recognised EXDOS disk image` };
     const unit = target ? EnterpriseDiskService.unitOf(target) : 0;
     if (unit >= this.m.driveCount) return { ok: false, message: 'that drive is not fitted' };
