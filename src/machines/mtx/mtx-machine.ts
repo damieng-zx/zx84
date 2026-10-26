@@ -38,8 +38,8 @@ import { installMtxMemoryHooks, wireMtxPortIO } from './mtx-io.ts';
 import { mtxDescriptor } from './descriptor.ts';
 import { createMtxServices, type MtxServices } from './services/index.ts';
 import {
-  MtxCassette, MTX_FIRST_HEADER_ADDRESS, MTX_FIRST_HEADER_LENGTH,
-  MTX_TAPE_FAILURE, MTX_TAPE_RETURN, MTX_TAPE_ROUTINE,
+  MtxCassette, MtxTapeRecorder, MTX_FIRST_HEADER_ADDRESS, MTX_FIRST_HEADER_LENGTH,
+  MTX_TAPE_EPILOGUE, MTX_TAPE_FAILURE, MTX_TAPE_RETURN, MTX_TAPE_ROUTINE,
 } from './mtx-tape.ts';
 import {
   MTX_ACTIVE_LINES, MTX_BORDER_LEFT, MTX_BORDER_TOP, MTX_CPU_CLOCK, MTX_MAX_DRIVES,
@@ -77,6 +77,8 @@ export class MtxMachine extends BaseMachine implements Machine {
   private vdpIntAsserted = false;
   /** Logical `.mtx` stream served through the ROM tape routine. */
   readonly cassette = new MtxCassette();
+  /** What the ROM tape routine was asked to SAVE since the last reset. */
+  readonly tapeRecorder = new MtxTapeRecorder();
   readonly activity = { kbdReads: 0, psgWrites: 0, casReads: 0, fdcAccesses: 0 };
   cpmSystemEnabled = false;
   /** FDX floppy subsystem fitted (drives B:/C: + FDX Disk BASIC ROM). */
@@ -257,6 +259,7 @@ export class MtxMachine extends BaseMachine implements Machine {
     this.audio.reset();
     this.mixer.reset();
     this.tapeOutput = 0;
+    this.tapeRecorder.reset();
     this.soundLatch = 0;
     this.vdpIntAsserted = false;
     this.resetFrameCount();
@@ -265,20 +268,20 @@ export class MtxMachine extends BaseMachine implements Machine {
   }
 
   /**
-   * Serve one ROM LOAD/VERIFY request from the mounted logical cassette.
+   * Serve one ROM tape request from the logical cassette.
    *
    * MEMU's established `.mtx` convention patches the routine at 0AAE with a
    * host trap followed by RET at 0AB0. We leave ROM immutable and intercept the
-   * same entry point. SAVE (FD68=0) falls through to the real hardware routine;
-   * this fast path only claims LOAD and VERIFY.
+   * same entry point. LOAD and VERIFY (FD68 != 0) are served from the mounted
+   * image. SAVE (FD68 = 0) is completed instantly into `tapeRecorder` (the Save
+   * menu's .mtx): the real routine times its bits with CTC channel 1 counting
+   * an external clock, which is not modelled, so left to itself it would wait
+   * forever for the first bit-cell interrupt.
    */
   trapCassetteRoutine(): boolean {
-    if (
-      !this.cassette.loaded ||
-      this.memory.ramMode ||
-      this.cpu.pc !== MTX_TAPE_ROUTINE ||
-      this.memory.readByte(0xFD68) === 0
-    ) return false;
+    if (this.cpu.pc !== MTX_TAPE_ROUTINE || this.memory.ramMode) return false;
+    if (this.memory.readByte(0xFD68) === 0) return this.trapCassetteSave();
+    if (!this.cassette.loaded) return false;
 
     const base = this.cpu.hl;
     const length = this.cpu.de;
@@ -301,6 +304,16 @@ export class MtxMachine extends BaseMachine implements Machine {
     }
 
     this.activity.casReads++;
+    if (ok) {
+      // Leave the registers as the real routine's last `DEC DE / LD A,D /
+      // OR E` does: HL past the block, DE zero, Z set. 0AB0 is `RET Z` in the
+      // unpatched ROM, so without Z the CPU falls into the hardware routine
+      // and waits forever for a tape edge.
+      this.cpu.hl = (base + length) & 0xFFFF;
+      this.cpu.de = 0;
+      this.cpu.a = 0;
+      this.cpu.f = 0x44;
+    }
     this.cpu.pc = ok ? MTX_TAPE_RETURN : MTX_TAPE_FAILURE;
     // Account for the two-byte host-trap opcode used by the reference patch.
     this.cpu.tStates += 8;
@@ -315,6 +328,30 @@ export class MtxMachine extends BaseMachine implements Machine {
     this.vdp.readStatus();
     this.ctc.write(0, 0xA5);
     this.ctc.write(0, 0x7D);
+    return true;
+  }
+
+  /**
+   * Complete one SAVE request: copy the HL/DE block into the recorder, then
+   * leave the routine the way it leaves after its last byte — HL past the
+   * block, DE zero, Z set by its final `LD A,D / OR E` — through its own
+   * epilogue at 0B06, which resets the CTC, restores the frame interrupt and
+   * returns to the caller. A zero-length request is the routine's own early
+   * RET, so it is left to the ROM.
+   */
+  private trapCassetteSave(): boolean {
+    const base = this.cpu.hl;
+    const length = this.cpu.de;
+    if (length === 0) return false;
+    const sp = this.cpu.sp;
+    const caller = this.memory.readByte(sp) | (this.memory.readByte((sp + 1) & 0xFFFF) << 8);
+    this.tapeRecorder.record(caller, this.memory.readBlock(base, length));
+    this.activity.casReads++;
+    this.cpu.hl = (base + length) & 0xFFFF;
+    this.cpu.de = 0;
+    this.cpu.a = 0;
+    this.cpu.f = 0x44;              // Z and P/V, as OR E leaves them with A = 0
+    this.cpu.pc = MTX_TAPE_EPILOGUE;
     return true;
   }
 

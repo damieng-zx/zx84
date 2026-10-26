@@ -65,7 +65,7 @@ rather than failing.
 | Video generator | all | ◐ | 40-column text, lores, hires (pages 1 and 2), mixed mode, flashing and inverse text (flash toggles every 16 frames). //e family adds 80-column text, double hi-res and the alternate character set. Frame buffer is 560 × 192 plus a border; 280-dot modes are pixel-doubled. [`apple2-video.ts`](../../src/machines/apple2/apple2-video.ts) |
 | Character generator | all | ✅ | 2513-style 64-glyph upper-case ROM on the ][ and ][+; 256-glyph ROM with lower case on the //e; Enhanced //e and //c use a ROM with MouseText at `$40`–`$5F` |
 | Speaker | all | ✅ | 1-bit toggle on `$C030`, accumulated per CPU cycle |
-| Cassette interface | all | ◐ | `$C060` input from a comparator over a `.wav` recording. The comparator has hysteresis — a dead band of 0.3 × the recording's mean level — so noise on a digitised tape does not chatter; output `$C020` is counted but not recorded (see Not emulated) |
+| Cassette interface | all | ◐ | `$C060` input from a comparator over a `.wav` recording. The comparator has hysteresis — a dead band of 0.3 × the recording's mean level — so noise on a digitised tape does not chatter; output `$C020` toggles (read or write) are timed on the access's own cycle and recorded since the last reset, for the Save menu |
 | Keyboard | all | ✅ | Encoder latch + strobe at `$C000`/`$C010`. ][/][+: upper case only. //e family: full ASCII, locking CAPS LOCK (down at power-on), control codes, arrow keys |
 | Game port | all | ◐ | Push buttons `$C061`–`$C063`, four paddle timers `$C064`–`$C067` (11 CPU cycles per count plus 8, so the Monitor's PREAD returns the position, 0–255), trigger `$C070`. Annunciators AN0–AN3 at `$C058`–`$C05F` are latches (even address off, odd on; on the //e AN3 is also the double hi-res switch) whose state is kept but drives nothing. The `$C040` strobe output is ignored |
 | Vertical-blank status | all | ✅ | `$C019`: high during blanking on the ][ and ][+; inverted (RDVBLBAR, high while drawing) on the //e family |
@@ -107,7 +107,7 @@ when there are several.
 | `.dsk` | Disk | Disk ][ drive 1 or 2 | ✅ | ✅ | 140 KB sector image; sector order detected from the contents, not the extension. Save writes `.po` for ProDOS order, otherwise `.dsk` |
 | `.do` | Disk | Disk ][ drive 1 or 2 | ✅ | ✅ | Saved as `.dsk` (or `.po` if the contents are detected as ProDOS order) |
 | `.po` | Disk | Disk ][ drive 1 or 2 | ✅ | ✅ | Order is detected from the contents; a DOS-order dump named `.po` is saved as `.dsk` |
-| `.wav` | Tape | Cassette deck | ✅ | ✗ | FSK audio; one logical block with play, pause, stop and rewind |
+| `.wav` | Tape | Cassette deck | ✅ | ✅ | FSK audio; one logical block with play, pause, stop and rewind. Save is a recording of the `$C020` toggles since the last reset (`apple2-tape.wav`: 44.1 kHz 16-bit mono square wave, silences between saves cut to 1 s), not a re-save of the mounted tape |
 
 Disk images: 35-track (or 40-track) images, with a few stray bytes tolerated
 (within 1 KB of a whole number of tracks). A MacBinary I header or a
@@ -120,7 +120,7 @@ drive is not present. Write-protect can be set per drive; written tracks are
 folded back into the image once per frame, and Save from the Drive pane
 downloads the modified image. Mounted tapes and disks are restored after a reload.
 
-**Save menu exports:** PNG screenshot; RAM `.bin` (the 48 KB of main RAM, named
+**Save menu exports:** Saved tape (`.wav`); PNG screenshot; RAM `.bin` (the 48 KB of main RAM, named
 `<model>-ram-48k.bin`). There are no machine snapshots.
 
 ---
@@ -169,7 +169,6 @@ downloads the modified image. Mounted tapes and disks are restored after a reloa
 
 - **Double lo-res.** Lores reads main RAM only, even on the //e family with auxiliary RAM.
 - **Mid-frame video changes.** The picture is rendered once per frame from the final switch state; raster tricks that change mode within a frame do not show.
-- **Cassette recording.** `$C020` output is counted for the activity readout but never captured to a file.
 - **Game-port strobe and annunciator outputs.** `$C040` is ignored, and the annunciator latches drive nothing outside the machine.
 - **//c serial ports, mouse, and its VBL and mouse soft switches.** There is no code for them; slot 1 and 2 I/O reads float high (`$FF`).
 - **//c 80/40 and keyboard-layout switches.** Drawn on the on-screen keyboard only.
@@ -202,6 +201,7 @@ downloads the modified image. Mounted tapes and disks are restored after a reloa
 | `tests/apple2.test.ts` | Registration, memory map, soft switches, cassette deck, hardware options, original ][ boot jump, language card, Videx card, Mockingboard, paddles and joystick, KEY indicator, video addressing and composite/PAL/green rendering, OCR, Disk ][ stepper, GCR stream and spin-down | Test suite |
 | `tests/apple2-gameport.test.ts` | PREAD's algorithm reading 0 at full left / up, 255 at full right / down, 127 centred and proportional gamepad positions on all four paddles (and the same on the real Autostart ROM's `$FB1E` when `mcp/.cache/apple2plus.rom` is present); annunciator latches on the ][+ and the //e's AN3 / double hi-res | Test suite |
 | `tests/apple2e.test.ts` | //e MMU main/auxiliary paging, ROM and `$C300`/INTC8ROM handling, auxiliary language-card RAM, soft-switch read-back, keyboard, character set, 80-column text and double hi-res | Test suite |
+| `tests/apple2-tape-save.test.ts` | A program toggling `$C020` from a table of delays (no ROM): the Save menu's WAV header against the RIFF/WAVE PCM layout, and the WAV mounted back plays into `$C060` with each half-cycle within one output sample of the program's 6502 cycle count; toggles timed on the access cycle; reset clears | Test suite |
 | `tests/apple2-cmos.test.ts` | Enhanced //e and //c registration, 65C02 execution through the machine bus, 65C02 disassembly, MouseText, the //c's fixed internal ROM and built-in hardware | Test suite |
 | `tests/apple2-disk.test.ts` | GCR/4-and-4/6-and-2 codec against the published definitions, sector skews, length tolerance, MacBinary and SIMSYSTEM headers, sector-order detection, volume number | Test suite |
 | `tests/apple2-keyboard.test.ts` | ][ encoder codes against the Reference Manual table, key release tracking, REPT, RESET on each family | Test suite |

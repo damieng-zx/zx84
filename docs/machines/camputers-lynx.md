@@ -57,7 +57,7 @@ is the 128K, otherwise 96K. Other sizes are not detected.
 | Banked memory | all | ✅ | 8 KB pages; a write lands in every write-enabled bank at once, a read comes from the bank the decode selects. Bank port 0x7F (48K/96K), 0x82 (128K) |
 | Sound DAC | all | ◐ | Port 0x84; only the top bit reaches the mixer (see Known issues) |
 | Keyboard | all | ✅ | 10-line matrix read through the address bus: a read of port 0x80 carries the line in A8–A11 |
-| Cassette interface | all | ◐ | Motor relay on port 0x80 (bit 1; bit 3 on the 128K); input on keyboard line 0 bit 0 (48K/96K) or port 0x82 bit 2 (128K); playback only |
+| Cassette interface | all | ◐ | Motor relay on port 0x80 (bit 1; bit 3 on the 128K); input on keyboard line 0 bit 0 (48K/96K) or port 0x82 bit 2 (128K); output on port 0x84 bit 5 while the motor runs, recorded (see Tape recording) |
 | FD1793 + DOS ROM | 96K, 128K | ✅ | Shared `WD179x` core ([`src/cores/wd179x.ts`](../../src/cores/wd179x.ts)); ports 0x50–0x53 read, 0x54–0x57 write, 0x58 drive/side/motor latch. Latch bit 4 pages RAM over the DOS ROM slot |
 
 ---
@@ -81,14 +81,14 @@ ZIP archives are unpacked and their contents routed as below.
 
 | Extension | Kind | Device | Load | Save | Notes |
 | --- | --- | --- | --- | --- | --- |
-| `.tap` | Tape | Tape deck | ✅ | ✗ | Lynx format only (shares the extension with the ZX Spectrum's; a Spectrum `.tap` is refused). Mount message gives the `LOAD "name"` or `MLOAD "name"` command |
+| `.tap` | Tape | Tape deck | ✅ | ✅ | Save is a recording of what the ROM SAVEs (Save menu), not a re-save of the mounted tape. Lynx format only (shares the extension with the ZX Spectrum's; a Spectrum `.tap` is refused). Mount message gives the `LOAD "name"` or `MLOAD "name"` command |
 | `.ldf` | Disk | Drives A:–D: (A: by default) | ✅ | ✅ | 96K and 128K only; refused on the 48K. 204,800-byte (200 KB, single-sided 40 track) and 819,200-byte (800 KB, double-sided 80 track) raw sector dumps; 10 × 512-byte sectors per track. Saved as `.ldf` |
 
 Blank disks can be created in the Drive pane: 800 KB double-sided 80-track or
 200 KB single-sided 40-track. Mounted disks come back after a reload on the
 96K and 128K.
 
-**Save menu exports:** PNG screenshot, RAM `.bin` (every RAM chip back to
+**Save menu exports:** Saved tape (`.tap`, named after the first file on it), PNG screenshot, RAM `.bin` (every RAM chip back to
 back, without the ROM: user RAM then video RAM, 96 KB on the 48K/96K; the 128K
 adds its extra RAM, 192 KB). No snapshot or
 screen-dump format.
@@ -103,6 +103,7 @@ screen-dump format.
 | Motor-gated deck | ✅ | The deck runs only while the ROM has the motor on; a mounted tape waits paused at the start |
 | Tape turbo loading | ✅ | Runs flat out while the motor is on and the ROM is reading the cassette port; "Turbo while loading" setting, on by default; releases 25 frames after reads stop |
 | Tape sound | ✗ | `tapeSound` is off |
+| Tape recording | ✅ | The edges SAVE puts on port 0x84 bit 5 (motor on) are timed and decoded back to bytes: each leader sets the bit width (so the 48K and 128K rates and other TAPE speeds all decode), the first wide half-cycle after it fixes the bit phase, and a block counts only if it starts with the A5 sync byte. Name blocks and data entries are reassembled into a Lynx `.tap` (data cut to the size its header gives), offered as **Saved tape** in the Save menu. Cleared by a reset. Checked with synthetic pulse trains and zx84's own deck playback; not yet against a real ROM SAVE (no ROM to hand) |
 | Fast ROM loading | ✗ | No ROM trap; loading is at pulse level |
 | Raster from the 6845 | ✅ | Frame divided among however many lines R4/R9 set |
 | Border | ◐ | Always black; no border colour register. Border size is not croppable |
@@ -142,7 +143,8 @@ key works.
 
 ## Not emulated
 
-- **Tape recording.** `cassetteOutput` drops the bit ("nothing records"); with the motor on, port 0x84 is kept off the DAC so SAVE is silent.
+- **Tape sound while saving.** With the motor on, port 0x84 is recorded but kept off the DAC, so SAVE is silent.
+- **Non-ROM tape formats in recordings.** Only blocks in the ROM's encoding (leader, A5 sync, two-width bit cycles) are kept; anything else on the cassette output is dropped, since the Lynx loader only takes `.tap`.
 - **Joystick and mouse.** The input service has no joystick or mouse ("later increment").
 - **Snapshots.** `services.snapshots` is `null`; no snapshot load or save.
 - **Cartridge slot.** `cartridge` is `null`.
@@ -169,6 +171,7 @@ key works.
 | `tests/lynx/lynx-io.test.ts` — keyboard line in A8–A11, DAC vs tape on port 0x84, 48K/128K bank and cassette ports, FDC ports | Pass | 2026-10-18 |
 | `tests/lynx/lynx-video.test.ts` — screen sizes, row stride, alternate green plane, black border | Pass | 2026-10-18 |
 | `tests/lynx/lynx-tap.test.ts`, `lynx-tape-deck.test.ts` — `.tap` parse (sizes checked against the "Lynx Invaders" image length), motor-gated deck, Spectrum `.tap` refusal, tape turbo | Pass | 2026-10-18 |
+| `tests/lynx/lynx-tape-save.test.ts` — SAVE recording: spec-built pulse trains through port 0x84 at the 48K and 128K rates decode to the exact `.tap` and mount back; motor-off and reset; sync byte, partial byte, header-sized cut; a `.tap` played through the deck and captured decodes to itself | Pass | 2026-10-26 |
 | `tests/lynx/lynx-disk.test.ts`, `tests/floppy/ldf-image.test.ts` — `.ldf` mount, four drives, round-trip save, 48K refusal | Pass | 2026-10-18 |
 | `tests/lynx/ocr.test.ts` — glyph matching with a synthetic font, 40/80-column grids, inverse video, missing-font handling | Pass | 2026-10-18 |
 | `tests/lynx/lynx-keyboard.test.ts`, `lynx-keyboard-layout.test.ts`, `lynx-rom-slots.test.ts`, `lynx-watchpoints.test.ts` | Pass | 2026-10-18 |

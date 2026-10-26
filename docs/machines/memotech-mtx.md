@@ -55,7 +55,7 @@ and FDX Disk BASIC) sit in the switchable ROM area alongside the base firmware.
 | Banked memory | all | ✅ | IOBYTE on port 00h: bits 0–3 RAM page, bits 4–6 ROM page at 0x2000, bit 7 all-RAM (CP/M) mode. 16 KiB block 0 is always common at 0xC000. Unfitted blocks read 0xFF and drop writes |
 | Keyboard matrix | all | ✅ | 8 drive lines × 10 sense lines on ports 05h/06h; F1–F8 are matrix keys; country code fixed to English |
 | Joystick sockets | all | ✅ | Two Atari-style sockets wired in parallel with the keyboard |
-| Cassette interface | all | ◐ | Playback is a logical byte stream served to the ROM load routine; port 03h output is latched but not decoded (see Not emulated) |
+| Cassette interface | all | ◐ | Logical byte streams: LOAD/VERIFY are served to the ROM tape routine and SAVE is recorded from it; port 03h output is latched but not decoded (see Not emulated) |
 | Printer port (04h) | all | ✗ | Not surfaced |
 | Uncommitted PIO (07h) | all | ✗ | Not surfaced |
 | DART / RS-232 | all | ✗ | Optional on the MTX500/512, standard on the RS128; not emulated |
@@ -90,7 +90,7 @@ ZIP archives are unpacked and only entries that match the table below are offere
 | Extension | Kind | Device | Load | Save | Notes |
 | --- | --- | --- | --- | --- | --- |
 | `.rom` | ROM pack | ROM page 2 (cartridge slot) | ✅ | ✗ | 8 KiB to 128 KiB in whole 8 KiB banks; anything else is rejected |
-| `.mtx` | Logical cassette | Tape | ✅ | ✗ | The byte stream the ROM asks for; at least the 18-byte header is required. Served instantly to `LOAD` and `VERIFY` |
+| `.mtx` | Logical cassette | Tape | ✅ | ✅ | The byte stream the ROM asks for; at least the 18-byte header is required. Served instantly to `LOAD` and `VERIFY`. Save is the latest program the ROM SAVEd (Save menu), named after it |
 | `.hfe` | Disk | Drive B: (default) or C: | ✅ | ✅ | HFE v1 bitstream. Saved back as `.hfe`. HFE v3 is rejected |
 | `.mfloppy` / `.mfloppy-07` | Disk | Drive B: (default) or C: | ✅ | ✅ | Type 07: 80 tracks × 2 sides × 16 × 256-byte sectors (655,360 bytes). Saved as `.mfloppy` |
 | `.mfloppy-03` | Disk | Drive B: (default) or C: | ✅ | ✅ | Type 03: 40 tracks × 2 sides (327,680 bytes). Saved as `.mfloppy-03` |
@@ -102,7 +102,7 @@ and re-detects the disk's geometry.
 
 There are no snapshot or pulse-level tape formats on this machine.
 
-**Save menu exports:** PNG screenshot, `.scr` (a copy of the 16 KiB VDP VRAM),
+**Save menu exports:** Saved tape (`.mtx`), PNG screenshot, `.scr` (a copy of the 16 KiB VDP VRAM),
 RAM `.bin` (all RAM blocks, named like `mtx512-ram-576k.bin`).
 
 ---
@@ -113,7 +113,8 @@ RAM `.bin` (all RAM blocks, named like `mtx512-ram-576k.bin`).
 | --- | --- | --- |
 | CPU and video timing | ✅ | 313 lines per 50 Hz frame; one VDP line drawn per line of CPU time; no contention |
 | Interrupts | ✅ | The VDP interrupt is a level (frame flag AND enable) sampled into CTC channel 0 as an edge; the CTC raises the Z80 interrupt with its vector |
-| Fast cassette loading | ✅ | The ROM load routine at 0x0AAE is intercepted whenever an `.mtx` image is mounted (ROM mode only); `SAVE` is left to the real routine. There is no setting to turn it off |
+| Fast cassette loading | ✅ | The ROM load routine at 0x0AAE is intercepted whenever an `.mtx` image is mounted (ROM mode only). It returns through 0x0AB0 (`RET Z`) with the registers the real routine leaves (HL past the block, DE 0, Z set). There is no setting to turn it off |
+| Tape recording | ✅ | `SAVE` requests to the same routine (FD68 = 0) are completed instantly and copied into a logical `.mtx` stream, then leave through the routine's own epilogue at 0x0B06. The real routine cannot run here: it times its bits with CTC channel 1 counting an external clock, which is not modelled, so it waited forever. SAVE writes a 20-byte header block (0x0BA1) where LOAD asks for 18 (0x0B4F), so the stream keeps the first 18; the body requests are shared code and line up one for one. A new SAVE header starts a new recording. Offered as **Saved tape** in the Save menu; cleared by a reset |
 | Border size | ✅ | None, half or full border around the 256 × 192 area |
 | Palettes | ✅ | MSX colour-map options in the Display pane |
 | Sound | ✅ | Mono by default, optional stereo placement of the three tone channels, anti-aliasing modes (none, box, mute, low-pass); no beeper, no tape sound |
@@ -147,7 +148,8 @@ None known.
 
 ## Not emulated
 
-- **Tape recording.** `SAVE` runs the real ROM routine and the byte written to port 03h is latched, but nothing captures it to a file.
+- **The hardware SAVE routine.** CTC channel 1's external clock is not modelled, so the ROM's bit-timed write path never runs; SAVE is always the instant logical one, and port 03h stays a latch.
+- **Recording saves that bypass the ROM header.** Only streams that begin with the ROM SAVE's header request (from 0x0BA4) are recorded.
 - **Pulse-level cassette.** Only the logical `.mtx` stream is supported.
 - **Printer port (04h) and the uncommitted PIO (07h).** Not decoded; reads return 0xFF and writes are ignored.
 - **DART / RS-232.** Not present on any model.
@@ -177,7 +179,8 @@ real-media results are recorded.
 | `tests/mtx/mtx-memory.test.ts` — RAM sizes per model, common block, all-RAM mode, 512 KiB paging, page 15 hole, ROM-pack banking, firmware page layout | Pass | 2026-10-18 |
 | `tests/mtx/mtx-machine.test.ts` — registration of all models, port decode, sound latch, VDP interrupt into CTC channel 0, RETI wiring, ROM-pack service | Pass | 2026-10-18 |
 | `tests/mtx/mtx-keyboard.test.ts`, `mtx-char-input.test.ts` — matrix scanning, joystick sockets, character-intent typing | Pass | 2026-10-18 |
-| `tests/mtx/mtx-tape.test.ts` — `.mtx` header, chunked `LOAD` / `VERIFY` trap, `SAVE` untouched | Pass | 2026-10-18 |
+| `tests/mtx/mtx-tape.test.ts` — `.mtx` header, chunked `LOAD` / `VERIFY` trap, SAVE never served from the mounted image | Pass | 2026-10-26 |
+| `tests/mtx/mtx-tape-save.test.ts` — SAVE recorder (18 of the 20 header bytes, body order, new header restarts, reset); with the real OS/BASIC/ASSEM ROMs in `mcp/.cache` (skipped otherwise): a BASIC program SAVEd, NEW, the recording mounted and LOADed back, RUN prints its output, and a re-SAVE is byte-identical | Pass | 2026-10-26 |
 | `tests/mtx/mtx-fdx.test.ts`, `mtx-floppy.test.ts`, `mtx-hfe.test.ts` — FDX ports, drive mapping, Type 03/07 and HFE mount and save, CP/M system disk and SiDisc startup, floppy option | Pass | 2026-10-18 |
 | `tests/mtx/mtx-80-column.test.ts` — 80-column ports, rendering, framebuffer switch, CP/M forcing | Pass | 2026-10-18 |
 | `tests/mtx/mtx-rom-service.test.ts`, `mtx-rom-slots.test.ts` — five 8 KiB ROM slots, per-slot override, combined-image split | Pass | 2026-10-18 |

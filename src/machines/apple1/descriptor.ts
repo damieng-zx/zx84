@@ -41,7 +41,8 @@ const APPLE1_UI: MachineUiCapabilities = {
   tape: 'deck',
   tapeSound: false,
   tapeExtensions: ['.wav'],
-  saveMenu: ['screenshot-png', 'ram-bin'],
+  // 'tape-tap' downloads what the machine has written to its cassette output (.wav).
+  saveMenu: ['tape-tap', 'screenshot-png', 'ram-bin'],
   zipPolicy: 'media',
   persistMedia: false,
   bootDisk: false,

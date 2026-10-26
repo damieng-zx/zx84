@@ -73,10 +73,10 @@ reads 0xFF.
 | ASIC RMR2 banking | 6128 Plus, GX4000 | ✅ | `%101xxxxx` on the Gate Array port while unlocked: selects which of the low eight cartridge pages backs the lower ROM, where it overlays (&0000, &4000 or &8000), and pages the 16 KB ASIC register window into &4000–&7FFF |
 | ASIC analogue inputs | 6128 Plus, GX4000 | ✅ | &6808–&680F in the register window, read-only, 6 bits. ADC0/ADC1 (&6808/&6809) are joystick 1 X/Y, ADC2/ADC3 joystick 2; &00 is left / up, &3F right / down, a centred stick &20. ADC4 and ADC6 read &3F, ADC5 and ADC7 &00 (tied to +5V and ground on a real Plus). The analogue stick's buttons are the digital port's fire buttons |
 | ASIC ghost writes | 6128 Plus, GX4000 | ✅ | An `IN` from the Gate Array or CRTC write ports writes the floating bus value (0xFF) to the register, as on the real ASIC |
-| Intel 8255 PPI | all | ✅ | Port A to the AY data bus; Port B returns VSYNC, manufacturer code 7 (Amstrad), 50 Hz flag, expansion/printer lines pulled high, and the cassette read bit; Port C carries the keyboard line, AY BDIR/BC1 and the cassette motor bit |
+| Intel 8255 PPI | all | ✅ | Port A to the AY data bus; Port B returns VSYNC, manufacturer code 7 (Amstrad), 50 Hz flag, expansion/printer lines pulled high, and the cassette read bit; Port C carries the keyboard line, AY BDIR/BC1, the cassette motor bit and the cassette write-data bit |
 | AY-3-8912 | all | ✅ | Shared core, 1 MHz clock, stereo placement ABC by default; stereo, ultrasonic filter and DC-block controls in the Sound pane. No beeper |
 | Keyboard matrix | all | ✅ | Ten lines read through the AY's I/O port A, active low. Host keys map by physical position (US layout); the UK ISO key left of Z gives `@`/`|`; the numeric keypad gives f0–f9 |
-| Cassette interface | 464, 664, 6128, 6128 Plus | ◐ | Playback only, at pulse level; no recording (see Not emulated). Absent on the GX4000 |
+| Cassette interface | 464, 664, 6128, 6128 Plus | ✅ | Pulse-level playback, and recording of what the firmware (or any saver) writes to the cassette. Absent on the GX4000 |
 | uPD765A FDC + 3" drives | 664, 6128, 6128 Plus | ✅ | Shared core [`src/cores/upd765a.ts`](../../src/cores/upd765a.ts), drives A: and B: on ports &FA7E / &FB7E / &FB7F. Weak-sector copies, per-drive write-protect, drive B force-ready, flippy-disk side flip |
 | Memory banking | 6128, 6128 Plus, GX4000 | ✅ | Eight standard RAM configurations; ROM overlays on RAM with writes always falling through to RAM; video fetch always reads the base 64 KB (banks 0–3) |
 | Cartridge port | 6128 Plus, GX4000 | ✅ | Up to 32 × 16 KB pages from a `.cpr` image; inserting or ejecting power-cycles the machine |
@@ -114,7 +114,7 @@ disks and snapshots are session-only (`persistMedia: false`).
 | Extension | Kind | Device | Load | Save | Notes |
 | --- | --- | --- | --- | --- | --- |
 | `.sna` | Snapshot | Machine | ✅ | ✅ | v1, v2 and v3 load (flat dump or `MEMn` chunks, RLE supported); save writes v2 (flat) or v3 (RLE). The snapshot's CPC-type byte selects the model and the machine rebuilds as that model first. Plus snapshots carry an ASIC chunk (own format) and load the standard `CPC+` chunk |
-| `.cdt` | Tape | Tape deck | ✅ | ✗ | CDT/TZX container; timings rescaled from 3.5 MHz to the CPC's 4 MHz. Listed in the Load picker |
+| `.cdt` | Tape | Tape deck | ✅ | ✅ | CDT/TZX container; timings rescaled from 3.5 MHz to the CPC's 4 MHz. Listed in the Load picker. Save is a recording of what the machine wrote to the cassette since the last reset, not a re-save of the mounted tape: each firmware record (any SPEED WRITE speed) becomes a turbo block (0x11) holding its bytes verbatim (sync character, CRCs and trailer) with the measured timings; anything else that starts with a pilot tone is kept as exact pulse widths (CSW block 0x18). Named after the first header record, else `cpc-tape.cdt` |
 | `.tzx` | Tape | Tape deck | ✅ | ✗ | Same parser as `.cdt` |
 | `.tap` | Tape | Tape deck | ✅ | ✗ | Parsed by the shared TAP parser |
 | `.dsk` | Disk | A: / B: | ✅ | ✅ | Standard and extended DSK; drive B via the drive pane. 664 / 6128 / 6128 Plus only |
@@ -126,7 +126,7 @@ Blank disks for A: and B: can be created as DSK or HFE in the CPC System, CPC
 Data and CPC IBM AMSDOS formats (alongside the PCW/+3 formats in the same menu).
 Switching between CPC models keeps the disks in the drives.
 
-**Save menu exports:** SNA v2 snapshot, SNA v3 snapshot, PNG screenshot, `.scr`
+**Save menu exports:** SNA v2 snapshot, SNA v3 snapshot, Saved tape (`.cdt`; not on the GX4000), PNG screenshot, `.scr`
 screen dump (a raw copy of the 16 KB RAM bank the CRTC displays from; it does not
 include Plus soft-scroll offsets or a split screen's second base, so use the PNG
 for the exact picture), RAM `.bin` (`ram-64k.bin`, the 64 KB currently mapped
@@ -183,7 +183,6 @@ beneath the ROM overlays).
 
 ## Not emulated
 
-- **Tape recording.** The PPI's cassette write-data bit is not captured and the Save menu has no tape export, so `SAVE` to cassette cannot produce a tape file.
 - **Printer port.** Port B's printer-busy and expansion lines read as pulled high; nothing is attached.
 - **RAM beyond the built-in memory.** The 64 KB block bits of the RAM command are decoded but wrap onto the installed banks; no expansion RAM is modelled. The 464 and 664 ignore the bank command altogether.
 - **DDI-1 disk interface for the 464.** No controller is on the bus; the FDC ports float to 0xFF.
@@ -218,5 +217,6 @@ beneath the ROM overlays).
 | `tests/cpc/cpc-multiface.test.ts`, `cpc-mouse.test.ts`, `cpc-keyboard.test.ts`, `joystick-fire.test.ts` | Multiface port decode, paging and NMI; Kempston and AMX behaviour; joystick matrix lines; fire-button mapping | — |
 | `tests/cpc/plus-analogue.test.ts` | ASIC analogue channel map, direction and tied-off levels from CPCWiki's measurements of a real Plus, read through the unlocked register window; read-only writes; proportional input and the digital port; held stick across a reset | — |
 | `tests/cpc/cpc-memory.test.ts`, `cpc-fdc-ports.test.ts`, `cpc-models.test.ts`, `plus-debug.test.ts`, `render-centering.test.ts` | ROM split and paging; FDC port decode (absent on 464 and GX4000); model classification; Plus cartridge boot; display centring | — |
+| `tests/cpc/cpc-tape-save.test.ts` | Recorded records against the firmware guide's cassette format and the TZX 0x11 layout; CAS WRITE then CAS READ of the recording on the real 464 and 6128 firmware, at pulse level and through the fast-load trap (skipped without ROMs) | — |
 | `tests/machines/cpc/media-routing.test.ts` | Extension routing to tape, snapshot (with model auto-switch), disk and cartridge; `.cpr` refused on non-Plus models | — |
 | `tests/cpc/cpc-screen-text.test.ts`, `tests/basic/cpc-basic-parser.test.ts` | OCR across screen modes; Locomotive BASIC detokenizer against byte sequences captured from the real 6128 firmware | — |

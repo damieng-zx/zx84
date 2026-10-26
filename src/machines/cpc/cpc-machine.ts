@@ -17,6 +17,7 @@ import { Z80 } from '@/cores/z80.ts';
 import { AY3891x } from '@/cores/ay-3-8910.ts';
 import { UPD765A } from '@/cores/upd765a.ts';
 import { TapeDeck, TAPE_REF_HZ } from '@/media/tape/tap.ts';
+import { PulseRecorder } from '@/media/tape/pulse-recorder.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { isCpr, parseCpr } from '@/media/cartridge/cpr.ts';
 import { Audio } from '@/audio.ts';
@@ -130,6 +131,10 @@ export class CpcMachine extends BaseMachine implements Machine {
   /** True while the firmware is actively reading the cassette (detected by a
    *  tight Port-B read cadence). Drives tape advance. */
   tapeLoadingActive = false;
+  /** Times the cassette write-data line (PPI Port C bit 5) — what the
+   *  firmware's CAS WRITE (or any saver) sends to tape. Read back as a .cdt
+   *  by the tape service (see cpc-tape-save.ts). */
+  readonly tapeRecorder = new PulseRecorder();
   /** Fast ROM loading: whether the CAS READ instant-load trap is armed (Stage B). */
   tapeFastRom = true;
   /** The firmware's CAS READ routine, located by signature scan of the lower OS
@@ -173,7 +178,8 @@ export class CpcMachine extends BaseMachine implements Machine {
                            () => { this.activity.kbdReads++; },
                            () => { this.advanceTapeTo(); return this.tape.earBit; },
                            (on) => this.setTapeMotor(on),
-                           () => { this.activity.ayWrites++; });
+                           () => { this.activity.ayWrites++; },
+                           (level) => this.tapeRecorder.observe(level, this.cpu.tStates));
     this.display = display ?? null;
 
     // Gate Array drives ROM enable + RAM banking through the memory.
@@ -400,6 +406,7 @@ export class CpcMachine extends BaseMachine implements Machine {
     this.crtc.reset();
     this.gateArray.reset();
     this.ppi.reset();
+    this.tapeRecorder.reset();
     this.multiface.reset();
     this.kempstonMouse.reset();
     this.amxMouse.reset();

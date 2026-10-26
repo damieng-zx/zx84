@@ -32,6 +32,8 @@ import { Apple1Terminal } from './apple1-terminal.ts';
 import { Apple1Keyboard, apple1PasteBytes } from './apple1-keyboard.ts';
 import { APPLE1_DEFAULT_OPTIONS, readApple1Options, type Apple1Options } from './options.ts';
 import { Apple1Cassette } from './apple1-cassette.ts';
+import { PulseRecorder } from '@/media/tape/pulse-recorder.ts';
+import { accessTime } from '@/debug/m6502/bus-cycles.ts';
 import { Apple1Charset } from './apple1-charset.ts';
 import { Apple1Video } from './apple1-video.ts';
 import { apple1Descriptor } from './descriptor.ts';
@@ -66,6 +68,12 @@ export class Apple1Machine extends BaseMachine implements Machine {
   display: IScreenRenderer | null;
 
   readonly cassette = new Apple1Cassette();
+  /** Times the ACI's output toggles — what a write to tape puts on it — for
+   *  the Save menu's recording (services/tape.ts). */
+  readonly tapeRecorder = new PulseRecorder();
+  /** Cycles run before the last RESET-key press: the key resets the 6502's
+   *  cycle count but not the tape, so the recorder's clock carries on from here. */
+  private tapeClockBase = 0;
   readonly charset = new Apple1Charset();
   readonly video = new Apple1Video();
   private cursorFrame = 0;
@@ -150,11 +158,11 @@ export class Apple1Machine extends BaseMachine implements Machine {
    */
   private wireAci(): void {
     const { memory } = this;
-    memory.aciRead = () => {
-      this.pulseCassetteOutput();
+    memory.aciRead = (offset) => {
+      this.pulseCassetteOutput(offset, false);
       return this.cassetteInputBit ? 0x80 : 0x00;
     };
-    memory.aciWrite = () => this.pulseCassetteOutput();
+    memory.aciWrite = (offset) => this.pulseCassetteOutput(offset, true);
     memory.aciPeek = () => (this.cassetteInputBit ? 0x80 : 0x00);
   }
 
@@ -164,9 +172,20 @@ export class Apple1Machine extends BaseMachine implements Machine {
     return this.cassette.inputBit === 1;
   }
 
-  /** A toggle of the tape output. It is counted for the activity readout; the
-   *  recording is not kept (see the machine's documentation). */
-  pulseCassetteOutput(): void { this.activity.cassetteToggles++; }
+  /** A toggle of the tape output, by an access to `$C0xx` (`offset` = xx).
+   *  The edge is timed on the access's own cycle of the instruction (the 6502
+   *  core runs the bus before counting cycles) and recorded for the Save
+   *  menu, and counted for the activity readout. */
+  pulseCassetteOutput(offset: number, write: boolean): void {
+    this.activity.cassetteToggles++;
+    const t = this.insnActive
+      ? accessTime(this.cpu.tStates, this.peekOpcode(this.insnPc), this.insnPc, 0xC000 | offset, write, false)
+      : this.cpu.tStates;
+    this.tapeRecorder.toggle(this.tapeClockBase + t);
+  }
+
+  /** The recorder's clock now: cycles since the machine was last reset. */
+  get tapeClock(): number { return this.tapeClockBase + this.cpu.tStates; }
 
   /** Fit the RAM and interface the settings ask for, then list the ROMs the machine
    *  needs besides the Monitor: the video character generator and the interface's ROM. */
@@ -234,6 +253,7 @@ export class Apple1Machine extends BaseMachine implements Machine {
    *  cycle. RAM and the screen survive; the Monitor's reset handler runs again. */
   pressResetKey(): boolean {
     this.cancelPaste();
+    this.tapeClockBase += this.cpu.tStates;
     this.cpu.reset();
     this.dropFrameInProgress();
     this.pia.reset();
@@ -281,6 +301,8 @@ export class Apple1Machine extends BaseMachine implements Machine {
     this.cancelPaste();
     this.memory.reset();
     this.cpu.reset();
+    this.tapeRecorder.reset();
+    this.tapeClockBase = 0;
     this.pia.reset();
     this.keyboard.reset();
     this.terminal.clear();

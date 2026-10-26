@@ -170,7 +170,16 @@ describe('machine capabilities', () => {
           } else if (item === 'tape-tap') {
             // Naming the entry promises a tape service that records what the
             // machine writes to its cassette port; the menu calls this.
-            const tape = machine.services.tape;
+            // A cassette interface that is a Hardware-pane option (the Apple
+            // I's ACI) has no deck until it is fitted; the Save menu then
+            // reports nothing saved. Fitting it must produce the recorder.
+            let tape = machine.services.tape;
+            if (!tape && machine.prepare) {
+              machine.prepare({
+                get: <T,>(_key: string, fallback: T): T => (typeof fallback === 'boolean' ? true : fallback) as T,
+              });
+              tape = machine.services.tape;
+            }
             expect(tape, 'tape-tap needs a tape service').not.toBeNull();
             expect(typeof tape!.recordedBytes, 'tape-tap needs recordedBytes')
               .toBe('function');

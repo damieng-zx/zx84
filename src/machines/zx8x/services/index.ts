@@ -5,11 +5,12 @@ import { Zx8xRomService } from './roms.ts';
 import { Zx8xInputService } from './input.ts';
 import { Zx8xMediaService } from './media.ts';
 import { Zx8xFrameProbe } from './frame-probe.ts';
+import { Zx8xTapeService } from './tape.ts';
 
 export interface Zx8xServices extends MachineServices {
   readonly media: Zx8xMediaService;
   readonly roms: Zx8xRomService;
-  readonly tape: null;
+  readonly tape: Zx8xTapeService;
   readonly disks: null;
   readonly snapshots: null;
   readonly input: Zx8xInputService;
@@ -20,7 +21,7 @@ export function createZx8xServices(machine: Zx8xMachine): Zx8xServices {
   return {
     media: new Zx8xMediaService(machine),
     roms: new Zx8xRomService(machine, () => machine.host),
-    tape: null,
+    tape: new Zx8xTapeService(machine),
     disks: null,
     snapshots: null,
     input: new Zx8xInputService(machine),

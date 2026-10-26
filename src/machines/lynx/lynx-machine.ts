@@ -20,6 +20,7 @@ import { BaseMachine } from '@/machines/base-machine.ts';
 import { z80ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
 import { Z80Trace } from '@/debug/z80/trace.ts';
 import { TapeDeck, TAPE_REF_HZ } from '@/media/tape/tap.ts';
+import { PulseRecorder } from '@/media/tape/pulse-recorder.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type {
   BorderMode, Machine, MachineDescriptor, MachineHost, MachineKind,
@@ -85,6 +86,8 @@ export class LynxMachine extends BaseMachine implements Machine {
   /** The cassette deck. The Lynx has a real motor bit, so playback is gated on
    *  the motor rather than on read cadence the way the CPC's has to be. */
   readonly tape: TapeDeck;
+  /** Edges of the cassette output since the last reset — what SAVE wrote. */
+  readonly tapeRecorder = new PulseRecorder();
 
   readonly mixer: AudioMixer;
   readonly audio = new Audio();
@@ -195,6 +198,7 @@ export class LynxMachine extends BaseMachine implements Machine {
     this.dacLevel = 0;
     this.tapeMotorRunning = false;
     this.tapeLastAdvanceT = 0;
+    this.tapeRecorder.reset();
     this.tape.paused = true;
     this._tapeTurboActive = false;
     this._tapeTurboCooldown = 0;
@@ -232,10 +236,13 @@ export class LynxMachine extends BaseMachine implements Machine {
     return this.tape.earBit !== 0;
   }
 
-  /** Tape output. Saving to a wav is not something this emulator does, so the
-   *  bit is dropped — but it must not reach the DAC or the speaker screams
-   *  through every SAVE. */
-  cassetteOutput(_high: boolean): void { /* nothing records */ }
+  /** Tape output: the ROM's SAVE square wave on port 0x84 bit 5 while the
+   *  motor runs. It is timed into the recorder (the Save menu decodes it back
+   *  to a .tap) and kept off the DAC, or the speaker screams through every
+   *  SAVE. */
+  cassetteOutput(high: boolean): void {
+    this.tapeRecorder.observe(high ? 1 : 0, this.cpu.tStates);
+  }
 
   /**
    * The deck (re)started — rewind, play, a fresh mount. The advance clock is

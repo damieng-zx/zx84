@@ -47,7 +47,8 @@ function lynxUi(model: LynxModel): MachineUiCapabilities {
     tapeSound: false,
     tapeExtensions: ['.tap', '.zip'],
     // No snapshot or screen-dump service, but a raw RAM dump is universal.
-    saveMenu: ['screenshot-png', 'ram-bin'],
+    // 'tape-tap' downloads what the ROM has SAVEd to cassette (as a Lynx .tap).
+    saveMenu: ['tape-tap', 'screenshot-png', 'ram-bin'],
     zipPolicy: 'media',
     persistMedia: disk,
     bootDisk: false,

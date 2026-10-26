@@ -174,6 +174,7 @@ export function wirePortIO(s: Spectrum): void {
       }
       s.flushBeam();
       s.ula.writePort(val);
+      s.micRecorder.observe((val >> 3) & 1, s.cpu.tStates);
     }
 
     // 128K bank switching: port 0x7FFD

@@ -37,6 +37,7 @@ import { Apple2Paddles } from './apple2-paddles.ts';
 import { Apple2Charset, Apple2eCharset, type Apple2Font } from './apple2-charset.ts';
 import { Apple2Video, type Apple2VideoMode, type Apple2VideoState } from './apple2-video.ts';
 import { Apple2Cassette } from './apple2-cassette.ts';
+import { PulseRecorder } from '@/media/tape/pulse-recorder.ts';
 import { Disk2 } from './peripherals/disk2.ts';
 import { Mockingboard } from './peripherals/mockingboard.ts';
 import { Videx, VIDEX_SLOT } from './peripherals/videx.ts';
@@ -93,6 +94,12 @@ export class Apple2Machine extends BaseMachine implements Machine {
   readonly charset: Apple2Font;
   readonly video = new Apple2Video();
   readonly cassette = new Apple2Cassette();
+  /** Times the $C020 cassette-output toggles — what a SAVE writes to tape —
+   *  for the Save menu's recording (services/tape.ts). */
+  readonly tapeRecorder = new PulseRecorder();
+  /** Cycles run before the last RESET-key press: the key resets the 6502's
+   *  cycle count but not the tape, so the recorder's clock carries on from here. */
+  private tapeClockBase = 0;
   readonly disk2 = new Disk2(() => this.cpu.tStates);
   readonly speaker = new Apple2Speaker();
   readonly mixer = new AudioMixer(APPLE2_CPU_CLOCK);
@@ -288,9 +295,20 @@ export class Apple2Machine extends BaseMachine implements Machine {
     this.activity.beeperToggled = true;
   }
 
-  /** $C020: cassette output. Counted for the activity readout; the Apple II
-   *  has no cassette-in feedback, so nothing else depends on it. */
-  pulseCassetteOutput(): void { this.activity.cassetteToggles++; }
+  /** $C020: cassette output. Any read or write flips the output flip-flop;
+   *  the edge is timed on the access's own cycle of the instruction (the
+   *  6502 core runs the bus before counting cycles) and recorded for the Save
+   *  menu, and counted for the activity readout. */
+  pulseCassetteOutput(write: boolean): void {
+    this.activity.cassetteToggles++;
+    const t = this.insnActive
+      ? accessTime(this.cpu.tStates, this.peekOpcode(this.insnPc), this.insnPc, 0xC020, write, this.modelInfo.cmos)
+      : this.cpu.tStates;
+    this.tapeRecorder.toggle(this.tapeClockBase + t);
+  }
+
+  /** The recorder's clock now: cycles since the machine was last reset. */
+  get tapeClock(): number { return this.tapeClockBase + this.cpu.tStates; }
 
   setBorderSize(mode: BorderMode): void {
     const frac = mode === 2 ? 1 : mode === 1 ? 0.5 : 0;
@@ -325,6 +343,7 @@ export class Apple2Machine extends BaseMachine implements Machine {
    *  pass RESET through with CTRL held. Returns whether it reached the CPU. */
   pressResetKey(): boolean {
     if (this.modelInfo.iie && !this.keyboard.ctrlHeld) return false;
+    this.tapeClockBase += this.cpu.tStates;
     this.cpu.reset();
     this.memory.reset();
     this.cpu.setIRQ(false);
@@ -338,6 +357,8 @@ export class Apple2Machine extends BaseMachine implements Machine {
 
   private resetHardware(): void {
     this.cpu.reset();
+    this.tapeRecorder.reset();
+    this.tapeClockBase = 0;
     this.resetFrameCount();
     this.memory.reset();
     if (this.modelInfo.autostart) {

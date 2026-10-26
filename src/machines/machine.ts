@@ -354,8 +354,11 @@ export interface JoystickTypeInfo {
  * capability test holds each entry against the service that has to honour it.
  */
 export type SaveMenuItem =
-  /** Whatever the machine has written to its cassette port, in the machine's
-   *  own tape format (.tap on the Ace, .cas on the MSX). */
+  /** Whatever the machine has written to its cassette port, in the format its
+   *  own tape loader accepts back (.tap on the Ace and Lynx, .cas on the MSX
+   *  and Atari, .uef on the BBC/Electron, .tzx on the Spectrum, .cdt on the
+   *  CPC, .wav on the Apple I/II, .mtx on the MTX, .p/.o on the ZX81/ZX80).
+   *  The menu labels it "Saved tape"; the id predates the other formats. */
   | 'tape-tap'
   | 'snapshot-szx'
   | 'snapshot-z80'

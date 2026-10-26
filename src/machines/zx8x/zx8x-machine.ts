@@ -15,7 +15,7 @@ import { Zx8xMemory } from './memory.ts';
 import { Zx8xKeyboard } from './keyboard.ts';
 import { zx8xDescriptor } from './descriptor.ts';
 import { Zx8xScreenText } from './screen-text.ts';
-import { Zx81TapeShelf, zx81NameToAscii } from './tape-shelf.ts';
+import { Zx81TapeShelf, zx81NameToAscii, type Zx81Program } from './tape-shelf.ts';
 import { createZx8xServices, type Zx8xServices } from './services/index.ts';
 import {
   ZX8X_ACTIVE_HEIGHT, ZX8X_ACTIVE_WIDTH, ZX8X_BORDER_LEFT, ZX8X_BORDER_TOP,
@@ -117,6 +117,9 @@ export class Zx8xMachine extends BaseMachine implements Machine {
   readonly activity = { kbdReads: 0 };
   /** Programs mounted (or SAVEd) this session, read by the ROM's LOAD. */
   readonly tapeShelf = new Zx81TapeShelf();
+  /** The most recent SAVE since the last reset — what the Save menu's
+   *  "Saved tape" entry downloads (as a .p / .o image). */
+  lastSave: Zx81Program | null = null;
   host: MachineHost | null = null;
   display: IScreenRenderer | null;
 
@@ -289,6 +292,7 @@ export class Zx8xMachine extends BaseMachine implements Machine {
       const data = new Uint8Array(end - map.base);
       for (let i = 0; i < data.length; i++) data[i] = this.memory.readByte(map.base + i);
       this.tapeShelf.record(name, data);
+      this.lastSave = { name, data };
       this.cpu.pc = map.resume;
       this.lastTapeStatus = '';
       this.tapeStatus(map.named ? `Saved "${name}" (${data.length} bytes)` : `Saved program (${data.length} bytes)`);
@@ -355,7 +359,11 @@ export class Zx8xMachine extends BaseMachine implements Machine {
 
   loadProgram(data: Uint8Array, address: number): void {
     this.stop();
+    // Mounting a program is not a power cycle from the user's point of view:
+    // what they SAVEd before it stays downloadable.
+    const saved = this.lastSave;
     this.reset();
+    this.lastSave = saved;
     this.memory.loadRamImage(data, address);
     this.cpu.iy = 0x4000;
     this.cpu.i = this.model === 'zx80' ? 0x0e : 0x1e;
@@ -430,6 +438,7 @@ export class Zx8xMachine extends BaseMachine implements Machine {
     this.cpu.reset();
     this.memory.reset();
     this.keyboard.reset();
+    this.lastSave = null;
     this.nmiEnabled = false;
     this.audio.reset();
     this.mixer.reset();

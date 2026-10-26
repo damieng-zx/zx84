@@ -436,6 +436,9 @@ export function register(server: McpServer): void {
       if (target === 'tape') {
         const tape = state.spec.services.tape;
         if (!tape) return text(`${state.model.toUpperCase()} has no cassette deck.`);
+        // A tape service can exist only to record (the ZX80/81 trap their
+        // ROM's LOAD and SAVE), so say so rather than claim an eject.
+        if (!tape.loaded) return text('No tape loaded.');
         tape.eject();
         return text('Tape ejected');
       }

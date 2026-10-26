@@ -79,7 +79,7 @@ export function readApple2eIo(m: Apple2Machine, addr: number): number {
       default: return 0x00;
     }
   }
-  if (off === 0x20) { m.pulseCassetteOutput(); return 0x00; }
+  if (off === 0x20) { m.pulseCassetteOutput(false); return 0x00; }
   if (off <= 0x2F) return 0x00;
   if (off === 0x30) { m.toggleSpeaker(); return 0x00; }
   if (off <= 0x4F) return 0x00;
@@ -109,7 +109,7 @@ export function writeApple2eIo(m: Apple2Machine, addr: number, val: number): voi
 
   if (off <= 0x0F) { setSwitch(m, off); return; }
   if (off <= 0x1F) { if (off === 0x10) m.keyboard.clearStrobe(); return; }
-  if (off === 0x20) { m.pulseCassetteOutput(); return; }
+  if (off === 0x20) { m.pulseCassetteOutput(true); return; }
   if (off === 0x30) { m.toggleSpeaker(); return; }
   if (off <= 0x4F) return;
   if (off <= 0x57) { videoSwitch(m, off - 0x50); return; }
