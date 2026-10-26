@@ -18,7 +18,7 @@ function machine(): JupiterAceMachine {
 }
 
 describe('JupiterAceMachine — construction', () => {
-  it('exposes Ace geometry, clock and a deck-backed tape with no disk/snapshot', () => {
+  it('exposes Ace geometry, clock and a deck-backed tape with no disk', () => {
     const m = machine();
     expect(m.kind).toBe('jupiter-ace');
     // 312 scanlines of 208T: the field's real length, not 3.25MHz/50Hz.
@@ -28,7 +28,6 @@ describe('JupiterAceMachine — construction', () => {
     expect(m.frameHeight).toBe(240);
     expect(m.services.tape).not.toBeNull();
     expect(m.services.disks).toBeNull();
-    expect(m.services.snapshots).toBeNull();
     expect(m.services.roms.cartridge).toBeNull();
     // The deck plays 3.5MHz-referenced pulses on a 3.25MHz CPU.
     expect(m.tape.pulseScale).toBeCloseTo(ACE_CPU_CLOCK / 3_500_000, 10);

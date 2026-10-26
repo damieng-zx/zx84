@@ -20,8 +20,10 @@ describe('ZX80/ZX81 machine family', () => {
   it('routes only native program-image extensions', () => {
     const zx80 = new Zx8xMachine('zx80');
     const zx81 = new Zx8xMachine('zx81');
-    expect(zx80.services.media.accepts().map(value => value.ext)).toEqual(['.o', '.80']);
-    expect(zx81.services.media.accepts().map(value => value.ext)).toEqual(['.p', '.81', '.p81']);
+    const programs = (m: Zx8xMachine) => m.services.media.accepts()
+      .filter(value => value.target === 'program').map(value => value.ext);
+    expect(programs(zx80)).toEqual(['.o', '.80']);
+    expect(programs(zx81)).toEqual(['.p', '.81', '.p81']);
   });
 
   it('requires 16KB RAM for a program larger than internal RAM', async () => {

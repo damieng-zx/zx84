@@ -11,6 +11,8 @@
  * flickering output line cannot consume memory without bound.
  */
 
+import type { StateSink, StateSource } from '@/utils/state-stream.ts';
+
 /** Initial buffer size, in pulses — a few seconds of tape signal. */
 const INITIAL_PULSES = 1 << 16;
 
@@ -101,5 +103,25 @@ export class PulseRecorder {
     next.set(this.buf);
     this.buf = next;
     return true;
+  }
+
+  // ── Snapshot state ────────────────────────────────────────────────────────
+
+  /** Write what has been recorded and the edge in progress. */
+  saveState(w: StateSink): void {
+    w.u32(this.len);
+    for (let i = 0; i < this.len; i++) w.u32(this.buf[i]);
+    w.u8(this.level); w.f64(this.lastT); w.bool(this.started); w.u8(this.startLevel);
+  }
+
+  loadState(r: StateSource): void {
+    const len = r.u32();
+    if (len > this.maxPulses) throw new Error('Snapshot is corrupt (tape recording)');
+    let size = INITIAL_PULSES;
+    while (size < len) size *= 2;
+    this.buf = new Uint32Array(Math.min(size, this.maxPulses));
+    for (let i = 0; i < len; i++) this.buf[i] = r.u32();
+    this.len = len;
+    this.level = r.u8(); this.lastT = r.f64(); this.started = r.bool(); this.startLevel = r.u8();
   }
 }

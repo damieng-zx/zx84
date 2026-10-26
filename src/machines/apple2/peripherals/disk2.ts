@@ -47,6 +47,7 @@ import {
 } from '@/media/floppy/apple2-bitstream.ts';
 import { foldApple2Track, nibblizeApple2Disk, type Apple2Disk } from '@/media/floppy/apple2-media.ts';
 import { APPLE2_CPU_CLOCK } from '../constants.ts';
+import type { StateSink, StateSource } from '@/utils/state-stream.ts';
 
 const MOTOR_OFF = 0x08;
 const MOTOR_ON = 0x09;
@@ -424,4 +425,47 @@ export class Disk2 {
   }
   /** The drive's head position in quarter tracks. */
   getUnitQuarterTrack(unit: number): number { return this.quarterTrack[unit]; }
+
+  // ── Snapshot state ────────────────────────────────────────────────────────
+  // The card and the drives' mechanics, to the cell: each head's quarter track
+  // and bit position (and the revolution it counts in), the stepper magnets,
+  // the motor and its spin-down, Q6/Q7, the data register and its restart, the
+  // MC3470 window and noise generator, and where the rotation clock has got to.
+  // The disks themselves (their bit tracks) are the media, restored first.
+
+  saveState(w: StateSink): void {
+    for (let u = 0; u < 2; u++) {
+      w.u8(this.quarterTrack[u]); w.u32(this.bitPos[u]); w.u32(this.revolution[u]);
+      w.bool(this.wrote[u]);
+      w.u16(this.dirtyTracks[u].size);
+      for (const slot of this.dirtyTracks[u]) w.u16(slot);
+    }
+    w.u8(this.phases); w.u8(this.currentDrive); w.bool(this.motor); w.f64(this.motorOffAt);
+    w.bool(this.q6); w.bool(this.q7); w.u8(this.reg); w.bool(this.restart);
+    w.u8(this.window); w.u32(this.noise);
+    w.f64(this.lastCycles); w.f64(this.units);
+  }
+
+  /** Restore what `saveState` wrote, after the disks are back in the drives. */
+  loadState(r: StateSource): void {
+    for (let u = 0; u < 2; u++) {
+      this.quarterTrack[u] = Math.min(r.u8(), MAX_QUARTER_TRACK);
+      this.bitPos[u] = r.u32(); this.revolution[u] = r.u32() || APPLE2_TRACK_BITS;
+      this.wrote[u] = r.bool();
+      this.dirtyTracks[u].clear();
+      for (let n = r.u16(); n > 0; n--) this.dirtyTracks[u].add(r.u16());
+    }
+    this.phases = r.u8() & 0x0F; this.currentDrive = r.u8() & 1; this.motor = r.bool(); this.motorOffAt = r.f64();
+    this.q6 = r.bool(); this.q7 = r.bool(); this.reg = r.u8(); this.restart = r.bool();
+    this.window = r.u8() & 0x0F; this.noise = r.u32();
+    this.lastCycles = r.f64(); this.units = r.f64();
+    // The track under the head, found again without moving it.
+    const unit = this.currentDrive;
+    const disk = this.disks[unit];
+    const slot = disk ? disk.apple2.bits.tmap[this.quarterTrack[unit]] : APPLE2_NO_TRACK;
+    const track = disk && slot !== APPLE2_NO_TRACK ? disk.apple2.bits.tracks[slot] ?? null : null;
+    this.track = track;
+    this.trackSlot = track ? slot : -1;
+    if (track && this.bitPos[unit] >= track.bitCount) this.bitPos[unit] %= track.bitCount;
+  }
 }

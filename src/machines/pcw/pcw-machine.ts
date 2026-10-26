@@ -17,6 +17,8 @@
  *  - **Port &F8 takes command numbers**, not bit fields — `systemCommand`.
  *
  * Sound is the 1-bit beeper only; there is no sound chip in a PCW.
+ *
+ * Snapshots are zx84's own `.pcwstate` (`snapshots/pcw-state.ts`).
  */
 
 import { Z80 } from '@/cores/z80.ts';
@@ -39,6 +41,8 @@ import {
   pcwScreenCells, pcwScreenText, type PcwOcrCells,
 } from '@/ocr/pcw.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
+import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
+import { withStopsDisarmed } from '@/machines/shared/native-state.ts';
 import { PcwMemory } from './pcw-memory.ts';
 import { PcwAsic } from './asic.ts';
 import { PcwKeyboard } from './pcw-keyboard.ts';
@@ -490,6 +494,79 @@ export class PcwMachine extends BaseMachine implements Machine {
 
   /** True while any interrupt source is asserted. */
   get intPending(): boolean { return this.asic.intPending; }
+
+  // ── Snapshot state (.pcwstate) ────────────────────────────────────────────
+
+  /** The PCW has no ROM (the bootstrap is native code), so no ROM CRCs. */
+  stateRomCrcs(): number[] { return []; }
+
+  /** Run the rest of a frame a stop left open, so the machine is between
+   *  frames (where a snapshot is taken). */
+  private completeFrame(): void {
+    if (this.midFrame) withStopsDisarmed(this, () => this.stepFrame());
+  }
+
+  /**
+   * Write the machine's sections of a `.pcwstate` (see snapshots/pcw-state.ts):
+   * the fitted drive count first, so a restore can refuse a mismatch before it
+   * changes anything, then the CPU, the frame grid and machine latches, RAM
+   * and paging, the gate array, the keyboard latches, the discs (with
+   * `withMedia`) and the uPD765A.
+   */
+  saveState(w: StateWriter, withMedia: boolean): void {
+    this.completeFrame();
+    w.section('CONF', () => w.u8(this.driveCount));
+    w.section('CPU ', () => this.cpu.saveState(w));
+    w.section('MACH', () => {
+      w.f64(this.frameStartT); w.f64(this.frameEndT); w.f64(this.frameNumber);
+      w.u8(this.beeperBit); w.bool(this.booted); w.bool(this.rebootRequested);
+      w.bool(this.lastNmiLine); w.f64(this.timerPulseEnd);
+    });
+    w.section('MEM ', () => this.memory.saveState(w));
+    w.section('ASIC', () => this.asic.saveState(w));
+    w.section('KBD ', () => this.keyboard.saveState(w));
+    w.section('MEDA', () => {
+      w.bool(withMedia);
+      if (withMedia) this.services.disks.saveState(w);
+    });
+    w.section('FDC ', () => this.fdc.saveState(w));
+  }
+
+  /** Restore a state written by {@link saveState}. The frame loop must be
+   *  stopped. Throws before changing anything if the drive count differs. */
+  loadState(r: StateReader): void {
+    const drives = r.section('CONF').u8();
+    if (drives !== this.driveCount) {
+      const n = (k: number) => (k === 1 ? 'one drive' : `${k} drives`);
+      throw new Error(`This snapshot was saved with ${n(drives)} and this PCW has ${n(this.driveCount)}; change it in the Drives pane and load it again`);
+    }
+    this.cpu.loadState(r.section('CPU '));
+    {
+      const s = r.section('MACH');
+      this.frameStartT = s.f64(); this.frameEndT = s.f64(); this.frameNumber = s.f64();
+      this.beeperBit = s.u8() & 1; this.booted = s.bool(); this.rebootRequested = s.bool();
+      this.lastNmiLine = s.bool(); this.timerPulseEnd = s.f64();
+    }
+    this.memory.loadState(r.section('MEM '));
+    this.asic.loadState(r.section('ASIC'));
+    this.keyboard.loadState(r.section('KBD '));
+    {
+      // Discs go in before the FDC's state, which finds the track and sector
+      // of a transfer in flight in them.
+      const s = r.section('MEDA');
+      if (s.bool()) this.services.disks.loadState(s);
+    }
+    this.fdc.loadState(r.section('FDC '));
+
+    // What the state does not hold: nothing is part-way through a frame.
+    this.midFrame = false;
+    this.fLineLive = false;
+    this.clearInterrupts();
+    this.lastAudioT = this.cpu.tStates;
+    this.audio.reset();
+    this.mixer.reset();
+    this.needsDisplay = true;
+  }
 
   // ── Machine: debug helpers ────────────────────────────────────────────────
 

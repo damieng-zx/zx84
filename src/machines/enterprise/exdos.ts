@@ -15,6 +15,7 @@
  */
 
 import { WD179x } from '@/cores/wd179x.ts';
+import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 
 export class ExdosCard {
   /** A WD1770: status bit 7 is MOTOR ON. EXDOS formats 9 sectors a track. */
@@ -31,6 +32,20 @@ export class ExdosCard {
   }
 
   noteDiskChanged(unit: number): void { this.changed[unit & 3] = true; }
+
+  /** The WD1770 (registers and any command in flight) and the card's latch.
+   *  Mount the disks before {@link loadState}. */
+  saveState(w: StateWriter): void {
+    this.fdc.saveState(w);
+    for (let u = 0; u < 4; u++) w.bool(this.changed[u]);
+    w.bool(this.selected);
+  }
+
+  loadState(r: StateReader): void {
+    this.fdc.loadState(r);
+    for (let u = 0; u < 4; u++) this.changed[u] = r.bool();
+    this.selected = r.bool();
+  }
 
   readFdc(reg: number): number {
     switch (reg) {

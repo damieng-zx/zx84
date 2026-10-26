@@ -16,6 +16,7 @@
  */
 
 import { Apple2Memory } from './apple2-memory.ts';
+import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 
 const AUX_SIZE = 0xC000;
 
@@ -189,4 +190,29 @@ export class Apple2eMemory extends Apple2Memory {
     this.page2 = false;
     this.hires = false;
   }
+
+  // ── Snapshot state ────────────────────────────────────────────────────────
+
+  /** The ][+'s state, then the auxiliary RAM (main and language card) and
+   *  the MMU switches. */
+  override saveState(w: StateWriter): void {
+    super.saveState(w);
+    w.raw(this.aux);
+    w.raw(this.auxLcRam);
+    w.bool(this.store80); w.bool(this.ramrd); w.bool(this.ramwrt); w.bool(this.intcxrom);
+    w.bool(this.altzp); w.bool(this.slotc3rom); w.bool(this.intc8rom);
+    w.bool(this.page2); w.bool(this.hires);
+  }
+
+  override loadState(r: StateReader): void {
+    super.loadState(r);
+    r.rawInto(this.aux);
+    r.rawInto(this.auxLcRam);
+    this.store80 = r.bool(); this.ramrd = r.bool(); this.ramwrt = r.bool(); this.intcxrom = r.bool();
+    this.altzp = r.bool(); this.slotc3rom = r.bool(); this.intc8rom = r.bool();
+    this.page2 = r.bool(); this.hires = r.bool();
+  }
+
+  /** The internal $C100-$CFFF ROM, for the state's firmware check. */
+  get internalRomImage(): Uint8Array { return this.intRom; }
 }

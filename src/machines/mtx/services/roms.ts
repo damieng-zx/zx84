@@ -16,6 +16,9 @@ class MtxRomPackSlot implements CartridgeSlot {
     this.machine.reset();
   }
 
+  /** Name the pack a snapshot restored into memory (no reset). */
+  restoreName(name: string): void { this.mountedName = name; }
+
   eject(): void {
     this.machine.stop();
     this.machine.memory.ejectRomPack();
@@ -88,4 +91,7 @@ export class MtxRomService implements RomService {
   }
 
   get cartridge(): CartridgeSlot { return this.slot; }
+
+  /** A snapshot put a ROM pack (or none) back in memory: name it to match. */
+  restoreRomPackName(name: string): void { this.slot.restoreName(name); }
 }

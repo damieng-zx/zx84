@@ -9,8 +9,9 @@
  * The Ace's only sound hardware is a piezo buzzer: a flip-flop set by any
  * write to the ULA port and cleared by any read, which the FORTH BEEP word
  * (0x0BA0) alternates to make a tone — there is no automatic key click. It
- * is mixed through the shared beeper path. There is no disk, no cartridge
- * and no snapshot format — `disks` and `snapshots` are null.
+ * is mixed through the shared beeper path. There is no disk and no
+ * cartridge — `disks` is null. Snapshots are zx84's own `.acestate`
+ * (`snapshots/ace-state.ts`), and xAce's `.ace` loads too.
  */
 
 import { Z80 } from '@/cores/z80.ts';
@@ -35,6 +36,9 @@ import { installAceMemoryHooks, wireAcePortIO } from './io.ts';
 import type { OcrGridName, OcrResult } from '@/ocr/ocr.ts';
 import { aceOcrResult, aceScreenCells, aceScreenText } from '@/ocr/jupiter-ace.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
+import { crc32, type StateReader, type StateWriter } from '@/machines/shared/state-io.ts';
+import { withStopsDisarmed } from '@/machines/shared/native-state.ts';
+import type { AceSnapshot } from './snapshots/ace-snapshot.ts';
 import { z80ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
 import { Z80Trace } from '@/debug/z80/trace.ts';
 import {
@@ -457,6 +461,104 @@ export class JupiterAceMachine extends BaseMachine implements Machine {
       this._pixels32[out + 7] = (gfx & 0x01) ? INK : PAPER;
       out += 8;
     }
+  }
+
+  // ── Snapshot state (.acestate) ─────────────────────────────────────────
+
+  /** CRC-32 of the system ROM, for the snapshot header. */
+  stateRomCrcs(): number[] { return [crc32(this.memory.getRom())]; }
+
+  /** Run the rest of a frame a stop left open, so the machine is between
+   *  frames (where a snapshot is taken). */
+  private completeFrame(): void {
+    if (this.midFrame) withStopsDisarmed(this, () => this.stepFrame());
+  }
+
+  /**
+   * Write the machine's sections of a `.acestate` (see snapshots/ace-state.ts):
+   * the RAM-pack size first, so a restore can refuse a mismatch before it
+   * changes anything, then the CPU, the frame grid, the RAM and the ULA's
+   * output latches. The Ace has no disks, so `withMedia` changes nothing; the
+   * cassette is not part of the state.
+   */
+  saveState(w: StateWriter, _withMedia: boolean): void {
+    this.completeFrame();
+    w.section('CONF', () => w.u8(this.memory.ramPackKB));
+    w.section('CPU ', () => this.cpu.saveState(w));
+    w.section('MACH', () => {
+      w.f64(this.frameStartT); w.f64(this.frameEndT); w.f64(this.frameNumber);
+    });
+    w.section('MEM ', () => this.memory.saveState(w));
+    w.section('ULA ', () => { w.u8(this.ula.micBit); w.u8(this.ula.buzzerBit); });
+  }
+
+  /** Restore a state written by {@link saveState}. The frame loop must be
+   *  stopped. Throws before changing anything if the RAM pack differs. */
+  loadState(r: StateReader): void {
+    const pack = r.section('CONF').u8();
+    if (pack !== this.memory.ramPackKB) {
+      const name = (kb: number) => (kb === 0 ? 'no RAM pack' : `the ${kb}K RAM pack`);
+      throw new Error(`This snapshot was saved with ${name(pack)} and this Ace has ${name(this.memory.ramPackKB)}; change it in the Hardware pane and load it again`);
+    }
+    this.cpu.loadState(r.section('CPU '));
+    {
+      const s = r.section('MACH');
+      this.frameStartT = s.f64(); this.frameEndT = s.f64(); this.frameNumber = s.f64();
+    }
+    this.memory.loadState(r.section('MEM '));
+    {
+      const s = r.section('ULA ');
+      this.ula.micBit = s.u8() & 1; this.ula.buzzerBit = s.u8() & 1;
+    }
+    this.afterStateLoad();
+  }
+
+  /**
+   * Load an xAce `.ace` memory snapshot (see snapshots/ace-snapshot.ts): RAM
+   * from 0x2000 up and the Z80 registers. It says nothing of the ULA or the
+   * beam, so those start fresh. Throws, before changing anything, if the
+   * snapshot reaches past the RAM this Ace has.
+   */
+  loadAceSnapshot(snap: AceSnapshot): void {
+    const top = 0x2000 + snap.memory.length;
+    const fitted = 0x4000 + this.memory.ramPackKB * 1024;
+    if (top > fitted) {
+      const need = top <= 0x8000 ? 16 : 48;
+      throw new Error(`This snapshot needs the ${need}K RAM pack; fit it in the Hardware pane and load it again`);
+    }
+    this.memory.reset();
+    // In address order, so where a 1K chip shows through several mirrors
+    // (the dump's first 1K holds xAce's settings and registers) the last
+    // mirror written, the real one, is what the chip keeps.
+    for (let i = 0; i < snap.memory.length; i++) this.memory.writeByte(0x2000 + i, snap.memory[i]);
+    const cpu = this.cpu;
+    const r = snap.regs;
+    cpu.reset();
+    cpu.af = r.af; cpu.bc = r.bc; cpu.de = r.de; cpu.hl = r.hl;
+    cpu.ix = r.ix; cpu.iy = r.iy; cpu.sp = r.sp; cpu.pc = r.pc;
+    cpu.a_ = r.af_ >> 8; cpu.f_ = r.af_ & 0xFF; cpu.b_ = r.bc_ >> 8; cpu.c_ = r.bc_ & 0xFF;
+    cpu.d_ = r.de_ >> 8; cpu.e_ = r.de_ & 0xFF; cpu.h_ = r.hl_ >> 8; cpu.l_ = r.hl_ & 0xFF;
+    cpu.im = r.im; cpu.iff1 = r.iff1; cpu.iff2 = r.iff2; cpu.i = r.i; cpu.r = r.r;
+    this.frameEndT = -1;
+    this.ula.micBit = 0;
+    this.ula.buzzerBit = 0;
+    this.afterStateLoad();
+  }
+
+  /** What no snapshot holds: the host's keys are whatever they are now, and
+   *  nothing is part-way through a frame or a tape-turbo run. */
+  private afterStateLoad(): void {
+    this.midFrame = false;
+    this.clearInterrupts();
+    this.keyboard.reset();
+    this.loaderDetector.reset();
+    this.tapeTurboActive = false;
+    this.tapeTurboCooldown = 0;
+    this.tapeLastAdvanceT = this.cpu.tStates;
+    this.audio.reset();
+    this.mixer.reset();
+    this.mixer.prevBeeperBit = this.ula.buzzerBit;
+    this.needsDisplay = true;
   }
 
   // ── Machine: debug helpers ───────────────────────────────────────────

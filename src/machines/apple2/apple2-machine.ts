@@ -45,6 +45,8 @@ import { apple2Descriptor } from './descriptor.ts';
 import { wireApple2Io } from './apple2-io.ts';
 import { wireApple2eIo } from './apple2e-io.ts';
 import { createApple2Services, type Apple2Services } from './services/index.ts';
+import { withStopsDisarmed } from '@/machines/shared/native-state.ts';
+import { crc32, type StateReader, type StateWriter } from '@/machines/shared/state-io.ts';
 
 /** Frames between flash-phase flips (the text-mode "flashing" attribute). */
 const FLASH_FRAMES = 16;
@@ -357,6 +359,7 @@ export class Apple2Machine extends BaseMachine implements Machine {
   }
 
   private resetHardware(): void {
+    this.refreshResumed = false;
     this.cpu.reset();
     this.tapeRecorder.reset();
     this.tapeClockBase = 0;
@@ -653,6 +656,156 @@ export class Apple2Machine extends BaseMachine implements Machine {
     noRead: [[0xC000, 0xC0FF], [0xC800, 0xCFFF]],
     ioLabel: apple2IoLabel,
   });
+
+  // ── Snapshots (.a2state; see shared/native-state.ts for the container) ───
+
+  /** Set when a state without its media (the browser-refresh copy) has been
+   *  restored: the shell then remounts the persisted disks, and that must not
+   *  reboot or move the heads (see the media service). Cleared by any reset. */
+  refreshResumed = false;
+
+  /** CRC-32s of the system ROM, the //e's internal ROM, the Disk II card's
+   *  ROM and the Videx card's (0 for what is not there), for the snapshot
+   *  header. */
+  stateRomCrcs(): number[] {
+    const disk = this.memory.slotRom[6];
+    return [
+      crc32(this.memory.rom),
+      this.modelInfo.iie ? crc32(this.mmu.internalRomImage) : 0,
+      this.options.disk2 && disk ? crc32(disk) : 0,
+      this.videx ? crc32(this.videx.rom) : 0,
+    ];
+  }
+
+  /** The cards a state depends on, as the Hardware pane names them. */
+  private static cardsName(fitted: readonly boolean[]): string {
+    const names = ['Disk II', 'language card', '80-column card', 'Mockingboard'].filter((_, i) => fitted[i]);
+    return names.length === 0 ? 'no cards' : names.join(', ');
+  }
+
+  /** Run the rest of a frame a stop left part-way, with every stop set aside,
+   *  so the machine is between frames (a snapshot is taken there). */
+  private completeFrame(): void {
+    if (!this.midFrame) return;
+    withStopsDisarmed(this, () => {
+      this.resumeSkipPc = -1;
+      this.stepFrame();
+    });
+  }
+
+  /**
+   * Write the machine's state between frames: the CPU, the soft switches,
+   * the memory (with the language card and, on the //e, the auxiliary RAM and
+   * MMU), the keyboard latch, the game port (timers, annunciators and the
+   * sticks as held), the fitted cards and the
+   * Disk II controller. The picture is fetched afresh every frame, so nothing
+   * of the line in progress is carried. `withMedia` adds the disks and the
+   * tape; the refresh path leaves them to the shell. Keys held on the host are
+   * live input, not machine state.
+   */
+  saveState(w: StateWriter, withMedia: boolean): void {
+    this.completeFrame();
+    // The cards first, so a restore can refuse a mismatch before it changes
+    // anything.
+    w.section('CONF', () => {
+      const o = this.options;
+      for (const on of [o.disk2, o.languageCard, o.eightyColumn, o.mockingboard]) w.bool(on);
+      w.u8(o.drives);
+    });
+    w.section('CPU ', () => this.cpu.saveState(w));
+    w.section('MACH', () => {
+      w.f64(this.frameNumber); w.f64(this.frameStartT); w.f64(this.frameEndT);
+      w.bool(this.textMode); w.bool(this.mixed); w.bool(this.page2); w.bool(this.hires);
+      w.bool(this.col80); w.bool(this.altCharset); w.bool(this.dhires);
+      w.bool(this.flashPhase); w.u8(this.flashFrame);
+      w.u8(this.speaker.level);
+    });
+    w.section('MEM ', () => this.memory.saveState(w));
+    w.section('KBD ', () => this.keyboard.saveState(w));
+    w.section('PDL ', () => this.paddles.saveState(w));
+    w.section('MOCK', () => this.mockingboard?.saveState(w));
+    w.section('VIDX', () => this.videx?.saveState(w));
+    w.section('TAPE', () => {
+      this.cassette.saveState(w, withMedia);
+      // What the program has written to the cassette output so far.
+      this.tapeRecorder.saveState(w);
+      w.f64(this.tapeClockBase);
+    });
+    // The disks go before the controller, which a remount would otherwise reset.
+    w.section('MEDA', () => {
+      w.bool(withMedia);
+      if (withMedia) this.services.disks.saveState(w);
+    });
+    w.section('DSK2', () => this.disk2.saveState(w));
+  }
+
+  /**
+   * Restore a state written by `saveState` into this machine, which is the
+   * same model; one saved with other cards or another drive count is refused
+   * before anything changes. The frame loop must be stopped. The ROMs, settings and, for a state without media,
+   * the drives and tape stay as they are.
+   */
+  loadState(r: StateReader): void {
+    {
+      const s = r.section('CONF');
+      const saved = [s.bool(), s.bool(), s.bool(), s.bool()];
+      const drives = s.u8();
+      const o = this.options;
+      const live = [o.disk2, o.languageCard, o.eightyColumn, o.mockingboard];
+      if (saved.some((on, i) => on !== live[i])) {
+        throw new Error(`This snapshot was saved with ${Apple2Machine.cardsName(saved)} and this machine has ${Apple2Machine.cardsName(live)}; change it in the Hardware pane and load it again`);
+      }
+      if (o.disk2 && drives !== o.drives) {
+        throw new Error(`This snapshot was saved with ${drives} drives and this machine has ${o.drives}; change it in the Drives pane and load it again`);
+      }
+    }
+    this.midFrame = false;
+    this.clearInterrupts();
+    this.cpu.loadState(r.section('CPU '));
+    {
+      const s = r.section('MACH');
+      this.frameNumber = s.f64(); this.frameStartT = s.f64(); this.frameEndT = s.f64();
+      this.textMode = s.bool(); this.mixed = s.bool(); this.page2 = s.bool(); this.hires = s.bool();
+      this.col80 = s.bool(); this.altCharset = s.bool(); this.dhires = s.bool();
+      this.flashPhase = s.bool(); this.flashFrame = s.u8();
+      this.speaker.level = s.u8() & 1;
+    }
+    this.memory.loadState(r.section('MEM '));
+    this.keyboard.loadState(r.section('KBD '));
+    this.paddles.loadState(r.section('PDL '));
+    {
+      const s = r.section('MOCK');
+      this.mockingboard?.loadState(s);
+    }
+    {
+      const s = r.section('VIDX');
+      this.videx?.loadState(s);
+    }
+    {
+      const s = r.section('TAPE');
+      this.cassette.loadState(s);
+      this.tapeRecorder.loadState(s);
+      this.tapeClockBase = s.f64();
+    }
+    let withMedia: boolean;
+    {
+      const s = r.section('MEDA');
+      withMedia = s.bool();
+      if (withMedia) this.services.disks.loadState(s);
+    }
+    this.disk2.loadState(r.section('DSK2'));
+    if (this.mockingboard) this.cpu.setIRQ(this.mockingboard.irq);
+
+    this.refreshResumed = !withMedia;
+    this.activity.beeperToggled = false;
+    this.activity.cassetteToggles = 0;
+    this.activity.kbdReads = 0;
+    this.audio.reset();
+    this.mixer.reset();
+    this.syncVideoState();
+    this.video.render(this.videoState);
+    this.needsDisplay = true;
+  }
 }
 
 /** Portio-trace names for the Apple II's $C0xx soft switches and slot I/O. */

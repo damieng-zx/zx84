@@ -13,6 +13,7 @@
  */
 
 import type { HostKeyEvent } from '@/machines/machine.ts';
+import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 
 /** Unshifted / shifted byte for a punctuation or digit position. */
 const CHAR_KEYS: Record<string, [number, number]> = {
@@ -227,6 +228,17 @@ export class Apple2Keyboard {
   reset(): void {
     this.latch = 0;
     this.strobe = false;
+    this.held.clear();
+  }
+
+  /** Snapshot: the latched key, its strobe and the //e's CAPS LOCK. Keys held
+   *  on the host are live input, not machine state. */
+  saveState(w: StateWriter): void {
+    w.u8(this.latch); w.bool(this.strobe); w.bool(this.capsLock);
+  }
+
+  loadState(r: StateReader): void {
+    this.latch = r.u8(); this.strobe = r.bool(); this.capsLock = r.bool();
     this.held.clear();
   }
 }

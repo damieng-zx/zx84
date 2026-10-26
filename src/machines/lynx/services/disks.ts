@@ -10,6 +10,8 @@ import { baseName } from '@/machines/shared/disk-save.ts';
 import type { DiskService, DriveDescriptor, DriveMedia } from '@/machines/machine.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { serializeLdf } from '@/media/floppy/ldf-image.ts';
+import { readDskImage, writeDskImage } from '@/media/floppy/disk-state.ts';
+import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 import type { LynxMachine } from '../lynx-machine.ts';
 
 /** Drive ids, in FD1793 unit order — the generic 'a'/'b' spellings first so the
@@ -75,5 +77,37 @@ export class LynxDiskService implements DiskService {
 
   setWriteProtect(id: string, on: boolean): void {
     this.m.fdc.writeProtect[LynxDiskService.unitOf(id)] = on;
+  }
+
+  /** The four drives' disks (exactly as the FDC sees them, writes included),
+   *  names and write-protect tabs, for a snapshot that carries its media. */
+  saveState(w: StateWriter): void {
+    const fdc = this.m.fdc;
+    w.u8(UNIT_IDS.length);
+    for (let u = 0; u < UNIT_IDS.length; u++) {
+      const img = fdc.getDiskImage(u);
+      w.bool(img !== null);
+      if (img) { writeDskImage(w, img); w.str(this.names.get(u) ?? ''); }
+      w.bool(fdc.writeProtect[u]);
+    }
+  }
+
+  /** Put the drives a snapshot carried in place of the mounted ones. Reads
+   *  everything before it changes a drive. */
+  loadState(r: StateReader): void {
+    const n = r.u8();
+    if (n !== UNIT_IDS.length) throw new Error('Snapshot is corrupt (drive count)');
+    const drives: { img: DskImage | null; name: string; protect: boolean }[] = [];
+    for (let u = 0; u < n; u++) {
+      const img = r.bool() ? readDskImage(r) : null;
+      const name = img ? r.str() : '';
+      drives.push({ img, name, protect: r.bool() });
+    }
+    const fdc = this.m.fdc;
+    drives.forEach((d, u) => {
+      if (d.img) { fdc.insertDisk(d.img, u); this.names.set(u, d.name); }
+      else { fdc.ejectDisk(u); this.names.delete(u); }
+      fdc.writeProtect[u] = d.protect;
+    });
   }
 }

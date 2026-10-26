@@ -47,7 +47,7 @@ const MSX_UI: MachineUiCapabilities = {
   tapeSound: true,
   tapeExtensions: ['.cas', '.zip'],
   // 'tape-tap' downloads what the BIOS has saved to cassette (as .cas).
-  saveMenu: ['tape-tap', 'screenshot-png', 'screen-scr', 'ram-bin'],
+  saveMenu: ['snapshot-msxstate', 'tape-tap', 'screenshot-png', 'screen-scr', 'ram-bin'],
   zipPolicy: 'media',
   persistMedia: false,
   bootDisk: false,

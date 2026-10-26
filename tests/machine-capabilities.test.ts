@@ -28,6 +28,18 @@ const SNAPSHOT_FORMAT: Partial<Record<SaveMenuItem, string>> = {
   'snapshot-sna-v2': '.sna',
   'snapshot-sna-v3': '.sna',
   'snapshot-a8state': '.a8state',
+  'snapshot-acestate': '.acestate',
+  'snapshot-zx8xstate': '.zx8xstate',
+  'snapshot-lynxstate': '.lynxstate',
+  'snapshot-mtxstate': '.mtxstate',
+  'snapshot-msxstate': '.msxstate',
+  'snapshot-einstate': '.einstate',
+  'snapshot-pcwstate': '.pcwstate',
+  'snapshot-epstate': '.epstate',
+  'snapshot-bbcstate': '.bbcstate',
+  'snapshot-elkstate': '.elkstate',
+  'snapshot-a1state': '.a1state',
+  'snapshot-a2state': '.a2state',
 };
 
 /** Build a machine headlessly — no renderer, no ROM. */

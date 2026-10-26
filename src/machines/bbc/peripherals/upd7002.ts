@@ -25,6 +25,8 @@
  * Reference: NEC uPD7002 data sheet; BBC Micro Advanced User Guide §§ 18, 28.
  */
 
+import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
+
 /** Conversion times in 2 MHz CPU cycles: 4 ms for 8-bit, 10 ms for 12-bit. */
 export const ADC_8BIT_CYCLES = 8_000;
 export const ADC_12BIT_CYCLES = 20_000;
@@ -73,5 +75,17 @@ export class Upd7002 {
     this.result = v;
     this.status = 0x40 | (((v >> 10) & 3) << 4) | (this.status & 0x0F);
     this.onEoc(false);
+  }
+
+  /** Snapshot: the status and result registers, the conversion in progress
+   *  and the inputs the sticks are driving. */
+  saveState(w: StateWriter): void {
+    w.u8(this.status); w.u16(this.result); w.f64(this.doneAt);
+    for (let ch = 0; ch < 4; ch++) w.u16(this.inputs[ch]);
+  }
+
+  loadState(r: StateReader): void {
+    this.status = r.u8(); this.result = r.u16() & 0xFFF; this.doneAt = r.f64();
+    for (let ch = 0; ch < 4; ch++) this.inputs[ch] = r.u16() & 0xFFF;
   }
 }

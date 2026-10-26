@@ -3,6 +3,8 @@ import { AY3891x } from '@/cores/ay-3-8910.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
+import { crc32, type StateReader, type StateWriter } from '@/machines/shared/state-io.ts';
+import { withStopsDisarmed } from '@/machines/shared/native-state.ts';
 import { z80ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
 import { Z80Trace } from '@/debug/z80/trace.ts';
 import type {
@@ -921,6 +923,124 @@ export class Zx8xMachine extends BaseMachine implements Machine {
       // A collapsed display file uses an immediate newline for blank rows.
       if (col === 32 && this.memory.readByte(ptr) === 0x76) ptr++;
     }
+  }
+
+  // ── Snapshot state (.zx8xstate) ───────────────────────────────────────
+
+  /** CRC-32s of the system ROM and of the HRG board's ROM (0 when none). */
+  stateRomCrcs(): number[] {
+    const hrg = this.memory.getHrgRom();
+    return [crc32(this.memory.getRom()), hrg.length ? crc32(hrg) : 0];
+  }
+
+  /** Run the rest of a frame a stop left open, so the machine is between
+   *  frames (where a snapshot is taken). */
+  private completeFrame(): void {
+    if (this.midFrame) withStopsDisarmed(this, () => this.stepFrame());
+  }
+
+  /**
+   * Write the machine's sections of a `.zx8xstate` (see
+   * snapshots/zx8x-state.ts): the RAM size and graphics board first, so a
+   * restore can refuse a mismatch before it changes anything, then the CPU,
+   * the frame grid, the RAM, the ZX81's NMI generator and HRG latches and the
+   * software-video capture that spans frames. There are no disks, so
+   * `withMedia` changes nothing; the program "tape" shelf is not state.
+   */
+  saveState(w: StateWriter, _withMedia: boolean): void {
+    this.completeFrame();
+    w.section('CONF', () => { w.u8(this.memory.has16kExpansion ? 16 : 1); w.u8(this.memory.boardId); });
+    w.section('CPU ', () => this.cpu.saveState(w));
+    w.section('MACH', () => {
+      w.f64(this.frameStartT); w.f64(this.frameEndT); w.f64(this.frameNumber);
+      w.bool(this.nmiEnabled); w.u8(this.memotechMode); w.bool(this.quickSilvaMode);
+      w.bool(this.displayFetched);
+    });
+    w.section('MEM ', () => this.memory.saveState(w));
+    w.section('VID ', () => this.savePseudoHires(w));
+  }
+
+  /** Restore a state written by {@link saveState}. The frame loop must be
+   *  stopped. Throws before changing anything if the RAM or board differs. */
+  loadState(r: StateReader): void {
+    const conf = r.section('CONF');
+    const ramKB = conf.u8();
+    const board = conf.u8();
+    const liveKB = this.memory.has16kExpansion ? 16 : 1;
+    if (ramKB !== liveKB) {
+      throw new Error(`This snapshot was saved with ${ramKB}K of RAM and this machine has ${liveKB}K; ${ramKB === 16 ? 'fit' : 'remove'} the 16K RAM pack in the Hardware pane and load it again`);
+    }
+    if (board !== this.memory.boardId) {
+      const name = (id: number) => ['no graphics board', 'the UDG board', 'the UDG128 board', 'WRX RAM', 'the Memotech HRG', 'the QuickSilva HRG'][id] ?? 'an unknown board';
+      throw new Error(`This snapshot was saved with ${name(board)} and this machine has ${name(this.memory.boardId)}; change it in the Hardware pane and load it again`);
+    }
+    this.cpu.loadState(r.section('CPU '));
+    {
+      const s = r.section('MACH');
+      this.frameStartT = s.f64(); this.frameEndT = s.f64(); this.frameNumber = s.f64();
+      this.nmiEnabled = s.bool(); this.memotechMode = s.u8(); this.quickSilvaMode = s.bool();
+      this.displayFetched = s.bool();
+    }
+    this.memory.loadState(r.section('MEM '));
+    this.loadPseudoHires(r.section('VID '));
+    // What the state does not hold: the host's keys are whatever they are
+    // now, and nothing is part-way through a frame or an M1 fetch.
+    this.midFrame = false;
+    this.m1ReadPending = false;
+    this.lastTapeStatus = '';
+    this.clearInterrupts();
+    this.keyboard.reset();
+    this.audio.reset();
+    this.mixer.reset();
+    this.needsDisplay = true;
+  }
+
+  private savePseudoHires(w: StateWriter): void {
+    w.raw(this.pseudoHiresRow);
+    w.raw(this.pseudoHiresBuilding);
+    w.raw(this.pseudoHiresFrame);
+    w.raw(this.pseudoHiresBuildingWidths);
+    w.raw(this.pseudoHiresFrameWidths);
+    w.raw(this.pseudoHiresTextBuilding);
+    w.raw(this.pseudoHiresTextFrame);
+    w.u16(this.pseudoHiresRunLength);
+    w.bool(this.pseudoHiresRunValid); w.bool(this.pseudoHiresRunIsText);
+    w.bool(this.pseudoHiresRunCommitOnFinish); w.bool(this.pseudoHiresRunIsUdg);
+    w.bool(this.pseudoHiresRunIsWrx); w.u8(this.pseudoHiresRunGlyphRow);
+    w.u8(this.pseudoHiresRowWidth); w.bool(this.pseudoHiresRowReady); w.bool(this.pseudoHiresRowIsText);
+    w.u16(this.pseudoHiresBuildingRows);
+    const mode = this.pseudoHiresBuildingMode;
+    w.u8(mode === null ? 0 : mode === 'software' ? 1 : mode === 'udg' ? 2 : 3);
+    w.u16(this.pseudoHiresFrameRows);
+    w.u16(this.pseudoHiresTextBuildingRows); w.u16(this.pseudoHiresTextFrameRows);
+    w.f64(this.pseudoHiresLastSyncT); w.f64(this.pseudoHiresLastCommittedRowT);
+    w.f64(this.pseudoHiresLastTextRowT); w.f64(this.pseudoHiresLastTextRunT);
+    w.u8(this.pseudoHiresTextLineCounter); w.f64(this.pseudoHiresLastFetchT);
+  }
+
+  private loadPseudoHires(r: StateReader): void {
+    r.rawInto(this.pseudoHiresRow);
+    r.rawInto(this.pseudoHiresBuilding);
+    r.rawInto(this.pseudoHiresFrame);
+    r.rawInto(this.pseudoHiresBuildingWidths);
+    r.rawInto(this.pseudoHiresFrameWidths);
+    r.rawInto(this.pseudoHiresTextBuilding);
+    r.rawInto(this.pseudoHiresTextFrame);
+    this.pseudoHiresRunLength = r.u16();
+    this.pseudoHiresRunValid = r.bool(); this.pseudoHiresRunIsText = r.bool();
+    this.pseudoHiresRunCommitOnFinish = r.bool(); this.pseudoHiresRunIsUdg = r.bool();
+    this.pseudoHiresRunIsWrx = r.bool(); this.pseudoHiresRunGlyphRow = r.u8() & 7;
+    this.pseudoHiresRowWidth = Math.min(r.u8(), PSEUDO_HIRES_ROW_BYTES);
+    this.pseudoHiresRowReady = r.bool(); this.pseudoHiresRowIsText = r.bool();
+    this.pseudoHiresBuildingRows = Math.min(r.u16(), PSEUDO_HIRES_MAX_ROWS);
+    const mode = r.u8();
+    this.pseudoHiresBuildingMode = mode === 1 ? 'software' : mode === 2 ? 'udg' : mode === 3 ? 'wrx' : null;
+    this.pseudoHiresFrameRows = Math.min(r.u16(), PSEUDO_HIRES_MAX_ROWS);
+    this.pseudoHiresTextBuildingRows = Math.min(r.u16(), PSEUDO_HIRES_TEXT_MAX_ROWS);
+    this.pseudoHiresTextFrameRows = Math.min(r.u16(), PSEUDO_HIRES_TEXT_MAX_ROWS);
+    this.pseudoHiresLastSyncT = r.f64(); this.pseudoHiresLastCommittedRowT = r.f64();
+    this.pseudoHiresLastTextRowT = r.f64(); this.pseudoHiresLastTextRunT = r.f64();
+    this.pseudoHiresTextLineCounter = r.u8() & 7; this.pseudoHiresLastFetchT = r.f64();
   }
 
   screenExportBytes(): Uint8Array {

@@ -42,7 +42,7 @@ const EINSTEIN_UI: MachineUiCapabilities = {
   keyboardBus: 'ula',
   tapeSound: false,
   tapeExtensions: [],
-  saveMenu: ['screenshot-png', 'screen-scr', 'ram-bin'],
+  saveMenu: ['snapshot-einstate', 'screenshot-png', 'screen-scr', 'ram-bin'],
   zipPolicy: 'media',
   persistMedia: false,
   bootDisk: true,

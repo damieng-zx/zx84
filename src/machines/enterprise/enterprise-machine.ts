@@ -11,6 +11,9 @@
  * bare EXOS files (.com/.bas) through the emulator's FILE: device, which the
  * machine installs as an extension ROM when a file is mounted and serves by
  * trapping the device's entry points (see hostfs.ts).
+ *
+ * Snapshots are zx84's own `.epstate` (snapshots/ep-state.ts): `saveState` /
+ * `loadState` below.
  */
 
 import { Z80 } from '@/cores/z80.ts';
@@ -18,6 +21,8 @@ import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { resolveDriveCount } from '@/machines/shared/drive-count.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
+import { crc32, type StateReader, type StateWriter } from '@/machines/shared/state-io.ts';
+import { withStopsDisarmed } from '@/machines/shared/native-state.ts';
 import { z80ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
 import { Z80Trace } from '@/debug/z80/trace.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
@@ -31,6 +36,16 @@ import {
   EXOS_MAX_SIZE, EXTENSION_MAX_SIZE, EXTENSION_SOCKETS, NICK_CLOCKS_PER_T, NICK_FIRST_VISIBLE_SLOT, SEG_CARTRIDGE,
   SEG_EXDOS, SEG_EXOS, SEG_EXTENSION, SEG_HOSTFS,
 } from './constants.ts';
+
+/** The ROMs a snapshot records the CRCs of, as [first segment, segments]:
+ *  EXOS, the BASIC cartridge, EXDOS and the four extension sockets. */
+const STATE_ROMS: readonly (readonly [number, number])[] = [
+  [SEG_EXOS, EXOS_MAX_SIZE / EP_SEGMENT_SIZE],
+  [SEG_CARTRIDGE, CARTRIDGE_MAX_SIZE / EP_SEGMENT_SIZE],
+  [SEG_EXDOS, EXDOS_MAX_SIZE / EP_SEGMENT_SIZE],
+  ...Array.from({ length: EXTENSION_SOCKETS }, (_, i) =>
+    [SEG_EXTENSION + i * 2, EXTENSION_MAX_SIZE / EP_SEGMENT_SIZE] as const),
+];
 import type { EnterpriseModel } from './models.ts';
 import { EnterpriseMemory } from './memory.ts';
 import { Nick, nickScreenText } from './nick.ts';
@@ -258,6 +273,7 @@ export class EnterpriseMachine extends BaseMachine implements Machine {
     this.typeHold = 0;
     this.mixer.reset();
     this.resetFrameCount();
+    this.services.disks.clearRemounts();
   }
 
   // ── Extension ROM sockets ──────────────────────────────────────────────
@@ -371,6 +387,114 @@ export class EnterpriseMachine extends BaseMachine implements Machine {
       this.mixer.accumulate(0, dt);
       this.mixer.generateSamples(this.audio, this.dave, true);
     }
+  }
+
+  // ── Snapshot state (.epstate) ──────────────────────────────────────────
+
+  /** CRC-32 of each ROM a state was saved under (0 for an empty socket). */
+  stateRomCrcs(): number[] {
+    return STATE_ROMS.map(([first, count]) => {
+      const parts: Uint8Array[] = [];
+      for (let i = 0; i < count; i++) {
+        const seg = first + i;
+        const data = this.memory.isRomSegment(seg) ? this.memory.segment(seg) : null;
+        if (data) parts.push(data);
+      }
+      if (parts.length === 0) return 0;
+      const all = new Uint8Array(parts.length * EP_SEGMENT_SIZE);
+      parts.forEach((p, i) => all.set(p, i * EP_SEGMENT_SIZE));
+      return crc32(all);
+    });
+  }
+
+  /** Run the rest of a frame a stop left open, so the machine is between
+   *  frames (where a snapshot is taken). */
+  private completeFrame(): void {
+    if (this.midFrame) withStopsDisarmed(this, () => this.stepFrame());
+  }
+
+  /**
+   * Write the machine's sections of a `.epstate` (see snapshots/ep-state.ts).
+   * The card and drive count go first, so a restore can refuse a mismatch
+   * before it changes anything. `withMedia` carries the disks themselves;
+   * the FILE: device's files always go, since nothing else keeps them.
+   */
+  saveState(w: StateWriter, withMedia: boolean): void {
+    this.completeFrame();
+    w.section('CONF', () => { w.bool(this.exdos !== null); w.u8(this.driveCount); });
+    w.section('CPU ', () => this.cpu.saveState(w));
+    w.section('MACH', () => {
+      w.f64(this.frameStartT); w.f64(this.frameEndT); w.f64(this.frameNumber);
+      w.i32(this.frameRow); w.bool(this.prevLineVsync);
+      w.u8(this.lastRow);
+      w.u16(this.typeQueue.length);
+      for (const step of this.typeQueue) {
+        w.bool('wait' in step);
+        if ('wait' in step) w.i32(step.wait); else w.str(step.ch);
+      }
+      w.i32(this.typeHold); w.i32(this.typeFramesLeft);
+      w.raw(this.keyboard.typedRows);
+    });
+    w.section('MEM ', () => this.memory.saveState(w));
+    w.section('NICK', () => this.nick.saveState(w));
+    w.section('DAVE', () => this.dave.saveState(w));
+    w.section('FILE', () => this.hostFs.saveState(w));
+    w.section('MEDA', () => { w.bool(withMedia); this.services.disks.saveState(w, withMedia); });
+    w.section('EXDS', () => this.exdos?.saveState(w));
+  }
+
+  /** Restore a state written by {@link saveState}. The frame loop must be
+   *  stopped. Throws before changing anything if the disk card or the
+   *  number of drives differs from this machine's. */
+  loadState(r: StateReader): void {
+    {
+      const s = r.section('CONF');
+      const card = s.bool(), drives = s.u8();
+      if (card !== (this.exdos !== null)) {
+        throw new Error(`This snapshot was saved with the EXDOS disk card ${card ? 'fitted' : 'removed'}; ${card ? 'fit' : 'remove'} it in the Hardware pane and load it again`);
+      }
+      if (card && drives !== this.driveCount) {
+        throw new Error(`This snapshot was saved with ${drives} disk drive${drives === 1 ? '' : 's'} and this machine has ${this.driveCount}; change it in the Drives pane and load it again`);
+      }
+    }
+    this.cpu.loadState(r.section('CPU '));
+    const typed = new Uint8Array(this.keyboard.typedRows.length);
+    {
+      const s = r.section('MACH');
+      this.frameStartT = s.f64(); this.frameEndT = s.f64(); this.frameNumber = s.f64();
+      this.frameRow = s.i32(); this.prevLineVsync = s.bool();
+      this.lastRow = s.u8();
+      const queue: TypeStep[] = [];
+      for (let n = s.u16(); n > 0; n--) queue.push(s.bool() ? { wait: s.i32() } : { ch: s.str() });
+      this.typeQueue = queue;
+      this.typeHold = s.i32(); this.typeFramesLeft = s.i32();
+      s.rawInto(typed);
+    }
+    this.memory.loadState(r.section('MEM '));
+    this.nick.loadState(r.section('NICK'));
+    this.dave.loadState(r.section('DAVE'));
+    this.setFileBundle(this.hostFs.loadState(r.section('FILE')));
+    {
+      const s = r.section('MEDA');
+      this.services.disks.loadState(s, s.bool());
+    }
+    {
+      const s = r.section('EXDS');
+      if (this.exdos) this.exdos.loadState(s);
+    }
+
+    // What the state does not hold: the host's keys are whatever they are
+    // now, and nothing is part-way through a frame.
+    this.keyboard.reset();
+    this.keyboard.typedRows.set(typed);
+    this.setWaitMode(this.dave.waitMode);
+    this.midFrame = false;
+    this.clearInterrupts();
+    this.lineStartT = this.cpu.tStates;
+    this.audioT = this.cpu.tStates;
+    this.audio.reset();
+    this.mixer.reset();
+    this.needsDisplay = true;
   }
 
   // ── Debug SPI ──────────────────────────────────────────────────────────

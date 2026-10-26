@@ -28,6 +28,7 @@
  */
 
 import { ELECTRON_ROM_SIZE } from '../models.ts';
+import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 
 export const PLUS1_ROM_PAGE = 12;
 /** SK1's two bank pages. */
@@ -113,5 +114,22 @@ export class ElectronPlus1 {
       ? data.slice(ELECTRON_ROM_SIZE, ELECTRON_ROM_SIZE * 2)
       : lo;
     return [lo, hi];
+  }
+
+  /** Snapshot: the ADC (channel, latched result, conversion in progress,
+   *  /INTR), the inputs and fire buttons the sticks drive, and what has been
+   *  printed. */
+  saveState(w: StateWriter): void {
+    w.u8(this.adcChannel); w.u8(this.result); w.f64(this.doneAt); w.bool(this.intr);
+    for (let ch = 0; ch < 4; ch++) w.u8(this.adc[ch]);
+    w.bool(this.fire[0]); w.bool(this.fire[1]);
+    w.bytes(Uint8Array.from(this.printed));
+  }
+
+  loadState(r: StateReader): void {
+    this.adcChannel = r.u8() & 3; this.result = r.u8(); this.doneAt = r.f64(); this.intr = r.bool();
+    for (let ch = 0; ch < 4; ch++) this.adc[ch] = r.u8();
+    this.fire[0] = r.bool(); this.fire[1] = r.bool();
+    this.printed = Array.from(r.bytes(0x10000));
   }
 }

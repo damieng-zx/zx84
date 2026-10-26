@@ -11,6 +11,8 @@
  * directly.
  */
 
+import type { StateSink, StateSource } from '@/utils/state-stream.ts';
+
 // ── TapeBlock discriminated union ─────────────────────────────────────────
 
 /** File identity a format parser can attach to a data block for the tape pane
@@ -852,5 +854,54 @@ export class TapeDeck {
     for (let i = 0; i < block.data.length; i++) checksum ^= block.data[i];
     raw[raw.length - 1] = checksum;
     return raw;
+  }
+
+  // ── Snapshot state ────────────────────────────────────────────────────────
+  // Where playback is, to the T-state: the block, the phase within it and the
+  // pulse/bit/byte counters. The blocks themselves are saved by whoever owns
+  // the tape (see media/tape/tape-block-state.ts) and put back first; the
+  // arrays a phase reads from (a data block's bytes, a pulse run, a direct
+  // recording) are found again from the block being played. Machine settings
+  // (clock, pulse scale, 48K flag) are not part of it.
+
+  saveState(w: StateSink): void {
+    w.u32(this.position); w.bool(this.paused); w.bool(this.playing);
+    w.u8(this.earBit); w.u8(this.phase); w.bool(this.stopped); w.i32(this.playbackIdx);
+    w.f64(this.pilotRemaining); w.f64(this.pulseLen); w.f64(this.tInPulse);
+    w.u32(this.byteIdx); w.i32(this.bitIdx); w.u8(this.pulseHalf); w.u8(this.usedBitsLast);
+    w.f64(this.pauseRemaining); w.f64(this.pauseFlipAt);
+    w.f64(this.bPilot); w.f64(this.bSync1); w.f64(this.bSync2); w.f64(this.bBit0); w.f64(this.bBit1);
+    w.f64(this.toneRemaining); w.u32(this.pulsesIdx);
+    w.f64(this.directTStatesPerSample); w.u32(this.directByteIdx); w.i32(this.directBitIdx);
+    w.u8(this.directUsedBitsLast); w.f64(this.directPauseMs);
+  }
+
+  /** Restore what `saveState` wrote, onto the same `blocks`. */
+  loadState(r: StateSource): void {
+    this.position = r.u32(); this.paused = r.bool(); this.playing = r.bool();
+    this.earBit = r.u8(); this.phase = r.u8() as TapePhase; this.stopped = r.bool(); this.playbackIdx = r.i32();
+    this.pilotRemaining = r.f64(); this.pulseLen = r.f64(); this.tInPulse = r.f64();
+    this.byteIdx = r.u32(); this.bitIdx = r.i32(); this.pulseHalf = r.u8(); this.usedBitsLast = r.u8();
+    this.pauseRemaining = r.f64(); this.pauseFlipAt = r.f64();
+    this.bPilot = r.f64(); this.bSync1 = r.f64(); this.bSync2 = r.f64(); this.bBit0 = r.f64(); this.bBit1 = r.f64();
+    this.toneRemaining = r.f64(); this.pulsesIdx = r.u32();
+    this.directTStatesPerSample = r.f64(); this.directByteIdx = r.u32(); this.directBitIdx = r.i32();
+    this.directUsedBitsLast = r.u8(); this.directPauseMs = r.f64();
+
+    this.rawData = null;
+    this.directData = null;
+    this.pulsesLengths = [];
+    const block = this.playbackIdx >= 0 ? this.blocks[this.playbackIdx] : undefined;
+    if (block?.kind === 'data') {
+      this.rawData = block.rawBytes ?? (block.source === 'pure-data' ? block.data : this.buildRawData(block));
+    } else if (block?.kind === 'pulses') {
+      this.pulsesLengths = block.lengths;
+    } else if (block?.kind === 'csw') {
+      this.pulsesLengths = block.pulses;
+    } else if (block?.kind === 'direct') {
+      this.directData = block.data;
+    }
+    if (this.phase === TapePhase.DATA && this.rawData === null) this.phase = TapePhase.IDLE;
+    if (this.phase === TapePhase.DIRECT && this.directData === null) this.phase = TapePhase.IDLE;
   }
 }

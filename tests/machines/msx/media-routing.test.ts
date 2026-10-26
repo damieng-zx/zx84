@@ -41,16 +41,16 @@ describe('MSX MediaService routing', () => {
     expect(m.services.tape.loaded).toBe(true);
   });
 
-  it('accepts() offers .rom and .cas', () => {
+  it('accepts() offers .rom, .cas and its .msxstate snapshot', () => {
     const exts = machine().services.media.accepts().map(t => t.ext);
-    expect(exts).toEqual(['.rom', '.cas']);
+    expect(exts).toEqual(['.rom', '.cas', '.msxstate']);
   });
 
-  it('has a cartridge slot, no snapshot service and no drives until the disk interface is fitted', () => {
+  it('has a cartridge slot, a .msxstate snapshot service and no drives until the disk interface is fitted', () => {
     const m = machine();
     expect(m.services.roms.cartridge).not.toBeNull();
     expect(m.services.disks.drives).toEqual([]);
-    expect(m.services.snapshots).toBeNull();
+    expect(m.services.snapshots?.formats()).toEqual([{ ext: '.msxstate', canSave: true }]);
   });
 
   it('unknown extensions are refused with the MSX media list', async () => {

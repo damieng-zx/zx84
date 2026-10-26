@@ -35,7 +35,7 @@ const MTX_UI: MachineUiCapabilities = {
   tapeSound: false,
   tapeExtensions: ['.mtx', '.zip'],
   // 'tape-tap' downloads the program the ROM last SAVEd to cassette (as .mtx).
-  saveMenu: ['tape-tap', 'screenshot-png', 'screen-scr', 'ram-bin'],
+  saveMenu: ['snapshot-mtxstate', 'tape-tap', 'screenshot-png', 'screen-scr', 'ram-bin'],
   zipPolicy: 'media',
   persistMedia: false,
   bootDisk: true,

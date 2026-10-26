@@ -18,6 +18,7 @@
  */
 
 import type { PcwMemory } from './pcw-memory.ts';
+import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 import {
   PCW_BYTES_PER_LINE, PCW_DISPLAY_HEIGHT, PCW_FIRST_INT_LINE, PCW_GREEN_INK,
   PCW_GREEN_PAPER, PCW_INT_LINE_SPACING, PCW_LINE_BYTE_STRIDE, PCW_LINES_PER_FRAME,
@@ -102,6 +103,29 @@ export class PcwAsic {
     this.fdcRoute = 'none';
     this.fdcInt = false;
     this.line = 0;
+  }
+
+  // ── Snapshot state ────────────────────────────────────────────────────────
+
+  /** Video registers, the timer pulse and counter, the FDC routing and line,
+   *  and the raster line. The phosphor colours are a display setting. */
+  saveState(w: StateWriter): void {
+    w.u8(this.rollerBase); w.u8(this.rollerOffset); w.u8(this.videoCtl);
+    w.bool(this.screenEnabled);
+    w.bool(this.timerPending); w.u8(this.intCount);
+    w.u8(this.fdcRoute === 'nmi' ? 0 : this.fdcRoute === 'int' ? 1 : 2);
+    w.bool(this.fdcInt);
+    w.u16(this.line);
+  }
+
+  loadState(r: StateReader): void {
+    this.rollerBase = r.u8(); this.rollerOffset = r.u8(); this.videoCtl = r.u8();
+    this.screenEnabled = r.bool();
+    this.timerPending = r.bool(); this.intCount = r.u8();
+    const route = r.u8();
+    this.fdcRoute = route === 0 ? 'nmi' : route === 1 ? 'int' : 'none';
+    this.fdcInt = r.bool();
+    this.line = r.u16();
   }
 
   // ── Timing ────────────────────────────────────────────────────────────────

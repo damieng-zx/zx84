@@ -48,7 +48,7 @@ const BBC_UI: MachineUiCapabilities = {
   tapeSound: false,
   tapeExtensions: ACORN_TAPE_EXTENSIONS,
   // 'tape-tap' downloads whatever the OS has SAVEd to the cassette port (.uef).
-  saveMenu: ['tape-tap', 'screenshot-png', 'ram-bin'],
+  saveMenu: ['snapshot-bbcstate', 'tape-tap', 'screenshot-png', 'ram-bin'],
   zipPolicy: 'media',
   persistMedia: true,
   bootDisk: false,

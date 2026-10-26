@@ -65,6 +65,7 @@ Fitted in the Hardware pane. Every change rebuilds the machine.
 | Extension | Kind | Device | Load | Save | Notes |
 | --- | --- | --- | --- | --- | --- |
 | `.txt`, `.hex` | listing | Keyboard | ✅ | ✗ | Typed in a key at a time, as a person would key it from a listing — a Monitor hex dump (`0280: A9 00 …` then `280R`), or a BASIC program |
+| `.a1state` | snapshot | Machine | ✅ | ✅ | zx84's own exact save state (see below) |
 | `.wav` | tape | Cassette deck (ACI fitted) | ◐ | ✅ | A recording of the tape audio, played into a comparator with hysteresis (a dead band of 0.3 × the recording's mean level, so tape noise around zero does not chatter) that the ROM's read loop times. Play, pause, stop and rewind; one logical block. Refused unless the ACI is fitted. Save is a recording of the ACI's output toggles since the last reset (`apple1-tape.wav`: 44.1 kHz 16-bit mono square wave, silences between writes cut to 1 s), not a re-save of the mounted tape |
 
 A listing is typed, not poked into memory, so it works wherever the keyboard is
@@ -74,7 +75,19 @@ injected while the program is not looking for keys. Line endings of any kind
 become RETURN; lower case is upper-cased; tabs are spaces; characters with no key
 (accents, braces) are dropped. RESET or a machine reset abandons what is left.
 
-**Save menu exports:** Saved tape (`.wav`, with the ACI fitted; reports nothing saved otherwise), screenshot (PNG), RAM dump (the contiguous RAM from `$0000`; the BASIC card is not included).
+**Snapshots.** `.a1state` is zx84's native save state, in the same container as the Atari's `.a8state` (a CRC-32 and length checked before the machine is touched, deflated when saved from the Save menu), magic
+`ZXA1`: the 6502, all of RAM, the PIA (registers, interrupt flags, the key
+latched on port A), the terminal's screen and cursor and the time its busy line
+stays high, the cursor blink, the cassette deck's position and comparator, what
+the program has written to the cassette output, and the frame grid. A file
+saved from the Save menu also carries the tape, stored as the run of levels
+the comparator settles on (all the machine ever sees of it, a few kilobytes
+where the audio is megabytes). A state saved with other RAM, the BASIC card or
+the ACI fitted differently is refused until the Hardware pane matches. A
+listing being typed in is not part of a state. The same state without the tape
+backs browser-refresh resume.
+
+**Save menu exports:** Snapshot `.a1state`, Saved tape (`.wav`, with the ACI fitted; reports nothing saved otherwise), screenshot (PNG), RAM dump (the contiguous RAM from `$0000`; the BASIC card is not included).
 
 ---
 
@@ -127,6 +140,7 @@ become RETURN; lower case is upper-cased; tabs are spaces; characters with no ke
 
 | Reference | Result | Last checked |
 | --- | --- | --- |
+| [`tests/snapshot/apple1-state.test.ts`](../../tests/snapshot/apple1-state.test.ts) — `.a1state`: a synthetic PROM printing to the terminal, reading the ACI from a playing WAV and taking a latched key; a restored machine matches the original frame for frame (registers, cycles, picture, whole state, terminal text); damaged files and other RAM refused untouched; refresh resume | Pass | 2026-10-26 |
 | [`tests/apple1.test.ts`](../../tests/apple1.test.ts) — Woz Monitor examine, store and run, terminal pacing, keyboard, listings, display against a synthetic font | Pass | 2026-10-20 |
 | ACI with the real ROM: `300.31FW` writes memory to tape and `400.41FR` reads the recording back into other memory, byte for byte, both from the raw toggle times and from the Save menu's `.wav` mounted back through the tape service; plus a recording played into a 6502 read loop, deck transport, ROM mapping, absent when not fitted (`tests/apple1.test.ts`) | Pass | 2026-10-21 |
 | [`tests/m6820.test.ts`](../../tests/m6820.test.ts) — PIA registers, flags and handshake | Pass | 2026-10-20 |

@@ -20,6 +20,8 @@
  * kept so it can be read.
  */
 
+import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
+
 /**
  * A paddle timer's length is a few cycles plus 11 per count of position, so
  * that the ROM's PREAD returns the position itself: PREAD triggers the timers,
@@ -121,5 +123,23 @@ export class Apple2Paddles {
     this.position.fill(127);
     this.buttons.fill(false);
     for (const d of this.dirs) { d.up = d.down = d.left = d.right = false; }
+  }
+
+  /** Snapshot: when the timers were last started, the annunciator latches,
+   *  and where the sticks and buttons are held. */
+  saveState(w: StateWriter): void {
+    w.f64(this.triggeredAt);
+    for (const on of this.annunciators) w.bool(on);
+    for (const p of this.position) w.u8(p);
+    for (const b of this.buttons) w.bool(b);
+    for (const d of this.dirs) { w.bool(d.up); w.bool(d.down); w.bool(d.left); w.bool(d.right); }
+  }
+
+  loadState(r: StateReader): void {
+    this.triggeredAt = r.f64();
+    for (let i = 0; i < this.annunciators.length; i++) this.annunciators[i] = r.bool();
+    for (let i = 0; i < this.position.length; i++) this.position[i] = r.u8();
+    for (let i = 0; i < this.buttons.length; i++) this.buttons[i] = r.bool();
+    for (const d of this.dirs) { d.up = r.bool(); d.down = r.bool(); d.left = r.bool(); d.right = r.bool(); }
   }
 }

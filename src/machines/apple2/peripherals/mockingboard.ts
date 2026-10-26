@@ -17,6 +17,7 @@ import { AY3891x } from '@/cores/ay-3-8910.ts';
 import { M6522 } from '@/cores/m6522.ts';
 import type { StereoAudioSource } from '@/machines/shared/audio-mixer.ts';
 import type { Apple2Card } from '../cards.ts';
+import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 
 /** Output gain per AY into the mix. */
 const AY_GAIN = 0.5;
@@ -89,5 +90,16 @@ export class Mockingboard implements Apple2Card, StereoAudioSource {
       left: this.ay[0].generateSample() * AY_GAIN,
       right: this.ay[1].generateSample() * AY_GAIN,
     };
+  }
+
+  /** Snapshot: both VIAs and both AYs. */
+  saveState(w: StateWriter): void {
+    for (const via of this.via) via.saveState(w);
+    for (const ay of this.ay) ay.saveState(w);
+  }
+
+  loadState(r: StateReader): void {
+    for (const via of this.via) via.loadState(r);
+    for (const ay of this.ay) ay.loadState(r);
   }
 }

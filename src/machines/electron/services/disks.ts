@@ -2,7 +2,9 @@ import { baseName } from '@/machines/shared/disk-save.ts';
 import type { DiskService, DriveDescriptor, DriveMedia } from '@/machines/machine.ts';
 import { serializeAcornDisc } from '@/media/floppy/acorn-disc.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
+import { readDskImage, writeDskImage } from '@/media/floppy/disk-state.ts';
 import type { ElectronMachine } from '../electron-machine.ts';
+import { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 
 /** The Plus 3's two drives (0 and 1) on its WD1770. With no Plus 3 fitted there
  *  are no drives, so the Drives pane has nothing to show. */
@@ -60,5 +62,50 @@ export class ElectronDiskService implements DiskService {
       writeProtected: plus3.writeProtect[unit],
       motorOn: plus3.motorOn && plus3.currentDrive === unit,
     };
+  }
+
+  // ── Snapshot ─────────────────────────────────────────────────────────────
+
+  /** Put a disc back in a drive without disturbing the controller (its head
+   *  positions, its command in flight): the refresh-resume remount. */
+  reattach(id: string, media: DriveMedia, name: string): void {
+    const plus3 = this.machine.plus3;
+    const w = new StateWriter();
+    plus3.saveState(w);
+    this.insert(id, media, name);
+    plus3.loadState(new StateReader(w.finish()));
+  }
+
+  /** Write both drives' discs as they are now (a guest's writes included),
+   *  with their names and write-protect tabs. */
+  saveState(w: StateWriter): void {
+    const plus3 = this.machine.plus3;
+    for (let unit = 0; unit < 2; unit++) {
+      const image = plus3.getDiskImage(unit);
+      w.bool(image !== null);
+      if (!image) continue;
+      w.str(this.names.get(unit === 0 ? 'a' : 'b') ?? '');
+      w.bool(plus3.writeProtect[unit]);
+      writeDskImage(w, image);
+    }
+  }
+
+  /** Put the saved discs in the drives (an empty one is emptied). The
+   *  controller's own state is restored afterwards. */
+  loadState(r: StateReader): void {
+    const plus3 = this.machine.plus3;
+    for (let unit = 0; unit < 2; unit++) {
+      const id = unit === 0 ? 'a' : 'b';
+      if (!r.bool()) {
+        plus3.ejectDisk(unit);
+        this.names.delete(id);
+        continue;
+      }
+      const name = r.str();
+      const protect = r.bool();
+      plus3.insertDisk(readDskImage(r), unit);
+      plus3.writeProtect[unit] = protect;
+      this.names.set(id, name);
+    }
   }
 }

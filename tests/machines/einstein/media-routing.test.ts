@@ -42,15 +42,15 @@ describe('Einstein MediaService routing', () => {
     expect(e.fdc.getDiskImage(0)).not.toBeNull();
   });
 
-  it('accepts() offers .dsk/.hfe/.scp/.td0 (no tape, no cartridge)', () => {
+  it('accepts() offers .dsk/.hfe/.scp/.td0 and its .einstate snapshot (no tape, no cartridge)', () => {
     const exts = machine().services.media.accepts().map(t => t.ext);
-    expect(exts).toEqual(['.dsk', '.hfe', '.scp', '.td0']);
+    expect(exts).toEqual(['.dsk', '.hfe', '.scp', '.td0', '.einstate']);
   });
 
-  it('has no cassette or snapshot service', () => {
+  it('has no cassette service, and a snapshot service for .einstate', () => {
     const e = machine();
     expect(e.services.tape).toBeNull();
-    expect(e.services.snapshots).toBeNull();
+    expect(e.services.snapshots?.formats()).toEqual([{ ext: '.einstate', canSave: true }]);
   });
 
   it('non-disk files are refused with the Einstein media list', async () => {

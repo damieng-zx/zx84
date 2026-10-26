@@ -3,6 +3,8 @@ import type {
 } from '@/machines/machine.ts';
 import type { Apple1Machine } from '../apple1-machine.ts';
 import type { Apple1TapeService } from './tape.ts';
+import type { NativeSnapshotService } from '@/machines/shared/native-state.ts';
+import { APPLE1_STATE_SPEC } from '../snapshots/apple1-state.ts';
 
 /**
  * Apple I media routing.
@@ -19,12 +21,14 @@ export class Apple1MediaService implements MediaService {
   constructor(
     private readonly machine: Apple1Machine,
     private readonly tape: Apple1TapeService,
+    private readonly snapshots: NativeSnapshotService,
   ) {}
 
   accepts(): MediaTypeDescriptor[] {
     const types: MediaTypeDescriptor[] = [
       { ext: '.txt', target: 'paste' },
       { ext: '.hex', target: 'paste' },
+      { ext: APPLE1_STATE_SPEC.ext, target: 'snapshot' },
     ];
     if (this.machine.options.aci) types.push({ ext: '.wav', target: 'tape' });
     return types;
@@ -44,8 +48,16 @@ export class Apple1MediaService implements MediaService {
       }
       return { ok: true, target: 'tape', message: `Tape loaded: ${filename}` };
     }
+    if (filename.toLowerCase().endsWith(APPLE1_STATE_SPEC.ext)) {
+      const r = await this.snapshots.apply(data, filename);
+      if (r.needsReplay) return { ok: true, replay: true, message: r.message };
+      // A state carries its own tape: the panes re-read it.
+      return r.ok
+        ? { ok: true, target: 'snapshot', mediaChanged: true, message: r.message }
+        : { ok: false, message: r.message };
+    }
     if (!/\.(txt|hex)$/i.test(filename)) {
-      return { ok: false, message: 'The Apple I loads .txt and .hex listings, and .wav tapes with the cassette interface' };
+      return { ok: false, message: 'The Apple I loads .txt and .hex listings, .a1state snapshots, and .wav tapes with the cassette interface' };
     }
     const keys = this.machine.typeText(new TextDecoder('latin1').decode(data));
     if (keys === 0) return { ok: false, message: `${filename} has nothing the keyboard can type` };

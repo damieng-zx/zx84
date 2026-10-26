@@ -125,16 +125,36 @@ UEF, anything else is tried as CSW).
 | `.scp` | Disk | DFS drive 0 (or 1) | ✅ | ◐ | SuperCard Pro flux, decoded at load; a sector that reads differently across revolutions is weak. Saved as `.ssd`/`.dsd` when its layout is plain DFS, otherwise as `.hfe` |
 | `.uef` | Tape | Tape deck | ✅ | ✅ | Gzip-wrapped UEF also accepted. Save is whatever the OS wrote to the cassette port |
 | `.csw` | Tape | Tape deck | ✅ | ✗ | Sampled tape |
+| `.bbcstate` | Snapshot | Machine | ✅ | ✅ | zx84's own exact save state (see below) |
 
 Loading a disk into drive 0 resets the machine and holds SHIFT (SHIFT+BREAK) so
 the DFS auto-boots it; drive 1 is mounted without a reset. A tape is mounted
-with play armed and waits for `*TAPE` then `CHAIN""` (or `*RUN`). There are no
-snapshot formats. Blank discs can be created in the Drives pane as `.ssd`
+with play armed and waits for `*TAPE` then `CHAIN""` (or `*RUN`). Blank discs can be created in the Drives pane as `.ssd`
 (100K SS/40T, 200K SS/80T) or `.dsd` (200K DS/40T, 400K DS/80T). A disc whose
 layout a sector dump cannot hold (a protection track, deleted-data or bad-CRC
 sectors) is saved as `.hfe` instead of `.ssd`, so nothing on it is lost.
 
-**Save menu exports:** recorded tape (`.uef`, offered as `bbc-tape.uef`), PNG
+**Snapshots.** `.bbcstate` is zx84's native save state, in the same container as the Atari's `.a8state` (a CRC-32 and length checked before the machine is touched, deflated when saved from the Save menu), magic
+`ZXBB`: the 6502 (with the one-instruction IRQ lag after CLI/SEI/PLP), the
+32 KB of RAM and the ROM select latch, the 6845's registers and raster
+counters, the video ULA's control and palette, the IC32 latch, both 6522 VIAs
+(timers mid-count, handshake lines), the SN76489's generators, the 6850 ACIA
+and serial ULA with a byte half received or held for sending, the cassette
+relay, tone demodulator and what has been recorded, the uPD7002 ADC with a
+conversion in progress and the joysticks as held, the beam's frame grid and
+the fitted disc controller (8271 or 1770) down to a transfer in flight. A file
+saved from the Save menu also carries the discs (exactly as the controller
+sees them, writes included, with names and write-protect tabs) and the tape
+with the deck's position to the cycle. The header records the CRCs of the OS
+and all sixteen sideways sockets (a mismatch loads with a warning); a state
+saved with another disc interface or drive count is refused until the
+Hardware or Drives pane matches. A state is taken between frames (a frame a
+debugger stop left open is run to its end first), and restores cycle for
+cycle. The same state without the media backs browser-refresh resume; the
+shell then remounts the persisted discs without a SHIFT+BREAK or a head move,
+and the tape from its start.
+
+**Save menu exports:** Snapshot `.bbcstate`, recorded tape (`.uef`, offered as `bbc-tape.uef`), PNG
 screenshot, RAM `.bin` (32 KB, `bbc-b-ram-32k.bin`). Disks are saved from the
 Drives pane.
 
@@ -193,7 +213,11 @@ Drives pane.
 - **User port and printer port.** The User VIA's port A and B inputs are tied high; nothing is connected to the printer or user port, and the User VIA is not wired to any host device.
 - **RS423 serial port.** Nothing is received and transmitted bytes go nowhere; only the cassette selection of the ACIA is connected.
 - **Sideways RAM and ROM writes.** Writes to 0x8000–0xFFFF ROM areas are ignored; there is no writeable sideways RAM.
-- **Mice, cartridges and snapshots.** None are offered for this machine.
+- **Mice and cartridges.** None are offered for this machine.
+- **Snapshots from other emulators.** Only zx84's own `.bbcstate` is read and
+  written (not BeebEm's `.uefstate` or b2's states). Keys held on the host are
+  not part of a state, and a disc transfer in flight when a refresh copy is
+  taken loses its place (the drive is empty until the shell remounts it).
 - **ADC conversion noise.** A converted value is the stick's position exactly; a real uPD7002 jitters in its low bits.
 - **Tape sound.** The cassette signal is not played through the speaker.
 - **Other Model B variants.** Only the Model B (32 KB) is registered; no B+, Master, or 16 KB Model A.
@@ -215,6 +239,7 @@ Drives pane.
 
 | Reference | Result | Last checked |
 | --- | --- | --- |
+| [`tests/snapshot/bbc-state.test.ts`](../../tests/snapshot/bbc-state.test.ts) — `.bbcstate`: synthetic firmware with a 1770 or 8271 multi-sector read, the tape, a free-running VIA timer, the SN76489, the ADC with sticks held and Mode 1 drawing all in flight; a fresh machine restored from the file matches the original's registers, cycle count, picture and whole state for 40 frames at High, Mid and Low accuracy; damaged files and another disc interface refused with the machine untouched; refresh resume with the disc remounted and no SHIFT+BREAK; a BASIC program on MOS 1.20 (skipped when the cached ROMs are absent) | Tests | — |
 | [`tests/bbc.test.ts`](../../tests/bbc.test.ts) — registration with the `m6502` CPU family, memory map (RAM, sideways ROM, OS, write-ignoring ROM windows), two 16 KB RAM banks, boot smoke test, RAM dump export | Tests | — |
 | [`tests/bbc-hardware.test.ts`](../../tests/bbc-hardware.test.ts) — SAA5050 alpha and mosaics, sheila IO decode, ROMSEL, IC32 latch, keyboard matrix, option links and CA2, sound strobe, Mode 7 half-line blending, scale-dependent layout, bitmap mode pixel unpacking, ULA palette decode | Tests | — |
 | [`tests/bbc-dfs.test.ts`](../../tests/bbc-dfs.test.ts) — SSD/DSD parse and serialize round trip, 1770 and 8271 register access through the memory bus, drive and ROM socket exposure, NMI handshake per byte | Tests | — |

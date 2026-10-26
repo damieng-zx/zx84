@@ -96,6 +96,7 @@ ZIP archives are unpacked and only entries the machine accepts are offered. Medi
 | --- | --- | --- | --- | --- | --- |
 | `.uef` | Tape | Tape deck | ✅ | ✅ | Plain or gzip-wrapped; the content decides, not the name. Save is a recording of what the OS SAVEs to the cassette port (always named `electron-tape.uef`), not a re-save of the mounted tape |
 | `.csw` | Tape | Tape deck | ✅ | ✗ | Sampled tape |
+| `.elkstate` | Snapshot | Machine | ✅ | ✅ | zx84's own exact save state (see below) |
 | `.adf` `.ads` `.adm` | Disk (ADFS) | Plus 3 drive 0 / 1 | ✅ | ✅ | Raw 16 × 256-byte sector dumps. Geometry by size: up to 160 KB is 40 tracks single-sided (S), up to 320 KB is 80 tracks single-sided (M), larger is 80 tracks double-sided (L). Short files are padded; images over 640 KB are refused |
 | `.adl` | Disk (ADFS L) | Plus 3 drive 0 / 1 | ✅ | ✅ | Always 80 tracks double-sided, even if trimmed. The image holds the cylinders in turn, side 0 then side 1 of each (the BeebEm, MAME and Greaseweazle convention); ADFS itself fills side 0 before side 1, so logical sector 16 is image sector 32 |
 | `.img` `.dsk` | Disk (ADFS or DFS) | Plus 3 drive 0 / 1 | ✅ | ✅ | Headerless sector dump of either filing system, by content; one that says neither is taken as the filing system the Plus 3 is set to. Saved back as the matching ADFS or DFS dump |
@@ -108,7 +109,23 @@ Drive 0 is the default target and drive 1 is selected with target `b`. Mounting 
 
 Disc saves from the Drives pane keep the format family: ADFS discs save as `.adl` (two-sided), `.adm` (more than 40 tracks) or `.ads`, so a loaded `.adf` is saved under the extension matching its geometry; DFS discs save as `.dsd` or `.ssd`. A disc that came from an HFE saves as `.hfe`, as does any disc whose layout a sector dump cannot hold (a protection track, deleted-data or bad-CRC sectors). The Drives pane can create blank ADFS discs (640 KB L, 320 KB M, 160 KB S; unformatted as far as the filing system is concerned, so `*FORMAT` is still needed) or, in DFS mode, blank DFS discs (100 KB, 200 KB single-sided; 200 KB, 400 KB double-sided). Write-protect can be set per drive.
 
-**Save menu exports:** Saved tape (`.uef`), PNG screenshot, RAM `.bin` (the 32 KB of main RAM).
+**Snapshots.** `.elkstate` is zx84's native save state, in the same container as the Atari's `.a8state` (a CRC-32 and length checked before the machine is touched, deflated when saved from the Save menu), magic
+`ZXEL`: the 6502, the 32 KB of RAM and the ROM page, the ULA (interrupt
+status and mask, screen address counters, mode, palette, sound counter, the
+cassette shifters with a byte half received or held for sending), the cassette
+relay, tone demodulator and recording, the Plus 1 (ADC with a conversion in
+progress, the joysticks as held, the printer output) and a cartridge in its
+slot, the Plus 3's latch and WD1770 down to a transfer in flight, and the
+beam's frame grid. A file saved from the Save menu also carries the discs
+(writes included) and the tape with the deck's position to the cycle. The
+header records the CRCs of BASIC, the OS and the paged ROMs (a mismatch loads
+with a warning); a state saved with other expansions or another drive count is
+refused until the Hardware or Drives pane matches. A state is taken between
+frames and restores cycle for cycle. The same state without the discs and tape
+backs browser-refresh resume (the shell remounts the discs without a
+SHIFT+BREAK or a head move).
+
+**Save menu exports:** Snapshot `.elkstate`, Saved tape (`.uef`), PNG screenshot, RAM `.bin` (the 32 KB of main RAM).
 
 ---
 
@@ -165,7 +182,10 @@ Disc saves from the Drives pane keep the format family: ADFS discs save as `.adl
 - **Other expansion hardware.** Econet, modem and other interfaces exist only as empty ROM pages; nothing decodes their registers.
 - **UEF disc-image chunks.** UEF chunks outside the supported set (including disc images, security cycles, phase change and markers) are skipped; a UEF that yields no tape blocks is refused as unreadable.
 - **Track timing on HFE and SCP discs.** Tracks are decoded to sectors once at load. Deleted-data marks, CRC errors, odd sector IDs and sizes, duplicate IDs and weak sectors carry over, but protections that time the track itself (gap lengths, where a sector sits relative to the index) are not reproduced.
-- **Machine snapshots.** No snapshot service; the Save menu has no snapshot entry.
+- **Snapshots from other emulators.** Only zx84's own `.elkstate` (not
+  ElectrEm's or Elkulator's states). Keys held on the host are not part of a
+  state, and a disc transfer in flight when a refresh copy is taken loses its
+  place.
 
 ## Faithful quirks
 
@@ -184,6 +204,7 @@ Disc saves from the Drives pane keep the format family: ADFS discs save as `.adl
 
 | Reference | Result | Last checked |
 | --- | --- | --- |
+| [`tests/snapshot/electron-state.test.ts`](../../tests/snapshot/electron-state.test.ts) | `.elkstate`: synthetic firmware with a Plus 3 multi-sector read, the Plus 1 ADC with sticks held, the tape, ULA interrupts and sound in flight; a restored machine matches the original frame for frame (registers, cycles, picture, whole state); cartridge carried; damaged files and other expansions refused untouched; refresh resume with the disc remounted and no SHIFT+BREAK; a BASIC program on the real OS (skipped when the cached ROMs are absent) | Test file in repo |
 | [`tests/electron.test.ts`](../../tests/electron.test.ts) | Memory map and ROM paging, keyboard matrix and host mapping, BREAK, ULA interrupts, palette and display for modes 0–6 (including mid-frame palette change and gapped modes), memory timing (2 MHz ROM, 1 MHz RAM, display-fetch halt in modes 0–3 only), sound divider, cassette receive and transmit, services, sideways ROM listing | Test file in repo |
 | [`tests/electron-expansions.test.ts`](../../tests/electron-expansions.test.ts) | Plus 1 (ROM 12, cartridge banks, `_1`/`_2` pairing, status registers, SHIFT+BREAK boot), Plus 3 (WD1770 registers, DRQ per byte, NMI on completion, drive/side latch, controller driven from the CPU clock, `.adl` save), DFS swap (ROM 0, `.ssd`/`.dsd` accept, formatted track length) | Test file in repo |
 | [`tests/electron-joystick.test.ts`](../../tests/electron-joystick.test.ts) | Plus 1 ADC0844: 40 µs conversion, /INTR on status bit 6, result latch, channel and fire-button wiring, proportional input, no joystick without the Plus 1; ADVAL(0), (1), (2) and (4) through the real Plus 1 Expansion ROM (skipped when the cached ROMs are absent) | Test file in repo |

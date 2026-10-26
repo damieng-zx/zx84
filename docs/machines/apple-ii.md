@@ -111,6 +111,7 @@ when there are several.
 | `.nib` | Disk | Disk ][ drive 1 or 2 | ✅ | ✅ | Raw nibbles, 35 (or 40) tracks of 6,656 bytes (6,384-byte `.nb2` tracks too). Gap `$FF`s become ten-cell self-sync bytes again; `$FF`s inside address and data fields stay eight cells. Saved as `.nib` (each track's nibbles as a reader collects them) |
 | `.woz` | Disk | Disk ][ drive 1 or 2 | ✅ | ✅ | WOZ 1, WOZ 2 and WOZ 2.1: CRC-32 checked (a zero CRC is accepted), INFO (write protect, optimal bit timing, creator), TMAP quarter tracks, TRKS bit streams, WOZ 2.1 FLUX tracks (each transition interval rounded to whole cells) used in place of the bit track for their quarter tracks; META kept. 3.5" WOZ disks are refused. Saved as WOZ 2 with every written cell |
 | `.2mg` / `.2img` | Disk | Disk ][ drive 1 or 2 | ✅ | ✅ | 64-byte header around a 140 KB DOS- or ProDOS-order image or a `.nib`; the locked flag sets write protect and a header volume number is used for the address fields. Saved as `.2mg` with the header, comment and creator data kept. Larger (3.5", hard-disk) images are refused |
+| `.a2state` | Snapshot | Machine | ✅ | ✅ | zx84's own exact save state, every model (see below) |
 | `.wav` | Tape | Cassette deck | ✅ | ✅ | FSK audio; one logical block with play, pause, stop and rewind. Save is a recording of the `$C020` toggles since the last reset (`apple2-tape.wav`: 44.1 kHz 16-bit mono square wave, silences between saves cut to 1 s), not a re-save of the mounted tape |
 
 The format is decided by the contents (a WOZ or 2MG header, a `.nib` or `.d13`
@@ -133,8 +134,30 @@ downloads the modified image in the format it was loaded as. Writing over a
 blank quarter track lays down a new track there (kept by `.woz`, not by sector
 formats). Mounted tapes and disks are restored after a reload.
 
-**Save menu exports:** Saved tape (`.wav`); PNG screenshot; RAM `.bin` (the 48 KB of main RAM, named
-`<model>-ram-48k.bin`). There are no machine snapshots.
+**Snapshots.** `.a2state` is zx84's native save state for every model, in the same container as the Atari's `.a8state` (a CRC-32 and length checked before the machine is touched, deflated when saved from the Save menu),
+magic `ZXA2`: the 6502 or 65C02, the soft switches (display, //e 80-column,
+alternate characters, double hi-res), main RAM and the language card (RAM and
+switches, including the half-done double read that enables writing), on the
+//e the auxiliary RAM and MMU switches, the keyboard latch and strobe, the game
+port (paddle timers, annunciators, the sticks and buttons as held), the
+Mockingboard (both VIAs and both AYs), the Videx card (CRTC registers and its
+RAM), the Disk ][ (each head's quarter track and bit position, the stepper
+magnets, motor and spin-down, Q6/Q7, the data register, the read amplifier's
+noise window), the cassette deck and what has been written to the cassette
+output, and the frame grid. A file saved from the Save menu also carries the
+disks in their bit-level form (every track's cells as written, the quarter-track
+map and what a save needs to write them back in their own format) and the
+tape, stored as the run of levels the comparator settles on. A state names its
+model, and loading one on another model switches to it first; a state saved
+with other cards or another drive count is refused until the Hardware or
+Drives pane matches. The header records the CRCs of the system, internal,
+Disk ][ and Videx ROMs (a mismatch loads with a warning). A state is taken
+between frames and restores cycle for cycle. The same state without the media
+backs browser-refresh resume; the shell then remounts the persisted disks
+without a reboot or a head move.
+
+**Save menu exports:** Snapshot `.a2state`; Saved tape (`.wav`); PNG screenshot; RAM `.bin` (the 48 KB of main RAM, named
+`<model>-ram-48k.bin`).
 
 ---
 
@@ -191,7 +214,8 @@ formats). Mounted tapes and disks are restored after a reload.
 - **Other expansion cards.** Only the Disk ][ controller, language card, Videx Videoterm, Mockingboard and extended 80-column card exist (no mouse, clock, serial, hard-disk or CPU cards). The Mockingboard has no speech chip.
 - **Other disk formats.** Hard-disk and 3.5-inch images (`.hdv`, 800K `.2mg`/`.po`, 3.5" WOZ) are not accepted: there is no SmartPort or hard-disk card. Flux tracks are turned into bit cells when the WOZ is loaded, so jitter finer than a cell is lost.
 - **Mouse as paddles.** The host mouse does not drive the paddles.
-- **Machine snapshots.** The snapshot service is absent.
+- **Snapshots from other emulators.** Only zx84's own `.a2state` (not
+  AppleWin's `.aws.yaml`). Keys held on the host are not part of a state.
 
 ## Faithful quirks
 
@@ -213,6 +237,7 @@ formats). Mounted tapes and disks are restored after a reload.
 
 | Reference | Result | Last checked |
 | --- | --- | --- |
+| `tests/snapshot/apple2-state.test.ts` | `.a2state` on the ][+, //e and Enhanced //e: synthetic firmware reading a spinning Disk ][ and stepping its head, the Mockingboard's T1 interrupt and AY, the language card, PAGE2 flips, paddles held, annunciators, cassette output and (//e) auxiliary RAM; a restored machine matches the original for 40 frames at every accuracy (registers, cycles, picture, whole state); written bit tracks carried; a state for another model asks for it; damaged files and other cards refused untouched; refresh resume with the disk remounted and no reboot | Test suite |
 | `tests/apple2.test.ts` | Registration, memory map, soft switches, cassette deck, hardware options, original ][ boot jump, language card, Videx card, Mockingboard, paddles and joystick, KEY indicator, video addressing and composite/PAL/green rendering, OCR, Disk ][ stepper, GCR stream and spin-down | Test suite |
 | `tests/apple2-gameport.test.ts` | PREAD's algorithm reading 0 at full left / up, 255 at full right / down, 127 centred and proportional gamepad positions on all four paddles (and the same on the real Autostart ROM's `$FB1E` when `mcp/.cache/apple2plus.rom` is present); annunciator latches on the ][+ and the //e's AN3 / double hi-res | Test suite |
 | `tests/apple2e.test.ts` | //e MMU main/auxiliary paging, ROM and `$C300`/INTC8ROM handling, auxiliary language-card RAM, soft-switch read-back, keyboard, character set, 80-column text and double hi-res | Test suite |

@@ -23,6 +23,7 @@
  */
 
 import { AsyncSerialReceiver, type RxFormat } from '@/utils/async-serial-rx.ts';
+import type { StateSink, StateSource } from '@/utils/state-stream.ts';
 
 const ST_RDRF = 0x01;
 const ST_TDRE = 0x02;
@@ -217,5 +218,33 @@ export class Mc6850 {
       }
     }
     this.refreshStatus();
+  }
+
+  // ── Snapshot state ────────────────────────────────────────────────────────
+
+  /** Write the registers, the pins as last driven, the receiver's frame in
+   *  progress and the transmitter's held byte and timing, with the bit times
+   *  the baud-rate generator last set. */
+  saveState(w: StateSink): void {
+    w.u8(this.control); w.u8(this.status); w.u8(this.rxData);
+    w.bool(this.dcdPin); w.bool(this.dcdLatched); w.bool(this.ctsPin);
+    w.bool(this.statusReadSinceEvent);
+    w.u8(this.rxLevel); w.f64(this.rxSince); w.u8(this.rxStartLevel);
+    w.f64(this.now);
+    w.i32(this.txHold); w.f64(this.txHoldAt); w.f64(this.txEnd);
+    w.f64(this.txBitCycles); w.f64(this.rx.bitCycles);
+    this.rx.saveState(w);
+  }
+
+  loadState(r: StateSource): void {
+    this.control = r.u8(); this.status = r.u8(); this.rxData = r.u8();
+    this.dcdPin = r.bool(); this.dcdLatched = r.bool(); this.ctsPin = r.bool();
+    this.statusReadSinceEvent = r.bool();
+    this.rxLevel = r.u8(); this.rxSince = r.f64(); this.rxStartLevel = r.u8();
+    this.now = r.f64();
+    this.txHold = r.i32(); this.txHoldAt = r.f64(); this.txEnd = r.f64();
+    this.txBitCycles = r.f64(); this.rx.bitCycles = r.f64();
+    this.applyFormat();
+    this.rx.loadState(r);
   }
 }

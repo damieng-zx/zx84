@@ -86,6 +86,8 @@ ZIP archives are accepted by the Load picker and routed as below.
 | `.tap` | Tape | Tape deck | ✅ | ✅ | Ace `.tap`: `[length16][bytes]` chunks with no flag byte; a 26-byte chunk is a header unless it follows one. Save writes whatever the machine `SAVE`d |
 | `.tzx` | Tape | Tape deck | ✅ | ✗ | |
 | `.csw` | Tape | Tape deck | ✅ | ✗ | |
+| `.acestate` | Snapshot | Machine | ✅ | ✅ | zx84's own exact save state (see below) |
+| `.ace` | Snapshot | Machine | ✅ | ✗ | xAce/ACE32 memory snapshot: RLE-packed RAM from `0x2000` with the Z80 registers at `0x2100` |
 
 A mounted tape is positioned at the start with the deck paused. The mount
 message names the exact command to type: `LOAD <name>` for a dictionary file
@@ -93,9 +95,22 @@ message names the exact command to type: `LOAD <name>` for a dictionary file
 Ace's `LOAD` takes the name unquoted and compares it literally, so the case
 must match the name on the tape. `.cdt` is not accepted.
 
-There are no snapshot, disk or cartridge formats.
+**Snapshots.** `.acestate` is zx84's native save state, in the same container
+as the Atari's `.a8state` (magic `ZXJA`, a CRC-32 and length checked before
+the machine is touched, deflated when saved): the Z80 with its hidden
+MEMPTR/Q latches and interrupt delays, every RAM chip and the RAM pack, the
+ULA's MIC and buzzer latches and the beam's frame grid, so a restore carries on
+cycle for cycle. The header records the ROM's CRC (a different ROM is loaded
+anyway, with a warning) and the RAM pack size; a state from another RAM pack is
+refused until the Hardware pane matches. A state is taken between frames (a
+frame a debugger stop left open is run to its end first). The same state backs
+browser-refresh resume. The cassette is not part of the state. `.ace` files
+load the RAM and registers; the ULA and beam start fresh, and a snapshot that
+reaches past the fitted RAM pack is refused.
 
-**Save menu exports:** Tape `.tap` (the cassette-port `SAVE` captured by the MIC
+There are no disk or cartridge formats.
+
+**Save menu exports:** Snapshot `.acestate`, tape `.tap` (the cassette-port `SAVE` captured by the MIC
 recorder; named after the first file on it, or `jupiter-ace.tap`), PNG
 screenshot, RAM `.bin` (`jupiter-ace-ram.bin`: video RAM, character RAM and main
 RAM, then the RAM pack when fitted).
@@ -143,7 +158,8 @@ None known.
 
 - **Memory contention.** The real ULA steals cycles while it fetches the screen; no reference timing is published for the Ace's fetch pattern, so none is applied and the CPU runs uncontended.
 - **Other RAM expansions.** Only the stock 3 KB, 16 KB pack and 48 KB pack are offered.
-- **Sound chip, disk, snapshot, joystick, mouse, cartridge.** None exist on the Ace; the service surface returns null for disks and snapshots, and the shared AY object in the machine class is never wired to anything.
+- **Sound chip, disk, joystick, mouse, cartridge.** None exist on the Ace; the service surface returns null for disks, and the shared AY object in the machine class is never wired to anything.
+- **Snapshots: the cassette.** `.acestate` restores the machine exactly but not the tape deck's position; `.ace` carries only RAM and registers. No snapshot is written in `.ace` form.
 - **Tape audio during loading.** Playback is silent.
 
 ## Faithful quirks

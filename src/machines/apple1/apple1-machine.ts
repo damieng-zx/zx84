@@ -38,6 +38,8 @@ import { Apple1Charset } from './apple1-charset.ts';
 import { Apple1Video } from './apple1-video.ts';
 import { apple1Descriptor } from './descriptor.ts';
 import { createApple1Services, type Apple1Services } from './services/index.ts';
+import { withStopsDisarmed } from '@/machines/shared/native-state.ts';
+import { crc32, type StateReader, type StateWriter } from '@/machines/shared/state-io.ts';
 
 /** Frames the cursor spends on, then off (about 1.9 blinks a second). */
 const CURSOR_FRAMES = 16;
@@ -427,6 +429,108 @@ export class Apple1Machine extends BaseMachine implements Machine {
   /** Execution trace: BaseMachine's startTrace/stopTrace drive it and
    *  beforeInsn feeds it (debug/m6502/trace.ts). */
   protected override tracer = new M6502Trace(this, { io: [[0xC000, 0xC0FF], [0xD000, 0xDFFF]], ioLabel: apple1IoLabel });
+
+  // ── Snapshots (.a1state; see shared/native-state.ts for the container) ───
+
+  /** CRC-32s of the Woz Monitor PROM and the Cassette Interface's ROM (0
+   *  when the interface is not fitted), for the snapshot header. */
+  stateRomCrcs(): number[] {
+    return [crc32(this.memory.rom), this.options.aci ? crc32(this.memory.aciRom) : 0];
+  }
+
+  /** The fitted memory, as the Hardware pane names it. */
+  private static fittedName(ramKb: number, basicRam: boolean, aci: boolean): string {
+    return `${ramKb}K${basicRam ? ' with the BASIC RAM card' : ''}${aci ? ' and the Cassette Interface' : ''}`;
+  }
+
+  /** Run the rest of a frame a stop left part-way, with every stop set aside,
+   *  so the machine is between frames (a snapshot is taken there). */
+  private completeFrame(): void {
+    if (!this.midFrame) return;
+    withStopsDisarmed(this, () => {
+      this.resumeSkipPc = -1;
+      this.stepFrame();
+    });
+  }
+
+  /**
+   * Write the machine's state between frames: the CPU, the memory, the PIA,
+   * the terminal (its screen, cursor and busy time) and the cassette deck;
+   * with `withMedia`, the tape recording too. A listing being typed in is a
+   * host action, not machine state, and is not carried.
+   */
+  saveState(w: StateWriter, withMedia: boolean): void {
+    this.completeFrame();
+    // The fitted memory first, so a restore can refuse a mismatch before it
+    // changes anything.
+    w.section('CONF', () => {
+      w.u8(this.options.ramKb); w.bool(this.options.basicRam); w.bool(this.options.aci);
+    });
+    w.section('CPU ', () => this.cpu.saveState(w));
+    w.section('MACH', () => {
+      w.f64(this.frameNumber); w.f64(this.frameStartT); w.f64(this.frameEndT);
+      w.u8(this.cursorFrame); w.f64(this.busyUntil);
+    });
+    w.section('MEM ', () => w.raw(this.memory.ram));
+    w.section('PIA ', () => this.pia.saveState(w));
+    w.section('TERM', () => {
+      w.raw(this.terminal.cells);
+      w.u8(this.terminal.col); w.u8(this.terminal.row);
+    });
+    w.section('TAPE', () => {
+      this.cassette.saveState(w, withMedia);
+      // What the program has written to the cassette output so far.
+      this.tapeRecorder.saveState(w);
+      w.f64(this.tapeClockBase);
+    });
+  }
+
+  /**
+   * Restore a state written by `saveState` into this machine, which has the
+   * same model; one saved with other memory or interface fitted is refused
+   * before anything changes. The frame loop must be stopped.
+   */
+  loadState(r: StateReader): void {
+    {
+      const s = r.section('CONF');
+      const ramKb = s.u8(), basicRam = s.bool(), aci = s.bool();
+      const o = this.options;
+      if (ramKb !== o.ramKb || basicRam !== o.basicRam || aci !== o.aci) {
+        throw new Error(`This snapshot was saved with ${Apple1Machine.fittedName(ramKb, basicRam, aci)} and this Apple I has ${Apple1Machine.fittedName(o.ramKb, o.basicRam, o.aci)}; change it in the Hardware pane and load it again`);
+      }
+    }
+    this.dropFrameInProgress();
+    this.cancelPaste();
+    // The keyboard's own state is the host's; clear it first, since doing so
+    // also drives the PIA's port A pins, which the PIA's state then restores.
+    this.keyboard.reset();
+    this.cpu.loadState(r.section('CPU '));
+    {
+      const s = r.section('MACH');
+      this.frameNumber = s.f64(); this.frameStartT = s.f64(); this.frameEndT = s.f64();
+      this.cursorFrame = s.u8(); this.busyUntil = s.f64();
+    }
+    r.section('MEM ').rawInto(this.memory.ram);
+    this.pia.loadState(r.section('PIA '));
+    {
+      const s = r.section('TERM');
+      s.rawInto(this.terminal.cells);
+      this.terminal.col = s.u8(); this.terminal.row = s.u8();
+      this.terminal.version++;
+    }
+    {
+      const s = r.section('TAPE');
+      this.cassette.loadState(s);
+      this.tapeRecorder.loadState(s);
+      this.tapeClockBase = s.f64();
+    }
+    this.activity.kbdReads = 0;
+    this.activity.cassetteToggles = 0;
+    this.mixer.reset();
+    this.audio.reset();
+    this.video.invalidate();
+    this.drawFrame();
+  }
 }
 
 /** Portio-trace names for the Apple I's I/O: the PIA (repeated through $Dxxx,

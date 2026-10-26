@@ -18,6 +18,7 @@
 import { WD179x } from '@/cores/wd179x.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { ADFS_SECTORS_PER_TRACK } from '@/media/floppy/adfs.ts';
+import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 
 const CTRL_DRIVE0 = 0x01;
 const CTRL_DRIVE1 = 0x02;
@@ -128,5 +129,16 @@ export class ElectronPlus3 {
   /** Fit the first `count` drives; the other select lines have nothing on them. */
   setDriveCount(count: number): void {
     this.fdc.connected = this.fdc.connected.map((_, u) => u < count);
+  }
+
+  /** Snapshot: the drive-control latch and the controller (not the discs). */
+  saveState(w: StateWriter): void {
+    w.u8(this.control); w.bool(this.resetting);
+    this.fdc.saveState(w);
+  }
+
+  loadState(r: StateReader): void {
+    this.control = r.u8(); this.resetting = r.bool();
+    this.fdc.loadState(r);
   }
 }

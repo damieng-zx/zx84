@@ -100,6 +100,7 @@ ZIP archives are offered whole to the Enterprise first (see `.zip` below).
 | `.dsk` | Disk | EXDOS card, drives A:–D: | ✅ | ✅ | A CPC-style (extended) DSK, recognised by its signature, or else a raw sector dump read as `.img`. A plain 512-byte-sector layout saves as `.img`; anything else as `.hfe` |
 | `.hfe` | Disk | EXDOS card, drives A:–D: | ✅ | ✅ | HFE v1 or v3 bitstream, decoded track by track (MFM, or FM for single density). Saved back as `.hfe` (v1), only written sectors re-encoded |
 | `.scp` | Disk | EXDOS card, drives A:–D: | ✅ | ◐ | SuperCard Pro flux, decoded at load. Saved as `.img` when its layout is plain, otherwise as `.hfe` |
+| `.epstate` | Snapshot | Machine | ✅ | ✅ | zx84's own exact save state (see below) |
 
 Loading a program resets the machine, fits the FILE: ROM and types `RUN "FILE:"`
 at the start-up screen. Loading a disk into A: resets and starts it: nothing if
@@ -110,8 +111,27 @@ run from BASIC).
 Blank disks can be created in the Drives pane: 720 KB double-sided 80-track or
 360 KB double-sided 40-track, pre-formatted FAT12.
 
-**Save menu exports:** PNG screenshot, RAM `.bin` (all fitted RAM, 64 KB or
-128 KB).
+**Snapshots.** `.epstate` is zx84's native save state, in the same container
+as the Atari's `.a8state` (magic `ZXEP`, a CRC-32 and length checked before the
+machine is touched, deflated when saved): the Z80 with its hidden MEMPTR/Q
+latches and interrupt delays, all RAM and the four page registers, Nick's
+registers, palette and place in the line parameter table, Dave's counters,
+tone and noise channels, timebase and interrupt latches, the frame grid and
+frame-buffer row, the typer if it is part-way through typing, the EXDOS card's
+WD1770 down to the byte a transfer has reached, and the FILE: device's files
+and open channels. A saved file also carries the disks in the drives (with
+their names and write protect). The header records the CRCs of EXOS, the BASIC
+cartridge, EXDOS and the four extension sockets (a different ROM is loaded
+anyway, with a warning); a state from the other model asks to switch to it,
+and one saved with the EXDOS card fitted or removed, or with a different number
+of drives, is refused until the Hardware and Drives panes match. A state is
+taken between frames (a frame a debugger stop left open is run to its end
+first). The same state, without the disks, backs browser-refresh resume: the
+shell puts the persisted disks back and the machine takes them without the
+restart a disk in A: normally brings.
+
+**Save menu exports:** Snapshot `.epstate`, PNG screenshot, RAM `.bin` (all
+fitted RAM, 64 KB or 128 KB).
 
 ---
 
@@ -157,7 +177,7 @@ None known.
 - **External joystick inputs and tape input.** Port 0xB6 returns 0xFF, so nothing is attached.
 - **Cassette.** No tape service; Dave's remote relay bits are stored but drive nothing.
 - **Dave INT2.** The external input is unused.
-- **Snapshots.** No snapshot format is loaded or saved.
+- **Snapshots: the picture and what the shell does not persist.** `.epstate` does not hold the frame buffer, so rows the line parameter table does not reach keep what the target machine last drew there until something draws them (a table with a VSYNC block redraws every row each frame). A refresh restore does not carry the disks: a disk the shell does not persist (the one built in A: from FILE: programs) is gone after a reload. No other emulator's snapshot format is read or written.
 - **Saving files made through FILE:.** Files a program creates on the FILE: device live in memory only and cannot be downloaded.
 
 ## Faithful quirks

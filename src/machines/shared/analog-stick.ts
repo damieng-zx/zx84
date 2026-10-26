@@ -11,6 +11,8 @@
  * its own scale and direction.
  */
 
+import type { StateReader, StateWriter } from './state-io.ts';
+
 export type StickDir = 'up' | 'down' | 'left' | 'right';
 
 interface PlayerStick {
@@ -54,6 +56,24 @@ export class AnalogSticks {
     for (const s of this.sticks) {
       s.up = s.down = s.left = s.right = false;
       s.x = s.y = 0;
+    }
+  }
+
+  /** Snapshot: each stick's held directions and position. */
+  saveState(w: StateWriter): void {
+    w.u8(this.sticks.length);
+    for (const s of this.sticks) {
+      w.bool(s.up); w.bool(s.down); w.bool(s.left); w.bool(s.right);
+      w.f64(s.x); w.f64(s.y);
+    }
+  }
+
+  loadState(r: StateReader): void {
+    const n = r.u8();
+    if (n !== this.sticks.length) throw new Error('Snapshot is corrupt (joysticks)');
+    for (const s of this.sticks) {
+      s.up = r.bool(); s.down = r.bool(); s.left = r.bool(); s.right = r.bool();
+      s.x = r.f64(); s.y = r.f64();
     }
   }
 }

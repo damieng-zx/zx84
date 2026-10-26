@@ -75,8 +75,8 @@ panes, and has no mouse or cartridge slot.
 ## Media formats
 
 ZIP archives are unpacked and their contents routed as below. All PCW media
-mounts into the disc drives; content is detected from the file, so the
-extension only decides whether the file is accepted.
+except zx84's own snapshot mounts into the disc drives; content is detected
+from the file, so the extension only decides whether the file is accepted.
 
 | Extension | Kind | Device | Load | Save | Notes |
 | --- | --- | --- | --- | --- | --- |
@@ -84,6 +84,7 @@ extension only decides whether the file is accepted.
 | `.td0` | Disk | Drive A: (B: on the 8512) | ✅ | ✗ | Teledisk; a mounted TD0 image saves back out as `.dsk` |
 | `.hfe` | Disk | Drive A: (B: on the 8512) | ✅ | ✅ | Bitstream retained; saved back as `.hfe` |
 | `.scp` | Disk | Drive A: (B: on the 8512) | ✅ | ✗ | Flux image decoded to sectors; a mounted SCP image saves back out as `.dsk` |
+| `.pcwstate` | Snapshot | Machine | ✅ | ✅ | zx84's own exact save state, discs included (see below) |
 
 Inserting a disc into drive A on a machine that has not booted starts the boot
 (a reset with a disc already in A: boots straight into it). On one-drive models,
@@ -92,7 +93,24 @@ settable per drive. Blank DSK or HFE discs can be created from the Drives pane
 (PCW/+3 single-sided 180 KB and PCW double-sided 720 KB are among the formats
 offered). Mounted discs are persisted across reloads.
 
-**Save menu exports:** PNG screenshot, `.scr` screen dump (the first 32 KB of physical RAM as the display fetch sees it), RAM `.bin` (all fitted RAM, 256 KB or 512 KB). There are no snapshots or tapes.
+**Snapshots.** `.pcwstate` is zx84's native save state, in the same container
+as the Atari's `.a8state` (magic `ZXPC`, a CRC-32 and length checked before the
+machine is touched, deflated when saved): the Z80 with its hidden MEMPTR/Q
+latches and interrupt delays, all fitted RAM and the &F0-&F4 paging, the gate
+array (roller RAM base and offset, video control, the 300 Hz pulse and its
+counter, FDC interrupt routing), the keyboard's SHIFT LOCK and update-toggle
+latches, the beeper, the beam's frame grid, and the uPD765A down to the byte a
+sector transfer has reached (terminal count and INT response timing included).
+A saved file carries the mounted discs exactly as the controller sees them
+(in-session writes, weak sectors and HFE bitstreams included) and their names;
+loading it replaces the discs in the drives. The header records the model (a
+state from another PCW asks to switch to it) and the fitted drive count, which
+must match the Drives pane or the state is refused. There is no ROM to check.
+A state is taken between frames (a frame a debugger stop left open is run to
+its end first). The same state, without the discs, backs browser-refresh
+resume. Held keys and the write-protect switches are not part of the state.
+
+**Save menu exports:** Snapshot `.pcwstate`, PNG screenshot, `.scr` screen dump (the first 32 KB of physical RAM as the display fetch sees it), RAM `.bin` (all fitted RAM, 256 KB or 512 KB). There are no tapes.
 
 ---
 
@@ -142,7 +160,8 @@ None known.
 - **60 Hz / 28-line screen.** The status byte always reports the 50 Hz, 32-line screen.
 - **Cursor and extended keyboard bits.** The key bits in &3FFB–&3FFF are unmapped (a `TODO(verify)` in the keyboard source: the reference does not enumerate them). The keyboard joystick bits (J1 in &3FF9, J2 in &3FFB) stay idle: no PCW keyboard has a socket for them (PCW hardware guide §10.3), so a host joystick goes to an add-on interface instead (see Peripherals). The LK2 W/A/D/X keyboard joystick is not modelled (LK2 is not fitted). There is no mouse.
 - **Drive mechanism limits.** Single- versus double-sided drive A (8256/8512 versus 9512/9256) is recorded per model but not enforced on mounted images.
-- **Tape, snapshots, cartridges, system ROM.** The PCW has none; the corresponding services are absent.
+- **Tape, cartridges, system ROM.** The PCW has none; the corresponding services are absent.
+- **Other emulators' snapshots.** Only zx84's own `.pcwstate` is loaded or saved; no community PCW snapshot format is read.
 - **Add-on ports.** Any port not decoded reads as open bus (&FF) and ignores writes; no serial interface or mouse is attached. The DKTronics joystick (a port of the DKTronics sound board's AY) is not offered, as that board is not emulated.
 - **Execution tracing.** Not wired up for this machine.
 

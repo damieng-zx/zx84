@@ -6,13 +6,16 @@ import { parseMtxMfloppy } from '@/media/floppy/mtx-mfloppy.ts';
 import type { MtxTapeService } from './tape.ts';
 import type { MtxDiskService } from './disks.ts';
 import type { MtxRomService } from './roms.ts';
+import type { NativeSnapshotService } from '@/machines/shared/native-state.ts';
 
-/** MTX media routing: ROM packs, logical tapes, and HFE / Type 03/07 floppy disks. */
+/** MTX media routing: ROM packs, logical tapes, HFE / Type 03/07 floppy disks
+ *  and `.mtxstate` snapshots. */
 export class MtxMediaService implements MediaService {
   constructor(
     private readonly tape: MtxTapeService,
     private readonly disks: MtxDiskService,
     private readonly roms: MtxRomService,
+    private readonly snapshots: NativeSnapshotService,
   ) {}
 
   accepts(): MediaTypeDescriptor[] {
@@ -23,6 +26,7 @@ export class MtxMediaService implements MediaService {
       { ext: '.mfloppy', target: 'a' },
       { ext: '.mfloppy-03', target: 'a' },
       { ext: '.mfloppy-07', target: 'a' },
+      { ext: '.mtxstate', target: 'snapshot' },
     ];
   }
 
@@ -42,6 +46,14 @@ export class MtxMediaService implements MediaService {
       } catch (err) {
         return { ok: false, message: `ROM pack error: ${(err as Error).message}` };
       }
+    }
+    if (/\.mtxstate$/i.test(filename)) {
+      const r = await this.snapshots.apply(data, filename);
+      if (r.needsReplay) return { ok: true, replay: true, message: r.message };
+      // A state carries its own disks and ROM pack: the panes re-read them.
+      return r.ok
+        ? { ok: true, target: 'snapshot', mediaChanged: true, message: r.message }
+        : { ok: false, message: r.message };
     }
     if (/\.mtx$/i.test(filename)) {
       if (!this.tape.mount(data, filename)) {
@@ -76,7 +88,7 @@ export class MtxMediaService implements MediaService {
     }
     return {
       ok: false,
-      message: 'MTX accepts .rom packs, .mtx cassettes, and .hfe or Type 03/07 .mfloppy disks',
+      message: 'MTX accepts .rom packs, .mtx cassettes, .hfe or Type 03/07 .mfloppy disks and .mtxstate snapshots',
     };
   }
 }

@@ -7,6 +7,7 @@
  * cassette loading, the FDX/SDX-compatible floppy expansion, and the optional
  * FDX 80-column display. Printer and DART/RS-232 behavior is not emulated;
  * the DART was optional on the MTX models and standard on the RS128.
+ * Snapshots are zx84's own `.mtxstate` (snapshots/mtx-state.ts).
  */
 
 import { Z80 } from '@/cores/z80.ts';
@@ -17,6 +18,9 @@ import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { resolveDriveCount } from '@/machines/shared/drive-count.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
+import { crc32, type StateReader, type StateWriter } from '@/machines/shared/state-io.ts';
+import { withStopsDisarmed } from '@/machines/shared/native-state.ts';
+import { readDskImage, writeDskImage } from '@/media/floppy/disk-state.ts';
 import { z80ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
 import { Z80Trace } from '@/debug/z80/trace.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
@@ -466,6 +470,122 @@ export class MtxMachine extends BaseMachine implements Machine {
   /** Execution trace: BaseMachine's startTrace/stopTrace drive it and
    *  beforeInsn/afterInsn feed it (debug/z80/trace.ts). */
   protected override tracer = new Z80Trace(this);
+
+  // ── Snapshot state (.mtxstate) ─────────────────────────────────────────
+
+  /** CRC-32s of the five firmware ROMs (OS, BASIC, ASSEM, CP/M, FDX). */
+  stateRomCrcs(): number[] {
+    const mem = this.memory;
+    return [mem.osRom, mem.romPages[0], mem.romPages[1], mem.romPages[4], mem.romPages[5]].map(crc32);
+  }
+
+  /** Run the rest of a frame a stop left open, so the machine is between
+   *  frames (where a snapshot is taken). */
+  private completeFrame(): void {
+    if (this.midFrame) withStopsDisarmed(this, () => this.stepFrame());
+  }
+
+  /** The fitted hardware a state depends on, in CONF order. */
+  private stateConfig(): number[] {
+    return [
+      this.memory.ramExpansion512kEnabled ? 1 : 0,
+      this.cpmSystemEnabled ? 1 : 0,
+      this.floppyEnabled ? 1 : 0,
+      this.column80.enabled ? 1 : 0,
+      this.driveCount,
+    ];
+  }
+
+  /**
+   * Write the machine's sections of a `.mtxstate` (see snapshots/mtx-state.ts).
+   * The disks always travel with the state, even the refresh copy: the shell
+   * does not persist MTX disks across a reload, and a CP/M session without
+   * its disk cannot carry on.
+   */
+  saveState(w: StateWriter, _withMedia: boolean): void {
+    this.completeFrame();
+    w.section('CONF', () => { for (const v of this.stateConfig()) w.u8(v); });
+    w.section('CPU ', () => this.cpu.saveState(w));
+    w.section('MACH', () => {
+      w.f64(this.frameStartT); w.f64(this.frameEndT); w.f64(this.frameNumber);
+      w.u8(this.tapeOutput); w.u8(this.soundLatch); w.bool(this.vdpIntAsserted);
+      w.u8(this.keyboard.driveLatch);
+    });
+    w.section('MEM ', () => {
+      this.memory.saveState(w);
+      w.str(this.services.roms.cartridge.name);
+    });
+    w.section('VDP ', () => this.vdp.saveState(w));
+    w.section('PSG ', () => this.psg.saveState(w));
+    w.section('CTC ', () => this.ctc.saveState(w));
+    w.section('80CO', () => this.column80.saveState(w));
+    w.section('MEDA', () => {
+      for (const id of ['a', 'b']) {
+        const image = this.fdc.getDiskImage(id === 'b' ? 1 : 0);
+        w.bool(image !== null);
+        if (!image) continue;
+        writeDskImage(w, image);
+        const name = this.services.disks.nameOf(id);
+        w.bool(name !== undefined);
+        if (name !== undefined) w.str(name);
+      }
+    });
+    w.section('FDX ', () => this.fdx.saveState(w));
+  }
+
+  /** Restore a state written by {@link saveState}. The frame loop must be
+   *  stopped. Throws before changing anything if the fitted hardware differs. */
+  loadState(r: StateReader): void {
+    const conf = r.section('CONF');
+    const saved = this.stateConfig().map(() => conf.u8());
+    const live = this.stateConfig();
+    const names = ['the 512 KiB RAM expansion', 'the CP/M system', 'the FDX floppy subsystem', 'the 80-column card'];
+    for (let i = 0; i < names.length; i++) {
+      if (saved[i] !== live[i]) {
+        throw new Error(`This snapshot was saved ${saved[i] ? 'with' : 'without'} ${names[i]}; ${saved[i] ? 'fit' : 'remove'} it in the Hardware pane and load it again`);
+      }
+    }
+    if (saved[4] !== live[4]) {
+      throw new Error(`This snapshot was saved with ${saved[4]} drive${saved[4] === 1 ? '' : 's'} fitted and this MTX has ${live[4]}; change it in the Drives pane and load it again`);
+    }
+
+    this.cpu.loadState(r.section('CPU '));
+    {
+      const s = r.section('MACH');
+      this.frameStartT = s.f64(); this.frameEndT = s.f64(); this.frameNumber = s.f64();
+      this.tapeOutput = s.u8(); this.soundLatch = s.u8(); this.vdpIntAsserted = s.bool();
+      this.keyboard.reset();
+      this.keyboard.selectDrive(s.u8());
+    }
+    {
+      const s = r.section('MEM ');
+      this.memory.loadState(s);
+      this.services.roms.restoreRomPackName(s.str());
+    }
+    this.vdp.loadState(r.section('VDP '));
+    this.psg.loadState(r.section('PSG '));
+    this.ctc.loadState(r.section('CTC '));
+    this.column80.loadState(r.section('80CO'));
+    {
+      const s = r.section('MEDA');
+      for (const id of ['a', 'b']) {
+        if (!s.bool()) { this.services.disks.restore(id, null, undefined); continue; }
+        const image = readDskImage(s);
+        const name = s.bool() ? s.str() : undefined;
+        this.services.disks.restore(id, image, name);
+      }
+    }
+    this.fdx.loadState(r.section('FDX '));
+
+    // What the state does not hold: the host's keys are whatever they are
+    // now, and nothing is part-way through a frame.
+    this.midFrame = false;
+    this.clearInterrupts();
+    this.audio.reset();
+    this.mixer.reset();
+    this.needsDisplay = true;
+  }
+
   ocrScreenForMcp(_mode: OcrGridName | 'auto' = 'auto'): string {
     if (this.column80.enabled) return this.column80.text();
     return this.screenText.ocr(this.vdp.vram, this.vdp.regs, this.vdp.mode());

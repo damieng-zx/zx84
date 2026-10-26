@@ -300,7 +300,9 @@ export function saveCpcSnapshot(version: 2 | 3): void {
   setStatus(`Saved zx84-${m.model}.sna (v${version})`);
 }
 
-export async function saveSnapshot(format: 'z80' | 'szx' | 'a8state' = 'szx'): Promise<void> {
+/** Save the running machine's snapshot in `format` (an extension its
+ *  snapshot service saves: 'szx', 'z80', 'a8state', 'acestate', …). */
+export async function saveSnapshot(format: string = 'szx'): Promise<void> {
   const snapshots = machine?.services.snapshots;
   if (!machine || !snapshots) { setStatus('No machine running'); return; }
 

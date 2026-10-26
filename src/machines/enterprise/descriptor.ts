@@ -40,7 +40,7 @@ const ENTERPRISE_UI: MachineUiCapabilities = {
   keyboardBus: 'matrix',
   tapeSound: false,
   tapeExtensions: [],
-  saveMenu: ['screenshot-png', 'ram-bin'],
+  saveMenu: ['snapshot-epstate', 'screenshot-png', 'ram-bin'],
   zipPolicy: 'media',
   persistMedia: true,
   bootDisk: false,

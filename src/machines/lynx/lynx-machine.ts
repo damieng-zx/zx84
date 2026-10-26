@@ -8,6 +8,8 @@
  *
  * Hardware behaviour follows MAME's `camputers/camplynx.cpp`, the only
  * detailed public description of this machine.
+ *
+ * Snapshots are zx84's own `.lynxstate` (`snapshots/lynx-state.ts`).
  */
 
 import { Z80 } from '@/cores/z80.ts';
@@ -17,6 +19,8 @@ import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { resolveDriveCount } from '@/machines/shared/drive-count.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
+import { crc32, type StateReader, type StateWriter } from '@/machines/shared/state-io.ts';
+import { withStopsDisarmed } from '@/machines/shared/native-state.ts';
 import { z80ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
 import { Z80Trace } from '@/debug/z80/trace.ts';
 import { TapeDeck, TAPE_REF_HZ } from '@/media/tape/tap.ts';
@@ -264,6 +268,98 @@ export class LynxMachine extends BaseMachine implements Machine {
     } else {
       this.tape.paused = true;
     }
+  }
+
+  // ── Snapshot state (.lynxstate) ────────────────────────────────────────
+
+  /** CRC-32 of the ROM store (the system images and the DOS ROM, as loaded),
+   *  for the snapshot header. */
+  stateRomCrcs(): number[] { return [crc32(this.memory.rom)]; }
+
+  /** Run the rest of a frame a stop left open, so the machine is between
+   *  frames (where a snapshot is taken). */
+  private completeFrame(): void {
+    if (this.midFrame) withStopsDisarmed(this, () => this.stepFrame());
+  }
+
+  /**
+   * Write the machine's sections of a `.lynxstate` (see
+   * snapshots/lynx-state.ts): the disk-interface configuration first, so a
+   * restore can refuse a mismatch before it changes anything, then the CPU,
+   * the frame grid, the RAM and bank latches, the 6845 and port 0x80/DAC
+   * latches, the drives (`withMedia`) and the FD1793. The cassette is not
+   * part of the state.
+   */
+  saveState(w: StateWriter, withMedia: boolean): void {
+    this.completeFrame();
+    w.section('CONF', () => { w.bool(this.hasDisk); w.u8(this.driveCount); });
+    w.section('CPU ', () => this.cpu.saveState(w));
+    w.section('MACH', () => {
+      w.f64(this.frameStartT); w.f64(this.frameEndT); w.f64(this.frameNumber);
+    });
+    w.section('MEM ', () => this.memory.saveState(w));
+    w.section('VID ', () => this.crtc.saveState(w));
+    w.section('PORT', () => {
+      w.u8(this.port80); w.u8(this.dacLevel); w.bool(this.tapeMotorRunning);
+    });
+    w.section('MEDA', () => {
+      w.bool(withMedia);
+      if (withMedia) this.services.disks.saveState(w);
+    });
+    w.section('FDC ', () => this.fdc.saveState(w));
+  }
+
+  /** Restore a state written by {@link saveState}. The frame loop must be
+   *  stopped. Throws before changing anything if the disk interface or the
+   *  number of drives differs from this machine's. */
+  loadState(r: StateReader): void {
+    {
+      const s = r.section('CONF');
+      const hasDisk = s.bool();
+      const drives = s.u8();
+      if (hasDisk !== this.hasDisk) {
+        throw new Error(`This snapshot was saved with the disk interface ${hasDisk ? 'fitted' : 'removed'}; ${hasDisk ? 'fit' : 'remove'} it in the Hardware pane and load it again`);
+      }
+      if (hasDisk && drives !== this.driveCount) {
+        throw new Error(`This snapshot was saved with ${drives} drives and this Lynx has ${this.driveCount}; change it in the Drives pane and load it again`);
+      }
+    }
+    this.cpu.loadState(r.section('CPU '));
+    {
+      const s = r.section('MACH');
+      this.frameStartT = s.f64(); this.frameEndT = s.f64(); this.frameNumber = s.f64();
+    }
+    this.memory.loadState(r.section('MEM '));
+    this.crtc.loadState(r.section('VID '));
+    {
+      const s = r.section('PORT');
+      this.port80 = s.u8();
+      this.dacLevel = s.u8();
+      this.tapeMotorRunning = s.bool();
+      this.video.altGreen = (this.port80 & 0x10) !== 0;
+    }
+    {
+      // The disks go in before the controller, so a transfer in flight finds
+      // its track and sector in them.
+      const s = r.section('MEDA');
+      if (s.bool()) this.services.disks.loadState(s);
+    }
+    this.fdc.loadState(r.section('FDC '));
+    this.afterStateLoad();
+  }
+
+  /** What no snapshot holds: the host's keys are whatever they are now, and
+   *  nothing is part-way through a frame or a tape-turbo run. */
+  private afterStateLoad(): void {
+    this.midFrame = false;
+    this.clearInterrupts();
+    this.keyboard.reset();
+    this._tapeTurboActive = false;
+    this._tapeTurboCooldown = 0;
+    this.tapeLastAdvanceT = this.cpu.tStates;
+    this.audio.reset();
+    this.mixer.reset();
+    this.needsDisplay = true;
   }
 
   // ── Debug SPI ──────────────────────────────────────────────────────────

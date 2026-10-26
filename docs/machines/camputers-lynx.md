@@ -83,15 +83,32 @@ ZIP archives are unpacked and their contents routed as below.
 | --- | --- | --- | --- | --- | --- |
 | `.tap` | Tape | Tape deck | ✅ | ✅ | Save is a recording of what the ROM SAVEs (Save menu), not a re-save of the mounted tape. Lynx format only (shares the extension with the ZX Spectrum's; a Spectrum `.tap` is refused). Mount message gives the `LOAD "name"` or `MLOAD "name"` command |
 | `.ldf` | Disk | Drives A:–D: (A: by default) | ✅ | ✅ | 96K and 128K only; refused on the 48K. 204,800-byte (200 KB, single-sided 40 track) and 819,200-byte (800 KB, double-sided 80 track) raw sector dumps; 10 × 512-byte sectors per track. Saved as `.ldf` |
+| `.lynxstate` | Snapshot | Machine | ✅ | ✅ | zx84's own exact save state (see below) |
 
 Blank disks can be created in the Drive pane: 800 KB double-sided 80-track or
 200 KB single-sided 40-track. Mounted disks come back after a reload on the
 96K and 128K.
 
-**Save menu exports:** Saved tape (`.tap`, named after the first file on it), PNG screenshot, RAM `.bin` (every RAM chip back to
-back, without the ROM: user RAM then video RAM, 96 KB on the 48K/96K; the 128K
-adds its extra RAM, 192 KB). No snapshot or
-screen-dump format.
+**Snapshots.** `.lynxstate` is zx84's native save state, in the same
+container as the Atari's `.a8state` (magic `ZXLX`, a CRC-32 and length checked
+before the machine is touched, deflated when saved): the Z80 with its hidden
+MEMPTR/Q latches and interrupt delays, every RAM chip with the bank port and
+ports 0x80/0x58 the bank decode is built from, the 6845's registers and raster
+counters, the DAC level and motor relay, the beam's frame grid and the FD1793
+down to a transfer in flight, so a restore carries on cycle for cycle. A saved
+file also carries the four drives (the disks exactly as the controller sees
+them, writes included, with their names and write-protect tabs). The header
+records the model, so a state from another Lynx asks for that model, and the
+CRC of the ROMs (a different ROM is loaded anyway, with a warning); a state
+saved with the disk interface fitted or removed, or with a different number of
+drives, is refused until the Hardware or Drives pane matches. A state is taken
+between frames (a frame a debugger stop left open is run to its end first).
+The same state, without the disks, backs browser-refresh resume. The cassette
+is not part of the state.
+
+**Save menu exports:** Snapshot `.lynxstate`, Saved tape (`.tap`, named after the first file on it), PNG screenshot, RAM `.bin` (every
+RAM chip back to back, without the ROM: user RAM then video RAM, 96 KB on the
+48K/96K; the 128K adds its extra RAM, 192 KB). No screen-dump format.
 
 ---
 
@@ -146,7 +163,7 @@ key works.
 - **Tape sound while saving.** With the motor on, port 0x84 is recorded but kept off the DAC, so SAVE is silent.
 - **Non-ROM tape formats in recordings.** Only blocks in the ROM's encoding (leader, A5 sync, two-width bit cycles) are kept; anything else on the cassette output is dropped, since the Lynx loader only takes `.tap`.
 - **Joystick and mouse.** The input service has no joystick or mouse ("later increment").
-- **Snapshots.** `services.snapshots` is `null`; no snapshot load or save.
+- **Snapshots: the cassette.** `.lynxstate` restores the machine exactly but not the tape deck's position. No other emulator's snapshot format is read or written.
 - **Cartridge slot.** `cartridge` is `null`.
 - **6845 light pen and status register.** R16/R17 never change and the status port reads 0.
 

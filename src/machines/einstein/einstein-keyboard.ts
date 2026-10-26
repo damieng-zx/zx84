@@ -32,6 +32,8 @@
  * The rest of the host-key map is best-effort by physical position (US layout).
  */
 
+import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
+
 const LINES = 8;
 
 /**
@@ -242,5 +244,23 @@ export class EinsteinKeyboard {
     this.heldArrows.clear();
     this.fire1 = this.fire2 = false;
     this.alphaLock = true;
+  }
+
+  /** Snapshot state: the row-select latch and the ALPHA LOCK latch. Which
+   *  keys are down is the host's business, not the machine's. */
+  saveState(w: StateWriter): void {
+    w.u8(this.selectMask);
+    w.bool(this.alphaLock);
+  }
+
+  /** Restore the latches and release every key (the host's keys are
+   *  whatever they are now). */
+  loadState(r: StateReader): void {
+    this.selectMask = r.u8();
+    this.alphaLock = r.bool();
+    this.matrix.fill(0xFF);
+    this.shift = this.control = this.graph = false;
+    this.heldArrows.clear();
+    this.fire1 = this.fire2 = false;
   }
 }

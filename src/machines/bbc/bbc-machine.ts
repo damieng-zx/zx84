@@ -41,6 +41,7 @@ import { AnalogSticks, axisToRange } from '@/machines/shared/analog-stick.ts';
 import { resolveDriveCount } from '@/machines/shared/drive-count.ts';
 import type { BbcDiscController } from './peripherals/disc-controller.ts';
 import { wireBbcIo } from './bbc-io.ts';
+import { withStopsDisarmed } from '@/machines/shared/native-state.ts';
 import { bbcDescriptor } from './descriptor.ts';
 import { createBbcServices, type BbcServices } from './services/index.ts';
 import {
@@ -48,6 +49,7 @@ import {
   BBC_SCREEN_WIDTH, BBC_SOUND_CLOCK,
   BBC_TSTATES_PER_FRAME,
 } from './constants.ts';
+import { crc32, type StateReader, type StateWriter } from '@/machines/shared/state-io.ts';
 
 /** Serial ULA baud-rate codes (bits 0-2 transmit, 3-5 receive). The cassette
  *  runs at 1200 or 300 baud; RS423 defaults to 9600 (code 4, hence 0x64). */
@@ -362,6 +364,7 @@ export class BbcMachine extends BaseMachine implements Machine {
   }
 
   private resetHardware(): void {
+    this.refreshResumed = false;
     this.bootShiftFrames = 0;
     this.cpu.reset();
     // The clock restarts, so a frame a stop left open cannot be carried on.
@@ -694,6 +697,153 @@ export class BbcMachine extends BaseMachine implements Machine {
         }
       }
     }
+  }
+
+  // ── Snapshots (.bbcstate; see shared/native-state.ts for the container) ──
+
+  /** Set when a state without its media (the browser-refresh copy) has been
+   *  restored: the shell then remounts the persisted discs, and that must not
+   *  SHIFT+BREAK or move the heads (see the media service). Cleared by any
+   *  reset. */
+  refreshResumed = false;
+
+  /** CRC-32s of the OS ROM and the sixteen sideways sockets (an empty socket
+   *  reads as zeros), for the snapshot header. */
+  stateRomCrcs(): number[] {
+    return [crc32(this.memory.osRom), ...this.memory.roms.map(rom => crc32(rom))];
+  }
+
+  /** A disc interface, as the Hardware pane names it. */
+  private static discName(system: string): string {
+    return system === 'acorn' ? 'the 8271 interface' : system === '1770' ? 'the 1770 interface' : 'no disc interface';
+  }
+
+  /** Run the rest of a frame a stop left part-way, with every stop set aside,
+   *  so the machine is between frames (a snapshot is taken there). */
+  private completeFrame(): void {
+    if (!this.midFrame) return;
+    withStopsDisarmed(this, () => {
+      this.resumeSkipPc = -1;
+      this.stepFrame();
+    });
+  }
+
+  /**
+   * Write the machine's state between frames. The video ULA's line drawing,
+   * the SAA5050's attributes and the frame's accuracy are all started afresh
+   * at the top of every frame, so nothing of them is carried. `withMedia`
+   * adds the discs and the tape; the refresh path leaves them to the shell.
+   * Host input (held keys) is live state, not machine state.
+   */
+  saveState(w: StateWriter, withMedia: boolean): void {
+    this.completeFrame();
+    // The disc interface first, so a restore can refuse a mismatch before it
+    // changes anything.
+    w.section('CONF', () => { w.str(this.diskSystem); w.u8(this.driveCount); });
+    w.section('CPU ', () => this.cpu.saveState(w));
+    w.section('MACH', () => {
+      w.f64(this.frameNumber); w.f64(this.frameStartT); w.f64(this.frameEndT);
+      w.u8(this.viaAccum); w.bool(this.prevVsync); w.u32(this.bootShiftFrames);
+      const ic = this.ic32;
+      w.bool(ic.soundEnabled); w.bool(ic.keyboardScan); w.u8(ic.c0); w.u8(ic.c1);
+      w.bool(ic.capsLock); w.bool(ic.shiftLock);
+      w.u8(this.videoUlaControl); w.u8(this.videoPaletteRegister); w.u8(this.serialUlaControl);
+      w.raw(this.palette);
+    });
+    w.section('MEM ', () => {
+      w.raw(this.memory.ram);
+      w.u8(this.memory.romsel);
+    });
+    w.section('CRTC', () => this.crtc.saveState(w));
+    w.section('SVIA', () => this.sysVia.saveState(w));
+    w.section('UVIA', () => this.userVia.saveState(w));
+    w.section('PSG ', () => this.psg.saveState(w));
+    w.section('ACIA', () => this.acia.saveState(w));
+    w.section('ADC ', () => {
+      this.adc.saveState(w);
+      this.sticks.saveState(w);
+      w.bool(this.fire[0]); w.bool(this.fire[1]);
+    });
+    w.section('TAPE', () => this.cassette.saveState(w, withMedia));
+    // The discs go before the controller, whose transfer in flight points into them.
+    w.section('MEDA', () => {
+      w.bool(withMedia);
+      if (withMedia) this.services.disks.saveState(w);
+    });
+    w.section('DISC', () => this.disc?.saveState(w));
+  }
+
+  /**
+   * Restore a state written by `saveState` into this machine, which has the
+   * same model; one saved with another disc interface or drive count is
+   * refused before anything changes. The frame loop must be stopped. The ROMs, settings and, for a state without media, the
+   * drives and tape stay as they are.
+   */
+  loadState(r: StateReader): void {
+    {
+      const s = r.section('CONF');
+      const disc = s.str();
+      const drives = s.u8();
+      if (disc !== this.diskSystem) {
+        throw new Error(`This snapshot was saved with ${BbcMachine.discName(disc)} and this BBC has ${BbcMachine.discName(this.diskSystem)}; change it in the Hardware pane and load it again`);
+      }
+      if (disc !== 'none' && drives !== this.driveCount) {
+        throw new Error(`This snapshot was saved with ${drives} drives and this BBC has ${this.driveCount}; change it in the Drives pane and load it again`);
+      }
+    }
+    this.midFrame = false;
+    this.fLine = 0;
+    this.clearInterrupts();
+    this.cpu.loadState(r.section('CPU '));
+    {
+      const s = r.section('MACH');
+      this.frameNumber = s.f64(); this.frameStartT = s.f64(); this.frameEndT = s.f64();
+      this.viaAccum = s.u8(); this.prevVsync = s.bool(); this.bootShiftFrames = s.u32();
+      this.ic32 = {
+        soundEnabled: s.bool(), keyboardScan: s.bool(), c0: s.u8(), c1: s.u8(),
+        capsLock: s.bool(), shiftLock: s.bool(),
+      };
+      this.videoUlaControl = s.u8(); this.videoPaletteRegister = s.u8(); this.serialUlaControl = s.u8();
+      s.rawInto(this.palette);
+    }
+    {
+      const s = r.section('MEM ');
+      s.rawInto(this.memory.ram);
+      this.memory.romsel = s.u8();
+    }
+    this.crtc.loadState(r.section('CRTC'));
+    this.sysVia.loadState(r.section('SVIA'));
+    this.userVia.loadState(r.section('UVIA'));
+    this.psg.loadState(r.section('PSG '));
+    this.acia.loadState(r.section('ACIA'));
+    {
+      const s = r.section('ADC ');
+      this.adc.loadState(s);
+      this.sticks.loadState(s);
+      this.fire[0] = s.bool(); this.fire[1] = s.bool();
+    }
+    this.cassette.loadState(r.section('TAPE'));
+    let withMedia: boolean;
+    {
+      const s = r.section('MEDA');
+      withMedia = s.bool();
+      if (withMedia) this.services.disks.loadState(s);
+    }
+    {
+      const s = r.section('DISC');
+      this.disc?.loadState(s);
+    }
+
+    // What the state does not hold: the host's keys are whatever they are
+    // now, except the SHIFT a SHIFT+BREAK boot is still holding.
+    this.keyboard.reset();
+    if (this.bootShiftFrames > 0) this.keyboard.setCell(0, 0, true);
+    this.refreshResumed = !withMedia;
+    this.activity.psgWrites = 0;
+    this.audio.reset();
+    this.mixer.reset();
+    this.video.render(this);
+    this.needsDisplay = true;
   }
 }
 

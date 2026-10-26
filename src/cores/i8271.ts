@@ -32,6 +32,7 @@
  */
 
 import type { DskImage, DskSector } from '@/media/floppy/disk-image.ts';
+import type { StateSink, StateSource } from '@/utils/state-stream.ts';
 
 export interface I8271Options {
   /** Interrupt output — the BBC wires this to the CPU NMI line. */
@@ -122,6 +123,21 @@ interface Transfer {
   deleted?: boolean;
 }
 
+/** What a pending alarm does when it fires, kept by name so a snapshot can
+ *  write it down. */
+const ALARM_PUBLISH = 1;
+const ALARM_DATA_REQUEST = 2;
+const ALARM_END_TRANSFER = 3;
+type AlarmKind = typeof ALARM_PUBLISH | typeof ALARM_DATA_REQUEST | typeof ALARM_END_TRANSFER;
+
+interface Alarm {
+  kind: AlarmKind;
+  left: number;
+  /** The result code a publish alarm delivers. */
+  code: number;
+  fire: () => void;
+}
+
 interface Command {
   /** Parameter bytes that follow the command byte. */
   args: number;
@@ -149,7 +165,7 @@ export class I8271 {
   private readonly timing = new Uint8Array(4); // SPECIFY step/settle/load values; unused by this instant-seek model
 
   // Time and the transfer in flight
-  private alarm: { left: number; fire: () => void } | null = null;
+  private alarm: Alarm | null = null;
   private xfer: Transfer | null = null;
 
   // Media
@@ -359,7 +375,7 @@ export class I8271 {
     this.setDataReq(false);
     this.xfer = null;
     this.stage = 'busy';
-    this.alarm = { left: SETTLE_CYCLES, fire: () => this.publish(code, true) };
+    this.alarm = this.makeAlarm(ALARM_PUBLISH, SETTLE_CYCLES, code);
   }
 
   /** Finish with an immediate result and no interrupt (the "simple" commands). */
@@ -427,16 +443,13 @@ export class I8271 {
   private beginTransfer(x: Transfer): void {
     this.xfer = x;
     this.stage = 'transfer';
-    this.alarm = { left: BYTE_CYCLES, fire: () => this.setDataReq(true) };
+    this.alarm = this.makeAlarm(ALARM_DATA_REQUEST, BYTE_CYCLES, 0);
   }
 
   /** After a byte is serviced: ask for the next, or wrap the transfer up. */
   private advanceTransfer(x: Transfer): void {
     const more = x.at < x.bytes.length;
-    this.alarm = {
-      left: BYTE_CYCLES,
-      fire: more ? () => this.setDataReq(true) : () => this.endTransfer(x),
-    };
+    this.alarm = this.makeAlarm(more ? ALARM_DATA_REQUEST : ALARM_END_TRANSFER, BYTE_CYCLES, 0);
   }
 
   private endTransfer(x: Transfer): void {
@@ -588,5 +601,79 @@ export class I8271 {
     let value = VALID_REGS.has(reg) ? this.regs[reg] : 0;
     if (reg === REG_DRIVE_OUT) value |= this.cmd[0] & OUT_SELECT_BITS;
     this.answer(value);
+  }
+
+  // ── Snapshot state ────────────────────────────────────────────────────────
+  // The disk images are the machine's to save and restore (before
+  // `loadState`). The pending alarm is written as what it will do, and a write
+  // transfer's target sectors are found again from the command, so they point
+  // into the restored image (into nothing when it is not mounted).
+
+  saveState(w: StateSink): void {
+    w.str(this.stage);
+    w.raw(this.cmd); w.u8(this.cmdLen); w.u8(this.argsLeft);
+    w.u8(this.result); w.u8(this.latch);
+    w.bool(this.resultIrq); w.bool(this.dataReq); w.bool(this.lineHigh);
+    w.raw(this.regs); w.raw(this.timing);
+    w.bool(this.written[0]); w.bool(this.written[1]);
+    w.u8(this.currentDrive); w.bool(this.motorOn);
+
+    const alarm = this.alarm;
+    w.u8(alarm === null ? 0 : alarm.kind);
+    if (alarm) { w.f64(alarm.left); w.u8(alarm.code); }
+
+    const x = this.xfer;
+    w.bool(x !== null);
+    if (x) {
+      w.bytes(x.bytes); w.u32(x.at); w.bool(x.fromHost); w.u8(x.unit);
+      w.i32(x.code ?? -1); w.bool(x.deleted === true);
+    }
+  }
+
+  /** Restore what `saveState` wrote. The interrupt line takes its saved level
+   *  without signalling the host (the CPU's state already holds its effect). */
+  loadState(r: StateSource): void {
+    const stage = r.str();
+    this.stage = (['idle', 'params', 'busy', 'transfer', 'result'] as const).find(s => s === stage) ?? 'idle';
+    r.rawInto(this.cmd); this.cmdLen = r.u8(); this.argsLeft = r.u8();
+    this.result = r.u8(); this.latch = r.u8();
+    this.resultIrq = r.bool(); this.dataReq = r.bool(); this.lineHigh = r.bool();
+    r.rawInto(this.regs); r.rawInto(this.timing);
+    this.written[0] = r.bool(); this.written[1] = r.bool();
+    this.currentDrive = r.u8() & 1; this.motorOn = r.bool();
+
+    const kind = r.u8();
+    if (kind === 0) {
+      this.alarm = null;
+    } else {
+      const left = r.f64();
+      const code = r.u8();
+      this.alarm = this.makeAlarm(kind as AlarmKind, left, code);
+    }
+
+    if (r.bool()) {
+      const bytes = r.bytes(1 << 20);
+      const at = r.u32();
+      const fromHost = r.bool();
+      const unit = r.u8() & 1;
+      const code = r.i32();
+      const deleted = r.bool();
+      const disk = this.disks[unit];
+      const targets = fromHost && disk ? this.sectorRun(disk) ?? [] : [];
+      this.xfer = { bytes, at, fromHost, targets, unit };
+      if (code >= 0) this.xfer.code = code;
+      if (deleted) this.xfer.deleted = true;
+    } else {
+      this.xfer = null;
+    }
+  }
+
+  /** The alarm a continuation of `kind` sets, `left` cycles from now. */
+  private makeAlarm(kind: AlarmKind, left: number, code: number): Alarm {
+    switch (kind) {
+      case ALARM_PUBLISH: return { kind, left, code, fire: () => this.publish(code, true) };
+      case ALARM_DATA_REQUEST: return { kind, left, code: 0, fire: () => this.setDataReq(true) };
+      default: return { kind: ALARM_END_TRANSFER, left, code: 0, fire: () => { if (this.xfer) this.endTransfer(this.xfer); } };
+    }
   }
 }

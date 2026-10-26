@@ -29,6 +29,10 @@
  */
 
 import type { DskImage, DskTrack, DskSector } from '@/media/floppy/disk-image.ts';
+import {
+  locateTrack, readDskSector, trackAt, writeDskSector,
+} from '@/media/floppy/disk-state.ts';
+import type { StateSink, StateSource } from '@/utils/state-stream.ts';
 
 export interface WD179xOptions {
   /** WD1770/1772: MOTOR ON; WD1793: NOT READY. */
@@ -936,5 +940,132 @@ export class WD179x {
     this.latchFrames = LATCH_FRAMES;
     this.latchWriting = writing;
     this.latchSector = this.sectorReg;
+  }
+
+  // ── Snapshot state ────────────────────────────────────────────────────
+  /**
+   * The registers, head positions and any command in flight, down to the byte
+   * a transfer has reached. The disks themselves are the owner's to save (they
+   * are media); a sector being written in place is recorded by where it sits
+   * on the disk, so a restore with the same disks mounted first writes into
+   * the restored image. Drive wiring and settings (write protect, force
+   * ready, connected drives, the BUSY pulse) are not state.
+   */
+  saveState(w: StateSink): void {
+    w.u8(this.statusReg); w.u8(this.trackReg); w.u8(this.sectorReg); w.u8(this.dataReg);
+    w.u8(this.currentDrive); w.u8(this.side); w.bool(this.motorOn);
+    w.i32(this.stepDir);
+    for (let u = 0; u < 4; u++) w.u8(this.headTrack[u]);
+    for (let u = 0; u < 4; u++) { w.u8(this.flipSide[u]); w.bool(this.dirty[u]); }
+    w.bool(this.typeICmd); w.u8(this.indexCounter);
+    w.u8(this.busyCountdown); w.u8(this.busyDoneStatus);
+    w.u8(this.formatSectorsPerTrack);
+    w.bool(this.awaitingFirstByte); w.u32(this.idlePolls);
+    w.i32(this.formattedUnit);
+
+    // The transfer buffer: 0 none, 1 a sector of the current drive's disk
+    // written in place, 2 a detached copy.
+    const buf = this.buffer;
+    const where = this.writing && buf !== null ? this.locateSectorData(buf) : null;
+    if (buf === null) {
+      w.u8(0);
+    } else if (where) {
+      w.u8(1); w.u8(where[0]); w.u8(where[1]); w.u16(where[2]);
+    } else {
+      w.u8(2); w.bytes(buf);
+    }
+    w.u32(this.bufPos); w.bool(this.writing); w.bool(this.multi);
+    const cur = locateTrack(this.disks[this.currentDrive], this.curTrack);
+    w.bool(cur !== null);
+    if (cur) { w.u8(cur[0]); w.u8(cur[1]); }
+    w.u8(this.recFlags); w.bool(this.writeDeleted);
+    w.bool(this.sideCompare); w.u8(this.sideExpected);
+    w.u16(this.addressRotation);
+    w.bool(this.completionIrq); w.bool(this.dataRequest); w.bool(this.irqLevel);
+    w.i32(this.byteDelay); w.str(this.afterByte);
+
+    w.bool(this.formatting); w.str(this.fmtState);
+    w.u8(this.fmtId.length); for (const b of this.fmtId) w.u8(b);
+    w.u16(this.fmtSectors.length); for (const sec of this.fmtSectors) writeDskSector(w, sec);
+    w.u32(this.fmtDataLeft);
+    w.bool(this.fmtPending !== null); if (this.fmtPending) writeDskSector(w, this.fmtPending);
+    w.i32(this.fmtBytesLeft);
+
+    w.u8(this.latchFrames); w.bool(this.latchWriting); w.u8(this.latchSector);
+    w.u8(this.motorFrames);
+    w.bool(this.singleDensity);
+  }
+
+  /** Restore what {@link saveState} wrote. Mount the disks first: a transfer
+   *  in flight finds its track and sector in them. */
+  loadState(r: StateSource): void {
+    this.statusReg = r.u8(); this.trackReg = r.u8(); this.sectorReg = r.u8(); this.dataReg = r.u8();
+    this.currentDrive = r.u8() & 3; this.side = r.u8() & 1; this.motorOn = r.bool();
+    this.stepDir = r.i32() < 0 ? -1 : 1;
+    for (let u = 0; u < 4; u++) this.headTrack[u] = r.u8();
+    for (let u = 0; u < 4; u++) { this.flipSide[u] = r.u8(); this.dirty[u] = r.bool(); }
+    this.typeICmd = r.bool(); this.indexCounter = r.u8();
+    this.busyCountdown = r.u8(); this.busyDoneStatus = r.u8();
+    this.formatSectorsPerTrack = r.u8();
+    this.awaitingFirstByte = r.bool(); this.idlePolls = r.u32();
+    this.formattedUnit = r.i32();
+
+    const kind = r.u8();
+    let buf: Uint8Array | null = null;
+    if (kind === 1) {
+      const cyl = r.u8(), side = r.u8(), idx = r.u16();
+      buf = trackAt(this.disks[this.currentDrive], cyl, side)?.sectors[idx]?.data ?? null;
+      // The disk it was writing to is not mounted: finish into a scratch copy.
+      if (buf === null) buf = new Uint8Array(0x400);
+    } else if (kind === 2) {
+      buf = r.bytes(1 << 16);
+    } else if (kind !== 0) {
+      throw new Error('Snapshot is corrupt (WD179x buffer)');
+    }
+    this.buffer = buf;
+    this.bufPos = r.u32(); this.writing = r.bool(); this.multi = r.bool();
+    this.curTrack = r.bool() ? trackAt(this.disks[this.currentDrive], r.u8(), r.u8()) : null;
+    this.recFlags = r.u8(); this.writeDeleted = r.bool();
+    this.sideCompare = r.bool(); this.sideExpected = r.u8();
+    this.addressRotation = r.u16();
+    this.completionIrq = r.bool(); this.dataRequest = r.bool(); this.irqLevel = r.bool();
+    this.byteDelay = r.i32();
+    const after = r.str();
+    if (!['none', 'next', 'readDone', 'writeDone', 'formatDone', 'complete'].includes(after)) {
+      throw new Error('Snapshot is corrupt (WD179x phase)');
+    }
+    this.afterByte = after as WD179x['afterByte'];
+
+    this.formatting = r.bool();
+    const fmt = r.str();
+    if (fmt !== 'idle' && fmt !== 'id' && fmt !== 'data') throw new Error('Snapshot is corrupt (WD179x format)');
+    this.fmtState = fmt;
+    this.fmtId = [];
+    for (let n = r.u8(); n > 0; n--) this.fmtId.push(r.u8());
+    this.fmtSectors = [];
+    for (let n = r.u16(); n > 0; n--) this.fmtSectors.push(readDskSector(r));
+    this.fmtDataLeft = r.u32();
+    this.fmtPending = r.bool() ? readDskSector(r) : null;
+    this.fmtBytesLeft = r.i32();
+
+    this.latchFrames = r.u8(); this.latchWriting = r.bool(); this.latchSector = r.u8();
+    this.motorFrames = r.u8();
+    this.singleDensity = r.bool();
+  }
+
+  /** [cylinder, side, sector index] of the current drive's sector whose data
+   *  array is `data`, or null. */
+  private locateSectorData(data: Uint8Array): [number, number, number] | null {
+    const disk = this.disks[this.currentDrive];
+    if (!disk) return null;
+    for (let cyl = 0; cyl < disk.tracks.length; cyl++) {
+      const sides = disk.tracks[cyl];
+      if (!sides) continue;
+      for (let side = 0; side < sides.length; side++) {
+        const idx = sides[side]?.sectors.findIndex(sec => sec.data === data) ?? -1;
+        if (idx >= 0) return [cyl, side, idx];
+      }
+    }
+    return null;
   }
 }

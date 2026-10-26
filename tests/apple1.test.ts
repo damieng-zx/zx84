@@ -310,7 +310,7 @@ describe('apple1 listings', () => {
     expect((await m.services.media.mount(text('301: BB\r\n'), 'prog.hex')).ok).toBe(true);
     finish(m);
     expect(m.memory.readByte(0x301)).toBe(0xBB);
-    expect(m.services.media.accepts().map(t => t.ext)).toEqual(['.txt', '.hex']);
+    expect(m.services.media.accepts().map(t => t.ext)).toEqual(['.txt', '.hex', '.a1state']);
     m.destroy();
   });
 

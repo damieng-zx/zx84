@@ -13,7 +13,7 @@ BASIC or Xtal DOS loads from a floppy image in drive A:.
 | **zx84 kind** | `einstein` — [`src/machines/einstein/`](../../src/machines/einstein/) |
 | **Model ids** | `einstein-tc01` `einstein-256` — the MCP `model` target and `?model=` value |
 | **Accuracy** | Scanline: the CPU runs line by line (313 lines, 80,000 T-states per 50 Hz frame) and the VDP renders each line as it goes; no memory contention; no accuracy selector is offered |
-| **Status** | Boots the MOS monitor and Xtal DOS from disk on both models; disk-only (no tape, no snapshots) |
+| **Status** | Boots the MOS monitor and Xtal DOS from disk on both models; disk-only (no tape); native `.einstate` snapshots |
 
 **Legend:** ✅ supported · ◐ partial (see notes) · ✗ not emulated · — not applicable to this model
 
@@ -90,12 +90,38 @@ drive B:.
 | `.dsk` | Disk | Drive A: / B: | ✅ | ✅ | Extended CPC DSK; the controller formats 10 sectors per track |
 | `.hfe` | Disk | Drive A: / B: | ✅ | ✅ | Saved back as `.hfe` when the mounted image is bitstream-based |
 | `.scp` | Disk | Drive A: / B: | ✅ | ✗ | SuperCard Pro flux images; the drive's Save writes `.dsk` or `.hfe`, never `.scp` |
+| `.einstate` | Snapshot | Machine | ✅ | ✅ | zx84's own exact save state, with the mounted disks (see below) |
 
 The Drives pane offers the standard blank-disk set (DSK or HFE) for either drive.
-Mounted disks are not restored after a page reload. There is no tape or snapshot
-format.
+Mounted disks are not restored after a page reload. There is no tape format.
 
-**Save menu exports:** PNG screenshot; `.scr` screen dump (the raw contents of VDP
+**Snapshots.** `.einstate` is zx84's native save state, in the same container
+as the Atari's `.a8state` (magic `ZXEI`, a CRC-32 and length checked before the
+machine is touched, deflated when saved). It holds the Z80 with its hidden
+MEMPTR/Q latches and interrupt delays, the 64 KB of RAM and the ROM-overlay
+toggle, the whole VDP (TMS9929A VRAM and registers on the TC-01; the V9938's
+VRAM, palette, status and command engine on the 256), the AY-3-8910's
+registers and generators, the keyboard row-select and ALPHA LOCK latches, the
+CTC's four channels with their daisy-chain latches, the keyboard/ADC/fire
+interrupt requests and masks, the 256's VDP interrupt mask, the 2 MHz CTC
+trigger phase, the beam's frame grid, and the WD1770 down to the byte a
+transfer has reached, with its drive-select, side and motor latches. A saved
+file also carries both drives' disks exactly as the controller sees them
+(writes included), their names and write-protect tabs. The header records the
+MOS ROM's CRC (a different ROM is loaded anyway, with a warning) and the number
+of drives fitted; a state from another drive count is refused until the Drives
+pane matches. A state is taken between frames (a frame a debugger stop left
+open is run to its end first). A state for the other Einstein model switches
+to it first.
+
+The same state backs browser-refresh resume, but without the disks: the machine
+carries on where it was and the drives hold what the shell mounts after a
+reload, which (as mounted disks are not persisted) is the Xtal DOS boot disk in
+drive A: when that option is on and nothing otherwise. A program that was
+running from a user's disk resumes with that disk gone, and a sector transfer
+caught at the reload finishes into a scratch buffer.
+
+**Save menu exports:** Snapshot `.einstate`; PNG screenshot; `.scr` screen dump (the raw contents of VDP
 video RAM: 16 KB on the TC-01, 192 KB on the 256); RAM `.bin` (`ram-64k.bin`, the
 full 64 KB of underlying RAM, ignoring the ROM overlay).
 
@@ -140,7 +166,7 @@ None known.
 ## Not emulated
 
 - **Cassette.** No tape service, tape pane or tape port I/O; the deck is inert. The 256's system-status cassette bit is never set.
-- **Snapshots.** There is no snapshot format or service.
+- **Snapshots: other formats, keys and disks on refresh.** Only zx84's own `.einstate` is read or written. Which keys are held is not part of a state (a restore releases them all), and the refresh copy leaves the disks to the shell (see Media formats).
 - **Intel 8251 USART.** Stubbed (Tx-ready status, no receive).
 - **Z80 PIO (TC-01) and 256 printer port.** Writes are ignored; the TC-01 reads 0xFF. The 256's port 0x30 returns idle printer status.
 - **ADC0844 differential modes.** The MUX address's mode bits are not decoded: every conversion is single-ended on the channel in b1–b0.

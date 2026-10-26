@@ -13,6 +13,7 @@
 import { WD179x } from '@/cores/wd179x.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import type { BbcDiscController } from './disc-controller.ts';
+import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 
 const CTRL_DRIVE1 = 0x02;
 const CTRL_SIDE = 0x04;
@@ -105,5 +106,16 @@ export class BbcDfs1770 implements BbcDiscController {
   get writeProtect(): boolean[] { return this.fdc.writeProtect; }
   setDriveCount(count: number): void {
     this.fdc.connected = this.fdc.connected.map((_, u) => u < count);
+  }
+
+  /** Snapshot: the drive-control latch and the controller (not the discs). */
+  saveState(w: StateWriter): void {
+    w.u8(this.control); w.bool(this.resetting);
+    this.fdc.saveState(w);
+  }
+
+  loadState(r: StateReader): void {
+    this.control = r.u8(); this.resetting = r.bool();
+    this.fdc.loadState(r);
   }
 }

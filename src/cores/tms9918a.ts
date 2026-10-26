@@ -20,6 +20,8 @@
  * "TMS9918.txt"; the standard MSX SCREEN 0/1/2 addressing.
  */
 
+import type { StateSink, StateSource } from '@/utils/state-stream.ts';
+
 /** Active display geometry (border is a host/display concern). */
 export const VDP_WIDTH = 256;
 export const VDP_HEIGHT = 192;
@@ -508,5 +510,28 @@ export class Tms9918a {
     this.firstByte = 0;
     this.readBuffer = 0;
     this.status = 0;
+  }
+
+  // ── Snapshot state ────────────────────────────────────────────────────
+  /** VRAM, the mode registers, the address/latch/read-ahead of the CPU port
+   *  and the status register. The palette is a display setting, not state. */
+  saveState(w: StateSink): void {
+    w.raw(this.vram);
+    w.raw(this.regs);
+    w.u16(this.address);
+    w.bool(this.secondByte);
+    w.u8(this.firstByte);
+    w.u8(this.readBuffer);
+    w.u8(this.status);
+  }
+
+  loadState(r: StateSource): void {
+    r.rawInto(this.vram);
+    r.rawInto(this.regs);
+    this.address = r.u16() & VRAM_MASK;
+    this.secondByte = r.bool();
+    this.firstByte = r.u8();
+    this.readBuffer = r.u8();
+    this.status = r.u8();
   }
 }
