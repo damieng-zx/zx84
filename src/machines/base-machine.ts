@@ -27,6 +27,10 @@ import type { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import { BEAM_IO, BEAM_IRQ, type BeamInfo, type BeamLog, type BeamPos } from '@/debug/beam-log.ts';
 import type { StopKind, StopReason } from '@/debug/stop-reason.ts';
+import { accessCycle } from '@/debug/m6502/bus-cycles.ts';
+
+/** Interrupts the interrupt log keeps open at once (see `noteInterrupt`). */
+const MAX_OPEN_INTERRUPTS = 16;
 
 /** A watched address range. */
 export interface MemWatchpoint {
@@ -124,14 +128,18 @@ export abstract class BaseMachine {
     }
   }
   /** Put one watched access in the beam log, stamped with the beam where the
-   *  callback sees it. A machine whose bus callbacks run before the
-   *  instruction's cycles are counted (the 6502 core) overrides this to queue
-   *  the access and stamp it after the step. `flags`: bit 0 = write/out,
-   *  bit 1 = port space. */
+   *  callback sees it. On a machine whose bus callbacks run before the
+   *  instruction's cycles are counted (the 6502 core) it is queued instead and
+   *  stamped after the step (see {@link deferAccessStamps}). `flags`: bit 0 =
+   *  write/out, bit 1 = port space. */
   protected logAccess(addr: number, value: number, write: boolean, port: boolean, values?: number[]): void {
     const log = this.beamLog;
     if (log === null) return;
     if (values !== undefined && !values.includes(value)) return;
+    if (this.deferAccessStamps && this.insnActive) {
+      if (log.acceptsFrame(this.frameNumber)) this.accessQueue.push(addr, value, (write ? 1 : 0) | (port ? 2 : 0));
+      return;
+    }
     const pos = this.beam();
     if (pos === null) return;
     log.push(BEAM_IO, pos.frame, pos.t, this.insnPc, addr, value, (write ? 1 : 0) | (port ? 2 : 0));
@@ -164,19 +172,33 @@ export abstract class BaseMachine {
    *  (a run-to-beam request). Honoured only by a machine whose frame loop can
    *  stop and resume ({@link supportsBeamStops}); cleared when it fires. */
   beamTarget: { frame: number; t: number } | null = null;
-  /** Whether {@link beamTarget} works on this machine. */
+  /** Whether {@link beamTarget} works on this machine: it reports a beam and
+   *  its frame loop carries a stopped frame on instead of starting another. */
   supportsBeamStops(): boolean { return false; }
+  /** The beam is at or past `target`. */
+  protected beamReached(target: { frame: number; t: number }): boolean {
+    const pos = this.beam();
+    return pos !== null && (pos.frame > target.frame || (pos.frame === target.frame && pos.t >= target.t));
+  }
 
   /**
    * The check a frame loop makes before each instruction: true when the run
-   * must stop at `pc`, for a breakpoint or for a trap that asks to break (and
-   * then `stopReason` says which). The first instruction after such a stop at
-   * the same pc is let through, or a resume would stop again at once; a trap
-   * is told it is a resume so it does not log or break a second time. Costs
-   * three compares when nothing is armed.
+   * must stop at `pc`, for a beam target, a breakpoint or a trap that asks to
+   * break (and then `stopReason` says which). The first instruction after a
+   * breakpoint or trap stop at the same pc is let through, or a resume would
+   * stop again at once; a trap is told it is a resume so it does not log or
+   * break a second time. A beam stop leaves that skip owed to the instruction
+   * that runs next. Costs four compares when nothing is armed.
    */
   protected checkStops(pc: number): boolean {
-    if (this.breakpoints.size === 0 && this.onTrap === null && this.resumeSkipPc < 0) return false;
+    if (this.breakpoints.size === 0 && this.onTrap === null && this.resumeSkipPc < 0 &&
+        this.beamTarget === null) return false;
+    const target = this.beamTarget;
+    if (target !== null && this.beamReached(target)) {
+      this.beamTarget = null;
+      this.markStop('beam', pc);
+      return true;
+    }
     let skipBreakpoint = false;
     let trapResume = false;
     if (this.resumeSkipPc >= 0) {
@@ -206,7 +228,9 @@ export abstract class BaseMachine {
    *  its CPU's `onInterrupt` to {@link noteInterrupt} and calls
    *  {@link closeInterrupts} after each instruction supports it. */
   interruptLogging = false;
-  /** Interrupts entered and not yet ended: sp, frame, t, handler, nmi (5 each). */
+  /** Interrupts entered and not yet ended: sp, frame, t, cycle, handler, nmi
+   *  (6 each; cycle is {@link cpuCycles} at entry, which the cost is measured
+   *  from, so it is right across a frame boundary whatever the frame's length). */
   private readonly intStack: number[] = [];
   /** How many are open (read by the instruction loop as its cheap guard). */
   protected intOpen = 0;
@@ -228,8 +252,15 @@ export abstract class BaseMachine {
     if (!this.interruptLogging || log === null) return;
     const pos = this.beam();
     if (pos === null) return;
+    // A handler that abandons its stack (reloads SP and never returns) leaves
+    // its entry open for good; past this depth the oldest is let go, so one
+    // such program does not grow the stack or the per-step close check forever.
+    if (this.intOpen >= MAX_OPEN_INTERRUPTS) {
+      this.intStack.splice(0, 6);
+      this.intOpen--;
+    }
     const depth = this.intOpen;
-    this.intStack.push(this.stackPointer(), pos.frame, pos.t, handler, nmi ? 1 : 0);
+    this.intStack.push(this.stackPointer(), pos.frame, pos.t, this.cpuCycles(), handler, nmi ? 1 : 0);
     this.intOpen++;
     log.push(BEAM_IRQ, pos.frame, pos.t, this.interruptedPc(), handler, status, (nmi ? 1 : 0) | extraFlags | (depth << 8));
   }
@@ -241,15 +272,13 @@ export abstract class BaseMachine {
     const st = this.intStack;
     const log = this.beamLog;
     const sp = this.stackPointer();
-    while (st.length > 0 && sp > st[st.length - 5]) {
-      const nmi = st.pop()!, handler = st.pop()!, t0 = st.pop()!, f0 = st.pop()!;
+    while (st.length > 0 && sp > st[st.length - 6]) {
+      const nmi = st.pop()!, handler = st.pop()!, c0 = st.pop()!, t0 = st.pop()!, f0 = st.pop()!;
       st.pop();
       this.intOpen--;
       const pos = this.beam();
       if (!this.interruptLogging || log === null || pos === null) continue;
-      const info = this.beamInfo();
-      const frameCycles = info ? info.cyclesPerLine * info.linesPerFrame : 0;
-      const cost = (pos.frame - f0) * frameCycles + (pos.t - t0);
+      const cost = this.cpuCycles() - c0;
       log.push(BEAM_IRQ, pos.frame, pos.t, this.cpuPc(), handler, cost, 2 | nmi | (this.intOpen << 8), f0, t0);
     }
   }
@@ -281,18 +310,142 @@ export abstract class BaseMachine {
   /** A frame has started and not finished: either it is running now or it was
    *  stopped part-way. Between frames this is false. */
   protected get frameOpen(): boolean { return this.inFrame || this.midFrame; }
-  /** Zero the frame counter (cold reset). */
+  /** Zero the frame counter, forget a frame a stop left open and any
+   *  interrupts still open (cold reset). */
   protected resetFrameCount(): void {
     this.frameNumber = 0;
     this.midFrame = false;
+    this.frameEndT = -1;
+    this.clearInterrupts();
     if (this.inFrame) this.frameCountReset = true;
   }
   /** Where the beam is: the frame in progress and the cycles since it started.
    *  Valid inside `runFrame` and between frames; between frames it is the next
-   *  frame, a few cycles in. Null on a machine with no raster to report. */
+   *  frame, a few cycles in. Null on a machine with no raster to report. A
+   *  machine whose frames run on {@link openFrame}'s grid returns
+   *  {@link gridBeam}. */
   beam(): BeamPos | null { return null; }
   /** The raster geometry `t` is measured in. */
   beamInfo(): BeamInfo | null { return null; }
+
+  // ── Frame grid: the beam of a machine whose frame is a run of CPU cycles ──
+  /** CPU cycle ({@link cpuCycles}) the frame in progress started at. */
+  protected frameStartT = 0;
+  /** CPU cycle the frame in progress ends at, which is where the next one
+   *  starts; -1 before the first frame and after a reset. */
+  protected frameEndT = -1;
+  /** The CPU's cycle counter. A machine that uses {@link openFrame} returns
+   *  its CPU's `tStates`. */
+  protected cpuCycles(): number { return 0; }
+
+  /**
+   * Start the next frame, `cycles` long, or carry on the one a stop left open
+   * (then `cycles` is not used and the frame keeps its end). Returns true when
+   * carrying on: the caller skips the work it does once at the start of a
+   * frame. Frames sit back to back on a fixed grid, so the overshoot of an
+   * instruction that crosses the end of one belongs to the next and the raster
+   * does not drift; the grid is re-anchored to now when the clock has left it
+   * (a reset, a loaded snapshot, a long raw debugger step), at `anchor` when
+   * given (a machine whose raster is a function of the cycle count, such as
+   * the Apple II's, passes the start of the raster frame now is in) or else at
+   * now.
+   *
+   * The caller runs instructions while `cpuCycles() < frameEndT`, and a stop
+   * that leaves before then sets `midFrame` and returns without the frame's
+   * end-of-frame work; the next call lands here and carries on.
+   */
+  protected openFrame(cycles: number, anchor?: number): boolean {
+    if (this.midFrame) {
+      this.midFrame = false;
+      return true;
+    }
+    const now = this.cpuCycles();
+    let start = this.frameEndT;
+    if (start < 0 || now < start || now - start >= cycles) start = anchor ?? now;
+    this.frameStartT = start;
+    this.frameEndT = start + cycles;
+    return false;
+  }
+
+  /** {@link beam} for a machine that runs its frames through {@link openFrame}.
+   *  Between frames it is the next frame, measured from where it will start. */
+  protected gridBeam(): BeamPos {
+    const now = this.cpuCycles();
+    let start = this.frameStartT;
+    if (!this.frameOpen) {
+      const end = this.frameEndT;
+      start = end < 0 || now < end || now - end >= end - this.frameStartT ? now : end;
+    }
+    return { frame: this.frameNumber, t: now - start };
+  }
+
+  // ── Watched accesses on a CPU that counts cycles after its bus accesses ──
+  /** Set by a machine whose CPU core makes an instruction's bus accesses
+   *  before it counts the instruction's cycles (the 6502 core): a logged
+   *  access is queued while {@link insnActive} and stamped with its own cycle
+   *  of the instruction by {@link flushAccesses} after the step. */
+  protected deferAccessStamps = false;
+  /** Inside the CPU step of the instruction at {@link insnPc}. */
+  protected insnActive = false;
+  /** {@link cpuCycles} when the instruction in progress started. */
+  protected insnStartT = 0;
+  /** Queued accesses of the instruction in progress: addr, value, flags. */
+  protected readonly accessQueue: number[] = [];
+  /** The step in progress enters an interrupt (and so runs no instruction). */
+  private insnEntersInterrupt = false;
+  /** The byte at `addr` without side effects, for reading the opcode of a
+   *  queued access's instruction. A machine that defers stamps overrides it. */
+  protected peekOpcode(_addr: number): number { return -1; }
+
+  /** Call right before the CPU steps the instruction at `pc` (after
+   *  {@link checkStops}). Names the instruction for watchpoint log entries and,
+   *  on a machine that defers access stamps, notes where it starts. */
+  protected beforeInsn(pc: number): void {
+    this.insnPc = pc;
+    if (this.deferAccessStamps) {
+      this.insnActive = true;
+      this.insnStartT = this.cpuCycles();
+      this.insnEntersInterrupt = this.memWatchpoints.length > 0 && this.interruptEntryPending();
+    }
+  }
+
+  /** Call right after the CPU step that {@link beforeInsn} began: closes the
+   *  interrupts it returned from, stamps the accesses it queued, and returns
+   *  true when a break-mode watchpoint fired during it. The loop then stops
+   *  with the frame open, after whatever it does once per instruction (taking
+   *  a pending interrupt), so a resume carries on exactly; {@link stepFrame}
+   *  records the stop at the pc the loop left the CPU at. */
+  protected afterInsn(): boolean {
+    if (this.intOpen > 0) this.closeInterrupts();
+    if (this.insnActive) {
+      this.insnActive = false;
+      if (this.accessQueue.length > 0) this.flushAccesses(this.insnEntersInterrupt);
+    }
+    return this.memWatchHit !== null || this.portWatchHit !== null;
+  }
+
+  /** Stamp the accesses queued during the instruction that just ran (opcode
+   *  at {@link insnPc}, started at {@link insnStartT}) with the cycle each
+   *  fell on, and put them in the beam log. `interruptEntry`: the step entered
+   *  an interrupt and ran no instruction, so every access takes its last cycle. */
+  protected flushAccesses(interruptEntry = false): void {
+    const q = this.accessQueue;
+    const log = this.beamLog;
+    const pos = log !== null ? this.beam() : null;
+    if (log !== null && pos !== null) {
+      const cycles = this.cpuCycles() - this.insnStartT;
+      // The step's start, measured in the frame the beam is in now (an
+      // instruction that crosses into the next frame stamps from there).
+      const startT = pos.t - cycles;
+      const opcode = interruptEntry ? -1 : this.peekOpcode(this.insnPc);
+      for (let i = 0; i < q.length; i += 3) {
+        const flags = q[i + 2];
+        const cycle = opcode < 0 ? cycles : accessCycle(opcode, this.insnPc, q[i], (flags & 1) !== 0, cycles);
+        log.push(BEAM_IO, pos.frame, startT + cycle - 1, this.insnPc, q[i], q[i + 1], flags);
+      }
+    }
+    q.length = 0;
+  }
   /** Run one frame, or the rest of one that was stopped, and count it. Every
    *  place that runs a frame goes through here. */
   protected stepFrame(): void {
@@ -304,6 +457,10 @@ export abstract class BaseMachine {
     }
     if (this.frameCountReset) this.frameCountReset = false;
     else if (!this.midFrame) this.frameNumber++;
+    // A watchpoint the loop stopped on (see afterInsn), where it stopped.
+    if (this.stopReason === null && (this.memWatchHit !== null || this.portWatchHit !== null)) {
+      this.markStop(this.portWatchHit !== null ? 'port' : 'watch', this.cpuPc());
+    }
   }
 
   onStatus: ((msg: string) => void) | null = null;

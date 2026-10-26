@@ -96,11 +96,19 @@ export interface BeamReadOptions {
   kinds?: Set<number>;
 }
 
-/** Split `t` into line and cycle, optionally measured from the display start. */
+/** Split `t` into line and cycle, optionally measured from the display start.
+ *  A machine whose lines are not a whole number of cycles (the BBC splits its
+ *  frame evenly) gets the whole cycle the line has reached. */
 export function lineCycle(t: number, info: BeamInfo, relDisplay: boolean): { line: number; cycle: number } {
   const base = relDisplay ? t - info.displayStart : t;
   const line = Math.floor(base / info.cyclesPerLine);
-  return { line, cycle: base - line * info.cyclesPerLine };
+  return { line, cycle: Math.floor(base - line * info.cyclesPerLine) };
+}
+
+/** A cycle count for text: whole, or to two places when a line is not a
+ *  whole number of cycles. */
+export function cyclesText(n: number): string {
+  return Number.isInteger(n) ? String(n) : n.toFixed(2);
 }
 
 /** A header saying what the numbers mean on this machine. */
@@ -108,11 +116,10 @@ export function beamHeader(spec: Machine, log: BeamLog, opts: { relDisplay: bool
   const info = spec.beamInfo();
   const lines = [`Beam log: ${log.length} entries held (capacity ${log.capacity}, dropped ${log.dropped}).`];
   if (info) {
-    const dl = Math.floor(info.displayStart / info.cyclesPerLine);
-    const dc = info.displayStart - dl * info.cyclesPerLine;
+    const { line: dl, cycle: dc } = lineCycle(info.displayStart, info, false);
     lines.push(
       `frame = frames completed since reset; line/cycle derived from t (cycles since frame start): ` +
-      `${info.cyclesPerLine} cycles/line, ${info.linesPerFrame} lines/frame; display starts at t=${info.displayStart} ` +
+      `${cyclesText(info.cyclesPerLine)} cycles/line, ${info.linesPerFrame} lines/frame; display starts at t=${info.displayStart} ` +
       `(line ${dl}, cycle ${dc})` +
       (opts.relDisplay ? '; line 0 = first display line.' : '.'));
     if (info.note) lines.push(`Note: ${info.note}.`);
@@ -120,8 +127,13 @@ export function beamHeader(spec: Machine, log: BeamLog, opts: { relDisplay: bool
   if (spec.kind === 'atari') {
     lines.push('Atari: cycle 0 = the missile DMA slot at the start of the line. This core releases WSYNC at the line ' +
       'boundary, so cycles after a WSYNC run about 9 later than the Altirra manual / hardware; DMA cycles are ' +
-      'interpolated. Opcode and operand fetches, loads, stores and read-modify-write reads are stamped on their ' +
-      'own cycle of the instruction; stack, vector and interrupt-entry accesses on its last.');
+      'interpolated.');
+  }
+  if (spec.services.debug.cpuFamily === 'm6502') {
+    lines.push('6502 accesses: opcode and operand fetches, loads, stores and read-modify-write reads are stamped on ' +
+      'their own cycle of the instruction; stack, vector and interrupt-entry accesses on its last.');
+  } else {
+    lines.push('Z80 accesses are stamped at about the start of their machine cycle (the core counts each one as it goes).');
   }
   return lines.join('\n');
 }

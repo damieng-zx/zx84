@@ -13,6 +13,7 @@ import { M65C02 } from '@/cores/m65c02.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
+import { m6502ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
 import { soundDeviceGains } from '@/machines/machine.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type {
@@ -125,6 +126,9 @@ export class Apple2Machine extends BaseMachine implements Machine {
     this.model = model;
     this.modelInfo = apple2ModelInfo(model);
     this.cpu = this.modelInfo.cmos ? new M65C02() : new M6502();
+    this.cpu.onInterrupt = (vector) => this.noteInterrupt(this.cpu.pc, vector === 0xFFFA);
+    // The 6502 core makes its bus accesses before it counts the cycles.
+    this.deferAccessStamps = true;
     this.display = display ?? null;
     this.memory = this.modelInfo.iie ? new Apple2eMemory() : new Apple2Memory();
     this.keyboard = new Apple2Keyboard(this.modelInfo.iie);
@@ -312,6 +316,7 @@ export class Apple2Machine extends BaseMachine implements Machine {
 
   private resetHardware(): void {
     this.cpu.reset();
+    this.resetFrameCount();
     this.memory.reset();
     if (this.modelInfo.autostart) {
       // Power-on reset, not the ROM's Ctrl-Reset warm start: after booting, the
@@ -349,23 +354,54 @@ export class Apple2Machine extends BaseMachine implements Machine {
   protected framePixels(): Uint8Array { return this.video.pixels; }
   protected inTurbo(): boolean { return this.turbo; }
 
+  // ── Beam ───────────────────────────────────────────────────────────────
+
+  /** The raster is a function of the cycle count (see `vblActive`), so frames
+   *  sit on multiples of a frame's cycles and `t` is the cycle in it. */
+  beam(): BeamPos { return this.gridBeam(); }
+  beamInfo(): BeamInfo {
+    return {
+      cyclesPerLine: APPLE2_CYCLES_PER_LINE,
+      linesPerFrame: APPLE2_TSTATES_PER_FRAME / APPLE2_CYCLES_PER_LINE,
+      displayStart: 0,
+      note: 'line 0 is the first text/graphics line and line 192 starts VBL; the picture is drawn at the end of the frame, so a mid-frame switch change shows for the whole frame',
+    };
+  }
+  override supportsBeamStops(): boolean { return true; }
+  override supportsInterruptLog(): boolean { return true; }
+  protected override cpuCycles(): number { return this.cpu.tStates; }
+  protected override stackPointer(): number { return this.cpu.sp; }
+  protected override cpuPc(): number { return this.cpu.pc; }
+  protected override interruptedPc(): number { return m6502ReturnAddress(this.cpu.sp, a => this.memory.readByte(a)); }
+  /** An opcode is never read from the soft switches, whose reads flip them. */
+  protected override peekOpcode(addr: number): number {
+    return (addr & 0xFF00) === 0xC000 ? -1 : this.memory.readByte(addr);
+  }
+
   protected override interruptEntryPending(): boolean { return this.cpu.interruptPending(); }
 
   protected runFrame(): void {
-    const endT = this.cpu.tStates + APPLE2_TSTATES_PER_FRAME;
     const skipAudio = this.speedMultiplier !== 1;
     const board = this.mockingboard;
-    const watchActive = this.memWatchpoints.length > 0;
-    this.activity.beeperToggled = false;
-    this.activity.kbdReads = 0;
+    const now = this.cpu.tStates;
+    if (!this.openFrame(APPLE2_TSTATES_PER_FRAME, now - (now % APPLE2_TSTATES_PER_FRAME))) {
+      this.activity.beeperToggled = false;
+      this.activity.kbdReads = 0;
+    }
+    this.memWatchHit = null;
+    const endT = this.frameEndT;
 
     while (this.cpu.tStates < endT) {
       if (this.checkStops(this.cpu.pc)) {
+        // The frame stays open; the next call carries on from here.
+        this.midFrame = true;
         this.needsDisplay = true;
         return;
       }
       const before = this.cpu.tStates;
+      this.beforeInsn(this.cpu.pc);
       this.cpu.step();
+      const stopped = this.afterInsn();
       const elapsed = this.cpu.tStates - before;
       if (board) {
         board.tick(elapsed);
@@ -375,8 +411,10 @@ export class Apple2Machine extends BaseMachine implements Machine {
         this.mixer.accumulateLevel(this.speaker.level, elapsed);
         this.mixer.generateSamples(this.audio, board, board !== null);
       }
-      // Stop on the instruction that tripped a memory watchpoint.
-      if (watchActive && this.memWatchHit !== null) {
+      // Stop on the instruction that tripped a memory watchpoint, with the
+      // frame open.
+      if (stopped) {
+        this.midFrame = true;
         this.needsDisplay = true;
         return;
       }

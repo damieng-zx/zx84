@@ -17,6 +17,7 @@ import { CassetteDrive } from '@/machines/shared/cassette-drive.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
+import { m6502ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type {
   AuxRomRequest, BorderMode, Machine, MachineDescriptor, MachineHost, MachineKind, SettingsView,
@@ -136,6 +137,9 @@ export class BbcMachine extends BaseMachine implements Machine {
     super();
     this.model = model;
     this.display = display ?? null;
+    this.cpu.onInterrupt = (vector) => this.noteInterrupt(this.cpu.pc, vector === 0xFFFA);
+    // The 6502 core makes its bus accesses before it counts the cycles.
+    this.deferAccessStamps = true;
     this.cpu.read = (addr) => {
       const value = this.memory.readByte(addr);
       if (this.memWatchpoints.length > 0 && this.memWatchHit === null) this.recordMemWatch(addr & 0xFFFF, value, 'read');
@@ -271,6 +275,7 @@ export class BbcMachine extends BaseMachine implements Machine {
   reset(): void {
     this.stop();
     this.resetHardware();
+    this.resetFrameCount();
     this.setStatus('Reset');
   }
 
@@ -296,6 +301,11 @@ export class BbcMachine extends BaseMachine implements Machine {
   private resetHardware(): void {
     this.bootShiftFrames = 0;
     this.cpu.reset();
+    // The clock restarts, so a frame a stop left open cannot be carried on.
+    // SHIFT+BREAK keeps counting frames so a log that spans it stays in order.
+    this.midFrame = false;
+    this.fLine = 0;
+    this.clearInterrupts();
     this.memory.reset();
     this.crtc.reset();
     this.video.reset();
@@ -382,26 +392,61 @@ export class BbcMachine extends BaseMachine implements Machine {
     this.cpu.setIRQ(this.sysVia.irq || this.userVia.irq || this.acia.irq);
   }
 
+  // ── Beam ───────────────────────────────────────────────────────────────
+
+  /** The next line of the frame in progress to run (it carries over a stop). */
+  private fLine = 0;
+
+  /** Frame line 0 is the CRTC's first character row, which `beginFrame`
+   *  restarts at the top of each frame; VSYNC (System VIA CA1, the 50 Hz
+   *  interrupt) starts on the first line of row R7. The frame is 20 ms split
+   *  evenly into 312 lines, so a line is 40000/312 cycles, not 128. */
+  beam(): BeamPos { return this.gridBeam(); }
+  beamInfo(): BeamInfo {
+    return {
+      cyclesPerLine: BBC_TSTATES_PER_FRAME / LINES_PER_FRAME,
+      linesPerFrame: LINES_PER_FRAME,
+      displayStart: 0,
+      note: 'line 0 is the first line of CRTC character row 0, which is restarted each frame; VSYNC, the frame interrupt (System VIA CA1), starts on the first line of row R7 (line 272 in modes 0-2, 4 and 5, 270 in 3, 6 and 7). The 40000-cycle frame is split evenly into 312 lines of 40000/312 (about 128.2) cycles, not the 64 µs lines of 128 a real 6845 makes, so a cycle within a line is fractional. The picture is drawn at the end of the frame, so a mid-frame register change shows for the whole frame',
+    };
+  }
+  override supportsBeamStops(): boolean { return true; }
+  override supportsInterruptLog(): boolean { return true; }
+  protected override cpuCycles(): number { return this.cpu.tStates; }
+  protected override stackPointer(): number { return this.cpu.sp; }
+  protected override cpuPc(): number { return this.cpu.pc; }
+  protected override interruptedPc(): number { return m6502ReturnAddress(this.cpu.sp, a => this.memory.readByte(a)); }
+  /** An opcode is never read from the hardware pages, where reads have side effects. */
+  protected override peekOpcode(addr: number): number {
+    return addr >= 0xFC00 && addr < 0xFF00 ? -1 : this.memory.readByte(addr);
+  }
+
   protected override interruptEntryPending(): boolean { return this.cpu.interruptPending(); }
 
   protected runFrame(): void {
-    const cyclesPerLine = BBC_TSTATES_PER_FRAME / LINES_PER_FRAME;
     const skipAudio = this.speedMultiplier !== 1 || this.cassette.turboActive;
-    const watchActive = this.memWatchpoints.length > 0;
-    this.activity.psgWrites = 0;
-    this.crtc.beginFrame();
-    let lineEnd = this.cpu.tStates;
+    // A frame a stop left part-way carries on from the line it was in.
+    if (!this.openFrame(BBC_TSTATES_PER_FRAME)) {
+      this.activity.psgWrites = 0;
+      this.crtc.beginFrame();
+      this.fLine = 0;
+    }
+    this.memWatchHit = null;
     let lastAudioT = this.cpu.tStates;
 
-    for (let line = 0; line < LINES_PER_FRAME; line++) {
-      lineEnd += cyclesPerLine;
+    for (; this.fLine < LINES_PER_FRAME; this.fLine++) {
+      const lineEnd = this.frameStartT + ((this.fLine + 1) * BBC_TSTATES_PER_FRAME) / LINES_PER_FRAME;
       while (this.cpu.tStates < lineEnd) {
         if (this.checkStops(this.cpu.pc)) {
+          // The frame stays open; the next call carries on in this line.
+          this.midFrame = true;
           this.needsDisplay = true;
           return;
         }
         const before = this.cpu.tStates;
+        this.beforeInsn(this.cpu.pc);
         this.cpu.step();
+        const stopped = this.afterInsn();
         this.tickChips(this.cpu.tStates - before);
 
         if (!skipAudio) {
@@ -412,8 +457,10 @@ export class BbcMachine extends BaseMachine implements Machine {
             lastAudioT = this.cpu.tStates;
           }
         }
-        // Stop on the instruction that tripped a memory watchpoint.
-        if (watchActive && this.memWatchHit !== null) {
+        // Stop on the instruction that tripped a memory watchpoint, with the
+        // frame open.
+        if (stopped) {
+          this.midFrame = true;
           this.needsDisplay = true;
           return;
         }

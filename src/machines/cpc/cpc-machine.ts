@@ -22,6 +22,7 @@ import { isCpr, parseCpr } from '@/media/cartridge/cpr.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { disasmOne, type DisasmLine } from '@/debug/z80/disasm.ts';
+import { z80ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type { Machine, MachineHost, MachineKind, MachineDescriptor, BorderMode, MachineTraceMode, SettingsView, AuxRomRequest } from '@/machines/machine.ts';
 import { applyAySettings } from '@/machines/shared/ay-settings.ts';
@@ -152,6 +153,7 @@ export class CpcMachine extends BaseMachine implements Machine {
     this.model = model;
     this.config = createCpcConfig(model);
     this.cpu = new Z80();
+    this.cpu.onInterrupt = (handler, nmi) => this.noteInterrupt(handler, nmi);
     this.memory = new CpcMemory(this.config);
     this.ay = new AY3891x(CPC_AY_CLOCK, 48000, 'ABC');
     this.fdc = new UPD765A();
@@ -406,6 +408,7 @@ export class CpcMachine extends BaseMachine implements Machine {
     this.tapeMotorOn = false;
     this.tapeLoadingActive = false;
     this.tapeLastAdvanceT = this.cpu.tStates;
+    this.resetFrameCount();
     this.needsDisplay = true;
     this.setStatus('Reset');
   }
@@ -420,6 +423,55 @@ export class CpcMachine extends BaseMachine implements Machine {
   /** Turbo engaged for UI fast-forward, or while a cassette is actively loading. */
   protected inTurbo(): boolean { return this.turbo || (this.tapeTurbo && this.tapeLoadingActive); }
 
+  // ── Beam ───────────────────────────────────────────────────────────────
+
+  /** The next line of the frame in progress to run (it carries over a stop). */
+  private fLine = 0;
+  /** T-state of that line's HSYNC end, fixed when the line starts (-1 = not
+   *  started), and whether its HSYNC work (drawing the line, clocking the Gate
+   *  Array) is done: a stop can fall on either side of it. */
+  private fHsyncT = -1;
+  private fHsyncDone = false;
+  /** The frame's geometry and Plus state, taken from the CRTC and ASIC when it
+   *  starts, so resuming it after a stop keeps them. */
+  private fLines = 312;
+  private fLineT = 64 * CPC_T_PER_CHAR;
+  private fDisplayTop = 0;
+  private fPlusActive = false;
+
+  /** Every frame restarts the CRTC (`crtc.beginFrame`), so frame line 0 is its
+   *  row 0, raster 0 — the first display line — and `t` 0 that line's first
+   *  character. The geometry is the CRTC's as it stood when the frame began;
+   *  between frames it is what the next frame will take. */
+  beam(): BeamPos { return this.gridBeam(); }
+  beamInfo(): BeamInfo {
+    const open = this.frameOpen;
+    return {
+      cyclesPerLine: open ? this.fLineT : this.crtc.charsPerLine() * CPC_T_PER_CHAR,
+      linesPerFrame: open ? this.fLines : this.crtc.linesPerFrame(),
+      displayStart: 0,
+      note: 'line 0 is CRTC row 0 raster 0 (the first display line) and t 0 its first character; '
+        + 'line length (R0) and lines (R4/R9/R5) are the CRTC registers as they stood when the frame '
+        + 'began, so a mid-frame R4 change (rupture) restarts the CRTC rows without moving the frame; '
+        + 'VSYNC begins at row R7 and the Gate Array interrupt counts HSYNC ends; each line is drawn '
+        + 'at the end of its HSYNC, so a palette or mode change before then shows on that line',
+    };
+  }
+  override supportsBeamStops(): boolean { return true; }
+  override supportsInterruptLog(): boolean { return true; }
+  protected override cpuCycles(): number { return this.cpu.tStates; }
+  protected override stackPointer(): number { return this.cpu.sp; }
+  protected override cpuPc(): number { return this.cpu.pc; }
+  protected override interruptedPc(): number { return z80ReturnAddress(this.cpu.sp, a => this.memory.readByte(a)); }
+
+  /** Forget a frame a stop left part-way: a loaded snapshot replaces the state
+   *  it stopped in, so the next frame starts over at line 0. */
+  dropFrameInProgress(): void {
+    this.midFrame = false;
+    this.fLine = 0;
+    this.clearInterrupts();
+  }
+
   /**
    * Execute one frame, rendering scanline by scanline. For each CRTC scanline:
    * run the CPU up to the end of HSYNC, draw the line from the current
@@ -432,80 +484,102 @@ export class CpcMachine extends BaseMachine implements Machine {
     const ga = this.gateArray;
     const skipAudio = this.speedMultiplier !== 1 || (this.tapeTurbo && this.tapeLoadingActive);
     const asic = this.config.isPlus ? (this.gateArray as Asic) : null;
-    const plusActive = asic !== null && !asic.locked;
 
-    this.activity.kbdReads = 0;
-    this.activity.fdcAccesses = 0;
-    this.activity.mouseReads = 0;
-    this.activity.tapeReads = 0;
-    this.activity.ayWrites = 0;
-
-    crtc.beginFrame();
-    ga.beginFrame(this._pixels32);
-
-    const totalLines = crtc.linesPerFrame();
-    const lineT = crtc.charsPerLine() * CPC_T_PER_CHAR;
-    // Centre the display vertically by its height, the vertical analogue of the
-    // GA's horizontal width-centring: a standard 200-line display lands at
-    // CPC_BORDER_TOP (36), while a taller overscan display (more R6 rows) shifts
-    // up to stay centred rather than overflowing the bottom edge — e.g. the
-    // Crazy Cars II title, whose ground was clipped off the bottom.
-    const displayTop = (CPC_SCREEN_HEIGHT - crtc.displayedLines()) >> 1;
     // Frames run back to back on the 1µs grid: start where the previous frame
     // was scheduled to end (the last instruction's overshoot belongs to this
-    // frame), falling back to "now" rounded down to a µs after a reset, a
-    // breakpoint stop, or a snapshot load moved the clock.
+    // frame), falling back to "now" rounded down to a µs after a reset or a
+    // snapshot load moved the clock. A frame a stop left part-way carries on
+    // from the line, and the side of its HSYNC, it was in.
     const now = this.cpu.tStates;
-    let lineEnd = this.nextFrameT;
-    if (lineEnd < 0 || now < lineEnd || now - lineEnd >= lineT) lineEnd = now - (now & 3);
+    const cycles = crtc.linesPerFrame() * crtc.charsPerLine() * CPC_T_PER_CHAR;
+    if (!this.openFrame(cycles, now - (now & 3))) {
+      this.activity.kbdReads = 0;
+      this.activity.fdcAccesses = 0;
+      this.activity.mouseReads = 0;
+      this.activity.tapeReads = 0;
+      this.activity.ayWrites = 0;
+
+      crtc.beginFrame();
+      ga.beginFrame(this._pixels32);
+
+      this.fLines = crtc.linesPerFrame();
+      this.fLineT = crtc.charsPerLine() * CPC_T_PER_CHAR;
+      // Centre the display vertically by its height, the vertical analogue of
+      // the GA's horizontal width-centring: a standard 200-line display lands
+      // at CPC_BORDER_TOP (36), while a taller overscan display (more R6 rows)
+      // shifts up to stay centred rather than overflowing the bottom edge —
+      // e.g. the Crazy Cars II title, whose ground was clipped off the bottom.
+      this.fDisplayTop = (CPC_SCREEN_HEIGHT - crtc.displayedLines()) >> 1;
+      this.fPlusActive = asic !== null && !asic.locked;
+      this.fLine = 0;
+      this.fHsyncT = -1;
+      this.fHsyncDone = false;
+
+      // VSYNC can begin on the frame's first scanline (R7 = 0).
+      if (crtc.vsyncStart) this.vsyncResyncCountdown = 2;
+    }
+    this.portWatchHit = null;
+    this.memWatchHit = null;
     this.lastAudioT = this.cpu.tStates;
-    let broke = false;
 
-    // VSYNC can begin on the frame's first scanline (R7 = 0).
-    if (crtc.vsyncStart) this.vsyncResyncCountdown = 2;
+    const totalLines = this.fLines;
+    const lineT = this.fLineT;
+    const displayTop = this.fDisplayTop;
+    const plusActive = this.fPlusActive;
 
-    for (let line = 0; line < totalLines; line++) {
-      const lineStart = lineEnd;
-      lineEnd += lineT;
-      // The Gate Array counts the falling edge of the CRTC's HSYNC (R2 + width
-      // characters into the line), not the end of the scanline.
-      const hsyncAt = lineStart + crtc.hsyncEndChar() * CPC_T_PER_CHAR;
+    for (; this.fLine < totalLines; this.fLine++) {
+      const line = this.fLine;
+      const lineStart = this.frameStartT + line * lineT;
+      const lineEnd = lineStart + lineT;
 
-      // Run the CPU up to the end of HSYNC.
-      broke = this.runCpuUntil(hsyncAt, plusActive, asic, skipAudio);
-      if (broke) break;
+      if (!this.fHsyncDone) {
+        // The Gate Array counts the falling edge of the CRTC's HSYNC (R2 +
+        // width characters into the line), not the end of the scanline.
+        if (this.fHsyncT < 0) this.fHsyncT = lineStart + crtc.hsyncEndChar() * CPC_T_PER_CHAR;
 
-      // The display portion of the line (chars 0..R1) precedes HSYNC, so draw
-      // it now. On a Plus model the ASIC applies scroll + split-screen to the
-      // CRTC line before the GA renders it, and composites sprites on top.
-      let lineState = crtc.currentLine();
-      if (plusActive) {
-        lineState = asic!.applyScrollAndSplit(lineState);
-      }
-      ga.renderScanline(this._pixels32, displayTop + line, lineState,
-                        (addr) => this.memory.readVideo(addr));
-      if (plusActive) {
-        asic!.drawSprites(this._pixels32, displayTop + line);
-      }
-      ga.onHSync();
-      // Plus DMA sound: each HSYNC, every enabled channel runs one
-      // instruction (LOAD/PAUSE/REPEAT/LOOP/INT/STOP) — driving the AY for
-      // sample playback without burning CPU time on tight timing loops.
-      if (plusActive) asic!.dmaCycle();
-      // Post-VSYNC interrupt re-sync on the 2nd HSYNC after VSYNC onset (the
-      // onset line's own HSYNC is the 1st).
-      if (this.vsyncResyncCountdown > 0 && --this.vsyncResyncCountdown === 0) {
-        ga.onVSyncResync();
+        // Run the CPU up to the end of HSYNC.
+        if (this.runCpuUntil(this.fHsyncT, plusActive, asic, skipAudio)) break;
+
+        // The display portion of the line (chars 0..R1) precedes HSYNC, so
+        // draw it now. On a Plus model the ASIC applies scroll + split-screen
+        // to the CRTC line before the GA renders it, and composites sprites
+        // on top.
+        let lineState = crtc.currentLine();
+        if (plusActive) {
+          lineState = asic!.applyScrollAndSplit(lineState);
+        }
+        ga.renderScanline(this._pixels32, displayTop + line, lineState,
+                          (addr) => this.memory.readVideo(addr));
+        if (plusActive) {
+          asic!.drawSprites(this._pixels32, displayTop + line);
+        }
+        ga.onHSync();
+        // Plus DMA sound: each HSYNC, every enabled channel runs one
+        // instruction (LOAD/PAUSE/REPEAT/LOOP/INT/STOP) — driving the AY for
+        // sample playback without burning CPU time on tight timing loops.
+        if (plusActive) asic!.dmaCycle();
+        // Post-VSYNC interrupt re-sync on the 2nd HSYNC after VSYNC onset (the
+        // onset line's own HSYNC is the 1st).
+        if (this.vsyncResyncCountdown > 0 && --this.vsyncResyncCountdown === 0) {
+          ga.onVSyncResync();
+        }
+        this.fHsyncDone = true;
       }
 
       // Run the rest of the scanline, then advance the raster.
-      broke = this.runCpuUntil(lineEnd, plusActive, asic, skipAudio);
-      if (broke) break;
+      if (this.runCpuUntil(lineEnd, plusActive, asic, skipAudio)) break;
       crtc.advanceLine();
       if (crtc.vsyncStart) this.vsyncResyncCountdown = 2;
+      this.fHsyncT = -1;
+      this.fHsyncDone = false;
     }
 
-    this.nextFrameT = broke ? -1 : lineEnd;
+    if (this.fLine < totalLines) {
+      // A stop: the frame stays open; the next call carries on in this line.
+      this.midFrame = true;
+      this.needsDisplay = true;
+      return;
+    }
 
     // Safety: once the tape is fully read, drop out of load-turbo even if the
     // program never polls Port B again (the cadence exit relies on such polls).
@@ -516,17 +590,13 @@ export class CpcMachine extends BaseMachine implements Machine {
     this.needsDisplay = true;
   }
 
-  /** T-state the next frame starts at (the previous frame's scheduled end),
-   *  or -1 to start at the current T-state. */
-  private nextFrameT = -1;
-
   /** T-state of the last audio mix step within the current frame. */
   private lastAudioT = 0;
 
   /**
    * Run the CPU until `until` T-states, servicing the Gate-Array/ASIC
    * interrupt, the CAS READ instant-load trap, and audio mixing. Returns true
-   * if a breakpoint or trap stopped execution.
+   * if a stop (breakpoint, trap, beam target or watchpoint) ended the run.
    */
   private runCpuUntil(until: number, plusActive: boolean, asic: Asic | null, skipAudio: boolean): boolean {
     const ga = this.gateArray;
@@ -562,7 +632,9 @@ export class CpcMachine extends BaseMachine implements Machine {
       // EI suppresses interrupts for one instruction; step() itself resets
       // and re-arms eiDelay per-instruction (see core.ts), so a plain
       // post-step check is enough here.
+      this.beforeInsn(this.cpu.pc);
       this.cpu.step();
+      const stopped = this.afterInsn();
 
       if (ga.interruptRequested && this.cpu.iff1 && !this.cpu.eiDelay) {
         // Plus IM 2: the ASIC supplies a vector byte encoding the interrupt
@@ -583,6 +655,10 @@ export class CpcMachine extends BaseMachine implements Machine {
           this.lastAudioT = this.cpu.tStates;
         }
       }
+      // Stop on the instruction that tripped a watchpoint, with the frame
+      // open, after the interrupt check so a resume takes a pending one where
+      // a run would.
+      if (stopped) return true;
     }
     return false;
   }

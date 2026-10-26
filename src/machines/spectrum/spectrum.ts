@@ -11,7 +11,7 @@
 
 import { Z80 } from '@/cores/z80.ts';
 import type { DisasmLine } from '@/debug/z80/disasm.ts';
-import type { BeamInfo, BeamPos } from '@/debug/beam-log.ts';
+import { z80ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
 import { AY3891x } from '@/cores/ay-3-8910.ts';
 import { SpectrumMemory } from '@/machines/spectrum/memory.ts';
 import { ULA, PALETTES, type BorderMode } from '@/machines/spectrum/ula.ts';
@@ -748,12 +748,12 @@ export class Spectrum extends BaseMachine implements Machine {
   }
 
   override supportsInterruptLog(): boolean { return true; }
+  protected override cpuCycles(): number { return this.cpu.tStates; }
   protected override stackPointer(): number { return this.cpu.sp; }
   protected override cpuPc(): number { return this.cpu.pc; }
   /** The Z80 pushes the return address low byte first: it is at SP, SP+1. */
   protected override interruptedPc(): number {
-    const sp = this.cpu.sp;
-    return this.memory.readByte(sp) | (this.memory.readByte((sp + 1) & 0xFFFF) << 8);
+    return z80ReturnAddress(this.cpu.sp, a => this.memory.readByte(a));
   }
 
   /** The frame in progress and the T-states since the interrupt that started
@@ -882,22 +882,13 @@ export class Spectrum extends BaseMachine implements Machine {
                         - (borderLeft >> 1);
     }
 
-    // Taken once per call: it applies to the first instruction run, and is
-    // gone after that whether or not the pc matched.
-    let skipPc = this.resumeSkipPc;
-    const skipKind = this.resumeSkipKind;
-    this.resumeSkipPc = -1;
-
     while (this.cpu.tStates < frameEnd) {
-      // A beam target: stop at the first instruction boundary at or after it.
-      const target = this.beamTarget;
-      if (target !== null &&
-          (this.frameNumber > target.frame ||
-            (this.frameNumber === target.frame && this.cpu.tStates - frameStart >= target.t))) {
+      // A beam target: stop at the first instruction boundary at or after it
+      // (checked here too, not only in checkStops, so a HALT or a trap fast
+      // path below cannot carry the run past it).
+      if (this.beamTarget !== null && this.beamReached(this.beamTarget)) {
         this.beamTarget = null;
         this.markStop('beam', this.cpu.pc);
-        // A skip that was not used up is still owed to the first instruction run.
-        if (skipPc >= 0) this.resumeSkipPc = skipPc;
         break;
       }
       const tBefore = this.cpu.tStates;
@@ -1020,27 +1011,9 @@ export class Spectrum extends BaseMachine implements Machine {
           this.cpu.r = (this.cpu.r & 0x80) | ((this.cpu.r + nops) & 0x7F);
         }
       } else {
-        // The first instruction after a breakpoint or trap stopped the run at
-        // this pc must not stop there again, or a resume makes no progress.
-        let skipBreakpoint = false;
-        let trapResume = false;
-        if (skipPc >= 0) {
-          if (this.cpu.pc === skipPc) {
-            skipBreakpoint = true;
-            trapResume = skipKind === 'trap';
-          }
-          skipPc = -1;
-        }
-        // Breakpoint check (skipped when set is empty for zero overhead)
-        if (!skipBreakpoint && this.breakpoints.size > 0 && this.breakpoints.has(this.cpu.pc)) {
-          this.markStop('breakpoint', this.cpu.pc);
-          break;
-        }
-        // Pre-instruction trap hook (MCP traps: log, respond, break)
-        if (this.onTrap !== null && this.onTrap(this.cpu.pc, trapResume)) {
-          this.markStop('trap', this.cpu.pc);
-          break;
-        }
+        // Breakpoints and the pre-instruction trap hook (MCP traps: log,
+        // respond, break), with the step-over after a stop at this pc.
+        if (this.checkStops(this.cpu.pc)) break;
         if (this.trace.active && this.trace.mode === 'full' && this.cpu.pc >= 0x4000) this.trace.captureFull();
         const zxtlPC = this.trace.active && this.trace.mode === 'zxtl' ? this.cpu.pc : -1;
         this.insnPc = this.cpu.pc;

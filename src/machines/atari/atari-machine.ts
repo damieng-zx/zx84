@@ -30,7 +30,8 @@ import type {
 } from '@/machines/machine.ts';
 import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 import {
-  BEAM_DL, BEAM_DMA, BEAM_EFF, BEAM_IO, DL_FETCH, DL_VISIBLE, IRQ_CRITIC, IRQ_I_SET, type BeamInfo, type BeamPos,
+  BEAM_DL, BEAM_DMA, BEAM_EFF, BEAM_IO, DL_FETCH, DL_VISIBLE, IRQ_CRITIC, IRQ_I_SET, m6502ReturnAddress,
+  type BeamInfo, type BeamPos,
 } from '@/debug/beam-log.ts';
 import { ANTIC_BASE, REG_HSCROL } from './line-writes.ts';
 import type { StopKind } from '@/debug/stop-reason.ts';
@@ -472,9 +473,8 @@ export class AtariMachine extends BaseMachine implements Machine {
 
   /** The frame in progress and the cycles since it started: `line * 114` plus
    *  the cycle in the line, since a frame is a whole number of lines. Between
-   *  frames it is the next frame, a few cycles in. (A frame a breakpoint
-   *  stopped part-way is not resumable yet, so right after one the next
-   *  frame's start is ahead of the CPU and `t` is negative.) */
+   *  frames it is the next frame, a few cycles in. A frame a stop left
+   *  part-way is still the frame in progress. */
   beam(): BeamPos {
     const start = this.frameOpen ? this.beamFrameStart : this.frameBase;
     return { frame: this.frameNumber, t: this.cpu.tStates - start };
@@ -634,12 +634,12 @@ export class AtariMachine extends BaseMachine implements Machine {
 
   override supportsBeamStops(): boolean { return true; }
   override supportsInterruptLog(): boolean { return true; }
+  protected override cpuCycles(): number { return this.cpu.tStates; }
   protected override stackPointer(): number { return this.cpu.sp; }
   protected override cpuPc(): number { return this.cpu.pc; }
   /** The 6502 pushes PCH, PCL, P: the return address is at SP+2 (low), SP+3 (high). */
   protected override interruptedPc(): number {
-    const sp = this.cpu.sp;
-    return this.memory.readRam(0x100 | ((sp + 2) & 0xFF)) | (this.memory.readRam(0x100 | ((sp + 3) & 0xFF)) << 8);
+    return m6502ReturnAddress(this.cpu.sp, a => this.memory.readRam(a));
   }
 
   /** Execute exactly one instruction, inside the frame loop: the chips are
@@ -660,9 +660,8 @@ export class AtariMachine extends BaseMachine implements Machine {
     }
   }
 
-  /** The CPU cycle the instruction in progress started at, and whether its step
-   *  is an interrupt entry (which runs no instruction at pc). */
-  private insnStartT = 0;
+  /** Whether the step in progress is an interrupt entry (which runs no
+   *  instruction at pc). Its start cycle is `insnStartT`. */
   private stepEntersInterrupt = false;
 
   /** Watched accesses made by the instruction in progress, waiting for its last

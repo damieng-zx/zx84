@@ -99,6 +99,19 @@ export interface BeamEntry {
   regX1: number;
 }
 
+/** The return address a Z80 pushed on taking an interrupt, read with `peek`
+ *  right after the entry: low byte at SP, high byte at SP+1. */
+export function z80ReturnAddress(sp: number, peek: (addr: number) => number): number {
+  return peek(sp & 0xFFFF) | (peek((sp + 1) & 0xFFFF) << 8);
+}
+
+/** The return address a 6502 pushed on taking an interrupt, read with `peek`
+ *  right after the entry: it pushes PCH, PCL, P, so PCL is at $0100+SP+2 and
+ *  PCH at $0100+SP+3. */
+export function m6502ReturnAddress(sp: number, peek: (addr: number) => number): number {
+  return peek(0x100 | ((sp + 2) & 0xFF)) | (peek(0x100 | ((sp + 3) & 0xFF)) << 8);
+}
+
 export const DEFAULT_BEAM_LOG_CAPACITY = 100_000;
 
 export class BeamLog {

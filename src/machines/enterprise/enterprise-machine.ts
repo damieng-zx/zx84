@@ -18,6 +18,7 @@ import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { resolveDriveCount } from '@/machines/shared/drive-count.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
+import { z80ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type {
   BorderMode, Machine, MachineDescriptor, MachineHost, MachineKind, MachineTraceMode,
@@ -26,7 +27,7 @@ import type {
 import {
   CARTRIDGE_MAX_SIZE, EP_CPU_CLOCK, EP_MAX_DRIVES, EP_FRAME_HEIGHT, EP_FRAME_WIDTH, EP_LINES_PER_FRAME,
   EP_SEGMENT_SIZE, EP_T_PER_FRAME, EP_T_PER_LINE, EP_VSYNC_TO_FIRST_LINE, EXDOS_MAX_SIZE,
-  EXOS_MAX_SIZE, EXTENSION_MAX_SIZE, EXTENSION_SOCKETS, NICK_CLOCKS_PER_T, SEG_CARTRIDGE,
+  EXOS_MAX_SIZE, EXTENSION_MAX_SIZE, EXTENSION_SOCKETS, NICK_CLOCKS_PER_T, NICK_FIRST_VISIBLE_SLOT, SEG_CARTRIDGE,
   SEG_EXDOS, SEG_EXOS, SEG_EXTENSION, SEG_HOSTFS,
 } from './constants.ts';
 import type { EnterpriseModel } from './models.ts';
@@ -91,6 +92,9 @@ export class EnterpriseMachine extends BaseMachine implements Machine {
   private prevLineVsync = false;
   /** CPU time the current Nick line began. */
   private lineStartT = 0;
+  /** The next Nick line of the frame in progress to run (it carries over a
+   *  stop). */
+  private fLine = 0;
   /** CPU time the audio was last brought up to. */
   private audioT = 0;
   private skipAudio = false;
@@ -122,6 +126,7 @@ export class EnterpriseMachine extends BaseMachine implements Machine {
     this.model = model;
     this.display = display;
     this.memory = new EnterpriseMemory(model);
+    this.cpu.onInterrupt = (handler, nmi) => this.noteInterrupt(handler, nmi);
     this.nick = new Nick(this.memory.videoRam);
     this.nick.onInterrupt = (active) => this.dave.setInt1(active);
     this.dave.onWaitModeChange = (mode) => this.setWaitMode(mode);
@@ -251,6 +256,7 @@ export class EnterpriseMachine extends BaseMachine implements Machine {
     this.audioT = this.cpu.tStates;
     this.typeHold = 0;
     this.mixer.reset();
+    this.resetFrameCount();
   }
 
   // ── Extension ROM sockets ──────────────────────────────────────────────
@@ -393,27 +399,65 @@ export class EnterpriseMachine extends BaseMachine implements Machine {
   /** Turbo for the boot the typer is driving. */
   get bootTurboActive(): boolean { return this.bootTurbo && this.typing; }
 
+  // ── Beam ───────────────────────────────────────────────────────────────
+
+  /** A frame is 312 of Nick's 64µs lines on the CPU clock, counted from
+   *  reset and not locked to the line parameter table, so line 0 is wherever
+   *  the table happens to be. Each line is drawn when the CPU reaches its
+   *  end. */
+  beam(): BeamPos { return this.gridBeam(); }
+  beamInfo(): BeamInfo {
+    return {
+      cyclesPerLine: EP_T_PER_LINE,
+      linesPerFrame: EP_LINES_PER_FRAME,
+      // Nick's display area begins at slot 7 of the line.
+      displayStart: Math.round(NICK_FIRST_VISIBLE_SLOT * 16 / NICK_CLOCKS_PER_T),
+      note: 'lines are Nick\'s 64µs slots of 57×16 Nick clocks; the line parameter table decides what each one shows (or whether it is VSYNC), and a frame is 312 of them counted from reset, not locked to the table, so line 0 is not the top of the picture. displayStart is where slot 7, the first of the display area, falls in every line. Each line is drawn whole when the CPU reaches its end, so a video RAM or palette write shows from the line it is made in',
+    };
+  }
+  override supportsBeamStops(): boolean { return true; }
+  override supportsInterruptLog(): boolean { return true; }
+  /** The loop takes Dave's interrupt in place of the next step, so a trap at
+   *  the pc would report an instruction that does not run yet. */
+  protected override interruptEntryPending(): boolean {
+    return this.dave.irq && this.cpu.iff1 && !this.cpu.eiDelay;
+  }
+  protected override cpuCycles(): number { return this.cpu.tStates; }
+  protected override stackPointer(): number { return this.cpu.sp; }
+  protected override cpuPc(): number { return this.cpu.pc; }
+  protected override interruptedPc(): number { return z80ReturnAddress(this.cpu.sp, a => this.memory.readByte(a)); }
+
   protected runFrame(): void {
     this.skipAudio = this.speedMultiplier !== 1 || this.bootTurboActive;
-    if (this.typing && --this.typeFramesLeft <= 0) {
-      this.typeQueue = [];
-      this.typeHold = 0;
-      this.keyboard.setTypedChar(null);
+    // A frame a stop left part-way carries on from the line it was in, whose
+    // line parameters Nick has already fetched.
+    let resumed = this.openFrame(EP_T_PER_FRAME);
+    if (!resumed) {
+      if (this.typing && --this.typeFramesLeft <= 0) {
+        this.typeQueue = [];
+        this.typeHold = 0;
+        this.keyboard.setTypedChar(null);
+      }
+      this.activity.kbdReads = 0;
+      this.activity.fdcAccesses = 0;
+      this.activity.fileAccesses = 0;
+      this.fLine = 0;
     }
-    this.activity.kbdReads = 0;
-    this.activity.fdcAccesses = 0;
-    this.activity.fileAccesses = 0;
+    this.portWatchHit = null;
+    this.memWatchHit = null;
 
     const cpu = this.cpu;
     const dave = this.dave;
-    const watchActive = this.portWatchpoints.size > 0 || this.memWatchpoints.length > 0;
     const hostFsFitted = this.hostFs.bundle !== null;
     const traps = HOSTFS_ROM.traps;
     let broke = false;
 
-    for (let line = 0; line < EP_LINES_PER_FRAME && !broke; line++) {
-      this.lineStartT = cpu.tStates;
-      this.nick.beginLine();
+    for (; this.fLine < EP_LINES_PER_FRAME; this.fLine++) {
+      // Lines sit on the frame's grid, 64µs apart, whatever the last
+      // instruction of the one before overran by.
+      this.lineStartT = this.frameStartT + this.fLine * EP_T_PER_LINE;
+      if (!resumed) this.nick.beginLine();
+      resumed = false;
       const lineEnd = this.lineStartT + EP_T_PER_LINE;
 
       while (cpu.tStates < lineEnd) {
@@ -428,10 +472,18 @@ export class EnterpriseMachine extends BaseMachine implements Machine {
         }
         // Dave holds /INT low while any latch is set; the Z80 samples it
         // between instructions.
+        this.beforeInsn(pc);
         if (!trapped && dave.irq && cpu.iff1 && !cpu.eiDelay) cpu.interrupt();
         else cpu.step();
+        const stopped = this.afterInsn();
         this.syncAudio();
-        if (watchActive && (this.portWatchHit !== null || this.memWatchHit !== null)) { broke = true; break; }
+        if (stopped) { broke = true; break; }
+      }
+      if (broke) {
+        // The frame stays open; the next call carries on in this line.
+        this.midFrame = true;
+        this.needsDisplay = true;
+        return;
       }
 
       // Frame-buffer row: lines count from the end of the VSYNC block.

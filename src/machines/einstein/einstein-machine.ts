@@ -24,6 +24,7 @@ import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { disasmOne, type DisasmLine } from '@/debug/z80/disasm.ts';
+import { z80ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type { Machine, MachineHost, MachineKind, MachineDescriptor, BorderMode, MachineTraceMode, SettingsView } from '@/machines/machine.ts';
 import { applyAySettings } from '@/machines/shared/ay-settings.ts';
@@ -124,6 +125,7 @@ export class EinsteinMachine extends BaseMachine implements Machine {
       ? new EinsteinV9938ScreenText()
       : new EinsteinScreenText();
     this.cpu = new Z80();
+    this.cpu.onInterrupt = (handler, nmi) => this.noteInterrupt(handler, nmi);
     this.memory = new EinsteinMemory({
       romSize: this.config.romSizeKB * 1024,
       romMirrored: this.config.romMirrored,
@@ -267,6 +269,7 @@ export class EinsteinMachine extends BaseMachine implements Machine {
     this.boardIntPending = 0;
     this.boardIntMask = 0;
     this.adcDoneAt = -1;
+    this.resetFrameCount();
     this.needsDisplay = true;
     this.setStatus('Reset');
   }
@@ -277,6 +280,28 @@ export class EinsteinMachine extends BaseMachine implements Machine {
 
   protected inTurbo(): boolean { return this.turbo; }
 
+  /** The next line of the frame in progress to run (it carries over a stop). */
+  private fLine = 0;
+
+  /** Frame line 0 is the VDP's first active line; the frame flag rises at the
+   *  end of the last active one. Each line is drawn when the CPU reaches its
+   *  end. */
+  beam(): BeamPos { return this.gridBeam(); }
+  beamInfo(): BeamInfo {
+    return {
+      cyclesPerLine: EINSTEIN_T_PER_FRAME / LINES_PER_FRAME,
+      linesPerFrame: LINES_PER_FRAME,
+      displayStart: 0,
+      note: 'line 0 is the first active line of the VDP; the 4MHz PAL field is split evenly over 313 lines, so a line is a fractional ~255.6 cycles; each line is drawn whole when the CPU reaches its end, so a VDP write shows from the line it is made in; the frame flag rises at the end of the last active line (192, or 212 in the V9938\'s 212-line mode); the CTC interrupts run off the cycle count, not the raster',
+    };
+  }
+  override supportsBeamStops(): boolean { return true; }
+  override supportsInterruptLog(): boolean { return true; }
+  protected override cpuCycles(): number { return this.cpu.tStates; }
+  protected override stackPointer(): number { return this.cpu.sp; }
+  protected override cpuPc(): number { return this.cpu.pc; }
+  protected override interruptedPc(): number { return z80ReturnAddress(this.cpu.sp, a => this.memory.readByte(a)); }
+
   /**
    * Execute one PAL field. Runs the CPU scanline by scanline, advancing the CTC
    * timers and servicing IM 2 interrupts as they arm; renders the active lines;
@@ -286,37 +311,51 @@ export class EinsteinMachine extends BaseMachine implements Machine {
    */
   protected runFrame(): void {
     const skipAudio = this.speedMultiplier !== 1;
-    this.activity.kbdReads = 0;
-    this.activity.fdcAccesses = 0;
-    this.activity.tapeReads = 0;
-    this.activity.ayWrites = 0;
-
     const vdp = this.vdp;
     const is256 = vdp instanceof V9938;
     // Active lines rendered per frame: the V9938's R9 LN bit picks 192/212.
     const activeLines = is256 ? vdp.visibleHeight : 192;
-    if (is256) vdp.beginFrame();
 
-    // Fill the whole buffer (incl. border) with the current backdrop.
-    this._pixels32.fill(vdp.backdrop());
+    // A frame a stop left part-way carries on in the line it was in, whose
+    // start-of-line VDP work is already done.
+    let resumed = this.openFrame(EINSTEIN_T_PER_FRAME);
+    if (!resumed) {
+      this.activity.kbdReads = 0;
+      this.activity.fdcAccesses = 0;
+      this.activity.tapeReads = 0;
+      this.activity.ayWrites = 0;
+      if (is256) vdp.beginFrame();
+      // Fill the whole buffer (incl. border) with the current backdrop.
+      this._pixels32.fill(vdp.backdrop());
+      this.fLine = 0;
+    }
+    this.portWatchHit = null;
+    this.memWatchHit = null;
 
     const tPerLine = EINSTEIN_T_PER_FRAME / LINES_PER_FRAME;
-    let lineEnd = this.cpu.tStates;
     let lastAudioT = this.cpu.tStates;
     let lastCtcT = this.cpu.tStates;
-    let broke = false;
 
-    for (let line = 0; line < LINES_PER_FRAME; line++) {
-      lineEnd += tPerLine;
-      if (is256) vdp.advanceScanline(line);
+    for (; this.fLine < LINES_PER_FRAME; this.fLine++) {
+      const line = this.fLine;
+      const lineEnd = this.frameStartT + (line + 1) * tPerLine;
+      if (is256 && !resumed) vdp.advanceScanline(line);
+      resumed = false;
 
       while (this.cpu.tStates < lineEnd) {
-        if (this.checkStops(this.cpu.pc)) { broke = true; break; }
+        if (this.checkStops(this.cpu.pc)) {
+          // The frame stays open; the next call carries on in this line.
+          this.midFrame = true;
+          this.needsDisplay = true;
+          return;
+        }
 
         // EI suppresses interrupts for one instruction; step() itself resets
         // and re-arms eiDelay per-instruction (see core.ts), so a plain
         // post-step check is enough here.
+        this.beforeInsn(this.cpu.pc);
         this.cpu.step();
+        const stopped = this.afterInsn();
 
         // Advance CTC timers by the elapsed T-states.
         const dt = this.cpu.tStates - lastCtcT;
@@ -373,8 +412,15 @@ export class EinsteinMachine extends BaseMachine implements Machine {
             lastAudioT = this.cpu.tStates;
           }
         }
+
+        // Stop on the instruction that tripped a watchpoint, once its cycles
+        // have reached the CTC, with the frame open.
+        if (stopped) {
+          this.midFrame = true;
+          this.needsDisplay = true;
+          return;
+        }
       }
-      if (broke) break;
 
       // Render active scanlines into the centred active area.
       if (line < activeLines) {

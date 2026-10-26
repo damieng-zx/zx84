@@ -2,7 +2,9 @@
  * The beam-debugging MCP tools driven through their registered handlers:
  * `run` to a raster position, `trap` log rows, `memory_watchpoint` and
  * `port_watchpoint` log mode, and `beam_log` / `beam_log_read` — on the Atari,
- * and refusing cleanly on a machine with no beam position.
+ * and refusing cleanly on a machine with no beam position. Every machine has
+ * one now, so that case is a CPC with its beam switched off: the SPI still
+ * allows a machine without one, and the tools must still say so.
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
@@ -48,6 +50,13 @@ function bootAtari(): AtariMachine {
 
 const READ_DEFAULTS = { offset: 0, limit: 200, t: false, rel: 'frame', format: 'text', file: false };
 
+/** A CPC that reports no beam, no beam stops and no interrupt log. */
+function beamlessCpc(): CpcMachine {
+  return Object.assign(new CpcMachine('cpc6128', null), {
+    beam: () => null, beamInfo: () => null, supportsBeamStops: () => false, supportsInterruptLog: () => false,
+  });
+}
+
 describe('MCP beam tools on the Atari', () => {
   beforeEach(() => {
     traps.clear();
@@ -77,8 +86,11 @@ describe('MCP beam tools on the Atari', () => {
     expect(await call('run', { frames: 1, until_cycle: 5 })).toMatch(/need until_line/);
     expect(await call('run', { frames: 1, until_line: 9999 })).toMatch(/below 312/);
     expect(await call('run', { frames: 1, until_line: 5, until_cycle: 200 })).toMatch(/below 114/);
+    await call('run', { frames: 2 });
+    expect(await call('run', { frames: 1, until_line: 5, until_frame: 1 })).toMatch(/already gone by: the beam is at frame 2/);
+    expect(state.spec.frameNumber).toBe(2);
     state.model = 'cpc6128';
-    state.spec = new CpcMachine('cpc6128', null);
+    state.spec = beamlessCpc();
     expect(await call('run', { frames: 1, until_line: 5 })).toMatch(/not supported on this machine \(CPC6128\)/);
   });
 
@@ -242,7 +254,7 @@ describe('MCP interrupt and view tools', () => {
 
   it('refuses interrupt_log where it is not supported', async () => {
     state.model = 'cpc6128';
-    state.spec = new CpcMachine('cpc6128', null);
+    state.spec = beamlessCpc();
     expect(await call('interrupt_log', { action: 'start', atari: false, dma: false })).toMatch(/not supported on this machine \(CPC6128\)/);
   });
 });
@@ -331,7 +343,7 @@ describe('MCP beam tools on a machine with no beam position', () => {
   beforeEach(() => {
     state.model = 'cpc6128';
     state.spec?.destroy();
-    state.spec = new CpcMachine('cpc6128', null);
+    state.spec = beamlessCpc();
   });
 
   it('the log modes and readers say so', async () => {

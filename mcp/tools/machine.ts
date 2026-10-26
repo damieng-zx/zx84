@@ -8,6 +8,7 @@ import {
 import { formatStep, formatRegs, parseAddr, text, checkWatchHit } from '../format.ts';
 import { traps, resetTrap, consumeResetHit } from '../traps.ts';
 import { MCP_MODELS } from '../models.ts';
+import { cyclesText, lineCycle } from '../beam.ts';
 
 export function register(server: McpServer): void {
   server.registerTool(
@@ -30,9 +31,12 @@ export function register(server: McpServer): void {
         }
         if (until_line >= info.linesPerFrame) return text(`until_line must be below ${info.linesPerFrame}, this machine's lines per frame.`);
         const cycle = until_cycle ?? 0;
-        if (cycle >= info.cyclesPerLine) return text(`until_cycle must be below ${info.cyclesPerLine}, this machine's cycles per line.`);
+        if (cycle >= info.cyclesPerLine) return text(`until_cycle must be below ${cyclesText(info.cyclesPerLine)}, this machine's cycles per line.`);
         const t = until_line * info.cyclesPerLine + cycle;
         const here = spec.beam()!;
+        if (until_frame !== undefined && (until_frame < here.frame || (until_frame === here.frame && t <= here.t))) {
+          return text(`Frame ${until_frame}, line ${until_line}, cycle ${until_cycle ?? 0} has already gone by: the beam is at frame ${here.frame}, t=${here.t}.`);
+        }
         const frame = until_frame ?? (here.t < t ? here.frame : here.frame + 1);
         spec.beamTarget = { frame, t };
         const limit = Math.min(5000, Math.max(frames, frame - here.frame + 2));
@@ -42,8 +46,8 @@ export function register(server: McpServer): void {
         if (reset) return text(`${reset.text}\nafter ${ran} call(s)\n${formatStep(spec)}`);
         if (spec.stopReason?.kind === 'beam') {
           const at = spec.beam()!;
-          const line = Math.floor(at.t / info.cyclesPerLine);
-          return text(`Stopped at frame ${at.frame}, line ${line}, cycle ${at.t - line * info.cyclesPerLine} (t=${at.t}); target was frame ${frame}, line ${until_line}, cycle ${cycle}. Paused mid-frame.\n${formatStep(spec)}`);
+          const { line, cycle: atCycle } = lineCycle(at.t, info, false);
+          return text(`Stopped at frame ${at.frame}, line ${line}, cycle ${atCycle} (t=${at.t}); target was frame ${frame}, line ${until_line}, cycle ${cycle}. Paused mid-frame.\n${formatStep(spec)}`);
         }
         const hit = checkWatchHit(spec);
         if (hit) return text(`${hit}\nbefore reaching frame ${frame}, line ${until_line}, cycle ${cycle}`);

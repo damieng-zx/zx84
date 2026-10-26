@@ -24,6 +24,7 @@ import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { disasmOne, type DisasmLine } from '@/debug/z80/disasm.ts';
+import { z80ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type { AuxRomRequest, Machine, MachineHost, MachineKind, MachineDescriptor, BorderMode, MachineTraceMode, SettingsView } from '@/machines/machine.ts';
 import { applyAySettings } from '@/machines/shared/ay-settings.ts';
@@ -112,6 +113,7 @@ export class MsxMachine extends BaseMachine implements Machine {
     this.config = createMsxConfig(model);
     this.cpu = new Z80();
     this.cpu.m1WaitStates = 1; // MSX adds one WAIT clock to each opcode fetch.
+    this.cpu.onInterrupt = (handler, nmi) => this.noteInterrupt(handler, nmi);
     this.memory = new MsxMemory(this.config.layout);
     this.ay = new AY3891x(MSX_PSG_CLOCK, 48000, 'ABC');
     this.vdp = new Tms9918a();
@@ -323,6 +325,7 @@ export class MsxMachine extends BaseMachine implements Machine {
     this.cassette.clearRecording();
     this.audio.reset();
     this.mixer.reset();
+    this.resetFrameCount();
     this.needsDisplay = true;
     this.setStatus('Reset');
   }
@@ -338,24 +341,50 @@ export class MsxMachine extends BaseMachine implements Machine {
    * active lines; at the end of the active display raises the VDP vblank, which
    * (with R1 interrupt-enable set) pulls the Z80 /INT — serviced in IM 1.
    */
+  /** The next line of the frame in progress to run (it carries over a stop). */
+  private fLine = 0;
+
+  /** Frame line 0 is the VDP's first active line; the frame interrupt comes
+   *  at the end of line 192. Each line is drawn when the CPU reaches its end. */
+  beam(): BeamPos { return this.gridBeam(); }
+  beamInfo(): BeamInfo {
+    return {
+      cyclesPerLine: this.config.tStatesPerFrame / this.config.linesPerFrame,
+      linesPerFrame: this.config.linesPerFrame,
+      displayStart: 0,
+      note: 'line 0 is the first active line of the VDP; each line is drawn whole when the CPU reaches its end, so a VDP write shows from the line it is made in',
+    };
+  }
+  override supportsBeamStops(): boolean { return true; }
+  override supportsInterruptLog(): boolean { return true; }
+  protected override cpuCycles(): number { return this.cpu.tStates; }
+  protected override stackPointer(): number { return this.cpu.sp; }
+  protected override cpuPc(): number { return this.cpu.pc; }
+  protected override interruptedPc(): number { return z80ReturnAddress(this.cpu.sp, a => this.memory.peekByte(a)); }
+
   protected runFrame(): void {
     const skipAudio = this.speedMultiplier !== 1;
-    this.activity.kbdReads = 0;
-    this.activity.ayWrites = 0;
-    this.activity.casReads = 0;
-    this.diskIf.accesses = 0;
-
-    // Fill the whole buffer (incl. border) with the current backdrop.
-    this._pixels32.fill(this.vdp.backdrop());
-
     const linesPerFrame = this.config.linesPerFrame;
     const tPerLine = this.config.tStatesPerFrame / linesPerFrame;
-    let lineEnd = this.cpu.tStates;
+    // A frame a stop left part-way carries on from the line it was in.
+    if (!this.openFrame(this.config.tStatesPerFrame)) {
+      this.activity.kbdReads = 0;
+      this.activity.ayWrites = 0;
+      this.activity.casReads = 0;
+      this.diskIf.accesses = 0;
+      // Fill the whole buffer (incl. border) with the current backdrop.
+      this._pixels32.fill(this.vdp.backdrop());
+      this.fLine = 0;
+    }
+    this.portWatchHit = null;
+    this.memWatchHit = null;
+
     let lastAudioT = this.cpu.tStates;
     let broke = false;
 
-    for (let line = 0; line < linesPerFrame; line++) {
-      lineEnd += tPerLine;
+    for (; this.fLine < linesPerFrame; this.fLine++) {
+      const line = this.fLine;
+      const lineEnd = this.frameStartT + (line + 1) * tPerLine;
 
       while (this.cpu.tStates < lineEnd) {
         if (this.checkStops(this.cpu.pc)) { broke = true; break; }
@@ -376,7 +405,9 @@ export class MsxMachine extends BaseMachine implements Machine {
         // EI suppresses interrupts for one instruction; step() itself resets
         // and re-arms eiDelay per-instruction (see core.ts), so a plain
         // post-step check is enough here.
+        this.beforeInsn(this.cpu.pc);
         this.cpu.step();
+        const stopped = this.afterInsn();
 
         // The VDP INT line is level-sensitive: while its frame flag is set and
         // interrupts are enabled, take a maskable IM 1 interrupt as soon as the
@@ -393,8 +424,16 @@ export class MsxMachine extends BaseMachine implements Machine {
             lastAudioT = this.cpu.tStates;
           }
         }
+        // A watchpoint fired during the instruction: stop after the interrupt
+        // check above, so a resume takes a pending interrupt where a run would.
+        if (stopped) { broke = true; break; }
       }
-      if (broke) break;
+      if (broke) {
+        // The frame stays open; the next call carries on in this line.
+        this.midFrame = true;
+        this.needsDisplay = true;
+        return;
+      }
 
       // Render active scanlines into the centred active area.
       if (line < ACTIVE_LINES) {

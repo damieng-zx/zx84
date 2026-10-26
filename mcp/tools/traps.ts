@@ -25,7 +25,7 @@ export function register(server: McpServer): void {
 
   server.registerTool(
     'trap',
-    { description: 'Set a trap at one or more addresses. Actions: "log" (record and continue), "break" (halt execution), "respond" (stuff registers and RET). A log trap on a machine with a beam position (Atari, Spectrum) also writes a frame/line/cycle-stamped row to the beam log — read it with beam_log_read. Omit address to list all traps.', inputSchema: {
+    { description: 'Set a trap at one or more addresses. Actions: "log" (record and continue), "break" (halt execution), "respond" (stuff registers and RET). A log trap also writes a frame/line/cycle-stamped row to the beam log — read it with beam_log_read. Omit address to list all traps.', inputSchema: {
       address: z.string().optional().describe('Address(es) to trap, comma/space separated (omit to list all)'),
       action: z.enum(['log', 'break', 'respond']).default('log').describe('What to do when the trap fires'),
       cond_c: z.number().int().min(0).max(255).optional().describe('Only fire when C register equals this value (e.g. BDOS function number)'),

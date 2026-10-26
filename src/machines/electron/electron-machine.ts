@@ -21,6 +21,7 @@ import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { CassetteDrive } from '@/machines/shared/cassette-drive.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
+import { m6502ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type {
   AuxRomRequest, BorderMode, Machine, MachineDescriptor, MachineHost, MachineKind, SettingsView,
@@ -106,6 +107,11 @@ export class ElectronMachine extends BaseMachine implements Machine {
   private lineStart = 0;
   /** The ULA is fetching display bytes on this line (modes 0-3, picture lines). */
   private fetchLine = false;
+  /** The next line of the frame in progress to run (it carries over a stop). */
+  private fLine = 0;
+  /** The start of line `fLine` (its interrupts and fetch window) is done, so
+   *  a frame resumed part-way through the line does not repeat it. */
+  private lineLive = false;
   private prevSound = 0;
 
   protected get audioChip(): { setSampleRate(rate: number): void } { return NO_CHIP; }
@@ -120,6 +126,9 @@ export class ElectronMachine extends BaseMachine implements Machine {
     super();
     this.model = model;
     this.display = display ?? null;
+    this.cpu.onInterrupt = (vector) => this.noteInterrupt(this.cpu.pc, vector === 0xFFFA);
+    // The 6502 core makes its bus accesses before it counts the cycles.
+    this.deferAccessStamps = true;
     this.cpu.read = (addr) => {
       this.contend(addr);
       const value = this.memory.readByte(addr);
@@ -275,6 +284,7 @@ export class ElectronMachine extends BaseMachine implements Machine {
   reset(): void {
     this.stop();
     this.resetHardware(true);
+    this.resetFrameCount();
     this.setStatus('Reset');
   }
 
@@ -296,6 +306,12 @@ export class ElectronMachine extends BaseMachine implements Machine {
     this.keyboard.reset();
     this.keyboard.capsLock = false;
     this.cpu.reset();
+    // The clock restarts, so a frame a stop left open cannot be carried on.
+    // BREAK keeps counting frames so a log that spans it stays in order.
+    this.midFrame = false;
+    this.fLine = 0;
+    this.lineLive = false;
+    this.clearInterrupts();
     this.lineStart = this.cpu.tStates;
     this.fetchLine = false;
     this.activity.beeperToggles = 0;
@@ -329,6 +345,31 @@ export class ElectronMachine extends BaseMachine implements Machine {
     }
   }
 
+  // ── Beam ─────────────────────────────────────────────────────────────────
+
+  /** Frame line 0 is the first line of the 256-line picture; the RTC
+   *  interrupt is raised at the start of line 100 and display end at the
+   *  start of line 250 or 256. Each line is drawn when the CPU reaches its end. */
+  beam(): BeamPos { return this.gridBeam(); }
+  beamInfo(): BeamInfo {
+    return {
+      cyclesPerLine: ELECTRON_CYCLES_PER_LINE,
+      linesPerFrame: ELECTRON_LINES_PER_FRAME,
+      displayStart: 0,
+      note: 'line 0 is the first line of the picture, whose bytes the ULA fetches in the first 80 cycles of each line; the RTC interrupt is raised at the start of line 100 and display end at the start of line 256 (250 in modes 3 and 6). Each line is drawn whole when the CPU reaches its end, so a register write shows from the line it is made in',
+    };
+  }
+  override supportsBeamStops(): boolean { return true; }
+  override supportsInterruptLog(): boolean { return true; }
+  protected override cpuCycles(): number { return this.cpu.tStates; }
+  protected override stackPointer(): number { return this.cpu.sp; }
+  protected override cpuPc(): number { return this.cpu.pc; }
+  protected override interruptedPc(): number { return m6502ReturnAddress(this.cpu.sp, a => this.memory.peekByte(a)); }
+  /** An opcode is never read from the hardware pages, where reads have side effects. */
+  protected override peekOpcode(addr: number): number {
+    return addr >= 0xFC00 && addr < 0xFF00 ? -1 : this.memory.peekByte(addr);
+  }
+
   // ── Frame ────────────────────────────────────────────────────────────────
 
   protected override interruptEntryPending(): boolean { return this.cpu.interruptPending(); }
@@ -337,29 +378,41 @@ export class ElectronMachine extends BaseMachine implements Machine {
     const skipAudio = this.speedMultiplier !== 1 || this.cassette.turboActive;
     const cpu = this.cpu;
     const ula = this.ula;
-    const watchActive = this.memWatchpoints.length > 0;
-    this.activity.beeperToggles = 0;
-    ula.startFrame();
-    let lineEnd = cpu.tStates;
+    // A frame a stop left part-way carries on from the line it was in.
+    if (!this.openFrame(ELECTRON_TSTATES_PER_FRAME)) {
+      this.activity.beeperToggles = 0;
+      ula.startFrame();
+      this.fLine = 0;
+      this.lineLive = false;
+    }
+    this.memWatchHit = null;
 
-    for (let line = 0; line < ELECTRON_LINES_PER_FRAME; line++) {
-      this.lineStart = lineEnd;
-      lineEnd += ELECTRON_CYCLES_PER_LINE;
-      const mode = ula.dispMode;
-      if (line === RTC_LINE) ula.raise(INT_RTC);
-      if ((line === 250 || line === PICTURE_LINES) && line === MODE_DISPEND[mode]) {
-        ula.raise(INT_DISPLAY_END);
+    for (; this.fLine < ELECTRON_LINES_PER_FRAME; this.fLine++) {
+      const line = this.fLine;
+      const lineEnd = this.frameStartT + (line + 1) * ELECTRON_CYCLES_PER_LINE;
+      if (!this.lineLive) {
+        this.lineLive = true;
+        this.lineStart = lineEnd - ELECTRON_CYCLES_PER_LINE;
+        const mode = ula.dispMode;
+        if (line === RTC_LINE) ula.raise(INT_RTC);
+        if ((line === 250 || line === PICTURE_LINES) && line === MODE_DISPEND[mode]) {
+          ula.raise(INT_DISPLAY_END);
+        }
+        this.fetchLine = line < MODE_DISPEND[mode] && ula.screenRa < 8;
+        cpu.setIRQ(ula.irq);
       }
-      this.fetchLine = line < MODE_DISPEND[mode] && ula.screenRa < 8;
-      cpu.setIRQ(ula.irq);
 
       while (cpu.tStates < lineEnd) {
         if (this.checkStops(cpu.pc)) {
+          // The frame stays open; the next call carries on in this line.
+          this.midFrame = true;
           this.needsDisplay = true;
           return;
         }
         const before = cpu.tStates;
+        this.beforeInsn(cpu.pc);
         cpu.step();
+        const stopped = this.afterInsn();
         const elapsed = cpu.tStates - before;
         const now = cpu.tStates;
         this.cassette.step(elapsed, now);
@@ -378,12 +431,15 @@ export class ElectronMachine extends BaseMachine implements Machine {
             this.activity.beeperToggles++;
           }
         }
-        // Stop on the instruction that tripped a memory watchpoint.
-        if (watchActive && this.memWatchHit !== null) {
+        // Stop on the instruction that tripped a memory watchpoint, with the
+        // frame open.
+        if (stopped) {
+          this.midFrame = true;
           this.needsDisplay = true;
           return;
         }
       }
+      this.lineLive = false;
       if (line < PICTURE_LINES) {
         ula.renderLine(line, this.memory.ram, this.pixels32, ELECTRON_BORDER_TOP + line);
       }

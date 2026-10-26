@@ -13,6 +13,7 @@ import { M6820 } from '@/cores/m6820.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
+import { m6502ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type {
   AuxRomRequest, BorderMode, Machine, MachineDescriptor, MachineHost, MachineKind, SettingsView,
@@ -21,8 +22,9 @@ import type { OcrResult } from '@/ocr/ocr.ts';
 import { ocrApple1Text } from '@/ocr/apple1.ts';
 import { apple1ModelInfo, type Apple1Model } from './models.ts';
 import {
-  APPLE1_ACTIVE_HEIGHT, APPLE1_ACTIVE_WIDTH, APPLE1_BORDER_LEFT, APPLE1_BORDER_TOP, APPLE1_CHAR_CYCLES, APPLE1_CPU_CLOCK, APPLE1_FRAME_HZ,
-  APPLE1_SCREEN_HEIGHT, APPLE1_SCREEN_WIDTH, APPLE1_TSTATES_PER_FRAME,
+  APPLE1_ACTIVE_HEIGHT, APPLE1_ACTIVE_WIDTH, APPLE1_BORDER_LEFT, APPLE1_BORDER_TOP, APPLE1_CHAR_CYCLES, APPLE1_CPU_CLOCK,
+  APPLE1_CYCLES_PER_LINE, APPLE1_FRAME_HZ, APPLE1_LINES_PER_FRAME, APPLE1_SCREEN_HEIGHT, APPLE1_SCREEN_WIDTH,
+  APPLE1_TSTATES_PER_FRAME,
 } from './constants.ts';
 import { Apple1Memory } from './apple1-memory.ts';
 import { Apple1Terminal } from './apple1-terminal.ts';
@@ -96,6 +98,11 @@ export class Apple1Machine extends BaseMachine implements Machine {
     this.model = model;
     this.display = display ?? null;
     this.fit(APPLE1_DEFAULT_OPTIONS);
+    // Nothing on the board drives IRQ or NMI; the hook is there for the
+    // interrupt log all the same.
+    this.cpu.onInterrupt = (vector) => this.noteInterrupt(this.cpu.pc, vector === 0xFFFA);
+    // The 6502 core makes its bus accesses before it counts the cycles.
+    this.deferAccessStamps = true;
     this.cpu.read = (addr) => {
       const value = this.memory.readByte(addr);
       if (this.memWatchpoints.length > 0 && this.memWatchHit === null) this.recordMemWatch(addr & 0xFFFF, value, 'read');
@@ -218,6 +225,7 @@ export class Apple1Machine extends BaseMachine implements Machine {
   reset(): void {
     this.stop();
     this.resetHardware();
+    this.resetFrameCount();
     this.setStatus('Reset');
   }
 
@@ -226,6 +234,7 @@ export class Apple1Machine extends BaseMachine implements Machine {
   pressResetKey(): boolean {
     this.cancelPaste();
     this.cpu.reset();
+    this.dropFrameInProgress();
     this.pia.reset();
     this.keyboard.reset();
     this.busyUntil = 0;
@@ -293,29 +302,66 @@ export class Apple1Machine extends BaseMachine implements Machine {
     this.needsDisplay = true;
   }
 
+  // ── Beam ───────────────────────────────────────────────────────────────
+
+  /** The terminal is not a raster the CPU can see or time itself against, so
+   *  the beam is only a position in the nominal NTSC field the frame loop
+   *  runs (65 cycles by 262 lines), with `t` the cycle in it. */
+  beam(): BeamPos { return this.gridBeam(); }
+  beamInfo(): BeamInfo {
+    return {
+      cyclesPerLine: APPLE1_CYCLES_PER_LINE,
+      linesPerFrame: APPLE1_LINES_PER_FRAME,
+      displayStart: 0,
+      note: 'nominal: the frame is a 60 Hz NTSC field of 262 lines of 65 cycles, the slice of time the frame loop runs, but the terminal keeps its own timing that the CPU cannot see (it only polls the busy bit), so a line here is not tied to the picture; the terminal is drawn whole at the end of each frame',
+    };
+  }
+  override supportsBeamStops(): boolean { return true; }
+  override supportsInterruptLog(): boolean { return true; }
+  protected override cpuCycles(): number { return this.cpu.tStates; }
+  protected override stackPointer(): number { return this.cpu.sp; }
+  protected override cpuPc(): number { return this.cpu.pc; }
+  protected override interruptedPc(): number { return m6502ReturnAddress(this.cpu.sp, a => this.memory.peekByte(a)); }
+  protected override peekOpcode(addr: number): number { return this.memory.peekByte(addr); }
+
+  /** Forget a frame a stop left open: a reset restarts the CPU's clock, so
+   *  there is nothing to carry on. The frame count keeps going. */
+  private dropFrameInProgress(): void {
+    this.midFrame = false;
+    this.clearInterrupts();
+  }
+
   protected override interruptEntryPending(): boolean { return this.cpu.interruptPending(); }
 
   protected runFrame(): void {
-    const endT = this.cpu.tStates + APPLE1_TSTATES_PER_FRAME;
     const skipAudio = this.speedMultiplier !== 1;
-    const watchActive = this.memWatchpoints.length > 0;
-    this.activity.kbdReads = 0;
-    this.feedPaste();
+    if (!this.openFrame(APPLE1_TSTATES_PER_FRAME)) {
+      this.activity.kbdReads = 0;
+      this.feedPaste();
+    }
+    this.memWatchHit = null;
+    const endT = this.frameEndT;
 
     while (this.cpu.tStates < endT) {
       if (this.checkStops(this.cpu.pc)) {
+        // The frame stays open; the next call carries on from here.
+        this.midFrame = true;
         this.drawFrame();
         return;
       }
       const before = this.cpu.tStates;
+      this.beforeInsn(this.cpu.pc);
       this.cpu.step();
+      const stopped = this.afterInsn();
       if (!skipAudio) {
         // Silence still has to be fed: the frame loop paces itself on the audio buffer.
         this.mixer.accumulate(0, this.cpu.tStates - before);
         this.mixer.generateSamples(this.audio, null, false);
       }
-      // Stop on the instruction that tripped a memory watchpoint.
-      if (watchActive && this.memWatchHit !== null) {
+      // Stop on the instruction that tripped a memory watchpoint, with the
+      // frame open.
+      if (stopped) {
+        this.midFrame = true;
         this.drawFrame();
         return;
       }

@@ -337,6 +337,8 @@ export function applyCpcSna(data: Uint8Array, m: CpcMachine): void {
   checkSignature(data);
   const version = data[0x10];
   const cpu = m.cpu;
+  // The snapshot replaces whatever frame a debugger stop left part-way.
+  m.dropFrameInProgress();
 
   // Z80 registers (0x11–0x2D).
   cpu.f = data[0x11];  cpu.a = data[0x12];
