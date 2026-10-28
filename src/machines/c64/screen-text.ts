@@ -11,19 +11,11 @@
  * for text.
  */
 
+import { c64TextChar } from '@/ocr/c64.ts';
 import type { C64Memory } from './memory.ts';
 
-const PUNCT = '@ABCDEFGHIJKLMNOPQRSTUVWXYZ[£]^_ !"#$%&\'()*+,-./0123456789:;<=>?';
-
 function screenChar(code: number, lower: boolean): string {
-  const c = code & 0x7F;
-  if (c < 64) {
-    if (lower && c >= 1 && c <= 26) return String.fromCharCode(0x60 + c);
-    return PUNCT[c];
-  }
-  if (lower && c >= 65 && c <= 90) return String.fromCharCode(c);
-  if (c === 96) return ' ';   // shifted space
-  return '#';
+  return c64TextChar(code, lower) ?? '#';
 }
 
 /** The 40×25 text screen, trailing blanks and blank lines at the end removed.

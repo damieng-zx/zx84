@@ -8,7 +8,9 @@
  *
  * `.t64` and `.prg` are files rather than recordings, so they go straight
  * into memory the way LOAD leaves them (BASIC's pointers set) instead of
- * through the tape port.
+ * through the tape port. They are also put on the Datasette as a KERNAL
+ * recording of their programs, rewound with PLAY up, so the Tape pane names
+ * them and a later LOAD finds them again.
  */
 
 import type {
@@ -31,12 +33,20 @@ export class C64MediaService implements MediaService {
   accepts(): MediaTypeDescriptor[] {
     return [
       { ext: '.tap', target: 'tape' },
-      // Programs go into memory, not onto the cassette, so the tape pane and
-      // the persisted tape are left alone.
-      { ext: '.t64', target: 'program' },
-      { ext: '.prg', target: 'program' },
+      // Programs go into memory and also onto the cassette (as a recording of
+      // them), so the Tape pane names them and LOAD finds them.
+      { ext: '.t64', target: 'tape' },
+      { ext: '.prg', target: 'tape' },
       { ext: C64_STATE.ext, target: 'snapshot' },
     ];
+  }
+
+  /** Mount the programs as a tape, after the machine has been reset for them
+   *  (a reset leaves the deck alone, but a program may not be taped at all). */
+  private putOnTape(data: Uint8Array, name: string): void {
+    try {
+      this.tape.mount(data, name);
+    } catch { /* the program still runs; there is just no tape to show */ }
   }
 
   async mount(data: Uint8Array, filename: string, _target?: MediaTargetId): Promise<MountResult> {
@@ -62,8 +72,9 @@ export class C64MediaService implements MediaService {
       const prog = programs.find(p => p.data.length > 0);
       if (!prog) return { ok: false, message: `${name} has no programs in it` };
       this.m.injectProgram(prog, true);
+      this.putOnTape(data, name);
       const more = programs.length > 1 ? ` (first of ${programs.length})` : '';
-      return { ok: true, target: 'program', message: `Loaded "${prog.name || name}"${more}` };
+      return { ok: true, target: 'tape', message: `Loaded "${prog.name || name}"${more}` };
     }
 
     if (/\.prg$/i.test(name)) {
@@ -74,7 +85,8 @@ export class C64MediaService implements MediaService {
         return { ok: false, message: e instanceof Error ? e.message : String(e) };
       }
       this.m.injectProgram(prog, true);
-      return { ok: true, target: 'program', message: `Loaded ${name}` };
+      this.putOnTape(data, name);
+      return { ok: true, target: 'tape', message: `Loaded ${name}` };
     }
 
     if (name.toLowerCase().endsWith(C64_STATE.ext)) {

@@ -216,6 +216,38 @@ describe.skipIf(!basic || !kernal || !chargen)('C64 with the Commodore ROMs', ()
     expect(m.ocrScreenForMcp()).toMatch(/BYTES FREE\n\nREADY\.\nRUN\nB\n\nREADY\.$/);
   });
 
+  // 10 PRINT "B", as a .prg.
+  const bPrg = Uint8Array.from([0x01, 0x08, 0x0A, 0x08, 0x0A, 0x00, 0x99, 0x22, 0x42, 0x22, 0x00, 0x00, 0x00]);
+
+  it('puts a dropped program on the tape, where the KERNAL can LOAD it again', { timeout: 60_000 }, async () => {
+    const m = realC64();
+    const r = await m.services.media.mount(bPrg, 'b.prg');
+    expect(r).toMatchObject({ ok: true, target: 'tape' });
+    const tape = m.services.tape;
+    expect(tape.loaded).toBe(true);
+    expect(tape.name).toBe('b.prg');
+    expect(tape.blocks.map(b => b.label)).toEqual(['"B"', 'Data (11 bytes)']);
+    for (let f = 0; f < 200; f++) m.tick();
+    expect(m.ocrScreenForMcp()).toMatch(/RUN\nB\n\nREADY\.$/);
+    expect(m.tape.playing, 'PLAY is still up until a program wants the tape').toBe(false);
+
+    typeText(m, 'NEW\nLOAD\n');
+    expect(runUntilReady(m, 4000)).toBeLessThan(4000);
+    expect(m.ocrScreenForMcp()).toContain('FOUND B');
+    typeText(m, 'LIST\n');
+    for (let f = 0; f < 20; f++) m.tick();
+    expect(m.ocrScreenForMcp()).toContain('10 PRINT"B"');   // LIST drops the space
+  });
+
+  it('restores a persisted .prg as a tape without starting it', async () => {
+    const m = realC64();
+    expect(await m.services.tape.mountBytes(bPrg, 'b.prg')).toBe(true);
+    expect(m.services.tape.name).toBe('b.prg');
+    expect(m.services.tape.blocks.map(b => b.label)).toEqual(['"B"', 'Data (11 bytes)']);
+    for (let f = 0; f < 100; f++) m.tick();
+    expect(m.ocrScreenForMcp()).not.toContain('RUN');
+  });
+
   it('loads back what it saved to tape, through the KERNAL both ways', { timeout: 60_000 }, async () => {
     const m = realC64();
     typeText(m, '10 PRINT "FROM TAPE"\nSAVE "T"\n');

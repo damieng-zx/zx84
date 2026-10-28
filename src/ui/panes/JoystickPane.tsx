@@ -138,10 +138,13 @@ function JoyColumn(props: { playerIdx: number; label: string }) {
 
   // The setting is shared by every machine, so it can hold an interface this
   // one does not offer (the Spectrum's Kempston on a machine with its own
-  // ports); the machine then takes its first type, and so does the selector.
+  // ports); the machine then gives each player the interface at their own
+  // position in its list (player 1 the first, player 2 the second), and so
+  // does the selector.
   const shownSel = (): string => {
     const v = joySel()();
-    return v === 'none' || joystickTypes().some(t => t.id === v) ? v : joystickTypes()[0]?.id ?? 'none';
+    if (v === 'none' || joystickTypes().some(t => t.id === v)) return v;
+    return (joystickTypes()[props.playerIdx] ?? joystickTypes()[0])?.id ?? 'none';
   };
 
   return (

@@ -31,11 +31,13 @@ const C64_UI: MachineUiCapabilities = {
   accuracy: false,
   builtinDisk: false,
   // Two control ports on CIA 1; each player picks the port its stick is in.
+  // Player 1 starts in port 1 and player 2 in port 2 (the Nth type is the
+  // Nth player's default, see JoystickPane).
   joystick: true,
   fixedJoystick: false,
   joystickTypes: [
-    { id: C64_JOY_PORT2, label: 'Control port 2' },
     { id: C64_JOY_PORT1, label: 'Control port 1' },
+    { id: C64_JOY_PORT2, label: 'Control port 2' },
   ],
   joystickFireButtons: 1,
   mouseTypes: [],
@@ -45,7 +47,7 @@ const C64_UI: MachineUiCapabilities = {
   beeper: false,
   soundChip: 'SID',
   psgControls: [],
-  statusLeds: ['kbd', 'load', 'chip'],
+  statusLeds: ['kbd', 'load', 'chip', 'text'],
   keyboardBus: 'matrix',
   tape: 'deck',
   tapeSound: false,

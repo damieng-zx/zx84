@@ -48,8 +48,10 @@ import {
 import { c64Descriptor } from './descriptor.ts';
 import { createC64Services, type C64Services } from './services/index.ts';
 import { c64ScreenText } from './screen-text.ts';
+import { c64OcrGrid, type C64OcrResult } from '@/ocr/c64.ts';
+import { C64_PALETTE } from './palette.ts';
 import {
-  C64_BASIC_SIZE, C64_BORDER_LEFT, C64_BORDER_TOP, C64_CHARGEN_SIZE, C64_CPU_CLOCK,
+  C64_ACTIVE_HEIGHT, C64_ACTIVE_WIDTH, C64_BASIC_SIZE, C64_BORDER_LEFT, C64_BORDER_TOP, C64_CHARGEN_SIZE, C64_CPU_CLOCK,
   C64_CYCLES_PER_FRAME, C64_CYCLES_PER_LINE, C64_KERNAL_SIZE, C64_LINES_PER_FRAME,
   C64_SCREEN_HEIGHT, C64_SCREEN_WIDTH,
 } from './constants.ts';
@@ -684,6 +686,53 @@ export class C64Machine extends BaseMachine implements Machine {
   /** The text screen as the VIC-II shows it (text modes only). */
   ocrScreenForMcp(_mode?: string): string {
     return c64ScreenText(this.memory, this.vic.regs);
+  }
+
+  /** The 40x25 TEXT-overlay grid over the character screen. */
+  ocrScreenStyled(): C64OcrResult {
+    const mem = this.memory;
+    return c64OcrGrid({
+      regs: this.vic.regs,
+      chargen: mem.chargen,
+      palette: C64_PALETTE,
+      vicRead: a => mem.vicRead(a),
+      colour: i => mem.colorRam[i],
+    });
+  }
+
+  /**
+   * Where the character screen sits in the frame buffer: the 320x200 window,
+   * moved by the scroll registers (the first text row starts YSCROLL lines
+   * below raster line 48, the first column XSCROLL pixels in).
+   */
+  get textField(): { x: number; y: number; width: number; height: number } {
+    const regs = this.vic.regs;
+    return {
+      x: C64_BORDER_LEFT + (regs[0x16] & 7),
+      y: C64_BORDER_TOP - 3 + (regs[0x11] & 7),
+      width: C64_ACTIVE_WIDTH,
+      height: C64_ACTIVE_HEIGHT,
+    };
+  }
+
+  /** Paint the overlay's matched cells out of the frame, each in its `paper`. */
+  blankCells(mask: readonly boolean[], paper: readonly number[]): void {
+    const px = this.vic.pixels;
+    const field = this.textField;
+    for (let row = 0; row < 25; row++) {
+      const top = field.y + row * 8;
+      if (top + 8 > C64_SCREEN_HEIGHT) break;
+      for (let col = 0; col < 40; col++) {
+        if (!mask[row * 40 + col]) continue;
+        const left = field.x + col * 8;
+        if (left + 8 > C64_SCREEN_WIDTH) continue;
+        const colour = C64_PALETTE[paper[row * 40 + col] & 0x0F];
+        for (let y = 0; y < 8; y++) {
+          const base = (top + y) * C64_SCREEN_WIDTH + left;
+          px.fill(colour, base, base + 8);
+        }
+      }
+    }
   }
 
   // ── Snapshots (.c64state) ────────────────────────────────────────────────

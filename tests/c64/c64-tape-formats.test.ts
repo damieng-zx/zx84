@@ -12,7 +12,8 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  decodeKernalBytes, encodeC64Tap, halvesToPulses, isC64Tap, parseC64Tap, readC64TapPulses,
+  decodeKernalBytes, encodeC64Tap, encodeKernalTap, halvesToPulses, isC64Tap, parseC64Tap,
+  readC64TapPulses,
 } from '@/media/tape/c64-tap.ts';
 import { isT64, parsePrg, parseT64 } from '@/media/tape/t64.ts';
 import { TAPE_REF_HZ, type CswBlock } from '@/media/tape/tap.ts';
@@ -102,6 +103,45 @@ describe('C64 .tap', () => {
     const tape = parseC64Tap(tapFile(1, body));
     expect(tape.files).toEqual([{ type: 3, name: 'GAME', start: 0xC000, end: 0xC134 }]);
     expect((tape.blocks[0] as CswBlock).label).toBe('"GAME"');
+  });
+});
+
+describe('C64 KERNAL tape writer', () => {
+  const labels = (file: Uint8Array): (string | undefined)[] =>
+    parseC64Tap(file).blocks.map(b => (b as CswBlock).label);
+
+  it('writes a program as a header block then a data block', () => {
+    const file = encodeKernalTap([{ name: 'game', start: 0x0801, data: Uint8Array.from([1, 2, 3, 4, 5]) }]);
+    expect(isC64Tap(file)).toBe(true);
+    expect(parseC64Tap(file).files).toEqual([{ type: 1, name: 'GAME', start: 0x0801, end: 0x0806 }]);
+    expect(labels(file)).toEqual(['"GAME"', 'Data (5 bytes)']);
+  });
+
+  it('marks a program anywhere but $0801 as fixed in place, and cuts long names', () => {
+    const file = encodeKernalTap([{ name: 'A VERY LONG PROGRAM NAME', start: 0xC000, data: new Uint8Array(300) }]);
+    expect(parseC64Tap(file).files).toEqual([
+      { type: 3, name: 'A VERY LONG PROG', start: 0xC000, end: 0xC12C },
+    ]);
+    expect(labels(file)[1]).toBe('Data (300 bytes)');
+  });
+
+  it('writes every program in turn and skips empty ones', () => {
+    const file = encodeKernalTap([
+      { name: 'ONE', start: 0x0801, data: Uint8Array.of(1) },
+      { name: 'NONE', start: 0x0801, data: new Uint8Array(0) },
+      { name: 'TWO', start: 0x0801, data: Uint8Array.of(2, 3) },
+    ]);
+    expect(labels(file)).toEqual(['"ONE"', 'Data (1 bytes)', '"TWO"', 'Data (2 bytes)']);
+  });
+
+  it('ends each copy with the XOR of its payload', () => {
+    const data = Uint8Array.of(0x12, 0x34, 0x56);
+    const { pulses } = readC64TapPulses(encodeKernalTap([{ name: 'X', start: 0x0801, data }]));
+    // The data block follows the header block's gap.
+    const gap = Array.from(pulses).findIndex(p => p >= 20_000);
+    const bytes = decodeKernalBytes(pulses.subarray(gap + 1), 0x10000);
+    expect(bytes.slice(0, 9)).toEqual([0x89, 0x88, 0x87, 0x86, 0x85, 0x84, 0x83, 0x82, 0x81]);
+    expect(bytes.slice(9)).toEqual([0x12, 0x34, 0x56, 0x12 ^ 0x34 ^ 0x56]);
   });
 });
 

@@ -230,6 +230,91 @@ export function encodeC64Tap(pulses: ArrayLike<number>): Uint8Array {
   return out;
 }
 
+/** A program to put on a tape: its name, load address and bytes. */
+export interface KernalFileInput {
+  readonly name: string;
+  readonly start: number;
+  readonly data: Uint8Array;
+}
+
+/** The KERNAL's pulse lengths in cycles: short, medium and long. */
+const PULSE_SHORT = 0x30 * 8;
+const PULSE_MEDIUM = 0x42 * 8;
+const PULSE_LONG = 0x56 * 8;
+/** Leader before a block's first copy, and between its two copies. */
+const LEADER_PULSES = 3000;
+const REPEAT_LEADER_PULSES = 79;
+/** Silence after a block, which the tape pane splits blocks at. */
+const BLOCK_GAP = 80_000;
+
+/** A name as the 16 PETSCII bytes of a header, padded with spaces. */
+function petsciiName(name: string): number[] {
+  const out: number[] = [];
+  for (const ch of name.slice(0, 16)) {
+    const c = ch.toUpperCase().charCodeAt(0);
+    out.push(c >= 0x20 && c <= 0x5F ? c : 0x3F);
+  }
+  while (out.length < 16) out.push(0x20);
+  return out;
+}
+
+/** One KERNAL byte: the long-medium marker, eight bits LSB first, odd parity. */
+function pushKernalByte(out: number[], byte: number): void {
+  out.push(PULSE_LONG, PULSE_MEDIUM);
+  let ones = 0;
+  for (let bit = 0; bit < 8; bit++) {
+    const one = ((byte >> bit) & 1) === 1;
+    if (one) ones++;
+    out.push(...(one ? [PULSE_MEDIUM, PULSE_SHORT] : [PULSE_SHORT, PULSE_MEDIUM]));
+  }
+  out.push(...((ones & 1) === 0 ? [PULSE_MEDIUM, PULSE_SHORT] : [PULSE_SHORT, PULSE_MEDIUM]));
+}
+
+/** One copy of a block: the sync countdown, the payload, its XOR checksum and
+ *  the end-of-data marker. `first` counts down from $89, the repeat from $09. */
+function pushKernalCopy(out: number[], payload: ArrayLike<number>, first: boolean): void {
+  const top = first ? 0x89 : 0x09;
+  for (let k = 0; k < 9; k++) pushKernalByte(out, top - k);
+  let check = 0;
+  for (let i = 0; i < payload.length; i++) {
+    pushKernalByte(out, payload[i]);
+    check ^= payload[i];
+  }
+  pushKernalByte(out, check);
+  out.push(PULSE_LONG, PULSE_SHORT);
+}
+
+/** A block as the KERNAL writes it: leader, first copy, short leader, repeat. */
+function pushKernalBlock(out: number[], payload: ArrayLike<number>): void {
+  for (let i = 0; i < LEADER_PULSES; i++) out.push(PULSE_SHORT);
+  pushKernalCopy(out, payload, true);
+  for (let i = 0; i < REPEAT_LEADER_PULSES; i++) out.push(PULSE_SHORT);
+  pushKernalCopy(out, payload, false);
+  out.push(BLOCK_GAP);
+}
+
+/**
+ * A .tap holding `files` as the KERNAL would have SAVEd them: for each, a
+ * 192-byte header block (type, start and end address, 16-character name) then
+ * a data block with the program. A program at $0801 is a relocatable one
+ * (type 1) and any other is fixed in place (type 3). Empty files are skipped.
+ */
+export function encodeKernalTap(files: readonly KernalFileInput[]): Uint8Array {
+  const pulses: number[] = [];
+  for (const file of files) {
+    if (file.data.length === 0) continue;
+    const end = (file.start + file.data.length) & 0xFFFF;
+    const header = new Array<number>(192).fill(0x20);
+    header[0] = file.start === 0x0801 ? 1 : 3;
+    header[1] = file.start & 0xFF; header[2] = (file.start >> 8) & 0xFF;
+    header[3] = end & 0xFF; header[4] = end >> 8;
+    petsciiName(file.name).forEach((c, k) => { header[5 + k] = c; });
+    pushKernalBlock(pulses, header);
+    pushKernalBlock(pulses, file.data);
+  }
+  return encodeC64Tap(pulses);
+}
+
 /** Full pulses from the half-waves a recorder timed on the write line: each
  *  pair of edges is one pulse. */
 export function halvesToPulses(halves: ArrayLike<number>): Uint32Array {

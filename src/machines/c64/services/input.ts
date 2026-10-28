@@ -16,10 +16,11 @@ export class C64InputService implements InputService {
   readonly mice = null;
   readonly joystick: JoystickInput = {
     // Any other type (the shared setting can still hold the Spectrum's
-    // Kempston) is the first offered, port 2.
-    press: (dir: string, pressed: boolean, mode: string) => {
+    // Kempston) is the player's own port: player 1 in port 1, player 2 in 2.
+    press: (dir: string, pressed: boolean, mode: string, player: number) => {
       if (mode === 'none') return;
-      this.m.joystickPress(dir, pressed, mode === C64_JOY_PORT1 ? 1 : 2);
+      const port = mode === C64_JOY_PORT1 ? 1 : mode === C64_JOY_PORT2 ? 2 : player === 0 ? 1 : 2;
+      this.m.joystickPress(dir, pressed, port);
     },
   };
 

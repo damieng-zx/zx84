@@ -12,8 +12,9 @@ import type { TapeBlockInfo, TapeService, TapeStashState } from '@/machines/mach
 import type { TapeBlock } from '@/media/tape/tap.ts';
 import { tapeBlockInfo } from '@/machines/shared/tape-block-info.ts';
 import {
-  encodeC64Tap, halvesToPulses, parseC64Tap, type C64TapeFile,
+  encodeC64Tap, encodeKernalTap, halvesToPulses, isC64Tap, parseC64Tap, type C64TapeFile,
 } from '@/media/tape/c64-tap.ts';
+import { isT64, parsePrg, parseT64 } from '@/media/tape/t64.ts';
 import type { C64Machine } from '../c64-machine.ts';
 
 export class C64TapeService implements TapeService {
@@ -33,10 +34,30 @@ export class C64TapeService implements TapeService {
   /** The KERNAL files found on the mounted tape. */
   get files(): readonly C64TapeFile[] { return this._files; }
 
-  /** Mount a .tap at its start with PLAY up; it goes down when a program
-   *  waits for it (see `C64Machine.armAutoPlay`), and the motor moves it. */
+  /**
+   * What `data` is as a .tap: a .tap itself, or a .t64 / .prg, which stand
+   * for a recording of their programs as the KERNAL would have SAVEd them (so
+   * they list in the Tape pane, and LOAD finds them). Null when it is none.
+   */
+  private asTap(data: Uint8Array, name: string): Uint8Array | null {
+    if (isC64Tap(data)) return data;
+    if (isT64(data)) {
+      const programs = parseT64(data).filter(p => p.data.length > 0);
+      return programs.length > 0 ? encodeKernalTap(programs) : null;
+    }
+    if (/\.prg$/i.test(name)) {
+      return encodeKernalTap([parsePrg(data, name.replace(/^.*[\\/]/, '').replace(/\.prg$/i, ''))]);
+    }
+    return null;
+  }
+
+  /** Mount a .tap (or the recording of a .t64 / .prg) at its start with PLAY
+   *  up; it goes down when a program waits for it (see
+   *  `C64Machine.armAutoPlay`), and the motor moves it. */
   mount(data: Uint8Array, name: string): boolean {
-    const tape = parseC64Tap(data);
+    const tap = this.asTap(data, name);
+    if (!tap) return false;
+    const tape = parseC64Tap(tap);
     if (tape.pulses.length === 0) return false;
     const deck = this.m.tape;
     deck.stopPlayback();
