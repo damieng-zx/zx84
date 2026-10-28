@@ -136,11 +136,19 @@ function JoyColumn(props: { playerIdx: number; label: string }) {
     }
   };
 
+  // The setting is shared by every machine, so it can hold an interface this
+  // one does not offer (the Spectrum's Kempston on a machine with its own
+  // ports); the machine then takes its first type, and so does the selector.
+  const shownSel = (): string => {
+    const v = joySel()();
+    return v === 'none' || joystickTypes().some(t => t.id === v) ? v : joystickTypes()[0]?.id ?? 'none';
+  };
+
   return (
     <div class="joy-column">
       <Show when={!isFixedJoystick()} fallback={<label>{props.label}</label>}>
         <label>{props.label}
-          <select id={joyKey()} value={joySel()()} onChange={(e) => {
+          <select id={joyKey()} value={shownSel()} onChange={(e) => {
             setJoySel()((e.target as HTMLSelectElement).value);
             persistSetting(joyKey(), joySel()());
             applyDisplaySettings(); // tell the machine which interface is fitted

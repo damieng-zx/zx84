@@ -112,7 +112,7 @@ export function register(server: McpServer): void {
       // Spectrum symbol-shift chord that would land on the wrong key. The MTX
       // has always worked this way; the Enterprise's input service also takes
       // a bare character and presses its own keys (with SHIFT) for it.
-      const charIntent = spec.kind === 'mtx' || spec.kind === 'enterprise';
+      const charIntent = spec.kind === 'mtx' || spec.kind === 'enterprise' || spec.kind === 'c64';
 
       // Parse the string into actions: either code-based key names, or (for
       // character-intent machines) a literal character.

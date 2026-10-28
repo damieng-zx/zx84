@@ -1,0 +1,40 @@
+/**
+ * The C64's service surface: the Datasette, programs and snapshots through
+ * media, one system ROM, and the 6502 debug family. No disk drive yet.
+ */
+
+import type { MachineServices } from '@/machines/machine.ts';
+import { M6502DebugService } from '@/debug/m6502/service.ts';
+import { NativeSnapshotService } from '@/machines/shared/native-state.ts';
+import type { C64Machine } from '../c64-machine.ts';
+import { C64_STATE } from '../snapshots/c64-state.ts';
+import { C64FrameProbe } from './frame-probe.ts';
+import { C64InputService } from './input.ts';
+import { C64MediaService } from './media.ts';
+import { C64RomService } from './roms.ts';
+import { C64TapeService } from './tape.ts';
+
+export interface C64Services extends MachineServices {
+  readonly media: C64MediaService;
+  readonly roms: C64RomService;
+  readonly tape: C64TapeService;
+  readonly disks: null;
+  readonly snapshots: NativeSnapshotService;
+  readonly input: C64InputService;
+  readonly probe: C64FrameProbe;
+}
+
+export function createC64Services(m: C64Machine): C64Services {
+  const tape = new C64TapeService(m);
+  const snapshots = new NativeSnapshotService(C64_STATE, m, () => m.host);
+  return {
+    media: new C64MediaService(m, tape, snapshots),
+    roms: new C64RomService(m, () => m.host),
+    tape,
+    disks: null,
+    snapshots,
+    input: new C64InputService(m),
+    probe: new C64FrameProbe(m),
+    debug: new M6502DebugService(m),
+  };
+}

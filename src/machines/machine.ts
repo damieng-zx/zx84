@@ -25,7 +25,7 @@ import type { MachineModel } from '@/models.ts';
 import type { OcrGridName, FontSource } from '@/ocr/ocr.ts';
 import type { BasicListingLine, BasicVariable } from '@/basic/types.ts';
 
-export type MachineKind = 'spectrum' | 'cpc' | 'einstein' | 'msx' | 'zx8x' | 'mtx' | 'lynx' | 'jupiter-ace' | 'pcw' | 'bbc' | 'electron' | 'apple2' | 'apple1' | 'enterprise' | 'atari';
+export type MachineKind = 'spectrum' | 'cpc' | 'einstein' | 'msx' | 'zx8x' | 'mtx' | 'lynx' | 'jupiter-ace' | 'pcw' | 'bbc' | 'electron' | 'apple2' | 'apple1' | 'enterprise' | 'atari' | 'c64';
 
 /** Keyboard/ROM locale for international machine variants.
  *  'uk' = default (English, no locale-specific ROM/keyboard). */
@@ -378,6 +378,7 @@ export type SaveMenuItem =
   | 'snapshot-elkstate'
   | 'snapshot-a1state'
   | 'snapshot-a2state'
+  | 'snapshot-c64state'
   | 'screenshot-png'
   | 'screen-scr'
   | 'ram-bin';
