@@ -154,6 +154,12 @@ These use the active +3 or CPC uPD765A where fitted.
 | --- | --- | --- |
 | `msxdisk` | `action`: `on`, `off`, `status` | Fit or remove the floppy disk interface (WD2793 + Disk BASIC ROM in slot 3, drives A:/B:). Fitting loads the ROM from the cache/CDN and resets so the BIOS finds it. |
 
+### Commodore 64 Peripherals
+
+| Tool | Parameters | Description |
+| --- | --- | --- |
+| `c64drive` | `action`: `on`, `off`, `status` | Fit or remove the 1541 disk drive on the serial bus (fitted by default; the DOS ROM is fetched from the cache/CDN). Mount `.d64`/`.g64` with `load`, list with `LOAD"$",8`; `chip_state` chip `drive` shows its CPU, head and VIAs. |
+
 ### Memotech MTX Peripherals
 
 | Tool | Parameters | Description |

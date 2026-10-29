@@ -35,6 +35,7 @@ import { M6502Trace } from '@/debug/m6502/trace.ts';
 import { TapeDeck, TAPE_REF_HZ } from '@/media/tape/tap.ts';
 import { PulseRecorder } from '@/media/tape/pulse-recorder.ts';
 import type { C64Program } from '@/media/tape/t64.ts';
+import type { ChipSection } from '@/debug/chip-state.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type {
   AuxRomRequest, BorderMode, Machine, MachineDescriptor, MachineHost, MachineKind, SettingsView,
@@ -46,6 +47,7 @@ import {
   EV_LINE_END, EV_SPRITE_DMA, EV_SPRITE_MCB, EV_VC, VicII,
 } from './vic-ii.ts';
 import { c64Descriptor } from './descriptor.ts';
+import { c64Chips } from './chip-dump.ts';
 import { createC64Services, type C64Services } from './services/index.ts';
 import { c64ScreenText } from './screen-text.ts';
 import { c64OcrGrid, type C64OcrResult } from '@/ocr/c64.ts';
@@ -750,6 +752,11 @@ export class C64Machine extends BaseMachine implements Machine {
       default: return null;
     }
   }
+
+  // ── Chip state ───────────────────────────────────────────────────────────
+
+  /** The custom chips (and the drive), for the debugger's `chip_state`. */
+  chips(): readonly ChipSection[] { return c64Chips(this); }
 
   // ── Screen text ──────────────────────────────────────────────────────────
 

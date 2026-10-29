@@ -19,10 +19,7 @@ import {
 } from './constants.ts';
 
 const C64_UI: MachineUiCapabilities = {
-  hiddenPanes: [
-    'microdrive-panel', 'mouse-panel', 'sysvar-panel', 'font-panel',
-    'basic-panel', 'basic-vars-panel',
-  ],
+  hiddenPanes: ['microdrive-panel', 'mouse-panel', 'sysvar-panel', 'font-panel'],
   memoryLayout: true,
   trace: true,
   traceModes: ['full', 'portio'],

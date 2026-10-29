@@ -6,6 +6,7 @@ import type {
   FrameIndicators, FramePaneProvider, FrameProbe, MemoryMapSnapshot, TranscribeDriver,
 } from '@/machines/machine.ts';
 import type { OcrGridName } from '@/ocr/ocr.ts';
+import { parseC64Basic, parseC64BasicVariables } from '@/basic/c64-basic-parser.ts';
 import { hex8 } from '@/utils/hex.ts';
 import type { C64Machine } from '../c64-machine.ts';
 
@@ -57,7 +58,12 @@ export class C64FrameProbe implements FrameProbe {
 
   constructor(private readonly m: C64Machine) {
     this.transcribe = new C64TranscribeDriver(m);
-    this.panes = { memoryMap: () => c64MemoryMap(this.m) };
+    this.panes = {
+      memoryMap: () => c64MemoryMap(this.m),
+      // BASIC V2 keeps its program and variable tables in the 64K of RAM.
+      basicListing: () => parseC64Basic(this.m.memory.ram),
+      basicVars: () => parseC64BasicVariables(this.m.memory.ram),
+    };
   }
 
   sample(out: FrameIndicators): void {

@@ -4,9 +4,10 @@ import { variantForModel, variantLabel } from '../../src/machines/spectrum/perip
 import { isPlusDCapable, isBetaDiskCapable, isUspeechCapable } from '../../src/models.ts';
 import { hex8 as h8, hex16 as h16 } from '../../src/utils/hex.ts';
 import { state } from '../state.ts';
-import { activeMsx, activeMtx, activeSpectrum } from '../concrete.ts';
+import { activeC64, activeMsx, activeMtx, activeSpectrum } from '../concrete.ts';
 import { text } from '../format.ts';
-import { fetchMFRom, fetchVTXRom, fetchPlusDRom, fetchBetaDiskRom, fetchMsxDiskRom, fetchUspeechRom, fetchSp0256Rom } from '../rom-fetch.ts';
+import { C64_DRIVE_ROM_SOURCE } from '../../src/machines/c64/models.ts';
+import { fetchRomSource, fetchMFRom, fetchVTXRom, fetchPlusDRom, fetchBetaDiskRom, fetchMsxDiskRom, fetchUspeechRom, fetchSp0256Rom } from '../rom-fetch.ts';
 
 export function register(server: McpServer): void {
   server.registerTool(
@@ -257,6 +258,42 @@ export function register(server: McpServer): void {
         `Enter TR-DOS with: RANDOMIZE USR 15616\n` +
         `pagedIn=${bd.pagedIn}  PC=${h16(spec.cpu.pc)}`
       );
+    },
+  );
+
+  server.registerTool(
+    'c64drive',
+    {
+      description: 'Fit, remove, or inspect the Commodore 1541 disk drive on the serial bus of the 64 (device 8: its own 6502 running the DOS ROM, a 6522 pair, GCR heads). It is fitted by default. Mount .d64/.g64 disks with the load tool, LOAD"$",8 to list one, and read the drive with chip_state chip "drive".',
+      inputSchema: {
+        action: z.enum(['on', 'off', 'status']).describe('Action to perform'),
+      },
+    },
+    async ({ action }) => {
+      const c64 = activeC64();
+      if (!c64) return text('The 1541 disk drive is a Commodore 64 peripheral.');
+      const describe = (): string => {
+        const d = c64.drive;
+        if (!d) return 'C64 1541 drive: OFF';
+        return `C64 1541 drive: ON  dosRom=${d.hasRom ? 'loaded' : 'MISSING'}  PC=${h16(d.cpu.pc)}
+` +
+          `disk: ${d.disk ? `${d.mediaName || 'unnamed'}${d.writeProtected ? ' (write protected)' : ''}${d.dirty ? ' (modified)' : ''}` : 'none'}
+` +
+          `track ${d.currentTrack}  motor ${d.motorOn ? 'on' : 'off'}  LED ${d.ledOn ? 'on' : 'off'}`;
+      };
+      if (action === 'status') return text(describe());
+      if (action === 'off') {
+        c64.installDrive(null);
+        return text('1541 removed from the serial bus.');
+      }
+      if (!c64.drive?.hasRom) {
+        try {
+          c64.installDrive(await fetchRomSource(C64_DRIVE_ROM_SOURCE));
+        } catch (err) {
+          return text(`Failed to load the 1541 DOS ROM: ${err}`);
+        }
+      }
+      return text(describe());
     },
   );
 
