@@ -13,6 +13,12 @@
  *                and RAM when LORAM and HIRAM are both low
  *   $E000-$FFFF  KERNAL when HIRAM is high, else RAM
  *
+ * A cartridge pulls EXROM and/or GAME low and the PLA then maps its ROML at
+ * $8000 (when LORAM and HIRAM are high), its ROMH over BASIC at $A000 (16K
+ * cartridges, when HIRAM is high), or in Ultimax mode (GAME low, EXROM high)
+ * ROML at $8000 and ROMH at $E000 with the RAM above $1000 gone, whatever the
+ * port says. Writes under a ROM window reach the RAM below it.
+ *
  * Writes always reach RAM, except to I/O when it is mapped in. The VIC-II has
  * its own 16K view, chosen by CIA 2's port A; in its banks 0 and 2 the
  * character ROM appears at $1000-$1FFF.
@@ -21,6 +27,7 @@
 import type { IMachineMemory } from '@/machines/machine.ts';
 import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 import { C64_BASIC_SIZE, C64_CHARGEN_SIZE, C64_KERNAL_SIZE } from './constants.ts';
+import type { C64Cartridge } from './cartridge.ts';
 
 /** I/O handlers the machine installs for $D000-$DFFF. */
 export type IoRead = (addr: number) => number;
@@ -49,6 +56,12 @@ export class C64Memory implements IMachineMemory {
   kernalIn = true;
   ioIn = true;
   charIn = false;
+  /** The cartridge on the expansion port, and what its lines make of the map. */
+  cart: C64Cartridge | null = null;
+  romlIn = false;
+  romhA = false;
+  romhE = false;
+  ultimax = false;
 
   /** VIC-II bank base (0, $4000, $8000 or $C000) and whether its character
    *  ROM window is in view (banks 0 and 2). */
@@ -74,6 +87,25 @@ export class C64Memory implements IMachineMemory {
     this.portDdr = 0;
     this.portData = 0;
     this.portFloat = 0;
+    this.cart?.reset();
+    this.updatePla();
+  }
+
+  /** Power-up of the cartridge, after the CPU's clock has restarted. */
+  resetCartridge(): void {
+    if (!this.cart) return;
+    this.cart.reset();
+    this.updatePla();
+  }
+
+  /** Put a cartridge on the port (null takes it off). */
+  setCartridge(cart: C64Cartridge | null, clock: () => number): void {
+    if (this.cart) this.cart.onLines = null;
+    this.cart = cart;
+    if (cart) {
+      cart.clock = clock;
+      cart.onLines = () => this.updatePla();
+    }
     this.updatePla();
   }
 
@@ -100,7 +132,20 @@ export class C64Memory implements IMachineMemory {
     const loram = (pins & 1) !== 0;
     const hiram = (pins & 2) !== 0;
     const charen = (pins & 4) !== 0;
-    this.basicIn = loram && hiram;
+    const cart = this.cart;
+    const exrom = cart ? cart.lines.exrom : 1;
+    const game = cart ? cart.lines.game : 1;
+    this.ultimax = exrom === 1 && game === 0;
+    if (this.ultimax) {
+      this.romlIn = true; this.romhE = true; this.romhA = false;
+      this.basicIn = false; this.kernalIn = false;
+      this.ioIn = true; this.charIn = false;
+      return;
+    }
+    this.romhE = false;
+    this.romlIn = exrom === 0 && loram && hiram;
+    this.romhA = exrom === 0 && game === 0 && hiram;
+    this.basicIn = loram && hiram && game === 1;
     this.kernalIn = hiram;
     const anyRom = loram || hiram;
     this.ioIn = anyRom && charen;
@@ -129,13 +174,25 @@ export class C64Memory implements IMachineMemory {
         if (addr === 0) return this.portDdr;
         if (addr === 1) { this.portReads++; return this.portPins; }
         return this.ram[addr];
+      case 0x8: case 0x9:
+        if (this.cart !== null) {
+          // The Epyx FastLoad's capacitor decides this by the clock.
+          if (this.cart.dynamicLines) this.updatePla();
+          if (this.romlIn) return this.cart.readRoml(addr & 0x1FFF);
+        }
+        return this.ram[addr];
       case 0xA: case 0xB:
+        if (this.romhA) return this.cart!.readRomh(addr & 0x1FFF);
+        if (this.ultimax) return 0xFF;
         return this.basicIn ? this.basic[addr - 0xA000] : this.ram[addr];
       case 0xD:
         if (this.ioIn) return this.ioRead(addr);
         return this.charIn ? this.chargen[addr - 0xD000] : this.ram[addr];
       case 0xE: case 0xF:
+        if (this.romhE) return this.cart!.readRomh(addr & 0x1FFF);
         return this.kernalIn ? this.kernal[addr - 0xE000] : this.ram[addr];
+      case 0x1: case 0x2: case 0x3: case 0x4: case 0x5: case 0x6: case 0x7: case 0xC:
+        return this.ultimax ? 0xFF : this.ram[addr];
       default:
         return this.ram[addr];
     }
@@ -150,6 +207,8 @@ export class C64Memory implements IMachineMemory {
       return;
     }
     if ((addr >> 12) === 0xD && this.ioIn) { this.ioWrite(addr, v); return; }
+    // Ultimax has no RAM above $1000 and ROM where the KERNAL goes.
+    if (this.ultimax && addr >= 0x1000) return;
     this.ram[addr] = v;
   }
 
@@ -157,6 +216,11 @@ export class C64Memory implements IMachineMemory {
   peekByte(addr: number): number {
     addr &= 0xFFFF;
     if ((addr >> 12) === 0xD && this.ioIn) return this.ioPeek(addr) & 0xFF;
+    if (this.cart?.dynamicLines && ((addr >> 12) === 0x8 || (addr >> 12) === 0x9)) {
+      // A look must not discharge the FastLoad's capacitor.
+      this.updatePla();
+      return this.romlIn ? this.cart.peekRoml(addr & 0x1FFF) : this.ram[addr];
+    }
     return this.readByte(addr);
   }
 
@@ -182,6 +246,8 @@ export class C64Memory implements IMachineMemory {
   /** A byte of the VIC-II's 16K view. */
   vicRead(addr14: number): number {
     const a = addr14 & 0x3FFF;
+    // In Ultimax mode the VIC-II sees the ROMH at $3000-$3FFF of every bank.
+    if (this.ultimax && (a & 0x3000) === 0x3000) return this.cart!.readRomh(0x1000 | (a & 0x0FFF));
     if (this.vicCharRom && (a & 0x3000) === 0x1000) return this.chargen[a & 0x0FFF];
     return this.ram[this.vicBase | a];
   }

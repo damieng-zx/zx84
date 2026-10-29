@@ -1,14 +1,14 @@
 # Commodore 64
 
-Commodore's 1982 6510-based home computer, the best-selling single computer model of all time. zx84 emulates the PAL machine with a cycle-stolen VIC-II, the 6581 SID, both CIAs, the Datasette and a drive-level 1541 disk drive that runs the real DOS ROM.
+Commodore's 1982 6510-based home computer, the best-selling single computer model of all time. zx84 emulates the PAL machine and the NTSC one with a cycle-stolen VIC-II, the 6581 SID, both CIAs, the Datasette, a drive-level 1541 disk drive that runs the real DOS ROM, cartridges and the 1351 mouse.
 
 | | |
 | --- | --- |
 | **Manufacturer** | Commodore Business Machines |
 | **Released** | 1982 |
-| **CPU** | MOS 6510 (a 6502 with an I/O port at `$00`/`$01`) — 0.985248 MHz (PAL) |
+| **CPU** | MOS 6510 (a 6502 with an I/O port at `$00`/`$01`) — 0.985248 MHz (PAL) or 1.022727 MHz (NTSC) |
 | **zx84 kind** | `c64` — [`src/machines/c64/`](../../src/machines/c64/) |
-| **Model ids** | `c64` — the MCP `model` target and `?model=` value |
+| **Model ids** | `c64` — the MCP `model` target and `?model=` value. The TV standard is the locale, as on the Atari: the model menu offers PAL and NTSC, and the MCP `model` tool takes `tv` |
 | **Accuracy** | Instruction-level CPU; the VIC-II is drawn lazily one cycle at a time, and bad-line and sprite DMA hold the CPU at instruction granularity (an instruction overtaken part-way is stretched). CIA timers are advanced arithmetically; register accesses land on their own cycle. No user-selectable accuracy setting |
 | **Status** | Working — boots the real ROMs to BASIC, loads tapes and disks; see Verification |
 
@@ -20,7 +20,8 @@ Commodore's 1982 6510-based home computer, the best-selling single computer mode
 
 | Model | Year | RAM | ROM | Video | Sound | Storage | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Commodore 64 PAL (`c64`) | 1982 | 64 KB + 1 KB colour RAM | 8 KB BASIC V2, 8 KB KERNAL, 4 KB character ROM | 6569 VIC-II, 40 × 25 text, bitmap, multicolour, ECM, 8 sprites | 6581 SID, 3 voices | Datasette, 1541 disk drive (device 8) | PAL only: 312 lines × 63 cycles |
+| Commodore 64 PAL (`c64`) | 1982 | 64 KB + 1 KB colour RAM | 8 KB BASIC V2, 8 KB KERNAL, 4 KB character ROM | 6569 VIC-II, 40 × 25 text, bitmap, multicolour, ECM, 8 sprites | 6581 SID, 3 voices | Datasette, 1541 disk drive (device 8), cartridge, 1351 mouse | 312 lines × 63 cycles, 985,248 Hz, 50.12 Hz |
+| Commodore 64 NTSC (`c64`, locale `us`) | 1982 | As PAL | The same ROMs: the KERNAL tells the two apart by counting raster lines | 6567R8 VIC-II: 263 lines × 65 cycles, 235 lines shown | 6581 SID at 1,022,727 Hz | As PAL | 59.83 Hz. Snapshots remember their standard and refuse the other |
 
 ### ROM sets
 
@@ -40,7 +41,7 @@ Each ROM is a file of its own on the ROM host and has its own socket in the ROM 
 | Part | Models | Status | Notes |
 | --- | --- | --- | --- |
 | MOS 6510 CPU | all | ✅ | [`src/cores/m6502.ts`](../../src/cores/m6502.ts) plus the I/O port and PLA banking in [`memory.ts`](../../src/machines/c64/memory.ts). The read-modify-write dummy write reaches I/O (an `INC $D019` acknowledges the VIC-II) |
-| VIC-II 6569 | all | ◐ | [`vic-ii.ts`](../../src/machines/c64/vic-ii.ts), after Christian Bauer's *The MOS 6567/6569 video controller (VIC-II)*. Standard and multicolour text and bitmap, extended-colour text, sprites (expansion, multicolour, priority, collisions), border flip-flops and the 38/24-line windows, scrolling, raster IRQ. Bad lines hold the CPU for 43 cycles, sprite DMA steals its slots. Light pen is not wired |
+| VIC-II 6569 / 6567R8 | all | ◐ | [`vic-ii.ts`](../../src/machines/c64/vic-ii.ts), after Christian Bauer's *The MOS 6567/6569 video controller (VIC-II)*. Standard and multicolour text and bitmap, extended-colour text, sprites (expansion, multicolour, priority, collisions), border flip-flops and the 38/24-line windows, scrolling, raster IRQ. Bad lines hold the CPU for 43 cycles, sprite DMA steals its slots. The NTSC chip has two more cycles a line; they are placed after the sprite-DMA check, so its sprite fetches and row-counter update fall two cycles later in the line (derived from the line length, not measured against hardware). Light pen is not wired |
 | SID 6581 | all | ◐ | [`src/cores/mos6581.ts`](../../src/cores/mos6581.ts). Three voices with all four waveforms, ADSR with the rate counter's quirks, sync and ring modulation, the state-variable filter modelled on the 6581's measured cutoff curve. POTX/POTY read full scale (nothing connected); no 8580 |
 | CIA 6526 × 2 | all | ✅ | [`src/cores/mos6526.ts`](../../src/cores/mos6526.ts). Both timers (continuous, one-shot, PB6/PB7 output, timer B counting timer A), interrupt control, BCD time of day with alarm, serial register. CIA 1: keyboard matrix, joysticks, cassette FLAG, IRQ. CIA 2: VIC bank, serial bus, NMI |
 | Keyboard | all | ✅ | 8 × 8 matrix scanned through CIA 1 from the host keyboard. RESTORE is not in the matrix: it pulls NMI (host key `PageUp`) |
@@ -56,6 +57,8 @@ Each ROM is a file of its own on the ROM host and has its own socket in the ROM 
 | --- | --- | --- | --- | --- |
 | Datasette (tape) | Tape | all | ✅ | Edge-timed through CIA 1's FLAG input. A mounted tape has PLAY down; the motor (port bit 5) moves it. An empty deck counts as RECORD + PLAY, so `SAVE` just works and the result can be downloaded. Turbo loading follows CIA 1 ICR reads and write-line activity. Dropping a `.prg` or `.t64` also mounts a generated KERNAL-format tape of it, so the Tape pane shows its name and blocks and `LOAD` finds it |
 | Commodore 1541 | Disk | all | ✅ | **Drive-level, not a KERNAL trap.** The drive is its own 6502 at 1 MHz with 2 KB RAM, the DOS ROM and two 6522 VIAs (VIA 1 the serial bus, VIA 2 the disk controller), turning a GCR track under the head at the real speed-zone bit rates, stepper and motor included. It is connected to the 64 through a modelled IEC bus (open-collector CLK/DATA/ATN) and brought up to the 64's clock at every `$DD00` access and at frame end. Fitted by default; the Hardware pane's **1541 disk drive** checkbox removes it (and the ROM pane's 1541 DOS socket with it). One drive, device 8 |
+| Cartridges | Expansion port | all | ✅ | `.crt` files in the ROM pane's Cartridge slot or dropped on the machine. Fitting or ejecting one is a power cycle. EXROM and GAME drive the PLA: 8K (ROML at `$8000`), 16K (ROMH over BASIC at `$A000`) and Ultimax (ROML and ROMH at `$E000`, no RAM above `$1000`, boots from the cartridge's own reset vector). Boards: normal, Simons' BASIC, Ocean type 1, Fun Play / Power Play, Super Games, Epyx FastLoad (the capacitor, timed in CPU cycles), System 3, Dinamic, Zaxxon, Magic Desk and EasyFlash (read only). Other hardware types are refused with their number. Not remembered across a browser reload; snapshots carry the cartridge |
+| 1351 mouse | Input | all | ✅ | Mouse pane, in control port 1 or 2. Position through the SID's POTX/POTY (6-bit counters in bits 1-6, up counting up, read on the port CIA 1 port A bits 6-7 select); the left button is the port's fire line and the right button reads as up. Motion is cut to ±31 a report so a driver can tell the direction of a flick |
 | Joystick | Input | all | ✅ | Control port 1 or 2 per player (Joystick pane) |
 
 **Combination rules:** none; the drive is optional and independent of the tape.
@@ -73,7 +76,8 @@ ZIP archives are unpacked; the first loadable entry is mounted, with a picker wh
 | `.prg` | Program | Datasette | ✅ | — | As `.t64` |
 | `.d64` | Disk | Drive 8 | ✅ | ✅ | 35, 40 or 42 tracks, with or without the trailing error bytes (kept, and read back as the matching disk errors). Saved as `.d64` when every sector can still be read from the GCR, otherwise as `.g64` |
 | `.g64` | Disk | Drive 8 | ✅ | ✅ | `GCR-1541` v0: per-half-track bit streams and speed zones. Odd-length tracks, half tracks and custom speeds survive, so copy protections that depend on them still see them |
-| `.c64state` | Snapshot | Machine | ✅ | ✅ | zx84's own exact save state, including the drive (its CPU, VIAs and the disk) when one is fitted |
+| `.crt` | Cartridge | Expansion port | ✅ | — | See Peripherals for the boards |
+| `.c64state` | Snapshot | Machine | ✅ | ✅ | zx84's own exact save state, including the drive (its CPU, VIAs and the disk) when one is fitted and the cartridge, with its bank state, when one is |
 
 **Save menu exports:** snapshot (`.c64state`), tape (`.tap`), screenshot (PNG), RAM (`.bin`).
 
@@ -89,6 +93,7 @@ ZIP archives are unpacked; the first loadable entry is mounted, with a picker wh
 | Border size | ✅ | Normal, small, none |
 | Colour map | — | The sixteen VIC-II colours are fixed |
 | Programs in the Library | ✗ | No library for the 64 |
+| Cartridge persistence | ✗ | A cartridge is not kept across a browser reload; snapshots carry it |
 
 ---
 
@@ -101,8 +106,8 @@ ZIP archives are unpacked; the first loadable entry is mounted, with a picker wh
 | Beam debugging | ✅ | `beam_log`, `interrupt_log` and `run` with `until_line`: 312 lines × 63 cycles per frame |
 | Screen OCR / TEXT overlay | ◐ | Character modes only: reads the VIC-II's view of screen and character RAM and matches glyphs against the ROM font in both sets, including reverse video, extended-colour text and a scrolled display. Multicolour cells and bitmap modes read as nothing |
 | BASIC Listing / Variables panes | ✅ | BASIC V2, read from RAM through the zero-page pointers (`$2B` `$2D` `$2F` `$31`): the detokenised program (control codes spelled as `petcat` does: `{clr}`, `{red}`), simple variables (reals as BASIC prints them, integers, strings), arrays with their dimensions, and FOR loops in progress with their TO and STEP |
-| Machine-specific panes | ✅ | Memory map (banking, VIC bank, screen base), Tape, Drives, Joystick, Hardware. Microdrive, mouse, system-variable and font panes are hidden |
-| MCP tools | ✅ | The generic tools (`registers`, `step`, `disassemble`, `memory`, `trace`, `beam_log`, `ocr`, `screenshot`, `type`, `key`, `load`, `eject`) plus `chip_state` (`vic`, `sid`, `cia1`, `cia2`, `pla`, and `drive` while one is fitted) and `c64drive` (`on`, `off`, `status`). `type` enters the character the key makes, so `LOAD""` is typed as written |
+| Machine-specific panes | ✅ | Memory map (banking, VIC bank, screen base, the cartridge and what its lines make of the map), Tape, Drives, Joystick, Mouse, ROM / Carts, Hardware. Microdrive, system-variable and font panes are hidden |
+| MCP tools | ✅ | The generic tools (`registers`, `step`, `disassemble`, `memory`, `trace`, `beam_log`, `ocr`, `screenshot`, `type`, `key`, `load`, `eject`) plus `chip_state` (`vic`, `sid`, `cia1`, `cia2`, `pla`, `cart` with a cartridge and `drive` with a 1541) and `c64drive` (`on`, `off`, `status`); `model` takes `tv` (`pal`, `ntsc`), and `load` takes `.crt`. `type` enters the character the key makes, so `LOAD""` is typed as written |
 
 ---
 
@@ -115,9 +120,9 @@ ZIP archives are unpacked; the first loadable entry is mounted, with a picker wh
 
 ## Not emulated
 
-- NTSC (6567/6566) timing and the 6567R56A/R8 differences — PAL only.
-- Cartridges (`.crt`), the expansion port, REU and fast-loader cartridges.
-- User port and RS-232; the light pen; paddles (POT lines read as full scale).
+- The older NTSC 6567R56A (64 cycles a line), and the 6572/6573 variants.
+- Cartridge boards other than those listed (Action Replay, Final Cartridge III, the freezers, REU, GMod and the rest); writing to an EasyFlash's flash chips.
+- User port and RS-232; the light pen; paddles and other analogue devices (the POT lines read as full scale unless a 1351 mouse is in).
 - 8580 SID.
 - Datasette sound.
 - Other drives: 1541-II, 1570/1571, 1581 (`.d81`), 2031/4040 and the third-party drives. There is one 1541 at device 8; `.d71`, `.d81`, `.x64` and `.p00` are not read.
@@ -142,6 +147,9 @@ ZIP archives are unpacked; the first loadable entry is mounted, with a picker wh
 | [`tests/c64/c64-disk.test.ts`](../../tests/c64/c64-disk.test.ts) | D64/G64 parse and serialise, GCR encode/decode, error bytes, export choice | 2026-10-28 |
 | [`tests/c64/c64-chips.test.ts`](../../tests/c64/c64-chips.test.ts) | `chip_state` dumps: VIC-II decode, SID pitch and waveform, CIA timers and bus lines, the drive; dumping changes nothing | 2026-10-29 |
 | [`tests/basic/c64-basic-parser.test.ts`](../../tests/basic/c64-basic-parser.test.ts) | Listing, variables, arrays and FOR frames against what the real BASIC leaves in RAM | 2026-10-29 |
+| [`tests/c64/c64-ntsc.test.ts`](../../tests/c64/c64-ntsc.test.ts) | NTSC timing constants, the `us` locale building the NTSC machine, 263 × 65 cycles a frame, the 43-cycle bad line, snapshot standard check; with the real ROMs the KERNAL reports NTSC, the jiffy clock keeps 60 a second, and the 1541 lists a directory | 2026-10-29 |
+| [`tests/c64/c64-cartridge.test.ts`](../../tests/c64/c64-cartridge.test.ts) | `.crt` parsing and refusals, the 8K, 16K and Ultimax maps (booting from an Ultimax reset vector), every supported board's banking, media service and slot, snapshot with a cartridge; with the real KERNAL a cartridge autostarts through `CBM80`. The cartridges are built by hand, not real dumps | 2026-10-29 |
+| [`tests/c64/c64-mouse.test.ts`](../../tests/c64/c64-mouse.test.ts) | POT counters, port selection, wrap and flick limit, buttons on the port's lines | 2026-10-29 |
 | [`tests/c64/c64-ocr-joystick.test.ts`](../../tests/c64/c64-ocr-joystick.test.ts) | TEXT overlay on the boot screen and a `LIST`, joystick port defaults | 2026-10-28 |
 | [`tests/c64/mos6526.test.ts`](../../tests/c64/mos6526.test.ts), [`mos6581.test.ts`](../../tests/c64/mos6581.test.ts) | CIA timers, ICR, time of day; SID voice 3 read-back, TEST, noise and envelope | 2026-10-28 |
 

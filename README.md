@@ -29,7 +29,7 @@ Each machine has its own sheet covering its models, built-in hardware, periphera
 | [Acorn Electron](docs/machines/acorn-electron.md) | Electron | 6502 |
 | [Apple I](docs/machines/apple-i.md) | Apple I | 6502 |
 | [Apple II](docs/machines/apple-ii.md) | Apple ][, ][+, //e, Enhanced //e, //c | 6502 / 65C02 |
-| [Commodore 64](docs/machines/commodore-64.md) | Commodore 64 (PAL) | 6510 |
+| [Commodore 64](docs/machines/commodore-64.md) | Commodore 64 (PAL and NTSC) | 6510 |
 
 ## Features
 

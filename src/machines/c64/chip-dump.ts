@@ -11,7 +11,7 @@ import type { Mos6526 } from '@/cores/mos6526.ts';
 import type { M6522 } from '@/cores/m6522.ts';
 import { hex8, hex16 } from '@/utils/hex.ts';
 import type { C64Machine } from './c64-machine.ts';
-import { C64_CPU_CLOCK } from './constants.ts';
+import { C64_CART_TYPE_NAMES } from './cartridge.ts';
 
 const bits = (v: number, names: readonly string[]): string => {
   const on = names.filter((_, i) => names[i] && (v & (1 << i)) !== 0);
@@ -79,7 +79,7 @@ function dumpSid(m: C64Machine): string {
   const s = m.sid;
   const lines: string[] = [];
   s.voices.forEach((v, i) => {
-    const hz = (v.freq * C64_CPU_CLOCK) / 0x1000000;
+    const hz = (v.freq * m.cpuClockHz) / 0x1000000;
     const wave = bits(v.control >> 4, ['triangle', 'saw', 'pulse', 'noise']);
     const flags = bits(v.control & 0x0F, ['GATE', 'sync', 'ring', 'TEST']);
     lines.push(
@@ -151,6 +151,21 @@ function dumpPla(m: C64Machine): string {
   ].join('\n');
 }
 
+// ── Cartridge ─────────────────────────────────────────────────────────────
+
+function dumpCart(m: C64Machine): string {
+  const cart = m.cartridge;
+  if (!cart) return 'No cartridge on the expansion port.';
+  const mem = m.memory;
+  const { exrom, game } = cart.lines;
+  return [
+    `Cartridge  ${cart.name || '(unnamed)'}  (${C64_CART_TYPE_NAMES[cart.type]})`,
+    `Lines      EXROM ${exrom ? 'high' : 'LOW'}  GAME ${game ? 'high' : 'LOW'}  ${mem.ultimax ? 'Ultimax' : exrom === 0 && game === 0 ? '16K' : exrom === 0 ? '8K' : 'out of the way'}`,
+    `Map        ROML $8000 ${mem.romlIn ? 'in' : 'out'}   ROMH ${mem.romhE ? '$E000 in' : mem.romhA ? '$A000 in' : 'out'}`,
+    ...cart.describe(),
+  ].join('\n');
+}
+
 // ── 1541 ──────────────────────────────────────────────────────────────────
 
 const VIA1_NAMES = ['serial bus', 'ATN/clock/data'];
@@ -190,6 +205,7 @@ export function c64Chips(m: C64Machine): readonly ChipSection[] {
     { name: 'cia2', description: 'CIA 2 ($DD00): VIC bank, serial bus, user port, timers, NMI', dump: () => dumpCia2(m) },
     { name: 'pla', description: '6510 I/O port and the PLA: which of BASIC, KERNAL, I/O and character ROM are banked in', dump: () => dumpPla(m) },
   ];
+  if (m.cartridge) chips.push({ name: 'cart', description: 'The cartridge on the expansion port: board, EXROM/GAME lines, banks', dump: () => dumpCart(m) });
   if (m.drive) chips.push({ name: 'drive', description: '1541: its 6502, head, motor and LED, and the two 6522 VIAs (serial bus, disk controller)', dump: () => dumpDrive(m) });
   return chips;
 }

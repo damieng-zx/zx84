@@ -6,6 +6,8 @@
 import { describe, it, expect } from 'vitest';
 import { C64Machine } from '@/machines/c64/c64-machine.ts';
 import { Drive1541 } from '@/machines/c64/drive/drive-1541.ts';
+import { parseCrt } from '@/machines/c64/cartridge.ts';
+import { buildCrt, rom8k } from './crt-helper.ts';
 
 const dump = (m: C64Machine, name: string): string => {
   const chip = m.services.debug.chips?.().find(c => c.name === name);
@@ -81,6 +83,24 @@ describe('C64 chip_state', () => {
     expect(text).toContain('track 18');
     expect(text).toContain('VIA 2 disk controller');
     expect(new Drive1541().hasRom).toBe(false);
+    m.destroy();
+  });
+
+  it('reports a cartridge: board, lines and bank', () => {
+    const m = new C64Machine('c64', null);
+    const parsed = parseCrt(buildCrt(32, 1, 0, [
+      { bank: 0, load: 0x8000, data: rom8k(1) }, { bank: 0, load: 0xA000, data: rom8k(2) },
+    ], 'EF'));
+    if ('error' in parsed) throw new Error(parsed.error);
+    m.setCartridge(parsed.cart);
+    m.reset();
+    expect(m.services.debug.chips?.().map(c => c.name)).toContain('cart');
+    const text = dump(m, 'cart');
+    expect(text).toContain('EasyFlash');
+    expect(text).toContain('Ultimax');
+    expect(text).toContain('ROMH $E000 in');
+    expect(m.services.probe.panes.memoryMap!()!.slots.find(s => s.range === 'E000-FFFF')?.read).toBe('Cartridge ROMH');
+    expect(m.services.probe.panes.memoryMap!()!.registers.some(r => r.name === 'Cartridge')).toBe(true);
     m.destroy();
   });
 });

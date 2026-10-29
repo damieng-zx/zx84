@@ -12,14 +12,14 @@ import type {
 import type { MachineModel } from '@/models.ts';
 import { C64_ROM_SOURCES, type C64Model } from './models.ts';
 import { C64Machine } from './c64-machine.ts';
-import { C64_JOY_PORT1, C64_JOY_PORT2 } from './services/input.ts';
+import { C64_JOY_PORT1, C64_JOY_PORT2, C64_MOUSE_PORT1, C64_MOUSE_PORT2 } from './services/input.ts';
 import {
-  C64_ACTIVE_HEIGHT, C64_ACTIVE_WIDTH, C64_BORDER_LEFT, C64_BORDER_TOP, C64_KERNAL_SIZE,
-  C64_ROM_SIZE, C64_SCREEN_HEIGHT, C64_SCREEN_WIDTH,
+  C64_ACTIVE_HEIGHT, C64_ACTIVE_WIDTH, C64_BORDER_LEFT, C64_KERNAL_SIZE,
+  C64_ROM_SIZE, C64_SCREEN_WIDTH, c64Timing,
 } from './constants.ts';
 
 const C64_UI: MachineUiCapabilities = {
-  hiddenPanes: ['microdrive-panel', 'mouse-panel', 'sysvar-panel', 'font-panel'],
+  hiddenPanes: ['microdrive-panel', 'sysvar-panel', 'font-panel'],
   memoryLayout: true,
   trace: true,
   traceModes: ['full', 'portio'],
@@ -41,8 +41,13 @@ const C64_UI: MachineUiCapabilities = {
     { id: C64_JOY_PORT2, label: 'Control port 2' },
   ],
   joystickFireButtons: 1,
-  mouseTypes: [],
-  cartridge: false,
+  // A 1351 mouse in either control port: its buttons read as the fire button
+  // (left) and up (right), its position through the SID's paddle lines.
+  mouseTypes: [
+    { id: C64_MOUSE_PORT1, label: '1351 in port 1' },
+    { id: C64_MOUSE_PORT2, label: '1351 in port 2' },
+  ],
+  cartridge: true,
   systemRomLabel: 'BASIC + KERNAL + characters',
   romPages: 0,
   beeper: false,
@@ -69,7 +74,14 @@ const C64_UI: MachineUiCapabilities = {
   memoryMappedIo: true,
 };
 
+/** The TV standard rides on the locale, as the Atari's does: `'us'` is the
+ *  NTSC machine (60 Hz, 263 lines), every other locale the PAL one. */
+export function c64IsNtsc(locale: MachineLocale | undefined): boolean {
+  return locale === 'us';
+}
+
 export function c64Descriptor(model: MachineModel, locale: MachineLocale = 'uk'): MachineDescriptor {
+  const timing = c64Timing(c64IsNtsc(locale));
   return {
     kind: 'c64',
     model,
@@ -77,12 +89,12 @@ export function c64Descriptor(model: MachineModel, locale: MachineLocale = 'uk')
     cpuFamily: 'm6502',
     screen: {
       width: C64_SCREEN_WIDTH,
-      height: C64_SCREEN_HEIGHT,
+      height: timing.screenHeight,
       pixelAspectX: 1,
       activeWidth: C64_ACTIVE_WIDTH,
       activeHeight: C64_ACTIVE_HEIGHT,
       borderLeft: C64_BORDER_LEFT,
-      borderTop: C64_BORDER_TOP,
+      borderTop: timing.borderTop,
     },
     ui: C64_UI,
   };
@@ -92,8 +104,8 @@ export const c64Entry: MachineEntry = {
   kind: 'c64',
   models: ['c64'],
   descriptor: c64Descriptor,
-  create(model: MachineModel, display: IScreenRenderer | null) {
-    return new C64Machine(model as C64Model, display);
+  create(model: MachineModel, display: IScreenRenderer | null, locale?: MachineLocale) {
+    return new C64Machine(model as C64Model, display, c64IsNtsc(locale));
   },
   romSources() {
     return [...C64_ROM_SOURCES];

@@ -13,6 +13,8 @@
  *   SID   the SID's voices and filter registers
  *   CIA1  CIA 1 (`Mos6526.saveState`)
  *   CIA2  CIA 2
+ *   CART  (optional, after MACH) the cartridge: its `.crt` file and board state
+ *   TV    (optional, after MACH) 1 byte: NTSC
  *
  * The HEAD carries three ROM CRCs: BASIC, KERNAL, character ROM. The tape is
  * not part of the state.
@@ -25,6 +27,6 @@ export const C64_STATE: NativeStateSpec = {
   magic: 'ZX64',
   version: 1,
   machineName: 'Commodore 64',
-  maxBody: 1 << 20,
+  maxBody: 1 << 22,
   modelName: model => (model === 'c64' ? 'Commodore 64' : null),
 };

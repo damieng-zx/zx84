@@ -24,6 +24,7 @@ import type { C64Machine } from '../c64-machine.ts';
 import type { C64DiskService } from './disks.ts';
 import type { C64TapeService } from './tape.ts';
 import { C64_STATE } from '../snapshots/c64-state.ts';
+import { C64_CART_TYPE_NAMES, parseCrt } from '../cartridge.ts';
 
 export class C64MediaService implements MediaService {
   constructor(
@@ -42,6 +43,7 @@ export class C64MediaService implements MediaService {
       { ext: '.prg', target: 'tape' },
       { ext: '.d64', target: 'a' },
       { ext: '.g64', target: 'a' },
+      { ext: '.crt', target: 'cartridge' },
       { ext: C64_STATE.ext, target: 'snapshot' },
     ];
   }
@@ -108,6 +110,14 @@ export class C64MediaService implements MediaService {
       return { ok: true, target: 'a', message: `Drive 8 loaded: ${name} (try LOAD"$",8)` };
     }
 
+    if (/\.crt$/i.test(name)) {
+      const parsed = parseCrt(data);
+      if ('error' in parsed) return { ok: false, message: `${parsed.error}: ${name}` };
+      this.m.mountCartridge(parsed.cart, name);
+      const kind = parsed.cart.type === 'normal' ? '' : ` (${C64_CART_TYPE_NAMES[parsed.cart.type]})`;
+      return { ok: true, target: 'cartridge', message: `Cartridge: ${name}${kind}` };
+    }
+
     if (name.toLowerCase().endsWith(C64_STATE.ext)) {
       const r = await this.snapshots.apply(data, name);
       if (r.needsReplay) return { ok: true, replay: true, message: r.message };
@@ -116,6 +126,6 @@ export class C64MediaService implements MediaService {
         : { ok: false, message: r.message };
     }
 
-    return { ok: false, message: 'The C64 loads .tap tapes, .t64 and .prg programs, .d64 and .g64 disks and .c64state snapshots' };
+    return { ok: false, message: 'The C64 loads .tap tapes, .t64 and .prg programs, .d64 and .g64 disks, .crt cartridges and .c64state snapshots' };
   }
 }

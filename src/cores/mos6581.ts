@@ -238,6 +238,10 @@ export class Mos6581 {
    *  registers see it, the bus having held it. */
   private bus = 0;
 
+  /** What the paddle lines read: POTX is axis 0, POTY axis 1. The machine
+   *  supplies the paddles or mouse on the selected control port. */
+  potRead: (axis: 0 | 1) => number = () => 0xFF;
+
   /** Clocks run so far. */
   now = 0;
   /** Queue output samples while clocking (false in turbo, which only keeps
@@ -303,7 +307,8 @@ export class Mos6581 {
 
   read(reg: number): number {
     switch (reg & 0x1F) {
-      case 0x19: case 0x1A: return 0xFF;   // POTX/POTY: nothing connected reads full scale
+      case 0x19: return this.potRead(0);   // POTX/POTY: nothing connected reads full scale
+      case 0x1A: return this.potRead(1);
       case 0x1B: return this.voices[2].wave(this.voices[1].acc) >> 4;
       case 0x1C: return this.voices[2].envLevel;
       default: return this.bus;

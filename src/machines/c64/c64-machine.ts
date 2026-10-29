@@ -44,26 +44,26 @@ import { C64_DRIVE_ROM_SOURCE, type C64Model } from './models.ts';
 import { C64Memory } from './memory.ts';
 import { C64Keyboard } from './keyboard.ts';
 import {
-  EV_LINE_END, EV_SPRITE_DMA, EV_SPRITE_MCB, EV_VC, VicII,
+  EV_SPRITE_DMA, EV_SPRITE_MCB, EV_VC, VicII,
 } from './vic-ii.ts';
 import { c64Descriptor } from './descriptor.ts';
 import { c64Chips } from './chip-dump.ts';
+import { parseCrt, type C64Cartridge } from './cartridge.ts';
 import { createC64Services, type C64Services } from './services/index.ts';
 import { c64ScreenText } from './screen-text.ts';
 import { c64OcrGrid, type C64OcrResult } from '@/ocr/c64.ts';
 import { Drive1541, DRIVE_CLOCK_HZ } from './drive/drive-1541.ts';
 import { C64_PALETTE } from './palette.ts';
 import {
-  C64_ACTIVE_HEIGHT, C64_ACTIVE_WIDTH, C64_BASIC_SIZE, C64_BORDER_LEFT, C64_BORDER_TOP, C64_CHARGEN_SIZE, C64_CPU_CLOCK,
-  C64_CYCLES_PER_FRAME, C64_CYCLES_PER_LINE, C64_KERNAL_SIZE, C64_LINES_PER_FRAME,
-  C64_SCREEN_HEIGHT, C64_SCREEN_WIDTH,
+  C64_ACTIVE_HEIGHT, C64_ACTIVE_WIDTH, C64_BASIC_SIZE, C64_BORDER_LEFT, C64_CHARGEN_SIZE,
+  C64_KERNAL_SIZE, C64_SCREEN_WIDTH, c64Timing, type C64Timing,
 } from './constants.ts';
 
-/** 1541 cycles per C64 cycle (its clock is a round 1 MHz, the 64's 985,248 Hz). */
-const DRIVE_PER_C64 = DRIVE_CLOCK_HZ / C64_CPU_CLOCK;
-
-/** The line cycles at which the frame loop hands over to the VIC-II, in order. */
-const EVENTS = [EV_VC, EV_SPRITE_MCB, EV_SPRITE_DMA, EV_LINE_END, C64_CYCLES_PER_LINE] as const;
+/** Indices into the line's events (see `lineEvents`), in the order they fall. */
+const EVT_VC = 0;
+const EVT_SPRITE_MCB = 1;
+const EVT_SPRITE_DMA = 2;
+const EVT_LINE_END = 3;
 
 /** Joystick directions as CIA port bits (active low on the port). */
 const JOY_BITS: Readonly<Record<string, number>> = {
@@ -104,18 +104,20 @@ export class C64Machine extends BaseMachine implements Machine {
   readonly cpu = new M6502();
   readonly memory = new C64Memory();
   readonly vic: VicII;
-  readonly sid = new Mos6581(C64_CPU_CLOCK);
+  /** PAL or NTSC: the clock, the line and frame, the visible lines. */
+  readonly timing: C64Timing;
+  readonly sid: Mos6581;
   readonly cia1 = new Mos6526();
   readonly cia2 = new Mos6526();
   readonly keyboard = new C64Keyboard();
   /** The 1541 on the serial bus, or null when no drive is fitted. */
   drive: Drive1541 | null = null;
   /** The Datasette's tape, played through the shared pulse deck. */
-  readonly tape = new TapeDeck(C64_CPU_CLOCK);
+  readonly tape: TapeDeck;
   /** Edges of the cassette write line since the last reset (what SAVE wrote). */
   readonly tapeRecorder = new PulseRecorder();
 
-  readonly mixer = new AudioMixer(C64_CPU_CLOCK);
+  readonly mixer: AudioMixer;
   readonly audio = new Audio();
   display: IScreenRenderer | null;
   private readonly _pixels: Uint8Array;
@@ -125,6 +127,14 @@ export class C64Machine extends BaseMachine implements Machine {
   /** Joystick bits held (active high here), port 1 and port 2. */
   private joy1 = 0;
   private joy2 = 0;
+
+  /** The 1351 mouse: the control port it is plugged into (0 = none), its two
+   *  6-bit position counters (what the SID's POT lines read) and its buttons
+   *  (bit 0 left, bit 1 right). */
+  private mousePort: 0 | 1 | 2 = 0;
+  private mouseX = 0;
+  private mouseY = 0;
+  private mouseButtons = 0;
 
   // Tape transport.
   tapeTurbo = true;
@@ -169,13 +179,24 @@ export class C64Machine extends BaseMachine implements Machine {
 
   get tapeTurboActive(): boolean { return this._tapeTurboActive; }
 
-  constructor(model: C64Model, display: IScreenRenderer | null = null) {
+  /** The line cycles at which the frame loop hands over to the VIC-II, in order. */
+  private readonly lineEvents: readonly number[];
+  /** 1541 cycles per C64 cycle (its clock is a round 1 MHz). */
+  private readonly drivePerC64: number;
+
+  constructor(model: C64Model, display: IScreenRenderer | null = null, ntsc = false) {
     super();
     this.model = model;
     this.display = display;
-    this.vic = new VicII(this.memory);
+    this.timing = c64Timing(ntsc);
+    this.sid = new Mos6581(this.timing.clockHz);
+    this.tape = new TapeDeck(this.timing.clockHz);
+    this.mixer = new AudioMixer(this.timing.clockHz);
+    this.lineEvents = [EV_VC, EV_SPRITE_MCB, EV_SPRITE_DMA, this.timing.lineEndCycle, this.timing.cyclesPerLine];
+    this.drivePerC64 = DRIVE_CLOCK_HZ / this.timing.clockHz;
+    this.vic = new VicII(this.memory, this.timing);
     this._pixels = new Uint8Array(this.vic.pixels.buffer);
-    this.tape.pulseScale = C64_CPU_CLOCK / TAPE_REF_HZ;
+    this.tape.pulseScale = this.timing.clockHz / TAPE_REF_HZ;
     this.mixer.beeperGain = 0;
     this.mixer.psgGain = 1;
     this.deferAccessStamps = true;
@@ -205,13 +226,21 @@ export class C64Machine extends BaseMachine implements Machine {
     const { memory, vic, sid, cia1, cia2, keyboard } = this;
 
     cia1.portAIn = (driven) => {
-      const joy = this.joy2;
+      const joy = this.joyBits(2);
       if (joy !== 0) this.activity.joyReads++;
-      return driven & ~joy & keyboard.columnsFor(cia1.drivenB & ~this.joy1);
+      return driven & ~joy & keyboard.columnsFor(cia1.drivenB & ~this.joyBits(1));
     };
     cia1.portBIn = (driven) => {
       this.activity.kbdReads++;
-      return driven & ~this.joy1 & keyboard.rowsFor(cia1.drivenA & ~this.joy2);
+      return driven & ~this.joyBits(1) & keyboard.rowsFor(cia1.drivenA & ~this.joyBits(2));
+    };
+    // The paddle lines of the control port CIA 1 port A bits 6-7 select
+    // (bit 6 port 1, bit 7 port 2) go to the SID; a 1351 answers on its own.
+    sid.potRead = (axis) => {
+      const sel = cia1.drivenA & 0xC0;
+      const selected = sel === 0x40 ? 1 : sel === 0x80 ? 2 : 0;
+      if (this.mousePort === 0 || selected !== this.mousePort) return 0xFF;
+      return ((axis === 0 ? this.mouseX : this.mouseY) & 0x3F) << 1;
     };
     // CIA 2 port A: VIC bank (bits 0-1), serial bus outputs through
     // inverters (ATN 3, CLK 4, DATA 5) and inputs (CLK 6, DATA 7). A line is
@@ -254,8 +283,8 @@ export class C64Machine extends BaseMachine implements Machine {
           if (this.drive !== null && (addr & 0x0F) === 0) this.syncDrive(t);
           return cia2.read(addr);
         }
-        default:
-          return 0xFF;   // I/O 1 and 2: nothing fitted
+        case 0xE: return memory.cart ? memory.cart.io1Read(addr) : 0xFF;
+        default: return memory.cart ? memory.cart.io2Read(addr) : 0xFF;
       }
     };
     memory.ioRead = (addr) => {
@@ -270,7 +299,7 @@ export class C64Machine extends BaseMachine implements Machine {
         case 0x8: case 0x9: case 0xA: case 0xB: return memory.colorRam[addr & 0x3FF] & 0x0F;
         case 0xC: return cia1.peek(addr);
         case 0xD: return cia2.peek(addr);
-        default: return 0xFF;
+        default: return 0xFF;      // the cartridge's registers are not looked at
       }
     };
     const ioWrite = (addr: number, value: number, t: number): void => {
@@ -298,8 +327,8 @@ export class C64Machine extends BaseMachine implements Machine {
           if (bus) this.updateIecLines();
           break;
         }
-        default:
-          break;
+        case 0xE: memory.cart?.io1Write(addr, value); break;
+        default: memory.cart?.io2Write(addr, value); break;
       }
     };
     memory.ioWrite = (addr, value) => {
@@ -328,13 +357,13 @@ export class C64Machine extends BaseMachine implements Machine {
 
   // ── Machine SPI ──────────────────────────────────────────────────────────
 
-  get descriptor(): MachineDescriptor { return c64Descriptor(this.model); }
+  get descriptor(): MachineDescriptor { return c64Descriptor(this.model, this.timing.ntsc ? 'us' : 'uk'); }
   get pixels(): Uint8Array { return this._pixels; }
   get frameWidth(): number { return C64_SCREEN_WIDTH; }
-  get frameHeight(): number { return C64_SCREEN_HEIGHT; }
-  get tStatesPerFrame(): number { return C64_CYCLES_PER_FRAME; }
-  get cpuClockHz(): number { return C64_CPU_CLOCK; }
-  protected override get frameHz(): number { return C64_CPU_CLOCK / C64_CYCLES_PER_FRAME; }
+  get frameHeight(): number { return this.timing.screenHeight; }
+  get tStatesPerFrame(): number { return this.timing.cyclesPerFrame; }
+  get cpuClockHz(): number { return this.timing.clockHz; }
+  protected override get frameHz(): number { return this.timing.clockHz / this.timing.cyclesPerFrame; }
 
   attachHost(host: MachineHost): void { this.host = host; }
 
@@ -349,8 +378,8 @@ export class C64Machine extends BaseMachine implements Machine {
   setBorderSize(mode: BorderMode): void {
     const frac = mode === 2 ? 1 : mode === 1 ? 0.5 : 0;
     const cropX = Math.round(C64_BORDER_LEFT * (1 - frac));
-    const cropY = Math.round(C64_BORDER_TOP * (1 - frac));
-    this.display?.setViewport(cropX, cropY, C64_SCREEN_WIDTH - cropX * 2, C64_SCREEN_HEIGHT - cropY * 2);
+    const cropY = Math.round(this.timing.borderTop * (1 - frac));
+    this.display?.setViewport(cropX, cropY, C64_SCREEN_WIDTH - cropX * 2, this.timing.screenHeight - cropY * 2);
   }
 
   /**
@@ -391,6 +420,8 @@ export class C64Machine extends BaseMachine implements Machine {
     this.keyboard.reset();
     this.joy1 = this.joy2 = 0;
     this.cpu.reset();
+    // The cartridge starts over with the clock it keeps time by.
+    if (power) this.memory.resetCartridge();
     if (this.drive) { this.drive.reset(); this.updateIecLines(); }
     this.nmiLevel = false;
     this.midFrame = false;
@@ -411,6 +442,43 @@ export class C64Machine extends BaseMachine implements Machine {
     this.mixer.reset();
     this.audio.reset();
     this.needsDisplay = true;
+  }
+
+  // ── Cartridge ────────────────────────────────────────────────────────────
+
+  /** The cartridge on the expansion port, or null. */
+  get cartridge(): C64Cartridge | null { return this.memory.cart; }
+
+  /** Change what is on the expansion port the way a person must: with the
+   *  power off, so the machine starts over with it. */
+  swapCartridge(change: () => void): void {
+    const wasActive = this.running || this.starting;
+    this.stop();
+    change();
+    this.reset();
+    if (wasActive) void this.start();
+  }
+
+  /** Fit a cartridge (null takes it off). */
+  setCartridge(cart: C64Cartridge | null): void {
+    this.memory.setCartridge(cart, () => this.cpu.tStates);
+    if (cart === null) this.cartridgeFile = '';
+  }
+
+  /** The file the cartridge came from, for the ROM pane ('' when it came
+   *  with a snapshot). */
+  cartridgeFile = '';
+
+  /** Plug a cartridge in and start over with it. */
+  mountCartridge(cart: C64Cartridge, file: string): void {
+    this.swapCartridge(() => { this.setCartridge(cart); this.cartridgeFile = file; });
+    this.setStatus(`Cartridge: ${file || cart.name}`);
+  }
+
+  /** Take the cartridge out and start over without it. */
+  ejectCartridge(): void {
+    this.swapCartridge(() => this.setCartridge(null));
+    this.setStatus('Cartridge ejected');
   }
 
   // ── Disk drive ───────────────────────────────────────────────────────────
@@ -447,7 +515,7 @@ export class C64Machine extends BaseMachine implements Machine {
 
   /** Bring the drive up to the 64's cycle `t`. */
   private syncDrive(t: number): void {
-    this.drive?.runTo(Math.floor(t * DRIVE_PER_C64));
+    this.drive?.runTo(Math.floor(t * this.drivePerC64));
   }
 
   /** Tell the drive which bus lines the 64 pulls low (ATN, CLK, DATA). */
@@ -513,6 +581,39 @@ export class C64Machine extends BaseMachine implements Machine {
 
   releaseJoysticks(): void { this.joy1 = this.joy2 = 0; }
 
+  /** The bits a port reads as held: its joystick, and a mouse's buttons (the
+   *  left is the fire button, the right reads as up). */
+  private joyBits(port: 1 | 2): number {
+    const joy = port === 1 ? this.joy1 : this.joy2;
+    if (this.mousePort !== port || this.mouseButtons === 0) return joy;
+    return joy | ((this.mouseButtons & 1) !== 0 ? 0x10 : 0) | ((this.mouseButtons & 2) !== 0 ? 0x01 : 0);
+  }
+
+  // ── 1351 mouse ───────────────────────────────────────────────────────────
+
+  /** Plug the mouse into a control port, or take it out (0). */
+  setMousePort(port: 0 | 1 | 2): void {
+    this.mousePort = port;
+    if (port === 0) this.mouseButtons = 0;
+  }
+
+  /** Move the mouse: the counters the POT lines read count the motion, 6 bits
+   *  wrapping, and the driver works out the difference between two reads.
+   *  `dy` is screen-down, as the host reports it; the 1351 counts up. */
+  moveMouse(dx: number, dy: number): void {
+    // A driver reads about once a frame and cannot tell more than half a turn
+    // of the counter from a move the other way: a flick is cut to that.
+    const cut = (v: number) => Math.max(-31, Math.min(31, Math.round(v)));
+    this.mouseX = (this.mouseX + cut(dx)) & 0x3F;
+    this.mouseY = (this.mouseY - cut(dy)) & 0x3F;
+  }
+
+  setMouseButton(index: number, pressed: boolean): void {
+    const bit = index === 0 ? 1 : index === 2 ? 2 : 0;
+    if (bit === 0) return;
+    this.mouseButtons = pressed ? this.mouseButtons | bit : this.mouseButtons & ~bit;
+  }
+
   // ── Programs (.prg / .t64) ───────────────────────────────────────────────
 
   /**
@@ -568,7 +669,7 @@ export class C64Machine extends BaseMachine implements Machine {
   protected runFrame(): void {
     const skipAudio = this.speedMultiplier !== 1 || this._tapeTurboActive;
     this.sid.audible = !skipAudio;
-    if (!this.openFrame(C64_CYCLES_PER_FRAME)) {
+    if (!this.openFrame(this.timing.cyclesPerFrame)) {
       this.activity.kbdReads = 0;
       this.activity.sidWrites = 0;
       this.activity.tapeEdges = 0;
@@ -580,31 +681,32 @@ export class C64Machine extends BaseMachine implements Machine {
     this.memWatchHit = null;
     const vic = this.vic;
 
-    for (; this.fLine < C64_LINES_PER_FRAME; this.fLine++) {
-      const lineStart = this.frameStartT + this.fLine * C64_CYCLES_PER_LINE;
+    const events = this.lineEvents;
+    for (; this.fLine < this.timing.linesPerFrame; this.fLine++) {
+      const lineStart = this.frameStartT + this.fLine * this.timing.cyclesPerLine;
       if (!this.lineLive) {
         this.lineLive = true;
         this.fEvent = 0;
         vic.startLine(this.fLine, lineStart);
         this.updateInterrupts();
       }
-      for (; this.fEvent < EVENTS.length; this.fEvent++) {
-        const at = EVENTS[this.fEvent];
+      for (; this.fEvent < events.length; this.fEvent++) {
+        const at = events[this.fEvent];
         if (!this.runCpuTo(lineStart + at)) {
           this.midFrame = true;
           this.needsDisplay = true;
           return;
         }
-        switch (at) {
-          case EV_VC: vic.loadCounters(); break;
-          case EV_SPRITE_MCB: vic.spriteRowAdvance(); break;
-          case EV_SPRITE_DMA:
+        switch (this.fEvent) {
+          case EVT_VC: vic.loadCounters(); break;
+          case EVT_SPRITE_MCB: vic.spriteRowAdvance(); break;
+          case EVT_SPRITE_DMA:
             vic.spriteDmaCheck();
             // An instruction that ran past the start of the new sprite holds
             // pays them (the bad line's was charged as it ran).
             this.cpu.tStates += vic.stretch(this.lastInsnStart, this.cpu.tStates, false);
             break;
-          case EV_LINE_END: vic.endOfLineFetches(); break;
+          case EVT_LINE_END: vic.endOfLineFetches(); break;
           default: vic.endLine(); break;
         }
         this.updateInterrupts();
@@ -720,10 +822,10 @@ export class C64Machine extends BaseMachine implements Machine {
   beam(): BeamPos { return this.gridBeam(); }
   beamInfo(): BeamInfo {
     return {
-      cyclesPerLine: C64_CYCLES_PER_LINE,
-      linesPerFrame: C64_LINES_PER_FRAME,
+      cyclesPerLine: this.timing.cyclesPerLine,
+      linesPerFrame: this.timing.linesPerFrame,
       displayStart: 0,
-      note: 'line 0 is raster line 0 and cycle 0 of a line is the 6569\'s cycle 1, where the raster counter moves on and the raster interrupt is raised; bad lines hold the CPU from cycle 11 to 54 and sprite DMA from cycle 54 on. The display window is lines 51-250. The picture is drawn as the beam goes, caught up before every VIC-II and CIA 2 write',
+      note: `line 0 is raster line 0 and cycle 0 of a line is the ${this.timing.ntsc ? '6567' : '6569'}'s cycle 1, where the raster counter moves on and the raster interrupt is raised; bad lines hold the CPU from cycle 11 to 54 and sprite DMA from cycle 54 on. The display window is lines 51-250. The picture is drawn as the beam goes, caught up before every VIC-II and CIA 2 write`,
     };
   }
   override supportsBeamStops(): boolean { return true; }
@@ -786,7 +888,7 @@ export class C64Machine extends BaseMachine implements Machine {
     const regs = this.vic.regs;
     return {
       x: C64_BORDER_LEFT + (regs[0x16] & 7),
-      y: C64_BORDER_TOP - 3 + (regs[0x11] & 7),
+      y: this.timing.borderTop - 3 + (regs[0x11] & 7),
       width: C64_ACTIVE_WIDTH,
       height: C64_ACTIVE_HEIGHT,
     };
@@ -798,7 +900,7 @@ export class C64Machine extends BaseMachine implements Machine {
     const field = this.textField;
     for (let row = 0; row < 25; row++) {
       const top = field.y + row * 8;
-      if (top + 8 > C64_SCREEN_HEIGHT) break;
+      if (top + 8 > this.timing.screenHeight) break;
       for (let col = 0; col < 40; col++) {
         if (!mask[row * 40 + col]) continue;
         const left = field.x + col * 8;
@@ -831,6 +933,12 @@ export class C64Machine extends BaseMachine implements Machine {
       w.f64(this.frameStartT); w.f64(this.frameEndT); w.f64(this.frameNumber);
       w.bool(this.nmiLevel);
     });
+    w.section('TV  ', () => w.bool(this.timing.ntsc));
+    w.section('CART', () => {
+      const cart = this.memory.cart;
+      w.bool(cart !== null);
+      if (cart) { w.bytes(cart.image); cart.saveState(w); }
+    });
     w.section('MEM ', () => this.memory.saveState(w));
     w.section('VIC ', () => this.vic.saveState(w));
     w.section('SID ', () => this.sid.saveState(w));
@@ -852,6 +960,26 @@ export class C64Machine extends BaseMachine implements Machine {
       const s = r.section('MACH');
       this.frameStartT = s.f64(); this.frameEndT = s.f64(); this.frameNumber = s.f64();
       this.nmiLevel = s.bool();
+    }
+    // States from before NTSC existed carry no TV section: they are PAL.
+    const ntsc = r.peekSection('TV  ') ? r.section('TV  ').bool() : false;
+    if (ntsc !== this.timing.ntsc) {
+      throw new Error(`This is a ${ntsc ? 'NTSC' : 'PAL'} snapshot: choose the ${ntsc ? 'NTSC' : 'PAL'} Commodore 64 first`);
+    }
+    // States from before cartridges carry no CART section: nothing was fitted.
+    if (r.peekSection('CART')) {
+      const c = r.section('CART');
+      if (c.bool()) {
+        const parsed = parseCrt(c.bytes());
+        if ('error' in parsed) throw new Error(`The snapshot's cartridge: ${parsed.error}`);
+        this.setCartridge(parsed.cart);
+        this.cartridgeFile = '';
+        parsed.cart.loadState(c);
+      } else if (this.memory.cart) {
+        this.setCartridge(null);
+      }
+    } else if (this.memory.cart) {
+      this.setCartridge(null);
     }
     this.memory.loadState(r.section('MEM '));
     this.vic.loadState(r.section('VIC '));

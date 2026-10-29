@@ -5,8 +5,9 @@
  * (VIC-II) and its application in the Commodore 64" (1996), the standard
  * description of the chip's internals:
  *
- *  - 63 cycles a line, 312 lines a frame; the raster counter, its compare
- *    register and the raster interrupt.
+ *  - 63 cycles a line and 312 lines a frame (PAL; the NTSC 6567R8 has 65 and
+ *    263, see `C64Timing`); the raster counter, its compare register and the
+ *    raster interrupt.
  *  - Bad lines: on lines $30-$F7 whose low three bits equal YSCROLL (while
  *    DEN was set during line $30) the chip reads 40 bytes of the video matrix
  *    and colour RAM (the c-accesses, cycles 15-54), stopping the CPU from
@@ -34,10 +35,7 @@
 import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 import type { C64Memory } from './memory.ts';
 import { C64_PALETTE } from './palette.ts';
-import {
-  C64_CYCLES_PER_LINE, C64_FIRST_LINE, C64_FIRST_X, C64_LINES_PER_FRAME,
-  C64_SCREEN_HEIGHT, C64_SCREEN_WIDTH,
-} from './constants.ts';
+import { C64_FIRST_X, C64_SCREEN_WIDTH, c64Timing, type C64Timing } from './constants.ts';
 
 /** Interrupt sources ($D019 bits). */
 export const VIC_IRQ_RASTER = 0x01;
@@ -48,7 +46,7 @@ export const VIC_IRQ_SS = 0x04;
 export const EV_VC = 13;          // Bauer cycle 14: VC = VCBASE, c-accesses begin
 export const EV_SPRITE_MCB = 15;  // cycles 15-16: sprite MCBASE advances, DMA ends
 export const EV_SPRITE_DMA = 54;  // cycles 55-56: sprite DMA switched on
-export const EV_LINE_END = 57;    // cycle 58: RC/VCBASE, sprite pointer and data fetches
+/** Cycle 58 on PAL (`C64Timing.lineEndCycle`): RC/VCBASE, sprite pointer and data fetches. */
 /** First and last cycle the CPU is held by a bad line (BA low at Bauer 12). */
 const BADLINE_BA = 11;
 const BADLINE_END = 54;
@@ -104,7 +102,7 @@ export class VicII {
   private sprStealCount = 0;
 
   // Drawing.
-  readonly pixels = new Uint32Array(C64_SCREEN_WIDTH * C64_SCREEN_HEIGHT);
+  readonly pixels: Uint32Array;
   private row = -1;
   private drawnX = 0;
   /** The g-access byte cached for the character being drawn, -1 = refetch. */
@@ -113,7 +111,8 @@ export class VicII {
   private lineSprites = 0;
   private lastLine = -1;
 
-  constructor(private readonly mem: C64Memory) {
+  constructor(private readonly mem: C64Memory, readonly timing: C64Timing = c64Timing(false)) {
+    this.pixels = new Uint32Array(C64_SCREEN_WIDTH * timing.screenHeight);
     this.reset();
   }
 
@@ -186,8 +185,8 @@ export class VicII {
       this.spriteShow[n] = this.nextShow[n];
       if (this.nextShow[n]) this.lineSprites |= 1 << n;
     }
-    const y = line - C64_FIRST_LINE;
-    this.row = y >= 0 && y < C64_SCREEN_HEIGHT ? y * C64_SCREEN_WIDTH : -1;
+    const y = line - this.timing.firstLine;
+    this.row = y >= 0 && y < this.timing.screenHeight ? y * C64_SCREEN_WIDTH : -1;
     this.drawnX = 0;
     this.gChar = -1;
   }
@@ -247,7 +246,7 @@ export class VicII {
     let runEnd = -1;
     for (let n = 0; n < 8; n++) {
       if (!this.spriteDma[n]) continue;
-      const fetch = this.lineStart + 57 + 2 * n;
+      const fetch = this.lineStart + this.timing.lineEndCycle + 2 * n;
       const s = fetch - 3;
       const e = fetch + 2;
       if (runStart >= 0 && s <= runEnd) { runEnd = e; continue; }
@@ -268,7 +267,7 @@ export class VicII {
    *  next line. */
   endOfLineFetches(): void {
     // What the beam has drawn so far was drawn in the state before this.
-    this.drawTo(this.lineStart + EV_LINE_END);
+    this.drawTo(this.lineStart + this.timing.lineEndCycle);
     this.gChar = -1;
     if (this.display) this.vc = (this.vcLine + 40) & 0x3FF;
     if (this.rc === 7) {
@@ -292,7 +291,7 @@ export class VicII {
 
   /** Cycle 63: the line is finished and the vertical border checked. */
   endLine(): void {
-    this.drawTo(this.lineStart + C64_CYCLES_PER_LINE);
+    this.drawTo(this.lineStart + this.timing.cyclesPerLine);
     const rsel = (this.regs[0x11] & 0x08) !== 0;
     if (this.raster === (rsel ? 251 : 247)) this.vBorder = true;
     else if (this.raster === (rsel ? 51 : 55) && this.den) this.vBorder = false;
@@ -595,6 +594,4 @@ export class VicII {
     this.gChar = -1;
   }
 
-  /** Lines in a frame, for callers that do not import the constants. */
-  static readonly LINES = C64_LINES_PER_FRAME;
 }

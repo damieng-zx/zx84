@@ -2,7 +2,7 @@
  * C64RomService — one socket per ROM chip: BASIC, the KERNAL and the
  * character ROM, each independently overridable (the MTX-style multi-slot
  * machinery at an 8K stride, see `C64_ROM_SLOT_SIZE`). An override is cut to
- * its chip's size. No cartridge slot yet.
+ * its chip's size. The cartridge slot takes `.crt` files.
  */
 
 import type {
@@ -11,7 +11,25 @@ import type {
 import type { C64Machine } from '../c64-machine.ts';
 import { C64_ROM_CHIP_SIZES, C64_ROM_SLOT_LABELS } from '../models.ts';
 import { C64_ROM_SIZE } from '../constants.ts';
+import { parseCrt } from '../cartridge.ts';
 import { DRIVE_ROM_SIZE } from '../drive/drive-1541.ts';
+
+class C64CartridgeSlot implements CartridgeSlot {
+  constructor(private readonly m: C64Machine) {}
+
+  get name(): string {
+    const cart = this.m.cartridge;
+    return cart ? this.m.cartridgeFile || cart.name || 'Cartridge' : '';
+  }
+
+  insert(data: Uint8Array, name: string): void {
+    const parsed = parseCrt(data);
+    if ('error' in parsed) { this.m.onStatus?.(parsed.error); return; }
+    this.m.mountCartridge(parsed.cart, name);
+  }
+
+  eject(): void { this.m.ejectCartridge(); }
+}
 
 export class C64RomService implements RomService {
   constructor(
@@ -65,7 +83,7 @@ export class C64RomService implements RomService {
     await ops.rebuild();
   }
 
-  readonly cartridge: CartridgeSlot | null = null;
+  readonly cartridge: CartridgeSlot = new C64CartridgeSlot(this.m);
 
   /** The disk drive's DOS ROM is a socket of its own, while a drive is fitted. */
   get sidewaysSlots(): readonly SidewaysRomSlot[] {

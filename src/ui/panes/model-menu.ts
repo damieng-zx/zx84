@@ -96,12 +96,13 @@ export const MODEL_LOCALES: Partial<Record<MachineModel, MachineLocale[]>> = {
   atari65xe: ['uk', 'us'],
   atari800xe: ['uk', 'us'],
   atari130xe: ['uk', 'us'],
+  c64: ['uk', 'us'],
 };
 
 /** Models whose locale variants are TV standards rather than languages. */
 const TV_STANDARD_MODELS: ReadonlySet<MachineModel> = new Set<MachineModel>([
   'atari400', 'atari800', 'atari600xl', 'atari800xl', 'atari1200xl',
-  'atari65xe', 'atari800xe', 'atari130xe',
+  'atari65xe', 'atari800xe', 'atari130xe', 'c64',
 ]);
 const TV_STANDARD_LABELS: Partial<Record<MachineLocale, string>> = { uk: 'PAL', us: 'NTSC' };
 

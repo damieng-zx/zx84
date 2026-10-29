@@ -209,6 +209,7 @@ async function reflectMount(
  * persist it so a reload does not bring back what was there before.
  */
 function syncMediaFromMachine(m: Machine): void {
+  if (m.services.roms.cartridge) setCartridgeNameSig(m.services.roms.cartridge.name);
   const disks = m.services.disks;
   if (disks) {
     DISK_UNITS.forEach((u, unit) => {
