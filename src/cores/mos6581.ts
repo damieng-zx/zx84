@@ -8,7 +8,9 @@
  * are routed through or around a multimode (low/band/high-pass) resonant
  * filter, and the master volume scales the mix. Voice 3's waveform and
  * envelope can be read back, which software uses for random numbers.
- * Shipped in the Commodore 64 and 128 and the CBM-II P500.
+ * Shipped in the Commodore 64 and 128 and the CBM-II P500. The later 8580
+ * (the C64C's) is selectable with `setModel`: same voices and envelopes, a
+ * centred, linear filter and no DC level (see `SidTuning`).
  *
  * Timing follows the data sheet: the accumulator adds the 16-bit frequency
  * every clock, noise is a 23-bit LFSR clocked by accumulator bit 19, and the
@@ -53,6 +55,28 @@ const F0_TABLE = new Float64Array(2048);
   }
 }
 
+/**
+ * The 8580's filter cutoff: close to a straight line from nothing to about
+ * 12.5 kHz (the later chip's integrators are not the 6581's voltage-controlled
+ * resistors, so no sigmoid, no break at FC 1024), after reSID's curve for it.
+ */
+const F0_POINTS_8580: readonly [number, number][] = [
+  [0, 0], [128, 800], [256, 1600], [384, 2500], [512, 3300], [640, 4100], [768, 4800],
+  [896, 5600], [1024, 6500], [1152, 7500], [1280, 8400], [1408, 9200], [1536, 9800],
+  [1664, 10500], [1792, 11000], [1920, 11700], [2047, 12500],
+];
+
+const F0_TABLE_8580 = new Float64Array(2048);
+{
+  let p = 0;
+  for (let fc = 0; fc < 2048; fc++) {
+    while (p < F0_POINTS_8580.length - 2 && F0_POINTS_8580[p + 1][0] <= fc) p++;
+    const [x0, y0] = F0_POINTS_8580[p];
+    const [x1, y1] = F0_POINTS_8580[p + 1];
+    F0_TABLE_8580[fc] = x1 === x0 ? y0 : y0 + (y1 - y0) * (fc - x0) / (x1 - x0);
+  }
+}
+
 /** How far the filter input moves the cutoff, in FC steps per unit of input
  *  (one voice at full swing). */
 const CUTOFF_MODULATION = 52.5;
@@ -87,6 +111,39 @@ const MIXER_DC = 0.18;
 const OUTPUT_GAIN = 0.32;
 /** One voice at full envelope and full waveform swing. */
 const VOICE_FULL = 2048 * 255;
+
+/** Which chip: the original 6581 or the 8580 of the later machines. */
+export type SidModel = '6581' | '8580';
+
+/**
+ * What differs between the two chips here. The 6581's voices sit on a large
+ * DC level and its mixer adds more, which the volume register scales (so a
+ * program can play samples through volume alone); its filter's cutoff is a
+ * measured S-curve that the filter's own input pushes up, its resonance runs
+ * out to self-oscillation, and its op-amps saturate. The 8580 is centred,
+ * linear and quieter in the volume register: no DC, a straight cutoff curve,
+ * no input dependence, and a gentle resonance (1/Q from 1.41 to 0.59).
+ */
+interface SidTuning {
+  readonly f0: Float64Array;
+  readonly voiceDc: number;
+  readonly mixerDc: number;
+  readonly cutoffMod: number;
+  /** Where the integrators soft-clip; 0 leaves them linear. */
+  readonly sat: number;
+  readonly damping: (res: number) => number;
+}
+
+const TUNING: Readonly<Record<SidModel, SidTuning>> = {
+  '6581': {
+    f0: F0_TABLE, voiceDc: VOICE_DC, mixerDc: MIXER_DC, cutoffMod: CUTOFF_MODULATION, sat: FILTER_SAT,
+    damping: res => (15 - res) / 8,
+  },
+  '8580': {
+    f0: F0_TABLE_8580, voiceDc: 0, mixerDc: 0, cutoffMod: 0, sat: 0,
+    damping: res => 1 / (0.707 + res / 15),
+  },
+};
 
 class SidVoice {
   freq = 0;
@@ -260,6 +317,8 @@ export class Mos6581 {
   private ic1 = 0;
   private ic2 = 0;
   private filterK = 1;
+  private tune: SidTuning = TUNING['6581'];
+  private chip: SidModel = '6581';
   private readonly samples = new Float32Array(SAMPLE_BUFFER);
   private sampleHead = 0;
   private sampleCount = 0;
@@ -298,9 +357,21 @@ export class Mos6581 {
     this.updateFilter();
   }
 
+  /** Which chip this is. */
+  get model(): SidModel { return this.chip; }
+
+  /** Become a 6581 or an 8580. The filter starts over; the registers stay. */
+  setModel(model: SidModel): void {
+    if (model === this.chip) return;
+    this.chip = model;
+    this.tune = TUNING[model];
+    this.ic1 = this.ic2 = 0;
+    this.updateFilter();
+  }
+
   /** Resonance; the cutoff is worked out per sample, as it follows the input. */
   private updateFilter(): void {
-    this.filterK = (15 - (this.resFilt >> 4)) / 8;
+    this.filterK = this.tune.damping(this.resFilt >> 4);
   }
 
   // ── Registers ────────────────────────────────────────────────────────────
@@ -388,9 +459,10 @@ export class Mos6581 {
       if ((v1.control & 0x02) !== 0 && v0.msbRose) v1.acc = 0;
       if ((v2.control & 0x02) !== 0 && v1.msbRose) v2.acc = 0;
 
-      const o0 = (v0.wave(v2.acc) - 0x800 + VOICE_DC) * e0;
-      const o1 = (v1.wave(v0.acc) - 0x800 + VOICE_DC) * e1;
-      const o2 = (v2.wave(v1.acc) - 0x800 + VOICE_DC) * e2;
+      const dc = this.tune.voiceDc;
+      const o0 = (v0.wave(v2.acc) - 0x800 + dc) * e0;
+      const o1 = (v1.wave(v0.acc) - 0x800 + dc) * e1;
+      const o2 = (v2.wave(v1.acc) - 0x800 + dc) * e2;
       if ((route & 1) !== 0) filt += o0; else direct += o0;
       if ((route & 2) !== 0) filt += o1; else direct += o1;
       if ((route & 4) !== 0) filt += o2; else if (!voice3Off) direct += o2;
@@ -408,9 +480,10 @@ export class Mos6581 {
     this.sumFilt = this.sumDirect = 0;
     this.sumCount = 0;
 
-    let fc = Math.round(this.cutoff + filtIn * CUTOFF_MODULATION);
+    const tune = this.tune;
+    let fc = Math.round(this.cutoff + filtIn * tune.cutoffMod);
     if (fc < 0) fc = 0; else if (fc > 2047) fc = 2047;
-    const hz = Math.min(F0_TABLE[fc], this.sampleRate * 0.98);
+    const hz = Math.min(tune.f0[fc], this.sampleRate * 0.98);
     // Twice per sample (zero-order hold), so the top of the range stays stable.
     const g = Math.tan(Math.PI * hz / (2 * this.sampleRate));
     const k = this.filterK;
@@ -422,8 +495,13 @@ export class Mos6581 {
       const v3 = filtIn - this.ic2;
       v1 = a1 * this.ic1 + a2 * v3;
       v2 = this.ic2 + a2 * this.ic1 + a3 * v3;
-      this.ic1 = FILTER_SAT * Math.tanh((2 * v1 - this.ic1) / FILTER_SAT);
-      this.ic2 = FILTER_SAT * Math.tanh((2 * v2 - this.ic2) / FILTER_SAT);
+      if (tune.sat > 0) {
+        this.ic1 = tune.sat * Math.tanh((2 * v1 - this.ic1) / tune.sat);
+        this.ic2 = tune.sat * Math.tanh((2 * v2 - this.ic2) / tune.sat);
+      } else {
+        this.ic1 = 2 * v1 - this.ic1;
+        this.ic2 = 2 * v2 - this.ic2;
+      }
     }
     const mode = this.modeVol;
     let filtered = 0;
@@ -432,7 +510,7 @@ export class Mos6581 {
     if ((mode & 0x40) !== 0) filtered += filtIn - k * v1 - v2;
 
     const volume = (mode & 0x0F) / 15;
-    const out = (filtered + direct + MIXER_DC) * volume * OUTPUT_GAIN;
+    const out = (filtered + direct + tune.mixerDc) * volume * OUTPUT_GAIN;
     if (this.sampleCount === SAMPLE_BUFFER) {
       this.sampleHead = (this.sampleHead + 1) % SAMPLE_BUFFER;
       this.sampleCount--;

@@ -299,6 +299,22 @@ export function register(server: McpServer): void {
 
   server.registerTool(
     'msxdisk',
+  server.registerTool(
+    'c64sid',
+    {
+      description: 'Show or choose the SID of the Commodore 64: the original MOS 6581 (S-curve filter, a DC level that the volume register scales, so volume-only sample playback is audible) or the later 8580 of the C64C (centred, linear filter, no DC level). Takes effect at once and keeps the registers; read the chip with chip_state chip "sid".',
+      inputSchema: {
+        model: z.enum(['6581', '8580']).optional().describe('The chip to fit (omit to show the current one)'),
+      },
+    },
+    async ({ model }) => {
+      const c64 = activeC64();
+      if (!c64) return text('The SID model is a Commodore 64 option.');
+      if (model) c64.sid.setModel(model);
+      return text(`C64 SID: MOS ${c64.sid.model}`);
+    },
+  );
+
     {
       description: 'Fit, remove, or inspect the MSX floppy disk interface (WD2793 + Disk BASIC ROM in slot 3, drives A:/B:). Fitting it loads the Disk BASIC ROM and resets the machine so the BIOS finds it; mount disks with the load tool.',
       inputSchema: {

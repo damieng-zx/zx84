@@ -52,7 +52,8 @@ const C64_UI: MachineUiCapabilities = {
   romPages: 0,
   beeper: false,
   soundChip: 'SID',
-  psgControls: [],
+  // The Sound pane's SID menu: the original 6581 or the C64C's 8580.
+  psgControls: ['sid-model'],
   statusLeds: ['kbd', 'load', 'dsk', 'chip', 'text'],
   keyboardBus: 'matrix',
   tape: 'deck',

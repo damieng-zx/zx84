@@ -77,7 +77,7 @@ const ENVELOPE = ['attack', 'decay/sustain', 'release'];
 
 function dumpSid(m: C64Machine): string {
   const s = m.sid;
-  const lines: string[] = [];
+  const lines: string[] = [`Chip      MOS ${s.model}${s.model === '8580' ? ' (centred, linear filter, no DC level)' : ' (S-curve filter, DC level, saturating)'}`];
   s.voices.forEach((v, i) => {
     const hz = (v.freq * m.cpuClockHz) / 0x1000000;
     const wave = bits(v.control >> 4, ['triangle', 'saw', 'pulse', 'noise']);

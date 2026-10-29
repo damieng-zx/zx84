@@ -370,6 +370,7 @@ export class C64Machine extends BaseMachine implements Machine {
   applySettings(view: SettingsView): void {
     this.audio.setVolume(view.get('volume', 70) / 100);
     this.tapeTurbo = view.get('tape-turbo-load', true);
+    this.sid.setModel(view.get<string>('c64-sid', '6581') === '8580' ? '8580' : '6581');
     if (this.drive) this.drive.writeProtected = view.get('write-protect-a', false);
   }
 

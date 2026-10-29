@@ -331,7 +331,7 @@ export interface SoundDeviceInfo {
   readonly maxVolume?: number;
 }
 
-export type PsgControl = 'stereo' | 'sn-stereo' | 'filter';
+export type PsgControl = 'stereo' | 'sn-stereo' | 'filter' | 'sid-model';
 
 /** One mouse interface a machine offers — see `MachineUiCapabilities.mouseTypes`.
  *  `id` is the mode string passed back through `InputService.mice`. */
