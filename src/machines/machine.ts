@@ -648,6 +648,11 @@ export interface MountResult {
    *  Atari snapshot carries its disks and cassette): the shell re-reads the
    *  drives and tape into the panes and persistence. */
   readonly mediaChanged?: boolean;
+  /** Set with `ok: false` when the disk needs a different drive than the one it
+   *  was meant for (a .d81 with only a 1541 fitted): the shell sets drive `index`
+   *  to `model` (rebuilding the machine if that needs a ROM it has not fetched),
+   *  then re-dispatches the file once. `message` is what to show if that fails. */
+  readonly needsDriveModel?: { readonly index: number; readonly model: string };
 }
 
 /**
@@ -795,8 +800,9 @@ export interface DiskService {
   formatBlank?(id: string, name?: string): { data: Uint8Array; name: string } | null;
   /** Machines with `ui.driveModels`: the model of each fitted drive, in order. */
   readonly driveModels?: readonly string[];
-  /** Change one drive's model; its disk stays in it. */
-  setDriveModel?(index: number, model: string): void;
+  /** Change one drive's model; its disk stays in it. Resolves once the machine
+   *  has been rebuilt, when the model needed a ROM that had to be fetched. */
+  setDriveModel?(index: number, model: string): void | Promise<void>;
   /** Add an empty drive below `after` (same model); the drives under it move
    *  down with their disks. False when no more fit. */
   addDrive?(after: number): boolean;

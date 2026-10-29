@@ -43,7 +43,7 @@ export class C64DiskService implements DiskService {
    *  reads GCR, a 1581 MFM), so it comes out. A model fitted elsewhere lends
    *  its ROM; otherwise the machine is rebuilt, after the pane has saved the
    *  choice, to fetch the DOS ROM. */
-  setDriveModel(index: number, model: string): void {
+  setDriveModel(index: number, model: string): void | Promise<void> {
     const m = this.m;
     if (!isC64DriveModel(model) || index < 0 || index >= m.driveModels.length || m.driveModels[index] === model) return;
     if (m.drives.length > 0 && m.replaceDriveAt(index, model)) return;
@@ -52,7 +52,8 @@ export class C64DiskService implements DiskService {
     m.driveModels = models;
     m.drives[index]?.ejectDisk();
     const roms = m.host?.roms;
-    if (roms) queueMicrotask(() => { void roms.rebuild(); });
+    if (!roms) return;
+    return new Promise(resolve => queueMicrotask(() => { roms.rebuild().then(resolve, resolve); }));
   }
 
   /** Add an empty drive below `after`, of the same model; the drives under it

@@ -113,13 +113,16 @@ export class C64MediaService implements MediaService {
       if (at < 0 && drives.length > 0) {
         const fits = drives.map((_, i) => i).filter(i => drives[i].model === wants);
         at = fits.find(i => !drives[i].loaded) ?? fits[0] ?? -1;
-        if (at < 0 && asked < 0) at = 0;           // reported below as the wrong model
+        // None reads it: the first empty drive, else the first, is set to the model
+        // that does (see needsDriveModel), so a .d81 on a stock 1541 machine just works.
+        if (at < 0 && asked < 0) at = Math.max(0, drives.findIndex(d => !d.loaded));
       }
       const drive = drives[at];
       if (drive && drive.model !== wants) {
         const have = drive.model;
         return {
           ok: false,
+          needsDriveModel: { index: at, model: wants },
           message: `Drive ${8 + at} is a ${have}, which reads ${have === '1541' ? '.d64 and .g64' : '.d81'} disks: set it to a ${wants} in the Drives pane (the drive's ... menu, Model) or add a ${wants} drive there, to use ${name}`,
         };
       }

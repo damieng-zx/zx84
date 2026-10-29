@@ -124,6 +124,9 @@ export interface LoadOptions {
    *  where the user is opening a program; not by a drive's own insert, which only
    *  swaps media under a running machine, nor by the library, which boots its own. */
   autoBoot?: boolean;
+  /** The file was already re-dispatched once after its drive was set to the
+   *  model it needs (MountResult.needsDriveModel); not to be tried again. */
+  driveFitted?: boolean;
 }
 
 export async function loadFile(data: Uint8Array, filename: string, unit?: number, options: LoadOptions = {}): Promise<void> {
@@ -135,6 +138,15 @@ export async function loadFile(data: Uint8Array, filename: string, unit?: number
   }
   // Everything else routes through the active machine's own MediaService.
   const result = await machine.services.media.mount(data, filename, unit !== undefined ? `unit:${unit}` : undefined);
+  // A disk for a drive model that is not fitted: set the drive up (which may
+  // rebuild the machine to fetch its DOS ROM), then mount the file again.
+  const need = result.needsDriveModel;
+  if (need && !options.driveFitted && machine.services.disks?.setDriveModel) {
+    setStatus(`Setting drive ${need.index + 8} to a ${need.model}…`);
+    await setBuiltinDriveModel(need.index, need.model);
+    await loadFile(data, filename, unit, { ...options, driveFitted: true });
+    return;
+  }
   await reflectMount(result, data, filename, unit, options);
 }
 
@@ -572,15 +584,18 @@ export function removeBuiltinDrive(unit: number): void {
 }
 
 /** Set one drive's model; its disk stays in it. */
-export function setBuiltinDriveModel(unit: number, model: string): void {
+export async function setBuiltinDriveModel(unit: number, model: string): Promise<void> {
   const m = machine;
   const disks = m?.services.disks;
   if (!m || !disks?.setDriveModel) return;
-  disks.setDriveModel(unit, model);
+  // A model whose ROM has to be fetched rebuilds the machine, after the choice
+  // below is saved; the rebuild's promise is what the caller waits on.
+  const rebuilt = disks.setDriveModel(unit, model);
   saveDriveModels(m);
   // A model that cannot keep the disk (a 1541's GCR disk in a 1581) empties its
   // drive: show that and drop the persisted copy.
   refreshBuiltinDrives(m);
+  await rebuilt;
 }
 
 export function ejectDisk(unit: number = 0): void {

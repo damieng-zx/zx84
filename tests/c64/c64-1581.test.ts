@@ -129,9 +129,30 @@ describe('choosing the drive', () => {
     const wrong = await m.services.media.mount(blankD81Bytes(), 'new.d81');
     expect(wrong.ok).toBe(false);
     expect(wrong.message).toMatch(/Drive 8 is a 1541.*\.d64 and \.g64.*1581 in the Drives pane.*Model/);
+    // The shell acts on this: the drive is set to the model that reads it, and the file mounted again.
+    expect(wrong.needsDriveModel).toEqual({ index: 0, model: '1581' });
     // .g41 is a G64 by another name.
     const g64 = serializeG64(parseD64(blankD64()));
     expect(await m.services.media.mount(g64, 'copy.g41')).toMatchObject({ ok: true, target: 'a' });
+    m.destroy();
+  });
+
+  it('asks for the first empty drive to become a 1581 when a .d81 comes and none reads it', async () => {
+    const m = new C64Machine('c64', null);
+    m.installDrive(new Uint8Array(0x4000), '1541');
+    m.services.disks.addDrive!(0);
+    m.drives[0].mountImage(blankC64Bytes(), 'full.d64');
+    const r = await m.services.media.mount(blankD81Bytes(), 'game.d81');
+    expect(r).toMatchObject({ ok: false, needsDriveModel: { index: 1, model: '1581' } });
+    // Setting it needs the 1581's ROM, so the machine is rebuilt: the promise settles when it has been.
+    let rebuilt = false;
+    m.attachHost({
+      roms: { rebuild: async () => { rebuilt = true; } },
+    } as unknown as Parameters<typeof m.attachHost>[0]);
+    const done = m.services.disks.setDriveModel!(1, '1581');
+    expect(m.driveModels).toEqual(['1541', '1581']);
+    await done;
+    expect(rebuilt).toBe(true);
     m.destroy();
   });
 
