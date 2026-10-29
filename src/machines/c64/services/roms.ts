@@ -5,10 +5,13 @@
  * its chip's size. No cartridge slot yet.
  */
 
-import type { CartridgeSlot, MachineHost, RomService, RomSlotInfo } from '@/machines/machine.ts';
+import type {
+  CartridgeSlot, MachineHost, RomService, RomSlotInfo, SidewaysRomSlot,
+} from '@/machines/machine.ts';
 import type { C64Machine } from '../c64-machine.ts';
 import { C64_ROM_CHIP_SIZES, C64_ROM_SLOT_LABELS } from '../models.ts';
 import { C64_ROM_SIZE } from '../constants.ts';
+import { DRIVE_ROM_SIZE } from '../drive/drive-1541.ts';
 
 export class C64RomService implements RomService {
   constructor(
@@ -63,4 +66,35 @@ export class C64RomService implements RomService {
   }
 
   readonly cartridge: CartridgeSlot | null = null;
+
+  /** The disk drive's DOS ROM is a socket of its own, while a drive is fitted. */
+  get sidewaysSlots(): readonly SidewaysRomSlot[] {
+    const drive = this.m.drive;
+    if (!drive) return [];
+    return [{
+      index: 0,
+      title: '1541 DOS',
+      label: drive.hasRom ? '1541 DOS ROM' : '',
+      size: drive.hasRom ? DRIVE_ROM_SIZE : 0,
+      overridden: false,
+    }];
+  }
+
+  installSidewaysRom(index: number, data: Uint8Array): void {
+    if (index === 0) this.m.installDrive(data);
+  }
+
+  async setSidewaysRom(index: number, data: Uint8Array, label: string): Promise<void> {
+    const ops = this.host()?.roms;
+    if (!ops) return;
+    await ops.persistSideways(index, data, label);
+    await ops.rebuild();
+  }
+
+  async resetSidewaysRom(index: number): Promise<void> {
+    const ops = this.host()?.roms;
+    if (!ops) return;
+    await ops.clearSideways(index);
+    await ops.rebuild();
+  }
 }

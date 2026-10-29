@@ -28,3 +28,6 @@ export const C64_ROM_SLOT_SIZE = 0x2000;
 export const C64_ROM_SLOT_LABELS = ['BASIC', 'KERNAL', 'Character ROM'] as const;
 /** Each chip's own size: what an override in its socket is cut to. */
 export const C64_ROM_CHIP_SIZES = [0x2000, 0x2000, 0x1000] as const;
+
+/** The 1541's DOS ROM on the ROM host: 325302-01 ($C000) then 901229-05 ($E000). */
+export const C64_DRIVE_ROM_SOURCE = 'c64/dos1541-325302-01-901229-05.rom';

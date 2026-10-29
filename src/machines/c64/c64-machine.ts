@@ -37,9 +37,9 @@ import { PulseRecorder } from '@/media/tape/pulse-recorder.ts';
 import type { C64Program } from '@/media/tape/t64.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type {
-  BorderMode, Machine, MachineDescriptor, MachineHost, MachineKind, SettingsView,
+  AuxRomRequest, BorderMode, Machine, MachineDescriptor, MachineHost, MachineKind, SettingsView,
 } from '@/machines/machine.ts';
-import type { C64Model } from './models.ts';
+import { C64_DRIVE_ROM_SOURCE, type C64Model } from './models.ts';
 import { C64Memory } from './memory.ts';
 import { C64Keyboard } from './keyboard.ts';
 import {
@@ -49,12 +49,16 @@ import { c64Descriptor } from './descriptor.ts';
 import { createC64Services, type C64Services } from './services/index.ts';
 import { c64ScreenText } from './screen-text.ts';
 import { c64OcrGrid, type C64OcrResult } from '@/ocr/c64.ts';
+import { Drive1541, DRIVE_CLOCK_HZ } from './drive/drive-1541.ts';
 import { C64_PALETTE } from './palette.ts';
 import {
   C64_ACTIVE_HEIGHT, C64_ACTIVE_WIDTH, C64_BASIC_SIZE, C64_BORDER_LEFT, C64_BORDER_TOP, C64_CHARGEN_SIZE, C64_CPU_CLOCK,
   C64_CYCLES_PER_FRAME, C64_CYCLES_PER_LINE, C64_KERNAL_SIZE, C64_LINES_PER_FRAME,
   C64_SCREEN_HEIGHT, C64_SCREEN_WIDTH,
 } from './constants.ts';
+
+/** 1541 cycles per C64 cycle (its clock is a round 1 MHz, the 64's 985,248 Hz). */
+const DRIVE_PER_C64 = DRIVE_CLOCK_HZ / C64_CPU_CLOCK;
 
 /** The line cycles at which the frame loop hands over to the VIC-II, in order. */
 const EVENTS = [EV_VC, EV_SPRITE_MCB, EV_SPRITE_DMA, EV_LINE_END, C64_CYCLES_PER_LINE] as const;
@@ -102,6 +106,8 @@ export class C64Machine extends BaseMachine implements Machine {
   readonly cia1 = new Mos6526();
   readonly cia2 = new Mos6526();
   readonly keyboard = new C64Keyboard();
+  /** The 1541 on the serial bus, or null when no drive is fitted. */
+  drive: Drive1541 | null = null;
   /** The Datasette's tape, played through the shared pulse deck. */
   readonly tape = new TapeDeck(C64_CPU_CLOCK);
   /** Edges of the cassette write line since the last reset (what SAVE wrote). */
@@ -154,6 +160,11 @@ export class C64Machine extends BaseMachine implements Machine {
   private pendingProgram: { prog: C64Program; run: boolean } | null = null;
   private framesSinceReset = 0;
 
+  /** A state without its disks (the browser-refresh copy) was restored: the
+   *  shell then puts the persisted disk back, which must not look like a disk
+   *  change to the drive. Cleared by any reset. */
+  refreshResumed = false;
+
   get tapeTurboActive(): boolean { return this._tapeTurboActive; }
 
   constructor(model: C64Model, display: IScreenRenderer | null = null) {
@@ -201,11 +212,12 @@ export class C64Machine extends BaseMachine implements Machine {
       return driven & ~this.joy1 & keyboard.rowsFor(cia1.drivenA & ~this.joy2);
     };
     // CIA 2 port A: VIC bank (bits 0-1), serial bus outputs through
-    // inverters (ATN 3, CLK 4, DATA 5) and inputs (CLK 6, DATA 7). Nothing
-    // else is on the bus, so a line is low only while the 64 pulls it.
+    // inverters (ATN 3, CLK 4, DATA 5) and inputs (CLK 6, DATA 7). A line is
+    // low while the 64 or the drive pulls it.
     cia2.portAIn = (driven) => {
-      const clkLow = (driven & 0x10) !== 0;
-      const dataLow = (driven & 0x20) !== 0;
+      const drive = this.drive;
+      const clkLow = (driven & 0x10) !== 0 || (drive !== null && drive.clkAsserted);
+      const dataLow = (driven & 0x20) !== 0 || (drive !== null && drive.dataAsserted);
       return (driven & 0x3F) | (clkLow ? 0 : 0x40) | (dataLow ? 0 : 0x80);
     };
     cia2.onPortWrite = (port) => {
@@ -234,9 +246,12 @@ export class C64Machine extends BaseMachine implements Machine {
           cia1.advanceTo(this.accessT(addr, false));
           if ((addr & 0x0F) === 0x0D) this.icrReads++;
           return cia1.read(addr);
-        case 0xD:
-          cia2.advanceTo(this.accessT(addr, false));
+        case 0xD: {
+          const t = this.accessT(addr, false);
+          cia2.advanceTo(t);
+          if (this.drive !== null && (addr & 0x0F) === 0) this.syncDrive(t);
           return cia2.read(addr);
+        }
         default:
           return 0xFF;   // I/O 1 and 2: nothing fitted
       }
@@ -273,10 +288,14 @@ export class C64Machine extends BaseMachine implements Machine {
           cia1.advanceTo(t);
           cia1.write(addr, value);
           break;
-        case 0xD:
+        case 0xD: {
           cia2.advanceTo(t);
+          const bus = this.drive !== null && ((addr & 0x0F) === 0 || (addr & 0x0F) === 2);
+          if (bus) this.syncDrive(t);
           cia2.write(addr, value);
+          if (bus) this.updateIecLines();
           break;
+        }
         default:
           break;
       }
@@ -320,6 +339,7 @@ export class C64Machine extends BaseMachine implements Machine {
   applySettings(view: SettingsView): void {
     this.audio.setVolume(view.get('volume', 70) / 100);
     this.tapeTurbo = view.get('tape-turbo-load', true);
+    if (this.drive) this.drive.writeProtected = view.get('write-protect-a', false);
   }
 
   /** The border is fully rendered; the setting crops it: Normal shows it
@@ -369,6 +389,7 @@ export class C64Machine extends BaseMachine implements Machine {
     this.keyboard.reset();
     this.joy1 = this.joy2 = 0;
     this.cpu.reset();
+    if (this.drive) { this.drive.reset(); this.updateIecLines(); }
     this.nmiLevel = false;
     this.midFrame = false;
     this.fLine = 0;
@@ -383,10 +404,54 @@ export class C64Machine extends BaseMachine implements Machine {
     this.tapeTurboCooldown = 0;
     this.framesSinceReset = 0;
     this.pendingProgram = null;
+    this.refreshResumed = false;
     this.syncChipClocks();
     this.mixer.reset();
     this.audio.reset();
     this.needsDisplay = true;
+  }
+
+  // ── Disk drive ───────────────────────────────────────────────────────────
+
+  /** Fit a 1541 running the DOS in `rom` (the 16K image), or take it off the
+   *  bus (null). The disk in it stays when the ROM is replaced. */
+  installDrive(rom: Uint8Array | null): void {
+    if (rom === null) { this.drive = null; return; }
+    const drive = this.drive ?? new Drive1541();
+    drive.loadRom(rom);
+    this.drive = drive;
+    this.updateIecLines();
+  }
+
+  /** Fit or remove the drive the Hardware pane asks for, and list the DOS ROM
+   *  it needs (fetched before the machine starts). */
+  prepare(view: SettingsView): AuxRomRequest[] {
+    if (!view.get('c64-drive', true)) {
+      this.drive = null;
+      return [];
+    }
+    this.drive ??= new Drive1541();
+    return [{
+      cacheKey: 'c64-dos1541-rom',
+      source: C64_DRIVE_ROM_SOURCE,
+      fetchingMsg: 'Fetching 1541 DOS ROM...',
+      loadedMsg: (bytes) => `1541 DOS ROM loaded (${bytes} bytes)`,
+      failMsg: 'Failed to load the 1541 DOS ROM: disk drive unavailable',
+      failId: 'c64-dos1541',
+      apply: (data) => this.installDrive(data),
+      awaitLoad: true,
+    }];
+  }
+
+  /** Bring the drive up to the 64's cycle `t`. */
+  private syncDrive(t: number): void {
+    this.drive?.runTo(Math.floor(t * DRIVE_PER_C64));
+  }
+
+  /** Tell the drive which bus lines the 64 pulls low (ATN, CLK, DATA). */
+  private updateIecLines(): void {
+    const driven = this.cia2.drivenA;
+    this.drive?.setC64Lines((driven & 0x08) !== 0, (driven & 0x10) !== 0, (driven & 0x20) !== 0);
   }
 
   /** The chips' own clocks follow the CPU's (it restarts at 0 on reset). */
@@ -533,8 +598,9 @@ export class C64Machine extends BaseMachine implements Machine {
           case EV_SPRITE_MCB: vic.spriteRowAdvance(); break;
           case EV_SPRITE_DMA:
             vic.spriteDmaCheck();
-            // An instruction that ran past the start of the new holds pays them.
-            this.cpu.tStates += vic.stretch(this.lastInsnStart, this.cpu.tStates);
+            // An instruction that ran past the start of the new sprite holds
+            // pays them (the bad line's was charged as it ran).
+            this.cpu.tStates += vic.stretch(this.lastInsnStart, this.cpu.tStates, false);
             break;
           case EV_LINE_END: vic.endOfLineFetches(); break;
           default: vic.endLine(); break;
@@ -545,6 +611,7 @@ export class C64Machine extends BaseMachine implements Machine {
       if (!skipAudio) this.pumpAudio();
     }
 
+    this.syncDrive(this.cpu.tStates);
     this.cia1.todTick();
     this.cia2.todTick();
     this.framesSinceReset++;
@@ -625,7 +692,10 @@ export class C64Machine extends BaseMachine implements Machine {
     const writing = this.tapeRecorder.count !== this.recordedAtFrame;
     this.icrReads = 0;
     this.recordedAtFrame = this.tapeRecorder.count;
-    const loading = this.memory.motorOn && (reading || writing);
+    // The drive is busy while its motor runs and bytes move under the head.
+    const drive = this.drive;
+    const diskBusy = drive !== null && drive.takeActivity() > 0 && drive.motorOn;
+    const loading = (this.memory.motorOn && (reading || writing)) || diskBusy;
     if (loading) {
       this._tapeTurboActive = this.tapeTurbo;
       this.tapeTurboCooldown = TAPE_TURBO_COOLDOWN;
@@ -747,7 +817,7 @@ export class C64Machine extends BaseMachine implements Machine {
   }
 
   /** The machine's state between frames. The tape is not part of it. */
-  saveState(w: StateWriter, _withMedia: boolean): void {
+  saveState(w: StateWriter, withMedia: boolean): void {
     this.completeFrame();
     w.section('CPU ', () => this.cpu.saveState(w));
     w.section('MACH', () => {
@@ -759,6 +829,14 @@ export class C64Machine extends BaseMachine implements Machine {
     w.section('SID ', () => this.sid.saveState(w));
     w.section('CIA1', () => this.cia1.saveState(w));
     w.section('CIA2', () => this.cia2.saveState(w));
+    const drive = this.drive;
+    if (drive?.hasRom) {
+      w.section('DRV ', () => drive.saveState(w));
+      w.section('MEDA', () => {
+        w.bool(withMedia);
+        if (withMedia) drive.saveDisk(w);
+      });
+    }
   }
 
   loadState(r: StateReader): void {
@@ -773,6 +851,20 @@ export class C64Machine extends BaseMachine implements Machine {
     this.sid.loadState(r.section('SID '));
     this.cia1.loadState(r.section('CIA1'));
     this.cia2.loadState(r.section('CIA2'));
+    let withMedia = true;
+    if (r.peekSection('DRV ')) {
+      const state = r.section('DRV ');
+      const media = r.section('MEDA');
+      withMedia = media.bool();
+      if (this.drive?.hasRom) {
+        this.drive.loadState(state);
+        if (withMedia) this.drive.loadDisk(media);
+      }
+      this.updateIecLines();
+    } else if (this.drive?.hasRom) {
+      this.drive.reset();
+      this.updateIecLines();
+    }
     this.memory.cassetteSense = this.tapeSense;
     this.motorWasOn = this.memory.motorOn;
     this.midFrame = false;
@@ -789,6 +881,7 @@ export class C64Machine extends BaseMachine implements Machine {
     this.audioLastT = this.cpu.tStates;
     this.audio.reset();
     this.mixer.reset();
+    this.refreshResumed = !withMedia;
     this.needsDisplay = true;
   }
 }

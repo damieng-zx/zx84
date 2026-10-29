@@ -317,10 +317,12 @@ export class VicII {
   }
 
   /** Extra cycles an instruction run from `start` to `end` loses to a hold
-   *  that began part-way through it. */
-  stretch(start: number, end: number): number {
+   *  that began part-way through it. `badline` is false when the bad line's
+   *  hold was already charged (the CPU waited it out, or the instruction was
+   *  stretched when it ran), so only the sprite windows count. */
+  stretch(start: number, end: number, badline = true): number {
     let e = end;
-    if (this.badStart > start && this.badStart < e) e += this.badEnd - this.badStart;
+    if (badline && this.badStart > start && this.badStart < e) e += this.badEnd - this.badStart;
     for (let i = 0; i < this.sprStealCount; i++) {
       const s = this.sprSteals[i * 2];
       if (s > start && s < e) e += this.sprSteals[i * 2 + 1] - s;

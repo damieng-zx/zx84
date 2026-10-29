@@ -85,5 +85,19 @@ export class C64FrameProbe implements FrameProbe {
     out.mdvCount = 0;
     out.mdvMotorMask = 0;
     out.floppySlot = -1;
+    out.floppyMotor = false;
+    const drive = m.drive;
+    if (drive) {
+      // 0 off, 1 motor, 2 reading, 3 writing: the 1541's LED is lit while it works.
+      out.driveLed[0] = !drive.motorOn ? 0 : drive.isWriting ? 3 : drive.ledOn ? 2 : 1;
+      out.driveTrack[0] = drive.currentTrack;
+      out.driveSector[0] = -1;
+      out.driveDirty[0] = drive.dirty ? 1 : 0;
+      out.disk = drive.motorOn ? 1 : 0;
+      out.floppySlot = 0;
+      out.floppyMotor = drive.motorOn;
+      out.floppyTrack = drive.currentTrack;
+      out.floppyProfile = 2;      // 5.25 inch
+    }
   }
 }

@@ -29,7 +29,11 @@ const C64_UI: MachineUiCapabilities = {
   // The VIC-II's sixteen colours are fixed (palette.ts).
   colorMap: 'mono',
   accuracy: false,
-  builtinDisk: false,
+  // The 1541 is on the serial bus; the Hardware pane plugs it in or out.
+  builtinDisk: true,
+  requires: { builtinDisk: 'c64-drive' },
+  builtinDrives: 1,
+  builtinDriveLabels: ['Drive 8'],
   // Two control ports on CIA 1; each player picks the port its stick is in.
   // Player 1 starts in port 1 and player 2 in port 2 (the Nth type is the
   // Nth player's default, see JoystickPane).
@@ -47,7 +51,7 @@ const C64_UI: MachineUiCapabilities = {
   beeper: false,
   soundChip: 'SID',
   psgControls: [],
-  statusLeds: ['kbd', 'load', 'chip', 'text'],
+  statusLeds: ['kbd', 'load', 'dsk', 'chip', 'text'],
   keyboardBus: 'matrix',
   tape: 'deck',
   tapeSound: false,
@@ -55,7 +59,7 @@ const C64_UI: MachineUiCapabilities = {
   // 'tape-tap' downloads what the KERNAL has SAVEd to tape (as a C64 .tap).
   saveMenu: ['snapshot-c64state', 'tape-tap', 'screenshot-png', 'ram-bin'],
   zipPolicy: 'media',
-  persistMedia: false,
+  persistMedia: true,
   bootDisk: false,
   library: false,
   memoryRegions: [

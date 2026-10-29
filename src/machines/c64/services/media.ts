@@ -4,6 +4,7 @@
  *  - `.tap`  a Datasette recording, played through the tape port (type LOAD).
  *  - `.t64`  a tape archive: its first program is put in memory and RUN.
  *  - `.prg`  a program file, likewise.
+ *  - `.d64` / `.g64`  a 1541 disk, put in the drive (device 8).
  *  - `.c64state`  a zx84 snapshot.
  *
  * `.t64` and `.prg` are files rather than recordings, so they go straight
@@ -20,6 +21,7 @@ import { isC64Tap } from '@/media/tape/c64-tap.ts';
 import { isT64, parsePrg, parseT64 } from '@/media/tape/t64.ts';
 import type { NativeSnapshotService } from '@/machines/shared/native-state.ts';
 import type { C64Machine } from '../c64-machine.ts';
+import type { C64DiskService } from './disks.ts';
 import type { C64TapeService } from './tape.ts';
 import { C64_STATE } from '../snapshots/c64-state.ts';
 
@@ -27,6 +29,7 @@ export class C64MediaService implements MediaService {
   constructor(
     private readonly m: C64Machine,
     private readonly tape: C64TapeService,
+    private readonly disks: C64DiskService,
     private readonly snapshots: NativeSnapshotService,
   ) {}
 
@@ -37,6 +40,8 @@ export class C64MediaService implements MediaService {
       // them), so the Tape pane names them and LOAD finds them.
       { ext: '.t64', target: 'tape' },
       { ext: '.prg', target: 'tape' },
+      { ext: '.d64', target: 'a' },
+      { ext: '.g64', target: 'a' },
       { ext: C64_STATE.ext, target: 'snapshot' },
     ];
   }
@@ -49,7 +54,7 @@ export class C64MediaService implements MediaService {
     } catch { /* the program still runs; there is just no tape to show */ }
   }
 
-  async mount(data: Uint8Array, filename: string, _target?: MediaTargetId): Promise<MountResult> {
+  async mount(data: Uint8Array, filename: string, target?: MediaTargetId): Promise<MountResult> {
     const name = filename.replace(/^.*[\\/]/, '');
     if (/\.tap$/i.test(name)) {
       // .tap is also the ZX Spectrum's (unrelated) format.
@@ -89,6 +94,20 @@ export class C64MediaService implements MediaService {
       return { ok: true, target: 'tape', message: `Loaded ${name}` };
     }
 
+    if (/\.(d64|g64)$/i.test(name)) {
+      // The shell remounting the persisted disk after a browser-refresh restore
+      // names the drive; the restored drive is already running, so the disk
+      // goes back in without the sensor seeing a change.
+      const reattach = target === 'a' && this.m.refreshResumed;
+      try {
+        this.disks.mountImage('a', data, name, reattach);
+      } catch (e) {
+        return { ok: false, message: `Disk error: ${e instanceof Error ? e.message : String(e)}` };
+      }
+      if (reattach) return { ok: true, target: 'a', message: `Drive 8 loaded: ${name}` };
+      return { ok: true, target: 'a', message: `Drive 8 loaded: ${name} (try LOAD"$",8)` };
+    }
+
     if (name.toLowerCase().endsWith(C64_STATE.ext)) {
       const r = await this.snapshots.apply(data, name);
       if (r.needsReplay) return { ok: true, replay: true, message: r.message };
@@ -97,6 +116,6 @@ export class C64MediaService implements MediaService {
         : { ok: false, message: r.message };
     }
 
-    return { ok: false, message: 'The C64 loads .tap tapes, .t64 and .prg programs and .c64state snapshots' };
+    return { ok: false, message: 'The C64 loads .tap tapes, .t64 and .prg programs, .d64 and .g64 disks and .c64state snapshots' };
   }
 }

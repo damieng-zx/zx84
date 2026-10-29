@@ -32,6 +32,7 @@ import { machineCaps, machineDescriptor } from '@/state/machine-caps.ts';
 import { DISK_FORMATS, formatLabel, createBlankDisk } from '@/media/floppy/dsk.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { createBlankHfe } from '@/media/floppy/hfe.ts';
+import { blankC64Disk, c64DiskImage } from '@/media/floppy/c64-disk.ts';
 import { blankLdfDisk } from '@/media/floppy/ldf-image.ts';
 import { blankFatImage } from '@/media/floppy/fat-image.ts';
 import { blankSsd } from '@/media/floppy/ssd.ts';
@@ -52,6 +53,9 @@ const LED_COLORS: Record<DriveStatus['led'], string> = {
 function renderDiskInfoStr(img: DskImage, showProtection = true): string {
   const n = '<span class="reg-name">';
   const e = '</span>';
+  // A bit-level GCR disk (the 1541's) has no sector table to count: its
+  // format line says what it is.
+  if (img.tracks.length === 0) return `${n}Format${e}   ${img.diskFormat}`;
   const t0 = img.tracks[0]?.[0];
   const spt = t0 ? t0.sectors.length : 0;
   const sectorSize = t0?.sectors[0] ? (128 << t0.sectors[0].n) : 0;
@@ -286,6 +290,10 @@ const FAT_NEW_ITEMS = [
 const DFS_NEW_ITEMS = [
   { value: 'dfs', label: 'DFS image', children: DFS_GEOMETRIES.map((g, i) => ({ value: `dfs-${i}`, label: g.label })) },
 ];
+// The 1541 formats its own disks, so a blank one is just a formatted D64.
+const C64_NEW_ITEMS = [
+  { value: 'd64-0', label: 'Blank 170K D64 (formatted)' },
+];
 
 // MSX-DOS disks are saved as raw .dsk sector dumps; the blank set is the
 // 3.5" pair a 1DD/2DD MSX1 drive formats, each with a valid FAT12 volume.
@@ -306,6 +314,7 @@ function lynxBlankForValue(value: string): { tracks: number; sides: number } | n
 
 /** Blank image for a built-in drive's "New disk" menu, whichever format it is. */
 function blankForValue(value: string): { image: DskImage; label: string } | null {
+  if (value === 'd64-0') return { image: c64DiskImage(blankC64Disk()), label: 'blank.d64' };
   const ldf = lynxBlankForValue(value);
   if (ldf) {
     return {
@@ -471,6 +480,7 @@ export function DrivePane() {
   // Lynx accepts .ldf, the BBC .ssd, everything else here uses the +3 DSK/HFE set.
   const builtinDiskItems = () => {
     const accepts = machine?.services.media.accepts() ?? [];
+    if (accepts.some(t => t.ext === '.d64')) return C64_NEW_ITEMS;
     if (accepts.some(t => t.ext === '.ldf')) return LYNX_NEW_ITEMS;
     if (accepts.some(t => t.ext === '.ssd')) return DFS_NEW_ITEMS;
     if (accepts.some(t => t.ext === '.dmk')) return MSX_NEW_ITEMS;
