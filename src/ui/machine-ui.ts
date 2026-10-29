@@ -81,6 +81,8 @@ const CONTRIBUTIONS: Record<string, MachineUiContribution> = {
   c64: {
     HardwareSection: lazy(() =>
       import('@/machines/c64/ui/hardware-section.tsx').then(m => ({ default: m.C64HardwareSection }))),
+    Keyboard: lazy(() =>
+      import('@/machines/c64/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
   },
   apple2: {
     HardwareSection: lazy(() =>
