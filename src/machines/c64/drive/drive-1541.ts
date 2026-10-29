@@ -35,7 +35,12 @@ import { M6522 } from '@/cores/m6522.ts';
 import {
   C64_HALF_TRACKS, readC64Disk, writeC64Disk, type C64Disk, type C64Track,
 } from '@/media/floppy/c64-disk.ts';
+import type { DskImage } from '@/media/floppy/disk-image.ts';
+import {
+  c64DiskImage, isC64DiskImage, parseC64Disk, serializeC64Disk,
+} from '@/media/floppy/c64-disk.ts';
 import type { StateSink, StateSource } from '@/utils/state-stream.ts';
+import type { C64DriveUnit } from './drive-unit.ts';
 
 export const DRIVE_CLOCK_HZ = 1_000_000;
 export const DRIVE_ROM_SIZE = 0x4000;
@@ -47,13 +52,17 @@ const BIT_QUARTERS = [16, 15, 14, 13] as const;
  *  the two disks' tabs compare. */
 const SENSOR_FLIP_CYCLES = 40_000;
 
-export class Drive1541 {
+export class Drive1541 implements C64DriveUnit {
+  readonly model = '1541' as const;
+  readonly clockHz = DRIVE_CLOCK_HZ;
+  readonly romSize = DRIVE_ROM_SIZE;
   readonly cpu = new M6502();
   readonly ram = new Uint8Array(0x800);
   readonly rom = new Uint8Array(DRIVE_ROM_SIZE);
   readonly via1 = new M6522();
   readonly via2 = new M6522();
   hasRom = false;
+  unit = 0;
 
   disk: C64Disk | null = null;
   /** The file the disk came from, for the Drives pane and for saving. */
@@ -125,6 +134,47 @@ export class Drive1541 {
 
   // ── Media ───────────────────────────────────────────────────────────────
 
+  get loaded(): boolean { return this.disk !== null; }
+
+  mountImage(data: Uint8Array, name: string, silent = false): void {
+    let disk: C64Disk;
+    try {
+      disk = parseC64Disk(data);
+    } catch (e) {
+      throw new Error(`a 1541 reads .d64 and .g64 disks (${e instanceof Error ? e.message : String(e)})`);
+    }
+    this.insertDisk(disk, this.writeProtected, name, silent);
+  }
+
+  insertImage(image: DskImage, name: string): void {
+    if (!isC64DiskImage(image)) throw new Error('not a Commodore 1541 disk');
+    this.insertDisk(image.c64, this.writeProtected, name);
+  }
+
+  saveImage(): { data: Uint8Array; ext: string } | null {
+    if (!this.disk) return null;
+    const out = serializeC64Disk(this.disk);
+    this.dirty = false;
+    return out;
+  }
+
+  diskImage(): DskImage | null { return this.disk ? c64DiskImage(this.disk) : null; }
+
+  describe(): string[] {
+    const hx = (v: number, w = 2): string => v.toString(16).toUpperCase().padStart(w, '0');
+    const via = (v: M6522): string[] => [
+      `  ORA ${hx(v.ora)} DDRA ${hx(v.ddra)}   ORB ${hx(v.orb)} DDRB ${hx(v.ddrb)}   ACR ${hx(v.acr)}  PCR ${hx(v.pcr)}`,
+      `  T1 ${hx(v.t1Counter, 4)} (latch ${hx(v.t1Latch, 4)}${v.t1Running ? ', running' : ''})   T2 ${hx(v.t2Counter, 4)}${v.t2Running ? ' (running)' : ''}   SR ${hx(v.sr)}`,
+      `  IFR ${hx(v.ifr)}  IER ${hx(v.ier)}  ${v.irq ? 'IRQ asserted' : ''}`.trimEnd(),
+    ];
+    return [
+      'VIA 1 serial bus / ATN, clock, data ($1800)',
+      ...via(this.via1),
+      'VIA 2 disk controller ($1C00)',
+      ...via(this.via2),
+    ];
+  }
+
   /** Put a disk in. `silent` swaps the disk without the write-protect sensor
    *  flickering, for putting back the disk a restored snapshot already had. */
   insertDisk(disk: C64Disk, writeProtected = false, name = '', silent = false): void {
@@ -189,7 +239,7 @@ export class Drive1541 {
   // ── Bus ─────────────────────────────────────────────────────────────────
 
   private via1Pins(): number {
-    let v = 0;                                  // PB5/PB6 low: device number 8
+    let v = (this.unit & 3) << 5;               // PB5/PB6: the device number, 8 + unit
     if (this.c64Data || this.dataAsserted) v |= 0x01;
     if (this.c64Clk || this.clkAsserted) v |= 0x04;
     if (this.atn) v |= 0x80;

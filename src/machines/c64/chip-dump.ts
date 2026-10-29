@@ -8,7 +8,6 @@
 
 import type { ChipSection } from '@/debug/chip-state.ts';
 import type { Mos6526 } from '@/cores/mos6526.ts';
-import type { M6522 } from '@/cores/m6522.ts';
 import { hex8, hex16 } from '@/utils/hex.ts';
 import type { C64Machine } from './c64-machine.ts';
 import { C64_CART_TYPE_NAMES } from './cartridge.ts';
@@ -168,32 +167,20 @@ function dumpCart(m: C64Machine): string {
 
 // ── 1541 ──────────────────────────────────────────────────────────────────
 
-const VIA1_NAMES = ['serial bus', 'ATN/clock/data'];
-
-function dumpVia(v: M6522): string[] {
-  return [
-    `  ORA ${hx(v.ora)} DDRA ${hx(v.ddra)}   ORB ${hx(v.orb)} DDRB ${hx(v.ddrb)}   ACR ${hx(v.acr)}  PCR ${hx(v.pcr)}`,
-    `  T1 ${hx(v.t1Counter, 4)} (latch ${hx(v.t1Latch, 4)}${v.t1Running ? ', running' : ''})   T2 ${hx(v.t2Counter, 4)}${v.t2Running ? ' (running)' : ''}   SR ${hx(v.sr)}`,
-    `  IFR ${hx(v.ifr)}  IER ${hx(v.ier)}  ${v.irq ? 'IRQ asserted' : ''}`.trimEnd(),
-  ];
-}
-
-function dumpDrive(m: C64Machine): string {
-  const d = m.drive;
-  if (!d) return 'No disk drive fitted (tick the 1541 in the Hardware pane).';
+function dumpDrive(m: C64Machine, index: number): string {
+  const d = m.drives[index];
+  if (!d) return 'No disk drive fitted (tick the disk drive in the Hardware pane).';
   const c = d.cpu;
   const p = c.p;
   const flags = `${p & 0x80 ? 'N' : '-'}${p & 0x40 ? 'V' : '-'}-${p & 0x10 ? 'B' : '-'}${p & 8 ? 'D' : '-'}${p & 4 ? 'I' : '-'}${p & 2 ? 'Z' : '-'}${p & 1 ? 'C' : '-'}`;
   return [
+    `Drive   Commodore ${d.model} as device ${8 + index}  (${(d.clockHz / 1e6).toFixed(0)} MHz)`,
     `CPU     PC ${hx(c.pc, 4)}  A ${hx(c.a)}  X ${hx(c.x)}  Y ${hx(c.y)}  SP ${hx(c.sp)}  P ${hx(p)} ${flags}`,
     `ROM     ${d.hasRom ? 'DOS ROM loaded' : 'NO DOS ROM'}`,
-    `Disk    ${d.disk ? `${d.mediaName || 'disk'}${d.writeProtected ? ' (write protected)' : ''}${d.dirty ? ' (modified)' : ''}` : 'none'}`,
+    `Disk    ${d.loaded ? `${d.mediaName || 'disk'}${d.writeProtected ? ' (write protected)' : ''}${d.dirty ? ' (modified)' : ''}` : 'none'}`,
     `Head    track ${d.currentTrack}  half-track ${d.currentHalfTrack}  motor ${d.motorOn ? 'on' : 'off'}  LED ${d.ledOn ? 'on' : 'off'}${d.isWriting ? '  WRITING' : ''}`,
     `Bus     drive pulls CLK ${d.clkAsserted ? 'low' : 'high'}, DATA ${d.dataAsserted ? 'low' : 'high'}`,
-    `VIA 1 ${VIA1_NAMES.join(' / ')} ($1800)`,
-    ...dumpVia(d.via1),
-    'VIA 2 disk controller ($1C00)',
-    ...dumpVia(d.via2),
+    ...d.describe(),
   ].join('\n');
 }
 
@@ -206,6 +193,11 @@ export function c64Chips(m: C64Machine): readonly ChipSection[] {
     { name: 'pla', description: '6510 I/O port and the PLA: which of BASIC, KERNAL, I/O and character ROM are banked in', dump: () => dumpPla(m) },
   ];
   if (m.cartridge) chips.push({ name: 'cart', description: 'The cartridge on the expansion port: board, EXROM/GAME lines, banks', dump: () => dumpCart(m) });
-  if (m.drive) chips.push({ name: 'drive', description: '1541: its 6502, head, motor and LED, and the two 6522 VIAs (serial bus, disk controller)', dump: () => dumpDrive(m) });
+  // The first drive is "drive"; the others are named by their device number.
+  m.drives.forEach((_, i) => chips.push({
+    name: i === 0 ? 'drive' : `drive${8 + i}`,
+    description: `The disk drive at device ${8 + i}: its 6502, head, motor and LED, and its own chips (a 1541 has two 6522 VIAs; a 1581 a 6526 and a WD1770)`,
+    dump: () => dumpDrive(m, i),
+  }));
   return chips;
 }

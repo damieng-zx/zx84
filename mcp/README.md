@@ -158,7 +158,7 @@ These use the active +3 or CPC uPD765A where fitted.
 
 | Tool | Parameters | Description |
 | --- | --- | --- |
-| `c64drive` | `action`: `on`, `off`, `status` | Fit or remove the 1541 disk drive on the serial bus (fitted by default; the DOS ROM is fetched from the cache/CDN). Mount `.d64`/`.g64` with `load`, list with `LOAD"$",8`; `chip_state` chip `drive` shows its CPU, head and VIAs. |
+| `c64drive` | `action`: `on`, `off`, `status`; `model`: `1541`, `1581`, or `models`: a list of one to four (for `on`) | Fit or remove the disk drives on the serial bus: up to four, devices 8 to 11 (a single 1541 is fitted by default; the DOS ROMs are fetched from the cache/CDN). A 1581 reads `.d81`, a 1541 `.d64`/`.g64`; a drive in its place with the same model keeps its disk. `load` and `eject` take `drive` 0-3 or A-D for the device. Mount with `load`, list with `LOAD"$",8`; `chip_state` chip `drive` shows its CPU, head and VIAs. |
 | `c64sid` | `model`: `6581`, `8580` (optional) | Show or choose the SID: the original 6581 or the C64C's 8580 (centred, linear filter, no DC level). Takes effect at once; `chip_state` chip `sid` names it. |
 
 ### Memotech MTX Peripherals

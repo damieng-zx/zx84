@@ -40,7 +40,7 @@ import type { IScreenRenderer } from '@/display/renderer.ts';
 import type {
   AuxRomRequest, BorderMode, Machine, MachineDescriptor, MachineHost, MachineKind, SettingsView,
 } from '@/machines/machine.ts';
-import { C64_DRIVE_ROM_SOURCE, type C64Model } from './models.ts';
+import { C64_DRIVE_ROM_SOURCES, type C64Model } from './models.ts';
 import { C64Memory } from './memory.ts';
 import { C64Keyboard } from './keyboard.ts';
 import {
@@ -52,7 +52,11 @@ import { parseCrt, type C64Cartridge } from './cartridge.ts';
 import { createC64Services, type C64Services } from './services/index.ts';
 import { c64ScreenText } from './screen-text.ts';
 import { c64OcrGrid, type C64OcrResult } from '@/ocr/c64.ts';
-import { Drive1541, DRIVE_CLOCK_HZ } from './drive/drive-1541.ts';
+import { Drive1541 } from './drive/drive-1541.ts';
+import { Drive1581 } from './drive/drive-1581.ts';
+import {
+  C64_MAX_DRIVES, isC64DriveModel, normalizeDriveModels, type C64DriveModel, type C64DriveUnit,
+} from './drive/drive-unit.ts';
 import { C64_PALETTE } from './palette.ts';
 import {
   C64_ACTIVE_HEIGHT, C64_ACTIVE_WIDTH, C64_BASIC_SIZE, C64_BORDER_LEFT, C64_CHARGEN_SIZE,
@@ -76,6 +80,8 @@ const KERNAL_KEY_WAIT_START = 0xE5CD;
 const KERNAL_KEY_WAIT_END = 0xE5D5;
 /** Frames after a reset by which BASIC is ready whatever the KERNAL. */
 const BOOT_FRAMES = 200;
+/** Serial bus writes in a frame that mean a file is moving (a byte is dozens). */
+const IEC_BUSY_WRITES = 8;
 /** Frames of quiet before tape turbo lets go. */
 const TAPE_TURBO_COOLDOWN = 25;
 /** Reads of the 6510 port in a frame that mean a program is polling the
@@ -110,8 +116,14 @@ export class C64Machine extends BaseMachine implements Machine {
   readonly cia1 = new Mos6526();
   readonly cia2 = new Mos6526();
   readonly keyboard = new C64Keyboard();
-  /** The 1541 on the serial bus, or null when no drive is fitted. */
-  drive: Drive1541 | null = null;
+  /** The disk drives on the serial bus, device 8 first; none while unplugged. */
+  drives: C64DriveUnit[] = [];
+  /** The first drive (device 8), or null when none is fitted. */
+  get drive(): C64DriveUnit | null { return this.drives[0] ?? null; }
+  /** The drives the Drives pane has set up, one model each: what the next build fits. */
+  driveModels: C64DriveModel[] = ['1541'];
+  /** The model of the first drive in that setup. */
+  get driveModel(): C64DriveModel { return this.driveModels[0] ?? '1541'; }
   /** The Datasette's tape, played through the shared pulse deck. */
   readonly tape: TapeDeck;
   /** Edges of the cassette write line since the last reset (what SAVE wrote). */
@@ -147,6 +159,8 @@ export class C64Machine extends BaseMachine implements Machine {
   /** CIA 1 interrupt-flag reads this frame, and the recorder's length at
    *  the last frame's end (for the turbo). */
   private icrReads = 0;
+  /** Writes to the serial bus this frame: a drive sending or taking a file. */
+  private iecWrites = 0;
   private recordedAtFrame = 0;
 
   // NMI is edge-triggered from the wired-OR of CIA 2 and RESTORE.
@@ -181,8 +195,6 @@ export class C64Machine extends BaseMachine implements Machine {
 
   /** The line cycles at which the frame loop hands over to the VIC-II, in order. */
   private readonly lineEvents: readonly number[];
-  /** 1541 cycles per C64 cycle (its clock is a round 1 MHz). */
-  private readonly drivePerC64: number;
 
   constructor(model: C64Model, display: IScreenRenderer | null = null, ntsc = false) {
     super();
@@ -193,7 +205,6 @@ export class C64Machine extends BaseMachine implements Machine {
     this.tape = new TapeDeck(this.timing.clockHz);
     this.mixer = new AudioMixer(this.timing.clockHz);
     this.lineEvents = [EV_VC, EV_SPRITE_MCB, EV_SPRITE_DMA, this.timing.lineEndCycle, this.timing.cyclesPerLine];
-    this.drivePerC64 = DRIVE_CLOCK_HZ / this.timing.clockHz;
     this.vic = new VicII(this.memory, this.timing);
     this._pixels = new Uint8Array(this.vic.pixels.buffer);
     this.tape.pulseScale = this.timing.clockHz / TAPE_REF_HZ;
@@ -244,11 +255,10 @@ export class C64Machine extends BaseMachine implements Machine {
     };
     // CIA 2 port A: VIC bank (bits 0-1), serial bus outputs through
     // inverters (ATN 3, CLK 4, DATA 5) and inputs (CLK 6, DATA 7). A line is
-    // low while the 64 or the drive pulls it.
+    // low while the 64 or any drive pulls it.
     cia2.portAIn = (driven) => {
-      const drive = this.drive;
-      const clkLow = (driven & 0x10) !== 0 || (drive !== null && drive.clkAsserted);
-      const dataLow = (driven & 0x20) !== 0 || (drive !== null && drive.dataAsserted);
+      const clkLow = (driven & 0x10) !== 0 || this.drives.some(d => d.clkAsserted);
+      const dataLow = (driven & 0x20) !== 0 || this.drives.some(d => d.dataAsserted);
       return (driven & 0x3F) | (clkLow ? 0 : 0x40) | (dataLow ? 0 : 0x80);
     };
     cia2.onPortWrite = (port) => {
@@ -280,7 +290,7 @@ export class C64Machine extends BaseMachine implements Machine {
         case 0xD: {
           const t = this.accessT(addr, false);
           cia2.advanceTo(t);
-          if (this.drive !== null && (addr & 0x0F) === 0) this.syncDrive(t);
+          if (this.drives.length > 0 && (addr & 0x0F) === 0) this.syncDrive(t);
           return cia2.read(addr);
         }
         case 0xE: return memory.cart ? memory.cart.io1Read(addr) : 0xFF;
@@ -321,8 +331,8 @@ export class C64Machine extends BaseMachine implements Machine {
           break;
         case 0xD: {
           cia2.advanceTo(t);
-          const bus = this.drive !== null && ((addr & 0x0F) === 0 || (addr & 0x0F) === 2);
-          if (bus) this.syncDrive(t);
+          const bus = this.drives.length > 0 && ((addr & 0x0F) === 0 || (addr & 0x0F) === 2);
+          if (bus) { this.syncDrive(t); this.iecWrites++; }
           cia2.write(addr, value);
           if (bus) this.updateIecLines();
           break;
@@ -371,7 +381,7 @@ export class C64Machine extends BaseMachine implements Machine {
     this.audio.setVolume(view.get('volume', 70) / 100);
     this.tapeTurbo = view.get('tape-turbo-load', true);
     this.sid.setModel(view.get<string>('c64-sid', '6581') === '8580' ? '8580' : '6581');
-    if (this.drive) this.drive.writeProtected = view.get('write-protect-a', false);
+    this.drives.forEach((d, i) => { d.writeProtected = view.get('write-protect-' + 'abcd'[i], false); });
   }
 
   /** The border is fully rendered; the setting crops it: Normal shows it
@@ -423,7 +433,7 @@ export class C64Machine extends BaseMachine implements Machine {
     this.cpu.reset();
     // The cartridge starts over with the clock it keeps time by.
     if (power) this.memory.resetCartridge();
-    if (this.drive) { this.drive.reset(); this.updateIecLines(); }
+    if (this.drives.length > 0) { for (const d of this.drives) d.reset(); this.updateIecLines(); }
     this.nmiLevel = false;
     this.midFrame = false;
     this.fLine = 0;
@@ -484,45 +494,122 @@ export class C64Machine extends BaseMachine implements Machine {
 
   // ── Disk drive ───────────────────────────────────────────────────────────
 
-  /** Fit a 1541 running the DOS in `rom` (the 16K image), or take it off the
-   *  bus (null). The disk in it stays when the ROM is replaced. */
-  installDrive(rom: Uint8Array | null): void {
-    if (rom === null) { this.drive = null; return; }
-    const drive = this.drive ?? new Drive1541();
-    drive.loadRom(rom);
-    this.drive = drive;
+  private makeDrive(model: C64DriveModel): C64DriveUnit {
+    return model === '1581' ? new Drive1581() : new Drive1541();
+  }
+
+  /** Give each drive the device number its place dictates. A drive that moved
+   *  starts over (the DOS reads its jumpers at power-on); write protect belongs
+   *  to the place, as the pane's switch does, not to the drive that sits there. */
+  private renumberDrives(protect: readonly boolean[]): void {
+    this.drives.forEach((d, i) => {
+      const moved = d.unit !== i;
+      d.unit = i;
+      const want = protect[i] ?? false;
+      if (d.writeProtected !== want) d.setWriteProtect(want);
+      if (moved && d.hasRom) d.reset();
+    });
+    this.driveModels = this.drives.map(d => d.model);
     this.updateIecLines();
   }
 
-  /** Fit or remove the drive the Hardware pane asks for, and list the DOS ROM
-   *  it needs (fetched before the machine starts). */
+  /** Fit these drives, device 8 first. A drive already in its place keeps its
+   *  disk if the model is the same; the others are new and empty. */
+  fitDrives(models: readonly C64DriveModel[]): void {
+    const old = this.drives;
+    this.drives = models.map((model, i) => {
+      const drive = old[i]?.model === model ? old[i] : this.makeDrive(model);
+      drive.unit = i;
+      return drive;
+    });
+    if (models.length > 0) this.driveModels = [...models];
+    this.updateIecLines();
+  }
+
+  /** Put the DOS ROM in every drive of that model. */
+  installDriveRom(model: C64DriveModel, rom: Uint8Array): void {
+    for (const d of this.drives) if (d.model === model) d.loadRom(rom);
+    this.updateIecLines();
+  }
+
+  /** Fit a drive running the DOS in `rom` (the 16K image of a 1541, the 32K
+   *  of a 1581), or take every drive off the bus (null). With no drive of that
+   *  model fitted yet, it becomes the one drive. */
+  installDrive(rom: Uint8Array | null, model: C64DriveModel = this.driveModel): void {
+    if (rom === null) { this.drives = []; return; }
+    if (!this.drives.some(d => d.model === model)) this.fitDrives([model]);
+    this.installDriveRom(model, rom);
+  }
+
+  /** Put an empty drive of `model` at place `at`, the drives from there moving
+   *  down a device number. Needs a drive of that model fitted already, whose
+   *  ROM it copies; false when there is no room. */
+  insertDriveAt(at: number, model: C64DriveModel): boolean {
+    if (this.drives.length >= C64_MAX_DRIVES) return false;
+    const rom = this.drives.find(d => d.model === model && d.hasRom)?.rom;
+    if (!rom) return false;
+    const protect = this.drives.map(d => d.writeProtected);
+    const drive = this.makeDrive(model);
+    drive.loadRom(rom);
+    this.drives.splice(Math.max(0, Math.min(at, this.drives.length)), 0, drive);
+    this.renumberDrives(protect);
+    return true;
+  }
+
+  /** Take a drive out with its disk, the drives under it moving up. */
+  removeDriveAt(index: number): boolean {
+    if (this.drives.length <= 1 || index < 0 || index >= this.drives.length) return false;
+    const protect = this.drives.map(d => d.writeProtected);
+    this.drives.splice(index, 1);
+    this.renumberDrives(protect);
+    return true;
+  }
+
+  /** Swap one drive for another model, with its ROM from a drive of that model
+   *  already fitted; false when there is none (the machine must be rebuilt). */
+  replaceDriveAt(index: number, model: C64DriveModel): boolean {
+    const rom = this.drives.find(d => d.model === model && d.hasRom)?.rom;
+    if (!rom || index < 0 || index >= this.drives.length) return false;
+    const protect = this.drives.map(d => d.writeProtected);
+    const drive = this.makeDrive(model);
+    drive.loadRom(rom);
+    this.drives[index] = drive;
+    this.renumberDrives(protect);
+    return true;
+  }
+
+  /** Fit or remove the drives the Hardware pane and the Drives pane ask for,
+   *  and list the DOS ROMs they need (fetched before the machine starts). */
   prepare(view: SettingsView): AuxRomRequest[] {
+    const models = normalizeDriveModels(view.get<unknown>('drive-models:c64', null));
+    this.driveModels = models;
     if (!view.get('c64-drive', true)) {
-      this.drive = null;
+      this.drives = [];
       return [];
     }
-    this.drive ??= new Drive1541();
-    return [{
-      cacheKey: 'c64-dos1541-rom',
-      source: C64_DRIVE_ROM_SOURCE,
-      fetchingMsg: 'Fetching 1541 DOS ROM...',
-      loadedMsg: (bytes) => `1541 DOS ROM loaded (${bytes} bytes)`,
-      failMsg: 'Failed to load the 1541 DOS ROM: disk drive unavailable',
-      failId: 'c64-dos1541',
-      apply: (data) => this.installDrive(data),
+    this.fitDrives(models);
+    return [...new Set(models)].map((model): AuxRomRequest => ({
+      cacheKey: `c64-dos${model}-rom`,
+      source: C64_DRIVE_ROM_SOURCES[model],
+      fetchingMsg: `Fetching ${model} DOS ROM...`,
+      loadedMsg: (bytes) => `${model} DOS ROM loaded (${bytes} bytes)`,
+      failMsg: `Failed to load the ${model} DOS ROM: disk drive unavailable`,
+      failId: 'c64-dos' + model,
+      apply: (data) => this.installDriveRom(model, data),
       awaitLoad: true,
-    }];
+    }));
   }
 
-  /** Bring the drive up to the 64's cycle `t`. */
+  /** Bring the drives up to the 64's cycle `t`. */
   private syncDrive(t: number): void {
-    this.drive?.runTo(Math.floor(t * this.drivePerC64));
+    for (const d of this.drives) d.runTo(Math.floor(t * d.clockHz / this.timing.clockHz));
   }
 
-  /** Tell the drive which bus lines the 64 pulls low (ATN, CLK, DATA). */
+  /** Tell the drives which bus lines the 64 pulls low (ATN, CLK, DATA). */
   private updateIecLines(): void {
     const driven = this.cia2.drivenA;
-    this.drive?.setC64Lines((driven & 0x08) !== 0, (driven & 0x10) !== 0, (driven & 0x20) !== 0);
+    const atn = (driven & 0x08) !== 0, clk = (driven & 0x10) !== 0, data = (driven & 0x20) !== 0;
+    for (const d of this.drives) d.setC64Lines(atn, clk, data);
   }
 
   /** The chips' own clocks follow the CPU's (it restarts at 0 on reset). */
@@ -798,8 +885,13 @@ export class C64Machine extends BaseMachine implements Machine {
     this.icrReads = 0;
     this.recordedAtFrame = this.tapeRecorder.count;
     // The drive is busy while its motor runs and bytes move under the head.
-    const drive = this.drive;
-    const diskBusy = drive !== null && drive.takeActivity() > 0 && drive.motorOn;
+    // A disk is busy while a motor runs and either the controller moves bytes
+    // or the serial bus is carrying them (a 1581 reads a sector in a blink and
+    // then spends the best part of a second sending it).
+    let diskBusy = false;
+    const busy = this.iecWrites >= IEC_BUSY_WRITES;
+    this.iecWrites = 0;
+    for (const d of this.drives) if ((d.takeActivity() > 0 || busy) && d.motorOn) diskBusy = true;
     const loading = (this.memory.motorOn && (reading || writing)) || diskBusy;
     if (loading) {
       this._tapeTurboActive = this.tapeTurbo;
@@ -945,8 +1037,9 @@ export class C64Machine extends BaseMachine implements Machine {
     w.section('SID ', () => this.sid.saveState(w));
     w.section('CIA1', () => this.cia1.saveState(w));
     w.section('CIA2', () => this.cia2.saveState(w));
-    const drive = this.drive;
-    if (drive?.hasRom) {
+    for (const drive of this.drives) {
+      if (!drive.hasRom) continue;
+      w.section('DRVM', () => w.str(drive.model));
       w.section('DRV ', () => drive.saveState(w));
       w.section('MEDA', () => {
         w.bool(withMedia);
@@ -988,19 +1081,36 @@ export class C64Machine extends BaseMachine implements Machine {
     this.cia1.loadState(r.section('CIA1'));
     this.cia2.loadState(r.section('CIA2'));
     let withMedia = true;
-    if (r.peekSection('DRV ')) {
+    // One DRVM (the model; absent before the 1581 existed: a 1541), DRV and
+    // MEDA section for each drive, device 8 first.
+    let n = 0;
+    while (r.peekSection('DRVM') || r.peekSection('DRV ')) {
+      let model: C64DriveModel = '1541';
+      if (r.peekSection('DRVM')) {
+        const named = r.section('DRVM').str();
+        if (isC64DriveModel(named)) model = named;
+      }
       const state = r.section('DRV ');
       const media = r.section('MEDA');
       withMedia = media.bool();
-      if (this.drive?.hasRom) {
-        this.drive.loadState(state);
-        if (withMedia) this.drive.loadDisk(media);
+      if (this.drives.length > 0) {
+        const drive = this.drives[n];
+        if (!drive) {
+          throw new Error(`This snapshot has more drives than are set up: add drives in the Drives pane first (it has ${n + 1} or more)`);
+        }
+        if (drive.model !== model) {
+          throw new Error(`This snapshot has a ${model} drive as device ${8 + n}: set that drive to a ${model} in the Drives pane first`);
+        }
+        if (drive.hasRom) {
+          drive.loadState(state);
+          if (withMedia) drive.loadDisk(media);
+        }
       }
-      this.updateIecLines();
-    } else if (this.drive?.hasRom) {
-      this.drive.reset();
-      this.updateIecLines();
+      n++;
     }
+    // Drives the snapshot did not have start over.
+    for (let i = n; i < this.drives.length; i++) if (this.drives[i].hasRom) this.drives[i].reset();
+    this.updateIecLines();
     this.memory.cassetteSense = this.tapeSense;
     this.motorWasOn = this.memory.motorOn;
     this.midFrame = false;

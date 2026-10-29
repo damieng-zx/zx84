@@ -103,18 +103,23 @@ export class C64FrameProbe implements FrameProbe {
     out.mdvMotorMask = 0;
     out.floppySlot = -1;
     out.floppyMotor = false;
-    const drive = m.drive;
+    // 0 off, 1 motor, 2 reading, 3 writing: a drive's LED is lit while it works.
+    m.drives.forEach((drive, unit) => {
+      out.driveLed[unit] = !drive.motorOn ? 0 : drive.isWriting ? 3 : drive.ledOn ? 2 : 1;
+      out.driveTrack[unit] = drive.currentTrack;
+      out.driveSector[unit] = -1;
+      out.driveDirty[unit] = drive.dirty ? 1 : 0;
+      if (drive.motorOn) out.disk = 1;
+    });
+    // The floppy sound follows the first drive running, else the first drive.
+    const running = m.drives.findIndex(d => d.motorOn);
+    const sounding = running >= 0 ? running : 0;
+    const drive = m.drives[sounding];
     if (drive) {
-      // 0 off, 1 motor, 2 reading, 3 writing: the 1541's LED is lit while it works.
-      out.driveLed[0] = !drive.motorOn ? 0 : drive.isWriting ? 3 : drive.ledOn ? 2 : 1;
-      out.driveTrack[0] = drive.currentTrack;
-      out.driveSector[0] = -1;
-      out.driveDirty[0] = drive.dirty ? 1 : 0;
-      out.disk = drive.motorOn ? 1 : 0;
-      out.floppySlot = 0;
+      out.floppySlot = sounding;
       out.floppyMotor = drive.motorOn;
       out.floppyTrack = drive.currentTrack;
-      out.floppyProfile = 2;      // 5.25 inch
+      out.floppyProfile = drive.model === '1581' ? 1 : 2;      // 3.5 inch, or 5.25 inch
     }
   }
 }

@@ -26,11 +26,18 @@ const C64_UI: MachineUiCapabilities = {
   // The VIC-II's sixteen colours are fixed (palette.ts).
   colorMap: 'mono',
   accuracy: false,
-  // The 1541 is on the serial bus; the Hardware pane plugs it in or out.
+  // The drive is on the serial bus; the Hardware pane plugs it in or out.
   builtinDisk: true,
   requires: { builtinDisk: 'c64-drive' },
-  builtinDrives: 1,
-  builtinDriveLabels: ['Drive 8'],
+  builtinDrives: 4,
+  builtinDriveLabels: ['Drive 8', 'Drive 9', 'Drive 10', 'Drive 11'],
+  // Up to four drives, devices 8 to 11, each a 1541 or a 1581: the Drives pane's
+  // "..." menu adds and removes them and picks each one's model.
+  driveModels: [
+    { value: '1541', label: '1541', title: '5.25" GCR disks: .d64, .g64' },
+    { value: '1581', label: '1581', title: '3.5" 800K disks: .d81' },
+  ],
+  defaultDriveModels: ['1541'],
   // Two control ports on CIA 1; each player picks the port its stick is in.
   // Player 1 starts in port 1 and player 2 in port 2 (the Nth type is the
   // Nth player's default, see JoystickPane).

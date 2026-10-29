@@ -33,6 +33,7 @@ import { DISK_FORMATS, formatLabel, createBlankDisk } from '@/media/floppy/dsk.t
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { createBlankHfe } from '@/media/floppy/hfe.ts';
 import { blankC64Disk, c64DiskImage } from '@/media/floppy/c64-disk.ts';
+import { blankD81 } from '@/media/floppy/c64-d81.ts';
 import { blankLdfDisk } from '@/media/floppy/ldf-image.ts';
 import { blankFatImage } from '@/media/floppy/fat-image.ts';
 import { blankSsd } from '@/media/floppy/ssd.ts';
@@ -294,6 +295,10 @@ const DFS_NEW_ITEMS = [
 const C64_NEW_ITEMS = [
   { value: 'd64-0', label: 'Blank 170K D64 (formatted)' },
 ];
+// The 1581 reads 3.5" disks: a blank one is a formatted D81.
+const C64_D81_NEW_ITEMS = [
+  { value: 'd81-0', label: 'Blank 800K D81 (formatted)' },
+];
 
 // MSX-DOS disks are saved as raw .dsk sector dumps; the blank set is the
 // 3.5" pair a 1DD/2DD MSX1 drive formats, each with a valid FAT12 volume.
@@ -315,6 +320,7 @@ function lynxBlankForValue(value: string): { tracks: number; sides: number } | n
 /** Blank image for a built-in drive's "New disk" menu, whichever format it is. */
 function blankForValue(value: string): { image: DskImage; label: string } | null {
   if (value === 'd64-0') return { image: c64DiskImage(blankC64Disk()), label: 'blank.d64' };
+  if (value === 'd81-0') return { image: blankD81(), label: 'blank.d81' };
   const ldf = lynxBlankForValue(value);
   if (ldf) {
     return {
@@ -478,9 +484,12 @@ export function DrivePane() {
   };
   // The built-in drives' blank-disk menu is the machine's own disk format: the
   // Lynx accepts .ldf, the BBC .ssd, everything else here uses the +3 DSK/HFE set.
-  const builtinDiskItems = () => {
+  const builtinDiskItems = (unit = 0) => {
     const accepts = machine?.services.media.accepts() ?? [];
-    if (accepts.some(t => t.ext === '.d64')) return C64_NEW_ITEMS;
+    // The 64's drives are a 1541 or a 1581 each, with a disk format of its own.
+    const model = driveSetupModels()?.[unit];
+    if (model === '1581') return C64_D81_NEW_ITEMS;
+    if (model === '1541') return C64_NEW_ITEMS;
     if (accepts.some(t => t.ext === '.ldf')) return LYNX_NEW_ITEMS;
     if (accepts.some(t => t.ext === '.ssd')) return DFS_NEW_ITEMS;
     if (accepts.some(t => t.ext === '.dmk')) return MSX_NEW_ITEMS;
@@ -527,7 +536,7 @@ export function DrivePane() {
           showTurbo
           driveCount={driveSetupModels() ? undefined : countMenu(builtinMax(), builtinCount())}
           driveSetup={driveSetupFor(0)}
-          newItems={builtinDiskItems()}
+          newItems={builtinDiskItems(0)}
           onNewDisk={(value) => {
             const blank = blankForValue(value);
             if (blank) insertBlankDisk(blank.image, blank.label, 0);
@@ -558,7 +567,7 @@ export function DrivePane() {
           onFlip={() => flipDisk(1)}
           showTurbo
           driveSetup={driveSetupFor(1)}
-          newItems={builtinDiskItems()}
+          newItems={builtinDiskItems(1)}
           onNewDisk={(value) => {
             const blank = blankForValue(value);
             if (blank) insertBlankDisk(blank.image, blank.label, 1);
@@ -592,7 +601,7 @@ export function DrivePane() {
             writeProtected={writeProtectC()}
             showTurbo
             driveSetup={driveSetupFor(2)}
-            newItems={builtinDiskItems()}
+            newItems={builtinDiskItems(2)}
             onNewDisk={(value) => {
               const blank = blankForValue(value);
               if (blank) insertBlankDisk(blank.image, blank.label, 2);
@@ -621,7 +630,7 @@ export function DrivePane() {
             writeProtected={writeProtectD()}
             showTurbo
             driveSetup={driveSetupFor(3)}
-            newItems={builtinDiskItems()}
+            newItems={builtinDiskItems(3)}
             onNewDisk={(value) => {
               const blank = blankForValue(value);
               if (blank) insertBlankDisk(blank.image, blank.label, 3);

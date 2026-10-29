@@ -6,7 +6,7 @@ import { hex8 as h8, hex16 as h16 } from '../../src/utils/hex.ts';
 import { state } from '../state.ts';
 import { activeC64, activeMsx, activeMtx, activeSpectrum } from '../concrete.ts';
 import { text } from '../format.ts';
-import { C64_DRIVE_ROM_SOURCE } from '../../src/machines/c64/models.ts';
+import { C64_DRIVE_ROM_SOURCES } from '../../src/machines/c64/models.ts';
 import { fetchRomSource, fetchMFRom, fetchVTXRom, fetchPlusDRom, fetchBetaDiskRom, fetchMsxDiskRom, fetchUspeechRom, fetchSp0256Rom } from '../rom-fetch.ts';
 
 export function register(server: McpServer): void {
@@ -264,41 +264,44 @@ export function register(server: McpServer): void {
   server.registerTool(
     'c64drive',
     {
-      description: 'Fit, remove, or inspect the Commodore 1541 disk drive on the serial bus of the 64 (device 8: its own 6502 running the DOS ROM, a 6522 pair, GCR heads). It is fitted by default. Mount .d64/.g64 disks with the load tool, LOAD"$",8 to list one, and read the drive with chip_state chip "drive".',
+      description: 'Fit, remove, or inspect the Commodore disk drives on the serial bus of the 64: up to four, devices 8 to 11, each its own 6502 running the DOS ROM. A 1541 (the default; .d64/.g64 disks: 6522 pair, GCR heads) or a 1581 (.d81 3.5" disks: 6526 and WD1770). "on" with model fits one drive; with models (a list of one to four, device 8 first) it fits that set, and a drive already in its place with the same model keeps its disk. Mount disks with the load tool (drive "0"-"3" or "A"-"D" picks the device), LOAD"$",8 to list one, and read a drive with chip_state chip "drive" (device 8) or "drive9", "drive10", "drive11".',
       inputSchema: {
         action: z.enum(['on', 'off', 'status']).describe('Action to perform'),
+        model: z.enum(['1541', '1581']).optional().describe('One drive of this model for "on" (default: the one already set up, else 1541)'),
+        models: z.array(z.enum(['1541', '1581'])).min(1).max(4).optional().describe('The drives for "on", device 8 first'),
       },
     },
-    async ({ action }) => {
+    async ({ action, model, models }) => {
       const c64 = activeC64();
-      if (!c64) return text('The 1541 disk drive is a Commodore 64 peripheral.');
+      if (!c64) return text('The disk drives are Commodore 64 peripherals.');
       const describe = (): string => {
-        const d = c64.drive;
-        if (!d) return 'C64 1541 drive: OFF';
-        return `C64 1541 drive: ON  dosRom=${d.hasRom ? 'loaded' : 'MISSING'}  PC=${h16(d.cpu.pc)}
-` +
-          `disk: ${d.disk ? `${d.mediaName || 'unnamed'}${d.writeProtected ? ' (write protected)' : ''}${d.dirty ? ' (modified)' : ''}` : 'none'}
-` +
-          `track ${d.currentTrack}  motor ${d.motorOn ? 'on' : 'off'}  LED ${d.ledOn ? 'on' : 'off'}`;
+        if (c64.drives.length === 0) return 'C64 disk drives: OFF';
+        return c64.drives.map((d, i) => [
+          `Device ${8 + i}: C64 ${d.model} drive  dosRom=${d.hasRom ? 'loaded' : 'MISSING'}  PC=${h16(d.cpu.pc)}`,
+          `  disk: ${d.loaded ? `${d.mediaName || 'unnamed'}${d.writeProtected ? ' (write protected)' : ''}${d.dirty ? ' (modified)' : ''}` : 'none'}`,
+          `  track ${d.currentTrack}  motor ${d.motorOn ? 'on' : 'off'}  LED ${d.ledOn ? 'on' : 'off'}`,
+        ].join('\n')).join('\n');
       };
       if (action === 'status') return text(describe());
       if (action === 'off') {
         c64.installDrive(null);
-        return text('1541 removed from the serial bus.');
+        return text('Disk drives removed from the serial bus.');
       }
-      if (!c64.drive?.hasRom) {
-        try {
-          c64.installDrive(await fetchRomSource(C64_DRIVE_ROM_SOURCE));
-        } catch (err) {
-          return text(`Failed to load the 1541 DOS ROM: ${err}`);
+      const want = models ?? [model ?? c64.driveModels[0] ?? '1541'];
+      try {
+        c64.fitDrives(want);
+        for (const m of new Set(want)) {
+          if (c64.drives.some(d => d.model === m && !d.hasRom)) {
+            c64.installDriveRom(m, await fetchRomSource(C64_DRIVE_ROM_SOURCES[m]));
+          }
         }
+      } catch (err) {
+        return text(`Failed to load a DOS ROM: ${err}`);
       }
       return text(describe());
     },
   );
 
-  server.registerTool(
-    'msxdisk',
   server.registerTool(
     'c64sid',
     {
@@ -315,6 +318,8 @@ export function register(server: McpServer): void {
     },
   );
 
+  server.registerTool(
+    'msxdisk',
     {
       description: 'Fit, remove, or inspect the MSX floppy disk interface (WD2793 + Disk BASIC ROM in slot 3, drives A:/B:). Fitting it loads the Disk BASIC ROM and resets the machine so the BIOS finds it; mount disks with the load tool.',
       inputSchema: {

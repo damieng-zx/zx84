@@ -40,6 +40,9 @@ describe('C64 bad-line stall', () => {
   });
 });
 
+/** The 1541 on the machine, for the tests that look inside it. */
+const d1541 = (m: C64Machine): Drive1541 => m.drive as Drive1541;
+
 /** The drive's internals a hardware test pokes at. */
 interface DriveInternals {
   busWrite(addr: number, value: number): void;
@@ -214,7 +217,7 @@ function withDrive(disk?: Uint8Array): C64Machine {
   const m = new C64Machine('c64', null);
   m.loadROM(rom);
   m.installDrive(dos!);
-  if (disk) m.drive!.insertDisk(parseD64(disk), false, 'test.d64');
+  if (disk) d1541(m).insertDisk(parseD64(disk), false, 'test.d64');
   m.reset();
   for (let f = 0; f < 150; f++) m.tick();
   return m;
@@ -281,7 +284,7 @@ describe.skipIf(!haveRoms)('C64 with a 1541 and the Commodore ROMs', () => {
     runUntil(m, /SAVING TEST\s+READY\.\s*$/);
     for (let f = 0; f < 100; f++) m.tick();
     expect(m.drive!.dirty).toBe(true);
-    const d64 = exportD64(m.drive!.disk!);
+    const d64 = exportD64(d1541(m).disk!);
     expect(d64, 'every sector still decodes').not.toBeNull();
     typeText(m, 'NEW\n');
     typeText(m, 'LOAD"TEST",8\n');
@@ -300,7 +303,7 @@ describe.skipIf(!haveRoms)('C64 with a 1541 and the Commodore ROMs', () => {
     for (let f = 0; f < 800; f++) m.tick();
     expect(m.drive!.dirty).toBe(false);
     // Nothing was written: the disk is as it was, with no such file in its directory.
-    const d64 = exportD64(m.drive!.disk!)!;
+    const d64 = exportD64(d1541(m).disk!)!;
     expect(d64).toEqual(disk());
     expect(Buffer.from(d64).includes('BLOCKED')).toBe(false);
   });
@@ -310,7 +313,7 @@ describe.skipIf(!haveRoms)('C64 with a 1541 and the Commodore ROMs', () => {
     typeText(m, 'LOAD"$",8\n');
     runUntil(m, loaded);
     const other = d64WithFiles([{ name: 'OTHER', data: PRINT_B_PRG }], 'SECOND', '77');
-    m.drive!.insertDisk(parseG64(serializeG64(parseD64(other))), false, 'second.g64');
+    d1541(m).insertDisk(parseG64(serializeG64(parseD64(other))), false, 'second.g64');
     for (let f = 0; f < 120; f++) m.tick();
     typeText(m, 'LOAD"$",8\n');
     runUntil(m, /SEARCHING FOR \$\s+LOADING\s+READY\.\s*$/);
@@ -328,7 +331,7 @@ describe.skipIf(!haveRoms)('C64 with a 1541 and the Commodore ROMs', () => {
 
   it('formats a disk with N: and leaves a clean directory', { timeout: 400_000 }, () => {
     const m = withDrive();
-    m.drive!.insertDisk(blankC64Disk('OLD', '00'), false, 'blank.d64');
+    d1541(m).insertDisk(blankC64Disk('OLD', '00'), false, 'blank.d64');
     for (let f = 0; f < 150; f++) m.tick();
     typeText(m, 'OPEN15,8,15,"N:FRESH,42":CLOSE15\n');
     // A real format takes the best part of a minute: wait for the motor to
@@ -345,7 +348,7 @@ describe.skipIf(!haveRoms)('C64 with a 1541 and the Commodore ROMs', () => {
     for (let f = 0; f < 60; f++) m.tick();
     expect(screen(m)).toContain('0 "FRESH           " 42 2A');
     expect(screen(m)).toContain('664 BLOCKS FREE.');
-    expect(exportD64(m.drive!.disk!), 'every track was rewritten readably').not.toBeNull();
+    expect(exportD64(d1541(m).disk!), 'every track was rewritten readably').not.toBeNull();
   });
 
   it('feeds the Drives pane: LED and track while it works, and the disk activity turbo', { timeout: 120_000 }, () => {

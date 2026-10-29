@@ -65,6 +65,22 @@ export interface WD179xOptions {
    * default) keeps the controller waiting for the CPU indefinitely.
    */
   readonly lostDataPolls?: number;
+  /**
+   * READ ADDRESS returns the ID field's real CRC bytes (CCITT over the address
+   * mark and C, H, R, N). Off by default: the polled hosts here never looked
+   * at them and get zeros. A host that checks them, as the Commodore 1581's DOS
+   * does to find where the head is, turns it on.
+   */
+  readonly addressCrc?: boolean;
+}
+
+/** CRC-16/CCITT-FALSE of `bytes` from `crc`, as the controller computes it over a field. */
+function crcCcitt(bytes: readonly number[], crc = 0xFFFF): number {
+  for (const b of bytes) {
+    crc ^= b << 8;
+    for (let i = 0; i < 8; i++) crc = (crc & 0x8000) ? ((crc << 1) ^ 0x1021) & 0xFFFF : (crc << 1) & 0xFFFF;
+  }
+  return crc;
 }
 
 // ── Status register bits ────────────────────────────────────────────────────
@@ -118,6 +134,7 @@ export class WD179x {
   private readonly hasSideCompare: boolean;
   private readonly onInterrupt?: (asserted: boolean) => void;
   private readonly lostDataPolls: number;
+  private readonly addressCrc: boolean;
   /** A write command has raised DRQ and the first byte has not arrived yet. */
   private awaitingFirstByte = false;
   /** Polls seen since the write command's DRQ went up (see lostDataPolls). */
@@ -132,6 +149,7 @@ export class WD179x {
     this.hasSideCompare = options.sideCompare ?? options.statusBit7 === 'not-ready';
     this.onInterrupt = options.onInterrupt;
     this.lostDataPolls = options.lostDataPolls ?? 0;
+    this.addressCrc = options.addressCrc ?? false;
   }
 
   // ── Registers ─────────────────────────────────────────────────────────
@@ -638,7 +656,17 @@ export class WD179x {
   }
 
   private failCommand(status: number): void {
-    this.statusReg = this.base() | status;
+    const done = this.base() | status;
+    if (this.pulseBusy) {
+      // A real controller is BUSY while it searches for a record that is not
+      // there: hold BUSY for a few reads, as a Type I command does, so a host
+      // waiting for it to set (the 1581's DOS) is not left waiting forever.
+      this.busyDoneStatus = done;
+      this.busyCountdown = BUSY_PULSE_READS;
+      this.statusReg = done | ST_BUSY;
+    } else {
+      this.statusReg = done;
+    }
     if (this.interruptDriven) this.scheduleCompletion();
   }
 
@@ -806,8 +834,13 @@ export class WD179x {
     if (this.addressRotation >= track.sectors.length) this.addressRotation = 0;
     const sec = track.sectors[this.addressRotation];
     this.addressRotation = (this.addressRotation + 1) % track.sectors.length;
-    // 6-byte ID: track, side, sector, size code, CRC hi, CRC lo (CRC faked 0).
-    this.buffer = Uint8Array.from([sec.c, sec.h, sec.r, sec.n, 0, 0]);
+    // 6-byte ID: track, side, sector, size code, CRC hi, CRC lo (zeros unless
+    // the host asked for the real ones).
+    const id = [sec.c, sec.h, sec.r, sec.n];
+    const crc = this.addressCrc
+      ? crcCcitt(this.singleDensity ? [0xFE, ...id] : [0xA1, 0xA1, 0xA1, 0xFE, ...id])
+      : 0;
+    this.buffer = Uint8Array.from([...id, crc >> 8, crc & 0xFF]);
     this.bufPos = 0;
     this.writing = false;
     this.multi = false;

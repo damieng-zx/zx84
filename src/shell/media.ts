@@ -578,6 +578,9 @@ export function setBuiltinDriveModel(unit: number, model: string): void {
   if (!m || !disks?.setDriveModel) return;
   disks.setDriveModel(unit, model);
   saveDriveModels(m);
+  // A model that cannot keep the disk (a 1541's GCR disk in a 1581) empties its
+  // drive: show that and drop the persisted copy.
+  refreshBuiltinDrives(m);
 }
 
 export function ejectDisk(unit: number = 0): void {
