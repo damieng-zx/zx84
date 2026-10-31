@@ -58,7 +58,7 @@ const PCW_UI: MachineUiCapabilities = {
   // No tape hardware: `tape` is omitted entirely rather than set to a mode.
   tapeSound: false,
   tapeExtensions: [],
-  saveMenu: ['snapshot-pcwstate', 'screenshot-png', 'screen-scr', 'ram-bin'],
+  saveMenu: ['snapshot-pcwstate', 'screenshot-png', 'screen-scr', 'ram-bin', 'printer-txt'],
   zipPolicy: 'media',
   persistMedia: true,
   // No hidden boot disc is offered: a PCW needs a CP/M+ system disc, and

@@ -111,6 +111,8 @@ const CONTRIBUTIONS: Record<string, MachineUiContribution> = {
       import('@/machines/jupiter-ace/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
   },
   pcw: {
+    HardwareSection: lazy(() =>
+      import('@/machines/pcw/ui/hardware-section.tsx').then(m => ({ default: m.PcwHardwareSection }))),
     Keyboard: lazy(() =>
       import('@/machines/pcw/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
   },

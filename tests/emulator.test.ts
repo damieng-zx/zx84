@@ -360,6 +360,7 @@ vi.mock('@/store/settings.ts', () => ({
   cpcParados:         vi.fn(() => false),
   msxColorMap:        vi.fn(() => 'pal'),
   einsteinColorMap:   vi.fn(() => 'accurate'),
+  pcw60Hz:            vi.fn(() => false),
 }));
 
 vi.mock('@/store/persistence.ts', () => ({

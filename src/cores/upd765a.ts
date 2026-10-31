@@ -195,6 +195,16 @@ export class UPD765A {
   flipSide = [0, 0];
 
   /**
+   * Per-drive "the mechanism has one head". Nothing is wired to such a drive's
+   * head-select line, so every command reads and writes side 0 of the disc
+   * whichever head it names: an ID read for head 1 finds side 0's IDs, and a
+   * transfer that asks for H=1 finds no matching sector. Off by default (the
+   * +3 and CPC software only ever selects head 0); the PCW 8256/8512 set it
+   * for drive A.
+   */
+  singleSided = [false, false];
+
+  /**
    * Per-drive "written since insert" flag, indexed by physical unit (0/1).
    * Set when a sector write or format mutates the image, cleared on
    * insert/eject and when the modified image is saved. The UI lights the
@@ -1110,7 +1120,7 @@ export class UPD765A {
     if (!disk) return null;
     const cyl = this.pcn[phys];
     if (cyl >= disk.numTracks) return null;
-    const side = head + this.flipSide[phys];
+    const side = (this.singleSided[phys] ? 0 : head) + this.flipSide[phys];
     if (side >= disk.numSides) return null;
     return disk.tracks[cyl][side];
   }
@@ -1558,7 +1568,7 @@ export class UPD765A {
     disk.numTracks = Math.max(disk.numTracks, cyl + 1);
     // Honour the flippy side offset so a format while "Side B" is loaded writes
     // to the image's second side, matching what getTrack() reads back.
-    const side = head + this.flipSide[physU];
+    const side = (this.singleSided[physU] ? 0 : head) + this.flipSide[physU];
     if (side <= 1) {
       // Formatting head 1 of a single-sided image lays down a genuinely new
       // side-1 track: grow the image to two sides rather than overwriting side

@@ -126,6 +126,7 @@ const DEFAULTS = {
   'electron-plus3': 'off',
   'electron-dfs':   'off',
   'lynx-fdc':       'on',
+  'pcw-60hz':       'off',
   'apple2-disk2':   'on',
   'c64-drive':      'on',
   'c64-sid':        '6581',
@@ -481,6 +482,8 @@ export const [electronPlus1, setElectronPlus1] = signal(savedFlag('electron-plus
 export const [electronPlus3, setElectronPlus3] = signal(savedFlag('electron-plus3'));
 export const [electronDfs, setElectronDfs] = signal(savedFlag('electron-dfs'));
 export const [lynxFdc, setLynxFdc] = signal(savedFlag('lynx-fdc'));
+/** Amstrad PCW 50/60Hz link: on = a 60Hz machine (260-line frame, 200 lines shown). */
+export const [pcw60Hz, setPcw60Hz] = signal(savedFlag('pcw-60hz'));
 
 /** Enterprise EXDOS disk card (WD1770 + EXDOS ROM) fitted. */
 export const [enterpriseExdos, setEnterpriseExdos] = signal(savedFlag('enterprise-exdos'));
@@ -632,6 +635,7 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'electron-plus3', set: setElectronPlus3, type: 'bool' },
     { key: 'electron-dfs', set: setElectronDfs, type: 'bool' },
     { key: 'lynx-fdc', set: setLynxFdc, type: 'bool' },
+    { key: 'pcw-60hz', set: setPcw60Hz, type: 'bool' },
     { key: 'apple2-disk2', set: setApple2Disk2, type: 'bool' },
     { key: 'c64-drive', set: setC64Drive, type: 'bool' },
     { key: 'apple2-langcard', set: setApple2LangCard, type: 'bool' },

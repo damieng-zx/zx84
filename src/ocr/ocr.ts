@@ -26,8 +26,9 @@ export type EinsteinOcrGrid = '42x24';
 /** MSX text grids — SCREEN 0 is 40×24; SCREEN 1 is 32×24. */
 export type MsxOcrGrid = '40x24' | '32x24';
 
-/** PCW text grid — the 720x256 bitmap cut into 8x8 cells. */
-export type PcwOcrGrid = '90x32';
+/** PCW text grid — the displayed bitmap cut into 8x8 cells: 720x256 (90x32),
+ *  or the first 200 lines (90x25) on a 60Hz machine. */
+export type PcwOcrGrid = '90x32' | '90x25';
 
 /** Lynx text grids — 6x10 cells across the active area. The 48K/96K fit 40
  *  columns in 256 pixels; the 128K's 512-pixel display fits 80. */

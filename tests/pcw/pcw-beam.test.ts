@@ -3,8 +3,9 @@
  *
  * A PAL field of 312 lines, 64us each; at 3.4MHz a line is 218 T-states. Line
  * 0 is the first of the 256 displayed lines. The gate array's 300Hz timer
- * fires six times a field, two lines into flyback (line 258) and every 52
- * lines after: 258, 310, 50, 102, 154, 206. It holds /INT for about 100us
+ * fires six times a field, every 52 lines, two lines into the 26-line frame
+ * flyback that ends 16 lines before line 0 (Amstrad's own interface spec):
+ * lines 12, 64, 116, 168, 220 and 272. It pulses /INT for about 100us
  * (340 T-states), so the pulse that starts on line L ends 122 T-states into
  * line L+1.
  *
@@ -85,7 +86,7 @@ describe('PCW beam geometry', () => {
     } finally { m.destroy(); }
   });
 
-  it('takes the timer interrupts at the start of lines 50, 102, 154, 206, 258 and 310', () => {
+  it('takes the timer interrupts at the start of lines 12, 64, 116, 168, 220 and 272', () => {
     const m = boot();
     try {
       m.beamLog = new BeamLog(1000);
@@ -99,7 +100,7 @@ describe('PCW beam geometry', () => {
         expect(e.t % LINE_T).toBeLessThan(40);
         lines.push(Math.floor(e.t / LINE_T));
       }
-      expect(lines).toEqual([50, 102, 154, 206, 258, 310]);
+      expect(lines).toEqual([12, 64, 116, 168, 220, 272]);
     } finally { m.destroy(); }
   });
 });
@@ -127,10 +128,10 @@ describe('PCW stops and resumes', () => {
     const b = boot();
     try {
       runTo(a, 3);
-      b.beamTarget = { frame: 1, t: 50 * LINE_T + 2 };
+      b.beamTarget = { frame: 1, t: 12 * LINE_T + 2 };
       b.runUntil(10);
       expect(b.stopReason?.kind).toBe('beam');
-      expect(Math.floor(b.beam().t / LINE_T)).toBe(50);
+      expect(Math.floor(b.beam().t / LINE_T)).toBe(12);
       runTo(b, 3);
       expect(fingerprint(b)).toEqual(fingerprint(a));
       // One tick per interrupt taken: 6 a frame for 3 frames (the handler
@@ -140,8 +141,8 @@ describe('PCW stops and resumes', () => {
   });
 
   it.each([
-    ['before', 51 * LINE_T + 50],
-    ['after', 51 * LINE_T + 150],
+    ['before', 13 * LINE_T + 50],
+    ['after', 13 * LINE_T + 150],
   ])('a beam stop %s a timer pulse ends lands there and resumes as if never stopped', (_side, t) => {
     const a = boot();
     const b = boot();
@@ -154,8 +155,8 @@ describe('PCW stops and resumes', () => {
       expect(at.frame).toBe(1);
       expect(at.t).toBeGreaterThanOrEqual(t);
       expect(at.t).toBeLessThan(t + 24);
-      // The pulse that started on line 50 is still up before 122 T-states in.
-      expect(b.asic.timerPending).toBe(t - 51 * LINE_T < 340 - LINE_T);
+      // The pulse that started on line 12 is still up before 122 T-states in.
+      expect(b.asic.timerPending).toBe(t - 13 * LINE_T < 340 - LINE_T);
       runTo(b, 3);
       expect(fingerprint(b)).toEqual(fingerprint(a));
     } finally { a.destroy(); b.destroy(); }
