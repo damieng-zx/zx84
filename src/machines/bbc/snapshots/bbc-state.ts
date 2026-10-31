@@ -14,7 +14,7 @@ export const BBC_STATE_SPEC: NativeStateSpec = {
   version: 1,
   ext: '.bbcstate',
   machineName: 'BBC Micro',
-  modelName: (model) => (isBbcModel(model) ? 'BBC Micro Model B' : null),
+  modelName: (model) => (isBbcModel(model) ? (model === 'bbc-a' ? 'BBC Micro Model A' : 'BBC Micro Model B') : null),
   // 32K of RAM, two double-sided 80-track discs and a long CSW tape, generously.
   maxBody: 128 << 20,
 };

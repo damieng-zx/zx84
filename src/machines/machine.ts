@@ -753,6 +753,17 @@ export interface TapeService {
   recordedBytes?(): { data: Uint8Array; filename: string } | null;
 }
 
+/** A printer port whose output the machine keeps, for the Save menu's
+ *  Hardware-pane controls; the Save menu's 'printer-txt' entry reads the same
+ *  text through `printerExport`. */
+export interface PrinterCaptureService {
+  /** Everything printed since the last reset of the capture, as UTF-8 text,
+   *  or null when nothing has been printed. */
+  capturedText(): { data: Uint8Array; filename: string } | null;
+  /** Throw the captured output away (a fresh sheet of paper). */
+  clearCapture(): void;
+}
+
 export interface DriveDescriptor {
   /** Stable id within this machine ('a', 'plusd:0', …). */
   readonly id: string;
@@ -1250,6 +1261,8 @@ export interface MachineServices {
   readonly debug: DebugService;
   readonly input: InputService;
   readonly probe: FrameProbe;
+  /** The machine's printer port, where it has one that keeps its output. */
+  readonly printer?: PrinterCaptureService | null;
 }
 
 /**

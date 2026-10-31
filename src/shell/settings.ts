@@ -74,6 +74,7 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'mtx-512k-ram': () => settings.mtx512kRam(),
   'msx-floppy': () => settings.msxFloppy(),
   'bbc-disk-system': () => settings.bbcDiskSystem(),
+  'bbc-swr': () => settings.bbcSwr(),
   'electron-plus1': () => settings.electronPlus1(),
   'electron-plus3': () => settings.electronPlus3(),
   'electron-dfs': () => settings.electronDfs(),

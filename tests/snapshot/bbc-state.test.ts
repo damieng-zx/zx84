@@ -240,6 +240,34 @@ describe('BBC snapshot is exact', () => {
     }
   });
 
+  it('with sideways RAM written, a printer acknowledge and RS423 text pending', async () => {
+    const make = (): BbcMachine => {
+      const m = machine('1770', false);
+      m.memory.setRamBanks(0x0030);                  // banks 4 and 5
+      return m;
+    };
+    const m = make();
+    const fresh = make();
+    try {
+      for (let f = 0; f < 11; f++) m.tick();
+      m.memory.roms[4].fill(0xA4);
+      m.memory.roms[5][0x1234] = 0x5E;
+      // A byte strobed to the printer (its acknowledge is 100 us away) and
+      // host text queued for the RS423 line.
+      m.memory.writeByte(0xFE63, 0xFF);              // User VIA DDRA
+      m.memory.writeByte(0xFE6C, 0x0E);              // PCR: CA2 high
+      m.memory.writeByte(0xFE61, 0x33);
+      m.memory.writeByte(0xFE6C, 0x0C);              // CA2 low: strobe
+      m.rs423.send([0x10, 0x20, 0x30]);
+      await expectExactFromFile(m, fresh, EXT, 12);
+      expect(fresh.memory.roms[5][0x1234]).toBe(0x5E);
+      expect(fresh.memory.roms[4].every(b => b === 0xA4)).toBe(true);
+    } finally {
+      m.destroy();
+      fresh.destroy();
+    }
+  });
+
   it('carries the disc a guest has written', async () => {
     const m = machine('1770', false);
     const fresh = machine('1770', false);

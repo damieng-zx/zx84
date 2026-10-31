@@ -10,14 +10,18 @@
  *   0xFE08-0xFE0F  ACIA 6850 status/data (A0 selects; mirrored)
  *   0xFE10-0xFE1F  serial ULA
  *   0xFE20/0xFE21  Video ULA control / palette
- *   0xFE30         ROM select latch
+ *   0xFE30-0xFE3F  ROM select latch (write-only; the low nibble is the bank)
  *   0xFE40-0xFE5F  System VIA
- *   0xFE60-0xFE7F  User VIA
+ *   0xFE60-0xFE7F  User VIA (Model B only: user port and printer port)
  *   0xFE80-0xFE9F  floppy controller (8271 or WD1770, whichever is fitted)
  *   0xFEA0-0xFEBF  Econet
  *   0xFEC0-0xFEDF  uPD7002 ADC
  *   0xFEE0-0xFEFF  Tube ULA
  * Everything else in 0xFC00-0xFEFF floats high (0xFF).
+ *
+ * The Model A does not fit the User VIA or the ADC: those windows float too.
+ * Every access in this range is on the 1 MHz bus; the machine holds the CPU
+ * for it (see bus-timing.ts) before it gets here.
  */
 
 import type { BbcMachine } from './bbc-machine.ts';
@@ -78,13 +82,16 @@ export function readBbcIo(m: BbcMachine, addr: number): number {
     case 0xFE50:
       return m.sysVia.read(a & 0x0F);
     case 0xFE60:
-      return m.userVia.read(a & 0x0F);
-    case 0xFE70:
-      return m.userVia.read(a & 0x0F);
+    case 0xFE70: {
+      if (!m.hasUserPort) return 0xFF;
+      const v = m.userVia.read(a & 0x0F);
+      m.printer.afterRead(a & 0x0F, m.cpu.tStates);
+      return v;
+    }
     default: break;
   }
   if ((a & 0xFFF0) === 0xFE10) return 0x00;      // serial ULA (write-only)
-  if (a >= 0xFEC0 && a <= 0xFEDF) return m.adc.read(a & 3);   // uPD7002 ADC
+  if (a >= 0xFEC0 && a <= 0xFEDF) return m.hasUserPort ? m.adc.read(a & 3) : 0xFF;   // uPD7002 ADC
   // Video ULA: A0 selects control (0) / palette (1); the whole 0xFE20-0xFE2F
   // block aliases to those two registers (Acorn DFS 1.20 probes 0xFE29).
   if ((a & 0xFFF0) === 0xFE20) return (a & 1) ? m.videoPaletteRegister : m.videoUlaControl;
@@ -138,18 +145,19 @@ export function writeBbcIo(m: BbcMachine, addr: number, val: number): void {
       return;
     case 0xFE60:
     case 0xFE70:
+      if (!m.hasUserPort) return;
       m.userVia.write(a & 0x0F, v);
+      m.printer.afterWrite(a & 0x0F, m.cpu.tStates);
+      return;
+    case 0xFE30:
+      m.memory.romsel = v & 0x0F;                  // the whole 16-byte block latches it
       return;
     default: break;
   }
   if ((a & 0xFFF0) === 0xFE10) { m.writeSerialUla(v); return; }
-  switch (a) {
-    case 0xFE30: m.memory.romsel = v & 0x0F; return;
-    default:
-      if (a >= 0xFE80 && a <= 0xFE87) { m.disc?.write(a, v); return; }
-      if (a >= 0xFEC0 && a <= 0xFEDF) { m.adc.write(a & 3, v, m.cpu.tStates); return; }
-      return;                                    // Econet/Tube: ignored
-  }
+  if (a >= 0xFE80 && a <= 0xFE87) { m.disc?.write(a, v); return; }
+  if (a >= 0xFEC0 && a <= 0xFEDF) { if (m.hasUserPort) m.adc.write(a & 3, v, m.cpu.tStates); return; }
+  // Econet/Tube: ignored
 }
 
 /** Install the IO hooks and wire the VIA port callbacks. Idempotent. */
@@ -175,7 +183,8 @@ export function wireBbcIo(m: BbcMachine): void {
   // and low when it ends, the falling edge the MOS's ADC interrupt waits for.
   m.adc.onEoc = (level) => m.sysVia.setCB1(level);
 
-  // User VIA port A is the printer port; nothing to wire yet.
+  // User VIA port A is the printer port (see BbcPrinterPort); the user port on
+  // port B has nothing attached, so its pins read high.
   m.userVia.portAInput = 0xFF;
   m.userVia.portBInput = 0xFF;
 }
