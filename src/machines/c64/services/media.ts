@@ -4,7 +4,9 @@
  *  - `.tap`  a Datasette recording, played through the tape port (type LOAD).
  *  - `.t64`  a tape archive: its first program is put in memory and RUN.
  *  - `.prg`  a program file, likewise.
- *  - `.d64` / `.g64`  a 1541 disk, put in the drive (device 8).
+ *  - `.d64` / `.g64`  a 1541 disk, put in the drive (device 8); a 1571 reads them too.
+ *  - `.d71`  a double-sided disk for a 1571.
+ *  - `.d81`  a 3.5" disk for a 1581.
  *  - `.c64state`  a zx84 snapshot.
  *
  * `.t64` and `.prg` are files rather than recordings, so they go straight
@@ -46,6 +48,7 @@ export class C64MediaService implements MediaService {
       // filters by these, and a disk for a model that is not fitted gets a
       // message saying which drive to set up rather than being passed over.
       { ext: '.d64', target: 'a' },
+      { ext: '.d71', target: 'a' },
       { ext: '.g64', target: 'a' },
       { ext: '.g41', target: 'a' },
       { ext: '.d81', target: 'a' },
@@ -102,8 +105,10 @@ export class C64MediaService implements MediaService {
       return { ok: true, target: 'tape', message: `Loaded ${name}` };
     }
 
-    if (/\.(d64|g64|g41|d81)$/i.test(name)) {
-      const wants: C64DriveModel = /\.d81$/i.test(name) ? '1581' : '1541';
+    if (/\.(d64|g64|g41|d71|d81)$/i.test(name)) {
+      // The model a disk is made for; a 1571 also reads the 1541's.
+      const wants: C64DriveModel = /\.d81$/i.test(name) ? '1581' : /\.d71$/i.test(name) ? '1571' : '1541';
+      const reads = (model: C64DriveModel): boolean => (wants === '1541' ? model !== '1581' : model === wants);
       const drives = this.m.drives;
       // The shell names the drive a disk is meant for ('a'-'d', or 'unit:n');
       // otherwise the first drive that reads the format, an empty one first.
@@ -111,19 +116,20 @@ export class C64MediaService implements MediaService {
       const asked = named ? (/\d/.test(named[1]) ? Number(named[1]) : 'abcd'.indexOf(named[1])) : -1;
       let at = asked >= 0 && asked < drives.length ? asked : -1;
       if (at < 0 && drives.length > 0) {
-        const fits = drives.map((_, i) => i).filter(i => drives[i].model === wants);
+        const fits = drives.map((_, i) => i).filter(i => reads(drives[i].model));
         at = fits.find(i => !drives[i].loaded) ?? fits[0] ?? -1;
         // None reads it: the first empty drive, else the first, is set to the model
         // that does (see needsDriveModel), so a .d81 on a stock 1541 machine just works.
         if (at < 0 && asked < 0) at = Math.max(0, drives.findIndex(d => !d.loaded));
       }
       const drive = drives[at];
-      if (drive && drive.model !== wants) {
+      if (drive && !reads(drive.model)) {
         const have = drive.model;
+        const formats = have === '1541' ? '.d64 and .g64' : have === '1571' ? '.d64, .g64 and .d71' : '.d81';
         return {
           ok: false,
           needsDriveModel: { index: at, model: wants },
-          message: `Drive ${8 + at} is a ${have}, which reads ${have === '1541' ? '.d64 and .g64' : '.d81'} disks: set it to a ${wants} in the Drives pane (the drive's ... menu, Model) or add a ${wants} drive there, to use ${name}`,
+          message: `Drive ${8 + at} is a ${have}, which reads ${formats} disks: set it to a ${wants} in the Drives pane (the drive's ... menu, Model) or add a ${wants} drive there, to use ${name}`,
         };
       }
       // The shell remounting the persisted disk after a browser-refresh restore
@@ -156,6 +162,6 @@ export class C64MediaService implements MediaService {
         : { ok: false, message: r.message };
     }
 
-    return { ok: false, message: 'The C64 loads .tap tapes, .t64 and .prg programs, .d64, .g64 and .d81 disks, .crt cartridges and .c64state snapshots' };
+    return { ok: false, message: 'The C64 loads .tap tapes, .t64 and .prg programs, .d64, .g64, .d71 and .d81 disks, .crt cartridges and .c64state snapshots' };
   }
 }

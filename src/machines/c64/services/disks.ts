@@ -1,7 +1,8 @@
 /**
  * C64DiskService — the disk drives as the Drives pane sees them: up to four,
  * devices 8 to 11 (ids a to d), each a 1541 (`.d64` and `.g64` disks, given
- * back in the format they came in) or a 1581 (`.d81`). The Drives pane's
+ * back in the format they came in), a 1571 (those and `.d71`) or a 1581
+ * (`.d81`). The Drives pane's
  * "..." menu adds and removes drives and picks each one's model. A drive of a
  * model already fitted copies that drive's DOS ROM, so adding it is instant;
  * a model not yet fitted needs its ROM, so the machine is rebuilt to fetch it.

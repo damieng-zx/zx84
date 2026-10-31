@@ -32,7 +32,7 @@ import { machineCaps, machineDescriptor } from '@/state/machine-caps.ts';
 import { DISK_FORMATS, formatLabel, createBlankDisk } from '@/media/floppy/dsk.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { createBlankHfe } from '@/media/floppy/hfe.ts';
-import { blankC64Disk, c64DiskImage } from '@/media/floppy/c64-disk.ts';
+import { blankC64Disk, blankC64Disk71, c64DiskImage } from '@/media/floppy/c64-disk.ts';
 import { blankD81 } from '@/media/floppy/c64-d81.ts';
 import { blankLdfDisk } from '@/media/floppy/ldf-image.ts';
 import { blankFatImage } from '@/media/floppy/fat-image.ts';
@@ -295,6 +295,11 @@ const DFS_NEW_ITEMS = [
 const C64_NEW_ITEMS = [
   { value: 'd64-0', label: 'Blank 170K D64 (formatted)' },
 ];
+// The 1571 formats both sides, and reads the 1541's single-sided disks too.
+const C64_D71_NEW_ITEMS = [
+  { value: 'd71-0', label: 'Blank 340K D71 (formatted)' },
+  ...C64_NEW_ITEMS,
+];
 // The 1581 reads 3.5" disks: a blank one is a formatted D81.
 const C64_D81_NEW_ITEMS = [
   { value: 'd81-0', label: 'Blank 800K D81 (formatted)' },
@@ -320,6 +325,7 @@ function lynxBlankForValue(value: string): { tracks: number; sides: number } | n
 /** Blank image for a built-in drive's "New disk" menu, whichever format it is. */
 function blankForValue(value: string): { image: DskImage; label: string } | null {
   if (value === 'd64-0') return { image: c64DiskImage(blankC64Disk()), label: 'blank.d64' };
+  if (value === 'd71-0') return { image: c64DiskImage(blankC64Disk71()), label: 'blank.d71' };
   if (value === 'd81-0') return { image: blankD81(), label: 'blank.d81' };
   const ldf = lynxBlankForValue(value);
   if (ldf) {
@@ -486,9 +492,10 @@ export function DrivePane() {
   // Lynx accepts .ldf, the BBC .ssd, everything else here uses the +3 DSK/HFE set.
   const builtinDiskItems = (unit = 0) => {
     const accepts = machine?.services.media.accepts() ?? [];
-    // The 64's drives are a 1541 or a 1581 each, with a disk format of its own.
+    // The 64's drives are a 1541, 1571 or 1581 each, with a disk format of its own.
     const model = driveSetupModels()?.[unit];
     if (model === '1581') return C64_D81_NEW_ITEMS;
+    if (model === '1571') return C64_D71_NEW_ITEMS;
     if (model === '1541') return C64_NEW_ITEMS;
     if (accepts.some(t => t.ext === '.ldf')) return LYNX_NEW_ITEMS;
     if (accepts.some(t => t.ext === '.ssd')) return DFS_NEW_ITEMS;

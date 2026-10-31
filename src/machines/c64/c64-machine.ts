@@ -53,6 +53,7 @@ import { createC64Services, type C64Services } from './services/index.ts';
 import { c64ScreenText } from './screen-text.ts';
 import { c64OcrGrid, type C64OcrResult } from '@/ocr/c64.ts';
 import { Drive1541 } from './drive/drive-1541.ts';
+import { Drive1571 } from './drive/drive-1571.ts';
 import { Drive1581 } from './drive/drive-1581.ts';
 import {
   C64_MAX_DRIVES, isC64DriveModel, normalizeDriveModels, type C64DriveModel, type C64DriveUnit,
@@ -495,7 +496,8 @@ export class C64Machine extends BaseMachine implements Machine {
   // ── Disk drive ───────────────────────────────────────────────────────────
 
   private makeDrive(model: C64DriveModel): C64DriveUnit {
-    return model === '1581' ? new Drive1581() : new Drive1541();
+    if (model === '1581') return new Drive1581();
+    return model === '1571' ? new Drive1571() : new Drive1541();
   }
 
   /** Give each drive the device number its place dictates. A drive that moved

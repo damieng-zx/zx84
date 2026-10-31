@@ -114,7 +114,7 @@ describe('choosing the drive', () => {
     expect(m.drive!.loaded).toBe(false);
     m.services.disks.setDriveModel!(0, 'nonsense');
     expect(m.services.disks.driveModels).toEqual(['1581']);
-    expect(m.descriptor.ui.driveModels?.map(d => d.value)).toEqual(['1541', '1581']);
+    expect(m.descriptor.ui.driveModels?.map(d => d.value)).toEqual(['1541', '1571', '1581']);
     expect(m.descriptor.ui.builtinDrives).toBe(4);
     m.destroy();
   });

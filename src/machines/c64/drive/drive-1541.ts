@@ -33,14 +33,14 @@
 import { M6502, FLAG_V } from '@/cores/m6502.ts';
 import { M6522 } from '@/cores/m6522.ts';
 import {
-  C64_HALF_TRACKS, readC64Disk, writeC64Disk, type C64Disk, type C64Track,
+  C64_HALF_TRACKS, readC64Disk, speedZone, TRACK_BYTES_BY_ZONE, writeC64Disk, type C64Disk, type C64Track,
 } from '@/media/floppy/c64-disk.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import {
   c64DiskImage, isC64DiskImage, parseC64Disk, serializeC64Disk,
 } from '@/media/floppy/c64-disk.ts';
 import type { StateSink, StateSource } from '@/utils/state-stream.ts';
-import type { C64DriveUnit } from './drive-unit.ts';
+import type { C64DriveModel, C64DriveUnit } from './drive-unit.ts';
 
 export const DRIVE_CLOCK_HZ = 1_000_000;
 export const DRIVE_ROM_SIZE = 0x4000;
@@ -53,12 +53,13 @@ const BIT_QUARTERS = [16, 15, 14, 13] as const;
 const SENSOR_FLIP_CYCLES = 40_000;
 
 export class Drive1541 implements C64DriveUnit {
-  readonly model = '1541' as const;
-  readonly clockHz = DRIVE_CLOCK_HZ;
-  readonly romSize = DRIVE_ROM_SIZE;
+  readonly model: C64DriveModel = '1541';
+  readonly clockHz: number = DRIVE_CLOCK_HZ;
+  readonly romSize: number = DRIVE_ROM_SIZE;
   readonly cpu = new M6502();
   readonly ram = new Uint8Array(0x800);
-  readonly rom = new Uint8Array(DRIVE_ROM_SIZE);
+  /** The DOS ROM; the 1571, which builds on this class, has twice the size. */
+  rom: Uint8Array = new Uint8Array(DRIVE_ROM_SIZE);
   readonly via1 = new M6522();
   readonly via2 = new M6522();
   hasRom = false;
@@ -72,31 +73,36 @@ export class Drive1541 implements C64DriveUnit {
   dirty = false;
 
   // The serial bus lines as the 64 holds them (true = pulled low).
-  private atn = false;
-  private c64Clk = false;
-  private c64Data = false;
+  protected atn = false;
+  protected c64Clk = false;
+  protected c64Data = false;
 
   // Mechanics.
-  private halfTrack = 34;
-  private track: C64Track | null = null;
-  private bitPos = 0;
-  private quarters = 0;
-  private motor = false;
-  private led = false;
-  private zone = 0;
-  private lastPhase = 0;
-  private sensorFlipUntil = 0;
+  protected halfTrack = 34;
+  protected track: C64Track | null = null;
+  protected bitPos = 0;
+  protected quarters = 0;
+  protected motor = false;
+  protected led = false;
+  protected zone = 0;
+  protected lastPhase = 0;
+  protected sensorFlipUntil = 0;
+  /** How long the sensor flips for, in this drive's own clock ticks. */
+  protected sensorFlipCycles = SENSOR_FLIP_CYCLES;
 
   // Read/write head electronics.
-  private syncShift = 0;
-  private shiftReg = 0;
-  private bitCount = 0;
-  private inSync = false;
-  private writeShift = 0x55;
-  private writing = false;
+  protected syncShift = 0;
+  protected shiftReg = 0;
+  protected bitCount = 0;
+  protected inSync = false;
+  protected writeShift = 0x55;
+  protected writing = false;
 
   /** Bytes the controller has moved since the last `takeActivity`. */
-  private activity = 0;
+  protected activity = 0;
+  /** A byte has come off the head since the DOS last read port A (the 1571 can
+   *  read this on VIA 1). */
+  protected byteReady = false;
 
   constructor() {
     this.cpu.read = (addr) => this.busRead(addr);
@@ -108,10 +114,14 @@ export class Drive1541 implements C64DriveUnit {
   /** Install the DOS ROM (the 16K image: 325302-01 at $C000, 901229-xx at $E000). */
   loadRom(data: Uint8Array): void {
     this.rom.fill(0xFF);
-    this.rom.set(data.subarray(0, DRIVE_ROM_SIZE));
-    this.hasRom = data.length >= 0x2000;
+    this.rom.set(data.subarray(0, this.romSize));
+    this.hasRom = data.length >= this.minRomSize;
     this.reset();
   }
+
+  /** The least a ROM image may be and still start (a 1541 takes the 8K of the
+   *  later single-ROM images). */
+  protected get minRomSize(): number { return 0x2000; }
 
   /** Power on: the ROM starts, the head stays where it was. */
   reset(): void {
@@ -128,6 +138,7 @@ export class Drive1541 implements C64DriveUnit {
     this.quarters = 0;
     this.sensorFlipUntil = 0;
     this.activity = 0;
+    this.byteReady = false;
     this.atn = this.c64Clk = this.c64Data = false;
     this.cpu.reset();
   }
@@ -182,7 +193,7 @@ export class Drive1541 implements C64DriveUnit {
     this.mediaName = name;
     this.writeProtected = writeProtected;
     this.dirty = false;
-    if (!silent) this.sensorFlipUntil = this.cpu.tStates + SENSOR_FLIP_CYCLES;
+    if (!silent) this.sensorFlipUntil = this.cpu.tStates + this.sensorFlipCycles;
     this.seatTrack();
   }
 
@@ -190,18 +201,23 @@ export class Drive1541 implements C64DriveUnit {
     this.disk = null;
     this.mediaName = '';
     this.dirty = false;
-    this.sensorFlipUntil = this.cpu.tStates + SENSOR_FLIP_CYCLES;
+    this.sensorFlipUntil = this.cpu.tStates + this.sensorFlipCycles;
     this.seatTrack();
   }
 
   setWriteProtect(on: boolean): void {
     this.writeProtected = on;
-    this.sensorFlipUntil = this.cpu.tStates + SENSOR_FLIP_CYCLES;
+    this.sensorFlipUntil = this.cpu.tStates + this.sensorFlipCycles;
   }
 
   /** The track under the head after the head or the disk changed. */
-  private seatTrack(): void {
-    const next = this.disk?.tracks[this.halfTrack] ?? null;
+  /** The half-tracks under the head: a 1571's second side has its own. */
+  protected get trackSet(): (C64Track | null)[] | null {
+    return this.disk?.tracks ?? null;
+  }
+
+  protected seatTrack(): void {
+    const next = this.trackSet?.[this.halfTrack] ?? null;
     const old = this.track;
     if (old && next && old.length !== next.length) {
       this.bitPos = Math.floor(this.bitPos * next.length / old.length);
@@ -224,7 +240,7 @@ export class Drive1541 implements C64DriveUnit {
   }
 
   /** VIA 1 port B bits the DOS drives: DATA out 1, CLK out 3, ATNA 4. */
-  private get iecOut(): number { return this.via1.orb & this.via1.ddrb; }
+  protected get iecOut(): number { return this.via1.orb & this.via1.ddrb; }
 
   /** The drive pulls CLK low. */
   get clkAsserted(): boolean { return (this.iecOut & 0x08) !== 0; }
@@ -238,7 +254,7 @@ export class Drive1541 implements C64DriveUnit {
 
   // ── Bus ─────────────────────────────────────────────────────────────────
 
-  private via1Pins(): number {
+  protected via1Pins(): number {
     let v = (this.unit & 3) << 5;               // PB5/PB6: the device number, 8 + unit
     if (this.c64Data || this.dataAsserted) v |= 0x01;
     if (this.c64Clk || this.clkAsserted) v |= 0x04;
@@ -246,7 +262,7 @@ export class Drive1541 implements C64DriveUnit {
     return v;
   }
 
-  private via2Pins(): number {
+  protected via2Pins(): number {
     let v = 0x6F;
     if (!this.inSync) v |= 0x80;                // SYNC reads low while in sync
     if (this.sensorWritable()) v |= 0x10;
@@ -254,12 +270,12 @@ export class Drive1541 implements C64DriveUnit {
   }
 
   /** Write-protect sensor: set when a disk without a protect tab is in. */
-  private sensorWritable(): boolean {
+  protected sensorWritable(): boolean {
     const writable = this.disk !== null && !this.writeProtected;
     return this.cpu.tStates < this.sensorFlipUntil ? !writable : writable;
   }
 
-  private busRead(addr: number): number {
+  protected busRead(addr: number): number {
     addr &= 0xFFFF;
     if (addr & 0x8000) return this.rom[addr & 0x3FFF];
     if (addr < 0x1800) return this.ram[addr & 0x7FF];
@@ -269,18 +285,20 @@ export class Drive1541 implements C64DriveUnit {
     }
     if (addr < 0x2000) {
       this.via2.portBInput = this.via2Pins();
+      if ((addr & 0x0F) <= 1 || (addr & 0x0F) === 0x0F) this.byteReady = false;     // ORB, ORA
       return this.via2.read(addr & 0x0F);
     }
     return 0xFF;
   }
 
-  private busWrite(addr: number, value: number): void {
+  protected busWrite(addr: number, value: number): void {
     addr &= 0xFFFF;
     if (addr < 0x1800) { this.ram[addr & 0x7FF] = value; return; }
     if (addr < 0x1C00) { this.via1.write(addr & 0x0F, value); return; }
     if (addr < 0x2000) {
       const reg = addr & 0x0F;
       this.via2.write(reg, value);
+      if (reg <= 1 || reg === 15) this.byteReady = false;
       if (reg === 0 || reg === 2) this.updateMechanics();
       if (reg === 1 || reg === 15) this.activity++;
     }
@@ -289,7 +307,7 @@ export class Drive1541 implements C64DriveUnit {
   // ── Mechanics ───────────────────────────────────────────────────────────
 
   /** Follow VIA 2 port B: stepper phase, motor, LED and speed zone. */
-  private updateMechanics(): void {
+  protected updateMechanics(): void {
     const via = this.via2;
     const out = via.orb & via.ddrb;
     if ((via.ddrb & 0x03) === 0x03) {
@@ -306,7 +324,7 @@ export class Drive1541 implements C64DriveUnit {
     if ((via.ddrb & 0x60) === 0x60) this.zone = (out >> 5) & 3;
   }
 
-  private stepHead(dir: number): void {
+  protected stepHead(dir: number): void {
     const next = Math.min(C64_HALF_TRACKS - 1, Math.max(0, this.halfTrack + dir));
     if (next === this.halfTrack) return;
     this.halfTrack = next;
@@ -328,9 +346,14 @@ export class Drive1541 implements C64DriveUnit {
   }
 
   /** Turn the disk for `cycles` CPU cycles, bit cell by bit cell. */
-  private advanceHead(cycles: number): void {
+  protected advanceHead(cycles: number): void {
+    this.advanceQuarters(cycles * 4);
+  }
+
+  /** The same, in quarters of a CPU cycle at 1 MHz (a 1571 at 2 MHz sees half as many). */
+  protected advanceQuarters(quarters: number): void {
     if (!this.motor) return;
-    this.quarters += cycles * 4;
+    this.quarters += quarters;
     let cell = BIT_QUARTERS[this.zone];
     while (this.quarters >= cell) {
       this.quarters -= cell;
@@ -339,10 +362,12 @@ export class Drive1541 implements C64DriveUnit {
     }
   }
 
-  private clockBit(): void {
-    const track = this.track;
+  protected clockBit(): void {
+    let track = this.track;
     this.writing = (this.via2.pcr & 0xE0) === 0xC0;     // CB2 held low
     if (this.writing) {
+      // Writing on a track the image does not have formats it, as it would on a real disk.
+      if (!track && this.disk && !this.writeProtected) track = this.createTrack();
       const bit = (this.writeShift >> 7) & 1;
       this.writeShift = (this.writeShift << 1) & 0xFF;
       if (track && !this.writeProtected) {
@@ -379,8 +404,22 @@ export class Drive1541 implements C64DriveUnit {
     if (track && ++this.bitPos >= track.length) this.bitPos = 0;
   }
 
+  /** A new, empty track under the head, for the DOS to format. */
+  protected createTrack(): C64Track | null {
+    const set = this.trackSet;
+    if (!set) return null;
+    const zone = speedZone((this.halfTrack >> 1) + 1);
+    const bytes = TRACK_BYTES_BY_ZONE[zone];
+    const track: C64Track = { bits: new Uint8Array(bytes), length: bytes * 8, zone };
+    set[this.halfTrack] = track;
+    this.track = track;
+    this.bitPos = 0;
+    return track;
+  }
+
   /** A byte boundary: CA1 falls, and with CA2 held high the overflow flag is set. */
-  private byteSignal(): void {
+  protected byteSignal(): void {
+    this.byteReady = true;
     this.activity++;
     this.via2.setCA1(true);
     this.via2.setCA1(false);

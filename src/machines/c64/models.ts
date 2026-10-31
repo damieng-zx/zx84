@@ -32,8 +32,10 @@ export const C64_ROM_CHIP_SIZES = [0x2000, 0x2000, 0x1000] as const;
 /** The 1541's DOS ROM on the ROM host: 325302-01 ($C000) then 901229-05 ($E000). */
 export const C64_DRIVE_ROM_SOURCE = 'c64/dos1541-325302-01-901229-05.rom';
 
-/** Each drive's DOS ROM on the ROM host: the 1581's is the 32K 318045-02. */
-export const C64_DRIVE_ROM_SOURCES: Readonly<Record<'1541' | '1581', string>> = {
+/** Each drive's DOS ROM on the ROM host: the 1571's is the 32K 310654-05, the
+ *  1581's the 32K 318045-02. */
+export const C64_DRIVE_ROM_SOURCES: Readonly<Record<'1541' | '1571' | '1581', string>> = {
   '1541': C64_DRIVE_ROM_SOURCE,
+  '1571': 'c64/dos1571-310654-05.rom',
   '1581': 'c64/dos1581-318045-02.rom',
 };

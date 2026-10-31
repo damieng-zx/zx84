@@ -10,12 +10,14 @@ import type { M6502 } from '@/cores/m6502.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import type { StateSink, StateSource } from '@/utils/state-stream.ts';
 
-export type C64DriveModel = '1541' | '1581';
+export type C64DriveModel = '1541' | '1571' | '1581';
 
-export const C64_DRIVE_MODELS: readonly C64DriveModel[] = ['1541', '1581'];
+/** The ROM pane's sockets follow this order (the 1571 came last, so the
+ *  indexes of the others stay where they were). */
+export const C64_DRIVE_MODELS: readonly C64DriveModel[] = ['1541', '1581', '1571'];
 
 export function isC64DriveModel(value: unknown): value is C64DriveModel {
-  return value === '1541' || value === '1581';
+  return value === '1541' || value === '1571' || value === '1581';
 }
 
 /** Up to four drives share the bus, as devices 8 to 11. */
@@ -31,8 +33,11 @@ export interface C64DriveUnit {
   readonly model: C64DriveModel;
   /** The drive's own 6502. */
   readonly cpu: M6502;
-  /** The drive's own CPU clock, in Hz. */
+  /** The drive's time base, in Hz: its CPU clock, or for a drive that can change
+   *  speed (the 1571) the faster of its two. */
   readonly clockHz: number;
+  /** The speed its CPU is running at now, in Hz, where that is not `clockHz`. */
+  readonly cpuHz?: number;
   /** Which device it answers as: 0 is device 8, 3 is device 11 (the jumpers
    *  the DOS reads when it starts up). */
   unit: number;

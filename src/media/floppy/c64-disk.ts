@@ -9,7 +9,7 @@
  * into bytes eight bits at a time; everything above that, headers, sectors,
  * checksums, is the DOS ROM's work.
  *
- * Two file formats are read and written:
+ * Three file formats are read and written:
  *
  *  - `.d64`  the sectors only (35, 40 or 42 tracks, optionally followed by
  *            one error byte per sector). Mounting one lays the sectors out
@@ -18,6 +18,8 @@
  *  - `.g64`  the GCR bits of each half-track exactly (CCS64's format), so
  *            protections that rely on odd tracks, half-tracks, damaged
  *            sectors or non-standard speeds survive.
+ *  - `.d71`  a double-sided `.d64` for the 1571: tracks 36-70 are the second
+ *            side of the same 35 cylinders (`tracks1` below).
  *
  * Tracks are stored as packed bits (MSB first, the order they pass the head)
  * with their length in bits, so writes can be made bit by bit.
@@ -63,11 +65,14 @@ export interface C64Track {
   zone: number;
 }
 
-export type C64DiskSource = 'd64' | 'g64';
+export type C64DiskSource = 'd64' | 'g64' | 'd71';
 
 export interface C64Disk {
   /** 84 half-tracks; null is unformatted. */
   readonly tracks: (C64Track | null)[];
+  /** The second side's half-tracks, for a 1571 (the 1541 has one head). Absent
+   *  until the disk has a second side. */
+  tracks1?: (C64Track | null)[];
   source: C64DiskSource;
   /** Tracks in the `.d64` it came from (35, 40 or 42); 35 for a `.g64`. */
   d64Tracks: number;
@@ -151,9 +156,10 @@ const SECTOR_FIXED_BYTES = SYNC_BYTES + 10 + HEADER_GAP_BYTES + SYNC_BYTES + 325
  */
 function buildTrack(
   track: number, sectors: (Uint8Array | null)[], errors: ArrayLike<number> | null, id1: number, id2: number,
+  physical = track,
 ): C64Track {
-  const zone = speedZone(track);
-  const count = sectorsOnTrack(track);
+  const zone = speedZone(physical);
+  const count = sectorsOnTrack(physical);
   const total = TRACK_BYTES_BY_ZONE[zone];
   const spare = total - count * SECTOR_FIXED_BYTES;
   const out: number[] = [];
@@ -197,6 +203,47 @@ export function parseD64(data: Uint8Array): C64Disk {
     tracks[(t - 1) * 2] = buildTrack(t, sectors, errorBytes ? errorBytes.subarray(first, first + count) : null, id1, id2);
   }
   return { tracks, source: 'd64', d64Tracks: info.tracks };
+}
+
+// ── D71 ─────────────────────────────────────────────────────────────────────
+
+/** Sectors on one side of a 1571 disk: the 35 tracks of a `.d64`. */
+const D71_SIDE_SECTORS = 683;
+const D71_SIZES = new Map<number, { errors: boolean }>([
+  [D71_SIDE_SECTORS * 2 * 256, { errors: false }],
+  [(D71_SIDE_SECTORS * 2 * 256) + D71_SIDE_SECTORS * 2, { errors: true }],
+]);
+
+export function isD71(data: Uint8Array): boolean {
+  return D71_SIZES.has(data.length);
+}
+
+/** The sector index of the first sector of `track` (1-70) in a D71: tracks 36-70
+ *  are the second side, laid out as tracks 1-35 are. */
+function trackStart71(track: number): number {
+  return track <= 35 ? trackStart(track) : D71_SIDE_SECTORS + trackStart(track - 35);
+}
+
+/** Lay a `.d71` out as GCR tracks: side 0 carries tracks 1-35, side 1 tracks 36-70. */
+export function parseD71(data: Uint8Array): C64Disk {
+  const info = D71_SIZES.get(data.length);
+  if (!info) throw new Error(`not a D71 image (${data.length} bytes)`);
+  const errorBytes = info.errors ? data.subarray(D71_SIDE_SECTORS * 2 * 256) : null;
+  const bam = trackStart(18) * 256;
+  const id1 = data[bam + 0xA2], id2 = data[bam + 0xA3];
+  const sides: (C64Track | null)[][] = [new Array(C64_HALF_TRACKS).fill(null), new Array(C64_HALF_TRACKS).fill(null)];
+  for (let t = 1; t <= 70; t++) {
+    const side = t > 35 ? 1 : 0;
+    const physical = t - side * 35;
+    const first = trackStart71(t);
+    const count = sectorsOnTrack(physical);
+    const sectors: Uint8Array[] = [];
+    for (let s = 0; s < count; s++) sectors.push(data.subarray((first + s) * 256, (first + s + 1) * 256));
+    sides[side][(physical - 1) * 2] = buildTrack(
+      t, sectors, errorBytes ? errorBytes.subarray(first, first + count) : null, id1, id2, physical,
+    );
+  }
+  return { tracks: sides[0], tracks1: sides[1], source: 'd71', d64Tracks: 35 };
 }
 
 // ── Reading sectors back out of GCR ─────────────────────────────────────────
@@ -277,6 +324,7 @@ export function decodeTrackSectors(t: C64Track): DecodedSector[] {
  * half-track in use), or it holds more tracks than a `.d64` has.
  */
 export function exportD64(disk: C64Disk): Uint8Array | null {
+  if (disk.tracks1?.some(Boolean)) return null;
   const tracks = disk.d64Tracks;
   for (let h = 0; h < C64_HALF_TRACKS; h++) {
     if (disk.tracks[h] && (h & 1 || h / 2 + 1 > tracks)) return null;
@@ -289,6 +337,34 @@ export function exportD64(disk: C64Disk): Uint8Array | null {
     const count = sectorsOnTrack(t);
     const first = trackStart(t);
     for (let s = 0; s < count; s++) {
+      const found = sectors.find(x => x.sector === s);
+      if (!found || !found.data || !found.headerOk || !found.dataOk || found.track !== t) return null;
+      out.set(found.data, (first + s) * 256);
+    }
+  }
+  return out;
+}
+
+/**
+ * The disk as a `.d71`, or null when it cannot be one: a track or sector that
+ * cannot be read cleanly, a half-track in use, or more than 35 tracks a side.
+ */
+export function exportD71(disk: C64Disk): Uint8Array | null {
+  const sides = [disk.tracks, disk.tracks1 ?? []];
+  for (const side of sides) {
+    for (let h = 0; h < side.length; h++) {
+      if (side[h] && (h & 1 || h / 2 + 1 > 35)) return null;
+    }
+  }
+  const out = new Uint8Array(D71_SIDE_SECTORS * 2 * 256);
+  for (let t = 1; t <= 70; t++) {
+    const side = t > 35 ? 1 : 0;
+    const physical = t - side * 35;
+    const track = sides[side][(physical - 1) * 2];
+    if (!track) return null;
+    const sectors = decodeTrackSectors(track);
+    const first = trackStart71(t);
+    for (let s = 0; s < sectorsOnTrack(physical); s++) {
       const found = sectors.find(x => x.sector === s);
       if (!found || !found.data || !found.headerOk || !found.dataOk || found.track !== t) return null;
       out.set(found.data, (first + s) * 256);
@@ -362,9 +438,22 @@ export function parseC64Disk(data: Uint8Array): C64Disk {
   throw new Error('not a D64 or G64 disk image');
 }
 
+/** What a 1571 reads: a `.d71` as well as the 1541's `.d64` and `.g64`. */
+export function parseC64Disk71(data: Uint8Array): C64Disk {
+  return isD71(data) ? parseD71(data) : parseC64Disk(data);
+}
+
 /** The disk as a file in the format it came in, falling back to `.g64` when a
- *  `.d64` could not hold what is on it now. */
-export function serializeC64Disk(disk: C64Disk): { data: Uint8Array; ext: '.d64' | '.g64' } {
+ *  `.d64` could not hold what is on it now. A disk with a second side can only
+ *  be a `.d71`; if it no longer is one, saving it is an error. */
+export function serializeC64Disk(disk: C64Disk): { data: Uint8Array; ext: '.d64' | '.g64' | '.d71' } {
+  if (disk.source === 'd71' || disk.tracks1?.some(Boolean)) {
+    const d71 = exportD71(disk);
+    if (!d71) {
+      throw new Error('this disk no longer has the 1571 layout (35 tracks of standard sectors on each side), so it cannot be saved as a .d71');
+    }
+    return { data: d71, ext: '.d71' };
+  }
   if (disk.source === 'd64') {
     const d64 = exportD64(disk);
     if (d64) return { data: d64, ext: '.d64' };
@@ -409,6 +498,34 @@ export function blankC64Disk(name?: string, id?: string): C64Disk {
   return parseD64(blankD64(name, id));
 }
 
+/**
+ * A freshly formatted double-sided disk (an empty directory) as a `.d71`. The
+ * 1571's DOS keeps the second side's free-sector counts in the first BAM
+ * sector ($DD-$FF of 18/0, with byte 3 set to $80 for "double sided") and
+ * their bit maps in 53/0; track 53, the mirror of the directory track, is kept
+ * out of use.
+ */
+export function blankD71(name = 'ZX84', id = '01'): Uint8Array {
+  const out = new Uint8Array(D71_SIDE_SECTORS * 2 * 256);
+  out.set(blankD64(name, id));
+  const bam = trackStart(18) * 256;
+  out[bam + 3] = 0x80;
+  const bam2 = trackStart71(53) * 256;
+  for (let t = 36; t <= 70; t++) {
+    const count = sectorsOnTrack(t - 35);
+    const free = t === 53 ? 0 : count;
+    out[bam + 0xDD + (t - 36)] = free;
+    if (free === 0) continue;
+    const at = bam2 + 3 * (t - 36);
+    for (let s = 0; s < count; s++) out[at + (s >> 3)] |= 1 << (s & 7);
+  }
+  return out;
+}
+
+export function blankC64Disk71(name?: string, id?: string): C64Disk {
+  return parseD71(blankD71(name, id));
+}
+
 // ── What the Drives pane shows ──────────────────────────────────────────────
 
 /** A mounted disk wrapped for the panes (which describe media as `DskImage`s). */
@@ -418,11 +535,14 @@ export interface C64DiskImage extends DskImage {
 
 export function c64DiskImage(disk: C64Disk): C64DiskImage {
   const halves = disk.tracks.filter(Boolean).length;
+  const twoSided = disk.tracks1?.some(Boolean) ?? false;
   const diskFormat = disk.source === 'g64'
     ? `G64 (${halves} half-tracks of GCR)`
-    : `D64 (${disk.d64Tracks} tracks, ${Math.round(trackStart(disk.d64Tracks + 1) * 256 / 1024)} KB)`;
+    : disk.source === 'd71'
+      ? `D71 (${disk.d64Tracks * 2} tracks, ${Math.round(D71_SIDE_SECTORS * 2 * 256 / 1024)} KB)`
+      : `D64 (${disk.d64Tracks} tracks, ${Math.round(trackStart(disk.d64Tracks + 1) * 256 / 1024)} KB)`;
   return {
-    format: 'standard', numTracks: disk.d64Tracks, numSides: 1, tracks: [], diskFormat,
+    format: 'standard', numTracks: disk.d64Tracks, numSides: twoSided ? 2 : 1, tracks: [], diskFormat,
     protection: '', c64: disk,
   };
 }
@@ -433,10 +553,9 @@ export function isC64DiskImage(media: unknown): media is C64DiskImage {
 
 // ── Snapshot state ──────────────────────────────────────────────────────────
 
-export function writeC64Disk(w: StateSink, disk: C64Disk): void {
-  w.str(disk.source);
-  w.u8(disk.d64Tracks);
-  for (const t of disk.tracks) {
+function writeSide(w: StateSink, tracks: readonly (C64Track | null)[]): void {
+  for (let h = 0; h < C64_HALF_TRACKS; h++) {
+    const t = tracks[h] ?? null;
     w.bool(t !== null);
     if (!t) continue;
     w.u32(t.length);
@@ -445,10 +564,7 @@ export function writeC64Disk(w: StateSink, disk: C64Disk): void {
   }
 }
 
-export function readC64Disk(r: StateSource): C64Disk {
-  const source = r.str();
-  if (source !== 'd64' && source !== 'g64') throw new Error('Snapshot is corrupt (C64 disk format)');
-  const d64Tracks = r.u8();
+function readSide(r: StateSource): (C64Track | null)[] {
   const tracks: (C64Track | null)[] = [];
   for (let h = 0; h < C64_HALF_TRACKS; h++) {
     if (!r.bool()) { tracks.push(null); continue; }
@@ -458,5 +574,24 @@ export function readC64Disk(r: StateSource): C64Disk {
     if (length > bits.length * 8) throw new Error('Snapshot is corrupt (C64 disk track)');
     tracks.push({ bits, length, zone });
   }
-  return { tracks, source, d64Tracks };
+  return tracks;
+}
+
+/** A disk with a second side is written with `+1` after its format, and the
+ *  second side's tracks after the first's; older snapshots have neither. */
+export function writeC64Disk(w: StateSink, disk: C64Disk): void {
+  w.str(disk.tracks1 ? `${disk.source}+1` : disk.source);
+  w.u8(disk.d64Tracks);
+  writeSide(w, disk.tracks);
+  if (disk.tracks1) writeSide(w, disk.tracks1);
+}
+
+export function readC64Disk(r: StateSource): C64Disk {
+  const named = r.str();
+  const twoSided = named.endsWith('+1');
+  const source = twoSided ? named.slice(0, -2) : named;
+  if (source !== 'd64' && source !== 'g64' && source !== 'd71') throw new Error('Snapshot is corrupt (C64 disk format)');
+  const d64Tracks = r.u8();
+  const tracks = readSide(r);
+  return twoSided ? { tracks, tracks1: readSide(r), source, d64Tracks } : { tracks, source, d64Tracks };
 }

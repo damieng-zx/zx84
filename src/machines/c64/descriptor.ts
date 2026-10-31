@@ -31,10 +31,11 @@ const C64_UI: MachineUiCapabilities = {
   requires: { builtinDisk: 'c64-drive' },
   builtinDrives: 4,
   builtinDriveLabels: ['Drive 8', 'Drive 9', 'Drive 10', 'Drive 11'],
-  // Up to four drives, devices 8 to 11, each a 1541 or a 1581: the Drives pane's
+  // Up to four drives, devices 8 to 11, each a 1541, a 1571 or a 1581: the Drives pane's
   // "..." menu adds and removes them and picks each one's model.
   driveModels: [
     { value: '1541', label: '1541', title: '5.25" GCR disks: .d64, .g64' },
+    { value: '1571', label: '1571', title: '5.25" double-sided GCR disks: .d71, and the 1541\'s .d64, .g64' },
     { value: '1581', label: '1581', title: '3.5" 800K disks: .d81' },
   ],
   defaultDriveModels: ['1541'],

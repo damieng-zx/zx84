@@ -174,7 +174,7 @@ function dumpDrive(m: C64Machine, index: number): string {
   const p = c.p;
   const flags = `${p & 0x80 ? 'N' : '-'}${p & 0x40 ? 'V' : '-'}-${p & 0x10 ? 'B' : '-'}${p & 8 ? 'D' : '-'}${p & 4 ? 'I' : '-'}${p & 2 ? 'Z' : '-'}${p & 1 ? 'C' : '-'}`;
   return [
-    `Drive   Commodore ${d.model} as device ${8 + index}  (${(d.clockHz / 1e6).toFixed(0)} MHz)`,
+    `Drive   Commodore ${d.model} as device ${8 + index}  (${((d.cpuHz ?? d.clockHz) / 1e6).toFixed(0)} MHz)`,
     `CPU     PC ${hx(c.pc, 4)}  A ${hx(c.a)}  X ${hx(c.x)}  Y ${hx(c.y)}  SP ${hx(c.sp)}  P ${hx(p)} ${flags}`,
     `ROM     ${d.hasRom ? 'DOS ROM loaded' : 'NO DOS ROM'}`,
     `Disk    ${d.loaded ? `${d.mediaName || 'disk'}${d.writeProtected ? ' (write protected)' : ''}${d.dirty ? ' (modified)' : ''}` : 'none'}`,
@@ -196,7 +196,7 @@ export function c64Chips(m: C64Machine): readonly ChipSection[] {
   // The first drive is "drive"; the others are named by their device number.
   m.drives.forEach((_, i) => chips.push({
     name: i === 0 ? 'drive' : `drive${8 + i}`,
-    description: `The disk drive at device ${8 + i}: its 6502, head, motor and LED, and its own chips (a 1541 has two 6522 VIAs; a 1581 a 6526 and a WD1770)`,
+    description: `The disk drive at device ${8 + i}: its 6502, head, motor and LED, and its own chips (a 1541 has two 6522 VIAs; a 1571 adds a 6526 and a WD1770, a second head and a 2 MHz mode; a 1581 has a 6526 and a WD1770)`,
     dump: () => dumpDrive(m, i),
   }));
   return chips;

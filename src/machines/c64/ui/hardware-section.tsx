@@ -5,7 +5,7 @@
  * Unplugging it leaves the bus empty, as a 64 with no drive is: LOAD ,8 then
  * gets no answer. The machine is rebuilt so the Drives pane and the ROM pane
  * follow the change, and a disk in the drive is carried across. Which drive
- * it is, a 1541 or a 1581, is the Drives pane's Model menu.
+ * it is, a 1541, 1571 or 1581, is the Drives pane's Model menu.
  */
 
 import { currentModel } from '@/state/machine-state.ts';
@@ -17,7 +17,7 @@ export function C64HardwareSection() {
     <div class="multiface-row">
       <label
         class="mf-check"
-        title="Plug a disk drive (device 8) into the serial bus: a 1541 or a 1581, chosen in the Drives pane"
+        title="Plug a disk drive (device 8) into the serial bus: a 1541, 1571 or 1581, chosen in the Drives pane"
       >
         <input
           type="checkbox"

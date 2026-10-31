@@ -264,11 +264,11 @@ export function register(server: McpServer): void {
   server.registerTool(
     'c64drive',
     {
-      description: 'Fit, remove, or inspect the Commodore disk drives on the serial bus of the 64: up to four, devices 8 to 11, each its own 6502 running the DOS ROM. A 1541 (the default; .d64/.g64 disks: 6522 pair, GCR heads) or a 1581 (.d81 3.5" disks: 6526 and WD1770). "on" with model fits one drive; with models (a list of one to four, device 8 first) it fits that set, and a drive already in its place with the same model keeps its disk. Mount disks with the load tool (drive "0"-"3" or "A"-"D" picks the device), LOAD"$",8 to list one, and read a drive with chip_state chip "drive" (device 8) or "drive9", "drive10", "drive11".',
+      description: 'Fit, remove, or inspect the Commodore disk drives on the serial bus of the 64: up to four, devices 8 to 11, each its own 6502 running the DOS ROM. A 1541 (the default; .d64/.g64 disks: 6522 pair, GCR heads), a 1571 (the same with two heads and a 2 MHz mode: .d71 as well) or a 1581 (.d81 3.5" disks: 6526 and WD1770). "on" with model fits one drive; with models (a list of one to four, device 8 first) it fits that set, and a drive already in its place with the same model keeps its disk. Mount disks with the load tool (drive "0"-"3" or "A"-"D" picks the device), LOAD"$",8 to list one, and read a drive with chip_state chip "drive" (device 8) or "drive9", "drive10", "drive11".',
       inputSchema: {
         action: z.enum(['on', 'off', 'status']).describe('Action to perform'),
-        model: z.enum(['1541', '1581']).optional().describe('One drive of this model for "on" (default: the one already set up, else 1541)'),
-        models: z.array(z.enum(['1541', '1581'])).min(1).max(4).optional().describe('The drives for "on", device 8 first'),
+        model: z.enum(['1541', '1571', '1581']).optional().describe('One drive of this model for "on" (default: the one already set up, else 1541)'),
+        models: z.array(z.enum(['1541', '1571', '1581'])).min(1).max(4).optional().describe('The drives for "on", device 8 first'),
       },
     },
     async ({ action, model, models }) => {
