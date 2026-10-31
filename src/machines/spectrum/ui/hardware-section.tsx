@@ -1,6 +1,6 @@
 /**
- * Spectrum-specific Hardware-pane options: the Multiface, VTX-5000 modem, MGT
- * +D, ZX Interface 1 and Beta Disk toggles. Contributed to the generic Hardware
+ * Spectrum-specific Hardware-pane options: the 16K/48K board issue, and the
+ * Multiface, VTX-5000 modem, MGT +D, ZX Interface 1 and Beta Disk toggles. Contributed to the generic Hardware
  * pane via the UI manifest (`src/ui/machine-ui.ts`).
  *
  * A machine `ui/` file — the only Spectrum files allowed to import solid-js and
@@ -18,13 +18,41 @@ import { activeSpectrum } from '@/machines/spectrum/ui/active.ts';
 import {
   loadMultifaceROM, loadVTX5000ROM, loadPlusDROM, loadInterface1ROM, loadBetaDiskROM, loadUspeechROMs, triggerNMI,
 } from '@/machines/spectrum/ui/hardware-actions.ts';
-import { isPlusDCapable, isInterface1Capable, isUspeechCapable, isBetaDiskCapable, hasBuiltinBetaDisk, type SpectrumModel } from '@/machines/spectrum/models.ts';
+import {
+  isPlusDCapable, isInterface1Capable, isUspeechCapable, isBetaDiskCapable, hasBuiltinBetaDisk, hasBoardIssueOption,
+  type SpectrumModel,
+} from '@/machines/spectrum/models.ts';
 import { variantForModel, variantLabel } from '@/machines/spectrum/peripherals/multiface.ts';
 import * as settings from '@/store/settings.ts';
 
 export function SpectrumHardwareSection() {
   return (
     <>
+      <Show when={hasBoardIssueOption(currentModel())}>
+        <div class="slider-row">
+          <span
+            class="slider-label"
+            title={'Which board the 16K/48K is built on. Port 0xFE bit 6 reads back the last OUT: '
+              + 'on an Issue 1/2 board it follows bits 3 (MIC) and 4 (EAR), on an Issue 3 bit 4 alone. '
+              + 'Some early games (Abu Simbel Profanation, Rasputin) only read the keyboard on Issue 2.'}
+          >
+            Board
+          </span>
+          <select
+            value={settings.spectrumIssue2() ? 'issue2' : 'issue3'}
+            onChange={(event) => {
+              const on = (event.target as HTMLSelectElement).value === 'issue2';
+              settings.setSpectrumIssue2(on);
+              settings.persistSetting('spectrum-issue2', on ? 'on' : 'off');
+              // A board fact read on every port-0xFE IN: no reset needed.
+              activeSpectrum()?.setBoardIssue2(on);
+            }}
+          >
+            <option value="issue2">Issue 1/2</option>
+            <option value="issue3">Issue 3</option>
+          </select>
+        </div>
+      </Show>
       <div class="multiface-row">
         <label
           class={`mf-check${multifaceRomFailed() ? ' rom-failed' : ''}`}

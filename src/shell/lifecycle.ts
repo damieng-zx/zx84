@@ -92,6 +92,11 @@ function buildMachineHost(): MachineHost {
       // Persistence currently stays in shell reflection (reflectSpectrumMount
       // and the pane helpers) so keys/behaviour are byte-identical.
     },
+    setFlagSetting(key, on) {
+      // The machine has already applied it; re-pushing the settings keeps every
+      // other reader of the key in step.
+      if (settings.setFlagSetting(key, on)) applyDisplaySettings();
+    },
     roms: {
       persistFull: (data, label) => persistROM(effectiveROMKey(currentModel(), currentLocale()), data, label),
       clearFull: () => romManager.clearROM(effectiveROMKey(currentModel(), currentLocale())),

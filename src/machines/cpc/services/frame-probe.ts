@@ -176,11 +176,6 @@ export class CpcFrameProbe implements FrameProbe {
       // LED never falls back to the motor colour, since isExecuting stays
       // true while the latch is up.
       c.fdc.tickFrame();
-      // Surface unimplemented SCAN commands (see upd765a.cmdUnsupportedScan).
-      if (c.fdc.unsupportedScan >= 0) {
-        out.scanUnsupported = c.fdc.unsupportedScan;
-        c.fdc.unsupportedScan = -1;
-      }
       // A completed FORMAT re-detects disk metadata via the bridge.
       if (c.fdc.formattedUnit >= 0) {
         out.formattedSlot = c.fdc.formattedUnit;

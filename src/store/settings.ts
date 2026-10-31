@@ -103,6 +103,7 @@ const DEFAULTS = {
   'multiface':      'off',
   'vtx5000':        'off',
   'specdrum':       'off',
+  'spectrum-issue2': 'off',
   'cpc-parados':    'off',
   'plusd':          'off',
   'interface1':     'off',
@@ -477,6 +478,9 @@ export const [zx81QuickSilvaHrg, setZx81QuickSilvaHrg] = signal(savedFlag('zx81-
 export const [aceRamPack, setAceRamPack] = signal(savedText('ace-ram-pack') as 'none' | '16k' | '48k');
 export const [vtx5000Enabled, setVtx5000Enabled] = signal(savedFlag('vtx5000'));
 export const [specdrumEnabled, setSpecdrumEnabled] = signal(savedFlag('specdrum'));
+/** 16K/48K board issue: on = Issue 1/2 (port 0xFE bit 6 follows OUT bits 3 and 4),
+ *  off = Issue 3 (bit 4 alone). */
+export const [spectrumIssue2, setSpectrumIssue2] = signal(savedFlag('spectrum-issue2'));
 export const [plusDEnabled, setPlusDEnabled] = signal(savedFlag('plusd'));
 export const [betaDiskEnabled, setBetaDiskEnabled] = signal(savedFlag('betadisk'));
 export const [interface1Enabled, setInterface1Enabled] = signal(savedFlag('interface1'));
@@ -587,6 +591,7 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'multiface',      set: setMultifaceEnabled, type: 'bool' },
     { key: 'vtx5000',        set: setVtx5000Enabled,   type: 'bool' },
     { key: 'specdrum',       set: setSpecdrumEnabled,  type: 'bool' },
+    { key: 'spectrum-issue2', set: setSpectrumIssue2,  type: 'bool' },
     { key: 'cpc-parados',    set: setCpcParados,        type: 'bool' },
     { key: 'plusd',          set: setPlusDEnabled,     type: 'bool' },
     { key: 'betadisk',       set: setBetaDiskEnabled,  type: 'bool' },
@@ -626,6 +631,23 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'font', set: setFontName, type: 'string' },
   ],
 };
+
+/**
+ * Set and persist a boolean setting by its key, for a change that starts in a
+ * machine rather than a pane (a snapshot that records a board option). Returns
+ * false, changing nothing, for a key that is not a known boolean setting.
+ */
+export function setFlagSetting(key: string, on: boolean): boolean {
+  for (const defs of Object.values(PANE_SETTINGS)) {
+    for (const d of defs) {
+      if (d.key !== key || d.type !== 'bool') continue;
+      d.set(on);
+      persistSetting(key, on ? 'on' : 'off');
+      return true;
+    }
+  }
+  return false;
+}
 
 /** Reset all settings for a named group back to defaults. */
 export function resetSettingsGroup(group: string): void {

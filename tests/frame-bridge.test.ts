@@ -566,7 +566,6 @@ function makeFdcMock(opts: {
     dirty = false } = opts;
   return {
     motorOn, isExecuting, isWriting, currentUnit, currentTrack, currentSector, formattedUnit,
-    unsupportedScan: -1,
     tickFrame: vi.fn(),
     getUnitTrack: vi.fn((_u: number) => currentTrack),
     getDiskImage: vi.fn((_u: number) => null as any),

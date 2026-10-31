@@ -36,6 +36,8 @@ export interface Z80Result {
    *  flag (byte 37 bit 7: 48K→16K, 128K→+2, +3→+2A). Null for hardware this
    *  emulator has no model for (SamRam, Pentagon, Scorpion, Timex, ...). */
   sourceModel?: SpectrumModel | null;
+  /** Byte 29 bit 2, "Issue 2 emulation". Reported for 48K-class snapshots only. */
+  issue2?: boolean;
 }
 
 // ── Header parsing helpers ─────────────────────────────────────────────────
@@ -262,6 +264,7 @@ export function loadZ80(
   cpu.iff2 = data[28] !== 0;
 
   cpu.im = data[29] & 0x03;
+  const issue2 = (data[29] & 0x04) !== 0;
 
   // ── Version 1: 48K only ────────────────────────────────────────────────
 
@@ -276,7 +279,7 @@ export function loadZ80(
     }
 
     memory.load48KRAM(ram);
-    return { is128K: false, port7FFD: 0, borderColor };
+    return { is128K: false, port7FFD: 0, borderColor, issue2 };
   }
 
   // ── Version 2/3: paged blocks ──────────────────────────────────────────
@@ -404,7 +407,7 @@ export function loadZ80(
     }
 
     memory.load48KRAM(ram);
-    return { is128K: false, port7FFD: 0, borderColor, ayRegs, ayCurrentReg, frameTStates, sourceModel };
+    return { is128K: false, port7FFD: 0, borderColor, ayRegs, ayCurrentReg, frameTStates, sourceModel, issue2 };
   }
 }
 
@@ -494,6 +497,8 @@ export function saveZ80(
   /** Emulated model, for the hardware mode byte. When omitted the mode is
    *  inferred from the memory layout (4 ROMs → +3, banked → 128K, else 48K). */
   model?: SpectrumModel,
+  /** Issue 2 keyboard emulation (byte 29 bit 2); written for 48K-class only. */
+  issue2 = false,
 ): Uint8Array {
   // ── 30-byte common header ──────────────────────────────────────────────
 
@@ -533,7 +538,7 @@ export function saveZ80(
 
   header[27] = cpu.iff1 ? 1 : 0;
   header[28] = cpu.iff2 ? 1 : 0;
-  header[29] = cpu.im & 0x03;
+  header[29] = (cpu.im & 0x03) | (issue2 && !is128K ? 0x04 : 0);
 
   // ── v3 extended header: 54 bytes, or 55 when +2A/+3 special paging (port
   // 0x1FFD) needs to be saved — that byte only exists in the longer variant.

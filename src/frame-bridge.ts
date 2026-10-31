@@ -11,7 +11,7 @@
  *     pause, disassembly refresh, font preview).
  *
  * `probe.sample()` is a pure, allocation-free read; device bookkeeping that
- * must run once per UI frame (FDC frame ticks, format/SCAN event latches,
+ * must run once per UI frame (FDC frame ticks, format event latches,
  * tape auto-rewind) happens in `probe.frameTick()`, called at the throttled
  * signal-batch cadence — the same cadence the old per-machine bodies ran at.
  */
@@ -116,7 +116,6 @@ export function updateRegsOnce(): void {
     // Device bookkeeping + drive telemetry (paused/stepping refresh).
     if (probe) {
       ind.formattedSlot = -1;
-      ind.scanUnsupported = -1;
       probe.frameTick?.(ind);
       probe.sample(ind);
       applyDriveSignals();
@@ -125,12 +124,9 @@ export function updateRegsOnce(): void {
   });
 }
 
-/** Post-format metadata refresh + unsupported-SCAN surfacing (one-shot events
- *  consumed by frameTick into the indicators). */
+/** Post-format metadata refresh (a one-shot event consumed by frameTick into
+ *  the indicators). */
 function handleDriveEvents(probe: FrameProbe): void {
-  if (ind.scanUnsupported >= 0) {
-    setStatus(`Unsupported 765A FDC SCAN command (0x${ind.scanUnsupported.toString(16).toUpperCase().padStart(2, '0')}) — rejected`);
-  }
   if (ind.formattedSlot >= 0 && probe.diskImageForSlot) {
     const image = probe.diskImageForSlot(ind.formattedSlot);
     if (image) {
@@ -449,7 +445,6 @@ export function onFrame(): void {
     // latches, tape auto-rewind), then re-sample so the signals below see the
     // post-tick state.
     ind.formattedSlot = -1;
-    ind.scanUnsupported = -1;
     probe.frameTick?.(ind);
     probe.sample(ind);
 

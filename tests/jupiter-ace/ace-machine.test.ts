@@ -171,7 +171,7 @@ describe('JupiterAceMachine — frame probe', () => {
       driveTrack: new Int16Array(4),
       driveSector: new Int16Array(4).fill(0),
       driveDirty: new Uint8Array(4),
-      formattedSlot: 0, scanUnsupported: 0,
+      formattedSlot: 0,
       mdvMotorMask: -1, mdvCount: -1, mdvSector: new Int16Array(8),
       floppySlot: 0, floppyMotor: true, floppyTrack: 0, floppyProfile: 0,
     };

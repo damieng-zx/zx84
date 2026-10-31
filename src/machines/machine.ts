@@ -562,6 +562,10 @@ export interface MachineHost {
   /** Persist (data) or clear (null) a piece of mounted media under a
    *  machine-chosen key, so a reload can restore it. */
   persistMedia(kind: string, data: Uint8Array | null, name: string): void;
+  /** Record a boolean hardware option the machine itself changed (a snapshot
+   *  that carries the board revision), so the panes and the next session agree
+   *  with the running machine. Absent headless. */
+  setFlagSetting?(key: string, on: boolean): void;
   /** The operator's EPROM box: persistence + rebuild ops backing RomService.
    *  Provided by the shell (rom-manager + model switch); absent headless. */
   roms?: RomHostOps;
@@ -1132,8 +1136,6 @@ export interface FrameIndicators {
   driveDirty: Uint8Array;
   /** Slot (0..3) whose media a FORMAT just rewrote this tick, -1 = none. */
   formattedSlot: number;
-  /** uPD765A SCAN opcode rejected this tick, -1 = none. */
-  scanUnsupported: number;
 
   /* Microdrive motor states, one bit per drive. mdvCount = 0 when no IF1. */
   mdvMotorMask: number;
@@ -1162,7 +1164,7 @@ export function createFrameIndicators(): FrameIndicators {
     driveTrack: new Int16Array(4),
     driveSector: new Int16Array([-1, -1, -1, -1]),
     driveDirty: new Uint8Array(4),
-    formattedSlot: -1, scanUnsupported: -1,
+    formattedSlot: -1,
     mdvMotorMask: 0, mdvCount: 0, mdvSector: new Int16Array(8).fill(-1),
     floppySlot: -1, floppyMotor: false, floppyTrack: 0, floppyProfile: -1,
   };
@@ -1215,7 +1217,7 @@ export interface FrameProbe {
    *  no allocation, no machine mutation. Called every rAF. */
   sample(out: FrameIndicators): void;
   /** Once-per-UI-frame device bookkeeping: FDC frame ticks, one-shot event
-   *  consumption (format/scan latches → out.formattedSlot/scanUnsupported),
+   *  consumption (format latch → out.formattedSlot),
    *  tape auto-rewind. Runs at the bridge's signal-batch cadence (throttled
    *  under turbo), exactly like the pre-probe per-machine bodies. */
   frameTick?(out: FrameIndicators): void;
