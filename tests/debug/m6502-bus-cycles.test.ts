@@ -70,4 +70,37 @@ describe('baseCycles and accessTime', () => {
     expect(accessTime(1000, 0xEE, 0x0300, 0x2000, true, false)).toBe(1005);
     expect(accessTime(1000, -1, 0x0300, 0x2000, true, false)).toBe(1000);
   });
+
+  it('puts an indexed load that crosses a page a cycle later, and nothing else', () => {
+    // LDA abs,X is 4 cycles, 5 when the index carries into the high byte; the
+    // read is on the last. A store is 5 either way, and so is INC abs,X's 7.
+    expect(accessTime(1000, 0xBD, 0x0300, 0xC100, false, false, false)).toBe(1003);
+    expect(accessTime(1000, 0xBD, 0x0300, 0xC100, false, false, true)).toBe(1004);
+    expect(accessTime(1000, 0xB1, 0x0300, 0xC100, false, false, true)).toBe(1005);   // LDA (zp),Y: 5, 6 across
+    expect(accessTime(1000, 0x9D, 0x0300, 0xC100, true, false, true)).toBe(1004);    // STA abs,X
+    expect(accessTime(1000, 0xFE, 0x0300, 0xC100, false, false, true)).toBe(1004);   // INC abs,X reads on cycle 5
+    // The 65C02's ASL abs,X is 6 cycles, 7 across a page; it reads two before the end.
+    expect(accessTime(1000, 0x1E, 0x0300, 0xC100, false, true, false)).toBe(1003);
+    expect(accessTime(1000, 0x1E, 0x0300, 0xC100, false, true, true)).toBe(1004);
+    expect(accessTime(1000, 0x1E, 0x0300, 0xC100, true, true, true)).toBe(1006);
+  });
+
+  it('knows the Rockwell part: RMB zp is 5 cycles, 3 bytes for BBR', () => {
+    expect(baseCycles(0x37, 'r65c02')).toBe(5);
+    expect(baseCycles(0x37, true)).toBe(1);                // a one-cycle NOP on the base part
+    // RMB3 $20 reads the byte on cycle 3 and writes it on 5.
+    expect(accessTime(1000, 0x37, 0x0300, 0x0020, false, 'r65c02')).toBe(1002);
+    expect(accessTime(1000, 0x37, 0x0300, 0x0020, true, 'r65c02')).toBe(1004);
+    // BBR0 $20,rel: the opcode, the zero-page address and the offset are 3 bytes.
+    expect(accessTime(1000, 0x0F, 0x0300, 0x0302, false, 'r65c02')).toBe(1002);
+    // SMB3 ($B7) is an RMW too, though $B7 is LAX on the NMOS part.
+    expect(accessTime(1000, 0xB7, 0x0300, 0x0020, false, 'r65c02')).toBe(1002);
+    expect(accessTime(1000, 0xB7, 0x0300, 0x0020, false, false)).toBe(1003);
+  });
+
+  it('reads TSB and TRB two cycles before their end on a 65C02 (they are NOPs on the NMOS part)', () => {
+    expect(accessTime(1000, 0x0C, 0x0300, 0xC050, false, true)).toBe(1003);    // TSB abs: 6 cycles, read on 4
+    expect(accessTime(1000, 0x0C, 0x0300, 0xC050, true, true)).toBe(1005);
+    expect(accessTime(1000, 0x0C, 0x0300, 0xC050, false, false)).toBe(1003);   // NOP abs: 4 cycles, reads on 4
+  });
 });

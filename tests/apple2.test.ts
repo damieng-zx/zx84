@@ -87,6 +87,7 @@ describe('apple2-plus memory map', () => {
       m.memory.loadSlotRom(6, Uint8Array.from({ length: 256 }, (_, i) => i));
       expect(m.memory.readByte(0xC600)).toBe(0x00);
       expect(m.memory.readByte(0xC601)).toBe(0x01);
+      m.memory.ram.fill(0xFF);                        // the video byte an empty slot floats to
       expect(m.memory.readByte(0xC700)).toBe(0xFF);   // empty slot 7
 
       m.memory.loadRom(makeRom());
@@ -294,7 +295,8 @@ describe('apple2 hardware options', () => {
     try {
       expect(requests.map(r => r.cacheKey)).not.toContain('apple2-disk2-rom');
       expect(m.services.disks.drives).toEqual([]);
-      expect(m.memory.readByte(0xC0EC)).toBe(0xFF);          // an empty slot floats high
+      m.memory.ram.fill(0xFF);
+      expect(m.memory.readByte(0xC0EC)).toBe(0xFF);          // an empty slot floats to the video byte
       expect(m.disk2.motorOn).toBe(false);
     } finally { m.destroy(); }
   });
@@ -490,6 +492,7 @@ describe('apple2 Videx Videoterm', () => {
     const { m } = fitted();
     try {
       m.videx!.loadRom(new Uint8Array(0x400).map((_, i) => i & 0xFF));
+      m.memory.ram.fill(0xFF);                        // the floating bus
       expect(m.memory.readByte(0xC800)).toBe(0xFF);   // nothing owns $C800 yet
       expect(m.memory.readByte(0xC305)).toBe(0x05);   // the card's page
       expect(m.memory.readByte(0xC8F0)).toBe(0xF0);   // now selected: firmware ROM

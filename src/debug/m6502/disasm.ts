@@ -15,6 +15,7 @@
 
 import { hex8 as h8, hex16 as h16 } from '@/utils/hex.ts';
 import { signed8 } from '@/utils/signed.ts';
+import type { M65C02Part } from '@/cores/m65c02.ts';
 
 export interface DisasmLine {
   addr: number;
@@ -28,7 +29,9 @@ type Mode =
   | 'zp' | 'zpx' | 'zpy'
   | 'abs' | 'abx' | 'aby'
   | 'ind' | 'inx' | 'iny' | 'rel'
-  | 'izp' | 'iax';
+  | 'izp' | 'iax'
+  /** Zero-page bit test and relative branch (BBR/BBS): three bytes. */
+  | 'zprel';
 
 function val(s: string): string { return `\x01${s}\x01`; }
 function adr(s: string): string { return `\x02${s}\x02`; }
@@ -101,7 +104,7 @@ const OPS: readonly (readonly [string, Mode])[] = [
   ['NOP', 'abx'], ['SBC', 'abx'], ['INC', 'abx'], ['ISC', 'abx'],
 ];
 
-const TERMINAL = new Set(['JMP', 'RTS', 'RTI', 'BRK', 'BRA']);
+const TERMINAL = new Set(['JMP', 'RTS', 'RTI', 'BRK', 'BRA', 'STP']);
 
 type Op = readonly [string, Mode];
 
@@ -142,23 +145,52 @@ const CMOS_OPS: readonly Op[] = OPS.map((entry, op) => {
   return documented ? entry : cmosNop(op);
 });
 
+/** The Rockwell additions to the 65C02: RMB/SMB at `$x7`, BBR/BBS at `$xF`
+ *  (bit n in bits 4-6 of the opcode, bit 7 selecting SMB/BBS). */
+const ROCKWELL_OPS: readonly Op[] = CMOS_OPS.map((entry, op) => {
+  const bit = (op >> 4) & 7;
+  if ((op & 0x0F) === 0x7) return [`${op & 0x80 ? 'SMB' : 'RMB'}${bit}`, 'zp'] as Op;
+  if ((op & 0x0F) === 0xF) return [`${op & 0x80 ? 'BBS' : 'BBR'}${bit}`, 'zprel'] as Op;
+  return entry;
+});
+
+/** The WDC part adds WAI and STP to the Rockwell set. */
+const WDC_OPS: readonly Op[] = ROCKWELL_OPS.map((entry, op) =>
+  op === 0xCB ? ['WAI', 'imp'] as Op : op === 0xDB ? ['STP', 'imp'] as Op : entry);
+
+/** Which opcode set to use: the NMOS 6502's (`false`), the base 65C02's
+ *  (`true` or `'g65sc02'`), or a Rockwell (`'r65c02'`) or WDC (`'w65c02s'`) part's. */
+export type M6502Isa = boolean | M65C02Part;
+
+function table(isa: M6502Isa): readonly Op[] {
+  if (isa === false) return OPS;
+  if (isa === 'r65c02') return ROCKWELL_OPS;
+  if (isa === 'w65c02s') return WDC_OPS;
+  return CMOS_OPS;
+}
+
+/** The opcode set of a CPU core: the NMOS table, or its 65C02 part's. */
+export function isaOf(cpu: { readonly cmos: boolean; readonly part?: M65C02Part }): M6502Isa {
+  return cpu.cmos ? (cpu.part ?? true) : false;
+}
+
 /** An addressing mode, as the disassembler names it. */
 export type M6502Mode = Mode;
 
 /** The mnemonic and addressing mode of an opcode: the NMOS table, or the
  *  65C02's with `cmos`. */
-export function opcodeInfo(op: number, cmos = false): readonly [string, M6502Mode] {
-  return (cmos ? CMOS_OPS : OPS)[op & 0xFF];
+export function opcodeInfo(op: number, cmos: M6502Isa = false): readonly [string, M6502Mode] {
+  return table(cmos)[op & 0xFF];
 }
 
-export function disasmOne(mem: Uint8Array, addr: number, cmos = false): DisasmLine {
+export function disasmOne(mem: Uint8Array, addr: number, cmos: M6502Isa = false): DisasmLine {
   const start = addr & 0xFFFF;
   let p = start;
   const rd = (): number => { const v = mem[p & 0xFFFF]; p = (p + 1) & 0xFFFF; return v; };
   const rd16 = (): number => { const lo = rd(); return lo | (rd() << 8); };
 
   const op = rd();
-  const [mnem, mode] = (cmos ? CMOS_OPS : OPS)[op];
+  const [mnem, mode] = table(cmos)[op];
   let text: string;
 
   switch (mode) {
@@ -176,6 +208,12 @@ export function disasmOne(mem: Uint8Array, addr: number, cmos = false): DisasmLi
     case 'iny': text = `${mnem} (${adr(h8(rd()))}),Y`; break;
     case 'izp': text = `${mnem} (${adr(h8(rd()))})`; break;
     case 'iax': text = `${mnem} (${adr(h16(rd16()))},X)`; break;
+    case 'zprel': {
+      const zp = rd();
+      const off = rd();
+      text = `${mnem} ${adr(h8(zp))},${adr(h16((p + signed8(off)) & 0xFFFF))}`;
+      break;
+    }
     case 'rel': {
       const off = rd();
       const target = (p + signed8(off)) & 0xFFFF;
@@ -193,7 +231,7 @@ export function disasmOne(mem: Uint8Array, addr: number, cmos = false): DisasmLi
   };
 }
 
-export function disassemble(mem: Uint8Array, startAddr: number, maxLines = 24, cmos = false): DisasmLine[] {
+export function disassemble(mem: Uint8Array, startAddr: number, maxLines = 24, cmos: M6502Isa = false): DisasmLine[] {
   const lines: DisasmLine[] = [];
   let addr = startAddr & 0xFFFF;
   for (let i = 0; i < maxLines; i++) {
@@ -207,7 +245,7 @@ export function disassemble(mem: Uint8Array, startAddr: number, maxLines = 24, c
 
 /** 6502 instructions are 1–3 bytes; step back up to 2 bytes to land on PC. */
 export function disassembleAroundPC(
-  mem: Uint8Array, pc: number, totalLines = 24, before = 6, cmos = false,
+  mem: Uint8Array, pc: number, totalLines = 24, before = 6, cmos: M6502Isa = false,
 ): DisasmLine[] {
   for (let offset = 1; offset <= 2; offset++) {
     const start = (pc - offset) & 0xFFFF;

@@ -25,7 +25,7 @@
 
 import { FLAG_C, FLAG_N, FLAG_V, FLAG_Z, type M6502 } from '@/cores/m6502.ts';
 import type { MachineTraceMode } from '@/machines/machine.ts';
-import { disasmOne, opcodeInfo, stripMarkers, type M6502Mode } from '@/debug/m6502/disasm.ts';
+import { disasmOne, isaOf, opcodeInfo, stripMarkers, type M6502Mode } from '@/debug/m6502/disasm.ts';
 import { TraceEngine, formatIoSummary, tallyAccess, type IoTally } from '@/debug/trace.ts';
 import { hex8, hex16 } from '@/utils/hex.ts';
 
@@ -56,7 +56,7 @@ const M6502_MODES: readonly MachineTraceMode[] = ['full', 'portio'];
 /** Instruction length by addressing mode. */
 const MODE_LENGTH: Readonly<Record<M6502Mode, number>> = {
   imp: 1, acc: 1, imm: 2, zp: 2, zpx: 2, zpy: 2, inx: 2, iny: 2, izp: 2, rel: 2,
-  abs: 3, abx: 3, aby: 3, ind: 3, iax: 3,
+  abs: 3, abx: 3, aby: 3, ind: 3, iax: 3, zprel: 3,
 };
 
 function inWindows(windows: readonly IoWindow[], addr: number): boolean {
@@ -134,12 +134,12 @@ export class M6502Trace extends TraceEngine {
     if (this.fold(pc, hash)) return;
     // Only the instruction's own bytes are read (the CPU fetches those anyway).
     const op = this.peek(pc) & 0xFF;
-    const [mnem, mode] = opcodeInfo(op, cpu.cmos);
+    const [mnem, mode] = opcodeInfo(op, isaOf(cpu));
     const length = MODE_LENGTH[mode];
     const buf = this.scratch;
     buf[pc] = op;
     for (let i = 1; i < length; i++) buf[(pc + i) & 0xFFFF] = this.peek(pc + i) & 0xFF;
-    const dl = disasmOne(buf, pc, cpu.cmos);
+    const dl = disasmOne(buf, pc, isaOf(cpu));
     const b1 = buf[(pc + 1) & 0xFFFF];
     const w = length === 3 ? b1 | (buf[(pc + 2) & 0xFFFF] << 8) : b1;
     this.push(this.line(pc, stripMarkers(dl.text), this.operandContext(mnem, mode, b1, w)));

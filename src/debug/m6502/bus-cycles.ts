@@ -28,7 +28,7 @@
 
 import { M6502 } from '@/cores/m6502.ts';
 import { M65C02 } from '@/cores/m65c02.ts';
-import { disasmOne } from './disasm.ts';
+import { disasmOne, type M6502Isa } from './disasm.ts';
 
 /** Instruction length by opcode, built from the disassembler's table. */
 const LENGTH = new Uint8Array(256);
@@ -38,6 +38,24 @@ const LENGTH = new Uint8Array(256);
     buf[0] = op;
     LENGTH[op] = disasmOne(buf, 0).length;
   }
+}
+
+/** Instruction lengths of the 65C02 parts, built lazily the same way. */
+const cmosLength: Partial<Record<string, Uint8Array>> = {};
+function lengths(isa: M6502Isa): Uint8Array {
+  if (isa === false) return LENGTH;
+  const key = isa === true ? 'g65sc02' : isa;
+  let table = cmosLength[key];
+  if (!table) {
+    table = new Uint8Array(256);
+    const buf = new Uint8Array(3);
+    for (let op = 0; op < 256; op++) {
+      buf[0] = op;
+      table[op] = disasmOne(buf, 0, isa).length;
+    }
+    cmosLength[key] = table;
+  }
+  return table;
 }
 
 /** Read-modify-write opcodes: ASL LSR ROL ROR INC DEC on memory, and the
@@ -68,26 +86,31 @@ export function isReadModifyWrite(opcode: number): boolean {
  * The cycle (1 = the first) of an instruction of `cycles` cycles, starting at
  * `pc` with this `opcode`, on which an access to `addr` falls.
  */
-export function accessCycle(opcode: number, pc: number, addr: number, write: boolean, cycles: number): number {
+export function accessCycle(
+  opcode: number, pc: number, addr: number, write: boolean, cycles: number, length?: number,
+  rmw?: number,
+): number {
   if (write) return cycles;
   // The opcode and operand bytes are read in order from the instruction's own address.
   const offset = (addr - pc) & 0xFFFF;
-  if (offset < LENGTH[opcode & 0xFF]) return offset + 1;
-  if (RMW[opcode & 0xFF] === 1 && cycles >= 3) return cycles - 2;
+  if (offset < (length ?? LENGTH[opcode & 0xFF])) return offset + 1;
+  if ((rmw ?? RMW[opcode & 0xFF]) === 1 && cycles >= 3) return cycles - 2;
   return cycles;
 }
 
-/** Base cycles per opcode, measured on a scratch core: operands of zero, index
- *  registers of zero (so no page is crossed) and flags clear. A branch is
- *  counted as taken; it makes no data access, so that does not matter here. */
-function measureCycles(cpu: M6502): Uint8Array {
+/** Cycles per opcode, measured on a scratch core with every operand byte
+ *  `operand` and both index registers `index`, flags clear (I set, D clear: no
+ *  interrupt, no decimal extra). A branch is counted as taken; it makes no data
+ *  access, so that does not matter here. */
+function measureCycles(cpu: M6502, operand: number, index: number): Uint8Array {
   const table = new Uint8Array(256);
   for (let op = 0; op < 256; op++) {
     cpu.reset();
     cpu.pc = 0x0200;
-    cpu.a = cpu.x = cpu.y = 0;
-    cpu.p = 0x24;              // I set, D clear: no interrupt, no decimal extra
-    cpu.read = (addr) => (addr === 0x0200 ? op : 0);
+    cpu.a = 0;
+    cpu.x = cpu.y = index;
+    cpu.p = 0x24;
+    cpu.read = (addr) => (addr === 0x0200 ? op : operand);
     cpu.write = () => {};
     const before = cpu.tStates;
     cpu.step();
@@ -96,13 +119,58 @@ function measureCycles(cpu: M6502): Uint8Array {
   return table;
 }
 
-let nmosCycles: Uint8Array | null = null;
-let cmosCycles: Uint8Array | null = null;
+/** Base cycles (operands and index registers of zero, so no page is crossed),
+ *  and which opcodes pay a cycle for an indexed address crossing a page: the
+ *  difference between operand bytes of `$80` with the index registers at `$FF`
+ *  (so `$8080 + $FF` carries into the high byte) and at zero. */
+function measurePair(make: () => M6502): { cycles: Uint8Array; crossing: Uint8Array } {
+  const cycles = measureCycles(make(), 0, 0);
+  const near = measureCycles(make(), 0x80, 0);
+  const far = measureCycles(make(), 0x80, 0xFF);
+  const crossing = new Uint8Array(256);
+  for (let op = 0; op < 256; op++) crossing[op] = far[op] - near[op] === 1 ? 1 : 0;
+  return { cycles, crossing };
+}
 
-/** The base number of cycles of an instruction, on an NMOS 6502 or a 65C02. */
-export function baseCycles(opcode: number, cmos: boolean): number {
-  if (cmos) return (cmosCycles ??= measureCycles(new M65C02()))[opcode & 0xFF];
-  return (nmosCycles ??= measureCycles(new M6502()))[opcode & 0xFF];
+interface CoreTables { cycles: Uint8Array; crossing: Uint8Array; length: Uint8Array; rmw: Uint8Array }
+
+/** Which opcodes read, modify and write memory on a part: the NMOS table's, or
+ *  on a 65C02 (whose undocumented opcodes are NOPs) TSB and TRB, and the
+ *  Rockwell part's RMB and SMB. */
+function rmwFor(isa: M6502Isa): Uint8Array {
+  if (isa === false) return RMW;
+  const t = new Uint8Array(256);
+  for (const op of [0x06, 0x0E, 0x16, 0x1E, 0x46, 0x4E, 0x56, 0x5E, 0x26, 0x2E, 0x36, 0x3E,
+    0x66, 0x6E, 0x76, 0x7E, 0xC6, 0xCE, 0xD6, 0xDE, 0xE6, 0xEE, 0xF6, 0xFE,
+    0x04, 0x0C, 0x14, 0x1C]) t[op] = 1;               // shifts, INC/DEC on memory, TSB, TRB
+  if (isa === 'r65c02' || isa === 'w65c02s') for (let hi = 0; hi < 16; hi++) t[(hi << 4) | 0x7] = 1;   // RMB, SMB
+  return t;
+}
+const tablesFor: Partial<Record<string, CoreTables>> = {};
+
+/** The last core asked about: a machine asks about one, access after access. */
+let lastIsa: M6502Isa | undefined;
+let lastTables: CoreTables | undefined;
+
+function tables(isa: M6502Isa): CoreTables {
+  if (isa === lastIsa && lastTables) return lastTables;
+  const key = isa === false ? 'nmos' : isa === true ? 'g65sc02' : isa;
+  let t = tablesFor[key];
+  if (!t) {
+    const part = isa === true || isa === false ? 'g65sc02' : isa;
+    const { cycles, crossing } = measurePair(isa === false ? () => new M6502() : () => new M65C02(part));
+    t = { cycles, crossing, length: lengths(isa), rmw: rmwFor(isa) };
+    tablesFor[key] = t;
+  }
+  lastIsa = isa;
+  lastTables = t;
+  return t;
+}
+
+/** The base number of cycles of an instruction, on an NMOS 6502 or a 65C02
+ *  (a `true` is the base CMOS part; a Rockwell or WDC part is named). */
+export function baseCycles(opcode: number, cmos: M6502Isa): number {
+  return tables(cmos).cycles[opcode & 0xFF];
 }
 
 /**
@@ -111,11 +179,16 @@ export function baseCycles(opcode: number, cmos: boolean): number {
  * still is inside the callback), `opcode` the instruction at `pc`. A machine
  * that draws its picture as the beam goes uses it to catch the picture up to
  * the exact moment a write changes what is drawn. An opcode of -1 (not known)
- * gives `start`.
+ * gives `start`. `pageCrossed`: the instruction's indexed address crossed a
+ * page, which costs the instructions that pay for it a cycle before the access.
  */
 export function accessTime(
-  start: number, opcode: number, pc: number, addr: number, write: boolean, cmos: boolean,
+  start: number, opcode: number, pc: number, addr: number, write: boolean, cmos: M6502Isa,
+  pageCrossed = false,
 ): number {
   if (opcode < 0) return start;
-  return start + accessCycle(opcode, pc, addr, write, baseCycles(opcode, cmos)) - 1;
+  const t = tables(cmos);
+  const op = opcode & 0xFF;
+  const cycles = t.cycles[op] + (pageCrossed && t.crossing[op] === 1 ? 1 : 0);
+  return start + accessCycle(opcode, pc, addr, write, cycles, t.length[op], t.rmw[op]) - 1;
 }

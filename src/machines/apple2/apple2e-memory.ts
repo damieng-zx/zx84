@@ -48,8 +48,11 @@ export class Apple2eMemory extends Apple2Memory {
   page2 = false;
   hires = false;
 
-  private mainRead(addr: number, aux: boolean): number {
-    if (aux) return this.auxFitted ? this.aux[addr] : 0xFF;
+  /** A byte of main or auxiliary RAM. Without the auxiliary card nothing
+   *  answers for it, so a live read gets the floating bus (`live` false is a
+   *  side-effect-free peek, which reads high). */
+  private mainRead(addr: number, aux: boolean, live = true): number {
+    if (aux) return this.auxFitted ? this.aux[addr] : live ? this.floatingBus(addr) : 0xFF;
     return this.ram[addr];
   }
 
@@ -100,7 +103,7 @@ export class Apple2eMemory extends Apple2Memory {
     if (addr < 0xD000) return this.cxRead(addr, true);
     if (this.lcRead) {
       const bank = this.lcBank();
-      return bank ? bank[this.lcIndex(addr)] : 0xFF;
+      return bank ? bank[this.lcIndex(addr)] : this.floatingBus(addr);
     }
     return this.rom[addr - 0xD000];
   }
@@ -131,8 +134,8 @@ export class Apple2eMemory extends Apple2Memory {
 
   /** What a read would return, with no side effects (the $C0xx window as 0). */
   private peek(addr: number): number {
-    if (addr < 0x0200) return this.mainRead(addr, this.altzp);
-    if (addr < 0xC000) return this.mainRead(addr, this.usesAux(addr, true));
+    if (addr < 0x0200) return this.mainRead(addr, this.altzp, false);
+    if (addr < 0xC000) return this.mainRead(addr, this.usesAux(addr, true), false);
     if (addr < 0xC100) return 0;
     if (addr < 0xD000) return this.cxRead(addr, false);
     if (this.lcRead) {

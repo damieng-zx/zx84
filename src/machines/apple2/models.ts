@@ -18,6 +18,8 @@
  * set; a language card adds the other 16K.
  */
 
+import type { M65C02Part } from '@/cores/m65c02.ts';
+
 export type Apple2Model = 'apple2' | 'apple2-plus' | 'apple2e' | 'apple2e-enhanced' | 'apple2c';
 
 export function isApple2Model(model: string): model is Apple2Model {
@@ -36,6 +38,9 @@ export interface Apple2ModelInfo {
   readonly iie: boolean;
   /** The CPU is a CMOS 65C02 rather than an NMOS 6502. */
   readonly cmos: boolean;
+  /** Which 65C02 it is (see `M65C02Part`), on the CMOS models. The Enhanced //e
+   *  has the base CMOS set; the //c's Rockwell R65C02 adds RMB/SMB/BBR/BBS. */
+  readonly cpuPart: M65C02Part | null;
   /** An Apple //c: no slots (the ROM at $C100-$CFFF is always the internal one),
    *  128K and the disk controller built in. */
   readonly iic: boolean;
@@ -52,6 +57,7 @@ const MODEL_INFO: Record<Apple2Model, Apple2ModelInfo> = {
     charsetSource: 'apple2/chargen.rom',
     iie: false,
     cmos: false,
+    cpuPart: null,
     iic: false,
     autostart: false,
     romLabel: 'System ROM (Integer BASIC + Monitor)',
@@ -62,6 +68,7 @@ const MODEL_INFO: Record<Apple2Model, Apple2ModelInfo> = {
     charsetSource: 'apple2/chargen.rom',
     iie: false,
     cmos: false,
+    cpuPart: null,
     iic: false,
     autostart: true,
     romLabel: 'System ROM (Applesoft + Autostart Monitor)',
@@ -72,6 +79,7 @@ const MODEL_INFO: Record<Apple2Model, Apple2ModelInfo> = {
     charsetSource: 'apple2/apple2e-video.rom',
     iie: true,
     cmos: false,
+    cpuPart: null,
     iic: false,
     autostart: true,
     romLabel: 'System ROM (//e Monitor + Applesoft + 80-column firmware)',
@@ -82,6 +90,7 @@ const MODEL_INFO: Record<Apple2Model, Apple2ModelInfo> = {
     charsetSource: 'apple2/apple2e-enhanced-video.rom',
     iie: true,
     cmos: true,
+    cpuPart: 'g65sc02',
     iic: false,
     autostart: true,
     romLabel: 'System ROM (Enhanced //e Monitor + Applesoft + 80-column firmware)',
@@ -92,6 +101,7 @@ const MODEL_INFO: Record<Apple2Model, Apple2ModelInfo> = {
     charsetSource: 'apple2/apple2e-enhanced-video.rom',
     iie: true,
     cmos: true,
+    cpuPart: 'r65c02',
     iic: true,
     autostart: true,
     romLabel: 'System ROM (//c Monitor + Applesoft + 80-column and port firmware)',

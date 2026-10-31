@@ -9,7 +9,7 @@
  */
 
 import { M6502, FLAG_C, FLAG_D, FLAG_I, FLAG_N, FLAG_V, FLAG_Z } from '@/cores/m6502.ts';
-import { disasmOne, disassembleAroundPC, formatDisasmHtml, stripMarkers } from '@/debug/m6502/disasm.ts';
+import { disasmOne, disassembleAroundPC, formatDisasmHtml, isaOf, stripMarkers } from '@/debug/m6502/disasm.ts';
 import { hex8, hex16 } from '@/utils/hex.ts';
 import type { ChipSection } from '@/debug/chip-state.ts';
 import type {
@@ -111,7 +111,7 @@ export class M6502DebugService implements DebugService {
     const out: DisasmRow[] = [];
     let a = addr & 0xFFFF;
     for (let i = 0; i < lines; i++) {
-      const dl = disasmOne(snap, a, this.m.cpu.cmos);
+      const dl = disasmOne(snap, a, isaOf(this.m.cpu));
       const bytes = Array.from({ length: dl.length }, (_, j) => hex8(snap[(a + j) & 0xFFFF])).join(' ');
       out.push({
         addr: dl.addr, bytes, text: stripMarkers(dl.text),
@@ -125,7 +125,7 @@ export class M6502DebugService implements DebugService {
   disasmPaneHtml(lines: number): string {
     const snap = this.m.memory.snapshot();
     const pc = this.m.cpu.pc;
-    return formatDisasmHtml(disassembleAroundPC(snap, pc, lines, 6, this.m.cpu.cmos), snap, pc, this.m.breakpoints);
+    return formatDisasmHtml(disassembleAroundPC(snap, pc, lines, 6, isaOf(this.m.cpu)), snap, pc, this.m.breakpoints);
   }
 
   /** One instruction: through the machine's frame loop when it has one, so the
@@ -181,7 +181,7 @@ export class M6502DebugService implements DebugService {
     const snap = this.m.memory.snapshot();
     let addr = cpu.pc;
     for (let i = 0; i < 16; i++) {
-      const dl = disasmOne(snap, addr, cpu.cmos);
+      const dl = disasmOne(snap, addr, isaOf(cpu));
       const bytesStr = Array.from({ length: dl.length }, (_, j) => hex8(snap[(addr + j) & 0xFFFF]))
         .join(' ')
         .padEnd(11, ' ');
