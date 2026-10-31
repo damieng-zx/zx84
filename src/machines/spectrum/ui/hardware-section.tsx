@@ -17,9 +17,11 @@ import {
 import { activeSpectrum } from '@/machines/spectrum/ui/active.ts';
 import {
   loadMultifaceROM, loadVTX5000ROM, loadPlusDROM, loadInterface1ROM, loadBetaDiskROM, loadUspeechROMs, triggerNMI,
+  triggerScorpionMagic,
 } from '@/machines/spectrum/ui/hardware-actions.ts';
 import {
   isPlusDCapable, isInterface1Capable, isUspeechCapable, isBetaDiskCapable, hasBuiltinBetaDisk, hasBoardIssueOption,
+  isScorpionClass,
   type SpectrumModel,
 } from '@/machines/spectrum/models.ts';
 import { variantForModel, variantLabel } from '@/machines/spectrum/peripherals/multiface.ts';
@@ -86,6 +88,17 @@ export function SpectrumHardwareSection() {
           />
         </Show>
       </div>
+      <Show when={isScorpionClass(currentModel())}>
+        <div class="multiface-row">
+          <span title="The Scorpion's Magic button: an NMI into the shadow service monitor">Magic button</span>
+          <button
+            class="mf-trigger"
+            title="Press Magic (NMI into the service monitor)"
+            aria-label="Press the Scorpion Magic button"
+            onClick={triggerScorpionMagic}
+          />
+        </div>
+      </Show>
       <div class="multiface-row">
         <label
           class={`mf-check${vtx5000RomFailed() ? ' rom-failed' : ''}`}

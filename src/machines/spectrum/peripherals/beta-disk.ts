@@ -65,11 +65,16 @@ export class BetaDisk {
   portGate: (() => boolean) | null = null;
 
   readonly fdc = new WD179x({
-    statusBit7: 'not-ready',
+    // The Beta 128 ties the 1793's READY input to its own HLD output, not to
+    // the drive: status bit 7 reads READY whenever the head is loaded, with or
+    // without a disk. (TR-DOS spots an empty drive by the missing index pulse.)
+    statusBit7: 'head-load',
     formatSectorsPerTrack: 16,
     // TR-DOS can issue a command word of 0xFF (WRITE TRACK) without ever
     // servicing DRQ and relies on the chip's LOST DATA termination to finish it.
     lostDataPolls: 8,
+    // READ ADDRESS returns the ID field's real CRC bytes, as the chip does.
+    addressCrc: true,
   });
 
   reset(): void {
@@ -106,6 +111,17 @@ export class BetaDisk {
   pageIn(memory: SpectrumMemory): void {
     if (this.pagedIn) return;
     this.overlay.set(this.rom, 0);
+    memory.setSlot0(this.overlay);
+    this.pagedIn = true;
+  }
+
+  /** Assert the DOS signal with another ROM image behind it: the Scorpion's
+   *  Magic button raises DOS while its 128K ROM is selected, which maps the
+   *  service ROM (page 2) with the FDC ports live. Pages out like TR-DOS, on
+   *  the first opcode fetch at 0x4000 or above. */
+  pageInImage(memory: SpectrumMemory, image: Uint8Array): void {
+    if (this.pagedIn) this.pageOut(memory);
+    this.overlay.set(image.subarray(0, 16384), 0);
     memory.setSlot0(this.overlay);
     this.pagedIn = true;
   }

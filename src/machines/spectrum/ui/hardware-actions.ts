@@ -34,3 +34,12 @@ export function triggerNMI(): void {
   mf.pressButton(s.memory, s.cpu, s.memory.slot0Bank);
   setStatus('Multiface NMI triggered');
 }
+
+/** Press the Scorpion ZS-256's Magic button: an NMI into its service monitor
+ *  (or TR-DOS, with 48K BASIC selected), taken at the next fetch from RAM. */
+export function triggerScorpionMagic(): void {
+  const s = activeSpectrum();
+  if (!s?.scorpion) return;
+  s.scorpion.pressMagic();
+  setStatus('Magic button pressed');
+}

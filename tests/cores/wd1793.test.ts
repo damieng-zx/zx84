@@ -574,3 +574,139 @@ describe('WD1793 LOST DATA on an unserviced write command', () => {
     expect(wd.drq).toBe(true);
   });
 });
+
+/**
+ * READ ADDRESS (Type III) status and ID bytes. WD179x datasheet, status register
+ * summary for READ ADDRESS: bit 7 NOT READY, bit 6 0, bit 5 0, bit 4 RNF,
+ * bit 3 CRC ERROR (of the ID field), bit 2 LOST DATA, bit 1 DRQ, bit 0 BUSY.
+ * The six bytes are track, side, sector, length and the two CRC bytes recorded
+ * after the ID field (CRC-CCITT, x^16 + x^12 + x^5 + 1, preset to ones, over
+ * the A1 A1 A1 FE sync/mark and the four ID bytes).
+ */
+describe('WD1793 READ ADDRESS status and CRC bytes', () => {
+  const CMD_READ_ADDRESS = 0xC0;
+
+  /** The Beta Disk turns real address CRCs on; the shared default is zeros. */
+  const wd1793 = () => new WD179x({ statusBit7: 'not-ready', formatSectorsPerTrack: 16, addressCrc: true });
+
+  /** Feed bytes through the CCITT polynomial MSB first. Over an ID field
+   *  followed by its own correct CRC the register ends at zero. */
+  function ccittResidue(bytes: number[]): number {
+    let crc = 0xFFFF;
+    for (const b of bytes) {
+      for (let i = 7; i >= 0; i--) {
+        const fb = ((crc >> 15) ^ (b >> i)) & 1;
+        crc = (crc << 1) & 0xFFFF;
+        if (fb) crc ^= 0x1021;
+      }
+    }
+    return crc;
+  }
+
+  function readId(wd: WD179x): number[] {
+    wd.writeCommand(CMD_READ_ADDRESS);
+    const id: number[] = [];
+    for (let i = 0; i < 6; i++) id.push(wd.readData());
+    return id;
+  }
+
+  it('returns the ID field followed by the CRC that checks it', () => {
+    const wd = wd1793();
+    wd.insertDisk(trdImage(), 0);
+    wd.selectDrive(0);
+    const id = readId(wd);
+    expect(id.slice(0, 4)).toEqual([0, 0, 1, 1]);
+    expect(ccittResidue([0xA1, 0xA1, 0xA1, 0xFE, ...id])).toBe(0);
+    expect(wd.readStatus() & ST_CRCERR).toBe(0);
+  });
+
+  it('reports CRC ERROR, and a CRC that does not check, for an ID stored with a bad CRC', () => {
+    const wd = wd1793();
+    const img = trdImage();
+    img.tracks[0][0]!.sectors[0].st1 = 0x20; // DE without DD: ID field CRC error
+    wd.insertDisk(img, 0);
+    wd.selectDrive(0);
+    const id = readId(wd);
+    expect(ccittResidue([0xA1, 0xA1, 0xA1, 0xFE, ...id])).not.toBe(0);
+    expect(wd.readStatus() & ST_CRCERR).toBe(ST_CRCERR);
+  });
+
+  it('keeps bit 5 clear after a READ SECTOR of a deleted-data sector left it set', () => {
+    const wd = wd1793();
+    const img = trdImage();
+    img.tracks[0][0]!.sectors[0].st2 = 0x40; // DDAM on sector 1
+    wd.insertDisk(img, 0);
+    wd.selectDrive(0);
+    wd.writeSectorReg(1);
+    wd.writeCommand(CMD_READ);
+    for (let i = 0; i < 256; i++) wd.readData();
+    expect(wd.readStatus() & ST_RECTYPE).toBe(ST_RECTYPE); // the read's own status
+    readId(wd);
+    expect(wd.readStatus() & 0xE0).toBe(0); // READY, no write protect, bit 5 = 0
+  });
+
+  it('keeps CRC ERROR from a data-CRC sector out of a later READ ADDRESS', () => {
+    const wd = wd1793();
+    const img = trdImage();
+    img.tracks[0][0]!.sectors[0].st1 = 0x20;
+    img.tracks[0][0]!.sectors[0].st2 = 0x20; // DE + DD: data field CRC error only
+    wd.insertDisk(img, 0);
+    wd.selectDrive(0);
+    wd.writeSectorReg(1);
+    wd.writeCommand(CMD_READ);
+    for (let i = 0; i < 256; i++) wd.readData();
+    expect(wd.readStatus() & ST_CRCERR).toBe(ST_CRCERR);
+    readId(wd); // sector 1's ID itself is good
+    expect(wd.readStatus() & ST_CRCERR).toBe(0);
+  });
+});
+
+/**
+ * Beta 128 wiring: the 1793's READY input is fed from its own HLD (head load)
+ * output, not from the drive (the 'head-load' option). The head loads on any
+ * command, so status bit 7 reads READY after one whether or not a disk is in
+ * the drive, and NOT READY only before the first command (and after the head
+ * unloads).
+ */
+describe('WD1793 READY from HLD (Beta 128 wiring)', () => {
+  const beta = () => new WD179x({ statusBit7: 'head-load', formatSectorsPerTrack: 16, addressCrc: true });
+
+  it('reads READY after a command even with no disk in the drive', () => {
+    const wd = beta();
+    wd.selectDrive(0);
+    wd.writeCommand(CMD_RESTORE);
+    expect(wd.readStatus() & ST_BIT7).toBe(0);
+  });
+
+  it('ends a READ ADDRESS with no disk in RNF, with bit 7 clear', () => {
+    const wd = beta();
+    wd.selectDrive(1);
+    wd.writeCommand(0xC0);
+    const st = wd.readStatus();
+    expect(st & ST_RNF).toBe(ST_RNF);
+    expect(st & 0xE0).toBe(0);
+  });
+
+  it('reads NOT READY before any command has loaded the head', () => {
+    const wd = beta();
+    wd.insertDisk(trdImage(), 0);
+    expect(wd.readStatus() & ST_BIT7).toBe(ST_BIT7);
+  });
+
+  it('drops READY once the head unloads after the idle timeout', () => {
+    const wd = beta();
+    wd.writeCommand(CMD_RESTORE);
+    for (let f = 0; f < 200; f++) wd.tickFrame();
+    expect(wd.readStatus() & ST_BIT7).toBe(ST_BIT7);
+  });
+
+  it('still has the 1793 side compare (it is a 1793, not a 1770)', () => {
+    const wd = beta();
+    const img = trdImage();
+    wd.insertDisk(img, 0);
+    wd.selectDrive(0);
+    wd.writeSectorReg(1);
+    wd.writeCommand(CMD_READ | 0x02 | 0x08); // C=1, S=1: IDs carry side 0, so RNF
+    expect(wd.readStatus() & ST_RNF).toBe(ST_RNF);
+  });
+});
