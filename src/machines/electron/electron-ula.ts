@@ -64,6 +64,8 @@ const MEASURED_PALETTE32 = Uint32Array.from([
 ]);
 
 const BLACK = 0xFF000000;
+/** Lines of the picture (the rest of the frame is the black border). */
+const ELECTRON_PICTURE_LINES = 256;
 
 /** Palette pen groups: register pair → pens it colours (each by wiring, below). */
 const PEN_BASE = [0, 4, 5, 1] as const;
@@ -331,18 +333,42 @@ export class ElectronUla {
   startFrame(): void {
     this.screenAddr = this.screenStart;
     this.screenRa = 0;
+    this.drawnX = 0;
   }
 
-  /** Scanline `y` (0 = first line of the 256-line picture) has finished: draw it
-   *  into `out` (row `rowOffset`) from `ram`, then advance the address counters. */
+  /** Buffer pixels of the line already drawn (a multiple of 8, 640 when it is
+   *  done): the beam's place for a machine that draws as the beam goes. */
+  private drawnX = 0;
+  /** Where each picture line started in screen memory and the character-row
+   *  line it showed, as the counters stood when it began — what a whole-frame
+   *  render (Low accuracy) draws from. */
+  private readonly lineAddr = new Uint16Array(ELECTRON_PICTURE_LINES);
+  private readonly lineRa = new Uint8Array(ELECTRON_PICTURE_LINES);
+
+  /** Scanline `y` (0 = first line of the 256-line picture) has finished: draw
+   *  what of it is not drawn yet into `out` (row `rowOffset`) from `ram`, then
+   *  advance the address counters. */
   renderLine(y: number, ram: Uint8Array, out: Uint32Array, rowOffset: number): void {
+    this.drawTo(y, ram, out, rowOffset, ELECTRON_ACTIVE_WIDTH);
+    this.advanceLine(y);
+  }
+
+  /** Draw line `y` up to buffer pixel `x` (the beam's place, in multiples of 8)
+   *  with the mode, palette and memory as they are now. */
+  drawTo(y: number, ram: Uint8Array, out: Uint32Array, rowOffset: number, x: number): void {
+    const x0 = this.drawnX;
+    if (x > ELECTRON_ACTIVE_WIDTH) x = ELECTRON_ACTIVE_WIDTH;
+    if (x <= x0) return;
+    this.drawnX = x;
+    this.drawLineSpan(y, this.screenAddr, this.screenRa, ram, out, rowOffset, x0, x);
+  }
+
+  /** Move the address counters on past line `y`, which has been (or will be)
+   *  drawn, remembering where it started. */
+  advanceLine(y: number): void {
     const mode = this.dispMode;
-    const base = rowOffset * ELECTRON_SCREEN_WIDTH + ELECTRON_BORDER_LEFT;
-    if (y >= MODE_DISPEND[mode] || this.screenRa >= 8) {
-      out.fill(BLACK, base, base + ELECTRON_ACTIVE_WIDTH);
-    } else {
-      this.drawLine(mode, ram, out, base);
-    }
+    if (y < ELECTRON_PICTURE_LINES) { this.lineAddr[y] = this.screenAddr; this.lineRa[y] = this.screenRa; }
+    this.drawnX = 0;
     if (this.screenRa < 8) this.screenAddr++;
     this.screenRa++;
     if (this.screenRa === MODE_MAX_RA[mode]) {
@@ -352,13 +378,69 @@ export class ElectronUla {
     if (this.screenAddr & 0x8000) this.screenAddr -= MODE_SIZE[mode];
   }
 
-  private drawLine(mode: number, ram: Uint8Array, out: Uint32Array, base: number): void {
+  /** Draw the whole picture at once, as the mode and palette are now, from the
+   *  line starts `advanceLine` saw (Low accuracy). */
+  renderFrame(ram: Uint8Array, out: Uint32Array, firstRow: number): void {
+    for (let y = 0; y < ELECTRON_PICTURE_LINES; y++) {
+      this.drawLineSpan(y, this.lineAddr[y], this.lineRa[y], ram, out, firstRow + y, 0, ELECTRON_ACTIVE_WIDTH);
+    }
+  }
+
+  /** Buffer pixels `x0`..`x1` (multiples of 8) of line `y`, which started at
+   *  screen address `addr` on character-row line `ra`. */
+  private drawLineSpan(
+    y: number, addr: number, ra: number, ram: Uint8Array, out: Uint32Array, rowOffset: number,
+    x0: number, x1: number,
+  ): void {
+    const mode = this.dispMode;
+    const base = rowOffset * ELECTRON_SCREEN_WIDTH + ELECTRON_BORDER_LEFT;
+    if (y >= MODE_DISPEND[mode] || ra >= 8) {
+      out.fill(BLACK, base + x0, base + x1);
+    } else if (x0 === 0 && x1 === ELECTRON_ACTIVE_WIDTH) {
+      this.drawLine(mode, addr, ram, out, base);
+    } else {
+      this.drawPartial(mode, addr, ram, out, base, x0, x1);
+    }
+  }
+
+  /** A part of a line: the pixels from `x0` to `x1` of each byte the span touches. */
+  private drawPartial(
+    mode: number, addr: number, ram: Uint8Array, out: Uint32Array, base: number, x0: number, x1: number,
+  ): void {
     const bpp = MODE_BPP[mode];
     const bytes = (mode & 4) ? 40 : 80;
     const wrap = MODE_SIZE[mode];
     const colours = this.colours;
     const pens = this.pens;
-    const addr = this.screenAddr;
+    const perByte = 8 / bpp;
+    const width = bpp * (80 / bytes);
+    const span = perByte * width;           // buffer pixels in a byte: 8 or 16
+    const last = Math.min(bytes, Math.ceil(x1 / span));
+    for (let hpos = Math.floor(x0 / span); hpos < last; hpos++) {
+      let a = addr + hpos * 8;
+      if (a & 0x8000) a -= wrap;
+      let data = ram[a & 0x7FFF];
+      let x = hpos * span;
+      for (let p = 0; p < perByte; p++, x += width) {
+        if (x >= x0 && x < x1) {
+          let pen: number;
+          if (bpp === 1) pen = (data >> 4) & 8;
+          else if (bpp === 2) pen = ((data >> 4) & 8) | ((data >> 2) & 2);
+          else pen = ((data >> 4) & 8) | ((data >> 3) & 4) | ((data >> 2) & 2) | ((data >> 1) & 1);
+          const c = colours[pens[pen]];
+          for (let i = 0; i < width; i++) out[base + x + i] = c;
+        }
+        data <<= 1;
+      }
+    }
+  }
+
+  private drawLine(mode: number, addr: number, ram: Uint8Array, out: Uint32Array, base: number): void {
+    const bpp = MODE_BPP[mode];
+    const bytes = (mode & 4) ? 40 : 80;
+    const wrap = MODE_SIZE[mode];
+    const colours = this.colours;
+    const pens = this.pens;
     const perByte = 8 / bpp;
     const width = bpp * (80 / bytes);       // screen pixels per ULA pixel
     let x = base;

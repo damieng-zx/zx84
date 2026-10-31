@@ -31,12 +31,15 @@ export const PLUS3_ROM_PAGE = 4;
  *  interface ends its calls with `LDA #&80 : STA &FE05`, which pages ROM 0 back
  *  in, so it only keeps running when it is itself ROM 0.
  *
- *  Known limit: this DFS holds its catalogue and state in main RAM at
- *  &0E00-&0FFF (PAGE &1900). A title that loads a file over that range and then
- *  uses the disc again fails ("Sector not found at :F", "File not found",
- *  "Channel"); about a quarter of the Electron .ssd collection does. Those discs
- *  were made for a DFS with workspace off the main bus (likely the Slogger
- *  Pegasus 400, whose extra hardware is not emulated). */
+ *  Known limit: this DFS keeps its workspace in main RAM (&0E00-&18FF, PAGE
+ *  &1900) and trusts the catalogue it holds at &0E00-&0FFF between calls, so a
+ *  title that loads a file over that range and then uses the disc again fails
+ *  ("Sector not found at :3", "File not found", "Channel"). That is how this
+ *  DFS behaves on a real Plus 3, not an emulation fault: about a quarter of the
+ *  Electron .ssd collection was mastered for the Slogger Pegasus 400 instead,
+ *  whose DFS keeps its workspace in 2K of RAM on the interface (PAGE stays at
+ *  &E00) and moves data by polling. Running those needs the Pegasus DFS ROM,
+ *  which is not available, so the board is not modelled. */
 export const DFS_ROM_PAGE = 0;
 
 export class ElectronPlus3 {

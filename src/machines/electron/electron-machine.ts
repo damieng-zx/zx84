@@ -22,6 +22,7 @@ import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { CassetteDrive } from '@/machines/shared/cassette-drive.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
 import { m6502ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
+import { accessTime } from '@/debug/m6502/bus-cycles.ts';
 import { M6502Trace } from '@/debug/m6502/trace.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type {
@@ -61,6 +62,20 @@ const RTC_LINE = 100;
 /** How long a SHIFT+BREAK holds SHIFT: the OS samples it early in its reset
  *  sequence; half a second covers it with margin, like a real key press. */
 const BOOT_SHIFT_FRAMES = 25;
+
+/** What each accuracy means for reading a beam position against the picture. */
+const VIDEO_NOTES: Readonly<Record<'high' | 'mid' | 'low', string>> = {
+  high: 'At High accuracy the picture is drawn as the beam goes (8 pixels a cycle, to within a couple of cycles), so a palette, mode or screen-memory write shows from the pixel the beam had reached',
+  mid: 'At Mid accuracy each scanline is drawn whole when the beam reaches its end, with the state as it is then',
+  low: 'At Low accuracy the picture is drawn at the end of the frame, so a mid-frame mode or palette change shows for the whole frame',
+};
+/** How the frame in progress is drawn (see `videoAccuracy`). */
+const VIDEO_LOW = 0;
+const VIDEO_MID = 1;
+const VIDEO_HIGH = 2;
+/** Pixels of the 640-wide picture the beam draws in a CPU cycle (the 80-cycle
+ *  display fetch window spans the line). */
+const PIXELS_PER_CYCLE = 8;
 
 /** The Electron has no sound chip to feed: the ULA's beeper goes through the mixer. */
 const NO_CHIP = { setSampleRate(): void {} };
@@ -143,6 +158,11 @@ export class ElectronMachine extends BaseMachine implements Machine {
     };
     this.cpu.write = (addr, val) => {
       this.contend(addr);
+      // High accuracy: draw up to the beam with things as they were before a
+      // write to screen memory, the mode or the palette changes them.
+      if (this.frameVideo === VIDEO_HIGH && (addr < 0x8000 || (addr >= 0xFE07 && addr < 0xFF00 && (addr & 0x0F) >= 7))) {
+        this.catchUpVideo(addr);
+      }
       this.memory.writeByte(addr, val);
       if (this.memWatchpoints.length > 0 && this.memWatchHit === null) this.recordMemWatch(addr & 0xFFFF, val & 0xFF, 'write');
     };
@@ -191,7 +211,7 @@ export class ElectronMachine extends BaseMachine implements Machine {
       requests.push({
         cacheKey: 'electron-plus3-acpdfs200',
         source: 'electron/dfs.rom',
-        fetchingMsg: 'Fetching Electron ACP 1770 DFS ROM�',
+        fetchingMsg: 'Fetching Electron ACP 1770 DFS ROM…',
         loadedMsg: (bytes) => `Electron ACP 1770 DFS ROM loaded (${bytes} bytes)`,
         failMsg: 'Failed to load the Electron ACP 1770 DFS ROM',
         failId: 'electron-dfs',
@@ -300,6 +320,7 @@ export class ElectronMachine extends BaseMachine implements Machine {
     this.audio.setVolume(view.get('volume', 70) / 100);
     this.ula.paletteMode = view.get<'pal' | 'measured'>('bbc-color-map', 'pal');
     this.tapeTurboEnabled = view.get('tape-turbo-load', true);
+    this.videoAccuracy = view.get<'high' | 'mid' | 'low'>('scanline-accuracy', 'high');
   }
 
   /** The border is always black and fully rendered; the setting crops it:
@@ -392,7 +413,8 @@ export class ElectronMachine extends BaseMachine implements Machine {
       cyclesPerLine: ELECTRON_CYCLES_PER_LINE,
       linesPerFrame: ELECTRON_LINES_PER_FRAME,
       displayStart: 0,
-      note: 'line 0 is the first line of the picture, whose bytes the ULA fetches in the first 80 cycles of each line; the RTC interrupt is raised at the start of line 100 and display end at the start of line 256 (250 in modes 3 and 6). Each line is drawn whole when the CPU reaches its end, so a register write shows from the line it is made in',
+      note: 'line 0 is the first line of the picture, whose bytes the ULA fetches in the first 80 cycles of each line; the RTC interrupt is raised at the start of line 100 and display end at the start of line 256 (250 in modes 3 and 6). '
+        + VIDEO_NOTES[this.videoAccuracy],
     };
   }
   override supportsBeamStops(): boolean { return true; }
@@ -404,6 +426,30 @@ export class ElectronMachine extends BaseMachine implements Machine {
   /** An opcode is never read from the hardware pages, where reads have side effects. */
   protected override peekOpcode(addr: number): number {
     return addr >= 0xFC00 && addr < 0xFF00 ? -1 : this.memory.peekByte(addr);
+  }
+
+  // ── Video accuracy ───────────────────────────────────────────────────────
+
+  /** The Display pane's accuracy: 'high' draws as the beam goes, 'mid' a
+   *  scanline at a time as the beam reaches its end, 'low' the whole frame at
+   *  its end (the fastest, but a mode or palette change mid-frame shows
+   *  everywhere). */
+  videoAccuracy: 'high' | 'mid' | 'low' = 'high';
+  /** The accuracy the frame in progress is drawn at (VIDEO_*), fixed when it
+   *  starts; turbo draws at Low. */
+  private frameVideo = VIDEO_MID;
+
+  /** Draw the scanline in progress up to where the beam is for a write the CPU
+   *  is making to `addr` now (the 6502 core calls its bus before it counts the
+   *  instruction's cycles, so the access's own cycle is worked out). */
+  private catchUpVideo(addr: number): void {
+    if (!this.frameOpen || this.fLine >= PICTURE_LINES) return;
+    const pc = this.insnPc;
+    const t = accessTime(this.cpu.tStates, this.peekOpcode(pc), pc, addr, true, false);
+    const x = Math.floor(t - this.lineStart) * PIXELS_PER_CYCLE;
+    if (x > 0) {
+      this.ula.drawTo(this.fLine, this.memory.ram, this.pixels32, ELECTRON_BORDER_TOP + this.fLine, x);
+    }
   }
 
   // ── Frame ────────────────────────────────────────────────────────────────
@@ -420,6 +466,8 @@ export class ElectronMachine extends BaseMachine implements Machine {
       ula.startFrame();
       this.fLine = 0;
       this.lineLive = false;
+      this.frameVideo = this.inTurbo() ? VIDEO_LOW
+        : this.videoAccuracy === 'high' ? VIDEO_HIGH : this.videoAccuracy === 'mid' ? VIDEO_MID : VIDEO_LOW;
     }
     this.memWatchHit = null;
 
@@ -476,10 +524,14 @@ export class ElectronMachine extends BaseMachine implements Machine {
         }
       }
       this.lineLive = false;
+      // Mid and High draw the line (what High has not drawn already) as it
+      // ends; Low only moves the counters on and draws the frame at its end.
       if (line < PICTURE_LINES) {
-        ula.renderLine(line, this.memory.ram, this.pixels32, ELECTRON_BORDER_TOP + line);
+        if (this.frameVideo === VIDEO_LOW) ula.advanceLine(line);
+        else ula.renderLine(line, this.memory.ram, this.pixels32, ELECTRON_BORDER_TOP + line);
       }
     }
+    if (this.frameVideo === VIDEO_LOW) ula.renderFrame(this.memory.ram, this.pixels32, ELECTRON_BORDER_TOP);
 
     this.cassette.frameTick(this.tapeTurboEnabled);
     if (this.plus3Fitted) this.plus3.tickFrame();
@@ -487,6 +539,13 @@ export class ElectronMachine extends BaseMachine implements Machine {
       this.keyboard.setCell(13, 3, false);
     }
     this.needsDisplay = true;
+  }
+
+  /** What the Plus 1's printer port has been sent, for the Save menu's printer
+   *  entry; null while nothing has been printed or no Plus 1 is fitted. */
+  printerExportBytes(): { data: Uint8Array; filename: string } | null {
+    const printed = this.plus1Fitted ? this.plus1.printed : [];
+    return printed.length > 0 ? { data: Uint8Array.from(printed), filename: 'electron-printer.txt' } : null;
   }
 
   ramExportBytes(): { data: Uint8Array; filename: string } {
@@ -632,6 +691,7 @@ export class ElectronMachine extends BaseMachine implements Machine {
     w.section('PLS1', () => {
       this.plus1.saveState(w);
       this.sticks.saveState(w);
+      this.plus1.saveBusy(w);
     });
     // The discs go before the controller, whose transfer in flight points into them.
     w.section('MEDA', () => {
@@ -694,6 +754,7 @@ export class ElectronMachine extends BaseMachine implements Machine {
       const s = r.section('PLS1');
       this.plus1.loadState(s);
       this.sticks.loadState(s);
+      this.plus1.loadBusy(s);
     }
     let withMedia: boolean;
     {
