@@ -137,6 +137,11 @@ export class ULA {
   /** Active color palette */
   palette: Uint32Array = PALETTE_BASIC;
 
+  /** Hardware multicolour (Pentagon 1024, EFF7 bit 5): every bitmap byte has
+   *  its own attribute, 0x2000 above it in the displayed bank (0x6000-0x77FF
+   *  for a bitmap at 0x4000-0x57FF), instead of one per 8x8 cell. */
+  attrPerByte = false;
+
   /** Reference to the key matrix for port reads */
   keyboard: KeyMatrixSource;
 
@@ -250,7 +255,7 @@ export class ULA {
     for (let y = 0; y < DISPLAY_HEIGHT; y++) {
       const screenY = y + this.borderTop;
       const bitmapAddr = vramBitmapAddr(y) - vramOffset;
-      const attrBase = vramAttrAddr(y, 0) - vramOffset;
+      const attrBase = this.attrPerByte ? bitmapAddr + 0x2000 : vramAttrAddr(y, 0) - vramOffset;
 
       for (let col = 0; col < DISPLAY_COLS; col++) {
         const byteVal = memory[bitmapAddr + col];
@@ -322,8 +327,10 @@ export class ULA {
     const screenY = y + this.borderTop;
     const rowStart = screenY * this.screenWidth;
 
-    const byteVal = memory[vramBitmapAddr(y) - vramOffset + col];
-    const [inkRGBA, paperRGBA] = this.decodeAttr(memory[vramAttrAddr(y, col) - vramOffset]);
+    const bitmapAddr = vramBitmapAddr(y) - vramOffset + col;
+    const byteVal = memory[bitmapAddr];
+    const attr = this.attrPerByte ? memory[bitmapAddr + 0x2000] : memory[vramAttrAddr(y, col) - vramOffset];
+    const [inkRGBA, paperRGBA] = this.decodeAttr(attr);
     const baseIdx = rowStart + this.borderLeft + (col << 3);
 
     for (let bit = 7; bit >= 0; bit--) {

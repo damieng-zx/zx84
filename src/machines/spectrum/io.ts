@@ -53,7 +53,10 @@ export function installMemoryHooks(s: Spectrum): void {
   // multicolour engine rewrites a cell's attribute right after the ULA has
   // fetched it, and without the flush the lazy renderer would draw the line
   // just fetched with the next line's colours.
-  const vramFlushLen = 0x1B00;
+  // The Pentagon 1024's hardware multicolour reads attributes from 0x2000-
+  // 0x37FF of the bank too, so it widens the window (setVramFlushLen).
+  let vramFlushLen = 0x1B00;
+  s.setVramFlushLen = (len: number): void => { vramFlushLen = len; };
   const slotIsScreen = memory.slotIsScreen;
 
   cpu.write8 = (addr: number, val: number): void => {
@@ -186,7 +189,13 @@ export function wirePortIO(s: Spectrum): void {
       }
 
       // Pentagon 1024: port 0xEFF7 (128K / 1MB mode gate, ROM-as-RAM, turbo, video).
-      if (v.decodesEFF7(port)) s.memory.writeEFF7(val, s.hasSlot0Overlay);
+      // Bit 5 (hardware multicolour) changes how the display is drawn, so
+      // render up to the beam in the old mode first.
+      if (v.decodesEFF7(port)) {
+        if (((val ^ s.memory.portEFF7) & 0x20) !== 0) s.flushBeam();
+        s.memory.writeEFF7(val, s.hasSlot0Overlay);
+        s.syncPentagonVideo();
+      }
 
       // +2A: port 0x1FFD. Once paging is locked (7FFD bit 5), hardware
       // freezes the whole register — the motor bit lives in the same port,
@@ -373,6 +382,10 @@ export function wirePortIO(s: Spectrum): void {
       s.activity.kempstonReads++;
       return s.joystick.state;
     }
+
+    // Scorpion: IN from 7FFD / 1FFD switches the Turbo+ clock, and the #FF
+    // port reads the attribute being displayed (see scorpion.ts).
+    if (s.scorpion !== null) return s.scorpion.readPort(port);
 
     // Unattached port — Ferranti ULA models float the bus to whatever the
     // ULA is fetching.

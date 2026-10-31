@@ -74,6 +74,7 @@ const UNVERIFIED_DISPLAY_START: ReadonlySet<string> = new Set([
 import type { SpectrumModel } from '@/models.ts';
 import { betaRomInSystemRom, isPentagonClass, isScorpionClass } from '@/machines/spectrum/models.ts';
 import { withTrdosMenuEntry } from '@/machines/spectrum/pentagon-menu.ts';
+import { ScorpionBoard } from '@/machines/spectrum/scorpion.ts';
 import { IOActivity } from '@/machines/spectrum/activity.ts';
 
 // Re-export IOActivity from its neutral home so existing imports from
@@ -216,6 +217,25 @@ export class Spectrum extends BaseMachine implements Machine {
 
   /** Currah µSpeech (16K/48K/128K/+2) — SP0256-AL2 speech synthesiser + 2KB ROM. */
   currah = new CurrahUSpeech();
+
+  /** Set by installMemoryHooks: how many bytes from the start of the displayed
+   *  bank a CPU write must flush the beam for (bitmap + attributes). */
+  setVramFlushLen: (len: number) => void = () => {};
+
+  /** Follow the Pentagon 1024's EFF7 bit 5 (hardware multicolour: one
+   *  attribute per bitmap byte, at 0x6000-0x77FF). EFF7 is 0 on every other
+   *  model, so this is a no-op there. Called on an EFF7 write, at reset and at
+   *  each frame start (a snapshot load sets EFF7 directly). */
+  syncPentagonVideo(): void {
+    const perByte = (this.memory.portEFF7 & 0x20) !== 0;
+    if (perByte === this.ula.attrPerByte) return;
+    this.ula.attrPerByte = perByte;
+    this.setVramFlushLen(perByte ? 0x3800 : 0x1B00);
+  }
+
+  /** Scorpion ZS-256 board logic (even-M1 wait, Turbo+ clock, #FF port, Magic
+   *  button); null on every other model. See scorpion.ts. */
+  readonly scorpion: ScorpionBoard | null;
 
   get tStatesPerFrame(): number { return this.contention.timing.tStatesPerFrame; }
 
@@ -369,6 +389,7 @@ export class Spectrum extends BaseMachine implements Machine {
     this.tracer = this.trace;
     installMemoryHooks(this);
     wirePortIO(this);
+    this.scorpion = isScorpionClass(model) ? new ScorpionBoard(this) : null;
 
     this.tape.onPlayStateChange = () => {
       this.loaderDetector.onTapePlayStateChange();
@@ -629,6 +650,8 @@ export class Spectrum extends BaseMachine implements Machine {
     // Beta Disk is paged OUT at reset; TR-DOS ROM maps itself in via the M1
     // fetch trap (0x3Dxx) once BASIC enters it. See beta-disk.ts.
     this.betaDisk.reset();
+    this.scorpion?.reset();
+    this.syncPentagonVideo();
     // The µSpeech drops out on reset and its ROM maps itself in again on the first
     // interrupt (the M1 fetch at 0x0038).
     this.currah.reset();
@@ -872,6 +895,7 @@ export class Spectrum extends BaseMachine implements Machine {
     // Low mode skips this — renderFrame() handles flash internally.
     // (A resumed frame keeps the render position it had reached.)
     if (!resuming) {
+      this.syncPentagonVideo();
       if (this._scanAcc > 0) this.ula.advanceFlash();
       const borderTop = this.ula.borderTop;
       const borderLeft = this.ula.borderLeft;

@@ -58,10 +58,15 @@ keeps the Scorpion model when it is already selected.
 | ULA (display, border, beeper, keyboard) | all | ✅ | Spectrum ULA with **no memory or I/O contention** and no floating bus |
 | 7FFD paging | all | ✅ | Pentagon 128: loose decode (A15, A1 low). 1024: A15=0, A14=1, A1=0. Scorpion: A15=0, A14=1, A5=1, A1=0, A0=1 |
 | Extended RAM | 512, 1024, Scorpion | ✅ | See Models; the page at 0xC000 is re-derived whenever EFF7 or 1FFD changes |
-| EFF7 control port | 1024 | ◐ | Bit 2 (128K / 1 MB) and bit 3 (writable RAM bank 0 over 0x0000, ROM hidden) emulated; the turbo and video bits are latched only |
+| EFF7 control port | 1024 | ◐ | Bit 2 (128K / 1 MB), bit 3 (writable RAM bank 0 over 0x0000, ROM hidden) and bit 5 (hardware multicolour, below) emulated; the turbo, hi-res, 16-colour and other video bits are latched only |
+| Hardware multicolour | 1024 | ◐ | EFF7 bit 5: every bitmap byte takes its own attribute from 0x6000-0x77FF of the displayed bank (bitmap 0x4000-0x57FF), giving 32 × 192 attribute resolution. Renders per scanline like the standard screen; a CPU write into the attribute area flushes the beam. The attribute layout comes from the Pentagon 1024SL v2.2 / Pentagon-4096 descriptions, not from a measured board |
+| Even M1 wait | Scorpion | ✅ | An opcode fetch from RAM (including RAM mapped over 0x0000 by 1FFD D0) that would start on an odd T-state, counted from the frame interrupt, takes one extra wait. ROM fetches are not delayed. Implemented as a wrapper installed on the Scorpion's CPU at construction (`scorpion.ts`); other models keep the core's own `step` |
+| Turbo+ 7 MHz | Scorpion | ◐ | IN from the 7FFD address switches to 7 MHz, IN from 1FFD back to 3.5 MHz; reset returns to 3.5 MHz. Video, INT, AY and tape keep their 3.5 MHz timing, so each instruction (and interrupt acknowledge) is charged half its T-states, an odd half-T-state carried over. No even-M1 wait at 7 MHz (not documented). The state is kept in SZX (private `Z84C` block). The 7 MHz audio and AY pitch are not rescaled |
+| #FF attribute port | Scorpion | ◐ | Ports xxxxxxxx xx1xx111 read the attribute byte of the cell under the beam (0xFF in the border and retrace). The fetch phase within a cell is not documented, so the value is the cell's attribute for its whole 4 T-states |
+| Magic button | Scorpion | ◐ | The Hardware pane's Magic button latches an NMI that is taken at the next opcode fetch from 0x4000 or above. The DOS signal is raised: ROM page 2 (the service monitor) is mapped over 0x0000 with the FDC ports live (page 3, TR-DOS, when 48K BASIC is selected and 1FFD D1 is clear), the return address is pushed and execution continues at 0x0066. DOS drops on the next fetch at 0x4000 or above, as for the TR-DOS trap. Runs the v2.5c monitor (draws its screen). The monitor's own UI was not driven further |
 | 1FFD paging | Scorpion | ✅ | D0 maps writable RAM bank 0 over 0x0000; D1 selects the service ROM (page 2) whatever 7FFD D4 says; D4 is RAM page bit 3 |
 | AY-3-8912 | all | ✅ | Clocked at 1.75 MHz (CPU clock ÷ 2), not the Sinclair 128K's 1.7734 MHz |
-| Beta Disk / TR-DOS | all | ✅ | WD1793, drives A:/B:. Always fitted, so the Hardware-pane toggle is hidden. The Scorpion takes TR-DOS from ROM page 3 and also exposes the FDC ports while its service ROM is selected |
+| Beta Disk / TR-DOS | all | ✅ | WD1793, drives A:/B:. Always fitted, so the Hardware-pane toggle is hidden. The Scorpion takes TR-DOS from ROM page 3 and also exposes the FDC ports while its service ROM is selected. The Beta 128 wires the 1793's READY input to its own HLD output, so status bit 7 reads READY once any command has loaded the head, disk or no disk (the chip's `head-load` option), and READ ADDRESS returns the real ID-field CRC |
 
 ---
 
@@ -104,7 +109,7 @@ starts TR-DOS itself (its default "128 TR-DOS" entry), then `RUN` is typed.
 
 | Feature | Status | Notes |
 | --- | --- | --- |
-| Timing | ◐ | Frame lengths as above. The Pentagon first-pixel offset (17,988) and the Scorpion's (14,344) are figures taken from references and are not hardware-verified |
+| Timing | ◐ | Frame lengths as above. The Pentagon first-pixel offset (17,988) and the Scorpion's (14,344) are figures taken from references and are not hardware-verified. The Scorpion's even-M1 wait and Turbo+ clock are in the Built-in hardware table |
 | Fast ROM loading | ✅ | Active when the 48K BASIC ROM is paged in (ROM page 1 on the Scorpion) |
 | Software library | ◐ | The catalog carries ZXDB's Pentagon and Scorpion titles, with their TR-DOS images (`.trd`/`.scl`) as a Beta Disk format. On a clone the Machine filter gains a Pentagon or Scorpion option (it matches the titles ZXDB tags for that machine and every TR-DOS image). Tapes auto-load through the menu. A TR-DOS disk is mounted, the machine reset and the disk booted (see Loading a TR-DOS disk below). A disk with no `boot` file stops at TR-DOS's "NO FILE" |
 
@@ -123,14 +128,13 @@ starts TR-DOS itself (its default "128 TR-DOS" entry), then `RUN` is typed.
 
 | Issue | Affects | Severity | Notes |
 | --- | --- | --- | --- |
-| The Scorpion TURBO+ v2.92 / v2.95 ROMs hang on the menu's "128 TR-DOS" entry | Scorpion with those ROMs | medium | The service-ROM BIOS polls the FDC status for bits 7–5 after a Read Address; the cause is not understood. The v2.5c ROM that zx84 hosts works |
+| The Scorpion TURBO+ v2.92 / v2.95 ROMs hang on the menu's "128 TR-DOS" entry | Scorpion with those ROMs | medium | Not reproduced: the ROMs are not available here. Reading the v2.5c BIOS, TR-DOS polls the status after READ ADDRESS, and three emulator deviations from the WD1793 datasheet fed that poll: READ ADDRESS returned zero for the two CRC bytes, status bit 5 (record type) and bit 3 could carry over from an earlier READ SECTOR (a Type III status has bits 6–5 clear), and bit 7 reported the drive's READY rather than the Beta 128's HLD-driven READY. All three are fixed and covered by tests; whether that clears the hang is unverified |
 | The Pentagon 128 ROM is the Sinclair 128K pair, not a Pentagon ROM | Pentagons | low | The banner says Sinclair; software compatibility is unaffected. A Pentagon-branded 128 ROM dropped on the ROM pane works, including the library auto-boot, which finds its menu wait by byte pattern. zx84 does not host one: the commonly circulated image is Amstrad's ROM with a 65-byte patch of unknown authorship and licence |
 
 ## Not emulated
 
-- **The Scorpion's "even M1" rule.** On the real board an opcode fetch from RAM that would start on an odd T-state takes one extra wait. Tight RAM loops run slightly faster here.
-- **Scorpion turbo (7 MHz), the #FF attribute floating bus and the NMI service monitor.**
-- **Pentagon 1024 turbo and the extra video modes** (EFF7 bits other than 2 and 3).
+- **The Scorpion's even-M1 wait at 7 MHz**, and the Magic button's interplay with the GMX extensions.
+- **Pentagon 1024 turbo, hi-res (512 × 192), 16-colour and 384 × 304 modes.** Turbo is EFF7 D4 with inverted sense (0 = on) in the 1024SL v2.2 description, but its reset state and the clock-coefficient table are not documented well enough to emulate; the other video modes are documented for the Pentagon-4096 and differ between sources (the 384 × 304 mode was withdrawn in 1024SL v2.2). EFF7 D7 (hidden RTC/FDC ports) is not decoded.
 - **Other clones** (ATM Turbo, Profi, TS-Conf, Leningrad, Kay).
 
 ## Faithful quirks
@@ -148,3 +152,5 @@ starts TR-DOS itself (its default "128 TR-DOS" entry), then `RUN` is typed.
 | 45 Pentagon-tagged TR-DOS games and demos (`boot` file via TR-DOS) | 44 run for 30 s; 1 not tested by the harness | 2026-10-18 |
 | Walker, Land of Myths, Rage, Dune II, AY Megademo 3, Oxygene 7, Mescaline on the Scorpion (v2.5c, via "128 TR-DOS") | Run, AY output present | 2026-10-18 |
 | Hand-derived paging, decode and snapshot tests | [`tests/machines/spectrum/`](../../tests/machines/spectrum/) — `pentagon*.test.ts`, `scorpion.test.ts` | 2026-10-18 |
+| Hand-derived timing, turbo, #FF, Magic and multicolour tests (T-state counts of LD A,n loops in RAM vs ROM, 7 MHz halving, beam positions); Magic on the real v2.5c ROM enters the monitor | `clone-boards.test.ts` | 2026-10-31 |
+| WD1793 READ ADDRESS status and CRC bytes (CCITT residue over the ID field is zero), HLD-driven READY | `tests/cores/wd1793.test.ts` | 2026-10-31 |

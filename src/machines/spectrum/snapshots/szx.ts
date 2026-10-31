@@ -182,6 +182,11 @@ export async function loadSZX(
         parseAY(data, blockStart, result);
         break;
 
+      case CLONE_BLOCK:
+        // zx84's own block (other readers skip it): bit 0 = Scorpion Turbo+ 7 MHz.
+        if (dwSize >= 1) memory.cpuTurbo = memory.scheme === 'scorpion' && (data[blockStart] & 0x01) !== 0;
+        break;
+
       // Unknown blocks: skip
     }
 
@@ -372,8 +377,14 @@ function w32(data: Uint8Array, offset: number, value: number): void {
   data[offset + 3] = (value >> 24) & 0xFF;
 }
 
+/** zx84's block for clone state the SZX specification has no field for. One
+ *  flags byte: bit 0 = the Scorpion ZS-256 Turbo+ clock is at 7 MHz. Written
+ *  only for the Scorpion; readers that do not know it skip it, as the format
+ *  requires of unknown blocks. */
+const CLONE_BLOCK = 'Z84C';
+
 function writeBlockHeader(data: Uint8Array, offset: number, id: string, size: number): number {
-  // 4-byte ID — all callers pass a 4-char literal (Z80R, SPCR, RAMP, AY\0\0).
+  // 4-byte ID — all callers pass a 4-char literal (Z80R, SPCR, RAMP, AY\0\0, Z84C).
   for (let i = 0; i < 4; i++) {
     data[offset + i] = id.charCodeAt(i);
   }
@@ -442,7 +453,8 @@ function assembleSZX(cpu: Z80, memory: SpectrumMemory, borderColor: number, mode
   const spcrSize = 8 + 8; // 4 fields + 4 reserved bytes
   const rampSize = compressedPages.reduce((sum, p) => sum + 8 + 3 + p.data.length, 0);
   const aySize = ayRegs ? 8 + 18 : 0;
-  const totalSize = headerSize + z80rSize + spcrSize + rampSize + aySize;
+  const cloneSize = memory.scheme === 'scorpion' ? 8 + 1 : 0;
+  const totalSize = headerSize + z80rSize + spcrSize + rampSize + aySize + cloneSize;
 
   const data = new Uint8Array(totalSize);
   let offset = 0;
@@ -510,6 +522,12 @@ function assembleSZX(cpu: Z80, memory: SpectrumMemory, borderColor: number, mode
     data[offset++] = ayCurrentReg ?? 0; // chCurrentRegister
     data.set(ayRegs.slice(0, 16), offset);
     offset += 16;
+  }
+
+  // ── Z84C block (zx84 clone state) ───────────────────────────────────
+  if (cloneSize > 0) {
+    offset = writeBlockHeader(data, offset, CLONE_BLOCK, 1);
+    data[offset++] = memory.cpuTurbo ? 0x01 : 0;
   }
 
   return data;

@@ -35,8 +35,11 @@ import {
 import type { StateSink, StateSource } from '@/utils/state-stream.ts';
 
 export interface WD179xOptions {
-  /** WD1770/1772: MOTOR ON; WD1793: NOT READY. */
-  readonly statusBit7: 'motor-on' | 'not-ready';
+  /** WD1770/1772: MOTOR ON; WD1793: NOT READY. 'head-load' is a 1793 whose
+   *  READY input is wired to its own HLD (head load) output rather than to the
+   *  drive, as on the Beta 128 interface: the chip reports READY whenever it
+   *  has the head loaded, whatever the drive holds. */
+  readonly statusBit7: 'motor-on' | 'not-ready' | 'head-load';
   /** Sectors a WRITE TRACK command lays down before completing. */
   readonly formatSectorsPerTrack: number;
   /**
@@ -146,7 +149,7 @@ export class WD179x {
   constructor(options: WD179xOptions) {
     this.statusBit7Mode = options.statusBit7;
     this.formatSectorsPerTrack = options.formatSectorsPerTrack;
-    this.hasSideCompare = options.sideCompare ?? options.statusBit7 === 'not-ready';
+    this.hasSideCompare = options.sideCompare ?? options.statusBit7 !== 'motor-on';
     this.onInterrupt = options.onInterrupt;
     this.lostDataPolls = options.lostDataPolls ?? 0;
     this.addressCrc = options.addressCrc ?? false;
@@ -204,9 +207,15 @@ export class WD179x {
   // ── Chip configuration ────────────────────────────────────────────────
   /** Status bit 7 is either MOTOR ON or NOT READY, according to the FDC model. */
   private statusBit7(): number {
-    return this.statusBit7Mode === 'motor-on'
-      ? (this.motorOn ? ST_BIT7 : 0)
-      : (this.disks[this.currentDrive] === null || !this.connected[this.currentDrive] ? ST_BIT7 : 0);
+    switch (this.statusBit7Mode) {
+      case 'motor-on': return this.motorOn ? ST_BIT7 : 0;
+      // HLD stays up while commands keep arriving and drops after the idle
+      // timeout; motorOn models that window (every command sets it and it
+      // lapses MOTOR_FRAMES after the last), so NOT READY is its inverse.
+      case 'head-load': return this.motorOn ? 0 : ST_BIT7;
+      default:
+        return this.disks[this.currentDrive] === null || !this.connected[this.currentDrive] ? ST_BIT7 : 0;
+    }
   }
 
   /**
@@ -445,6 +454,10 @@ export class WD179x {
     // Reading the status acknowledges a completed command (the host's NMI
     // handler clears the completion edge here).
     if (this.completionIrq) this.setCompletion(false);
+    // NOT READY is not latched: the datasheet makes bit 7 an inverted copy of
+    // the READY input, so it follows the line between commands too (a disk
+    // going in or out, or the Beta 128's head unloading after its timeout).
+    if (this.statusBit7Mode !== 'motor-on') this.statusReg = (this.statusReg & ~ST_BIT7) | this.statusBit7();
     // Type I BUSY pulse: hold BUSY set for the first few reads after the command,
     // then reveal the completed status (see endTypeI / pulseBusy).
     if (this.busyCountdown > 0) {
@@ -834,17 +847,27 @@ export class WD179x {
     if (this.addressRotation >= track.sectors.length) this.addressRotation = 0;
     const sec = track.sectors[this.addressRotation];
     this.addressRotation = (this.addressRotation + 1) % track.sectors.length;
-    // 6-byte ID: track, side, sector, size code, CRC hi, CRC lo (zeros unless
-    // the host asked for the real ones).
+    // 6-byte ID: track, side, sector, size code, CRC hi, CRC lo. The CRC bytes are
+    // zeros unless the host asked for the real ones; with them on, an ID whose CRC
+    // is bad on the image (ST1 DE without ST2 DD) reads back a CRC that does not
+    // match. Either way the command ends with CRC ERROR for such an ID.
+    const idBad = (sec.st1 & 0x20) !== 0 && (sec.st2 & 0x20) === 0;
     const id = [sec.c, sec.h, sec.r, sec.n];
-    const crc = this.addressCrc
-      ? crcCcitt(this.singleDensity ? [0xFE, ...id] : [0xA1, 0xA1, 0xA1, 0xFE, ...id])
-      : 0;
+    let crc = 0;
+    if (this.addressCrc) {
+      crc = crcCcitt(this.singleDensity ? [0xFE, ...id] : [0xA1, 0xA1, 0xA1, 0xFE, ...id]);
+      if (idBad) crc ^= 0xFFFF;
+    }
     this.buffer = Uint8Array.from([...id, crc >> 8, crc & 0xFF]);
     this.bufPos = 0;
     this.writing = false;
     this.multi = false;
     this.sectorReg = sec.c; // datasheet: track value lands in the sector reg
+    // Type III READ ADDRESS status: bit 3 is the ID field's CRC; bits 5 and 6
+    // are always 0 (no record type, no write protect). Reset recFlags so a
+    // deleted mark or data CRC error from an earlier READ SECTOR does not
+    // leak into this command's completion status.
+    this.recFlags = idBad ? ST_CRCERR : 0;
     this.statusReg = this.base() | ST_BUSY | ST_DRQ;
     if (this.interruptDriven) this.scheduleByte('next');
   }
@@ -862,6 +885,7 @@ export class WD179x {
     let off = 0;
     for (const s of track.sectors) { buf.set(s.data, off); off += s.data.length; }
     this.buffer = buf;
+    this.recFlags = 0;   // READ TRACK status: bits 3 and 5 are always 0
     this.bufPos = 0;
     this.writing = false;
     this.multi = false;
