@@ -17,6 +17,7 @@
 import type { MsxMachine } from '@/machines/msx/msx-machine.ts';
 import type { MsxMemory } from '@/machines/msx/msx-memory.ts';
 import type { MsxKeyboard } from '@/machines/msx/msx-keyboard.ts';
+import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 
 /**
  * MsxPpi — the Intel 8255 as wired on the MSX.
@@ -87,6 +88,21 @@ export class MsxPpi {
     this.portC = 0;
     this.memory.setPrimarySlots(0);
     this.keyboard.selectRow(0);
+  }
+
+  /** The port A and C output latches (slot select; keyboard row, cassette
+   *  motor/out, CAPS LED, key click). */
+  saveState(w: StateWriter): void {
+    w.u8(this.portA);
+    w.u8(this.portC);
+  }
+
+  /** Restore the latches. The memory's slot register is restored with the
+   *  memory itself, so it is not written again here. */
+  loadState(r: StateReader): void {
+    this.portA = r.u8();
+    this.portC = r.u8();
+    this.keyboard.selectRow(this.portC & 0x0F);
   }
 }
 

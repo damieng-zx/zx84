@@ -19,6 +19,7 @@
  */
 
 import type { StereoAudioSource } from '@/machines/shared/audio-mixer.ts';
+import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 
 /** A maximal-length polynomial counter's output sequence, read backwards as
  *  Dave's counters run: `bits` long, taps at `tap` and the top bit. */
@@ -44,6 +45,8 @@ const POLY9 = polyTable(9, 5);
 const POLY11 = polyTable(11, 9);
 const POLY15 = polyTable(15, 14);
 const POLY17 = polyTable(17, 14);
+/** The variable-length counter's choices, as port 0xA6 bits 3-2 pick them. */
+const VL_TABLES = [POLY17, POLY15, POLY11, POLY9];
 
 /** Tone distortion source (port 0xA1/A3/A5 bits 5-4). */
 const SRC_SQUARE = 0, SRC_POLY4 = 1, SRC_POLY5 = 2, SRC_POLY7 = 3;
@@ -351,6 +354,58 @@ export class Dave implements StereoAudioSource {
     this.level = l > r ? l : r;
     // Raw: the mixer's DC blocker centres it.
     return { left: l, right: r };
+  }
+
+  // ── Snapshot state ──────────────────────────────────────────────────────
+
+  /** The counters, timebase, channel network, mixer settings, interrupt
+   *  sources and latches, and the I/O latches. Paging is the memory's. */
+  saveState(w: StateWriter): void {
+    w.u32(this.p4); w.u32(this.p5); w.u32(this.p7); w.u32(this.pVL);
+    w.u8(this.s4); w.u8(this.s5); w.u8(this.s7); w.u8(this.sVL);
+    w.u8(VL_TABLES.indexOf(this.vlTable)); w.bool(this.noiseIs7bit);
+    w.i32(this.clk31k); w.u8(this.clk31kState); w.i32(this.clk1k); w.i32(this.clk50); w.i32(this.clk1);
+    w.f64(this.tRemainder); w.u8(this.tPerTick);
+    for (let ch = 0; ch < 3; ch++) {
+      w.i32(this.freq[ch]); w.i32(this.phase[ch]); w.u8(this.run[ch]); w.u8(this.osc[ch]);
+      w.u8(this.src[ch]); w.u8(this.highPass[ch]); w.u8(this.ringMod[ch]);
+    }
+    w.raw(this.out); w.raw(this.prev);
+    w.u8(this.noiseClock); w.u8(this.noiseClockPrev); w.u8(this.noiseIn); w.u8(this.noiseHeld);
+    w.bool(this.noiseLowPass); w.bool(this.noiseHighPass); w.bool(this.noiseRingMod);
+    w.raw(this.left); w.raw(this.right); w.bool(this.dacLeft); w.bool(this.dacRight);
+    w.u8(this.sndSource);
+    w.u8(this.sndState); w.u8(this.secState); w.u8(this.int1State); w.u8(this.int2State);
+    w.bool(this.sndEnable); w.bool(this.secEnable); w.bool(this.int1Enable); w.bool(this.int2Enable);
+    w.bool(this.sndLatch); w.bool(this.secLatch); w.bool(this.int1Latch); w.bool(this.int2Latch);
+    w.u8(this.keyboardRow); w.u8(this.remote); w.u8(this.waitMode);
+  }
+
+  /** Restore {@link saveState}. The machine re-reads `waitMode` itself. */
+  loadState(r: StateReader): void {
+    this.p4 = r.u32(); this.p5 = r.u32(); this.p7 = r.u32(); this.pVL = r.u32();
+    this.s4 = r.u8(); this.s5 = r.u8(); this.s7 = r.u8(); this.sVL = r.u8();
+    const vl = VL_TABLES[r.u8()];
+    if (!vl) throw new Error('Snapshot is corrupt (Dave noise counter)');
+    this.vlTable = vl; this.noiseIs7bit = r.bool();
+    this.clk31k = r.i32(); this.clk31kState = r.u8(); this.clk1k = r.i32(); this.clk50 = r.i32(); this.clk1 = r.i32();
+    this.tRemainder = r.f64(); this.tPerTick = r.u8() === 24 ? 24 : 16;
+    for (let ch = 0; ch < 3; ch++) {
+      this.freq[ch] = r.i32(); this.phase[ch] = r.i32(); this.run[ch] = r.u8(); this.osc[ch] = r.u8();
+      this.src[ch] = r.u8() & 3; this.highPass[ch] = r.u8(); this.ringMod[ch] = r.u8();
+    }
+    r.rawInto(this.out); r.rawInto(this.prev);
+    this.noiseClock = r.u8() & 3; this.noiseClockPrev = r.u8(); this.noiseIn = r.u8(); this.noiseHeld = r.u8();
+    this.noiseLowPass = r.bool(); this.noiseHighPass = r.bool(); this.noiseRingMod = r.bool();
+    r.rawInto(this.left); r.rawInto(this.right); this.dacLeft = r.bool(); this.dacRight = r.bool();
+    this.sndSource = r.u8() & 3;
+    this.sndState = r.u8(); this.secState = r.u8(); this.int1State = r.u8(); this.int2State = r.u8();
+    this.sndEnable = r.bool(); this.secEnable = r.bool(); this.int1Enable = r.bool(); this.int2Enable = r.bool();
+    this.sndLatch = r.bool(); this.secLatch = r.bool(); this.int1Latch = r.bool(); this.int2Latch = r.bool();
+    this.keyboardRow = r.u8() & 0x0F; this.remote = r.u8() & 3; this.waitMode = r.u8() & 3;
+    this.pVL %= this.vlTable.length;
+    this.sumL = this.sumR = this.sumN = 0;
+    this.level = 0;
   }
 
   /** The mixer's sample-rate hook — Dave's averaging needs nothing. */

@@ -47,6 +47,9 @@ export class Ppi8255 {
     private readonly setMotor: (on: boolean) => void = () => {},
     /** Called whenever a sound register is written to the AY — drives the LED. */
     private readonly onAyWrite: () => void = () => {},
+    /** Called with the cassette write-data level (Port C bit 5) after every
+     *  Port C change — what CAS WRITE drives to the tape. */
+    private readonly writeTapeBit: (level: number) => void = () => {},
   ) {}
 
   /** Port A is an input when control bit 4 is set. */
@@ -66,6 +69,7 @@ export class Ppi8255 {
     this.pC = val & 0xFF;
     this.keyboard.selectLine(this.pC & 0x0F);
     this.setMotor((this.pC & 0x10) !== 0);   // bit 4: cassette motor
+    this.writeTapeBit((this.pC >> 5) & 1);   // bit 5: cassette write data
     this.strobeAy();
   }
 
@@ -76,6 +80,7 @@ export class Ppi8255 {
       this.pA = 0;
       this.pC = 0;
       this.setMotor(false);                  // cleared latch → motor off
+      this.writeTapeBit(0);
     } else {
       // Bit set/reset on a single Port C bit.
       const bit = (val >> 1) & 7;
@@ -83,6 +88,7 @@ export class Ppi8255 {
       else this.pC &= ~(1 << bit) & 0xFF;
       this.keyboard.selectLine(this.pC & 0x0F);
       this.setMotor((this.pC & 0x10) !== 0); // bit 4: cassette motor
+      this.writeTapeBit((this.pC >> 5) & 1); // bit 5: cassette write data
       this.strobeAy();
     }
   }

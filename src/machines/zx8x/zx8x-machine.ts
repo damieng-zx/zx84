@@ -3,9 +3,12 @@ import { AY3891x } from '@/cores/ay-3-8910.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
+import { crc32, type StateReader, type StateWriter } from '@/machines/shared/state-io.ts';
+import { withStopsDisarmed } from '@/machines/shared/native-state.ts';
 import { z80ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
+import { Z80Trace } from '@/debug/z80/trace.ts';
 import type {
-  AuxRomRequest, BorderMode, Machine, MachineDescriptor, MachineHost, MachineKind, MachineTraceMode, SettingsView,
+  AuxRomRequest, BorderMode, Machine, MachineDescriptor, MachineHost, MachineKind, SettingsView,
 } from '@/machines/machine.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type { OcrGridName, OcrResult } from '@/ocr/ocr.ts';
@@ -14,7 +17,7 @@ import { Zx8xMemory } from './memory.ts';
 import { Zx8xKeyboard } from './keyboard.ts';
 import { zx8xDescriptor } from './descriptor.ts';
 import { Zx8xScreenText } from './screen-text.ts';
-import { Zx81TapeShelf, zx81NameToAscii } from './tape-shelf.ts';
+import { Zx81TapeShelf, zx81NameToAscii, type Zx81Program } from './tape-shelf.ts';
 import { createZx8xServices, type Zx8xServices } from './services/index.ts';
 import {
   ZX8X_ACTIVE_HEIGHT, ZX8X_ACTIVE_WIDTH, ZX8X_BORDER_LEFT, ZX8X_BORDER_TOP,
@@ -116,6 +119,9 @@ export class Zx8xMachine extends BaseMachine implements Machine {
   readonly activity = { kbdReads: 0 };
   /** Programs mounted (or SAVEd) this session, read by the ROM's LOAD. */
   readonly tapeShelf = new Zx81TapeShelf();
+  /** The most recent SAVE since the last reset — what the Save menu's
+   *  "Saved tape" entry downloads (as a .p / .o image). */
+  lastSave: Zx81Program | null = null;
   host: MachineHost | null = null;
   display: IScreenRenderer | null;
 
@@ -288,6 +294,7 @@ export class Zx8xMachine extends BaseMachine implements Machine {
       const data = new Uint8Array(end - map.base);
       for (let i = 0; i < data.length; i++) data[i] = this.memory.readByte(map.base + i);
       this.tapeShelf.record(name, data);
+      this.lastSave = { name, data };
       this.cpu.pc = map.resume;
       this.lastTapeStatus = '';
       this.tapeStatus(map.named ? `Saved "${name}" (${data.length} bytes)` : `Saved program (${data.length} bytes)`);
@@ -354,7 +361,11 @@ export class Zx8xMachine extends BaseMachine implements Machine {
 
   loadProgram(data: Uint8Array, address: number): void {
     this.stop();
+    // Mounting a program is not a power cycle from the user's point of view:
+    // what they SAVEd before it stays downloadable.
+    const saved = this.lastSave;
     this.reset();
+    this.lastSave = saved;
     this.memory.loadRamImage(data, address);
     this.cpu.iy = 0x4000;
     this.cpu.i = this.model === 'zx80' ? 0x0e : 0x1e;
@@ -429,6 +440,7 @@ export class Zx8xMachine extends BaseMachine implements Machine {
     this.cpu.reset();
     this.memory.reset();
     this.keyboard.reset();
+    this.lastSave = null;
     this.nmiEnabled = false;
     this.audio.reset();
     this.mixer.reset();
@@ -913,6 +925,124 @@ export class Zx8xMachine extends BaseMachine implements Machine {
     }
   }
 
+  // ── Snapshot state (.zx8xstate) ───────────────────────────────────────
+
+  /** CRC-32s of the system ROM and of the HRG board's ROM (0 when none). */
+  stateRomCrcs(): number[] {
+    const hrg = this.memory.getHrgRom();
+    return [crc32(this.memory.getRom()), hrg.length ? crc32(hrg) : 0];
+  }
+
+  /** Run the rest of a frame a stop left open, so the machine is between
+   *  frames (where a snapshot is taken). */
+  private completeFrame(): void {
+    if (this.midFrame) withStopsDisarmed(this, () => this.stepFrame());
+  }
+
+  /**
+   * Write the machine's sections of a `.zx8xstate` (see
+   * snapshots/zx8x-state.ts): the RAM size and graphics board first, so a
+   * restore can refuse a mismatch before it changes anything, then the CPU,
+   * the frame grid, the RAM, the ZX81's NMI generator and HRG latches and the
+   * software-video capture that spans frames. There are no disks, so
+   * `withMedia` changes nothing; the program "tape" shelf is not state.
+   */
+  saveState(w: StateWriter, _withMedia: boolean): void {
+    this.completeFrame();
+    w.section('CONF', () => { w.u8(this.memory.has16kExpansion ? 16 : 1); w.u8(this.memory.boardId); });
+    w.section('CPU ', () => this.cpu.saveState(w));
+    w.section('MACH', () => {
+      w.f64(this.frameStartT); w.f64(this.frameEndT); w.f64(this.frameNumber);
+      w.bool(this.nmiEnabled); w.u8(this.memotechMode); w.bool(this.quickSilvaMode);
+      w.bool(this.displayFetched);
+    });
+    w.section('MEM ', () => this.memory.saveState(w));
+    w.section('VID ', () => this.savePseudoHires(w));
+  }
+
+  /** Restore a state written by {@link saveState}. The frame loop must be
+   *  stopped. Throws before changing anything if the RAM or board differs. */
+  loadState(r: StateReader): void {
+    const conf = r.section('CONF');
+    const ramKB = conf.u8();
+    const board = conf.u8();
+    const liveKB = this.memory.has16kExpansion ? 16 : 1;
+    if (ramKB !== liveKB) {
+      throw new Error(`This snapshot was saved with ${ramKB}K of RAM and this machine has ${liveKB}K; ${ramKB === 16 ? 'fit' : 'remove'} the 16K RAM pack in the Hardware pane and load it again`);
+    }
+    if (board !== this.memory.boardId) {
+      const name = (id: number) => ['no graphics board', 'the UDG board', 'the UDG128 board', 'WRX RAM', 'the Memotech HRG', 'the QuickSilva HRG'][id] ?? 'an unknown board';
+      throw new Error(`This snapshot was saved with ${name(board)} and this machine has ${name(this.memory.boardId)}; change it in the Hardware pane and load it again`);
+    }
+    this.cpu.loadState(r.section('CPU '));
+    {
+      const s = r.section('MACH');
+      this.frameStartT = s.f64(); this.frameEndT = s.f64(); this.frameNumber = s.f64();
+      this.nmiEnabled = s.bool(); this.memotechMode = s.u8(); this.quickSilvaMode = s.bool();
+      this.displayFetched = s.bool();
+    }
+    this.memory.loadState(r.section('MEM '));
+    this.loadPseudoHires(r.section('VID '));
+    // What the state does not hold: the host's keys are whatever they are
+    // now, and nothing is part-way through a frame or an M1 fetch.
+    this.midFrame = false;
+    this.m1ReadPending = false;
+    this.lastTapeStatus = '';
+    this.clearInterrupts();
+    this.keyboard.reset();
+    this.audio.reset();
+    this.mixer.reset();
+    this.needsDisplay = true;
+  }
+
+  private savePseudoHires(w: StateWriter): void {
+    w.raw(this.pseudoHiresRow);
+    w.raw(this.pseudoHiresBuilding);
+    w.raw(this.pseudoHiresFrame);
+    w.raw(this.pseudoHiresBuildingWidths);
+    w.raw(this.pseudoHiresFrameWidths);
+    w.raw(this.pseudoHiresTextBuilding);
+    w.raw(this.pseudoHiresTextFrame);
+    w.u16(this.pseudoHiresRunLength);
+    w.bool(this.pseudoHiresRunValid); w.bool(this.pseudoHiresRunIsText);
+    w.bool(this.pseudoHiresRunCommitOnFinish); w.bool(this.pseudoHiresRunIsUdg);
+    w.bool(this.pseudoHiresRunIsWrx); w.u8(this.pseudoHiresRunGlyphRow);
+    w.u8(this.pseudoHiresRowWidth); w.bool(this.pseudoHiresRowReady); w.bool(this.pseudoHiresRowIsText);
+    w.u16(this.pseudoHiresBuildingRows);
+    const mode = this.pseudoHiresBuildingMode;
+    w.u8(mode === null ? 0 : mode === 'software' ? 1 : mode === 'udg' ? 2 : 3);
+    w.u16(this.pseudoHiresFrameRows);
+    w.u16(this.pseudoHiresTextBuildingRows); w.u16(this.pseudoHiresTextFrameRows);
+    w.f64(this.pseudoHiresLastSyncT); w.f64(this.pseudoHiresLastCommittedRowT);
+    w.f64(this.pseudoHiresLastTextRowT); w.f64(this.pseudoHiresLastTextRunT);
+    w.u8(this.pseudoHiresTextLineCounter); w.f64(this.pseudoHiresLastFetchT);
+  }
+
+  private loadPseudoHires(r: StateReader): void {
+    r.rawInto(this.pseudoHiresRow);
+    r.rawInto(this.pseudoHiresBuilding);
+    r.rawInto(this.pseudoHiresFrame);
+    r.rawInto(this.pseudoHiresBuildingWidths);
+    r.rawInto(this.pseudoHiresFrameWidths);
+    r.rawInto(this.pseudoHiresTextBuilding);
+    r.rawInto(this.pseudoHiresTextFrame);
+    this.pseudoHiresRunLength = r.u16();
+    this.pseudoHiresRunValid = r.bool(); this.pseudoHiresRunIsText = r.bool();
+    this.pseudoHiresRunCommitOnFinish = r.bool(); this.pseudoHiresRunIsUdg = r.bool();
+    this.pseudoHiresRunIsWrx = r.bool(); this.pseudoHiresRunGlyphRow = r.u8() & 7;
+    this.pseudoHiresRowWidth = Math.min(r.u8(), PSEUDO_HIRES_ROW_BYTES);
+    this.pseudoHiresRowReady = r.bool(); this.pseudoHiresRowIsText = r.bool();
+    this.pseudoHiresBuildingRows = Math.min(r.u16(), PSEUDO_HIRES_MAX_ROWS);
+    const mode = r.u8();
+    this.pseudoHiresBuildingMode = mode === 1 ? 'software' : mode === 2 ? 'udg' : mode === 3 ? 'wrx' : null;
+    this.pseudoHiresFrameRows = Math.min(r.u16(), PSEUDO_HIRES_MAX_ROWS);
+    this.pseudoHiresTextBuildingRows = Math.min(r.u16(), PSEUDO_HIRES_TEXT_MAX_ROWS);
+    this.pseudoHiresTextFrameRows = Math.min(r.u16(), PSEUDO_HIRES_TEXT_MAX_ROWS);
+    this.pseudoHiresLastSyncT = r.f64(); this.pseudoHiresLastCommittedRowT = r.f64();
+    this.pseudoHiresLastTextRowT = r.f64(); this.pseudoHiresLastTextRunT = r.f64();
+    this.pseudoHiresTextLineCounter = r.u8() & 7; this.pseudoHiresLastFetchT = r.f64();
+  }
+
   screenExportBytes(): Uint8Array {
     const out = new Uint8Array((ZX8X_ACTIVE_WIDTH * ZX8X_ACTIVE_HEIGHT) >> 3);
     for (let y = 0; y < ZX8X_ACTIVE_HEIGHT; y++) {
@@ -942,8 +1072,9 @@ export class Zx8xMachine extends BaseMachine implements Machine {
   ramExportBytes(): { data: Uint8Array; filename: string } {
     return { data: this.memory.ramSnapshot(), filename: `ram-${this.memory.ramSize / 1024}k.bin` };
   }
-  startTrace(_mode: MachineTraceMode = 'full'): void {}
-  stopTrace(): string { return ''; }
+  /** Execution trace: BaseMachine's startTrace/stopTrace drive it and
+   *  beforeInsn/afterInsn feed it (debug/z80/trace.ts). */
+  protected override tracer = new Z80Trace(this);
   ocrScreenForMcp(_mode: OcrGridName | 'auto' = 'auto'): string {
     if (this.pseudoHiresActive()) return '[32x24]\n';
     return `[32x24]\n${this.screenText.ocr(this.memory.snapshot(), this.model)}`;

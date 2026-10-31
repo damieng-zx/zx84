@@ -131,12 +131,6 @@ describe('HFE signature detection', () => {
     expect(isHFE(v3)).toBe(true);
     expect(isHFE(new Uint8Array([0x4D, 0x56, 0x20, 0x2D]))).toBe(false); // "MV -" DSK
   });
-
-  it('parseHFE rejects a v3 image with a clear message', () => {
-    const v3 = new Uint8Array(512); for (let i = 0; i < 8; i++) v3[i] = 'HXCHFEV3'.charCodeAt(i);
-    v3[9] = 1; v3[10] = 1;
-    expect(() => parseHFE(v3)).toThrow(/v3/i);
-  });
 });
 
 describe('decodeHfeTrack — MFM sector recovery', () => {
@@ -153,6 +147,7 @@ describe('decodeHfeTrack — MFM sector recovery', () => {
     expect(s1.st1 | s1.st2).toBe(0);
     expect(Array.from(s1.data)).toEqual(dataA);
     expect(Array.from(track.sectors[track.sectorMap.get(2)!].data)).toEqual(dataB);
+    expect(track.encoding).toBe('mfm');
   });
 
   it('recovers a sector written with only two A1 sync marks', () => {

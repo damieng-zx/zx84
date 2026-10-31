@@ -13,6 +13,8 @@
  * each line boundary so changes between lines take effect.
  */
 
+import type { StateSink, StateSource } from '@/utils/state-stream.ts';
+
 export const R_HORIZ_TOTAL = 0;
 export const R_HORIZ_DISPLAYED = 1;
 export const R_HSYNC_POS = 2;
@@ -255,5 +257,23 @@ export class Crtc6845 {
     this.maRow = 0;
     this.vsyncLeft = 0;
     this.vtaLeft = 0;
+  }
+
+  // ── Snapshot state ────────────────────────────────────────────────────
+  /** The registers, the selected register and the raster counters. */
+  saveState(w: StateSink): void {
+    w.raw(this.regs);
+    w.u8(this.selected);
+    w.bool(this.vsyncActive); w.bool(this.vsyncStart);
+    w.u8(this.vcc); w.u8(this.ra); w.u16(this.maRow);
+    w.u8(this.vsyncLeft); w.u8(this.vtaLeft);
+  }
+
+  loadState(r: StateSource): void {
+    r.rawInto(this.regs);
+    this.selected = r.u8() & 0x1F;
+    this.vsyncActive = r.bool(); this.vsyncStart = r.bool();
+    this.vcc = r.u8(); this.ra = r.u8(); this.maRow = r.u16();
+    this.vsyncLeft = r.u8(); this.vtaLeft = r.u8();
   }
 }

@@ -19,15 +19,17 @@ import {
 } from './constants.ts';
 
 const ELECTRON_UI: MachineUiCapabilities = {
-  // No microdrive, joystick or mouse, and nothing to show in the
-  // Spectrum-style sysvar/font/banks panes. The Drives pane is kept: it lists
-  // the Plus 3's drives once that is fitted and nothing before.
+  // No microdrive or mouse, and nothing to show in the Spectrum-style
+  // sysvar/font/banks panes. The Drives pane is kept: it lists the Plus 3's
+  // drives once that is fitted and nothing before; the Joysticks pane, the
+  // Plus 1's analogue port the same way.
   hiddenPanes: [
-    'microdrive-panel', 'mouse-panel', 'joystick-panel',
+    'microdrive-panel', 'mouse-panel',
     'sysvar-panel', 'font-panel', 'banks-panel',
   ],
   memoryLayout: false,
-  trace: false,
+  trace: true,
+  traceModes: ['full', 'portio'],
   // The ULA's eight colours are the BBC's: share its PAL / Measured choice.
   colorMap: 'bbc',
   accuracy: false,
@@ -36,9 +38,12 @@ const ELECTRON_UI: MachineUiCapabilities = {
   // while the matching setting is on.
   builtinDisk: true,
   builtinDrives: 2,
-  requires: { builtinDisk: 'electron-plus3', cartridge: 'electron-plus1' },
-  joystick: false,
-  fixedJoystick: false,
+  requires: { builtinDisk: 'electron-plus3', cartridge: 'electron-plus1', joystick: 'electron-plus1' },
+  // The Plus 1's analogue port: two proportional sticks on its ADC0844, one
+  // fire button each.
+  joystick: true,
+  fixedJoystick: true,
+  joystickFireButtons: 1,
   mouseTypes: [],
   cartridge: true,
   systemRomLabel: 'OS + BASIC ROM',
@@ -52,7 +57,7 @@ const ELECTRON_UI: MachineUiCapabilities = {
   tapeSound: false,
   tapeExtensions: ACORN_TAPE_EXTENSIONS,
   // 'tape-tap' downloads whatever the OS has SAVEd to the cassette port (.uef).
-  saveMenu: ['tape-tap', 'screenshot-png', 'ram-bin'],
+  saveMenu: ['snapshot-elkstate', 'tape-tap', 'screenshot-png', 'ram-bin'],
   zipPolicy: 'media',
   persistMedia: true,
   bootDisk: false,

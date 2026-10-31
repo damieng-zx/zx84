@@ -23,19 +23,27 @@ function pcwUi(model: MachineModel): MachineUiCapabilities {
 }
 
 const PCW_UI: MachineUiCapabilities = {
-  // No cassette port, no joystick, no mouse fitted, no Sinclair sysvars, and
-  // the font pane's ROM-capture heuristic has no ROM to work on here.
+  // No cassette port, no mouse fitted, no Sinclair sysvars, and the font
+  // pane's ROM-capture heuristic has no ROM to work on here.
   hiddenPanes: [
-    'tape-panel', 'microdrive-panel', 'mouse-panel', 'joystick-panel',
+    'tape-panel', 'microdrive-panel', 'mouse-panel',
     'sysvar-panel', 'font-panel',
   ],
   memoryLayout: true,
-  trace: false,
+  trace: true,
   colorMap: 'mono',
   accuracy: false,
   builtinDisk: true,
-  joystick: false,
+  // One joystick on an add-on interface, chosen in the Joystick pane.
+  joystick: true,
   fixedJoystick: false,
+  joystickFireButtons: 1,
+  joystickPlayers: 1,
+  joystickTypes: [
+    { id: 'kempston', label: 'Kempston (&9F)' },
+    { id: 'spectravideo', label: 'Spectravideo (&E0)' },
+    { id: 'cascade', label: 'Cascade (&E0)' },
+  ],
   mouseTypes: [],
   cartridge: false,
   // There is no ROM in a PCW at all — it boots from the disc in drive A — so
@@ -50,7 +58,7 @@ const PCW_UI: MachineUiCapabilities = {
   // No tape hardware: `tape` is omitted entirely rather than set to a mode.
   tapeSound: false,
   tapeExtensions: [],
-  saveMenu: ['screenshot-png', 'screen-scr', 'ram-bin'],
+  saveMenu: ['snapshot-pcwstate', 'screenshot-png', 'screen-scr', 'ram-bin'],
   zipPolicy: 'media',
   persistMedia: true,
   // No hidden boot disc is offered: a PCW needs a CP/M+ system disc, and

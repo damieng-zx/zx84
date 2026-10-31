@@ -657,7 +657,7 @@ describe('Electron cassette', () => {
 describe('Electron services', () => {
   it('accepts .uef, .csw and .wav tapes and reports a tape service', async () => {
     const m = machine();
-    expect(m.services.media.accepts().map(t => t.ext)).toEqual(['.uef', '.csw', '.wav']);
+    expect(m.services.media.accepts().map(t => t.ext)).toEqual(['.uef', '.csw', '.wav', '.elkstate']);
     const bad = await m.services.media.mount(new Uint8Array(40), 'x.uef');
     expect(bad.ok).toBe(false);
     const ok = await m.services.media.mount(buildUef([chunk(0x0100, 1, 2, 3)]), 'x.uef');

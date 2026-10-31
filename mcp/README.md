@@ -56,7 +56,7 @@ Use `model` to switch machines. Switching always creates a fresh machine.
 | `continue` | `max_frames` (default `5000`) | Run until a breakpoint, watchpoint, trap, or reset trap hits. |
 | `registers` | | Display CPU and machine state. |
 | `set_register` | `register`, `value` | Set A/F/AF, B/C/BC, D/E/DE, H/L/HL, SP, PC, IX, or IY. |
-| `model` | `target`, `ram16k`, `udgRam`, `udg128Ram`, `wrxHires`, `memotechHrg`, `quickSilvaHrg` (optional) | Show or switch the active model; `ram16k` selects ZX80/ZX81 16KB RAM, while the graphics options select one mutually exclusive ZX81 hi-res device. |
+| `model` | `target`, `tv`, `ram16k`, `udgRam`, `udg128Ram`, `wrxHires`, `memotechHrg`, `quickSilvaHrg` (optional) | Show or switch the active model; `tv` (`pal` or `ntsc`) picks the Atari's or Commodore 64's TV standard, `ram16k` selects ZX80/ZX81 16KB RAM, while the graphics options select one mutually exclusive ZX81 hi-res device. |
 
 ### Memory And Symbols
 
@@ -153,6 +153,13 @@ These use the active +3 or CPC uPD765A where fitted.
 | Tool | Parameters | Description |
 | --- | --- | --- |
 | `msxdisk` | `action`: `on`, `off`, `status` | Fit or remove the floppy disk interface (WD2793 + Disk BASIC ROM in slot 3, drives A:/B:). Fitting loads the ROM from the cache/CDN and resets so the BIOS finds it. |
+
+### Commodore 64 Peripherals
+
+| Tool | Parameters | Description |
+| --- | --- | --- |
+| `c64drive` | `action`: `on`, `off`, `status`; `model`: `1541`, `1571`, `1581`, or `models`: a list of one to four (for `on`) | Fit or remove the disk drives on the serial bus: up to four, devices 8 to 11 (a single 1541 is fitted by default; the DOS ROMs are fetched from the cache/CDN). A 1581 reads `.d81`, a 1571 `.d71` and the 1541's disks, a 1541 `.d64`/`.g64` (a 1571 is a 1541 to a 64 until `OPEN15,8,15,"U0>M1"`); a drive in its place with the same model keeps its disk. `load` and `eject` take `drive` 0-3 or A-D for the device. Mount with `load`, list with `LOAD"$",8`; `chip_state` chip `drive` shows its CPU, head and VIAs. |
+| `c64sid` | `model`: `6581`, `8580` (optional) | Show or choose the SID: the original 6581 or the C64C's 8580 (centred, linear filter, no DC level). Takes effect at once; `chip_state` chip `sid` names it. |
 
 ### Memotech MTX Peripherals
 

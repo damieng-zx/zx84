@@ -14,7 +14,7 @@ const ZX81_ROM = 'sinclair/zx81-v2.rom';
 const UI: MachineUiCapabilities = {
   hiddenPanes: ['drive-panel', 'microdrive-panel', 'tape-panel', 'sound-panel', 'joystick-panel', 'mouse-panel', 'font-panel', 'sysvar-panel', 'banks-panel'],
   memoryLayout: false,
-  trace: false,
+  trace: true,
   colorMap: 'mono',
   accuracy: false,
   builtinDisk: false,
@@ -34,7 +34,9 @@ const UI: MachineUiCapabilities = {
   tape: 'instant',
   tapeExtensions: ['.o', '.80', '.p', '.81', '.p81', '.zip'],
   tapeSound: false,
-  saveMenu: ['screenshot-png', 'screen-scr', 'ram-bin'],
+  // 'tape-tap' downloads the most recent SAVE as the program image the LOAD
+  // trap reads back (.p on the ZX81, .o on the ZX80).
+  saveMenu: ['snapshot-zx8xstate', 'tape-tap', 'screenshot-png', 'screen-scr', 'ram-bin'],
   zipPolicy: 'media',
   persistMedia: false,
   bootDisk: false,

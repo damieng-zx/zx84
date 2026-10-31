@@ -310,7 +310,7 @@ describe('apple1 listings', () => {
     expect((await m.services.media.mount(text('301: BB\r\n'), 'prog.hex')).ok).toBe(true);
     finish(m);
     expect(m.memory.readByte(0x301)).toBe(0xBB);
-    expect(m.services.media.accepts().map(t => t.ext)).toEqual(['.txt', '.hex']);
+    expect(m.services.media.accepts().map(t => t.ext)).toEqual(['.txt', '.hex', '.a1state']);
     m.destroy();
   });
 
@@ -472,6 +472,51 @@ describe('apple1 cassette interface', () => {
     m.services.tape!.play();
     settle(m, 3000);
     expect([...m.memory.readBlock(0x400, 32)]).toEqual([...data]);
+    m.destroy();
+  });
+
+  it('offers what the interface ROM wrote as a WAV that loads back', async () => {
+    const m = new Apple1Machine('apple1', null);
+    m.loadROM(WOZMON);
+    m.prepare(view({ 'apple1-aci': true })).find(r => r.source === 'apple1/aci.rom')!.apply(ACIROM);
+    m.reset();
+    settle(m);
+    expect(m.services.tape!.recordedBytes!()).toBeNull();     // nothing written yet
+
+    const data = Uint8Array.from({ length: 32 }, (_, i) => (i * 53 + 7) & 0xFF);
+    m.memory.ram.set(data, 0x300);
+    typeLine(m, 'C100R');
+    m.keyboard.press(0x0D);
+    settle(m, 400, aciWaitingForKey);
+    typeLine(m, '300.31FW', aciWaitingForKey);
+    m.keyboard.press(0x0D);
+    settle(m, 3000);
+
+    // The Save menu's file: a 44.1 kHz 16-bit mono WAV of the output toggles.
+    const rec = m.services.tape!.recordedBytes!()!;
+    expect(rec.filename).toBe('apple1-tape.wav');
+    const v = new DataView(rec.data.buffer, rec.data.byteOffset);
+    expect(String.fromCharCode(...rec.data.subarray(0, 4))).toBe('RIFF');
+    expect(String.fromCharCode(...rec.data.subarray(8, 16))).toBe('WAVEfmt ');
+    expect(v.getUint16(20, true)).toBe(1);        // PCM
+    expect(v.getUint32(24, true)).toBe(44100);
+    expect(v.getUint16(34, true)).toBe(16);
+
+    // Mount it back through the tape service and read it into $400 with the ROM.
+    expect(await m.services.tape!.mountBytes(rec.data, rec.filename)).toBe(true);
+    typeLine(m, 'C100R');
+    m.keyboard.press(0x0D);
+    settle(m, 400, aciWaitingForKey);
+    typeLine(m, '400.41FR', aciWaitingForKey);
+    m.keyboard.press(0x0D);
+    m.tick();
+    m.services.tape!.play();
+    settle(m, 3000);
+    expect([...m.memory.readBlock(0x400, 32)]).toEqual([...data]);
+
+    // A reset forgets it.
+    m.reset();
+    expect(m.services.tape!.recordedBytes!()).toBeNull();
     m.destroy();
   });
 

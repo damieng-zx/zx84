@@ -11,7 +11,7 @@ export function lynxKeyboardLabPresets(): readonly KeyboardLabDocument[] {
     keys: placeLynxKeys().map((item) => ({
       id: item.key.id,
       box: { ...item.box },
-      // BREAK is not a matrix key, so it goes to the editor without a cell.
+      // BREAK is wired to /INT, not the matrix, so it goes to the editor without a cell.
       ...(item.key.cell ? { cell: item.key.cell } : {}),
       legends: { main: item.key.main, shift: item.key.shift },
       region: item.key.region,

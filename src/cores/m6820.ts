@@ -31,6 +31,8 @@
  * those callbacks.
  */
 
+import type { StateSink, StateSource } from '@/utils/state-stream.ts';
+
 export const PIA_CR_IRQ1 = 0x80;
 export const PIA_CR_IRQ2 = 0x40;
 
@@ -221,6 +223,26 @@ export class M6820 {
       case 1: this.a.writeCr(value & 0xFF); break;
       case 2: this.b.writeData(value, true); break;
       default: this.b.writeCr(value & 0xFF); break;
+    }
+  }
+
+  // ── Snapshot state ────────────────────────────────────────────────────────
+
+  /** Write both ports: output, direction and control registers (with their
+   *  interrupt flags), the pin levels driven from outside and the control
+   *  lines' last levels. */
+  saveState(w: StateSink): void {
+    for (const p of [this.a, this.b]) {
+      w.u8(p.or); w.u8(p.ddr); w.u8(p.cr); w.u8(p.pins);
+      w.bool(p.c1); w.bool(p.c2In); w.bool(p.c2Out);
+    }
+  }
+
+  /** Restore what `saveState` wrote, without calling the port callbacks. */
+  loadState(r: StateSource): void {
+    for (const p of [this.a, this.b]) {
+      p.or = r.u8(); p.ddr = r.u8(); p.cr = r.u8(); p.pins = r.u8();
+      p.c1 = r.bool(); p.c2In = r.bool(); p.c2Out = r.bool();
     }
   }
 }

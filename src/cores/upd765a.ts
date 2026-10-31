@@ -10,6 +10,8 @@
  */
 
 import type { DskImage, DskSector, DskTrack } from '@/media/floppy/disk-image.ts';
+import { locateTrack, trackAt } from '@/media/floppy/disk-state.ts';
+import type { StateSink, StateSource } from '@/utils/state-stream.ts';
 
 // ── Command codes (lower 5 bits of command byte) ────────────────────────
 
@@ -1643,5 +1645,92 @@ export class UPD765A {
     this.latchWriting = false;
     this.latchFrames = 0;
     // Note: disk image and idIndex intentionally preserved across reset
+  }
+
+  // ── Snapshot state ──────────────────────────────────────────────────
+  /**
+   * The phase, the command and result bytes, per-drive cylinders and pending
+   * seek results, and an execution phase down to the byte it has reached. The
+   * disks are the owner's to save (they are media); the track and sector a
+   * transfer is working on are recorded by where they sit on the disk, so a
+   * restore with the same disks mounted first writes into the restored image.
+   * Settings and wiring (write protect, force ready, connected drives, the
+   * INT response time) are not state.
+   */
+  saveState(w: StateSink): void {
+    w.u8(this.phase);
+    w.u8(this.cmdBuf.length); for (const b of this.cmdBuf) w.u8(b);
+    w.u8(this.cmdExpected);
+    w.u8(this.resBuf.length); for (const b of this.resBuf) w.u8(b);
+    w.u8(this.resPos);
+    for (const si of this.seekInt) {
+      w.bool(si !== null);
+      if (si) { w.u8(si.st0); w.u8(si.pcn); }
+    }
+    w.bool(this.nonDma);
+    for (let u = 0; u < 2; u++) {
+      w.u8(this.pcn[u]); w.u16(this.idIndex[u]); w.u8(this.flipSide[u]); w.bool(this.dirty[u]);
+    }
+    w.bool(this.motorOn);
+    w.i32(this.formattedUnit);
+    w.u8(this.latchR); w.u8(this.latchHead); w.bool(this.latchWriting); w.u8(this.latchFrames);
+    w.bytes(this.exBuf);
+    w.u32(this.exPos);
+    w.bool(this.exWriting); w.bool(this.exReadTrack);
+    w.u8(this.exR); w.u8(this.exEOT); w.bool(this.exHitEOT); w.bool(this.exNormalEOT);
+    w.bool(this.exMTEOT); w.bool(this.exMT); w.bool(this.exSK); w.bool(this.exAbnormal);
+    w.u8(this.exUnit); w.u8(this.exHead); w.u8(this.exC); w.u8(this.exH); w.u8(this.exN);
+    w.u8(this.exCmdN); w.u8(this.exDTL); w.u8(this.exCmdC); w.u8(this.exCmdH); w.u8(this.exCmd);
+    // The track in hand: [drive, cylinder, side], and the sector's index in it.
+    let at: [number, number, number] | null = null;
+    for (let d = 0; d < 2 && !at; d++) {
+      const pos = locateTrack(this.disks[d], this.exTrack);
+      if (pos) at = [d, pos[0], pos[1]];
+    }
+    w.bool(at !== null);
+    if (at) { w.u8(at[0]); w.u8(at[1]); w.u8(at[2]); }
+    w.i32(at && this.exSector && this.exTrack ? this.exTrack.sectors.indexOf(this.exSector) : -1);
+    w.u8(this.exST1); w.u8(this.exST2);
+    w.bool(this.exSingleSector); w.u32(this.exOverrunPolls);
+    w.bool(this.exFormatting); w.u8(this.exSC); w.u8(this.exGPL); w.u8(this.exFiller);
+    w.bool(this.tc); w.bool(this.resEotOnly);
+    w.u32(this.intCountdown);
+  }
+
+  /** Restore what {@link saveState} wrote. Mount the disks first: a transfer
+   *  in flight finds its track and sector in them. */
+  loadState(r: StateSource): void {
+    const phase = r.u8();
+    if (phase > Phase.Result) throw new Error('Snapshot is corrupt (uPD765A phase)');
+    this.phase = phase as Phase;
+    this.cmdBuf = [];
+    for (let n = r.u8(); n > 0; n--) this.cmdBuf.push(r.u8());
+    this.cmdExpected = r.u8();
+    this.resBuf = [];
+    for (let n = r.u8(); n > 0; n--) this.resBuf.push(r.u8());
+    this.resPos = r.u8();
+    for (let u = 0; u < 4; u++) this.seekInt[u] = r.bool() ? { st0: r.u8(), pcn: r.u8() } : null;
+    this.nonDma = r.bool();
+    for (let u = 0; u < 2; u++) {
+      this.pcn[u] = r.u8(); this.idIndex[u] = r.u16(); this.flipSide[u] = r.u8(); this.dirty[u] = r.bool();
+    }
+    this.motorOn = r.bool();
+    this.formattedUnit = r.i32();
+    this.latchR = r.u8(); this.latchHead = r.u8(); this.latchWriting = r.bool(); this.latchFrames = r.u8();
+    this.exBuf = r.bytes(1 << 16);
+    this.exPos = r.u32();
+    this.exWriting = r.bool(); this.exReadTrack = r.bool();
+    this.exR = r.u8(); this.exEOT = r.u8(); this.exHitEOT = r.bool(); this.exNormalEOT = r.bool();
+    this.exMTEOT = r.bool(); this.exMT = r.bool(); this.exSK = r.bool(); this.exAbnormal = r.bool();
+    this.exUnit = r.u8(); this.exHead = r.u8(); this.exC = r.u8(); this.exH = r.u8(); this.exN = r.u8();
+    this.exCmdN = r.u8(); this.exDTL = r.u8(); this.exCmdC = r.u8(); this.exCmdH = r.u8(); this.exCmd = r.u8();
+    this.exTrack = r.bool() ? trackAt(this.disks[r.u8() & 1], r.u8(), r.u8()) : null;
+    const idx = r.i32();
+    this.exSector = this.exTrack && idx >= 0 ? this.exTrack.sectors[idx] ?? null : null;
+    this.exST1 = r.u8(); this.exST2 = r.u8();
+    this.exSingleSector = r.bool(); this.exOverrunPolls = r.u32();
+    this.exFormatting = r.bool(); this.exSC = r.u8(); this.exGPL = r.u8(); this.exFiller = r.u8();
+    this.tc = r.bool(); this.resEotOnly = r.bool();
+    this.intCountdown = r.u32();
   }
 }

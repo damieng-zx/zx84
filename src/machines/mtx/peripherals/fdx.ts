@@ -7,6 +7,7 @@
  */
 
 import { WD179x } from '@/cores/wd179x.ts';
+import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 
 const DRIVE = 0x01;
 const SIDE = 0x02;
@@ -94,6 +95,20 @@ export class MtxFdx {
   tickFrame(): void {
     this.fdc.tickFrame();
     this.fdc.motorOn = this.motorOn;
+  }
+
+  /** The control latch, the board's INTRQ latch and the controller. Mount the
+   *  disks before loading: a transfer in flight finds its sector in them. */
+  saveState(w: StateWriter): void {
+    w.u8(this.control);
+    w.bool(this.interrupt);
+    this.fdc.saveState(w);
+  }
+
+  loadState(r: StateReader): void {
+    this.control = r.u8();
+    this.interrupt = r.bool();
+    this.fdc.loadState(r);
   }
 
   private updateInterrupt(): void {

@@ -75,7 +75,7 @@ machines too. A 48 KB or 80 KB image is split as EXOS plus a 16 KB cartridge.
 
 | Peripheral | Type | Models | Status | Notes |
 | --- | --- | --- | --- | --- |
-| EXDOS disk card | disk | both | ✅ | Hardware pane checkbox "EXDOS disk card", on by default. WD1770 at ports 0x10–0x13 (mirrored to 0x17), control and status latch at 0x18–0x1F, EXDOS 1.3 ROM. Four drives A:–D: of 720 KB 3.5" disks (9 sectors a track). Toggling it rebuilds the machine. Drives pane appears while it is fitted |
+| EXDOS disk card | disk | both | ✅ | Hardware pane checkbox "EXDOS disk card", on by default. WD1770 at ports 0x10–0x13 (mirrored to 0x17), control and status latch at 0x18–0x1F, EXDOS 1.3 ROM. Four drives A:–D: (EXDOS formats 720 KB 3.5" disks, 9 sectors a track; other geometries mount and are up to EXDOS). Control bit 5 selects single density on the WD1770: a single-density (FM) track reads only with it set, a double-density one only with it clear. Toggling it rebuilds the machine. Drives pane appears while it is fitted |
 | Extension ROM sockets (×4) | ROM | both | ✅ | ROM pane, "Extension ROM 1–4". Up to 32 KB each, at segments 0x30, 0x32, 0x34, 0x36; EXOS finds a newly fitted ROM at the next reset. Empty by default. EPDOS (HFONT) and ZozoTools commands are extension ROMs: a program that calls one without it stops with "Unrecognised command string" |
 | FILE: device | ROM / host files | both | ✅ | zx84's own EXOS extension ROM at segment 0x10, fitted only while files are mounted. EXOS opens, reads, creates, writes and deletes files on it; the machine traps the device's entry points and serves them from the mounted files. Names are matched case-blind, with or without extension, directory and drive parts dropped. Files a program creates are held in memory only |
 
@@ -95,8 +95,12 @@ ZIP archives are offered whole to the Enterprise first (see `.zip` below).
 | Extension | Kind | Device | Load | Save | Notes |
 | --- | --- | --- | --- | --- | --- |
 | `.com`, `.bas` | EXOS program | FILE: | ✅ | ✗ | Offered on their own, along with `.prg`, `.ep`, `.app` and `.exe`. Any file is checked by header, not extension: first byte 0, module type 2–7 (BASIC uses type 4, a program type 5) or it is refused |
-| `.zip` | Multi-file program set | FILE: | ✅ | ✗ | All files mount as one set, because multi-part programs load their other parts by name. The key file is a runnable file named after the archive, else the first `.com`/`.bas`, else the first runnable file. An archive containing an `.img` is handed to the ordinary disk path instead; one with no runnable file falls back to the standard ZIP picker |
-| `.img` | Disk (raw FAT12 sector dump) | EXDOS card, drives A:–D: | ✅ | ✅ | Needs the EXDOS card fitted. Geometry from the boot sector, else from the standard file sizes (720 KB, 360 KB, 1.44 MB and others). Saved from the Drives pane as `.img` |
+| `.zip` | Multi-file program set | FILE: | ✅ | ✗ | All files mount as one set, because multi-part programs load their other parts by name. The key file is a runnable file named after the archive, else the first `.com`/`.bas`, else the first runnable file. An archive containing a disk image (`.img`, `.dsk`, `.hfe`, `.scp`) is handed to the ordinary disk path instead; one with no runnable file falls back to the standard ZIP picker |
+| `.img` | Disk (raw FAT12 sector dump) | EXDOS card, drives A:–D: | ✅ | ✅ | Needs the EXDOS card fitted. Geometry from the boot sector, else from the standard file sizes (720 KB, 360 KB, 1.44 MB and others), else from the MSX media descriptor; an MSX `.img` header byte is skipped. Saved from the Drives pane as `.img` |
+| `.dsk` | Disk | EXDOS card, drives A:–D: | ✅ | ✅ | A CPC-style (extended) DSK, recognised by its signature, or else a raw sector dump read as `.img`. A plain 512-byte-sector layout saves as `.img`; anything else as `.hfe` |
+| `.hfe` | Disk | EXDOS card, drives A:–D: | ✅ | ✅ | HFE v1 or v3 bitstream, decoded track by track (MFM, or FM for single density). Saved back as `.hfe` (v1), only written sectors re-encoded |
+| `.scp` | Disk | EXDOS card, drives A:–D: | ✅ | ◐ | SuperCard Pro flux, decoded at load. Saved as `.img` when its layout is plain, otherwise as `.hfe` |
+| `.epstate` | Snapshot | Machine | ✅ | ✅ | zx84's own exact save state (see below) |
 
 Loading a program resets the machine, fits the FILE: ROM and types `RUN "FILE:"`
 at the start-up screen. Loading a disk into A: resets and starts it: nothing if
@@ -107,8 +111,27 @@ run from BASIC).
 Blank disks can be created in the Drives pane: 720 KB double-sided 80-track or
 360 KB double-sided 40-track, pre-formatted FAT12.
 
-**Save menu exports:** PNG screenshot, RAM `.bin` (all fitted RAM, 64 KB or
-128 KB).
+**Snapshots.** `.epstate` is zx84's native save state, in the same container
+as the Atari's `.a8state` (magic `ZXEP`, a CRC-32 and length checked before the
+machine is touched, deflated when saved): the Z80 with its hidden MEMPTR/Q
+latches and interrupt delays, all RAM and the four page registers, Nick's
+registers, palette and place in the line parameter table, Dave's counters,
+tone and noise channels, timebase and interrupt latches, the frame grid and
+frame-buffer row, the typer if it is part-way through typing, the EXDOS card's
+WD1770 down to the byte a transfer has reached, and the FILE: device's files
+and open channels. A saved file also carries the disks in the drives (with
+their names and write protect). The header records the CRCs of EXOS, the BASIC
+cartridge, EXDOS and the four extension sockets (a different ROM is loaded
+anyway, with a warning); a state from the other model asks to switch to it,
+and one saved with the EXDOS card fitted or removed, or with a different number
+of drives, is refused until the Hardware and Drives panes match. A state is
+taken between frames (a frame a debugger stop left open is run to its end
+first). The same state, without the disks, backs browser-refresh resume: the
+shell puts the persisted disks back and the machine takes them without the
+restart a disk in A: normally brings.
+
+**Save menu exports:** Snapshot `.epstate`, PNG screenshot, RAM `.bin` (all
+fitted RAM, 64 KB or 128 KB).
 
 ---
 
@@ -132,7 +155,7 @@ Blank disks can be created in the Drives pane: 720 KB double-sided 80-track or
 | --- | --- | --- |
 | Debugger (breakpoints, stepping, disassembly) | ✅ | Z80 debug service; breakpoints, step, memory and port watchpoints, registers |
 | Memory pane | ✅ | Shows each 16 KB Z80 page's segment (EXOS, Cartridge, FILE: ROM, EXDOS, RAM, VRAM, empty), the wait-state mode, the line parameter table base and the border |
-| Trace | ✗ | `startTrace` is a stub; the trace UI is off for this machine |
+| Trace | ✅ | Full (address, disassembly, registers, T-states and operand context, with tight loops folded), a port I/O tally, and ZXTrace — the shared Z80 trace engine; a trace stops capturing at 500,000 lines |
 | Screen OCR / TEXT overlay | ✅ | Reads character-mode text from Nick's line parameter table rather than from pixels; bitmap-mode screens return no text |
 | Software library | ✗ | Not available |
 | On-screen keyboard | ✗ | None; host keyboard only |
@@ -154,9 +177,7 @@ None known.
 - **External joystick inputs and tape input.** Port 0xB6 returns 0xFF, so nothing is attached.
 - **Cassette.** No tape service; Dave's remote relay bits are stored but drive nothing.
 - **Dave INT2.** The external input is unused.
-- **EXDOS single-density select.** Control bit 5 is not acted on; only double-density 3.5" disks exist.
-- **Snapshots.** No snapshot format is loaded or saved.
-- **Disk formats other than `.img`.** HFE, SCP, DSK and the other formats are not accepted.
+- **Snapshots: the picture and what the shell does not persist.** `.epstate` does not hold the frame buffer, so rows the line parameter table does not reach keep what the target machine last drew there until something draws them (a table with a VSYNC block redraws every row each frame). A refresh restore does not carry the disks: a disk the shell does not persist (the one built in A: from FILE: programs) is gone after a reload. No other emulator's snapshot format is read or written.
 - **Saving files made through FILE:.** Files a program creates on the FILE: device live in memory only and cannot be downloaded.
 
 ## Faithful quirks
@@ -172,4 +193,5 @@ None known.
 | --- | --- | --- |
 | `tests/enterprise/enterprise-hardware.test.ts` | Nick colour byte decode, 2/4-colour pixel and attribute slots, VINT; Dave 1 kHz, 50 Hz, tone and 1 Hz interrupts and latch/enable; segment layout on the 64 and 128 and ROM write protection; keyboard port B5 and cursor keys on row 7; FILE: ROM signature, descriptor, traps, file open/read and EXOS header type; FAT12 blank-disk format and root directory listing | — |
 | `tests/enterprise/enterprise-boot.test.ts` (real EXOS 2.1, IS-BASIC 2.1, EXDOS 1.3) | Starts IS-BASIC and evaluates `PRINT 6*7`; runs a program from FILE:; runs a program from an EXDOS disk in A:. Skipped when the ROMs are absent from `mcp/.cache` or `EP_ROM_DIR` | — |
+| `tests/enterprise/exdos-formats.test.ts`, `tests/disc-formats-boot.test.ts` | Raw dumps of other geometries, MSX `.img`, CPC DSK and HFE routing; control bit 5 density; save as `.img` or `.hfe`; a disk boots the same from `.img`, `.hfe` (v1 and v3), `.scp` and `.dsk` with the real ROMs | — |
 | Enterprise software collection (1,688 zips, headless, 1,500 frames each) | 1,624 ran clean. Expected non-failures: 39 titles needing an extension-ROM BASIC, 7 IS-DOS programs that need an IS-DOS system disk, and slow Spectrum conversions that need more than 1,500 frames | 2026-10-18 |

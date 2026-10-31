@@ -82,7 +82,7 @@ I/O ports are decoded on the low byte: VDP 0x98/0x99, PSG 0xA0/0xA1/0xA2, PPI 0x
 
 ## Media formats
 
-ZIP archives are unpacked and their contents routed as below. The Load picker offers `.rom`, `.cas` and `.zip`, plus the disk extensions while the floppy interface is fitted.
+ZIP archives are unpacked and their contents routed as below. The Load picker offers `.rom`, `.cas`, `.msxstate` and `.zip`, plus the disk extensions while the floppy interface is fitted.
 
 | Extension | Kind | Device | Load | Save | Notes |
 | --- | --- | --- | --- | --- | --- |
@@ -91,14 +91,34 @@ ZIP archives are unpacked and their contents routed as below. The Load picker of
 | `.dsk` | Disk | Drive A: (or B:) | ✅ | ✅ | Headerless 512-byte-sector dump: 160K, 180K, 320K, 360K, 640K or 720K. Geometry comes from the FAT media descriptor, not only the file size; trimmed and padded dumps are accepted. Saved as `.dsk` when every sector is clean and regular |
 | `.img` | Disk | Drive A: (or B:) | ✅ | ◐ | One header byte (1 or 2) before a 360K or 720K dump. Saved back as `.dsk` |
 | `.dmk` | Disk | Drive A: (or B:) | ✅ | ◐ | Keeps CRC errors, deleted-data marks and odd layouts. Saved as `.edsk` when irregular, otherwise `.dsk` |
-| `.hfe` | Disk | Drive A: (or B:) | ✅ | ✅ | HFE v1 bitstream; HFE-sourced disks save back as `.hfe` |
+| `.hfe` | Disk | Drive A: (or B:) | ✅ | ✅ | HFE v1 or v3 bitstream; HFE-sourced disks save back as `.hfe` (v1) |
 | `.scp` | Disk | Drive A: (or B:) | ✅ | ◐ | Flux image. Saved as `.dsk`, or `.edsk` when irregular |
 | `.td0` | Disk | Drive A: (or B:) | ✅ | ◐ | Teledisk. Saved as `.dsk`, or `.edsk` when irregular |
 | `.edsk` | Disk | Drive A: (or B:) | ✅ | ✅ | Extended CPC DSK container; used for irregular disks a plain dump cannot hold |
+| `.msxstate` | Snapshot | Machine | ✅ | ✅ | zx84's own exact save state (see below) |
 
 Disk images load into drive A: unless the target is drive B:. Blank disks can be created from the Drives pane ("MSX-DOS image"): 720K double-sided/80-track or 360K single-sided/80-track, each with a valid FAT12 volume and boot sector. A completed format (WRITE TRACK) is re-detected so the Drives pane stays accurate.
 
-**Save menu exports:** Saved tape (`.cas`, only after the machine has saved something; named from the first saved file header, else `msx.cas`), PNG screenshot, `.scr` screen dump (the 16 KB VDP VRAM), RAM `.bin` (the 64 KB RAM, `ram-64k.bin`). Disks are saved from the Drives pane. There is no snapshot format.
+**Snapshots.** `.msxstate` is zx84's native save state, in the same container
+as the Atari's `.a8state` (magic `ZXMS`, a CRC-32 and length checked before
+the machine is touched, deflated when saved): the Z80 with its hidden
+MEMPTR/Q latches and interrupt delays, the RAM, the primary-slot and
+expansion registers, the 8255's port A/C latches, the TMS9918A (VRAM,
+registers, port latches, status), the PSG (registers and generators, the
+joystick-port select included), the beam's frame grid, the slot-1 cartridge
+with its mega-ROM banks, and, with the floppy interface fitted, its latches,
+the WD2793 down to a sector transfer caught half-way, and the disks in both
+drives. The cartridge and the disks are in every state, the browser-refresh one
+too, since the MSX does not otherwise bring its media back after a reload;
+loading one does not power-cycle the machine. The header records the CRCs of
+the BIOS, firmware and Disk BASIC ROMs (a different ROM is loaded anyway, with a
+warning). A state from another model asks to switch to it; one saved with or
+without the disk interface, or with another drive count, is refused until the
+Hardware/Drives pane matches. A state is taken between frames (a frame a
+debugger stop left open is run to its end first). The cassette is not part of
+the state.
+
+**Save menu exports:** Snapshot (`.msxstate`), saved tape (`.cas`, only after the machine has saved something; named from the first saved file header, else `msx.cas`), PNG screenshot, `.scr` screen dump (the 16 KB VDP VRAM), RAM `.bin` (the 64 KB RAM, `ram-64k.bin`). Disks are saved from the Drives pane.
 
 ---
 
@@ -123,7 +143,7 @@ Disk images load into drive A: unless the target is drive B:. Blank disks can be
 | Tool | Status | Notes |
 | --- | --- | --- |
 | Debugger | ✅ | Shared Z80 debugger: breakpoints, stepping, disassembly, registers, memory and port watchpoints |
-| Trace | ✗ | Not offered: the descriptor has tracing off and the MCP `trace` tool declines on every machine except the Spectrum |
+| Trace | ✅ | Full (address, disassembly, registers, T-states and operand context, with tight loops folded), a port I/O tally, and ZXTrace — the shared Z80 trace engine; a trace stops capturing at 500,000 lines |
 | Screen OCR / TEXT overlay | ✅ | Reads the VDP name table directly in SCREEN 0 (40×24) and SCREEN 1 (32×24); other modes return a note |
 | BASIC tools | ✅ | MSX BASIC listing and variables, parsed from the BASIC work area in RAM |
 | Memory Layout pane | ✅ | Shows what each 16 KB page selects (ROM, cartridge, RAM, Disk ROM, empty), the PPI port A value, and the active cartridge mapper |
@@ -131,7 +151,7 @@ Disk images load into drive A: unless the target is drive B:. Blank disks can be
 | On-screen keyboard | ✅ | UK Toshiba HX-10P layout, 73 keys covering matrix rows 0–8 |
 | ROM / Carts pane | ✅ | System ROM replacement and cartridge insert/eject |
 | Drives pane | ✅ | Shown only while the floppy interface is fitted |
-| MCP tools | ✅ | Generic tools (execution, registers, memory, breakpoints and watchpoints, ports, `key`, `type`, `load`, `eject`, `screenshot`, `ocr`, `model`), plus `msxdisk` (`on`, `off`, `status`) to fit or remove the floppy interface. The `trace`, `save` (SZX), and +3/CPC disk-inspection tools (`disk_geometry`, `track_geometry`, `sector_read`, `weak`) do not apply to this machine |
+| MCP tools | ✅ | Generic tools (execution, registers, memory, breakpoints and watchpoints, ports, `key`, `type`, `load`, `eject`, `screenshot`, `ocr`, `model`), plus `msxdisk` (`on`, `off`, `status`) to fit or remove the floppy interface. `trace` works. The `frame_trace`, `save` (SZX), and +3/CPC disk-inspection tools (`disk_geometry`, `track_geometry`, `sector_read`, `weak`) do not apply to this machine |
 | Drive count | ✅ | One or two drives on the floppy interface, from **Drive count** in drive A's options menu; saved, rebuilds the machine. Unconnected units give a seek error and stay not-ready |
 
 ---
@@ -149,9 +169,7 @@ None known.
 - **Other expansion hardware.** Slot 3 holds only the floppy interface; otherwise it reads as empty. There is no second cartridge slot.
 - **Single-drive disk configuration.** The interface always presents two drives, A: and B:.
 - **1.44 MB high-density disks.** Rejected with an error (MSX1 interfaces are double density).
-- **HFE v3 images.** Rejected with an error.
-- **Snapshots.** There is no snapshot format or service.
-- **Execution trace.** Only the Spectrum has a trace engine; the trace menu is not offered here.
+- **Snapshots: the cassette, and other emulators' formats.** `.msxstate` restores the machine exactly but not the cassette's position; no community snapshot format (openMSX/blueMSX save states) is loaded or saved.
 - **Numeric keypad hardware.** The HX-10 keyboard has none, so the on-screen keyboard has no keypad; host Numpad keys still map to matrix rows 9–10.
 
 ## Faithful quirks

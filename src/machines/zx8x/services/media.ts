@@ -1,5 +1,6 @@
 import type { MediaService, MediaTypeDescriptor, MediaTargetId, MountResult } from '@/machines/machine.ts';
 import type { Zx8xMachine } from '../zx8x-machine.ts';
+import type { NativeSnapshotService } from '@/machines/shared/native-state.ts';
 import { programNameFromFilename, zx81NameToAscii } from '../tape-shelf.ts';
 
 /** Remove the variable-length filename prefix used by P81 images. */
@@ -21,19 +22,27 @@ function p81Name(data: Uint8Array): string | null {
 }
 
 export class Zx8xMediaService implements MediaService {
-  constructor(private readonly machine: Zx8xMachine) {}
+  constructor(private readonly machine: Zx8xMachine, private readonly snapshots: NativeSnapshotService) {}
 
   accepts(): MediaTypeDescriptor[] {
-    return this.machine.model === 'zx80'
+    const programs: MediaTypeDescriptor[] = this.machine.model === 'zx80'
       ? [{ ext: '.o', target: 'program' }, { ext: '.80', target: 'program' }]
       : [{ ext: '.p', target: 'program' }, { ext: '.81', target: 'program' }, { ext: '.p81', target: 'program' }];
+    return [...programs, { ext: '.zx8xstate', target: 'snapshot' }];
   }
 
   async mount(data: Uint8Array, filename: string, _target?: MediaTargetId): Promise<MountResult> {
+    if (/\.zx8xstate$/i.test(filename)) {
+      // A state names its model: one for the other machine asks the host to
+      // switch and is then replayed into the new machine.
+      const r = await this.snapshots.apply(data, filename);
+      if (r.needsReplay) return { ok: true, replay: true, message: r.message };
+      return r.ok ? { ok: true, target: 'snapshot', message: r.message } : { ok: false, message: r.message };
+    }
     const isZx80 = /\.(o|80)$/i.test(filename);
     const isZx81 = /\.(p|81|p81)$/i.test(filename);
     if ((this.machine.model === 'zx80' && !isZx80) || (this.machine.model === 'zx81' && !isZx81)) {
-      return { ok: false, message: this.machine.model === 'zx80' ? 'ZX80 accepts .o and .80 program images' : 'ZX81 accepts .p, .81 and .p81 program images' };
+      return { ok: false, message: this.machine.model === 'zx80' ? 'ZX80 accepts .o and .80 program images and .zx8xstate snapshots' : 'ZX81 accepts .p, .81 and .p81 program images and .zx8xstate snapshots' };
     }
     const payload = /\.p81$/i.test(filename) ? p81Payload(data) : data;
     const address = this.machine.model === 'zx80' ? 0x4000 : 0x4009;

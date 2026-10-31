@@ -25,6 +25,7 @@
  */
 
 import type { IMachineMemory } from '@/machines/machine.ts';
+import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 import type { PcwConfig } from './config.ts';
 import {
   PCW_BANK_BLOCK_MASK, PCW_BANK_READ_SHIFT, PCW_BANK_SINGLE, PCW_BANK_WRITE_MASK,
@@ -226,6 +227,25 @@ export class PcwMemory implements IMachineMemory {
   /** Zero every fitted block — a cold start, used when the machine is built. */
   clear(): void {
     for (const block of this.ram) block.fill(0);
+  }
+
+  // ── Snapshot state ────────────────────────────────────────────────────────
+
+  /** The paging registers and every fitted block. */
+  saveState(w: StateWriter): void {
+    w.raw(this.banks);
+    w.u8(this.memctl);
+    w.u8(this.cfg.blocks);
+    for (const block of this.ram) w.raw(block);
+  }
+
+  /** The caller has checked the model, so the block count matches. */
+  loadState(r: StateReader): void {
+    r.rawInto(this.banks);
+    this.memctl = r.u8();
+    if (r.u8() !== this.cfg.blocks) throw new Error('Snapshot RAM size does not match this PCW');
+    for (const block of this.ram) r.rawInto(block);
+    this.applyPaging();
   }
 
   // ── Introspection ─────────────────────────────────────────────────────────

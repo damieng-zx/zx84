@@ -78,8 +78,9 @@ Fitted from the Hardware pane. Each option loads its ROM at build time, so toggl
 
 | Peripheral | Type | Models | Status | Notes |
 | --- | --- | --- | --- | --- |
-| Plus 1 (cartridges) — Hardware pane option "Plus 1 (cartridges)" | ROM / input / comms | `electron` | ◐ | Expansion OS in ROM 12 and the front cartridge slot (SK1, ROM pages 2 and 3). ADC at `&FC70`, printer data at `&FC71`, status at `&FC72`. The analogue ports always read centred and the printer port never reports busy and has no output (see Not emulated) |
-| Plus 3 (disc drives) — "Plus 3 (disc drives)" | Disk | `electron` | ✅ | WD1770 at `&FCC4`–`&FCC7` with the drive-control latch at `&FCC0` (drive 0/1, side, density, controller reset); ADFS ROM in page 4; two drives. DRQ and command completion raise the CPU NMI, and ADFS moves each byte from its NMI handler |
+| Plus 1 (cartridges) — Hardware pane option "Plus 1 (cartridges)" | ROM / input / comms | `electron` | ◐ | Expansion OS in ROM 12 and the front cartridge slot (SK1, ROM pages 2 and 3). ADC0844 at `&FC70`, printer data at `&FC71`, status at `&FC72`. The printer port never reports busy and has no output (see Not emulated) |
+| Plus 1 analogue joysticks | input | `electron` | ✅ | Shown while the Plus 1 is fitted. A write to `&FC70` selects the channel (the Plus 1 ROM writes 4–7 for ADVAL(1)–(4)) and starts a 40 µs conversion; status bit 6 (/INTR) goes low when it ends and high again when `&FC70` is read. Player 1 is channels 1/2 and fire on status bit 4, player 2 channels 3/4 and bit 5 (fire buttons low while pressed). Sticks read 255 at full left and full up, as on the BBC Micro; keys give full deflection, a gamepad's analogue stick is proportional |
+| Plus 3 (disc drives) — "Plus 3 (disc drives)" | Disk | `electron` | ✅ | WD1770 at `&FCC4`–`&FCC7` with the drive-control latch at `&FCC0` (drive 0/1, side, density, controller reset; bit 3 selects single density, and a track recorded in the other density reads as unformatted); ADFS ROM in page 4; two drives. DRQ and command completion raise the CPU NMI, and ADFS moves each byte from its NMI handler |
 | Plus 3 with ACP 1770 DFS — "DFS instead of ADFS (.ssd/.dsd)" | Disk | `electron` | ◐ | Swaps the ADFS ROM for the ACP 1770 DFS (fitted as ROM 0) on the same WD1770 interface, so Acorn DFS discs work. Only enabled while the Plus 3 is fitted. See Known issues |
 | Sideways ROM sockets | ROM | `electron` | ✅ | ROM pane lists pages 0 and 1 (socket SK2), 2 and 3 (SK1), 4 (disc interface), 5 and 6 (user ROM), 7 (modem interface), 12 (Plus 1 OS), 13 (high priority), 14 (Econet), 15 (reserved); pages 8–11 are not sockets. Loaded ROMs persist across reloads |
 
@@ -89,22 +90,42 @@ Fitted from the Hardware pane. Each option loads its ROM at build time, so toggl
 
 ## Media formats
 
-ZIP archives are unpacked and only entries the machine accepts are offered. Media is routed by what is fitted: `.adf`/`.adl`/`.ads`/`.adm` need the Plus 3 in ADFS mode, `.ssd`/`.dsd` need the Plus 3 in DFS mode, and `.rom` needs the Plus 1; otherwise the mount fails with a message naming the option to fit.
+ZIP archives are unpacked and only entries the machine accepts are offered. Media is routed by what is fitted: `.adf`/`.adl`/`.ads`/`.adm` need the Plus 3 in ADFS mode, `.ssd`/`.dsd` need the Plus 3 in DFS mode, and `.rom` needs the Plus 1; otherwise the mount fails with a message naming the option to fit. `.img`, `.dsk`, `.hfe` and `.scp` discs are taken in either mode and told apart by content (an ADFS root directory or a DFS catalogue in a sector dump; ten single-density or sixteen double-density sectors on the first track of an HFE or SCP); a disc that is plainly the other filing system's is refused, one that is neither (a protection first track) is mounted. HFE and SCP are recognised by their signature whatever the file is called.
 
 | Extension | Kind | Device | Load | Save | Notes |
 | --- | --- | --- | --- | --- | --- |
 | `.uef` | Tape | Tape deck | ✅ | ✅ | Plain or gzip-wrapped; the content decides, not the name. Save is a recording of what the OS SAVEs to the cassette port (always named `electron-tape.uef`), not a re-save of the mounted tape |
 | `.csw` | Tape | Tape deck | ✅ | ✗ | Sampled tape |
+| `.elkstate` | Snapshot | Machine | ✅ | ✅ | zx84's own exact save state (see below) |
 | `.adf` `.ads` `.adm` | Disk (ADFS) | Plus 3 drive 0 / 1 | ✅ | ✅ | Raw 16 × 256-byte sector dumps. Geometry by size: up to 160 KB is 40 tracks single-sided (S), up to 320 KB is 80 tracks single-sided (M), larger is 80 tracks double-sided (L). Short files are padded; images over 640 KB are refused |
-| `.adl` | Disk (ADFS L) | Plus 3 drive 0 / 1 | ✅ | ✅ | Always 80 tracks double-sided, even if trimmed; logical-sector order (side 0 then side 1), not interleaved |
+| `.adl` | Disk (ADFS L) | Plus 3 drive 0 / 1 | ✅ | ✅ | Always 80 tracks double-sided, even if trimmed. The image holds the cylinders in turn, side 0 then side 1 of each (the BeebEm, MAME and Greaseweazle convention); ADFS itself fills side 0 before side 1, so logical sector 16 is image sector 32 |
+| `.img` `.dsk` | Disk (ADFS or DFS) | Plus 3 drive 0 / 1 | ✅ | ✅ | Headerless sector dump of either filing system, by content; one that says neither is taken as the filing system the Plus 3 is set to. Saved back as the matching ADFS or DFS dump |
+| `.hfe` | Disk | Plus 3 drive 0 / 1 | ✅ | ✅ | HFE v1 or v3 bitstream, decoded track by track: MFM for ADFS, FM for DFS. Deleted-data marks, CRC errors, odd sector IDs and sizes and duplicate IDs are kept; v3 weak bytes become weak sectors. Saved back as `.hfe` (v1), only written sectors re-encoded |
+| `.scp` | Disk | Plus 3 drive 0 / 1 | ✅ | ◐ | SuperCard Pro flux, decoded at load; a sector that reads differently across revolutions is weak. Saved as an ADFS or DFS dump when its layout is plain, otherwise as `.hfe` |
 | `.ssd` `.dsd` | Disk (Acorn DFS) | Plus 3 drive 0 / 1 (DFS mode) | ✅ | ✅ | 10 × 256-byte sectors per track; `.dsd` interleaves the two sides. Truncated images are padded to the 40 or 80 tracks their catalogue declares |
 | `.rom` | Cartridge | Plus 1 front slot | ✅ | — | 16 KB (repeated into both banks) or 32 KB (lower then upper bank). `Name_1.rom` + `Name_2.rom` halves are joined into one 32 KB cartridge in either order when the first is still in the slot |
 
 Drive 0 is the default target and drive 1 is selected with target `b`. Mounting a disc in drive 0 or a cartridge boots it with SHIFT+BREAK (cartridge insert and eject also power-cycle the machine first); mounting a tape does not reset the machine and the status line says to type `CHAIN""` (or `*RUN`).
 
-Disc saves from the Drives pane keep the format family: ADFS discs save as `.adl` (two-sided), `.adm` (more than 40 tracks) or `.ads`, so a loaded `.adf` is saved under the extension matching its geometry; DFS discs save as `.dsd` or `.ssd`. The Drives pane can create blank ADFS discs (640 KB L, 320 KB M, 160 KB S; unformatted as far as the filing system is concerned, so `*FORMAT` is still needed) or, in DFS mode, blank DFS discs (100 KB, 200 KB single-sided; 200 KB, 400 KB double-sided). Write-protect can be set per drive.
+Disc saves from the Drives pane keep the format family: ADFS discs save as `.adl` (two-sided), `.adm` (more than 40 tracks) or `.ads`, so a loaded `.adf` is saved under the extension matching its geometry; DFS discs save as `.dsd` or `.ssd`. A disc that came from an HFE saves as `.hfe`, as does any disc whose layout a sector dump cannot hold (a protection track, deleted-data or bad-CRC sectors). The Drives pane can create blank ADFS discs (640 KB L, 320 KB M, 160 KB S; unformatted as far as the filing system is concerned, so `*FORMAT` is still needed) or, in DFS mode, blank DFS discs (100 KB, 200 KB single-sided; 200 KB, 400 KB double-sided). Write-protect can be set per drive.
 
-**Save menu exports:** Saved tape (`.uef`), PNG screenshot, RAM `.bin` (the 32 KB of main RAM).
+**Snapshots.** `.elkstate` is zx84's native save state, in the same container as the Atari's `.a8state` (a CRC-32 and length checked before the machine is touched, deflated when saved from the Save menu), magic
+`ZXEL`: the 6502, the 32 KB of RAM and the ROM page, the ULA (interrupt
+status and mask, screen address counters, mode, palette, sound counter, the
+cassette shifters with a byte half received or held for sending), the cassette
+relay, tone demodulator and recording, the Plus 1 (ADC with a conversion in
+progress, the joysticks as held, the printer output) and a cartridge in its
+slot, the Plus 3's latch and WD1770 down to a transfer in flight, and the
+beam's frame grid. A file saved from the Save menu also carries the discs
+(writes included) and the tape with the deck's position to the cycle. The
+header records the CRCs of BASIC, the OS and the paged ROMs (a mismatch loads
+with a warning); a state saved with other expansions or another drive count is
+refused until the Hardware or Drives pane matches. A state is taken between
+frames and restores cycle for cycle. The same state without the discs and tape
+backs browser-refresh resume (the shell remounts the discs without a
+SHIFT+BREAK or a head move).
+
+**Save menu exports:** Snapshot `.elkstate`, Saved tape (`.uef`), PNG screenshot, RAM `.bin` (the 32 KB of main RAM).
 
 ---
 
@@ -136,12 +157,12 @@ Disc saves from the Drives pane keep the format family: ADFS discs save as `.adl
 | Tool | Status | Notes |
 | --- | --- | --- |
 | Debugger (breakpoints, stepping, disassembly) | ✅ | 6502 registers, disassembly, step into/over/out, PC breakpoints and traps. Memory views cover the two 16 KB RAM banks. Memory watchpoints (read, write or either) stop the frame after the accessing instruction; there are no port watchpoints because the machine has no I/O port space |
-| Trace | ✗ | Declared off; the trace calls do nothing |
+| Trace | ✅ | Full (address, disassembly, registers, cycles and operand context, with interrupt entries marked and tight loops folded) and an I/O tally of the CPU's reads and writes in FC00-FEFF (FRED, JIM and the ULA) — the shared 6502 trace engine; no ZXTrace, which is a Z80 layout; a trace stops capturing at 500,000 lines |
 | Screen OCR / TEXT overlay | ✅ | Matches the 8 × 8 glyphs in every mode against the OS font found in the OS ROM, in normal and inverse video, with paper and ink colours; the MCP `ocr` tool returns the text |
 | BASIC tools | ✅ | BASIC listing and BASIC variables panes read the tokenised program from `PAGE` |
 | Software library | ✗ | Not offered |
-| Machine-specific panes | ✅ | Hardware-pane section (Plus 1, Plus 3, DFS); on-screen Electron keyboard with BREAK, cassette-motor and caps-lock lamps; Tape, Drives (Plus 3 only) and ROM panes. Hidden: microdrive, mouse, joystick, system variables, font and banks panes |
-| MCP tools | ◐ | The generic tools: `model`, `run`, `step_frame`, `step`, `registers`, `set_register`, `read_memory`, `write_memory`, `find`, `disassemble`, `breakpoint` and its delete, `memory_watchpoint` and its delete, `trap` family, `reset_trap`, `key`, `type`, `load`, `eject`, `screenshot`, `ocr`, `symbols`, `symbols_load`. No Electron-specific tool exists, and the MCP has no way to fit the Plus 1, Plus 3 or DFS (they default to off), so `.adf`/`.adl`/`.ssd`/`.rom` loads are refused there; tapes load. `trace` declines and `save` writes Spectrum snapshots only |
+| Machine-specific panes | ✅ | Hardware-pane section (Plus 1, Plus 3, DFS); on-screen Electron keyboard with BREAK, cassette-motor and caps-lock lamps; Tape, Drives (Plus 3 only) and ROM panes. The Joysticks pane appears while the Plus 1 is fitted. Hidden: microdrive, mouse, system variables, font and banks panes |
+| MCP tools | ◐ | The generic tools: `model`, `run`, `step_frame`, `step`, `registers`, `set_register`, `read_memory`, `write_memory`, `find`, `disassemble`, `breakpoint` and its delete, `memory_watchpoint` and its delete, `trap` family, `reset_trap`, `key`, `type`, `load`, `eject`, `screenshot`, `ocr`, `symbols`, `symbols_load`. No Electron-specific tool exists, and the MCP has no way to fit the Plus 1, Plus 3 or DFS (they default to off), so `.adf`/`.adl`/`.ssd`/`.rom` loads are refused there; tapes load. `trace` and `stop_trace` work in full and portio modes, and `save` writes Spectrum snapshots only |
 | Drive count | ✅ | Plus 3 drives: one or two. Pick **Drive count** in drive 0's options menu in the Drives pane. The choice is saved, rebuilds the machine, and with one drive the WD1770 sees nothing on the second select line (seek error, not ready) |
 
 ---
@@ -154,14 +175,17 @@ Disc saves from the Drives pane keep the format family: ADFS discs save as `.adl
 
 ## Not emulated
 
-- **Plus 1 analogue joystick ports.** The ADC at `&FC70` answers instantly and every channel reads centred (`&80`); the fire buttons read released. There is no host joystick mapping for the Electron.
+- **ADC conversion noise.** A Plus 1 conversion returns the stick's position exactly; a real ADC0844 jitters in its low bit.
 - **Plus 1 printer port.** Bytes written to `&FC71` are held in an internal buffer and never sent anywhere; the port never reports busy.
 - **Second Plus 1 cartridge slot.** Only the front slot (ROM pages 2 and 3) takes cartridges; pages 0 and 1 can only be loaded as sideways ROMs from the ROM pane.
 - **JIM paged memory.** `&FD00`–`&FDFF` is absent and floats high.
 - **Other expansion hardware.** Econet, modem and other interfaces exist only as empty ROM pages; nothing decodes their registers.
 - **UEF disc-image chunks.** UEF chunks outside the supported set (including disc images, security cycles, phase change and markers) are skipped; a UEF that yields no tape blocks is refused as unreadable.
-- **Disc formats other than ADFS and DFS sector dumps.** `.hfe`, `.scp`, `.dsk` and `.img` are not accepted by the Electron.
-- **Machine snapshots.** No snapshot service; the Save menu has no snapshot entry.
+- **Track timing on HFE and SCP discs.** Tracks are decoded to sectors once at load. Deleted-data marks, CRC errors, odd sector IDs and sizes, duplicate IDs and weak sectors carry over, but protections that time the track itself (gap lengths, where a sector sits relative to the index) are not reproduced.
+- **Snapshots from other emulators.** Only zx84's own `.elkstate` (not
+  ElectrEm's or Elkulator's states). Keys held on the host are not part of a
+  state, and a disc transfer in flight when a refresh copy is taken loses its
+  place.
 
 ## Faithful quirks
 
@@ -180,10 +204,13 @@ Disc saves from the Drives pane keep the format family: ADFS discs save as `.adl
 
 | Reference | Result | Last checked |
 | --- | --- | --- |
+| [`tests/snapshot/electron-state.test.ts`](../../tests/snapshot/electron-state.test.ts) | `.elkstate`: synthetic firmware with a Plus 3 multi-sector read, the Plus 1 ADC with sticks held, the tape, ULA interrupts and sound in flight; a restored machine matches the original frame for frame (registers, cycles, picture, whole state); cartridge carried; damaged files and other expansions refused untouched; refresh resume with the disc remounted and no SHIFT+BREAK; a BASIC program on the real OS (skipped when the cached ROMs are absent) | Test file in repo |
 | [`tests/electron.test.ts`](../../tests/electron.test.ts) | Memory map and ROM paging, keyboard matrix and host mapping, BREAK, ULA interrupts, palette and display for modes 0–6 (including mid-frame palette change and gapped modes), memory timing (2 MHz ROM, 1 MHz RAM, display-fetch halt in modes 0–3 only), sound divider, cassette receive and transmit, services, sideways ROM listing | Test file in repo |
 | [`tests/electron-expansions.test.ts`](../../tests/electron-expansions.test.ts) | Plus 1 (ROM 12, cartridge banks, `_1`/`_2` pairing, status registers, SHIFT+BREAK boot), Plus 3 (WD1770 registers, DRQ per byte, NMI on completion, drive/side latch, controller driven from the CPU clock, `.adl` save), DFS swap (ROM 0, `.ssd`/`.dsd` accept, formatted track length) | Test file in repo |
+| [`tests/electron-joystick.test.ts`](../../tests/electron-joystick.test.ts) | Plus 1 ADC0844: 40 µs conversion, /INTR on status bit 6, result latch, channel and fire-button wiring, proportional input, no joystick without the Plus 1; ADVAL(0), (1), (2) and (4) through the real Plus 1 Expansion ROM (skipped when the cached ROMs are absent) | Test file in repo |
 | [`tests/electron-ocr.test.ts`](../../tests/electron-ocr.test.ts) | OS font lookup, mode 6 and mode 1 text reading, inverse video, screen wrap | Test file in repo |
 | [`tests/electron-boot.test.ts`](../../tests/electron-boot.test.ts) | With the real ROMs in `mcp/.cache` (skipped when absent): boot to the BASIC prompt, BASIC from the keyboard, BASIC panes, tape SAVE then LOAD round trip; Plus 1/Plus 3 start-up banner and `*HELP`; ADFS L catalogue and a file load across a track boundary (needs `ZX84_ADL`); DFS catalogue and SAVE/LOAD round trip from the saved `.ssd` | Test file in repo |
+| [`tests/disc-formats-boot.test.ts`](../../tests/disc-formats-boot.test.ts) | With the real ROMs: the ADFS L disc as MFM `.hfe` and `.scp` loads a file across tracks as the `.adl` does; an FM `.hfe` boots under the 1770 DFS and a program saved to it comes back from the saved `.hfe`; a DFS disc is refused in ADFS mode | Test file in repo |
 | Electron `.uef` collection (752 files), headless | Almost all load and run; three file-level-chunk UEFs parse to no blocks | 2026-10-18 |
 | ADFS `.adl` discs (5 BeebEm images) | Read, and SAVE then reload round trip, verified | 2026-10-18 |
 | Acornsoft cartridge pairs (`_1`/`_2`) | Work as one concatenated 32 KB image | 2026-10-18 |

@@ -120,6 +120,8 @@ const DEFAULTS = {
   'electron-dfs':   'off',
   'lynx-fdc':       'on',
   'apple2-disk2':   'on',
+  'c64-drive':      'on',
+  'c64-sid':        '6581',
   'drive-counts':   '{}',
   'drive-models':   '{}',
   'apple2-langcard': 'on',
@@ -337,6 +339,9 @@ export const [einsteinXtalDos, setEinsteinXtalDos] = signal(savedFlag('einstein-
 export const [mtxCpm, setMtxCpm] = signal(savedFlag('mtx-cpm'));
 export const [mtx80Column, setMtx80Column] = signal(savedFlag('mtx-80-column'));
 export const [apple2Disk2, setApple2Disk2] = signal(savedFlag('apple2-disk2'));
+export const [c64Drive, setC64Drive] = signal(savedFlag('c64-drive'));
+/** Which SID the 64 has: '6581' (the original) or '8580' (the C64C's). */
+export const [c64Sid, setC64Sid] = signal(savedText('c64-sid'));
 
 // ── Built-in drive count ────────────────────────────────────────────────
 // How many of a machine's built-in floppy drives are fitted, kept per machine
@@ -539,6 +544,7 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'ay-stereo',   set: setAyStereo,   type: 'string' },
     { key: 'sn-stereo',   set: setSnStereo,   type: 'string' },
     { key: 'ay-antialias', set: setAyAntialias, type: 'string' },
+    { key: 'c64-sid',     set: setC64Sid,     type: 'string' },
     { key: 'specdrum-volume', set: setSpecdrumVolume, type: 'number' },
     { key: 'uspeech-volume', set: setUspeechVolume, type: 'number' },
   ],
@@ -598,6 +604,7 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'electron-dfs', set: setElectronDfs, type: 'bool' },
     { key: 'lynx-fdc', set: setLynxFdc, type: 'bool' },
     { key: 'apple2-disk2', set: setApple2Disk2, type: 'bool' },
+    { key: 'c64-drive', set: setC64Drive, type: 'bool' },
     { key: 'apple2-langcard', set: setApple2LangCard, type: 'bool' },
     { key: 'apple2-joystick', set: setApple2Joystick, type: 'bool' },
     { key: 'apple2-mockingboard', set: setApple2Mockingboard, type: 'bool' },

@@ -17,9 +17,18 @@ import { disasmText, tracing } from '@/state/debug-state.ts';
 import { emulationPaused } from '@/state/machine-state.ts';
 import { machineCaps } from '@/state/machine-caps.ts';
 
-// Execution tracing isn't implemented for the CPC (CpcMachine.startTrace is a
-// no-op), so the trace control is hidden there; the rest of the debugger works.
+// The trace control shows where the machine has a trace engine, offering the
+// modes it declares (a 6502 has no ZXTrace layout).
 const tracingSupported = () => machineCaps().trace;
+const TRACE_ITEMS = [
+  { value: 'full', label: 'Full' },
+  { value: 'portio', label: 'Port IO' },
+  { value: 'zxtl', label: 'ZXTrace' },
+] as const;
+const traceItems = () => {
+  const modes = machineCaps().traceModes;
+  return modes ? TRACE_ITEMS.filter(i => modes.includes(i.value)) : [...TRACE_ITEMS];
+};
 
 function addrFromEvent(e: MouseEvent): number | null {
   const line = (e.target as HTMLElement).closest('.d-line');
@@ -91,11 +100,7 @@ export function DisassemblyPane() {
             <DropDownMenuButton
               icon={<HiOutlinePencilSquare />}
               title="Start tracing (copies to clipboard on stop)"
-              items={[
-                { value: 'full', label: 'Full' },
-                { value: 'portio', label: 'Port IO' },
-                { value: 'zxtl', label: 'ZXTrace' },
-              ]}
+              items={traceItems()}
               onSelect={(mode) => startTrace(mode as 'full' | 'portio' | 'zxtl')}
             />
           }>

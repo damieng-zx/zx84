@@ -32,6 +32,8 @@ import { machineCaps, machineDescriptor } from '@/state/machine-caps.ts';
 import { DISK_FORMATS, formatLabel, createBlankDisk } from '@/media/floppy/dsk.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { createBlankHfe } from '@/media/floppy/hfe.ts';
+import { blankC64Disk, blankC64Disk71, c64DiskImage } from '@/media/floppy/c64-disk.ts';
+import { blankD81 } from '@/media/floppy/c64-d81.ts';
 import { blankLdfDisk } from '@/media/floppy/ldf-image.ts';
 import { blankFatImage } from '@/media/floppy/fat-image.ts';
 import { blankSsd } from '@/media/floppy/ssd.ts';
@@ -52,6 +54,9 @@ const LED_COLORS: Record<DriveStatus['led'], string> = {
 function renderDiskInfoStr(img: DskImage, showProtection = true): string {
   const n = '<span class="reg-name">';
   const e = '</span>';
+  // A bit-level GCR disk (the 1541's) has no sector table to count: its
+  // format line says what it is.
+  if (img.tracks.length === 0) return `${n}Format${e}   ${img.diskFormat}`;
   const t0 = img.tracks[0]?.[0];
   const spt = t0 ? t0.sectors.length : 0;
   const sectorSize = t0?.sectors[0] ? (128 << t0.sectors[0].n) : 0;
@@ -286,6 +291,19 @@ const FAT_NEW_ITEMS = [
 const DFS_NEW_ITEMS = [
   { value: 'dfs', label: 'DFS image', children: DFS_GEOMETRIES.map((g, i) => ({ value: `dfs-${i}`, label: g.label })) },
 ];
+// The 1541 formats its own disks, so a blank one is just a formatted D64.
+const C64_NEW_ITEMS = [
+  { value: 'd64-0', label: 'Blank 170K D64 (formatted)' },
+];
+// The 1571 formats both sides, and reads the 1541's single-sided disks too.
+const C64_D71_NEW_ITEMS = [
+  { value: 'd71-0', label: 'Blank 340K D71 (formatted)' },
+  ...C64_NEW_ITEMS,
+];
+// The 1581 reads 3.5" disks: a blank one is a formatted D81.
+const C64_D81_NEW_ITEMS = [
+  { value: 'd81-0', label: 'Blank 800K D81 (formatted)' },
+];
 
 // MSX-DOS disks are saved as raw .dsk sector dumps; the blank set is the
 // 3.5" pair a 1DD/2DD MSX1 drive formats, each with a valid FAT12 volume.
@@ -306,6 +324,9 @@ function lynxBlankForValue(value: string): { tracks: number; sides: number } | n
 
 /** Blank image for a built-in drive's "New disk" menu, whichever format it is. */
 function blankForValue(value: string): { image: DskImage; label: string } | null {
+  if (value === 'd64-0') return { image: c64DiskImage(blankC64Disk()), label: 'blank.d64' };
+  if (value === 'd71-0') return { image: c64DiskImage(blankC64Disk71()), label: 'blank.d71' };
+  if (value === 'd81-0') return { image: blankD81(), label: 'blank.d81' };
   const ldf = lynxBlankForValue(value);
   if (ldf) {
     return {
@@ -469,14 +490,19 @@ export function DrivePane() {
   };
   // The built-in drives' blank-disk menu is the machine's own disk format: the
   // Lynx accepts .ldf, the BBC .ssd, everything else here uses the +3 DSK/HFE set.
-  const builtinDiskItems = () => {
+  const builtinDiskItems = (unit = 0) => {
     const accepts = machine?.services.media.accepts() ?? [];
+    // The 64's drives are a 1541, 1571 or 1581 each, with a disk format of its own.
+    const model = driveSetupModels()?.[unit];
+    if (model === '1581') return C64_D81_NEW_ITEMS;
+    if (model === '1571') return C64_D71_NEW_ITEMS;
+    if (model === '1541') return C64_NEW_ITEMS;
     if (accepts.some(t => t.ext === '.ldf')) return LYNX_NEW_ITEMS;
     if (accepts.some(t => t.ext === '.ssd')) return DFS_NEW_ITEMS;
     if (accepts.some(t => t.ext === '.dmk')) return MSX_NEW_ITEMS;
     if (accepts.some(t => t.ext === '.adl')) return ADFS_NEW_ITEMS;
-    // .img without .dsk is a FAT sector dump (with .dsk, it is the +D's MGT).
-    if (accepts.some(t => t.ext === '.img') && !accepts.some(t => t.ext === '.dsk')) return FAT_NEW_ITEMS;
+    // .img is a FAT sector dump, unless .mgt is taken too (then it is the +D's MGT).
+    if (accepts.some(t => t.ext === '.img') && !accepts.some(t => t.ext === '.mgt')) return FAT_NEW_ITEMS;
     return PLUS3_NEW_ITEMS;
   };
 
@@ -517,7 +543,7 @@ export function DrivePane() {
           showTurbo
           driveCount={driveSetupModels() ? undefined : countMenu(builtinMax(), builtinCount())}
           driveSetup={driveSetupFor(0)}
-          newItems={builtinDiskItems()}
+          newItems={builtinDiskItems(0)}
           onNewDisk={(value) => {
             const blank = blankForValue(value);
             if (blank) insertBlankDisk(blank.image, blank.label, 0);
@@ -548,7 +574,7 @@ export function DrivePane() {
           onFlip={() => flipDisk(1)}
           showTurbo
           driveSetup={driveSetupFor(1)}
-          newItems={builtinDiskItems()}
+          newItems={builtinDiskItems(1)}
           onNewDisk={(value) => {
             const blank = blankForValue(value);
             if (blank) insertBlankDisk(blank.image, blank.label, 1);
@@ -582,7 +608,7 @@ export function DrivePane() {
             writeProtected={writeProtectC()}
             showTurbo
             driveSetup={driveSetupFor(2)}
-            newItems={builtinDiskItems()}
+            newItems={builtinDiskItems(2)}
             onNewDisk={(value) => {
               const blank = blankForValue(value);
               if (blank) insertBlankDisk(blank.image, blank.label, 2);
@@ -611,7 +637,7 @@ export function DrivePane() {
             writeProtected={writeProtectD()}
             showTurbo
             driveSetup={driveSetupFor(3)}
-            newItems={builtinDiskItems()}
+            newItems={builtinDiskItems(3)}
             onNewDisk={(value) => {
               const blank = blankForValue(value);
               if (blank) insertBlankDisk(blank.image, blank.label, 3);

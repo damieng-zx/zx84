@@ -16,6 +16,7 @@
 import type { IMachineMemory } from '@/machines/machine.ts';
 import type { Apple2Card } from './cards.ts';
 import { APPLE2_ROM_SIZE } from './models.ts';
+import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 
 const RAM_SIZE = 0xC000;
 const ROM_BASE = 0xD000;
@@ -211,5 +212,23 @@ export class Apple2Memory implements IMachineMemory {
     this.lcWrite = false;
     this.lcBank2 = true;
     this.lcPrewrite = false;
+  }
+
+  // ── Snapshot state ────────────────────────────────────────────────────────
+
+  /** Write main RAM, the language card's RAM and switches, and which card
+   *  owns the expansion area. Slot ROMs are firmware, not state. */
+  saveState(w: StateWriter): void {
+    w.raw(this.ram);
+    w.raw(this.lcRam);
+    w.bool(this.lcRead); w.bool(this.lcWrite); w.bool(this.lcBank2); w.bool(this.lcPrewrite);
+    w.u8(this.expansionOwner);
+  }
+
+  loadState(r: StateReader): void {
+    r.rawInto(this.ram);
+    r.rawInto(this.lcRam);
+    this.lcRead = r.bool(); this.lcWrite = r.bool(); this.lcBank2 = r.bool(); this.lcPrewrite = r.bool();
+    this.expansionOwner = r.u8() & 7;
   }
 }

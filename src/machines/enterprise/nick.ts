@@ -24,6 +24,7 @@
  */
 
 import { EP_FRAME_WIDTH, NICK_FIRST_VISIBLE_SLOT } from './constants.ts';
+import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 
 /** Video modes (LPB +1 bits 3-1). */
 const MODE_VSYNC = 0;
@@ -177,6 +178,34 @@ export class Nick {
   }
 
   readPort(): number { return this.dataBus; }
+
+  // ── Snapshot state ───────────────────────────────────────────────────────
+
+  /** Every register and latch, and where Nick is in its line parameter
+   *  table. Video RAM is the memory's. */
+  saveState(w: StateWriter): void {
+    w.u8(this.fixBias); w.u8(this.border); w.u16(this.lptBase); w.u8(this.port3); w.u8(this.lptFlags);
+    w.u16(this.lptAddr); w.i32(this.linesRemaining); w.u16(this.nLines);
+    w.bool(this.interruptFlag); w.bool(this.vres); w.bool(this.reload);
+    w.u8(this.colourMode); w.u8(this.videoMode); w.u8(this.leftMargin); w.u8(this.rightMargin);
+    w.bool(this.lsbAlt); w.bool(this.msbAlt); w.bool(this.altInd0); w.bool(this.altInd1);
+    w.u16(this.ld1); w.u16(this.ld2);
+    w.raw(this.palette);
+    w.u8(this.dataBus);
+  }
+
+  /** Restore {@link saveState}. The VINT output is set without telling Dave:
+   *  Dave's own latches are restored with it. */
+  loadState(r: StateReader): void {
+    this.fixBias = r.u8(); this.border = r.u8(); this.lptBase = r.u16(); this.port3 = r.u8(); this.lptFlags = r.u8();
+    this.lptAddr = r.u16(); this.linesRemaining = r.i32(); this.nLines = r.u16();
+    this.interruptFlag = r.bool(); this.vres = r.bool(); this.reload = r.bool();
+    this.colourMode = r.u8() & 3; this.videoMode = r.u8() & 7; this.leftMargin = r.u8(); this.rightMargin = r.u8();
+    this.lsbAlt = r.bool(); this.msbAlt = r.bool(); this.altInd0 = r.bool(); this.altInd1 = r.bool();
+    this.ld1 = r.u16(); this.ld2 = r.u16();
+    r.rawInto(this.palette);
+    this.dataBus = r.u8();
+  }
 
   // ── Line sequencing ──────────────────────────────────────────────────────
 

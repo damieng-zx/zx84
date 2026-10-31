@@ -113,7 +113,7 @@ export class MsxFrameProbe implements FrameProbe {
     out.tapePosition = 0;
     out.casBlock = a.casReads > 0 ? m.cassette.currentBlock() : -1;
     out.fastRomLoading = false;
-    out.tracingActive = false;
+    out.tracingActive = this.m.traceActive;
 
     out.driveLed[2] = out.driveLed[3] = -1;
     out.mdvCount = 0;

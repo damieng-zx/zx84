@@ -71,4 +71,7 @@ export class MsxDiskService implements DiskService {
 
   /** Record a drive's mounted-media name without going through insert(). */
   noteName(id: string, name: string): void { this.names.set(id, name); }
+
+  /** The name the drive's disk was mounted under ('' when none). */
+  nameOf(id: string): string { return this.names.get(id) ?? ''; }
 }

@@ -39,7 +39,7 @@ export class Zx8xFrameProbe implements FrameProbe {
     out.tapePosition = 0;
     out.casBlock = -1;
     out.fastRomLoading = false;
-    out.tracingActive = false;
+    out.tracingActive = this.machine.traceActive;
     out.driveLed[0] = out.driveLed[1] = out.driveLed[2] = out.driveLed[3] = -1;
     out.mdvCount = 0;
     out.mdvMotorMask = 0;

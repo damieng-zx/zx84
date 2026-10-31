@@ -545,7 +545,7 @@ describe('disk service', () => {
   it('only accepts disk images while the card is fitted', async () => {
     const m = new MsxMachine('hx-10');
     try {
-      expect(m.services.media.accepts().map(t => t.ext)).toEqual(['.rom', '.cas']);
+      expect(m.services.media.accepts().map(t => t.ext)).toEqual(['.rom', '.cas', '.msxstate']);
       const refused = await m.services.media.mount(new Uint8Array(368640), 'x.dsk');
       expect(refused.ok).toBe(false);
       m.loadDiskRom(new Uint8Array(0x4000));

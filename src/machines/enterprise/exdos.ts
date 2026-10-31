@@ -9,10 +9,13 @@
  *              ready; the unused bits read 1 (0x3C)
  *
  * The status bit polarities follow ep128emu, whose EXDOS emulation real
- * EXDOS and IS-DOS boot on. The card's disks are 720K 3.5" FAT12 images.
+ * EXDOS and IS-DOS boot on. Single density (b5) drives the WD1770's /DDEN, so
+ * an FM disk (from an HFE or SCP image) reads only with it set and an MFM one
+ * only with it clear.
  */
 
 import { WD179x } from '@/cores/wd179x.ts';
+import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 
 export class ExdosCard {
   /** A WD1770: status bit 7 is MOTOR ON. EXDOS formats 9 sectors a track. */
@@ -24,10 +27,25 @@ export class ExdosCard {
 
   reset(): void {
     this.fdc.reset();
+    this.fdc.setDensity(false);
     this.selected = false;
   }
 
   noteDiskChanged(unit: number): void { this.changed[unit & 3] = true; }
+
+  /** The WD1770 (registers and any command in flight) and the card's latch.
+   *  Mount the disks before {@link loadState}. */
+  saveState(w: StateWriter): void {
+    this.fdc.saveState(w);
+    for (let u = 0; u < 4; u++) w.bool(this.changed[u]);
+    w.bool(this.selected);
+  }
+
+  loadState(r: StateReader): void {
+    this.fdc.loadState(r);
+    for (let u = 0; u < 4; u++) this.changed[u] = r.bool();
+    this.selected = r.bool();
+  }
 
   readFdc(reg: number): number {
     switch (reg) {
@@ -48,6 +66,7 @@ export class ExdosCard {
   }
 
   writeControl(value: number): void {
+    this.fdc.setDensity((value & 0x20) !== 0);
     if ((value & 0x0F) === 0) { this.selected = false; return; }
     this.selected = true;
     const unit = value & 0x01 ? 0 : value & 0x02 ? 1 : value & 0x04 ? 2 : 3;

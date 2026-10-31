@@ -5348,3 +5348,114 @@ input[type="range"]::-moz-range-thumb {
   background: #ff3b24;
   box-shadow: 0 0 calc(var(--bbc-u) * 5) rgba(255,70,40,0.85);
 }
+
+/* ── Commodore 64 keyboard ───────────────────────────────────────────── */
+.c64-keyboard {
+  --c64-u: var(--keyboard-scene-px);
+  --c64-case-top: #c4bda9;
+  --c64-case-bottom: #aea792;
+  --c64-case-edge: #7d7765;
+  --c64-cap-top: #3d3833;
+  --c64-cap-mid: #2d2925;
+  --c64-cap-bottom: #1d1a17;
+  --c64-cap-edge: #0f0d0b;
+  --c64-legend: #ffffff;
+  position: relative;
+  font-family: Helvetica, Arial, sans-serif;
+}
+/* The case is a full-bleed backdrop behind the fixed key coordinates (see the
+   note on .a2-keyboard::before). */
+.c64-keyboard::before {
+  content: '';
+  position: absolute;
+  inset: var(--case-bleed);
+  border: 1px solid var(--c64-case-edge);
+  border-radius: calc(var(--c64-u) * 6);
+  background: linear-gradient(180deg, var(--c64-case-top) 0%, var(--c64-case-bottom) 100%);
+  box-shadow:
+    inset 0 calc(var(--c64-u) * 2) calc(var(--c64-u) * 4) rgba(255,255,255,0.35),
+    0 2px 5px rgba(0,0,0,0.5);
+}
+.c64-key {
+  z-index: 2;
+  overflow: hidden;
+  border: 1px solid var(--c64-cap-edge);
+  border-radius: calc(var(--c64-u) * 2);
+  background: linear-gradient(180deg, var(--c64-cap-top) 0%, var(--c64-cap-mid) 55%, var(--c64-cap-bottom) 100%);
+  box-shadow:
+    inset calc(var(--c64-u) * 2) calc(var(--c64-u) * 2) 0 rgba(255,255,255,0.12),
+    inset calc(var(--c64-u) * -3) calc(var(--c64-u) * -4) calc(var(--c64-u) * 5) rgba(0,0,0,0.45),
+    0 calc(var(--c64-u) * 3) calc(var(--c64-u) * 2) rgba(0,0,0,0.5);
+  color: var(--c64-legend);
+  cursor: pointer;
+  user-select: none;
+  touch-action: none;
+  transition: filter 0.06s ease, transform 0.05s ease;
+}
+.c64-key--grey {
+  background: linear-gradient(180deg, #a3a3a3 0%, #8e8e8e 55%, #6f6f6f 100%);
+}
+.c64-key:hover { filter: brightness(1.25); }
+.c64-key.pressed {
+  filter: brightness(1.5);
+  transform: translateY(calc(var(--c64-u) * 1.5));
+}
+/* Every legend is centred in its cap. A cap with something printed on its
+   front (the function keys) shares its face with that. */
+.c64-key__legend {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: calc(var(--c64-u) * 1);
+  pointer-events: none;
+  line-height: 1;
+}
+.c64-key__main { font-size: calc(var(--c64-u) * 17); font-weight: 600; }
+.c64-key__shift { font-size: calc(var(--c64-u) * 11.5); font-weight: 600; }
+.c64-key--word .c64-key__main {
+  font-size: calc(var(--c64-u) * 9.5);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.c64-key--shifted .c64-key__main { font-size: calc(var(--c64-u) * 14); }
+.c64-key--word.c64-key--shifted .c64-key__main { font-size: calc(var(--c64-u) * 9.5); }
+.c64-key--word .c64-key__shift { font-size: calc(var(--c64-u) * 9); }
+/* The Commodore key's logo fills most of its cap. */
+.c64-key__logo { display: block; height: calc(var(--c64-u) * 26); width: auto; }
+/* The cursor keys' arrows are their whole legend. */
+.c64-key--crsr .c64-key__legend { gap: calc(var(--c64-u) * 2); }
+.c64-key--crsr .c64-key__shift,
+.c64-key--crsr.c64-key--shifted .c64-key__main { font-size: calc(var(--c64-u) * 17); letter-spacing: 0; }
+/* A function key sets its two legends as one centred pair: the key's own
+   small, the one SHIFT gives larger beneath it. */
+.c64-key--fkey {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: calc(var(--c64-u) * 2);
+}
+.c64-key--fkey .c64-key__legend { position: static; inset: auto; }
+.c64-key--fkey .c64-key__main { font-size: calc(var(--c64-u) * 11); }
+.c64-key--fkey .c64-key__front {
+  position: static;
+  font-size: calc(var(--c64-u) * 14);
+  opacity: 1;
+}
+/* What is printed on the front of the cap. */
+.c64-key__front {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(var(--c64-u) * 3);
+  text-align: center;
+  font-size: calc(var(--c64-u) * 6);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  opacity: 0.8;
+  pointer-events: none;
+  line-height: 1;
+}

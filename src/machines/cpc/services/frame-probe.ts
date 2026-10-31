@@ -132,7 +132,7 @@ export class CpcFrameProbe implements FrameProbe {
     out.tapePosition = tape.position;
     out.casBlock = -1;
     out.fastRomLoading = false;
-    out.tracingActive = false;
+    out.tracingActive = this.c.traceActive;
 
     // Panel slots A:/B: are the uPD765A's two units; C:/D: are the Spectrum's
     // +D/Beta drives and never exist here. A cassette-only model (464, or the

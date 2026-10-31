@@ -27,6 +27,8 @@
  * see THIRD_PARTY.md.
  */
 
+import type { StateSink, StateSource } from '@/utils/state-stream.ts';
+
 /** Active line width — all modes render into a 512-pixel line (the 256-px
  *  graphic modes double each pixel, the text modes draw 480 px centred). */
 export const V9938_WIDTH = 512;
@@ -1176,6 +1178,58 @@ export class V9938 {
       this.palRegs[i * 2] = (r << 4) | b;
       this.palRegs[i * 2 + 1] = g;
       this.pens[i] = penFromRgb(r, g, b);
+    }
+  }
+
+  // ── Snapshot state ────────────────────────────────────────────────────
+  /** VRAM, registers, palette, the port latches, status, blink phase and the
+   *  command engine mid-operation. */
+  saveState(w: StateSink): void {
+    w.raw(this.vram);
+    w.raw(this.regs);
+    w.raw(this.palRegs);
+    w.u16(this.addressLatch); w.u8(this.readAhead);
+    w.u8(this.controlFirst); w.bool(this.controlSecond);
+    w.u8(this.paletteFirst); w.bool(this.paletteSecond);
+    w.raw(this.status);
+    w.u8(this.hrCounter);
+    w.bool(this.blinkOn); w.u16(this.blinkCount);
+    const c = this.command;
+    w.bool(c !== null);
+    if (c) {
+      w.u8(c.code); w.u8(c.op); w.u8(c.mode);
+      for (const v of [c.sx, c.sy, c.dx, c.dy, c.nx, c.ny, c.tx, c.ty, c.x, c.y,
+        c.remainingX, c.remainingY, c.lineError, c.lineCount]) w.f64(v);
+      w.bool(c.srcExpansion); w.bool(c.dstExpansion); w.bool(c.cpuWaiting);
+    }
+  }
+
+  loadState(r: StateSource): void {
+    r.rawInto(this.vram);
+    r.rawInto(this.regs);
+    r.rawInto(this.palRegs);
+    for (let i = 0; i < 16; i++) {
+      const rb = this.palRegs[i * 2];
+      this.pens[i] = penFromRgb((rb >> 4) & 7, this.palRegs[i * 2 + 1] & 7, rb & 7);
+    }
+    this.addressLatch = r.u16() & ADDR_LATCH_MASK; this.readAhead = r.u8();
+    this.controlFirst = r.u8(); this.controlSecond = r.bool();
+    this.paletteFirst = r.u8(); this.paletteSecond = r.bool();
+    r.rawInto(this.status);
+    this.hrCounter = r.u8();
+    this.blinkOn = r.bool(); this.blinkCount = r.u16();
+    if (r.bool()) {
+      const code = r.u8(), op = r.u8(), mode = (r.u8() & 3) as CommandMode;
+      const n = (): number => r.f64();
+      const sx = n(), sy = n(), dx = n(), dy = n(), nx = n(), ny = n(), tx = n(), ty = n();
+      const x = n(), y = n(), remainingX = n(), remainingY = n(), lineError = n(), lineCount = n();
+      this.command = {
+        code, op, mode, sx, sy, dx, dy, nx, ny, tx, ty, x, y,
+        remainingX, remainingY, lineError, lineCount,
+        srcExpansion: r.bool(), dstExpansion: r.bool(), cpuWaiting: r.bool(),
+      };
+    } else {
+      this.command = null;
     }
   }
 }
