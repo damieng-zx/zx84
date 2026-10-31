@@ -1,7 +1,7 @@
 /**
- * MSX MediaService routing — ported verbatim from the pre-service
- * emulator.loadFile asMsx branch: `.rom` cartridges (auto-booted) and `.cas`
- * cassettes (BIOS-trap load); everything else refused. ZIP unwrapping stays a
+ * MSX MediaService routing: `.rom` cartridges (auto-booted) and cassettes
+ * (`.cas` on the deck and for the BIOS traps; `.tsx`/`.tzx`/`.wav` on the deck
+ * only); everything else refused. ZIP unwrapping stays a
  * shell concern. Tests run headless against a real MsxMachine (display = null).
  * Disk images are accepted only while the optional floppy interface is fitted
  * (see tests/msx/msx-disk-interface.test.ts).
@@ -31,19 +31,45 @@ describe('MSX MediaService routing', () => {
     expect(m.services.roms.cartridge.name).toBe('game.rom');
   });
 
-  it('.cas mounts on the cassette (served through the BIOS load traps)', async () => {
+  it('.cas mounts on the deck with PLAY pressed and on the BIOS-trap stream', async () => {
     const m = machine();
     const r = await m.services.media.mount(tinyCas(), 'game.cas');
     expect(r.ok).toBe(true);
-    expect(r.target).toBe('cas');
+    expect(r.target).toBe('tape');
     expect(m.cassette.loaded).toBe(true);
     expect(m.cassette.name).toBe('game.cas');
     expect(m.services.tape.loaded).toBe(true);
+    expect(m.services.tape.rawBlocks).toHaveLength(1);
+    expect(m.tape.playing && !m.tape.paused).toBe(true);
   });
 
-  it('accepts() offers .rom, .cas and its .msxstate snapshot', () => {
+  it('a .wav goes on the deck only (no byte stream for the traps)', async () => {
+    const m = machine();
+    // 16-bit mono PCM, 8 samples of a square wave.
+    const pcm = new Int16Array([16000, 16000, -16000, -16000, 16000, 16000, -16000, -16000]);
+    const wav = new Uint8Array(44 + pcm.byteLength);
+    const v = new DataView(wav.buffer);
+    const tag = (o: number, t: string) => { for (let i = 0; i < 4; i++) wav[o + i] = t.charCodeAt(i); };
+    tag(0, 'RIFF'); v.setUint32(4, 36 + pcm.byteLength, true); tag(8, 'WAVE');
+    tag(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, 44100, true); v.setUint32(28, 88200, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+    tag(36, 'data'); v.setUint32(40, pcm.byteLength, true);
+    wav.set(new Uint8Array(pcm.buffer), 44);
+    const r = await m.services.media.mount(wav, 'game.wav');
+    expect(r.ok).toBe(true);
+    expect(r.target).toBe('tape');
+    expect(m.services.tape.loaded).toBe(true);
+    expect(m.cassette.loaded).toBe(false);
+  });
+
+  it('a damaged tape is refused', async () => {
+    const r = await machine().services.media.mount(new Uint8Array([1, 2, 3]), 'game.tsx');
+    expect(r.ok).toBe(false);
+  });
+
+  it('accepts() offers .rom, the cassette formats and its .msxstate snapshot', () => {
     const exts = machine().services.media.accepts().map(t => t.ext);
-    expect(exts).toEqual(['.rom', '.cas', '.msxstate']);
+    expect(exts).toEqual(['.rom', '.cas', '.tsx', '.tzx', '.wav', '.msxstate']);
   });
 
   it('has a cartridge slot, a .msxstate snapshot service and no drives until the disk interface is fitted', () => {

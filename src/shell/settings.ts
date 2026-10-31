@@ -44,6 +44,7 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'ay-antialias': () => settings.ayAntialias(),
   'specdrum-volume': () => settings.specdrumVolume(),
   'uspeech-volume': () => settings.uspeechVolume(),
+  'scc-volume': () => settings.sccVolume(),
   // Selected joystick interface per player (Spectrum: Kempston port fitted?).
   'joy-p1': () => settings.joyP1(),
   'joy-p2': () => settings.joyP2(),

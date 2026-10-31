@@ -59,6 +59,7 @@ const DEFAULTS = {
   'specdrum-volume': '100',
   // Level of the Currah µSpeech speech output (0-200).
   'uspeech-volume': '100',
+  'scc-volume': '100',
 
   // Joystick
   'joy-p1':     'kempston',
@@ -236,6 +237,7 @@ export const [snStereo, setSnStereo] = signal(savedText('sn-stereo'));
 export const [ayAntialias, setAyAntialias] = signal(savedText('ay-antialias'));
 export const [specdrumVolume, setSpecdrumVolume] = signal(savedNumber('specdrum-volume'));
 export const [uspeechVolume, setUspeechVolume] = signal(savedNumber('uspeech-volume'));
+export const [sccVolume, setSccVolume] = signal(savedNumber('scc-volume'));
 
 /** Per-device Sound-pane volume signals, keyed by the setting a machine
  *  descriptor names in `soundDevices[].volumeSetting` — so the generic pane
@@ -245,6 +247,7 @@ export const DEVICE_VOLUMES: Readonly<Record<string, readonly [() => number, (v:
   'psg-volume': [psgVolume, setPsgVolume],
   'specdrum-volume': [specdrumVolume, setSpecdrumVolume],
   'uspeech-volume': [uspeechVolume, setUspeechVolume],
+  'scc-volume': [sccVolume, setSccVolume],
 };
 
 // ── Joystick settings ───────────────────────────────────────────────────
@@ -547,6 +550,7 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'c64-sid',     set: setC64Sid,     type: 'string' },
     { key: 'specdrum-volume', set: setSpecdrumVolume, type: 'number' },
     { key: 'uspeech-volume', set: setUspeechVolume, type: 'number' },
+    { key: 'scc-volume', set: setSccVolume, type: 'number' },
   ],
   joystick: [
     { key: 'joy-p1',     set: setJoyP1,    type: 'string' },

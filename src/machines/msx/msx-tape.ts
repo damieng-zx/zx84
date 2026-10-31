@@ -16,9 +16,11 @@
  * the Save menu as a .cas file.
  *
  * The BIOS caller (CLOAD/BLOAD, or a program CALLing the routines) drives the
- * byte counts, so we just serve the stream sequentially. Custom turbo loaders
- * that sample the cassette port directly are not covered — a pulse-level engine
- * would be a later addition; those fall through and simply don't load.
+ * byte counts, so we just serve the stream sequentially. Loaders that sample
+ * the cassette input themselves (PSG register 14 bit 7) are served by the
+ * pulse-level deck instead: the machine plays the same `.cas` as its FSK
+ * signal (see `casToPulseBlocks` in media/tape/cas.ts). The traps serve loads
+ * only while "Fast ROM loading" is on.
  *
  * References: MSX2 Technical Handbook ch.5 (cassette BIOS); MSX Wiki
  * "Emulation related file formats" (.cas layout).
@@ -79,6 +81,12 @@ export class MsxCassette {
   }
 
   rewind(): void { this.pos = 0; }
+
+  /** Position the read at the start of block `index` (its sync ID), so the
+   *  next TAPION finds that block; past the last block goes to the end. */
+  seekBlock(index: number): void {
+    this.pos = index <= 0 ? 0 : index < this.syncOffsets.length ? this.syncOffsets[index] : this.data.length;
+  }
 
   /** The raw mounted `.cas` bytes (for the per-platform tape stash). */
   getData(): Uint8Array { return this.data; }

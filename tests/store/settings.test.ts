@@ -464,7 +464,7 @@ describe('settings — per-device sound volumes', () => {
 
   it('every volume key a descriptor can name has a signal to drive its slider', async () => {
     const s = await load();
-    expect(Object.keys(s.DEVICE_VOLUMES).sort()).toEqual(['beeper-volume', 'psg-volume', 'specdrum-volume', 'uspeech-volume']);
+    expect(Object.keys(s.DEVICE_VOLUMES).sort()).toEqual(['beeper-volume', 'psg-volume', 'scc-volume', 'specdrum-volume', 'uspeech-volume']);
     const [get, set] = s.DEVICE_VOLUMES['psg-volume']!;
     set(42);
     expect(get()).toBe(42);

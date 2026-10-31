@@ -207,10 +207,26 @@ describe('Spectrum applies the device volumes', () => {
 });
 
 describe('MSX applies the device volumes', () => {
-  it('declares the key click and the AY', () => {
+  it('declares the key click, the AY and the cartridge SCC', () => {
     const present = presentSoundDevices(msxDescriptor('hx-10').ui.soundDevices, on());
-    expect(ids(present)).toEqual(['beeper', 'psg']);
+    expect(ids(present)).toEqual(['beeper', 'psg', 'scc']);
     expect(present[1]!.label).toBe('AY-3-8910');
+    expect(present[2]!.volumeSetting).toBe('scc-volume');
+  });
+
+  it('lets the SCC be pushed to twice the hardware level and scales it independently', () => {
+    const m = new MsxMachine('hx-10');
+    try {
+      m.applySettings(view({}));
+      expect(m.mixer.monoGain).toBe(1);
+      m.applySettings(view({ 'scc-volume': 150 }));
+      expect(m.mixer.monoGain).toBeCloseTo(1.5, 12);
+      expect(m.mixer.ayGain).toBe(1);
+      m.applySettings(view({ 'scc-volume': 0 }));
+      expect(m.mixer.monoGain).toBe(0);
+    } finally {
+      m.destroy();
+    }
   });
 
   it('keeps the hardware levels at 100 % (click at half the AY) and scales each independently', () => {

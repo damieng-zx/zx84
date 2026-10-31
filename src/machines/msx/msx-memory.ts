@@ -39,6 +39,11 @@
 import type { IMachineMemory } from '@/machines/machine.ts';
 import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 import type { MsxDiskInterface } from '@/machines/msx/peripherals/disk-interface.ts';
+import {
+  MsxCartridge, guessMegaRomMapper, isMegaRom, isMsxMapper, type MsxMapper,
+} from '@/machines/msx/msx-cartridge.ts';
+
+export { guessCartBase, guessMegaRomMapper, isMegaRom, MSX_MAPPERS, type MsxMapper } from '@/machines/msx/msx-cartridge.ts';
 
 const ROM_SIZE = 0x8000;       // 32KB internal ROM (BIOS + BASIC)
 const PAGE_SIZE = 0x4000;      // 16KB slot-select page
@@ -66,78 +71,6 @@ export interface MsxMemoryLayout {
 /** The HX-10 arrangement: 32KB ROM in slot 0, 64KB RAM in slot 2. */
 export const MSX_DEFAULT_LAYOUT: MsxMemoryLayout = { ramSlot: 2, ramFirstPage: 0, firmwarePage: null };
 
-/**
- * Where a plain (non-mapper) cartridge image starts in the Z80 address space,
- * from its "AB" header(s) — the openMSX RomPlain::guessLocation rule. Every
- * 16KB boundary of the image is checked for "AB"; each non-zero pointer in the
- * header (INIT, STATEMENT, DEVICE, TEXT) votes for the page the image must
- * start at so the pointer lands inside its own 16KB block. 0x4000 is preferred,
- * then 0x0000, then 0x8000; no header at all defaults to 0x4000.
- *
- * So a 48KB image with its header at file offset 0x4000 (INIT 0x4xxx) lays out
- * at 0x0000–0xBFFF, and a BASIC cartridge (INIT 0, TEXT 0x8xxx) sits at 0x8000.
- */
-export function guessCartBase(rom: Uint8Array): number {
-  const votes = [0, 0, 0];
-  for (let i = 0; i + 0x10 <= rom.length; i += PAGE_SIZE) {
-    if (rom[i] !== 0x41 || rom[i + 1] !== 0x42) continue;   // "AB"
-    for (let j = 0; j < 4; j++) {
-      const w = rom[i + 2 + j * 2] | (rom[i + 3 + j * 2] << 8);
-      if (w === 0) continue;
-      const page = (w >> 14) - (i >> 14);
-      if (page >= 0 && page <= 2) votes[page]++;
-    }
-  }
-  if (votes[1] && votes[1] >= votes[0] && votes[1] >= votes[2]) return 0x4000;
-  if (votes[0] && votes[0] >= votes[2]) return 0x0000;
-  if (votes[2]) return 0x8000;
-  return 0x4000;
-}
-
-/** How slot 1 decodes the cartridge: a plain ROM, or one of the common
- *  mega-ROM bank mappers (openMSX RomAscii8kB/RomAscii16kB/RomKonami/
- *  RomKonamiSCC). SCC sound is not modelled — only its bank switching. */
-export type MsxMapper = 'plain' | 'ascii8' | 'ascii16' | 'konami' | 'konami-scc';
-
-/**
- * Guess a mega-ROM's mapper the way openMSX's RomFactory does: games switch
- * banks with `LD (nnnn),A` (opcode 0x32), so count those stores to each
- * mapper's register addresses and pick the most-hit mapper. Ties go to
- * Konami SCC, then Konami, ASCII16, ASCII8; ASCII8's count is docked by one
- * as in openMSX, and a ROM with no hits at all falls back to ASCII8 (the
- * nearest supported layout to openMSX's generic 8KB mapper).
- */
-export function guessMegaRomMapper(rom: Uint8Array): Exclude<MsxMapper, 'plain'> {
-  let ascii8 = 0, ascii16 = 0, konami = 0, konamiScc = 0;
-  for (let i = 0; i + 3 < rom.length; i++) {
-    if (rom[i] !== 0x32) continue;
-    switch (rom[i + 1] | (rom[i + 2] << 8)) {
-      case 0x5000: case 0x9000: case 0xB000: konamiScc++; break;
-      case 0x4000: case 0x8000: case 0xA000: konami++; break;
-      case 0x6800: case 0x7800: ascii8++; break;
-      case 0x6000: konami++; ascii8++; ascii16++; break;
-      case 0x7000: konamiScc++; ascii8++; ascii16++; break;
-      case 0x77FF: ascii16++; break;
-    }
-  }
-  if (ascii8 > 0) ascii8--;
-  let best: Exclude<MsxMapper, 'plain'> = 'ascii8';
-  let bestCount = ascii8;
-  const rivals = [['ascii16', ascii16], ['konami', konami], ['konami-scc', konamiScc]] as const;
-  for (const [type, count] of rivals) {
-    if (count > 0 && count >= bestCount) { best = type; bestCount = count; }
-  }
-  return best;
-}
-
-/** Whether an image needs a mega-ROM mapper: anything over 64KB, or a 64KB
- *  image that starts with an "AB" header (openMSX: a header-less 64KB image
- *  is a plain ROM filling all four pages). */
-export function isMegaRom(rom: Uint8Array): boolean {
-  if (rom.length > 0x10000) return true;
-  return rom.length === 0x10000 && rom[0] === 0x41 && rom[1] === 0x42;
-}
-
 export class MsxMemory implements IMachineMemory {
   /** Internal ROM: BIOS + MSX BASIC, mapped in slot 0 pages 0–1. */
   private rom = new Uint8Array(ROM_SIZE);
@@ -162,22 +95,13 @@ export class MsxMemory implements IMachineMemory {
   private expRead: Uint8Array | null = null;
   private expWrite: Uint8Array | null = null;
 
-  /** A mounted cartridge ROM (slot 1), or null. Kept for the debug/ROM pane. */
-  private cartRom: Uint8Array | null = null;
-
-  /** Per-8KB-segment views of the cartridge as it appears in slot 1 (null =
-   *  the cartridge doesn't decode that segment). */
-  private readonly cartSeg: (Uint8Array | null)[] = new Array(SEGS).fill(null);
-
-  /** The cartridge's mapper, and (for mega-ROMs) its image padded to whole
-   *  8KB blocks plus the bank-number mask (next power of two, minus one). */
-  private mapper: MsxMapper = 'plain';
-  private cartImage = new Uint8Array(0);
-  private cartBlocks8 = 0;
-  private cartMask8 = 0;
-  /** Segments where a CPU write reaches the mapper's bank registers (slot 1
-   *  selected there and a mega-ROM mounted). */
+  /** The cartridge in slot 1 (empty when its `rom` is null). */
+  readonly cart = new MsxCartridge();
+  /** Segments where a CPU write reaches the cartridge (slot 1 selected there
+   *  and a mega-ROM mounted: bank registers, SRAM, the SCC). */
   private readonly mapperSeg = new Uint8Array(SEGS);
+  /** Segments whose reads go through the cartridge's slow path (the SCC). */
+  private readonly cartSlowSeg = new Uint8Array(SEGS);
 
   /** The floppy disk interface in slot 3, or null when not fitted. */
   private disk: MsxDiskInterface | null = null;
@@ -248,139 +172,43 @@ export class MsxMemory implements IMachineMemory {
    *  (`mapper`, else guessed from the code), a plain ROM is placed by its
    *  header. A reset afterwards lets the BIOS slot scan find and auto-run it. */
   insertCartridge(data: Uint8Array, mapper?: MsxMapper): void {
-    this.cartRom = data.length > 0 ? data : null;
-    if (this.cartRom === null) this.mapper = 'plain';
-    else if (mapper !== undefined) this.mapper = mapper;
-    else this.mapper = isMegaRom(this.cartRom) ? guessMegaRomMapper(this.cartRom) : 'plain';
-    this.buildCartViews();
+    const rom = data.length > 0 ? data : null;
+    const type: MsxMapper = rom === null ? 'plain'
+      : mapper !== undefined ? mapper
+      : isMegaRom(rom) ? guessMegaRomMapper(rom) : 'plain';
+    this.cart.insert(rom, type);
     this.rebuild();
   }
 
   /** Remove any mounted cartridge from slot 1. */
   removeCartridge(): void {
-    this.cartRom = null;
-    this.mapper = 'plain';
-    this.buildCartViews();
+    this.cart.insert(null, 'plain');
     this.rebuild();
   }
 
-  get hasCartridge(): boolean { return this.cartRom !== null; }
-  get cartridgeSize(): number { return this.cartRom?.length ?? 0; }
+  get hasCartridge(): boolean { return this.cart.rom !== null; }
+  get cartridgeSize(): number { return this.cart.rom?.length ?? 0; }
   /** The mounted cartridge's mapper ('plain' when none or unbanked). */
-  get cartridgeMapper(): MsxMapper { return this.mapper; }
+  get cartridgeMapper(): MsxMapper { return this.cart.mapper; }
+  /** The mounted cartridge image, or null. */
+  get cartridgeRom(): Uint8Array | null { return this.cart.rom; }
 
   /** Whether the cartridge decodes any part of 16KB page `page` (0–3). */
   cartCoversPage(page: number): boolean {
-    return this.cartSeg[page * 2] !== null || this.cartSeg[page * 2 + 1] !== null;
+    return this.cart.seg[page * 2] !== null || this.cart.seg[page * 2 + 1] !== null;
   }
 
-  /**
-   * Lay a plain cartridge image into slot 1. The start page comes from the
-   * "AB" header ({@link guessCartBase}); the image then covers as many 16KB
-   * pages as it needs, up to 0xFFFF. An 8KB image mirrors across its 16KB
-   * page (only A0–A12 are decoded). A 64KB image fills all four pages.
-   */
-  private buildCartViews(): void {
-    this.cartSeg.fill(null);
-    const rom = this.cartRom;
-    if (!rom) return;
-    if (this.mapper !== 'plain') { this.buildMegaRom(rom); return; }
-    const size = rom.length;
-    const base = size >= 0x10000 ? 0 : guessCartBase(rom);
-    const pages = Math.min(Math.ceil(size / PAGE_SIZE), 4 - (base >> 14));
-    const image = new Uint8Array(pages * PAGE_SIZE).fill(0xFF);
-    image.set(rom.subarray(0, image.length));
-    if (size <= SEG_SIZE) image.set(rom, SEG_SIZE);   // 8KB mirrors in its page
-    const firstSeg = base >> 13;
-    for (let i = 0; i < pages * 2; i++) {
-      this.cartSeg[firstSeg + i] = image.subarray(i * SEG_SIZE, (i + 1) * SEG_SIZE);
-    }
-  }
-
-  /** Pad a mega-ROM to whole 8KB blocks and power it up with its mapper's
-   *  reset banking. */
-  private buildMegaRom(rom: Uint8Array): void {
-    const blocks = Math.ceil(rom.length / SEG_SIZE);
-    this.cartImage = new Uint8Array(blocks * SEG_SIZE).fill(0xFF);
-    this.cartImage.set(rom);
-    this.cartBlocks8 = blocks;
-    let pow = 1;
-    while (pow < blocks) pow <<= 1;
-    this.cartMask8 = pow - 1;
-    this.resetMapper();
-  }
-
-  /** 8KB block `n` (already masked) of the mega-ROM, or null past its end. */
-  private block8(n: number): Uint8Array | null {
-    return n < this.cartBlocks8 ? this.cartImage.subarray(n * SEG_SIZE, (n + 1) * SEG_SIZE) : null;
-  }
-
-  /** Map 8KB bank `bank` at segment `seg` (bank masked to the ROM size). */
-  private setBank8(seg: number, bank: number): void {
-    this.cartSeg[seg] = this.block8(bank & this.cartMask8);
-  }
-
-  /** Map 16KB bank `bank` at segments `seg`/`seg+1` (ASCII16). */
-  private setBank16(seg: number, bank: number): void {
-    const n = (bank & (this.cartMask8 >> 1)) * 2;
-    this.cartSeg[seg] = this.block8(n);
-    this.cartSeg[seg + 1] = this.block8(n + 1);
-  }
-
-  /** Power-on banking. Every mapper decodes 0x4000–0xBFFF only; pages 0 and
-   *  3 are unmapped (openMSX). */
-  private resetMapper(): void {
-    this.cartSeg.fill(null);
-    switch (this.mapper) {
-      case 'ascii8':
-        for (let seg = 2; seg < 6; seg++) this.setBank8(seg, 0);
-        break;
-      case 'ascii16':
-        this.setBank16(2, 0);
-        this.setBank16(4, 0);
-        break;
-      case 'konami':
-      case 'konami-scc':
-        for (let seg = 2; seg < 6; seg++) this.setBank8(seg, seg - 2);
-        break;
-      case 'plain':
-        break;
-    }
-  }
-
-  /** A CPU write into slot 1 of a mega-ROM: decode the bank registers. */
+  /** A CPU write into slot 1 of a mega-ROM. */
   private mapperWrite(addr: number, val: number): void {
-    switch (this.mapper) {
-      case 'ascii8':
-        // 0x6000/0x6800/0x7000/0x7800 (2KB windows) → banks at 0x4000–0xA000.
-        if (addr < 0x6000 || addr >= 0x8000) return;
-        this.setBank8(2 + ((addr >> 11) & 3), val);
-        break;
-      case 'ascii16':
-        // 0x6000–0x67FF → the 0x4000 bank; 0x7000–0x77FF → the 0x8000 bank.
-        if (addr < 0x6000 || addr >= 0x7800 || (addr & 0x0800)) return;
-        this.setBank16((addr & 0x1000) ? 4 : 2, val);
-        break;
-      case 'konami':
-        // 0x4000–0x5FFF is fixed to bank 0; a write anywhere in 0x6000–
-        // 0xBFFF selects the bank for that 8KB segment.
-        if (addr < 0x6000 || addr >= 0xC000) return;
-        this.setBank8(addr >> 13, val);
-        break;
-      case 'konami-scc':
-        // 0x5000/0x7000/0x9000/0xB000 (2KB windows) → banks at 0x4000–0xA000.
-        if (addr < 0x5000 || addr >= 0xC000 || (addr & 0x1800) !== 0x1000) return;
-        this.setBank8(addr >> 13, val);
-        break;
-      case 'plain':
-        return;
-    }
-    this.rebuild();
+    if (this.cart.write(addr, val)) this.rebuild();
   }
+
+  /** Re-read the cartridge's views (after a snapshot restore changed them). */
+  refreshCartridge(): void { this.rebuild(); }
 
   /** Rebuild the per-segment read/write views from the slot register(s). */
   private rebuild(): void {
-    const mega = this.mapper !== 'plain' ? 1 : 0;
+    const mega = this.cart.isMega ? 1 : 0;
     for (let seg = 0; seg < SEGS; seg++) {
       const page = seg >> 1;
       const slot = (this.primarySlot >> (page * 2)) & 3;
@@ -409,6 +237,7 @@ export class MsxMemory implements IMachineMemory {
     // A mega-ROM's bank registers catch CPU writes anywhere in slot 1.
     this.mapperSeg[seg] = slot === 1 ? mega : 0;
     this.diskSeg[seg] = 0;
+    this.cartSlowSeg[seg] = 0;
     if (slot === this.layout.ramSlot && page >= this.layout.ramFirstPage) {
       // On-board RAM, read and write (HX-10: slot 2 pages 0–3; HB-55: slot 0
       // page 3). It is indexed from the first RAM page.
@@ -429,8 +258,15 @@ export class MsxMemory implements IMachineMemory {
       this.readPtr[seg] = null;
       this.writePtr[seg] = null;
     } else if (slot === 1) {
-      // Slot 1: a mounted cartridge (read-only), else empty.
-      this.readPtr[seg] = this.cartSeg[seg];
+      // Slot 1: a mounted cartridge (read-only; SRAM and the SCC take their
+      // writes through mapperWrite), else empty. The SCC window reads through
+      // the cartridge's slow path.
+      if (this.cart.slow[seg]) {
+        this.readPtr[seg] = null;
+        this.cartSlowSeg[seg] = 1;
+      } else {
+        this.readPtr[seg] = this.cart.seg[seg];
+      }
       this.writePtr[seg] = null;
     } else if (this.disk !== null && (seg === 2 || seg === 4)) {
       // Slot 3 with the disk interface: the first half of its Disk BASIC ROM
@@ -487,6 +323,7 @@ export class MsxMemory implements IMachineMemory {
     const ptr = this.readPtr[seg];
     if (ptr) return ptr[addr & 0x1FFF];
     if (this.expSeg[seg]) return this.readTop(addr);
+    if (this.cartSlowSeg[seg]) return this.cart.read(addr);
     return this.diskSeg[seg] ? this.disk!.read(addr) : 0xFF;
   }
 
@@ -498,6 +335,7 @@ export class MsxMemory implements IMachineMemory {
     const ptr = this.readPtr[seg];
     if (ptr) return ptr[addr & 0x1FFF];
     if (this.expSeg[seg]) return this.readTop(addr);
+    if (this.cartSlowSeg[seg]) return this.cart.peek(addr);
     return this.diskSeg[seg] ? this.disk!.peek(addr) : 0xFF;
   }
 
@@ -525,6 +363,8 @@ export class MsxMemory implements IMachineMemory {
       if (ptr) out.set(ptr, seg * SEG_SIZE);
       else if (this.expSeg[seg]) {
         for (let i = 0; i < SEG_SIZE; i++) out[seg * SEG_SIZE + i] = this.readTop(seg * SEG_SIZE + i);
+      } else if (this.cartSlowSeg[seg]) {
+        for (let i = 0; i < SEG_SIZE; i++) out[seg * SEG_SIZE + i] = this.cart.peek(seg * SEG_SIZE + i);
       } else if (this.diskSeg[seg]) {
         for (let i = 0; i < SEG_SIZE; i++) out[seg * SEG_SIZE + i] = this.disk!.peek(seg * SEG_SIZE + i);
       } else out.fill(0xFF, seg * SEG_SIZE, (seg + 1) * SEG_SIZE);
@@ -557,29 +397,27 @@ export class MsxMemory implements IMachineMemory {
     this.ram.fill(0);
     this.primarySlot = 0;
     this.subSlot.fill(0);
-    if (this.mapper !== 'plain') this.resetMapper();   // /RESET reaches the cart
+    this.cart.resetBanks();   // /RESET reaches the cartridge (SRAM keeps its contents)
     this.rebuild();
   }
 
   // ── Snapshot state ───────────────────────────────────────────────────────
 
   /** The RAM, the slot and sub-slot registers and the cartridge in slot 1:
-   *  its image, mapper and (for a mega-ROM) the 8KB bank in each segment.
-   *  The cartridge rides in every state, since nothing else brings it back
-   *  after a reload. The internal and firmware ROMs are not state. */
+   *  its image, mapper and the 8KB ROM bank each segment shows (-1 = none).
+   *  The bank registers, SRAM and SCC follow in the cartridge's own
+   *  extension ({@link MsxCartridge.saveExtra}), which the machine appends
+   *  to the same section. The internal and firmware ROMs are not state. */
   saveState(w: StateWriter): void {
     w.raw(this.ram);
     w.u8(this.primarySlot);
     w.raw(this.subSlot);
-    const cart = this.cartRom;
+    const cart = this.cart.rom;
     w.bool(cart !== null);
     if (!cart) return;
     w.bytes(cart);
-    w.str(this.mapper);
-    for (let seg = 0; seg < SEGS; seg++) {
-      const view = this.cartSeg[seg];
-      w.i32(this.mapper === 'plain' || view === null ? -1 : (view.byteOffset - this.cartImage.byteOffset) / SEG_SIZE);
-    }
+    w.str(this.cart.mapper);
+    for (let seg = 0; seg < SEGS; seg++) w.i32(this.cart.blockIndex(seg));
   }
 
   /** Restore what {@link saveState} wrote, cartridge included (inserted
@@ -591,21 +429,13 @@ export class MsxMemory implements IMachineMemory {
     if (r.bool()) {
       const image = r.bytes(1 << 23);
       const mapper = r.str();
-      if (!['plain', 'ascii8', 'ascii16', 'konami', 'konami-scc'].includes(mapper)) {
-        throw new Error(`Snapshot cartridge mapper ${mapper} is not supported`);
-      }
-      this.cartRom = image.length > 0 ? image : null;
-      this.mapper = this.cartRom ? mapper as MsxMapper : 'plain';
-      this.buildCartViews();
+      if (!isMsxMapper(mapper)) throw new Error(`Snapshot cartridge mapper ${mapper} is not supported`);
+      this.cart.insert(image, mapper);
       const banks: number[] = [];
       for (let seg = 0; seg < SEGS; seg++) banks.push(r.i32());
-      if (this.mapper !== 'plain') {
-        for (let seg = 0; seg < SEGS; seg++) this.cartSeg[seg] = banks[seg] < 0 ? null : this.block8(banks[seg]);
-      }
+      this.cart.applyBlockIndices(banks);
     } else {
-      this.cartRom = null;
-      this.mapper = 'plain';
-      this.buildCartViews();
+      this.cart.insert(null, 'plain');
     }
     this.rebuild();
   }

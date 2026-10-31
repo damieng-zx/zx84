@@ -1,8 +1,7 @@
 /**
- * MSX FrameProbe — keyboard/PSG/cassette-read activity and the instant-load
- * cassette's current-block highlight, plus the OCR text-overlay driver. The
- * MSX has no pulse tape transport, drives, or drive sound — those channels
- * stay absent, matching the pre-probe frame-bridge body exactly.
+ * MSX FrameProbe — keyboard/PSG/cassette activity, the cassette deck's
+ * transport state, the floppy interface's drives, plus the OCR text-overlay
+ * driver.
  */
 
 import type {
@@ -96,23 +95,23 @@ export class MsxFrameProbe implements FrameProbe {
     out.keyboard = a.kbdReads;
     out.joystick = 0;
     out.mouse = 0;
-    out.tapeIn = 0;
-    out.tapeLoad = a.casReads;
+    out.tapeIn = a.tapeReads > 0 ? 1 : 0;
+    out.tapeLoad = a.casReads + a.tapeReads;
     out.beeper = 0;
     out.psg = a.ayWrites > 5 ? 1 : 0;
     out.videoFx = 0;
     out.disk = a.fdcAccesses;
-    out.tapeTurbo = false;
+    out.tapeTurbo = m.tapeTurbo && m.tapeMoving;
 
-    // The MSX cassette is instant-load: no transport sync, only the
-    // currently-read block highlight while CLOAD/BLOAD sweeps through.
-    out.tapeLoaded = false;
-    out.tapePlaying = false;
-    out.tapePaused = true;
-    out.tapeFinished = false;
-    out.tapePosition = 0;
-    out.casBlock = a.casReads > 0 ? m.cassette.currentBlock() : -1;
-    out.fastRomLoading = false;
+    // The pulse-level deck's transport; the BIOS traps move it block by block.
+    const tape = m.tape;
+    out.tapeLoaded = tape.loaded;
+    out.tapePlaying = tape.playing;
+    out.tapePaused = tape.paused;
+    out.tapeFinished = tape.finished;
+    out.tapePosition = tape.position;
+    out.casBlock = -1;
+    out.fastRomLoading = a.casReads > 0;
     out.tracingActive = this.m.traceActive;
 
     out.driveLed[2] = out.driveLed[3] = -1;
