@@ -44,9 +44,10 @@ import { BaseMachine } from '@/machines/base-machine.ts';
 import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 import { withStopsDisarmed } from '@/machines/shared/native-state.ts';
 import { PcwMemory } from './pcw-memory.ts';
-import { PcwAsic } from './asic.ts';
+import { PcwAsic, PCW_TIMING_50HZ, PCW_TIMING_60HZ, TickSync } from './asic.ts';
 import { PcwKeyboard } from './pcw-keyboard.ts';
 import { PcwJoystick } from './pcw-joystick.ts';
+import { PcwPrinterLog } from './printer.ts';
 import { createPcwConfig, type PcwConfig } from './config.ts';
 import type { PcwModel } from './models.ts';
 import { pcwDescriptor } from './descriptor.ts';
@@ -55,9 +56,8 @@ import { installPcwMemoryHooks, wirePcwPortIO } from './pcw-io.ts';
 import { bootFailureMessage, loadBootSector } from './bootstrap.ts';
 import {
   PCW_BOOT_ENTRY_ADDR, PCW_BOOT_LOAD_ADDR, PCW_BORDER_LEFT, PCW_BORDER_TOP,
-  PCW_CPU_CLOCK, PCW_FDC_INT_RESPONSE_LINES, PCW_LINES_PER_FRAME,
-  PCW_PHOSPHORS, PCW_SCREEN_HEIGHT, PCW_SCREEN_WIDTH, PCW_T_PER_FRAME,
-  PCW_T_PER_LINE, PCW_TIMER_PULSE_T, PcwCommand,
+  PCW_CPU_CLOCK, PCW_FDC_INT_RESPONSE_LINES, PCW_PHOSPHORS, PCW_SCREEN_HEIGHT,
+  PCW_SCREEN_WIDTH, PCW_T_PER_LINE, PCW_TIMER_PULSE_T, PcwCommand,
 } from './constants.ts';
 
 /** The PCW has no sound chip; the mixer only ever sees the beeper bit. */
@@ -104,6 +104,10 @@ export class PcwMachine extends BaseMachine implements Machine {
   /** T-state of the last audio mix step. */
   private lastAudioT = 0;
 
+  /** Everything the BIOS has sent the printer controller (ports &FC/&FD),
+   *  for the Save menu's printer-output download. */
+  readonly printer = new PcwPrinterLog();
+
   /** Per-frame I/O activity, mapped onto the status-bar LEDs by the probe. */
   readonly activity = {
     kbdReads: 0, fdcAccesses: 0, beeperWrites: 0, printerWrites: 0,
@@ -114,7 +118,9 @@ export class PcwMachine extends BaseMachine implements Machine {
   private readonly _pixels32 = new Uint32Array(this._pixels.buffer);
   get pixels(): Uint8Array { return this._pixels; }
 
-  get tStatesPerFrame(): number { return PCW_T_PER_FRAME; }
+  /** 312 lines at 50Hz, 260 at 60Hz (the motherboard's frame-rate link). */
+  get tStatesPerFrame(): number { return this.asic.timing.linesPerFrame * PCW_T_PER_LINE; }
+  protected override get frameHz(): number { return this.asic.timing.hz; }
   get cpuClockHz(): number { return PCW_CPU_CLOCK; }
   get frameWidth(): number { return PCW_SCREEN_WIDTH; }
   get frameHeight(): number { return PCW_SCREEN_HEIGHT; }
@@ -142,6 +148,11 @@ export class PcwMachine extends BaseMachine implements Machine {
     // CP/M Plus counts drives for its banner.
     this.driveCount = this.config.drives;
     this.fdc.connected[1] = this.driveCount > 1;
+    // Drive A is a single-sided mechanism on the 8000s; B (8512 only) and the
+    // 9000s' A are double-sided. A one-headed drive has nothing on the head
+    // select line, so the FDC reads side 0 whichever head a command names.
+    this.fdc.singleSided[0] = !this.config.doubleSidedA;
+    this.fdc.singleSided[1] = false;
     // The PCW is the only machine here that waits on the FDC's interrupt line
     // rather than polling the status register, so it is the only one that can
     // tell the controller answers instantly. Give it a response time.
@@ -209,15 +220,15 @@ export class PcwMachine extends BaseMachine implements Machine {
   /**
    * Printer ports &FC/&FD.
    *
-   * The 8000-series drives a 9-pin dot-matrix head directly — position, pin
-   * solenoids and motors are all the CPU's job — and the 9512 puts a daisywheel
-   * behind the same two ports. Neither is emulated: the writes are counted and
-   * discarded, and &FD reads back "ready with paper" so the BIOS's
-   * printer-present check passes instead of hanging. Printing itself is future
-   * work, and is the one place where the 9512 differs substantially.
+   * The dot-matrix PCWs talk to a printer controller that drives the 9-pin
+   * head, and the 9512 puts a daisywheel controller behind the same ports.
+   * Neither mechanism is emulated: every byte is logged (`printer`) for the
+   * Save menu, and &FD reads back "ready with paper" so the BIOS's handshake
+   * never waits.
    */
-  printerWrite(_value: number, _control: boolean): void {
+  printerWrite(port: number, value: number): void {
     this.activity.printerWrites++;
+    this.printer.write(port, value);
   }
 
   /** Ask for the frame buffer to be re-uploaded on the next display tick. */
@@ -231,6 +242,10 @@ export class PcwMachine extends BaseMachine implements Machine {
   loadDisk(image: DskImage, unit = 0): void {
     this.fdc.insertDisk(image, unit);
     if (unit === 0 && !this.booted) this.boot();
+    // Said after any boot message, which would otherwise hide it.
+    if (this.fdc.singleSided[unit] && image.numSides > 1 && !image.flippy) {
+      this.setStatus(`Drive ${unit === 0 ? 'A' : 'B'} is single-sided: only the first side of this double-sided disc can be read`);
+    }
   }
 
   /**
@@ -263,6 +278,8 @@ export class PcwMachine extends BaseMachine implements Machine {
   prepare(view: SettingsView): AuxRomRequest[] {
     this.driveCount = resolveDriveCount(view, 'pcw', this.config.drives);
     this.fdc.connected[1] = this.driveCount > 1;
+    // The 50/60Hz link sets the frame length, so it is fitted at build time.
+    this.asic.timing = view.get('pcw-60hz', false) ? PCW_TIMING_60HZ : PCW_TIMING_50HZ;
     return [];
   }
 
@@ -297,6 +314,16 @@ export class PcwMachine extends BaseMachine implements Machine {
     return { data: this.memory.allRam(), filename: `ram-${this.config.ramLabel}.bin` };
   }
 
+  /** Save menu's printer output: the controller log decoded as text, or null
+   *  while nothing has been sent to the printer. */
+  printerExportBytes(): { data: Uint8Array; filename: string } | null {
+    if (this.printer.empty) return null;
+    return {
+      data: new TextEncoder().encode(this.printer.text(this.config.printer)),
+      filename: 'printer.txt',
+    };
+  }
+
   // ── Machine: lifecycle ────────────────────────────────────────────────────
 
   setBorderSize(mode: BorderMode): void {
@@ -323,6 +350,8 @@ export class PcwMachine extends BaseMachine implements Machine {
     this.booted = false;
     this.rebootRequested = false;
     this.lastNmiLine = false;
+    this.timerPulseEnd = 0;
+    this.printer.markReset();
     this.audio.reset();
     this.mixer.reset();
     this.resetFrameCount();
@@ -342,17 +371,24 @@ export class PcwMachine extends BaseMachine implements Machine {
   private fLine = 0;
   private fLineLive = false;
 
-  /** Frame line 0 is the first of the 256 displayed lines; 256-311 are frame
-   *  flyback. Each line is drawn whole when the CPU reaches its end. */
+  /** Frame line 0 is the first displayed line. Each line is drawn whole when
+   *  the CPU reaches its end. */
   beam(): BeamPos { return this.gridBeam(); }
   beamInfo(): BeamInfo {
+    const t = this.asic.timing;
+    const ticks: number[] = [];
+    for (let line = 0; line < t.linesPerFrame; line++) {
+      if (PcwAsic.isInterruptLine(line)) ticks.push(line);
+    }
     return {
       cyclesPerLine: PCW_T_PER_LINE,
-      linesPerFrame: PCW_LINES_PER_FRAME,
+      linesPerFrame: t.linesPerFrame,
       displayStart: 0,
-      note: 'line 0 is the first of the 256 displayed lines and 256-311 are frame flyback (the '
-        + 'status byte\'s flyback bit); the 300Hz timer interrupt starts at lines 258, 310, 50, '
-        + '102, 154 and 206; each line is drawn whole when the CPU reaches its end, so t within '
+      note: `${t.hz}Hz: line 0 is the first of the ${t.displayHeight} displayed lines; frame `
+        + `flyback (the status byte's b6) is lines ${t.flybackStart}-${t.flybackStart + 25}; the `
+        + `300Hz timer ticks at the start of lines ${ticks.join(', ')}, pulsing /INT for `
+        + '~100us and counting in the &F4 register; each line '
+        + 'is drawn whole when the CPU reaches its end, so t within '
         + 'a line is not a pixel position; a line is 218 T-states, 3.4MHz rounded to whole '
         + 'T-states per 64us line',
     };
@@ -365,19 +401,19 @@ export class PcwMachine extends BaseMachine implements Machine {
   protected override interruptedPc(): number { return z80ReturnAddress(this.cpu.sp, a => this.memory.readByte(a)); }
 
   /**
-   * Execute one PAL field: 312 scan lines of 218 T-states.
+   * Execute one field: 312 scan lines of 218 T-states (260 with the 60Hz link).
    *
-   * Per scan line: advance the gate array (which starts the 300Hz timer
-   * pulse on the six lines that carry one), run the CPU to the end of the
-   * line — dropping the ~100us pulse partway through the next line — then draw
-   * the line.
+   * Per scan line: advance the gate array (which raises a 300Hz timer tick, and
+   * a ~100us pulse on /INT, on the lines that carry one), sample the FDC's
+   * interrupt line, run the CPU to the end of the line — dropping the pulse
+   * partway through the next line — then draw it.
    */
   protected runFrame(): void {
-    const cpu = this.cpu;
     const asic = this.asic;
+    const lines = asic.timing.linesPerFrame;
     const skipAudio = this.speedMultiplier !== 1;
     // A frame a stop left part-way carries on from the line it was in.
-    if (!this.openFrame(PCW_T_PER_FRAME)) {
+    if (!this.openFrame(lines * PCW_T_PER_LINE)) {
       const a = this.activity;
       a.kbdReads = 0; a.fdcAccesses = 0; a.beeperWrites = 0; a.printerWrites = 0;
       asic.beginFrame(this._pixels32);
@@ -386,9 +422,9 @@ export class PcwMachine extends BaseMachine implements Machine {
     }
     this.portWatchHit = null;
     this.memWatchHit = null;
-    this.lastAudioT = cpu.tStates;
+    this.lastAudioT = this.cpu.tStates;
 
-    for (; this.fLine < PCW_LINES_PER_FRAME; this.fLine++) {
+    for (; this.fLine < lines; this.fLine++) {
       const line = this.fLine;
       const lineStart = this.frameStartT + line * PCW_T_PER_LINE;
       const lineEnd = lineStart + PCW_T_PER_LINE;
@@ -400,9 +436,9 @@ export class PcwMachine extends BaseMachine implements Machine {
         if (PcwAsic.isInterruptLine(line)) {
           this.timerPulseEnd = lineStart + PCW_TIMER_PULSE_T;
           // The gate array scans the keyboard into block 3 continuously, "even
-          // when interrupts are disabled". Refreshing it on the interrupt
-          // lines gives software a matrix at most one 300Hz tick old, which is
-          // as fresh as the real DMA ever is.
+          // when interrupts are disabled". Refreshing it on the timer lines
+          // gives software a matrix at most one 300Hz tick old, which is as
+          // fresh as the real DMA ever is.
           this.scanKeyboard();
         }
 
@@ -456,7 +492,11 @@ export class PcwMachine extends BaseMachine implements Machine {
       if (this.checkStops(cpu.pc)) return true;
 
       this.beforeInsn(cpu.pc);
+      // A timer tick reaches the &F4 counter over two opcode fetches (see
+      // PcwAsic.syncTickBefore); only the instruction after a tick pays this.
+      if (asic.tickSync === TickSync.Raised) asic.syncTickBefore(this.m1CyclesAtPc());
       cpu.step();
+      if (asic.tickSync === TickSync.Latched) asic.syncTickAfter();
       const stopped = this.afterInsn();
 
       // /NMI is edge triggered, so it fires once per rising edge of the FDC's
@@ -483,6 +523,14 @@ export class PcwMachine extends BaseMachine implements Machine {
       if (stopped) return true;
     }
     return false;
+  }
+
+  /** Opcode fetches the next instruction makes before its operands: two for
+   *  a CB/DD/ED/FD prefix, otherwise one (a halted CPU fetches NOPs). */
+  private m1CyclesAtPc(): number {
+    if (this.cpu.halted) return 1;
+    const op = this.memory.readByte(this.cpu.pc);
+    return op === 0xCB || op === 0xDD || op === 0xED || op === 0xFD ? 2 : 1;
   }
 
   /** One keyboard transmission (the matrix itself is read live through the
@@ -515,7 +563,7 @@ export class PcwMachine extends BaseMachine implements Machine {
    */
   saveState(w: StateWriter, withMedia: boolean): void {
     this.completeFrame();
-    w.section('CONF', () => w.u8(this.driveCount));
+    w.section('CONF', () => { w.u8(this.driveCount); w.u8(this.asic.timing.hz); });
     w.section('CPU ', () => this.cpu.saveState(w));
     w.section('MACH', () => {
       w.f64(this.frameStartT); w.f64(this.frameEndT); w.f64(this.frameNumber);
@@ -530,15 +578,22 @@ export class PcwMachine extends BaseMachine implements Machine {
       if (withMedia) this.services.disks.saveState(w);
     });
     w.section('FDC ', () => this.fdc.saveState(w));
+    w.section('PRN ', () => this.printer.saveState(w));
   }
 
   /** Restore a state written by {@link saveState}. The frame loop must be
    *  stopped. Throws before changing anything if the drive count differs. */
   loadState(r: StateReader): void {
-    const drives = r.section('CONF').u8();
+    const conf = r.section('CONF');
+    const drives = conf.u8();
     if (drives !== this.driveCount) {
       const n = (k: number) => (k === 1 ? 'one drive' : `${k} drives`);
       throw new Error(`This snapshot was saved with ${n(drives)} and this PCW has ${n(this.driveCount)}; change it in the Drives pane and load it again`);
+    }
+    // States from before the 50/60Hz link was modelled are all 50Hz.
+    const hz = conf.remaining > 0 ? conf.u8() : 50;
+    if (hz !== this.asic.timing.hz) {
+      throw new Error(`This snapshot was saved on a ${hz}Hz PCW and this one is ${this.asic.timing.hz}Hz; change the 60Hz link in the Hardware pane and load it again`);
     }
     this.cpu.loadState(r.section('CPU '));
     {
@@ -557,6 +612,9 @@ export class PcwMachine extends BaseMachine implements Machine {
       if (s.bool()) this.services.disks.loadState(s);
     }
     this.fdc.loadState(r.section('FDC '));
+    // Printer output was added after the first states were written.
+    if (r.peekSection('PRN ')) this.printer.loadState(r.section('PRN '));
+    else this.printer.clear();
 
     // What the state does not hold: nothing is part-way through a frame.
     this.midFrame = false;
@@ -595,9 +653,15 @@ export class PcwMachine extends BaseMachine implements Machine {
     const read = (col: number, row: number, line: number): number =>
       this.memory.videoByte(this.asic.lineAddress(row * 8 + line) + col * 8);
 
-    const text = pcwScreenText(read, font);
+    const text = pcwScreenText(read, font, this.asic.timing.displayHeight / 8);
     if (text === null) return OCR_UNAVAILABLE;
     return text;
+  }
+
+  /** Grid label stamped on a transcription: 90 columns of 8x8 cells by the
+   *  32 rows shown at 50Hz or the 25 shown at 60Hz. */
+  private get ocrGrid(): OcrGridName {
+    return this.asic.timing.hz === 60 ? '90x25' : '90x32';
   }
 
   /** The same transcription, shaped for the TEXT overlay: the full untrimmed
@@ -608,8 +672,8 @@ export class PcwMachine extends BaseMachine implements Machine {
     const read = (col: number, row: number, line: number): number =>
       this.memory.videoByte(this.asic.lineAddress(row * 8 + line) + col * 8);
 
-    const cells = pcwScreenCells(read, font);
-    if (!cells) return { text: OCR_UNAVAILABLE, html: '', grid: PCW_OCR_GRID, cells: null };
+    const cells = pcwScreenCells(read, font, this.asic.timing.displayHeight / 8);
+    if (!cells) return { text: OCR_UNAVAILABLE, html: '', grid: this.ocrGrid, cells: null };
 
     // The overlay is a <pre>, and the PCW's screen is monochrome, so the rows
     // go out as plain escaped text — no per-cell colour spans to emit. Rows
@@ -620,7 +684,7 @@ export class PcwMachine extends BaseMachine implements Machine {
       lines.push(cells.chars.slice(from, from + cells.cols).join(''));
     }
     const html = lines.map(escapeHtml).join('\n');
-    return { text: lines.join('\n').replace(/\s+$/, ''), html, grid: PCW_OCR_GRID, cells };
+    return { text: lines.join('\n').replace(/\s+$/, ''), html, grid: this.ocrGrid, cells };
   }
 
   /** Paint every transcribed cell out of the framebuffer, so the overlay's text
@@ -640,8 +704,6 @@ export class PcwMachine extends BaseMachine implements Machine {
   }
 }
 
-/** Grid label stamped on every PCW transcription: 90 columns of 8x8 cells. */
-const PCW_OCR_GRID: OcrGridName = '90x32';
 
 const OCR_UNAVAILABLE =
   '[pcw] OCR unavailable: no character set at the usual address '

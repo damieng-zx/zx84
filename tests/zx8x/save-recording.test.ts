@@ -142,6 +142,30 @@ describe.skipIf(!have('zx80'))('ZX80 SAVE recording (real ROM; skipped without z
     type(n, ['KeyR', 'Enter']);                              // RUN
     expect(screen(n)).toMatch(/^42/);
   });
+
+  it('the real LOAD reads that .o played as pulses with the instant trap off', async () => {
+    const saver = boot('zx80');
+    type(saver, ['Digit1', 'Digit0', 'KeyO', 'Digit4', 'Digit2', 'Enter']);
+    const program = ram(saver, 0x4028, word(saver, 0x4008));
+    type(saver, ['KeyE', 'Enter']);                          // SAVE
+    const rec = saver.services.tape.recordedBytes()!;
+
+    const m = new Zx8xMachine('zx80');
+    m.prepare({ get: <T>(key: string, fallback: T): T => (key === 'tape-instant-rom' ? false as T : fallback) });
+    m.loadROM(new Uint8Array(readFileSync(resolve(DIR, ROMS.zx80))));
+    m.reset();
+    for (let f = 0; f < 200; f++) m.tick();
+    type(m, ['KeyW', 'Enter']);                              // LOAD
+    expect(m.awaitingTapeLoad).toBe(true);
+    expect((await m.services.media.mount(rec.data, rec.filename)).ok).toBe(true);
+    // Real time: the ROM reads the deck, so nothing is in RAM yet.
+    expect(ram(m, 0x4028, 0x4028 + 4)).not.toEqual(program.slice(0, 4));
+    for (let f = 0; f < 2000 && !m.cassette.deck.finished; f++) m.tick();
+    for (let f = 0; f < 60; f++) m.tick();
+    expect(ram(m, 0x4028, word(m, 0x4008))).toEqual(program);
+    type(m, ['KeyR', 'Enter']);                              // RUN
+    expect(screen(m)).toMatch(/^42/);
+  });
 });
 
 describe('ZX81 recorded filename', () => {

@@ -35,7 +35,9 @@ import type { OcrGridName, OcrResult } from '@/ocr/ocr.ts';
 import { CpcScreenText, cpcGrid, CPC_FONT_OFFSET, type CpcOcrInput } from '@/ocr/cpc.ts';
 import { CpcMemory } from '@/machines/cpc/cpc-memory.ts';
 import { CpcKeyboard } from '@/machines/cpc/cpc-keyboard.ts';
-import { Crtc6845, R_HORIZ_DISPLAYED, R_VERT_DISPLAYED } from '@/cores/crtc-6845.ts';
+import {
+  Crtc6845, R_HORIZ_DISPLAYED, R_VERT_DISPLAYED, R_MAX_RASTER, R_VERT_ADJUST, R_VERT_TOTAL,
+} from '@/cores/crtc-6845.ts';
 import { GateArray } from '@/machines/cpc/gate-array.ts';
 import { Asic } from '@/machines/cpc/asic.ts';
 import { Ppi8255, installCpcMemoryHooks, wireCpcPortIO } from '@/machines/cpc/cpc-io.ts';
@@ -46,6 +48,9 @@ import { CpcAmxMouse } from '@/machines/cpc/peripherals/cpc-amx-mouse.ts';
 import { trapCpcCasRead, scanCpcCasRead } from '@/machines/cpc/cpc-tape-loader.ts';
 import type { CpcCasReadRoutine, CpcCasReadRequest } from '@/machines/cpc/cpc-tape-loader.ts';
 import { createCpcConfig, type CpcConfig } from '@/machines/cpc/config.ts';
+import {
+  CPC_DEFAULT_OPTIONS, cpcTakesClassicOptions, cpcTakesDdi1, readCpcOptions, type CpcOptions,
+} from '@/machines/cpc/options.ts';
 import { cpcAcknowledgeInterrupt } from '@/machines/cpc/wait-states.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
 import {
@@ -78,6 +83,12 @@ export class CpcMachine extends BaseMachine implements Machine {
   readonly memory: CpcMemory;
   readonly ay: AY3891x;
   readonly fdc: UPD765A;
+  /** A uPD765A is on the bus: built in (664/6128/6128 Plus) or a DDI-1 on the
+   *  464. Set by fit(); the port decode is rewired when it changes. */
+  hasFdc: boolean;
+  /** The Hardware-pane fit (CRTC, RAM expansion, DDI-1, links); the defaults
+   *  until prepare() reads the settings. */
+  options: CpcOptions = CPC_DEFAULT_OPTIONS;
   /** Drives fitted to the controller (1..2) — set from the settings in prepare(). */
   driveCount = CPC_MAX_DRIVES;
   readonly tape: TapeDeck;
@@ -163,6 +174,7 @@ export class CpcMachine extends BaseMachine implements Machine {
     this.memory = new CpcMemory(this.config);
     this.ay = new AY3891x(CPC_AY_CLOCK, 48000, 'ABC');
     this.fdc = new UPD765A();
+    this.hasFdc = this.config.hasFDC;
     // CDT timings are 3.5MHz-referenced; scale them to the CPC's 4MHz Z80.
     this.tape = new TapeDeck(CPC_CPU_CLOCK);
     this.tape.pulseScale = CPC_CPU_CLOCK / TAPE_REF_HZ;
@@ -265,11 +277,32 @@ export class CpcMachine extends BaseMachine implements Machine {
     };
   }
 
-  /** Enable the Multiface Two from settings and request its ROM (before boot). */
+  /**
+   * Fit the Hardware-pane options: the CRTC type and RAM expansion (464/664/
+   * 6128 only — the Plus keeps its ASIC CRTC, type 3, and 128K), a DDI-1 on
+   * the 464, and the PPI links (every model). Before boot: it rewires the port
+   * decode for the disk interface and resizes RAM.
+   */
+  fit(options: CpcOptions): void {
+    this.options = options;
+    const classic = cpcTakesClassicOptions(this.model);
+    this.crtc.setType(classic ? options.crtcType : this.config.crtcType);
+    this.memory.setExpansion(classic ? options.ramExpansionKb : 0);
+    this.ppi.setLinks(options.manufacturerCode, options.fiftyHz);
+    const hasFdc = this.config.hasFDC || (cpcTakesDdi1(this.model) && options.ddi1);
+    if (hasFdc !== this.hasFdc) {
+      this.hasFdc = hasFdc;
+      wireCpcPortIO(this);
+    }
+  }
+
+  /** Fit the Hardware-pane options, enable the Multiface Two from settings and
+   *  request its ROM (before boot). */
   prepare(view: SettingsView): AuxRomRequest[] {
-    // Built-in uPD765A drive settings (664/6128): write-protect tabs + the
+    this.fit(readCpcOptions(view));
+    // uPD765A drive settings (664/6128/DDI-1): write-protect tabs + the
     // drive-B force-ready override. Once per build, like the peripherals.
-    if (this.config.hasFDC) {
+    if (this.hasFdc) {
       this.fdc.writeProtect[0] = view.get('write-protect-a', false);
       this.fdc.writeProtect[1] = view.get('write-protect-b', false);
       this.fdc.forceReady[1] = view.get('drive-b-force-ready', false);
@@ -283,10 +316,21 @@ export class CpcMachine extends BaseMachine implements Machine {
     return this.multiface.enabled ? [this.multifaceAuxRom(true)] : [];
   }
 
-  /** ParaDOS overlay (upper ROM 7, replacing AMSDOS) on a disk-capable CPC —
-   *  applied AFTER reset so the firmware ROM scan initialises it. */
+  /** Upper ROM 7 on a disk-capable CPC — ParaDOS (replacing AMSDOS) when
+   *  chosen, or the DDI-1's AMSDOS on a 464 — applied AFTER reset so the
+   *  firmware ROM scan initialises it. */
   bootRoms(view: SettingsView): AuxRomRequest[] {
-    if (!this.config.hasFDC || !view.get('cpc-parados', false)) return [];
+    if (!this.hasFdc) return [];
+    if (!view.get('cpc-parados', false)) {
+      if (this.config.hasFDC) return [];   // AMSDOS is in the system ROM set
+      return [{
+        cacheKey: 'cpc-amsdos-rom', source: 'cpc/amsdos.rom',
+        fetchingMsg: 'Fetching DDI-1 AMSDOS ROM…',
+        loadedMsg: (n) => `DDI-1 AMSDOS ROM loaded (${n} bytes)`,
+        failMsg: 'Failed to load the DDI-1 AMSDOS ROM', failId: 'cpc-ddi1',
+        apply: (d) => this.memory.setUpperRom(7, d), awaitLoad: true,
+      }];
+    }
     return [{
       cacheKey: 'cpc-parados-rom', source: 'cpc/parados.rom',
       fetchingMsg: 'Fetching ParaDOS ROM…',
@@ -553,6 +597,8 @@ export class CpcMachine extends BaseMachine implements Machine {
         // to the CRTC line before the GA renders it, and composites sprites
         // on top.
         let lineState = crtc.currentLine();
+        // R8 DISPTMG skew 3 holds the display off (types 0/3/4).
+        if (crtc.displaySkewOff) lineState.vDisplay = false;
         if (plusActive) {
           lineState = asic!.applyScrollAndSplit(lineState);
         }
@@ -561,15 +607,19 @@ export class CpcMachine extends BaseMachine implements Machine {
         if (plusActive) {
           asic!.drawSprites(this._pixels32, displayTop + line);
         }
-        ga.onHSync();
-        // Plus DMA sound: each HSYNC, every enabled channel runs one
-        // instruction (LOAD/PAUSE/REPEAT/LOOP/INT/STOP) — driving the AY for
-        // sample playback without burning CPU time on tight timing loops.
-        if (plusActive) asic!.dmaCycle();
-        // Post-VSYNC interrupt re-sync on the 2nd HSYNC after VSYNC onset (the
-        // onset line's own HSYNC is the 1st).
-        if (this.vsyncResyncCountdown > 0 && --this.vsyncResyncCountdown === 0) {
-          ga.onVSyncResync();
+        // A line with no HSYNC (width 0 on types 0/1, or R2 beyond R0) gives
+        // the Gate Array nothing to count: no interrupt line, no mode latch.
+        if (crtc.hsyncPresent) {
+          ga.onHSync();
+          // Plus DMA sound: each HSYNC, every enabled channel runs one
+          // instruction (LOAD/PAUSE/REPEAT/LOOP/INT/STOP) — driving the AY for
+          // sample playback without burning CPU time on tight timing loops.
+          if (plusActive) asic!.dmaCycle();
+          // Post-VSYNC interrupt re-sync on the 2nd HSYNC after VSYNC onset
+          // (the onset line's own HSYNC is the 1st).
+          if (this.vsyncResyncCountdown > 0 && --this.vsyncResyncCountdown === 0) {
+            ga.onVSyncResync();
+          }
         }
         this.fHsyncDone = true;
       }
@@ -596,6 +646,67 @@ export class CpcMachine extends BaseMachine implements Machine {
     }
 
     this.needsDisplay = true;
+  }
+
+  // ── Raster position (CRTC reads, .SNA v3 counters) ──────────────────────
+
+  /** A frame is part-way through: running, or left open by a debugger stop. */
+  get frameInProgress(): boolean { return this.frameOpen; }
+
+  /** The CRTC's horizontal character counter at the CPU's current cycle: the
+   *  character of the line in progress, 0 between frames. */
+  crtcCharCounter(): number {
+    if (!this.frameOpen || this.fLine >= this.fLines) return 0;
+    const t = this.cpu.tStates - (this.frameStartT + this.fLine * this.fLineT);
+    if (t <= 0) return 0;
+    const chars = this.fLineT / CPC_T_PER_CHAR;
+    const c = (t / CPC_T_PER_CHAR) | 0;
+    return c < chars ? c : chars - 1;
+  }
+
+  /** Scanlines per character row within a field, as the CRTC counts them. */
+  private crtcRowLines(): number {
+    const r9 = this.crtc.regs[R_MAX_RASTER];
+    return this.crtc.interlaceVideo ? (r9 >> 1) + 1 : r9 + 1;
+  }
+
+  /**
+   * Resume the raster where a snapshot left the CRTC: `hcc` characters into
+   * raster `ra` of row `vcc` — or, with `vtaDone` >= 0, that many lines into
+   * the R5 vertical-total adjust — with `vsyncLeft` VSYNC lines still to run.
+   * The frame in progress is rebuilt around that position (the lines above it
+   * as if run on the current registers), so the next run carries on from the
+   * same raster position and the 52-line interrupt keeps its phase. A position
+   * at the very start of a frame simply leaves the next frame to start there.
+   */
+  resumeRaster(hcc: number, vcc: number, ra: number, vtaDone: number, vsyncLeft: number): void {
+    const crtc = this.crtc;
+    this.dropFrameInProgress();
+    const vtaLeft = vtaDone >= 0 ? Math.max(1, crtc.regs[R_VERT_ADJUST] - vtaDone) : 0;
+    crtc.restoreCounters(vcc, ra, vtaLeft, vsyncLeft);
+    const rowLines = this.crtcRowLines();
+    const line = vtaDone >= 0
+      ? (crtc.regs[R_VERT_TOTAL] + 1) * rowLines + vtaDone
+      : (vcc & 0x7F) * rowLines + (crtc.interlaceVideo ? (ra & 0x1F) >> 1 : ra & 0x1F);
+    const lines = crtc.linesPerFrame();
+    const chars = crtc.charsPerLine();
+    if ((line === 0 && hcc === 0) || line >= lines || hcc >= chars) return;
+
+    const lineT = chars * CPC_T_PER_CHAR;
+    const now = this.cpu.tStates;
+    this.frameStartT = now - line * lineT - hcc * CPC_T_PER_CHAR;
+    this.frameEndT = this.frameStartT + lines * lineT;
+    this.fLines = lines;
+    this.fLineT = lineT;
+    this.fDisplayTop = (CPC_SCREEN_HEIGHT - crtc.displayedLines()) >> 1;
+    this.fPlusActive = this.config.isPlus && !(this.gateArray as Asic).locked;
+    this.fLine = line;
+    this.fHsyncT = this.frameStartT + line * lineT + crtc.hsyncEndChar() * CPC_T_PER_CHAR;
+    // Past this line's HSYNC its drawing and Gate Array clock already happened
+    // (the snapshot's Gate Array counters include it).
+    this.fHsyncDone = now >= this.fHsyncT;
+    this.gateArray.beginFrame(this._pixels32);
+    this.midFrame = true;
   }
 
   /** T-state of the last audio mix step within the current frame. */

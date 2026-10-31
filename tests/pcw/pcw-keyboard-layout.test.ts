@@ -38,9 +38,7 @@ const MATRIX: Readonly<Record<number, readonly number[]>> = {
 /** 81 switches under 82 caps: the two SHIFT caps are one switch. */
 const SWITCHES = Object.values(MATRIX).reduce((n, bits) => n + bits.length, 0);
 
-/** The host key each cap stands for. The word-processing caps — CAN, CUT,
- *  COPY, PASTE, PTR, EXIT and the `< §` cap — have none, so they can only be
- *  reached from the on-screen keyboard. */
+/** The host key each cap stands for: every cap has one. */
 const HOST_KEY: Readonly<Record<string, string>> = {
   stop: 'Escape',
   1: 'Digit1', 2: 'Digit2', 3: 'Digit3', 4: 'Digit4', 5: 'Digit5',
@@ -55,7 +53,7 @@ const HOST_KEY: Readonly<Record<string, string>> = {
   'shift-lock': 'CapsLock',
   a: 'KeyA', s: 'KeyS', d: 'KeyD', f: 'KeyF', g: 'KeyG', h: 'KeyH',
   j: 'KeyJ', k: 'KeyK', l: 'KeyL',
-  semicolon: 'Semicolon', hash: 'Backslash',
+  semicolon: 'Semicolon', section: 'IntlBackslash', hash: 'Backslash',
   'shift-left': 'ShiftLeft', 'shift-right': 'ShiftRight',
   z: 'KeyZ', x: 'KeyX', c: 'KeyC', v: 'KeyV', b: 'KeyB', n: 'KeyN', m: 'KeyM',
   comma: 'Comma', period: 'Period', slash: 'Slash', half: 'Backquote',
@@ -65,7 +63,10 @@ const HOST_KEY: Readonly<Record<string, string>> = {
   pad4: 'Numpad4', pad5: 'Numpad5', pad6: 'Numpad6', pad7: 'Numpad7',
   pad8: 'Numpad8', pad9: 'Numpad9',
   'pad-dot': 'NumpadDecimal', 'pad-enter': 'NumpadEnter',
-  'f8-f7': 'F8', 'f6-f5': 'F6', 'f4-f3': 'F4', 'f2-f1': 'F2',
+  // Each function cap carries a pair; the unshifted host key is the lower.
+  'f8-f7': 'F7', 'f6-f5': 'F5', 'f4-f3': 'F3', 'f2-f1': 'F1',
+  // The word-processing caps, on the host's editing keys.
+  ptr: 'Home', exit: 'End', cut: 'F9', copy: 'F10', paste: 'Insert', can: 'Pause',
 };
 
 /** The eleven bytes that carry key bits; the rest are links and flags. */

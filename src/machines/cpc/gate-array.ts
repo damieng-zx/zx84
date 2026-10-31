@@ -140,11 +140,26 @@ export class GateArray {
    *  tube regardless of width (games widen R1 and pull the HSYNC position in to
    *  recentre); a fixed left anchor instead lets a wide display overflow the
    *  right edge (e.g. the Crazy Cars II title, hDisplayed ≈ 46, clipped its
-   *  right end). The ASIC overrides this when unlocked to add hscroll +
-   *  extendBorder on top of the centred base. */
+   *  right end). The display window this gives stays put under the Plus
+   *  ASIC's soft scroll, which moves the pixels inside it (pixelDelay). */
   protected renderStartX(hDisplayed: number): number {
     return (CPC_SCREEN_WIDTH - hDisplayed * CPC_CHAR_PX) >> 1;
   }
+
+  /** Hook for the Plus ASIC's horizontal soft scroll: mode-2 pixels (0–15)
+   *  by which the line's pixels are delayed inside the display window. 0 on
+   *  the plain gate array. */
+  protected pixelDelay(): number { return 0; }
+
+  /** Hook for the Plus ASIC's border extend: pixels at the left of the display
+   *  window covered by the border (16 = one character). 0 on the plain gate
+   *  array. */
+  protected leftBorderMask(): number { return 0; }
+
+  /** The display window of the line being drawn: pixels outside it stay
+   *  border (a delayed line's last pixels are lost behind the right border). */
+  private clipL = 0;
+  private clipR = CPC_SCREEN_WIDTH;
 
   /** (Re)fill `penLut` with the RGBA of drawing pens 0–15. */
   protected refreshPenLut(): void {
@@ -187,8 +202,18 @@ export class GateArray {
     // take effect per line, matching the per-scanline render loop).
     this.refreshPenLut();
     const mode = this.mode;
-    let x = this.renderStartX(line.hDisplayed);
-    for (let c = 0; c < line.hDisplayed; c++) {
+    const start = this.renderStartX(line.hDisplayed);
+    const end = start + line.hDisplayed * CPC_CHAR_PX;
+    this.clipL = start < 0 ? 0 : start;
+    this.clipR = end > CPC_SCREEN_WIDTH ? CPC_SCREEN_WIDTH : end;
+    // A soft-scroll delay shifts the pixels right inside the window; what
+    // shows in the gap at the left is the tail of the character before the
+    // line (the "random data" the Plus documentation warns of).
+    const delay = this.pixelDelay();
+    let x = start + delay;
+    let c = 0;
+    if (delay > 0) { x -= CPC_CHAR_PX; c = -1; }
+    for (; c < line.hDisplayed; c++) {
       const ma = (line.maRow + c) & 0x3FFF;
       const addr = this.videoAddress(
         (((ma & 0x3000) << 2) | ((line.ra & 7) << 11) | ((ma & 0x3FF) << 1)) & 0xFFFF);
@@ -197,6 +222,11 @@ export class GateArray {
       x = this.plotChar(px, rowStart, x, b0, b1, mode);
       if (x >= CPC_SCREEN_WIDTH) break;
     }
+    const mask = this.leftBorderMask();
+    if (mask > 0) {
+      const to = start + mask < this.clipR ? start + mask : this.clipR;
+      if (to > this.clipL) px.fill(this.borderColor(), rowStart + this.clipL, rowStart + to);
+    }
   }
 
   /** Plot one character (two display bytes = 16 pixel-clocks) and return the
@@ -204,12 +234,14 @@ export class GateArray {
   private plotChar(px: Uint32Array, rowStart: number, x: number,
                    b0: number, b1: number, mode: number): number {
     const lut = this.penLut;
+    const lo = this.clipL;
+    const hi = this.clipR;
     const put = (n: number, pen: number): void => {
       const px0 = x;
       const rgba = lut[pen & 0x0F];
       for (let i = 0; i < n; i++) {
         const xi = px0 + i;
-        if (xi >= 0 && xi < CPC_SCREEN_WIDTH) px[rowStart + xi] = rgba;
+        if (xi >= lo && xi < hi) px[rowStart + xi] = rgba;
       }
       x += n;
     };

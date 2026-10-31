@@ -44,12 +44,14 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'ay-antialias': () => settings.ayAntialias(),
   'specdrum-volume': () => settings.specdrumVolume(),
   'uspeech-volume': () => settings.uspeechVolume(),
+  'scc-volume': () => settings.sccVolume(),
   // Selected joystick interface per player (Spectrum: Kempston port fitted?).
   'joy-p1': () => settings.joyP1(),
   'joy-p2': () => settings.joyP2(),
   // Peripheral enablement + write-protects read by each machine's prepare() hook.
   'vtx5000': () => settings.vtx5000Enabled(),
   'specdrum': () => settings.specdrumEnabled(),
+  'spectrum-issue2': () => settings.spectrumIssue2(),
   'multiface': () => settings.multifaceEnabled(),
   'plusd': () => settings.plusDEnabled(),
   'interface1': () => settings.interface1Enabled(),
@@ -62,6 +64,11 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'drive-b-force-ready': () => settings.driveBForceReady(),
   'einstein-xtaldos': () => settings.einsteinXtalDos(),
   'cpc-parados': () => settings.cpcParados(),
+  'cpc-crtc-type': () => settings.cpcCrtcType(),
+  'cpc-ram-expansion': () => settings.cpcRamExpansion(),
+  'cpc-ddi1': () => settings.cpcDdi1(),
+  'cpc-manufacturer': () => settings.cpcManufacturer(),
+  'cpc-refresh': () => settings.cpcRefresh(),
   'mtx-cpm': () => settings.mtxCpm(),
   'mtx-80-column': () => settings.mtx80Column(),
   'mtx-512k-ram': () => settings.mtx512kRam(),
@@ -82,6 +89,7 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'apple1-basic-ram': () => settings.apple1BasicRam(),
   'apple1-aci': () => settings.apple1Aci(),
   'enterprise-exdos': () => settings.enterpriseExdos(),
+  'pcw-60hz': () => settings.pcw60Hz(),
   // True while the SAA5050 upscaler is selected: machines that draw teletext
   // then supply the raw, unrounded dots for it to round.
   'saa-scaler': () => settings.scalingMode() === SCALING_MODE_SAA5050,
@@ -91,6 +99,10 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'zx81-wrx-hires': () => settings.zx81WrxHires(),
   'zx81-memotech-hrg': () => settings.zx81MemotechHrg(),
   'zx81-quicksilva-hrg': () => settings.zx81QuickSilvaHrg(),
+  'zx81-zx-printer': () => settings.zx81ZxPrinter(),
+  'zx81-chroma81': () => settings.zx81Chroma81(),
+  'zx8x-zonx': () => settings.zx8xZonx(),
+  'zx8x-vsync-sound': () => settings.zx8xVsyncSound(),
   'ace-ram-pack': () => settings.aceRamPack(),
 };
 

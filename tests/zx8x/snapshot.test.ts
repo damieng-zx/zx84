@@ -38,6 +38,30 @@ function syntheticRom(): Uint8Array {
   return rom;
 }
 
+/**
+ * A ROM that keeps every add-on busy: it selects and writes AY registers on
+ * the ZON X-81 ports, drives the printer's stylus and reads its status back
+ * into E, fills the Chroma 81's RAM and rewrites its control port, then reads
+ * the keyboard port (which starts the vertical sync).
+ *
+ * 0000 DI; LD SP,4400h; LD HL,C000h; LD A,0; OUT (FBh),A
+ * 000B loop: LD A,L; AND 0Fh; OUT (CFh),A; LD A,L; OUT (0Fh),A
+ *            LD A,L; AND 80h; OUT (FBh),A; IN A,(FBh); XOR E; LD E,A; LD (HL),A
+ *            LD A,L; AND 30h; LD BC,7FEFh; OUT (C),A; INC HL; IN A,(FEh); JR loop
+ */
+function addOnRom(): Uint8Array {
+  const rom = new Uint8Array(0x2000);
+  rom.set([
+    0xF3, 0x31, 0x00, 0x44, 0x21, 0x00, 0xC0, 0x3E, 0x00, 0xD3, 0xFB,
+    0x7D, 0xE6, 0x0F, 0xD3, 0xCF, 0x7D, 0xD3, 0x0F,
+    0x7D, 0xE6, 0x80, 0xD3, 0xFB, 0xDB, 0xFB, 0xAB, 0x5F, 0x77,
+    0x7D, 0xE6, 0x30, 0x01, 0xEF, 0x7F, 0xED, 0x79, 0x23, 0xDB, 0xFE, 0x18, 0xE1,
+  ], 0);
+  return rom;
+}
+
+const ADD_ONS = { 'zx8x-zonx': true, 'zx81-zx-printer': true, 'zx81-chroma81': true };
+
 function machine(model: Zx8xModel, rom: Uint8Array, settings: Record<string, boolean> = {}): Zx8xMachine {
   const m = new Zx8xMachine(model);
   m.start = async () => {};
@@ -141,6 +165,53 @@ describe('ZX80/ZX81 .zx8xstate', () => {
       const result = await dst.services.media.mount(await src.services.snapshots.save('.zx8xstate'), 'x.zx8xstate');
       expect(result.ok).toBe(false);
       expect(result.message).toMatch(/for the ZX80/);
+    } finally {
+      src.destroy();
+      dst.destroy();
+    }
+  });
+
+  it('resumes exactly with the ZON X-81, ZX Printer and Chroma 81 fitted and busy', async () => {
+    await expectExactResume({
+      make: () => machine('zx81', addOnRom(), ADD_ONS), ext: '.zx8xstate', before: 41, after: 23,
+    });
+  });
+
+  it('restores the state of each add-on: AY registers, printout, Chroma RAM and control', async () => {
+    const src = machine('zx81', addOnRom(), ADD_ONS);
+    const dst = machine('zx81', addOnRom(), ADD_ONS);
+    try {
+      for (let f = 0; f < 60; f++) src.tick();
+      const file = await src.services.snapshots.save('.zx8xstate');
+      for (let f = 0; f < 30; f++) src.tick();
+      for (let f = 0; f < 7; f++) dst.tick();
+      const result = await dst.services.snapshots.apply(file, 'x.zx8xstate');
+      expect(result.ok, result.message).toBe(true);
+      for (let f = 0; f < 30; f++) dst.tick();
+      // The busy ROM must have produced something to compare.
+      expect(src.printer.rowCount).toBeGreaterThan(1);
+      expect(src.chroma.ram.some(b => b !== 0)).toBe(true);
+      expect(Array.from(dst.ay.getRegisters())).toEqual(Array.from(src.ay.getRegisters()));
+      expect(Array.from(dst.printer.paperRows())).toEqual(Array.from(src.printer.paperRows()));
+      expect(Array.from(dst.chroma.ram)).toEqual(Array.from(src.chroma.ram));
+      expect(dst.chroma.control).toBe(src.chroma.control);
+    } finally {
+      src.destroy();
+      dst.destroy();
+    }
+  });
+
+  it('refuses a state saved with an add-on this machine does not have, changing nothing', async () => {
+    const src = machine('zx81', addOnRom(), ADD_ONS);
+    const dst = machine('zx81', addOnRom(), { 'zx81-chroma81': true });
+    try {
+      for (let f = 0; f < 4; f++) src.tick();
+      for (let f = 0; f < 6; f++) dst.tick();
+      const before = observe(dst);
+      const result = await dst.services.snapshots.apply(await src.services.snapshots.save('.zx8xstate'), 'x.zx8xstate');
+      expect(result.ok).toBe(false);
+      expect(result.message).toMatch(/ZON X-81 and ZX Printer fitted/);
+      expect(observe(dst)).toEqual(before);
     } finally {
       src.destroy();
       dst.destroy();

@@ -72,7 +72,7 @@ const UNVERIFIED_DISPLAY_START: ReadonlySet<string> = new Set([
 ]);
 
 import type { SpectrumModel } from '@/models.ts';
-import { betaRomInSystemRom, isPentagonClass, isScorpionClass } from '@/machines/spectrum/models.ts';
+import { betaRomInSystemRom, hasBoardIssueOption, isPentagonClass, isPlus2AClass, isScorpionClass } from '@/machines/spectrum/models.ts';
 import { withTrdosMenuEntry } from '@/machines/spectrum/pentagon-menu.ts';
 import { ScorpionBoard } from '@/machines/spectrum/scorpion.ts';
 import { IOActivity } from '@/machines/spectrum/activity.ts';
@@ -369,6 +369,7 @@ export class Spectrum extends BaseMachine implements Machine {
     this.cpu.onInterrupt = (handler, nmi) => this.noteInterrupt(handler, nmi);
     this.keyboard = new SpectrumKeyboard();
     this.ula = new ULA(this.keyboard);
+    this.setBoardIssue2(false);
     this.display = display ?? null;
     this.audio = new Audio();
     // Initial AY rate tracks the Audio default; start() updates it once the
@@ -466,6 +467,7 @@ export class Spectrum extends BaseMachine implements Machine {
     this.tapeSoundEnabled = view.get('tape-sound', true);
     this.tapeAutoRewind = view.get('tape-auto-rewind', false);
     this.scanlineAccuracy = view.get('scanline-accuracy', 'high') as 'high' | 'mid' | 'low';
+    this.setBoardIssue2(view.get('spectrum-issue2', false));
     applyAySettings(this.ay, view);
     this.joystick.enabled = view.get<string>('joy-p1', 'kempston') === 'kempston'
       || view.get<string>('joy-p2', 'sinclair2') === 'kempston';
@@ -475,6 +477,23 @@ export class Spectrum extends BaseMachine implements Machine {
       this.currah.pageOut(this.memory);
       this.currah.enabled = false;
     }
+  }
+
+  /** True when the 16K/48K is fitted as an Issue 1/2 board (see setBoardIssue2). */
+  get boardIssue2(): boolean { return this.issue2Board; }
+  private issue2Board = false;
+
+  /**
+   * Choose the board's EAR/MIC network, which decides what port 0xFE bit 6
+   * reads back after an OUT with no tape signal: Issue 1/2 boards read bit 3
+   * OR bit 4, Issue 3 boards (and the 128K/+2) bit 4 alone, and the +2A/+3
+   * gate array never feeds the output back. Only the 16K and 48K offer the
+   * choice; elsewhere `on` is ignored. Takes effect at once (a board fact, not
+   * something software sets), so a reset is not needed.
+   */
+  setBoardIssue2(on: boolean): void {
+    this.issue2Board = on && hasBoardIssueOption(this.model);
+    this.ula.setEarFeedback(this.issue2Board ? 'issue2' : isPlus2AClass(this.model) ? 'none' : 'issue3');
   }
 
   /**

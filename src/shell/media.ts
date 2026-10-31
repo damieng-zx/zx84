@@ -388,6 +388,16 @@ export function saveRAM(): void {
   setStatus(`Saved ${ram.filename}`);
 }
 
+/** Download what the machine has sent its printer. Offered only where the
+ *  descriptor names 'printer-txt'. */
+export function savePrinterOutput(): void {
+  if (!machine) { setStatus('No machine running'); return; }
+  const out = machine.services.debug.printerExport?.() ?? null;
+  if (!out) { setStatus('Nothing has been sent to the printer'); return; }
+  downloadFile(out.data, out.filename);
+  setStatus(`Saved ${out.filename}`);
+}
+
 // ── Tape transport ──────────────────────────────────────────────────────
 
 export function tapeRewind(): void {

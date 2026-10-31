@@ -95,7 +95,8 @@ describe('CpcMachine Plus integration (Phase 1 smoke)', () => {
     const m = new CpcMachine('cpc6128plus', null);
     expect(m.gateArray).toBeInstanceOf(Asic);
     expect(m.config.isPlus).toBe(true);
-    expect(m.config.crtcType).toBe(4);
+    // CPCWiki "CRTC": type 3 is the AMS40489 inside the CPC+ ASIC.
+    expect(m.crtc.type).toBe(3);
   });
 
   it('instantiates an Asic for gx4000', () => {

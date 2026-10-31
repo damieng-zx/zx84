@@ -18,12 +18,11 @@ function leds(model: MachineModel): readonly StatusLedId[] {
 }
 
 describe('status-bar LED declarations', () => {
-  it('ZX80/ZX81 show no sound chip, disk, mouse, joystick or EAR indicators', () => {
+  it('ZX80/ZX81 show the cassette and the ZON X-81 chip, but no disk, mouse, joystick or beeper', () => {
     for (const model of ['zx80', 'zx81'] as const) {
       const l = leds(model);
-      expect(l).toContain('kbd');
-      expect(l).toContain('text');
-      for (const absent of ['chip', 'dsk', 'beep', 'mouse', 'kemp', 'ear', 'rainbow', 'load'] as const) {
+      for (const present of ['kbd', 'text', 'ear', 'load', 'chip'] as const) expect(l).toContain(present);
+      for (const absent of ['dsk', 'beep', 'mouse', 'kemp', 'rainbow'] as const) {
         expect(l).not.toContain(absent);
       }
     }
@@ -58,10 +57,10 @@ describe('status-bar LED declarations', () => {
   });
 
   it('CPC gates TAPE/DISK by cassette and drive fitment', () => {
-    // 6128: drive + cassette; 464: cassette only; GX4000: neither.
+    // 6128: drive + cassette; 464: cassette, and the disk LED for a DDI-1 (it
+    // stays dark until one is fitted); GX4000: neither.
     expect(leds('cpc6128')).toEqual(expect.arrayContaining(['load', 'dsk']));
-    expect(leds('cpc464')).toContain('load');
-    expect(leds('cpc464')).not.toContain('dsk');
+    expect(leds('cpc464')).toEqual(expect.arrayContaining(['load', 'dsk']));
     expect(leds('gx4000')).not.toContain('load');
     expect(leds('gx4000')).not.toContain('dsk');
   });

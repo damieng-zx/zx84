@@ -24,11 +24,11 @@ shared with the Spectrum +3, and a small set of period add-ons.
 
 | Model | Year | RAM | ROM | Video | Sound | Storage | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| CPC 464 (`cpc464`) | 1984 | 64 KB | OS + BASIC 1.0 | Gate Array + CRTC 6845 (type 0) | AY-3-8912 | Cassette | No disk controller; no RAM banking (the bank command is ignored) |
-| CPC 664 (`cpc664`) | 1985 | 64 KB | OS + BASIC 1.1 + AMSDOS | Gate Array + CRTC 6845 (type 0) | AY-3-8912 | 3" floppy (uPD765A) + cassette | No RAM banking |
-| CPC 6128 (`cpc6128`) | 1985 | 128 KB (8 × 16 KB banks) | OS + BASIC 1.1 + AMSDOS | Gate Array + CRTC 6845 (type 0) | AY-3-8912 | 3" floppy (uPD765A) + cassette | Eight bank configurations plus 64 KB block bits in the Gate Array RAM command |
-| CPC 6128 Plus (`cpc6128plus`) | 1990 | 128 KB (as configured) | None on board — boots from a cartridge | Amstrad ASIC (integrated type 4 CRTC) | AY-3-8912 + ASIC DMA sound | Cartridge + 3" floppy + cassette | Plus features hidden until software unlocks the ASIC |
-| GX4000 (`gx4000`) | 1990 | 128 KB (as configured) | None on board — boots from a cartridge | Amstrad ASIC (integrated type 4 CRTC) | AY-3-8912 + ASIC DMA sound | Cartridge only | No disk controller and no cassette deck; no tape pane, no drives pane, no on-screen keyboard |
+| CPC 464 (`cpc464`) | 1984 | 64 KB | OS + BASIC 1.0 | Gate Array + CRTC 6845 (type 0-3, selectable) | AY-3-8912 | Cassette (3" drives with the optional DDI-1) | No disk controller unless the DDI-1 is fitted; no RAM banking unless a RAM expansion is fitted (otherwise the bank command is ignored) |
+| CPC 664 (`cpc664`) | 1985 | 64 KB | OS + BASIC 1.1 + AMSDOS | Gate Array + CRTC 6845 (type 0-3, selectable) | AY-3-8912 | 3" floppy (uPD765A) + cassette | No RAM banking unless a RAM expansion is fitted |
+| CPC 6128 (`cpc6128`) | 1985 | 128 KB (8 × 16 KB banks); 320 KB / 576 KB with a RAM expansion | OS + BASIC 1.1 + AMSDOS | Gate Array + CRTC 6845 (type 0-3, selectable) | AY-3-8912 | 3" floppy (uPD765A) + cassette | Eight bank configurations plus 64 KB block bits in the Gate Array RAM command |
+| CPC 6128 Plus (`cpc6128plus`) | 1990 | 128 KB (as configured) | None on board — boots from a cartridge | Amstrad ASIC (integrated type 3 CRTC) | AY-3-8912 + ASIC DMA sound | Cartridge + 3" floppy + cassette | Plus features hidden until software unlocks the ASIC |
+| GX4000 (`gx4000`) | 1990 | 128 KB (as configured) | None on board — boots from a cartridge | Amstrad ASIC (integrated type 3 CRTC) | AY-3-8912 + ASIC DMA sound | Cartridge only | No disk controller and no cassette deck; no tape pane, no drives pane, no on-screen keyboard |
 
 ### ROM sets
 
@@ -61,24 +61,24 @@ reads 0xFF.
 | Part | Models | Status | Notes |
 | --- | --- | --- | --- |
 | Z80A CPU | all | ✅ | Shared core [`src/cores/`](../../src/cores/). Memory cycles, I/O cycles and interrupt acknowledge each wait for their phase of the 1 µs grid ([`wait-states.ts`](../../src/machines/cpc/wait-states.ts)); internal cycles are never stretched |
-| CRTC 6845 | all | ✅ | [`src/cores/crtc-6845.ts`](../../src/cores/crtc-6845.ts). Per-scanline sequencing from R0–R9, R12/R13; frame length follows the programmed registers (nominal 64 chars × 312 lines = 79,872 T-states). Models use type 0 (non-Plus) or type 4 (Plus); the core also implements types 1–3 but no model selects them |
-| Gate Array (40010 style) | 464, 664, 6128 | ✅ | [`gate-array.ts`](../../src/machines/cpc/gate-array.ts). 16 pens + border from the 27-colour hardware palette; screen modes 0, 1, 2 and the undocumented mode 3 (160×200, four colours); mode latched at HSYNC; lower/upper ROM enable; RAM bank command; 52-HSYNC interrupt counter with VSYNC re-sync and bit-5 clear on acknowledge |
+| CRTC 6845 | all | ✅ | [`src/cores/crtc-6845.ts`](../../src/cores/crtc-6845.ts). Per-scanline sequencing from R0–R9, R12/R13; frame length follows the programmed registers (nominal 64 chars × 312 lines = 79,872 T-states). Type 0 by default on the 464/664/6128, selectable 0-3 in the Hardware pane; the Plus is type 3 (the ASIC's AMS40489; the Pre-ASIC, type 4, behaves identically). Per type: register read-back (type 0 reads R12-R17, types 1/2 R14-R17 with R12/R13 write-only, the UM6845R's dummy R31 reads &FF, types 3/4 repeat R16, R17, status 1, status 2, R12, R13, 0, 0 every eight registers); the UM6845R status register on &BExx (bit 5 = vertical display off); VSYNC fixed at 16 lines on types 1/2; HSYNC width 0 meaning no HSYNC (and no Gate Array interrupts) on types 0/1 but 16 characters on 2/3/4; R8 skew 3 blanking the display on types 0/3/4; the VCC = R6 compare made continuously on types 0-2 but only at a row start on 3/4, with R6 = 0 forcing the border on type 1; R12/R13 re-read each line while VCC = 0 on type 1 |
+| Gate Array (40010 style) | 464, 664, 6128 | ✅ | [`gate-array.ts`](../../src/machines/cpc/gate-array.ts). 16 pens + border from the 27-colour hardware palette; screen modes 0, 1, 2 and the undocumented mode 3 (160×200, four colours); mode latched at HSYNC; lower/upper ROM enable; RAM bank command (%11bbbccc: configuration and 64 KB block); 52-HSYNC interrupt counter with VSYNC re-sync and bit-5 clear on acknowledge |
 | Amstrad ASIC | 6128 Plus, GX4000 | ✅ | [`asic.ts`](../../src/machines/cpc/asic.ts). Superset of the Gate Array; behaves identically to it while locked. See the ASIC rows below |
 | ASIC lock sequence | 6128 Plus, GX4000 | ✅ | 16-byte key written to the CRTC register-select port (&BC00), then 0xEE unlocks; any other 17th byte locks. Reset re-locks |
 | ASIC 12-bit palette | 6128 Plus, GX4000 | ✅ | 32 entries (16 pens, border, 15 sprite colours), 4 bits per channel. Classic pen/border colour writes are mirrored into it whether locked or not |
 | ASIC hardware sprites | 6128 Plus, GX4000 | ✅ | 16 sprites of 16×16 pixels, magnification ×1/×2/×4 per axis (field 0 hides), pen 0 transparent, lower sprite number wins, 10-bit X / 9-bit Y signed position |
-| ASIC soft scroll and split screen | 6128 Plus, GX4000 | ◐ | Vertical scroll 0–7 lines, horizontal 0–15 pixels, border extend, split-screen address and scanline. Coarse horizontal backstep is not implemented (see Known issues) |
+| ASIC soft scroll and split screen | 6128 Plus, GX4000 | ✅ | Soft scroll register &6804: vertical scroll 0-7 lines (added to the raster part of the byte address); horizontal delay 0-15 mode-2 pixels inside the fixed display window, so the picture moves right, the last pixels fall behind the right border and stale data shows at the left; bit 7 covers the first 16 mode-2 pixels (two bytes) of each line with the border. Coarse (character) steps are R12/R13. Split-screen address and scanline |
 | ASIC programmable raster interrupt | 6128 Plus, GX4000 | ✅ | Fires at the programmed scanline; the 52-line flyback is suppressed while armed; IM 2 vector byte with priority raster > DMA 2 > DMA 1 > DMA 0 |
 | ASIC DMA sound | 6128 Plus, GX4000 | ✅ | Three channels, one instruction per HSYNC from base 64 KB RAM: LOAD (PSG register), PAUSE (scaled by the channel prescaler), REPEAT, LOOP, INT, STOP. Drives the AY-3-8912 directly |
 | ASIC RMR2 banking | 6128 Plus, GX4000 | ✅ | `%101xxxxx` on the Gate Array port while unlocked: selects which of the low eight cartridge pages backs the lower ROM, where it overlays (&0000, &4000 or &8000), and pages the 16 KB ASIC register window into &4000–&7FFF |
 | ASIC analogue inputs | 6128 Plus, GX4000 | ✅ | &6808–&680F in the register window, read-only, 6 bits. ADC0/ADC1 (&6808/&6809) are joystick 1 X/Y, ADC2/ADC3 joystick 2; &00 is left / up, &3F right / down, a centred stick &20. ADC4 and ADC6 read &3F, ADC5 and ADC7 &00 (tied to +5V and ground on a real Plus). The analogue stick's buttons are the digital port's fire buttons |
 | ASIC ghost writes | 6128 Plus, GX4000 | ✅ | An `IN` from the Gate Array or CRTC write ports writes the floating bus value (0xFF) to the register, as on the real ASIC |
-| Intel 8255 PPI | all | ✅ | Port A to the AY data bus; Port B returns VSYNC, manufacturer code 7 (Amstrad), 50 Hz flag, expansion/printer lines pulled high, and the cassette read bit; Port C carries the keyboard line, AY BDIR/BC1, the cassette motor bit and the cassette write-data bit |
+| Intel 8255 PPI | all | ✅ | Port A to the AY data bus; Port B returns VSYNC, the distributor code on LK1-LK3 (Amstrad by default; see the Hardware options), the LK4 refresh bit (50 Hz by default), expansion/printer lines pulled high, and the cassette read bit; Port C carries the keyboard line, AY BDIR/BC1, the cassette motor bit and the cassette write-data bit |
 | AY-3-8912 | all | ✅ | Shared core, 1 MHz clock, stereo placement ABC by default; stereo, ultrasonic filter and DC-block controls in the Sound pane. No beeper |
 | Keyboard matrix | all | ✅ | Ten lines read through the AY's I/O port A, active low. Host keys map by physical position (US layout); the UK ISO key left of Z gives `@`/`|`; the numeric keypad gives f0–f9 |
 | Cassette interface | 464, 664, 6128, 6128 Plus | ✅ | Pulse-level playback, and recording of what the firmware (or any saver) writes to the cassette. Absent on the GX4000 |
-| uPD765A FDC + 3" drives | 664, 6128, 6128 Plus | ✅ | Shared core [`src/cores/upd765a.ts`](../../src/cores/upd765a.ts), drives A: and B: on ports &FA7E / &FB7E / &FB7F. Weak-sector copies, per-drive write-protect, drive B force-ready, flippy-disk side flip |
-| Memory banking | 6128, 6128 Plus, GX4000 | ✅ | Eight standard RAM configurations; ROM overlays on RAM with writes always falling through to RAM; video fetch always reads the base 64 KB (banks 0–3) |
+| uPD765A FDC + 3" drives | 664, 6128, 6128 Plus; 464 with a DDI-1 | ✅ | Shared core [`src/cores/upd765a.ts`](../../src/cores/upd765a.ts), drives A: and B: on ports &FA7E / &FB7E / &FB7F. Weak-sector copies, per-drive write-protect, drive B force-ready, flippy-disk side flip |
+| Memory banking | 6128, 6128 Plus, GX4000; 464/664 with a RAM expansion | ✅ | Eight standard RAM configurations; with an expansion the 64 KB block bits (bits 3-5 of the RAM command) pick one of four or eight 64 KB blocks; ROM overlays on RAM with writes always falling through to RAM; video fetch always reads the base 64 KB (banks 0–3) |
 | Cartridge port | 6128 Plus, GX4000 | ✅ | Up to 32 × 16 KB pages from a `.cpr` image; inserting or ejecting power-cycles the machine |
 
 ---
@@ -91,17 +91,20 @@ reads 0xFF.
 | Kempston mouse | input | all | ✅ | Ports &FBEE (X), &FBEF (Y), &FAEF (buttons, active low); Y counts upward |
 | AMX mouse | input | all | ✅ | Presented on keyboard line 9 as one-mickey pulses retired on line deselect; left/right/middle buttons map to Fire 2/Fire 1/Fire 3 |
 | Multiface Two | ROM + RAM / NMI | all | ✅ | 8 KB ROM + 8 KB RAM overlaid on &0000–&3FFF. `OUT &FEE8` pages in, `OUT &FEEA` pages out; the red STOP button (Hardware pane) pages in and raises an NMI to &0066. Records writes to the Gate Array, CRTC, ROM-select and PPI control ports into its RAM so the toolkit's Return restores the machine. Can be enabled and disabled without rebuilding the machine. The code does not restrict it by model |
-| ParaDOS | ROM (AMSDOS replacement) | 664, 6128, 6128 Plus | ◐ | Hardware-pane toggle shown on every disk-capable model; loads `parados.rom` into upper ROM 7 after reset. Toggling rebuilds the machine |
+| ParaDOS | ROM (AMSDOS replacement) | 664, 6128, 6128 Plus; 464 with a DDI-1 | ◐ | Hardware-pane toggle shown on every disk-capable model; loads `parados.rom` into upper ROM 7 after reset. Toggling rebuilds the machine |
+| RAM expansion (256 KB / 512 KB) | RAM | 464, 664, 6128 | ✅ | Hardware-pane option, Dk'tronics-compatible: blocks 0-3 (256 KB) or 0-7 (512 KB), selected by RAM command bits 3-5 (`OUT &7Fxx`). On the 6128 the expansion's block 0 is hidden behind the internal second 64 KB (320 KB / 576 KB in all), and a block the expansion lacks leaves the internal RAM mapped; on a 464/664 the expansion brings the banking, and a block it lacks leaves the base RAM mapped. The video fetch still reads only the base 64 KB. Rebuilds the machine |
+| DDI-1 disk interface | ROM + FDC | 464 | ✅ | Hardware-pane option: the uPD765A on the 6128's ports (&FA7E, &FB7E/&FB7F) with AMSDOS in upper ROM 7, drives A:/B: and the Drives pane, ParaDOS available. Rebuilds the machine |
+| CRTC type, PPI links | board | 464, 664, 6128 (CRTC); all (links) | ✅ | Hardware-pane selects. CRTC type 0-3 (the Plus keeps its ASIC CRTC); distributor name (Amstrad, Orion, Schneider, Awa, Solavox, Saisho, Triumph, Isp) on LK1-LK3 and 50/60 Hz on LK4, read through PPI port B (the firmware shows the name in its banner and programs a 262-line frame at 60 Hz). Rebuild the machine |
 | Cartridge | ROM | 6128 Plus, GX4000 | ✅ | `.cpr` image in the cartridge slot; a user cartridge supersedes the hidden firmware cartridge, ejecting restores it |
 | Cassette deck | tape | 464, 664, 6128, 6128 Plus | ✅ | See Media formats and Emulation features |
-| 3" disk drives A:/B: | disk | 664, 6128, 6128 Plus | ✅ | Hardware pane exposes write-protect per drive and a force-ready override for drive B |
+| 3" disk drives A:/B: | disk | 664, 6128, 6128 Plus; 464 with a DDI-1 | ✅ | Hardware pane exposes write-protect per drive and a force-ready override for drive B |
 
 **Combination rules:** the Kempston and AMX mice are mutually exclusive (one mode
 is active at a time), and the AMX mouse shares keyboard line 9 with player 1's
 joystick. ParaDOS and AMSDOS both occupy upper ROM 7, so enabling
 ParaDOS replaces AMSDOS. The Multiface Two overlays slot 0 and wins over the
 lower ROM while paged in. A cartridge slot exists only on the Plus models; the
-464, 664 and 6128 have none. A DDI-1 disk interface for the 464 is not modelled.
+464, 664 and 6128 have none. The DDI-1 exists only for the 464 (the 664 and 6128 have the controller built in).
 
 ---
 
@@ -113,7 +116,7 @@ disks and snapshots are session-only (`persistMedia: false`).
 
 | Extension | Kind | Device | Load | Save | Notes |
 | --- | --- | --- | --- | --- | --- |
-| `.sna` | Snapshot | Machine | ✅ | ✅ | v1, v2 and v3 load (flat dump or `MEMn` chunks, RLE supported); save writes v2 (flat) or v3 (RLE). The snapshot's CPC-type byte selects the model and the machine rebuilds as that model first. Plus snapshots carry an ASIC chunk (own format) and load the standard `CPC+` chunk |
+| `.sna` | Snapshot | Machine | ✅ | ✅ | v1, v2 and v3 load (flat dump or `MEMn` chunks, RLE supported); save writes v2 (flat) or v3 (RLE). The snapshot's CPC-type byte selects the model and the machine rebuilds as that model first (a 464 Plus, type 5, loads as the 6128 Plus). Memory beyond 128 KB is carried when a RAM expansion is fitted: the dump is 320 KB or 576 KB (v2 flat, v3 `MEM0`-`MEM8`), and a snapshot that holds more RAM than the machine has is refused with a message naming the expansion to fit. v3 also carries the CRTC type (0xA4, honoured on load on the 464/664/6128) and the CRTC's internal counters (0xA9-0xB1: character, row, raster, vertical adjust, VSYNC width, flags), so a mid-frame snapshot resumes at the same raster position with the 52-line interrupt phase intact. Page-refresh resume uses the same v3 snapshot. Plus snapshots carry an ASIC chunk (own format) and load the standard `CPC+` chunk |
 | `.cdt` | Tape | Tape deck | ✅ | ✅ | CDT/TZX container; timings rescaled from 3.5 MHz to the CPC's 4 MHz. Listed in the Load picker. Save is a recording of what the machine wrote to the cassette since the last reset, not a re-save of the mounted tape: each firmware record (any SPEED WRITE speed) becomes a turbo block (0x11) holding its bytes verbatim (sync character, CRCs and trailer) with the measured timings; anything else that starts with a pilot tone is kept as exact pulse widths (CSW block 0x18). Named after the first header record, else `cpc-tape.cdt` |
 | `.tzx` | Tape | Tape deck | ✅ | ✗ | Same parser as `.cdt` |
 | `.tap` | Tape | Tape deck | ✅ | ✗ | Parsed by the shared TAP parser |
@@ -167,7 +170,7 @@ beneath the ROM overlays).
 | BASIC tools | ✅ | Locomotive BASIC listing and variables viewers read the program from RAM at &0170. The system-variables and font panes are hidden |
 | Software library | ✗ | `library: false` |
 | On-screen keyboard | ✅ | Separate layouts for the 464, 664 and 6128; the 6128 Plus reuses the 6128 layout. None for the GX4000 |
-| Machine-specific panes | ✅ | Hardware pane: Multiface Two with STOP button, ParaDOS. Drives pane (disk models), tape pane (tape models), cartridge slot (Plus models), Mouse pane (Kempston / AMX) |
+| Machine-specific panes | ✅ | Hardware pane: CRTC type, RAM expansion, DDI-1 (464), name and refresh links, Multiface Two with STOP button, ParaDOS. Drives pane (disk models), tape pane (tape models), cartridge slot (Plus models), Mouse pane (Kempston / AMX) |
 | MCP tools | ✅ | Generic tools (including `trace`, `stop_trace` and `trace_read`) plus `load` / `eject` (tape, drives A:/B:), `ocr`, `screenshot`, and the uPD765A inspectors `disk_geometry`, `track_geometry`, `sector_read`, `weak`, `fdc_log`. `key` accepts `f0`–`f9` for the keypad. These decline on a CPC: `multiface`, `vtx5000`, `plusd`, `betadisk`, `disk_boot`, `disk_trace`, `save` (SZX only), `frame_trace` |
 | Drive count | ✅ | Disk models: one or two drives, chosen from **Drive count** in drive A's options menu. Saved per machine; rebuilds the machine. With one drive the uPD765A reports unit 1 not connected (equipment check on seek, not ready) |
 
@@ -177,25 +180,22 @@ beneath the ROM overlays).
 
 | Issue | Affects | Severity | Notes |
 | --- | --- | --- | --- |
-| Plus coarse horizontal scroll not implemented | 6128 Plus, GX4000 | low | `applyScrollAndSplit` in `asic.ts` states a coarse horizontal scroll byte backstep "remains a later refinement"; horizontal scroll is applied only as a 0–15 pixel shift of the line start |
-| Snapshot restore does not resume mid-frame | all | low | `applyCpcSna` in `cpc-sna.ts` does not restore the CRTC's internal counters (header bytes 0xA9–0xB1); the raster restarts at a frame boundary, which is where zx84's own saves are taken |
+| Snapshot resume rebuilds the row address | all | low | The CRTC counters of a v3 snapshot put the raster back at the same character, row and raster; the 6845's latched row address is not in the file, so it is rebuilt from R12/R13 and R1 as if the frame so far ran on the current registers (a snapshot taken after a mid-frame R12/R13 change shows the new base for the rest of that frame) |
 | Some game-only `.cpr` cartridges may not boot | 6128 Plus, GX4000 | low | `roms.ts` warns when bank 0 is not firmware (an upper ROM or custom loader): such cartridges "typically hang in emulators that don't model every ASIC quirk". The status line shows a warning on insert |
 
 ## Not emulated
 
 - **Printer port.** Port B's printer-busy and expansion lines read as pulled high; nothing is attached.
-- **RAM beyond the built-in memory.** The 64 KB block bits of the RAM command are decoded but wrap onto the installed banks; no expansion RAM is modelled. The 464 and 664 ignore the bank command altogether.
-- **DDI-1 disk interface for the 464.** No controller is on the bus; the FDC ports float to 0xFF.
+- **Other RAM expansions.** Only the Dk'tronics-compatible 256 KB / 512 KB layout (RAM command bits 3-5) is modelled; Yarek/Vortex-style variants, the silicon-disc cartridges' own ports and 4 MB expansions are not. The 464 and 664 ignore the bank command unless an expansion is fitted.
 - **Light pen.** CRTC registers 16 and 17 never change; nothing models a pen strobe.
-- **CRTC type selection.** Non-Plus models are fixed at type 0 and the Plus at type 4; types 1–3 exist in the core but cannot be chosen.
-- **PPI configuration links.** Port B always reports Amstrad as manufacturer and 50 Hz.
-- **464 Plus.** Snapshot type 5 is recognised as unmodelled and loads as a 6128.
+- **CRTC fine points.** Types differ in more edge cases than the core models (the interline border byte when R1 > R0, MC6845 HSYNC behaviour during the border, half-clock-edge timing); the Plus CRTC's status 1/2 bits of unknown function read 0. R8 skew values 1 and 2 are not applied. Timing is per scanline, not per character.
+- **464 Plus.** There is no 464 Plus model (64 KB, no disk controller); its snapshots load as the 6128 Plus.
 
 ## Faithful quirks
 
 - **Main fire button is Fire 2.** A one-button CPC joystick wires its button to Fire 2, so the emulator's primary fire drives Fire 2 and the secondary drives Fire 1. Swapping them reverses Burnin' Rubber's launch and options.
 - **Unmapped upper ROM falls back to BASIC.** Selecting a ROM number with nothing fitted reads the on-board BASIC ROM, which the firmware's own ROM-select code relies on. A genuinely absent ROM (and the Plus after a system cartridge without one) reads 0xFF so the boot-time ROM scan skips it.
-- **Unmapped ports float high.** Reads from undecoded ports return 0xFF, and the FDC ports on the 464 and GX4000 do the same.
+- **Unmapped ports float high.** Reads from undecoded ports return 0xFF, and the FDC ports on a 464 without a DDI-1 and on the GX4000 do the same.
 - **ASIC hides behind the lock.** Until the unlock sequence is written, the ASIC answers like a discrete Gate Array, so unmodified CPC software runs unchanged on a Plus.
 - **ASIC ghost writes.** `IN` from the Gate Array or CRTC write ports performs a write of 0xFF on the Plus.
 - **Interrupt acknowledge clears counter bit 5.** Servicing the 52-line interrupt leaves the counter at its low five bits, which is what makes raster splits stable.
@@ -216,6 +216,9 @@ beneath the ROM overlays).
 | Fast ROM loading, trap on vs trap off, real CDTs (1942, 180, 10th Frame, 1943, 2048, 3D Starstrike) | CAS READ results and bytes identical on 464, 664 and 6128 | 2026-09-25 |
 | `tests/cpc/cpc-multiface.test.ts`, `cpc-mouse.test.ts`, `cpc-keyboard.test.ts`, `joystick-fire.test.ts` | Multiface port decode, paging and NMI; Kempston and AMX behaviour; joystick matrix lines; fire-button mapping | — |
 | `tests/cpc/plus-analogue.test.ts` | ASIC analogue channel map, direction and tied-off levels from CPCWiki's measurements of a real Plus, read through the unlocked register window; read-only writes; proportional input and the digital port; held stick across a reset | — |
+| `tests/cpc/crtc-types.test.ts` | Per-type CRTC behaviour against CPCWiki's CRTC page and the Plus hardware notes: register read maps, &BExx status on the UM6845R, HSYNC/VSYNC widths, R8 skew, VCC = R6 timing, R12/R13 re-read in row 0 | 2026-10-31 |
+| `tests/cpc/cpc-fit-options.test.ts`, `cpc-fit-boot.test.ts` | RAM expansion banking by the %11bbbccc command; PPI links; HSYNC-less lines and the Gate Array interrupt; DDI-1 port decode. With real firmware: the distributor name in the banner, a 262-line frame at 60 Hz, `POKE`/`PEEK` through block 2 of a 256 KB expansion from BASIC, and `SAVE` then `|DIR` on a 464 with a DDI-1 (skipped without ROMs) | 2026-10-31 |
+| `tests/cpc/render-centering.test.ts`, `tests/snapshot/cpc-sna.test.ts` | Soft-scroll delay and border extend on the rendered line; `.sna` CRTC type and counters, expansion RAM, type-5 mapping and refresh resume | 2026-10-31 |
 | `tests/cpc/cpc-memory.test.ts`, `cpc-fdc-ports.test.ts`, `cpc-models.test.ts`, `plus-debug.test.ts`, `render-centering.test.ts` | ROM split and paging; FDC port decode (absent on 464 and GX4000); model classification; Plus cartridge boot; display centring | — |
 | `tests/cpc/cpc-tape-save.test.ts` | Recorded records against the firmware guide's cassette format and the TZX 0x11 layout; CAS WRITE then CAS READ of the recording on the real 464 and 6128 firmware, at pulse level and through the fast-load trap (skipped without ROMs) | — |
 | `tests/machines/cpc/media-routing.test.ts` | Extension routing to tape, snapshot (with model auto-switch), disk and cartridge; `.cpr` refused on non-Plus models | — |

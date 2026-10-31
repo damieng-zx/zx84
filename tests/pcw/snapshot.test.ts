@@ -150,10 +150,15 @@ const view = (values: Record<string, unknown>): SettingsView => ({
   get<T>(key: string, fallback: T): T { return (key in values ? values[key] : fallback) as T; },
 });
 
-function machine(model: PcwModel = 'pcw8512', drives?: number, disc = true): PcwMachine {
+function machine(
+  model: PcwModel = 'pcw8512', drives?: number, disc = true, hz60 = false,
+): PcwMachine {
   const m = new PcwMachine(model, null);
   m.start = async () => {};
-  m.prepare(view(drives === undefined ? {} : { 'drive-count:pcw': drives }));
+  m.prepare(view({
+    ...(drives === undefined ? {} : { 'drive-count:pcw': drives }),
+    ...(hz60 ? { 'pcw-60hz': true } : {}),
+  }));
   m.reset();
   if (disc) m.services.disks.insert('a', bootDisk(), 'boot.dsk');
   return m;
@@ -213,6 +218,48 @@ describe('PCW .pcwstate', () => {
 
   it('resumes exactly on a one-drive 8256', async () => {
     await expectExactResume({ make: () => machine('pcw8256'), ext: '.pcwstate', before: 17, after: 12 });
+  });
+
+  it('resumes exactly on a 60Hz machine, with its own frame length and timer lines', async () => {
+    await expectExactResume({
+      make: () => machine('pcw8256', undefined, true, true),
+      ext: '.pcwstate', before: 19, after: 14,
+    });
+  });
+
+  it('refuses a state saved at another frame rate, changing nothing', async () => {
+    const src = machine('pcw8256', undefined, true, true);
+    const dst = machine('pcw8256');
+    try {
+      for (let f = 0; f < 4; f++) src.tick();
+      for (let f = 0; f < 6; f++) dst.tick();
+      const before = observe(dst);
+      const result = await dst.services.snapshots.apply(await src.services.snapshots.save('.pcwstate'), 'x.pcwstate');
+      expect(result.ok).toBe(false);
+      expect(result.message).toMatch(/60Hz.*50Hz/);
+      expect(observe(dst)).toEqual(before);
+    } finally {
+      src.destroy();
+      dst.destroy();
+    }
+  });
+
+  it('carries what has been sent to the printer', async () => {
+    const src = machine('pcw8256');
+    const dst = machine('pcw8256', undefined, false);
+    try {
+      for (let f = 0; f < 3; f++) src.tick();
+      for (const b of [0xA4, 0x01, 0xB8, 0x00]) src.cpu.portOut(0xFD, b);
+      dst.cpu.portOut(0xFD, 0xC0);     // a stray byte the state must replace
+      const file = await src.services.snapshots.save('.pcwstate');
+      expect((await dst.services.media.mount(file, 'x.pcwstate')).ok).toBe(true);
+      expect(new TextDecoder().decode(dst.printerExportBytes()!.data))
+        .toBe(new TextDecoder().decode(src.printerExportBytes()!.data));
+      expect(new TextDecoder().decode(dst.printerExportBytes()!.data)).toContain('line feed 1/360"');
+    } finally {
+      src.destroy();
+      dst.destroy();
+    }
   });
 
   it('carries the disc: a state loaded into a machine with no disc reads the same sectors', async () => {

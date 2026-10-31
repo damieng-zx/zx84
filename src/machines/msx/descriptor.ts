@@ -36,16 +36,22 @@ const MSX_UI: MachineUiCapabilities = {
   // Spectrum-style EAR/rainbow/Kempston activity to indicate.
   soundChip: 'AY-3-8910',
   // The PPI's key-click line (port C bit 7) is a second, 1-bit sound source
-  // beside the AY, so each gets its own Sound-pane volume.
+  // beside the AY, and a Konami SCC cartridge brings a third through the
+  // slot's sound input, so each gets its own Sound-pane volume. The SCC is a
+  // line-level source and may be pushed past unity.
   soundDevices: [
     { id: 'beeper', label: 'Key click', volumeSetting: 'beeper-volume' },
     { id: 'psg', label: 'AY-3-8910', volumeSetting: 'psg-volume' },
+    { id: 'scc', label: 'Konami SCC (cartridge)', volumeSetting: 'scc-volume', maxVolume: 200 },
   ],
   statusLeds: ['kbd', 'load', 'chip', 'text'],
   keyboardBus: 'ula',
-  tape: 'instant',
-  tapeSound: true,
-  tapeExtensions: ['.cas', '.zip'],
+  // A pulse-level recorder (PSG register 14 bit 7, motor relay on PPI port C
+  // bit 4) with the BIOS TAPION/TAPIN traps as the fast path for .cas.
+  tape: 'deck',
+  fastRomLoading: true,
+  tapeSound: false,
+  tapeExtensions: ['.cas', '.tsx', '.tzx', '.wav', '.zip'],
   // 'tape-tap' downloads what the BIOS has saved to cassette (as .cas).
   saveMenu: ['snapshot-msxstate', 'tape-tap', 'screenshot-png', 'screen-scr', 'ram-bin'],
   zipPolicy: 'media',

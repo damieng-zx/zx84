@@ -159,8 +159,10 @@ export function wireMsxPortIO(m: MsxMachine): void {
         }
         break;
       case 0xA8: ppi.writeA(val); break;
-      case 0xAA: ppi.writeC(val); break;
-      case 0xAB: ppi.writeControl(val); break;
+      // Port C bit 4 is the cassette motor relay: bring the tape up to now
+      // before it changes.
+      case 0xAA: m.syncTape(); ppi.writeC(val); break;
+      case 0xAB: m.syncTape(); ppi.writeControl(val); break;
       // 0xA9 (port B) is input-only; 0x99 handled above.
     }
   };
@@ -177,8 +179,11 @@ export function wireMsxPortIO(m: MsxMachine): void {
       case 0x98: return vdp.readData();
       case 0x99: return vdp.readStatus();
       case 0xA2:
-        // PSG port A (reg 14) is the joystick input on the MSX.
-        return ay.selectedReg === AY_PORT_A ? joy.read() : ay.readRegister(ay.selectedReg);
+        // PSG port A (reg 14): the joystick in bits 0-5, the cassette input
+        // (CASRD) in bit 7.
+        return ay.selectedReg === AY_PORT_A
+          ? (joy.read() & 0x7F) | (m.cassetteInput() << 7)
+          : ay.readRegister(ay.selectedReg);
       case 0xA8: return ppi.readA();
       case 0xA9: m.activity.kbdReads++; return ppi.readB();
       case 0xAA: return ppi.readC();

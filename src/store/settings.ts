@@ -59,6 +59,7 @@ const DEFAULTS = {
   'specdrum-volume': '100',
   // Level of the Currah µSpeech speech output (0-200).
   'uspeech-volume': '100',
+  'scc-volume': '100',
 
   // Joystick
   'joy-p1':     'kempston',
@@ -103,7 +104,13 @@ const DEFAULTS = {
   'multiface':      'off',
   'vtx5000':        'off',
   'specdrum':       'off',
+  'spectrum-issue2': 'off',
   'cpc-parados':    'off',
+  'cpc-crtc-type':  '0',
+  'cpc-ram-expansion': 'none',
+  'cpc-ddi1':       'off',
+  'cpc-manufacturer': 'amstrad',
+  'cpc-refresh':    '50',
   'plusd':          'off',
   'interface1':     'off',
   'betadisk':       'off',
@@ -119,6 +126,7 @@ const DEFAULTS = {
   'electron-plus3': 'off',
   'electron-dfs':   'off',
   'lynx-fdc':       'on',
+  'pcw-60hz':       'off',
   'apple2-disk2':   'on',
   'c64-drive':      'on',
   'c64-sid':        '6581',
@@ -139,6 +147,10 @@ const DEFAULTS = {
   'zx81-wrx-hires': 'off',
   'zx81-memotech-hrg': 'off',
   'zx81-quicksilva-hrg': 'off',
+  'zx81-zx-printer': 'off',
+  'zx81-chroma81': 'off',
+  'zx8x-zonx':     'off',
+  'zx8x-vsync-sound': 'off',
   'ace-ram-pack':  '48k',
 } as const;
 
@@ -236,6 +248,7 @@ export const [snStereo, setSnStereo] = signal(savedText('sn-stereo'));
 export const [ayAntialias, setAyAntialias] = signal(savedText('ay-antialias'));
 export const [specdrumVolume, setSpecdrumVolume] = signal(savedNumber('specdrum-volume'));
 export const [uspeechVolume, setUspeechVolume] = signal(savedNumber('uspeech-volume'));
+export const [sccVolume, setSccVolume] = signal(savedNumber('scc-volume'));
 
 /** Per-device Sound-pane volume signals, keyed by the setting a machine
  *  descriptor names in `soundDevices[].volumeSetting` — so the generic pane
@@ -245,6 +258,7 @@ export const DEVICE_VOLUMES: Readonly<Record<string, readonly [() => number, (v:
   'psg-volume': [psgVolume, setPsgVolume],
   'specdrum-volume': [specdrumVolume, setSpecdrumVolume],
   'uspeech-volume': [uspeechVolume, setUspeechVolume],
+  'scc-volume': [sccVolume, setSccVolume],
 };
 
 // ── Joystick settings ───────────────────────────────────────────────────
@@ -332,6 +346,16 @@ export const [tapeSoundEnabled, setTapeSoundEnabled] = signal(savedFlag('tape-so
 
 export const [multifaceEnabled, setMultifaceEnabled] = signal(savedFlag('multiface'));
 export const [cpcParados, setCpcParados] = signal(savedFlag('cpc-parados'));
+/** CPC 464/664/6128 CRTC type, '0'-'3' (see machines/cpc/options.ts). */
+export const [cpcCrtcType, setCpcCrtcType] = signal(savedText('cpc-crtc-type'));
+/** CPC RAM expansion: 'none', '256k' or '512k'. */
+export const [cpcRamExpansion, setCpcRamExpansion] = signal(savedText('cpc-ram-expansion'));
+/** DDI-1 disk interface on the CPC 464. */
+export const [cpcDdi1, setCpcDdi1] = signal(savedFlag('cpc-ddi1'));
+/** CPC distributor name links (LK1-LK3), e.g. 'amstrad', 'schneider'. */
+export const [cpcManufacturer, setCpcManufacturer] = signal(savedText('cpc-manufacturer'));
+/** CPC 50/60 Hz link (LK4): '50' or '60'. */
+export const [cpcRefresh, setCpcRefresh] = signal(savedText('cpc-refresh'));
 
 /** Megabytes fitted to the external megabyte interface, 0-4. 0 = not fitted. */
 
@@ -462,6 +486,8 @@ export const [electronPlus1, setElectronPlus1] = signal(savedFlag('electron-plus
 export const [electronPlus3, setElectronPlus3] = signal(savedFlag('electron-plus3'));
 export const [electronDfs, setElectronDfs] = signal(savedFlag('electron-dfs'));
 export const [lynxFdc, setLynxFdc] = signal(savedFlag('lynx-fdc'));
+/** Amstrad PCW 50/60Hz link: on = a 60Hz machine (260-line frame, 200 lines shown). */
+export const [pcw60Hz, setPcw60Hz] = signal(savedFlag('pcw-60hz'));
 
 /** Enterprise EXDOS disk card (WD1770 + EXDOS ROM) fitted. */
 export const [enterpriseExdos, setEnterpriseExdos] = signal(savedFlag('enterprise-exdos'));
@@ -471,12 +497,23 @@ export const [zx81Udg128Ram, setZx81Udg128Ram] = signal(savedFlag('zx81-udg128-r
 export const [zx81WrxHires, setZx81WrxHires] = signal(savedFlag('zx81-wrx-hires'));
 export const [zx81MemotechHrg, setZx81MemotechHrg] = signal(savedFlag('zx81-memotech-hrg'));
 export const [zx81QuickSilvaHrg, setZx81QuickSilvaHrg] = signal(savedFlag('zx81-quicksilva-hrg'));
+/** ZX81 ZX Printer on port 0xFB. */
+export const [zx81ZxPrinter, setZx81ZxPrinter] = signal(savedFlag('zx81-zx-printer'));
+/** ZX81 Chroma 81 colour interface. */
+export const [zx81Chroma81, setZx81Chroma81] = signal(savedFlag('zx81-chroma81'));
+/** ZX80/ZX81 ZON X-81 AY sound interface. */
+export const [zx8xZonx, setZx8xZonx] = signal(savedFlag('zx8x-zonx'));
+/** ZX80/ZX81 vertical sync (the MIC line) mixed into the sound. */
+export const [zx8xVsyncSound, setZx8xVsyncSound] = signal(savedFlag('zx8x-vsync-sound'));
 
 /** Jupiter Ace RAM pack: 'none' (stock 3K), '16k' (16K pack, 19K total) or
  *  '48k' (48K pack, 51K total). The 48K pack is the default. */
 export const [aceRamPack, setAceRamPack] = signal(savedText('ace-ram-pack') as 'none' | '16k' | '48k');
 export const [vtx5000Enabled, setVtx5000Enabled] = signal(savedFlag('vtx5000'));
 export const [specdrumEnabled, setSpecdrumEnabled] = signal(savedFlag('specdrum'));
+/** 16K/48K board issue: on = Issue 1/2 (port 0xFE bit 6 follows OUT bits 3 and 4),
+ *  off = Issue 3 (bit 4 alone). */
+export const [spectrumIssue2, setSpectrumIssue2] = signal(savedFlag('spectrum-issue2'));
 export const [plusDEnabled, setPlusDEnabled] = signal(savedFlag('plusd'));
 export const [betaDiskEnabled, setBetaDiskEnabled] = signal(savedFlag('betadisk'));
 export const [interface1Enabled, setInterface1Enabled] = signal(savedFlag('interface1'));
@@ -547,6 +584,7 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'c64-sid',     set: setC64Sid,     type: 'string' },
     { key: 'specdrum-volume', set: setSpecdrumVolume, type: 'number' },
     { key: 'uspeech-volume', set: setUspeechVolume, type: 'number' },
+    { key: 'scc-volume', set: setSccVolume, type: 'number' },
   ],
   joystick: [
     { key: 'joy-p1',     set: setJoyP1,    type: 'string' },
@@ -587,7 +625,13 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'multiface',      set: setMultifaceEnabled, type: 'bool' },
     { key: 'vtx5000',        set: setVtx5000Enabled,   type: 'bool' },
     { key: 'specdrum',       set: setSpecdrumEnabled,  type: 'bool' },
+    { key: 'spectrum-issue2', set: setSpectrumIssue2,  type: 'bool' },
     { key: 'cpc-parados',    set: setCpcParados,        type: 'bool' },
+    { key: 'cpc-crtc-type',  set: setCpcCrtcType,       type: 'string' },
+    { key: 'cpc-ram-expansion', set: setCpcRamExpansion, type: 'string' },
+    { key: 'cpc-ddi1',       set: setCpcDdi1,           type: 'bool' },
+    { key: 'cpc-manufacturer', set: setCpcManufacturer, type: 'string' },
+    { key: 'cpc-refresh',    set: setCpcRefresh,        type: 'string' },
     { key: 'plusd',          set: setPlusDEnabled,     type: 'bool' },
     { key: 'betadisk',       set: setBetaDiskEnabled,  type: 'bool' },
     { key: 'interface1',     set: setInterface1Enabled, type: 'bool' },
@@ -603,6 +647,7 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'electron-plus3', set: setElectronPlus3, type: 'bool' },
     { key: 'electron-dfs', set: setElectronDfs, type: 'bool' },
     { key: 'lynx-fdc', set: setLynxFdc, type: 'bool' },
+    { key: 'pcw-60hz', set: setPcw60Hz, type: 'bool' },
     { key: 'apple2-disk2', set: setApple2Disk2, type: 'bool' },
     { key: 'c64-drive', set: setC64Drive, type: 'bool' },
     { key: 'apple2-langcard', set: setApple2LangCard, type: 'bool' },
@@ -620,12 +665,33 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'zx81-wrx-hires', set: setZx81WrxHires, type: 'bool' },
     { key: 'zx81-memotech-hrg', set: setZx81MemotechHrg, type: 'bool' },
     { key: 'zx81-quicksilva-hrg', set: setZx81QuickSilvaHrg, type: 'bool' },
+    { key: 'zx81-zx-printer', set: setZx81ZxPrinter, type: 'bool' },
+    { key: 'zx81-chroma81', set: setZx81Chroma81, type: 'bool' },
+    { key: 'zx8x-zonx', set: setZx8xZonx, type: 'bool' },
+    { key: 'zx8x-vsync-sound', set: setZx8xVsyncSound, type: 'bool' },
     { key: 'ace-ram-pack', set: setAceRamPack, type: 'string' },
   ],
   font: [
     { key: 'font', set: setFontName, type: 'string' },
   ],
 };
+
+/**
+ * Set and persist a boolean setting by its key, for a change that starts in a
+ * machine rather than a pane (a snapshot that records a board option). Returns
+ * false, changing nothing, for a key that is not a known boolean setting.
+ */
+export function setFlagSetting(key: string, on: boolean): boolean {
+  for (const defs of Object.values(PANE_SETTINGS)) {
+    for (const d of defs) {
+      if (d.key !== key || d.type !== 'bool') continue;
+      d.set(on);
+      persistSetting(key, on ? 'on' : 'off');
+      return true;
+    }
+  }
+  return false;
+}
 
 /** Reset all settings for a named group back to defaults. */
 export function resetSettingsGroup(group: string): void {

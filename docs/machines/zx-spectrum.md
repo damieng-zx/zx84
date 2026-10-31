@@ -59,7 +59,8 @@ Dropping a raw ROM image picks the model by size: 16 KB → 48K, 32 KB → 128K,
 | 128K paging (7FFD) | 128K-class | ✅ | Bank, screen, ROM select, lock bit |
 | +2A/+3 paging (1FFD) | +2A, +3 | ✅ | 4-page ROM select and the special RAM configurations |
 | AY-3-8912 | 128K-class | ✅ | Stereo placement (ABC by default), ultrasonic filter, DC block, beeper/AY mix |
-| Beeper / EAR / MIC | all | ✅ | Speaker level mixed from EAR and MIC like an Issue 3 board |
+| Beeper / EAR / MIC | all | ✅ | Speaker level mixed from EAR and MIC through the ULA's two resistor paths |
+| Board issue (port FE bit 6) | all | ✅ | What `IN 0xFE` bit 6 reads back after an `OUT` with no tape signal, per the ULA pin-28 measurements: 16K/48K can be fitted as **Issue 1/2** (bit 6 follows OUT bit 3 or bit 4) or **Issue 3** (bit 4 alone, the default), chosen in the Hardware pane and saved; 128K and +2 behave as Issue 3; +2A/+3 always read 0 with no signal. A playing tape overrides all of them |
 | Keyboard matrix | all | ✅ | Host keyboard mapping plus on-screen keyboards (rubber-key and +2/+3 legends) |
 | Cassette interface | all | ✅ | Pulse-level playback, and recording of what `SAVE` (or any saver) writes to MIC |
 | uPD765A FDC + 3" drives | +3 | ✅ | Drives A:/B:, weak-sector copies, protection-correct status bits |
@@ -96,8 +97,8 @@ ZIP archives are unpacked and their contents routed as below.
 
 | Extension | Kind | Device | Load | Save | Notes |
 | --- | --- | --- | --- | --- | --- |
-| `.szx` | Snapshot | Machine | ✅ | ✅ | Preferred save format |
-| `.z80` | Snapshot | Machine | ✅ | ✅ | v1–v3 |
+| `.szx` | Snapshot | Machine | ✅ | ✅ | Preferred save format. The KEYB block's Issue 2 flag (16K/48K only) and SPCR's last write to port FE are read and written; a file with no KEYB block leaves the board alone |
+| `.z80` | Snapshot | Machine | ✅ | ✅ | v1–v3. Byte 29 bit 2 (Issue 2 emulation) is read and written for 48K-class snapshots |
 | `.sna` | Snapshot | Machine | ✅ | ✗ | 48K and 128K variants |
 | `.sp` | Snapshot | Machine | ✅ | ✗ | |
 | `.tap` | Tape | Tape deck | ✅ | ✗ | |
@@ -157,10 +158,9 @@ None known.
 
 ## Not emulated
 
-- **Issue 2 keyboard behaviour.** Port FE bit 6 is modelled as an Issue 3 board, so software that relies on Issue 2 EAR/MIC feedback may misread keys.
+- **Analogue decay of port FE bit 6.** After OUT bit 4 falls, the ULA pin follows the output through the EAR/MIC capacitors (about 180–2800 T-states, longer the longer bit 4 was high); bit 6 here follows the write at once. Software timing a read within that window sees the settled value.
 - **Interface 1 RS-232 and ZX Net.** The ports are decoded but return idle-line values.
 - **MGT +D printer port.** Reads 0xFF (never busy); writes are ignored.
-- **uPD765A SCAN commands.** Unimplemented; the frame probe flags it when software issues one.
 - **VTX-5000 network.** The modem has nothing connected to it.
 
 ## Faithful quirks
@@ -180,4 +180,6 @@ None known.
 | Protected +3 disks (Speedlock, Alkatraz, Three-Inch Loader…) as HFE vs DSK | 38/47 byte-identical; the rest are corrupt dumps | 2026-07-14 |
 | +3 HFE and SCP boots vs DSK boot | Framebuffer bit-identical | 2026-07-14 |
 | Platoon, Barbarian II (+3 DDAM / CRC protections) | Load | 2026-06 |
+| `tests/cores/ula.test.ts`, `tests/machines/spectrum/board-issue.test.ts` | Port FE bit-6 truth table per issue (comp.sys.sinclair FAQ / WoS pin-28 voltages), the 8bitchip BASIC probe values (191/255), SZX KEYB/SPCR and .z80 byte 29 round trips, and the real 48K ROM's BEEPER leaving IN 254 at 255 on Issue 2 and 191 on Issue 3 (ROM run skipped without the ROM) | 2026-10-31 |
+| `tests/cores/upd765a-scan.test.ts` | SCAN EQUAL / LOW OR EQUAL / HIGH OR EQUAL against the NEC µPD765 datasheet and SMSC TN6.6: SH/SN per comparison, unsigned compare, 0xFF either side always matches, STP, the datasheet's STP 2 abnormal-termination example, deleted marks with SK 0/1, MT, TC, save state mid-scan | 2026-10-31 |
 | G+DOS (+D) and TR-DOS `CAT` | Working | 2026-07-14 |

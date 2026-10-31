@@ -53,6 +53,25 @@ export class CpcSnapshotService implements SnapshotService {
     return saveCpcSna(this.c, version);
   }
 
+  /** Page-refresh resume: a v3 snapshot (RAM including any expansion, CRTC
+   *  counters and so the raster position) of the running machine. */
+  saveSync(): Uint8Array | null {
+    return saveCpcSna(this.c, 3);
+  }
+
+  /** Restore a saveSync() snapshot into the same, already rebuilt machine. */
+  async restoreSync(data: Uint8Array): Promise<boolean> {
+    try {
+      if (readCpcSnaModel(data).model !== this.c.model) return false;
+      this.c.stop();
+      applyCpcSna(data, this.c);
+    } catch {
+      return false;
+    }
+    this.c.start();
+    return true;
+  }
+
   async save(ext: string): Promise<Uint8Array> {
     return this.saveSna(ext === '2' || ext === 'v2' ? 2 : 3);
   }
