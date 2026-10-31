@@ -89,10 +89,12 @@ export function ejectCartridge(): void {
   setCartridgeNameSig('');
   setStatus('Cartridge ejected');
   if (m.descriptor.ui.bootCartridge) {
-    // No on-board ROM: drop the persisted cartridge and fall back to the hidden
-    // default firmware cartridge (re-mounts + reboots), rather than a blank slot.
+    // Drop the persisted cartridge. A machine with no on-board ROM falls back to
+    // the hidden default firmware cartridge (re-mounts + reboots), rather than a
+    // blank slot; one that has none (the C64) just restarts without a cartridge.
     clearCartridge(m.kind);
-    void applyBootCartridge();
+    if (entryForModel(m.model).bootCartridgeSource?.(m.model, m.descriptor.locale)) void applyBootCartridge();
+    else if (romData) m.start();
   } else if (romData) {
     m.start();
   }
@@ -221,7 +223,11 @@ async function reflectMount(
  * persist it so a reload does not bring back what was there before.
  */
 function syncMediaFromMachine(m: Machine): void {
-  if (m.services.roms.cartridge) setCartridgeNameSig(m.services.roms.cartridge.name);
+  if (m.services.roms.cartridge) {
+    setCartridgeNameSig(m.services.roms.cartridge.name);
+    // A snapshot with an empty slot must not bring a stale cartridge back on reload.
+    if (m.descriptor.ui.bootCartridge && !m.services.roms.cartridge.name) clearCartridge(m.kind);
+  }
   const disks = m.services.disks;
   if (disks) {
     DISK_UNITS.forEach((u, unit) => {

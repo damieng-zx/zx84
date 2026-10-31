@@ -72,6 +72,9 @@ const C64_UI: MachineUiCapabilities = {
   zipPolicy: 'media',
   persistMedia: true,
   bootDisk: false,
+  // A cartridge mounted from a file is kept across a reload (the slot has no
+  // hidden default cartridge: there is no `bootCartridgeSource`).
+  bootCartridge: true,
   library: false,
   memoryRegions: [
     { value: 'rom-basic', label: 'BASIC ROM' },
