@@ -41,10 +41,14 @@ export type AceOcrGrid = '32x24';
  *  columns by 32 rows, or 25 rows in the gapped text modes 3 and 6. */
 export type BbcOcrGrid = `${20 | 40 | 80}x${25 | 32}`;
 
+/** NewBrain text grids — 40 or 80 columns by 25 rows of 10 scan lines, or 31
+ *  rows of 8 with the upper character ROM selected. */
+export type NewBrainOcrGrid = `${40 | 80}x${25 | 31}`;
+
 /** Any grid label an OCR producer can stamp onto an OcrResult. */
 export type OcrGridName =
   SpectrumOcrGrid | CpcOcrGrid | EinsteinOcrGrid | MsxOcrGrid | PcwOcrGrid
-  | LynxOcrGrid | AceOcrGrid | BbcOcrGrid;
+  | LynxOcrGrid | AceOcrGrid | BbcOcrGrid | NewBrainOcrGrid;
 
 /** A font source for OCR matching.
  *  `data` is always 768 bytes (96 chars × 8 bytes). For non-8-wide cells only

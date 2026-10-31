@@ -67,6 +67,7 @@ export const MODEL_LABELS: Record<MachineModel, string> = {
   atari800xe: 'Atari 800XE',
   atari130xe: 'Atari 130XE',
   c64: 'Commodore 64',
+  newbrain: 'Grundy NewBrain',
 };
 
 export const LOCALE_LABELS: Record<MachineLocale, string> = {
@@ -220,6 +221,13 @@ export const MODEL_MENU: MenuItem[] = [
     label: 'Jupiter Cantab',
     children: [
       modelEntry('jupiter-ace'),
+    ],
+  },
+  {
+    value: 'grundy',
+    label: 'Grundy',
+    children: [
+      modelEntry('newbrain'),
     ],
   },
   {

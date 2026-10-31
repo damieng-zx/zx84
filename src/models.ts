@@ -28,6 +28,7 @@ export type { Apple2Model } from '@/machines/apple2/models.ts';
 export type { EnterpriseModel } from '@/machines/enterprise/models.ts';
 export type { AtariModel } from '@/machines/atari/models.ts';
 export type { C64Model } from '@/machines/c64/models.ts';
+export type { NewBrainModel } from '@/machines/newbrain/models.ts';
 
 // ── Per-family classification helpers (re-exported from each machine folder) ─
 export {
@@ -62,6 +63,7 @@ export { isApple2Model } from '@/machines/apple2/models.ts';
 export { isEnterpriseModel } from '@/machines/enterprise/models.ts';
 export { isAtariModel } from '@/machines/atari/models.ts';
 export { isC64Model } from '@/machines/c64/models.ts';
+export { isNewBrainModel } from '@/machines/newbrain/models.ts';
 
 // ── System-ROM slot geometry (dispatches per family) ───────────────────────
 //
@@ -130,6 +132,7 @@ import type { Apple1Model } from '@/machines/apple1/models.ts';
 import type { EnterpriseModel } from '@/machines/enterprise/models.ts';
 import type { AtariModel } from '@/machines/atari/models.ts';
 import type { C64Model } from '@/machines/c64/models.ts';
+import type { NewBrainModel } from '@/machines/newbrain/models.ts';
 
 /** Any machine ZX84 can emulate. */
 export type MachineModel =
@@ -148,4 +151,5 @@ export type MachineModel =
   | Apple1Model
   | EnterpriseModel
   | AtariModel
-  | C64Model;
+  | C64Model
+  | NewBrainModel;

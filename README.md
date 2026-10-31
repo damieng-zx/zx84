@@ -24,6 +24,7 @@ Each machine has its own sheet covering its models, built-in hardware, periphera
 | [Memotech MTX](docs/machines/memotech-mtx.md) | MTX500, MTX512, RS128 | Z80 |
 | [Camputers Lynx](docs/machines/camputers-lynx.md) | 48K, 96K, 128K | Z80 |
 | [Jupiter Ace](docs/machines/jupiter-ace.md) | Jupiter Ace | Z80 |
+| [Grundy NewBrain](docs/machines/grundy-newbrain.md) | NewBrain A / AD | Z80 + COP420 |
 | [Enterprise](docs/machines/enterprise.md) | 64, 128 | Z80 |
 | [Acorn BBC Micro](docs/machines/bbc-micro.md) | Model B | 6502 |
 | [Acorn Electron](docs/machines/acorn-electron.md) | Electron | 6502 |
@@ -94,7 +95,7 @@ tool. The Spectrum's earlier ids (`48k`, `+3`, `plus2a`, …) still work in URLs
 Known models: `zx16k` `zx48k` `zx128k` `zx128kplus2` `zx128kplus2a` `zx128kplus3` `pentagon128` `pentagon512` `pentagon1024` `scorpion256` `zx80` `zx81` `jupiter-ace`
 `cpc464` `cpc664` `cpc6128` `cpc6128plus` `gx4000` `pcw8256` `pcw8512`
 `pcw9256` `pcw9512` `einstein-tc01` `einstein-256` `hx-10` `hb-55` `hb-55p` `mtx500` `mtx512`
-`rs128` `lynx48` `lynx96` `lynx128` `bbc-b` `electron` `apple1` `apple2` `apple2-plus` `apple2e` `apple2e-enhanced` `apple2c` `c64` `ep64` `ep128`.
+`rs128` `lynx48` `lynx96` `lynx128` `bbc-b` `electron` `apple1` `apple2` `apple2-plus` `apple2e` `apple2e-enhanced` `apple2c` `c64` `ep64` `ep128` `newbrain`.
 
 ### Display And Audio
 
