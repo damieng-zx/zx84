@@ -5,7 +5,7 @@
  *
  * `sample()` is a pure read on the hot once-per-rAF path: no allocation, no
  * machine mutation. Device bookkeeping that must run once per *UI* frame
- * (FDC frame ticks, format/SCAN latch consumption, tape auto-rewind) lives in
+ * (FDC frame ticks, format latch consumption, tape auto-rewind) lives in
  * `frameTick()`, which the bridge calls at its signal-batch cadence — throttled
  * under turbo, exactly like the pre-probe frame-bridge body.
  */
@@ -236,11 +236,6 @@ export class SpectrumFrameProbe implements FrameProbe {
 
     if (s.variant.hasFDC) {
       s.fdc.tickFrame();
-      // Surface unimplemented SCAN commands (see upd765a.cmdUnsupportedScan).
-      if (s.fdc.unsupportedScan >= 0) {
-        out.scanUnsupported = s.fdc.unsupportedScan;
-        s.fdc.unsupportedScan = -1;
-      }
       // A completed FORMAT re-detects disk metadata via the bridge.
       if (s.fdc.formattedUnit >= 0) {
         out.formattedSlot = s.fdc.formattedUnit;

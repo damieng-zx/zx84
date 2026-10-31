@@ -15,14 +15,35 @@ export interface KeyMatrixSource {
   readHalfRows(addrHigh: number): number;
 }
 
-/** Normalised speaker level indexed by (EAR << 1) | MIC, from the Issue 3
- *  ULA pin voltages 0.39 / 0.73 / 3.66 / 3.79 V mapped onto 0..1. */
+/** Normalised speaker level indexed by (EAR << 1) | MIC, from the ULA pin 28
+ *  voltages measured on an Issue 2 board (0.39 / 0.73 / 3.66 / 3.79 V) mapped
+ *  onto 0..1. The Issue 3 figures (0.34 / 0.66 / 3.56 / 3.70 V) normalise to
+ *  within half a percent of these. */
 const ULA_SPEAKER_LEVEL = new Float64Array([
   0,
   (0.73 - 0.39) / (3.79 - 0.39),
   (3.66 - 0.39) / (3.79 - 0.39),
   1,
 ]);
+
+/**
+ * Which port-0xFE output bits pull the ULA's EAR pin (28) above the ~0.7 V
+ * threshold that input bit 6 reads, with no tape signal. Measured pin voltages
+ * (comp.sys.sinclair FAQ / WoS 48K reference, Pera Putnik's measurements):
+ *
+ *   OUT bit 4  bit 3 | Issue 2  V    | Issue 3  V
+ *         1      1   |   1    3.79   |   1    3.70
+ *         1      0   |   1    3.66   |   1    3.56
+ *         0      1   |   1    0.73   |   0    0.66
+ *         0      0   |   0    0.39   |   0    0.34
+ *
+ * So bit 6 follows bit 4 OR bit 3 on an Issue 2 board and bit 4 alone on an
+ * Issue 3. The 128K and +2 behave as Issue 3. The +2A/+3 gate array shows no
+ * dependence on what was written at all: bit 6 reads 0 with no signal (WoS 128K
+ * reference). The value is a mask over the written byte.
+ */
+export type EarFeedback = 'issue2' | 'issue3' | 'none';
+const EAR_FEEDBACK_MASK: Record<EarFeedback, number> = { issue2: 0x18, issue3: 0x10, none: 0x00 };
 
 // ── Display geometry ────────────────────────────────────────────────────
 /** Active display width in pixels. */
@@ -124,6 +145,16 @@ export class ULA {
    *  no user setting for it. */
   micAudible = false;
 
+  /** The last byte written to port 0xFE (snapshots record it). */
+  lastOut = 0;
+
+  /** Port-0xFE output bits that feed back onto input bit 6 (see EarFeedback). */
+  private earFeedbackMask = EAR_FEEDBACK_MASK.issue3;
+
+  /** Input bit 6 as the last OUT left it with no tape signal: precomputed on
+   *  write so the port read stays a single select. */
+  private earOutBit = 0;
+
   /** Tape EAR bit (0 or 1), set by the tape player */
   tapeEarBit = 0;
 
@@ -164,6 +195,8 @@ export class ULA {
     this.borderColor = 0;
     this.beeperBit = 0;
     this.micBit = 0;
+    this.lastOut = 0;
+    this.earOutBit = 0;
     this.tapeEarBit = 0;
     this.tapeActive = false;
     this.flashCounter = 0;
@@ -178,25 +211,32 @@ export class ULA {
    * Bit 4: EAR (beeper)
    */
   writePort(val: number): void {
+    this.lastOut = val & 0xFF;
     this.borderColor = val & 0x07;
     this.micBit = (val >> 3) & 1;
     this.beeperBit = (val >> 4) & 1;
+    this.earOutBit = (val & this.earFeedbackMask) !== 0 ? 1 : 0;
+  }
+
+  /** Select the board's EAR/MIC feedback network (see EarFeedback). Takes effect
+   *  at once: bit 6 is recomputed from the last byte written. */
+  setEarFeedback(mode: EarFeedback): void {
+    this.earFeedbackMask = EAR_FEEDBACK_MASK[mode];
+    this.earOutBit = (this.lastOut & this.earFeedbackMask) !== 0 ? 1 : 0;
   }
 
   /**
    * Read port 0xFE. Returns keyboard data in bits 0-4.
    * Bit 5 = always 1 (not connected on 48K hardware).
-   * Bit 6 = EAR input (tape signal or beeper feedback).
+   * Bit 6 = EAR input: the tape signal while one plays, otherwise the
+   *         board's feedback from the last OUT (see EarFeedback / setEarFeedback).
    * Bit 7 = 1 (unused, always set).
    *
-   * Models only Issue 3 behaviour: bit 6 reflects EAR input (or the beeper
-   * feedback when idle) with no MIC contribution. Issue 2 boards fold bit 3
-   * (MIC) into this readback too, via a different resistor network — not
-   * modelled here (no per-machine "ULA issue" setting exists), so software
-   * that probes this difference to detect the board issue won't see it.
+   * The analogue decay of the pin after bit 4 falls (≈180–2800 T depending on
+   * how long it was high) is not modelled: bit 6 follows the write at once.
    */
   readPort(highByte: number): number {
-    const ear = this.tapeActive ? this.tapeEarBit : this.beeperBit;
+    const ear = this.tapeActive ? this.tapeEarBit : this.earOutBit;
     return this.keyboard.readHalfRows(highByte) | 0xA0 | (ear << 6);
   }
 
@@ -205,7 +245,7 @@ export class ULA {
    * During tape playback (with sound enabled), this is the tape signal;
    * otherwise it's the ULA's analogue EAR/MIC mix. The ULA drives the
    * speaker from bit 4 (EAR) and bit 3 (MIC) through different resistor
-   * paths, so the pin voltage is a weighted sum rather than an OR — Issue 3
+   * paths, so the pin voltage is a weighted sum rather than an OR — Issue 2
    * measurements: none 0.39V, MIC 0.73V, EAR 3.66V, both 3.79V. The 48K ROM
    * BEEPER holds MIC=1 and toggles only EAR, so an OR would be a constant 1
    * (silence); MIC-only output (SAVE) is audible but quiet.

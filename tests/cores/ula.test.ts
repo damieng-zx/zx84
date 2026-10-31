@@ -256,13 +256,79 @@ describe('Port 0xFE — EAR input (bit 6)', () => {
   });
 });
 
-// Documented gap: Issue 2 boards reflect MIC (bit 3) on bit 6 of the read port,
-// not EAR. We don't model board-issue differences — bit 3 is silently ignored.
-describe.skip('Port 0xFE — Issue 2 input stage (unmodelled)', () => {
-  it('Issue 2: writing MIC=1 (bit 3) should feed back on bit 6 with no tape', () => {
+// The board's EAR/MIC feedback, per the comp.sys.sinclair FAQ / WoS 48K reference
+// table of ULA pin 28 voltages after an OUT with no EAR input (bit 6 reads 1
+// above ~0.7 V):
+//
+//   OUT bit 4 bit 3 | Issue 2 bit 6 (V) | Issue 3 bit 6 (V)
+//         1     1   |     1  (3.79)     |     1  (3.70)
+//         1     0   |     1  (3.66)     |     1  (3.56)
+//         0     1   |     1  (0.73)     |     0  (0.66)
+//         0     0   |     0  (0.39)     |     0  (0.34)
+//
+// The +2A/+3 shows no dependence on the write: bit 6 reads 0 with no signal
+// (WoS 128K reference).
+describe('Port 0xFE — bit 6 feedback by board issue (FAQ truth table)', () => {
+  const rows: [out: number, issue2: number, issue3: number][] = [
+    [0x18, 1, 1],
+    [0x10, 1, 1],
+    [0x08, 1, 0],
+    [0x00, 0, 0],
+  ];
+
+  it.each(rows)('OUT %i: Issue 2 reads %i, Issue 3 reads %i', (out, issue2, issue3) => {
     const { ula } = makeUla();
-    ula.writePort(0x08); // MIC=1, EAR=0
-    expect(ula.readPort(0xFF) & 0x40).toBe(0x40); // would fail on current Issue-3 model
+    ula.setEarFeedback('issue2');
+    ula.writePort(out | 0x07);                     // border bits don't matter
+    expect((ula.readPort(0xFF) >> 6) & 1).toBe(issue2);
+    ula.setEarFeedback('issue3');
+    ula.writePort(out | 0x07);
+    expect((ula.readPort(0xFF) >> 6) & 1).toBe(issue3);
+  });
+
+  it.each(rows)('OUT %i on a +2A/+3 gate array: bit 6 reads 0', (out) => {
+    const { ula } = makeUla();
+    ula.setEarFeedback('none');
+    ula.writePort(out);
+    expect(ula.readPort(0xFF) & 0x40).toBe(0);
+  });
+
+  it('the 8bitchip test values: Issue 3 alternates 191/255, Issue 2 reads 255 for both', () => {
+    // 10 OUT 254,BIN 11101111 : PRINT IN 254 / 30 OUT 254,BIN 11111111 : PRINT IN 254
+    const { ula } = makeUla();
+    ula.setEarFeedback('issue3');
+    ula.writePort(0b11101111); expect(ula.readPort(0xFE)).toBe(191);
+    ula.writePort(0b11111111); expect(ula.readPort(0xFE)).toBe(255);
+    ula.setEarFeedback('issue2');
+    ula.writePort(0b11101111); expect(ula.readPort(0xFE)).toBe(255);
+    // ...and with line 10 changed to BIN 11100111 an Issue 2 alternates too.
+    ula.writePort(0b11100111); expect(ula.readPort(0xFE)).toBe(191);
+  });
+
+  it('changing the board re-reads the last OUT at once', () => {
+    const { ula } = makeUla();
+    ula.setEarFeedback('issue3');
+    ula.writePort(0x08);                           // MIC only
+    expect(ula.readPort(0xFF) & 0x40).toBe(0);
+    ula.setEarFeedback('issue2');
+    expect(ula.readPort(0xFF) & 0x40).toBe(0x40);
+  });
+
+  it('a playing tape overrides the feedback on every board', () => {
+    const { ula } = makeUla();
+    ula.setEarFeedback('issue2');
+    ula.writePort(0x18);
+    ula.tapeActive = true;
+    ula.tapeEarBit = 0;
+    expect(ula.readPort(0xFF) & 0x40).toBe(0);
+  });
+
+  it('remembers the whole byte last written, for snapshots', () => {
+    const { ula } = makeUla();
+    ula.writePort(0x1D);
+    expect(ula.lastOut).toBe(0x1D);
+    ula.reset();
+    expect(ula.lastOut).toBe(0);
   });
 });
 

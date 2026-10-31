@@ -25,9 +25,28 @@ export interface SZXResult {
    *  4-ROM target (see SpectrumMemory.selectSnapshot128KRom). */
   sourceHas1FFD: boolean;
   borderColor: number;
+  /** SPCR chFe: the last byte written to port 0xFE (border, MIC, EAR), or
+   *  undefined when the file has no SPCR block. */
+  portFE?: number;
+  /** KEYB ZXSTKF_ISSUE2, or undefined when the file has no KEYB block. The
+   *  spec defines it for the 16K and 48K only. */
+  issue2?: boolean;
   ayRegs?: Uint8Array;
   ayCurrentReg?: number;
 }
+
+/** Board state beyond the CPU and memory that an SZX records. */
+export interface SZXBoard {
+  /** Last byte written to port 0xFE. */
+  portFE: number;
+  /** Issue 2 keyboard emulation (16K/48K only). */
+  issue2: boolean;
+}
+
+/** KEYB dwFlags bit: Issue 2 keyboard emulation. */
+const ZXSTKF_ISSUE2 = 1;
+/** KEYB chKeyboardJoystick: the host keyboard emulates no joystick. */
+const ZXSKJT_NONE = 8;
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -182,6 +201,11 @@ export async function loadSZX(
         parseAY(data, blockStart, result);
         break;
 
+      case 'KEYB':
+        // dwFlags (4) + chKeyboardJoystick (1, from v1.1); only the flags matter.
+        if (dwSize >= 4) result.issue2 = (r32(data, blockStart) & ZXSTKF_ISSUE2) !== 0;
+        break;
+
       // Unknown blocks: skip
     }
 
@@ -313,7 +337,7 @@ function parseSPCR(data: Uint8Array, o: number, result: SZXResult): void {
   result.borderColor = data[o] & 0x07;
   result.port7FFD = data[o + 1];
   result.port1FFD = data[o + 2];
-  // data[o + 3] = portFE — not needed (border already extracted)
+  result.portFE = data[o + 3];
 }
 
 async function parseRAMP(
@@ -373,7 +397,7 @@ function w32(data: Uint8Array, offset: number, value: number): void {
 }
 
 function writeBlockHeader(data: Uint8Array, offset: number, id: string, size: number): number {
-  // 4-byte ID — all callers pass a 4-char literal (Z80R, SPCR, RAMP, AY\0\0).
+  // 4-byte ID — all callers pass a 4-char literal (Z80R, SPCR, RAMP, AY\0\0, KEYB).
   for (let i = 0; i < 4; i++) {
     data[offset + i] = id.charCodeAt(i);
   }
@@ -396,7 +420,7 @@ function snapshotPages(memory: SpectrumMemory): number[] {
       : [0, 2, 5];
 }
 
-export async function saveSZX(cpu: Z80, memory: SpectrumMemory, borderColor: number, model: SpectrumModel, frameStartTStates: number, ayRegs?: Uint8Array, ayCurrentReg?: number): Promise<Uint8Array> {
+export async function saveSZX(cpu: Z80, memory: SpectrumMemory, borderColor: number, model: SpectrumModel, frameStartTStates: number, ayRegs?: Uint8Array, ayCurrentReg?: number, board?: SZXBoard): Promise<Uint8Array> {
   // Flush live flat[] to banks (built into flushBanks — cannot be forgotten).
   const banks = memory.flushBanks();
 
@@ -413,7 +437,7 @@ export async function saveSZX(cpu: Z80, memory: SpectrumMemory, borderColor: num
     }
   }
 
-  return assembleSZX(cpu, memory, borderColor, model, frameStartTStates, compressedPages, ayRegs, ayCurrentReg);
+  return assembleSZX(cpu, memory, borderColor, model, frameStartTStates, compressedPages, ayRegs, ayCurrentReg, board);
 }
 
 /**
@@ -426,23 +450,24 @@ export async function saveSZX(cpu: Z80, memory: SpectrumMemory, borderColor: num
  * (well within localStorage quota); the loader reads compressed and raw RAMP
  * blocks identically, so restore is unchanged.
  */
-export function saveSZXSync(cpu: Z80, memory: SpectrumMemory, borderColor: number, model: SpectrumModel, frameStartTStates: number, ayRegs?: Uint8Array, ayCurrentReg?: number): Uint8Array {
+export function saveSZXSync(cpu: Z80, memory: SpectrumMemory, borderColor: number, model: SpectrumModel, frameStartTStates: number, ayRegs?: Uint8Array, ayCurrentReg?: number, board?: SZXBoard): Uint8Array {
   const banks = memory.flushBanks();
   const rawPages: SZXPage[] = snapshotPages(memory).map(page => ({
     page, data: banks[page], compressed: false,
   }));
-  return assembleSZX(cpu, memory, borderColor, model, frameStartTStates, rawPages, ayRegs, ayCurrentReg);
+  return assembleSZX(cpu, memory, borderColor, model, frameStartTStates, rawPages, ayRegs, ayCurrentReg, board);
 }
 
 /** Assemble the SZX byte stream from already-prepared (compressed or raw) pages. */
-function assembleSZX(cpu: Z80, memory: SpectrumMemory, borderColor: number, model: SpectrumModel, frameStartTStates: number, compressedPages: SZXPage[], ayRegs?: Uint8Array, ayCurrentReg?: number): Uint8Array {
+function assembleSZX(cpu: Z80, memory: SpectrumMemory, borderColor: number, model: SpectrumModel, frameStartTStates: number, compressedPages: SZXPage[], ayRegs?: Uint8Array, ayCurrentReg?: number, board?: SZXBoard): Uint8Array {
   // Calculate total size
   const headerSize = 8;
   const z80rSize = 8 + 37;
   const spcrSize = 8 + 8; // 4 fields + 4 reserved bytes
   const rampSize = compressedPages.reduce((sum, p) => sum + 8 + 3 + p.data.length, 0);
   const aySize = ayRegs ? 8 + 18 : 0;
-  const totalSize = headerSize + z80rSize + spcrSize + rampSize + aySize;
+  const keybSize = 8 + 5;
+  const totalSize = headerSize + z80rSize + spcrSize + rampSize + aySize + keybSize;
 
   const data = new Uint8Array(totalSize);
   let offset = 0;
@@ -489,7 +514,7 @@ function assembleSZX(cpu: Z80, memory: SpectrumMemory, borderColor: number, mode
   data[offset++] = borderColor & 0x07;  // chBorder
   data[offset++] = memory.port7FFD;     // ch7ffd
   data[offset++] = memory.scheme === 'pentagon1024' ? memory.portEFF7 : memory.port1FFD; // ch1ffd / chEff7
-  data[offset++] = borderColor & 0x07;  // chFe (bits 0-2 = border)
+  data[offset++] = board ? board.portFE & 0xFF : borderColor & 0x07; // chFe: last OUT to 0xFE
   w32(data, offset, 0);                 // chReserved (4 bytes, must be 0)
   offset += 4;
 
@@ -511,6 +536,14 @@ function assembleSZX(cpu: Z80, memory: SpectrumMemory, borderColor: number, mode
     data.set(ayRegs.slice(0, 16), offset);
     offset += 16;
   }
+
+  // ── KEYB block (v1.1 layout) ────────────────────────────────────────
+  // ZXSTKF_ISSUE2 is defined for the 16K and 48K only and must be 0 elsewhere.
+  offset = writeBlockHeader(data, offset, 'KEYB', 5);
+  const issue2 = !!board?.issue2 && (model === 'zx16k' || model === 'zx48k');
+  w32(data, offset, issue2 ? ZXSTKF_ISSUE2 : 0);
+  data[offset + 4] = ZXSKJT_NONE;
+  offset += 5;
 
   return data;
 }

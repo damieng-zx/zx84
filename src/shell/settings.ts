@@ -51,6 +51,7 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   // Peripheral enablement + write-protects read by each machine's prepare() hook.
   'vtx5000': () => settings.vtx5000Enabled(),
   'specdrum': () => settings.specdrumEnabled(),
+  'spectrum-issue2': () => settings.spectrumIssue2(),
   'multiface': () => settings.multifaceEnabled(),
   'plusd': () => settings.plusDEnabled(),
   'interface1': () => settings.interface1Enabled(),
