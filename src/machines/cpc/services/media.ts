@@ -42,7 +42,7 @@ export class CpcMediaService implements MediaService {
       { ext: '.wav', target: 'tape' },
     ];
     if (this.c.config.isPlus) out.push({ ext: '.cpr', target: 'cartridge' });
-    if (this.c.config.hasFDC) {
+    if (this.c.hasFdc) {
       for (const ext of ['.dsk', '.hfe', '.scp', '.td0']) out.push({ ext, target: 'a' });
     }
     return out;

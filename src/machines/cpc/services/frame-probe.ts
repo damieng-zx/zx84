@@ -22,7 +22,6 @@ import { DRIVE_PROFILE, byCapacity } from '@/media/floppy/floppy-sound.ts';
 /** The built-in unit is a 3" CF2, but a 720K image in either drive means a
  *  3.5" was fitted alongside it — the +3's case, and its test. */
 const DRIVE = byCapacity;
-import { cpcHasDisk } from '@/machines/cpc/models.ts';
 import { hex16 } from '@/utils/hex.ts';
 
 /**
@@ -143,7 +142,7 @@ export class CpcFrameProbe implements FrameProbe {
     out.floppySlot = -1;
     out.floppyProfile = DRIVE_PROFILE.keep;
 
-    if (!cpcHasDisk(c.model)) {
+    if (!c.hasFdc) {
       out.driveLed[0] = out.driveLed[1] = -1;
       return;
     }
@@ -171,7 +170,7 @@ export class CpcFrameProbe implements FrameProbe {
   frameTick(out: FrameIndicators): void {
     const c = this.c;
 
-    if (cpcHasDisk(c.model)) {
+    if (c.hasFdc) {
       // Decay the FDC's latched display state — without this the read/write
       // LED never falls back to the motor colour, since isExecuting stays
       // true while the latch is up.

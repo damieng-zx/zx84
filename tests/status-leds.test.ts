@@ -58,10 +58,10 @@ describe('status-bar LED declarations', () => {
   });
 
   it('CPC gates TAPE/DISK by cassette and drive fitment', () => {
-    // 6128: drive + cassette; 464: cassette only; GX4000: neither.
+    // 6128: drive + cassette; 464: cassette, and the disk LED for a DDI-1 (it
+    // stays dark until one is fitted); GX4000: neither.
     expect(leds('cpc6128')).toEqual(expect.arrayContaining(['load', 'dsk']));
-    expect(leds('cpc464')).toContain('load');
-    expect(leds('cpc464')).not.toContain('dsk');
+    expect(leds('cpc464')).toEqual(expect.arrayContaining(['load', 'dsk']));
     expect(leds('gx4000')).not.toContain('load');
     expect(leds('gx4000')).not.toContain('dsk');
   });

@@ -9,6 +9,7 @@
  */
 
 import type { CpcModel } from '@/models.ts';
+import type { CrtcType } from '@/cores/crtc-6845.ts';
 
 export interface CpcConfig {
   readonly model: CpcModel;
@@ -21,12 +22,12 @@ export interface CpcConfig {
   /** Whether a cassette deck is wired up. False on the GX4000 console. */
   readonly hasTape: boolean;
   /**
-   * CRTC chip type. The 6128 commonly ships a type-0 (HD6845S) or type-1
-   * (UM6845R); a handful of register-read/edge-case behaviours differ between
-   * types and are gated on this. The Plus ASIC integrates a type-4 CRTC.
-   * Default 0.
+   * Default CRTC type (CPCWiki numbering). The 464/664/6128 shipped with type
+   * 0 (HD6845S / UM6845), 1 (UM6845R) or 2 (MC6845) depending on supply —
+   * the Hardware pane chooses (see options.ts); 0 is the default. The Plus
+   * ASIC integrates a type-3 CRTC (AMS40489).
    */
-  readonly crtcType: 0 | 1 | 2 | 3 | 4;
+  readonly crtcType: CrtcType;
   /** True for the Plus range (6128+ and GX4000) — gate array replaced by the
    *  Amstrad ASIC (sprites, soft scroll, split screen, raster IRQ, DMA sound,
    *  cartridge port). Selects `Asic extends GateArray` instead of `GateArray`. */
@@ -74,7 +75,7 @@ const CPC6128PLUS: CpcConfig = {
   ramBanks: 8,
   hasFDC: true,                  // 3" drive, same uPD765A as the 6128
   hasTape: true,                 // 6128Plus keeps the tape socket; 464Plus internal
-  crtcType: 4,                   // ASIC-integrated CRTC
+  crtcType: 3,                   // ASIC-integrated CRTC (AMS40489)
   isPlus: true,                  // Amstrad ASIC replaces the gate array
   romLabel: 'CPC 6128Plus (cartridge: OS 4 + BASIC 1.1 + AMSDOS)',
 };
@@ -85,7 +86,7 @@ const GX4000: CpcConfig = {
   ramBanks: 8,
   hasFDC: false,                 // console — no floppy
   hasTape: false,                // console — no cassette
-  crtcType: 4,                   // same ASIC as the 6128Plus
+  crtcType: 3,                   // same ASIC as the 6128Plus
   isPlus: true,
   romLabel: 'GX4000 (cartridge only)',
 };

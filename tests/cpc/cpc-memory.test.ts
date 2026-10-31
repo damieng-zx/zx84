@@ -150,12 +150,13 @@ describe('CPC config (464/664)', () => {
 });
 
 describe('CPC Plus config (6128Plus / GX4000)', () => {
-  // Spec: both Plus models use the Amstrad 40489 ASIC (type-4 CRTC), 128KB
+  // Spec: both Plus models use the Amstrad 40489 ASIC (CPCWiki "CRTC" type 3;
+  // the .SNA v3 CRTC byte's "6845 in CPC+ ASIC" is 3 too), 128KB
   // (8 banks), and the same Dk'tronics banking scheme as the 6128.
   it('describes the 6128Plus as ASIC-based, 128KB, with disk + tape', () => {
     const c = createCpcConfig('cpc6128plus');
     expect(c.isPlus).toBe(true);
-    expect(c.crtcType).toBe(4);
+    expect(c.crtcType).toBe(3);
     expect(c.ramKB).toBe(128);
     expect(c.ramBanks).toBe(8);
     expect(c.hasFDC).toBe(true);
@@ -165,7 +166,7 @@ describe('CPC Plus config (6128Plus / GX4000)', () => {
   it('describes the GX4000 as ASIC-based, 128KB, no disk and no tape', () => {
     const c = createCpcConfig('gx4000');
     expect(c.isPlus).toBe(true);
-    expect(c.crtcType).toBe(4);
+    expect(c.crtcType).toBe(3);
     expect(c.ramKB).toBe(128);
     expect(c.ramBanks).toBe(8);
     expect(c.hasFDC).toBe(false);
