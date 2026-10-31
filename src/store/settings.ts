@@ -106,6 +106,11 @@ const DEFAULTS = {
   'specdrum':       'off',
   'spectrum-issue2': 'off',
   'cpc-parados':    'off',
+  'cpc-crtc-type':  '0',
+  'cpc-ram-expansion': 'none',
+  'cpc-ddi1':       'off',
+  'cpc-manufacturer': 'amstrad',
+  'cpc-refresh':    '50',
   'plusd':          'off',
   'interface1':     'off',
   'betadisk':       'off',
@@ -336,6 +341,16 @@ export const [tapeSoundEnabled, setTapeSoundEnabled] = signal(savedFlag('tape-so
 
 export const [multifaceEnabled, setMultifaceEnabled] = signal(savedFlag('multiface'));
 export const [cpcParados, setCpcParados] = signal(savedFlag('cpc-parados'));
+/** CPC 464/664/6128 CRTC type, '0'-'3' (see machines/cpc/options.ts). */
+export const [cpcCrtcType, setCpcCrtcType] = signal(savedText('cpc-crtc-type'));
+/** CPC RAM expansion: 'none', '256k' or '512k'. */
+export const [cpcRamExpansion, setCpcRamExpansion] = signal(savedText('cpc-ram-expansion'));
+/** DDI-1 disk interface on the CPC 464. */
+export const [cpcDdi1, setCpcDdi1] = signal(savedFlag('cpc-ddi1'));
+/** CPC distributor name links (LK1-LK3), e.g. 'amstrad', 'schneider'. */
+export const [cpcManufacturer, setCpcManufacturer] = signal(savedText('cpc-manufacturer'));
+/** CPC 50/60 Hz link (LK4): '50' or '60'. */
+export const [cpcRefresh, setCpcRefresh] = signal(savedText('cpc-refresh'));
 
 /** Megabytes fitted to the external megabyte interface, 0-4. 0 = not fitted. */
 
@@ -597,6 +612,11 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'specdrum',       set: setSpecdrumEnabled,  type: 'bool' },
     { key: 'spectrum-issue2', set: setSpectrumIssue2,  type: 'bool' },
     { key: 'cpc-parados',    set: setCpcParados,        type: 'bool' },
+    { key: 'cpc-crtc-type',  set: setCpcCrtcType,       type: 'string' },
+    { key: 'cpc-ram-expansion', set: setCpcRamExpansion, type: 'string' },
+    { key: 'cpc-ddi1',       set: setCpcDdi1,           type: 'bool' },
+    { key: 'cpc-manufacturer', set: setCpcManufacturer, type: 'string' },
+    { key: 'cpc-refresh',    set: setCpcRefresh,        type: 'string' },
     { key: 'plusd',          set: setPlusDEnabled,     type: 'bool' },
     { key: 'betadisk',       set: setBetaDiskEnabled,  type: 'bool' },
     { key: 'interface1',     set: setInterface1Enabled, type: 'bool' },

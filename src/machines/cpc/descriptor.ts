@@ -14,7 +14,8 @@ import { CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT, CPC_BORDER_LEFT, CPC_BORDER_TOP } 
 function cpcStatusLeds(model: MachineModel): StatusLedId[] {
   const leds: StatusLedId[] = ['kbd', 'mouse', 'text', 'chip'];
   if (cpcHasTape(model)) leds.push('load');
-  if (cpcHasDisk(model)) leds.push('dsk');
+  // The 464's disk LED belongs to a DDI-1 when one is fitted.
+  if (cpcHasDisk(model) || model === 'cpc464') leds.push('dsk');
   return leds;
 }
 
@@ -25,8 +26,11 @@ function cpcUi(model: MachineModel): MachineUiCapabilities {
     trace: true,
     colorMap: 'cpc',
     accuracy: false,
-    builtinDisk: cpcHasDisk(model),
+    // The 464's drives come with the DDI-1 interface (a Hardware-pane option):
+    // the Drives pane shows them only while it is fitted.
+    builtinDisk: cpcHasDisk(model) || model === 'cpc464',
     builtinDrives: 2,
+    ...(model === 'cpc464' ? { requires: { builtinDisk: 'cpc-ddi1' } } : {}),
     joystick: true,
     fixedJoystick: true,
     mouseTypes: [

@@ -157,11 +157,11 @@ export class Asic extends GateArray {
   splitSl = 0;
   /** Forced memory address for split-screen rendering. */
   splitAddr = 0;
-  /** Sub-character horizontal scroll, in mode-2 pixels (0–15). */
+  /** Horizontal soft scroll: delay of the display, in mode-2 pixels (0–15). */
   hscroll = 0;
   /** Sub-row vertical scroll, in scanlines (0–7). */
   vscroll = 0;
-  /** When set, the border is widened by 16 px (and hstart bumps by 1). */
+  /** When set, the border covers the first 16 px of each display line. */
   extendBorder = false;
   /** Top 5 bits of the IM 2 interrupt vector. Phase 5 (DMA) consumes this. */
   interruptVector = 0xF8;
@@ -550,14 +550,18 @@ export class Asic extends GateArray {
     for (let p = 0; p < 16; p++) this.penLut[p] = this.asicPalette[p];
   }
 
-  /** Horizontal render start: the base centres the display by its width; when
-   *  unlocked the ASIC adds its sub-character hscroll (left shift, 0-15 px) and
-   *  extendBorder (right shift, 16 px) on top. Locked (= plain Gate Array mode)
-   *  falls through to the centred base. */
-  protected renderStartX(hDisplayed: number): number {
-    const base = super.renderStartX(hDisplayed);
-    if (this.locked) return base;
-    return base - this.hscroll + (this.extendBorder ? 16 : 0);
+  /** Soft scroll register (&6804) bits 3–0: the line's pixels are delayed by
+   *  0–15 mode-2 pixels inside the display window, so the screen moves right
+   *  and its last pixels go behind the right border (CPCWiki "ASIC", SSCR). */
+  protected pixelDelay(): number {
+    return this.locked ? 0 : this.hscroll;
+  }
+
+  /** Soft scroll register bit 7: the border covers the first two bytes (16
+   *  mode-2 pixels) of every display line, hiding the data a horizontal
+   *  scroll exposes at the left (CPCWiki "ASIC", SSCR). */
+  protected leftBorderMask(): number {
+    return !this.locked && this.extendBorder ? 16 : 0;
   }
 
   // ── Phase 3: per-frame hooks ──────────────────────────────────────────
@@ -642,8 +646,9 @@ export class Asic extends GateArray {
    * `ma & 0x3FF`), so an offset added there is silently dropped for
    * vscroll=1 and wraps into the wrong 16K RAM bank for vscroll>=2. The
    * actual offset is cached in `vscrollAddrOffset` and applied in
-   * `videoAddress`, after the byte address is computed. A coarse `hscroll`
-   * byte backstep remains a later refinement.
+   * `videoAddress`, after the byte address is computed. Horizontal scroll
+   * and the border extend act on the pixels, not the address (pixelDelay /
+   * leftBorderMask); a coarse step is the CRTC's R12/R13 by a character.
    *
    * Split screen: from `splitSl` onward the display base becomes `splitAddr`,
    * after which the address follows the CRTC's own progression. We reproduce
